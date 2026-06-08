@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Lumii - AI &#x7535;&#x5b50;&#x5ba0;&#x7269;&#x5bf9;&#x8bdd;</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-container": "#732500",
+                        "error": "#ba1a1a",
+                        "secondary": "#006a63",
+                        "primary-fixed-dim": "#ffb59a",
+                        "surface-tint": "#9f4119",
+                        "surface-container-highest": "#e4e2dd",
+                        "on-primary": "#ffffff",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "on-surface": "#1b1c19",
+                        "on-secondary-fixed": "#00201d",
+                        "bark-gray": "#4A4542",
+                        "primary-container": "#ff8a5c",
+                        "on-error-container": "#93000a",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "surface-container-low": "#f5f3ee",
+                        "sunny-yellow": "#FFD966",
+                        "bone-white": "#F9F7F2",
+                        "background": "#fbf9f4",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary-fixed": "#ffe088",
+                        "secondary-container": "#8bf1e6",
+                        "health-red": "#EF5350",
+                        "surface": "#fbf9f4",
+                        "on-error": "#ffffff",
+                        "inverse-surface": "#30312e",
+                        "on-tertiary-container": "#4e3d00",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "tertiary": "#735c00",
+                        "on-tertiary-fixed": "#241a00",
+                        "inverse-on-surface": "#f2f1ec",
+                        "inverse-primary": "#ffb59a",
+                        "outline": "#8a726a",
+                        "surface-variant": "#e4e2dd",
+                        "surface-container-high": "#eae8e3",
+                        "surface-container": "#f0eee9",
+                        "tertiary-container": "#c9a739",
+                        "surface-bright": "#fbf9f4",
+                        "outline-variant": "#ddc0b7",
+                        "on-secondary": "#ffffff",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "primary": "#9f4119",
+                        "on-surface-variant": "#56423b",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "on-secondary-container": "#006f67",
+                        "soft-teal": "#4DB6AC",
+                        "warm-orange": "#FF8A5C",
+                        "on-primary-fixed": "#380d00",
+                        "error-container": "#ffdad6",
+                        "primary-fixed": "#ffdbce",
+                        "secondary-fixed": "#8ef4e9",
+                        "surface-dim": "#dbdad5",
+                        "on-background": "#1b1c19",
+                        "on-tertiary": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-desktop": "40px",
+                        "gutter": "16px",
+                        "margin-mobile": "20px",
+                        "container-padding": "24px",
+                        "base": "8px"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Plus Jakarta Sans"],
+                        "label-md": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .filled-icon { font-variation-settings: 'FILL' 1; }
+        .bubble-ai { border-radius: 16px 16px 16px 4px; }
+        .bubble-user { border-radius: 16px 16px 4px 16px; }
+        .hand-drawn-border { border: 2px solid #ddc0b7; border-radius: 16px 16px 16px 4px; border-style: solid; box-shadow: 1px 1px 0px #ddc0b7; }
+        /* Scrollbar hiding */
+        ::-webkit-scrollbar { display: none; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background antialiased min-h-screen flex flex-col">
+<!-- TopAppBar -->
+<header class="docked full-width top-0 sticky z-50 backdrop-blur-xl bg-background/80 flex justify-between items-center px-margin-mobile h-16 w-full max-w-7xl mx-auto shadow-sm">
+<div class="flex items-center gap-3">
+<button class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center scale-95 active:scale-90 transition-transform duration-200">
+<span class="material-symbols-outlined text-bark-gray" data-icon="arrow_back">arrow_back</span>
+</button>
+<div class="w-10 h-10 rounded-full overflow-hidden border-2 border-surface-variant bg-surface-container">
+<img alt="Pet Avatar" class="w-full h-full object-cover" data-alt="A close up portrait of a cute, fluffy golden retriever puppy. The image has a soft, warm, inviting light mode aesthetic. The background is a highly blurred, minimalist soft beige to maintain focus on the pet. The overall tone is calm, trustworthy and comforting, matching a digital companion space." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAfQf-A1jSAYKcDdIqbcd2w2ByxGkyldaEBLlkLicrVbiCmL67M5IDMIt86QcSDEZnU-EWEEocrNefaircCmrm3lP69-GZCvGe-5EuxbkMYWpSUx9phOP7SdNkGSN4a0005RZtLHhUdvPYPnSCxLHr460JtH98JwhjRDM_sYEWcRhZ-K4_21p4wf8JRDq_DpIVl_djbw5VNKhZqvKLV_xoLHz0P9GkmQCcPc_wEIUcBt5Lzc2IOFfdiodMWm9_rSDI0QdqBlW3FI6lK"/>
+</div>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-primary">Max&#xff08;&#x7075;&#x4f34; AI&#xff09;</h1>
+</div>
+<button class="w-10 h-10 rounded-full flex items-center justify-center scale-95 active:scale-90 transition-transform duration-200 hover:bg-surface-container">
+<span class="material-symbols-outlined text-primary" data-icon="settings">settings</span>
+</button>
+</header>
+<!-- Network Error Toast (Top) -->
+<div class="fixed top-20 left-1/2 transform -translate-x-1/2 w-[calc(100%-40px)] max-w-md z-40">
+<div class="bg-error-container text-on-error-container px-4 py-3 rounded-lg shadow-lg flex items-center gap-3">
+<span class="material-symbols-outlined filled-icon" data-icon="wifi_off">wifi_off</span>
+<p class="font-label-md text-label-md flex-1">网络连接失败，请检查设置。</p>
+<button class="p-1 rounded-full hover:bg-black/5 active:bg-black/10 transition-colors">
+<span class="material-symbols-outlined text-on-error-container" data-icon="close">close</span>
+</button>
+</div>
+</div>
+<!-- Main Chat Canvas -->
+<main class="flex-1 overflow-y-auto px-margin-mobile py-6 flex flex-col gap-6 max-w-3xl mx-auto w-full relative pb-32">
+<!-- Sensitive Health Alert Banner -->
+<div class="bg-surface-container border-l-4 border-health-red rounded-r-lg p-4 shadow-sm mb-2 relative overflow-hidden">
+<div class="absolute -right-4 -top-4 opacity-10">
+<span class="material-symbols-outlined text-[100px] text-health-red" data-icon="medical_information">medical_information</span>
+</div>
+<div class="flex items-start gap-3 relative z-10">
+<span class="material-symbols-outlined text-health-red filled-icon mt-0.5" data-icon="warning">warning</span>
+<div>
+<h3 class="font-label-md text-label-md text-on-surface mb-1">&#x5065;&#x5eb7;&#x63d0;&#x793a;</h3>
+<p class="font-body-md text-body-md text-bark-gray text-sm">宠物健康预警：如果您的宠物出现不适：请立即联系专业兽医。</p>
+</div>
+</div>
+</div>
+<!-- AI Message (Context Menu Parent) -->
+<div class="flex flex-col gap-1 items-start max-w-[85%] relative group">
+<div class="hand-drawn-border bg-surface px-4 py-3 shadow-[0_4px_20px_rgba(74,69,66,0.05)] cursor-pointer hover:bg-surface-container-lowest transition-colors relative" id="message-with-menu">
+<p class="font-body-md text-body-md text-on-surface leading-relaxed">根据您的描述，饮食习惯的突然改变有时可能是潜在问题的兆头。Max 不吃狗粮多久了？</p>
+<!-- Long Press Context Menu Overlay (Simulated Active State) -->
+<div class="absolute -top-4 left-4 bg-surface-container-lowest shadow-[0_8px_24px_rgba(255,138,92,0.15)] rounded-xl border border-outline-variant/30 py-2 w-64 z-30 opacity-100 transform scale-100 transition-all duration-200">
+<button class="w-full text-left px-4 py-2 hover:bg-surface-container flex items-center gap-3 active:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-bark-gray text-[20px]" data-icon="content_copy">content_copy</span>
+<span class="font-body-md text-body-md text-on-surface text-sm">复制内容</span>
+</button>
+<div class="h-px bg-outline-variant/20 w-full my-1"></div>
+<button class="w-full text-left px-4 py-2 hover:bg-surface-container flex items-center gap-3 active:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-bark-gray text-[20px]" data-icon="sentiment_dissatisfied">sentiment_dissatisfied</span>
+<span class="font-body-md text-body-md text-on-surface text-sm">反馈：不像我宠物的语气</span>
+</button>
+<button class="w-full text-left px-4 py-2 hover:bg-surface-container flex items-center gap-3 active:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-error text-[20px]" data-icon="flag">flag</span>
+<span class="font-body-md text-body-md text-error text-sm">举报</span>
+</button>
+</div>
+<!-- Optional backdrop to focus context menu -->
+<div class="fixed inset-0 bg-on-background/5 z-20 hidden"></div>
+</div>
+<span class="font-label-sm text-label-sm text-outline px-2 mt-1">10:42 AM</span>
+</div>
+<!-- User Message -->
+<div class="flex flex-col gap-1 items-end self-end max-w-[85%]">
+<div class="bubble-user bg-primary-container px-4 py-3 shadow-[0_4px_20px_rgba(74,69,66,0.05)]">
+<p class="font-body-md text-body-md text-on-primary-container leading-relaxed">&#x4ece;&#x6628;&#x5929;&#x508d;&#x665a;&#x5f00;&#x59cb;&#x7684;，它闻了闻就走开了。</p>
+</div>
+<span class="font-label-sm text-label-sm text-outline px-2 mt-1">10:45 AM</span>
+</div>
+<!-- AI Message - Error State -->
+<div class="flex flex-col gap-1 items-start max-w-[85%]">
+<div class="bubble-ai bg-error-container/50 border border-error/30 px-4 py-3 shadow-sm flex items-center gap-3 cursor-pointer hover:bg-error-container/70 transition-colors active:scale-98">
+<span class="material-symbols-outlined text-error" data-icon="sync_problem">sync_problem</span>
+<p class="font-body-md text-body-md text-on-error-container leading-relaxed">唔，我有点迷路了，点击重试。</p>
+</div>
+<span class="font-label-sm text-label-sm text-error px-2 mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]" data-icon="error">error</span> 发送失败</span>
+</div>
+</main>
+<!-- Bottom Input Area (Fixed) -->
+<div class="fixed bottom-0 w-full bg-background/90 backdrop-blur-xl border-t border-outline-variant/30 px-margin-mobile py-4 z-40 max-w-7xl mx-auto left-1/2 transform -translate-x-1/2">
+<div class="flex items-center gap-3">
+<button class="w-10 h-10 rounded-full flex items-center justify-center text-soft-teal hover:bg-surface-container active:scale-95 transition-all">
+<span class="material-symbols-outlined" data-icon="add_circle">add_circle</span>
+</button>
+<div class="flex-1 bg-surface-container rounded-full px-4 py-2.5 flex items-center border border-transparent focus-within:border-soft-teal transition-colors">
+<input class="bg-transparent border-none w-full outline-none font-body-md text-body-md text-on-surface placeholder-bark-gray/50 focus:ring-0 p-0" disabled="" placeholder="告诉 Max 他的感受..." type="text"/>
+</div>
+<button class="w-10 h-10 rounded-full bg-warm-orange flex items-center justify-center text-white shadow-[0_4px_12px_rgba(255,138,92,0.3)] active:scale-95 transition-all opacity-50 cursor-not-allowed">
+<span class="material-symbols-outlined" data-icon="send">send</span>
+</button>
+</div>
+</div>
+</body></html>

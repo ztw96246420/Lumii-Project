@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>宠物档案详情页</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "soft-teal": "#4DB6AC",
+                      "bark-gray": "#4A4542",
+                      "error": "#ba1a1a",
+                      "on-tertiary-container": "#4e3d00",
+                      "surface-dim": "#dbdad5",
+                      "tertiary-fixed-dim": "#e7c353",
+                      "on-primary-container": "#732500",
+                      "inverse-on-surface": "#f2f1ec",
+                      "health-red": "#EF5350",
+                      "on-secondary-container": "#006f67",
+                      "surface-container": "#f0eee9",
+                      "on-tertiary-fixed": "#241a00",
+                      "on-primary-fixed-variant": "#7f2b02",
+                      "inverse-primary": "#ffb59a",
+                      "surface-container-high": "#eae8e3",
+                      "on-tertiary-fixed-variant": "#574500",
+                      "surface-bright": "#fbf9f4",
+                      "tertiary-fixed": "#ffe088",
+                      "warm-orange": "#FF8A5C",
+                      "sunny-yellow": "#FFD966",
+                      "primary": "#9f4119",
+                      "on-tertiary": "#ffffff",
+                      "secondary-fixed": "#8ef4e9",
+                      "primary-fixed": "#ffdbce",
+                      "surface-container-low": "#f5f3ee",
+                      "on-secondary": "#ffffff",
+                      "on-secondary-fixed-variant": "#00504a",
+                      "on-primary-fixed": "#380d00",
+                      "on-primary": "#ffffff",
+                      "on-error-container": "#93000a",
+                      "on-error": "#ffffff",
+                      "on-surface-variant": "#56423b",
+                      "on-background": "#1b1c19",
+                      "surface": "#fbf9f4",
+                      "background": "#fbf9f4",
+                      "surface-container-highest": "#e4e2dd",
+                      "bone-white": "#F9F7F2",
+                      "on-secondary-fixed": "#00201d",
+                      "inverse-surface": "#30312e",
+                      "secondary": "#006a63",
+                      "surface-variant": "#e4e2dd",
+                      "secondary-container": "#8bf1e6",
+                      "tertiary-container": "#c9a739",
+                      "surface-tint": "#9f4119",
+                      "primary-container": "#ff8a5c",
+                      "outline-variant": "#ddc0b7",
+                      "on-surface": "#1b1c19",
+                      "outline": "#8a726a",
+                      "error-container": "#ffdad6",
+                      "secondary-fixed-dim": "#71d7cd",
+                      "surface-container-lowest": "#ffffff",
+                      "tertiary": "#735c00",
+                      "primary-fixed-dim": "#ffb59a"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "container-padding": "24px",
+                      "margin-desktop": "40px",
+                      "gutter": "16px",
+                      "base": "8px",
+                      "margin-mobile": "20px"
+              },
+              "fontFamily": {
+                      "label-md": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-lg": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "body-md": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "body-lg": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "label-sm": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-xl": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-lg-mobile": [
+                              "Plus Jakarta Sans"
+                      ]
+              },
+              "fontSize": {
+                      "label-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "letterSpacing": "0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "label-sm": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-xl": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "700"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            color: theme('colors.on-background');
+        }
+        
+        .shadow-level-1 {
+            box-shadow: 0px 4px 20px rgba(74, 69, 66, 0.05);
+        }
+        
+        .shadow-level-2 {
+            box-shadow: 0px 8px 24px rgba(255, 138, 92, 0.15);
+        }
+
+        .hand-drawn-border {
+            border: 2px solid theme('colors.soft-teal');
+            border-radius: 255px 15px 225px 15px/15px 225px 15px 255px;
+        }
+      </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="font-body-md antialiased overflow-x-hidden min-h-screen flex flex-col pb-24 md:pb-0 pt-16 md:pt-20">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 backdrop-blur-md bg-surface/80 dark:bg-surface-dim/80 text-primary dark:text-primary-fixed-dim bg-transparent">
+<div class="flex justify-between items-center px-margin-mobile h-16 w-full max-w-screen-xl mx-auto">
+<button aria-label="Go back" class="hover:opacity-80 transition-opacity active:scale-95 transition-transform duration-200 p-2 -ml-2">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">arrow_back_ios</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary dark:text-primary-fixed-dim">宠物档案</h1>
+<button aria-label="Settings" class="hover:opacity-80 transition-opacity active:scale-95 transition-transform duration-200 p-2 -mr-2">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">more_horiz</span>
+</button>
+</div>
+</header>
+<main class="flex-grow w-full max-w-screen-xl mx-auto px-margin-mobile md:px-margin-desktop">
+<!-- Pet Selector (Multi-pet) -->
+<section aria-label="Select pet" class="mt-base mb-gutter flex justify-center space-x-4 overflow-x-auto py-2 snap-x hide-scrollbar">
+<!-- Active Pet -->
+<button class="relative snap-center shrink-0 active:scale-95 transition-transform duration-200">
+<div class="w-16 h-16 rounded-full border-2 border-primary p-0.5">
+<img alt="Dog avatar" class="w-full h-full rounded-full object-cover" data-alt="A close-up portrait of a cute beagle dog with floppy ears, looking directly at the camera with big, expressive eyes. The lighting is soft and natural, emphasizing the dog's warm brown and white fur. The background is a slightly blurred, light neutral tone, fitting the modern tactile minimalism style of the digital companion app." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDHsNl_IEwtBKQBZft34OVML0VS-YO6qEgg_-4RQmXNLvXAE-AXVmKEkft-q7aCooc-2LkxLvV0eCEmtAvJWiUc4Lq86E3oPJUJogQnK50WF3sNQ17Bl4AAH5A4sgp2zuT8aLKfM47e7gL-m6C5ay6jKUlFZF2a11416BJOEUlcBRnl3K-hGxkv5JPzNidP8LsK49XL9Ni-grJW-z2So3h21PA_V5xKDxxYfmOpMhYi6wqh1y5Fj_ND4BD23kzZOILiAESJv1oS2DtR"/>
+</div>
+<div class="absolute -bottom-1 -right-1 bg-surface rounded-full p-0.5">
+<div class="w-4 h-4 bg-soft-teal rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-[10px] text-white" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+</div>
+</button>
+<!-- Inactive Pet 1 -->
+<button class="relative snap-center shrink-0 active:scale-95 transition-transform duration-200 opacity-70 hover:opacity-100">
+<div class="w-16 h-16 rounded-full border-2 border-transparent p-0.5">
+<img alt="Cat avatar" class="w-full h-full rounded-full object-cover" data-alt="A fluffy, alert tabby cat with striking green eyes, looking slightly off-camera. The lighting is soft and warm, highlighting the intricate patterns on the cat's fur. The background is a clean, minimalistic soft white, consistent with the app's digital sanctuary aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDJUUwEbLo04Kgrq5r4H9VbdOWD_77nLZqTYtFeeF9qA_ZMvGjcu-Redq8t4AM2EBmQTJOgwRiiMNA8XtkmSq9G5AG0F_XsrzoTTse_RC5BD1qGCDS8mqk0oFwufegKD0HC_fDpTQLz_JVmBSe0E_Zj9AlEVlrLhGz_zap0jx710e8kVJMxbsw7aRioy5vdH7KzEVZLDK_mXtB0hhMMZuxK5xdMAI3THwbzlzRg8Ml7ZzG_2Uvjuv5dOsGTUcBWhjr0bmYNNpeHLkmb"/>
+</div>
+</button>
+<!-- Add Pet -->
+<button class="relative snap-center shrink-0 active:scale-95 transition-transform duration-200 flex items-center justify-center w-16 h-16 rounded-full border-2 border-dashed border-outline-variant bg-surface-container-low text-on-surface-variant hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">add</span>
+</button>
+</section>
+<!-- Pet Avatar & Basic Info Card -->
+<section class="bg-bone-white rounded-xl shadow-level-1 p-gutter mb-gutter relative overflow-hidden flex flex-col items-center text-center">
+<!-- Decorative background shape -->
+<div class="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-primary-fixed to-transparent opacity-50 z-0"></div>
+<div class="relative z-10 w-32 h-32 md:w-48 md:h-48 rounded-[2rem] overflow-hidden shadow-level-2 mb-4 bg-surface-container">
+<img alt="Main Pet Avatar" class="w-full h-full object-cover" data-alt="A vibrant, high-quality portrait of a happy Golden Retriever sitting outdoors in a sunny park. The dog is panting slightly with a 'smile', looking attentively forward. The sunlight creates a soft halo effect around its fur. The overall composition is bright, cheerful, and fits perfectly within a tactile, pet-centric digital interface." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAe73kKwBiOprsMzx-L6mGJbNLwW0xiIdVSTTthmcMG4LTc-K2mx2im0G55nxxXWiKe0XB8DOXWrTngn2mmIPPOWCp3R5NI7ys8v3jYchOnGlNsNAeVpc2p7_nnTYEKz0M3r0hnFwXEz8WrXIgVevSJqcoKjTAC-qoxtRsjvDE_FShyRDt0QcDXVfCgH5VPhoPmFwkmywD08tfDvw4A_UysEQ8Pt6451vMv33d36cR9W-XK9M43nPEggBFhlyR2DkSXvz1WmbwUzIJL"/>
+</div>
+<div class="relative z-10 w-full">
+<div class="flex items-center justify-center space-x-2 mb-1">
+<h2 class="font-headline-xl text-headline-xl text-bark-gray">旺财</h2>
+<span class="material-symbols-outlined text-soft-teal" style="font-variation-settings: 'FILL' 1;">male</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant mb-4">金毛寻回犬 · 3岁2个月</p>
+<!-- Stats Row -->
+<div class="flex justify-center space-x-6 w-full">
+<div class="flex flex-col items-center">
+<span class="font-headline-lg text-headline-lg text-primary">28</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">体重(kg)</span>
+</div>
+<div class="w-px h-10 bg-outline-variant my-auto"></div>
+<div class="flex flex-col items-center">
+<span class="font-headline-lg text-headline-lg text-primary">98</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">健康评分</span>
+</div>
+<div class="w-px h-10 bg-outline-variant my-auto"></div>
+<div class="flex flex-col items-center">
+<span class="font-headline-lg text-headline-lg text-primary">8</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">相伴(月)</span>
+</div>
+</div>
+</div>
+</section>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter mb-gutter">
+<!-- Personality Tags -->
+<section class="bg-bone-white rounded-xl shadow-level-1 p-gutter flex flex-col">
+<div class="flex items-center space-x-2 mb-4">
+<span class="material-symbols-outlined text-warm-orange" style="font-variation-settings: 'FILL' 0;">psychology</span>
+<h3 class="font-headline-lg-mobile text-headline-lg-mobile text-bark-gray">性格与特征</h3>
+</div>
+<div class="flex flex-wrap gap-2">
+<span class="px-3 py-1 rounded-full bg-primary-fixed-dim/30 text-bark-gray font-label-sm text-label-sm">极其黏人</span>
+<span class="px-3 py-1 rounded-full bg-sunny-yellow/30 text-bark-gray font-label-sm text-label-sm">活力四射</span>
+<span class="px-3 py-1 rounded-full bg-secondary-fixed/30 text-bark-gray font-label-sm text-label-sm">贪吃鬼</span>
+<span class="px-3 py-1 rounded-full bg-surface-variant text-bark-gray font-label-sm text-label-sm">亲近生人</span>
+<span class="px-3 py-1 rounded-full bg-surface-variant text-bark-gray font-label-sm text-label-sm">怕打雷</span>
+</div>
+<div class="mt-4 p-4 hand-drawn-border bg-surface-bright relative">
+<div class="absolute -top-3 left-4 bg-surface-bright px-1">
+<span class="material-symbols-outlined text-soft-teal text-sm" style="font-variation-settings: 'FILL' 1;">format_quote</span>
+</div>
+<p class="font-body-md text-body-md text-bark-gray italic">"只要看到有人拿牵引绳，就会疯狂摇尾巴转圈圈。最喜欢在草地上打滚。"</p>
+</div>
+</section>
+<!-- Social Status -->
+<section class="bg-bone-white rounded-xl shadow-level-1 p-gutter flex flex-col">
+<div class="flex items-center justify-between mb-4">
+<div class="flex items-center space-x-2">
+<span class="material-symbols-outlined text-soft-teal" style="font-variation-settings: 'FILL' 0;">hub</span>
+<h3 class="font-headline-lg-mobile text-headline-lg-mobile text-bark-gray">社交状态</h3>
+</div>
+<span class="px-2 py-1 rounded-full border border-soft-teal text-soft-teal font-label-sm text-label-sm bg-soft-teal/10">寻找玩伴中</span>
+</div>
+<div class="space-y-4">
+<div class="flex items-start space-x-3">
+<div class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-primary-container" style="font-variation-settings: 'FILL' 1;">location_on</span>
+</div>
+<div>
+<h4 class="font-label-md text-label-md text-bark-gray">常去地点</h4>
+<p class="font-body-md text-body-md text-on-surface-variant">朝阳公园草坪区、小区南门广场</p>
+</div>
+</div>
+<div class="flex items-start space-x-3">
+<div class="w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-secondary-container" style="font-variation-settings: 'FILL' 1;">schedule</span>
+</div>
+<div>
+<h4 class="font-label-md text-label-md text-bark-gray">活跃时间</h4>
+<p class="font-body-md text-body-md text-on-surface-variant">工作日 19:00 - 20:30<br/>周末 16:00 - 18:00</p>
+</div>
+</div>
+</div>
+<div class="mt-auto pt-4">
+<button class="w-full bg-white border-2 border-soft-teal text-soft-teal font-label-md text-label-md py-3 rounded-full hover:bg-soft-teal/5 transition-colors active:scale-[0.98] flex items-center justify-center space-x-2">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">radar</span>
+<span>发现附近玩伴</span>
+</button>
+</div>
+</section>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 w-full z-50 backdrop-blur-md bg-surface/80 dark:bg-surface-dim/80 text-primary dark:text-primary-fixed-dim md:hidden bg-transparent">
+<div class="flex justify-around items-center pt-2 pb-safe px-4 w-full pb-4">
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1 hover:text-primary dark:hover:text-primary-fixed-dim transition-colors active:scale-90 transition-transform duration-200" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">home</span>
+<span class="font-label-sm text-label-sm mt-1">首页</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1 hover:text-primary dark:hover:text-primary-fixed-dim transition-colors active:scale-90 transition-transform duration-200" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">explore</span>
+<span class="font-label-sm text-label-sm mt-1">发现</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1 hover:text-primary dark:hover:text-primary-fixed-dim transition-colors active:scale-90 transition-transform duration-200" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">chat_bubble</span>
+<span class="font-label-sm text-label-sm mt-1">消息</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-primary-container dark:bg-on-primary-fixed-variant text-on-primary-container dark:text-primary-fixed rounded-full px-4 py-1 hover:text-primary dark:hover:text-primary-fixed-dim transition-colors active:scale-90 transition-transform duration-200" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">person</span>
+<span class="font-label-sm text-label-sm mt-1">我的</span>
+</a>
+</div>
+</nav>
+</body></html>

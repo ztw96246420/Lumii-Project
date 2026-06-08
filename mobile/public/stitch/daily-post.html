@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>发布今日小事 - Lumii</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "outline": "#8a726a",
+                        "on-primary-container": "#732500",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "surface-bright": "#fbf9f4",
+                        "on-secondary-container": "#006f67",
+                        "on-surface": "#1b1c19",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "surface-container-highest": "#e4e2dd",
+                        "inverse-surface": "#30312e",
+                        "surface": "#fbf9f4",
+                        "primary-fixed-dim": "#ffb59a",
+                        "secondary-container": "#8bf1e6",
+                        "primary": "#9f4119",
+                        "on-tertiary-fixed": "#241a00",
+                        "secondary": "#006a63",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "on-error-container": "#93000a",
+                        "inverse-on-surface": "#f2f1ec",
+                        "on-primary": "#ffffff",
+                        "surface-container-low": "#f5f3ee",
+                        "on-surface-variant": "#56423b",
+                        "primary-container": "#ff8a5c",
+                        "surface-tint": "#9f4119",
+                        "outline-variant": "#ddc0b7",
+                        "bone-white": "#F9F7F2",
+                        "sunny-yellow": "#FFD966",
+                        "bark-gray": "#4A4542",
+                        "primary-fixed": "#ffdbce",
+                        "error-container": "#ffdad6",
+                        "tertiary-container": "#c9a739",
+                        "on-error": "#ffffff",
+                        "health-red": "#EF5350",
+                        "inverse-primary": "#ffb59a",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "on-tertiary": "#ffffff",
+                        "on-background": "#1b1c19",
+                        "secondary-fixed": "#8ef4e9",
+                        "background": "#fbf9f4",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary": "#735c00",
+                        "tertiary-fixed": "#ffe088",
+                        "surface-dim": "#dbdad5",
+                        "soft-teal": "#4DB6AC",
+                        "on-tertiary-container": "#4e3d00",
+                        "surface-container-high": "#eae8e3",
+                        "surface-container": "#f0eee9",
+                        "surface-variant": "#e4e2dd",
+                        "on-secondary-fixed": "#00201d",
+                        "on-secondary": "#ffffff",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "warm-orange": "#FF8A5C",
+                        "on-primary-fixed": "#380d00",
+                        "error": "#ba1a1a"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    spacing: {
+                        "margin-mobile": "20px",
+                        "gutter": "16px",
+                        "container-padding": "24px",
+                        "base": "8px",
+                        "margin-desktop": "40px"
+                    },
+                    fontFamily: {
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "label-md": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"]
+                    },
+                    fontSize: {
+                        "headline-xl": ["32px", { lineHeight: "40px", letterSpacing: "-0.02em", fontWeight: "700" }],
+                        "label-md": ["14px", { lineHeight: "20px", letterSpacing: "0.01em", fontWeight: "600" }],
+                        "headline-lg-mobile": ["20px", { lineHeight: "28px", fontWeight: "700" }],
+                        "label-sm": ["12px", { lineHeight: "16px", fontWeight: "500" }],
+                        "body-md": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+                        "body-lg": ["18px", { lineHeight: "28px", fontWeight: "500" }],
+                        "headline-lg": ["24px", { lineHeight: "32px", fontWeight: "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .icon-filled {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        
+        /* Level 1 Custom Shadow per guidelines */
+        .shadow-level-1 {
+            box-shadow: 0px 4px 20px rgba(74, 69, 66, 0.05);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface font-body-md min-h-screen flex flex-col overflow-x-hidden selection:bg-warm-orange selection:text-white">
+<!-- Sub-page Header: Suppressing standard TopAppBar for Task-Focused Screen -->
+<header class="flex justify-between items-center px-margin-mobile h-16 w-full max-w-7xl mx-auto sticky top-0 z-50 bg-background/90 backdrop-blur-xl">
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-bark-gray hover:bg-surface-container transition-colors active:scale-95">
+<span class="material-symbols-outlined text-2xl">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">发布今日小事</h1>
+<div class="w-10 h-10"></div> <!-- Balancer for centering title -->
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 px-margin-mobile py-4 w-full max-w-2xl mx-auto flex flex-col gap-6">
+<!-- Photo Upload Area: Prominent, Organic -->
+<div class="relative w-full aspect-square md:aspect-[4/3] rounded-[24px] bg-surface-container-low border-2 border-dashed border-outline-variant/60 flex flex-col items-center justify-center cursor-pointer overflow-hidden group transition-all duration-300 hover:border-warm-orange/50 hover:bg-surface-container active:scale-[0.98]">
+<div class="flex flex-col items-center gap-3 text-bark-gray group-hover:text-warm-orange transition-colors duration-300 z-10">
+<div class="w-16 h-16 rounded-full bg-surface-bright flex items-center justify-center shadow-level-1 mb-2">
+<span class="material-symbols-outlined text-3xl icon-filled">add_a_photo</span>
+</div>
+<span class="font-label-md text-label-md">添加照片</span>
+<span class="font-label-sm text-label-sm text-outline">记录美好瞬间</span>
+</div>
+<!-- Subtle background decorative blob to make it less sterile -->
+<div class="absolute -bottom-10 -right-10 w-40 h-40 bg-warm-orange/5 rounded-full blur-2xl group-hover:bg-warm-orange/10 transition-colors duration-500"></div>
+<div class="absolute -top-10 -left-10 w-32 h-32 bg-soft-teal/5 rounded-full blur-2xl group-hover:bg-soft-teal/10 transition-colors duration-500"></div>
+</div>
+<!-- Text Input Area: Tactile, slightly darker background -->
+<div class="bg-surface-container rounded-[20px] p-5 shadow-level-1 flex flex-col gap-3 focus-within:ring-2 focus-within:ring-soft-teal focus-within:bg-surface-bright transition-all duration-300">
+<textarea class="w-full bg-transparent resize-none border-none outline-none text-on-surface placeholder:text-outline font-body-lg text-body-lg min-h-[120px] p-0 focus:ring-0" placeholder="记录 TA 的有趣瞬间..."></textarea>
+<div class="flex items-center justify-between mt-2 pt-3 border-t border-outline-variant/30">
+<div class="flex gap-2">
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-bright text-bark-gray font-label-sm text-label-sm border border-outline-variant/50 hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-[18px]">location_on</span>
+                        添加位置
+                    </button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-bright text-bark-gray font-label-sm text-label-sm border border-outline-variant/50 hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-[18px]">sell</span>
+                        标签
+                    </button>
+</div>
+<span class="font-label-sm text-label-sm text-outline">0 / 200</span>
+</div>
+</div>
+</main>
+<!-- Bottom Action Area -->
+<div class="px-margin-mobile pb-8 pt-4 w-full max-w-2xl mx-auto bg-background">
+<!-- Primary Action Button: Warm Orange, Pill-shaped, Tactile feedback -->
+<button class="w-full h-14 bg-warm-orange text-white rounded-full flex items-center justify-center gap-2 font-label-md text-label-md shadow-[0px_8px_24px_rgba(255,138,92,0.25)] hover:bg-[#ff7a45] active:scale-[0.98] transition-all duration-200">
+            发布
+            <span class="material-symbols-outlined icon-filled text-xl">send</span>
+</button>
+</div>
+<!-- Script to auto-resize textarea nicely -->
+<script>
+        const textarea = document.querySelector('textarea');
+        textarea.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+    </script>
+</body></html>

@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Lumii - 权限引导</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "soft-teal": "#4DB6AC",
+                        "bark-gray": "#4A4542",
+                        "error": "#ba1a1a",
+                        "on-tertiary-container": "#4e3d00",
+                        "surface-dim": "#dbdad5",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "on-primary-container": "#732500",
+                        "inverse-on-surface": "#f2f1ec",
+                        "health-red": "#EF5350",
+                        "on-secondary-container": "#006f67",
+                        "surface-container": "#f0eee9",
+                        "on-tertiary-fixed": "#241a00",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "inverse-primary": "#ffb59a",
+                        "surface-container-high": "#eae8e3",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "surface-bright": "#fbf9f4",
+                        "tertiary-fixed": "#ffe088",
+                        "warm-orange": "#FF8A5C",
+                        "sunny-yellow": "#FFD966",
+                        "primary": "#9f4119",
+                        "on-tertiary": "#ffffff",
+                        "secondary-fixed": "#8ef4e9",
+                        "primary-fixed": "#ffdbce",
+                        "surface-container-low": "#f5f3ee",
+                        "on-secondary": "#ffffff",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "on-primary-fixed": "#380d00",
+                        "on-primary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-error": "#ffffff",
+                        "on-surface-variant": "#56423b",
+                        "on-background": "#1b1c19",
+                        "surface": "#fbf9f4",
+                        "background": "#fbf9f4",
+                        "surface-container-highest": "#e4e2dd",
+                        "bone-white": "#F9F7F2",
+                        "on-secondary-fixed": "#00201d",
+                        "inverse-surface": "#30312e",
+                        "secondary": "#006a63",
+                        "surface-variant": "#e4e2dd",
+                        "secondary-container": "#8bf1e6",
+                        "tertiary-container": "#c9a739",
+                        "surface-tint": "#9f4119",
+                        "primary-container": "#ff8a5c",
+                        "outline-variant": "#ddc0b7",
+                        "on-surface": "#1b1c19",
+                        "outline": "#8a726a",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary": "#735c00",
+                        "primary-fixed-dim": "#ffb59a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px",
+                        "2xl": "1rem",
+                        "3xl": "1.5rem"
+                    },
+                    "spacing": {
+                        "container-padding": "24px",
+                        "margin-desktop": "40px",
+                        "gutter": "16px",
+                        "base": "8px",
+                        "margin-mobile": "20px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .toggle-active {
+            background-color: #4DB6AC; /* soft-teal */
+        }
+        .toggle-active .toggle-knob {
+            transform: translateX(1.25rem); /* 20px */
+            background-color: white;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-bone-white min-h-screen text-on-surface antialiased flex flex-col selection:bg-primary-container selection:text-on-primary-container">
+<!-- Canvas Area: Suppressed navigation due to Onboarding/Transactional intent -->
+<main class="flex-1 flex flex-col max-w-md mx-auto w-full px-margin-mobile py-8 justify-center min-h-[884px] relative z-10">
+<!-- Hero Illustration Area -->
+<div class="w-full aspect-[4/3] rounded-3xl overflow-hidden shadow-[0_8px_24px_rgba(74,69,66,0.08)] mb-8 bg-surface-container relative">
+<img alt="Welcome Illustration" class="w-full h-full object-cover" data-alt="A warm, soft-edged cartoon-style 3D illustration of a friendly dog looking affectionately at its owner in a bright, modern park setting. The lighting is soft and ambient, casting gentle shadows that emphasize a tactile, squishy aesthetic. The color palette features bone white, warm orange, and soft teal, creating a comforting, trustworthy, and welcoming atmosphere perfect for a pet care app." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD94iC3ACk02tL7_x0H28a0109SdmPt31FIY5Rn_gqLf1RcOsGrH-7mzNVqSYh7W2L6G8nrmfVTJ_24FDZkeSMt6lg_J2yIUXBCz_rp87RPRoWG5Le8imxYzI0Gem_-FnSa_o4ArsDubr920GmO0oXvzka5H1TwHb8Mf1gYeU8yh5IIu3W0fcd8MFgm4_f4GDYODOEs6oh5OZZdA-olH1beuEN67A8tXdi_yQ1xv8nyTwxk-T7EJ_2gOGfBGgRK_GXyUKgZ0oW05ayd"/>
+<!-- Soft gradient overlay for blending -->
+<div class="absolute inset-0 bg-gradient-to-t from-bone-white via-transparent to-transparent opacity-80"></div>
+</div>
+<!-- Header Typography -->
+<div class="text-center mb-10 px-2">
+<h1 class="font-headline-xl text-headline-xl text-primary mb-3">相遇的第一步</h1>
+<p class="font-body-md text-body-md text-on-surface-variant">为了给您的毛孩子提供最贴心的专属陪伴空间，我们需要一些基础授权。您的隐私将被严格守护。</p>
+</div>
+<!-- Permission Cards List -->
+<div class="flex flex-col gap-4 mb-10">
+<!-- Location Permission -->
+<div class="bg-surface-container-lowest p-4 rounded-2xl shadow-[0_4px_20px_rgba(74,69,66,0.05)] flex items-center gap-4 border border-surface-container-high/50 transition-all hover:shadow-[0_8px_24px_rgba(74,69,66,0.08)]">
+<div class="w-12 h-12 shrink-0 rounded-full bg-soft-teal/15 text-soft-teal flex items-center justify-center">
+<span class="material-symbols-outlined text-[28px]" style="font-variation-settings: 'FILL' 1;">location_on</span>
+</div>
+<div class="flex-1">
+<h3 class="font-label-md text-label-md text-on-surface mb-0.5">定位服务</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant leading-relaxed">开启定位以发现附近的毛孩子、宠物友好公园和紧急医疗点。</p>
+</div>
+<div class="shrink-0 flex items-center justify-center pt-1">
+<button aria-pressed="false" class="toggle-btn w-11 h-6 bg-surface-variant rounded-full relative cursor-pointer transition-colors duration-300 ease-in-out" onclick="toggleState(this)" type="button">
+<div class="toggle-knob w-5 h-5 bg-surface-container-lowest rounded-full absolute top-[2px] left-[2px] shadow-sm transition-transform duration-300 ease-out"></div>
+</button>
+</div>
+</div>
+<!-- Photo Permission -->
+<div class="bg-surface-container-lowest p-4 rounded-2xl shadow-[0_4px_20px_rgba(74,69,66,0.05)] flex items-center gap-4 border border-surface-container-high/50 transition-all hover:shadow-[0_8px_24px_rgba(74,69,66,0.08)]">
+<div class="w-12 h-12 shrink-0 rounded-full bg-warm-orange/15 text-warm-orange flex items-center justify-center">
+<span class="material-symbols-outlined text-[28px]" style="font-variation-settings: 'FILL' 1;">photo_camera</span>
+</div>
+<div class="flex-1">
+<h3 class="font-label-md text-label-md text-on-surface mb-0.5">照片与相机</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant leading-relaxed">允许访问相册以上传宠物萌照，为TA建立生动的专属数字档案。</p>
+</div>
+<div class="shrink-0 flex items-center justify-center pt-1">
+<button aria-pressed="false" class="toggle-btn w-11 h-6 bg-surface-variant rounded-full relative cursor-pointer transition-colors duration-300 ease-in-out" onclick="toggleState(this)" type="button">
+<div class="toggle-knob w-5 h-5 bg-surface-container-lowest rounded-full absolute top-[2px] left-[2px] shadow-sm transition-transform duration-300 ease-out"></div>
+</button>
+</div>
+</div>
+<!-- Notifications Permission -->
+<div class="bg-surface-container-lowest p-4 rounded-2xl shadow-[0_4px_20px_rgba(74,69,66,0.05)] flex items-center gap-4 border border-surface-container-high/50 transition-all hover:shadow-[0_8px_24px_rgba(74,69,66,0.08)]">
+<div class="w-12 h-12 shrink-0 rounded-full bg-sunny-yellow/30 text-tertiary flex items-center justify-center">
+<span class="material-symbols-outlined text-[28px]" style="font-variation-settings: 'FILL' 1;">notifications_active</span>
+</div>
+<div class="flex-1">
+<h3 class="font-label-md text-label-md text-on-surface mb-0.5">消息通知</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant leading-relaxed">及时接收疫苗接种提醒、健康打卡以及附近宠物伙伴的互动消息。</p>
+</div>
+<div class="shrink-0 flex items-center justify-center pt-1">
+<button aria-pressed="false" class="toggle-btn w-11 h-6 bg-surface-variant rounded-full relative cursor-pointer transition-colors duration-300 ease-in-out" onclick="toggleState(this)" type="button">
+<div class="toggle-knob w-5 h-5 bg-surface-container-lowest rounded-full absolute top-[2px] left-[2px] shadow-sm transition-transform duration-300 ease-out"></div>
+</button>
+</div>
+</div>
+</div>
+<!-- Primary Action Button (Level 2 Elevation) -->
+<div class="mt-auto pt-4 pb-safe">
+<button class="w-full py-4 bg-warm-orange text-on-primary rounded-full font-label-md text-label-md shadow-[0_8px_24px_rgba(255,138,92,0.25)] active:scale-95 transition-all duration-200 flex items-center justify-center gap-2">
+<span>开启陪伴之旅</span>
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'wght' 600;">arrow_forward</span>
+</button>
+</div>
+</main>
+<script>
+        // Simple JS to handle the micro-interaction of custom toggle switches
+        function toggleState(button) {
+            const isPressed = button.getAttribute('aria-pressed') === 'true';
+            button.setAttribute('aria-pressed', !isPressed);
+            button.classList.toggle('toggle-active');
+            
+            // Optional tactile feedback if supported by device
+            if (navigator.vibrate) {
+                navigator.vibrate(10);
+            }
+        }
+    </script>
+</body></html>

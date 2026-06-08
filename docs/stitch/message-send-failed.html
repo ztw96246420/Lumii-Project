@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Lumii - Message Detail Error</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-container-low": "#f5f3ee",
+                      "secondary": "#006a63",
+                      "surface-container-lowest": "#ffffff",
+                      "surface-variant": "#e4e2dd",
+                      "secondary-container": "#8bf1e6",
+                      "surface": "#fbf9f4",
+                      "on-secondary-fixed-variant": "#00504a",
+                      "outline": "#8a726a",
+                      "primary": "#9f4119",
+                      "secondary-fixed": "#8ef4e9",
+                      "on-primary": "#ffffff",
+                      "on-error": "#ffffff",
+                      "error-container": "#ffdad6",
+                      "surface-dim": "#dbdad5",
+                      "tertiary": "#735c00",
+                      "on-surface-variant": "#56423b",
+                      "primary-fixed-dim": "#ffb59a",
+                      "surface-tint": "#9f4119",
+                      "on-secondary-fixed": "#00201d",
+                      "sunny-yellow": "#FFD966",
+                      "inverse-on-surface": "#f2f1ec",
+                      "background": "#fbf9f4",
+                      "surface-container-high": "#eae8e3",
+                      "on-surface": "#1b1c19",
+                      "inverse-primary": "#ffb59a",
+                      "primary-container": "#ff8a5c",
+                      "on-primary-fixed-variant": "#7f2b02",
+                      "secondary-fixed-dim": "#71d7cd",
+                      "bark-gray": "#4A4542",
+                      "primary-fixed": "#ffdbce",
+                      "health-red": "#EF5350",
+                      "error": "#ba1a1a",
+                      "warm-orange": "#FF8A5C",
+                      "outline-variant": "#ddc0b7",
+                      "on-tertiary-fixed-variant": "#574500",
+                      "on-background": "#1b1c19",
+                      "on-tertiary-container": "#4e3d00",
+                      "inverse-surface": "#30312e",
+                      "tertiary-container": "#c9a739",
+                      "bone-white": "#F9F7F2",
+                      "on-secondary-container": "#006f67",
+                      "on-primary-container": "#732500",
+                      "on-secondary": "#ffffff",
+                      "on-error-container": "#93000a",
+                      "tertiary-fixed": "#ffe088",
+                      "surface-container": "#f0eee9",
+                      "on-primary-fixed": "#380d00",
+                      "surface-bright": "#fbf9f4",
+                      "tertiary-fixed-dim": "#e7c353",
+                      "surface-container-highest": "#e4e2dd",
+                      "on-tertiary-fixed": "#241a00",
+                      "on-tertiary": "#ffffff",
+                      "soft-teal": "#4DB6AC"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "gutter": "16px",
+                      "container-padding": "24px",
+                      "margin-mobile": "20px",
+                      "margin-desktop": "40px",
+                      "base": "8px"
+              },
+              "fontFamily": {
+                      "headline-lg": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "body-lg": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "label-md": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "body-md": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-lg-mobile": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "label-sm": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-xl": [
+                              "Plus Jakarta Sans"
+                      ]
+              },
+              "fontSize": {
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "label-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "letterSpacing": "0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "label-sm": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-xl": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ]
+              }
+            },
+          }
+        }
+      </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex flex-col relative pb-32">
+<!-- Top Navigation (Task-focused subpage context -> Suppressed global nav elements, back button enabled) -->
+<header class="flex justify-between items-center px-margin-mobile h-16 w-full max-w-7xl mx-auto backdrop-blur-xl bg-background/80 docked full-width top-0 sticky z-50 flat no shadows">
+<button aria-label="Back" class="text-bark-gray scale-95 active:scale-90 transition-transform duration-200 hover:bg-surface-container rounded-full p-2 flex items-center justify-center">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-surface-variant overflow-hidden">
+<img alt="Avatar of Max, a cute fluffy cat" class="w-full h-full object-cover" data-alt="Close up photograph of a cute fluffy orange tabby cat looking directly at the camera. Soft, natural lighting. Shallow depth of field. Warm tones. Shot on a modern digital camera." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCbrPRBPnoNgD0AD0Rp94mxc6P18SbAS3zeezWpRPCOAiHX6wSPFXJVO0aAGoxPDzkVoyjdADrX9WWMrhNe8gifIvmZw7EKsPGjpzU3M0hIpHQE5ojCx5ZVAInPNlEmM7w67haIN7Hpaag7we-4ZY4Dh2aA6EklcqSoFid00Q3y_m0hu-_NamdgLS47KkbHRQbIO-K57mA0kBTMztGBIrtt7kZGZVDQlDDNcyN5IKtLdvk38XQ6hEpvRPmRhD3mI25E6eIFIFqfY2oM"/>
+</div>
+<div>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">麦克斯的主人</h1>
+<p class="font-label-sm text-label-sm text-bark-gray">2小时前活跃</p>
+</div>
+</div>
+<button aria-label="More options" class="text-bark-gray scale-95 active:scale-90 transition-transform duration-200 hover:bg-surface-container rounded-full p-2 flex items-center justify-center">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</header>
+<!-- Main Chat Canvas -->
+<main class="flex-1 w-full max-w-7xl mx-auto px-margin-mobile pt-4 flex flex-col gap-6 overflow-y-auto">
+<!-- Date separator -->
+<div class="flex justify-center my-2">
+<span class="bg-surface-container-high px-4 py-1 rounded-full font-label-sm text-label-sm text-bark-gray">亻天</span>
+</div>
+<!-- Received Message -->
+<div class="flex flex-col items-start gap-1 max-w-[85%] self-start">
+<div class="flex items-end gap-2">
+<div class="bg-surface-container-high text-on-surface px-4 py-3 rounded-2xl rounded-bl-sm font-body-md shadow-sm">嘿！晚点我们要一起去宠物公园&#x905b;&#x72d7;吗？麦克斯已经&#x8d85;&#x7ea7;兴奋了！🐾</div>
+</div>
+<span class="font-label-sm text-label-sm text-outline px-2">10:42 AM</span>
+</div>
+<!-- Sent Message (Successful) -->
+<div class="flex flex-col items-end gap-1 max-w-[85%] self-end">
+<div class="flex items-end gap-2 flex-row-reverse">
+<div class="bg-primary-container text-on-primary-container px-4 py-3 rounded-2xl rounded-br-sm font-body-md shadow-[0px_4px_20px_rgba(74,69,66,0.05)]">好呀！我们大概下午4点到，不见不散！</div>
+</div>
+<div class="flex items-center gap-1 px-2">
+<span class="font-label-sm text-label-sm text-outline">10:45 AM</span>
+<span class="material-symbols-outlined text-[14px] text-soft-teal" style="font-variation-settings: 'FILL' 1;">done_all</span>
+</div>
+</div>
+<!-- Received Message -->
+<div class="flex flex-col items-start gap-1 max-w-[85%] self-start">
+<div class="flex items-end gap-2">
+<div class="bg-surface-container-high text-on-surface px-4 py-3 rounded-2xl rounded-bl-sm font-body-md shadow-sm">嘿！晚点我们要一起去宠物公园&#x905b;&#x72d7;吗？麦克斯已经&#x8d85;&#x7ea7;兴奋了！🐾</div>
+</div>
+<span class="font-label-sm text-label-sm text-outline px-2">10:46 AM</span>
+</div>
+<!-- Failed Message (Target for interaction) -->
+<div class="flex flex-col items-end gap-1 max-w-[85%] self-end mt-4 relative">
+<div class="flex items-center gap-2 flex-row-reverse w-full justify-end">
+<!-- Chat Bubble -->
+<div class="bg-primary-container/80 text-on-primary-container/80 px-4 py-3 rounded-2xl rounded-br-sm font-body-md shadow-sm opacity-90">我带了一些额外的零食！🦴</div>
+<!-- Error Icon / Button -->
+<button aria-label="Message failed to send. Tap for options." class="w-8 h-8 rounded-full bg-error-container text-error flex items-center justify-center flex-shrink-0 shadow-[0px_8px_24px_rgba(239,83,80,0.15)] scale-95 active:scale-90 transition-transform hover:bg-error hover:text-on-error relative group" id="error-btn">
+<span class="material-symbols-outlined text-[18px]">error</span>
+<!-- Tooltip hint (visible on hover for desktop) -->
+<span class="absolute right-10 whitespace-nowrap bg-inverse-surface text-inverse-on-surface font-label-sm text-label-sm px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none hidden md:block">
+                        &#x53d1;&#x9001;&#x5931;&#x8d25;
+                    </span>
+</button>
+</div>
+<span class="font-label-sm text-label-sm text-error px-2 flex items-center gap-1">发送失败，点击图标重试。</span>
+<!-- Pop-up Menu (Hidden by default) -->
+<div class="hidden absolute right-12 top-0 bg-surface-container-lowest shadow-[0px_8px_24px_rgba(74,69,66,0.15)] rounded-xl py-2 w-32 border border-surface-variant z-10 origin-top-right transform transition-all duration-200 opacity-0 scale-95" id="error-menu">
+<button class="w-full text-left px-4 py-2 hover:bg-surface-container font-body-md text-on-surface flex items-center gap-2 transition-colors">
+<span class="material-symbols-outlined text-[20px] text-bark-gray">refresh</span>
+                     &#x91cd;&#x65b0;&#x53d1;&#x9001;
+                 </button>
+<button class="w-full text-left px-4 py-2 hover:bg-error-container font-body-md text-error flex items-center gap-2 transition-colors">
+<span class="material-symbols-outlined text-[20px]">delete</span>
+                     &#x5220;&#x9664;
+                 </button>
+</div>
+</div>
+</main>
+<!-- Message Input Area (Sticky Bottom) -->
+<div class="fixed bottom-0 w-full bg-background/90 backdrop-blur-xl border-t border-outline-variant/30 p-4 max-w-7xl mx-auto left-1/2 -translate-x-1/2 z-40">
+<div class="flex items-end gap-2 bg-surface-container-lowest border border-surface-variant rounded-2xl p-2 shadow-[0px_4px_20px_rgba(74,69,66,0.05)] focus-within:border-soft-teal focus-within:ring-1 focus-within:ring-soft-teal transition-all">
+<button aria-label="Add attachment" class="p-2 text-bark-gray hover:text-soft-teal transition-colors rounded-full hover:bg-surface-container scale-95 active:scale-90">
+<span class="material-symbols-outlined">add_circle</span>
+</button>
+<textarea class="flex-1 bg-transparent border-none focus:ring-0 resize-none font-body-md text-on-surface placeholder:text-outline py-2 max-h-32" placeholder="输入消息..." rows="1"></textarea>
+<button aria-label="Send message" class="p-2 text-warm-orange hover:text-primary transition-colors rounded-full hover:bg-surface-container scale-95 active:scale-90">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">send</span>
+</button>
+</div>
+</div>
+<!-- Interactive Script -->
+<script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const errorBtn = document.getElementById('error-btn');
+            const errorMenu = document.getElementById('error-menu');
+            let isMenuOpen = false;
+
+            // Toggle menu on button click
+            errorBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent closing immediately
+                isMenuOpen = !isMenuOpen;
+                if (isMenuOpen) {
+                    errorMenu.classList.remove('hidden');
+                    // Slight delay for transition to apply after display:block
+                    setTimeout(() => {
+                        errorMenu.classList.remove('opacity-0', 'scale-95');
+                        errorMenu.classList.add('opacity-100', 'scale-100');
+                    }, 10);
+                } else {
+                    closeMenu();
+                }
+            });
+
+            // Close menu when clicking outside
+            document.addEventListener('click', (e) => {
+                if (isMenuOpen && !errorMenu.contains(e.target)) {
+                    closeMenu();
+                }
+            });
+
+            function closeMenu() {
+                errorMenu.classList.remove('opacity-100', 'scale-100');
+                errorMenu.classList.add('opacity-0', 'scale-95');
+                // Wait for transition to finish before hiding
+                setTimeout(() => {
+                    errorMenu.classList.add('hidden');
+                    isMenuOpen = false;
+                }, 200);
+            }
+        });
+    </script>
+</body></html>

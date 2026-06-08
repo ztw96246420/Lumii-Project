@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>Lumii - 登录</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "soft-teal": "#4DB6AC",
+                        "bark-gray": "#4A4542",
+                        "error": "#ba1a1a",
+                        "on-tertiary-container": "#4e3d00",
+                        "surface-dim": "#dbdad5",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "on-primary-container": "#732500",
+                        "inverse-on-surface": "#f2f1ec",
+                        "health-red": "#EF5350",
+                        "on-secondary-container": "#006f67",
+                        "surface-container": "#f0eee9",
+                        "on-tertiary-fixed": "#241a00",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "inverse-primary": "#ffb59a",
+                        "surface-container-high": "#eae8e3",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "surface-bright": "#fbf9f4",
+                        "tertiary-fixed": "#ffe088",
+                        "warm-orange": "#FF8A5C",
+                        "sunny-yellow": "#FFD966",
+                        "primary": "#9f4119",
+                        "on-tertiary": "#ffffff",
+                        "secondary-fixed": "#8ef4e9",
+                        "primary-fixed": "#ffdbce",
+                        "surface-container-low": "#f5f3ee",
+                        "on-secondary": "#ffffff",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "on-primary-fixed": "#380d00",
+                        "on-primary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-error": "#ffffff",
+                        "on-surface-variant": "#56423b",
+                        "on-background": "#1b1c19",
+                        "surface": "#fbf9f4",
+                        "background": "#fbf9f4",
+                        "surface-container-highest": "#e4e2dd",
+                        "bone-white": "#F9F7F2",
+                        "on-secondary-fixed": "#00201d",
+                        "inverse-surface": "#30312e",
+                        "secondary": "#006a63",
+                        "surface-variant": "#e4e2dd",
+                        "secondary-container": "#8bf1e6",
+                        "tertiary-container": "#c9a739",
+                        "surface-tint": "#9f4119",
+                        "primary-container": "#ff8a5c",
+                        "outline-variant": "#ddc0b7",
+                        "on-surface": "#1b1c19",
+                        "outline": "#8a726a",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary": "#735c00",
+                        "primary-fixed-dim": "#ffb59a"
+                    },
+                    borderRadius: {
+                        DEFAULT: "0.25rem",
+                        lg: "0.5rem",
+                        xl: "0.75rem",
+                        full: "9999px"
+                    },
+                    spacing: {
+                        "container-padding": "24px",
+                        "margin-desktop": "40px",
+                        "gutter": "16px",
+                        "base": "8px",
+                        "margin-mobile": "20px"
+                    },
+                    fontFamily: {
+                        "label-md": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"]
+                    },
+                    fontSize: {
+                        "label-md": ["14px", { lineHeight: "20px", letterSpacing: "0.01em", fontWeight: "600" }],
+                        "headline-lg": ["24px", { lineHeight: "32px", fontWeight: "700" }],
+                        "body-md": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+                        "body-lg": ["18px", { lineHeight: "28px", fontWeight: "500" }],
+                        "label-sm": ["12px", { lineHeight: "16px", fontWeight: "500" }],
+                        "headline-xl": ["32px", { lineHeight: "40px", letterSpacing: "-0.02em", fontWeight: "700" }],
+                        "headline-lg-mobile": ["20px", { lineHeight: "28px", fontWeight: "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(251, 249, 244, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-bone-white text-on-surface min-h-screen flex flex-col relative overflow-hidden">
+<!-- Background Decoration -->
+<div class="absolute top-0 left-0 w-full h-64 bg-gradient-to-b from-primary-fixed-dim/30 to-transparent -z-10"></div>
+<div class="absolute -top-24 -right-24 w-64 h-64 bg-warm-orange/10 rounded-full blur-3xl -z-10"></div>
+<div class="absolute top-1/2 -left-32 w-80 h-80 bg-soft-teal/10 rounded-full blur-3xl -z-10"></div>
+<!-- Top Navigation (Transactional/Suppressed context, just back button if needed, but here a simple brand logo) -->
+<header class="w-full flex justify-between items-center px-margin-mobile py-4 z-50">
+<button aria-label="返回" class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined text-on-surface">close</span>
+</button>
+<div class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary tracking-tight">Lumii</div>
+<div class="w-10 h-10"></div> <!-- Spacer -->
+</header>
+<!-- Main Content -->
+<main class="flex-1 flex flex-col justify-center px-margin-mobile pb-12 relative z-10 max-w-md mx-auto w-full">
+<!-- Header Section -->
+<div class="mb-8 text-center">
+<div class="w-20 h-20 mx-auto bg-surface-container-highest rounded-[2rem] flex items-center justify-center mb-6 shadow-[0px_8px_24px_rgba(255,138,92,0.15)] relative overflow-hidden">
+<img alt="Pet Avatar" class="w-full h-full object-cover" data-alt="A stylized, modern 3D cartoon avatar of a cute, expressive cat or dog face. The lighting is soft and warm, casting gentle shadows that enhance the tactile, slightly squishy feeling of the character. The background is a soft bone white or light warm orange. The overall style is friendly, inviting, and consistent with a high-end pet companion app aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBtKA9YkLTVx4t0wCJYzC_Hurlzgc7uNQIQsHarD0Cq0d2pk9O1qkUYGWckIDNNF-EiOLzUY316_LDJvu4dHuRzZ6C9Z5e3kQiS2X-pAe1xkQLGegJpP62IsYA3EzaqyyI-doHGXRKldioa38wTlpkKj7nMzpQabzTYZLfpTvjFw5tI9L0lanrUqiLTRth8Z44hUY1YZ9iZjzPFovJ1lYDdH787Nhhu_nA0rMhBNboQ0buCnHGB1ASW9_8HHF1qSsaOThUsykckTmfG"/>
+</div>
+<h1 class="font-headline-xl text-headline-xl text-on-surface mb-2">欢迎回来</h1>
+<p class="font-body-md text-body-md text-on-surface-variant">记录与毛孩子的美好时光</p>
+</div>
+<!-- Login Form Container (Bento/Card Style) -->
+<div class="glass-panel p-6 rounded-[24px] shadow-[0px_4px_20px_rgba(74,69,66,0.05)] border border-surface-variant/50 relative">
+<form class="flex flex-col gap-5">
+<!-- Phone Number Input -->
+<div class="relative group">
+<div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+<span class="font-body-md text-body-md text-on-surface-variant">+86</span>
+<div class="h-4 w-[1px] bg-outline-variant mx-2"></div>
+</div>
+<input class="w-full pl-[76px] pr-4 py-4 bg-surface-container-low rounded-xl border border-transparent focus:border-soft-teal focus:ring-0 font-body-md text-body-md text-on-surface placeholder:text-outline transition-all" inputmode="numeric" pattern="[0-9]*" placeholder="请输入手机号" type="tel"/>
+</div>
+<!-- Verification Code Input -->
+<div class="relative flex gap-3">
+<div class="relative flex-1">
+<input class="w-full px-4 py-4 bg-surface-container-low rounded-xl border border-transparent focus:border-soft-teal focus:ring-0 font-body-md text-body-md text-on-surface placeholder:text-outline transition-all" placeholder="验证码" type="text"/>
+</div>
+<button class="px-5 py-4 bg-surface-container rounded-xl font-label-md text-label-md text-primary hover:bg-surface-variant active:scale-95 transition-all whitespace-nowrap" type="button">
+                        获取验证码
+                    </button>
+</div>
+<!-- Action Button -->
+<button class="w-full py-4 mt-2 bg-warm-orange rounded-full font-label-md text-label-md text-on-primary shadow-[0px_8px_24px_rgba(255,138,92,0.2)] hover:opacity-90 active:scale-98 transition-all flex items-center justify-center gap-2" type="submit">
+                    登录 / 注册
+                    <span class="material-symbols-outlined text-[20px]" data-weight="fill" style="font-variation-settings: 'FILL' 1;">arrow_forward</span>
+</button>
+<!-- Agreement Checkbox -->
+<label class="flex items-start gap-2 mt-2 cursor-pointer group">
+<div class="relative flex items-center justify-center w-5 h-5 mt-0.5">
+<input class="peer appearance-none w-5 h-5 rounded-md border-2 checked:border-soft-teal checked:bg-soft-teal transition-colors border-error" type="checkbox"/>
+<span class="material-symbols-outlined text-white text-[16px] absolute opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant flex-1 leading-snug">
+                        我已阅读并同意 
+                        <a class="text-secondary hover:underline" href="#">《用户协议》</a> 与 
+                        <a class="text-secondary hover:underline" href="#">《隐私政策》</a>
+                        ，未注册的手机号将自动创建账号。
+                    </span>
+</label>
+</form>
+</div>
+<!-- Third Party Login -->
+<div class="mt-10 flex flex-col items-center">
+<div class="flex items-center gap-4 w-full mb-6">
+<div class="h-[1px] flex-1 bg-outline-variant/50"></div>
+<span class="font-label-sm text-label-sm text-outline">其他登录方式</span>
+<div class="h-[1px] flex-1 bg-outline-variant/50"></div>
+</div>
+<div class="flex justify-center gap-6">
+<!-- WeChat (Simulated) -->
+<button class="w-12 h-12 rounded-full bg-surface-container-high flex items-center justify-center text-[#07C160] hover:bg-surface-variant active:scale-95 transition-all shadow-[0px_4px_20px_rgba(74,69,66,0.05)]">
+<span class="material-symbols-outlined text-[24px]">chat_bubble</span>
+</button>
+<!-- Apple (Simulated) -->
+<button class="w-12 h-12 rounded-full bg-on-surface flex items-center justify-center text-surface hover:opacity-90 active:scale-95 transition-all shadow-[0px_4px_20px_rgba(74,69,66,0.05)]">
+<span class="material-symbols-outlined text-[24px]">laptop_mac</span>
+</button>
+</div>
+</div>
+</main>
+<script>
+        // Simple micro-interaction for the verification code button
+        document.querySelector('button[type="button"]').addEventListener('click', function() {
+            let countdown = 60;
+            const btn = this;
+            if (btn.disabled) return;
+            
+            btn.disabled = true;
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+            btn.classList.remove('text-primary');
+            btn.classList.add('text-outline');
+            
+            const originalText = btn.innerText;
+            btn.innerText = `${countdown}s 后重试`;
+            
+            const timer = setInterval(() => {
+                countdown--;
+                if (countdown > 0) {
+                    btn.innerText = `${countdown}s 后重试`;
+                } else {
+                    clearInterval(timer);
+                    btn.disabled = false;
+                    btn.classList.remove('opacity-50', 'cursor-not-allowed', 'text-outline');
+                    btn.classList.add('text-primary');
+                    btn.innerText = originalText;
+                }
+            }, 1000);
+        });
+    </script>
+<div class="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] animate-bounce">
+<div class="bg-on-surface/90 text-surface px-6 py-3 rounded-full shadow-lg flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">info</span>
+<span class="font-label-md text-label-md">请先阅读并同意用户协议和隐私政策</span>
+</div>
+</div></body></html>

@@ -1,0 +1,285 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>健康备忘 - Lumii</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "soft-teal": "#4DB6AC",
+                        "bark-gray": "#4A4542",
+                        "error": "#ba1a1a",
+                        "on-tertiary-container": "#4e3d00",
+                        "surface-dim": "#dbdad5",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "on-primary-container": "#732500",
+                        "inverse-on-surface": "#f2f1ec",
+                        "health-red": "#EF5350",
+                        "on-secondary-container": "#006f67",
+                        "surface-container": "#f0eee9",
+                        "on-tertiary-fixed": "#241a00",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "inverse-primary": "#ffb59a",
+                        "surface-container-high": "#eae8e3",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "surface-bright": "#fbf9f4",
+                        "tertiary-fixed": "#ffe088",
+                        "warm-orange": "#FF8A5C",
+                        "sunny-yellow": "#FFD966",
+                        "primary": "#9f4119",
+                        "on-tertiary": "#ffffff",
+                        "secondary-fixed": "#8ef4e9",
+                        "primary-fixed": "#ffdbce",
+                        "surface-container-low": "#f5f3ee",
+                        "on-secondary": "#ffffff",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "on-primary-fixed": "#380d00",
+                        "on-primary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-error": "#ffffff",
+                        "on-surface-variant": "#56423b",
+                        "on-background": "#1b1c19",
+                        "surface": "#fbf9f4",
+                        "background": "#fbf9f4",
+                        "surface-container-highest": "#e4e2dd",
+                        "bone-white": "#F9F7F2",
+                        "on-secondary-fixed": "#00201d",
+                        "inverse-surface": "#30312e",
+                        "secondary": "#006a63",
+                        "surface-variant": "#e4e2dd",
+                        "secondary-container": "#8bf1e6",
+                        "tertiary-container": "#c9a739",
+                        "surface-tint": "#9f4119",
+                        "primary-container": "#ff8a5c",
+                        "outline-variant": "#ddc0b7",
+                        "on-surface": "#1b1c19",
+                        "outline": "#8a726a",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary": "#735c00",
+                        "primary-fixed-dim": "#ffb59a"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px",
+                        "2xl": "1rem",
+                        "3xl": "1.5rem"
+                    },
+                    spacing: {
+                        "container-padding": "24px",
+                        "margin-desktop": "40px",
+                        "gutter": "16px",
+                        "base": "8px",
+                        "margin-mobile": "20px",
+                        "safe-bottom": "env(safe-area-inset-bottom, 20px)"
+                    },
+                    fontFamily: {
+                        "label-md": ["Plus Jakarta Sans", "sans-serif"],
+                        "headline-lg": ["Plus Jakarta Sans", "sans-serif"],
+                        "body-md": ["Plus Jakarta Sans", "sans-serif"],
+                        "body-lg": ["Plus Jakarta Sans", "sans-serif"],
+                        "label-sm": ["Plus Jakarta Sans", "sans-serif"],
+                        "headline-xl": ["Plus Jakarta Sans", "sans-serif"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans", "sans-serif"]
+                    },
+                    fontSize: {
+                        "label-md": ["14px", { lineHeight: "20px", letterSpacing: "0.01em", fontWeight: "600" }],
+                        "headline-lg": ["24px", { lineHeight: "32px", fontWeight: "700" }],
+                        "body-md": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+                        "body-lg": ["18px", { lineHeight: "28px", fontWeight: "500" }],
+                        "label-sm": ["12px", { lineHeight: "16px", fontWeight: "500" }],
+                        "headline-xl": ["32px", { lineHeight: "40px", letterSpacing: "-0.02em", fontWeight: "700" }],
+                        "headline-lg-mobile": ["20px", { lineHeight: "28px", fontWeight: "700" }]
+                    },
+                    boxShadow: {
+                        'level-1': '0px 4px 20px rgba(74, 69, 66, 0.05)',
+                        'level-2': '0px 8px 24px rgba(255, 138, 92, 0.15)',
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: theme('colors.bone-white'); }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .icon-fill { font-variation-settings: 'FILL' 1; }
+        /* Hide scrollbar for clean horizontal scrolling */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="font-body-md text-body-md text-on-surface antialiased pb-safe-bottom">
+<!-- TopAppBar (From JSON) -->
+<header class="bg-surface/80 dark:bg-surface-dim/80 fixed top-0 w-full z-50 backdrop-blur-md bg-transparent">
+<div class="flex justify-between items-center px-margin-mobile h-16 w-full max-w-screen-xl mx-auto">
+<button class="text-primary dark:text-primary-fixed-dim hover:opacity-80 transition-opacity active:scale-95 transition-transform duration-200 flex items-center justify-center p-2 -ml-2 rounded-full">
+<span class="material-symbols-outlined" data-icon="pets">pets</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary dark:text-primary-fixed-dim">Lumii</h1>
+<button class="text-on-surface-variant dark:text-outline-variant hover:opacity-80 transition-opacity active:scale-95 transition-transform duration-200 flex items-center justify-center p-2 -mr-2 rounded-full">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="pt-20 px-margin-mobile max-w-screen-md mx-auto flex flex-col gap-gutter pb-48">
+<!-- Page Header & Metadata -->
+<div class="flex flex-col gap-2 mt-4 mb-2">
+<div class="flex items-center gap-2 text-bark-gray/70">
+<span class="material-symbols-outlined text-[18px]">calendar_month</span>
+<span class="font-label-md text-label-md">2023年10月24日 · 宠物医院复查</span>
+</div>
+<h2 class="font-headline-xl text-headline-xl text-on-surface">肠胃不适跟查记录</h2>
+<!-- Tags -->
+<div class="flex gap-2 mt-2">
+<span class="px-3 py-1 bg-warm-orange/10 text-primary rounded-full font-label-sm text-label-sm border border-warm-orange/20">肠胃科</span>
+<span class="px-3 py-1 bg-soft-teal/10 text-secondary rounded-full font-label-sm text-label-sm border border-soft-teal/20">复诊</span>
+</div>
+</div>
+<!-- Section: Vitals (Bento Grid) -->
+<section class="grid grid-cols-2 gap-3">
+<div class="bg-surface rounded-2xl p-4 shadow-level-1 flex flex-col gap-2 relative overflow-hidden">
+<div class="absolute top-0 right-0 w-16 h-16 bg-soft-teal/5 rounded-bl-full"></div>
+<div class="flex items-center gap-2 text-bark-gray">
+<span class="material-symbols-outlined text-soft-teal">monitor_weight</span>
+<span class="font-label-md text-label-md">体重监测</span>
+</div>
+<div class="flex items-baseline gap-1 mt-1">
+<span class="font-headline-lg text-headline-lg text-on-surface">4.2</span>
+<span class="font-label-sm text-label-sm text-bark-gray">kg</span>
+</div>
+<span class="font-label-sm text-label-sm text-soft-teal">↓ 0.1kg (对比上次)</span>
+</div>
+<div class="bg-surface rounded-2xl p-4 shadow-level-1 flex flex-col gap-2 relative overflow-hidden">
+<div class="absolute top-0 right-0 w-16 h-16 bg-warm-orange/5 rounded-bl-full"></div>
+<div class="flex items-center gap-2 text-bark-gray">
+<span class="material-symbols-outlined text-warm-orange">device_thermostat</span>
+<span class="font-label-md text-label-md">体温记录</span>
+</div>
+<div class="flex items-baseline gap-1 mt-1">
+<span class="font-headline-lg text-headline-lg text-on-surface">38.5</span>
+<span class="font-label-sm text-label-sm text-bark-gray">°C</span>
+</div>
+<span class="font-label-sm text-label-sm text-bark-gray/60">正常范围</span>
+</div>
+</section>
+<!-- Section: Visit Description -->
+<section class="bg-surface rounded-2xl p-5 shadow-level-1 flex flex-col gap-3">
+<div class="flex items-center gap-2 border-b border-surface-container pb-3">
+<span class="material-symbols-outlined text-primary">clinical_notes</span>
+<h3 class="font-body-lg text-body-lg font-bold text-on-surface">就诊描述</h3>
+</div>
+<p class="font-body-md text-body-md text-bark-gray leading-relaxed">
+                猫咪过去三天出现偶发性呕吐，主要为未消化完全的猫粮和少量黄色液体。精神状态尚可，食欲下降约30%。医生触诊腹部略有胀气，无明显硬块。建议调整为处方肠胃粮，并配合益生菌观察一周。
+            </p>
+</section>
+<!-- Section: Medication History -->
+<section class="bg-surface rounded-2xl p-5 shadow-level-1 flex flex-col gap-4">
+<div class="flex items-center gap-2 border-b border-surface-container pb-3">
+<span class="material-symbols-outlined text-soft-teal">prescriptions</span>
+<h3 class="font-body-lg text-body-lg font-bold text-on-surface">用药记录</h3>
+</div>
+<div class="flex flex-col gap-4 relative">
+<!-- Timeline Line -->
+<div class="absolute left-2.5 top-2 bottom-2 w-[2px] bg-surface-container-highest rounded-full"></div>
+<!-- Medication Item 1 -->
+<div class="flex items-start gap-4 relative z-10">
+<div class="w-6 h-6 rounded-full bg-soft-teal/20 flex items-center justify-center shrink-0 mt-1 border-2 border-surface">
+<div class="w-2 h-2 rounded-full bg-soft-teal"></div>
+</div>
+<div class="flex-1 bg-bone-white rounded-xl p-3 border border-surface-container-high">
+<div class="flex justify-between items-start mb-1">
+<h4 class="font-label-md text-label-md text-on-surface">宠物专用布拉迪酵母菌</h4>
+<span class="font-label-sm text-label-sm bg-surface-container px-2 py-0.5 rounded text-bark-gray">口服</span>
+</div>
+<p class="font-body-md text-body-md text-bark-gray">每次 1 粒，每日 1 次</p>
+<p class="font-label-sm text-label-sm text-bark-gray/60 mt-1">随餐温水化开喂食，连用5天。</p>
+</div>
+</div>
+<!-- Medication Item 2 -->
+<div class="flex items-start gap-4 relative z-10">
+<div class="w-6 h-6 rounded-full bg-surface-container flex items-center justify-center shrink-0 mt-1 border-2 border-surface">
+<div class="w-2 h-2 rounded-full bg-bark-gray/40"></div>
+</div>
+<div class="flex-1 bg-bone-white rounded-xl p-3 border border-surface-container-high">
+<div class="flex justify-between items-start mb-1">
+<h4 class="font-label-md text-label-md text-on-surface">肠胃处方罐头 (希尔斯i/d)</h4>
+<span class="font-label-sm text-label-sm bg-surface-container px-2 py-0.5 rounded text-bark-gray">饮食</span>
+</div>
+<p class="font-body-md text-body-md text-bark-gray">替代日常主食</p>
+<p class="font-label-sm text-label-sm text-bark-gray/60 mt-1">少食多餐，每日分4次喂养。</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Section: Attachments -->
+<section class="bg-surface rounded-2xl p-5 shadow-level-1 flex flex-col gap-3">
+<div class="flex items-center justify-between border-b border-surface-container pb-3">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-bark-gray">perm_media</span>
+<h3 class="font-body-lg text-body-lg font-bold text-on-surface">照片与化验单</h3>
+</div>
+<span class="font-label-sm text-label-sm text-bark-gray/60">2 个文件</span>
+</div>
+<div class="grid grid-cols-3 gap-2 mt-2">
+<!-- Attachment Thumbnail 1 -->
+<div class="aspect-square rounded-lg overflow-hidden bg-surface-container relative group cursor-pointer">
+<img alt="Lab result" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" data-alt="A close-up, brightly lit photo of a veterinary medical record paper resting on a clean white desk. The paper has blue grid lines and some handwritten medical notes in black ink. A soft shadow is cast from a small desk plant nearby, creating a warm, clinical but friendly atmosphere fitting for a modern tactile minimalist pet health app." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBHU8yPhpxWDtAXpHVAFy8vlrayPg1uPTFKaF6DK7ZAMEdGI3-kI-6ynmamBMuITRHC-ZN4Q-tgCppHFlvKwAw-03TbtQuCLH3n48OqmipnJxYjjmFabVYOmkgyYlqB83Tx7ccpwPyRBM54sFnTblfIh0RFqTpu2kV2-zUftvjeumTeAFNJ_0tLZh8Xo647oUri4JL_VzL91536fqy9IsqqODlnf-ilpUzmAuP3L1C3MDU3XjXKFBGTL2b_RjZ0Cf-dk35JK_p4Wj9g">
+<div class="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+</div>
+<!-- Attachment Thumbnail 2 -->
+<div class="aspect-square rounded-lg overflow-hidden bg-surface-container relative group cursor-pointer">
+<img alt="Cat at clinic" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" data-alt="A soft, overhead shot of a small, fluffy orange tabby cat resting peacefully on an examination table at a vet clinic. The table is a soft pastel teal color, avoiding harsh clinical vibes. The lighting is warm and natural, emphasizing the gentle and caring environment of a modern, pet-centric digital companion space." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAZR1Q8ymBGCIqeWt1LzBS7xrBKoZVUH5_3ciJpmUBTj1_l6DHAJwB55M7pC2FCjY1cMSkZezmiKqq0Q9_wsabN7dmYKzU2JGdZPMcY8dyU2Pc3urkELMNVOQVWnOoyuj3NmqKRBFpwfXY4PvB46_XUl2K3BsqoGGkclwrLNqIOJ6TEEWpPjUzVTrFl0X2y5dwhJ9hLVAxvrPDp77ihihXqAU0ETvvH0XS-flKZz7ArTmyQnTNu7IscFh9Uw_rNTiXMzxHbK6fQaS5C">
+<div class="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+</div>
+<!-- Upload Button -->
+<button class="aspect-square rounded-lg border-2 border-dashed border-outline-variant bg-surface-container-low flex flex-col items-center justify-center gap-1 text-bark-gray hover:bg-surface-container transition-colors active:scale-95">
+<span class="material-symbols-outlined">add_photo_alternate</span>
+<span class="font-label-sm text-label-sm">上传</span>
+</button>
+</div>
+</section>
+</main>
+<!-- Floating AI Assistant Action (Glassmorphism Sticky Bottom) -->
+<div class="fixed bottom-0 left-0 w-full px-margin-mobile pt-12 bg-gradient-to-t from-bone-white via-bone-white/90 to-transparent pointer-events-none flex justify-center z-40 pb-[80px]">
+<div class="w-full max-w-screen-md pointer-events-auto">
+<button class="w-full bg-warm-orange hover:bg-primary-container text-white rounded-full py-4 flex items-center justify-center gap-2 shadow-level-2 transition-all active:scale-[0.98]">
+<span class="material-symbols-outlined icon-fill">auto_awesome</span>
+<span class="font-body-lg text-body-lg font-bold">生成医生摘要</span>
+</button>
+</div>
+</div>
+
+
+<nav class="fixed bottom-0 left-0 w-full bg-surface/80 backdrop-blur-lg border-t border-surface-container-high px-6 pb-safe-bottom pt-3 flex justify-between items-center z-50 shadow-lg">
+  <a href="#" class="flex flex-col items-center gap-1 text-primary">
+    <span class="material-symbols-outlined icon-fill">home</span>
+    <span class="text-[10px] font-bold uppercase tracking-wider">首页</span>
+  </a>
+  <a href="#" class="flex flex-col items-center gap-1 text-bark-gray/60 hover:text-primary transition-colors">
+    <span class="material-symbols-outlined">explore</span>
+    <span class="text-[10px] font-bold uppercase tracking-wider">发现</span>
+  </a>
+  <a href="#" class="flex flex-col items-center gap-1 text-bark-gray/60 hover:text-primary transition-colors">
+    <span class="material-symbols-outlined">chat_bubble</span>
+    <span class="text-[10px] font-bold uppercase tracking-wider">斈恡</span>
+  </a>
+  <a href="#" class="flex flex-col items-center gap-1 text-bark-gray/60 hover:text-primary transition-colors">
+    <span class="material-symbols-outlined">person</span>
+    <span class="text-[10px] font-bold uppercase tracking-wider">我的</span>
+  </a>
+</nav></body></html>

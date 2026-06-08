@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Lumii - 上传照片</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "warm-orange": "#FF8A5C",
+                      "on-tertiary-fixed": "#241a00",
+                      "tertiary-fixed-dim": "#e7c353",
+                      "on-surface-variant": "#56423b",
+                      "surface-container-high": "#eae8e3",
+                      "inverse-on-surface": "#f2f1ec",
+                      "error": "#ba1a1a",
+                      "on-primary-fixed": "#380d00",
+                      "surface-container": "#f0eee9",
+                      "health-red": "#EF5350",
+                      "background": "#fbf9f4",
+                      "surface-container-lowest": "#ffffff",
+                      "secondary-fixed-dim": "#71d7cd",
+                      "inverse-primary": "#ffb59a",
+                      "outline": "#8a726a",
+                      "on-secondary-container": "#006f67",
+                      "soft-teal": "#4DB6AC",
+                      "bone-white": "#F9F7F2",
+                      "on-primary": "#ffffff",
+                      "tertiary": "#735c00",
+                      "surface-bright": "#fbf9f4",
+                      "surface-dim": "#dbdad5",
+                      "on-secondary-fixed-variant": "#00504a",
+                      "on-secondary-fixed": "#00201d",
+                      "on-tertiary": "#ffffff",
+                      "error-container": "#ffdad6",
+                      "primary": "#9f4119",
+                      "outline-variant": "#ddc0b7",
+                      "secondary-fixed": "#8ef4e9",
+                      "surface-variant": "#e4e2dd",
+                      "surface-tint": "#9f4119",
+                      "on-error": "#ffffff",
+                      "sunny-yellow": "#FFD966",
+                      "surface-container-highest": "#e4e2dd",
+                      "bark-gray": "#4A4542",
+                      "surface": "#fbf9f4",
+                      "on-tertiary-container": "#4e3d00",
+                      "on-primary-container": "#732500",
+                      "primary-container": "#ff8a5c",
+                      "primary-fixed-dim": "#ffb59a",
+                      "primary-fixed": "#ffdbce",
+                      "on-error-container": "#93000a",
+                      "on-secondary": "#ffffff",
+                      "tertiary-fixed": "#ffe088",
+                      "on-primary-fixed-variant": "#7f2b02",
+                      "tertiary-container": "#c9a739",
+                      "secondary": "#006a63",
+                      "surface-container-low": "#f5f3ee",
+                      "on-tertiary-fixed-variant": "#574500",
+                      "on-background": "#1b1c19",
+                      "secondary-container": "#8bf1e6",
+                      "inverse-surface": "#30312e",
+                      "on-surface": "#1b1c19"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px",
+                      "2xl": "1rem",
+                      "3xl": "1.5rem"
+              },
+              "spacing": {
+                      "base": "8px",
+                      "container-padding": "24px",
+                      "gutter": "16px",
+                      "margin-mobile": "20px",
+                      "margin-desktop": "40px"
+              },
+              "fontFamily": {
+                      "headline-lg": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "label-md": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-xl": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "label-sm": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "body-md": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "body-lg": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-lg-mobile": [
+                              "Plus Jakarta Sans"
+                      ]
+              },
+              "fontSize": {
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "label-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "letterSpacing": "0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-xl": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "label-sm": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "700"
+                              }
+                      ]
+              }
+            }
+          }
+        }
+      </script>
+<style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .material-symbols-outlined {
+          font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.filled {
+            font-variation-settings: 'FILL' 1;
+        }
+        
+        /* Pulse animation for AI identification box */
+        @keyframes pulse-box {
+            0% { box-shadow: 0 0 0 0 rgba(77, 182, 172, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(77, 182, 172, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(77, 182, 172, 0); }
+        }
+        .ai-scanning-box {
+            animation: pulse-box 2s infinite;
+        }
+      </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface min-h-screen flex flex-col items-center">
+<!-- Top App Bar - Linear flow, so we replace brand top bar with a Back navigation -->
+<header class="w-full max-w-md sticky top-0 z-50 bg-background/90 backdrop-blur-md px-margin-mobile h-16 flex items-center justify-between mb-4 border-b border-surface-variant/50">
+<button class="flex items-center justify-center p-2 rounded-full hover:bg-surface-container active:scale-95 transition-all text-on-surface">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">上传照片</h1>
+<div class="w-10"></div> <!-- Placeholder for balance -->
+</header>
+<main class="w-full max-w-md px-margin-mobile flex-1 flex flex-col gap-6 pb-32">
+<!-- Header Text -->
+<section class="text-center">
+<h2 class="font-headline-lg text-headline-lg text-primary mb-2">生成您的宠物化身</h2>
+<p class="font-body-md text-body-md text-bark-gray">上传 1-5 张清晰的宠物照片。我们将利用AI识别并生成独一无二的数字伴侣。</p>
+</section>
+<!-- Photo Grid Area -->
+<section class="bg-surface-container-lowest rounded-3xl p-4 shadow-[0_4px_20px_rgba(74,69,66,0.05)] border border-surface-variant/30">
+<div class="grid grid-cols-3 gap-3 mb-4">
+<!-- Uploaded Photo 1 (AI Identifying State) -->
+<div class="relative aspect-square rounded-2xl overflow-hidden bg-surface-container-high group">
+<img alt="Beagle dog looking directly at the camera with clear lighting." class="w-full h-full object-cover" data-alt="A close-up photograph of a Beagle dog looking directly at the camera. The lighting is soft, warm, and clear, characteristic of a bright, modern light-mode aesthetic. The background is slightly blurred to emphasize the pet's face. The mood is calm and inviting, reflecting the 'Modern Tactile Minimalism' style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAH7oQV5Gnl_C-88xYE44pZFHabHQf2A1o6YrIYWkC7jgJ_gBB74qNY4pWbqJ7QjvMicBlilrPDxqVNFn8ydQymGEa3itYJ-v_ZG-4LCNK12NSMl8wNUv46gm5oybY5ZBOD5NH4u81Mtt-f27VLH5ImZuRuN3Vn9h1UILPKa_C0qzukqwjCVs3_eGOc22X7X7iC4VBDjvvSHqTere9w1dXOEMRQRx9uWIpFr-yzHWRNNUER-KrWMsFBGPzefWNaXkAmgPpuhSBiyv-_"/>
+<!-- AI Bounding Box -->
+<div class="absolute inset-2 border-2 border-soft-teal rounded-lg ai-scanning-box pointer-events-none flex items-start justify-end p-1 bg-soft-teal/10">
+<div class="bg-soft-teal text-white rounded-full px-2 py-0.5 flex items-center gap-1">
+<span class="material-symbols-outlined filled text-[10px]">auto_awesome</span>
+<span class="font-label-sm text-[10px] leading-tight font-bold">识别中</span>
+</div>
+</div>
+<!-- Remove Button (Hidden by default, shown on hover/active) -->
+<button class="absolute -top-1 -right-1 bg-surface-container-lowest shadow-md rounded-full p-1 text-bark-gray hover:text-error transition-colors">
+<span class="material-symbols-outlined text-sm">close</span>
+</button>
+</div>
+<!-- Uploaded Photo 2 -->
+<div class="relative aspect-square rounded-2xl overflow-hidden bg-surface-container-high group">
+<img alt="Small dog sitting indoors." class="w-full h-full object-cover" data-alt="A photograph of a small terrier mix sitting indoors. The scene is brightly lit with natural sunlight, creating a warm and organic atmosphere. The aesthetic matches a clean, modern digital companion app with soft tones and minimal distractions. The focus is entirely on the pet's expression." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBj9CxrywqP18dBwmIKbAV47T1ASljoh57CQuYnFmrZmGqQ_QMzCKMgeFCezFSiFwlb8wwamCSHgUobWWQkaadj1V5E2RhFLyIg8ofqMOXDzfehCW5k081WcLRXg98aPgTn0Utj6EXLSDl_JrQq9i5cP7aPUqCx1q8m9B6TQORGer_riXL_2sA_0eHkLEpSHqxSghpa_1JQx9dGi3skPc0YqiF2SwUdgnOr5G8AW03gBzqbNUVWJCDyjgj2nRjh7WOstGqIwsnVIqYv"/>
+<button class="absolute -top-1 -right-1 bg-surface-container-lowest shadow-md rounded-full p-1 text-bark-gray hover:text-error transition-colors">
+<span class="material-symbols-outlined text-sm">close</span>
+</button>
+</div>
+<!-- Add Button -->
+<button class="relative aspect-square rounded-2xl overflow-hidden bg-surface-container border-2 border-dashed border-outline-variant hover:bg-surface-variant transition-colors flex flex-col items-center justify-center gap-1 active:scale-95 duration-200">
+<span class="material-symbols-outlined text-warm-orange text-3xl">add_photo_alternate</span>
+<span class="font-label-sm text-label-sm text-bark-gray">添加照片</span>
+<span class="font-label-sm text-[10px] text-outline">2/5</span>
+</button>
+</div>
+<!-- Progress Bar -->
+<div class="w-full bg-surface-container rounded-full h-2 overflow-hidden">
+<div class="bg-warm-orange h-full rounded-full transition-all duration-500" style="width: 40%"></div>
+</div>
+</section>
+<!-- Requirements List -->
+<section class="bg-surface-container-low rounded-3xl p-5 border border-surface-variant/50 shadow-sm">
+<h3 class="font-label-md text-label-md text-on-surface-variant flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-soft-teal">task_alt</span>
+                照片要求
+            </h3>
+<ul class="space-y-3">
+<li class="flex items-start gap-3">
+<div class="bg-surface-container-highest rounded-full p-1.5 mt-0.5">
+<span class="material-symbols-outlined text-[16px] text-bark-gray">light_mode</span>
+</div>
+<div>
+<p class="font-body-md text-sm font-medium text-on-surface">光线充足</p>
+<p class="font-body-md text-[13px] text-bark-gray mt-0.5">避免强烈的背光或模糊的夜间照片。</p>
+</div>
+</li>
+<li class="flex items-start gap-3">
+<div class="bg-surface-container-highest rounded-full p-1.5 mt-0.5">
+<span class="material-symbols-outlined text-[16px] text-bark-gray">center_focus_strong</span>
+</div>
+<div>
+<p class="font-body-md text-sm font-medium text-on-surface">宠物居中</p>
+<p class="font-body-md text-[13px] text-bark-gray mt-0.5">确保宠物的面部和身体完整显示在画面中。</p>
+</div>
+</li>
+<li class="flex items-start gap-3">
+<div class="bg-error-container rounded-full p-1.5 mt-0.5">
+<span class="material-symbols-outlined text-[16px] text-error">no_photography</span>
+</div>
+<div>
+<p class="font-body-md text-sm font-medium text-error">请勿包含人物</p>
+<p class="font-body-md text-[13px] text-error/80 mt-0.5">为保护隐私，请裁剪掉照片中的人脸。</p>
+</div>
+</li>
+</ul>
+</section>
+</main>
+<!-- Bottom Fixed Action Area -->
+<div class="fixed bottom-0 w-full max-w-md bg-background/90 backdrop-blur-xl border-t border-outline-variant/30 p-margin-mobile z-50 rounded-t-3xl shadow-[0_-4px_20px_rgba(0,0,0,0.02)]">
+<!-- Privacy Warning Toast (Simulated active) -->
+<div class="mb-4 bg-sunny-yellow/20 border border-sunny-yellow/50 rounded-xl p-3 flex items-start gap-3">
+<span class="material-symbols-outlined text-tertiary-container mt-0.5">privacy_tip</span>
+<p class="font-label-sm text-[13px] text-on-surface-variant leading-relaxed">
+<strong>隐私提示：</strong> 系统检测到照片中可能包含人脸。继续操作即表示您同意我们处理这些图像以提取您的宠物数据。
+            </p>
+</div>
+<button class="w-full bg-warm-orange text-white font-label-md text-label-md py-4 rounded-full shadow-[0_8px_24px_rgba(255,138,92,0.25)] flex items-center justify-center gap-2 scale-98 active:scale-95 transition-all duration-200 hover:bg-primary-container hover:text-on-primary-container">
+<span class="material-symbols-outlined filled">magic_button</span>
+            开始生成
+        </button>
+</div>
+</body></html>

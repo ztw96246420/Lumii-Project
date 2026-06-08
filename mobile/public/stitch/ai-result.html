@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>Lumii - AI 形象生成结果</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "soft-teal": "#4DB6AC",
+                        "bark-gray": "#4A4542",
+                        "error": "#ba1a1a",
+                        "on-tertiary-container": "#4e3d00",
+                        "surface-dim": "#dbdad5",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "on-primary-container": "#732500",
+                        "inverse-on-surface": "#f2f1ec",
+                        "health-red": "#EF5350",
+                        "on-secondary-container": "#006f67",
+                        "surface-container": "#f0eee9",
+                        "on-tertiary-fixed": "#241a00",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "inverse-primary": "#ffb59a",
+                        "surface-container-high": "#eae8e3",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "surface-bright": "#fbf9f4",
+                        "tertiary-fixed": "#ffe088",
+                        "warm-orange": "#FF8A5C",
+                        "sunny-yellow": "#FFD966",
+                        "primary": "#9f4119",
+                        "on-tertiary": "#ffffff",
+                        "secondary-fixed": "#8ef4e9",
+                        "primary-fixed": "#ffdbce",
+                        "surface-container-low": "#f5f3ee",
+                        "on-secondary": "#ffffff",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "on-primary-fixed": "#380d00",
+                        "on-primary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-error": "#ffffff",
+                        "on-surface-variant": "#56423b",
+                        "on-background": "#1b1c19",
+                        "surface": "#fbf9f4",
+                        "background": "#fbf9f4",
+                        "surface-container-highest": "#e4e2dd",
+                        "bone-white": "#F9F7F2",
+                        "on-secondary-fixed": "#00201d",
+                        "inverse-surface": "#30312e",
+                        "secondary": "#006a63",
+                        "surface-variant": "#e4e2dd",
+                        "secondary-container": "#8bf1e6",
+                        "tertiary-container": "#c9a739",
+                        "surface-tint": "#9f4119",
+                        "primary-container": "#ff8a5c",
+                        "outline-variant": "#ddc0b7",
+                        "on-surface": "#1b1c19",
+                        "outline": "#8a726a",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary": "#735c00",
+                        "primary-fixed-dim": "#ffb59a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-padding": "24px",
+                        "margin-desktop": "40px",
+                        "gutter": "16px",
+                        "base": "8px",
+                        "margin-mobile": "20px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }]
+                    },
+                    "boxShadow": {
+                        'level-1': '0px 4px 20px rgba(74, 69, 66, 0.05)',
+                        'level-2': '0px 8px 24px rgba(255, 138, 92, 0.15)',
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.bone-white');
+            color: theme('colors.bark-gray');
+        }
+        /* Custom scrollbar for horizontal scrolling */
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="font-body-md text-body-md antialiased pb-24 md:pb-0">
+<!-- TopAppBar -->
+<header class="bg-surface/80 dark:bg-surface-dim/80 fixed top-0 w-full z-50 backdrop-blur-md bg-transparent flat no shadows flex justify-between items-center px-margin-mobile h-16 w-full max-w-screen-xl mx-auto md:px-margin-desktop">
+<button class="flex items-center justify-center p-2 rounded-full hover:opacity-80 transition-opacity active:scale-95 transition-transform duration-200 text-on-surface-variant dark:text-outline-variant" onclick="history.back()">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<div class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary dark:text-primary-fixed-dim">
+            形象选择
+        </div>
+<button class="flex items-center justify-center p-2 rounded-full hover:opacity-80 transition-opacity active:scale-95 transition-transform duration-200 text-on-surface-variant dark:text-outline-variant">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</header>
+<!-- Main Content Canvas -->
+<main class="pt-24 px-margin-mobile md:px-margin-desktop max-w-screen-md mx-auto min-h-screen flex flex-col gap-6">
+<!-- Header Text -->
+<div class="text-center space-y-2">
+<h1 class="font-headline-xl text-headline-xl text-bark-gray">你的新伙伴已生成</h1>
+<p class="font-body-lg text-body-lg text-outline">请选择最喜欢的一张，或者调整风格重新生成。</p>
+</div>
+<!-- Style Switcher (Glassmorphism Pill) -->
+<div class="flex justify-center">
+<div class="inline-flex bg-surface-container-high rounded-full p-1 shadow-level-1">
+<button class="px-6 py-2 rounded-full font-label-md text-label-md bg-white text-bark-gray shadow-sm transition-all">
+                    手绘风
+                </button>
+<button class="px-6 py-2 rounded-full font-label-md text-label-md text-outline hover:text-bark-gray transition-all">
+                    3D 写实
+                </button>
+<button class="px-6 py-2 rounded-full font-label-md text-label-md text-outline hover:text-bark-gray transition-all">
+                    扁平插画
+                </button>
+</div>
+</div>
+<!-- Candidate Carousel (Bento-ish horizontal scroll on mobile, grid on desktop) -->
+<div class="relative w-full">
+<div class="flex overflow-x-auto hide-scrollbar gap-4 snap-x snap-mandatory pb-4" id="imageCarousel">
+<!-- Candidate 1 -->
+<div class="snap-center shrink-0 w-[85%] md:w-1/2 flex flex-col gap-3">
+<div class="relative w-full aspect-square rounded-[24px] overflow-hidden shadow-level-1 group cursor-pointer border-4 border-transparent hover:border-warm-orange transition-colors" onclick="selectImage(this)">
+<img alt="Golden Retriever avatar candidate" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida/ADBb0uijnc-DVlrxrGnaPKIMEsymr3GUC83kw2qoePmRsFM26HlmhpJu8YcJlp-X2PWAwvUxYJ8H1g7p-YlgSmAfweH3DEW54P8WWH78hff20-gQsRTGD4kzFSrMlZ_ppYvemOKYBjAhoH-vH_a5WeKJeWfNIZYE2ci_J6MBW_WZ3Ha5vaZMSSYgJrFPDAnVvDKJUtK2bS5MiFIDjAzyhXFYjljG2_M_-scNhMqXblmFzKpEKc10ST-efcPqiWhm"/>
+<!-- Active State Overlay -->
+<div class="absolute inset-0 bg-warm-orange/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+<div class="bg-white rounded-full p-2 shadow-level-2 transform scale-50 group-hover:scale-100 transition-transform">
+<span class="material-symbols-outlined text-warm-orange" data-icon="check_circle" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+</div>
+<!-- Similarity Badge -->
+<div class="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full font-label-sm text-label-sm text-soft-teal flex items-center gap-1 shadow-sm">
+<span class="material-symbols-outlined text-[14px]" data-icon="temp_preferences_custom">temp_preferences_custom</span>
+                            98% 相似度
+                        </div>
+</div>
+</div>
+<!-- Candidate 2 -->
+<div class="snap-center shrink-0 w-[85%] md:w-1/2 flex flex-col gap-3">
+<div class="relative w-full aspect-square rounded-[24px] overflow-hidden shadow-level-1 group cursor-pointer border-4 border-transparent hover:border-warm-orange transition-colors" onclick="selectImage(this)">
+<img alt="British Shorthair avatar candidate" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida/ADBb0ugNiKJnBblE0wB2pmZRrqjG9QwkWqhGm0KBeXkSqZzLvX6yCAMvai8AjGzABEvqp6qL0eyjKgknkxCx-WA_xCKxivrdoM_ENxGMUcdJPHQvaZTdY-WxbBybc3l58hNzxsY0BSsfU4sWqf3wT8Su95gi73oP2wAhFa00u4FDTyRV8N-psn-PRulytKxlvHKpPM5fTjnTI2mCUE4fIP_rqqq_zopqNEC0i9PE9MOI6uK0f87nDTAof1iiC9R7"/>
+<div class="absolute inset-0 bg-warm-orange/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+<div class="bg-white rounded-full p-2 shadow-level-2 transform scale-50 group-hover:scale-100 transition-transform">
+<span class="material-symbols-outlined text-warm-orange" data-icon="check_circle" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+</div>
+<div class="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full font-label-sm text-label-sm text-soft-teal flex items-center gap-1 shadow-sm">
+<span class="material-symbols-outlined text-[14px]" data-icon="temp_preferences_custom">temp_preferences_custom</span>
+                            95% 相似度
+                        </div>
+</div>
+</div>
+<!-- Candidate 3 (Placeholder for variety) -->
+<div class="snap-center shrink-0 w-[85%] md:w-1/2 flex flex-col gap-3">
+<div class="relative w-full aspect-square rounded-[24px] overflow-hidden shadow-level-1 bg-surface-container-high flex flex-col items-center justify-center border-4 border-transparent">
+<div class="w-16 h-16 rounded-full bg-surface-dim flex items-center justify-center mb-4 animate-pulse">
+<span class="material-symbols-outlined text-outline" data-icon="photo_spark">photo_spark</span>
+</div>
+<p class="font-label-md text-label-md text-outline">生成中...</p>
+</div>
+</div>
+</div>
+<!-- Scroll Indicators -->
+<div class="flex justify-center gap-2 mt-2 md:hidden">
+<div class="w-2 h-2 rounded-full bg-warm-orange"></div>
+<div class="w-2 h-2 rounded-full bg-surface-variant"></div>
+<div class="w-2 h-2 rounded-full bg-surface-variant"></div>
+</div>
+</div>
+<!-- Action Area -->
+<div class="mt-auto md:mt-8 flex flex-col gap-4 w-full max-w-sm mx-auto pt-6">
+<button class="w-full bg-warm-orange text-white py-4 rounded-full font-headline-lg-mobile text-headline-lg-mobile shadow-level-2 hover:bg-primary-container active:scale-95 transition-all flex items-center justify-center gap-2">
+                就选它了
+                <span class="material-symbols-outlined" data-icon="arrow_forward">arrow_forward</span>
+</button>
+<button class="w-full bg-transparent border-2 border-soft-teal text-soft-teal py-4 rounded-full font-headline-lg-mobile text-headline-lg-mobile hover:bg-soft-teal/5 active:scale-95 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined" data-icon="refresh">refresh</span>
+                不满意，重新生成
+            </button>
+</div>
+</main>
+<script>
+        function selectImage(element) {
+            // Reset all borders and overlays
+            const allImages = document.querySelectorAll('#imageCarousel > div > div');
+            allImages.forEach(img => {
+                img.classList.remove('border-warm-orange');
+                img.classList.add('border-transparent');
+                
+                const overlay = img.querySelector('.bg-warm-orange\\/10');
+                if(overlay) overlay.classList.remove('opacity-100');
+                
+                const iconContainer = img.querySelector('.bg-white.rounded-full.p-2');
+                if(iconContainer) iconContainer.classList.remove('scale-100');
+            });
+
+            // Set active state on clicked
+            element.classList.remove('border-transparent');
+            element.classList.add('border-warm-orange');
+            
+            const activeOverlay = element.querySelector('.bg-warm-orange\\/10');
+            if(activeOverlay) activeOverlay.classList.add('opacity-100');
+            
+            const activeIconContainer = element.querySelector('.bg-white.rounded-full.p-2');
+            if(activeIconContainer) activeIconContainer.classList.add('scale-100');
+        }
+    </script>
+</body></html>

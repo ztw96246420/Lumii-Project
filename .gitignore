@@ -1,0 +1,42 @@
+# dependencies
+**/node_modules/
+
+# build outputs and downloadable artifacts
+dist/
+**/build/
+**/.gradle/
+**/.expo/
+**/web-build/
+
+# local logs and temporary QA captures
+*.log
+*.err.log
+*.out.log
+mobile/*.png
+mobile/*.xml
+mobile/layout-qa/
+mobile/logs/
+
+# local environment and secrets
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+local.properties
+
+# editor and OS files
+.DS_Store
+Thumbs.db
+**/.idea/
+*.iml
+
+# TypeScript / Metro temporary files
+*.tsbuildinfo
+.metro-health-check*
+*.bak

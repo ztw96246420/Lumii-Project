@@ -1,0 +1,316 @@
+# Lumii MVP API 契约草案 v0
+
+日期：2026-05-30
+
+## 1. 前端接入策略
+
+当前前端通过 `mobile/src/mvp/api.ts` 访问统一 API 门面：
+
+- 默认：`EXPO_PUBLIC_API_MODE=mock`，走本地 `mockApi`。
+- 真实接口：`EXPO_PUBLIC_API_MODE=http` 且配置 `EXPO_PUBLIC_API_BASE_URL` 后，走 HTTP 适配器。
+- App 页面只依赖 `lumiiApi`，不直接依赖 mock，实现 mock/真实接口可替换。
+
+建议环境变量：
+
+```env
+EXPO_PUBLIC_API_MODE=mock
+EXPO_PUBLIC_API_BASE_URL=https://api-dev.lumii.example.com
+EXPO_PUBLIC_MAP_PROVIDER=amap
+EXPO_PUBLIC_AMAP_KEY=
+EXPO_PUBLIC_TENCENT_MAP_KEY=
+EXPO_PUBLIC_AI_GATEWAY_URL=
+EXPO_PUBLIC_UPLOAD_ENDPOINT=
+```
+
+## 2. 统一返回结构
+
+前端优先接受标准结构：
+
+```ts
+type ApiResult<T> =
+  | { state: 'success'; data: T }
+  | { state: 'error'; error: { message: string; retryable: boolean }; data?: unknown };
+```
+
+HTTP 适配器也兼容后端常见结构：
+
+```json
+{ "success": true, "data": {} }
+```
+
+错误建议：
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "SMS_RATE_LIMITED",
+    "message": "操作太频繁，请稍后再试",
+    "retryable": true
+  }
+}
+```
+
+## 3. 鉴权
+
+### POST `/auth/sms/send`
+
+发送手机号验证码。
+
+Request:
+
+```json
+{ "phone": "13531850966" }
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "phone": "13531850966",
+    "availableAt": 1780100000000,
+    "expiresAt": 1780100240000
+  }
+}
+```
+
+说明：
+- 真实接口不应返回验证码。
+- mock 环境会返回 `code`，仅用于本地演示。
+- `availableAt` 用于 60s 重新发送倒计时。
+- `expiresAt` 用于验证码过期判断。
+
+### POST `/auth/sms/verify`
+
+Request:
+
+```json
+{
+  "phone": "13531850966",
+  "code": "123456",
+  "expiresAt": 1780100240000
+}
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "phone": "13531850966",
+    "token": "jwt-or-session-token"
+  }
+}
+```
+
+### POST `/auth/logout`
+
+退出登录。前端成功后清空本地 token。
+
+## 4. 宠物档案
+
+### GET `/pets`
+
+返回当前用户的宠物列表。
+
+### POST `/pets`
+
+Request:
+
+```json
+{
+  "name": "奶油",
+  "species": "dog",
+  "breed": "金毛寻回犬",
+  "gender": "unknown",
+  "weightKg": 28.4
+}
+```
+
+Response data:
+
+```ts
+type PetProfile = {
+  id: string;
+  name: string;
+  species: 'dog' | 'cat' | 'rabbit' | 'hamster' | 'bird' | 'reptile' | 'other';
+  breed: string;
+  gender: 'male' | 'female' | 'unknown';
+  weightKg?: number;
+  birthday?: string;
+  avatarUrl?: string;
+  healthScore: number;
+  personality: string[];
+};
+```
+
+MVP 产品约束：
+- 首版 UI 先完整支持 `dog`、`cat`。
+- 其他物种类型保留接口和类型扩展口，暂不作为首版核心体验。
+
+### PATCH `/pets/{petId}`
+
+编辑宠物档案。
+
+### POST `/pets/{petId}/set-default`
+
+切换当前宠物。
+
+### POST `/pets/{petId}/avatar`
+
+保存 AI 电子宠物形象。
+
+Request:
+
+```json
+{ "avatarUrl": "https://..." }
+```
+
+## 5. 媒体上传与 AI 形象生成
+
+### POST `/media/uploads`
+
+MVP HTTP 适配器当前使用该接口承接上传结果。真实实现建议拆为：
+
+- `POST /media/upload-token`
+- 客户端直传 OSS/COS
+- `POST /media/commit`
+
+Response data:
+
+```json
+{
+  "mediaId": "media-001",
+  "previewUrl": "https://...",
+  "quality": "good"
+}
+```
+
+### POST `/ai/pet-avatar/jobs`
+
+Request:
+
+```json
+{ "mediaId": "media-001" }
+```
+
+Response data:
+
+```ts
+type AvatarJob = {
+  id: string;
+  status: 'processing' | 'ready' | 'failed';
+  progress: number;
+  resultUrl?: string;
+};
+```
+
+### GET `/ai/pet-avatar/jobs/{jobId}`
+
+轮询 AI 生成任务状态。
+
+## 6. 健康管理
+
+### GET `/health/weights`
+
+体重记录列表。
+
+### POST `/health/weights`
+
+Request:
+
+```json
+{ "kg": 28.6, "note": "MVP 本地记录" }
+```
+
+### GET `/health/vaccines`
+
+疫苗/驱虫计划。
+
+### GET `/health/memos`
+
+健康备忘列表。
+
+### POST `/health/memos`
+
+Request:
+
+```json
+{ "title": "驱虫记录", "content": "体外驱虫已完成。" }
+```
+
+## 7. 社交与消息
+
+### GET `/social/discover`
+
+附近宠物主人列表。
+
+### POST `/social/greetings`
+
+Request:
+
+```json
+{ "ownerId": "owner-001" }
+```
+
+MVP 产品约束：
+- 打招呼暂不限制次数。
+- 前端保留配置口，后续可加每日次数、单用户频次、风控灰度。
+- 附近距离建议后端返回模糊文案，例如 `1km 内`、`约 1-2km`，不要直接暴露精确定位。
+
+### POST `/social/walk-invites`
+
+Request:
+
+```json
+{ "ownerId": "owner-001" }
+```
+
+### GET `/conversations`
+
+会话列表。
+
+### POST `/ai/pet-chat/messages`
+
+电子宠物 AI 对话消息。
+
+Request:
+
+```json
+{ "text": "今天精神不太好" }
+```
+
+### GET `/notifications`
+
+通知中心列表。
+
+## 8. 地点
+
+### GET `/places/nearby`
+
+附近宠物友好地点。
+
+### GET `/places/search?q=公园`
+
+搜索地点。
+
+### POST `/places/{placeId}/reviews`
+
+提交点评。MVP 返回审核中状态。
+
+Response data:
+
+```json
+{ "placeId": "place-001", "status": "pending_review" }
+```
+
+## 9. P0 待后端确认
+
+- 统一错误码表：短信、登录、上传、AI、地图、社交、健康、权限。
+- 鉴权 token 刷新机制和 401 处理。
+- 短信频控规则：单手机号、单 IP、单设备、每日上限。
+- 上传文件限制：图片大小、格式、视频时长、EXIF 清理。
+- 地图供应商：已确认 MVP 首发优先高德地图；Android 高德 Key 与 SDK 已接入，仍需确认 POI 数据来源、自有地点库边界、iOS Key/SDK 和外部导航规则。
+- AI 形象生成任务的完整状态：排队、分析、生成、成功、失败、过期。
+- AI 对话内容安全和医疗建议边界。

@@ -1,0 +1,237 @@
+<!DOCTYPE html><html class="light" lang="en" style="width: 390px; height: 830px; overflow: hidden; position: relative;"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Lumii - Avatar Generation Result</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-low": "#f5f3ee",
+                        "secondary": "#006a63",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-variant": "#e4e2dd",
+                        "secondary-container": "#8bf1e6",
+                        "surface": "#fbf9f4",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "outline": "#8a726a",
+                        "primary": "#9f4119",
+                        "secondary-fixed": "#8ef4e9",
+                        "on-primary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "surface-dim": "#dbdad5",
+                        "tertiary": "#735c00",
+                        "on-surface-variant": "#56423b",
+                        "primary-fixed-dim": "#ffb59a",
+                        "surface-tint": "#9f4119",
+                        "on-secondary-fixed": "#00201d",
+                        "sunny-yellow": "#FFD966",
+                        "inverse-on-surface": "#f2f1ec",
+                        "background": "#fbf9f4",
+                        "surface-container-high": "#eae8e3",
+                        "on-surface": "#1b1c19",
+                        "inverse-primary": "#ffb59a",
+                        "primary-container": "#ff8a5c",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "bark-gray": "#4A4542",
+                        "primary-fixed": "#ffdbce",
+                        "health-red": "#EF5350",
+                        "error": "#ba1a1a",
+                        "warm-orange": "#FF8A5C",
+                        "outline-variant": "#ddc0b7",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "on-background": "#1b1c19",
+                        "on-tertiary-container": "#4e3d00",
+                        "inverse-surface": "#30312e",
+                        "tertiary-container": "#c9a739",
+                        "bone-white": "#F9F7F2",
+                        "on-secondary-container": "#006f67",
+                        "on-primary-container": "#732500",
+                        "on-secondary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "tertiary-fixed": "#ffe088",
+                        "surface-container": "#f0eee9",
+                        "on-primary-fixed": "#380d00",
+                        "surface-bright": "#fbf9f4",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "surface-container-highest": "#e4e2dd",
+                        "on-tertiary-fixed": "#241a00",
+                        "on-tertiary": "#ffffff",
+                        "soft-teal": "#4DB6AC"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "container-padding": "24px",
+                        "margin-mobile": "20px",
+                        "margin-desktop": "40px",
+                        "base": "8px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-md": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0; }
+        .material-symbols-outlined.filled { font-variation-settings: 'FILL' 1; }
+        
+        /* Confetti Animation */
+        .confetti { position: absolute; width: 10px; height: 10px; background-color: #f00; z-index: 10; animation: fall linear forwards; opacity: 0; }
+        @keyframes fall {
+            0% { transform: translateY(-100px) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col items-center justify-center p-container-padding relative overflow-hidden">
+<!-- Top Navigation (Contextual, hidden for transactional but showing brand) -->
+<header class="absolute top-0 w-full max-w-7xl flex justify-between items-center px-margin-mobile h-16 z-50 backdrop-blur-xl bg-background/80">
+<div class="font-headline-xl text-headline-xl text-warm-orange tracking-tight">Lumii</div>
+<button class="text-bark-gray hover:bg-surface-container rounded-full p-2 transition-colors">
+<span class="material-symbols-outlined">close</span>
+</button>
+</header>
+<main class="w-full max-w-md mx-auto flex flex-col items-center justify-center gap-container-padding mt-16" id="main-content">
+<!-- Toggle for demo purposes -->
+<div class="fixed top-20 right-4 z-50 bg-surface-container-high rounded-full p-1 flex gap-1 shadow-lg">
+<button class="px-4 py-2 rounded-full font-label-md text-label-md bg-white shadow-sm" id="btn-success" onclick="toggleState('success')">生成成功</button>
+<button class="px-4 py-2 rounded-full font-label-md text-label-md text-bark-gray hover:bg-white/50" id="btn-failure" onclick="toggleState('failure')">生成失败</button>
+</div>
+<!-- Success State -->
+<div class="w-full flex flex-col items-center gap-container-padding transition-opacity duration-300" id="state-success">
+<div class="text-center space-y-2">
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">遇见你的新伙伴</h1>
+<p class="font-body-md text-body-md text-bark-gray">新伙伴已经准备好和你一起探索了。</p>
+</div>
+<!-- Avatar Card -->
+<div class="w-full aspect-[0.67] max-h-[60vh] bg-surface-container rounded-3xl overflow-hidden relative shadow-[0px_8px_24px_rgba(255,138,92,0.15)] ring-4 ring-white">
+<img alt="Generated Pet Companion" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida/ADBb0uimVPuenXN93cfkShpzu66CkAtJlfRD8NC5-Hr6pXWI4MNuYMa3f9tt1xbdp1k3YwB0QNSTZ1zO5U2SrLpFc8p1WTj9IgwZ4ryMF9hUTnilnSARj_SOgaJhfWCZyHsHbFv832Rn66LDHp8KaCUVhZTanvLo6IqQUXvDS1kTjvgIgfLVIAkWwFUHk6w22Ot1iG8-3DyvOmMSkvhZssrgNjtxEyhrCV30YI4x2TVI5LxkcOtmAdkSLHT4tUQ8">
+<!-- Floating Tags -->
+<div class="absolute bottom-4 left-0 w-full flex justify-center gap-2 px-4">
+<span class="bg-primary-fixed-dim/80 backdrop-blur-sm text-on-primary-fixed-variant font-label-sm text-label-sm px-3 py-1 rounded-full border border-white/20 shadow-sm">温柔</span>
+<span class="bg-secondary-fixed-dim/80 backdrop-blur-sm text-on-secondary-fixed-variant font-label-sm text-label-sm px-3 py-1 rounded-full border border-white/20 shadow-sm">毛茸茸</span>
+</div>
+</div>
+<div class="w-full space-y-4">
+<button class="w-full bg-warm-orange text-white font-label-md text-label-md py-4 rounded-full shadow-[0px_4px_20px_rgba(255,138,92,0.3)] hover:scale-[0.98] active:scale-95 transition-transform duration-200 flex items-center justify-center gap-2"><span class="material-symbols-outlined filled">favorite</span>保存并设为电子伴侣</button>
+<button class="w-full bg-transparent border-2 border-outline-variant text-bark-gray font-label-md text-label-md py-3.5 rounded-full hover:bg-surface-container transition-colors">重新生成</button>
+</div>
+</div>
+<!-- Failure State -->
+<div class="w-full flex flex-col items-center gap-container-padding hidden opacity-0 transition-opacity duration-300" id="state-failure">
+<div class="w-32 h-32 bg-error-container rounded-full flex items-center justify-center mb-4 relative shadow-[0px_4px_20px_rgba(186,26,26,0.1)]">
+<span class="material-symbols-outlined filled text-error text-[64px]">pets</span>
+<div class="absolute -bottom-2 -right-2 bg-background rounded-full p-1">
+<div class="bg-error text-white rounded-full w-8 h-8 flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">warning</span>
+</div>
+</div>
+</div>
+<div class="text-center space-y-3 px-4">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">&#x751f;&#x6210;&#x5931;&#x8d25;</h2>
+<p class="font-body-md text-body-md text-bark-gray bg-surface-container-high px-4 py-3 rounded-xl inline-block border border-outline-variant/30">新伙伴已经准备好和你一起探索了。</p>
+<p class="font-body-md text-body-md text-bark-gray text-sm mt-4">新伙伴已经准备好和你一起探索了。</p>
+</div>
+<div class="w-full mt-8">
+<button class="w-full bg-secondary text-white font-label-md text-label-md py-4 rounded-full shadow-[0px_4px_20px_rgba(0,106,99,0.2)] hover:scale-[0.98] active:scale-95 transition-transform duration-200 flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">refresh</span>
+                    &#x91cd;&#x65b0;&#x751f;&#x6210;
+                </button>
+<button class="w-full mt-4 bg-transparent text-bark-gray font-label-md text-label-md py-4 rounded-full hover:bg-surface-container transition-colors">
+                    &#x53d6;&#x6d88;
+                </button>
+</div>
+</div>
+</main>
+<script>
+        function createConfetti() {
+            const colors = ['#FF8A5C', '#4DB6AC', '#FFD966', '#8bf1e6'];
+            for (let i = 0; i < 50; i++) {
+                let confetto = document.createElement('div');
+                confetto.classList.add('confetti');
+                confetto.style.left = Math.random() * 100 + 'vw';
+                confetto.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                confetto.style.animationDuration = (Math.random() * 3 + 2) + 's';
+                confetto.style.animationDelay = Math.random() * 2 + 's';
+                
+                // Random shapes
+                if (Math.random() > 0.5) {
+                    confetto.style.borderRadius = '50%';
+                }
+                
+                document.body.appendChild(confetto);
+                
+                setTimeout(() => {
+                    confetto.remove();
+                }, 5000);
+            }
+        }
+
+        function toggleState(state) {
+            const successEl = document.getElementById('state-success');
+            const failureEl = document.getElementById('state-failure');
+            const btnSuccess = document.getElementById('btn-success');
+            const btnFailure = document.getElementById('btn-failure');
+
+            if (state === 'success') {
+                failureEl.classList.add('hidden', 'opacity-0');
+                successEl.classList.remove('hidden');
+                setTimeout(() => successEl.classList.remove('opacity-0'), 50);
+                
+                btnSuccess.classList.add('bg-white', 'shadow-sm');
+                btnSuccess.classList.remove('text-bark-gray', 'hover:bg-white/50');
+                btnFailure.classList.remove('bg-white', 'shadow-sm');
+                btnFailure.classList.add('text-bark-gray', 'hover:bg-white/50');
+                
+                createConfetti();
+            } else {
+                successEl.classList.add('hidden', 'opacity-0');
+                failureEl.classList.remove('hidden');
+                setTimeout(() => failureEl.classList.remove('opacity-0'), 50);
+                
+                btnFailure.classList.add('bg-white', 'shadow-sm');
+                btnFailure.classList.remove('text-bark-gray', 'hover:bg-white/50');
+                btnSuccess.classList.remove('bg-white', 'shadow-sm');
+                btnSuccess.classList.add('text-bark-gray', 'hover:bg-white/50');
+            }
+        }
+
+        // Init confetti on load
+        window.onload = () => {
+            setTimeout(createConfetti, 500);
+        };
+    </script>
+
+
+<div id="snapdom-sandbox" data-snapdom-sandbox="true" aria-hidden="true" style="position: absolute; left: -9999px; top: -9999px; width: 0px; height: 0px; overflow: hidden;"></div></body></html>

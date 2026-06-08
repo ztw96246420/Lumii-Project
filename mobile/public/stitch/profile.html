@@ -1,0 +1,318 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Lumii - 我的</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.fill-icon {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        /* Custom scrollbar for horizontal lists */
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-background": "#1b1c19",
+                        "on-secondary-fixed": "#00201d",
+                        "inverse-surface": "#30312e",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "on-primary-container": "#732500",
+                        "surface-container-highest": "#e4e2dd",
+                        "bone-white": "#F9F7F2",
+                        "secondary-container": "#8bf1e6",
+                        "error": "#ba1a1a",
+                        "secondary": "#006a63",
+                        "primary": "#9f4119",
+                        "on-primary-fixed": "#380d00",
+                        "tertiary-fixed": "#ffe088",
+                        "soft-teal": "#4DB6AC",
+                        "surface-variant": "#e4e2dd",
+                        "tertiary-container": "#c9a739",
+                        "background": "#fbf9f4",
+                        "primary-fixed": "#ffdbce",
+                        "sunny-yellow": "#FFD966",
+                        "on-error-container": "#93000a",
+                        "surface-tint": "#9f4119",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "health-red": "#EF5350",
+                        "inverse-primary": "#ffb59a",
+                        "surface-bright": "#fbf9f4",
+                        "inverse-on-surface": "#f2f1ec",
+                        "on-surface": "#1b1c19",
+                        "primary-fixed-dim": "#ffb59a",
+                        "outline": "#8a726a",
+                        "warm-orange": "#FF8A5C",
+                        "surface-container-lowest": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#241a00",
+                        "surface-container-high": "#eae8e3",
+                        "on-error": "#ffffff",
+                        "on-primary": "#ffffff",
+                        "surface-container-low": "#f5f3ee",
+                        "on-secondary": "#ffffff",
+                        "surface-container": "#f0eee9",
+                        "surface-dim": "#dbdad5",
+                        "on-secondary-container": "#006f67",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "on-tertiary-container": "#4e3d00",
+                        "surface": "#fbf9f4",
+                        "outline-variant": "#ddc0b7",
+                        "on-tertiary": "#ffffff",
+                        "primary-container": "#ff8a5c",
+                        "tertiary": "#735c00",
+                        "bark-gray": "#4A4542",
+                        "on-surface-variant": "#56423b",
+                        "secondary-fixed": "#8ef4e9"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "margin-mobile": "20px",
+                        "base": "8px",
+                        "margin-desktop": "40px",
+                        "container-padding": "24px"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "label-md": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background font-body-md antialiased pb-24 min-h-screen flex flex-col items-center">
+<!-- TopAppBar -->
+<header class="docked full-width top-0 sticky z-50 backdrop-blur-xl bg-background/80 flex justify-between items-center px-margin-mobile h-16 w-full max-w-7xl mx-auto">
+<div class="flex items-center gap-3">
+<img alt="User Profile Avatar" class="w-10 h-10 rounded-full object-cover border-2 border-surface-container-highest" data-alt="A small, circular avatar portrait of a smiling person with warm lighting, framed in a simple modern border, part of a pet care app UI." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCLAhodB74QVPCekvYgRSqGHdpUFjKTIxgScJuV4NCS3McgLEhTrhAAo_S0lN_MCBgVqIt8ScdjjiVGa9QmX6g-geCgOqVCU6Ti46ie-tV15TEY6TfgIfpIjEcTvr__RRcg238Wz7W9XF4tQE1eGxibS-UX5OCTb8UX3ZJRTHG1pZAhf-iBjv3cBRyDlMfW2wyzVIAB6Tu87uHxdJ5RO7caBDpCA13b3OO3xdqGWLbM7bZoRFGyJZGXep9OF_hlQSY6-kodDb34zBAE">
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-on-background">Lumii</span>
+</div>
+<button class="text-primary hover:bg-surface-container transition-colors p-2 rounded-full scale-95 active:scale-90 transition-transform duration-200">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</header>
+<main class="w-full max-w-lg px-margin-mobile flex-1 flex flex-col gap-6 mt-4">
+<!-- User Header & My Pets Selection -->
+<section class="flex flex-col gap-4">
+<div class="flex justify-between items-end">
+<div>
+<h1 class="font-headline-lg text-headline-lg text-on-background">你好, Alex!</h1>
+<p class="font-body-md text-body-md text-on-surface-variant">管理你的毛孩子</p>
+</div>
+<button class="bg-warm-orange text-white rounded-full p-2 shadow-[0px_4px_20px_rgba(255,138,92,0.15)] active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[20px]" data-icon="add">add</span>
+</button>
+</div>
+<!-- Horizontal Pet Scroll -->
+<div class="flex overflow-x-auto hide-scrollbar gap-4 py-2 -mx-margin-mobile px-margin-mobile">
+<!-- Selected Pet: Mochi -->
+<div class="flex flex-col items-center gap-2 min-w-[80px] cursor-pointer group">
+<div class="relative">
+<div class="w-16 h-16 rounded-full p-[2px] bg-warm-orange shadow-[0px_8px_24px_rgba(255,138,92,0.15)] transition-all">
+<img alt="Mochi the Ragdoll" class="w-full h-full rounded-full object-cover border-2 border-surface-container-lowest" data-alt="A close-up photograph of a fluffy Ragdoll cat with striking blue eyes, sitting indoors with soft natural light coming from a window behind it. The cat looks calm and observant." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCk9hCnu-MhGVLnH7BfUqABQzJg0dghVF8L_5tdPHtigVQFSxJoGP_wfiloLJXpQ70owLJAuSWGhvX7SG46uaxCiBnsil2XStMMLRVHoGBEcvkn9N7XLKiD3aGbl82z0HvRE2YgMcObXxDCp8NZU5bceS5Ea-35NVxLRWwTeZrJC5stKuFvfslkx_xOzu2ByyseLzKzhS-y7E8jm1nPpmta3jMyg50XKe3bqW7PtCuOFe2JcKWUvcM1WAgXaSh3lQo9aizcoMoa_XFa">
+</div>
+<div class="absolute bottom-0 right-0 bg-secondary-container text-on-secondary-container rounded-full w-5 h-5 flex items-center justify-center border-2 border-surface-container-lowest">
+<span class="material-symbols-outlined text-[12px] fill-icon" data-icon="check_circle">check_circle</span>
+</div>
+</div>
+<span class="font-label-md text-label-md text-on-background">Mochi</span>
+</div>
+<!-- Unselected Pet: Barnaby -->
+<div class="flex flex-col items-center gap-2 min-w-[80px] cursor-pointer opacity-70 hover:opacity-100 transition-opacity">
+<div class="w-16 h-16 rounded-full p-[2px] bg-transparent border-2 border-outline-variant transition-all">
+<img alt="Barnaby the Beagle" class="w-full h-full rounded-full object-cover border-2 border-transparent" data-alt="A portrait of a Beagle dog looking playfully at the camera, outdoors with soft lighting and a slightly blurred green background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA7MlQe_ob_TwJT7SeIO-xuzNy63SIWe3HMAjQxXwk8Zew5ACcQ5Rk-1X1KEcfSyMHIzMGdXPlmE8RmRbysvlu47xRtU0ZM3slLu2oAeUaem_UIfC59V5skY7A9bFRdkKN5ClwV9rgP2C0hmet_uXSmYMeQP-XpFr2oEUv4foUb26Pk7kw12npJopHMnxr847A0EcoKPaB0uvu8qCqHwoaoh7ViOHi8BTd7C1DJrPO3gBP4jpsn8R6aXa91_-JnRQMiDQTDAWIPUXKf">
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant">Barnaby</span>
+</div>
+</div>
+</section>
+<!-- Mochi's Profile Card Summary -->
+<section class="bg-surface-container-lowest rounded-2xl p-4 shadow-[0px_4px_20px_rgba(74,69,66,0.05)] border border-surface-dim/30">
+<div class="flex items-center gap-4 mb-4">
+<div class="w-20 h-20 rounded-xl overflow-hidden shrink-0 shadow-sm">
+<img alt="Mochi Avatar" class="w-full h-full object-cover" data-alt="A beautifully stylized, soft hand-drawn digital illustration of a Ragdoll cat. The cat has a fluffy cream and brown coat, big expressive blue eyes, and a gentle demeanor. Warm, minimal beige background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDL99VliLmKN7whGINwkZokP6KY8KWwqShSgsr5knA7HPDCWFyrjJFIVBvihowEI0Ms3f6CuOImoh-lB9k4TMpxowkuUA89iNXQRIbIs1VFstLNkGEZPbhgZNgfxMKE1N8rKRDfrfTdbiGJX0Wqv2rvsiu3LW0hNoYxmLZMupIJ6FCH2T6RaA09mKatLcZ0cW3vUcLYJ1p2mGb_p41e4N32HBIYYm1qG1wBzNCJUfJ48seezk34zehXKHhrT9WqRdDGT7rQI0j-61ob">
+</div>
+<div class="flex-1">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background mb-1">Mochi</h2>
+<p class="font-body-sm text-label-md text-on-surface-variant mb-2">布偶猫 · 3岁</p>
+<div class="flex flex-wrap gap-2">
+<span class="px-2 py-1 bg-warm-orange/10 text-primary rounded-md font-label-sm text-label-sm">室内</span>
+<span class="px-2 py-1 bg-secondary-container/30 text-secondary rounded-md font-label-sm text-label-sm">已绝育</span>
+</div>
+</div>
+<button class="self-start text-bark-gray p-1 hover:bg-surface-container rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="edit">edit</span>
+</button>
+</div>
+</section>
+<!-- Health Record Summary -->
+<section>
+<h3 class="font-label-md text-label-md text-on-surface-variant mb-3 px-1 uppercase tracking-wider">健康概览</h3>
+<div class="grid grid-cols-2 gap-4">
+<!-- Weight Trend -->
+<div class="bg-surface-container-lowest rounded-2xl p-4 shadow-[0px_4px_20px_rgba(74,69,66,0.05)] border border-surface-dim/30 flex flex-col justify-between">
+<div class="flex items-center gap-2 text-bark-gray mb-2">
+<span class="material-symbols-outlined text-[20px]" data-icon="monitor_weight">monitor_weight</span>
+<span class="font-label-md text-label-md">体重</span>
+</div>
+<div class="flex items-end gap-2 mb-1">
+<span class="font-headline-lg text-headline-lg text-on-background">5.2</span>
+<span class="font-body-md text-on-surface-variant pb-1">kg</span>
+</div>
+<!-- Minimal faux chart -->
+<div class="h-8 flex items-end gap-1 mt-2">
+<div class="w-full bg-soft-teal/20 rounded-t-sm h-[40%]"></div>
+<div class="w-full bg-soft-teal/40 rounded-t-sm h-[60%]"></div>
+<div class="w-full bg-soft-teal/60 rounded-t-sm h-[50%]"></div>
+<div class="w-full bg-soft-teal/80 rounded-t-sm h-[80%]"></div>
+<div class="w-full bg-soft-teal rounded-t-sm h-[100%]"></div>
+</div>
+</div>
+<!-- Next Vaccine -->
+<div class="bg-surface-container-lowest rounded-2xl p-4 shadow-[0px_4px_20px_rgba(74,69,66,0.05)] border border-surface-dim/30 flex flex-col justify-between">
+<div class="flex items-center gap-2 text-health-red mb-2">
+<span class="material-symbols-outlined text-[20px]" data-icon="vaccines">vaccines</span>
+<span class="font-label-md text-label-md">下次疫苗</span>
+</div>
+<div>
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-on-background block mb-1">10月12日</span>
+<span class="font-label-sm text-on-surface-variant">三联疫苗加强针</span>
+</div>
+<button class="mt-3 w-full py-1.5 rounded-lg border border-outline-variant text-primary font-label-sm text-label-sm hover:bg-surface-container transition-colors">
+                        查看计划
+                    </button>
+</div>
+</div>
+</section>
+<!-- Growth Gallery -->
+<section>
+<div class="flex justify-between items-center mb-3 px-1">
+<h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">成长相册</h3>
+<button class="text-primary font-label-sm text-label-sm hover:underline">查看全部</button>
+</div>
+<div class="grid grid-cols-3 gap-2">
+<div class="aspect-square rounded-xl overflow-hidden relative group">
+<img alt="Kitten Mochi" class="w-full h-full object-cover transition-transform group-hover:scale-105" data-alt="A cute photograph of a very young Ragdoll kitten lying on a soft white blanket. The lighting is bright and warm, emphasizing the kitten's fluffy fur and innocent blue eyes." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDx7MM3gK_H9HvfcDa4ZERKXv5laK9Y_WOn1ddWWZaHXp4MwibOlYBZmknBT8i3QTtgde6fk3ImB2kUnozlX2hp4-OrUx5E_FKEz8Es-RLxUVnZjFLwkrs7IeixyO60DCJLfhbSEwGTGrcA_W9f4F7LkHhe5UC_RQr2kvu-EOROmJyuc_xLVmqExbWH7ZGNJ7qsEGsurxGXkvivoZqwrOPhO5ET5IidZUwx6wqaxWqCt-_-Jo4b3lmIRxp0vsm-xjAFGQPcdIHBfeLC">
+<div class="absolute bottom-1 right-1 bg-background/80 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-label-sm text-on-background">3 mos</div>
+</div>
+<div class="aspect-square rounded-xl overflow-hidden relative group">
+<img alt="Teen Mochi" class="w-full h-full object-cover transition-transform group-hover:scale-105" data-alt="A photograph of a juvenile Ragdoll cat sitting on a wooden floor looking up curiously. The room has soft, natural indoor lighting creating a cozy atmosphere." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB4ifJCjaLn5EOrgcNMXc3VMZBC9fhZOE_l_zTlzsmOscLaEYtMComv933BQ6ESGUTLuw3FG5k6G1Kiyyb-B7bSBv1ggPCmnKuBCbP-ABHqFVEGQxrgP65YVrHsBjTf8OIN10-910RQld-9804lCK0RRVfNpgvVh9obI0d8m25bQr2RtKA_7XAbNIrOlRAXzkQDNP8pRp24muoI3SuhE3uDVzP0kAK-JEkhS1iTeopvDeex2arkpoTYjGO-lwOdS5Sl2dw4PQnCsvus">
+<div class="absolute bottom-1 right-1 bg-background/80 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-label-sm text-on-background">1 yr</div>
+</div>
+<div class="aspect-square rounded-xl overflow-hidden bg-surface-container flex items-center justify-center cursor-pointer hover:bg-surface-container-high transition-colors border border-dashed border-outline-variant">
+<div class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined text-[24px]" data-icon="add_a_photo">add_a_photo</span>
+<span class="font-label-sm text-[10px]">添加照片</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Settings List -->
+<section class="bg-surface-container-lowest rounded-2xl shadow-[0px_4px_20px_rgba(74,69,66,0.05)] border border-surface-dim/30 overflow-hidden mb-8">
+<ul class="divide-y divide-surface-container">
+<li class="">
+<button class="w-full px-4 py-4 flex items-center justify-between hover:bg-surface-container transition-colors text-left">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-secondary-container/30 text-secondary flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px]" data-icon="person">person</span>
+</div>
+<span class="font-body-md text-on-background">账号设置</span>
+</div>
+<span class="material-symbols-outlined text-outline" data-icon="chevron_right">chevron_right</span>
+</button>
+</li>
+<li class="">
+<button class="w-full px-4 py-4 flex items-center justify-between hover:bg-surface-container transition-colors text-left">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-container-highest text-bark-gray flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px]" data-icon="lock">lock</span>
+</div>
+<span class="font-body-md text-on-background">隐私与安全</span>
+</div>
+<span class="material-symbols-outlined text-outline" data-icon="chevron_right">chevron_right</span>
+</button>
+</li>
+<li class="">
+<button class="w-full px-4 py-4 flex items-center justify-between hover:bg-surface-container transition-colors text-left">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-container-highest text-bark-gray flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px]" data-icon="notifications">notifications</span>
+</div>
+<span class="font-body-md text-on-background">通知</span>
+</div>
+<span class="material-symbols-outlined text-outline" data-icon="chevron_right">chevron_right</span>
+</button>
+</li>
+</ul>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full bg-surface-container-lowest border-t border-outline-variant/30 rounded-t-3xl shadow-[0_-4px_24px_rgba(0,0,0,0.06)] px-4 pb-6 pt-3 flex justify-between items-center z-50 md:hidden">
+    <button class="flex flex-col items-center justify-center gap-1 flex-1 py-1 text-on-surface-variant">
+        <span class="material-symbols-outlined text-[24px]">pets</span>
+        <span class="text-[12px] font-medium">删物</span>
+    </button>
+    <button class="flex flex-col items-center justify-center gap-1 flex-1 py-1 text-on-surface-variant">
+        <span class="material-symbols-outlined text-[24px]">explore</span>
+        <span class="text-[12px] font-medium">化猖</span>
+    </button>
+    <button class="flex flex-col items-center justify-center gap-1 flex-1 py-1 text-on-surface-variant">
+        <span class="material-symbols-outlined text-[24px]">map</span>
+        <span class="text-[12px] font-medium">地图</span>
+    </button>
+    <button class="flex flex-col items-center justify-center gap-1 flex-1 py-1 text-on-surface-variant">
+        <span class="material-symbols-outlined text-[24px]">chat_bubble</span>
+        <span class="text-[12px] font-medium">消息</span>
+    </button>
+    <button class="flex flex-col items-center justify-center gap-1 flex-1 py-1">
+        <div class="bg-warm-orange/20 text-primary px-5 py-1 rounded-full flex flex-col items-center">
+            <span class="material-symbols-outlined text-[24px] fill-icon">person</span>
+            <span class="text-[12px] font-bold">我的</span>
+        </div>
+    </button>
+</nav>
+
+
+</body></html>

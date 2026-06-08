@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Lumii - Permission Guide</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-container-low": "#f5f3ee",
+                      "secondary": "#006a63",
+                      "surface-container-lowest": "#ffffff",
+                      "surface-variant": "#e4e2dd",
+                      "secondary-container": "#8bf1e6",
+                      "surface": "#fbf9f4",
+                      "on-secondary-fixed-variant": "#00504a",
+                      "outline": "#8a726a",
+                      "primary": "#9f4119",
+                      "secondary-fixed": "#8ef4e9",
+                      "on-primary": "#ffffff",
+                      "on-error": "#ffffff",
+                      "error-container": "#ffdad6",
+                      "surface-dim": "#dbdad5",
+                      "tertiary": "#735c00",
+                      "on-surface-variant": "#56423b",
+                      "primary-fixed-dim": "#ffb59a",
+                      "surface-tint": "#9f4119",
+                      "on-secondary-fixed": "#00201d",
+                      "sunny-yellow": "#FFD966",
+                      "inverse-on-surface": "#f2f1ec",
+                      "background": "#fbf9f4",
+                      "surface-container-high": "#eae8e3",
+                      "on-surface": "#1b1c19",
+                      "inverse-primary": "#ffb59a",
+                      "primary-container": "#ff8a5c",
+                      "on-primary-fixed-variant": "#7f2b02",
+                      "secondary-fixed-dim": "#71d7cd",
+                      "bark-gray": "#4A4542",
+                      "primary-fixed": "#ffdbce",
+                      "health-red": "#EF5350",
+                      "error": "#ba1a1a",
+                      "warm-orange": "#FF8A5C",
+                      "outline-variant": "#ddc0b7",
+                      "on-tertiary-fixed-variant": "#574500",
+                      "on-background": "#1b1c19",
+                      "on-tertiary-container": "#4e3d00",
+                      "inverse-surface": "#30312e",
+                      "tertiary-container": "#c9a739",
+                      "bone-white": "#F9F7F2",
+                      "on-secondary-container": "#006f67",
+                      "on-primary-container": "#732500",
+                      "on-secondary": "#ffffff",
+                      "on-error-container": "#93000a",
+                      "tertiary-fixed": "#ffe088",
+                      "surface-container": "#f0eee9",
+                      "on-primary-fixed": "#380d00",
+                      "surface-bright": "#fbf9f4",
+                      "tertiary-fixed-dim": "#e7c353",
+                      "surface-container-highest": "#e4e2dd",
+                      "on-tertiary-fixed": "#241a00",
+                      "on-tertiary": "#ffffff",
+                      "soft-teal": "#4DB6AC"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "gutter": "16px",
+                      "container-padding": "24px",
+                      "margin-mobile": "20px",
+                      "margin-desktop": "40px",
+                      "base": "8px"
+              },
+              "fontFamily": {
+                      "headline-lg": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "body-lg": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "label-md": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "body-md": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-lg-mobile": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "label-sm": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-xl": [
+                              "Plus Jakarta Sans"
+                      ]
+              },
+              "fontSize": {
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "label-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "letterSpacing": "0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "label-sm": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-xl": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ]
+              }
+            },
+          }
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.bone-white');
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="h-screen w-full flex items-center justify-center p-margin-mobile md:p-margin-desktop overflow-hidden relative">
+<!-- Ambient background element for soft depth -->
+<div class="absolute inset-0 z-0 pointer-events-none opacity-40">
+<div class="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] rounded-full bg-soft-teal/20 blur-3xl"></div>
+<div class="absolute bottom-[-10%] right-[-10%] w-[60vw] h-[60vw] rounded-full bg-warm-orange/10 blur-3xl"></div>
+</div>
+<!-- Main Content Container (Level 1 Elevation) -->
+<main class="relative z-10 w-full max-w-md bg-surface rounded-[24px] shadow-[0px_4px_20px_rgba(74,69,66,0.05)] p-container-padding flex flex-col items-center text-center overflow-hidden border border-outline-variant/30">
+<!-- Illustration Area -->
+<div class="w-full aspect-square mb-gutter relative rounded-[20px] overflow-hidden bg-surface-container-low flex items-center justify-center">
+<img alt="Confused dog illustration" class="w-full h-full object-cover mix-blend-multiply opacity-90" data-alt="A highly detailed, realistic cartoon-style illustration of a cute, slightly confused-looking beagle puppy tilting its head. The puppy is drawn with soft, organic lines and warm colors, sitting on a plain bone-white background. The lighting is gentle and diffused, casting soft ambient shadows that give the character a tactile, squishy feel. The overall aesthetic is warm, trustworthy, and minimal, fitting a modern digital pet companion app." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQxLuwxczp1tojzdXByxbb1BSvn9N58k2rKAbIg5J_YjaiTuE6PV3dlzLCNBvxS3IFottOwxQvKNzkMMPCHrJt-lmM1v7FqDStXXAC4u3aDr7E7vWY9uExyvnfrDL0eqFfFIRePfhFZDiAoqJwEhKyzYQWuhNCV38tcj-yMUePFGnxTG_aghHH35pIsD69fjyVj9RWb2pxXygKwCF6dZYWzsYQdc4lBLeprkIlBVrqNKbwnFjHqhMFfcuGUG6Nkx0HkWXzqme4wy_z"/>
+<!-- Decorative overlay elements -->
+<div class="absolute top-4 right-4 bg-surface/80 backdrop-blur-sm p-2 rounded-full shadow-sm">
+<span class="material-symbols-outlined text-soft-teal text-[24px]">location_off</span>
+</div>
+<!-- Floating thought bubble -->
+<div class="absolute bottom-6 left-6 bg-surface px-4 py-2 rounded-2xl rounded-bl-none shadow-[0px_8px_24px_rgba(255,138,92,0.15)] transform -rotate-3">
+<span class="font-label-md text-label-md text-bark-gray">大家都去哪儿了？</span>
+</div>
+</div>
+<!-- Text Content -->
+<div class="flex flex-col gap-base mb-container-padding w-full px-2">
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile md:font-headline-lg md:text-headline-lg text-on-surface">定位授权已关闭</h1>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-[280px] mx-auto">灵伴需要获取您的位置权限，以便为您推荐附近的焠物伙伴和逛狗好去处。</p>
+</div>
+<!-- Actions -->
+<div class="w-full flex flex-col gap-gutter">
+<button class="w-full bg-warm-orange text-on-primary font-label-md text-label-md py-4 rounded-full shadow-[0px_8px_24px_rgba(255,138,92,0.15)] scale-100 active:scale-95 transition-transform duration-200 flex items-center justify-center gap-2"><span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">settings</span>
+                前往系统设置</button>
+<button class="w-full font-label-md text-label-md text-bark-gray py-2 px-4 rounded-full hover:bg-surface-container-high transition-colors active:scale-98">稍后再诳4</button>
+</div>
+</main>
+</body></html>

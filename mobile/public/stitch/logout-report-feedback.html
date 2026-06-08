@@ -1,0 +1,148 @@
+<!DOCTYPE html><html class="light" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Lumii Safety Modals</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-low": "#f5f3ee",
+                        "secondary": "#006a63",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-variant": "#e4e2dd",
+                        "secondary-container": "#8bf1e6",
+                        "surface": "#fbf9f4",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "outline": "#8a726a",
+                        "primary": "#9f4119",
+                        "secondary-fixed": "#8ef4e9",
+                        "on-primary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "surface-dim": "#dbdad5",
+                        "tertiary": "#735c00",
+                        "on-surface-variant": "#56423b",
+                        "primary-fixed-dim": "#ffb59a",
+                        "surface-tint": "#9f4119",
+                        "on-secondary-fixed": "#00201d",
+                        "sunny-yellow": "#FFD966",
+                        "inverse-on-surface": "#f2f1ec",
+                        "background": "#fbf9f4",
+                        "surface-container-high": "#eae8e3",
+                        "on-surface": "#1b1c19",
+                        "inverse-primary": "#ffb59a",
+                        "primary-container": "#ff8a5c",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "bark-gray": "#4A4542",
+                        "primary-fixed": "#ffdbce",
+                        "health-red": "#EF5350",
+                        "error": "#ba1a1a",
+                        "warm-orange": "#FF8A5C",
+                        "outline-variant": "#ddc0b7",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "on-background": "#1b1c19",
+                        "on-tertiary-container": "#4e3d00",
+                        "inverse-surface": "#30312e",
+                        "tertiary-container": "#c9a739",
+                        "bone-white": "#F9F7F2",
+                        "on-secondary-container": "#006f67",
+                        "on-primary-container": "#732500",
+                        "on-secondary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "tertiary-fixed": "#ffe088",
+                        "surface-container": "#f0eee9",
+                        "on-primary-fixed": "#380d00",
+                        "surface-bright": "#fbf9f4",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "surface-container-highest": "#e4e2dd",
+                        "on-tertiary-fixed": "#241a00",
+                        "on-tertiary": "#ffffff",
+                        "soft-teal": "#4DB6AC"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "container-padding": "24px",
+                        "margin-mobile": "20px",
+                        "margin-desktop": "40px",
+                        "base": "8px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-md": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-surface-container-low text-on-surface font-body-md min-h-screen flex flex-col items-center justify-center p-container-padding gap-8">
+<!-- Modal Container 1: Log Out Confirmation -->
+<div class="bg-surface rounded-[24px] shadow-[0px_8px_24px_rgba(74,69,66,0.15)] max-w-[400px] w-full p-6 flex flex-col items-center text-center">
+<div class="bg-surface-container w-16 h-16 rounded-full flex items-center justify-center mb-4">
+<span class="material-symbols-outlined text-bark-gray" style="font-size: 32px; font-variation-settings: 'FILL' 0;">logout</span>
+</div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-2">退出登录</h2>
+<p class="font-body-md text-body-md text-on-surface-variant mb-8">确定要退出登录吗？您的电子宠物会想念您的</p>
+<div class="flex flex-col w-full gap-3">
+<button class="w-full bg-warm-orange text-on-primary font-label-md text-label-md py-3 px-6 rounded-full hover:bg-primary-container active:scale-98 transition-all duration-200">确认退出</button>
+<button class="w-full bg-transparent border-2 border-soft-teal text-secondary font-label-md text-label-md py-3 px-6 rounded-full hover:bg-secondary-container/20 active:scale-98 transition-all duration-200">取消</button>
+</div>
+</div>
+<!-- Modal Container 2: Report Successful -->
+<div class="bg-surface rounded-[24px] shadow-[0px_8px_24px_rgba(74,69,66,0.15)] max-w-[400px] w-full p-6 flex flex-col items-center text-center">
+<div class="bg-secondary-container/30 w-16 h-16 rounded-full flex items-center justify-center mb-4">
+<span class="material-symbols-outlined text-secondary" style="font-size: 32px; font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-2">举报成功</h2>
+<p class="font-body-md text-body-md text-on-surface-variant mb-8">感谢您为维护灵伴社区安全做出的贡献，我们将尽快审核您的举报</p>
+<div class="flex w-full">
+<button class="w-full bg-surface-container-high text-on-surface font-label-md text-label-md py-3 px-6 rounded-full hover:bg-surface-variant active:scale-98 transition-all duration-200">完成</button>
+</div>
+</div>
+<!-- Modal Container 3: Report Failed -->
+<div class="bg-surface rounded-[24px] shadow-[0px_8px_24px_rgba(74,69,66,0.15)] max-w-[400px] w-full p-6 flex flex-col items-center text-center">
+<div class="bg-error-container/50 w-16 h-16 rounded-full flex items-center justify-center mb-4">
+<span class="material-symbols-outlined text-health-red" style="font-size: 32px; font-variation-settings: 'FILL' 1;">error</span>
+</div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-2">举报失败</h2>
+<p class="font-body-md text-body-md text-on-surface-variant mb-8">提交举报时出现问题，请检查您的网络连接并重试</p>
+<div class="flex flex-col w-full gap-3">
+<button class="w-full bg-warm-orange text-on-primary font-label-md text-label-md py-3 px-6 rounded-full hover:bg-primary-container active:scale-98 transition-all duration-200">重新提交</button>
+<button class="w-full bg-transparent text-on-surface-variant font-label-md text-label-md py-3 px-6 rounded-full hover:bg-surface-container active:scale-98 transition-all duration-200">取消</button>
+</div>
+</div>
+
+
+</body></html>

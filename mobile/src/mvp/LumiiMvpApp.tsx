@@ -1,0 +1,3546 @@
+﻿import { StatusBar } from 'expo-status-bar';
+import * as ImagePicker from 'expo-image-picker';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactElement, type ReactNode } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Linking,
+  LogBox,
+  Platform,
+  Pressable,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  StatusBar as NativeStatusBar,
+  View,
+} from 'react-native';
+import type { RefreshControlProps, TextStyle, ViewStyle } from 'react-native';
+import {
+  AlertTriangle,
+  ArrowUp,
+  BatteryFull,
+  Bell,
+  CalendarDays,
+  Camera,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Compass,
+  Edit3,
+  HeartPulse,
+  Home as HomeIcon,
+  ImagePlus,
+  LogOut,
+  Map as MapIcon,
+  MapPin,
+  MessageCircle,
+  NotebookPen,
+  PawPrint,
+  Phone,
+  Plus,
+  Search,
+  Send,
+  Settings,
+  Shield,
+  Signal,
+  SlidersHorizontal,
+  Sparkles,
+  Star,
+  Syringe,
+  User,
+  Users,
+  Wifi,
+  Weight,
+} from 'lucide-react-native';
+
+import { getLumiiPermissionStatus, requestLumiiPermission } from '../services/permissions';
+import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
+import { apiConfig, lumiiApi, setLumiiAuthToken } from './api';
+import { productConfig } from './productConfig';
+import { Button, Card, ConfirmDialog, Field, StatusPill, Toast, palette, styles as uiStyles } from './ui';
+import type {
+  AppRoute,
+  AppTab,
+  AuthSession,
+  AvatarJob,
+  ChatMessage,
+  Conversation,
+  HealthMemo,
+  NearbyLocationHint,
+  NearbyOwner,
+  NotificationItem,
+  PermissionStateMap,
+  PetProfile,
+  PetSpecies,
+  Place,
+  SmsCodeTicket,
+  UploadedPetMedia,
+  VaccinePlan,
+  WeightRecord,
+} from './types';
+
+const smsCooldownMs = 60 * 1000;
+const defaultDiscoverRadiusKm = 3;
+const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
+const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
+
+LogBox.ignoreLogs(['SafeAreaView has been deprecated']);
+const webTextInputReset =
+  Platform.OS === 'web'
+    ? ({ outlineColor: 'transparent', outlineStyle: 'none', outlineWidth: 0 } as unknown as TextStyle)
+    : null;
+const webPressableReset =
+  Platform.OS === 'web'
+    ? ({ outlineColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, userSelect: 'none' } as unknown as ViewStyle)
+    : null;
+const demoPetPhotoUrl =
+  'https://images.unsplash.com/photo-1625794084867-8ddd239946b1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=720';
+const generatedGoldenAvatarUri = 'lumii://golden-retriever-avatar';
+const generatedGoldenAvatarSource = require('../../assets/lumii/golden-avatar-v1.png');
+
+const routeTitles: Partial<Record<AppRoute, string>> = {
+  accountSecurity: '账号安全',
+  addPlaceReview: '新增地点',
+  aiResult: '形象确认',
+  chat: '和灵伴聊天',
+  conversation: '聊天',
+  dailyPost: '今日小事',
+  discover: '附近',
+  editPet: '编辑宠物',
+  emptyPet: '添加宠物',
+  generating: 'AI 生成中',
+  greetingRequests: '招呼请求',
+  health: '健康管理',
+  healthMemos: '健康备忘',
+  home: '灵伴',
+  map: '地图',
+  messages: '消息',
+  notifications: '通知中心',
+  otp: '输入验证码',
+  permissions: '权限设置',
+  petDetail: '宠物档案',
+  petInfo: '宠物信息',
+  placeDetail: '地点详情',
+  profile: '我的',
+  safety: '安全中心',
+  settings: '设置与隐私',
+  upload: '上传照片',
+  uploadDetail: '识别详情',
+  uploadNoPet: '上传失败',
+  vaccine: '疫苗计划',
+  walkInvite: '约遛邀请',
+  weight: '体重记录',
+};
+
+const tabItems: Array<{ Icon: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>; label: string; route: AppTab }> = [
+  { Icon: HomeIcon, label: '宠物', route: 'home' },
+  { Icon: Compass, label: '发现', route: 'discover' },
+  { Icon: MapIcon, label: '地图', route: 'map' },
+  { Icon: MessageCircle, label: '消息', route: 'messages' },
+  { Icon: User, label: '我的', route: 'profile' },
+];
+
+const permissionCopy = {
+  location: {
+    description: '发现附近养宠朋友、宠物友好餐厅与公园',
+    label: '定位权限',
+  },
+  media: {
+    description: '为灵伴拍照、识别毛色五官，生成专属形象',
+    label: '照片与相机',
+  },
+  notifications: {
+    description: '不错过灵伴的呼唤、好友互动与陪伴提醒',
+    label: '消息通知',
+  },
+};
+
+const initialPermissions: PermissionStateMap = {
+  location: 'unknown',
+  media: 'unknown',
+  notifications: 'unknown',
+};
+const permissionKeys: Array<keyof PermissionStateMap> = ['location', 'media', 'notifications'];
+
+const emptyPetDraft = {
+  birthday: '2024-05-30',
+  breed: '金毛寻回犬',
+  gender: 'unknown' as const,
+  name: '奶油',
+  species: 'dog' as PetSpecies,
+  weight: '28.4',
+};
+
+const speciesLabels: Record<PetSpecies, string> = {
+  bird: '鹦鹉',
+  cat: '猫咪',
+  dog: '狗狗',
+  hamster: '仓鼠',
+  other: '其他',
+  rabbit: '兔子',
+  reptile: '爬宠',
+};
+
+const defaultMapCenter = {
+  latitude: 23.1291,
+  longitude: 113.2644,
+  markerSnippet: '滨江路 88 号',
+  markerTitle: '云杉宠物友好公园',
+  zoom: 14,
+};
+
+type ConfirmState = {
+  body: string;
+  confirmText?: string;
+  onConfirm: () => void;
+  title: string;
+};
+
+type ConversationMessage = {
+  author: 'me' | 'other' | 'system';
+  id: string;
+  status?: 'failed' | 'sending' | 'sent';
+  text: string;
+  time: string;
+};
+
+type UserSettingKey = 'fuzzyLocation' | 'interactionMessages' | 'nearbyVisible' | 'pushNotifications';
+
+function isGeneratedAvatarUri(uri?: null | string) {
+  return Boolean(uri?.startsWith('lumii://'));
+}
+
+function clampSmsCooldown(availableAt: number) {
+  const now = Date.now();
+  return Math.min(Math.max(availableAt, now), now + smsCooldownMs);
+}
+
+function formatMaskedPhone(phone?: null | string) {
+  const digits = String(phone ?? '').replace(/\D/g, '');
+  if (/^1[3-9]\d{9}$/.test(digits)) return `${digits.slice(0, 3)} **** ${digits.slice(-4)}`;
+  return '未绑定手机号';
+}
+
+function mergePermissionState(...states: Array<Partial<PermissionStateMap> | null | undefined>): PermissionStateMap {
+  return states.reduce<PermissionStateMap>((next, state) => ({ ...next, ...(state ?? {}) }), { ...initialPermissions });
+}
+
+function allLumiiPermissionsGranted(state: PermissionStateMap) {
+  return permissionKeys.every((key) => state[key] === 'granted');
+}
+
+export default function LumiiMvpApp() {
+  const [route, setRoute] = useState<AppRoute>('login');
+  const [history, setHistory] = useState<AppRoute[]>([]);
+  const [toast, setToast] = useState('');
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+
+  const [phone, setPhone] = useState('');
+  const [phoneFocused, setPhoneFocused] = useState(false);
+  const [agreementAccepted, setAgreementAccepted] = useState(false);
+  const [sendLoading, setSendLoading] = useState(false);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpMeta, setOtpMeta] = useState<SmsCodeTicket | null>(null);
+  const [otpInlineError, setOtpInlineError] = useState('');
+  const [cooldownUntil, setCooldownUntil] = useState(0);
+  const [clock, setClock] = useState(Date.now());
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const phoneInputRef = useRef<TextInput>(null);
+  const otpInputRef = useRef<TextInput>(null);
+  const mapAutoLocateAttemptedRef = useRef(false);
+  const lastDiscoverLocationRef = useRef<NearbyLocationHint | null>(null);
+
+  const [permissions, setPermissions] = useState<PermissionStateMap>(initialPermissions);
+  const [activePet, setActivePet] = useState<PetProfile | null>(null);
+  const [petDraft, setPetDraft] = useState(emptyPetDraft);
+  const [media, setMedia] = useState<UploadedPetMedia | null>(null);
+  const [mediaPickerMode, setMediaPickerMode] = useState<'camera' | 'library' | null>(null);
+  const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(null);
+
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    { author: 'ai', id: 'welcome', status: 'sent', text: '我是奶油的灵伴。今天想记录什么小事？', time: '刚刚' },
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [weights, setWeights] = useState<WeightRecord[]>([]);
+  const [vaccines, setVaccines] = useState<VaccinePlan[]>([]);
+  const [vaccineReminderIds, setVaccineReminderIds] = useState<string[]>([]);
+  const [memos, setMemos] = useState<HealthMemo[]>([]);
+  const [weightInput, setWeightInput] = useState('28.4');
+  const [memoTitle, setMemoTitle] = useState('今日观察');
+  const [memoContent, setMemoContent] = useState('');
+  const [memoDraftTitle, setMemoDraftTitle] = useState('洗澡记录');
+  const [memoDraftContent, setMemoDraftContent] = useState('今天洗澡后耳朵干净，皮肤没有明显泛红。');
+  const [dailyPostText, setDailyPostText] = useState('');
+  const [owners, setOwners] = useState<NearbyOwner[]>([]);
+  const [discoverRefreshing, setDiscoverRefreshing] = useState(false);
+  const [greetingRequestOwnerIds, setGreetingRequestOwnerIds] = useState<string[]>([]);
+  const [selectedOwner, setSelectedOwner] = useState<NearbyOwner | null>(null);
+  const [walkInvitePlace, setWalkInvitePlace] = useState('滨江绿地');
+  const [walkInviteTime, setWalkInviteTime] = useState('今天 19:00');
+  const [walkInviteNote, setWalkInviteNote] = useState('奶油想找附近的小伙伴散步，一起走一圈吗？');
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [conversationInput, setConversationInput] = useState('');
+  const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([
+    { author: 'system', id: 'conversation-safe-tip', text: '为了保护隐私，聊天前不会展示精确住址。', time: '刚刚' },
+    { author: 'other', id: 'conversation-welcome', text: '今晚 7 点公园见？', time: '09:32' },
+  ]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [placeQuery, setPlaceQuery] = useState('');
+  const [placeFilter, setPlaceFilter] = useState<'all' | Place['category']>('all');
+  const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
+  const [favoritePlaceIds, setFavoritePlaceIds] = useState<string[]>([]);
+  const [locatingMap, setLocatingMap] = useState(false);
+  const [mapCenter, setMapCenter] = useState(defaultMapCenter);
+  const [placeDraftAddress, setPlaceDraftAddress] = useState('滨江路 88 号');
+  const [placeDraftName, setPlaceDraftName] = useState('云杉宠物友好公园');
+  const [placeReview, setPlaceReview] = useState('');
+  const [placeReviewStatus, setPlaceReviewStatus] = useState<'idle' | 'pending_review'>('idle');
+  const [userSettings, setUserSettings] = useState<Record<UserSettingKey, boolean>>({
+    fuzzyLocation: true,
+    interactionMessages: true,
+    nearbyVisible: true,
+    pushNotifications: true,
+  });
+
+  const currentTab = useMemo<AppTab | null>(() => {
+    if (route === 'health' || route === 'emptyPet') return 'home';
+    return tabItems.some((item) => item.route === route) ? (route as AppTab) : null;
+  }, [route]);
+
+  const showBottomTabs = Boolean(session && currentTab);
+  const cooldownRemaining = Math.min(60, Math.max(0, Math.ceil((cooldownUntil - clock) / 1000)));
+  const greetingRequestOwners = useMemo(
+    () => owners.filter((owner) => greetingRequestOwnerIds.includes(owner.id)),
+    [greetingRequestOwnerIds, owners],
+  );
+  const pendingVaccines = useMemo(() => vaccines.filter((item) => item.status !== 'done'), [vaccines]);
+
+  const showToast = useCallback((message: string) => setToast(message), []);
+
+  const go = useCallback(
+    (nextRoute: AppRoute) => {
+      setHistory((items) => [...items, route]);
+      setRoute(nextRoute);
+    },
+    [route],
+  );
+
+  const replace = useCallback((nextRoute: AppRoute) => {
+    setRoute(nextRoute);
+  }, []);
+
+  const back = useCallback(() => {
+    setHistory((items) => {
+      const next = [...items];
+      const previous = next.pop();
+      setRoute(previous ?? (session ? 'home' : 'login'));
+      return next;
+    });
+  }, [session]);
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const id = setTimeout(() => setToast(''), 2200);
+    return () => clearTimeout(id);
+  }, [toast]);
+
+  useEffect(() => {
+    if (!cooldownUntil) return undefined;
+    const id = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [cooldownUntil]);
+
+  useEffect(() => {
+    if (cooldownRemaining === 0 && cooldownUntil) setCooldownUntil(0);
+  }, [cooldownRemaining, cooldownUntil]);
+
+  useEffect(() => {
+    if (!session) return;
+    void loadCommonData();
+  }, [session]);
+
+  useEffect(() => {
+    if (!session || route !== 'permissions') return;
+    void refreshPermissionStatuses({ persist: true });
+  }, [route, session]);
+
+  useEffect(() => {
+    if (!session || route !== 'discover') return undefined;
+    let active = true;
+    const refreshOwners = async () => {
+      const nextOwners = await fetchNearbyOwners({ forceLocation: !lastDiscoverLocationRef.current, silent: true });
+      if (active && nextOwners) setOwners(nextOwners);
+    };
+    void refreshOwners();
+    const id = setInterval(() => {
+      void refreshOwners();
+    }, 8000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [route, session]);
+
+  useEffect(() => {
+    if (!session || route !== 'map' || mapAutoLocateAttemptedRef.current) return;
+    mapAutoLocateAttemptedRef.current = true;
+    void locateMapToCurrentPosition({ silent: true });
+  }, [route, session]);
+
+  useEffect(() => {
+    if (route !== 'generating' || !avatarJob || avatarJob.status !== 'processing') return undefined;
+    const id = setInterval(() => {
+      void pollAvatarJob();
+    }, 850);
+    return () => clearInterval(id);
+  }, [avatarJob, route]);
+
+  async function loadCommonData() {
+    const [weightResult, vaccineResult, memoResult, ownerResult, conversationResult, notificationResult, placeResult] = await Promise.all([
+      lumiiApi.health.listWeightRecords(),
+      lumiiApi.health.listVaccines(),
+      lumiiApi.health.listHealthMemos(),
+      lumiiApi.social.listNearbyOwners(),
+      lumiiApi.messages.listConversations(),
+      lumiiApi.messages.listNotifications(),
+      lumiiApi.places.listNearbyPlaces(),
+    ]);
+    if (weightResult.data) setWeights(weightResult.data);
+    if (vaccineResult.data) setVaccines(vaccineResult.data);
+    if (memoResult.data) setMemos(memoResult.data);
+    if (ownerResult.data) {
+      setOwners(ownerResult.data);
+      setGreetingRequestOwnerIds((items) => (items.length ? items : ownerResult.data!.map((owner) => owner.id)));
+    }
+    if (conversationResult.data) setConversations(conversationResult.data);
+    if (notificationResult.data) setNotifications(notificationResult.data);
+    if (placeResult.data) setPlaces(placeResult.data);
+    setActivePet((pet) => pet ?? lumiiApi.pets.getActivePet());
+  }
+
+  async function refreshPermissionStatuses(options: { base?: PermissionStateMap; completed?: boolean; persist?: boolean } = {}) {
+    let nextPermissions = mergePermissionState(options.base ?? permissions);
+
+    if (Platform.OS !== 'web') {
+      const statusResults = await Promise.all(permissionKeys.map((key) => getLumiiPermissionStatus(key)));
+      nextPermissions = mergePermissionState(
+        nextPermissions,
+        Object.fromEntries(statusResults.map((result) => [result.permission, result.status])) as Partial<PermissionStateMap>,
+      );
+    }
+
+    setPermissions(nextPermissions);
+
+    if (options.persist) {
+      const result = await lumiiApi.permissions.savePermissionState(nextPermissions, Boolean(options.completed || allLumiiPermissionsGranted(nextPermissions)));
+      if (result.data) {
+        nextPermissions = mergePermissionState(nextPermissions, result.data);
+        setPermissions(nextPermissions);
+      }
+    }
+
+    return nextPermissions;
+  }
+
+  async function restoreAfterLogin(nextSession: AuthSession) {
+    setLumiiAuthToken(nextSession.token);
+    setSession(nextSession);
+    setHistory([]);
+
+    const account = nextSession.account;
+    const accountPermissions = mergePermissionState(account?.permissions);
+    setPermissions(accountPermissions);
+
+    const [petResult, latestPermissions] = await Promise.all([
+      lumiiApi.pets.listPets(),
+      refreshPermissionStatuses({
+        base: accountPermissions,
+        completed: Boolean(account?.permissionsOnboardingCompleted),
+        persist: true,
+      }),
+    ]);
+    const restoredPet = account?.activePet ?? petResult.data?.[0] ?? lumiiApi.pets.getActivePet();
+    setActivePet(restoredPet ?? null);
+
+    const permissionFlowDone = Boolean(account?.permissionsOnboardingCompleted || allLumiiPermissionsGranted(latestPermissions));
+    replace(restoredPet ? 'home' : permissionFlowDone ? 'emptyPet' : 'permissions');
+  }
+
+  async function requestSmsCode(source: 'login' | 'otp') {
+    if (sendLoading) return;
+    if (!agreementAccepted) {
+      showToast('请先勾选并同意用户协议与隐私政策');
+      return;
+    }
+    if (!/^1[3-9]\d{9}$/.test(phone)) {
+      showToast('请输入正确的中国大陆手机号');
+      return;
+    }
+    setSendLoading(true);
+    try {
+      const result = await lumiiApi.auth.sendSmsCode(phone);
+      if (result.state === 'success' && result.data) {
+        setOtpMeta(result.data);
+        setCooldownUntil(clampSmsCooldown(result.data.availableAt));
+        setOtpCode('');
+        setOtpInlineError('');
+        showToast('验证码已发送');
+        if (source === 'login') go('otp');
+      } else {
+        const cooldownData = result.data as { availableAt?: number } | undefined;
+        if (cooldownData?.availableAt) setCooldownUntil(clampSmsCooldown(cooldownData.availableAt));
+        showToast(result.error?.message ?? '验证码发送失败');
+      }
+    } finally {
+      setSendLoading(false);
+    }
+  }
+
+  async function verifySmsCode(codeOverride?: string) {
+    if (!otpMeta) {
+      showToast('请先获取验证码');
+      return;
+    }
+    const code = (codeOverride ?? otpCode).replace(/\D/g, '').slice(0, 6);
+    if (code.length !== 6) {
+      setOtpInlineError('请输入 6 位验证码');
+      return;
+    }
+    setVerifyLoading(true);
+    setOtpInlineError('');
+    try {
+      const result = await lumiiApi.auth.verifySmsCode(otpMeta.phone, code, otpMeta.expiresAt);
+      if (result.data) {
+        await restoreAfterLogin(result.data);
+        showToast('登录成功');
+      } else {
+        const message = result.error?.message ?? '验证码校验失败';
+        setOtpInlineError(message);
+        showToast(message);
+      }
+    } finally {
+      setVerifyLoading(false);
+    }
+  }
+
+  function handleOtpCodeChange(value: string) {
+    const next = value.replace(/\D/g, '').slice(0, 6);
+    setOtpCode(next);
+    if (otpInlineError) setOtpInlineError('');
+    if (next.length === 6 && !verifyLoading) void verifySmsCode(next);
+  }
+
+  async function requestPermission(key: keyof PermissionStateMap) {
+    if (permissions[key] === 'requesting' || permissions[key] === 'granted') return;
+    setPermissions((items) => ({ ...items, [key]: 'requesting' }));
+    const result = await requestLumiiPermission(key);
+    const nextPermissions = mergePermissionState(permissions, { [key]: result.status });
+    setPermissions(nextPermissions);
+    void lumiiApi.permissions.savePermissionState(nextPermissions, allLumiiPermissionsGranted(nextPermissions));
+    showToast(result.message);
+  }
+
+  async function requestAllPermissions() {
+    let grantedAfterRequest = 0;
+    let nextPermissions = mergePermissionState(permissions);
+    for (const key of permissionKeys) {
+      if (permissions[key] === 'granted') {
+        grantedAfterRequest += 1;
+        continue;
+      }
+      setPermissions((items) => ({ ...items, [key]: 'requesting' }));
+      const result = await requestLumiiPermission(key);
+      if (result.status === 'granted') grantedAfterRequest += 1;
+      nextPermissions = mergePermissionState(nextPermissions, { [key]: result.status });
+      setPermissions(nextPermissions);
+      showToast(result.message);
+    }
+    void lumiiApi.permissions.savePermissionState(nextPermissions, grantedAfterRequest === permissionKeys.length);
+    if (grantedAfterRequest === permissionKeys.length) showToast('权限已开启，可以继续添加宠物');
+  }
+
+  async function openPermissionSettings() {
+    if (Platform.OS === 'web') {
+      showToast('Web 预览中以模拟授权为准，真机将打开系统设置');
+      return;
+    }
+    try {
+      await Linking.openSettings();
+    } catch {
+      showToast('无法打开系统设置，请手动前往系统设置开启权限');
+    }
+  }
+
+  async function continueAfterPermissions() {
+    void lumiiApi.permissions.savePermissionState(permissions, true);
+    replace(activePet ? 'home' : 'emptyPet');
+  }
+
+  async function savePetProfile() {
+    if (!petDraft.name.trim()) {
+      showToast('请输入宠物昵称');
+      return;
+    }
+    const result = await lumiiApi.pets.createPet({
+      birthday: petDraft.birthday,
+      breed: petDraft.breed.trim() || '未知品种',
+      gender: petDraft.gender,
+      name: petDraft.name.trim(),
+      species: petDraft.species,
+      weightKg: Number.parseFloat(petDraft.weight) || undefined,
+    });
+    if (result.data) {
+      setActivePet(result.data);
+      go('upload');
+    } else {
+      showToast(result.error?.message ?? '保存宠物档案失败');
+    }
+  }
+
+  async function pickAndUploadPetMedia(source: 'camera' | 'library') {
+    if (mediaPickerMode) return;
+    setMediaPickerMode(source);
+    try {
+      const permissionResult =
+        source === 'camera'
+          ? await ImagePicker.requestCameraPermissionsAsync()
+          : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permissionResult.granted) {
+        showToast(source === 'camera' ? '请先允许相机权限' : '请先允许访问相册');
+        return;
+      }
+
+      const pickerResult =
+        source === 'camera'
+          ? await ImagePicker.launchCameraAsync({
+              mediaTypes: ['images'],
+              quality: 0.9,
+            })
+          : await ImagePicker.launchImageLibraryAsync({
+              allowsMultipleSelection: false,
+              defaultTab: 'photos',
+              mediaTypes: ['images'],
+              quality: 0.9,
+            });
+
+      if (pickerResult.canceled || !pickerResult.assets?.[0]?.uri) {
+        showToast(source === 'camera' ? '已取消拍照' : '已取消选择照片');
+        return;
+      }
+
+      const asset = pickerResult.assets[0];
+      const result = await lumiiApi.avatar.uploadPetMedia({
+        fileName: asset.fileName ?? undefined,
+        mimeType: asset.mimeType ?? undefined,
+        previewUrl: asset.uri,
+        source,
+      });
+      if (result.data) {
+        setMedia(result.data);
+        go('uploadDetail');
+      } else {
+        go('uploadNoPet');
+      }
+    } catch {
+      showToast(source === 'camera' ? '打开相机失败，请稍后重试' : '打开相册失败，请稍后重试');
+    } finally {
+      setMediaPickerMode(null);
+    }
+  }
+
+  async function startAvatarGeneration() {
+    if (!media) {
+      showToast('请先上传宠物照片');
+      return;
+    }
+    const result = await lumiiApi.avatar.startGeneration(media.mediaId);
+    if (result.data) {
+      setAvatarJob(result.data);
+      go('generating');
+    } else {
+      showToast(result.error?.message ?? '启动生成失败');
+    }
+  }
+
+  async function pollAvatarJob() {
+    if (!avatarJob) return;
+    const result = await lumiiApi.avatar.getGenerationStatus(avatarJob.id);
+    if (result.data) {
+      setAvatarJob(result.data);
+      if (result.data.status === 'ready') replace('aiResult');
+    }
+  }
+
+  async function saveAvatar() {
+    if (!activePet || !avatarJob?.resultUrl) {
+      showToast('还没有可保存的形象');
+      return;
+    }
+    const result = await lumiiApi.avatar.saveAvatar(activePet.id, avatarJob.resultUrl);
+    if (result.data) {
+      setActivePet(result.data);
+      replace('home');
+      showToast('灵伴形象已保存');
+    }
+  }
+
+  async function sendChatMessage() {
+    const text = chatInput.trim();
+    if (!text) return;
+    const local: ChatMessage = { author: 'me', id: `me-${Date.now()}`, status: 'sending', text, time: '刚刚' };
+    setChatInput('');
+    setChatMessages((items) => [...items, local]);
+    const result = await lumiiApi.messages.sendMessage(text);
+    setChatMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: result.data ? 'sent' : 'failed' } : item)));
+    if (result.data) {
+      setChatMessages((items) => [...items, result.data!]);
+    } else {
+      showToast(result.error?.message ?? '消息发送失败');
+    }
+  }
+
+  function openConversation(conversation: Conversation) {
+    setSelectedConversation(conversation);
+    setConversations((items) => items.map((item) => (item.id === conversation.id ? { ...item, unread: 0 } : item)));
+    go('conversation');
+  }
+
+  function rejectGreeting(owner: NearbyOwner) {
+    setGreetingRequestOwnerIds((items) => items.filter((id) => id !== owner.id));
+    showToast('已婉拒招呼');
+  }
+
+  function acceptGreeting(owner: NearbyOwner) {
+    setGreetingRequestOwnerIds((items) => items.filter((id) => id !== owner.id));
+    setConversations((items) => [
+      { id: `accepted-${owner.id}-${Date.now()}`, lastMessage: '我们已经互相打招呼啦', name: `${owner.ownerName}和${owner.petName}`, unread: 0 },
+      ...items,
+    ]);
+    replace('messages');
+    showToast('已接受招呼');
+  }
+
+  async function sendConversationMessage() {
+    const text = conversationInput.trim();
+    const conversation = selectedConversation ?? conversations[0];
+    if (!text || !conversation) return;
+    const local: ConversationMessage = { author: 'me', id: `conversation-${Date.now()}`, status: 'sending', text, time: '刚刚' };
+    setConversationInput('');
+    setConversationMessages((items) => [...items, local]);
+    const result = await lumiiApi.messages.sendMessage(text);
+    setConversationMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: result.data ? 'sent' : 'failed' } : item)));
+    if (result.data) {
+      setConversations((items) => items.map((item) => (item.id === conversation.id ? { ...item, lastMessage: text, unread: 0 } : item)));
+    } else {
+      showToast(result.error?.message ?? '消息发送失败');
+    }
+  }
+
+  async function recordWeight() {
+    const kg = Number.parseFloat(weightInput);
+    if (!Number.isFinite(kg) || kg <= 0) {
+      showToast('请输入正确体重');
+      return;
+    }
+    const result = await lumiiApi.health.recordWeight(kg, '手动记录');
+    if (result.data) {
+      setWeights((items) => [result.data!, ...items]);
+      showToast('体重已记录');
+    }
+  }
+
+  function enableVaccineReminder(vaccine?: VaccinePlan) {
+    if (!vaccine) {
+      showToast('暂无可提醒的疫苗计划');
+      return;
+    }
+    setVaccineReminderIds((items) => (items.includes(vaccine.id) ? items : [vaccine.id, ...items]));
+    setNotifications((items) => [
+      {
+        id: `vaccine-reminder-${vaccine.id}-${Date.now()}`,
+        read: false,
+        text: `${vaccine.name}提醒已开启，到期前会通知你。`,
+        title: '疫苗提醒已开启',
+      },
+      ...items,
+    ]);
+    showToast('疫苗提醒已开启');
+  }
+
+  function markVaccineDone(vaccine?: VaccinePlan) {
+    if (!vaccine) {
+      showToast('暂无可完成的疫苗计划');
+      return;
+    }
+    setVaccines((items) => items.map((item) => (item.id === vaccine.id ? { ...item, status: 'done' } : item)));
+    setNotifications((items) => [
+      {
+        id: `vaccine-done-${vaccine.id}-${Date.now()}`,
+        read: false,
+        text: `${vaccine.name}已标记完成，健康时间线已更新。`,
+        title: '疫苗计划已完成',
+      },
+      ...items,
+    ]);
+    showToast('已标记完成');
+  }
+
+  function toggleUserSetting(key: UserSettingKey, label: string) {
+    setUserSettings((items) => {
+      const nextValue = !items[key];
+      showToast(`${label}已${nextValue ? '开启' : '关闭'}`);
+      return { ...items, [key]: nextValue };
+    });
+  }
+
+  function toggleFavoritePlace(place?: Place) {
+    if (!place) {
+      showToast('暂无可收藏地点');
+      return;
+    }
+    setFavoritePlaceIds((items) => {
+      const isFavorite = items.includes(place.id);
+      showToast(isFavorite ? '已取消收藏' : '已收藏地点');
+      return isFavorite ? items.filter((id) => id !== place.id) : [place.id, ...items];
+    });
+  }
+
+  async function saveMemoDraft() {
+    if (!memoDraftTitle.trim() || !memoDraftContent.trim()) {
+      showToast('请填写备忘标题和内容');
+      return;
+    }
+    const result = await lumiiApi.health.saveHealthMemo(memoDraftTitle, memoDraftContent);
+    if (result.data) {
+      setMemos((items) => [result.data!, ...items]);
+      setMemoDraftTitle('');
+      setMemoDraftContent('');
+      showToast('健康备忘已保存');
+    } else {
+      showToast(result.error?.message ?? '保存失败，请稍后重试');
+    }
+  }
+
+  async function saveHealthMemo() {
+    if (!memoTitle.trim() || !memoContent.trim()) {
+      showToast('请填写标题和内容');
+      return;
+    }
+    const result = await lumiiApi.health.saveHealthMemo(memoTitle, memoContent);
+    if (result.data) {
+      setMemos((items) => [result.data!, ...items]);
+      setMemoContent('');
+      showToast('健康备忘已保存');
+    }
+  }
+
+  function publishDailyPost() {
+    if (!dailyPostText.trim()) {
+      showToast('先写一点今天的小事吧');
+      return;
+    }
+    setMemos((items) => [
+      {
+        content: dailyPostText.trim(),
+        id: `daily-${Date.now()}`,
+        title: '今日小事',
+        updatedAt: '刚刚',
+      },
+      ...items,
+    ]);
+    setDailyPostText('');
+    replace('home');
+    showToast('今日小事已记录');
+  }
+
+  async function sendGreeting(ownerId: string) {
+    const result = await lumiiApi.social.sendGreeting(ownerId);
+    const owner = owners.find((item) => item.id === ownerId);
+    if (result.data) {
+      setNotifications((items) => [
+        {
+          id: `greeting-${Date.now()}`,
+          read: false,
+          text: `你已向${owner?.ownerName ?? '附近主人'}和${owner?.petName ?? '它'}打招呼`,
+          title: '招呼已发送',
+        },
+        ...items,
+      ]);
+      showToast('已打招呼');
+    } else {
+      showToast(result.error?.message ?? '发送失败');
+    }
+  }
+
+  async function createWalkInvite() {
+    const owner = selectedOwner ?? owners[0];
+    if (!owner) {
+      showToast('请选择附近主人');
+      return;
+    }
+    if (!walkInvitePlace.trim() || !walkInviteTime.trim()) {
+      showToast('请填写地点和时间');
+      return;
+    }
+    const result = await lumiiApi.social.createWalkInvite(owner.id);
+    if (result.data) {
+      setConversations((items) => [
+        {
+          id: `walk-${Date.now()}`,
+          lastMessage: `${walkInviteTime} · ${walkInvitePlace}`,
+          name: `${owner.ownerName}和${owner.petName}`,
+          unread: 0,
+        },
+        ...items,
+      ]);
+      setNotifications((items) => [
+        {
+          id: `walk-note-${Date.now()}`,
+          read: false,
+          text: `${owner.petName}的主人将收到你的约遛邀请`,
+          title: '约遛邀请已发送',
+        },
+        ...items,
+      ]);
+      replace('messages');
+      showToast('约遛邀请已发送');
+    } else {
+      showToast(result.error?.message ?? '约遛邀请发送失败');
+    }
+  }
+
+  async function searchPlaces() {
+    setPlaceFilter('all');
+    const result = placeQuery.trim() ? await lumiiApi.places.searchPlaces(placeQuery.trim()) : await lumiiApi.places.listNearbyPlaces();
+    if (result.data) setPlaces(result.data);
+  }
+
+  async function fetchNearbyOwners(options: { forceLocation?: boolean; silent?: boolean } = {}) {
+    const location = options.forceLocation
+      ? await getDiscoverLocationHint({ silent: options.silent })
+      : lastDiscoverLocationRef.current ?? (await getDiscoverLocationHint({ silent: options.silent }));
+    const result = await lumiiApi.social.listNearbyOwners(location ?? undefined);
+    if (result.data) return result.data;
+    if (!options.silent) showToast(result.error?.message ?? '附近伙伴刷新失败，请稍后重试');
+    return null;
+  }
+
+  async function refreshDiscoverByPull() {
+    if (discoverRefreshing) return;
+    setDiscoverRefreshing(true);
+    try {
+      const nextOwners = await fetchNearbyOwners({ forceLocation: true, silent: false });
+      if (nextOwners) {
+        setOwners(nextOwners);
+        showToast(nextOwners.length ? '已刷新附近伙伴' : '3km 内暂时没有新的伙伴');
+      }
+    } finally {
+      setDiscoverRefreshing(false);
+    }
+  }
+
+  async function getDiscoverLocationHint(options: { silent?: boolean } = {}): Promise<NearbyLocationHint | null> {
+    try {
+      const permissionResult = await requestLumiiPermission('location');
+      setPermissions((items) => ({ ...items, location: permissionResult.status }));
+
+      if (permissionResult.status !== 'granted') {
+        if (!options.silent) showToast(permissionResult.message);
+        return null;
+      }
+
+      if (!isLumiiAmapAvailable) {
+        const fallback = {
+          latitude: defaultMapCenter.latitude,
+          longitude: defaultMapCenter.longitude,
+          radiusKm: defaultDiscoverRadiusKm,
+        };
+        lastDiscoverLocationRef.current = fallback;
+        return fallback;
+      }
+
+      const location = await getLumiiAmapCurrentLocation();
+      const hint = {
+        accuracy: location.accuracy,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        radiusKm: defaultDiscoverRadiusKm,
+      };
+      lastDiscoverLocationRef.current = hint;
+      return hint;
+    } catch (error) {
+      if (!options.silent) showToast(error instanceof Error ? error.message : '定位失败，请稍后重试');
+      return lastDiscoverLocationRef.current;
+    }
+  }
+
+  async function locateMapToCurrentPosition(options: { silent?: boolean } = {}) {
+    if (locatingMap) return;
+    setLocatingMap(true);
+    try {
+      const permissionResult = await requestLumiiPermission('location');
+      setPermissions((items) => ({ ...items, location: permissionResult.status }));
+
+      if (permissionResult.status !== 'granted') {
+        if (!options.silent) showToast(permissionResult.message);
+        return;
+      }
+
+      if (!isLumiiAmapAvailable) {
+        lastDiscoverLocationRef.current = {
+          latitude: defaultMapCenter.latitude,
+          longitude: defaultMapCenter.longitude,
+          radiusKm: defaultDiscoverRadiusKm,
+        };
+        setMapCenter(defaultMapCenter);
+        if (!options.silent) showToast('当前预览环境使用模拟地图，真机将调用高德定位');
+        return;
+      }
+
+      const location = await getLumiiAmapCurrentLocation();
+      const accuracy = location.accuracy ? Math.round(location.accuracy) : undefined;
+      lastDiscoverLocationRef.current = {
+        accuracy: location.accuracy,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        radiusKm: defaultDiscoverRadiusKm,
+      };
+      setMapCenter({
+        latitude: location.latitude,
+        longitude: location.longitude,
+        markerSnippet: location.address || (accuracy ? `定位精度约 ${accuracy} 米` : '已定位到当前位置'),
+        markerTitle: '我的当前位置',
+        zoom: accuracy && accuracy > 500 ? 15 : 16,
+      });
+      if (!options.silent) showToast(accuracy ? `已定位，精度约 ${accuracy} 米` : '已定位到当前位置');
+    } catch (error) {
+      if (!options.silent) showToast(error instanceof Error ? error.message : '定位失败，请稍后重试');
+    } finally {
+      setLocatingMap(false);
+    }
+  }
+
+  async function createPlaceReview() {
+    const place = selectedPlace ?? places[0];
+    if (!place) return;
+    if (!placeReview.trim()) {
+      showToast('请填写点评内容');
+      return;
+    }
+    const result = await lumiiApi.places.createReview(place.id);
+    if (result.data) {
+      setPlaceReview('');
+      setPlaceReviewStatus('pending_review');
+      setNotifications((items) => [
+        {
+          id: `place-review-${Date.now()}`,
+          read: false,
+          text: `${place.name}的点评已进入审核队列`,
+          title: '地点点评待审核',
+        },
+        ...items,
+      ]);
+      showToast('点评已提交，等待审核');
+    } else {
+      showToast(result.error?.message ?? '提交失败，请稍后重试');
+    }
+  }
+
+  function logout() {
+    setLumiiAuthToken();
+    setSession(null);
+    setActivePet(null);
+    setHistory([]);
+    replace('login');
+    showToast('已退出登录');
+  }
+
+  function openConfirm(title: string, body: string, onConfirm: () => void, confirmText?: string) {
+    setConfirm({ body, confirmText, onConfirm, title });
+  }
+
+  const Screen = useCallback(
+    function ScreenView({ children, refreshControl, showBack = true, title }: { children: ReactNode; refreshControl?: ReactElement<RefreshControlProps>; showBack?: boolean; title?: string }) {
+      const headerTitle = title ?? routeTitles[route] ?? '灵伴';
+      const hideHeader = route === 'login' || route === 'home' || route === 'discover' || route === 'map' || route === 'messages' || route === 'profile' || route === 'chat' || route === 'placeDetail';
+      const isLoginRoute = route === 'login';
+      const isOtpRoute = route === 'otp';
+      const isMapRoute = route === 'map';
+      return (
+        <View style={styles.screen}>
+          {Platform.OS === 'web' ? <PhoneStatusBar /> : null}
+          {hideHeader ? null : (
+            <View style={[styles.header, isOtpRoute && styles.otpHeader]}>
+              <View style={[styles.headerRow, isOtpRoute && styles.otpHeaderRow]}>
+                {showBack ? (
+                  <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={[styles.iconButton, isOtpRoute && styles.otpIconButton]}>
+                    <ChevronLeft color={palette.ink} size={20} strokeWidth={2.6} />
+                  </Pressable>
+                ) : (
+                  <View style={[styles.headerSpacer, isOtpRoute && styles.otpHeaderSpacer]} />
+                )}
+                <Text style={styles.headerTitle}>{headerTitle}</Text>
+                <View style={[styles.headerSpacer, isOtpRoute && styles.otpHeaderSpacer]} />
+              </View>
+            </View>
+          )}
+          {isOtpRoute ? (
+            <View style={styles.otpContent}>{children}</View>
+          ) : isMapRoute ? (
+            <View style={styles.mapContent}>{children}</View>
+          ) : isLoginRoute ? (
+            <View style={[styles.content, styles.loginContent]}>{children}</View>
+          ) : (
+            <ScrollView
+              contentContainerStyle={[styles.content, showBottomTabs && styles.contentWithTabs]}
+              keyboardDismissMode="none"
+              keyboardShouldPersistTaps="always"
+              refreshControl={refreshControl}
+              showsVerticalScrollIndicator={false}
+            >
+              {children}
+            </ScrollView>
+          )}
+        </View>
+      );
+    },
+    [back, route, showBottomTabs],
+  );
+
+  function renderLogin() {
+    return (
+      <Screen showBack={false}>
+        <View style={styles.loginHero}>
+          <View style={styles.logoRow}>
+            <View style={styles.logoMark}>
+              <PawPrint color="#fff" size={21} strokeWidth={2.4} />
+            </View>
+            <Text style={styles.logoText}>Lumii 灵伴</Text>
+          </View>
+          <Text style={styles.loginTitle}>你好呀，{'\n'}准备好遇见你的灵伴了吗？</Text>
+          <Text style={styles.loginSubtitle}>使用手机号快速登录，开启与猫狗的温暖陪伴</Text>
+        </View>
+
+        <View style={styles.loginForm}>
+          <Pressable
+            accessibilityLabel="请输入中国大陆手机号"
+            accessibilityRole="button"
+            onPress={() => phoneInputRef.current?.focus()}
+            style={[styles.phoneInputShell, phoneFocused && styles.phoneInputShellFocused, webPressableReset]}
+          >
+            <Text style={styles.countryCode}>+86</Text>
+            <View style={styles.phoneDivider} />
+            <TextInput
+              autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect={false}
+              importantForAutofill="no"
+              keyboardType="phone-pad"
+              maxLength={11}
+              onBlur={() => {
+                if (Platform.OS === 'web') setPhoneFocused(false);
+              }}
+              onChangeText={(value) => setPhone(value.replace(/\D/g, '').slice(0, 11))}
+              onFocus={() => {
+                if (Platform.OS === 'web') setPhoneFocused(true);
+              }}
+              placeholder="请输入中国大陆手机号"
+              placeholderTextColor="#b6aca3"
+              ref={phoneInputRef}
+              returnKeyType="done"
+              showSoftInputOnFocus
+              style={[styles.phoneInput, webTextInputReset]}
+              textContentType="none"
+              underlineColorAndroid="transparent"
+              value={phone}
+            />
+          </Pressable>
+          <Button disabled={sendLoading || cooldownRemaining > 0 || phone.trim().length === 0} loading={sendLoading} onPress={() => void requestSmsCode('login')}>
+            {cooldownRemaining > 0 ? `${cooldownRemaining}s 后重试` : '获取验证码'}
+          </Button>
+          <Pressable
+            accessibilityLabel="同意用户协议与隐私政策"
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: agreementAccepted }}
+            hitSlop={8}
+            onPress={() => setAgreementAccepted((value) => !value)}
+            style={[styles.agreementRow, webPressableReset]}
+          >
+            <View style={[styles.checkbox, agreementAccepted && styles.checkboxChecked]}>{agreementAccepted ? <Check color="#fff" size={13} strokeWidth={3} /> : null}</View>
+            <Text style={styles.agreementText}>我已阅读并同意《用户协议》《隐私政策》</Text>
+          </Pressable>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderOtp() {
+    const canResend = cooldownRemaining === 0 && !sendLoading;
+    const otpChars = otpCode.padEnd(6, ' ').split('').slice(0, 6);
+    const cursorIndex = Math.min(otpCode.length, 5);
+    return (
+      <Screen showBack={false} title="">
+        <View style={styles.otpPage}>
+          <Text style={styles.otpTitle}>输入验证码</Text>
+          <Text style={styles.otpSubtitle}>
+            已发送 6 位验证码至 <Text style={styles.otpSubtitleStrong}>+86 {otpMeta?.phone ?? phone}</Text>
+          </Text>
+          <Pressable onPress={() => otpInputRef.current?.focus()} style={[styles.otpGrid, webPressableReset]}>
+            <TextInput
+              ref={otpInputRef}
+              autoFocus
+              keyboardType="number-pad"
+              maxLength={6}
+              onChangeText={handleOtpCodeChange}
+              style={[styles.otpHiddenInput, webTextInputReset]}
+              value={otpCode}
+            />
+            {otpChars.map((char, index) => {
+              const filled = char.trim().length > 0;
+              const active = index === cursorIndex && !filled && !otpInlineError;
+              return (
+                <View
+                  key={index}
+                  style={[
+                    styles.otpDigitBox,
+                    filled && styles.otpDigitBoxFilled,
+                    active && styles.otpDigitBoxActive,
+                    Boolean(otpInlineError) && styles.otpDigitBoxError,
+                  ]}
+                >
+                  {filled ? <Text style={[styles.otpDigitText, Boolean(otpInlineError) && styles.otpDigitTextError]}>{char}</Text> : null}
+                  {active ? <View style={styles.otpCursor} /> : null}
+                </View>
+              );
+            })}
+          </Pressable>
+          {otpInlineError ? (
+            <Text style={styles.otpInlineError}>{otpInlineError}</Text>
+          ) : verifyLoading ? (
+            <Text style={styles.otpInlineNotice}>正在校验验证码...</Text>
+          ) : null}
+          <View style={styles.resendRow}>
+            <Text style={styles.resendText}>没有收到验证码？</Text>
+            <Pressable disabled={!canResend} onPress={() => void requestSmsCode('otp')} style={webPressableReset}>
+              <Text style={[styles.resendAction, !canResend && styles.resendActionDisabled]}>
+                {sendLoading ? '发送中...' : cooldownRemaining > 0 ? `${cooldownRemaining}s 后重新发送` : '重新发送'}
+              </Text>
+            </Pressable>
+          </View>
+          <View style={styles.voiceRow}>
+            <Text style={styles.voiceText}>收不到？试试</Text>
+            <Text style={styles.voiceLink}>语音验证码</Text>
+          </View>
+        </View>
+        <View style={styles.bottomTipCard}>
+          <View style={styles.bottomTipIcon}>
+            <PawPrint color={palette.teal} size={18} strokeWidth={2.5} />
+          </View>
+          <Text style={styles.bottomTipText}>
+            新朋友提示：登录后可领养一只 AI 灵伴<Text style={styles.bottomTipMuted}>，与你的真实毛孩子一起成长。</Text>
+          </Text>
+        </View>
+        {verifyLoading ? (
+          <View style={styles.otpVerifyingOverlay}>
+            <ActivityIndicator color={palette.orange} size="small" />
+            <Text style={styles.otpVerifyingText}>登录中...</Text>
+          </View>
+        ) : null}
+        <View style={styles.homeIndicator} />
+      </Screen>
+    );
+  }
+
+  function renderPermissions() {
+    const grantedCount = Object.values(permissions).filter((item) => item === 'granted').length;
+    const allPermissionsGranted = grantedCount === Object.keys(permissionCopy).length;
+    const requestingPermission = Object.values(permissions).some((item) => item === 'requesting');
+    const deniedEntry = (Object.keys(permissions) as Array<keyof PermissionStateMap>).find((key) => ['blocked', 'denied', 'unavailable'].includes(permissions[key]));
+    const deniedEntryStatus = deniedEntry ? permissions[deniedEntry] : undefined;
+    const deniedNeedsSettings = deniedEntryStatus === 'blocked' || deniedEntryStatus === 'unavailable';
+
+    return (
+      <Screen showBack={false} title="">
+        <View style={styles.makeIntroHeader}>
+          <Mascot size={58} />
+          <View style={styles.makeIntroCopy}>
+            <Text style={styles.makeIntroTitle}>为你的灵伴准备一个家</Text>
+            <Text style={styles.makeIntroSubtitle}>打开下列权限，体验更完整的陪伴</Text>
+          </View>
+        </View>
+
+        {deniedEntry ? (
+          <View style={styles.permissionDeniedHero}>
+            <View style={[styles.permissionDeniedIcon, deniedEntry === 'media' && styles.tealIcon, deniedEntry === 'notifications' && styles.goldIcon]}>
+              {deniedEntry === 'location' ? <MapPin color="#fff" size={30} strokeWidth={2.4} /> : deniedEntry === 'media' ? <Camera color="#fff" size={30} strokeWidth={2.4} /> : <Bell color="#fff" size={30} strokeWidth={2.4} />}
+            </View>
+            <Text style={styles.permissionDeniedTitle}>{permissionCopy[deniedEntry].label}未开启</Text>
+            <Text style={styles.permissionDeniedText}>{permissionCopy[deniedEntry].description}</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.permissionMakeStack}>
+          {(Object.keys(permissionCopy) as Array<keyof PermissionStateMap>).map((key) => {
+            const status = permissions[key];
+            const Icon = key === 'location' ? MapPin : key === 'media' ? Camera : Bell;
+            const isGranted = status === 'granted';
+            const isLoading = status === 'requesting';
+            const isBlocked = status === 'blocked' || status === 'unavailable';
+            const isDenied = status === 'denied' || isBlocked;
+            return (
+              <Pressable
+                disabled={isGranted || isLoading}
+                key={key}
+                onPress={() => (isBlocked ? void openPermissionSettings() : void requestPermission(key))}
+                style={[styles.permissionMakeRow, isGranted && styles.permissionMakeRowGranted, isDenied && styles.permissionMakeRowDenied, webPressableReset]}
+              >
+                <View style={[styles.roundIcon, key === 'media' && styles.tealIcon, key === 'notifications' && styles.goldIcon]}>
+                  <Icon color="#fff" size={20} strokeWidth={2.4} />
+                </View>
+                <View style={styles.flex}>
+                  <View style={styles.rowBetween}>
+                    <Text style={styles.cardTitle}>{permissionCopy[key].label}</Text>
+                    {isLoading ? (
+                      <Text style={styles.permissionStatusLoading}>授权中</Text>
+                    ) : isGranted ? (
+                      <View style={styles.permissionStatusOn}>
+                        <Check color={palette.teal} size={12} strokeWidth={3} />
+                        <Text style={styles.permissionStatusOnText}>已开启</Text>
+                      </View>
+                    ) : isDenied ? (
+                      <Text style={styles.permissionStatusDenied}>{isBlocked ? '去设置' : '重新授权'}</Text>
+                    ) : (
+                      <View style={styles.permissionSwitchOff}>
+                        <View style={styles.permissionSwitchThumb} />
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.mutedText}>{permissionCopy[key].description}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <View style={styles.makeBottomActions}>
+          {deniedEntry ? (
+            <Button onPress={deniedNeedsSettings ? () => void openPermissionSettings() : () => void requestPermission(deniedEntry)}>
+              {deniedNeedsSettings ? '去系统设置开启权限' : `重新授权${permissionCopy[deniedEntry].label}`}
+            </Button>
+          ) : allPermissionsGranted ? (
+            <Button onPress={() => void continueAfterPermissions()}>下一步，添加宠物</Button>
+          ) : (
+            <Button loading={requestingPermission} onPress={() => void requestAllPermissions()}>
+              一键开启全部权限
+            </Button>
+          )}
+          {allPermissionsGranted ? null : (
+            <Pressable onPress={() => void continueAfterPermissions()} style={[styles.textAction, webPressableReset]}>
+              <Text style={styles.textActionText}>暂不开启，继续使用</Text>
+            </Pressable>
+          )}
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderEmptyPet() {
+    return (
+      <Screen showBack={false} title="我的宠物">
+        <View style={styles.emptyPetStage}>
+          <View style={styles.emptyPetGlow}>
+            <Mascot size={130} />
+            <View style={styles.emptyPetPlus}>
+              <Plus color={palette.orange} size={14} strokeWidth={2.8} />
+            </View>
+          </View>
+          <Text style={styles.pageTitle}>还没有添加你的毛孩子</Text>
+          <Text style={styles.pageSubtitle}>告诉 Lumii 你家的猫咪或狗狗{'\n'}我们会为它生成一个专属 AI 灵伴</Text>
+          <View style={styles.emptyPetCta}>
+            <Button onPress={() => go('petInfo')}>添加我的宠物</Button>
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderPetInfo() {
+    return (
+      <Screen title={route === 'editPet' ? '编辑宠物信息' : '添加宠物 1/2'}>
+        <View style={styles.makePageTitleBlock}>
+          <Text style={styles.pageTitle}>告诉我们它是谁</Text>
+          <Text style={styles.makePageSubtitle}>这些信息将用于生成它的专属 AI 灵伴</Text>
+        </View>
+
+        <View style={styles.petInfoFormMake}>
+          <Field label="宠物昵称" onChangeText={(name) => setPetDraft((draft) => ({ ...draft, name }))} placeholder="例如：奶油" value={petDraft.name} />
+          <View style={styles.optionWrap}>
+            <Text style={styles.label}>宠物类型</Text>
+            <View style={styles.segmentRow}>
+              {productConfig.pet.supportedSpecies.map((species) => (
+                <Pressable
+                  key={species}
+                  onPress={() => setPetDraft((draft) => ({ ...draft, species }))}
+                  style={[styles.petTypeMakeButton, petDraft.species === species && styles.petTypeMakeButtonActive]}
+                >
+                  <Text style={styles.petTypeEmoji}>{species === 'dog' ? '🐶' : '🐱'}</Text>
+                  <Text style={[styles.petTypeMakeText, petDraft.species === species && styles.petTypeMakeTextActive]}>{speciesLabels[species]}</Text>
+                  {petDraft.species === species ? (
+                    <View style={styles.petTypeCheck}>
+                      <Check color="#fff" size={11} strokeWidth={3} />
+                    </View>
+                  ) : null}
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          <Field label="品种" onChangeText={(breed) => setPetDraft((draft) => ({ ...draft, breed }))} placeholder="例如：金毛寻回犬" value={petDraft.breed} />
+          <Field keyboardType="decimal-pad" label="体重 kg" onChangeText={(weight) => setPetDraft((draft) => ({ ...draft, weight }))} value={petDraft.weight} />
+        </View>
+
+        <View style={styles.makeBottomActions}>
+          <Button onPress={() => void savePetProfile()}>下一步：上传它的照片</Button>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderUpload() {
+    return (
+      <Screen title="添加宠物 2/2">
+        <View style={styles.makePageTitleBlock}>
+          <Text style={styles.pageTitle}>给{activePet?.name ?? (petDraft.name || '它')}来一张正脸照</Text>
+          <Text style={styles.makePageSubtitle}>清晰、光线自然、能看到完整面部</Text>
+        </View>
+        <View style={styles.uploadBoxMake}>
+          <Mascot size={150} />
+          <View style={styles.uploadDashedFrame} />
+          <View style={styles.scanCornerLt} />
+          <View style={styles.scanCornerRt} />
+          <View style={styles.scanCornerRb} />
+          <View style={styles.scanCornerLb} />
+          <Text style={styles.uploadHintMake}>请将宠物正脸放入框内</Text>
+        </View>
+        <View style={styles.tipsCardMake}>
+          {['光线明亮、自然光最佳', '完整露出五官与毛色', '避免逆光、过曝或模糊'].map((tip) => (
+            <View key={tip} style={styles.tipMakeRow}>
+              <Check color={palette.teal} size={14} strokeWidth={2.8} />
+              <Text style={styles.tipMakeText}>{tip}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.uploadActionsMake}>
+          <Button loading={mediaPickerMode === 'library'} onPress={() => void pickAndUploadPetMedia('library')} tone="secondary">相册选择</Button>
+          <Button loading={mediaPickerMode === 'camera'} onPress={() => void pickAndUploadPetMedia('camera')}>立即拍照</Button>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderUploadDetail() {
+    return (
+      <Screen title="识别结果">
+        <View style={styles.recognitionHeroMake}>
+          <PetAvatar uri={media?.previewUrl ?? demoPetPhotoUrl} size={170} />
+          <View style={styles.recognitionSuccessBadge}>
+            <Sparkles color="#fff" size={12} strokeWidth={2.4} />
+            <Text style={styles.recognitionBadgeText}>识别成功</Text>
+          </View>
+          <Text style={styles.recognitionQuality}>质量 96%</Text>
+        </View>
+        <View style={styles.detailCardMake}>
+          <MakeDetailRow label="宠物主体" value={`${speciesLabels[activePet?.species ?? petDraft.species]} · ${activePet?.breed ?? (petDraft.breed || '金毛寻回犬')}`} />
+          <View style={styles.makeDivider} />
+          <MakeDetailRow label="毛色特征" value="金黄色 · 浅金腹毛 · 浓密" />
+          <View style={styles.makeDivider} />
+          <MakeDetailRow label="五官特征" value="圆润鼻头 · 杏仁眼 · 垂耳" />
+          <View style={styles.makeDivider} />
+          <MakeDetailRow label="表情气质" value="温顺亲人 · 微笑张嘴" />
+        </View>
+        <View style={styles.featureChipsMake}>
+          {['正脸清晰', '毛色完整', '可生成'].map((tag) => (
+            <Text key={tag} style={styles.featureChipCool}>{tag}</Text>
+          ))}
+        </View>
+        <View style={styles.makeBottomActions}>
+          <Button onPress={() => void startAvatarGeneration()}>确认并生成灵伴</Button>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderUploadNoPet() {
+    return (
+      <Screen title="识别结果">
+        <View style={styles.failedPhotoMake}>
+          <View style={styles.failedBlurOrb} />
+          <View style={styles.failedAlertCircle}>
+            <AlertTriangle color={palette.danger} size={30} strokeWidth={2.4} />
+          </View>
+          <Text style={styles.failedBadgeMake}>识别失败</Text>
+        </View>
+        <View style={styles.detailCardMake}>
+          <Text style={styles.cardTitle}>未检测到清晰宠物主体</Text>
+          <Text style={[styles.mutedText, styles.failedTipsIntro]}>试试以下方式：</Text>
+          {['保持光线明亮、避免逆光', '镜头距离宠物 30-80cm', '完整露出面部，不要被遮挡'].map((tip) => (
+            <View key={tip} style={styles.tipBulletRow}>
+              <View style={styles.tipBulletDot} />
+              <Text style={styles.tipBulletText}>{tip}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.uploadActionsMake}>
+          <Button onPress={() => replace('upload')} tone="secondary">重新选择</Button>
+          <Button onPress={() => replace('upload')}>重新拍照</Button>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderGenerating() {
+    const progress = avatarJob?.progress ?? 62;
+    return (
+      <Screen title="生成灵伴">
+        <View style={styles.aiGeneratingPage}>
+          <View style={styles.aiGeneratingOrb}>
+            <View style={styles.aiGeneratingRing} />
+            <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.aiGeneratingImage} />
+            <View style={styles.aiScanLine} />
+            <View style={styles.aiOriginalThumb}>
+              <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.avatarImage} />
+            </View>
+            <View style={styles.aiWorkingBadge}>
+              <Sparkles color={palette.orange} size={12} strokeWidth={2.5} />
+              <Text style={styles.aiWorkingText}>AI 转化中</Text>
+            </View>
+          </View>
+          <Text style={styles.aiGeneratingTitle}>正在生成你的小灵伴</Text>
+          <Text style={styles.aiGeneratingSubtitle}>正在捕捉毛色、五官和表情特征{'\n'}这个过程大约需要 20 秒</Text>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${progress}%` }]} />
+          </View>
+          <View style={styles.aiStepsCard}>
+            <MakeStepRow done text="识别宠物主体与五官位置" />
+            <MakeStepRow active text="捕捉毛色、纹理与体态" />
+            <MakeStepRow text="生成真实卡通化灵伴形象" />
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderAiResult() {
+    const petName = activePet?.name ?? (petDraft.name || '豆豆');
+    return (
+      <Screen title="遇见你的小灵伴">
+        <View style={styles.aiResultPage}>
+          <View style={styles.aiPhotoChip}>
+            <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.aiPhotoChipImage} />
+            <Text style={styles.aiPhotoChipText}>基于你上传的{'\n'}<Text style={styles.aiPhotoChipStrong}>{petName}的照片</Text></Text>
+          </View>
+          <View style={styles.aiResultHero}>
+            <PetAvatar uri={avatarJob?.resultUrl ?? generatedGoldenAvatarUri} size={260} />
+          </View>
+          <Text style={styles.aiResultName}>{petName}</Text>
+          <Text style={styles.aiResultDesc}>一只温柔亲人的金毛灵伴已经准备好陪你</Text>
+          <View style={styles.featureChipsMake}>
+            <Text style={styles.featureChipWarm}>真实卡通化</Text>
+            <Text style={styles.featureChipCool}>保留毛色</Text>
+            <Text style={styles.featureChipWarm}>亲和表情</Text>
+          </View>
+          <View style={styles.aiResultActions}>
+            <Button onPress={() => void saveAvatar()}>保存并设为电子灵伴</Button>
+            <Button onPress={() => void startAvatarGeneration()} tone="secondary">重新生成</Button>
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderHome() {
+    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    if (!pet) return renderEmptyPet();
+    return (
+      <Screen showBack={false} title="">
+        <View style={styles.homeMakePage}>
+          <View style={styles.homeMakeHeader}>
+            <View style={styles.homeMakeGreeting}>
+              <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={42} />
+              <View style={styles.flex}>
+                <Text style={styles.homeMakeKicker}>早安，{pet.name}！</Text>
+                <Text numberOfLines={1} style={styles.homeMakeHeadline}>今天也是元气满满的一天</Text>
+              </View>
+            </View>
+            <Pressable onPress={() => go('notifications')} style={styles.homeBellButton}>
+              <Bell color={palette.ink} size={17} strokeWidth={2.3} />
+              <View style={styles.homeBellDot} />
+            </Pressable>
+          </View>
+
+          <View style={styles.homePetStage}>
+              <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={196} />
+            <Pressable onPress={() => go('chat')} style={[styles.homeChatHint, webPressableReset]}>
+              <Text style={styles.homeChatHintText}>今天想去公园散步吗？</Text>
+            </Pressable>
+            <View style={styles.homeOnlineBadge}>
+              <View style={styles.homeOnlineDot} />
+              <Text style={styles.homeOnlineText}>灵伴在线</Text>
+            </View>
+          </View>
+
+          <View style={styles.homePetNameRow}>
+            <Text style={styles.homePetName}>{pet.name}</Text>
+            <Text style={styles.homePetMeta}>· {pet.breed || '金毛'} · 2 岁 3 个月</Text>
+          </View>
+
+          <Pressable onPress={() => go('health')} style={[webPressableReset, styles.homeHealthCard, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E0 0%, #FFE3CB 60%, #FFD7B5 100%)' } as object) : null]}>
+            <View>
+              <Text style={styles.homeHealthLabel}>今日健康分</Text>
+              <View style={styles.homeHealthScoreRow}>
+                <Text style={styles.homeHealthScore}>{pet.healthScore ?? 92}</Text>
+                <Text style={styles.homeHealthTotal}>/ 100</Text>
+                <View style={styles.homeHealthDelta}>
+                  <ArrowUp color={palette.teal} size={10} strokeWidth={3} />
+                  <Text style={styles.homeHealthDeltaText}>+3</Text>
+                </View>
+              </View>
+              <Text style={styles.homeHealthDesc}>体重稳定，运动量良好</Text>
+            </View>
+            <View style={styles.homeHealthRing}>
+              <View style={styles.homeHealthRingInner}>
+                <HeartPulse color={palette.orange} size={22} strokeWidth={2.3} />
+              </View>
+            </View>
+          </Pressable>
+
+          <View style={styles.homeQuickGrid}>
+            <MetricCard Icon={Weight} label="今日体重" onPress={() => go('weight')} tag="稳定" tagTone="teal" value={`${pet.weightKg ?? 28.4} kg`} />
+            <MetricCard Icon={Syringe} label="疫苗提醒" onPress={() => go('vaccine')} tag="12 天后" tagTone="orange" value="狂犬疫苗" />
+            <MetricCard Icon={NotebookPen} label="健康备忘" onPress={() => go('healthMemos')} tag={`${memos.length || 3} 条`} tagTone="muted" value="洗澡 · 驱虫" />
+            <MetricCard Icon={MapPin} label="附近伙伴" onPress={() => go('discover')} tag="3km" tagTone="teal" value={`${owners.length || 3} 位狗友在线`} />
+          </View>
+
+          <Pressable onPress={() => go('dailyPost')} style={[styles.homeStoryStrip, webPressableReset]}>
+            <View style={styles.homeStoryIcon}>
+              <Camera color={palette.orange} size={18} strokeWidth={2.4} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.homeStoryTitle}>记录今天的小事</Text>
+              <Text style={styles.homeStorySub}>让 AI 灵伴更懂{pet.name}</Text>
+            </View>
+            <ChevronRight color={palette.muted} size={18} strokeWidth={2.2} />
+          </Pressable>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderChat() {
+    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    return (
+      <Screen showBack={false} title="">
+        <View style={styles.chatMakeHeader}>
+          <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={styles.makeIconChip}>
+            <ChevronLeft color={palette.ink} size={20} strokeWidth={2.5} />
+          </Pressable>
+          <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={38} />
+          <View style={styles.flex}>
+            <Text style={styles.chatMakeName}>{pet?.name ?? '奶油'}</Text>
+            <View style={styles.chatOnlineRow}>
+              <View style={styles.homeOnlineDot} />
+              <Text style={styles.chatOnlineText}>在线 · 心情很好</Text>
+            </View>
+          </View>
+          <Pressable onPress={() => showToast('灵伴设置待接入')} style={styles.makeIconChip}>
+            <Sparkles color={palette.orange} size={16} strokeWidth={2.3} />
+          </Pressable>
+        </View>
+
+        <View style={styles.chatSafetyTip}>
+          <HeartPulse color={palette.teal} size={13} strokeWidth={2.4} />
+          <Text style={styles.chatSafetyText}>AI 灵伴不能替代兽医，紧急情况请就医</Text>
+        </View>
+
+        <View style={styles.chatMakeList}>
+          <Text style={styles.chatDateChip}>今天 09:32</Text>
+          {chatMessages.map((message) => (
+            <View key={message.id} style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
+              {message.author === 'ai' ? <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={26} /> : null}
+              <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
+                <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
+              </View>
+              {message.status === 'failed' ? <Text style={styles.inlineError}>失败</Text> : null}
+            </View>
+          ))}
+          <View style={styles.chatTopicRow}>
+            {['今天吃什么？', '健康提醒', '陪我聊天'].map((topic) => (
+              <Pressable key={topic} onPress={() => setChatInput(topic)} style={styles.chatTopicChip}>
+                <Text style={styles.chatTopicText}>{topic}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+        <View style={styles.chatComposer}>
+          <TextInput
+            onChangeText={setChatInput}
+            placeholder={`告诉${pet?.name ?? '奶油'}今天发生了什么...`}
+            placeholderTextColor="#b6aca3"
+            style={[styles.chatInput, webTextInputReset]}
+            value={chatInput}
+          />
+          <Pressable onPress={() => void sendChatMessage()} style={styles.sendButton}>
+            <Send color="#fff" size={18} strokeWidth={2.4} />
+          </Pressable>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderConversation() {
+    const conversation = selectedConversation ?? conversations[0];
+    return (
+      <Screen showBack={false} title="">
+        <View style={styles.chatMakeHeader}>
+          <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={styles.makeIconChip}>
+            <ChevronLeft color={palette.ink} size={20} strokeWidth={2.5} />
+          </Pressable>
+          <PetAvatar uri={owners[0]?.imageUrl ?? generatedGoldenAvatarUri} size={38} />
+          <View style={styles.flex}>
+            <Text style={styles.chatMakeName}>{conversation?.name ?? '附近主人'}</Text>
+            <View style={styles.chatOnlineRow}>
+              <View style={styles.homeOnlineDot} />
+              <Text style={styles.chatOnlineText}>模糊距离 · 已互相打招呼</Text>
+            </View>
+          </View>
+          <Pressable onPress={() => go('safety')} style={styles.makeIconChip}>
+            <Shield color={palette.orange} size={16} strokeWidth={2.3} />
+          </Pressable>
+        </View>
+
+        <View style={styles.chatSafetyTip}>
+          <Shield color={palette.teal} size={13} strokeWidth={2.4} />
+          <Text style={styles.chatSafetyText}>聊天中请勿透露精确住址，线下见面建议选择公开宠物友好地点。</Text>
+        </View>
+
+        <View style={styles.chatMakeList}>
+          <Text style={styles.chatDateChip}>今天</Text>
+          {conversationMessages.map((message) => (
+            message.author === 'system' ? (
+              <View key={message.id} style={styles.conversationSystemBubble}>
+                <Text style={styles.conversationSystemText}>{message.text}</Text>
+              </View>
+            ) : (
+              <View key={message.id} style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
+                {message.author === 'other' ? <PetAvatar uri={owners[0]?.imageUrl ?? generatedGoldenAvatarUri} size={26} /> : null}
+                <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
+                  <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
+                </View>
+                {message.status === 'failed' ? <Text style={styles.inlineError}>失败</Text> : null}
+              </View>
+            )
+          ))}
+        </View>
+        <View style={styles.chatComposer}>
+          <TextInput
+            onChangeText={setConversationInput}
+            placeholder="发一条友好的消息..."
+            placeholderTextColor="#b6aca3"
+            style={[styles.chatInput, webTextInputReset]}
+            value={conversationInput}
+          />
+          <Pressable onPress={() => void sendConversationMessage()} style={styles.sendButton}>
+            <Send color="#fff" size={18} strokeWidth={2.4} />
+          </Pressable>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderHealth() {
+    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const nextHealthVaccine = pendingVaccines[0] ?? vaccines[0];
+    return (
+      <Screen title={`${pet?.name ?? '奶油'}的健康`}>
+        <View style={styles.healthHeroMake}>
+          <View style={styles.healthHeroCopy}>
+            <View style={styles.healthHeroLabelRow}>
+              <HeartPulse color={palette.orange} size={13} strokeWidth={2.4} />
+              <Text style={styles.healthHeroLabel}>今日健康分</Text>
+            </View>
+            <View style={styles.healthHeroScoreRow}>
+              <Text style={styles.healthHeroScore}>{pet?.healthScore ?? 92}</Text>
+              <Text style={styles.healthHeroTotal}>/ 100</Text>
+            </View>
+            <Text style={styles.healthHeroDesc}>体重稳定 · 运动适中 · 心情很好</Text>
+          </View>
+          <View style={styles.healthHeroAvatar}>
+            <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={64} />
+          </View>
+        </View>
+
+        <View style={styles.healthSectionStack}>
+          <HealthMakeRow Icon={Weight} badge={`${weights[0]?.kg ?? pet?.weightKg ?? 28.4}kg`} onPress={() => go('weight')} subtitle="近 30 天稳定增长 0.4kg" title="体重趋势" tone="warm" />
+          <HealthMakeRow Icon={Syringe} badge={pendingVaccines.length ? `${pendingVaccines.length} 项` : '已完成'} onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${nextHealthVaccine.status === 'done' ? '已完成' : '待提醒'}` : '暂无计划'} title="疫苗计划" tone="cool" />
+          <HealthMakeRow Icon={CalendarDays} badge={`${memos.length || 3} 条`} onPress={() => go('healthMemos')} subtitle="洗澡 · 驱虫 · 体检" title="健康备忘" tone="warm" />
+        </View>
+
+        <View style={styles.healthMemoMake}>
+          <Text style={styles.sectionTitle}>快速备忘</Text>
+          <Field label="标题" onChangeText={setMemoTitle} value={memoTitle} />
+          <Field label="内容" onChangeText={setMemoContent} placeholder="例如：今天食欲很好，便便正常" value={memoContent} />
+          <Button onPress={() => void saveHealthMemo()}>保存备忘</Button>
+        </View>
+
+        <View style={styles.healthTimelineCard}>
+          <Text style={styles.sectionTitle}>近期记录</Text>
+          {[...memos.slice(0, 2).map((memo) => ({ sub: memo.content, title: memo.title, date: memo.updatedAt })), { title: '体重记录', sub: `今日 ${weights[0]?.kg ?? pet?.weightKg ?? 28.4}kg`, date: '今天' }].map((item, index, items) => (
+            <View key={`${item.title}-${index}`}>
+              <View style={styles.timelineRowMake}>
+                <View style={[styles.timelineDotMake, index % 2 === 1 && styles.timelineDotCool]} />
+                <View style={styles.flex}>
+                  <Text style={styles.timelineTitleMake}>{item.title}</Text>
+                  <Text style={styles.timelineSubMake}>{item.sub}</Text>
+                </View>
+                <Text style={styles.timelineDateMake}>{item.date}</Text>
+              </View>
+              {index < items.length - 1 ? <View style={styles.makeDivider} /> : null}
+            </View>
+          ))}
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderHealthMemos() {
+    return (
+      <Screen title="健康备忘">
+        <View style={styles.healthMemoEditorMake}>
+          <View style={styles.rowBetween}>
+            <View>
+              <Text style={styles.sectionTitle}>新增备忘</Text>
+              <Text style={styles.timelineSubMake}>记录洗澡、驱虫、便便、食欲或异常观察</Text>
+            </View>
+            <View style={styles.healthMemoIconMake}>
+              <NotebookPen color={palette.orange} size={20} strokeWidth={2.4} />
+            </View>
+          </View>
+          <Field label="标题" onChangeText={setMemoDraftTitle} placeholder="例如：洗澡记录" value={memoDraftTitle} />
+          <TextInput
+            multiline
+            onChangeText={setMemoDraftContent}
+            placeholder="例如：今天洗澡后耳朵干净，皮肤没有明显泛红。"
+            placeholderTextColor="#b6aca3"
+            style={[styles.longTextInput, webTextInputReset]}
+            value={memoDraftContent}
+          />
+          <View style={styles.infoChipRow}>
+            <Text style={styles.infoChip}>今天</Text>
+            <Text style={styles.infoChip}>可同步健康时间线</Text>
+          </View>
+          <Button onPress={() => void saveMemoDraft()}>保存备忘</Button>
+        </View>
+
+        <View style={styles.healthTimelineCard}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.sectionTitle}>全部备忘</Text>
+            <Text style={styles.metaText}>{memos.length} 条</Text>
+          </View>
+          {memos.length ? memos.map((memo, index) => (
+            <View key={memo.id}>
+              <View style={styles.timelineRowMake}>
+                <View style={[styles.timelineDotMake, index % 2 === 1 && styles.timelineDotCool]} />
+                <View style={styles.flex}>
+                  <Text style={styles.timelineTitleMake}>{memo.title}</Text>
+                  <Text style={styles.timelineSubMake}>{memo.content}</Text>
+                </View>
+                <Text style={styles.timelineDateMake}>{memo.updatedAt}</Text>
+              </View>
+              {index < memos.length - 1 ? <View style={styles.makeDivider} /> : null}
+            </View>
+          )) : (
+            <View style={styles.emptyStateMake}>
+              <NotebookPen color={palette.orange} size={24} strokeWidth={2.4} />
+              <Text style={styles.emptyStateTitleMake}>还没有备忘</Text>
+              <Text style={styles.emptyStateTextMake}>先记录一条小事，后面可以按时间线查看。</Text>
+            </View>
+          )}
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderWeight() {
+    const currentWeight = weights[0]?.kg ?? activePet?.weightKg ?? 28.4;
+    return (
+      <Screen title="体重记录">
+        <View style={styles.weightHeroMake}>
+          <Text style={styles.healthHeroLabel}>今日体重</Text>
+          <View style={styles.healthHeroScoreRow}>
+            <Text style={styles.healthHeroScore}>{currentWeight}</Text>
+            <Text style={styles.healthHeroTotal}>kg</Text>
+            <View style={styles.homeHealthDelta}>
+              <ArrowUp color={palette.teal} size={10} strokeWidth={3} />
+              <Text style={styles.homeHealthDeltaText}>0.1</Text>
+            </View>
+          </View>
+          <Text style={styles.healthHeroDesc}>金毛当前状态良好 · 建议持续稳定记录</Text>
+        </View>
+        <View style={styles.weightInputMake}>
+          <Text style={styles.sectionTitle}>记录新的体重</Text>
+          <Field keyboardType="decimal-pad" label="今日体重 kg" onChangeText={setWeightInput} value={weightInput} />
+          <View style={styles.infoChipRow}>
+            <Text style={styles.infoChip}>今天 · 09:32</Text>
+            <Text style={styles.infoChip}>照片</Text>
+          </View>
+          <Button onPress={() => void recordWeight()}>保存记录</Button>
+        </View>
+        <View style={styles.healthTimelineCard}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.sectionTitle}>历史记录</Text>
+            <Text style={styles.metaText}>近 30 天</Text>
+          </View>
+          {weights.map((item, index) => (
+            <View key={item.id}>
+              <View style={styles.timelineRowMake}>
+                <View style={styles.timelineDotMake} />
+                <View style={styles.flex}>
+                  <Text style={styles.timelineTitleMake}>{item.kg} kg</Text>
+                  <Text style={styles.timelineSubMake}>{item.note ?? '无备注'}</Text>
+                </View>
+                <Text style={styles.timelineDateMake}>{item.recordedAt}</Text>
+              </View>
+              {index < weights.length - 1 ? <View style={styles.makeDivider} /> : null}
+            </View>
+          ))}
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderVaccine() {
+    const nextVaccine = pendingVaccines[0] ?? vaccines[0];
+    return (
+      <Screen title="疫苗计划">
+        <View style={styles.vaccineHeroMake}>
+          <View style={styles.flex}>
+            <Text style={styles.vaccineDuePill}>即将到期</Text>
+            <Text style={styles.vaccineHeroTitle}>{nextVaccine?.name ?? '狂犬疫苗'}</Text>
+            <View style={styles.chatOnlineRow}>
+              <CalendarDays color={palette.muted} size={12} strokeWidth={2.3} />
+              <Text style={styles.vaccineHeroMeta}>{nextVaccine?.dueAt ?? '2026-06-14'} · 还有 12 天</Text>
+            </View>
+          </View>
+          <View style={styles.vaccineHeroIcon}>
+            <Syringe color={palette.orange} size={26} strokeWidth={2.5} />
+          </View>
+        </View>
+        <View style={styles.actionRow}>
+          <Button onPress={() => enableVaccineReminder(nextVaccine)} tone="secondary">{nextVaccine && vaccineReminderIds.includes(nextVaccine.id) ? '提醒已开启' : '开启提醒'}</Button>
+          <Button disabled={nextVaccine?.status === 'done'} onPress={() => markVaccineDone(nextVaccine)}>{nextVaccine?.status === 'done' ? '已完成' : '标记完成'}</Button>
+        </View>
+        <View style={styles.healthTimelineCard}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.sectionTitle}>全部计划</Text>
+            <Text style={styles.resendAction}>新增</Text>
+          </View>
+          {vaccines.map((item, index) => (
+            <View key={item.id}>
+              <View style={styles.timelineRowMake}>
+                <View style={[styles.timelineDotMake, item.status === 'done' && styles.timelineDotCool]} />
+                <View style={styles.flex}>
+                  <Text style={styles.timelineTitleMake}>{item.name}</Text>
+                  <Text style={styles.timelineSubMake}>{item.status === 'done' ? '已完成' : vaccineReminderIds.includes(item.id) ? '提醒已开启' : '待提醒'} · {item.dueAt}</Text>
+                </View>
+                <StatusPill tone={item.status === 'done' ? 'success' : 'neutral'}>{item.status === 'done' ? '完成' : '计划中'}</StatusPill>
+              </View>
+              {index < vaccines.length - 1 ? <View style={styles.makeDivider} /> : null}
+            </View>
+          ))}
+        </View>
+        <View style={styles.chatSafetyTip}>
+          <Sparkles color={palette.teal} size={14} strokeWidth={2.4} />
+          <Text style={styles.chatSafetyText}>疫苗计划为提醒工具，具体接种时间请以宠物医院建议为准。</Text>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderDiscover() {
+    return (
+      <Screen
+        refreshControl={
+          <RefreshControl
+            colors={[palette.orange]}
+            onRefresh={() => void refreshDiscoverByPull()}
+            progressBackgroundColor="#fffdf9"
+            refreshing={discoverRefreshing}
+            tintColor={palette.orange}
+          />
+        }
+        showBack={false}
+        title="附近"
+      >
+        <View style={styles.discoverMakeHeader}>
+          <Text style={styles.makeScreenTitle}>发现</Text>
+          <View style={styles.messagesHeaderActions}>
+            <Pressable onPress={() => showToast('搜索附近主人待接入')} style={styles.makeIconChip}>
+              <Search color={palette.ink} size={16} strokeWidth={2.3} />
+            </Pressable>
+            <Pressable onPress={() => showToast('筛选已保留配置入口')} style={styles.makeIconChip}>
+              <SlidersHorizontal color={palette.ink} size={16} strokeWidth={2.3} />
+            </Pressable>
+          </View>
+        </View>
+        <View style={styles.locationChipMake}>
+          <MapPin color={palette.orange} size={13} strokeWidth={2.4} />
+          <Text style={styles.locationChipText}>附近 · 3km 内</Text>
+          <Text style={styles.locationPrivacyPill}>模糊距离</Text>
+        </View>
+        <ScrollView horizontal contentContainerStyle={styles.filterChipsMake} showsHorizontalScrollIndicator={false}>
+          {['全部', '🐶 汪星人', '🐱 喵星人', '想交朋友', '可约遛'].map((chip, index) => (
+            <Text key={chip} style={[styles.filterChipMake, index === 0 && styles.filterChipMakeActive]}>{chip}</Text>
+          ))}
+        </ScrollView>
+        <View style={styles.discoverCardsMake}>
+          {owners.map((owner) => (
+            <View key={owner.id} style={styles.ownerCardMake}>
+              <PetAvatar uri={owner.imageUrl} size={92} />
+              <View style={styles.flex}>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.ownerPetNameMake}>{owner.petName}</Text>
+                  <Text style={styles.ownerDistanceMake}>{owner.distance}</Text>
+                </View>
+                <Text style={styles.ownerMetaMake}>{owner.species === 'dog' ? '狗狗' : '猫咪'} · 主人 {owner.ownerName}</Text>
+                <Text style={styles.ownerBioMake} numberOfLines={2}>{owner.tags.join(' · ')}，也想认识附近的新朋友。</Text>
+                <View style={styles.ownerTagRowMake}>
+                  {owner.tags.slice(0, 2).map((tag) => (
+                    <Text key={tag} style={styles.ownerTagMake}>{tag}</Text>
+                  ))}
+                </View>
+                <Pressable
+                  onPress={() => {
+                    setSelectedOwner(owner);
+                    go('walkInvite');
+                  }}
+                  style={[styles.walkInviteInline, webPressableReset]}
+                >
+                  <CalendarDays color={palette.orange} size={14} strokeWidth={2.3} />
+                  <Text style={styles.walkInviteInlineText}>约遛邀请</Text>
+                </Pressable>
+              </View>
+              <Pressable onPress={() => void sendGreeting(owner.id)} style={styles.greetButtonMake}>
+                <MessageCircle color="#fff" size={15} strokeWidth={2.4} />
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderMap() {
+    const placeFilters: Array<{ key: 'all' | Place['category']; label: string }> = [
+      { key: 'all', label: '全部' },
+      { key: 'park', label: '公园' },
+      { key: 'cafe', label: '咖啡店' },
+      { key: 'clinic', label: '医院' },
+    ];
+    const filteredPlaces = placeFilter === 'all' ? places : places.filter((place) => place.category === placeFilter);
+    const visiblePlaces = filteredPlaces.length ? filteredPlaces : places;
+    const highlightedPlace = visiblePlaces[0];
+    return (
+      <Screen showBack={false} title="">
+        <View style={styles.mapPageFull}>
+          <View style={styles.mapFauxFull}>
+            {isLumiiAmapAvailable ? (
+              <LumiiAmapView
+                latitude={mapCenter.latitude}
+                longitude={mapCenter.longitude}
+                markerSnippet={mapCenter.markerSnippet}
+                markerTitle={mapCenter.markerTitle}
+                style={styles.nativeAmap}
+                zoom={mapCenter.zoom}
+              />
+            ) : (
+              <>
+                <View style={styles.mapWaterPatch} />
+                <View style={styles.mapGreenPatchA} />
+                <View style={styles.mapGreenPatchB} />
+                <View style={styles.mapRoadMain} />
+                <View style={styles.mapRoadSecond} />
+                <View style={styles.mapRoadThird} />
+                <Text style={styles.mapAreaLabel}>滨江绿地</Text>
+                <View style={styles.mapMarkerMain}>
+                  <MapPin color="#fff" size={22} strokeWidth={2.4} />
+                </View>
+                <View style={styles.mapMarkerSmallA}>
+                  <PawPrint color={palette.ink} size={17} strokeWidth={2.2} />
+                </View>
+                <View style={styles.mapMarkerSmallB}>
+                  <Sparkles color={palette.ink} size={15} strokeWidth={2.2} />
+                </View>
+              </>
+            )}
+            <View style={styles.mapControlStack}>
+              <Pressable onPress={() => void locateMapToCurrentPosition()} style={styles.mapCtrlButton}>
+                {locatingMap ? <ActivityIndicator color={palette.orange} size="small" /> : <MapPin color={palette.orange} size={16} strokeWidth={2.4} />}
+              </Pressable>
+              <Pressable onPress={() => go('addPlaceReview')} style={styles.mapCtrlButton}>
+                <Plus color={palette.ink} size={16} strokeWidth={2.4} />
+              </Pressable>
+              <Pressable onPress={() => showToast('将切换地图方向')} style={styles.mapCtrlButton}>
+                <Compass color={palette.ink} size={16} strokeWidth={2.4} />
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={styles.mapSearchFloatMake}>
+            <Search color={palette.muted} size={16} strokeWidth={2.2} />
+            <TextInput
+              onChangeText={setPlaceQuery}
+              placeholder="搜索公园、咖啡店、宠物医院…"
+              placeholderTextColor={palette.muted}
+              style={[styles.mapSearchInput, webTextInputReset]}
+              value={placeQuery}
+            />
+            <Pressable onPress={() => void searchPlaces()} style={styles.mapSearchActionMake}>
+              <SlidersHorizontal color="#fff" size={14} strokeWidth={2.4} />
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.mapFilterFloatMake} horizontal showsHorizontalScrollIndicator={false} style={styles.mapFilterScrollerMake}>
+            {placeFilters.map((item) => (
+              <Pressable key={item.key} onPress={() => setPlaceFilter(item.key)} style={[styles.mapChipMake, placeFilter === item.key && styles.mapChipMakeActive]}>
+                <Text style={[styles.mapChipMakeText, placeFilter === item.key && styles.mapChipMakeTextActive]}>
+                  {item.key === 'park' ? '公园' : item.key === 'cafe' ? '咖啡店' : item.key === 'clinic' ? '医院' : '全部'}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          <View style={styles.mapBottomSheetMake}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.mapSheetHeader}>
+              <Text style={styles.sectionTitle}>附近宠物友好地点</Text>
+              <Text style={styles.metaText}>{visiblePlaces.length} 个 · 综合排序</Text>
+            </View>
+            {(visiblePlaces.length ? visiblePlaces : places).slice(0, 3).map((place, index) => (
+              <PlaceSheetRow
+                active={place.id === highlightedPlace?.id}
+                key={place.id}
+                onPress={() => {
+                  setSelectedPlace(place);
+                  go('placeDetail');
+                }}
+                place={place}
+                rank={index + 1}
+              />
+            ))}
+            {!visiblePlaces.length ? (
+              <View style={styles.mapEmptyCard}>
+                <Text style={styles.cardTitle}>没有匹配地点</Text>
+                <Text style={styles.mutedText}>可以切换筛选条件，或搜索其他关键词。</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderPlaceDetail() {
+    const place = selectedPlace ?? places[0];
+    const isFavoritePlace = place ? favoritePlaceIds.includes(place.id) : false;
+    return (
+      <Screen title="">
+        {place ? (
+          <View style={styles.placeDetailPageMake}>
+            <View style={styles.placeHeroMake}>
+              <View style={styles.placeHeroOverlay} />
+              <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={styles.placeBackButtonMake}>
+                <ChevronLeft color={palette.ink} size={18} strokeWidth={2.5} />
+              </Pressable>
+              <View style={styles.placeHeroActions}>
+                <Pressable onPress={() => showToast('分享地点待接入')} style={styles.placeBackButtonMake}>
+                  <Send color={palette.ink} size={15} strokeWidth={2.4} />
+                </Pressable>
+                <Pressable onPress={() => toggleFavoritePlace(place)} style={styles.placeBackButtonMake}>
+                  <HeartPulse color={isFavoritePlace ? palette.orange : palette.ink} size={15} strokeWidth={2.4} />
+                </Pressable>
+              </View>
+              <Text style={styles.placePhotoCount}>1 / 48</Text>
+            </View>
+            <View style={styles.placeSheetMake}>
+              <View style={styles.placeTitleRowMake}>
+                <Text style={styles.placeTitleMake}>{place.name}</Text>
+                <Text style={styles.placeVerifyMake}>官方认证</Text>
+              </View>
+              <View style={styles.placeRatingRowMake}>
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <Star key={index} color="#f2b441" fill="#f2b441" size={12} strokeWidth={2} />
+                ))}
+                <Text style={styles.ratingText}>{place.rating}</Text>
+                <Text style={styles.metaText}>· 236 条点评</Text>
+                <Text style={styles.placeDistanceMake}>{place.distance}</Text>
+              </View>
+              <View style={styles.placeAddressMake}>
+                <MapPin color={palette.orange} size={13} strokeWidth={2.4} />
+                <View style={styles.flex}>
+                  <Text style={styles.placeAddressText}>{place.address}</Text>
+                  <Text style={styles.placeAddressMeta}>06:00 - 22:00 · 010-8888-8888</Text>
+                </View>
+              </View>
+              <Text style={styles.placeSectionLabel}>宠物友好特色</Text>
+              <View style={styles.tagRow}>
+                {place.tags.map((tag) => (
+                  <Text key={tag} style={styles.tag}>{tag}</Text>
+                ))}
+              </View>
+              <View style={styles.placeReviewPreviewMake}>
+                <PetAvatar uri={generatedGoldenAvatarUri} size={28} />
+                <View style={styles.flex}>
+                  <Text style={styles.timelineTitleMake}>奶油的铲屎官</Text>
+                  <Text style={styles.timelineSubMake}>草坪很大，有饮水点，周末人会稍多。</Text>
+                </View>
+              </View>
+              <View style={styles.actionRow}>
+                <Button onPress={() => toggleFavoritePlace(place)} tone="secondary">{isFavoritePlace ? '已收藏' : '收藏'}</Button>
+                <Button onPress={() => openConfirm('打开高德地图', `将使用高德地图导航到${place.name}。`, () => showToast('高德导航将在真机中打开'), '打开')}>高德导航</Button>
+              </View>
+              <View style={styles.weightInputMake}>
+                <Field label="点评内容" onChangeText={setPlaceReview} placeholder="例如：草坪很大，有饮水点" value={placeReview} />
+                <Button onPress={() => void createPlaceReview()}>{placeReviewStatus === 'pending_review' ? '再次提交点评' : '提交点评'}</Button>
+                {placeReviewStatus === 'pending_review' ? (
+                  <View style={styles.reviewStatusCard}>
+                    <Check color={palette.teal} size={15} strokeWidth={3} />
+                    <Text style={styles.reviewStatusText}>已提交，等待审核。通过后会展示在地点详情中。</Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          </View>
+        ) : null}
+      </Screen>
+    );
+  }
+
+  function renderMessages() {
+    return (
+      <Screen showBack={false} title="">
+        <View style={styles.messagesMakePage}>
+          <View style={styles.messagesMakeHeader}>
+            <Text style={styles.makeScreenTitle}>消息</Text>
+            <View style={styles.messagesHeaderActions}>
+              <Pressable onPress={() => showToast('搜索会话待接入')} style={styles.makeIconChip}>
+                <Search color={palette.ink} size={16} strokeWidth={2.3} />
+              </Pressable>
+              <Pressable onPress={() => go('notifications')} style={styles.makeIconChip}>
+                <Bell color={palette.ink} size={16} strokeWidth={2.3} />
+                {notifications.some((item) => !item.read) ? <View style={styles.homeBellDot} /> : null}
+              </Pressable>
+            </View>
+          </View>
+
+          {greetingRequestOwners.length ? (
+          <Pressable onPress={() => go('greetingRequests')} style={styles.messagesRequestMake}>
+            <View style={styles.messagesAvatarStack}>
+              {greetingRequestOwners.slice(0, 3).map((owner, index) => (
+                <View key={owner.id} style={index > 0 ? styles.messagesAvatarOverlap : null}>
+                  <PetAvatar uri={owner.imageUrl} size={32} />
+                </View>
+              ))}
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.messagesRequestTitle}>{greetingRequestOwners.length} 条新招呼请求</Text>
+              <Text style={styles.messagesRequestText}>{greetingRequestOwners.slice(0, 3).map((owner) => owner.petName).join('、')} 想和你打招呼</Text>
+            </View>
+            <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
+          </Pressable>
+          ) : null}
+
+          <View style={styles.messagesListMake}>
+          {conversations.map((conversation) => (
+            <Pressable key={conversation.id} onPress={() => openConversation(conversation)} style={styles.conversationMakeRow}>
+              <PetAvatar uri={conversation.id === 'c1' ? generatedGoldenAvatarUri : owners[0]?.imageUrl} size={50} />
+              <View style={styles.flex}>
+                <Text numberOfLines={1} style={styles.conversationMakeTitle}>{conversation.name}</Text>
+                <Text numberOfLines={1} style={styles.conversationMakeText}>{conversation.lastMessage}</Text>
+              </View>
+              <View style={styles.conversationMetaCol}>
+                <Text style={styles.metaText}>{conversation.id === 'c1' ? '09:32' : '刚刚'}</Text>
+                {conversation.unread > 0 ? <Text style={styles.unreadBadge}>{conversation.unread}</Text> : null}
+              </View>
+            </Pressable>
+          ))}
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderNotifications() {
+    return (
+      <Screen title="通知中心">
+        <View style={styles.notificationListMake}>
+          {notifications.map((item) => (
+            <View key={item.id} style={[styles.notificationCardMake, !item.read && styles.notificationCardUnreadMake]}>
+              <View style={styles.notificationIconMake}>
+                <Bell color={item.read ? palette.muted : palette.orange} size={16} strokeWidth={2.4} />
+              </View>
+              <View style={styles.flex}>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.timelineTitleMake}>{item.title}</Text>
+                  <StatusPill tone={item.read ? 'neutral' : 'success'}>{item.read ? '已读' : '未读'}</StatusPill>
+                </View>
+                <Text style={styles.timelineSubMake}>{item.text}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderProfile() {
+    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const maskedPhone = formatMaskedPhone(session?.phone);
+    return (
+      <Screen showBack={false} title="">
+        <View style={styles.profileMakePage}>
+          <View style={styles.profileMakeHeader}>
+            <Text style={styles.makeScreenTitle}>我的</Text>
+            <Pressable onPress={() => go('settings')} style={styles.profileSettingsButton}>
+              <Settings color={palette.ink} size={18} strokeWidth={2.3} />
+            </Pressable>
+          </View>
+
+          <View style={[styles.profileHeroMake, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E2 0%, #FFE3D1 60%, #FFD7BF 100%)' } as object) : null]}>
+            <View style={styles.profileHeroOrb} />
+            <View style={styles.profileHeroContent}>
+              <View style={styles.profileOwnerAvatar}>
+                <User color={palette.orange} size={30} strokeWidth={2.3} />
+              </View>
+              <View style={styles.flex}>
+                <Text style={styles.profileOwnerName}>奶油的铲屎官</Text>
+                <View style={styles.profilePhoneRow}>
+                  <Phone color={palette.muted} size={11} strokeWidth={2.2} />
+                  <Text style={styles.profilePhoneText}>{maskedPhone}</Text>
+                </View>
+                <View style={styles.profileVerifyPill}>
+                  <Shield color={palette.teal} size={10} strokeWidth={2.4} />
+                  <Text style={styles.profileVerifyText}>已实名 · Lv.3</Text>
+                </View>
+              </View>
+              <Edit3 color={palette.muted} size={18} strokeWidth={2.2} />
+            </View>
+          </View>
+
+          <View style={styles.profileCurrentWrap}>
+            <View style={styles.profileSectionLabelRow}>
+              <Text style={styles.profileSectionLabel}>当前宠物</Text>
+              <Pressable onPress={() => go('petDetail')}>
+                <Text style={styles.profileManageLink}>多宠管理 ›</Text>
+              </Pressable>
+            </View>
+            <Pressable onPress={() => go('petDetail')} style={styles.profilePetCardMake}>
+              <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={60} />
+              <View style={styles.flex}>
+                <View style={styles.profilePetNameRow}>
+                  <Text style={styles.profilePetName}>{pet?.name ?? '奶油'}</Text>
+                  <Text style={styles.profilePetBadge}>金毛</Text>
+                </View>
+                <Text style={styles.profilePetMeta}>3 岁 2 个月 · {pet?.weightKg ?? 26.4} kg · 已绝育</Text>
+                <View style={styles.profilePetTags}>
+                  {['疫苗齐全', '活泼', '对小孩友好'].map((tag) => (
+                    <Text key={tag} style={styles.profilePetTag}>{tag}</Text>
+                  ))}
+                </View>
+              </View>
+              <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
+            </Pressable>
+          </View>
+
+          <View style={styles.profileMenuGroup}>
+            <ProfileMakeRow Icon={PawPrint} onPress={() => go('petDetail')} title="宠物档案" value={pet?.name ?? '奶油'} />
+            <ProfileMakeRow Icon={Users} onPress={() => go('discover')} title="社交与附近" value="已开启" />
+            <ProfileMakeRow Icon={Bell} onPress={() => go('notifications')} title="通知设置" value="已开启" />
+            <ProfileMakeRow Icon={Shield} onPress={() => go('safety')} title="安全中心" />
+            <ProfileMakeRow Icon={User} onPress={() => go('accountSecurity')} title="账号安全" />
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderSettings() {
+    return (
+      <Screen title="设置与隐私">
+        <View style={styles.settingsGroupMake}>
+          <Text style={styles.settingsGroupTitle}>隐私</Text>
+          <ProfileMakeRow Icon={MapPin} onPress={() => toggleUserSetting('fuzzyLocation', '模糊定位')} title="模糊定位" value={userSettings.fuzzyLocation ? '1km 范围' : '已关闭'} />
+          <ProfileMakeRow Icon={Users} onPress={() => toggleUserSetting('nearbyVisible', '附近可见')} title="附近可见" value={userSettings.nearbyVisible ? '已开启' : '已关闭'} />
+          <ProfileMakeRow Icon={MessageCircle} onPress={() => toggleUserSetting('interactionMessages', '互动消息提醒')} title="互动消息提醒" value={userSettings.interactionMessages ? '已开启' : '已关闭'} />
+        </View>
+        <View style={styles.settingsFootnoteMake}>
+          <Shield color={palette.teal} size={14} strokeWidth={2.4} />
+          <Text style={styles.chatSafetyText}>开启模糊定位后，附近的人只能看到大致距离，不会显示精确坐标。</Text>
+        </View>
+        <View style={styles.settingsGroupMake}>
+          <Text style={styles.settingsGroupTitle}>通用</Text>
+          <ProfileMakeRow Icon={Bell} onPress={() => toggleUserSetting('pushNotifications', '通知')} title="通知" value={userSettings.pushNotifications ? '开启' : '关闭'} />
+          <ProfileMakeRow Icon={Settings} onPress={() => showToast('目前仅支持简体中文')} title="语言" value="简体中文" />
+        </View>
+        <View style={styles.settingsGroupMake}>
+          <Text style={styles.settingsGroupTitle}>安全与账号</Text>
+          <ProfileMakeRow Icon={Shield} onPress={() => go('accountSecurity')} title="账号安全" value="已实名" />
+          <ProfileMakeRow Icon={Shield} onPress={() => go('safety')} title="黑名单与举报" />
+          <View style={styles.apiModeMake}>
+            <Text style={styles.timelineTitleMake}>接口模式</Text>
+            <Text style={styles.timelineSubMake}>{apiConfig.mode === 'mock' ? 'Mock 服务' : apiConfig.baseUrl}</Text>
+          </View>
+          <Pressable onPress={() => openConfirm('退出登录', '退出后需要重新输入手机号验证码登录。', logout, '退出')} style={styles.logoutButton}>
+            <LogOut color={palette.danger} size={18} strokeWidth={2.3} />
+            <Text style={styles.logoutText}>退出登录</Text>
+          </Pressable>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderPetDetail() {
+    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    return (
+      <Screen title="宠物档案">
+        {pet ? (
+          <View style={styles.petDetailMakePage}>
+            <View style={styles.petDetailHeroMake}>
+              <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={160} />
+              <Pressable onPress={() => showToast('更换照片待接入')} style={styles.petDetailCamera}>
+                <Camera color="#fff" size={12} strokeWidth={2.3} />
+                <Text style={styles.petDetailCameraText}>更换</Text>
+              </Pressable>
+              <View style={styles.petDetailHeroText}>
+                <Text style={styles.petDetailHeroName}>{pet.name}</Text>
+                <Text style={styles.petDetailHeroMeta}>{pet.breed} · 3 岁 2 个月</Text>
+              </View>
+              <Pressable onPress={() => go('editPet')} style={styles.petDetailEdit}>
+                <Edit3 color={palette.orange} size={12} strokeWidth={2.4} />
+                <Text style={styles.petDetailEditText}>编辑</Text>
+              </Pressable>
+            </View>
+            <View style={styles.petDetailStats}>
+              {[
+                ['体重', `${pet.weightKg ?? 28.4} kg`],
+                ['生日', '2023.04'],
+                ['体型', pet.species === 'dog' ? '大型' : '中型'],
+              ].map(([label, value]) => (
+                <View key={label} style={styles.petDetailStatCard}>
+                  <Text style={styles.petDetailStatLabel}>{label}</Text>
+                  <Text style={styles.petDetailStatValue}>{value}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={styles.settingsGroupMake}>
+              <Text style={styles.settingsGroupTitle}>基础信息</Text>
+              <MakeDetailRow label="昵称" value={pet.name} />
+              <View style={styles.makeDivider} />
+              <MakeDetailRow label="品种" value={pet.breed} />
+              <View style={styles.makeDivider} />
+              <MakeDetailRow label="性别 / 绝育" value="未知 / 已绝育" />
+              <View style={styles.makeDivider} />
+              <MakeDetailRow label="毛色" value="奶油金" />
+            </View>
+            <View style={styles.settingsGroupMake}>
+              <Text style={styles.settingsGroupTitle}>健康</Text>
+              <ProfileMakeRow Icon={HeartPulse} onPress={() => go('health')} title="健康分" value={`${pet.healthScore} / 100`} />
+              <ProfileMakeRow Icon={Syringe} onPress={() => go('vaccine')} title="疫苗计划" value="待提醒" />
+            </View>
+          </View>
+        ) : (
+          renderEmptyPet()
+        )}
+      </Screen>
+    );
+  }
+
+  function renderDailyPost() {
+    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    return (
+      <Screen title="记录今天的小事">
+        <View style={styles.dailyPostHero}>
+          <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={64} />
+          <View style={styles.flex}>
+            <Text style={styles.timelineTitleMake}>{pet?.name ?? '奶油'}今天过得怎么样？</Text>
+            <Text style={styles.timelineSubMake}>这会同步到健康备忘，也能让灵伴更懂它。</Text>
+          </View>
+        </View>
+        <View style={styles.composerCardMake}>
+          <Text style={styles.settingsGroupTitle}>今日记录</Text>
+          <TextInput
+            multiline
+            onChangeText={setDailyPostText}
+            placeholder="例如：今天在公园玩得很开心，回家后食欲很好。"
+            placeholderTextColor="#b6aca3"
+            style={[styles.longTextInput, webTextInputReset]}
+            value={dailyPostText}
+          />
+          <View style={styles.dailyMoodRow}>
+            {['开心', '活跃', '正常', '有点累'].map((item) => (
+              <Text key={item} style={styles.ownerTagMake}>{item}</Text>
+            ))}
+          </View>
+        </View>
+        <View style={styles.actionRow}>
+          <Button onPress={() => setDailyPostText('今天在滨江绿地散步 40 分钟，精神很好，喝水正常。')} tone="secondary">AI 帮我写</Button>
+          <Button onPress={publishDailyPost}>发布记录</Button>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderWalkInvite() {
+    const owner = selectedOwner ?? owners[0];
+    return (
+      <Screen title="约遛邀请">
+        {owner ? (
+          <>
+            <View style={styles.ownerInviteHero}>
+              <PetAvatar uri={owner.imageUrl} size={76} />
+              <View style={styles.flex}>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.ownerPetNameMake}>{owner.petName}</Text>
+                  <Text style={styles.ownerDistanceMake}>{owner.distance}</Text>
+                </View>
+                <Text style={styles.timelineSubMake}>{owner.species === 'dog' ? '狗狗' : '猫咪'} · 主人 {owner.ownerName}</Text>
+                <View style={styles.ownerTagRowMake}>
+                  {owner.tags.slice(0, 3).map((tag) => (
+                    <Text key={tag} style={styles.ownerTagMake}>{tag}</Text>
+                  ))}
+                </View>
+              </View>
+            </View>
+            <View style={styles.settingsGroupMake}>
+              <Text style={styles.settingsGroupTitle}>邀请信息</Text>
+              <View style={styles.walkFieldWrap}>
+                <Field label="地点" onChangeText={setWalkInvitePlace} placeholder="例如：滨江绿地" value={walkInvitePlace} />
+                <Field label="时间" onChangeText={setWalkInviteTime} placeholder="例如：今天 19:00" value={walkInviteTime} />
+              </View>
+            </View>
+            <View style={styles.composerCardMake}>
+              <Text style={styles.settingsGroupTitle}>邀请留言</Text>
+              <TextInput
+                multiline
+                onChangeText={setWalkInviteNote}
+                placeholder="写一句轻松自然的邀请"
+                placeholderTextColor="#b6aca3"
+                style={[styles.longTextInput, webTextInputReset]}
+                value={walkInviteNote}
+              />
+            </View>
+            <View style={styles.actionRow}>
+              <Button onPress={() => void sendGreeting(owner.id)} tone="secondary">先打招呼</Button>
+              <Button onPress={() => void createWalkInvite()}>发送邀请</Button>
+            </View>
+          </>
+        ) : (
+          <View style={styles.mapEmptyCard}>
+            <Text style={styles.cardTitle}>暂无可邀请对象</Text>
+            <Text style={styles.mutedText}>回到发现页刷新附近宠物主人。</Text>
+          </View>
+        )}
+      </Screen>
+    );
+  }
+
+  function renderGreetingRequests() {
+    return (
+      <Screen title="招呼请求">
+        <View style={styles.chatSafetyTip}>
+          <Shield color={palette.teal} size={14} strokeWidth={2.4} />
+          <Text style={styles.chatSafetyText}>接受招呼后才会进入聊天，未接受前不会暴露精确位置。</Text>
+        </View>
+        <View style={styles.requestStackMake}>
+          {greetingRequestOwners.length ? greetingRequestOwners.map((owner, index) => (
+            <View key={owner.id} style={styles.greetingRequestCard}>
+              <PetAvatar uri={owner.imageUrl} size={54} />
+              <View style={styles.flex}>
+                <Text style={styles.timelineTitleMake}>{owner.ownerName}和{owner.petName}</Text>
+                <Text style={styles.timelineSubMake}>{index === 0 ? '想认识你和奶油，今晚也在附近散步。' : '向你发送了友好的招呼。'}</Text>
+                <View style={styles.requestActionRow}>
+                  <Button onPress={() => rejectGreeting(owner)} tone="ghost">婉拒</Button>
+                  <Button onPress={() => acceptGreeting(owner)}>接受</Button>
+                </View>
+              </View>
+            </View>
+          )) : (
+            <View style={styles.emptyStateMake}>
+              <MessageCircle color={palette.orange} size={24} strokeWidth={2.4} />
+              <Text style={styles.emptyStateTitleMake}>暂无新的招呼</Text>
+              <Text style={styles.emptyStateTextMake}>新的附近互动会出现在这里。</Text>
+            </View>
+          )}
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderAddPlaceReview() {
+    return (
+      <Screen title="新增地点与点评">
+        <View style={styles.addPlaceHero}>
+          <MapPin color="#fff" size={26} strokeWidth={2.5} />
+          <View style={styles.flex}>
+            <Text style={styles.addPlaceHeroTitle}>分享一个宠物友好地点</Text>
+            <Text style={styles.addPlaceHeroSub}>提交后会进入审核，审核通过再展示给附近用户。</Text>
+          </View>
+        </View>
+        <View style={styles.settingsGroupMake}>
+          <Text style={styles.settingsGroupTitle}>地点信息</Text>
+          <View style={styles.walkFieldWrap}>
+            <Field label="地点名称" onChangeText={setPlaceDraftName} placeholder="例如：阳光宠物公园" value={placeDraftName} />
+            <Field label="地址" onChangeText={setPlaceDraftAddress} placeholder="搜索或输入地址" value={placeDraftAddress} />
+          </View>
+        </View>
+        <View style={styles.composerCardMake}>
+          <Text style={styles.settingsGroupTitle}>宠物友好体验</Text>
+          <TextInput
+            multiline
+            onChangeText={setPlaceReview}
+            placeholder="例如：草坪很大，有饮水点，牵引绳友好。"
+            placeholderTextColor="#b6aca3"
+            style={[styles.longTextInput, webTextInputReset]}
+            value={placeReview}
+          />
+          <View style={styles.dailyMoodRow}>
+            {['可遛狗', '饮水点', '室内友好', '停车方便'].map((item) => (
+              <Text key={item} style={styles.ownerTagMake}>{item}</Text>
+            ))}
+          </View>
+        </View>
+        {placeReviewStatus === 'pending_review' ? (
+          <View style={styles.reviewStatusCard}>
+            <Check color={palette.teal} size={15} strokeWidth={3} />
+            <Text style={styles.reviewStatusText}>已提交审核。后续真实接口会返回审核单号和预计处理时间。</Text>
+          </View>
+        ) : null}
+        <Button onPress={() => void createPlaceReview()}>提交审核</Button>
+      </Screen>
+    );
+  }
+
+  function renderAccountSecurity() {
+    return (
+      <Screen title="账号安全">
+        <View style={styles.placeholderHeroMake}>
+          <Shield color={palette.teal} size={28} strokeWidth={2.5} />
+          <View style={styles.flex}>
+            <Text style={styles.timelineTitleMake}>账号已实名 · 安全等级高</Text>
+            <Text style={styles.timelineSubMake}>当前登录方式为手机号验证码，微信/苹果登录后续接入。</Text>
+          </View>
+        </View>
+        <View style={styles.settingsGroupMake}>
+          <Text style={styles.settingsGroupTitle}>登录方式</Text>
+          <ProfileMakeRow Icon={Phone} onPress={() => showToast('手机号换绑待接入后端')} title="手机号" value={formatMaskedPhone(session?.phone)} />
+          <ProfileMakeRow Icon={Shield} onPress={() => showToast('登录保护已开启')} title="登录保护" value="已开启" />
+          <ProfileMakeRow Icon={Bell} onPress={() => showToast('异常登录提醒已开启')} title="异常登录提醒" value="已开启" />
+        </View>
+        <View style={styles.settingsGroupMake}>
+          <Text style={styles.settingsGroupTitle}>危险操作</Text>
+          <ProfileMakeRow Icon={LogOut} onPress={() => openConfirm('注销账号', '注销后账号、宠物档案、聊天和社交关系会进入待删除流程。MVP 先保留二次确认状态。', () => showToast('注销申请已进入 mock 流程'), '申请注销')} title="注销账号" value="需短信确认" />
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderSafety() {
+    return (
+      <Screen title="安全中心">
+        <View style={styles.placeholderHeroMake}>
+          <Shield color={palette.teal} size={28} strokeWidth={2.5} />
+          <View style={styles.flex}>
+            <Text style={styles.timelineTitleMake}>社区安全中心</Text>
+            <Text style={styles.timelineSubMake}>举报、拉黑和隐私保护集中在这里，所有危险操作都有二次确认。</Text>
+          </View>
+        </View>
+        <View style={styles.settingsGroupMake}>
+          <Text style={styles.settingsGroupTitle}>快速处理</Text>
+          <ProfileMakeRow Icon={AlertTriangle} onPress={() => openConfirm('提交举报', '将提交当前会话/用户的举报线索，后续由审核系统处理。', () => showToast('举报已提交'), '提交')} title="举报不当内容" value="审核处理" />
+          <ProfileMakeRow Icon={Shield} onPress={() => openConfirm('拉黑用户', '拉黑后对方无法查看你的资料、宠物和位置，也无法向你发送消息。', () => showToast('已加入黑名单'), '拉黑')} title="拉黑用户" value="二次确认" />
+          <ProfileMakeRow Icon={Users} onPress={() => showToast('黑名单列表待接后端')} title="黑名单管理" value="0 人" />
+        </View>
+        <View style={styles.settingsFootnoteMake}>
+          <Shield color={palette.teal} size={14} strokeWidth={2.4} />
+          <Text style={styles.chatSafetyText}>MVP 阶段所有安全操作先走 mock 状态，后续需要后端提供举报、拉黑、黑名单和审核接口。</Text>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderPlaceholder(title: string, body: string) {
+    const isSafety = title.includes('安全');
+    const isAccount = title.includes('账号');
+    return (
+      <Screen title={title}>
+        <View style={styles.placeholderMake}>
+          <View style={styles.placeholderHeroMake}>
+            <Shield color={palette.teal} size={28} strokeWidth={2.5} />
+            <View style={styles.flex}>
+              <Text style={styles.timelineTitleMake}>{isAccount ? '账号已实名 · 安全等级高' : isSafety ? '社区安全中心' : title}</Text>
+              <Text style={styles.timelineSubMake}>{body}</Text>
+            </View>
+          </View>
+          <View style={styles.settingsGroupMake}>
+            <Text style={styles.settingsGroupTitle}>{isAccount ? '登录方式' : isSafety ? '安全工具' : '功能入口'}</Text>
+            <ProfileMakeRow Icon={Phone} onPress={() => showToast('手机号管理待接入')} title="手机号" value={formatMaskedPhone(session?.phone)} />
+            <ProfileMakeRow Icon={Shield} onPress={() => showToast('二次确认弹窗已预留')} title={isSafety ? '举报与拉黑' : '登录保护'} value="已开启" />
+            <ProfileMakeRow Icon={LogOut} onPress={() => openConfirm('确认操作', '这是危险操作，MVP 先保留二次确认状态。', () => showToast('已确认'), '确认')} title={isAccount ? '注销账号' : '危险操作'} />
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderScreen() {
+    switch (route) {
+      case 'accountSecurity':
+        return renderAccountSecurity();
+      case 'addPlaceReview':
+        return renderAddPlaceReview();
+      case 'aiResult':
+        return renderAiResult();
+      case 'chat':
+        return renderChat();
+      case 'conversation':
+        return renderConversation();
+      case 'dailyPost':
+        return renderDailyPost();
+      case 'discover':
+        return renderDiscover();
+      case 'editPet':
+      case 'petInfo':
+        return renderPetInfo();
+      case 'emptyPet':
+        return renderEmptyPet();
+      case 'generating':
+        return renderGenerating();
+      case 'greetingRequests':
+        return renderGreetingRequests();
+      case 'health':
+        return renderHealth();
+      case 'healthMemos':
+        return renderHealthMemos();
+      case 'home':
+        return renderHome();
+      case 'login':
+        return renderLogin();
+      case 'map':
+        return renderMap();
+      case 'messages':
+        return renderMessages();
+      case 'notifications':
+        return renderNotifications();
+      case 'otp':
+        return renderOtp();
+      case 'permissions':
+        return renderPermissions();
+      case 'petDetail':
+        return renderPetDetail();
+      case 'placeDetail':
+        return renderPlaceDetail();
+      case 'profile':
+        return renderProfile();
+      case 'safety':
+        return renderSafety();
+      case 'settings':
+        return renderSettings();
+      case 'upload':
+        return renderUpload();
+      case 'uploadDetail':
+        return renderUploadDetail();
+      case 'uploadNoPet':
+        return renderUploadNoPet();
+      case 'vaccine':
+        return renderVaccine();
+      case 'walkInvite':
+        return renderWalkInvite();
+      case 'weight':
+        return renderWeight();
+      default:
+        return renderHome();
+    }
+  }
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <StatusBar style="dark" />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.appWrap}>
+        <View style={[styles.phoneFrame, nativeTopInset ? { paddingTop: nativeTopInset } : null]}>
+          {renderScreen()}
+          {showBottomTabs ? (
+            <View style={styles.tabBar}>
+              {tabItems.map(({ Icon, ...item }) => {
+                const selected = currentTab === item.route;
+                return (
+                  <Pressable key={item.route} onPress={() => replace(item.route)} style={[styles.tabItem, selected && styles.tabItemActive, webPressableReset]}>
+                    <Icon color={selected ? palette.orange : palette.muted} size={20} strokeWidth={selected ? 2.4 : 2} />
+                    <Text style={[styles.tabText, selected && styles.tabTextActive]}>{item.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+          <Toast message={toast} />
+          <ConfirmDialog
+            body={confirm?.body ?? ''}
+            confirmText={confirm?.confirmText}
+            onCancel={() => setConfirm(null)}
+            onConfirm={() => {
+              const action = confirm?.onConfirm;
+              setConfirm(null);
+              action?.();
+            }}
+            title={confirm?.title ?? ''}
+            visible={Boolean(confirm)}
+          />
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+function PhoneStatusBar() {
+  return (
+    <View style={styles.phoneStatusBar}>
+      <Text style={styles.phoneStatusTime}>9:41</Text>
+      <View style={styles.phoneStatusIcons}>
+        <Signal color={palette.ink} size={18} strokeWidth={2.6} />
+        <Wifi color={palette.ink} size={16} strokeWidth={2.6} />
+        <BatteryFull color={palette.ink} size={22} strokeWidth={2.4} />
+      </View>
+    </View>
+  );
+}
+
+function Mascot({ size = 96 }: { size?: number }) {
+  return (
+    <View style={[styles.mascot, { borderRadius: size / 2, height: size, width: size }]}>
+      <PawPrint color="#8a5226" size={Math.max(30, size * 0.38)} strokeWidth={2.4} />
+    </View>
+  );
+}
+
+function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
+  return (
+    <View style={[styles.petAvatar, { borderRadius: size / 2, height: size, width: size }]}>
+      {uri && !isGeneratedAvatarUri(uri) ? <Image resizeMode="cover" source={{ uri }} style={styles.avatarImage} /> : <Image resizeMode="cover" source={generatedGoldenAvatarSource} style={styles.avatarImage} />}
+    </View>
+  );
+}
+
+function MetricCard({
+  Icon,
+  label,
+  onPress,
+  tag,
+  tagTone = 'orange',
+  value,
+}: {
+  Icon: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
+  label: string;
+  onPress: () => void;
+  tag?: string;
+  tagTone?: 'orange' | 'teal' | 'muted';
+  value: string;
+}) {
+  const tagPalette = tagTone === 'teal'
+    ? { bg: 'rgba(77,182,172,0.14)', color: palette.teal }
+    : tagTone === 'muted'
+      ? { bg: 'rgba(122,121,114,0.12)', color: palette.muted }
+      : { bg: 'rgba(255,138,92,0.12)', color: palette.orange };
+  const iconPalette = tagTone === 'teal'
+    ? { bg: 'rgba(77,182,172,0.18)', color: palette.teal }
+    : { bg: 'rgba(255,138,92,0.15)', color: palette.orange };
+  return (
+    <Pressable onPress={onPress} style={[styles.metricCard, webPressableReset]}>
+      <View style={styles.metricTopRow}>
+        <View style={[styles.metricIcon, { backgroundColor: iconPalette.bg }]}>
+          <Icon color={iconPalette.color} size={18} strokeWidth={2.4} />
+        </View>
+        {tag ? <Text numberOfLines={1} style={[styles.metricTag, { backgroundColor: tagPalette.bg, color: tagPalette.color }]}>{tag}</Text> : null}
+      </View>
+      <Text numberOfLines={1} style={styles.metricLabel}>{label}</Text>
+      <Text numberOfLines={1} style={styles.metricValue}>{value}</Text>
+    </Pressable>
+  );
+}
+
+function ListRow({ left, right, subtitle }: { left: string; right?: string; subtitle?: string }) {
+  return (
+    <Card>
+      <View style={styles.rowBetween}>
+        <Text style={uiStyles.cardTitle}>{left}</Text>
+        {right ? <Text style={styles.metaText}>{right}</Text> : null}
+      </View>
+      {subtitle ? <Text style={uiStyles.body}>{subtitle}</Text> : null}
+    </Card>
+  );
+}
+
+function PlaceRow({ onPress, place }: { onPress: () => void; place: Place }) {
+  return (
+    <Pressable onPress={onPress} style={styles.placeRow}>
+      <View style={styles.roundIcon}>
+        <MapPin color="#fff" size={18} strokeWidth={2.4} />
+      </View>
+      <View style={styles.flex}>
+        <Text style={uiStyles.cardTitle}>{place.name}</Text>
+        <Text style={uiStyles.body}>{place.address} · {place.distance}</Text>
+      </View>
+      <View style={styles.ratingPill}>
+        <Star color={palette.orange} fill={palette.orange} size={13} strokeWidth={2} />
+        <Text style={styles.ratingText}>{place.rating}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function PlaceSheetRow({ active, onPress, place, rank }: { active?: boolean; onPress: () => void; place: Place; rank: number }) {
+  return (
+    <Pressable onPress={onPress} style={[styles.placeSheetRow, active && styles.placeSheetRowActive]}>
+      <View style={[styles.placeRankBadge, active && styles.placeRankBadgeActive]}>
+        <Text style={[styles.placeRankText, active && styles.placeRankTextActive]}>{rank}</Text>
+      </View>
+      <View style={styles.flex}>
+        <View style={styles.rowBetween}>
+          <Text numberOfLines={1} style={styles.placeSheetTitle}>{place.name}</Text>
+          <View style={styles.ratingPill}>
+            <Star color={palette.orange} fill={palette.orange} size={12} strokeWidth={2} />
+            <Text style={styles.ratingText}>{place.rating}</Text>
+          </View>
+        </View>
+        <Text numberOfLines={1} style={styles.placeSheetMeta}>{place.address} · {place.distance}</Text>
+        <View style={styles.placeSheetTags}>
+          {place.tags.slice(0, 2).map((tag) => (
+            <Text key={tag} style={styles.placeSheetTag}>{tag}</Text>
+          ))}
+        </View>
+      </View>
+      <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
+    </Pressable>
+  );
+}
+
+function MenuRow({
+  Icon,
+  onPress,
+  title,
+  value,
+}: {
+  Icon: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
+  onPress: () => void;
+  title: string;
+  value?: string;
+}) {
+  return (
+    <Pressable onPress={onPress} style={styles.menuRow}>
+      <View style={styles.menuIcon}>
+        <Icon color={palette.orange} size={18} strokeWidth={2.4} />
+      </View>
+      <Text style={styles.menuTitle}>{title}</Text>
+      {value ? <Text style={styles.metaText}>{value}</Text> : null}
+      <ChevronRight color={palette.muted} size={17} strokeWidth={2.3} />
+    </Pressable>
+  );
+}
+
+function ProfileMakeRow({
+  Icon,
+  onPress,
+  title,
+  value,
+}: {
+  Icon: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
+  onPress: () => void;
+  title: string;
+  value?: string;
+}) {
+  return (
+    <Pressable onPress={onPress} style={styles.profileMakeRow}>
+      <View style={styles.profileMakeRowIcon}>
+        <Icon color={palette.orange} size={16} strokeWidth={2.4} />
+      </View>
+      <Text style={styles.profileMakeRowTitle}>{title}</Text>
+      {value ? <Text style={styles.profileMakeRowValue}>{value}</Text> : null}
+      <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
+    </Pressable>
+  );
+}
+
+function MakeDetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.makeDetailRow}>
+      <Text style={styles.makeDetailLabel}>{label}</Text>
+      <Text style={styles.makeDetailValue}>{value}</Text>
+    </View>
+  );
+}
+
+function MakeStepRow({ active, done, text }: { active?: boolean; done?: boolean; text: string }) {
+  return (
+    <View style={styles.makeStepRow}>
+      <View style={[styles.makeStepDot, done && styles.makeStepDotDone, active && styles.makeStepDotActive]}>
+        {done ? <Check color={palette.teal} size={12} strokeWidth={3} /> : <View style={[styles.makeStepInnerDot, active && styles.makeStepInnerDotActive]} />}
+      </View>
+      <Text style={[styles.makeStepText, !done && !active && styles.makeStepTextMuted]}>{text}</Text>
+    </View>
+  );
+}
+
+function HealthMakeRow({
+  Icon,
+  badge,
+  onPress,
+  subtitle,
+  title,
+  tone,
+}: {
+  Icon: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
+  badge: string;
+  onPress: () => void;
+  subtitle: string;
+  title: string;
+  tone: 'cool' | 'warm';
+}) {
+  const isCool = tone === 'cool';
+  return (
+    <Pressable onPress={onPress} style={styles.healthMakeRow}>
+      <View style={[styles.healthMakeIcon, isCool && styles.healthMakeIconCool]}>
+        <Icon color={isCool ? palette.teal : palette.orange} size={17} strokeWidth={2.5} />
+      </View>
+      <View style={styles.flex}>
+        <View style={styles.rowBetween}>
+          <Text style={styles.healthMakeTitle}>{title}</Text>
+          <Text style={[styles.healthMakeBadge, isCool && styles.healthMakeBadgeCool]}>{badge}</Text>
+        </View>
+        <Text style={styles.healthMakeSub}>{subtitle}</Text>
+      </View>
+      <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  actionRow: { flexDirection: 'row', gap: 12 },
+  addPlaceHero: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 22, flexDirection: 'row', gap: 13, paddingHorizontal: 18, paddingVertical: 18, shadowColor: '#8b5e3c', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.16, shadowRadius: 30 },
+  addPlaceHeroSub: { color: 'rgba(255,255,255,0.88)', flex: 1, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18, marginTop: 4 },
+  addPlaceHeroTitle: { color: '#fff', fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', lineHeight: 23 },
+  agreementRow: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'center', marginTop: 4 },
+  agreementText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
+  appWrap: { alignItems: 'center', backgroundColor: '#e8e2d9', flex: 1, justifyContent: 'center' },
+  avatarImage: { height: '100%', width: '100%' },
+  bottomAction: { gap: 10, marginTop: 20 },
+  bottomTipCard: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.18)', borderRadius: 18, borderWidth: 1, bottom: 40, flexDirection: 'row', gap: 12, left: 20, paddingHorizontal: 16, paddingVertical: 14, position: 'absolute', right: 20 },
+  bottomTipIcon: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.18)', borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },
+  bottomTipMuted: { color: palette.muted },
+  bottomTipText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, lineHeight: 20 },
+  cardTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '600', lineHeight: 22 },
+  centerStage: { alignItems: 'center', gap: 16, justifyContent: 'center', minHeight: 520, paddingHorizontal: 16 },
+  chatBubble: { alignSelf: 'flex-start', backgroundColor: palette.card, borderRadius: 18, maxWidth: '84%', padding: 12 },
+  chatBubbleMe: { alignSelf: 'flex-end', backgroundColor: palette.orange },
+  chatComposer: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 8, padding: 8 },
+  chatDateChip: { alignSelf: 'center', backgroundColor: 'rgba(122,121,114,0.12)', borderRadius: 12, color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 4 },
+  chatInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, minHeight: 40, paddingHorizontal: 10 },
+  chatList: { gap: 10, minHeight: 520 },
+  chatMakeBubble: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderBottomLeftRadius: 4, borderWidth: 1, maxWidth: '82%', paddingHorizontal: 14, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
+  chatMakeBubbleMe: { backgroundColor: palette.orange, borderBottomLeftRadius: 18, borderBottomRightRadius: 4, borderColor: palette.orange, shadowColor: palette.orange, shadowOpacity: 0.18 },
+  chatMakeBubbleRow: { alignItems: 'flex-end', flexDirection: 'row', gap: 8 },
+  chatMakeBubbleRowMe: { alignSelf: 'flex-end', flexDirection: 'row-reverse' },
+  chatMakeHeader: { alignItems: 'center', flexDirection: 'row', gap: 12, marginTop: 0 },
+  chatMakeList: { gap: 10, marginTop: 14, minHeight: 480 },
+  chatMakeName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', lineHeight: 20 },
+  chatMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 22 },
+  chatOnlineRow: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 2 },
+  chatOnlineText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  chatSafetyText: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17 },
+  chatSafetyTip: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 9, marginTop: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  chatTopicChip: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 },
+  chatTopicRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  chatTopicText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
+  chatText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 20 },
+  chatTextMe: { color: '#fff', fontWeight: '600' },
+  checkbox: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 7, borderWidth: 1.2, height: 18, justifyContent: 'center', width: 18 },
+  checkboxChecked: { backgroundColor: palette.orange, borderColor: palette.orange },
+  content: { gap: 16, paddingBottom: 32, paddingHorizontal: 20, paddingTop: 18 },
+  contentWithTabs: { paddingBottom: 110 },
+  conversationRow: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 70, padding: 14 },
+  countryCode: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', minWidth: 34 },
+  dangerText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  emptyStateMake: { alignItems: 'center', gap: 8, paddingHorizontal: 18, paddingVertical: 24 },
+  emptyStateTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 19, textAlign: 'center' },
+  emptyStateTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
+  flex: { flex: 1, minWidth: 0 },
+  aiGeneratingImage: { borderRadius: 120, height: 240, opacity: 0.9, width: 240 },
+  aiGeneratingOrb: { alignItems: 'center', alignSelf: 'center', height: 286, justifyContent: 'center', marginTop: 28, position: 'relative', width: 286 },
+  aiGeneratingPage: { alignItems: 'center', paddingHorizontal: 6 },
+  aiGeneratingRing: { backgroundColor: 'rgba(255,138,92,0.18)', borderColor: palette.orange, borderRadius: 136, borderWidth: 3, height: 272, opacity: 0.75, position: 'absolute', width: 272 },
+  aiGeneratingSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 22, marginTop: 10, textAlign: 'center' },
+  aiGeneratingTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 29, marginTop: 30, textAlign: 'center' },
+  aiOriginalThumb: { borderColor: '#fff', borderRadius: 31, borderWidth: 3, height: 62, left: 7, overflow: 'hidden', position: 'absolute', top: 12, width: 62 },
+  aiPhotoChip: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.82)', borderColor: palette.border, borderRadius: 30, borderWidth: 1, flexDirection: 'row', gap: 10, marginLeft: 2, marginTop: 4, paddingBottom: 6, paddingLeft: 6, paddingRight: 14, paddingTop: 6 },
+  aiPhotoChipImage: { borderColor: '#fff', borderRadius: 18, borderWidth: 2, height: 36, width: 36 },
+  aiPhotoChipStrong: { color: palette.ink, fontWeight: '700' },
+  aiPhotoChipText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', lineHeight: 15 },
+  aiResultActions: { gap: 12, marginTop: 28, width: '100%' },
+  aiResultDesc: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 21, marginTop: 8, textAlign: 'center' },
+  aiResultHero: { alignItems: 'center', justifyContent: 'center', marginTop: 32 },
+  aiResultName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', letterSpacing: 0, lineHeight: 32, marginTop: 22, textAlign: 'center' },
+  aiResultPage: { alignItems: 'center', paddingHorizontal: 6 },
+  aiScanLine: { backgroundColor: palette.orange, borderRadius: 999, height: 2, left: 28, opacity: 0.88, position: 'absolute', right: 28, top: 135 },
+  aiStepsCard: { backgroundColor: 'rgba(255,255,255,0.76)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 22, paddingHorizontal: 16, paddingVertical: 10, width: '100%' },
+  aiWorkingBadge: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, bottom: 34, flexDirection: 'row', gap: 5, paddingHorizontal: 12, paddingVertical: 6, position: 'absolute', right: 2, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.15, shadowRadius: 18 },
+  aiWorkingText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  formCard: { gap: 12 },
+  goldIcon: { backgroundColor: '#f2b441' },
+  grid2: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  greetButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 17, height: 34, justifyContent: 'center', position: 'absolute', right: 14, top: 70, width: 34 },
+  header: { backgroundColor: palette.background, paddingHorizontal: 16, paddingTop: 0 },
+  headerRow: { alignItems: 'center', flexDirection: 'row', height: 44, justifyContent: 'space-between' },
+  headerSpacer: { height: 36, width: 36 },
+  headerTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '500', textAlign: 'center' },
+  healthScore: { color: palette.ink, fontFamily: appFontFamily, fontSize: 44, fontWeight: '700', lineHeight: 50 },
+  healthHeroAvatar: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 38, height: 76, justifyContent: 'center', padding: 6, width: 76 },
+  healthHeroCopy: { flex: 1, minWidth: 0 },
+  healthHeroDesc: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 19, marginTop: 8 },
+  healthHeroLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  healthHeroLabelRow: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  healthHeroMake: { alignItems: 'center', backgroundColor: '#ffd2a8', borderRadius: 24, flexDirection: 'row', gap: 12, overflow: 'hidden', paddingHorizontal: 20, paddingVertical: 18, shadowColor: '#8b5e3c', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.16, shadowRadius: 36 },
+  healthHeroScore: { color: palette.ink, fontFamily: appFontFamily, fontSize: 44, fontWeight: '700', letterSpacing: 0, lineHeight: 48 },
+  healthHeroScoreRow: { alignItems: 'baseline', flexDirection: 'row', gap: 6, marginTop: 6 },
+  healthHeroTotal: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600' },
+  healthMakeBadge: { backgroundColor: palette.orangeSoft, borderRadius: 12, color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 3 },
+  healthMakeBadgeCool: { backgroundColor: 'rgba(77,182,172,0.14)', color: palette.teal },
+  healthMakeIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 20, height: 40, justifyContent: 'center', width: 40 },
+  healthMakeIconCool: { backgroundColor: 'rgba(77,182,172,0.18)' },
+  healthMakeRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingVertical: 14, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.07, shadowRadius: 24 },
+  healthMakeSub: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, marginTop: 3 },
+  healthMakeTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '700' },
+  healthMemoEditorMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, gap: 14, padding: 16, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.07, shadowRadius: 24 },
+  healthMemoIconMake: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },
+  healthMemoMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, gap: 12, marginTop: 14, padding: 16 },
+  healthSectionStack: { gap: 10, marginTop: 14 },
+  healthTimelineCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, marginTop: 14, paddingHorizontal: 16, paddingVertical: 14 },
+  heroCard: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16 },
+  homeBellButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 19, borderWidth: 1, height: 38, justifyContent: 'center', position: 'relative', width: 38 },
+  homeBellDot: { backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 4, borderWidth: 1.5, height: 7, position: 'absolute', right: 9, top: 8, width: 7 },
+  homeChatHint: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, maxWidth: 150, paddingHorizontal: 12, paddingVertical: 8, position: 'absolute', right: 26, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.18, shadowRadius: 22, top: 10 },
+  homeChatHintText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17 },
+  homeHealthCard: { alignItems: 'center', backgroundColor: '#ffe3cb', borderColor: 'rgba(255,255,255,0.7)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingHorizontal: 18, paddingVertical: 14, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
+  homeHealthDelta: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.22)', borderRadius: 10, flexDirection: 'row', gap: 2, marginLeft: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  homeHealthDeltaText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
+  homeHealthDesc: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 17, marginTop: 8 },
+  homeHealthLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
+  homeHealthRing: { alignItems: 'center', backgroundColor: palette.teal, borderRadius: 32, height: 64, justifyContent: 'center', width: 64 },
+  homeHealthRingInner: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 25, height: 50, justifyContent: 'center', width: 50 },
+  homeHealthScore: { color: palette.ink, fontFamily: appFontFamily, fontSize: 36, fontWeight: '700', letterSpacing: 0, lineHeight: 38 },
+  homeHealthScoreRow: { alignItems: 'baseline', flexDirection: 'row', gap: 2, marginTop: 4 },
+  homeHealthTotal: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500' },
+  homeMakeGreeting: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 12, minWidth: 0 },
+  homeMakeHeader: { alignItems: 'center', flexDirection: 'row', gap: 12, justifyContent: 'space-between', paddingTop: 6 },
+  homeMakeHeadline: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', letterSpacing: 0, lineHeight: 22 },
+  homeMakeKicker: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
+  homeMakePage: { gap: 0 },
+  homeOnlineBadge: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.16)', borderRadius: 14, bottom: 6, flexDirection: 'row', gap: 5, left: 36, paddingHorizontal: 11, paddingVertical: 5, position: 'absolute' },
+  homeOnlineDot: { backgroundColor: palette.teal, borderRadius: 3, height: 6, width: 6 },
+  homeOnlineText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
+  homePetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
+  homePetName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 27 },
+  homePetNameRow: { alignItems: 'center', flexDirection: 'row', gap: 2, justifyContent: 'center', marginTop: 10 },
+  homePetStage: { alignItems: 'center', justifyContent: 'center', marginTop: 8, position: 'relative' },
+  homeQuickGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 10, rowGap: 10 },
+  homeStoryIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 12, height: 38, justifyContent: 'center', width: 38 },
+  homeStoryStrip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 10, paddingHorizontal: 14, paddingVertical: 9, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
+  homeStorySub: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, marginTop: 2 },
+  homeStoryTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', lineHeight: 19 },
+  homeIndicator: { alignSelf: 'center', backgroundColor: palette.ink, borderRadius: 999, bottom: 9, height: 4, opacity: 0.9, position: 'absolute', width: 134 },
+  iconButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.7)', borderColor: 'transparent', borderRadius: 18, borderWidth: 0, height: 36, justifyContent: 'center', width: 36 },
+  inlineError: { color: palette.danger, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600' },
+  inlineNotice: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600' },
+  infoChip: { backgroundColor: palette.background, borderRadius: 14, color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 14, paddingVertical: 10, textAlign: 'center' },
+  infoChipRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  label: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
+  loginForm: { gap: 14, marginTop: 42 },
+  loginHero: { marginTop: 88 },
+  loginContent: { flex: 1 },
+  loginSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, marginTop: 10 },
+  loginTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 29, fontWeight: '700', letterSpacing: 0, lineHeight: 37 },
+  logoMark: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 13, height: 38, justifyContent: 'center', width: 38 },
+  logoRow: { alignItems: 'center', flexDirection: 'row', gap: 12, marginBottom: 22 },
+  logoText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700' },
+  longTextInput: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, minHeight: 118, paddingHorizontal: 2, paddingVertical: 8, textAlignVertical: 'top' },
+  logoutButton: { alignItems: 'center', backgroundColor: '#ffdad6', borderRadius: 18, flexDirection: 'row', gap: 10, justifyContent: 'center', minHeight: 52 },
+  logoutText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
+  mapCanvas: { backgroundColor: '#eef2ec', borderRadius: 24, height: 330, overflow: 'hidden', position: 'relative' },
+  mapLabel: { backgroundColor: 'rgba(255,255,255,0.78)', borderRadius: 999, color: '#5e7d75', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', left: 18, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 6, position: 'absolute', top: 18 },
+  mapMarker: { alignItems: 'center', backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 999, borderWidth: 3, height: 50, justifyContent: 'center', left: '48%', position: 'absolute', top: '48%', width: 50 },
+  mapPatchA: { backgroundColor: '#cfe7d2', borderRadius: 44, height: 128, left: -20, position: 'absolute', top: 32, transform: [{ rotate: '-18deg' }], width: 160 },
+  mapPatchB: { backgroundColor: '#cfe8e7', borderRadius: 52, bottom: -26, height: 132, position: 'absolute', right: -34, transform: [{ rotate: '16deg' }], width: 190 },
+  mapRoad: { backgroundColor: '#fffaf4', borderColor: 'rgba(218,206,192,0.8)', borderRadius: 999, borderWidth: 1, height: 24, left: -40, position: 'absolute', right: -40, top: 144, transform: [{ rotate: '-11deg' }] },
+  mapAreaLabel: { backgroundColor: 'rgba(255,255,255,0.74)', borderRadius: 999, color: '#5e7d75', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', left: 22, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5, position: 'absolute', top: 116 },
+  mapBottomSheet: { backgroundColor: 'rgba(255,253,249,0.98)', borderColor: 'rgba(234,223,210,0.9)', borderRadius: 28, borderWidth: 1, gap: 10, marginTop: -56, padding: 14, shadowColor: '#50371e', shadowOffset: { height: -10, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
+  mapBottomSheetMake: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, bottom: 82, gap: 10, left: 0, maxHeight: 360, overflow: 'hidden', paddingBottom: 18, paddingHorizontal: 14, paddingTop: 10, position: 'absolute', right: 0, shadowColor: '#000', shadowOffset: { height: -18, width: 0 }, shadowOpacity: 0.16, shadowRadius: 40 },
+  mapChipFloat: { alignItems: 'center', backgroundColor: 'rgba(255,253,249,0.92)', borderColor: 'rgba(234,223,210,0.78)', borderRadius: 999, borderWidth: 1, height: 34, justifyContent: 'center', paddingHorizontal: 13 },
+  mapChipFloatActive: { backgroundColor: palette.ink, borderColor: palette.ink },
+  mapChipText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  mapChipTextActive: { color: '#fff' },
+  mapChipMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.95)', borderColor: palette.border, borderRadius: 16, borderWidth: 1, height: 34, justifyContent: 'center', paddingHorizontal: 14, shadowColor: '#000', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 18 },
+  mapChipMakeActive: { backgroundColor: palette.ink, borderColor: palette.ink },
+  mapChipMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  mapChipMakeTextActive: { color: '#fff', fontWeight: '600' },
+  mapContent: { flex: 1, position: 'relative' },
+  mapControlStack: { gap: 8, position: 'absolute', right: 16, top: 226 },
+  mapCtrlButton: { alignItems: 'center', backgroundColor: 'rgba(255,253,249,0.94)', borderColor: 'rgba(234,223,210,0.86)', borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 5, width: 0 }, shadowOpacity: 0.1, shadowRadius: 10, width: 36 },
+  mapEmptyCard: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 18, gap: 4, padding: 18 },
+  mapFauxFull: { backgroundColor: '#eef2ec', height: 620, overflow: 'hidden', position: 'relative' },
+  mapFilterFloat: { gap: 8, paddingHorizontal: 14 },
+  mapFilterFloatMake: { gap: 8, paddingHorizontal: 16 },
+  mapFilterScroller: { left: 0, position: 'absolute', right: 0, top: 74, zIndex: 2 },
+  mapFilterScrollerMake: { left: 0, position: 'absolute', right: 0, top: 64, zIndex: 4 },
+  mapGreenPatchA: { backgroundColor: '#cfe7d2', borderRadius: 36, height: 122, left: -26, opacity: 0.96, position: 'absolute', top: 34, transform: [{ rotate: '-18deg' }], width: 150 },
+  mapGreenPatchB: { backgroundColor: '#dcefd8', borderRadius: 46, bottom: 44, height: 126, opacity: 0.96, position: 'absolute', right: -34, transform: [{ rotate: '16deg' }], width: 184 },
+  mapHero: { backgroundColor: '#eef2ec', borderRadius: 26, height: 456, marginHorizontal: -6, overflow: 'hidden', position: 'relative' },
+  mapMarkerMain: { alignItems: 'center', backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 999, borderWidth: 3, height: 48, justifyContent: 'center', left: '49%', position: 'absolute', top: '50%', shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.28, shadowRadius: 18, width: 48 },
+  mapMarkerSmallA: { alignItems: 'center', backgroundColor: palette.card, borderColor: 'rgba(234,223,210,0.88)', borderRadius: 999, borderWidth: 1, height: 38, justifyContent: 'center', left: '25%', position: 'absolute', top: '29%', shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.12, shadowRadius: 12, width: 38 },
+  mapMarkerSmallB: { alignItems: 'center', backgroundColor: palette.card, borderColor: 'rgba(234,223,210,0.88)', borderRadius: 999, borderWidth: 1, bottom: 92, height: 34, justifyContent: 'center', position: 'absolute', right: 86, shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.12, shadowRadius: 12, width: 34 },
+  nativeAmap: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
+  mapPage: { gap: 0 },
+  mapPageFull: { flex: 1, position: 'relative' },
+  mapRoadMain: { backgroundColor: '#fffaf4', borderColor: 'rgba(218,206,192,0.82)', borderRadius: 999, borderWidth: 1, height: 23, left: -44, position: 'absolute', right: -36, top: 178, transform: [{ rotate: '-11deg' }] },
+  mapRoadSecond: { backgroundColor: '#fffaf4', borderColor: 'rgba(218,206,192,0.72)', borderRadius: 999, borderWidth: 1, bottom: 106, height: 19, left: -30, position: 'absolute', right: -22, transform: [{ rotate: '19deg' }] },
+  mapRoadThird: { backgroundColor: '#fffaf4', borderColor: 'rgba(218,206,192,0.68)', borderRadius: 999, borderWidth: 1, height: 18, left: 148, position: 'absolute', top: -20, transform: [{ rotate: '82deg' }], width: 18 },
+  mapSearchAction: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },
+  mapSearchActionMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 16, height: 32, justifyContent: 'center', width: 32 },
+  mapSearchFloat: { alignItems: 'center', backgroundColor: 'rgba(255,253,249,0.96)', borderColor: 'rgba(234,223,210,0.86)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 9, left: 14, minHeight: 48, paddingLeft: 14, paddingRight: 6, position: 'absolute', right: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.1, shadowRadius: 18, top: 14, zIndex: 3 },
+  mapSearchFloatMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.95)', borderColor: 'rgba(255,255,255,0.85)', borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 8, height: 48, left: 16, paddingLeft: 16, paddingRight: 10, position: 'absolute', right: 16, shadowColor: '#000', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.14, shadowRadius: 30, top: 6, zIndex: 5 },
+  mapSearchInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, minHeight: 40 },
+  mapSheetHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 2 },
+  mapWaterPatch: { backgroundColor: '#cfe8e7', borderRadius: 46, bottom: -34, height: 118, left: -28, opacity: 0.96, position: 'absolute', right: -34, transform: [{ rotate: '-7deg' }] },
+  mascot: { alignItems: 'center', backgroundColor: '#f2c28a', justifyContent: 'center', overflow: 'hidden' },
+  makeIconChip: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', position: 'relative', width: 36 },
+  makeBottomActions: { gap: 12, marginTop: 22 },
+  makeDetailLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', width: 76 },
+  makeDetailRow: { alignItems: 'center', flexDirection: 'row', minHeight: 42 },
+  makeDetailValue: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', lineHeight: 20, textAlign: 'right' },
+  makeDivider: { backgroundColor: palette.border, height: 1 },
+  makeIntroCopy: { flex: 1, gap: 4, minWidth: 0 },
+  makeIntroHeader: { alignItems: 'center', flexDirection: 'row', gap: 13, marginTop: 4, paddingHorizontal: 6 },
+  makeIntroSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 19 },
+  makeIntroTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 20, fontWeight: '700', lineHeight: 27 },
+  makePageSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, marginTop: 7 },
+  makePageTitleBlock: { marginTop: 2, paddingHorizontal: 6 },
+  makeScreenTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 28 },
+  makeStepDot: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 10, height: 20, justifyContent: 'center', width: 20 },
+  makeStepDotActive: { backgroundColor: 'rgba(255,138,92,0.16)' },
+  makeStepDotDone: { backgroundColor: 'rgba(77,182,172,0.18)' },
+  makeStepInnerDot: { backgroundColor: palette.muted, borderRadius: 3, height: 5, opacity: 0.45, width: 5 },
+  makeStepInnerDotActive: { backgroundColor: palette.orange, borderRadius: 4, height: 7, opacity: 1, width: 7 },
+  makeStepRow: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 7 },
+  makeStepText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', lineHeight: 19 },
+  makeStepTextMuted: { color: palette.muted, fontWeight: '700' },
+  menuIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 14, height: 38, justifyContent: 'center', width: 38 },
+  menuRow: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 60, paddingHorizontal: 14 },
+  menuTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
+  conversationMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, paddingVertical: 12 },
+  conversationMakeText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18 },
+  conversationMakeTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
+  conversationMetaCol: { alignItems: 'flex-end', gap: 7 },
+  conversationSystemBubble: { alignSelf: 'center', backgroundColor: 'rgba(122,121,114,0.10)', borderRadius: 14, maxWidth: '88%', paddingHorizontal: 12, paddingVertical: 7 },
+  conversationSystemText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17, textAlign: 'center' },
+  composerCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, gap: 8, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
+  dailyMoodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
+  dailyPostHero: { alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 13, padding: 16 },
+  greetingRequestCard: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
+  messagesAvatarOverlap: { marginLeft: -10 },
+  messagesAvatarStack: { flexDirection: 'row', width: 60 },
+  messagesHeaderActions: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  messagesListMake: { marginTop: 14 },
+  messagesMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', paddingHorizontal: 20 },
+  messagesMakePage: { paddingTop: 0 },
+  messagesRequestMake: { alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, marginHorizontal: 20, marginTop: 14, paddingHorizontal: 14, paddingVertical: 12, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22 },
+  messagesRequestText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
+  messagesRequestTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700', lineHeight: 19 },
+  messagesTopRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end' },
+  metaText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  metricCard: { backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexGrow: 0, flexShrink: 0, minHeight: 94, minWidth: 0, paddingHorizontal: 13, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.06, shadowRadius: 20, width: '48%' },
+  metricIcon: { alignItems: 'center', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
+  metricLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', minWidth: 0 },
+  metricTag: { borderRadius: 10, flexShrink: 1, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', maxWidth: 76, overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
+  metricTopRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, minWidth: 0 },
+  metricValue: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600', lineHeight: 20, marginTop: 2, minWidth: 0 },
+  mutedText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 19 },
+  notificationButton: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 22, borderWidth: 1, height: 44, justifyContent: 'center', position: 'relative', width: 44 },
+  notificationCardMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 14 },
+  notificationCardUnreadMake: { backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.25)' },
+  notificationDot: { backgroundColor: palette.danger, borderColor: '#fff', borderRadius: 5, borderWidth: 1, height: 10, position: 'absolute', right: 10, top: 10, width: 10 },
+  notificationIconMake: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 17, height: 34, justifyContent: 'center', width: 34 },
+  notificationListMake: { gap: 12 },
+  optionWrap: { gap: 8 },
+  otpCursor: { backgroundColor: palette.orange, borderRadius: 1, height: 24, position: 'absolute', width: 2 },
+  otpDigitBox: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 14, borderWidth: 1, height: 56, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.06, shadowRadius: 8, width: 46 },
+  otpDigitBoxActive: { borderColor: palette.orange, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.18, shadowRadius: 10 },
+  otpDigitBoxError: { borderColor: palette.danger },
+  otpDigitBoxFilled: { borderColor: palette.ink },
+  otpDigitText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', lineHeight: 28 },
+  otpDigitTextError: { color: palette.danger },
+  otpGrid: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 28, position: 'relative' },
+  otpHiddenInput: { height: 1, left: 0, opacity: 0, position: 'absolute', top: 0, width: 1 },
+  otpHeader: { paddingTop: 0 },
+  otpHeaderRow: { height: 44 },
+  otpHeaderSpacer: { height: 36, width: 36 },
+  otpIconButton: { backgroundColor: 'rgba(255,255,255,0.7)', borderWidth: 0, height: 36, width: 36 },
+  otpInlineError: { color: palette.danger, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', marginTop: 14 },
+  otpInlineNotice: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', marginTop: 14 },
+  otpContent: { flex: 1, paddingBottom: 0, paddingHorizontal: 22, paddingTop: 16, position: 'relative' },
+  otpPage: { paddingHorizontal: 6, paddingTop: 0 },
+  otpSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, marginTop: 10 },
+  otpSubtitleStrong: { color: palette.ink, fontWeight: '700' },
+  otpTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 26, fontWeight: '600', letterSpacing: 0, lineHeight: 34 },
+  otpVerifyingOverlay: { alignItems: 'center', alignSelf: 'center', backgroundColor: 'rgba(255,253,249,0.96)', borderColor: palette.border, borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10, position: 'absolute', top: 110 },
+  otpVerifyingText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  ownerCard: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  discoverCardsMake: { gap: 12, marginTop: 14 },
+  discoverMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between' },
+  filterChipMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 14, paddingVertical: 8 },
+  filterChipMakeActive: { backgroundColor: palette.orange, borderColor: palette.orange, color: '#fff' },
+  filterChipsMake: { gap: 8, paddingRight: 20, paddingVertical: 2 },
+  locationChipMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.7)', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  locationChipText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
+  locationPrivacyPill: { backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 9, color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
+  ownerBioMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18, marginTop: 8 },
+  ownerCardMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 14, position: 'relative', shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.08, shadowRadius: 30 },
+  ownerDistanceMake: { backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 9, color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
+  ownerInviteHero: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
+  ownerMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, marginTop: 2 },
+  ownerPetNameMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700', letterSpacing: 0 },
+  ownerTagMake: { backgroundColor: palette.orangeSoft, borderRadius: 10, color: palette.orange, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4 },
+  ownerTagRowMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 },
+  pageSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, textAlign: 'center' },
+  pageTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', lineHeight: 31 },
+  permissionDeniedHero: { alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 24, borderWidth: 1, gap: 8, marginTop: 22, padding: 18 },
+  permissionDeniedIcon: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 28, height: 56, justifyContent: 'center', width: 56 },
+  permissionDeniedText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 19, textAlign: 'center' },
+  permissionDeniedTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700' },
+  permissionMakeRow: { alignItems: 'flex-start', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
+  permissionMakeRowDenied: { borderColor: 'rgba(216,70,53,0.26)' },
+  permissionMakeRowGranted: { backgroundColor: '#f2fbfa', borderColor: 'rgba(77,182,172,0.32)' },
+  permissionMakeStack: { gap: 12, marginTop: 26 },
+  permissionStatusDenied: { color: palette.danger, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  permissionStatusLoading: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  permissionStatusOn: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 12, flexDirection: 'row', gap: 4, paddingHorizontal: 8, paddingVertical: 4 },
+  permissionStatusOnText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
+  permissionSwitchOff: { alignItems: 'center', backgroundColor: '#e9e7e2', borderRadius: 12, height: 24, justifyContent: 'center', paddingHorizontal: 3, width: 42 },
+  permissionSwitchThumb: { alignSelf: 'flex-start', backgroundColor: '#fff', borderRadius: 9, height: 18, width: 18 },
+  petInfoFormMake: { gap: 18, marginTop: 24, paddingHorizontal: 6 },
+  petTypeCheck: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 10, height: 20, justifyContent: 'center', position: 'absolute', right: 11, top: 11, width: 20 },
+  petTypeEmoji: { fontSize: 25, lineHeight: 31 },
+  petTypeMakeButton: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 8, minHeight: 64, paddingHorizontal: 16, position: 'relative' },
+  petTypeMakeButtonActive: { backgroundColor: 'rgba(255,138,92,0.10)', borderColor: palette.orange, borderWidth: 1.5 },
+  petTypeMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
+  petTypeMakeTextActive: { color: palette.orange, fontWeight: '700' },
+  petAvatar: { backgroundColor: '#f6dfbf', overflow: 'hidden' },
+  petGreeting: { color: palette.ink, fontFamily: appFontFamily, fontSize: 19, fontWeight: '700', lineHeight: 25 },
+  petHero: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 28, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 18 },
+  petHeroCopy: { flex: 1, gap: 8 },
+  petDetailCamera: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.42)', borderRadius: 10, flexDirection: 'row', gap: 4, paddingHorizontal: 10, paddingVertical: 6, position: 'absolute', right: 16, top: 16 },
+  petDetailCameraText: { color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  petDetailEdit: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, bottom: 14, flexDirection: 'row', gap: 4, paddingHorizontal: 12, paddingVertical: 7, position: 'absolute', right: 16 },
+  petDetailEditText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  petDetailHeroMake: { alignItems: 'center', backgroundColor: '#f4b879', borderRadius: 22, height: 220, justifyContent: 'center', overflow: 'hidden', position: 'relative' },
+  petDetailHeroMeta: { color: 'rgba(255,255,255,0.9)', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', marginTop: 2 },
+  petDetailHeroName: { color: '#fff', fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', lineHeight: 31 },
+  petDetailHeroText: { bottom: 14, left: 18, position: 'absolute' },
+  petDetailMakePage: { gap: 14 },
+  petDetailStatCard: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, flex: 1, paddingHorizontal: 10, paddingVertical: 10 },
+  petDetailStatLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
+  petDetailStatValue: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', marginTop: 4 },
+  petDetailStats: { flexDirection: 'row', gap: 10 },
+  phoneDivider: { backgroundColor: '#eadfd2', height: 24, width: 1 },
+  phoneFrame: { backgroundColor: palette.background, borderRadius: Platform.OS === 'web' ? 44 : 0, flex: 1, height: Platform.OS === 'web' ? 844 : undefined, maxHeight: Platform.OS === 'web' ? 844 : undefined, maxWidth: Platform.OS === 'web' ? 390 : undefined, overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 30, width: 0 }, shadowOpacity: 0.18, shadowRadius: 60, width: '100%' },
+  phoneInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, minHeight: 58, paddingHorizontal: 12 },
+  phoneInputShell: { alignItems: 'center', backgroundColor: '#fffdf9', borderColor: 'rgba(234,223,210,0.95)', borderRadius: 20, borderWidth: 1.2, flexDirection: 'row', minHeight: 58, paddingLeft: 16, paddingRight: 8 },
+  phoneInputShellFocused: { borderColor: palette.orange, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.24, shadowRadius: 12 },
+  phoneStatusBar: { alignItems: 'center', backgroundColor: palette.background, flexDirection: 'row', height: 44, justifyContent: 'space-between', paddingBottom: 4, paddingHorizontal: 28, paddingTop: 12 },
+  phoneStatusIcons: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  phoneStatusTime: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
+  permissionCard: { alignItems: 'flex-start', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 16 },
+  permissionCardGranted: { backgroundColor: '#f2fbfa', borderColor: 'rgba(77,182,172,0.32)' },
+  placeRankBadge: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 14, height: 28, justifyContent: 'center', width: 28 },
+  placeRankBadgeActive: { backgroundColor: palette.orange },
+  placeRankText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  placeRankTextActive: { color: '#fff' },
+  placeRow: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 14 },
+  placeSheetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', lineHeight: 17 },
+  placeSheetRow: { alignItems: 'center', borderColor: 'rgba(234,223,210,0.72)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 10, minHeight: 76, paddingHorizontal: 10, paddingVertical: 10 },
+  placeSheetRowActive: { backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.32)' },
+  placeSheetTag: { backgroundColor: palette.orangeSoft, borderRadius: 999, color: palette.orange, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
+  placeSheetTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 5 },
+  placeSheetTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 19 },
+  placeAddressMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, marginTop: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  placeAddressMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, marginTop: 5 },
+  placeAddressText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 19 },
+  placeBackButtonMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.94)', borderRadius: 19, height: 38, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.18, shadowRadius: 14, width: 38 },
+  placeDetailPageMake: { marginHorizontal: -22, marginTop: -18 },
+  placeDistanceMake: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', marginLeft: 'auto' },
+  placeHeroActions: { flexDirection: 'row', gap: 8, position: 'absolute', right: 16, top: 44 },
+  placeHeroMake: { backgroundColor: '#9fc8a4', height: 280, overflow: 'hidden', position: 'relative' },
+  placeHeroOverlay: { backgroundColor: 'rgba(31,33,29,0.18)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
+  placePhotoCount: { backgroundColor: 'rgba(31,33,29,0.65)', borderRadius: 11, bottom: 18, color: '#fff', fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', left: 16, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 4, position: 'absolute' },
+  placeRatingRowMake: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 7 },
+  placeReviewPreviewMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 10, marginTop: 16, paddingHorizontal: 14, paddingVertical: 12 },
+  placeSectionLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', letterSpacing: 0, marginTop: 14 },
+  placeSheetMake: { backgroundColor: palette.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -28, paddingBottom: 24, paddingHorizontal: 20, paddingTop: 18 },
+  placeTitleMake: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 21, fontWeight: '700', letterSpacing: 0, lineHeight: 28 },
+  placeTitleRowMake: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  placeVerifyMake: { backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 8, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 3 },
+  placeholderHeroMake: { alignItems: 'center', backgroundColor: '#e8f5f3', borderRadius: 18, flexDirection: 'row', gap: 12, padding: 16 },
+  placeholderMake: { gap: 14 },
+  previewPhoto: { backgroundColor: palette.pale, borderRadius: 24, height: 330, width: '100%' },
+  recognitionBadgeText: { color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  recognitionHeroMake: { alignItems: 'center', backgroundColor: '#f4b879', borderRadius: 28, height: 280, justifyContent: 'center', marginTop: 2, overflow: 'hidden', position: 'relative' },
+  recognitionQuality: { backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 14, color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', right: 14, top: 14 },
+  recognitionSuccessBadge: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.95)', borderRadius: 14, flexDirection: 'row', gap: 5, left: 14, paddingHorizontal: 12, paddingVertical: 6, position: 'absolute', top: 14 },
+  profileCard: { alignItems: 'center', flexDirection: 'row', gap: 14 },
+  profileCurrentWrap: { marginBottom: 18, marginTop: 16, paddingHorizontal: 16 },
+  profileHeroContent: { alignItems: 'center', flexDirection: 'row', gap: 14, position: 'relative' },
+  profileHeroMake: { backgroundColor: '#ffe3d1', borderRadius: 22, marginHorizontal: 16, marginTop: 16, overflow: 'hidden', padding: 18, position: 'relative' },
+  profileHeroOrb: { backgroundColor: 'rgba(255,255,255,0.42)', borderRadius: 70, height: 140, position: 'absolute', right: -30, top: -20, width: 140 },
+  profileMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', paddingHorizontal: 20 },
+  profileMakeMenuRowValue: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  profileMakePage: { paddingTop: 0 },
+  profileMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 56, paddingHorizontal: 14 },
+  profileMakeRowIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 12, height: 34, justifyContent: 'center', width: 34 },
+  profileMakeRowTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  profileMakeRowValue: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  profileManageLink: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  profileMenuGroup: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 16, overflow: 'hidden' },
+  profileOwnerAvatar: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 32, borderWidth: 3, height: 64, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.08, shadowRadius: 10, width: 64 },
+  profileOwnerName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 24 },
+  profilePetBadge: { backgroundColor: '#e8f5f3', borderRadius: 6, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
+  profilePetCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 14 },
+  profilePetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 17, marginTop: 4 },
+  profilePetName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700' },
+  profilePetNameRow: { alignItems: 'center', flexDirection: 'row', gap: 6 },
+  profilePetTag: { backgroundColor: '#f4efe6', borderRadius: 6, color: palette.muted, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 2 },
+  profilePetTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  profilePhoneRow: { alignItems: 'center', flexDirection: 'row', gap: 4, marginTop: 4 },
+  profilePhoneText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12 },
+  profileSectionLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  profileSectionLabelRow: { flexDirection: 'row', justifyContent: 'space-between', paddingBottom: 8, paddingHorizontal: 4 },
+  profileSettingsButton: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 },
+  profileVerifyPill: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 10, flexDirection: 'row', gap: 4, marginTop: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  profileVerifyText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
+  progressFill: { backgroundColor: palette.orange, borderRadius: 999, height: '100%' },
+  progressTrack: { backgroundColor: palette.pale, borderRadius: 999, height: 10, overflow: 'hidden', width: '100%' },
+  ratingPill: { alignItems: 'center', flexDirection: 'row', gap: 3 },
+  ratingText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  requestCard: { alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.24)', borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 16 },
+  requestActionRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  requestStackMake: { gap: 12 },
+  resendAction: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  resendActionDisabled: { color: '#b8b5ac' },
+  resendRow: { alignItems: 'center', flexDirection: 'row', gap: 4, justifyContent: 'center', marginTop: 24 },
+  resendText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  roundIcon: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 16, height: 44, justifyContent: 'center', width: 44 },
+  rowBetween: { alignItems: 'center', flexDirection: 'row', gap: 10, justifyContent: 'space-between' },
+  reviewStatusCard: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, paddingHorizontal: 12, paddingVertical: 10 },
+  reviewStatusText: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18 },
+  safe: { backgroundColor: '#e8e2d9', flex: 1 },
+  screen: { backgroundColor: palette.background, flex: 1 },
+  searchBar: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 10, minHeight: 52, paddingHorizontal: 14 },
+  searchInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, minHeight: 42 },
+  searchText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600' },
+  sectionHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  sectionTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700' },
+  settingsFootnoteMake: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.20)', borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
+  settingsGroupMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, gap: 0, overflow: 'hidden', paddingTop: 8 },
+  settingsGroupTitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', paddingHorizontal: 14, paddingVertical: 8 },
+  segmentButton: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 16, borderWidth: 1, flex: 1, minHeight: 48, justifyContent: 'center' },
+  segmentButtonActive: { backgroundColor: palette.orange, borderColor: palette.orange },
+  segmentRow: { flexDirection: 'row', gap: 10 },
+  segmentText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  segmentTextActive: { color: '#fff' },
+  sendButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 20, height: 40, justifyContent: 'center', width: 40 },
+  sheetHandle: { alignSelf: 'center', backgroundColor: 'rgba(31,33,29,0.22)', borderRadius: 999, height: 4, marginBottom: 2, width: 46 },
+  smallIconButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },
+  stack: { gap: 12 },
+  statusText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  successText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  switchOff: { backgroundColor: palette.pale, borderRadius: 12, height: 24, width: 40 },
+  detailCardMake: { backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, marginTop: 18, padding: 16, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
+  emptyPetCta: { marginTop: 18, width: '100%' },
+  emptyPetGlow: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.12)', borderRadius: 100, height: 200, justifyContent: 'center', marginBottom: 8, position: 'relative', width: 200 },
+  emptyPetPlus: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.orange, borderRadius: 14, borderStyle: 'dashed', borderWidth: 2, bottom: 14, height: 28, justifyContent: 'center', position: 'absolute', right: 12, width: 28 },
+  emptyPetStage: { alignItems: 'center', justifyContent: 'center', minHeight: 580, paddingHorizontal: 22 },
+  failedAlertCircle: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 34, height: 68, justifyContent: 'center', position: 'absolute', width: 68 },
+  failedBadgeMake: { backgroundColor: 'rgba(216,70,53,0.94)', borderRadius: 14, color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', left: 16, overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', top: 16 },
+  failedBlurOrb: { backgroundColor: '#8b7b64', borderRadius: 100, height: 200, opacity: 0.45, width: 200 },
+  failedPhotoMake: { alignItems: 'center', backgroundColor: '#c8c0af', borderRadius: 28, height: 320, justifyContent: 'center', marginTop: 2, overflow: 'hidden', position: 'relative' },
+  failedTipsIntro: { marginTop: 8 },
+  featureChipCool: { backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 12, color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 11, paddingVertical: 6 },
+  featureChipWarm: { backgroundColor: palette.orangeSoft, borderRadius: 12, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 11, paddingVertical: 6 },
+  featureChipsMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 18 },
+  scanCornerLb: { borderColor: palette.orange, borderLeftWidth: 3, borderRadius: 4, borderTopWidth: 3, bottom: 18, height: 22, left: 18, position: 'absolute', transform: [{ rotate: '270deg' }], width: 22 },
+  scanCornerLt: { borderColor: palette.orange, borderLeftWidth: 3, borderRadius: 4, borderTopWidth: 3, height: 22, left: 18, position: 'absolute', top: 18, width: 22 },
+  scanCornerRb: { borderColor: palette.orange, borderLeftWidth: 3, borderRadius: 4, borderTopWidth: 3, bottom: 18, height: 22, position: 'absolute', right: 18, transform: [{ rotate: '180deg' }], width: 22 },
+  scanCornerRt: { borderColor: palette.orange, borderLeftWidth: 3, borderRadius: 4, borderTopWidth: 3, height: 22, position: 'absolute', right: 18, top: 18, transform: [{ rotate: '90deg' }], width: 22 },
+  tabBar: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.86)', borderColor: 'rgba(255,255,255,0.9)', borderRadius: 28, borderWidth: 1, bottom: 18, flexDirection: 'row', justifyContent: 'space-between', left: 14, padding: 7, position: 'absolute', right: 14, shadowColor: '#50371e', shadowOffset: { height: 16, width: 0 }, shadowOpacity: 0.16, shadowRadius: 32 },
+  tabItem: { alignItems: 'center', borderRadius: 18, flex: 1, gap: 3, minHeight: 44, justifyContent: 'center', paddingVertical: 5 },
+  tabItemActive: { backgroundColor: 'rgba(255,138,92,0.10)' },
+  tabText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '500' },
+  tabTextActive: { color: palette.orange, fontWeight: '600' },
+  tag: { backgroundColor: palette.orangeSoft, borderRadius: 999, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
+  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  tealIcon: { backgroundColor: palette.teal },
+  textAction: { alignItems: 'center', paddingVertical: 8 },
+  textActionDisabled: { color: '#b8aca0' },
+  textActionText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  unreadBadge: { backgroundColor: palette.orange, borderRadius: 999, color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
+  uploadFrame: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 28, borderStyle: 'dashed', borderWidth: 1.4, gap: 10, minHeight: 300, justifyContent: 'center', padding: 24, width: '100%' },
+  uploadActionsMake: { flexDirection: 'row', gap: 12, marginTop: 18 },
+  uploadBoxMake: { alignItems: 'center', backgroundColor: '#fff0df', borderRadius: 28, height: 340, justifyContent: 'center', marginTop: 22, overflow: 'hidden', position: 'relative' },
+  uploadDashedFrame: { borderColor: 'rgba(255,138,92,0.55)', borderRadius: 28, borderStyle: 'dashed', borderWidth: 2, bottom: 14, left: 14, position: 'absolute', right: 14, top: 14 },
+  uploadHintMake: { bottom: 18, color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', position: 'absolute', textAlign: 'center' },
+  tipsCardMake: { backgroundColor: 'rgba(255,255,255,0.72)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 8, marginTop: 14, padding: 14 },
+  tipBulletDot: { backgroundColor: palette.orange, borderRadius: 3, height: 6, width: 6 },
+  tipBulletRow: { alignItems: 'center', flexDirection: 'row', gap: 9, paddingVertical: 4 },
+  tipBulletText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  tipMakeRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  tipMakeText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  voiceLink: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700', marginLeft: 6 },
+  voiceRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 18 },
+  voiceText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  timelineDateMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  timelineDotCool: { backgroundColor: palette.teal },
+  timelineDotMake: { backgroundColor: palette.orange, borderRadius: 3, height: 6, width: 6 },
+  timelineRowMake: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 11 },
+  timelineSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 18, marginTop: 2 },
+  timelineTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
+  vaccineDuePill: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.72)', borderRadius: 10, color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 3 },
+  vaccineHeroIcon: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.86)', borderRadius: 28, height: 56, justifyContent: 'center', width: 56 },
+  vaccineHeroMake: { alignItems: 'center', backgroundColor: '#ffd2a8', borderRadius: 22, flexDirection: 'row', gap: 12, paddingHorizontal: 18, paddingVertical: 16, shadowColor: '#8b5e3c', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.14, shadowRadius: 30 },
+  vaccineHeroMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
+  vaccineHeroTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 20, fontWeight: '700', letterSpacing: 0, lineHeight: 27, marginTop: 10 },
+  walkFieldWrap: { gap: 12, paddingBottom: 14, paddingHorizontal: 14 },
+  walkInviteInline: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: palette.orangeSoft, borderRadius: 12, flexDirection: 'row', gap: 5, marginTop: 10, paddingHorizontal: 10, paddingVertical: 6 },
+  walkInviteInlineText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  weightHeroMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, paddingHorizontal: 22, paddingVertical: 20, shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.08, shadowRadius: 30 },
+  weightInputMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, gap: 12, marginTop: 14, padding: 16 },
+  apiModeMake: { borderBottomColor: palette.border, borderBottomWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
+});

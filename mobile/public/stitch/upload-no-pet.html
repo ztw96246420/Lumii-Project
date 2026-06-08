@@ -1,0 +1,257 @@
+<!DOCTYPE html><html class="light" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Lumii - Photo Upload Error</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-low": "#f5f3ee",
+                        "secondary": "#006a63",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-variant": "#e4e2dd",
+                        "secondary-container": "#8bf1e6",
+                        "surface": "#fbf9f4",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "outline": "#8a726a",
+                        "primary": "#9f4119",
+                        "secondary-fixed": "#8ef4e9",
+                        "on-primary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "surface-dim": "#dbdad5",
+                        "tertiary": "#735c00",
+                        "on-surface-variant": "#56423b",
+                        "primary-fixed-dim": "#ffb59a",
+                        "surface-tint": "#9f4119",
+                        "on-secondary-fixed": "#00201d",
+                        "sunny-yellow": "#FFD966",
+                        "inverse-on-surface": "#f2f1ec",
+                        "background": "#fbf9f4",
+                        "surface-container-high": "#eae8e3",
+                        "on-surface": "#1b1c19",
+                        "inverse-primary": "#ffb59a",
+                        "primary-container": "#ff8a5c",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "bark-gray": "#4A4542",
+                        "primary-fixed": "#ffdbce",
+                        "health-red": "#EF5350",
+                        "error": "#ba1a1a",
+                        "warm-orange": "#FF8A5C",
+                        "outline-variant": "#ddc0b7",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "on-background": "#1b1c19",
+                        "on-tertiary-container": "#4e3d00",
+                        "inverse-surface": "#30312e",
+                        "tertiary-container": "#c9a739",
+                        "bone-white": "#F9F7F2",
+                        "on-secondary-container": "#006f67",
+                        "on-primary-container": "#732500",
+                        "on-secondary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "tertiary-fixed": "#ffe088",
+                        "surface-container": "#f0eee9",
+                        "on-primary-fixed": "#380d00",
+                        "surface-bright": "#fbf9f4",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "surface-container-highest": "#e4e2dd",
+                        "on-tertiary-fixed": "#241a00",
+                        "on-tertiary": "#ffffff",
+                        "soft-teal": "#4DB6AC"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "container-padding": "24px",
+                        "margin-mobile": "20px",
+                        "margin-desktop": "40px",
+                        "base": "8px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-md": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+                    },
+                    "boxShadow": {
+                        "level-1": "0px 4px 20px rgba(74, 69, 66, 0.05)",
+                        "level-2": "0px 8px 24px rgba(255, 138, 92, 0.15)",
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            color: theme('colors.on-background');
+            -webkit-font-smoothing: antialiased;
+        }
+        /* Custom scrollbar for webkit */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: theme('colors.surface-variant'); border-radius: theme('borderRadius.full'); }
+        
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col md:flex-row relative">
+<!-- Top Navigation (Web) / TopAppBar -->
+<header class="hidden md:flex flex-col md:w-64 border-r border-outline-variant/30 h-screen sticky top-0 bg-background/80 backdrop-blur-xl z-40 p-container-padding">
+<div class="font-headline-xl text-headline-xl text-warm-orange tracking-tight mb-margin-desktop">Lumii</div>
+<nav class="flex flex-col gap-base">
+<a class="flex items-center gap-gutter px-4 py-3 rounded-full text-bark-gray hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-weight="fill" style="font-variation-settings: 'FILL' 0;">pets</span>
+<span class="font-label-md text-label-md">&#x5ba0;&#x7269;</span>
+</a>
+<a class="flex items-center gap-gutter px-4 py-3 rounded-full text-bark-gray hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-weight="fill" style="font-variation-settings: 'FILL' 0;">explore</span>
+<span class="font-label-md text-label-md">&#x53d1;&#x73b0;</span>
+</a>
+<a class="flex items-center gap-gutter px-4 py-3 rounded-full text-bark-gray hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-weight="fill" style="font-variation-settings: 'FILL' 0;">map</span>
+<span class="font-label-md text-label-md">&#x5730;&#x56fe;</span>
+</a>
+<a class="flex items-center gap-gutter px-4 py-3 rounded-full text-bark-gray hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-weight="fill" style="font-variation-settings: 'FILL' 0;">chat_bubble</span>
+<span class="font-label-md text-label-md">&#x6d88;&#x606f;</span>
+</a>
+<a class="flex items-center gap-gutter px-4 py-3 rounded-full bg-primary-container text-on-primary-container transition-all duration-300" href="#">
+<span class="material-symbols-outlined" data-weight="fill" style="font-variation-settings: 'FILL' 1;">person</span>
+<span class="font-label-md text-label-md">&#x6211;&#x7684;</span>
+</a>
+</nav>
+<div class="mt-auto">
+<a class="flex items-center gap-gutter px-4 py-3 rounded-full text-bark-gray hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md">&#x8bbe;&#x7f6e;</span>
+</a>
+</div>
+</header>
+<!-- Mobile Top App Bar (Task focused - minimal) -->
+<header class="md:hidden flex justify-between items-center px-margin-mobile h-16 w-full max-w-7xl mx-auto docked full-width top-0 sticky z-50 backdrop-blur-xl bg-background/80 flat no shadows">
+<button class="w-10 h-10 flex items-center justify-center rounded-full bg-surface-container text-bark-gray hover:bg-surface-container-high transition-colors scale-95 active:scale-90 transition-transform duration-200">
+<span class="material-symbols-outlined">close</span>
+</button>
+<div class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">上传照片</div>
+<div class="w-10 h-10"></div> <!-- Spacer for centering -->
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 flex flex-col items-center justify-center p-margin-mobile md:p-margin-desktop min-h-[calc(100vh-64px)] md:min-h-screen relative overflow-hidden">
+<!-- Decorative Background Elements -->
+<div class="absolute top-[-10%] left-[-10%] w-64 h-64 bg-error-container/30 rounded-full blur-3xl pointer-events-none"></div>
+<div class="absolute bottom-[-10%] right-[-10%] w-80 h-80 bg-warm-orange/10 rounded-full blur-3xl pointer-events-none"></div>
+<div class="w-full max-w-md w-full relative z-10 animate-[slideUp_0.4s_ease-out]">
+<!-- Error Card -->
+<div class="bg-surface-container-lowest rounded-[24px] shadow-level-1 overflow-hidden relative">
+<!-- Failed Image Area (Placeholder for user's attempted upload) -->
+<div class="h-48 w-full relative bg-surface-container overflow-hidden group">
+<!-- Obscured/Failed Image simulation -->
+<img alt="Blurred dog photo" class="w-full h-full object-cover blur-sm opacity-50 mix-blend-luminosity grayscale transition-all duration-700" data-alt="A highly blurred, out-of-focus photograph of a dog taken in dim lighting. The image represents a failed upload attempt. The colors are muted and slightly desaturated, blending into a soft gray and brown palette. The visual style is intentionally flawed, mimicking a low-quality snapshot taken in a rush. It embodies the modern tactile minimalism aesthetic by serving as a soft, non-anxiety-inducing background element within a rounded, bone-white UI card." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAsrWNov7IaGBhsZG1RwNoqtlN3zmlwtPU7tT3l9cIoI2-n5rRQeX00gHdO9GX6nc2JYtVpHSIdpEqCdw2E8tUA-LFIyiNhie_u92LJH-w9Hie38jgByQ98CIpQzQu4PQeuKgZ7ElFX1SJlXrV6hYLh6LrY_wZcyj2Pg9F9Q8AFXXG2mJ2Siu71i4SZiBb-TGpwsSBrPYmsFk2HgCdaQI71swmG1hGuGs-T8cyW_vGcrkqeU4tMrsNAfsiuHsqahEYQ9ZuG9ikzrgGt">
+<!-- Error Overlay -->
+<div class="absolute inset-0 flex flex-col items-center justify-center bg-error-container/20 backdrop-blur-[2px]">
+<div class="w-16 h-16 rounded-full bg-error-container flex items-center justify-center mb-base shadow-level-2 scale-in animate-[popIn_0.5s_cubic-bezier(0.175,0.885,0.32,1.275)]">
+<span class="material-symbols-outlined text-[32px] text-error" data-weight="fill" style="font-variation-settings: 'FILL' 1;">error</span>
+</div>
+</div>
+</div>
+<div class="p-container-padding">
+<!-- Error Text -->
+<div class="text-center mb-gutter">
+<h2 class="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg text-error mb-1">上传失败</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">照片中未检测到宠物，请上传一张清晰的宠物照片，确保光线充足。</p>
+</div>
+<!-- Guidelines List (Bento-ish structural elements) -->
+<div class="bg-surface rounded-xl p-gutter mb-container-padding border border-surface-variant">
+<h3 class="font-label-md text-label-md text-bark-gray mb-base uppercase tracking-wider text-[11px]">照片要求</h3>
+<ul class="space-y-3">
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-soft-teal mt-0.5 text-[20px]" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<div>
+<span class="block font-body-md text-body-md text-on-surface leading-snug">光线充足且清晰</span>
+<span class="block font-label-sm text-label-sm text-on-surface-variant">避免模糊或过暗的照片</span>
+</div>
+</li>
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-soft-teal mt-0.5 text-[20px]" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<div>
+<span class="block font-body-md text-body-md text-on-surface leading-snug">面部清晰可见</span>
+<span class="block font-label-sm text-label-sm text-on-surface-variant">确保宠物面部无遮挡</span>
+</div>
+</li>
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-error mt-0.5 text-[20px]" data-weight="fill" style="font-variation-settings: 'FILL' 1;">cancel</span>
+<div>
+<span class="block font-body-md text-body-md text-on-surface leading-snug">请勿包含人物</span>
+<span class="block font-label-sm text-label-sm text-on-surface-variant">为了更好的生成效果，请仅上传宠物照片</span>
+</div>
+</li>
+</ul>
+</div>
+<!-- Actions -->
+<div class="flex flex-col gap-3">
+<button class="w-full py-4 rounded-full bg-warm-orange text-white font-label-md text-label-md shadow-level-2 hover:bg-primary-container active:scale-98 transition-all duration-200 flex items-center justify-center gap-2"><span class="material-symbols-outlined">photo_camera</span>重新拍照</button>
+<button class="w-full py-4 rounded-full border-2 border-soft-teal/30 bg-surface-container-low text-secondary font-label-md text-label-md hover:bg-secondary-container/20 active:scale-98 transition-all duration-200 flex items-center justify-center gap-2"><span class="material-symbols-outlined">photo_library</span>从相册选择</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Nav Bar (Mobile - Suppressed as per Task Intent rule, this is a transactional flow) -->
+<!-- Navigation shell excluded based on 'Linear/Transactional' rule for 'Upload' pages -->
+<style>
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes popIn {
+            0% { transform: scale(0); opacity: 0; }
+            70% { transform: scale(1.1); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+<script>
+        // Simple JS for interaction demonstration
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                // Ripple effect or state change logic would go here
+                console.log('Action triggered:', this.innerText.trim());
+            });
+        });
+    </script>
+
+
+</body></html>

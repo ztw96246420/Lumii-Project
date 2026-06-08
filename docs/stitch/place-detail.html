@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>地点详情页 - Lumii</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "soft-teal": "#4DB6AC",
+                        "bark-gray": "#4A4542",
+                        "error": "#ba1a1a",
+                        "on-tertiary-container": "#4e3d00",
+                        "surface-dim": "#dbdad5",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "on-primary-container": "#732500",
+                        "inverse-on-surface": "#f2f1ec",
+                        "health-red": "#EF5350",
+                        "on-secondary-container": "#006f67",
+                        "surface-container": "#f0eee9",
+                        "on-tertiary-fixed": "#241a00",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "inverse-primary": "#ffb59a",
+                        "surface-container-high": "#eae8e3",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "surface-bright": "#fbf9f4",
+                        "tertiary-fixed": "#ffe088",
+                        "warm-orange": "#FF8A5C",
+                        "sunny-yellow": "#FFD966",
+                        "primary": "#9f4119",
+                        "on-tertiary": "#ffffff",
+                        "secondary-fixed": "#8ef4e9",
+                        "primary-fixed": "#ffdbce",
+                        "surface-container-low": "#f5f3ee",
+                        "on-secondary": "#ffffff",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "on-primary-fixed": "#380d00",
+                        "on-primary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-error": "#ffffff",
+                        "on-surface-variant": "#56423b",
+                        "on-background": "#1b1c19",
+                        "surface": "#fbf9f4",
+                        "background": "#fbf9f4",
+                        "surface-container-highest": "#e4e2dd",
+                        "bone-white": "#F9F7F2",
+                        "on-secondary-fixed": "#00201d",
+                        "inverse-surface": "#30312e",
+                        "secondary": "#006a63",
+                        "surface-variant": "#e4e2dd",
+                        "secondary-container": "#8bf1e6",
+                        "tertiary-container": "#c9a739",
+                        "surface-tint": "#9f4119",
+                        "primary-container": "#ff8a5c",
+                        "outline-variant": "#ddc0b7",
+                        "on-surface": "#1b1c19",
+                        "outline": "#8a726a",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary": "#735c00",
+                        "primary-fixed-dim": "#ffb59a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-padding": "24px",
+                        "margin-desktop": "40px",
+                        "gutter": "16px",
+                        "base": "8px",
+                        "margin-mobile": "20px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .material-symbols-outlined.fill { font-variation-settings: 'FILL' 1; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface antialiased pb-24">
+<!-- Top Navigation (Task-Focused, No BottomNav) -->
+<header class="fixed top-0 w-full z-50 backdrop-blur-md bg-surface/80">
+<div class="flex justify-between items-center px-margin-mobile h-16 w-full max-w-screen-xl mx-auto">
+<button class="p-2 -ml-2 text-primary hover:opacity-80 transition-opacity active:scale-95 duration-200" onclick="history.back()">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<div class="flex gap-2">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors active:scale-95 duration-200">
+<span class="material-symbols-outlined">favorite_border</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors active:scale-95 duration-200">
+<span class="material-symbols-outlined">share</span>
+</button>
+</div>
+</div>
+</header>
+<main class="pt-16 max-w-screen-md mx-auto">
+<!-- Hero Image Gallery -->
+<section class="w-full h-72 relative">
+<img alt="Pet friendly cafe interior" class="w-full h-full object-cover" data-alt="A bright, modern pet-friendly cafe interior with large windows letting in natural sunlight. Wooden tables and comfortable seating are arranged spaciously to accommodate dogs. A happy golden retriever is lying on a soft rug near a table while people enjoy their coffee. The atmosphere is warm, inviting, and tactile, matching a modern minimalist aesthetic with soft textures and bone white walls." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDYhJaNaW_ODKWTQqeVWECIPOdzfDQPWfQnjnQMsUNcS-2DudC-EEIjr5OWXG-F0VHfivqxOO1Nb8MO-_HHn7FeDjWlnJaaWCSleqBEHWpRcBqYpYwXDhn4sexuLwOVcL4X-1HfLoPHei1ViH3_-If16tufqbKZEDrkjFbzTeAwpR__O9fMEapbc6fjKNUGlyFHF5nhbH9MavvMP2kD6CQECyJDqs8g67Tik6brvTd7OIqWVfFaos9qFXjtPhvcz-U2lxwkKFFtC8pB"/>
+<div class="absolute bottom-4 right-4 bg-surface/90 backdrop-blur-sm px-3 py-1 rounded-full font-label-sm text-label-sm text-bark-gray flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">photo_library</span> 1/8
+            </div>
+</section>
+<!-- Place Info Header -->
+<section class="px-margin-mobile py-6 bg-surface-container-lowest rounded-t-3xl -mt-6 relative z-10 shadow-[0px_4px_20px_rgba(74,69,66,0.05)]">
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-bark-gray mb-2">Paws &amp; Pours Coffee</h1>
+<div class="flex items-center gap-2 mb-4">
+<div class="flex text-sunny-yellow">
+<span class="material-symbols-outlined fill text-[18px]">star</span>
+<span class="material-symbols-outlined fill text-[18px]">star</span>
+<span class="material-symbols-outlined fill text-[18px]">star</span>
+<span class="material-symbols-outlined fill text-[18px]">star</span>
+<span class="material-symbols-outlined fill text-[18px]">star_half</span>
+</div>
+<span class="font-label-md text-label-md text-primary">4.8</span>
+<span class="font-body-md text-body-md text-on-surface-variant ml-2">咖啡厅 • 1.2km</span>
+</div>
+<!-- Pet Friendly Tags (Bento-style chips) -->
+<div class="flex flex-wrap gap-2 mb-6">
+<div class="bg-soft-teal/10 border border-soft-teal/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+<span class="material-symbols-outlined text-soft-teal text-[16px]">check_circle</span>
+<span class="font-label-sm text-label-sm text-on-secondary-fixed-variant">可进室内</span>
+</div>
+<div class="bg-warm-orange/10 border border-warm-orange/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+<span class="material-symbols-outlined text-warm-orange text-[16px]">pets</span>
+<span class="font-label-sm text-label-sm text-on-primary-fixed-variant">提供宠物水碗</span>
+</div>
+<div class="bg-surface-variant px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+<span class="material-symbols-outlined text-outline text-[16px]">warning</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">需牵引绳</span>
+</div>
+</div>
+<!-- Address & Nav Button -->
+<div class="flex items-center justify-between p-4 bg-surface-container-low rounded-xl mb-4">
+<div class="flex items-start gap-3 flex-1">
+<span class="material-symbols-outlined text-primary mt-0.5">location_on</span>
+<div>
+<p class="font-body-md text-body-md text-bark-gray">朝阳区三里屯南路18号</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant mt-1">营业时间: 10:00 - 22:00</p>
+</div>
+</div>
+<button class="bg-primary text-on-primary p-3 rounded-full shadow-[0px_8px_24px_rgba(255,138,92,0.15)] active:scale-95 transition-transform">
+<span class="material-symbols-outlined">navigation</span>
+</button>
+</div>
+</section>
+<!-- Reviews Section -->
+<section class="px-margin-mobile py-6">
+<div class="flex items-center justify-between mb-6">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-bark-gray">宠友评价 (128)</h2>
+<button class="font-label-md text-label-md text-primary flex items-center gap-1">
+                    写评价 <span class="material-symbols-outlined text-[16px]">edit</span>
+</button>
+</div>
+<div class="space-y-6">
+<!-- Review Card 1 -->
+<div class="bg-surface-container-lowest p-4 rounded-xl shadow-[0px_4px_20px_rgba(74,69,66,0.05)] border border-surface-container">
+<div class="flex items-center gap-3 mb-3">
+<img alt="User avatar" class="w-10 h-10 rounded-full border-2 border-surface-variant" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA8tEjaSV5WQkQy4nHuDV4nwvoRHZz28JIMraYlSw16-LWVsVyzBQGNPBfxikikvXH_wY1Rf8ezCFPK3UZelGTmBLpGm6yiWAHjx38ywDPACarNrA1mAg4i3P2n1r76vtJ41PV3G5pKcHFeFF6QMsBlL_Kc7lE0yIUv2Qc6sUa4QbGiVTaf0Pd83QTlI18hBIc1Qjd4lU6fX0zCNxOE6JWzJZ9bClqLAkwQMPo04ceN2fFWjIfPFS2Qmq_vUnVcwIwCuh7HM01c7t83"/>
+<div>
+<p class="font-label-md text-label-md text-bark-gray">Cookie妈</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant">2023-10-15</p>
+</div>
+<div class="ml-auto flex text-sunny-yellow">
+<span class="material-symbols-outlined fill text-[16px]">star</span>
+<span class="material-symbols-outlined fill text-[16px]">star</span>
+<span class="material-symbols-outlined fill text-[16px]">star</span>
+<span class="material-symbols-outlined fill text-[16px]">star</span>
+<span class="material-symbols-outlined fill text-[16px]">star</span>
+</div>
+</div>
+<p class="font-body-md text-body-md text-on-surface mb-3">环境非常棒！店员对狗狗特别友好，还主动送了专门的狗狗曲奇和水。室内空间很大，适合周末带毛孩子来放松。</p>
+<div class="flex gap-2 overflow-x-auto hide-scrollbar">
+<img alt="Dog in cafe" class="w-24 h-24 object-cover rounded-lg flex-shrink-0" data-alt="A cute small dog sitting happily on a wooden chair inside a bright cafe. There is a small plate with a dog-friendly cookie and a water bowl next to it. The lighting is soft and natural, emphasizing the warm, organic aesthetic of the space." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDj4a5Uh2DDmXc53wBfIMZ2V01KwubiCNUksoMvTZIeqzeAHG0NCWcIPOJeWJNFe-cSvOGSDKU_D4oDkLd9CNfFJaYz9wjEAfWyFODruSLmgO5aHAPqMwjFHaFsom7OlVAsXDwSClHFp03aLwFgc1pHfDGBh7JEP2z09cs_R85TjtQFH2Qphv-NfbLmPbd3ai3rTn5TL_A9PiAdI30xhdQbltqINk4aF9zqPENN_F_NQuzImz-gO0N3o4dkABRUW8ff5eGZf_eUD-52"/>
+</div>
+</div>
+<!-- Review Card 2 -->
+<div class="bg-surface-container-lowest p-4 rounded-xl shadow-[0px_4px_20px_rgba(74,69,66,0.05)] border border-surface-container">
+<div class="flex items-center gap-3 mb-3">
+<img alt="User avatar" class="w-10 h-10 rounded-full border-2 border-surface-variant" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAkcm7x2nnR-0En1V3EB7NFU_eAymwcajamz9ZTuIcVpqnFsYEz8wk3_H2XojPZcjeU7dbWcWnJh8cNcAKpCbbJQp7hwmCj9wtRy5P13p29nB_2jC1PurucMZAB9cs1UKSJeU42LxBx1G1qK1zIxGUKvqhzxN-Eifk0IyZZlcg_k4bvQowXdWjXupDHjWHV2NIlKNJ_w1laxZAZiqljGKsdr7-jnJd8H2puWvXjTQVRAf-Bi1X7ncaOYn-5IhZLTs_eTLeiBiOLlc33"/>
+<div>
+<p class="font-label-md text-label-md text-bark-gray">Max的主人</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant">2023-10-10</p>
+</div>
+<div class="ml-auto flex text-sunny-yellow">
+<span class="material-symbols-outlined fill text-[16px]">star</span>
+<span class="material-symbols-outlined fill text-[16px]">star</span>
+<span class="material-symbols-outlined fill text-[16px]">star</span>
+<span class="material-symbols-outlined fill text-[16px]">star</span>
+<span class="material-symbols-outlined text-outline-variant text-[16px]">star</span>
+</div>
+</div>
+<p class="font-body-md text-body-md text-on-surface">咖啡味道不错，就是周末人有点多。记得给狗狗带上牵引绳，室外座位比较凉快。</p>
+</div>
+</div>
+</section>
+</main>
+</body></html>

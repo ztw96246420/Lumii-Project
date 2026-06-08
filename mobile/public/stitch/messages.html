@@ -1,0 +1,311 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>聊天 - Lumii</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .icon-fill {
+            font-variation-settings: 'FILL' 1;
+        }
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        /* Custom scrollbar for chat area */
+        .chat-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .chat-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .chat-scroll::-webkit-scrollbar-thumb {
+            background-color: #ddc0b7; /* outline-variant */
+            border-radius: 20px;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                            "on-background": "#1b1c19",
+                            "on-secondary-fixed": "#00201d",
+                            "inverse-surface": "#30312e",
+                            "on-primary-fixed-variant": "#7f2b02",
+                            "on-primary-container": "#732500",
+                            "surface-container-highest": "#e4e2dd",
+                            "bone-white": "#F9F7F2",
+                            "secondary-container": "#8bf1e6",
+                            "error": "#ba1a1a",
+                            "secondary": "#006a63",
+                            "primary": "#9f4119",
+                            "on-primary-fixed": "#380d00",
+                            "tertiary-fixed": "#ffe088",
+                            "soft-teal": "#4DB6AC",
+                            "surface-variant": "#e4e2dd",
+                            "tertiary-container": "#c9a739",
+                            "background": "#fbf9f4",
+                            "primary-fixed": "#ffdbce",
+                            "sunny-yellow": "#FFD966",
+                            "on-error-container": "#93000a",
+                            "surface-tint": "#9f4119",
+                            "on-tertiary-fixed-variant": "#574500",
+                            "tertiary-fixed-dim": "#e7c353",
+                            "secondary-fixed-dim": "#71d7cd",
+                            "health-red": "#EF5350",
+                            "inverse-primary": "#ffb59a",
+                            "surface-bright": "#fbf9f4",
+                            "inverse-on-surface": "#f2f1ec",
+                            "on-surface": "#1b1c19",
+                            "primary-fixed-dim": "#ffb59a",
+                            "outline": "#8a726a",
+                            "warm-orange": "#FF8A5C",
+                            "surface-container-lowest": "#ffffff",
+                            "error-container": "#ffdad6",
+                            "on-tertiary-fixed": "#241a00",
+                            "surface-container-high": "#eae8e3",
+                            "on-error": "#ffffff",
+                            "on-primary": "#ffffff",
+                            "surface-container-low": "#f5f3ee",
+                            "on-secondary": "#ffffff",
+                            "surface-container": "#f0eee9",
+                            "surface-dim": "#dbdad5",
+                            "on-secondary-container": "#006f67",
+                            "on-secondary-fixed-variant": "#00504a",
+                            "on-tertiary-container": "#4e3d00",
+                            "surface": "#fbf9f4",
+                            "outline-variant": "#ddc0b7",
+                            "on-tertiary": "#ffffff",
+                            "primary-container": "#ff8a5c",
+                            "tertiary": "#735c00",
+                            "bark-gray": "#4A4542",
+                            "on-surface-variant": "#56423b",
+                            "secondary-fixed": "#8ef4e9"
+                    },
+                    "borderRadius": {
+                            "DEFAULT": "0.25rem",
+                            "lg": "0.5rem",
+                            "xl": "0.75rem",
+                            "full": "9999px",
+                            "bubble": "1.25rem"
+                    },
+                    "spacing": {
+                            "gutter": "16px",
+                            "margin-mobile": "20px",
+                            "base": "8px",
+                            "margin-desktop": "40px",
+                            "container-padding": "24px"
+                    },
+                    "fontFamily": {
+                            "body-md": ["Plus Jakarta Sans"],
+                            "headline-lg-mobile": ["Plus Jakarta Sans"],
+                            "body-lg": ["Plus Jakarta Sans"],
+                            "headline-lg": ["Plus Jakarta Sans"],
+                            "headline-xl": ["Plus Jakarta Sans"],
+                            "label-md": ["Plus Jakarta Sans"],
+                            "label-sm": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                            "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                            "headline-lg-mobile": ["20px", {"lineHeight": "28px", "fontWeight": "700"}],
+                            "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "500"}],
+                            "headline-lg": ["24px", {"lineHeight": "32px", "fontWeight": "700"}],
+                            "headline-xl": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                            "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                            "label-sm": ["12px", {"lineHeight": "16px", "fontWeight": "500"}]
+                    },
+                    "boxShadow": {
+                        "level-1": "0px 4px 20px rgba(74, 69, 66, 0.05)",
+                        "level-2": "0px 8px 24px rgba(255, 138, 92, 0.15)",
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col antialiased">
+<!-- TopAppBar JSON Component (Adapted for Chat Context) -->
+<header class="docked full-width top-0 sticky z-50 backdrop-blur-xl bg-background/80 flat no shadows flex justify-between items-center px-margin-mobile h-16 w-full max-w-7xl mx-auto md:hidden">
+<div class="flex items-center gap-3">
+<button class="text-bark-gray scale-95 active:scale-90 transition-transform duration-200 hover:bg-surface-container rounded-full p-2 flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<div class="flex items-center gap-2">
+<img alt="Avatar of a border collie" class="w-10 h-10 rounded-full object-cover border-2 border-bone-white shadow-level-1" src="https://lh3.googleusercontent.com/aida-public/AB6AXuChUlRUa6KKO6mQN_sdEE17XjHW6YVUaynE5140EgmzQxBRTCnXSb4rmsUgMLvhaDDUJ0LGXgIcYTKm3201pZVu9MpY8MpT6yKJ9RO-3vnCqVnfT59qy08oPM88Mo8NrbPv9OKLL4Opdeezw8I_X998R7Qv3UNZ7yaRuRkvSi7Ki2E2hMTXxrn4Y6Rkga1wdzZ5ydQx1TUQCgxkmhqg8GHe5atH2N4p9UUv1S6fTWw4H5ZfLVqn6_5AVcYyC3xAgrbBwUrdV_u4m9kU">
+<div>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">Max &amp; Sarah</h1>
+<p class="font-label-sm text-label-sm text-soft-teal">在线</p>
+</div>
+</div>
+</div>
+<button class="text-bark-gray scale-95 active:scale-90 transition-transform duration-200 hover:bg-surface-container rounded-full p-2 flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</header>
+<!-- TopAppBar for Desktop (Hidden on mobile) -->
+<header class="hidden md:flex justify-between items-center px-margin-desktop h-20 w-full max-w-7xl mx-auto backdrop-blur-xl bg-background/80 sticky top-0 z-50 border-b border-outline-variant/30">
+<div class="flex items-center gap-4">
+<div class="font-headline-xl text-headline-xl text-warm-orange tracking-tight mr-8">Lumii</div>
+<!-- Desktop Nav -->
+<nav class="flex gap-6">
+<a class="flex items-center gap-2 text-bark-gray hover:bg-surface-container px-3 py-2 rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="pets">pets</span>
+<span class="font-label-md text-label-md">宠物</span>
+</a>
+<a class="flex items-center gap-2 text-bark-gray hover:bg-surface-container px-3 py-2 rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="explore">explore</span>
+<span class="font-label-md text-label-md">发现</span>
+</a>
+<a class="flex items-center gap-2 text-primary font-label-md text-label-md bg-primary-container/20 px-3 py-2 rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined icon-fill" data-icon="chat_bubble">chat_bubble</span>
+<span>消息</span>
+</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<img alt="User Avatar" class="w-10 h-10 rounded-full object-cover" data-alt="Close up portrait of a young woman with a soft smile, natural lighting, warm and friendly modern aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC8myonZqFqAWp7MQAcfiINcN4cBVe37b04vcG5R84A1B1f9SWCRWzkBZdeAPrWfi7DPJ1n2XzPNrhvmehDtUXPwlbVlxH_xoMqz-aMi29T9NWeMfFHAUqm612U54rtahq5O1GKZOeogGlR8PiBArt3KQg884enxNZU4853s5sm4QcBM1IzQBoffekOvUGVsKvezq1KI9qSecEmEYhvoHELaagv9t65peedICrD-Ys4FWn8yR6-udcCObm5mvHrIAM_A3G42BCTxWKD">
+<button class="text-bark-gray hover:bg-surface-container p-2 rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</div>
+</header>
+<!-- Main Chat Canvas -->
+<main class="flex-1 flex flex-col max-w-3xl mx-auto w-full px-4 md:px-margin-desktop pb-24 pt-4 overflow-hidden h-[calc(100vh-64px)] md:h-[calc(100vh-80px)] relative">
+<!-- Desktop Chat Header (Visible only on desktop within the canvas) -->
+<div class="hidden md:flex items-center justify-between pb-4 border-b border-outline-variant/30 mb-4 shrink-0">
+<div class="flex items-center gap-4">
+<img alt="Avatar of a border collie" class="w-14 h-14 rounded-full object-cover shadow-level-1" src="https://lh3.googleusercontent.com/aida-public/AB6AXuChUlRUa6KKO6mQN_sdEE17XjHW6YVUaynE5140EgmzQxBRTCnXSb4rmsUgMLvhaDDUJ0LGXgIcYTKm3201pZVu9MpY8MpT6yKJ9RO-3vnCqVnfT59qy08oPM88Mo8NrbPv9OKLL4Opdeezw8I_X998R7Qv3UNZ7yaRuRkvSi7Ki2E2hMTXxrn4Y6Rkga1wdzZ5ydQx1TUQCgxkmhqg8GHe5atH2N4p9UUv1S6fTWw4H5ZfLVqn6_5AVcYyC3xAgrbBwUrdV_u4m9kU">
+<div>
+<h2 class="font-headline-lg text-headline-lg text-on-surface">Max &amp; Sarah</h2>
+<p class="font-body-md text-body-md text-soft-teal flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-soft-teal inline-block"></span> 在线
+                    </p>
+</div>
+</div>
+<button class="text-bark-gray hover:bg-surface-container p-2 rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="more_horiz">more_horiz</span>
+</button>
+</div>
+<!-- Chat Messages Area -->
+<div class="flex-1 overflow-y-auto chat-scroll pr-2 flex flex-col gap-6 pb-32">
+<!-- Date Divider -->
+<div class="flex justify-center my-2">
+<span class="bg-surface-container text-bark-gray font-label-sm text-label-sm px-3 py-1 rounded-full shadow-sm">今天 10:42</span>
+</div>
+<!-- Received Message Block -->
+<div class="flex gap-3 max-w-[85%] md:max-w-[70%]">
+<img alt="Max Avatar" class="w-8 h-8 rounded-full object-cover mt-1 shrink-0" src="https://lh3.googleusercontent.com/aida-public/AB6AXuChUlRUa6KKO6mQN_sdEE17XjHW6YVUaynE5140EgmzQxBRTCnXSb4rmsUgMLvhaDDUJ0LGXgIcYTKm3201pZVu9MpY8MpT6yKJ9RO-3vnCqVnfT59qy08oPM88Mo8NrbPv9OKLL4Opdeezw8I_X998R7Qv3UNZ7yaRuRkvSi7Ki2E2hMTXxrn4Y6Rkga1wdzZ5ydQx1TUQCgxkmhqg8GHe5atH2N4p9UUv1S6fTWw4H5ZfLVqn6_5AVcYyC3xAgrbBwUrdV_u4m9kU">
+<div class="flex flex-col gap-1 items-start">
+<div class="bg-surface-container-high text-on-surface p-3 rounded-bubble rounded-tl-sm shadow-level-1 font-body-md text-body-md">
+                        嗨！我们昨天在公园看到你和Mochi了。Mochi跑得真快！🐾
+                    </div>
+<span class="text-bark-gray font-label-sm text-label-sm ml-1 opacity-70">10:42 AM</span>
+</div>
+</div>
+<!-- Sent Message Block -->
+<div class="flex gap-3 max-w-[85%] md:max-w-[70%] self-end flex-row-reverse">
+<div class="flex flex-col gap-1 items-end">
+<div class="bg-primary text-on-primary p-3 rounded-bubble rounded-tr-sm shadow-level-2 font-body-md text-body-md">
+                        嘿 Sarah！是呀，她最喜欢玩飞盘了。那是Max吗？就是那个在敏捷训练场附近的边牧？
+                    </div>
+<span class="text-bark-gray font-label-sm text-label-sm mr-1 opacity-70">10:45 AM</span>
+</div>
+</div>
+<!-- Received Sticker -->
+<div class="flex gap-3 max-w-[85%] md:max-w-[70%] mt-2">
+<img alt="Max Avatar" class="w-8 h-8 rounded-full object-cover mt-1 shrink-0 opacity-0" src="https://lh3.googleusercontent.com/aida-public/AB6AXuChUlRUa6KKO6mQN_sdEE17XjHW6YVUaynE5140EgmzQxBRTCnXSb4rmsUgMLvhaDDUJ0LGXgIcYTKm3201pZVu9MpY8MpT6yKJ9RO-3vnCqVnfT59qy08oPM88Mo8NrbPv9OKLL4Opdeezw8I_X998R7Qv3UNZ7yaRuRkvSi7Ki2E2hMTXxrn4Y6Rkga1wdzZ5ydQx1TUQCgxkmhqg8GHe5atH2N4p9UUv1S6fTWw4H5ZfLVqn6_5AVcYyC3xAgrbBwUrdV_u4m9kU"> <!-- Hidden avatar for alignment -->
+<div class="flex flex-col gap-1 items-start">
+<div class="bg-transparent p-1">
+<img alt="Happy Dog Sticker" class="w-24 h-24 object-contain drop-shadow-md hover:scale-105 transition-transform cursor-pointer" data-alt="A cartoon-style digital sticker of a happy border collie with its tongue out, warm soft lighting, modern flat illustration style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAoUcLPuUBpevHYekY-xgiF8oq1LggrWNuSE5t6vDjXnCU1E-kmXZntp1FpjwjFHPmHMkOUGiOSizQvAQ84naFR6OfCubKQXRbHu8PzjKRmZstDZRzBS3JsGISkJLJU8fpBL_qiL2BU4oNMgC-G1eThiZjOHqcKnx8Get4cOLhZu1S3ryp7d_ZiExbNCCs8cEIYpbnZrYKjxgrlTC9cUtt19nxEBQIijty5OZiDR40jMaotYiyXdXdNrzfv9RHupV_V8on28MNLZNUh">
+</div>
+<span class="text-bark-gray font-label-sm text-label-sm ml-1 opacity-70">10:46 AM</span>
+</div>
+</div>
+<!-- Received Message Block -->
+<div class="flex gap-3 max-w-[85%] md:max-w-[70%]">
+<img alt="Max Avatar" class="w-8 h-8 rounded-full object-cover mt-1 shrink-0" src="https://lh3.googleusercontent.com/aida-public/AB6AXuChUlRUa6KKO6mQN_sdEE17XjHW6YVUaynE5140EgmzQxBRTCnXSb4rmsUgMLvhaDDUJ0LGXgIcYTKm3201pZVu9MpY8MpT6yKJ9RO-3vnCqVnfT59qy08oPM88Mo8NrbPv9OKLL4Opdeezw8I_X998R7Qv3UNZ7yaRuRkvSi7Ki2E2hMTXxrn4Y6Rkga1wdzZ5ydQx1TUQCgxkmhqg8GHe5atH2N4p9UUv1S6fTWw4H5ZfLVqn6_5AVcYyC3xAgrbBwUrdV_u4m9kU">
+<div class="flex flex-col gap-1 items-start">
+<div class="bg-surface-container-high text-on-surface p-3 rounded-bubble rounded-tl-sm shadow-level-1 font-body-md text-body-md">
+                        对，就是我们！我们打算下午4点左右再去，你们想一起来玩吗？
+                    </div>
+<span class="text-bark-gray font-label-sm text-label-sm ml-1 opacity-70">10:47 AM</span>
+</div>
+</div>
+<!-- AI Icebreaker (Floating near bottom of chat stream) -->
+<div class="mt-auto mb-4 self-center w-full max-w-md animate-fade-in-up">
+<div class="bg-bone-white border-2 border-dashed border-warm-orange/40 rounded-xl p-3 shadow-level-1 relative overflow-hidden flex items-center gap-3">
+<div class="bg-primary-container/20 p-2 rounded-full text-warm-orange shrink-0">
+<span class="material-symbols-outlined" data-icon="lightbulb">lightbulb</span>
+</div>
+<div class="flex-1">
+<p class="font-body-md text-body-md text-on-surface">Mochi 似乎很喜欢这个 [链接]，它有蓬松的尾巴！要打个招呼吗？</p>
+</div>
+<button class="bg-warm-orange text-white font-label-md text-label-md px-4 py-2 rounded-full hover:bg-surface-tint scale-98 active:scale-95 transition-all duration-200 shadow-sm shrink-0">
+                        使用此项
+                    </button>
+<!-- Decorative hand-drawn swoosh -->
+<svg class="absolute -bottom-2 -right-2 w-12 h-12 text-warm-orange/10 pointer-events-none" fill="none" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+<path d="M10 90 Q 50 10 90 90" stroke="currentColor" stroke-linecap="round" stroke-width="8"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- Input Area (Fixed to bottom of main canvas) -->
+<div class="absolute bottom-0 left-0 w-full bg-background/95 backdrop-blur-md pt-3 pb-safe border-t border-outline-variant/20 z-10 px-4 md:px-margin-desktop md:pb-6">
+<div class="max-w-3xl mx-auto flex items-end gap-2 bg-surface-container-lowest shadow-level-1 p-2 rounded-3xl border border-outline-variant/30 focus-within:border-soft-teal focus-within:shadow-md transition-all">
+<button class="p-2 text-bark-gray hover:text-soft-teal hover:bg-surface-container rounded-full transition-colors shrink-0">
+<span class="material-symbols-outlined" data-icon="add_circle">add_circle</span>
+</button>
+<button class="p-2 text-bark-gray hover:text-warm-orange hover:bg-surface-container rounded-full transition-colors shrink-0">
+<span class="material-symbols-outlined" data-icon="pets">pets</span> <!-- Pet Sticker Icon -->
+</button>
+<textarea class="flex-1 bg-transparent border-none focus:ring-0 resize-none py-2.5 font-body-md text-body-md text-on-surface placeholder-bark-gray/60 max-h-32 min-h-[44px]" placeholder="输入消息..." rows="1"></textarea>
+<button class="p-2.5 bg-primary text-on-primary rounded-full hover:bg-surface-tint scale-98 active:scale-95 transition-all duration-200 shadow-level-2 shrink-0 flex items-center justify-center">
+<span class="material-symbols-outlined icon-fill" data-icon="send">send</span>
+</button>
+</div>
+</div>
+</main>
+<!-- BottomNavBar JSON Component (Hidden on Desktop) -->
+<nav class="fixed bottom-0 w-full z-50 rounded-t-xl backdrop-blur-xl border-t border-outline-variant/30 dark:border-outline/20 shadow-lg dark:shadow-none bg-background/90 dark:bg-background/90 md:hidden flex justify-around items-center px-4 pb-4 pt-2 pb-safe-area">
+<a class="flex flex-col items-center justify-center text-bark-gray dark:text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high dark:hover:bg-inverse-surface rounded-full scale-98 active:scale-95 transition-all duration-200 ease-out group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors" data-icon="pets">pets</span>
+<span class="font-label-sm text-label-sm mt-1">宠物</span>
+</a>
+<a class="flex flex-col items-center justify-center text-bark-gray dark:text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high dark:hover:bg-inverse-surface rounded-full scale-98 active:scale-95 transition-all duration-200 ease-out group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors" data-icon="explore">explore</span>
+<span class="font-label-sm text-label-sm mt-1">发现</span>
+</a>
+<a class="flex flex-col items-center justify-center text-bark-gray dark:text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high dark:hover:bg-inverse-surface rounded-full scale-98 active:scale-95 transition-all duration-200 ease-out group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors" data-icon="map">map</span>
+<span class="font-label-sm text-label-sm mt-1">地图</span>
+</a>
+<!-- ACTIVE STATE -->
+<a class="flex flex-col items-center justify-center bg-primary-container dark:bg-primary-fixed-variant text-on-primary-container dark:text-on-primary-fixed-variant rounded-full px-4 py-1.5 transition-all duration-300 scale-98 active:scale-95 ease-out shadow-sm" href="#">
+<span class="material-symbols-outlined icon-fill" data-icon="chat_bubble">chat_bubble</span>
+<span class="font-label-sm text-label-sm mt-1">消息</span>
+</a>
+<a class="flex flex-col items-center justify-center text-bark-gray dark:text-on-surface-variant px-4 py-1.5 hover:bg-surface-container-high dark:hover:bg-inverse-surface rounded-full scale-98 active:scale-95 transition-all duration-200 ease-out group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors" data-icon="person">person</span>
+<span class="font-label-sm text-label-sm mt-1">我的</span>
+</a>
+</nav>
+<!-- Vanilla JS for micro-interactions -->
+<script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const textarea = document.querySelector('textarea');
+            if(textarea) {
+                textarea.addEventListener('input', function() {
+                    this.style.height = 'auto';
+                    this.style.height = (this.scrollHeight) + 'px';
+                });
+            }
+        });
+    </script>
+</body></html>

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Lumii - &#x6253;&#x62db;&#x547c;</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-low": "#f5f3ee",
+                        "secondary": "#006a63",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-variant": "#e4e2dd",
+                        "secondary-container": "#8bf1e6",
+                        "surface": "#fbf9f4",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "outline": "#8a726a",
+                        "primary": "#9f4119",
+                        "secondary-fixed": "#8ef4e9",
+                        "on-primary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "surface-dim": "#dbdad5",
+                        "tertiary": "#735c00",
+                        "on-surface-variant": "#56423b",
+                        "primary-fixed-dim": "#ffb59a",
+                        "surface-tint": "#9f4119",
+                        "on-secondary-fixed": "#00201d",
+                        "sunny-yellow": "#FFD966",
+                        "inverse-on-surface": "#f2f1ec",
+                        "background": "#fbf9f4",
+                        "surface-container-high": "#eae8e3",
+                        "on-surface": "#1b1c19",
+                        "inverse-primary": "#ffb59a",
+                        "primary-container": "#ff8a5c",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "bark-gray": "#4A4542",
+                        "primary-fixed": "#ffdbce",
+                        "health-red": "#EF5350",
+                        "error": "#ba1a1a",
+                        "warm-orange": "#FF8A5C",
+                        "outline-variant": "#ddc0b7",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "on-background": "#1b1c19",
+                        "on-tertiary-container": "#4e3d00",
+                        "inverse-surface": "#30312e",
+                        "tertiary-container": "#c9a739",
+                        "bone-white": "#F9F7F2",
+                        "on-secondary-container": "#006f67",
+                        "on-primary-container": "#732500",
+                        "on-secondary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "tertiary-fixed": "#ffe088",
+                        "surface-container": "#f0eee9",
+                        "on-primary-fixed": "#380d00",
+                        "surface-bright": "#fbf9f4",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "surface-container-highest": "#e4e2dd",
+                        "on-tertiary-fixed": "#241a00",
+                        "on-tertiary": "#ffffff",
+                        "soft-teal": "#4DB6AC"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "container-padding": "24px",
+                        "margin-mobile": "20px",
+                        "margin-desktop": "40px",
+                        "base": "8px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-md": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .material-symbols-outlined {
+            font-family: 'Material Symbols Outlined';
+            font-weight: normal;
+            font-style: normal;
+            font-size: 24px;
+            display: inline-block;
+            line-height: 1;
+            text-transform: none;
+            letter-spacing: normal;
+            word-wrap: normal;
+            white-space: nowrap;
+            direction: ltr;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface h-screen w-screen overflow-hidden relative font-body-md">
+<!-- App Canvas (Background) -->
+<main class="h-full w-full relative z-0 flex flex-col pt-16">
+<!-- TopAppBar Placeholder (Hidden on transactional intent, but keeping structure for reference) -->
+<header class="fixed top-0 w-full h-16 bg-background/80 backdrop-blur-xl z-10 flex justify-between items-center px-margin-mobile">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-full bg-surface-container-highest overflow-hidden">
+<img alt="Avatar" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBNoNXsApmX2mXRLjnFqLMTElx_K_Y6UdraAjVKmuYJWojGBJRbu6QTZwivNiR8Nk2pZJsYXAhjDwrBnY3CSg1U-1YxaXE5D5XbJZ8rKjXEQXddEA8H1iU_Sjq158Zvd0ipxfPle7-I0hQEoc7qPHAeqRp30dNctBtoJqsp7QJ8uRl5u2bbb-uUaoAP2h0zm8uPTOH0aWfezHu4VEwKUAjkKvRBz-smHnwkGinoaxpHBAzkWqH3CK8ax1N9F1fNAmhozghT1JAJ_Bo0"/>
+</div>
+<h1 class="font-headline-xl text-headline-xl text-warm-orange tracking-tight">Lumii</h1>
+</div>
+<span class="material-symbols-outlined text-primary" data-icon="settings">settings</span>
+</header>
+<!-- Dummy Content -->
+<div class="p-margin-mobile flex-1 overflow-y-auto">
+<div class="bg-surface-container-lowest rounded-xl p-4 shadow-[0px_4px_20px_rgba(74,69,66,0.05)] mb-4">
+<div class="h-48 rounded-lg bg-surface-container mb-4 overflow-hidden relative">
+<img alt="Dog" class="w-full h-full object-cover" data-alt="A high quality photo of a golden retriever dog sitting in a lush green park on a sunny day. The dog is looking directly at the camera with a friendly expression. The background is slightly blurred, emphasizing the dog. The overall mood is warm, friendly, and pet-centric, fitting a modern tactile minimalism aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBISQAl0uEpxWuIjRE6_SznE-mC5IFg7IkYbE3pnKV3oJtPcJqAqMohEVJiL9jlavwflp6JrkJyXJhUmH2-hnPJDqn9MTqrjdWpblfdZmmCkTbIMoRgPKhiXUSrMOXaDLm2UuafPPUcZ3vYNV2wrTgm09C9-Sq064-5PY-Wn1S0kX-iHA1zvEhaEMq0E076JCK4lsTpMiP2oiACD4nrXAwZp6cO3qHCGN71mqs_So5yr1TbrJ4xHnlK1tMJadoWwBgZVB0DmGmZiuXo"/>
+<div class="absolute bottom-2 left-2 flex gap-2">
+<span class="bg-surface/90 text-on-surface font-label-sm text-label-sm px-2 py-1 rounded-full">友好</span>
+</div>
+</div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-1">小金</h2>
+<p class="font-body-md text-body-md text-bark-gray mb-4">金毛寻回犬 • 距离 3km</p>
+<button class="w-full bg-warm-orange text-white font-label-md text-label-md py-3 rounded-full flex justify-center items-center gap-2 scale-98 active:scale-95 transition-all duration-200 shadow-[0px_8px_24px_rgba(255,138,92,0.15)]" onclick="openBottomSheet()"><span class="material-symbols-outlined" data-icon="waving_hand">waving_hand</span>打招呼</button>
+</div>
+</div>
+</main>
+<!-- Overlay / Scrim -->
+<div class="fixed inset-0 bg-bark-gray/40 backdrop-blur-sm z-40 opacity-0 pointer-events-none transition-opacity duration-300" id="scrim" onclick="closeBottomSheet()"></div>
+<!-- Bottom Sheet -->
+<div class="fixed bottom-0 left-0 w-full bg-surface-container-lowest rounded-t-xl z-50 transform translate-y-full transition-transform duration-300 ease-out shadow-[0px_-4px_24px_rgba(74,69,66,0.1)] flex flex-col max-h-[795px]" id="bottomSheet">
+<!-- Drag Handle -->
+<div class="w-full flex justify-center pt-3 pb-1" onclick="closeBottomSheet()">
+<div class="w-12 h-1.5 bg-surface-variant rounded-full"></div>
+</div>
+<div class="px-margin-mobile pb-margin-mobile pt-2 flex-1 overflow-y-auto">
+<!-- Header -->
+<div class="flex items-center gap-3 mb-6">
+<div class="w-12 h-12 rounded-full bg-surface-container-high overflow-hidden border-2 border-surface-container-lowest shadow-sm relative z-10">
+<img alt="Mochi" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCqRT1XezQDW8uX4zOtHAzd-x7Zj91A-mJzRxYiX1qI5VQVKN4ZRI1fZQD-qMSrUXofWit52OeuZvP-OAGo-rZn5jBf11T-meJkPAPILTqqUyPAGdbUnFFMGJ2m6bVTt2PIDQ8mAxrNOgWeCeiWaJISokI9pbv91EU5zI_BNfUROnpBsvLho8bjZCQMXCLSCE8aHWBmoADj8Wdp-v6Fe1il3TgqVQROncLM9lgA8J5bWfyap3noKOoew-n24Ytk7eXMmig1ApO1SUCs"/>
+</div>
+<div class="w-8 h-8 rounded-full bg-surface-container-high overflow-hidden border-2 border-surface-container-lowest shadow-sm -ml-6 relative z-0">
+<img alt="Buddy" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCvId-wbIIyZRQ8NmIjpAvIKaBNnR0_0sUbeLoFky-rK_KbCgPAjubMcL4KTlMqMXkLVzvmdDHx5pzaiaMGEyjAmox1w1CaN10g-yDLREPzWA8_AwGhkm26jWxPZNn2a58yZe_k1R0qfFJM3ezUcamD127N3kKZV0ooIedB7ydzs0TACFqkuAP6OmKJ09Cx4zlREa4dtGNEKdjFTgoluKZipqcPvJkTfCjsRsz_Ng80cPrC9i0ZgfjbOQ56xjghXcQdXoEhOF86jFoK"/>
+</div>
+<h3 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface ml-2">向小金打招呼</h3>
+</div>
+<!-- AI Icebreaker Bubble -->
+<div class="relative mb-6">
+<div class="absolute -top-3 left-4 bg-secondary-container text-on-secondary-fixed-variant font-label-sm text-label-sm px-2 py-0.5 rounded-full flex items-center gap-1 z-10"><span class="material-symbols-outlined text-[14px]" data-icon="auto_awesome" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>AI 破冰话术</div>
+<div class="bg-surface-container p-4 rounded-xl rounded-tl-sm border border-outline-variant/30 text-on-surface font-body-md text-body-md leading-relaxed">"Mochi 觉得小金看起来很友好！想一起去散步吗？"</div>
+</div>
+<!-- Editable Text Area (Hidden by default, shown on Edit) -->
+<div class="hidden mb-6" id="editArea">
+<label class="block font-label-md text-label-md text-bark-gray mb-2">自定义消息</label>
+<textarea class="w-full bg-surface-container-low border-2 border-transparent focus:border-soft-teal rounded-xl p-4 font-body-md text-body-md text-on-surface focus:ring-0 transition-colors resize-none outline-none" placeholder="Mochi 觉得小金看起来很友好！想一起去散步吗？" rows="3">Mochi &#x89c9;&#x5f97; Buddy &#x5f88;&#x53cb;&#x597d;&#xff0c;&#x8981;&#x4e0d;&#x8981;&#x4e00;&#x8d77;&#x53bb;&#x905b;&#x5f2f;&#xff1f;</textarea>
+</div>
+<!-- Actions -->
+<div class="flex gap-4 mt-auto">
+<button class="flex-1 py-3 px-4 rounded-full border-2 border-soft-teal text-secondary font-label-md text-label-md bg-secondary-container/10 active:bg-secondary-container/20 transition-colors flex justify-center items-center gap-2" id="editBtn" onclick="toggleEdit()"><span class="material-symbols-outlined" data-icon="edit">edit</span>编辑</button>
+<button class="flex-[2] py-3 px-4 rounded-full bg-warm-orange text-white font-label-md text-label-md shadow-[0px_8px_24px_rgba(255,138,92,0.15)] active:scale-98 transition-transform flex justify-center items-center gap-2" onclick="sendHello()"><span class="material-symbols-outlined" data-icon="send" style="font-variation-settings: 'FILL' 1;">send</span>立即发送</button>
+</div>
+</div>
+</div>
+<!-- Toast Notification -->
+<div class="fixed top-20 left-1/2 transform -translate-x-1/2 bg-surface-container-lowest border border-outline-variant/30 shadow-[0px_4px_20px_rgba(74,69,66,0.1)] rounded-full px-6 py-3 flex items-center gap-3 z-[60] opacity-0 pointer-events-none transition-all duration-300 translate-y-[-20px]" id="toast">
+<div class="w-6 h-6 rounded-full bg-soft-teal/20 flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined text-[16px]" data-icon="check" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface">已成功发送</span>
+</div>
+<script>
+        const bottomSheet = document.getElementById('bottomSheet');
+        const scrim = document.getElementById('scrim');
+        const editArea = document.getElementById('editArea');
+        const editBtn = document.getElementById('editBtn');
+        const toast = document.getElementById('toast');
+
+        function openBottomSheet() {
+            scrim.classList.remove('opacity-0', 'pointer-events-none');
+            bottomSheet.classList.remove('translate-y-full');
+            // Reset state
+            editArea.classList.add('hidden');
+            editBtn.classList.remove('bg-surface-container-highest', 'border-transparent', 'text-on-surface');
+            editBtn.innerHTML = '<span class="material-symbols-outlined" data-icon="edit">edit</span> Edit';
+        }
+
+        function closeBottomSheet() {
+            scrim.classList.add('opacity-0', 'pointer-events-none');
+            bottomSheet.classList.add('translate-y-full');
+        }
+
+        function toggleEdit() {
+            if (editArea.classList.contains('hidden')) {
+                editArea.classList.remove('hidden');
+                editBtn.classList.add('bg-surface-container-highest', 'border-transparent', 'text-on-surface');
+                editBtn.classList.remove('border-soft-teal', 'text-secondary', 'bg-secondary-container/10');
+                editBtn.innerHTML = '&#x53d6;&#x6d88;';
+            } else {
+                editArea.classList.add('hidden');
+                editBtn.classList.remove('bg-surface-container-highest', 'border-transparent', 'text-on-surface');
+                editBtn.classList.add('border-soft-teal', 'text-secondary', 'bg-secondary-container/10');
+                editBtn.innerHTML = '<span class="material-symbols-outlined" data-icon="edit">edit</span> Edit';
+            }
+        }
+
+        function sendHello() {
+            closeBottomSheet();
+            setTimeout(() => {
+                showToast();
+            }, 300);
+        }
+
+        function showToast() {
+            toast.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-[-20px]');
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-[-20px]');
+            }, 3000);
+        }
+
+        // Initialize Material Symbols
+        document.querySelectorAll('[data-icon]').forEach(el => {
+            el.textContent = el.getAttribute('data-icon');
+        });
+    </script>
+</body></html>

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+
+<html lang="zh"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>与 Mochi 对话</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-container": "#732500",
+                        "error": "#ba1a1a",
+                        "secondary": "#006a63",
+                        "primary-fixed-dim": "#ffb59a",
+                        "surface-tint": "#9f4119",
+                        "surface-container-highest": "#e4e2dd",
+                        "on-primary": "#ffffff",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "on-surface": "#1b1c19",
+                        "on-secondary-fixed": "#00201d",
+                        "bark-gray": "#4A4542",
+                        "primary-container": "#ff8a5c",
+                        "on-error-container": "#93000a",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "surface-container-low": "#f5f3ee",
+                        "sunny-yellow": "#FFD966",
+                        "bone-white": "#F9F7F2",
+                        "background": "#fbf9f4",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary-fixed": "#ffe088",
+                        "secondary-container": "#8bf1e6",
+                        "health-red": "#EF5350",
+                        "surface": "#fbf9f4",
+                        "on-error": "#ffffff",
+                        "inverse-surface": "#30312e",
+                        "on-tertiary-container": "#4e3d00",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "tertiary": "#735c00",
+                        "on-tertiary-fixed": "#241a00",
+                        "inverse-on-surface": "#f2f1ec",
+                        "inverse-primary": "#ffb59a",
+                        "outline": "#8a726a",
+                        "surface-variant": "#e4e2dd",
+                        "surface-container-high": "#eae8e3",
+                        "surface-container": "#f0eee9",
+                        "tertiary-container": "#c9a739",
+                        "surface-bright": "#fbf9f4",
+                        "outline-variant": "#ddc0b7",
+                        "on-secondary": "#ffffff",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "primary": "#9f4119",
+                        "on-surface-variant": "#56423b",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "on-secondary-container": "#006f67",
+                        "soft-teal": "#4DB6AC",
+                        "warm-orange": "#FF8A5C",
+                        "on-primary-fixed": "#380d00",
+                        "error-container": "#ffdad6",
+                        "primary-fixed": "#ffdbce",
+                        "secondary-fixed": "#8ef4e9",
+                        "surface-dim": "#dbdad5",
+                        "on-background": "#1b1c19",
+                        "on-tertiary": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-desktop": "40px",
+                        "gutter": "16px",
+                        "margin-mobile": "20px",
+                        "container-padding": "24px",
+                        "base": "8px"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Plus Jakarta Sans"],
+                        "label-md": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: theme('colors.background'); }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .bubble-ai { border-radius: 16px 16px 16px 4px; }
+        .bubble-user { border-radius: 16px 16px 4px 16px; }
+        
+        @keyframes typing {
+            0%, 100% { transform: translateY(0); opacity: 0.5; }
+            50% { transform: translateY(-4px); opacity: 1; }
+        }
+        .typing-dot { animation: typing 1.4s infinite ease-in-out; }
+        .typing-dot:nth-child(1) { animation-delay: 0s; }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    </style>
+</head>
+<body class="font-body-md text-on-surface h-screen flex flex-col overflow-hidden">
+<!-- Top App Bar -->
+<header class="flex-none backdrop-blur-xl bg-background/80 flex justify-between items-center px-margin-mobile h-16 w-full sticky top-0 z-50">
+<button aria-label="Back" class="text-primary p-2 -ml-2 rounded-full hover:bg-surface-container transition-colors scale-95 active:scale-90">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<div class="flex items-center flex-col justify-center flex-1">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-full overflow-hidden border-2 border-surface-container">
+<img alt="Mochi" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida/ADBb0uimVPuenXN93cfkShpzu66CkAtJlfRD8NC5-Hr6pXWI4MNuYMa3f9tt1xbdp1k3YwB0QNSTZ1zO5U2SrLpFc8p1WTj9IgwZ4ryMF9hUTnilnSARj_SOgaJhfWCZyHsHbFv832Rn66LDHp8KaCUVhZTanvLo6IqQUXvDS1kTjvgIgfLVIAkWwFUHk6w22Ot1iG8-3DyvOmMSkvhZssrgNjtxEyhrCV30YI4x2TVI5LxkcOtmAdkSLHT4tUQ8"/>
+</div>
+<div class="flex flex-col">
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">Mochi</span>
+<div class="flex items-center gap-1">
+<div class="w-2 h-2 rounded-full bg-soft-teal"></div>
+<span class="font-label-sm text-label-sm text-bark-gray">&#x5f00;&#x5fc3;</span>
+</div>
+</div>
+</div>
+</div>
+<button aria-label="Settings" class="text-primary p-2 -mr-2 rounded-full hover:bg-surface-container transition-colors scale-95 active:scale-90">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</header>
+<!-- Chat Body -->
+<main class="flex-1 overflow-y-auto px-margin-mobile py-4 flex flex-col gap-6 hide-scrollbar relative">
+<!-- Safety Notice -->
+<div class="bg-surface-container-low rounded-lg p-3 text-center border border-outline-variant/30 max-w-sm mx-auto shadow-[0px_4px_20px_rgba(74,69,66,0.05)]">
+<p class="font-label-sm text-label-sm text-bark-gray flex items-center justify-center gap-1">
+<span class="material-symbols-outlined text-soft-teal" style="font-size: 16px;">info</span>
+                注意：AI 健康建议不能替代专业的兽医诊断。
+            </p>
+</div>
+<!-- AI Message -->
+<div class="flex items-start gap-3 max-w-[85%]">
+<div class="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 mt-1 shadow-[0px_4px_20px_rgba(74,69,66,0.05)]">
+<img alt="Mochi" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida/ADBb0uimVPuenXN93cfkShpzu66CkAtJlfRD8NC5-Hr6pXWI4MNuYMa3f9tt1xbdp1k3YwB0QNSTZ1zO5U2SrLpFc8p1WTj9IgwZ4ryMF9hUTnilnSARj_SOgaJhfWCZyHsHbFv832Rn66LDHp8KaCUVhZTanvLo6IqQUXvDS1kTjvgIgfLVIAkWwFUHk6w22Ot1iG8-3DyvOmMSkvhZssrgNjtxEyhrCV30YI4x2TVI5LxkcOtmAdkSLHT4tUQ8"/>
+</div>
+<div class="bg-surface-container-high bubble-ai p-4 shadow-[0px_4px_20px_rgba(74,69,66,0.05)]">
+<p class="font-body-md text-body-md text-on-surface">你好！我是 Mochi，你的数字伴侣。今天过得怎么样？</p>
+</div>
+</div>
+<!-- User Message -->
+<div class="flex items-start justify-end gap-3 max-w-[85%] self-end">
+<div class="bg-warm-orange bubble-user p-4 shadow-[0px_8px_24px_rgba(255,138,92,0.15)]">
+<p class="font-body-md text-body-md text-on-primary">我觉得有点累。</p>
+</div>
+</div>
+<!-- AI Message -->
+<div class="flex items-start gap-3 max-w-[85%]">
+<div class="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 mt-1 shadow-[0px_4px_20px_rgba(74,69,66,0.05)]">
+<img alt="Mochi" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida/ADBb0uimVPuenXN93cfkShpzu66CkAtJlfRD8NC5-Hr6pXWI4MNuYMa3f9tt1xbdp1k3YwB0QNSTZ1zO5U2SrLpFc8p1WTj9IgwZ4ryMF9hUTnilnSARj_SOgaJhfWCZyHsHbFv832Rn66LDHp8KaCUVhZTanvLo6IqQUXvDS1kTjvgIgfLVIAkWwFUHk6w22Ot1iG8-3DyvOmMSkvhZssrgNjtxEyhrCV30YI4x2TVI5LxkcOtmAdkSLHT4tUQ8"/>
+</div>
+<div class="bg-surface-container-high bubble-ai p-4 shadow-[0px_4px_20px_rgba(74,69,66,0.05)]">
+<p class="font-body-md text-body-md text-on-surface">哦不，也许我们可以休息一下？或者我可以给你讲个有趣的故事！</p>
+</div>
+</div>
+<!-- Typing Indicator -->
+<div class="flex items-start gap-3 max-w-[85%]">
+<div class="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 mt-1 opacity-70">
+<img alt="Mochi" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida/ADBb0uimVPuenXN93cfkShpzu66CkAtJlfRD8NC5-Hr6pXWI4MNuYMa3f9tt1xbdp1k3YwB0QNSTZ1zO5U2SrLpFc8p1WTj9IgwZ4ryMF9hUTnilnSARj_SOgaJhfWCZyHsHbFv832Rn66LDHp8KaCUVhZTanvLo6IqQUXvDS1kTjvgIgfLVIAkWwFUHk6w22Ot1iG8-3DyvOmMSkvhZssrgNjtxEyhrCV30YI4x2TVI5LxkcOtmAdkSLHT4tUQ8"/>
+</div>
+<div class="bg-surface-container-high bubble-ai px-4 py-3 shadow-[0px_4px_20px_rgba(74,69,66,0.05)] flex items-center h-[48px]">
+<div class="flex gap-1.5">
+<div class="w-2 h-2 rounded-full bg-bark-gray typing-dot"></div>
+<div class="w-2 h-2 rounded-full bg-bark-gray typing-dot"></div>
+<div class="w-2 h-2 rounded-full bg-bark-gray typing-dot"></div>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Input Area -->
+<div class="flex-none bg-background/90 backdrop-blur-xl border-t border-outline-variant/30 pb-safe pt-2">
+<!-- Quick Actions (Scrollable) -->
+<div class="px-margin-mobile overflow-x-auto hide-scrollbar flex gap-2 pb-3 pt-1">
+<button class="whitespace-nowrap bg-surface-container-low border border-outline-variant/50 font-label-sm text-label-sm text-bark-gray px-4 py-1.5 rounded-full hover:bg-surface-container transition-colors">今天吃什么？</button>
+<button class="whitespace-nowrap bg-surface-container-low border border-outline-variant/50 font-label-sm text-label-sm text-bark-gray px-4 py-1.5 rounded-full hover:bg-surface-container transition-colors">健康提醒</button>
+<button class="whitespace-nowrap bg-surface-container-low border border-outline-variant/50 font-label-sm text-label-sm text-bark-gray px-4 py-1.5 rounded-full hover:bg-surface-container transition-colors">陪我聊天</button>
+<button class="whitespace-nowrap bg-surface-container-low border border-outline-variant/50 font-label-sm text-label-sm text-bark-gray px-4 py-1.5 rounded-full hover:bg-surface-container transition-colors">生成日常笔记</button>
+</div>
+<!-- Input Bar -->
+<div class="px-margin-mobile pb-4 flex items-end gap-2">
+<div class="flex-1 bg-surface-container-low rounded-xl border border-outline-variant/30 flex items-center px-2 py-1 focus-within:border-soft-teal focus-within:ring-1 focus-within:ring-soft-teal transition-all min-h-[48px]">
+<button class="p-2 text-bark-gray hover:text-primary transition-colors">
+<span class="material-symbols-outlined">mic</span>
+</button>
+<textarea class="flex-1 bg-transparent border-none focus:ring-0 resize-none font-body-md text-body-md text-on-surface placeholder-bark-gray/60 py-2.5 max-h-[120px] hide-scrollbar" placeholder="输入消息..." rows="1"></textarea>
+<button class="p-2 text-bark-gray hover:text-primary transition-colors">
+<span class="material-symbols-outlined">add_circle</span>
+</button>
+</div>
+<button class="w-12 h-12 rounded-xl bg-warm-orange flex items-center justify-center text-on-primary shadow-[0px_8px_24px_rgba(255,138,92,0.15)] scale-98 active:scale-95 transition-all flex-shrink-0">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">send</span>
+</button>
+</div>
+</div>
+<script>
+        // Auto-resize textarea
+        const textarea = document.querySelector('textarea');
+        textarea.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+    </script>
+</body></html>

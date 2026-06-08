@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+
+<html lang="zh"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>举报中心 - Lumii</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "soft-teal": "#4DB6AC",
+                        "bark-gray": "#4A4542",
+                        "error": "#ba1a1a",
+                        "on-tertiary-container": "#4e3d00",
+                        "surface-dim": "#dbdad5",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "on-primary-container": "#732500",
+                        "inverse-on-surface": "#f2f1ec",
+                        "health-red": "#EF5350",
+                        "on-secondary-container": "#006f67",
+                        "surface-container": "#f0eee9",
+                        "on-tertiary-fixed": "#241a00",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "inverse-primary": "#ffb59a",
+                        "surface-container-high": "#eae8e3",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "surface-bright": "#fbf9f4",
+                        "tertiary-fixed": "#ffe088",
+                        "warm-orange": "#FF8A5C",
+                        "sunny-yellow": "#FFD966",
+                        "primary": "#9f4119",
+                        "on-tertiary": "#ffffff",
+                        "secondary-fixed": "#8ef4e9",
+                        "primary-fixed": "#ffdbce",
+                        "surface-container-low": "#f5f3ee",
+                        "on-secondary": "#ffffff",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "on-primary-fixed": "#380d00",
+                        "on-primary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-error": "#ffffff",
+                        "on-surface-variant": "#56423b",
+                        "on-background": "#1b1c19",
+                        "surface": "#fbf9f4",
+                        "background": "#fbf9f4",
+                        "surface-container-highest": "#e4e2dd",
+                        "bone-white": "#F9F7F2",
+                        "on-secondary-fixed": "#00201d",
+                        "inverse-surface": "#30312e",
+                        "secondary": "#006a63",
+                        "surface-variant": "#e4e2dd",
+                        "secondary-container": "#8bf1e6",
+                        "tertiary-container": "#c9a739",
+                        "surface-tint": "#9f4119",
+                        "primary-container": "#ff8a5c",
+                        "outline-variant": "#ddc0b7",
+                        "on-surface": "#1b1c19",
+                        "outline": "#8a726a",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary": "#735c00",
+                        "primary-fixed-dim": "#ffb59a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-padding": "24px",
+                        "margin-desktop": "40px",
+                        "gutter": "16px",
+                        "base": "8px",
+                        "margin-mobile": "20px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #F9F7F2; }
+        .glass-header { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+        .card-shadow { box-shadow: 0px 4px 20px rgba(74, 69, 66, 0.05); }
+        .hide { display: none !important; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-bone-white text-on-surface font-body-md antialiased min-h-screen flex flex-col">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 backdrop-blur-md bg-surface/80 bg-transparent flex justify-between items-center px-margin-mobile h-16 w-full max-w-screen-xl mx-auto glass-header">
+<button aria-label="返回" class="text-on-surface-variant hover:opacity-80 transition-opacity active:scale-95 transition-transform duration-200">
+<span class="material-symbols-outlined text-2xl">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary">Lumii</h1>
+<div class="w-6"></div> <!-- Spacer for centering -->
+</header>
+<!-- Main Content Canvas (Transactional - No Navigation Shell) -->
+<main class="flex-grow pt-20 pb-10 px-margin-mobile max-w-screen-md mx-auto w-full flex flex-col gap-base" id="report-form">
+<div class="mb-4">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-2">举报内容</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">请协助我们维护一个安全、友善的数字伴侣空间。您的举报信息将被严格保密。</p>
+</div>
+<form class="flex flex-col gap-6" onsubmit="submitReport(event)">
+<!-- Reason Section -->
+<section class="bg-surface rounded-xl p-4 card-shadow flex flex-col gap-4">
+<h3 class="font-label-md text-label-md text-on-surface">选择举报原因 <span class="text-error">*</span></h3>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+<label class="flex items-center gap-3 p-3 rounded-lg border border-outline-variant cursor-pointer hover:bg-surface-container-low transition-colors">
+<input class="text-soft-teal focus:ring-soft-teal border-outline-variant" name="reason" required="" type="radio" value="spam"/>
+<span class="font-body-md text-body-md text-on-surface">垃圾营销或广告</span>
+</label>
+<label class="flex items-center gap-3 p-3 rounded-lg border border-outline-variant cursor-pointer hover:bg-surface-container-low transition-colors">
+<input class="text-soft-teal focus:ring-soft-teal border-outline-variant" name="reason" type="radio" value="abuse"/>
+<span class="font-body-md text-body-md text-on-surface">辱骂或人身攻击</span>
+</label>
+<label class="flex items-center gap-3 p-3 rounded-lg border border-outline-variant cursor-pointer hover:bg-surface-container-low transition-colors">
+<input class="text-soft-teal focus:ring-soft-teal border-outline-variant" name="reason" type="radio" value="inappropriate"/>
+<span class="font-body-md text-body-md text-on-surface">不适当的宠物照片</span>
+</label>
+<label class="flex items-center gap-3 p-3 rounded-lg border border-outline-variant cursor-pointer hover:bg-surface-container-low transition-colors">
+<input class="text-soft-teal focus:ring-soft-teal border-outline-variant" name="reason" type="radio" value="scam"/>
+<span class="font-body-md text-body-md text-on-surface">涉嫌诈骗</span>
+</label>
+</div>
+</section>
+<!-- Evidence Section -->
+<section class="bg-surface rounded-xl p-4 card-shadow flex flex-col gap-4">
+<h3 class="font-label-md text-label-md text-on-surface">上传截图证据 (选填)</h3>
+<div class="border-2 border-dashed border-outline-variant rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-surface-container-low transition-colors group">
+<span class="material-symbols-outlined text-4xl text-outline mb-2 group-hover:text-soft-teal transition-colors">add_photo_alternate</span>
+<p class="font-label-md text-label-md text-on-surface-variant">点击或拖拽上传图片</p>
+<p class="font-label-sm text-label-sm text-outline mt-1">支持 JPG, PNG, 最大 5MB</p>
+<input accept="image/*" class="hidden" id="evidence-upload" type="file"/>
+</div>
+</section>
+<!-- Description Section -->
+<section class="bg-surface rounded-xl p-4 card-shadow flex flex-col gap-4">
+<h3 class="font-label-md text-label-md text-on-surface">详细描述 (选填)</h3>
+<textarea class="w-full bg-surface-container-low border border-outline-variant rounded-lg p-3 font-body-md text-body-md text-on-surface focus:outline-none focus:border-soft-teal focus:ring-1 focus:ring-soft-teal resize-none h-32" placeholder="请提供更多背景信息，以帮助我们更快处理..."></textarea>
+</section>
+<!-- Submit Button -->
+<button class="w-full bg-warm-orange text-white font-label-md text-label-md py-4 rounded-full shadow-[0px_8px_24px_rgba(255,138,92,0.15)] active:scale-95 transition-transform duration-200 mt-4" type="submit">
+                提交举报
+            </button>
+</form>
+</main>
+<!-- Success Feedback (Hidden initially) -->
+<main class="flex-grow pt-20 pb-10 px-margin-mobile max-w-screen-md mx-auto w-full flex flex-col items-center justify-center gap-6 hide" id="success-feedback">
+<div class="w-24 h-24 bg-soft-teal/10 rounded-full flex items-center justify-center mb-4">
+<span class="material-symbols-outlined text-5xl text-soft-teal" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface text-center">提交成功</h2>
+<p class="font-body-md text-body-md text-on-surface-variant text-center max-w-sm">感谢您的反馈。我们的安全团队已收到您的举报，并将在24小时内进行审核处理。我们将共同维护Lumii的友善环境。</p>
+<button class="mt-8 px-8 bg-surface-container-high text-on-surface font-label-md text-label-md py-3 rounded-full hover:bg-surface-variant transition-colors active:scale-95" onclick="goBack()">
+            返回上一页
+        </button>
+</main>
+<script>
+        function submitReport(event) {
+            event.preventDefault();
+            document.getElementById('report-form').classList.add('hide');
+            document.getElementById('success-feedback').classList.remove('hide');
+        }
+
+        function goBack() {
+            // In a real app, this would use history.back() or routing
+            document.getElementById('success-feedback').classList.add('hide');
+            document.getElementById('report-form').classList.remove('hide');
+            document.querySelector('form').reset();
+        }
+
+        // Make the file upload div clickable
+        document.querySelector('.border-dashed').addEventListener('click', function() {
+            document.getElementById('evidence-upload').click();
+        });
+    </script>
+</body></html>

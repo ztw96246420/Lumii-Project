@@ -1,0 +1,324 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>新增地点点评 - Lumii</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "soft-teal": "#4DB6AC",
+                      "bark-gray": "#4A4542",
+                      "error": "#ba1a1a",
+                      "on-tertiary-container": "#4e3d00",
+                      "surface-dim": "#dbdad5",
+                      "tertiary-fixed-dim": "#e7c353",
+                      "on-primary-container": "#732500",
+                      "inverse-on-surface": "#f2f1ec",
+                      "health-red": "#EF5350",
+                      "on-secondary-container": "#006f67",
+                      "surface-container": "#f0eee9",
+                      "on-tertiary-fixed": "#241a00",
+                      "on-primary-fixed-variant": "#7f2b02",
+                      "inverse-primary": "#ffb59a",
+                      "surface-container-high": "#eae8e3",
+                      "on-tertiary-fixed-variant": "#574500",
+                      "surface-bright": "#fbf9f4",
+                      "tertiary-fixed": "#ffe088",
+                      "warm-orange": "#FF8A5C",
+                      "sunny-yellow": "#FFD966",
+                      "primary": "#9f4119",
+                      "on-tertiary": "#ffffff",
+                      "secondary-fixed": "#8ef4e9",
+                      "primary-fixed": "#ffdbce",
+                      "surface-container-low": "#f5f3ee",
+                      "on-secondary": "#ffffff",
+                      "on-secondary-fixed-variant": "#00504a",
+                      "on-primary-fixed": "#380d00",
+                      "on-primary": "#ffffff",
+                      "on-error-container": "#93000a",
+                      "on-error": "#ffffff",
+                      "on-surface-variant": "#56423b",
+                      "on-background": "#1b1c19",
+                      "surface": "#fbf9f4",
+                      "background": "#fbf9f4",
+                      "surface-container-highest": "#e4e2dd",
+                      "bone-white": "#F9F7F2",
+                      "on-secondary-fixed": "#00201d",
+                      "inverse-surface": "#30312e",
+                      "secondary": "#006a63",
+                      "surface-variant": "#e4e2dd",
+                      "secondary-container": "#8bf1e6",
+                      "tertiary-container": "#c9a739",
+                      "surface-tint": "#9f4119",
+                      "primary-container": "#ff8a5c",
+                      "outline-variant": "#ddc0b7",
+                      "on-surface": "#1b1c19",
+                      "outline": "#8a726a",
+                      "error-container": "#ffdad6",
+                      "secondary-fixed-dim": "#71d7cd",
+                      "surface-container-lowest": "#ffffff",
+                      "tertiary": "#735c00",
+                      "primary-fixed-dim": "#ffb59a"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "container-padding": "24px",
+                      "margin-desktop": "40px",
+                      "gutter": "16px",
+                      "base": "8px",
+                      "margin-mobile": "20px"
+              },
+              "fontFamily": {
+                      "label-md": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-lg": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "body-md": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "body-lg": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "label-sm": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-xl": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-lg-mobile": [
+                              "Plus Jakarta Sans"
+                      ]
+              },
+              "fontSize": {
+                      "label-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "letterSpacing": "0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "label-sm": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-xl": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "700"
+                              }
+                      ]
+              }
+            }
+          }
+        }
+    </script>
+<style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #F9F7F2; /* bone-white */
+            color: #1b1c19; /* on-background */
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0px 4px 20px rgba(74, 69, 66, 0.05); /* Level 1 shadow */
+        }
+        .squishy-btn:active {
+            transform: scale(0.98);
+        }
+        /* Custom scrollbar for horizontal lists */
+        .hide-scroll::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scroll {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        
+        .facility-checkbox:checked + div {
+            background-color: #ffdbce; /* primary-fixed */
+            border-color: #9f4119; /* primary */
+            color: #380d00; /* on-primary-fixed */
+        }
+        .facility-checkbox:checked + div .material-symbols-outlined {
+            color: #9f4119;
+            font-variation-settings: 'FILL' 1;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-bone-white min-h-screen flex flex-col items-center">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 backdrop-blur-md bg-surface/80 flex justify-between items-center px-margin-mobile h-16 max-w-screen-xl mx-auto bg-transparent">
+<button class="hover:opacity-80 transition-opacity active:scale-95 transition-transform duration-200 text-on-surface-variant flex items-center justify-center p-2 rounded-full">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<div class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary">
+            新增点评
+        </div>
+<div class="w-10"></div> <!-- Spacer for centering -->
+</header>
+<!-- Main Content Canvas -->
+<main class="w-full max-w-lg mx-auto pt-20 pb-safe px-margin-mobile flex-grow flex flex-col gap-6">
+<!-- Location Details Section -->
+<section class="glass-card rounded-xl p-5 flex flex-col gap-4">
+<div>
+<label class="font-label-md text-label-md text-bark-gray mb-1 block" for="locationName">地点名称</label>
+<input class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-4 py-3 font-body-md text-body-md text-on-surface focus:outline-none focus:border-soft-teal focus:ring-1 focus:ring-soft-teal transition-colors placeholder:text-outline" id="locationName" placeholder="例如: 阳光宠物公园" type="text">
+</div>
+<div>
+<label class="font-label-md text-label-md text-bark-gray mb-1 block" for="locationAddress">详细地址</label>
+<div class="relative">
+<input class="w-full bg-surface-container-low border border-outline-variant rounded-lg pl-10 pr-4 py-3 font-body-md text-body-md text-on-surface focus:outline-none focus:border-soft-teal focus:ring-1 focus:ring-soft-teal transition-colors placeholder:text-outline" id="locationAddress" placeholder="搜索或输入地址..." type="text">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline-variant">location_on</span>
+</div>
+</div>
+</section>
+<!-- Photo Upload Section -->
+<section class="flex flex-col gap-2">
+<h2 class="font-label-md text-label-md text-bark-gray pl-1">添加照片 (最多9张)</h2>
+<div class="flex gap-3 overflow-x-auto hide-scroll pb-2">
+<!-- Upload Button -->
+<button class="min-w-[100px] h-[100px] bg-surface-container border-2 border-dashed border-outline-variant rounded-xl flex flex-col items-center justify-center text-outline hover:border-soft-teal hover:text-soft-teal transition-colors flex-shrink-0 squishy-btn">
+<span class="material-symbols-outlined mb-1 text-[32px]">add_photo_alternate</span>
+<span class="font-label-sm text-label-sm">上传照片</span>
+</button>
+<!-- Placeholder Image Preview -->
+<div class="min-w-[100px] h-[100px] rounded-xl overflow-hidden relative flex-shrink-0 border border-outline-variant group">
+<img alt="Dog park preview" class="w-full h-full object-cover" data-alt="A sunny day at a lush green dog park. A happy golden retriever is running on the grass. The scene is bright and cheerful, fitting the warm modern tactile minimalism aesthetic with vibrant green and warm orange tones. The lighting is natural and soft." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD33_Qw3uR8-T6i8Gy1CfaXwWq1VOrITtdaunj9yxi1hc0bbLcAVF0_IFC5k1iI-OITilyJ0nPMXIey5NOWUSOPvGcQXdYRphhyNLA-khp2B0YidrRVoA-D7YEAXbg0vseGwg56zZuucaoJEeGXRUEDGAKswgC973jX-5lsJmG6QfdWjpKXnaGqoq3YIgB7Fy1G7xjbSdo9EueO23E_ko7ANZGHHlghD3Xtn84EfbfNl42pzSaJMUOGne3Mw4pBenyZ_AaCSBhVIC_j">
+<button class="absolute top-1 right-1 bg-surface/80 rounded-full p-0.5 text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-[16px]">close</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Pet Friendly Facilities -->
+<section class="glass-card rounded-xl p-5 flex flex-col gap-4">
+<h2 class="font-label-md text-label-md text-bark-gray">宠物友好设施 (多选)</h2>
+<div class="grid grid-cols-2 gap-3">
+<label class="cursor-pointer">
+<input class="peer sr-only facility-checkbox" type="checkbox">
+<div class="flex items-center gap-2 p-3 border border-outline-variant rounded-lg bg-surface transition-colors hover:bg-surface-container-low">
+<span class="material-symbols-outlined text-outline-variant">pets</span>
+<span class="font-body-md text-body-md text-on-surface">允许牵引绳</span>
+</div>
+</label>
+<label class="cursor-pointer">
+<input checked="" class="peer sr-only facility-checkbox" type="checkbox">
+<div class="flex items-center gap-2 p-3 border border-outline-variant rounded-lg bg-surface transition-colors">
+<span class="material-symbols-outlined text-outline-variant" style="font-variation-settings: 'FILL' 1;">water_drop</span>
+<span class="font-body-md text-body-md text-on-surface">提供饮水</span>
+</div>
+</label>
+<label class="cursor-pointer">
+<input class="peer sr-only facility-checkbox" type="checkbox">
+<div class="flex items-center gap-2 p-3 border border-outline-variant rounded-lg bg-surface transition-colors hover:bg-surface-container-low">
+<span class="material-symbols-outlined text-outline-variant">restaurant</span>
+<span class="font-body-md text-body-md text-on-surface">宠物特供餐</span>
+</div>
+</label>
+<label class="cursor-pointer">
+<input class="peer sr-only facility-checkbox" type="checkbox">
+<div class="flex items-center gap-2 p-3 border border-outline-variant rounded-lg bg-surface transition-colors hover:bg-surface-container-low">
+<span class="material-symbols-outlined text-outline-variant">park</span>
+<span class="font-body-md text-body-md text-on-surface">户外草坪</span>
+</div>
+</label>
+</div>
+</section>
+<!-- Review Content -->
+<section class="glass-card rounded-xl p-5 flex flex-col gap-4 mb-8">
+<h2 class="font-label-md text-label-md text-bark-gray">点评内容</h2>
+<div class="flex items-center gap-2 mb-2">
+<span class="font-body-md text-body-md text-on-surface">推荐指数</span>
+<div class="flex text-warm-orange gap-1">
+<span class="material-symbols-outlined cursor-pointer" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined cursor-pointer" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined cursor-pointer" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined cursor-pointer" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined cursor-pointer text-outline-variant">star</span>
+</div>
+</div>
+<textarea class="w-full bg-surface-container-low border border-outline-variant rounded-lg p-4 font-body-md text-body-md text-on-surface focus:outline-none focus:border-soft-teal focus:ring-1 focus:ring-soft-teal transition-colors placeholder:text-outline resize-none" placeholder="分享您和爱宠在这里的体验吧..." rows="5"></textarea>
+</section>
+<!-- Submit Button -->
+
+<!-- Spacer for fixed bottom button -->
+
+</main>
+<!-- Navigation Suppressed: Transactional/Input screen -->
+
+
+<nav class="fixed bottom-0 left-0 right-0 bg-surface/90 backdrop-blur-md border-t border-surface-variant z-50 px-margin-mobile pb-safe">
+    <div class="max-w-screen-xl mx-auto h-16 flex justify-between items-center">
+        <a href="#" class="flex flex-col items-center gap-1 flex-1 text-warm-orange">
+            <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">home</span>
+            <span class="font-label-sm text-label-sm">首页</span>
+        </a>
+        <a href="#" class="flex flex-col items-center gap-1 flex-1 text-on-surface-variant hover:text-warm-orange transition-colors">
+            <span class="material-symbols-outlined">explore</span>
+            <span class="font-label-sm text-label-sm">发现</span>
+        </a>
+        <a href="#" class="flex flex-col items-center gap-1 flex-1 text-on-surface-variant hover:text-warm-orange transition-colors">
+            <span class="material-symbols-outlined">chat_bubble</span>
+            <span class="font-label-sm text-label-sm">消息</span>
+        </a>
+        <a href="#" class="flex flex-col items-center gap-1 flex-1 text-on-surface-variant hover:text-warm-orange transition-colors">
+            <span class="material-symbols-outlined">person</span>
+            <span class="font-label-sm text-label-sm">我的</span>
+        </a>
+    </div>
+</nav></body></html>

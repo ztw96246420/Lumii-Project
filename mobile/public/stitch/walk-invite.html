@@ -1,0 +1,275 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>发起约遛 - Lumii</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<!-- Google Fonts: Plus Jakarta Sans -->
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Config -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-error-container": "#93000a",
+                        "on-primary": "#ffffff",
+                        "surface-tint": "#9f4119",
+                        "surface-container-high": "#eae8e3",
+                        "secondary-fixed": "#8ef4e9",
+                        "on-surface-variant": "#56423b",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "on-secondary": "#ffffff",
+                        "surface-container-highest": "#e4e2dd",
+                        "on-tertiary": "#ffffff",
+                        "surface-container-low": "#f5f3ee",
+                        "inverse-surface": "#30312e",
+                        "on-error": "#ffffff",
+                        "sunny-yellow": "#FFD966",
+                        "on-secondary-container": "#006f67",
+                        "health-red": "#EF5350",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "surface-container": "#f0eee9",
+                        "surface-bright": "#fbf9f4",
+                        "surface-container-lowest": "#ffffff",
+                        "bone-white": "#F9F7F2",
+                        "surface": "#fbf9f4",
+                        "tertiary-fixed": "#ffe088",
+                        "on-secondary-fixed": "#00201d",
+                        "on-primary-fixed": "#380d00",
+                        "background": "#fbf9f4",
+                        "on-tertiary-fixed": "#241a00",
+                        "inverse-on-surface": "#f2f1ec",
+                        "surface-variant": "#e4e2dd",
+                        "tertiary": "#735c00",
+                        "inverse-primary": "#ffb59a",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "secondary": "#006a63",
+                        "surface-dim": "#dbdad5",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "on-primary-container": "#732500",
+                        "warm-orange": "#FF8A5C",
+                        "outline": "#8a726a",
+                        "on-background": "#1b1c19",
+                        "tertiary-container": "#c9a739",
+                        "on-tertiary-container": "#4e3d00",
+                        "error-container": "#ffdad6",
+                        "primary-fixed-dim": "#ffb59a",
+                        "outline-variant": "#ddc0b7",
+                        "error": "#ba1a1a",
+                        "primary-fixed": "#ffdbce",
+                        "soft-teal": "#4DB6AC",
+                        "on-surface": "#1b1c19",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "primary-container": "#ff8a5c",
+                        "bark-gray": "#4A4542",
+                        "primary": "#9f4119",
+                        "secondary-container": "#8bf1e6"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-mobile": "20px",
+                        "container-padding": "24px",
+                        "margin-desktop": "40px",
+                        "base": "8px",
+                        "gutter": "16px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* Hide scrollbar for clean UI but keep functionality */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md antialiased min-h-screen relative pb-32">
+<!-- Transactional Header -->
+<header class="sticky top-0 z-50 flex items-center justify-between px-margin-mobile h-16 backdrop-blur-xl bg-background/80">
+<button aria-label="返回" class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container transition-colors -ml-2">
+<span class="material-symbols-outlined text-on-surface">close</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">发起约遛</h1>
+<div class="w-10 h-10"></div> <!-- Spacer for perfect centering -->
+</header>
+<!-- Main Content Canvas -->
+<main class="max-w-3xl mx-auto">
+<!-- Section: Associate Pet -->
+<section class="px-margin-mobile mt-6">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-4">带谁去？</h2>
+<div class="flex gap-4 overflow-x-auto pb-4 pt-2 snap-x no-scrollbar -mx-margin-mobile px-margin-mobile">
+<!-- Pet Card 1 (Selected) -->
+<div class="flex-shrink-0 flex flex-col items-center gap-2 snap-center cursor-pointer group">
+<div class="w-20 h-20 rounded-full border-[3px] border-warm-orange p-[2px] relative shadow-[0px_4px_20px_rgba(74,69,66,0.05)] transition-transform group-active:scale-95">
+<img class="w-full h-full rounded-full object-cover" data-alt="A close up, vibrant portrait of a fluffy golden retriever puppy smiling happily. Soft, warm natural lighting emphasizing the bright, modern light-mode aesthetic. The colors are rich with warm oranges and deep blacks, set against a blurred light background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDIwfuZ8MK_KmJtBXBnYV5rvcBhPzAlQ7S08m0DCKM7MxCJrqjnTJzcf1r78-LVGRVILmsOzf1nbsiVZO4Ce4J_SiHLsoqgHxRfJQLi2fmSBTwmARrDF4p0ARQPLogWocbDEuWfcSE9MlP-kGl6PF3HaNNYGiaImRS8ZT4UT8b11tNLcUihYcQp5Y4Is6PH39JQ-ypdhZgE9j59pcXAwOzY75FgvHbb9H3Z0K-S3hTToRvJnDq_FSR7Z8VGRNjIYX2TTI8XTOhfgcm0">
+<div class="absolute bottom-0 right-0 bg-warm-orange text-white rounded-full w-6 h-6 flex items-center justify-center border-2 border-background shadow-sm">
+<span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+</div>
+<span class="font-label-md text-label-md text-on-surface">Mochi</span>
+</div>
+<!-- Pet Card 2 (Unselected) -->
+<div class="flex-shrink-0 flex flex-col items-center gap-2 snap-center cursor-pointer group opacity-70 hover:opacity-100 transition-opacity">
+<div class="w-20 h-20 rounded-full border-2 border-transparent p-[2px] relative shadow-[0px_4px_20px_rgba(74,69,66,0.05)] transition-transform group-active:scale-95 bg-surface-container-high">
+<span class="material-symbols-outlined text-3xl text-outline absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">add</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant">添加新宠</span>
+</div>
+</div>
+</section>
+<!-- Section: Time Selection -->
+<section class="px-margin-mobile mt-8">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-4">什么时候？</h2>
+<div class="bg-surface rounded-xl p-2 shadow-[0px_4px_20px_rgba(74,69,66,0.05)] border border-surface-variant/50">
+<!-- Date Row -->
+<button class="w-full flex items-center justify-between p-3 rounded-lg hover:bg-surface-container-low transition-colors active:scale-[0.99]">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-secondary-fixed/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary">calendar_month</span>
+</div>
+<div class="text-left">
+<p class="font-label-sm text-label-sm text-on-surface-variant mb-0.5">日期</p>
+<p class="font-body-lg text-body-lg text-on-surface">今天 (10月24日)</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline">chevron_right</span>
+</button>
+<div class="h-[1px] bg-surface-variant mx-3"></div>
+<!-- Time Row -->
+<button class="w-full flex items-center justify-between p-3 rounded-lg hover:bg-surface-container-low transition-colors active:scale-[0.99]">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-secondary-fixed/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary">schedule</span>
+</div>
+<div class="text-left">
+<p class="font-label-sm text-label-sm text-on-surface-variant mb-0.5">时间</p>
+<p class="font-body-lg text-body-lg text-on-surface">17:30 - 18:30</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline">chevron_right</span>
+</button>
+</div>
+<!-- Quick Time Chips -->
+<div class="flex gap-2 mt-4 overflow-x-auto pb-2 no-scrollbar -mx-margin-mobile px-margin-mobile">
+<button class="px-5 py-2 rounded-full bg-warm-orange text-on-primary font-label-md text-label-md whitespace-nowrap shadow-sm">今晚</button>
+<button class="px-5 py-2 rounded-full bg-surface-container-high text-on-surface-variant font-label-md text-label-md whitespace-nowrap hover:bg-surface-variant transition-colors">明早</button>
+<button class="px-5 py-2 rounded-full bg-surface-container-high text-on-surface-variant font-label-md text-label-md whitespace-nowrap hover:bg-surface-variant transition-colors">周末</button>
+</div>
+</section>
+<!-- Section: Location Selection -->
+<section class="px-margin-mobile mt-8">
+<div class="flex items-center justify-between mb-4">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">去哪里？</h2>
+<button class="font-label-md text-label-md text-secondary flex items-center gap-1 hover:opacity-80 transition-opacity">
+                    地图选点 <span class="material-symbols-outlined text-[18px]">map</span>
+</button>
+</div>
+<!-- Horizontal scroll of location bento cards -->
+<div class="flex gap-4 overflow-x-auto pb-6 snap-x no-scrollbar -mx-margin-mobile px-margin-mobile">
+<!-- Location Card 1 (Selected) -->
+<div class="flex-shrink-0 w-[260px] bg-surface rounded-[16px] overflow-hidden shadow-[0px_4px_20px_rgba(74,69,66,0.05)] snap-center relative border-2 border-warm-orange cursor-pointer group">
+<div class="absolute top-3 left-3 bg-warm-orange text-white text-[10px] font-bold px-2 py-1 rounded-full z-10 flex items-center gap-1 shadow-md">
+<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">check_circle</span> 已选
+                    </div>
+<div class="h-32 bg-surface-container-high relative overflow-hidden">
+<img class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" data-alt="A wide angle shot of a vibrant, sunny public park with lush green grass and large shady trees. A winding paved path goes through the center. The aesthetic is modern, bright, and cheerful, with natural lighting emphasizing the deep greens and warm sunlight, fitting a clean light-mode app design." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBEI9Xkn682caEt7uaDahNW8mo-_8Qy0-a3KobFbLdbuDZVrEbl1EUUz_7hvb1aYtdf_uDwiJk7LPv8PXQTZbRvW0SJ_LNvzGbLbjOaE5q_czK-55CSMN_VrETMxsqR1Uhk5mi-AfX4oP_9-Rh3ZFVP9f-zB-1NxKBqkFSvJa1XMbLYkDEmjxkH4JJ9XLTXm2hk99MeIWfouX9mNjXuxfDuPAEd_em7wfUGZ0x6AaHMmEJqg0fPMljChCOBrRKXMUGgh6WuZRJusNA4">
+<div class="absolute bottom-2 right-2 bg-background/90 backdrop-blur-md px-2 py-1 rounded-full flex items-center gap-1 shadow-sm">
+<span class="material-symbols-outlined text-sunny-yellow text-[14px]" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="font-label-sm text-label-sm text-on-surface">4.9</span>
+</div>
+</div>
+<div class="p-4 bg-primary-fixed/10">
+<h3 class="font-body-lg text-body-lg text-on-surface mb-1 truncate">朝阳公园宠物乐园</h3>
+<p class="font-label-sm text-label-sm text-outline flex items-center gap-1 mb-3">
+<span class="material-symbols-outlined text-[14px]">location_on</span> 距离 1.2km
+                        </p>
+<div class="flex gap-2 flex-wrap">
+<span class="bg-surface text-on-surface-variant border border-surface-variant px-2.5 py-1 rounded-md font-label-sm text-label-sm">大草坪</span>
+<span class="bg-surface text-on-surface-variant border border-surface-variant px-2.5 py-1 rounded-md font-label-sm text-label-sm">全封闭围栏</span>
+</div>
+</div>
+</div>
+<!-- Location Card 2 -->
+<div class="flex-shrink-0 w-[260px] bg-surface rounded-[16px] overflow-hidden shadow-[0px_4px_20px_rgba(74,69,66,0.05)] snap-center relative border-2 border-transparent hover:border-surface-variant cursor-pointer transition-colors group">
+<div class="h-32 bg-surface-container-high relative overflow-hidden">
+<img class="w-full h-full object-cover grayscale-[20%] transition-transform duration-500 group-hover:scale-105 group-hover:grayscale-0" data-alt="A cozy, pet-friendly outdoor cafe patio with wooden tables and string lights. A small dog is sitting calmly under a table. The scene uses soft, diffused daylight to create a relaxed, warm atmosphere, aligning with a tactile minimalist UI style. Colors are muted earthy tones." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCbatyppJ-6ILwm7w9Mh6qBkzET5jxCGtJdKVh_PylYCT1vLmeYL9rbMA5GOdfXku9q6UqF-t7jXuUitNt3JSa7o6cvrVslhr4nZ1JpPuS7cz_vx8Y_Vh07qr3tLP33OH9mK_F0t-56MNJktTVlNBv3gZE4YEkJgUPFlMS_SZCCFDJrHfLaWZve0057fwmZWefIUH2MBvD3nkDPSPul-hTjBg_v0WiPH9NWjvLn5lkcg9muB8OaN-6e-Bv4zJs4EvlDSE8XNWza17t-">
+<div class="absolute bottom-2 right-2 bg-background/90 backdrop-blur-md px-2 py-1 rounded-full flex items-center gap-1 shadow-sm">
+<span class="material-symbols-outlined text-sunny-yellow text-[14px]" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="font-label-sm text-label-sm text-on-surface">4.5</span>
+</div>
+</div>
+<div class="p-4">
+<h3 class="font-body-lg text-body-lg text-on-surface mb-1 truncate">Mee Cafe 庭院</h3>
+<p class="font-label-sm text-label-sm text-outline flex items-center gap-1 mb-3">
+<span class="material-symbols-outlined text-[14px]">location_on</span> 距离 2.8km
+                        </p>
+<div class="flex gap-2 flex-wrap">
+<span class="bg-surface-container text-on-surface-variant px-2.5 py-1 rounded-md font-label-sm text-label-sm">宠物饮水</span>
+<span class="bg-surface-container text-on-surface-variant px-2.5 py-1 rounded-md font-label-sm text-label-sm">可室内</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Section: Warm Prompt (Digital Companion Voice) -->
+<section class="px-margin-mobile mt-4 mb-8">
+<div class="bg-secondary-fixed/10 rounded-[16px] p-5 flex gap-4 items-start shadow-[0px_4px_20px_rgba(74,69,66,0.02)] border border-secondary/10 relative overflow-hidden">
+<!-- Decorative blob -->
+<div class="absolute -right-6 -top-6 w-24 h-24 bg-secondary-fixed opacity-20 rounded-full blur-xl"></div>
+<div class="w-10 h-10 rounded-full bg-secondary-fixed text-on-secondary-fixed flex items-center justify-center flex-shrink-0 shadow-sm z-10">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">pets</span>
+</div>
+<div class="z-10">
+<h4 class="font-label-md text-label-md text-secondary mb-1">Lumii 提示</h4>
+<p class="font-body-md text-body-md text-on-surface-variant leading-relaxed">
+                        发起约遛后，附近的宠物主就能看到你的邀请啦。初次见面，建议带上Mochi最爱的零食，更容易交到新朋友哦！
+                    </p>
+</div>
+</div>
+</section>
+</main>
+<!-- Bottom Sticky Action Area (Level 2 Elevation) -->
+<div class="fixed bottom-0 left-0 w-full p-margin-mobile bg-background/90 backdrop-blur-xl border-t border-surface-variant/30 z-50 shadow-[0px_-10px_30px_rgba(74,69,66,0.02)]">
+<div class="max-w-3xl mx-auto">
+<button class="w-full bg-warm-orange text-white rounded-full py-4 font-headline-lg-mobile text-headline-lg-mobile shadow-[0px_8px_24px_rgba(255,138,92,0.25)] hover:bg-primary-container hover:text-on-primary-container active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">send</span>
+                发起约遛
+            </button>
+</div>
+</div>
+</body></html>

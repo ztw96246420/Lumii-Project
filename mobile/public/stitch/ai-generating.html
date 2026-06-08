@@ -1,0 +1,204 @@
+<!DOCTYPE html><html class="light" lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>宠物形象生成中 - Lumii</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-error-container": "#93000a",
+                      "on-primary": "#ffffff",
+                      "surface-tint": "#9f4119",
+                      "surface-container-high": "#eae8e3",
+                      "secondary-fixed": "#8ef4e9",
+                      "on-surface-variant": "#56423b",
+                      "on-primary-fixed-variant": "#7f2b02",
+                      "on-secondary": "#ffffff",
+                      "surface-container-highest": "#e4e2dd",
+                      "on-tertiary": "#ffffff",
+                      "surface-container-low": "#f5f3ee",
+                      "inverse-surface": "#30312e",
+                      "on-error": "#ffffff",
+                      "sunny-yellow": "#FFD966",
+                      "on-secondary-container": "#006f67",
+                      "health-red": "#EF5350",
+                      "tertiary-fixed-dim": "#e7c353",
+                      "surface-container": "#f0eee9",
+                      "surface-bright": "#fbf9f4",
+                      "surface-container-lowest": "#ffffff",
+                      "bone-white": "#F9F7F2",
+                      "surface": "#fbf9f4",
+                      "tertiary-fixed": "#ffe088",
+                      "on-secondary-fixed": "#00201d",
+                      "on-primary-fixed": "#380d00",
+                      "background": "#fbf9f4",
+                      "on-tertiary-fixed": "#241a00",
+                      "inverse-on-surface": "#f2f1ec",
+                      "surface-variant": "#e4e2dd",
+                      "tertiary": "#735c00",
+                      "inverse-primary": "#ffb59a",
+                      "on-secondary-fixed-variant": "#00504a",
+                      "secondary": "#006a63",
+                      "surface-dim": "#dbdad5",
+                      "secondary-fixed-dim": "#71d7cd",
+                      "on-primary-container": "#732500",
+                      "warm-orange": "#FF8A5C",
+                      "outline": "#8a726a",
+                      "on-background": "#1b1c19",
+                      "tertiary-container": "#c9a739",
+                      "on-tertiary-container": "#4e3d00",
+                      "error-container": "#ffdad6",
+                      "primary-fixed-dim": "#ffb59a",
+                      "outline-variant": "#ddc0b7",
+                      "error": "#ba1a1a",
+                      "primary-fixed": "#ffdbce",
+                      "soft-teal": "#4DB6AC",
+                      "on-surface": "#1b1c19",
+                      "on-tertiary-fixed-variant": "#574500",
+                      "primary-container": "#ff8a5c",
+                      "bark-gray": "#4A4542",
+                      "primary": "#9f4119",
+                      "secondary-container": "#8bf1e6"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "margin-mobile": "20px",
+                      "container-padding": "24px",
+                      "margin-desktop": "40px",
+                      "base": "8px",
+                      "gutter": "16px"
+              },
+              "fontFamily": {
+                      "label-md": ["Plus Jakarta Sans", "sans-serif"],
+                      "headline-xl": ["Plus Jakarta Sans", "sans-serif"],
+                      "body-lg": ["Plus Jakarta Sans", "sans-serif"],
+                      "headline-lg": ["Plus Jakarta Sans", "sans-serif"],
+                      "body-md": ["Plus Jakarta Sans", "sans-serif"],
+                      "headline-lg-mobile": ["Plus Jakarta Sans", "sans-serif"],
+                      "label-sm": ["Plus Jakarta Sans", "sans-serif"]
+              },
+              "fontSize": {
+                      "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                      "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                      "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                      "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                      "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                      "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }],
+                      "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }]
+              },
+              "boxShadow": {
+                'level-1': '0px 4px 20px rgba(74, 69, 66, 0.05)',
+                'level-2': '0px 8px 24px rgba(255, 138, 92, 0.15)',
+              }
+            }
+          }
+        }
+    </script>
+<style>
+        /* Custom Keyframes for smoother, organic animations */
+        @keyframes morph {
+            0% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
+            50% { border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%; }
+            100% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
+        }
+        .animate-morph {
+            animation: morph 8s ease-in-out infinite;
+        }
+        @keyframes progress {
+            0% { width: 5%; }
+            50% { width: 70%; }
+            100% { width: 95%; }
+        }
+        .animate-progress {
+            animation: progress 4s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+        }
+        
+        .pulse-delay-1 { animation-delay: 0.2s; }
+        .pulse-delay-2 { animation-delay: 0.4s; }
+        .pulse-delay-3 { animation-delay: 0.6s; }
+    </style>
+</head>
+<body class="bg-background min-h-screen font-body-md text-on-surface overflow-hidden relative flex flex-col items-center justify-center">
+<!-- Atmospheric Background Elements -->
+<div class="absolute top-[-10%] left-[-10%] w-64 h-64 bg-warm-orange/10 rounded-full blur-3xl animate-pulse"></div>
+<div class="absolute bottom-[-10%] right-[-10%] w-80 h-80 bg-soft-teal/10 rounded-full blur-3xl animate-pulse" style="animation-delay: 2s;"></div>
+<main class="w-full max-w-md px-margin-mobile flex flex-col items-center z-10">
+<!-- Hero Animation Area -->
+<div class="relative w-48 h-48 mb-8 flex items-center justify-center">
+<!-- Organic pulsing background shape -->
+<div class="absolute inset-0 bg-gradient-to-tr from-primary-container to-secondary-container opacity-40 animate-morph blur-md"></div>
+<div class="absolute inset-2 bg-surface shadow-level-2 animate-morph flex items-center justify-center">
+<!-- Inner processing icon -->
+<span class="material-symbols-outlined text-warm-orange text-[64px] animate-bounce" style="font-variation-settings: 'FILL' 1;">
+                    pets
+                </span>
+</div>
+<!-- Sparkles -->
+<span class="material-symbols-outlined absolute top-4 right-4 text-sunny-yellow text-2xl animate-ping">
+                auto_awesome
+            </span>
+<span class="material-symbols-outlined absolute bottom-8 left-2 text-soft-teal text-xl animate-ping pulse-delay-2">
+                auto_awesome
+            </span>
+</div>
+<!-- Typography & Status -->
+<div class="text-center mb-10 w-full">
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-2 tracking-tight">
+                AI 正在捕捉 Mochi 的灵气...
+            </h1>
+<p class="font-body-md text-body-md text-bark-gray">
+                正在渲染独一无二的专属形象，请稍候
+            </p>
+<!-- Organic Progress Bar -->
+<div class="w-full h-3 bg-surface-container rounded-full mt-6 overflow-hidden relative shadow-inner">
+<div class="absolute top-0 left-0 h-full bg-warm-orange rounded-full animate-progress shadow-[0_0_10px_rgba(255,138,92,0.8)]"></div>
+</div>
+</div>
+<!-- Bento Grid: Style Previews -->
+<div class="w-full">
+<div class="flex items-center justify-between mb-4 px-2">
+<span class="font-label-md text-label-md text-bark-gray">尝试不同风格中</span>
+<span class="material-symbols-outlined text-bark-gray text-sm animate-spin">
+                    sync
+                </span>
+</div>
+<div class="grid grid-cols-3 gap-3">
+<!-- Preview Card 1 -->
+<div class="bg-surface rounded-xl p-2 shadow-level-1 border border-outline-variant/30 flex flex-col items-center gap-2 animate-pulse pulse-delay-1">
+<div class="w-full aspect-square rounded-lg bg-surface-container overflow-hidden relative">
+<img alt="Hand-drawn dog sketch" class="w-full h-full object-cover opacity-60 mix-blend-multiply" data-alt="A rough pencil sketch style illustration of a cute, fluffy dog sitting patiently. The drawing features imperfect, organic lines typical of hand-drawn art, colored with pale, low-saturation pastels. The background is a stark bone-white to match the modern tactile minimalism aesthetic. Warm orange and soft teal accents are lightly washed over the dog's collar." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBjb7UrSUm9ilo3za3Q1FfgKyz5G8B_2Ow4rJtEKdbW7to0cIS1ZxzMTCJqAqzDLUmtHuMQdhm4bTWuav8QY1UlKNHJtSMDkTmqvJ5jwqBpur0JIRKxnJHQJ_x4N_65EjdsKWsNVo_r4n8KdQnq5hk1LnYS9Pp3hSXcLgH3lUj4bZjtAG1rAaqTNKL-WvLnsVLkz-Rk3qz4von0vGIkkvO62uGfmNRz5rYB6KjkmvROkSGn86hCRv1LAcssfS0_EvBHvQYWxfnyd6EL">
+<div class="absolute inset-0 bg-white/20 backdrop-blur-[2px]"></div>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant">手绘风</span>
+</div>
+<!-- Preview Card 2 -->
+<div class="bg-surface rounded-xl p-2 shadow-level-1 border border-outline-variant/30 flex flex-col items-center gap-2 animate-pulse pulse-delay-2">
+<div class="w-full aspect-square rounded-lg bg-surface-container overflow-hidden relative">
+<img alt="Chibi dog illustration" class="w-full h-full object-cover opacity-60 mix-blend-multiply" data-alt="A highly stylized chibi version of a fluffy dog with exaggerated proportions, large expressive eyes, and a tiny body. The aesthetic is smooth and digital, resembling a polished modern app icon with soft ambient lighting. The color palette incorporates vibrant warm oranges and soft teals against a clean, off-white background to fit a gentle, pet-centric UI." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDYhSMc05K7iMySdtc7tsv-JafOLdIpnABwVvtrHWJnePgPPK2C6L-2Hryehq6i9AKCJ6YHaAy_NT7quLscvjX8pagUcJMjSWnxg0xAi7SGy1eBcf3u1K0B0uVGIco2yF34Szdt4FWohG3eM5-H5x4UYYbA3VRckTyPsodMfKnMgOpiSQTz-9gTyOA6MmEp1yJNpGnogz0FNufeAUZZpK8ezmcES5I-sWRRhPwnlCVFR4OnkWwv46_KtNNa6d6dR6DjL0EmSF2wWbpQ">
+<div class="absolute inset-0 bg-white/20 backdrop-blur-[2px]"></div>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Q版卡通</span>
+</div>
+<!-- Preview Card 3 -->
+<div class="bg-surface rounded-xl p-2 shadow-level-1 border border-outline-variant/30 flex flex-col items-center gap-2 animate-pulse pulse-delay-3">
+<div class="w-full aspect-square rounded-lg bg-surface-container overflow-hidden relative">
+<img alt="Realistic cartoon dog" class="w-full h-full object-cover opacity-60 mix-blend-multiply" data-alt="A 3D-rendered, realistic cartoon style depiction of a small fluffy dog. The fur texture is soft and tactile, rendered with gentle lighting that creates subtle, diffused shadows. The overall mood is warm and trustworthy, fitting perfectly into a digital companion space with a bone-white backdrop and subtle soft teal environmental reflections." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC3yvhkd0DJ6UEk1F7sDDlKzLS3q39qw9m9dZyLJTTNKD1-TXpeFzKTU_JxmWs14w7D3j7VCm4-O9oRcbp7SSF_u_H4f8ykNDCjqPRFLRL6QcABx_kv5r2gPkl6qZIk7wUn9PS3v_V7G_tMptj_TpmPEgtv9dPQ-CzzU_UXicdkd2b9NbzhU7lfLkkC858iM6kG2Fw7IN6-IEWLRt6c46plb4VqmM2TS9pHXBJRfMx_uquxTiUzAjZd56LoU8xOSDhMq4SLe-SVrivN">
+<div class="absolute inset-0 bg-white/20 backdrop-blur-[2px]"></div>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant">写实立体</span>
+</div>
+</div>
+</div>
+</main>
+</body></html>

@@ -1,0 +1,241 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>记录体重 - Lumii</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        /* Hide scrollbar for clean look */
+        ::-webkit-scrollbar {
+            display: none;
+        }
+        body {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "outline": "#8a726a",
+                        "on-primary-container": "#732500",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "surface-bright": "#fbf9f4",
+                        "on-secondary-container": "#006f67",
+                        "on-surface": "#1b1c19",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "surface-container-highest": "#e4e2dd",
+                        "inverse-surface": "#30312e",
+                        "surface": "#fbf9f4",
+                        "primary-fixed-dim": "#ffb59a",
+                        "secondary-container": "#8bf1e6",
+                        "primary": "#9f4119",
+                        "on-tertiary-fixed": "#241a00",
+                        "secondary": "#006a63",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "on-error-container": "#93000a",
+                        "inverse-on-surface": "#f2f1ec",
+                        "on-primary": "#ffffff",
+                        "surface-container-low": "#f5f3ee",
+                        "on-surface-variant": "#56423b",
+                        "primary-container": "#ff8a5c",
+                        "surface-tint": "#9f4119",
+                        "outline-variant": "#ddc0b7",
+                        "bone-white": "#F9F7F2",
+                        "sunny-yellow": "#FFD966",
+                        "bark-gray": "#4A4542",
+                        "primary-fixed": "#ffdbce",
+                        "error-container": "#ffdad6",
+                        "tertiary-container": "#c9a739",
+                        "on-error": "#ffffff",
+                        "health-red": "#EF5350",
+                        "inverse-primary": "#ffb59a",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "on-tertiary": "#ffffff",
+                        "on-background": "#1b1c19",
+                        "secondary-fixed": "#8ef4e9",
+                        "background": "#fbf9f4",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary": "#735c00",
+                        "tertiary-fixed": "#ffe088",
+                        "surface-dim": "#dbdad5",
+                        "soft-teal": "#4DB6AC",
+                        "on-tertiary-container": "#4e3d00",
+                        "surface-container-high": "#eae8e3",
+                        "surface-container": "#f0eee9",
+                        "surface-variant": "#e4e2dd",
+                        "on-secondary-fixed": "#00201d",
+                        "on-secondary": "#ffffff",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "warm-orange": "#FF8A5C",
+                        "on-primary-fixed": "#380d00",
+                        "error": "#ba1a1a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-mobile": "20px",
+                        "gutter": "16px",
+                        "container-padding": "24px",
+                        "base": "8px",
+                        "margin-desktop": "40px"
+                    },
+                    "fontFamily": {
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "label-md": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface font-body-md min-h-screen flex flex-col antialiased selection:bg-warm-orange selection:text-white">
+<!-- Top App Bar (Task-Focused: Needs Back Button, No Nav Shell) -->
+<header class="flex justify-between items-center px-margin-mobile h-16 w-full max-w-7xl mx-auto docked full-width top-0 sticky z-50 backdrop-blur-xl bg-background/80 dark:bg-background/80 flat no shadows text-primary dark:text-primary-fixed">
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container dark:hover:bg-surface-variant transition-colors scale-95 active:scale-90 duration-200 text-on-surface">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile dark:text-on-surface">记录体重</h1>
+<div class="w-10 h-10"></div> <!-- Placeholder for balance -->
+</header>
+<main class="flex-1 w-full max-w-md mx-auto px-margin-mobile pb-[100px] flex flex-col gap-gutter mt-4">
+<!-- Weight Display & Input -->
+<section class="bg-surface-container-lowest rounded-xl p-6 flex flex-col items-center justify-center relative overflow-hidden shadow-[0px_4px_20px_rgba(74,69,66,0.05)] border border-surface-variant">
+<!-- Decorative soft blob -->
+<div class="absolute -top-10 -right-10 w-32 h-32 bg-primary-container opacity-20 rounded-full blur-2xl"></div>
+<h2 class="font-label-sm text-label-sm text-bark-gray uppercase tracking-wider mb-2">当前体重</h2>
+<div class="flex items-baseline gap-1 relative z-10">
+<span class="font-headline-xl text-headline-xl text-on-surface text-5xl" id="weightDisplay">4.5</span>
+<span class="font-body-lg text-body-lg text-bark-gray ml-1">kg</span>
+</div>
+<!-- Last Record Reference -->
+<div class="mt-4 flex items-center gap-2 bg-surface-container py-1.5 px-3 rounded-full">
+<span class="material-symbols-outlined text-[16px] text-soft-teal" data-icon="history">history</span>
+<span class="font-label-sm text-label-sm text-bark-gray">上次记录: 4.2 kg (10月12日)</span>
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="trending_up">trending_up</span>
+</div>
+</section>
+<!-- Notes Area -->
+<section class="bg-surface-container-lowest rounded-xl p-4 shadow-[0px_4px_20px_rgba(74,69,66,0.05)] border border-surface-variant">
+<label class="font-label-md text-label-md text-on-surface flex items-center gap-2 mb-2" for="notes">
+<span class="material-symbols-outlined text-[18px] text-bark-gray" data-icon="edit_note">edit_note</span>
+                备注信息
+            </label>
+<textarea class="w-full bg-surface-container-low border-none rounded-lg p-3 font-body-md text-body-md text-on-surface focus:ring-2 focus:ring-soft-teal resize-none placeholder:text-bark-gray/50" id="notes" placeholder="例如：换了新粮，最近运动量减少..." rows="2"></textarea>
+</section>
+<!-- Custom Numpad -->
+<section class="mt-auto grid grid-cols-3 gap-3">
+<!-- Row 1 -->
+<button class="numpad-btn h-14 bg-surface-container-lowest rounded-xl font-headline-lg-mobile text-headline-lg-mobile text-on-surface shadow-[0px_4px_20px_rgba(74,69,66,0.05)] active:scale-95 transition-transform">1</button>
+<button class="numpad-btn h-14 bg-surface-container-lowest rounded-xl font-headline-lg-mobile text-headline-lg-mobile text-on-surface shadow-[0px_4px_20px_rgba(74,69,66,0.05)] active:scale-95 transition-transform">2</button>
+<button class="numpad-btn h-14 bg-surface-container-lowest rounded-xl font-headline-lg-mobile text-headline-lg-mobile text-on-surface shadow-[0px_4px_20px_rgba(74,69,66,0.05)] active:scale-95 transition-transform">3</button>
+<!-- Row 2 -->
+<button class="numpad-btn h-14 bg-surface-container-lowest rounded-xl font-headline-lg-mobile text-headline-lg-mobile text-on-surface shadow-[0px_4px_20px_rgba(74,69,66,0.05)] active:scale-95 transition-transform">4</button>
+<button class="numpad-btn h-14 bg-surface-container-lowest rounded-xl font-headline-lg-mobile text-headline-lg-mobile text-on-surface shadow-[0px_4px_20px_rgba(74,69,66,0.05)] active:scale-95 transition-transform">5</button>
+<button class="numpad-btn h-14 bg-surface-container-lowest rounded-xl font-headline-lg-mobile text-headline-lg-mobile text-on-surface shadow-[0px_4px_20px_rgba(74,69,66,0.05)] active:scale-95 transition-transform">6</button>
+<!-- Row 3 -->
+<button class="numpad-btn h-14 bg-surface-container-lowest rounded-xl font-headline-lg-mobile text-headline-lg-mobile text-on-surface shadow-[0px_4px_20px_rgba(74,69,66,0.05)] active:scale-95 transition-transform">7</button>
+<button class="numpad-btn h-14 bg-surface-container-lowest rounded-xl font-headline-lg-mobile text-headline-lg-mobile text-on-surface shadow-[0px_4px_20px_rgba(74,69,66,0.05)] active:scale-95 transition-transform">8</button>
+<button class="numpad-btn h-14 bg-surface-container-lowest rounded-xl font-headline-lg-mobile text-headline-lg-mobile text-on-surface shadow-[0px_4px_20px_rgba(74,69,66,0.05)] active:scale-95 transition-transform">9</button>
+<!-- Row 4 -->
+<button class="numpad-btn h-14 bg-surface-container-lowest rounded-xl font-headline-lg-mobile text-headline-lg-mobile text-on-surface shadow-[0px_4px_20px_rgba(74,69,66,0.05)] active:scale-95 transition-transform">.</button>
+<button class="numpad-btn h-14 bg-surface-container-lowest rounded-xl font-headline-lg-mobile text-headline-lg-mobile text-on-surface shadow-[0px_4px_20px_rgba(74,69,66,0.05)] active:scale-95 transition-transform">0</button>
+<button class="h-14 bg-surface-container-lowest rounded-xl flex items-center justify-center text-bark-gray shadow-[0px_4px_20px_rgba(74,69,66,0.05)] active:scale-95 transition-transform" id="btnDelete">
+<span class="material-symbols-outlined" data-icon="backspace">backspace</span>
+</button>
+</section>
+</main>
+<!-- Fixed Bottom Action -->
+<div class="fixed bottom-0 left-0 w-full bg-background/90 backdrop-blur-md border-t border-surface-variant z-50">
+    <div class="p-4 flex flex-col gap-4">
+        <button class="w-full max-w-md mx-auto block bg-warm-orange text-white py-4 rounded-full font-label-md text-label-md shadow-[0px_8px_24px_rgba(255,138,92,0.15)] active:scale-98 transition-transform flex items-center justify-center gap-2">
+            <span class="material-symbols-outlined" data-icon="save">save</span>
+            保存记录
+        </button>
+    </div>
+    <nav class="flex justify-around items-center h-16 bg-surface-container-lowest border-t border-surface-variant">
+        <a href="#" class="flex flex-col items-center gap-1 text-warm-orange">
+            <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;">home</span>
+            <span class="text-label-sm font-label-sm">首页</span>
+        </a>
+        <a href="#" class="flex flex-col items-center gap-1 text-bark-gray hover:text-warm-orange transition-colors">
+            <span class="material-symbols-outlined">explore</span>
+            <span class="text-label-sm font-label-sm">发现</span>
+        </a>
+        <a href="#" class="flex flex-col items-center gap-1 text-bark-gray hover:text-warm-orange transition-colors">
+            <span class="material-symbols-outlined">chat_bubble</span>
+            <span class="text-label-sm font-label-sm">消息</span>
+        </a>
+        <a href="#" class="flex flex-col items-center gap-1 text-bark-gray hover:text-warm-orange transition-colors">
+            <span class="material-symbols-outlined">person</span>
+            <span class="text-label-sm font-label-sm">我的</span>
+        </a>
+    </nav>
+</div>
+<script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const display = document.getElementById('weightDisplay');
+            const numpadBtns = document.querySelectorAll('.numpad-btn');
+            const btnDelete = document.getElementById('btnDelete');
+            let currentVal = '4.5';
+
+            const updateDisplay = () => {
+                display.innerText = currentVal || '0';
+            };
+
+            numpadBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const val = btn.innerText;
+                    
+                    if (val === '.' && currentVal.includes('.')) return;
+                    
+                    if (currentVal === '0' && val !== '.') {
+                        currentVal = val;
+                    } else if (currentVal.length < 5) { // max length
+                        currentVal += val;
+                    }
+                    updateDisplay();
+                });
+            });
+
+            btnDelete.addEventListener('click', () => {
+                currentVal = currentVal.slice(0, -1);
+                if (currentVal === '') currentVal = '0';
+                updateDisplay();
+            });
+        });
+    </script>
+
+
+</body></html>

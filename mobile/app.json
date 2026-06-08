@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "Lumii 灵伴",
+    "slug": "lumii-lingban",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "灵伴需要使用相机拍摄宠物照片，用于创建宠物档案和生成电子宠物形象。",
+        "NSLocationWhenInUseUsageDescription": "灵伴需要使用定位来发现附近宠物主人、宠物友好地点和紧急医疗点。",
+        "NSPhotoLibraryAddUsageDescription": "灵伴需要保存宠物图片和生成结果到您的相册。",
+        "NSPhotoLibraryUsageDescription": "灵伴需要访问相册以上传宠物照片并建立专属数字档案。"
+      }
+    },
+    "android": {
+      "package": "com.lumii.lingban",
+      "versionCode": 3,
+      "adaptiveIcon": {
+        "backgroundColor": "#FF8A5C",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "灵伴需要使用定位来发现附近宠物主人、宠物友好地点和紧急医疗点。"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "灵伴需要使用相机拍摄宠物照片，用于创建宠物档案和生成电子宠物形象。",
+          "photosPermission": "灵伴需要访问相册以上传宠物照片并建立专属数字档案。"
+        }
+      ],
+      "expo-notifications"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2ee72091-b060-4b97-b8c5-9df7e555b712"
+      }
+    },
+    "owner": "ztw962464"
+  }
+}

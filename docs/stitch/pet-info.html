@@ -1,0 +1,298 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>宠物建档 - Lumii</title>
+<!-- Google Fonts: Plus Jakarta Sans for Typography -->
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-error-container": "#93000a",
+                        "on-primary": "#ffffff",
+                        "surface-tint": "#9f4119",
+                        "surface-container-high": "#eae8e3",
+                        "secondary-fixed": "#8ef4e9",
+                        "on-surface-variant": "#56423b",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "on-secondary": "#ffffff",
+                        "surface-container-highest": "#e4e2dd",
+                        "on-tertiary": "#ffffff",
+                        "surface-container-low": "#f5f3ee",
+                        "inverse-surface": "#30312e",
+                        "on-error": "#ffffff",
+                        "sunny-yellow": "#FFD966",
+                        "on-secondary-container": "#006f67",
+                        "health-red": "#EF5350",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "surface-container": "#f0eee9",
+                        "surface-bright": "#fbf9f4",
+                        "surface-container-lowest": "#ffffff",
+                        "bone-white": "#F9F7F2",
+                        "surface": "#fbf9f4",
+                        "tertiary-fixed": "#ffe088",
+                        "on-secondary-fixed": "#00201d",
+                        "on-primary-fixed": "#380d00",
+                        "background": "#fbf9f4",
+                        "on-tertiary-fixed": "#241a00",
+                        "inverse-on-surface": "#f2f1ec",
+                        "surface-variant": "#e4e2dd",
+                        "tertiary": "#735c00",
+                        "inverse-primary": "#ffb59a",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "secondary": "#006a63",
+                        "surface-dim": "#dbdad5",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "on-primary-container": "#732500",
+                        "warm-orange": "#FF8A5C",
+                        "outline": "#8a726a",
+                        "on-background": "#1b1c19",
+                        "tertiary-container": "#c9a739",
+                        "on-tertiary-container": "#4e3d00",
+                        "error-container": "#ffdad6",
+                        "primary-fixed-dim": "#ffb59a",
+                        "outline-variant": "#ddc0b7",
+                        "error": "#ba1a1a",
+                        "primary-fixed": "#ffdbce",
+                        "soft-teal": "#4DB6AC",
+                        "on-surface": "#1b1c19",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "primary-container": "#ff8a5c",
+                        "bark-gray": "#4A4542",
+                        "primary": "#9f4119",
+                        "secondary-container": "#8bf1e6"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px",
+                        "2xl": "1.25rem",
+                        "3xl": "1.5rem"
+                    },
+                    spacing: {
+                        "margin-mobile": "20px",
+                        "container-padding": "24px",
+                        "margin-desktop": "40px",
+                        "base": "8px",
+                        "gutter": "16px"
+                    },
+                    fontFamily: {
+                        "label-md": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"]
+                    },
+                    fontSize: {
+                        "label-md": ["14px", { lineHeight: "20px", letterSpacing: "0.01em", fontWeight: "600" }],
+                        "headline-xl": ["32px", { lineHeight: "40px", letterSpacing: "-0.02em", fontWeight: "700" }],
+                        "body-lg": ["18px", { lineHeight: "28px", fontWeight: "500" }],
+                        "headline-lg": ["24px", { lineHeight: "32px", fontWeight: "700" }],
+                        "body-md": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+                        "headline-lg-mobile": ["20px", { lineHeight: "28px", fontWeight: "700" }],
+                        "label-sm": ["12px", { lineHeight: "16px", fontWeight: "500" }]
+                    },
+                    boxShadow: {
+                        'level-1': '0px 4px 20px rgba(74, 69, 66, 0.05)',
+                        'level-2': '0px 8px 24px rgba(255, 138, 92, 0.15)',
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* Custom styles to hide number input spinners */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+        
+        /* Smooth transitions for tactile feel */
+        .tactile-press {
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .tactile-press:active {
+            transform: scale(0.97);
+        }
+    </style>
+</head>
+<body class="bg-bone-white text-on-surface antialiased min-h-screen flex flex-col relative selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- Top App Bar (Customized for Onboarding Flow - No Main Nav) -->
+<header class="sticky top-0 z-50 bg-bone-white/80 backdrop-blur-xl px-margin-mobile md:px-margin-desktop h-16 flex items-center justify-between">
+<button aria-label="Go back" class="tactile-press p-2 -ml-2 rounded-full text-on-surface-variant hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-bark-gray absolute left-1/2 -translate-x-1/2">
+            迎接新伙伴
+        </h1>
+<div class="w-10"></div> <!-- Spacer for centering -->
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 w-full max-w-3xl mx-auto px-margin-mobile md:px-margin-desktop py-6 flex flex-col gap-8 pb-24">
+<!-- Header Text -->
+<div class="space-y-2">
+<p class="font-body-md text-body-md text-on-surface-variant">
+                告诉我们关于TA的故事。我们将用这些信息，打造一个充满灵性的数字玩伴。
+            </p>
+</div>
+<!-- Bento Grid Layout for Forms -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Photo Upload Area (Spans full width) -->
+<div class="md:col-span-2">
+<label class="block mb-2 font-label-md text-label-md text-bark-gray">真实的模样</label>
+<div class="relative group cursor-pointer tactile-press bg-surface border-2 border-dashed border-outline-variant rounded-3xl p-8 flex flex-col items-center justify-center text-center shadow-level-1 hover:border-soft-teal hover:bg-surface-container transition-all duration-300 min-h-[200px] overflow-hidden">
+<!-- Decorative soft glowing background behind icon -->
+<div class="absolute inset-0 bg-gradient-to-br from-primary-fixed/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-3xl pointer-events-none"></div>
+<div class="w-16 h-16 rounded-full bg-surface-container-high flex items-center justify-center mb-4 group-hover:scale-110 group-hover:bg-primary-fixed transition-transform duration-300 z-10">
+<span class="material-symbols-outlined text-3xl text-bark-gray group-hover:text-primary transition-colors" style="font-variation-settings: 'FILL' 0;">add_a_photo</span>
+</div>
+<h3 class="font-label-md text-label-md text-bark-gray mb-1 z-10">上传宝贝的清晰照片</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant z-10 max-w-xs">AI将通过这张照片捕捉TA的独特特征与神态</p>
+<input accept="image/*" class="hidden" type="file">
+</div>
+</div>
+<!-- Basic Info Container -->
+<div class="md:col-span-2 bg-surface rounded-3xl shadow-level-1 p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Name Input -->
+<div class="md:col-span-1">
+<label class="block mb-2 font-label-md text-label-md text-bark-gray" for="pet-name">TA的名字</label>
+<div class="relative">
+<input class="w-full bg-surface-container-low border border-transparent rounded-xl px-4 py-3.5 font-body-md text-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-soft-teal focus:bg-surface transition-all duration-200" id="pet-name" placeholder="例如：奥利奥" type="text">
+</div>
+</div>
+<!-- Breed Input -->
+<div class="md:col-span-1">
+<label class="block mb-2 font-label-md text-label-md text-bark-gray" for="pet-breed">品种</label>
+<div class="relative">
+<input class="w-full bg-surface-container-low border border-transparent rounded-xl px-4 py-3.5 font-body-md text-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-soft-teal focus:bg-surface transition-all duration-200" id="pet-breed" placeholder="例如：金毛寻回犬" type="text">
+<span class="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none" style="font-variation-settings: 'FILL' 0;">pets</span>
+</div>
+</div>
+<!-- Age Input -->
+<div class="md:col-span-1">
+<label class="block mb-2 font-label-md text-label-md text-bark-gray" for="pet-age">年龄 (岁)</label>
+<div class="relative">
+<input class="w-full bg-surface-container-low border border-transparent rounded-xl px-4 py-3.5 font-body-md text-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-soft-teal focus:bg-surface transition-all duration-200" id="pet-age" min="0" placeholder="例如：2.5" step="0.5" type="number">
+</div>
+</div>
+<!-- Gender Selection (Custom Interactive Cards) -->
+<div class="md:col-span-1">
+<label class="block mb-2 font-label-md text-label-md text-bark-gray">性别</label>
+<div class="flex gap-3" id="gender-group">
+<button class="gender-btn flex-1 flex items-center justify-center gap-2 bg-surface-container-low border-2 border-transparent rounded-xl py-3 tactile-press transition-all duration-200 font-label-md text-label-md text-on-surface-variant" data-value="boy" type="button">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">male</span>
+                            男孩
+                        </button>
+<button class="gender-btn flex-1 flex items-center justify-center gap-2 bg-surface-container-low border-2 border-transparent rounded-xl py-3 tactile-press transition-all duration-200 font-label-md text-label-md text-on-surface-variant" data-value="girl" type="button">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">female</span>
+                            女孩
+                        </button>
+</div>
+</div>
+<!-- Neutered Status (Chips) -->
+<div class="md:col-span-2 mt-2">
+<label class="block mb-3 font-label-md text-label-md text-bark-gray">健康状态</label>
+<div class="flex flex-wrap gap-3" id="neuter-group">
+<button class="neuter-btn px-5 py-2.5 rounded-full border border-transparent bg-surface-container-low text-on-surface-variant font-label-md text-label-md tactile-press transition-all duration-200" data-value="yes" type="button">
+                            已绝育
+                        </button>
+<button class="neuter-btn px-5 py-2.5 rounded-full border border-transparent bg-surface-container-low text-on-surface-variant font-label-md text-label-md tactile-press transition-all duration-200" data-value="no" type="button">
+                            未绝育
+                        </button>
+<button class="neuter-btn px-5 py-2.5 rounded-full border border-transparent bg-surface-container-low text-on-surface-variant font-label-md text-label-md tactile-press transition-all duration-200" data-value="unknown" type="button">
+                            不确定
+                        </button>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Fixed Bottom Action Bar (Glassmorphism) -->
+<nav class="fixed bottom-0 left-0 right-0 z-50 bg-bone-white/80 backdrop-blur-xl border-t border-outline-variant/20 px-margin-mobile md:px-margin-desktop">
+    <div class="max-w-3xl mx-auto flex justify-between items-center h-16">
+        <a href="#" class="flex flex-col items-center justify-center gap-1 flex-1 text-primary">
+            <span class="material-symbols-outlined text-2xl" style="font-variation-settings: 'FILL' 1;">home</span>
+            <span class="text-[10px] font-label-md leading-none">首页</span>
+        </a>
+        <a href="#" class="flex flex-col items-center justify-center gap-1 flex-1 text-on-surface-variant hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-2xl" style="font-variation-settings: 'FILL' 0;">explore</span>
+            <span class="text-[10px] font-label-md leading-none">发现</span>
+        </a>
+        <a href="#" class="flex flex-col items-center justify-center gap-1 flex-1 text-on-surface-variant hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-2xl" style="font-variation-settings: 'FILL' 0;">chat_bubble</span>
+            <span class="text-[10px] font-label-md leading-none">消息</span>
+        </a>
+        <a href="#" class="flex flex-col items-center justify-center gap-1 flex-1 text-on-surface-variant hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-2xl" style="font-variation-settings: 'FILL' 0;">person</span>
+            <span class="text-[10px] font-label-md leading-none">我的</span>
+        </a>
+    </div>
+</nav>
+<!-- Interactive Script -->
+<script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Gender Selection Logic
+            const genderBtns = document.querySelectorAll('.gender-btn');
+            
+            // Define active classes for gender (Secondary brand color for Boys, maybe Primary for girls, or just Secondary for both to keep it simple and soft)
+            const activeGenderClasses = ['bg-secondary-container', 'text-on-secondary-container', 'border-soft-teal'];
+            const inactiveGenderClasses = ['bg-surface-container-low', 'border-transparent', 'text-on-surface-variant'];
+
+            genderBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    // Reset all
+                    genderBtns.forEach(b => {
+                        b.classList.remove(...activeGenderClasses);
+                        b.classList.add(...inactiveGenderClasses);
+                        b.querySelector('.material-symbols-outlined').style.fontVariationSettings = "'FILL' 0";
+                    });
+                    
+                    // Set active
+                    btn.classList.remove(...inactiveGenderClasses);
+                    btn.classList.add(...activeGenderClasses);
+                    btn.querySelector('.material-symbols-outlined').style.fontVariationSettings = "'FILL' 1";
+                });
+            });
+
+            // Neuter Status Logic (Chips)
+            const neuterBtns = document.querySelectorAll('.neuter-btn');
+            
+            // Define active classes for chips (Pale primary)
+            const activeNeuterClasses = ['bg-primary-fixed', 'text-on-primary-fixed', 'border-primary-fixed-dim'];
+            const inactiveNeuterClasses = ['bg-surface-container-low', 'text-on-surface-variant', 'border-transparent'];
+
+            neuterBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    // Reset all
+                    neuterBtns.forEach(b => {
+                        b.classList.remove(...activeNeuterClasses);
+                        b.classList.add(...inactiveNeuterClasses);
+                    });
+                    
+                    // Set active
+                    btn.classList.remove(...inactiveNeuterClasses);
+                    btn.classList.add(...activeNeuterClasses);
+                });
+            });
+        });
+    </script>
+
+
+</body></html>

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+
+<html lang="zh"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Lumii - 打招呼请求</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "soft-teal": "#4DB6AC",
+                        "bark-gray": "#4A4542",
+                        "error": "#ba1a1a",
+                        "on-tertiary-container": "#4e3d00",
+                        "surface-dim": "#dbdad5",
+                        "tertiary-fixed-dim": "#e7c353",
+                        "on-primary-container": "#732500",
+                        "inverse-on-surface": "#f2f1ec",
+                        "health-red": "#EF5350",
+                        "on-secondary-container": "#006f67",
+                        "surface-container": "#f0eee9",
+                        "on-tertiary-fixed": "#241a00",
+                        "on-primary-fixed-variant": "#7f2b02",
+                        "inverse-primary": "#ffb59a",
+                        "surface-container-high": "#eae8e3",
+                        "on-tertiary-fixed-variant": "#574500",
+                        "surface-bright": "#fbf9f4",
+                        "tertiary-fixed": "#ffe088",
+                        "warm-orange": "#FF8A5C",
+                        "sunny-yellow": "#FFD966",
+                        "primary": "#9f4119",
+                        "on-tertiary": "#ffffff",
+                        "secondary-fixed": "#8ef4e9",
+                        "primary-fixed": "#ffdbce",
+                        "surface-container-low": "#f5f3ee",
+                        "on-secondary": "#ffffff",
+                        "on-secondary-fixed-variant": "#00504a",
+                        "on-primary-fixed": "#380d00",
+                        "on-primary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "on-error": "#ffffff",
+                        "on-surface-variant": "#56423b",
+                        "on-background": "#1b1c19",
+                        "surface": "#fbf9f4",
+                        "background": "#fbf9f4",
+                        "surface-container-highest": "#e4e2dd",
+                        "bone-white": "#F9F7F2",
+                        "on-secondary-fixed": "#00201d",
+                        "inverse-surface": "#30312e",
+                        "secondary": "#006a63",
+                        "surface-variant": "#e4e2dd",
+                        "secondary-container": "#8bf1e6",
+                        "tertiary-container": "#c9a739",
+                        "surface-tint": "#9f4119",
+                        "primary-container": "#ff8a5c",
+                        "outline-variant": "#ddc0b7",
+                        "on-surface": "#1b1c19",
+                        "outline": "#8a726a",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#71d7cd",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary": "#735c00",
+                        "primary-fixed-dim": "#ffb59a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-padding": "24px",
+                        "margin-desktop": "40px",
+                        "gutter": "16px",
+                        "base": "8px",
+                        "margin-mobile": "20px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "headline-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            color: theme('colors.on-background');
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .glass-panel {
+            background: rgba(251, 249, 244, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        .soft-shadow {
+            box-shadow: 0px 4px 20px rgba(74, 69, 66, 0.05);
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        
+        .dropdown-menu {
+            display: none;
+            opacity: 0;
+            transform: translateY(-10px) scale(0.95);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .dropdown-menu.active {
+            display: block;
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="min-h-screen bg-bone-white pb-32">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 glass-panel">
+<div class="flex justify-between items-center px-margin-mobile h-16 w-full max-w-screen-xl mx-auto">
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-variant transition-colors" onclick="history.back()">
+<span class="material-symbols-outlined text-bark-gray" data-icon="arrow_back" data-weight="fill" style="font-variation-settings: 'FILL' 1;">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary">新朋友请求</h1>
+<div class="w-10"></div> <!-- Placeholder for balance -->
+</div>
+</header>
+<!-- Main Content -->
+<main class="pt-24 px-margin-mobile max-w-screen-md mx-auto space-y-gutter">
+<!-- Section Title -->
+<div class="mb-6">
+<p class="font-body-lg text-body-lg text-bark-gray">你有 3 个未处理的打招呼</p>
+</div>
+<!-- Request Card 1 -->
+<div class="bg-surface rounded-xl p-4 soft-shadow flex flex-col gap-4 relative">
+<div class="flex items-start gap-4">
+<img alt="Dog profile" class="w-16 h-16 rounded-full object-cover border-2 border-surface-variant shadow-sm shrink-0" data-alt="A close-up portrait of an adorable Beagle dog with expressive brown eyes, sitting outdoors on green grass. The lighting is bright and sunny, highlighting the dog's soft fur. The overall aesthetic is warm, inviting, and consistent with a cheerful pet companion digital space." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD4cWDi3IFQSXW3sA4NYsoXpnFS7eCyPSDEDhRilMKmJhsfq0Bz9C5496iDqKA3rHHAAlB277sQ1H8tMxVIxnBykO86_9OZIk9AV5ZF6mivvXkx8ze1FCd5D5bN26lYAyyFp56tkNeyaQZ2RF9NFj_sRGnPyKTH_xKCJQucnwa2h4LHwYi5MTEo_2lOoITmP8sCE38q6czX9MV3ttfQjwpZWRsQIb1QQXTGwh1r6ICakkzaLMF7PQzwMZLZ72L8BSgT80kKXuAFdEeP"/>
+<div class="flex-1">
+<div class="flex justify-between items-center mb-1">
+<div class="flex items-center gap-2">
+<h3 class="font-label-md text-label-md text-on-surface">旺财</h3>
+<span class="bg-secondary-container text-on-secondary-container font-label-sm text-label-sm px-2 py-0.5 rounded-full">2岁 · 柯基</span>
+</div>
+<div class="relative">
+<button class="more-btn w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-variant transition-colors text-outline">
+<span class="material-symbols-outlined" data-icon="more_horiz">more_horiz</span>
+</button>
+<!-- Dropdown -->
+<div class="dropdown-menu absolute right-0 top-full mt-1 w-32 bg-surface rounded-lg soft-shadow border border-surface-variant z-10 overflow-hidden">
+<button class="w-full text-left px-4 py-3 font-label-md text-label-md text-on-surface hover:bg-surface-variant transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]" data-icon="block">block</span> 拉黑
+                                </button>
+<button class="w-full text-left px-4 py-3 font-label-md text-label-md text-error hover:bg-error-container transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]" data-icon="report">report</span> 举报
+                                </button>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-low rounded-lg p-3 relative mt-2">
+<!-- Speech bubble tail -->
+<div class="absolute -left-2 top-3 w-4 h-4 bg-surface-container-low rotate-45 rounded-sm"></div>
+<p class="font-body-md text-body-md text-on-surface-variant relative z-10">"汪汪！看到你在附近的公园散步，可以交个朋友一起玩吗？🐕"</p>
+</div>
+<p class="font-label-sm text-label-sm text-outline mt-2">今天 10:30 AM</p>
+</div>
+</div>
+<div class="flex gap-3 mt-2">
+<button class="flex-1 bg-surface-container py-2.5 rounded-full font-label-md text-label-md text-bark-gray hover:bg-surface-variant transition-colors active:scale-95">忽略</button>
+<button class="flex-1 bg-warm-orange py-2.5 rounded-full font-label-md text-label-md text-on-primary hover:opacity-90 transition-opacity shadow-md active:scale-95">同意</button>
+</div>
+</div>
+<!-- Request Card 2 -->
+<div class="bg-surface rounded-xl p-4 soft-shadow flex flex-col gap-4 relative">
+<div class="flex items-start gap-4">
+<img alt="Cat profile" class="w-16 h-16 rounded-full object-cover border-2 border-surface-variant shadow-sm shrink-0" data-alt="A fluffy white Persian cat with striking blue eyes resting comfortably on a soft beige cushion. The lighting is soft and natural, coming from a nearby window, creating a serene and calm mood. The aesthetic is clean, modern, and perfectly suited for a tactile, pet-focused digital companion interface." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCG45mywtSQ7mV3URXxQpYDD89Rs_n4YhrVSvcDWCw0RLEfZJ4ucVgjFDB3HYNZGAy3Pvm9uNsPvj3zVKFCmmQWPXQLJA0PLWqSDavgk00hlI6VnIWEjTKnv4xeh4PK0iIwSuSAuvW_DkbsGEoDBhWkUl6PFDdsGtOKTWOWUCfhY7l6pxZLwnCPqMTm6Al8M0Rl9G75jV9lj48kUD0P1lgUNSx9awbuxqVNfOGEQVWwuh9lTbrIE4ZBVTJ3xVWdN8KOTiCx_SVj29j9"/>
+<div class="flex-1">
+<div class="flex justify-between items-center mb-1">
+<div class="flex items-center gap-2">
+<h3 class="font-label-md text-label-md text-on-surface">雪球</h3>
+<span class="bg-tertiary-container text-on-tertiary-container font-label-sm text-label-sm px-2 py-0.5 rounded-full">3岁 · 布偶</span>
+</div>
+<div class="relative">
+<button class="more-btn w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-variant transition-colors text-outline">
+<span class="material-symbols-outlined" data-icon="more_horiz">more_horiz</span>
+</button>
+<!-- Dropdown -->
+<div class="dropdown-menu absolute right-0 top-full mt-1 w-32 bg-surface rounded-lg soft-shadow border border-surface-variant z-10 overflow-hidden">
+<button class="w-full text-left px-4 py-3 font-label-md text-label-md text-on-surface hover:bg-surface-variant transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]" data-icon="block">block</span> 拉黑
+                                </button>
+<button class="w-full text-left px-4 py-3 font-label-md text-label-md text-error hover:bg-error-container transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]" data-icon="report">report</span> 举报
+                                </button>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-low rounded-lg p-3 relative mt-2">
+<div class="absolute -left-2 top-3 w-4 h-4 bg-surface-container-low rotate-45 rounded-sm"></div>
+<p class="font-body-md text-body-md text-on-surface-variant relative z-10">"你好呀，我家猫咪也是个小馋猫，有空交流下猫粮心得吗？😸"</p>
+</div>
+<p class="font-label-sm text-label-sm text-outline mt-2">昨天 18:45</p>
+</div>
+</div>
+<div class="flex gap-3 mt-2">
+<button class="flex-1 bg-surface-container py-2.5 rounded-full font-label-md text-label-md text-bark-gray hover:bg-surface-variant transition-colors active:scale-95">忽略</button>
+<button class="flex-1 bg-warm-orange py-2.5 rounded-full font-label-md text-label-md text-on-primary hover:opacity-90 transition-opacity shadow-md active:scale-95">同意</button>
+</div>
+</div>
+</main>
+<script>
+        // Simple dropdown toggle logic
+        document.addEventListener('DOMContentLoaded', () => {
+            const moreBtns = document.querySelectorAll('.more-btn');
+            
+            moreBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Prevent closing immediately
+                    const dropdown = btn.nextElementSibling;
+                    
+                    // Close all other dropdowns first
+                    document.querySelectorAll('.dropdown-menu').forEach(menu => {
+                        if (menu !== dropdown) {
+                            menu.classList.remove('active');
+                        }
+                    });
+                    
+                    // Toggle current
+                    dropdown.classList.toggle('active');
+                });
+            });
+
+            // Close dropdowns when clicking outside
+            document.addEventListener('click', () => {
+                document.querySelectorAll('.dropdown-menu').forEach(menu => {
+                    menu.classList.remove('active');
+                });
+            });
+            
+            // Prevent closing when clicking inside the dropdown
+            document.querySelectorAll('.dropdown-menu').forEach(menu => {
+                menu.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                });
+            });
+        });
+    </script>
+</body></html>
