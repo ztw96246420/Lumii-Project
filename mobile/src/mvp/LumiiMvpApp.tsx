@@ -1125,7 +1125,12 @@ export default function LumiiMvpApp() {
             </View>
             <Text style={styles.logoText}>Lumii 灵伴</Text>
           </View>
-          <Text style={styles.loginTitle}>你好呀，{'\n'}准备好遇见你的灵伴了吗？</Text>
+          <View style={styles.loginTitleBlock}>
+            <Text style={styles.loginTitle}>你好呀，</Text>
+            <Text adjustsFontSizeToFit minimumFontScale={0.9} numberOfLines={1} style={styles.loginTitleLine}>
+              准备好遇见你的灵伴了吗？
+            </Text>
+          </View>
           <Text style={styles.loginSubtitle}>使用手机号快速登录，开启与猫狗的温暖陪伴</Text>
         </View>
 
@@ -2450,13 +2455,13 @@ export default function LumiiMvpApp() {
             </View>
             <View style={styles.settingsGroupMake}>
               <Text style={styles.settingsGroupTitle}>基础信息</Text>
-              <MakeDetailRow label="昵称" value={pet.name} />
+              <MakeDetailRow inset label="昵称" value={pet.name} />
               <View style={styles.makeDivider} />
-              <MakeDetailRow label="品种" value={pet.breed} />
+              <MakeDetailRow inset label="品种" value={pet.breed} />
               <View style={styles.makeDivider} />
-              <MakeDetailRow label="性别 / 绝育" value="未知 / 已绝育" />
+              <MakeDetailRow inset label="性别 / 绝育" value="未知 / 已绝育" />
               <View style={styles.makeDivider} />
-              <MakeDetailRow label="毛色" value="奶油金" />
+              <MakeDetailRow inset label="毛色" value="奶油金" />
             </View>
             <View style={styles.settingsGroupMake}>
               <Text style={styles.settingsGroupTitle}>健康</Text>
@@ -2977,18 +2982,28 @@ function ProfileMakeRow({
       <View style={styles.profileMakeRowIcon}>
         <Icon color={palette.orange} size={16} strokeWidth={2.4} />
       </View>
-      <Text style={styles.profileMakeRowTitle}>{title}</Text>
-      {value ? <Text style={styles.profileMakeRowValue}>{value}</Text> : null}
+      <Text numberOfLines={1} style={styles.profileMakeRowTitle}>
+        {title}
+      </Text>
+      {value ? (
+        <Text numberOfLines={1} style={styles.profileMakeRowValue}>
+          {value}
+        </Text>
+      ) : null}
       <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
     </Pressable>
   );
 }
 
-function MakeDetailRow({ label, value }: { label: string; value: string }) {
+function MakeDetailRow({ inset, label, value }: { inset?: boolean; label: string; value: string }) {
   return (
-    <View style={styles.makeDetailRow}>
-      <Text style={styles.makeDetailLabel}>{label}</Text>
-      <Text style={styles.makeDetailValue}>{value}</Text>
+    <View style={[styles.makeDetailRow, inset && styles.makeDetailRowInset]}>
+      <Text numberOfLines={1} style={styles.makeDetailLabel}>
+        {label}
+      </Text>
+      <Text numberOfLines={2} style={styles.makeDetailValue}>
+        {value}
+      </Text>
     </View>
   );
 }
@@ -3180,11 +3195,13 @@ const styles = StyleSheet.create({
   loginHero: { marginTop: 88 },
   loginContent: { flex: 1 },
   loginSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, marginTop: 10 },
-  loginTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 29, fontWeight: '700', letterSpacing: 0, lineHeight: 37 },
+  loginTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 29, fontWeight: '700', includeFontPadding: false, letterSpacing: 0, lineHeight: 37 },
+  loginTitleBlock: { maxWidth: '100%' },
+  loginTitleLine: { color: palette.ink, fontFamily: appFontFamily, fontSize: 27, fontWeight: '700', includeFontPadding: false, letterSpacing: 0, lineHeight: 35, maxWidth: '100%' },
   logoMark: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 13, height: 38, justifyContent: 'center', width: 38 },
   logoRow: { alignItems: 'center', flexDirection: 'row', gap: 12, marginBottom: 22 },
   logoText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700' },
-  longTextInput: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, minHeight: 118, paddingHorizontal: 2, paddingVertical: 8, textAlignVertical: 'top' },
+  longTextInput: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, minHeight: 118, paddingHorizontal: 12, paddingVertical: 10, textAlignVertical: 'top' },
   logoutButton: { alignItems: 'center', backgroundColor: '#ffdad6', borderRadius: 18, flexDirection: 'row', gap: 10, justifyContent: 'center', minHeight: 52 },
   logoutText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
   mapCanvas: { backgroundColor: '#eef2ec', borderRadius: 24, height: 330, overflow: 'hidden', position: 'relative' },
@@ -3235,9 +3252,10 @@ const styles = StyleSheet.create({
   mascot: { alignItems: 'center', backgroundColor: '#f2c28a', justifyContent: 'center', overflow: 'hidden' },
   makeIconChip: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', position: 'relative', width: 36 },
   makeBottomActions: { gap: 12, marginTop: 22 },
-  makeDetailLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', width: 76 },
-  makeDetailRow: { alignItems: 'center', flexDirection: 'row', minHeight: 42 },
-  makeDetailValue: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', lineHeight: 20, textAlign: 'right' },
+  makeDetailLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 19, width: 84 },
+  makeDetailRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 12, minHeight: 44, paddingVertical: 10 },
+  makeDetailRowInset: { paddingHorizontal: 16 },
+  makeDetailValue: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', lineHeight: 20, minWidth: 0, textAlign: 'right' },
   makeDivider: { backgroundColor: palette.border, height: 1 },
   makeIntroCopy: { flex: 1, gap: 4, minWidth: 0 },
   makeIntroHeader: { alignItems: 'center', flexDirection: 'row', gap: 13, marginTop: 4, paddingHorizontal: 6 },
@@ -3424,10 +3442,10 @@ const styles = StyleSheet.create({
   profileMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', paddingHorizontal: 20 },
   profileMakeMenuRowValue: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   profileMakePage: { paddingTop: 0 },
-  profileMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 56, paddingHorizontal: 14 },
+  profileMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 58, paddingHorizontal: 16, paddingVertical: 12 },
   profileMakeRowIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 12, height: 34, justifyContent: 'center', width: 34 },
-  profileMakeRowTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
-  profileMakeRowValue: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  profileMakeRowTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20, minWidth: 0 },
+  profileMakeRowValue: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18, maxWidth: '42%', minWidth: 0, textAlign: 'right' },
   profileManageLink: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   profileMenuGroup: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 16, overflow: 'hidden' },
   profileOwnerAvatar: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 32, borderWidth: 3, height: 64, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.08, shadowRadius: 10, width: 64 },
@@ -3470,7 +3488,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700' },
   settingsFootnoteMake: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.20)', borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
   settingsGroupMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, gap: 0, overflow: 'hidden', paddingTop: 8 },
-  settingsGroupTitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', paddingHorizontal: 14, paddingVertical: 8 },
+  settingsGroupTitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', paddingHorizontal: 16, paddingVertical: 8 },
   segmentButton: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 16, borderWidth: 1, flex: 1, minHeight: 48, justifyContent: 'center' },
   segmentButtonActive: { backgroundColor: palette.orange, borderColor: palette.orange },
   segmentRow: { flexDirection: 'row', gap: 10 },
@@ -3483,7 +3501,7 @@ const styles = StyleSheet.create({
   statusText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   successText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   switchOff: { backgroundColor: palette.pale, borderRadius: 12, height: 24, width: 40 },
-  detailCardMake: { backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, marginTop: 18, padding: 16, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
+  detailCardMake: { backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, marginTop: 18, paddingHorizontal: 18, paddingVertical: 16, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
   emptyPetCta: { marginTop: 18, width: '100%' },
   emptyPetGlow: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.12)', borderRadius: 100, height: 200, justifyContent: 'center', marginBottom: 8, position: 'relative', width: 200 },
   emptyPetPlus: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.orange, borderRadius: 14, borderStyle: 'dashed', borderWidth: 2, bottom: 14, height: 28, justifyContent: 'center', position: 'absolute', right: 12, width: 28 },
