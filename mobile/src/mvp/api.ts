@@ -33,7 +33,7 @@ export type LumiiApi = typeof mockApi;
 export type LumiiApiMode = 'http' | 'mock';
 
 const env = process?.env ?? {};
-const localLanBackendBaseUrl = 'http://192.168.31.140:8787';
+const localLanBackendBaseUrl = 'http://193.112.92.111';
 const configuredMode = env.EXPO_PUBLIC_API_MODE === 'mock' ? 'mock' : 'http';
 const configuredBaseUrl = (env.EXPO_PUBLIC_API_BASE_URL ?? localLanBackendBaseUrl).replace(/\/+$/, '');
 const shouldUseHttp = configuredMode === 'http' && configuredBaseUrl.length > 0;
