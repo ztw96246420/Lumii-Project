@@ -6,7 +6,9 @@ import type {
   AvatarJob,
   ChatMessage,
   Conversation,
+  ConversationMessage,
   CreatePetInput,
+  GreetingResult,
   HealthMemo,
   NearbyLocationHint,
   NearbyOwner,
@@ -18,6 +20,8 @@ import type {
   UploadPetMediaInput,
   UploadedPetMedia,
   VaccinePlan,
+  WalkInviteInput,
+  WalkInviteResult,
   WeightRecord,
 } from './types';
 
@@ -94,6 +98,11 @@ const conversations: Conversation[] = [
   { id: 'c1', name: '林然和奶油', lastMessage: '今晚 7 点公园见？', unread: 1 },
   { id: 'c2', name: '地点审核通知', lastMessage: '你提交的地点已进入审核。', unread: 0 },
 ];
+
+let conversationMessagesById: Record<string, ConversationMessage[]> = {
+  c1: [{ author: 'other', id: 'c1-welcome', text: '今晚 7 点公园见？', time: '09:32' }],
+  c2: [{ author: 'system', id: 'c2-system', text: '你提交的地点已进入审核。', time: '刚刚' }],
+};
 
 const notifications: NotificationItem[] = [
   { id: 'n1', title: '疫苗提醒', text: '狂犬疫苗将在 19 天后到期。', read: false },
@@ -270,14 +279,38 @@ export const mockApi = {
       return success(owners);
     },
 
-    async sendGreeting(ownerId: string): Promise<ApiResult<{ ownerId: string; sent: true }>> {
+    async sendGreeting(ownerId: string): Promise<ApiResult<GreetingResult>> {
       await wait();
-      return success({ ownerId, sent: true });
+      const owner = owners.find((item) => item.id === ownerId);
+      const conversation: Conversation = {
+        id: `greeting-${ownerId}`,
+        lastMessage: '我想认识你和你的毛孩子',
+        name: owner ? `${owner.ownerName}和${owner.petName}` : '附近主人',
+        unread: 0,
+      };
+      conversations.unshift(conversation);
+      conversationMessagesById[conversation.id] = [
+        { author: 'me', id: `${conversation.id}-hello`, status: 'sent', text: conversation.lastMessage, time: '刚刚' },
+      ];
+      return success({ conversation, ownerId, sent: true });
     },
 
-    async createWalkInvite(ownerId: string): Promise<ApiResult<{ inviteId: string; ownerId: string }>> {
+    async createWalkInvite(ownerId: string, input?: WalkInviteInput): Promise<ApiResult<WalkInviteResult>> {
       await wait();
-      return success({ inviteId: `walk-${Date.now()}`, ownerId });
+      const owner = owners.find((item) => item.id === ownerId);
+      const inviteId = `walk-${Date.now()}`;
+      const message = `${input?.time ?? '今天'} · ${input?.place ?? '附近宠物友好地点'}`;
+      const conversation: Conversation = {
+        id: `walk-${ownerId}-${Date.now()}`,
+        lastMessage: message,
+        name: owner ? `${owner.ownerName}和${owner.petName}` : '附近主人',
+        unread: 0,
+      };
+      conversations.unshift(conversation);
+      conversationMessagesById[conversation.id] = [
+        { author: 'me', id: `${conversation.id}-invite`, status: 'sent', text: input?.note ? `${message}\n${input.note}` : message, time: '刚刚' },
+      ];
+      return success({ conversation, inviteId, ownerId });
     },
   },
 
@@ -287,10 +320,23 @@ export const mockApi = {
       return success(conversations);
     },
 
+    async listConversationMessages(conversationId: string): Promise<ApiResult<ConversationMessage[]>> {
+      await wait(160);
+      return success(conversationMessagesById[conversationId] ?? []);
+    },
+
     async sendMessage(text: string): Promise<ApiResult<ChatMessage>> {
       await wait();
       if (!text.trim()) return error('请输入消息内容', false);
       return success({ id: `msg-${Date.now()}`, author: 'me', text, status: 'sent', time: '刚刚' });
+    },
+
+    async sendConversationMessage(conversationId: string, text: string): Promise<ApiResult<ConversationMessage>> {
+      await wait();
+      if (!text.trim()) return error('请输入消息内容', false);
+      const message: ConversationMessage = { author: 'me', id: `conv-${Date.now()}`, status: 'sent', text, time: '刚刚' };
+      conversationMessagesById[conversationId] = [...(conversationMessagesById[conversationId] ?? []), message];
+      return success(message);
     },
 
     async listNotifications(): Promise<ApiResult<NotificationItem[]>> {

@@ -12,7 +12,7 @@ const MAX_ACCURACY_BUFFER_KM = 2;
 
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
-const statePath = path.join(__dirname, '..', 'dist', 'lumii-backend-state.json');
+const statePath = process.env.LUMII_BACKEND_STATE_PATH || path.join(__dirname, '..', 'dist', 'lumii-backend-state.json');
 
 const seedOwners = [
   {
@@ -81,6 +81,7 @@ function createInitialState() {
   return {
     avatarJobs: {},
     conversations: {},
+    conversationMessages: {},
     greetings: [],
     invites: [],
     notifications: {},
@@ -335,9 +336,35 @@ function listOnlineOwners(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM) {
 
 function upsertConversation(phone, conversation) {
   state.conversations[phone] = state.conversations[phone] || [];
-  const existing = state.conversations[phone].find((item) => item.id === conversation.id);
-  if (existing) Object.assign(existing, conversation);
-  else state.conversations[phone].unshift(conversation);
+  const existingIndex = state.conversations[phone].findIndex((item) => item.id === conversation.id);
+  if (existingIndex >= 0) state.conversations[phone].splice(existingIndex, 1);
+  state.conversations[phone].unshift(conversation);
+}
+
+function conversationIdFor(otherPhone) {
+  return `c-${otherPhone}`;
+}
+
+function getConversationMessages(phone, conversationId) {
+  state.conversationMessages = state.conversationMessages || {};
+  state.conversationMessages[phone] = state.conversationMessages[phone] || {};
+  return state.conversationMessages[phone][conversationId] || [];
+}
+
+function appendConversationMessage(phone, conversationId, message) {
+  state.conversationMessages = state.conversationMessages || {};
+  state.conversationMessages[phone] = state.conversationMessages[phone] || {};
+  state.conversationMessages[phone][conversationId] = [...(state.conversationMessages[phone][conversationId] || []), message];
+}
+
+function buildConversationFor(user, otherUser, lastMessage, unread = 0) {
+  const otherPet = activePetFor(otherUser);
+  return {
+    id: conversationIdFor(otherUser.phone),
+    lastMessage,
+    name: `${otherUser.ownerName || `用户${otherUser.phone.slice(-4)}`}和${otherPet.name || `灵伴${otherUser.phone.slice(-4)}`}`,
+    unread,
+  };
 }
 
 function addNotification(phone, notification) {
@@ -599,6 +626,51 @@ async function handle(req, res) {
     const ownerId = String(body.ownerId || '');
     const targetPhone = resolveOwnerId(ownerId);
     const fromPet = activePetFor(user);
+    const lastMessage = `${fromPet.name}想认识你`;
+    let senderConversation = null;
+    state.greetings.push({
+      at: Date.now(),
+      fromPhone: user.phone,
+      ownerId,
+      targetPhone,
+    });
+    if (targetPhone && state.users[targetPhone]) {
+      const targetUser = ensureUser(targetPhone);
+      const targetPet = activePetFor(targetUser);
+      senderConversation = buildConversationFor(user, targetUser, '我想认识你和你的毛孩子', 0);
+      const targetConversation = buildConversationFor(targetUser, user, lastMessage, 1);
+      upsertConversation(user.phone, senderConversation);
+      upsertConversation(targetPhone, targetConversation);
+      appendConversationMessage(user.phone, senderConversation.id, {
+        author: 'me',
+        id: `msg-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+        status: 'sent',
+        text: '我想认识你和你的毛孩子',
+        time: '刚刚',
+      });
+      appendConversationMessage(targetPhone, targetConversation.id, {
+        author: 'other',
+        id: `msg-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+        status: 'sent',
+        text: lastMessage,
+        time: '刚刚',
+      });
+      addNotification(targetPhone, {
+        id: `n-greeting-${Date.now()}`,
+        read: false,
+        text: `${user.ownerName}和${fromPet.name}向你和${targetPet.name}打了招呼`,
+        title: '新的招呼',
+      });
+    }
+    saveState();
+    ok(res, { conversation: senderConversation, ownerId, sent: true });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/social/greetings') {
+    const ownerId = String(body.ownerId || '');
+    const targetPhone = resolveOwnerId(ownerId);
+    const fromPet = activePetFor(user);
     state.greetings.push({
       at: Date.now(),
       fromPhone: user.phone,
@@ -626,6 +698,57 @@ async function handle(req, res) {
 
   if (req.method === 'POST' && pathname === '/social/walk-invites') {
     const ownerId = String(body.ownerId || '');
+    const targetPhone = resolveOwnerId(ownerId);
+    const inviteId = `walk-${Date.now()}`;
+    const place = String(body.place || '附近宠物友好地点');
+    const time = String(body.time || '今天');
+    const note = String(body.note || '');
+    const fromPet = activePetFor(user);
+    const lastMessage = `${time} · ${place}`;
+    let senderConversation = null;
+    state.invites.push({
+      at: Date.now(),
+      fromPhone: user.phone,
+      inviteId,
+      ownerId,
+      place,
+      targetPhone,
+      time,
+    });
+    if (targetPhone && state.users[targetPhone]) {
+      const targetUser = ensureUser(targetPhone);
+      senderConversation = buildConversationFor(user, targetUser, lastMessage, 0);
+      const targetConversation = buildConversationFor(targetUser, user, `${fromPet.name}发来约遛邀请`, 1);
+      upsertConversation(user.phone, senderConversation);
+      upsertConversation(targetPhone, targetConversation);
+      appendConversationMessage(user.phone, senderConversation.id, {
+        author: 'me',
+        id: `msg-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+        status: 'sent',
+        text: note ? `${lastMessage}\n${note}` : lastMessage,
+        time: '刚刚',
+      });
+      appendConversationMessage(targetPhone, targetConversation.id, {
+        author: 'other',
+        id: `msg-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+        status: 'sent',
+        text: note ? `${fromPet.name}邀请你：${lastMessage}\n${note}` : `${fromPet.name}邀请你：${lastMessage}`,
+        time: '刚刚',
+      });
+      addNotification(targetPhone, {
+        id: `n-walk-${Date.now()}`,
+        read: false,
+        text: `${user.ownerName}和${fromPet.name}邀请你在${time}去${place}`,
+        title: '新的约遛邀请',
+      });
+    }
+    saveState();
+    ok(res, { conversation: senderConversation, inviteId, ownerId });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/social/walk-invites') {
+    const ownerId = String(body.ownerId || '');
     const inviteId = `walk-${Date.now()}`;
     state.invites.push({
       at: Date.now(),
@@ -641,6 +764,50 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/conversations') {
     ok(res, state.conversations[user.phone] || []);
+    return;
+  }
+
+  const conversationMessagesMatch = pathname.match(/^\/conversations\/([^/]+)\/messages$/);
+  if (req.method === 'GET' && conversationMessagesMatch) {
+    const conversationId = decodeURIComponent(conversationMessagesMatch[1]);
+    ok(res, getConversationMessages(user.phone, conversationId));
+    return;
+  }
+
+  if (req.method === 'POST' && conversationMessagesMatch) {
+    const conversationId = decodeURIComponent(conversationMessagesMatch[1]);
+    const text = String(body.text || '').trim();
+    if (!text) {
+      fail(res, 400, '请输入消息内容', false);
+      return;
+    }
+    const targetPhone = conversationId.startsWith('c-') ? conversationId.slice(2) : '';
+    const now = Date.now();
+    const myMessage = {
+      author: 'me',
+      id: `msg-${now}-${Math.random().toString(16).slice(2, 6)}`,
+      status: 'sent',
+      text,
+      time: '刚刚',
+    };
+    appendConversationMessage(user.phone, conversationId, myMessage);
+
+    if (targetPhone && state.users[targetPhone]) {
+      const targetUser = ensureUser(targetPhone);
+      const targetConversationId = conversationIdFor(user.phone);
+      appendConversationMessage(targetPhone, targetConversationId, {
+        author: 'other',
+        id: `msg-${now}-${Math.random().toString(16).slice(2, 6)}`,
+        status: 'sent',
+        text,
+        time: '刚刚',
+      });
+      upsertConversation(user.phone, buildConversationFor(user, targetUser, text, 0));
+      upsertConversation(targetPhone, buildConversationFor(targetUser, user, text, 1));
+    }
+
+    saveState();
+    ok(res, myMessage);
     return;
   }
 

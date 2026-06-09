@@ -6,7 +6,9 @@ import type {
   AvatarJob,
   ChatMessage,
   Conversation,
+  ConversationMessage,
   CreatePetInput,
+  GreetingResult,
   HealthMemo,
   NearbyLocationHint,
   NearbyOwner,
@@ -18,6 +20,8 @@ import type {
   UploadPetMediaInput,
   UploadedPetMedia,
   VaccinePlan,
+  WalkInviteInput,
+  WalkInviteResult,
   WeightRecord,
 } from './types';
 
@@ -165,12 +169,12 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<NearbyOwner[]>('GET', `/social/discover${query}`);
       },
 
-      async sendGreeting(ownerId: string): Promise<ApiResult<{ ownerId: string; sent: true }>> {
-        return request<{ ownerId: string; sent: true }>('POST', '/social/greetings', { ownerId });
+      async sendGreeting(ownerId: string): Promise<ApiResult<GreetingResult>> {
+        return request<GreetingResult>('POST', '/social/greetings', { ownerId });
       },
 
-      async createWalkInvite(ownerId: string): Promise<ApiResult<{ inviteId: string; ownerId: string }>> {
-        return request<{ inviteId: string; ownerId: string }>('POST', '/social/walk-invites', { ownerId });
+      async createWalkInvite(ownerId: string, input?: WalkInviteInput): Promise<ApiResult<WalkInviteResult>> {
+        return request<WalkInviteResult>('POST', '/social/walk-invites', { note: input?.note, ownerId, place: input?.place, time: input?.time });
       },
     },
 
@@ -179,8 +183,16 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<Conversation[]>('GET', '/conversations');
       },
 
+      async listConversationMessages(conversationId: string): Promise<ApiResult<ConversationMessage[]>> {
+        return request<ConversationMessage[]>('GET', `/conversations/${encodeURIComponent(conversationId)}/messages`);
+      },
+
       async sendMessage(text: string): Promise<ApiResult<ChatMessage>> {
         return request<ChatMessage>('POST', '/ai/pet-chat/messages', { text });
+      },
+
+      async sendConversationMessage(conversationId: string, text: string): Promise<ApiResult<ConversationMessage>> {
+        return request<ConversationMessage>('POST', `/conversations/${encodeURIComponent(conversationId)}/messages`, { text });
       },
 
       async listNotifications(): Promise<ApiResult<NotificationItem[]>> {

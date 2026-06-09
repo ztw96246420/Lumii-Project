@@ -124,6 +124,32 @@ export type Conversation = {
   unread: number;
 };
 
+export type ConversationMessage = {
+  author: 'me' | 'other' | 'system';
+  id: string;
+  status?: 'failed' | 'sending' | 'sent';
+  text: string;
+  time: string;
+};
+
+export type GreetingResult = {
+  conversation?: Conversation;
+  ownerId: string;
+  sent: true;
+};
+
+export type WalkInviteInput = {
+  note?: string;
+  place?: string;
+  time?: string;
+};
+
+export type WalkInviteResult = {
+  conversation?: Conversation;
+  inviteId: string;
+  ownerId: string;
+};
+
 export type NotificationItem = {
   id: string;
   read: boolean;

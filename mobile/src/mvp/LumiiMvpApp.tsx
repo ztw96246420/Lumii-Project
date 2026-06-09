@@ -69,6 +69,7 @@ import type {
   AvatarJob,
   ChatMessage,
   Conversation,
+  ConversationMessage,
   HealthMemo,
   NearbyLocationHint,
   NearbyOwner,
@@ -200,14 +201,6 @@ type ConfirmState = {
   title: string;
 };
 
-type ConversationMessage = {
-  author: 'me' | 'other' | 'system';
-  id: string;
-  status?: 'failed' | 'sending' | 'sent';
-  text: string;
-  time: string;
-};
-
 type UserSettingKey = 'fuzzyLocation' | 'interactionMessages' | 'nearbyVisible' | 'pushNotifications';
 
 function isGeneratedAvatarUri(uri?: null | string) {
@@ -231,6 +224,10 @@ function mergePermissionState(...states: Array<Partial<PermissionStateMap> | nul
 
 function allLumiiPermissionsGranted(state: PermissionStateMap) {
   return permissionKeys.every((key) => state[key] === 'granted');
+}
+
+function createConversationSafetyMessage(): ConversationMessage {
+  return { author: 'system', id: 'conversation-safe-tip', text: '为了保护隐私，聊天前不会展示精确住址。', time: '刚刚' };
 }
 
 export default function LumiiMvpApp() {
@@ -286,10 +283,7 @@ export default function LumiiMvpApp() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [conversationInput, setConversationInput] = useState('');
-  const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([
-    { author: 'system', id: 'conversation-safe-tip', text: '为了保护隐私，聊天前不会展示精确住址。', time: '刚刚' },
-    { author: 'other', id: 'conversation-welcome', text: '今晚 7 点公园见？', time: '09:32' },
-  ]);
+  const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([createConversationSafetyMessage()]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [places, setPlaces] = useState<Place[]>([]);
   const [placeQuery, setPlaceQuery] = useState('');
@@ -707,10 +701,17 @@ export default function LumiiMvpApp() {
     }
   }
 
-  function openConversation(conversation: Conversation) {
+  async function openConversation(conversation: Conversation) {
     setSelectedConversation(conversation);
     setConversations((items) => items.map((item) => (item.id === conversation.id ? { ...item, unread: 0 } : item)));
+    setConversationMessages([createConversationSafetyMessage()]);
     go('conversation');
+    const result = await lumiiApi.messages.listConversationMessages(conversation.id);
+    if (result.data) {
+      setConversationMessages([createConversationSafetyMessage(), ...result.data.filter((message) => message.author !== 'system')]);
+    } else {
+      showToast(result.error?.message ?? '聊天记录加载失败');
+    }
   }
 
   function rejectGreeting(owner: NearbyOwner) {
@@ -735,7 +736,7 @@ export default function LumiiMvpApp() {
     const local: ConversationMessage = { author: 'me', id: `conversation-${Date.now()}`, status: 'sending', text, time: '刚刚' };
     setConversationInput('');
     setConversationMessages((items) => [...items, local]);
-    const result = await lumiiApi.messages.sendMessage(text);
+    const result = await lumiiApi.messages.sendConversationMessage(conversation.id, text);
     setConversationMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: result.data ? 'sent' : 'failed' } : item)));
     if (result.data) {
       setConversations((items) => items.map((item) => (item.id === conversation.id ? { ...item, lastMessage: text, unread: 0 } : item)));
@@ -865,6 +866,9 @@ export default function LumiiMvpApp() {
     const result = await lumiiApi.social.sendGreeting(ownerId);
     const owner = owners.find((item) => item.id === ownerId);
     if (result.data) {
+      if (result.data.conversation) {
+        setConversations((items) => [result.data!.conversation!, ...items.filter((item) => item.id !== result.data!.conversation!.id)]);
+      }
       setNotifications((items) => [
         {
           id: `greeting-${Date.now()}`,
@@ -890,17 +894,21 @@ export default function LumiiMvpApp() {
       showToast('请填写地点和时间');
       return;
     }
-    const result = await lumiiApi.social.createWalkInvite(owner.id);
+    const result = await lumiiApi.social.createWalkInvite(owner.id, {
+      note: walkInviteNote.trim(),
+      place: walkInvitePlace.trim(),
+      time: walkInviteTime.trim(),
+    });
     if (result.data) {
-      setConversations((items) => [
+      const conversation =
+        result.data.conversation ??
         {
           id: `walk-${Date.now()}`,
           lastMessage: `${walkInviteTime} · ${walkInvitePlace}`,
           name: `${owner.ownerName}和${owner.petName}`,
           unread: 0,
-        },
-        ...items,
-      ]);
+        };
+      setConversations((items) => [conversation, ...items.filter((item) => item.id !== conversation.id)]);
       setNotifications((items) => [
         {
           id: `walk-note-${Date.now()}`,
@@ -2273,7 +2281,7 @@ export default function LumiiMvpApp() {
 
           <View style={styles.messagesListMake}>
           {conversations.map((conversation) => (
-            <Pressable key={conversation.id} onPress={() => openConversation(conversation)} style={styles.conversationMakeRow}>
+            <Pressable key={conversation.id} onPress={() => void openConversation(conversation)} style={styles.conversationMakeRow}>
               <PetAvatar uri={conversation.id === 'c1' ? generatedGoldenAvatarUri : owners[0]?.imageUrl} size={50} />
               <View style={styles.flex}>
                 <Text numberOfLines={1} style={styles.conversationMakeTitle}>{conversation.name}</Text>
