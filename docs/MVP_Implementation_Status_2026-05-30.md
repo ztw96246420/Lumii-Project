@@ -2,6 +2,10 @@
 
 日期：2026-05-30
 
+维护更新：2026-06-10
+
+说明：本文是 2026-05-30 的实现快照。当前最新状态以 `MVP_Development_Update_2026-06-10.md`、`API_Contract_MVP_v0.md` 和 `MVP_Development_Support_Checklist_v0.md` 为准。
+
 ## 1. 本轮已实现
 
 - `mobile/App.tsx` 已切换为新的 React Native 原生化 MVP 入口，不再运行旧的 Stitch iframe/文案点击桥接逻辑。
@@ -34,10 +38,10 @@
 
 ## 4. 当前技术边界
 
-- AI 图像生成、AI 对话、地图 POI、社交、健康、消息仍为 mock 数据。
+- ~~AI 图像生成、AI 对话、地图 POI、社交、健康、消息仍为 mock 数据。~~ 当前社交发现、招呼请求、会话、消息已接测试后端；AI 图像/AI 对话/健康深度 CRUD/地点 POI 仍以 mock 或轻后端为主。
 - 真实短信服务已单独验证过，但 MVP 新 mock API 暂不把短信发送地址暴露在 App 内；后续应由后端代理。
-- Stitch 继续作为视觉设计源；生产实现目标转为 React Native 原生页面。
-- 地图 SDK、对象存储、AI 网关、Push 服务和后端 API Base URL 仍待确认。
+- ~~Stitch 继续作为视觉设计源；生产实现目标转为 React Native 原生页面。~~ 当前视觉源转为 Figma Make/Figma 源码包，Stitch 为历史参考。
+- ~~地图 SDK、对象存储、AI 网关、Push 服务和后端 API Base URL 仍待确认。~~ Android 高德 SDK 和云端测试 API Base URL 已确认；对象存储、AI 网关、Push 和 iOS 地图仍待确认。
 
 ## 5. 下一轮优先级
 
@@ -52,7 +56,7 @@
 已新增 `mobile/src/mvp/api.ts`：
 
 - App 页面统一依赖 `lumiiApi`。
-- 默认走本地 mock。
+- ~~默认走本地 mock。~~ 当前默认走云端测试后端；显式设置 `EXPO_PUBLIC_API_MODE=mock` 才回到本地 mock。
 - 配置 `EXPO_PUBLIC_API_MODE=http` 和 `EXPO_PUBLIC_API_BASE_URL` 后可切到 HTTP 适配器。
 - 已支持登录 token 注入到 `Authorization: Bearer <token>`。
 - 已补充接口契约草案：`docs/API_Contract_MVP_v0.md`。

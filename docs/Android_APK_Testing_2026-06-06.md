@@ -1,5 +1,13 @@
 # Lumii Android APK 真机测试 2026-06-06
 
+维护更新：2026-06-10
+
+当前测试策略：
+- 日常开发不频繁打 APK。
+- 不常态上传 APK 到腾讯云下载，避免消耗服务器流量包。
+- 后端逻辑改动优先云端热更新并用现有 APK 继续测。
+- 只有涉及原生配置、权限、地图 SDK、App 图标、包名、阶段验收时才重新打 APK。
+
 ## 当前状态
 
 - 已补 Android 包名：`com.lumii.lingban`
@@ -16,10 +24,13 @@
   - Build ID：`9315901e-18b8-4ba0-a85f-305245d698ee`
   - 构建页：`https://expo.dev/accounts/ztw962464/projects/lumii-lingban/builds/9315901e-18b8-4ba0-a85f-305245d698ee`
   - APK：`https://expo.dev/artifacts/eas/jaqWQk2Rpbe4fnxMtapPm3.apk`
+- 2026-06-09 已打过云端 API 测试包，但后续不再默认通过腾讯云分发 APK。
 
 ## 需要你先做
 
-在项目目录执行 Expo 登录：
+~~在项目目录执行 Expo 登录：~~
+
+该步骤已完成，保留为新机器重新配置时的参考：
 
 ```powershell
 cd "F:\Users\Administrator\Documents\Lumii Project\mobile"
@@ -49,7 +60,7 @@ npm run build:android:preview
 - Android Keystore 是否由 EAS 管理：选择 Yes
 - 是否生成安装包：选择 APK / preview profile
 
-构建完成后，EAS 会给一个下载链接。用安卓手机打开链接，下载 APK 并安装即可。
+构建完成后，EAS 会给一个下载链接。~~用安卓手机打开链接，下载 APK 并安装即可。~~ 当前优先使用 Android Studio/ADB 或局域网本地服务安装，避免云端公网下载消耗流量。
 
 ## 第一轮真机验收重点
 
@@ -64,4 +75,4 @@ npm run build:android:preview
 
 ## 注意
 
-这次是 APK 真机包，比手机浏览器和 Expo Go 更接近真实 App。但当前地图、AI、后端仍是 mock，重点先验收原生容器、权限、触摸、输入和页面流程。
+这次是 APK 真机包，比手机浏览器和 Expo Go 更接近真实 App。~~但当前地图、AI、后端仍是 mock，重点先验收原生容器、权限、触摸、输入和页面流程。~~ 当前 Android 高德地图、云端测试后端、发现/消息基础闭环已经接入；AI 形象与 AI 对话仍以 mock 状态为主。

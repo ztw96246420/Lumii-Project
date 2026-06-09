@@ -2,19 +2,29 @@
 
 日期：2026-05-30
 
+维护更新：2026-06-10
+
+当前实现状态：
+- 移动端 API 门面：`mobile/src/mvp/api.ts`。
+- 云端测试后端：`http://193.112.92.111`。
+- 测试验证码：`962464`。
+- 当前测试后端使用文件状态持久化，适合 MVP 联调，不是生产架构。
+- ~~默认走本地 `mockApi`。~~ 当前已默认走 HTTP 测试后端；如需本地 mock，可显式配置 `EXPO_PUBLIC_API_MODE=mock`。
+
 ## 1. 前端接入策略
 
 当前前端通过 `mobile/src/mvp/api.ts` 访问统一 API 门面：
 
-- 默认：`EXPO_PUBLIC_API_MODE=mock`，走本地 `mockApi`。
+- ~~默认：`EXPO_PUBLIC_API_MODE=mock`，走本地 `mockApi`。~~
+- 当前默认：不设置环境变量时走 `http://193.112.92.111` 测试后端。
 - 真实接口：`EXPO_PUBLIC_API_MODE=http` 且配置 `EXPO_PUBLIC_API_BASE_URL` 后，走 HTTP 适配器。
 - App 页面只依赖 `lumiiApi`，不直接依赖 mock，实现 mock/真实接口可替换。
 
 建议环境变量：
 
 ```env
-EXPO_PUBLIC_API_MODE=mock
-EXPO_PUBLIC_API_BASE_URL=https://api-dev.lumii.example.com
+EXPO_PUBLIC_API_MODE=http
+EXPO_PUBLIC_API_BASE_URL=http://193.112.92.111
 EXPO_PUBLIC_MAP_PROVIDER=amap
 EXPO_PUBLIC_AMAP_KEY=
 EXPO_PUBLIC_TENCENT_MAP_KEY=
@@ -98,6 +108,15 @@ Response:
 ```json
 {
   "data": {
+    "account": {
+      "activePet": null,
+      "permissions": {
+        "location": "unknown",
+        "media": "unknown",
+        "notifications": "unknown"
+      },
+      "permissionsOnboardingCompleted": false
+    },
     "phone": "13531850966",
     "token": "jwt-or-session-token"
   }
@@ -107,6 +126,27 @@ Response:
 ### POST `/auth/logout`
 
 退出登录。前端成功后清空本地 token。
+
+### GET `/permissions`
+
+返回当前账号已保存的权限状态。
+
+### PATCH `/permissions`
+
+保存当前账号权限引导状态。
+
+Request:
+
+```json
+{
+  "permissions": {
+    "location": "granted",
+    "media": "granted",
+    "notifications": "granted"
+  },
+  "completed": true
+}
+```
 
 ## 4. 宠物档案
 
@@ -246,6 +286,18 @@ Request:
 
 附近宠物主人列表。
 
+Query:
+
+```txt
+lat=23.1291&lng=113.2644&radiusKm=3&accuracy=30
+```
+
+说明：
+- 当前测试后端会保存用户最近一次位置和 `lastSeenAt`。
+- 发现范围默认 3km。
+- 距离返回模糊文案，例如 `500m 内`、`1km 内`、`约 1-2km`。
+- 超过在线时间窗口或超出距离范围不会返回。
+
 ### POST `/social/greetings`
 
 Request:
@@ -259,6 +311,22 @@ MVP 产品约束：
 - 前端保留配置口，后续可加每日次数、单用户频次、风控灰度。
 - 附近距离建议后端返回模糊文案，例如 `1km 内`、`约 1-2km`，不要直接暴露精确定位。
 
+当前测试后端兼容策略：
+- 已安装旧 APK：发送招呼时会直接给双方创建会话，方便不重装继续测试。
+- 下一版 App：会使用待处理招呼请求，接收方接受后再正式进入会话。
+
+### GET `/social/greeting-requests`
+
+获取当前用户收到的待处理招呼请求。
+
+### POST `/social/greeting-requests/{ownerId}/accept`
+
+接受招呼请求，创建双方会话。
+
+### POST `/social/greeting-requests/{ownerId}/reject`
+
+婉拒招呼请求。
+
 ### POST `/social/walk-invites`
 
 Request:
@@ -270,6 +338,24 @@ Request:
 ### GET `/conversations`
 
 会话列表。
+
+### GET `/conversations/{conversationId}/messages`
+
+会话消息列表。
+
+### POST `/conversations/{conversationId}/messages`
+
+发送人和人的聊天消息。
+
+Request:
+
+```json
+{ "text": "你好，我们今晚也在附近" }
+```
+
+### POST `/conversations/{conversationId}/read`
+
+标记会话已读。当前测试后端会持久化未读数归零。
 
 ### POST `/ai/pet-chat/messages`
 
@@ -309,8 +395,8 @@ Response data:
 
 - 统一错误码表：短信、登录、上传、AI、地图、社交、健康、权限。
 - 鉴权 token 刷新机制和 401 处理。
-- 短信频控规则：单手机号、单 IP、单设备、每日上限。
+- ~~短信频控规则：单手机号、单 IP、单设备、每日上限。~~ 当前测试后端已做 60s 频控；生产仍需补 IP/设备/每日上限。
 - 上传文件限制：图片大小、格式、视频时长、EXIF 清理。
-- 地图供应商：已确认 MVP 首发优先高德地图；Android 高德 Key 与 SDK 已接入，仍需确认 POI 数据来源、自有地点库边界、iOS Key/SDK 和外部导航规则。
+- ~~地图供应商：已确认 MVP 首发优先高德地图。~~ Android 高德 Key 与 SDK 已接入；仍需确认 POI 数据来源、自有地点库边界、iOS Key/SDK 和外部导航规则。
 - AI 形象生成任务的完整状态：排队、分析、生成、成功、失败、过期。
 - AI 对话内容安全和医疗建议边界。
