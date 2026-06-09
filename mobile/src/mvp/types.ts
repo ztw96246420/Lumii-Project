@@ -119,9 +119,13 @@ export type NearbyLocationHint = {
 
 export type Conversation = {
   id: string;
+  imageUrl?: string;
   lastMessage: string;
   name: string;
+  ownerId?: string;
+  petName?: string;
   unread: number;
+  updatedAt?: string;
 };
 
 export type ConversationMessage = {

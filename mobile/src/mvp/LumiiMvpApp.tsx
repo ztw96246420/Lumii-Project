@@ -275,7 +275,7 @@ export default function LumiiMvpApp() {
   const [dailyPostText, setDailyPostText] = useState('');
   const [owners, setOwners] = useState<NearbyOwner[]>([]);
   const [discoverRefreshing, setDiscoverRefreshing] = useState(false);
-  const [greetingRequestOwnerIds, setGreetingRequestOwnerIds] = useState<string[]>([]);
+  const [greetingRequestOwners, setGreetingRequestOwners] = useState<NearbyOwner[]>([]);
   const [selectedOwner, setSelectedOwner] = useState<NearbyOwner | null>(null);
   const [walkInvitePlace, setWalkInvitePlace] = useState('滨江绿地');
   const [walkInviteTime, setWalkInviteTime] = useState('今天 19:00');
@@ -310,10 +310,6 @@ export default function LumiiMvpApp() {
 
   const showBottomTabs = Boolean(session && currentTab);
   const cooldownRemaining = Math.min(60, Math.max(0, Math.ceil((cooldownUntil - clock) / 1000)));
-  const greetingRequestOwners = useMemo(
-    () => owners.filter((owner) => greetingRequestOwnerIds.includes(owner.id)),
-    [greetingRequestOwnerIds, owners],
-  );
   const pendingVaccines = useMemo(() => vaccines.filter((item) => item.status !== 'done'), [vaccines]);
 
   const showToast = useCallback((message: string) => setToast(message), []);
@@ -389,6 +385,11 @@ export default function LumiiMvpApp() {
   }, [route, session]);
 
   useEffect(() => {
+    if (!session || !['greetingRequests', 'messages', 'notifications'].includes(route)) return;
+    void loadInboxData();
+  }, [route, session]);
+
+  useEffect(() => {
     if (route !== 'generating' || !avatarJob || avatarJob.status !== 'processing') return undefined;
     const id = setInterval(() => {
       void pollAvatarJob();
@@ -397,11 +398,12 @@ export default function LumiiMvpApp() {
   }, [avatarJob, route]);
 
   async function loadCommonData() {
-    const [weightResult, vaccineResult, memoResult, ownerResult, conversationResult, notificationResult, placeResult] = await Promise.all([
+    const [weightResult, vaccineResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult] = await Promise.all([
       lumiiApi.health.listWeightRecords(),
       lumiiApi.health.listVaccines(),
       lumiiApi.health.listHealthMemos(),
       lumiiApi.social.listNearbyOwners(),
+      lumiiApi.social.listGreetingRequests(),
       lumiiApi.messages.listConversations(),
       lumiiApi.messages.listNotifications(),
       lumiiApi.places.listNearbyPlaces(),
@@ -409,14 +411,23 @@ export default function LumiiMvpApp() {
     if (weightResult.data) setWeights(weightResult.data);
     if (vaccineResult.data) setVaccines(vaccineResult.data);
     if (memoResult.data) setMemos(memoResult.data);
-    if (ownerResult.data) {
-      setOwners(ownerResult.data);
-      setGreetingRequestOwnerIds((items) => (items.length ? items : ownerResult.data!.map((owner) => owner.id)));
-    }
+    if (ownerResult.data) setOwners(ownerResult.data);
+    if (greetingRequestResult.data) setGreetingRequestOwners(greetingRequestResult.data);
     if (conversationResult.data) setConversations(conversationResult.data);
     if (notificationResult.data) setNotifications(notificationResult.data);
     if (placeResult.data) setPlaces(placeResult.data);
     setActivePet((pet) => pet ?? lumiiApi.pets.getActivePet());
+  }
+
+  async function loadInboxData() {
+    const [greetingRequestResult, conversationResult, notificationResult] = await Promise.all([
+      lumiiApi.social.listGreetingRequests(),
+      lumiiApi.messages.listConversations(),
+      lumiiApi.messages.listNotifications(),
+    ]);
+    if (greetingRequestResult.data) setGreetingRequestOwners(greetingRequestResult.data);
+    if (conversationResult.data) setConversations(conversationResult.data);
+    if (notificationResult.data) setNotifications(notificationResult.data);
   }
 
   async function refreshPermissionStatuses(options: { base?: PermissionStateMap; completed?: boolean; persist?: boolean } = {}) {
@@ -706,7 +717,10 @@ export default function LumiiMvpApp() {
     setConversations((items) => items.map((item) => (item.id === conversation.id ? { ...item, unread: 0 } : item)));
     setConversationMessages([createConversationSafetyMessage()]);
     go('conversation');
-    const result = await lumiiApi.messages.listConversationMessages(conversation.id);
+    const [result] = await Promise.all([
+      lumiiApi.messages.listConversationMessages(conversation.id),
+      lumiiApi.messages.markConversationRead(conversation.id),
+    ]);
     if (result.data) {
       setConversationMessages([createConversationSafetyMessage(), ...result.data.filter((message) => message.author !== 'system')]);
     } else {
@@ -714,19 +728,28 @@ export default function LumiiMvpApp() {
     }
   }
 
-  function rejectGreeting(owner: NearbyOwner) {
-    setGreetingRequestOwnerIds((items) => items.filter((id) => id !== owner.id));
-    showToast('已婉拒招呼');
+  async function rejectGreeting(owner: NearbyOwner) {
+    const result = await lumiiApi.social.rejectGreeting(owner.id);
+    if (result.data) {
+      setGreetingRequestOwners((items) => items.filter((item) => item.id !== owner.id));
+      showToast('已婉拒招呼');
+    } else {
+      showToast(result.error?.message ?? '操作失败，请稍后重试');
+    }
   }
 
-  function acceptGreeting(owner: NearbyOwner) {
-    setGreetingRequestOwnerIds((items) => items.filter((id) => id !== owner.id));
-    setConversations((items) => [
-      { id: `accepted-${owner.id}-${Date.now()}`, lastMessage: '我们已经互相打招呼啦', name: `${owner.ownerName}和${owner.petName}`, unread: 0 },
-      ...items,
-    ]);
-    replace('messages');
-    showToast('已接受招呼');
+  async function acceptGreeting(owner: NearbyOwner) {
+    const result = await lumiiApi.social.acceptGreeting(owner.id);
+    if (result.data) {
+      setGreetingRequestOwners((items) => items.filter((item) => item.id !== owner.id));
+      if (result.data.conversation) {
+        setConversations((items) => [result.data!.conversation!, ...items.filter((item) => item.id !== result.data!.conversation!.id)]);
+      }
+      replace('messages');
+      showToast('已接受招呼');
+    } else {
+      showToast(result.error?.message ?? '操作失败，请稍后重试');
+    }
   }
 
   async function sendConversationMessage() {
@@ -1725,7 +1748,7 @@ export default function LumiiMvpApp() {
           <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={styles.makeIconChip}>
             <ChevronLeft color={palette.ink} size={20} strokeWidth={2.5} />
           </Pressable>
-          <PetAvatar uri={owners[0]?.imageUrl ?? generatedGoldenAvatarUri} size={38} />
+          <PetAvatar uri={conversation?.imageUrl ?? owners[0]?.imageUrl ?? generatedGoldenAvatarUri} size={38} />
           <View style={styles.flex}>
             <Text style={styles.chatMakeName}>{conversation?.name ?? '附近主人'}</Text>
             <View style={styles.chatOnlineRow}>
@@ -1752,7 +1775,7 @@ export default function LumiiMvpApp() {
               </View>
             ) : (
               <View key={message.id} style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
-                {message.author === 'other' ? <PetAvatar uri={owners[0]?.imageUrl ?? generatedGoldenAvatarUri} size={26} /> : null}
+                {message.author === 'other' ? <PetAvatar uri={conversation?.imageUrl ?? owners[0]?.imageUrl ?? generatedGoldenAvatarUri} size={26} /> : null}
                 <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
                   <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
                 </View>
@@ -2282,13 +2305,13 @@ export default function LumiiMvpApp() {
           <View style={styles.messagesListMake}>
           {conversations.map((conversation) => (
             <Pressable key={conversation.id} onPress={() => void openConversation(conversation)} style={styles.conversationMakeRow}>
-              <PetAvatar uri={conversation.id === 'c1' ? generatedGoldenAvatarUri : owners[0]?.imageUrl} size={50} />
+              <PetAvatar uri={conversation.imageUrl ?? (conversation.id === 'c1' ? generatedGoldenAvatarUri : owners[0]?.imageUrl)} size={50} />
               <View style={styles.flex}>
                 <Text numberOfLines={1} style={styles.conversationMakeTitle}>{conversation.name}</Text>
                 <Text numberOfLines={1} style={styles.conversationMakeText}>{conversation.lastMessage}</Text>
               </View>
               <View style={styles.conversationMetaCol}>
-                <Text style={styles.metaText}>{conversation.id === 'c1' ? '09:32' : '刚刚'}</Text>
+                <Text style={styles.metaText}>{conversation.updatedAt ?? (conversation.id === 'c1' ? '09:32' : '刚刚')}</Text>
                 {conversation.unread > 0 ? <Text style={styles.unreadBadge}>{conversation.unread}</Text> : null}
               </View>
             </Pressable>
@@ -2588,8 +2611,8 @@ export default function LumiiMvpApp() {
                 <Text style={styles.timelineTitleMake}>{owner.ownerName}和{owner.petName}</Text>
                 <Text style={styles.timelineSubMake}>{index === 0 ? '想认识你和奶油，今晚也在附近散步。' : '向你发送了友好的招呼。'}</Text>
                 <View style={styles.requestActionRow}>
-                  <Button onPress={() => rejectGreeting(owner)} tone="ghost">婉拒</Button>
-                  <Button onPress={() => acceptGreeting(owner)}>接受</Button>
+                  <Button onPress={() => void rejectGreeting(owner)} tone="ghost">婉拒</Button>
+                  <Button onPress={() => void acceptGreeting(owner)}>接受</Button>
                 </View>
               </View>
             </View>

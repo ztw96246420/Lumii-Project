@@ -173,6 +173,18 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<GreetingResult>('POST', '/social/greetings', { ownerId });
       },
 
+      async listGreetingRequests(): Promise<ApiResult<NearbyOwner[]>> {
+        return request<NearbyOwner[]>('GET', '/social/greeting-requests');
+      },
+
+      async acceptGreeting(ownerId: string): Promise<ApiResult<GreetingResult>> {
+        return request<GreetingResult>('POST', `/social/greeting-requests/${encodeURIComponent(ownerId)}/accept`);
+      },
+
+      async rejectGreeting(ownerId: string): Promise<ApiResult<{ ownerId: string; rejected: true }>> {
+        return request<{ ownerId: string; rejected: true }>('POST', `/social/greeting-requests/${encodeURIComponent(ownerId)}/reject`);
+      },
+
       async createWalkInvite(ownerId: string, input?: WalkInviteInput): Promise<ApiResult<WalkInviteResult>> {
         return request<WalkInviteResult>('POST', '/social/walk-invites', { note: input?.note, ownerId, place: input?.place, time: input?.time });
       },
@@ -193,6 +205,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
 
       async sendConversationMessage(conversationId: string, text: string): Promise<ApiResult<ConversationMessage>> {
         return request<ConversationMessage>('POST', `/conversations/${encodeURIComponent(conversationId)}/messages`, { text });
+      },
+
+      async markConversationRead(conversationId: string): Promise<ApiResult<true>> {
+        return request<true>('POST', `/conversations/${encodeURIComponent(conversationId)}/read`);
       },
 
       async listNotifications(): Promise<ApiResult<NotificationItem[]>> {

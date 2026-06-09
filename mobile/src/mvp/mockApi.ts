@@ -95,9 +95,11 @@ const owners: NearbyOwner[] = [
 ];
 
 const conversations: Conversation[] = [
-  { id: 'c1', name: '林然和奶油', lastMessage: '今晚 7 点公园见？', unread: 1 },
+  { id: 'c1', imageUrl: owners[0]?.imageUrl, name: '林然和奶油', lastMessage: '今晚 7 点公园见？', ownerId: owners[0]?.id, petName: '奶油', unread: 1 },
   { id: 'c2', name: '地点审核通知', lastMessage: '你提交的地点已进入审核。', unread: 0 },
 ];
+
+let greetingRequests: NearbyOwner[] = [];
 
 let conversationMessagesById: Record<string, ConversationMessage[]> = {
   c1: [{ author: 'other', id: 'c1-welcome', text: '今晚 7 点公园见？', time: '09:32' }],
@@ -284,15 +286,51 @@ export const mockApi = {
       const owner = owners.find((item) => item.id === ownerId);
       const conversation: Conversation = {
         id: `greeting-${ownerId}`,
+        imageUrl: owner?.imageUrl,
         lastMessage: '我想认识你和你的毛孩子',
         name: owner ? `${owner.ownerName}和${owner.petName}` : '附近主人',
+        ownerId,
+        petName: owner?.petName,
         unread: 0,
+        updatedAt: '刚刚',
       };
       conversations.unshift(conversation);
       conversationMessagesById[conversation.id] = [
         { author: 'me', id: `${conversation.id}-hello`, status: 'sent', text: conversation.lastMessage, time: '刚刚' },
       ];
       return success({ conversation, ownerId, sent: true });
+    },
+
+    async listGreetingRequests(): Promise<ApiResult<NearbyOwner[]>> {
+      await wait(160);
+      return success(greetingRequests);
+    },
+
+    async acceptGreeting(ownerId: string): Promise<ApiResult<GreetingResult>> {
+      await wait();
+      const owner = greetingRequests.find((item) => item.id === ownerId) ?? owners.find((item) => item.id === ownerId);
+      greetingRequests = greetingRequests.filter((item) => item.id !== ownerId);
+      const conversation: Conversation = {
+        id: `accepted-${ownerId}`,
+        imageUrl: owner?.imageUrl,
+        lastMessage: '我们已经互相打招呼啦',
+        name: owner ? `${owner.ownerName}和${owner.petName}` : '附近主人',
+        ownerId,
+        petName: owner?.petName,
+        unread: 0,
+        updatedAt: '刚刚',
+      };
+      conversations.unshift(conversation);
+      conversationMessagesById[conversation.id] = [
+        { author: 'system', id: `${conversation.id}-system`, text: '你们已经互相打招呼，可以开始聊天。', time: '刚刚' },
+      ];
+      return success({ conversation, ownerId, sent: true });
+    },
+
+    async rejectGreeting(ownerId: string): Promise<ApiResult<{ ownerId: string; rejected: true }>> {
+      await wait();
+      greetingRequests = greetingRequests.filter((item) => item.id !== ownerId);
+      return success({ ownerId, rejected: true });
     },
 
     async createWalkInvite(ownerId: string, input?: WalkInviteInput): Promise<ApiResult<WalkInviteResult>> {
@@ -302,9 +340,13 @@ export const mockApi = {
       const message = `${input?.time ?? '今天'} · ${input?.place ?? '附近宠物友好地点'}`;
       const conversation: Conversation = {
         id: `walk-${ownerId}-${Date.now()}`,
+        imageUrl: owner?.imageUrl,
         lastMessage: message,
         name: owner ? `${owner.ownerName}和${owner.petName}` : '附近主人',
+        ownerId,
+        petName: owner?.petName,
         unread: 0,
+        updatedAt: '刚刚',
       };
       conversations.unshift(conversation);
       conversationMessagesById[conversation.id] = [
@@ -337,6 +379,13 @@ export const mockApi = {
       const message: ConversationMessage = { author: 'me', id: `conv-${Date.now()}`, status: 'sent', text, time: '刚刚' };
       conversationMessagesById[conversationId] = [...(conversationMessagesById[conversationId] ?? []), message];
       return success(message);
+    },
+
+    async markConversationRead(conversationId: string): Promise<ApiResult<true>> {
+      await wait(100);
+      const conversation = conversations.find((item) => item.id === conversationId);
+      if (conversation) conversation.unread = 0;
+      return success(true);
     },
 
     async listNotifications(): Promise<ApiResult<NotificationItem[]>> {
