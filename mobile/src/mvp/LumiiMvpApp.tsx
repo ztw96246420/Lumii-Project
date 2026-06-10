@@ -87,6 +87,7 @@ import type {
 
 const smsCooldownMs = 60 * 1000;
 const defaultDiscoverRadiusKm = 3;
+const petChatDailySoftLimit = 60;
 const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
 
@@ -201,6 +202,19 @@ const defaultMapCenter = {
   zoom: 14,
 };
 
+type MapVisualMode = 'lumii' | 'night' | 'satellite' | 'standard';
+
+const mapStyleOptions: Array<{
+  description: string;
+  key: MapVisualMode;
+  label: string;
+}> = [
+  { description: '柔和暖色，适合日常浏览宠物友好地点', key: 'lumii', label: '灵伴' },
+  { description: '高德默认底图，信息最完整', key: 'standard', label: '标准' },
+  { description: '真实地貌视角，适合看公园和草地', key: 'satellite', label: '卫星' },
+  { description: '低亮度模式，夜间查看更舒服', key: 'night', label: '夜间' },
+];
+
 type ConfirmState = {
   body: string;
   confirmText?: string;
@@ -263,6 +277,31 @@ function formatDueLabel(dueAt?: string) {
   return `${days} 天后`;
 }
 
+function daysUntilDate(dateText?: string) {
+  if (!dateText) return null;
+  const due = new Date(`${dateText}T00:00:00`);
+  if (Number.isNaN(due.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.ceil((due.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function isVaccineReminderUrgent(vaccine: VaccinePlan) {
+  const days = daysUntilDate(vaccine.dueAt);
+  return vaccine.status !== 'done' && days !== null && days <= 7;
+}
+
+function vaccineReminderCopy(vaccine?: VaccinePlan) {
+  if (!vaccine) return '暂无待提醒计划';
+  if (vaccine.status === 'done') return '已完成';
+  const days = daysUntilDate(vaccine.dueAt);
+  if (days === null) return '待提醒';
+  if (days < 0) return `已逾期 ${Math.abs(days)} 天`;
+  if (days === 0) return '今天到期';
+  if (days <= 7) return `${days} 天后到期`;
+  return formatDueLabel(vaccine.dueAt);
+}
+
 function mergePermissionState(...states: Array<Partial<PermissionStateMap> | null | undefined>): PermissionStateMap {
   return states.reduce<PermissionStateMap>((next, state) => ({ ...next, ...(state ?? {}) }), { ...initialPermissions });
 }
@@ -316,6 +355,9 @@ export default function LumiiMvpApp() {
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([createPetChatWelcomeMessage()]);
   const [chatInput, setChatInput] = useState('');
+  const [chatFeedbackById, setChatFeedbackById] = useState<Record<string, 'good' | 'off'>>({});
+  const [chatReplying, setChatReplying] = useState(false);
+  const [petChatDailyCount, setPetChatDailyCount] = useState(0);
   const [weights, setWeights] = useState<WeightRecord[]>([]);
   const [vaccines, setVaccines] = useState<VaccinePlan[]>([]);
   const [vaccineReminderIds, setVaccineReminderIds] = useState<string[]>([]);
@@ -345,11 +387,15 @@ export default function LumiiMvpApp() {
   const [favoritePlaceIds, setFavoritePlaceIds] = useState<string[]>([]);
   const [locatingMap, setLocatingMap] = useState(false);
   const [mapCenter, setMapCenter] = useState(defaultMapCenter);
+  const [mapStyleKey, setMapStyleKey] = useState<MapVisualMode>('lumii');
+  const [mapTrafficEnabled, setMapTrafficEnabled] = useState(false);
+  const [mapStylePanelVisible, setMapStylePanelVisible] = useState(false);
   const [placeDraftAddress, setPlaceDraftAddress] = useState('滨江路 88 号');
   const [placeDraftName, setPlaceDraftName] = useState('云杉宠物友好公园');
   const [placeReview, setPlaceReview] = useState('');
   const [placeReviewStatus, setPlaceReviewStatus] = useState<'idle' | 'pending_review'>('idle');
   const [userSettings, setUserSettings] = useState<UserSettings>(defaultUserSettings);
+  const healthReminderNotifiedRef = useRef<Set<string>>(new Set());
 
   const currentTab = useMemo<AppTab | null>(() => {
     if (route === 'health' || route === 'emptyPet') return 'home';
@@ -359,6 +405,7 @@ export default function LumiiMvpApp() {
   const showBottomTabs = Boolean(session && currentTab);
   const cooldownRemaining = Math.min(60, Math.max(0, Math.ceil((cooldownUntil - clock) / 1000)));
   const pendingVaccines = useMemo(() => vaccines.filter((item) => item.status !== 'done'), [vaccines]);
+  const urgentVaccines = useMemo(() => pendingVaccines.filter(isVaccineReminderUrgent), [pendingVaccines]);
 
   const showToast = useCallback((message: string) => setToast(message), []);
 
@@ -438,9 +485,43 @@ export default function LumiiMvpApp() {
   }, [route, session]);
 
   useEffect(() => {
+    if (!session || !['greetingRequests', 'messages', 'notifications'].includes(route)) return undefined;
+    const id = setInterval(() => {
+      void loadInboxData();
+    }, 6000);
+    return () => clearInterval(id);
+  }, [route, session]);
+
+  useEffect(() => {
+    if (!session || route !== 'conversation' || !selectedConversation?.id) return undefined;
+    const id = setInterval(() => {
+      void loadConversationMessages(selectedConversation.id, { markRead: true, silent: true });
+    }, 5000);
+    return () => clearInterval(id);
+  }, [route, selectedConversation?.id, session]);
+
+  useEffect(() => {
     if (!session || route !== 'chat') return;
     void loadPetChatMessages();
   }, [route, session, activePet?.id]);
+
+  useEffect(() => {
+    if (!session || !urgentVaccines.length) return;
+    const enabledUrgentVaccines = urgentVaccines.filter((vaccine) => vaccineReminderIds.includes(vaccine.id));
+    if (!enabledUrgentVaccines.length) return;
+    const newNotifications = enabledUrgentVaccines
+      .filter((vaccine) => !healthReminderNotifiedRef.current.has(vaccine.id))
+      .map((vaccine) => {
+        healthReminderNotifiedRef.current.add(vaccine.id);
+        return {
+          id: `health-reminder-${vaccine.id}-${Date.now()}`,
+          read: false,
+          text: `${vaccine.name}：${vaccineReminderCopy(vaccine)}，记得确认宠物医院建议时间。`,
+          title: '健康提醒',
+        };
+      });
+    if (newNotifications.length) setNotifications((items) => [...newNotifications, ...items]);
+  }, [session, urgentVaccines, vaccineReminderIds]);
 
   useEffect(() => {
     if (route !== 'generating' || !avatarJob || avatarJob.status !== 'processing') return undefined;
@@ -483,10 +564,37 @@ export default function LumiiMvpApp() {
     if (notificationResult.data) setNotifications(notificationResult.data);
   }
 
+  function setConversationMessagesFromServer(messages: ConversationMessage[]) {
+    const cleanMessages = messages.filter((message) => message.author !== 'system');
+    setConversationMessages((current) => {
+      const localPending = current.filter(
+        (message) =>
+          message.author === 'me' &&
+          (message.status === 'sending' || message.status === 'failed') &&
+          !cleanMessages.some((serverMessage) => serverMessage.id === message.id),
+      );
+      return [createConversationSafetyMessage(), ...cleanMessages, ...localPending];
+    });
+  }
+
+  async function loadConversationMessages(conversationId: string, options: { markRead?: boolean; silent?: boolean } = {}) {
+    const result = await lumiiApi.messages.listConversationMessages(conversationId);
+    if (result.data) {
+      setConversationMessagesFromServer(result.data);
+      if (options.markRead) {
+        void lumiiApi.messages.markConversationRead(conversationId);
+        setConversations((items) => items.map((item) => (item.id === conversationId ? { ...item, unread: 0 } : item)));
+      }
+    } else if (!options.silent) {
+      showToast(result.error?.message ?? '聊天记录加载失败');
+    }
+  }
+
   async function loadPetChatMessages() {
     const result = await lumiiApi.messages.listPetChatMessages();
     if (result.data) {
       setChatMessages(result.data.length ? result.data : [createPetChatWelcomeMessage(activePet)]);
+      setPetChatDailyCount(result.data.filter((message) => message.author === 'me').length);
     } else {
       setChatMessages((items) => (items.length ? items : [createPetChatWelcomeMessage(activePet)]));
       showToast(result.error?.message ?? '灵伴聊天记录加载失败');
@@ -761,19 +869,42 @@ export default function LumiiMvpApp() {
     }
   }
 
-  async function sendChatMessage() {
-    const text = chatInput.trim();
+  async function sendChatMessage(textOverride?: string, retryMessageId?: string) {
+    const text = (textOverride ?? chatInput).trim();
     if (!text) return;
-    const local: ChatMessage = { author: 'me', id: `me-${Date.now()}`, status: 'sending', text, time: '刚刚' };
-    setChatInput('');
-    setChatMessages((items) => [...items, local]);
-    const result = await lumiiApi.messages.sendMessage(text);
-    setChatMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: result.data ? 'sent' : 'failed' } : item)));
-    if (result.data) {
-      setChatMessages((items) => [...items, result.data!]);
-    } else {
-      showToast(result.error?.message ?? '消息发送失败');
+    if (chatReplying) {
+      showToast('等灵伴回复完再继续聊');
+      return;
     }
+    if (petChatDailyCount >= petChatDailySoftLimit) {
+      showToast('今天和灵伴聊得很多啦，稍后再继续');
+      return;
+    }
+    const local: ChatMessage = retryMessageId
+      ? { author: 'me', id: retryMessageId, status: 'sending', text, time: '刚刚' }
+      : { author: 'me', id: `me-${Date.now()}`, status: 'sending', text, time: '刚刚' };
+    if (!retryMessageId) setChatInput('');
+    setChatReplying(true);
+    setChatMessages((items) =>
+      retryMessageId ? items.map((item) => (item.id === retryMessageId ? local : item)) : [...items, local],
+    );
+    try {
+      const result = await lumiiApi.messages.sendMessage(text);
+      setChatMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: result.data ? 'sent' : 'failed' } : item)));
+      if (result.data) {
+        setPetChatDailyCount((count) => count + 1);
+        setChatMessages((items) => [...items, result.data!]);
+      } else {
+        showToast(result.error?.message ?? '消息发送失败');
+      }
+    } finally {
+      setChatReplying(false);
+    }
+  }
+
+  function ratePetChatReply(messageId: string, rating: 'good' | 'off') {
+    setChatFeedbackById((items) => ({ ...items, [messageId]: rating }));
+    showToast(rating === 'good' ? '已记录：这个回复像它' : '已记录：后续会让灵伴更贴近它');
   }
 
   async function openConversation(conversation: Conversation) {
@@ -781,15 +912,7 @@ export default function LumiiMvpApp() {
     setConversations((items) => items.map((item) => (item.id === conversation.id ? { ...item, unread: 0 } : item)));
     setConversationMessages([createConversationSafetyMessage()]);
     go('conversation');
-    const [result] = await Promise.all([
-      lumiiApi.messages.listConversationMessages(conversation.id),
-      lumiiApi.messages.markConversationRead(conversation.id),
-    ]);
-    if (result.data) {
-      setConversationMessages([createConversationSafetyMessage(), ...result.data.filter((message) => message.author !== 'system')]);
-    } else {
-      showToast(result.error?.message ?? '聊天记录加载失败');
-    }
+    await loadConversationMessages(conversation.id, { markRead: true });
   }
 
   async function rejectGreeting(owner: NearbyOwner) {
@@ -1795,12 +1918,42 @@ export default function LumiiMvpApp() {
           {chatMessages.map((message) => (
             <View key={message.id} style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
               {message.author === 'ai' ? <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={26} /> : null}
-              <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
-                <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
+              <View style={styles.chatBubbleColumn}>
+                <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
+                  <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
+                </View>
+                {message.author === 'ai' ? (
+                  <View style={styles.chatFeedbackRow}>
+                    {(['good', 'off'] as const).map((rating) => (
+                      <Pressable
+                        key={rating}
+                        onPress={() => ratePetChatReply(message.id, rating)}
+                        style={[styles.chatFeedbackChip, chatFeedbackById[message.id] === rating && styles.chatFeedbackChipActive]}
+                      >
+                        <Text style={[styles.chatFeedbackText, chatFeedbackById[message.id] === rating && styles.chatFeedbackTextActive]}>
+                          {rating === 'good' ? '像它' : '不像它'}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
               </View>
-              {message.status === 'failed' ? <Text style={styles.inlineError}>失败</Text> : null}
+              {message.status === 'failed' ? (
+                <Pressable onPress={() => void sendChatMessage(message.text, message.id)} style={styles.inlineRetryButton}>
+                  <Text style={styles.inlineRetryText}>重试</Text>
+                </Pressable>
+              ) : null}
             </View>
           ))}
+          {chatReplying ? (
+            <View style={styles.chatMakeBubbleRow}>
+              <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={26} />
+              <View style={[styles.chatMakeBubble, styles.chatTypingBubble]}>
+                <ActivityIndicator color={palette.orange} size="small" />
+                <Text style={styles.chatTypingText}>{pet?.name ?? '灵伴'}正在回复...</Text>
+              </View>
+            </View>
+          ) : null}
           <View style={styles.chatTopicRow}>
             {['今天吃什么？', '健康提醒', '陪我聊天'].map((topic) => (
               <Pressable key={topic} onPress={() => setChatInput(topic)} style={styles.chatTopicChip}>
@@ -1818,9 +1971,10 @@ export default function LumiiMvpApp() {
             value={chatInput}
           />
           <Pressable onPress={() => void sendChatMessage()} style={styles.sendButton}>
-            <Send color="#fff" size={18} strokeWidth={2.4} />
+            {chatReplying ? <ActivityIndicator color="#fff" size="small" /> : <Send color="#fff" size={18} strokeWidth={2.4} />}
           </Pressable>
         </View>
+        <Text style={styles.chatQuotaHint}>今日 AI 对话 {petChatDailyCount}/{petChatDailySoftLimit} · 失败可重试，优先保留近 10 条上下文</Text>
       </Screen>
     );
   }
@@ -1912,9 +2066,22 @@ export default function LumiiMvpApp() {
 
         <View style={styles.healthSectionStack}>
           <HealthMakeRow Icon={Weight} badge={formatWeightKg(latestWeight)} onPress={() => go('weight')} subtitle={weightSubtitle} title="体重趋势" tone="warm" />
-          <HealthMakeRow Icon={Syringe} badge={pendingVaccines.length ? `${pendingVaccines.length} 项` : '已完成'} onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${nextHealthVaccine.status === 'done' ? '已完成' : '待提醒'}` : '暂无计划'} title="疫苗计划" tone="cool" />
+          <HealthMakeRow Icon={Syringe} badge={urgentVaccines.length ? `${urgentVaccines.length} 项临近` : pendingVaccines.length ? `${pendingVaccines.length} 项` : '已完成'} onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${vaccineReminderCopy(nextHealthVaccine)}` : '暂无计划'} title="疫苗计划" tone="cool" />
           <HealthMakeRow Icon={CalendarDays} badge={`${memos.length} 条`} onPress={() => go('healthMemos')} subtitle={memoSubtitle} title="健康备忘" tone="warm" />
         </View>
+
+        {urgentVaccines.length ? (
+          <Pressable onPress={() => go('vaccine')} style={styles.healthReminderCard}>
+            <View style={styles.healthReminderIcon}>
+              <Bell color={palette.orange} size={18} strokeWidth={2.4} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.healthReminderTitle}>有 {urgentVaccines.length} 项健康提醒需要关注</Text>
+              <Text style={styles.healthReminderText}>{urgentVaccines.slice(0, 2).map((item) => `${item.name} ${vaccineReminderCopy(item)}`).join(' · ')}</Text>
+            </View>
+            <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
+          </Pressable>
+        ) : null}
 
         <View style={styles.healthMemoMake}>
           <Text style={styles.sectionTitle}>快速备忘</Text>
@@ -2058,11 +2225,12 @@ export default function LumiiMvpApp() {
   function renderVaccine() {
     const nextVaccine = pendingVaccines[0] ?? vaccines[0];
     const nextVaccineDueLabel = formatDueLabel(nextVaccine?.dueAt);
+    const nextVaccineReminderLabel = vaccineReminderCopy(nextVaccine);
     return (
       <Screen title="疫苗计划">
         <View style={styles.vaccineHeroMake}>
           <View style={styles.flex}>
-            <Text style={styles.vaccineDuePill}>{nextVaccine?.status === 'done' ? '已完成' : nextVaccineDueLabel}</Text>
+            <Text style={styles.vaccineDuePill}>{nextVaccine?.status === 'done' ? '已完成' : nextVaccineReminderLabel}</Text>
             <Text style={styles.vaccineHeroTitle}>{nextVaccine?.name ?? '暂无计划'}</Text>
             <View style={styles.chatOnlineRow}>
               <CalendarDays color={palette.muted} size={12} strokeWidth={2.3} />
@@ -2088,9 +2256,9 @@ export default function LumiiMvpApp() {
                 <View style={[styles.timelineDotMake, item.status === 'done' && styles.timelineDotCool]} />
                 <View style={styles.flex}>
                   <Text style={styles.timelineTitleMake}>{item.name}</Text>
-                  <Text style={styles.timelineSubMake}>{item.status === 'done' ? '已完成' : vaccineReminderIds.includes(item.id) ? '提醒已开启' : '待提醒'} · {item.dueAt}</Text>
+                  <Text style={styles.timelineSubMake}>{item.status === 'done' ? '已完成' : vaccineReminderIds.includes(item.id) ? `提醒已开启 · ${vaccineReminderCopy(item)}` : vaccineReminderCopy(item)} · {item.dueAt}</Text>
                 </View>
-                <StatusPill tone={item.status === 'done' ? 'success' : 'neutral'}>{item.status === 'done' ? '完成' : '计划中'}</StatusPill>
+                <StatusPill tone={item.status === 'done' ? 'success' : isVaccineReminderUrgent(item) ? 'danger' : 'neutral'}>{item.status === 'done' ? '完成' : isVaccineReminderUrgent(item) ? '临近' : '计划中'}</StatusPill>
               </View>
               {index < vaccines.length - 1 ? <View style={styles.makeDivider} /> : null}
             </View>
@@ -2187,28 +2355,47 @@ export default function LumiiMvpApp() {
     const filteredPlaces = placeFilter === 'all' ? places : places.filter((place) => place.category === placeFilter);
     const visiblePlaces = filteredPlaces.length ? filteredPlaces : places;
     const highlightedPlace = visiblePlaces[0];
+    const mapStyle = mapStyleOptions.find((item) => item.key === mapStyleKey) ?? mapStyleOptions[0];
     return (
       <Screen showBack={false} title="">
         <View style={styles.mapPageFull}>
-          <View style={styles.mapFauxFull}>
+          <View
+            style={[
+              styles.mapFauxFull,
+              mapStyleKey === 'standard' && styles.mapFauxFullStandard,
+              mapStyleKey === 'satellite' && styles.mapFauxFullSatellite,
+              mapStyleKey === 'night' && styles.mapFauxFullNight,
+            ]}
+          >
             {isLumiiAmapAvailable ? (
-              <LumiiAmapView
-                latitude={mapCenter.latitude}
-                longitude={mapCenter.longitude}
-                markerSnippet={mapCenter.markerSnippet}
-                markerTitle={mapCenter.markerTitle}
-                style={styles.nativeAmap}
-                zoom={mapCenter.zoom}
-              />
+              <>
+                <LumiiAmapView
+                  latitude={mapCenter.latitude}
+                  longitude={mapCenter.longitude}
+                  mapType={mapStyleKey}
+                  markerSnippet={mapCenter.markerSnippet}
+                  markerTitle={mapCenter.markerTitle}
+                  showTraffic={mapTrafficEnabled}
+                  style={styles.nativeAmap}
+                  zoom={mapCenter.zoom}
+                />
+                {mapStyleKey === 'lumii' ? <View pointerEvents="none" style={styles.mapNativeWarmOverlay} /> : null}
+              </>
             ) : (
               <>
-                <View style={styles.mapWaterPatch} />
-                <View style={styles.mapGreenPatchA} />
-                <View style={styles.mapGreenPatchB} />
-                <View style={styles.mapRoadMain} />
-                <View style={styles.mapRoadSecond} />
-                <View style={styles.mapRoadThird} />
-                <Text style={styles.mapAreaLabel}>滨江绿地</Text>
+                <View style={[styles.mapWaterPatch, mapStyleKey === 'night' && styles.mapWaterPatchNight, mapStyleKey === 'satellite' && styles.mapWaterPatchSatellite]} />
+                <View style={[styles.mapGreenPatchA, mapStyleKey === 'night' && styles.mapGreenPatchNight, mapStyleKey === 'satellite' && styles.mapGreenPatchSatellite]} />
+                <View style={[styles.mapGreenPatchB, mapStyleKey === 'night' && styles.mapGreenPatchNight, mapStyleKey === 'satellite' && styles.mapGreenPatchSatellite]} />
+                <View style={[styles.mapRoadMain, mapStyleKey === 'night' && styles.mapRoadNight, mapStyleKey === 'satellite' && styles.mapRoadSatellite]} />
+                <View style={[styles.mapRoadSecond, mapStyleKey === 'night' && styles.mapRoadNight, mapStyleKey === 'satellite' && styles.mapRoadSatellite]} />
+                <View style={[styles.mapRoadThird, mapStyleKey === 'night' && styles.mapRoadNight, mapStyleKey === 'satellite' && styles.mapRoadSatellite]} />
+                {mapTrafficEnabled ? (
+                  <>
+                    <View style={styles.mapTrafficLineA} />
+                    <View style={styles.mapTrafficLineB} />
+                  </>
+                ) : null}
+                <Text style={[styles.mapAreaLabel, mapStyleKey === 'night' && styles.mapAreaLabelNight]}>{mapStyleKey === 'satellite' ? '绿地实景' : '滨江绿地'}</Text>
                 <View style={styles.mapMarkerMain}>
                   <MapPin color="#fff" size={22} strokeWidth={2.4} />
                 </View>
@@ -2227,11 +2414,42 @@ export default function LumiiMvpApp() {
               <Pressable onPress={() => go('addPlaceReview')} style={styles.mapCtrlButton}>
                 <Plus color={palette.ink} size={16} strokeWidth={2.4} />
               </Pressable>
-              <Pressable onPress={() => showToast('将切换地图方向')} style={styles.mapCtrlButton}>
-                <Compass color={palette.ink} size={16} strokeWidth={2.4} />
+              <Pressable onPress={() => setMapStylePanelVisible((visible) => !visible)} style={[styles.mapCtrlButton, mapStylePanelVisible && styles.mapCtrlButtonActive]}>
+                <SlidersHorizontal color={mapStylePanelVisible ? '#fff' : palette.ink} size={16} strokeWidth={2.4} />
               </Pressable>
             </View>
           </View>
+
+          {mapStylePanelVisible ? (
+            <View style={styles.mapStylePanel}>
+              <View style={styles.mapStyleHeader}>
+                <View>
+                  <Text style={styles.mapStyleTitle}>地图样式</Text>
+                  <Text style={styles.mapStyleSubtitle}>{mapStyle.description}</Text>
+                </View>
+                <Text style={styles.mapStyleCurrent}>{mapStyle.label}</Text>
+              </View>
+              <View style={styles.mapStyleOptions}>
+                {mapStyleOptions.map((item) => (
+                  <Pressable
+                    key={item.key}
+                    onPress={() => setMapStyleKey(item.key)}
+                    style={[styles.mapStyleOption, mapStyleKey === item.key && styles.mapStyleOptionActive]}
+                  >
+                    <Text style={[styles.mapStyleOptionText, mapStyleKey === item.key && styles.mapStyleOptionTextActive]}>{item.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Pressable onPress={() => setMapTrafficEnabled((enabled) => !enabled)} style={styles.mapTrafficToggle}>
+                <Signal color={mapTrafficEnabled ? palette.orange : palette.muted} size={15} strokeWidth={2.4} />
+                <View style={styles.flex}>
+                  <Text style={styles.mapTrafficTitle}>实时路况</Text>
+                  <Text style={styles.mapTrafficSub}>{mapTrafficEnabled ? '已显示主要道路拥堵状态' : '关闭后底图更干净'}</Text>
+                </View>
+                <Text style={[styles.mapTrafficState, mapTrafficEnabled && styles.mapTrafficStateOn]}>{mapTrafficEnabled ? '开' : '关'}</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           <View style={styles.mapSearchFloatMake}>
             <Search color={palette.muted} size={16} strokeWidth={2.2} />
@@ -3217,6 +3435,7 @@ const styles = StyleSheet.create({
   cardTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '600', lineHeight: 22 },
   centerStage: { alignItems: 'center', gap: 16, justifyContent: 'center', minHeight: 520, paddingHorizontal: 16 },
   chatBubble: { alignSelf: 'flex-start', backgroundColor: palette.card, borderRadius: 18, maxWidth: '84%', padding: 12 },
+  chatBubbleColumn: { maxWidth: '82%' },
   chatBubbleMe: { alignSelf: 'flex-end', backgroundColor: palette.orange },
   chatComposer: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 8, padding: 8 },
   chatDateChip: { alignSelf: 'center', backgroundColor: 'rgba(122,121,114,0.12)', borderRadius: 12, color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 4 },
@@ -3230,8 +3449,14 @@ const styles = StyleSheet.create({
   chatMakeList: { gap: 10, marginTop: 14, minHeight: 480 },
   chatMakeName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', lineHeight: 20 },
   chatMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 22 },
+  chatFeedbackChip: { backgroundColor: 'rgba(255,255,255,0.72)', borderColor: palette.border, borderRadius: 999, borderWidth: 1, paddingHorizontal: 9, paddingVertical: 4 },
+  chatFeedbackChipActive: { backgroundColor: palette.orangeSoft, borderColor: 'rgba(255,138,92,0.42)' },
+  chatFeedbackRow: { flexDirection: 'row', gap: 6, marginLeft: 2, marginTop: 5 },
+  chatFeedbackText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700' },
+  chatFeedbackTextActive: { color: palette.orange },
   chatOnlineRow: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 2 },
   chatOnlineText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  chatQuotaHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 16, marginTop: 8, textAlign: 'center' },
   chatSafetyText: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17 },
   chatSafetyTip: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 9, marginTop: 12, paddingHorizontal: 12, paddingVertical: 10 },
   chatTopicChip: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 },
@@ -3239,6 +3464,8 @@ const styles = StyleSheet.create({
   chatTopicText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
   chatText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 20 },
   chatTextMe: { color: '#fff', fontWeight: '600' },
+  chatTypingBubble: { alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 42 },
+  chatTypingText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700' },
   checkbox: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 7, borderWidth: 1.2, height: 18, justifyContent: 'center', width: 18 },
   checkboxChecked: { backgroundColor: palette.orange, borderColor: palette.orange },
   content: { gap: 16, paddingBottom: 32, paddingHorizontal: 20, paddingTop: 18 },
@@ -3298,6 +3525,10 @@ const styles = StyleSheet.create({
   healthMemoEditorMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, gap: 14, padding: 16, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.07, shadowRadius: 24 },
   healthMemoIconMake: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },
   healthMemoMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, gap: 12, marginTop: 14, padding: 16 },
+  healthReminderCard: { alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.26)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 12, paddingHorizontal: 14, paddingVertical: 12, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.08, shadowRadius: 22 },
+  healthReminderIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 17, height: 34, justifyContent: 'center', width: 34 },
+  healthReminderText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17, marginTop: 2 },
+  healthReminderTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700', lineHeight: 19 },
   healthSectionStack: { gap: 10, marginTop: 14 },
   healthTimelineCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, marginTop: 14, paddingHorizontal: 16, paddingVertical: 14 },
   heroCard: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16 },
@@ -3336,6 +3567,8 @@ const styles = StyleSheet.create({
   iconButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.7)', borderColor: 'transparent', borderRadius: 18, borderWidth: 0, height: 36, justifyContent: 'center', width: 36 },
   inlineError: { color: palette.danger, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600' },
   inlineNotice: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600' },
+  inlineRetryButton: { alignItems: 'center', backgroundColor: '#ffdad6', borderRadius: 999, justifyContent: 'center', paddingHorizontal: 9, paddingVertical: 5 },
+  inlineRetryText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
   infoChip: { backgroundColor: palette.background, borderRadius: 14, color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 14, paddingVertical: 10, textAlign: 'center' },
   infoChipRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   label: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
@@ -3370,24 +3603,33 @@ const styles = StyleSheet.create({
   mapChipMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   mapChipMakeTextActive: { color: '#fff', fontWeight: '600' },
   mapContent: { flex: 1, position: 'relative' },
-  mapControlStack: { gap: 8, position: 'absolute', right: 16, top: 226 },
+  mapControlStack: { gap: 8, position: 'absolute', right: 16, top: 118 },
   mapCtrlButton: { alignItems: 'center', backgroundColor: 'rgba(255,253,249,0.94)', borderColor: 'rgba(234,223,210,0.86)', borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 5, width: 0 }, shadowOpacity: 0.1, shadowRadius: 10, width: 36 },
+  mapCtrlButtonActive: { backgroundColor: palette.ink, borderColor: palette.ink },
   mapEmptyCard: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 18, gap: 4, padding: 18 },
   mapFauxFull: { backgroundColor: '#eef2ec', height: 620, overflow: 'hidden', position: 'relative' },
+  mapFauxFullNight: { backgroundColor: '#17222b' },
+  mapFauxFullSatellite: { backgroundColor: '#2b3b32' },
+  mapFauxFullStandard: { backgroundColor: '#edf1ec' },
   mapFilterFloat: { gap: 8, paddingHorizontal: 14 },
   mapFilterFloatMake: { gap: 8, paddingHorizontal: 16 },
   mapFilterScroller: { left: 0, position: 'absolute', right: 0, top: 74, zIndex: 2 },
   mapFilterScrollerMake: { left: 0, position: 'absolute', right: 0, top: 64, zIndex: 4 },
   mapGreenPatchA: { backgroundColor: '#cfe7d2', borderRadius: 36, height: 122, left: -26, opacity: 0.96, position: 'absolute', top: 34, transform: [{ rotate: '-18deg' }], width: 150 },
   mapGreenPatchB: { backgroundColor: '#dcefd8', borderRadius: 46, bottom: 44, height: 126, opacity: 0.96, position: 'absolute', right: -34, transform: [{ rotate: '16deg' }], width: 184 },
+  mapGreenPatchNight: { backgroundColor: '#244238', opacity: 0.88 },
+  mapGreenPatchSatellite: { backgroundColor: '#385f3d', opacity: 0.9 },
   mapHero: { backgroundColor: '#eef2ec', borderRadius: 26, height: 456, marginHorizontal: -6, overflow: 'hidden', position: 'relative' },
   mapMarkerMain: { alignItems: 'center', backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 999, borderWidth: 3, height: 48, justifyContent: 'center', left: '49%', position: 'absolute', top: '50%', shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.28, shadowRadius: 18, width: 48 },
   mapMarkerSmallA: { alignItems: 'center', backgroundColor: palette.card, borderColor: 'rgba(234,223,210,0.88)', borderRadius: 999, borderWidth: 1, height: 38, justifyContent: 'center', left: '25%', position: 'absolute', top: '29%', shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.12, shadowRadius: 12, width: 38 },
   mapMarkerSmallB: { alignItems: 'center', backgroundColor: palette.card, borderColor: 'rgba(234,223,210,0.88)', borderRadius: 999, borderWidth: 1, bottom: 92, height: 34, justifyContent: 'center', position: 'absolute', right: 86, shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.12, shadowRadius: 12, width: 34 },
+  mapNativeWarmOverlay: { backgroundColor: 'rgba(255,244,229,0.18)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
   nativeAmap: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
   mapPage: { gap: 0 },
   mapPageFull: { flex: 1, position: 'relative' },
   mapRoadMain: { backgroundColor: '#fffaf4', borderColor: 'rgba(218,206,192,0.82)', borderRadius: 999, borderWidth: 1, height: 23, left: -44, position: 'absolute', right: -36, top: 178, transform: [{ rotate: '-11deg' }] },
+  mapRoadNight: { backgroundColor: '#263749', borderColor: 'rgba(130,158,172,0.24)' },
+  mapRoadSatellite: { backgroundColor: '#d0d0bd', borderColor: 'rgba(255,255,255,0.28)', opacity: 0.58 },
   mapRoadSecond: { backgroundColor: '#fffaf4', borderColor: 'rgba(218,206,192,0.72)', borderRadius: 999, borderWidth: 1, bottom: 106, height: 19, left: -30, position: 'absolute', right: -22, transform: [{ rotate: '19deg' }] },
   mapRoadThird: { backgroundColor: '#fffaf4', borderColor: 'rgba(218,206,192,0.68)', borderRadius: 999, borderWidth: 1, height: 18, left: 148, position: 'absolute', top: -20, transform: [{ rotate: '82deg' }], width: 18 },
   mapSearchAction: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },
@@ -3396,7 +3638,27 @@ const styles = StyleSheet.create({
   mapSearchFloatMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.95)', borderColor: 'rgba(255,255,255,0.85)', borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 8, height: 48, left: 16, paddingLeft: 16, paddingRight: 10, position: 'absolute', right: 16, shadowColor: '#000', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.14, shadowRadius: 30, top: 6, zIndex: 5 },
   mapSearchInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, minHeight: 40 },
   mapSheetHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 2 },
+  mapStyleCurrent: { backgroundColor: palette.orangeSoft, borderRadius: 999, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
+  mapStyleHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 12, justifyContent: 'space-between' },
+  mapStyleOption: { alignItems: 'center', backgroundColor: palette.background, borderColor: palette.border, borderRadius: 14, borderWidth: 1, flex: 1, minHeight: 34, justifyContent: 'center', paddingHorizontal: 8 },
+  mapStyleOptionActive: { backgroundColor: palette.ink, borderColor: palette.ink },
+  mapStyleOptions: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  mapStyleOptionText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  mapStyleOptionTextActive: { color: '#fff' },
+  mapStylePanel: { backgroundColor: 'rgba(255,255,255,0.96)', borderColor: 'rgba(255,255,255,0.9)', borderRadius: 22, borderWidth: 1, left: 16, padding: 12, position: 'absolute', right: 16, shadowColor: '#000', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.14, shadowRadius: 30, top: 78, zIndex: 7 },
+  mapStyleSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17, marginTop: 2, maxWidth: 238 },
+  mapStyleTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '800', lineHeight: 20 },
+  mapTrafficLineA: { backgroundColor: 'rgba(255,138,92,0.78)', borderRadius: 999, height: 4, left: 18, position: 'absolute', right: 70, top: 188, transform: [{ rotate: '-11deg' }], zIndex: 1 },
+  mapTrafficLineB: { backgroundColor: 'rgba(77,182,172,0.72)', borderRadius: 999, bottom: 116, height: 4, left: 82, position: 'absolute', right: 22, transform: [{ rotate: '19deg' }], zIndex: 1 },
+  mapTrafficState: { backgroundColor: palette.pale, borderRadius: 999, color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 4 },
+  mapTrafficStateOn: { backgroundColor: palette.orangeSoft, color: palette.orange },
+  mapTrafficSub: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 16, marginTop: 2 },
+  mapTrafficTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '800' },
+  mapTrafficToggle: { alignItems: 'center', backgroundColor: palette.background, borderRadius: 16, flexDirection: 'row', gap: 10, marginTop: 8, paddingHorizontal: 12, paddingVertical: 8 },
   mapWaterPatch: { backgroundColor: '#cfe8e7', borderRadius: 46, bottom: -34, height: 118, left: -28, opacity: 0.96, position: 'absolute', right: -34, transform: [{ rotate: '-7deg' }] },
+  mapWaterPatchNight: { backgroundColor: '#1d4350', opacity: 0.92 },
+  mapWaterPatchSatellite: { backgroundColor: '#244b56', opacity: 0.9 },
+  mapAreaLabelNight: { backgroundColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.76)' },
   mascot: { alignItems: 'center', backgroundColor: '#f2c28a', justifyContent: 'center', overflow: 'hidden' },
   makeIconChip: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', position: 'relative', width: 36 },
   makeBottomActions: { gap: 12, marginTop: 22 },

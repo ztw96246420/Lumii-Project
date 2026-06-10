@@ -19,9 +19,11 @@ class LumiiAmapNativeView(
   private var destroyed = false
   private var latitude = 23.1291
   private var longitude = 113.2644
+  private var mapType = "lumii"
   private var zoom = 14f
   private var markerTitle = "云杉宠物友好公园"
   private var markerSnippet = "滨江路 88 号"
+  private var showTraffic = false
 
   init {
     val nativeMapView = mapView
@@ -46,6 +48,11 @@ class LumiiAmapNativeView(
     updateCameraAndMarker()
   }
 
+  fun setMapType(value: String?) {
+    mapType = value?.takeIf { it.isNotBlank() } ?: "lumii"
+    applyMapPresentation()
+  }
+
   fun setZoom(value: Float) {
     zoom = value
     updateCameraAndMarker()
@@ -59,6 +66,11 @@ class LumiiAmapNativeView(
   fun setMarkerSnippet(value: String?) {
     markerSnippet = value?.takeIf { it.isNotBlank() } ?: "滨江路 88 号"
     updateCameraAndMarker()
+  }
+
+  fun setShowTraffic(value: Boolean) {
+    showTraffic = value
+    applyMapPresentation()
   }
 
   override fun onHostResume() {
@@ -80,12 +92,22 @@ class LumiiAmapNativeView(
 
   private fun configureMap() {
     val aMap = mapView?.map ?: return
-    aMap.mapType = AMap.MAP_TYPE_NORMAL
     aMap.uiSettings.isZoomControlsEnabled = false
     aMap.uiSettings.isScaleControlsEnabled = false
     aMap.uiSettings.isCompassEnabled = false
     aMap.uiSettings.isMyLocationButtonEnabled = false
+    applyMapPresentation()
     updateCameraAndMarker()
+  }
+
+  private fun applyMapPresentation() {
+    val aMap = mapView?.map ?: return
+    aMap.mapType = when (mapType) {
+      "satellite" -> AMap.MAP_TYPE_SATELLITE
+      "night" -> AMap.MAP_TYPE_NIGHT
+      else -> AMap.MAP_TYPE_NORMAL
+    }
+    aMap.setTrafficEnabled(showTraffic)
   }
 
   private fun updateCameraAndMarker() {

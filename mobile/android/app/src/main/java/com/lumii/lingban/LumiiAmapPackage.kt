@@ -137,6 +137,11 @@ class LumiiAmapViewManager : SimpleViewManager<LumiiAmapNativeView>() {
     view.setLongitude(value)
   }
 
+  @ReactProp(name = "mapType")
+  fun setMapType(view: LumiiAmapNativeView, value: String?) {
+    view.setMapType(value)
+  }
+
   @ReactProp(name = "zoom", defaultFloat = 14f)
   fun setZoom(view: LumiiAmapNativeView, value: Float) {
     view.setZoom(value)
@@ -150,5 +155,10 @@ class LumiiAmapViewManager : SimpleViewManager<LumiiAmapNativeView>() {
   @ReactProp(name = "markerSnippet")
   fun setMarkerSnippet(view: LumiiAmapNativeView, value: String?) {
     view.setMarkerSnippet(value)
+  }
+
+  @ReactProp(name = "showTraffic", defaultBoolean = false)
+  fun setShowTraffic(view: LumiiAmapNativeView, value: Boolean) {
+    view.setShowTraffic(value)
   }
 }

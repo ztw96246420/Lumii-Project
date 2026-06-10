@@ -4,8 +4,10 @@ import type { ViewStyle } from 'react-native';
 type LumiiAmapViewProps = {
   latitude?: number;
   longitude?: number;
+  mapType?: 'lumii' | 'night' | 'satellite' | 'standard';
   markerSnippet?: string;
   markerTitle?: string;
+  showTraffic?: boolean;
   style?: ViewStyle;
   zoom?: number;
 };

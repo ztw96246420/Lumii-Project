@@ -17,6 +17,7 @@ const DEEPSEEK_THINKING = process.env.DEEPSEEK_THINKING || 'disabled';
 const PET_CHAT_HISTORY_LIMIT = Number(process.env.PET_CHAT_HISTORY_LIMIT || '10');
 const PET_CHAT_MAX_TOKENS = Number(process.env.PET_CHAT_MAX_TOKENS || '420');
 const PET_CHAT_MAX_INPUT_CHARS = Number(process.env.PET_CHAT_MAX_INPUT_CHARS || '600');
+const PET_CHAT_DAILY_LIMIT = Number(process.env.PET_CHAT_DAILY_LIMIT || '80');
 
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
@@ -117,6 +118,7 @@ function createInitialState() {
         totalTokens: 0,
       },
     },
+    petChatDailyUsage: {},
     petChatMessages: {},
     places: defaultPlaces,
     sms: {},
@@ -138,6 +140,10 @@ function loadState() {
       petChatMessages: {
         ...initialState.petChatMessages,
         ...(loadedState.petChatMessages || {}),
+      },
+      petChatDailyUsage: {
+        ...initialState.petChatDailyUsage,
+        ...(loadedState.petChatDailyUsage || {}),
       },
       aiUsage: {
         ...initialState.aiUsage,
@@ -431,7 +437,7 @@ function petChatBaseSystemPrompt() {
     '你是 Lumii（灵伴）App 内的 AI 电子宠物陪伴助手，不是通用聊天机器人。',
     '你要以“用户真实宠物的电子灵伴”的身份说话：温暖、亲近、有一点拟人化，但不要声称自己是真实动物或真人。',
     '回复目标：陪伴主人、帮助记录宠物日常、提醒健康管理、鼓励安全社交。',
-    '表达风格：简体中文；短句；自然亲切；通常 1-3 段；必要时用 1 个温柔追问推动记录；不要过度卖萌。',
+    '表达风格：简体中文；短句；自然亲切；通常 1-3 段；必要时用 1 个温柔追问推动记录；不要过度卖萌；默认不使用 emoji。',
     '健康边界：你不能替代兽医诊断，不给确定诊断和处方。遇到精神萎靡、持续呕吐腹泻、呼吸困难、抽搐、外伤、拒食拒水等风险，要建议尽快联系宠物医院或兽医。',
     '隐私边界：不要索要精确住址、身份证、银行卡等敏感信息；涉及线下见面时建议公开宠物友好地点。',
     '如果用户只是闲聊，也要尽量结合宠物档案和最近记录回应。',
@@ -483,6 +489,31 @@ function recordDeepSeekUsage(usage) {
   state.aiUsage.deepseek.totalTokens += Number(usage.total_tokens || 0);
   state.aiUsage.deepseek.cacheHitTokens += Number(usage.prompt_cache_hit_tokens || 0);
   state.aiUsage.deepseek.cacheMissTokens += Number(usage.prompt_cache_miss_tokens || 0);
+}
+
+function todayUsageKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function petChatDailyUsageFor(phone) {
+  state.petChatDailyUsage = state.petChatDailyUsage || {};
+  const day = todayUsageKey();
+  const usage = state.petChatDailyUsage[phone];
+  if (!usage || usage.day !== day) {
+    state.petChatDailyUsage[phone] = { count: 0, day };
+  }
+  return state.petChatDailyUsage[phone];
+}
+
+function canUsePetChat(user) {
+  const usage = petChatDailyUsageFor(user.phone);
+  return usage.count < PET_CHAT_DAILY_LIMIT;
+}
+
+function consumePetChatQuota(user) {
+  const usage = petChatDailyUsageFor(user.phone);
+  usage.count += 1;
+  return usage;
 }
 
 function fallbackPetChatReply(user, text) {
@@ -1200,6 +1231,10 @@ async function handle(req, res) {
       fail(res, 400, `消息太长了，请控制在 ${PET_CHAT_MAX_INPUT_CHARS} 字以内`, false);
       return;
     }
+    if (!canUsePetChat(user)) {
+      fail(res, 429, `今天和灵伴聊天次数已达上限（${PET_CHAT_DAILY_LIMIT} 次），明天再继续吧`, true);
+      return;
+    }
     const messages = petChatMessagesFor(user);
     const userMessage = {
       author: 'me',
@@ -1208,6 +1243,7 @@ async function handle(req, res) {
       text,
       time: '刚刚',
     };
+    consumePetChatQuota(user);
     const reply = await callDeepSeekPetChat(user, text, messages);
     const aiMessage = {
       author: 'ai',
