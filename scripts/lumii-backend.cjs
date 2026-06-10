@@ -23,7 +23,9 @@ const TTAPI_MJ_BASE_URL = (process.env.TTAPI_MJ_BASE_URL || 'https://api.ttapi.i
 const TTAPI_MJ_MODE = process.env.TTAPI_MJ_MODE || 'fast';
 const TTAPI_MJ_TIMEOUT = Number(process.env.TTAPI_MJ_TIMEOUT || '600');
 const TTAPI_MJ_AUTO_UPSAMPLE = process.env.TTAPI_MJ_AUTO_UPSAMPLE === 'true';
-const PET_AVATAR_PROVIDER = (process.env.PET_AVATAR_PROVIDER || (TTAPI_API_KEY ? 'ttapi-midjourney' : 'mock')).toLowerCase();
+const TTAPI_FLUX_BASE_URL = (process.env.TTAPI_FLUX_BASE_URL || 'https://api.ttapi.io').replace(/\/+$/, '');
+const TTAPI_FLUX_MODE = process.env.TTAPI_FLUX_MODE || 'flux-2-max';
+const PET_AVATAR_PROVIDER = (process.env.PET_AVATAR_PROVIDER || (TTAPI_API_KEY ? 'ttapi-flux-edits' : 'mock')).toLowerCase();
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
@@ -132,6 +134,12 @@ function createInitialState() {
         requests: 0,
         succeeded: 0,
       },
+      ttapiFlux: {
+        failed: 0,
+        quota: 0,
+        requests: 0,
+        succeeded: 0,
+      },
     },
     mediaUploads: {},
     petAvatarDailyUsage: {},
@@ -172,6 +180,10 @@ function loadState() {
         ttapiMidjourney: {
           ...initialState.aiUsage.ttapiMidjourney,
           ...(loadedState.aiUsage?.ttapiMidjourney || {}),
+        },
+        ttapiFlux: {
+          ...initialState.aiUsage.ttapiFlux,
+          ...(loadedState.aiUsage?.ttapiFlux || {}),
         },
       },
       mediaUploads: {
@@ -568,11 +580,12 @@ function consumePetAvatarQuota(user) {
 
 function recordTtapiAvatarUsage(result, succeeded) {
   state.aiUsage = state.aiUsage || createInitialState().aiUsage;
-  state.aiUsage.ttapiMidjourney = state.aiUsage.ttapiMidjourney || createInitialState().aiUsage.ttapiMidjourney;
-  if (succeeded) state.aiUsage.ttapiMidjourney.succeeded += 1;
-  if (!succeeded) state.aiUsage.ttapiMidjourney.failed += 1;
+  const bucket = result?.provider === 'ttapi-flux-edits' ? 'ttapiFlux' : 'ttapiMidjourney';
+  state.aiUsage[bucket] = state.aiUsage[bucket] || createInitialState().aiUsage[bucket];
+  if (succeeded) state.aiUsage[bucket].succeeded += 1;
+  if (!succeeded) state.aiUsage[bucket].failed += 1;
   const quota = Number(result?.data?.quota || result?.quota || 0);
-  if (Number.isFinite(quota)) state.aiUsage.ttapiMidjourney.quota += quota;
+  if (Number.isFinite(quota)) state.aiUsage[bucket].quota += quota;
 }
 
 function cleanBase64DataUrl(value, mimeType) {
@@ -617,6 +630,32 @@ function buildPetAvatarPrompt(user, mediaUrl) {
   ].join(' ');
 }
 
+function buildFluxPetAvatarPrompt(user) {
+  const pet = selectedPetFor(user) || activePetFor(user);
+  const species = pet?.species === 'cat' ? 'cat' : 'dog';
+  const breed = pet?.breed || (species === 'cat' ? 'cat' : 'golden retriever');
+  return [
+    `Create a realistic cartoon transformation of the exact same ${species} in the reference image, preserving identity and facial likeness.`,
+    `Breed/profile hint: ${breed}. Keep this individual pet recognizable, not a generic ${breed}.`,
+    'Preserve identity: fur color, markings, eye shape, nose shape, muzzle length, ear shape, face proportions, age impression, expression, posture, and natural anatomy.',
+    'If the photo contains a distinctive object, pose, or expression, preserve it unless it distracts from the pet portrait.',
+    'Make it feel like a premium Lumii mobile app pet avatar: realistic semi-3D hand-painted fur, soft studio lighting, tactile warm texture, clean edges, gentle off-white background.',
+    'Keep the head and upper body centered in a square portrait. Preserve realistic dog/cat anatomy and natural proportions.',
+    'Avoid flat vector illustration, black comic outlines, anime style, chibi style, plush toy, generic mascot, exaggerated eyes, changed breed, changed age, human clothing, bowtie, hat, collar emphasis, text, watermark, logo, extra limbs, or distorted face.',
+    'The image should look like the uploaded pet became a polished realistic cartoon avatar, not a newly invented cartoon pet.',
+  ].join('\n');
+}
+
+function dataUrlToFileParts(dataUrl, fallbackMimeType) {
+  const match = String(dataUrl || '').match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  const mimeType = normalizeImageMimeType(match[1] || fallbackMimeType);
+  return {
+    buffer: Buffer.from(match[2], 'base64'),
+    mimeType,
+  };
+}
+
 async function ttapiMidjourneyRequest(pathname, options = {}) {
   const response = await fetch(`${TTAPI_MJ_BASE_URL}${pathname}`, {
     method: options.method || 'GET',
@@ -636,6 +675,24 @@ async function ttapiMidjourneyRequest(pathname, options = {}) {
   return payload;
 }
 
+async function ttapiFluxRequest(pathname, options = {}) {
+  const response = await fetch(`${TTAPI_FLUX_BASE_URL}${pathname}`, {
+    method: options.method || 'GET',
+    headers: {
+      'TT-API-KEY': TTAPI_API_KEY,
+    },
+    body: options.body,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.status === 'FAILED') {
+    const message = payload.message || `TTAPI Flux request failed: ${response.status}`;
+    const error = new Error(message);
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
 function ttapiJobIdFrom(payload) {
   return payload?.data?.job_id || payload?.data?.jobId || payload?.jobId || '';
 }
@@ -643,7 +700,7 @@ function ttapiJobIdFrom(payload) {
 function ttapiResultUrlFrom(payload) {
   const data = payload?.data || {};
   if (Array.isArray(data.images) && data.images[0]) return data.images[0];
-  return data.imageUrl || data.cdnImage || data.discordImage || '';
+  return data.imageUrl || data.image_url || data.cdnImage || data.discordImage || '';
 }
 
 function nextProcessingProgress(current, remoteProgress) {
@@ -693,6 +750,40 @@ async function startTtapiAvatarJob(req, user, job, media) {
   });
 }
 
+async function startTtapiFluxAvatarJob(user, job, media) {
+  if (!TTAPI_API_KEY) throw new Error('TTAPI key is not configured');
+  if (!media?.dataUrl) throw new Error('Pet photo is missing. Please upload again.');
+  const fileParts = dataUrlToFileParts(media.dataUrl, media.mimeType);
+  if (!fileParts?.buffer?.length) throw new Error('Pet photo file is invalid. Please upload again.');
+
+  const prompt = buildFluxPetAvatarPrompt(user);
+  const form = new FormData();
+  const blob = new Blob([fileParts.buffer], { type: fileParts.mimeType });
+  form.append('image', blob, media.fileName || `lumii-pet-${media.mediaId}.jpg`);
+  form.append('mode', TTAPI_FLUX_MODE);
+  form.append('prompt', prompt);
+  form.append('aspect_ratio', '1:1');
+
+  const payload = await ttapiFluxRequest('/flux/edits', {
+    method: 'POST',
+    body: form,
+  });
+  const providerJobId = ttapiJobIdFrom(payload);
+  if (!providerJobId) throw new Error('TTAPI Flux did not return a job id');
+  state.aiUsage = state.aiUsage || createInitialState().aiUsage;
+  state.aiUsage.ttapiFlux = state.aiUsage.ttapiFlux || createInitialState().aiUsage.ttapiFlux;
+  state.aiUsage.ttapiFlux.requests += 1;
+  Object.assign(job, {
+    mediaId: media.mediaId,
+    progress: 10,
+    provider: 'ttapi-flux-edits',
+    providerJobId,
+    providerStatus: payload.status || 'SUBMITTED',
+    promptVersion: 'flux-2-max-realistic-avatar-v1',
+    status: 'processing',
+  });
+}
+
 async function refreshTtapiAvatarJob(job) {
   const activeProviderJobId = job.upsampleJobId || job.providerJobId;
   if (!activeProviderJobId) throw new Error('TTAPI job id is missing');
@@ -735,6 +826,41 @@ async function refreshTtapiAvatarJob(job) {
     job.status = 'failed';
     if (!job.usageRecorded) {
       recordTtapiAvatarUsage(payload, false);
+      job.usageRecorded = true;
+    }
+    return job;
+  }
+
+  job.progress = nextProcessingProgress(job.progress, payload?.data?.progress);
+  job.status = 'processing';
+  return job;
+}
+
+async function refreshTtapiFluxAvatarJob(job) {
+  if (!job.providerJobId) throw new Error('TTAPI Flux job id is missing');
+  const payload = await ttapiFluxRequest(`/flux/fetch?jobId=${encodeURIComponent(job.providerJobId)}`, {
+    method: 'GET',
+  });
+  job.providerStatus = payload.status;
+
+  if (payload.status === 'SUCCESS') {
+    const resultUrl = ttapiResultUrlFrom(payload);
+    if (!resultUrl) throw new Error('TTAPI Flux result does not include an image URL');
+    job.progress = 100;
+    job.resultUrl = resultUrl;
+    job.status = 'ready';
+    if (!job.usageRecorded) {
+      recordTtapiAvatarUsage({ ...payload, provider: 'ttapi-flux-edits' }, true);
+      job.usageRecorded = true;
+    }
+    return job;
+  }
+
+  if (payload.status === 'FAILED') {
+    job.progress = Math.max(10, Number(job.progress || 10));
+    job.status = 'failed';
+    if (!job.usageRecorded) {
+      recordTtapiAvatarUsage({ ...payload, provider: 'ttapi-flux-edits' }, false);
       job.usageRecorded = true;
     }
     return job;
@@ -1155,7 +1281,15 @@ async function handle(req, res) {
     job.mediaId = mediaId;
     job.ownerPhone = user.phone;
     state.avatarJobs[id] = job;
-    if (PET_AVATAR_PROVIDER === 'ttapi-midjourney') {
+    if (PET_AVATAR_PROVIDER === 'ttapi-flux-edits') {
+      try {
+        await startTtapiFluxAvatarJob(user, job, media);
+      } catch (error) {
+        job.errorMessage = error.message || 'Avatar generation failed to start';
+        job.progress = 0;
+        job.status = 'failed';
+      }
+    } else if (PET_AVATAR_PROVIDER === 'ttapi-midjourney') {
       try {
         await startTtapiAvatarJob(req, user, job, media);
       } catch (error) {
@@ -1178,7 +1312,14 @@ async function handle(req, res) {
       fail(res, 404, '生成任务不存在', true);
       return;
     }
-    if (job.provider === 'ttapi-midjourney' && job.status === 'processing') {
+    if (job.provider === 'ttapi-flux-edits' && job.status === 'processing') {
+      try {
+        await refreshTtapiFluxAvatarJob(job);
+      } catch (error) {
+        job.errorMessage = error.message || 'Avatar generation status failed';
+        job.status = 'failed';
+      }
+    } else if (job.provider === 'ttapi-midjourney' && job.status === 'processing') {
       try {
         await refreshTtapiAvatarJob(job);
       } catch (error) {

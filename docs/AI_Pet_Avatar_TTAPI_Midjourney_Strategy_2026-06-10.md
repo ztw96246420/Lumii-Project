@@ -1,5 +1,7 @@
 # Lumii AI 宠物形象生成：TTAPI Midjourney 接入方案
 
+> 当前状态：已降级为实验备用方案。2026-06-10 起，主链路暂定切换为 `ttapi-flux-edits` + `flux-2-max`，详见 `AI_Pet_Avatar_TTAPI_Flux_Strategy_2026-06-10.md`。
+
 ## 目标
 
 把“真实宠物照片 -> 真实卡通化灵伴形象”的 MVP 链路从本地 mock 切到可真实生成的服务端链路。

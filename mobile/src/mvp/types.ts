@@ -63,7 +63,7 @@ export type AvatarJob = {
   errorMessage?: string;
   id: string;
   progress: number;
-  provider?: 'mock' | 'ttapi-midjourney';
+  provider?: 'mock' | 'ttapi-flux-edits' | 'ttapi-midjourney';
   resultUrl?: string;
   status: 'failed' | 'processing' | 'ready';
 };
