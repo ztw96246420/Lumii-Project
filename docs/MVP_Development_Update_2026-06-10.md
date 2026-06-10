@@ -64,3 +64,18 @@
   - B 关闭 `nearbyVisible`。
   - A 刷新附近发现，确认 B 不再出现在列表。
   - B 重新读取 `/settings`，确认开关持久化。
+
+## AI 对话策略追加
+- DeepSeek V4 接入策略已整理到 `docs/AI_Pet_Chat_DeepSeek_Strategy_2026-06-10.md`。
+- MVP 默认策略：
+  - `deepseek-v4-flash`
+  - `thinking.type=disabled`
+  - `max_tokens=420`
+  - 最近历史默认只带 10 条消息
+  - 单条用户输入默认限制 600 字
+- 后端已新增电子宠物聊天历史：
+  - `GET /ai/pet-chat/messages`
+  - `POST /ai/pet-chat/messages`
+- 后端会注入用户不可见的 Lumii 宠物陪伴提示词、当前宠物档案、健康摘要和最近少量历史。
+- DeepSeek Key 仅通过服务端环境变量配置，不进入前端、不提交 Git。
+- 未配置 DeepSeek Key 时自动使用 fallback 回复，避免开发环境误烧 token。

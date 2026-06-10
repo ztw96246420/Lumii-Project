@@ -112,6 +112,7 @@ let conversationMessagesById: Record<string, ConversationMessage[]> = {
   c1: [{ author: 'other', id: 'c1-welcome', text: '今晚 7 点公园见？', time: '09:32' }],
   c2: [{ author: 'system', id: 'c2-system', text: '你提交的地点已进入审核。', time: '刚刚' }],
 };
+let petChatMessages: ChatMessage[] = [];
 
 const notifications: NotificationItem[] = [
   { id: 'n1', title: '疫苗提醒', text: '狂犬疫苗将在 19 天后到期。', read: false },
@@ -399,7 +400,21 @@ export const mockApi = {
     async sendMessage(text: string): Promise<ApiResult<ChatMessage>> {
       await wait();
       if (!text.trim()) return error('请输入消息内容', false);
-      return success({ id: `msg-${Date.now()}`, author: 'me', text, status: 'sent', time: '刚刚' });
+      const userMessage: ChatMessage = { id: `pet-user-${Date.now()}`, author: 'me', text, status: 'sent', time: '刚刚' };
+      const aiMessage: ChatMessage = {
+        id: `pet-ai-${Date.now()}`,
+        author: 'ai',
+        status: 'sent',
+        text: '我收到啦。这个情况我会放进今天的小记录里，如果和健康有关，也建议继续观察食欲、精神和便便状态。',
+        time: '刚刚',
+      };
+      petChatMessages = [...petChatMessages, userMessage, aiMessage];
+      return success(aiMessage);
+    },
+
+    async listPetChatMessages(): Promise<ApiResult<ChatMessage[]>> {
+      await wait(160);
+      return success(petChatMessages);
     },
 
     async sendConversationMessage(conversationId: string, text: string): Promise<ApiResult<ConversationMessage>> {

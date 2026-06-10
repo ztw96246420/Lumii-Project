@@ -275,6 +275,16 @@ function createConversationSafetyMessage(): ConversationMessage {
   return { author: 'system', id: 'conversation-safe-tip', text: '为了保护隐私，聊天前不会展示精确住址。', time: '刚刚' };
 }
 
+function createPetChatWelcomeMessage(pet?: null | PetProfile): ChatMessage {
+  return {
+    author: 'ai',
+    id: 'pet-chat-welcome',
+    status: 'sent',
+    text: `我是${pet?.name ? `${pet.name}的` : '你的'}灵伴。今天想记录什么小事？`,
+    time: '刚刚',
+  };
+}
+
 export default function LumiiMvpApp() {
   const [route, setRoute] = useState<AppRoute>('login');
   const [history, setHistory] = useState<AppRoute[]>([]);
@@ -304,9 +314,7 @@ export default function LumiiMvpApp() {
   const [mediaPickerMode, setMediaPickerMode] = useState<'camera' | 'library' | null>(null);
   const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(null);
 
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { author: 'ai', id: 'welcome', status: 'sent', text: '我是你的灵伴。今天想记录什么小事？', time: '刚刚' },
-  ]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([createPetChatWelcomeMessage()]);
   const [chatInput, setChatInput] = useState('');
   const [weights, setWeights] = useState<WeightRecord[]>([]);
   const [vaccines, setVaccines] = useState<VaccinePlan[]>([]);
@@ -430,6 +438,11 @@ export default function LumiiMvpApp() {
   }, [route, session]);
 
   useEffect(() => {
+    if (!session || route !== 'chat') return;
+    void loadPetChatMessages();
+  }, [route, session, activePet?.id]);
+
+  useEffect(() => {
     if (route !== 'generating' || !avatarJob || avatarJob.status !== 'processing') return undefined;
     const id = setInterval(() => {
       void pollAvatarJob();
@@ -468,6 +481,16 @@ export default function LumiiMvpApp() {
     if (greetingRequestResult.data) setGreetingRequestOwners(greetingRequestResult.data);
     if (conversationResult.data) setConversations(conversationResult.data);
     if (notificationResult.data) setNotifications(notificationResult.data);
+  }
+
+  async function loadPetChatMessages() {
+    const result = await lumiiApi.messages.listPetChatMessages();
+    if (result.data) {
+      setChatMessages(result.data.length ? result.data : [createPetChatWelcomeMessage(activePet)]);
+    } else {
+      setChatMessages((items) => (items.length ? items : [createPetChatWelcomeMessage(activePet)]));
+      showToast(result.error?.message ?? '灵伴聊天记录加载失败');
+    }
   }
 
   async function refreshPermissionStatuses(options: { base?: PermissionStateMap; completed?: boolean; persist?: boolean } = {}) {

@@ -407,6 +407,10 @@ Request:
 
 标记会话已读。当前测试后端会持久化未读数归零。
 
+### GET `/ai/pet-chat/messages`
+
+读取当前登录用户、当前宠物的电子宠物 AI 对话历史。
+
 ### POST `/ai/pet-chat/messages`
 
 电子宠物 AI 对话消息。
@@ -416,6 +420,13 @@ Request:
 ```json
 { "text": "今天精神不太好" }
 ```
+
+行为：
+- 后端保存用户消息和 AI 回复。
+- 未配置 `DEEPSEEK_API_KEY` 时使用本地 fallback 回复。
+- 配置 DeepSeek 后，后端会注入用户不可见的 Lumii 宠物陪伴提示词、宠物档案、健康摘要和最近少量历史。
+- 默认限制单条用户输入长度，避免异常消耗 token。
+- 默认返回非流式完整回复，后续可升级流式输出。
 
 ### GET `/notifications`
 

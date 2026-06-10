@@ -218,6 +218,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<ChatMessage>('POST', '/ai/pet-chat/messages', { text });
       },
 
+      async listPetChatMessages(): Promise<ApiResult<ChatMessage[]>> {
+        return request<ChatMessage[]>('GET', '/ai/pet-chat/messages');
+      },
+
       async sendConversationMessage(conversationId: string, text: string): Promise<ApiResult<ConversationMessage>> {
         return request<ConversationMessage>('POST', `/conversations/${encodeURIComponent(conversationId)}/messages`, { text });
       },

@@ -211,9 +211,9 @@ Android 调用：
 ### 3.5 AI 电子宠物对话
 
 需要接口：
-- `POST /ai/pet-chat/sessions`：创建/获取与某只宠物的会话。
-- `GET /ai/pet-chat/sessions/{sessionId}/messages`：读取历史消息。
-- `POST /ai/pet-chat/sessions/{sessionId}/messages`：发送消息并获取回复。
+- ~~`POST /ai/pet-chat/sessions`：创建/获取与某只宠物的会话。~~ MVP 暂以当前登录用户 + 当前宠物作为隐式 session。
+- ~~`GET /ai/pet-chat/sessions/{sessionId}/messages`：读取历史消息。~~ MVP 已接 `GET /ai/pet-chat/messages`。
+- ~~`POST /ai/pet-chat/sessions/{sessionId}/messages`：发送消息并获取回复。~~ MVP 已接 `POST /ai/pet-chat/messages`，支持 DeepSeek V4 服务端适配层与本地 fallback。
 - `POST /ai/pet-chat/messages/{messageId}/feedback`：反馈语气不像、无帮助、不安全等。
 
 需要你提供：
@@ -225,7 +225,9 @@ Android 调用：
 
 当前状态：
 - 电子宠物对话页已从 Stitch 同步并接入前端原型。
-- 仍需要后端/AI 接口支持对话 session、消息发送、AI 回复、失败重试和反馈。
+- MVP 后端已接电子宠物对话历史读取、消息保存、DeepSeek V4 适配层、fallback 回复。
+- DeepSeek 密钥只允许配置在服务端环境变量，不进入前端和 Git。
+- 仍需要后续补反馈入口、流式输出、长对话摘要和正式安全评估。
 
 ### 3.6 健康管理
 

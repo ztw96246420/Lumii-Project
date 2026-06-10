@@ -1,4 +1,5 @@
 const http = require('http');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
@@ -9,6 +10,13 @@ const SMS_TTL_MS = 5 * 60 * 1000;
 const ONLINE_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_DISCOVER_RADIUS_KM = 3;
 const MAX_ACCURACY_BUFFER_KM = 2;
+const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/+$/, '');
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
+const DEEPSEEK_THINKING = process.env.DEEPSEEK_THINKING || 'disabled';
+const PET_CHAT_HISTORY_LIMIT = Number(process.env.PET_CHAT_HISTORY_LIMIT || '10');
+const PET_CHAT_MAX_TOKENS = Number(process.env.PET_CHAT_MAX_TOKENS || '420');
+const PET_CHAT_MAX_INPUT_CHARS = Number(process.env.PET_CHAT_MAX_INPUT_CHARS || '600');
 
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
@@ -99,6 +107,17 @@ function createInitialState() {
     },
     invites: [],
     notifications: {},
+    aiUsage: {
+      deepseek: {
+        cacheHitTokens: 0,
+        cacheMissTokens: 0,
+        completionTokens: 0,
+        promptTokens: 0,
+        requests: 0,
+        totalTokens: 0,
+      },
+    },
+    petChatMessages: {},
     places: defaultPlaces,
     sms: {},
     users: {},
@@ -115,6 +134,18 @@ function loadState() {
       health: {
         ...initialState.health,
         ...(loadedState.health || {}),
+      },
+      petChatMessages: {
+        ...initialState.petChatMessages,
+        ...(loadedState.petChatMessages || {}),
+      },
+      aiUsage: {
+        ...initialState.aiUsage,
+        ...(loadedState.aiUsage || {}),
+        deepseek: {
+          ...initialState.aiUsage.deepseek,
+          ...(loadedState.aiUsage?.deepseek || {}),
+        },
       },
     };
   } catch {
@@ -361,6 +392,162 @@ function healthList(storeName, user, defaultsFactory) {
   const key = healthKeyFor(user);
   if (!state.health[storeName][key]) state.health[storeName][key] = defaultsFactory(user);
   return state.health[storeName][key];
+}
+
+function petChatKeyFor(user) {
+  const pet = selectedPetFor(user);
+  return pet ? `${user.phone}:${pet.id}` : `${user.phone}:no-pet`;
+}
+
+function petChatMessagesFor(user) {
+  state.petChatMessages = state.petChatMessages || {};
+  const key = petChatKeyFor(user);
+  state.petChatMessages[key] = state.petChatMessages[key] || [];
+  return state.petChatMessages[key];
+}
+
+function petSpeciesLabel(species) {
+  if (species === 'cat') return '猫咪';
+  if (species === 'dog') return '狗狗';
+  return '宠物';
+}
+
+function petAgeLabel(birthday) {
+  if (!birthday) return '年龄待补充';
+  const bornAt = new Date(`${birthday}T00:00:00`);
+  if (Number.isNaN(bornAt.getTime())) return '年龄待补充';
+  const now = new Date();
+  let months = (now.getFullYear() - bornAt.getFullYear()) * 12 + (now.getMonth() - bornAt.getMonth());
+  if (now.getDate() < bornAt.getDate()) months -= 1;
+  if (months <= 0) return '未满 1 个月';
+  const years = Math.floor(months / 12);
+  const restMonths = months % 12;
+  if (!years) return `${restMonths} 个月`;
+  return restMonths ? `${years} 岁 ${restMonths} 个月` : `${years} 岁`;
+}
+
+function petChatBaseSystemPrompt() {
+  return [
+    '你是 Lumii（灵伴）App 内的 AI 电子宠物陪伴助手，不是通用聊天机器人。',
+    '你要以“用户真实宠物的电子灵伴”的身份说话：温暖、亲近、有一点拟人化，但不要声称自己是真实动物或真人。',
+    '回复目标：陪伴主人、帮助记录宠物日常、提醒健康管理、鼓励安全社交。',
+    '表达风格：简体中文；短句；自然亲切；通常 1-3 段；必要时用 1 个温柔追问推动记录；不要过度卖萌。',
+    '健康边界：你不能替代兽医诊断，不给确定诊断和处方。遇到精神萎靡、持续呕吐腹泻、呼吸困难、抽搐、外伤、拒食拒水等风险，要建议尽快联系宠物医院或兽医。',
+    '隐私边界：不要索要精确住址、身份证、银行卡等敏感信息；涉及线下见面时建议公开宠物友好地点。',
+    '如果用户只是闲聊，也要尽量结合宠物档案和最近记录回应。',
+  ].join('\n');
+}
+
+function buildPetChatContextPrompt(user) {
+  const pet = selectedPetFor(user) || activePetFor(user);
+  const healthMemos = healthList('memos', user, defaultMemosFor).slice(0, 3);
+  const weights = healthList('weights', user, defaultWeightRecordsFor).slice(0, 2);
+  const vaccines = healthList('vaccines', user, defaultVaccinesFor).slice(0, 3);
+  const petName = pet?.name || `灵伴${user.phone.slice(-4)}`;
+  const profileLines = [
+    `宠物名：${petName}`,
+    `物种：${petSpeciesLabel(pet?.species)}`,
+    `品种：${pet?.breed || '待补充'}`,
+    `年龄：${petAgeLabel(pet?.birthday)}`,
+    `体重：${pet?.weightKg ? `${pet.weightKg}kg` : '待记录'}`,
+    `性格标签：${pet?.personality?.length ? pet.personality.join('、') : '亲人、爱互动'}`,
+    `健康分：${pet?.healthScore || 92}/100`,
+  ];
+  const contextLines = [
+    `近期体重：${weights.length ? weights.map((item) => `${item.recordedAt} ${item.kg}kg`).join('；') : '暂无'}`,
+    `健康备忘：${healthMemos.length ? healthMemos.map((item) => `${item.title}：${item.content}`).join('；') : '暂无'}`,
+    `疫苗/驱虫：${vaccines.length ? vaccines.map((item) => `${item.name} ${item.status} ${item.dueAt}`).join('；') : '暂无'}`,
+  ];
+
+  return [
+    `当前你正在陪伴的宠物是“${petName}”。以下资料只用于生成更贴合的回复，不要机械复述。`,
+    '宠物档案：',
+    ...profileLines,
+    '',
+    '近期上下文：',
+    ...contextLines,
+  ].join('\n');
+}
+
+function anonymousDeepSeekUserId(phone) {
+  return `lumii_${crypto.createHash('sha256').update(String(phone)).digest('hex').slice(0, 24)}`;
+}
+
+function recordDeepSeekUsage(usage) {
+  if (!usage || typeof usage !== 'object') return;
+  state.aiUsage = state.aiUsage || createInitialState().aiUsage;
+  state.aiUsage.deepseek = state.aiUsage.deepseek || createInitialState().aiUsage.deepseek;
+  state.aiUsage.deepseek.requests += 1;
+  state.aiUsage.deepseek.promptTokens += Number(usage.prompt_tokens || 0);
+  state.aiUsage.deepseek.completionTokens += Number(usage.completion_tokens || 0);
+  state.aiUsage.deepseek.totalTokens += Number(usage.total_tokens || 0);
+  state.aiUsage.deepseek.cacheHitTokens += Number(usage.prompt_cache_hit_tokens || 0);
+  state.aiUsage.deepseek.cacheMissTokens += Number(usage.prompt_cache_miss_tokens || 0);
+}
+
+function fallbackPetChatReply(user, text) {
+  const pet = selectedPetFor(user) || activePetFor(user);
+  const petName = pet?.name || '灵伴';
+  const lower = text.toLowerCase();
+  const hasHealthConcern = /吐|拉稀|腹泻|不吃|不喝|没精神|发烧|咳|喘|抽搐|流血|疼|瘸|异常|医院|疫苗|驱虫/.test(text);
+  if (hasHealthConcern) {
+    return `我先帮你记下来：${petName}今天有点让人担心。\n\n我不能替代兽医判断，但如果症状持续、精神明显变差，或出现呕吐腹泻、呼吸异常、拒食拒水，建议尽快联系宠物医院。你也可以补充一下：这个情况大概持续多久了？`;
+  }
+  if (/散步|出门|公园|遛/.test(text)) {
+    return `${petName}听起来会很开心。出门前可以带好牵引、饮水和拾便袋，尽量选开阔的宠物友好地点。\n\n要不要顺手把这次散步记录到健康备忘里？`;
+  }
+  if (/吃|饭|零食|食欲/.test(text)) {
+    return `收到，我会把${petName}今天的饮食状态放在心上。食欲稳定通常是个好信号，零食还是控制一点点更安心。\n\n今天它吃得比平时多、少，还是差不多？`;
+  }
+  return `${petName}的小灵伴收到啦。\n\n这件事我会当作今天的小记录记在心里。你愿意再告诉我一点细节吗，比如它当时的心情、食欲或者运动量？`;
+}
+
+async function callDeepSeekPetChat(user, text, history) {
+  if (!DEEPSEEK_API_KEY) return { source: 'fallback', text: fallbackPetChatReply(user, text) };
+  const messages = [
+    { role: 'system', content: petChatBaseSystemPrompt() },
+    { role: 'system', content: buildPetChatContextPrompt(user) },
+    ...history
+      .slice(-PET_CHAT_HISTORY_LIMIT)
+      .filter((message) => message.author === 'me' || message.author === 'ai')
+      .map((message) => ({
+        role: message.author === 'me' ? 'user' : 'assistant',
+        content: message.text,
+      })),
+    { role: 'user', content: text },
+  ];
+
+  try {
+    const requestBody = {
+      max_tokens: PET_CHAT_MAX_TOKENS,
+      messages,
+      model: DEEPSEEK_MODEL,
+      stream: false,
+      thinking: { type: DEEPSEEK_THINKING === 'enabled' ? 'enabled' : 'disabled' },
+      user_id: anonymousDeepSeekUserId(user.phone),
+    };
+    if (requestBody.thinking.type === 'disabled') requestBody.temperature = 0.7;
+    const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+      body: JSON.stringify(requestBody),
+      headers: {
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      method: 'POST',
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.error('DeepSeek pet chat failed', response.status, payload?.error?.message || payload);
+      return { source: 'fallback', text: fallbackPetChatReply(user, text) };
+    }
+    recordDeepSeekUsage(payload?.usage);
+    const content = String(payload?.choices?.[0]?.message?.content || '').trim();
+    if (!content) return { source: 'fallback', text: fallbackPetChatReply(user, text) };
+    return { source: 'deepseek', text: content };
+  } catch (error) {
+    console.error('DeepSeek pet chat error', error instanceof Error ? error.message : error);
+    return { source: 'fallback', text: fallbackPetChatReply(user, text) };
+  }
 }
 
 function buildOwnerCard(user, viewerPhone, index, distanceKm) {
@@ -960,6 +1147,10 @@ async function handle(req, res) {
       fail(res, 400, '请输入消息内容', false);
       return;
     }
+    if (text.length > PET_CHAT_MAX_INPUT_CHARS) {
+      fail(res, 400, `消息太长了，请控制在 ${PET_CHAT_MAX_INPUT_CHARS} 字以内`, false);
+      return;
+    }
     const targetPhone = conversationId.startsWith('c-') ? conversationId.slice(2) : '';
     const myMessage = {
       author: 'me',
@@ -994,14 +1185,40 @@ async function handle(req, res) {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/ai/pet-chat/messages') {
+    ok(res, petChatMessagesFor(user));
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/ai/pet-chat/messages') {
-    ok(res, {
+    const text = String(body.text || '').trim();
+    if (!text) {
+      fail(res, 400, '请输入消息内容', false);
+      return;
+    }
+    if (text.length > PET_CHAT_MAX_INPUT_CHARS) {
+      fail(res, 400, `消息太长了，请控制在 ${PET_CHAT_MAX_INPUT_CHARS} 字以内`, false);
+      return;
+    }
+    const messages = petChatMessagesFor(user);
+    const userMessage = {
       author: 'me',
-      id: `msg-${Date.now()}`,
+      id: messageId(),
       status: 'sent',
-      text: String(body.text || ''),
+      text,
       time: '刚刚',
-    });
+    };
+    const reply = await callDeepSeekPetChat(user, text, messages);
+    const aiMessage = {
+      author: 'ai',
+      id: messageId(),
+      status: 'sent',
+      text: reply.text,
+      time: '刚刚',
+    };
+    messages.push(userMessage, aiMessage);
+    saveState();
+    ok(res, aiMessage);
     return;
   }
 
