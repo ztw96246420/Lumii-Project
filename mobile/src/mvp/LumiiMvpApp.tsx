@@ -55,6 +55,7 @@ import {
   Users,
   Wifi,
   Weight,
+  X,
 } from 'lucide-react-native';
 
 import { getLumiiPermissionStatus, requestLumiiPermission } from '../services/permissions';
@@ -2446,19 +2447,35 @@ export default function LumiiMvpApp() {
           </View>
 
           {mapStylePanelVisible ? (
+            <Pressable
+              accessibilityLabel="关闭地图样式"
+              onPress={() => setMapStylePanelVisible(false)}
+              style={styles.mapStyleDismissLayer}
+            />
+          ) : null}
+
+          {mapStylePanelVisible ? (
             <View style={styles.mapStylePanel}>
               <View style={styles.mapStyleHeader}>
                 <View>
                   <Text style={styles.mapStyleTitle}>地图样式</Text>
                   <Text style={styles.mapStyleSubtitle}>{mapStyle.description}</Text>
                 </View>
-                <Text style={styles.mapStyleCurrent}>{mapStyle.label}</Text>
+                <View style={styles.mapStyleHeaderActions}>
+                  <Text style={styles.mapStyleCurrent}>{mapStyle.label}</Text>
+                  <Pressable accessibilityLabel="关闭地图样式" onPress={() => setMapStylePanelVisible(false)} style={styles.mapStyleCloseButton}>
+                    <X color={palette.ink} size={14} strokeWidth={2.6} />
+                  </Pressable>
+                </View>
               </View>
               <View style={styles.mapStyleOptions}>
                 {mapStyleOptions.map((item) => (
                   <Pressable
                     key={item.key}
-                    onPress={() => setMapStyleKey(item.key)}
+                    onPress={() => {
+                      setMapStyleKey(item.key);
+                      setMapStylePanelVisible(false);
+                    }}
                     style={[styles.mapStyleOption, mapStyleKey === item.key && styles.mapStyleOptionActive]}
                   >
                     <Text style={[styles.mapStyleOptionText, mapStyleKey === item.key && styles.mapStyleOptionTextActive]}>{item.label}</Text>
@@ -3664,7 +3681,10 @@ const styles = StyleSheet.create({
   mapSearchInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, minHeight: 40 },
   mapSheetHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 2 },
   mapStyleCurrent: { backgroundColor: palette.orangeSoft, borderRadius: 999, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
+  mapStyleCloseButton: { alignItems: 'center', backgroundColor: palette.background, borderColor: palette.border, borderRadius: 999, borderWidth: 1, height: 30, justifyContent: 'center', width: 30 },
+  mapStyleDismissLayer: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 6 },
   mapStyleHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 12, justifyContent: 'space-between' },
+  mapStyleHeaderActions: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   mapStyleOption: { alignItems: 'center', backgroundColor: palette.background, borderColor: palette.border, borderRadius: 14, borderWidth: 1, flex: 1, minHeight: 34, justifyContent: 'center', paddingHorizontal: 8 },
   mapStyleOptionActive: { backgroundColor: palette.ink, borderColor: palette.ink },
   mapStyleOptions: { flexDirection: 'row', gap: 8, marginTop: 10 },

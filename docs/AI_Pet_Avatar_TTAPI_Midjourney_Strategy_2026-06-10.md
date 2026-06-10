@@ -79,13 +79,13 @@ MEDIA_UPLOAD_MAX_BASE64_CHARS=12000000
 
 ```text
 {reference_image_url}
-Create a realistic cartoon digital avatar of the same {species} in the reference photo for Lumii.
-Pet profile: {breed}. Preserve the pet's real fur color, markings, face shape, ears, nose, eye expression, and natural anatomy.
-Style: realistic cartoon illustration, polished premium mobile app asset, warm hand-painted look, clean edges, soft natural lighting.
-Composition: centered head and chest, friendly joyful expression, gentle neutral background, app icon/avatar quality, square image.
-Do not add clothes, bowties, hats, accessories, text, watermark, logo, human body, fantasy creature, or breed/species changes.
-Avoid toy-like mascot, anime style, flat vector art, exaggerated giant eyes, distorted nose, extra limbs, cropped face.
---ar 1:1
+Transform the exact same {species} from the reference photo into a realistic semi-cartoon pet portrait for Lumii.
+Breed/profile hint: {breed}. The output must still look like this individual pet, not a new generic {breed}.
+Preserve identity: same age impression, same fur color, markings, face shape, muzzle length, nose size, ear shape, eye shape, expression, head proportions, and natural anatomy.
+Style: realistic pet portrait with gentle hand-painted softness, detailed natural fur, clean mobile app asset quality, subtle warmth, not childish, not toy-like.
+Composition: one pet only, head and upper chest portrait, 3/4 view or front view matching the photo, centered, simple warm off-white background, soft studio lighting.
+Do not redesign the pet. Do not make it younger, cuter, fluffier, smaller, or change the breed. No clothes, bowties, hats, collar emphasis, accessories, text, watermark, logo, human body, fantasy creature, extra limbs, or distorted face.
+--ar 1:1 --iw 3 --style raw --s 60 --chaos 0 --no anime, plush toy, mascot, pixar, disney, chibi, giant eyes, puppy transformation, costume, bowtie, hat, text, watermark, logo
 ```
 
 ## 风险和后续优化
@@ -95,4 +95,3 @@ Avoid toy-like mascot, anime style, flat vector art, exaggerated giant eyes, dis
 - 生产环境应把上传图放到对象存储，设置过期 URL，而不是长期保存在本地 JSON。
 - 生产环境应增加图片压缩、图片安全审核、宠物主体检测、多宠物提示。
 - 若 TTAPI 结果不够像，应优先对比 Flux Kontext / OpenAI image edit / Gemini reference image 的效果。
-
