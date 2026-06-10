@@ -83,6 +83,11 @@ function createInitialState() {
     conversations: {},
     conversationMessages: {},
     greetings: [],
+    health: {
+      memos: {},
+      vaccines: {},
+      weights: {},
+    },
     invites: [],
     notifications: {},
     places: defaultPlaces,
@@ -93,7 +98,16 @@ function createInitialState() {
 
 function loadState() {
   try {
-    return { ...createInitialState(), ...JSON.parse(fs.readFileSync(statePath, 'utf8')) };
+    const initialState = createInitialState();
+    const loadedState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    return {
+      ...initialState,
+      ...loadedState,
+      health: {
+        ...initialState.health,
+        ...(loadedState.health || {}),
+      },
+    };
   } catch {
     return createInitialState();
   }
@@ -289,6 +303,49 @@ function activePetFor(user) {
     species: dogFirst ? 'dog' : 'cat',
     weightKg: dogFirst ? 28.4 : 5.2,
   };
+}
+
+function healthKeyFor(user) {
+  const pet = selectedPetFor(user);
+  return pet ? `${user.phone}:${pet.id}` : `${user.phone}:no-pet`;
+}
+
+function defaultWeightRecordsFor(user) {
+  const pet = selectedPetFor(user);
+  if (!pet) return [];
+  const kg = Number(pet.weightKg) || (pet.species === 'cat' ? 5.2 : 28.4);
+  return [
+    { id: `w-${user.phone}-${pet.id}-1`, kg, note: '建档初始体重', recordedAt: new Date().toISOString().slice(0, 10) },
+  ];
+}
+
+function defaultMemosFor(user) {
+  const pet = selectedPetFor(user);
+  if (!pet) return [];
+  return [
+    { content: `${pet.name}建档完成，可以开始记录食欲、便便、洗澡和就诊情况。`, id: `m-${user.phone}-${pet.id}-1`, title: '建档记录', updatedAt: '刚刚' },
+  ];
+}
+
+function defaultVaccinesFor(user) {
+  const pet = selectedPetFor(user);
+  if (!pet) return [];
+  return [
+    { dueAt: '2026-06-18', id: `v-${user.phone}-${pet.id}-1`, name: pet.species === 'cat' ? '猫三联' : '狂犬疫苗', status: 'due' },
+    { dueAt: '2026-07-05', id: `v-${user.phone}-${pet.id}-2`, name: '体内驱虫', status: 'due' },
+  ];
+}
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function healthList(storeName, user, defaultsFactory) {
+  state.health = state.health || { memos: {}, vaccines: {}, weights: {} };
+  state.health[storeName] = state.health[storeName] || {};
+  const key = healthKeyFor(user);
+  if (!state.health[storeName][key]) state.health[storeName][key] = defaultsFactory(user);
+  return state.health[storeName][key];
 }
 
 function buildOwnerCard(user, viewerPhone, index, distanceKm) {
@@ -601,46 +658,78 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/health/weights') {
-    const pet = activePetFor(user);
-    ok(res, [
-      { id: `w-${user.phone}-1`, kg: pet.weightKg || 28.4, note: '本地测试记录', recordedAt: '2026-06-07' },
-      { id: `w-${user.phone}-2`, kg: Math.max(1, (pet.weightKg || 28.4) - 0.2), recordedAt: '2026-05-31' },
-    ]);
+    ok(res, healthList('weights', user, defaultWeightRecordsFor));
     return;
   }
 
   if (req.method === 'POST' && pathname === '/health/weights') {
-    ok(res, {
+    const kg = Number(body.kg);
+    if (!Number.isFinite(kg) || kg <= 0) {
+      fail(res, 400, '请输入正确体重', false);
+      return;
+    }
+    const records = healthList('weights', user, defaultWeightRecordsFor);
+    const record = {
       id: `w-${Date.now()}`,
-      kg: Number(body.kg),
-      note: body.note,
-      recordedAt: new Date().toISOString().slice(0, 10),
-    });
+      kg,
+      note: String(body.note || ''),
+      recordedAt: todayIsoDate(),
+    };
+    records.unshift(record);
+    const pet = selectedPetFor(user);
+    if (pet) pet.weightKg = kg;
+    saveState();
+    ok(res, record);
     return;
   }
 
   if (req.method === 'GET' && pathname === '/health/vaccines') {
-    ok(res, [
-      { dueAt: '2026-06-18', id: `v-${user.phone}-1`, name: '狂犬疫苗', status: 'due' },
-      { dueAt: '2026-07-05', id: `v-${user.phone}-2`, name: '体内驱虫', status: 'due' },
-    ]);
+    ok(res, healthList('vaccines', user, defaultVaccinesFor));
+    return;
+  }
+
+  const vaccineMatch = pathname.match(/^\/health\/vaccines\/([^/]+)$/);
+  if (req.method === 'PATCH' && vaccineMatch) {
+    const id = decodeURIComponent(vaccineMatch[1]);
+    const status = String(body.status || '');
+    if (!['done', 'due', 'overdue'].includes(status)) {
+      fail(res, 400, '疫苗状态无效', false);
+      return;
+    }
+    const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+    const index = vaccines.findIndex((item) => item.id === id);
+    if (index < 0) {
+      fail(res, 404, '疫苗计划不存在', true);
+      return;
+    }
+    vaccines[index] = { ...vaccines[index], status };
+    saveState();
+    ok(res, vaccines[index]);
     return;
   }
 
   if (req.method === 'GET' && pathname === '/health/memos') {
-    ok(res, [
-      { content: '耳朵干净，食欲正常。', id: `m-${user.phone}-1`, title: '今日观察', updatedAt: '刚刚' },
-    ]);
+    ok(res, healthList('memos', user, defaultMemosFor));
     return;
   }
 
   if (req.method === 'POST' && pathname === '/health/memos') {
-    ok(res, {
-      content: String(body.content || ''),
+    const title = String(body.title || '').trim();
+    const content = String(body.content || '').trim();
+    if (!title || !content) {
+      fail(res, 400, '请填写备忘标题和内容', false);
+      return;
+    }
+    const memos = healthList('memos', user, defaultMemosFor);
+    const memo = {
+      content,
       id: `m-${Date.now()}`,
-      title: String(body.title || '健康备忘'),
+      title,
       updatedAt: '刚刚',
-    });
+    };
+    memos.unshift(memo);
+    saveState();
+    ok(res, memo);
     return;
   }
 

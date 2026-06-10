@@ -218,6 +218,44 @@ function formatMaskedPhone(phone?: null | string) {
   return '未绑定手机号';
 }
 
+function formatOwnerName(phone?: null | string, pet?: null | PetProfile) {
+  if (pet?.name) return `${pet.name}的铲屎官`;
+  const digits = String(phone ?? '').replace(/\D/g, '');
+  if (/^1[3-9]\d{9}$/.test(digits)) return `用户${digits.slice(-4)}`;
+  return '灵伴用户';
+}
+
+function formatPetAge(birthday?: string) {
+  if (!birthday) return '年龄待补充';
+  const bornAt = new Date(birthday);
+  if (Number.isNaN(bornAt.getTime())) return '年龄待补充';
+  const now = new Date();
+  let months = (now.getFullYear() - bornAt.getFullYear()) * 12 + (now.getMonth() - bornAt.getMonth());
+  if (now.getDate() < bornAt.getDate()) months -= 1;
+  if (months <= 0) return '未满 1 个月';
+  const years = Math.floor(months / 12);
+  const restMonths = months % 12;
+  if (!years) return `${restMonths} 个月`;
+  return restMonths ? `${years} 岁 ${restMonths} 个月` : `${years} 岁`;
+}
+
+function formatWeightKg(kg?: null | number) {
+  if (!Number.isFinite(Number(kg))) return '待记录';
+  return `${Number(kg).toFixed(1).replace(/\.0$/, '')} kg`;
+}
+
+function formatDueLabel(dueAt?: string) {
+  if (!dueAt) return '待设置';
+  const due = new Date(`${dueAt}T00:00:00`);
+  if (Number.isNaN(due.getTime())) return dueAt;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.ceil((due.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  if (days < 0) return `逾期 ${Math.abs(days)} 天`;
+  if (days === 0) return '今天到期';
+  return `${days} 天后`;
+}
+
 function mergePermissionState(...states: Array<Partial<PermissionStateMap> | null | undefined>): PermissionStateMap {
   return states.reduce<PermissionStateMap>((next, state) => ({ ...next, ...(state ?? {}) }), { ...initialPermissions });
 }
@@ -260,14 +298,14 @@ export default function LumiiMvpApp() {
   const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(null);
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { author: 'ai', id: 'welcome', status: 'sent', text: '我是奶油的灵伴。今天想记录什么小事？', time: '刚刚' },
+    { author: 'ai', id: 'welcome', status: 'sent', text: '我是你的灵伴。今天想记录什么小事？', time: '刚刚' },
   ]);
   const [chatInput, setChatInput] = useState('');
   const [weights, setWeights] = useState<WeightRecord[]>([]);
   const [vaccines, setVaccines] = useState<VaccinePlan[]>([]);
   const [vaccineReminderIds, setVaccineReminderIds] = useState<string[]>([]);
   const [memos, setMemos] = useState<HealthMemo[]>([]);
-  const [weightInput, setWeightInput] = useState('28.4');
+  const [weightInput, setWeightInput] = useState('');
   const [memoTitle, setMemoTitle] = useState('今日观察');
   const [memoContent, setMemoContent] = useState('');
   const [memoDraftTitle, setMemoDraftTitle] = useState('洗澡记录');
@@ -279,7 +317,7 @@ export default function LumiiMvpApp() {
   const [selectedOwner, setSelectedOwner] = useState<NearbyOwner | null>(null);
   const [walkInvitePlace, setWalkInvitePlace] = useState('滨江绿地');
   const [walkInviteTime, setWalkInviteTime] = useState('今天 19:00');
-  const [walkInviteNote, setWalkInviteNote] = useState('奶油想找附近的小伙伴散步，一起走一圈吗？');
+  const [walkInviteNote, setWalkInviteNote] = useState('');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [conversationInput, setConversationInput] = useState('');
@@ -777,7 +815,10 @@ export default function LumiiMvpApp() {
     const result = await lumiiApi.health.recordWeight(kg, '手动记录');
     if (result.data) {
       setWeights((items) => [result.data!, ...items]);
+      setActivePet((pet) => (pet ? { ...pet, weightKg: result.data!.kg } : pet));
       showToast('体重已记录');
+    } else {
+      showToast(result.error?.message ?? '保存失败，请稍后重试');
     }
   }
 
@@ -799,12 +840,17 @@ export default function LumiiMvpApp() {
     showToast('疫苗提醒已开启');
   }
 
-  function markVaccineDone(vaccine?: VaccinePlan) {
+  async function markVaccineDone(vaccine?: VaccinePlan) {
     if (!vaccine) {
       showToast('暂无可完成的疫苗计划');
       return;
     }
-    setVaccines((items) => items.map((item) => (item.id === vaccine.id ? { ...item, status: 'done' } : item)));
+    const result = await lumiiApi.health.updateVaccineStatus(vaccine.id, 'done');
+    if (!result.data) {
+      showToast(result.error?.message ?? '操作失败，请稍后重试');
+      return;
+    }
+    setVaccines((items) => items.map((item) => (item.id === vaccine.id ? result.data! : item)));
     setNotifications((items) => [
       {
         id: `vaccine-done-${vaccine.id}-${Date.now()}`,
@@ -1575,6 +1621,7 @@ export default function LumiiMvpApp() {
 
   function renderAiResult() {
     const petName = activePet?.name ?? (petDraft.name || '豆豆');
+    const petBreed = activePet?.breed || petDraft.breed || speciesLabels[petDraft.species];
     return (
       <Screen title="遇见你的小灵伴">
         <View style={styles.aiResultPage}>
@@ -1586,7 +1633,7 @@ export default function LumiiMvpApp() {
             <PetAvatar uri={avatarJob?.resultUrl ?? generatedGoldenAvatarUri} size={260} />
           </View>
           <Text style={styles.aiResultName}>{petName}</Text>
-          <Text style={styles.aiResultDesc}>一只温柔亲人的金毛灵伴已经准备好陪你</Text>
+          <Text style={styles.aiResultDesc}>一只温柔亲人的{petBreed}灵伴已经准备好陪你</Text>
           <View style={styles.featureChipsMake}>
             <Text style={styles.featureChipWarm}>真实卡通化</Text>
             <Text style={styles.featureChipCool}>保留毛色</Text>
@@ -1604,6 +1651,11 @@ export default function LumiiMvpApp() {
   function renderHome() {
     const pet = activePet ?? lumiiApi.pets.getActivePet();
     if (!pet) return renderEmptyPet();
+    const nextVaccine = pendingVaccines[0] ?? vaccines[0];
+    const latestWeight = weights[0]?.kg ?? pet.weightKg;
+    const petMeta = [pet.breed || speciesLabels[pet.species], formatPetAge(pet.birthday)].filter(Boolean).join(' · ');
+    const memoSummary = memos[0]?.title ?? '暂无备忘';
+    const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : '暂无附近伙伴';
     return (
       <Screen showBack={false} title="">
         <View style={styles.homeMakePage}>
@@ -1634,7 +1686,7 @@ export default function LumiiMvpApp() {
 
           <View style={styles.homePetNameRow}>
             <Text style={styles.homePetName}>{pet.name}</Text>
-            <Text style={styles.homePetMeta}>· {pet.breed || '金毛'} · 2 岁 3 个月</Text>
+            <Text style={styles.homePetMeta}>· {petMeta}</Text>
           </View>
 
           <Pressable onPress={() => go('health')} style={[webPressableReset, styles.homeHealthCard, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E0 0%, #FFE3CB 60%, #FFD7B5 100%)' } as object) : null]}>
@@ -1658,10 +1710,10 @@ export default function LumiiMvpApp() {
           </Pressable>
 
           <View style={styles.homeQuickGrid}>
-            <MetricCard Icon={Weight} label="今日体重" onPress={() => go('weight')} tag="稳定" tagTone="teal" value={`${pet.weightKg ?? 28.4} kg`} />
-            <MetricCard Icon={Syringe} label="疫苗提醒" onPress={() => go('vaccine')} tag="12 天后" tagTone="orange" value="狂犬疫苗" />
-            <MetricCard Icon={NotebookPen} label="健康备忘" onPress={() => go('healthMemos')} tag={`${memos.length || 3} 条`} tagTone="muted" value="洗澡 · 驱虫" />
-            <MetricCard Icon={MapPin} label="附近伙伴" onPress={() => go('discover')} tag="3km" tagTone="teal" value={`${owners.length || 3} 位狗友在线`} />
+            <MetricCard Icon={Weight} label="今日体重" onPress={() => go('weight')} tag={weights.length ? '已记录' : '待记录'} tagTone="teal" value={formatWeightKg(latestWeight)} />
+            <MetricCard Icon={Syringe} label="疫苗提醒" onPress={() => go('vaccine')} tag={formatDueLabel(nextVaccine?.dueAt)} tagTone="orange" value={nextVaccine?.name ?? '待添加计划'} />
+            <MetricCard Icon={NotebookPen} label="健康备忘" onPress={() => go('healthMemos')} tag={`${memos.length} 条`} tagTone="muted" value={memoSummary} />
+            <MetricCard Icon={MapPin} label="附近伙伴" onPress={() => go('discover')} tag={`${defaultDiscoverRadiusKm}km`} tagTone="teal" value={onlineCopy} />
           </View>
 
           <Pressable onPress={() => go('dailyPost')} style={[styles.homeStoryStrip, webPressableReset]}>
@@ -1689,7 +1741,7 @@ export default function LumiiMvpApp() {
           </Pressable>
           <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={38} />
           <View style={styles.flex}>
-            <Text style={styles.chatMakeName}>{pet?.name ?? '奶油'}</Text>
+            <Text style={styles.chatMakeName}>{pet?.name ?? '灵伴'}</Text>
             <View style={styles.chatOnlineRow}>
               <View style={styles.homeOnlineDot} />
               <Text style={styles.chatOnlineText}>在线 · 心情很好</Text>
@@ -1727,7 +1779,7 @@ export default function LumiiMvpApp() {
         <View style={styles.chatComposer}>
           <TextInput
             onChangeText={setChatInput}
-            placeholder={`告诉${pet?.name ?? '奶油'}今天发生了什么...`}
+            placeholder={`告诉${pet?.name ?? '灵伴'}今天发生了什么...`}
             placeholderTextColor="#b6aca3"
             style={[styles.chatInput, webTextInputReset]}
             value={chatInput}
@@ -1803,8 +1855,11 @@ export default function LumiiMvpApp() {
   function renderHealth() {
     const pet = activePet ?? lumiiApi.pets.getActivePet();
     const nextHealthVaccine = pendingVaccines[0] ?? vaccines[0];
+    const latestWeight = weights[0]?.kg ?? pet?.weightKg;
+    const weightSubtitle = weights.length > 1 ? `最近一次 ${weights[0]?.recordedAt}` : '暂无连续记录，先从今天开始';
+    const memoSubtitle = memos[0] ? `${memos[0].title} · ${memos[0].updatedAt}` : '记录洗澡、驱虫、食欲或异常观察';
     return (
-      <Screen title={`${pet?.name ?? '奶油'}的健康`}>
+      <Screen title={`${pet?.name ?? '灵伴'}的健康`}>
         <View style={styles.healthHeroMake}>
           <View style={styles.healthHeroCopy}>
             <View style={styles.healthHeroLabelRow}>
@@ -1823,9 +1878,9 @@ export default function LumiiMvpApp() {
         </View>
 
         <View style={styles.healthSectionStack}>
-          <HealthMakeRow Icon={Weight} badge={`${weights[0]?.kg ?? pet?.weightKg ?? 28.4}kg`} onPress={() => go('weight')} subtitle="近 30 天稳定增长 0.4kg" title="体重趋势" tone="warm" />
+          <HealthMakeRow Icon={Weight} badge={formatWeightKg(latestWeight)} onPress={() => go('weight')} subtitle={weightSubtitle} title="体重趋势" tone="warm" />
           <HealthMakeRow Icon={Syringe} badge={pendingVaccines.length ? `${pendingVaccines.length} 项` : '已完成'} onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${nextHealthVaccine.status === 'done' ? '已完成' : '待提醒'}` : '暂无计划'} title="疫苗计划" tone="cool" />
-          <HealthMakeRow Icon={CalendarDays} badge={`${memos.length || 3} 条`} onPress={() => go('healthMemos')} subtitle="洗澡 · 驱虫 · 体检" title="健康备忘" tone="warm" />
+          <HealthMakeRow Icon={CalendarDays} badge={`${memos.length} 条`} onPress={() => go('healthMemos')} subtitle={memoSubtitle} title="健康备忘" tone="warm" />
         </View>
 
         <View style={styles.healthMemoMake}>
@@ -1837,7 +1892,7 @@ export default function LumiiMvpApp() {
 
         <View style={styles.healthTimelineCard}>
           <Text style={styles.sectionTitle}>近期记录</Text>
-          {[...memos.slice(0, 2).map((memo) => ({ sub: memo.content, title: memo.title, date: memo.updatedAt })), { title: '体重记录', sub: `今日 ${weights[0]?.kg ?? pet?.weightKg ?? 28.4}kg`, date: '今天' }].map((item, index, items) => (
+          {[...memos.slice(0, 2).map((memo) => ({ sub: memo.content, title: memo.title, date: memo.updatedAt })), { title: '体重记录', sub: `今日 ${formatWeightKg(latestWeight)}`, date: weights[0]?.recordedAt ?? '待记录' }].map((item, index, items) => (
             <View key={`${item.title}-${index}`}>
               <View style={styles.timelineRowMake}>
                 <View style={[styles.timelineDotMake, index % 2 === 1 && styles.timelineDotCool]} />
@@ -1914,24 +1969,30 @@ export default function LumiiMvpApp() {
   }
 
   function renderWeight() {
-    const currentWeight = weights[0]?.kg ?? activePet?.weightKg ?? 28.4;
+    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const currentWeight = weights[0]?.kg ?? pet?.weightKg;
+    const previousWeight = weights[1]?.kg;
+    const weightDelta = Number.isFinite(Number(currentWeight)) && Number.isFinite(Number(previousWeight))
+      ? Number(currentWeight) - Number(previousWeight)
+      : 0;
+    const weightDeltaLabel = weightDelta === 0 ? '0' : Math.abs(weightDelta).toFixed(1).replace(/\.0$/, '');
     return (
       <Screen title="体重记录">
         <View style={styles.weightHeroMake}>
           <Text style={styles.healthHeroLabel}>今日体重</Text>
           <View style={styles.healthHeroScoreRow}>
-            <Text style={styles.healthHeroScore}>{currentWeight}</Text>
+            <Text style={styles.healthHeroScore}>{Number.isFinite(Number(currentWeight)) ? Number(currentWeight).toFixed(1).replace(/\.0$/, '') : '--'}</Text>
             <Text style={styles.healthHeroTotal}>kg</Text>
             <View style={styles.homeHealthDelta}>
               <ArrowUp color={palette.teal} size={10} strokeWidth={3} />
-              <Text style={styles.homeHealthDeltaText}>0.1</Text>
+              <Text style={styles.homeHealthDeltaText}>{weightDeltaLabel}</Text>
             </View>
           </View>
-          <Text style={styles.healthHeroDesc}>金毛当前状态良好 · 建议持续稳定记录</Text>
+          <Text style={styles.healthHeroDesc}>{pet ? `${pet.name}当前状态良好 · 建议持续稳定记录` : '添加宠物后可持续记录体重'}</Text>
         </View>
         <View style={styles.weightInputMake}>
           <Text style={styles.sectionTitle}>记录新的体重</Text>
-          <Field keyboardType="decimal-pad" label="今日体重 kg" onChangeText={setWeightInput} value={weightInput} />
+          <Field keyboardType="decimal-pad" label="今日体重 kg" onChangeText={setWeightInput} placeholder={currentWeight ? String(currentWeight) : '请输入体重'} value={weightInput} />
           <View style={styles.infoChipRow}>
             <Text style={styles.infoChip}>今天 · 09:32</Text>
             <Text style={styles.infoChip}>照片</Text>
@@ -1963,15 +2024,16 @@ export default function LumiiMvpApp() {
 
   function renderVaccine() {
     const nextVaccine = pendingVaccines[0] ?? vaccines[0];
+    const nextVaccineDueLabel = formatDueLabel(nextVaccine?.dueAt);
     return (
       <Screen title="疫苗计划">
         <View style={styles.vaccineHeroMake}>
           <View style={styles.flex}>
-            <Text style={styles.vaccineDuePill}>即将到期</Text>
-            <Text style={styles.vaccineHeroTitle}>{nextVaccine?.name ?? '狂犬疫苗'}</Text>
+            <Text style={styles.vaccineDuePill}>{nextVaccine?.status === 'done' ? '已完成' : nextVaccineDueLabel}</Text>
+            <Text style={styles.vaccineHeroTitle}>{nextVaccine?.name ?? '暂无计划'}</Text>
             <View style={styles.chatOnlineRow}>
               <CalendarDays color={palette.muted} size={12} strokeWidth={2.3} />
-              <Text style={styles.vaccineHeroMeta}>{nextVaccine?.dueAt ?? '2026-06-14'} · 还有 12 天</Text>
+              <Text style={styles.vaccineHeroMeta}>{nextVaccine?.dueAt ?? '待设置'} · {nextVaccineDueLabel}</Text>
             </View>
           </View>
           <View style={styles.vaccineHeroIcon}>
@@ -1980,7 +2042,7 @@ export default function LumiiMvpApp() {
         </View>
         <View style={styles.actionRow}>
           <Button onPress={() => enableVaccineReminder(nextVaccine)} tone="secondary">{nextVaccine && vaccineReminderIds.includes(nextVaccine.id) ? '提醒已开启' : '开启提醒'}</Button>
-          <Button disabled={nextVaccine?.status === 'done'} onPress={() => markVaccineDone(nextVaccine)}>{nextVaccine?.status === 'done' ? '已完成' : '标记完成'}</Button>
+          <Button disabled={nextVaccine?.status === 'done'} onPress={() => void markVaccineDone(nextVaccine)}>{nextVaccine?.status === 'done' ? '已完成' : '标记完成'}</Button>
         </View>
         <View style={styles.healthTimelineCard}>
           <View style={styles.rowBetween}>
@@ -2195,6 +2257,8 @@ export default function LumiiMvpApp() {
   function renderPlaceDetail() {
     const place = selectedPlace ?? places[0];
     const isFavoritePlace = place ? favoritePlaceIds.includes(place.id) : false;
+    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const ownerName = formatOwnerName(session?.phone, pet);
     return (
       <Screen title="">
         {place ? (
@@ -2241,9 +2305,9 @@ export default function LumiiMvpApp() {
                 ))}
               </View>
               <View style={styles.placeReviewPreviewMake}>
-                <PetAvatar uri={generatedGoldenAvatarUri} size={28} />
+                <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={28} />
                 <View style={styles.flex}>
-                  <Text style={styles.timelineTitleMake}>奶油的铲屎官</Text>
+                  <Text style={styles.timelineTitleMake}>{ownerName}</Text>
                   <Text style={styles.timelineSubMake}>草坪很大，有饮水点，周末人会稍多。</Text>
                 </View>
               </View>
@@ -2348,6 +2412,10 @@ export default function LumiiMvpApp() {
   function renderProfile() {
     const pet = activePet ?? lumiiApi.pets.getActivePet();
     const maskedPhone = formatMaskedPhone(session?.phone);
+    const ownerName = formatOwnerName(session?.phone, pet);
+    const speciesLabel = pet ? speciesLabels[pet.species] : '';
+    const permissionEnabled = allLumiiPermissionsGranted(permissions);
+    const notificationsEnabled = permissions.notifications === 'granted' && userSettings.pushNotifications;
     return (
       <Screen showBack={false} title="">
         <View style={styles.profileMakePage}>
@@ -2365,7 +2433,7 @@ export default function LumiiMvpApp() {
                 <User color={palette.orange} size={30} strokeWidth={2.3} />
               </View>
               <View style={styles.flex}>
-                <Text style={styles.profileOwnerName}>奶油的铲屎官</Text>
+                <Text style={styles.profileOwnerName}>{ownerName}</Text>
                 <View style={styles.profilePhoneRow}>
                   <Phone color={palette.muted} size={11} strokeWidth={2.2} />
                   <Text style={styles.profilePhoneText}>{maskedPhone}</Text>
@@ -2382,32 +2450,45 @@ export default function LumiiMvpApp() {
           <View style={styles.profileCurrentWrap}>
             <View style={styles.profileSectionLabelRow}>
               <Text style={styles.profileSectionLabel}>当前宠物</Text>
-              <Pressable onPress={() => go('petDetail')}>
-                <Text style={styles.profileManageLink}>多宠管理 ›</Text>
+              <Pressable onPress={() => go(pet ? 'petDetail' : 'petInfo')}>
+                <Text style={styles.profileManageLink}>{pet ? '多宠管理 ›' : '添加宠物 ›'}</Text>
               </Pressable>
             </View>
-            <Pressable onPress={() => go('petDetail')} style={styles.profilePetCardMake}>
-              <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={60} />
-              <View style={styles.flex}>
-                <View style={styles.profilePetNameRow}>
-                  <Text style={styles.profilePetName}>{pet?.name ?? '奶油'}</Text>
-                  <Text style={styles.profilePetBadge}>金毛</Text>
+            {pet ? (
+              <Pressable accessibilityLabel={`进入${pet.name}的宠物档案`} accessibilityRole="button" onPress={() => go('petDetail')} style={styles.profilePetCardMake}>
+                <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={60} />
+                <View style={styles.flex}>
+                  <View style={styles.profilePetNameRow}>
+                    <Text style={styles.profilePetName}>{pet.name}</Text>
+                    <Text style={styles.profilePetBadge}>{pet.breed || speciesLabel}</Text>
+                  </View>
+                  <Text style={styles.profilePetMeta}>{formatPetAge(pet.birthday)} · {pet.weightKg ? `${pet.weightKg} kg` : '体重待补充'}</Text>
+                  <View style={styles.profilePetTags}>
+                    {(pet.personality?.length ? pet.personality : ['真实在线', '想交朋友']).slice(0, 3).map((tag) => (
+                      <Text key={tag} style={styles.profilePetTag}>{tag}</Text>
+                    ))}
+                  </View>
                 </View>
-                <Text style={styles.profilePetMeta}>3 岁 2 个月 · {pet?.weightKg ?? 26.4} kg · 已绝育</Text>
-                <View style={styles.profilePetTags}>
-                  {['疫苗齐全', '活泼', '对小孩友好'].map((tag) => (
-                    <Text key={tag} style={styles.profilePetTag}>{tag}</Text>
-                  ))}
+                <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
+              </Pressable>
+            ) : (
+              <Pressable accessibilityLabel="添加宠物档案" accessibilityRole="button" onPress={() => go('petInfo')} style={styles.profilePetCardMake}>
+                <View style={styles.profilePetEmptyIcon}>
+                  <PawPrint color={palette.orange} size={24} strokeWidth={2.4} />
                 </View>
-              </View>
-              <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
-            </Pressable>
+                <View style={styles.flex}>
+                  <Text style={styles.profilePetName}>还没有添加宠物</Text>
+                  <Text style={styles.profilePetMeta}>添加猫狗档案后，会在这里管理健康、灵伴和附近互动</Text>
+                </View>
+                <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
+              </Pressable>
+            )}
           </View>
 
           <View style={styles.profileMenuGroup}>
-            <ProfileMakeRow Icon={PawPrint} onPress={() => go('petDetail')} title="宠物档案" value={pet?.name ?? '奶油'} />
-            <ProfileMakeRow Icon={Users} onPress={() => go('discover')} title="社交与附近" value="已开启" />
-            <ProfileMakeRow Icon={Bell} onPress={() => go('notifications')} title="通知设置" value="已开启" />
+            <ProfileMakeRow Icon={PawPrint} onPress={() => go(pet ? 'petDetail' : 'petInfo')} title="宠物档案" value={pet?.name ?? '待添加'} />
+            <ProfileMakeRow Icon={Users} onPress={() => go('discover')} title="社交与附近" value={permissionEnabled && userSettings.nearbyVisible ? '已开启' : '待开启'} />
+            <ProfileMakeRow Icon={Bell} onPress={() => go('notifications')} title="通知设置" value={notificationsEnabled ? '已开启' : '未开启'} />
             <ProfileMakeRow Icon={Shield} onPress={() => go('safety')} title="安全中心" />
             <ProfileMakeRow Icon={User} onPress={() => go('accountSecurity')} title="账号安全" />
           </View>
@@ -2453,6 +2534,8 @@ export default function LumiiMvpApp() {
 
   function renderPetDetail() {
     const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const genderText = pet?.gender === 'female' ? '妹妹' : pet?.gender === 'male' ? '弟弟' : '待补充';
+    const vaccineValue = pendingVaccines.length ? `${pendingVaccines.length} 项待提醒` : vaccines.length ? '已完成' : '待添加';
     return (
       <Screen title="宠物档案">
         {pet ? (
@@ -2465,7 +2548,7 @@ export default function LumiiMvpApp() {
               </Pressable>
               <View style={styles.petDetailHeroText}>
                 <Text style={styles.petDetailHeroName}>{pet.name}</Text>
-                <Text style={styles.petDetailHeroMeta}>{pet.breed} · 3 岁 2 个月</Text>
+                <Text style={styles.petDetailHeroMeta}>{pet.breed || speciesLabels[pet.species]} · {formatPetAge(pet.birthday)}</Text>
               </View>
               <Pressable onPress={() => go('editPet')} style={styles.petDetailEdit}>
                 <Edit3 color={palette.orange} size={12} strokeWidth={2.4} />
@@ -2474,9 +2557,9 @@ export default function LumiiMvpApp() {
             </View>
             <View style={styles.petDetailStats}>
               {[
-                ['体重', `${pet.weightKg ?? 28.4} kg`],
-                ['生日', '2023.04'],
-                ['体型', pet.species === 'dog' ? '大型' : '中型'],
+                ['体重', formatWeightKg(pet.weightKg)],
+                ['生日', pet.birthday ? pet.birthday.replace(/-/g, '.') : '待补充'],
+                ['体型', '待补充'],
               ].map(([label, value]) => (
                 <View key={label} style={styles.petDetailStatCard}>
                   <Text style={styles.petDetailStatLabel}>{label}</Text>
@@ -2488,16 +2571,16 @@ export default function LumiiMvpApp() {
               <Text style={styles.settingsGroupTitle}>基础信息</Text>
               <MakeDetailRow inset label="昵称" value={pet.name} />
               <View style={styles.makeDivider} />
-              <MakeDetailRow inset label="品种" value={pet.breed} />
+              <MakeDetailRow inset label="品种" value={pet.breed || speciesLabels[pet.species]} />
               <View style={styles.makeDivider} />
-              <MakeDetailRow inset label="性别 / 绝育" value="未知 / 已绝育" />
+              <MakeDetailRow inset label="性别 / 绝育" value={`${genderText} / 待补充`} />
               <View style={styles.makeDivider} />
-              <MakeDetailRow inset label="毛色" value="奶油金" />
+              <MakeDetailRow inset label="毛色" value="待识别" />
             </View>
             <View style={styles.settingsGroupMake}>
               <Text style={styles.settingsGroupTitle}>健康</Text>
               <ProfileMakeRow Icon={HeartPulse} onPress={() => go('health')} title="健康分" value={`${pet.healthScore} / 100`} />
-              <ProfileMakeRow Icon={Syringe} onPress={() => go('vaccine')} title="疫苗计划" value="待提醒" />
+              <ProfileMakeRow Icon={Syringe} onPress={() => go('vaccine')} title="疫苗计划" value={vaccineValue} />
             </View>
           </View>
         ) : (
@@ -2514,7 +2597,7 @@ export default function LumiiMvpApp() {
         <View style={styles.dailyPostHero}>
           <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={64} />
           <View style={styles.flex}>
-            <Text style={styles.timelineTitleMake}>{pet?.name ?? '奶油'}今天过得怎么样？</Text>
+            <Text style={styles.timelineTitleMake}>{pet?.name ?? '灵伴'}今天过得怎么样？</Text>
             <Text style={styles.timelineSubMake}>这会同步到健康备忘，也能让灵伴更懂它。</Text>
           </View>
         </View>
@@ -2597,6 +2680,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderGreetingRequests() {
+    const pet = activePet ?? lumiiApi.pets.getActivePet();
     return (
       <Screen title="招呼请求">
         <View style={styles.chatSafetyTip}>
@@ -2609,7 +2693,7 @@ export default function LumiiMvpApp() {
               <PetAvatar uri={owner.imageUrl} size={54} />
               <View style={styles.flex}>
                 <Text style={styles.timelineTitleMake}>{owner.ownerName}和{owner.petName}</Text>
-                <Text style={styles.timelineSubMake}>{index === 0 ? '想认识你和奶油，今晚也在附近散步。' : '向你发送了友好的招呼。'}</Text>
+                <Text style={styles.timelineSubMake}>{index === 0 ? `想认识你和${pet?.name ?? '你的宠物'}，今晚也在附近散步。` : '向你发送了友好的招呼。'}</Text>
                 <View style={styles.requestActionRow}>
                   <Button onPress={() => void rejectGreeting(owner)} tone="ghost">婉拒</Button>
                   <Button onPress={() => void acceptGreeting(owner)}>接受</Button>
@@ -3483,6 +3567,7 @@ const styles = StyleSheet.create({
   profileOwnerName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 24 },
   profilePetBadge: { backgroundColor: '#e8f5f3', borderRadius: 6, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
   profilePetCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 14 },
+  profilePetEmptyIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 30, height: 60, justifyContent: 'center', width: 60 },
   profilePetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 17, marginTop: 4 },
   profilePetName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700' },
   profilePetNameRow: { alignItems: 'center', flexDirection: 'row', gap: 6 },

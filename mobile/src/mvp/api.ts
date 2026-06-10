@@ -152,6 +152,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<VaccinePlan[]>('GET', '/health/vaccines');
       },
 
+      async updateVaccineStatus(id: string, status: VaccinePlan['status']): Promise<ApiResult<VaccinePlan>> {
+        return request<VaccinePlan>('PATCH', `/health/vaccines/${encodeURIComponent(id)}`, { status });
+      },
+
       async saveHealthMemo(title: string, content: string): Promise<ApiResult<HealthMemo>> {
         return request<HealthMemo>('POST', '/health/memos', { content, title });
       },

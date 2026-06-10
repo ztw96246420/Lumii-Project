@@ -230,15 +230,15 @@ Android 调用：
 ### 3.6 健康管理
 
 需要接口：
-- `GET /pets/{petId}/health/summary`：首页健康摘要。
+- ~~`GET /pets/{petId}/health/summary`：首页健康摘要。~~ MVP 暂由 `GET /health/weights`、`GET /health/vaccines`、`GET /health/memos` 拼装。
 - `GET /pets/{petId}/health/calendar`：健康日历。
-- `POST /pets/{petId}/health/memos`：新增健康备忘。
+- ~~`POST /pets/{petId}/health/memos`：新增健康备忘。~~ 测试后端已接 `POST /health/memos`，按当前宠物持久化。
 - `PATCH /pets/{petId}/health/memos/{memoId}`：编辑健康备忘。
 - `DELETE /pets/{petId}/health/memos/{memoId}`：删除健康备忘。
-- `POST /pets/{petId}/weights`：记录体重。
+- ~~`POST /pets/{petId}/weights`：记录体重。~~ 测试后端已接 `POST /health/weights`，按当前宠物持久化并同步宠物体重。
 - `GET /pets/{petId}/weights/trend`：体重趋势。
-- `GET /pets/{petId}/vaccines/plan`：疫苗计划。
-- `PATCH /pets/{petId}/vaccines/plan`：更新疫苗计划。
+- ~~`GET /pets/{petId}/vaccines/plan`：疫苗计划。~~ 测试后端已接 `GET /health/vaccines`。
+- ~~`PATCH /pets/{petId}/vaccines/plan`：更新疫苗计划。~~ 测试后端已接 `PATCH /health/vaccines/{vaccineId}`，支持标记完成。
 
 需要你提供：
 - 犬猫疫苗模板。

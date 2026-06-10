@@ -56,7 +56,7 @@ let memos: HealthMemo[] = [
   { id: 'm1', title: '驱虫记录', content: '体外驱虫已完成，下次 6 月底。', updatedAt: '2026-05-20' },
 ];
 
-const vaccines: VaccinePlan[] = [
+let vaccines: VaccinePlan[] = [
   { id: 'v1', name: '狂犬疫苗', dueAt: '2026-06-18', status: 'due' },
   { id: 'v2', name: '体内驱虫', dueAt: '2026-06-05', status: 'due' },
 ];
@@ -260,6 +260,15 @@ export const mockApi = {
     async listVaccines(): Promise<ApiResult<VaccinePlan[]>> {
       await wait(140);
       return success(vaccines);
+    },
+
+    async updateVaccineStatus(id: string, status: VaccinePlan['status']): Promise<ApiResult<VaccinePlan>> {
+      await wait();
+      const vaccine = vaccines.find((item) => item.id === id);
+      if (!vaccine) return error('疫苗计划不存在', false);
+      const nextVaccine = { ...vaccine, status };
+      vaccines = vaccines.map((item) => (item.id === id ? nextVaccine : item));
+      return success(nextVaccine);
     },
 
     async saveHealthMemo(title: string, content: string): Promise<ApiResult<HealthMemo>> {

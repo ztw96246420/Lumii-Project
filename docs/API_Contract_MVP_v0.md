@@ -254,7 +254,7 @@ type AvatarJob = {
 
 ### GET `/health/weights`
 
-体重记录列表。
+当前登录用户的当前宠物体重记录列表。测试后端会按 `phone + activePetId` 持久化；未添加宠物时返回空数组。
 
 ### POST `/health/weights`
 
@@ -264,13 +264,28 @@ Request:
 { "kg": 28.6, "note": "MVP 本地记录" }
 ```
 
+行为：
+- 新记录插入列表首位。
+- 同步更新当前宠物 `weightKg`。
+- `kg <= 0` 或非数字时返回中文错误。
+
 ### GET `/health/vaccines`
 
-疫苗/驱虫计划。
+当前宠物疫苗/驱虫计划。测试后端会按 `phone + activePetId` 持久化，默认根据猫/狗生成基础计划。
+
+### PATCH `/health/vaccines/{vaccineId}`
+
+Request:
+
+```json
+{ "status": "done" }
+```
+
+`status` 可为 `due`、`done`、`overdue`。
 
 ### GET `/health/memos`
 
-健康备忘列表。
+当前宠物健康备忘列表。测试后端会按 `phone + activePetId` 持久化。
 
 ### POST `/health/memos`
 
@@ -279,6 +294,8 @@ Request:
 ```json
 { "title": "驱虫记录", "content": "体外驱虫已完成。" }
 ```
+
+`title` 和 `content` 不能为空。
 
 ## 7. 社交与消息
 
