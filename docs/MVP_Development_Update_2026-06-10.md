@@ -79,3 +79,15 @@
 - 后端会注入用户不可见的 Lumii 宠物陪伴提示词、当前宠物档案、健康摘要和最近少量历史。
 - DeepSeek Key 仅通过服务端环境变量配置，不进入前端、不提交 Git。
 - 未配置 DeepSeek Key 时自动使用 fallback 回复，避免开发环境误烧 token。
+
+## AI 对话云端实测
+- 腾讯云后端已配置 DeepSeek 服务端环境变量，并通过 systemd `EnvironmentFile` 加载。
+- 云端真实模型调用已验证通过：
+  - 登录测试账号。
+  - 创建测试宠物“小云”。
+  - 调用 `POST /ai/pet-chat/messages` 发送“今天精神不错”。
+  - 返回真实 AI 宠物陪伴回复，并保存为 2 条聊天历史。
+- 云端 DeepSeek usage 聚合已验证增长：
+  - `requests=2`
+  - `totalTokens=774`
+- 代码仓库已扫描，未发现 DeepSeek Key 被写入 `docs`、`mobile` 或 `scripts`。

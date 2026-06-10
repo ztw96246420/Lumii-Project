@@ -98,6 +98,20 @@ PET_CHAT_MAX_INPUT_CHARS=600
 - 未设置 `DEEPSEEK_API_KEY` 时自动使用本地 fallback 回复，避免开发环境误烧 token。
 - 前端聊天页进入时会拉取历史。
 - 前端发送消息后继续显示本地发送中/失败状态。
+- 云端服务已通过 `DEEPSEEK_API_KEY` 环境变量启用真实 DeepSeek 调用；密钥不进入前端、不提交 Git。
+
+## 云端实测记录
+
+- 测试接口：`POST /ai/pet-chat/messages`
+- 测试模型：`deepseek-v4-flash`
+- 测试模式：`thinking.type=disabled`
+- 测试输入：`今天精神不错`
+- 测试结果：模型返回中文宠物陪伴回复，并正确结合宠物名“小云”。
+- DeepSeek usage 聚合已增长到：
+  - `requests=2`
+  - `promptTokens=698`
+  - `completionTokens=76`
+  - `totalTokens=774`
 
 ## 后续增强
 
