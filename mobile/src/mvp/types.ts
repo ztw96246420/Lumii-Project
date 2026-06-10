@@ -60,8 +60,10 @@ export type PetProfile = {
 export type CreatePetInput = Omit<PetProfile, 'healthScore' | 'id' | 'personality'>;
 
 export type AvatarJob = {
+  errorMessage?: string;
   id: string;
   progress: number;
+  provider?: 'mock' | 'ttapi-midjourney';
   resultUrl?: string;
   status: 'failed' | 'processing' | 'ready';
 };
@@ -73,6 +75,7 @@ export type UploadedPetMedia = {
 };
 
 export type UploadPetMediaInput = {
+  base64?: string;
   fileName?: string;
   mimeType?: string;
   previewUrl?: string;

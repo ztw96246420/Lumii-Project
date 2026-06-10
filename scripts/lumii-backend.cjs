@@ -18,6 +18,15 @@ const PET_CHAT_HISTORY_LIMIT = Number(process.env.PET_CHAT_HISTORY_LIMIT || '10'
 const PET_CHAT_MAX_TOKENS = Number(process.env.PET_CHAT_MAX_TOKENS || '420');
 const PET_CHAT_MAX_INPUT_CHARS = Number(process.env.PET_CHAT_MAX_INPUT_CHARS || '600');
 const PET_CHAT_DAILY_LIMIT = Number(process.env.PET_CHAT_DAILY_LIMIT || '80');
+const TTAPI_API_KEY = process.env.TTAPI_API_KEY || '';
+const TTAPI_MJ_BASE_URL = (process.env.TTAPI_MJ_BASE_URL || 'https://api.ttapi.io').replace(/\/+$/, '');
+const TTAPI_MJ_MODE = process.env.TTAPI_MJ_MODE || 'fast';
+const TTAPI_MJ_TIMEOUT = Number(process.env.TTAPI_MJ_TIMEOUT || '600');
+const TTAPI_MJ_AUTO_UPSAMPLE = process.env.TTAPI_MJ_AUTO_UPSAMPLE === 'true';
+const PET_AVATAR_PROVIDER = (process.env.PET_AVATAR_PROVIDER || (TTAPI_API_KEY ? 'ttapi-midjourney' : 'mock')).toLowerCase();
+const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
+const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
 
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
@@ -117,7 +126,15 @@ function createInitialState() {
         requests: 0,
         totalTokens: 0,
       },
+      ttapiMidjourney: {
+        failed: 0,
+        quota: 0,
+        requests: 0,
+        succeeded: 0,
+      },
     },
+    mediaUploads: {},
+    petAvatarDailyUsage: {},
     petChatDailyUsage: {},
     petChatMessages: {},
     places: defaultPlaces,
@@ -152,6 +169,18 @@ function loadState() {
           ...initialState.aiUsage.deepseek,
           ...(loadedState.aiUsage?.deepseek || {}),
         },
+        ttapiMidjourney: {
+          ...initialState.aiUsage.ttapiMidjourney,
+          ...(loadedState.aiUsage?.ttapiMidjourney || {}),
+        },
+      },
+      mediaUploads: {
+        ...initialState.mediaUploads,
+        ...(loadedState.mediaUploads || {}),
+      },
+      petAvatarDailyUsage: {
+        ...initialState.petAvatarDailyUsage,
+        ...(loadedState.petAvatarDailyUsage || {}),
       },
     };
   } catch {
@@ -516,6 +545,206 @@ function consumePetChatQuota(user) {
   return usage;
 }
 
+function petAvatarDailyUsageFor(phone) {
+  state.petAvatarDailyUsage = state.petAvatarDailyUsage || {};
+  const day = todayUsageKey();
+  const usage = state.petAvatarDailyUsage[phone];
+  if (!usage || usage.day !== day) {
+    state.petAvatarDailyUsage[phone] = { count: 0, day };
+  }
+  return state.petAvatarDailyUsage[phone];
+}
+
+function canUsePetAvatarGeneration(user) {
+  const usage = petAvatarDailyUsageFor(user.phone);
+  return usage.count < PET_AVATAR_DAILY_LIMIT;
+}
+
+function consumePetAvatarQuota(user) {
+  const usage = petAvatarDailyUsageFor(user.phone);
+  usage.count += 1;
+  return usage;
+}
+
+function recordTtapiAvatarUsage(result, succeeded) {
+  state.aiUsage = state.aiUsage || createInitialState().aiUsage;
+  state.aiUsage.ttapiMidjourney = state.aiUsage.ttapiMidjourney || createInitialState().aiUsage.ttapiMidjourney;
+  if (succeeded) state.aiUsage.ttapiMidjourney.succeeded += 1;
+  if (!succeeded) state.aiUsage.ttapiMidjourney.failed += 1;
+  const quota = Number(result?.data?.quota || result?.quota || 0);
+  if (Number.isFinite(quota)) state.aiUsage.ttapiMidjourney.quota += quota;
+}
+
+function cleanBase64DataUrl(value, mimeType) {
+  const input = String(value || '').trim();
+  if (!input || input.length > MEDIA_UPLOAD_MAX_BASE64_CHARS) return '';
+  const dataUrlMatch = input.match(/^data:([^;]+);base64,(.+)$/);
+  if (dataUrlMatch) {
+    const clean = dataUrlMatch[2].replace(/\s/g, '');
+    return `data:${normalizeImageMimeType(dataUrlMatch[1])};base64,${clean}`;
+  }
+  return `data:${normalizeImageMimeType(mimeType)};base64,${input.replace(/\s/g, '')}`;
+}
+
+function normalizeImageMimeType(value) {
+  const mimeType = String(value || '').toLowerCase();
+  if (mimeType.includes('png')) return 'image/png';
+  if (mimeType.includes('webp')) return 'image/webp';
+  return 'image/jpeg';
+}
+
+function mediaUploadFileUrl(req, mediaId) {
+  if (PET_AVATAR_PUBLIC_BASE_URL) return `${PET_AVATAR_PUBLIC_BASE_URL}/media/uploads/${encodeURIComponent(mediaId)}/file`;
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  if (!host) return '';
+  const proto = req.headers['x-forwarded-proto'] || 'http';
+  return `${proto}://${host}/media/uploads/${encodeURIComponent(mediaId)}/file`;
+}
+
+function buildPetAvatarPrompt(user, mediaUrl) {
+  const pet = selectedPetFor(user) || activePetFor(user);
+  const species = pet?.species === 'cat' ? 'cat' : 'dog';
+  const breed = pet?.breed || (species === 'cat' ? 'cat' : 'golden retriever');
+  return [
+    mediaUrl,
+    `Create a realistic cartoon digital avatar of the same ${species} in the reference photo for Lumii.`,
+    `Pet profile: ${breed}. Preserve the pet's real fur color, markings, face shape, ears, nose, eye expression, and natural anatomy.`,
+    'Style: realistic cartoon illustration, polished premium mobile app asset, warm hand-painted look, clean edges, soft natural lighting.',
+    'Composition: centered head and chest, friendly joyful expression, gentle neutral background, app icon/avatar quality, square image.',
+    'Do not add clothes, bowties, hats, accessories, text, watermark, logo, human body, fantasy creature, or breed/species changes.',
+    'Avoid toy-like mascot, anime style, flat vector art, exaggerated giant eyes, distorted nose, extra limbs, cropped face.',
+    '--ar 1:1',
+  ].join(' ');
+}
+
+async function ttapiMidjourneyRequest(pathname, options = {}) {
+  const response = await fetch(`${TTAPI_MJ_BASE_URL}${pathname}`, {
+    method: options.method || 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'TT-API-KEY': TTAPI_API_KEY,
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.status === 'FAILED') {
+    const message = payload.message || `TTAPI request failed: ${response.status}`;
+    const error = new Error(message);
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+function ttapiJobIdFrom(payload) {
+  return payload?.data?.job_id || payload?.data?.jobId || payload?.jobId || '';
+}
+
+function ttapiResultUrlFrom(payload) {
+  const data = payload?.data || {};
+  if (Array.isArray(data.images) && data.images[0]) return data.images[0];
+  return data.imageUrl || data.cdnImage || data.discordImage || '';
+}
+
+function nextProcessingProgress(current, remoteProgress) {
+  const parsed = Number(remoteProgress);
+  if (Number.isFinite(parsed) && parsed > 0) return Math.max(10, Math.min(98, parsed));
+  return Math.min(98, Math.max(10, Number(current || 10) + 12));
+}
+
+function createMockAvatarJob(id) {
+  return {
+    createdAt: Date.now(),
+    id,
+    progress: 24,
+    provider: 'mock',
+    resultUrl: undefined,
+    status: 'processing',
+  };
+}
+
+async function startTtapiAvatarJob(req, user, job, media) {
+  if (!TTAPI_API_KEY) throw new Error('TTAPI key is not configured');
+  if (!media?.dataUrl) throw new Error('Pet photo is missing. Please upload again.');
+  const referenceUrl = mediaUploadFileUrl(req, media.mediaId);
+  if (!referenceUrl) throw new Error('Public media URL is not available.');
+  const prompt = buildPetAvatarPrompt(user, referenceUrl);
+  const payload = await ttapiMidjourneyRequest('/midjourney/v1/imagine', {
+    method: 'POST',
+    body: {
+      mode: TTAPI_MJ_MODE,
+      prompt,
+      timeout: TTAPI_MJ_TIMEOUT,
+    },
+  });
+  const providerJobId = ttapiJobIdFrom(payload);
+  if (!providerJobId) throw new Error('TTAPI did not return a job id');
+  state.aiUsage = state.aiUsage || createInitialState().aiUsage;
+  state.aiUsage.ttapiMidjourney = state.aiUsage.ttapiMidjourney || createInitialState().aiUsage.ttapiMidjourney;
+  state.aiUsage.ttapiMidjourney.requests += 1;
+  Object.assign(job, {
+    mediaId: media.mediaId,
+    progress: 10,
+    provider: 'ttapi-midjourney',
+    providerJobId,
+    providerStatus: payload.status || 'SUBMITTED',
+    referenceUrl,
+    status: 'processing',
+  });
+}
+
+async function refreshTtapiAvatarJob(job) {
+  const activeProviderJobId = job.upsampleJobId || job.providerJobId;
+  if (!activeProviderJobId) throw new Error('TTAPI job id is missing');
+  const payload = await ttapiMidjourneyRequest(`/midjourney/v1/fetch?jobId=${encodeURIComponent(activeProviderJobId)}`);
+  job.providerStatus = payload.status;
+
+  if (payload.status === 'SUCCESS') {
+    if (TTAPI_MJ_AUTO_UPSAMPLE && !job.upsampleJobId) {
+      const actionPayload = await ttapiMidjourneyRequest('/midjourney/v1/action', {
+        method: 'POST',
+        body: {
+          action: 'upsample1',
+          hookUrl: undefined,
+          jobId: job.providerJobId,
+          timeout: TTAPI_MJ_TIMEOUT,
+        },
+      });
+      const upsampleJobId = ttapiJobIdFrom(actionPayload);
+      if (upsampleJobId) {
+        job.progress = 82;
+        job.upsampleJobId = upsampleJobId;
+        return job;
+      }
+    }
+
+    const resultUrl = ttapiResultUrlFrom(payload);
+    if (!resultUrl) throw new Error('TTAPI result does not include an image URL');
+    job.progress = 100;
+    job.resultUrl = resultUrl;
+    job.status = 'ready';
+    if (!job.usageRecorded) {
+      recordTtapiAvatarUsage(payload, true);
+      job.usageRecorded = true;
+    }
+    return job;
+  }
+
+  if (payload.status === 'FAILED') {
+    job.progress = Math.max(10, Number(job.progress || 10));
+    job.status = 'failed';
+    if (!job.usageRecorded) {
+      recordTtapiAvatarUsage(payload, false);
+      job.usageRecorded = true;
+    }
+    return job;
+  }
+
+  job.progress = nextProcessingProgress(job.progress, payload?.data?.progress);
+  job.status = 'processing';
+  return job;
+}
+
 function fallbackPetChatReply(user, text) {
   const pet = selectedPetFor(user) || activePetFor(user);
   const petName = pet?.name || '灵伴';
@@ -766,6 +995,30 @@ async function handle(req, res) {
     return;
   }
 
+  const mediaFileMatch = pathname.match(/^\/media\/uploads\/([^/]+)\/file$/);
+  if (req.method === 'GET' && mediaFileMatch) {
+    const mediaId = decodeURIComponent(mediaFileMatch[1]);
+    const media = state.mediaUploads?.[mediaId];
+    if (!media?.dataUrl) {
+      fail(res, 404, 'Media file not found', false);
+      return;
+    }
+    const match = String(media.dataUrl).match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+      fail(res, 404, 'Media file is unavailable', false);
+      return;
+    }
+    const buffer = Buffer.from(match[2], 'base64');
+    res.writeHead(200, {
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'public, max-age=3600',
+      'Content-Length': buffer.length,
+      'Content-Type': normalizeImageMimeType(match[1]),
+    });
+    res.end(buffer);
+    return;
+  }
+
   const user = requireUser(req, res);
   if (!user) return;
 
@@ -864,8 +1117,22 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/media/uploads') {
+    const mediaId = `media-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const dataUrl = cleanBase64DataUrl(body.base64, body.mimeType);
+    state.mediaUploads = state.mediaUploads || {};
+    state.mediaUploads[mediaId] = {
+      createdAt: Date.now(),
+      dataUrl,
+      fileName: String(body.fileName || ''),
+      mediaId,
+      mimeType: normalizeImageMimeType(body.mimeType),
+      ownerPhone: user.phone,
+      previewUrl: body.previewUrl || samplePhotoUrl,
+      source: body.source || 'mvp_sample',
+    };
+    saveState();
     ok(res, {
-      mediaId: `media-${Date.now()}`,
+      mediaId,
       previewUrl: body.previewUrl || samplePhotoUrl,
       quality: 'good',
     });
@@ -873,16 +1140,33 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/ai/pet-avatar/jobs') {
+    if (!canUsePetAvatarGeneration(user)) {
+      fail(res, 429, '今日灵伴形象生成次数已用完，请明天再试', true);
+      return;
+    }
+    const mediaId = String(body.mediaId || '');
+    const media = state.mediaUploads?.[mediaId];
+    if (mediaId && !media) {
+      fail(res, 404, '上传照片已失效，请重新上传', true);
+      return;
+    }
     const id = `job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-    state.avatarJobs[id] = {
-      createdAt: Date.now(),
-      id,
-      progress: 24,
-      resultUrl: undefined,
-      status: 'processing',
-    };
+    const job = createMockAvatarJob(id);
+    job.mediaId = mediaId;
+    job.ownerPhone = user.phone;
+    state.avatarJobs[id] = job;
+    if (PET_AVATAR_PROVIDER === 'ttapi-midjourney') {
+      try {
+        await startTtapiAvatarJob(req, user, job, media);
+      } catch (error) {
+        job.errorMessage = error.message || 'Avatar generation failed to start';
+        job.progress = 0;
+        job.status = 'failed';
+      }
+    }
+    consumePetAvatarQuota(user);
     saveState();
-    ok(res, state.avatarJobs[id]);
+    ok(res, job);
     return;
   }
 
@@ -894,10 +1178,19 @@ async function handle(req, res) {
       fail(res, 404, '生成任务不存在', true);
       return;
     }
-    job.progress = Math.min(100, Number(job.progress || 24) + 38);
-    if (job.progress >= 100) {
-      job.status = 'ready';
-      job.resultUrl = generatedAvatarUrl;
+    if (job.provider === 'ttapi-midjourney' && job.status === 'processing') {
+      try {
+        await refreshTtapiAvatarJob(job);
+      } catch (error) {
+        job.errorMessage = error.message || 'Avatar generation status failed';
+        job.status = 'failed';
+      }
+    } else if (job.status === 'processing') {
+      job.progress = Math.min(100, Number(job.progress || 24) + 38);
+      if (job.progress >= 100) {
+        job.status = 'ready';
+        job.resultUrl = generatedAvatarUrl;
+      }
     }
     saveState();
     ok(res, job);

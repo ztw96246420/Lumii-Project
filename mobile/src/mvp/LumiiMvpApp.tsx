@@ -527,7 +527,7 @@ export default function LumiiMvpApp() {
     if (route !== 'generating' || !avatarJob || avatarJob.status !== 'processing') return undefined;
     const id = setInterval(() => {
       void pollAvatarJob();
-    }, 850);
+    }, 3000);
     return () => clearInterval(id);
   }, [avatarJob, route]);
 
@@ -798,14 +798,16 @@ export default function LumiiMvpApp() {
       const pickerResult =
         source === 'camera'
           ? await ImagePicker.launchCameraAsync({
+              base64: true,
               mediaTypes: ['images'],
-              quality: 0.9,
+              quality: 0.78,
             })
           : await ImagePicker.launchImageLibraryAsync({
               allowsMultipleSelection: false,
+              base64: true,
               defaultTab: 'photos',
               mediaTypes: ['images'],
-              quality: 0.9,
+              quality: 0.78,
             });
 
       if (pickerResult.canceled || !pickerResult.assets?.[0]?.uri) {
@@ -815,6 +817,7 @@ export default function LumiiMvpApp() {
 
       const asset = pickerResult.assets[0];
       const result = await lumiiApi.avatar.uploadPetMedia({
+        base64: asset.base64 ?? undefined,
         fileName: asset.fileName ?? undefined,
         mimeType: asset.mimeType ?? undefined,
         previewUrl: asset.uri,
@@ -1745,6 +1748,28 @@ export default function LumiiMvpApp() {
 
   function renderGenerating() {
     const progress = avatarJob?.progress ?? 62;
+    if (avatarJob?.status === 'failed') {
+      return (
+        <Screen title="生成灵伴">
+          <View style={styles.aiGeneratingPage}>
+            <View style={styles.aiGeneratingOrb}>
+              <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.aiGeneratingImage} />
+              <View style={styles.aiOriginalThumb}>
+                <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.avatarImage} />
+              </View>
+            </View>
+            <Text style={styles.aiGeneratingTitle}>生成暂时失败</Text>
+            <Text style={styles.aiGeneratingSubtitle}>
+              {avatarJob.errorMessage ? '服务没有返回可用结果，请稍后再试' : '当前图片生成服务开小差了，请稍后再试'}
+            </Text>
+            <View style={styles.uploadActionsMake}>
+              <Button onPress={() => void startAvatarGeneration()}>重新生成</Button>
+              <Button onPress={() => replace('upload')} tone="secondary">重新选择照片</Button>
+            </View>
+          </View>
+        </Screen>
+      );
+    }
     return (
       <Screen title="生成灵伴">
         <View style={styles.aiGeneratingPage}>
@@ -1761,7 +1786,7 @@ export default function LumiiMvpApp() {
             </View>
           </View>
           <Text style={styles.aiGeneratingTitle}>正在生成你的小灵伴</Text>
-          <Text style={styles.aiGeneratingSubtitle}>正在捕捉毛色、五官和表情特征{'\n'}这个过程大约需要 20 秒</Text>
+          <Text style={styles.aiGeneratingSubtitle}>正在捕捉毛色、五官和表情特征{'\n'}这个过程可能需要几十秒</Text>
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${progress}%` }]} />
           </View>
