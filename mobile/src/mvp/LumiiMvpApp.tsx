@@ -80,6 +80,7 @@ import type {
   Place,
   SmsCodeTicket,
   UploadedPetMedia,
+  UserSettings,
   VaccinePlan,
   WeightRecord,
 } from './types';
@@ -166,6 +167,12 @@ const initialPermissions: PermissionStateMap = {
   notifications: 'unknown',
 };
 const permissionKeys: Array<keyof PermissionStateMap> = ['location', 'media', 'notifications'];
+const defaultUserSettings: UserSettings = {
+  fuzzyLocation: true,
+  interactionMessages: true,
+  nearbyVisible: true,
+  pushNotifications: true,
+};
 
 const emptyPetDraft = {
   birthday: '2024-05-30',
@@ -201,7 +208,7 @@ type ConfirmState = {
   title: string;
 };
 
-type UserSettingKey = 'fuzzyLocation' | 'interactionMessages' | 'nearbyVisible' | 'pushNotifications';
+type UserSettingKey = keyof UserSettings;
 
 function isGeneratedAvatarUri(uri?: null | string) {
   return Boolean(uri?.startsWith('lumii://'));
@@ -334,12 +341,7 @@ export default function LumiiMvpApp() {
   const [placeDraftName, setPlaceDraftName] = useState('云杉宠物友好公园');
   const [placeReview, setPlaceReview] = useState('');
   const [placeReviewStatus, setPlaceReviewStatus] = useState<'idle' | 'pending_review'>('idle');
-  const [userSettings, setUserSettings] = useState<Record<UserSettingKey, boolean>>({
-    fuzzyLocation: true,
-    interactionMessages: true,
-    nearbyVisible: true,
-    pushNotifications: true,
-  });
+  const [userSettings, setUserSettings] = useState<UserSettings>(defaultUserSettings);
 
   const currentTab = useMemo<AppTab | null>(() => {
     if (route === 'health' || route === 'emptyPet') return 'home';
@@ -500,6 +502,7 @@ export default function LumiiMvpApp() {
     const account = nextSession.account;
     const accountPermissions = mergePermissionState(account?.permissions);
     setPermissions(accountPermissions);
+    setUserSettings({ ...defaultUserSettings, ...(account?.settings ?? {}) });
 
     const [petResult, latestPermissions] = await Promise.all([
       lumiiApi.pets.listPets(),
@@ -863,12 +866,19 @@ export default function LumiiMvpApp() {
     showToast('已标记完成');
   }
 
-  function toggleUserSetting(key: UserSettingKey, label: string) {
-    setUserSettings((items) => {
-      const nextValue = !items[key];
+  async function toggleUserSetting(key: UserSettingKey, label: string) {
+    const previousSettings = userSettings;
+    const nextValue = !previousSettings[key];
+    const nextSettings = { ...previousSettings, [key]: nextValue };
+    setUserSettings(nextSettings);
+    const result = await lumiiApi.settings.updateUserSettings({ [key]: nextValue });
+    if (result.data) {
+      setUserSettings({ ...defaultUserSettings, ...result.data });
       showToast(`${label}已${nextValue ? '开启' : '关闭'}`);
-      return { ...items, [key]: nextValue };
-    });
+    } else {
+      setUserSettings(previousSettings);
+      showToast(result.error?.message ?? '设置保存失败，请稍后重试');
+    }
   }
 
   function toggleFavoritePlace(place?: Place) {
@@ -2502,9 +2512,9 @@ export default function LumiiMvpApp() {
       <Screen title="设置与隐私">
         <View style={styles.settingsGroupMake}>
           <Text style={styles.settingsGroupTitle}>隐私</Text>
-          <ProfileMakeRow Icon={MapPin} onPress={() => toggleUserSetting('fuzzyLocation', '模糊定位')} title="模糊定位" value={userSettings.fuzzyLocation ? '1km 范围' : '已关闭'} />
-          <ProfileMakeRow Icon={Users} onPress={() => toggleUserSetting('nearbyVisible', '附近可见')} title="附近可见" value={userSettings.nearbyVisible ? '已开启' : '已关闭'} />
-          <ProfileMakeRow Icon={MessageCircle} onPress={() => toggleUserSetting('interactionMessages', '互动消息提醒')} title="互动消息提醒" value={userSettings.interactionMessages ? '已开启' : '已关闭'} />
+          <ProfileMakeRow Icon={MapPin} onPress={() => void toggleUserSetting('fuzzyLocation', '模糊定位')} title="模糊定位" value={userSettings.fuzzyLocation ? '1km 范围' : '已关闭'} />
+          <ProfileMakeRow Icon={Users} onPress={() => void toggleUserSetting('nearbyVisible', '附近可见')} title="附近可见" value={userSettings.nearbyVisible ? '已开启' : '已关闭'} />
+          <ProfileMakeRow Icon={MessageCircle} onPress={() => void toggleUserSetting('interactionMessages', '互动消息提醒')} title="互动消息提醒" value={userSettings.interactionMessages ? '已开启' : '已关闭'} />
         </View>
         <View style={styles.settingsFootnoteMake}>
           <Shield color={palette.teal} size={14} strokeWidth={2.4} />
@@ -2512,7 +2522,7 @@ export default function LumiiMvpApp() {
         </View>
         <View style={styles.settingsGroupMake}>
           <Text style={styles.settingsGroupTitle}>通用</Text>
-          <ProfileMakeRow Icon={Bell} onPress={() => toggleUserSetting('pushNotifications', '通知')} title="通知" value={userSettings.pushNotifications ? '开启' : '关闭'} />
+          <ProfileMakeRow Icon={Bell} onPress={() => void toggleUserSetting('pushNotifications', '通知')} title="通知" value={userSettings.pushNotifications ? '开启' : '关闭'} />
           <ProfileMakeRow Icon={Settings} onPress={() => showToast('目前仅支持简体中文')} title="语言" value="简体中文" />
         </View>
         <View style={styles.settingsGroupMake}>

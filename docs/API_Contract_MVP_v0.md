@@ -115,7 +115,13 @@ Response:
         "media": "unknown",
         "notifications": "unknown"
       },
-      "permissionsOnboardingCompleted": false
+      "permissionsOnboardingCompleted": false,
+      "settings": {
+        "fuzzyLocation": true,
+        "interactionMessages": true,
+        "nearbyVisible": true,
+        "pushNotifications": true
+      }
     },
     "phone": "13531850966",
     "token": "jwt-or-session-token"
@@ -146,6 +152,33 @@ Request:
   },
   "completed": true
 }
+```
+
+### GET `/settings`
+
+返回当前账号设置。
+
+Response:
+
+```json
+{
+  "data": {
+    "fuzzyLocation": true,
+    "interactionMessages": true,
+    "nearbyVisible": true,
+    "pushNotifications": true
+  }
+}
+```
+
+### PATCH `/settings`
+
+保存当前账号设置。`nearbyVisible=false` 后，其他用户的附近发现列表不会再出现该账号。
+
+Request:
+
+```json
+{ "nearbyVisible": false }
 ```
 
 ## 4. 宠物档案

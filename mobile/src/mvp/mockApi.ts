@@ -19,6 +19,7 @@ import type {
   SmsCodeTicket,
   UploadPetMediaInput,
   UploadedPetMedia,
+  UserSettings,
   VaccinePlan,
   WalkInviteInput,
   WalkInviteResult,
@@ -41,6 +42,12 @@ let mockPermissions: PermissionStateMap = {
   notifications: 'unknown',
 };
 let mockPermissionsOnboardingCompleted = false;
+let mockUserSettings: UserSettings = {
+  fuzzyLocation: true,
+  interactionMessages: true,
+  nearbyVisible: true,
+  pushNotifications: true,
+};
 
 const goldenRetrieverPhotoUrl =
   'https://images.unsplash.com/photo-1625794084867-8ddd239946b1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=720';
@@ -165,6 +172,19 @@ export const mockApi = {
       mockPermissions = { ...mockPermissions, ...next };
       mockPermissionsOnboardingCompleted = mockPermissionsOnboardingCompleted || completed;
       return success(mockPermissions);
+    },
+  },
+
+  settings: {
+    async getUserSettings(): Promise<ApiResult<UserSettings>> {
+      await wait(120);
+      return success(mockUserSettings);
+    },
+
+    async updateUserSettings(patch: Partial<UserSettings>): Promise<ApiResult<UserSettings>> {
+      await wait(120);
+      mockUserSettings = { ...mockUserSettings, ...patch };
+      return success(mockUserSettings);
     },
   },
 
@@ -427,6 +447,7 @@ function buildMockAccountSnapshot(): AccountSnapshot {
     activePet: pets.find((pet) => pet.id === activePetId) ?? pets[0] ?? null,
     permissions: mockPermissions,
     permissionsOnboardingCompleted: mockPermissionsOnboardingCompleted,
+    settings: mockUserSettings,
   };
 }
 

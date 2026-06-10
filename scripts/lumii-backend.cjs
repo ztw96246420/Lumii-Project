@@ -77,6 +77,15 @@ function defaultPermissionState() {
   };
 }
 
+function defaultUserSettings() {
+  return {
+    fuzzyLocation: true,
+    interactionMessages: true,
+    nearbyVisible: true,
+    pushNotifications: true,
+  };
+}
+
 function createInitialState() {
   return {
     avatarJobs: {},
@@ -235,12 +244,11 @@ function ensureUser(phone) {
       permissionsOnboardingCompleted: false,
       pets: [],
       phone,
-      settings: {
-        nearbyVisible: true,
-      },
+      settings: defaultUserSettings(),
     };
   }
   state.users[phone].permissions = normalizePermissionState(state.users[phone].permissions);
+  state.users[phone].settings = normalizeUserSettings(state.users[phone].settings);
   state.users[phone].permissionsOnboardingCompleted = Boolean(state.users[phone].permissionsOnboardingCompleted);
   return state.users[phone];
 }
@@ -254,6 +262,12 @@ function normalizePermissionState(value) {
     next[key] = allowed.has(status) ? status : 'unknown';
   }
   return next;
+}
+
+function normalizeUserSettings(value) {
+  const current = value && typeof value === 'object' ? value : {};
+  const defaults = defaultUserSettings();
+  return Object.fromEntries(Object.keys(defaults).map((key) => [key, typeof current[key] === 'boolean' ? current[key] : defaults[key]]));
 }
 
 function selectedPetFor(user) {
@@ -270,6 +284,7 @@ function buildAccountSnapshot(user) {
     activePet: selectedPetFor(user),
     permissions,
     permissionsOnboardingCompleted: Boolean(user.permissionsOnboardingCompleted || allPermissionsGranted(permissions)),
+    settings: normalizeUserSettings(user.settings),
   };
 }
 
@@ -546,6 +561,20 @@ async function handle(req, res) {
     user.permissionsOnboardingCompleted = Boolean(body.completed || user.permissionsOnboardingCompleted || allPermissionsGranted(user.permissions));
     saveState();
     ok(res, user.permissions);
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/settings') {
+    user.settings = normalizeUserSettings(user.settings);
+    saveState();
+    ok(res, user.settings);
+    return;
+  }
+
+  if (req.method === 'PATCH' && pathname === '/settings') {
+    user.settings = normalizeUserSettings({ ...user.settings, ...body });
+    saveState();
+    ok(res, user.settings);
     return;
   }
 

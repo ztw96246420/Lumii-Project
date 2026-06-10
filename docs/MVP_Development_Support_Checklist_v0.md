@@ -297,7 +297,7 @@ Android 调用：
 - `POST /devices/push-token`：上报推送 token。
 - `GET /notifications`：通知列表。
 - `POST /notifications/read`：批量标记已读。
-- `PATCH /notification-settings`：通知设置。
+- ~~`PATCH /notification-settings`：通知设置。~~ MVP 测试后端已用 `PATCH /settings` 保存 `pushNotifications`。
 
 需要你提供：
 - 推送服务选择：极光、个推、厂商通道、Firebase/APNs 等。
@@ -307,8 +307,8 @@ Android 调用：
 ### 3.10 设置、安全与合规
 
 需要接口：
-- `GET /privacy-settings`。
-- `PATCH /privacy-settings`。
+- ~~`GET /privacy-settings`。~~ MVP 测试后端已用 `GET /settings` 返回 `fuzzyLocation`、`nearbyVisible`、`interactionMessages`、`pushNotifications`。
+- ~~`PATCH /privacy-settings`。~~ MVP 测试后端已用 `PATCH /settings` 保存隐私与通知开关；`nearbyVisible=false` 会影响附近发现曝光。
 - `GET /blocks`。
 - `DELETE /blocks/{userId}`。
 - `POST /feedback`。

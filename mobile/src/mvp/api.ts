@@ -19,6 +19,7 @@ import type {
   SmsCodeTicket,
   UploadPetMediaInput,
   UploadedPetMedia,
+  UserSettings,
   VaccinePlan,
   WalkInviteInput,
   WalkInviteResult,
@@ -86,6 +87,16 @@ function createHttpApi(baseUrl: string): LumiiApi {
 
       async savePermissionState(next: Partial<PermissionStateMap>, completed = false): Promise<ApiResult<PermissionStateMap>> {
         return request<PermissionStateMap>('PATCH', '/permissions', { completed, permissions: next });
+      },
+    },
+
+    settings: {
+      async getUserSettings(): Promise<ApiResult<UserSettings>> {
+        return request<UserSettings>('GET', '/settings');
+      },
+
+      async updateUserSettings(patch: Partial<UserSettings>): Promise<ApiResult<UserSettings>> {
+        return request<UserSettings>('PATCH', '/settings', patch);
       },
     },
 

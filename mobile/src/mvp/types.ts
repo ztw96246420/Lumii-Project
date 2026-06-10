@@ -23,6 +23,7 @@ export type AccountSnapshot = {
   activePet: PetProfile | null;
   permissions: PermissionStateMap;
   permissionsOnboardingCompleted: boolean;
+  settings: UserSettings;
 };
 
 export type SmsCodeTicket = {
@@ -33,6 +34,13 @@ export type SmsCodeTicket = {
 };
 
 export type PermissionStateMap = Record<LumiiPermissionKey, LumiiPermissionStatus | 'unknown' | 'requesting'>;
+
+export type UserSettings = {
+  fuzzyLocation: boolean;
+  interactionMessages: boolean;
+  nearbyVisible: boolean;
+  pushNotifications: boolean;
+};
 
 export type PetSpecies = 'bird' | 'cat' | 'dog' | 'hamster' | 'rabbit' | 'reptile' | 'other';
 
