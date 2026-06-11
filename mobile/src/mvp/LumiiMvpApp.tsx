@@ -727,9 +727,6 @@ export default function LumiiMvpApp() {
 
   async function restoreAfterLogin(nextSession: AuthSession, options: { persist?: boolean; silent?: boolean } = {}) {
     setLumiiAuthToken(nextSession.token);
-    if (options.persist !== false) {
-      await savePersistedLumiiSession(nextSession);
-    }
     setSession(nextSession);
     setHistory([]);
 
@@ -746,12 +743,25 @@ export default function LumiiMvpApp() {
         persist: true,
       }),
     ]);
+
+    if (petResult.error?.statusCode === 401) {
+      await clearPersistedLumiiSession();
+      clearLocalAccountState();
+      if (!options.silent) showToast('登录已失效，请重新登录');
+      return false;
+    }
+
+    if (options.persist !== false) {
+      await savePersistedLumiiSession(nextSession);
+    }
+
     const restoredPet = account?.activePet ?? petResult.data?.[0] ?? lumiiApi.pets.getActivePet();
     setActivePet(restoredPet ?? null);
 
     const permissionFlowDone = Boolean(account?.permissionsOnboardingCompleted || allLumiiPermissionsGranted(latestPermissions));
     replace(restoredPet ? 'home' : permissionFlowDone ? 'emptyPet' : 'permissions');
     if (!options.silent) showToast('登录成功');
+    return true;
   }
 
   async function requestSmsCode(source: 'login' | 'otp') {

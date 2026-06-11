@@ -5,6 +5,7 @@ export type ApiState = 'error' | 'loading' | 'success';
 export type ApiError = {
   message: string;
   retryable: boolean;
+  statusCode?: number;
 };
 
 export type ApiResult<T> = {

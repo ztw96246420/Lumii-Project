@@ -268,7 +268,7 @@ function createHttpApi(baseUrl: string): LumiiApi {
 
       const payload = await readJson(response);
       if (!response.ok) {
-        return errorResult(messageFromPayload(payload) ?? `服务请求失败（${response.status}）`, response.status >= 500);
+        return errorResult(messageFromPayload(payload) ?? `服务请求失败（${response.status}）`, response.status >= 500, response.status);
       }
 
       return normalizeResult<T>(payload);
@@ -320,8 +320,8 @@ function messageFromPayload(payload: unknown) {
   return undefined;
 }
 
-function errorResult<T = never>(message: string, retryable: boolean): ApiResult<T> {
-  const apiError: ApiError = { message, retryable };
+function errorResult<T = never>(message: string, retryable: boolean, statusCode?: number): ApiResult<T> {
+  const apiError: ApiError = { message, retryable, statusCode };
   return { error: apiError, state: 'error' };
 }
 

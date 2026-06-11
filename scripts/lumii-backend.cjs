@@ -372,7 +372,14 @@ function requireUser(req, res) {
     fail(res, 401, '请先登录后再操作', true);
     return null;
   }
-  const user = ensureUser(phone);
+  const user = state.users[phone];
+  if (!user) {
+    fail(res, 401, '登录已失效，请重新登录', true);
+    return null;
+  }
+  user.permissions = normalizePermissionState(user.permissions);
+  user.settings = normalizeUserSettings(user.settings);
+  user.permissionsOnboardingCompleted = Boolean(user.permissionsOnboardingCompleted);
   user.lastSeenAt = Date.now();
   saveState();
   return user;
