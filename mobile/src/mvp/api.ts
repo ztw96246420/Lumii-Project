@@ -169,6 +169,14 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<VaccinePlan>('PATCH', `/health/vaccines/${encodeURIComponent(id)}`, { status });
       },
 
+      async listVaccineReminderIds(): Promise<ApiResult<string[]>> {
+        return request<string[]>('GET', '/health/vaccine-reminders');
+      },
+
+      async setVaccineReminder(id: string, enabled: boolean): Promise<ApiResult<string[]>> {
+        return request<string[]>('PATCH', `/health/vaccine-reminders/${encodeURIComponent(id)}`, { enabled });
+      },
+
       async saveHealthMemo(title: string, content: string): Promise<ApiResult<HealthMemo>> {
         return request<HealthMemo>('POST', '/health/memos', { content, title });
       },
@@ -234,6 +242,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
 
       async listNotifications(): Promise<ApiResult<NotificationItem[]>> {
         return request<NotificationItem[]>('GET', '/notifications');
+      },
+
+      async markNotificationsRead(ids?: string[]): Promise<ApiResult<NotificationItem[]>> {
+        return request<NotificationItem[]>('POST', '/notifications/read', { ids });
       },
     },
 

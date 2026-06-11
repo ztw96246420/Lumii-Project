@@ -316,6 +316,33 @@ Request:
 
 `status` 可为 `due`、`done`、`overdue`。
 
+当疫苗计划被标记为 `done` 后，测试后端会自动移除该计划的提醒开关。
+
+### GET `/health/vaccine-reminders`
+
+读取当前宠物已开启提醒的疫苗计划 ID 列表。
+
+Response:
+
+```json
+["vaccine-id-001"]
+```
+
+### PATCH `/health/vaccine-reminders/{vaccineId}`
+
+开启或关闭某条疫苗计划提醒。
+
+Request:
+
+```json
+{ "enabled": true }
+```
+
+说明：
+- 当前测试后端按 `phone + activePetId` 持久化提醒开关。
+- 已完成的疫苗计划不能重新开启提醒。
+- 开启提醒后，如计划已临近或逾期，`GET /notifications` 会生成一条去重后的健康提醒通知。
+
 ### GET `/health/memos`
 
 当前宠物健康备忘列表。测试后端会按 `phone + activePetId` 持久化。
@@ -406,6 +433,24 @@ Request:
 ### POST `/conversations/{conversationId}/read`
 
 标记会话已读。当前测试后端会持久化未读数归零。
+
+### GET `/notifications`
+
+读取通知中心列表。当前测试后端会在读取前检查已开启的健康提醒，临近或逾期的疫苗计划会生成去重后的“健康提醒”通知。
+
+### POST `/notifications/read`
+
+标记通知已读。
+
+Request:
+
+```json
+{ "ids": ["notification-id-001"] }
+```
+
+说明：
+- `ids` 为空或不传时，标记当前用户全部通知已读。
+- 返回最新通知列表。
 
 ### GET `/ai/pet-chat/messages`
 

@@ -629,6 +629,16 @@ export default function LumiiMvpApp() {
   }, [route, session]);
 
   useEffect(() => {
+    if (!session || route !== 'notifications') return;
+    const unreadIds = notifications.filter((item) => !item.read).map((item) => item.id);
+    if (!unreadIds.length) return;
+    setNotifications((items) => items.map((item) => (unreadIds.includes(item.id) ? { ...item, read: true } : item)));
+    void lumiiApi.messages.markNotificationsRead(unreadIds).then((result) => {
+      if (result.data) setNotifications(result.data);
+    });
+  }, [notifications, route, session]);
+
+  useEffect(() => {
     if (!session || route !== 'conversation' || !selectedConversation?.id) return undefined;
     const id = setInterval(() => {
       void loadConversationMessages(selectedConversation.id, { markRead: true, silent: true });
@@ -645,18 +655,9 @@ export default function LumiiMvpApp() {
     if (!session || !urgentVaccines.length) return;
     const enabledUrgentVaccines = urgentVaccines.filter((vaccine) => vaccineReminderIds.includes(vaccine.id));
     if (!enabledUrgentVaccines.length) return;
-    const newNotifications = enabledUrgentVaccines
-      .filter((vaccine) => !healthReminderNotifiedRef.current.has(vaccine.id))
-      .map((vaccine) => {
-        healthReminderNotifiedRef.current.add(vaccine.id);
-        return {
-          id: `health-reminder-${vaccine.id}-${Date.now()}`,
-          read: false,
-          text: `${vaccine.name}：${vaccineReminderCopy(vaccine)}，记得确认宠物医院建议时间。`,
-          title: '健康提醒',
-        };
-      });
-    if (newNotifications.length) setNotifications((items) => [...newNotifications, ...items]);
+    const shouldRefresh = enabledUrgentVaccines.some((vaccine) => !healthReminderNotifiedRef.current.has(vaccine.id));
+    enabledUrgentVaccines.forEach((vaccine) => healthReminderNotifiedRef.current.add(vaccine.id));
+    if (shouldRefresh) void loadInboxData();
   }, [session, urgentVaccines, vaccineReminderIds]);
 
   useEffect(() => {
@@ -668,9 +669,10 @@ export default function LumiiMvpApp() {
   }, [avatarJob, route]);
 
   async function loadCommonData() {
-    const [weightResult, vaccineResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult] = await Promise.all([
+    const [weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult] = await Promise.all([
       lumiiApi.health.listWeightRecords(),
       lumiiApi.health.listVaccines(),
+      lumiiApi.health.listVaccineReminderIds(),
       lumiiApi.health.listHealthMemos(),
       lumiiApi.social.listNearbyOwners(),
       lumiiApi.social.listGreetingRequests(),
@@ -680,6 +682,7 @@ export default function LumiiMvpApp() {
     ]);
     if (weightResult.data) setWeights(weightResult.data);
     if (vaccineResult.data) setVaccines(vaccineResult.data);
+    if (vaccineReminderResult.data) setVaccineReminderIds(vaccineReminderResult.data);
     if (memoResult.data) setMemos(memoResult.data);
     if (ownerResult.data) setOwners(ownerResult.data);
     if (greetingRequestResult.data) setGreetingRequestOwners(greetingRequestResult.data);
@@ -1180,22 +1183,25 @@ export default function LumiiMvpApp() {
     }
   }
 
-  function enableVaccineReminder(vaccine?: VaccinePlan) {
+  async function enableVaccineReminder(vaccine?: VaccinePlan) {
     if (!vaccine) {
       showToast('暂无可提醒的疫苗计划');
       return;
     }
-    setVaccineReminderIds((items) => (items.includes(vaccine.id) ? items : [vaccine.id, ...items]));
-    setNotifications((items) => [
-      {
-        id: `vaccine-reminder-${vaccine.id}-${Date.now()}`,
-        read: false,
-        text: `${vaccine.name}提醒已开启，到期前会通知你。`,
-        title: '疫苗提醒已开启',
-      },
-      ...items,
-    ]);
-    showToast('疫苗提醒已开启');
+    if (vaccineReminderIds.includes(vaccine.id)) {
+      showToast('这个提醒已经开启');
+      return;
+    }
+    setVaccineReminderIds((items) => [vaccine.id, ...items.filter((id) => id !== vaccine.id)]);
+    const result = await lumiiApi.health.setVaccineReminder(vaccine.id, true);
+    if (result.data) {
+      setVaccineReminderIds(result.data);
+      void loadInboxData();
+      showToast('疫苗提醒已开启');
+    } else {
+      setVaccineReminderIds((items) => items.filter((id) => id !== vaccine.id));
+      showToast(result.error?.message ?? '提醒开启失败，请稍后重试');
+    }
   }
 
   async function markVaccineDone(vaccine?: VaccinePlan) {
@@ -1209,6 +1215,7 @@ export default function LumiiMvpApp() {
       return;
     }
     setVaccines((items) => items.map((item) => (item.id === vaccine.id ? result.data! : item)));
+    setVaccineReminderIds((items) => items.filter((id) => id !== vaccine.id));
     setNotifications((items) => [
       {
         id: `vaccine-done-${vaccine.id}-${Date.now()}`,
@@ -2538,7 +2545,7 @@ export default function LumiiMvpApp() {
           </View>
         </View>
         <View style={styles.actionRow}>
-          <Button onPress={() => enableVaccineReminder(nextVaccine)} tone="secondary">{nextVaccine && vaccineReminderIds.includes(nextVaccine.id) ? '提醒已开启' : '开启提醒'}</Button>
+          <Button onPress={() => void enableVaccineReminder(nextVaccine)} tone="secondary">{nextVaccine && vaccineReminderIds.includes(nextVaccine.id) ? '提醒已开启' : '开启提醒'}</Button>
           <Button disabled={nextVaccine?.status === 'done'} onPress={() => void markVaccineDone(nextVaccine)}>{nextVaccine?.status === 'done' ? '已完成' : '标记完成'}</Button>
         </View>
         <View style={styles.healthTimelineCard}>

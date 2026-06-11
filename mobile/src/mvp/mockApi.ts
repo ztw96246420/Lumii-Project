@@ -82,6 +82,7 @@ let vaccines: VaccinePlan[] = [
   { id: 'v1', name: '狂犬疫苗', dueAt: '2026-06-18', status: 'due' },
   { id: 'v2', name: '体内驱虫', dueAt: '2026-06-05', status: 'due' },
 ];
+let vaccineReminderIds: string[] = [];
 
 const owners: NearbyOwner[] = [
   {
@@ -129,7 +130,7 @@ let conversationMessagesById: Record<string, ConversationMessage[]> = {
 };
 let petChatMessages: ChatMessage[] = [];
 
-const notifications: NotificationItem[] = [
+let notifications: NotificationItem[] = [
   { id: 'n1', title: '疫苗提醒', text: '狂犬疫苗将在 19 天后到期。', read: false },
   { id: 'n2', title: 'AI 形象生成', text: '新的电子宠物形象已保存。', read: true },
 ];
@@ -305,7 +306,36 @@ export const mockApi = {
       if (!vaccine) return error('疫苗计划不存在', false);
       const nextVaccine = { ...vaccine, status };
       vaccines = vaccines.map((item) => (item.id === id ? nextVaccine : item));
+      if (status === 'done') vaccineReminderIds = vaccineReminderIds.filter((item) => item !== id);
       return success(nextVaccine);
+    },
+
+    async listVaccineReminderIds(): Promise<ApiResult<string[]>> {
+      await wait(120);
+      return success(vaccineReminderIds);
+    },
+
+    async setVaccineReminder(id: string, enabled: boolean): Promise<ApiResult<string[]>> {
+      await wait(160);
+      const vaccine = vaccines.find((item) => item.id === id);
+      if (!vaccine) return error('疫苗计划不存在', false);
+      if (vaccine.status === 'done' && enabled) return error('已完成的疫苗计划无需开启提醒', false);
+      vaccineReminderIds = enabled ? [...new Set([id, ...vaccineReminderIds])] : vaccineReminderIds.filter((item) => item !== id);
+      if (enabled) {
+        const notificationId = `mock-health-reminder-${id}`;
+        if (!notifications.some((item) => item.id === notificationId)) {
+          notifications = [
+            {
+              id: notificationId,
+              read: false,
+              text: `${vaccine.name}即将到期，记得按宠物医院建议确认时间。`,
+              title: '健康提醒',
+            },
+            ...notifications,
+          ];
+        }
+      }
+      return success(vaccineReminderIds);
     },
 
     async saveHealthMemo(title: string, content: string): Promise<ApiResult<HealthMemo>> {
@@ -450,6 +480,13 @@ export const mockApi = {
 
     async listNotifications(): Promise<ApiResult<NotificationItem[]>> {
       await wait(160);
+      return success(notifications);
+    },
+
+    async markNotificationsRead(ids?: string[]): Promise<ApiResult<NotificationItem[]>> {
+      await wait(120);
+      const idSet = ids?.length ? new Set(ids) : null;
+      notifications = notifications.map((item) => (idSet && !idSet.has(item.id) ? item : { ...item, read: true }));
       return success(notifications);
     },
   },
