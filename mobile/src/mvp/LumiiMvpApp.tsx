@@ -2856,7 +2856,7 @@ export default function LumiiMvpApp() {
         <View style={styles.healthTimelineCard}>
           <View style={styles.rowBetween}>
             <Text style={styles.sectionTitle}>全部计划</Text>
-            <Text style={styles.resendAction}>新增</Text>
+            <Text style={styles.metaText}>提醒工具</Text>
           </View>
           {vaccines.map((item, index) => (
             <View key={item.id}>
@@ -3404,7 +3404,7 @@ export default function LumiiMvpApp() {
         <View style={styles.settingsGroupMake}>
           <Text style={styles.settingsGroupTitle}>通用</Text>
           <ProfileMakeRow Icon={Bell} onPress={() => void toggleUserSetting('pushNotifications', '通知')} title="通知" value={userSettings.pushNotifications ? '开启' : '关闭'} />
-          <ProfileMakeRow Icon={Settings} onPress={() => showToast('目前仅支持简体中文')} title="语言" value="简体中文" />
+          <ProfileMakeRow Icon={Settings} title="语言" value="简体中文" />
         </View>
         <View style={styles.settingsGroupMake}>
           <Text style={styles.settingsGroupTitle}>安全与账号</Text>
@@ -3659,14 +3659,14 @@ export default function LumiiMvpApp() {
         </View>
         <View style={styles.settingsGroupMake}>
           <Text style={styles.settingsGroupTitle}>登录方式</Text>
-          <ProfileMakeRow Icon={Phone} onPress={() => showToast('手机号换绑待接入后端')} title="手机号" value={formatMaskedPhone(session?.phone)} />
-          <ProfileMakeRow Icon={Shield} onPress={() => showToast('登录保护已开启')} title="登录保护" value="已开启" />
-          <ProfileMakeRow Icon={Bell} onPress={() => showToast('异常登录提醒已开启')} title="异常登录提醒" value="已开启" />
+          <ProfileMakeRow Icon={Phone} title="手机号" value={formatMaskedPhone(session?.phone)} />
+          <ProfileMakeRow Icon={Shield} title="登录保护" value="已开启" />
+          <ProfileMakeRow Icon={Bell} title="异常登录提醒" value="已开启" />
         </View>
         <View style={styles.settingsGroupMake}>
           <Text style={styles.settingsGroupTitle}>危险操作</Text>
           <ProfileMakeRow Icon={LogOut} onPress={() => openConfirm('退出当前账号', '退出后会清除本机登录缓存，下次需要重新获取验证码登录。', () => void logout(), '退出')} title="退出当前账号" value="清除本机登录" />
-          <ProfileMakeRow Icon={LogOut} onPress={() => openConfirm('注销账号', '注销后账号、宠物档案、聊天和社交关系会进入待删除流程。MVP 先保留二次确认状态。', () => showToast('注销申请已进入 mock 流程'), '申请注销')} title="注销账号" value="需短信确认" />
+          <ProfileMakeRow Icon={LogOut} title="注销账号" value="后续开放" />
         </View>
       </Screen>
     );
@@ -3679,18 +3679,18 @@ export default function LumiiMvpApp() {
           <Shield color={palette.teal} size={28} strokeWidth={2.5} />
           <View style={styles.flex}>
             <Text style={styles.timelineTitleMake}>社区安全中心</Text>
-            <Text style={styles.timelineSubMake}>举报、拉黑和隐私保护集中在这里，所有危险操作都有二次确认。</Text>
+            <Text style={styles.timelineSubMake}>举报、拉黑和隐私保护会集中在这里，上线前接入二次确认和审核流程。</Text>
           </View>
         </View>
         <View style={styles.settingsGroupMake}>
           <Text style={styles.settingsGroupTitle}>快速处理</Text>
-          <ProfileMakeRow Icon={AlertTriangle} onPress={() => openConfirm('提交举报', '将提交当前会话/用户的举报线索，后续由审核系统处理。', () => showToast('举报已提交'), '提交')} title="举报不当内容" value="审核处理" />
-          <ProfileMakeRow Icon={Shield} onPress={() => openConfirm('拉黑用户', '拉黑后对方无法查看你的资料、宠物和位置，也无法向你发送消息。', () => showToast('已加入黑名单'), '拉黑')} title="拉黑用户" value="二次确认" />
-          <ProfileMakeRow Icon={Users} onPress={() => showToast('黑名单列表待接后端')} title="黑名单管理" value="0 人" />
+          <ProfileMakeRow Icon={AlertTriangle} title="举报不当内容" value="后续开放" />
+          <ProfileMakeRow Icon={Shield} title="拉黑用户" value="后续开放" />
+          <ProfileMakeRow Icon={Users} title="黑名单管理" value="0 人" />
         </View>
         <View style={styles.settingsFootnoteMake}>
           <Shield color={palette.teal} size={14} strokeWidth={2.4} />
-          <Text style={styles.chatSafetyText}>MVP 阶段所有安全操作先走 mock 状态，后续需要后端提供举报、拉黑、黑名单和审核接口。</Text>
+          <Text style={styles.chatSafetyText}>MVP 阶段先展示安全入口，不提交 mock 操作；后续需要后端提供举报、拉黑、黑名单和审核接口。</Text>
         </View>
       </Screen>
     );
@@ -3711,9 +3711,9 @@ export default function LumiiMvpApp() {
           </View>
           <View style={styles.settingsGroupMake}>
             <Text style={styles.settingsGroupTitle}>{isAccount ? '登录方式' : isSafety ? '安全工具' : '功能入口'}</Text>
-            <ProfileMakeRow Icon={Phone} onPress={() => showToast('手机号管理待接入')} title="手机号" value={formatMaskedPhone(session?.phone)} />
-            <ProfileMakeRow Icon={Shield} onPress={() => showToast('二次确认弹窗已预留')} title={isSafety ? '举报与拉黑' : '登录保护'} value="已开启" />
-            <ProfileMakeRow Icon={LogOut} onPress={() => openConfirm('确认操作', '这是危险操作，MVP 先保留二次确认状态。', () => showToast('已确认'), '确认')} title={isAccount ? '注销账号' : '危险操作'} />
+            <ProfileMakeRow Icon={Phone} title="手机号" value={formatMaskedPhone(session?.phone)} />
+            <ProfileMakeRow Icon={Shield} title={isSafety ? '举报与拉黑' : '登录保护'} value={isSafety ? '后续开放' : '已开启'} />
+            <ProfileMakeRow Icon={LogOut} title={isAccount ? '注销账号' : '危险操作'} value="后续开放" />
           </View>
         </View>
       </Screen>
@@ -4003,12 +4003,12 @@ function ProfileMakeRow({
   value,
 }: {
   Icon: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
-  onPress: () => void;
+  onPress?: () => void;
   title: string;
   value?: string;
 }) {
   return (
-    <Pressable onPress={onPress} style={styles.profileMakeRow}>
+    <Pressable disabled={!onPress} onPress={onPress} style={[styles.profileMakeRow, !onPress && styles.profileMakeRowStatic]}>
       <View style={styles.profileMakeRowIcon}>
         <Icon color={palette.orange} size={16} strokeWidth={2.4} />
       </View>
@@ -4020,7 +4020,7 @@ function ProfileMakeRow({
           {value}
         </Text>
       ) : null}
-      <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
+      {onPress ? <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} /> : null}
     </Pressable>
   );
 }
@@ -4532,6 +4532,7 @@ const styles = StyleSheet.create({
   profileMakePage: { paddingTop: 0 },
   profileMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 58, paddingHorizontal: 16, paddingVertical: 12 },
   profileMakeRowIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 12, height: 34, justifyContent: 'center', width: 34 },
+  profileMakeRowStatic: { opacity: 0.92 },
   profileMakeRowTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20, minWidth: 0 },
   profileMakeRowValue: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18, maxWidth: '42%', minWidth: 0, textAlign: 'right' },
   profileManageLink: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
