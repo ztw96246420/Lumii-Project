@@ -51,7 +51,9 @@ export const apiConfig = {
 export const lumiiApi: LumiiApi = shouldUseHttp ? createHttpApi(configuredBaseUrl) : mockApi;
 
 export function setLumiiAuthToken(token?: string) {
-  authToken = token ?? '';
+  const nextToken = token ?? '';
+  if (authToken !== nextToken) cachedActivePet = null;
+  authToken = nextToken;
 }
 
 function createHttpApi(baseUrl: string): LumiiApi {

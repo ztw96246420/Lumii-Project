@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.lumii.lingban",
-      "versionCode": 7,
+      "versionCode": 8,
       "adaptiveIcon": {
         "backgroundColor": "#FF8A5C",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -53,7 +53,8 @@
           "photosPermission": "灵伴需要访问相册以上传宠物照片并建立专属数字档案。"
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {

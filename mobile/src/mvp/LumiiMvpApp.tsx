@@ -60,6 +60,7 @@ import {
 } from 'lucide-react-native';
 
 import { getLumiiPermissionStatus, requestLumiiPermission } from '../services/permissions';
+import { clearPersistedLumiiSession, loadPersistedLumiiSession, savePersistedLumiiSession } from '../services/sessionStorage';
 import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
 import { apiConfig, lumiiApi, setLumiiAuthToken } from './api';
 import { productConfig } from './productConfig';
@@ -334,6 +335,7 @@ export default function LumiiMvpApp() {
   const [history, setHistory] = useState<AppRoute[]>([]);
   const [toast, setToast] = useState('');
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  const [sessionBootstrapping, setSessionBootstrapping] = useState(true);
 
   const [phone, setPhone] = useState('');
   const [phoneFocused, setPhoneFocused] = useState(false);
@@ -480,6 +482,32 @@ export default function LumiiMvpApp() {
 
     return () => subscription.remove();
   }, [activePet, back, confirm, mapStylePanelVisible, replace, route, showToast]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const bootstrapSession = async () => {
+      try {
+        const persistedSession = await loadPersistedLumiiSession();
+        if (!mounted) return;
+        if (persistedSession) {
+          await restoreAfterLogin(persistedSession, { persist: false, silent: true });
+        }
+      } catch {
+        if (mounted) {
+          await clearPersistedLumiiSession();
+        }
+      } finally {
+        if (mounted) setSessionBootstrapping(false);
+      }
+    };
+
+    void bootstrapSession();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -677,8 +705,11 @@ export default function LumiiMvpApp() {
     return nextPermissions;
   }
 
-  async function restoreAfterLogin(nextSession: AuthSession) {
+  async function restoreAfterLogin(nextSession: AuthSession, options: { persist?: boolean; silent?: boolean } = {}) {
     setLumiiAuthToken(nextSession.token);
+    if (options.persist !== false) {
+      await savePersistedLumiiSession(nextSession);
+    }
     setSession(nextSession);
     setHistory([]);
 
@@ -700,6 +731,7 @@ export default function LumiiMvpApp() {
 
     const permissionFlowDone = Boolean(account?.permissionsOnboardingCompleted || allLumiiPermissionsGranted(latestPermissions));
     replace(restoredPet ? 'home' : permissionFlowDone ? 'emptyPet' : 'permissions');
+    if (!options.silent) showToast('登录成功');
   }
 
   async function requestSmsCode(source: 'login' | 'otp') {
@@ -748,7 +780,6 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.auth.verifySmsCode(otpMeta.phone, code, otpMeta.expiresAt);
       if (result.data) {
         await restoreAfterLogin(result.data);
-        showToast('登录成功');
       } else {
         const message = result.error?.message ?? '验证码校验失败';
         setOtpInlineError(message);
@@ -1374,12 +1405,31 @@ export default function LumiiMvpApp() {
     }
   }
 
-  function logout() {
+  function clearLocalAccountState() {
     setLumiiAuthToken();
     setSession(null);
     setActivePet(null);
     setHistory([]);
+    setPermissions(initialPermissions);
+    setMedia(null);
+    setAvatarJob(null);
+    setChatMessages([createPetChatWelcomeMessage()]);
+    setConversations([]);
+    setConversationMessages([createConversationSafetyMessage()]);
+    setNotifications([]);
+    setOwners([]);
+    setGreetingRequestOwners([]);
+    setUserSettings(defaultUserSettings);
     replace('login');
+  }
+
+  async function logout() {
+    try {
+      await lumiiApi.auth.logout();
+    } finally {
+      await clearPersistedLumiiSession();
+      clearLocalAccountState();
+    }
     showToast('已退出登录');
   }
 
@@ -1504,6 +1554,16 @@ export default function LumiiMvpApp() {
           </Pressable>
         </View>
       </Screen>
+    );
+  }
+
+  function renderSessionBootstrapping() {
+    return (
+      <View style={styles.bootPage}>
+        <PetAvatar size={96} uri={generatedGoldenAvatarUri} />
+        <ActivityIndicator color={palette.orange} size="small" />
+        <Text style={styles.bootText}>正在进入灵伴</Text>
+      </View>
     );
   }
 
@@ -2878,6 +2938,7 @@ export default function LumiiMvpApp() {
             <ProfileMakeRow Icon={Bell} onPress={() => go('notifications')} title="通知设置" value={notificationsEnabled ? '已开启' : '未开启'} />
             <ProfileMakeRow Icon={Shield} onPress={() => go('safety')} title="安全中心" />
             <ProfileMakeRow Icon={User} onPress={() => go('accountSecurity')} title="账号安全" />
+            <ProfileMakeRow Icon={LogOut} onPress={() => openConfirm('退出当前账号', '退出后会清除本机登录缓存，下次需要重新获取验证码登录。', () => void logout(), '退出')} title="退出当前账号" value="清除本机登录" />
           </View>
         </View>
       </Screen>
@@ -2910,9 +2971,9 @@ export default function LumiiMvpApp() {
             <Text style={styles.timelineTitleMake}>接口模式</Text>
             <Text style={styles.timelineSubMake}>{apiConfig.mode === 'mock' ? 'Mock 服务' : apiConfig.baseUrl}</Text>
           </View>
-          <Pressable onPress={() => openConfirm('退出登录', '退出后需要重新输入手机号验证码登录。', logout, '退出')} style={styles.logoutButton}>
+          <Pressable onPress={() => openConfirm('退出当前账号', '退出后会清除本机登录缓存，下次需要重新获取验证码登录。', () => void logout(), '退出')} style={styles.logoutButton}>
             <LogOut color={palette.danger} size={18} strokeWidth={2.3} />
-            <Text style={styles.logoutText}>退出登录</Text>
+            <Text style={styles.logoutText}>退出当前账号</Text>
           </Pressable>
         </View>
       </Screen>
@@ -3161,6 +3222,7 @@ export default function LumiiMvpApp() {
         </View>
         <View style={styles.settingsGroupMake}>
           <Text style={styles.settingsGroupTitle}>危险操作</Text>
+          <ProfileMakeRow Icon={LogOut} onPress={() => openConfirm('退出当前账号', '退出后会清除本机登录缓存，下次需要重新获取验证码登录。', () => void logout(), '退出')} title="退出当前账号" value="清除本机登录" />
           <ProfileMakeRow Icon={LogOut} onPress={() => openConfirm('注销账号', '注销后账号、宠物档案、聊天和社交关系会进入待删除流程。MVP 先保留二次确认状态。', () => showToast('注销申请已进入 mock 流程'), '申请注销')} title="注销账号" value="需短信确认" />
         </View>
       </Screen>
@@ -3216,6 +3278,8 @@ export default function LumiiMvpApp() {
   }
 
   function renderScreen() {
+    if (sessionBootstrapping) return renderSessionBootstrapping();
+
     switch (route) {
       case 'accountSecurity':
         return renderAccountSecurity();
@@ -3585,6 +3649,8 @@ const styles = StyleSheet.create({
   appWrap: { alignItems: 'center', backgroundColor: '#e8e2d9', flex: 1, justifyContent: 'center' },
   avatarImage: { height: '100%', width: '100%' },
   avatarLoadingOverlay: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.72)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
+  bootPage: { alignItems: 'center', flex: 1, gap: 16, justifyContent: 'center', paddingHorizontal: 32 },
+  bootText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
   bottomAction: { gap: 10, marginTop: 20 },
   bottomTipCard: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.18)', borderRadius: 18, borderWidth: 1, bottom: 40, flexDirection: 'row', gap: 12, left: 20, paddingHorizontal: 16, paddingVertical: 14, position: 'absolute', right: 20 },
   bottomTipIcon: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.18)', borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },
