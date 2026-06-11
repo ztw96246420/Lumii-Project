@@ -429,6 +429,7 @@ export default function LumiiMvpApp() {
   const [placeFilter, setPlaceFilter] = useState<'all' | Place['category']>('all');
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
   const [favoritePlaceIds, setFavoritePlaceIds] = useState<string[]>([]);
+  const [favoritePlaceSavingIds, setFavoritePlaceSavingIds] = useState<string[]>([]);
   const [locatingMap, setLocatingMap] = useState(false);
   const [mapCenter, setMapCenter] = useState(defaultMapCenter);
   const [mapStyleKey, setMapStyleKey] = useState<MapVisualMode>('lumii');
@@ -670,7 +671,7 @@ export default function LumiiMvpApp() {
   }, [avatarJob, route]);
 
   async function loadCommonData() {
-    const [weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult] = await Promise.all([
+    const [weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult] = await Promise.all([
       lumiiApi.health.listWeightRecords(),
       lumiiApi.health.listVaccines(),
       lumiiApi.health.listVaccineReminderIds(),
@@ -680,6 +681,7 @@ export default function LumiiMvpApp() {
       lumiiApi.messages.listConversations(),
       lumiiApi.messages.listNotifications(),
       lumiiApi.places.listNearbyPlaces(),
+      lumiiApi.places.listFavoritePlaceIds(),
     ]);
     if (weightResult.data) setWeights(weightResult.data);
     if (vaccineResult.data) setVaccines(vaccineResult.data);
@@ -690,6 +692,7 @@ export default function LumiiMvpApp() {
     if (conversationResult.data) setConversations(conversationResult.data);
     if (notificationResult.data) setNotifications(notificationResult.data);
     if (placeResult.data) setPlaces(placeResult.data);
+    if (favoritePlaceResult.data) setFavoritePlaceIds(favoritePlaceResult.data);
     setActivePet((pet) => pet ?? lumiiApi.pets.getActivePet());
   }
 
@@ -1263,16 +1266,28 @@ export default function LumiiMvpApp() {
     }
   }
 
-  function toggleFavoritePlace(place?: Place) {
+  async function toggleFavoritePlace(place?: Place) {
     if (!place) {
       showToast('暂无可收藏地点');
       return;
     }
-    setFavoritePlaceIds((items) => {
-      const isFavorite = items.includes(place.id);
-      showToast(isFavorite ? '已取消收藏' : '已收藏地点');
-      return isFavorite ? items.filter((id) => id !== place.id) : [place.id, ...items];
-    });
+    if (favoritePlaceSavingIds.includes(place.id)) return;
+    const wasFavorite = favoritePlaceIds.includes(place.id);
+    const nextFavorite = !wasFavorite;
+    setFavoritePlaceSavingIds((ids) => [place.id, ...ids.filter((id) => id !== place.id)]);
+    setFavoritePlaceIds((ids) => (nextFavorite ? [place.id, ...ids.filter((id) => id !== place.id)] : ids.filter((id) => id !== place.id)));
+    try {
+      const result = await lumiiApi.places.setFavoritePlace(place.id, nextFavorite);
+      if (result.data) {
+        setFavoritePlaceIds(result.data);
+        showToast(nextFavorite ? '已收藏地点' : '已取消收藏');
+      } else {
+        setFavoritePlaceIds((ids) => (wasFavorite ? [place.id, ...ids.filter((id) => id !== place.id)] : ids.filter((id) => id !== place.id)));
+        showToast(result.error?.message ?? '收藏状态保存失败');
+      }
+    } finally {
+      setFavoritePlaceSavingIds((ids) => ids.filter((id) => id !== place.id));
+    }
   }
 
   async function saveMemoDraft() {
@@ -1542,6 +1557,8 @@ export default function LumiiMvpApp() {
     setNotifications([]);
     setOwners([]);
     setGreetingRequestOwners([]);
+    setFavoritePlaceIds([]);
+    setFavoritePlaceSavingIds([]);
     setUserSettings(defaultUserSettings);
     replace('login');
   }
@@ -2852,6 +2869,7 @@ export default function LumiiMvpApp() {
   function renderPlaceDetail() {
     const place = selectedPlace ?? places[0];
     const isFavoritePlace = place ? favoritePlaceIds.includes(place.id) : false;
+    const isFavoriteSaving = place ? favoritePlaceSavingIds.includes(place.id) : false;
     const pet = activePet ?? lumiiApi.pets.getActivePet();
     const ownerName = formatOwnerName(session?.phone, pet);
     return (
@@ -2867,7 +2885,7 @@ export default function LumiiMvpApp() {
                 <Pressable onPress={() => showToast('分享地点待接入')} style={styles.placeBackButtonMake}>
                   <Send color={palette.ink} size={15} strokeWidth={2.4} />
                 </Pressable>
-                <Pressable onPress={() => toggleFavoritePlace(place)} style={styles.placeBackButtonMake}>
+                <Pressable disabled={isFavoriteSaving} onPress={() => void toggleFavoritePlace(place)} style={styles.placeBackButtonMake}>
                   <HeartPulse color={isFavoritePlace ? palette.orange : palette.ink} size={15} strokeWidth={2.4} />
                 </Pressable>
               </View>
@@ -2907,7 +2925,7 @@ export default function LumiiMvpApp() {
                 </View>
               </View>
               <View style={styles.actionRow}>
-                <Button onPress={() => toggleFavoritePlace(place)} tone="secondary">{isFavoritePlace ? '已收藏' : '收藏'}</Button>
+                <Button loading={isFavoriteSaving} onPress={() => void toggleFavoritePlace(place)} tone="secondary">{isFavoritePlace ? '已收藏' : '收藏'}</Button>
                 <Button onPress={() => openConfirm('打开高德地图', `将使用高德地图导航到${place.name}。`, () => showToast('高德导航将在真机中打开'), '打开')}>高德导航</Button>
               </View>
               <View style={styles.weightInputMake}>

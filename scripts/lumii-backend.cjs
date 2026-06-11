@@ -319,6 +319,7 @@ function ensureUser(phone) {
       lastSeenAt: 0,
       location: null,
       ownerName: `用户${suffix}`,
+      favoritePlaceIds: [],
       permissions: defaultPermissionState(),
       permissionsOnboardingCompleted: false,
       pets: [],
@@ -328,6 +329,7 @@ function ensureUser(phone) {
   }
   state.users[phone].permissions = normalizePermissionState(state.users[phone].permissions);
   state.users[phone].settings = normalizeUserSettings(state.users[phone].settings);
+  state.users[phone].favoritePlaceIds = normalizeFavoritePlaceIds(state.users[phone].favoritePlaceIds);
   state.users[phone].permissionsOnboardingCompleted = Boolean(state.users[phone].permissionsOnboardingCompleted);
   return state.users[phone];
 }
@@ -347,6 +349,25 @@ function normalizeUserSettings(value) {
   const current = value && typeof value === 'object' ? value : {};
   const defaults = defaultUserSettings();
   return Object.fromEntries(Object.keys(defaults).map((key) => [key, typeof current[key] === 'boolean' ? current[key] : defaults[key]]));
+}
+
+function normalizeFavoritePlaceIds(value) {
+  if (!Array.isArray(value)) return [];
+  const existingPlaceIds = new Set((state.places || []).map((place) => place.id));
+  return [...new Set(value.map(String).filter((id) => existingPlaceIds.has(id)))];
+}
+
+function favoritePlaceIdsFor(user) {
+  user.favoritePlaceIds = normalizeFavoritePlaceIds(user.favoritePlaceIds);
+  return user.favoritePlaceIds;
+}
+
+function setFavoritePlace(user, placeId, favorite) {
+  const place = (state.places || []).find((item) => item.id === placeId);
+  if (!place) return null;
+  const current = favoritePlaceIdsFor(user);
+  user.favoritePlaceIds = favorite ? [...new Set([placeId, ...current])] : current.filter((id) => id !== placeId);
+  return user.favoritePlaceIds;
 }
 
 function selectedPetFor(user) {
@@ -380,6 +401,7 @@ function requireUser(req, res) {
   }
   user.permissions = normalizePermissionState(user.permissions);
   user.settings = normalizeUserSettings(user.settings);
+  user.favoritePlaceIds = normalizeFavoritePlaceIds(user.favoritePlaceIds);
   user.permissionsOnboardingCompleted = Boolean(user.permissionsOnboardingCompleted);
   user.lastSeenAt = Date.now();
   saveState();
@@ -1940,6 +1962,24 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/places/nearby') {
     ok(res, state.places);
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/places/favorites') {
+    ok(res, favoritePlaceIdsFor(user));
+    return;
+  }
+
+  const placeFavoriteMatch = pathname.match(/^\/places\/([^/]+)\/favorite$/);
+  if (req.method === 'PATCH' && placeFavoriteMatch) {
+    const placeId = decodeURIComponent(placeFavoriteMatch[1]);
+    const favoriteIds = setFavoritePlace(user, placeId, Boolean(body.favorite));
+    if (!favoriteIds) {
+      fail(res, 404, '地点不存在', false);
+      return;
+    }
+    saveState();
+    ok(res, favoriteIds);
     return;
   }
 

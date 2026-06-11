@@ -473,10 +473,6 @@ Request:
 - 默认限制单条用户输入长度，避免异常消耗 token。
 - 默认返回非流式完整回复，后续可升级流式输出。
 
-### GET `/notifications`
-
-通知中心列表。
-
 ## 8. 地点
 
 ### GET `/places/nearby`
@@ -486,6 +482,31 @@ Request:
 ### GET `/places/search?q=公园`
 
 搜索地点。
+
+### GET `/places/favorites`
+
+读取当前用户已收藏的地点 ID 列表。测试后端会按登录用户持久化。
+
+Response:
+
+```json
+["place-park-1"]
+```
+
+### PATCH `/places/{placeId}/favorite`
+
+收藏或取消收藏地点。
+
+Request:
+
+```json
+{ "favorite": true }
+```
+
+说明：
+- `favorite=true` 表示收藏，`favorite=false` 表示取消收藏。
+- 如果地点不存在，返回中文错误。
+- 返回最新收藏地点 ID 列表。
 
 ### POST `/places/{placeId}/reviews`
 

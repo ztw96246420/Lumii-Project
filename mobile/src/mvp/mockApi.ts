@@ -140,6 +140,7 @@ const places: Place[] = [
   { id: 'p2', name: '暖爪咖啡', address: '中央广场 B1', category: 'cafe', distance: '1.6km', rating: 4.6, tags: ['室内友好', '可带猫包'] },
   { id: 'p3', name: '安心宠物医院', address: '明湖街 12 号', category: 'clinic', distance: '2.3km', rating: 4.7, tags: ['急诊', '疫苗'] },
 ];
+let favoritePlaceIds: string[] = [];
 
 export const mockApi = {
   auth: {
@@ -501,6 +502,18 @@ export const mockApi = {
       await wait(180);
       const normalized = query.trim();
       return success(normalized ? places.filter((place) => place.name.includes(normalized) || place.tags.some((tag) => tag.includes(normalized))) : places);
+    },
+
+    async listFavoritePlaceIds(): Promise<ApiResult<string[]>> {
+      await wait(120);
+      return success(favoritePlaceIds);
+    },
+
+    async setFavoritePlace(placeId: string, favorite: boolean): Promise<ApiResult<string[]>> {
+      await wait(160);
+      if (!places.some((place) => place.id === placeId)) return error('地点不存在', false);
+      favoritePlaceIds = favorite ? [...new Set([placeId, ...favoritePlaceIds])] : favoritePlaceIds.filter((id) => id !== placeId);
+      return success(favoritePlaceIds);
     },
 
     async createReview(placeId: string): Promise<ApiResult<{ placeId: string; status: 'pending_review' }>> {
