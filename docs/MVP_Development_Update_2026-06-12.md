@@ -8,6 +8,8 @@
 - mock API 同步补齐 `refreshSession`，保证本地 mock 和 HTTP 测试后端接口形态一致。
 - 当前用户资料接口补齐：新增 `GET /me`、`PATCH /me`，测试后端支持读取手机号、ownerName、当前宠物、权限和设置，并支持更新 `ownerName`。
 - App 通用数据加载时会调用 `GET /me`，让“我的页”和地点点评等展示优先使用服务端 `ownerName`，不再只靠手机号或宠物名推断。
+- 多宠管理基础接口补齐：新增 `GET /pets/{petId}`、`DELETE /pets/{petId}`，连同已有列表、创建、编辑、设默认，测试后端已具备多宠 CRUD 基础能力。
+- 删除当前宠物时，测试后端会自动把剩余第一只设为当前宠物；如果没有剩余宠物，则清空当前宠物。App 暂不暴露删除入口，等待 Figma 危险操作确认设计。
 - 文档同步清理：`Figma_Make_Missing_Page_Prompts_2026-06-06.md` 不再把二次登录免验证码列为待开发项；`MVP_Development_Support_Checklist_v0.md` 不再把当前代码里不存在的“MVP 验收入口”误记为待处理。
 - 历史设计迁移文档和 Stitch 缺口文档中关于“MVP 验收入口”的描述已统一删除线标记，避免被当作当前现状或待办。
 
@@ -27,6 +29,13 @@
   - 更新后 ownerName：`Serena`。
   - token refresh 读回 ownerName：`Serena`。
   - 空昵称更新返回 400 error。
+- 临时本地后端验证通过：创建两只宠物 -> 读取单只详情 -> 设置第二只为当前 -> 删除当前宠物 -> 宠物列表回落到剩余宠物。
+  - 详情读取：`Cream`。
+  - 删除前当前宠物：`Bean`。
+  - 删除后剩余数量：1。
+  - 删除后剩余宠物：`Cream`。
+  - token refresh 读回当前宠物：`Cream`。
+  - 读取已删除宠物返回 404 error。
 
 ## 未打包
 

@@ -271,6 +271,10 @@ Request:
 
 返回当前用户的宠物列表。
 
+### GET `/pets/{petId}`
+
+读取某只宠物详情。用于后续多宠管理、切换前确认、详情页刷新等场景。
+
 ### POST `/pets`
 
 Request:
@@ -309,6 +313,19 @@ MVP 产品约束：
 ### PATCH `/pets/{petId}`
 
 编辑宠物档案。
+
+### DELETE `/pets/{petId}`
+
+删除某只宠物档案。MVP 测试后端行为：
+- 删除当前宠物后，会自动把剩余列表第一只设为当前宠物。
+- 如果删除后没有宠物，当前宠物会清空。
+- App 暂不暴露删除入口；后续必须等 Figma 补齐危险操作二次确认后再接 UI。
+
+Response data:
+
+```ts
+PetProfile[]
+```
 
 ### POST `/pets/{petId}/set-default`
 

@@ -222,7 +222,7 @@ function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Origin': '*',
     'Content-Length': Buffer.byteLength(body),
     'Content-Type': 'application/json; charset=utf-8',
@@ -1555,6 +1555,17 @@ async function handle(req, res) {
   }
 
   const petPatchMatch = pathname.match(/^\/pets\/([^/]+)$/);
+  if (req.method === 'GET' && petPatchMatch) {
+    const petId = decodeURIComponent(petPatchMatch[1]);
+    const pet = user.pets.find((item) => item.id === petId);
+    if (!pet) {
+      fail(res, 404, '宠物档案不存在', false);
+      return;
+    }
+    ok(res, pet);
+    return;
+  }
+
   if (req.method === 'PATCH' && petPatchMatch) {
     const petId = decodeURIComponent(petPatchMatch[1]);
     const pet = user.pets.find((item) => item.id === petId);
@@ -1565,6 +1576,20 @@ async function handle(req, res) {
     Object.assign(pet, body);
     saveState();
     ok(res, pet);
+    return;
+  }
+
+  if (req.method === 'DELETE' && petPatchMatch) {
+    const petId = decodeURIComponent(petPatchMatch[1]);
+    const petExists = user.pets.some((item) => item.id === petId);
+    if (!petExists) {
+      fail(res, 404, '宠物档案不存在', false);
+      return;
+    }
+    user.pets = user.pets.filter((item) => item.id !== petId);
+    if (user.activePetId === petId) user.activePetId = user.pets[0]?.id || '';
+    saveState();
+    ok(res, user.pets);
     return;
   }
 

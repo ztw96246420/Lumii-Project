@@ -135,6 +135,18 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return result;
       },
 
+      async getPet(id: string): Promise<ApiResult<PetProfile>> {
+        const result = await request<PetProfile>('GET', `/pets/${encodeURIComponent(id)}`);
+        if (result.data && cachedActivePet?.id === id) cachedActivePet = result.data;
+        return result;
+      },
+
+      async deletePet(id: string): Promise<ApiResult<PetProfile[]>> {
+        const result = await request<PetProfile[]>('DELETE', `/pets/${encodeURIComponent(id)}`);
+        if (result.data) cachedActivePet = result.data[0] ?? null;
+        return result;
+      },
+
       async listPets(): Promise<ApiResult<PetProfile[]>> {
         const result = await request<PetProfile[]>('GET', '/pets');
         if (result.data?.length && !cachedActivePet) cachedActivePet = result.data[0];

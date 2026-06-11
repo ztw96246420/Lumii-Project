@@ -274,6 +274,20 @@ export const mockApi = {
       return pet ? success(pet) : error('宠物档案不存在', false);
     },
 
+    async getPet(id: string): Promise<ApiResult<PetProfile>> {
+      await wait(120);
+      const pet = pets.find((item) => item.id === id);
+      return pet ? success(pet) : error('宠物档案不存在', false);
+    },
+
+    async deletePet(id: string): Promise<ApiResult<PetProfile[]>> {
+      await wait(160);
+      if (!pets.some((item) => item.id === id)) return error('宠物档案不存在', false);
+      pets = pets.filter((item) => item.id !== id);
+      if (activePetId === id) activePetId = pets[0]?.id ?? '';
+      return success(pets);
+    },
+
     async listPets(): Promise<ApiResult<PetProfile[]>> {
       await wait(160);
       return success(pets);

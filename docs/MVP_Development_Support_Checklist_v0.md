@@ -102,7 +102,7 @@
 
 需要支持：
 - ~~用户资料接口。~~ MVP 测试后端已支持 `GET /me`、`PATCH /me`，App 会在通用数据加载时同步 ownerName、手机号、当前宠物、权限和设置。
-- 多宠管理接口。
+- ~~多宠管理接口。~~ MVP 测试后端已支持宠物列表、创建、详情、编辑、删除、设置当前宠物；多宠管理页面和删除二次确认仍需 Figma 设计。
 - 隐私设置接口。
 - 黑名单接口。
 - 账号注销流程。
@@ -171,12 +171,12 @@ Android 调用：
 ### 3.3 宠物资料
 
 需要接口：
-- `GET /pets`：宠物列表。
-- `POST /pets`：创建宠物。
-- `GET /pets/{petId}`：宠物详情。
-- `PATCH /pets/{petId}`：编辑宠物。
-- `DELETE /pets/{petId}`：删除宠物。
-- `POST /pets/{petId}/set-default`：设置默认宠物。
+- ~~`GET /pets`：宠物列表。~~ MVP 测试后端已支持。
+- ~~`POST /pets`：创建宠物。~~ MVP 测试后端已支持。
+- ~~`GET /pets/{petId}`：宠物详情。~~ MVP 测试后端已支持。
+- ~~`PATCH /pets/{petId}`：编辑宠物。~~ MVP 测试后端已支持。
+- ~~`DELETE /pets/{petId}`：删除宠物。~~ MVP 测试后端已支持；App 暂不暴露删除入口，需先补 Figma 危险操作确认。
+- ~~`POST /pets/{petId}/set-default`：设置默认宠物。~~ MVP 测试后端已支持。
 - `GET /pet-taxonomy`：物种、品种、性格标签字典。
 
 需要你提供：
