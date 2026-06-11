@@ -322,7 +322,15 @@ export const mockApi = {
       if (!vaccine) return error('疫苗计划不存在', false);
       const nextVaccine = { ...vaccine, status };
       vaccines = vaccines.map((item) => (item.id === id ? nextVaccine : item));
-      if (status === 'done') vaccineReminderIds = vaccineReminderIds.filter((item) => item !== id);
+      if (status === 'done') {
+        vaccineReminderIds = vaccineReminderIds.filter((item) => item !== id);
+        addMockNotification({
+          id: `mock-vaccine-done-${id}`,
+          read: false,
+          text: `${nextVaccine.name}已标记完成，健康时间线已更新。`,
+          title: '疫苗计划已完成',
+        });
+      }
       return success(nextVaccine);
     },
 

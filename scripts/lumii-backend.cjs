@@ -1696,7 +1696,15 @@ async function handle(req, res) {
       return;
     }
     vaccines[index] = { ...vaccines[index], status };
-    if (status === 'done') setVaccineReminderFor(user, id, false);
+    if (status === 'done') {
+      setVaccineReminderFor(user, id, false);
+      addNotification(user.phone, {
+        id: `n-vaccine-done-${healthKeyFor(user)}-${id}`,
+        read: false,
+        text: `${vaccines[index].name}已标记完成，健康时间线已更新。`,
+        title: '疫苗计划已完成',
+      });
+    }
     saveState();
     ok(res, vaccines[index]);
     return;

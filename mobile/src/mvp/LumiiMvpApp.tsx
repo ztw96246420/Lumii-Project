@@ -415,10 +415,15 @@ export default function LumiiMvpApp() {
   const [vaccineReminderIds, setVaccineReminderIds] = useState<string[]>([]);
   const [memos, setMemos] = useState<HealthMemo[]>([]);
   const [weightInput, setWeightInput] = useState('');
+  const [weightSaving, setWeightSaving] = useState(false);
   const [memoTitle, setMemoTitle] = useState('今日观察');
   const [memoContent, setMemoContent] = useState('');
+  const [memoSaving, setMemoSaving] = useState(false);
   const [memoDraftTitle, setMemoDraftTitle] = useState('洗澡记录');
   const [memoDraftContent, setMemoDraftContent] = useState('今天洗澡后耳朵干净，皮肤没有明显泛红。');
+  const [memoDraftSaving, setMemoDraftSaving] = useState(false);
+  const [vaccineReminderSavingIds, setVaccineReminderSavingIds] = useState<string[]>([]);
+  const [vaccineDoneSavingIds, setVaccineDoneSavingIds] = useState<string[]>([]);
   const [dailyPostText, setDailyPostText] = useState('');
   const [dailyPostSaving, setDailyPostSaving] = useState(false);
   const [owners, setOwners] = useState<NearbyOwner[]>([]);
@@ -1204,18 +1209,25 @@ export default function LumiiMvpApp() {
   }
 
   async function recordWeight() {
+    if (weightSaving) return;
     const kg = Number.parseFloat(weightInput);
     if (!Number.isFinite(kg) || kg <= 0) {
       showToast('请输入正确体重');
       return;
     }
-    const result = await lumiiApi.health.recordWeight(kg, '手动记录');
-    if (result.data) {
-      setWeights((items) => [result.data!, ...items]);
-      setActivePet((pet) => (pet ? { ...pet, weightKg: result.data!.kg } : pet));
-      showToast('体重已记录');
-    } else {
-      showToast(result.error?.message ?? '保存失败，请稍后重试');
+    setWeightSaving(true);
+    try {
+      const result = await lumiiApi.health.recordWeight(kg, '手动记录');
+      if (result.data) {
+        setWeights((items) => [result.data!, ...items]);
+        setActivePet((pet) => (pet ? { ...pet, weightKg: result.data!.kg } : pet));
+        setWeightInput('');
+        showToast('体重已记录');
+      } else {
+        showToast(result.error?.message ?? '保存失败，请稍后重试');
+      }
+    } finally {
+      setWeightSaving(false);
     }
   }
 
@@ -1228,15 +1240,21 @@ export default function LumiiMvpApp() {
       showToast('这个提醒已经开启');
       return;
     }
+    if (vaccineReminderSavingIds.includes(vaccine.id)) return;
+    setVaccineReminderSavingIds((items) => [vaccine.id, ...items.filter((id) => id !== vaccine.id)]);
     setVaccineReminderIds((items) => [vaccine.id, ...items.filter((id) => id !== vaccine.id)]);
-    const result = await lumiiApi.health.setVaccineReminder(vaccine.id, true);
-    if (result.data) {
-      setVaccineReminderIds(result.data);
-      void loadInboxData();
-      showToast('疫苗提醒已开启');
-    } else {
-      setVaccineReminderIds((items) => items.filter((id) => id !== vaccine.id));
-      showToast(result.error?.message ?? '提醒开启失败，请稍后重试');
+    try {
+      const result = await lumiiApi.health.setVaccineReminder(vaccine.id, true);
+      if (result.data) {
+        setVaccineReminderIds(result.data);
+        void loadInboxData();
+        showToast('疫苗提醒已开启');
+      } else {
+        setVaccineReminderIds((items) => items.filter((id) => id !== vaccine.id));
+        showToast(result.error?.message ?? '提醒开启失败，请稍后重试');
+      }
+    } finally {
+      setVaccineReminderSavingIds((items) => items.filter((id) => id !== vaccine.id));
     }
   }
 
@@ -1245,23 +1263,21 @@ export default function LumiiMvpApp() {
       showToast('暂无可完成的疫苗计划');
       return;
     }
-    const result = await lumiiApi.health.updateVaccineStatus(vaccine.id, 'done');
-    if (!result.data) {
-      showToast(result.error?.message ?? '操作失败，请稍后重试');
-      return;
+    if (vaccineDoneSavingIds.includes(vaccine.id)) return;
+    setVaccineDoneSavingIds((items) => [vaccine.id, ...items.filter((id) => id !== vaccine.id)]);
+    try {
+      const result = await lumiiApi.health.updateVaccineStatus(vaccine.id, 'done');
+      if (!result.data) {
+        showToast(result.error?.message ?? '操作失败，请稍后重试');
+        return;
+      }
+      setVaccines((items) => items.map((item) => (item.id === vaccine.id ? result.data! : item)));
+      setVaccineReminderIds((items) => items.filter((id) => id !== vaccine.id));
+      void loadInboxData();
+      showToast('已标记完成');
+    } finally {
+      setVaccineDoneSavingIds((items) => items.filter((id) => id !== vaccine.id));
     }
-    setVaccines((items) => items.map((item) => (item.id === vaccine.id ? result.data! : item)));
-    setVaccineReminderIds((items) => items.filter((id) => id !== vaccine.id));
-    setNotifications((items) => [
-      {
-        id: `vaccine-done-${vaccine.id}-${Date.now()}`,
-        read: false,
-        text: `${vaccine.name}已标记完成，健康时间线已更新。`,
-        title: '疫苗计划已完成',
-      },
-      ...items,
-    ]);
-    showToast('已标记完成');
   }
 
   async function toggleUserSetting(key: UserSettingKey, label: string) {
@@ -1364,33 +1380,45 @@ export default function LumiiMvpApp() {
   }
 
   async function saveMemoDraft() {
+    if (memoDraftSaving) return;
     if (!memoDraftTitle.trim() || !memoDraftContent.trim()) {
       showToast('请填写备忘标题和内容');
       return;
     }
-    const result = await lumiiApi.health.saveHealthMemo(memoDraftTitle, memoDraftContent);
-    if (result.data) {
-      setMemos((items) => [result.data!, ...items]);
-      setMemoDraftTitle('');
-      setMemoDraftContent('');
-      showToast('健康备忘已保存');
-    } else {
-      showToast(result.error?.message ?? '保存失败，请稍后重试');
+    setMemoDraftSaving(true);
+    try {
+      const result = await lumiiApi.health.saveHealthMemo(memoDraftTitle, memoDraftContent);
+      if (result.data) {
+        setMemos((items) => [result.data!, ...items]);
+        setMemoDraftTitle('');
+        setMemoDraftContent('');
+        showToast('健康备忘已保存');
+      } else {
+        showToast(result.error?.message ?? '保存失败，请稍后重试');
+      }
+    } finally {
+      setMemoDraftSaving(false);
     }
   }
 
   async function saveHealthMemo() {
+    if (memoSaving) return;
     if (!memoTitle.trim() || !memoContent.trim()) {
       showToast('请填写标题和内容');
       return;
     }
-    const result = await lumiiApi.health.saveHealthMemo(memoTitle, memoContent);
-    if (result.data) {
-      setMemos((items) => [result.data!, ...items]);
-      setMemoContent('');
-      showToast('健康备忘已保存');
-    } else {
-      showToast(result.error?.message ?? '保存失败，请稍后重试');
+    setMemoSaving(true);
+    try {
+      const result = await lumiiApi.health.saveHealthMemo(memoTitle, memoContent);
+      if (result.data) {
+        setMemos((items) => [result.data!, ...items]);
+        setMemoContent('');
+        showToast('健康备忘已保存');
+      } else {
+        showToast(result.error?.message ?? '保存失败，请稍后重试');
+      }
+    } finally {
+      setMemoSaving(false);
     }
   }
 
@@ -1661,6 +1689,11 @@ export default function LumiiMvpApp() {
     setFavoritePlaceIds([]);
     setFavoritePlaceSavingIds([]);
     setPlaceReviewsByPlaceId({});
+    setWeightSaving(false);
+    setMemoSaving(false);
+    setMemoDraftSaving(false);
+    setVaccineReminderSavingIds([]);
+    setVaccineDoneSavingIds([]);
     setUserSettings(defaultUserSettings);
     replace('login');
   }
@@ -2534,7 +2567,7 @@ export default function LumiiMvpApp() {
           <Text style={styles.sectionTitle}>快速备忘</Text>
           <Field label="标题" onChangeText={setMemoTitle} value={memoTitle} />
           <Field label="内容" onChangeText={setMemoContent} placeholder="例如：今天食欲很好，便便正常" value={memoContent} />
-          <Button onPress={() => void saveHealthMemo()}>保存备忘</Button>
+          <Button loading={memoSaving} onPress={() => void saveHealthMemo()}>保存备忘</Button>
         </View>
 
         <View style={styles.healthTimelineCard}>
@@ -2583,7 +2616,7 @@ export default function LumiiMvpApp() {
             <Text style={styles.infoChip}>今天</Text>
             <Text style={styles.infoChip}>可同步健康时间线</Text>
           </View>
-          <Button onPress={() => void saveMemoDraft()}>保存备忘</Button>
+          <Button loading={memoDraftSaving} onPress={() => void saveMemoDraft()}>保存备忘</Button>
         </View>
 
         <View style={styles.healthTimelineCard}>
@@ -2644,7 +2677,7 @@ export default function LumiiMvpApp() {
             <Text style={styles.infoChip}>今天 · 09:32</Text>
             <Text style={styles.infoChip}>照片</Text>
           </View>
-          <Button onPress={() => void recordWeight()}>保存记录</Button>
+          <Button loading={weightSaving} onPress={() => void recordWeight()}>保存记录</Button>
         </View>
         <View style={styles.healthTimelineCard}>
           <View style={styles.rowBetween}>
@@ -2673,6 +2706,8 @@ export default function LumiiMvpApp() {
     const nextVaccine = pendingVaccines[0] ?? vaccines[0];
     const nextVaccineDueLabel = formatDueLabel(nextVaccine?.dueAt);
     const nextVaccineReminderLabel = vaccineReminderCopy(nextVaccine);
+    const nextVaccineReminderSaving = nextVaccine ? vaccineReminderSavingIds.includes(nextVaccine.id) : false;
+    const nextVaccineDoneSaving = nextVaccine ? vaccineDoneSavingIds.includes(nextVaccine.id) : false;
     return (
       <Screen title="疫苗计划">
         <View style={styles.vaccineHeroMake}>
@@ -2689,8 +2724,8 @@ export default function LumiiMvpApp() {
           </View>
         </View>
         <View style={styles.actionRow}>
-          <Button onPress={() => void enableVaccineReminder(nextVaccine)} tone="secondary">{nextVaccine && vaccineReminderIds.includes(nextVaccine.id) ? '提醒已开启' : '开启提醒'}</Button>
-          <Button disabled={nextVaccine?.status === 'done'} onPress={() => void markVaccineDone(nextVaccine)}>{nextVaccine?.status === 'done' ? '已完成' : '标记完成'}</Button>
+          <Button loading={nextVaccineReminderSaving} onPress={() => void enableVaccineReminder(nextVaccine)} tone="secondary">{nextVaccine && vaccineReminderIds.includes(nextVaccine.id) ? '提醒已开启' : '开启提醒'}</Button>
+          <Button disabled={nextVaccine?.status === 'done'} loading={nextVaccineDoneSaving} onPress={() => void markVaccineDone(nextVaccine)}>{nextVaccine?.status === 'done' ? '已完成' : '标记完成'}</Button>
         </View>
         <View style={styles.healthTimelineCard}>
           <View style={styles.rowBetween}>

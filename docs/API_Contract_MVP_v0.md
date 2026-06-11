@@ -321,7 +321,9 @@ Request:
 
 `status` 可为 `due`、`done`、`overdue`。
 
-当疫苗计划被标记为 `done` 后，测试后端会自动移除该计划的提醒开关。
+当疫苗计划被标记为 `done` 后：
+- 测试后端会自动移除该计划的提醒开关。
+- 测试后端会生成一条“疫苗计划已完成”通知，可通过 `GET /notifications` 读回；是否生成受 `pushNotifications` 控制。
 
 ### GET `/health/vaccine-reminders`
 
