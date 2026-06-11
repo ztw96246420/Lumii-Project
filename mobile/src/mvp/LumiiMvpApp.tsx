@@ -44,6 +44,7 @@ import {
   PawPrint,
   Phone,
   Plus,
+  RefreshCw,
   Search,
   Send,
   Settings,
@@ -441,6 +442,7 @@ export default function LumiiMvpApp() {
   const inboxRefreshInFlightRef = useRef(false);
   const inboxRefreshQueuedRef = useRef(false);
   const conversationRefreshInFlightRef = useRef<string | null>(null);
+  const [inboxManualRefreshing, setInboxManualRefreshing] = useState(false);
   const [conversationInput, setConversationInput] = useState('');
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([createConversationSafetyMessage()]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -734,11 +736,15 @@ export default function LumiiMvpApp() {
     setActivePet((pet) => pet ?? lumiiApi.pets.getActivePet());
   }
 
-  async function loadInboxData() {
+  async function loadInboxData(options: { silent?: boolean } = { silent: true }) {
     if (inboxRefreshInFlightRef.current) {
       inboxRefreshQueuedRef.current = true;
-      return;
+      if (options.silent === false) showToast('消息正在刷新');
+      return false;
     }
+
+    let refreshed = true;
+    const silent = options.silent !== false;
     inboxRefreshInFlightRef.current = true;
     try {
       const [greetingRequestResult, conversationResult, notificationResult] = await Promise.all([
@@ -749,12 +755,30 @@ export default function LumiiMvpApp() {
       if (greetingRequestResult.data) setGreetingRequestOwners(greetingRequestResult.data);
       if (conversationResult.data) setConversations(conversationResult.data);
       if (notificationResult.data) setNotifications(notificationResult.data);
+      const errorMessage = greetingRequestResult.error?.message ?? conversationResult.error?.message ?? notificationResult.error?.message;
+      if (errorMessage) {
+        refreshed = false;
+        if (!silent) showToast(errorMessage || '消息刷新失败，请稍后重试');
+      } else if (!silent) {
+        showToast('消息已刷新');
+      }
     } finally {
       inboxRefreshInFlightRef.current = false;
       if (inboxRefreshQueuedRef.current) {
         inboxRefreshQueuedRef.current = false;
-        void loadInboxData();
+        void loadInboxData({ silent: true });
       }
+    }
+    return refreshed;
+  }
+
+  async function refreshInboxManually() {
+    if (inboxManualRefreshing) return;
+    setInboxManualRefreshing(true);
+    try {
+      await loadInboxData({ silent: false });
+    } finally {
+      setInboxManualRefreshing(false);
     }
   }
 
@@ -3168,8 +3192,8 @@ export default function LumiiMvpApp() {
           <View style={styles.messagesMakeHeader}>
             <Text style={styles.makeScreenTitle}>消息</Text>
             <View style={styles.messagesHeaderActions}>
-              <Pressable onPress={() => showToast('搜索会话待接入')} style={styles.makeIconChip}>
-                <Search color={palette.ink} size={16} strokeWidth={2.3} />
+              <Pressable accessibilityLabel="刷新消息" accessibilityRole="button" disabled={inboxManualRefreshing} onPress={() => void refreshInboxManually()} style={[styles.makeIconChip, inboxManualRefreshing && styles.mapSearchActionDisabled]}>
+                {inboxManualRefreshing ? <ActivityIndicator color={palette.ink} size="small" /> : <RefreshCw color={palette.ink} size={16} strokeWidth={2.3} />}
               </Pressable>
               <Pressable onPress={() => go('notifications')} style={styles.makeIconChip}>
                 <Bell color={palette.ink} size={16} strokeWidth={2.3} />

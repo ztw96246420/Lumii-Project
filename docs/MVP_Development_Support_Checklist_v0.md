@@ -298,8 +298,8 @@ Android 调用：
 
 需要接口：
 - `POST /devices/push-token`：上报推送 token。
-- `GET /notifications`：通知列表。
-- `POST /notifications/read`：批量标记已读。
+- ~~`GET /notifications`：通知列表。~~ MVP 测试后端已支持，App 会在消息页/通知页刷新读取。
+- ~~`POST /notifications/read`：批量标记已读。~~ MVP 测试后端已支持，进入通知中心会自动标记已读。
 - ~~`PATCH /notification-settings`：通知设置。~~ MVP 测试后端已用 `PATCH /settings` 保存 `pushNotifications`。
 
 需要你提供：
@@ -389,7 +389,7 @@ P2 后续：
 1. 健康管理接口和疫苗模板。
 2. ~~社交发现/打招呼/聊天接口。~~ 测试后端已可用；生产级风控/安全仍待补。
 3. 地点点评/审核接口。
-4. 通知中心和推送设置接口。
+4. ~~通知中心和推送设置接口。~~ MVP 测试后端已接通知列表、已读和设置保存；生产推送 token、厂商通道和通知模板仍待补。
 5. 举报、拉黑、账号注销接口。
 
 第三批：
