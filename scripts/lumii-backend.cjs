@@ -147,6 +147,7 @@ function createInitialState() {
     petChatDailyUsage: {},
     petChatMessages: {},
     placeReviews: {},
+    placeSubmissions: {},
     places: defaultPlaces,
     sms: {},
     users: {},
@@ -199,6 +200,10 @@ function loadState() {
       placeReviews: {
         ...initialState.placeReviews,
         ...(loadedState.placeReviews || {}),
+      },
+      placeSubmissions: {
+        ...initialState.placeSubmissions,
+        ...(loadedState.placeSubmissions || {}),
       },
     };
   } catch {
@@ -395,6 +400,30 @@ function createPlaceReview(user, placeId, content) {
   };
   state.placeReviews[user.phone] = [review, ...placeReviewsFor(user).filter((item) => item.placeId !== placeId)];
   return review;
+}
+
+function placeSubmissionsFor(user) {
+  state.placeSubmissions = state.placeSubmissions || {};
+  state.placeSubmissions[user.phone] = Array.isArray(state.placeSubmissions[user.phone]) ? state.placeSubmissions[user.phone] : [];
+  return state.placeSubmissions[user.phone];
+}
+
+function createPlaceSubmission(user, body) {
+  const name = String(body.name || '').trim();
+  const address = String(body.address || '').trim();
+  const content = String(body.content || '').trim();
+  if (!name || !address) return { error: '请填写地点名称和地址', statusCode: 400 };
+  if (!content) return { error: '请填写宠物友好体验', statusCode: 400 };
+  const submission = {
+    address,
+    content,
+    createdAt: '刚刚',
+    id: `place-submission-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    name,
+    status: 'pending_review',
+  };
+  state.placeSubmissions[user.phone] = [submission, ...placeSubmissionsFor(user)];
+  return { submission };
 }
 
 function selectedPetFor(user) {
@@ -2023,6 +2052,22 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/places/reviews/my') {
     ok(res, placeReviewsFor(user));
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/places/submissions/my') {
+    ok(res, placeSubmissionsFor(user));
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/places/submissions') {
+    const result = createPlaceSubmission(user, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false);
+      return;
+    }
+    saveState();
+    ok(res, result.submission);
     return;
   }
 

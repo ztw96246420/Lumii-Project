@@ -448,6 +448,7 @@ export default function LumiiMvpApp() {
   const [placeDraftAddress, setPlaceDraftAddress] = useState('滨江路 88 号');
   const [placeDraftName, setPlaceDraftName] = useState('云杉宠物友好公园');
   const [placeReview, setPlaceReview] = useState('');
+  const [placeReviewSaving, setPlaceReviewSaving] = useState(false);
   const [placeReviewStatus, setPlaceReviewStatus] = useState<'idle' | 'pending_review'>('idle');
   const [userSettings, setUserSettings] = useState<UserSettings>(defaultUserSettings);
   const healthReminderNotifiedRef = useRef<Set<string>>(new Set());
@@ -1590,6 +1591,7 @@ export default function LumiiMvpApp() {
   }
 
   async function createPlaceReview() {
+    if (placeReviewSaving) return;
     const place = selectedPlace ?? places[0];
     if (!place) return;
     if (!placeReview.trim()) {
@@ -1597,23 +1599,62 @@ export default function LumiiMvpApp() {
       return;
     }
     const reviewContent = placeReview.trim();
-    const result = await lumiiApi.places.createReview(place.id, reviewContent);
-    if (result.data) {
-      setPlaceReview('');
-      setPlaceReviewStatus('pending_review');
-      setPlaceReviewsByPlaceId((items) => ({ ...items, [place.id]: result.data! }));
-      setNotifications((items) => [
-        {
-          id: `place-review-${Date.now()}`,
-          read: false,
-          text: `${place.name}的点评已进入审核队列`,
-          title: '地点点评待审核',
-        },
-        ...items,
-      ]);
-      showToast('点评已提交，等待审核');
-    } else {
-      showToast(result.error?.message ?? '提交失败，请稍后重试');
+    setPlaceReviewSaving(true);
+    try {
+      const result = await lumiiApi.places.createReview(place.id, reviewContent);
+      if (result.data) {
+        setPlaceReview('');
+        setPlaceReviewStatus('pending_review');
+        setPlaceReviewsByPlaceId((items) => ({ ...items, [place.id]: result.data! }));
+        setNotifications((items) => [
+          {
+            id: `place-review-${Date.now()}`,
+            read: false,
+            text: `${place.name}的点评已进入审核队列`,
+            title: '地点点评待审核',
+          },
+          ...items,
+        ]);
+        showToast('点评已提交，等待审核');
+      } else {
+        showToast(result.error?.message ?? '提交失败，请稍后重试');
+      }
+    } finally {
+      setPlaceReviewSaving(false);
+    }
+  }
+
+  async function submitPlaceDraft() {
+    if (placeReviewSaving) return;
+    if (!placeDraftName.trim() || !placeDraftAddress.trim()) {
+      showToast('请填写地点名称和地址');
+      return;
+    }
+    if (!placeReview.trim()) {
+      showToast('请填写宠物友好体验');
+      return;
+    }
+    setPlaceReviewSaving(true);
+    try {
+      const result = await lumiiApi.places.createSubmission(placeDraftName.trim(), placeDraftAddress.trim(), placeReview.trim());
+      if (result.data) {
+        setPlaceReview('');
+        setPlaceReviewStatus('pending_review');
+        setNotifications((items) => [
+          {
+            id: `place-submission-${Date.now()}`,
+            read: false,
+            text: `${result.data!.name}已提交审核，通过后会展示给附近用户`,
+            title: '地点提交待审核',
+          },
+          ...items,
+        ]);
+        showToast('地点已提交审核');
+      } else {
+        showToast(result.error?.message ?? '提交失败，请稍后重试');
+      }
+    } finally {
+      setPlaceReviewSaving(false);
     }
   }
 
@@ -3007,7 +3048,7 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.weightInputMake}>
                 <Field label="点评内容" onChangeText={setPlaceReview} placeholder="例如：草坪很大，有饮水点" value={placeReview} />
-                <Button onPress={() => void createPlaceReview()}>{placeReviewButtonLabel}</Button>
+                <Button loading={placeReviewSaving} onPress={() => void createPlaceReview()}>{placeReviewButtonLabel}</Button>
                 {placeReviewStatus === 'pending_review' ? (
                   <View style={styles.reviewStatusCard}>
                     <Check color={palette.teal} size={15} strokeWidth={3} />
@@ -3442,7 +3483,7 @@ export default function LumiiMvpApp() {
             <Text style={styles.reviewStatusText}>已提交审核。后续真实接口会返回审核单号和预计处理时间。</Text>
           </View>
         ) : null}
-        <Button onPress={() => void createPlaceReview()}>提交审核</Button>
+        <Button loading={placeReviewSaving} onPress={() => void submitPlaceDraft()}>提交审核</Button>
       </Screen>
     );
   }

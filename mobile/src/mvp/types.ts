@@ -216,6 +216,15 @@ export type PlaceReview = {
   status: 'approved' | 'pending_review' | 'rejected';
 };
 
+export type PlaceSubmission = {
+  address: string;
+  content: string;
+  createdAt: string;
+  id: string;
+  name: string;
+  status: 'approved' | 'pending_review' | 'rejected';
+};
+
 export type AppTab = 'discover' | 'home' | 'map' | 'messages' | 'profile';
 
 export type AppRoute =

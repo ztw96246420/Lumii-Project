@@ -16,6 +16,7 @@ import type {
   PetProfile,
   Place,
   PlaceReview,
+  PlaceSubmission,
   PermissionStateMap,
   SmsCodeTicket,
   UploadPetMediaInput,
@@ -143,6 +144,7 @@ const places: Place[] = [
 ];
 let favoritePlaceIds: string[] = [];
 let placeReviews: PlaceReview[] = [];
+let placeSubmissions: PlaceSubmission[] = [];
 
 export const mockApi = {
   auth: {
@@ -536,6 +538,22 @@ export const mockApi = {
       };
       placeReviews = [review, ...placeReviews.filter((item) => item.placeId !== placeId)];
       return success(review);
+    },
+
+    async createSubmission(name: string, address: string, content: string): Promise<ApiResult<PlaceSubmission>> {
+      await wait();
+      if (!name.trim() || !address.trim()) return error('请填写地点名称和地址', false);
+      if (!content.trim()) return error('请填写宠物友好体验', false);
+      const submission: PlaceSubmission = {
+        address: address.trim(),
+        content: content.trim(),
+        createdAt: '刚刚',
+        id: `place-submission-${Date.now()}`,
+        name: name.trim(),
+        status: 'pending_review',
+      };
+      placeSubmissions = [submission, ...placeSubmissions];
+      return success(submission);
     },
   },
 };

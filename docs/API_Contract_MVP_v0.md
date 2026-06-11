@@ -534,6 +534,37 @@ Response data:
 
 读取当前用户提交过的地点点评列表。App 会用它在地点详情中回显自己的审核中点评。
 
+### POST `/places/submissions`
+
+提交新的宠物友好地点和体验内容。MVP 测试后端只进入审核中，不会立刻加入附近地点列表。
+
+Request:
+
+```json
+{
+  "name": "阳光宠物公园",
+  "address": "滨江路 188 号",
+  "content": "草坪很大，有饮水点，牵引绳友好。"
+}
+```
+
+Response data:
+
+```json
+{
+  "id": "place-submission-001",
+  "name": "阳光宠物公园",
+  "address": "滨江路 188 号",
+  "content": "草坪很大，有饮水点，牵引绳友好。",
+  "status": "pending_review",
+  "createdAt": "刚刚"
+}
+```
+
+### GET `/places/submissions/my`
+
+读取当前用户提交过的新增地点审核记录。当前 App 只在提交后展示审核中状态，后续若补“我的提交”页面可复用此接口。
+
 ## 9. P0 待后端确认
 
 - 统一错误码表：短信、登录、上传、AI、地图、社交、健康、权限。

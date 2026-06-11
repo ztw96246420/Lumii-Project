@@ -16,6 +16,7 @@ import type {
   PetProfile,
   Place,
   PlaceReview,
+  PlaceSubmission,
   PermissionStateMap,
   SmsCodeTicket,
   UploadPetMediaInput,
@@ -274,6 +275,15 @@ function createHttpApi(baseUrl: string): LumiiApi {
       async createReview(placeId: string, content: string): Promise<ApiResult<PlaceReview>> {
         return request<PlaceReview>('POST', `/places/${encodeURIComponent(placeId)}/reviews`, {
           content,
+          source: 'mvp',
+        });
+      },
+
+      async createSubmission(name: string, address: string, content: string): Promise<ApiResult<PlaceSubmission>> {
+        return request<PlaceSubmission>('POST', '/places/submissions', {
+          address,
+          content,
+          name,
           source: 'mvp',
         });
       },
