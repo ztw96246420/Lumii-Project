@@ -152,6 +152,16 @@ const tabItems: Array<{ Icon: ComponentType<{ color?: string; size?: number; str
 
 const tabBackToHomeRoutes = new Set<AppRoute>(['discover', 'map', 'messages', 'profile']);
 const appExitPromptRoutes = new Set<AppRoute>(['emptyPet', 'home', 'login', 'permissions']);
+const homeChatPrompts = [
+  '今天想和{petName}聊点什么？',
+  '要不要记录一件开心小事？',
+  '看看附近有没有新朋友？',
+  '今天适合来一点轻松互动',
+  '{petName}好像有话想和你说',
+  '要不要安排一次温柔散步？',
+  '给{petName}补一条健康记录吧',
+  '今天也想陪你待一会儿',
+];
 
 const permissionCopy = {
   location: {
@@ -353,6 +363,7 @@ export default function LumiiMvpApp() {
   const mapAutoLocateAttemptedRef = useRef(false);
   const lastDiscoverLocationRef = useRef<NearbyLocationHint | null>(null);
   const exitBackPressedAtRef = useRef(0);
+  const previousRouteRef = useRef<AppRoute>('login');
 
   const [permissions, setPermissions] = useState<PermissionStateMap>(initialPermissions);
   const [activePet, setActivePet] = useState<PetProfile | null>(null);
@@ -362,6 +373,7 @@ export default function LumiiMvpApp() {
   const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(null);
   const [avatarResultPrefetching, setAvatarResultPrefetching] = useState(false);
   const avatarResultRouteJobIdRef = useRef('');
+  const [homeHintIndex, setHomeHintIndex] = useState(() => Math.floor(Math.random() * homeChatPrompts.length));
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([createPetChatWelcomeMessage()]);
   const [chatInput, setChatInput] = useState('');
@@ -529,6 +541,14 @@ export default function LumiiMvpApp() {
     if (!session) return;
     void loadCommonData();
   }, [session]);
+
+  useEffect(() => {
+    const previousRoute = previousRouteRef.current;
+    if (route === 'home' && previousRoute !== 'home') {
+      setHomeHintIndex((index) => (index + 1) % homeChatPrompts.length);
+    }
+    previousRouteRef.current = route;
+  }, [route]);
 
   useEffect(() => {
     if (!session || route !== 'permissions') return;
@@ -1992,6 +2012,7 @@ export default function LumiiMvpApp() {
     const petMeta = [pet.breed || speciesLabels[pet.species], formatPetAge(pet.birthday)].filter(Boolean).join(' · ');
     const memoSummary = memos[0]?.title ?? '暂无备忘';
     const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : '暂无附近伙伴';
+    const homeChatHint = homeChatPrompts[homeHintIndex].replace(/\{petName\}/g, pet.name);
     return (
       <Screen showBack={false} title="">
         <View style={styles.homeMakePage}>
@@ -2010,15 +2031,16 @@ export default function LumiiMvpApp() {
           </View>
 
           <View style={styles.homePetStage}>
-              <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={196} />
-            <Pressable onPress={() => go('chat')} style={[styles.homeChatHint, webPressableReset]}>
-              <Text style={styles.homeChatHintText}>今天想去公园散步吗？</Text>
-            </Pressable>
+            <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={196} />
             <View style={styles.homeOnlineBadge}>
               <View style={styles.homeOnlineDot} />
               <Text style={styles.homeOnlineText}>灵伴在线</Text>
             </View>
           </View>
+          <Pressable onPress={() => go('chat')} style={[styles.homeChatHint, webPressableReset]}>
+            <Sparkles color={palette.orange} size={13} strokeWidth={2.4} />
+            <Text numberOfLines={1} style={styles.homeChatHintText}>{homeChatHint}</Text>
+          </Pressable>
 
           <View style={styles.homePetNameRow}>
             <Text style={styles.homePetName}>{pet.name}</Text>
@@ -3758,8 +3780,8 @@ const styles = StyleSheet.create({
   heroCard: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16 },
   homeBellButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 19, borderWidth: 1, height: 38, justifyContent: 'center', position: 'relative', width: 38 },
   homeBellDot: { backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 4, borderWidth: 1.5, height: 7, position: 'absolute', right: 9, top: 8, width: 7 },
-  homeChatHint: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, maxWidth: 150, paddingHorizontal: 12, paddingVertical: 8, position: 'absolute', right: 26, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.18, shadowRadius: 22, top: 10 },
-  homeChatHintText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17 },
+  homeChatHint: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 6, marginTop: 5, maxWidth: '88%', minHeight: 34, paddingHorizontal: 13, paddingVertical: 7, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 18 },
+  homeChatHintText: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 17 },
   homeHealthCard: { alignItems: 'center', backgroundColor: '#ffe3cb', borderColor: 'rgba(255,255,255,0.7)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingHorizontal: 18, paddingVertical: 14, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
   homeHealthDelta: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.22)', borderRadius: 10, flexDirection: 'row', gap: 2, marginLeft: 6, paddingHorizontal: 8, paddingVertical: 3 },
   homeHealthDeltaText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },

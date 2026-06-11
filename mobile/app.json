@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.lumii.lingban",
-      "versionCode": 8,
+      "versionCode": 9,
       "adaptiveIcon": {
         "backgroundColor": "#FF8A5C",
         "foregroundImage": "./assets/android-icon-foreground.png",
