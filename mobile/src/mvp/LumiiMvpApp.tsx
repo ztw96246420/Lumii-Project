@@ -204,6 +204,14 @@ type PetDraft = {
   species: PetSpecies;
   weight: string;
 };
+type DiscoverFilter = 'all' | 'dog' | 'cat' | 'social' | 'walk';
+const discoverFilterOptions: Array<{ key: DiscoverFilter; label: string }> = [
+  { key: 'all', label: '全部' },
+  { key: 'dog', label: '🐶 汪星人' },
+  { key: 'cat', label: '🐱 喵星人' },
+  { key: 'social', label: '想交朋友' },
+  { key: 'walk', label: '可约遛' },
+];
 
 const emptyPetDraft: PetDraft = {
   birthday: '2024-05-30',
@@ -431,6 +439,7 @@ export default function LumiiMvpApp() {
   const [dailyPostSaving, setDailyPostSaving] = useState(false);
   const [owners, setOwners] = useState<NearbyOwner[]>([]);
   const [discoverRefreshing, setDiscoverRefreshing] = useState(false);
+  const [discoverFilter, setDiscoverFilter] = useState<DiscoverFilter>('all');
   const [greetingRequestOwners, setGreetingRequestOwners] = useState<NearbyOwner[]>([]);
   const [selectedOwner, setSelectedOwner] = useState<NearbyOwner | null>(null);
   const [walkInvitePlace, setWalkInvitePlace] = useState('滨江绿地');
@@ -1622,6 +1631,26 @@ export default function LumiiMvpApp() {
     } finally {
       setDiscoverRefreshing(false);
     }
+  }
+
+  function ownerMatchesDiscoverFilter(owner: NearbyOwner, filter: DiscoverFilter) {
+    if (filter === 'all') return true;
+    if (filter === 'dog' || filter === 'cat') return owner.species === filter;
+    const tagText = owner.tags.join(' ').toLowerCase();
+    if (filter === 'social') return tagText.includes('交') || tagText.includes('朋友') || tagText.includes('friend');
+    return tagText.includes('约') || tagText.includes('遛') || tagText.includes('walk');
+  }
+
+  function applyDiscoverFilter(filter: DiscoverFilter) {
+    setDiscoverFilter(filter);
+    const label = discoverFilterOptions.find((item) => item.key === filter)?.label ?? '全部';
+    showToast(filter === 'all' ? '已显示全部附近伙伴' : `已筛选：${label}`);
+  }
+
+  function cycleDiscoverFilter() {
+    const currentIndex = discoverFilterOptions.findIndex((item) => item.key === discoverFilter);
+    const nextFilter = discoverFilterOptions[(currentIndex + 1) % discoverFilterOptions.length]?.key ?? 'all';
+    applyDiscoverFilter(nextFilter);
   }
 
   async function getDiscoverLocationHint(options: { silent?: boolean } = {}): Promise<NearbyLocationHint | null> {
@@ -2852,6 +2881,8 @@ export default function LumiiMvpApp() {
   }
 
   function renderDiscover() {
+    const visibleOwners = owners.filter((owner) => ownerMatchesDiscoverFilter(owner, discoverFilter));
+    const activeDiscoverFilterLabel = discoverFilterOptions.find((item) => item.key === discoverFilter)?.label ?? '全部';
     return (
       <Screen
         refreshControl={
@@ -2869,26 +2900,26 @@ export default function LumiiMvpApp() {
         <View style={styles.discoverMakeHeader}>
           <Text style={styles.makeScreenTitle}>发现</Text>
           <View style={styles.messagesHeaderActions}>
-            <Pressable onPress={() => showToast('搜索附近主人待接入')} style={styles.makeIconChip}>
-              <Search color={palette.ink} size={16} strokeWidth={2.3} />
+            <Pressable accessibilityLabel="刷新附近伙伴" accessibilityRole="button" disabled={discoverRefreshing} onPress={() => void refreshDiscoverByPull()} style={[styles.makeIconChip, discoverRefreshing && styles.mapSearchActionDisabled]}>
+              {discoverRefreshing ? <ActivityIndicator color={palette.ink} size="small" /> : <RefreshCw color={palette.ink} size={16} strokeWidth={2.3} />}
             </Pressable>
-            <Pressable onPress={() => showToast('筛选已保留配置入口')} style={styles.makeIconChip}>
+            <Pressable accessibilityLabel="切换附近筛选" accessibilityRole="button" onPress={cycleDiscoverFilter} style={styles.makeIconChip}>
               <SlidersHorizontal color={palette.ink} size={16} strokeWidth={2.3} />
             </Pressable>
           </View>
         </View>
         <View style={styles.locationChipMake}>
           <MapPin color={palette.orange} size={13} strokeWidth={2.4} />
-          <Text style={styles.locationChipText}>附近 · 3km 内</Text>
+          <Text style={styles.locationChipText}>附近 · 3km 内 · {activeDiscoverFilterLabel} · {visibleOwners.length} 位</Text>
           <Text style={styles.locationPrivacyPill}>模糊距离</Text>
         </View>
         <ScrollView horizontal contentContainerStyle={styles.filterChipsMake} showsHorizontalScrollIndicator={false}>
-          {['全部', '🐶 汪星人', '🐱 喵星人', '想交朋友', '可约遛'].map((chip, index) => (
-            <Text key={chip} style={[styles.filterChipMake, index === 0 && styles.filterChipMakeActive]}>{chip}</Text>
+          {discoverFilterOptions.map((filter) => (
+            <Text key={filter.key} onPress={() => applyDiscoverFilter(filter.key)} style={[styles.filterChipMake, discoverFilter === filter.key && styles.filterChipMakeActive]}>{filter.label}</Text>
           ))}
         </ScrollView>
         <View style={styles.discoverCardsMake}>
-          {owners.map((owner) => (
+          {visibleOwners.map((owner) => (
             <View key={owner.id} style={styles.ownerCardMake}>
               <PetAvatar uri={owner.imageUrl} size={92} />
               <View style={styles.flex}>
@@ -2919,6 +2950,12 @@ export default function LumiiMvpApp() {
               </Pressable>
             </View>
           ))}
+          {!visibleOwners.length ? (
+            <View style={styles.mapEmptyCard}>
+              <Text style={styles.cardTitle}>暂无匹配伙伴</Text>
+              <Text style={styles.mutedText}>可以切换筛选条件，或下拉刷新附近列表。</Text>
+            </View>
+          ) : null}
         </View>
       </Screen>
     );
