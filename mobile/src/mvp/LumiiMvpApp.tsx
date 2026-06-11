@@ -3,6 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactElement, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -147,6 +148,9 @@ const tabItems: Array<{ Icon: ComponentType<{ color?: string; size?: number; str
   { Icon: MessageCircle, label: '消息', route: 'messages' },
   { Icon: User, label: '我的', route: 'profile' },
 ];
+
+const tabBackToHomeRoutes = new Set<AppRoute>(['discover', 'map', 'messages', 'profile']);
+const appExitPromptRoutes = new Set<AppRoute>(['emptyPet', 'home', 'login', 'permissions']);
 
 const permissionCopy = {
   location: {
@@ -346,6 +350,7 @@ export default function LumiiMvpApp() {
   const otpInputRef = useRef<TextInput>(null);
   const mapAutoLocateAttemptedRef = useRef(false);
   const lastDiscoverLocationRef = useRef<NearbyLocationHint | null>(null);
+  const exitBackPressedAtRef = useRef(0);
 
   const [permissions, setPermissions] = useState<PermissionStateMap>(initialPermissions);
   const [activePet, setActivePet] = useState<PetProfile | null>(null);
@@ -424,14 +429,57 @@ export default function LumiiMvpApp() {
     setRoute(nextRoute);
   }, []);
 
+  const getDefaultBackRoute = useCallback((): AppRoute => {
+    if (!session) return 'login';
+    return activePet ? 'home' : 'emptyPet';
+  }, [activePet, session]);
+
   const back = useCallback(() => {
     setHistory((items) => {
       const next = [...items];
       const previous = next.pop();
-      setRoute(previous ?? (session ? 'home' : 'login'));
+      setRoute(previous ?? getDefaultBackRoute());
       return next;
     });
-  }, [session]);
+  }, [getDefaultBackRoute]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (confirm) {
+        setConfirm(null);
+        return true;
+      }
+
+      if (mapStylePanelVisible) {
+        setMapStylePanelVisible(false);
+        return true;
+      }
+
+      if (tabBackToHomeRoutes.has(route)) {
+        setHistory([]);
+        replace(activePet ? 'home' : 'emptyPet');
+        return true;
+      }
+
+      if (appExitPromptRoutes.has(route)) {
+        const now = Date.now();
+        if (now - exitBackPressedAtRef.current < 1800) {
+          BackHandler.exitApp();
+          return true;
+        }
+        exitBackPressedAtRef.current = now;
+        showToast('再按一次退出灵伴');
+        return true;
+      }
+
+      back();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [activePet, back, confirm, mapStylePanelVisible, replace, route, showToast]);
 
   useEffect(() => {
     if (!toast) return undefined;
