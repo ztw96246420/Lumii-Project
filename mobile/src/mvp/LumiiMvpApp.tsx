@@ -1232,20 +1232,28 @@ export default function LumiiMvpApp() {
     }
   }
 
-  async function sendConversationMessage() {
-    const text = conversationInput.trim();
+  async function sendConversationMessage(textOverride?: string, retryMessageId?: string) {
+    const text = (textOverride ?? conversationInput).trim();
     const conversation = selectedConversation ?? conversations[0];
     if (!text || !conversation) return;
-    const local: ConversationMessage = { author: 'me', id: `conversation-${Date.now()}`, status: 'sending', text, time: '刚刚' };
-    setConversationInput('');
-    setConversationMessages((items) => [...items, local]);
+    const local: ConversationMessage = retryMessageId
+      ? { author: 'me', id: retryMessageId, status: 'sending', text, time: '刚刚' }
+      : { author: 'me', id: `conversation-${Date.now()}`, status: 'sending', text, time: '刚刚' };
+    if (!retryMessageId) setConversationInput('');
+    setConversationMessages((items) =>
+      retryMessageId ? items.map((item) => (item.id === retryMessageId ? local : item)) : [...items, local],
+    );
     const result = await lumiiApi.messages.sendConversationMessage(conversation.id, text);
-    setConversationMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: result.data ? 'sent' : 'failed' } : item)));
+    setConversationMessages((items) => items.map((item) => (item.id === local.id ? (result.data ?? { ...item, status: 'failed' }) : item)));
     if (result.data) {
       setConversations((items) => items.map((item) => (item.id === conversation.id ? { ...item, lastMessage: text, unread: 0 } : item)));
     } else {
       showToast(result.error?.message ?? '消息发送失败');
     }
+  }
+
+  function deleteLocalConversationMessage(messageId: string) {
+    setConversationMessages((items) => items.filter((item) => item.id !== messageId));
   }
 
   async function recordWeight() {
@@ -2538,7 +2546,17 @@ export default function LumiiMvpApp() {
                 <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
                   <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
                 </View>
-                {message.status === 'failed' ? <Text style={styles.inlineError}>失败</Text> : null}
+                {message.status === 'sending' ? <ActivityIndicator color={palette.orange} size="small" /> : null}
+                {message.status === 'failed' ? (
+                  <View style={styles.inlineActionRow}>
+                    <Pressable onPress={() => void sendConversationMessage(message.text, message.id)} style={styles.inlineRetryButton}>
+                      <Text style={styles.inlineRetryText}>重发</Text>
+                    </Pressable>
+                    <Pressable onPress={() => deleteLocalConversationMessage(message.id)} style={styles.inlineDeleteButton}>
+                      <Text style={styles.inlineDeleteText}>删除</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
             )
           ))}
@@ -4135,6 +4153,9 @@ const styles = StyleSheet.create({
   homeIndicator: { alignSelf: 'center', backgroundColor: palette.ink, borderRadius: 999, bottom: 9, height: 4, opacity: 0.9, position: 'absolute', width: 134 },
   iconButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.7)', borderColor: 'transparent', borderRadius: 18, borderWidth: 0, height: 36, justifyContent: 'center', width: 36 },
   inlineError: { color: palette.danger, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600' },
+  inlineActionRow: { alignItems: 'center', flexDirection: 'row', gap: 6 },
+  inlineDeleteButton: { alignItems: 'center', backgroundColor: 'rgba(122,121,114,0.12)', borderRadius: 999, justifyContent: 'center', paddingHorizontal: 9, paddingVertical: 5 },
+  inlineDeleteText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
   inlineNotice: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600' },
   inlineRetryButton: { alignItems: 'center', backgroundColor: '#ffdad6', borderRadius: 999, justifyContent: 'center', paddingHorizontal: 9, paddingVertical: 5 },
   inlineRetryText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
