@@ -1606,15 +1606,7 @@ export default function LumiiMvpApp() {
         setPlaceReview('');
         setPlaceReviewStatus('pending_review');
         setPlaceReviewsByPlaceId((items) => ({ ...items, [place.id]: result.data! }));
-        setNotifications((items) => [
-          {
-            id: `place-review-${Date.now()}`,
-            read: false,
-            text: `${place.name}的点评已进入审核队列`,
-            title: '地点点评待审核',
-          },
-          ...items,
-        ]);
+        void loadInboxData();
         showToast('点评已提交，等待审核');
       } else {
         showToast(result.error?.message ?? '提交失败，请稍后重试');
@@ -1639,16 +1631,10 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.places.createSubmission(placeDraftName.trim(), placeDraftAddress.trim(), placeReview.trim());
       if (result.data) {
         setPlaceReview('');
+        setPlaceDraftName('');
+        setPlaceDraftAddress('');
         setPlaceReviewStatus('pending_review');
-        setNotifications((items) => [
-          {
-            id: `place-submission-${Date.now()}`,
-            read: false,
-            text: `${result.data!.name}已提交审核，通过后会展示给附近用户`,
-            title: '地点提交待审核',
-          },
-          ...items,
-        ]);
+        void loadInboxData();
         showToast('地点已提交审核');
       } else {
         showToast(result.error?.message ?? '提交失败，请稍后重试');

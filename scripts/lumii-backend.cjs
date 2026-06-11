@@ -399,6 +399,12 @@ function createPlaceReview(user, placeId, content) {
     status: 'pending_review',
   };
   state.placeReviews[user.phone] = [review, ...placeReviewsFor(user).filter((item) => item.placeId !== placeId)];
+  addNotification(user.phone, {
+    id: `notification-${review.id}`,
+    read: false,
+    text: `${place.name}的点评已进入审核队列`,
+    title: '地点点评待审核',
+  });
   return review;
 }
 
@@ -423,6 +429,12 @@ function createPlaceSubmission(user, body) {
     status: 'pending_review',
   };
   state.placeSubmissions[user.phone] = [submission, ...placeSubmissionsFor(user)];
+  addNotification(user.phone, {
+    id: `notification-${submission.id}`,
+    read: false,
+    text: `${submission.name}已提交审核，通过后会展示给附近用户`,
+    title: '地点提交待审核',
+  });
   return { submission };
 }
 

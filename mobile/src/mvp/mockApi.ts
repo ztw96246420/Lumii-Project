@@ -527,7 +527,8 @@ export const mockApi = {
 
     async createReview(placeId: string, content: string): Promise<ApiResult<PlaceReview>> {
       await wait();
-      if (!places.some((place) => place.id === placeId)) return error('地点不存在', false);
+      const place = places.find((item) => item.id === placeId);
+      if (!place) return error('地点不存在', false);
       if (!content.trim()) return error('请填写点评内容', false);
       const review: PlaceReview = {
         content: content.trim(),
@@ -537,6 +538,15 @@ export const mockApi = {
         status: 'pending_review',
       };
       placeReviews = [review, ...placeReviews.filter((item) => item.placeId !== placeId)];
+      notifications = [
+        {
+          id: `notification-${review.id}`,
+          read: false,
+          text: `${place.name}的点评已进入审核队列`,
+          title: '地点点评待审核',
+        },
+        ...notifications,
+      ];
       return success(review);
     },
 
@@ -553,6 +563,15 @@ export const mockApi = {
         status: 'pending_review',
       };
       placeSubmissions = [submission, ...placeSubmissions];
+      notifications = [
+        {
+          id: `notification-${submission.id}`,
+          read: false,
+          text: `${submission.name}已提交审核，通过后会展示给附近用户`,
+          title: '地点提交待审核',
+        },
+        ...notifications,
+      ];
       return success(submission);
     },
   },
