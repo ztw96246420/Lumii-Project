@@ -9,6 +9,7 @@ import type {
   ConversationMessage,
   CreatePetInput,
   GreetingResult,
+  HealthCalendarEvent,
   HealthMemo,
   NearbyLocationHint,
   NearbyOwner,
@@ -165,6 +166,47 @@ function shouldStoreMockNotification(category: 'system' | 'interaction' = 'syste
 function addMockNotification(notification: NotificationItem, category: 'system' | 'interaction' = 'system') {
   if (!shouldStoreMockNotification(category) || notifications.some((item) => item.id === notification.id)) return;
   notifications = [notification, ...notifications];
+}
+
+function normalizeCalendarDate(value?: string) {
+  const text = String(value ?? '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : new Date().toISOString().slice(0, 10);
+}
+
+function vaccineStatusCopy(status: VaccinePlan['status']) {
+  if (status === 'done') return '已完成';
+  if (status === 'overdue') return '已逾期';
+  return '待提醒';
+}
+
+function buildHealthCalendarEvents(): HealthCalendarEvent[] {
+  return [
+    ...weights.map((record) => ({
+      date: normalizeCalendarDate(record.recordedAt),
+      detail: `${record.kg} kg${record.note ? ` · ${record.note}` : ''}`,
+      id: `calendar-weight-${record.id}`,
+      sourceId: record.id,
+      title: '体重记录',
+      type: 'weight' as const,
+    })),
+    ...vaccines.map((vaccine) => ({
+      date: normalizeCalendarDate(vaccine.dueAt),
+      detail: vaccineStatusCopy(vaccine.status),
+      id: `calendar-vaccine-${vaccine.id}`,
+      sourceId: vaccine.id,
+      status: vaccine.status,
+      title: vaccine.name,
+      type: 'vaccine' as const,
+    })),
+    ...memos.map((memo) => ({
+      date: normalizeCalendarDate(memo.updatedAt),
+      detail: memo.content,
+      id: `calendar-memo-${memo.id}`,
+      sourceId: memo.id,
+      title: memo.title,
+      type: 'memo' as const,
+    })),
+  ].sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.id).localeCompare(String(b.id)));
 }
 
 function buildWeightTrend(records: WeightRecord[]): WeightTrend {
@@ -372,6 +414,11 @@ export const mockApi = {
   },
 
   health: {
+    async listHealthCalendar(): Promise<ApiResult<HealthCalendarEvent[]>> {
+      await wait(140);
+      return success(buildHealthCalendarEvents());
+    },
+
     async recordWeight(kg: number, note?: string): Promise<ApiResult<WeightRecord>> {
       await wait();
       const record = { id: `w-${Date.now()}`, kg, note, recordedAt: '2026-05-30' };

@@ -552,6 +552,50 @@ function healthList(storeName, user, defaultsFactory) {
   return state.health[storeName][key];
 }
 
+function normalizeCalendarDate(value, fallback = todayIsoDate()) {
+  const text = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : fallback;
+}
+
+function vaccineStatusCopy(status) {
+  if (status === 'done') return '已完成';
+  if (status === 'overdue') return '已逾期';
+  return '待提醒';
+}
+
+function buildHealthCalendarEvents(user) {
+  const weights = healthList('weights', user, defaultWeightRecordsFor);
+  const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+  const memos = healthList('memos', user, defaultMemosFor);
+  return [
+    ...weights.map((record) => ({
+      date: normalizeCalendarDate(record.recordedAt),
+      detail: `${Number(record.kg) || 0} kg${record.note ? ` · ${record.note}` : ''}`,
+      id: `calendar-weight-${record.id}`,
+      sourceId: record.id,
+      title: '体重记录',
+      type: 'weight',
+    })),
+    ...vaccines.map((vaccine) => ({
+      date: normalizeCalendarDate(vaccine.dueAt),
+      detail: vaccineStatusCopy(vaccine.status),
+      id: `calendar-vaccine-${vaccine.id}`,
+      sourceId: vaccine.id,
+      status: vaccine.status,
+      title: vaccine.name,
+      type: 'vaccine',
+    })),
+    ...memos.map((memo) => ({
+      date: normalizeCalendarDate(memo.updatedAt),
+      detail: memo.content,
+      id: `calendar-memo-${memo.id}`,
+      sourceId: memo.id,
+      title: memo.title,
+      type: 'memo',
+    })),
+  ].sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.id).localeCompare(String(b.id)));
+}
+
 function buildWeightTrend(records) {
   const sortedRecords = [...(records || [])].sort((a, b) => String(b.recordedAt || '').localeCompare(String(a.recordedAt || '')));
   const current = sortedRecords[0];
@@ -1749,6 +1793,11 @@ async function handle(req, res) {
     }
     saveState();
     ok(res, job);
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/health/calendar') {
+    ok(res, buildHealthCalendarEvents(user));
     return;
   }
 

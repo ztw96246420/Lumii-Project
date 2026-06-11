@@ -236,7 +236,7 @@ Android 调用：
 
 需要接口：
 - ~~`GET /pets/{petId}/health/summary`：首页健康摘要。~~ MVP 暂由 `GET /health/weights`、`GET /health/vaccines`、`GET /health/memos` 拼装。
-- `GET /pets/{petId}/health/calendar`：健康日历。
+- ~~`GET /pets/{petId}/health/calendar`：健康日历。~~ 测试后端已接 `GET /health/calendar`，按当前宠物聚合体重、疫苗和健康备忘；健康日历独立 UI 仍需 Figma Make 页面设计。
 - ~~`POST /pets/{petId}/health/memos`：新增健康备忘。~~ 测试后端已接 `POST /health/memos`，按当前宠物持久化。
 - ~~`PATCH /pets/{petId}/health/memos/{memoId}`：编辑健康备忘。~~ 测试后端已接 `PATCH /health/memos/{memoId}`，按当前宠物持久化；UI 仍需 Figma 编辑态。
 - ~~`DELETE /pets/{petId}/health/memos/{memoId}`：删除健康备忘。~~ 测试后端已接 `DELETE /health/memos/{memoId}`，按当前宠物持久化；UI 仍需 Figma 删除确认。

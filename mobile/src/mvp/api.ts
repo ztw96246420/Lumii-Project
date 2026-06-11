@@ -9,6 +9,7 @@ import type {
   ConversationMessage,
   CreatePetInput,
   GreetingResult,
+  HealthCalendarEvent,
   HealthMemo,
   NearbyLocationHint,
   NearbyOwner,
@@ -186,6 +187,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
     },
 
     health: {
+      async listHealthCalendar(): Promise<ApiResult<HealthCalendarEvent[]>> {
+        return request<HealthCalendarEvent[]>('GET', '/health/calendar');
+      },
+
       async recordWeight(kg: number, note?: string): Promise<ApiResult<WeightRecord>> {
         return request<WeightRecord>('POST', '/health/weights', { kg, note });
       },

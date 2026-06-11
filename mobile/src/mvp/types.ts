@@ -157,6 +157,16 @@ export type HealthMemo = {
   updatedAt: string;
 };
 
+export type HealthCalendarEvent = {
+  date: string;
+  detail: string;
+  id: string;
+  sourceId: string;
+  status?: VaccinePlan['status'];
+  title: string;
+  type: 'memo' | 'vaccine' | 'weight';
+};
+
 export type NearbyOwner = {
   distance: string;
   id: string;

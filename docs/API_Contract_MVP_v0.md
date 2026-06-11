@@ -386,6 +386,30 @@ type AvatarJob = {
 
 ## 6. 健康管理
 
+### GET `/health/calendar`
+
+聚合当前宠物的体重、疫苗和健康备忘，返回健康日历事件。MVP 测试后端按 `phone + activePetId` 持久化，事件只做健康记录聚合，不替代兽医诊断。
+
+Response data:
+
+```ts
+type HealthCalendarEvent = {
+  date: string; // YYYY-MM-DD
+  detail: string;
+  id: string;
+  sourceId: string;
+  status?: 'done' | 'due' | 'overdue';
+  title: string;
+  type: 'memo' | 'vaccine' | 'weight';
+};
+```
+
+说明：
+- `weight` 来自体重记录，`detail` 为体重和备注。
+- `vaccine` 来自疫苗/驱虫计划，`status` 会保留原计划状态。
+- `memo` 来自健康备忘，若 `updatedAt` 不是日期格式，会归到当天。
+- 返回按 `date` 倒序排列。
+
 ### GET `/health/weights`
 
 当前登录用户的当前宠物体重记录列表。测试后端会按 `phone + activePetId` 持久化；未添加宠物时返回空数组。
