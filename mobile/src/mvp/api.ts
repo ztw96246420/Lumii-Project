@@ -28,6 +28,7 @@ import type {
   WalkInviteInput,
   WalkInviteResult,
   WeightRecord,
+  WeightTrend,
 } from './types';
 
 declare const process: {
@@ -191,6 +192,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
 
       async listWeightRecords(): Promise<ApiResult<WeightRecord[]>> {
         return request<WeightRecord[]>('GET', '/health/weights');
+      },
+
+      async getWeightTrend(): Promise<ApiResult<WeightTrend>> {
+        return request<WeightTrend>('GET', '/health/weights/trend');
       },
 
       async listVaccines(): Promise<ApiResult<VaccinePlan[]>> {

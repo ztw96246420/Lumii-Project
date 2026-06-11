@@ -132,6 +132,17 @@ export type WeightRecord = {
   recordedAt: string;
 };
 
+export type WeightTrend = {
+  changeKg: number;
+  changePercent: number;
+  currentKg?: number;
+  direction: 'down' | 'flat' | 'up';
+  previousKg?: number;
+  records: WeightRecord[];
+  status: 'empty' | 'insufficient_data' | 'stable' | 'watch';
+  summary: string;
+};
+
 export type VaccinePlan = {
   dueAt: string;
   id: string;

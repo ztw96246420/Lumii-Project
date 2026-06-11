@@ -28,6 +28,7 @@ import type {
   WalkInviteInput,
   WalkInviteResult,
   WeightRecord,
+  WeightTrend,
 } from './types';
 
 const wait = (ms = 360) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -164,6 +165,32 @@ function shouldStoreMockNotification(category: 'system' | 'interaction' = 'syste
 function addMockNotification(notification: NotificationItem, category: 'system' | 'interaction' = 'system') {
   if (!shouldStoreMockNotification(category) || notifications.some((item) => item.id === notification.id)) return;
   notifications = [notification, ...notifications];
+}
+
+function buildWeightTrend(records: WeightRecord[]): WeightTrend {
+  const sortedRecords = [...records].sort((a, b) => String(b.recordedAt).localeCompare(String(a.recordedAt)));
+  const current = sortedRecords[0];
+  const previous = sortedRecords[1];
+  if (!current) {
+    return { changeKg: 0, changePercent: 0, direction: 'flat', records: [], status: 'empty', summary: '暂无体重记录' };
+  }
+  if (!previous) {
+    return { changeKg: 0, changePercent: 0, currentKg: current.kg, direction: 'flat', records: sortedRecords, status: 'insufficient_data', summary: '已有一次记录，继续记录后会生成趋势' };
+  }
+  const changeKg = Number((current.kg - previous.kg).toFixed(2));
+  const changePercent = previous.kg ? Number(((changeKg / previous.kg) * 100).toFixed(1)) : 0;
+  const direction = Math.abs(changeKg) < 0.05 ? 'flat' : changeKg > 0 ? 'up' : 'down';
+  const status = Math.abs(changePercent) >= 8 ? 'watch' : 'stable';
+  return {
+    changeKg,
+    changePercent,
+    currentKg: current.kg,
+    direction,
+    previousKg: previous.kg,
+    records: sortedRecords,
+    status,
+    summary: status === 'watch' ? '近期体重变化较快，建议持续观察' : direction === 'flat' ? '体重整体稳定' : '体重有轻微变化，继续保持记录',
+  };
 }
 
 export const mockApi = {
@@ -355,6 +382,11 @@ export const mockApi = {
     async listWeightRecords(): Promise<ApiResult<WeightRecord[]>> {
       await wait(140);
       return success(weights);
+    },
+
+    async getWeightTrend(): Promise<ApiResult<WeightTrend>> {
+      await wait(140);
+      return success(buildWeightTrend(weights));
     },
 
     async listVaccines(): Promise<ApiResult<VaccinePlan[]>> {

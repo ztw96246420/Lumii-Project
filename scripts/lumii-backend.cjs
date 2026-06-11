@@ -552,6 +552,34 @@ function healthList(storeName, user, defaultsFactory) {
   return state.health[storeName][key];
 }
 
+function buildWeightTrend(records) {
+  const sortedRecords = [...(records || [])].sort((a, b) => String(b.recordedAt || '').localeCompare(String(a.recordedAt || '')));
+  const current = sortedRecords[0];
+  const previous = sortedRecords[1];
+  if (!current) {
+    return { changeKg: 0, changePercent: 0, direction: 'flat', records: [], status: 'empty', summary: '暂无体重记录' };
+  }
+  if (!previous) {
+    return { changeKg: 0, changePercent: 0, currentKg: Number(current.kg) || 0, direction: 'flat', records: sortedRecords, status: 'insufficient_data', summary: '已有一次记录，继续记录后会生成趋势' };
+  }
+  const currentKg = Number(current.kg) || 0;
+  const previousKg = Number(previous.kg) || 0;
+  const changeKg = Number((currentKg - previousKg).toFixed(2));
+  const changePercent = previousKg ? Number(((changeKg / previousKg) * 100).toFixed(1)) : 0;
+  const direction = Math.abs(changeKg) < 0.05 ? 'flat' : changeKg > 0 ? 'up' : 'down';
+  const status = Math.abs(changePercent) >= 8 ? 'watch' : 'stable';
+  return {
+    changeKg,
+    changePercent,
+    currentKg,
+    direction,
+    previousKg,
+    records: sortedRecords,
+    status,
+    summary: status === 'watch' ? '近期体重变化较快，建议持续观察' : direction === 'flat' ? '体重整体稳定' : '体重有轻微变化，继续保持记录',
+  };
+}
+
 function vaccineReminderIdsFor(user) {
   state.health = state.health || { memos: {}, vaccineReminders: {}, vaccines: {}, weights: {} };
   state.health.vaccineReminders = state.health.vaccineReminders || {};
@@ -1726,6 +1754,11 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/health/weights') {
     ok(res, healthList('weights', user, defaultWeightRecordsFor));
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/health/weights/trend') {
+    ok(res, buildWeightTrend(healthList('weights', user, defaultWeightRecordsFor)));
     return;
   }
 

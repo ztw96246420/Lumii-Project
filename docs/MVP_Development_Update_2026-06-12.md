@@ -12,6 +12,8 @@
 - 删除当前宠物时，测试后端会自动把剩余第一只设为当前宠物；如果没有剩余宠物，则清空当前宠物。App 暂不暴露删除入口，等待 Figma 危险操作确认设计。
 - 健康备忘 CRUD 接口补齐：新增 `PATCH /health/memos/{memoId}`、`DELETE /health/memos/{memoId}`，测试后端和 mock API 均已支持按当前宠物编辑/删除备忘。
 - 健康备忘编辑/删除 UI 暂不暴露，仍等待 Figma Make 的编辑态、删除确认弹窗和 toast 状态设计。
+- 体重趋势接口补齐：新增 `GET /health/weights/trend`，测试后端和 mock API 会基于当前宠物体重记录返回趋势方向、变化幅度、状态和提示文案。
+- 体重趋势详情、历史体重编辑/删除和异常态 UI 暂不新增，仍等待 Figma Make 设计。
 - 文档同步清理：`Figma_Make_Missing_Page_Prompts_2026-06-06.md` 不再把二次登录免验证码列为待开发项；`MVP_Development_Support_Checklist_v0.md` 不再把当前代码里不存在的“MVP 验收入口”误记为待处理。
 - 历史设计迁移文档和 Stitch 缺口文档中关于“MVP 验收入口”的描述已统一删除线标记，避免被当作当前现状或待办。
 
@@ -45,6 +47,12 @@
   - 删除后列表不再包含该 memo。
   - 已删除备忘再次编辑返回 404 error。
   - 空标题/内容编辑返回 400 error。
+- 临时本地后端验证通过：创建宠物 -> 记录两次体重 -> 读取体重趋势，确认 current、previous、change、direction 和 status。
+  - 当前体重：`30.5`。
+  - 上次体重：`28`。
+  - 变化：`2.5kg / 8.9%`。
+  - 趋势方向：`up`。
+  - 状态：`watch`。
 
 ## 未打包
 

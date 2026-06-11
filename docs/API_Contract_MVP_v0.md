@@ -390,6 +390,30 @@ type AvatarJob = {
 
 当前登录用户的当前宠物体重记录列表。测试后端会按 `phone + activePetId` 持久化；未添加宠物时返回空数组。
 
+### GET `/health/weights/trend`
+
+当前宠物体重趋势摘要。MVP 测试后端基于最近记录计算轻量趋势，不作为医疗判断。
+
+Response data:
+
+```ts
+type WeightTrend = {
+  currentKg?: number;
+  previousKg?: number;
+  changeKg: number;
+  changePercent: number;
+  direction: 'up' | 'down' | 'flat';
+  status: 'empty' | 'insufficient_data' | 'stable' | 'watch';
+  summary: string;
+  records: WeightRecord[];
+};
+```
+
+说明：
+- 没有记录时返回 `status=empty`。
+- 只有一条记录时返回 `status=insufficient_data`。
+- 变化幅度达到约 8% 时返回 `status=watch`，文案只提示持续观察，不替代兽医判断。
+
 ### POST `/health/weights`
 
 Request:
