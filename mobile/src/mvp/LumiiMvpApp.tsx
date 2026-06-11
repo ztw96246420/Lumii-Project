@@ -955,6 +955,7 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.pets.createPet(payload);
       if (result.data) {
         setActivePet(result.data);
+        resetAvatarDraft();
         go('upload');
       } else {
         showToast(result.error?.message ?? '保存宠物档案失败');
@@ -962,6 +963,24 @@ export default function LumiiMvpApp() {
     } finally {
       setPetProfileSaving(false);
     }
+  }
+
+  function resetAvatarDraft() {
+    setMedia(null);
+    setAvatarJob(null);
+    setAvatarResultPrefetching(false);
+    setMediaPickerMode(null);
+    avatarResultRouteJobIdRef.current = '';
+  }
+
+  function startPetAvatarRefresh() {
+    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    if (!pet) {
+      showToast('请先添加宠物档案');
+      return;
+    }
+    resetAvatarDraft();
+    go('upload');
   }
 
   async function pickAndUploadPetMedia(source: 'camera' | 'library') {
@@ -3119,7 +3138,7 @@ export default function LumiiMvpApp() {
           <View style={styles.petDetailMakePage}>
             <View style={styles.petDetailHeroMake}>
               <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={160} />
-              <Pressable onPress={() => showToast('更换照片待接入')} style={styles.petDetailCamera}>
+              <Pressable onPress={startPetAvatarRefresh} style={styles.petDetailCamera}>
                 <Camera color="#fff" size={12} strokeWidth={2.3} />
                 <Text style={styles.petDetailCameraText}>更换</Text>
               </Pressable>
