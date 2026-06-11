@@ -146,6 +146,17 @@ let favoritePlaceIds: string[] = [];
 let placeReviews: PlaceReview[] = [];
 let placeSubmissions: PlaceSubmission[] = [];
 
+function shouldStoreMockNotification(category: 'system' | 'interaction' = 'system') {
+  if (!mockUserSettings.pushNotifications) return false;
+  if (category === 'interaction' && !mockUserSettings.interactionMessages) return false;
+  return true;
+}
+
+function addMockNotification(notification: NotificationItem, category: 'system' | 'interaction' = 'system') {
+  if (!shouldStoreMockNotification(category) || notifications.some((item) => item.id === notification.id)) return;
+  notifications = [notification, ...notifications];
+}
+
 export const mockApi = {
   auth: {
     async sendSmsCode(phoneInput: string): Promise<ApiResult<SmsCodeTicket>> {
@@ -327,18 +338,12 @@ export const mockApi = {
       if (vaccine.status === 'done' && enabled) return error('已完成的疫苗计划无需开启提醒', false);
       vaccineReminderIds = enabled ? [...new Set([id, ...vaccineReminderIds])] : vaccineReminderIds.filter((item) => item !== id);
       if (enabled) {
-        const notificationId = `mock-health-reminder-${id}`;
-        if (!notifications.some((item) => item.id === notificationId)) {
-          notifications = [
-            {
-              id: notificationId,
-              read: false,
-              text: `${vaccine.name}即将到期，记得按宠物医院建议确认时间。`,
-              title: '健康提醒',
-            },
-            ...notifications,
-          ];
-        }
+        addMockNotification({
+          id: `mock-health-reminder-${id}`,
+          read: false,
+          text: `${vaccine.name}即将到期，记得按宠物医院建议确认时间。`,
+          title: '健康提醒',
+        });
       }
       return success(vaccineReminderIds);
     },
@@ -538,15 +543,12 @@ export const mockApi = {
         status: 'pending_review',
       };
       placeReviews = [review, ...placeReviews.filter((item) => item.placeId !== placeId)];
-      notifications = [
-        {
-          id: `notification-${review.id}`,
-          read: false,
-          text: `${place.name}的点评已进入审核队列`,
-          title: '地点点评待审核',
-        },
-        ...notifications,
-      ];
+      addMockNotification({
+        id: `notification-${review.id}`,
+        read: false,
+        text: `${place.name}的点评已进入审核队列`,
+        title: '地点点评待审核',
+      });
       return success(review);
     },
 
@@ -563,15 +565,12 @@ export const mockApi = {
         status: 'pending_review',
       };
       placeSubmissions = [submission, ...placeSubmissions];
-      notifications = [
-        {
-          id: `notification-${submission.id}`,
-          read: false,
-          text: `${submission.name}已提交审核，通过后会展示给附近用户`,
-          title: '地点提交待审核',
-        },
-        ...notifications,
-      ];
+      addMockNotification({
+        id: `notification-${submission.id}`,
+        read: false,
+        text: `${submission.name}已提交审核，通过后会展示给附近用户`,
+        title: '地点提交待审核',
+      });
       return success(submission);
     },
   },

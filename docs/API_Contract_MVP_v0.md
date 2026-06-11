@@ -173,7 +173,12 @@ Response:
 
 ### PATCH `/settings`
 
-保存当前账号设置。`nearbyVisible=false` 后，其他用户的附近发现列表不会再出现该账号。
+保存当前账号设置。
+
+说明：
+- `nearbyVisible=false` 后，其他用户的附近发现列表不会再出现该账号。
+- `pushNotifications=false` 后，测试后端不再为该账号生成新的健康、互动、地点审核通知；历史通知不会自动删除。
+- `interactionMessages=false` 后，测试后端不再为该账号生成新的招呼、招呼接受、约遛邀请、聊天消息通知；会话和未读数仍正常写入。
 
 Request:
 
@@ -440,6 +445,7 @@ Request:
 
 说明：
 - 地点点评提交、用户新增地点提交也会写入通知中心，App 成功提交后会重新拉取该列表，不再只依赖前端临时通知。
+- 普通聊天消息、招呼和约遛邀请会生成互动通知；是否生成受 `pushNotifications` 与 `interactionMessages` 控制。
 
 ### POST `/notifications/read`
 

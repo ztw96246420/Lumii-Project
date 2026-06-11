@@ -1330,10 +1330,21 @@ function markConversationRead(phone, conversationId) {
   if (conversation) conversation.unread = 0;
 }
 
-function addNotification(phone, notification) {
+function shouldStoreNotification(phone, category = 'system') {
+  const user = state.users[phone];
+  if (!user) return false;
+  const settings = normalizeUserSettings(user.settings);
+  if (!settings.pushNotifications) return false;
+  if (category === 'interaction' && !settings.interactionMessages) return false;
+  return true;
+}
+
+function addNotification(phone, notification, category = 'system') {
+  if (!shouldStoreNotification(phone, category)) return false;
   state.notifications[phone] = state.notifications[phone] || [];
-  if (state.notifications[phone].some((item) => item.id === notification.id)) return;
+  if (state.notifications[phone].some((item) => item.id === notification.id)) return false;
   state.notifications[phone].unshift(notification);
+  return true;
 }
 
 function markNotificationsRead(phone, ids) {
@@ -1802,7 +1813,7 @@ async function handle(req, res) {
           read: false,
           text: `${user.ownerName}和${fromPet.name}向你和${targetPet.name}打了招呼`,
           title: '新的招呼',
-        });
+        }, 'interaction');
       }
     }
     saveState();
@@ -1855,7 +1866,7 @@ async function handle(req, res) {
       read: false,
       text: `${user.ownerName}和${myPet.name}已接受你的招呼`,
       title: '招呼已接受',
-    });
+    }, 'interaction');
     saveState();
     ok(res, { conversation: myConversation, ownerId, sent: true });
     return;
@@ -1905,7 +1916,7 @@ async function handle(req, res) {
         read: false,
         text: `${user.ownerName}和${fromPet.name}邀请你在${time}去${place}`,
         title: '新的约遛邀请',
-      });
+      }, 'interaction');
     }
     saveState();
     ok(res, { conversation: senderConversation, inviteId, ownerId });
@@ -1965,6 +1976,12 @@ async function handle(req, res) {
       });
       upsertConversation(user.phone, buildConversationFor(user, targetUser, text, 0));
       upsertConversation(targetPhone, buildConversationFor(targetUser, user, text, 1));
+      addNotification(targetPhone, {
+        id: `n-message-${myMessage.id}`,
+        read: false,
+        text: `${user.ownerName || '附近主人'}：${text.slice(0, 48)}`,
+        title: '新的消息',
+      }, 'interaction');
     }
 
     saveState();
