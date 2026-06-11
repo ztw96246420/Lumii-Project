@@ -10,6 +10,8 @@
 - App 通用数据加载时会调用 `GET /me`，让“我的页”和地点点评等展示优先使用服务端 `ownerName`，不再只靠手机号或宠物名推断。
 - 多宠管理基础接口补齐：新增 `GET /pets/{petId}`、`DELETE /pets/{petId}`，连同已有列表、创建、编辑、设默认，测试后端已具备多宠 CRUD 基础能力。
 - 删除当前宠物时，测试后端会自动把剩余第一只设为当前宠物；如果没有剩余宠物，则清空当前宠物。App 暂不暴露删除入口，等待 Figma 危险操作确认设计。
+- 健康备忘 CRUD 接口补齐：新增 `PATCH /health/memos/{memoId}`、`DELETE /health/memos/{memoId}`，测试后端和 mock API 均已支持按当前宠物编辑/删除备忘。
+- 健康备忘编辑/删除 UI 暂不暴露，仍等待 Figma Make 的编辑态、删除确认弹窗和 toast 状态设计。
 - 文档同步清理：`Figma_Make_Missing_Page_Prompts_2026-06-06.md` 不再把二次登录免验证码列为待开发项；`MVP_Development_Support_Checklist_v0.md` 不再把当前代码里不存在的“MVP 验收入口”误记为待处理。
 - 历史设计迁移文档和 Stitch 缺口文档中关于“MVP 验收入口”的描述已统一删除线标记，避免被当作当前现状或待办。
 
@@ -36,6 +38,13 @@
   - 删除后剩余宠物：`Cream`。
   - token refresh 读回当前宠物：`Cream`。
   - 读取已删除宠物返回 404 error。
+- 临时本地后端验证通过：创建宠物 -> 新增健康备忘 -> 编辑健康备忘 -> 删除健康备忘 -> 再次编辑已删除备忘返回 404。
+  - 新增标题：`Bath`。
+  - 编辑后标题：`Bath updated`。
+  - 编辑后内容：`Skin looks calm.`。
+  - 删除后列表不再包含该 memo。
+  - 已删除备忘再次编辑返回 404 error。
+  - 空标题/内容编辑返回 400 error。
 
 ## 未打包
 

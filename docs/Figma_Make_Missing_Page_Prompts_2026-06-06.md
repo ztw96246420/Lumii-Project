@@ -55,6 +55,8 @@ Figma Make 提示词：
 
 什么时候需要：用户编辑、保存、删除健康备忘记录时。
 
+接口状态：`PATCH /health/memos/{memoId}` 和 `DELETE /health/memos/{memoId}` 已有 MVP 测试后端支持；这里只缺 Figma Make 的编辑态、删除确认和相关 toast 设计。
+
 Figma Make 提示词：
 
 ```text

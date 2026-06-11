@@ -1834,6 +1834,41 @@ async function handle(req, res) {
     return;
   }
 
+  const healthMemoMatch = pathname.match(/^\/health\/memos\/([^/]+)$/);
+  if (req.method === 'PATCH' && healthMemoMatch) {
+    const memoId = decodeURIComponent(healthMemoMatch[1]);
+    const memos = healthList('memos', user, defaultMemosFor);
+    const index = memos.findIndex((item) => item.id === memoId);
+    if (index < 0) {
+      fail(res, 404, '健康备忘不存在', false);
+      return;
+    }
+    const title = String(body.title ?? memos[index].title).trim();
+    const content = String(body.content ?? memos[index].content).trim();
+    if (!title || !content) {
+      fail(res, 400, '请填写备忘标题和内容', false);
+      return;
+    }
+    memos[index] = { ...memos[index], title, content, updatedAt: '刚刚' };
+    saveState();
+    ok(res, memos[index]);
+    return;
+  }
+
+  if (req.method === 'DELETE' && healthMemoMatch) {
+    const memoId = decodeURIComponent(healthMemoMatch[1]);
+    const memos = healthList('memos', user, defaultMemosFor);
+    const index = memos.findIndex((item) => item.id === memoId);
+    if (index < 0) {
+      fail(res, 404, '健康备忘不存在', false);
+      return;
+    }
+    memos.splice(index, 1);
+    saveState();
+    ok(res, memos);
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/social/discover') {
     user.lastSeenAt = Date.now();
     const location = locationFromQuery(url);

@@ -409,6 +409,25 @@ export const mockApi = {
       return success(memo);
     },
 
+    async updateHealthMemo(id: string, patch: Partial<Pick<HealthMemo, 'content' | 'title'>>): Promise<ApiResult<HealthMemo>> {
+      await wait(160);
+      const memo = memos.find((item) => item.id === id);
+      if (!memo) return error('健康备忘不存在', false);
+      const title = String(patch.title ?? memo.title).trim();
+      const content = String(patch.content ?? memo.content).trim();
+      if (!title || !content) return error('请填写备忘标题和内容', false);
+      const nextMemo = { ...memo, title, content, updatedAt: '刚刚' };
+      memos = memos.map((item) => (item.id === id ? nextMemo : item));
+      return success(nextMemo);
+    },
+
+    async deleteHealthMemo(id: string): Promise<ApiResult<HealthMemo[]>> {
+      await wait(160);
+      if (!memos.some((item) => item.id === id)) return error('健康备忘不存在', false);
+      memos = memos.filter((item) => item.id !== id);
+      return success(memos);
+    },
+
     async listHealthMemos(): Promise<ApiResult<HealthMemo[]>> {
       await wait(140);
       return success(memos);

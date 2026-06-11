@@ -460,6 +460,34 @@ Request:
 
 `title` 和 `content` 不能为空。
 
+### PATCH `/health/memos/{memoId}`
+
+编辑健康备忘。MVP 测试后端会按当前宠物的备忘列表查找。
+
+Request:
+
+```json
+{ "title": "洗澡记录", "content": "耳朵干净，皮肤没有明显泛红。" }
+```
+
+说明：
+- `title` 和 `content` 不能为空。
+- 未传入的字段会沿用原值。
+- App 暂不暴露编辑入口；后续需要等 Figma 补齐编辑页/弹层与删除确认。
+
+### DELETE `/health/memos/{memoId}`
+
+删除健康备忘。MVP 测试后端会返回删除后的当前宠物备忘列表。
+
+Response data:
+
+```ts
+HealthMemo[]
+```
+
+说明：
+- App 暂不暴露删除入口；后续必须等 Figma 补齐危险操作二次确认后再接 UI。
+
 ## 7. 社交与消息
 
 ### GET `/social/discover`

@@ -213,6 +213,14 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<HealthMemo>('POST', '/health/memos', { content, title });
       },
 
+      async updateHealthMemo(id: string, patch: Partial<Pick<HealthMemo, 'content' | 'title'>>): Promise<ApiResult<HealthMemo>> {
+        return request<HealthMemo>('PATCH', `/health/memos/${encodeURIComponent(id)}`, patch);
+      },
+
+      async deleteHealthMemo(id: string): Promise<ApiResult<HealthMemo[]>> {
+        return request<HealthMemo[]>('DELETE', `/health/memos/${encodeURIComponent(id)}`);
+      },
+
       async listHealthMemos(): Promise<ApiResult<HealthMemo[]>> {
         return request<HealthMemo[]>('GET', '/health/memos');
       },
