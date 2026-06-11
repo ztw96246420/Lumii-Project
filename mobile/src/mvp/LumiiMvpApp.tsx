@@ -411,6 +411,7 @@ export default function LumiiMvpApp() {
   const [memoDraftTitle, setMemoDraftTitle] = useState('洗澡记录');
   const [memoDraftContent, setMemoDraftContent] = useState('今天洗澡后耳朵干净，皮肤没有明显泛红。');
   const [dailyPostText, setDailyPostText] = useState('');
+  const [dailyPostSaving, setDailyPostSaving] = useState(false);
   const [owners, setOwners] = useState<NearbyOwner[]>([]);
   const [discoverRefreshing, setDiscoverRefreshing] = useState(false);
   const [greetingRequestOwners, setGreetingRequestOwners] = useState<NearbyOwner[]>([]);
@@ -1281,26 +1282,31 @@ export default function LumiiMvpApp() {
       setMemos((items) => [result.data!, ...items]);
       setMemoContent('');
       showToast('健康备忘已保存');
+    } else {
+      showToast(result.error?.message ?? '保存失败，请稍后重试');
     }
   }
 
-  function publishDailyPost() {
+  async function publishDailyPost() {
+    if (dailyPostSaving) return;
     if (!dailyPostText.trim()) {
       showToast('先写一点今天的小事吧');
       return;
     }
-    setMemos((items) => [
-      {
-        content: dailyPostText.trim(),
-        id: `daily-${Date.now()}`,
-        title: '今日小事',
-        updatedAt: '刚刚',
-      },
-      ...items,
-    ]);
-    setDailyPostText('');
-    replace('home');
-    showToast('今日小事已记录');
+    setDailyPostSaving(true);
+    try {
+      const result = await lumiiApi.health.saveHealthMemo('今日小事', dailyPostText.trim());
+      if (result.data) {
+        setMemos((items) => [result.data!, ...items]);
+        setDailyPostText('');
+        replace('home');
+        showToast('今日小事已记录');
+      } else {
+        showToast(result.error?.message ?? '发布失败，请稍后重试');
+      }
+    } finally {
+      setDailyPostSaving(false);
+    }
   }
 
   async function sendGreeting(ownerId: string) {
@@ -3190,7 +3196,7 @@ export default function LumiiMvpApp() {
         </View>
         <View style={styles.actionRow}>
           <Button onPress={() => setDailyPostText('今天在滨江绿地散步 40 分钟，精神很好，喝水正常。')} tone="secondary">AI 帮我写</Button>
-          <Button onPress={publishDailyPost}>发布记录</Button>
+          <Button loading={dailyPostSaving} onPress={() => void publishDailyPost()}>发布记录</Button>
         </View>
       </Screen>
     );
