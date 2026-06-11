@@ -92,7 +92,7 @@ android {
         applicationId 'com.lumii.lingban'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
+        versionCode 6
         versionName "1.0.0"
         manifestPlaceholders = [
             amapApiKey: "bd395c7d2cb7cf2c8d1f3c7939fbaaa6"

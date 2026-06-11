@@ -353,6 +353,8 @@ export default function LumiiMvpApp() {
   const [media, setMedia] = useState<UploadedPetMedia | null>(null);
   const [mediaPickerMode, setMediaPickerMode] = useState<'camera' | 'library' | null>(null);
   const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(null);
+  const [avatarResultPrefetching, setAvatarResultPrefetching] = useState(false);
+  const avatarResultRouteJobIdRef = useRef('');
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([createPetChatWelcomeMessage()]);
   const [chatInput, setChatInput] = useState('');
@@ -454,7 +456,8 @@ export default function LumiiMvpApp() {
 
   useEffect(() => {
     if (!session || route !== 'permissions') return;
-    void refreshPermissionStatuses({ persist: true });
+    if (allLumiiPermissionsGranted(permissions)) return;
+    void refreshPermissionStatuses({ persist: false });
   }, [route, session]);
 
   useEffect(() => {
@@ -719,9 +722,11 @@ export default function LumiiMvpApp() {
     if (permissions[key] === 'requesting' || permissions[key] === 'granted') return;
     setPermissions((items) => ({ ...items, [key]: 'requesting' }));
     const result = await requestLumiiPermission(key);
-    const nextPermissions = mergePermissionState(permissions, { [key]: result.status });
-    setPermissions(nextPermissions);
-    void lumiiApi.permissions.savePermissionState(nextPermissions, allLumiiPermissionsGranted(nextPermissions));
+    setPermissions((items) => {
+      const nextPermissions = mergePermissionState(items, { [key]: result.status });
+      void lumiiApi.permissions.savePermissionState(nextPermissions, allLumiiPermissionsGranted(nextPermissions));
+      return nextPermissions;
+    });
     showToast(result.message);
   }
 
@@ -756,9 +761,12 @@ export default function LumiiMvpApp() {
     }
   }
 
-  async function continueAfterPermissions() {
-    void lumiiApi.permissions.savePermissionState(permissions, true);
+  function continueAfterPermissions() {
+    const permissionSnapshot = mergePermissionState(permissions);
     replace(activePet ? 'home' : 'emptyPet');
+    setTimeout(() => {
+      void lumiiApi.permissions.savePermissionState(permissionSnapshot, true);
+    }, 0);
   }
 
   async function savePetProfile() {
@@ -853,6 +861,8 @@ export default function LumiiMvpApp() {
     }
     const result = await lumiiApi.avatar.startGeneration(media.mediaId);
     if (result.data) {
+      avatarResultRouteJobIdRef.current = '';
+      setAvatarResultPrefetching(false);
       setAvatarJob(result.data);
       go('generating');
     } else {
@@ -860,12 +870,28 @@ export default function LumiiMvpApp() {
     }
   }
 
+  async function transitionToAvatarResult(job: AvatarJob) {
+    if (avatarResultRouteJobIdRef.current === job.id) return;
+    avatarResultRouteJobIdRef.current = job.id;
+    setAvatarResultPrefetching(true);
+    const resultUrl = job.resultUrl;
+    if (resultUrl && !isGeneratedAvatarUri(resultUrl)) {
+      try {
+        await Promise.race([Image.prefetch(resultUrl), new Promise((resolve) => setTimeout(resolve, 7000))]);
+      } catch {
+        showToast('生成图加载较慢，已先进入确认页');
+      }
+    }
+    setAvatarResultPrefetching(false);
+    replace('aiResult');
+  }
+
   async function pollAvatarJob() {
     if (!avatarJob) return;
     const result = await lumiiApi.avatar.getGenerationStatus(avatarJob.id);
     if (result.data) {
       setAvatarJob(result.data);
-      if (result.data.status === 'ready') replace('aiResult');
+      if (result.data.status === 'ready') void transitionToAvatarResult(result.data);
     }
   }
 
@@ -1766,7 +1792,9 @@ export default function LumiiMvpApp() {
   }
 
   function renderGenerating() {
-    const progress = avatarJob?.progress ?? 62;
+    const progress = avatarResultPrefetching ? 100 : avatarJob?.progress ?? 62;
+    const generatingTitle = avatarResultPrefetching ? '正在载入高清灵伴形象' : '正在生成你的小灵伴';
+    const generatingSubtitle = avatarResultPrefetching ? '形象已经生成完成，正在载入结果图\n马上就能确认保存' : '正在捕捉毛色、五官和表情特征\n这个过程可能需要几十秒';
     if (avatarJob?.status === 'failed') {
       return (
         <Screen title="生成灵伴">
@@ -1801,18 +1829,18 @@ export default function LumiiMvpApp() {
             </View>
             <View style={styles.aiWorkingBadge}>
               <Sparkles color={palette.orange} size={12} strokeWidth={2.5} />
-              <Text style={styles.aiWorkingText}>AI 转化中</Text>
+              <Text style={styles.aiWorkingText}>{avatarResultPrefetching ? '高清载入中' : 'AI 转化中'}</Text>
             </View>
           </View>
-          <Text style={styles.aiGeneratingTitle}>正在生成你的小灵伴</Text>
-          <Text style={styles.aiGeneratingSubtitle}>正在捕捉毛色、五官和表情特征{'\n'}这个过程可能需要几十秒</Text>
+          <Text style={styles.aiGeneratingTitle}>{generatingTitle}</Text>
+          <Text style={styles.aiGeneratingSubtitle}>{generatingSubtitle}</Text>
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${progress}%` }]} />
           </View>
           <View style={styles.aiStepsCard}>
             <MakeStepRow done text="识别宠物主体与五官位置" />
-            <MakeStepRow active text="捕捉毛色、纹理与体态" />
-            <MakeStepRow text="生成真实卡通化灵伴形象" />
+            <MakeStepRow done={avatarResultPrefetching} active={!avatarResultPrefetching} text="捕捉毛色、纹理与体态" />
+            <MakeStepRow active={avatarResultPrefetching} text={avatarResultPrefetching ? '载入真实卡通化结果图' : '生成真实卡通化灵伴形象'} />
           </View>
         </View>
       </Screen>
@@ -3269,9 +3297,30 @@ function Mascot({ size = 96 }: { size?: number }) {
 }
 
 function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
+  const remoteUri = uri && !isGeneratedAvatarUri(uri) ? uri : null;
+  const [loading, setLoading] = useState(Boolean(remoteUri));
+
+  useEffect(() => {
+    setLoading(Boolean(remoteUri));
+  }, [remoteUri]);
+
   return (
     <View style={[styles.petAvatar, { borderRadius: size / 2, height: size, width: size }]}>
-      {uri && !isGeneratedAvatarUri(uri) ? <Image resizeMode="cover" source={{ uri }} style={styles.avatarImage} /> : <Image resizeMode="cover" source={generatedGoldenAvatarSource} style={styles.avatarImage} />}
+      <Image
+        onError={() => setLoading(false)}
+        onLoadEnd={() => setLoading(false)}
+        onLoadStart={() => {
+          if (remoteUri) setLoading(true);
+        }}
+        resizeMode="cover"
+        source={remoteUri ? { uri: remoteUri } : generatedGoldenAvatarSource}
+        style={styles.avatarImage}
+      />
+      {loading ? (
+        <View pointerEvents="none" style={styles.avatarLoadingOverlay}>
+          <ActivityIndicator color={palette.orange} size="small" />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -3487,6 +3536,7 @@ const styles = StyleSheet.create({
   agreementText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
   appWrap: { alignItems: 'center', backgroundColor: '#e8e2d9', flex: 1, justifyContent: 'center' },
   avatarImage: { height: '100%', width: '100%' },
+  avatarLoadingOverlay: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.72)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
   bottomAction: { gap: 10, marginTop: 20 },
   bottomTipCard: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.18)', borderRadius: 18, borderWidth: 1, bottom: 40, flexDirection: 'row', gap: 12, left: 20, paddingHorizontal: 16, paddingVertical: 14, position: 'absolute', right: 20 },
   bottomTipIcon: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.18)', borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },
