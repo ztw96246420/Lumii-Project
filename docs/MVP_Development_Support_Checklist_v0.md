@@ -90,10 +90,10 @@
 
 需要支持：
 - ~~高德或腾讯地图 SDK/API Key。~~ 已确认高德优先；Android 高德 Key 已接入，iOS Key/SDK 待接入。
-- 地点搜索、分类筛选。
-- 宠物友好地点详情。
-- 点评提交、图片上传、审核状态。
-- 外部地图导航跳转。
+- ~~地点搜索、分类筛选。~~ 当前 RN 地图页已支持测试后端搜索、分类筛选、loading 和空结果状态。
+- ~~宠物友好地点详情。~~ 已有地点详情、收藏、分享、高德导航入口。
+- ~~点评提交、审核状态。~~ 已接测试后端；地点点评图片上传仍待设计/接口。
+- ~~外部地图导航跳转。~~ 已接高德 URI；腾讯/苹果地图优先级仍待生产策略确认。
 
 ### 2.5 我的与安全闭环
 
@@ -277,13 +277,13 @@ Android 调用：
 ### 3.8 地图与宠物友好地点
 
 需要接口：
-- `GET /places/search`：地点搜索。
-- `GET /places/nearby`：附近地点。
+- ~~`GET /places/search`：地点搜索。~~ MVP 测试后端已支持按名称、地址、分类、标签搜索。
+- ~~`GET /places/nearby`：附近地点。~~ MVP 测试后端已支持。
 - `GET /places/{placeId}`：地点详情。
-- `POST /places`：新增地点。
-- `POST /places/{placeId}/reviews`：提交点评。
-- `POST /places/{placeId}/favorite`：收藏地点。
-- `DELETE /places/{placeId}/favorite`：取消收藏。
+- ~~`POST /places`：新增地点。~~ MVP 测试后端已改用 `POST /places/submissions` 提交新增地点草稿。
+- ~~`POST /places/{placeId}/reviews`：提交点评。~~ MVP 测试后端已支持。
+- ~~`POST /places/{placeId}/favorite`：收藏地点。~~ MVP 测试后端已改用 `PATCH /places/{placeId}/favorite`。
+- ~~`DELETE /places/{placeId}/favorite`：取消收藏。~~ MVP 测试后端已改用 `PATCH /places/{placeId}/favorite`。
 - `POST /places/{placeId}/report`：举报地点信息。
 
 需要你确认：

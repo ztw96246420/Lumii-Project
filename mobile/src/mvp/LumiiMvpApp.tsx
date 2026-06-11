@@ -447,6 +447,7 @@ export default function LumiiMvpApp() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [placeQuery, setPlaceQuery] = useState('');
   const [placeFilter, setPlaceFilter] = useState<'all' | Place['category']>('all');
+  const [placeSearching, setPlaceSearching] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
   const [favoritePlaceIds, setFavoritePlaceIds] = useState<string[]>([]);
   const [favoritePlaceSavingIds, setFavoritePlaceSavingIds] = useState<string[]>([]);
@@ -1556,9 +1557,23 @@ export default function LumiiMvpApp() {
   }
 
   async function searchPlaces() {
+    if (placeSearching) return;
+    const query = placeQuery.trim();
+    setPlaceSearching(true);
     setPlaceFilter('all');
-    const result = placeQuery.trim() ? await lumiiApi.places.searchPlaces(placeQuery.trim()) : await lumiiApi.places.listNearbyPlaces();
-    if (result.data) setPlaces(result.data);
+    try {
+      const result = query ? await lumiiApi.places.searchPlaces(query) : await lumiiApi.places.listNearbyPlaces();
+      if (result.data) {
+        const nextPlaces = result.data;
+        setPlaces(nextPlaces);
+        setSelectedPlace((current) => (current && nextPlaces.some((place) => place.id === current.id) ? current : nextPlaces[0] ?? null));
+        showToast(query ? (nextPlaces.length ? `找到 ${nextPlaces.length} 个地点` : '没有匹配地点') : '已刷新附近地点');
+      } else {
+        showToast(result.error?.message ?? '搜索失败，请稍后重试');
+      }
+    } finally {
+      setPlaceSearching(false);
+    }
   }
 
   async function fetchNearbyOwners(options: { forceLocation?: boolean; silent?: boolean } = {}) {
@@ -2893,8 +2908,10 @@ export default function LumiiMvpApp() {
       { key: 'clinic', label: '医院' },
     ];
     const filteredPlaces = placeFilter === 'all' ? places : places.filter((place) => place.category === placeFilter);
-    const visiblePlaces = filteredPlaces.length ? filteredPlaces : places;
+    const visiblePlaces = filteredPlaces;
     const highlightedPlace = visiblePlaces[0];
+    const placeFilterLabel = placeFilters.find((item) => item.key === placeFilter)?.label ?? '全部';
+    const placeResultMeta = placeSearching ? '搜索中...' : `${visiblePlaces.length} 个 · ${placeQuery.trim() ? '搜索结果' : placeFilterLabel}`;
     const mapStyle = mapStyleOptions.find((item) => item.key === mapStyleKey) ?? mapStyleOptions[0];
     return (
       <Screen showBack={false} title="">
@@ -3011,13 +3028,15 @@ export default function LumiiMvpApp() {
             <Search color={palette.muted} size={16} strokeWidth={2.2} />
             <TextInput
               onChangeText={setPlaceQuery}
+              onSubmitEditing={() => void searchPlaces()}
               placeholder="搜索公园、咖啡店、宠物医院…"
               placeholderTextColor={palette.muted}
+              returnKeyType="search"
               style={[styles.mapSearchInput, webTextInputReset]}
               value={placeQuery}
             />
-            <Pressable onPress={() => void searchPlaces()} style={styles.mapSearchActionMake}>
-              <SlidersHorizontal color="#fff" size={14} strokeWidth={2.4} />
+            <Pressable disabled={placeSearching} onPress={() => void searchPlaces()} style={[styles.mapSearchActionMake, placeSearching && styles.mapSearchActionDisabled]}>
+              {placeSearching ? <ActivityIndicator color="#fff" size="small" /> : <SlidersHorizontal color="#fff" size={14} strokeWidth={2.4} />}
             </Pressable>
           </View>
 
@@ -3035,9 +3054,9 @@ export default function LumiiMvpApp() {
             <View style={styles.sheetHandle} />
             <View style={styles.mapSheetHeader}>
               <Text style={styles.sectionTitle}>附近宠物友好地点</Text>
-              <Text style={styles.metaText}>{visiblePlaces.length} 个 · 综合排序</Text>
+              <Text style={styles.metaText}>{placeResultMeta}</Text>
             </View>
-            {(visiblePlaces.length ? visiblePlaces : places).slice(0, 3).map((place, index) => (
+            {visiblePlaces.slice(0, 3).map((place, index) => (
               <PlaceSheetRow
                 active={place.id === highlightedPlace?.id}
                 key={place.id}
@@ -4223,6 +4242,7 @@ const styles = StyleSheet.create({
   mapRoadSecond: { backgroundColor: '#fffaf4', borderColor: 'rgba(218,206,192,0.72)', borderRadius: 999, borderWidth: 1, bottom: 106, height: 19, left: -30, position: 'absolute', right: -22, transform: [{ rotate: '19deg' }] },
   mapRoadThird: { backgroundColor: '#fffaf4', borderColor: 'rgba(218,206,192,0.68)', borderRadius: 999, borderWidth: 1, height: 18, left: 148, position: 'absolute', top: -20, transform: [{ rotate: '82deg' }], width: 18 },
   mapSearchAction: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },
+  mapSearchActionDisabled: { opacity: 0.72 },
   mapSearchActionMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 16, height: 32, justifyContent: 'center', width: 32 },
   mapSearchFloat: { alignItems: 'center', backgroundColor: 'rgba(255,253,249,0.96)', borderColor: 'rgba(234,223,210,0.86)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 9, left: 14, minHeight: 48, paddingLeft: 14, paddingRight: 6, position: 'absolute', right: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.1, shadowRadius: 18, top: 14, zIndex: 3 },
   mapSearchFloatMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.95)', borderColor: 'rgba(255,255,255,0.85)', borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 8, height: 48, left: 16, paddingLeft: 16, paddingRight: 10, position: 'absolute', right: 16, shadowColor: '#000', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.14, shadowRadius: 30, top: 6, zIndex: 5 },

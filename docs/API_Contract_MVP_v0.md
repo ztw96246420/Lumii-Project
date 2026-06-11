@@ -492,7 +492,7 @@ Request:
 
 ### GET `/places/search?q=公园`
 
-搜索地点。
+搜索地点。MVP 测试后端会按地点名称、地址、分类和标签进行包含匹配；`q` 为空时返回附近地点列表。
 
 ### GET `/places/favorites`
 

@@ -146,6 +146,11 @@ let favoritePlaceIds: string[] = [];
 let placeReviews: PlaceReview[] = [];
 let placeSubmissions: PlaceSubmission[] = [];
 
+function matchesPlaceSearch(place: Place, query: string) {
+  const searchableText = [place.name, place.address, place.category, ...place.tags].join(' ');
+  return searchableText.includes(query);
+}
+
 function shouldStoreMockNotification(category: 'system' | 'interaction' = 'system') {
   if (!mockUserSettings.pushNotifications) return false;
   if (category === 'interaction' && !mockUserSettings.interactionMessages) return false;
@@ -518,7 +523,7 @@ export const mockApi = {
     async searchPlaces(query: string): Promise<ApiResult<Place[]>> {
       await wait(180);
       const normalized = query.trim();
-      return success(normalized ? places.filter((place) => place.name.includes(normalized) || place.tags.some((tag) => tag.includes(normalized))) : places);
+      return success(normalized ? places.filter((place) => matchesPlaceSearch(place, normalized)) : places);
     },
 
     async listFavoritePlaceIds(): Promise<ApiResult<string[]>> {

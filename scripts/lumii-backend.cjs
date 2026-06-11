@@ -380,6 +380,11 @@ function setFavoritePlace(user, placeId, favorite) {
   return user.favoritePlaceIds;
 }
 
+function matchesPlaceSearch(place, query) {
+  const searchableText = [place.name, place.address, place.category, ...(place.tags || [])].join(' ');
+  return searchableText.includes(query);
+}
+
 function placeReviewsFor(user) {
   state.placeReviews = state.placeReviews || {};
   state.placeReviews[user.phone] = Array.isArray(state.placeReviews[user.phone]) ? state.placeReviews[user.phone] : [];
@@ -2078,12 +2083,7 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/places/search') {
     const query = String(url.searchParams.get('q') || '').trim();
-    ok(
-      res,
-      query
-        ? state.places.filter((place) => place.name.includes(query) || place.tags.some((tag) => tag.includes(query)))
-        : state.places,
-    );
+    ok(res, query ? state.places.filter((place) => matchesPlaceSearch(place, query)) : state.places);
     return;
   }
 
