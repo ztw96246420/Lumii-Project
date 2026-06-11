@@ -1342,6 +1342,15 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function openPetCompanionSettings() {
+    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    if (!pet) {
+      showToast('请先添加宠物档案');
+      return;
+    }
+    go('petDetail');
+  }
+
   async function saveMemoDraft() {
     if (!memoDraftTitle.trim() || !memoDraftContent.trim()) {
       showToast('请填写备忘标题和内容');
@@ -2300,7 +2309,7 @@ export default function LumiiMvpApp() {
               <Text style={styles.chatOnlineText}>在线 · 心情很好</Text>
             </View>
           </View>
-          <Pressable onPress={() => showToast('灵伴设置待接入')} style={styles.makeIconChip}>
+          <Pressable onPress={openPetCompanionSettings} style={styles.makeIconChip}>
             <Sparkles color={palette.orange} size={16} strokeWidth={2.3} />
           </Pressable>
         </View>
