@@ -826,6 +826,10 @@ export default function LumiiMvpApp() {
       });
       if (result.data) {
         setMedia(result.data);
+        if (!result.data.analysis.canGenerate) {
+          go('uploadNoPet');
+          return;
+        }
         go('uploadDetail');
       } else {
         go('uploadNoPet');
@@ -840,6 +844,11 @@ export default function LumiiMvpApp() {
   async function startAvatarGeneration() {
     if (!media) {
       showToast('请先上传宠物照片');
+      return;
+    }
+    if (!media.analysis.canGenerate) {
+      showToast(media.analysis.message || '当前照片不适合生成，请重新上传');
+      replace('uploadNoPet');
       return;
     }
     const result = await lumiiApi.avatar.startGeneration(media.mediaId);
@@ -1672,7 +1681,7 @@ export default function LumiiMvpApp() {
           <Text style={styles.uploadHintMake}>请将宠物正脸放入框内</Text>
         </View>
         <View style={styles.tipsCardMake}>
-          {['光线明亮、自然光最佳', '完整露出五官与毛色', '避免逆光、过曝或模糊'].map((tip) => (
+          {['光线明亮、自然光最佳', '完整露出五官与毛色', '尽量只有一只宠物入镜', '避免人物或其他动物干扰'].map((tip) => (
             <View key={tip} style={styles.tipMakeRow}>
               <Check color={palette.teal} size={14} strokeWidth={2.8} />
               <Text style={styles.tipMakeText}>{tip}</Text>
@@ -1688,28 +1697,31 @@ export default function LumiiMvpApp() {
   }
 
   function renderUploadDetail() {
+    const analysis = media?.analysis;
+    const analysisTags = analysis?.tags?.length ? analysis.tags : ['正脸清晰', '毛色完整', '可生成'];
+    const suggestions = analysis?.suggestions?.slice(0, 2) ?? [];
     return (
       <Screen title="识别结果">
         <View style={styles.recognitionHeroMake}>
           <PetAvatar uri={media?.previewUrl ?? demoPetPhotoUrl} size={170} />
           <View style={styles.recognitionSuccessBadge}>
             <Sparkles color="#fff" size={12} strokeWidth={2.4} />
-            <Text style={styles.recognitionBadgeText}>识别成功</Text>
+            <Text style={styles.recognitionBadgeText}>{analysis?.status === 'warning' ? '建议优化' : '识别成功'}</Text>
           </View>
-          <Text style={styles.recognitionQuality}>质量 96%</Text>
+          <Text style={styles.recognitionQuality}>质量 {analysis?.qualityScore ?? 96}%</Text>
         </View>
         <View style={styles.detailCardMake}>
           <MakeDetailRow label="宠物主体" value={`${speciesLabels[activePet?.species ?? petDraft.species]} · ${activePet?.breed ?? (petDraft.breed || '金毛寻回犬')}`} />
           <View style={styles.makeDivider} />
-          <MakeDetailRow label="毛色特征" value="金黄色 · 浅金腹毛 · 浓密" />
+          <MakeDetailRow label="识别状态" value={analysis?.title ?? '单只宠物主体清晰'} />
           <View style={styles.makeDivider} />
-          <MakeDetailRow label="五官特征" value="圆润鼻头 · 杏仁眼 · 垂耳" />
+          <MakeDetailRow label="生成建议" value={analysis?.message ?? '当前照片适合生成真实卡通化灵伴形象'} />
           <View style={styles.makeDivider} />
-          <MakeDetailRow label="表情气质" value="温顺亲人 · 微笑张嘴" />
+          <MakeDetailRow label="注意事项" value={suggestions.length ? suggestions.join('；') : '生成会优先保留宠物主体并弱化背景'} />
         </View>
         <View style={styles.featureChipsMake}>
-          {['正脸清晰', '毛色完整', '可生成'].map((tag) => (
-            <Text key={tag} style={styles.featureChipCool}>{tag}</Text>
+          {analysisTags.map((tag) => (
+            <Text key={tag} style={analysis?.status === 'warning' ? styles.featureChipWarm : styles.featureChipCool}>{tag}</Text>
           ))}
         </View>
         <View style={styles.makeBottomActions}>
@@ -1720,6 +1732,12 @@ export default function LumiiMvpApp() {
   }
 
   function renderUploadNoPet() {
+    const analysis = media?.analysis;
+    const failedTitle = analysis?.title ?? '未检测到清晰宠物主体';
+    const failedMessage = analysis?.message ?? '试试以下方式：';
+    const failedSuggestions = analysis?.suggestions?.length
+      ? analysis.suggestions
+      : ['保持光线明亮、避免逆光', '镜头距离宠物 30-80cm', '完整露出面部，不要被遮挡'];
     return (
       <Screen title="识别结果">
         <View style={styles.failedPhotoMake}>
@@ -1730,9 +1748,9 @@ export default function LumiiMvpApp() {
           <Text style={styles.failedBadgeMake}>识别失败</Text>
         </View>
         <View style={styles.detailCardMake}>
-          <Text style={styles.cardTitle}>未检测到清晰宠物主体</Text>
-          <Text style={[styles.mutedText, styles.failedTipsIntro]}>试试以下方式：</Text>
-          {['保持光线明亮、避免逆光', '镜头距离宠物 30-80cm', '完整露出面部，不要被遮挡'].map((tip) => (
+          <Text style={styles.cardTitle}>{failedTitle}</Text>
+          <Text style={[styles.mutedText, styles.failedTipsIntro]}>{failedMessage}</Text>
+          {failedSuggestions.map((tip) => (
             <View key={tip} style={styles.tipBulletRow}>
               <View style={styles.tipBulletDot} />
               <Text style={styles.tipBulletText}>{tip}</Text>

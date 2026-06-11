@@ -69,9 +69,34 @@ export type AvatarJob = {
 };
 
 export type UploadedPetMedia = {
+  analysis: PetMediaAnalysis;
   mediaId: string;
   previewUrl: string;
-  quality: 'good';
+  quality: 'blocked' | 'good' | 'warning';
+};
+
+export type PetMediaAnalysis = {
+  canGenerate: boolean;
+  code:
+    | 'busy_scene'
+    | 'human_and_pet'
+    | 'low_quality'
+    | 'missing_file'
+    | 'multiple_pets'
+    | 'no_pet'
+    | 'other_animals'
+    | 'single_pet_clear'
+    | 'unclear';
+  humanPresent?: boolean;
+  message: string;
+  needsCrop?: boolean;
+  otherAnimalPresent?: boolean;
+  petCount?: number;
+  qualityScore: number;
+  status: 'accepted' | 'blocked' | 'warning';
+  suggestions: string[];
+  tags: string[];
+  title: string;
 };
 
 export type UploadPetMediaInput = {

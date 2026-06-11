@@ -599,6 +599,132 @@ function cleanBase64DataUrl(value, mimeType) {
   return `data:${normalizeImageMimeType(mimeType)};base64,${input.replace(/\s/g, '')}`;
 }
 
+function uploadedMediaBytes(dataUrl) {
+  const match = String(dataUrl || '').match(/^data:[^;]+;base64,(.+)$/);
+  if (!match) return 0;
+  return Buffer.byteLength(match[1], 'base64');
+}
+
+function mediaAnalysisResult(overrides) {
+  return {
+    canGenerate: true,
+    code: 'single_pet_clear',
+    humanPresent: false,
+    message: '照片中宠物主体清晰，可以生成灵伴形象。',
+    needsCrop: false,
+    otherAnimalPresent: false,
+    petCount: 1,
+    qualityScore: 96,
+    status: 'accepted',
+    suggestions: [],
+    tags: ['单只宠物', '主体清晰', '可生成'],
+    title: '识别成功',
+    ...overrides,
+  };
+}
+
+function analyzeUploadedPetMedia(body, dataUrl) {
+  const debugCode = String(body.analysisCode || body.debugAnalysisCode || '').trim();
+  if (debugCode === 'no_pet') {
+    return mediaAnalysisResult({
+      canGenerate: false,
+      code: 'no_pet',
+      message: '没有检测到清晰的宠物主体。请重新上传一张宠物正脸或半身照片。',
+      petCount: 0,
+      qualityScore: 24,
+      status: 'blocked',
+      suggestions: ['重新选择包含宠物的照片', '让宠物面部完整出现在画面中央', '避免上传风景、食物、截图或纯人物照'],
+      tags: ['未检测到宠物'],
+      title: '未检测到宠物',
+    });
+  }
+  if (debugCode === 'multiple_pets') {
+    return mediaAnalysisResult({
+      canGenerate: false,
+      code: 'multiple_pets',
+      message: '检测到多个宠物主体。为了保证生成结果像你的宠物，请先选择只有一只宠物的照片。',
+      needsCrop: true,
+      petCount: 2,
+      qualityScore: 68,
+      status: 'blocked',
+      suggestions: ['换一张单只宠物照片', '后续版本会支持裁剪并指定其中一只宠物', '避免多人多宠合照直接生成'],
+      tags: ['多个宠物', '需要单宠'],
+      title: '检测到多个宠物',
+    });
+  }
+  if (debugCode === 'human_and_pet') {
+    return mediaAnalysisResult({
+      canGenerate: false,
+      code: 'human_and_pet',
+      humanPresent: true,
+      message: '照片中人物占比较明显。为保护隐私并减少生成干扰，请上传宠物单独入镜的照片。',
+      needsCrop: true,
+      qualityScore: 72,
+      status: 'blocked',
+      suggestions: ['尽量裁掉人的脸和身体', '让宠物单独位于画面中央', '后续版本会补充宠物主体裁剪页'],
+      tags: ['人物入镜', '建议裁剪'],
+      title: '人物入镜较明显',
+    });
+  }
+  if (debugCode === 'other_animals') {
+    return mediaAnalysisResult({
+      canGenerate: false,
+      code: 'other_animals',
+      message: '照片中存在其他动物干扰。为了避免把特征混在一起，请上传目标宠物单独入镜的照片。',
+      needsCrop: true,
+      otherAnimalPresent: true,
+      petCount: 2,
+      qualityScore: 66,
+      status: 'blocked',
+      suggestions: ['换一张只有目标宠物的照片', '避免猫狗同框或多动物同框', '后续版本会支持选择目标宠物'],
+      tags: ['其他动物', '目标不明确'],
+      title: '存在其他动物干扰',
+    });
+  }
+  if (debugCode === 'busy_scene') {
+    return mediaAnalysisResult({
+      canGenerate: true,
+      code: 'busy_scene',
+      message: '宠物主体可识别，但背景或道具较复杂，生成时会优先保留宠物并弱化其他元素。',
+      needsCrop: false,
+      qualityScore: 78,
+      status: 'warning',
+      suggestions: ['更推荐上传背景干净的正脸照', '可以继续生成，但结果可能受背景影响', '若不满意可换图重新生成'],
+      tags: ['背景复杂', '可尝试生成'],
+      title: '主体可识别，建议优化',
+    });
+  }
+
+  const bytes = uploadedMediaBytes(dataUrl);
+  if (!dataUrl || bytes <= 0) {
+    return mediaAnalysisResult({
+      canGenerate: false,
+      code: 'missing_file',
+      message: '没有收到可用于生成的原图文件。请重新拍照或从相册选择。',
+      petCount: 0,
+      qualityScore: 0,
+      status: 'blocked',
+      suggestions: ['重新选择照片', '检查相册权限是否开启', '尽量选择 jpg 或 png 图片'],
+      tags: ['图片缺失'],
+      title: '图片上传不完整',
+    });
+  }
+  if (bytes < 24 * 1024) {
+    return mediaAnalysisResult({
+      canGenerate: true,
+      code: 'low_quality',
+      message: '图片文件较小，可能清晰度不足。可以继续生成，但建议换一张更清晰的照片。',
+      qualityScore: 62,
+      status: 'warning',
+      suggestions: ['使用原图或高清图', '避免截图和压缩图', '保持宠物五官清晰'],
+      tags: ['清晰度偏低', '可尝试生成'],
+      title: '图片清晰度偏低',
+    });
+  }
+
+  return mediaAnalysisResult({});
+}
+
 function normalizeImageMimeType(value) {
   const mimeType = String(value || '').toLowerCase();
   if (mimeType.includes('png')) return 'image/png';
@@ -1245,8 +1371,10 @@ async function handle(req, res) {
   if (req.method === 'POST' && pathname === '/media/uploads') {
     const mediaId = `media-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const dataUrl = cleanBase64DataUrl(body.base64, body.mimeType);
+    const analysis = analyzeUploadedPetMedia(body, dataUrl);
     state.mediaUploads = state.mediaUploads || {};
     state.mediaUploads[mediaId] = {
+      analysis,
       createdAt: Date.now(),
       dataUrl,
       fileName: String(body.fileName || ''),
@@ -1258,9 +1386,10 @@ async function handle(req, res) {
     };
     saveState();
     ok(res, {
+      analysis,
       mediaId,
       previewUrl: body.previewUrl || samplePhotoUrl,
-      quality: 'good',
+      quality: analysis.status === 'blocked' ? 'blocked' : analysis.status === 'warning' ? 'warning' : 'good',
     });
     return;
   }
@@ -1274,6 +1403,10 @@ async function handle(req, res) {
     const media = state.mediaUploads?.[mediaId];
     if (mediaId && !media) {
       fail(res, 404, '上传照片已失效，请重新上传', true);
+      return;
+    }
+    if (media?.analysis && !media.analysis.canGenerate) {
+      fail(res, 400, media.analysis.message || '当前照片不适合生成灵伴形象，请重新上传', false, media.analysis);
       return;
     }
     const id = `job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;

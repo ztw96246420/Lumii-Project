@@ -54,6 +54,21 @@ const goldenRetrieverPhotoUrl =
 const goldenRetrieverAvatarUrl =
   'lumii://golden-retriever-avatar';
 
+const acceptedPetMediaAnalysis: UploadedPetMedia['analysis'] = {
+  canGenerate: true,
+  code: 'single_pet_clear',
+  humanPresent: false,
+  message: '照片中宠物主体清晰，可以生成灵伴形象。',
+  needsCrop: false,
+  otherAnimalPresent: false,
+  petCount: 1,
+  qualityScore: 96,
+  status: 'accepted',
+  suggestions: [],
+  tags: ['单只宠物', '主体清晰', '可生成'],
+  title: '识别成功',
+};
+
 let weights: WeightRecord[] = [
   { id: 'w1', kg: 28.4, note: '精神很好，食欲正常', recordedAt: '2026-05-28' },
   { id: 'w2', kg: 28.1, recordedAt: '2026-05-21' },
@@ -232,6 +247,7 @@ export const mockApi = {
     async uploadPetMedia(input?: UploadPetMediaInput): Promise<ApiResult<UploadedPetMedia>> {
       await wait();
       return success({
+        analysis: acceptedPetMediaAnalysis,
         mediaId: `media-${Date.now()}`,
         previewUrl: input?.previewUrl ?? goldenRetrieverPhotoUrl,
         quality: 'good',
