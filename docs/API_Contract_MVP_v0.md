@@ -484,6 +484,22 @@ Request:
 - 默认限制单条用户输入长度，避免异常消耗 token。
 - 默认返回非流式完整回复，后续可升级流式输出。
 
+### POST `/ai/pet-chat/messages/{messageId}/feedback`
+
+记录用户对某条 AI 回复的反馈。当前 MVP 支持：
+
+```json
+{ "rating": "good" }
+```
+
+`rating` 可选值：
+- `good`：这个回复像我的宠物。
+- `off`：这个回复不像我的宠物，需要后续优化人格/语气。
+
+说明：
+- 只能反馈 AI 回复，不能反馈用户自己发送的消息。
+- 测试后端会把 `feedback` 写回对应消息，后续 `GET /ai/pet-chat/messages` 可读回。
+
 ## 8. 地点
 
 ### GET `/places/nearby`

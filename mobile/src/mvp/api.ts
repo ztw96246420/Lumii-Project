@@ -13,6 +13,7 @@ import type {
   NearbyLocationHint,
   NearbyOwner,
   NotificationItem,
+  PetChatFeedbackRating,
   PetProfile,
   Place,
   PlaceReview,
@@ -232,6 +233,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
 
       async listPetChatMessages(): Promise<ApiResult<ChatMessage[]>> {
         return request<ChatMessage[]>('GET', '/ai/pet-chat/messages');
+      },
+
+      async sendPetChatFeedback(messageId: string, rating: PetChatFeedbackRating): Promise<ApiResult<ChatMessage>> {
+        return request<ChatMessage>('POST', `/ai/pet-chat/messages/${encodeURIComponent(messageId)}/feedback`, { rating });
       },
 
       async sendConversationMessage(conversationId: string, text: string): Promise<ApiResult<ConversationMessage>> {

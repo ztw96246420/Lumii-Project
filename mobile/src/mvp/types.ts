@@ -108,8 +108,11 @@ export type UploadPetMediaInput = {
   source: 'camera' | 'library' | 'mvp_sample';
 };
 
+export type PetChatFeedbackRating = 'good' | 'off';
+
 export type ChatMessage = {
   author: 'ai' | 'me' | 'system';
+  feedback?: PetChatFeedbackRating;
   id: string;
   status?: 'failed' | 'sending' | 'sent';
   text: string;

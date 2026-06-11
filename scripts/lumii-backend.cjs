@@ -619,6 +619,16 @@ function petChatMessagesFor(user) {
   return state.petChatMessages[key];
 }
 
+function setPetChatFeedback(user, messageId, rating) {
+  const normalizedRating = rating === 'good' || rating === 'off' ? rating : '';
+  if (!normalizedRating) return { error: 'Invalid feedback rating', statusCode: 400 };
+  const message = petChatMessagesFor(user).find((item) => item.id === messageId);
+  if (!message || message.author !== 'ai') return { error: 'Pet chat reply not found', statusCode: 404 };
+  message.feedback = normalizedRating;
+  message.feedbackAt = new Date().toISOString();
+  return message;
+}
+
 function petSpeciesLabel(species) {
   if (species === 'cat') return '猫咪';
   if (species === 'dog') return '狗狗';
@@ -2018,6 +2028,19 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/ai/pet-chat/messages') {
     ok(res, petChatMessagesFor(user));
+    return;
+  }
+
+  const petChatFeedbackMatch = pathname.match(/^\/ai\/pet-chat\/messages\/([^/]+)\/feedback$/);
+  if (req.method === 'POST' && petChatFeedbackMatch) {
+    const messageIdValue = decodeURIComponent(petChatFeedbackMatch[1]);
+    const feedbackResult = setPetChatFeedback(user, messageIdValue, String(body.rating || ''));
+    if (feedbackResult.error) {
+      fail(res, feedbackResult.statusCode || 400, feedbackResult.error, false);
+      return;
+    }
+    saveState();
+    ok(res, feedbackResult);
     return;
   }
 

@@ -217,7 +217,7 @@ Android 调用：
 - ~~`POST /ai/pet-chat/sessions`：创建/获取与某只宠物的会话。~~ MVP 暂以当前登录用户 + 当前宠物作为隐式 session。
 - ~~`GET /ai/pet-chat/sessions/{sessionId}/messages`：读取历史消息。~~ MVP 已接 `GET /ai/pet-chat/messages`。
 - ~~`POST /ai/pet-chat/sessions/{sessionId}/messages`：发送消息并获取回复。~~ MVP 已接 `POST /ai/pet-chat/messages`，支持 DeepSeek V4 服务端适配层与本地 fallback。
-- `POST /ai/pet-chat/messages/{messageId}/feedback`：反馈语气不像、无帮助、不安全等。
+- ~~`POST /ai/pet-chat/messages/{messageId}/feedback`：反馈语气不像、无帮助、不安全等。~~ MVP 测试后端已支持 `good/off`，App 会把“像它/不像它”写回对应 AI 消息。
 
 需要你提供：
 - 宠物人格设定字段：活泼、黏人、稳重、胆小等。
@@ -228,9 +228,9 @@ Android 调用：
 
 当前状态：
 - 电子宠物对话页已从 Stitch 同步并接入前端原型。
-- MVP 后端已接电子宠物对话历史读取、消息保存、DeepSeek V4 适配层、fallback 回复。
+- MVP 后端已接电子宠物对话历史读取、消息保存、DeepSeek V4 适配层、fallback 回复和 AI 回复反馈写回。
 - DeepSeek 密钥只允许配置在服务端环境变量，不进入前端和 Git。
-- 仍需要后续补反馈入口、流式输出、长对话摘要和正式安全评估。
+- 仍需要后续补流式输出、长对话摘要、反馈聚合分析和正式安全评估。
 
 ### 3.6 健康管理
 

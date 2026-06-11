@@ -13,6 +13,7 @@ import type {
   NearbyLocationHint,
   NearbyOwner,
   NotificationItem,
+  PetChatFeedbackRating,
   PetProfile,
   Place,
   PlaceReview,
@@ -484,6 +485,14 @@ export const mockApi = {
     async listPetChatMessages(): Promise<ApiResult<ChatMessage[]>> {
       await wait(160);
       return success(petChatMessages);
+    },
+
+    async sendPetChatFeedback(messageId: string, rating: PetChatFeedbackRating): Promise<ApiResult<ChatMessage>> {
+      await wait(120);
+      const message = petChatMessages.find((item) => item.id === messageId);
+      if (!message || message.author !== 'ai') return error('只能反馈灵伴回复', false);
+      message.feedback = rating;
+      return success(message);
     },
 
     async sendConversationMessage(conversationId: string, text: string): Promise<ApiResult<ConversationMessage>> {

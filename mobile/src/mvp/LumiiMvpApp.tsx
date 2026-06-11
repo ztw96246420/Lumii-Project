@@ -79,6 +79,7 @@ import type {
   NearbyLocationHint,
   NearbyOwner,
   NotificationItem,
+  PetChatFeedbackRating,
   PermissionStateMap,
   PetProfile,
   PetSpecies,
@@ -418,7 +419,8 @@ export default function LumiiMvpApp() {
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([createPetChatWelcomeMessage()]);
   const [chatInput, setChatInput] = useState('');
-  const [chatFeedbackById, setChatFeedbackById] = useState<Record<string, 'good' | 'off'>>({});
+  const [chatFeedbackById, setChatFeedbackById] = useState<Record<string, PetChatFeedbackRating>>({});
+  const [chatFeedbackSavingIds, setChatFeedbackSavingIds] = useState<string[]>([]);
   const [chatReplying, setChatReplying] = useState(false);
   const [petChatDailyCount, setPetChatDailyCount] = useState(0);
   const [weights, setWeights] = useState<WeightRecord[]>([]);
@@ -828,6 +830,13 @@ export default function LumiiMvpApp() {
     const result = await lumiiApi.messages.listPetChatMessages();
     if (result.data) {
       setChatMessages(result.data.length ? result.data : [createPetChatWelcomeMessage(activePet)]);
+      setChatFeedbackById(
+        Object.fromEntries(
+          result.data
+            .filter((message) => message.author === 'ai' && message.feedback)
+            .map((message) => [message.id, message.feedback!]),
+        ),
+      );
       setPetChatDailyCount(result.data.filter((message) => message.author === 'me').length);
     } else {
       setChatMessages((items) => (items.length ? items : [createPetChatWelcomeMessage(activePet)]));
@@ -1228,9 +1237,28 @@ export default function LumiiMvpApp() {
     }
   }
 
-  function ratePetChatReply(messageId: string, rating: 'good' | 'off') {
+  async function ratePetChatReply(messageId: string, rating: PetChatFeedbackRating) {
+    if (chatFeedbackSavingIds.includes(messageId)) return;
+    setChatFeedbackSavingIds((items) => [...new Set([...items, messageId])]);
+    const previousRating = chatFeedbackById[messageId];
     setChatFeedbackById((items) => ({ ...items, [messageId]: rating }));
-    showToast(rating === 'good' ? '已记录：这个回复像它' : '已记录：后续会让灵伴更贴近它');
+    try {
+      const result = await lumiiApi.messages.sendPetChatFeedback(messageId, rating);
+      if (result.data) {
+        setChatMessages((items) => items.map((item) => (item.id === messageId ? { ...item, feedback: result.data!.feedback } : item)));
+        showToast(rating === 'good' ? '已记录：这个回复像它' : '已记录：后续会让灵伴更贴近它');
+      } else {
+        setChatFeedbackById((items) => {
+          const next = { ...items };
+          if (previousRating) next[messageId] = previousRating;
+          else delete next[messageId];
+          return next;
+        });
+        showToast(result.error?.message ?? '反馈保存失败，请稍后重试');
+      }
+    } finally {
+      setChatFeedbackSavingIds((items) => items.filter((id) => id !== messageId));
+    }
   }
 
   async function openConversation(conversation: Conversation) {
@@ -2522,9 +2550,14 @@ export default function LumiiMvpApp() {
                   <View style={styles.chatFeedbackRow}>
                     {(['good', 'off'] as const).map((rating) => (
                       <Pressable
+                        disabled={chatFeedbackSavingIds.includes(message.id)}
                         key={rating}
-                        onPress={() => ratePetChatReply(message.id, rating)}
-                        style={[styles.chatFeedbackChip, chatFeedbackById[message.id] === rating && styles.chatFeedbackChipActive]}
+                        onPress={() => void ratePetChatReply(message.id, rating)}
+                        style={[
+                          styles.chatFeedbackChip,
+                          chatFeedbackById[message.id] === rating && styles.chatFeedbackChipActive,
+                          chatFeedbackSavingIds.includes(message.id) && styles.mapSearchActionDisabled,
+                        ]}
                       >
                         <Text style={[styles.chatFeedbackText, chatFeedbackById[message.id] === rating && styles.chatFeedbackTextActive]}>
                           {rating === 'good' ? '像它' : '不像它'}
