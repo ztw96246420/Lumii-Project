@@ -1319,6 +1319,29 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function buildAmapPlaceSearchUrl(place: Place) {
+    const keyword = `${place.name} ${place.address}`.trim();
+    const params = new URLSearchParams({
+      callnative: '1',
+      keyword,
+      src: 'lumii',
+      view: 'map',
+    });
+    return `https://uri.amap.com/search?${params.toString()}`;
+  }
+
+  async function openAmapPlace(place?: Place) {
+    if (!place) {
+      showToast('暂无可打开地点');
+      return;
+    }
+    try {
+      await Linking.openURL(buildAmapPlaceSearchUrl(place));
+    } catch {
+      showToast('无法打开高德地图，请稍后重试');
+    }
+  }
+
   async function saveMemoDraft() {
     if (!memoDraftTitle.trim() || !memoDraftContent.trim()) {
       showToast('请填写备忘标题和内容');
@@ -2955,7 +2978,7 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.actionRow}>
                 <Button loading={isFavoriteSaving} onPress={() => void toggleFavoritePlace(place)} tone="secondary">{isFavoritePlace ? '已收藏' : '收藏'}</Button>
-                <Button onPress={() => openConfirm('打开高德地图', `将使用高德地图导航到${place.name}。`, () => showToast('高德导航将在真机中打开'), '打开')}>高德导航</Button>
+                <Button onPress={() => openConfirm('打开高德地图', `将打开高德地图查看${place.name}，你可以在高德内继续发起导航。`, () => void openAmapPlace(place), '打开')}>高德导航</Button>
               </View>
               <View style={styles.weightInputMake}>
                 <Field label="点评内容" onChangeText={setPlaceReview} placeholder="例如：草坪很大，有饮水点" value={placeReview} />
