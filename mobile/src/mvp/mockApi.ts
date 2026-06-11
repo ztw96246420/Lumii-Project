@@ -15,6 +15,7 @@ import type {
   NotificationItem,
   PetProfile,
   Place,
+  PlaceReview,
   PermissionStateMap,
   SmsCodeTicket,
   UploadPetMediaInput,
@@ -141,6 +142,7 @@ const places: Place[] = [
   { id: 'p3', name: '安心宠物医院', address: '明湖街 12 号', category: 'clinic', distance: '2.3km', rating: 4.7, tags: ['急诊', '疫苗'] },
 ];
 let favoritePlaceIds: string[] = [];
+let placeReviews: PlaceReview[] = [];
 
 export const mockApi = {
   auth: {
@@ -516,9 +518,24 @@ export const mockApi = {
       return success(favoritePlaceIds);
     },
 
-    async createReview(placeId: string): Promise<ApiResult<{ placeId: string; status: 'pending_review' }>> {
+    async listMyReviews(): Promise<ApiResult<PlaceReview[]>> {
+      await wait(120);
+      return success(placeReviews);
+    },
+
+    async createReview(placeId: string, content: string): Promise<ApiResult<PlaceReview>> {
       await wait();
-      return success({ placeId, status: 'pending_review' });
+      if (!places.some((place) => place.id === placeId)) return error('地点不存在', false);
+      if (!content.trim()) return error('请填写点评内容', false);
+      const review: PlaceReview = {
+        content: content.trim(),
+        createdAt: '刚刚',
+        id: `review-${Date.now()}`,
+        placeId,
+        status: 'pending_review',
+      };
+      placeReviews = [review, ...placeReviews.filter((item) => item.placeId !== placeId)];
+      return success(review);
     },
   },
 };

@@ -208,6 +208,14 @@ export type Place = {
   tags: string[];
 };
 
+export type PlaceReview = {
+  content: string;
+  createdAt: string;
+  id: string;
+  placeId: string;
+  status: 'approved' | 'pending_review' | 'rejected';
+};
+
 export type AppTab = 'discover' | 'home' | 'map' | 'messages' | 'profile';
 
 export type AppRoute =

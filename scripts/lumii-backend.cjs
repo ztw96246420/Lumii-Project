@@ -146,6 +146,7 @@ function createInitialState() {
     petAvatarDailyUsage: {},
     petChatDailyUsage: {},
     petChatMessages: {},
+    placeReviews: {},
     places: defaultPlaces,
     sms: {},
     users: {},
@@ -194,6 +195,10 @@ function loadState() {
       petAvatarDailyUsage: {
         ...initialState.petAvatarDailyUsage,
         ...(loadedState.petAvatarDailyUsage || {}),
+      },
+      placeReviews: {
+        ...initialState.placeReviews,
+        ...(loadedState.placeReviews || {}),
       },
     };
   } catch {
@@ -368,6 +373,28 @@ function setFavoritePlace(user, placeId, favorite) {
   const current = favoritePlaceIdsFor(user);
   user.favoritePlaceIds = favorite ? [...new Set([placeId, ...current])] : current.filter((id) => id !== placeId);
   return user.favoritePlaceIds;
+}
+
+function placeReviewsFor(user) {
+  state.placeReviews = state.placeReviews || {};
+  state.placeReviews[user.phone] = Array.isArray(state.placeReviews[user.phone]) ? state.placeReviews[user.phone] : [];
+  return state.placeReviews[user.phone];
+}
+
+function createPlaceReview(user, placeId, content) {
+  const place = (state.places || []).find((item) => item.id === placeId);
+  if (!place) return null;
+  const trimmedContent = String(content || '').trim();
+  if (!trimmedContent) return false;
+  const review = {
+    content: trimmedContent,
+    createdAt: '刚刚',
+    id: `review-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    placeId,
+    status: 'pending_review',
+  };
+  state.placeReviews[user.phone] = [review, ...placeReviewsFor(user).filter((item) => item.placeId !== placeId)];
+  return review;
 }
 
 function selectedPetFor(user) {
@@ -1994,9 +2021,24 @@ async function handle(req, res) {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/places/reviews/my') {
+    ok(res, placeReviewsFor(user));
+    return;
+  }
+
   const reviewMatch = pathname.match(/^\/places\/([^/]+)\/reviews$/);
   if (req.method === 'POST' && reviewMatch) {
-    ok(res, { placeId: decodeURIComponent(reviewMatch[1]), status: 'pending_review' });
+    const placeId = decodeURIComponent(reviewMatch[1]);
+    const review = createPlaceReview(user, placeId, body.content);
+    if (review === null) {
+      fail(res, 404, '地点不存在', false);
+      return;
+    }
+    if (review === false) {
+      fail(res, 400, '请填写点评内容', false);
+      return;
+    }
+    ok(res, review);
     return;
   }
 

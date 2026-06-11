@@ -510,13 +510,29 @@ Request:
 
 ### POST `/places/{placeId}/reviews`
 
-提交点评。MVP 返回审核中状态。
+提交点评。测试后端会按用户持久化当前地点最新一条点评，MVP 返回审核中状态。
+
+Request:
+
+```json
+{ "content": "草坪很大，有饮水点，牵引绳友好。" }
+```
 
 Response data:
 
 ```json
-{ "placeId": "place-001", "status": "pending_review" }
+{
+  "id": "review-001",
+  "placeId": "place-001",
+  "content": "草坪很大，有饮水点，牵引绳友好。",
+  "status": "pending_review",
+  "createdAt": "刚刚"
+}
 ```
+
+### GET `/places/reviews/my`
+
+读取当前用户提交过的地点点评列表。App 会用它在地点详情中回显自己的审核中点评。
 
 ## 9. P0 待后端确认
 

@@ -82,6 +82,7 @@ import type {
   PetProfile,
   PetSpecies,
   Place,
+  PlaceReview,
   SmsCodeTicket,
   UploadedPetMedia,
   UserSettings,
@@ -361,6 +362,13 @@ function createPetChatWelcomeMessage(pet?: null | PetProfile): ChatMessage {
   };
 }
 
+function indexPlaceReviewsByPlaceId(reviews: PlaceReview[]) {
+  return reviews.reduce<Record<string, PlaceReview>>((next, review) => {
+    if (!next[review.placeId]) next[review.placeId] = review;
+    return next;
+  }, {});
+}
+
 export default function LumiiMvpApp() {
   const [route, setRoute] = useState<AppRoute>('login');
   const [history, setHistory] = useState<AppRoute[]>([]);
@@ -431,6 +439,7 @@ export default function LumiiMvpApp() {
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
   const [favoritePlaceIds, setFavoritePlaceIds] = useState<string[]>([]);
   const [favoritePlaceSavingIds, setFavoritePlaceSavingIds] = useState<string[]>([]);
+  const [placeReviewsByPlaceId, setPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview>>({});
   const [locatingMap, setLocatingMap] = useState(false);
   const [mapCenter, setMapCenter] = useState(defaultMapCenter);
   const [mapStyleKey, setMapStyleKey] = useState<MapVisualMode>('lumii');
@@ -672,7 +681,7 @@ export default function LumiiMvpApp() {
   }, [avatarJob, route]);
 
   async function loadCommonData() {
-    const [weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult] = await Promise.all([
+    const [weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult] = await Promise.all([
       lumiiApi.health.listWeightRecords(),
       lumiiApi.health.listVaccines(),
       lumiiApi.health.listVaccineReminderIds(),
@@ -683,6 +692,7 @@ export default function LumiiMvpApp() {
       lumiiApi.messages.listNotifications(),
       lumiiApi.places.listNearbyPlaces(),
       lumiiApi.places.listFavoritePlaceIds(),
+      lumiiApi.places.listMyReviews(),
     ]);
     if (weightResult.data) setWeights(weightResult.data);
     if (vaccineResult.data) setVaccines(vaccineResult.data);
@@ -694,6 +704,7 @@ export default function LumiiMvpApp() {
     if (notificationResult.data) setNotifications(notificationResult.data);
     if (placeResult.data) setPlaces(placeResult.data);
     if (favoritePlaceResult.data) setFavoritePlaceIds(favoritePlaceResult.data);
+    if (placeReviewResult.data) setPlaceReviewsByPlaceId(indexPlaceReviewsByPlaceId(placeReviewResult.data));
     setActivePet((pet) => pet ?? lumiiApi.pets.getActivePet());
   }
 
@@ -1585,10 +1596,12 @@ export default function LumiiMvpApp() {
       showToast('请填写点评内容');
       return;
     }
-    const result = await lumiiApi.places.createReview(place.id);
+    const reviewContent = placeReview.trim();
+    const result = await lumiiApi.places.createReview(place.id, reviewContent);
     if (result.data) {
       setPlaceReview('');
       setPlaceReviewStatus('pending_review');
+      setPlaceReviewsByPlaceId((items) => ({ ...items, [place.id]: result.data! }));
       setNotifications((items) => [
         {
           id: `place-review-${Date.now()}`,
@@ -1620,6 +1633,7 @@ export default function LumiiMvpApp() {
     setGreetingRequestOwners([]);
     setFavoritePlaceIds([]);
     setFavoritePlaceSavingIds([]);
+    setPlaceReviewsByPlaceId({});
     setUserSettings(defaultUserSettings);
     replace('login');
   }
@@ -2931,6 +2945,8 @@ export default function LumiiMvpApp() {
     const place = selectedPlace ?? places[0];
     const isFavoritePlace = place ? favoritePlaceIds.includes(place.id) : false;
     const isFavoriteSaving = place ? favoritePlaceSavingIds.includes(place.id) : false;
+    const myPlaceReview = place ? placeReviewsByPlaceId[place.id] : undefined;
+    const placeReviewButtonLabel = myPlaceReview?.status === 'pending_review' || placeReviewStatus === 'pending_review' ? '再次提交点评' : '提交点评';
     const pet = activePet ?? lumiiApi.pets.getActivePet();
     const ownerName = formatOwnerName(session?.phone, pet);
     return (
@@ -2981,8 +2997,8 @@ export default function LumiiMvpApp() {
               <View style={styles.placeReviewPreviewMake}>
                 <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={28} />
                 <View style={styles.flex}>
-                  <Text style={styles.timelineTitleMake}>{ownerName}</Text>
-                  <Text style={styles.timelineSubMake}>草坪很大，有饮水点，周末人会稍多。</Text>
+                  <Text style={styles.timelineTitleMake}>{myPlaceReview ? `${ownerName} · ${myPlaceReview.status === 'pending_review' ? '审核中' : '已点评'}` : ownerName}</Text>
+                  <Text style={styles.timelineSubMake}>{myPlaceReview?.content ?? '草坪很大，有饮水点，周末人会稍多。'}</Text>
                 </View>
               </View>
               <View style={styles.actionRow}>
@@ -2991,7 +3007,7 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.weightInputMake}>
                 <Field label="点评内容" onChangeText={setPlaceReview} placeholder="例如：草坪很大，有饮水点" value={placeReview} />
-                <Button onPress={() => void createPlaceReview()}>{placeReviewStatus === 'pending_review' ? '再次提交点评' : '提交点评'}</Button>
+                <Button onPress={() => void createPlaceReview()}>{placeReviewButtonLabel}</Button>
                 {placeReviewStatus === 'pending_review' ? (
                   <View style={styles.reviewStatusCard}>
                     <Check color={palette.teal} size={15} strokeWidth={3} />
