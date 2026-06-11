@@ -154,6 +154,8 @@ const tabItems: Array<{ Icon: ComponentType<{ color?: string; size?: number; str
 
 const tabBackToHomeRoutes = new Set<AppRoute>(['discover', 'map', 'messages', 'profile']);
 const appExitPromptRoutes = new Set<AppRoute>(['emptyPet', 'home', 'login', 'permissions']);
+const focusedInboxRoutes = new Set<AppRoute>(['greetingRequests', 'messages', 'notifications']);
+const passiveInboxRoutes = new Set<AppRoute>(['discover', 'home', 'map', 'profile']);
 const homeChatPrompts = [
   '今天想和{petName}聊点什么？',
   '要不要记录一件开心小事？',
@@ -435,6 +437,10 @@ export default function LumiiMvpApp() {
   const [walkInviteNote, setWalkInviteNote] = useState('');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const selectedConversationIdRef = useRef<string | null>(null);
+  const inboxRefreshInFlightRef = useRef(false);
+  const inboxRefreshQueuedRef = useRef(false);
+  const conversationRefreshInFlightRef = useRef<string | null>(null);
   const [conversationInput, setConversationInput] = useState('');
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([createConversationSafetyMessage()]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -634,15 +640,27 @@ export default function LumiiMvpApp() {
   }, [route, session]);
 
   useEffect(() => {
-    if (!session || !['greetingRequests', 'messages', 'notifications'].includes(route)) return;
+    selectedConversationIdRef.current = selectedConversation?.id ?? null;
+  }, [selectedConversation?.id]);
+
+  useEffect(() => {
+    if (!session || !focusedInboxRoutes.has(route)) return;
     void loadInboxData();
   }, [route, session]);
 
   useEffect(() => {
-    if (!session || !['greetingRequests', 'messages', 'notifications'].includes(route)) return undefined;
+    if (!session || !focusedInboxRoutes.has(route)) return undefined;
     const id = setInterval(() => {
       void loadInboxData();
     }, 6000);
+    return () => clearInterval(id);
+  }, [route, session]);
+
+  useEffect(() => {
+    if (!session || !passiveInboxRoutes.has(route)) return undefined;
+    const id = setInterval(() => {
+      void loadInboxData();
+    }, 15000);
     return () => clearInterval(id);
   }, [route, session]);
 
@@ -660,6 +678,7 @@ export default function LumiiMvpApp() {
     if (!session || route !== 'conversation' || !selectedConversation?.id) return undefined;
     const id = setInterval(() => {
       void loadConversationMessages(selectedConversation.id, { markRead: true, silent: true });
+      void loadInboxData();
     }, 5000);
     return () => clearInterval(id);
   }, [route, selectedConversation?.id, session]);
@@ -715,14 +734,27 @@ export default function LumiiMvpApp() {
   }
 
   async function loadInboxData() {
-    const [greetingRequestResult, conversationResult, notificationResult] = await Promise.all([
-      lumiiApi.social.listGreetingRequests(),
-      lumiiApi.messages.listConversations(),
-      lumiiApi.messages.listNotifications(),
-    ]);
-    if (greetingRequestResult.data) setGreetingRequestOwners(greetingRequestResult.data);
-    if (conversationResult.data) setConversations(conversationResult.data);
-    if (notificationResult.data) setNotifications(notificationResult.data);
+    if (inboxRefreshInFlightRef.current) {
+      inboxRefreshQueuedRef.current = true;
+      return;
+    }
+    inboxRefreshInFlightRef.current = true;
+    try {
+      const [greetingRequestResult, conversationResult, notificationResult] = await Promise.all([
+        lumiiApi.social.listGreetingRequests(),
+        lumiiApi.messages.listConversations(),
+        lumiiApi.messages.listNotifications(),
+      ]);
+      if (greetingRequestResult.data) setGreetingRequestOwners(greetingRequestResult.data);
+      if (conversationResult.data) setConversations(conversationResult.data);
+      if (notificationResult.data) setNotifications(notificationResult.data);
+    } finally {
+      inboxRefreshInFlightRef.current = false;
+      if (inboxRefreshQueuedRef.current) {
+        inboxRefreshQueuedRef.current = false;
+        void loadInboxData();
+      }
+    }
   }
 
   function setConversationMessagesFromServer(messages: ConversationMessage[]) {
@@ -739,15 +771,22 @@ export default function LumiiMvpApp() {
   }
 
   async function loadConversationMessages(conversationId: string, options: { markRead?: boolean; silent?: boolean } = {}) {
-    const result = await lumiiApi.messages.listConversationMessages(conversationId);
-    if (result.data) {
-      setConversationMessagesFromServer(result.data);
-      if (options.markRead) {
-        void lumiiApi.messages.markConversationRead(conversationId);
-        setConversations((items) => items.map((item) => (item.id === conversationId ? { ...item, unread: 0 } : item)));
+    if (conversationRefreshInFlightRef.current === conversationId) return;
+    conversationRefreshInFlightRef.current = conversationId;
+    try {
+      const result = await lumiiApi.messages.listConversationMessages(conversationId);
+      const isActiveConversation = !selectedConversationIdRef.current || selectedConversationIdRef.current === conversationId;
+      if (result.data) {
+        if (isActiveConversation) setConversationMessagesFromServer(result.data);
+        if (options.markRead) {
+          void lumiiApi.messages.markConversationRead(conversationId);
+          setConversations((items) => items.map((item) => (item.id === conversationId ? { ...item, unread: 0 } : item)));
+        }
+      } else if (!options.silent && isActiveConversation) {
+        showToast(result.error?.message ?? '聊天记录加载失败');
       }
-    } else if (!options.silent) {
-      showToast(result.error?.message ?? '聊天记录加载失败');
+    } finally {
+      if (conversationRefreshInFlightRef.current === conversationId) conversationRefreshInFlightRef.current = null;
     }
   }
 
@@ -1161,6 +1200,7 @@ export default function LumiiMvpApp() {
   }
 
   async function openConversation(conversation: Conversation) {
+    selectedConversationIdRef.current = conversation.id;
     setSelectedConversation(conversation);
     setConversations((items) => items.map((item) => (item.id === conversation.id ? { ...item, unread: 0 } : item)));
     setConversationMessages([createConversationSafetyMessage()]);
