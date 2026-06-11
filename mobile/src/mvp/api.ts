@@ -23,6 +23,7 @@ import type {
   UploadPetMediaInput,
   UploadedPetMedia,
   UserSettings,
+  UserProfile,
   VaccinePlan,
   WalkInviteInput,
   WalkInviteResult,
@@ -61,6 +62,16 @@ export function setLumiiAuthToken(token?: string) {
 
 function createHttpApi(baseUrl: string): LumiiApi {
   return {
+    account: {
+      async getMe(): Promise<ApiResult<UserProfile>> {
+        return request<UserProfile>('GET', '/me');
+      },
+
+      async updateMe(patch: Partial<Pick<UserProfile, 'ownerName'>>): Promise<ApiResult<UserProfile>> {
+        return request<UserProfile>('PATCH', '/me', patch);
+      },
+    },
+
     auth: {
       async sendSmsCode(phoneInput: string): Promise<ApiResult<SmsCodeTicket>> {
         const result = await request<Partial<SmsCodeTicket>>('POST', '/auth/sms/send', { phone: phoneInput });

@@ -455,9 +455,17 @@ function buildAccountSnapshot(user) {
   const permissions = normalizePermissionState(user.permissions);
   return {
     activePet: selectedPetFor(user),
+    ownerName: user.ownerName || `用户${user.phone.slice(-4)}`,
     permissions,
     permissionsOnboardingCompleted: Boolean(user.permissionsOnboardingCompleted || allPermissionsGranted(permissions)),
     settings: normalizeUserSettings(user.settings),
+  };
+}
+
+function buildUserProfile(user) {
+  return {
+    ...buildAccountSnapshot(user),
+    phone: user.phone,
   };
 }
 
@@ -1470,6 +1478,27 @@ async function handle(req, res) {
 
   if (req.method === 'POST' && pathname === '/auth/token/refresh') {
     ok(res, { account: buildAccountSnapshot(user), phone: user.phone, token: `lumii-local-${user.phone}` });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/me') {
+    ok(res, buildUserProfile(user));
+    return;
+  }
+
+  if (req.method === 'PATCH' && pathname === '/me') {
+    const ownerName = String(body.ownerName || '').trim();
+    if (!ownerName) {
+      fail(res, 400, '请输入昵称', false);
+      return;
+    }
+    if (ownerName.length > 16) {
+      fail(res, 400, '昵称最多 16 个字', false);
+      return;
+    }
+    user.ownerName = ownerName;
+    saveState();
+    ok(res, buildUserProfile(user));
     return;
   }
 

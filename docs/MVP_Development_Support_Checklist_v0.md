@@ -101,7 +101,7 @@
 我的 -> 多宠管理/设置隐私/账号安全/举报安全 -> 保存设置或提交请求 -> 反馈状态。
 
 需要支持：
-- 用户资料接口。
+- ~~用户资料接口。~~ MVP 测试后端已支持 `GET /me`、`PATCH /me`，App 会在通用数据加载时同步 ownerName、手机号、当前宠物、权限和设置。
 - 多宠管理接口。
 - 隐私设置接口。
 - 黑名单接口。
@@ -118,8 +118,8 @@
 - `POST /auth/sms/verify`：校验验证码并登录/注册。
 - `POST /auth/logout`：退出登录。
 - ~~`POST /auth/token/refresh`：刷新 token。~~ MVP 测试后端已支持；App 启动恢复本地 session 时会先刷新账号快照，401 才清缓存回登录。
-- `GET /me`：当前用户资料。
-- `PATCH /me`：更新用户资料。
+- ~~`GET /me`：当前用户资料。~~ MVP 测试后端已支持，App 会用于“我的页”等用户资料同步。
+- ~~`PATCH /me`：更新用户资料。~~ MVP 测试后端已支持更新 `ownerName`；完整资料编辑页仍需后续设计。
 - `POST /account/delete/request`：发起账号注销。
 - `POST /account/delete/confirm`：短信确认注销。
 

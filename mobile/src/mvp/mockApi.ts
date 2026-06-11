@@ -23,6 +23,7 @@ import type {
   UploadPetMediaInput,
   UploadedPetMedia,
   UserSettings,
+  UserProfile,
   VaccinePlan,
   WalkInviteInput,
   WalkInviteResult,
@@ -37,6 +38,7 @@ const SMS_COOLDOWN_MS = 60 * 1000;
 const OTP_TTL_MS = 5 * 60 * 1000;
 
 let currentMockPhone = '13800138000';
+let mockOwnerName = '灵伴用户';
 let pets: PetProfile[] = [];
 let activePetId = '';
 let generationProgressById: Record<string, number> = {};
@@ -165,6 +167,22 @@ function addMockNotification(notification: NotificationItem, category: 'system' 
 }
 
 export const mockApi = {
+  account: {
+    async getMe(): Promise<ApiResult<UserProfile>> {
+      await wait(120);
+      return success(buildMockUserProfile());
+    },
+
+    async updateMe(patch: Partial<Pick<UserProfile, 'ownerName'>>): Promise<ApiResult<UserProfile>> {
+      await wait(120);
+      const ownerName = String(patch.ownerName ?? '').trim();
+      if (!ownerName) return error('请输入昵称', false);
+      if (ownerName.length > 16) return error('昵称最多 16 个字', false);
+      mockOwnerName = ownerName;
+      return success(buildMockUserProfile());
+    },
+  },
+
   auth: {
     async sendSmsCode(phoneInput: string): Promise<ApiResult<SmsCodeTicket>> {
       await wait();
@@ -609,9 +627,18 @@ export const mockApi = {
 function buildMockAccountSnapshot(): AccountSnapshot {
   return {
     activePet: pets.find((pet) => pet.id === activePetId) ?? pets[0] ?? null,
+    ownerName: mockOwnerName,
     permissions: mockPermissions,
     permissionsOnboardingCompleted: mockPermissionsOnboardingCompleted,
     settings: mockUserSettings,
+  };
+}
+
+function buildMockUserProfile(): UserProfile {
+  return {
+    ...buildMockAccountSnapshot(),
+    ownerName: mockOwnerName,
+    phone: currentMockPhone,
   };
 }
 

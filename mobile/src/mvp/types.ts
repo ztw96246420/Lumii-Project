@@ -22,9 +22,15 @@ export type AuthSession = {
 
 export type AccountSnapshot = {
   activePet: PetProfile | null;
+  ownerName?: string;
   permissions: PermissionStateMap;
   permissionsOnboardingCompleted: boolean;
   settings: UserSettings;
+};
+
+export type UserProfile = AccountSnapshot & {
+  ownerName: string;
+  phone: string;
 };
 
 export type SmsCodeTicket = {

@@ -289,7 +289,9 @@ function formatMaskedPhone(phone?: null | string) {
   return '未绑定手机号';
 }
 
-function formatOwnerName(phone?: null | string, pet?: null | PetProfile) {
+function formatOwnerName(phone?: null | string, pet?: null | PetProfile, ownerName?: null | string) {
+  const normalizedOwnerName = String(ownerName ?? '').trim();
+  if (normalizedOwnerName) return normalizedOwnerName;
   if (pet?.name) return `${pet.name}的铲屎官`;
   const digits = String(phone ?? '').replace(/\D/g, '');
   if (/^1[3-9]\d{9}$/.test(digits)) return `用户${digits.slice(-4)}`;
@@ -728,7 +730,8 @@ export default function LumiiMvpApp() {
   }, [avatarJob, route]);
 
   async function loadCommonData() {
-    const [weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult] = await Promise.all([
+    const [profileResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult] = await Promise.all([
+      lumiiApi.account.getMe(),
       lumiiApi.health.listWeightRecords(),
       lumiiApi.health.listVaccines(),
       lumiiApi.health.listVaccineReminderIds(),
@@ -741,6 +744,12 @@ export default function LumiiMvpApp() {
       lumiiApi.places.listFavoritePlaceIds(),
       lumiiApi.places.listMyReviews(),
     ]);
+    if (profileResult.data) {
+      const profile = profileResult.data;
+      setSession((current) => (current ? { ...current, account: profile, phone: profile.phone } : current));
+      setUserSettings({ ...defaultUserSettings, ...profile.settings });
+      if (profile.activePet) setActivePet(profile.activePet);
+    }
     if (weightResult.data) setWeights(weightResult.data);
     if (vaccineResult.data) setVaccines(vaccineResult.data);
     if (vaccineReminderResult.data) setVaccineReminderIds(vaccineReminderResult.data);
@@ -3189,7 +3198,7 @@ export default function LumiiMvpApp() {
     const myPlaceReview = place ? placeReviewsByPlaceId[place.id] : undefined;
     const placeReviewButtonLabel = myPlaceReview?.status === 'pending_review' || placeReviewStatus === 'pending_review' ? '再次提交点评' : '提交点评';
     const pet = activePet ?? lumiiApi.pets.getActivePet();
-    const ownerName = formatOwnerName(session?.phone, pet);
+    const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
     return (
       <Screen title="">
         {place ? (
@@ -3343,7 +3352,7 @@ export default function LumiiMvpApp() {
   function renderProfile() {
     const pet = activePet ?? lumiiApi.pets.getActivePet();
     const maskedPhone = formatMaskedPhone(session?.phone);
-    const ownerName = formatOwnerName(session?.phone, pet);
+    const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
     const speciesLabel = pet ? speciesLabels[pet.species] : '';
     const permissionEnabled = allLumiiPermissionsGranted(permissions);
     const notificationsEnabled = permissions.notifications === 'granted' && userSettings.pushNotifications;

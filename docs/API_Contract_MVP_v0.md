@@ -110,6 +110,7 @@ Response:
   "data": {
     "account": {
       "activePet": null,
+      "ownerName": "用户0966",
       "permissions": {
         "location": "unknown",
         "media": "unknown",
@@ -150,6 +151,7 @@ Response:
   "data": {
     "account": {
       "activePet": null,
+      "ownerName": "用户0966",
       "permissions": {
         "location": "granted",
         "media": "granted",
@@ -168,6 +170,47 @@ Response:
   }
 }
 ```
+
+### GET `/me`
+
+读取当前登录用户资料。App 启动和恢复 session 后会用它同步“我的页”昵称、手机号、当前宠物、权限和设置状态。
+
+Response:
+
+```json
+{
+  "data": {
+    "phone": "13531850966",
+    "ownerName": "用户0966",
+    "activePet": null,
+    "permissions": {
+      "location": "granted",
+      "media": "granted",
+      "notifications": "granted"
+    },
+    "permissionsOnboardingCompleted": true,
+    "settings": {
+      "fuzzyLocation": true,
+      "interactionMessages": true,
+      "nearbyVisible": true,
+      "pushNotifications": true
+    }
+  }
+}
+```
+
+### PATCH `/me`
+
+更新当前登录用户资料。MVP 测试后端当前支持：
+- `ownerName`：1 到 16 个字。
+
+Request:
+
+```json
+{ "ownerName": "Serena" }
+```
+
+Response：同 `GET /me`。
 
 ### GET `/permissions`
 
