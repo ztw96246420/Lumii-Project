@@ -191,14 +191,34 @@ const defaultUserSettings: UserSettings = {
   pushNotifications: true,
 };
 
-const emptyPetDraft = {
+type PetDraft = {
+  birthday: string;
+  breed: string;
+  gender: PetProfile['gender'];
+  name: string;
+  species: PetSpecies;
+  weight: string;
+};
+
+const emptyPetDraft: PetDraft = {
   birthday: '2024-05-30',
   breed: '金毛寻回犬',
-  gender: 'unknown' as const,
+  gender: 'unknown',
   name: '奶油',
-  species: 'dog' as PetSpecies,
+  species: 'dog',
   weight: '28.4',
 };
+
+function draftFromPet(pet: PetProfile): PetDraft {
+  return {
+    birthday: pet.birthday ?? '',
+    breed: pet.breed ?? '',
+    gender: pet.gender,
+    name: pet.name,
+    species: pet.species,
+    weight: pet.weightKg ? String(pet.weightKg) : '',
+  };
+}
 
 const speciesLabels: Record<PetSpecies, string> = {
   bird: '鹦鹉',
@@ -368,6 +388,7 @@ export default function LumiiMvpApp() {
   const [permissions, setPermissions] = useState<PermissionStateMap>(initialPermissions);
   const [activePet, setActivePet] = useState<PetProfile | null>(null);
   const [petDraft, setPetDraft] = useState(emptyPetDraft);
+  const [petProfileSaving, setPetProfileSaving] = useState(false);
   const [media, setMedia] = useState<UploadedPetMedia | null>(null);
   const [mediaPickerMode, setMediaPickerMode] = useState<'camera' | 'library' | null>(null);
   const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(null);
@@ -548,6 +569,21 @@ export default function LumiiMvpApp() {
       setHomeHintIndex((index) => (index + 1) % homeChatPrompts.length);
     }
     previousRouteRef.current = route;
+  }, [route]);
+
+  useEffect(() => {
+    if (route !== 'editPet') return;
+    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    if (!pet) {
+      replace('petInfo');
+      showToast('请先添加宠物档案');
+      return;
+    }
+    setPetDraft(draftFromPet(pet));
+  }, [activePet?.id, route, replace, showToast]);
+
+  useEffect(() => {
+    if (route === 'petInfo') setPetDraft(emptyPetDraft);
   }, [route]);
 
   useEffect(() => {
@@ -879,23 +915,48 @@ export default function LumiiMvpApp() {
   }
 
   async function savePetProfile() {
+    if (petProfileSaving) return;
     if (!petDraft.name.trim()) {
       showToast('请输入宠物昵称');
       return;
     }
-    const result = await lumiiApi.pets.createPet({
+    const payload = {
       birthday: petDraft.birthday,
       breed: petDraft.breed.trim() || '未知品种',
       gender: petDraft.gender,
       name: petDraft.name.trim(),
       species: petDraft.species,
       weightKg: Number.parseFloat(petDraft.weight) || undefined,
-    });
-    if (result.data) {
-      setActivePet(result.data);
-      go('upload');
-    } else {
-      showToast(result.error?.message ?? '保存宠物档案失败');
+    };
+    setPetProfileSaving(true);
+    try {
+      if (route === 'editPet') {
+        const pet = activePet ?? lumiiApi.pets.getActivePet();
+        if (!pet) {
+          showToast('请先添加宠物档案');
+          return;
+        }
+        const result = await lumiiApi.pets.updatePet(pet.id, payload);
+        if (result.data) {
+          setActivePet(result.data);
+          setHistory((items) => items.slice(0, -1));
+          replace('petDetail');
+          showToast('宠物信息已保存');
+        } else {
+          showToast(result.error?.message ?? '保存宠物档案失败');
+        }
+        return;
+      }
+
+      const result = await lumiiApi.pets.createPet(payload);
+      if (result.data) {
+        setActivePet(result.data);
+        go('upload');
+      } else {
+        showToast(result.error?.message ?? '保存宠物档案失败');
+      }
+    } finally {
+      setPetProfileSaving(false);
     }
   }
 
@@ -1788,11 +1849,12 @@ export default function LumiiMvpApp() {
   }
 
   function renderPetInfo() {
+    const editingPet = route === 'editPet';
     return (
-      <Screen title={route === 'editPet' ? '编辑宠物信息' : '添加宠物 1/2'}>
+      <Screen title={editingPet ? '编辑宠物信息' : '添加宠物 1/2'}>
         <View style={styles.makePageTitleBlock}>
-          <Text style={styles.pageTitle}>告诉我们它是谁</Text>
-          <Text style={styles.makePageSubtitle}>这些信息将用于生成它的专属 AI 灵伴</Text>
+          <Text style={styles.pageTitle}>{editingPet ? '更新它的小档案' : '告诉我们它是谁'}</Text>
+          <Text style={styles.makePageSubtitle}>{editingPet ? '修改后会同步到首页、健康记录和社交资料' : '这些信息将用于生成它的专属 AI 灵伴'}</Text>
         </View>
 
         <View style={styles.petInfoFormMake}>
@@ -1818,11 +1880,33 @@ export default function LumiiMvpApp() {
             </View>
           </View>
           <Field label="品种" onChangeText={(breed) => setPetDraft((draft) => ({ ...draft, breed }))} placeholder="例如：金毛寻回犬" value={petDraft.breed} />
+          <Field label="生日" onChangeText={(birthday) => setPetDraft((draft) => ({ ...draft, birthday }))} placeholder="例如：2024-05-30" value={petDraft.birthday} />
+          <View style={styles.optionWrap}>
+            <Text style={styles.label}>性别</Text>
+            <View style={styles.segmentRow}>
+              {[
+                { label: '弟弟', value: 'male' },
+                { label: '妹妹', value: 'female' },
+                { label: '未知', value: 'unknown' },
+              ].map((item) => {
+                const selected = petDraft.gender === item.value;
+                return (
+                  <Pressable
+                    key={item.value}
+                    onPress={() => setPetDraft((draft) => ({ ...draft, gender: item.value as PetProfile['gender'] }))}
+                    style={[styles.petGenderButton, selected && styles.petGenderButtonActive, webPressableReset]}
+                  >
+                    <Text style={[styles.petGenderText, selected && styles.petGenderTextActive]}>{item.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
           <Field keyboardType="decimal-pad" label="体重 kg" onChangeText={(weight) => setPetDraft((draft) => ({ ...draft, weight }))} value={petDraft.weight} />
         </View>
 
         <View style={styles.makeBottomActions}>
-          <Button onPress={() => void savePetProfile()}>下一步：上传它的照片</Button>
+          <Button loading={petProfileSaving} onPress={() => void savePetProfile()}>{editingPet ? '保存宠物信息' : '下一步：上传它的照片'}</Button>
         </View>
       </Screen>
     );
@@ -4058,6 +4142,10 @@ const styles = StyleSheet.create({
   petDetailStatLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
   petDetailStatValue: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', marginTop: 4 },
   petDetailStats: { flexDirection: 'row', gap: 10 },
+  petGenderButton: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 16, borderWidth: 1, flex: 1, justifyContent: 'center', minHeight: 44, paddingHorizontal: 12 },
+  petGenderButtonActive: { backgroundColor: 'rgba(255,138,92,0.10)', borderColor: palette.orange, borderWidth: 1.5 },
+  petGenderText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
+  petGenderTextActive: { color: palette.orange },
   phoneDivider: { backgroundColor: '#eadfd2', height: 24, width: 1 },
   phoneFrame: { backgroundColor: palette.background, borderRadius: Platform.OS === 'web' ? 44 : 0, flex: 1, height: Platform.OS === 'web' ? 844 : undefined, maxHeight: Platform.OS === 'web' ? 844 : undefined, maxWidth: Platform.OS === 'web' ? 390 : undefined, overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 30, width: 0 }, shadowOpacity: 0.18, shadowRadius: 60, width: '100%' },
   phoneInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, minHeight: 58, paddingHorizontal: 12 },
