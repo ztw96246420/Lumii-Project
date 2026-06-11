@@ -562,7 +562,15 @@ export default function LumiiMvpApp() {
         const persistedSession = await loadPersistedLumiiSession();
         if (!mounted) return;
         if (persistedSession) {
-          await restoreAfterLogin(persistedSession, { persist: false, silent: true });
+          setLumiiAuthToken(persistedSession.token);
+          const refreshedSession = await lumiiApi.auth.refreshSession(persistedSession);
+          if (!mounted) return;
+          if (refreshedSession.error?.statusCode === 401) {
+            await clearPersistedLumiiSession();
+            clearLocalAccountState();
+            return;
+          }
+          await restoreAfterLogin(refreshedSession.data ?? persistedSession, { persist: Boolean(refreshedSession.data), silent: true });
         }
       } catch {
         if (mounted) {

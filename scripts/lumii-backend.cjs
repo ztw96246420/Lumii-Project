@@ -1468,6 +1468,11 @@ async function handle(req, res) {
   const user = requireUser(req, res);
   if (!user) return;
 
+  if (req.method === 'POST' && pathname === '/auth/token/refresh') {
+    ok(res, { account: buildAccountSnapshot(user), phone: user.phone, token: `lumii-local-${user.phone}` });
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/permissions') {
     ok(res, user.permissions);
     return;

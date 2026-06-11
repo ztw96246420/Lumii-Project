@@ -78,6 +78,12 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return result;
       },
 
+      async refreshSession(): Promise<ApiResult<AuthSession>> {
+        const result = await request<AuthSession>('POST', '/auth/token/refresh');
+        if (result.data?.token) setLumiiAuthToken(result.data.token);
+        return result;
+      },
+
       async logout(): Promise<ApiResult<true>> {
         const result = await request<true>('POST', '/auth/logout');
         if (result.state === 'success') setLumiiAuthToken();

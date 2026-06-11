@@ -36,6 +36,7 @@ const smsCodeByPhone: Record<string, string> = {};
 const SMS_COOLDOWN_MS = 60 * 1000;
 const OTP_TTL_MS = 5 * 60 * 1000;
 
+let currentMockPhone = '13800138000';
 let pets: PetProfile[] = [];
 let activePetId = '';
 let generationProgressById: Record<string, number> = {};
@@ -191,7 +192,14 @@ export const mockApi = {
       await wait(260);
       if (Date.now() > expiresAt) return error('验证码已过期，请重新获取', true);
       if (smsCodeByPhone[phone] !== code) return error('验证码错误，请检查后重试', true);
+      currentMockPhone = phone;
       return success({ account: buildMockAccountSnapshot(), phone, token: `mock-token-${phone}` });
+    },
+
+    async refreshSession(session?: AuthSession): Promise<ApiResult<AuthSession>> {
+      await wait(120);
+      if (session?.phone) currentMockPhone = session.phone;
+      return success({ account: buildMockAccountSnapshot(), phone: currentMockPhone, token: `mock-token-${currentMockPhone}` });
     },
 
     async logout(): Promise<ApiResult<true>> {

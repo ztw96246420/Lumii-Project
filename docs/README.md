@@ -1,12 +1,12 @@
 # Lumii / 灵伴 文档索引
 
-维护日期：2026-06-11
+维护日期：2026-06-12
 
 ## 阅读顺序
 
 1. 产品范围：[PRD_v0.md](./PRD_v0.md)
 2. 开发路线：[Development_Roadmap_v0.md](./Development_Roadmap_v0.md)
-3. 当前开发记录：[MVP_Development_Update_2026-06-11.md](./MVP_Development_Update_2026-06-11.md)
+3. 当前开发记录：[MVP_Development_Update_2026-06-12.md](./MVP_Development_Update_2026-06-12.md)
 4. 设计门禁：[Design_Gate_Rule_2026-06-06.md](./Design_Gate_Rule_2026-06-06.md)
 5. 缺失设计提示词：[Figma_Make_Missing_Page_Prompts_2026-06-06.md](./Figma_Make_Missing_Page_Prompts_2026-06-06.md)
 6. 接口契约：[API_Contract_MVP_v0.md](./API_Contract_MVP_v0.md)
@@ -75,7 +75,8 @@
 
 | 文档 | 状态 | 内容 |
 | --- | --- | --- |
-| [MVP_Development_Update_2026-06-11.md](./MVP_Development_Update_2026-06-11.md) | 最新开发记录 | 宠物编辑、会话缓存、返回手势、健康提醒、通知已读 |
+| [MVP_Development_Update_2026-06-12.md](./MVP_Development_Update_2026-06-12.md) | 最新开发记录 | token 刷新、二次登录会话恢复、缺失设计清单清理 |
+| [MVP_Development_Update_2026-06-11.md](./MVP_Development_Update_2026-06-11.md) | 历史开发记录 | 宠物编辑、会话缓存、返回手势、健康提醒、通知已读 |
 | [MVP_Development_Update_2026-06-10.md](./MVP_Development_Update_2026-06-10.md) | 历史开发记录 | 发现、招呼请求、接口、聊天未读闭环 |
 | [MVP_Development_Update_2026-06-09.md](./MVP_Development_Update_2026-06-09.md) | 历史开发记录 | 本地/云端后端、社交接口同步 |
 | [MVP_Development_Update_2026-06-05.md](./MVP_Development_Update_2026-06-05.md) | 历史开发记录 | Figma Make 页面、健康/聊天/地图待补 |

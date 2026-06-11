@@ -2,7 +2,7 @@
 
 日期：2026-05-30
 
-维护更新：2026-06-10
+维护更新：2026-06-12
 
 当前实现状态：
 - 移动端 API 门面：`mobile/src/mvp/api.ts`。
@@ -132,6 +132,42 @@ Response:
 ### POST `/auth/logout`
 
 退出登录。前端成功后清空本地 token。
+
+### POST `/auth/token/refresh`
+
+本地已有 session 时刷新登录态和账号快照。App 启动时会先用本地 token 调用该接口，成功后更新本地 session；如果返回 401，则清空本地缓存并回到登录页。
+
+Request:
+
+```http
+Authorization: Bearer jwt-or-session-token
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "account": {
+      "activePet": null,
+      "permissions": {
+        "location": "granted",
+        "media": "granted",
+        "notifications": "granted"
+      },
+      "permissionsOnboardingCompleted": true,
+      "settings": {
+        "fuzzyLocation": true,
+        "interactionMessages": true,
+        "nearbyVisible": true,
+        "pushNotifications": true
+      }
+    },
+    "phone": "13531850966",
+    "token": "jwt-or-session-token"
+  }
+}
+```
 
 ### GET `/permissions`
 
