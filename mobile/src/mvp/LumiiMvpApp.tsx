@@ -13,6 +13,7 @@ import {
   RefreshControl,
   SafeAreaView,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -1287,6 +1288,34 @@ export default function LumiiMvpApp() {
       }
     } finally {
       setFavoritePlaceSavingIds((ids) => ids.filter((id) => id !== place.id));
+    }
+  }
+
+  function buildPlaceShareMessage(place: Place) {
+    const tags = place.tags.length ? `\n宠物友好特色：${place.tags.join('、')}` : '';
+    return [
+      `我在灵伴发现了一个宠物友好地点：${place.name}`,
+      `地址：${place.address}`,
+      `距离：${place.distance} · 评分 ${place.rating}`,
+      tags,
+      '\n来自 Lumii 灵伴',
+    ].filter(Boolean).join('\n');
+  }
+
+  async function sharePlace(place?: Place) {
+    if (!place) {
+      showToast('暂无可分享地点');
+      return;
+    }
+    try {
+      const result = await Share.share({
+        message: buildPlaceShareMessage(place),
+        title: `${place.name} - 灵伴宠物友好地点`,
+      });
+      if (result.action === Share.dismissedAction) return;
+      showToast('地点已分享');
+    } catch {
+      showToast('分享失败，请稍后重试');
     }
   }
 
@@ -2882,7 +2911,7 @@ export default function LumiiMvpApp() {
                 <ChevronLeft color={palette.ink} size={18} strokeWidth={2.5} />
               </Pressable>
               <View style={styles.placeHeroActions}>
-                <Pressable onPress={() => showToast('分享地点待接入')} style={styles.placeBackButtonMake}>
+                <Pressable onPress={() => void sharePlace(place)} style={styles.placeBackButtonMake}>
                   <Send color={palette.ink} size={15} strokeWidth={2.4} />
                 </Pressable>
                 <Pressable disabled={isFavoriteSaving} onPress={() => void toggleFavoritePlace(place)} style={styles.placeBackButtonMake}>
