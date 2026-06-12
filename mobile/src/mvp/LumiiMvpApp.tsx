@@ -1372,6 +1372,7 @@ export default function LumiiMvpApp() {
   }
 
   async function restoreAfterLogin(nextSession: AuthSession, options: { persist?: boolean; silent?: boolean } = {}) {
+    const requestSessionToken = nextSession.token;
     setLumiiAuthToken(nextSession.token);
     sessionTokenRef.current = nextSession.token;
     setSession(nextSession);
@@ -1394,6 +1395,8 @@ export default function LumiiMvpApp() {
       }),
     ]);
 
+    if (sessionTokenRef.current !== requestSessionToken) return false;
+
     if (petResult.error?.statusCode === 401) {
       await clearPersistedLumiiSession();
       clearLocalAccountState();
@@ -1401,19 +1404,34 @@ export default function LumiiMvpApp() {
       return false;
     }
 
-    if (options.persist !== false) {
-      await savePersistedLumiiSession(nextSession);
-    }
-
     const restoredPet = account?.activePet ?? petResult.data?.[0] ?? getActivePetFallback();
+    const permissionFlowDone = Boolean(account?.permissionsOnboardingCompleted || allLumiiPermissionsGranted(latestPermissions));
+    const restoredSession: AuthSession = account
+      ? {
+          ...nextSession,
+          account: {
+            ...account,
+            activePet: restoredPet ?? null,
+            permissions: latestPermissions,
+            permissionsOnboardingCompleted: permissionFlowDone,
+            settings: accountSettings,
+          },
+        }
+      : nextSession;
+
+    setSession(restoredSession);
+    if (options.persist !== false) {
+      await savePersistedLumiiSession(restoredSession);
+    }
+    if (sessionTokenRef.current !== requestSessionToken) return false;
+
     activePetIdRef.current = restoredPet?.id ?? null;
     setActivePet(restoredPet ?? null);
     permissionsRef.current = latestPermissions;
     if (latestPermissions.notifications === 'granted') {
-      schedulePushDeviceRegistration({ delayMs: 2500, targetSession: nextSession });
+      schedulePushDeviceRegistration({ delayMs: 2500, targetSession: restoredSession });
     }
 
-    const permissionFlowDone = Boolean(account?.permissionsOnboardingCompleted || allLumiiPermissionsGranted(latestPermissions));
     replace(restoredPet ? 'home' : permissionFlowDone ? 'emptyPet' : 'permissions');
     if (!options.silent) showToast('登录成功');
     return true;
