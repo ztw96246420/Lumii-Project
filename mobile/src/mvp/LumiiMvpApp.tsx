@@ -3,6 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactElement, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   BackHandler,
   Image,
   KeyboardAvoidingView,
@@ -358,6 +359,16 @@ function mergePermissionState(...states: Array<Partial<PermissionStateMap> | nul
   return states.reduce<PermissionStateMap>((next, state) => ({ ...next, ...(state ?? {}) }), { ...initialPermissions });
 }
 
+function mergeNativePermissionStatus(base: PermissionStateMap, patch: Partial<PermissionStateMap>): PermissionStateMap {
+  return permissionKeys.reduce<PermissionStateMap>((next, key) => {
+    const incoming = patch[key];
+    if (!incoming) return next;
+    const current = next[key];
+    next[key] = (current === 'blocked' || current === 'unavailable') && incoming !== 'granted' ? current : incoming;
+    return next;
+  }, mergePermissionState(base));
+}
+
 function allLumiiPermissionsGranted(state: PermissionStateMap) {
   return permissionKeys.every((key) => state[key] === 'granted');
 }
@@ -407,6 +418,7 @@ export default function LumiiMvpApp() {
   const lastDiscoverLocationRef = useRef<NearbyLocationHint | null>(null);
   const exitBackPressedAtRef = useRef(0);
   const previousRouteRef = useRef<AppRoute>('login');
+  const systemSettingsOpenedAtRef = useRef(0);
 
   const [permissions, setPermissions] = useState<PermissionStateMap>(initialPermissions);
   const [activePet, setActivePet] = useState<PetProfile | null>(null);
@@ -646,7 +658,20 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     if (!session || route !== 'permissions') return;
     if (allLumiiPermissionsGranted(permissions)) return;
-    void refreshPermissionStatuses({ persist: false });
+    void refreshPermissionStatuses({ persist: true });
+  }, [route, session]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' || !session) return undefined;
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return;
+      if (route !== 'permissions' && !systemSettingsOpenedAtRef.current) return;
+      const settingsOpenedAt = systemSettingsOpenedAtRef.current;
+      if (settingsOpenedAt && Date.now() - settingsOpenedAt < 500) return;
+      if (settingsOpenedAt) systemSettingsOpenedAtRef.current = 0;
+      void refreshPermissionStatuses({ persist: true });
+    });
+    return () => subscription.remove();
   }, [route, session]);
 
   useEffect(() => {
@@ -870,25 +895,29 @@ export default function LumiiMvpApp() {
     }
   }
 
+  async function persistPermissionSnapshot(nextPermissions: PermissionStateMap, completed = false) {
+    const result = await lumiiApi.permissions.savePermissionState(nextPermissions, Boolean(completed || allLumiiPermissionsGranted(nextPermissions)));
+    if (result.data) {
+      const savedPermissions = mergePermissionState(nextPermissions, result.data);
+      setPermissions(savedPermissions);
+      return savedPermissions;
+    }
+    return nextPermissions;
+  }
+
   async function refreshPermissionStatuses(options: { base?: PermissionStateMap; completed?: boolean; persist?: boolean } = {}) {
     let nextPermissions = mergePermissionState(options.base ?? permissions);
 
     if (Platform.OS !== 'web') {
       const statusResults = await Promise.all(permissionKeys.map((key) => getLumiiPermissionStatus(key)));
-      nextPermissions = mergePermissionState(
-        nextPermissions,
-        Object.fromEntries(statusResults.map((result) => [result.permission, result.status])) as Partial<PermissionStateMap>,
-      );
+      const nativeStatusPatch = Object.fromEntries(statusResults.map((result) => [result.permission, result.status])) as Partial<PermissionStateMap>;
+      nextPermissions = mergeNativePermissionStatus(nextPermissions, nativeStatusPatch);
     }
 
     setPermissions(nextPermissions);
 
     if (options.persist) {
-      const result = await lumiiApi.permissions.savePermissionState(nextPermissions, Boolean(options.completed || allLumiiPermissionsGranted(nextPermissions)));
-      if (result.data) {
-        nextPermissions = mergePermissionState(nextPermissions, result.data);
-        setPermissions(nextPermissions);
-      }
+      nextPermissions = await persistPermissionSnapshot(nextPermissions, Boolean(options.completed));
     }
 
     return nextPermissions;
@@ -1000,11 +1029,9 @@ export default function LumiiMvpApp() {
     if (permissions[key] === 'requesting' || permissions[key] === 'granted') return;
     setPermissions((items) => ({ ...items, [key]: 'requesting' }));
     const result = await requestLumiiPermission(key);
-    setPermissions((items) => {
-      const nextPermissions = mergePermissionState(items, { [key]: result.status });
-      void lumiiApi.permissions.savePermissionState(nextPermissions, allLumiiPermissionsGranted(nextPermissions));
-      return nextPermissions;
-    });
+    const nextPermissions = mergePermissionState(permissions, { [key]: result.status });
+    setPermissions(nextPermissions);
+    void persistPermissionSnapshot(nextPermissions);
     showToast(result.message);
   }
 
@@ -1023,7 +1050,7 @@ export default function LumiiMvpApp() {
       setPermissions(nextPermissions);
       showToast(result.message);
     }
-    void lumiiApi.permissions.savePermissionState(nextPermissions, grantedAfterRequest === permissionKeys.length);
+    void persistPermissionSnapshot(nextPermissions, grantedAfterRequest === permissionKeys.length);
     if (grantedAfterRequest === permissionKeys.length) showToast('权限已开启，可以继续添加宠物');
   }
 
@@ -1033,8 +1060,11 @@ export default function LumiiMvpApp() {
       return;
     }
     try {
+      systemSettingsOpenedAtRef.current = Date.now();
       await Linking.openSettings();
+      showToast('返回灵伴后会自动刷新权限状态');
     } catch {
+      systemSettingsOpenedAtRef.current = 0;
       showToast('无法打开系统设置，请手动前往系统设置开启权限');
     }
   }
@@ -1043,7 +1073,7 @@ export default function LumiiMvpApp() {
     const permissionSnapshot = mergePermissionState(permissions);
     replace(activePet ? 'home' : 'emptyPet');
     setTimeout(() => {
-      void lumiiApi.permissions.savePermissionState(permissionSnapshot, true);
+      void persistPermissionSnapshot(permissionSnapshot, true);
     }, 0);
   }
 
@@ -1710,7 +1740,9 @@ export default function LumiiMvpApp() {
   async function getDiscoverLocationHint(options: { silent?: boolean } = {}): Promise<NearbyLocationHint | null> {
     try {
       const permissionResult = await requestLumiiPermission('location');
-      setPermissions((items) => ({ ...items, location: permissionResult.status }));
+      const nextPermissions = mergePermissionState(permissions, { location: permissionResult.status });
+      setPermissions(nextPermissions);
+      void persistPermissionSnapshot(nextPermissions);
 
       if (permissionResult.status !== 'granted') {
         if (!options.silent) showToast(permissionResult.message);
@@ -1747,7 +1779,9 @@ export default function LumiiMvpApp() {
     setLocatingMap(true);
     try {
       const permissionResult = await requestLumiiPermission('location');
-      setPermissions((items) => ({ ...items, location: permissionResult.status }));
+      const nextPermissions = mergePermissionState(permissions, { location: permissionResult.status });
+      setPermissions(nextPermissions);
+      void persistPermissionSnapshot(nextPermissions);
 
       if (permissionResult.status !== 'granted') {
         if (!options.silent) showToast(permissionResult.message);
