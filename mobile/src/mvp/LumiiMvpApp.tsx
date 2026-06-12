@@ -176,6 +176,9 @@ const homeChatPrompts = [
   '给{petName}补一条健康记录吧',
   '今天也想陪你待一会儿',
 ];
+const dailyMoodOptions = ['开心', '活跃', '正常', '有点累'] as const;
+type DailyMood = (typeof dailyMoodOptions)[number];
+const placeFriendlyFeatureOptions = ['可遛狗', '饮水点', '室内友好', '停车方便'] as const;
 
 const permissionCopy = {
   location: {
@@ -509,6 +512,7 @@ export default function LumiiMvpApp() {
   const [vaccineDoneSavingIds, setVaccineDoneSavingIds] = useState<string[]>([]);
   const vaccineDoneSavingIdsRef = useRef<Set<string>>(new Set());
   const [dailyPostText, setDailyPostText] = useState('');
+  const [dailyMood, setDailyMood] = useState<DailyMood>('开心');
   const [dailyPostSaving, setDailyPostSaving] = useState(false);
   const dailyPostSavingRef = useRef(false);
   const [owners, setOwners] = useState<NearbyOwner[]>([]);
@@ -564,6 +568,7 @@ export default function LumiiMvpApp() {
   const [placeDraftName, setPlaceDraftName] = useState('云杉宠物友好公园');
   const [placeReviewDraft, setPlaceReviewDraft] = useState('');
   const [placeSubmissionExperience, setPlaceSubmissionExperience] = useState('');
+  const [selectedPlaceFeatureTags, setSelectedPlaceFeatureTags] = useState<string[]>([]);
   const [placeReviewSaving, setPlaceReviewSaving] = useState(false);
   const placeReviewSavingRef = useRef(false);
   const [placeSubmissionSaving, setPlaceSubmissionSaving] = useState(false);
@@ -1513,6 +1518,18 @@ export default function LumiiMvpApp() {
     setOtpCode(next);
     if (otpInlineError) setOtpInlineError('');
     if (next.length === 6 && !verifyLoadingRef.current) void verifySmsCode(next);
+  }
+
+  function requestVoiceSmsCode() {
+    if (sendLoading) {
+      showToast('短信验证码发送中，请稍候');
+      return;
+    }
+    if (cooldownRemaining > 0) {
+      showToast(`${cooldownRemaining}s 后可重新发送短信验证码`);
+      return;
+    }
+    showToast('语音验证码暂未开放，先使用短信验证码登录');
   }
 
   async function requestPermission(key: keyof PermissionStateMap) {
@@ -2518,6 +2535,40 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function buildDailyPostDraft(mood: DailyMood) {
+    const pet = getCurrentPet();
+    const petName = pet?.name ?? '宝贝';
+    const latestWeight = healthSummary?.latestWeightKg ?? pet?.weightKg;
+    const weightCopy = latestWeight ? `最近体重记录是 ${formatWeightKg(latestWeight)}，` : '';
+    const vaccineCopy = healthSummary?.nextVaccine ? `也记得留意${healthSummary.nextVaccine.name}。` : '';
+    const moodCopy: Record<DailyMood, string[]> = {
+      开心: [
+        `今天${petName}心情很好，一直主动靠近人，互动时眼神很亮。`,
+        `${petName}今天状态很放松，散步和玩耍都很配合。`,
+      ],
+      活跃: [
+        `今天${petName}精力很足，活动量比平时更高，回家后喝水正常。`,
+        `${petName}今天很有精神，玩具互动和外出时都很积极。`,
+      ],
+      正常: [
+        `今天${petName}整体状态正常，食欲、精神和排便都没有明显异常。`,
+        `${petName}今天表现稳定，日常活动和休息节奏都比较规律。`,
+      ],
+      有点累: [
+        `今天${petName}看起来有点累，活动后休息时间变长，需要继续观察精神和食欲。`,
+        `${petName}今天没那么活跃，先减少剧烈运动，晚上留意恢复情况。`,
+      ],
+    };
+    const variants = moodCopy[mood];
+    const variant = variants[(new Date().getDate() + petName.length) % variants.length];
+    return [variant, weightCopy ? `${weightCopy}可以作为后续健康趋势参考。` : '', vaccineCopy].filter(Boolean).join('');
+  }
+
+  function fillDailyPostDraft() {
+    setDailyPostText(buildDailyPostDraft(dailyMood));
+    showToast(`已按“${dailyMood}”生成今日记录草稿`);
+  }
+
   async function publishDailyPost() {
     if (dailyPostSavingRef.current) return;
     const requestSessionToken = sessionTokenRef.current;
@@ -2849,13 +2900,23 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function togglePlaceFeatureTag(tag: string) {
+    setSelectedPlaceFeatureTags((items) =>
+      items.includes(tag) ? items.filter((item) => item !== tag) : [...items, tag],
+    );
+  }
+
+  function buildPlaceSubmissionExperience(tags: string[], content: string) {
+    return [tags.length ? `宠物友好特色：${tags.join('、')}` : '', content.trim()].filter(Boolean).join('。');
+  }
+
   async function submitPlaceDraft() {
     if (placeSubmissionSavingRef.current) return;
     if (!placeDraftName.trim() || !placeDraftAddress.trim()) {
       showToast('请填写地点名称和地址');
       return;
     }
-    if (!placeSubmissionExperience.trim()) {
+    if (!placeSubmissionExperience.trim() && !selectedPlaceFeatureTags.length) {
       showToast('请填写宠物友好体验');
       return;
     }
@@ -2863,7 +2924,8 @@ export default function LumiiMvpApp() {
     if (!requestSessionToken) return;
     const requestName = placeDraftName.trim();
     const requestAddress = placeDraftAddress.trim();
-    const requestExperience = placeSubmissionExperience.trim();
+    const requestFeatureTags = selectedPlaceFeatureTags;
+    const requestExperience = buildPlaceSubmissionExperience(requestFeatureTags, placeSubmissionExperience);
     placeSubmissionSavingRef.current = true;
     setPlaceSubmissionSaving(true);
     try {
@@ -2875,6 +2937,7 @@ export default function LumiiMvpApp() {
           setPlaceSubmissionExperience('');
           setPlaceDraftName('');
           setPlaceDraftAddress('');
+          setSelectedPlaceFeatureTags([]);
           setPlaceSubmissionStatus('pending_review');
         }
         void loadInboxData();
@@ -3001,6 +3064,7 @@ export default function LumiiMvpApp() {
     setPlaceDraftName('云杉宠物友好公园');
     setPlaceReviewDraft('');
     setPlaceSubmissionExperience('');
+    setSelectedPlaceFeatureTags([]);
     placeReviewSavingRef.current = false;
     setPlaceReviewSaving(false);
     placeSubmissionSavingRef.current = false;
@@ -3023,6 +3087,7 @@ export default function LumiiMvpApp() {
     vaccineDoneSavingIdsRef.current.clear();
     setVaccineDoneSavingIds([]);
     setDailyPostText('');
+    setDailyMood('开心');
     dailyPostSavingRef.current = false;
     setDailyPostSaving(false);
     healthReminderNotifiedRef.current.clear();
@@ -3235,7 +3300,9 @@ export default function LumiiMvpApp() {
           </View>
           <View style={styles.voiceRow}>
             <Text style={styles.voiceText}>收不到？试试</Text>
-            <Text style={styles.voiceLink}>语音验证码</Text>
+            <Pressable onPress={requestVoiceSmsCode} style={webPressableReset}>
+              <Text style={styles.voiceLink}>语音验证码</Text>
+            </Pressable>
           </View>
         </View>
         <View style={styles.bottomTipCard}>
@@ -4769,13 +4836,19 @@ export default function LumiiMvpApp() {
             value={dailyPostText}
           />
           <View style={styles.dailyMoodRow}>
-            {['开心', '活跃', '正常', '有点累'].map((item) => (
-              <Text key={item} style={styles.ownerTagMake}>{item}</Text>
+            {dailyMoodOptions.map((item) => (
+              <Text
+                key={item}
+                onPress={() => setDailyMood(item)}
+                style={[styles.ownerTagMake, dailyMood === item && styles.ownerTagMakeActive]}
+              >
+                {item}
+              </Text>
             ))}
           </View>
         </View>
         <View style={styles.actionRow}>
-          <Button onPress={() => setDailyPostText('今天在滨江绿地散步 40 分钟，精神很好，喝水正常。')} tone="secondary">AI 帮我写</Button>
+          <Button onPress={fillDailyPostDraft} tone="secondary">AI 帮我写</Button>
           <Button loading={dailyPostSaving} onPress={() => void publishDailyPost()}>发布记录</Button>
         </View>
       </Screen>
@@ -4902,8 +4975,14 @@ export default function LumiiMvpApp() {
             value={placeSubmissionExperience}
           />
           <View style={styles.dailyMoodRow}>
-            {['可遛狗', '饮水点', '室内友好', '停车方便'].map((item) => (
-              <Text key={item} style={styles.ownerTagMake}>{item}</Text>
+            {placeFriendlyFeatureOptions.map((item) => (
+              <Text
+                key={item}
+                onPress={() => togglePlaceFeatureTag(item)}
+                style={[styles.ownerTagMake, selectedPlaceFeatureTags.includes(item) && styles.ownerTagMakeActive]}
+              >
+                {item}
+              </Text>
             ))}
           </View>
         </View>
@@ -5708,6 +5787,7 @@ const styles = StyleSheet.create({
   ownerMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, marginTop: 2 },
   ownerPetNameMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700', letterSpacing: 0 },
   ownerTagMake: { backgroundColor: palette.orangeSoft, borderRadius: 10, color: palette.orange, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4 },
+  ownerTagMakeActive: { backgroundColor: palette.orange, color: '#fff' },
   ownerTagRowMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 },
   pageSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, textAlign: 'center' },
   pageTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', lineHeight: 31 },
