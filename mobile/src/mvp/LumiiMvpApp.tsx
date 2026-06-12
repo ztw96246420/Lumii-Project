@@ -831,6 +831,8 @@ export default function LumiiMvpApp() {
     ].join('|');
     if (localHealthReminderSyncKeyRef.current === syncKey) return;
 
+    const removedIds = localHealthReminderScheduledIdsRef.current.filter((id) => !enabledIds.includes(id));
+    if (removedIds.length) void cancelVaccineLocalReminders(removedIds);
     localHealthReminderSyncKeyRef.current = syncKey;
     localHealthReminderScheduledIdsRef.current = enabledIds;
     void syncVaccineLocalReminders(enabledVaccines, enabledIds, activePet?.name);
@@ -1493,6 +1495,55 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function syncPetChatBusinessEffects(message: ChatMessage) {
+    const syncLabels: string[] = [];
+    const addSyncLabel = (label: string) => {
+      if (!syncLabels.includes(label)) syncLabels.push(label);
+    };
+    let shouldRefreshHealth = false;
+    let shouldRefreshInbox = false;
+
+    if (message.updatedPet) {
+      setActivePet(message.updatedPet);
+      shouldRefreshHealth = true;
+      addSyncLabel('宠物档案');
+    }
+
+    if (message.createdMemo) {
+      setMemos((items) => [message.createdMemo!, ...items.filter((item) => item.id !== message.createdMemo!.id)]);
+      shouldRefreshHealth = true;
+      addSyncLabel('健康备忘');
+    }
+
+    if (message.medicalAlert) {
+      shouldRefreshInbox = true;
+      addSyncLabel('就医提醒');
+    }
+
+    if (message.createdWeight) {
+      setWeights((items) => [message.createdWeight!, ...items.filter((item) => item.id !== message.createdWeight!.id)]);
+      setActivePet((pet) => (pet ? { ...pet, weightKg: message.createdWeight!.kg } : pet));
+      shouldRefreshHealth = true;
+      addSyncLabel('体重记录');
+    }
+
+    if (message.updatedVaccine) {
+      setVaccines((items) => items.map((item) => (item.id === message.updatedVaccine!.id ? message.updatedVaccine! : item)));
+      shouldRefreshHealth = true;
+      shouldRefreshInbox = true;
+      addSyncLabel('疫苗计划');
+    }
+
+    if (message.vaccineReminderIds) {
+      setVaccineReminderIds(message.vaccineReminderIds);
+      localHealthReminderSyncKeyRef.current = '';
+    }
+
+    if (shouldRefreshInbox) void loadInboxData();
+    if (shouldRefreshHealth) void refreshHealthSummary();
+    if (syncLabels.length) showToast(`已同步：${syncLabels.join('、')}`);
+  }
+
   async function sendChatMessage(textOverride?: string, retryMessageId?: string) {
     const text = (textOverride ?? chatInput).trim();
     if (!text) return;
@@ -1517,44 +1568,7 @@ export default function LumiiMvpApp() {
       setChatMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: result.data ? 'sent' : 'failed' } : item)));
       if (result.data) {
         setChatMessages((items) => [...items, result.data!]);
-        if (result.data.updatedPet) {
-          setActivePet(result.data.updatedPet);
-          setSession((current) =>
-            current?.account
-              ? {
-                  ...current,
-                  account: {
-                    ...current.account,
-                    activePet: result.data!.updatedPet!,
-                  },
-                }
-              : current,
-          );
-          void refreshHealthSummary();
-        }
-        if (result.data.createdMemo) {
-          setMemos((items) => [result.data!.createdMemo!, ...items.filter((item) => item.id !== result.data!.createdMemo!.id)]);
-          void refreshHealthSummary();
-        }
-        if (result.data.medicalAlert) {
-          void loadInboxData();
-        }
-        if (result.data.createdWeight) {
-          setWeights((items) => [result.data!.createdWeight!, ...items.filter((item) => item.id !== result.data!.createdWeight!.id)]);
-          setActivePet((pet) => (pet ? { ...pet, weightKg: result.data!.createdWeight!.kg } : pet));
-          void refreshHealthSummary();
-        }
-        if (result.data.updatedVaccine) {
-          setVaccines((items) => items.map((item) => (item.id === result.data!.updatedVaccine!.id ? result.data!.updatedVaccine! : item)));
-          if (result.data.vaccineReminderIds) setVaccineReminderIds(result.data.vaccineReminderIds);
-          if (result.data.updatedVaccine.status === 'done') {
-            void cancelVaccineLocalReminder(result.data.updatedVaccine.id);
-            localHealthReminderScheduledIdsRef.current = localHealthReminderScheduledIdsRef.current.filter((id) => id !== result.data!.updatedVaccine!.id);
-            localHealthReminderSyncKeyRef.current = '';
-          }
-          void loadInboxData();
-          void refreshHealthSummary();
-        }
+        syncPetChatBusinessEffects(result.data);
         void loadAiUsage();
       } else {
         showToast(result.error?.message ?? '消息发送失败');
