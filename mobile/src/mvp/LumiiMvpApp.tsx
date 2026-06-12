@@ -429,6 +429,8 @@ export default function LumiiMvpApp() {
   const [mediaPickerMode, setMediaPickerMode] = useState<'camera' | 'library' | null>(null);
   const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(null);
   const [avatarResultPrefetching, setAvatarResultPrefetching] = useState(false);
+  const [avatarAccepting, setAvatarAccepting] = useState(false);
+  const [avatarRetrying, setAvatarRetrying] = useState(false);
   const avatarResultRouteJobIdRef = useRef('');
   const [homeHintIndex, setHomeHintIndex] = useState(() => Math.floor(Math.random() * homeChatPrompts.length));
 
@@ -1308,11 +1310,43 @@ export default function LumiiMvpApp() {
       showToast('还没有可保存的形象');
       return;
     }
-    const result = await lumiiApi.avatar.saveAvatar(activePet.id, avatarJob.resultUrl);
-    if (result.data) {
-      setActivePet(result.data);
-      replace('home');
-      showToast('灵伴形象已保存');
+    if (avatarAccepting) return;
+    setAvatarAccepting(true);
+    try {
+      const result = avatarJob.id
+        ? await lumiiApi.avatar.acceptGeneration(avatarJob.id)
+        : await lumiiApi.avatar.saveAvatar(activePet.id, avatarJob.resultUrl);
+      if (result.data) {
+        setActivePet(result.data);
+        replace('home');
+        showToast('灵伴形象已保存');
+      } else {
+        showToast(result.error?.message ?? '保存形象失败，请稍后重试');
+      }
+    } finally {
+      setAvatarAccepting(false);
+    }
+  }
+
+  async function retryAvatarGeneration() {
+    if (avatarRetrying) return;
+    if (!avatarJob?.id) {
+      await startAvatarGeneration();
+      return;
+    }
+    setAvatarRetrying(true);
+    try {
+      const result = await lumiiApi.avatar.retryGeneration(avatarJob.id);
+      if (result.data) {
+        avatarResultRouteJobIdRef.current = '';
+        setAvatarResultPrefetching(false);
+        setAvatarJob(result.data);
+        replace('generating');
+      } else {
+        showToast(result.error?.message ?? '重新生成失败，请稍后重试');
+      }
+    } finally {
+      setAvatarRetrying(false);
     }
   }
 
@@ -2483,7 +2517,7 @@ export default function LumiiMvpApp() {
               {avatarJob.errorMessage ? '服务没有返回可用结果，请稍后再试' : '当前图片生成服务开小差了，请稍后再试'}
             </Text>
             <View style={styles.uploadActionsMake}>
-              <Button onPress={() => void startAvatarGeneration()}>重新生成</Button>
+              <Button loading={avatarRetrying} onPress={() => void retryAvatarGeneration()}>重新生成</Button>
               <Button onPress={() => replace('upload')} tone="secondary">重新选择照片</Button>
             </View>
           </View>
@@ -2541,8 +2575,8 @@ export default function LumiiMvpApp() {
             <Text style={styles.featureChipWarm}>亲和表情</Text>
           </View>
           <View style={styles.aiResultActions}>
-            <Button onPress={() => void saveAvatar()}>保存并设为电子灵伴</Button>
-            <Button onPress={() => void startAvatarGeneration()} tone="secondary">重新生成</Button>
+            <Button loading={avatarAccepting} onPress={() => void saveAvatar()}>保存并设为电子灵伴</Button>
+            <Button loading={avatarRetrying} onPress={() => void retryAvatarGeneration()} tone="secondary">重新生成</Button>
           </View>
         </View>
       </Screen>

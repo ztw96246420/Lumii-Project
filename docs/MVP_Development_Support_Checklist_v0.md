@@ -194,7 +194,7 @@ Android 调用：
 - ~~`POST /ai/pet-avatar/jobs`：创建 AI 形象生成任务。~~ MVP 测试后端和 mock API 已支持；真实视觉识别模型暂缓。
 - ~~`GET /ai/pet-avatar/jobs/{jobId}`：查询任务状态。~~ MVP 测试后端和 mock API 已支持，并限制只能读取当前账号自己的任务。
 - ~~`POST /ai/pet-avatar/jobs/{jobId}/retry`：重新生成。~~ MVP 测试后端和 mock API 已支持基于原 `mediaId` 创建新任务；真实多候选 UI 仍需 Figma 设计。
-- ~~`POST /ai/pet-avatar/jobs/{jobId}/accept`：保存选中的形象。~~ MVP 测试后端和 mock API 已支持保存到当前宠物；当前 App 仍主要使用已有 `POST /pets/{petId}/avatar` 保存链路。
+- ~~`POST /ai/pet-avatar/jobs/{jobId}/accept`：保存选中的形象。~~ MVP 测试后端和 mock API 已支持保存到当前宠物；App 形象确认页的“保存并设为电子灵伴”已优先调用该接口。
 - ~~`POST /ai/pet-avatar/jobs/{jobId}/feedback`：反馈“不像我的宠物”。~~ MVP 测试后端和 mock API 已支持结构化原因和可选说明；不会触发真实视觉识别模型。
 
 任务状态建议：
