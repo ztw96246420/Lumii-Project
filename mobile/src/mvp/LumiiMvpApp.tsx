@@ -1487,6 +1487,10 @@ export default function LumiiMvpApp() {
       setChatMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: result.data ? 'sent' : 'failed' } : item)));
       if (result.data) {
         setChatMessages((items) => [...items, result.data!]);
+        if (result.data.createdMemo) {
+          setMemos((items) => [result.data!.createdMemo!, ...items.filter((item) => item.id !== result.data!.createdMemo!.id)]);
+          void refreshHealthSummary();
+        }
         void loadAiUsage();
       } else {
         showToast(result.error?.message ?? '消息发送失败');

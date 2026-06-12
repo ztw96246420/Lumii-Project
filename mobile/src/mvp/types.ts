@@ -190,6 +190,7 @@ export type PetChatFeedbackRating = 'good' | 'off';
 
 export type ChatMessage = {
   author: 'ai' | 'me' | 'system';
+  createdMemo?: HealthMemo;
   feedback?: PetChatFeedbackRating;
   id: string;
   status?: 'failed' | 'sending' | 'sent';

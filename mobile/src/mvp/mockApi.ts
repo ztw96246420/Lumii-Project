@@ -182,6 +182,40 @@ let memos: HealthMemo[] = [
   { id: 'm1', title: '驱虫记录', content: '体外驱虫已完成，下次 6 月底。', updatedAt: '2026-05-20' },
 ];
 
+function mockPetChatMemoTitle(text: string) {
+  if (/吃|饭|粮|零食|食欲|喝水|饮水/.test(text)) return '饮食记录';
+  if (/便便|大便|尿|拉稀|腹泻|呕吐|吐/.test(text)) return '健康观察';
+  if (/散步|出门|公园|遛|运动/.test(text)) return '散步记录';
+  if (/洗澡|驱虫|疫苗|医院|用药|药/.test(text)) return '护理记录';
+  return '今日小事';
+}
+
+function normalizeMockPetChatMemoContent(text: string) {
+  return String(text || '')
+    .replace(/^(麻烦|请|帮我|帮忙|可以)?(把|将)?/u, '')
+    .replace(/(帮我)?(记一下|记录一下|记一笔|记到健康备忘|记到备忘|加到健康备忘|加到备忘|保存到健康备忘|保存到备忘|写进健康备忘|写进备忘)[：:，,\s]*/u, '')
+    .trim();
+}
+
+function createMockHealthMemoFromPetChat(text: string) {
+  const rawText = String(text || '').trim();
+  if (!rawText || /不要记|别记|不用记|不要记录|别记录/.test(rawText)) return null;
+  if (!/(记一下|记录一下|记一笔|记到健康备忘|记到备忘|加到健康备忘|加到备忘|保存到健康备忘|保存到备忘|写进健康备忘|写进备忘)/.test(rawText)) return null;
+  const content = normalizeMockPetChatMemoContent(rawText) || rawText;
+  if (content.length < 2) return null;
+  const title = mockPetChatMemoTitle(content);
+  const existing = memos.slice(0, 8).find((item) => item.title === title && item.content === content.slice(0, 240));
+  if (existing) return existing;
+  const memo: HealthMemo = {
+    content: content.slice(0, 240),
+    id: `mock-chat-memo-${Date.now()}`,
+    title,
+    updatedAt: '刚刚',
+  };
+  memos = [memo, ...memos];
+  return memo;
+}
+
 let vaccines: VaccinePlan[] = [
   { id: 'v1', name: '狂犬疫苗', dueAt: '2026-06-18', status: 'due' },
   { id: 'v2', name: '体内驱虫', dueAt: '2026-06-05', status: 'due' },
@@ -986,14 +1020,17 @@ export const mockApi = {
       await wait();
       if (!text.trim()) return error('请输入消息内容', false);
       mockPetChatDailyCount += 1;
+      const createdMemo = createMockHealthMemoFromPetChat(text);
       const userMessage: ChatMessage = { id: `pet-user-${Date.now()}`, author: 'me', text, status: 'sent', time: '刚刚' };
+      const replyText = detectMockPetMedicalEmergency(text)
+        ? mockPetMedicalSafetyReply(text)
+        : '我收到啦。这个情况我会放进今天的小记录里，如果和健康有关，也建议继续观察食欲、精神和便便状态。';
       const aiMessage: ChatMessage = {
         id: `pet-ai-${Date.now()}`,
         author: 'ai',
+        createdMemo: createdMemo ?? undefined,
         status: 'sent',
-        text: detectMockPetMedicalEmergency(text)
-          ? mockPetMedicalSafetyReply(text)
-          : '我收到啦。这个情况我会放进今天的小记录里，如果和健康有关，也建议继续观察食欲、精神和便便状态。',
+        text: createdMemo ? `${replyText}\n\n已帮你记到健康备忘：「${createdMemo.title}」。` : replyText,
         time: '刚刚',
       };
       petChatMessages = [...petChatMessages, userMessage, aiMessage];

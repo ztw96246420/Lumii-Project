@@ -675,6 +675,25 @@ function defaultMemosFor(user) {
   ];
 }
 
+function createHealthMemoRecord(user, title, content, options = {}) {
+  const normalizedTitle = String(title || '').trim();
+  const normalizedContent = String(content || '').trim();
+  if (!normalizedTitle || !normalizedContent) return null;
+  const memos = healthList('memos', user, defaultMemosFor);
+  if (options.dedupe) {
+    const existing = memos.slice(0, 8).find((item) => item.title === normalizedTitle && item.content === normalizedContent);
+    if (existing) return existing;
+  }
+  const memo = {
+    content: normalizedContent,
+    id: `m-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    title: normalizedTitle,
+    updatedAt: '刚刚',
+  };
+  memos.unshift(memo);
+  return memo;
+}
+
 function defaultVaccinesFor(user) {
   const pet = selectedPetFor(user);
   if (!pet) return [];
@@ -1565,6 +1584,30 @@ function petMedicalSafetyReply(user, text) {
     extra,
     '我不能替代兽医诊断，也不建议在没有医生指导时自行用药。你可以同时记录：发生时间、持续多久、精神/呼吸/食欲变化，带给医生判断。',
   ].join('\n\n');
+}
+
+function petChatMemoTitle(text) {
+  if (/吃|饭|粮|零食|食欲|喝水|饮水/.test(text)) return '饮食记录';
+  if (/便便|大便|尿|拉稀|腹泻|呕吐|吐/.test(text)) return '健康观察';
+  if (/散步|出门|公园|遛|运动/.test(text)) return '散步记录';
+  if (/洗澡|驱虫|疫苗|医院|用药|药/.test(text)) return '护理记录';
+  return '今日小事';
+}
+
+function normalizePetChatMemoContent(text) {
+  return String(text || '')
+    .replace(/^(麻烦|请|帮我|帮忙|可以)?(把|将)?/u, '')
+    .replace(/(帮我)?(记一下|记录一下|记一笔|记到健康备忘|记到备忘|加到健康备忘|加到备忘|保存到健康备忘|保存到备忘|写进健康备忘|写进备忘)[：:，,\s]*/u, '')
+    .trim();
+}
+
+function createHealthMemoFromPetChat(user, text) {
+  const rawText = String(text || '').trim();
+  if (!rawText || /不要记|别记|不用记|不要记录|别记录/.test(rawText)) return null;
+  if (!/(记一下|记录一下|记一笔|记到健康备忘|记到备忘|加到健康备忘|加到备忘|保存到健康备忘|保存到备忘|写进健康备忘|写进备忘)/.test(rawText)) return null;
+  const content = normalizePetChatMemoContent(rawText) || rawText;
+  if (content.length < 2) return null;
+  return createHealthMemoRecord(user, petChatMemoTitle(content), content.slice(0, 240), { dedupe: true });
 }
 
 function fallbackPetChatReply(user, text) {
@@ -2737,12 +2780,15 @@ async function handle(req, res) {
       time: '刚刚',
     };
     consumePetChatQuota(user);
+    const createdMemo = createHealthMemoFromPetChat(user, text);
     const reply = await callDeepSeekPetChat(user, text, messages);
+    const replyText = createdMemo ? `${reply.text}\n\n已帮你记到健康备忘：「${createdMemo.title}」。` : reply.text;
     const aiMessage = {
       author: 'ai',
+      createdMemo,
       id: messageId(),
       status: 'sent',
-      text: reply.text,
+      text: replyText,
       time: '刚刚',
     };
     messages.push(userMessage, aiMessage);
