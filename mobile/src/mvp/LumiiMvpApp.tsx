@@ -732,7 +732,7 @@ export default function LumiiMvpApp() {
     let active = true;
     const refreshOwners = async () => {
       const nextOwners = await fetchNearbyOwners({ forceLocation: !lastDiscoverLocationRef.current, silent: true });
-      if (active && nextOwners) setOwners(nextOwners);
+      if (active && nextOwners) applyNearbyOwners(nextOwners);
     };
     void refreshOwners();
     const id = setInterval(() => {
@@ -890,7 +890,7 @@ export default function LumiiMvpApp() {
     if (vaccineResult.data) setVaccines(vaccineResult.data);
     if (vaccineReminderResult.data) setVaccineReminderIds(vaccineReminderResult.data);
     if (memoResult.data) setMemos(memoResult.data);
-    if (ownerResult.data) setOwners(ownerResult.data);
+    if (ownerResult.data) applyNearbyOwners(ownerResult.data);
     if (greetingRequestResult.data) setGreetingRequestOwners(greetingRequestResult.data);
     if (conversationResult.data) setConversations(conversationResult.data);
     if (notificationResult.data) setNotifications(notificationResult.data);
@@ -1010,6 +1010,11 @@ export default function LumiiMvpApp() {
       }
     }
     return refreshed;
+  }
+
+  function applyNearbyOwners(nextOwners: NearbyOwner[]) {
+    setOwners(nextOwners);
+    setSelectedOwner((current) => (current && nextOwners.some((owner) => owner.id === current.id) ? current : null));
   }
 
   async function refreshInboxManually() {
@@ -1814,6 +1819,21 @@ export default function LumiiMvpApp() {
     }
   }
 
+  async function syncNearbySettingsChange(key: UserSettingKey, nextValue: boolean) {
+    if (key !== 'nearbyVisible' && key !== 'fuzzyLocation') return;
+
+    lastDiscoverLocationRef.current = null;
+    if (key === 'nearbyVisible' && !nextValue) {
+      applyNearbyOwners([]);
+      void loadInboxData();
+      return;
+    }
+
+    const nextOwners = await fetchNearbyOwners({ forceLocation: true, silent: true });
+    if (nextOwners) applyNearbyOwners(nextOwners);
+    void loadInboxData();
+  }
+
   async function toggleUserSetting(key: UserSettingKey, label: string) {
     if (userSettingSavingKeysRef.current.has(key)) return;
     userSettingSavingKeysRef.current.add(key);
@@ -1850,6 +1870,7 @@ export default function LumiiMvpApp() {
             localHealthReminderSyncKeyRef.current = '';
           }
         }
+        void syncNearbySettingsChange(key, nextValue);
         showToast(`${label}已${nextValue ? '开启' : '关闭'}`);
       } else {
         setUserSettings(previousSettings);
@@ -2110,7 +2131,7 @@ export default function LumiiMvpApp() {
     try {
       const nextOwners = await fetchNearbyOwners({ forceLocation: true, silent: false });
       if (nextOwners) {
-        setOwners(nextOwners);
+        applyNearbyOwners(nextOwners);
         showToast(nextOwners.length ? '已刷新附近伙伴' : '3km 内暂时没有新的伙伴');
       }
     } finally {
@@ -2328,7 +2349,7 @@ export default function LumiiMvpApp() {
     setConversationInput('');
     setConversationMessages([createConversationSafetyMessage()]);
     setNotifications([]);
-    setOwners([]);
+    applyNearbyOwners([]);
     setDiscoverRefreshing(false);
     setDiscoverFilter('all');
     setGreetingRequestOwners([]);
