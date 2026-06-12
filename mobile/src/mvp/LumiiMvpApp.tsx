@@ -724,7 +724,8 @@ export default function LumiiMvpApp() {
 
   useEffect(() => {
     if (!session) return;
-    void loadCommonData();
+    sessionTokenRef.current = session.token;
+    void loadCommonData(session.token);
   }, [session?.token]);
 
   useEffect(() => {
@@ -921,8 +922,10 @@ export default function LumiiMvpApp() {
     if (!session || route !== 'notifications') return;
     const unreadIds = notifications.filter((item) => !item.read).map((item) => item.id);
     if (!unreadIds.length) return;
+    const requestSessionToken = sessionTokenRef.current;
     setNotifications((items) => items.map((item) => (unreadIds.includes(item.id) ? { ...item, read: true } : item)));
     void lumiiApi.messages.markNotificationsRead(unreadIds).then((result) => {
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) setNotifications(result.data);
     });
   }, [notifications, route, session]);
@@ -992,7 +995,9 @@ export default function LumiiMvpApp() {
     return () => clearInterval(id);
   }, [avatarJob, route]);
 
-  async function loadCommonData() {
+  async function loadCommonData(targetSessionToken = sessionTokenRef.current) {
+    const requestSessionToken = targetSessionToken;
+    if (!requestSessionToken) return;
     const [profileResult, healthSummaryResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult, aiUsageResult] = await Promise.all([
       lumiiApi.account.getMe(),
       lumiiApi.health.getHealthSummary(),
@@ -1009,6 +1014,7 @@ export default function LumiiMvpApp() {
       lumiiApi.places.listMyReviews(),
       lumiiApi.ai.getUsage(),
     ]);
+    if (sessionTokenRef.current !== requestSessionToken) return;
     if (profileResult.data) {
       const profile = profileResult.data;
       const profileSettings = { ...defaultUserSettings, ...profile.settings };
@@ -1142,6 +1148,8 @@ export default function LumiiMvpApp() {
 
     let refreshed = true;
     const silent = options.silent !== false;
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return false;
     inboxRefreshInFlightRef.current = true;
     try {
       const [greetingRequestResult, conversationResult, notificationResult] = await Promise.all([
@@ -1149,6 +1157,7 @@ export default function LumiiMvpApp() {
         lumiiApi.messages.listConversations(),
         lumiiApi.messages.listNotifications(),
       ]);
+      if (sessionTokenRef.current !== requestSessionToken) return false;
       if (greetingRequestResult.data) {
         greetingRequestOwnersRef.current = greetingRequestResult.data;
         setGreetingRequestOwners(greetingRequestResult.data);
@@ -1217,14 +1226,20 @@ export default function LumiiMvpApp() {
 
   async function loadConversationMessages(conversationId: string, options: { markRead?: boolean; silent?: boolean } = {}) {
     if (conversationRefreshInFlightRef.current === conversationId) return;
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
     conversationRefreshInFlightRef.current = conversationId;
     try {
       const result = await lumiiApi.messages.listConversationMessages(conversationId);
+      if (sessionTokenRef.current !== requestSessionToken) return;
       const isActiveConversation = !selectedConversationIdRef.current || selectedConversationIdRef.current === conversationId;
       if (result.data) {
         if (isActiveConversation) setConversationMessagesFromServer(conversationId, result.data);
         if (options.markRead) {
-          void lumiiApi.messages.markConversationRead(conversationId);
+          void lumiiApi.messages.markConversationRead(conversationId).then((markResult) => {
+            if (sessionTokenRef.current !== requestSessionToken) return;
+            if (!markResult.data && !options.silent) showToast(markResult.error?.message ?? '已读状态同步失败');
+          });
           setConversations((items) => items.map((item) => (item.id === conversationId ? { ...item, unread: 0 } : item)));
         }
       } else if (!options.silent && isActiveConversation) {
