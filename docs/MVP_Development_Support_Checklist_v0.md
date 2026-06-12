@@ -16,7 +16,7 @@
 - Figma Make 新页面/新状态设计，尤其健康编辑删除、聊天富消息、地点审核/重复/失败、黑名单和注销冷静期。
 - AI 形象生成真实供应商、风格样张、重新生成/不像我的宠物/局部调整规则。
 - iOS 高德 Key/SDK、地点 POI 策略和外部导航规则。
-- 用户协议、隐私政策、第三方 SDK 清单、个人信息收集清单。
+- 正式用户协议、正式隐私政策、第三方 SDK 清单、个人信息收集清单。
 - 生产级短信/推送/对象存储/内容审核方案。
 
 ## 1. 当前开发前提
@@ -107,16 +107,16 @@
 - 黑名单接口。
 - 账号注销流程。
 - ~~未接入危险操作不做 mock 成功反馈。~~ 当前账号安全/安全中心未接入项仅展示“后续开放”，不会假提交举报、拉黑或注销。
-- 用户协议、隐私政策、儿童/未成年人相关合规判断。
+- ~~用户协议、隐私政策占位版接口。~~ MVP 测试后端和 mock API 已支持 `GET /legal/terms`、`GET /legal/privacy`；正式文本、儿童/未成年人相关合规判断仍需上线前补齐。
 
 ## 3. 接口支持清单
 
 ### 3.1 认证与账号
 
 需要接口：
-- `POST /auth/sms/send`：发送验证码。
-- `POST /auth/sms/verify`：校验验证码并登录/注册。
-- `POST /auth/logout`：退出登录。
+- ~~`POST /auth/sms/send`：发送验证码。~~ MVP 测试后端已支持，测试验证码固定为 `962464`。
+- ~~`POST /auth/sms/verify`：校验验证码并登录/注册。~~ MVP 测试后端已支持。
+- ~~`POST /auth/logout`：退出登录。~~ MVP 测试后端和 App 本地清缓存流程已支持。
 - ~~`POST /auth/token/refresh`：刷新 token。~~ MVP 测试后端已支持；App 启动恢复本地 session 时会先刷新账号快照，401 才清缓存回登录。
 - ~~`GET /me`：当前用户资料。~~ MVP 测试后端已支持，App 会用于“我的页”等用户资料同步。
 - ~~`PATCH /me`：更新用户资料。~~ MVP 测试后端已支持更新 `ownerName`；完整资料编辑页仍需后续设计。
@@ -319,12 +319,12 @@ Android 调用：
 - `GET /blocks`。
 - `DELETE /blocks/{userId}`。
 - `POST /feedback`。
-- `GET /legal/terms`。
-- `GET /legal/privacy`。
+- ~~`GET /legal/terms`。~~ MVP 测试后端和 mock API 已支持占位版。
+- ~~`GET /legal/privacy`。~~ MVP 测试后端和 mock API 已支持占位版。
 
 需要你提供：
-- 用户协议。
-- 隐私政策。
+- 正式用户协议。
+- 正式隐私政策。
 - 个人信息收集清单。
 - 第三方 SDK 清单。
 - 账号注销说明。
@@ -339,7 +339,7 @@ P0 必需：
 - AI 真实卡通化风格参考图 5 到 10 张。
 - 示例宠物原图和对应理想结果。
 - 登录、权限、上传、AI 生成、失败提示的正式中文文案。
-- 用户协议和隐私政策初稿。
+- ~~用户协议和隐私政策 MVP 占位版。~~ 已补静态接口；正式上线文本仍需法务/合规确认。
 - ~~犬猫物种、品种、性格标签字典。~~ MVP 种子字典已由 `GET /pet-taxonomy` 提供；正式运营字典后续可继续扩充。
 - 高德或腾讯地图 Key。
 
@@ -387,7 +387,7 @@ P2 后续：
 3. 图片上传和 AI 形象生成接口协议。
 4. AI 电子宠物对话接口协议。
 5. iOS 高德 Key、地点分类和 POI 策略。
-6. 用户协议、隐私政策占位版。
+6. ~~用户协议、隐私政策占位版。~~ MVP 静态接口已补；正式文本仍需后续确认。
 
 第二批：
 1. 健康管理接口和疫苗模板。
@@ -414,6 +414,7 @@ P2 后续：
 - `social`：`listNearbyOwners`、`sendGreeting`、`createWalkInvite`
 - `messages`：`registerPushToken`、`listConversations`、`sendMessage`、`listNotifications`
 - `places`：`listNearbyPlaces`、`searchPlaces`、`getPlace`、`createReview`
+- `legal`：`getTerms`、`getPrivacy`
 
 仍需要你/后端/设计优先补充：
 - API Base URL、鉴权 token 方案、统一错误码结构。
@@ -424,7 +425,7 @@ P2 后续：
 - 地图供应商最终选择：已确认高德地图；Android 高德 SDK Key 已接入，仍需 POI 分类、导航跳转规则、iOS Key/SDK。
 - 健康模板：疫苗、驱虫、体重区间、提醒文案。
 - 社交规则：附近范围、距离模糊策略、打招呼次数限制、未互相关注是否可聊天。
-- 合规材料：用户协议、隐私政策、个人信息收集清单、第三方 SDK 清单、注销规则、举报处理规则。
+- 合规材料：正式用户协议、正式隐私政策、个人信息收集清单、第三方 SDK 清单、注销规则、举报处理规则。
 
 2026-05-30 追加：
 - 已新增接口契约草案：`docs/API_Contract_MVP_v0.md`。

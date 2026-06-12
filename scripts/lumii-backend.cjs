@@ -110,6 +110,69 @@ const petTaxonomy = {
   ],
 };
 
+const legalDocuments = {
+  privacy: {
+    disclaimer: 'MVP 占位版，仅用于产品联调与体验测试，正式上线前需由法务或合规顾问确认。',
+    effectiveDate: '2026-06-12',
+    key: 'privacy',
+    sections: [
+      {
+        body: [
+          '灵伴会在你使用登录、宠物建档、AI 形象生成、附近发现、地图地点和通知提醒时处理必要信息。',
+          '位置信息默认用于附近发现和宠物友好地点推荐；产品侧会优先展示模糊距离，不展示精确住址。',
+        ],
+        title: '我们收集的信息',
+      },
+      {
+        body: [
+          '你上传的宠物照片用于识别宠物主体、生成电子宠物形象和保存宠物档案。',
+          '如果照片包含人脸、多个宠物或无宠物内容，MVP 会提示重新上传或进入人工/模型校验策略。',
+        ],
+        title: '宠物照片与 AI 处理',
+      },
+      {
+        body: [
+          '你可以在设置中关闭附近可见、互动消息提醒和推送通知。',
+          '正式版本需要补充个人信息收集清单、第三方 SDK 清单、注销规则和未成年人保护说明。',
+        ],
+        title: '你的控制权',
+      },
+    ],
+    title: '灵伴隐私政策',
+    version: 'mvp-placeholder-2026-06-12',
+  },
+  terms: {
+    disclaimer: 'MVP 占位版，仅用于产品联调与体验测试，正式上线前需由法务或合规顾问确认。',
+    effectiveDate: '2026-06-12',
+    key: 'terms',
+    sections: [
+      {
+        body: [
+          '灵伴是围绕真实宠物、电子宠物形象、健康记录和宠物主人社交的移动端服务。',
+          'MVP 阶段功能仍在测试，页面、接口和 AI 结果可能持续调整。',
+        ],
+        title: '服务范围',
+      },
+      {
+        body: [
+          '用户应上传自己有权使用的宠物照片，不应上传侵犯他人权益、暴露他人隐私或无关的内容。',
+          '宠物健康内容仅作记录和提醒，不替代兽医诊断或治疗建议。',
+        ],
+        title: '用户责任',
+      },
+      {
+        body: [
+          '附近发现、聊天和约遛等功能应遵守友善、安全原则，线下见面建议选择公开宠物友好地点。',
+          '正式版本需要补充举报处理、拉黑、账号注销和争议处理规则。',
+        ],
+        title: '社交与安全',
+      },
+    ],
+    title: '灵伴用户协议',
+    version: 'mvp-placeholder-2026-06-12',
+  },
+};
+
 const generatedAvatarUrl = 'lumii://golden-retriever-avatar';
 const samplePhotoUrl =
   'https://images.unsplash.com/photo-1625794084867-8ddd239946b1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=720';
@@ -1548,6 +1611,16 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/pet-taxonomy') {
     ok(res, petTaxonomy);
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/legal/terms') {
+    ok(res, legalDocuments.terms);
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/legal/privacy') {
+    ok(res, legalDocuments.privacy);
     return;
   }
 

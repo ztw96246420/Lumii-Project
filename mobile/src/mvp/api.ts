@@ -12,6 +12,7 @@ import type {
   HealthCalendarEvent,
   HealthMemo,
   HealthSummary,
+  LegalDocument,
   NearbyLocationHint,
   NearbyOwner,
   NotificationItem,
@@ -67,6 +68,16 @@ export function setLumiiAuthToken(token?: string) {
 
 function createHttpApi(baseUrl: string): LumiiApi {
   return {
+    legal: {
+      async getPrivacy(): Promise<ApiResult<LegalDocument>> {
+        return request<LegalDocument>('GET', '/legal/privacy');
+      },
+
+      async getTerms(): Promise<ApiResult<LegalDocument>> {
+        return request<LegalDocument>('GET', '/legal/terms');
+      },
+    },
+
     account: {
       async getMe(): Promise<ApiResult<UserProfile>> {
         return request<UserProfile>('GET', '/me');

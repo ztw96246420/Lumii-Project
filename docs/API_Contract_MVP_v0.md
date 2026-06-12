@@ -900,7 +900,44 @@ Response data:
 
 读取当前用户提交过的新增地点审核记录。当前 App 只在提交后展示审核中状态，后续若补“我的提交”页面可复用此接口。
 
-## 9. P0 待后端确认
+## 9. 合规静态文本
+
+### GET `/legal/terms`
+
+读取用户协议占位版。MVP 测试后端和 mock API 均不要求登录即可访问。
+
+Response data:
+
+```ts
+type LegalDocument = {
+  disclaimer: string;
+  effectiveDate: string;
+  key: 'terms';
+  sections: Array<{ title: string; body: string[] }>;
+  title: string;
+  version: string;
+};
+```
+
+说明：
+- 当前内容是 MVP 占位版，仅用于产品联调与体验测试。
+- 正式上线前必须替换为法务或合规顾问确认后的正式文本。
+
+### GET `/legal/privacy`
+
+读取隐私政策占位版。MVP 测试后端和 mock API 均不要求登录即可访问。
+
+Response data:
+
+```ts
+LegalDocument
+```
+
+说明：
+- 当前内容是 MVP 占位版，会覆盖登录、宠物照片、AI 处理、附近发现、推送通知等核心场景。
+- 正式上线前仍需要补个人信息收集清单、第三方 SDK 清单、注销规则、未成年人保护说明和正式隐私政策。
+
+## 10. P0 待后端确认
 
 - 统一错误码表：短信、登录、上传、AI、地图、社交、健康、权限。
 - 鉴权 token 刷新机制和 401 处理。

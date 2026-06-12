@@ -23,6 +23,7 @@
 - 文档同步清理：`Figma_Make_Missing_Page_Prompts_2026-06-06.md` 不再把二次登录免验证码列为待开发项；`MVP_Development_Support_Checklist_v0.md` 不再把当前代码里不存在的“MVP 验收入口”误记为待处理。
 - 历史设计迁移文档和 Stitch 缺口文档中关于“MVP 验收入口”的描述已统一删除线标记，避免被当作当前现状或待办。
 - 地点详情接口补齐：新增 `GET /places/{placeId}`，测试后端和 mock API 均支持按地点 ID 读取单个宠物友好地点；不存在时返回 404 中文错误。该能力服务于现有地图/地点详情流程，不新增页面、不需要 Figma 补图。
+- 用户协议/隐私政策占位版接口补齐：新增 `GET /legal/terms`、`GET /legal/privacy`，测试后端和 mock API 均支持未登录读取 MVP 占位文本；正式用户协议、正式隐私政策、个人信息收集清单和第三方 SDK 清单仍需上线前确认。
 
 ## 验证
 
@@ -94,6 +95,13 @@
   - 详情地点 ID：`place-park-1`。
   - 详情地点名称：`云杉宠物友好公园`。
   - 不存在地点状态：`404 error`。
+- 临时本地后端验证通过：未登录读取 `GET /legal/terms` 和 `GET /legal/privacy`。
+  - 用户协议标题：`灵伴用户协议`。
+  - 隐私政策标题：`灵伴隐私政策`。
+  - 占位版版本：`mvp-placeholder-2026-06-12`。
+- 腾讯云测试后端已热更新并重启 `lumii-backend`，云端未登录读取 `GET /legal/terms`、`GET /legal/privacy` 均通过。
+  - 云端用户协议标题：`灵伴用户协议`。
+  - 云端隐私政策标题：`灵伴隐私政策`。
 
 ## 未打包
 

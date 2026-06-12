@@ -297,6 +297,18 @@ export type PlaceSubmission = {
   status: 'approved' | 'pending_review' | 'rejected';
 };
 
+export type LegalDocument = {
+  disclaimer: string;
+  effectiveDate: string;
+  key: 'privacy' | 'terms';
+  sections: Array<{
+    body: string[];
+    title: string;
+  }>;
+  title: string;
+  version: string;
+};
+
 export type AppTab = 'discover' | 'home' | 'map' | 'messages' | 'profile';
 
 export type AppRoute =
