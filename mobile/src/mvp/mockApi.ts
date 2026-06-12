@@ -45,11 +45,14 @@ const wait = (ms = 360) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const lastSmsSentAtByPhone: Record<string, number> = {};
 const smsCodeByPhone: Record<string, string> = {};
+const smsLockedByPhone: Record<string, boolean> = {};
+const smsVerifyAttemptsByPhone: Record<string, number> = {};
 const smsDeviceDailyUsageById: Record<string, { count: number; day: string }> = {};
 const smsDailyUsageByPhone: Record<string, { count: number; day: string }> = {};
 const SMS_COOLDOWN_MS = 60 * 1000;
 const SMS_DAILY_LIMIT = 50;
 const SMS_DEVICE_DAILY_LIMIT = 80;
+const SMS_VERIFY_MAX_ATTEMPTS = 5;
 const OTP_TTL_MS = 5 * 60 * 1000;
 
 let currentMockPhone = '13800138000';
@@ -987,6 +990,8 @@ export const mockApi = {
       const code = '962464';
       lastSmsSentAtByPhone[phone] = now;
       smsCodeByPhone[phone] = code;
+      delete smsLockedByPhone[phone];
+      smsVerifyAttemptsByPhone[phone] = 0;
       usage.count += 1;
       deviceUsage.count += 1;
       return success({ availableAt: now + SMS_COOLDOWN_MS, code, expiresAt: now + OTP_TTL_MS, phone });
@@ -995,9 +1000,29 @@ export const mockApi = {
     async verifySmsCode(phone: string, code: string, expiresAt: number): Promise<ApiResult<AuthSession>> {
       await wait(260);
       const storedCode = smsCodeByPhone[phone];
+      if (smsLockedByPhone[phone]) {
+        return error<AuthSession>('验证码错误次数过多，请重新获取', true, undefined, 'SMS_CODE_ATTEMPT_LIMITED');
+      }
       if (storedCode && Date.now() > expiresAt) return error('验证码已过期，请重新获取', true);
-      if (code !== '962464' && storedCode !== code) return error('验证码错误，请检查后重试', true);
-      if (storedCode) delete smsCodeByPhone[phone];
+      if (code !== '962464' && storedCode !== code) {
+        if (storedCode) {
+          const attempts = (smsVerifyAttemptsByPhone[phone] ?? 0) + 1;
+          const attemptsRemaining = Math.max(0, SMS_VERIFY_MAX_ATTEMPTS - attempts);
+          smsVerifyAttemptsByPhone[phone] = attempts;
+          if (attemptsRemaining <= 0) {
+            delete smsCodeByPhone[phone];
+            smsLockedByPhone[phone] = true;
+            delete smsVerifyAttemptsByPhone[phone];
+            return error<AuthSession>('验证码错误次数过多，请重新获取', true, undefined, 'SMS_CODE_ATTEMPT_LIMITED');
+          }
+          return error<AuthSession>('验证码错误，请检查后重试', true, undefined, 'SMS_CODE_INVALID');
+        }
+        return error<AuthSession>('验证码错误，请检查后重试', true, undefined, 'SMS_CODE_INVALID');
+      }
+      if (storedCode) {
+        delete smsCodeByPhone[phone];
+        delete smsVerifyAttemptsByPhone[phone];
+      }
       currentMockPhone = phone;
       return success({ account: buildMockAccountSnapshot(), phone, token: `mock-token-${phone}` });
     },
@@ -1664,6 +1689,7 @@ function success<T>(data: T): ApiResult<T> {
 function mockErrorCodeFrom(message: string) {
   if (/操作太频繁/.test(message)) return 'SMS_RATE_LIMITED';
   if (/验证码发送次数|当前设备今天获取验证码/.test(message)) return 'SMS_DAILY_LIMITED';
+  if (/验证码错误次数过多/.test(message)) return 'SMS_CODE_ATTEMPT_LIMITED';
   if (/验证码错误/.test(message)) return 'SMS_CODE_INVALID';
   if (/验证码已过期/.test(message)) return 'SMS_CODE_EXPIRED';
   if (/验证码已使用/.test(message)) return 'SMS_CODE_USED';

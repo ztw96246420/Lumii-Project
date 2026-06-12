@@ -13,6 +13,9 @@
 - 本地临时后端和腾讯云测试后端均验证通过：登录后 `/me` 返回 200，调用 `POST /auth/logout` 后同一 token 调用 `/me` 和 `/auth/token/refresh` 均返回 `AUTH_REQUIRED`；再次登录会获得新的可用 token。
 - 短信验证码票据消费补齐：`POST /auth/sms/verify` 成功后，测试后端会清空当前手机号票据里的验证码并保留 60s 冷却时间，mock API 会同步消费验证码，避免同一张票据重复使用，也避免成功登录后的旧票据后续变成过期残留误挡。固定测试码 `962464` 在无待验证票据时仍保留快速登录能力。
 - 本地临时后端和腾讯云测试后端均验证通过：发送验证码 -> 使用 `962464` 登录成功 -> 立刻再次发码仍返回 `SMS_RATE_LIMITED`，说明 60s 冷却未被消费动作绕过；使用非测试旧码返回 `SMS_CODE_USED`；无待验证票据时 `962464` 仍可快速登录。
+- 短信验证码输错次数限制补齐：同一张验证码票据默认最多允许输错 5 次，可用 `SMS_VERIFY_MAX_ATTEMPTS` 调整；达到上限后返回 `SMS_CODE_ATTEMPT_LIMITED` 并让票据失效，用户需要等待当前发码冷却结束后重新获取。mock API 同步该规则，复用现有验证码错误 toast 和倒计时，不新增页面。
+- 临时本地后端验证通过：`SMS_VERIFY_MAX_ATTEMPTS=2` 时，发送验证码后第一次输错返回 `SMS_CODE_INVALID`，第二次输错返回 `SMS_CODE_ATTEMPT_LIMITED`，锁定后再输入固定测试码 `962464` 仍返回 `SMS_CODE_ATTEMPT_LIMITED`，随后立刻重新发码仍返回 `SMS_RATE_LIMITED`，说明输错锁定没有绕过 60s 冷却。
+- 腾讯云测试后端已热更新并验证通过：默认 5 次输错限制下，前 4 次返回 `SMS_CODE_INVALID`，第 5 次返回 `SMS_CODE_ATTEMPT_LIMITED`；锁定后固定测试码 `962464` 不能绕过，立即重新发码仍返回 `SMS_RATE_LIMITED`。
 - 短信验证码频控补齐：`POST /auth/sms/send` 在原有单手机号 60s 冷却基础上新增每日发送上限，默认 `SMS_DAILY_LIMIT=50`；mock API 同步该规则，现有登录 toast/倒计时承载错误提示，不需要新增 Figma 页面。
 - 文档口径同步：`API_Contract_MVP_v0.md`、`MVP_Development_Support_Checklist_v0.md` 和 `Figma_Make_Missing_Page_Prompts_2026-06-06.md` 已把短信每日频控标记为 MVP 已实现，生产仍保留 IP/设备级风控、真实随机验证码和短信回执待确认。
 - 短信验证码 IP/设备级基础风控补齐：App 发验证码时会带本地安装级 `deviceId`；测试后端新增单设备每日上限和单 IP 每日上限，默认 `SMS_DEVICE_DAILY_LIMIT=80`、`SMS_IP_DAILY_LIMIT=150`；mock API 同步单设备每日上限。该能力复用现有登录 toast，不新增页面。

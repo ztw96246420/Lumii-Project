@@ -10,6 +10,7 @@ const SMS_TTL_MS = Number(process.env.SMS_TTL_MS || 5 * 60 * 1000);
 const SMS_DAILY_LIMIT = Number(process.env.SMS_DAILY_LIMIT || '50');
 const SMS_DEVICE_DAILY_LIMIT = Number(process.env.SMS_DEVICE_DAILY_LIMIT || '80');
 const SMS_IP_DAILY_LIMIT = Number(process.env.SMS_IP_DAILY_LIMIT || '150');
+const SMS_VERIFY_MAX_ATTEMPTS = Math.max(1, Number(process.env.SMS_VERIFY_MAX_ATTEMPTS || '5') || 5);
 const AUTH_TOKEN_TTL_MS = Number(process.env.AUTH_TOKEN_TTL_MS || 30 * 24 * 60 * 60 * 1000);
 const AUTH_TOKEN_SECRET = process.env.LUMII_TOKEN_SECRET || process.env.AUTH_TOKEN_SECRET || 'lumii-mvp-dev-token-secret';
 const ONLINE_TTL_MS = 30 * 60 * 1000;
@@ -357,6 +358,7 @@ function errorCodeFrom(statusCode, message) {
   const text = String(message || '');
   if (/操作太频繁/.test(text)) return 'SMS_RATE_LIMITED';
   if (/验证码发送次数|当前设备今天获取验证码|当前网络今天获取验证码/.test(text)) return 'SMS_DAILY_LIMITED';
+  if (/验证码错误次数过多/.test(text)) return 'SMS_CODE_ATTEMPT_LIMITED';
   if (/验证码错误/.test(text)) return 'SMS_CODE_INVALID';
   if (/验证码已过期/.test(text)) return 'SMS_CODE_EXPIRED';
   if (/验证码已使用/.test(text)) return 'SMS_CODE_USED';
@@ -2628,6 +2630,7 @@ async function handle(req, res) {
       return;
     }
     const ticket = {
+      attempts: 0,
       availableAt: now + SMS_COOLDOWN_MS,
       code: TEST_CODE,
       expiresAt: now + SMS_TTL_MS,
@@ -2651,16 +2654,56 @@ async function handle(req, res) {
       return;
     }
     const ticket = state.sms[phone];
+    const now = Date.now();
+    if (ticket?.lockedAt) {
+      fail(
+        res,
+        400,
+        '验证码错误次数过多，请重新获取',
+        true,
+        { attempts: Number(ticket.attempts || SMS_VERIFY_MAX_ATTEMPTS), attemptsRemaining: 0, phone },
+        'SMS_CODE_ATTEMPT_LIMITED',
+      );
+      return;
+    }
     if (ticket?.consumedAt && code !== TEST_CODE) {
       fail(res, 400, '验证码已使用，请重新获取', true);
       return;
     }
-    if (code !== TEST_CODE && ticket?.code !== code) {
-      fail(res, 400, '验证码错误，请检查后重试', true);
+    if (ticket && !ticket.consumedAt && now > ticket.expiresAt) {
+      fail(res, 400, '验证码已过期，请重新获取', true, undefined, 'SMS_CODE_EXPIRED');
       return;
     }
-    if (ticket && !ticket.consumedAt && Date.now() > ticket.expiresAt) {
-      fail(res, 400, '验证码已过期，请重新获取', true);
+    if (ticket && !ticket.consumedAt && code !== TEST_CODE && ticket.code !== code) {
+      const attempts = Number(ticket.attempts || 0) + 1;
+      const attemptsRemaining = Math.max(0, SMS_VERIFY_MAX_ATTEMPTS - attempts);
+      const nextTicket = { ...ticket, attempts };
+      if (attemptsRemaining <= 0) {
+        state.sms[phone] = {
+          ...nextTicket,
+          code: '',
+          consumedAt: now,
+          expiresAt: now,
+          lockedAt: now,
+        };
+        saveState();
+        fail(
+          res,
+          400,
+          '验证码错误次数过多，请重新获取',
+          true,
+          { attempts, attemptsRemaining, phone },
+          'SMS_CODE_ATTEMPT_LIMITED',
+        );
+        return;
+      }
+      state.sms[phone] = nextTicket;
+      saveState();
+      fail(res, 400, '验证码错误，请检查后重试', true, { attempts, attemptsRemaining, phone }, 'SMS_CODE_INVALID');
+      return;
+    }
+    if (code !== TEST_CODE && ticket?.code !== code) {
+      fail(res, 400, '验证码错误，请检查后重试', true);
       return;
     }
     const user = ensureUser(phone);
