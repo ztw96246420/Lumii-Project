@@ -494,6 +494,22 @@ function matchesPlaceSearch(place, query) {
   return searchableText.includes(query);
 }
 
+function publicPlaceContentViolation(label, value, maxLength) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  if (text.length > maxLength) return `${label}最多 ${maxLength} 个字`;
+  if (/(?:\+?86[-\s]?)?1[3-9]\d{9}/.test(text)) return `${label}不能包含手机号，请避免公开个人联系方式`;
+  if (/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(text)) return `${label}不能包含邮箱或外部联系方式`;
+  if (/(https?:\/\/|www\.|\.com\b|\.cn\b|\.net\b|\.org\b)/i.test(text)) return `${label}不能包含外部链接`;
+  if (/(微信|wechat|vx|QQ|qq|群号|加我|私聊).{0,24}([a-zA-Z0-9_-]{5,}|[1-9]\d{5,})/u.test(text)) {
+    return `${label}不能包含微信、QQ 或其他外部联系方式`;
+  }
+  if (/(赌博|博彩|色情|约炮|毒品|冰毒|枪支|办证|代开\s*发票|贷款\s*套现|刷单|诈骗)/u.test(text)) {
+    return `${label}包含不适合公开展示的内容，请修改后再提交`;
+  }
+  return null;
+}
+
 function placeReviewsFor(user) {
   state.placeReviews = state.placeReviews || {};
   state.placeReviews[user.phone] = Array.isArray(state.placeReviews[user.phone]) ? state.placeReviews[user.phone] : [];
@@ -505,6 +521,8 @@ function createPlaceReview(user, placeId, content) {
   if (!place) return null;
   const trimmedContent = String(content || '').trim();
   if (!trimmedContent) return false;
+  const violation = publicPlaceContentViolation('点评内容', trimmedContent, 500);
+  if (violation) return { error: violation, statusCode: 400 };
   const review = {
     content: trimmedContent,
     createdAt: '刚刚',
@@ -583,6 +601,11 @@ function createPlaceSubmission(user, body) {
   const content = String(body.content || '').trim();
   if (!name || !address) return { error: '请填写地点名称和地址', statusCode: 400 };
   if (!content) return { error: '请填写宠物友好体验', statusCode: 400 };
+  const violation =
+    publicPlaceContentViolation('地点名称', name, 60) ||
+    publicPlaceContentViolation('地点地址', address, 120) ||
+    publicPlaceContentViolation('宠物友好体验', content, 500);
+  if (violation) return { error: violation, statusCode: 400 };
   const duplicate = findDuplicatePlaceSubmission(user, name, address);
   if (duplicate) return { duplicateType: duplicate.type, error: duplicate.message, statusCode: 409 };
   const submission = {
@@ -3309,6 +3332,10 @@ async function handle(req, res) {
     }
     if (review === false) {
       fail(res, 400, '请填写点评内容', false);
+      return;
+    }
+    if (review.error) {
+      fail(res, review.statusCode || 400, review.error, false);
       return;
     }
     ok(res, review);

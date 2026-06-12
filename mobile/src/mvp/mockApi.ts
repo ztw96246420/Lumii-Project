@@ -530,6 +530,22 @@ function matchesPlaceSearch(place: Place, query: string) {
   return searchableText.includes(query);
 }
 
+function mockPublicPlaceContentViolation(label: string, value: string, maxLength: number) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  if (text.length > maxLength) return `${label}最多 ${maxLength} 个字`;
+  if (/(?:\+?86[-\s]?)?1[3-9]\d{9}/.test(text)) return `${label}不能包含手机号，请避免公开个人联系方式`;
+  if (/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(text)) return `${label}不能包含邮箱或外部联系方式`;
+  if (/(https?:\/\/|www\.|\.com\b|\.cn\b|\.net\b|\.org\b)/i.test(text)) return `${label}不能包含外部链接`;
+  if (/(微信|wechat|vx|QQ|qq|群号|加我|私聊).{0,24}([a-zA-Z0-9_-]{5,}|[1-9]\d{5,})/u.test(text)) {
+    return `${label}不能包含微信、QQ 或其他外部联系方式`;
+  }
+  if (/(赌博|博彩|色情|约炮|毒品|冰毒|枪支|办证|代开\s*发票|贷款\s*套现|刷单|诈骗)/u.test(text)) {
+    return `${label}包含不适合公开展示的内容，请修改后再提交`;
+  }
+  return null;
+}
+
 function normalizeMockPlaceDuplicateText(value: string) {
   return String(value || '')
     .toLowerCase()
@@ -1427,9 +1443,12 @@ export const mockApi = {
       await wait();
       const place = places.find((item) => item.id === placeId);
       if (!place) return error('地点不存在', false);
-      if (!content.trim()) return error('请填写点评内容', false);
+      const trimmedContent = content.trim();
+      if (!trimmedContent) return error('请填写点评内容', false);
+      const violation = mockPublicPlaceContentViolation('点评内容', trimmedContent, 500);
+      if (violation) return error(violation, false);
       const review: PlaceReview = {
-        content: content.trim(),
+        content: trimmedContent,
         createdAt: '刚刚',
         id: `review-${Date.now()}`,
         placeId,
@@ -1452,6 +1471,11 @@ export const mockApi = {
       const trimmedContent = content.trim();
       if (!trimmedName || !trimmedAddress) return error('请填写地点名称和地址', false);
       if (!trimmedContent) return error('请填写宠物友好体验', false);
+      const violation =
+        mockPublicPlaceContentViolation('地点名称', trimmedName, 60) ||
+        mockPublicPlaceContentViolation('地点地址', trimmedAddress, 120) ||
+        mockPublicPlaceContentViolation('宠物友好体验', trimmedContent, 500);
+      if (violation) return error(violation, false);
       const existingPlace = places.find((place) => isSimilarMockPlaceText(trimmedName, place.name) && isSimilarMockPlaceText(trimmedAddress, place.address, 6));
       if (existingPlace) {
         return error(`可能已存在相同地点：${existingPlace.name}，请先查看已有地点或换一个更准确的名称/地址。`, false);
