@@ -36,6 +36,7 @@
 - 通知设备登记联动：真机通知权限授权成功后，App 会通过 Expo Notifications 获取 Expo Push Token 并调用 `POST /devices/push-token`；二次登录恢复到已授权通知状态时会静默补登记，Web 预览跳过，登记失败不阻断权限或建档流程。
 - AI 用量读取接口补齐：新增 `GET /ai/usage`，返回当前账号当日宠物对话/形象生成次数、剩余额度，以及测试后端累计 DeepSeek token、Flux/Midjourney 请求和 quota 统计；该接口只读统计，不触发真实模型请求。
 - AI 对话高风险医疗门禁补齐：`POST /ai/pet-chat/messages` 命中呼吸困难、抽搐、误食高风险物、严重外伤、大出血、持续呕吐腹泻、拒食拒水等关键词时，会在调用 DeepSeek 前返回固定安全回复，提示尽快联系宠物医院或兽医；该路径不烧 DeepSeek token。
+- AI 对话页额度显示切换为真实用量：进入聊天页、通用数据加载和发送消息后会读取 `GET /ai/usage`，显示后端 `daily.petChat.count/limit`；前端本地 60 次软额度已移除，默认兜底改为后端一致的 80 次。
 - 文档状态纠偏：支持清单已把媒体读取、地点审核记录、avatar/health mock service 方法列表更新为当前实现状态，避免把已实现接口继续写成待补。
 
 ## 验证
@@ -44,6 +45,7 @@
 - `npm run typecheck` 覆盖通知设备登记联动通过。
 - `npm run typecheck` 覆盖 AI 用量 API 门面通过。
 - `npm run typecheck` 覆盖 AI 对话医疗门禁 mock 同步通过。
+- `npm run typecheck` 覆盖 AI 对话页真实用量显示联动通过。
 - `node --check scripts/lumii-backend.cjs` 通过。
 - `git diff --check` 通过，仅提示 Windows 工作区 LF/CRLF 换行转换 warning。
 - 临时本地后端验证通过：短信登录 -> 保存权限和设置 -> 刷新 token -> 读回手机号、权限完成状态和设置快照。
@@ -164,6 +166,10 @@
   - 当日 AI 对话：`1/80`。
   - 回复包含宠物医院/兽医建议：true。
   - 回复包含不要自行催吐/自行用药提示：true。
+- 腾讯云测试后端只读验证通过：`GET /ai/usage` 返回当前账号真实宠物对话额度，前端聊天页显示会以该值为准。
+  - 测试手机号：`13900007781`。
+  - 当日 AI 对话：`0/80`。
+  - 剩余次数：`80`。
 
 ## 未打包
 

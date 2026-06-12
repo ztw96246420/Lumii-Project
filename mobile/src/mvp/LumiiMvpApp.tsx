@@ -72,6 +72,7 @@ import { Button, Card, ConfirmDialog, Field, StatusPill, Toast, palette, styles 
 import type {
   AppRoute,
   AppTab,
+  AiUsageSummary,
   AuthSession,
   AvatarJob,
   ChatMessage,
@@ -97,7 +98,7 @@ import type {
 
 const smsCooldownMs = 60 * 1000;
 const defaultDiscoverRadiusKm = 3;
-const petChatDailySoftLimit = 60;
+const fallbackPetChatDailyLimit = 80;
 const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
 
@@ -441,6 +442,7 @@ export default function LumiiMvpApp() {
   const [chatFeedbackById, setChatFeedbackById] = useState<Record<string, PetChatFeedbackRating>>({});
   const [chatFeedbackSavingIds, setChatFeedbackSavingIds] = useState<string[]>([]);
   const [chatReplying, setChatReplying] = useState(false);
+  const [aiUsage, setAiUsage] = useState<AiUsageSummary | null>(null);
   const [petChatDailyCount, setPetChatDailyCount] = useState(0);
   const [healthSummary, setHealthSummary] = useState<HealthSummary | null>(null);
   const [weights, setWeights] = useState<WeightRecord[]>([]);
@@ -505,6 +507,7 @@ export default function LumiiMvpApp() {
 
   const showBottomTabs = Boolean(session && currentTab);
   const cooldownRemaining = Math.min(60, Math.max(0, Math.ceil((cooldownUntil - clock) / 1000)));
+  const petChatDailyLimit = aiUsage?.daily.petChat.limit ?? fallbackPetChatDailyLimit;
   const pendingVaccines = useMemo(() => vaccines.filter((item) => item.status !== 'done'), [vaccines]);
   const urgentVaccines = useMemo(() => pendingVaccines.filter(isVaccineReminderUrgent), [pendingVaccines]);
 
@@ -750,6 +753,7 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     if (!session || route !== 'chat') return;
     void loadPetChatMessages();
+    void loadAiUsage();
   }, [route, session, activePet?.id]);
 
   useEffect(() => {
@@ -770,7 +774,7 @@ export default function LumiiMvpApp() {
   }, [avatarJob, route]);
 
   async function loadCommonData() {
-    const [profileResult, healthSummaryResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult] = await Promise.all([
+    const [profileResult, healthSummaryResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult, aiUsageResult] = await Promise.all([
       lumiiApi.account.getMe(),
       lumiiApi.health.getHealthSummary(),
       lumiiApi.health.listWeightRecords(),
@@ -784,6 +788,7 @@ export default function LumiiMvpApp() {
       lumiiApi.places.listNearbyPlaces(),
       lumiiApi.places.listFavoritePlaceIds(),
       lumiiApi.places.listMyReviews(),
+      lumiiApi.ai.getUsage(),
     ]);
     if (profileResult.data) {
       const profile = profileResult.data;
@@ -815,7 +820,22 @@ export default function LumiiMvpApp() {
     if (placeResult.data) setPlaces(placeResult.data);
     if (favoritePlaceResult.data) setFavoritePlaceIds(favoritePlaceResult.data);
     if (placeReviewResult.data) setPlaceReviewsByPlaceId(indexPlaceReviewsByPlaceId(placeReviewResult.data));
+    if (aiUsageResult.data) {
+      setAiUsage(aiUsageResult.data);
+      setPetChatDailyCount(aiUsageResult.data.daily.petChat.count);
+    }
     setActivePet((pet) => pet ?? lumiiApi.pets.getActivePet());
+  }
+
+  async function loadAiUsage(options: { silent?: boolean } = { silent: true }) {
+    const result = await lumiiApi.ai.getUsage();
+    if (result.data) {
+      setAiUsage(result.data);
+      setPetChatDailyCount(result.data.daily.petChat.count);
+      return result.data;
+    }
+    if (options.silent === false) showToast(result.error?.message ?? 'AI 用量读取失败');
+    return null;
   }
 
   async function refreshHealthSummary() {
@@ -1385,7 +1405,7 @@ export default function LumiiMvpApp() {
       showToast('等灵伴回复完再继续聊');
       return;
     }
-    if (petChatDailyCount >= petChatDailySoftLimit) {
+    if (petChatDailyCount >= petChatDailyLimit) {
       showToast('今天和灵伴聊得很多啦，稍后再继续');
       return;
     }
@@ -1401,10 +1421,11 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.messages.sendMessage(text);
       setChatMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: result.data ? 'sent' : 'failed' } : item)));
       if (result.data) {
-        setPetChatDailyCount((count) => count + 1);
         setChatMessages((items) => [...items, result.data!]);
+        void loadAiUsage();
       } else {
         showToast(result.error?.message ?? '消息发送失败');
+        void loadAiUsage();
       }
     } finally {
       setChatReplying(false);
@@ -2794,7 +2815,7 @@ export default function LumiiMvpApp() {
             {chatReplying ? <ActivityIndicator color="#fff" size="small" /> : <Send color="#fff" size={18} strokeWidth={2.4} />}
           </Pressable>
         </View>
-        <Text style={styles.chatQuotaHint}>今日 AI 对话 {petChatDailyCount}/{petChatDailySoftLimit} · 失败可重试，优先保留近 10 条上下文</Text>
+        <Text style={styles.chatQuotaHint}>今日 AI 对话 {petChatDailyCount}/{petChatDailyLimit} · 失败可重试，优先保留近 10 条上下文</Text>
       </Screen>
     );
   }
