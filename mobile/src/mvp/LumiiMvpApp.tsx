@@ -780,8 +780,15 @@ export default function LumiiMvpApp() {
     const selectedId = selectedConversationIdRef.current;
     if (!selectedId) return;
     const syncedConversation = conversations.find((conversation) => conversation.id === selectedId);
-    if (syncedConversation) setSelectedConversation(syncedConversation);
-  }, [conversations]);
+    if (syncedConversation) {
+      setSelectedConversation(syncedConversation);
+      return;
+    }
+    if (route === 'conversation') {
+      setSelectedConversation(null);
+      setConversationMessages([createConversationSafetyMessage()]);
+    }
+  }, [conversations, route]);
 
   useEffect(() => {
     if (!selectedPlace?.id) return;
@@ -1776,9 +1783,13 @@ export default function LumiiMvpApp() {
   }
 
   async function sendConversationMessage(textOverride?: string, retryMessageId?: string) {
-    const conversation = selectedConversation ?? conversations[0];
-    const text = (textOverride ?? (conversation ? conversationDraftsById[conversation.id] ?? '' : '')).trim();
-    if (!text || !conversation) return;
+    const conversation = selectedConversation;
+    if (!conversation) {
+      showToast('会话已失效，请返回消息列表重新选择');
+      return;
+    }
+    const text = (textOverride ?? (conversationDraftsById[conversation.id] ?? '')).trim();
+    if (!text) return;
     if (conversation.canSendMessage === false) {
       showToast('对方接受招呼后才能聊天');
       return;
@@ -3261,8 +3272,8 @@ export default function LumiiMvpApp() {
   }
 
   function renderConversation() {
-    const conversation = selectedConversation ?? conversations[0];
-    const canSendMessage = conversation?.canSendMessage !== false;
+    const conversation = selectedConversation;
+    const canSendMessage = Boolean(conversation && conversation.canSendMessage !== false);
     const conversationInput = conversation ? conversationDraftsById[conversation.id] ?? '' : '';
     return (
       <Screen showBack={false} title="">
@@ -3272,10 +3283,10 @@ export default function LumiiMvpApp() {
           </Pressable>
           <PetAvatar uri={conversation?.imageUrl ?? owners[0]?.imageUrl ?? generatedGoldenAvatarUri} size={38} />
           <View style={styles.flex}>
-            <Text style={styles.chatMakeName}>{conversation?.name ?? '附近主人'}</Text>
+            <Text style={styles.chatMakeName}>{conversation?.name ?? '会话已失效'}</Text>
             <View style={styles.chatOnlineRow}>
               <View style={styles.homeOnlineDot} />
-              <Text style={styles.chatOnlineText}>{canSendMessage ? '模糊距离 · 已互相打招呼' : '等待对方接受招呼'}</Text>
+              <Text style={styles.chatOnlineText}>{conversation ? (canSendMessage ? '模糊距离 · 已互相打招呼' : '等待对方接受招呼') : '请返回消息列表重新选择'}</Text>
             </View>
           </View>
           <Pressable onPress={() => go('safety')} style={styles.makeIconChip}>
@@ -3285,36 +3296,46 @@ export default function LumiiMvpApp() {
 
         <View style={styles.chatSafetyTip}>
           <Shield color={palette.teal} size={13} strokeWidth={2.4} />
-          <Text style={styles.chatSafetyText}>{canSendMessage ? '聊天中请勿透露精确住址，线下见面建议选择公开宠物友好地点。' : '对方接受招呼后才能继续聊天，未确认前不会暴露精确位置。'}</Text>
+          <Text style={styles.chatSafetyText}>
+            {conversation ? (canSendMessage ? '聊天中请勿透露精确住址，线下见面建议选择公开宠物友好地点。' : '对方接受招呼后才能继续聊天，未确认前不会暴露精确位置。') : '当前会话已经不可用，请回到消息列表刷新后重新选择。'}
+          </Text>
         </View>
 
         <View style={styles.chatMakeList}>
           <Text style={styles.chatDateChip}>今天</Text>
-          {conversationMessages.map((message) => (
-            message.author === 'system' ? (
-              <View key={message.id} style={styles.conversationSystemBubble}>
-                <Text style={styles.conversationSystemText}>{message.text}</Text>
-              </View>
-            ) : (
-              <View key={message.id} style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
-                {message.author === 'other' ? <PetAvatar uri={conversation?.imageUrl ?? owners[0]?.imageUrl ?? generatedGoldenAvatarUri} size={26} /> : null}
-                <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
-                  <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
+          {conversation ? (
+            conversationMessages.map((message) => (
+              message.author === 'system' ? (
+                <View key={message.id} style={styles.conversationSystemBubble}>
+                  <Text style={styles.conversationSystemText}>{message.text}</Text>
                 </View>
-                {message.status === 'sending' ? <ActivityIndicator color={palette.orange} size="small" /> : null}
-                {message.status === 'failed' ? (
-                  <View style={styles.inlineActionRow}>
-                    <Pressable onPress={() => void sendConversationMessage(message.text, message.id)} style={styles.inlineRetryButton}>
-                      <Text style={styles.inlineRetryText}>重发</Text>
-                    </Pressable>
-                    <Pressable onPress={() => deleteLocalConversationMessage(message.id)} style={styles.inlineDeleteButton}>
-                      <Text style={styles.inlineDeleteText}>删除</Text>
-                    </Pressable>
+              ) : (
+                <View key={message.id} style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
+                  {message.author === 'other' ? <PetAvatar uri={conversation.imageUrl ?? owners[0]?.imageUrl ?? generatedGoldenAvatarUri} size={26} /> : null}
+                  <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
+                    <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
                   </View>
-                ) : null}
-              </View>
-            )
-          ))}
+                  {message.status === 'sending' ? <ActivityIndicator color={palette.orange} size="small" /> : null}
+                  {message.status === 'failed' ? (
+                    <View style={styles.inlineActionRow}>
+                      <Pressable onPress={() => void sendConversationMessage(message.text, message.id)} style={styles.inlineRetryButton}>
+                        <Text style={styles.inlineRetryText}>重发</Text>
+                      </Pressable>
+                      <Pressable onPress={() => deleteLocalConversationMessage(message.id)} style={styles.inlineDeleteButton}>
+                        <Text style={styles.inlineDeleteText}>删除</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                </View>
+              )
+            ))
+          ) : (
+            <View style={styles.mapEmptyCard}>
+              <Text style={styles.cardTitle}>会话已失效</Text>
+              <Text style={styles.mutedText}>对方可能已不可见，或会话状态已刷新。请回到消息列表重新选择。</Text>
+              <Button onPress={() => replace('messages')} tone="secondary">回到消息</Button>
+            </View>
+          )}
         </View>
         <View style={styles.chatComposer}>
           <TextInput
@@ -3322,7 +3343,7 @@ export default function LumiiMvpApp() {
             onChangeText={(text) => {
               if (conversation) setConversationDraft(conversation.id, text);
             }}
-            placeholder={canSendMessage ? '发一条友好的消息...' : '等待对方接受招呼'}
+            placeholder={conversation ? (canSendMessage ? '发一条友好的消息...' : '等待对方接受招呼') : '请先选择会话'}
             placeholderTextColor="#b6aca3"
             style={[styles.chatInput, !canSendMessage && styles.chatInputDisabled, webTextInputReset]}
             value={conversationInput}
