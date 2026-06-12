@@ -639,6 +639,20 @@ function normalizeUserSettings(value) {
   return Object.fromEntries(Object.keys(defaults).map((key) => [key, typeof current[key] === 'boolean' ? current[key] : defaults[key]]));
 }
 
+function parseUserSettingsPatch(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '设置参数无效，请刷新后重试' };
+  }
+  const defaults = defaultUserSettings();
+  const allowedKeys = new Set(Object.keys(defaults));
+  const keys = Object.keys(value);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `设置项 ${unknownKey} 暂不支持` };
+  const invalidKey = keys.find((key) => typeof value[key] !== 'boolean');
+  if (invalidKey) return { error: `设置项 ${invalidKey} 必须是开启或关闭` };
+  return { patch: Object.fromEntries(keys.map((key) => [key, value[key]])) };
+}
+
 function normalizeFavoritePlaceIds(value) {
   if (!Array.isArray(value)) return [];
   const existingPlaceIds = new Set((state.places || []).map((place) => place.id));
@@ -2910,7 +2924,12 @@ async function handle(req, res) {
   }
 
   if (req.method === 'PATCH' && pathname === '/settings') {
-    user.settings = normalizeUserSettings({ ...user.settings, ...body });
+    const settingsPatch = parseUserSettingsPatch(body);
+    if (settingsPatch.error) {
+      fail(res, 400, settingsPatch.error, false, undefined, 'SETTINGS_PATCH_INVALID');
+      return;
+    }
+    user.settings = normalizeUserSettings({ ...user.settings, ...(settingsPatch.patch || {}) });
     if (user.settings.nearbyVisible === false) {
       user.location = null;
       user.lastSeenAt = 0;

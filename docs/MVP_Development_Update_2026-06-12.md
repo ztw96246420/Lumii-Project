@@ -2,6 +2,8 @@
 
 ## 本次进展
 
+- 隐私/通知设置接口校验补强：`PATCH /settings` 现在只接受 `fuzzyLocation`、`interactionMessages`、`nearbyVisible`、`pushNotifications` 四个布尔字段；未知字段或非布尔值返回 `SETTINGS_PATCH_INVALID`，避免联调时字段写错却被静默吞掉。mock API 同步该规则，不新增页面。
+- 文档口径同步：支持清单已把“隐私设置接口”标记为 MVP 已实现；当前剩余仍是黑名单、注销账号、举报等需要 Figma 危险操作设计或用户确认优先级的安全模块。
 - 上传媒体基础文件校验补齐：`POST /media/uploads` 现在会校验 base64 合法性、图片文件头、支持格式和 decoded bytes 上限；新增/同步 `invalid_file`、`unsupported_format`、`file_too_large` 三类分析码。该能力复用现有上传失败/识别结果页，不新增页面、不接真实视觉识别模型。
 - mock API 同步上传校验：本地 mock 会按同一套 `PetMediaAnalysis` 结构返回格式不支持、文件损坏、文件过大、低清晰度等状态，避免 Web/本地演示和云端接口口径分裂。
 - 文档口径同步：`API_Contract_MVP_v0.md`、`MVP_Development_Support_Checklist_v0.md` 和 `Figma_Make_Missing_Page_Prompts_2026-06-06.md` 已把“基础图片上传校验”标记为 MVP 已实现；生产对象存储直传、视频支持、自动压缩、EXIF 清理、真实视觉识别模型和多候选 UI 仍作为后续项。
@@ -86,6 +88,10 @@
 
 ## 验证
 
+- `node --check scripts/lumii-backend.cjs` 通过，覆盖设置 patch 校验和上传文件校验改动。
+- `npm run typecheck` 通过，覆盖 mock API 设置 patch 校验。
+- 临时本地后端验证通过：`PATCH /settings` 写入 `nearbyVisible=false` 成功并清空附近曝光；未知字段返回 `SETTINGS_PATCH_INVALID`；非布尔值返回 `SETTINGS_PATCH_INVALID`。
+- 腾讯云测试后端已热更新并验证通过：公网 `/health` 返回 `success`；合法 `PATCH /settings` 写入成功，未知字段和非布尔值均返回 `SETTINGS_PATCH_INVALID`。
 - `node --check scripts/lumii-backend.cjs` 通过，覆盖上传文件校验改动。
 - `npm run typecheck` 通过，覆盖 `PetMediaAnalysis.code` 新增状态和 mock API 同步。
 - 临时本地后端验证通过：合法 1x1 PNG 上传返回 `low_quality` warning；非法 base64 返回 `invalid_file`；PDF/不支持 MIME 返回 `unsupported_format`；临时调低上传上限后返回 `file_too_large`。

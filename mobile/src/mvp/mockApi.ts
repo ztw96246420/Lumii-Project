@@ -74,6 +74,20 @@ let mockUserSettings: UserSettings = {
   pushNotifications: true,
 };
 
+function parseMockUserSettingsPatch(value: Partial<UserSettings>) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '设置参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(['fuzzyLocation', 'interactionMessages', 'nearbyVisible', 'pushNotifications']);
+  const source = value as Record<string, unknown>;
+  const keys = Object.keys(source);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `设置项 ${unknownKey} 暂不支持` };
+  const invalidKey = keys.find((key) => typeof source[key] !== 'boolean');
+  if (invalidKey) return { error: `设置项 ${invalidKey} 必须是开启或关闭` };
+  return { patch: source as Partial<UserSettings> };
+}
+
 const goldenRetrieverPhotoUrl =
   'https://images.unsplash.com/photo-1625794084867-8ddd239946b1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=720';
 const goldenRetrieverAvatarUrl =
@@ -1154,7 +1168,9 @@ export const mockApi = {
 
     async updateUserSettings(patch: Partial<UserSettings>): Promise<ApiResult<UserSettings>> {
       await wait(120);
-      mockUserSettings = { ...mockUserSettings, ...patch };
+      const settingsPatch = parseMockUserSettingsPatch(patch);
+      if (settingsPatch.error) return error<UserSettings>(settingsPatch.error, false, undefined, 'SETTINGS_PATCH_INVALID');
+      mockUserSettings = { ...mockUserSettings, ...(settingsPatch.patch ?? {}) };
       return success(mockUserSettings);
     },
   },

@@ -293,6 +293,8 @@ Response:
 保存当前账号设置。
 
 说明：
+- 当前只接受 `fuzzyLocation`、`interactionMessages`、`nearbyVisible`、`pushNotifications` 四个布尔字段。
+- 传入未知字段或非布尔值时返回 400，`error.code=SETTINGS_PATCH_INVALID`，不会静默吞掉错误字段。
 - `nearbyVisible=false` 后，其他用户的附近发现列表不会再出现该账号；测试后端会清空该账号已保存的位置和在线曝光时间。
 - `fuzzyLocation=true` 后，测试后端只持久化约 1km 粒度的位置；从 `false` 切回 `true` 时，会立即把已保存的精确位置粗化。
 - `pushNotifications=false` 后，测试后端不再为该账号生成新的健康、互动、地点审核通知；历史通知不会自动删除。

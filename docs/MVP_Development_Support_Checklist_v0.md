@@ -103,7 +103,7 @@
 需要支持：
 - ~~用户资料接口。~~ MVP 测试后端已支持 `GET /me`、`PATCH /me`，App 会在通用数据加载时同步 ownerName、手机号、当前宠物、权限和设置。
 - ~~多宠管理接口。~~ MVP 测试后端已支持宠物列表、创建、详情、编辑、删除、设置当前宠物；多宠管理页面和删除二次确认仍需 Figma 设计。
-- 隐私设置接口。
+- ~~隐私设置接口。~~ MVP 测试后端已通过 `GET /settings`、`PATCH /settings` 支持 `fuzzyLocation`、`nearbyVisible`、`interactionMessages`、`pushNotifications`；非法字段/非布尔值会返回 `SETTINGS_PATCH_INVALID`，避免静默吞掉字段错误。
 - 黑名单接口。
 - 账号注销流程。
 - ~~未接入危险操作不做 mock 成功反馈。~~ 当前账号安全/安全中心未接入项仅展示“后续开放”，不会假提交举报、拉黑或注销。
@@ -337,7 +337,7 @@ Android 调用：
 
 需要接口：
 - ~~`GET /privacy-settings`。~~ MVP 测试后端已用 `GET /settings` 返回 `fuzzyLocation`、`nearbyVisible`、`interactionMessages`、`pushNotifications`。
-- ~~`PATCH /privacy-settings`。~~ MVP 测试后端已用 `PATCH /settings` 保存隐私与通知开关；`nearbyVisible=false` 会影响附近发现曝光，并会清空已保存位置和在线曝光时间。关闭后刷新发现页仍可临时查询附近伙伴，但不会持久化本次定位。`fuzzyLocation=true` 会把服务端持久化定位限制到约 1km 粒度，从关闭切回开启时会立即粗化已保存精确位置。
+- ~~`PATCH /privacy-settings`。~~ MVP 测试后端已用 `PATCH /settings` 保存隐私与通知开关；只接受 `fuzzyLocation`、`nearbyVisible`、`interactionMessages`、`pushNotifications` 四个布尔字段，非法 patch 返回 `SETTINGS_PATCH_INVALID`；`nearbyVisible=false` 会影响附近发现曝光，并会清空已保存位置和在线曝光时间。关闭后刷新发现页仍可临时查询附近伙伴，但不会持久化本次定位。`fuzzyLocation=true` 会把服务端持久化定位限制到约 1km 粒度，从关闭切回开启时会立即粗化已保存精确位置。
 - `GET /blocks`。
 - `DELETE /blocks/{userId}`。
 - ~~`POST /feedback`。~~ MVP 测试后端和 mock API 已支持普通产品反馈提交；当前 App 暂不暴露正式反馈表单，举报/拉黑仍按优先级暂缓。
