@@ -2,6 +2,10 @@
 
 ## 本次进展
 
+- MVP 登录态 token 安全性补强：测试后端登录成功和 `POST /auth/token/refresh` 现在返回 `lumii-v1.<payload>.<signature>` HMAC 签名 token，默认有效期 30 天；后端验签、验过期后才解析手机号，同时继续兼容旧 `lumii-local-手机号`，避免历史测试包突然失效。该能力不新增页面，属于 API/后端逻辑。
+- 文档口径同步：`API_Contract_MVP_v0.md`、`Auth_Session_Persistence_2026-06-11.md`、`MVP_Development_Support_Checklist_v0.md` 和 `Figma_Make_Missing_Page_Prompts_2026-06-06.md` 已把 MVP 签名 token 标记为已实现；缺页清单不再把它写成需要你补 Figma 的页面。
+- 本地临时后端验证通过：短信登录返回签名 token，`GET /me` 可验签读取手机号，`POST /auth/token/refresh` 返回新签名 token，旧 `lumii-local-手机号` 仍可兼容，篡改 token 和过期 token 均返回 401。
+- 腾讯云测试后端已热更新并重启 `lumii-backend.service`；公网验证通过：`/health` 返回 `state=success`，测试账号登录返回 `lumii-v1` token，新 token/旧兼容 token 均可读取 `/me`，伪造 token 返回 `error.code=AUTH_REQUIRED`。
 - 短信验证码频控补齐：`POST /auth/sms/send` 在原有单手机号 60s 冷却基础上新增每日发送上限，默认 `SMS_DAILY_LIMIT=50`；mock API 同步该规则，现有登录 toast/倒计时承载错误提示，不需要新增 Figma 页面。
 - 文档口径同步：`API_Contract_MVP_v0.md`、`MVP_Development_Support_Checklist_v0.md` 和 `Figma_Make_Missing_Page_Prompts_2026-06-06.md` 已把短信每日频控标记为 MVP 已实现，生产仍保留 IP/设备级风控、真实随机验证码和短信回执待确认。
 - 短信验证码 IP/设备级基础风控补齐：App 发验证码时会带本地安装级 `deviceId`；测试后端新增单设备每日上限和单 IP 每日上限，默认 `SMS_DEVICE_DAILY_LIMIT=80`、`SMS_IP_DAILY_LIMIT=150`；mock API 同步单设备每日上限。该能力复用现有登录 toast，不新增页面。

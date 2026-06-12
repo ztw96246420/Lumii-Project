@@ -118,7 +118,7 @@
 - ~~`POST /auth/sms/verify`：校验验证码并登录/注册。~~ MVP 测试后端已支持。
 - ~~`POST /auth/logout`：退出登录。~~ MVP 测试后端和 App 本地清缓存流程已支持。
 - ~~退出后本机状态清理。~~ App 退出账号或 token 失效时会清除手机号/验证码、会话、当前宠物、AI 用量、聊天反馈、消息/通知、发现/地图/地点选择、健康草稿和各类 loading 状态，避免切号后残留旧账号数据。
-- ~~`POST /auth/token/refresh`：刷新 token。~~ MVP 测试后端已支持；App 启动恢复本地 session 时会先刷新账号快照，401 才清缓存回登录。
+- ~~`POST /auth/token/refresh`：刷新 token。~~ MVP 测试后端已支持签名登录态 token 刷新；App 启动恢复本地 session 时会先刷新账号快照，成功后滚动更新 `lumii-v1.<payload>.<signature>` token，401 才清缓存回登录；旧 `lumii-local-手机号` 仅作历史兼容。
 - ~~`GET /me`：当前用户资料。~~ MVP 测试后端已支持，App 会用于“我的页”等用户资料同步。
 - ~~`PATCH /me`：更新用户资料。~~ MVP 测试后端已支持更新 `ownerName`；完整资料编辑页仍需后续设计。
 - `POST /account/delete/request`：发起账号注销。
@@ -441,7 +441,8 @@ P2 后续：
 - `support`：`submitFeedback`
 
 仍需要你/后端/设计优先补充：
-- ~~统一错误码结构。~~ MVP 已统一 `state/error.code/error.message/error.retryable`，App 仍优先展示中文 `message`；API Base URL 和生产鉴权方案继续保留。
+- ~~统一错误码结构。~~ MVP 已统一 `state/error.code/error.message/error.retryable`，App 仍优先展示中文 `message`。
+- ~~MVP 登录态 token 方案。~~ 测试后端已使用 HMAC 签名 token，默认 30 天有效期，支持 `AUTH_TOKEN_TTL_MS`、`LUMII_TOKEN_SECRET`/`AUTH_TOKEN_SECRET` 配置和刷新滚动签发；生产鉴权方案仍需确认 access/refresh token、撤销列表、多端设备和安全审计。
 - 短信后端代理接口，避免在 App 内暴露短信服务地址。
 - ~~宠物物种、品种、性格标签字典；猫狗 P0 完整，兔子/仓鼠/鹦鹉/爬宠先基础档案。~~ MVP 种子字典已落地；后续只需补正式运营版品种库和非猫狗健康模板。
 - AI 真实卡通化参考样张 5-10 张，以及“重新生成/不像我的宠物/局部调整”的交互规则。
@@ -454,7 +455,7 @@ P2 后续：
 2026-05-30 追加：
 - 已新增接口契约草案：`docs/API_Contract_MVP_v0.md`。
 - 已新增前端 API 门面：`mobile/src/mvp/api.ts`。
-- 后端对接时，请优先按契约确认 `EXPO_PUBLIC_API_BASE_URL`、统一返回结构、错误码、鉴权 token、短信频控、上传与 AI 生成任务状态。
+- 后端对接时，请优先按契约确认 `EXPO_PUBLIC_API_BASE_URL`、统一返回结构、错误码、生产鉴权 token 方案、短信频控、上传与 AI 生成任务状态；MVP 测试后端的签名 token 已可继续联调。
 - 已确认 MVP 宠物类型首版先完整支持猫、狗；兔子、仓鼠、鹦鹉、爬宠等保留后续扩展。
 - 已确认打招呼暂不限制次数，但前端保留配置口，后续可按每日次数或风控策略调整。
 - 已确认附近距离采用模糊显示，不暴露精确距离。

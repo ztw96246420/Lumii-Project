@@ -10,6 +10,8 @@ const SMS_TTL_MS = Number(process.env.SMS_TTL_MS || 5 * 60 * 1000);
 const SMS_DAILY_LIMIT = Number(process.env.SMS_DAILY_LIMIT || '50');
 const SMS_DEVICE_DAILY_LIMIT = Number(process.env.SMS_DEVICE_DAILY_LIMIT || '80');
 const SMS_IP_DAILY_LIMIT = Number(process.env.SMS_IP_DAILY_LIMIT || '150');
+const AUTH_TOKEN_TTL_MS = Number(process.env.AUTH_TOKEN_TTL_MS || 30 * 24 * 60 * 60 * 1000);
+const AUTH_TOKEN_SECRET = process.env.LUMII_TOKEN_SECRET || process.env.AUTH_TOKEN_SECRET || 'lumii-mvp-dev-token-secret';
 const ONLINE_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_DISCOVER_RADIUS_KM = 3;
 const FUZZY_LOCATION_GRID_DEGREES = 0.01;
@@ -478,11 +480,70 @@ function fuzzyDistance(distanceKm) {
   return '5km 外';
 }
 
+function base64UrlEncode(value) {
+  return Buffer.from(value, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function base64UrlDecode(value) {
+  const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  return Buffer.from(padded, 'base64').toString('utf8');
+}
+
+function authTokenSignature(payloadPart) {
+  return crypto
+    .createHmac('sha256', AUTH_TOKEN_SECRET)
+    .update(payloadPart)
+    .digest('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function safeEqualText(leftText, rightText) {
+  const left = Buffer.from(String(leftText || ''));
+  const right = Buffer.from(String(rightText || ''));
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function createAuthToken(phone) {
+  const now = Date.now();
+  const payloadPart = base64UrlEncode(
+    JSON.stringify({
+      exp: now + AUTH_TOKEN_TTL_MS,
+      iat: now,
+      phone,
+      version: 1,
+    })
+  );
+  return `lumii-v1.${payloadPart}.${authTokenSignature(payloadPart)}`;
+}
+
+function phoneFromSignedToken(token) {
+  try {
+    const [prefix, payloadPart, signature] = String(token || '').split('.');
+    if (prefix !== 'lumii-v1' || !payloadPart || !signature) return '';
+    if (!safeEqualText(signature, authTokenSignature(payloadPart))) return '';
+    const payload = JSON.parse(base64UrlDecode(payloadPart));
+    if (payload?.version !== 1) return '';
+    if (Number(payload.exp || 0) < Date.now()) return '';
+    return normalizePhone(payload.phone);
+  } catch (_) {
+    return '';
+  }
+}
+
 function phoneFromRequest(req) {
   const header = req.headers.authorization || '';
-  const token = header.replace(/^Bearer\s+/i, '');
-  if (!token.startsWith('lumii-local-')) return '';
-  return token.slice('lumii-local-'.length);
+  const token = String(header).replace(/^Bearer\s+/i, '').trim();
+  if (!token) return '';
+  if (token.startsWith('lumii-v1.')) return phoneFromSignedToken(token);
+  if (token.startsWith('lumii-local-')) return normalizePhone(token.slice('lumii-local-'.length));
+  return '';
 }
 
 function ensureUser(phone) {
@@ -2527,7 +2588,7 @@ async function handle(req, res) {
     const user = ensureUser(phone);
     user.lastSeenAt = Date.now();
     saveState();
-    ok(res, { account: buildAccountSnapshot(user), phone, token: `lumii-local-${phone}` });
+    ok(res, { account: buildAccountSnapshot(user), phone, token: createAuthToken(phone) });
     return;
   }
 
@@ -2564,7 +2625,7 @@ async function handle(req, res) {
   if (!user) return;
 
   if (req.method === 'POST' && pathname === '/auth/token/refresh') {
-    ok(res, { account: buildAccountSnapshot(user), phone: user.phone, token: `lumii-local-${user.phone}` });
+    ok(res, { account: buildAccountSnapshot(user), phone: user.phone, token: createAuthToken(user.phone) });
     return;
   }
 

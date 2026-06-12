@@ -13,7 +13,7 @@
 
 - 真机：使用 `expo-secure-store` 保存会话。
 - Web 预览：使用 `localStorage` 作为 fallback。
-- API token 仍沿用 MVP 的 `lumii-local-手机号` 格式，后续正式后端需要替换为服务端签发 token。
+- ~~API token 仍沿用 MVP 的 `lumii-local-手机号` 格式，后续正式后端需要替换为服务端签发 token。~~ 当前 MVP 测试后端已改为签发 `lumii-v1.<payload>.<signature>` HMAC 登录态 token，默认有效期 30 天，并通过 `POST /auth/token/refresh` 滚动刷新；旧 `lumii-local-手机号` 仅为兼容已安装测试包和历史缓存暂时保留。
 
 ## 后续正式版建议
 

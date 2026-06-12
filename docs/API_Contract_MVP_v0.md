@@ -154,7 +154,7 @@ Response:
       }
     },
     "phone": "13531850966",
-    "token": "jwt-or-session-token"
+    "token": "lumii-v1.<payload>.<signature>"
   }
 }
 ```
@@ -170,8 +170,10 @@ Response:
 Request:
 
 ```http
-Authorization: Bearer jwt-or-session-token
+Authorization: Bearer lumii-v1.<payload>.<signature>
 ```
+
+Token 说明：MVP 测试后端当前签发 `lumii-v1.<payload>.<signature>` 格式的 HMAC 登录态 token，默认有效期 30 天，可用 `AUTH_TOKEN_TTL_MS` 调整；签名密钥来自 `LUMII_TOKEN_SECRET` 或 `AUTH_TOKEN_SECRET`。`POST /auth/token/refresh` 会滚动返回新 token。为了不影响已安装测试包，后端暂时兼容旧 `lumii-local-手机号` token；生产版本仍建议替换为正式 access token / refresh token 体系。
 
 Response:
 
@@ -195,7 +197,7 @@ Response:
       }
     },
     "phone": "13531850966",
-    "token": "jwt-or-session-token"
+    "token": "lumii-v1.<payload>.<signature>"
   }
 }
 ```
@@ -1182,8 +1184,8 @@ LegalDocument
 
 ## 11. P0 待后端确认
 
-- 统一错误码表：短信、登录、上传、AI、地图、社交、健康、权限。
-- 鉴权 token 刷新机制和 401 处理。
+- ~~统一错误码表：短信、登录、上传、AI、地图、社交、健康、权限。~~ MVP 测试后端已统一 `error.code`；生产仍可继续细化埋点级错误码和后台统计。
+- ~~鉴权 token 刷新机制和 401 处理。~~ MVP 测试后端已支持签名登录态 token、`POST /auth/token/refresh` 和 401 回登录处理；生产 access/refresh token、撤销列表和多端管理仍待正式后端方案确认。
 - ~~短信频控规则：单手机号、单 IP、单设备、每日上限。~~ 当前测试后端已做单手机号 60s 冷却、单手机号每日上限、单设备每日上限和单 IP 每日上限；生产仍需补真实随机验证码、短信服务商回执、黑名单/WAF/验证码风控平台等更完整策略。
 - 上传文件限制：图片大小、格式、视频时长、EXIF 清理。
 - ~~地图供应商：已确认 MVP 首发优先高德地图。~~ Android 高德 Key 与 SDK 已接入；仍需确认 POI 数据来源、自有地点库边界、iOS Key/SDK 和外部导航规则。
