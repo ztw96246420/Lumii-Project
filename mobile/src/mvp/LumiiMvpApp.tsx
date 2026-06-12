@@ -494,6 +494,8 @@ export default function LumiiMvpApp() {
 
   const go = useCallback(
     (nextRoute: AppRoute) => {
+      if (nextRoute === route) return;
+      exitBackPressedAtRef.current = 0;
       setHistory((items) => [...items, route]);
       setRoute(nextRoute);
     },
@@ -501,6 +503,13 @@ export default function LumiiMvpApp() {
   );
 
   const replace = useCallback((nextRoute: AppRoute) => {
+    exitBackPressedAtRef.current = 0;
+    setRoute(nextRoute);
+  }, []);
+
+  const resetTo = useCallback((nextRoute: AppRoute) => {
+    exitBackPressedAtRef.current = 0;
+    setHistory([]);
     setRoute(nextRoute);
   }, []);
 
@@ -533,8 +542,7 @@ export default function LumiiMvpApp() {
       }
 
       if (tabBackToHomeRoutes.has(route)) {
-        setHistory([]);
-        replace(activePet ? 'home' : 'emptyPet');
+        resetTo(activePet ? 'home' : 'emptyPet');
         return true;
       }
 
@@ -554,7 +562,7 @@ export default function LumiiMvpApp() {
     });
 
     return () => subscription.remove();
-  }, [activePet, back, confirm, mapStylePanelVisible, replace, route, showToast]);
+  }, [activePet, back, confirm, mapStylePanelVisible, resetTo, route, showToast]);
 
   useEffect(() => {
     let mounted = true;
@@ -613,6 +621,7 @@ export default function LumiiMvpApp() {
 
   useEffect(() => {
     const previousRoute = previousRouteRef.current;
+    if (previousRoute !== route) exitBackPressedAtRef.current = 0;
     if (route === 'home' && previousRoute !== 'home') {
       setHomeHintIndex((index) => (index + 1) % homeChatPrompts.length);
     }
@@ -3853,7 +3862,7 @@ export default function LumiiMvpApp() {
               {tabItems.map(({ Icon, ...item }) => {
                 const selected = currentTab === item.route;
                 return (
-                  <Pressable key={item.route} onPress={() => replace(item.route)} style={[styles.tabItem, selected && styles.tabItemActive, webPressableReset]}>
+                  <Pressable key={item.route} onPress={() => resetTo(item.route)} style={[styles.tabItem, selected && styles.tabItemActive, webPressableReset]}>
                     <Icon color={selected ? palette.orange : palette.muted} size={20} strokeWidth={selected ? 2.4 : 2} />
                     <Text style={[styles.tabText, selected && styles.tabTextActive]}>{item.label}</Text>
                   </Pressable>
