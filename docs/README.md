@@ -36,6 +36,7 @@
 | --- | --- | --- |
 | [Design_Gate_Rule_2026-06-06.md](./Design_Gate_Rule_2026-06-06.md) | 当前强约束 | 新页面和复杂状态的设计门禁 |
 | [Figma_Make_Missing_Page_Prompts_2026-06-06.md](./Figma_Make_Missing_Page_Prompts_2026-06-06.md) | 当前待补设计提示词 | 后续需要用户在 Figma Make 生成的页面/状态 |
+| [Figma_Make_Component_Audit_2026-06-12.md](./Figma_Make_Component_Audit_2026-06-12.md) | 当前组件审计 | Figma Make Button/Dialog/Toast/Bottom Sheet/Field/Tag 规则 |
 | [Figma_Make_To_RN_Migration_2026-06-02.md](./Figma_Make_To_RN_Migration_2026-06-02.md) | 参考 | Figma Make 源码到 React Native 的迁移规则 |
 | [Figma_Make_Parity_Audit_2026-06-03.md](./Figma_Make_Parity_Audit_2026-06-03.md) | 历史参考 | Figma Make 对齐审计记录 |
 | [Figma_Make_Parity_Audit_Update_2026-06-05.md](./Figma_Make_Parity_Audit_Update_2026-06-05.md) | 历史参考 | Figma Make 对齐补充记录 |

@@ -29,7 +29,7 @@
 - ~~今日小事页心情标签与 AI 帮写草稿。~~ 当前心情标签可选中，“AI 帮我写”按宠物名、心情、体重/疫苗摘要生成本地草稿并继续走健康备忘保存链路；不接新模型、不新增接口。
 - ~~新增地点页特色标签。~~ 当前可遛狗、饮水点、室内友好、停车方便可选中并合并进提交审核内容；仅选择标签也能形成有效体验描述；不新增页面。
 - ~~我的页入口误导。~~ 当前宠物区“多宠管理”已改成“查看档案”，通知入口已改成“通知中心”并显示未读数，个人资料编辑铅笔点击会明确提示需补 Figma 后开放；不做假跳转。
-- 个人资料编辑页仍需 Figma Make 设计：已记录到 `Figma_Make_Missing_Page_Prompts_2026-06-06.md`，后续补齐后再接 `PATCH /me`。
+- ~~个人资料编辑、多宠管理、健康备忘编辑/删除、体重编辑/删除/异常状态仍需 Figma Make 设计。~~ 新版 `Lumii Project - Opus4.7 (2).zip` 已补齐对应页面/状态；App 已接 `ownerEdit`、`multiPet`、`memoEdit` 和体重编辑 Bottom Sheet，并接入对应前后端逻辑。
 
 ## 1. 当前开发前提
 
@@ -126,8 +126,8 @@
 我的 -> 多宠管理/设置隐私/账号安全/举报安全 -> 保存设置或提交请求 -> 反馈状态。
 
 需要支持：
-- ~~用户资料接口。~~ MVP 测试后端已支持 `GET /me`、`PATCH /me`，App 会在通用数据加载时同步 ownerName、手机号、当前宠物、权限和设置。
-- ~~多宠管理接口。~~ MVP 测试后端已支持宠物列表、创建、详情、编辑、删除、设置当前宠物；多宠管理页面和删除二次确认仍需 Figma 设计。
+- ~~用户资料接口。~~ MVP 测试后端已支持 `GET /me`、`PATCH /me`，App 会在通用数据加载时同步 ownerName、ownerBio、ownerAvatarUrl、手机号、当前宠物、权限和设置；个人资料编辑页已可保存昵称、简介和头像 URL 占位。
+- ~~多宠管理接口。~~ MVP 测试后端已支持宠物列表、创建、详情、编辑、删除、设置当前宠物；多宠管理页面、切换 loading、删除二次确认已接入。
 - ~~隐私设置接口。~~ MVP 测试后端已通过 `GET /settings`、`PATCH /settings` 支持 `fuzzyLocation`、`nearbyVisible`、`interactionMessages`、`pushNotifications`；非法字段/非布尔值会返回 `SETTINGS_PATCH_INVALID`，避免静默吞掉字段错误。
 - 黑名单接口。
 - 账号注销流程。
@@ -289,11 +289,11 @@ Android 调用：
 - ~~`GET /pets/{petId}/health/summary`：首页健康摘要。~~ 测试后端已接 `GET /health/summary`，按当前宠物聚合健康分、最近体重、疫苗/驱虫计划、健康备忘和提醒开关；首页/健康页已有基础 UI，不需要新增设计页面。
 - ~~`GET /pets/{petId}/health/calendar`：健康日历。~~ 测试后端已接 `GET /health/calendar`，按当前宠物聚合体重、疫苗和健康备忘；健康日历独立 UI 仍需 Figma Make 页面设计。
 - ~~`POST /pets/{petId}/health/memos`：新增健康备忘。~~ 测试后端已接 `POST /health/memos`，按当前宠物持久化。
-- ~~`PATCH /pets/{petId}/health/memos/{memoId}`：编辑健康备忘。~~ 测试后端已接 `PATCH /health/memos/{memoId}`，按当前宠物持久化；字段白名单、标题/内容长度和错误码已补，UI 仍需 Figma 编辑态。
-- ~~`DELETE /pets/{petId}/health/memos/{memoId}`：删除健康备忘。~~ 测试后端已接 `DELETE /health/memos/{memoId}`，按当前宠物持久化；UI 仍需 Figma 删除确认。
+- ~~`PATCH /pets/{petId}/health/memos/{memoId}`：编辑健康备忘。~~ 测试后端已接 `PATCH /health/memos/{memoId}`，按当前宠物持久化；字段白名单、标题/内容长度、错误码和 RN 编辑页已补。
+- ~~`DELETE /pets/{petId}/health/memos/{memoId}`：删除健康备忘。~~ 测试后端已接 `DELETE /health/memos/{memoId}`，按当前宠物持久化；RN 已补删除二次确认和删除后列表回显。
 - ~~`POST /pets/{petId}/weights`：记录体重。~~ 测试后端已接 `POST /health/weights`，按当前宠物持久化并同步宠物体重；字段白名单、真实日期、0-200kg 和备注长度校验已补。
-- ~~`PATCH /pets/{petId}/weights/{weightId}`：编辑历史体重。~~ 测试后端已接 `PATCH /health/weights/{weightId}`，按当前宠物持久化；字段白名单、真实日期、0-200kg 和备注长度校验已补，UI 仍需 Figma 编辑弹层。
-- ~~`DELETE /pets/{petId}/weights/{weightId}`：删除历史体重。~~ 测试后端已接 `DELETE /health/weights/{weightId}`，删除后会回填/清空当前宠物体重；UI 仍需 Figma 删除二次确认。
+- ~~`PATCH /pets/{petId}/weights/{weightId}`：编辑历史体重。~~ 测试后端已接 `PATCH /health/weights/{weightId}`，按当前宠物持久化；字段白名单、真实日期、0-200kg、备注长度校验和 RN 编辑 Bottom Sheet 已补。
+- ~~`DELETE /pets/{petId}/weights/{weightId}`：删除历史体重。~~ 测试后端已接 `DELETE /health/weights/{weightId}`，删除后会回填/清空当前宠物体重；RN 已补删除二次确认。
 - ~~`GET /pets/{petId}/weights/trend`：体重趋势。~~ 测试后端已接 `GET /health/weights/trend`，按当前宠物返回轻量趋势摘要；趋势详情 UI 仍需 Figma 设计。
 - ~~`GET /pets/{petId}/vaccines/plan`：疫苗计划。~~ 测试后端已接 `GET /health/vaccines`。
 - ~~`PATCH /pets/{petId}/vaccines/plan`：更新疫苗计划。~~ 测试后端已接 `PATCH /health/vaccines/{vaccineId}`，支持标记完成；只接受 `due/done/overdue` 状态，非法字段或非法状态返回 `HEALTH_VACCINE_INVALID`。

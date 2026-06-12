@@ -1,5 +1,16 @@
 # MVP Development Update 2026-06-12
 
+## 2026-06-12 本轮补充：新版 Figma Make 页面与组件规则接入
+
+- 新版源码包：已解压审计 `Lumii Project - Opus4.7 (2).zip`，新增页面覆盖 Screen81-101，包括多宠管理与切换、个人资料编辑、健康备忘编辑/删除、体重趋势/编辑/删除/异常状态。
+- 组件规则收敛：根据新版 Make 源码，把 RN 基础 `Button`、`Toast`、`ConfirmDialog` 向白底顶部 Toast、14px 圆角按钮、柔和危险确认弹窗靠拢；新增体重编辑 Bottom Sheet 和多个表单/字段/提示样式。
+- 多宠管理：新增 `multiPet` 路由，支持宠物列表、当前宠物 hero、切换 loading、切换成功 toast、添加宠物入口、删除二次确认；接 `GET /pets`、`POST /pets/{id}/set-default`、`DELETE /pets/{id}`，切换后刷新健康/体重/疫苗/备忘/AI 用量。
+- 个人资料编辑：新增 `ownerEdit` 路由，支持头像选择占位、主人昵称、手机号只读、个人简介、字段长度校验、保存 loading；测试后端和 mock API 的 `PATCH /me` 已扩展 `ownerName`、`ownerBio`、`ownerAvatarUrl`。
+- 健康备忘编辑/删除：新增 `memoEdit` 路由，备忘列表项可进入编辑，支持标题/内容校验、保存、删除二次确认、删除后回列表并刷新健康摘要。
+- 体重页增强：体重页新增趋势卡、SVG 折线、稳定/异常提示、历史记录点击编辑、底部编辑 Sheet、保存和删除二次确认、空状态；复用已有体重 PATCH/DELETE 接口。
+- 文档口径同步：Figma 缺失清单已把以上四组页面/状态划线标记为已补齐；支持清单已移除“仍需 Figma”的旧口径。
+- 验证：`cd mobile && npm run typecheck` 通过。
+
 ## 2026-06-12 本轮补充：现有页面业务入口收口
 
 - 优先级确认：后续主线继续放在“现有页面、不新增接口、不新增外部模型”的业务闭环和状态一致性；灰产词库扩展、复杂内容审核、举报拉黑细分流程暂不抢 MVP 主线。

@@ -23,6 +23,8 @@ export type AuthSession = {
 
 export type AccountSnapshot = {
   activePet: PetProfile | null;
+  ownerAvatarUrl?: string;
+  ownerBio?: string;
   ownerName?: string;
   permissions: PermissionStateMap;
   permissionsOnboardingCompleted: boolean;
@@ -405,9 +407,12 @@ export type AppRoute =
   | 'home'
   | 'login'
   | 'map'
+  | 'memoEdit'
   | 'messages'
+  | 'multiPet'
   | 'notifications'
   | 'otp'
+  | 'ownerEdit'
   | 'permissions'
   | 'petDetail'
   | 'petInfo'

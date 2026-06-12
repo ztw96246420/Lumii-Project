@@ -58,6 +58,8 @@ const MOCK_MEDIA_UPLOAD_MAX_BASE64_CHARS = 12_000_000;
 
 let currentMockPhone = '13800138000';
 let mockOwnerName = '灵伴用户';
+let mockOwnerBio = '';
+let mockOwnerAvatarUrl = '';
 let pets: PetProfile[] = [];
 let activePetId = '';
 let generationProgressById: Record<string, number> = {};
@@ -1240,12 +1242,18 @@ export const mockApi = {
       return success(buildMockUserProfile());
     },
 
-    async updateMe(patch: Partial<Pick<UserProfile, 'ownerName'>>): Promise<ApiResult<UserProfile>> {
+    async updateMe(patch: Partial<Pick<UserProfile, 'ownerAvatarUrl' | 'ownerBio' | 'ownerName'>>): Promise<ApiResult<UserProfile>> {
       await wait(120);
       const ownerName = String(patch.ownerName ?? '').trim();
+      const ownerBio = String(patch.ownerBio ?? '').trim();
+      const ownerAvatarUrl = String(patch.ownerAvatarUrl ?? '').trim();
       if (!ownerName) return error('请输入昵称', false);
-      if (ownerName.length > 16) return error('昵称最多 16 个字', false);
+      if (ownerName.length > 14) return error('昵称最多 14 个字', false);
+      if (ownerBio.length > 60) return error('简介最多 60 个字', false);
+      if (ownerAvatarUrl.length > 2000) return error('头像地址过长，请重新选择', false);
       mockOwnerName = ownerName;
+      mockOwnerBio = ownerBio;
+      mockOwnerAvatarUrl = ownerAvatarUrl;
       return success(buildMockUserProfile());
     },
   },
@@ -1979,6 +1987,8 @@ export const mockApi = {
 function buildMockAccountSnapshot(): AccountSnapshot {
   return {
     activePet: pets.find((pet) => pet.id === activePetId) ?? pets[0] ?? null,
+    ownerAvatarUrl: mockOwnerAvatarUrl,
+    ownerBio: mockOwnerBio,
     ownerName: mockOwnerName,
     permissions: mockPermissions,
     permissionsOnboardingCompleted: mockPermissionsOnboardingCompleted,

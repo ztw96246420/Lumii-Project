@@ -606,6 +606,8 @@ function ensureUser(phone) {
       createdAt: Date.now(),
       lastSeenAt: 0,
       location: null,
+      ownerAvatarUrl: '',
+      ownerBio: '',
       ownerName: `用户${suffix}`,
       favoritePlaceIds: [],
       permissions: defaultPermissionState(),
@@ -1079,6 +1081,8 @@ function buildAccountSnapshot(user) {
   const permissions = normalizePermissionState(user.permissions);
   return {
     activePet: selectedPetFor(user),
+    ownerAvatarUrl: user.ownerAvatarUrl || '',
+    ownerBio: user.ownerBio || '',
     ownerName: user.ownerName || `用户${user.phone.slice(-4)}`,
     permissions,
     permissionsOnboardingCompleted: Boolean(user.permissionsOnboardingCompleted || allPermissionsGranted(permissions)),
@@ -3102,15 +3106,27 @@ async function handle(req, res) {
 
   if (req.method === 'PATCH' && pathname === '/me') {
     const ownerName = String(body.ownerName || '').trim();
+    const ownerBio = String(body.ownerBio || '').trim();
+    const ownerAvatarUrl = String(body.ownerAvatarUrl || '').trim();
     if (!ownerName) {
       fail(res, 400, '请输入昵称', false);
       return;
     }
-    if (ownerName.length > 16) {
-      fail(res, 400, '昵称最多 16 个字', false);
+    if (ownerName.length > 14) {
+      fail(res, 400, '昵称最多 14 个字', false);
+      return;
+    }
+    if (ownerBio.length > 60) {
+      fail(res, 400, '简介最多 60 个字', false);
+      return;
+    }
+    if (ownerAvatarUrl.length > 2000) {
+      fail(res, 400, '头像地址过长，请重新选择', false);
       return;
     }
     user.ownerName = ownerName;
+    user.ownerBio = ownerBio;
+    user.ownerAvatarUrl = ownerAvatarUrl;
     saveState();
     ok(res, buildUserProfile(user));
     return;

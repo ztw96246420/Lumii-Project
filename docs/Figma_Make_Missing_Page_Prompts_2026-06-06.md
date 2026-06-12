@@ -55,7 +55,9 @@ Figma Make 提示词：
 请同时生成默认月视图、选中日期有事件、选中日期为空、疫苗即将到期/逾期、加载中、读取失败六种状态。
 ```
 
-### 1. 多宠管理与切换
+### 1. ~~多宠管理与切换~~
+
+状态更新（2026-06-12）：新版 Figma Make 源码包 `Lumii Project - Opus4.7 (2).zip` 已补齐 Screen81-85；React Native 已新增 `multiPet` 路由，支持宠物列表、当前宠物展示、切换 loading、切换成功 toast、添加入口、删除二次确认，并接 `GET /pets`、`POST /pets/{id}/set-default`、`DELETE /pets/{id}`。
 
 类型：新页面/新复杂列表。
 
@@ -78,13 +80,15 @@ Figma Make 提示词：
 请同时生成默认列表态、空状态、切换 loading 态、切换成功 toast、删除确认弹窗。
 ```
 
-### 1.1 个人资料编辑页
+### 1.1 ~~个人资料编辑页~~
+
+状态更新（2026-06-12）：新版 Figma Make 源码包已补齐 Screen86-91；React Native 已新增 `ownerEdit` 路由，支持头像选择占位、昵称/简介校验、手机号只读、保存 loading、成功/失败 toast，并扩展 `PATCH /me` 支持 `ownerName`、`ownerBio`、`ownerAvatarUrl`。
 
 类型：已有我的页的新增编辑页面/弹层。
 
 什么时候需要：用户点击“我的页”头像区域的编辑入口，修改主人昵称、头像或个人简介时。
 
-接口状态：`PATCH /me` 已支持更新 `ownerName`；头像上传、个人简介、性别/城市等扩展字段暂未进入 MVP 接口。当前 App 不自行新建设计，点击编辑入口只提示“个人资料编辑需补充 Figma 设计后开放”。
+接口状态：`PATCH /me` 已支持更新 `ownerName`、`ownerBio`、`ownerAvatarUrl`；头像当前保存本地/URL 占位，正式对象存储上传仍是后续生产增强。~~当前 App 不自行新建设计，点击编辑入口只提示“个人资料编辑需补充 Figma 设计后开放”。~~
 
 Figma Make 提示词：
 
@@ -103,7 +107,9 @@ Figma Make 提示词：
 请同时生成默认态、头像更换中、昵称错误、保存中、保存成功 toast、保存失败 toast。
 ```
 
-### 2. 健康备忘编辑与删除状态
+### 2. ~~健康备忘编辑与删除状态~~
+
+状态更新（2026-06-12）：新版 Figma Make 源码包已补齐 Screen92-96；React Native 已新增 `memoEdit` 路由，健康备忘列表可点击进入编辑，支持标题/内容校验、保存 loading、保存成功 toast、删除二次确认、删除后返回列表，并接 `PATCH /health/memos/{memoId}`、`DELETE /health/memos/{memoId}`。
 
 类型：已有健康备忘列表页的新增编辑页/弹层/删除确认。
 
@@ -129,7 +135,9 @@ Figma Make 提示词：
 请同时生成默认编辑态、保存中、保存成功 toast、删除确认弹窗、删除后空状态。
 ```
 
-### 3. 体重记录编辑/删除与趋势异常状态
+### 3. ~~体重记录编辑/删除与趋势异常状态~~
+
+状态更新（2026-06-12）：新版 Figma Make 源码包已补齐 Screen97-101；React Native 体重页已补趋势卡、SVG 折线、温和异常提示、历史记录点击编辑、底部编辑 Sheet、保存 loading、删除二次确认和空状态，并接 `PATCH /health/weights/{weightId}`、`DELETE /health/weights/{weightId}`。
 
 类型：已有体重页的缺失状态/弹层。
 

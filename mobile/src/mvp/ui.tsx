@@ -46,7 +46,7 @@ export function Button({
       onPress={onPress}
       style={({ pressed }) => [webPressableReset, styles.button, styles[`button_${tone}`], pressed && !disabled && !loading && styles.buttonPressed, (disabled || loading) && styles.buttonDisabled]}
     >
-      {loading ? <ActivityIndicator color={tone === 'primary' ? '#fff' : palette.ink} size="small" /> : <Text style={[styles.buttonText, tone === 'primary' && styles.buttonTextPrimary]}>{children}</Text>}
+      {loading ? <ActivityIndicator color={tone === 'primary' || tone === 'danger' ? '#fff' : palette.ink} size="small" /> : <Text style={[styles.buttonText, (tone === 'primary' || tone === 'danger') && styles.buttonTextPrimary]}>{children}</Text>}
     </Pressable>
   );
 }
@@ -127,6 +127,7 @@ export function Toast({ message }: { message?: string }) {
   if (!message) return null;
   return (
     <View style={[styles.toast, styles.toastNoPointer]}>
+      <View style={styles.toastIconDot} />
       <Text style={styles.toastText}>{message}</Text>
     </View>
   );
@@ -165,14 +166,14 @@ export function ConfirmDialog({
 
 export const styles = StyleSheet.create({
   body: { color: palette.muted, fontFamily, fontSize: 14, lineHeight: 20 },
-  button: { alignItems: 'center', borderRadius: 26, justifyContent: 'center', minHeight: 52, paddingHorizontal: 20, paddingVertical: 13 },
-  button_danger: { backgroundColor: '#ffe4df' },
+  button: { alignItems: 'center', borderRadius: 14, justifyContent: 'center', minHeight: 48, paddingHorizontal: 20, paddingVertical: 13, shadowColor: '#ff8a5c', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 16 },
+  button_danger: { backgroundColor: palette.danger },
   button_ghost: { backgroundColor: '#fffaf5', borderColor: 'rgba(234,223,210,0.9)', borderWidth: 1 },
   button_primary: { backgroundColor: palette.orange },
   button_secondary: { backgroundColor: palette.tealSoft },
   buttonDisabled: { backgroundColor: '#efd6c9', opacity: 0.72 },
   buttonPressed: { opacity: 0.82, transform: [{ scale: 0.99 }] },
-  buttonText: { color: palette.ink, fontFamily, fontSize: 16, fontWeight: '500' },
+  buttonText: { color: palette.ink, fontFamily, fontSize: 15, fontWeight: '600' },
   buttonTextPrimary: { color: '#fff' },
   card: {
     backgroundColor: palette.card,
@@ -191,8 +192,8 @@ export const styles = StyleSheet.create({
   input: { backgroundColor: '#fffdf9', borderColor: 'rgba(234,223,210,0.95)', borderRadius: 18, borderWidth: 1.2, color: palette.ink, fontFamily, fontSize: 16, minHeight: 54, paddingHorizontal: 16 },
   inputFocused: { borderColor: palette.orange, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.22, shadowRadius: 10 },
   label: { color: palette.muted, fontFamily, fontSize: 12.5, fontWeight: '500' },
-  modal: { backgroundColor: palette.card, borderRadius: 24, gap: 14, margin: 24, padding: 18 },
-  modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.34)', flex: 1, justifyContent: 'center' },
+  modal: { backgroundColor: palette.card, borderRadius: 20, gap: 14, margin: 32, padding: 20, shadowColor: '#50371e', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.18, shadowRadius: 30 },
+  modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(20,18,14,0.42)', flex: 1, justifyContent: 'center' },
   pill: { alignSelf: 'flex-start', borderRadius: 999, fontFamily, fontSize: 12, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
   pill_danger: { backgroundColor: '#ffdad6', color: palette.danger },
   pill_neutral: { backgroundColor: palette.pale, color: palette.muted },
@@ -200,9 +201,10 @@ export const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 10 },
   sectionTitle: { gap: 8, marginBottom: 18 },
   subtitle: { color: palette.muted, fontFamily, fontSize: 15, lineHeight: 22 },
-  toast: { alignSelf: 'center', backgroundColor: '#30312e', borderRadius: 999, maxWidth: '92%', paddingHorizontal: 18, paddingVertical: 12, position: 'absolute', top: 110, zIndex: 10 },
+  toast: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: 'rgba(0,0,0,0.04)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, maxWidth: '92%', paddingHorizontal: 14, paddingVertical: 10, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.14, shadowRadius: 28, top: 82, zIndex: 20 },
+  toastIconDot: { backgroundColor: palette.teal, borderRadius: 8, height: 16, width: 16 },
   toastNoPointer: { pointerEvents: 'none' },
-  toastText: { color: '#fff', fontFamily, fontSize: 14, fontWeight: '600' },
+  toastText: { color: palette.ink, flexShrink: 1, fontFamily, fontSize: 13, fontWeight: '600' },
   toggleRow: { alignItems: 'center', flexDirection: 'row', gap: 12 },
   toggleText: { flex: 1, gap: 4 },
 });

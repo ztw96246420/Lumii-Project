@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Linking,
   LogBox,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -55,12 +56,14 @@ import {
   Sparkles,
   Star,
   Syringe,
+  Trash2,
   User,
   Users,
   Wifi,
   Weight,
   X,
 } from 'lucide-react-native';
+import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 
 import { getLumiiPermissionStatus, requestLumiiPermission } from '../services/permissions';
 import { cancelVaccineLocalReminder, cancelVaccineLocalReminders, scheduleVaccineLocalReminder, syncVaccineLocalReminders } from '../services/healthReminders';
@@ -134,9 +137,12 @@ const routeTitles: Partial<Record<AppRoute, string>> = {
   healthMemos: '健康备忘',
   home: '灵伴',
   map: '地图',
+  memoEdit: '编辑备忘',
   messages: '消息',
+  multiPet: '我的宠物',
   notifications: '通知中心',
   otp: '输入验证码',
+  ownerEdit: '编辑个人资料',
   permissions: '权限设置',
   petDetail: '宠物档案',
   petInfo: '宠物信息',
@@ -164,7 +170,7 @@ const tabBackToHomeRoutes = new Set<AppRoute>(['discover', 'map', 'messages', 'p
 const appExitPromptRoutes = new Set<AppRoute>(['emptyPet', 'home', 'login', 'permissions']);
 const focusedInboxRoutes = new Set<AppRoute>(['greetingRequests', 'messages', 'notifications']);
 const passiveInboxRoutes = new Set<AppRoute>(['discover', 'home', 'map', 'profile']);
-const petRequiredRoutes = new Set<AppRoute>(['aiResult', 'chat', 'dailyPost', 'editPet', 'generating', 'health', 'healthMemos', 'home', 'petDetail', 'upload', 'uploadDetail', 'uploadNoPet', 'vaccine', 'weight']);
+const petRequiredRoutes = new Set<AppRoute>(['aiResult', 'chat', 'dailyPost', 'editPet', 'generating', 'health', 'healthMemos', 'home', 'memoEdit', 'petDetail', 'upload', 'uploadDetail', 'uploadNoPet', 'vaccine', 'weight']);
 const avatarFlowRoutes = new Set<AppRoute>(['upload', 'uploadDetail', 'uploadNoPet', 'generating', 'aiResult']);
 const homeChatPrompts = [
   '今天想和{petName}聊点什么？',
@@ -461,6 +467,11 @@ export default function LumiiMvpApp() {
 
   const [permissions, setPermissions] = useState<PermissionStateMap>(initialPermissions);
   const [activePet, setActivePet] = useState<PetProfile | null>(null);
+  const [pets, setPets] = useState<PetProfile[]>([]);
+  const [petSwitchingId, setPetSwitchingId] = useState('');
+  const petSwitchingIdRef = useRef('');
+  const [petDeletingId, setPetDeletingId] = useState('');
+  const petDeletingIdRef = useRef('');
   const [petDraft, setPetDraft] = useState(emptyPetDraft);
   const [petProfileSaving, setPetProfileSaving] = useState(false);
   const petProfileSavingRef = useRef(false);
@@ -497,12 +508,24 @@ export default function LumiiMvpApp() {
   const [vaccineReminderIds, setVaccineReminderIds] = useState<string[]>([]);
   const [memos, setMemos] = useState<HealthMemo[]>([]);
   const [weightInput, setWeightInput] = useState('');
+  const [weightEditRecord, setWeightEditRecord] = useState<WeightRecord | null>(null);
+  const [weightEditValue, setWeightEditValue] = useState('');
+  const [weightEditNote, setWeightEditNote] = useState('');
+  const [weightEditSaving, setWeightEditSaving] = useState(false);
+  const weightEditSavingRef = useRef(false);
   const [weightSaving, setWeightSaving] = useState(false);
   const weightSavingRef = useRef(false);
   const [memoTitle, setMemoTitle] = useState('今日观察');
   const [memoContent, setMemoContent] = useState('');
   const [memoSaving, setMemoSaving] = useState(false);
   const memoSavingRef = useRef(false);
+  const [selectedMemo, setSelectedMemo] = useState<HealthMemo | null>(null);
+  const [memoEditTitle, setMemoEditTitle] = useState('');
+  const [memoEditContent, setMemoEditContent] = useState('');
+  const [memoEditSaving, setMemoEditSaving] = useState(false);
+  const memoEditSavingRef = useRef(false);
+  const [memoDeleting, setMemoDeleting] = useState(false);
+  const memoDeletingRef = useRef(false);
   const [memoDraftTitle, setMemoDraftTitle] = useState('洗澡记录');
   const [memoDraftContent, setMemoDraftContent] = useState('今天洗澡后耳朵干净，皮肤没有明显泛红。');
   const [memoDraftSaving, setMemoDraftSaving] = useState(false);
@@ -575,6 +598,13 @@ export default function LumiiMvpApp() {
   const placeSubmissionSavingRef = useRef(false);
   const [placeSubmissionStatus, setPlaceSubmissionStatus] = useState<'idle' | 'pending_review'>('idle');
   const [userSettings, setUserSettings] = useState<UserSettings>(defaultUserSettings);
+  const [ownerNameDraft, setOwnerNameDraft] = useState('');
+  const [ownerBioDraft, setOwnerBioDraft] = useState('');
+  const [ownerAvatarDraft, setOwnerAvatarDraft] = useState('');
+  const [ownerAvatarPicking, setOwnerAvatarPicking] = useState(false);
+  const ownerAvatarPickingRef = useRef(false);
+  const [ownerProfileSaving, setOwnerProfileSaving] = useState(false);
+  const ownerProfileSavingRef = useRef(false);
   const healthReminderNotifiedRef = useRef<Set<string>>(new Set());
   const localHealthReminderSyncKeyRef = useRef('');
   const localHealthReminderScheduledIdsRef = useRef<string[]>([]);
@@ -806,6 +836,14 @@ export default function LumiiMvpApp() {
   }, [activePet?.id]);
 
   useEffect(() => {
+    if (!activePet) return;
+    setPets((items) => {
+      const withoutActive = items.filter((item) => item.id !== activePet.id);
+      return [activePet, ...withoutActive];
+    });
+  }, [activePet]);
+
+  useEffect(() => {
     const previousRoute = previousRouteRef.current;
     routeRef.current = route;
     if (previousRoute !== route) exitBackPressedAtRef.current = 0;
@@ -825,6 +863,25 @@ export default function LumiiMvpApp() {
     }
     setPetDraft(draftFromPet(pet));
   }, [activePet?.id, route, replace, showToast]);
+
+  useEffect(() => {
+    if (route !== 'ownerEdit') return;
+    const ownerName = formatOwnerName(session?.phone, getCurrentPet(), session?.account?.ownerName);
+    setOwnerNameDraft(ownerName);
+    setOwnerBioDraft(session?.account?.ownerBio ?? '');
+    setOwnerAvatarDraft(session?.account?.ownerAvatarUrl ?? '');
+  }, [activePet?.id, route, session?.account?.ownerAvatarUrl, session?.account?.ownerBio, session?.account?.ownerName, session?.phone]);
+
+  useEffect(() => {
+    if (route !== 'memoEdit') return;
+    if (!selectedMemo) {
+      replace('healthMemos');
+      showToast('请选择要编辑的备忘');
+      return;
+    }
+    setMemoEditTitle(selectedMemo.title);
+    setMemoEditContent(selectedMemo.content);
+  }, [replace, route, selectedMemo, showToast]);
 
   useEffect(() => {
     if (route === 'petInfo') setPetDraft(emptyPetDraft);
@@ -1011,8 +1068,9 @@ export default function LumiiMvpApp() {
   async function loadCommonData(targetSessionToken = sessionTokenRef.current) {
     const requestSessionToken = targetSessionToken;
     if (!requestSessionToken) return;
-    const [profileResult, healthSummaryResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult, aiUsageResult] = await Promise.all([
+    const [profileResult, petListResult, healthSummaryResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult, aiUsageResult] = await Promise.all([
       lumiiApi.account.getMe(),
+      lumiiApi.pets.listPets(),
       lumiiApi.health.getHealthSummary(),
       lumiiApi.health.listWeightRecords(),
       lumiiApi.health.listVaccines(),
@@ -1039,6 +1097,13 @@ export default function LumiiMvpApp() {
       const profilePet = profile.activePet ?? getActivePetFallback();
       activePetIdRef.current = profilePet?.id ?? null;
       setActivePet(profilePet);
+    }
+    if (petListResult.data) {
+      setPets(petListResult.data);
+      if (!profileResult.data?.activePet && petListResult.data[0]) {
+        activePetIdRef.current = petListResult.data[0].id;
+        setActivePet(petListResult.data[0]);
+      }
     }
     if (healthSummaryResult.data) {
       setHealthSummary(healthSummaryResult.data);
@@ -1163,6 +1228,102 @@ export default function LumiiMvpApp() {
       setAiUsage(aiUsageResult.data);
       setPetChatDailyCount(aiUsageResult.data.daily.petChat.count);
     }
+  }
+
+  async function refreshPets() {
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
+    const result = await lumiiApi.pets.listPets();
+    if (sessionTokenRef.current !== requestSessionToken) return;
+    if (result.data) setPets(result.data);
+  }
+
+  async function switchActivePet(pet: PetProfile) {
+    if (pet.id === activePetIdRef.current) {
+      showToast(`${pet.name}已经是当前灵伴`);
+      return;
+    }
+    if (petSwitchingIdRef.current) return;
+    const requestSessionToken = sessionTokenRef.current;
+    petSwitchingIdRef.current = pet.id;
+    setPetSwitchingId(pet.id);
+    try {
+      const result = await lumiiApi.pets.setActivePet(pet.id);
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (result.data) {
+        activePetIdRef.current = result.data.id;
+        setActivePet(result.data);
+        setPets((items) => [result.data!, ...items.filter((item) => item.id !== result.data!.id)]);
+        setSession((current) =>
+          current?.account
+            ? {
+                ...current,
+                account: {
+                  ...current.account,
+                  activePet: result.data!,
+                },
+              }
+            : current,
+        );
+        void refreshPetScopedData();
+        showToast(`已切换为${result.data.name}`);
+      } else {
+        showToast(result.error?.message ?? '切换宠物失败');
+      }
+    } finally {
+      petSwitchingIdRef.current = '';
+      setPetSwitchingId('');
+    }
+  }
+
+  async function deletePet(pet: PetProfile) {
+    if (petDeletingIdRef.current) return;
+    const requestSessionToken = sessionTokenRef.current;
+    petDeletingIdRef.current = pet.id;
+    setPetDeletingId(pet.id);
+    try {
+      const result = await lumiiApi.pets.deletePet(pet.id);
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (result.data) {
+        const nextPet = result.data[0] ?? null;
+        setPets(result.data);
+        activePetIdRef.current = nextPet?.id ?? null;
+        setActivePet(nextPet);
+        setSession((current) =>
+          current?.account
+            ? {
+                ...current,
+                account: {
+                  ...current.account,
+                  activePet: nextPet,
+                },
+              }
+            : current,
+        );
+        if (nextPet) {
+          void refreshPetScopedData();
+          showToast(`已移除${pet.name}`);
+        } else {
+          setHistory([]);
+          replace('emptyPet');
+          showToast('宠物档案已移除');
+        }
+      } else {
+        showToast(result.error?.message ?? '删除宠物失败');
+      }
+    } finally {
+      petDeletingIdRef.current = '';
+      setPetDeletingId('');
+    }
+  }
+
+  function confirmDeletePet(pet: PetProfile) {
+    openConfirm(
+      `移除${pet.name}？`,
+      '移除后，这只宠物的本地展示、健康记录和社交资料会从当前账号中移除。这个操作不可恢复。',
+      () => void deletePet(pet),
+      '确认移除',
+    );
   }
 
   async function loadInboxData(options: { silent?: boolean } = { silent: true }) {
@@ -1626,6 +1787,7 @@ export default function LumiiMvpApp() {
         if (result.data) {
           activePetIdRef.current = result.data.id;
           setActivePet(result.data);
+          setPets((items) => items.map((item) => (item.id === result.data!.id ? result.data! : item)));
           setSession((current) =>
             current?.account
               ? {
@@ -1651,6 +1813,7 @@ export default function LumiiMvpApp() {
       if (result.data) {
         activePetIdRef.current = result.data.id;
         setActivePet(result.data);
+        setPets((items) => [result.data!, ...items.filter((item) => item.id !== result.data!.id)]);
         setSession((current) =>
           current?.account
             ? {
@@ -1888,6 +2051,7 @@ export default function LumiiMvpApp() {
       if (result.data) {
         activePetIdRef.current = result.data.id;
         setActivePet(result.data);
+        setPets((items) => [result.data!, ...items.filter((item) => item.id !== result.data!.id)]);
         resetAvatarDraft();
         void refreshPetScopedData();
         replace('home');
@@ -2232,6 +2396,97 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function openWeightEditor(record: WeightRecord) {
+    setWeightEditRecord(record);
+    setWeightEditValue(String(record.kg));
+    setWeightEditNote(record.note ?? '');
+  }
+
+  function closeWeightEditor() {
+    setWeightEditRecord(null);
+    setWeightEditValue('');
+    setWeightEditNote('');
+  }
+
+  async function saveWeightEdit() {
+    if (weightEditSavingRef.current) return;
+    const record = weightEditRecord;
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!record || !requestPetId) return;
+    const kg = Number.parseFloat(weightEditValue);
+    const note = weightEditNote.trim();
+    if (!Number.isFinite(kg) || kg <= 0 || kg > 200) {
+      showToast('请输入 0-200kg 之间的体重');
+      return;
+    }
+    if (note.length > 40) {
+      showToast('备注最多 40 个字');
+      return;
+    }
+    weightEditSavingRef.current = true;
+    setWeightEditSaving(true);
+    try {
+      const result = await lumiiApi.health.updateWeightRecord(record.id, {
+        kg: Math.round(kg * 100) / 100,
+        note,
+        recordedAt: record.recordedAt,
+      });
+      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
+      if (result.data) {
+        const wasLatestRecord = weights[0]?.id === record.id;
+        setWeights((items) => items.map((item) => (item.id === result.data!.id ? result.data! : item)));
+        if (wasLatestRecord) {
+          setActivePet((pet) => (pet ? { ...pet, weightKg: result.data!.kg } : pet));
+        }
+        closeWeightEditor();
+        void refreshHealthSummary();
+        showToast('体重记录已保存');
+      } else {
+        showToast(result.error?.message ?? '体重保存失败');
+      }
+    } finally {
+      weightEditSavingRef.current = false;
+      setWeightEditSaving(false);
+    }
+  }
+
+  async function deleteWeightRecord(record: WeightRecord) {
+    if (weightEditSavingRef.current) return;
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!requestPetId) return;
+    weightEditSavingRef.current = true;
+    setWeightEditSaving(true);
+    try {
+      const result = await lumiiApi.health.deleteWeightRecord(record.id);
+      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
+      if (result.data) {
+        setWeights(result.data);
+        const nextWeight = result.data[0]?.kg;
+        setActivePet((pet) => (pet ? { ...pet, weightKg: nextWeight } : pet));
+        closeWeightEditor();
+        void refreshHealthSummary();
+        showToast('体重记录已删除');
+      } else {
+        showToast(result.error?.message ?? '删除体重失败');
+      }
+    } finally {
+      weightEditSavingRef.current = false;
+      setWeightEditSaving(false);
+    }
+  }
+
+  function confirmDeleteWeightRecord(record?: WeightRecord | null) {
+    if (!record) return;
+    openConfirm(
+      '删除这条体重记录？',
+      `${formatWeightKg(record.kg)} · ${record.recordedAt} 删除后不可恢复，体重趋势会重新计算。`,
+      () => void deleteWeightRecord(record),
+      '确认删除',
+    );
+  }
+
   async function enableVaccineReminder(vaccine?: VaccinePlan) {
     if (!vaccine) {
       showToast('暂无可提醒的疫苗计划');
@@ -2375,6 +2630,75 @@ export default function LumiiMvpApp() {
       }
     } finally {
       userSettingSavingKeysRef.current.delete(key);
+    }
+  }
+
+  async function pickOwnerAvatar() {
+    if (ownerAvatarPickingRef.current) return;
+    ownerAvatarPickingRef.current = true;
+    setOwnerAvatarPicking(true);
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        showToast('请先允许访问相册');
+        return;
+      }
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.82,
+      });
+      if (pickerResult.canceled) return;
+      const asset = pickerResult.assets[0];
+      if (asset?.uri) {
+        setOwnerAvatarDraft(asset.uri);
+        showToast('头像已选择，保存后生效');
+      }
+    } finally {
+      ownerAvatarPickingRef.current = false;
+      setOwnerAvatarPicking(false);
+    }
+  }
+
+  async function saveOwnerProfile() {
+    if (ownerProfileSavingRef.current) return;
+    const ownerName = ownerNameDraft.trim();
+    const ownerBio = ownerBioDraft.trim();
+    const ownerAvatarUrl = ownerAvatarDraft.trim();
+    if (!ownerName) {
+      showToast('请输入主人昵称');
+      return;
+    }
+    if (ownerName.length > 14) {
+      showToast('昵称最多 14 个字');
+      return;
+    }
+    if (ownerBio.length > 60) {
+      showToast('简介最多 60 个字');
+      return;
+    }
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
+    ownerProfileSavingRef.current = true;
+    setOwnerProfileSaving(true);
+    try {
+      const result = await lumiiApi.account.updateMe({ ownerAvatarUrl, ownerBio, ownerName });
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (result.data) {
+        const profileSettings = { ...defaultUserSettings, ...result.data.settings };
+        setSession((current) => (current ? { ...current, account: result.data!, phone: result.data!.phone } : current));
+        userSettingsRef.current = profileSettings;
+        setUserSettings(profileSettings);
+        setActivePet(result.data.activePet ?? getCurrentPet());
+        showToast('资料已保存');
+        replace('profile');
+      } else {
+        showToast(result.error?.message ?? '资料保存失败');
+      }
+    } finally {
+      ownerProfileSavingRef.current = false;
+      setOwnerProfileSaving(false);
     }
   }
 
@@ -2533,6 +2857,92 @@ export default function LumiiMvpApp() {
       memoSavingRef.current = false;
       setMemoSaving(false);
     }
+  }
+
+  function openMemoEditor(memo: HealthMemo) {
+    setSelectedMemo(memo);
+    setMemoEditTitle(memo.title);
+    setMemoEditContent(memo.content);
+    go('memoEdit');
+  }
+
+  async function saveMemoEdit() {
+    if (memoEditSavingRef.current) return;
+    const memo = selectedMemo;
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!memo || !requestPetId) {
+      showToast('请选择要编辑的备忘');
+      return;
+    }
+    const title = memoEditTitle.trim();
+    const content = memoEditContent.trim();
+    if (!title || !content) {
+      showToast('请填写备忘标题和内容');
+      return;
+    }
+    if (title.length > 20) {
+      showToast('标题最多 20 个字');
+      return;
+    }
+    if (content.length > 200) {
+      showToast('内容最多 200 个字');
+      return;
+    }
+    memoEditSavingRef.current = true;
+    setMemoEditSaving(true);
+    try {
+      const result = await lumiiApi.health.updateHealthMemo(memo.id, { content, title });
+      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
+      if (result.data) {
+        setMemos((items) => items.map((item) => (item.id === result.data!.id ? result.data! : item)));
+        setSelectedMemo(result.data);
+        void refreshHealthSummary();
+        showToast('备忘已保存');
+        replace('healthMemos');
+      } else {
+        showToast(result.error?.message ?? '备忘保存失败');
+      }
+    } finally {
+      memoEditSavingRef.current = false;
+      setMemoEditSaving(false);
+    }
+  }
+
+  async function deleteSelectedMemo() {
+    if (memoDeletingRef.current) return;
+    const memo = selectedMemo;
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!memo || !requestPetId) return;
+    memoDeletingRef.current = true;
+    setMemoDeleting(true);
+    try {
+      const result = await lumiiApi.health.deleteHealthMemo(memo.id);
+      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
+      if (result.data) {
+        setMemos(result.data);
+        setSelectedMemo(null);
+        void refreshHealthSummary();
+        replace('healthMemos');
+        showToast('备忘已删除');
+      } else {
+        showToast(result.error?.message ?? '删除备忘失败');
+      }
+    } finally {
+      memoDeletingRef.current = false;
+      setMemoDeleting(false);
+    }
+  }
+
+  function confirmDeleteMemo() {
+    if (!selectedMemo) return;
+    openConfirm(
+      '删除这条备忘？',
+      `「${selectedMemo.title}」将从健康备忘中移除，删除后不可恢复。`,
+      () => void deleteSelectedMemo(),
+      '确认删除',
+    );
   }
 
   function buildDailyPostDraft(mood: DailyMood) {
@@ -2959,6 +3369,11 @@ export default function LumiiMvpApp() {
     setSession(null);
     activePetIdRef.current = null;
     setActivePet(null);
+    setPets([]);
+    petSwitchingIdRef.current = '';
+    setPetSwitchingId('');
+    petDeletingIdRef.current = '';
+    setPetDeletingId('');
     setHistory([]);
     phoneValueRef.current = '';
     setPhone('');
@@ -3006,6 +3421,11 @@ export default function LumiiMvpApp() {
     setAiUsage(null);
     setPetChatDailyCount(0);
     setWeights([]);
+    setWeightEditRecord(null);
+    setWeightEditValue('');
+    setWeightEditNote('');
+    weightEditSavingRef.current = false;
+    setWeightEditSaving(false);
     setVaccines([]);
     setVaccineReminderIds([]);
     setMemos([]);
@@ -3078,6 +3498,13 @@ export default function LumiiMvpApp() {
     setMemoContent('');
     memoSavingRef.current = false;
     setMemoSaving(false);
+    setSelectedMemo(null);
+    setMemoEditTitle('');
+    setMemoEditContent('');
+    memoEditSavingRef.current = false;
+    setMemoEditSaving(false);
+    memoDeletingRef.current = false;
+    setMemoDeleting(false);
     setMemoDraftTitle('洗澡记录');
     setMemoDraftContent('今天洗澡后耳朵干净，皮肤没有明显泛红。');
     memoDraftSavingRef.current = false;
@@ -3094,6 +3521,13 @@ export default function LumiiMvpApp() {
     localHealthReminderScheduledIdsRef.current = [];
     localHealthReminderSyncKeyRef.current = '';
     setUserSettings(defaultUserSettings);
+    setOwnerNameDraft('');
+    setOwnerBioDraft('');
+    setOwnerAvatarDraft('');
+    ownerAvatarPickingRef.current = false;
+    setOwnerAvatarPicking(false);
+    ownerProfileSavingRef.current = false;
+    setOwnerProfileSaving(false);
     replace('login');
   }
 
@@ -4073,14 +4507,15 @@ export default function LumiiMvpApp() {
           </View>
           {memos.length ? memos.map((memo, index) => (
             <View key={memo.id}>
-              <View style={styles.timelineRowMake}>
+              <Pressable onPress={() => openMemoEditor(memo)} style={[styles.timelineRowMake, webPressableReset]}>
                 <View style={[styles.timelineDotMake, index % 2 === 1 && styles.timelineDotCool]} />
                 <View style={styles.flex}>
                   <Text style={styles.timelineTitleMake}>{memo.title}</Text>
                   <Text style={styles.timelineSubMake}>{memo.content}</Text>
                 </View>
                 <Text style={styles.timelineDateMake}>{memo.updatedAt}</Text>
-              </View>
+                <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
+              </Pressable>
               {index < memos.length - 1 ? <View style={styles.makeDivider} /> : null}
             </View>
           )) : (
@@ -4095,6 +4530,72 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderMemoEdit() {
+    const titleCount = memoEditTitle.trim().length;
+    const contentCount = memoEditContent.trim().length;
+    const invalid = !memoEditTitle.trim() || !memoEditContent.trim() || titleCount > 20 || contentCount > 200;
+    return (
+      <Screen title="编辑备忘">
+        <View style={styles.editFormCard}>
+          <View style={styles.rowBetween}>
+            <View>
+              <Text style={styles.sectionTitle}>备忘内容</Text>
+              <Text style={styles.timelineSubMake}>保存后会同步到健康时间线</Text>
+            </View>
+            <View style={styles.healthMemoIconMake}>
+              <NotebookPen color={palette.orange} size={20} strokeWidth={2.4} />
+            </View>
+          </View>
+          <View style={styles.makeFieldGroup}>
+            <Text style={styles.makeFieldLabel}>备忘标题 *</Text>
+            <TextInput
+              maxLength={24}
+              onChangeText={setMemoEditTitle}
+              placeholder="例如：洗澡记录"
+              placeholderTextColor="#B8B3A8"
+              style={[styles.makeTextInput, titleCount > 20 && styles.makeTextInputError, webTextInputReset]}
+              value={memoEditTitle}
+            />
+            <View style={styles.fieldHintRow}>
+              <Text style={[styles.fieldHintText, titleCount > 20 && styles.fieldHintError]}>{!memoEditTitle.trim() ? '标题不能为空' : titleCount > 20 ? '标题最多 20 个字' : ' '}</Text>
+              <Text style={[styles.fieldHintText, titleCount > 20 && styles.fieldHintError]}>{titleCount}/20</Text>
+            </View>
+          </View>
+          <View style={styles.makeFieldGroup}>
+            <Text style={styles.makeFieldLabel}>备忘内容 *</Text>
+            <TextInput
+              multiline
+              onChangeText={setMemoEditContent}
+              placeholder="今天有什么值得记录的小事？"
+              placeholderTextColor="#B8B3A8"
+              style={[styles.makeTextInput, styles.makeTextAreaInput, contentCount > 200 && styles.makeTextInputError, webTextInputReset]}
+              textAlignVertical="top"
+              value={memoEditContent}
+            />
+            <View style={styles.fieldHintRow}>
+              <Text style={[styles.fieldHintText, contentCount > 200 && styles.fieldHintError]}>{!memoEditContent.trim() ? '内容不能为空' : contentCount > 200 ? '内容最多 200 个字' : ' '}</Text>
+              <Text style={[styles.fieldHintText, contentCount > 200 && styles.fieldHintError]}>{contentCount}/200</Text>
+            </View>
+          </View>
+          <View style={styles.memoMetaBox}>
+            <View style={styles.metaIconBox}>
+              <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
+            </View>
+            <Text style={styles.timelineTitleMake}>日期</Text>
+            <Text style={styles.timelineDateMake}>{selectedMemo?.updatedAt ?? '今天'}</Text>
+          </View>
+        </View>
+        <View style={styles.editActionStack}>
+          <Button disabled={invalid} loading={memoEditSaving} onPress={() => void saveMemoEdit()}>保存修改</Button>
+          <Pressable disabled={memoDeleting || memoEditSaving} onPress={confirmDeleteMemo} style={[styles.deleteTextButton, webPressableReset]}>
+            {memoDeleting ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={15} strokeWidth={2.4} />}
+            <Text style={styles.deleteTextButtonLabel}>删除备忘</Text>
+          </Pressable>
+        </View>
+      </Screen>
+    );
+  }
+
   function renderWeight() {
     const pet = getCurrentPet();
     const currentWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet?.weightKg;
@@ -4103,20 +4604,57 @@ export default function LumiiMvpApp() {
       ? Number(currentWeight) - Number(previousWeight)
       : 0;
     const weightDeltaLabel = weightDelta === 0 ? '0' : Math.abs(weightDelta).toFixed(1).replace(/\.0$/, '');
+    const isWeightWatch = healthSummary?.weightStatus === 'watch' || Math.abs(weightDelta) >= 1.5;
+    const directionCopy = weightDelta < 0 ? `下降 ${weightDeltaLabel} kg` : weightDelta > 0 ? `上升 ${weightDeltaLabel} kg` : '基本稳定';
     return (
       <Screen title="体重记录">
-        <View style={styles.weightHeroMake}>
-          <Text style={styles.healthHeroLabel}>今日体重</Text>
-          <View style={styles.healthHeroScoreRow}>
-            <Text style={styles.healthHeroScore}>{Number.isFinite(Number(currentWeight)) ? Number(currentWeight).toFixed(1).replace(/\.0$/, '') : '--'}</Text>
-            <Text style={styles.healthHeroTotal}>kg</Text>
-            <View style={styles.homeHealthDelta}>
-              <ArrowUp color={palette.teal} size={10} strokeWidth={3} />
-              <Text style={styles.homeHealthDeltaText}>{weightDeltaLabel}</Text>
+        <View style={styles.weightTrendCard}>
+          <View style={styles.rowBetween}>
+            <View>
+              <Text style={styles.healthHeroLabel}>当前体重</Text>
+              <View style={styles.healthHeroScoreRow}>
+                <Text style={styles.healthHeroScore}>{Number.isFinite(Number(currentWeight)) ? Number(currentWeight).toFixed(1).replace(/\.0$/, '') : '--'}</Text>
+                <Text style={styles.healthHeroTotal}>kg</Text>
+              </View>
+            </View>
+            <View style={[styles.weightDeltaPill, isWeightWatch && styles.weightDeltaPillWarn]}>
+              <ArrowUp color={isWeightWatch ? '#C99B3E' : palette.teal} size={11} strokeWidth={3} />
+              <Text style={[styles.homeHealthDeltaText, isWeightWatch && styles.weightWarnText]}>{directionCopy}</Text>
             </View>
           </View>
-          <Text style={styles.healthHeroDesc}>{healthSummary?.weightSummary ?? (pet ? `${pet.name}当前状态良好 · 建议持续稳定记录` : '添加宠物后可持续记录体重')}</Text>
+          <WeightTrendMiniChart abnormal={isWeightWatch} records={weights} />
+          <View style={styles.weightStatRow}>
+            <View style={styles.weightStatChip}>
+              <Text style={styles.metricLabel}>近 7 天</Text>
+              <Text style={styles.metricValue}>{weights.length > 1 ? '有记录' : '待连续记录'}</Text>
+            </View>
+            <View style={[styles.weightStatChip, styles.weightStatChipOk]}>
+              <Text style={styles.metricLabel}>健康区间</Text>
+              <Text style={[styles.metricValue, styles.weightOkText]}>持续观察</Text>
+            </View>
+            <View style={[styles.weightStatChip, isWeightWatch && styles.weightStatChipWarn]}>
+              <Text style={styles.metricLabel}>本次变化</Text>
+              <Text style={[styles.metricValue, isWeightWatch && styles.weightWarnText]}>{directionCopy}</Text>
+            </View>
+          </View>
         </View>
+        {isWeightWatch ? (
+          <View style={styles.weightNoticeWarn}>
+            <Sparkles color="#C99B3E" size={16} strokeWidth={2.4} />
+            <View style={styles.flex}>
+              <Text style={styles.timelineTitleMake}>近期体重变化较快</Text>
+              <Text style={styles.timelineSubMake}>可能与饮食、运动或天气有关。如伴随食欲/精神变化，建议咨询兽医。</Text>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.weightNoticeOk}>
+            <HeartPulse color={palette.teal} size={16} strokeWidth={2.4} />
+            <View style={styles.flex}>
+              <Text style={styles.timelineTitleMake}>{pet?.name ?? '灵伴'}近期体重较稳定</Text>
+              <Text style={styles.timelineSubMake}>{healthSummary?.weightSummary ?? '继续保持稳定记录，趋势会越来越准。'}</Text>
+            </View>
+          </View>
+        )}
         <View style={styles.weightInputMake}>
           <Text style={styles.sectionTitle}>记录新的体重</Text>
           <Field keyboardType="decimal-pad" label="今日体重 kg" onChangeText={setWeightInput} placeholder={currentWeight ? String(currentWeight) : '请输入体重'} value={weightInput} />
@@ -4131,20 +4669,90 @@ export default function LumiiMvpApp() {
             <Text style={styles.sectionTitle}>历史记录</Text>
             <Text style={styles.metaText}>近 30 天</Text>
           </View>
-          {weights.map((item, index) => (
+          {weights.length ? weights.map((item, index) => (
             <View key={item.id}>
-              <View style={styles.timelineRowMake}>
+              <Pressable onPress={() => openWeightEditor(item)} style={[styles.timelineRowMake, webPressableReset]}>
                 <View style={styles.timelineDotMake} />
                 <View style={styles.flex}>
                   <Text style={styles.timelineTitleMake}>{item.kg} kg</Text>
                   <Text style={styles.timelineSubMake}>{item.note ?? '无备注'}</Text>
                 </View>
                 <Text style={styles.timelineDateMake}>{item.recordedAt}</Text>
-              </View>
+                <Edit3 color={palette.muted} size={14} strokeWidth={2.2} />
+              </Pressable>
               {index < weights.length - 1 ? <View style={styles.makeDivider} /> : null}
             </View>
-          ))}
+          )) : (
+            <View style={styles.emptyStateMake}>
+              <Weight color={palette.teal} size={26} strokeWidth={2.4} />
+              <Text style={styles.emptyStateTitleMake}>还没有体重记录</Text>
+              <Text style={styles.emptyStateTextMake}>每周称一次，就能看见成长轨迹。</Text>
+            </View>
+          )}
         </View>
+        <Modal animationType="slide" onRequestClose={closeWeightEditor} transparent visible={Boolean(weightEditRecord)}>
+          <View style={styles.sheetBackdrop}>
+            <Pressable onPress={closeWeightEditor} style={styles.sheetBackdropTouch} />
+            <View style={styles.weightEditSheet}>
+              <View style={styles.weightSheetHandle} />
+              <View style={styles.rowBetween}>
+                <Text style={styles.sheetTitle}>编辑体重记录</Text>
+                <Pressable disabled={weightEditSaving} onPress={closeWeightEditor} style={webPressableReset}>
+                  <X color={palette.muted} size={18} strokeWidth={2.3} />
+                </Pressable>
+              </View>
+              <View style={styles.weightNumberInput}>
+                <TextInput
+                  keyboardType="decimal-pad"
+                  onChangeText={setWeightEditValue}
+                  placeholder="0.0"
+                  placeholderTextColor="#B8B3A8"
+                  style={[styles.weightNumberInputText, webTextInputReset]}
+                  value={weightEditValue}
+                />
+                <Text style={styles.weightUnitText}>kg</Text>
+              </View>
+              <View style={styles.quickWeightRow}>
+                {[-0.1, 0.1, 0.5].map((delta) => (
+                  <Pressable
+                    key={delta}
+                    onPress={() => {
+                      const base = Number.parseFloat(weightEditValue);
+                      if (Number.isFinite(base)) setWeightEditValue(String(Math.max(0, Math.round((base + delta) * 10) / 10)));
+                    }}
+                    style={[styles.quickWeightChip, webPressableReset]}
+                  >
+                    <Text style={styles.quickWeightText}>{delta > 0 ? `+${delta}` : delta}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <View style={styles.memoMetaBox}>
+                <View style={styles.metaIconBox}>
+                  <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
+                </View>
+                <Text style={styles.timelineTitleMake}>日期</Text>
+                <Text style={styles.timelineDateMake}>{weightEditRecord?.recordedAt ?? '今天'}</Text>
+              </View>
+              <View style={styles.makeFieldGroup}>
+                <Text style={styles.makeFieldLabel}>备注</Text>
+                <TextInput
+                  onChangeText={setWeightEditNote}
+                  placeholder="例如：晨起空腹"
+                  placeholderTextColor="#B8B3A8"
+                  style={[styles.makeTextInput, webTextInputReset]}
+                  value={weightEditNote}
+                />
+              </View>
+              <View style={styles.editActionStack}>
+                <Button loading={weightEditSaving} onPress={() => void saveWeightEdit()}>保存修改</Button>
+                <Pressable disabled={weightEditSaving} onPress={() => confirmDeleteWeightRecord(weightEditRecord)} style={[styles.deleteTextButton, webPressableReset]}>
+                  <Trash2 color={palette.danger} size={15} strokeWidth={2.4} />
+                  <Text style={styles.deleteTextButtonLabel}>删除这条记录</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </Screen>
     );
   }
@@ -4654,7 +5262,11 @@ export default function LumiiMvpApp() {
             <View style={styles.profileHeroOrb} />
             <View style={styles.profileHeroContent}>
               <View style={styles.profileOwnerAvatar}>
-                <User color={palette.orange} size={30} strokeWidth={2.3} />
+                {session?.account?.ownerAvatarUrl ? (
+                  <Image source={{ uri: session.account.ownerAvatarUrl }} style={styles.avatarImage} />
+                ) : (
+                  <User color={palette.orange} size={30} strokeWidth={2.3} />
+                )}
               </View>
               <View style={styles.flex}>
                 <Text style={styles.profileOwnerName}>{ownerName}</Text>
@@ -4671,7 +5283,7 @@ export default function LumiiMvpApp() {
                 accessibilityLabel="编辑个人资料"
                 accessibilityRole="button"
                 hitSlop={10}
-                onPress={() => showToast('个人资料编辑需补充 Figma 设计后开放')}
+                onPress={() => go('ownerEdit')}
                 style={webPressableReset}
               >
                 <Edit3 color={palette.muted} size={18} strokeWidth={2.2} />
@@ -4682,8 +5294,8 @@ export default function LumiiMvpApp() {
           <View style={styles.profileCurrentWrap}>
             <View style={styles.profileSectionLabelRow}>
               <Text style={styles.profileSectionLabel}>当前宠物</Text>
-              <Pressable onPress={() => go(pet ? 'petDetail' : 'petInfo')}>
-                <Text style={styles.profileManageLink}>{pet ? '查看档案 ›' : '添加宠物 ›'}</Text>
+              <Pressable onPress={() => go(pet ? 'multiPet' : 'petInfo')}>
+                <Text style={styles.profileManageLink}>{pet ? '管理全部 ›' : '添加宠物 ›'}</Text>
               </Pressable>
             </View>
             {pet ? (
@@ -4719,12 +5331,184 @@ export default function LumiiMvpApp() {
 
           <View style={styles.profileMenuGroup}>
             <ProfileMakeRow Icon={PawPrint} onPress={() => go(pet ? 'petDetail' : 'petInfo')} title="宠物档案" value={pet?.name ?? '待添加'} />
+            <ProfileMakeRow Icon={Users} onPress={() => go('multiPet')} title="多宠管理" value={pets.length ? `${pets.length} 只` : '去添加'} />
             <ProfileMakeRow Icon={Users} onPress={() => go('discover')} title="社交与附近" value={permissionEnabled && userSettings.nearbyVisible ? '已开启' : '待开启'} />
             <ProfileMakeRow Icon={Bell} onPress={() => go('notifications')} title="通知中心" value={notificationCenterValue} />
             <ProfileMakeRow Icon={Shield} onPress={() => go('safety')} title="安全中心" />
             <ProfileMakeRow Icon={User} onPress={() => go('accountSecurity')} title="账号安全" />
             <ProfileMakeRow Icon={LogOut} onPress={() => openConfirm('退出当前账号', '退出后会清除本机登录缓存，下次需要重新获取验证码登录。', () => void logout(), '退出')} title="退出当前账号" value="清除本机登录" />
           </View>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderMultiPet() {
+    const current = getCurrentPet();
+    const orderedPets: PetProfile[] = pets.length
+      ? ([current, ...pets.filter((item) => item.id !== current?.id)].filter(Boolean) as PetProfile[])
+      : current
+        ? [current]
+        : [];
+    return (
+      <Screen title="我的宠物">
+        {current ? (
+          <View style={styles.multiPetHero}>
+            <View style={styles.profileHeroOrb} />
+            <PetAvatar uri={current.avatarUrl ?? generatedGoldenAvatarUri} size={72} />
+            <View style={styles.flex}>
+              <View style={styles.profilePetNameRow}>
+                <Text style={styles.multiPetHeroName}>{current.name}</Text>
+                <Text style={styles.currentPetBadge}>当前灵伴</Text>
+              </View>
+              <Text style={styles.profilePetMeta}>{speciesLabels[current.species]} · {current.breed || '品种待补充'}</Text>
+              <Text style={styles.profilePetMeta}>{formatPetAge(current.birthday)} · {formatWeightKg(current.weightKg)}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.profileSectionLabelRow}>
+          <Text style={styles.profileSectionLabel}>全部宠物 · {orderedPets.length} 只</Text>
+          <Text style={styles.profileManageLink}>最多 5 只</Text>
+        </View>
+
+        <View style={styles.multiPetList}>
+          {orderedPets.length ? orderedPets.map((pet) => {
+            const isCurrent = pet.id === current?.id;
+            const switching = petSwitchingId === pet.id;
+            const deleting = petDeletingId === pet.id;
+            return (
+              <View key={pet.id} style={[styles.multiPetRow, isCurrent && styles.multiPetRowActive]}>
+                <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={54} />
+                <Pressable
+                  onPress={() => {
+                    if (isCurrent) {
+                      go('petDetail');
+                    } else {
+                      void switchActivePet(pet);
+                    }
+                  }}
+                  style={[styles.flex, webPressableReset]}
+                >
+                  <View style={styles.profilePetNameRow}>
+                    <Text style={styles.profilePetName}>{pet.name}</Text>
+                    <Text style={[styles.profilePetBadge, pet.species === 'dog' && styles.petDogBadge]}>{speciesLabels[pet.species]}</Text>
+                  </View>
+                  <Text style={styles.profilePetMeta}>{formatPetAge(pet.birthday)} · {formatWeightKg(pet.weightKg)}</Text>
+                  <Text style={[styles.statusText, pet.healthScore < 75 && styles.weightWarnText]}>{pet.healthScore >= 80 ? '近 30 天健康稳定' : '建议关注近期健康状态'}</Text>
+                </Pressable>
+                <View style={styles.multiPetActions}>
+                  <Pressable
+                    disabled={isCurrent || Boolean(petSwitchingId)}
+                    onPress={() => void switchActivePet(pet)}
+                    style={[styles.switchPetButton, isCurrent && styles.switchPetButtonActive, webPressableReset]}
+                  >
+                    {switching ? <ActivityIndicator color={palette.orange} size="small" /> : <Text style={[styles.switchPetText, isCurrent && styles.switchPetTextActive]}>{isCurrent ? '已选中' : '切换'}</Text>}
+                  </Pressable>
+                  <Pressable disabled={deleting} onPress={() => confirmDeletePet(pet)} style={[styles.petDeleteIconButton, webPressableReset]}>
+                    {deleting ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={15} strokeWidth={2.3} />}
+                  </Pressable>
+                </View>
+              </View>
+            );
+          }) : (
+            <View style={styles.emptyStateMake}>
+              <PawPrint color={palette.orange} size={28} strokeWidth={2.4} />
+              <Text style={styles.emptyStateTitleMake}>先添加一位灵伴吧</Text>
+              <Text style={styles.emptyStateTextMake}>每只宠物会拥有独立健康档案和 AI 灵伴记忆。</Text>
+            </View>
+          )}
+          <Pressable onPress={() => go('petInfo')} style={[styles.addPetDashed, webPressableReset]}>
+            <Plus color={palette.orange} size={16} strokeWidth={2.5} />
+            <Text style={styles.addPetDashedText}>添加新的宠物</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.chatSafetyTip}>
+          <PawPrint color={palette.orange} size={14} strokeWidth={2.4} />
+          <Text style={styles.chatSafetyText}>切换当前宠物后，首页、健康、AI 对话和附近资料都会同步更新。</Text>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderOwnerEdit() {
+    const nameCount = ownerNameDraft.trim().length;
+    const bioCount = ownerBioDraft.trim().length;
+    const invalid = !ownerNameDraft.trim() || nameCount > 14 || bioCount > 60;
+    return (
+      <Screen title="编辑个人资料">
+        <View style={styles.ownerAvatarBlock}>
+          <Pressable onPress={() => void pickOwnerAvatar()} style={[styles.ownerAvatarLarge, webPressableReset]}>
+            {ownerAvatarDraft ? (
+              <Image source={{ uri: ownerAvatarDraft }} style={styles.ownerAvatarImage} />
+            ) : (
+              <User color={palette.orange} size={42} strokeWidth={2.2} />
+            )}
+            {ownerAvatarPicking ? (
+              <View style={styles.ownerAvatarOverlay}>
+                <ActivityIndicator color="#fff" size="small" />
+              </View>
+            ) : null}
+          </Pressable>
+          <Pressable onPress={() => void pickOwnerAvatar()} style={[styles.ownerAvatarCamera, webPressableReset]}>
+            <Camera color="#fff" size={14} strokeWidth={2.4} />
+          </Pressable>
+          <Text style={styles.timelineSubMake}>{ownerAvatarPicking ? '正在打开相册...' : '点击更换头像'}</Text>
+        </View>
+
+        <View style={styles.editFormCard}>
+          <View style={styles.makeFieldGroup}>
+            <Text style={styles.makeFieldLabel}>主人昵称 *</Text>
+            <TextInput
+              maxLength={18}
+              onChangeText={setOwnerNameDraft}
+              placeholder="给自己取个昵称"
+              placeholderTextColor="#B8B3A8"
+              style={[styles.makeTextInput, nameCount > 14 && styles.makeTextInputError, webTextInputReset]}
+              value={ownerNameDraft}
+            />
+            <View style={styles.fieldHintRow}>
+              <Text style={[styles.fieldHintText, (!ownerNameDraft.trim() || nameCount > 14) && styles.fieldHintError]}>{!ownerNameDraft.trim() ? '昵称不能为空' : nameCount > 14 ? '昵称最多 14 个字' : ' '}</Text>
+              <Text style={[styles.fieldHintText, nameCount > 14 && styles.fieldHintError]}>{nameCount}/14</Text>
+            </View>
+          </View>
+
+          <View style={styles.makeFieldGroup}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.makeFieldLabel}>手机号</Text>
+              <Text style={styles.lockedFieldHint}>暂不支持修改</Text>
+            </View>
+            <View style={[styles.makeTextInput, styles.readonlyField]}>
+              <Phone color={palette.muted} size={15} strokeWidth={2.2} />
+              <Text style={styles.timelineTitleMake}>{formatMaskedPhone(session?.phone)}</Text>
+            </View>
+            <Text style={styles.fieldHintText}>如需更换手机号，后续会在账号安全页开放。</Text>
+          </View>
+
+          <View style={styles.makeFieldGroup}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.makeFieldLabel}>个人简介</Text>
+              <Text style={styles.lockedFieldHint}>选填</Text>
+            </View>
+            <TextInput
+              multiline
+              onChangeText={setOwnerBioDraft}
+              placeholder="写一句介绍你和毛孩子的话"
+              placeholderTextColor="#B8B3A8"
+              style={[styles.makeTextInput, styles.makeTextAreaInput, bioCount > 60 && styles.makeTextInputError, webTextInputReset]}
+              textAlignVertical="top"
+              value={ownerBioDraft}
+            />
+            <View style={styles.fieldHintRow}>
+              <Text style={[styles.fieldHintText, bioCount > 60 && styles.fieldHintError]}>{bioCount > 60 ? '简介最多 60 个字' : ' '}</Text>
+              <Text style={[styles.fieldHintText, bioCount > 60 && styles.fieldHintError]}>{bioCount}/60</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.editActionStack}>
+          <Button disabled={invalid || ownerAvatarPicking} loading={ownerProfileSaving} onPress={() => void saveOwnerProfile()}>保存资料</Button>
         </View>
       </Screen>
     );
@@ -5111,6 +5895,8 @@ export default function LumiiMvpApp() {
         return renderHealth();
       case 'healthMemos':
         return renderHealthMemos();
+      case 'memoEdit':
+        return renderMemoEdit();
       case 'home':
         return renderHome();
       case 'login':
@@ -5119,10 +5905,14 @@ export default function LumiiMvpApp() {
         return renderMap();
       case 'messages':
         return renderMessages();
+      case 'multiPet':
+        return renderMultiPet();
       case 'notifications':
         return renderNotifications();
       case 'otp':
         return renderOtp();
+      case 'ownerEdit':
+        return renderOwnerEdit();
       case 'permissions':
         return renderPermissions();
       case 'petDetail':
@@ -5187,6 +5977,40 @@ export default function LumiiMvpApp() {
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+function WeightTrendMiniChart({ abnormal, records }: { abnormal?: boolean; records: WeightRecord[] }) {
+  const values = records.length
+    ? records.slice(0, 12).reverse().map((item) => item.kg)
+    : [26.0, 26.1, 26.2, 26.1, 26.3, 26.4, 26.3, 26.4];
+  const width = 320;
+  const height = 128;
+  const pad = { bottom: 22, left: 10, right: 10, top: 16 };
+  const minValue = Math.min(...values, 24);
+  const maxValue = Math.max(...values, 28);
+  const range = Math.max(1, maxValue - minValue);
+  const scaleX = (index: number) => pad.left + (index * (width - pad.left - pad.right)) / Math.max(1, values.length - 1);
+  const scaleY = (value: number) => pad.top + (1 - (value - minValue) / range) * (height - pad.top - pad.bottom);
+  const path = values.map((value, index) => `${index === 0 ? 'M' : 'L'} ${scaleX(index)} ${scaleY(value)}`).join(' ');
+  const lineColor = abnormal ? '#C99B3E' : palette.teal;
+  const bandTop = height * 0.28;
+  const bandHeight = height * 0.34;
+
+  return (
+    <View style={styles.weightChartWrap}>
+      <Svg height={height} viewBox={`0 0 ${width} ${height}`} width="100%">
+        <Rect fill="#E8F5F3" height={bandHeight} opacity={0.58} rx={8} width={width - pad.left - pad.right} x={pad.left} y={bandTop} />
+        <SvgText fill={palette.teal} fontSize="9" fontWeight="700" textAnchor="end" x={width - pad.right} y={bandTop + 14}>
+          健康观察区间
+        </SvgText>
+        {[0.25, 0.5, 0.75].map((ratio) => (
+          <Line key={ratio} stroke="#F0EBE0" strokeDasharray="2 4" strokeWidth={1} x1={pad.left} x2={width - pad.right} y1={height * ratio} y2={height * ratio} />
+        ))}
+        <Path d={path} fill="none" stroke={lineColor} strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.6} />
+        <Circle cx={scaleX(values.length - 1)} cy={scaleY(values[values.length - 1])} fill="#fff" r={5} stroke={lineColor} strokeWidth={2.5} />
+      </Svg>
+    </View>
   );
 }
 
@@ -5506,6 +6330,65 @@ const styles = StyleSheet.create({
   emptyStateMake: { alignItems: 'center', gap: 8, paddingHorizontal: 18, paddingVertical: 24 },
   emptyStateTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 19, textAlign: 'center' },
   emptyStateTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
+  addPetDashed: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#FFC8A6', borderRadius: 16, borderStyle: 'dashed', borderWidth: 1.5, flexDirection: 'row', gap: 8, justifyContent: 'center', minHeight: 52, paddingHorizontal: 14, paddingVertical: 14 },
+  addPetDashedText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
+  currentPetBadge: { backgroundColor: '#fff', borderRadius: 8, color: palette.orange, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
+  deleteTextButton: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 6, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 10 },
+  deleteTextButtonLabel: { color: palette.danger, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  editActionStack: { gap: 10, marginTop: 16 },
+  editFormCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 14, padding: 16 },
+  fieldHintError: { color: palette.danger },
+  fieldHintRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, minHeight: 15, paddingHorizontal: 4 },
+  fieldHintText: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 15 },
+  lockedFieldHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700' },
+  makeFieldGroup: { gap: 6 },
+  makeFieldLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  makeTextAreaInput: { minHeight: 112, paddingTop: 12 },
+  makeTextInput: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1.5, color: palette.ink, flexDirection: 'row', fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', gap: 10, minHeight: 48, paddingHorizontal: 14, paddingVertical: 10 },
+  makeTextInputError: { borderColor: palette.danger },
+  memoMetaBox: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  metaIconBox: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 8, height: 26, justifyContent: 'center', width: 26 },
+  multiPetActions: { alignItems: 'flex-end', gap: 8 },
+  multiPetHero: { alignItems: 'center', backgroundColor: '#FFE3D1', borderRadius: 20, flexDirection: 'row', gap: 14, marginTop: 2, overflow: 'hidden', padding: 14, position: 'relative' },
+  multiPetHeroName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 24 },
+  multiPetList: { gap: 10 },
+  multiPetRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  multiPetRowActive: { borderColor: '#FFD9C2' },
+  ownerAvatarBlock: { alignItems: 'center', paddingBottom: 10, paddingTop: 8 },
+  ownerAvatarCamera: { alignItems: 'center', backgroundColor: palette.orange, borderColor: palette.background, borderRadius: 16, borderWidth: 3, bottom: 28, height: 34, justifyContent: 'center', marginBottom: -16, marginLeft: 70, width: 34 },
+  ownerAvatarImage: { height: '100%', width: '100%' },
+  ownerAvatarLarge: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 50, borderWidth: 3, height: 100, justifyContent: 'center', overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.1, shadowRadius: 18, width: 100 },
+  ownerAvatarOverlay: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
+  petDeleteIconButton: { alignItems: 'center', backgroundColor: '#FBE4DE', borderRadius: 10, height: 30, justifyContent: 'center', width: 30 },
+  petDogBadge: { backgroundColor: palette.orangeSoft, color: palette.orange },
+  quickWeightChip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 10, borderWidth: 1, flex: 1, paddingVertical: 8 },
+  quickWeightRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  quickWeightText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700' },
+  readonlyField: { backgroundColor: '#F4EFE6' },
+  sheetBackdrop: { backgroundColor: 'rgba(20,18,14,0.48)', flex: 1, justifyContent: 'flex-end' },
+  sheetBackdropTouch: { flex: 1 },
+  weightSheetHandle: { alignSelf: 'center', backgroundColor: '#E5E0D5', borderRadius: 2, height: 4, marginBottom: 14, width: 36 },
+  sheetTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700', lineHeight: 22 },
+  switchPetButton: { alignItems: 'center', borderColor: palette.orange, borderRadius: 10, borderWidth: 1, justifyContent: 'center', minHeight: 32, minWidth: 58, paddingHorizontal: 10, paddingVertical: 6 },
+  switchPetButtonActive: { backgroundColor: palette.orangeSoft, borderColor: palette.orangeSoft },
+  switchPetText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  switchPetTextActive: { color: palette.orange },
+  weightChartWrap: { marginHorizontal: -4, marginTop: 10 },
+  weightDeltaPill: { alignItems: 'center', backgroundColor: palette.tealSoft, borderRadius: 10, flexDirection: 'row', gap: 4, paddingHorizontal: 10, paddingVertical: 5 },
+  weightDeltaPillWarn: { backgroundColor: '#FBF2D9' },
+  weightEditSheet: { backgroundColor: palette.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, gap: 14, paddingBottom: 18, paddingHorizontal: 16, paddingTop: 16 },
+  weightNoticeOk: { alignItems: 'center', backgroundColor: '#E8F5F3', borderColor: '#C4E0DA', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
+  weightNoticeWarn: { alignItems: 'center', backgroundColor: '#FBF2D9', borderColor: '#EFDFA8', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
+  weightNumberInput: { alignItems: 'flex-end', backgroundColor: '#fff', borderColor: palette.orange, borderRadius: 18, borderWidth: 1.5, flexDirection: 'row', gap: 6, justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 16 },
+  weightNumberInputText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 42, fontWeight: '700', letterSpacing: 0, lineHeight: 48, minWidth: 120, padding: 0, textAlign: 'center' },
+  weightOkText: { color: palette.teal },
+  weightStatChip: { backgroundColor: palette.pale, borderRadius: 12, flex: 1, paddingHorizontal: 10, paddingVertical: 10 },
+  weightStatChipOk: { backgroundColor: '#E8F5F3' },
+  weightStatChipWarn: { backgroundColor: '#FBF2D9' },
+  weightStatRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  weightTrendCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingBottom: 12, paddingTop: 14 },
+  weightUnitText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', marginBottom: 7 },
+  weightWarnText: { color: '#C99B3E' },
   flex: { flex: 1, minWidth: 0 },
   aiGeneratingImage: { borderRadius: 120, height: 240, opacity: 0.9, width: 240 },
   aiGeneratingOrb: { alignItems: 'center', alignSelf: 'center', height: 286, justifyContent: 'center', marginTop: 28, position: 'relative', width: 286 },
@@ -5902,7 +6785,7 @@ const styles = StyleSheet.create({
   profileMakeRowValue: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18, maxWidth: '42%', minWidth: 0, textAlign: 'right' },
   profileManageLink: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   profileMenuGroup: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 16, overflow: 'hidden' },
-  profileOwnerAvatar: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 32, borderWidth: 3, height: 64, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.08, shadowRadius: 10, width: 64 },
+  profileOwnerAvatar: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 32, borderWidth: 3, height: 64, justifyContent: 'center', overflow: 'hidden', shadowColor: '#000', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.08, shadowRadius: 10, width: 64 },
   profileOwnerName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 24 },
   profilePetBadge: { backgroundColor: '#e8f5f3', borderRadius: 6, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
   profilePetCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 14 },

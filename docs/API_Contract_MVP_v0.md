@@ -141,6 +141,8 @@ Response:
   "data": {
     "account": {
       "activePet": null,
+      "ownerAvatarUrl": "",
+      "ownerBio": "",
       "ownerName": "用户0966",
       "permissions": {
         "location": "unknown",
@@ -189,6 +191,8 @@ Response:
   "data": {
     "account": {
       "activePet": null,
+      "ownerAvatarUrl": "",
+      "ownerBio": "",
       "ownerName": "用户0966",
       "permissions": {
         "location": "granted",
@@ -219,6 +223,8 @@ Response:
 {
   "data": {
     "phone": "13531850966",
+    "ownerAvatarUrl": "",
+    "ownerBio": "一个会陪奶油晒太阳的人",
     "ownerName": "用户0966",
     "activePet": null,
     "permissions": {
@@ -240,12 +246,18 @@ Response:
 ### PATCH `/me`
 
 更新当前登录用户资料。MVP 测试后端当前支持：
-- `ownerName`：1 到 16 个字。
+- `ownerName`：1 到 14 个字。
+- `ownerBio`：可为空，最多 60 个字。
+- `ownerAvatarUrl`：可为空，最多 2000 字符；MVP 先保存 App 传入的本地/URL 占位，正式对象存储上传后续替换。
 
 Request:
 
 ```json
-{ "ownerName": "Serena" }
+{
+  "ownerName": "Serena",
+  "ownerBio": "一个会陪奶油晒太阳的人",
+  "ownerAvatarUrl": "file:///local/avatar.jpg"
+}
 ```
 
 Response：同 `GET /me`。

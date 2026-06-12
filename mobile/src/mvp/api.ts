@@ -100,7 +100,7 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<UserProfile>('GET', '/me');
       },
 
-      async updateMe(patch: Partial<Pick<UserProfile, 'ownerName'>>): Promise<ApiResult<UserProfile>> {
+      async updateMe(patch: Partial<Pick<UserProfile, 'ownerAvatarUrl' | 'ownerBio' | 'ownerName'>>): Promise<ApiResult<UserProfile>> {
         return request<UserProfile>('PATCH', '/me', patch);
       },
     },
