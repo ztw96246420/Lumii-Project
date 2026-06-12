@@ -486,6 +486,10 @@ export default function LumiiMvpApp() {
   const [discoverRefreshing, setDiscoverRefreshing] = useState(false);
   const [discoverFilter, setDiscoverFilter] = useState<DiscoverFilter>('all');
   const [greetingRequestOwners, setGreetingRequestOwners] = useState<NearbyOwner[]>([]);
+  const [socialActionSavingIds, setSocialActionSavingIds] = useState<string[]>([]);
+  const socialActionSavingIdsRef = useRef<Set<string>>(new Set());
+  const [walkInviteSaving, setWalkInviteSaving] = useState(false);
+  const walkInviteSavingRef = useRef(false);
   const [selectedOwner, setSelectedOwner] = useState<NearbyOwner | null>(null);
   const [walkInvitePlace, setWalkInvitePlace] = useState('滨江绿地');
   const [walkInviteTime, setWalkInviteTime] = useState('今天 19:00');
@@ -1649,27 +1653,53 @@ export default function LumiiMvpApp() {
     await loadConversationMessages(conversation.id, { markRead: true });
   }
 
+  function beginSocialAction(actionId: string) {
+    if (socialActionSavingIdsRef.current.has(actionId)) return false;
+    socialActionSavingIdsRef.current.add(actionId);
+    setSocialActionSavingIds([...socialActionSavingIdsRef.current]);
+    return true;
+  }
+
+  function endSocialAction(actionId: string) {
+    socialActionSavingIdsRef.current.delete(actionId);
+    setSocialActionSavingIds([...socialActionSavingIdsRef.current]);
+  }
+
   async function rejectGreeting(owner: NearbyOwner) {
-    const result = await lumiiApi.social.rejectGreeting(owner.id);
-    if (result.data) {
-      setGreetingRequestOwners((items) => items.filter((item) => item.id !== owner.id));
-      showToast('已婉拒招呼');
-    } else {
-      showToast(result.error?.message ?? '操作失败，请稍后重试');
+    const actionId = `reject:${owner.id}`;
+    if (!beginSocialAction(actionId)) return;
+    try {
+      const result = await lumiiApi.social.rejectGreeting(owner.id);
+      if (result.data) {
+        setGreetingRequestOwners((items) => items.filter((item) => item.id !== owner.id));
+        void loadInboxData();
+        showToast('已婉拒招呼');
+      } else {
+        showToast(result.error?.message ?? '操作失败，请稍后重试');
+      }
+    } finally {
+      endSocialAction(actionId);
     }
   }
 
   async function acceptGreeting(owner: NearbyOwner) {
-    const result = await lumiiApi.social.acceptGreeting(owner.id);
-    if (result.data) {
-      setGreetingRequestOwners((items) => items.filter((item) => item.id !== owner.id));
-      if (result.data.conversation) {
-        setConversations((items) => [result.data!.conversation!, ...items.filter((item) => item.id !== result.data!.conversation!.id)]);
+    const actionId = `accept:${owner.id}`;
+    if (!beginSocialAction(actionId)) return;
+    try {
+      const result = await lumiiApi.social.acceptGreeting(owner.id);
+      if (result.data) {
+        setGreetingRequestOwners((items) => items.filter((item) => item.id !== owner.id));
+        if (result.data.conversation) {
+          setConversations((items) => [result.data!.conversation!, ...items.filter((item) => item.id !== result.data!.conversation!.id)]);
+        }
+        void loadInboxData();
+        replace('messages');
+        showToast('已接受招呼，可以聊天了');
+      } else {
+        showToast(result.error?.message ?? '操作失败，请稍后重试');
       }
-      replace('messages');
-      showToast('已接受招呼');
-    } else {
-      showToast(result.error?.message ?? '操作失败，请稍后重试');
+    } finally {
+      endSocialAction(actionId);
     }
   }
 
@@ -1983,28 +2013,27 @@ export default function LumiiMvpApp() {
   }
 
   async function sendGreeting(ownerId: string) {
-    const result = await lumiiApi.social.sendGreeting(ownerId);
+    const actionId = `greet:${ownerId}`;
+    if (!beginSocialAction(actionId)) return;
     const owner = owners.find((item) => item.id === ownerId);
-    if (result.data) {
-      if (result.data.conversation) {
-        setConversations((items) => [result.data!.conversation!, ...items.filter((item) => item.id !== result.data!.conversation!.id)]);
+    try {
+      const result = await lumiiApi.social.sendGreeting(ownerId);
+      if (result.data) {
+        if (result.data.conversation) {
+          setConversations((items) => [result.data!.conversation!, ...items.filter((item) => item.id !== result.data!.conversation!.id)]);
+        }
+        void loadInboxData();
+        showToast(`已向${owner?.petName ?? '附近伙伴'}打招呼`);
+      } else {
+        showToast(result.error?.message ?? '发送失败');
       }
-      setNotifications((items) => [
-        {
-          id: `greeting-${Date.now()}`,
-          read: false,
-          text: `你已向${owner?.ownerName ?? '附近主人'}和${owner?.petName ?? '它'}打招呼`,
-          title: '招呼已发送',
-        },
-        ...items,
-      ]);
-      showToast('已打招呼');
-    } else {
-      showToast(result.error?.message ?? '发送失败');
+    } finally {
+      endSocialAction(actionId);
     }
   }
 
   async function createWalkInvite() {
+    if (walkInviteSavingRef.current) return;
     const owner = selectedOwner ?? owners[0];
     if (!owner) {
       showToast('请选择附近主人');
@@ -2014,34 +2043,34 @@ export default function LumiiMvpApp() {
       showToast('请填写地点和时间');
       return;
     }
-    const result = await lumiiApi.social.createWalkInvite(owner.id, {
-      note: walkInviteNote.trim(),
-      place: walkInvitePlace.trim(),
-      time: walkInviteTime.trim(),
-    });
-    if (result.data) {
-      const conversation =
-        result.data.conversation ??
-        {
-          id: `walk-${Date.now()}`,
-          lastMessage: `${walkInviteTime} · ${walkInvitePlace}`,
-          name: `${owner.ownerName}和${owner.petName}`,
-          unread: 0,
-        };
-      setConversations((items) => [conversation, ...items.filter((item) => item.id !== conversation.id)]);
-      setNotifications((items) => [
-        {
-          id: `walk-note-${Date.now()}`,
-          read: false,
-          text: `${owner.petName}的主人将收到你的约遛邀请`,
-          title: '约遛邀请已发送',
-        },
-        ...items,
-      ]);
-      replace('messages');
-      showToast('约遛邀请已发送');
-    } else {
-      showToast(result.error?.message ?? '约遛邀请发送失败');
+    walkInviteSavingRef.current = true;
+    setWalkInviteSaving(true);
+    try {
+      const result = await lumiiApi.social.createWalkInvite(owner.id, {
+        note: walkInviteNote.trim(),
+        place: walkInvitePlace.trim(),
+        time: walkInviteTime.trim(),
+      });
+      if (result.data) {
+        const conversation =
+          result.data.conversation ??
+          {
+            id: `walk-${Date.now()}`,
+            lastMessage: `${walkInviteTime} · ${walkInvitePlace}`,
+            name: `${owner.ownerName}和${owner.petName}`,
+            unread: 0,
+          };
+        setConversations((items) => [conversation, ...items.filter((item) => item.id !== conversation.id)]);
+        setWalkInviteNote('');
+        void loadInboxData();
+        replace('messages');
+        showToast('约遛邀请已发送');
+      } else {
+        showToast(result.error?.message ?? '约遛邀请发送失败');
+      }
+    } finally {
+      walkInviteSavingRef.current = false;
+      setWalkInviteSaving(false);
     }
   }
 
@@ -2303,6 +2332,10 @@ export default function LumiiMvpApp() {
     setDiscoverRefreshing(false);
     setDiscoverFilter('all');
     setGreetingRequestOwners([]);
+    socialActionSavingIdsRef.current.clear();
+    setSocialActionSavingIds([]);
+    walkInviteSavingRef.current = false;
+    setWalkInviteSaving(false);
     setSelectedOwner(null);
     setWalkInvitePlace('滨江绿地');
     setWalkInviteTime('今天 19:00');
@@ -3497,8 +3530,8 @@ export default function LumiiMvpApp() {
                   <Text style={styles.walkInviteInlineText}>约遛邀请</Text>
                 </Pressable>
               </View>
-              <Pressable onPress={() => void sendGreeting(owner.id)} style={styles.greetButtonMake}>
-                <MessageCircle color="#fff" size={15} strokeWidth={2.4} />
+              <Pressable disabled={socialActionSavingIds.includes(`greet:${owner.id}`)} onPress={() => void sendGreeting(owner.id)} style={[styles.greetButtonMake, socialActionSavingIds.includes(`greet:${owner.id}`) && styles.mapSearchActionDisabled]}>
+                {socialActionSavingIds.includes(`greet:${owner.id}`) ? <ActivityIndicator color="#fff" size="small" /> : <MessageCircle color="#fff" size={15} strokeWidth={2.4} />}
               </Pressable>
             </View>
           ))}
@@ -4108,8 +4141,8 @@ export default function LumiiMvpApp() {
               />
             </View>
             <View style={styles.actionRow}>
-              <Button onPress={() => void sendGreeting(owner.id)} tone="secondary">先打招呼</Button>
-              <Button onPress={() => void createWalkInvite()}>发送邀请</Button>
+              <Button loading={socialActionSavingIds.includes(`greet:${owner.id}`)} onPress={() => void sendGreeting(owner.id)} tone="secondary">先打招呼</Button>
+              <Button loading={walkInviteSaving} onPress={() => void createWalkInvite()}>发送邀请</Button>
             </View>
           </>
         ) : (
@@ -4138,8 +4171,8 @@ export default function LumiiMvpApp() {
                 <Text style={styles.timelineTitleMake}>{owner.ownerName}和{owner.petName}</Text>
                 <Text style={styles.timelineSubMake}>{index === 0 ? `想认识你和${pet?.name ?? '你的宠物'}，今晚也在附近散步。` : '向你发送了友好的招呼。'}</Text>
                 <View style={styles.requestActionRow}>
-                  <Button onPress={() => void rejectGreeting(owner)} tone="ghost">婉拒</Button>
-                  <Button onPress={() => void acceptGreeting(owner)}>接受</Button>
+                  <Button loading={socialActionSavingIds.includes(`reject:${owner.id}`)} onPress={() => void rejectGreeting(owner)} tone="ghost">婉拒</Button>
+                  <Button loading={socialActionSavingIds.includes(`accept:${owner.id}`)} onPress={() => void acceptGreeting(owner)}>接受</Button>
                 </View>
               </View>
             </View>

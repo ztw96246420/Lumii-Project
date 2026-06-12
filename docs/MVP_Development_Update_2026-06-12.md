@@ -8,6 +8,8 @@
 - 当前宠物业务状态一致性修复：App 现在会把 `activePet` 变化同步回 `session.account.activePet`，覆盖编辑档案、保存形象、手动/AI 记录体重、健康摘要刷新等路径；同时 `loadCommonData` 改为只在登录 token 变化时做全量拉取，避免账号快照更新导致重复全量刷新。不新增页面。
 - AI 对话业务动作同步补强：AI 回复携带 `updatedPet`、`createdWeight`、`createdMemo`、`updatedVaccine`、`vaccineReminderIds` 或 `medicalAlert` 时，App 会统一同步宠物档案、体重记录、健康备忘、疫苗计划、提醒开关、健康摘要和通知中心，并用现有 toast 提示“已同步”。同时补齐本地疫苗提醒列表减少时的系统通知取消，避免 AI 对话关闭提醒后真机本地通知残留。不新增页面。
 - 新用户建档/电子形象保存后的宠物维度刷新补强：新建宠物成功后会刷新健康摘要、体重、疫苗/驱虫、提醒开关、健康备忘和 AI 用量；保存电子形象成功后会同步当前宠物、刷新宠物维度数据并清理上传/生成草稿，避免回首页或再次上传时读取旧任务状态。不新增页面。
+- 社交发现动作回显补强：发送打招呼、接受/婉拒招呼、发送约遛邀请现在会使用现有 loading/disabled 状态防重复点击，并在成功后刷新真实招呼请求、会话列表和通知中心，不再依赖本地临时假通知；退出账号也会清理社交发送中状态。不新增页面。
+- 执行优先级校准：下一阶段优先补齐已有页面内的业务闭环和状态一致性，例如二次进入、数据回显、刷新、回退、防重复提交和失败恢复；内容安全细则、灰产词扩展、复杂风控规则暂不抢 MVP 主线，只保留后续接口口子。
 - 本地临时后端和腾讯云测试后端均验证通过：合法 Android 推送 token 登记成功，同一 `deviceId` 再次上报会更新 token；非法平台、短 token、未知字段和超长 `deviceId` 会返回 `PUSH_DEVICE_INVALID`。
 - 疫苗/驱虫计划接口校验补强：`PATCH /health/vaccines/{vaccineId}` 现在只接受 `status` 字段和 `due/done/overdue` 三种状态，非法输入返回 `HEALTH_VACCINE_INVALID`；`PATCH /health/vaccine-reminders/{vaccineId}` 只接受布尔 `enabled`，非布尔值、未知字段或已完成计划重新开启提醒返回 `HEALTH_REMINDER_INVALID`。mock API 同步该规则，不新增页面。
 - 文档口径同步：接口契约、支持清单和 Figma 缺失清单已把疫苗状态/提醒开关字段兜底校验标记为 MVP 已实现；提醒时间选择、重复规则、正式犬猫疫苗/驱虫模板仍作为后续运营规则。
