@@ -1158,6 +1158,8 @@ export default function LumiiMvpApp() {
       setPermissions(savedPermissions);
       return savedPermissions;
     }
+    permissionsRef.current = nextPermissions;
+    setPermissions(nextPermissions);
     return nextPermissions;
   }
 
@@ -1989,6 +1991,7 @@ export default function LumiiMvpApp() {
         setUserSettings(savedSettings);
         if (key === 'pushNotifications') {
           if (nextValue) {
+            schedulePushDeviceRegistration({ delayMs: 500 });
             void syncVaccineLocalReminders(vaccines, vaccineReminderIds, activePet?.name);
             localHealthReminderScheduledIdsRef.current = vaccineReminderIds;
             localHealthReminderSyncKeyRef.current = '';
@@ -2003,6 +2006,9 @@ export default function LumiiMvpApp() {
       } else {
         userSettingsRef.current = previousSettings;
         setUserSettings(previousSettings);
+        if (key === 'pushNotifications' && previousSettings.pushNotifications) {
+          schedulePushDeviceRegistration({ delayMs: 500 });
+        }
         showToast(result.error?.message ?? '设置保存失败，请稍后重试');
       }
     } finally {
