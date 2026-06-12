@@ -394,6 +394,34 @@ function buildHealthSummary(): HealthSummary {
   };
 }
 
+function detectMockPetMedicalEmergency(text: string) {
+  const normalized = String(text || '').toLowerCase();
+  const toxicIngestion = /(误食|吃了|吞了|舔了|咬了).*(巧克力|葡萄|葡萄干|洋葱|大蒜|蒜|药|药片|老鼠药|蟑螂药|杀虫剂|清洁剂|消毒液|酒精|百合|电池|烟头|毒)/.test(normalized);
+  const emergencyPatterns = [
+    /呼吸困难|喘不上|喘不过|张嘴呼吸|窒息|憋气/,
+    /抽搐|癫痫|昏迷|休克|晕倒|意识不清|站不起来|瘫/,
+    /大出血|流血不止|吐血|便血|尿血/,
+    /严重外伤|车撞|被车撞|摔伤|骨折|咬伤很深|伤口很深/,
+    /持续.*(呕吐|腹泻|拉稀)|一直.*(呕吐|吐|腹泻|拉稀)/,
+    /不吃不喝|拒食拒水/,
+    /中毒|poison|toxic|chocolate|grape|onion|seizure|breathing|bleeding/,
+  ];
+  return toxicIngestion || emergencyPatterns.some((pattern) => pattern.test(normalized));
+}
+
+function mockPetMedicalSafetyReply(text: string) {
+  const petName = (pets.find((pet) => pet.id === activePetId) ?? pets[0])?.name || '你的宠物';
+  const ingestionHint = /(误食|吃了|吞了|舔了|咬了)/.test(String(text || ''));
+  const extra = ingestionHint
+    ? '如果是误食，请尽量保留包装、成分、照片和大概时间，不要自行催吐或喂药。'
+    : '请先让它保持安静，避免继续运动；如果有出血、呼吸异常或抽搐，优先就近急诊。';
+  return [
+    `这个情况我不能当作普通聊天处理。${petName}可能存在需要尽快评估的风险，请马上联系宠物医院或兽医。`,
+    extra,
+    '我不能替代兽医诊断，也不建议在没有医生指导时自行用药。你可以同时记录：发生时间、持续多久、精神/呼吸/食欲变化，带给医生判断。',
+  ].join('\n\n');
+}
+
 export const mockApi = {
   ai: {
     async getUsage(): Promise<ApiResult<AiUsageSummary>> {
@@ -964,7 +992,9 @@ export const mockApi = {
         id: `pet-ai-${Date.now()}`,
         author: 'ai',
         status: 'sent',
-        text: '我收到啦。这个情况我会放进今天的小记录里，如果和健康有关，也建议继续观察食欲、精神和便便状态。',
+        text: detectMockPetMedicalEmergency(text)
+          ? mockPetMedicalSafetyReply(text)
+          : '我收到啦。这个情况我会放进今天的小记录里，如果和健康有关，也建议继续观察食欲、精神和便便状态。',
         time: '刚刚',
       };
       petChatMessages = [...petChatMessages, userMessage, aiMessage];

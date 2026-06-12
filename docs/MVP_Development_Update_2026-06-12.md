@@ -35,6 +35,7 @@
 - AI 形象确认页联动任务 action：现有“保存并设为电子灵伴”按钮优先调用 `acceptGeneration`，现有“重新生成”按钮优先调用 `retryGeneration`，并补充保存/重试 loading 状态；页面样式不变。
 - 通知设备登记联动：真机通知权限授权成功后，App 会通过 Expo Notifications 获取 Expo Push Token 并调用 `POST /devices/push-token`；二次登录恢复到已授权通知状态时会静默补登记，Web 预览跳过，登记失败不阻断权限或建档流程。
 - AI 用量读取接口补齐：新增 `GET /ai/usage`，返回当前账号当日宠物对话/形象生成次数、剩余额度，以及测试后端累计 DeepSeek token、Flux/Midjourney 请求和 quota 统计；该接口只读统计，不触发真实模型请求。
+- AI 对话高风险医疗门禁补齐：`POST /ai/pet-chat/messages` 命中呼吸困难、抽搐、误食高风险物、严重外伤、大出血、持续呕吐腹泻、拒食拒水等关键词时，会在调用 DeepSeek 前返回固定安全回复，提示尽快联系宠物医院或兽医；该路径不烧 DeepSeek token。
 - 文档状态纠偏：支持清单已把媒体读取、地点审核记录、avatar/health mock service 方法列表更新为当前实现状态，避免把已实现接口继续写成待补。
 
 ## 验证
@@ -42,6 +43,7 @@
 - `npm run typecheck` 通过。
 - `npm run typecheck` 覆盖通知设备登记联动通过。
 - `npm run typecheck` 覆盖 AI 用量 API 门面通过。
+- `npm run typecheck` 覆盖 AI 对话医疗门禁 mock 同步通过。
 - `node --check scripts/lumii-backend.cjs` 通过。
 - `git diff --check` 通过，仅提示 Windows 工作区 LF/CRLF 换行转换 warning。
 - 临时本地后端验证通过：短信登录 -> 保存权限和设置 -> 刷新 token -> 读回手机号、权限完成状态和设置快照。
@@ -155,6 +157,13 @@
   - 当日形象生成：`0/10`。
   - DeepSeek 模型：`deepseek-v4-flash`。
   - 当前形象 provider：`ttapi-flux-edits`。
+- 临时本地后端验证通过：配置假 `DEEPSEEK_API_KEY` 后发送“误食巧克力 + 呼吸困难”高风险消息，后端返回固定安全回复、保存 2 条对话消息、当日对话次数 +1，但 DeepSeek 请求数保持 `0 -> 0`。
+- 腾讯云测试后端已热更新并重启 `lumii-backend`，云端高风险医疗门禁验证通过。
+  - 测试手机号：`13900007780`。
+  - DeepSeek 请求数：`7 -> 7`。
+  - 当日 AI 对话：`1/80`。
+  - 回复包含宠物医院/兽医建议：true。
+  - 回复包含不要自行催吐/自行用药提示：true。
 
 ## 未打包
 
