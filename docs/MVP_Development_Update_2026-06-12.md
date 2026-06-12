@@ -19,6 +19,7 @@
 - 普通聊天草稿状态隔离：会话输入框草稿改为按 `conversationId` 保存，切换不同主人会话时不会把上一条未发送内容带到另一个会话；退出账号会清空全部会话草稿。不新增页面。
 - 聊天详情会话状态同步：会话列表轮询、手动刷新、标记已读、招呼接受等路径更新 `conversations` 后，当前打开的聊天详情会自动同步最新会话对象，避免列表已变更但详情页仍使用旧的 `canSendMessage/unread/lastMessage` 状态。不新增页面。
 - 地点详情状态同步：地点列表刷新或搜索结果变化后，当前打开的地点详情会同步到最新地点对象；当前地点不在结果里时才切到新的首个结果，避免详情页继续使用旧地点数据。不新增页面。
+- 约遛目标状态同步：附近列表刷新后，已选约遛对象会同步到最新主人卡片；如果对象不再出现在附近列表，约遛页显示现有空状态并引导回发现页，不再自动 fallback 到列表第一位，避免误发邀请。不新增页面。
 - 本地临时后端和腾讯云测试后端均验证通过：合法 Android 推送 token 登记成功，同一 `deviceId` 再次上报会更新 token；非法平台、短 token、未知字段和超长 `deviceId` 会返回 `PUSH_DEVICE_INVALID`。
 - 疫苗/驱虫计划接口校验补强：`PATCH /health/vaccines/{vaccineId}` 现在只接受 `status` 字段和 `due/done/overdue` 三种状态，非法输入返回 `HEALTH_VACCINE_INVALID`；`PATCH /health/vaccine-reminders/{vaccineId}` 只接受布尔 `enabled`，非布尔值、未知字段或已完成计划重新开启提醒返回 `HEALTH_REMINDER_INVALID`。mock API 同步该规则，不新增页面。
 - 文档口径同步：接口契约、支持清单和 Figma 缺失清单已把疫苗状态/提醒开关字段兜底校验标记为 MVP 已实现；提醒时间选择、重复规则、正式犬猫疫苗/驱虫模板仍作为后续运营规则。

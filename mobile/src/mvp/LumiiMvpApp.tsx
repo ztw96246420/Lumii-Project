@@ -1049,7 +1049,7 @@ export default function LumiiMvpApp() {
 
   function applyNearbyOwners(nextOwners: NearbyOwner[]) {
     setOwners(nextOwners);
-    setSelectedOwner((current) => (current && nextOwners.some((owner) => owner.id === current.id) ? current : null));
+    setSelectedOwner((current) => nextOwners.find((owner) => owner.id === current?.id) ?? null);
   }
 
   async function refreshInboxManually() {
@@ -2131,7 +2131,7 @@ export default function LumiiMvpApp() {
 
   async function createWalkInvite() {
     if (walkInviteSavingRef.current) return;
-    const owner = selectedOwner ?? owners[0];
+    const owner = selectedOwner;
     if (!owner) {
       showToast('请选择附近主人');
       return;
@@ -4214,7 +4214,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderWalkInvite() {
-    const owner = selectedOwner ?? owners[0];
+    const owner = selectedOwner;
     return (
       <Screen title="约遛邀请">
         {owner ? (
@@ -4260,7 +4260,8 @@ export default function LumiiMvpApp() {
         ) : (
           <View style={styles.mapEmptyCard}>
             <Text style={styles.cardTitle}>暂无可邀请对象</Text>
-            <Text style={styles.mutedText}>回到发现页刷新附近宠物主人。</Text>
+            <Text style={styles.mutedText}>原来的对象可能已离开附近列表，请回到发现页重新选择。</Text>
+            <Button onPress={() => replace('discover')} tone="secondary">回到发现页</Button>
           </View>
         )}
       </Screen>
