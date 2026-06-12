@@ -326,7 +326,7 @@ Android 调用：
 
 需要接口：
 - ~~`GET /privacy-settings`。~~ MVP 测试后端已用 `GET /settings` 返回 `fuzzyLocation`、`nearbyVisible`、`interactionMessages`、`pushNotifications`。
-- ~~`PATCH /privacy-settings`。~~ MVP 测试后端已用 `PATCH /settings` 保存隐私与通知开关；`nearbyVisible=false` 会影响附近发现曝光。
+- ~~`PATCH /privacy-settings`。~~ MVP 测试后端已用 `PATCH /settings` 保存隐私与通知开关；`nearbyVisible=false` 会影响附近发现曝光，并会清空已保存位置和在线曝光时间。关闭后刷新发现页仍可临时查询附近伙伴，但不会持久化本次定位。
 - `GET /blocks`。
 - `DELETE /blocks/{userId}`。
 - ~~`POST /feedback`。~~ MVP 测试后端和 mock API 已支持普通产品反馈提交；当前 App 暂不暴露正式反馈表单，举报/拉黑仍按优先级暂缓。

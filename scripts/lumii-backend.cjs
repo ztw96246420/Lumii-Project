@@ -610,7 +610,7 @@ function requireUser(req, res) {
   user.settings = normalizeUserSettings(user.settings);
   user.favoritePlaceIds = normalizeFavoritePlaceIds(user.favoritePlaceIds);
   user.permissionsOnboardingCompleted = Boolean(user.permissionsOnboardingCompleted);
-  user.lastSeenAt = Date.now();
+  user.lastSeenAt = user.settings.nearbyVisible === false ? 0 : Date.now();
   saveState();
   return user;
 }
@@ -1910,6 +1910,10 @@ async function handle(req, res) {
 
   if (req.method === 'PATCH' && pathname === '/settings') {
     user.settings = normalizeUserSettings({ ...user.settings, ...body });
+    if (user.settings.nearbyVisible === false) {
+      user.location = null;
+      user.lastSeenAt = 0;
+    }
     saveState();
     ok(res, user.settings);
     return;
@@ -2389,11 +2393,15 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/social/discover') {
-    user.lastSeenAt = Date.now();
     const location = locationFromQuery(url);
-    if (location) user.location = location;
-    saveState();
-    ok(res, listOnlineOwners(user, location?.radiusKm || user.location?.radiusKm || DEFAULT_DISCOVER_RADIUS_KM));
+    const publishNearbyPresence = user.settings?.nearbyVisible !== false;
+    if (publishNearbyPresence) {
+      user.lastSeenAt = Date.now();
+      if (location) user.location = location;
+      saveState();
+    }
+    const viewerForDiscovery = location ? { ...user, location } : user;
+    ok(res, listOnlineOwners(viewerForDiscovery, location?.radiusKm || user.location?.radiusKm || DEFAULT_DISCOVER_RADIUS_KM));
     return;
   }
 
