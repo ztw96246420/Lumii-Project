@@ -63,6 +63,7 @@ import {
 } from 'lucide-react-native';
 
 import { getLumiiPermissionStatus, requestLumiiPermission } from '../services/permissions';
+import { cancelVaccineLocalReminder, cancelVaccineLocalReminders, scheduleVaccineLocalReminder, syncVaccineLocalReminders } from '../services/healthReminders';
 import { getLumiiPushRegistration } from '../services/pushToken';
 import { clearPersistedLumiiSession, loadPersistedLumiiSession, savePersistedLumiiSession } from '../services/sessionStorage';
 import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
@@ -502,6 +503,8 @@ export default function LumiiMvpApp() {
   const [placeReviewStatus, setPlaceReviewStatus] = useState<'idle' | 'pending_review'>('idle');
   const [userSettings, setUserSettings] = useState<UserSettings>(defaultUserSettings);
   const healthReminderNotifiedRef = useRef<Set<string>>(new Set());
+  const localHealthReminderSyncKeyRef = useRef('');
+  const localHealthReminderScheduledIdsRef = useRef<string[]>([]);
 
   const currentTab = useMemo<AppTab | null>(() => {
     if (route === 'health' || route === 'emptyPet') return 'home';
@@ -776,6 +779,32 @@ export default function LumiiMvpApp() {
     enabledUrgentVaccines.forEach((vaccine) => healthReminderNotifiedRef.current.add(vaccine.id));
     if (shouldRefresh) void loadInboxData();
   }, [session, urgentVaccines, vaccineReminderIds]);
+
+  useEffect(() => {
+    if (!session) return;
+    const enabledVaccines = vaccines.filter((vaccine) => vaccineReminderIds.includes(vaccine.id) && vaccine.status !== 'done');
+    const enabledIds = enabledVaccines.map((vaccine) => vaccine.id).sort();
+    const canSchedule = permissions.notifications === 'granted' && userSettings.pushNotifications;
+
+    if (!canSchedule || !enabledIds.length) {
+      const scheduledIds = localHealthReminderScheduledIdsRef.current;
+      if (scheduledIds.length) void cancelVaccineLocalReminders(scheduledIds);
+      localHealthReminderScheduledIdsRef.current = [];
+      localHealthReminderSyncKeyRef.current = '';
+      return;
+    }
+
+    const syncKey = [
+      activePet?.id ?? 'no-pet',
+      activePet?.name ?? '',
+      ...enabledVaccines.map((vaccine) => `${vaccine.id}:${vaccine.dueAt}:${vaccine.status}`).sort(),
+    ].join('|');
+    if (localHealthReminderSyncKeyRef.current === syncKey) return;
+
+    localHealthReminderSyncKeyRef.current = syncKey;
+    localHealthReminderScheduledIdsRef.current = enabledIds;
+    void syncVaccineLocalReminders(enabledVaccines, enabledIds, activePet?.name);
+  }, [activePet?.id, activePet?.name, permissions.notifications, session, userSettings.pushNotifications, vaccineReminderIds, vaccines]);
 
   useEffect(() => {
     if (route !== 'generating' || !avatarJob || avatarJob.status !== 'processing') return undefined;
@@ -1597,7 +1626,11 @@ export default function LumiiMvpApp() {
         void loadInboxData();
         void refreshHealthSummary();
         const pushReady = permissions.notifications === 'granted' && userSettings.pushNotifications;
-        showToast(pushReady ? '疫苗提醒已开启' : '疫苗提醒已开启；系统通知需在设置中开启');
+        const localReminder = pushReady ? await scheduleVaccineLocalReminder(vaccine, activePet?.name) : null;
+        if (localReminder?.scheduled) {
+          localHealthReminderScheduledIdsRef.current = [...new Set([vaccine.id, ...localHealthReminderScheduledIdsRef.current])];
+        }
+        showToast(pushReady ? (localReminder?.scheduled ? '疫苗提醒已开启，系统通知已安排' : '疫苗提醒已开启；系统通知调度失败') : '疫苗提醒已开启；系统通知需在设置中开启');
       } else {
         setVaccineReminderIds((items) => items.filter((id) => id !== vaccine.id));
         showToast(result.error?.message ?? '提醒开启失败，请稍后重试');
@@ -1622,6 +1655,9 @@ export default function LumiiMvpApp() {
       }
       setVaccines((items) => items.map((item) => (item.id === vaccine.id ? result.data! : item)));
       setVaccineReminderIds((items) => items.filter((id) => id !== vaccine.id));
+      void cancelVaccineLocalReminder(vaccine.id);
+      localHealthReminderScheduledIdsRef.current = localHealthReminderScheduledIdsRef.current.filter((id) => id !== vaccine.id);
+      localHealthReminderSyncKeyRef.current = '';
       void loadInboxData();
       void refreshHealthSummary();
       showToast('已标记完成');
@@ -1655,6 +1691,17 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.settings.updateUserSettings({ [key]: nextValue });
       if (result.data) {
         setUserSettings({ ...defaultUserSettings, ...result.data });
+        if (key === 'pushNotifications') {
+          if (nextValue) {
+            void syncVaccineLocalReminders(vaccines, vaccineReminderIds, activePet?.name);
+            localHealthReminderScheduledIdsRef.current = vaccineReminderIds;
+            localHealthReminderSyncKeyRef.current = '';
+          } else {
+            void cancelVaccineLocalReminders(vaccineReminderIds);
+            localHealthReminderScheduledIdsRef.current = [];
+            localHealthReminderSyncKeyRef.current = '';
+          }
+        }
         showToast(`${label}已${nextValue ? '开启' : '关闭'}`);
       } else {
         setUserSettings(previousSettings);
@@ -2084,6 +2131,7 @@ export default function LumiiMvpApp() {
   }
 
   function clearLocalAccountState() {
+    if (localHealthReminderScheduledIdsRef.current.length) void cancelVaccineLocalReminders(localHealthReminderScheduledIdsRef.current);
     setLumiiAuthToken();
     setConfirm(null);
     setSession(null);
@@ -2175,6 +2223,8 @@ export default function LumiiMvpApp() {
     setDailyPostText('');
     setDailyPostSaving(false);
     healthReminderNotifiedRef.current.clear();
+    localHealthReminderScheduledIdsRef.current = [];
+    localHealthReminderSyncKeyRef.current = '';
     setUserSettings(defaultUserSettings);
     replace('login');
   }
