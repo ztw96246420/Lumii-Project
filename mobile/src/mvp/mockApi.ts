@@ -815,6 +815,12 @@ export const mockApi = {
       return success(normalized ? places.filter((place) => matchesPlaceSearch(place, normalized)) : places);
     },
 
+    async getPlace(placeId: string): Promise<ApiResult<Place>> {
+      await wait(120);
+      const place = places.find((item) => item.id === placeId);
+      return place ? success(place) : error('地点不存在', false);
+    },
+
     async listFavoritePlaceIds(): Promise<ApiResult<string[]>> {
       await wait(120);
       return success(favoritePlaceIds);

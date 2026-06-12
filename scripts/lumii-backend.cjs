@@ -2444,6 +2444,18 @@ async function handle(req, res) {
     return;
   }
 
+  const placeDetailMatch = pathname.match(/^\/places\/([^/]+)$/);
+  if (req.method === 'GET' && placeDetailMatch) {
+    const placeId = decodeURIComponent(placeDetailMatch[1]);
+    const place = (state.places || []).find((item) => item.id === placeId);
+    if (!place) {
+      fail(res, 404, '地点不存在', false);
+      return;
+    }
+    ok(res, place);
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/places/reviews/my') {
     ok(res, placeReviewsFor(user));
     return;

@@ -335,6 +335,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<Place[]>('GET', `/places/search?q=${encodeURIComponent(query)}`);
       },
 
+      async getPlace(placeId: string): Promise<ApiResult<Place>> {
+        return request<Place>('GET', `/places/${encodeURIComponent(placeId)}`);
+      },
+
       async listFavoritePlaceIds(): Promise<ApiResult<string[]>> {
         return request<string[]>('GET', '/places/favorites');
       },

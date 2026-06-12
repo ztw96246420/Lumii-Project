@@ -283,7 +283,7 @@ Android 调用：
 需要接口：
 - ~~`GET /places/search`：地点搜索。~~ MVP 测试后端已支持按名称、地址、分类、标签搜索。
 - ~~`GET /places/nearby`：附近地点。~~ MVP 测试后端已支持。
-- `GET /places/{placeId}`：地点详情。
+- ~~`GET /places/{placeId}`：地点详情。~~ MVP 测试后端和 mock API 已支持读取单个地点，不需要新增页面。
 - ~~`POST /places`：新增地点。~~ MVP 测试后端已改用 `POST /places/submissions` 提交新增地点草稿。
 - ~~`POST /places/{placeId}/reviews`：提交点评。~~ MVP 测试后端已支持。
 - ~~`POST /places/{placeId}/favorite`：收藏地点。~~ MVP 测试后端已改用 `PATCH /places/{placeId}/favorite`。
@@ -413,7 +413,7 @@ P2 后续：
 - `health`：`getHealthSummary`、`listHealthCalendar`、`recordWeight`、`updateWeightRecord`、`deleteWeightRecord`、`listWeightRecords`、`getWeightTrend`、`listVaccines`、`saveHealthMemo`
 - `social`：`listNearbyOwners`、`sendGreeting`、`createWalkInvite`
 - `messages`：`registerPushToken`、`listConversations`、`sendMessage`、`listNotifications`
-- `places`：`listNearbyPlaces`、`searchPlaces`、`createReview`
+- `places`：`listNearbyPlaces`、`searchPlaces`、`getPlace`、`createReview`
 
 仍需要你/后端/设计优先补充：
 - API Base URL、鉴权 token 方案、统一错误码结构。
