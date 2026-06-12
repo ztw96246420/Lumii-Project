@@ -308,6 +308,7 @@ Android 调用：
 - ~~`GET /conversations/{id}/messages`：消息列表。~~ 测试后端已接。
 - ~~`POST /conversations/{id}/messages`：发送消息。~~ 测试后端已接；未互相接受招呼前返回 403，不写入消息；普通聊天内容已支持手机号、邮箱、外链、微信/QQ 和明显违法/灰产词基础拦截。
 - ~~`POST /conversations/{id}/read`：标记已读。~~ 测试后端已接。
+- ~~消息页手动刷新前端状态保护。~~ App 已补 ref 级互斥和退出账号清理，快速连点不会让刷新动画提前结束；不需要你额外补页面或接口。
 - `POST /users/{userId}/block`：拉黑。
 - `DELETE /users/{userId}/block`：解除拉黑。
 - `POST /reports`：举报。

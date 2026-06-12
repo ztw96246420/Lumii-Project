@@ -532,6 +532,7 @@ export default function LumiiMvpApp() {
   const conversationSendingKeysRef = useRef<Set<string>>(new Set());
   const localConversationMessageIdsRef = useRef<Record<string, string>>({});
   const [inboxManualRefreshing, setInboxManualRefreshing] = useState(false);
+  const inboxManualRefreshingRef = useRef(false);
   const [conversationDraftsById, setConversationDraftsById] = useState<Record<string, string>>({});
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([createConversationSafetyMessage()]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -1132,11 +1133,13 @@ export default function LumiiMvpApp() {
   }
 
   async function refreshInboxManually() {
-    if (inboxManualRefreshing) return;
+    if (inboxManualRefreshingRef.current) return;
+    inboxManualRefreshingRef.current = true;
     setInboxManualRefreshing(true);
     try {
       await loadInboxData({ silent: false });
     } finally {
+      inboxManualRefreshingRef.current = false;
       setInboxManualRefreshing(false);
     }
   }
@@ -2694,6 +2697,7 @@ export default function LumiiMvpApp() {
     conversationRefreshInFlightRef.current = null;
     conversationSendingKeysRef.current.clear();
     localConversationMessageIdsRef.current = {};
+    inboxManualRefreshingRef.current = false;
     setInboxManualRefreshing(false);
     setConversationDraftsById({});
     setConversationMessages([createConversationSafetyMessage()]);
