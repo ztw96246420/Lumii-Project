@@ -2322,7 +2322,6 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.places.createReview(place.id, reviewContent);
       if (result.data) {
         setPlaceReview('');
-        setPlaceReviewStatus('pending_review');
         setPlaceReviewsByPlaceId((items) => ({ ...items, [place.id]: result.data! }));
         void loadInboxData();
         showToast('点评已提交，等待审核');
@@ -3819,7 +3818,8 @@ export default function LumiiMvpApp() {
     const isFavoritePlace = place ? favoritePlaceIds.includes(place.id) : false;
     const isFavoriteSaving = place ? favoritePlaceSavingIds.includes(place.id) : false;
     const myPlaceReview = place ? placeReviewsByPlaceId[place.id] : undefined;
-    const placeReviewButtonLabel = myPlaceReview?.status === 'pending_review' || placeReviewStatus === 'pending_review' ? '再次提交点评' : '提交点评';
+    const hasPendingPlaceReview = myPlaceReview?.status === 'pending_review';
+    const placeReviewButtonLabel = hasPendingPlaceReview ? '再次提交点评' : '提交点评';
     const pet = activePet ?? lumiiApi.pets.getActivePet();
     const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
     return (
@@ -3881,7 +3881,7 @@ export default function LumiiMvpApp() {
               <View style={styles.weightInputMake}>
                 <Field label="点评内容" onChangeText={setPlaceReview} placeholder="例如：草坪很大，有饮水点" value={placeReview} />
                 <Button loading={placeReviewSaving} onPress={() => void createPlaceReview()}>{placeReviewButtonLabel}</Button>
-                {placeReviewStatus === 'pending_review' ? (
+                {hasPendingPlaceReview ? (
                   <View style={styles.reviewStatusCard}>
                     <Check color={palette.teal} size={15} strokeWidth={3} />
                     <Text style={styles.reviewStatusText}>已提交，等待审核。通过后会展示在地点详情中。</Text>
