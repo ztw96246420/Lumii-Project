@@ -11,6 +11,7 @@ import type {
   GreetingResult,
   HealthCalendarEvent,
   HealthMemo,
+  HealthSummary,
   NearbyLocationHint,
   NearbyOwner,
   NotificationItem,
@@ -192,6 +193,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
     },
 
     health: {
+      async getHealthSummary(): Promise<ApiResult<HealthSummary>> {
+        return request<HealthSummary>('GET', '/health/summary');
+      },
+
       async listHealthCalendar(): Promise<ApiResult<HealthCalendarEvent[]>> {
         return request<HealthCalendarEvent[]>('GET', '/health/calendar');
       },

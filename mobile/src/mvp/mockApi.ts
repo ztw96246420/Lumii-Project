@@ -11,6 +11,7 @@ import type {
   GreetingResult,
   HealthCalendarEvent,
   HealthMemo,
+  HealthSummary,
   NearbyLocationHint,
   NearbyOwner,
   NotificationItem,
@@ -272,6 +273,51 @@ function buildWeightTrend(records: WeightRecord[]): WeightTrend {
   };
 }
 
+function daysUntilDate(value?: string) {
+  if (!value) return null;
+  const dueAt = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(dueAt.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  dueAt.setHours(0, 0, 0, 0);
+  return Math.ceil((dueAt.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function buildHealthSummary(): HealthSummary {
+  const petId = activePetId || pets[0]?.id;
+  const pet = pets.find((item) => item.id === petId);
+  if (!pet) {
+    return {
+      healthScore: 0,
+      memoCount: 0,
+      pendingVaccineCount: 0,
+      urgentVaccineCount: 0,
+      vaccineReminderIds: [],
+      weightStatus: 'empty',
+      weightSummary: '添加宠物后开始记录健康数据',
+    };
+  }
+  const trend = buildWeightTrend(weights);
+  const pendingVaccines = vaccines.filter((item) => item.status !== 'done');
+  const urgentVaccines = pendingVaccines.filter((item) => {
+    const days = daysUntilDate(item.dueAt);
+    return days !== null && days <= 14;
+  });
+  return {
+    healthScore: pet.healthScore ?? 92,
+    latestMemo: memos[0],
+    latestWeightKg: weights[0]?.kg ?? pet.weightKg,
+    latestWeightRecordedAt: weights[0]?.recordedAt,
+    memoCount: memos.length,
+    nextVaccine: pendingVaccines[0] ?? vaccines[0],
+    pendingVaccineCount: pendingVaccines.length,
+    urgentVaccineCount: urgentVaccines.length,
+    vaccineReminderIds,
+    weightStatus: trend.status,
+    weightSummary: trend.summary,
+  };
+}
+
 export const mockApi = {
   account: {
     async getMe(): Promise<ApiResult<UserProfile>> {
@@ -456,6 +502,11 @@ export const mockApi = {
   },
 
   health: {
+    async getHealthSummary(): Promise<ApiResult<HealthSummary>> {
+      await wait(120);
+      return success(buildHealthSummary());
+    },
+
     async listHealthCalendar(): Promise<ApiResult<HealthCalendarEvent[]>> {
       await wait(140);
       return success(buildHealthCalendarEvents());

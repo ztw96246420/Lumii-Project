@@ -67,7 +67,7 @@
 电子宠物首页 -> 宠物档案 -> 健康日历 -> 疫苗计划/体重记录/健康备忘 -> 保存记录 -> 首页健康摘要更新。
 
 需要支持：
-- 宠物健康摘要接口。
+- ~~宠物健康摘要接口。~~ 已接 `GET /health/summary`，后续仅需逐步把已有页面摘要数据源切过去。
 - 疫苗计划模板。
 - 体重记录和趋势接口。
 - 健康备忘、就诊记录接口。
@@ -235,7 +235,7 @@ Android 调用：
 ### 3.6 健康管理
 
 需要接口：
-- ~~`GET /pets/{petId}/health/summary`：首页健康摘要。~~ MVP 暂由 `GET /health/weights`、`GET /health/vaccines`、`GET /health/memos` 拼装。
+- ~~`GET /pets/{petId}/health/summary`：首页健康摘要。~~ 测试后端已接 `GET /health/summary`，按当前宠物聚合健康分、最近体重、疫苗/驱虫计划、健康备忘和提醒开关；首页/健康页已有基础 UI，不需要新增设计页面。
 - ~~`GET /pets/{petId}/health/calendar`：健康日历。~~ 测试后端已接 `GET /health/calendar`，按当前宠物聚合体重、疫苗和健康备忘；健康日历独立 UI 仍需 Figma Make 页面设计。
 - ~~`POST /pets/{petId}/health/memos`：新增健康备忘。~~ 测试后端已接 `POST /health/memos`，按当前宠物持久化。
 - ~~`PATCH /pets/{petId}/health/memos/{memoId}`：编辑健康备忘。~~ 测试后端已接 `PATCH /health/memos/{memoId}`，按当前宠物持久化；UI 仍需 Figma 编辑态。
@@ -410,7 +410,7 @@ P2 后续：
 - `permissions`：当前通过 `src/services/permissions.ts` 调用 Expo 权限服务；Web 预览模拟授权
 - `pets`：`getTaxonomy`、`createPet`、`updatePet`、`listPets`、`setActivePet`
 - `avatar`：`uploadPetMedia`、`startGeneration`、`getGenerationStatus`、`saveAvatar`
-- `health`：`recordWeight`、`listWeightRecords`、`listVaccines`、`saveHealthMemo`
+- `health`：`getHealthSummary`、`listHealthCalendar`、`recordWeight`、`updateWeightRecord`、`deleteWeightRecord`、`listWeightRecords`、`getWeightTrend`、`listVaccines`、`saveHealthMemo`
 - `social`：`listNearbyOwners`、`sendGreeting`、`createWalkInvite`
 - `messages`：`listConversations`、`sendMessage`、`listNotifications`
 - `places`：`listNearbyPlaces`、`searchPlaces`、`createReview`

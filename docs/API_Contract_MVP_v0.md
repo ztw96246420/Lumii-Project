@@ -417,6 +417,34 @@ type AvatarJob = {
 
 ## 6. 健康管理
 
+### GET `/health/summary`
+
+读取当前宠物的首页/健康页摘要。MVP 测试后端会按当前宠物聚合健康分、最近体重、体重趋势、疫苗/驱虫计划、健康备忘和已开启的疫苗提醒。
+
+Response data:
+
+```ts
+type HealthSummary = {
+  healthScore: number;
+  latestMemo?: HealthMemo;
+  latestWeightKg?: number;
+  latestWeightRecordedAt?: string;
+  memoCount: number;
+  nextVaccine?: VaccinePlan;
+  pendingVaccineCount: number;
+  urgentVaccineCount: number;
+  vaccineReminderIds: string[];
+  weightStatus: 'empty' | 'insufficient_data' | 'stable' | 'watch';
+  weightSummary: string;
+};
+```
+
+说明：
+- 没有当前宠物时返回空摘要，`healthScore=0`、`weightStatus=empty`。
+- `urgentVaccineCount` 当前按未完成且 14 天内到期/已逾期计算。
+- 该接口只做摘要聚合，不替代 `GET /health/weights`、`GET /health/vaccines`、`GET /health/memos` 的详情读取。
+- App 当前首页/健康页已有基础实现；后续可逐步把页面摘要读取切到该接口，不需要新增设计页面。
+
 ### GET `/health/calendar`
 
 聚合当前宠物的体重、疫苗和健康备忘，返回健康日历事件。MVP 测试后端按 `phone + activePetId` 持久化，事件只做健康记录聚合，不替代兽医诊断。

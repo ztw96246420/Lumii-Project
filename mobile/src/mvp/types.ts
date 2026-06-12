@@ -164,6 +164,20 @@ export type WeightTrend = {
   summary: string;
 };
 
+export type HealthSummary = {
+  healthScore: number;
+  latestMemo?: HealthMemo;
+  latestWeightKg?: number;
+  latestWeightRecordedAt?: string;
+  memoCount: number;
+  nextVaccine?: VaccinePlan;
+  pendingVaccineCount: number;
+  urgentVaccineCount: number;
+  vaccineReminderIds: string[];
+  weightStatus: WeightTrend['status'];
+  weightSummary: string;
+};
+
 export type VaccinePlan = {
   dueAt: string;
   id: string;

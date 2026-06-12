@@ -690,6 +690,43 @@ function daysUntilDate(value) {
   return Math.ceil((dueAt.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
 }
 
+function buildHealthSummary(user) {
+  const pet = selectedPetFor(user);
+  if (!pet) {
+    return {
+      healthScore: 0,
+      memoCount: 0,
+      pendingVaccineCount: 0,
+      urgentVaccineCount: 0,
+      vaccineReminderIds: [],
+      weightStatus: 'empty',
+      weightSummary: '添加宠物后开始记录健康数据',
+    };
+  }
+  const weights = healthList('weights', user, defaultWeightRecordsFor);
+  const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+  const memos = healthList('memos', user, defaultMemosFor);
+  const trend = buildWeightTrend(weights);
+  const pendingVaccines = vaccines.filter((item) => item.status !== 'done');
+  const urgentVaccines = pendingVaccines.filter((item) => {
+    const days = daysUntilDate(item.dueAt);
+    return days !== null && days <= 14;
+  });
+  return {
+    healthScore: Number(pet.healthScore) || 92,
+    latestMemo: memos[0],
+    latestWeightKg: weights[0]?.kg ?? pet.weightKg,
+    latestWeightRecordedAt: weights[0]?.recordedAt,
+    memoCount: memos.length,
+    nextVaccine: pendingVaccines[0] || vaccines[0],
+    pendingVaccineCount: pendingVaccines.length,
+    urgentVaccineCount: urgentVaccines.length,
+    vaccineReminderIds: vaccineReminderIdsFor(user),
+    weightStatus: trend.status,
+    weightSummary: trend.summary,
+  };
+}
+
 function vaccineReminderCopy(vaccine) {
   const days = daysUntilDate(vaccine?.dueAt);
   if (days === null) return '接种日期待确认';
@@ -1838,6 +1875,11 @@ async function handle(req, res) {
     }
     saveState();
     ok(res, job);
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/health/summary') {
+    ok(res, buildHealthSummary(user));
     return;
   }
 
