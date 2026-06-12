@@ -39,6 +39,7 @@
 - AI 对话页额度显示切换为真实用量：进入聊天页、通用数据加载和发送消息后会读取 `GET /ai/usage`，显示后端 `daily.petChat.count/limit`；前端本地 60 次软额度已移除，默认兜底改为后端一致的 80 次。
 - AI 形象生成页额度联动补齐：上传/识别/形象确认页进入时会读取 `GET /ai/usage`，展示真实 `daily.petAvatar.count/limit/remaining`；“确认并生成灵伴”和“重新生成”会先做前端额度检查和 loading 防重复，后端仍负责最终额度拦截。
 - mock AI 形象生成额度行为同步：mock API 的首生成和重新生成都按 10 次/日限制计数，避免本地演示与云端测试后端规则不一致。
+- 退出登录本机状态清理加固：退出账号或 token 失效时会清除手机号/验证码、AI 用量、聊天反馈、消息/通知、地图/地点选择、健康草稿和各类 loading 状态，减少两台手机/多账号测试时旧状态串号。
 - 文档状态纠偏：支持清单已把媒体读取、地点审核记录、avatar/health mock service 方法列表更新为当前实现状态，避免把已实现接口继续写成待补。
 
 ## 验证
@@ -49,6 +50,7 @@
 - `npm run typecheck` 覆盖 AI 对话医疗门禁 mock 同步通过。
 - `npm run typecheck` 覆盖 AI 对话页真实用量显示联动通过。
 - `npm run typecheck` 覆盖 AI 形象生成页真实额度展示、生成前检查和 mock 额度规则通过。
+- `npm run typecheck` 覆盖退出登录本机状态清理加固通过。
 - `node --check scripts/lumii-backend.cjs` 通过。
 - `git diff --check` 通过，仅提示 Windows 工作区 LF/CRLF 换行转换 warning。
 - 临时本地后端验证通过：短信登录 -> 保存权限和设置 -> 刷新 token -> 读回手机号、权限完成状态和设置快照。
