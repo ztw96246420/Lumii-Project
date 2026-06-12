@@ -83,7 +83,7 @@
 - 上传媒体元信息读取补齐：新增 `GET /media/{mediaId}`，测试后端、HTTP API 门面和 mock API 均支持登录态读取自己的上传媒体分析结果；不新增页面、不接真实视觉识别模型。
 - AI 形象生成任务动作接口补齐：新增 `POST /ai/pet-avatar/jobs/{jobId}/retry`、`POST /ai/pet-avatar/jobs/{jobId}/accept`、`POST /ai/pet-avatar/jobs/{jobId}/feedback`，同时收紧任务查询/操作归属校验；不新增多候选 UI，不接真实视觉识别模型。
 - AI 形象确认页联动任务 action：现有“保存并设为电子灵伴”按钮优先调用 `acceptGeneration`，现有“重新生成”按钮优先调用 `retryGeneration`，并补充保存/重试 loading 状态；页面样式不变。
-- 通知设备登记联动：真机通知权限授权成功后，App 会通过 Expo Notifications 获取 Expo Push Token 并调用 `POST /devices/push-token`；二次登录恢复到已授权通知状态时会静默补登记，Web 预览跳过，登记失败不阻断权限或建档流程。
+- 通知设备登记联动：真机通知权限授权成功后，App 会延迟静默获取 Expo Push Token 并调用 `POST /devices/push-token`；二次登录恢复到已授权通知状态时会静默补登记，Web 预览跳过，登记失败不阻断权限或建档流程。
 - AI 用量读取接口补齐：新增 `GET /ai/usage`，返回当前账号当日宠物对话/形象生成次数、剩余额度，以及测试后端累计 DeepSeek token、Flux/Midjourney 请求和 quota 统计；该接口只读统计，不触发真实模型请求。
 - AI 对话高风险医疗门禁补齐：`POST /ai/pet-chat/messages` 命中呼吸困难、抽搐、误食高风险物、严重外伤、大出血、持续呕吐腹泻、拒食拒水等关键词时，会在调用 DeepSeek 前返回固定安全回复，提示尽快联系宠物医院或兽医；该路径不烧 DeepSeek token。
 - AI 对话高风险健康记录闭环补齐：命中高风险医疗关键词时，后端会自动写入“紧急健康观察/误食风险观察”健康备忘，生成通知中心“就医提醒”，回复携带 `medicalAlert` 和 `createdMemo`；同一内容重复发送会去重，且不会误触发体重、疫苗或普通备忘自动动作。

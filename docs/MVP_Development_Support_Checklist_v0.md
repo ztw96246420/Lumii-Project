@@ -333,7 +333,7 @@ Android 调用：
 - ~~`GET /notifications`：通知列表。~~ MVP 测试后端已支持，App 会在消息页/通知页刷新读取。
 - ~~`POST /notifications/read`：批量标记已读。~~ MVP 测试后端已支持，进入通知中心会自动标记已读。
 - ~~`PATCH /notification-settings`：通知设置。~~ MVP 测试后端已用 `PATCH /settings` 保存 `pushNotifications`。
-- ~~通知设置与系统授权联动。~~ App 在“设置与隐私”里开启通知时，会先请求系统通知权限；授权失败则不保存 App 内通知开关，授权成功后会登记 push token 并保存设置。快速重复点击会被前端防重。
+- ~~通知设置与系统授权联动。~~ App 在“设置与隐私”里开启通知时，会先请求系统通知权限；授权失败则不保存 App 内通知开关，授权成功后会保存设置并延迟静默登记 push token。快速重复点击会被前端防重。
 - ~~健康提醒与系统通知状态提示。~~ 疫苗提醒开启后，如果系统通知权限或 App 通知开关未开启，App 会明确提示“系统通知需在设置中开启”；权限和开关都开启时会安排真机本地系统通知，并在标记完成、关闭通知或退出账号时取消；通知中心会自动去重并清理已关闭/已完成计划的旧健康提醒。
 
 需要你提供：
@@ -345,7 +345,7 @@ Android 调用：
 
 需要接口：
 - ~~`GET /privacy-settings`。~~ MVP 测试后端已用 `GET /settings` 返回 `fuzzyLocation`、`nearbyVisible`、`interactionMessages`、`pushNotifications`。
-- ~~`PATCH /privacy-settings`。~~ MVP 测试后端已用 `PATCH /settings` 保存隐私与通知开关；只接受 `fuzzyLocation`、`nearbyVisible`、`interactionMessages`、`pushNotifications` 四个布尔字段，非法 patch 返回 `SETTINGS_PATCH_INVALID`；`nearbyVisible=false` 会影响附近发现曝光，并会清空已保存位置和在线曝光时间。关闭后刷新发现页仍可临时查询附近伙伴，但不会持久化本次定位。`fuzzyLocation=true` 会把服务端持久化定位限制到约 1km 粒度，从关闭切回开启时会立即粗化已保存精确位置。
+- ~~`PATCH /privacy-settings`。~~ MVP 测试后端已用 `PATCH /settings` 保存隐私与通知开关；只接受 `fuzzyLocation`、`nearbyVisible`、`interactionMessages`、`pushNotifications` 四个布尔字段，非法 patch 返回 `SETTINGS_PATCH_INVALID`；`nearbyVisible=false` 会影响附近发现曝光，并会清空已保存位置和在线曝光时间。App 侧关闭附近可见后会清空本机附近列表并暂停发现页自动/手动刷新，重新开启后再重新定位刷新。`fuzzyLocation=true` 会把服务端持久化定位限制到约 1km 粒度，从关闭切回开启时会立即粗化已保存精确位置。
 - `GET /blocks`。
 - `DELETE /blocks/{userId}`。
 - ~~`POST /feedback`。~~ MVP 测试后端和 mock API 已支持普通产品反馈提交；当前 App 暂不暴露正式反馈表单，举报/拉黑仍按优先级暂缓。
