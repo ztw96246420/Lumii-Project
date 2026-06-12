@@ -792,6 +792,8 @@ Request:
 
 上报当前登录账号的设备推送 token。MVP 测试后端只保存 token，不连接厂商推送通道；后续接入 APNs、厂商通道、极光或个推时复用该设备记录。
 
+App 调用时机：真机通知权限变为 `granted` 后，App 会通过 Expo Notifications 获取 Expo Push Token 并调用该接口登记；二次登录恢复到已授权通知状态时也会静默补登记。Web 预览不登记设备 token。
+
 Request:
 
 ```json

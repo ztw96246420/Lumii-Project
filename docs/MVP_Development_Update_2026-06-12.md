@@ -33,11 +33,13 @@
 - 上传媒体元信息读取补齐：新增 `GET /media/{mediaId}`，测试后端、HTTP API 门面和 mock API 均支持登录态读取自己的上传媒体分析结果；不新增页面、不接真实视觉识别模型。
 - AI 形象生成任务动作接口补齐：新增 `POST /ai/pet-avatar/jobs/{jobId}/retry`、`POST /ai/pet-avatar/jobs/{jobId}/accept`、`POST /ai/pet-avatar/jobs/{jobId}/feedback`，同时收紧任务查询/操作归属校验；不新增多候选 UI，不接真实视觉识别模型。
 - AI 形象确认页联动任务 action：现有“保存并设为电子灵伴”按钮优先调用 `acceptGeneration`，现有“重新生成”按钮优先调用 `retryGeneration`，并补充保存/重试 loading 状态；页面样式不变。
+- 通知设备登记联动：真机通知权限授权成功后，App 会通过 Expo Notifications 获取 Expo Push Token 并调用 `POST /devices/push-token`；二次登录恢复到已授权通知状态时会静默补登记，Web 预览跳过，登记失败不阻断权限或建档流程。
 - 文档状态纠偏：支持清单已把媒体读取、地点审核记录、avatar/health mock service 方法列表更新为当前实现状态，避免把已实现接口继续写成待补。
 
 ## 验证
 
 - `npm run typecheck` 通过。
+- `npm run typecheck` 覆盖通知设备登记联动通过。
 - `node --check scripts/lumii-backend.cjs` 通过。
 - `git diff --check` 通过，仅提示 Windows 工作区 LF/CRLF 换行转换 warning。
 - 临时本地后端验证通过：短信登录 -> 保存权限和设置 -> 刷新 token -> 读回手机号、权限完成状态和设置快照。
@@ -135,6 +137,11 @@
 - 前端类型检查覆盖权限状态持久化改动：`npm run typecheck` 通过。
 - 前端类型检查覆盖健康摘要数据源切换：`npm run typecheck` 通过。
 - 前端类型检查覆盖宠物编辑保存联动：`npm run typecheck` 通过。
+- 腾讯云测试后端验证通过：测试账号登录后调用 `POST /devices/push-token` 登记 Android 设备 token 成功。
+  - 测试手机号：`13900008812`。
+  - token：`ExponentPushToken[codex-local-test-20260612]`。
+  - 平台：`android`。
+  - 设备 ID：`codex-push-test`。
 
 ## 未打包
 

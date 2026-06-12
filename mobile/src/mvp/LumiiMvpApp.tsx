@@ -63,6 +63,7 @@ import {
 } from 'lucide-react-native';
 
 import { getLumiiPermissionStatus, requestLumiiPermission } from '../services/permissions';
+import { getLumiiPushRegistration } from '../services/pushToken';
 import { clearPersistedLumiiSession, loadPersistedLumiiSession, savePersistedLumiiSession } from '../services/sessionStorage';
 import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
 import { apiConfig, lumiiApi, setLumiiAuthToken } from './api';
@@ -420,6 +421,7 @@ export default function LumiiMvpApp() {
   const exitBackPressedAtRef = useRef(0);
   const previousRouteRef = useRef<AppRoute>('login');
   const systemSettingsOpenedAtRef = useRef(0);
+  const registeredPushTokenRef = useRef('');
 
   const [permissions, setPermissions] = useState<PermissionStateMap>(initialPermissions);
   const [activePet, setActivePet] = useState<PetProfile | null>(null);
@@ -940,6 +942,23 @@ export default function LumiiMvpApp() {
     return nextPermissions;
   }
 
+  async function registerPushDevice(options: { silent?: boolean; targetSession?: AuthSession } = {}) {
+    const currentSession = options.targetSession ?? session;
+    if (!currentSession || Platform.OS === 'web') return;
+    try {
+      const registration = await getLumiiPushRegistration();
+      if (!registration?.token || registeredPushTokenRef.current === registration.token) return;
+      const result = await lumiiApi.messages.registerPushToken(registration.token, registration.platform, registration.deviceId);
+      if (result.data) {
+        registeredPushTokenRef.current = result.data.token;
+      } else if (!options.silent) {
+        showToast(result.error?.message ?? '通知设备登记失败');
+      }
+    } catch {
+      if (!options.silent) showToast('通知设备登记失败，不影响继续使用');
+    }
+  }
+
   async function refreshPermissionStatuses(options: { base?: PermissionStateMap; completed?: boolean; persist?: boolean } = {}) {
     let nextPermissions = mergePermissionState(options.base ?? permissions);
 
@@ -990,6 +1009,9 @@ export default function LumiiMvpApp() {
 
     const restoredPet = account?.activePet ?? petResult.data?.[0] ?? lumiiApi.pets.getActivePet();
     setActivePet(restoredPet ?? null);
+    if (latestPermissions.notifications === 'granted') {
+      void registerPushDevice({ silent: true, targetSession: nextSession });
+    }
 
     const permissionFlowDone = Boolean(account?.permissionsOnboardingCompleted || allLumiiPermissionsGranted(latestPermissions));
     replace(restoredPet ? 'home' : permissionFlowDone ? 'emptyPet' : 'permissions');
@@ -1067,6 +1089,9 @@ export default function LumiiMvpApp() {
     const nextPermissions = mergePermissionState(permissions, { [key]: result.status });
     setPermissions(nextPermissions);
     void persistPermissionSnapshot(nextPermissions);
+    if (key === 'notifications' && result.status === 'granted') {
+      void registerPushDevice();
+    }
     showToast(result.message);
   }
 
@@ -1083,6 +1108,9 @@ export default function LumiiMvpApp() {
       if (result.status === 'granted') grantedAfterRequest += 1;
       nextPermissions = mergePermissionState(nextPermissions, { [key]: result.status });
       setPermissions(nextPermissions);
+      if (key === 'notifications' && result.status === 'granted') {
+        void registerPushDevice({ silent: true });
+      }
       showToast(result.message);
     }
     void persistPermissionSnapshot(nextPermissions, grantedAfterRequest === permissionKeys.length);
@@ -1980,6 +2008,7 @@ export default function LumiiMvpApp() {
     setPermissions(initialPermissions);
     setMedia(null);
     setAvatarJob(null);
+    registeredPushTokenRef.current = '';
     setChatMessages([createPetChatWelcomeMessage()]);
     setConversations([]);
     setConversationMessages([createConversationSafetyMessage()]);
