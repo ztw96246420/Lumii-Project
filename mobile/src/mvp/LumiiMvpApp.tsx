@@ -493,6 +493,7 @@ export default function LumiiMvpApp() {
   const dailyPostSavingRef = useRef(false);
   const [owners, setOwners] = useState<NearbyOwner[]>([]);
   const [discoverRefreshing, setDiscoverRefreshing] = useState(false);
+  const discoverRefreshingRef = useRef(false);
   const [discoverFilter, setDiscoverFilter] = useState<DiscoverFilter>('all');
   const [greetingRequestOwners, setGreetingRequestOwners] = useState<NearbyOwner[]>([]);
   const [socialActionSavingIds, setSocialActionSavingIds] = useState<string[]>([]);
@@ -933,8 +934,10 @@ export default function LumiiMvpApp() {
     ]);
     if (profileResult.data) {
       const profile = profileResult.data;
+      const profileSettings = { ...defaultUserSettings, ...profile.settings };
       setSession((current) => (current ? { ...current, account: profile, phone: profile.phone } : current));
-      setUserSettings({ ...defaultUserSettings, ...profile.settings });
+      userSettingsRef.current = profileSettings;
+      setUserSettings(profileSettings);
       setActivePet(profile.activePet ?? getActivePetFallback());
     }
     if (healthSummaryResult.data) {
@@ -1077,6 +1080,11 @@ export default function LumiiMvpApp() {
   }
 
   function applyNearbyOwners(nextOwners: NearbyOwner[]) {
+    if (!userSettingsRef.current.nearbyVisible) {
+      setOwners([]);
+      setSelectedOwner(null);
+      return;
+    }
     setOwners(nextOwners);
     setSelectedOwner((current) => nextOwners.find((owner) => owner.id === current?.id) ?? null);
   }
@@ -2245,8 +2253,9 @@ export default function LumiiMvpApp() {
 
   async function fetchNearbyOwners(options: { forceLocation?: boolean; silent?: boolean } = {}) {
     const location = options.forceLocation
-      ? await getDiscoverLocationHint({ silent: options.silent })
+      ? await getDiscoverLocationHint({ allowCachedOnError: false, silent: options.silent })
       : lastDiscoverLocationRef.current ?? (await getDiscoverLocationHint({ silent: options.silent }));
+    if (!location) return null;
     const result = await lumiiApi.social.listNearbyOwners(location ?? undefined);
     if (result.data) return result.data;
     if (!options.silent) showToast(result.error?.message ?? '附近伙伴刷新失败，请稍后重试');
@@ -2254,12 +2263,13 @@ export default function LumiiMvpApp() {
   }
 
   async function refreshDiscoverByPull() {
-    if (discoverRefreshing) return;
+    if (discoverRefreshingRef.current) return;
     if (!userSettings.nearbyVisible) {
       applyNearbyOwners([]);
       showToast('请先在我的页开启附近可见');
       return;
     }
+    discoverRefreshingRef.current = true;
     setDiscoverRefreshing(true);
     try {
       const nextOwners = await fetchNearbyOwners({ forceLocation: true, silent: false });
@@ -2268,6 +2278,7 @@ export default function LumiiMvpApp() {
         showToast(nextOwners.length ? '已刷新附近伙伴' : '3km 内暂时没有新的伙伴');
       }
     } finally {
+      discoverRefreshingRef.current = false;
       setDiscoverRefreshing(false);
     }
   }
@@ -2292,7 +2303,7 @@ export default function LumiiMvpApp() {
     applyDiscoverFilter(nextFilter);
   }
 
-  async function getDiscoverLocationHint(options: { silent?: boolean } = {}): Promise<NearbyLocationHint | null> {
+  async function getDiscoverLocationHint(options: { allowCachedOnError?: boolean; silent?: boolean } = {}): Promise<NearbyLocationHint | null> {
     try {
       const permissionResult = await requestLumiiPermission('location');
       const nextPermissions = mergePermissionState(permissions, { location: permissionResult.status });
@@ -2326,7 +2337,7 @@ export default function LumiiMvpApp() {
       return hint;
     } catch (error) {
       if (!options.silent) showToast(error instanceof Error ? error.message : '定位失败，请稍后重试');
-      return lastDiscoverLocationRef.current;
+      return options.allowCachedOnError === false ? null : lastDiscoverLocationRef.current;
     }
   }
 
@@ -2489,6 +2500,7 @@ export default function LumiiMvpApp() {
     setConversationMessages([createConversationSafetyMessage()]);
     setNotifications([]);
     applyNearbyOwners([]);
+    discoverRefreshingRef.current = false;
     setDiscoverRefreshing(false);
     setDiscoverFilter('all');
     setGreetingRequestOwners([]);
