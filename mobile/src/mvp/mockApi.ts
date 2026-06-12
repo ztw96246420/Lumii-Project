@@ -614,8 +614,9 @@ function shouldStoreMockNotification(category: 'system' | 'interaction' = 'syste
 }
 
 function addMockNotification(notification: NotificationItem, category: 'system' | 'interaction' = 'system') {
-  if (!shouldStoreMockNotification(category) || notifications.some((item) => item.id === notification.id)) return;
+  if (!shouldStoreMockNotification(category) || notifications.some((item) => item.id === notification.id)) return false;
   notifications = [notification, ...notifications];
+  return true;
 }
 
 function normalizeCalendarDate(value?: string) {
@@ -704,6 +705,57 @@ function daysUntilDate(value?: string) {
   today.setHours(0, 0, 0, 0);
   dueAt.setHours(0, 0, 0, 0);
   return Math.ceil((dueAt.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function mockVaccineReminderCopy(vaccine?: VaccinePlan) {
+  const days = daysUntilDate(vaccine?.dueAt);
+  if (days === null) return '接种日期待确认';
+  if (days < 0) return `已逾期 ${Math.abs(days)} 天`;
+  if (days === 0) return '今天到期';
+  return `${days} 天后到期`;
+}
+
+function shouldCreateMockHealthReminderNotification(vaccine?: VaccinePlan) {
+  const days = daysUntilDate(vaccine?.dueAt);
+  return vaccine?.status !== 'done' && days !== null && days <= 7;
+}
+
+function mockHealthReminderNotificationId(vaccine: VaccinePlan) {
+  return `mock-health-reminder-${vaccine.id}`;
+}
+
+function activeMockHealthReminderNotificationIds() {
+  const enabled = new Set(vaccineReminderIds);
+  return new Set(
+    vaccines
+      .filter((vaccine) => enabled.has(vaccine.id) && shouldCreateMockHealthReminderNotification(vaccine))
+      .map(mockHealthReminderNotificationId)
+  );
+}
+
+function pruneMockHealthReminderNotifications() {
+  const activeIds = activeMockHealthReminderNotificationIds();
+  const next = notifications.filter((notification) => !String(notification.id).startsWith('mock-health-reminder-') || activeIds.has(notification.id));
+  const changed = next.length !== notifications.length;
+  notifications = next;
+  return changed;
+}
+
+function ensureMockHealthReminderNotifications() {
+  let changed = pruneMockHealthReminderNotifications();
+  const enabled = new Set(vaccineReminderIds);
+  vaccines
+    .filter((vaccine) => enabled.has(vaccine.id) && shouldCreateMockHealthReminderNotification(vaccine))
+    .forEach((vaccine) => {
+      const added = addMockNotification({
+        id: mockHealthReminderNotificationId(vaccine),
+        read: false,
+        text: `${vaccine.name}：${mockVaccineReminderCopy(vaccine)}，记得按宠物医院建议确认时间。`,
+        title: '健康提醒',
+      });
+      changed = added || changed;
+    });
+  return changed;
 }
 
 function buildHealthSummary(): HealthSummary {
@@ -1217,12 +1269,15 @@ export const mockApi = {
       vaccines = vaccines.map((item) => (item.id === id ? nextVaccine : item));
       if (status === 'done') {
         vaccineReminderIds = vaccineReminderIds.filter((item) => item !== id);
+        pruneMockHealthReminderNotifications();
         addMockNotification({
           id: `mock-vaccine-done-${id}`,
           read: false,
           text: `${nextVaccine.name}已标记完成，健康时间线已更新。`,
           title: '疫苗计划已完成',
         });
+      } else {
+        ensureMockHealthReminderNotifications();
       }
       return success(nextVaccine);
     },
@@ -1239,12 +1294,9 @@ export const mockApi = {
       if (vaccine.status === 'done' && enabled) return error('已完成的疫苗计划无需开启提醒', false);
       vaccineReminderIds = enabled ? [...new Set([id, ...vaccineReminderIds])] : vaccineReminderIds.filter((item) => item !== id);
       if (enabled) {
-        addMockNotification({
-          id: `mock-health-reminder-${id}`,
-          read: false,
-          text: `${vaccine.name}即将到期，记得按宠物医院建议确认时间。`,
-          title: '健康提醒',
-        });
+        ensureMockHealthReminderNotifications();
+      } else {
+        pruneMockHealthReminderNotifications();
       }
       return success(vaccineReminderIds);
     },
@@ -1465,6 +1517,7 @@ export const mockApi = {
 
     async listNotifications(): Promise<ApiResult<NotificationItem[]>> {
       await wait(160);
+      ensureMockHealthReminderNotifications();
       return success(notifications);
     },
 

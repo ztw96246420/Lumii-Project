@@ -1113,24 +1113,49 @@ function healthReminderNotificationId(user, vaccine) {
   return `n-health-${digest}`;
 }
 
-function ensureHealthReminderNotifications(user) {
+function shouldCreateHealthReminderNotification(vaccine) {
+  const days = daysUntilDate(vaccine?.dueAt);
+  return vaccine?.status !== 'done' && days !== null && days <= 7;
+}
+
+function activeHealthReminderNotificationIdsFor(user) {
   const reminderIds = new Set(vaccineReminderIdsFor(user));
-  if (!reminderIds.size) return;
+  if (!reminderIds.size) return new Set();
+  const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+  return new Set(
+    vaccines
+      .filter((vaccine) => reminderIds.has(vaccine.id) && shouldCreateHealthReminderNotification(vaccine))
+      .map((vaccine) => healthReminderNotificationId(user, vaccine))
+  );
+}
+
+function pruneHealthReminderNotifications(user) {
+  const activeIds = activeHealthReminderNotificationIdsFor(user);
+  const current = state.notifications[user.phone] || [];
+  const next = current.filter((notification) => !String(notification.id || '').startsWith('n-health-') || activeIds.has(notification.id));
+  if (next.length === current.length) return false;
+  state.notifications[user.phone] = next;
+  return true;
+}
+
+function ensureHealthReminderNotifications(user) {
+  let changed = pruneHealthReminderNotifications(user);
+  const reminderIds = new Set(vaccineReminderIdsFor(user));
+  if (!reminderIds.size) return changed;
   const vaccines = healthList('vaccines', user, defaultVaccinesFor);
   vaccines
     .filter((vaccine) => vaccine.status !== 'done' && reminderIds.has(vaccine.id))
-    .filter((vaccine) => {
-      const days = daysUntilDate(vaccine.dueAt);
-      return days !== null && days <= 7;
-    })
+    .filter(shouldCreateHealthReminderNotification)
     .forEach((vaccine) => {
-      addNotification(user.phone, {
+      const added = addNotification(user.phone, {
         id: healthReminderNotificationId(user, vaccine),
         read: false,
         text: `${vaccine.name}：${vaccineReminderCopy(vaccine)}，记得按宠物医院建议确认时间。`,
         title: '健康提醒',
       });
+      changed = added || changed;
     });
+  return changed;
 }
 
 function petChatKeyFor(user) {
@@ -3059,12 +3084,15 @@ async function handle(req, res) {
     vaccines[index] = { ...vaccines[index], status };
     if (status === 'done') {
       setVaccineReminderFor(user, id, false);
+      pruneHealthReminderNotifications(user);
       addNotification(user.phone, {
         id: `n-vaccine-done-${healthKeyFor(user)}-${id}`,
         read: false,
         text: `${vaccines[index].name}已标记完成，健康时间线已更新。`,
         title: '疫苗计划已完成',
       });
+    } else {
+      ensureHealthReminderNotifications(user);
     }
     saveState();
     ok(res, vaccines[index]);
@@ -3090,7 +3118,11 @@ async function handle(req, res) {
       return;
     }
     const reminderIds = setVaccineReminderFor(user, vaccineId, Boolean(body.enabled));
-    if (body.enabled) ensureHealthReminderNotifications(user);
+    if (body.enabled) {
+      ensureHealthReminderNotifications(user);
+    } else {
+      pruneHealthReminderNotifications(user);
+    }
     saveState();
     ok(res, reminderIds);
     return;
