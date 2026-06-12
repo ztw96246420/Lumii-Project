@@ -314,11 +314,12 @@ Android 调用：
 - ~~`GET /notifications`：通知列表。~~ MVP 测试后端已支持，App 会在消息页/通知页刷新读取。
 - ~~`POST /notifications/read`：批量标记已读。~~ MVP 测试后端已支持，进入通知中心会自动标记已读。
 - ~~`PATCH /notification-settings`：通知设置。~~ MVP 测试后端已用 `PATCH /settings` 保存 `pushNotifications`。
+- ~~通知设置与系统授权联动。~~ App 在“设置与隐私”里开启通知时，会先请求系统通知权限；授权失败则不保存 App 内通知开关，授权成功后会登记 push token 并保存设置。快速重复点击会被前端防重。
 
 需要你提供：
 - 推送服务选择：极光、个推、厂商通道、Firebase/APNs 等。
 - 通知模板：验证码除外，健康提醒、AI 生成完成、招呼请求、地点审核、系统通知。
-- 通知权限拒绝时的引导文案。
+- 正式通知权限拒绝/永久拒绝引导文案；当前 MVP 先使用权限服务内置中文 toast。
 
 ### 3.10 设置、安全与合规
 

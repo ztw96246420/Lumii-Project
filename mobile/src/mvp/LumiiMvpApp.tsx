@@ -424,6 +424,7 @@ export default function LumiiMvpApp() {
   const previousRouteRef = useRef<AppRoute>('login');
   const systemSettingsOpenedAtRef = useRef(0);
   const registeredPushTokenRef = useRef('');
+  const userSettingSavingKeysRef = useRef<Set<UserSettingKey>>(new Set());
 
   const [permissions, setPermissions] = useState<PermissionStateMap>(initialPermissions);
   const [activePet, setActivePet] = useState<PetProfile | null>(null);
@@ -1624,17 +1625,37 @@ export default function LumiiMvpApp() {
   }
 
   async function toggleUserSetting(key: UserSettingKey, label: string) {
+    if (userSettingSavingKeysRef.current.has(key)) return;
+    userSettingSavingKeysRef.current.add(key);
     const previousSettings = userSettings;
     const nextValue = !previousSettings[key];
     const nextSettings = { ...previousSettings, [key]: nextValue };
-    setUserSettings(nextSettings);
-    const result = await lumiiApi.settings.updateUserSettings({ [key]: nextValue });
-    if (result.data) {
-      setUserSettings({ ...defaultUserSettings, ...result.data });
-      showToast(`${label}已${nextValue ? '开启' : '关闭'}`);
-    } else {
-      setUserSettings(previousSettings);
-      showToast(result.error?.message ?? '设置保存失败，请稍后重试');
+
+    try {
+      if (key === 'pushNotifications' && nextValue && permissions.notifications !== 'granted') {
+        setPermissions((items) => ({ ...items, notifications: 'requesting' }));
+        const permissionResult = await requestLumiiPermission('notifications');
+        const nextPermissions = mergePermissionState(permissions, { notifications: permissionResult.status });
+        const savedPermissions = await persistPermissionSnapshot(nextPermissions);
+        setPermissions(savedPermissions);
+        if (permissionResult.status !== 'granted') {
+          showToast(permissionResult.status === 'blocked' ? '请先在系统设置开启消息通知权限' : '请先允许消息通知权限');
+          return;
+        }
+        void registerPushDevice({ silent: true });
+      }
+
+      setUserSettings(nextSettings);
+      const result = await lumiiApi.settings.updateUserSettings({ [key]: nextValue });
+      if (result.data) {
+        setUserSettings({ ...defaultUserSettings, ...result.data });
+        showToast(`${label}已${nextValue ? '开启' : '关闭'}`);
+      } else {
+        setUserSettings(previousSettings);
+        showToast(result.error?.message ?? '设置保存失败，请稍后重试');
+      }
+    } finally {
+      userSettingSavingKeysRef.current.delete(key);
     }
   }
 
@@ -2134,6 +2155,7 @@ export default function LumiiMvpApp() {
     setPlaceReview('');
     setPlaceReviewSaving(false);
     setPlaceReviewStatus('idle');
+    userSettingSavingKeysRef.current.clear();
     setHealthSummary(null);
     setWeightSaving(false);
     setMemoTitle('今日观察');
