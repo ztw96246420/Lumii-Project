@@ -44,7 +44,9 @@ const wait = (ms = 360) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const lastSmsSentAtByPhone: Record<string, number> = {};
 const smsCodeByPhone: Record<string, string> = {};
+const smsDailyUsageByPhone: Record<string, { count: number; day: string }> = {};
 const SMS_COOLDOWN_MS = 60 * 1000;
+const SMS_DAILY_LIMIT = 50;
 const OTP_TTL_MS = 5 * 60 * 1000;
 
 let currentMockPhone = '13800138000';
@@ -69,6 +71,19 @@ const goldenRetrieverPhotoUrl =
   'https://images.unsplash.com/photo-1625794084867-8ddd239946b1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=720';
 const goldenRetrieverAvatarUrl =
   'lumii://golden-retriever-avatar';
+
+function todayUsageKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function smsDailyUsageFor(phone: string) {
+  const day = todayUsageKey();
+  const usage = smsDailyUsageByPhone[phone];
+  if (!usage || usage.day !== day) {
+    smsDailyUsageByPhone[phone] = { count: 0, day };
+  }
+  return smsDailyUsageByPhone[phone];
+}
 
 const acceptedPetMediaAnalysis: UploadedPetMedia['analysis'] = {
   canGenerate: true,
@@ -868,9 +883,20 @@ export const mockApi = {
         });
       }
 
+      const usage = smsDailyUsageFor(phone);
+      if (usage.count >= SMS_DAILY_LIMIT) {
+        return error(`今天验证码发送次数已达上限（${SMS_DAILY_LIMIT} 次），请明天再试`, true, {
+          availableAt: lastSentAt + SMS_COOLDOWN_MS,
+          code: smsCodeByPhone[phone] ?? '',
+          expiresAt: now + OTP_TTL_MS,
+          phone,
+        });
+      }
+
       const code = '962464';
       lastSmsSentAtByPhone[phone] = now;
       smsCodeByPhone[phone] = code;
+      usage.count += 1;
       return success({ availableAt: now + SMS_COOLDOWN_MS, code, expiresAt: now + OTP_TTL_MS, phone });
     },
 

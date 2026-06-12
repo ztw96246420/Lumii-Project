@@ -5,8 +5,9 @@ const path = require('path');
 const { URL } = require('url');
 
 const TEST_CODE = '962464';
-const SMS_COOLDOWN_MS = 60 * 1000;
-const SMS_TTL_MS = 5 * 60 * 1000;
+const SMS_COOLDOWN_MS = Number(process.env.SMS_COOLDOWN_MS || 60 * 1000);
+const SMS_TTL_MS = Number(process.env.SMS_TTL_MS || 5 * 60 * 1000);
+const SMS_DAILY_LIMIT = Number(process.env.SMS_DAILY_LIMIT || '50');
 const ONLINE_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_DISCOVER_RADIUS_KM = 3;
 const FUZZY_LOCATION_GRID_DEGREES = 0.01;
@@ -243,6 +244,7 @@ function createInitialState() {
     placeSubmissions: {},
     places: defaultPlaces,
     sms: {},
+    smsDailyUsage: {},
     users: {},
   };
 }
@@ -265,6 +267,10 @@ function loadState() {
       petChatDailyUsage: {
         ...initialState.petChatDailyUsage,
         ...(loadedState.petChatDailyUsage || {}),
+      },
+      smsDailyUsage: {
+        ...initialState.smsDailyUsage,
+        ...(loadedState.smsDailyUsage || {}),
       },
       aiUsage: {
         ...initialState.aiUsage,
@@ -1129,6 +1135,27 @@ function recordDeepSeekUsage(usage) {
 
 function todayUsageKey() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function smsDailyUsageFor(phone) {
+  state.smsDailyUsage = state.smsDailyUsage || {};
+  const day = todayUsageKey();
+  const usage = state.smsDailyUsage[phone];
+  if (!usage || usage.day !== day) {
+    state.smsDailyUsage[phone] = { count: 0, day };
+  }
+  return state.smsDailyUsage[phone];
+}
+
+function canSendSms(phone) {
+  const usage = smsDailyUsageFor(phone);
+  return usage.count < SMS_DAILY_LIMIT;
+}
+
+function consumeSmsQuota(phone) {
+  const usage = smsDailyUsageFor(phone);
+  usage.count += 1;
+  return usage;
 }
 
 function petChatDailyUsageFor(phone) {
@@ -2335,6 +2362,15 @@ async function handle(req, res) {
       fail(res, 200, '操作太频繁，请稍后再试', true, previous);
       return;
     }
+    if (!canSendSms(phone)) {
+      const usage = smsDailyUsageFor(phone);
+      fail(res, 429, `今天验证码发送次数已达上限（${SMS_DAILY_LIMIT} 次），请明天再试`, true, {
+        availableAt: previous?.availableAt || now + SMS_COOLDOWN_MS,
+        day: usage.day,
+        phone,
+      });
+      return;
+    }
     const ticket = {
       availableAt: now + SMS_COOLDOWN_MS,
       code: TEST_CODE,
@@ -2342,6 +2378,7 @@ async function handle(req, res) {
       phone,
     };
     state.sms[phone] = ticket;
+    consumeSmsQuota(phone);
     ensureUser(phone);
     saveState();
     ok(res, ticket);
