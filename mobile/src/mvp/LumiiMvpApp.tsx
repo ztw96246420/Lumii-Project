@@ -511,15 +511,18 @@ export default function LumiiMvpApp() {
   const [dailyPostSaving, setDailyPostSaving] = useState(false);
   const dailyPostSavingRef = useRef(false);
   const [owners, setOwners] = useState<NearbyOwner[]>([]);
+  const ownersRef = useRef<NearbyOwner[]>([]);
   const [discoverRefreshing, setDiscoverRefreshing] = useState(false);
   const discoverRefreshingRef = useRef(false);
   const [discoverFilter, setDiscoverFilter] = useState<DiscoverFilter>('all');
   const [greetingRequestOwners, setGreetingRequestOwners] = useState<NearbyOwner[]>([]);
+  const greetingRequestOwnersRef = useRef<NearbyOwner[]>([]);
   const [socialActionSavingIds, setSocialActionSavingIds] = useState<string[]>([]);
   const socialActionSavingIdsRef = useRef<Set<string>>(new Set());
   const [walkInviteSaving, setWalkInviteSaving] = useState(false);
   const walkInviteSavingRef = useRef(false);
   const [selectedOwner, setSelectedOwner] = useState<NearbyOwner | null>(null);
+  const selectedOwnerIdRef = useRef<string | null>(null);
   const [walkInvitePlace, setWalkInvitePlace] = useState('滨江绿地');
   const [walkInviteTime, setWalkInviteTime] = useState('今天 19:00');
   const [walkInviteNote, setWalkInviteNote] = useState('');
@@ -754,6 +757,18 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     avatarJobIdRef.current = avatarJob?.id ?? null;
   }, [avatarJob?.id]);
+
+  useEffect(() => {
+    ownersRef.current = owners;
+  }, [owners]);
+
+  useEffect(() => {
+    greetingRequestOwnersRef.current = greetingRequestOwners;
+  }, [greetingRequestOwners]);
+
+  useEffect(() => {
+    selectedOwnerIdRef.current = selectedOwner?.id ?? null;
+  }, [selectedOwner?.id]);
 
   useEffect(() => {
     setSession((current) => {
@@ -1011,7 +1026,10 @@ export default function LumiiMvpApp() {
     if (vaccineReminderResult.data) setVaccineReminderIds(vaccineReminderResult.data);
     if (memoResult.data) setMemos(memoResult.data);
     if (ownerResult.data) applyNearbyOwners(ownerResult.data);
-    if (greetingRequestResult.data) setGreetingRequestOwners(greetingRequestResult.data);
+    if (greetingRequestResult.data) {
+      greetingRequestOwnersRef.current = greetingRequestResult.data;
+      setGreetingRequestOwners(greetingRequestResult.data);
+    }
     if (conversationResult.data) setConversations(conversationResult.data);
     if (notificationResult.data) setNotifications(notificationResult.data);
     if (placeResult.data) setPlaces(placeResult.data);
@@ -1112,7 +1130,10 @@ export default function LumiiMvpApp() {
         lumiiApi.messages.listConversations(),
         lumiiApi.messages.listNotifications(),
       ]);
-      if (greetingRequestResult.data) setGreetingRequestOwners(greetingRequestResult.data);
+      if (greetingRequestResult.data) {
+        greetingRequestOwnersRef.current = greetingRequestResult.data;
+        setGreetingRequestOwners(greetingRequestResult.data);
+      }
       if (conversationResult.data) setConversations(conversationResult.data);
       if (notificationResult.data) setNotifications(notificationResult.data);
       const errorMessage = greetingRequestResult.error?.message ?? conversationResult.error?.message ?? notificationResult.error?.message;
@@ -1134,12 +1155,19 @@ export default function LumiiMvpApp() {
 
   function applyNearbyOwners(nextOwners: NearbyOwner[]) {
     if (!userSettingsRef.current.nearbyVisible) {
+      ownersRef.current = [];
       setOwners([]);
+      selectedOwnerIdRef.current = null;
       setSelectedOwner(null);
       return;
     }
+    ownersRef.current = nextOwners;
     setOwners(nextOwners);
-    setSelectedOwner((current) => nextOwners.find((owner) => owner.id === current?.id) ?? null);
+    setSelectedOwner((current) => {
+      const nextSelectedOwner = nextOwners.find((owner) => owner.id === current?.id) ?? null;
+      selectedOwnerIdRef.current = nextSelectedOwner?.id ?? null;
+      return nextSelectedOwner;
+    });
   }
 
   async function refreshInboxManually() {
@@ -1933,14 +1961,20 @@ export default function LumiiMvpApp() {
     const actionId = `reject:${owner.id}`;
     if (socialActionSavingIdsRef.current.has(`accept:${owner.id}`)) return;
     if (!beginSocialAction(actionId)) return;
+    const requestSessionToken = sessionTokenRef.current;
     try {
-      if (!greetingRequestOwners.some((item) => item.id === owner.id)) {
+      if (!greetingRequestOwnersRef.current.some((item) => item.id === owner.id)) {
         showToast('招呼请求已更新，请返回消息页刷新');
         return;
       }
       const result = await lumiiApi.social.rejectGreeting(owner.id);
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
-        setGreetingRequestOwners((items) => items.filter((item) => item.id !== owner.id));
+        setGreetingRequestOwners((items) => {
+          const nextItems = items.filter((item) => item.id !== owner.id);
+          greetingRequestOwnersRef.current = nextItems;
+          return nextItems;
+        });
         void loadInboxData();
         showToast('已婉拒招呼');
       } else {
@@ -1955,14 +1989,20 @@ export default function LumiiMvpApp() {
     const actionId = `accept:${owner.id}`;
     if (socialActionSavingIdsRef.current.has(`reject:${owner.id}`)) return;
     if (!beginSocialAction(actionId)) return;
+    const requestSessionToken = sessionTokenRef.current;
     try {
-      if (!greetingRequestOwners.some((item) => item.id === owner.id)) {
+      if (!greetingRequestOwnersRef.current.some((item) => item.id === owner.id)) {
         showToast('招呼请求已更新，请返回消息页刷新');
         return;
       }
       const result = await lumiiApi.social.acceptGreeting(owner.id);
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
-        setGreetingRequestOwners((items) => items.filter((item) => item.id !== owner.id));
+        setGreetingRequestOwners((items) => {
+          const nextItems = items.filter((item) => item.id !== owner.id);
+          greetingRequestOwnersRef.current = nextItems;
+          return nextItems;
+        });
         if (result.data.conversation) {
           setConversations((items) => [result.data!.conversation!, ...items.filter((item) => item.id !== result.data!.conversation!.id)]);
         }
@@ -2363,9 +2403,11 @@ export default function LumiiMvpApp() {
   async function sendGreeting(ownerId: string) {
     const actionId = `greet:${ownerId}`;
     if (!beginSocialAction(actionId)) return;
-    const owner = owners.find((item) => item.id === ownerId);
+    const requestSessionToken = sessionTokenRef.current;
+    const owner = ownersRef.current.find((item) => item.id === ownerId);
     try {
       const result = await lumiiApi.social.sendGreeting(ownerId);
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         if (result.data.conversation) {
           setConversations((items) => [result.data!.conversation!, ...items.filter((item) => item.id !== result.data!.conversation!.id)]);
@@ -2391,29 +2433,38 @@ export default function LumiiMvpApp() {
       showToast('请填写地点和时间');
       return;
     }
+    const requestSessionToken = sessionTokenRef.current;
+    const requestOwnerId = owner.id;
+    const requestPlace = walkInvitePlace.trim();
+    const requestTime = walkInviteTime.trim();
+    const requestNote = walkInviteNote.trim();
     walkInviteSavingRef.current = true;
     setWalkInviteSaving(true);
     try {
       const result = await lumiiApi.social.createWalkInvite(owner.id, {
-        note: walkInviteNote.trim(),
-        place: walkInvitePlace.trim(),
-        time: walkInviteTime.trim(),
+        note: requestNote,
+        place: requestPlace,
+        time: requestTime,
       });
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      const stillEditingSameInvite = selectedOwnerIdRef.current === requestOwnerId && routeRef.current === 'walkInvite';
       if (result.data) {
         const conversation =
           result.data.conversation ??
           {
             id: `walk-${Date.now()}`,
-            lastMessage: `${walkInviteTime} · ${walkInvitePlace}`,
+            lastMessage: `${requestTime} · ${requestPlace}`,
             name: `${owner.ownerName}和${owner.petName}`,
             unread: 0,
           };
         setConversations((items) => [conversation, ...items.filter((item) => item.id !== conversation.id)]);
-        setWalkInviteNote('');
+        if (stillEditingSameInvite) setWalkInviteNote('');
         void loadInboxData();
-        replace('messages');
-        showToast('约遛邀请已发送');
-      } else {
+        if (stillEditingSameInvite) {
+          replace('messages');
+          showToast('约遛邀请已发送');
+        }
+      } else if (stillEditingSameInvite) {
         showToast(result.error?.message ?? '约遛邀请发送失败');
       }
     } finally {
@@ -2721,10 +2772,12 @@ export default function LumiiMvpApp() {
     setDiscoverRefreshing(false);
     setDiscoverFilter('all');
     setGreetingRequestOwners([]);
+    greetingRequestOwnersRef.current = [];
     socialActionSavingIdsRef.current.clear();
     setSocialActionSavingIds([]);
     walkInviteSavingRef.current = false;
     setWalkInviteSaving(false);
+    selectedOwnerIdRef.current = null;
     setSelectedOwner(null);
     setWalkInvitePlace('滨江绿地');
     setWalkInviteTime('今天 19:00');
@@ -3942,6 +3995,7 @@ export default function LumiiMvpApp() {
                 </View>
                 <Pressable
                   onPress={() => {
+                    selectedOwnerIdRef.current = owner.id;
                     setSelectedOwner(owner);
                     go('walkInvite');
                   }}
