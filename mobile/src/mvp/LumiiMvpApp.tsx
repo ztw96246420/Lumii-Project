@@ -523,6 +523,8 @@ export default function LumiiMvpApp() {
   const inboxRefreshInFlightRef = useRef(false);
   const inboxRefreshQueuedRef = useRef(false);
   const conversationRefreshInFlightRef = useRef<string | null>(null);
+  const conversationSendingKeysRef = useRef<Set<string>>(new Set());
+  const localConversationMessageIdsRef = useRef<Record<string, string>>({});
   const [inboxManualRefreshing, setInboxManualRefreshing] = useState(false);
   const [conversationDraftsById, setConversationDraftsById] = useState<Record<string, string>>({});
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([createConversationSafetyMessage()]);
@@ -1125,13 +1127,14 @@ export default function LumiiMvpApp() {
     }
   }
 
-  function setConversationMessagesFromServer(messages: ConversationMessage[]) {
+  function setConversationMessagesFromServer(conversationId: string, messages: ConversationMessage[]) {
     const cleanMessages = messages.filter((message) => message.author !== 'system');
     setConversationMessages((current) => {
       const localPending = current.filter(
         (message) =>
           message.author === 'me' &&
           (message.status === 'sending' || message.status === 'failed') &&
+          localConversationMessageIdsRef.current[message.id] === conversationId &&
           !cleanMessages.some((serverMessage) => serverMessage.id === message.id),
       );
       return [createConversationSafetyMessage(), ...cleanMessages, ...localPending];
@@ -1145,7 +1148,7 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.messages.listConversationMessages(conversationId);
       const isActiveConversation = !selectedConversationIdRef.current || selectedConversationIdRef.current === conversationId;
       if (result.data) {
-        if (isActiveConversation) setConversationMessagesFromServer(result.data);
+        if (isActiveConversation) setConversationMessagesFromServer(conversationId, result.data);
         if (options.markRead) {
           void lumiiApi.messages.markConversationRead(conversationId);
           setConversations((items) => items.map((item) => (item.id === conversationId ? { ...item, unread: 0 } : item)));
@@ -1938,29 +1941,53 @@ export default function LumiiMvpApp() {
       showToast('会话已失效，请返回消息列表重新选择');
       return;
     }
+    const conversationId = conversation.id;
     const text = (textOverride ?? (conversationDraftsById[conversation.id] ?? '')).trim();
     if (!text) return;
     if (conversation.canSendMessage === false) {
       showToast('对方接受招呼后才能聊天');
       return;
     }
+    const sendKey = retryMessageId ? `retry:${conversationId}:${retryMessageId}` : `send:${conversationId}`;
+    if (conversationSendingKeysRef.current.has(sendKey)) return;
+    conversationSendingKeysRef.current.add(sendKey);
+    const requestSessionToken = sessionTokenRef.current;
     const local: ConversationMessage = retryMessageId
       ? { author: 'me', id: retryMessageId, status: 'sending', text, time: '刚刚' }
-      : { author: 'me', id: `conversation-${Date.now()}`, status: 'sending', text, time: '刚刚' };
-    if (!retryMessageId) setConversationDraft(conversation.id, '');
+      : { author: 'me', id: `conversation-${conversationId}-${Date.now()}`, status: 'sending', text, time: '刚刚' };
+    localConversationMessageIdsRef.current[local.id] = conversationId;
+    if (!retryMessageId) setConversationDraft(conversationId, '');
     setConversationMessages((items) =>
       retryMessageId ? items.map((item) => (item.id === retryMessageId ? local : item)) : [...items, local],
     );
-    const result = await lumiiApi.messages.sendConversationMessage(conversation.id, text);
-    setConversationMessages((items) => items.map((item) => (item.id === local.id ? (result.data ?? { ...item, status: 'failed' }) : item)));
-    if (result.data) {
-      setConversations((items) => items.map((item) => (item.id === conversation.id ? { ...item, lastMessage: text, unread: 0 } : item)));
-    } else {
-      showToast(result.error?.message ?? '消息发送失败');
+    try {
+      const result = await lumiiApi.messages.sendConversationMessage(conversationId, text);
+      if (sessionTokenRef.current !== requestSessionToken) {
+        delete localConversationMessageIdsRef.current[local.id];
+        return;
+      }
+      const isActiveConversation = selectedConversationIdRef.current === conversationId;
+      if (result.data) {
+        delete localConversationMessageIdsRef.current[local.id];
+        if (isActiveConversation) {
+          setConversationMessages((items) => items.map((item) => (item.id === local.id ? result.data! : item)));
+        }
+        setConversations((items) => items.map((item) => (item.id === conversationId ? { ...item, lastMessage: text, unread: 0 } : item)));
+      } else {
+        if (isActiveConversation) {
+          setConversationMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: 'failed' } : item)));
+          showToast(result.error?.message ?? '消息发送失败');
+        } else {
+          delete localConversationMessageIdsRef.current[local.id];
+        }
+      }
+    } finally {
+      conversationSendingKeysRef.current.delete(sendKey);
     }
   }
 
   function deleteLocalConversationMessage(messageId: string) {
+    delete localConversationMessageIdsRef.current[messageId];
     setConversationMessages((items) => items.filter((item) => item.id !== messageId));
   }
 
@@ -2628,6 +2655,8 @@ export default function LumiiMvpApp() {
     inboxRefreshInFlightRef.current = false;
     inboxRefreshQueuedRef.current = false;
     conversationRefreshInFlightRef.current = null;
+    conversationSendingKeysRef.current.clear();
+    localConversationMessageIdsRef.current = {};
     setInboxManualRefreshing(false);
     setConversationDraftsById({});
     setConversationMessages([createConversationSafetyMessage()]);
