@@ -2,6 +2,10 @@
 
 ## 本次进展
 
+- 疫苗/驱虫计划接口校验补强：`PATCH /health/vaccines/{vaccineId}` 现在只接受 `status` 字段和 `due/done/overdue` 三种状态，非法输入返回 `HEALTH_VACCINE_INVALID`；`PATCH /health/vaccine-reminders/{vaccineId}` 只接受布尔 `enabled`，非布尔值、未知字段或已完成计划重新开启提醒返回 `HEALTH_REMINDER_INVALID`。mock API 同步该规则，不新增页面。
+- 文档口径同步：接口契约、支持清单和 Figma 缺失清单已把疫苗状态/提醒开关字段兜底校验标记为 MVP 已实现；提醒时间选择、重复规则、正式犬猫疫苗/驱虫模板仍作为后续运营规则。
+- 本地临时后端验证通过：合法疫苗状态更新成功；非法状态、未知状态字段返回 `HEALTH_VACCINE_INVALID`；非法提醒值、未知提醒字段和已完成计划重新开启提醒返回 `HEALTH_REMINDER_INVALID`。
+- 腾讯云测试后端已热更新并验证通过：公网 `/health` 返回 `success`；合法疫苗状态更新成功；非法疫苗状态/字段和非法提醒值/字段均返回预期错误码；已完成计划重新开启提醒被拦截。
 - 健康记录字段兜底校验补强：`POST/PATCH /health/weights` 现在只接受 `kg`、`note`、`recordedAt`，会校验真实日期、0-200kg 体重和 120 字备注；`POST/PATCH /health/memos` 只接受 `title`、`content`，会校验标题/内容必填、30 字标题和 500 字内容。非法输入分别返回 `HEALTH_WEIGHT_INVALID`、`HEALTH_MEMO_INVALID`。mock API 同步该规则，不新增页面。
 - 文档口径同步：接口契约、支持清单和 Figma 缺失清单已把体重记录/健康备忘基础接口与字段兜底校验标记为 MVP 已实现；健康记录编辑/删除 UI、就诊记录字段规范和正式体重健康区间仍作为后续项。
 - 宠物建档/编辑服务端兜底校验补强：`POST /pets` 和 `PATCH /pets/{petId}` 现在会按 `GET /pet-taxonomy.fieldRules` 校验昵称、物种、品种、性别、生日、体重和可更新字段白名单；非法字段、非法物种、非法生日、非法体重等返回 `PET_PROFILE_INVALID`，不再静默默认成 dog 或通过 `Object.assign` 污染宠物档案。mock API 同步该规则，不新增页面。

@@ -711,6 +711,10 @@ Request:
 
 `status` 可为 `due`、`done`、`overdue`。
 
+说明：
+- 只接受 `status` 字段，未知字段或非法状态会返回 `HEALTH_VACCINE_INVALID`。
+- `vaccineId` 不存在时返回 404，不会新建计划。
+
 当疫苗计划被标记为 `done` 后：
 - 测试后端会自动移除该计划的提醒开关。
 - 测试后端会生成一条“疫苗计划已完成”通知，可通过 `GET /notifications` 读回；是否生成受 `pushNotifications` 控制。
@@ -737,6 +741,7 @@ Request:
 
 说明：
 - 当前测试后端按 `phone + activePetId` 持久化提醒开关。
+- 只接受 `enabled` 布尔字段，未知字段或非布尔值会返回 `HEALTH_REMINDER_INVALID`。
 - 已完成的疫苗计划不能重新开启提醒。
 - 开启提醒后，如计划已临近或逾期，`GET /notifications` 会生成一条去重后的健康提醒通知；关闭提醒或标记计划完成后，测试后端和 mock API 会清理对应的旧健康提醒通知，避免通知中心继续展示过期提醒。
 - App 真机侧会在系统通知权限和 App 通知开关均开启时，为已开启的疫苗/驱虫计划安排本地系统通知；标记完成、关闭通知或退出账号会取消对应本地提醒。

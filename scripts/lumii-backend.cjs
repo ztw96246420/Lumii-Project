@@ -798,6 +798,32 @@ function parseHealthMemoPayload(value, current = null) {
   return { memo: { content, title } };
 }
 
+function parseVaccineStatusPatch(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '疫苗计划参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(['status']);
+  const keys = Object.keys(value);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `疫苗计划字段 ${unknownKey} 暂不支持` };
+  if (!Object.prototype.hasOwnProperty.call(value, 'status')) return { error: '请选择疫苗计划状态' };
+  const status = String(value.status || '').trim();
+  if (!['done', 'due', 'overdue'].includes(status)) return { error: '疫苗状态无效' };
+  return { status };
+}
+
+function parseVaccineReminderPatch(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '疫苗提醒参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(['enabled']);
+  const keys = Object.keys(value);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `疫苗提醒字段 ${unknownKey} 暂不支持` };
+  if (typeof value.enabled !== 'boolean') return { error: '疫苗提醒开关必须是开启或关闭' };
+  return { enabled: value.enabled };
+}
+
 function normalizeFavoritePlaceIds(value) {
   if (!Array.isArray(value)) return [];
   const existingPlaceIds = new Set((state.places || []).map((place) => place.id));
@@ -3457,11 +3483,12 @@ async function handle(req, res) {
   const vaccineMatch = pathname.match(/^\/health\/vaccines\/([^/]+)$/);
   if (req.method === 'PATCH' && vaccineMatch) {
     const id = decodeURIComponent(vaccineMatch[1]);
-    const status = String(body.status || '');
-    if (!['done', 'due', 'overdue'].includes(status)) {
-      fail(res, 400, '疫苗状态无效', false);
+    const vaccinePatch = parseVaccineStatusPatch(body);
+    if (vaccinePatch.error) {
+      fail(res, 400, vaccinePatch.error, false, undefined, 'HEALTH_VACCINE_INVALID');
       return;
     }
+    const { status } = vaccinePatch;
     const vaccines = healthList('vaccines', user, defaultVaccinesFor);
     const index = vaccines.findIndex((item) => item.id === id);
     if (index < 0) {
@@ -3494,18 +3521,24 @@ async function handle(req, res) {
   const vaccineReminderMatch = pathname.match(/^\/health\/vaccine-reminders\/([^/]+)$/);
   if (req.method === 'PATCH' && vaccineReminderMatch) {
     const vaccineId = decodeURIComponent(vaccineReminderMatch[1]);
+    const reminderPatch = parseVaccineReminderPatch(body);
+    if (reminderPatch.error) {
+      fail(res, 400, reminderPatch.error, false, undefined, 'HEALTH_REMINDER_INVALID');
+      return;
+    }
     const vaccines = healthList('vaccines', user, defaultVaccinesFor);
     const vaccine = vaccines.find((item) => item.id === vaccineId);
     if (!vaccine) {
       fail(res, 404, '疫苗计划不存在', false);
       return;
     }
-    if (vaccine.status === 'done' && body.enabled !== false) {
-      fail(res, 400, '已完成的疫苗计划无需开启提醒', false);
+    const { enabled } = reminderPatch;
+    if (vaccine.status === 'done' && enabled) {
+      fail(res, 400, '已完成的疫苗计划无需开启提醒', false, undefined, 'HEALTH_REMINDER_INVALID');
       return;
     }
-    const reminderIds = setVaccineReminderFor(user, vaccineId, Boolean(body.enabled));
-    if (body.enabled) {
+    const reminderIds = setVaccineReminderFor(user, vaccineId, enabled);
+    if (enabled) {
       ensureHealthReminderNotifications(user);
     } else {
       pruneHealthReminderNotifications(user);

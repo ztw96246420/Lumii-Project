@@ -231,6 +231,17 @@ function parseMockHealthMemoPayload(value: Partial<Pick<HealthMemo, 'content' | 
   return { memo: { content, title } };
 }
 
+function parseMockVaccineStatusPatch(status: unknown): { error: string; ok: false } | { ok: true; status: VaccinePlan['status'] } {
+  const nextStatus = String(status || '').trim();
+  if (!['done', 'due', 'overdue'].includes(nextStatus)) return { error: '疫苗状态无效', ok: false };
+  return { ok: true, status: nextStatus as VaccinePlan['status'] };
+}
+
+function parseMockVaccineReminderPatch(enabled: unknown): { error: string; ok: false } | { enabled: boolean; ok: true } {
+  if (typeof enabled !== 'boolean') return { error: '疫苗提醒开关必须是开启或关闭', ok: false };
+  return { enabled, ok: true };
+}
+
 const goldenRetrieverPhotoUrl =
   'https://images.unsplash.com/photo-1625794084867-8ddd239946b1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=720';
 const goldenRetrieverAvatarUrl =
@@ -1560,11 +1571,13 @@ export const mockApi = {
 
     async updateVaccineStatus(id: string, status: VaccinePlan['status']): Promise<ApiResult<VaccinePlan>> {
       await wait();
+      const statusPatch = parseMockVaccineStatusPatch(status);
+      if (!statusPatch.ok) return error<VaccinePlan>(statusPatch.error, false, undefined, 'HEALTH_VACCINE_INVALID');
       const vaccine = vaccines.find((item) => item.id === id);
       if (!vaccine) return error('疫苗计划不存在', false);
-      const nextVaccine = { ...vaccine, status };
+      const nextVaccine = { ...vaccine, status: statusPatch.status };
       vaccines = vaccines.map((item) => (item.id === id ? nextVaccine : item));
-      if (status === 'done') {
+      if (statusPatch.status === 'done') {
         vaccineReminderIds = vaccineReminderIds.filter((item) => item !== id);
         pruneMockHealthReminderNotifications();
         addMockNotification({
@@ -1586,11 +1599,13 @@ export const mockApi = {
 
     async setVaccineReminder(id: string, enabled: boolean): Promise<ApiResult<string[]>> {
       await wait(160);
+      const reminderPatch = parseMockVaccineReminderPatch(enabled);
+      if (!reminderPatch.ok) return error<string[]>(reminderPatch.error, false, undefined, 'HEALTH_REMINDER_INVALID');
       const vaccine = vaccines.find((item) => item.id === id);
-      if (!vaccine) return error('疫苗计划不存在', false);
-      if (vaccine.status === 'done' && enabled) return error('已完成的疫苗计划无需开启提醒', false);
-      vaccineReminderIds = enabled ? [...new Set([id, ...vaccineReminderIds])] : vaccineReminderIds.filter((item) => item !== id);
-      if (enabled) {
+      if (!vaccine) return error<string[]>('疫苗计划不存在', false);
+      if (vaccine.status === 'done' && reminderPatch.enabled) return error<string[]>('已完成的疫苗计划无需开启提醒', false, undefined, 'HEALTH_REMINDER_INVALID');
+      vaccineReminderIds = reminderPatch.enabled ? [...new Set([id, ...vaccineReminderIds])] : vaccineReminderIds.filter((item) => item !== id);
+      if (reminderPatch.enabled) {
         ensureMockHealthReminderNotifications();
       } else {
         pruneMockHealthReminderNotifications();
