@@ -315,6 +315,7 @@ Android 调用：
 - ~~`POST /notifications/read`：批量标记已读。~~ MVP 测试后端已支持，进入通知中心会自动标记已读。
 - ~~`PATCH /notification-settings`：通知设置。~~ MVP 测试后端已用 `PATCH /settings` 保存 `pushNotifications`。
 - ~~通知设置与系统授权联动。~~ App 在“设置与隐私”里开启通知时，会先请求系统通知权限；授权失败则不保存 App 内通知开关，授权成功后会登记 push token 并保存设置。快速重复点击会被前端防重。
+- ~~健康提醒与系统通知状态提示。~~ 疫苗提醒开启后，如果系统通知权限或 App 通知开关未开启，App 会明确提示“系统通知需在设置中开启”，避免误以为已经具备推送能力。
 
 需要你提供：
 - 推送服务选择：极光、个推、厂商通道、Firebase/APNs 等。

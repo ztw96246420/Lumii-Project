@@ -1591,7 +1591,8 @@ export default function LumiiMvpApp() {
         setVaccineReminderIds(result.data);
         void loadInboxData();
         void refreshHealthSummary();
-        showToast('疫苗提醒已开启');
+        const pushReady = permissions.notifications === 'granted' && userSettings.pushNotifications;
+        showToast(pushReady ? '疫苗提醒已开启' : '疫苗提醒已开启；系统通知需在设置中开启');
       } else {
         setVaccineReminderIds((items) => items.filter((id) => id !== vaccine.id));
         showToast(result.error?.message ?? '提醒开启失败，请稍后重试');
