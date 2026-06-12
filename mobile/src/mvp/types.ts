@@ -88,12 +88,26 @@ export type PetTaxonomy = {
 };
 
 export type AvatarJob = {
+  acceptedAt?: string;
+  acceptedPetId?: string;
   errorMessage?: string;
+  feedback?: AvatarGenerationFeedback;
   id: string;
+  mediaId?: string;
+  originalJobId?: string;
   progress: number;
   provider?: 'mock' | 'ttapi-flux-edits' | 'ttapi-midjourney';
   resultUrl?: string;
   status: 'failed' | 'processing' | 'ready';
+};
+
+export type AvatarGenerationFeedbackReason = 'color' | 'expression' | 'face_shape' | 'not_same_pet' | 'other' | 'style';
+
+export type AvatarGenerationFeedback = {
+  content?: string;
+  createdAt: string;
+  reason: AvatarGenerationFeedbackReason;
+  status: 'received' | 'reviewed';
 };
 
 export type UploadedPetMedia = {

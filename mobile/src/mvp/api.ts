@@ -2,6 +2,7 @@ import { mockApi } from './mockApi';
 import type {
   ApiError,
   ApiResult,
+  AvatarGenerationFeedbackReason,
   AuthSession,
   AvatarJob,
   ChatMessage,
@@ -207,6 +208,20 @@ function createHttpApi(baseUrl: string): LumiiApi {
 
       async getGenerationStatus(id: string): Promise<ApiResult<AvatarJob>> {
         return request<AvatarJob>('GET', `/ai/pet-avatar/jobs/${encodeURIComponent(id)}`);
+      },
+
+      async retryGeneration(jobId: string): Promise<ApiResult<AvatarJob>> {
+        return request<AvatarJob>('POST', `/ai/pet-avatar/jobs/${encodeURIComponent(jobId)}/retry`);
+      },
+
+      async acceptGeneration(jobId: string): Promise<ApiResult<PetProfile>> {
+        const result = await request<PetProfile>('POST', `/ai/pet-avatar/jobs/${encodeURIComponent(jobId)}/accept`);
+        if (result.data) cachedActivePet = result.data;
+        return result;
+      },
+
+      async sendGenerationFeedback(jobId: string, reason: AvatarGenerationFeedbackReason = 'other', content?: string): Promise<ApiResult<AvatarJob>> {
+        return request<AvatarJob>('POST', `/ai/pet-avatar/jobs/${encodeURIComponent(jobId)}/feedback`, { content, reason });
       },
 
       async saveAvatar(petId: string, avatarUrl: string): Promise<ApiResult<PetProfile>> {

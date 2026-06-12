@@ -31,6 +31,7 @@
 - 普通反馈接口补齐：新增 `POST /feedback`，测试后端和 mock API 均支持登录后提交普通产品反馈，内容校验为空/超长；不涉及举报/拉黑，不新增 UI。
 - 地点提交审核记录 API 门面补齐：`GET /places/submissions/my` 原本后端和文档已有，这次补齐 HTTP API 与 mock API；不新增“我的提交”页面，只消除接口契约不一致。
 - 上传媒体元信息读取补齐：新增 `GET /media/{mediaId}`，测试后端、HTTP API 门面和 mock API 均支持登录态读取自己的上传媒体分析结果；不新增页面、不接真实视觉识别模型。
+- AI 形象生成任务动作接口补齐：新增 `POST /ai/pet-avatar/jobs/{jobId}/retry`、`POST /ai/pet-avatar/jobs/{jobId}/accept`、`POST /ai/pet-avatar/jobs/{jobId}/feedback`，同时收紧任务查询/操作归属校验；不新增多候选 UI，不接真实视觉识别模型。
 - 文档状态纠偏：支持清单已把媒体读取、地点审核记录、avatar/health mock service 方法列表更新为当前实现状态，避免把已实现接口继续写成待补。
 
 ## 验证
@@ -122,6 +123,12 @@
   - 自己读取状态：`200`。
   - 跨账号读取状态：`404`。
   - 测试图片分析状态：`warning`。
+- 临时本地后端完整验证通过：上传媒体 -> 创建 AI 形象任务 -> 轮询到 `ready` -> 提交 `feedback` -> `accept` 保存到当前宠物头像 -> `retry` 创建新任务 -> 另一账号读取原任务返回 404。
+  - feedback 原因：`face_shape`。
+  - accept 后宠物：`Cream`。
+  - retry 任务保留 `originalJobId`。
+  - 跨账号读取状态：`404`。
+- 腾讯云测试后端验证了不额外触发生成额度的安全子集：对当前账号任务提交 `feedback` 成功，处理中任务 `accept` 返回 400，另一账号读取该任务返回 404。云端当前 provider 为真实 Flux，未继续触发 retry 或等待 ready accept，避免额外消耗生成额度。
 - 前端类型检查覆盖 Android 返回交互改动：`npm run typecheck` 通过。
 - 前端类型检查覆盖权限状态持久化改动：`npm run typecheck` 通过。
 - 前端类型检查覆盖健康摘要数据源切换：`npm run typecheck` 通过。

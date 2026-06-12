@@ -1280,6 +1280,52 @@ function createMockAvatarJob(id) {
   };
 }
 
+async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId) {
+  if (!canUsePetAvatarGeneration(user)) {
+    return { error: '今日灵伴形象生成次数已用完，请明天再试', retryable: true, statusCode: 429 };
+  }
+  const mediaId = String(mediaIdInput || '');
+  const media = mediaId ? state.mediaUploads?.[mediaId] : null;
+  if (mediaId && (!media || media.ownerPhone !== user.phone)) {
+    return { error: '上传照片已失效，请重新上传', retryable: true, statusCode: 404 };
+  }
+  if (media?.analysis && !media.analysis.canGenerate) {
+    return { data: media.analysis, error: media.analysis.message || '当前照片不适合生成灵伴形象，请重新上传', retryable: false, statusCode: 400 };
+  }
+  const id = `job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const job = createMockAvatarJob(id);
+  job.mediaId = mediaId;
+  job.ownerPhone = user.phone;
+  if (originalJobId) job.originalJobId = originalJobId;
+  state.avatarJobs[id] = job;
+  if (PET_AVATAR_PROVIDER === 'ttapi-flux-edits') {
+    try {
+      await startTtapiFluxAvatarJob(user, job, media);
+    } catch (error) {
+      job.errorMessage = error.message || 'Avatar generation failed to start';
+      job.progress = 0;
+      job.status = 'failed';
+    }
+  } else if (PET_AVATAR_PROVIDER === 'ttapi-midjourney') {
+    try {
+      await startTtapiAvatarJob(req, user, job, media);
+    } catch (error) {
+      job.errorMessage = error.message || 'Avatar generation failed to start';
+      job.progress = 0;
+      job.status = 'failed';
+    }
+  }
+  consumePetAvatarQuota(user);
+  return { job };
+}
+
+function avatarJobForUser(user, jobId) {
+  const job = state.avatarJobs[jobId];
+  return job && job.ownerPhone === user.phone ? job : null;
+}
+
+const avatarFeedbackReasons = new Set(['color', 'expression', 'face_shape', 'not_same_pet', 'other', 'style']);
+
 async function startTtapiAvatarJob(req, user, job, media) {
   if (!TTAPI_API_KEY) throw new Error('TTAPI key is not configured');
   if (!media?.dataUrl) throw new Error('Pet photo is missing. Please upload again.');
@@ -1955,52 +2001,20 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/ai/pet-avatar/jobs') {
-    if (!canUsePetAvatarGeneration(user)) {
-      fail(res, 429, '今日灵伴形象生成次数已用完，请明天再试', true);
+    const result = await createAvatarGenerationJob(req, user, body.mediaId);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, Boolean(result.retryable), result.data);
       return;
     }
-    const mediaId = String(body.mediaId || '');
-    const media = state.mediaUploads?.[mediaId];
-    if (mediaId && !media) {
-      fail(res, 404, '上传照片已失效，请重新上传', true);
-      return;
-    }
-    if (media?.analysis && !media.analysis.canGenerate) {
-      fail(res, 400, media.analysis.message || '当前照片不适合生成灵伴形象，请重新上传', false, media.analysis);
-      return;
-    }
-    const id = `job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-    const job = createMockAvatarJob(id);
-    job.mediaId = mediaId;
-    job.ownerPhone = user.phone;
-    state.avatarJobs[id] = job;
-    if (PET_AVATAR_PROVIDER === 'ttapi-flux-edits') {
-      try {
-        await startTtapiFluxAvatarJob(user, job, media);
-      } catch (error) {
-        job.errorMessage = error.message || 'Avatar generation failed to start';
-        job.progress = 0;
-        job.status = 'failed';
-      }
-    } else if (PET_AVATAR_PROVIDER === 'ttapi-midjourney') {
-      try {
-        await startTtapiAvatarJob(req, user, job, media);
-      } catch (error) {
-        job.errorMessage = error.message || 'Avatar generation failed to start';
-        job.progress = 0;
-        job.status = 'failed';
-      }
-    }
-    consumePetAvatarQuota(user);
     saveState();
-    ok(res, job);
+    ok(res, result.job);
     return;
   }
 
   const avatarJobMatch = pathname.match(/^\/ai\/pet-avatar\/jobs\/([^/]+)$/);
   if (req.method === 'GET' && avatarJobMatch) {
     const id = decodeURIComponent(avatarJobMatch[1]);
-    const job = state.avatarJobs[id];
+    const job = avatarJobForUser(user, id);
     if (!job) {
       fail(res, 404, '生成任务不存在', true);
       return;
@@ -2026,6 +2040,68 @@ async function handle(req, res) {
         job.resultUrl = generatedAvatarUrl;
       }
     }
+    saveState();
+    ok(res, job);
+    return;
+  }
+
+  const avatarJobActionMatch = pathname.match(/^\/ai\/pet-avatar\/jobs\/([^/]+)\/(accept|feedback|retry)$/);
+  if (req.method === 'POST' && avatarJobActionMatch) {
+    const id = decodeURIComponent(avatarJobActionMatch[1]);
+    const action = avatarJobActionMatch[2];
+    const job = avatarJobForUser(user, id);
+    if (!job) {
+      fail(res, 404, '生成任务不存在', true);
+      return;
+    }
+
+    if (action === 'retry') {
+      if (!job.mediaId) {
+        fail(res, 404, '原始照片已失效，请重新上传', true);
+        return;
+      }
+      const result = await createAvatarGenerationJob(req, user, job.mediaId, job.id);
+      if (result.error) {
+        fail(res, result.statusCode || 400, result.error, Boolean(result.retryable), result.data);
+        return;
+      }
+      saveState();
+      ok(res, result.job);
+      return;
+    }
+
+    if (action === 'accept') {
+      if (job.status !== 'ready' || !job.resultUrl) {
+        fail(res, 400, '形象还没生成完成，请稍后再试', true);
+        return;
+      }
+      const pet = selectedPetFor(user);
+      if (!pet) {
+        fail(res, 400, '请先添加宠物档案', false);
+        return;
+      }
+      pet.avatarUrl = job.resultUrl;
+      job.acceptedAt = new Date().toISOString();
+      job.acceptedPetId = pet.id;
+      user.activePetId = pet.id;
+      saveState();
+      ok(res, pet);
+      return;
+    }
+
+    const reasonInput = String(body.reason || 'other');
+    const reason = avatarFeedbackReasons.has(reasonInput) ? reasonInput : 'other';
+    const content = String(body.content || '').trim();
+    if (content.length > 500) {
+      fail(res, 400, '反馈内容最多 500 个字', false);
+      return;
+    }
+    job.feedback = {
+      ...(content ? { content } : {}),
+      createdAt: new Date().toISOString(),
+      reason,
+      status: 'received',
+    };
     saveState();
     ok(res, job);
     return;

@@ -429,7 +429,17 @@ Response data:
 
 ```ts
 type AvatarJob = {
+  acceptedAt?: string;
+  acceptedPetId?: string;
+  feedback?: {
+    content?: string;
+    createdAt: string;
+    reason: 'color' | 'expression' | 'face_shape' | 'not_same_pet' | 'other' | 'style';
+    status: 'received' | 'reviewed';
+  };
   id: string;
+  mediaId?: string;
+  originalJobId?: string;
   status: 'processing' | 'ready' | 'failed';
   progress: number;
   resultUrl?: string;
@@ -439,6 +449,57 @@ type AvatarJob = {
 ### GET `/ai/pet-avatar/jobs/{jobId}`
 
 轮询 AI 生成任务状态。
+
+说明：
+- 需要登录，只能读取当前账号自己的生成任务。
+
+### POST `/ai/pet-avatar/jobs/{jobId}/retry`
+
+基于原任务的 `mediaId` 重新生成一条新任务。MVP 测试后端会复用原上传媒体，仍受每日 AI 形象生成次数限制。
+
+Response data:
+
+```ts
+AvatarJob
+```
+
+### POST `/ai/pet-avatar/jobs/{jobId}/accept`
+
+接受当前任务生成结果，并保存为当前宠物的电子形象。
+
+Response data:
+
+```ts
+PetProfile
+```
+
+说明：
+- 任务必须属于当前账号。
+- 任务必须是 `ready` 且包含 `resultUrl`。
+- 当前账号必须已经有宠物档案。
+
+### POST `/ai/pet-avatar/jobs/{jobId}/feedback`
+
+记录用户对生成结果的“不像我家宠物/风格不喜欢”等反馈。当前只保存结构化反馈，不触发真实视觉识别模型或重新训练。
+
+Request:
+
+```json
+{
+  "reason": "face_shape",
+  "content": "脸型不像，耳朵也偏短"
+}
+```
+
+Response data:
+
+```ts
+AvatarJob
+```
+
+说明：
+- `reason` 支持 `color`、`expression`、`face_shape`、`not_same_pet`、`style`、`other`。
+- `content` 可选，最多 500 个字。
 
 ## 6. 健康管理
 

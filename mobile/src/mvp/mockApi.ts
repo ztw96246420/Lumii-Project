@@ -2,6 +2,7 @@ import { extractMainlandChinaPhone } from '../services/sms';
 import type {
   AccountSnapshot,
   ApiResult,
+  AvatarGenerationFeedbackReason,
   AuthSession,
   AvatarJob,
   ChatMessage,
@@ -240,6 +241,7 @@ let notifications: NotificationItem[] = [
 let pushDevices: PushDevice[] = [];
 let feedbackSubmissions: FeedbackSubmission[] = [];
 let uploadedMediaById: Record<string, UploadedPetMedia> = {};
+let avatarJobsById: Record<string, AvatarJob> = {};
 
 const places: Place[] = [
   { id: 'p1', name: '云杉宠物友好公园', address: '滨江路 88 号', category: 'park', distance: '900m', rating: 4.8, tags: ['可遛狗', '草坪', '饮水点'] },
@@ -588,14 +590,19 @@ export const mockApi = {
       await wait();
       const id = `job-${mediaId}`;
       generationProgressById[id] = 24;
-      return success({ id, progress: 24, status: 'processing' });
+      const job: AvatarJob = { id, mediaId, progress: 24, provider: 'mock', status: 'processing' };
+      avatarJobsById = { ...avatarJobsById, [id]: job };
+      return success(job);
     },
 
     async getGenerationStatus(id: string): Promise<ApiResult<AvatarJob>> {
       await wait(500);
       const progress = Math.min(100, (generationProgressById[id] ?? 24) + 38);
       generationProgressById[id] = progress;
-      return success({
+      const previous = avatarJobsById[id];
+      if (!previous) return error('生成任务不存在', true);
+      const job: AvatarJob = {
+        ...previous,
         id,
         progress,
         resultUrl:
@@ -603,7 +610,51 @@ export const mockApi = {
             ? goldenRetrieverAvatarUrl
             : undefined,
         status: progress >= 100 ? 'ready' : 'processing',
-      });
+      };
+      avatarJobsById = { ...avatarJobsById, [id]: job };
+      return success(job);
+    },
+
+    async retryGeneration(jobId: string): Promise<ApiResult<AvatarJob>> {
+      await wait();
+      const previous = avatarJobsById[jobId];
+      if (!previous?.mediaId) return error('原始照片已失效，请重新上传', true);
+      const id = `job-${previous.mediaId}-${Date.now()}`;
+      generationProgressById[id] = 24;
+      const job: AvatarJob = { id, mediaId: previous.mediaId, originalJobId: jobId, progress: 24, provider: 'mock', status: 'processing' };
+      avatarJobsById = { ...avatarJobsById, [id]: job };
+      return success(job);
+    },
+
+    async acceptGeneration(jobId: string): Promise<ApiResult<PetProfile>> {
+      await wait(160);
+      const job = avatarJobsById[jobId];
+      if (!job) return error('生成任务不存在', true);
+      if (job.status !== 'ready' || !job.resultUrl) return error('形象还没生成完成，请稍后再试', true);
+      const pet = pets.find((item) => item.id === activePetId) ?? pets[0];
+      if (!pet) return error('请先添加宠物档案', false);
+      const updatedPet = { ...pet, avatarUrl: job.resultUrl };
+      pets = pets.map((item) => (item.id === updatedPet.id ? updatedPet : item));
+      activePetId = updatedPet.id;
+      avatarJobsById = { ...avatarJobsById, [jobId]: { ...job, acceptedAt: '刚刚', acceptedPetId: updatedPet.id } };
+      return success(updatedPet);
+    },
+
+    async sendGenerationFeedback(jobId: string, reason: AvatarGenerationFeedbackReason = 'other', content?: string): Promise<ApiResult<AvatarJob>> {
+      await wait(120);
+      const job = avatarJobsById[jobId];
+      if (!job) return error('生成任务不存在', true);
+      const updatedJob: AvatarJob = {
+        ...job,
+        feedback: {
+          content: content?.trim() || undefined,
+          createdAt: '刚刚',
+          reason,
+          status: 'received',
+        },
+      };
+      avatarJobsById = { ...avatarJobsById, [jobId]: updatedJob };
+      return success(updatedJob);
     },
 
     async saveAvatar(petId: string, avatarUrl: string): Promise<ApiResult<PetProfile>> {
