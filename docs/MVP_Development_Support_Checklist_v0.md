@@ -286,6 +286,7 @@ Android 调用：
 - ~~`GET /pets/{petId}/vaccines/plan`：疫苗计划。~~ 测试后端已接 `GET /health/vaccines`。
 - ~~`PATCH /pets/{petId}/vaccines/plan`：更新疫苗计划。~~ 测试后端已接 `PATCH /health/vaccines/{vaccineId}`，支持标记完成；只接受 `due/done/overdue` 状态，非法字段或非法状态返回 `HEALTH_VACCINE_INVALID`。
 - ~~疫苗/驱虫提醒开关接口。~~ 测试后端已接 `GET /health/vaccine-reminders` 与 `PATCH /health/vaccine-reminders/{vaccineId}`，只接受布尔 `enabled`，非法字段、非布尔值或已完成计划重新开启提醒返回 `HEALTH_REMINDER_INVALID`。
+- ~~疫苗/驱虫提醒和标记完成的前端状态保护。~~ App 已补 ref 级互斥、最新通知权限/推送设置读取和退出账号清理；不需要你额外补页面或接口。
 
 需要你提供：
 - 犬猫疫苗模板。

@@ -504,7 +504,9 @@ export default function LumiiMvpApp() {
   const [memoDraftSaving, setMemoDraftSaving] = useState(false);
   const memoDraftSavingRef = useRef(false);
   const [vaccineReminderSavingIds, setVaccineReminderSavingIds] = useState<string[]>([]);
+  const vaccineReminderSavingIdsRef = useRef<Set<string>>(new Set());
   const [vaccineDoneSavingIds, setVaccineDoneSavingIds] = useState<string[]>([]);
+  const vaccineDoneSavingIdsRef = useRef<Set<string>>(new Set());
   const [dailyPostText, setDailyPostText] = useState('');
   const [dailyPostSaving, setDailyPostSaving] = useState(false);
   const dailyPostSavingRef = useRef(false);
@@ -2053,8 +2055,9 @@ export default function LumiiMvpApp() {
       showToast('这个提醒已经开启');
       return;
     }
-    if (vaccineReminderSavingIds.includes(vaccine.id)) return;
-    setVaccineReminderSavingIds((items) => [vaccine.id, ...items.filter((id) => id !== vaccine.id)]);
+    if (vaccineReminderSavingIdsRef.current.has(vaccine.id)) return;
+    vaccineReminderSavingIdsRef.current.add(vaccine.id);
+    setVaccineReminderSavingIds([...vaccineReminderSavingIdsRef.current]);
     setVaccineReminderIds((items) => [vaccine.id, ...items.filter((id) => id !== vaccine.id)]);
     try {
       const result = await lumiiApi.health.setVaccineReminder(vaccine.id, true);
@@ -2062,7 +2065,7 @@ export default function LumiiMvpApp() {
         setVaccineReminderIds(result.data);
         void loadInboxData();
         void refreshHealthSummary();
-        const pushReady = permissions.notifications === 'granted' && userSettings.pushNotifications;
+        const pushReady = permissionsRef.current.notifications === 'granted' && userSettingsRef.current.pushNotifications;
         const localReminder = pushReady ? await scheduleVaccineLocalReminder(vaccine, activePet?.name) : null;
         if (localReminder?.scheduled) {
           localHealthReminderScheduledIdsRef.current = [...new Set([vaccine.id, ...localHealthReminderScheduledIdsRef.current])];
@@ -2073,7 +2076,8 @@ export default function LumiiMvpApp() {
         showToast(result.error?.message ?? '提醒开启失败，请稍后重试');
       }
     } finally {
-      setVaccineReminderSavingIds((items) => items.filter((id) => id !== vaccine.id));
+      vaccineReminderSavingIdsRef.current.delete(vaccine.id);
+      setVaccineReminderSavingIds([...vaccineReminderSavingIdsRef.current]);
     }
   }
 
@@ -2082,8 +2086,9 @@ export default function LumiiMvpApp() {
       showToast('暂无可完成的疫苗计划');
       return;
     }
-    if (vaccineDoneSavingIds.includes(vaccine.id)) return;
-    setVaccineDoneSavingIds((items) => [vaccine.id, ...items.filter((id) => id !== vaccine.id)]);
+    if (vaccineDoneSavingIdsRef.current.has(vaccine.id)) return;
+    vaccineDoneSavingIdsRef.current.add(vaccine.id);
+    setVaccineDoneSavingIds([...vaccineDoneSavingIdsRef.current]);
     try {
       const result = await lumiiApi.health.updateVaccineStatus(vaccine.id, 'done');
       if (!result.data) {
@@ -2099,7 +2104,8 @@ export default function LumiiMvpApp() {
       void refreshHealthSummary();
       showToast('已标记完成');
     } finally {
-      setVaccineDoneSavingIds((items) => items.filter((id) => id !== vaccine.id));
+      vaccineDoneSavingIdsRef.current.delete(vaccine.id);
+      setVaccineDoneSavingIds([...vaccineDoneSavingIdsRef.current]);
     }
   }
 
@@ -2743,7 +2749,9 @@ export default function LumiiMvpApp() {
     setMemoDraftContent('今天洗澡后耳朵干净，皮肤没有明显泛红。');
     memoDraftSavingRef.current = false;
     setMemoDraftSaving(false);
+    vaccineReminderSavingIdsRef.current.clear();
     setVaccineReminderSavingIds([]);
+    vaccineDoneSavingIdsRef.current.clear();
     setVaccineDoneSavingIds([]);
     setDailyPostText('');
     dailyPostSavingRef.current = false;
