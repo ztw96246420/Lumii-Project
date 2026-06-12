@@ -9,7 +9,7 @@
 已完成或已有测试方案：
 - ~~测试环境 API Base URL。~~ 当前云端测试后端为 `http://193.112.92.111`。
 - ~~高德或腾讯地图 SDK/API Key。~~ MVP 已选高德；Android 高德 Key/SDK 已接入，iOS 仍待接。
-- ~~社交发现/打招呼/聊天接口从零开始。~~ 当前云端测试后端已支持附近发现、发送招呼、招呼请求、接受/婉拒、会话、消息、未读归零。
+- ~~社交发现/打招呼/聊天接口从零开始。~~ 当前云端测试后端已支持附近发现、发送招呼、招呼请求、接受/婉拒、会话、消息、未读归零；不存在/自己/关闭附近可见的目标会被拒绝，避免前端出现“假成功”。
 - ~~每次测试都需要打 APK 并放到腾讯云下载。~~ 日常开发不再上传 APK；只热更新后端或用本地模拟器/Android Studio 验证。
 
 仍需要你后续重点支持：
@@ -81,7 +81,7 @@
 - ~~基于位置的附近用户列表。~~ 当前测试后端已按 3km 默认半径、模糊距离、在线窗口返回附近用户。
 - ~~发现页基础刷新和筛选。~~ 当前 App 已支持下拉/按钮刷新、自动定位刷新、猫狗/兴趣标签基础筛选和空结果状态；复杂筛选 Bottom Sheet 仍待 Figma。
 - 用户隐私可见范围。
-- ~~打招呼发送、接受、拒绝。~~ 当前测试后端已支持发送招呼、招呼请求、接受/婉拒。
+- ~~打招呼发送、接受、拒绝。~~ 当前测试后端已支持发送招呼、招呼请求、接受/婉拒；无效目标、自己和隐藏账号会返回错误，不创建假会话。
 - ~~会话和消息接口。~~ 当前测试后端已支持会话列表、消息列表、发消息、标记已读。
 - 举报、拉黑、安全策略。
 
@@ -265,10 +265,11 @@ Android 调用：
 
 需要接口：
 - ~~`GET /social/discover`：附近宠物主人列表。~~ 测试后端已接。
-- ~~`POST /social/greetings`：发送打招呼。~~ 测试后端已接。
+- ~~`POST /social/greetings`：发送打招呼。~~ 测试后端已接；`ownerId` 使用发现/招呼请求卡片的 `id` 字段，无效/自己/隐藏目标会返回 404。
 - ~~`GET /social/greetings/inbox`：收到的招呼。~~ 实际测试端点为 `GET /social/greeting-requests`。
 - ~~`POST /social/greetings/{id}/accept`：接受招呼。~~ 实际测试端点为 `POST /social/greeting-requests/{ownerId}/accept`。
 - ~~`POST /social/greetings/{id}/reject`：拒绝招呼。~~ 实际测试端点为 `POST /social/greeting-requests/{ownerId}/reject`。
+- ~~`POST /social/walk-invites`：发送约遛邀请。~~ 测试后端已接；同样拒绝无效/自己/隐藏目标。
 - ~~`GET /conversations`：会话列表。~~ 测试后端已接。
 - ~~`GET /conversations/{id}/messages`：消息列表。~~ 测试后端已接。
 - ~~`POST /conversations/{id}/messages`：发送消息。~~ 测试后端已接。

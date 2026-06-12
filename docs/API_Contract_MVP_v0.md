@@ -731,13 +731,14 @@ lat=23.1291&lng=113.2644&radiusKm=3&accuracy=30
 - 发现范围默认 3km。
 - 距离返回模糊文案，例如 `500m 内`、`1km 内`、`约 1-2km`。
 - 超过在线时间窗口或超出距离范围不会返回。
+- 返回卡片的 `id` 形如 `user-{phone}`，当前作为 `POST /social/greetings`、`POST /social/walk-invites` 和招呼请求处理接口的 `ownerId` 入参。
 
 ### POST `/social/greetings`
 
 Request:
 
 ```json
-{ "ownerId": "owner-001" }
+{ "ownerId": "user-13500000002" }
 ```
 
 MVP 产品约束：
@@ -748,10 +749,14 @@ MVP 产品约束：
 当前测试后端兼容策略：
 - 已安装旧 APK：发送招呼时会直接给双方创建会话，方便不重装继续测试。
 - 下一版 App：会使用待处理招呼请求，接收方接受后再正式进入会话。
+- 如果 `ownerId` 不存在、指向自己，或对方已关闭附近可见，返回 404 中文错误，不创建招呼、会话、消息或通知，前端应提示刷新附近列表后重试。
 
 ### GET `/social/greeting-requests`
 
 获取当前用户收到的待处理招呼请求。
+
+说明：
+- 返回结构复用附近宠物主人卡片，卡片 `id` 同样作为 `{ownerId}` 传入接受/婉拒接口。
 
 ### POST `/social/greeting-requests/{ownerId}/accept`
 
@@ -766,8 +771,11 @@ MVP 产品约束：
 Request:
 
 ```json
-{ "ownerId": "owner-001" }
+{ "ownerId": "user-13500000002" }
 ```
+
+说明：
+- 如果 `ownerId` 不存在、指向自己，或对方已关闭附近可见，返回 404 中文错误，不创建约遛邀请、会话、消息或通知。
 
 ### GET `/conversations`
 

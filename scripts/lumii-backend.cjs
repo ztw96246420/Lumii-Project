@@ -1770,6 +1770,16 @@ function resolveOwnerId(ownerId) {
   return '';
 }
 
+function resolveVisibleSocialTarget(viewer, ownerId) {
+  const targetPhone = resolveOwnerId(String(ownerId || ''));
+  if (!targetPhone || targetPhone === viewer.phone) return null;
+  const targetUser = state.users[targetPhone];
+  if (!targetUser) return null;
+  targetUser.settings = normalizeUserSettings(targetUser.settings);
+  if (targetUser.settings.nearbyVisible === false) return null;
+  return { targetPhone, targetUser };
+}
+
 async function handle(req, res) {
   if (req.method === 'OPTIONS') {
     sendJson(res, 200, true);
@@ -2432,53 +2442,54 @@ async function handle(req, res) {
 
   if (req.method === 'POST' && pathname === '/social/greetings') {
     const ownerId = String(body.ownerId || '');
-    const targetPhone = resolveOwnerId(ownerId);
+    const target = resolveVisibleSocialTarget(user, ownerId);
+    if (!target) {
+      fail(res, 404, '对方暂时不可打招呼，请刷新附近列表后再试', true);
+      return;
+    }
+    const { targetPhone, targetUser } = target;
     const fromPet = activePetFor(user);
     const lastMessage = `${fromPet.name}想认识你`;
-    let senderConversation = null;
-    if (targetPhone && state.users[targetPhone]) {
-      const targetUser = ensureUser(targetPhone);
-      const targetPet = activePetFor(targetUser);
-      const existing = pendingGreetingFor(user.phone, targetPhone);
-      const shouldCreateGreetingMessages = !existing;
-      if (existing) {
-        existing.at = Date.now();
-      } else {
-        state.greetings.push({
-          at: Date.now(),
-          fromPhone: user.phone,
-          message: '我想认识你和你的毛孩子',
-          ownerId,
-          status: 'pending',
-          targetPhone,
-        });
-      }
-      senderConversation = buildConversationFor(user, targetUser, '我想认识你和你的毛孩子', 0);
-      const targetConversation = buildConversationFor(targetUser, user, lastMessage, 1);
-      upsertConversation(user.phone, senderConversation);
-      upsertConversation(targetPhone, targetConversation);
-      if (shouldCreateGreetingMessages) {
-        appendConversationMessage(user.phone, senderConversation.id, {
-          author: 'me',
-          id: messageId(),
-          status: 'sent',
-          text: '我想认识你和你的毛孩子',
-          time: '刚刚',
-        });
-        appendConversationMessage(targetPhone, targetConversation.id, {
-          author: 'other',
-          id: messageId(),
-          status: 'sent',
-          text: lastMessage,
-          time: '刚刚',
-        });
-        addNotification(targetPhone, {
-          id: `n-greeting-${Date.now()}`,
-          read: false,
-          text: `${user.ownerName}和${fromPet.name}向你和${targetPet.name}打了招呼`,
-          title: '新的招呼',
-        }, 'interaction');
-      }
+    const targetPet = activePetFor(targetUser);
+    const existing = pendingGreetingFor(user.phone, targetPhone);
+    const shouldCreateGreetingMessages = !existing;
+    if (existing) {
+      existing.at = Date.now();
+    } else {
+      state.greetings.push({
+        at: Date.now(),
+        fromPhone: user.phone,
+        message: '我想认识你和你的毛孩子',
+        ownerId,
+        status: 'pending',
+        targetPhone,
+      });
+    }
+    const senderConversation = buildConversationFor(user, targetUser, '我想认识你和你的毛孩子', 0);
+    const targetConversation = buildConversationFor(targetUser, user, lastMessage, 1);
+    upsertConversation(user.phone, senderConversation);
+    upsertConversation(targetPhone, targetConversation);
+    if (shouldCreateGreetingMessages) {
+      appendConversationMessage(user.phone, senderConversation.id, {
+        author: 'me',
+        id: messageId(),
+        status: 'sent',
+        text: '我想认识你和你的毛孩子',
+        time: '刚刚',
+      });
+      appendConversationMessage(targetPhone, targetConversation.id, {
+        author: 'other',
+        id: messageId(),
+        status: 'sent',
+        text: lastMessage,
+        time: '刚刚',
+      });
+      addNotification(targetPhone, {
+        id: `n-greeting-${Date.now()}`,
+        read: false,
+        text: `${user.ownerName}和${fromPet.name}向你和${targetPet.name}打了招呼`,
+        title: '新的招呼',
+      }, 'interaction');
     }
     saveState();
     ok(res, { conversation: senderConversation, ownerId, sent: true });
@@ -2538,7 +2549,12 @@ async function handle(req, res) {
 
   if (req.method === 'POST' && pathname === '/social/walk-invites') {
     const ownerId = String(body.ownerId || '');
-    const targetPhone = resolveOwnerId(ownerId);
+    const target = resolveVisibleSocialTarget(user, ownerId);
+    if (!target) {
+      fail(res, 404, '对方暂时不可约遛，请刷新附近列表后再试', true);
+      return;
+    }
+    const { targetPhone, targetUser } = target;
     const inviteId = `walk-${Date.now()}`;
     const place = String(body.place || '附近宠物友好地点');
     const time = String(body.time || '今天');
@@ -2555,33 +2571,30 @@ async function handle(req, res) {
       targetPhone,
       time,
     });
-    if (targetPhone && state.users[targetPhone]) {
-      const targetUser = ensureUser(targetPhone);
-      senderConversation = buildConversationFor(user, targetUser, lastMessage, 0);
-      const targetConversation = buildConversationFor(targetUser, user, `${fromPet.name}发来约遛邀请`, 1);
-      upsertConversation(user.phone, senderConversation);
-      upsertConversation(targetPhone, targetConversation);
-      appendConversationMessage(user.phone, senderConversation.id, {
-        author: 'me',
-        id: messageId(),
-        status: 'sent',
-        text: note ? `${lastMessage}\n${note}` : lastMessage,
-        time: '刚刚',
-      });
-      appendConversationMessage(targetPhone, targetConversation.id, {
-        author: 'other',
-        id: messageId(),
-        status: 'sent',
-        text: note ? `${fromPet.name}邀请你：${lastMessage}\n${note}` : `${fromPet.name}邀请你：${lastMessage}`,
-        time: '刚刚',
-      });
-      addNotification(targetPhone, {
-        id: `n-walk-${Date.now()}`,
-        read: false,
-        text: `${user.ownerName}和${fromPet.name}邀请你在${time}去${place}`,
-        title: '新的约遛邀请',
-      }, 'interaction');
-    }
+    senderConversation = buildConversationFor(user, targetUser, lastMessage, 0);
+    const targetConversation = buildConversationFor(targetUser, user, `${fromPet.name}发来约遛邀请`, 1);
+    upsertConversation(user.phone, senderConversation);
+    upsertConversation(targetPhone, targetConversation);
+    appendConversationMessage(user.phone, senderConversation.id, {
+      author: 'me',
+      id: messageId(),
+      status: 'sent',
+      text: note ? `${lastMessage}\n${note}` : lastMessage,
+      time: '刚刚',
+    });
+    appendConversationMessage(targetPhone, targetConversation.id, {
+      author: 'other',
+      id: messageId(),
+      status: 'sent',
+      text: note ? `${fromPet.name}邀请你：${lastMessage}\n${note}` : `${fromPet.name}邀请你：${lastMessage}`,
+      time: '刚刚',
+    });
+    addNotification(targetPhone, {
+      id: `n-walk-${Date.now()}`,
+      read: false,
+      text: `${user.ownerName}和${fromPet.name}邀请你在${time}去${place}`,
+      title: '新的约遛邀请',
+    }, 'interaction');
     saveState();
     ok(res, { conversation: senderConversation, inviteId, ownerId });
     return;
