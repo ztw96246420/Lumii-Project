@@ -1022,6 +1022,47 @@ function recordTtapiAvatarUsage(result, succeeded) {
   if (Number.isFinite(quota)) state.aiUsage[bucket].quota += quota;
 }
 
+function readDailyUsage(storeName, phone) {
+  const store = state[storeName] || {};
+  const usage = store[phone];
+  const day = todayUsageKey();
+  if (!usage || usage.day !== day) return { count: 0, day };
+  return { count: Number(usage.count) || 0, day };
+}
+
+function quotaCounter(usage, limit) {
+  const count = Number(usage.count) || 0;
+  const normalizedLimit = Math.max(0, Number(limit) || 0);
+  return {
+    count,
+    day: usage.day || todayUsageKey(),
+    limit: normalizedLimit,
+    remaining: Math.max(0, normalizedLimit - count),
+  };
+}
+
+function buildAiUsageSummary(user) {
+  const initialUsage = createInitialState().aiUsage;
+  state.aiUsage = state.aiUsage || initialUsage;
+  const deepseek = { ...initialUsage.deepseek, ...(state.aiUsage.deepseek || {}) };
+  const ttapiFlux = { ...initialUsage.ttapiFlux, ...(state.aiUsage.ttapiFlux || {}) };
+  const ttapiMidjourney = { ...initialUsage.ttapiMidjourney, ...(state.aiUsage.ttapiMidjourney || {}) };
+  return {
+    daily: {
+      petAvatar: quotaCounter(readDailyUsage('petAvatarDailyUsage', user.phone), PET_AVATAR_DAILY_LIMIT),
+      petChat: quotaCounter(readDailyUsage('petChatDailyUsage', user.phone), PET_CHAT_DAILY_LIMIT),
+    },
+    deepseek: {
+      ...deepseek,
+      model: DEEPSEEK_MODEL,
+    },
+    petAvatarProvider: PET_AVATAR_PROVIDER,
+    ttapiFlux,
+    ttapiMidjourney,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function cleanBase64DataUrl(value, mimeType) {
   const input = String(value || '').trim();
   if (!input || input.length > MEDIA_UPLOAD_MAX_BASE64_CHARS) return '';
@@ -2561,6 +2602,11 @@ async function handle(req, res) {
     const notifications = markNotificationsRead(user.phone, body.ids);
     saveState();
     ok(res, notifications);
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/ai/usage') {
+    ok(res, buildAiUsageSummary(user));
     return;
   }
 

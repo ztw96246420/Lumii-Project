@@ -110,6 +110,43 @@ export type AvatarGenerationFeedback = {
   status: 'received' | 'reviewed';
 };
 
+export type AiUsageCounter = {
+  count: number;
+  day: string;
+  limit: number;
+  remaining: number;
+};
+
+export type AiUsageSummary = {
+  daily: {
+    petAvatar: AiUsageCounter;
+    petChat: AiUsageCounter;
+  };
+  deepseek: {
+    cacheHitTokens: number;
+    cacheMissTokens: number;
+    completionTokens: number;
+    model: string;
+    promptTokens: number;
+    requests: number;
+    totalTokens: number;
+  };
+  petAvatarProvider: string;
+  ttapiFlux: {
+    failed: number;
+    quota: number;
+    requests: number;
+    succeeded: number;
+  };
+  ttapiMidjourney: {
+    failed: number;
+    quota: number;
+    requests: number;
+    succeeded: number;
+  };
+  updatedAt: string;
+};
+
 export type UploadedPetMedia = {
   analysis: PetMediaAnalysis;
   mediaId: string;

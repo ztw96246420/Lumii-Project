@@ -2,6 +2,7 @@ import { extractMainlandChinaPhone } from '../services/sms';
 import type {
   AccountSnapshot,
   ApiResult,
+  AiUsageSummary,
   AvatarGenerationFeedbackReason,
   AuthSession,
   AvatarJob,
@@ -242,6 +243,8 @@ let pushDevices: PushDevice[] = [];
 let feedbackSubmissions: FeedbackSubmission[] = [];
 let uploadedMediaById: Record<string, UploadedPetMedia> = {};
 let avatarJobsById: Record<string, AvatarJob> = {};
+let mockPetChatDailyCount = 0;
+let mockPetAvatarDailyCount = 0;
 
 const places: Place[] = [
   { id: 'p1', name: '云杉宠物友好公园', address: '滨江路 88 号', category: 'park', distance: '900m', rating: 4.8, tags: ['可遛狗', '草坪', '饮水点'] },
@@ -392,6 +395,52 @@ function buildHealthSummary(): HealthSummary {
 }
 
 export const mockApi = {
+  ai: {
+    async getUsage(): Promise<ApiResult<AiUsageSummary>> {
+      await wait(120);
+      const day = new Date().toISOString().slice(0, 10);
+      return success({
+        daily: {
+          petAvatar: {
+            count: mockPetAvatarDailyCount,
+            day,
+            limit: 10,
+            remaining: Math.max(0, 10 - mockPetAvatarDailyCount),
+          },
+          petChat: {
+            count: mockPetChatDailyCount,
+            day,
+            limit: 80,
+            remaining: Math.max(0, 80 - mockPetChatDailyCount),
+          },
+        },
+        deepseek: {
+          cacheHitTokens: 0,
+          cacheMissTokens: 0,
+          completionTokens: 0,
+          model: 'mock',
+          promptTokens: 0,
+          requests: mockPetChatDailyCount,
+          totalTokens: 0,
+        },
+        petAvatarProvider: 'mock',
+        ttapiFlux: {
+          failed: 0,
+          quota: 0,
+          requests: mockPetAvatarDailyCount,
+          succeeded: mockPetAvatarDailyCount,
+        },
+        ttapiMidjourney: {
+          failed: 0,
+          quota: 0,
+          requests: 0,
+          succeeded: 0,
+        },
+        updatedAt: '刚刚',
+      });
+    },
+  },
+
   support: {
     async submitFeedback(content: string, category: FeedbackCategory = 'other', contact?: string): Promise<ApiResult<FeedbackSubmission>> {
       await wait(120);
@@ -588,6 +637,7 @@ export const mockApi = {
 
     async startGeneration(mediaId: string): Promise<ApiResult<AvatarJob>> {
       await wait();
+      mockPetAvatarDailyCount += 1;
       const id = `job-${mediaId}`;
       generationProgressById[id] = 24;
       const job: AvatarJob = { id, mediaId, progress: 24, provider: 'mock', status: 'processing' };
@@ -908,6 +958,7 @@ export const mockApi = {
     async sendMessage(text: string): Promise<ApiResult<ChatMessage>> {
       await wait();
       if (!text.trim()) return error('请输入消息内容', false);
+      mockPetChatDailyCount += 1;
       const userMessage: ChatMessage = { id: `pet-user-${Date.now()}`, author: 'me', text, status: 'sent', time: '刚刚' };
       const aiMessage: ChatMessage = {
         id: `pet-ai-${Date.now()}`,

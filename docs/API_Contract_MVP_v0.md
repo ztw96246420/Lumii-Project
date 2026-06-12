@@ -876,6 +876,39 @@ Request:
 - 只能反馈 AI 回复，不能反馈用户自己发送的消息。
 - 测试后端会把 `feedback` 写回对应消息，后续 `GET /ai/pet-chat/messages` 可读回。
 
+### GET `/ai/usage`
+
+读取当前账号的 AI 日用量和测试后端累计模型调用统计。该接口只读已有统计，不触发 DeepSeek、Flux 或 Midjourney 请求，主要用于 MVP 阶段控制 token/额度消耗。
+
+Response data:
+
+```ts
+type AiUsageSummary = {
+  daily: {
+    petAvatar: { count: number; day: string; limit: number; remaining: number };
+    petChat: { count: number; day: string; limit: number; remaining: number };
+  };
+  deepseek: {
+    cacheHitTokens: number;
+    cacheMissTokens: number;
+    completionTokens: number;
+    model: string;
+    promptTokens: number;
+    requests: number;
+    totalTokens: number;
+  };
+  petAvatarProvider: string;
+  ttapiFlux: { failed: number; quota: number; requests: number; succeeded: number };
+  ttapiMidjourney: { failed: number; quota: number; requests: number; succeeded: number };
+  updatedAt: string;
+}
+```
+
+说明：
+- `daily.petChat` 使用当前账号当日宠物对话次数和 `PET_CHAT_DAILY_LIMIT`。
+- `daily.petAvatar` 使用当前账号当日宠物形象生成次数和 `PET_AVATAR_DAILY_LIMIT`。
+- `deepseek`、`ttapiFlux`、`ttapiMidjourney` 是测试后端累计统计，用于联调成本观察，不作为生产计费账单。
+
 ## 8. 地点
 
 ### GET `/places/nearby`

@@ -221,6 +221,7 @@ Android 调用：
 - ~~`GET /ai/pet-chat/sessions/{sessionId}/messages`：读取历史消息。~~ MVP 已接 `GET /ai/pet-chat/messages`。
 - ~~`POST /ai/pet-chat/sessions/{sessionId}/messages`：发送消息并获取回复。~~ MVP 已接 `POST /ai/pet-chat/messages`，支持 DeepSeek V4 服务端适配层与本地 fallback。
 - ~~`POST /ai/pet-chat/messages/{messageId}/feedback`：反馈语气不像、无帮助、不安全等。~~ MVP 测试后端已支持 `good/off`，App 会把“像它/不像它”写回对应 AI 消息。
+- ~~`GET /ai/usage`：读取 AI 对话 token/次数与形象生成额度统计。~~ MVP 测试后端、HTTP API 门面和 mock API 已支持；不触发真实模型请求。
 
 需要你提供：
 - 宠物人格设定字段：活泼、黏人、稳重、胆小等。
@@ -389,8 +390,8 @@ P2 后续：
 第一批最需要：
 1. ~~短信验证码接口协议和测试手机号。~~ 测试后端已可用；生产短信规则仍待确认。
 2. ~~宠物资料接口协议。~~ 测试后端已可用。
-3. 图片上传和 AI 形象生成接口协议。
-4. AI 电子宠物对话接口协议。
+3. 图片上传和 AI 形象生成接口协议。MVP 测试后端已具备上传、生成、轮询、重试、保存、反馈和用量统计；真实视觉识别模型、生产对象存储和多候选 UI 仍待补。
+4. ~~AI 电子宠物对话接口协议。~~ MVP 已接 `GET/POST /ai/pet-chat/messages`、`POST /ai/pet-chat/messages/{messageId}/feedback`、DeepSeek 服务端适配层、本地 fallback 和 `GET /ai/usage` 用量读取；生产级内容安全、医疗风险拦截、流式输出、语音/图片输入仍待后续确认。
 5. iOS 高德 Key、地点分类和 POI 策略。
 6. ~~用户协议、隐私政策占位版。~~ MVP 静态接口已补；正式文本仍需后续确认。
 
@@ -411,6 +412,7 @@ P2 后续：
 本轮已把前端入口从 Stitch iframe/文案点击桥接切换为 React Native 原生化 MVP 状态机。~~Stitch 仍作为视觉源和 QA 对照~~ 当前主设计源已改为 Figma Make/Figma 源码包，Stitch 仅保留历史参考；业务流程不再依赖页面全文识别或按钮文案推断。
 
 已落地的 mock service 命名空间：
+- `ai`：`getUsage`
 - `auth`：`sendSmsCode`、`verifySmsCode`、`logout`
 - `permissions`：当前通过 `src/services/permissions.ts` 调用 Expo 权限服务；Web 预览模拟授权
 - `pets`：`getTaxonomy`、`createPet`、`updatePet`、`listPets`、`setActivePet`

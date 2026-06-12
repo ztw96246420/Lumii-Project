@@ -34,12 +34,14 @@
 - AI 形象生成任务动作接口补齐：新增 `POST /ai/pet-avatar/jobs/{jobId}/retry`、`POST /ai/pet-avatar/jobs/{jobId}/accept`、`POST /ai/pet-avatar/jobs/{jobId}/feedback`，同时收紧任务查询/操作归属校验；不新增多候选 UI，不接真实视觉识别模型。
 - AI 形象确认页联动任务 action：现有“保存并设为电子灵伴”按钮优先调用 `acceptGeneration`，现有“重新生成”按钮优先调用 `retryGeneration`，并补充保存/重试 loading 状态；页面样式不变。
 - 通知设备登记联动：真机通知权限授权成功后，App 会通过 Expo Notifications 获取 Expo Push Token 并调用 `POST /devices/push-token`；二次登录恢复到已授权通知状态时会静默补登记，Web 预览跳过，登记失败不阻断权限或建档流程。
+- AI 用量读取接口补齐：新增 `GET /ai/usage`，返回当前账号当日宠物对话/形象生成次数、剩余额度，以及测试后端累计 DeepSeek token、Flux/Midjourney 请求和 quota 统计；该接口只读统计，不触发真实模型请求。
 - 文档状态纠偏：支持清单已把媒体读取、地点审核记录、avatar/health mock service 方法列表更新为当前实现状态，避免把已实现接口继续写成待补。
 
 ## 验证
 
 - `npm run typecheck` 通过。
 - `npm run typecheck` 覆盖通知设备登记联动通过。
+- `npm run typecheck` 覆盖 AI 用量 API 门面通过。
 - `node --check scripts/lumii-backend.cjs` 通过。
 - `git diff --check` 通过，仅提示 Windows 工作区 LF/CRLF 换行转换 warning。
 - 临时本地后端验证通过：短信登录 -> 保存权限和设置 -> 刷新 token -> 读回手机号、权限完成状态和设置快照。
@@ -142,6 +144,17 @@
   - token：`ExponentPushToken[codex-local-test-20260612]`。
   - 平台：`android`。
   - 设备 ID：`codex-push-test`。
+- 临时本地后端验证通过：`GET /ai/usage` 初始读取 -> 发送一条 AI 宠物对话 fallback -> 上传测试图并启动 mock 形象生成 -> 再次读取用量。
+  - 对话次数：`0 -> 1`，剩余 `79`。
+  - 形象生成次数：`0 -> 1`，剩余 `9`。
+  - 本地对话来源：fallback AI 回复。
+  - 本地形象 provider：`mock`。
+- 腾讯云测试后端已热更新并重启 `lumii-backend`，云端 `GET /ai/usage` 验证通过且未触发真实模型请求。
+  - 测试手机号：`13900007778`。
+  - 当日 AI 对话：`0/80`。
+  - 当日形象生成：`0/10`。
+  - DeepSeek 模型：`deepseek-v4-flash`。
+  - 当前形象 provider：`ttapi-flux-edits`。
 
 ## 未打包
 

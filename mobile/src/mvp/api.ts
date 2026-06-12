@@ -2,6 +2,7 @@ import { mockApi } from './mockApi';
 import type {
   ApiError,
   ApiResult,
+  AiUsageSummary,
   AvatarGenerationFeedbackReason,
   AuthSession,
   AvatarJob,
@@ -71,6 +72,12 @@ export function setLumiiAuthToken(token?: string) {
 
 function createHttpApi(baseUrl: string): LumiiApi {
   return {
+    ai: {
+      async getUsage(): Promise<ApiResult<AiUsageSummary>> {
+        return request<AiUsageSummary>('GET', '/ai/usage');
+      },
+    },
+
     support: {
       async submitFeedback(content: string, category: FeedbackCategory = 'other', contact?: string): Promise<ApiResult<FeedbackSubmission>> {
         return request<FeedbackSubmission>('POST', '/feedback', { category, contact, content });
