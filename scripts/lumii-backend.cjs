@@ -715,6 +715,29 @@ function healthList(storeName, user, defaultsFactory) {
   return state.health[storeName][key];
 }
 
+function createWeightRecord(user, kg, note, options = {}) {
+  const normalizedKg = Math.round(Number(kg) * 100) / 100;
+  if (!Number.isFinite(normalizedKg) || normalizedKg <= 0) return null;
+  const normalizedNote = String(note || '').trim();
+  const records = healthList('weights', user, defaultWeightRecordsFor);
+  const recordedAt = todayIsoDate();
+  if (options.dedupe) {
+    const existing = records
+      .slice(0, 8)
+      .find((item) => Number(item.kg) === normalizedKg && item.recordedAt === recordedAt && String(item.note || '') === normalizedNote);
+    if (existing) return existing;
+  }
+  const record = {
+    id: `w-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    kg: normalizedKg,
+    note: normalizedNote,
+    recordedAt,
+  };
+  records.unshift(record);
+  syncPetWeightFromRecords(user, records);
+  return record;
+}
+
 function isIsoDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
 }
@@ -1608,6 +1631,36 @@ function createHealthMemoFromPetChat(user, text) {
   const content = normalizePetChatMemoContent(rawText) || rawText;
   if (content.length < 2) return null;
   return createHealthMemoRecord(user, petChatMemoTitle(content), content.slice(0, 240), { dedupe: true });
+}
+
+function extractPetChatWeight(text) {
+  const rawText = String(text || '').trim();
+  if (!rawText || /不要记|别记|不用记|不要记录|别记录/.test(rawText)) return null;
+  const weightMatch = rawText.match(/(\d{1,3}(?:\.\d{1,2})?)\s*(kg|公斤|千克|斤)/i);
+  if (!weightMatch) return null;
+  if (!/(体重|称重|重量|记录|记一下|记一笔|kg|公斤|千克|斤)/i.test(rawText)) return null;
+  const rawValue = Number(weightMatch[1]);
+  if (!Number.isFinite(rawValue) || rawValue <= 0) return null;
+  const unit = weightMatch[2].toLowerCase();
+  const kg = unit === '斤' ? rawValue / 2 : rawValue;
+  if (kg < 0.2 || kg > 120) return null;
+  const cleanedNote = rawText
+    .replace(/^(麻烦|请|帮我|帮忙|可以)?(把|将)?/u, '')
+    .replace(/(帮我)?(记录一下|记录|记一下|记一笔|保存|新增|添加)[：:，,\s]*/u, '')
+    .replace(/(今天|刚刚|现在|这次)?(的)?(体重|称重|重量)[是为有到：:，,\s]*/u, '')
+    .replace(weightMatch[0], '')
+    .replace(/^(是|为|有|到|了|：|:|，|,|\s)+/u, '')
+    .trim();
+  return {
+    kg,
+    note: cleanedNote ? `AI 对话：${cleanedNote.slice(0, 80)}` : 'AI 对话记录',
+  };
+}
+
+function createWeightRecordFromPetChat(user, text) {
+  const parsed = extractPetChatWeight(text);
+  if (!parsed) return null;
+  return createWeightRecord(user, parsed.kg, parsed.note, { dedupe: true });
 }
 
 function fallbackPetChatReply(user, text) {
@@ -2780,12 +2833,18 @@ async function handle(req, res) {
       time: '刚刚',
     };
     consumePetChatQuota(user);
-    const createdMemo = createHealthMemoFromPetChat(user, text);
+    const createdWeight = createWeightRecordFromPetChat(user, text);
+    const createdMemo = createdWeight ? null : createHealthMemoFromPetChat(user, text);
     const reply = await callDeepSeekPetChat(user, text, messages);
-    const replyText = createdMemo ? `${reply.text}\n\n已帮你记到健康备忘：「${createdMemo.title}」。` : reply.text;
+    const savedNotices = [
+      createdWeight ? `已帮你记录体重：${createdWeight.kg}kg。` : '',
+      createdMemo ? `已帮你记到健康备忘：「${createdMemo.title}」。` : '',
+    ].filter(Boolean);
+    const replyText = savedNotices.length ? `${reply.text}\n\n${savedNotices.join('\n')}` : reply.text;
     const aiMessage = {
       author: 'ai',
       createdMemo,
+      createdWeight,
       id: messageId(),
       status: 'sent',
       text: replyText,

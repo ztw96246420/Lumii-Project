@@ -1491,6 +1491,11 @@ export default function LumiiMvpApp() {
           setMemos((items) => [result.data!.createdMemo!, ...items.filter((item) => item.id !== result.data!.createdMemo!.id)]);
           void refreshHealthSummary();
         }
+        if (result.data.createdWeight) {
+          setWeights((items) => [result.data!.createdWeight!, ...items.filter((item) => item.id !== result.data!.createdWeight!.id)]);
+          setActivePet((pet) => (pet ? { ...pet, weightKg: result.data!.createdWeight!.kg } : pet));
+          void refreshHealthSummary();
+        }
         void loadAiUsage();
       } else {
         showToast(result.error?.message ?? '消息发送失败');

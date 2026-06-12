@@ -191,6 +191,7 @@ export type PetChatFeedbackRating = 'good' | 'off';
 export type ChatMessage = {
   author: 'ai' | 'me' | 'system';
   createdMemo?: HealthMemo;
+  createdWeight?: WeightRecord;
   feedback?: PetChatFeedbackRating;
   id: string;
   status?: 'failed' | 'sending' | 'sent';

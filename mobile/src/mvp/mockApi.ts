@@ -216,6 +216,49 @@ function createMockHealthMemoFromPetChat(text: string) {
   return memo;
 }
 
+function extractMockPetChatWeight(text: string) {
+  const rawText = String(text || '').trim();
+  if (!rawText || /不要记|别记|不用记|不要记录|别记录/.test(rawText)) return null;
+  const weightMatch = rawText.match(/(\d{1,3}(?:\.\d{1,2})?)\s*(kg|公斤|千克|斤)/i);
+  if (!weightMatch) return null;
+  if (!/(体重|称重|重量|记录|记一下|记一笔|kg|公斤|千克|斤)/i.test(rawText)) return null;
+  const rawValue = Number(weightMatch[1]);
+  if (!Number.isFinite(rawValue) || rawValue <= 0) return null;
+  const unit = weightMatch[2].toLowerCase();
+  const kg = unit === '斤' ? rawValue / 2 : rawValue;
+  if (kg < 0.2 || kg > 120) return null;
+  const cleanedNote = rawText
+    .replace(/^(麻烦|请|帮我|帮忙|可以)?(把|将)?/u, '')
+    .replace(/(帮我)?(记录一下|记录|记一下|记一笔|保存|新增|添加)[：:，,\s]*/u, '')
+    .replace(/(今天|刚刚|现在|这次)?(的)?(体重|称重|重量)[是为有到：:，,\s]*/u, '')
+    .replace(weightMatch[0], '')
+    .replace(/^(是|为|有|到|了|：|:|，|,|\s)+/u, '')
+    .trim();
+  return {
+    kg,
+    note: cleanedNote ? `AI 对话：${cleanedNote.slice(0, 80)}` : 'AI 对话记录',
+  };
+}
+
+function createMockWeightRecordFromPetChat(text: string) {
+  const parsed = extractMockPetChatWeight(text);
+  if (!parsed) return null;
+  const normalizedKg = Math.round(parsed.kg * 100) / 100;
+  const existing = weights
+    .slice(0, 8)
+    .find((item) => Number(item.kg) === normalizedKg && item.recordedAt === '2026-05-30' && String(item.note || '') === parsed.note);
+  if (existing) return existing;
+  const record: WeightRecord = {
+    id: `mock-chat-weight-${Date.now()}`,
+    kg: normalizedKg,
+    note: parsed.note,
+    recordedAt: '2026-05-30',
+  };
+  weights = [record, ...weights];
+  syncMockPetWeightFromRecords();
+  return record;
+}
+
 let vaccines: VaccinePlan[] = [
   { id: 'v1', name: '狂犬疫苗', dueAt: '2026-06-18', status: 'due' },
   { id: 'v2', name: '体内驱虫', dueAt: '2026-06-05', status: 'due' },
@@ -1020,17 +1063,23 @@ export const mockApi = {
       await wait();
       if (!text.trim()) return error('请输入消息内容', false);
       mockPetChatDailyCount += 1;
-      const createdMemo = createMockHealthMemoFromPetChat(text);
+      const createdWeight = createMockWeightRecordFromPetChat(text);
+      const createdMemo = createdWeight ? null : createMockHealthMemoFromPetChat(text);
       const userMessage: ChatMessage = { id: `pet-user-${Date.now()}`, author: 'me', text, status: 'sent', time: '刚刚' };
       const replyText = detectMockPetMedicalEmergency(text)
         ? mockPetMedicalSafetyReply(text)
         : '我收到啦。这个情况我会放进今天的小记录里，如果和健康有关，也建议继续观察食欲、精神和便便状态。';
+      const savedNotices = [
+        createdWeight ? `已帮你记录体重：${createdWeight.kg}kg。` : '',
+        createdMemo ? `已帮你记到健康备忘：「${createdMemo.title}」。` : '',
+      ].filter(Boolean);
       const aiMessage: ChatMessage = {
         id: `pet-ai-${Date.now()}`,
         author: 'ai',
         createdMemo: createdMemo ?? undefined,
+        createdWeight: createdWeight ?? undefined,
         status: 'sent',
-        text: createdMemo ? `${replyText}\n\n已帮你记到健康备忘：「${createdMemo.title}」。` : replyText,
+        text: savedNotices.length ? `${replyText}\n\n${savedNotices.join('\n')}` : replyText,
         time: '刚刚',
       };
       petChatMessages = [...petChatMessages, userMessage, aiMessage];
