@@ -505,7 +505,7 @@ export default function LumiiMvpApp() {
   const inboxRefreshQueuedRef = useRef(false);
   const conversationRefreshInFlightRef = useRef<string | null>(null);
   const [inboxManualRefreshing, setInboxManualRefreshing] = useState(false);
-  const [conversationInput, setConversationInput] = useState('');
+  const [conversationDraftsById, setConversationDraftsById] = useState<Record<string, string>>({});
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([createConversationSafetyMessage()]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [places, setPlaces] = useState<Place[]>([]);
@@ -1701,11 +1701,15 @@ export default function LumiiMvpApp() {
   async function openConversation(conversation: Conversation) {
     selectedConversationIdRef.current = conversation.id;
     setSelectedConversation(conversation);
-    if (conversation.canSendMessage === false) setConversationInput('');
+    if (conversation.canSendMessage === false) setConversationDraft(conversation.id, '');
     setConversations((items) => items.map((item) => (item.id === conversation.id ? { ...item, unread: 0 } : item)));
     setConversationMessages([createConversationSafetyMessage()]);
     go('conversation');
     await loadConversationMessages(conversation.id, { markRead: true });
+  }
+
+  function setConversationDraft(conversationId: string, text: string) {
+    setConversationDraftsById((drafts) => ({ ...drafts, [conversationId]: text }));
   }
 
   function beginSocialAction(actionId: string) {
@@ -1759,8 +1763,8 @@ export default function LumiiMvpApp() {
   }
 
   async function sendConversationMessage(textOverride?: string, retryMessageId?: string) {
-    const text = (textOverride ?? conversationInput).trim();
     const conversation = selectedConversation ?? conversations[0];
+    const text = (textOverride ?? (conversation ? conversationDraftsById[conversation.id] ?? '' : '')).trim();
     if (!text || !conversation) return;
     if (conversation.canSendMessage === false) {
       showToast('对方接受招呼后才能聊天');
@@ -1769,7 +1773,7 @@ export default function LumiiMvpApp() {
     const local: ConversationMessage = retryMessageId
       ? { author: 'me', id: retryMessageId, status: 'sending', text, time: '刚刚' }
       : { author: 'me', id: `conversation-${Date.now()}`, status: 'sending', text, time: '刚刚' };
-    if (!retryMessageId) setConversationInput('');
+    if (!retryMessageId) setConversationDraft(conversation.id, '');
     setConversationMessages((items) =>
       retryMessageId ? items.map((item) => (item.id === retryMessageId ? local : item)) : [...items, local],
     );
@@ -2413,7 +2417,7 @@ export default function LumiiMvpApp() {
     inboxRefreshQueuedRef.current = false;
     conversationRefreshInFlightRef.current = null;
     setInboxManualRefreshing(false);
-    setConversationInput('');
+    setConversationDraftsById({});
     setConversationMessages([createConversationSafetyMessage()]);
     setNotifications([]);
     applyNearbyOwners([]);
@@ -3246,6 +3250,7 @@ export default function LumiiMvpApp() {
   function renderConversation() {
     const conversation = selectedConversation ?? conversations[0];
     const canSendMessage = conversation?.canSendMessage !== false;
+    const conversationInput = conversation ? conversationDraftsById[conversation.id] ?? '' : '';
     return (
       <Screen showBack={false} title="">
         <View style={styles.chatMakeHeader}>
@@ -3301,7 +3306,9 @@ export default function LumiiMvpApp() {
         <View style={styles.chatComposer}>
           <TextInput
             editable={canSendMessage}
-            onChangeText={setConversationInput}
+            onChangeText={(text) => {
+              if (conversation) setConversationDraft(conversation.id, text);
+            }}
             placeholder={canSendMessage ? '发一条友好的消息...' : '等待对方接受招呼'}
             placeholderTextColor="#b6aca3"
             style={[styles.chatInput, !canSendMessage && styles.chatInputDisabled, webTextInputReset]}

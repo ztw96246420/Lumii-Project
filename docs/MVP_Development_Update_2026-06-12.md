@@ -16,6 +16,7 @@
 - 远程宠物头像加载兜底：`PetAvatar` 在远程图加载前会先显示本地灵伴占位图和 loading 覆盖层，减少 AI 形象确认页、发现页、消息头像出现空白圆框的时间。不新增页面。
 - 地点详情点评状态修复：地点点评提交成功后，审核中提示和“再次提交点评”只跟随当前地点自己的 `myPlaceReview`，不再被新增地点页或其他地点的全局审核状态串页影响。不新增页面。
 - 地点草稿状态隔离：地点详情页“点评内容”和新增地点页“宠物友好体验”拆成独立草稿与 loading，避免在两个已有页面之间互相带入输入内容或提交中状态。不新增页面。
+- 普通聊天草稿状态隔离：会话输入框草稿改为按 `conversationId` 保存，切换不同主人会话时不会把上一条未发送内容带到另一个会话；退出账号会清空全部会话草稿。不新增页面。
 - 本地临时后端和腾讯云测试后端均验证通过：合法 Android 推送 token 登记成功，同一 `deviceId` 再次上报会更新 token；非法平台、短 token、未知字段和超长 `deviceId` 会返回 `PUSH_DEVICE_INVALID`。
 - 疫苗/驱虫计划接口校验补强：`PATCH /health/vaccines/{vaccineId}` 现在只接受 `status` 字段和 `due/done/overdue` 三种状态，非法输入返回 `HEALTH_VACCINE_INVALID`；`PATCH /health/vaccine-reminders/{vaccineId}` 只接受布尔 `enabled`，非布尔值、未知字段或已完成计划重新开启提醒返回 `HEALTH_REMINDER_INVALID`。mock API 同步该规则，不新增页面。
 - 文档口径同步：接口契约、支持清单和 Figma 缺失清单已把疫苗状态/提醒开关字段兜底校验标记为 MVP 已实现；提醒时间选择、重复规则、正式犬猫疫苗/驱虫模板仍作为后续运营规则。
