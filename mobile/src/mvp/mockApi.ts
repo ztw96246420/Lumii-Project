@@ -1,4 +1,5 @@
 import { extractMainlandChinaPhone } from '../services/sms';
+import { getLumiiInstallationId } from '../services/installationId';
 import type {
   AccountSnapshot,
   ApiResult,
@@ -44,9 +45,11 @@ const wait = (ms = 360) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const lastSmsSentAtByPhone: Record<string, number> = {};
 const smsCodeByPhone: Record<string, string> = {};
+const smsDeviceDailyUsageById: Record<string, { count: number; day: string }> = {};
 const smsDailyUsageByPhone: Record<string, { count: number; day: string }> = {};
 const SMS_COOLDOWN_MS = 60 * 1000;
 const SMS_DAILY_LIMIT = 50;
+const SMS_DEVICE_DAILY_LIMIT = 80;
 const OTP_TTL_MS = 5 * 60 * 1000;
 
 let currentMockPhone = '13800138000';
@@ -83,6 +86,15 @@ function smsDailyUsageFor(phone: string) {
     smsDailyUsageByPhone[phone] = { count: 0, day };
   }
   return smsDailyUsageByPhone[phone];
+}
+
+function smsDeviceDailyUsageFor(deviceId: string) {
+  const day = todayUsageKey();
+  const usage = smsDeviceDailyUsageById[deviceId];
+  if (!usage || usage.day !== day) {
+    smsDeviceDailyUsageById[deviceId] = { count: 0, day };
+  }
+  return smsDeviceDailyUsageById[deviceId];
 }
 
 const acceptedPetMediaAnalysis: UploadedPetMedia['analysis'] = {
@@ -892,11 +904,22 @@ export const mockApi = {
           phone,
         });
       }
+      const deviceId = await getLumiiInstallationId();
+      const deviceUsage = smsDeviceDailyUsageFor(deviceId);
+      if (deviceUsage.count >= SMS_DEVICE_DAILY_LIMIT) {
+        return error(`当前设备今天获取验证码次数已达上限（${SMS_DEVICE_DAILY_LIMIT} 次），请明天再试`, true, {
+          availableAt: lastSentAt + SMS_COOLDOWN_MS,
+          code: smsCodeByPhone[phone] ?? '',
+          expiresAt: now + OTP_TTL_MS,
+          phone,
+        });
+      }
 
       const code = '962464';
       lastSmsSentAtByPhone[phone] = now;
       smsCodeByPhone[phone] = code;
       usage.count += 1;
+      deviceUsage.count += 1;
       return success({ availableAt: now + SMS_COOLDOWN_MS, code, expiresAt: now + OTP_TTL_MS, phone });
     },
 

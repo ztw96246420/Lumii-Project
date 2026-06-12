@@ -4,6 +4,8 @@
 
 - 短信验证码频控补齐：`POST /auth/sms/send` 在原有单手机号 60s 冷却基础上新增每日发送上限，默认 `SMS_DAILY_LIMIT=50`；mock API 同步该规则，现有登录 toast/倒计时承载错误提示，不需要新增 Figma 页面。
 - 文档口径同步：`API_Contract_MVP_v0.md`、`MVP_Development_Support_Checklist_v0.md` 和 `Figma_Make_Missing_Page_Prompts_2026-06-06.md` 已把短信每日频控标记为 MVP 已实现，生产仍保留 IP/设备级风控、真实随机验证码和短信回执待确认。
+- 短信验证码 IP/设备级基础风控补齐：App 发验证码时会带本地安装级 `deviceId`；测试后端新增单设备每日上限和单 IP 每日上限，默认 `SMS_DEVICE_DAILY_LIMIT=80`、`SMS_IP_DAILY_LIMIT=150`；mock API 同步单设备每日上限。该能力复用现有登录 toast，不新增页面。
+- 文档口径二次同步：短信频控不再写成“IP/设备级完全待补”，当前剩余是生产短信服务商、真实随机验证码、发送回执、黑名单/WAF/验证码风控平台等生产增强。
 - 启动会话恢复补齐真实刷新口：新增 `POST /auth/token/refresh`。
 - App 二次打开时会先用本地 token 刷新账号快照，成功后更新本地 session、当前宠物、权限状态和设置。
 - token 失效返回 401 时才清除本地登录缓存并回到登录页；普通网络失败会继续使用本地 session 兜底。
@@ -67,7 +69,9 @@
 - `npm run typecheck` 通过，覆盖短信 mock 每日频控变更。
 - 临时本地后端验证通过：`SMS_DAILY_LIMIT=2`、`SMS_COOLDOWN_MS=1` 时，同一手机号前两次发送成功，第三次返回 429 和“今天验证码发送次数已达上限（2 次），请明天再试”。
 - 临时本地后端回归验证通过：`SMS_COOLDOWN_MS=60000` 时，同一手机号立即第二次发送仍返回“操作太频繁，请稍后再试”，冷却路径未改变。
-- 腾讯云测试后端已热更新并重启 `lumii-backend.service`，公网 `/legal/privacy` 与 `/health` 探针返回 `state=success`。
+- 临时本地后端验证通过：`SMS_DEVICE_DAILY_LIMIT=2` 时，同一 `deviceId` 不同手机号前两次发送成功，第三次返回 429 和“当前设备今天获取验证码次数已达上限（2 次），请明天再试”。
+- 临时本地后端验证通过：`SMS_IP_DAILY_LIMIT=2` 时，同一 `x-forwarded-for` 不同手机号/不同设备前两次发送成功，第三次返回 429 和“当前网络今天获取验证码次数已达上限（2 次），请明天再试”。
+- 腾讯云测试后端已热更新到短信 IP/设备级基础风控版本并重启 `lumii-backend.service`，公网 `/health` 与 `/legal/privacy` 探针返回 `state=success`。
 - `npm run typecheck` 通过。
 - `npm run typecheck` 覆盖通知设备登记联动通过。
 - `npm run typecheck` 覆盖 AI 用量 API 门面通过。

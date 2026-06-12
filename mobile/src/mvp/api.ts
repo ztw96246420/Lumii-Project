@@ -1,4 +1,5 @@
 import { mockApi } from './mockApi';
+import { getLumiiInstallationId } from '../services/installationId';
 import type {
   ApiError,
   ApiResult,
@@ -106,7 +107,8 @@ function createHttpApi(baseUrl: string): LumiiApi {
 
     auth: {
       async sendSmsCode(phoneInput: string): Promise<ApiResult<SmsCodeTicket>> {
-        const result = await request<Partial<SmsCodeTicket>>('POST', '/auth/sms/send', { phone: phoneInput });
+        const deviceId = await getLumiiInstallationId();
+        const result = await request<Partial<SmsCodeTicket>>('POST', '/auth/sms/send', { deviceId, phone: phoneInput });
         return mapResult(result, (data) => ({
           availableAt: data.availableAt ?? Date.now() + 60 * 1000,
           code: data.code,

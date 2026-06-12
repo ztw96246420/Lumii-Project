@@ -8,6 +8,8 @@ const TEST_CODE = '962464';
 const SMS_COOLDOWN_MS = Number(process.env.SMS_COOLDOWN_MS || 60 * 1000);
 const SMS_TTL_MS = Number(process.env.SMS_TTL_MS || 5 * 60 * 1000);
 const SMS_DAILY_LIMIT = Number(process.env.SMS_DAILY_LIMIT || '50');
+const SMS_DEVICE_DAILY_LIMIT = Number(process.env.SMS_DEVICE_DAILY_LIMIT || '80');
+const SMS_IP_DAILY_LIMIT = Number(process.env.SMS_IP_DAILY_LIMIT || '150');
 const ONLINE_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_DISCOVER_RADIUS_KM = 3;
 const FUZZY_LOCATION_GRID_DEGREES = 0.01;
@@ -244,7 +246,9 @@ function createInitialState() {
     placeSubmissions: {},
     places: defaultPlaces,
     sms: {},
+    smsDeviceDailyUsage: {},
     smsDailyUsage: {},
+    smsIpDailyUsage: {},
     users: {},
   };
 }
@@ -271,6 +275,14 @@ function loadState() {
       smsDailyUsage: {
         ...initialState.smsDailyUsage,
         ...(loadedState.smsDailyUsage || {}),
+      },
+      smsDeviceDailyUsage: {
+        ...initialState.smsDeviceDailyUsage,
+        ...(loadedState.smsDeviceDailyUsage || {}),
+      },
+      smsIpDailyUsage: {
+        ...initialState.smsIpDailyUsage,
+        ...(loadedState.smsIpDailyUsage || {}),
       },
       aiUsage: {
         ...initialState.aiUsage,
@@ -362,6 +374,21 @@ function normalizePhone(value) {
   const digits = String(value || '').replace(/\D/g, '');
   const phone = digits.startsWith('86') && digits.length === 13 ? digits.slice(2) : digits;
   return /^1[3-9]\d{9}$/.test(phone) ? phone : '';
+}
+
+function normalizeSmsDeviceId(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return raw.replace(/[^\w.:-]/g, '').slice(0, 80);
+}
+
+function clientIpFromRequest(req) {
+  const forwardedFor = String(req.headers['x-forwarded-for'] || '')
+    .split(',')[0]
+    .trim();
+  const realIp = String(req.headers['x-real-ip'] || '').trim();
+  const remoteAddress = String(req.socket?.remoteAddress || '').trim();
+  return (forwardedFor || realIp || remoteAddress || 'unknown').replace(/^::ffff:/, '');
 }
 
 function numberFromQuery(value) {
@@ -1137,14 +1164,18 @@ function todayUsageKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function smsDailyUsageFor(phone) {
-  state.smsDailyUsage = state.smsDailyUsage || {};
+function dailyUsageFor(storeName, key) {
+  state[storeName] = state[storeName] || {};
   const day = todayUsageKey();
-  const usage = state.smsDailyUsage[phone];
+  const usage = state[storeName][key];
   if (!usage || usage.day !== day) {
-    state.smsDailyUsage[phone] = { count: 0, day };
+    state[storeName][key] = { count: 0, day };
   }
-  return state.smsDailyUsage[phone];
+  return state[storeName][key];
+}
+
+function smsDailyUsageFor(phone) {
+  return dailyUsageFor('smsDailyUsage', phone);
 }
 
 function canSendSms(phone) {
@@ -1154,6 +1185,38 @@ function canSendSms(phone) {
 
 function consumeSmsQuota(phone) {
   const usage = smsDailyUsageFor(phone);
+  usage.count += 1;
+  return usage;
+}
+
+function smsDeviceDailyUsageFor(deviceId) {
+  return dailyUsageFor('smsDeviceDailyUsage', deviceId);
+}
+
+function canSendSmsFromDevice(deviceId) {
+  if (!deviceId) return true;
+  const usage = smsDeviceDailyUsageFor(deviceId);
+  return usage.count < SMS_DEVICE_DAILY_LIMIT;
+}
+
+function consumeSmsDeviceQuota(deviceId) {
+  if (!deviceId) return null;
+  const usage = smsDeviceDailyUsageFor(deviceId);
+  usage.count += 1;
+  return usage;
+}
+
+function smsIpDailyUsageFor(ip) {
+  return dailyUsageFor('smsIpDailyUsage', ip || 'unknown');
+}
+
+function canSendSmsFromIp(ip) {
+  const usage = smsIpDailyUsageFor(ip || 'unknown');
+  return usage.count < SMS_IP_DAILY_LIMIT;
+}
+
+function consumeSmsIpQuota(ip) {
+  const usage = smsIpDailyUsageFor(ip || 'unknown');
   usage.count += 1;
   return usage;
 }
@@ -2352,6 +2415,8 @@ async function handle(req, res) {
 
   if (req.method === 'POST' && pathname === '/auth/sms/send') {
     const phone = normalizePhone(body.phone);
+    const deviceId = normalizeSmsDeviceId(body.deviceId || req.headers['x-lumii-device-id']);
+    const clientIp = clientIpFromRequest(req);
     if (!phone) {
       fail(res, 400, '请输入正确的中国大陆手机号', false);
       return;
@@ -2371,6 +2436,23 @@ async function handle(req, res) {
       });
       return;
     }
+    if (!canSendSmsFromDevice(deviceId)) {
+      const usage = smsDeviceDailyUsageFor(deviceId);
+      fail(res, 429, `当前设备今天获取验证码次数已达上限（${SMS_DEVICE_DAILY_LIMIT} 次），请明天再试`, true, {
+        day: usage.day,
+        deviceId,
+        phone,
+      });
+      return;
+    }
+    if (!canSendSmsFromIp(clientIp)) {
+      const usage = smsIpDailyUsageFor(clientIp);
+      fail(res, 429, `当前网络今天获取验证码次数已达上限（${SMS_IP_DAILY_LIMIT} 次），请明天再试`, true, {
+        day: usage.day,
+        phone,
+      });
+      return;
+    }
     const ticket = {
       availableAt: now + SMS_COOLDOWN_MS,
       code: TEST_CODE,
@@ -2379,6 +2461,8 @@ async function handle(req, res) {
     };
     state.sms[phone] = ticket;
     consumeSmsQuota(phone);
+    consumeSmsDeviceQuota(deviceId);
+    consumeSmsIpQuota(clientIp);
     ensureUser(phone);
     saveState();
     ok(res, ticket);
