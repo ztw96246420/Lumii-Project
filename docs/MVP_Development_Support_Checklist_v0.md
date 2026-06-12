@@ -59,6 +59,7 @@
 - ~~短信验证码接口。~~ 当前测试后端已提供 `POST /auth/sms/send`、`POST /auth/sms/verify`，固定测试码 `962464`；生产短信仍需后端代理。
 - ~~新老用户判断。~~ 当前登录返回 `account.activePet`、`permissionsOnboardingCompleted`，可用于二次登录跳过注册链路。
 - ~~宠物基础资料保存。~~ 当前测试后端已提供 `GET/POST/PATCH /pets` 和当前宠物保存；`POST/PATCH /pets` 已按 `GET /pet-taxonomy.fieldRules` 做服务端兜底校验，非法字段、非法物种、非法生日、非法体重等返回 `PET_PROFILE_INVALID`，不会静默污染档案。
+- ~~建档后当前宠物维度数据刷新。~~ App 已在新建宠物成功后刷新健康摘要、体重、疫苗/驱虫、提醒开关、健康备忘和 AI 用量，避免进入上传/首页后沿用旧宠物数据。
 - ~~图片上传。~~ MVP 测试后端、HTTP API 门面和 mock API 已支持基础照片上传、媒体元信息读取、格式/大小/损坏文件校验；生产对象存储直传、视频、自动压缩、EXIF 清理和真实视觉识别模型仍待后续确认。
 - ~~AI 生成任务创建、轮询、失败重试、结果保存。~~ MVP 测试后端和 mock API 已支持创建、查询、重新生成、保存、反馈和用量统计；真实视觉识别模型、多候选选择 UI 和生产图像服务稳定性策略仍待补。
 
@@ -198,6 +199,7 @@ Android 调用：
 - ~~`GET /ai/pet-avatar/jobs/{jobId}`：查询任务状态。~~ MVP 测试后端和 mock API 已支持，并限制只能读取当前账号自己的任务。
 - ~~`POST /ai/pet-avatar/jobs/{jobId}/retry`：重新生成。~~ MVP 测试后端和 mock API 已支持基于原 `mediaId` 创建新任务；真实多候选 UI 仍需 Figma 设计。
 - ~~`POST /ai/pet-avatar/jobs/{jobId}/accept`：保存选中的形象。~~ MVP 测试后端和 mock API 已支持保存到当前宠物；App 形象确认页的“保存并设为电子灵伴”已优先调用该接口。
+- ~~电子形象保存后的业务收尾。~~ App 保存形象成功后会同步当前宠物、刷新宠物维度数据并清理上传/生成草稿，避免回首页或再次上传时沿用旧任务状态。
 - ~~`POST /ai/pet-avatar/jobs/{jobId}/feedback`：反馈“不像我的宠物”。~~ MVP 测试后端和 mock API 已支持结构化原因和可选说明；不会触发真实视觉识别模型。
 - ~~形象生成每日额度读取与前端提示。~~ App 上传/识别/结果页已接 `GET /ai/usage` 的 `daily.petAvatar`，会展示今日次数/上限/剩余次数；点击“确认并生成灵伴”或“重新生成”前会先做前端额度提示，后端仍负责最终拦截。
 

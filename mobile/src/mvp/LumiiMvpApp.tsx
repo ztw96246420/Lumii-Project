@@ -939,6 +939,39 @@ export default function LumiiMvpApp() {
     return result.data;
   }
 
+  async function refreshPetScopedData() {
+    const [healthSummaryResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, aiUsageResult] = await Promise.all([
+      lumiiApi.health.getHealthSummary(),
+      lumiiApi.health.listWeightRecords(),
+      lumiiApi.health.listVaccines(),
+      lumiiApi.health.listVaccineReminderIds(),
+      lumiiApi.health.listHealthMemos(),
+      lumiiApi.ai.getUsage(),
+    ]);
+
+    if (healthSummaryResult.data) {
+      setHealthSummary(healthSummaryResult.data);
+      setVaccineReminderIds(healthSummaryResult.data.vaccineReminderIds);
+      setActivePet((pet) =>
+        pet
+          ? {
+              ...pet,
+              healthScore: healthSummaryResult.data!.healthScore,
+              weightKg: healthSummaryResult.data!.latestWeightKg ?? pet.weightKg,
+            }
+          : pet,
+      );
+    }
+    if (weightResult.data) setWeights(weightResult.data);
+    if (vaccineResult.data) setVaccines(vaccineResult.data);
+    if (vaccineReminderResult.data) setVaccineReminderIds(vaccineReminderResult.data);
+    if (memoResult.data) setMemos(memoResult.data);
+    if (aiUsageResult.data) {
+      setAiUsage(aiUsageResult.data);
+      setPetChatDailyCount(aiUsageResult.data.daily.petChat.count);
+    }
+  }
+
   async function loadInboxData(options: { silent?: boolean } = { silent: true }) {
     if (inboxRefreshInFlightRef.current) {
       inboxRefreshQueuedRef.current = true;
@@ -1305,6 +1338,7 @@ export default function LumiiMvpApp() {
             : current,
         );
         resetAvatarDraft();
+        void refreshPetScopedData();
         go('upload');
       } else {
         showToast(result.error?.message ?? '保存宠物档案失败');
@@ -1460,6 +1494,8 @@ export default function LumiiMvpApp() {
         : await lumiiApi.avatar.saveAvatar(activePet.id, avatarJob.resultUrl);
       if (result.data) {
         setActivePet(result.data);
+        resetAvatarDraft();
+        void refreshPetScopedData();
         replace('home');
         showToast('灵伴形象已保存');
       } else {
