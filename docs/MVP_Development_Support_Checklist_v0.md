@@ -115,7 +115,7 @@
 
 需要接口：
 - ~~`POST /auth/sms/send`：发送验证码。~~ MVP 测试后端已支持，测试验证码固定为 `962464`。
-- ~~`POST /auth/sms/verify`：校验验证码并登录/注册。~~ MVP 测试后端已支持。
+- ~~`POST /auth/sms/verify`：校验验证码并登录/注册。~~ MVP 测试后端已支持；校验成功后会消费当前手机号的验证码票据并保留 60s 冷却，避免重复使用、过期残留误挡和登录后立刻重复发码。
 - ~~`POST /auth/logout`：退出登录。~~ MVP 测试后端和 App 本地清缓存流程已支持；当前 `lumii-v1` 签名 token 会被服务端撤销，退出后继续使用该 token 访问 `/me` 或刷新登录态会返回 401。
 - ~~退出后本机状态清理。~~ App 退出账号或 token 失效时会清除手机号/验证码、会话、当前宠物、AI 用量、聊天反馈、消息/通知、发现/地图/地点选择、健康草稿和各类 loading 状态，避免切号后残留旧账号数据。
 - ~~`POST /auth/token/refresh`：刷新 token。~~ MVP 测试后端已支持签名登录态 token 刷新；App 启动恢复本地 session 时会先刷新账号快照，成功后滚动更新 `lumii-v1.<payload>.<signature>` token，401 才清缓存回登录；旧 `lumii-local-手机号` 仅作历史兼容。

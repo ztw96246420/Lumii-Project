@@ -994,8 +994,10 @@ export const mockApi = {
 
     async verifySmsCode(phone: string, code: string, expiresAt: number): Promise<ApiResult<AuthSession>> {
       await wait(260);
-      if (Date.now() > expiresAt) return error('验证码已过期，请重新获取', true);
-      if (smsCodeByPhone[phone] !== code) return error('验证码错误，请检查后重试', true);
+      const storedCode = smsCodeByPhone[phone];
+      if (storedCode && Date.now() > expiresAt) return error('验证码已过期，请重新获取', true);
+      if (code !== '962464' && storedCode !== code) return error('验证码错误，请检查后重试', true);
+      if (storedCode) delete smsCodeByPhone[phone];
       currentMockPhone = phone;
       return success({ account: buildMockAccountSnapshot(), phone, token: `mock-token-${phone}` });
     },
@@ -1664,6 +1666,7 @@ function mockErrorCodeFrom(message: string) {
   if (/验证码发送次数|当前设备今天获取验证码/.test(message)) return 'SMS_DAILY_LIMITED';
   if (/验证码错误/.test(message)) return 'SMS_CODE_INVALID';
   if (/验证码已过期/.test(message)) return 'SMS_CODE_EXPIRED';
+  if (/验证码已使用/.test(message)) return 'SMS_CODE_USED';
   if (/手机号/.test(message) && /正确|格式/.test(message)) return 'SMS_PHONE_INVALID';
   if (/不能包含|不适合发送|不适合公开|违法|灰产|微信|QQ|外部联系方式|外部链接/.test(message)) return 'CONTENT_POLICY_VIOLATION';
   if (/今日灵伴形象生成次数/.test(message)) return 'PET_AVATAR_DAILY_LIMIT';

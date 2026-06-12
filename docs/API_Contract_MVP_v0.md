@@ -72,6 +72,7 @@ MVP 错误码表：
 | `SMS_DAILY_LIMITED` | 手机号、设备或 IP 当日短信额度已达上限 |
 | `SMS_CODE_INVALID` | 验证码错误 |
 | `SMS_CODE_EXPIRED` | 验证码过期 |
+| `SMS_CODE_USED` | 验证码已使用 |
 | `VALIDATION_FAILED` | 普通入参校验失败 |
 | `CONTENT_POLICY_VIOLATION` | 文本命中基础内容安全拦截 |
 | `RESOURCE_NOT_FOUND` | 资源不存在或无权读取 |
@@ -158,6 +159,10 @@ Response:
   }
 }
 ```
+
+说明：
+- 验证码校验成功后，MVP 测试后端和 mock API 会消费当前手机号的验证码票据，避免同一张票据被重复使用或后续变成过期残留；测试后端会保留本次发送产生的 60s 冷却时间，防止登录成功后立刻重复发码。
+- 为了测试便利，固定测试码 `962464` 在没有待验证票据时仍可作为快速登录码；生产短信服务需要改成真实随机码和一次性校验。
 
 ### POST `/auth/logout`
 
