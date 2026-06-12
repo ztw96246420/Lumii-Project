@@ -309,6 +309,18 @@ export type LegalDocument = {
   version: string;
 };
 
+export type FeedbackCategory = 'bug' | 'other' | 'safety' | 'suggestion';
+
+export type FeedbackSubmission = {
+  category: FeedbackCategory;
+  contact?: string;
+  content: string;
+  createdAt: string;
+  id: string;
+  ownerName?: string;
+  status: 'closed' | 'received' | 'reviewing';
+};
+
 export type AppTab = 'discover' | 'home' | 'map' | 'messages' | 'profile';
 
 export type AppRoute =

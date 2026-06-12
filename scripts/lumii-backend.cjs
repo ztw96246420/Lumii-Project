@@ -199,6 +199,7 @@ function createInitialState() {
     avatarJobs: {},
     conversations: {},
     conversationMessages: {},
+    feedback: [],
     greetings: [],
     health: {
       memos: {},
@@ -530,6 +531,31 @@ function createPlaceSubmission(user, body) {
     title: '地点提交待审核',
   });
   return { submission };
+}
+
+const feedbackCategories = new Set(['bug', 'other', 'safety', 'suggestion']);
+
+function createFeedbackSubmission(user, body) {
+  const content = String(body.content || '').trim();
+  if (!content) return { error: '请填写反馈内容', statusCode: 400 };
+  if (content.length > 1000) return { error: '反馈内容最多 1000 个字', statusCode: 400 };
+  const categoryInput = String(body.category || 'other');
+  const category = feedbackCategories.has(categoryInput) ? categoryInput : 'other';
+  const contact = String(body.contact || '').trim().slice(0, 80);
+  const feedback = {
+    category,
+    ...(contact ? { contact } : {}),
+    content,
+    createdAt: new Date().toISOString(),
+    id: `feedback-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    ownerName: user.ownerName,
+    phone: user.phone,
+    status: 'received',
+  };
+  state.feedback = state.feedback || [];
+  state.feedback.unshift(feedback);
+  const { phone, ...publicFeedback } = feedback;
+  return { feedback: publicFeedback };
 }
 
 function selectedPetFor(user) {
@@ -1754,6 +1780,17 @@ async function handle(req, res) {
     user.settings = normalizeUserSettings({ ...user.settings, ...body });
     saveState();
     ok(res, user.settings);
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/feedback') {
+    const result = createFeedbackSubmission(user, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false);
+      return;
+    }
+    saveState();
+    ok(res, result.feedback);
     return;
   }
 

@@ -320,7 +320,7 @@ Android 调用：
 - ~~`PATCH /privacy-settings`。~~ MVP 测试后端已用 `PATCH /settings` 保存隐私与通知开关；`nearbyVisible=false` 会影响附近发现曝光。
 - `GET /blocks`。
 - `DELETE /blocks/{userId}`。
-- `POST /feedback`。
+- ~~`POST /feedback`。~~ MVP 测试后端和 mock API 已支持普通产品反馈提交；当前 App 暂不暴露正式反馈表单，举报/拉黑仍按优先级暂缓。
 - ~~`GET /legal/terms`。~~ MVP 测试后端和 mock API 已支持占位版。
 - ~~`GET /legal/privacy`。~~ MVP 测试后端和 mock API 已支持占位版。
 
@@ -417,6 +417,7 @@ P2 后续：
 - `messages`：`registerPushToken`、`listConversations`、`sendMessage`、`listNotifications`
 - `places`：`listNearbyPlaces`、`searchPlaces`、`getPlace`、`createReview`
 - `legal`：`getTerms`、`getPrivacy`
+- `support`：`submitFeedback`
 
 仍需要你/后端/设计优先补充：
 - API Base URL、鉴权 token 方案、统一错误码结构。

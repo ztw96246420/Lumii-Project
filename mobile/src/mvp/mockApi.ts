@@ -8,6 +8,8 @@ import type {
   Conversation,
   ConversationMessage,
   CreatePetInput,
+  FeedbackCategory,
+  FeedbackSubmission,
   GreetingResult,
   HealthCalendarEvent,
   HealthMemo,
@@ -236,6 +238,7 @@ let notifications: NotificationItem[] = [
 ];
 
 let pushDevices: PushDevice[] = [];
+let feedbackSubmissions: FeedbackSubmission[] = [];
 
 const places: Place[] = [
   { id: 'p1', name: '云杉宠物友好公园', address: '滨江路 88 号', category: 'park', distance: '900m', rating: 4.8, tags: ['可遛狗', '草坪', '饮水点'] },
@@ -386,6 +389,25 @@ function buildHealthSummary(): HealthSummary {
 }
 
 export const mockApi = {
+  support: {
+    async submitFeedback(content: string, category: FeedbackCategory = 'other', contact?: string): Promise<ApiResult<FeedbackSubmission>> {
+      await wait(120);
+      const cleanContent = content.trim();
+      if (!cleanContent) return error('请填写反馈内容', false);
+      if (cleanContent.length > 1000) return error('反馈内容最多 1000 个字', false);
+      const feedback: FeedbackSubmission = {
+        category,
+        contact: contact?.trim() || undefined,
+        content: cleanContent,
+        createdAt: '刚刚',
+        id: `feedback-${Date.now()}`,
+        status: 'received',
+      };
+      feedbackSubmissions = [feedback, ...feedbackSubmissions];
+      return success(feedback);
+    },
+  },
+
   legal: {
     async getPrivacy(): Promise<ApiResult<LegalDocument>> {
       await wait(80);

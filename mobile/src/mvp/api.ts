@@ -8,6 +8,8 @@ import type {
   Conversation,
   ConversationMessage,
   CreatePetInput,
+  FeedbackCategory,
+  FeedbackSubmission,
   GreetingResult,
   HealthCalendarEvent,
   HealthMemo,
@@ -68,6 +70,12 @@ export function setLumiiAuthToken(token?: string) {
 
 function createHttpApi(baseUrl: string): LumiiApi {
   return {
+    support: {
+      async submitFeedback(content: string, category: FeedbackCategory = 'other', contact?: string): Promise<ApiResult<FeedbackSubmission>> {
+        return request<FeedbackSubmission>('POST', '/feedback', { category, contact, content });
+      },
+    },
+
     legal: {
       async getPrivacy(): Promise<ApiResult<LegalDocument>> {
         return request<LegalDocument>('GET', '/legal/privacy');

@@ -903,7 +903,43 @@ Response data:
 
 读取当前用户提交过的新增地点审核记录。当前 App 只在提交后展示审核中状态，后续若补“我的提交”页面可复用此接口。
 
-## 9. 合规静态文本
+## 9. 设置、安全与反馈
+
+### POST `/feedback`
+
+提交普通产品反馈或问题反馈。MVP 测试后端要求登录，保存为 `received` 状态；当前 App 暂不暴露正式反馈表单，后续设置/安全中心补设计后可接入。
+
+Request:
+
+```json
+{
+  "category": "suggestion",
+  "content": "希望补充猫咪体重模板",
+  "contact": "可选联系方式"
+}
+```
+
+Response data:
+
+```ts
+type FeedbackSubmission = {
+  category: 'bug' | 'other' | 'safety' | 'suggestion';
+  contact?: string;
+  content: string;
+  createdAt: string;
+  id: string;
+  ownerName?: string;
+  status: 'closed' | 'received' | 'reviewing';
+};
+```
+
+说明：
+- `category` 支持 `bug`、`suggestion`、`safety`、`other`；未知值会落到 `other`。
+- `content` 不能为空，最多 1000 个字。
+- 服务端会保存账号归属，返回给 App 的结果不包含手机号。
+- 这不是举报/拉黑流程；举报和拉黑按此前优先级暂缓。
+
+## 10. 合规静态文本
 
 ### GET `/legal/terms`
 
@@ -940,7 +976,7 @@ LegalDocument
 - 当前内容是 MVP 占位版，会覆盖登录、宠物照片、AI 处理、附近发现、推送通知等核心场景。
 - 正式上线前仍需要补个人信息收集清单、第三方 SDK 清单、注销规则、未成年人保护说明和正式隐私政策。
 
-## 10. P0 待后端确认
+## 11. P0 待后端确认
 
 - 统一错误码表：短信、登录、上传、AI、地图、社交、健康、权限。
 - 鉴权 token 刷新机制和 401 处理。
