@@ -528,12 +528,63 @@ function placeSubmissionsFor(user) {
   return state.placeSubmissions[user.phone];
 }
 
+function normalizePlaceDuplicateText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[（）()[\]【】{}]/g, '')
+    .replace(/[\s·•,，。.\-_/\\:：;；'"“”‘’#号]+/g, '')
+    .trim();
+}
+
+function isSimilarPlaceText(a, b, minLength = 4) {
+  const left = normalizePlaceDuplicateText(a);
+  const right = normalizePlaceDuplicateText(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  if (Math.min(left.length, right.length) < minLength) return false;
+  return left.includes(right) || right.includes(left);
+}
+
+function allPlaceSubmissions() {
+  state.placeSubmissions = state.placeSubmissions || {};
+  return Object.entries(state.placeSubmissions).flatMap(([phone, submissions]) =>
+    (Array.isArray(submissions) ? submissions : []).map((submission) => ({ ...submission, ownerPhone: phone })),
+  );
+}
+
+function findDuplicatePlaceSubmission(user, name, address) {
+  const activeStatuses = new Set(['approved', 'pending_review']);
+  const existingPlace = (state.places || []).find((place) => isSimilarPlaceText(name, place.name) && isSimilarPlaceText(address, place.address, 6));
+  if (existingPlace) {
+    return {
+      message: `可能已存在相同地点：${existingPlace.name}，请先查看已有地点或换一个更准确的名称/地址。`,
+      type: 'existing_place',
+    };
+  }
+  const duplicateSubmission = allPlaceSubmissions().find(
+    (submission) =>
+      activeStatuses.has(submission.status) &&
+      isSimilarPlaceText(name, submission.name) &&
+      isSimilarPlaceText(address, submission.address, 6),
+  );
+  if (!duplicateSubmission) return null;
+  return {
+    message:
+      duplicateSubmission.ownerPhone === user.phone
+        ? '这个地点已经提交过，正在审核中，请不要重复提交。'
+        : '相似地点已在审核中，暂时不用重复提交。',
+    type: 'pending_submission',
+  };
+}
+
 function createPlaceSubmission(user, body) {
   const name = String(body.name || '').trim();
   const address = String(body.address || '').trim();
   const content = String(body.content || '').trim();
   if (!name || !address) return { error: '请填写地点名称和地址', statusCode: 400 };
   if (!content) return { error: '请填写宠物友好体验', statusCode: 400 };
+  const duplicate = findDuplicatePlaceSubmission(user, name, address);
+  if (duplicate) return { duplicateType: duplicate.type, error: duplicate.message, statusCode: 409 };
   const submission = {
     address,
     content,

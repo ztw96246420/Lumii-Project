@@ -530,6 +530,23 @@ function matchesPlaceSearch(place: Place, query: string) {
   return searchableText.includes(query);
 }
 
+function normalizeMockPlaceDuplicateText(value: string) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[（）()[\]【】{}]/g, '')
+    .replace(/[\s·•,，。.\-_/\\:：;；'"“”‘’#号]+/g, '')
+    .trim();
+}
+
+function isSimilarMockPlaceText(a: string, b: string, minLength = 4) {
+  const left = normalizeMockPlaceDuplicateText(a);
+  const right = normalizeMockPlaceDuplicateText(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  if (Math.min(left.length, right.length) < minLength) return false;
+  return left.includes(right) || right.includes(left);
+}
+
 function shouldStoreMockNotification(category: 'system' | 'interaction' = 'system') {
   if (!mockUserSettings.pushNotifications) return false;
   if (category === 'interaction' && !mockUserSettings.interactionMessages) return false;
@@ -1430,14 +1447,28 @@ export const mockApi = {
 
     async createSubmission(name: string, address: string, content: string): Promise<ApiResult<PlaceSubmission>> {
       await wait();
-      if (!name.trim() || !address.trim()) return error('请填写地点名称和地址', false);
-      if (!content.trim()) return error('请填写宠物友好体验', false);
+      const trimmedName = name.trim();
+      const trimmedAddress = address.trim();
+      const trimmedContent = content.trim();
+      if (!trimmedName || !trimmedAddress) return error('请填写地点名称和地址', false);
+      if (!trimmedContent) return error('请填写宠物友好体验', false);
+      const existingPlace = places.find((place) => isSimilarMockPlaceText(trimmedName, place.name) && isSimilarMockPlaceText(trimmedAddress, place.address, 6));
+      if (existingPlace) {
+        return error(`可能已存在相同地点：${existingPlace.name}，请先查看已有地点或换一个更准确的名称/地址。`, false);
+      }
+      const duplicateSubmission = placeSubmissions.find(
+        (item) =>
+          (item.status === 'approved' || item.status === 'pending_review') &&
+          isSimilarMockPlaceText(trimmedName, item.name) &&
+          isSimilarMockPlaceText(trimmedAddress, item.address, 6),
+      );
+      if (duplicateSubmission) return error('这个地点已经提交过，正在审核中，请不要重复提交。', false);
       const submission: PlaceSubmission = {
-        address: address.trim(),
-        content: content.trim(),
+        address: trimmedAddress,
+        content: trimmedContent,
         createdAt: '刚刚',
         id: `place-submission-${Date.now()}`,
-        name: name.trim(),
+        name: trimmedName,
         status: 'pending_review',
       };
       placeSubmissions = [submission, ...placeSubmissions];
