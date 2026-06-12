@@ -2305,6 +2305,8 @@ export default function LumiiMvpApp() {
       return;
     }
     if (favoritePlaceSavingIdsRef.current.has(place.id)) return;
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
     const wasFavorite = favoritePlaceIds.includes(place.id);
     const nextFavorite = !wasFavorite;
     favoritePlaceSavingIdsRef.current.add(place.id);
@@ -2312,6 +2314,7 @@ export default function LumiiMvpApp() {
     setFavoritePlaceIds((ids) => (nextFavorite ? [place.id, ...ids.filter((id) => id !== place.id)] : ids.filter((id) => id !== place.id)));
     try {
       const result = await lumiiApi.places.setFavoritePlace(place.id, nextFavorite);
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setFavoritePlaceIds(result.data);
         showToast(nextFavorite ? '已收藏地点' : '已取消收藏');
@@ -2561,12 +2564,15 @@ export default function LumiiMvpApp() {
 
   async function searchPlaces() {
     if (placeSearchingRef.current) return;
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
     const query = placeQueryRef.current.trim();
     placeSearchingRef.current = true;
     setPlaceSearching(true);
     setPlaceFilter('all');
     try {
       const result = query ? await lumiiApi.places.searchPlaces(query) : await lumiiApi.places.listNearbyPlaces();
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (placeQueryRef.current.trim() !== query) return;
       if (result.data) {
         const nextPlaces = result.data;
@@ -2733,11 +2739,15 @@ export default function LumiiMvpApp() {
       return;
     }
     const reviewContent = placeReviewDraft.trim();
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
     placeReviewSavingRef.current = true;
     setPlaceReviewSaving(true);
     try {
       const result = await lumiiApi.places.createReview(place.id, reviewContent);
-      const stillReviewingSamePlace = selectedPlaceIdRef.current === place.id && routeRef.current === 'placeDetail';
+      const stillReviewingSamePlace =
+        sessionTokenRef.current === requestSessionToken && selectedPlaceIdRef.current === place.id && routeRef.current === 'placeDetail';
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         if (stillReviewingSamePlace) setPlaceReviewDraft('');
         setPlaceReviewsByPlaceId((items) => ({ ...items, [place.id]: result.data! }));
@@ -2762,18 +2772,27 @@ export default function LumiiMvpApp() {
       showToast('请填写宠物友好体验');
       return;
     }
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
+    const requestName = placeDraftName.trim();
+    const requestAddress = placeDraftAddress.trim();
+    const requestExperience = placeSubmissionExperience.trim();
     placeSubmissionSavingRef.current = true;
     setPlaceSubmissionSaving(true);
     try {
-      const result = await lumiiApi.places.createSubmission(placeDraftName.trim(), placeDraftAddress.trim(), placeSubmissionExperience.trim());
+      const result = await lumiiApi.places.createSubmission(requestName, requestAddress, requestExperience);
+      const stillEditingSubmission = sessionTokenRef.current === requestSessionToken && routeRef.current === 'addPlaceReview';
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
-        setPlaceSubmissionExperience('');
-        setPlaceDraftName('');
-        setPlaceDraftAddress('');
-        setPlaceSubmissionStatus('pending_review');
+        if (stillEditingSubmission) {
+          setPlaceSubmissionExperience('');
+          setPlaceDraftName('');
+          setPlaceDraftAddress('');
+          setPlaceSubmissionStatus('pending_review');
+        }
         void loadInboxData();
-        showToast('地点已提交审核');
-      } else {
+        if (stillEditingSubmission) showToast('地点已提交审核');
+      } else if (stillEditingSubmission) {
         showToast(result.error?.message ?? '提交失败，请稍后重试');
       }
     } finally {
