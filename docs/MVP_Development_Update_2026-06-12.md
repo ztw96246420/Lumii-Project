@@ -5,6 +5,7 @@
 - 设备推送 token 上报校验补强：`POST /devices/push-token` 现在只接受 `token`、`platform`、`deviceId` 三个字段；`token` 必填且限制基础长度和控制字符，`platform` 必须是 `android/ios/web`，`deviceId` 可选但限制基础长度和控制字符。非法输入返回 `PUSH_DEVICE_INVALID`，不再把未知平台静默兜底成 Android。mock API 同步该规则，不新增页面。
 - 文档口径同步：接口契约、支持清单和 Figma 缺失清单已把设备推送 token 字段兜底校验标记为 MVP 已实现；生产厂商通道、通知模板、送达回执仍作为后续推送专项。
 - 执行优先级调整：后续在“不新增页面、不接新外部模型”的前提下，优先推进真机可感知的业务闭环和状态一致性，例如二次登录状态恢复、建档后首页/健康/发现数据同步、AI 对话写入业务动作后的回显；灰产词、复杂内容风控等安全兜底暂不作为靠前优先级。
+- 当前宠物业务状态一致性修复：App 现在会把 `activePet` 变化同步回 `session.account.activePet`，覆盖编辑档案、保存形象、手动/AI 记录体重、健康摘要刷新等路径；同时 `loadCommonData` 改为只在登录 token 变化时做全量拉取，避免账号快照更新导致重复全量刷新。不新增页面。
 - 本地临时后端和腾讯云测试后端均验证通过：合法 Android 推送 token 登记成功，同一 `deviceId` 再次上报会更新 token；非法平台、短 token、未知字段和超长 `deviceId` 会返回 `PUSH_DEVICE_INVALID`。
 - 疫苗/驱虫计划接口校验补强：`PATCH /health/vaccines/{vaccineId}` 现在只接受 `status` 字段和 `due/done/overdue` 三种状态，非法输入返回 `HEALTH_VACCINE_INVALID`；`PATCH /health/vaccine-reminders/{vaccineId}` 只接受布尔 `enabled`，非布尔值、未知字段或已完成计划重新开启提醒返回 `HEALTH_REMINDER_INVALID`。mock API 同步该规则，不新增页面。
 - 文档口径同步：接口契约、支持清单和 Figma 缺失清单已把疫苗状态/提醒开关字段兜底校验标记为 MVP 已实现；提醒时间选择、重复规则、正式犬猫疫苗/驱虫模板仍作为后续运营规则。

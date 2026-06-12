@@ -240,6 +240,23 @@ function draftFromPet(pet: PetProfile): PetDraft {
   };
 }
 
+function arePetSnapshotsEqual(left?: null | PetProfile, right?: null | PetProfile) {
+  if (!left && !right) return true;
+  if (!left || !right) return false;
+  return (
+    left.id === right.id &&
+    left.name === right.name &&
+    left.species === right.species &&
+    left.breed === right.breed &&
+    left.gender === right.gender &&
+    left.birthday === right.birthday &&
+    left.weightKg === right.weightKg &&
+    left.avatarUrl === right.avatarUrl &&
+    left.healthScore === right.healthScore &&
+    (left.personality ?? []).join('|') === (right.personality ?? []).join('|')
+  );
+}
+
 const speciesLabels: Record<PetSpecies, string> = {
   bird: '鹦鹉',
   cat: '猫咪',
@@ -648,7 +665,20 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     if (!session) return;
     void loadCommonData();
-  }, [session]);
+  }, [session?.token]);
+
+  useEffect(() => {
+    setSession((current) => {
+      if (!current?.account || arePetSnapshotsEqual(current.account.activePet, activePet)) return current;
+      return {
+        ...current,
+        account: {
+          ...current.account,
+          activePet,
+        },
+      };
+    });
+  }, [activePet]);
 
   useEffect(() => {
     const previousRoute = previousRouteRef.current;
