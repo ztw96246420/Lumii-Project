@@ -181,6 +181,56 @@ function parseMockPetProfilePayload(value: Partial<CreatePetInput | PetProfile>,
   return { patch, unset };
 }
 
+function parseMockWeightRecordPayload(value: Partial<Pick<WeightRecord, 'kg' | 'note' | 'recordedAt'>>, options: { current?: WeightRecord; partial?: boolean } = {}) {
+  const partial = options.partial === true;
+  const current = options.current;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '体重记录参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(['kg', 'note', 'recordedAt']);
+  const source = value as Record<string, unknown>;
+  const keys = Object.keys(source);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `体重记录字段 ${unknownKey} 暂不支持` };
+
+  const kgInput = partial && !Object.prototype.hasOwnProperty.call(source, 'kg') ? current?.kg : source.kg;
+  const kg = Number(kgInput);
+  if (!Number.isFinite(kg) || kg <= 0 || kg > 200) return { error: '请输入 0-200kg 之间的宠物体重' };
+
+  const note = Object.prototype.hasOwnProperty.call(source, 'note') ? String(source.note || '').trim() : String(current?.note || '').trim();
+  if (note.length > 120) return { error: '体重备注最多 120 个字' };
+
+  const recordedAtInput = Object.prototype.hasOwnProperty.call(source, 'recordedAt') ? source.recordedAt : current?.recordedAt || '2026-05-30';
+  const recordedAt = String(recordedAtInput || '').trim();
+  if (!isValidIsoCalendarDate(recordedAt)) return { error: '请选择正确日期' };
+
+  return {
+    record: {
+      kg: Math.round(kg * 100) / 100,
+      note,
+      recordedAt,
+    },
+  };
+}
+
+function parseMockHealthMemoPayload(value: Partial<Pick<HealthMemo, 'content' | 'title'>>, current?: HealthMemo) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '健康备忘参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(['content', 'title']);
+  const source = value as Record<string, unknown>;
+  const keys = Object.keys(source);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `健康备忘字段 ${unknownKey} 暂不支持` };
+
+  const title = String(Object.prototype.hasOwnProperty.call(source, 'title') ? source.title : current?.title || '').trim();
+  const content = String(Object.prototype.hasOwnProperty.call(source, 'content') ? source.content : current?.content || '').trim();
+  if (!title || !content) return { error: '请填写备忘标题和内容' };
+  if (title.length > 30) return { error: '备忘标题最多 30 个字' };
+  if (content.length > 500) return { error: '备忘内容最多 500 个字' };
+  return { memo: { content, title } };
+}
+
 const goldenRetrieverPhotoUrl =
   'https://images.unsplash.com/photo-1625794084867-8ddd239946b1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=720';
 const goldenRetrieverAvatarUrl =
@@ -1462,7 +1512,9 @@ export const mockApi = {
 
     async recordWeight(kg: number, note?: string): Promise<ApiResult<WeightRecord>> {
       await wait();
-      const record = { id: `w-${Date.now()}`, kg, note, recordedAt: '2026-05-30' };
+      const weightInput = parseMockWeightRecordPayload({ kg, note });
+      if (weightInput.error) return error<WeightRecord>(weightInput.error, false, undefined, 'HEALTH_WEIGHT_INVALID');
+      const record: WeightRecord = { id: `w-${Date.now()}`, ...(weightInput.record as Pick<WeightRecord, 'kg' | 'note' | 'recordedAt'>) };
       weights = [record, ...weights];
       syncMockPetWeightFromRecords();
       return success(record);
@@ -1472,15 +1524,11 @@ export const mockApi = {
       await wait(160);
       const record = weights.find((item) => item.id === id);
       if (!record) return error('体重记录不存在', false);
-      const nextKg = patch.kg === undefined ? record.kg : Number(patch.kg);
-      if (!Number.isFinite(nextKg) || nextKg <= 0) return error('请输入正确体重', false);
-      const nextRecordedAt = String(patch.recordedAt ?? record.recordedAt).trim();
-      if (!isIsoDate(nextRecordedAt)) return error('请选择正确日期', false);
-      const nextRecord = {
+      const weightInput = parseMockWeightRecordPayload(patch, { current: record, partial: true });
+      if (weightInput.error) return error<WeightRecord>(weightInput.error, false, undefined, 'HEALTH_WEIGHT_INVALID');
+      const nextRecord: WeightRecord = {
         ...record,
-        kg: nextKg,
-        note: patch.note === undefined ? record.note : String(patch.note),
-        recordedAt: nextRecordedAt,
+        ...(weightInput.record as Pick<WeightRecord, 'kg' | 'note' | 'recordedAt'>),
       };
       weights = weights.map((item) => (item.id === id ? nextRecord : item));
       syncMockPetWeightFromRecords();
@@ -1552,7 +1600,9 @@ export const mockApi = {
 
     async saveHealthMemo(title: string, content: string): Promise<ApiResult<HealthMemo>> {
       await wait();
-      const memo = { id: `m-${Date.now()}`, title, content, updatedAt: '2026-05-30' };
+      const memoInput = parseMockHealthMemoPayload({ content, title });
+      if (memoInput.error) return error<HealthMemo>(memoInput.error, false, undefined, 'HEALTH_MEMO_INVALID');
+      const memo: HealthMemo = { id: `m-${Date.now()}`, ...(memoInput.memo as Pick<HealthMemo, 'content' | 'title'>), updatedAt: '2026-05-30' };
       memos = [memo, ...memos];
       return success(memo);
     },
@@ -1561,10 +1611,9 @@ export const mockApi = {
       await wait(160);
       const memo = memos.find((item) => item.id === id);
       if (!memo) return error('健康备忘不存在', false);
-      const title = String(patch.title ?? memo.title).trim();
-      const content = String(patch.content ?? memo.content).trim();
-      if (!title || !content) return error('请填写备忘标题和内容', false);
-      const nextMemo = { ...memo, title, content, updatedAt: '刚刚' };
+      const memoInput = parseMockHealthMemoPayload(patch, memo);
+      if (memoInput.error) return error<HealthMemo>(memoInput.error, false, undefined, 'HEALTH_MEMO_INVALID');
+      const nextMemo = { ...memo, ...memoInput.memo, updatedAt: '刚刚' };
       memos = memos.map((item) => (item.id === id ? nextMemo : item));
       return success(nextMemo);
     },

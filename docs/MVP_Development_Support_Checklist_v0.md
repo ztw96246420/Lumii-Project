@@ -69,8 +69,8 @@
 需要支持：
 - ~~宠物健康摘要接口。~~ 已接 `GET /health/summary`，首页、健康页、体重页和疫苗页顶部摘要已优先读取该接口。
 - 疫苗计划模板。
-- 体重记录和趋势接口。
-- 健康备忘、就诊记录接口。
+- ~~体重记录和趋势接口。~~ 已接 `GET/POST/PATCH/DELETE /health/weights` 和 `GET /health/weights/trend`；体重记录已补字段白名单、真实日期、0-200kg、备注长度和 `HEALTH_WEIGHT_INVALID` 错误码。
+- ~~健康备忘基础接口。~~ 已接 `GET/POST/PATCH/DELETE /health/memos`；健康备忘已补字段白名单、标题/内容必填和长度限制、`HEALTH_MEMO_INVALID` 错误码。就诊记录字段规范仍待后续确认。
 - ~~健康提醒通知。~~ MVP 已支持疫苗提醒开关、通知中心健康提醒、真机本地系统通知调度；标记完成、关闭通知或退出账号会取消对应本地提醒；测试后端和 mock API 会在关闭提醒/标记完成/读取通知时清理旧健康提醒通知。
 
 ### 2.3 社交闭环
@@ -255,10 +255,10 @@ Android 调用：
 - ~~`GET /pets/{petId}/health/summary`：首页健康摘要。~~ 测试后端已接 `GET /health/summary`，按当前宠物聚合健康分、最近体重、疫苗/驱虫计划、健康备忘和提醒开关；首页/健康页已有基础 UI，不需要新增设计页面。
 - ~~`GET /pets/{petId}/health/calendar`：健康日历。~~ 测试后端已接 `GET /health/calendar`，按当前宠物聚合体重、疫苗和健康备忘；健康日历独立 UI 仍需 Figma Make 页面设计。
 - ~~`POST /pets/{petId}/health/memos`：新增健康备忘。~~ 测试后端已接 `POST /health/memos`，按当前宠物持久化。
-- ~~`PATCH /pets/{petId}/health/memos/{memoId}`：编辑健康备忘。~~ 测试后端已接 `PATCH /health/memos/{memoId}`，按当前宠物持久化；UI 仍需 Figma 编辑态。
+- ~~`PATCH /pets/{petId}/health/memos/{memoId}`：编辑健康备忘。~~ 测试后端已接 `PATCH /health/memos/{memoId}`，按当前宠物持久化；字段白名单、标题/内容长度和错误码已补，UI 仍需 Figma 编辑态。
 - ~~`DELETE /pets/{petId}/health/memos/{memoId}`：删除健康备忘。~~ 测试后端已接 `DELETE /health/memos/{memoId}`，按当前宠物持久化；UI 仍需 Figma 删除确认。
-- ~~`POST /pets/{petId}/weights`：记录体重。~~ 测试后端已接 `POST /health/weights`，按当前宠物持久化并同步宠物体重。
-- ~~`PATCH /pets/{petId}/weights/{weightId}`：编辑历史体重。~~ 测试后端已接 `PATCH /health/weights/{weightId}`，按当前宠物持久化；UI 仍需 Figma 编辑弹层。
+- ~~`POST /pets/{petId}/weights`：记录体重。~~ 测试后端已接 `POST /health/weights`，按当前宠物持久化并同步宠物体重；字段白名单、真实日期、0-200kg 和备注长度校验已补。
+- ~~`PATCH /pets/{petId}/weights/{weightId}`：编辑历史体重。~~ 测试后端已接 `PATCH /health/weights/{weightId}`，按当前宠物持久化；字段白名单、真实日期、0-200kg 和备注长度校验已补，UI 仍需 Figma 编辑弹层。
 - ~~`DELETE /pets/{petId}/weights/{weightId}`：删除历史体重。~~ 测试后端已接 `DELETE /health/weights/{weightId}`，删除后会回填/清空当前宠物体重；UI 仍需 Figma 删除二次确认。
 - ~~`GET /pets/{petId}/weights/trend`：体重趋势。~~ 测试后端已接 `GET /health/weights/trend`，按当前宠物返回轻量趋势摘要；趋势详情 UI 仍需 Figma 设计。
 - ~~`GET /pets/{petId}/vaccines/plan`：疫苗计划。~~ 测试后端已接 `GET /health/vaccines`。

@@ -751,6 +751,53 @@ function parsePetProfilePayload(value, { partial = false } = {}) {
   return { patch, unset };
 }
 
+function parseWeightRecordPayload(value, { current = null, partial = false } = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '体重记录参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(['kg', 'note', 'recordedAt']);
+  const keys = Object.keys(value);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `体重记录字段 ${unknownKey} 暂不支持` };
+
+  const source = current || {};
+  const kgInput = partial && !Object.prototype.hasOwnProperty.call(value, 'kg') ? source.kg : value.kg;
+  const kg = Number(kgInput);
+  if (!Number.isFinite(kg) || kg <= 0 || kg > 200) return { error: '请输入 0-200kg 之间的宠物体重' };
+
+  const note = Object.prototype.hasOwnProperty.call(value, 'note') ? String(value.note || '').trim() : String(source.note || '').trim();
+  if (note.length > 120) return { error: '体重备注最多 120 个字' };
+
+  const recordedAtInput = Object.prototype.hasOwnProperty.call(value, 'recordedAt') ? value.recordedAt : source.recordedAt || todayIsoDate();
+  const recordedAt = String(recordedAtInput || '').trim();
+  if (!isValidIsoCalendarDate(recordedAt)) return { error: '请选择正确日期' };
+
+  return {
+    record: {
+      kg: Math.round(kg * 100) / 100,
+      note,
+      recordedAt,
+    },
+  };
+}
+
+function parseHealthMemoPayload(value, current = null) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '健康备忘参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(['content', 'title']);
+  const keys = Object.keys(value);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `健康备忘字段 ${unknownKey} 暂不支持` };
+
+  const title = String(Object.prototype.hasOwnProperty.call(value, 'title') ? value.title : current?.title || '').trim();
+  const content = String(Object.prototype.hasOwnProperty.call(value, 'content') ? value.content : current?.content || '').trim();
+  if (!title || !content) return { error: '请填写备忘标题和内容' };
+  if (title.length > 30) return { error: '备忘标题最多 30 个字' };
+  if (content.length > 500) return { error: '备忘内容最多 500 个字' };
+  return { memo: { content, title } };
+}
+
 function normalizeFavoritePlaceIds(value) {
   if (!Array.isArray(value)) return [];
   const existingPlaceIds = new Set((state.places || []).map((place) => place.id));
@@ -3345,17 +3392,15 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/health/weights') {
-    const kg = Number(body.kg);
-    if (!Number.isFinite(kg) || kg <= 0) {
-      fail(res, 400, '请输入正确体重', false);
+    const weightInput = parseWeightRecordPayload(body);
+    if (weightInput.error) {
+      fail(res, 400, weightInput.error, false, undefined, 'HEALTH_WEIGHT_INVALID');
       return;
     }
     const records = healthList('weights', user, defaultWeightRecordsFor);
     const record = {
       id: `w-${Date.now()}`,
-      kg,
-      note: String(body.note || ''),
-      recordedAt: todayIsoDate(),
+      ...weightInput.record,
     };
     records.unshift(record);
     syncPetWeightFromRecords(user, records);
@@ -3374,21 +3419,14 @@ async function handle(req, res) {
       return;
     }
     const current = records[index];
-    const kg = body.kg === undefined ? Number(current.kg) : Number(body.kg);
-    if (!Number.isFinite(kg) || kg <= 0) {
-      fail(res, 400, '请输入正确体重', false);
-      return;
-    }
-    const recordedAt = String(body.recordedAt === undefined ? current.recordedAt : body.recordedAt).trim();
-    if (!isIsoDate(recordedAt)) {
-      fail(res, 400, '请选择正确日期', false);
+    const weightInput = parseWeightRecordPayload(body, { current, partial: true });
+    if (weightInput.error) {
+      fail(res, 400, weightInput.error, false, undefined, 'HEALTH_WEIGHT_INVALID');
       return;
     }
     records[index] = {
       ...current,
-      kg,
-      note: body.note === undefined ? current.note : String(body.note || ''),
-      recordedAt,
+      ...weightInput.record,
     };
     syncPetWeightFromRecords(user, records);
     saveState();
@@ -3483,17 +3521,15 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/health/memos') {
-    const title = String(body.title || '').trim();
-    const content = String(body.content || '').trim();
-    if (!title || !content) {
-      fail(res, 400, '请填写备忘标题和内容', false);
+    const memoInput = parseHealthMemoPayload(body);
+    if (memoInput.error) {
+      fail(res, 400, memoInput.error, false, undefined, 'HEALTH_MEMO_INVALID');
       return;
     }
     const memos = healthList('memos', user, defaultMemosFor);
     const memo = {
-      content,
       id: `m-${Date.now()}`,
-      title,
+      ...memoInput.memo,
       updatedAt: '刚刚',
     };
     memos.unshift(memo);
@@ -3511,13 +3547,12 @@ async function handle(req, res) {
       fail(res, 404, '健康备忘不存在', false);
       return;
     }
-    const title = String(body.title ?? memos[index].title).trim();
-    const content = String(body.content ?? memos[index].content).trim();
-    if (!title || !content) {
-      fail(res, 400, '请填写备忘标题和内容', false);
+    const memoInput = parseHealthMemoPayload(body, memos[index]);
+    if (memoInput.error) {
+      fail(res, 400, memoInput.error, false, undefined, 'HEALTH_MEMO_INVALID');
       return;
     }
-    memos[index] = { ...memos[index], title, content, updatedAt: '刚刚' };
+    memos[index] = { ...memos[index], ...memoInput.memo, updatedAt: '刚刚' };
     saveState();
     ok(res, memos[index]);
     return;

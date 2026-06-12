@@ -659,7 +659,11 @@ Request:
 行为：
 - 新记录插入列表首位。
 - 同步更新当前宠物 `weightKg`。
-- `kg <= 0` 或非数字时返回中文错误。
+- 当前只接受 `kg`、`note`、`recordedAt` 三个字段；未知字段返回 400。
+- `kg` 必须是 `0-200kg` 之间的数字，会保留到 2 位小数。
+- `note` 可选，最多 120 个字。
+- `recordedAt` 可选，默认当天；传入时必须是真实存在的 `YYYY-MM-DD` 日期。
+- 体重、日期或字段不合法时返回 400，`error.code=HEALTH_WEIGHT_INVALID`。
 
 ### PATCH `/health/weights/{weightId}`
 
@@ -672,9 +676,11 @@ Request:
 ```
 
 说明：
-- `kg` 可选，但传入时必须为大于 0 的数字。
-- `note` 可选，可传空字符串清空备注。
-- `recordedAt` 可选，传入时必须为 `YYYY-MM-DD`。
+- 当前只允许更新 `kg`、`note`、`recordedAt`。
+- `kg` 可选，但传入时必须为 `0-200kg` 之间的数字，会保留到 2 位小数。
+- `note` 可选，可传空字符串清空备注，最多 120 个字。
+- `recordedAt` 可选，传入时必须是真实存在的 `YYYY-MM-DD` 日期。
+- 体重、日期或字段不合法时返回 400，`error.code=HEALTH_WEIGHT_INVALID`。
 - 不存在的记录返回 404 中文错误。
 
 ### DELETE `/health/weights/{weightId}`
@@ -747,7 +753,11 @@ Request:
 { "title": "驱虫记录", "content": "体外驱虫已完成。" }
 ```
 
-`title` 和 `content` 不能为空。
+说明：
+- 当前只接受 `title`、`content` 两个字段。
+- `title` 和 `content` 不能为空。
+- `title` 最多 30 个字，`content` 最多 500 个字。
+- 字段、标题或内容不合法时返回 400，`error.code=HEALTH_MEMO_INVALID`。
 
 ### PATCH `/health/memos/{memoId}`
 
@@ -760,8 +770,11 @@ Request:
 ```
 
 说明：
+- 当前只允许更新 `title`、`content`。
 - `title` 和 `content` 不能为空。
+- `title` 最多 30 个字，`content` 最多 500 个字。
 - 未传入的字段会沿用原值。
+- 字段、标题或内容不合法时返回 400，`error.code=HEALTH_MEMO_INVALID`。
 - App 暂不暴露编辑入口；后续需要等 Figma 补齐编辑页/弹层与删除确认。
 
 ### DELETE `/health/memos/{memoId}`
