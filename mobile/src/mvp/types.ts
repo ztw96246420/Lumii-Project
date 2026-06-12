@@ -197,6 +197,8 @@ export type ChatMessage = {
   status?: 'failed' | 'sending' | 'sent';
   text: string;
   time: string;
+  updatedVaccine?: VaccinePlan;
+  vaccineReminderIds?: string[];
 };
 
 export type WeightRecord = {

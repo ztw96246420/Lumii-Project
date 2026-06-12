@@ -1496,6 +1496,17 @@ export default function LumiiMvpApp() {
           setActivePet((pet) => (pet ? { ...pet, weightKg: result.data!.createdWeight!.kg } : pet));
           void refreshHealthSummary();
         }
+        if (result.data.updatedVaccine) {
+          setVaccines((items) => items.map((item) => (item.id === result.data!.updatedVaccine!.id ? result.data!.updatedVaccine! : item)));
+          if (result.data.vaccineReminderIds) setVaccineReminderIds(result.data.vaccineReminderIds);
+          if (result.data.updatedVaccine.status === 'done') {
+            void cancelVaccineLocalReminder(result.data.updatedVaccine.id);
+            localHealthReminderScheduledIdsRef.current = localHealthReminderScheduledIdsRef.current.filter((id) => id !== result.data!.updatedVaccine!.id);
+            localHealthReminderSyncKeyRef.current = '';
+          }
+          void loadInboxData();
+          void refreshHealthSummary();
+        }
         void loadAiUsage();
       } else {
         showToast(result.error?.message ?? '消息发送失败');

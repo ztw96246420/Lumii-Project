@@ -259,6 +259,79 @@ function createMockWeightRecordFromPetChat(text: string) {
   return record;
 }
 
+type MockPetChatVaccineAction = {
+  action: 'done' | 'reminder_off' | 'reminder_on';
+  reminderIds: string[];
+  vaccine: VaccinePlan;
+};
+
+function detectMockPetChatVaccineAction(text: string): MockPetChatVaccineAction['action'] | null {
+  const rawText = String(text || '').trim();
+  if (!rawText || /不要记|别记|不用记|不要记录|别记录/.test(rawText)) return null;
+  const mentionsVaccine = /(疫苗|狂犬|三联|驱虫)/.test(rawText);
+  if (!mentionsVaccine) return null;
+  if (/(取消|关闭|不要|不用|别).{0,8}提醒|提醒.{0,8}(取消|关闭|不要|不用|别)/.test(rawText)) return 'reminder_off';
+  if (/(提醒|到期|临近|提前).{0,12}(疫苗|狂犬|三联|驱虫)|(疫苗|狂犬|三联|驱虫).{0,12}(提醒|到期|临近|提前)/.test(rawText)) return 'reminder_on';
+  if (/(已打|打完|打了|刚打|接种了|已接种|接种完成|已完成|完成了|做完|做了|已做|驱虫了|驱虫完成)/.test(rawText)) return 'done';
+  return null;
+}
+
+function findMockVaccineForPetChat(text: string) {
+  const rawText = String(text || '').trim();
+  const scored = vaccines.map((vaccine, index) => {
+    let score = 0;
+    const name = String(vaccine.name || '');
+    const compactName = name.replace(/疫苗|计划|提醒/g, '');
+    if (name && rawText.includes(name)) score += 8;
+    if (compactName && rawText.includes(compactName)) score += 5;
+    if (/狂犬/.test(rawText) && /狂犬/.test(name)) score += 5;
+    if (/猫三联|三联/.test(rawText) && /猫三联|三联/.test(name)) score += 5;
+    if (/驱虫/.test(rawText) && /驱虫/.test(name)) score += 5;
+    if (/疫苗/.test(rawText) && /疫苗/.test(name)) score += 2;
+    if (vaccine.status !== 'done') score += 0.5;
+    return { index, score, vaccine };
+  });
+  const best = scored.sort((a, b) => b.score - a.score || a.index - b.index)[0];
+  if (best?.score > 0) return best.vaccine;
+  return vaccines.find((vaccine) => vaccine.status !== 'done') ?? vaccines[0] ?? null;
+}
+
+function applyMockPetChatVaccineAction(text: string): MockPetChatVaccineAction | null {
+  const action = detectMockPetChatVaccineAction(text);
+  if (!action) return null;
+  const vaccine = findMockVaccineForPetChat(text);
+  if (!vaccine) return null;
+  const index = vaccines.findIndex((item) => item.id === vaccine.id);
+  if (index < 0) return null;
+
+  if (action === 'done') {
+    vaccines[index] = { ...vaccines[index], status: 'done' };
+    vaccineReminderIds = vaccineReminderIds.filter((item) => item !== vaccines[index].id);
+    addMockNotification({
+      id: `mock-vaccine-done-${vaccines[index].id}`,
+      read: false,
+      text: `${vaccines[index].name}已标记完成，健康时间线已更新。`,
+      title: '疫苗计划已完成',
+    });
+    return { action, reminderIds: vaccineReminderIds, vaccine: vaccines[index] };
+  }
+
+  if (action === 'reminder_on') {
+    if (vaccines[index].status === 'done') return null;
+    vaccineReminderIds = [...new Set([vaccines[index].id, ...vaccineReminderIds])];
+    addMockNotification({
+      id: `mock-health-reminder-${vaccines[index].id}`,
+      read: false,
+      text: `${vaccines[index].name}即将到期，记得按宠物医院建议确认时间。`,
+      title: '健康提醒',
+    });
+    return { action, reminderIds: vaccineReminderIds, vaccine: vaccines[index] };
+  }
+
+  vaccineReminderIds = vaccineReminderIds.filter((item) => item !== vaccines[index].id);
+  return { action, reminderIds: vaccineReminderIds, vaccine: vaccines[index] };
+}
+
 let vaccines: VaccinePlan[] = [
   { id: 'v1', name: '狂犬疫苗', dueAt: '2026-06-18', status: 'due' },
   { id: 'v2', name: '体内驱虫', dueAt: '2026-06-05', status: 'due' },
@@ -1063,13 +1136,17 @@ export const mockApi = {
       await wait();
       if (!text.trim()) return error('请输入消息内容', false);
       mockPetChatDailyCount += 1;
+      const vaccineAction = applyMockPetChatVaccineAction(text);
       const createdWeight = createMockWeightRecordFromPetChat(text);
-      const createdMemo = createdWeight ? null : createMockHealthMemoFromPetChat(text);
+      const createdMemo = vaccineAction || createdWeight ? null : createMockHealthMemoFromPetChat(text);
       const userMessage: ChatMessage = { id: `pet-user-${Date.now()}`, author: 'me', text, status: 'sent', time: '刚刚' };
       const replyText = detectMockPetMedicalEmergency(text)
         ? mockPetMedicalSafetyReply(text)
         : '我收到啦。这个情况我会放进今天的小记录里，如果和健康有关，也建议继续观察食欲、精神和便便状态。';
       const savedNotices = [
+        vaccineAction?.action === 'done' ? `已帮你标记${vaccineAction.vaccine.name}完成。` : '',
+        vaccineAction?.action === 'reminder_on' ? `已帮你开启${vaccineAction.vaccine.name}提醒。` : '',
+        vaccineAction?.action === 'reminder_off' ? `已帮你关闭${vaccineAction.vaccine.name}提醒。` : '',
         createdWeight ? `已帮你记录体重：${createdWeight.kg}kg。` : '',
         createdMemo ? `已帮你记到健康备忘：「${createdMemo.title}」。` : '',
       ].filter(Boolean);
@@ -1081,6 +1158,8 @@ export const mockApi = {
         status: 'sent',
         text: savedNotices.length ? `${replyText}\n\n${savedNotices.join('\n')}` : replyText,
         time: '刚刚',
+        updatedVaccine: vaccineAction?.vaccine,
+        vaccineReminderIds: vaccineAction?.reminderIds,
       };
       petChatMessages = [...petChatMessages, userMessage, aiMessage];
       return success(aiMessage);
