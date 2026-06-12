@@ -219,6 +219,7 @@ function createInitialState() {
     invites: [],
     notifications: {},
     pushDevices: {},
+    revokedAuthTokens: {},
     aiUsage: {
       deepseek: {
         cacheHitTokens: 0,
@@ -318,6 +319,10 @@ function loadState() {
       placeSubmissions: {
         ...initialState.placeSubmissions,
         ...(loadedState.placeSubmissions || {}),
+      },
+      revokedAuthTokens: {
+        ...initialState.revokedAuthTokens,
+        ...(loadedState.revokedAuthTokens || {}),
       },
     };
   } catch {
@@ -510,12 +515,22 @@ function safeEqualText(leftText, rightText) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
+function bearerTokenFromRequest(req) {
+  const header = req.headers.authorization || '';
+  return String(header).replace(/^Bearer\s+/i, '').trim();
+}
+
+function authTokenDigest(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
+}
+
 function createAuthToken(phone) {
   const now = Date.now();
   const payloadPart = base64UrlEncode(
     JSON.stringify({
       exp: now + AUTH_TOKEN_TTL_MS,
       iat: now,
+      jti: crypto.randomBytes(12).toString('hex'),
       phone,
       version: 1,
     })
@@ -523,23 +538,56 @@ function createAuthToken(phone) {
   return `lumii-v1.${payloadPart}.${authTokenSignature(payloadPart)}`;
 }
 
-function phoneFromSignedToken(token) {
+function signedAuthTokenPayload(token) {
   try {
     const [prefix, payloadPart, signature] = String(token || '').split('.');
-    if (prefix !== 'lumii-v1' || !payloadPart || !signature) return '';
-    if (!safeEqualText(signature, authTokenSignature(payloadPart))) return '';
+    if (prefix !== 'lumii-v1' || !payloadPart || !signature) return null;
+    if (!safeEqualText(signature, authTokenSignature(payloadPart))) return null;
     const payload = JSON.parse(base64UrlDecode(payloadPart));
-    if (payload?.version !== 1) return '';
-    if (Number(payload.exp || 0) < Date.now()) return '';
-    return normalizePhone(payload.phone);
+    return payload?.version === 1 ? payload : null;
   } catch (_) {
-    return '';
+    return null;
   }
 }
 
+function pruneRevokedAuthTokens() {
+  state.revokedAuthTokens = state.revokedAuthTokens || {};
+  const now = Date.now();
+  let changed = false;
+  for (const [digest, expiresAt] of Object.entries(state.revokedAuthTokens)) {
+    if (Number(expiresAt || 0) <= now) {
+      delete state.revokedAuthTokens[digest];
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function isAuthTokenRevoked(token) {
+  pruneRevokedAuthTokens();
+  return Boolean(state.revokedAuthTokens?.[authTokenDigest(token)]);
+}
+
+function revokeSignedAuthToken(token) {
+  const payload = signedAuthTokenPayload(token);
+  const expiresAt = Number(payload?.exp || 0);
+  if (!payload || expiresAt <= Date.now()) return false;
+  state.revokedAuthTokens = state.revokedAuthTokens || {};
+  state.revokedAuthTokens[authTokenDigest(token)] = expiresAt;
+  pruneRevokedAuthTokens();
+  return true;
+}
+
+function phoneFromSignedToken(token) {
+  const payload = signedAuthTokenPayload(token);
+  if (!payload) return '';
+  if (Number(payload.exp || 0) < Date.now()) return '';
+  if (isAuthTokenRevoked(token)) return '';
+  return normalizePhone(payload.phone);
+}
+
 function phoneFromRequest(req) {
-  const header = req.headers.authorization || '';
-  const token = String(header).replace(/^Bearer\s+/i, '').trim();
+  const token = bearerTokenFromRequest(req);
   if (!token) return '';
   if (token.startsWith('lumii-v1.')) return phoneFromSignedToken(token);
   if (token.startsWith('lumii-local-')) return normalizePhone(token.slice('lumii-local-'.length));
@@ -2618,6 +2666,8 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/auth/logout') {
+    const revoked = revokeSignedAuthToken(bearerTokenFromRequest(req));
+    if (revoked) saveState();
     ok(res, true);
     return;
   }

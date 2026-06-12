@@ -9,6 +9,8 @@
 - 健康提醒通知闭环补强：测试后端和 mock API 现在会对通知中心健康提醒做去重和失效清理；开启临近/逾期疫苗/驱虫提醒会生成一条健康提醒，关闭提醒或标记完成会清理旧健康提醒，避免通知中心残留过期提醒。该能力复用现有疫苗页和通知中心，不新增页面。
 - 本地临时后端和腾讯云测试后端均验证通过：创建宠物 -> 开启临近疫苗提醒 -> `GET /notifications` 出现 1 条 `n-health-*` 健康提醒；关闭提醒后健康提醒数为 0；重新开启后标记疫苗完成，健康提醒数仍为 0，并生成 `n-vaccine-done-*` 完成通知。
 - 测试注意：云端若某手机号已有过期验证码票据，直接用固定测试码校验会返回“验证码已过期”；联调时请先重新获取验证码，或使用未产生过期票据的测试手机号。
+- 退出登录服务端撤销补齐：新签发的 `lumii-v1` token 现在带随机 `jti`，`POST /auth/logout` 会把当前签名 token 写入服务端撤销列表；退出后继续用同一个 token 调用 `/me` 或 `/auth/token/refresh` 会返回 401。旧 `lumii-local-手机号` 仅作历史兼容，无法精确撤销。
+- 本地临时后端和腾讯云测试后端均验证通过：登录后 `/me` 返回 200，调用 `POST /auth/logout` 后同一 token 调用 `/me` 和 `/auth/token/refresh` 均返回 `AUTH_REQUIRED`；再次登录会获得新的可用 token。
 - 短信验证码频控补齐：`POST /auth/sms/send` 在原有单手机号 60s 冷却基础上新增每日发送上限，默认 `SMS_DAILY_LIMIT=50`；mock API 同步该规则，现有登录 toast/倒计时承载错误提示，不需要新增 Figma 页面。
 - 文档口径同步：`API_Contract_MVP_v0.md`、`MVP_Development_Support_Checklist_v0.md` 和 `Figma_Make_Missing_Page_Prompts_2026-06-06.md` 已把短信每日频控标记为 MVP 已实现，生产仍保留 IP/设备级风控、真实随机验证码和短信回执待确认。
 - 短信验证码 IP/设备级基础风控补齐：App 发验证码时会带本地安装级 `deviceId`；测试后端新增单设备每日上限和单 IP 每日上限，默认 `SMS_DEVICE_DAILY_LIMIT=80`、`SMS_IP_DAILY_LIMIT=150`；mock API 同步单设备每日上限。该能力复用现有登录 toast，不新增页面。

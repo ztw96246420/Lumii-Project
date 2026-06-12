@@ -75,7 +75,7 @@
 
 | 文档 | 状态 | 内容 |
 | --- | --- | --- |
-| [MVP_Development_Update_2026-06-12.md](./MVP_Development_Update_2026-06-12.md) | 最新开发记录 | 签名 token、健康提醒闭环、二次登录会话恢复、推送 token 登记、AI 用量读取、缺失设计清单清理 |
+| [MVP_Development_Update_2026-06-12.md](./MVP_Development_Update_2026-06-12.md) | 最新开发记录 | 签名 token、退出 token 撤销、健康提醒闭环、二次登录会话恢复、推送 token 登记、缺失设计清单清理 |
 | [MVP_Development_Update_2026-06-11.md](./MVP_Development_Update_2026-06-11.md) | 历史开发记录 | 宠物编辑、会话缓存、返回手势、健康提醒、通知已读 |
 | [MVP_Development_Update_2026-06-10.md](./MVP_Development_Update_2026-06-10.md) | 历史开发记录 | 发现、招呼请求、接口、聊天未读闭环 |
 | [MVP_Development_Update_2026-06-09.md](./MVP_Development_Update_2026-06-09.md) | 历史开发记录 | 本地/云端后端、社交接口同步 |
