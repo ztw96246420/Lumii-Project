@@ -553,6 +553,8 @@ export default function LumiiMvpApp() {
   const favoritePlaceSavingIdsRef = useRef<Set<string>>(new Set());
   const [placeReviewsByPlaceId, setPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview>>({});
   const [locatingMap, setLocatingMap] = useState(false);
+  const locatingMapRef = useRef(false);
+  const locatingMapRequestRef = useRef(0);
   const [mapCenter, setMapCenter] = useState(defaultMapCenter);
   const [mapStyleKey, setMapStyleKey] = useState<MapVisualMode>('lumii');
   const [mapTrafficEnabled, setMapTrafficEnabled] = useState(false);
@@ -1060,7 +1062,10 @@ export default function LumiiMvpApp() {
   }
 
   async function loadAiUsage(options: { silent?: boolean } = { silent: true }) {
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return null;
     const result = await lumiiApi.ai.getUsage();
+    if (sessionTokenRef.current !== requestSessionToken) return null;
     if (result.data) {
       setAiUsage(result.data);
       setPetChatDailyCount(result.data.daily.petChat.count);
@@ -1273,7 +1278,10 @@ export default function LumiiMvpApp() {
   }
 
   async function persistPermissionSnapshot(nextPermissions: PermissionStateMap, completed = false) {
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return nextPermissions;
     const result = await lumiiApi.permissions.savePermissionState(nextPermissions, Boolean(completed || allLumiiPermissionsGranted(nextPermissions)));
+    if (sessionTokenRef.current !== requestSessionToken) return nextPermissions;
     if (result.data) {
       const savedPermissions = mergePermissionState(nextPermissions, result.data);
       permissionsRef.current = savedPermissions;
@@ -1288,16 +1296,20 @@ export default function LumiiMvpApp() {
   async function registerPushDevice(options: { silent?: boolean; targetSession?: AuthSession } = {}) {
     const currentSession = options.targetSession ?? session;
     if (!currentSession || Platform.OS === 'web') return;
+    const requestSessionToken = currentSession.token;
     try {
       const registration = await getLumiiPushRegistration();
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (!registration?.token || registeredPushTokenRef.current === registration.token) return;
       const result = await lumiiApi.messages.registerPushToken(registration.token, registration.platform, registration.deviceId);
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         registeredPushTokenRef.current = result.data.token;
       } else if (!options.silent) {
         showToast(result.error?.message ?? '通知设备登记失败');
       }
     } catch {
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (!options.silent) showToast('通知设备登记失败，不影响继续使用');
     }
   }
@@ -1322,10 +1334,13 @@ export default function LumiiMvpApp() {
   }
 
   async function refreshPermissionStatuses(options: { base?: PermissionStateMap; completed?: boolean; persist?: boolean } = {}) {
-    let nextPermissions = mergePermissionState(options.base ?? permissions);
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return mergePermissionState(options.base ?? permissionsRef.current);
+    let nextPermissions = mergePermissionState(options.base ?? permissionsRef.current);
 
     if (Platform.OS !== 'web') {
       const statusResults = await Promise.all(permissionKeys.map((key) => getLumiiPermissionStatus(key)));
+      if (sessionTokenRef.current !== requestSessionToken) return mergePermissionState(options.base ?? permissionsRef.current);
       const nativeStatusPatch = Object.fromEntries(statusResults.map((result) => [result.permission, result.status])) as Partial<PermissionStateMap>;
       nextPermissions = mergeNativePermissionStatus(nextPermissions, nativeStatusPatch);
     }
@@ -1467,10 +1482,14 @@ export default function LumiiMvpApp() {
   }
 
   async function requestPermission(key: keyof PermissionStateMap) {
-    if (permissions[key] === 'requesting' || permissions[key] === 'granted') return;
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
+    const currentPermissions = permissionsRef.current;
+    if (currentPermissions[key] === 'requesting' || currentPermissions[key] === 'granted') return;
     setPermissions((items) => ({ ...items, [key]: 'requesting' }));
     const result = await requestLumiiPermission(key);
-    const nextPermissions = mergePermissionState(permissions, { [key]: result.status });
+    if (sessionTokenRef.current !== requestSessionToken) return;
+    const nextPermissions = mergePermissionState(permissionsRef.current, { [key]: result.status });
     permissionsRef.current = nextPermissions;
     setPermissions(nextPermissions);
     void persistPermissionSnapshot(nextPermissions);
@@ -1481,15 +1500,18 @@ export default function LumiiMvpApp() {
   }
 
   async function requestAllPermissions() {
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
     let grantedAfterRequest = 0;
-    let nextPermissions = mergePermissionState(permissions);
+    let nextPermissions = mergePermissionState(permissionsRef.current);
     for (const key of permissionKeys) {
-      if (permissions[key] === 'granted') {
+      if (nextPermissions[key] === 'granted') {
         grantedAfterRequest += 1;
         continue;
       }
       setPermissions((items) => ({ ...items, [key]: 'requesting' }));
       const result = await requestLumiiPermission(key);
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.status === 'granted') grantedAfterRequest += 1;
       nextPermissions = mergePermissionState(nextPermissions, { [key]: result.status });
       permissionsRef.current = nextPermissions;
@@ -2679,11 +2701,17 @@ export default function LumiiMvpApp() {
   }
 
   async function locateMapToCurrentPosition(options: { silent?: boolean } = {}) {
-    if (locatingMap) return;
+    if (locatingMapRef.current) return;
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
+    locatingMapRef.current = true;
+    const requestId = locatingMapRequestRef.current + 1;
+    locatingMapRequestRef.current = requestId;
     setLocatingMap(true);
     try {
       const permissionResult = await requestLumiiPermission('location');
-      const nextPermissions = mergePermissionState(permissions, { location: permissionResult.status });
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      const nextPermissions = mergePermissionState(permissionsRef.current, { location: permissionResult.status });
       permissionsRef.current = nextPermissions;
       setPermissions(nextPermissions);
       void persistPermissionSnapshot(nextPermissions);
@@ -2694,6 +2722,7 @@ export default function LumiiMvpApp() {
       }
 
       if (!isLumiiAmapAvailable) {
+        if (sessionTokenRef.current !== requestSessionToken) return;
         lastDiscoverLocationRef.current = {
           latitude: defaultMapCenter.latitude,
           longitude: defaultMapCenter.longitude,
@@ -2705,6 +2734,7 @@ export default function LumiiMvpApp() {
       }
 
       const location = await getLumiiAmapCurrentLocation();
+      if (sessionTokenRef.current !== requestSessionToken) return;
       const accuracy = location.accuracy ? Math.round(location.accuracy) : undefined;
       lastDiscoverLocationRef.current = {
         accuracy: location.accuracy,
@@ -2721,9 +2751,13 @@ export default function LumiiMvpApp() {
       });
       if (!options.silent) showToast(accuracy ? `已定位，精度约 ${accuracy} 米` : '已定位到当前位置');
     } catch (error) {
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (!options.silent) showToast(error instanceof Error ? error.message : '定位失败，请稍后重试');
     } finally {
-      setLocatingMap(false);
+      if (locatingMapRequestRef.current === requestId) {
+        locatingMapRef.current = false;
+        setLocatingMap(false);
+      }
     }
   }
 
@@ -2900,6 +2934,8 @@ export default function LumiiMvpApp() {
     favoritePlaceSavingIdsRef.current.clear();
     setFavoritePlaceSavingIds([]);
     setPlaceReviewsByPlaceId({});
+    locatingMapRef.current = false;
+    locatingMapRequestRef.current += 1;
     setLocatingMap(false);
     setMapCenter(defaultMapCenter);
     setMapStyleKey('lumii');
