@@ -37,6 +37,8 @@
 - AI 用量读取接口补齐：新增 `GET /ai/usage`，返回当前账号当日宠物对话/形象生成次数、剩余额度，以及测试后端累计 DeepSeek token、Flux/Midjourney 请求和 quota 统计；该接口只读统计，不触发真实模型请求。
 - AI 对话高风险医疗门禁补齐：`POST /ai/pet-chat/messages` 命中呼吸困难、抽搐、误食高风险物、严重外伤、大出血、持续呕吐腹泻、拒食拒水等关键词时，会在调用 DeepSeek 前返回固定安全回复，提示尽快联系宠物医院或兽医；该路径不烧 DeepSeek token。
 - AI 对话页额度显示切换为真实用量：进入聊天页、通用数据加载和发送消息后会读取 `GET /ai/usage`，显示后端 `daily.petChat.count/limit`；前端本地 60 次软额度已移除，默认兜底改为后端一致的 80 次。
+- AI 形象生成页额度联动补齐：上传/识别/形象确认页进入时会读取 `GET /ai/usage`，展示真实 `daily.petAvatar.count/limit/remaining`；“确认并生成灵伴”和“重新生成”会先做前端额度检查和 loading 防重复，后端仍负责最终额度拦截。
+- mock AI 形象生成额度行为同步：mock API 的首生成和重新生成都按 10 次/日限制计数，避免本地演示与云端测试后端规则不一致。
 - 文档状态纠偏：支持清单已把媒体读取、地点审核记录、avatar/health mock service 方法列表更新为当前实现状态，避免把已实现接口继续写成待补。
 
 ## 验证
@@ -46,6 +48,7 @@
 - `npm run typecheck` 覆盖 AI 用量 API 门面通过。
 - `npm run typecheck` 覆盖 AI 对话医疗门禁 mock 同步通过。
 - `npm run typecheck` 覆盖 AI 对话页真实用量显示联动通过。
+- `npm run typecheck` 覆盖 AI 形象生成页真实额度展示、生成前检查和 mock 额度规则通过。
 - `node --check scripts/lumii-backend.cjs` 通过。
 - `git diff --check` 通过，仅提示 Windows 工作区 LF/CRLF 换行转换 warning。
 - 临时本地后端验证通过：短信登录 -> 保存权限和设置 -> 刷新 token -> 读回手机号、权限完成状态和设置快照。

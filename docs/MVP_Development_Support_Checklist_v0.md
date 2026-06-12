@@ -196,6 +196,7 @@ Android 调用：
 - ~~`POST /ai/pet-avatar/jobs/{jobId}/retry`：重新生成。~~ MVP 测试后端和 mock API 已支持基于原 `mediaId` 创建新任务；真实多候选 UI 仍需 Figma 设计。
 - ~~`POST /ai/pet-avatar/jobs/{jobId}/accept`：保存选中的形象。~~ MVP 测试后端和 mock API 已支持保存到当前宠物；App 形象确认页的“保存并设为电子灵伴”已优先调用该接口。
 - ~~`POST /ai/pet-avatar/jobs/{jobId}/feedback`：反馈“不像我的宠物”。~~ MVP 测试后端和 mock API 已支持结构化原因和可选说明；不会触发真实视觉识别模型。
+- ~~形象生成每日额度读取与前端提示。~~ App 上传/识别/结果页已接 `GET /ai/usage` 的 `daily.petAvatar`，会展示今日次数/上限/剩余次数；点击“确认并生成灵伴”或“重新生成”前会先做前端额度提示，后端仍负责最终拦截。
 
 任务状态建议：
 - `queued`：排队中。

@@ -98,6 +98,7 @@ import type {
 
 const smsCooldownMs = 60 * 1000;
 const defaultDiscoverRadiusKm = 3;
+const fallbackPetAvatarDailyLimit = 10;
 const fallbackPetChatDailyLimit = 80;
 const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
@@ -431,6 +432,7 @@ export default function LumiiMvpApp() {
   const [media, setMedia] = useState<UploadedPetMedia | null>(null);
   const [mediaPickerMode, setMediaPickerMode] = useState<'camera' | 'library' | null>(null);
   const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(null);
+  const [avatarStarting, setAvatarStarting] = useState(false);
   const [avatarResultPrefetching, setAvatarResultPrefetching] = useState(false);
   const [avatarAccepting, setAvatarAccepting] = useState(false);
   const [avatarRetrying, setAvatarRetrying] = useState(false);
@@ -507,6 +509,10 @@ export default function LumiiMvpApp() {
 
   const showBottomTabs = Boolean(session && currentTab);
   const cooldownRemaining = Math.min(60, Math.max(0, Math.ceil((cooldownUntil - clock) / 1000)));
+  const petAvatarDailyUsage = aiUsage?.daily.petAvatar;
+  const petAvatarDailyLimit = petAvatarDailyUsage?.limit ?? fallbackPetAvatarDailyLimit;
+  const petAvatarDailyCount = petAvatarDailyUsage?.count ?? 0;
+  const petAvatarDailyRemaining = petAvatarDailyUsage?.remaining ?? Math.max(0, petAvatarDailyLimit - petAvatarDailyCount);
   const petChatDailyLimit = aiUsage?.daily.petChat.limit ?? fallbackPetChatDailyLimit;
   const pendingVaccines = useMemo(() => vaccines.filter((item) => item.status !== 'done'), [vaccines]);
   const urgentVaccines = useMemo(() => pendingVaccines.filter(isVaccineReminderUrgent), [pendingVaccines]);
@@ -757,6 +763,11 @@ export default function LumiiMvpApp() {
   }, [route, session, activePet?.id]);
 
   useEffect(() => {
+    if (!session || (route !== 'upload' && route !== 'uploadDetail' && route !== 'aiResult')) return;
+    void loadAiUsage();
+  }, [route, session]);
+
+  useEffect(() => {
     if (!session || !urgentVaccines.length) return;
     const enabledUrgentVaccines = urgentVaccines.filter((vaccine) => vaccineReminderIds.includes(vaccine.id));
     if (!enabledUrgentVaccines.length) return;
@@ -836,6 +847,17 @@ export default function LumiiMvpApp() {
     }
     if (options.silent === false) showToast(result.error?.message ?? 'AI 用量读取失败');
     return null;
+  }
+
+  async function ensurePetAvatarQuota() {
+    const latestUsage = await loadAiUsage();
+    const usage = latestUsage?.daily.petAvatar ?? aiUsage?.daily.petAvatar;
+    if (!usage) return true;
+    if (usage.remaining <= 0) {
+      showToast(`今日形象生成次数已用完（${usage.count}/${usage.limit}），明天再试`);
+      return false;
+    }
+    return true;
   }
 
   async function refreshHealthSummary() {
@@ -1233,6 +1255,7 @@ export default function LumiiMvpApp() {
   function resetAvatarDraft() {
     setMedia(null);
     setAvatarJob(null);
+    setAvatarStarting(false);
     setAvatarResultPrefetching(false);
     setMediaPickerMode(null);
     avatarResultRouteJobIdRef.current = '';
@@ -1308,6 +1331,7 @@ export default function LumiiMvpApp() {
   }
 
   async function startAvatarGeneration() {
+    if (avatarStarting || avatarRetrying) return;
     if (!media) {
       showToast('请先上传宠物照片');
       return;
@@ -1317,14 +1341,22 @@ export default function LumiiMvpApp() {
       replace('uploadNoPet');
       return;
     }
-    const result = await lumiiApi.avatar.startGeneration(media.mediaId);
-    if (result.data) {
-      avatarResultRouteJobIdRef.current = '';
-      setAvatarResultPrefetching(false);
-      setAvatarJob(result.data);
-      go('generating');
-    } else {
-      showToast(result.error?.message ?? '启动生成失败');
+    setAvatarStarting(true);
+    try {
+      const hasQuota = await ensurePetAvatarQuota();
+      if (!hasQuota) return;
+      const result = await lumiiApi.avatar.startGeneration(media.mediaId);
+      if (result.data) {
+        avatarResultRouteJobIdRef.current = '';
+        setAvatarResultPrefetching(false);
+        setAvatarJob(result.data);
+        go('generating');
+      } else {
+        showToast(result.error?.message ?? '启动生成失败');
+      }
+      void loadAiUsage();
+    } finally {
+      setAvatarStarting(false);
     }
   }
 
@@ -1384,6 +1416,8 @@ export default function LumiiMvpApp() {
     }
     setAvatarRetrying(true);
     try {
+      const hasQuota = await ensurePetAvatarQuota();
+      if (!hasQuota) return;
       const result = await lumiiApi.avatar.retryGeneration(avatarJob.id);
       if (result.data) {
         avatarResultRouteJobIdRef.current = '';
@@ -1393,6 +1427,7 @@ export default function LumiiMvpApp() {
       } else {
         showToast(result.error?.message ?? '重新生成失败，请稍后重试');
       }
+      void loadAiUsage();
     } finally {
       setAvatarRetrying(false);
     }
@@ -2507,8 +2542,9 @@ export default function LumiiMvpApp() {
             <Text key={tag} style={analysis?.status === 'warning' ? styles.featureChipWarm : styles.featureChipCool}>{tag}</Text>
           ))}
         </View>
+        <Text style={styles.aiQuotaHint}>今日形象生成 {petAvatarDailyCount}/{petAvatarDailyLimit} · 剩余 {petAvatarDailyRemaining} 次</Text>
         <View style={styles.makeBottomActions}>
-          <Button onPress={() => void startAvatarGeneration()}>确认并生成灵伴</Button>
+          <Button loading={avatarStarting} onPress={() => void startAvatarGeneration()}>确认并生成灵伴</Button>
         </View>
       </Screen>
     );
@@ -2624,6 +2660,7 @@ export default function LumiiMvpApp() {
             <Text style={styles.featureChipCool}>保留毛色</Text>
             <Text style={styles.featureChipWarm}>亲和表情</Text>
           </View>
+          <Text style={styles.aiQuotaHint}>重新生成会消耗 1 次额度 · 今日剩余 {petAvatarDailyRemaining} 次</Text>
           <View style={styles.aiResultActions}>
             <Button loading={avatarAccepting} onPress={() => void saveAvatar()}>保存并设为电子灵伴</Button>
             <Button loading={avatarRetrying} onPress={() => void retryAvatarGeneration()} tone="secondary">重新生成</Button>
@@ -4405,6 +4442,7 @@ const styles = StyleSheet.create({
   aiPhotoChipImage: { borderColor: '#fff', borderRadius: 18, borderWidth: 2, height: 36, width: 36 },
   aiPhotoChipStrong: { color: palette.ink, fontWeight: '700' },
   aiPhotoChipText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', lineHeight: 15 },
+  aiQuotaHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 18, marginTop: 12, textAlign: 'center' },
   aiResultActions: { gap: 12, marginTop: 28, width: '100%' },
   aiResultDesc: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 21, marginTop: 8, textAlign: 'center' },
   aiResultHero: { alignItems: 'center', justifyContent: 'center', marginTop: 32 },

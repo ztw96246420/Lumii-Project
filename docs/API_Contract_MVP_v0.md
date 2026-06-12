@@ -910,6 +910,7 @@ type AiUsageSummary = {
 - `daily.petAvatar` 使用当前账号当日宠物形象生成次数和 `PET_AVATAR_DAILY_LIMIT`。
 - `deepseek`、`ttapiFlux`、`ttapiMidjourney` 是测试后端累计统计，用于联调成本观察，不作为生产计费账单。
 - App 进入 AI 宠物对话页和发送消息后会读取该接口，用真实 `daily.petChat.count/limit` 展示“今日 AI 对话”额度，不再使用前端本地软额度。
+- App 进入上传/识别/形象确认页会读取该接口，用真实 `daily.petAvatar.count/limit/remaining` 展示“今日形象生成”额度；点击“确认并生成灵伴”或“重新生成”前会先检查剩余额度，后端仍作为最终额度拦截来源。
 
 ## 8. 地点
 

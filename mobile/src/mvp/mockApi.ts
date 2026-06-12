@@ -245,6 +245,7 @@ let uploadedMediaById: Record<string, UploadedPetMedia> = {};
 let avatarJobsById: Record<string, AvatarJob> = {};
 let mockPetChatDailyCount = 0;
 let mockPetAvatarDailyCount = 0;
+const mockPetAvatarDailyLimit = 10;
 
 const places: Place[] = [
   { id: 'p1', name: '云杉宠物友好公园', address: '滨江路 88 号', category: 'park', distance: '900m', rating: 4.8, tags: ['可遛狗', '草坪', '饮水点'] },
@@ -432,8 +433,8 @@ export const mockApi = {
           petAvatar: {
             count: mockPetAvatarDailyCount,
             day,
-            limit: 10,
-            remaining: Math.max(0, 10 - mockPetAvatarDailyCount),
+            limit: mockPetAvatarDailyLimit,
+            remaining: Math.max(0, mockPetAvatarDailyLimit - mockPetAvatarDailyCount),
           },
           petChat: {
             count: mockPetChatDailyCount,
@@ -665,6 +666,9 @@ export const mockApi = {
 
     async startGeneration(mediaId: string): Promise<ApiResult<AvatarJob>> {
       await wait();
+      if (mockPetAvatarDailyCount >= mockPetAvatarDailyLimit) {
+        return error('今日灵伴形象生成次数已用完，请明天再试', true);
+      }
       mockPetAvatarDailyCount += 1;
       const id = `job-${mediaId}`;
       generationProgressById[id] = 24;
@@ -696,7 +700,11 @@ export const mockApi = {
     async retryGeneration(jobId: string): Promise<ApiResult<AvatarJob>> {
       await wait();
       const previous = avatarJobsById[jobId];
+      if (mockPetAvatarDailyCount >= mockPetAvatarDailyLimit) {
+        return error('今日灵伴形象生成次数已用完，请明天再试', true);
+      }
       if (!previous?.mediaId) return error('原始照片已失效，请重新上传', true);
+      mockPetAvatarDailyCount += 1;
       const id = `job-${previous.mediaId}-${Date.now()}`;
       generationProgressById[id] = 24;
       const job: AvatarJob = { id, mediaId: previous.mediaId, originalJobId: jobId, progress: 24, provider: 'mock', status: 'processing' };
