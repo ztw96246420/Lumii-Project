@@ -1633,6 +1633,28 @@ function createHealthMemoFromPetChat(user, text) {
   return createHealthMemoRecord(user, petChatMemoTitle(content), content.slice(0, 240), { dedupe: true });
 }
 
+function createMedicalAlertFromPetChat(user, text) {
+  const rawText = String(text || '').trim();
+  if (!rawText || /不要记|别记|不用记|不要记录|别记录/.test(rawText)) return null;
+  const emergency = detectPetMedicalEmergency(rawText);
+  if (!emergency) return null;
+  const pet = selectedPetFor(user) || activePetFor(user);
+  const title = emergency.reason === 'toxic_ingestion' ? '误食风险观察' : '紧急健康观察';
+  const content = `${pet?.name ? `${pet.name}：` : ''}${rawText}`.slice(0, 240);
+  const memo = createHealthMemoRecord(user, title, content, { dedupe: true });
+  if (!memo) return null;
+  const notificationId = `n-medical-alert-${memo.id}`;
+  addNotification(user.phone, {
+    id: notificationId,
+    read: false,
+    text: emergency.reason === 'toxic_ingestion'
+      ? '已记录疑似误食风险，请尽快联系宠物医院或兽医确认处理方式。'
+      : '已记录高风险健康观察，请优先联系宠物医院或兽医。',
+    title: '就医提醒',
+  });
+  return { memo, notificationId, reason: emergency.reason };
+}
+
 function extractPetChatWeight(text) {
   const rawText = String(text || '').trim();
   if (!rawText || /不要记|别记|不用记|不要记录|别记录/.test(rawText)) return null;
@@ -2897,11 +2919,13 @@ async function handle(req, res) {
       time: '刚刚',
     };
     consumePetChatQuota(user);
-    const vaccineAction = applyPetChatVaccineAction(user, text);
-    const createdWeight = createWeightRecordFromPetChat(user, text);
-    const createdMemo = vaccineAction || createdWeight ? null : createHealthMemoFromPetChat(user, text);
+    const medicalAlert = createMedicalAlertFromPetChat(user, text);
+    const vaccineAction = medicalAlert ? null : applyPetChatVaccineAction(user, text);
+    const createdWeight = medicalAlert ? null : createWeightRecordFromPetChat(user, text);
+    const createdMemo = medicalAlert?.memo ?? (vaccineAction || createdWeight ? null : createHealthMemoFromPetChat(user, text));
     const reply = await callDeepSeekPetChat(user, text, messages);
     const savedNotices = [
+      medicalAlert ? `已帮你记录到健康备忘：「${medicalAlert.memo.title}」，并生成就医提醒。` : '',
       vaccineAction?.action === 'done' ? `已帮你标记${vaccineAction.vaccine.name}完成。` : '',
       vaccineAction?.action === 'reminder_on' ? `已帮你开启${vaccineAction.vaccine.name}提醒。` : '',
       vaccineAction?.action === 'reminder_off' ? `已帮你关闭${vaccineAction.vaccine.name}提醒。` : '',
@@ -2914,6 +2938,7 @@ async function handle(req, res) {
       createdMemo,
       createdWeight,
       id: messageId(),
+      medicalAlert: medicalAlert ? { notificationId: medicalAlert.notificationId, reason: medicalAlert.reason } : undefined,
       status: 'sent',
       text: replyText,
       time: '刚刚',

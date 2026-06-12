@@ -545,7 +545,7 @@ function buildHealthSummary(): HealthSummary {
   };
 }
 
-function detectMockPetMedicalEmergency(text: string) {
+function detectMockPetMedicalEmergency(text: string): ChatMessage['medicalAlert'] | null {
   const normalized = String(text || '').toLowerCase();
   const toxicIngestion = /(误食|吃了|吞了|舔了|咬了).*(巧克力|葡萄|葡萄干|洋葱|大蒜|蒜|药|药片|老鼠药|蟑螂药|杀虫剂|清洁剂|消毒液|酒精|百合|电池|烟头|毒)/.test(normalized);
   const emergencyPatterns = [
@@ -557,7 +557,9 @@ function detectMockPetMedicalEmergency(text: string) {
     /不吃不喝|拒食拒水/,
     /中毒|poison|toxic|chocolate|grape|onion|seizure|breathing|bleeding/,
   ];
-  return toxicIngestion || emergencyPatterns.some((pattern) => pattern.test(normalized));
+  if (toxicIngestion) return { reason: 'toxic_ingestion' };
+  if (emergencyPatterns.some((pattern) => pattern.test(normalized))) return { reason: 'medical_emergency' };
+  return null;
 }
 
 function mockPetMedicalSafetyReply(text: string) {
@@ -571,6 +573,36 @@ function mockPetMedicalSafetyReply(text: string) {
     extra,
     '我不能替代兽医诊断，也不建议在没有医生指导时自行用药。你可以同时记录：发生时间、持续多久、精神/呼吸/食欲变化，带给医生判断。',
   ].join('\n\n');
+}
+
+function createMockMedicalAlertFromPetChat(text: string) {
+  const rawText = String(text || '').trim();
+  if (!rawText || /不要记|别记|不用记|不要记录|别记录/.test(rawText)) return null;
+  const emergency = detectMockPetMedicalEmergency(rawText);
+  if (!emergency) return null;
+  const pet = pets.find((item) => item.id === activePetId) ?? pets[0];
+  const title = emergency.reason === 'toxic_ingestion' ? '误食风险观察' : '紧急健康观察';
+  const content = `${pet?.name ? `${pet.name}：` : ''}${rawText}`.slice(0, 240);
+  let memo = memos.slice(0, 8).find((item) => item.title === title && item.content === content);
+  if (!memo) {
+    memo = {
+      content,
+      id: `mock-medical-alert-${Date.now()}`,
+      title,
+      updatedAt: '刚刚',
+    };
+    memos = [memo, ...memos];
+  }
+  const notificationId = `mock-medical-alert-notification-${memo.id}`;
+  addMockNotification({
+    id: notificationId,
+    read: false,
+    text: emergency.reason === 'toxic_ingestion'
+      ? '已记录疑似误食风险，请尽快联系宠物医院或兽医确认处理方式。'
+      : '已记录高风险健康观察，请优先联系宠物医院或兽医。',
+    title: '就医提醒',
+  });
+  return { memo, notificationId, reason: emergency.reason };
 }
 
 export const mockApi = {
@@ -1136,14 +1168,16 @@ export const mockApi = {
       await wait();
       if (!text.trim()) return error('请输入消息内容', false);
       mockPetChatDailyCount += 1;
-      const vaccineAction = applyMockPetChatVaccineAction(text);
-      const createdWeight = createMockWeightRecordFromPetChat(text);
-      const createdMemo = vaccineAction || createdWeight ? null : createMockHealthMemoFromPetChat(text);
+      const medicalAlert = createMockMedicalAlertFromPetChat(text);
+      const vaccineAction = medicalAlert ? null : applyMockPetChatVaccineAction(text);
+      const createdWeight = medicalAlert ? null : createMockWeightRecordFromPetChat(text);
+      const createdMemo = medicalAlert?.memo ?? (vaccineAction || createdWeight ? null : createMockHealthMemoFromPetChat(text));
       const userMessage: ChatMessage = { id: `pet-user-${Date.now()}`, author: 'me', text, status: 'sent', time: '刚刚' };
       const replyText = detectMockPetMedicalEmergency(text)
         ? mockPetMedicalSafetyReply(text)
         : '我收到啦。这个情况我会放进今天的小记录里，如果和健康有关，也建议继续观察食欲、精神和便便状态。';
       const savedNotices = [
+        medicalAlert ? `已帮你记录到健康备忘：「${medicalAlert.memo.title}」，并生成就医提醒。` : '',
         vaccineAction?.action === 'done' ? `已帮你标记${vaccineAction.vaccine.name}完成。` : '',
         vaccineAction?.action === 'reminder_on' ? `已帮你开启${vaccineAction.vaccine.name}提醒。` : '',
         vaccineAction?.action === 'reminder_off' ? `已帮你关闭${vaccineAction.vaccine.name}提醒。` : '',
@@ -1155,6 +1189,7 @@ export const mockApi = {
         author: 'ai',
         createdMemo: createdMemo ?? undefined,
         createdWeight: createdWeight ?? undefined,
+        medicalAlert: medicalAlert ? { notificationId: medicalAlert.notificationId, reason: medicalAlert.reason } : undefined,
         status: 'sent',
         text: savedNotices.length ? `${replyText}\n\n${savedNotices.join('\n')}` : replyText,
         time: '刚刚',

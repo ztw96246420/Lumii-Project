@@ -194,6 +194,10 @@ export type ChatMessage = {
   createdWeight?: WeightRecord;
   feedback?: PetChatFeedbackRating;
   id: string;
+  medicalAlert?: {
+    notificationId?: string;
+    reason: 'medical_emergency' | 'toxic_ingestion';
+  };
   status?: 'failed' | 'sending' | 'sent';
   text: string;
   time: string;

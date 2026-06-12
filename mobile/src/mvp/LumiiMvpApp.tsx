@@ -1491,6 +1491,9 @@ export default function LumiiMvpApp() {
           setMemos((items) => [result.data!.createdMemo!, ...items.filter((item) => item.id !== result.data!.createdMemo!.id)]);
           void refreshHealthSummary();
         }
+        if (result.data.medicalAlert) {
+          void loadInboxData();
+        }
         if (result.data.createdWeight) {
           setWeights((items) => [result.data!.createdWeight!, ...items.filter((item) => item.id !== result.data!.createdWeight!.id)]);
           setActivePet((pet) => (pet ? { ...pet, weightKg: result.data!.createdWeight!.kg } : pet));
