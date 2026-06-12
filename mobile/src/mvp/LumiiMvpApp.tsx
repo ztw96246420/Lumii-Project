@@ -429,7 +429,9 @@ export default function LumiiMvpApp() {
   const [phoneFocused, setPhoneFocused] = useState(false);
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [sendLoading, setSendLoading] = useState(false);
+  const sendLoadingRef = useRef(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
+  const verifyLoadingRef = useRef(false);
   const [otpCode, setOtpCode] = useState('');
   const [otpMeta, setOtpMeta] = useState<SmsCodeTicket | null>(null);
   const [otpInlineError, setOtpInlineError] = useState('');
@@ -437,7 +439,9 @@ export default function LumiiMvpApp() {
   const [clock, setClock] = useState(Date.now());
   const [session, setSession] = useState<AuthSession | null>(null);
   const phoneInputRef = useRef<TextInput>(null);
+  const phoneValueRef = useRef('');
   const otpInputRef = useRef<TextInput>(null);
+  const otpMetaRef = useRef<SmsCodeTicket | null>(null);
   const mapAutoLocateAttemptedRef = useRef(false);
   const lastDiscoverLocationRef = useRef<NearbyLocationHint | null>(null);
   const exitBackPressedAtRef = useRef(0);
@@ -713,6 +717,14 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     sessionTokenRef.current = session?.token ?? '';
   }, [session?.token]);
+
+  useEffect(() => {
+    phoneValueRef.current = phone;
+  }, [phone]);
+
+  useEffect(() => {
+    otpMetaRef.current = otpMeta;
+  }, [otpMeta]);
 
   useEffect(() => {
     permissionsRef.current = permissions;
@@ -1295,19 +1307,27 @@ export default function LumiiMvpApp() {
   }
 
   async function requestSmsCode(source: 'login' | 'otp') {
-    if (sendLoading) return;
+    if (sendLoadingRef.current) return;
     if (!agreementAccepted) {
       showToast('请先勾选并同意用户协议与隐私政策');
       return;
     }
-    if (!/^1[3-9]\d{9}$/.test(phone)) {
+    const requestPhone = phone.trim();
+    if (!/^1[3-9]\d{9}$/.test(requestPhone)) {
       showToast('请输入正确的中国大陆手机号');
       return;
     }
+    if (cooldownRemaining > 0) {
+      showToast(`${cooldownRemaining}s 后可重新发送`);
+      return;
+    }
+    sendLoadingRef.current = true;
     setSendLoading(true);
     try {
-      const result = await lumiiApi.auth.sendSmsCode(phone);
+      const result = await lumiiApi.auth.sendSmsCode(requestPhone);
+      if (phoneValueRef.current.trim() !== requestPhone) return;
       if (result.state === 'success' && result.data) {
+        otpMetaRef.current = result.data;
         setOtpMeta(result.data);
         setCooldownUntil(clampSmsCooldown(result.data.availableAt));
         setOtpCode('');
@@ -1320,12 +1340,15 @@ export default function LumiiMvpApp() {
         showToast(result.error?.message ?? '验证码发送失败');
       }
     } finally {
+      sendLoadingRef.current = false;
       setSendLoading(false);
     }
   }
 
   async function verifySmsCode(codeOverride?: string) {
-    if (!otpMeta) {
+    if (verifyLoadingRef.current) return;
+    const ticket = otpMetaRef.current;
+    if (!ticket) {
       showToast('请先获取验证码');
       return;
     }
@@ -1334,10 +1357,13 @@ export default function LumiiMvpApp() {
       setOtpInlineError('请输入 6 位验证码');
       return;
     }
+    verifyLoadingRef.current = true;
     setVerifyLoading(true);
     setOtpInlineError('');
     try {
-      const result = await lumiiApi.auth.verifySmsCode(otpMeta.phone, code, otpMeta.expiresAt);
+      const result = await lumiiApi.auth.verifySmsCode(ticket.phone, code, ticket.expiresAt);
+      const currentTicket = otpMetaRef.current;
+      if (!currentTicket || currentTicket.phone !== ticket.phone || currentTicket.expiresAt !== ticket.expiresAt) return;
       if (result.data) {
         await restoreAfterLogin(result.data);
       } else {
@@ -1346,6 +1372,7 @@ export default function LumiiMvpApp() {
         showToast(message);
       }
     } finally {
+      verifyLoadingRef.current = false;
       setVerifyLoading(false);
     }
   }
@@ -1354,7 +1381,7 @@ export default function LumiiMvpApp() {
     const next = value.replace(/\D/g, '').slice(0, 6);
     setOtpCode(next);
     if (otpInlineError) setOtpInlineError('');
-    if (next.length === 6 && !verifyLoading) void verifySmsCode(next);
+    if (next.length === 6 && !verifyLoadingRef.current) void verifySmsCode(next);
   }
 
   async function requestPermission(key: keyof PermissionStateMap) {
@@ -2603,12 +2630,16 @@ export default function LumiiMvpApp() {
     setSession(null);
     setActivePet(null);
     setHistory([]);
+    phoneValueRef.current = '';
     setPhone('');
     setPhoneFocused(false);
     setAgreementAccepted(false);
+    sendLoadingRef.current = false;
     setSendLoading(false);
+    verifyLoadingRef.current = false;
     setVerifyLoading(false);
     setOtpCode('');
+    otpMetaRef.current = null;
     setOtpMeta(null);
     setOtpInlineError('');
     setCooldownUntil(0);
@@ -2824,7 +2855,11 @@ export default function LumiiMvpApp() {
               onBlur={() => {
                 if (Platform.OS === 'web') setPhoneFocused(false);
               }}
-              onChangeText={(value) => setPhone(value.replace(/\D/g, '').slice(0, 11))}
+              onChangeText={(value) => {
+                const nextPhone = value.replace(/\D/g, '').slice(0, 11);
+                phoneValueRef.current = nextPhone;
+                setPhone(nextPhone);
+              }}
               onFocus={() => {
                 if (Platform.OS === 'web') setPhoneFocused(true);
               }}

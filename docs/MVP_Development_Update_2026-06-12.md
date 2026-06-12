@@ -66,6 +66,7 @@
 - 文档口径同步：`API_Contract_MVP_v0.md`、`MVP_Development_Support_Checklist_v0.md` 和 `Figma_Make_Missing_Page_Prompts_2026-06-06.md` 已把短信每日频控标记为 MVP 已实现，生产仍保留 IP/设备级风控、真实随机验证码和短信回执待确认。
 - 短信验证码 IP/设备级基础风控补齐：App 发验证码时会带本地安装级 `deviceId`；测试后端新增单设备每日上限和单 IP 每日上限，默认 `SMS_DEVICE_DAILY_LIMIT=80`、`SMS_IP_DAILY_LIMIT=150`；mock API 同步单设备每日上限。该能力复用现有登录 toast，不新增页面。
 - 文档口径二次同步：短信频控不再写成“IP/设备级完全待补”，当前剩余是生产短信服务商、真实随机验证码、发送回执、黑名单/WAF/验证码风控平台等生产增强。
+- 登录验证码前端状态保护补强：获取验证码和验证码校验增加本地 ref 级互斥锁；倒计时内会在前端直接提示剩余秒数；发码回包会校验当前手机号仍一致，验码回包会校验当前验证码票据仍一致，避免真机连点、自动填满 6 位、多次重发或慢网络后旧请求误跳登录流程。不新增页面，不接新接口。
 - 普通社交聊天基础内容安全补齐：`POST /conversations/{conversationId}/messages` 会拦截手机号、邮箱、外链、微信/QQ 和明显违法/灰产词；命中时返回中文 400，不写入双方消息、不产生通知。约遛邀请里的地点、时间、备注也走同类基础拦截；mock API 同步该规则，现有 toast 承载错误提示，不新增页面。
 - 文档口径同步：`API_Contract_MVP_v0.md`、`MVP_Development_Support_Checklist_v0.md` 和 `Figma_Make_Missing_Page_Prompts_2026-06-06.md` 已把普通聊天/约遛文本基础安全拦截标记为已有逻辑，后续只把违规详情/申诉/富安全提示作为设计增强。
 - 统一错误码结构补齐：测试后端 `fail()` 会为所有 `state=error` 响应补 `error.code`；HTTP API 门面和 mock API 均保留 `ApiError.code`，现有页面仍展示中文 `message`。基础码表覆盖鉴权、短信、入参校验、内容安全、资源不存在、重复提交、频控、AI 对话/形象额度和服务异常。
