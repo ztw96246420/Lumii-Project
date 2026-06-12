@@ -280,7 +280,7 @@ Android 调用：
 - ~~`POST /social/walk-invites`：发送约遛邀请。~~ 测试后端已接；同样拒绝无效/自己/隐藏目标。
 - ~~`GET /conversations`：会话列表。~~ 测试后端已接。
 - ~~`GET /conversations/{id}/messages`：消息列表。~~ 测试后端已接。
-- ~~`POST /conversations/{id}/messages`：发送消息。~~ 测试后端已接；未互相接受招呼前返回 403，不写入消息。
+- ~~`POST /conversations/{id}/messages`：发送消息。~~ 测试后端已接；未互相接受招呼前返回 403，不写入消息；普通聊天内容已支持手机号、邮箱、外链、微信/QQ 和明显违法/灰产词基础拦截。
 - ~~`POST /conversations/{id}/read`：标记已读。~~ 测试后端已接。
 - `POST /users/{userId}/block`：拉黑。
 - `DELETE /users/{userId}/block`：解除拉黑。
@@ -292,7 +292,7 @@ Android 调用：
 - ~~未互相同意前是否允许发消息：建议不能，只能打招呼。~~ 已按“接受招呼后才能普通聊天”落地，后端硬校验，前端会按 `canSendMessage=false` 禁用输入框。
 - ~~打招呼是否有每日次数限制。~~ MVP 暂不限制，代码保留后续频控口。
 - AI 打招呼文案是否由后端生成。
-- 聊天是否支持图片、地点卡片、约遛邀请卡片。
+- 聊天是否支持图片、地点卡片、约遛邀请卡片；基础文字消息和约遛文本安全拦截已落地，富消息样式仍需 Figma。
 
 ### 3.8 地图与宠物友好地点
 

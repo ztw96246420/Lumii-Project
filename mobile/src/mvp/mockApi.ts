@@ -542,6 +542,7 @@ let avatarJobsById: Record<string, AvatarJob> = {};
 let mockPetChatDailyCount = 0;
 let mockPetAvatarDailyCount = 0;
 const mockPetAvatarDailyLimit = 10;
+const mockSocialMessageMaxChars = 600;
 
 const places: Place[] = [
   { id: 'p1', name: '云杉宠物友好公园', address: '滨江路 88 号', category: 'park', distance: '900m', rating: 4.8, tags: ['可遛狗', '草坪', '饮水点'] },
@@ -569,6 +570,22 @@ function mockPublicPlaceContentViolation(label: string, value: string, maxLength
   }
   if (/(赌博|博彩|色情|约炮|毒品|冰毒|枪支|办证|代开\s*发票|贷款\s*套现|刷单|诈骗)/u.test(text)) {
     return `${label}包含不适合公开展示的内容，请修改后再提交`;
+  }
+  return null;
+}
+
+function mockSocialChatContentViolation(label: string, value: string, maxLength = mockSocialMessageMaxChars) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  if (text.length > maxLength) return `${label}最多 ${maxLength} 个字`;
+  if (/(?:\+?86[-\s]?)?1[3-9]\d{9}/.test(text)) return `${label}不能包含手机号，请避免在聊天中发送个人联系方式`;
+  if (/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(text)) return `${label}不能包含邮箱或外部联系方式`;
+  if (/(https?:\/\/|www\.|\.com\b|\.cn\b|\.net\b|\.org\b)/i.test(text)) return `${label}不能包含外部链接`;
+  if (/(微信|wechat|vx|QQ|qq|群号|加我|私聊).{0,24}([a-zA-Z0-9_-]{5,}|[1-9]\d{5,})/u.test(text)) {
+    return `${label}不能包含微信、QQ 或其他外部联系方式`;
+  }
+  if (/(赌博|博彩|色情|约炮|毒品|冰毒|枪支|办证|代开\s*发票|贷款\s*套现|刷单|诈骗)/u.test(text)) {
+    return `${label}包含不适合发送的内容，请修改后再试`;
   }
   return null;
 }
@@ -1315,7 +1332,15 @@ export const mockApi = {
       await wait();
       const owner = owners.find((item) => item.id === ownerId);
       const inviteId = `walk-${Date.now()}`;
-      const message = `${input?.time ?? '今天'} · ${input?.place ?? '附近宠物友好地点'}`;
+      const place = input?.place ?? '附近宠物友好地点';
+      const time = input?.time ?? '今天';
+      const note = input?.note ?? '';
+      const inviteViolation =
+        mockSocialChatContentViolation('约遛地点', place, 80) ||
+        mockSocialChatContentViolation('约遛时间', time, 60) ||
+        mockSocialChatContentViolation('约遛备注', note, 240);
+      if (inviteViolation) return error(inviteViolation, false);
+      const message = `${time} · ${place}`;
       const conversation: Conversation = {
         canSendMessage: false,
         id: `walk-${ownerId}-${Date.now()}`,
@@ -1330,7 +1355,7 @@ export const mockApi = {
       };
       conversations.unshift(conversation);
       conversationMessagesById[conversation.id] = [
-        { author: 'me', id: `${conversation.id}-invite`, status: 'sent', text: input?.note ? `${message}\n${input.note}` : message, time: '刚刚' },
+        { author: 'me', id: `${conversation.id}-invite`, status: 'sent', text: note ? `${message}\n${note}` : message, time: '刚刚' },
       ];
       return success({ conversation, inviteId, ownerId });
     },
@@ -1419,11 +1444,14 @@ export const mockApi = {
 
     async sendConversationMessage(conversationId: string, text: string): Promise<ApiResult<ConversationMessage>> {
       await wait();
-      if (!text.trim()) return error('请输入消息内容', false);
+      const trimmedText = text.trim();
+      if (!trimmedText) return error('请输入消息内容', false);
+      const violation = mockSocialChatContentViolation('聊天内容', trimmedText);
+      if (violation) return error(violation, false);
       const conversation = conversations.find((item) => item.id === conversationId);
       if (!conversation) return error('会话不存在，请返回消息列表刷新', true);
       if (conversation.canSendMessage === false) return error('对方接受招呼后才能聊天', true);
-      const message: ConversationMessage = { author: 'me', id: `conv-${Date.now()}`, status: 'sent', text, time: '刚刚' };
+      const message: ConversationMessage = { author: 'me', id: `conv-${Date.now()}`, status: 'sent', text: trimmedText, time: '刚刚' };
       conversationMessagesById[conversationId] = [...(conversationMessagesById[conversationId] ?? []), message];
       return success(message);
     },

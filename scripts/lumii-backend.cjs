@@ -24,6 +24,7 @@ const PET_CHAT_SUMMARY_MAX_CHARS = Number(process.env.PET_CHAT_SUMMARY_MAX_CHARS
 const PET_CHAT_MAX_TOKENS = Number(process.env.PET_CHAT_MAX_TOKENS || '420');
 const PET_CHAT_MAX_INPUT_CHARS = Number(process.env.PET_CHAT_MAX_INPUT_CHARS || '600');
 const PET_CHAT_DAILY_LIMIT = Number(process.env.PET_CHAT_DAILY_LIMIT || '80');
+const SOCIAL_MESSAGE_MAX_CHARS = Number(process.env.SOCIAL_MESSAGE_MAX_CHARS || '600');
 const TTAPI_API_KEY = process.env.TTAPI_API_KEY || '';
 const TTAPI_MJ_BASE_URL = (process.env.TTAPI_MJ_BASE_URL || 'https://api.ttapi.io').replace(/\/+$/, '');
 const TTAPI_MJ_MODE = process.env.TTAPI_MJ_MODE || 'fast';
@@ -539,6 +540,22 @@ function publicPlaceContentViolation(label, value, maxLength) {
   }
   if (/(赌博|博彩|色情|约炮|毒品|冰毒|枪支|办证|代开\s*发票|贷款\s*套现|刷单|诈骗)/u.test(text)) {
     return `${label}包含不适合公开展示的内容，请修改后再提交`;
+  }
+  return null;
+}
+
+function socialChatContentViolation(label, value, maxLength = SOCIAL_MESSAGE_MAX_CHARS) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  if (text.length > maxLength) return `${label}最多 ${maxLength} 个字`;
+  if (/(?:\+?86[-\s]?)?1[3-9]\d{9}/.test(text)) return `${label}不能包含手机号，请避免在聊天中发送个人联系方式`;
+  if (/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(text)) return `${label}不能包含邮箱或外部联系方式`;
+  if (/(https?:\/\/|www\.|\.com\b|\.cn\b|\.net\b|\.org\b)/i.test(text)) return `${label}不能包含外部链接`;
+  if (/(微信|wechat|vx|QQ|qq|群号|加我|私聊).{0,24}([a-zA-Z0-9_-]{5,}|[1-9]\d{5,})/u.test(text)) {
+    return `${label}不能包含微信、QQ 或其他外部联系方式`;
+  }
+  if (/(赌博|博彩|色情|约炮|毒品|冰毒|枪支|办证|代开\s*发票|贷款\s*套现|刷单|诈骗)/u.test(text)) {
+    return `${label}包含不适合发送的内容，请修改后再试`;
   }
   return null;
 }
@@ -3173,6 +3190,14 @@ async function handle(req, res) {
     const place = String(body.place || '附近宠物友好地点');
     const time = String(body.time || '今天');
     const note = String(body.note || '');
+    const inviteViolation =
+      socialChatContentViolation('约遛地点', place, 80) ||
+      socialChatContentViolation('约遛时间', time, 60) ||
+      socialChatContentViolation('约遛备注', note, 240);
+    if (inviteViolation) {
+      fail(res, 400, inviteViolation, false);
+      return;
+    }
     const fromPet = activePetFor(user);
     const lastMessage = `${time} · ${place}`;
     let senderConversation = null;
@@ -3241,8 +3266,13 @@ async function handle(req, res) {
       fail(res, 400, '请输入消息内容', false);
       return;
     }
-    if (text.length > PET_CHAT_MAX_INPUT_CHARS) {
-      fail(res, 400, `消息太长了，请控制在 ${PET_CHAT_MAX_INPUT_CHARS} 字以内`, false);
+    const messageViolation = socialChatContentViolation('聊天内容', text);
+    if (messageViolation) {
+      fail(res, 400, messageViolation, false);
+      return;
+    }
+    if (text.length > SOCIAL_MESSAGE_MAX_CHARS) {
+      fail(res, 400, `消息太长了，请控制在 ${SOCIAL_MESSAGE_MAX_CHARS} 字以内`, false);
       return;
     }
     const targetPhone = conversationTargetPhone(conversationId);
