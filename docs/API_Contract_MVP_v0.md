@@ -256,6 +256,7 @@ Response:
 
 说明：
 - `nearbyVisible=false` 后，其他用户的附近发现列表不会再出现该账号；测试后端会清空该账号已保存的位置和在线曝光时间。
+- `fuzzyLocation=true` 后，测试后端只持久化约 1km 粒度的位置；从 `false` 切回 `true` 时，会立即把已保存的精确位置粗化。
 - `pushNotifications=false` 后，测试后端不再为该账号生成新的健康、互动、地点审核通知；历史通知不会自动删除。
 - `interactionMessages=false` 后，测试后端不再为该账号生成新的招呼、招呼接受、约遛邀请、聊天消息通知；会话和未读数仍正常写入。
 
@@ -725,6 +726,7 @@ lat=23.1291&lng=113.2644&radiusKm=3&accuracy=30
 
 说明：
 - 当前测试后端会在 `nearbyVisible=true` 时保存用户最近一次位置和 `lastSeenAt`。
+- `fuzzyLocation=true` 时保存粗粒度位置，`fuzzyLocation=false` 时保存本次请求的精确位置。
 - 如果当前账号已关闭 `nearbyVisible`，仍可用本次请求的临时定位查询附近伙伴，但后端不会持久化该定位，也不会刷新在线曝光时间。
 - 发现范围默认 3km。
 - 距离返回模糊文案，例如 `500m 内`、`1km 内`、`约 1-2km`。

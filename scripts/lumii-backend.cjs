@@ -9,6 +9,8 @@ const SMS_COOLDOWN_MS = 60 * 1000;
 const SMS_TTL_MS = 5 * 60 * 1000;
 const ONLINE_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_DISCOVER_RADIUS_KM = 3;
+const FUZZY_LOCATION_GRID_DEGREES = 0.01;
+const FUZZY_LOCATION_MIN_ACCURACY_METERS = 1000;
 const MAX_ACCURACY_BUFFER_KM = 2;
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/+$/, '');
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
@@ -372,6 +374,22 @@ function locationFromQuery(url) {
     radiusKm: numberFromQuery(url.searchParams.get('radiusKm')) || DEFAULT_DISCOVER_RADIUS_KM,
     updatedAt: Date.now(),
   };
+}
+
+function fuzzyLocationForPersistence(location) {
+  if (!location) return null;
+  return {
+    ...location,
+    accuracy: Math.max(Number(location.accuracy || 0), FUZZY_LOCATION_MIN_ACCURACY_METERS),
+    latitude: Number((Math.round(location.latitude / FUZZY_LOCATION_GRID_DEGREES) * FUZZY_LOCATION_GRID_DEGREES).toFixed(4)),
+    longitude: Number((Math.round(location.longitude / FUZZY_LOCATION_GRID_DEGREES) * FUZZY_LOCATION_GRID_DEGREES).toFixed(4)),
+  };
+}
+
+function locationForPersistence(user, location) {
+  if (!location) return null;
+  const settings = normalizeUserSettings(user.settings);
+  return settings.fuzzyLocation === false ? location : fuzzyLocationForPersistence(location);
 }
 
 function distanceKmBetween(a, b) {
@@ -1913,6 +1931,8 @@ async function handle(req, res) {
     if (user.settings.nearbyVisible === false) {
       user.location = null;
       user.lastSeenAt = 0;
+    } else if (user.settings.fuzzyLocation !== false && user.location) {
+      user.location = fuzzyLocationForPersistence(user.location);
     }
     saveState();
     ok(res, user.settings);
@@ -2397,7 +2417,7 @@ async function handle(req, res) {
     const publishNearbyPresence = user.settings?.nearbyVisible !== false;
     if (publishNearbyPresence) {
       user.lastSeenAt = Date.now();
-      if (location) user.location = location;
+      if (location) user.location = locationForPersistence(user, location);
       saveState();
     }
     const viewerForDiscovery = location ? { ...user, location } : user;
