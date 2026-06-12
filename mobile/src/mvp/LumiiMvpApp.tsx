@@ -444,6 +444,8 @@ export default function LumiiMvpApp() {
   const registeredPushTokenRef = useRef('');
   const scheduledPushRegistrationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionTokenRef = useRef('');
+  const permissionsRef = useRef<PermissionStateMap>(initialPermissions);
+  const userSettingsRef = useRef<UserSettings>(defaultUserSettings);
   const userSettingSavingKeysRef = useRef<Set<UserSettingKey>>(new Set());
 
   const [permissions, setPermissions] = useState<PermissionStateMap>(initialPermissions);
@@ -676,6 +678,14 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     sessionTokenRef.current = session?.token ?? '';
   }, [session?.token]);
+
+  useEffect(() => {
+    permissionsRef.current = permissions;
+  }, [permissions]);
+
+  useEffect(() => {
+    userSettingsRef.current = userSettings;
+  }, [userSettings]);
 
   useEffect(() => {
     setSession((current) => {
@@ -1092,6 +1102,7 @@ export default function LumiiMvpApp() {
     const result = await lumiiApi.permissions.savePermissionState(nextPermissions, Boolean(completed || allLumiiPermissionsGranted(nextPermissions)));
     if (result.data) {
       const savedPermissions = mergePermissionState(nextPermissions, result.data);
+      permissionsRef.current = savedPermissions;
       setPermissions(savedPermissions);
       return savedPermissions;
     }
@@ -1124,10 +1135,12 @@ export default function LumiiMvpApp() {
   function schedulePushDeviceRegistration(options: { delayMs?: number; targetSession?: AuthSession } = {}) {
     const targetSession = options.targetSession ?? session;
     if (!targetSession || Platform.OS === 'web') return;
+    if (permissionsRef.current.notifications !== 'granted' || !userSettingsRef.current.pushNotifications) return;
     clearScheduledPushRegistration();
     scheduledPushRegistrationRef.current = setTimeout(() => {
       scheduledPushRegistrationRef.current = null;
       if (sessionTokenRef.current !== targetSession.token) return;
+      if (permissionsRef.current.notifications !== 'granted' || !userSettingsRef.current.pushNotifications) return;
       void registerPushDevice({ silent: true, targetSession });
     }, options.delayMs ?? 1500);
   }
@@ -1141,6 +1154,7 @@ export default function LumiiMvpApp() {
       nextPermissions = mergeNativePermissionStatus(nextPermissions, nativeStatusPatch);
     }
 
+    permissionsRef.current = nextPermissions;
     setPermissions(nextPermissions);
 
     if (options.persist) {
@@ -1158,8 +1172,11 @@ export default function LumiiMvpApp() {
 
     const account = nextSession.account;
     const accountPermissions = mergePermissionState(account?.permissions);
+    permissionsRef.current = accountPermissions;
     setPermissions(accountPermissions);
-    setUserSettings({ ...defaultUserSettings, ...(account?.settings ?? {}) });
+    const accountSettings = { ...defaultUserSettings, ...(account?.settings ?? {}) };
+    userSettingsRef.current = accountSettings;
+    setUserSettings(accountSettings);
 
     const [petResult, latestPermissions] = await Promise.all([
       lumiiApi.pets.listPets(),
@@ -1183,6 +1200,7 @@ export default function LumiiMvpApp() {
 
     const restoredPet = account?.activePet ?? petResult.data?.[0] ?? lumiiApi.pets.getActivePet();
     setActivePet(restoredPet ?? null);
+    permissionsRef.current = latestPermissions;
     if (latestPermissions.notifications === 'granted') {
       schedulePushDeviceRegistration({ delayMs: 2500, targetSession: nextSession });
     }
@@ -1261,6 +1279,7 @@ export default function LumiiMvpApp() {
     setPermissions((items) => ({ ...items, [key]: 'requesting' }));
     const result = await requestLumiiPermission(key);
     const nextPermissions = mergePermissionState(permissions, { [key]: result.status });
+    permissionsRef.current = nextPermissions;
     setPermissions(nextPermissions);
     void persistPermissionSnapshot(nextPermissions);
     if (key === 'notifications' && result.status === 'granted') {
@@ -1281,6 +1300,7 @@ export default function LumiiMvpApp() {
       const result = await requestLumiiPermission(key);
       if (result.status === 'granted') grantedAfterRequest += 1;
       nextPermissions = mergePermissionState(nextPermissions, { [key]: result.status });
+      permissionsRef.current = nextPermissions;
       setPermissions(nextPermissions);
       if (key === 'notifications' && result.status === 'granted') {
         schedulePushDeviceRegistration();
@@ -1871,6 +1891,10 @@ export default function LumiiMvpApp() {
     const nextSettings = { ...previousSettings, [key]: nextValue };
 
     try {
+      if (key === 'pushNotifications' && !nextValue) {
+        clearScheduledPushRegistration();
+      }
+
       if (key === 'pushNotifications' && nextValue && permissions.notifications !== 'granted') {
         setPermissions((items) => ({ ...items, notifications: 'requesting' }));
         const permissionResult = await requestLumiiPermission('notifications');
@@ -1885,9 +1909,12 @@ export default function LumiiMvpApp() {
       }
 
       setUserSettings(nextSettings);
+      userSettingsRef.current = nextSettings;
       const result = await lumiiApi.settings.updateUserSettings({ [key]: nextValue });
       if (result.data) {
-        setUserSettings({ ...defaultUserSettings, ...result.data });
+        const savedSettings = { ...defaultUserSettings, ...result.data };
+        userSettingsRef.current = savedSettings;
+        setUserSettings(savedSettings);
         if (key === 'pushNotifications') {
           if (nextValue) {
             void syncVaccineLocalReminders(vaccines, vaccineReminderIds, activePet?.name);
@@ -1902,6 +1929,7 @@ export default function LumiiMvpApp() {
         void syncNearbySettingsChange(key, nextValue);
         showToast(`${label}已${nextValue ? '开启' : '关闭'}`);
       } else {
+        userSettingsRef.current = previousSettings;
         setUserSettings(previousSettings);
         showToast(result.error?.message ?? '设置保存失败，请稍后重试');
       }
@@ -2197,6 +2225,7 @@ export default function LumiiMvpApp() {
     try {
       const permissionResult = await requestLumiiPermission('location');
       const nextPermissions = mergePermissionState(permissions, { location: permissionResult.status });
+      permissionsRef.current = nextPermissions;
       setPermissions(nextPermissions);
       void persistPermissionSnapshot(nextPermissions);
 
@@ -2236,6 +2265,7 @@ export default function LumiiMvpApp() {
     try {
       const permissionResult = await requestLumiiPermission('location');
       const nextPermissions = mergePermissionState(permissions, { location: permissionResult.status });
+      permissionsRef.current = nextPermissions;
       setPermissions(nextPermissions);
       void persistPermissionSnapshot(nextPermissions);
 
