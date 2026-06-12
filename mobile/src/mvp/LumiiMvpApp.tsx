@@ -164,7 +164,7 @@ const tabBackToHomeRoutes = new Set<AppRoute>(['discover', 'map', 'messages', 'p
 const appExitPromptRoutes = new Set<AppRoute>(['emptyPet', 'home', 'login', 'permissions']);
 const focusedInboxRoutes = new Set<AppRoute>(['greetingRequests', 'messages', 'notifications']);
 const passiveInboxRoutes = new Set<AppRoute>(['discover', 'home', 'map', 'profile']);
-const petRequiredRoutes = new Set<AppRoute>(['aiResult', 'chat', 'dailyPost', 'editPet', 'generating', 'health', 'healthMemos', 'home', 'petDetail', 'upload', 'uploadDetail', 'vaccine', 'weight']);
+const petRequiredRoutes = new Set<AppRoute>(['aiResult', 'chat', 'dailyPost', 'editPet', 'generating', 'health', 'healthMemos', 'home', 'petDetail', 'upload', 'uploadDetail', 'uploadNoPet', 'vaccine', 'weight']);
 const homeChatPrompts = [
   '今天想和{petName}聊点什么？',
   '要不要记录一件开心小事？',
@@ -1764,8 +1764,13 @@ export default function LumiiMvpApp() {
 
   async function rejectGreeting(owner: NearbyOwner) {
     const actionId = `reject:${owner.id}`;
+    if (socialActionSavingIdsRef.current.has(`accept:${owner.id}`)) return;
     if (!beginSocialAction(actionId)) return;
     try {
+      if (!greetingRequestOwners.some((item) => item.id === owner.id)) {
+        showToast('招呼请求已更新，请返回消息页刷新');
+        return;
+      }
       const result = await lumiiApi.social.rejectGreeting(owner.id);
       if (result.data) {
         setGreetingRequestOwners((items) => items.filter((item) => item.id !== owner.id));
@@ -1781,8 +1786,13 @@ export default function LumiiMvpApp() {
 
   async function acceptGreeting(owner: NearbyOwner) {
     const actionId = `accept:${owner.id}`;
+    if (socialActionSavingIdsRef.current.has(`reject:${owner.id}`)) return;
     if (!beginSocialAction(actionId)) return;
     try {
+      if (!greetingRequestOwners.some((item) => item.id === owner.id)) {
+        showToast('招呼请求已更新，请返回消息页刷新');
+        return;
+      }
       const result = await lumiiApi.social.acceptGreeting(owner.id);
       if (result.data) {
         setGreetingRequestOwners((items) => items.filter((item) => item.id !== owner.id));
@@ -4325,19 +4335,23 @@ export default function LumiiMvpApp() {
           <Text style={styles.chatSafetyText}>接受招呼后才会进入聊天，未接受前不会暴露精确位置。</Text>
         </View>
         <View style={styles.requestStackMake}>
-          {greetingRequestOwners.length ? greetingRequestOwners.map((owner, index) => (
-            <View key={owner.id} style={styles.greetingRequestCard}>
-              <PetAvatar uri={owner.imageUrl} size={54} />
-              <View style={styles.flex}>
-                <Text style={styles.timelineTitleMake}>{owner.ownerName}和{owner.petName}</Text>
-                <Text style={styles.timelineSubMake}>{index === 0 ? `想认识你和${pet?.name ?? '你的宠物'}，今晚也在附近散步。` : '向你发送了友好的招呼。'}</Text>
-                <View style={styles.requestActionRow}>
-                  <Button loading={socialActionSavingIds.includes(`reject:${owner.id}`)} onPress={() => void rejectGreeting(owner)} tone="ghost">婉拒</Button>
-                  <Button loading={socialActionSavingIds.includes(`accept:${owner.id}`)} onPress={() => void acceptGreeting(owner)}>接受</Button>
+          {greetingRequestOwners.length ? greetingRequestOwners.map((owner, index) => {
+            const accepting = socialActionSavingIds.includes(`accept:${owner.id}`);
+            const rejecting = socialActionSavingIds.includes(`reject:${owner.id}`);
+            return (
+              <View key={owner.id} style={styles.greetingRequestCard}>
+                <PetAvatar uri={owner.imageUrl} size={54} />
+                <View style={styles.flex}>
+                  <Text style={styles.timelineTitleMake}>{owner.ownerName}和{owner.petName}</Text>
+                  <Text style={styles.timelineSubMake}>{index === 0 ? `想认识你和${pet?.name ?? '你的宠物'}，今晚也在附近散步。` : '向你发送了友好的招呼。'}</Text>
+                  <View style={styles.requestActionRow}>
+                    <Button disabled={accepting} loading={rejecting} onPress={() => void rejectGreeting(owner)} tone="ghost">婉拒</Button>
+                    <Button disabled={rejecting} loading={accepting} onPress={() => void acceptGreeting(owner)}>接受</Button>
+                  </View>
                 </View>
               </View>
-            </View>
-          )) : (
+            );
+          }) : (
             <View style={styles.emptyStateMake}>
               <MessageCircle color={palette.orange} size={24} strokeWidth={2.4} />
               <Text style={styles.emptyStateTitleMake}>暂无新的招呼</Text>
