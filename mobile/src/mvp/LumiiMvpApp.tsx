@@ -4638,7 +4638,8 @@ export default function LumiiMvpApp() {
     const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
     const speciesLabel = pet ? speciesLabels[pet.species] : '';
     const permissionEnabled = allLumiiPermissionsGranted(permissions);
-    const notificationsEnabled = permissions.notifications === 'granted' && userSettings.pushNotifications;
+    const unreadNotificationCount = notifications.filter((item) => !item.read).length;
+    const notificationCenterValue = unreadNotificationCount ? `${unreadNotificationCount} 条未读` : '暂无未读';
     return (
       <Screen showBack={false} title="">
         <View style={styles.profileMakePage}>
@@ -4666,7 +4667,15 @@ export default function LumiiMvpApp() {
                   <Text style={styles.profileVerifyText}>已实名 · Lv.3</Text>
                 </View>
               </View>
-              <Edit3 color={palette.muted} size={18} strokeWidth={2.2} />
+              <Pressable
+                accessibilityLabel="编辑个人资料"
+                accessibilityRole="button"
+                hitSlop={10}
+                onPress={() => showToast('个人资料编辑需补充 Figma 设计后开放')}
+                style={webPressableReset}
+              >
+                <Edit3 color={palette.muted} size={18} strokeWidth={2.2} />
+              </Pressable>
             </View>
           </View>
 
@@ -4674,7 +4683,7 @@ export default function LumiiMvpApp() {
             <View style={styles.profileSectionLabelRow}>
               <Text style={styles.profileSectionLabel}>当前宠物</Text>
               <Pressable onPress={() => go(pet ? 'petDetail' : 'petInfo')}>
-                <Text style={styles.profileManageLink}>{pet ? '多宠管理 ›' : '添加宠物 ›'}</Text>
+                <Text style={styles.profileManageLink}>{pet ? '查看档案 ›' : '添加宠物 ›'}</Text>
               </Pressable>
             </View>
             {pet ? (
@@ -4711,7 +4720,7 @@ export default function LumiiMvpApp() {
           <View style={styles.profileMenuGroup}>
             <ProfileMakeRow Icon={PawPrint} onPress={() => go(pet ? 'petDetail' : 'petInfo')} title="宠物档案" value={pet?.name ?? '待添加'} />
             <ProfileMakeRow Icon={Users} onPress={() => go('discover')} title="社交与附近" value={permissionEnabled && userSettings.nearbyVisible ? '已开启' : '待开启'} />
-            <ProfileMakeRow Icon={Bell} onPress={() => go('notifications')} title="通知设置" value={notificationsEnabled ? '已开启' : '未开启'} />
+            <ProfileMakeRow Icon={Bell} onPress={() => go('notifications')} title="通知中心" value={notificationCenterValue} />
             <ProfileMakeRow Icon={Shield} onPress={() => go('safety')} title="安全中心" />
             <ProfileMakeRow Icon={User} onPress={() => go('accountSecurity')} title="账号安全" />
             <ProfileMakeRow Icon={LogOut} onPress={() => openConfirm('退出当前账号', '退出后会清除本机登录缓存，下次需要重新获取验证码登录。', () => void logout(), '退出')} title="退出当前账号" value="清除本机登录" />
