@@ -316,6 +316,7 @@ Android 调用：
 - ~~消息页手动刷新前端状态保护。~~ App 已补 ref 级互斥和退出账号清理，快速连点不会让刷新动画提前结束；不需要你额外补页面或接口。
 - ~~打招呼/约遛/招呼请求前端当前性保护。~~ App 已补账号 token 校验、招呼请求列表 ref 校验、约遛当前对象/路由校验，切号或慢网络旧回包不会污染新账号页面；不需要你额外补页面或接口。
 - ~~全量加载、消息刷新和通知已读前端当前性保护。~~ App 已补账号 token 校验，启动全量加载、消息列表刷新、会话记录加载、通知批量已读和会话已读的旧回包不会污染当前账号页面；不需要你额外补页面或接口。
+- ~~发现页定位/附近列表前端当前性保护。~~ App 已补账号 token 与 request 序号校验，自动刷新、下拉刷新、定位权限回包和附近列表回包不会在切号、退出、关闭附近可见或切换模糊定位后污染当前页面；启动全量加载也会按账号 `nearbyVisible` 决定是否应用附近列表。
 - `POST /users/{userId}/block`：拉黑。
 - `DELETE /users/{userId}/block`：解除拉黑。
 - `POST /reports`：举报。
@@ -377,6 +378,7 @@ Android 调用：
 - ~~`GET /privacy-settings`。~~ MVP 测试后端已用 `GET /settings` 返回 `fuzzyLocation`、`nearbyVisible`、`interactionMessages`、`pushNotifications`。
 - ~~`PATCH /privacy-settings`。~~ MVP 测试后端已用 `PATCH /settings` 保存隐私与通知开关；只接受 `fuzzyLocation`、`nearbyVisible`、`interactionMessages`、`pushNotifications` 四个布尔字段，非法 patch 返回 `SETTINGS_PATCH_INVALID`；`nearbyVisible=false` 会影响附近发现曝光，并会清空已保存位置和在线曝光时间。App 侧关闭附近可见后会清空本机附近列表并暂停发现页自动/手动刷新，重新开启后再重新定位刷新。`fuzzyLocation=true` 会把服务端持久化定位限制到约 1km 粒度，从关闭切回开启时会立即粗化已保存精确位置。
 - ~~我的页设置开关前端状态保护。~~ App 已补当前设置 ref 读写、按字段保存/回滚和发现页手动刷新读取最新附近可见状态；多个开关并发保存时不会互相覆盖，不需要你额外补页面或接口。
+- ~~我的页设置开关旧账号回包保护。~~ App 已补账号 token 校验，切号或退出后的旧设置保存回包不会覆盖当前账号的通知、附近可见、模糊定位或互动消息开关状态。
 - `GET /blocks`。
 - `DELETE /blocks/{userId}`。
 - ~~`POST /feedback`。~~ MVP 测试后端和 mock API 已支持普通产品反馈提交；当前 App 暂不暴露正式反馈表单，举报/拉黑仍按优先级暂缓。

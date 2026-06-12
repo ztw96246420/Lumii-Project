@@ -515,6 +515,7 @@ export default function LumiiMvpApp() {
   const ownersRef = useRef<NearbyOwner[]>([]);
   const [discoverRefreshing, setDiscoverRefreshing] = useState(false);
   const discoverRefreshingRef = useRef(false);
+  const discoverRequestSeqRef = useRef(0);
   const [discoverFilter, setDiscoverFilter] = useState<DiscoverFilter>('all');
   const [greetingRequestOwners, setGreetingRequestOwners] = useState<NearbyOwner[]>([]);
   const greetingRequestOwnersRef = useRef<NearbyOwner[]>([]);
@@ -598,6 +599,10 @@ export default function LumiiMvpApp() {
 
   function isCurrentPetRequest(requestSessionToken: string, requestPetId: null | string) {
     return Boolean(requestSessionToken && requestPetId && sessionTokenRef.current === requestSessionToken && activePetIdRef.current === requestPetId);
+  }
+
+  function isCurrentDiscoverRequest(requestSessionToken: string, requestId: number) {
+    return sessionTokenRef.current === requestSessionToken && discoverRequestSeqRef.current === requestId && userSettingsRef.current.nearbyVisible;
   }
 
   const showToast = useCallback((message: string) => setToast(message), []);
@@ -852,6 +857,7 @@ export default function LumiiMvpApp() {
     }
     let active = true;
     const refreshOwners = async () => {
+      if (discoverRefreshingRef.current) return;
       const nextOwners = await fetchNearbyOwners({ forceLocation: !lastDiscoverLocationRef.current, silent: true });
       if (active && nextOwners) applyNearbyOwners(nextOwners);
     };
@@ -1017,9 +1023,11 @@ export default function LumiiMvpApp() {
       lumiiApi.ai.getUsage(),
     ]);
     if (sessionTokenRef.current !== requestSessionToken) return;
+    let loadedSettings = userSettingsRef.current;
     if (profileResult.data) {
       const profile = profileResult.data;
       const profileSettings = { ...defaultUserSettings, ...profile.settings };
+      loadedSettings = profileSettings;
       setSession((current) => (current ? { ...current, account: profile, phone: profile.phone } : current));
       userSettingsRef.current = profileSettings;
       setUserSettings(profileSettings);
@@ -1044,7 +1052,15 @@ export default function LumiiMvpApp() {
     if (vaccineResult.data) setVaccines(vaccineResult.data);
     if (vaccineReminderResult.data) setVaccineReminderIds(vaccineReminderResult.data);
     if (memoResult.data) setMemos(memoResult.data);
-    if (ownerResult.data) applyNearbyOwners(ownerResult.data);
+    if (ownerResult.data) {
+      if (loadedSettings.nearbyVisible) {
+        applyNearbyOwners(ownerResult.data);
+      } else {
+        discoverRequestSeqRef.current += 1;
+        lastDiscoverLocationRef.current = null;
+        applyNearbyOwners([]);
+      }
+    }
     if (greetingRequestResult.data) {
       greetingRequestOwnersRef.current = greetingRequestResult.data;
       setGreetingRequestOwners(greetingRequestResult.data);
@@ -2247,6 +2263,7 @@ export default function LumiiMvpApp() {
   async function syncNearbySettingsChange(key: UserSettingKey, nextValue: boolean) {
     if (key !== 'nearbyVisible' && key !== 'fuzzyLocation') return;
 
+    discoverRequestSeqRef.current += 1;
     lastDiscoverLocationRef.current = null;
     const nearbyWillBeVisible = key === 'nearbyVisible' ? nextValue : userSettingsRef.current.nearbyVisible;
     if (!nearbyWillBeVisible) {
@@ -2262,6 +2279,8 @@ export default function LumiiMvpApp() {
 
   async function toggleUserSetting(key: UserSettingKey, label: string) {
     if (userSettingSavingKeysRef.current.has(key)) return;
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
     userSettingSavingKeysRef.current.add(key);
     const previousSettings = userSettingsRef.current;
     const nextValue = !previousSettings[key];
@@ -2275,8 +2294,10 @@ export default function LumiiMvpApp() {
       if (key === 'pushNotifications' && nextValue && permissionsRef.current.notifications !== 'granted') {
         setPermissions((items) => ({ ...items, notifications: 'requesting' }));
         const permissionResult = await requestLumiiPermission('notifications');
+        if (sessionTokenRef.current !== requestSessionToken) return;
         const nextPermissions = mergePermissionState(permissionsRef.current, { notifications: permissionResult.status });
         const savedPermissions = await persistPermissionSnapshot(nextPermissions);
+        if (sessionTokenRef.current !== requestSessionToken) return;
         setPermissions(savedPermissions);
         if (permissionResult.status !== 'granted') {
           showToast(permissionResult.status === 'blocked' ? '请先在系统设置开启消息通知权限' : '请先允许消息通知权限');
@@ -2288,6 +2309,7 @@ export default function LumiiMvpApp() {
       setUserSettings(nextSettings);
       userSettingsRef.current = nextSettings;
       const result = await lumiiApi.settings.updateUserSettings({ [key]: nextValue });
+      if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         const serverSettings = { ...defaultUserSettings, ...result.data };
         const savedSettings = { ...userSettingsRef.current, [key]: serverSettings[key] };
@@ -2611,11 +2633,17 @@ export default function LumiiMvpApp() {
   }
 
   async function fetchNearbyOwners(options: { forceLocation?: boolean; silent?: boolean } = {}) {
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken || !userSettingsRef.current.nearbyVisible) return null;
+    const requestId = discoverRequestSeqRef.current + 1;
+    discoverRequestSeqRef.current = requestId;
     const location = options.forceLocation
-      ? await getDiscoverLocationHint({ allowCachedOnError: false, silent: options.silent })
-      : lastDiscoverLocationRef.current ?? (await getDiscoverLocationHint({ silent: options.silent }));
+      ? await getDiscoverLocationHint({ allowCachedOnError: false, requestId, requestSessionToken, silent: options.silent })
+      : lastDiscoverLocationRef.current ?? (await getDiscoverLocationHint({ requestId, requestSessionToken, silent: options.silent }));
+    if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
     if (!location) return null;
     const result = await lumiiApi.social.listNearbyOwners(location ?? undefined);
+    if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
     if (result.data) return result.data;
     if (!options.silent) showToast(result.error?.message ?? '附近伙伴刷新失败，请稍后重试');
     return null;
@@ -2662,10 +2690,14 @@ export default function LumiiMvpApp() {
     applyDiscoverFilter(nextFilter);
   }
 
-  async function getDiscoverLocationHint(options: { allowCachedOnError?: boolean; silent?: boolean } = {}): Promise<NearbyLocationHint | null> {
+  async function getDiscoverLocationHint(options: { allowCachedOnError?: boolean; requestId?: number; requestSessionToken?: string; silent?: boolean } = {}): Promise<NearbyLocationHint | null> {
+    const requestSessionToken = options.requestSessionToken ?? sessionTokenRef.current;
+    const requestId = options.requestId ?? discoverRequestSeqRef.current;
+    if (!requestSessionToken) return null;
     try {
       const permissionResult = await requestLumiiPermission('location');
-      const nextPermissions = mergePermissionState(permissions, { location: permissionResult.status });
+      if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
+      const nextPermissions = mergePermissionState(permissionsRef.current, { location: permissionResult.status });
       permissionsRef.current = nextPermissions;
       setPermissions(nextPermissions);
       void persistPermissionSnapshot(nextPermissions);
@@ -2676,6 +2708,7 @@ export default function LumiiMvpApp() {
       }
 
       if (!isLumiiAmapAvailable) {
+        if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
         const fallback = {
           latitude: defaultMapCenter.latitude,
           longitude: defaultMapCenter.longitude,
@@ -2686,6 +2719,7 @@ export default function LumiiMvpApp() {
       }
 
       const location = await getLumiiAmapCurrentLocation();
+      if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
       const hint = {
         accuracy: location.accuracy,
         latitude: location.latitude,
@@ -2695,6 +2729,7 @@ export default function LumiiMvpApp() {
       lastDiscoverLocationRef.current = hint;
       return hint;
     } catch (error) {
+      if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
       if (!options.silent) showToast(error instanceof Error ? error.message : '定位失败，请稍后重试');
       return options.allowCachedOnError === false ? null : lastDiscoverLocationRef.current;
     }
@@ -2907,6 +2942,7 @@ export default function LumiiMvpApp() {
     setConversationDraftsById({});
     setConversationMessages([createConversationSafetyMessage()]);
     setNotifications([]);
+    discoverRequestSeqRef.current += 1;
     applyNearbyOwners([]);
     discoverRefreshingRef.current = false;
     setDiscoverRefreshing(false);
