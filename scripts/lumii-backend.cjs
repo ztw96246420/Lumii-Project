@@ -17,6 +17,7 @@ const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const DEEPSEEK_THINKING = process.env.DEEPSEEK_THINKING || 'disabled';
 const PET_CHAT_HISTORY_LIMIT = Number(process.env.PET_CHAT_HISTORY_LIMIT || '10');
+const PET_CHAT_SUMMARY_MAX_CHARS = Number(process.env.PET_CHAT_SUMMARY_MAX_CHARS || '1000');
 const PET_CHAT_MAX_TOKENS = Number(process.env.PET_CHAT_MAX_TOKENS || '420');
 const PET_CHAT_MAX_INPUT_CHARS = Number(process.env.PET_CHAT_MAX_INPUT_CHARS || '600');
 const PET_CHAT_DAILY_LIMIT = Number(process.env.PET_CHAT_DAILY_LIMIT || '80');
@@ -1884,20 +1885,64 @@ function fallbackPetChatReply(user, text) {
   return `${petName}的小灵伴收到啦。\n\n这件事我会当作今天的小记录记在心里。你愿意再告诉我一点细节吗，比如它当时的心情、食欲或者运动量？`;
 }
 
+function compactPetChatLine(text, maxLength = 88, options = {}) {
+  let cleaned = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (options.removeSavedActions) {
+    cleaned = cleaned.replace(/已帮你(?:记录|更新|标记|开启|关闭)[^。！？!?]*(?:。|$)/g, '').trim();
+  }
+  if (!cleaned) return '';
+  return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength - 1)}…` : cleaned;
+}
+
+function summarizePetChatHistory(history) {
+  const chatHistory = (Array.isArray(history) ? history : [])
+    .filter((message) => message && (message.author === 'me' || message.author === 'ai'))
+    .filter((message) => String(message.text || '').trim());
+  if (chatHistory.length <= PET_CHAT_HISTORY_LIMIT) return '';
+
+  const olderMessages = chatHistory.slice(0, -PET_CHAT_HISTORY_LIMIT);
+  const ownerHighlights = olderMessages
+    .filter((message) => message.author === 'me')
+    .map((message) => compactPetChatLine(message.text, 88, { removeSavedActions: true }))
+    .filter(Boolean)
+    .slice(-8);
+  const savedActions = olderMessages
+    .filter((message) => message.author === 'ai')
+    .flatMap((message) =>
+      String(message.text || '')
+        .split(/\n+/)
+        .map((line) => compactPetChatLine(line, 72))
+        .filter((line) => /^已帮你/.test(line)),
+    )
+    .slice(-6);
+
+  const lines = [
+    '以下是更早的对话摘要，用于保持连续性和减少 token。请只把它当背景，不要逐字复述。',
+    ownerHighlights.length ? `主人较早提到：${ownerHighlights.join('；')}` : '',
+    savedActions.length ? `已发生的记录动作：${savedActions.join('；')}` : '',
+  ].filter(Boolean);
+  const summary = lines.join('\n');
+  return summary.length > PET_CHAT_SUMMARY_MAX_CHARS ? `${summary.slice(0, PET_CHAT_SUMMARY_MAX_CHARS - 1)}…` : summary;
+}
+
 async function callDeepSeekPetChat(user, text, history) {
   const emergency = detectPetMedicalEmergency(text);
   if (emergency) return { source: 'safety_guard', text: petMedicalSafetyReply(user, text) };
   if (!DEEPSEEK_API_KEY) return { source: 'fallback', text: fallbackPetChatReply(user, text) };
+  const historySummary = summarizePetChatHistory(history);
+  const recentHistory = (Array.isArray(history) ? history : [])
+    .filter((message) => message.author === 'me' || message.author === 'ai')
+    .slice(-PET_CHAT_HISTORY_LIMIT);
   const messages = [
     { role: 'system', content: petChatBaseSystemPrompt() },
     { role: 'system', content: buildPetChatContextPrompt(user) },
-    ...history
-      .slice(-PET_CHAT_HISTORY_LIMIT)
-      .filter((message) => message.author === 'me' || message.author === 'ai')
-      .map((message) => ({
-        role: message.author === 'me' ? 'user' : 'assistant',
-        content: message.text,
-      })),
+    ...(historySummary ? [{ role: 'system', content: historySummary }] : []),
+    ...recentHistory.map((message) => ({
+      role: message.author === 'me' ? 'user' : 'assistant',
+      content: message.text,
+    })),
     { role: 'user', content: text },
   ];
 
