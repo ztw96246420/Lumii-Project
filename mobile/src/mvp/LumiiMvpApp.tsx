@@ -442,6 +442,8 @@ export default function LumiiMvpApp() {
   const previousRouteRef = useRef<AppRoute>('login');
   const systemSettingsOpenedAtRef = useRef(0);
   const registeredPushTokenRef = useRef('');
+  const scheduledPushRegistrationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionTokenRef = useRef('');
   const userSettingSavingKeysRef = useRef<Set<UserSettingKey>>(new Set());
 
   const [permissions, setPermissions] = useState<PermissionStateMap>(initialPermissions);
@@ -669,6 +671,10 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     if (!session) return;
     void loadCommonData();
+  }, [session?.token]);
+
+  useEffect(() => {
+    sessionTokenRef.current = session?.token ?? '';
   }, [session?.token]);
 
   useEffect(() => {
@@ -1109,6 +1115,23 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function clearScheduledPushRegistration() {
+    if (!scheduledPushRegistrationRef.current) return;
+    clearTimeout(scheduledPushRegistrationRef.current);
+    scheduledPushRegistrationRef.current = null;
+  }
+
+  function schedulePushDeviceRegistration(options: { delayMs?: number; targetSession?: AuthSession } = {}) {
+    const targetSession = options.targetSession ?? session;
+    if (!targetSession || Platform.OS === 'web') return;
+    clearScheduledPushRegistration();
+    scheduledPushRegistrationRef.current = setTimeout(() => {
+      scheduledPushRegistrationRef.current = null;
+      if (sessionTokenRef.current !== targetSession.token) return;
+      void registerPushDevice({ silent: true, targetSession });
+    }, options.delayMs ?? 1500);
+  }
+
   async function refreshPermissionStatuses(options: { base?: PermissionStateMap; completed?: boolean; persist?: boolean } = {}) {
     let nextPermissions = mergePermissionState(options.base ?? permissions);
 
@@ -1129,6 +1152,7 @@ export default function LumiiMvpApp() {
 
   async function restoreAfterLogin(nextSession: AuthSession, options: { persist?: boolean; silent?: boolean } = {}) {
     setLumiiAuthToken(nextSession.token);
+    sessionTokenRef.current = nextSession.token;
     setSession(nextSession);
     setHistory([]);
 
@@ -1160,7 +1184,7 @@ export default function LumiiMvpApp() {
     const restoredPet = account?.activePet ?? petResult.data?.[0] ?? lumiiApi.pets.getActivePet();
     setActivePet(restoredPet ?? null);
     if (latestPermissions.notifications === 'granted') {
-      void registerPushDevice({ silent: true, targetSession: nextSession });
+      schedulePushDeviceRegistration({ delayMs: 2500, targetSession: nextSession });
     }
 
     const permissionFlowDone = Boolean(account?.permissionsOnboardingCompleted || allLumiiPermissionsGranted(latestPermissions));
@@ -1240,7 +1264,7 @@ export default function LumiiMvpApp() {
     setPermissions(nextPermissions);
     void persistPermissionSnapshot(nextPermissions);
     if (key === 'notifications' && result.status === 'granted') {
-      void registerPushDevice();
+      schedulePushDeviceRegistration();
     }
     showToast(result.message);
   }
@@ -1259,7 +1283,7 @@ export default function LumiiMvpApp() {
       nextPermissions = mergePermissionState(nextPermissions, { [key]: result.status });
       setPermissions(nextPermissions);
       if (key === 'notifications' && result.status === 'granted') {
-        void registerPushDevice({ silent: true });
+        schedulePushDeviceRegistration();
       }
       showToast(result.message);
     }
@@ -1857,7 +1881,7 @@ export default function LumiiMvpApp() {
           showToast(permissionResult.status === 'blocked' ? '请先在系统设置开启消息通知权限' : '请先允许消息通知权限');
           return;
         }
-        void registerPushDevice({ silent: true });
+        schedulePushDeviceRegistration();
       }
 
       setUserSettings(nextSettings);
@@ -2310,6 +2334,7 @@ export default function LumiiMvpApp() {
 
   function clearLocalAccountState() {
     if (localHealthReminderScheduledIdsRef.current.length) void cancelVaccineLocalReminders(localHealthReminderScheduledIdsRef.current);
+    clearScheduledPushRegistration();
     setLumiiAuthToken();
     setConfirm(null);
     setSession(null);
@@ -2337,6 +2362,7 @@ export default function LumiiMvpApp() {
     setAvatarRetrying(false);
     avatarResultRouteJobIdRef.current = '';
     registeredPushTokenRef.current = '';
+    sessionTokenRef.current = '';
     setChatMessages([createPetChatWelcomeMessage()]);
     setChatInput('');
     setChatFeedbackById({});

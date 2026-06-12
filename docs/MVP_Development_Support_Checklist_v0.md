@@ -152,6 +152,7 @@ Android 调用：
 - 定位：`Location.requestForegroundPermissionsAsync()`，声明 `ACCESS_COARSE_LOCATION` / `ACCESS_FINE_LOCATION`。
 - 照片与相机：`ImagePicker.requestMediaLibraryPermissionsAsync()` + `ImagePicker.requestCameraPermissionsAsync()`，声明 `CAMERA` / `READ_MEDIA_IMAGES` 等权限。
 - 通知：Android 13+ 通过 `Notifications.requestPermissionsAsync()` 触发 `POST_NOTIFICATIONS`；同时创建默认通知 Channel。
+- 通知设备 token 登记不会阻塞权限页主链路：授权成功后会延迟静默登记，退出账号或切换 token 会取消旧登记任务。
 
 需要你确认：
 - 验证码长度：当前按 6 位实现。
