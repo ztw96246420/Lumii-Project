@@ -3,6 +3,7 @@ import type { LumiiPermissionKey, LumiiPermissionStatus } from '../services/perm
 export type ApiState = 'error' | 'loading' | 'success';
 
 export type ApiError = {
+  code?: string;
   message: string;
   retryable: boolean;
   statusCode?: number;

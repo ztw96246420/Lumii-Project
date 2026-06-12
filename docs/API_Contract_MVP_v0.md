@@ -39,7 +39,7 @@ EXPO_PUBLIC_UPLOAD_ENDPOINT=
 ```ts
 type ApiResult<T> =
   | { state: 'success'; data: T }
-  | { state: 'error'; error: { message: string; retryable: boolean }; data?: unknown };
+  | { state: 'error'; error: { code: string; message: string; retryable: boolean }; data?: unknown };
 ```
 
 HTTP 适配器也兼容后端常见结构：
@@ -60,6 +60,30 @@ HTTP 适配器也兼容后端常见结构：
   }
 }
 ```
+
+MVP 错误码表：
+
+| code | 含义 |
+| --- | --- |
+| `AUTH_REQUIRED` | 未登录或缺少 token |
+| `AUTH_TOKEN_EXPIRED` | 登录已失效，需要重新登录 |
+| `SMS_PHONE_INVALID` | 手机号格式不正确 |
+| `SMS_RATE_LIMITED` | 短信 60s 冷却或短时间过频 |
+| `SMS_DAILY_LIMITED` | 手机号、设备或 IP 当日短信额度已达上限 |
+| `SMS_CODE_INVALID` | 验证码错误 |
+| `SMS_CODE_EXPIRED` | 验证码过期 |
+| `VALIDATION_FAILED` | 普通入参校验失败 |
+| `CONTENT_POLICY_VIOLATION` | 文本命中基础内容安全拦截 |
+| `RESOURCE_NOT_FOUND` | 资源不存在或无权读取 |
+| `DUPLICATE_RESOURCE` | 重复提交或资源冲突 |
+| `FORBIDDEN` | 当前关系或权限不允许操作 |
+| `RATE_LIMITED` | 通用频控 |
+| `PET_CHAT_DAILY_LIMIT` | 灵伴对话当日额度已达上限 |
+| `PET_AVATAR_DAILY_LIMIT` | 灵伴形象生成当日额度已达上限 |
+| `SERVER_ERROR` | 服务端异常 |
+| `ROUTE_NOT_FOUND` | 接口不存在 |
+
+2026-06-12 补充：MVP 测试后端 `state=error` 响应会统一返回 `error.code`；App HTTP 适配器和 mock API 均会保留该字段。现有页面仍优先展示 `error.message`，不需要新增 Figma 页面。
 
 ## 3. 鉴权
 

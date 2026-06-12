@@ -346,8 +346,30 @@ function ok(res, data) {
   sendJson(res, 200, { data, state: 'success' });
 }
 
-function fail(res, statusCode, message, retryable = false, data) {
-  sendJson(res, statusCode, { data, error: { message, retryable }, state: 'error' });
+function errorCodeFrom(statusCode, message) {
+  const text = String(message || '');
+  if (/操作太频繁/.test(text)) return 'SMS_RATE_LIMITED';
+  if (/验证码发送次数|当前设备今天获取验证码|当前网络今天获取验证码/.test(text)) return 'SMS_DAILY_LIMITED';
+  if (/验证码错误/.test(text)) return 'SMS_CODE_INVALID';
+  if (/验证码已过期/.test(text)) return 'SMS_CODE_EXPIRED';
+  if (/手机号/.test(text) && /正确/.test(text)) return 'SMS_PHONE_INVALID';
+  if (/不能包含|不适合发送|不适合公开|违法|灰产|微信|QQ|外部联系方式|外部链接/.test(text)) return 'CONTENT_POLICY_VIOLATION';
+  if (/今日灵伴形象生成次数/.test(text)) return 'PET_AVATAR_DAILY_LIMIT';
+  if (/今天和灵伴聊天次数/.test(text)) return 'PET_CHAT_DAILY_LIMIT';
+  if (statusCode === 401 && /失效/.test(text)) return 'AUTH_TOKEN_EXPIRED';
+  if (statusCode === 401) return 'AUTH_REQUIRED';
+  if (statusCode === 403) return 'FORBIDDEN';
+  if (statusCode === 404 && /接口/.test(text)) return 'ROUTE_NOT_FOUND';
+  if (statusCode === 404) return 'RESOURCE_NOT_FOUND';
+  if (statusCode === 409) return 'DUPLICATE_RESOURCE';
+  if (statusCode === 429) return 'RATE_LIMITED';
+  if (statusCode >= 500) return 'SERVER_ERROR';
+  if (statusCode >= 400) return 'VALIDATION_FAILED';
+  return 'REQUEST_FAILED';
+}
+
+function fail(res, statusCode, message, retryable = false, data, code) {
+  sendJson(res, statusCode, { data, error: { code: code || errorCodeFrom(statusCode, message), message, retryable }, state: 'error' });
 }
 
 function parseBody(req) {

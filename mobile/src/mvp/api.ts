@@ -434,7 +434,7 @@ function createHttpApi(baseUrl: string): LumiiApi {
 
       const payload = await readJson(response);
       if (!response.ok) {
-        return errorResult(messageFromPayload(payload) ?? `服务请求失败（${response.status}）`, response.status >= 500, response.status);
+        return errorResult(messageFromPayload(payload) ?? `服务请求失败（${response.status}）`, response.status >= 500, response.status, errorCodeFromPayload(payload, response.status));
       }
 
       return normalizeResult<T>(payload);
@@ -459,7 +459,7 @@ function normalizeResult<T>(payload: unknown): ApiResult<T> {
   if (isApiResult<T>(payload)) return payload;
 
   if (isRecord(payload) && payload.success === false) {
-    return errorResult(messageFromPayload(payload) ?? '请求失败', Boolean(payload.retryable));
+    return errorResult(messageFromPayload(payload) ?? '请求失败', Boolean(payload.retryable), undefined, errorCodeFromPayload(payload));
   }
 
   if (isRecord(payload) && 'data' in payload) {
@@ -486,8 +486,32 @@ function messageFromPayload(payload: unknown) {
   return undefined;
 }
 
-function errorResult<T = never>(message: string, retryable: boolean, statusCode?: number): ApiResult<T> {
-  const apiError: ApiError = { message, retryable, statusCode };
+function errorCodeFromPayload(payload: unknown, statusCode?: number) {
+  if (isRecord(payload)) {
+    if (typeof payload.code === 'string') return payload.code;
+    if (isRecord(payload.error) && typeof payload.error.code === 'string') return payload.error.code;
+  }
+  return statusCode ? errorCodeFromStatus(statusCode) : undefined;
+}
+
+function errorCodeFromStatus(statusCode: number) {
+  if (statusCode === 401) return 'AUTH_REQUIRED';
+  if (statusCode === 403) return 'FORBIDDEN';
+  if (statusCode === 404) return 'RESOURCE_NOT_FOUND';
+  if (statusCode === 409) return 'DUPLICATE_RESOURCE';
+  if (statusCode === 429) return 'RATE_LIMITED';
+  if (statusCode >= 500) return 'SERVER_ERROR';
+  if (statusCode >= 400) return 'VALIDATION_FAILED';
+  return 'REQUEST_FAILED';
+}
+
+function errorResult<T = never>(message: string, retryable: boolean, statusCode?: number, code?: string): ApiResult<T> {
+  const apiError: ApiError = {
+    ...(code ? { code } : {}),
+    message,
+    retryable,
+    ...(statusCode === undefined ? {} : { statusCode }),
+  };
   return { error: apiError, state: 'error' };
 }
 

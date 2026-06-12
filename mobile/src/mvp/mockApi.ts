@@ -1606,6 +1606,19 @@ function success<T>(data: T): ApiResult<T> {
   return { data, state: 'success' };
 }
 
-function error<T>(message: string, retryable: boolean, data?: T): ApiResult<T> {
-  return { data, error: { message, retryable }, state: 'error' };
+function mockErrorCodeFrom(message: string) {
+  if (/操作太频繁/.test(message)) return 'SMS_RATE_LIMITED';
+  if (/验证码发送次数|当前设备今天获取验证码/.test(message)) return 'SMS_DAILY_LIMITED';
+  if (/验证码错误/.test(message)) return 'SMS_CODE_INVALID';
+  if (/验证码已过期/.test(message)) return 'SMS_CODE_EXPIRED';
+  if (/手机号/.test(message) && /正确|格式/.test(message)) return 'SMS_PHONE_INVALID';
+  if (/不能包含|不适合发送|不适合公开|违法|灰产|微信|QQ|外部联系方式|外部链接/.test(message)) return 'CONTENT_POLICY_VIOLATION';
+  if (/今日灵伴形象生成次数/.test(message)) return 'PET_AVATAR_DAILY_LIMIT';
+  if (/今天和灵伴聊天次数/.test(message)) return 'PET_CHAT_DAILY_LIMIT';
+  if (/不存在|失效/.test(message)) return 'RESOURCE_NOT_FOUND';
+  return 'VALIDATION_FAILED';
+}
+
+function error<T>(message: string, retryable: boolean, data?: T, code?: string): ApiResult<T> {
+  return { data, error: { code: code || mockErrorCodeFrom(message), message, retryable }, state: 'error' };
 }
