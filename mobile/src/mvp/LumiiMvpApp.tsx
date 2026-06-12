@@ -2126,7 +2126,7 @@ export default function LumiiMvpApp() {
     if (key !== 'nearbyVisible' && key !== 'fuzzyLocation') return;
 
     lastDiscoverLocationRef.current = null;
-    const nearbyWillBeVisible = key === 'nearbyVisible' ? nextValue : userSettings.nearbyVisible;
+    const nearbyWillBeVisible = key === 'nearbyVisible' ? nextValue : userSettingsRef.current.nearbyVisible;
     if (!nearbyWillBeVisible) {
       applyNearbyOwners([]);
       void loadInboxData();
@@ -2141,7 +2141,7 @@ export default function LumiiMvpApp() {
   async function toggleUserSetting(key: UserSettingKey, label: string) {
     if (userSettingSavingKeysRef.current.has(key)) return;
     userSettingSavingKeysRef.current.add(key);
-    const previousSettings = userSettings;
+    const previousSettings = userSettingsRef.current;
     const nextValue = !previousSettings[key];
     const nextSettings = { ...previousSettings, [key]: nextValue };
 
@@ -2150,10 +2150,10 @@ export default function LumiiMvpApp() {
         clearScheduledPushRegistration();
       }
 
-      if (key === 'pushNotifications' && nextValue && permissions.notifications !== 'granted') {
+      if (key === 'pushNotifications' && nextValue && permissionsRef.current.notifications !== 'granted') {
         setPermissions((items) => ({ ...items, notifications: 'requesting' }));
         const permissionResult = await requestLumiiPermission('notifications');
-        const nextPermissions = mergePermissionState(permissions, { notifications: permissionResult.status });
+        const nextPermissions = mergePermissionState(permissionsRef.current, { notifications: permissionResult.status });
         const savedPermissions = await persistPermissionSnapshot(nextPermissions);
         setPermissions(savedPermissions);
         if (permissionResult.status !== 'granted') {
@@ -2167,7 +2167,8 @@ export default function LumiiMvpApp() {
       userSettingsRef.current = nextSettings;
       const result = await lumiiApi.settings.updateUserSettings({ [key]: nextValue });
       if (result.data) {
-        const savedSettings = { ...defaultUserSettings, ...result.data };
+        const serverSettings = { ...defaultUserSettings, ...result.data };
+        const savedSettings = { ...userSettingsRef.current, [key]: serverSettings[key] };
         userSettingsRef.current = savedSettings;
         setUserSettings(savedSettings);
         if (key === 'pushNotifications') {
@@ -2185,8 +2186,9 @@ export default function LumiiMvpApp() {
         void syncNearbySettingsChange(key, nextValue);
         showToast(`${label}已${nextValue ? '开启' : '关闭'}`);
       } else {
-        userSettingsRef.current = previousSettings;
-        setUserSettings(previousSettings);
+        const rolledBackSettings = { ...userSettingsRef.current, [key]: previousSettings[key] };
+        userSettingsRef.current = rolledBackSettings;
+        setUserSettings(rolledBackSettings);
         if (key === 'pushNotifications' && previousSettings.pushNotifications) {
           schedulePushDeviceRegistration({ delayMs: 500 });
         }
@@ -2456,7 +2458,7 @@ export default function LumiiMvpApp() {
 
   async function refreshDiscoverByPull() {
     if (discoverRefreshingRef.current) return;
-    if (!userSettings.nearbyVisible) {
+    if (!userSettingsRef.current.nearbyVisible) {
       applyNearbyOwners([]);
       showToast('请先在我的页开启附近可见');
       return;

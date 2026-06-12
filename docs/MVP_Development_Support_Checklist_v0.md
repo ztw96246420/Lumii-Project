@@ -366,6 +366,7 @@ Android 调用：
 需要接口：
 - ~~`GET /privacy-settings`。~~ MVP 测试后端已用 `GET /settings` 返回 `fuzzyLocation`、`nearbyVisible`、`interactionMessages`、`pushNotifications`。
 - ~~`PATCH /privacy-settings`。~~ MVP 测试后端已用 `PATCH /settings` 保存隐私与通知开关；只接受 `fuzzyLocation`、`nearbyVisible`、`interactionMessages`、`pushNotifications` 四个布尔字段，非法 patch 返回 `SETTINGS_PATCH_INVALID`；`nearbyVisible=false` 会影响附近发现曝光，并会清空已保存位置和在线曝光时间。App 侧关闭附近可见后会清空本机附近列表并暂停发现页自动/手动刷新，重新开启后再重新定位刷新。`fuzzyLocation=true` 会把服务端持久化定位限制到约 1km 粒度，从关闭切回开启时会立即粗化已保存精确位置。
+- ~~我的页设置开关前端状态保护。~~ App 已补当前设置 ref 读写、按字段保存/回滚和发现页手动刷新读取最新附近可见状态；多个开关并发保存时不会互相覆盖，不需要你额外补页面或接口。
 - `GET /blocks`。
 - `DELETE /blocks/{userId}`。
 - ~~`POST /feedback`。~~ MVP 测试后端和 mock API 已支持普通产品反馈提交；当前 App 暂不暴露正式反馈表单，举报/拉黑仍按优先级暂缓。
