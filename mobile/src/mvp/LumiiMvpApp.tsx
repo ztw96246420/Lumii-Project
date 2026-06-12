@@ -4504,6 +4504,7 @@ function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
 
   return (
     <View style={[styles.petAvatar, { borderRadius: size / 2, height: size, width: size }]}>
+      {remoteUri ? <Image resizeMode="cover" source={generatedGoldenAvatarSource} style={styles.avatarImage} /> : null}
       <Image
         onError={() => setLoading(false)}
         onLoadEnd={() => setLoading(false)}
@@ -4512,7 +4513,7 @@ function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
         }}
         resizeMode="cover"
         source={remoteUri ? { uri: remoteUri } : generatedGoldenAvatarSource}
-        style={styles.avatarImage}
+        style={[styles.avatarImage, remoteUri && styles.avatarImageRemote]}
       />
       {loading ? (
         <View pointerEvents="none" style={styles.avatarLoadingOverlay}>
@@ -4734,6 +4735,7 @@ const styles = StyleSheet.create({
   agreementText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
   appWrap: { alignItems: 'center', backgroundColor: '#e8e2d9', flex: 1, justifyContent: 'center' },
   avatarImage: { height: '100%', width: '100%' },
+  avatarImageRemote: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
   avatarLoadingOverlay: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.72)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
   bootPage: { alignItems: 'center', flex: 1, gap: 16, justifyContent: 'center', paddingHorizontal: 32 },
   bootText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
