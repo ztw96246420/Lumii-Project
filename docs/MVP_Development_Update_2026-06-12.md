@@ -30,6 +30,8 @@
 - 宠物编辑保存联动补齐：已有编辑宠物页保存成功后会同步当前宠物、更新 session 账号快照并刷新健康摘要；新建宠物成功后也会同步 session 的 `activePet`，避免“我的页/首页”短暂读取旧快照。
 - 普通反馈接口补齐：新增 `POST /feedback`，测试后端和 mock API 均支持登录后提交普通产品反馈，内容校验为空/超长；不涉及举报/拉黑，不新增 UI。
 - 地点提交审核记录 API 门面补齐：`GET /places/submissions/my` 原本后端和文档已有，这次补齐 HTTP API 与 mock API；不新增“我的提交”页面，只消除接口契约不一致。
+- 上传媒体元信息读取补齐：新增 `GET /media/{mediaId}`，测试后端、HTTP API 门面和 mock API 均支持登录态读取自己的上传媒体分析结果；不新增页面、不接真实视觉识别模型。
+- 文档状态纠偏：支持清单已把媒体读取、地点审核记录、avatar/health mock service 方法列表更新为当前实现状态，避免把已实现接口继续写成待补。
 
 ## 验证
 
@@ -116,6 +118,10 @@
 - 腾讯云测试后端验证通过：`POST /places/submissions` 提交新增地点 -> `GET /places/submissions/my` 读回同一条审核中记录。
   - 新增地点状态：`pending_review`。
   - 列表读取状态：`200`。
+- 临时本地后端与腾讯云测试后端均验证通过：`POST /media/uploads` 上传测试图片 -> `GET /media/{mediaId}` 读回同一条媒体分析结果；另一账号读取同一 `mediaId` 返回 404。
+  - 自己读取状态：`200`。
+  - 跨账号读取状态：`404`。
+  - 测试图片分析状态：`warning`。
 - 前端类型检查覆盖 Android 返回交互改动：`npm run typecheck` 通过。
 - 前端类型检查覆盖权限状态持久化改动：`npm run typecheck` 通过。
 - 前端类型检查覆盖健康摘要数据源切换：`npm run typecheck` 通过。

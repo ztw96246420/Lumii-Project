@@ -533,6 +533,17 @@ function createPlaceSubmission(user, body) {
   return { submission };
 }
 
+function publicUploadedMedia(media) {
+  if (!media) return null;
+  const analysis = media.analysis || analyzeUploadedPetMedia({}, media.dataUrl);
+  return {
+    analysis,
+    mediaId: media.mediaId,
+    previewUrl: media.previewUrl || samplePhotoUrl,
+    quality: analysis.status === 'blocked' ? 'blocked' : analysis.status === 'warning' ? 'warning' : 'good',
+  };
+}
+
 const feedbackCategories = new Set(['bug', 'other', 'safety', 'suggestion']);
 
 function createFeedbackSubmission(user, body) {
@@ -1927,12 +1938,19 @@ async function handle(req, res) {
       source: body.source || 'mvp_sample',
     };
     saveState();
-    ok(res, {
-      analysis,
-      mediaId,
-      previewUrl: body.previewUrl || samplePhotoUrl,
-      quality: analysis.status === 'blocked' ? 'blocked' : analysis.status === 'warning' ? 'warning' : 'good',
-    });
+    ok(res, publicUploadedMedia(state.mediaUploads[mediaId]));
+    return;
+  }
+
+  const mediaDetailMatch = pathname.match(/^\/media\/([^/]+)$/);
+  if (req.method === 'GET' && mediaDetailMatch) {
+    const mediaId = decodeURIComponent(mediaDetailMatch[1]);
+    const media = state.mediaUploads?.[mediaId];
+    if (!media || media.ownerPhone !== user.phone) {
+      fail(res, 404, '上传照片已失效，请重新上传', true);
+      return;
+    }
+    ok(res, publicUploadedMedia(media));
     return;
   }
 

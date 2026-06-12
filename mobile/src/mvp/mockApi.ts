@@ -239,6 +239,7 @@ let notifications: NotificationItem[] = [
 
 let pushDevices: PushDevice[] = [];
 let feedbackSubmissions: FeedbackSubmission[] = [];
+let uploadedMediaById: Record<string, UploadedPetMedia> = {};
 
 const places: Place[] = [
   { id: 'p1', name: '云杉宠物友好公园', address: '滨江路 88 号', category: 'park', distance: '900m', rating: 4.8, tags: ['可遛狗', '草坪', '饮水点'] },
@@ -567,12 +568,20 @@ export const mockApi = {
   avatar: {
     async uploadPetMedia(input?: UploadPetMediaInput): Promise<ApiResult<UploadedPetMedia>> {
       await wait();
-      return success({
+      const media: UploadedPetMedia = {
         analysis: acceptedPetMediaAnalysis,
         mediaId: `media-${Date.now()}`,
         previewUrl: input?.previewUrl ?? goldenRetrieverPhotoUrl,
         quality: 'good',
-      });
+      };
+      uploadedMediaById = { ...uploadedMediaById, [media.mediaId]: media };
+      return success(media);
+    },
+
+    async getUploadedMedia(mediaId: string): Promise<ApiResult<UploadedPetMedia>> {
+      await wait(120);
+      const media = uploadedMediaById[mediaId];
+      return media ? success(media) : error('上传照片已失效，请重新上传', true);
     },
 
     async startGeneration(mediaId: string): Promise<ApiResult<AvatarJob>> {

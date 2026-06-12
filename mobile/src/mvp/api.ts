@@ -197,6 +197,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<UploadedPetMedia>('POST', '/media/uploads', input);
       },
 
+      async getUploadedMedia(mediaId: string): Promise<ApiResult<UploadedPetMedia>> {
+        return request<UploadedPetMedia>('GET', `/media/${encodeURIComponent(mediaId)}`);
+      },
+
       async startGeneration(mediaId: string): Promise<ApiResult<AvatarJob>> {
         return request<AvatarJob>('POST', '/ai/pet-avatar/jobs', { mediaId });
       },

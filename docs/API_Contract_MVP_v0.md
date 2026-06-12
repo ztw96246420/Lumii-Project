@@ -389,11 +389,33 @@ Response data:
 
 ```json
 {
+  "analysis": {
+    "canGenerate": true,
+    "code": "single_pet_clear",
+    "message": "照片可以用于生成灵伴形象",
+    "qualityScore": 92,
+    "status": "accepted"
+  },
   "mediaId": "media-001",
   "previewUrl": "https://...",
   "quality": "good"
 }
 ```
+
+### GET `/media/{mediaId}`
+
+读取当前登录账号上传过的媒体元信息。用于上传后恢复、生成前复核和后续调试，不返回原始图片二进制。
+
+Response data:
+
+```ts
+UploadedPetMedia
+```
+
+说明：
+- 需要登录，只能读取当前账号自己的上传记录。
+- 如果媒体不存在或不属于当前账号，返回 404：`上传照片已失效，请重新上传`。
+- 原始文件读取仍使用内部/临时的 `GET /media/uploads/{mediaId}/file`，该地址主要给外部生成服务读取图片，不作为 App 业务页面入口。
 
 ### POST `/ai/pet-avatar/jobs`
 

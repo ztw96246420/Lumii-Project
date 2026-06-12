@@ -161,7 +161,8 @@ Android 调用：
 需要接口：
 - `POST /media/upload-token`：获取上传凭证。
 - `POST /media/commit`：提交上传结果。
-- `GET /media/{id}`：读取媒体信息。
+- ~~`POST /media/uploads`：MVP 上传结果承接口。~~ MVP 测试后端、HTTP API 门面和 mock API 已支持，当前用于上传照片分析和生成任务入参。
+- ~~`GET /media/{id}`：读取媒体信息。~~ MVP 测试后端、HTTP API 门面和 mock API 已支持登录态读取自己的上传媒体元信息；真实 OSS/COS 直传仍需后续替换。
 
 需要你确认：
 - 对象存储：阿里云 OSS、腾讯云 COS、七牛云或其他。
@@ -413,8 +414,8 @@ P2 后续：
 - `auth`：`sendSmsCode`、`verifySmsCode`、`logout`
 - `permissions`：当前通过 `src/services/permissions.ts` 调用 Expo 权限服务；Web 预览模拟授权
 - `pets`：`getTaxonomy`、`createPet`、`updatePet`、`listPets`、`setActivePet`
-- `avatar`：`uploadPetMedia`、`startGeneration`、`getGenerationStatus`、`saveAvatar`
-- `health`：`getHealthSummary`、`listHealthCalendar`、`recordWeight`、`updateWeightRecord`、`deleteWeightRecord`、`listWeightRecords`、`getWeightTrend`、`listVaccines`、`saveHealthMemo`
+- `avatar`：`uploadPetMedia`、`getUploadedMedia`、`startGeneration`、`getGenerationStatus`、`saveAvatar`
+- `health`：`getHealthSummary`、`listHealthCalendar`、`recordWeight`、`updateWeightRecord`、`deleteWeightRecord`、`listWeightRecords`、`getWeightTrend`、`listVaccines`、`updateVaccineStatus`、`listVaccineReminderIds`、`setVaccineReminder`、`saveHealthMemo`、`updateHealthMemo`、`deleteHealthMemo`、`listHealthMemos`
 - `social`：`listNearbyOwners`、`sendGreeting`、`createWalkInvite`
 - `messages`：`registerPushToken`、`listConversations`、`sendMessage`、`listNotifications`
 - `places`：`listNearbyPlaces`、`searchPlaces`、`getPlace`、`listFavoritePlaceIds`、`setFavoritePlace`、`listMyReviews`、`listMySubmissions`、`createReview`、`createSubmission`
