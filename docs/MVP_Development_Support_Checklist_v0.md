@@ -324,7 +324,7 @@ Android 调用：
 ### 3.9 通知
 
 需要接口：
-- ~~`POST /devices/push-token`：上报推送 token。~~ MVP 测试后端和 mock API 已支持按账号保存/更新设备 token；App 真机通知授权成功后会获取 Expo Push Token 并登记，Web 预览跳过；生产厂商通道、通知模板和送达回执仍待确认。
+- ~~`POST /devices/push-token`：上报推送 token。~~ MVP 测试后端和 mock API 已支持按账号保存/更新设备 token，并已补 token、platform、deviceId 和未知字段校验，非法输入返回 `PUSH_DEVICE_INVALID`；App 真机通知授权成功后会获取 Expo Push Token 并登记，Web 预览跳过；生产厂商通道、通知模板和送达回执仍待确认。
 - ~~`GET /notifications`：通知列表。~~ MVP 测试后端已支持，App 会在消息页/通知页刷新读取。
 - ~~`POST /notifications/read`：批量标记已读。~~ MVP 测试后端已支持，进入通知中心会自动标记已读。
 - ~~`PATCH /notification-settings`：通知设置。~~ MVP 测试后端已用 `PATCH /settings` 保存 `pushNotifications`。

@@ -916,8 +916,10 @@ type PushDevice = {
 ```
 
 说明：
-- `token` 不能为空。
-- `platform` 支持 `android`、`ios`、`web`，未识别时测试后端按 `android` 兜底。
+- `token` 不能为空，长度需在 8-4096 字符内，不能包含换行或制表符。
+- `platform` 只支持 `android`、`ios`、`web`，不再静默兜底；非法平台返回 `PUSH_DEVICE_INVALID`。
+- `deviceId` 可选，传入时最多 128 字符，不能包含换行或制表符。
+- 请求只接受 `token`、`platform`、`deviceId` 三个字段；未知字段返回 `PUSH_DEVICE_INVALID`。
 - 传入 `deviceId` 时按 `deviceId` 去重更新；未传 `deviceId` 时按 token 去重。
 - 该接口不等于生产推送服务上线；生产仍需确认厂商通道、通知模板、送达回执和退订策略。
 

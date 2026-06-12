@@ -824,6 +824,41 @@ function parseVaccineReminderPatch(value) {
   return { enabled: value.enabled };
 }
 
+function parsePushDevicePayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '推送设备参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(['deviceId', 'platform', 'token']);
+  const keys = Object.keys(value);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `推送设备字段 ${unknownKey} 暂不支持` };
+
+  const token = String(value.token || '').trim();
+  if (!token) return { error: '推送 token 不能为空' };
+  if (token.length < 8 || token.length > 4096 || /[\r\n\t]/.test(token)) {
+    return { error: '推送 token 格式无效，请重新授权通知' };
+  }
+
+  const platform = String(value.platform || '').trim();
+  if (!['android', 'ios', 'web'].includes(platform)) {
+    return { error: '推送平台必须是 android、ios 或 web' };
+  }
+
+  const deviceId = value.deviceId === undefined || value.deviceId === null ? '' : String(value.deviceId).trim();
+  if (deviceId.length > 128 || /[\r\n\t]/.test(deviceId)) {
+    return { error: '设备标识格式无效，请重新授权通知' };
+  }
+
+  return {
+    device: {
+      deviceId: deviceId || undefined,
+      platform,
+      token,
+      updatedAt: '刚刚',
+    },
+  };
+}
+
 function normalizeFavoritePlaceIds(value) {
   if (!Array.isArray(value)) return [];
   const existingPlaceIds = new Set((state.places || []).map((place) => place.id));
@@ -3136,18 +3171,12 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/devices/push-token') {
-    const token = String(body.token || '').trim();
-    if (!token) {
-      fail(res, 400, '推送 token 不能为空', false);
+    const pushDeviceInput = parsePushDevicePayload(body);
+    if (pushDeviceInput.error) {
+      fail(res, 400, pushDeviceInput.error, false, undefined, 'PUSH_DEVICE_INVALID');
       return;
     }
-    const platform = ['android', 'ios', 'web'].includes(String(body.platform || '')) ? String(body.platform) : 'android';
-    const device = {
-      deviceId: body.deviceId ? String(body.deviceId) : undefined,
-      platform,
-      token,
-      updatedAt: '刚刚',
-    };
+    const { device } = pushDeviceInput;
     state.pushDevices = state.pushDevices || {};
     const devices = Array.isArray(state.pushDevices[user.phone]) ? state.pushDevices[user.phone] : [];
     state.pushDevices[user.phone] = [

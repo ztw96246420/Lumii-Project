@@ -242,6 +242,38 @@ function parseMockVaccineReminderPatch(enabled: unknown): { error: string; ok: f
   return { enabled, ok: true };
 }
 
+function parseMockPushDevicePayload(
+  token: unknown,
+  platform: unknown,
+  deviceId?: unknown,
+): { device: PushDevice; ok: true } | { error: string; ok: false } {
+  const normalizedToken = String(token || '').trim();
+  if (!normalizedToken) return { error: '推送 token 不能为空', ok: false };
+  if (normalizedToken.length < 8 || normalizedToken.length > 4096 || /[\r\n\t]/.test(normalizedToken)) {
+    return { error: '推送 token 格式无效，请重新授权通知', ok: false };
+  }
+
+  const normalizedPlatform = String(platform || '').trim();
+  if (!['android', 'ios', 'web'].includes(normalizedPlatform)) {
+    return { error: '推送平台必须是 android、ios 或 web', ok: false };
+  }
+
+  const normalizedDeviceId = deviceId === undefined || deviceId === null ? '' : String(deviceId).trim();
+  if (normalizedDeviceId.length > 128 || /[\r\n\t]/.test(normalizedDeviceId)) {
+    return { error: '设备标识格式无效，请重新授权通知', ok: false };
+  }
+
+  return {
+    device: {
+      deviceId: normalizedDeviceId || undefined,
+      platform: normalizedPlatform as PushDevice['platform'],
+      token: normalizedToken,
+      updatedAt: '刚刚',
+    },
+    ok: true,
+  };
+}
+
 const goldenRetrieverPhotoUrl =
   'https://images.unsplash.com/photo-1625794084867-8ddd239946b1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=720';
 const goldenRetrieverAvatarUrl =
@@ -1729,15 +1761,9 @@ export const mockApi = {
   messages: {
     async registerPushToken(token: string, platform: PushDevice['platform'], deviceId?: string): Promise<ApiResult<PushDevice>> {
       await wait(120);
-      const normalizedToken = String(token || '').trim();
-      if (!normalizedToken) return error('推送 token 不能为空', false);
-      const normalizedPlatform = platform === 'ios' || platform === 'web' ? platform : 'android';
-      const device: PushDevice = {
-        deviceId: deviceId ? String(deviceId) : undefined,
-        platform: normalizedPlatform,
-        token: normalizedToken,
-        updatedAt: '刚刚',
-      };
+      const pushDeviceInput = parseMockPushDevicePayload(token, platform, deviceId);
+      if (!pushDeviceInput.ok) return error<PushDevice>(pushDeviceInput.error, false, undefined, 'PUSH_DEVICE_INVALID');
+      const { device } = pushDeviceInput;
       pushDevices = [
         device,
         ...pushDevices.filter((item) => (device.deviceId ? item.deviceId !== device.deviceId : item.token !== device.token)),
