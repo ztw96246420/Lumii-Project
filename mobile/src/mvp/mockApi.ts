@@ -259,6 +259,125 @@ function createMockWeightRecordFromPetChat(text: string) {
   return record;
 }
 
+function cleanMockPetChatProfileValue(value: unknown, maxLength: number) {
+  const cleaned = String(value ?? '')
+    .replace(/^[：:，,\s]+/u, '')
+    .replace(/[。！!；;，,\s]+$/u, '')
+    .replace(/(呢|吧|呀|啦|了)$/u, '')
+    .trim();
+  if (!cleaned || /^(吗|什么|多少|几岁|多大)$/u.test(cleaned)) return '';
+  return cleaned.slice(0, maxLength);
+}
+
+function firstMockPetChatProfileValue(patterns: RegExp[], rawText: string, maxLength: number) {
+  for (const pattern of patterns) {
+    const match = rawText.match(pattern);
+    const value = cleanMockPetChatProfileValue(match?.[1], maxLength);
+    if (value) return value;
+  }
+  return null;
+}
+
+function normalizeMockPetChatProfileDate(rawText: string) {
+  const match = String(rawText || '').match(/(\d{4})\s*(?:年|-|\/|\.)\s*(\d{1,2})\s*(?:月|-|\/|\.)\s*(\d{1,2})\s*(?:日|号)?/u);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  if (year < 1990 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  const today = new Date();
+  const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  if (date.getTime() > todayUtc) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function extractMockPetChatProfileGender(rawText: string): PetProfile['gender'] | null {
+  const match = String(rawText || '').match(/(?:性别)(?:是|为|改成|改为|设为|设置为|更新为)?[：:，,\s]*(男孩|女孩|男|女|公|母|弟弟|妹妹|未知|不确定)/u);
+  const value = match?.[1];
+  if (!value) return null;
+  if (/未知|不确定/u.test(value)) return 'unknown';
+  if (/男|公|弟弟/u.test(value)) return 'male';
+  if (/女|母|妹妹/u.test(value)) return 'female';
+  return null;
+}
+
+function extractMockPetChatPersonality(rawText: string) {
+  if (!/(性格|标签)/u.test(rawText)) return null;
+  const match = String(rawText || '').match(/(?:性格标签|性格|标签)(?:是|有|改成|改为|设为|设置为|更新为|补充为)?[：:，,\s]*([^。！!；;\n]{1,80})/u);
+  if (!match?.[1]) return null;
+  const tags: string[] = [];
+  for (const token of match[1].split(/[、,，\/|｜\s]+/u)) {
+    if (/(生日|出生|品种|犬种|猫种|名字|昵称|小名|性别|体重|疫苗|驱虫)/u.test(token)) break;
+    const tag = cleanMockPetChatProfileValue(token, 8);
+    if (tag && !tags.includes(tag)) tags.push(tag);
+    if (tags.length >= 6) break;
+  }
+  return tags.length ? tags : null;
+}
+
+function extractMockPetProfilePatchFromPetChat(text: string): Partial<PetProfile> | null {
+  const rawText = String(text || '').trim();
+  if (!rawText || /不要记|别记|不用记|不要记录|别记录/u.test(rawText)) return null;
+  if (!/(档案|资料|名字|昵称|小名|生日|出生|品种|犬种|猫种|性别|性格|标签|(?:它|他|她|宠物|狗狗|猫咪)(?:叫|叫做))/u.test(rawText)) return null;
+
+  const patch: Partial<PetProfile> = {};
+  const name = firstMockPetChatProfileValue(
+    [
+      /(?:宠物|狗狗|猫咪|它|他|她)?(?:名字|昵称|小名)(?:叫|叫做|是|改成|改为|设为|设置为|更新为)?[：:，,\s]*([^\s，,。！!；;]{1,16})/u,
+      /(?:它|他|她)(?:叫|叫做)[：:，,\s]*([^\s，,。！!；;]{1,16})/u,
+    ],
+    rawText,
+    12,
+  );
+  if (name && !/^(名字|昵称|小名|宠物)$/u.test(name)) patch.name = name;
+
+  if (/(生日|出生)/u.test(rawText)) {
+    const birthday = normalizeMockPetChatProfileDate(rawText);
+    if (birthday) patch.birthday = birthday;
+  }
+
+  const breed = firstMockPetChatProfileValue(
+    [
+      /(?:品种|犬种|猫种)(?:是|为|叫|改成|改为|设为|设置为|更新为)?[：:，,\s]*([^，,。！!；;\n]{1,24})/u,
+    ],
+    rawText,
+    20,
+  );
+  if (breed && !/^(品种|犬种|猫种)$/u.test(breed)) patch.breed = breed;
+
+  const gender = extractMockPetChatProfileGender(rawText);
+  if (gender) patch.gender = gender;
+
+  const personality = extractMockPetChatPersonality(rawText);
+  if (personality) patch.personality = personality;
+
+  return Object.keys(patch).length ? patch : null;
+}
+
+function applyMockPetProfileUpdateFromPetChat(text: string) {
+  const petId = activePetId || pets[0]?.id;
+  const pet = pets.find((item) => item.id === petId);
+  if (!pet) return null;
+  const patch = extractMockPetProfilePatchFromPetChat(text);
+  if (!patch) return null;
+  const updatedPet = { ...pet, ...patch };
+  pets = pets.map((item) => (item.id === updatedPet.id ? updatedPet : item));
+  return { patch, pet: updatedPet };
+}
+
+function describeMockPetProfilePatch(patch: Partial<PetProfile>) {
+  const fields: string[] = [];
+  if (patch.name) fields.push('昵称');
+  if (patch.birthday) fields.push('生日');
+  if (patch.breed) fields.push('品种');
+  if (patch.gender) fields.push('性别');
+  if (patch.personality) fields.push('性格标签');
+  return fields.join('、') || '宠物资料';
+}
+
 type MockPetChatVaccineAction = {
   action: 'done' | 'reminder_off' | 'reminder_on';
   reminderIds: string[];
@@ -1169,15 +1288,17 @@ export const mockApi = {
       if (!text.trim()) return error('请输入消息内容', false);
       mockPetChatDailyCount += 1;
       const medicalAlert = createMockMedicalAlertFromPetChat(text);
-      const vaccineAction = medicalAlert ? null : applyMockPetChatVaccineAction(text);
-      const createdWeight = medicalAlert ? null : createMockWeightRecordFromPetChat(text);
-      const createdMemo = medicalAlert?.memo ?? (vaccineAction || createdWeight ? null : createMockHealthMemoFromPetChat(text));
+      const profileUpdate = medicalAlert ? null : applyMockPetProfileUpdateFromPetChat(text);
+      const vaccineAction = medicalAlert || profileUpdate ? null : applyMockPetChatVaccineAction(text);
+      const createdWeight = medicalAlert || profileUpdate ? null : createMockWeightRecordFromPetChat(text);
+      const createdMemo = medicalAlert?.memo ?? (profileUpdate || vaccineAction || createdWeight ? null : createMockHealthMemoFromPetChat(text));
       const userMessage: ChatMessage = { id: `pet-user-${Date.now()}`, author: 'me', text, status: 'sent', time: '刚刚' };
       const replyText = detectMockPetMedicalEmergency(text)
         ? mockPetMedicalSafetyReply(text)
         : '我收到啦。这个情况我会放进今天的小记录里，如果和健康有关，也建议继续观察食欲、精神和便便状态。';
       const savedNotices = [
         medicalAlert ? `已帮你记录到健康备忘：「${medicalAlert.memo.title}」，并生成就医提醒。` : '',
+        profileUpdate ? `已帮你更新宠物档案：${describeMockPetProfilePatch(profileUpdate.patch)}。` : '',
         vaccineAction?.action === 'done' ? `已帮你标记${vaccineAction.vaccine.name}完成。` : '',
         vaccineAction?.action === 'reminder_on' ? `已帮你开启${vaccineAction.vaccine.name}提醒。` : '',
         vaccineAction?.action === 'reminder_off' ? `已帮你关闭${vaccineAction.vaccine.name}提醒。` : '',
@@ -1193,6 +1314,7 @@ export const mockApi = {
         status: 'sent',
         text: savedNotices.length ? `${replyText}\n\n${savedNotices.join('\n')}` : replyText,
         time: '刚刚',
+        updatedPet: profileUpdate?.pet,
         updatedVaccine: vaccineAction?.vaccine,
         vaccineReminderIds: vaccineAction?.reminderIds,
       };

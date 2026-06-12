@@ -201,6 +201,7 @@ export type ChatMessage = {
   status?: 'failed' | 'sending' | 'sent';
   text: string;
   time: string;
+  updatedPet?: PetProfile;
   updatedVaccine?: VaccinePlan;
   vaccineReminderIds?: string[];
 };

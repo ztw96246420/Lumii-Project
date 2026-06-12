@@ -1487,6 +1487,21 @@ export default function LumiiMvpApp() {
       setChatMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: result.data ? 'sent' : 'failed' } : item)));
       if (result.data) {
         setChatMessages((items) => [...items, result.data!]);
+        if (result.data.updatedPet) {
+          setActivePet(result.data.updatedPet);
+          setSession((current) =>
+            current?.account
+              ? {
+                  ...current,
+                  account: {
+                    ...current.account,
+                    activePet: result.data!.updatedPet!,
+                  },
+                }
+              : current,
+          );
+          void refreshHealthSummary();
+        }
         if (result.data.createdMemo) {
           setMemos((items) => [result.data!.createdMemo!, ...items.filter((item) => item.id !== result.data!.createdMemo!.id)]);
           void refreshHealthSummary();
