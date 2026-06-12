@@ -246,6 +246,7 @@ Android 调用：
 - ~~`POST /ai/pet-chat/sessions/{sessionId}/messages`：发送消息并获取回复。~~ MVP 已接 `POST /ai/pet-chat/messages`，支持 DeepSeek V4 服务端适配层与本地 fallback。
 - ~~`POST /ai/pet-chat/messages/{messageId}/feedback`：反馈语气不像、无帮助、不安全等。~~ MVP 测试后端已支持 `good/off`，App 会把“像它/不像它”写回对应 AI 消息；后续对话会读取同一宠物下的反馈摘要并注入 DeepSeek 上下文。
 - ~~`GET /ai/usage`：读取 AI 对话 token/次数与形象生成额度统计。~~ MVP 测试后端、HTTP API 门面和 mock API 已支持；不触发真实模型请求。
+- ~~AI 宠物聊天当前宠物状态保护。~~ App 已补账号 token 与当前宠物 ID 校验，切号或切宠后的旧聊天加载/发送回包不会写入当前宠物对话；不需要你额外补页面或接口。
 
 需要你提供：
 - 宠物人格设定字段：活泼、黏人、稳重、胆小等。
@@ -287,6 +288,7 @@ Android 调用：
 - ~~`PATCH /pets/{petId}/vaccines/plan`：更新疫苗计划。~~ 测试后端已接 `PATCH /health/vaccines/{vaccineId}`，支持标记完成；只接受 `due/done/overdue` 状态，非法字段或非法状态返回 `HEALTH_VACCINE_INVALID`。
 - ~~疫苗/驱虫提醒开关接口。~~ 测试后端已接 `GET /health/vaccine-reminders` 与 `PATCH /health/vaccine-reminders/{vaccineId}`，只接受布尔 `enabled`，非法字段、非布尔值或已完成计划重新开启提醒返回 `HEALTH_REMINDER_INVALID`。
 - ~~疫苗/驱虫提醒和标记完成的前端状态保护。~~ App 已补 ref 级互斥、最新通知权限/推送设置读取和退出账号清理；不需要你额外补页面或接口。
+- ~~体重记录、健康备忘、今日小事和健康摘要当前宠物状态保护。~~ App 已补账号 token 与当前宠物 ID 校验，切号或切宠后的旧回包不会写入当前宠物健康数据，也不会清空新宠物输入草稿；不需要你额外补页面或接口。
 
 需要你提供：
 - 犬猫疫苗模板。

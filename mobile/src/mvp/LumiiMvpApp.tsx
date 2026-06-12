@@ -438,6 +438,7 @@ export default function LumiiMvpApp() {
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [clock, setClock] = useState(Date.now());
   const [session, setSession] = useState<AuthSession | null>(null);
+  const activePetIdRef = useRef<string | null>(null);
   const phoneInputRef = useRef<TextInput>(null);
   const phoneValueRef = useRef('');
   const otpInputRef = useRef<TextInput>(null);
@@ -591,6 +592,10 @@ export default function LumiiMvpApp() {
 
   function getCurrentPet() {
     return activePet ?? getActivePetFallback();
+  }
+
+  function isCurrentPetRequest(requestSessionToken: string, requestPetId: null | string) {
+    return Boolean(requestSessionToken && requestPetId && sessionTokenRef.current === requestSessionToken && activePetIdRef.current === requestPetId);
   }
 
   const showToast = useCallback((message: string) => setToast(message), []);
@@ -782,6 +787,10 @@ export default function LumiiMvpApp() {
       };
     });
   }, [activePet]);
+
+  useEffect(() => {
+    activePetIdRef.current = activePet?.id ?? null;
+  }, [activePet?.id]);
 
   useEffect(() => {
     const previousRoute = previousRouteRef.current;
@@ -1006,7 +1015,9 @@ export default function LumiiMvpApp() {
       setSession((current) => (current ? { ...current, account: profile, phone: profile.phone } : current));
       userSettingsRef.current = profileSettings;
       setUserSettings(profileSettings);
-      setActivePet(profile.activePet ?? getActivePetFallback());
+      const profilePet = profile.activePet ?? getActivePetFallback();
+      activePetIdRef.current = profilePet?.id ?? null;
+      setActivePet(profilePet);
     }
     if (healthSummaryResult.data) {
       setHealthSummary(healthSummaryResult.data);
@@ -1065,7 +1076,11 @@ export default function LumiiMvpApp() {
   }
 
   async function refreshHealthSummary() {
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!requestPetId) return null;
     const result = await lumiiApi.health.getHealthSummary();
+    if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return null;
     if (!result.data) return null;
     setHealthSummary(result.data);
     setVaccineReminderIds(result.data.vaccineReminderIds);
@@ -1082,6 +1097,9 @@ export default function LumiiMvpApp() {
   }
 
   async function refreshPetScopedData() {
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!requestPetId) return;
     const [healthSummaryResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, aiUsageResult] = await Promise.all([
       lumiiApi.health.getHealthSummary(),
       lumiiApi.health.listWeightRecords(),
@@ -1090,6 +1108,7 @@ export default function LumiiMvpApp() {
       lumiiApi.health.listHealthMemos(),
       lumiiApi.ai.getUsage(),
     ]);
+    if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
 
     if (healthSummaryResult.data) {
       setHealthSummary(healthSummaryResult.data);
@@ -1217,7 +1236,11 @@ export default function LumiiMvpApp() {
   }
 
   async function loadPetChatMessages() {
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!requestPetId) return;
     const result = await lumiiApi.messages.listPetChatMessages();
+    if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
     if (result.data) {
       setChatMessages(result.data.length ? result.data : [createPetChatWelcomeMessage(activePet)]);
       setChatFeedbackById(
@@ -1337,6 +1360,7 @@ export default function LumiiMvpApp() {
     }
 
     const restoredPet = account?.activePet ?? petResult.data?.[0] ?? getActivePetFallback();
+    activePetIdRef.current = restoredPet?.id ?? null;
     setActivePet(restoredPet ?? null);
     permissionsRef.current = latestPermissions;
     if (latestPermissions.notifications === 'granted') {
@@ -1512,6 +1536,7 @@ export default function LumiiMvpApp() {
         }
         const result = await lumiiApi.pets.updatePet(pet.id, payload);
         if (result.data) {
+          activePetIdRef.current = result.data.id;
           setActivePet(result.data);
           setSession((current) =>
             current?.account
@@ -1536,6 +1561,7 @@ export default function LumiiMvpApp() {
 
       const result = await lumiiApi.pets.createPet(payload);
       if (result.data) {
+        activePetIdRef.current = result.data.id;
         setActivePet(result.data);
         setSession((current) =>
           current?.account
@@ -1772,6 +1798,7 @@ export default function LumiiMvpApp() {
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (jobId && avatarJobIdRef.current !== jobId) return;
       if (result.data) {
+        activePetIdRef.current = result.data.id;
         setActivePet(result.data);
         resetAvatarDraft();
         void refreshPetScopedData();
@@ -1828,6 +1855,7 @@ export default function LumiiMvpApp() {
     let shouldRefreshInbox = false;
 
     if (message.updatedPet) {
+      activePetIdRef.current = message.updatedPet.id;
       setActivePet(message.updatedPet);
       shouldRefreshHealth = true;
       addSyncLabel('宠物档案');
@@ -1869,6 +1897,12 @@ export default function LumiiMvpApp() {
   }
 
   async function sendChatMessage(textOverride?: string, retryMessageId?: string) {
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!requestPetId) {
+      showToast('请先添加宠物档案');
+      return;
+    }
     const text = (textOverride ?? chatInput).trim();
     if (!text) return;
     if (chatReplyingRef.current) {
@@ -1890,6 +1924,10 @@ export default function LumiiMvpApp() {
     );
     try {
       const result = await lumiiApi.messages.sendMessage(text);
+      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) {
+        setChatMessages((items) => items.filter((item) => item.id !== local.id));
+        return;
+      }
       setChatMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: result.data ? 'sent' : 'failed' } : item)));
       if (result.data) {
         setChatMessages((items) => [...items, result.data!]);
@@ -2075,6 +2113,12 @@ export default function LumiiMvpApp() {
 
   async function recordWeight() {
     if (weightSavingRef.current) return;
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!requestPetId) {
+      showToast('请先添加宠物档案');
+      return;
+    }
     const kg = Number.parseFloat(weightInput);
     if (!Number.isFinite(kg) || kg <= 0) {
       showToast('请输入正确体重');
@@ -2084,6 +2128,7 @@ export default function LumiiMvpApp() {
     setWeightSaving(true);
     try {
       const result = await lumiiApi.health.recordWeight(kg, '手动记录');
+      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setWeights((items) => [result.data!, ...items]);
         setActivePet((pet) => (pet ? { ...pet, weightKg: result.data!.kg } : pet));
@@ -2327,14 +2372,23 @@ export default function LumiiMvpApp() {
 
   async function saveMemoDraft() {
     if (memoDraftSavingRef.current) return;
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!requestPetId) {
+      showToast('请先添加宠物档案');
+      return;
+    }
     if (!memoDraftTitle.trim() || !memoDraftContent.trim()) {
       showToast('请填写备忘标题和内容');
       return;
     }
+    const requestTitle = memoDraftTitle.trim();
+    const requestContent = memoDraftContent.trim();
     memoDraftSavingRef.current = true;
     setMemoDraftSaving(true);
     try {
-      const result = await lumiiApi.health.saveHealthMemo(memoDraftTitle, memoDraftContent);
+      const result = await lumiiApi.health.saveHealthMemo(requestTitle, requestContent);
+      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setMemos((items) => [result.data!, ...items]);
         setMemoDraftTitle('');
@@ -2352,14 +2406,23 @@ export default function LumiiMvpApp() {
 
   async function saveHealthMemo() {
     if (memoSavingRef.current) return;
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!requestPetId) {
+      showToast('请先添加宠物档案');
+      return;
+    }
     if (!memoTitle.trim() || !memoContent.trim()) {
       showToast('请填写标题和内容');
       return;
     }
+    const requestTitle = memoTitle.trim();
+    const requestContent = memoContent.trim();
     memoSavingRef.current = true;
     setMemoSaving(true);
     try {
-      const result = await lumiiApi.health.saveHealthMemo(memoTitle, memoContent);
+      const result = await lumiiApi.health.saveHealthMemo(requestTitle, requestContent);
+      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setMemos((items) => [result.data!, ...items]);
         setMemoTitle('');
@@ -2377,14 +2440,22 @@ export default function LumiiMvpApp() {
 
   async function publishDailyPost() {
     if (dailyPostSavingRef.current) return;
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!requestPetId) {
+      showToast('请先添加宠物档案');
+      return;
+    }
     if (!dailyPostText.trim()) {
       showToast('先写一点今天的小事吧');
       return;
     }
+    const requestText = dailyPostText.trim();
     dailyPostSavingRef.current = true;
     setDailyPostSaving(true);
     try {
-      const result = await lumiiApi.health.saveHealthMemo('今日小事', dailyPostText.trim());
+      const result = await lumiiApi.health.saveHealthMemo('今日小事', requestText);
+      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setMemos((items) => [result.data!, ...items]);
         setDailyPostText('');
@@ -2702,6 +2773,7 @@ export default function LumiiMvpApp() {
     setLumiiAuthToken();
     setConfirm(null);
     setSession(null);
+    activePetIdRef.current = null;
     setActivePet(null);
     setHistory([]);
     phoneValueRef.current = '';
