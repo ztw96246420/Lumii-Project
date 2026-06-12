@@ -467,7 +467,9 @@ export default function LumiiMvpApp() {
   const [chatInput, setChatInput] = useState('');
   const [chatFeedbackById, setChatFeedbackById] = useState<Record<string, PetChatFeedbackRating>>({});
   const [chatFeedbackSavingIds, setChatFeedbackSavingIds] = useState<string[]>([]);
+  const chatFeedbackSavingIdsRef = useRef<Set<string>>(new Set());
   const [chatReplying, setChatReplying] = useState(false);
+  const chatReplyingRef = useRef(false);
   const [aiUsage, setAiUsage] = useState<AiUsageSummary | null>(null);
   const [petChatDailyCount, setPetChatDailyCount] = useState(0);
   const [healthSummary, setHealthSummary] = useState<HealthSummary | null>(null);
@@ -1698,7 +1700,7 @@ export default function LumiiMvpApp() {
   async function sendChatMessage(textOverride?: string, retryMessageId?: string) {
     const text = (textOverride ?? chatInput).trim();
     if (!text) return;
-    if (chatReplying) {
+    if (chatReplyingRef.current) {
       showToast('等灵伴回复完再继续聊');
       return;
     }
@@ -1710,6 +1712,7 @@ export default function LumiiMvpApp() {
       ? { author: 'me', id: retryMessageId, status: 'sending', text, time: '刚刚' }
       : { author: 'me', id: `me-${Date.now()}`, status: 'sending', text, time: '刚刚' };
     if (!retryMessageId) setChatInput('');
+    chatReplyingRef.current = true;
     setChatReplying(true);
     setChatMessages((items) =>
       retryMessageId ? items.map((item) => (item.id === retryMessageId ? local : item)) : [...items, local],
@@ -1726,12 +1729,14 @@ export default function LumiiMvpApp() {
         void loadAiUsage();
       }
     } finally {
+      chatReplyingRef.current = false;
       setChatReplying(false);
     }
   }
 
   async function ratePetChatReply(messageId: string, rating: PetChatFeedbackRating) {
-    if (chatFeedbackSavingIds.includes(messageId)) return;
+    if (chatFeedbackSavingIdsRef.current.has(messageId)) return;
+    chatFeedbackSavingIdsRef.current.add(messageId);
     setChatFeedbackSavingIds((items) => [...new Set([...items, messageId])]);
     const previousRating = chatFeedbackById[messageId];
     setChatFeedbackById((items) => ({ ...items, [messageId]: rating }));
@@ -1750,6 +1755,7 @@ export default function LumiiMvpApp() {
         showToast(result.error?.message ?? '反馈保存失败，请稍后重试');
       }
     } finally {
+      chatFeedbackSavingIdsRef.current.delete(messageId);
       setChatFeedbackSavingIds((items) => items.filter((id) => id !== messageId));
     }
   }
@@ -2498,7 +2504,9 @@ export default function LumiiMvpApp() {
     setChatMessages([createPetChatWelcomeMessage()]);
     setChatInput('');
     setChatFeedbackById({});
+    chatFeedbackSavingIdsRef.current.clear();
     setChatFeedbackSavingIds([]);
+    chatReplyingRef.current = false;
     setChatReplying(false);
     setAiUsage(null);
     setPetChatDailyCount(0);
