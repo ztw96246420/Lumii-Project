@@ -1135,6 +1135,18 @@ export default function LumiiMvpApp() {
         const result = await lumiiApi.pets.updatePet(pet.id, payload);
         if (result.data) {
           setActivePet(result.data);
+          setSession((current) =>
+            current?.account
+              ? {
+                  ...current,
+                  account: {
+                    ...current.account,
+                    activePet: result.data!,
+                  },
+                }
+              : current,
+          );
+          void refreshHealthSummary();
           setHistory((items) => items.slice(0, -1));
           replace('petDetail');
           showToast('宠物信息已保存');
@@ -1147,6 +1159,17 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.pets.createPet(payload);
       if (result.data) {
         setActivePet(result.data);
+        setSession((current) =>
+          current?.account
+            ? {
+                ...current,
+                account: {
+                  ...current.account,
+                  activePet: result.data!,
+                },
+              }
+            : current,
+        );
         resetAvatarDraft();
         go('upload');
       } else {
