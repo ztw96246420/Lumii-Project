@@ -103,6 +103,84 @@ function parseMockUserSettingsPatch(value: Partial<UserSettings>) {
   return { patch: source as Partial<UserSettings> };
 }
 
+type MockPetProfilePatch = Partial<Pick<PetProfile, 'avatarUrl' | 'birthday' | 'breed' | 'gender' | 'name' | 'species' | 'weightKg'>>;
+
+function parseMockPetProfilePayload(value: Partial<CreatePetInput | PetProfile>, options: { partial?: boolean } = {}) {
+  const partial = options.partial === true;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '宠物资料参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(['avatarUrl', 'birthday', 'breed', 'gender', 'name', 'species', 'weightKg']);
+  const source = value as Record<string, unknown>;
+  const keys = Object.keys(source);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `宠物资料字段 ${unknownKey} 暂不支持` };
+
+  const patch: MockPetProfilePatch = {};
+  const unset: Array<'avatarUrl' | 'birthday' | 'weightKg'> = [];
+  const fieldRules = petTaxonomy.fieldRules;
+  const supportedSpecies = new Set(fieldRules.supportedSpecies);
+  const genderIds = new Set(petTaxonomy.genders.map((item) => item.id));
+
+  if (!partial || Object.prototype.hasOwnProperty.call(source, 'name')) {
+    const name = String(source.name || '').trim();
+    if (!name) return { error: '请输入宠物昵称' };
+    if (name.length > fieldRules.maxNameLength) return { error: `宠物昵称最多 ${fieldRules.maxNameLength} 个字` };
+    patch.name = name;
+  }
+
+  if (!partial || Object.prototype.hasOwnProperty.call(source, 'species')) {
+    const species = String(source.species || '').trim();
+    if (!species) return { error: '请选择宠物类型' };
+    if (!supportedSpecies.has(species as 'cat' | 'dog')) return { error: '当前 MVP 版本先支持猫和狗建档' };
+    patch.species = species as 'cat' | 'dog';
+  }
+
+  if (!partial || Object.prototype.hasOwnProperty.call(source, 'breed')) {
+    const breed = String(source.breed || '').trim() || '待完善';
+    if (breed.length > fieldRules.maxBreedLength) return { error: `宠物品种最多 ${fieldRules.maxBreedLength} 个字` };
+    patch.breed = breed;
+  }
+
+  if (!partial || Object.prototype.hasOwnProperty.call(source, 'gender')) {
+    const gender = String(source.gender || 'unknown').trim() || 'unknown';
+    if (!genderIds.has(gender as PetProfile['gender'])) return { error: '请选择正确的宠物性别' };
+    patch.gender = gender as PetProfile['gender'];
+  }
+
+  if (Object.prototype.hasOwnProperty.call(source, 'birthday')) {
+    const birthday = String(source.birthday || '').trim();
+    if (birthday) {
+      if (!isValidIsoCalendarDate(birthday)) return { error: '宠物生日格式应为 YYYY-MM-DD' };
+      patch.birthday = birthday;
+    } else {
+      unset.push('birthday');
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(source, 'weightKg')) {
+    if (source.weightKg === '' || source.weightKg === null) {
+      unset.push('weightKg');
+    } else {
+      const weightKg = Number(source.weightKg);
+      if (!Number.isFinite(weightKg) || weightKg <= 0 || weightKg > 200) return { error: '请输入 0-200kg 之间的宠物体重' };
+      patch.weightKg = Math.round(weightKg * 100) / 100;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(source, 'avatarUrl')) {
+    const avatarUrl = String(source.avatarUrl || '').trim();
+    if (avatarUrl) {
+      if (avatarUrl.length > 2000) return { error: '宠物头像地址过长，请重新上传' };
+      patch.avatarUrl = avatarUrl;
+    } else {
+      unset.push('avatarUrl');
+    }
+  }
+
+  return { patch, unset };
+}
+
 const goldenRetrieverPhotoUrl =
   'https://images.unsplash.com/photo-1625794084867-8ddd239946b1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=720';
 const goldenRetrieverAvatarUrl =
@@ -789,6 +867,13 @@ function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
+function isValidIsoCalendarDate(value: string) {
+  const text = String(value || '').trim();
+  if (!isIsoDate(text)) return false;
+  const date = new Date(`${text}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === text;
+}
+
 function syncMockPetWeightFromRecords() {
   const petId = activePetId || pets[0]?.id;
   if (!petId) return;
@@ -1201,8 +1286,10 @@ export const mockApi = {
 
     async createPet(input: CreatePetInput): Promise<ApiResult<PetProfile>> {
       await wait();
+      const petInput = parseMockPetProfilePayload(input);
+      if (petInput.error) return error<PetProfile>(petInput.error, false, undefined, 'PET_PROFILE_INVALID');
       const pet: PetProfile = {
-        ...input,
+        ...(petInput.patch as CreatePetInput),
         healthScore: 96,
         id: `pet-${Date.now()}`,
         personality: ['亲人', '爱笑', '饭量稳定'],
@@ -1214,7 +1301,14 @@ export const mockApi = {
 
     async updatePet(id: string, patch: Partial<PetProfile>): Promise<ApiResult<PetProfile>> {
       await wait();
-      pets = pets.map((pet) => (pet.id === id ? { ...pet, ...patch } : pet));
+      const petPatch = parseMockPetProfilePayload(patch, { partial: true });
+      if (petPatch.error) return error<PetProfile>(petPatch.error, false, undefined, 'PET_PROFILE_INVALID');
+      pets = pets.map((pet) => {
+        if (pet.id !== id) return pet;
+        const nextPet = { ...pet, ...(petPatch.patch ?? {}) };
+        for (const key of petPatch.unset ?? []) delete nextPet[key];
+        return nextPet;
+      });
       const pet = pets.find((item) => item.id === id);
       return pet ? success(pet) : error('宠物档案不存在', false);
     },

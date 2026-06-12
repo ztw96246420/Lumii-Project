@@ -2,6 +2,8 @@
 
 ## 本次进展
 
+- 宠物建档/编辑服务端兜底校验补强：`POST /pets` 和 `PATCH /pets/{petId}` 现在会按 `GET /pet-taxonomy.fieldRules` 校验昵称、物种、品种、性别、生日、体重和可更新字段白名单；非法字段、非法物种、非法生日、非法体重等返回 `PET_PROFILE_INVALID`，不再静默默认成 dog 或通过 `Object.assign` 污染宠物档案。mock API 同步该规则，不新增页面。
+- 文档口径同步：接口契约、支持清单和 Figma 缺失清单已把宠物资料服务端兜底校验标记为 MVP 已实现；多宠管理页面、删除宠物危险操作确认仍按 Figma 缺失设计推进。
 - 权限状态接口校验补强：`PATCH /permissions` 现在只接受 `location`、`media`、`notifications` 三个权限项，以及 `unknown/denied/blocked/unavailable/granted` 五种可持久化状态；前端本地瞬时态 `requesting` 不允许写入服务端，未知字段、非法状态或非布尔 `completed` 会返回 `PERMISSIONS_PATCH_INVALID`。mock API 同步该规则，不新增页面。
 - 文档口径同步：`API_Contract_MVP_v0.md`、`MVP_Development_Support_Checklist_v0.md` 和 `Figma_Make_Missing_Page_Prompts_2026-06-06.md` 已补权限接口校验说明；该能力复用现有权限页和 toast。
 - 隐私/通知设置接口校验补强：`PATCH /settings` 现在只接受 `fuzzyLocation`、`interactionMessages`、`nearbyVisible`、`pushNotifications` 四个布尔字段；未知字段或非布尔值返回 `SETTINGS_PATCH_INVALID`，避免联调时字段写错却被静默吞掉。mock API 同步该规则，不新增页面。
@@ -90,6 +92,10 @@
 
 ## 验证
 
+- `node --check scripts/lumii-backend.cjs` 通过，覆盖宠物资料校验、权限 patch 校验、设置 patch 校验和上传文件校验改动。
+- `npm run typecheck` 通过，覆盖 mock API 宠物资料校验。
+- 临时本地后端验证通过：合法创建猫档案成功；非法物种 `rabbit` 返回 `PET_PROFILE_INVALID`；非法生日 `2026-99-99` 返回 `PET_PROFILE_INVALID`；`PATCH /pets/{id}` 传 `healthScore` 返回 `PET_PROFILE_INVALID`；合法清空生日和体重成功。
+- 腾讯云测试后端已热更新并验证通过：公网 `/health` 返回 `success`；合法创建狗档案成功；非法物种、非法生日、非法 `healthScore` patch 均返回 `PET_PROFILE_INVALID`；合法清空生日和体重成功。
 - `node --check scripts/lumii-backend.cjs` 通过，覆盖权限 patch 校验、设置 patch 校验和上传文件校验改动。
 - `npm run typecheck` 通过，覆盖 mock API 权限 patch 校验。
 - 临时本地后端验证通过：`PATCH /permissions` 写入 `location=granted` 成功；未知权限字段返回 `PERMISSIONS_PATCH_INVALID`；非法状态 `requesting` 返回 `PERMISSIONS_PATCH_INVALID`；非布尔 `completed` 返回 `PERMISSIONS_PATCH_INVALID`。

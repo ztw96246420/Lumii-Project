@@ -677,6 +677,80 @@ function parseUserSettingsPatch(value) {
   return { patch: Object.fromEntries(keys.map((key) => [key, value[key]])) };
 }
 
+function parsePetProfilePayload(value, { partial = false } = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '宠物资料参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(['avatarUrl', 'birthday', 'breed', 'gender', 'name', 'species', 'weightKg']);
+  const keys = Object.keys(value);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `宠物资料字段 ${unknownKey} 暂不支持` };
+
+  const patch = {};
+  const unset = [];
+  const fieldRules = petTaxonomy.fieldRules;
+  const supportedSpecies = new Set(fieldRules.supportedSpecies);
+  const genderIds = new Set(petTaxonomy.genders.map((item) => item.id));
+
+  if (!partial || Object.prototype.hasOwnProperty.call(value, 'name')) {
+    const name = String(value.name || '').trim();
+    if (!name) return { error: '请输入宠物昵称' };
+    if (name.length > fieldRules.maxNameLength) return { error: `宠物昵称最多 ${fieldRules.maxNameLength} 个字` };
+    patch.name = name;
+  }
+
+  if (!partial || Object.prototype.hasOwnProperty.call(value, 'species')) {
+    const species = String(value.species || '').trim();
+    if (!species) return { error: '请选择宠物类型' };
+    if (!supportedSpecies.has(species)) return { error: '当前 MVP 版本先支持猫和狗建档' };
+    patch.species = species;
+  }
+
+  if (!partial || Object.prototype.hasOwnProperty.call(value, 'breed')) {
+    const breed = String(value.breed || '').trim() || '待完善';
+    if (breed.length > fieldRules.maxBreedLength) return { error: `宠物品种最多 ${fieldRules.maxBreedLength} 个字` };
+    patch.breed = breed;
+  }
+
+  if (!partial || Object.prototype.hasOwnProperty.call(value, 'gender')) {
+    const gender = String(value.gender || 'unknown').trim() || 'unknown';
+    if (!genderIds.has(gender)) return { error: '请选择正确的宠物性别' };
+    patch.gender = gender;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(value, 'birthday')) {
+    const birthday = String(value.birthday || '').trim();
+    if (birthday) {
+      if (!isValidIsoCalendarDate(birthday)) return { error: '宠物生日格式应为 YYYY-MM-DD' };
+      patch.birthday = birthday;
+    } else {
+      unset.push('birthday');
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(value, 'weightKg')) {
+    if (value.weightKg === '' || value.weightKg === null) {
+      unset.push('weightKg');
+    } else {
+      const weightKg = Number(value.weightKg);
+      if (!Number.isFinite(weightKg) || weightKg <= 0 || weightKg > 200) return { error: '请输入 0-200kg 之间的宠物体重' };
+      patch.weightKg = Math.round(weightKg * 100) / 100;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(value, 'avatarUrl')) {
+    const avatarUrl = String(value.avatarUrl || '').trim();
+    if (avatarUrl) {
+      if (avatarUrl.length > 2000) return { error: '宠物头像地址过长，请重新上传' };
+      patch.avatarUrl = avatarUrl;
+    } else {
+      unset.push('avatarUrl');
+    }
+  }
+
+  return { patch, unset };
+}
+
 function normalizeFavoritePlaceIds(value) {
   if (!Array.isArray(value)) return [];
   const existingPlaceIds = new Set((state.places || []).map((place) => place.id));
@@ -1038,6 +1112,13 @@ function createWeightRecord(user, kg, note, options = {}) {
 
 function isIsoDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
+}
+
+function isValidIsoCalendarDate(value) {
+  const text = String(value || '').trim();
+  if (!isIsoDate(text)) return false;
+  const date = new Date(`${text}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === text;
 }
 
 function syncPetWeightFromRecords(user, records) {
@@ -3011,17 +3092,16 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/pets') {
+    const petInput = parsePetProfilePayload(body);
+    if (petInput.error) {
+      fail(res, 400, petInput.error, false, undefined, 'PET_PROFILE_INVALID');
+      return;
+    }
     const pet = {
-      avatarUrl: body.avatarUrl,
-      birthday: body.birthday,
-      breed: String(body.breed || '待完善'),
-      gender: body.gender === 'male' || body.gender === 'female' ? body.gender : 'unknown',
+      ...petInput.patch,
       healthScore: 96,
       id: `pet-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-      name: String(body.name || `灵伴${user.phone.slice(-4)}`),
       personality: ['亲人', '爱互动', '想交朋友'],
-      species: body.species === 'cat' ? 'cat' : 'dog',
-      weightKg: Number(body.weightKg) || undefined,
     };
     user.pets.unshift(pet);
     user.activePetId = pet.id;
@@ -3049,7 +3129,13 @@ async function handle(req, res) {
       fail(res, 404, '宠物档案不存在', false);
       return;
     }
-    Object.assign(pet, body);
+    const petPatch = parsePetProfilePayload(body, { partial: true });
+    if (petPatch.error) {
+      fail(res, 400, petPatch.error, false, undefined, 'PET_PROFILE_INVALID');
+      return;
+    }
+    for (const key of petPatch.unset || []) delete pet[key];
+    Object.assign(pet, petPatch.patch || {});
     saveState();
     ok(res, pet);
     return;

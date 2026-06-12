@@ -388,6 +388,16 @@ MVP 产品约束：
 - 首版 UI 先完整支持 `dog`、`cat`。
 - 其他物种类型保留接口和类型扩展口，暂不作为首版核心体验。
 
+MVP 兜底校验：
+- `POST /pets` 必填 `name`、`species`，`breed` 为空时保存为“待完善”，`gender` 为空时保存为 `unknown`。
+- `PATCH /pets/{petId}` 当前只允许更新 `name`、`species`、`breed`、`gender`、`birthday`、`weightKg`、`avatarUrl`。
+- `name` 最多 12 个字；`breed` 最多 20 个字。
+- `species` 当前只接受 `dog`、`cat`。
+- `gender` 只接受 `male`、`female`、`unknown`。
+- `birthday` 如填写必须是合法 `YYYY-MM-DD` 日期；传空字符串会清空生日。
+- `weightKg` 如填写必须是 `0-200kg` 之间的数字；传空字符串或 `null` 会清空体重。
+- 未支持字段、非法物种、非法生日、非法体重等返回 400，`error.code=PET_PROFILE_INVALID`，不会静默改成默认值或污染宠物档案。
+
 ### PATCH `/pets/{petId}`
 
 编辑宠物档案。
