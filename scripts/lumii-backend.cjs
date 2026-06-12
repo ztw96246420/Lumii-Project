@@ -1978,6 +1978,48 @@ function summarizePetChatHistory(history) {
   return summary.length > PET_CHAT_SUMMARY_MAX_CHARS ? `${summary.slice(0, PET_CHAT_SUMMARY_MAX_CHARS - 1)}…` : summary;
 }
 
+function hasSafeMedicationNegation(text) {
+  return /(不要|不能|避免|不建议|不要自行|不能自行|没有医生指导|兽医指导).{0,18}(喂|吃|口服|注射|打针|用药|催吐|布洛芬|对乙酰氨基酚|阿莫西林|头孢|庆大霉素|甲硝唑|泼尼松|地塞米松|伊维菌素)/u.test(text);
+}
+
+function detectUnsafePetMedicalReply(text) {
+  const rawText = String(text || '').trim();
+  if (!rawText) return null;
+  const normalized = rawText.toLowerCase();
+  const medicationPattern = /(阿莫西林|头孢|布洛芬|对乙酰氨基酚|扑热息痛|庆大霉素|土霉素|甲硝唑|泼尼松|地塞米松|伊维菌素|ivermectin|ibuprofen|paracetamol|amoxicillin|metronidazole)/i;
+  const dosagePattern = /(\d+(?:\.\d+)?)\s*(mg|毫克|ml|毫升|片|粒|颗|滴|针|单位|iu|g|克)\s*(?:\/|每|一)?\s*(kg|公斤|千克|天|日|次|小时)?/i;
+
+  if (/(确诊|诊断为|就是|肯定是|百分之百是|可以确定是|判断为).{0,16}(犬瘟|细小|胰腺炎|肾衰|肾功能衰竭|心脏病|肺炎|骨折|中毒|肿瘤|癌|感染|肠胃炎|皮肤病|耳螨|寄生虫)/u.test(rawText)) {
+    return 'definitive_diagnosis';
+  }
+  if (!hasSafeMedicationNegation(rawText) && medicationPattern.test(normalized) && (dosagePattern.test(normalized) || /(喂|吃|口服|注射|打针|用药|服用).{0,20}(就行|即可|可以|建议|一天|每日|每次)/u.test(rawText))) {
+    return 'medication_or_dosage';
+  }
+  if (!hasSafeMedicationNegation(rawText) && /(自行|在家).{0,10}(催吐|灌药|注射|打针|用药|喂药)/u.test(rawText)) {
+    return 'unsafe_home_treatment';
+  }
+  if (/(不用|不必|不需要|没必要).{0,12}(去医院|看医生|看兽医|宠物医院|急诊)/u.test(rawText) && /(呼吸困难|抽搐|昏迷|吐血|便血|大出血|误食|中毒|站不起来|不吃不喝)/u.test(rawText)) {
+    return 'downplayed_emergency';
+  }
+  return null;
+}
+
+function petChatReplySafetyFallback(user, reason) {
+  const pet = selectedPetFor(user) || activePetFor(user);
+  const petName = pet?.name || '你的宠物';
+  const reasonCopy = {
+    definitive_diagnosis: '我不能在聊天里给出确定诊断。',
+    downplayed_emergency: '如果出现高风险症状，不能只靠线上判断。',
+    medication_or_dosage: '我不能提供具体药物、剂量或处方建议。',
+    unsafe_home_treatment: '我不建议在没有兽医指导时自行催吐、注射或用药。',
+  }[reason] || '我不能把这类健康问题当作普通建议处理。';
+  return [
+    `${reasonCopy}${petName}的健康情况需要更谨慎处理。`,
+    '我可以帮你整理观察记录，但不能替代兽医诊断或处方。请优先联系宠物医院或兽医，并带上症状开始时间、精神状态、食欲饮水、便便/呕吐情况和相关照片。',
+    '如果有呼吸异常、抽搐、误食风险、持续呕吐腹泻、明显疼痛、出血或站不起来，请按急诊处理。',
+  ].join('\n\n');
+}
+
 async function callDeepSeekPetChat(user, text, history) {
   const emergency = detectPetMedicalEmergency(text);
   if (emergency) return { source: 'safety_guard', text: petMedicalSafetyReply(user, text) };
@@ -2023,6 +2065,8 @@ async function callDeepSeekPetChat(user, text, history) {
     recordDeepSeekUsage(payload?.usage);
     const content = String(payload?.choices?.[0]?.message?.content || '').trim();
     if (!content) return { source: 'fallback', text: fallbackPetChatReply(user, text) };
+    const unsafeReason = detectUnsafePetMedicalReply(content);
+    if (unsafeReason) return { source: 'safety_filter', text: petChatReplySafetyFallback(user, unsafeReason) };
     return { source: 'deepseek', text: content };
   } catch (error) {
     console.error('DeepSeek pet chat error', error instanceof Error ? error.message : error);
