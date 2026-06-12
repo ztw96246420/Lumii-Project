@@ -54,6 +54,7 @@ const SMS_DAILY_LIMIT = 50;
 const SMS_DEVICE_DAILY_LIMIT = 80;
 const SMS_VERIFY_MAX_ATTEMPTS = 5;
 const OTP_TTL_MS = 5 * 60 * 1000;
+const MOCK_MEDIA_UPLOAD_MAX_BASE64_CHARS = 12_000_000;
 
 let currentMockPhone = '13800138000';
 let mockOwnerName = '灵伴用户';
@@ -114,6 +115,98 @@ const acceptedPetMediaAnalysis: UploadedPetMedia['analysis'] = {
   tags: ['单只宠物', '主体清晰', '可生成'],
   title: '识别成功',
 };
+
+function normalizeMockImageMimeType(value?: string) {
+  const mimeType = String(value || '').toLowerCase();
+  if (mimeType.includes('jpg') || mimeType.includes('jpeg')) return 'image/jpeg';
+  if (mimeType.includes('png')) return 'image/png';
+  if (mimeType.includes('webp')) return 'image/webp';
+  if (mimeType.includes('heic')) return 'image/heic';
+  if (mimeType.includes('heif')) return 'image/heif';
+  return '';
+}
+
+function isMockSupportedPetMediaMimeType(mimeType: string) {
+  return ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(mimeType);
+}
+
+function petMediaAnalysis(overrides: Partial<UploadedPetMedia['analysis']>): UploadedPetMedia['analysis'] {
+  return { ...acceptedPetMediaAnalysis, ...overrides };
+}
+
+function analyzeMockPetMediaUpload(input?: UploadPetMediaInput): UploadedPetMedia['analysis'] {
+  if (!input?.base64) {
+    if (!input || input.source === 'mvp_sample') return acceptedPetMediaAnalysis;
+    return petMediaAnalysis({
+      canGenerate: false,
+      code: 'missing_file',
+      message: '没有收到可用于生成的原图文件。请重新拍照或从相册选择。',
+      petCount: 0,
+      qualityScore: 0,
+      status: 'blocked',
+      suggestions: ['重新选择照片', '检查相册权限是否开启', '尽量选择 jpg 或 png 图片'],
+      tags: ['图片缺失'],
+      title: '图片上传不完整',
+    });
+  }
+
+  const dataUrlMatch = input.base64.trim().match(/^data:([^;]+);base64,(.+)$/);
+  const cleanBase64 = (dataUrlMatch ? dataUrlMatch[2] : input.base64).replace(/\s/g, '');
+  const declaredMimeType = normalizeMockImageMimeType(dataUrlMatch ? dataUrlMatch[1] : input.mimeType);
+  const mimeType = declaredMimeType || (dataUrlMatch || input.mimeType ? '' : 'image/jpeg');
+  if (cleanBase64.length > MOCK_MEDIA_UPLOAD_MAX_BASE64_CHARS) {
+    return petMediaAnalysis({
+      canGenerate: false,
+      code: 'file_too_large',
+      message: '图片文件过大，请选择 9MB 以内的宠物照片。',
+      petCount: 0,
+      qualityScore: 0,
+      status: 'blocked',
+      suggestions: ['选择原图中的清晰单宠照片', '如照片过大，可在系统相册中轻微裁剪后再上传', '避免上传长截图或视频封面'],
+      tags: ['文件过大'],
+      title: '图片文件过大',
+    });
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(cleanBase64) || cleanBase64.length % 4 === 1) {
+    return petMediaAnalysis({
+      canGenerate: false,
+      code: 'invalid_file',
+      message: '图片文件无法读取，可能已损坏或上传不完整。请重新拍照或从相册选择。',
+      petCount: 0,
+      qualityScore: 0,
+      status: 'blocked',
+      suggestions: ['重新选择照片', '检查网络后再试', '尽量选择手机相册里的原始照片'],
+      tags: ['文件无法读取'],
+      title: '图片读取失败',
+    });
+  }
+  if (!isMockSupportedPetMediaMimeType(mimeType)) {
+    return petMediaAnalysis({
+      canGenerate: false,
+      code: 'unsupported_format',
+      message: '当前只支持 jpg、png、webp、heic/heif 图片。请重新选择宠物照片。',
+      petCount: 0,
+      qualityScore: 0,
+      status: 'blocked',
+      suggestions: ['选择手机相册中的普通照片', '避免上传动图、视频、PDF 或截图文件', '如是微信图片，请先保存为照片后再选择'],
+      tags: ['格式不支持'],
+      title: '图片格式不支持',
+    });
+  }
+  if (cleanBase64.length < 32 * 1024) {
+    return petMediaAnalysis({
+      canGenerate: true,
+      code: 'low_quality',
+      message: '图片文件较小，可能清晰度不足。可以继续生成，但建议换一张更清晰的照片。',
+      qualityScore: 62,
+      status: 'warning',
+      suggestions: ['使用原图或高清图', '避免截图和压缩图', '保持宠物五官清晰'],
+      tags: ['清晰度偏低', '可尝试生成'],
+      title: '图片清晰度偏低',
+    });
+  }
+  return acceptedPetMediaAnalysis;
+}
 
 const petTaxonomy: PetTaxonomy = {
   fieldRules: {
@@ -1127,11 +1220,12 @@ export const mockApi = {
   avatar: {
     async uploadPetMedia(input?: UploadPetMediaInput): Promise<ApiResult<UploadedPetMedia>> {
       await wait();
+      const analysis = analyzeMockPetMediaUpload(input);
       const media: UploadedPetMedia = {
-        analysis: acceptedPetMediaAnalysis,
+        analysis,
         mediaId: `media-${Date.now()}`,
         previewUrl: input?.previewUrl ?? goldenRetrieverPhotoUrl,
-        quality: 'good',
+        quality: analysis.status === 'blocked' ? 'blocked' : analysis.status === 'warning' ? 'warning' : 'good',
       };
       uploadedMediaById = { ...uploadedMediaById, [media.mediaId]: media };
       return success(media);

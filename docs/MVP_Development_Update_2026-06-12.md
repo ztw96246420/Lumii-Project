@@ -2,6 +2,9 @@
 
 ## 本次进展
 
+- 上传媒体基础文件校验补齐：`POST /media/uploads` 现在会校验 base64 合法性、图片文件头、支持格式和 decoded bytes 上限；新增/同步 `invalid_file`、`unsupported_format`、`file_too_large` 三类分析码。该能力复用现有上传失败/识别结果页，不新增页面、不接真实视觉识别模型。
+- mock API 同步上传校验：本地 mock 会按同一套 `PetMediaAnalysis` 结构返回格式不支持、文件损坏、文件过大、低清晰度等状态，避免 Web/本地演示和云端接口口径分裂。
+- 文档口径同步：`API_Contract_MVP_v0.md`、`MVP_Development_Support_Checklist_v0.md` 和 `Figma_Make_Missing_Page_Prompts_2026-06-06.md` 已把“基础图片上传校验”标记为 MVP 已实现；生产对象存储直传、视频支持、自动压缩、EXIF 清理、真实视觉识别模型和多候选 UI 仍作为后续项。
 - MVP 登录态 token 安全性补强：测试后端登录成功和 `POST /auth/token/refresh` 现在返回 `lumii-v1.<payload>.<signature>` HMAC 签名 token，默认有效期 30 天；后端验签、验过期后才解析手机号，同时继续兼容旧 `lumii-local-手机号`，避免历史测试包突然失效。该能力不新增页面，属于 API/后端逻辑。
 - 文档口径同步：`API_Contract_MVP_v0.md`、`Auth_Session_Persistence_2026-06-11.md`、`MVP_Development_Support_Checklist_v0.md` 和 `Figma_Make_Missing_Page_Prompts_2026-06-06.md` 已把 MVP 签名 token 标记为已实现；缺页清单不再把它写成需要你补 Figma 的页面。
 - 本地临时后端验证通过：短信登录返回签名 token，`GET /me` 可验签读取手机号，`POST /auth/token/refresh` 返回新签名 token，旧 `lumii-local-手机号` 仍可兼容，篡改 token 和过期 token 均返回 401。
@@ -83,6 +86,10 @@
 
 ## 验证
 
+- `node --check scripts/lumii-backend.cjs` 通过，覆盖上传文件校验改动。
+- `npm run typecheck` 通过，覆盖 `PetMediaAnalysis.code` 新增状态和 mock API 同步。
+- 临时本地后端验证通过：合法 1x1 PNG 上传返回 `low_quality` warning；非法 base64 返回 `invalid_file`；PDF/不支持 MIME 返回 `unsupported_format`；临时调低上传上限后返回 `file_too_large`。
+- 腾讯云测试后端已热更新并验证通过：公网 `/health` 返回 `success`；合法 PNG 上传返回 `low_quality`，非法 base64 返回 `invalid_file`，伪装成 jpg 的文本返回 `invalid_file`，PDF/不支持 MIME 返回 `unsupported_format`。
 - `node --check scripts/lumii-backend.cjs` 通过。
 - `npm run typecheck` 通过，覆盖短信 mock 每日频控变更。
 - 临时本地后端验证通过：`SMS_DAILY_LIMIT=2`、`SMS_COOLDOWN_MS=1` 时，同一手机号前两次发送成功，第三次返回 429 和“今天验证码发送次数已达上限（2 次），请明天再试”。

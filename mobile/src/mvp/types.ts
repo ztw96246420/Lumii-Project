@@ -159,13 +159,16 @@ export type PetMediaAnalysis = {
   canGenerate: boolean;
   code:
     | 'busy_scene'
+    | 'file_too_large'
     | 'human_and_pet'
+    | 'invalid_file'
     | 'low_quality'
     | 'missing_file'
     | 'multiple_pets'
     | 'no_pet'
     | 'other_animals'
     | 'single_pet_clear'
+    | 'unsupported_format'
     | 'unclear';
   humanPresent?: boolean;
   message: string;

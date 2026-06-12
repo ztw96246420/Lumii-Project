@@ -39,6 +39,7 @@ const PET_AVATAR_PROVIDER = (process.env.PET_AVATAR_PROVIDER || (TTAPI_API_KEY ?
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
+const MEDIA_UPLOAD_MAX_BYTES = Number(process.env.MEDIA_UPLOAD_MAX_BYTES || '9000000');
 
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
@@ -1490,15 +1491,126 @@ function buildAiUsageSummary(user) {
   };
 }
 
-function cleanBase64DataUrl(value, mimeType) {
-  const input = String(value || '').trim();
-  if (!input || input.length > MEDIA_UPLOAD_MAX_BASE64_CHARS) return '';
-  const dataUrlMatch = input.match(/^data:([^;]+);base64,(.+)$/);
-  if (dataUrlMatch) {
-    const clean = dataUrlMatch[2].replace(/\s/g, '');
-    return `data:${normalizeImageMimeType(dataUrlMatch[1])};base64,${clean}`;
+function normalizeImageMimeType(value) {
+  const mimeType = String(value || '').toLowerCase();
+  if (mimeType.includes('jpg') || mimeType.includes('jpeg')) return 'image/jpeg';
+  if (mimeType.includes('png')) return 'image/png';
+  if (mimeType.includes('webp')) return 'image/webp';
+  if (mimeType.includes('heic')) return 'image/heic';
+  if (mimeType.includes('heif')) return 'image/heif';
+  return '';
+}
+
+function isSupportedPetMediaMimeType(mimeType) {
+  return ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(mimeType);
+}
+
+function detectImageMimeType(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return '';
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
+  if (
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return 'image/png';
   }
-  return `data:${normalizeImageMimeType(mimeType)};base64,${input.replace(/\s/g, '')}`;
+  if (buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  if (buffer.toString('ascii', 4, 8) === 'ftyp') {
+    const brand = buffer.toString('ascii', 8, 12).toLowerCase();
+    if (['heic', 'heif', 'heix', 'hevc', 'mif1', 'msf1'].includes(brand)) return brand === 'heif' ? 'image/heif' : 'image/heic';
+  }
+  return '';
+}
+
+function isValidBase64Payload(value) {
+  const clean = String(value || '').replace(/\s/g, '');
+  if (!clean || clean.length % 4 === 1 || !/^[A-Za-z0-9+/]+={0,2}$/.test(clean)) return false;
+  const buffer = Buffer.from(clean, 'base64');
+  if (buffer.length <= 0) return false;
+  return buffer.toString('base64').replace(/=+$/, '') === clean.replace(/=+$/, '');
+}
+
+function parseBase64Upload(value, mimeType) {
+  const input = String(value || '').trim();
+  if (!input) return { bytes: 0, dataUrl: '', issue: 'missing_file', mimeType: normalizeImageMimeType(mimeType) };
+  if (input.length > MEDIA_UPLOAD_MAX_BASE64_CHARS) {
+    return { bytes: 0, dataUrl: '', issue: 'file_too_large', mimeType: normalizeImageMimeType(mimeType) };
+  }
+  const dataUrlMatch = input.match(/^data:([^;]+);base64,(.+)$/);
+  const declaredMimeType = normalizeImageMimeType(dataUrlMatch ? dataUrlMatch[1] : mimeType);
+  const hasExplicitMimeType = Boolean(dataUrlMatch || mimeType);
+  if (hasExplicitMimeType && !declaredMimeType) {
+    return { bytes: 0, dataUrl: '', issue: 'unsupported_format', mimeType: '' };
+  }
+  const clean = (dataUrlMatch ? dataUrlMatch[2] : input).replace(/\s/g, '');
+  if (!isValidBase64Payload(clean)) return { bytes: 0, dataUrl: '', issue: 'invalid_file', mimeType: declaredMimeType };
+  const buffer = Buffer.from(clean, 'base64');
+  const sniffedMimeType = detectImageMimeType(buffer);
+  if (!sniffedMimeType) {
+    return { bytes: buffer.length, dataUrl: '', issue: 'invalid_file', mimeType: declaredMimeType };
+  }
+  const finalMimeType = sniffedMimeType;
+  if (!isSupportedPetMediaMimeType(finalMimeType)) {
+    return { bytes: buffer.length, dataUrl: '', issue: 'unsupported_format', mimeType: declaredMimeType };
+  }
+  if (buffer.length > MEDIA_UPLOAD_MAX_BYTES) {
+    return { bytes: buffer.length, dataUrl: '', issue: 'file_too_large', mimeType: finalMimeType };
+  }
+  return {
+    bytes: buffer.length,
+    dataUrl: `data:${finalMimeType};base64,${clean}`,
+    issue: '',
+    mimeType: finalMimeType,
+  };
+}
+
+function mediaUploadIssueAnalysis(issue, bytes) {
+  if (issue === 'file_too_large') {
+    return mediaAnalysisResult({
+      canGenerate: false,
+      code: 'file_too_large',
+      message: `图片文件过大，请选择 ${Math.round(MEDIA_UPLOAD_MAX_BYTES / 1024 / 1024)}MB 以内的宠物照片。`,
+      petCount: 0,
+      qualityScore: 0,
+      status: 'blocked',
+      suggestions: ['选择原图中的清晰单宠照片', '如照片过大，可在系统相册中轻微裁剪后再上传', '避免上传长截图或视频封面'],
+      tags: ['文件过大'],
+      title: '图片文件过大',
+    });
+  }
+  if (issue === 'unsupported_format') {
+    return mediaAnalysisResult({
+      canGenerate: false,
+      code: 'unsupported_format',
+      message: '当前只支持 jpg、png、webp、heic/heif 图片。请重新选择宠物照片。',
+      petCount: 0,
+      qualityScore: 0,
+      status: 'blocked',
+      suggestions: ['选择手机相册中的普通照片', '避免上传动图、视频、PDF 或截图文件', '如是微信图片，请先保存为照片后再选择'],
+      tags: ['格式不支持'],
+      title: '图片格式不支持',
+    });
+  }
+  if (issue === 'invalid_file') {
+    return mediaAnalysisResult({
+      canGenerate: false,
+      code: 'invalid_file',
+      message: '图片文件无法读取，可能已损坏或上传不完整。请重新拍照或从相册选择。',
+      petCount: 0,
+      qualityScore: 0,
+      status: 'blocked',
+      suggestions: ['重新选择照片', '检查网络后再试', '尽量选择手机相册里的原始照片'],
+      tags: ['文件无法读取'],
+      title: '图片读取失败',
+    });
+  }
+  return null;
 }
 
 function uploadedMediaBytes(dataUrl) {
@@ -1525,7 +1637,7 @@ function mediaAnalysisResult(overrides) {
   };
 }
 
-function analyzeUploadedPetMedia(body, dataUrl) {
+function analyzeUploadedPetMedia(body, dataUrl, uploadIssue, uploadBytes) {
   const debugCode = String(body.analysisCode || body.debugAnalysisCode || '').trim();
   if (debugCode === 'no_pet') {
     return mediaAnalysisResult({
@@ -1597,6 +1709,9 @@ function analyzeUploadedPetMedia(body, dataUrl) {
     });
   }
 
+  const issueAnalysis = mediaUploadIssueAnalysis(uploadIssue, uploadBytes);
+  if (issueAnalysis) return issueAnalysis;
+
   const bytes = uploadedMediaBytes(dataUrl);
   if (!dataUrl || bytes <= 0) {
     return mediaAnalysisResult({
@@ -1625,13 +1740,6 @@ function analyzeUploadedPetMedia(body, dataUrl) {
   }
 
   return mediaAnalysisResult({});
-}
-
-function normalizeImageMimeType(value) {
-  const mimeType = String(value || '').toLowerCase();
-  if (mimeType.includes('png')) return 'image/png';
-  if (mimeType.includes('webp')) return 'image/webp';
-  return 'image/jpeg';
 }
 
 function mediaUploadFileUrl(req, mediaId) {
@@ -2943,8 +3051,9 @@ async function handle(req, res) {
 
   if (req.method === 'POST' && pathname === '/media/uploads') {
     const mediaId = `media-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-    const dataUrl = cleanBase64DataUrl(body.base64, body.mimeType);
-    const analysis = analyzeUploadedPetMedia(body, dataUrl);
+    const parsedUpload = parseBase64Upload(body.base64, body.mimeType);
+    const dataUrl = parsedUpload.dataUrl;
+    const analysis = analyzeUploadedPetMedia(body, dataUrl, parsedUpload.issue, parsedUpload.bytes);
     state.mediaUploads = state.mediaUploads || {};
     state.mediaUploads[mediaId] = {
       analysis,
@@ -2952,7 +3061,7 @@ async function handle(req, res) {
       dataUrl,
       fileName: String(body.fileName || ''),
       mediaId,
-      mimeType: normalizeImageMimeType(body.mimeType),
+      mimeType: parsedUpload.mimeType || normalizeImageMimeType(body.mimeType) || 'application/octet-stream',
       ownerPhone: user.phone,
       previewUrl: body.previewUrl || samplePhotoUrl,
       source: body.source || 'mvp_sample',
