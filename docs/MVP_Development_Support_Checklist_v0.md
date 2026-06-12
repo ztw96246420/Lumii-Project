@@ -288,6 +288,8 @@ Android 调用：
 - ~~`GET /places/{placeId}`：地点详情。~~ MVP 测试后端和 mock API 已支持读取单个地点，不需要新增页面。
 - ~~`POST /places`：新增地点。~~ MVP 测试后端已改用 `POST /places/submissions` 提交新增地点草稿。
 - ~~`POST /places/{placeId}/reviews`：提交点评。~~ MVP 测试后端已支持。
+- ~~`GET /places/reviews/my`：我的地点点评审核记录。~~ MVP 测试后端和 mock API 已支持。
+- ~~`GET /places/submissions/my`：我的新增地点审核记录。~~ MVP 测试后端、HTTP API 门面和 mock API 已支持；当前 App 暂不新增“我的提交”页面。
 - ~~`POST /places/{placeId}/favorite`：收藏地点。~~ MVP 测试后端已改用 `PATCH /places/{placeId}/favorite`。
 - ~~`DELETE /places/{placeId}/favorite`：取消收藏。~~ MVP 测试后端已改用 `PATCH /places/{placeId}/favorite`。
 - `POST /places/{placeId}/report`：举报地点信息。
@@ -394,7 +396,7 @@ P2 后续：
 第二批：
 1. 健康管理接口和疫苗模板。
 2. ~~社交发现/打招呼/聊天接口。~~ 测试后端已可用；生产级风控/安全仍待补。
-3. 地点点评/审核接口。
+3. ~~地点点评/审核接口。~~ 基础点评、地点提交、我的点评、我的提交、收藏接口已可用；重复地点提示、审核详情、分享面板、外部导航确认和举报地点仍需后续设计/规则。
 4. ~~通知中心和推送设置接口。~~ MVP 测试后端已接通知列表、已读、设置保存和设备 token 上报；生产厂商通道、通知模板和送达回执仍待补。
 5. 举报、拉黑、账号注销接口。
 
@@ -415,7 +417,7 @@ P2 后续：
 - `health`：`getHealthSummary`、`listHealthCalendar`、`recordWeight`、`updateWeightRecord`、`deleteWeightRecord`、`listWeightRecords`、`getWeightTrend`、`listVaccines`、`saveHealthMemo`
 - `social`：`listNearbyOwners`、`sendGreeting`、`createWalkInvite`
 - `messages`：`registerPushToken`、`listConversations`、`sendMessage`、`listNotifications`
-- `places`：`listNearbyPlaces`、`searchPlaces`、`getPlace`、`createReview`
+- `places`：`listNearbyPlaces`、`searchPlaces`、`getPlace`、`listFavoritePlaceIds`、`setFavoritePlace`、`listMyReviews`、`listMySubmissions`、`createReview`、`createSubmission`
 - `legal`：`getTerms`、`getPrivacy`
 - `support`：`submitFeedback`
 

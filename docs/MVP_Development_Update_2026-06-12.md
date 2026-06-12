@@ -29,6 +29,7 @@
 - 健康摘要页面数据源切换：`loadCommonData` 现在会读取 `GET /health/summary`；首页、健康页、体重页和疫苗页顶部摘要优先使用服务端聚合结果，体重记录、疫苗提醒/完成、健康备忘和今日小事保存成功后会刷新摘要。
 - 宠物编辑保存联动补齐：已有编辑宠物页保存成功后会同步当前宠物、更新 session 账号快照并刷新健康摘要；新建宠物成功后也会同步 session 的 `activePet`，避免“我的页/首页”短暂读取旧快照。
 - 普通反馈接口补齐：新增 `POST /feedback`，测试后端和 mock API 均支持登录后提交普通产品反馈，内容校验为空/超长；不涉及举报/拉黑，不新增 UI。
+- 地点提交审核记录 API 门面补齐：`GET /places/submissions/my` 原本后端和文档已有，这次补齐 HTTP API 与 mock API；不新增“我的提交”页面，只消除接口契约不一致。
 
 ## 验证
 
@@ -112,6 +113,9 @@
   - 云端用户协议标题：`灵伴用户协议`。
   - 云端隐私政策标题：`灵伴隐私政策`。
 - 腾讯云测试后端已热更新并验证 `POST /feedback`：登录后提交普通反馈返回 `received`，空内容返回 400。
+- 腾讯云测试后端验证通过：`POST /places/submissions` 提交新增地点 -> `GET /places/submissions/my` 读回同一条审核中记录。
+  - 新增地点状态：`pending_review`。
+  - 列表读取状态：`200`。
 - 前端类型检查覆盖 Android 返回交互改动：`npm run typecheck` 通过。
 - 前端类型检查覆盖权限状态持久化改动：`npm run typecheck` 通过。
 - 前端类型检查覆盖健康摘要数据源切换：`npm run typecheck` 通过。

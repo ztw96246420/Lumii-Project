@@ -936,6 +936,11 @@ export const mockApi = {
       return success(placeReviews);
     },
 
+    async listMySubmissions(): Promise<ApiResult<PlaceSubmission[]>> {
+      await wait(120);
+      return success(placeSubmissions);
+    },
+
     async createReview(placeId: string, content: string): Promise<ApiResult<PlaceReview>> {
       await wait();
       const place = places.find((item) => item.id === placeId);

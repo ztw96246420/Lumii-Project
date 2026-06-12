@@ -903,6 +903,16 @@ Response data:
 
 读取当前用户提交过的新增地点审核记录。当前 App 只在提交后展示审核中状态，后续若补“我的提交”页面可复用此接口。
 
+Response data:
+
+```ts
+PlaceSubmission[]
+```
+
+说明：
+- MVP 测试后端、HTTP API 门面和 mock API 均已支持。
+- 这不是新页面要求；“我的提交”列表若要正式展示，仍需要先补 Figma Make 设计。
+
 ## 9. 设置、安全与反馈
 
 ### POST `/feedback`
