@@ -523,9 +523,11 @@ export default function LumiiMvpApp() {
   const [mapStylePanelVisible, setMapStylePanelVisible] = useState(false);
   const [placeDraftAddress, setPlaceDraftAddress] = useState('滨江路 88 号');
   const [placeDraftName, setPlaceDraftName] = useState('云杉宠物友好公园');
-  const [placeReview, setPlaceReview] = useState('');
+  const [placeReviewDraft, setPlaceReviewDraft] = useState('');
+  const [placeSubmissionExperience, setPlaceSubmissionExperience] = useState('');
   const [placeReviewSaving, setPlaceReviewSaving] = useState(false);
-  const [placeReviewStatus, setPlaceReviewStatus] = useState<'idle' | 'pending_review'>('idle');
+  const [placeSubmissionSaving, setPlaceSubmissionSaving] = useState(false);
+  const [placeSubmissionStatus, setPlaceSubmissionStatus] = useState<'idle' | 'pending_review'>('idle');
   const [userSettings, setUserSettings] = useState<UserSettings>(defaultUserSettings);
   const healthReminderNotifiedRef = useRef<Set<string>>(new Set());
   const localHealthReminderSyncKeyRef = useRef('');
@@ -2312,16 +2314,16 @@ export default function LumiiMvpApp() {
     if (placeReviewSaving) return;
     const place = selectedPlace ?? places[0];
     if (!place) return;
-    if (!placeReview.trim()) {
+    if (!placeReviewDraft.trim()) {
       showToast('请填写点评内容');
       return;
     }
-    const reviewContent = placeReview.trim();
+    const reviewContent = placeReviewDraft.trim();
     setPlaceReviewSaving(true);
     try {
       const result = await lumiiApi.places.createReview(place.id, reviewContent);
       if (result.data) {
-        setPlaceReview('');
+        setPlaceReviewDraft('');
         setPlaceReviewsByPlaceId((items) => ({ ...items, [place.id]: result.data! }));
         void loadInboxData();
         showToast('点评已提交，等待审核');
@@ -2334,30 +2336,30 @@ export default function LumiiMvpApp() {
   }
 
   async function submitPlaceDraft() {
-    if (placeReviewSaving) return;
+    if (placeSubmissionSaving) return;
     if (!placeDraftName.trim() || !placeDraftAddress.trim()) {
       showToast('请填写地点名称和地址');
       return;
     }
-    if (!placeReview.trim()) {
+    if (!placeSubmissionExperience.trim()) {
       showToast('请填写宠物友好体验');
       return;
     }
-    setPlaceReviewSaving(true);
+    setPlaceSubmissionSaving(true);
     try {
-      const result = await lumiiApi.places.createSubmission(placeDraftName.trim(), placeDraftAddress.trim(), placeReview.trim());
+      const result = await lumiiApi.places.createSubmission(placeDraftName.trim(), placeDraftAddress.trim(), placeSubmissionExperience.trim());
       if (result.data) {
-        setPlaceReview('');
+        setPlaceSubmissionExperience('');
         setPlaceDraftName('');
         setPlaceDraftAddress('');
-        setPlaceReviewStatus('pending_review');
+        setPlaceSubmissionStatus('pending_review');
         void loadInboxData();
         showToast('地点已提交审核');
       } else {
         showToast(result.error?.message ?? '提交失败，请稍后重试');
       }
     } finally {
-      setPlaceReviewSaving(false);
+      setPlaceSubmissionSaving(false);
     }
   }
 
@@ -2443,9 +2445,11 @@ export default function LumiiMvpApp() {
     lastDiscoverLocationRef.current = null;
     setPlaceDraftAddress('滨江路 88 号');
     setPlaceDraftName('云杉宠物友好公园');
-    setPlaceReview('');
+    setPlaceReviewDraft('');
+    setPlaceSubmissionExperience('');
     setPlaceReviewSaving(false);
-    setPlaceReviewStatus('idle');
+    setPlaceSubmissionSaving(false);
+    setPlaceSubmissionStatus('idle');
     userSettingSavingKeysRef.current.clear();
     setHealthSummary(null);
     setWeightSaving(false);
@@ -3879,7 +3883,7 @@ export default function LumiiMvpApp() {
                 <Button onPress={() => openConfirm('打开高德地图', `将打开高德地图查看${place.name}，你可以在高德内继续发起导航。`, () => void openAmapPlace(place), '打开')}>高德导航</Button>
               </View>
               <View style={styles.weightInputMake}>
-                <Field label="点评内容" onChangeText={setPlaceReview} placeholder="例如：草坪很大，有饮水点" value={placeReview} />
+                <Field label="点评内容" onChangeText={setPlaceReviewDraft} placeholder="例如：草坪很大，有饮水点" value={placeReviewDraft} />
                 <Button loading={placeReviewSaving} onPress={() => void createPlaceReview()}>{placeReviewButtonLabel}</Button>
                 {hasPendingPlaceReview ? (
                   <View style={styles.reviewStatusCard}>
@@ -4297,11 +4301,11 @@ export default function LumiiMvpApp() {
           <Text style={styles.settingsGroupTitle}>宠物友好体验</Text>
           <TextInput
             multiline
-            onChangeText={setPlaceReview}
+            onChangeText={setPlaceSubmissionExperience}
             placeholder="例如：草坪很大，有饮水点，牵引绳友好。"
             placeholderTextColor="#b6aca3"
             style={[styles.longTextInput, webTextInputReset]}
-            value={placeReview}
+            value={placeSubmissionExperience}
           />
           <View style={styles.dailyMoodRow}>
             {['可遛狗', '饮水点', '室内友好', '停车方便'].map((item) => (
@@ -4309,13 +4313,13 @@ export default function LumiiMvpApp() {
             ))}
           </View>
         </View>
-        {placeReviewStatus === 'pending_review' ? (
+        {placeSubmissionStatus === 'pending_review' ? (
           <View style={styles.reviewStatusCard}>
             <Check color={palette.teal} size={15} strokeWidth={3} />
             <Text style={styles.reviewStatusText}>已提交审核。后续真实接口会返回审核单号和预计处理时间。</Text>
           </View>
         ) : null}
-        <Button loading={placeReviewSaving} onPress={() => void submitPlaceDraft()}>提交审核</Button>
+        <Button loading={placeSubmissionSaving} onPress={() => void submitPlaceDraft()}>提交审核</Button>
       </Screen>
     );
   }
