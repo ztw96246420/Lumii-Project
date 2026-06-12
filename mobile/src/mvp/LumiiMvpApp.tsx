@@ -784,6 +784,12 @@ export default function LumiiMvpApp() {
   }, [conversations]);
 
   useEffect(() => {
+    if (!selectedPlace?.id) return;
+    const syncedPlace = places.find((place) => place.id === selectedPlace.id);
+    if (syncedPlace) setSelectedPlace(syncedPlace);
+  }, [places, selectedPlace?.id]);
+
+  useEffect(() => {
     if (!session || !focusedInboxRoutes.has(route)) return;
     void loadInboxData();
   }, [route, session]);
@@ -2175,7 +2181,7 @@ export default function LumiiMvpApp() {
       if (result.data) {
         const nextPlaces = result.data;
         setPlaces(nextPlaces);
-        setSelectedPlace((current) => (current && nextPlaces.some((place) => place.id === current.id) ? current : nextPlaces[0] ?? null));
+        setSelectedPlace((current) => nextPlaces.find((place) => place.id === current?.id) ?? nextPlaces[0] ?? null);
         showToast(query ? (nextPlaces.length ? `找到 ${nextPlaces.length} 个地点` : '没有匹配地点') : '已刷新附近地点');
       } else {
         showToast(result.error?.message ?? '搜索失败，请稍后重试');
