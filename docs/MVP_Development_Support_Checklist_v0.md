@@ -61,7 +61,7 @@
 
 需要支持：
 - ~~短信验证码接口。~~ 当前测试后端已提供 `POST /auth/sms/send`、`POST /auth/sms/verify`，固定测试码 `962464`；生产短信仍需后端代理。
-- ~~新老用户判断。~~ 当前登录返回 `account.activePet`、`permissionsOnboardingCompleted`，可用于二次登录跳过注册链路。
+- ~~新老用户判断。~~ 当前登录返回 `account.activePet`、`permissionsOnboardingCompleted`，可用于二次登录跳过注册链路；HTTP 真后端模式下不会再用 mock 宠物兜底，没有宠物的账号会进入“未添加宠物”链路。
 - ~~宠物基础资料保存。~~ 当前测试后端已提供 `GET/POST/PATCH /pets` 和当前宠物保存；`POST/PATCH /pets` 已按 `GET /pet-taxonomy.fieldRules` 做服务端兜底校验，非法字段、非法物种、非法生日、非法体重等返回 `PET_PROFILE_INVALID`，不会静默污染档案。
 - ~~建档后当前宠物维度数据刷新。~~ App 已在新建宠物成功后刷新健康摘要、体重、疫苗/驱虫、提醒开关、健康备忘和 AI 用量，避免进入上传/首页后沿用旧宠物数据。
 - ~~图片上传。~~ MVP 测试后端、HTTP API 门面和 mock API 已支持基础照片上传、媒体元信息读取、格式/大小/损坏文件校验；生产对象存储直传、视频、自动压缩、EXIF 清理和真实视觉识别模型仍待后续确认。

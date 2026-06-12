@@ -164,6 +164,7 @@ const tabBackToHomeRoutes = new Set<AppRoute>(['discover', 'map', 'messages', 'p
 const appExitPromptRoutes = new Set<AppRoute>(['emptyPet', 'home', 'login', 'permissions']);
 const focusedInboxRoutes = new Set<AppRoute>(['greetingRequests', 'messages', 'notifications']);
 const passiveInboxRoutes = new Set<AppRoute>(['discover', 'home', 'map', 'profile']);
+const petRequiredRoutes = new Set<AppRoute>(['aiResult', 'chat', 'dailyPost', 'editPet', 'generating', 'health', 'healthMemos', 'home', 'petDetail', 'upload', 'uploadDetail', 'vaccine', 'weight']);
 const homeChatPrompts = [
   '今天想和{petName}聊点什么？',
   '要不要记录一件开心小事？',
@@ -548,6 +549,14 @@ export default function LumiiMvpApp() {
   const pendingVaccines = useMemo(() => vaccines.filter((item) => item.status !== 'done'), [vaccines]);
   const urgentVaccines = useMemo(() => pendingVaccines.filter(isVaccineReminderUrgent), [pendingVaccines]);
 
+  function getActivePetFallback() {
+    return apiConfig.mode === 'mock' ? lumiiApi.pets.getActivePet() : null;
+  }
+
+  function getCurrentPet() {
+    return activePet ?? getActivePetFallback();
+  }
+
   const showToast = useCallback((message: string) => setToast(message), []);
 
   const go = useCallback(
@@ -713,7 +722,7 @@ export default function LumiiMvpApp() {
 
   useEffect(() => {
     if (route !== 'editPet') return;
-    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const pet = getCurrentPet();
     if (!pet) {
       replace('petInfo');
       showToast('请先添加宠物档案');
@@ -725,6 +734,11 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     if (route === 'petInfo') setPetDraft(emptyPetDraft);
   }, [route]);
+
+  useEffect(() => {
+    if (!session || getCurrentPet() || !petRequiredRoutes.has(route)) return;
+    replace('emptyPet');
+  }, [activePet, replace, route, session]);
 
   useEffect(() => {
     if (!session || route !== 'permissions') return;
@@ -917,7 +931,7 @@ export default function LumiiMvpApp() {
       const profile = profileResult.data;
       setSession((current) => (current ? { ...current, account: profile, phone: profile.phone } : current));
       setUserSettings({ ...defaultUserSettings, ...profile.settings });
-      if (profile.activePet) setActivePet(profile.activePet);
+      setActivePet(profile.activePet ?? getActivePetFallback());
     }
     if (healthSummaryResult.data) {
       setHealthSummary(healthSummaryResult.data);
@@ -947,7 +961,7 @@ export default function LumiiMvpApp() {
       setAiUsage(aiUsageResult.data);
       setPetChatDailyCount(aiUsageResult.data.daily.petChat.count);
     }
-    setActivePet((pet) => pet ?? lumiiApi.pets.getActivePet());
+    setActivePet((pet) => pet ?? getActivePetFallback());
   }
 
   async function loadAiUsage(options: { silent?: boolean } = { silent: true }) {
@@ -1224,7 +1238,7 @@ export default function LumiiMvpApp() {
       await savePersistedLumiiSession(nextSession);
     }
 
-    const restoredPet = account?.activePet ?? petResult.data?.[0] ?? lumiiApi.pets.getActivePet();
+    const restoredPet = account?.activePet ?? petResult.data?.[0] ?? getActivePetFallback();
     setActivePet(restoredPet ?? null);
     permissionsRef.current = latestPermissions;
     if (latestPermissions.notifications === 'granted') {
@@ -1377,7 +1391,7 @@ export default function LumiiMvpApp() {
     setPetProfileSaving(true);
     try {
       if (route === 'editPet') {
-        const pet = activePet ?? lumiiApi.pets.getActivePet();
+        const pet = getCurrentPet();
         if (!pet) {
           showToast('请先添加宠物档案');
           return;
@@ -1441,7 +1455,7 @@ export default function LumiiMvpApp() {
   }
 
   function startPetAvatarRefresh() {
-    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const pet = getCurrentPet();
     if (!pet) {
       showToast('请先添加宠物档案');
       return;
@@ -2048,7 +2062,7 @@ export default function LumiiMvpApp() {
   }
 
   function openPetCompanionSettings() {
-    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const pet = getCurrentPet();
     if (!pet) {
       showToast('请先添加宠物档案');
       return;
@@ -3092,7 +3106,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderHome() {
-    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const pet = getCurrentPet();
     if (!pet) return renderEmptyPet();
     const nextVaccine = healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
     const latestWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet.weightKg;
@@ -3182,7 +3196,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderChat() {
-    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const pet = getCurrentPet();
     return (
       <Screen showBack={false} title="">
         <View style={styles.chatMakeHeader}>
@@ -3364,7 +3378,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderHealth() {
-    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const pet = getCurrentPet();
     const nextHealthVaccine = healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
     const latestWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet?.weightKg;
     const healthScore = healthSummary?.healthScore ?? pet?.healthScore ?? 92;
@@ -3498,7 +3512,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderWeight() {
-    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const pet = getCurrentPet();
     const currentWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet?.weightKg;
     const previousWeight = weights[1]?.kg;
     const weightDelta = Number.isFinite(Number(currentWeight)) && Number.isFinite(Number(previousWeight))
@@ -3872,7 +3886,7 @@ export default function LumiiMvpApp() {
     const myPlaceReview = place ? placeReviewsByPlaceId[place.id] : undefined;
     const hasPendingPlaceReview = myPlaceReview?.status === 'pending_review';
     const placeReviewButtonLabel = hasPendingPlaceReview ? '再次提交点评' : '提交点评';
-    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const pet = getCurrentPet();
     const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
     return (
       <Screen title="">
@@ -4031,7 +4045,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderProfile() {
-    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const pet = getCurrentPet();
     const maskedPhone = formatMaskedPhone(session?.phone);
     const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
     const speciesLabel = pet ? speciesLabels[pet.species] : '';
@@ -4155,7 +4169,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderPetDetail() {
-    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const pet = getCurrentPet();
     const genderText = pet?.gender === 'female' ? '妹妹' : pet?.gender === 'male' ? '弟弟' : '待补充';
     const vaccineValue = pendingVaccines.length ? `${pendingVaccines.length} 项待提醒` : vaccines.length ? '已完成' : '待添加';
     return (
@@ -4213,7 +4227,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderDailyPost() {
-    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const pet = getCurrentPet();
     return (
       <Screen title="记录今天的小事">
         <View style={styles.dailyPostHero}>
@@ -4303,7 +4317,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderGreetingRequests() {
-    const pet = activePet ?? lumiiApi.pets.getActivePet();
+    const pet = getCurrentPet();
     return (
       <Screen title="招呼请求">
         <View style={styles.chatSafetyTip}>
@@ -4454,6 +4468,7 @@ export default function LumiiMvpApp() {
 
   function renderScreen() {
     if (sessionBootstrapping) return renderSessionBootstrapping();
+    if (session && !getCurrentPet() && petRequiredRoutes.has(route)) return renderEmptyPet();
 
     switch (route) {
       case 'accountSecurity':
