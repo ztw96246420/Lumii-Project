@@ -1689,6 +1689,28 @@ function conversationIdFor(otherPhone) {
   return `c-${otherPhone}`;
 }
 
+function acceptedGreetingBetween(phoneA, phoneB) {
+  return state.greetings.some(
+    (item) =>
+      item.status === 'accepted' &&
+      ((item.fromPhone === phoneA && item.targetPhone === phoneB) || (item.fromPhone === phoneB && item.targetPhone === phoneA)),
+  );
+}
+
+function conversationTargetPhone(conversationId) {
+  return conversationId.startsWith('c-') ? conversationId.slice(2) : '';
+}
+
+function enrichConversationFor(user, conversation) {
+  const targetPhone = conversationTargetPhone(conversation.id);
+  const canSendMessage = Boolean(targetPhone && state.users[targetPhone] && acceptedGreetingBetween(user.phone, targetPhone));
+  return {
+    ...conversation,
+    canSendMessage,
+    relationshipStatus: canSendMessage ? 'accepted' : 'pending',
+  };
+}
+
 function getConversationMessages(phone, conversationId) {
   state.conversationMessages = state.conversationMessages || {};
   state.conversationMessages[phone] = state.conversationMessages[phone] || {};
@@ -1704,13 +1726,16 @@ function appendConversationMessage(phone, conversationId, message) {
 function buildConversationFor(user, otherUser, lastMessage, unread = 0) {
   const otherPet = activePetFor(otherUser);
   const suffix = otherUser.phone.slice(-4);
+  const canSendMessage = acceptedGreetingBetween(user.phone, otherUser.phone);
   return {
+    canSendMessage,
     id: conversationIdFor(otherUser.phone),
     imageUrl: otherPet.avatarUrl,
     lastMessage,
     name: `${otherUser.ownerName || `用户${suffix}`}和${otherPet.name || `灵伴${suffix}`}`,
     ownerId: `user-${otherUser.phone}`,
     petName: otherPet.name || `灵伴${suffix}`,
+    relationshipStatus: canSendMessage ? 'accepted' : 'pending',
     unread,
     updatedAt: '刚刚',
   };
@@ -2449,10 +2474,8 @@ async function handle(req, res) {
     }
     const { targetPhone, targetUser } = target;
     const fromPet = activePetFor(user);
-    const lastMessage = `${fromPet.name}想认识你`;
     const targetPet = activePetFor(targetUser);
     const existing = pendingGreetingFor(user.phone, targetPhone);
-    const shouldCreateGreetingMessages = !existing;
     if (existing) {
       existing.at = Date.now();
     } else {
@@ -2465,25 +2488,7 @@ async function handle(req, res) {
         targetPhone,
       });
     }
-    const senderConversation = buildConversationFor(user, targetUser, '我想认识你和你的毛孩子', 0);
-    const targetConversation = buildConversationFor(targetUser, user, lastMessage, 1);
-    upsertConversation(user.phone, senderConversation);
-    upsertConversation(targetPhone, targetConversation);
-    if (shouldCreateGreetingMessages) {
-      appendConversationMessage(user.phone, senderConversation.id, {
-        author: 'me',
-        id: messageId(),
-        status: 'sent',
-        text: '我想认识你和你的毛孩子',
-        time: '刚刚',
-      });
-      appendConversationMessage(targetPhone, targetConversation.id, {
-        author: 'other',
-        id: messageId(),
-        status: 'sent',
-        text: lastMessage,
-        time: '刚刚',
-      });
+    if (!existing) {
       addNotification(targetPhone, {
         id: `n-greeting-${Date.now()}`,
         read: false,
@@ -2492,7 +2497,7 @@ async function handle(req, res) {
       }, 'interaction');
     }
     saveState();
-    ok(res, { conversation: senderConversation, ownerId, sent: true });
+    ok(res, { ownerId, sent: true });
     return;
   }
 
@@ -2601,7 +2606,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/conversations') {
-    ok(res, state.conversations[user.phone] || []);
+    ok(res, (state.conversations[user.phone] || []).map((conversation) => enrichConversationFor(user, conversation)));
     return;
   }
 
@@ -2631,7 +2636,15 @@ async function handle(req, res) {
       fail(res, 400, `消息太长了，请控制在 ${PET_CHAT_MAX_INPUT_CHARS} 字以内`, false);
       return;
     }
-    const targetPhone = conversationId.startsWith('c-') ? conversationId.slice(2) : '';
+    const targetPhone = conversationTargetPhone(conversationId);
+    if (!targetPhone || targetPhone === user.phone || !state.users[targetPhone]) {
+      fail(res, 404, '会话不存在，请返回消息列表刷新', true);
+      return;
+    }
+    if (!acceptedGreetingBetween(user.phone, targetPhone)) {
+      fail(res, 403, '对方接受招呼后才能聊天', true);
+      return;
+    }
     const myMessage = {
       author: 'me',
       id: messageId(),
@@ -2641,25 +2654,23 @@ async function handle(req, res) {
     };
     appendConversationMessage(user.phone, conversationId, myMessage);
 
-    if (targetPhone && state.users[targetPhone]) {
-      const targetUser = ensureUser(targetPhone);
-      const targetConversationId = conversationIdFor(user.phone);
-      appendConversationMessage(targetPhone, targetConversationId, {
-        author: 'other',
-        id: messageId(),
-        status: 'sent',
-        text,
-        time: '刚刚',
-      });
-      upsertConversation(user.phone, buildConversationFor(user, targetUser, text, 0));
-      upsertConversation(targetPhone, buildConversationFor(targetUser, user, text, 1));
-      addNotification(targetPhone, {
-        id: `n-message-${myMessage.id}`,
-        read: false,
-        text: `${user.ownerName || '附近主人'}：${text.slice(0, 48)}`,
-        title: '新的消息',
-      }, 'interaction');
-    }
+    const targetUser = ensureUser(targetPhone);
+    const targetConversationId = conversationIdFor(user.phone);
+    appendConversationMessage(targetPhone, targetConversationId, {
+      author: 'other',
+      id: messageId(),
+      status: 'sent',
+      text,
+      time: '刚刚',
+    });
+    upsertConversation(user.phone, buildConversationFor(user, targetUser, text, 0));
+    upsertConversation(targetPhone, buildConversationFor(targetUser, user, text, 1));
+    addNotification(targetPhone, {
+      id: `n-message-${myMessage.id}`,
+      read: false,
+      text: `${user.ownerName || '附近主人'}：${text.slice(0, 48)}`,
+      title: '新的消息',
+    }, 'interaction');
 
     saveState();
     ok(res, myMessage);

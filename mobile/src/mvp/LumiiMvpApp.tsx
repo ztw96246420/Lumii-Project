@@ -1495,6 +1495,7 @@ export default function LumiiMvpApp() {
   async function openConversation(conversation: Conversation) {
     selectedConversationIdRef.current = conversation.id;
     setSelectedConversation(conversation);
+    if (conversation.canSendMessage === false) setConversationInput('');
     setConversations((items) => items.map((item) => (item.id === conversation.id ? { ...item, unread: 0 } : item)));
     setConversationMessages([createConversationSafetyMessage()]);
     go('conversation');
@@ -1529,6 +1530,10 @@ export default function LumiiMvpApp() {
     const text = (textOverride ?? conversationInput).trim();
     const conversation = selectedConversation ?? conversations[0];
     if (!text || !conversation) return;
+    if (conversation.canSendMessage === false) {
+      showToast('对方接受招呼后才能聊天');
+      return;
+    }
     const local: ConversationMessage = retryMessageId
       ? { author: 'me', id: retryMessageId, status: 'sending', text, time: '刚刚' }
       : { author: 'me', id: `conversation-${Date.now()}`, status: 'sending', text, time: '刚刚' };
@@ -2949,6 +2954,7 @@ export default function LumiiMvpApp() {
 
   function renderConversation() {
     const conversation = selectedConversation ?? conversations[0];
+    const canSendMessage = conversation?.canSendMessage !== false;
     return (
       <Screen showBack={false} title="">
         <View style={styles.chatMakeHeader}>
@@ -2960,7 +2966,7 @@ export default function LumiiMvpApp() {
             <Text style={styles.chatMakeName}>{conversation?.name ?? '附近主人'}</Text>
             <View style={styles.chatOnlineRow}>
               <View style={styles.homeOnlineDot} />
-              <Text style={styles.chatOnlineText}>模糊距离 · 已互相打招呼</Text>
+              <Text style={styles.chatOnlineText}>{canSendMessage ? '模糊距离 · 已互相打招呼' : '等待对方接受招呼'}</Text>
             </View>
           </View>
           <Pressable onPress={() => go('safety')} style={styles.makeIconChip}>
@@ -2970,7 +2976,7 @@ export default function LumiiMvpApp() {
 
         <View style={styles.chatSafetyTip}>
           <Shield color={palette.teal} size={13} strokeWidth={2.4} />
-          <Text style={styles.chatSafetyText}>聊天中请勿透露精确住址，线下见面建议选择公开宠物友好地点。</Text>
+          <Text style={styles.chatSafetyText}>{canSendMessage ? '聊天中请勿透露精确住址，线下见面建议选择公开宠物友好地点。' : '对方接受招呼后才能继续聊天，未确认前不会暴露精确位置。'}</Text>
         </View>
 
         <View style={styles.chatMakeList}>
@@ -3003,13 +3009,14 @@ export default function LumiiMvpApp() {
         </View>
         <View style={styles.chatComposer}>
           <TextInput
+            editable={canSendMessage}
             onChangeText={setConversationInput}
-            placeholder="发一条友好的消息..."
+            placeholder={canSendMessage ? '发一条友好的消息...' : '等待对方接受招呼'}
             placeholderTextColor="#b6aca3"
-            style={[styles.chatInput, webTextInputReset]}
+            style={[styles.chatInput, !canSendMessage && styles.chatInputDisabled, webTextInputReset]}
             value={conversationInput}
           />
-          <Pressable onPress={() => void sendConversationMessage()} style={styles.sendButton}>
+          <Pressable disabled={!canSendMessage} onPress={() => void sendConversationMessage()} style={[styles.sendButton, !canSendMessage && styles.mapSearchActionDisabled]}>
             <Send color="#fff" size={18} strokeWidth={2.4} />
           </Pressable>
         </View>
@@ -4484,6 +4491,7 @@ const styles = StyleSheet.create({
   chatComposer: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 8, padding: 8 },
   chatDateChip: { alignSelf: 'center', backgroundColor: 'rgba(122,121,114,0.12)', borderRadius: 12, color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 4 },
   chatInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, minHeight: 40, paddingHorizontal: 10 },
+  chatInputDisabled: { color: palette.muted },
   chatList: { gap: 10, minHeight: 520 },
   chatMakeBubble: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderBottomLeftRadius: 4, borderWidth: 1, maxWidth: '82%', paddingHorizontal: 14, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
   chatMakeBubbleMe: { backgroundColor: palette.orange, borderBottomLeftRadius: 18, borderBottomRightRadius: 4, borderColor: palette.orange, shadowColor: palette.orange, shadowOpacity: 0.18 },

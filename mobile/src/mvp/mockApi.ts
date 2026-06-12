@@ -222,8 +222,8 @@ const owners: NearbyOwner[] = [
 ];
 
 const conversations: Conversation[] = [
-  { id: 'c1', imageUrl: owners[0]?.imageUrl, name: '林然和奶油', lastMessage: '今晚 7 点公园见？', ownerId: owners[0]?.id, petName: '奶油', unread: 1 },
-  { id: 'c2', name: '地点审核通知', lastMessage: '你提交的地点已进入审核。', unread: 0 },
+  { canSendMessage: true, id: 'c1', imageUrl: owners[0]?.imageUrl, lastMessage: '今晚 7 点公园见？', name: '林然和奶油', ownerId: owners[0]?.id, petName: '奶油', relationshipStatus: 'accepted', unread: 1 },
+  { canSendMessage: false, id: 'c2', lastMessage: '你提交的地点已进入审核。', name: '地点审核通知', relationshipStatus: 'pending', unread: 0 },
 ];
 
 let greetingRequests: NearbyOwner[] = [];
@@ -890,21 +890,8 @@ export const mockApi = {
     async sendGreeting(ownerId: string): Promise<ApiResult<GreetingResult>> {
       await wait();
       const owner = owners.find((item) => item.id === ownerId);
-      const conversation: Conversation = {
-        id: `greeting-${ownerId}`,
-        imageUrl: owner?.imageUrl,
-        lastMessage: '我想认识你和你的毛孩子',
-        name: owner ? `${owner.ownerName}和${owner.petName}` : '附近主人',
-        ownerId,
-        petName: owner?.petName,
-        unread: 0,
-        updatedAt: '刚刚',
-      };
-      conversations.unshift(conversation);
-      conversationMessagesById[conversation.id] = [
-        { author: 'me', id: `${conversation.id}-hello`, status: 'sent', text: conversation.lastMessage, time: '刚刚' },
-      ];
-      return success({ conversation, ownerId, sent: true });
+      if (!owner) return error('对方暂时不可打招呼，请刷新附近列表后再试', true);
+      return success({ ownerId, sent: true });
     },
 
     async listGreetingRequests(): Promise<ApiResult<NearbyOwner[]>> {
@@ -917,12 +904,14 @@ export const mockApi = {
       const owner = greetingRequests.find((item) => item.id === ownerId) ?? owners.find((item) => item.id === ownerId);
       greetingRequests = greetingRequests.filter((item) => item.id !== ownerId);
       const conversation: Conversation = {
+        canSendMessage: true,
         id: `accepted-${ownerId}`,
         imageUrl: owner?.imageUrl,
         lastMessage: '我们已经互相打招呼啦',
         name: owner ? `${owner.ownerName}和${owner.petName}` : '附近主人',
         ownerId,
         petName: owner?.petName,
+        relationshipStatus: 'accepted',
         unread: 0,
         updatedAt: '刚刚',
       };
@@ -945,12 +934,14 @@ export const mockApi = {
       const inviteId = `walk-${Date.now()}`;
       const message = `${input?.time ?? '今天'} · ${input?.place ?? '附近宠物友好地点'}`;
       const conversation: Conversation = {
+        canSendMessage: false,
         id: `walk-${ownerId}-${Date.now()}`,
         imageUrl: owner?.imageUrl,
         lastMessage: message,
         name: owner ? `${owner.ownerName}和${owner.petName}` : '附近主人',
         ownerId,
         petName: owner?.petName,
+        relationshipStatus: 'pending',
         unread: 0,
         updatedAt: '刚刚',
       };
@@ -1025,6 +1016,9 @@ export const mockApi = {
     async sendConversationMessage(conversationId: string, text: string): Promise<ApiResult<ConversationMessage>> {
       await wait();
       if (!text.trim()) return error('请输入消息内容', false);
+      const conversation = conversations.find((item) => item.id === conversationId);
+      if (!conversation) return error('会话不存在，请返回消息列表刷新', true);
+      if (conversation.canSendMessage === false) return error('对方接受招呼后才能聊天', true);
       const message: ConversationMessage = { author: 'me', id: `conv-${Date.now()}`, status: 'sent', text, time: '刚刚' };
       conversationMessagesById[conversationId] = [...(conversationMessagesById[conversationId] ?? []), message];
       return success(message);

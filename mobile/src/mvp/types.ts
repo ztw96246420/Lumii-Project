@@ -271,12 +271,14 @@ export type NearbyLocationHint = {
 };
 
 export type Conversation = {
+  canSendMessage?: boolean;
   id: string;
   imageUrl?: string;
   lastMessage: string;
   name: string;
   ownerId?: string;
   petName?: string;
+  relationshipStatus?: 'accepted' | 'pending';
   unread: number;
   updatedAt?: string;
 };
