@@ -793,8 +793,12 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     if (!selectedPlace?.id) return;
     const syncedPlace = places.find((place) => place.id === selectedPlace.id);
-    if (syncedPlace) setSelectedPlace(syncedPlace);
-  }, [places, selectedPlace?.id]);
+    if (syncedPlace) {
+      setSelectedPlace(syncedPlace);
+      return;
+    }
+    if (route === 'placeDetail') setSelectedPlace(null);
+  }, [places, route, selectedPlace?.id]);
 
   useEffect(() => {
     if (!session || !focusedInboxRoutes.has(route)) return;
@@ -2340,8 +2344,11 @@ export default function LumiiMvpApp() {
 
   async function createPlaceReview() {
     if (placeReviewSaving) return;
-    const place = selectedPlace ?? places[0];
-    if (!place) return;
+    const place = selectedPlace;
+    if (!place) {
+      showToast('地点已失效，请返回地图重新选择');
+      return;
+    }
     if (!placeReviewDraft.trim()) {
       showToast('请填写点评内容');
       return;
@@ -3859,7 +3866,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderPlaceDetail() {
-    const place = selectedPlace ?? places[0];
+    const place = selectedPlace;
     const isFavoritePlace = place ? favoritePlaceIds.includes(place.id) : false;
     const isFavoriteSaving = place ? favoritePlaceSavingIds.includes(place.id) : false;
     const myPlaceReview = place ? placeReviewsByPlaceId[place.id] : undefined;
@@ -3935,7 +3942,13 @@ export default function LumiiMvpApp() {
               </View>
             </View>
           </View>
-        ) : null}
+        ) : (
+          <View style={styles.mapEmptyCard}>
+            <Text style={styles.cardTitle}>地点已失效</Text>
+            <Text style={styles.mutedText}>这个地点可能已不在当前结果里，请回到地图重新选择。</Text>
+            <Button onPress={() => replace('map')} tone="secondary">回到地图</Button>
+          </View>
+        )}
       </Screen>
     );
   }
