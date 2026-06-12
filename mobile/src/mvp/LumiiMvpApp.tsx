@@ -777,6 +777,13 @@ export default function LumiiMvpApp() {
   }, [selectedConversation?.id]);
 
   useEffect(() => {
+    const selectedId = selectedConversationIdRef.current;
+    if (!selectedId) return;
+    const syncedConversation = conversations.find((conversation) => conversation.id === selectedId);
+    if (syncedConversation) setSelectedConversation(syncedConversation);
+  }, [conversations]);
+
+  useEffect(() => {
     if (!session || !focusedInboxRoutes.has(route)) return;
     void loadInboxData();
   }, [route, session]);
