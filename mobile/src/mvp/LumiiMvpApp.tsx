@@ -729,6 +729,10 @@ export default function LumiiMvpApp() {
 
   useEffect(() => {
     if (!session || route !== 'discover') return undefined;
+    if (!userSettings.nearbyVisible) {
+      applyNearbyOwners([]);
+      return undefined;
+    }
     let active = true;
     const refreshOwners = async () => {
       const nextOwners = await fetchNearbyOwners({ forceLocation: !lastDiscoverLocationRef.current, silent: true });
@@ -742,7 +746,7 @@ export default function LumiiMvpApp() {
       active = false;
       clearInterval(id);
     };
-  }, [route, session]);
+  }, [route, session, userSettings.nearbyVisible]);
 
   useEffect(() => {
     if (!session || route !== 'map' || mapAutoLocateAttemptedRef.current) return;
@@ -1823,7 +1827,8 @@ export default function LumiiMvpApp() {
     if (key !== 'nearbyVisible' && key !== 'fuzzyLocation') return;
 
     lastDiscoverLocationRef.current = null;
-    if (key === 'nearbyVisible' && !nextValue) {
+    const nearbyWillBeVisible = key === 'nearbyVisible' ? nextValue : userSettings.nearbyVisible;
+    if (!nearbyWillBeVisible) {
       applyNearbyOwners([]);
       void loadInboxData();
       return;
@@ -2127,6 +2132,11 @@ export default function LumiiMvpApp() {
 
   async function refreshDiscoverByPull() {
     if (discoverRefreshing) return;
+    if (!userSettings.nearbyVisible) {
+      applyNearbyOwners([]);
+      showToast('请先在我的页开启附近可见');
+      return;
+    }
     setDiscoverRefreshing(true);
     try {
       const nextOwners = await fetchNearbyOwners({ forceLocation: true, silent: false });
@@ -3487,7 +3497,8 @@ export default function LumiiMvpApp() {
   }
 
   function renderDiscover() {
-    const visibleOwners = owners.filter((owner) => ownerMatchesDiscoverFilter(owner, discoverFilter));
+    const discoverEnabled = userSettings.nearbyVisible;
+    const visibleOwners = discoverEnabled ? owners.filter((owner) => ownerMatchesDiscoverFilter(owner, discoverFilter)) : [];
     const activeDiscoverFilterLabel = discoverFilterOptions.find((item) => item.key === discoverFilter)?.label ?? '全部';
     return (
       <Screen
@@ -3506,7 +3517,7 @@ export default function LumiiMvpApp() {
         <View style={styles.discoverMakeHeader}>
           <Text style={styles.makeScreenTitle}>发现</Text>
           <View style={styles.messagesHeaderActions}>
-            <Pressable accessibilityLabel="刷新附近伙伴" accessibilityRole="button" disabled={discoverRefreshing} onPress={() => void refreshDiscoverByPull()} style={[styles.makeIconChip, discoverRefreshing && styles.mapSearchActionDisabled]}>
+            <Pressable accessibilityLabel="刷新附近伙伴" accessibilityRole="button" disabled={discoverRefreshing} onPress={() => void refreshDiscoverByPull()} style={[styles.makeIconChip, (discoverRefreshing || !discoverEnabled) && styles.mapSearchActionDisabled]}>
               {discoverRefreshing ? <ActivityIndicator color={palette.ink} size="small" /> : <RefreshCw color={palette.ink} size={16} strokeWidth={2.3} />}
             </Pressable>
             <Pressable accessibilityLabel="切换附近筛选" accessibilityRole="button" onPress={cycleDiscoverFilter} style={styles.makeIconChip}>
@@ -3516,8 +3527,8 @@ export default function LumiiMvpApp() {
         </View>
         <View style={styles.locationChipMake}>
           <MapPin color={palette.orange} size={13} strokeWidth={2.4} />
-          <Text style={styles.locationChipText}>附近 · 3km 内 · {activeDiscoverFilterLabel} · {visibleOwners.length} 位</Text>
-          <Text style={styles.locationPrivacyPill}>模糊距离</Text>
+          <Text style={styles.locationChipText}>{discoverEnabled ? `附近 · 3km 内 · ${activeDiscoverFilterLabel} · ${visibleOwners.length} 位` : '附近可见未开启'}</Text>
+          <Text style={styles.locationPrivacyPill}>{discoverEnabled ? '模糊距离' : '已隐藏'}</Text>
         </View>
         <ScrollView horizontal contentContainerStyle={styles.filterChipsMake} showsHorizontalScrollIndicator={false}>
           {discoverFilterOptions.map((filter) => (
@@ -3558,8 +3569,8 @@ export default function LumiiMvpApp() {
           ))}
           {!visibleOwners.length ? (
             <View style={styles.mapEmptyCard}>
-              <Text style={styles.cardTitle}>暂无匹配伙伴</Text>
-              <Text style={styles.mutedText}>可以切换筛选条件，或下拉刷新附近列表。</Text>
+              <Text style={styles.cardTitle}>{discoverEnabled ? '暂无匹配伙伴' : '附近可见未开启'}</Text>
+              <Text style={styles.mutedText}>{discoverEnabled ? '可以切换筛选条件，或下拉刷新附近列表。' : '开启后才会展示附近猫狗主人，也会让附近伙伴看到你。'}</Text>
             </View>
           ) : null}
         </View>
