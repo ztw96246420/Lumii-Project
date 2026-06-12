@@ -263,6 +263,13 @@ export type NotificationItem = {
   title: string;
 };
 
+export type PushDevice = {
+  deviceId?: string;
+  platform: 'android' | 'ios' | 'web';
+  token: string;
+  updatedAt: string;
+};
+
 export type Place = {
   address: string;
   category: 'cafe' | 'clinic' | 'other' | 'park';

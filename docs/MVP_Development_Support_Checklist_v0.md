@@ -301,7 +301,7 @@ Android 调用：
 ### 3.9 通知
 
 需要接口：
-- `POST /devices/push-token`：上报推送 token。
+- ~~`POST /devices/push-token`：上报推送 token。~~ MVP 测试后端和 mock API 已支持按账号保存/更新设备 token；生产厂商通道、通知模板和送达回执仍待确认。
 - ~~`GET /notifications`：通知列表。~~ MVP 测试后端已支持，App 会在消息页/通知页刷新读取。
 - ~~`POST /notifications/read`：批量标记已读。~~ MVP 测试后端已支持，进入通知中心会自动标记已读。
 - ~~`PATCH /notification-settings`：通知设置。~~ MVP 测试后端已用 `PATCH /settings` 保存 `pushNotifications`。
@@ -367,7 +367,7 @@ P2 后续：
 - ~~地图 SDK Key。~~ Android 高德 Key 已接入；iOS 待接。
 - 对象存储测试 Bucket。
 - AI 服务测试 Key 或后端代理接口。
-- 推送服务测试 App Key。
+- 推送服务测试 App Key。MVP 已可上报设备 token；生产仍需厂商通道或第三方推送服务配置。
 - 错误码表。
 - CORS 和本地调试白名单。
 
@@ -393,7 +393,7 @@ P2 后续：
 1. 健康管理接口和疫苗模板。
 2. ~~社交发现/打招呼/聊天接口。~~ 测试后端已可用；生产级风控/安全仍待补。
 3. 地点点评/审核接口。
-4. ~~通知中心和推送设置接口。~~ MVP 测试后端已接通知列表、已读和设置保存；生产推送 token、厂商通道和通知模板仍待补。
+4. ~~通知中心和推送设置接口。~~ MVP 测试后端已接通知列表、已读、设置保存和设备 token 上报；生产厂商通道、通知模板和送达回执仍待补。
 5. 举报、拉黑、账号注销接口。
 
 第三批：
@@ -412,7 +412,7 @@ P2 后续：
 - `avatar`：`uploadPetMedia`、`startGeneration`、`getGenerationStatus`、`saveAvatar`
 - `health`：`getHealthSummary`、`listHealthCalendar`、`recordWeight`、`updateWeightRecord`、`deleteWeightRecord`、`listWeightRecords`、`getWeightTrend`、`listVaccines`、`saveHealthMemo`
 - `social`：`listNearbyOwners`、`sendGreeting`、`createWalkInvite`
-- `messages`：`listConversations`、`sendMessage`、`listNotifications`
+- `messages`：`registerPushToken`、`listConversations`、`sendMessage`、`listNotifications`
 - `places`：`listNearbyPlaces`、`searchPlaces`、`createReview`
 
 仍需要你/后端/设计优先补充：

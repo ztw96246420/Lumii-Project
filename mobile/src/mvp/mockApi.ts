@@ -22,6 +22,7 @@ import type {
   PlaceReview,
   PlaceSubmission,
   PermissionStateMap,
+  PushDevice,
   SmsCodeTicket,
   UploadPetMediaInput,
   UploadedPetMedia,
@@ -169,6 +170,8 @@ let notifications: NotificationItem[] = [
   { id: 'n1', title: '疫苗提醒', text: '狂犬疫苗将在 19 天后到期。', read: false },
   { id: 'n2', title: 'AI 形象生成', text: '新的电子宠物形象已保存。', read: true },
 ];
+
+let pushDevices: PushDevice[] = [];
 
 const places: Place[] = [
   { id: 'p1', name: '云杉宠物友好公园', address: '滨江路 88 号', category: 'park', distance: '900m', rating: 4.8, tags: ['可遛狗', '草坪', '饮水点'] },
@@ -716,6 +719,24 @@ export const mockApi = {
   },
 
   messages: {
+    async registerPushToken(token: string, platform: PushDevice['platform'], deviceId?: string): Promise<ApiResult<PushDevice>> {
+      await wait(120);
+      const normalizedToken = String(token || '').trim();
+      if (!normalizedToken) return error('推送 token 不能为空', false);
+      const normalizedPlatform = platform === 'ios' || platform === 'web' ? platform : 'android';
+      const device: PushDevice = {
+        deviceId: deviceId ? String(deviceId) : undefined,
+        platform: normalizedPlatform,
+        token: normalizedToken,
+        updatedAt: '刚刚',
+      };
+      pushDevices = [
+        device,
+        ...pushDevices.filter((item) => (device.deviceId ? item.deviceId !== device.deviceId : item.token !== device.token)),
+      ];
+      return success(device);
+    },
+
     async listConversations(): Promise<ApiResult<Conversation[]>> {
       await wait(160);
       return success(conversations);

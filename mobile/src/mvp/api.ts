@@ -22,6 +22,7 @@ import type {
   PlaceReview,
   PlaceSubmission,
   PermissionStateMap,
+  PushDevice,
   SmsCodeTicket,
   UploadPetMediaInput,
   UploadedPetMedia,
@@ -284,6 +285,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
     },
 
     messages: {
+      async registerPushToken(token: string, platform: PushDevice['platform'], deviceId?: string): Promise<ApiResult<PushDevice>> {
+        return request<PushDevice>('POST', '/devices/push-token', { deviceId, platform, token });
+      },
+
       async listConversations(): Promise<ApiResult<Conversation[]>> {
         return request<Conversation[]>('GET', '/conversations');
       },

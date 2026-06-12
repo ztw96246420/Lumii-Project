@@ -145,6 +145,7 @@ function createInitialState() {
     },
     invites: [],
     notifications: {},
+    pushDevices: {},
     aiUsage: {
       deepseek: {
         cacheHitTokens: 0,
@@ -1680,6 +1681,30 @@ async function handle(req, res) {
     user.settings = normalizeUserSettings({ ...user.settings, ...body });
     saveState();
     ok(res, user.settings);
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/devices/push-token') {
+    const token = String(body.token || '').trim();
+    if (!token) {
+      fail(res, 400, '推送 token 不能为空', false);
+      return;
+    }
+    const platform = ['android', 'ios', 'web'].includes(String(body.platform || '')) ? String(body.platform) : 'android';
+    const device = {
+      deviceId: body.deviceId ? String(body.deviceId) : undefined,
+      platform,
+      token,
+      updatedAt: '刚刚',
+    };
+    state.pushDevices = state.pushDevices || {};
+    const devices = Array.isArray(state.pushDevices[user.phone]) ? state.pushDevices[user.phone] : [];
+    state.pushDevices[user.phone] = [
+      device,
+      ...devices.filter((item) => (device.deviceId ? item.deviceId !== device.deviceId : item.token !== device.token)),
+    ];
+    saveState();
+    ok(res, device);
     return;
   }
 

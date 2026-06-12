@@ -702,6 +702,33 @@ Request:
 
 标记会话已读。当前测试后端会持久化未读数归零。
 
+### POST `/devices/push-token`
+
+上报当前登录账号的设备推送 token。MVP 测试后端只保存 token，不连接厂商推送通道；后续接入 APNs、厂商通道、极光或个推时复用该设备记录。
+
+Request:
+
+```json
+{ "token": "ExponentPushToken[xxxx]", "platform": "android", "deviceId": "optional-device-id" }
+```
+
+Response data:
+
+```ts
+type PushDevice = {
+  deviceId?: string;
+  platform: 'android' | 'ios' | 'web';
+  token: string;
+  updatedAt: string;
+};
+```
+
+说明：
+- `token` 不能为空。
+- `platform` 支持 `android`、`ios`、`web`，未识别时测试后端按 `android` 兜底。
+- 传入 `deviceId` 时按 `deviceId` 去重更新；未传 `deviceId` 时按 token 去重。
+- 该接口不等于生产推送服务上线；生产仍需确认厂商通道、通知模板、送达回执和退订策略。
+
 ### GET `/notifications`
 
 读取通知中心列表。当前测试后端会在读取前检查已开启的健康提醒，临近或逾期的疫苗计划会生成去重后的“健康提醒”通知。
