@@ -85,6 +85,31 @@ const defaultPlaces = [
   },
 ];
 
+const petTaxonomy = {
+  fieldRules: {
+    birthdayFormat: 'YYYY-MM-DD',
+    maxBreedLength: 20,
+    maxNameLength: 12,
+    supportedSpecies: ['dog', 'cat'],
+    weightUnit: 'kg',
+  },
+  genders: [
+    { id: 'unknown', label: '未知' },
+    { id: 'male', label: '男孩' },
+    { id: 'female', label: '女孩' },
+  ],
+  personalityTags: ['亲人', '活泼', '安静', '胆小', '黏人', '爱玩', '友好', '独立', '爱撒娇', '喜欢散步'],
+  species: [
+    { id: 'dog', label: '狗狗', supportedInMvp: true, breeds: ['金毛', '拉布拉多', '柯基', '柴犬', '贵宾', '比熊', '边牧', '萨摩耶', '博美', '中华田园犬', '其他狗狗'] },
+    { id: 'cat', label: '猫咪', supportedInMvp: true, breeds: ['英短', '美短', '布偶', '暹罗', '缅因', '橘猫', '狸花猫', '三花猫', '中华田园猫', '其他猫咪'] },
+    { id: 'rabbit', label: '兔子', supportedInMvp: false, breeds: [] },
+    { id: 'hamster', label: '仓鼠', supportedInMvp: false, breeds: [] },
+    { id: 'bird', label: '鸟类', supportedInMvp: false, breeds: [] },
+    { id: 'reptile', label: '爬宠', supportedInMvp: false, breeds: [] },
+    { id: 'other', label: '其他', supportedInMvp: false, breeds: [] },
+  ],
+};
+
 const generatedAvatarUrl = 'lumii://golden-retriever-avatar';
 const samplePhotoUrl =
   'https://images.unsplash.com/photo-1625794084867-8ddd239946b1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=720';
@@ -1480,6 +1505,11 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/health') {
     ok(res, { now: Date.now(), users: Object.keys(state.users).length });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/pet-taxonomy') {
+    ok(res, petTaxonomy);
     return;
   }
 

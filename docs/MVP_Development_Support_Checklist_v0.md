@@ -177,13 +177,13 @@ Android 调用：
 - ~~`PATCH /pets/{petId}`：编辑宠物。~~ MVP 测试后端已支持。
 - ~~`DELETE /pets/{petId}`：删除宠物。~~ MVP 测试后端已支持；App 暂不暴露删除入口，需先补 Figma 危险操作确认。
 - ~~`POST /pets/{petId}/set-default`：设置默认宠物。~~ MVP 测试后端已支持。
-- `GET /pet-taxonomy`：物种、品种、性格标签字典。
+- ~~`GET /pet-taxonomy`：物种、品种、性格标签字典。~~ MVP 测试后端和 mock API 已支持；首版猫狗可选，兔子/仓鼠/鸟类/爬宠/其他仅保留后续扩展入口。
 
 需要你提供：
-- 首发支持物种范围：建议猫、狗为完整支持，鸟、仓鼠、兔子等先支持基础档案。
-- 犬猫品种字典。
-- 性格标签字典。
-- 性别、绝育、生日、体重单位等字段规则。
+- ~~首发支持物种范围：建议猫、狗为完整支持，鸟、仓鼠、兔子等先支持基础档案。~~ 当前 `GET /pet-taxonomy` 已按“猫狗首版完整支持，其他物种后续扩展入口”落地。
+- ~~犬猫品种字典。~~ MVP 种子字典已内置常见猫狗品种；正式运营字典后续仍可替换/扩充。
+- ~~性格标签字典。~~ MVP 种子字典已内置基础性格标签。
+- ~~性别、绝育、生日、体重单位等字段规则。~~ MVP 已在 `GET /pet-taxonomy.fieldRules` 中提供姓名/品种长度、生日格式、体重单位和性别选项；绝育字段暂未进入当前建档模型。
 
 ### 3.4 AI 宠物形象生成
 
@@ -340,7 +340,7 @@ P0 必需：
 - 示例宠物原图和对应理想结果。
 - 登录、权限、上传、AI 生成、失败提示的正式中文文案。
 - 用户协议和隐私政策初稿。
-- 犬猫物种、品种、性格标签字典。
+- ~~犬猫物种、品种、性格标签字典。~~ MVP 种子字典已由 `GET /pet-taxonomy` 提供；正式运营字典后续可继续扩充。
 - 高德或腾讯地图 Key。
 
 P1 建议：
@@ -408,7 +408,7 @@ P2 后续：
 已落地的 mock service 命名空间：
 - `auth`：`sendSmsCode`、`verifySmsCode`、`logout`
 - `permissions`：当前通过 `src/services/permissions.ts` 调用 Expo 权限服务；Web 预览模拟授权
-- `pets`：`createPet`、`updatePet`、`listPets`、`setActivePet`
+- `pets`：`getTaxonomy`、`createPet`、`updatePet`、`listPets`、`setActivePet`
 - `avatar`：`uploadPetMedia`、`startGeneration`、`getGenerationStatus`、`saveAvatar`
 - `health`：`recordWeight`、`listWeightRecords`、`listVaccines`、`saveHealthMemo`
 - `social`：`listNearbyOwners`、`sendGreeting`、`createWalkInvite`
@@ -418,7 +418,7 @@ P2 后续：
 仍需要你/后端/设计优先补充：
 - API Base URL、鉴权 token 方案、统一错误码结构。
 - 短信后端代理接口，避免在 App 内暴露短信服务地址。
-- 宠物物种、品种、性格标签字典；猫狗 P0 完整，兔子/仓鼠/鹦鹉/爬宠先基础档案。
+- ~~宠物物种、品种、性格标签字典；猫狗 P0 完整，兔子/仓鼠/鹦鹉/爬宠先基础档案。~~ MVP 种子字典已落地；后续只需补正式运营版品种库和非猫狗健康模板。
 - AI 真实卡通化参考样张 5-10 张，以及“重新生成/不像我的宠物/局部调整”的交互规则。
 - 对象存储方案和上传限制：图片大小、视频时长、格式、压缩、EXIF 清理。
 - 地图供应商最终选择：已确认高德地图；Android 高德 SDK Key 已接入，仍需 POI 分类、导航跳转规则、iOS Key/SDK。

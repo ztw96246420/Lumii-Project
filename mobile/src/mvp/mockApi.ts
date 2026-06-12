@@ -16,6 +16,7 @@ import type {
   NotificationItem,
   PetChatFeedbackRating,
   PetProfile,
+  PetTaxonomy,
   Place,
   PlaceReview,
   PlaceSubmission,
@@ -75,6 +76,31 @@ const acceptedPetMediaAnalysis: UploadedPetMedia['analysis'] = {
   suggestions: [],
   tags: ['单只宠物', '主体清晰', '可生成'],
   title: '识别成功',
+};
+
+const petTaxonomy: PetTaxonomy = {
+  fieldRules: {
+    birthdayFormat: 'YYYY-MM-DD',
+    maxBreedLength: 20,
+    maxNameLength: 12,
+    supportedSpecies: ['dog', 'cat'],
+    weightUnit: 'kg',
+  },
+  genders: [
+    { id: 'unknown', label: '未知' },
+    { id: 'male', label: '男孩' },
+    { id: 'female', label: '女孩' },
+  ],
+  personalityTags: ['亲人', '活泼', '安静', '胆小', '黏人', '爱玩', '友好', '独立', '爱撒娇', '喜欢散步'],
+  species: [
+    { id: 'dog', label: '狗狗', supportedInMvp: true, breeds: ['金毛', '拉布拉多', '柯基', '柴犬', '贵宾', '比熊', '边牧', '萨摩耶', '博美', '中华田园犬', '其他狗狗'] },
+    { id: 'cat', label: '猫咪', supportedInMvp: true, breeds: ['英短', '美短', '布偶', '暹罗', '缅因', '橘猫', '狸花猫', '三花猫', '中华田园猫', '其他猫咪'] },
+    { id: 'rabbit', label: '兔子', supportedInMvp: false, breeds: [] },
+    { id: 'hamster', label: '仓鼠', supportedInMvp: false, breeds: [] },
+    { id: 'bird', label: '鸟类', supportedInMvp: false, breeds: [] },
+    { id: 'reptile', label: '爬宠', supportedInMvp: false, breeds: [] },
+    { id: 'other', label: '其他', supportedInMvp: false, breeds: [] },
+  ],
 };
 
 let weights: WeightRecord[] = [
@@ -334,6 +360,11 @@ export const mockApi = {
   },
 
   pets: {
+    async getTaxonomy(): Promise<ApiResult<PetTaxonomy>> {
+      await wait(100);
+      return success(petTaxonomy);
+    },
+
     async createPet(input: CreatePetInput): Promise<ApiResult<PetProfile>> {
       await wait();
       const pet: PetProfile = {

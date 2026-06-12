@@ -66,6 +66,27 @@ export type PetProfile = {
 
 export type CreatePetInput = Omit<PetProfile, 'healthScore' | 'id' | 'personality'>;
 
+export type PetTaxonomy = {
+  fieldRules: {
+    birthdayFormat: 'YYYY-MM-DD';
+    maxBreedLength: number;
+    maxNameLength: number;
+    supportedSpecies: Array<Extract<PetSpecies, 'cat' | 'dog'>>;
+    weightUnit: 'kg';
+  };
+  genders: Array<{
+    id: PetProfile['gender'];
+    label: string;
+  }>;
+  personalityTags: string[];
+  species: Array<{
+    breeds: string[];
+    id: PetSpecies;
+    label: string;
+    supportedInMvp: boolean;
+  }>;
+};
+
 export type AvatarJob = {
   errorMessage?: string;
   id: string;

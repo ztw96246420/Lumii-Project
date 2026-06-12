@@ -16,6 +16,7 @@ import type {
   NotificationItem,
   PetChatFeedbackRating,
   PetProfile,
+  PetTaxonomy,
   Place,
   PlaceReview,
   PlaceSubmission,
@@ -125,6 +126,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
     },
 
     pets: {
+      async getTaxonomy(): Promise<ApiResult<PetTaxonomy>> {
+        return request<PetTaxonomy>('GET', '/pet-taxonomy');
+      },
+
       async createPet(input: CreatePetInput): Promise<ApiResult<PetProfile>> {
         const result = await request<PetProfile>('POST', '/pets', input);
         if (result.data) cachedActivePet = result.data;

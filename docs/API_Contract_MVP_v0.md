@@ -267,6 +267,37 @@ Request:
 
 ## 4. 宠物档案
 
+### GET `/pet-taxonomy`
+
+读取建档用的宠物字典。该接口不要求登录，方便 App 在新用户建档前加载选项。MVP 首版只开放猫狗完整选择；兔子、仓鼠、鸟类、爬宠、其他先作为后续扩展入口保留。
+
+Response data:
+
+```ts
+type PetTaxonomy = {
+  fieldRules: {
+    birthdayFormat: 'YYYY-MM-DD';
+    maxBreedLength: number;
+    maxNameLength: number;
+    supportedSpecies: Array<'dog' | 'cat'>;
+    weightUnit: 'kg';
+  };
+  genders: Array<{ id: 'male' | 'female' | 'unknown'; label: string }>;
+  personalityTags: string[];
+  species: Array<{
+    id: 'dog' | 'cat' | 'rabbit' | 'hamster' | 'bird' | 'reptile' | 'other';
+    label: string;
+    supportedInMvp: boolean;
+    breeds: string[];
+  }>;
+};
+```
+
+说明：
+- `supportedInMvp=true` 的物种才应该在首版建档流程中作为可选项展示。
+- 当前测试后端内置猫狗常用品种和基础性格标签；正式品种库后续可替换为运营维护版本。
+- `fieldRules` 供前端做本地校验，后端仍会做兜底校验。
+
 ### GET `/pets`
 
 返回当前用户的宠物列表。
