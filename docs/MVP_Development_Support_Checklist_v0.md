@@ -222,7 +222,7 @@ Android 调用：
 - ~~`POST /ai/pet-chat/sessions`：创建/获取与某只宠物的会话。~~ MVP 暂以当前登录用户 + 当前宠物作为隐式 session。
 - ~~`GET /ai/pet-chat/sessions/{sessionId}/messages`：读取历史消息。~~ MVP 已接 `GET /ai/pet-chat/messages`。
 - ~~`POST /ai/pet-chat/sessions/{sessionId}/messages`：发送消息并获取回复。~~ MVP 已接 `POST /ai/pet-chat/messages`，支持 DeepSeek V4 服务端适配层与本地 fallback。
-- ~~`POST /ai/pet-chat/messages/{messageId}/feedback`：反馈语气不像、无帮助、不安全等。~~ MVP 测试后端已支持 `good/off`，App 会把“像它/不像它”写回对应 AI 消息。
+- ~~`POST /ai/pet-chat/messages/{messageId}/feedback`：反馈语气不像、无帮助、不安全等。~~ MVP 测试后端已支持 `good/off`，App 会把“像它/不像它”写回对应 AI 消息；后续对话会读取同一宠物下的反馈摘要并注入 DeepSeek 上下文。
 - ~~`GET /ai/usage`：读取 AI 对话 token/次数与形象生成额度统计。~~ MVP 测试后端、HTTP API 门面和 mock API 已支持；不触发真实模型请求。
 
 需要你提供：
@@ -243,8 +243,9 @@ Android 调用：
 - AI 对话已支持显式宠物档案更新：用户说“它叫奶油/生日是 2022年5月1日/品种是金毛寻回犬/性别是妹妹/性格是亲人、爱互动”等明确字段时，后端会更新当前宠物档案，回复携带 `updatedPet`，App 会刷新首页、我的页、宠物资料和账号快照；普通聊天不会自动改档案。
 - AI 对话已支持长上下文轻量摘要：历史超过最近窗口后，服务端会把较早宠物对话压缩为确定性中文摘要注入提示词，完整消息只保留最近窗口，减少 DeepSeek token 膨胀。
 - AI 对话已支持模型回复后置安全过滤：DeepSeek 返回后，服务端会替换过度诊断、处方/剂量、自行用药和淡化急症就医等风险回复；安全的“不要自行用药/联系兽医”提醒会保留。
+- AI 对话已支持反馈聚合基础能力：主人点“像它/不像它”后，服务端会统计当前宠物下的反馈次数和最近样例，并在下一次 DeepSeek 请求中注入用户不可见上下文，帮助后续回复更贴近宠物语气。
 - DeepSeek 密钥只允许配置在服务端环境变量，不进入前端和 Git。
-- 仍需要后续补流式输出、反馈聚合分析、生产级内容审核和正式医疗安全评估。
+- 仍需要后续补流式输出、反馈运营分析后台、生产级内容审核和正式医疗安全评估。
 
 ### 3.6 健康管理
 

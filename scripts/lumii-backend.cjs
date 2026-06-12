@@ -999,6 +999,30 @@ function setPetChatFeedback(user, messageId, rating) {
   return message;
 }
 
+function petChatFeedbackContextFor(user) {
+  const feedbackMessages = petChatMessagesFor(user)
+    .filter((message) => message.author === 'ai' && (message.feedback === 'good' || message.feedback === 'off'))
+    .filter((message) => String(message.text || '').trim());
+  if (!feedbackMessages.length) return [];
+
+  const likedMessages = feedbackMessages.filter((message) => message.feedback === 'good');
+  const offMessages = feedbackMessages.filter((message) => message.feedback === 'off');
+  const likedSamples = likedMessages
+    .slice(-3)
+    .map((message) => compactPetChatLine(message.text, 72, { removeSavedActions: true }))
+    .filter(Boolean);
+  const offSamples = offMessages
+    .slice(-3)
+    .map((message) => compactPetChatLine(message.text, 72, { removeSavedActions: true }))
+    .filter(Boolean);
+
+  return [
+    `反馈统计：主人点过“像它”${likedMessages.length}次，“不像它”${offMessages.length}次。`,
+    likedSamples.length ? `被认为像它的回复片段：${likedSamples.join('；')}。后续保留类似语气、节奏和关注点。` : '',
+    offSamples.length ? `被认为不像它的回复片段：${offSamples.join('；')}。后续避免类似表达，优先更贴近宠物档案和主人的真实记录。` : '',
+  ].filter(Boolean);
+}
+
 function petSpeciesLabel(species) {
   if (species === 'cat') return '猫咪';
   if (species === 'dog') return '狗狗';
@@ -1036,6 +1060,7 @@ function buildPetChatContextPrompt(user) {
   const healthMemos = healthList('memos', user, defaultMemosFor).slice(0, 3);
   const weights = healthList('weights', user, defaultWeightRecordsFor).slice(0, 2);
   const vaccines = healthList('vaccines', user, defaultVaccinesFor).slice(0, 3);
+  const feedbackLines = petChatFeedbackContextFor(user);
   const petName = pet?.name || `灵伴${user.phone.slice(-4)}`;
   const profileLines = [
     `宠物名：${petName}`,
@@ -1059,6 +1084,7 @@ function buildPetChatContextPrompt(user) {
     '',
     '近期上下文：',
     ...contextLines,
+    ...(feedbackLines.length ? ['', '用户对灵伴回复的反馈：', ...feedbackLines] : []),
   ].join('\n');
 }
 
