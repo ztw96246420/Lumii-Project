@@ -538,10 +538,12 @@ export default function LumiiMvpApp() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [places, setPlaces] = useState<Place[]>([]);
   const [placeQuery, setPlaceQuery] = useState('');
+  const placeQueryRef = useRef('');
   const [placeFilter, setPlaceFilter] = useState<'all' | Place['category']>('all');
   const [placeSearching, setPlaceSearching] = useState(false);
   const placeSearchingRef = useRef(false);
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
+  const selectedPlaceIdRef = useRef<string | null>(null);
   const [favoritePlaceIds, setFavoritePlaceIds] = useState<string[]>([]);
   const [favoritePlaceSavingIds, setFavoritePlaceSavingIds] = useState<string[]>([]);
   const favoritePlaceSavingIdsRef = useRef<Set<string>>(new Set());
@@ -728,6 +730,14 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     otpMetaRef.current = otpMeta;
   }, [otpMeta]);
+
+  useEffect(() => {
+    placeQueryRef.current = placeQuery;
+  }, [placeQuery]);
+
+  useEffect(() => {
+    selectedPlaceIdRef.current = selectedPlace?.id ?? null;
+  }, [selectedPlace?.id]);
 
   useEffect(() => {
     permissionsRef.current = permissions;
@@ -2412,12 +2422,13 @@ export default function LumiiMvpApp() {
 
   async function searchPlaces() {
     if (placeSearchingRef.current) return;
-    const query = placeQuery.trim();
+    const query = placeQueryRef.current.trim();
     placeSearchingRef.current = true;
     setPlaceSearching(true);
     setPlaceFilter('all');
     try {
       const result = query ? await lumiiApi.places.searchPlaces(query) : await lumiiApi.places.listNearbyPlaces();
+      if (placeQueryRef.current.trim() !== query) return;
       if (result.data) {
         const nextPlaces = result.data;
         setPlaces(nextPlaces);
@@ -2587,12 +2598,13 @@ export default function LumiiMvpApp() {
     setPlaceReviewSaving(true);
     try {
       const result = await lumiiApi.places.createReview(place.id, reviewContent);
+      const stillReviewingSamePlace = selectedPlaceIdRef.current === place.id && routeRef.current === 'placeDetail';
       if (result.data) {
-        setPlaceReviewDraft('');
+        if (stillReviewingSamePlace) setPlaceReviewDraft('');
         setPlaceReviewsByPlaceId((items) => ({ ...items, [place.id]: result.data! }));
         void loadInboxData();
-        showToast('点评已提交，等待审核');
-      } else {
+        if (stillReviewingSamePlace) showToast('点评已提交，等待审核');
+      } else if (stillReviewingSamePlace) {
         showToast(result.error?.message ?? '提交失败，请稍后重试');
       }
     } finally {
@@ -2716,10 +2728,12 @@ export default function LumiiMvpApp() {
     setWalkInviteTime('今天 19:00');
     setWalkInviteNote('');
     setPlaces([]);
+    placeQueryRef.current = '';
     setPlaceQuery('');
     setPlaceFilter('all');
     placeSearchingRef.current = false;
     setPlaceSearching(false);
+    selectedPlaceIdRef.current = null;
     setSelectedPlace(null);
     setFavoritePlaceIds([]);
     favoritePlaceSavingIdsRef.current.clear();
@@ -4078,7 +4092,10 @@ export default function LumiiMvpApp() {
           <View style={styles.mapSearchFloatMake}>
             <Search color={palette.muted} size={16} strokeWidth={2.2} />
             <TextInput
-              onChangeText={setPlaceQuery}
+              onChangeText={(value) => {
+                placeQueryRef.current = value;
+                setPlaceQuery(value);
+              }}
               onSubmitEditing={() => void searchPlaces()}
               placeholder="搜索公园、咖啡店、宠物医院…"
               placeholderTextColor={palette.muted}

@@ -333,6 +333,7 @@ Android 调用：
 - ~~`GET /places/submissions/my`：我的新增地点审核记录。~~ MVP 测试后端、HTTP API 门面和 mock API 已支持；当前 App 暂不新增“我的提交”页面。
 - ~~新增地点基础重复拦截。~~ MVP 测试后端和 mock API 已支持：名称与地址同时高度相似时，会拦截已存在地点和审核中地点的重复提交；复杂“疑似地点卡片/仍然提交”仍需 Figma。
 - ~~公开地点内容基础安全拦截。~~ MVP 测试后端和 mock API 已支持：地点点评、地点名称、地址和体验会拦截手机号、邮箱、外部链接、微信/QQ 等外部联系方式，以及明显违法/灰产词；生产级内容审核服务仍待后续。
+- ~~地点搜索和点评提交前端状态保护。~~ App 已补搜索词/当前地点 ref 校验，慢网络旧搜索不会覆盖当前结果，旧点评回包不会清掉新地点草稿；不需要你额外补页面或接口。
 - ~~`POST /places/{placeId}/favorite`：收藏地点。~~ MVP 测试后端已改用 `PATCH /places/{placeId}/favorite`。
 - ~~`DELETE /places/{placeId}/favorite`：取消收藏。~~ MVP 测试后端已改用 `PATCH /places/{placeId}/favorite`。
 - `POST /places/{placeId}/report`：举报地点信息。
