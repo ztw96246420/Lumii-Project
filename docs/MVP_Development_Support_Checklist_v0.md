@@ -137,6 +137,7 @@
 - 已安装并接入 Expo 权限模块：`expo-location`、`expo-image-picker`、`expo-notifications`。
 - 权限页三个开关已接入前端桥接：定位、照片与相机、消息通知。
 - 权限状态已接入持久化和回刷：进入权限页会读取系统当前授权并保存到测试后端；从系统设置返回 App 会自动刷新；永久拒绝/设备不支持状态不会被普通未授权查询降级。
+- `PATCH /permissions` 已补服务端和 mock 校验：只接受 `location/media/notifications` 与 `unknown/denied/blocked/unavailable/granted`，非法字段、非法状态或非布尔 `completed` 会返回 `PERMISSIONS_PATCH_INVALID`，避免联调时静默吞错。
 - 发现页和地图页触发定位权限后，也会同步保存最新权限状态，避免二次登录或回到权限页时状态不一致。
 - Web 预览中不会弹系统授权框，会模拟授权成功并回写开关状态；iOS/Android 真机中会调用系统授权弹窗。
 

@@ -258,6 +258,12 @@ Response：同 `GET /me`。
 
 保存当前账号权限引导状态。
 
+说明：
+- `permissions` 当前只接受 `location`、`media`、`notifications` 三个字段。
+- 持久化状态只接受 `unknown`、`denied`、`blocked`、`unavailable`、`granted`；前端本地瞬时态 `requesting` 不允许写入服务端。
+- `completed` 如传入必须是布尔值。
+- 传入未知权限项、非法状态或非法 `completed` 时返回 400，`error.code=PERMISSIONS_PATCH_INVALID`，不会静默吞掉错误字段。
+
 Request:
 
 ```json

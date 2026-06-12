@@ -74,6 +74,21 @@ let mockUserSettings: UserSettings = {
   pushNotifications: true,
 };
 
+function parseMockPermissionPatch(value: Partial<PermissionStateMap>) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '权限参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(['location', 'media', 'notifications']);
+  const allowedStatuses = new Set(['blocked', 'denied', 'granted', 'unavailable', 'unknown']);
+  const source = value as Record<string, unknown>;
+  const keys = Object.keys(source);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `权限项 ${unknownKey} 暂不支持` };
+  const invalidKey = keys.find((key) => !allowedStatuses.has(source[key] as string));
+  if (invalidKey) return { error: `权限项 ${invalidKey} 状态无效` };
+  return { patch: source as Partial<PermissionStateMap> };
+}
+
 function parseMockUserSettingsPatch(value: Partial<UserSettings>) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { error: '设置参数无效，请刷新后重试' };
@@ -1154,7 +1169,10 @@ export const mockApi = {
 
     async savePermissionState(next: Partial<PermissionStateMap>, completed = false): Promise<ApiResult<PermissionStateMap>> {
       await wait(120);
-      mockPermissions = { ...mockPermissions, ...next };
+      if (typeof completed !== 'boolean') return error<PermissionStateMap>('权限引导完成状态必须是开启或关闭', false, undefined, 'PERMISSIONS_PATCH_INVALID');
+      const permissionPatch = parseMockPermissionPatch(next);
+      if (permissionPatch.error) return error<PermissionStateMap>(permissionPatch.error, false, undefined, 'PERMISSIONS_PATCH_INVALID');
+      mockPermissions = { ...mockPermissions, ...(permissionPatch.patch ?? {}) };
       mockPermissionsOnboardingCompleted = mockPermissionsOnboardingCompleted || completed;
       return success(mockPermissions);
     },

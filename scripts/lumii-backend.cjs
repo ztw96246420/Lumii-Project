@@ -633,6 +633,30 @@ function normalizePermissionState(value) {
   return next;
 }
 
+function parsePermissionPatch(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '权限参数无效，请刷新后重试' };
+  }
+  if ('completed' in value && typeof value.completed !== 'boolean') {
+    return { error: '权限引导完成状态必须是开启或关闭' };
+  }
+  const permissions = value.permissions ?? {};
+  if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions)) {
+    return { error: '权限状态参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(Object.keys(defaultPermissionState()));
+  const allowedStatuses = new Set(['blocked', 'denied', 'granted', 'unavailable', 'unknown']);
+  const keys = Object.keys(permissions);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `权限项 ${unknownKey} 暂不支持` };
+  const invalidKey = keys.find((key) => !allowedStatuses.has(permissions[key]));
+  if (invalidKey) return { error: `权限项 ${invalidKey} 状态无效` };
+  return {
+    completed: value.completed === true,
+    permissions: Object.fromEntries(keys.map((key) => [key, permissions[key]])),
+  };
+}
+
 function normalizeUserSettings(value) {
   const current = value && typeof value === 'object' ? value : {};
   const defaults = defaultUserSettings();
@@ -2909,8 +2933,13 @@ async function handle(req, res) {
   }
 
   if (req.method === 'PATCH' && pathname === '/permissions') {
-    user.permissions = normalizePermissionState({ ...user.permissions, ...(body.permissions || {}) });
-    user.permissionsOnboardingCompleted = Boolean(body.completed || user.permissionsOnboardingCompleted || allPermissionsGranted(user.permissions));
+    const permissionPatch = parsePermissionPatch(body);
+    if (permissionPatch.error) {
+      fail(res, 400, permissionPatch.error, false, undefined, 'PERMISSIONS_PATCH_INVALID');
+      return;
+    }
+    user.permissions = normalizePermissionState({ ...user.permissions, ...(permissionPatch.permissions || {}) });
+    user.permissionsOnboardingCompleted = Boolean(permissionPatch.completed || user.permissionsOnboardingCompleted || allPermissionsGranted(user.permissions));
     saveState();
     ok(res, user.permissions);
     return;
