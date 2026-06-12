@@ -165,6 +165,7 @@ const appExitPromptRoutes = new Set<AppRoute>(['emptyPet', 'home', 'login', 'per
 const focusedInboxRoutes = new Set<AppRoute>(['greetingRequests', 'messages', 'notifications']);
 const passiveInboxRoutes = new Set<AppRoute>(['discover', 'home', 'map', 'profile']);
 const petRequiredRoutes = new Set<AppRoute>(['aiResult', 'chat', 'dailyPost', 'editPet', 'generating', 'health', 'healthMemos', 'home', 'petDetail', 'upload', 'uploadDetail', 'uploadNoPet', 'vaccine', 'weight']);
+const avatarFlowRoutes = new Set<AppRoute>(['upload', 'uploadDetail', 'uploadNoPet', 'generating', 'aiResult']);
 const homeChatPrompts = [
   '今天想和{petName}聊点什么？',
   '要不要记录一件开心小事？',
@@ -441,6 +442,7 @@ export default function LumiiMvpApp() {
   const lastDiscoverLocationRef = useRef<NearbyLocationHint | null>(null);
   const exitBackPressedAtRef = useRef(0);
   const previousRouteRef = useRef<AppRoute>('login');
+  const routeRef = useRef<AppRoute>('login');
   const systemSettingsOpenedAtRef = useRef(0);
   const registeredPushTokenRef = useRef('');
   const scheduledPushRegistrationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -453,14 +455,23 @@ export default function LumiiMvpApp() {
   const [activePet, setActivePet] = useState<PetProfile | null>(null);
   const [petDraft, setPetDraft] = useState(emptyPetDraft);
   const [petProfileSaving, setPetProfileSaving] = useState(false);
+  const petProfileSavingRef = useRef(false);
   const [media, setMedia] = useState<UploadedPetMedia | null>(null);
+  const mediaIdRef = useRef<string | null>(null);
   const [mediaPickerMode, setMediaPickerMode] = useState<'camera' | 'library' | null>(null);
+  const mediaPickingRef = useRef(false);
   const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(null);
+  const avatarJobIdRef = useRef<string | null>(null);
+  const avatarPollingJobIdRef = useRef<string | null>(null);
   const [avatarStarting, setAvatarStarting] = useState(false);
+  const avatarStartingRef = useRef(false);
   const [avatarResultPrefetching, setAvatarResultPrefetching] = useState(false);
   const [avatarAccepting, setAvatarAccepting] = useState(false);
+  const avatarAcceptingRef = useRef(false);
   const [avatarRetrying, setAvatarRetrying] = useState(false);
+  const avatarRetryingRef = useRef(false);
   const avatarResultRouteJobIdRef = useRef('');
+  const avatarTransitioningJobIdRef = useRef<string | null>(null);
   const [homeHintIndex, setHomeHintIndex] = useState(() => Math.floor(Math.random() * homeChatPrompts.length));
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([createPetChatWelcomeMessage()]);
@@ -710,6 +721,14 @@ export default function LumiiMvpApp() {
   }, [userSettings]);
 
   useEffect(() => {
+    mediaIdRef.current = media?.mediaId ?? null;
+  }, [media?.mediaId]);
+
+  useEffect(() => {
+    avatarJobIdRef.current = avatarJob?.id ?? null;
+  }, [avatarJob?.id]);
+
+  useEffect(() => {
     setSession((current) => {
       if (!current?.account || arePetSnapshotsEqual(current.account.activePet, activePet)) return current;
       return {
@@ -724,6 +743,7 @@ export default function LumiiMvpApp() {
 
   useEffect(() => {
     const previousRoute = previousRouteRef.current;
+    routeRef.current = route;
     if (previousRoute !== route) exitBackPressedAtRef.current = 0;
     if (route === 'home' && previousRoute !== 'home') {
       setHomeHintIndex((index) => (index + 1) % homeChatPrompts.length);
@@ -1395,7 +1415,7 @@ export default function LumiiMvpApp() {
   }
 
   async function savePetProfile() {
-    if (petProfileSaving) return;
+    if (petProfileSavingRef.current) return;
     if (!petDraft.name.trim()) {
       showToast('请输入宠物昵称');
       return;
@@ -1408,6 +1428,7 @@ export default function LumiiMvpApp() {
       species: petDraft.species,
       weightKg: Number.parseFloat(petDraft.weight) || undefined,
     };
+    petProfileSavingRef.current = true;
     setPetProfileSaving(true);
     try {
       if (route === 'editPet') {
@@ -1461,15 +1482,26 @@ export default function LumiiMvpApp() {
         showToast(result.error?.message ?? '保存宠物档案失败');
       }
     } finally {
+      petProfileSavingRef.current = false;
       setPetProfileSaving(false);
     }
   }
 
   function resetAvatarDraft() {
+    mediaPickingRef.current = false;
+    mediaIdRef.current = null;
+    avatarJobIdRef.current = null;
+    avatarPollingJobIdRef.current = null;
+    avatarStartingRef.current = false;
+    avatarAcceptingRef.current = false;
+    avatarRetryingRef.current = false;
+    avatarTransitioningJobIdRef.current = null;
     setMedia(null);
     setAvatarJob(null);
     setAvatarStarting(false);
     setAvatarResultPrefetching(false);
+    setAvatarAccepting(false);
+    setAvatarRetrying(false);
     setMediaPickerMode(null);
     avatarResultRouteJobIdRef.current = '';
   }
@@ -1485,7 +1517,14 @@ export default function LumiiMvpApp() {
   }
 
   async function pickAndUploadPetMedia(source: 'camera' | 'library') {
-    if (mediaPickerMode) return;
+    if (mediaPickingRef.current) return;
+    if (avatarStartingRef.current || avatarRetryingRef.current || avatarAcceptingRef.current) {
+      showToast('当前操作处理中，请稍后');
+      return;
+    }
+    mediaPickingRef.current = true;
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = getCurrentPet()?.id ?? null;
     setMediaPickerMode(source);
     try {
       const permissionResult =
@@ -1526,7 +1565,15 @@ export default function LumiiMvpApp() {
         previewUrl: asset.uri,
         source,
       });
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (!avatarFlowRoutes.has(routeRef.current)) return;
+      const currentPetId = getCurrentPet()?.id ?? null;
+      if (requestPetId && currentPetId && currentPetId !== requestPetId) {
+        showToast('当前宠物已切换，请重新选择照片');
+        return;
+      }
       if (result.data) {
+        mediaIdRef.current = result.data.mediaId;
         setMedia(result.data);
         if (!result.data.analysis.canGenerate) {
           go('uploadNoPet');
@@ -1534,17 +1581,25 @@ export default function LumiiMvpApp() {
         }
         go('uploadDetail');
       } else {
+        mediaIdRef.current = null;
+        setMedia(null);
         go('uploadNoPet');
       }
     } catch {
       showToast(source === 'camera' ? '打开相机失败，请稍后重试' : '打开相册失败，请稍后重试');
     } finally {
+      mediaPickingRef.current = false;
       setMediaPickerMode(null);
     }
   }
 
   async function startAvatarGeneration() {
-    if (avatarStarting || avatarRetrying) return;
+    if (avatarStartingRef.current || avatarRetryingRef.current) return;
+    if (!getCurrentPet()) {
+      showToast('请先添加宠物档案');
+      replace('emptyPet');
+      return;
+    }
     if (!media) {
       showToast('请先上传宠物照片');
       return;
@@ -1554,28 +1609,39 @@ export default function LumiiMvpApp() {
       replace('uploadNoPet');
       return;
     }
+    avatarStartingRef.current = true;
     setAvatarStarting(true);
     try {
       const hasQuota = await ensurePetAvatarQuota();
       if (!hasQuota) return;
-      const result = await lumiiApi.avatar.startGeneration(media.mediaId);
+      const requestSessionToken = sessionTokenRef.current;
+      const mediaId = media.mediaId;
+      const result = await lumiiApi.avatar.startGeneration(mediaId);
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (mediaIdRef.current !== mediaId) return;
+      if (!avatarFlowRoutes.has(routeRef.current)) return;
       if (result.data) {
         avatarResultRouteJobIdRef.current = '';
         setAvatarResultPrefetching(false);
+        avatarJobIdRef.current = result.data.id;
         setAvatarJob(result.data);
         go('generating');
       } else {
-        showToast(result.error?.message ?? '启动生成失败');
+        showToast(result.error?.message ?? '启动生成失败，请重新选择照片');
       }
       void loadAiUsage();
     } finally {
+      avatarStartingRef.current = false;
       setAvatarStarting(false);
     }
   }
 
   async function transitionToAvatarResult(job: AvatarJob) {
     if (avatarResultRouteJobIdRef.current === job.id) return;
+    if (avatarTransitioningJobIdRef.current === job.id) return;
+    if (avatarJobIdRef.current !== job.id) return;
     avatarResultRouteJobIdRef.current = job.id;
+    avatarTransitioningJobIdRef.current = job.id;
     setAvatarResultPrefetching(true);
     const resultUrl = job.resultUrl;
     if (resultUrl && !isGeneratedAvatarUri(resultUrl)) {
@@ -1585,30 +1651,53 @@ export default function LumiiMvpApp() {
         showToast('生成图加载较慢，已先进入确认页');
       }
     }
+    if (avatarJobIdRef.current !== job.id || !avatarFlowRoutes.has(routeRef.current)) {
+      avatarResultRouteJobIdRef.current = '';
+      avatarTransitioningJobIdRef.current = null;
+      setAvatarResultPrefetching(false);
+      return;
+    }
     setAvatarResultPrefetching(false);
+    avatarTransitioningJobIdRef.current = null;
     replace('aiResult');
   }
 
   async function pollAvatarJob() {
     if (!avatarJob) return;
-    const result = await lumiiApi.avatar.getGenerationStatus(avatarJob.id);
-    if (result.data) {
-      setAvatarJob(result.data);
-      if (result.data.status === 'ready') void transitionToAvatarResult(result.data);
+    const requestedJobId = avatarJob.id;
+    if (avatarPollingJobIdRef.current === requestedJobId) return;
+    avatarPollingJobIdRef.current = requestedJobId;
+    try {
+      const result = await lumiiApi.avatar.getGenerationStatus(requestedJobId);
+      if (avatarJobIdRef.current !== requestedJobId) return;
+      if (!avatarFlowRoutes.has(routeRef.current)) return;
+      if (result.data) {
+        avatarJobIdRef.current = result.data.id;
+        setAvatarJob(result.data);
+        if (result.data.status === 'ready') void transitionToAvatarResult(result.data);
+      }
+    } finally {
+      if (avatarPollingJobIdRef.current === requestedJobId) avatarPollingJobIdRef.current = null;
     }
   }
 
   async function saveAvatar() {
-    if (!activePet || !avatarJob?.resultUrl) {
+    const pet = getCurrentPet();
+    if (!pet || !avatarJob?.resultUrl) {
       showToast('还没有可保存的形象');
       return;
     }
-    if (avatarAccepting) return;
+    if (avatarAcceptingRef.current) return;
+    avatarAcceptingRef.current = true;
     setAvatarAccepting(true);
     try {
+      const requestSessionToken = sessionTokenRef.current;
+      const jobId = avatarJob.id;
       const result = avatarJob.id
         ? await lumiiApi.avatar.acceptGeneration(avatarJob.id)
-        : await lumiiApi.avatar.saveAvatar(activePet.id, avatarJob.resultUrl);
+        : await lumiiApi.avatar.saveAvatar(pet.id, avatarJob.resultUrl);
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (jobId && avatarJobIdRef.current !== jobId) return;
       if (result.data) {
         setActivePet(result.data);
         resetAvatarDraft();
@@ -1619,24 +1708,32 @@ export default function LumiiMvpApp() {
         showToast(result.error?.message ?? '保存形象失败，请稍后重试');
       }
     } finally {
+      avatarAcceptingRef.current = false;
       setAvatarAccepting(false);
     }
   }
 
   async function retryAvatarGeneration() {
-    if (avatarRetrying) return;
+    if (avatarRetryingRef.current || avatarStartingRef.current) return;
     if (!avatarJob?.id) {
       await startAvatarGeneration();
       return;
     }
+    avatarRetryingRef.current = true;
     setAvatarRetrying(true);
     try {
       const hasQuota = await ensurePetAvatarQuota();
       if (!hasQuota) return;
-      const result = await lumiiApi.avatar.retryGeneration(avatarJob.id);
+      const requestSessionToken = sessionTokenRef.current;
+      const requestedJobId = avatarJob.id;
+      const result = await lumiiApi.avatar.retryGeneration(requestedJobId);
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (avatarJobIdRef.current !== requestedJobId) return;
+      if (!avatarFlowRoutes.has(routeRef.current)) return;
       if (result.data) {
         avatarResultRouteJobIdRef.current = '';
         setAvatarResultPrefetching(false);
+        avatarJobIdRef.current = result.data.id;
         setAvatarJob(result.data);
         replace('generating');
       } else {
@@ -1644,6 +1741,7 @@ export default function LumiiMvpApp() {
       }
       void loadAiUsage();
     } finally {
+      avatarRetryingRef.current = false;
       setAvatarRetrying(false);
     }
   }
@@ -2490,15 +2588,24 @@ export default function LumiiMvpApp() {
     setClock(Date.now());
     setPermissions(initialPermissions);
     setPetDraft(emptyPetDraft);
+    petProfileSavingRef.current = false;
     setPetProfileSaving(false);
+    mediaPickingRef.current = false;
+    mediaIdRef.current = null;
     setMedia(null);
     setMediaPickerMode(null);
+    avatarJobIdRef.current = null;
+    avatarPollingJobIdRef.current = null;
+    avatarStartingRef.current = false;
     setAvatarJob(null);
     setAvatarStarting(false);
     setAvatarResultPrefetching(false);
+    avatarAcceptingRef.current = false;
     setAvatarAccepting(false);
+    avatarRetryingRef.current = false;
     setAvatarRetrying(false);
     avatarResultRouteJobIdRef.current = '';
+    avatarTransitioningJobIdRef.current = null;
     registeredPushTokenRef.current = '';
     sessionTokenRef.current = '';
     setChatMessages([createPetChatWelcomeMessage()]);
