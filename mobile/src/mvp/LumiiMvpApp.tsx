@@ -477,16 +477,20 @@ export default function LumiiMvpApp() {
   const [memos, setMemos] = useState<HealthMemo[]>([]);
   const [weightInput, setWeightInput] = useState('');
   const [weightSaving, setWeightSaving] = useState(false);
+  const weightSavingRef = useRef(false);
   const [memoTitle, setMemoTitle] = useState('今日观察');
   const [memoContent, setMemoContent] = useState('');
   const [memoSaving, setMemoSaving] = useState(false);
+  const memoSavingRef = useRef(false);
   const [memoDraftTitle, setMemoDraftTitle] = useState('洗澡记录');
   const [memoDraftContent, setMemoDraftContent] = useState('今天洗澡后耳朵干净，皮肤没有明显泛红。');
   const [memoDraftSaving, setMemoDraftSaving] = useState(false);
+  const memoDraftSavingRef = useRef(false);
   const [vaccineReminderSavingIds, setVaccineReminderSavingIds] = useState<string[]>([]);
   const [vaccineDoneSavingIds, setVaccineDoneSavingIds] = useState<string[]>([]);
   const [dailyPostText, setDailyPostText] = useState('');
   const [dailyPostSaving, setDailyPostSaving] = useState(false);
+  const dailyPostSavingRef = useRef(false);
   const [owners, setOwners] = useState<NearbyOwner[]>([]);
   const [discoverRefreshing, setDiscoverRefreshing] = useState(false);
   const [discoverFilter, setDiscoverFilter] = useState<DiscoverFilter>('all');
@@ -1843,12 +1847,13 @@ export default function LumiiMvpApp() {
   }
 
   async function recordWeight() {
-    if (weightSaving) return;
+    if (weightSavingRef.current) return;
     const kg = Number.parseFloat(weightInput);
     if (!Number.isFinite(kg) || kg <= 0) {
       showToast('请输入正确体重');
       return;
     }
+    weightSavingRef.current = true;
     setWeightSaving(true);
     try {
       const result = await lumiiApi.health.recordWeight(kg, '手动记录');
@@ -1862,6 +1867,7 @@ export default function LumiiMvpApp() {
         showToast(result.error?.message ?? '保存失败，请稍后重试');
       }
     } finally {
+      weightSavingRef.current = false;
       setWeightSaving(false);
     }
   }
@@ -2081,11 +2087,12 @@ export default function LumiiMvpApp() {
   }
 
   async function saveMemoDraft() {
-    if (memoDraftSaving) return;
+    if (memoDraftSavingRef.current) return;
     if (!memoDraftTitle.trim() || !memoDraftContent.trim()) {
       showToast('请填写备忘标题和内容');
       return;
     }
+    memoDraftSavingRef.current = true;
     setMemoDraftSaving(true);
     try {
       const result = await lumiiApi.health.saveHealthMemo(memoDraftTitle, memoDraftContent);
@@ -2099,21 +2106,24 @@ export default function LumiiMvpApp() {
         showToast(result.error?.message ?? '保存失败，请稍后重试');
       }
     } finally {
+      memoDraftSavingRef.current = false;
       setMemoDraftSaving(false);
     }
   }
 
   async function saveHealthMemo() {
-    if (memoSaving) return;
+    if (memoSavingRef.current) return;
     if (!memoTitle.trim() || !memoContent.trim()) {
       showToast('请填写标题和内容');
       return;
     }
+    memoSavingRef.current = true;
     setMemoSaving(true);
     try {
       const result = await lumiiApi.health.saveHealthMemo(memoTitle, memoContent);
       if (result.data) {
         setMemos((items) => [result.data!, ...items]);
+        setMemoTitle('');
         setMemoContent('');
         void refreshHealthSummary();
         showToast('健康备忘已保存');
@@ -2121,16 +2131,18 @@ export default function LumiiMvpApp() {
         showToast(result.error?.message ?? '保存失败，请稍后重试');
       }
     } finally {
+      memoSavingRef.current = false;
       setMemoSaving(false);
     }
   }
 
   async function publishDailyPost() {
-    if (dailyPostSaving) return;
+    if (dailyPostSavingRef.current) return;
     if (!dailyPostText.trim()) {
       showToast('先写一点今天的小事吧');
       return;
     }
+    dailyPostSavingRef.current = true;
     setDailyPostSaving(true);
     try {
       const result = await lumiiApi.health.saveHealthMemo('今日小事', dailyPostText.trim());
@@ -2144,6 +2156,7 @@ export default function LumiiMvpApp() {
         showToast(result.error?.message ?? '发布失败，请稍后重试');
       }
     } finally {
+      dailyPostSavingRef.current = false;
       setDailyPostSaving(false);
     }
   }
@@ -2511,16 +2524,20 @@ export default function LumiiMvpApp() {
     setPlaceSubmissionStatus('idle');
     userSettingSavingKeysRef.current.clear();
     setHealthSummary(null);
+    weightSavingRef.current = false;
     setWeightSaving(false);
     setMemoTitle('今日观察');
     setMemoContent('');
+    memoSavingRef.current = false;
     setMemoSaving(false);
     setMemoDraftTitle('洗澡记录');
     setMemoDraftContent('今天洗澡后耳朵干净，皮肤没有明显泛红。');
+    memoDraftSavingRef.current = false;
     setMemoDraftSaving(false);
     setVaccineReminderSavingIds([]);
     setVaccineDoneSavingIds([]);
     setDailyPostText('');
+    dailyPostSavingRef.current = false;
     setDailyPostSaving(false);
     healthReminderNotifiedRef.current.clear();
     localHealthReminderScheduledIdsRef.current = [];
