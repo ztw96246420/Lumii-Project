@@ -77,6 +77,7 @@ import type {
   Conversation,
   ConversationMessage,
   HealthMemo,
+  HealthSummary,
   NearbyLocationHint,
   NearbyOwner,
   NotificationItem,
@@ -437,6 +438,7 @@ export default function LumiiMvpApp() {
   const [chatFeedbackSavingIds, setChatFeedbackSavingIds] = useState<string[]>([]);
   const [chatReplying, setChatReplying] = useState(false);
   const [petChatDailyCount, setPetChatDailyCount] = useState(0);
+  const [healthSummary, setHealthSummary] = useState<HealthSummary | null>(null);
   const [weights, setWeights] = useState<WeightRecord[]>([]);
   const [vaccines, setVaccines] = useState<VaccinePlan[]>([]);
   const [vaccineReminderIds, setVaccineReminderIds] = useState<string[]>([]);
@@ -764,8 +766,9 @@ export default function LumiiMvpApp() {
   }, [avatarJob, route]);
 
   async function loadCommonData() {
-    const [profileResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult] = await Promise.all([
+    const [profileResult, healthSummaryResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult] = await Promise.all([
       lumiiApi.account.getMe(),
+      lumiiApi.health.getHealthSummary(),
       lumiiApi.health.listWeightRecords(),
       lumiiApi.health.listVaccines(),
       lumiiApi.health.listVaccineReminderIds(),
@@ -784,6 +787,19 @@ export default function LumiiMvpApp() {
       setUserSettings({ ...defaultUserSettings, ...profile.settings });
       if (profile.activePet) setActivePet(profile.activePet);
     }
+    if (healthSummaryResult.data) {
+      setHealthSummary(healthSummaryResult.data);
+      setVaccineReminderIds(healthSummaryResult.data.vaccineReminderIds);
+      setActivePet((pet) =>
+        pet
+          ? {
+              ...pet,
+              healthScore: healthSummaryResult.data!.healthScore,
+              weightKg: healthSummaryResult.data!.latestWeightKg ?? pet.weightKg,
+            }
+          : pet,
+      );
+    }
     if (weightResult.data) setWeights(weightResult.data);
     if (vaccineResult.data) setVaccines(vaccineResult.data);
     if (vaccineReminderResult.data) setVaccineReminderIds(vaccineReminderResult.data);
@@ -796,6 +812,23 @@ export default function LumiiMvpApp() {
     if (favoritePlaceResult.data) setFavoritePlaceIds(favoritePlaceResult.data);
     if (placeReviewResult.data) setPlaceReviewsByPlaceId(indexPlaceReviewsByPlaceId(placeReviewResult.data));
     setActivePet((pet) => pet ?? lumiiApi.pets.getActivePet());
+  }
+
+  async function refreshHealthSummary() {
+    const result = await lumiiApi.health.getHealthSummary();
+    if (!result.data) return null;
+    setHealthSummary(result.data);
+    setVaccineReminderIds(result.data.vaccineReminderIds);
+    setActivePet((pet) =>
+      pet
+        ? {
+            ...pet,
+            healthScore: result.data!.healthScore,
+            weightKg: result.data!.latestWeightKg ?? pet.weightKg,
+          }
+        : pet,
+    );
+    return result.data;
   }
 
   async function loadInboxData(options: { silent?: boolean } = { silent: true }) {
@@ -1388,6 +1421,7 @@ export default function LumiiMvpApp() {
         setWeights((items) => [result.data!, ...items]);
         setActivePet((pet) => (pet ? { ...pet, weightKg: result.data!.kg } : pet));
         setWeightInput('');
+        void refreshHealthSummary();
         showToast('体重已记录');
       } else {
         showToast(result.error?.message ?? '保存失败，请稍后重试');
@@ -1414,6 +1448,7 @@ export default function LumiiMvpApp() {
       if (result.data) {
         setVaccineReminderIds(result.data);
         void loadInboxData();
+        void refreshHealthSummary();
         showToast('疫苗提醒已开启');
       } else {
         setVaccineReminderIds((items) => items.filter((id) => id !== vaccine.id));
@@ -1440,6 +1475,7 @@ export default function LumiiMvpApp() {
       setVaccines((items) => items.map((item) => (item.id === vaccine.id ? result.data! : item)));
       setVaccineReminderIds((items) => items.filter((id) => id !== vaccine.id));
       void loadInboxData();
+      void refreshHealthSummary();
       showToast('已标记完成');
     } finally {
       setVaccineDoneSavingIds((items) => items.filter((id) => id !== vaccine.id));
@@ -1558,6 +1594,7 @@ export default function LumiiMvpApp() {
         setMemos((items) => [result.data!, ...items]);
         setMemoDraftTitle('');
         setMemoDraftContent('');
+        void refreshHealthSummary();
         showToast('健康备忘已保存');
       } else {
         showToast(result.error?.message ?? '保存失败，请稍后重试');
@@ -1579,6 +1616,7 @@ export default function LumiiMvpApp() {
       if (result.data) {
         setMemos((items) => [result.data!, ...items]);
         setMemoContent('');
+        void refreshHealthSummary();
         showToast('健康备忘已保存');
       } else {
         showToast(result.error?.message ?? '保存失败，请稍后重试');
@@ -1600,6 +1638,7 @@ export default function LumiiMvpApp() {
       if (result.data) {
         setMemos((items) => [result.data!, ...items]);
         setDailyPostText('');
+        void refreshHealthSummary();
         replace('home');
         showToast('今日小事已记录');
       } else {
@@ -1893,6 +1932,7 @@ export default function LumiiMvpApp() {
     setFavoritePlaceIds([]);
     setFavoritePlaceSavingIds([]);
     setPlaceReviewsByPlaceId({});
+    setHealthSummary(null);
     setWeightSaving(false);
     setMemoSaving(false);
     setMemoDraftSaving(false);
@@ -2489,12 +2529,17 @@ export default function LumiiMvpApp() {
   function renderHome() {
     const pet = activePet ?? lumiiApi.pets.getActivePet();
     if (!pet) return renderEmptyPet();
-    const nextVaccine = pendingVaccines[0] ?? vaccines[0];
-    const latestWeight = weights[0]?.kg ?? pet.weightKg;
+    const nextVaccine = healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
+    const latestWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet.weightKg;
+    const healthScore = healthSummary?.healthScore ?? pet.healthScore ?? 92;
     const petMeta = [pet.breed || speciesLabels[pet.species], formatPetAge(pet.birthday)].filter(Boolean).join(' · ');
-    const memoSummary = memos[0]?.title ?? '暂无备忘';
+    const memoCount = healthSummary?.memoCount ?? memos.length;
+    const memoSummary = healthSummary?.latestMemo?.title ?? memos[0]?.title ?? '暂无备忘';
     const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : '暂无附近伙伴';
     const homeChatHint = homeChatPrompts[homeHintIndex].replace(/\{petName\}/g, pet.name);
+    const healthStatusLabel =
+      healthSummary?.weightStatus === 'watch' ? '关注' : healthSummary?.weightStatus === 'empty' ? '待记' : healthSummary ? '稳定' : '+3';
+    const healthDescription = healthSummary?.weightSummary ?? '体重稳定，运动量良好';
     return (
       <Screen showBack={false} title="">
         <View style={styles.homeMakePage}>
@@ -2533,14 +2578,14 @@ export default function LumiiMvpApp() {
             <View>
               <Text style={styles.homeHealthLabel}>今日健康分</Text>
               <View style={styles.homeHealthScoreRow}>
-                <Text style={styles.homeHealthScore}>{pet.healthScore ?? 92}</Text>
+                <Text style={styles.homeHealthScore}>{healthScore}</Text>
                 <Text style={styles.homeHealthTotal}>/ 100</Text>
                 <View style={styles.homeHealthDelta}>
                   <ArrowUp color={palette.teal} size={10} strokeWidth={3} />
-                  <Text style={styles.homeHealthDeltaText}>+3</Text>
+                  <Text style={styles.homeHealthDeltaText}>{healthStatusLabel}</Text>
                 </View>
               </View>
-              <Text style={styles.homeHealthDesc}>体重稳定，运动量良好</Text>
+              <Text style={styles.homeHealthDesc}>{healthDescription}</Text>
             </View>
             <View style={styles.homeHealthRing}>
               <View style={styles.homeHealthRingInner}>
@@ -2552,7 +2597,7 @@ export default function LumiiMvpApp() {
           <View style={styles.homeQuickGrid}>
             <MetricCard Icon={Weight} label="今日体重" onPress={() => go('weight')} tag={weights.length ? '已记录' : '待记录'} tagTone="teal" value={formatWeightKg(latestWeight)} />
             <MetricCard Icon={Syringe} label="疫苗提醒" onPress={() => go('vaccine')} tag={formatDueLabel(nextVaccine?.dueAt)} tagTone="orange" value={nextVaccine?.name ?? '待添加计划'} />
-            <MetricCard Icon={NotebookPen} label="健康备忘" onPress={() => go('healthMemos')} tag={`${memos.length} 条`} tagTone="muted" value={memoSummary} />
+            <MetricCard Icon={NotebookPen} label="健康备忘" onPress={() => go('healthMemos')} tag={`${memoCount} 条`} tagTone="muted" value={memoSummary} />
             <MetricCard Icon={MapPin} label="附近伙伴" onPress={() => go('discover')} tag={`${defaultDiscoverRadiusKm}km`} tagTone="teal" value={onlineCopy} />
           </View>
 
@@ -2740,10 +2785,15 @@ export default function LumiiMvpApp() {
 
   function renderHealth() {
     const pet = activePet ?? lumiiApi.pets.getActivePet();
-    const nextHealthVaccine = pendingVaccines[0] ?? vaccines[0];
-    const latestWeight = weights[0]?.kg ?? pet?.weightKg;
-    const weightSubtitle = weights.length > 1 ? `最近一次 ${weights[0]?.recordedAt}` : '暂无连续记录，先从今天开始';
-    const memoSubtitle = memos[0] ? `${memos[0].title} · ${memos[0].updatedAt}` : '记录洗澡、驱虫、食欲或异常观察';
+    const nextHealthVaccine = healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
+    const latestWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet?.weightKg;
+    const healthScore = healthSummary?.healthScore ?? pet?.healthScore ?? 92;
+    const weightSubtitle = healthSummary?.weightSummary ?? (weights.length > 1 ? `最近一次 ${weights[0]?.recordedAt}` : '暂无连续记录，先从今天开始');
+    const latestMemo = healthSummary?.latestMemo ?? memos[0];
+    const memoCount = healthSummary?.memoCount ?? memos.length;
+    const memoSubtitle = latestMemo ? `${latestMemo.title} · ${latestMemo.updatedAt}` : '记录洗澡、驱虫、食欲或异常观察';
+    const urgentHealthCount = healthSummary?.urgentVaccineCount ?? urgentVaccines.length;
+    const pendingHealthCount = healthSummary?.pendingVaccineCount ?? pendingVaccines.length;
     return (
       <Screen title={`${pet?.name ?? '灵伴'}的健康`}>
         <View style={styles.healthHeroMake}>
@@ -2753,10 +2803,10 @@ export default function LumiiMvpApp() {
               <Text style={styles.healthHeroLabel}>今日健康分</Text>
             </View>
             <View style={styles.healthHeroScoreRow}>
-              <Text style={styles.healthHeroScore}>{pet?.healthScore ?? 92}</Text>
+              <Text style={styles.healthHeroScore}>{healthScore}</Text>
               <Text style={styles.healthHeroTotal}>/ 100</Text>
             </View>
-            <Text style={styles.healthHeroDesc}>体重稳定 · 运动适中 · 心情很好</Text>
+            <Text style={styles.healthHeroDesc}>{weightSubtitle}</Text>
           </View>
           <View style={styles.healthHeroAvatar}>
             <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={64} />
@@ -2765,17 +2815,17 @@ export default function LumiiMvpApp() {
 
         <View style={styles.healthSectionStack}>
           <HealthMakeRow Icon={Weight} badge={formatWeightKg(latestWeight)} onPress={() => go('weight')} subtitle={weightSubtitle} title="体重趋势" tone="warm" />
-          <HealthMakeRow Icon={Syringe} badge={urgentVaccines.length ? `${urgentVaccines.length} 项临近` : pendingVaccines.length ? `${pendingVaccines.length} 项` : '已完成'} onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${vaccineReminderCopy(nextHealthVaccine)}` : '暂无计划'} title="疫苗计划" tone="cool" />
-          <HealthMakeRow Icon={CalendarDays} badge={`${memos.length} 条`} onPress={() => go('healthMemos')} subtitle={memoSubtitle} title="健康备忘" tone="warm" />
+          <HealthMakeRow Icon={Syringe} badge={urgentHealthCount ? `${urgentHealthCount} 项临近` : pendingHealthCount ? `${pendingHealthCount} 项` : '已完成'} onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${vaccineReminderCopy(nextHealthVaccine)}` : '暂无计划'} title="疫苗计划" tone="cool" />
+          <HealthMakeRow Icon={CalendarDays} badge={`${memoCount} 条`} onPress={() => go('healthMemos')} subtitle={memoSubtitle} title="健康备忘" tone="warm" />
         </View>
 
-        {urgentVaccines.length ? (
+        {urgentHealthCount ? (
           <Pressable onPress={() => go('vaccine')} style={styles.healthReminderCard}>
             <View style={styles.healthReminderIcon}>
               <Bell color={palette.orange} size={18} strokeWidth={2.4} />
             </View>
             <View style={styles.flex}>
-              <Text style={styles.healthReminderTitle}>有 {urgentVaccines.length} 项健康提醒需要关注</Text>
+              <Text style={styles.healthReminderTitle}>有 {urgentHealthCount} 项健康提醒需要关注</Text>
               <Text style={styles.healthReminderText}>{urgentVaccines.slice(0, 2).map((item) => `${item.name} ${vaccineReminderCopy(item)}`).join(' · ')}</Text>
             </View>
             <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
@@ -2869,7 +2919,7 @@ export default function LumiiMvpApp() {
 
   function renderWeight() {
     const pet = activePet ?? lumiiApi.pets.getActivePet();
-    const currentWeight = weights[0]?.kg ?? pet?.weightKg;
+    const currentWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet?.weightKg;
     const previousWeight = weights[1]?.kg;
     const weightDelta = Number.isFinite(Number(currentWeight)) && Number.isFinite(Number(previousWeight))
       ? Number(currentWeight) - Number(previousWeight)
@@ -2887,7 +2937,7 @@ export default function LumiiMvpApp() {
               <Text style={styles.homeHealthDeltaText}>{weightDeltaLabel}</Text>
             </View>
           </View>
-          <Text style={styles.healthHeroDesc}>{pet ? `${pet.name}当前状态良好 · 建议持续稳定记录` : '添加宠物后可持续记录体重'}</Text>
+          <Text style={styles.healthHeroDesc}>{healthSummary?.weightSummary ?? (pet ? `${pet.name}当前状态良好 · 建议持续稳定记录` : '添加宠物后可持续记录体重')}</Text>
         </View>
         <View style={styles.weightInputMake}>
           <Text style={styles.sectionTitle}>记录新的体重</Text>
@@ -2922,7 +2972,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderVaccine() {
-    const nextVaccine = pendingVaccines[0] ?? vaccines[0];
+    const nextVaccine = healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
     const nextVaccineDueLabel = formatDueLabel(nextVaccine?.dueAt);
     const nextVaccineReminderLabel = vaccineReminderCopy(nextVaccine);
     const nextVaccineReminderSaving = nextVaccine ? vaccineReminderSavingIds.includes(nextVaccine.id) : false;

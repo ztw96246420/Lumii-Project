@@ -443,7 +443,7 @@ type HealthSummary = {
 - 没有当前宠物时返回空摘要，`healthScore=0`、`weightStatus=empty`。
 - `urgentVaccineCount` 当前按未完成且 14 天内到期/已逾期计算。
 - 该接口只做摘要聚合，不替代 `GET /health/weights`、`GET /health/vaccines`、`GET /health/memos` 的详情读取。
-- App 当前首页/健康页已有基础实现；后续可逐步把页面摘要读取切到该接口，不需要新增设计页面。
+- App 首页、健康页、体重页和疫苗页顶部摘要已优先使用该接口；详情列表仍读取各自明细接口，不需要新增设计页面。
 
 ### GET `/health/calendar`
 
