@@ -518,9 +518,11 @@ export default function LumiiMvpApp() {
   const [placeQuery, setPlaceQuery] = useState('');
   const [placeFilter, setPlaceFilter] = useState<'all' | Place['category']>('all');
   const [placeSearching, setPlaceSearching] = useState(false);
+  const placeSearchingRef = useRef(false);
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
   const [favoritePlaceIds, setFavoritePlaceIds] = useState<string[]>([]);
   const [favoritePlaceSavingIds, setFavoritePlaceSavingIds] = useState<string[]>([]);
+  const favoritePlaceSavingIdsRef = useRef<Set<string>>(new Set());
   const [placeReviewsByPlaceId, setPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview>>({});
   const [locatingMap, setLocatingMap] = useState(false);
   const [mapCenter, setMapCenter] = useState(defaultMapCenter);
@@ -532,7 +534,9 @@ export default function LumiiMvpApp() {
   const [placeReviewDraft, setPlaceReviewDraft] = useState('');
   const [placeSubmissionExperience, setPlaceSubmissionExperience] = useState('');
   const [placeReviewSaving, setPlaceReviewSaving] = useState(false);
+  const placeReviewSavingRef = useRef(false);
   const [placeSubmissionSaving, setPlaceSubmissionSaving] = useState(false);
+  const placeSubmissionSavingRef = useRef(false);
   const [placeSubmissionStatus, setPlaceSubmissionStatus] = useState<'idle' | 'pending_review'>('idle');
   const [userSettings, setUserSettings] = useState<UserSettings>(defaultUserSettings);
   const healthReminderNotifiedRef = useRef<Set<string>>(new Set());
@@ -2021,9 +2025,10 @@ export default function LumiiMvpApp() {
       showToast('暂无可收藏地点');
       return;
     }
-    if (favoritePlaceSavingIds.includes(place.id)) return;
+    if (favoritePlaceSavingIdsRef.current.has(place.id)) return;
     const wasFavorite = favoritePlaceIds.includes(place.id);
     const nextFavorite = !wasFavorite;
+    favoritePlaceSavingIdsRef.current.add(place.id);
     setFavoritePlaceSavingIds((ids) => [place.id, ...ids.filter((id) => id !== place.id)]);
     setFavoritePlaceIds((ids) => (nextFavorite ? [place.id, ...ids.filter((id) => id !== place.id)] : ids.filter((id) => id !== place.id)));
     try {
@@ -2036,6 +2041,7 @@ export default function LumiiMvpApp() {
         showToast(result.error?.message ?? '收藏状态保存失败');
       }
     } finally {
+      favoritePlaceSavingIdsRef.current.delete(place.id);
       setFavoritePlaceSavingIds((ids) => ids.filter((id) => id !== place.id));
     }
   }
@@ -2238,8 +2244,9 @@ export default function LumiiMvpApp() {
   }
 
   async function searchPlaces() {
-    if (placeSearching) return;
+    if (placeSearchingRef.current) return;
     const query = placeQuery.trim();
+    placeSearchingRef.current = true;
     setPlaceSearching(true);
     setPlaceFilter('all');
     try {
@@ -2253,6 +2260,7 @@ export default function LumiiMvpApp() {
         showToast(result.error?.message ?? '搜索失败，请稍后重试');
       }
     } finally {
+      placeSearchingRef.current = false;
       setPlaceSearching(false);
     }
   }
@@ -2397,7 +2405,7 @@ export default function LumiiMvpApp() {
   }
 
   async function createPlaceReview() {
-    if (placeReviewSaving) return;
+    if (placeReviewSavingRef.current) return;
     const place = selectedPlace;
     if (!place) {
       showToast('地点已失效，请返回地图重新选择');
@@ -2408,6 +2416,7 @@ export default function LumiiMvpApp() {
       return;
     }
     const reviewContent = placeReviewDraft.trim();
+    placeReviewSavingRef.current = true;
     setPlaceReviewSaving(true);
     try {
       const result = await lumiiApi.places.createReview(place.id, reviewContent);
@@ -2420,12 +2429,13 @@ export default function LumiiMvpApp() {
         showToast(result.error?.message ?? '提交失败，请稍后重试');
       }
     } finally {
+      placeReviewSavingRef.current = false;
       setPlaceReviewSaving(false);
     }
   }
 
   async function submitPlaceDraft() {
-    if (placeSubmissionSaving) return;
+    if (placeSubmissionSavingRef.current) return;
     if (!placeDraftName.trim() || !placeDraftAddress.trim()) {
       showToast('请填写地点名称和地址');
       return;
@@ -2434,6 +2444,7 @@ export default function LumiiMvpApp() {
       showToast('请填写宠物友好体验');
       return;
     }
+    placeSubmissionSavingRef.current = true;
     setPlaceSubmissionSaving(true);
     try {
       const result = await lumiiApi.places.createSubmission(placeDraftName.trim(), placeDraftAddress.trim(), placeSubmissionExperience.trim());
@@ -2448,6 +2459,7 @@ export default function LumiiMvpApp() {
         showToast(result.error?.message ?? '提交失败，请稍后重试');
       }
     } finally {
+      placeSubmissionSavingRef.current = false;
       setPlaceSubmissionSaving(false);
     }
   }
@@ -2521,9 +2533,11 @@ export default function LumiiMvpApp() {
     setPlaces([]);
     setPlaceQuery('');
     setPlaceFilter('all');
+    placeSearchingRef.current = false;
     setPlaceSearching(false);
     setSelectedPlace(null);
     setFavoritePlaceIds([]);
+    favoritePlaceSavingIdsRef.current.clear();
     setFavoritePlaceSavingIds([]);
     setPlaceReviewsByPlaceId({});
     setLocatingMap(false);
@@ -2537,7 +2551,9 @@ export default function LumiiMvpApp() {
     setPlaceDraftName('云杉宠物友好公园');
     setPlaceReviewDraft('');
     setPlaceSubmissionExperience('');
+    placeReviewSavingRef.current = false;
     setPlaceReviewSaving(false);
+    placeSubmissionSavingRef.current = false;
     setPlaceSubmissionSaving(false);
     setPlaceSubmissionStatus('idle');
     userSettingSavingKeysRef.current.clear();
