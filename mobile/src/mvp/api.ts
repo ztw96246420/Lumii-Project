@@ -195,6 +195,14 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<WeightRecord>('POST', '/health/weights', { kg, note });
       },
 
+      async updateWeightRecord(id: string, patch: Partial<Pick<WeightRecord, 'kg' | 'note' | 'recordedAt'>>): Promise<ApiResult<WeightRecord>> {
+        return request<WeightRecord>('PATCH', `/health/weights/${encodeURIComponent(id)}`, patch);
+      },
+
+      async deleteWeightRecord(id: string): Promise<ApiResult<WeightRecord[]>> {
+        return request<WeightRecord[]>('DELETE', `/health/weights/${encodeURIComponent(id)}`);
+      },
+
       async listWeightRecords(): Promise<ApiResult<WeightRecord[]>> {
         return request<WeightRecord[]>('GET', '/health/weights');
       },

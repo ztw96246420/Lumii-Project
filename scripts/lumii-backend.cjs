@@ -552,6 +552,21 @@ function healthList(storeName, user, defaultsFactory) {
   return state.health[storeName][key];
 }
 
+function isIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
+}
+
+function syncPetWeightFromRecords(user, records) {
+  const pet = selectedPetFor(user);
+  if (!pet) return;
+  const latest = records[0];
+  if (latest) {
+    pet.weightKg = Number(latest.kg) || undefined;
+  } else {
+    delete pet.weightKg;
+  }
+}
+
 function normalizeCalendarDate(value, fallback = todayIsoDate()) {
   const text = String(value || '').trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : fallback;
@@ -1825,10 +1840,56 @@ async function handle(req, res) {
       recordedAt: todayIsoDate(),
     };
     records.unshift(record);
-    const pet = selectedPetFor(user);
-    if (pet) pet.weightKg = kg;
+    syncPetWeightFromRecords(user, records);
     saveState();
     ok(res, record);
+    return;
+  }
+
+  const weightMatch = pathname.match(/^\/health\/weights\/([^/]+)$/);
+  if (req.method === 'PATCH' && weightMatch) {
+    const id = decodeURIComponent(weightMatch[1]);
+    const records = healthList('weights', user, defaultWeightRecordsFor);
+    const index = records.findIndex((item) => item.id === id);
+    if (index < 0) {
+      fail(res, 404, '体重记录不存在', false);
+      return;
+    }
+    const current = records[index];
+    const kg = body.kg === undefined ? Number(current.kg) : Number(body.kg);
+    if (!Number.isFinite(kg) || kg <= 0) {
+      fail(res, 400, '请输入正确体重', false);
+      return;
+    }
+    const recordedAt = String(body.recordedAt === undefined ? current.recordedAt : body.recordedAt).trim();
+    if (!isIsoDate(recordedAt)) {
+      fail(res, 400, '请选择正确日期', false);
+      return;
+    }
+    records[index] = {
+      ...current,
+      kg,
+      note: body.note === undefined ? current.note : String(body.note || ''),
+      recordedAt,
+    };
+    syncPetWeightFromRecords(user, records);
+    saveState();
+    ok(res, records[index]);
+    return;
+  }
+
+  if (req.method === 'DELETE' && weightMatch) {
+    const id = decodeURIComponent(weightMatch[1]);
+    const records = healthList('weights', user, defaultWeightRecordsFor);
+    const index = records.findIndex((item) => item.id === id);
+    if (index < 0) {
+      fail(res, 404, '体重记录不存在', false);
+      return;
+    }
+    records.splice(index, 1);
+    syncPetWeightFromRecords(user, records);
+    saveState();
+    ok(res, records);
     return;
   }
 

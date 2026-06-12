@@ -209,6 +209,17 @@ function buildHealthCalendarEvents(): HealthCalendarEvent[] {
   ].sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.id).localeCompare(String(b.id)));
 }
 
+function isIsoDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function syncMockPetWeightFromRecords() {
+  const petId = activePetId || pets[0]?.id;
+  if (!petId) return;
+  const latest = weights[0];
+  pets = pets.map((item) => (item.id === petId ? { ...item, weightKg: latest?.kg } : item));
+}
+
 function buildWeightTrend(records: WeightRecord[]): WeightTrend {
   const sortedRecords = [...records].sort((a, b) => String(b.recordedAt).localeCompare(String(a.recordedAt)));
   const current = sortedRecords[0];
@@ -423,7 +434,35 @@ export const mockApi = {
       await wait();
       const record = { id: `w-${Date.now()}`, kg, note, recordedAt: '2026-05-30' };
       weights = [record, ...weights];
+      syncMockPetWeightFromRecords();
       return success(record);
+    },
+
+    async updateWeightRecord(id: string, patch: Partial<Pick<WeightRecord, 'kg' | 'note' | 'recordedAt'>>): Promise<ApiResult<WeightRecord>> {
+      await wait(160);
+      const record = weights.find((item) => item.id === id);
+      if (!record) return error('体重记录不存在', false);
+      const nextKg = patch.kg === undefined ? record.kg : Number(patch.kg);
+      if (!Number.isFinite(nextKg) || nextKg <= 0) return error('请输入正确体重', false);
+      const nextRecordedAt = String(patch.recordedAt ?? record.recordedAt).trim();
+      if (!isIsoDate(nextRecordedAt)) return error('请选择正确日期', false);
+      const nextRecord = {
+        ...record,
+        kg: nextKg,
+        note: patch.note === undefined ? record.note : String(patch.note),
+        recordedAt: nextRecordedAt,
+      };
+      weights = weights.map((item) => (item.id === id ? nextRecord : item));
+      syncMockPetWeightFromRecords();
+      return success(nextRecord);
+    },
+
+    async deleteWeightRecord(id: string): Promise<ApiResult<WeightRecord[]>> {
+      await wait(160);
+      if (!weights.some((item) => item.id === id)) return error('体重记录不存在', false);
+      weights = weights.filter((item) => item.id !== id);
+      syncMockPetWeightFromRecords();
+      return success(weights);
     },
 
     async listWeightRecords(): Promise<ApiResult<WeightRecord[]>> {

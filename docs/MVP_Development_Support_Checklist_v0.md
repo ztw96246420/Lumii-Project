@@ -241,6 +241,8 @@ Android 调用：
 - ~~`PATCH /pets/{petId}/health/memos/{memoId}`：编辑健康备忘。~~ 测试后端已接 `PATCH /health/memos/{memoId}`，按当前宠物持久化；UI 仍需 Figma 编辑态。
 - ~~`DELETE /pets/{petId}/health/memos/{memoId}`：删除健康备忘。~~ 测试后端已接 `DELETE /health/memos/{memoId}`，按当前宠物持久化；UI 仍需 Figma 删除确认。
 - ~~`POST /pets/{petId}/weights`：记录体重。~~ 测试后端已接 `POST /health/weights`，按当前宠物持久化并同步宠物体重。
+- ~~`PATCH /pets/{petId}/weights/{weightId}`：编辑历史体重。~~ 测试后端已接 `PATCH /health/weights/{weightId}`，按当前宠物持久化；UI 仍需 Figma 编辑弹层。
+- ~~`DELETE /pets/{petId}/weights/{weightId}`：删除历史体重。~~ 测试后端已接 `DELETE /health/weights/{weightId}`，删除后会回填/清空当前宠物体重；UI 仍需 Figma 删除二次确认。
 - ~~`GET /pets/{petId}/weights/trend`：体重趋势。~~ 测试后端已接 `GET /health/weights/trend`，按当前宠物返回轻量趋势摘要；趋势详情 UI 仍需 Figma 设计。
 - ~~`GET /pets/{petId}/vaccines/plan`：疫苗计划。~~ 测试后端已接 `GET /health/vaccines`。
 - ~~`PATCH /pets/{petId}/vaccines/plan`：更新疫苗计划。~~ 测试后端已接 `PATCH /health/vaccines/{vaccineId}`，支持标记完成。

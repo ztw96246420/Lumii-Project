@@ -451,6 +451,36 @@ Request:
 - 同步更新当前宠物 `weightKg`。
 - `kg <= 0` 或非数字时返回中文错误。
 
+### PATCH `/health/weights/{weightId}`
+
+编辑当前宠物的某条体重记录。MVP 测试后端会按当前宠物的体重列表查找；如果编辑的是列表首位记录，会同步影响当前宠物 `weightKg`。
+
+Request:
+
+```json
+{ "kg": 28.9, "note": "洗澡后复称", "recordedAt": "2026-06-12" }
+```
+
+说明：
+- `kg` 可选，但传入时必须为大于 0 的数字。
+- `note` 可选，可传空字符串清空备注。
+- `recordedAt` 可选，传入时必须为 `YYYY-MM-DD`。
+- 不存在的记录返回 404 中文错误。
+
+### DELETE `/health/weights/{weightId}`
+
+删除当前宠物的某条体重记录。MVP 测试后端会返回删除后的体重记录列表，并用删除后的首条记录回填当前宠物 `weightKg`；如果没有剩余记录，则清空当前宠物体重。
+
+Response data:
+
+```ts
+WeightRecord[]
+```
+
+说明：
+- App 暂不暴露删除入口；后续必须等 Figma 补齐删除二次确认后再接 UI。
+- 删除后 `GET /health/weights/trend` 和 `GET /health/calendar` 会基于最新列表重新计算/聚合。
+
 ### GET `/health/vaccines`
 
 当前宠物疫苗/驱虫计划。测试后端会按 `phone + activePetId` 持久化，默认根据猫/狗生成基础计划。
