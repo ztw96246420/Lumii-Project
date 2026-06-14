@@ -59,7 +59,7 @@
 | 25 | 保存失败 Toast | `Toast` + 保存失败 | 部分接入 | Toast 样式本轮已修，失败图标/副文案需补 |
 | 26 | 电子宠物首页 | `renderHome` | 已接入-需视觉复核 | 宠物大图、健康卡、提示气泡需继续细调 |
 | 27 | 电子宠物 AI 对话 | `renderChat` | 已接入-需视觉复核 | 消息气泡、输入区、反馈按钮需复核 |
-| 28 | AI 对话异常状态 | `renderChat` | 部分接入 | 失败重试态有逻辑，视觉未按独立屏逐项复核 |
+| 28 | AI 对话异常状态 | `renderChat` | 已接入-需视觉复核 | 已按 Screen28 补 AI 对话错误 banner 和失败消息重试卡；气泡、离线卡仍需截图复核 |
 | 29 | 健康管理首页 | `renderHealth` | 已接入-需视觉复核 | 四入口卡和提醒卡需复核 |
 | 30 | 体重记录 | `renderWeight` | 已接入-需视觉复核 | 已有记录和编辑入口，列表样式需复核 |
 | 31 | 体重趋势 | `renderWeight` | 部分接入 | 趋势图已接入，需按 Screen31/97 精修 |
@@ -74,11 +74,11 @@
 | 40 | 招呼请求 | `renderGreetingRequests` | 已接入-需视觉复核 | 请求卡片、接受/拒绝按钮需复核 |
 | 41 | 消息列表 | `renderMessages` | 已接入-需视觉复核 | 分组、未读点、头像尺寸需复核 |
 | 42 | 聊天详情 | `renderConversation` + `ErrorState` | 已接入-需视觉复核 | 会话失效状态已迁移 ErrorState；输入区、气泡、约遛卡片仍需复核 |
-| 43 | 消息发送失败 | `renderConversation` | 部分接入 | 发送失败逻辑有，独立失败态视觉需补 |
+| 43 | 消息发送失败 | `renderConversation` | 已接入-需视觉复核 | 已按 Screen43 补网络错误 banner、消息未送达重试/删除卡；仍需真机截图复核间距 |
 | 44 | 通知中心 | `renderNotifications` | 已接入-需视觉复核 | filter chip、通知分组需复核 |
 | 45 | 宠物友好地图 | `renderMap` | 已接入-需视觉复核 | 自定义地图已做，需继续对齐 Make 地图层次 |
 | 46 | 地图搜索与筛选 | `renderMap` + `BottomSheet` | 部分接入 | 地图样式面板已迁移统一 Bottom Sheet；搜索/地点筛选仍需按 Screen46 精修 |
-| 47 | 地图定位失败 | `renderMap` | 部分接入 | 定位失败提示有，独立状态视觉需补 |
+| 47 | 地图定位失败 | `renderMap` | 已接入-需视觉复核 | 已按 Screen47 在搜索框下补定位失败 banner、原因文案和重试按钮；中心空态仍需后续复核 |
 | 48 | 地点详情 | `renderPlaceDetail` | 已接入-需视觉复核 | Hero 图、信息块、操作按钮需复核 |
 | 49 | 新增地点 / 点评 | `renderAddPlaceReview` | 部分接入 | 基础表单有，提交状态需按 Figma 补齐 |
 | 50 | 点评提交成功 等待审核 | `renderAddPlaceReview` + `Toast` | 部分接入 | 已改 warning surface Toast；独立等待审核成功页仍未 1:1 |
@@ -103,7 +103,7 @@
 | 69 | TabBar 底部导航 | bottom tabs | 已接入-需视觉复核 | 图标、红点、选中态需复核 |
 | 70 | Card 卡片 | 多处 card | 部分接入 | 基础 card 圆角/边框/阴影需继续统一 |
 | 71 | Empty State 空状态 | `ui.tsx/EmptyState` + 多处空态 | 本轮组件已补-部分页面已迁移 | 已迁移备忘、体重、多宠、招呼请求、发现无结果、地图无结果；消息列表/上传等空态仍需继续替换 |
-| 72 | Error State 错误页 | `ui.tsx/ErrorState` + 多处错误态 | 本轮组件已补-部分页面已迁移 | 已迁移会话失效、地点失效、约遛对象失效、附近可见关闭；上传/AI/定位失败仍需逐处接入 |
+| 72 | Error State 错误页 | `ui.tsx/ErrorState` + 多处错误态 | 本轮组件已补-部分页面已迁移 | 已迁移会话失效、地点失效、约遛对象失效、附近可见关闭、AI 生成失败、AI/普通聊天发送失败、地图定位失败；上传失败仍需逐处接入 |
 | 73 | Loading & Skeleton | `ui.tsx/LoadingState/SkeletonLine` + 多处 loading | 本轮组件已补-待迁移 | Loading 与 Skeleton 基础组件已补齐，页面骨架仍需逐屏替换 |
 | 74 | App 图标 | assets/app icon | 已接入-需复核 | 已替换过图标，需核对最新包是否一致 |
 | 75 | 健康日历 默认月视图 | API 有 `/health/calendar` | 缺失 | RN 尚无健康日历 route |
@@ -136,7 +136,7 @@
 
 ## 下一轮 1:1 优先级
 
-1. 继续迁移统一 Empty/Error/Loading：消息列表、上传失败、AI 失败、定位失败等页面仍有自写空态/错误态。
+1. 继续迁移统一 Empty/Error/Loading：消息列表、上传失败、健康日历等页面仍有自写空态/错误态；AI/聊天/地图定位失败已完成首轮迁移但需截图复核。
 2. 继续迁移 `surface` Toast：普通聊天发送失败、上传/生成失败、发布失败等仍需按 Screen24/25/66/90/91/94 分型。
 3. 重点精修高频主链路：Screen1-20、26、35、41、45、54、55。
 4. 建立视觉验收：每次改完一组屏幕，用 Web/模拟器截图和 Figma Make 源码对应屏做并排复核。

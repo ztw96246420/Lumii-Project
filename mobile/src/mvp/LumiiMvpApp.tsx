@@ -591,6 +591,7 @@ export default function LumiiMvpApp() {
   const [locatingMap, setLocatingMap] = useState(false);
   const locatingMapRef = useRef(false);
   const locatingMapRequestRef = useRef(0);
+  const [mapLocationError, setMapLocationError] = useState('');
   const [mapCenter, setMapCenter] = useState(defaultMapCenter);
   const [mapStyleKey, setMapStyleKey] = useState<MapVisualMode>('lumii');
   const [mapTrafficEnabled, setMapTrafficEnabled] = useState(false);
@@ -3254,7 +3255,10 @@ export default function LumiiMvpApp() {
       void persistPermissionSnapshot(nextPermissions);
 
       if (permissionResult.status !== 'granted') {
-        if (!options.silent) showToast(permissionResult.message);
+        if (!options.silent) {
+          setMapLocationError(permissionResult.message || '请检查定位权限是否已开启');
+          showToast(permissionResult.message);
+        }
         return;
       }
 
@@ -3266,6 +3270,7 @@ export default function LumiiMvpApp() {
           radiusKm: defaultDiscoverRadiusKm,
         };
         setMapCenter(defaultMapCenter);
+        setMapLocationError('');
         if (!options.silent) showToast('当前预览环境使用模拟地图，真机将调用高德定位');
         return;
       }
@@ -3286,10 +3291,15 @@ export default function LumiiMvpApp() {
         markerTitle: '我的当前位置',
         zoom: accuracy && accuracy > 500 ? 15 : 16,
       });
+      setMapLocationError('');
       if (!options.silent) showToast(accuracy ? `已定位，精度约 ${accuracy} 米` : '已定位到当前位置');
     } catch (error) {
       if (sessionTokenRef.current !== requestSessionToken) return;
-      if (!options.silent) showToast(error instanceof Error ? error.message : '定位失败，请稍后重试');
+      if (!options.silent) {
+        const message = error instanceof Error ? error.message : '定位失败，请稍后重试';
+        setMapLocationError(message);
+        showToast(message);
+      }
     } finally {
       if (locatingMapRequestRef.current === requestId) {
         locatingMapRef.current = false;
@@ -3500,6 +3510,7 @@ export default function LumiiMvpApp() {
     locatingMapRef.current = false;
     locatingMapRequestRef.current += 1;
     setLocatingMap(false);
+    setMapLocationError('');
     setMapCenter(defaultMapCenter);
     setMapStyleKey('lumii');
     setMapTrafficEnabled(false);
@@ -4077,12 +4088,15 @@ export default function LumiiMvpApp() {
                 <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.avatarImage} />
               </View>
             </View>
-            <Text style={styles.aiGeneratingTitle}>生成暂时失败</Text>
-            <Text style={styles.aiGeneratingSubtitle}>
-              {avatarJob.errorMessage ? '服务没有返回可用结果，请稍后再试' : '当前图片生成服务开小差了，请稍后再试'}
-            </Text>
-            <View style={styles.uploadActionsMake}>
-              <Button loading={avatarRetrying} onPress={() => void retryAvatarGeneration()}>重新生成</Button>
+            <ErrorState
+              action={avatarRetrying ? '生成中' : '重新生成'}
+              description={avatarJob.errorMessage || '可能是网络波动，或图片生成服务没有返回可用结果。你的上传照片已经保留，可以直接重试。'}
+              icon={<Sparkles color={palette.orange} size={20} strokeWidth={2.4} />}
+              iconTone="primary"
+              onAction={avatarRetrying ? undefined : () => void retryAvatarGeneration()}
+              title="AI 灵伴生成失败"
+            />
+            <View style={styles.aiFailureSecondaryAction}>
               <Button onPress={() => replace('upload')} tone="secondary">重新选择照片</Button>
             </View>
           </View>
@@ -4241,6 +4255,7 @@ export default function LumiiMvpApp() {
 
   function renderChat() {
     const pet = getCurrentPet();
+    const failedChatMessage = chatMessages.slice().reverse().find((message) => message.author === 'me' && message.status === 'failed');
     return (
       <Screen showBack={false} title="">
         <View style={styles.chatMakeHeader}>
@@ -4265,39 +4280,62 @@ export default function LumiiMvpApp() {
           <Text style={styles.chatSafetyText}>AI 灵伴不能替代兽医，紧急情况请就医</Text>
         </View>
 
+        {failedChatMessage ? (
+          <View style={styles.chatErrorBanner}>
+            <AlertTriangle color={palette.danger} size={14} strokeWidth={2.4} />
+            <Text style={styles.chatErrorBannerText}>网络不稳定，灵伴暂时无法回复</Text>
+            <Pressable onPress={() => void sendChatMessage(failedChatMessage.text, failedChatMessage.id)} style={styles.chatErrorBannerAction}>
+              <RefreshCw color={palette.danger} size={11} strokeWidth={2.5} />
+              <Text style={styles.chatErrorBannerActionText}>重试</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         <View style={styles.chatMakeList}>
           <Text style={styles.chatDateChip}>今天 09:32</Text>
           {chatMessages.map((message) => (
-            <View key={message.id} style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
-              {message.author === 'ai' ? <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={26} /> : null}
-              <View style={styles.chatBubbleColumn}>
-                <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
-                  <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
-                </View>
-                {message.author === 'ai' ? (
-                  <View style={styles.chatFeedbackRow}>
-                    {(['good', 'off'] as const).map((rating) => (
-                      <Pressable
-                        disabled={chatFeedbackSavingIds.includes(message.id)}
-                        key={rating}
-                        onPress={() => void ratePetChatReply(message.id, rating)}
-                        style={[
-                          styles.chatFeedbackChip,
-                          chatFeedbackById[message.id] === rating && styles.chatFeedbackChipActive,
-                          chatFeedbackSavingIds.includes(message.id) && styles.mapSearchActionDisabled,
-                        ]}
-                      >
-                        <Text style={[styles.chatFeedbackText, chatFeedbackById[message.id] === rating && styles.chatFeedbackTextActive]}>
-                          {rating === 'good' ? '像它' : '不像它'}
-                        </Text>
-                      </Pressable>
-                    ))}
+            <View key={message.id} style={styles.chatMessageGroup}>
+              <View style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
+                {message.author === 'ai' ? <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={26} /> : null}
+                <View style={styles.chatBubbleColumn}>
+                  <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
+                    <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
                   </View>
-                ) : null}
+                  {message.author === 'ai' ? (
+                    <View style={styles.chatFeedbackRow}>
+                      {(['good', 'off'] as const).map((rating) => (
+                        <Pressable
+                          disabled={chatFeedbackSavingIds.includes(message.id)}
+                          key={rating}
+                          onPress={() => void ratePetChatReply(message.id, rating)}
+                          style={[
+                            styles.chatFeedbackChip,
+                            chatFeedbackById[message.id] === rating && styles.chatFeedbackChipActive,
+                            chatFeedbackSavingIds.includes(message.id) && styles.mapSearchActionDisabled,
+                          ]}
+                        >
+                          <Text style={[styles.chatFeedbackText, chatFeedbackById[message.id] === rating && styles.chatFeedbackTextActive]}>
+                            {rating === 'good' ? '像它' : '不像它'}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
               </View>
-              {message.status === 'failed' ? (
-                <Pressable onPress={() => void sendChatMessage(message.text, message.id)} style={styles.inlineRetryButton}>
-                  <Text style={styles.inlineRetryText}>重试</Text>
+              {message.author === 'me' && message.status === 'failed' ? (
+                <Pressable onPress={() => void sendChatMessage(message.text, message.id)} style={[styles.messageRetryCard, styles.messageRetryCardMe]}>
+                  <View style={styles.messageRetryIcon}>
+                    <RefreshCw color={palette.danger} size={15} strokeWidth={2.4} />
+                  </View>
+                  <View style={styles.flex}>
+                    <Text style={styles.messageRetryTitle}>消息发送失败</Text>
+                    <Text style={styles.messageRetryText}>点击重试，或稍后再发送</Text>
+                  </View>
+                  <View style={styles.messageRetryButton}>
+                    <RefreshCw color="#fff" size={11} strokeWidth={2.5} />
+                    <Text style={styles.messageRetryButtonText}>重试</Text>
+                  </View>
                 </Pressable>
               ) : null}
             </View>
@@ -4340,6 +4378,7 @@ export default function LumiiMvpApp() {
     const conversation = selectedConversation;
     const canSendMessage = Boolean(conversation && conversation.canSendMessage !== false);
     const conversationInput = conversation ? conversationDraftsById[conversation.id] ?? '' : '';
+    const failedConversationMessage = conversationMessages.slice().reverse().find((message) => message.author === 'me' && message.status === 'failed');
     return (
       <Screen showBack={false} title="">
         <View style={styles.chatMakeHeader}>
@@ -4366,6 +4405,17 @@ export default function LumiiMvpApp() {
           </Text>
         </View>
 
+        {conversation && failedConversationMessage ? (
+          <View style={styles.chatErrorBanner}>
+            <AlertTriangle color={palette.danger} size={14} strokeWidth={2.4} />
+            <Text style={styles.chatErrorBannerText}>网络不稳定，消息可能延迟送达</Text>
+            <Pressable onPress={() => void sendConversationMessage(failedConversationMessage.text, failedConversationMessage.id)} style={styles.chatErrorBannerAction}>
+              <RefreshCw color={palette.danger} size={11} strokeWidth={2.5} />
+              <Text style={styles.chatErrorBannerActionText}>重连</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         <View style={styles.chatMakeList}>
           <Text style={styles.chatDateChip}>今天</Text>
           {conversation ? (
@@ -4375,20 +4425,32 @@ export default function LumiiMvpApp() {
                   <Text style={styles.conversationSystemText}>{message.text}</Text>
                 </View>
               ) : (
-                <View key={message.id} style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
-                  {message.author === 'other' ? <PetAvatar uri={conversation.imageUrl ?? owners[0]?.imageUrl ?? generatedGoldenAvatarUri} size={26} /> : null}
-                  <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
-                    <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
+                <View key={message.id} style={styles.chatMessageGroup}>
+                  <View style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
+                    {message.author === 'other' ? <PetAvatar uri={conversation.imageUrl ?? owners[0]?.imageUrl ?? generatedGoldenAvatarUri} size={26} /> : null}
+                    <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
+                      <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
+                    </View>
+                    {message.status === 'sending' ? <ActivityIndicator color={palette.orange} size="small" /> : null}
                   </View>
-                  {message.status === 'sending' ? <ActivityIndicator color={palette.orange} size="small" /> : null}
-                  {message.status === 'failed' ? (
-                    <View style={styles.inlineActionRow}>
-                      <Pressable onPress={() => void sendConversationMessage(message.text, message.id)} style={styles.inlineRetryButton}>
-                        <Text style={styles.inlineRetryText}>重发</Text>
-                      </Pressable>
-                      <Pressable onPress={() => deleteLocalConversationMessage(message.id)} style={styles.inlineDeleteButton}>
-                        <Text style={styles.inlineDeleteText}>删除</Text>
-                      </Pressable>
+                  {message.author === 'me' && message.status === 'failed' ? (
+                    <View style={[styles.messageRetryCard, styles.messageRetryCardMe]}>
+                      <View style={styles.messageRetryIcon}>
+                        <AlertTriangle color={palette.danger} size={15} strokeWidth={2.4} />
+                      </View>
+                      <View style={styles.flex}>
+                        <Text style={styles.messageRetryTitle}>消息未送达</Text>
+                        <Text style={styles.messageRetryText}>点击重试或删除这条消息</Text>
+                      </View>
+                      <View style={styles.messageRetryActions}>
+                        <Pressable onPress={() => void sendConversationMessage(message.text, message.id)} style={styles.messageRetryButton}>
+                          <RefreshCw color="#fff" size={11} strokeWidth={2.5} />
+                          <Text style={styles.messageRetryButtonText}>重试</Text>
+                        </Pressable>
+                        <Pressable onPress={() => deleteLocalConversationMessage(message.id)} style={styles.messageRetryDelete}>
+                          <Text style={styles.messageRetryDeleteText}>删除</Text>
+                        </Pressable>
+                      </View>
                     </View>
                   ) : null}
                 </View>
@@ -5061,6 +5123,22 @@ export default function LumiiMvpApp() {
               {placeSearching ? <ActivityIndicator color="#fff" size="small" /> : <SlidersHorizontal color="#fff" size={14} strokeWidth={2.4} />}
             </Pressable>
           </View>
+
+          {mapLocationError ? (
+            <View style={styles.mapLocationErrorBanner}>
+              <View style={styles.mapLocationErrorIcon}>
+                <AlertTriangle color={palette.danger} size={14} strokeWidth={2.5} />
+              </View>
+              <View style={styles.flex}>
+                <Text style={styles.mapLocationErrorTitle}>定位失败</Text>
+                <Text style={styles.mapLocationErrorText}>{mapLocationError || '请检查 GPS 与网络是否开启'}</Text>
+              </View>
+              <Pressable onPress={() => void locateMapToCurrentPosition()} style={styles.mapLocationErrorRetry}>
+                <RefreshCw color="#fff" size={11} strokeWidth={2.5} />
+                <Text style={styles.mapLocationErrorRetryText}>重试</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           <ScrollView contentContainerStyle={styles.mapFilterFloatMake} horizontal showsHorizontalScrollIndicator={false} style={styles.mapFilterScrollerMake}>
             {placeFilters.map((item) => (
@@ -6389,6 +6467,10 @@ const styles = StyleSheet.create({
   chatBubbleMe: { alignSelf: 'flex-end', backgroundColor: palette.orange },
   chatComposer: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 8, padding: 8 },
   chatDateChip: { alignSelf: 'center', backgroundColor: 'rgba(122,121,114,0.12)', borderRadius: 12, color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 4 },
+  chatErrorBanner: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.10)', borderColor: 'rgba(229,87,63,0.25)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  chatErrorBannerAction: { alignItems: 'center', flexDirection: 'row', gap: 4, paddingHorizontal: 2, paddingVertical: 2 },
+  chatErrorBannerActionText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  chatErrorBannerText: { color: palette.danger, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
   chatInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, minHeight: 40, paddingHorizontal: 10 },
   chatInputDisabled: { color: palette.muted },
   chatList: { gap: 10, minHeight: 520 },
@@ -6400,6 +6482,7 @@ const styles = StyleSheet.create({
   chatMakeList: { gap: 10, marginTop: 14, minHeight: 480 },
   chatMakeName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', lineHeight: 20 },
   chatMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 22 },
+  chatMessageGroup: { gap: 8 },
   chatFeedbackChip: { backgroundColor: 'rgba(255,255,255,0.72)', borderColor: palette.border, borderRadius: 999, borderWidth: 1, paddingHorizontal: 9, paddingVertical: 4 },
   chatFeedbackChipActive: { backgroundColor: palette.orangeSoft, borderColor: 'rgba(255,138,92,0.42)' },
   chatFeedbackRow: { flexDirection: 'row', gap: 6, marginLeft: 2, marginTop: 5 },
@@ -6481,6 +6564,7 @@ const styles = StyleSheet.create({
   weightUnitText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', marginBottom: 7 },
   weightWarnText: { color: '#C99B3E' },
   flex: { flex: 1, minWidth: 0 },
+  aiFailureSecondaryAction: { marginTop: 12, width: '100%' },
   aiGeneratingImage: { borderRadius: 120, height: 240, opacity: 0.9, width: 240 },
   aiGeneratingOrb: { alignItems: 'center', alignSelf: 'center', height: 286, justifyContent: 'center', marginTop: 28, position: 'relative', width: 286 },
   aiGeneratingPage: { alignItems: 'center', paddingHorizontal: 6 },
@@ -6640,6 +6724,12 @@ const styles = StyleSheet.create({
   mapGreenPatchNight: { backgroundColor: '#244238', opacity: 0.88 },
   mapGreenPatchSatellite: { backgroundColor: '#385f3d', opacity: 0.9 },
   mapHero: { backgroundColor: '#eef2ec', borderRadius: 26, height: 456, marginHorizontal: -6, overflow: 'hidden', position: 'relative' },
+  mapLocationErrorBanner: { alignItems: 'center', backgroundColor: '#fff', borderColor: 'rgba(229,87,63,0.25)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, left: 16, paddingHorizontal: 12, paddingVertical: 10, position: 'absolute', right: 16, shadowColor: '#000', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22, top: 64, zIndex: 6 },
+  mapLocationErrorIcon: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.14)', borderRadius: 14, height: 28, justifyContent: 'center', width: 28 },
+  mapLocationErrorRetry: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 12, flexDirection: 'row', gap: 4, minHeight: 32, paddingHorizontal: 12, paddingVertical: 7 },
+  mapLocationErrorRetryText: { color: '#fff', fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  mapLocationErrorText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, lineHeight: 15, marginTop: 1 },
+  mapLocationErrorTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 17 },
   mapMarkerMain: { alignItems: 'center', backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 999, borderWidth: 3, height: 48, justifyContent: 'center', left: '49%', position: 'absolute', top: '50%', shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.28, shadowRadius: 18, width: 48 },
   mapMarkerSmallA: { alignItems: 'center', backgroundColor: palette.card, borderColor: 'rgba(234,223,210,0.88)', borderRadius: 999, borderWidth: 1, height: 38, justifyContent: 'center', left: '25%', position: 'absolute', top: '29%', shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.12, shadowRadius: 12, width: 38 },
   mapMarkerSmallB: { alignItems: 'center', backgroundColor: palette.card, borderColor: 'rgba(234,223,210,0.88)', borderRadius: 999, borderWidth: 1, bottom: 92, height: 34, justifyContent: 'center', position: 'absolute', right: 86, shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.12, shadowRadius: 12, width: 34 },
@@ -6708,6 +6798,16 @@ const styles = StyleSheet.create({
   menuIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 14, height: 38, justifyContent: 'center', width: 38 },
   menuRow: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 60, paddingHorizontal: 14 },
   menuTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
+  messageRetryActions: { alignItems: 'center', flexDirection: 'row', gap: 7 },
+  messageRetryButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 12, flexDirection: 'row', gap: 4, minHeight: 32, paddingHorizontal: 12, paddingVertical: 7 },
+  messageRetryButtonText: { color: '#fff', fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  messageRetryCard: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 10, maxWidth: '88%', paddingHorizontal: 12, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.09, shadowRadius: 18 },
+  messageRetryCardMe: { alignSelf: 'flex-end' },
+  messageRetryDelete: { alignItems: 'center', justifyContent: 'center', minHeight: 32, paddingHorizontal: 2 },
+  messageRetryDeleteText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  messageRetryIcon: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.12)', borderRadius: 15, height: 30, justifyContent: 'center', width: 30 },
+  messageRetryText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
+  messageRetryTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700', lineHeight: 18 },
   conversationMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, paddingVertical: 12 },
   conversationMakeText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18 },
   conversationMakeTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
