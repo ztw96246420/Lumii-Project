@@ -71,7 +71,7 @@ import { clearPersistedLumiiSession, loadPersistedLumiiSession, savePersistedLum
 import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
 import { apiConfig, lumiiApi, setLumiiAuthToken } from './api';
 import { productConfig } from './productConfig';
-import { BottomSheet, Button, Card, ConfirmDialog, EmptyState, Field, StatusPill, Toast, palette, styles as uiStyles } from './ui';
+import { BottomSheet, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, StatusPill, Toast, palette, styles as uiStyles } from './ui';
 import type {
   AppRoute,
   AppTab,
@@ -2728,10 +2728,10 @@ export default function LumiiMvpApp() {
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setFavoritePlaceIds(result.data);
-        showToast(nextFavorite ? '已收藏地点' : '已取消收藏');
+        showToast(nextFavorite ? '已收藏到「想去」' : '已取消收藏', nextFavorite ? { actionText: '管理' } : { actionText: '撤销', tone: 'info', variant: 'surface' });
       } else {
         setFavoritePlaceIds((ids) => (wasFavorite ? [place.id, ...ids.filter((id) => id !== place.id)] : ids.filter((id) => id !== place.id)));
-        showToast(result.error?.message ?? '收藏状态保存失败');
+        showToast(result.error?.message ?? '收藏状态保存失败', { tone: 'error', variant: 'surface' });
       }
     } finally {
       favoritePlaceSavingIdsRef.current.delete(place.id);
@@ -3048,9 +3048,9 @@ export default function LumiiMvpApp() {
           setGreetingSheetOwner(null);
           setGreetingMessage('你好呀，我们也在附近，想认识一下吗？');
         }
-        showToast(`已向${owner?.petName ?? '附近伙伴'}打招呼`);
+        showToast(`已向${owner?.petName ?? '附近伙伴'}打招呼`, { tone: 'success', variant: 'surface' });
       } else {
-        showToast(result.error?.message ?? '发送失败');
+        showToast(result.error?.message ?? '发送失败', { tone: 'error', variant: 'surface' });
       }
     } finally {
       endSocialAction(actionId);
@@ -3097,10 +3097,10 @@ export default function LumiiMvpApp() {
         void loadInboxData();
         if (stillEditingSameInvite) {
           replace('messages');
-          showToast('约遛邀请已发送');
+          showToast('约遛邀请已发送', { tone: 'success', variant: 'surface' });
         }
       } else if (stillEditingSameInvite) {
-        showToast(result.error?.message ?? '约遛邀请发送失败');
+        showToast(result.error?.message ?? '约遛邀请发送失败', { tone: 'error', variant: 'surface' });
       }
     } finally {
       walkInviteSavingRef.current = false;
@@ -3323,9 +3323,9 @@ export default function LumiiMvpApp() {
         if (stillReviewingSamePlace) setPlaceReviewDraft('');
         setPlaceReviewsByPlaceId((items) => ({ ...items, [place.id]: result.data! }));
         void loadInboxData();
-        if (stillReviewingSamePlace) showToast('点评已提交，等待审核');
+        if (stillReviewingSamePlace) showToast('点评已提交，等待审核', { tone: 'warning', variant: 'surface' });
       } else if (stillReviewingSamePlace) {
-        showToast(result.error?.message ?? '提交失败，请稍后重试');
+        showToast(result.error?.message ?? '提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
       }
     } finally {
       placeReviewSavingRef.current = false;
@@ -3374,9 +3374,9 @@ export default function LumiiMvpApp() {
           setPlaceSubmissionStatus('pending_review');
         }
         void loadInboxData();
-        if (stillEditingSubmission) showToast('地点已提交审核');
+        if (stillEditingSubmission) showToast('地点已提交审核', { tone: 'warning', variant: 'surface' });
       } else if (stillEditingSubmission) {
-        showToast(result.error?.message ?? '提交失败，请稍后重试');
+        showToast(result.error?.message ?? '提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
       }
     } finally {
       placeSubmissionSavingRef.current = false;
@@ -4395,11 +4395,14 @@ export default function LumiiMvpApp() {
               )
             ))
           ) : (
-            <View style={styles.mapEmptyCard}>
-              <Text style={styles.cardTitle}>会话已失效</Text>
-              <Text style={styles.mutedText}>对方可能已不可见，或会话状态已刷新。请回到消息列表重新选择。</Text>
-              <Button onPress={() => replace('messages')} tone="secondary">回到消息</Button>
-            </View>
+            <ErrorState
+              action="回到消息"
+              description="对方可能已不可见，或会话状态已刷新。请回到消息列表重新选择。"
+              icon={<MessageCircle color={palette.danger} size={20} strokeWidth={2.4} />}
+              iconTone="danger"
+              onAction={() => replace('messages')}
+              title="会话已失效"
+            />
           )}
         </View>
         <View style={styles.chatComposer}>
@@ -4902,10 +4905,24 @@ export default function LumiiMvpApp() {
             </View>
           ))}
           {!visibleOwners.length ? (
-            <View style={styles.mapEmptyCard}>
-              <Text style={styles.cardTitle}>{discoverEnabled ? '暂无匹配伙伴' : '附近可见未开启'}</Text>
-              <Text style={styles.mutedText}>{discoverEnabled ? '可以切换筛选条件，或下拉刷新附近列表。' : '开启后才会展示附近猫狗主人，也会让附近伙伴看到你。'}</Text>
-            </View>
+            discoverEnabled ? (
+              <EmptyState
+                action={discoverFilter === 'all' ? '刷新附近' : '查看全部'}
+                description="可以切换筛选条件，或下拉刷新附近列表。"
+                icon={<Search color={palette.muted} size={26} strokeWidth={2.4} />}
+                onAction={() => (discoverFilter === 'all' ? void refreshDiscoverByPull() : applyDiscoverFilter('all'))}
+                title="暂无匹配伙伴"
+              />
+            ) : (
+              <ErrorState
+                action="去设置"
+                description="开启后才会展示附近猫狗主人，也会让附近伙伴看到你。"
+                icon={<AlertTriangle color={palette.warning} size={20} strokeWidth={2.4} />}
+                iconTone="warning"
+                onAction={() => go('settings')}
+                title="附近可见未开启"
+              />
+            )
           ) : null}
         </View>
       </Screen>
@@ -5074,10 +5091,18 @@ export default function LumiiMvpApp() {
               />
             ))}
             {!visiblePlaces.length ? (
-              <View style={styles.mapEmptyCard}>
-                <Text style={styles.cardTitle}>没有匹配地点</Text>
-                <Text style={styles.mutedText}>可以切换筛选条件，或搜索其他关键词。</Text>
-              </View>
+              <EmptyState
+                action="清空筛选"
+                description="可以切换筛选条件，或搜索其他关键词。"
+                icon={<MapPin color={palette.muted} size={26} strokeWidth={2.4} />}
+                onAction={() => {
+                  placeQueryRef.current = '';
+                  setPlaceQuery('');
+                  setPlaceFilter('all');
+                  void searchPlaces();
+                }}
+                title="没有匹配地点"
+              />
             ) : null}
           </View>
         </View>
@@ -5163,11 +5188,14 @@ export default function LumiiMvpApp() {
             </View>
           </View>
         ) : (
-          <View style={styles.mapEmptyCard}>
-            <Text style={styles.cardTitle}>地点已失效</Text>
-            <Text style={styles.mutedText}>这个地点可能已不在当前结果里，请回到地图重新选择。</Text>
-            <Button onPress={() => replace('map')} tone="secondary">回到地图</Button>
-          </View>
+          <ErrorState
+            action="回到地图"
+            description="这个地点可能已不在当前结果里，请回到地图重新选择。"
+            icon={<MapPin color={palette.warning} size={20} strokeWidth={2.4} />}
+            iconTone="warning"
+            onAction={() => replace('map')}
+            title="地点已失效"
+          />
         )}
       </Screen>
     );
@@ -5703,11 +5731,14 @@ export default function LumiiMvpApp() {
             </View>
           </>
         ) : (
-          <View style={styles.mapEmptyCard}>
-            <Text style={styles.cardTitle}>暂无可邀请对象</Text>
-            <Text style={styles.mutedText}>原来的对象可能已离开附近列表，请回到发现页重新选择。</Text>
-            <Button onPress={() => replace('discover')} tone="secondary">回到发现页</Button>
-          </View>
+          <ErrorState
+            action="回到发现页"
+            description="原来的对象可能已离开附近列表，请回到发现页重新选择。"
+            icon={<Users color={palette.warning} size={20} strokeWidth={2.4} />}
+            iconTone="warning"
+            onAction={() => replace('discover')}
+            title="暂无可邀请对象"
+          />
         )}
       </Screen>
     );
@@ -6393,9 +6424,6 @@ const styles = StyleSheet.create({
   conversationRow: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 70, padding: 14 },
   countryCode: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', minWidth: 34 },
   dangerText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
-  emptyStateMake: { alignItems: 'center', gap: 8, paddingHorizontal: 18, paddingVertical: 24 },
-  emptyStateTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 19, textAlign: 'center' },
-  emptyStateTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
   addPetDashed: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#FFC8A6', borderRadius: 16, borderStyle: 'dashed', borderWidth: 1.5, flexDirection: 'row', gap: 8, justifyContent: 'center', minHeight: 52, paddingHorizontal: 14, paddingVertical: 14 },
   addPetDashedText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
   currentPetBadge: { backgroundColor: '#fff', borderRadius: 8, color: palette.orange, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
@@ -6599,7 +6627,6 @@ const styles = StyleSheet.create({
   mapControlStack: { gap: 8, position: 'absolute', right: 16, top: 118 },
   mapCtrlButton: { alignItems: 'center', backgroundColor: 'rgba(255,253,249,0.94)', borderColor: 'rgba(234,223,210,0.86)', borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 5, width: 0 }, shadowOpacity: 0.1, shadowRadius: 10, width: 36 },
   mapCtrlButtonActive: { backgroundColor: palette.ink, borderColor: palette.ink },
-  mapEmptyCard: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 18, gap: 4, padding: 18 },
   mapFauxFull: { backgroundColor: '#eef2ec', height: 620, overflow: 'hidden', position: 'relative' },
   mapFauxFullNight: { backgroundColor: '#17222b' },
   mapFauxFullSatellite: { backgroundColor: '#2b3b32' },
