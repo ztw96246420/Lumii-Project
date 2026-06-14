@@ -67,6 +67,7 @@ import {
   Users,
   Wifi,
   Weight,
+  WifiOff,
   X,
 } from 'lucide-react-native';
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
@@ -88,6 +89,7 @@ import type {
   ChatMessage,
   Conversation,
   ConversationMessage,
+  HealthCalendarEvent,
   HealthMemo,
   HealthSummary,
   NearbyLocationHint,
@@ -140,6 +142,7 @@ const routeTitles: Partial<Record<AppRoute, string>> = {
   generating: 'AI 生成中',
   greetingRequests: '招呼请求',
   health: '健康管理',
+  healthCalendar: '健康日历',
   healthMemos: '健康备忘',
   home: '灵伴',
   map: '地图',
@@ -177,7 +180,7 @@ const tabBackToHomeRoutes = new Set<AppRoute>(['discover', 'map', 'messages', 'p
 const appExitPromptRoutes = new Set<AppRoute>(['emptyPet', 'home', 'login', 'permissions']);
 const focusedInboxRoutes = new Set<AppRoute>(['greetingRequests', 'messages', 'notifications']);
 const passiveInboxRoutes = new Set<AppRoute>(['discover', 'home', 'map', 'profile']);
-const petRequiredRoutes = new Set<AppRoute>(['aiResult', 'chat', 'dailyPost', 'editPet', 'generating', 'health', 'healthMemos', 'home', 'memoEdit', 'memoNew', 'petDetail', 'upload', 'uploadDetail', 'uploadNoPet', 'vaccine', 'weight']);
+const petRequiredRoutes = new Set<AppRoute>(['aiResult', 'chat', 'dailyPost', 'editPet', 'generating', 'health', 'healthCalendar', 'healthMemos', 'home', 'memoEdit', 'memoNew', 'petDetail', 'upload', 'uploadDetail', 'uploadNoPet', 'vaccine', 'weight']);
 const avatarFlowRoutes = new Set<AppRoute>(['upload', 'uploadDetail', 'uploadNoPet', 'generating', 'aiResult']);
 const homeChatPrompts = [
   '今天想和{petName}聊点什么？',
@@ -402,6 +405,50 @@ function vaccineReminderCopy(vaccine?: VaccinePlan) {
   return formatDueLabel(vaccine.dueAt);
 }
 
+function dateToIsoDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseIsoDate(dateText?: string) {
+  if (!dateText) return null;
+  const date = new Date(`${dateText.slice(0, 10)}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function todayIsoDate() {
+  return dateToIsoDate(new Date());
+}
+
+function monthStartIso(dateText = todayIsoDate()) {
+  const date = parseIsoDate(dateText) ?? new Date();
+  return dateToIsoDate(new Date(date.getFullYear(), date.getMonth(), 1));
+}
+
+function shiftMonthIso(monthIso: string, amount: number) {
+  const date = parseIsoDate(monthIso) ?? new Date();
+  return dateToIsoDate(new Date(date.getFullYear(), date.getMonth() + amount, 1));
+}
+
+function formatMonthLabel(monthIso: string) {
+  const date = parseIsoDate(monthIso) ?? new Date();
+  return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月`;
+}
+
+function formatCalendarDateLabel(dateText: string) {
+  const date = parseIsoDate(dateText);
+  if (!date) return dateText;
+  return `${date.getMonth() + 1} 月 ${date.getDate()} 日`;
+}
+
+function weekdayLabel(dateText: string) {
+  const date = parseIsoDate(dateText);
+  if (!date) return '日期待确认';
+  return ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][date.getDay()];
+}
+
 function mergePermissionState(...states: Array<Partial<PermissionStateMap> | null | undefined>): PermissionStateMap {
   return states.reduce<PermissionStateMap>((next, state) => ({ ...next, ...(state ?? {}) }), { ...initialPermissions });
 }
@@ -517,6 +564,13 @@ export default function LumiiMvpApp() {
   const [aiUsage, setAiUsage] = useState<AiUsageSummary | null>(null);
   const [petChatDailyCount, setPetChatDailyCount] = useState(0);
   const [healthSummary, setHealthSummary] = useState<HealthSummary | null>(null);
+  const [healthCalendarEvents, setHealthCalendarEvents] = useState<HealthCalendarEvent[]>([]);
+  const [healthCalendarError, setHealthCalendarError] = useState('');
+  const [healthCalendarLoading, setHealthCalendarLoading] = useState(false);
+  const healthCalendarLoadingRef = useRef(false);
+  const [healthCalendarRefreshing, setHealthCalendarRefreshing] = useState(false);
+  const [healthCalendarMonth, setHealthCalendarMonth] = useState(() => monthStartIso());
+  const [selectedHealthCalendarDate, setSelectedHealthCalendarDate] = useState(() => todayIsoDate());
   const [weights, setWeights] = useState<WeightRecord[]>([]);
   const [vaccines, setVaccines] = useState<VaccinePlan[]>([]);
   const [vaccineReminderIds, setVaccineReminderIds] = useState<string[]>([]);
@@ -1033,6 +1087,11 @@ export default function LumiiMvpApp() {
   }, [route, session, activePet?.id]);
 
   useEffect(() => {
+    if (!session || route !== 'healthCalendar') return;
+    void loadHealthCalendar({ silent: true });
+  }, [activePet?.id, route, session]);
+
+  useEffect(() => {
     if (!session || (route !== 'upload' && route !== 'uploadDetail' && route !== 'aiResult')) return;
     void loadAiUsage();
   }, [route, session]);
@@ -1085,10 +1144,11 @@ export default function LumiiMvpApp() {
   async function loadCommonData(targetSessionToken = sessionTokenRef.current) {
     const requestSessionToken = targetSessionToken;
     if (!requestSessionToken) return;
-    const [profileResult, petListResult, healthSummaryResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult, aiUsageResult] = await Promise.all([
+    const [profileResult, petListResult, healthSummaryResult, healthCalendarResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult, aiUsageResult] = await Promise.all([
       lumiiApi.account.getMe(),
       lumiiApi.pets.listPets(),
       lumiiApi.health.getHealthSummary(),
+      lumiiApi.health.listHealthCalendar(),
       lumiiApi.health.listWeightRecords(),
       lumiiApi.health.listVaccines(),
       lumiiApi.health.listVaccineReminderIds(),
@@ -1134,6 +1194,10 @@ export default function LumiiMvpApp() {
             }
           : pet,
       );
+    }
+    if (healthCalendarResult.data) {
+      setHealthCalendarEvents(healthCalendarResult.data);
+      setHealthCalendarError('');
     }
     if (weightResult.data) setWeights(weightResult.data);
     if (vaccineResult.data) setVaccines(vaccineResult.data);
@@ -1210,12 +1274,44 @@ export default function LumiiMvpApp() {
     return result.data;
   }
 
+  async function loadHealthCalendar(options: { refreshing?: boolean; silent?: boolean } = {}) {
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!requestPetId || healthCalendarLoadingRef.current) return null;
+    healthCalendarLoadingRef.current = true;
+    if (options.refreshing) {
+      setHealthCalendarRefreshing(true);
+    } else {
+      setHealthCalendarLoading(true);
+    }
+    try {
+      const result = await lumiiApi.health.listHealthCalendar();
+      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return null;
+      if (result.data) {
+        setHealthCalendarEvents(result.data);
+        setHealthCalendarError('');
+        return result.data;
+      }
+      const message = result.error?.message ?? '健康日历读取失败';
+      setHealthCalendarError(message);
+      if (!options.silent) showToast(message, { tone: 'error', variant: 'surface' });
+      return null;
+    } finally {
+      if (isCurrentPetRequest(requestSessionToken, requestPetId)) {
+        setHealthCalendarLoading(false);
+        setHealthCalendarRefreshing(false);
+      }
+      healthCalendarLoadingRef.current = false;
+    }
+  }
+
   async function refreshPetScopedData() {
     const requestSessionToken = sessionTokenRef.current;
     const requestPetId = activePetIdRef.current;
     if (!requestPetId) return;
-    const [healthSummaryResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, aiUsageResult] = await Promise.all([
+    const [healthSummaryResult, healthCalendarResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, aiUsageResult] = await Promise.all([
       lumiiApi.health.getHealthSummary(),
+      lumiiApi.health.listHealthCalendar(),
       lumiiApi.health.listWeightRecords(),
       lumiiApi.health.listVaccines(),
       lumiiApi.health.listVaccineReminderIds(),
@@ -1236,6 +1332,10 @@ export default function LumiiMvpApp() {
             }
           : pet,
       );
+    }
+    if (healthCalendarResult.data) {
+      setHealthCalendarEvents(healthCalendarResult.data);
+      setHealthCalendarError('');
     }
     if (weightResult.data) setWeights(weightResult.data);
     if (vaccineResult.data) setVaccines(vaccineResult.data);
@@ -3489,6 +3589,13 @@ export default function LumiiMvpApp() {
     setChatReplying(false);
     setAiUsage(null);
     setPetChatDailyCount(0);
+    setHealthCalendarEvents([]);
+    setHealthCalendarError('');
+    healthCalendarLoadingRef.current = false;
+    setHealthCalendarLoading(false);
+    setHealthCalendarRefreshing(false);
+    setHealthCalendarMonth(monthStartIso());
+    setSelectedHealthCalendarDate(todayIsoDate());
     setWeights([]);
     setWeightEditorMode(null);
     setWeightEditRecord(null);
@@ -4643,7 +4750,8 @@ export default function LumiiMvpApp() {
         <View style={styles.healthSectionStack}>
           <HealthMakeRow Icon={Weight} badge={formatWeightKg(latestWeight)} chart onPress={() => go('weight')} subtitle={weightSubtitle} title="体重趋势" tone="warm" />
           <HealthMakeRow Icon={Syringe} badge={urgentHealthCount ? `${urgentHealthCount} 项临近` : pendingHealthCount ? `${pendingHealthCount} 项` : '已完成'} onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${vaccineReminderCopy(nextHealthVaccine)}` : '暂无计划'} title="疫苗计划" tone="cool" />
-          <HealthMakeRow Icon={CalendarDays} badge={`${memoCount} 条`} onPress={() => go('healthMemos')} subtitle={memoSubtitle} title="健康备忘" tone="warm" />
+          <HealthMakeRow Icon={CalendarDays} badge={`${healthCalendarEvents.length || recentRows.length} 条`} onPress={() => go('healthCalendar')} subtitle="按月份查看体重、疫苗和备忘记录" title="健康日历" tone="cool" />
+          <HealthMakeRow Icon={NotebookPen} badge={`${memoCount} 条`} onPress={() => go('healthMemos')} subtitle={memoSubtitle} title="健康备忘" tone="warm" />
         </View>
 
         {urgentHealthCount ? (
@@ -4686,6 +4794,279 @@ export default function LumiiMvpApp() {
             </View>
           ))}
         </View>
+      </Screen>
+    );
+  }
+
+  function renderHealthCalendar() {
+    const pet = getCurrentPet();
+    const healthScore = healthSummary?.healthScore ?? pet?.healthScore ?? 92;
+    const monthDate = parseIsoDate(healthCalendarMonth) ?? new Date();
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const today = todayIsoDate();
+    const selectedDate = selectedHealthCalendarDate;
+    const selectedDateObject = parseIsoDate(selectedDate);
+    const firstDayOffset = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const cells: Array<null | number> = [
+      ...Array.from({ length: firstDayOffset }, () => null),
+      ...Array.from({ length: daysInMonth }, (_, index) => index + 1),
+    ];
+    while (cells.length % 7 !== 0) cells.push(null);
+
+    const visibleEvents = healthCalendarEvents.filter((event) => {
+      const date = parseIsoDate(event.date);
+      return date && date.getFullYear() === year && date.getMonth() === month;
+    });
+    const eventsByDay = visibleEvents.reduce<Record<number, HealthCalendarEvent[]>>((next, event) => {
+      const day = parseIsoDate(event.date)?.getDate();
+      if (!day) return next;
+      if (!next[day]) next[day] = [];
+      next[day].push(event);
+      return next;
+    }, {});
+    const selectedEvents = healthCalendarEvents.filter((event) => event.date === selectedDate);
+    const overdueVaccines = visibleEvents.filter((event) => event.type === 'vaccine' && (event.status === 'overdue' || (daysUntilDate(event.date) ?? 99) < 0));
+    const upcomingVaccines = visibleEvents.filter((event) => {
+      if (event.type !== 'vaccine' || event.status === 'done') return false;
+      const days = daysUntilDate(event.date);
+      return days !== null && days >= 0 && days <= 14;
+    });
+    const monthSummary = visibleEvents.length
+      ? `本月共有 ${visibleEvents.length} 条健康记录，继续保持温柔记录`
+      : '本月还没有健康记录，先从今天开始';
+    const petNote = overdueVaccines.length
+      ? `${overdueVaccines.length} 项疫苗/驱虫已逾期，建议尽快处理`
+      : visibleEvents.length
+        ? `本月已有 ${visibleEvents.length} 条健康记录`
+        : '记录越完整，灵伴越懂它';
+    const selectedCountLabel = selectedEvents.length ? `${selectedEvents.length} 条记录` : '无记录';
+    const showInitialLoading = healthCalendarLoading && !healthCalendarEvents.length;
+    const showError = Boolean(healthCalendarError && !healthCalendarEvents.length);
+
+    const selectDay = (day: number) => {
+      setSelectedHealthCalendarDate(dateToIsoDate(new Date(year, month, day)));
+    };
+    const moveMonth = (amount: number) => {
+      const nextMonth = shiftMonthIso(healthCalendarMonth, amount);
+      const nextDate = parseIsoDate(nextMonth) ?? new Date();
+      const nextSelected = nextDate.getFullYear() === new Date().getFullYear() && nextDate.getMonth() === new Date().getMonth()
+        ? todayIsoDate()
+        : dateToIsoDate(nextDate);
+      setHealthCalendarMonth(nextMonth);
+      setSelectedHealthCalendarDate(nextSelected);
+    };
+    const eventMeta = (event: HealthCalendarEvent) => {
+      if (event.type === 'weight') return { bg: '#E8F5F3', color: palette.teal, Icon: Weight, label: '体重' };
+      if (event.type === 'vaccine') return { bg: '#FBF2D9', color: '#C99B3E', Icon: Syringe, label: '疫苗 / 驱虫' };
+      return { bg: '#FFE6D6', color: palette.orange, Icon: NotebookPen, label: '健康备忘' };
+    };
+    const renderDots = (dayEvents: HealthCalendarEvent[] = []) => (
+      <View style={styles.calendarDots}>
+        {dayEvents.slice(0, 3).map((event) => (
+          <View key={`${event.id}-dot`} style={[styles.calendarDot, { backgroundColor: eventMeta(event).color }]} />
+        ))}
+      </View>
+    );
+    const renderEventItem = (event: HealthCalendarEvent) => {
+      const meta = eventMeta(event);
+      const Icon = meta.Icon;
+      const isOverdue = event.type === 'vaccine' && (event.status === 'overdue' || (daysUntilDate(event.date) ?? 99) < 0);
+      return (
+        <Pressable
+          key={event.id}
+          onPress={() => {
+            if (event.type === 'weight') go('weight');
+            if (event.type === 'vaccine') go('vaccine');
+            if (event.type === 'memo') {
+              const memo = memos.find((item) => item.id === event.sourceId);
+              if (memo) openMemoEditor(memo);
+              else go('healthMemos');
+            }
+          }}
+          style={[styles.calendarEventItem, webPressableReset]}
+        >
+          <View style={[styles.calendarEventIcon, { backgroundColor: isOverdue ? '#FBE4DE' : meta.bg }]}>
+            <Icon color={isOverdue ? palette.danger : meta.color} size={15} strokeWidth={2.4} />
+          </View>
+          <View style={styles.flex}>
+            <Text numberOfLines={1} style={styles.calendarEventTitle}>{event.title}</Text>
+            <Text numberOfLines={2} style={styles.calendarEventSub}>{event.detail || meta.label}</Text>
+          </View>
+          <Text style={styles.calendarEventTime}>{formatCalendarDateLabel(event.date)}</Text>
+        </Pressable>
+      );
+    };
+
+    if (showError) {
+      return (
+        <Screen title="健康日历">
+          <HealthCalendarPetCard healthScore={healthScore} note="日历暂时无法加载" pet={pet} />
+          <View style={styles.calendarErrorState}>
+            <View style={styles.calendarErrorIcon}>
+              <WifiOff color={palette.danger} size={28} strokeWidth={2.3} />
+            </View>
+            <Text style={styles.calendarErrorTitle}>日历读取失败</Text>
+            <Text style={styles.calendarErrorText}>可能是网络抖了一下，{pet?.name ?? '灵伴'}的健康记录都在云端保存着，不会丢失</Text>
+            <Pressable onPress={() => void loadHealthCalendar()} style={[styles.calendarRetryButton, webPressableReset]}>
+              <RefreshCw color="#fff" size={14} strokeWidth={2.5} />
+              <Text style={styles.calendarRetryText}>重新加载</Text>
+            </Pressable>
+            <Pressable onPress={back} style={[styles.calendarLaterButton, webPressableReset]}>
+              <Text style={styles.calendarLaterText}>稍后再试</Text>
+            </Pressable>
+          </View>
+        </Screen>
+      );
+    }
+
+    return (
+      <Screen
+        refreshControl={<RefreshControl refreshing={healthCalendarRefreshing} tintColor={palette.orange} onRefresh={() => void loadHealthCalendar({ refreshing: true })} />}
+        title="健康日历"
+      >
+        {(showInitialLoading || healthCalendarRefreshing) ? (
+          <View style={styles.calendarSyncRibbon}>
+            <ActivityIndicator color={palette.orange} size="small" />
+            <Text style={styles.calendarSyncText}>正在为{pet?.name ?? '灵伴'}同步健康日历...</Text>
+          </View>
+        ) : null}
+
+        <HealthCalendarPetCard healthScore={healthScore} note={petNote} pet={pet} />
+
+        <View style={styles.calendarMonthSwitcher}>
+          <Pressable onPress={() => moveMonth(-1)} style={[styles.calendarMonthButton, webPressableReset]}>
+            <ChevronLeft color={palette.ink} size={16} strokeWidth={2.5} />
+          </Pressable>
+          <Text style={styles.calendarMonthLabel}>{formatMonthLabel(healthCalendarMonth)}</Text>
+          <Pressable onPress={() => moveMonth(1)} style={[styles.calendarMonthButton, webPressableReset]}>
+            <ChevronRight color={palette.ink} size={16} strokeWidth={2.5} />
+          </Pressable>
+        </View>
+
+        <View style={styles.calendarGridCard}>
+          <View style={styles.calendarWeekRow}>
+            {['日', '一', '二', '三', '四', '五', '六'].map((label, index) => (
+              <Text key={label} style={[styles.calendarWeekText, (index === 0 || index === 6) && styles.calendarWeekTextWeekend]}>{label}</Text>
+            ))}
+          </View>
+          <View style={styles.calendarGrid}>
+            {showInitialLoading
+              ? Array.from({ length: 35 }).map((_, index) => (
+                <View key={`skeleton-${index}`} style={styles.calendarDayCell}>
+                  <View style={styles.calendarSkeletonDay} />
+                </View>
+              ))
+              : cells.map((day, index) => {
+                if (!day) return <View key={`empty-${index}`} style={styles.calendarDayCell} />;
+                const dayDate = dateToIsoDate(new Date(year, month, day));
+                const dayEvents = eventsByDay[day] ?? [];
+                const selected = dayDate === selectedDate;
+                const isToday = dayDate === today && !selected;
+                const overdue = dayEvents.some((event) => event.type === 'vaccine' && (event.status === 'overdue' || (daysUntilDate(event.date) ?? 99) < 0));
+                return (
+                  <Pressable key={dayDate} onPress={() => selectDay(day)} style={[styles.calendarDayCell, webPressableReset]}>
+                    <View style={[
+                      styles.calendarDayCircle,
+                      selected && styles.calendarDayCircleSelected,
+                      isToday && styles.calendarDayCircleToday,
+                      overdue && !selected && styles.calendarDayCircleOverdue,
+                    ]}>
+                      <Text style={[
+                        styles.calendarDayText,
+                        selected && styles.calendarDayTextSelected,
+                        overdue && !selected && styles.calendarDayTextOverdue,
+                        (isToday || selected || overdue) && styles.calendarDayTextStrong,
+                      ]}>{day}</Text>
+                    </View>
+                    {renderDots(dayEvents)}
+                  </Pressable>
+                );
+              })}
+          </View>
+          <View style={styles.calendarLegend}>
+            {[
+              { bg: palette.teal, label: '体重' },
+              { bg: '#C99B3E', label: '疫苗 / 驱虫' },
+              { bg: palette.orange, label: '健康备忘' },
+            ].map((item) => (
+              <View key={item.label} style={styles.calendarLegendItem}>
+                <View style={[styles.calendarLegendDot, { backgroundColor: item.bg }]} />
+                <Text style={styles.calendarLegendText}>{item.label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {overdueVaccines[0] ? (
+          <Pressable onPress={() => go('vaccine')} style={[styles.calendarOverdueCard, webPressableReset]}>
+            <View style={styles.calendarOverdueIcon}>
+              <AlertTriangle color={palette.danger} size={15} strokeWidth={2.5} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.calendarOverdueTitle}>{overdueVaccines[0].title}已逾期</Text>
+              <Text style={styles.calendarOverdueText}>{overdueVaccines[0].detail || `${formatCalendarDateLabel(overdueVaccines[0].date)} 应完成`}</Text>
+            </View>
+            <Text style={styles.calendarOverdueAction}>处理</Text>
+          </Pressable>
+        ) : upcomingVaccines[0] ? (
+          <Pressable onPress={() => go('vaccine')} style={[styles.calendarUpcomingCard, webPressableReset]}>
+            <View style={styles.calendarUpcomingIcon}>
+              <Syringe color="#C99B3E" size={15} strokeWidth={2.5} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.calendarUpcomingTitle}>{upcomingVaccines[0].title} · {formatDueLabel(upcomingVaccines[0].date)}</Text>
+              <Text style={styles.calendarUpcomingText}>建议在 {formatCalendarDateLabel(upcomingVaccines[0].date)} 前完成</Text>
+            </View>
+            <Text style={styles.calendarUpcomingDate}>{upcomingVaccines[0].date.slice(5).replace('-', '/')}</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.calendarSummaryCard}>
+            <View style={styles.calendarSummaryIcon}>
+              <Sparkles color={palette.orange} size={15} strokeWidth={2.4} />
+            </View>
+            <Text style={styles.calendarSummaryText}>{monthSummary}</Text>
+          </View>
+        )}
+
+        <View style={styles.calendarSelectedHeader}>
+          <View>
+            <Text style={styles.calendarSelectedDate}>{formatCalendarDateLabel(selectedDate)}</Text>
+            <Text style={styles.calendarSelectedWeek}>{selectedDateObject ? weekdayLabel(selectedDate) : '日期待确认'}</Text>
+          </View>
+          <Text style={[styles.calendarSelectedCount, !selectedEvents.length && styles.calendarSelectedCountMuted]}>{selectedCountLabel}</Text>
+        </View>
+
+        {showInitialLoading ? (
+          <View style={styles.calendarSkeletonList}>
+            {[0, 1].map((item) => (
+              <View key={item} style={styles.calendarSkeletonRow}>
+                <View style={styles.calendarSkeletonIcon} />
+                <View style={styles.calendarSkeletonTextStack}>
+                  <View style={[styles.calendarSkeletonLine, { width: '58%' }]} />
+                  <View style={[styles.calendarSkeletonLineSmall, { width: '42%' }]} />
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : selectedEvents.length ? (
+          <View style={styles.calendarEventList}>
+            {selectedEvents.map(renderEventItem)}
+          </View>
+        ) : (
+          <View style={styles.calendarEmptyCard}>
+            <View style={styles.calendarEmptyIcon}>
+              <PawPrint color={palette.muted} size={22} strokeWidth={2.3} />
+            </View>
+            <Text style={styles.calendarEmptyTitle}>这一天还没有健康记录</Text>
+            <Text style={styles.calendarEmptyText}>随手记一笔，让{pet?.name ?? '灵伴'}的健康曲线更完整</Text>
+            <Pressable onPress={() => go('memoNew')} style={[styles.calendarEmptyButton, webPressableReset]}>
+              <Plus color="#fff" size={14} strokeWidth={2.6} />
+              <Text style={styles.calendarEmptyButtonText}>添加一条记录</Text>
+            </Pressable>
+          </View>
+        )}
       </Screen>
     );
   }
@@ -6476,6 +6857,8 @@ export default function LumiiMvpApp() {
         return renderGreetingRequests();
       case 'health':
         return renderHealth();
+      case 'healthCalendar':
+        return renderHealthCalendar();
       case 'healthMemos':
         return renderHealthMemos();
       case 'memoEdit':
@@ -6835,6 +7218,26 @@ function MakeStepRow({ active, done, text }: { active?: boolean; done?: boolean;
   );
 }
 
+function HealthCalendarPetCard({ healthScore, note, pet }: { healthScore: number; note: string; pet?: null | PetProfile }) {
+  const speciesLabel = pet?.breed || speciesLabels[pet?.species ?? 'dog'] || '宠物';
+  return (
+    <View style={styles.calendarPetCard}>
+      <PetAvatar size={44} uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} />
+      <View style={styles.calendarPetCopy}>
+        <View style={styles.calendarPetTitleRow}>
+          <Text numberOfLines={1} style={styles.calendarPetName}>{pet?.name ?? '灵伴'}</Text>
+          <Text numberOfLines={1} style={styles.calendarPetTag}>♥ {speciesLabel}</Text>
+        </View>
+        <Text numberOfLines={1} style={styles.calendarPetNote}>{note}</Text>
+      </View>
+      <View style={styles.calendarPetScoreBox}>
+        <Text style={styles.calendarPetScoreLabel}>健康分</Text>
+        <Text style={styles.calendarPetScore}>{healthScore}</Text>
+      </View>
+    </View>
+  );
+}
+
 function HealthMakeRow({
   Icon,
   badge,
@@ -7173,6 +7576,85 @@ const styles = StyleSheet.create({
   headerRow: { alignItems: 'center', flexDirection: 'row', height: 44, justifyContent: 'space-between' },
   headerSpacer: { height: 36, width: 36 },
   headerTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '500', textAlign: 'center' },
+  calendarDayCell: { alignItems: 'center', height: 40, justifyContent: 'center', width: '14.2857%' },
+  calendarDayCircle: { alignItems: 'center', borderRadius: 15, height: 30, justifyContent: 'center', width: 30 },
+  calendarDayCircleOverdue: { backgroundColor: '#FBE4DE', borderColor: '#F5C7BD', borderWidth: 1 },
+  calendarDayCircleSelected: { backgroundColor: palette.orange },
+  calendarDayCircleToday: { backgroundColor: '#FFF1E5', borderColor: palette.orange, borderWidth: 1 },
+  calendarDayText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '400', lineHeight: 16 },
+  calendarDayTextOverdue: { color: palette.danger },
+  calendarDayTextSelected: { color: '#fff' },
+  calendarDayTextStrong: { fontWeight: '700' },
+  calendarDot: { borderRadius: 2, height: 4, width: 4 },
+  calendarDots: { flexDirection: 'row', gap: 2, height: 5, justifyContent: 'center', marginTop: 2 },
+  calendarEmptyButton: { alignItems: 'center', alignSelf: 'center', backgroundColor: palette.orange, borderRadius: 12, flexDirection: 'row', gap: 6, marginTop: 14, minHeight: 34, paddingHorizontal: 18 },
+  calendarEmptyButtonText: { color: '#fff', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700' },
+  calendarEmptyCard: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, marginTop: 0, paddingHorizontal: 16, paddingVertical: 26 },
+  calendarEmptyIcon: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 16, height: 52, justifyContent: 'center', marginBottom: 10, width: 52 },
+  calendarEmptyText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 18, marginTop: 6, textAlign: 'center' },
+  calendarEmptyTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
+  calendarErrorIcon: { alignItems: 'center', backgroundColor: '#FBE4DE', borderRadius: 22, height: 72, justifyContent: 'center', marginBottom: 14, width: 72 },
+  calendarErrorState: { alignItems: 'center', flex: 1, justifyContent: 'center', minHeight: 430, paddingHorizontal: 32 },
+  calendarErrorText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 20, marginTop: 8, textAlign: 'center' },
+  calendarErrorTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '800' },
+  calendarEventIcon: { alignItems: 'center', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
+  calendarEventItem: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 11, paddingHorizontal: 12, paddingVertical: 11 },
+  calendarEventList: { gap: 8 },
+  calendarEventSub: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 17, marginTop: 2 },
+  calendarEventTime: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
+  calendarEventTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
+  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 4 },
+  calendarGridCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, paddingBottom: 12, paddingHorizontal: 10, paddingTop: 14 },
+  calendarLaterButton: { marginTop: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  calendarLaterText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  calendarLegend: { borderTopColor: palette.border, borderTopWidth: 1, flexDirection: 'row', gap: 14, justifyContent: 'center', marginTop: 10, paddingTop: 10 },
+  calendarLegendDot: { borderRadius: 3, height: 6, width: 6 },
+  calendarLegendItem: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  calendarLegendText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600' },
+  calendarMonthButton: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 10, borderWidth: 1, height: 30, justifyContent: 'center', width: 30 },
+  calendarMonthLabel: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '800', letterSpacing: 0 },
+  calendarMonthSwitcher: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 4 },
+  calendarOverdueAction: { borderColor: palette.orange, borderRadius: 9, borderWidth: 1, color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
+  calendarOverdueCard: { alignItems: 'center', backgroundColor: '#FBE4DE', borderColor: '#F5C7BD', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, marginTop: 12, padding: 12 },
+  calendarOverdueIcon: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
+  calendarOverdueText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, lineHeight: 16, marginTop: 2 },
+  calendarOverdueTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '800' },
+  calendarPetCard: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, marginBottom: 14, marginTop: 8, padding: 12 },
+  calendarPetCopy: { flex: 1, minWidth: 0 },
+  calendarPetName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', maxWidth: 104 },
+  calendarPetNote: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 16, marginTop: 3 },
+  calendarPetScore: { color: palette.teal, fontFamily: appFontFamily, fontSize: 18, fontWeight: '800', lineHeight: 22 },
+  calendarPetScoreBox: { alignItems: 'flex-end', borderLeftColor: palette.border, borderLeftWidth: 1, paddingLeft: 10 },
+  calendarPetScoreLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10, fontWeight: '600' },
+  calendarPetTag: { backgroundColor: '#E8F5F3', borderRadius: 6, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', maxWidth: 108, overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
+  calendarPetTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 6 },
+  calendarRetryButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 13, flexDirection: 'row', gap: 8, marginTop: 22, minHeight: 40, paddingHorizontal: 20, shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.24, shadowRadius: 16 },
+  calendarRetryText: { color: '#fff', fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  calendarSelectedCount: { backgroundColor: '#E8F5F3', borderRadius: 10, color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 4 },
+  calendarSelectedCountMuted: { backgroundColor: palette.pale, color: palette.muted },
+  calendarSelectedDate: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '800' },
+  calendarSelectedHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingHorizontal: 4 },
+  calendarSelectedWeek: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', marginTop: 2 },
+  calendarSkeletonDay: { backgroundColor: '#F0EBE0', borderRadius: 11, height: 22, width: 22 },
+  calendarSkeletonIcon: { backgroundColor: '#F0EBE0', borderRadius: 10, height: 32, width: 32 },
+  calendarSkeletonLine: { backgroundColor: '#F0EBE0', borderRadius: 6, height: 11 },
+  calendarSkeletonLineSmall: { backgroundColor: '#F0EBE0', borderRadius: 5, height: 9 },
+  calendarSkeletonList: { gap: 10, marginTop: 0 },
+  calendarSkeletonRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  calendarSkeletonTextStack: { flex: 1, gap: 6 },
+  calendarSummaryCard: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E2 0%, #FFE3D1 100%)' } as object) : null), alignItems: 'center', backgroundColor: '#FFE3D1', borderRadius: 14, flexDirection: 'row', gap: 10, marginTop: 14, padding: 12 },
+  calendarSummaryIcon: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
+  calendarSummaryText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 18 },
+  calendarSyncRibbon: { alignItems: 'center', backgroundColor: '#FFF1E5', borderColor: '#FFE0CC', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, justifyContent: 'center', marginTop: 6, paddingHorizontal: 14, paddingVertical: 8 },
+  calendarSyncText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  calendarUpcomingCard: { alignItems: 'center', backgroundColor: '#FBF2D9', borderColor: '#EFDFA8', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, marginTop: 12, padding: 12 },
+  calendarUpcomingDate: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  calendarUpcomingIcon: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
+  calendarUpcomingText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, lineHeight: 16, marginTop: 2 },
+  calendarUpcomingTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '800' },
+  calendarWeekRow: { flexDirection: 'row', marginBottom: 6 },
+  calendarWeekText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', paddingVertical: 4, textAlign: 'center', width: '14.2857%' },
+  calendarWeekTextWeekend: { color: palette.orange },
   healthScore: { color: palette.ink, fontFamily: appFontFamily, fontSize: 44, fontWeight: '700', lineHeight: 50 },
   healthHeroAvatar: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 38, height: 76, justifyContent: 'center', padding: 6, shadowColor: '#b46e3c', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.18, shadowRadius: 22, width: 76, zIndex: 2 },
   healthHeroCopy: { flex: 1, minWidth: 0 },

@@ -106,12 +106,12 @@
 | 72 | Error State 错误页 | `ui.tsx/ErrorState` + 多处错误态 | 本轮组件已补-部分页面已迁移 | 已迁移会话失效、地点失效、约遛对象失效、附近可见关闭、AI 生成失败、AI/普通聊天发送失败、地图定位失败；上传失败仍需逐处接入 |
 | 73 | Loading & Skeleton | `ui.tsx/LoadingState/SkeletonLine` + 多处 loading | 本轮组件已补-待迁移 | Loading 与 Skeleton 基础组件已补齐，页面骨架仍需逐屏替换 |
 | 74 | App 图标 | assets/app icon | 已接入-需复核 | 已替换过图标，需核对最新包是否一致 |
-| 75 | 健康日历 默认月视图 | API 有 `/health/calendar` | 缺失 | RN 尚无健康日历 route |
-| 76 | 选中日期 有事件 | 无 | 缺失 | 依赖健康日历 route |
-| 77 | 选中日期 空状态 | 无 | 缺失 | 依赖健康日历 route |
-| 78 | 即将到期 / 逾期提醒 | `renderHealth`/`renderVaccine` | 部分接入 | 本轮在疫苗计划页补 Screen78 风格逾期红卡与临近暖黄提醒卡；健康日历独立屏仍缺失 |
-| 79 | 加载中 下拉刷新 | 无 | 缺失 | 健康日历加载态缺失 |
-| 80 | 读取失败 | 无 | 缺失 | 健康日历错误态缺失 |
+| 75 | 健康日历 默认月视图 | `renderHealthCalendar` + `/health/calendar` | 已接入 需视觉复核 | 本轮按 `health-calendar-screens.tsx` 补独立 `healthCalendar` route：宠物 mini card、月份切换、7 列日历、三色事件点、legend 和月度总结卡 |
+| 76 | 选中日期 有事件 | `renderHealthCalendar` | 已接入 需视觉复核 | 点击日期后展示事件列表，事件卡按体重/疫苗/备忘三类映射图标块、标题、详情和日期，并可跳转对应业务页 |
+| 77 | 选中日期 空状态 | `renderHealthCalendar` | 已接入 需视觉复核 | 选中日期无记录时展示 Figma 风格空状态卡、圆形 PawPrint 插画和“添加一条记录”CTA |
+| 78 | 即将到期 / 逾期提醒 | `renderHealthCalendar`/`renderVaccine` | 已接入 需视觉复核 | 健康日历独立屏已补逾期红卡与临近暖黄卡；疫苗计划页此前已补 Screen78 风格提醒 |
+| 79 | 加载中 下拉刷新 | `renderHealthCalendar` | 已接入 需视觉复核 | 初始加载和下拉刷新显示暖橙同步条、日历骨架格和事件列表骨架 |
+| 80 | 读取失败 | `renderHealthCalendar` | 已接入 需视觉复核 | 日历读取失败时展示 WifiOff 红色图标块、失败说明、重新加载和稍后再试入口 |
 | 81 | 我的宠物 默认列表 | `renderMultiPet` | 已接入-需视觉复核 | 本轮已按源码细化当前宠物 hero、健康提示分割区和独立宠物列表卡；仍需截图复核 |
 | 82 | 还没有宠物 空状态 | `renderMultiPet`/`renderEmptyPet` | 部分接入 | 多宠管理内空态需按 Screen82 |
 | 83 | 切换中 loading | `renderMultiPet` | 已接入-需视觉复核 | loading 样式需复核 |
@@ -136,7 +136,7 @@
 
 ## 下一轮 1:1 优先级
 
-1. 继续迁移统一 Empty/Error/Loading：消息列表、上传失败、健康日历等页面仍有自写空态/错误态；AI/聊天/地图定位失败已完成首轮迁移但需截图复核。
+1. 继续迁移统一 Empty/Error/Loading：消息列表、上传失败等页面仍有自写空态/错误态；健康日历 Screen75-80 已完成首轮接入但需截图复核；AI/聊天/地图定位失败已完成首轮迁移但需截图复核。
 2. 继续检查所有 Toast 文案和触发位置：组件默认已是 `surface`，但普通聊天发送失败、上传/生成失败、发布失败等仍需按 Screen24/25/66/90/91/94 分型复核。
 3. 重点精修高频主链路：Screen1-20、26、35、41、45、54、55。
 4. 建立视觉验收：每次改完一组屏幕，用 Web/模拟器截图和 Figma Make 源码对应屏做并排复核。

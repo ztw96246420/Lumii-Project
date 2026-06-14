@@ -403,6 +403,7 @@ export type AppRoute =
   | 'emptyPet'
   | 'generating'
   | 'health'
+  | 'healthCalendar'
   | 'healthMemos'
   | 'home'
   | 'login'
