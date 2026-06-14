@@ -34,6 +34,7 @@ import {
   ChevronRight,
   Compass,
   Edit3,
+  Heart,
   HeartPulse,
   Home as HomeIcon,
   ImagePlus,
@@ -4154,12 +4155,25 @@ export default function LumiiMvpApp() {
     return (
       <Screen title="遇见你的小灵伴">
         <View style={styles.aiResultPage}>
+          <View pointerEvents="none" style={styles.aiPageWarmGlow} />
+          <View pointerEvents="none" style={styles.aiPageTealGlow} />
           <View style={styles.aiPhotoChip}>
             <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.aiPhotoChipImage} />
             <Text style={styles.aiPhotoChipText}>基于你上传的{'\n'}<Text style={styles.aiPhotoChipStrong}>{petName}的照片</Text></Text>
           </View>
           <View style={styles.aiResultHero}>
-            <PetAvatar uri={avatarJob?.resultUrl ?? generatedGoldenAvatarUri} size={260} />
+            <View pointerEvents="none" style={styles.aiResultHeroGlow} />
+            <View pointerEvents="none" style={styles.aiResultHeroRing} />
+            <View style={styles.aiResultAvatarFrame}>
+              <PetAvatar uri={avatarJob?.resultUrl ?? generatedGoldenAvatarUri} size={260} />
+            </View>
+            <View style={styles.aiResultHeroBadge}>
+              <Sparkles color={palette.orange} size={12} strokeWidth={2.5} />
+              <Text style={styles.aiResultHeroBadgeText}>AI 灵伴 · {petName}</Text>
+            </View>
+            <Sparkles color={palette.orange} fill={palette.orange} size={13} strokeWidth={2.2} style={styles.aiSparkOne} />
+            <Sparkles color={palette.orange} fill={palette.orange} size={10} strokeWidth={2.2} style={styles.aiSparkTwo} />
+            <Sparkles color={palette.orange} fill={palette.orange} size={12} strokeWidth={2.2} style={styles.aiSparkThree} />
           </View>
           <Text style={styles.aiResultName}>{petName}</Text>
           <Text style={styles.aiResultDesc}>一只温柔亲人的{petBreed}灵伴已经准备好陪你</Text>
@@ -4170,8 +4184,14 @@ export default function LumiiMvpApp() {
           </View>
           <Text style={styles.aiQuotaHint}>重新生成会消耗 1 次额度 · 今日剩余 {petAvatarDailyRemaining} 次</Text>
           <View style={styles.aiResultActions}>
-            <Button loading={avatarAccepting} onPress={() => void saveAvatar()}>保存并设为电子灵伴</Button>
-            <Button loading={avatarRetrying} onPress={() => void retryAvatarGeneration()} tone="secondary">重新生成</Button>
+            <Pressable disabled={avatarAccepting} onPress={() => void saveAvatar()} style={({ pressed }) => [styles.aiPrimaryCta, pressed && !avatarAccepting && styles.aiPrimaryCtaPressed, avatarAccepting && styles.aiCtaDisabled, webPressableReset]}>
+              {avatarAccepting ? <ActivityIndicator color="#fff" size="small" /> : <Heart color="#fff" size={16} strokeWidth={2.4} />}
+              <Text style={styles.aiPrimaryCtaText}>{avatarAccepting ? '保存中...' : '保存并设为电子灵伴'}</Text>
+            </Pressable>
+            <Pressable disabled={avatarRetrying} onPress={() => void retryAvatarGeneration()} style={({ pressed }) => [styles.aiGhostCta, pressed && !avatarRetrying && styles.aiGhostCtaPressed, avatarRetrying && styles.aiCtaDisabled, webPressableReset]}>
+              {avatarRetrying ? <ActivityIndicator color={palette.ink} size="small" /> : <RefreshCw color={palette.ink} size={15} strokeWidth={2.4} />}
+              <Text style={styles.aiGhostCtaText}>{avatarRetrying ? '生成中...' : '重新生成'}</Text>
+            </Pressable>
           </View>
         </View>
       </Screen>
@@ -6645,21 +6665,38 @@ const styles = StyleSheet.create({
   aiGeneratingImage: { borderRadius: 120, height: 240, opacity: 0.9, width: 240 },
   aiGeneratingOrb: { alignItems: 'center', alignSelf: 'center', height: 286, justifyContent: 'center', marginTop: 28, position: 'relative', width: 286 },
   aiGeneratingPage: { alignItems: 'center', paddingHorizontal: 6 },
-  aiGeneratingRing: { backgroundColor: 'rgba(255,138,92,0.18)', borderColor: palette.orange, borderRadius: 136, borderWidth: 3, height: 272, opacity: 0.75, position: 'absolute', width: 272 },
+  aiGeneratingRing: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'conic-gradient(from 0deg, rgba(255,138,92,0) 0%, rgba(255,138,92,0.85) 35%, rgba(77,182,172,0.85) 70%, rgba(255,138,92,0) 100%)' } as object) : null), backgroundColor: 'rgba(255,138,92,0.18)', borderColor: 'rgba(255,138,92,0.45)', borderRadius: 136, borderWidth: 2, height: 272, opacity: 0.82, position: 'absolute', width: 272 },
   aiGeneratingSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 22, marginTop: 10, textAlign: 'center' },
   aiGeneratingTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 29, marginTop: 30, textAlign: 'center' },
+  aiGhostCta: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.72)', borderColor: palette.border, borderRadius: 27, borderWidth: 1, flexDirection: 'row', gap: 8, height: 54, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.08, shadowRadius: 18 },
+  aiGhostCtaPressed: { backgroundColor: '#fff' },
+  aiGhostCtaText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15.5, fontWeight: '500' },
+  aiCtaDisabled: { opacity: 0.72 },
   aiOriginalThumb: { borderColor: '#fff', borderRadius: 31, borderWidth: 3, height: 62, left: 7, overflow: 'hidden', position: 'absolute', top: 12, width: 62 },
-  aiPhotoChip: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.82)', borderColor: palette.border, borderRadius: 30, borderWidth: 1, flexDirection: 'row', gap: 10, marginLeft: 2, marginTop: 4, paddingBottom: 6, paddingLeft: 6, paddingRight: 14, paddingTop: 6 },
+  aiPageTealGlow: { backgroundColor: 'rgba(77,182,172,0.13)', borderRadius: 160, bottom: -80, height: 220, position: 'absolute', right: -90, width: 220 },
+  aiPageWarmGlow: { backgroundColor: 'rgba(255,217,182,0.42)', borderRadius: 220, height: 240, left: -80, position: 'absolute', right: -80, top: -42 },
+  aiPhotoChip: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.82)', borderColor: palette.border, borderRadius: 30, borderWidth: 1, flexDirection: 'row', gap: 10, marginLeft: 0, marginTop: 4, paddingBottom: 6, paddingLeft: 6, paddingRight: 14, paddingTop: 6, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.12, shadowRadius: 22, zIndex: 3 },
   aiPhotoChipImage: { borderColor: '#fff', borderRadius: 18, borderWidth: 2, height: 36, width: 36 },
   aiPhotoChipStrong: { color: palette.ink, fontWeight: '700' },
-  aiPhotoChipText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', lineHeight: 15 },
+  aiPhotoChipText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 15 },
+  aiPrimaryCta: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 27, flexDirection: 'row', gap: 8, height: 54, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.26, shadowRadius: 28 },
+  aiPrimaryCtaPressed: { backgroundColor: '#F2774A', transform: [{ scale: 0.99 }] },
+  aiPrimaryCtaText: { color: '#fff', fontFamily: appFontFamily, fontSize: 16, fontWeight: '600' },
   aiQuotaHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 18, marginTop: 12, textAlign: 'center' },
-  aiResultActions: { gap: 12, marginTop: 28, width: '100%' },
+  aiResultActions: { gap: 12, marginTop: 24, width: '100%' },
+  aiResultAvatarFrame: { alignItems: 'center', backgroundColor: '#FFEDD9', borderColor: '#fff', borderRadius: 130, borderWidth: 4, height: 260, justifyContent: 'center', overflow: 'hidden', shadowColor: '#b46e3c', shadowOffset: { height: 26, width: 0 }, shadowOpacity: 0.28, shadowRadius: 56, width: 260 },
   aiResultDesc: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 21, marginTop: 8, textAlign: 'center' },
-  aiResultHero: { alignItems: 'center', justifyContent: 'center', marginTop: 32 },
-  aiResultName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', letterSpacing: 0, lineHeight: 32, marginTop: 22, textAlign: 'center' },
-  aiResultPage: { alignItems: 'center', paddingHorizontal: 6 },
-  aiScanLine: { backgroundColor: palette.orange, borderRadius: 999, height: 2, left: 28, opacity: 0.88, position: 'absolute', right: 28, top: 135 },
+  aiResultHero: { alignItems: 'center', height: 292, justifyContent: 'center', marginTop: 42, position: 'relative', width: 292 },
+  aiResultHeroBadge: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, bottom: 3, flexDirection: 'row', gap: 5, paddingHorizontal: 14, paddingVertical: 6, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.13, shadowRadius: 20 },
+  aiResultHeroBadgeText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  aiResultHeroGlow: { backgroundColor: 'rgba(255,138,92,0.20)', borderRadius: 160, height: 320, position: 'absolute', width: 320 },
+  aiResultHeroRing: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'conic-gradient(from 210deg, rgba(255,138,92,0.55), rgba(77,182,172,0.5), rgba(255,200,140,0.5), rgba(255,138,92,0.55))' } as object) : null), backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 138, height: 276, opacity: 0.86, position: 'absolute', width: 276 },
+  aiResultName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', letterSpacing: 0, lineHeight: 32, marginTop: 24, textAlign: 'center' },
+  aiResultPage: { alignItems: 'center', minHeight: 720, paddingHorizontal: 6, position: 'relative' },
+  aiScanLine: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(90deg, rgba(255,138,92,0), rgba(255,138,92,0.9), rgba(255,138,92,0))' } as object) : null), backgroundColor: palette.orange, borderRadius: 999, height: 2, left: 28, opacity: 0.88, position: 'absolute', right: 28, top: 135, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.45, shadowRadius: 12 },
+  aiSparkOne: { left: 4, position: 'absolute', top: 38 },
+  aiSparkThree: { bottom: 64, position: 'absolute', right: -2 },
+  aiSparkTwo: { position: 'absolute', right: 46, top: 12 },
   aiStepsCard: { backgroundColor: 'rgba(255,255,255,0.76)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 22, paddingHorizontal: 16, paddingVertical: 10, width: '100%' },
   aiWorkingBadge: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, bottom: 34, flexDirection: 'row', gap: 5, paddingHorizontal: 12, paddingVertical: 6, position: 'absolute', right: 2, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.15, shadowRadius: 18 },
   aiWorkingText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
@@ -7092,7 +7129,7 @@ const styles = StyleSheet.create({
   profileSettingsButton: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 },
   profileVerifyPill: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 10, flexDirection: 'row', gap: 4, marginTop: 8, paddingHorizontal: 8, paddingVertical: 3 },
   profileVerifyText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
-  progressFill: { backgroundColor: palette.orange, borderRadius: 999, height: '100%' },
+  progressFill: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(90deg, #FFB48C 0%, #FF8A5C 60%, #FF6F3B 100%)' } as object) : null), backgroundColor: palette.orange, borderRadius: 999, height: '100%', shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.45, shadowRadius: 12 },
   progressTrack: { backgroundColor: 'rgba(255,138,92,0.16)', borderRadius: 999, height: 6, overflow: 'hidden', width: '100%' },
   ratingPill: { alignItems: 'center', flexDirection: 'row', gap: 3 },
   ratingText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },

@@ -50,8 +50,8 @@
 | 16 | 上传宠物照片 | `renderUpload` | 已接入-需视觉复核 | 本轮已按 UploadBox/TipsList 收敛上传卡渐变、340px 高度、轻阴影、tips 白底卡间距；按钮图标/底部固定位置仍需复核 |
 | 17 | 上传失败 未识别 | `renderUploadNoPet` | 已接入-需视觉复核 | 已按 Screen17 首轮细调失败图卡渐变、警示浮层、原因卡间距和建议列表；仍需截图复核 |
 | 18 | 上传识别详情 | `renderUploadDetail` | 已接入-需视觉复核 | 本轮已将识别信息卡改为识别页专用右对齐值列，同时保留宠物档案左对齐；Hero 渐变和标签仍需截图复核 |
-| 19 | AI 灵伴生成中 | `renderGenerating` | 已接入-需视觉复核 | 本轮已按 Screen19 收敛进度条为 6px 暖橙底；动态 ring/粒子和 54px CTA 后续单独精修 |
-| 20 | 生成结果 默认 | `renderAiResult` | 已接入-需视觉复核 | 形象卡、标签、按钮位置需复核 |
+| 19 | AI 灵伴生成中 | `renderGenerating` | 已接入-需视觉复核 | 本轮已按 Screen19 收敛进度条为 6px 暖橙底，并在 Web 端补 conic ring/扫描线渐变；动态粒子仍需后续截图复核 |
+| 20 | 生成结果 默认 | `renderAiResult` | 已接入-需视觉复核 | 本轮已按 Screen20 补 PageBg 氛围层、AI 形象 halo/ring、原图浮层 chip、AI 灵伴 badge 和 54px 结果页 CTA；按钮底部固定位置仍需真机截图复核 |
 | 21 | 生成结果 多候选 | `renderAiResult` | 部分接入 | 多候选选择 UI 未完整落地 |
 | 22 | 不满意反馈面板 | 形象重试逻辑 | 缺失 | 需按 Figma bottom sheet 做反馈原因面板 |
 | 23 | 重新生成确认弹窗 | `ConfirmDialog` + 重试逻辑 | 部分接入 | 弹窗样式本轮已收敛，内容结构还需按 Screen23 |
