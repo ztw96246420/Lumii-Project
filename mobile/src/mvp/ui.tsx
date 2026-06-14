@@ -137,6 +137,39 @@ export function Toast({ message }: { message?: string }) {
   );
 }
 
+export function BottomSheet({
+  children,
+  contentStyle,
+  dismissDisabled,
+  onClose,
+  visible,
+}: {
+  children: ReactNode;
+  contentStyle?: object;
+  dismissDisabled?: boolean;
+  onClose: () => void;
+  visible: boolean;
+}) {
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={() => {
+        if (!dismissDisabled) onClose();
+      }}
+      transparent
+      visible={visible}
+    >
+      <View style={styles.bottomSheetBackdrop}>
+        <Pressable disabled={dismissDisabled} onPress={onClose} style={styles.bottomSheetBackdropTouch} />
+        <View style={[styles.bottomSheetPanel, contentStyle]}>
+          <View style={styles.bottomSheetHandle} />
+          {children}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export function ConfirmDialog({
   body,
   confirmText = '确认',
@@ -169,6 +202,10 @@ export function ConfirmDialog({
 }
 
 export const styles = StyleSheet.create({
+  bottomSheetBackdrop: { backgroundColor: 'rgba(20,18,14,0.48)', flex: 1, justifyContent: 'flex-end' },
+  bottomSheetBackdropTouch: { flex: 1 },
+  bottomSheetHandle: { alignSelf: 'center', backgroundColor: '#E5E0D5', borderRadius: 2, height: 4, marginBottom: 10, width: 40 },
+  bottomSheetPanel: { backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, gap: 14, paddingBottom: 32, paddingHorizontal: 22, paddingTop: 16, shadowColor: '#50371e', shadowOffset: { height: -24, width: 0 }, shadowOpacity: 0.28, shadowRadius: 50 },
   body: { color: palette.muted, fontFamily, fontSize: 14, lineHeight: 20 },
   button: { alignItems: 'center', borderRadius: 14, justifyContent: 'center', minHeight: 44, paddingHorizontal: 18, paddingVertical: 11, shadowColor: '#ff8a5c', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 16 },
   button_danger: { backgroundColor: palette.danger },

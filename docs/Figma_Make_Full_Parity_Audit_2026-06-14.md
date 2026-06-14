@@ -77,7 +77,7 @@
 | 43 | 消息发送失败 | `renderConversation` | 部分接入 | 发送失败逻辑有，独立失败态视觉需补 |
 | 44 | 通知中心 | `renderNotifications` | 已接入-需视觉复核 | filter chip、通知分组需复核 |
 | 45 | 宠物友好地图 | `renderMap` | 已接入-需视觉复核 | 自定义地图已做，需继续对齐 Make 地图层次 |
-| 46 | 地图搜索与筛选 | `renderMap` | 部分接入 | 筛选面板有，需按 Screen46 精修 |
+| 46 | 地图搜索与筛选 | `renderMap` + `BottomSheet` | 部分接入 | 地图样式面板已迁移统一 Bottom Sheet；搜索/地点筛选仍需按 Screen46 精修 |
 | 47 | 地图定位失败 | `renderMap` | 部分接入 | 定位失败提示有，独立状态视觉需补 |
 | 48 | 地点详情 | `renderPlaceDetail` | 已接入-需视觉复核 | Hero 图、信息块、操作按钮需复核 |
 | 49 | 新增地点 / 点评 | `renderAddPlaceReview` | 部分接入 | 基础表单有，提交状态需按 Figma 补齐 |
@@ -99,7 +99,7 @@
 | 65 | Input 输入框 | `ui.tsx/Field` | 本轮组件已修 | 仍需截图复核 |
 | 66 | Toast · Tag · Toggle | `ui.tsx/Toast/StatusPill/ToggleRow` | 本轮组件已修 | Toast 类型化图标和副文案还可增强 |
 | 67 | Dialog 弹窗 | `ui.tsx/ConfirmDialog` | 本轮组件已修 | 成功/信息/危险三类 icon card 可继续抽象 |
-| 68 | BottomSheet 底部弹层 | 局部 modal/sheet | 部分接入 | 需抽 `LumiiBottomSheet`，统一打招呼/体重/筛选 |
+| 68 | BottomSheet 底部弹层 | `ui.tsx/BottomSheet` | 本轮组件已补-需视觉复核 | 已抽统一 Bottom Sheet，并迁移打招呼、体重编辑、地图样式面板 |
 | 69 | TabBar 底部导航 | bottom tabs | 已接入-需视觉复核 | 图标、红点、选中态需复核 |
 | 70 | Card 卡片 | 多处 card | 部分接入 | 基础 card 圆角/边框/阴影需继续统一 |
 | 71 | Empty State 空状态 | 多处空态 | 部分接入 | 尚未统一 EmptyState 组件 |
@@ -130,13 +130,13 @@
 | 96 | 删除成功 备忘空状态 | `renderHealthMemos` | 部分接入 | 空态需按 Screen96 精修 |
 | 97 | 体重趋势 正常 | `renderWeight` | 已接入-需视觉复核 | 趋势图、摘要卡需复核 |
 | 98 | 体重趋势 异常 | `renderWeight` | 部分接入 | 异常样式已有，需按 Screen98 精修 |
-| 99 | 编辑体重 弹层 | `renderWeight` modal | 已接入-需视觉复核 | Bottom Sheet 圆角/handle/按钮需统一 Screen68 |
+| 99 | 编辑体重 弹层 | `renderWeight` + `BottomSheet` | 本轮已迁移-需视觉复核 | 已使用统一 Bottom Sheet；内容区和数字输入仍需截图对齐 Screen99 |
 | 100 | 删除体重记录 二次确认 | `ConfirmDialog` | 部分接入 | Dialog 本轮已修，内容需复核 |
 | 101 | 体重记录 空状态 | `renderWeight` | 部分接入 | 空态需按 Screen101 精修 |
 
 ## 下一轮 1:1 优先级
 
-1. 抽 `LumiiBottomSheet`：Screen38 本轮已补专用弹层；下一步把 Screen68 系统底部弹层、Screen99 体重编辑弹层、地图筛选弹层统一到同一组件。
-2. 抽 `LumiiToast` 类型：success/error/warning/info，对齐 Screen24/25/66/84/90/91/94。
+1. 抽 `LumiiToast` 类型：success/error/warning/info，对齐 Screen24/25/66/84/90/91/94。
+2. 继续统一 Empty/Error/Loading：对齐 Screen71/72/73，减少各页面自写空态和错误态。
 3. 重点精修高频主链路：Screen1-20、26、35、41、45、54、55。
 4. 建立视觉验收：每次改完一组屏幕，用 Web/模拟器截图和 Figma Make 源码对应屏做并排复核。

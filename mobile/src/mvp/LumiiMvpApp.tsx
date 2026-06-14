@@ -9,7 +9,6 @@ import {
   KeyboardAvoidingView,
   Linking,
   LogBox,
-  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -72,7 +71,7 @@ import { clearPersistedLumiiSession, loadPersistedLumiiSession, savePersistedLum
 import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
 import { apiConfig, lumiiApi, setLumiiAuthToken } from './api';
 import { productConfig } from './productConfig';
-import { Button, Card, ConfirmDialog, Field, StatusPill, Toast, palette, styles as uiStyles } from './ui';
+import { BottomSheet, Button, Card, ConfirmDialog, Field, StatusPill, Toast, palette, styles as uiStyles } from './ui';
 import type {
   AppRoute,
   AppTab,
@@ -4709,69 +4708,63 @@ export default function LumiiMvpApp() {
             </View>
           )}
         </View>
-        <Modal animationType="slide" onRequestClose={closeWeightEditor} transparent visible={Boolean(weightEditRecord)}>
-          <View style={styles.sheetBackdrop}>
-            <Pressable onPress={closeWeightEditor} style={styles.sheetBackdropTouch} />
-            <View style={styles.weightEditSheet}>
-              <View style={styles.weightSheetHandle} />
-              <View style={styles.rowBetween}>
-                <Text style={styles.sheetTitle}>编辑体重记录</Text>
-                <Pressable disabled={weightEditSaving} onPress={closeWeightEditor} style={webPressableReset}>
-                  <X color={palette.muted} size={18} strokeWidth={2.3} />
-                </Pressable>
-              </View>
-              <View style={styles.weightNumberInput}>
-                <TextInput
-                  keyboardType="decimal-pad"
-                  onChangeText={setWeightEditValue}
-                  placeholder="0.0"
-                  placeholderTextColor="#B8B3A8"
-                  style={[styles.weightNumberInputText, webTextInputReset]}
-                  value={weightEditValue}
-                />
-                <Text style={styles.weightUnitText}>kg</Text>
-              </View>
-              <View style={styles.quickWeightRow}>
-                {[-0.1, 0.1, 0.5].map((delta) => (
-                  <Pressable
-                    key={delta}
-                    onPress={() => {
-                      const base = Number.parseFloat(weightEditValue);
-                      if (Number.isFinite(base)) setWeightEditValue(String(Math.max(0, Math.round((base + delta) * 10) / 10)));
-                    }}
-                    style={[styles.quickWeightChip, webPressableReset]}
-                  >
-                    <Text style={styles.quickWeightText}>{delta > 0 ? `+${delta}` : delta}</Text>
-                  </Pressable>
-                ))}
-              </View>
-              <View style={styles.memoMetaBox}>
-                <View style={styles.metaIconBox}>
-                  <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
-                </View>
-                <Text style={styles.timelineTitleMake}>日期</Text>
-                <Text style={styles.timelineDateMake}>{weightEditRecord?.recordedAt ?? '今天'}</Text>
-              </View>
-              <View style={styles.makeFieldGroup}>
-                <Text style={styles.makeFieldLabel}>备注</Text>
-                <TextInput
-                  onChangeText={setWeightEditNote}
-                  placeholder="例如：晨起空腹"
-                  placeholderTextColor="#B8B3A8"
-                  style={[styles.makeTextInput, webTextInputReset]}
-                  value={weightEditNote}
-                />
-              </View>
-              <View style={styles.editActionStack}>
-                <Button loading={weightEditSaving} onPress={() => void saveWeightEdit()}>保存修改</Button>
-                <Pressable disabled={weightEditSaving} onPress={() => confirmDeleteWeightRecord(weightEditRecord)} style={[styles.deleteTextButton, webPressableReset]}>
-                  <Trash2 color={palette.danger} size={15} strokeWidth={2.4} />
-                  <Text style={styles.deleteTextButtonLabel}>删除这条记录</Text>
-                </Pressable>
-              </View>
-            </View>
+        <BottomSheet contentStyle={styles.weightEditSheet} dismissDisabled={weightEditSaving} onClose={closeWeightEditor} visible={Boolean(weightEditRecord)}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.sheetTitle}>编辑体重记录</Text>
+            <Pressable disabled={weightEditSaving} onPress={closeWeightEditor} style={webPressableReset}>
+              <X color={palette.muted} size={18} strokeWidth={2.3} />
+            </Pressable>
           </View>
-        </Modal>
+          <View style={styles.weightNumberInput}>
+            <TextInput
+              keyboardType="decimal-pad"
+              onChangeText={setWeightEditValue}
+              placeholder="0.0"
+              placeholderTextColor="#B8B3A8"
+              style={[styles.weightNumberInputText, webTextInputReset]}
+              value={weightEditValue}
+            />
+            <Text style={styles.weightUnitText}>kg</Text>
+          </View>
+          <View style={styles.quickWeightRow}>
+            {[-0.1, 0.1, 0.5].map((delta) => (
+              <Pressable
+                key={delta}
+                onPress={() => {
+                  const base = Number.parseFloat(weightEditValue);
+                  if (Number.isFinite(base)) setWeightEditValue(String(Math.max(0, Math.round((base + delta) * 10) / 10)));
+                }}
+                style={[styles.quickWeightChip, webPressableReset]}
+              >
+                <Text style={styles.quickWeightText}>{delta > 0 ? `+${delta}` : delta}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.memoMetaBox}>
+            <View style={styles.metaIconBox}>
+              <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
+            </View>
+            <Text style={styles.timelineTitleMake}>日期</Text>
+            <Text style={styles.timelineDateMake}>{weightEditRecord?.recordedAt ?? '今天'}</Text>
+          </View>
+          <View style={styles.makeFieldGroup}>
+            <Text style={styles.makeFieldLabel}>备注</Text>
+            <TextInput
+              onChangeText={setWeightEditNote}
+              placeholder="例如：晨起空腹"
+              placeholderTextColor="#B8B3A8"
+              style={[styles.makeTextInput, webTextInputReset]}
+              value={weightEditNote}
+            />
+          </View>
+          <View style={styles.editActionStack}>
+            <Button loading={weightEditSaving} onPress={() => void saveWeightEdit()}>保存修改</Button>
+            <Pressable disabled={weightEditSaving} onPress={() => confirmDeleteWeightRecord(weightEditRecord)} style={[styles.deleteTextButton, webPressableReset]}>
+              <Trash2 color={palette.danger} size={15} strokeWidth={2.4} />
+              <Text style={styles.deleteTextButtonLabel}>删除这条记录</Text>
+            </Pressable>
+          </View>
+        </BottomSheet>
       </Screen>
     );
   }
@@ -4988,52 +4981,42 @@ export default function LumiiMvpApp() {
             </View>
           </View>
 
-          {mapStylePanelVisible ? (
-            <Pressable
-              accessibilityLabel="关闭地图样式"
-              onPress={() => setMapStylePanelVisible(false)}
-              style={styles.mapStyleDismissLayer}
-            />
-          ) : null}
-
-          {mapStylePanelVisible ? (
-            <View style={styles.mapStylePanel}>
-              <View style={styles.mapStyleHeader}>
-                <View>
-                  <Text style={styles.mapStyleTitle}>地图样式</Text>
-                  <Text style={styles.mapStyleSubtitle}>{mapStyle.description}</Text>
-                </View>
-                <View style={styles.mapStyleHeaderActions}>
-                  <Text style={styles.mapStyleCurrent}>{mapStyle.label}</Text>
-                  <Pressable accessibilityLabel="关闭地图样式" onPress={() => setMapStylePanelVisible(false)} style={styles.mapStyleCloseButton}>
-                    <X color={palette.ink} size={14} strokeWidth={2.6} />
-                  </Pressable>
-                </View>
+          <BottomSheet contentStyle={styles.mapStylePanelSheet} onClose={() => setMapStylePanelVisible(false)} visible={mapStylePanelVisible}>
+            <View style={styles.mapStyleHeader}>
+              <View style={styles.flex}>
+                <Text style={styles.mapStyleTitle}>地图样式</Text>
+                <Text style={styles.mapStyleSubtitle}>{mapStyle.description}</Text>
               </View>
-              <View style={styles.mapStyleOptions}>
-                {mapStyleOptions.map((item) => (
-                  <Pressable
-                    key={item.key}
-                    onPress={() => {
-                      setMapStyleKey(item.key);
-                      setMapStylePanelVisible(false);
-                    }}
-                    style={[styles.mapStyleOption, mapStyleKey === item.key && styles.mapStyleOptionActive]}
-                  >
-                    <Text style={[styles.mapStyleOptionText, mapStyleKey === item.key && styles.mapStyleOptionTextActive]}>{item.label}</Text>
-                  </Pressable>
-                ))}
+              <View style={styles.mapStyleHeaderActions}>
+                <Text style={styles.mapStyleCurrent}>{mapStyle.label}</Text>
+                <Pressable accessibilityLabel="关闭地图样式" onPress={() => setMapStylePanelVisible(false)} style={styles.mapStyleCloseButton}>
+                  <X color={palette.ink} size={14} strokeWidth={2.6} />
+                </Pressable>
               </View>
-              <Pressable onPress={() => setMapTrafficEnabled((enabled) => !enabled)} style={styles.mapTrafficToggle}>
-                <Signal color={mapTrafficEnabled ? palette.orange : palette.muted} size={15} strokeWidth={2.4} />
-                <View style={styles.flex}>
-                  <Text style={styles.mapTrafficTitle}>实时路况</Text>
-                  <Text style={styles.mapTrafficSub}>{mapTrafficEnabled ? '已显示主要道路拥堵状态' : '关闭后底图更干净'}</Text>
-                </View>
-                <Text style={[styles.mapTrafficState, mapTrafficEnabled && styles.mapTrafficStateOn]}>{mapTrafficEnabled ? '开' : '关'}</Text>
-              </Pressable>
             </View>
-          ) : null}
+            <View style={styles.mapStyleOptions}>
+              {mapStyleOptions.map((item) => (
+                <Pressable
+                  key={item.key}
+                  onPress={() => {
+                    setMapStyleKey(item.key);
+                    setMapStylePanelVisible(false);
+                  }}
+                  style={[styles.mapStyleOption, mapStyleKey === item.key && styles.mapStyleOptionActive]}
+                >
+                  <Text style={[styles.mapStyleOptionText, mapStyleKey === item.key && styles.mapStyleOptionTextActive]}>{item.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable onPress={() => setMapTrafficEnabled((enabled) => !enabled)} style={styles.mapTrafficToggle}>
+              <Signal color={mapTrafficEnabled ? palette.orange : palette.muted} size={15} strokeWidth={2.4} />
+              <View style={styles.flex}>
+                <Text style={styles.mapTrafficTitle}>实时路况</Text>
+                <Text style={styles.mapTrafficSub}>{mapTrafficEnabled ? '已显示主要道路拥堵状态' : '关闭后底图更干净'}</Text>
+              </View>
+              <Text style={[styles.mapTrafficState, mapTrafficEnabled && styles.mapTrafficStateOn]}>{mapTrafficEnabled ? '开' : '关'}</Text>
+            </Pressable>
+          </BottomSheet>
 
           <View style={styles.mapSearchFloatMake}>
             <Search color={palette.muted} size={16} strokeWidth={2.2} />
@@ -5893,51 +5876,47 @@ export default function LumiiMvpApp() {
         ]
       : [];
     return (
-      <Modal animationType="slide" transparent visible={Boolean(owner)}>
-        <View style={styles.sheetBackdrop}>
-          <Pressable disabled={saving} onPress={closeGreetingSheet} style={styles.sheetBackdropTouch} />
-          {owner ? (
-            <View style={styles.greetingSheetMake}>
-              <View style={styles.sheetHandle} />
-              <View style={styles.greetingSheetHeader}>
-                <PetAvatar uri={owner.imageUrl} size={58} />
-                <View style={styles.flex}>
-                  <Text style={styles.sheetTitle}>向 {owner.petName} 打个招呼</Text>
-                  <Text style={styles.greetingSheetMeta}>主人 {owner.ownerName} · {owner.distance}</Text>
-                </View>
-                <Pressable disabled={saving} onPress={closeGreetingSheet} style={[styles.greetingSheetClose, webPressableReset]}>
-                  <X color={palette.muted} size={17} strokeWidth={2.4} />
-                </Pressable>
+      <BottomSheet contentStyle={styles.greetingSheetMake} dismissDisabled={saving} onClose={closeGreetingSheet} visible={Boolean(owner)}>
+        {owner ? (
+          <>
+            <View style={styles.greetingSheetHeader}>
+              <PetAvatar uri={owner.imageUrl} size={58} />
+              <View style={styles.flex}>
+                <Text style={styles.sheetTitle}>向 {owner.petName} 打个招呼</Text>
+                <Text style={styles.greetingSheetMeta}>主人 {owner.ownerName} · {owner.distance}</Text>
               </View>
-
-              <View style={styles.greetingMessageCard}>
-                <MessageCircle color={palette.orange} size={16} strokeWidth={2.4} />
-                <Text style={styles.greetingMessageText}>{greetingMessage}</Text>
-              </View>
-
-              <View style={styles.greetingQuickRow}>
-                {quickMessages.map((message, index) => (
-                  <Pressable key={message} onPress={() => setGreetingMessage(message)} style={[styles.greetingQuickChip, greetingMessage === message && styles.greetingQuickChipActive, webPressableReset]}>
-                    <Text style={[styles.greetingQuickChipText, greetingMessage === message && styles.greetingQuickChipTextActive]} numberOfLines={1}>
-                      {index === 0 ? '友好开场' : index === 1 ? '想交朋友' : '约下次散步'}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <View style={styles.greetingSheetActions}>
-                <View style={styles.flex}>
-                  <Button disabled={saving} onPress={closeGreetingSheet} tone="ghost">取消</Button>
-                </View>
-                <View style={styles.flex}>
-                  <Button loading={saving} onPress={() => void sendGreeting(owner.id)}>发送招呼</Button>
-                </View>
-              </View>
-              <Text style={styles.greetingSheetHint}>发送后，对方会在招呼请求和消息中看到你。</Text>
+              <Pressable disabled={saving} onPress={closeGreetingSheet} style={[styles.greetingSheetClose, webPressableReset]}>
+                <X color={palette.muted} size={17} strokeWidth={2.4} />
+              </Pressable>
             </View>
-          ) : null}
-        </View>
-      </Modal>
+
+            <View style={styles.greetingMessageCard}>
+              <MessageCircle color={palette.orange} size={16} strokeWidth={2.4} />
+              <Text style={styles.greetingMessageText}>{greetingMessage}</Text>
+            </View>
+
+            <View style={styles.greetingQuickRow}>
+              {quickMessages.map((message, index) => (
+                <Pressable key={message} onPress={() => setGreetingMessage(message)} style={[styles.greetingQuickChip, greetingMessage === message && styles.greetingQuickChipActive, webPressableReset]}>
+                  <Text style={[styles.greetingQuickChipText, greetingMessage === message && styles.greetingQuickChipTextActive]} numberOfLines={1}>
+                    {index === 0 ? '友好开场' : index === 1 ? '想交朋友' : '约下次散步'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={styles.greetingSheetActions}>
+              <View style={styles.flex}>
+                <Button disabled={saving} onPress={closeGreetingSheet} tone="ghost">取消</Button>
+              </View>
+              <View style={styles.flex}>
+                <Button loading={saving} onPress={() => void sendGreeting(owner.id)}>发送招呼</Button>
+              </View>
+            </View>
+            <Text style={styles.greetingSheetHint}>发送后，对方会在招呼请求和消息中看到你。</Text>
+          </>
+        ) : null}
+      </BottomSheet>
     );
   }
 
@@ -6444,9 +6423,6 @@ const styles = StyleSheet.create({
   quickWeightRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
   quickWeightText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700' },
   readonlyField: { backgroundColor: '#F4EFE6' },
-  sheetBackdrop: { backgroundColor: 'rgba(20,18,14,0.48)', flex: 1, justifyContent: 'flex-end' },
-  sheetBackdropTouch: { flex: 1 },
-  weightSheetHandle: { alignSelf: 'center', backgroundColor: '#E5E0D5', borderRadius: 2, height: 4, marginBottom: 14, width: 36 },
   sheetTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700', lineHeight: 22 },
   switchPetButton: { alignItems: 'center', borderColor: palette.orange, borderRadius: 10, borderWidth: 1, justifyContent: 'center', minHeight: 32, minWidth: 58, paddingHorizontal: 10, paddingVertical: 6 },
   switchPetButtonActive: { backgroundColor: palette.orangeSoft, borderColor: palette.orangeSoft },
@@ -6455,7 +6431,7 @@ const styles = StyleSheet.create({
   weightChartWrap: { marginHorizontal: -4, marginTop: 10 },
   weightDeltaPill: { alignItems: 'center', backgroundColor: palette.tealSoft, borderRadius: 10, flexDirection: 'row', gap: 4, paddingHorizontal: 10, paddingVertical: 5 },
   weightDeltaPillWarn: { backgroundColor: '#FBF2D9' },
-  weightEditSheet: { backgroundColor: palette.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, gap: 14, paddingBottom: 18, paddingHorizontal: 16, paddingTop: 16 },
+  weightEditSheet: { gap: 14 },
   weightNoticeOk: { alignItems: 'center', backgroundColor: '#E8F5F3', borderColor: '#C4E0DA', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
   weightNoticeWarn: { alignItems: 'center', backgroundColor: '#FBF2D9', borderColor: '#EFDFA8', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
   weightNumberInput: { alignItems: 'flex-end', backgroundColor: '#fff', borderColor: palette.orange, borderRadius: 18, borderWidth: 1.5, flexDirection: 'row', gap: 6, justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 16 },
@@ -6505,7 +6481,7 @@ const styles = StyleSheet.create({
   greetingSheetClose: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 14, height: 28, justifyContent: 'center', width: 28 },
   greetingSheetHeader: { alignItems: 'center', flexDirection: 'row', gap: 12 },
   greetingSheetHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 17, textAlign: 'center' },
-  greetingSheetMake: { backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, gap: 14, paddingBottom: 32, paddingHorizontal: 22, paddingTop: 16, shadowColor: '#50371e', shadowOffset: { height: -24, width: 0 }, shadowOpacity: 0.28, shadowRadius: 50 },
+  greetingSheetMake: { gap: 14 },
   greetingSheetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18, marginTop: 3 },
   header: { backgroundColor: palette.background, paddingHorizontal: 16, paddingTop: 0 },
   headerRow: { alignItems: 'center', flexDirection: 'row', height: 44, justifyContent: 'space-between' },
@@ -6650,7 +6626,6 @@ const styles = StyleSheet.create({
   mapSheetHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 2 },
   mapStyleCurrent: { backgroundColor: palette.orangeSoft, borderRadius: 999, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
   mapStyleCloseButton: { alignItems: 'center', backgroundColor: palette.background, borderColor: palette.border, borderRadius: 999, borderWidth: 1, height: 30, justifyContent: 'center', width: 30 },
-  mapStyleDismissLayer: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 6 },
   mapStyleHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 12, justifyContent: 'space-between' },
   mapStyleHeaderActions: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   mapStyleOption: { alignItems: 'center', backgroundColor: palette.background, borderColor: palette.border, borderRadius: 14, borderWidth: 1, flex: 1, minHeight: 34, justifyContent: 'center', paddingHorizontal: 8 },
@@ -6658,7 +6633,7 @@ const styles = StyleSheet.create({
   mapStyleOptions: { flexDirection: 'row', gap: 8, marginTop: 10 },
   mapStyleOptionText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   mapStyleOptionTextActive: { color: '#fff' },
-  mapStylePanel: { backgroundColor: 'rgba(255,255,255,0.96)', borderColor: 'rgba(255,255,255,0.9)', borderRadius: 22, borderWidth: 1, left: 16, padding: 12, position: 'absolute', right: 16, shadowColor: '#000', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.14, shadowRadius: 30, top: 78, zIndex: 7 },
+  mapStylePanelSheet: { gap: 12 },
   mapStyleSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17, marginTop: 2, maxWidth: 238 },
   mapStyleTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '800', lineHeight: 20 },
   mapTrafficLineA: { backgroundColor: 'rgba(255,138,92,0.78)', borderRadius: 999, height: 4, left: 18, position: 'absolute', right: 70, top: 188, transform: [{ rotate: '-11deg' }], zIndex: 1 },
