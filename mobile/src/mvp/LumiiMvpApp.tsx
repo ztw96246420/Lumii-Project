@@ -71,7 +71,7 @@ import { clearPersistedLumiiSession, loadPersistedLumiiSession, savePersistedLum
 import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
 import { apiConfig, lumiiApi, setLumiiAuthToken } from './api';
 import { productConfig } from './productConfig';
-import { BottomSheet, Button, Card, ConfirmDialog, Field, StatusPill, Toast, palette, styles as uiStyles } from './ui';
+import { BottomSheet, Button, Card, ConfirmDialog, EmptyState, Field, StatusPill, Toast, palette, styles as uiStyles } from './ui';
 import type {
   AppRoute,
   AppTab,
@@ -305,6 +305,13 @@ type ConfirmState = {
   title: string;
 };
 
+type AppToast = {
+  actionText?: string;
+  message: string;
+  tone?: 'error' | 'info' | 'success' | 'warning';
+  variant?: 'dark' | 'surface';
+};
+
 type UserSettingKey = keyof UserSettings;
 
 function isGeneratedAvatarUri(uri?: null | string) {
@@ -429,7 +436,7 @@ function indexPlaceReviewsByPlaceId(reviews: PlaceReview[]) {
 export default function LumiiMvpApp() {
   const [route, setRoute] = useState<AppRoute>('login');
   const [history, setHistory] = useState<AppRoute[]>([]);
-  const [toast, setToast] = useState('');
+  const [toast, setToast] = useState<AppToast | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [sessionBootstrapping, setSessionBootstrapping] = useState(true);
 
@@ -641,7 +648,7 @@ export default function LumiiMvpApp() {
     return sessionTokenRef.current === requestSessionToken && discoverRequestSeqRef.current === requestId && userSettingsRef.current.nearbyVisible;
   }
 
-  const showToast = useCallback((message: string) => setToast(message), []);
+  const showToast = useCallback((message: string, options?: Omit<AppToast, 'message'>) => setToast({ message, ...options }), []);
 
   const go = useCallback(
     (nextRoute: AppRoute) => {
@@ -750,10 +757,10 @@ export default function LumiiMvpApp() {
   }, []);
 
   useEffect(() => {
-    if (!toast) return undefined;
-    const id = setTimeout(() => setToast(''), 2200);
+    if (!toast?.message) return undefined;
+    const id = setTimeout(() => setToast(null), 2200);
     return () => clearTimeout(id);
-  }, [toast]);
+  }, [toast?.message]);
 
   useEffect(() => {
     if (!cooldownUntil) return undefined;
@@ -1267,9 +1274,9 @@ export default function LumiiMvpApp() {
             : current,
         );
         void refreshPetScopedData();
-        showToast(`已切换为${result.data.name}`);
+        showToast(`已切换为${result.data.name}`, { tone: 'success', variant: 'surface' });
       } else {
-        showToast(result.error?.message ?? '切换宠物失败');
+        showToast(result.error?.message ?? '切换宠物失败', { tone: 'error', variant: 'surface' });
       }
     } finally {
       petSwitchingIdRef.current = '';
@@ -1303,14 +1310,14 @@ export default function LumiiMvpApp() {
         );
         if (nextPet) {
           void refreshPetScopedData();
-          showToast(`已移除${pet.name}`);
+          showToast(`已移除${pet.name}`, { tone: 'success', variant: 'surface' });
         } else {
           setHistory([]);
           replace('emptyPet');
-          showToast('宠物档案已移除');
+          showToast('宠物档案已移除', { tone: 'success', variant: 'surface' });
         }
       } else {
-        showToast(result.error?.message ?? '删除宠物失败');
+        showToast(result.error?.message ?? '删除宠物失败', { tone: 'error', variant: 'surface' });
       }
     } finally {
       petDeletingIdRef.current = '';
@@ -2056,9 +2063,9 @@ export default function LumiiMvpApp() {
         resetAvatarDraft();
         void refreshPetScopedData();
         replace('home');
-        showToast('灵伴形象已保存');
+        showToast('灵伴形象已保存', { tone: 'success', variant: 'surface' });
       } else {
-        showToast(result.error?.message ?? '保存形象失败，请稍后重试');
+        showToast(result.error?.message ?? '保存形象失败，请稍后重试', { tone: 'error', variant: 'surface' });
       }
     } finally {
       avatarAcceptingRef.current = false;
@@ -2387,9 +2394,9 @@ export default function LumiiMvpApp() {
         setActivePet((pet) => (pet ? { ...pet, weightKg: result.data!.kg } : pet));
         setWeightInput('');
         void refreshHealthSummary();
-        showToast('体重已记录');
+        showToast('体重已记录', { tone: 'success', variant: 'surface' });
       } else {
-        showToast(result.error?.message ?? '保存失败，请稍后重试');
+        showToast(result.error?.message ?? '保存失败，请稍后重试', { tone: 'error', variant: 'surface' });
       }
     } finally {
       weightSavingRef.current = false;
@@ -2442,9 +2449,9 @@ export default function LumiiMvpApp() {
         }
         closeWeightEditor();
         void refreshHealthSummary();
-        showToast('体重记录已保存');
+        showToast('体重记录已保存', { tone: 'success', variant: 'surface' });
       } else {
-        showToast(result.error?.message ?? '体重保存失败');
+        showToast(result.error?.message ?? '体重保存失败', { tone: 'error', variant: 'surface' });
       }
     } finally {
       weightEditSavingRef.current = false;
@@ -2468,9 +2475,9 @@ export default function LumiiMvpApp() {
         setActivePet((pet) => (pet ? { ...pet, weightKg: nextWeight } : pet));
         closeWeightEditor();
         void refreshHealthSummary();
-        showToast('体重记录已删除');
+        showToast('体重记录已删除', { tone: 'success', variant: 'surface' });
       } else {
-        showToast(result.error?.message ?? '删除体重失败');
+        showToast(result.error?.message ?? '删除体重失败', { tone: 'error', variant: 'surface' });
       }
     } finally {
       weightEditSavingRef.current = false;
@@ -2692,10 +2699,10 @@ export default function LumiiMvpApp() {
         userSettingsRef.current = profileSettings;
         setUserSettings(profileSettings);
         setActivePet(result.data.activePet ?? getCurrentPet());
-        showToast('资料已保存');
+        showToast('资料已保存', { tone: 'success', variant: 'surface' });
         replace('profile');
       } else {
-        showToast(result.error?.message ?? '资料保存失败');
+        showToast(result.error?.message ?? '资料保存失败', { tone: 'error', variant: 'surface' });
       }
     } finally {
       ownerProfileSavingRef.current = false;
@@ -2816,9 +2823,9 @@ export default function LumiiMvpApp() {
         setMemoDraftTitle('');
         setMemoDraftContent('');
         void refreshHealthSummary();
-        showToast('健康备忘已保存');
+        showToast('健康备忘已保存', { tone: 'success', variant: 'surface' });
       } else {
-        showToast(result.error?.message ?? '保存失败，请稍后重试');
+        showToast(result.error?.message ?? '保存失败，请稍后重试', { tone: 'error', variant: 'surface' });
       }
     } finally {
       memoDraftSavingRef.current = false;
@@ -2850,9 +2857,9 @@ export default function LumiiMvpApp() {
         setMemoTitle('');
         setMemoContent('');
         void refreshHealthSummary();
-        showToast('健康备忘已保存');
+        showToast('健康备忘已保存', { tone: 'success', variant: 'surface' });
       } else {
-        showToast(result.error?.message ?? '保存失败，请稍后重试');
+        showToast(result.error?.message ?? '保存失败，请稍后重试', { tone: 'error', variant: 'surface' });
       }
     } finally {
       memoSavingRef.current = false;
@@ -2899,10 +2906,10 @@ export default function LumiiMvpApp() {
         setMemos((items) => items.map((item) => (item.id === result.data!.id ? result.data! : item)));
         setSelectedMemo(result.data);
         void refreshHealthSummary();
-        showToast('备忘已保存');
+        showToast('备忘已保存', { tone: 'success', variant: 'surface' });
         replace('healthMemos');
       } else {
-        showToast(result.error?.message ?? '备忘保存失败');
+        showToast(result.error?.message ?? '备忘保存失败', { tone: 'error', variant: 'surface' });
       }
     } finally {
       memoEditSavingRef.current = false;
@@ -2926,9 +2933,9 @@ export default function LumiiMvpApp() {
         setSelectedMemo(null);
         void refreshHealthSummary();
         replace('healthMemos');
-        showToast('备忘已删除');
+        showToast('备忘已删除', { tone: 'success', variant: 'surface' });
       } else {
-        showToast(result.error?.message ?? '删除备忘失败');
+        showToast(result.error?.message ?? '删除备忘失败', { tone: 'error', variant: 'surface' });
       }
     } finally {
       memoDeletingRef.current = false;
@@ -3382,6 +3389,7 @@ export default function LumiiMvpApp() {
     clearScheduledPushRegistration();
     setLumiiAuthToken();
     setConfirm(null);
+    setToast(null);
     setSession(null);
     activePetIdRef.current = null;
     setActivePet(null);
@@ -4537,11 +4545,11 @@ export default function LumiiMvpApp() {
               {index < memos.length - 1 ? <View style={styles.makeDivider} /> : null}
             </View>
           )) : (
-            <View style={styles.emptyStateMake}>
-              <NotebookPen color={palette.orange} size={24} strokeWidth={2.4} />
-              <Text style={styles.emptyStateTitleMake}>还没有备忘</Text>
-              <Text style={styles.emptyStateTextMake}>先记录一条小事，后面可以按时间线查看。</Text>
-            </View>
+            <EmptyState
+              description="先记录一条小事，后面可以按时间线查看。"
+              icon={<NotebookPen color={palette.muted} size={26} strokeWidth={2.4} />}
+              title="还没有备忘"
+            />
           )}
         </View>
       </Screen>
@@ -4701,11 +4709,11 @@ export default function LumiiMvpApp() {
               {index < weights.length - 1 ? <View style={styles.makeDivider} /> : null}
             </View>
           )) : (
-            <View style={styles.emptyStateMake}>
-              <Weight color={palette.teal} size={26} strokeWidth={2.4} />
-              <Text style={styles.emptyStateTitleMake}>还没有体重记录</Text>
-              <Text style={styles.emptyStateTextMake}>每周称一次，就能看见成长轨迹。</Text>
-            </View>
+            <EmptyState
+              description="每周称一次，就能看见成长轨迹。"
+              icon={<Weight color={palette.muted} size={26} strokeWidth={2.4} />}
+              title="还没有体重记录"
+            />
           )}
         </View>
         <BottomSheet contentStyle={styles.weightEditSheet} dismissDisabled={weightEditSaving} onClose={closeWeightEditor} visible={Boolean(weightEditRecord)}>
@@ -5414,11 +5422,11 @@ export default function LumiiMvpApp() {
               </View>
             );
           }) : (
-            <View style={styles.emptyStateMake}>
-              <PawPrint color={palette.orange} size={28} strokeWidth={2.4} />
-              <Text style={styles.emptyStateTitleMake}>先添加一位灵伴吧</Text>
-              <Text style={styles.emptyStateTextMake}>每只宠物会拥有独立健康档案和 AI 灵伴记忆。</Text>
-            </View>
+            <EmptyState
+              description="每只宠物会拥有独立健康档案和 AI 灵伴记忆。"
+              icon={<PawPrint color={palette.muted} size={26} strokeWidth={2.4} />}
+              title="先添加一位灵伴吧"
+            />
           )}
           <Pressable onPress={() => go('petInfo')} style={[styles.addPetDashed, webPressableReset]}>
             <Plus color={palette.orange} size={16} strokeWidth={2.5} />
@@ -5731,11 +5739,11 @@ export default function LumiiMvpApp() {
               </View>
             );
           }) : (
-            <View style={styles.emptyStateMake}>
-              <MessageCircle color={palette.orange} size={24} strokeWidth={2.4} />
-              <Text style={styles.emptyStateTitleMake}>暂无新的招呼</Text>
-              <Text style={styles.emptyStateTextMake}>新的附近互动会出现在这里。</Text>
-            </View>
+            <EmptyState
+              description="新的附近互动会出现在这里。"
+              icon={<MessageCircle color={palette.muted} size={26} strokeWidth={2.4} />}
+              title="暂无新的招呼"
+            />
           )}
         </View>
       </Screen>
@@ -6018,7 +6026,7 @@ export default function LumiiMvpApp() {
               })}
             </View>
           ) : null}
-          <Toast message={toast} />
+          <Toast actionText={toast?.actionText} message={toast?.message} tone={toast?.tone} variant={toast?.variant} />
           {renderGreetingSheet()}
           <ConfirmDialog
             body={confirm?.body ?? ''}

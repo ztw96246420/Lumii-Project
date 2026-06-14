@@ -97,14 +97,14 @@
 | 63 | 注销账号 | 无 | 缺失 | 用户曾降级优先级，仍记录为缺失 |
 | 64 | Button 按钮 | `ui.tsx/Button` | 本轮组件已修 | 仍需截图复核 |
 | 65 | Input 输入框 | `ui.tsx/Field` | 本轮组件已修 | 仍需截图复核 |
-| 66 | Toast · Tag · Toggle | `ui.tsx/Toast/StatusPill/ToggleRow` | 本轮组件已修 | Toast 类型化图标和副文案还可增强 |
+| 66 | Toast · Tag · Toggle | `ui.tsx/Toast/StatusPill/ToggleRow` | 本轮组件已增强-需视觉复核 | Toast 已支持 `dark/surface` 与 success/error/warning/info；保存/切换等高频反馈已开始迁移 |
 | 67 | Dialog 弹窗 | `ui.tsx/ConfirmDialog` | 本轮组件已修 | 成功/信息/危险三类 icon card 可继续抽象 |
 | 68 | BottomSheet 底部弹层 | `ui.tsx/BottomSheet` | 本轮组件已补-需视觉复核 | 已抽统一 Bottom Sheet，并迁移打招呼、体重编辑、地图样式面板 |
 | 69 | TabBar 底部导航 | bottom tabs | 已接入-需视觉复核 | 图标、红点、选中态需复核 |
 | 70 | Card 卡片 | 多处 card | 部分接入 | 基础 card 圆角/边框/阴影需继续统一 |
-| 71 | Empty State 空状态 | 多处空态 | 部分接入 | 尚未统一 EmptyState 组件 |
-| 72 | Error State 错误页 | 多处错误态 | 部分接入 | 尚未统一 ErrorState 组件 |
-| 73 | Loading & Skeleton | 多处 loading | 部分接入 | Skeleton 样式未统一 |
+| 71 | Empty State 空状态 | `ui.tsx/EmptyState` + 多处空态 | 本轮组件已补-部分页面已迁移 | 已迁移备忘、体重、多宠、招呼请求空态；地图/消息等空态仍需继续替换 |
+| 72 | Error State 错误页 | `ui.tsx/ErrorState` + 多处错误态 | 本轮组件已补-待迁移 | 组件已按 Screen72 结构补齐，页面级错误态仍需逐处接入 |
+| 73 | Loading & Skeleton | `ui.tsx/LoadingState/SkeletonLine` + 多处 loading | 本轮组件已补-待迁移 | Loading 与 Skeleton 基础组件已补齐，页面骨架仍需逐屏替换 |
 | 74 | App 图标 | assets/app icon | 已接入-需复核 | 已替换过图标，需核对最新包是否一致 |
 | 75 | 健康日历 默认月视图 | API 有 `/health/calendar` | 缺失 | RN 尚无健康日历 route |
 | 76 | 选中日期 有事件 | 无 | 缺失 | 依赖健康日历 route |
@@ -136,7 +136,7 @@
 
 ## 下一轮 1:1 优先级
 
-1. 抽 `LumiiToast` 类型：success/error/warning/info，对齐 Screen24/25/66/84/90/91/94。
-2. 继续统一 Empty/Error/Loading：对齐 Screen71/72/73，减少各页面自写空态和错误态。
+1. 继续迁移统一 Empty/Error/Loading：地图、消息、发现、上传失败、AI 失败等页面仍有自写空态/错误态。
+2. 继续迁移 `surface` Toast：地点收藏、点评提交、发送失败、上传/生成失败等仍需按 Screen24/25/52/90/91/94 分型。
 3. 重点精修高频主链路：Screen1-20、26、35、41、45、54、55。
 4. 建立视觉验收：每次改完一组屏幕，用 Web/模拟器截图和 Figma Make 源码对应屏做并排复核。

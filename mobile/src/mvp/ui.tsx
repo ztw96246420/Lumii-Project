@@ -15,6 +15,8 @@ export const palette = {
   sand: '#f2dfd3',
   teal: '#4db6ac',
   tealSoft: '#e1f7f4',
+  warning: '#C99B3E',
+  warningSoft: '#FBF2D9',
 };
 
 const fontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
@@ -95,7 +97,7 @@ export function SectionTitle({ subtitle, title }: { subtitle?: string; title: st
   );
 }
 
-export function StatusPill({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'danger' | 'neutral' | 'success' }) {
+export function StatusPill({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'danger' | 'distance' | 'neutral' | 'selected' | 'status' | 'success' | 'warning' }) {
   return <Text style={[styles.pill, styles[`pill_${tone}`]]}>{children}</Text>;
 }
 
@@ -127,14 +129,97 @@ export function ToggleRow({
   );
 }
 
-export function Toast({ message }: { message?: string }) {
+export function Toast({
+  actionText,
+  message,
+  tone = 'info',
+  variant = 'dark',
+}: {
+  actionText?: string;
+  message?: string;
+  tone?: 'error' | 'info' | 'success' | 'warning';
+  variant?: 'dark' | 'surface';
+}) {
   if (!message) return null;
+  const dark = variant === 'dark';
   return (
-    <View style={[styles.toast, styles.toastNoPointer]}>
-      <View style={styles.toastIconDot} />
-      <Text style={styles.toastText}>{message}</Text>
+    <View style={[styles.toast, dark ? styles.toastDark : styles.toastSurface, styles.toastNoPointer]}>
+      <View style={[styles.toastIcon, dark ? styles.toastIconDark : styles[`toastIcon_${tone}`]]}>
+        {!dark ? <View style={[styles.toastIconMark, styles[`toastIconMark_${tone}`]]} /> : null}
+      </View>
+      <Text style={[styles.toastText, dark ? styles.toastTextDark : styles.toastTextSurface]} numberOfLines={2}>{message}</Text>
+      {actionText ? <Text style={dark ? styles.toastActionDark : styles.toastActionSurface}>{actionText}</Text> : null}
     </View>
   );
+}
+
+export function EmptyState({
+  action,
+  description,
+  icon,
+  onAction,
+  title,
+}: {
+  action?: string;
+  description: string;
+  icon: ReactNode;
+  onAction?: () => void;
+  title: string;
+}) {
+  return (
+    <View style={styles.emptyBlock}>
+      <View style={styles.emptyIconBox}>{icon}</View>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptyDescription}>{description}</Text>
+      {action ? (
+        <Pressable disabled={!onAction} onPress={onAction} style={[webPressableReset, styles.emptyAction]}>
+          <Text style={styles.emptyActionText}>{action}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+export function ErrorState({
+  action,
+  description,
+  icon,
+  iconTone = 'neutral',
+  onAction,
+  title,
+}: {
+  action: string;
+  description: string;
+  icon: ReactNode;
+  iconTone?: 'danger' | 'neutral' | 'primary' | 'warning';
+  onAction?: () => void;
+  title: string;
+}) {
+  return (
+    <View style={styles.errorBlock}>
+      <View style={[styles.errorIconBox, styles[`errorIconBox_${iconTone}`]]}>{icon}</View>
+      <View style={styles.errorTextWrap}>
+        <Text style={styles.errorTitle}>{title}</Text>
+        <Text style={styles.errorDescription}>{description}</Text>
+      </View>
+      <Pressable disabled={!onAction} onPress={onAction} style={[webPressableReset, styles.errorAction]}>
+        <Text style={styles.errorActionText}>{action}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+export function LoadingState({ message = '正在为你准备内容...' }: { message?: string }) {
+  return (
+    <View style={styles.loadingBlock}>
+      <ActivityIndicator color={palette.orange} size="large" />
+      <Text style={styles.loadingText}>{message}</Text>
+    </View>
+  );
+}
+
+export function SkeletonLine({ height = 12, width }: { height?: number; width: ViewStyle['width'] }) {
+  return <View style={[styles.skeletonLine, { height, width }]} />;
 }
 
 export function BottomSheet({
@@ -228,24 +313,64 @@ export const styles = StyleSheet.create({
     shadowRadius: 18,
   },
   cardTitle: { color: palette.ink, fontFamily, fontSize: 16, fontWeight: '600', lineHeight: 22 },
+  emptyAction: { alignSelf: 'center', backgroundColor: palette.orange, borderRadius: 12, marginTop: 4, paddingHorizontal: 18, paddingVertical: 8 },
+  emptyActionText: { color: '#fff', fontFamily, fontSize: 13, fontWeight: '600' },
+  emptyBlock: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, gap: 8, paddingHorizontal: 16, paddingVertical: 20 },
+  emptyDescription: { color: palette.muted, fontFamily, fontSize: 12, lineHeight: 19, textAlign: 'center' },
+  emptyIconBox: { alignItems: 'center', backgroundColor: '#F4EFE6', borderRadius: 18, height: 56, justifyContent: 'center', marginBottom: 2, width: 56 },
+  emptyTitle: { color: palette.ink, fontFamily, fontSize: 14, fontWeight: '600', lineHeight: 20, textAlign: 'center' },
+  errorAction: { borderColor: palette.orange, borderRadius: 10, borderWidth: 1, flexShrink: 0, paddingHorizontal: 12, paddingVertical: 5 },
+  errorActionText: { color: palette.orange, fontFamily, fontSize: 12, fontWeight: '600' },
+  errorBlock: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 14 },
+  errorDescription: { color: palette.muted, fontFamily, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  errorIconBox: { alignItems: 'center', borderRadius: 14, height: 44, justifyContent: 'center', width: 44 },
+  errorIconBox_danger: { backgroundColor: '#FBE4DE' },
+  errorIconBox_neutral: { backgroundColor: palette.pale },
+  errorIconBox_primary: { backgroundColor: '#FFE6D6' },
+  errorIconBox_warning: { backgroundColor: palette.warningSoft },
+  errorTextWrap: { flex: 1 },
+  errorTitle: { color: palette.ink, fontFamily, fontSize: 14, fontWeight: '600', lineHeight: 20 },
   fieldWrap: { gap: 8 },
   h1: { color: palette.ink, fontFamily, fontSize: 28, fontWeight: '600', letterSpacing: 0, lineHeight: 34 },
   input: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1.5, color: palette.ink, fontFamily, fontSize: 14, minHeight: 46, paddingHorizontal: 14 },
   inputFocused: { borderColor: palette.orange, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.18, shadowRadius: 10 },
   label: { color: palette.muted, fontFamily, fontSize: 12.5, fontWeight: '500' },
+  loadingBlock: { alignItems: 'center', gap: 10, paddingVertical: 30 },
+  loadingText: { color: palette.muted, fontFamily, fontSize: 12, fontWeight: '500' },
   modal: { backgroundColor: palette.card, borderRadius: 20, gap: 14, margin: 32, maxWidth: 290, paddingHorizontal: 18, paddingBottom: 16, paddingTop: 20, shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.12, shadowRadius: 30, width: 290 },
   modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(20,18,14,0.50)', flex: 1, justifyContent: 'center' },
   pill: { alignSelf: 'flex-start', borderRadius: 8, fontFamily, fontSize: 11, fontWeight: '600', height: 22, lineHeight: 14, overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 4 },
   pill_danger: { backgroundColor: '#ffdad6', color: palette.danger },
+  pill_distance: { backgroundColor: palette.pale, color: palette.ink },
   pill_neutral: { backgroundColor: palette.pale, color: palette.muted },
+  pill_selected: { backgroundColor: palette.orange, color: '#fff' },
+  pill_status: { backgroundColor: palette.warningSoft, color: palette.warning },
   pill_success: { backgroundColor: '#dff5f2', color: '#006a63' },
+  pill_warning: { backgroundColor: palette.warningSoft, color: palette.warning },
   row: { flexDirection: 'row', gap: 10 },
   sectionTitle: { gap: 8, marginBottom: 18 },
+  skeletonLine: { backgroundColor: '#E5E0D5', borderRadius: 6 },
   subtitle: { color: palette.muted, fontFamily, fontSize: 15, lineHeight: 22 },
-  toast: { alignItems: 'center', alignSelf: 'center', backgroundColor: 'rgba(27,28,25,0.92)', borderRadius: 22, flexDirection: 'row', gap: 10, maxWidth: '92%', minHeight: 46, minWidth: 180, paddingHorizontal: 18, paddingVertical: 12, position: 'absolute', shadowColor: '#000', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.28, shadowRadius: 38, top: 96, zIndex: 20 },
-  toastIconDot: { backgroundColor: palette.teal, borderRadius: 12, height: 24, width: 24 },
+  toast: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 10, maxWidth: '92%', minHeight: 46, minWidth: 180, paddingHorizontal: 14, paddingVertical: 10, position: 'absolute', top: 96, zIndex: 20 },
+  toastActionDark: { color: '#FFB48C', fontFamily, fontSize: 12, fontWeight: '600' },
+  toastActionSurface: { color: palette.orange, fontFamily, fontSize: 12, fontWeight: '600' },
+  toastDark: { backgroundColor: 'rgba(27,28,25,0.92)', borderRadius: 22, paddingRight: 18, shadowColor: '#000', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.28, shadowRadius: 38 },
+  toastIcon: { alignItems: 'center', height: 24, justifyContent: 'center', width: 24 },
+  toastIconDark: { backgroundColor: palette.teal, borderRadius: 12 },
+  toastIcon_error: { backgroundColor: '#FBE4DE', borderRadius: 8 },
+  toastIcon_info: { backgroundColor: palette.pale, borderRadius: 8 },
+  toastIcon_success: { backgroundColor: '#E8F5F3', borderRadius: 8 },
+  toastIcon_warning: { backgroundColor: palette.warningSoft, borderRadius: 8 },
+  toastIconMark: { borderRadius: 5, height: 10, width: 10 },
+  toastIconMark_error: { backgroundColor: palette.danger },
+  toastIconMark_info: { backgroundColor: palette.ink },
+  toastIconMark_success: { backgroundColor: palette.teal },
+  toastIconMark_warning: { backgroundColor: palette.warning },
   toastNoPointer: { pointerEvents: 'none' },
-  toastText: { color: '#fff', flexShrink: 1, fontFamily, fontSize: 13, fontWeight: '600' },
+  toastSurface: { backgroundColor: '#fff', borderRadius: 14, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28 },
+  toastText: { flexShrink: 1, fontFamily, fontSize: 13, fontWeight: '600' },
+  toastTextDark: { color: '#fff' },
+  toastTextSurface: { color: palette.ink },
   toggleThumb: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 11, height: 22, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.15, shadowRadius: 4, width: 22 },
   toggleThumbOn: { transform: [{ translateX: 18 }] },
   toggleRow: { alignItems: 'center', flexDirection: 'row', gap: 12 },
