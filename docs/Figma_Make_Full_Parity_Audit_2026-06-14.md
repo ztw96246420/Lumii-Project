@@ -32,25 +32,25 @@
 
 | Figma 屏 | 设计内容 | RN 对应 | 当前状态 | 主要差异/下一步 |
 | --- | --- | --- | --- | --- |
-| 1 | 登录页 默认 | `renderLogin` | 已接入-需视觉复核 | 继续核对标题、手机号输入框、协议行和主按钮间距 |
-| 2 | 手机号格式错误 | `renderLogin` | 已接入-需视觉复核 | 错误提示样式需按 InlineError 对齐 |
-| 3 | 未勾选协议 | `renderLogin` | 已接入-需视觉复核 | 协议 shake/红色状态需复核 |
-| 4 | 验证码发送中 | `renderLogin` | 已接入-需视觉复核 | loading 按钮状态需复核 |
-| 5 | 发送过频倒计时 | `renderLogin` | 已接入-需视觉复核 | 倒计时按钮视觉需复核 |
+| 1 | 登录页 默认 | `renderLogin` | 已接入-需视觉复核 | 本轮已按 Screen1-5 收敛手机号输入框 56px/16px 圆角、登录专用 52px 胶囊按钮、协议行圆形勾选与间距；标题位置仍需截图复核 |
+| 2 | 手机号格式错误 | `renderLogin` | 已接入-需视觉复核 | 输入框基础样式已按 PhoneInput 收敛，错误 InlineError 图标行仍需继续按 Screen2 补齐 |
+| 3 | 未勾选协议 | `renderLogin` | 已接入-需视觉复核 | 协议行视觉已接近 Agreement；shake/红色状态仍需复核 |
+| 4 | 验证码发送中 | `renderLogin` | 已接入-需视觉复核 | 本轮已修发送中按钮保持橙色 loading，不再套禁用灰色；仍需真机复核 |
+| 5 | 发送过频倒计时 | `renderLogin` | 已接入-需视觉复核 | 本轮已按 PrimaryButton countdown 使用浅底灰字胶囊按钮；倒计时逻辑仍沿用现有状态机 |
 | 6 | 验证码页 默认 | `renderOtp` | 已接入-需视觉复核 | OTP 格子位置和焦点框需复核 |
 | 7 | 验证码错误 | `renderOtp` | 已接入-需视觉复核 | 错误格子红色、提示文案需复核 |
 | 8 | 验证码过期 | `renderOtp` | 已接入-需视觉复核 | 过期态和重新发送区域需复核 |
 | 9 | 登录成功 loading | session/loading 状态 | 部分接入 | Figma 独立成功 loading 屏未 1:1 |
-| 10 | 权限引导页 | `renderPermissions` | 已接入-需视觉复核 | 三权限卡、按钮、拒绝态提示需复核 |
+| 10 | 权限引导页 | `renderPermissions` | 已接入-需视觉复核 | 本轮已按 PermissionRow 收敛权限卡 20px 圆角、16px padding、轻阴影和 40x24 关闭开关；拒绝态独立页仍需复核 |
 | 11 | 定位权限被拒 | `renderPermissions` | 部分接入 | 独立拒绝页未完全按 Screen11 展示 |
 | 12 | 相册/相机权限被拒 | `renderPermissions` | 部分接入 | 独立拒绝页未完全按 Screen12 展示 |
 | 13 | 通知权限被拒 | `renderPermissions` | 部分接入 | 独立拒绝页未完全按 Screen13 展示 |
 | 14 | 未添加宠物空状态 | `renderEmptyPet` | 已接入-需视觉复核 | 空态插图、CTA、卡片层级需复核 |
 | 15 | 宠物基础信息 | `renderPetInfo` | 已接入-需视觉复核 | 表单控件和选择 chip 需复核 |
-| 16 | 上传宠物照片 | `renderUpload` | 已接入-需视觉复核 | 上传卡片、说明文案、相册按钮需复核 |
+| 16 | 上传宠物照片 | `renderUpload` | 已接入-需视觉复核 | 本轮已按 UploadBox/TipsList 收敛上传卡渐变、340px 高度、轻阴影、tips 白底卡间距；按钮图标/底部固定位置仍需复核 |
 | 17 | 上传失败 未识别 | `renderUploadNoPet` | 已接入-需视觉复核 | 已按 Screen17 首轮细调失败图卡渐变、警示浮层、原因卡间距和建议列表；仍需截图复核 |
-| 18 | 上传识别详情 | `renderUploadDetail` | 已接入-需视觉复核 | 顶部安全区、识别结果信息卡需复核 |
-| 19 | AI 灵伴生成中 | `renderGenerating` | 已接入-需视觉复核 | 进度条、步骤列表、结果预加载需复核 |
+| 18 | 上传识别详情 | `renderUploadDetail` | 已接入-需视觉复核 | 本轮已将识别信息卡改为识别页专用右对齐值列，同时保留宠物档案左对齐；Hero 渐变和标签仍需截图复核 |
+| 19 | AI 灵伴生成中 | `renderGenerating` | 已接入-需视觉复核 | 本轮已按 Screen19 收敛进度条为 6px 暖橙底；动态 ring/粒子和 54px CTA 后续单独精修 |
 | 20 | 生成结果 默认 | `renderAiResult` | 已接入-需视觉复核 | 形象卡、标签、按钮位置需复核 |
 | 21 | 生成结果 多候选 | `renderAiResult` | 部分接入 | 多候选选择 UI 未完整落地 |
 | 22 | 不满意反馈面板 | 形象重试逻辑 | 缺失 | 需按 Figma bottom sheet 做反馈原因面板 |

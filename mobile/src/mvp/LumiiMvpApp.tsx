@@ -3631,6 +3631,8 @@ export default function LumiiMvpApp() {
   );
 
   function renderLogin() {
+    const loginSendDisabled = sendLoading || cooldownRemaining > 0 || phone.trim().length === 0;
+    const loginSendCountdown = cooldownRemaining > 0;
     return (
       <Screen showBack={false}>
         <View style={styles.loginHero}>
@@ -3687,9 +3689,22 @@ export default function LumiiMvpApp() {
               value={phone}
             />
           </Pressable>
-          <Button disabled={sendLoading || cooldownRemaining > 0 || phone.trim().length === 0} loading={sendLoading} onPress={() => void requestSmsCode('login')}>
-            {cooldownRemaining > 0 ? `${cooldownRemaining}s 后重试` : '获取验证码'}
-          </Button>
+          <Pressable
+            disabled={loginSendDisabled}
+            onPress={() => void requestSmsCode('login')}
+            style={({ pressed }) => [
+              styles.loginSmsButton,
+              loginSendDisabled && !sendLoading && styles.loginSmsButtonDisabled,
+              loginSendCountdown && styles.loginSmsButtonCountdown,
+              pressed && !loginSendDisabled && styles.loginSmsButtonPressed,
+              webPressableReset,
+            ]}
+          >
+            {sendLoading ? <ActivityIndicator color="#fff" size="small" /> : null}
+            <Text style={[styles.loginSmsButtonText, loginSendCountdown && styles.loginSmsButtonTextCountdown]}>
+              {sendLoading ? '发送中...' : cooldownRemaining > 0 ? `${cooldownRemaining}s 后重试` : '获取验证码'}
+            </Text>
+          </Pressable>
           <Pressable
             accessibilityLabel="同意用户协议与隐私政策"
             accessibilityRole="checkbox"
@@ -4019,13 +4034,13 @@ export default function LumiiMvpApp() {
           <Text style={styles.recognitionQuality}>质量 {analysis?.qualityScore ?? 96}%</Text>
         </View>
         <View style={styles.detailCardMake}>
-          <MakeDetailRow label="宠物主体" value={`${speciesLabels[activePet?.species ?? petDraft.species]} · ${activePet?.breed ?? (petDraft.breed || '金毛寻回犬')}`} />
+          <MakeDetailRow label="宠物主体" value={`${speciesLabels[activePet?.species ?? petDraft.species]} · ${activePet?.breed ?? (petDraft.breed || '金毛寻回犬')}`} valueAlign="right" />
           <View style={styles.makeDivider} />
-          <MakeDetailRow label="识别状态" value={analysis?.title ?? '单只宠物主体清晰'} />
+          <MakeDetailRow label="识别状态" value={analysis?.title ?? '单只宠物主体清晰'} valueAlign="right" />
           <View style={styles.makeDivider} />
-          <MakeDetailRow label="生成建议" value={analysis?.message ?? '当前照片适合生成真实卡通化灵伴形象'} />
+          <MakeDetailRow label="生成建议" value={analysis?.message ?? '当前照片适合生成真实卡通化灵伴形象'} valueAlign="right" />
           <View style={styles.makeDivider} />
-          <MakeDetailRow label="注意事项" value={suggestions.length ? suggestions.join('；') : '生成会优先保留宠物主体并弱化背景'} />
+          <MakeDetailRow label="注意事项" value={suggestions.length ? suggestions.join('；') : '生成会优先保留宠物主体并弱化背景'} valueAlign="right" />
         </View>
         <View style={styles.featureChipsMake}>
           {analysisTags.map((tag) => (
@@ -6440,13 +6455,13 @@ function ProfileMakeRow({
   );
 }
 
-function MakeDetailRow({ inset, label, value }: { inset?: boolean; label: string; value: string }) {
+function MakeDetailRow({ inset, label, value, valueAlign = 'left' }: { inset?: boolean; label: string; value: string; valueAlign?: 'left' | 'right' }) {
   return (
     <View style={[styles.makeDetailRow, inset && styles.makeDetailRowInset]}>
       <Text numberOfLines={1} style={styles.makeDetailLabel}>
         {label}
       </Text>
-      <Text numberOfLines={2} style={styles.makeDetailValue}>
+      <Text numberOfLines={2} style={[styles.makeDetailValue, valueAlign === 'right' && styles.makeDetailValueRight]}>
         {value}
       </Text>
     </View>
@@ -6502,8 +6517,8 @@ const styles = StyleSheet.create({
   addPlaceHero: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 22, flexDirection: 'row', gap: 13, paddingHorizontal: 18, paddingVertical: 18, shadowColor: '#8b5e3c', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.16, shadowRadius: 30 },
   addPlaceHeroSub: { color: 'rgba(255,255,255,0.88)', flex: 1, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18, marginTop: 4 },
   addPlaceHeroTitle: { color: '#fff', fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', lineHeight: 23 },
-  agreementRow: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'center', marginTop: 4 },
-  agreementText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
+  agreementRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 8, marginTop: 18 },
+  agreementText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 21 },
   appWrap: { alignItems: 'center', backgroundColor: '#e8e2d9', flex: 1, justifyContent: 'center' },
   avatarImage: { height: '100%', width: '100%' },
   avatarImageRemote: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
@@ -6555,12 +6570,12 @@ const styles = StyleSheet.create({
   chatTextMe: { color: '#fff', fontWeight: '600' },
   chatTypingBubble: { alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 42 },
   chatTypingText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700' },
-  checkbox: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 7, borderWidth: 1.2, height: 18, justifyContent: 'center', width: 18 },
+  checkbox: { alignItems: 'center', backgroundColor: 'transparent', borderColor: '#C8C4BA', borderRadius: 9, borderWidth: 1.5, height: 18, justifyContent: 'center', marginTop: 2, width: 18 },
   checkboxChecked: { backgroundColor: palette.orange, borderColor: palette.orange },
   content: { gap: 16, paddingBottom: 32, paddingHorizontal: 20, paddingTop: 18 },
   contentWithTabs: { paddingBottom: 110 },
   conversationRow: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 70, padding: 14 },
-  countryCode: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', minWidth: 34 },
+  countryCode: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '500', minWidth: 34 },
   dangerText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   addPetDashed: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#FFC8A6', borderRadius: 16, borderStyle: 'dashed', borderWidth: 1.5, flexDirection: 'row', gap: 8, justifyContent: 'center', minHeight: 52, paddingHorizontal: 14, paddingVertical: 14 },
   addPetDashedText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
@@ -6739,10 +6754,16 @@ const styles = StyleSheet.create({
   infoChip: { backgroundColor: palette.background, borderRadius: 14, color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 14, paddingVertical: 10, textAlign: 'center' },
   infoChipRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   label: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
-  loginForm: { gap: 14, marginTop: 42 },
+  loginForm: { gap: 0, marginTop: 32 },
   loginHero: { marginTop: 88 },
   loginContent: { flex: 1 },
   loginSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, marginTop: 10 },
+  loginSmsButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center', marginTop: 28, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.22, shadowRadius: 22 },
+  loginSmsButtonCountdown: { backgroundColor: palette.pale, shadowOpacity: 0 },
+  loginSmsButtonDisabled: { backgroundColor: '#F1D9CB', shadowOpacity: 0 },
+  loginSmsButtonPressed: { backgroundColor: '#F2774A', transform: [{ scale: 0.99 }] },
+  loginSmsButtonText: { color: '#fff', fontFamily: appFontFamily, fontSize: 16, fontWeight: '500' },
+  loginSmsButtonTextCountdown: { color: palette.muted },
   loginTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 29, fontWeight: '700', includeFontPadding: false, letterSpacing: 0, lineHeight: 37 },
   loginTitleBlock: { maxWidth: '100%' },
   loginTitleLine: { color: palette.ink, fontFamily: appFontFamily, fontSize: 27, fontWeight: '700', includeFontPadding: false, letterSpacing: 0, lineHeight: 35, maxWidth: '100%' },
@@ -6841,6 +6862,7 @@ const styles = StyleSheet.create({
   makeDetailRow: { alignItems: 'center', flexDirection: 'row', gap: 14, minHeight: 44, paddingVertical: 10 },
   makeDetailRowInset: { paddingHorizontal: 16 },
   makeDetailValue: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', lineHeight: 20, minWidth: 0, textAlign: 'left' },
+  makeDetailValueRight: { maxWidth: 220, textAlign: 'right' },
   makeDivider: { backgroundColor: palette.border, height: 1 },
   makeIntroCopy: { flex: 1, gap: 4, minWidth: 0 },
   makeIntroHeader: { alignItems: 'center', flexDirection: 'row', gap: 13, marginTop: 4, paddingHorizontal: 6 },
@@ -6955,7 +6977,7 @@ const styles = StyleSheet.create({
   permissionDeniedIcon: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 28, height: 56, justifyContent: 'center', width: 56 },
   permissionDeniedText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 19, textAlign: 'center' },
   permissionDeniedTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700' },
-  permissionMakeRow: { alignItems: 'flex-start', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
+  permissionMakeRow: { alignItems: 'flex-start', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 16, shadowColor: '#50371e', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.04, shadowRadius: 10 },
   permissionMakeRowDenied: { borderColor: 'rgba(216,70,53,0.26)' },
   permissionMakeRowGranted: { backgroundColor: '#f2fbfa', borderColor: 'rgba(77,182,172,0.32)' },
   permissionMakeStack: { gap: 12, marginTop: 26 },
@@ -6963,8 +6985,8 @@ const styles = StyleSheet.create({
   permissionStatusLoading: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   permissionStatusOn: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 12, flexDirection: 'row', gap: 4, paddingHorizontal: 8, paddingVertical: 4 },
   permissionStatusOnText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
-  permissionSwitchOff: { alignItems: 'center', backgroundColor: '#e9e7e2', borderRadius: 12, height: 24, justifyContent: 'center', paddingHorizontal: 3, width: 42 },
-  permissionSwitchThumb: { alignSelf: 'flex-start', backgroundColor: '#fff', borderRadius: 9, height: 18, width: 18 },
+  permissionSwitchOff: { backgroundColor: palette.pale, borderRadius: 12, height: 24, justifyContent: 'center', paddingHorizontal: 2, width: 40 },
+  permissionSwitchThumb: { alignSelf: 'flex-start', backgroundColor: '#fff', borderRadius: 10, height: 20, shadowColor: '#000', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.14, shadowRadius: 4, width: 20 },
   petInfoFormMake: { gap: 18, marginTop: 24, paddingHorizontal: 6 },
   petTypeCheck: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 10, height: 20, justifyContent: 'center', position: 'absolute', right: 11, top: 11, width: 20 },
   petTypeEmoji: { fontSize: 25, lineHeight: 31 },
@@ -6993,11 +7015,11 @@ const styles = StyleSheet.create({
   petGenderButtonActive: { backgroundColor: 'rgba(255,138,92,0.10)', borderColor: palette.orange, borderWidth: 1.5 },
   petGenderText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
   petGenderTextActive: { color: palette.orange },
-  phoneDivider: { backgroundColor: '#eadfd2', height: 24, width: 1 },
+  phoneDivider: { backgroundColor: palette.border, height: 20, marginHorizontal: 14, width: 1 },
   phoneFrame: { backgroundColor: palette.background, borderRadius: Platform.OS === 'web' ? 44 : 0, flex: 1, height: Platform.OS === 'web' ? 844 : undefined, maxHeight: Platform.OS === 'web' ? 844 : undefined, maxWidth: Platform.OS === 'web' ? 390 : undefined, overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 30, width: 0 }, shadowOpacity: 0.18, shadowRadius: 60, width: '100%' },
-  phoneInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, minHeight: 58, paddingHorizontal: 12 },
-  phoneInputShell: { alignItems: 'center', backgroundColor: '#fffdf9', borderColor: 'rgba(234,223,210,0.95)', borderRadius: 20, borderWidth: 1.2, flexDirection: 'row', minHeight: 58, paddingLeft: 16, paddingRight: 8 },
-  phoneInputShellFocused: { borderColor: palette.orange, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.24, shadowRadius: 12 },
+  phoneInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 16, minHeight: 56, paddingHorizontal: 0 },
+  phoneInputShell: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', minHeight: 56, paddingHorizontal: 18, shadowColor: '#50371e', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.04, shadowRadius: 8 },
+  phoneInputShellFocused: { borderColor: palette.orange, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.16, shadowRadius: 12 },
   phoneStatusBar: { alignItems: 'center', backgroundColor: palette.background, flexDirection: 'row', height: 44, justifyContent: 'space-between', paddingBottom: 4, paddingHorizontal: 28, paddingTop: 12 },
   phoneStatusIcons: { alignItems: 'center', flexDirection: 'row', gap: 5 },
   phoneStatusTime: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
@@ -7071,7 +7093,7 @@ const styles = StyleSheet.create({
   profileVerifyPill: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 10, flexDirection: 'row', gap: 4, marginTop: 8, paddingHorizontal: 8, paddingVertical: 3 },
   profileVerifyText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
   progressFill: { backgroundColor: palette.orange, borderRadius: 999, height: '100%' },
-  progressTrack: { backgroundColor: palette.pale, borderRadius: 999, height: 10, overflow: 'hidden', width: '100%' },
+  progressTrack: { backgroundColor: 'rgba(255,138,92,0.16)', borderRadius: 999, height: 6, overflow: 'hidden', width: '100%' },
   ratingPill: { alignItems: 'center', flexDirection: 'row', gap: 3 },
   ratingText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   requestCard: { alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.24)', borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 16 },
@@ -7138,10 +7160,10 @@ const styles = StyleSheet.create({
   unreadBadge: { backgroundColor: palette.orange, borderRadius: 999, color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
   uploadFrame: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 28, borderStyle: 'dashed', borderWidth: 1.4, gap: 10, minHeight: 300, justifyContent: 'center', padding: 24, width: '100%' },
   uploadActionsMake: { flexDirection: 'row', gap: 12, marginTop: 18 },
-  uploadBoxMake: { alignItems: 'center', backgroundColor: '#fff0df', borderRadius: 28, height: 340, justifyContent: 'center', marginTop: 22, overflow: 'hidden', position: 'relative' },
+  uploadBoxMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, #FFF4EA 0%, #FBEEDF 100%)' } as object) : null), alignItems: 'center', backgroundColor: '#fff0df', borderRadius: 28, height: 340, justifyContent: 'center', marginTop: 22, overflow: 'hidden', position: 'relative', shadowColor: '#b46e3c', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.12, shadowRadius: 18 },
   uploadDashedFrame: { borderColor: 'rgba(255,138,92,0.55)', borderRadius: 28, borderStyle: 'dashed', borderWidth: 2, bottom: 14, left: 14, position: 'absolute', right: 14, top: 14 },
   uploadHintMake: { bottom: 18, color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', position: 'absolute', textAlign: 'center' },
-  tipsCardMake: { backgroundColor: 'rgba(255,255,255,0.72)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 8, marginTop: 14, padding: 14 },
+  tipsCardMake: { backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 8, marginTop: 18, paddingHorizontal: 16, paddingVertical: 14 },
   tipBulletDot: { backgroundColor: palette.orange, borderRadius: 3, height: 5, width: 5 },
   tipBulletRow: { alignItems: 'center', flexDirection: 'row', gap: 9, paddingVertical: 3 },
   tipBulletText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 18 },
