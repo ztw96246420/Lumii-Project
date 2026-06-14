@@ -33,6 +33,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Compass,
   Edit3,
   Heart,
@@ -5754,9 +5755,7 @@ export default function LumiiMvpApp() {
     const maskedPhone = formatMaskedPhone(session?.phone);
     const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
     const speciesLabel = pet ? speciesLabels[pet.species] : '';
-    const permissionEnabled = allLumiiPermissionsGranted(permissions);
     const unreadNotificationCount = notifications.filter((item) => !item.read).length;
-    const notificationCenterValue = unreadNotificationCount ? `${unreadNotificationCount} 条未读` : '暂无未读';
     return (
       <Screen showBack={false} title="">
         <View style={styles.profileMakePage}>
@@ -5839,13 +5838,18 @@ export default function LumiiMvpApp() {
           </View>
 
           <View style={styles.profileMenuGroup}>
-            <ProfileMakeRow Icon={PawPrint} onPress={() => go(pet ? 'petDetail' : 'petInfo')} title="宠物档案" value={pet?.name ?? '待添加'} />
-            <ProfileMakeRow Icon={Users} onPress={() => go('multiPet')} title="多宠管理" value={pets.length ? `${pets.length} 只` : '去添加'} />
-            <ProfileMakeRow Icon={Users} onPress={() => go('discover')} title="社交与附近" value={permissionEnabled && userSettings.nearbyVisible ? '已开启' : '待开启'} />
-            <ProfileMakeRow Icon={Bell} onPress={() => go('notifications')} title="通知中心" value={notificationCenterValue} />
-            <ProfileMakeRow Icon={Shield} onPress={() => go('safety')} title="安全中心" />
-            <ProfileMakeRow Icon={User} onPress={() => go('accountSecurity')} title="账号安全" />
-            <ProfileMakeRow Icon={LogOut} onPress={() => openConfirm('退出当前账号', '退出后会清除本机登录缓存，下次需要重新获取验证码登录。', () => void logout(), '退出')} title="退出当前账号" value="清除本机登录" />
+            <ProfileMakeRow Icon={PawPrint} iconBg="#FFE6D6" iconColor={palette.orange} onPress={() => go(pet ? 'petDetail' : 'petInfo')} title="宠物档案" value={pet?.name ?? '待添加'} />
+            <ProfileMakeRow Icon={Users} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('multiPet')} title="多宠管理" value={pets.length ? `${pets.length} 只` : '去添加'} />
+            <ProfileMakeRow
+              Icon={Bell}
+              iconBg="#FBF2D9"
+              iconColor={palette.warning}
+              onPress={() => go('notifications')}
+              right={unreadNotificationCount ? <Text style={styles.profileUnreadBadge}>{unreadNotificationCount}</Text> : <Text numberOfLines={1} style={styles.profileMakeRowValue}>暂无未读</Text>}
+              title="通知中心"
+            />
+            <ProfileMakeRow Icon={Settings} iconBg={palette.pale} iconColor={palette.ink} onPress={() => go('settings')} title="设置与隐私" />
+            <ProfileMakeRow Icon={Shield} iconBg="#E8F5F3" iconColor={palette.teal} last onPress={() => go('safety')} title="安全中心" />
           </View>
         </View>
       </Screen>
@@ -6066,21 +6070,27 @@ export default function LumiiMvpApp() {
 
   function renderPetDetail() {
     const pet = getCurrentPet();
-    const genderText = pet?.gender === 'female' ? '妹妹' : pet?.gender === 'male' ? '弟弟' : '待补充';
+    const genderSymbol = pet?.gender === 'female' ? '♀' : pet?.gender === 'male' ? '♂' : '未知';
     const vaccineValue = pendingVaccines.length ? `${pendingVaccines.length} 项待提醒` : vaccines.length ? '已完成' : '待添加';
+    const memoValue = memos.length ? `${memos.length} 条` : '待记录';
+    const detailImageUri = pet?.avatarUrl ?? generatedGoldenAvatarUri;
+    const birthdayShort = pet?.birthday ? pet.birthday.slice(0, 7).replace(/-/g, '.') : '待补充';
+    const bodySize = pet?.species === 'dog' ? '大型' : pet?.species === 'cat' ? '中型' : '待补充';
+    const coatColor = pet?.breed?.includes('金毛') ? '奶油金' : '待识别';
     return (
       <Screen title="宠物档案">
         {pet ? (
           <View style={styles.petDetailMakePage}>
             <View style={styles.petDetailHeroMake}>
-              <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={160} />
+              <Image source={{ uri: detailImageUri }} style={styles.petDetailHeroImage} />
+              <View style={styles.petDetailHeroOverlay} />
               <Pressable onPress={startPetAvatarRefresh} style={styles.petDetailCamera}>
                 <Camera color="#fff" size={12} strokeWidth={2.3} />
                 <Text style={styles.petDetailCameraText}>更换</Text>
               </Pressable>
               <View style={styles.petDetailHeroText}>
                 <Text style={styles.petDetailHeroName}>{pet.name}</Text>
-                <Text style={styles.petDetailHeroMeta}>{pet.breed || speciesLabels[pet.species]} · {formatPetAge(pet.birthday)}</Text>
+                <Text style={styles.petDetailHeroMeta}>{pet.breed || speciesLabels[pet.species]} · {genderSymbol} · {formatPetAge(pet.birthday)}</Text>
               </View>
               <Pressable onPress={() => go('editPet')} style={styles.petDetailEdit}>
                 <Edit3 color={palette.orange} size={12} strokeWidth={2.4} />
@@ -6090,8 +6100,8 @@ export default function LumiiMvpApp() {
             <View style={styles.petDetailStats}>
               {[
                 ['体重', formatWeightKg(pet.weightKg)],
-                ['生日', pet.birthday ? pet.birthday.replace(/-/g, '.') : '待补充'],
-                ['体型', '待补充'],
+                ['生日', birthdayShort],
+                ['体型', bodySize],
               ].map(([label, value]) => (
                 <View key={label} style={styles.petDetailStatCard}>
                   <Text style={styles.petDetailStatLabel}>{label}</Text>
@@ -6105,14 +6115,14 @@ export default function LumiiMvpApp() {
               <View style={styles.makeDivider} />
               <MakeDetailRow inset label="品种" value={pet.breed || speciesLabels[pet.species]} />
               <View style={styles.makeDivider} />
-              <MakeDetailRow inset label="性别 / 绝育" value={`${genderText} / 待补充`} />
+              <MakeDetailRow inset label="性别 / 绝育" value={`${genderSymbol} / 待补充`} />
               <View style={styles.makeDivider} />
-              <MakeDetailRow inset label="毛色" value="待识别" />
+              <MakeDetailRow inset label="毛色" value={coatColor} />
             </View>
             <View style={styles.settingsGroupMake}>
               <Text style={styles.settingsGroupTitle}>健康</Text>
-              <ProfileMakeRow Icon={HeartPulse} onPress={() => go('health')} title="健康分" value={`${pet.healthScore} / 100`} />
-              <ProfileMakeRow Icon={Syringe} onPress={() => go('vaccine')} title="疫苗计划" value={vaccineValue} />
+              <ProfileMakeRow Icon={Heart} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('vaccine')} title="疫苗与驱虫" value={vaccineValue} />
+              <ProfileMakeRow Icon={Clock} iconBg="#FBF2D9" iconColor={palette.warning} last onPress={() => go('healthMemos')} title="健康备忘" value={memoValue} />
             </View>
           </View>
         ) : (
@@ -6766,28 +6776,36 @@ function MenuRow({
 
 function ProfileMakeRow({
   Icon,
+  iconBg = palette.orangeSoft,
+  iconColor = palette.orange,
+  last,
   onPress,
+  right,
   title,
   value,
 }: {
   Icon: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
+  iconBg?: string;
+  iconColor?: string;
+  last?: boolean;
   onPress?: () => void;
+  right?: ReactNode;
   title: string;
   value?: string;
 }) {
   return (
-    <Pressable disabled={!onPress} onPress={onPress} style={[styles.profileMakeRow, !onPress && styles.profileMakeRowStatic]}>
-      <View style={styles.profileMakeRowIcon}>
-        <Icon color={palette.orange} size={16} strokeWidth={2.4} />
+    <Pressable disabled={!onPress} onPress={onPress} style={[styles.profileMakeRow, last && styles.profileMakeRowLast, !onPress && styles.profileMakeRowStatic]}>
+      <View style={[styles.profileMakeRowIcon, { backgroundColor: iconBg }]}>
+        <Icon color={iconColor} size={16} strokeWidth={2.4} />
       </View>
       <Text numberOfLines={1} style={styles.profileMakeRowTitle}>
         {title}
       </Text>
-      {value ? (
+      {right ?? (value ? (
         <Text numberOfLines={1} style={styles.profileMakeRowValue}>
           {value}
         </Text>
-      ) : null}
+      ) : null)}
       {onPress ? <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} /> : null}
     </Pressable>
   );
@@ -7486,9 +7504,11 @@ const styles = StyleSheet.create({
   petDetailCameraText: { color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   petDetailEdit: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, bottom: 14, flexDirection: 'row', gap: 4, paddingHorizontal: 12, paddingVertical: 7, position: 'absolute', right: 16 },
   petDetailEditText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
-  petDetailHeroMake: { alignItems: 'center', backgroundColor: '#f4b879', borderRadius: 22, height: 220, justifyContent: 'center', overflow: 'hidden', position: 'relative' },
+  petDetailHeroImage: { height: '100%', width: '100%' },
+  petDetailHeroMake: { alignItems: 'center', backgroundColor: '#f4b879', height: 220, justifyContent: 'center', marginHorizontal: -20, marginTop: -18, overflow: 'hidden', position: 'relative' },
   petDetailHeroMeta: { color: 'rgba(255,255,255,0.9)', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', marginTop: 2 },
   petDetailHeroName: { color: '#fff', fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', lineHeight: 31 },
+  petDetailHeroOverlay: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, rgba(0,0,0,0) 38%, rgba(0,0,0,0.56) 100%)' } as object) : null), backgroundColor: 'rgba(0,0,0,0.18)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
   petDetailHeroText: { bottom: 14, left: 18, position: 'absolute' },
   petDetailMakePage: { gap: 14 },
   petDetailStatCard: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, flex: 1, paddingHorizontal: 10, paddingVertical: 10 },
@@ -7554,6 +7574,7 @@ const styles = StyleSheet.create({
   profileMakePage: { paddingTop: 0 },
   profileMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 58, paddingHorizontal: 16, paddingVertical: 12 },
   profileMakeRowIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 12, height: 34, justifyContent: 'center', width: 34 },
+  profileMakeRowLast: { borderBottomWidth: 0 },
   profileMakeRowStatic: { opacity: 0.92 },
   profileMakeRowTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20, minWidth: 0 },
   profileMakeRowValue: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18, maxWidth: '42%', minWidth: 0, textAlign: 'right' },
@@ -7574,6 +7595,7 @@ const styles = StyleSheet.create({
   profileSectionLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   profileSectionLabelRow: { flexDirection: 'row', justifyContent: 'space-between', paddingBottom: 8, paddingHorizontal: 4 },
   profileSettingsButton: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 },
+  profileUnreadBadge: { backgroundColor: palette.danger, borderRadius: 10, color: '#fff', fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
   profileVerifyPill: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 10, flexDirection: 'row', gap: 4, marginTop: 8, paddingHorizontal: 8, paddingVertical: 3 },
   profileVerifyText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
   progressFill: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(90deg, #FFB48C 0%, #FF8A5C 60%, #FF6F3B 100%)' } as object) : null), backgroundColor: palette.orange, borderRadius: 999, height: '100%', shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.45, shadowRadius: 12 },
