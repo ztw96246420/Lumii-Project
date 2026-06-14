@@ -408,6 +408,7 @@ export type AppRoute =
   | 'login'
   | 'map'
   | 'memoEdit'
+  | 'memoNew'
   | 'messages'
   | 'multiPet'
   | 'notifications'

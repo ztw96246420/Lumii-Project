@@ -60,6 +60,7 @@ import {
   Star,
   Stethoscope,
   Syringe,
+  Tag,
   Trash2,
   User,
   Users,
@@ -142,6 +143,7 @@ const routeTitles: Partial<Record<AppRoute, string>> = {
   home: '灵伴',
   map: '地图',
   memoEdit: '编辑备忘',
+  memoNew: '新增健康备忘',
   messages: '消息',
   multiPet: '我的宠物',
   notifications: '通知中心',
@@ -174,7 +176,7 @@ const tabBackToHomeRoutes = new Set<AppRoute>(['discover', 'map', 'messages', 'p
 const appExitPromptRoutes = new Set<AppRoute>(['emptyPet', 'home', 'login', 'permissions']);
 const focusedInboxRoutes = new Set<AppRoute>(['greetingRequests', 'messages', 'notifications']);
 const passiveInboxRoutes = new Set<AppRoute>(['discover', 'home', 'map', 'profile']);
-const petRequiredRoutes = new Set<AppRoute>(['aiResult', 'chat', 'dailyPost', 'editPet', 'generating', 'health', 'healthMemos', 'home', 'memoEdit', 'petDetail', 'upload', 'uploadDetail', 'uploadNoPet', 'vaccine', 'weight']);
+const petRequiredRoutes = new Set<AppRoute>(['aiResult', 'chat', 'dailyPost', 'editPet', 'generating', 'health', 'healthMemos', 'home', 'memoEdit', 'memoNew', 'petDetail', 'upload', 'uploadDetail', 'uploadNoPet', 'vaccine', 'weight']);
 const avatarFlowRoutes = new Set<AppRoute>(['upload', 'uploadDetail', 'uploadNoPet', 'generating', 'aiResult']);
 const homeChatPrompts = [
   '今天想和{petName}聊点什么？',
@@ -537,8 +539,8 @@ export default function LumiiMvpApp() {
   const memoEditSavingRef = useRef(false);
   const [memoDeleting, setMemoDeleting] = useState(false);
   const memoDeletingRef = useRef(false);
-  const [memoDraftTitle, setMemoDraftTitle] = useState('洗澡记录');
-  const [memoDraftContent, setMemoDraftContent] = useState('今天洗澡后耳朵干净，皮肤没有明显泛红。');
+  const [memoDraftTitle, setMemoDraftTitle] = useState('驱虫');
+  const [memoDraftContent, setMemoDraftContent] = useState('外用滴剂 · 拜耳拜宠清');
   const [memoDraftSaving, setMemoDraftSaving] = useState(false);
   const memoDraftSavingRef = useRef(false);
   const [vaccineReminderSavingIds, setVaccineReminderSavingIds] = useState<string[]>([]);
@@ -2838,6 +2840,14 @@ export default function LumiiMvpApp() {
     }
     const requestTitle = memoDraftTitle.trim();
     const requestContent = memoDraftContent.trim();
+    if (requestTitle.length > 20) {
+      showToast('标题最多 20 个字');
+      return;
+    }
+    if (requestContent.length > 200) {
+      showToast('内容最多 200 个字');
+      return;
+    }
     memoDraftSavingRef.current = true;
     setMemoDraftSaving(true);
     try {
@@ -2845,10 +2855,11 @@ export default function LumiiMvpApp() {
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setMemos((items) => [result.data!, ...items]);
-        setMemoDraftTitle('');
-        setMemoDraftContent('');
+        setMemoDraftTitle('驱虫');
+        setMemoDraftContent('外用滴剂 · 拜耳拜宠清');
         void refreshHealthSummary();
         showToast('健康备忘已保存', { tone: 'success', variant: 'surface' });
+        replace('healthMemos');
       } else {
         showToast(result.error?.message ?? '保存失败，请稍后重试', { tone: 'error', variant: 'surface' });
       }
@@ -2932,7 +2943,6 @@ export default function LumiiMvpApp() {
         setSelectedMemo(result.data);
         void refreshHealthSummary();
         showToast('备忘已保存', { tone: 'success', variant: 'surface' });
-        replace('healthMemos');
       } else {
         showToast(result.error?.message ?? '备忘保存失败', { tone: 'error', variant: 'surface' });
       }
@@ -3566,8 +3576,8 @@ export default function LumiiMvpApp() {
     setMemoEditSaving(false);
     memoDeletingRef.current = false;
     setMemoDeleting(false);
-    setMemoDraftTitle('洗澡记录');
-    setMemoDraftContent('今天洗澡后耳朵干净，皮肤没有明显泛红。');
+    setMemoDraftTitle('驱虫');
+    setMemoDraftContent('外用滴剂 · 拜耳拜宠清');
     memoDraftSavingRef.current = false;
     setMemoDraftSaving(false);
     vaccineReminderSavingIdsRef.current.clear();
@@ -4680,59 +4690,154 @@ export default function LumiiMvpApp() {
   }
 
   function renderHealthMemos() {
+    const petName = getCurrentPet()?.name ?? '灵伴';
     return (
-      <Screen title="健康备忘">
-        <View style={styles.healthMemoEditorMake}>
-          <View style={styles.rowBetween}>
-            <View>
-              <Text style={styles.sectionTitle}>新增备忘</Text>
-              <Text style={styles.timelineSubMake}>记录洗澡、驱虫、便便、食欲或异常观察</Text>
-            </View>
-            <View style={styles.healthMemoIconMake}>
-              <NotebookPen color={palette.orange} size={20} strokeWidth={2.4} />
-            </View>
+      <Screen
+        right={(
+          <Pressable accessibilityLabel="新增健康备忘" accessibilityRole="button" onPress={() => go('memoNew')} style={[styles.weightAddLink, webPressableReset]}>
+            <Plus color={palette.orange} size={15} strokeWidth={2.6} />
+            <Text style={styles.weightAddLinkText}>新增</Text>
+          </Pressable>
+        )}
+        title="健康备忘"
+      >
+        <View style={styles.memoIntroCard}>
+          <View style={styles.memoIntroIcon}>
+            <NotebookPen color={palette.orange} size={16} strokeWidth={2.4} />
           </View>
-          <Field label="标题" onChangeText={setMemoDraftTitle} placeholder="例如：洗澡记录" value={memoDraftTitle} />
+          <Text style={styles.memoIntroText}>备忘可以记录洗澡、用药、心情、奇怪小习惯…</Text>
+        </View>
+
+        {memos.length ? (
+          <View style={styles.memoListCard}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.sectionTitle}>全部备忘</Text>
+              <Text style={styles.metaText}>{memos.length} 条</Text>
+            </View>
+            {memos.map((memo, index) => (
+              <View key={memo.id}>
+                <Pressable onPress={() => openMemoEditor(memo)} style={[styles.memoListRow, webPressableReset]}>
+                  <View style={styles.memoListIcon}>
+                    <NotebookPen color={index % 2 === 1 ? palette.teal : palette.orange} size={15} strokeWidth={2.4} />
+                  </View>
+                  <View style={styles.flex}>
+                    <Text numberOfLines={1} style={styles.timelineTitleMake}>{memo.title}</Text>
+                    <Text numberOfLines={2} style={styles.timelineSubMake}>{memo.content}</Text>
+                  </View>
+                  <View style={styles.memoListTrail}>
+                    <Text style={styles.timelineDateMake}>{memo.updatedAt}</Text>
+                    <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
+                  </View>
+                </Pressable>
+                {index < memos.length - 1 ? <View style={styles.makeDivider} /> : null}
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.memoEmptyMake}>
+            <View style={styles.memoEmptyArt}>
+              <View style={styles.memoEmptyGlow} />
+              <View style={styles.memoEmptyCircle}>
+                <NotebookPen color={palette.orange} size={38} strokeWidth={1.7} />
+              </View>
+            </View>
+            <Text style={styles.memoEmptyTitle}>还没有健康备忘</Text>
+            <Text style={styles.memoEmptyDesc}>随手记下{petName}今天的小事，未来翻起来会很温暖</Text>
+            <Pressable onPress={() => go('memoNew')} style={[styles.memoEmptyButton, webPressableReset]}>
+              <Plus color="#fff" size={15} strokeWidth={2.7} />
+              <Text style={styles.memoEmptyButtonText}>新建备忘</Text>
+            </Pressable>
+          </View>
+        )}
+      </Screen>
+    );
+  }
+
+  function renderMemoNew() {
+    const memoTypes = [
+      { Icon: Sparkles, label: '洗澡' },
+      { Icon: Shield, label: '驱虫' },
+      { Icon: Stethoscope, label: '体检' },
+      { Icon: NotebookPen, label: '其他' },
+    ];
+    const repeatOptions = ['不重复', '每月', '每 3 月', '每年'];
+    const titleCount = memoDraftTitle.trim().length;
+    const contentCount = memoDraftContent.trim().length;
+    const invalid = !memoDraftTitle.trim() || !memoDraftContent.trim() || titleCount > 20 || contentCount > 200;
+    return (
+      <Screen
+        right={(
+          <Pressable disabled={invalid || memoDraftSaving} onPress={() => void saveMemoDraft()} style={[styles.memoTopSave, (invalid || memoDraftSaving) && styles.memoTopSaveDisabled, webPressableReset]}>
+            <Text style={[styles.memoTopSaveText, (invalid || memoDraftSaving) && styles.memoTopSaveTextDisabled]}>{memoDraftSaving ? '保存中' : '保存'}</Text>
+          </Pressable>
+        )}
+        title="新增健康备忘"
+      >
+        <View style={styles.memoNewPage}>
+          <Text style={styles.memoFieldLabel}>备忘类型</Text>
+          <View style={styles.memoTypeGrid}>
+            {memoTypes.map(({ Icon, label }) => {
+              const active = memoDraftTitle === label;
+              return (
+                <Pressable key={label} onPress={() => setMemoDraftTitle(label)} style={[styles.memoTypeCell, active && styles.memoTypeCellActive, webPressableReset]}>
+                  <Icon color={active ? palette.orange : palette.muted} size={18} strokeWidth={2.4} />
+                  <Text style={[styles.memoTypeText, active && styles.memoTypeTextActive]}>{label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text style={styles.memoFieldLabel}>提醒时间</Text>
+          <View style={styles.memoPickerRow}>
+            <CalendarDays color={palette.orange} size={16} strokeWidth={2.4} />
+            <Text style={styles.memoPickerValue}>2026-09-28 · 09:00</Text>
+            <ChevronRight color={palette.muted} size={16} strokeWidth={2.4} />
+          </View>
+
+          <Text style={styles.memoFieldLabel}>重复</Text>
+          <View style={styles.memoRepeatRow}>
+            {repeatOptions.map((item) => {
+              const active = item === '每 3 月';
+              return (
+                <View key={item} style={[styles.memoRepeatOption, active && styles.memoRepeatOptionActive]}>
+                  <Text style={[styles.memoRepeatText, active && styles.memoRepeatTextActive]}>{item}</Text>
+                </View>
+              );
+            })}
+          </View>
+
+          <Text style={styles.memoFieldLabel}>备注</Text>
           <TextInput
             multiline
             onChangeText={setMemoDraftContent}
-            placeholder="例如：今天洗澡后耳朵干净，皮肤没有明显泛红。"
-            placeholderTextColor="#b6aca3"
-            style={[styles.longTextInput, webTextInputReset]}
+            placeholder="今天有什么值得记录的小事？"
+            placeholderTextColor="#B8B3A8"
+            style={[styles.memoNoteInput, contentCount > 200 && styles.makeTextInputError, webTextInputReset]}
+            textAlignVertical="top"
             value={memoDraftContent}
           />
-          <View style={styles.infoChipRow}>
-            <Text style={styles.infoChip}>今天</Text>
-            <Text style={styles.infoChip}>可同步健康时间线</Text>
+          <View style={styles.fieldHintRow}>
+            <Text style={[styles.fieldHintText, contentCount > 200 && styles.fieldHintError]}>{!memoDraftContent.trim() ? '备忘内容不能为空' : contentCount > 200 ? '内容最多 200 个字' : ' '}</Text>
+            <Text style={[styles.fieldHintText, contentCount > 200 && styles.fieldHintError]}>{contentCount}/200</Text>
           </View>
-          <Button loading={memoDraftSaving} onPress={() => void saveMemoDraft()}>保存备忘</Button>
-        </View>
 
-        <View style={styles.healthTimelineCard}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.sectionTitle}>全部备忘</Text>
-            <Text style={styles.metaText}>{memos.length} 条</Text>
-          </View>
-          {memos.length ? memos.map((memo, index) => (
-            <View key={memo.id}>
-              <Pressable onPress={() => openMemoEditor(memo)} style={[styles.timelineRowMake, webPressableReset]}>
-                <View style={[styles.timelineDotMake, index % 2 === 1 && styles.timelineDotCool]} />
-                <View style={styles.flex}>
-                  <Text style={styles.timelineTitleMake}>{memo.title}</Text>
-                  <Text style={styles.timelineSubMake}>{memo.content}</Text>
-                </View>
-                <Text style={styles.timelineDateMake}>{memo.updatedAt}</Text>
-                <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
-              </Pressable>
-              {index < memos.length - 1 ? <View style={styles.makeDivider} /> : null}
+          <View style={styles.memoReminderRow}>
+            <View style={styles.memoReminderIcon}>
+              <Bell color={palette.orange} size={15} strokeWidth={2.4} />
             </View>
-          )) : (
-            <EmptyState
-              description="先记录一条小事，后面可以按时间线查看。"
-              icon={<NotebookPen color={palette.muted} size={26} strokeWidth={2.4} />}
-              title="还没有备忘"
-            />
-          )}
+            <View style={styles.flex}>
+              <Text style={styles.timelineTitleMake}>到期前提醒</Text>
+              <Text style={styles.timelineSubMake}>提前 3 天通知</Text>
+            </View>
+            <View style={styles.memoSwitchTrack}>
+              <View style={styles.memoSwitchThumb} />
+            </View>
+          </View>
+
+          <Pressable disabled={invalid || memoDraftSaving} onPress={() => void saveMemoDraft()} style={[styles.memoPrimaryCta, (invalid || memoDraftSaving) && styles.memoPrimaryCtaDisabled, webPressableReset]}>
+            {memoDraftSaving ? <ActivityIndicator color="#fff" size="small" /> : <Check color="#fff" size={16} strokeWidth={3} />}
+            <Text style={styles.memoPrimaryCtaText}>{memoDraftSaving ? '正在保存备忘…' : '保存备忘'}</Text>
+          </Pressable>
         </View>
       </Screen>
     );
@@ -4744,20 +4849,10 @@ export default function LumiiMvpApp() {
     const invalid = !memoEditTitle.trim() || !memoEditContent.trim() || titleCount > 20 || contentCount > 200;
     return (
       <Screen title="编辑备忘">
-        <View style={styles.editFormCard}>
-          <View style={styles.rowBetween}>
-            <View>
-              <Text style={styles.sectionTitle}>备忘内容</Text>
-              <Text style={styles.timelineSubMake}>保存后会同步到健康时间线</Text>
-            </View>
-            <View style={styles.healthMemoIconMake}>
-              <NotebookPen color={palette.orange} size={20} strokeWidth={2.4} />
-            </View>
-          </View>
+        <View style={styles.memoEditFormMake}>
           <View style={styles.makeFieldGroup}>
             <Text style={styles.makeFieldLabel}>备忘标题 *</Text>
             <TextInput
-              maxLength={24}
               onChangeText={setMemoEditTitle}
               placeholder="例如：洗澡记录"
               placeholderTextColor="#B8B3A8"
@@ -4785,20 +4880,32 @@ export default function LumiiMvpApp() {
               <Text style={[styles.fieldHintText, contentCount > 200 && styles.fieldHintError]}>{contentCount}/200</Text>
             </View>
           </View>
-          <View style={styles.memoMetaBox}>
-            <View style={styles.metaIconBox}>
-              <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
+
+          <View style={styles.memoMetaCard}>
+            <View style={[styles.memoMetaRowMake, styles.memoMetaRowBorder]}>
+              <View style={styles.metaIconBox}>
+                <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
+              </View>
+              <Text style={styles.timelineTitleMake}>日期</Text>
+              <Text style={styles.timelineDateMake}>{selectedMemo?.updatedAt ?? '今天'}</Text>
+              <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
             </View>
-            <Text style={styles.timelineTitleMake}>日期</Text>
-            <Text style={styles.timelineDateMake}>{selectedMemo?.updatedAt ?? '今天'}</Text>
+            <View style={styles.memoMetaRowMake}>
+              <View style={styles.metaIconBox}>
+                <Tag color={palette.muted} size={13} strokeWidth={2.3} />
+              </View>
+              <Text style={styles.timelineTitleMake}>分类</Text>
+              <Text style={styles.timelineDateMake}>日常护理</Text>
+              <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
+            </View>
           </View>
         </View>
         <View style={styles.editActionStack}>
-          <Button disabled={invalid} loading={memoEditSaving} onPress={() => void saveMemoEdit()}>保存修改</Button>
           <Pressable disabled={memoDeleting || memoEditSaving} onPress={confirmDeleteMemo} style={[styles.deleteTextButton, webPressableReset]}>
             {memoDeleting ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={15} strokeWidth={2.4} />}
             <Text style={styles.deleteTextButtonLabel}>删除备忘</Text>
           </Pressable>
+          <Button disabled={invalid} loading={memoEditSaving} onPress={() => void saveMemoEdit()}>保存修改</Button>
         </View>
       </Screen>
     );
@@ -6363,6 +6470,8 @@ export default function LumiiMvpApp() {
         return renderHealthMemos();
       case 'memoEdit':
         return renderMemoEdit();
+      case 'memoNew':
+        return renderMemoNew();
       case 'home':
         return renderHome();
       case 'login':
@@ -6865,6 +6974,51 @@ const styles = StyleSheet.create({
   makeTextInput: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1.5, color: palette.ink, flexDirection: 'row', fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', gap: 10, minHeight: 48, paddingHorizontal: 14, paddingVertical: 10 },
   makeTextInputError: { borderColor: palette.danger },
   memoMetaBox: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  memoEditFormMake: { gap: 4, paddingTop: 0 },
+  memoEmptyArt: { height: 140, marginBottom: 14, position: 'relative', width: 140 },
+  memoEmptyButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 13, flexDirection: 'row', gap: 7, justifyContent: 'center', marginTop: 22, minHeight: 44, paddingHorizontal: 24, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.28, shadowRadius: 22 },
+  memoEmptyButtonText: { color: '#fff', fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
+  memoEmptyCircle: { alignItems: 'center', backgroundColor: '#FFE9D6', borderColor: 'rgba(255,255,255,0.86)', borderRadius: 54, borderWidth: 1, height: 108, justifyContent: 'center', left: 16, position: 'absolute', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.2, shadowRadius: 24, top: 16, width: 108 },
+  memoEmptyDesc: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21, marginTop: 8, maxWidth: 260, textAlign: 'center' },
+  memoEmptyGlow: { backgroundColor: 'rgba(255,138,92,0.16)', borderRadius: 70, height: 140, left: 0, position: 'absolute', top: 0, width: 140 },
+  memoEmptyMake: { alignItems: 'center', justifyContent: 'center', minHeight: 500, paddingHorizontal: 30, paddingVertical: 34 },
+  memoEmptyTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700', lineHeight: 22, textAlign: 'center' },
+  memoFieldLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', marginBottom: 8, marginTop: 16 },
+  memoIntroCard: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E2 0%, #FFE3D1 100%)' } as object) : null), alignItems: 'center', backgroundColor: '#FFE7D6', borderRadius: 16, flexDirection: 'row', gap: 10, marginTop: 8, padding: 12 },
+  memoIntroIcon: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
+  memoIntroText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17 },
+  memoListCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 14, paddingHorizontal: 14, paddingVertical: 8 },
+  memoListIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 10, flexShrink: 0, height: 32, justifyContent: 'center', width: 32 },
+  memoListRow: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 68, paddingVertical: 10 },
+  memoListTrail: { alignItems: 'center', flexDirection: 'row', flexShrink: 0, gap: 4 },
+  memoMetaCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, marginTop: 4, overflow: 'hidden' },
+  memoMetaRowBorder: { borderBottomColor: palette.border, borderBottomWidth: 1 },
+  memoMetaRowMake: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 50, paddingHorizontal: 14, paddingVertical: 12 },
+  memoNewPage: { paddingTop: 0 },
+  memoNoteInput: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', lineHeight: 22, minHeight: 92, paddingHorizontal: 16, paddingTop: 12 },
+  memoPickerRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, height: 52, paddingHorizontal: 16 },
+  memoPickerValue: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
+  memoPrimaryCta: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center', marginTop: 28, shadowColor: palette.orange, shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.28, shadowRadius: 28 },
+  memoPrimaryCtaDisabled: { backgroundColor: palette.pale, shadowOpacity: 0 },
+  memoPrimaryCtaText: { color: '#fff', fontFamily: appFontFamily, fontSize: 15.5, fontWeight: '700' },
+  memoReminderIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 17, height: 34, justifyContent: 'center', width: 34 },
+  memoReminderRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 14, paddingHorizontal: 16, paddingVertical: 14 },
+  memoRepeatOption: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flex: 1, justifyContent: 'center', minHeight: 40 },
+  memoRepeatOptionActive: { backgroundColor: 'rgba(255,138,92,0.12)', borderColor: palette.orange, borderWidth: 1.5 },
+  memoRepeatRow: { flexDirection: 'row', gap: 8 },
+  memoRepeatText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
+  memoRepeatTextActive: { color: palette.orange, fontWeight: '700' },
+  memoSwitchThumb: { backgroundColor: '#fff', borderRadius: 11, height: 22, marginLeft: 18, shadowColor: '#000', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.18, shadowRadius: 4, width: 22 },
+  memoSwitchTrack: { backgroundColor: palette.orange, borderRadius: 13, height: 26, padding: 2, width: 44 },
+  memoTopSave: { paddingHorizontal: 0, paddingVertical: 8 },
+  memoTopSaveDisabled: { opacity: 0.55 },
+  memoTopSaveText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  memoTopSaveTextDisabled: { color: palette.muted },
+  memoTypeCell: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flex: 1, gap: 6, minHeight: 66, justifyContent: 'center', paddingVertical: 10 },
+  memoTypeCellActive: { backgroundColor: 'rgba(255,138,92,0.12)', borderColor: palette.orange, borderWidth: 1.5 },
+  memoTypeGrid: { flexDirection: 'row', gap: 8 },
+  memoTypeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
+  memoTypeTextActive: { color: palette.orange, fontWeight: '700' },
   metaIconBox: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 8, height: 26, justifyContent: 'center', width: 26 },
   multiPetActions: { alignItems: 'flex-end', gap: 8 },
   multiPetHero: { backgroundColor: '#FFE3D1', borderRadius: 20, gap: 0, marginTop: 2, overflow: 'hidden', padding: 14, position: 'relative' },

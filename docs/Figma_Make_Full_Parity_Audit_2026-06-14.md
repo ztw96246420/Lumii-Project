@@ -64,7 +64,7 @@
 | 30 | 体重记录 | `renderWeight` | 已接入-需视觉复核 | 本轮将页面中部自写输入表单收敛为 Screen97/99 的“历史记录 + 添加入口 + 底部弹层”结构，保留体重记录能力 |
 | 31 | 体重趋势 | `renderWeight` | 已接入-需视觉复核 | 本轮补趋势卡顶部摘要、健康区间、面积趋势图、统计 tile 和健康提示卡；仍需真机截图复核曲线密度 |
 | 32 | 疫苗计划 | `renderVaccine` | 已接入-需视觉复核 | 本轮按 Screen32 收敛为暖橙渐变 Hero、40px 胶囊操作按钮、计划列表卡、状态 tag 和接种提示卡；仍需真机截图复核列表行距 |
-| 33 | 新增健康备忘 | `renderHealthMemos`/`renderMemoEdit` | 部分接入 | 新增与编辑共用逻辑，需按 Screen33/92 分状态精修 |
+| 33 | 新增健康备忘 | `renderMemoNew` | 已接入-需视觉复核 | 本轮拆出独立新增备忘页，按 Screen33 补 4 等分备忘类型、52px 提醒时间行、重复选项、备注输入、提醒开关和 52px 底部 CTA |
 | 34 | 发布今日小事 | `renderDailyPost` | 已接入-需视觉复核 | 发布卡片、图片区域、按钮需复核 |
 | 35 | 社交发现页 | `renderDiscover` | 已接入-需视觉复核 | 卡片、筛选、刷新、距离 chip 需复核 |
 | 36 | 筛选无结果 | `renderDiscover` + `EmptyState` | 本轮已迁移-需视觉复核 | 已改为统一 EmptyState 并带刷新/查看全部 CTA；仍需截图对齐 Screen36 的插画层 |
@@ -123,11 +123,11 @@
 | 89 | 保存中 | `renderOwnerEdit` | 已接入-需视觉复核 | 保存按钮 loading 需复核 |
 | 90 | 保存成功 | `Toast` + owner save | 部分接入 | Toast 本轮已修，成功态内容需复核 |
 | 91 | 保存失败 | `Toast` + owner save | 部分接入 | 失败 Toast 类型化需补 |
-| 92 | 编辑备忘 默认态 | `renderMemoEdit` | 已接入-需视觉复核 | 本轮已按源码轻表单区调整 label、textarea、日期/分类元信息卡；删除入口和确认弹窗仍需截图复核 |
-| 93 | 保存中 | `renderMemoEdit` | 已接入-需视觉复核 | 保存 loading 需复核 |
-| 94 | 保存成功 | `Toast` + memo save | 部分接入 | Toast 本轮已修，成功内容需复核 |
-| 95 | 删除备忘 二次确认 | `ConfirmDialog` | 部分接入 | Dialog 本轮已修，内容需复核 |
-| 96 | 删除成功 备忘空状态 | `renderHealthMemos` | 部分接入 | 空态需按 Screen96 精修 |
+| 92 | 编辑备忘 默认态 | `renderMemoEdit` | 已接入-需视觉复核 | 本轮已按 Screen92 改为无外层卡轻表单，补 14px 圆角输入框、内容计数、日期/分类双行元信息卡和居中删除入口 |
+| 93 | 保存中 | `renderMemoEdit` | 已接入-需视觉复核 | 保存按钮保留 loading，编辑页不再立即跳回列表；顶部 loading Toast 仍可后续按 Screen93 独立增强 |
+| 94 | 保存成功 | `Toast` + memo save | 已接入-需视觉复核 | 编辑保存成功后停留在编辑页并显示 surface 成功 Toast，更接近 Screen94；Toast 副文案仍可继续复刻 |
+| 95 | 删除备忘 二次确认 | `ConfirmDialog` | 已接入-需视觉复核 | Dialog 走危险态图标块和红色确认按钮，文案按当前宠物备忘标题生成；仍需截图核对宽度 |
+| 96 | 删除成功 备忘空状态 | `renderHealthMemos` | 已接入-需视觉复核 | 本轮补 Screen96 风格暖色提示卡、大号圆形备忘插画、空状态文案和“新建备忘”主 CTA |
 | 97 | 体重趋势 正常 | `renderWeight` | 已接入-需视觉复核 | 本轮按 Screen97 强化趋势卡、稳定提示、历史记录标题右侧“添加”和独立圆角记录卡，首条高亮 |
 | 98 | 体重趋势 异常 | `renderWeight` | 已接入-需视觉复核 | 本轮异常态已使用 Screen98 的暖黄提示卡、体重下降 pill 和记录卡高亮方向；仍需真机截图复核文案折行 |
 | 99 | 编辑体重 弹层 | `renderWeight` + `BottomSheet` | 已接入-需视觉复核 | 本轮将新增和编辑体重统一迁移到 Screen99 风格 Bottom Sheet：大数字输入、快捷 +/- chip、日期/备注元信息卡、删除入口 |
