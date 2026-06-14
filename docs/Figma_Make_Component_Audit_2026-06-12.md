@@ -30,6 +30,7 @@
   - Screen1-19 主链路二次收敛：登录页改用源码 52px 胶囊短信按钮，手机号输入框/协议行贴近 PhoneInput/Agreement；权限行、上传卡、识别详情卡和生成进度条继续按 Figma Make 源码收敛。
   - Screen20 生成结果二次收敛：补 Figma Make 的 PageBg 暖色/青色氛围层、AI 形象 halo/ring、原图浮层 chip、AI 灵伴 badge 和 54px 结果页 CTA。
   - Screen26 电子宠物首页二次收敛：补宠物舞台 halo/ring、浮层聊天提示、在线徽标、健康分圆环和 2x2 快捷卡间距，使首页更接近 Figma Make 源码。
+  - Screen27 AI 对话页二次收敛：改为固定底部输入结构、横向快捷话题、头像在线点、安全提示和点状 typing 气泡，减少自写流程感。
 
 ## 后续注意
 
