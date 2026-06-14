@@ -3587,7 +3587,7 @@ export default function LumiiMvpApp() {
   }
 
   const Screen = useCallback(
-    function ScreenView({ children, refreshControl, showBack = true, title }: { children: ReactNode; refreshControl?: ReactElement<RefreshControlProps>; showBack?: boolean; title?: string }) {
+    function ScreenView({ children, refreshControl, right, showBack = true, title }: { children: ReactNode; refreshControl?: ReactElement<RefreshControlProps>; right?: ReactNode; showBack?: boolean; title?: string }) {
       const headerTitle = title ?? routeTitles[route] ?? '灵伴';
       const hideHeader = route === 'login' || route === 'home' || route === 'discover' || route === 'map' || route === 'messages' || route === 'profile' || route === 'chat' || route === 'placeDetail';
       const isLoginRoute = route === 'login';
@@ -3608,7 +3608,7 @@ export default function LumiiMvpApp() {
                   <View style={[styles.headerSpacer, isOtpRoute && styles.otpHeaderSpacer]} />
                 )}
                 <Text style={styles.headerTitle}>{headerTitle}</Text>
-                <View style={[styles.headerSpacer, isOtpRoute && styles.otpHeaderSpacer]} />
+                {right ? <View style={[styles.headerActionSlot, isOtpRoute && styles.otpHeaderSpacer]}>{right}</View> : <View style={[styles.headerSpacer, isOtpRoute && styles.otpHeaderSpacer]} />}
               </View>
             </View>
           )}
@@ -4555,9 +4555,44 @@ export default function LumiiMvpApp() {
     const memoSubtitle = latestMemo ? `${latestMemo.title} · ${latestMemo.updatedAt}` : '记录洗澡、驱虫、食欲或异常观察';
     const urgentHealthCount = healthSummary?.urgentVaccineCount ?? urgentVaccines.length;
     const pendingHealthCount = healthSummary?.pendingVaccineCount ?? pendingVaccines.length;
+    const recentRows = [
+      {
+        Icon: Weight,
+        date: weights[0]?.recordedAt ?? '待记录',
+        dot: 'warm' as const,
+        sub: weights[1] ? `较上次 ${Number(latestWeight ?? 0) >= weights[1].kg ? '+' : ''}${(Number(latestWeight ?? 0) - weights[1].kg).toFixed(1).replace(/\.0$/, '')}kg` : weightSubtitle,
+        title: `体重 ${formatWeightKg(latestWeight)}`,
+      },
+      nextHealthVaccine
+        ? {
+          Icon: nextHealthVaccine.status === 'done' ? Check : Syringe,
+          date: nextHealthVaccine.dueAt,
+          dot: 'cool' as const,
+          sub: nextHealthVaccine.status === 'done' ? '已完成' : vaccineReminderCopy(nextHealthVaccine),
+          title: nextHealthVaccine.status === 'done' ? `${nextHealthVaccine.name}完成` : `${nextHealthVaccine.name}提醒`,
+        }
+        : null,
+      latestMemo
+        ? {
+          Icon: Sparkles,
+          date: latestMemo.updatedAt,
+          dot: 'muted' as const,
+          sub: latestMemo.content,
+          title: latestMemo.title,
+        }
+        : null,
+    ].filter(Boolean) as Array<{ Icon: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>; date: string; dot: 'cool' | 'muted' | 'warm'; sub: string; title: string }>;
     return (
-      <Screen title={`${pet?.name ?? '灵伴'}的健康`}>
+      <Screen
+        right={(
+          <Pressable accessibilityLabel="新增健康记录" accessibilityRole="button" onPress={() => go('healthMemos')} style={styles.makeIconChip}>
+            <Plus color={palette.ink} size={18} strokeWidth={2.4} />
+          </Pressable>
+        )}
+        title={`${pet?.name ?? '灵伴'}的健康`}
+      >
         <View style={styles.healthHeroMake}>
+          <View style={styles.healthHeroGlow} />
           <View style={styles.healthHeroCopy}>
             <View style={styles.healthHeroLabelRow}>
               <HeartPulse color={palette.orange} size={13} strokeWidth={2.4} />
@@ -4575,7 +4610,7 @@ export default function LumiiMvpApp() {
         </View>
 
         <View style={styles.healthSectionStack}>
-          <HealthMakeRow Icon={Weight} badge={formatWeightKg(latestWeight)} onPress={() => go('weight')} subtitle={weightSubtitle} title="体重趋势" tone="warm" />
+          <HealthMakeRow Icon={Weight} badge={formatWeightKg(latestWeight)} chart onPress={() => go('weight')} subtitle={weightSubtitle} title="体重趋势" tone="warm" />
           <HealthMakeRow Icon={Syringe} badge={urgentHealthCount ? `${urgentHealthCount} 项临近` : pendingHealthCount ? `${pendingHealthCount} 项` : '已完成'} onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${vaccineReminderCopy(nextHealthVaccine)}` : '暂无计划'} title="疫苗计划" tone="cool" />
           <HealthMakeRow Icon={CalendarDays} badge={`${memoCount} 条`} onPress={() => go('healthMemos')} subtitle={memoSubtitle} title="健康备忘" tone="warm" />
         </View>
@@ -4593,26 +4628,30 @@ export default function LumiiMvpApp() {
           </Pressable>
         ) : null}
 
-        <View style={styles.healthMemoMake}>
-          <Text style={styles.sectionTitle}>快速备忘</Text>
-          <Field label="标题" onChangeText={setMemoTitle} value={memoTitle} />
-          <Field label="内容" onChangeText={setMemoContent} placeholder="例如：今天食欲很好，便便正常" value={memoContent} />
-          <Button loading={memoSaving} onPress={() => void saveHealthMemo()}>保存备忘</Button>
-        </View>
-
         <View style={styles.healthTimelineCard}>
-          <Text style={styles.sectionTitle}>近期记录</Text>
-          {[...memos.slice(0, 2).map((memo) => ({ sub: memo.content, title: memo.title, date: memo.updatedAt })), { title: '体重记录', sub: `今日 ${formatWeightKg(latestWeight)}`, date: weights[0]?.recordedAt ?? '待记录' }].map((item, index, items) => (
-            <View key={`${item.title}-${index}`}>
-              <View style={styles.timelineRowMake}>
-                <View style={[styles.timelineDotMake, index % 2 === 1 && styles.timelineDotCool]} />
-                <View style={styles.flex}>
-                  <Text style={styles.timelineTitleMake}>{item.title}</Text>
-                  <Text style={styles.timelineSubMake}>{item.sub}</Text>
+          <View style={styles.rowBetween}>
+            <Text style={styles.healthRecentTitle}>近期记录</Text>
+            <Pressable onPress={() => go('healthMemos')} style={[styles.textAction, webPressableReset]}>
+              <Text style={styles.healthRecentLink}>查看全部</Text>
+            </Pressable>
+          </View>
+          {recentRows.map(({ Icon, date, dot, sub, title }, index) => (
+            <View key={`${title}-${index}`}>
+              <View style={styles.healthTimelineRow}>
+                <View style={[
+                  styles.healthTimelineIcon,
+                  dot === 'cool' && styles.healthTimelineIconCool,
+                  dot === 'muted' && styles.healthTimelineIconMuted,
+                ]}>
+                  <Icon color={dot === 'cool' ? palette.teal : dot === 'muted' ? '#C8A871' : palette.orange} size={14} strokeWidth={2.4} />
                 </View>
-                <Text style={styles.timelineDateMake}>{item.date}</Text>
+                <View style={styles.flex}>
+                  <Text numberOfLines={1} style={styles.timelineTitleMake}>{title}</Text>
+                  <Text numberOfLines={1} style={styles.timelineSubMake}>{sub}</Text>
+                </View>
+                <Text style={styles.timelineDateMake}>{date}</Text>
               </View>
-              {index < items.length - 1 ? <View style={styles.makeDivider} /> : null}
+              {index < recentRows.length - 1 ? <View style={styles.makeDivider} /> : null}
             </View>
           ))}
         </View>
@@ -6525,6 +6564,7 @@ function MakeStepRow({ active, done, text }: { active?: boolean; done?: boolean;
 function HealthMakeRow({
   Icon,
   badge,
+  chart,
   onPress,
   subtitle,
   title,
@@ -6532,6 +6572,7 @@ function HealthMakeRow({
 }: {
   Icon: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
   badge: string;
+  chart?: boolean;
   onPress: () => void;
   subtitle: string;
   title: string;
@@ -6540,18 +6581,46 @@ function HealthMakeRow({
   const isCool = tone === 'cool';
   return (
     <Pressable onPress={onPress} style={styles.healthMakeRow}>
-      <View style={[styles.healthMakeIcon, isCool && styles.healthMakeIconCool]}>
-        <Icon color={isCool ? palette.teal : palette.orange} size={17} strokeWidth={2.5} />
-      </View>
-      <View style={styles.flex}>
-        <View style={styles.rowBetween}>
-          <Text style={styles.healthMakeTitle}>{title}</Text>
-          <Text style={[styles.healthMakeBadge, isCool && styles.healthMakeBadgeCool]}>{badge}</Text>
+      <View style={styles.healthMakeRowTop}>
+        <View style={[styles.healthMakeIcon, isCool && styles.healthMakeIconCool]}>
+          <Icon color={isCool ? palette.teal : palette.orange} size={17} strokeWidth={2.5} />
         </View>
-        <Text style={styles.healthMakeSub}>{subtitle}</Text>
+        <View style={styles.flex}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.healthMakeTitle}>{title}</Text>
+            <Text style={[styles.healthMakeBadge, isCool && styles.healthMakeBadgeCool]}>{badge}</Text>
+          </View>
+          <Text style={styles.healthMakeSub}>{subtitle}</Text>
+        </View>
+        <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
       </View>
-      <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
+      {chart ? <HealthMiniChart /> : null}
     </Pressable>
+  );
+}
+
+function HealthMiniChart() {
+  const values = [22, 18, 26, 22, 28, 24, 18, 22, 16, 14, 20, 18, 12];
+  const width = 320;
+  const height = 56;
+  const max = 30;
+  const stepX = width / Math.max(1, values.length - 1);
+  const points = values.map((value, index) => {
+    const x = index * stepX;
+    const y = height - (value / max) * height;
+    return { x, y };
+  });
+  const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+  const areaPath = `${path} L ${width} ${height} L 0 ${height} Z`;
+  const last = points[points.length - 1] ?? { x: width, y: height / 2 };
+  return (
+    <View style={styles.healthMiniChartWrap}>
+      <Svg height={56} viewBox={`0 0 ${width} ${height}`} width="100%">
+        <Path d={areaPath} fill="rgba(255,138,92,0.14)" />
+        <Path d={path} fill="none" stroke={palette.orange} strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} />
+        <Circle cx={last.x} cy={last.y} fill="#fff" r={4} stroke={palette.orange} strokeWidth={2} />
+      </Svg>
+    </View>
   );
 }
 
@@ -6753,16 +6822,18 @@ const styles = StyleSheet.create({
   greetingSheetMake: { gap: 14 },
   greetingSheetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18, marginTop: 3 },
   header: { backgroundColor: palette.background, paddingHorizontal: 16, paddingTop: 0 },
+  headerActionSlot: { alignItems: 'center', height: 36, justifyContent: 'center', width: 36 },
   headerRow: { alignItems: 'center', flexDirection: 'row', height: 44, justifyContent: 'space-between' },
   headerSpacer: { height: 36, width: 36 },
   headerTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '500', textAlign: 'center' },
   healthScore: { color: palette.ink, fontFamily: appFontFamily, fontSize: 44, fontWeight: '700', lineHeight: 50 },
-  healthHeroAvatar: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 38, height: 76, justifyContent: 'center', padding: 6, width: 76 },
+  healthHeroAvatar: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 38, height: 76, justifyContent: 'center', padding: 6, shadowColor: '#b46e3c', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.18, shadowRadius: 22, width: 76, zIndex: 2 },
   healthHeroCopy: { flex: 1, minWidth: 0 },
-  healthHeroDesc: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 19, marginTop: 8 },
-  healthHeroLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  healthHeroDesc: { color: 'rgba(31,33,29,0.72)', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 19, marginTop: 8 },
+  healthHeroGlow: { backgroundColor: 'rgba(255,255,255,0.46)', borderRadius: 70, height: 140, position: 'absolute', right: -20, top: -20, width: 140 },
+  healthHeroLabel: { color: 'rgba(31,33,29,0.68)', fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   healthHeroLabelRow: { alignItems: 'center', flexDirection: 'row', gap: 5 },
-  healthHeroMake: { alignItems: 'center', backgroundColor: '#ffd2a8', borderRadius: 24, flexDirection: 'row', gap: 12, overflow: 'hidden', paddingHorizontal: 20, paddingVertical: 18, shadowColor: '#8b5e3c', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.16, shadowRadius: 36 },
+  healthHeroMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFE3CB 0%, #FFD2A8 60%, #FFC089 100%)' } as object) : null), alignItems: 'center', backgroundColor: '#ffd2a8', borderRadius: 24, flexDirection: 'row', gap: 12, marginTop: 8, overflow: 'hidden', paddingHorizontal: 20, paddingVertical: 18, position: 'relative', shadowColor: '#b46e3c', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.18, shadowRadius: 36 },
   healthHeroScore: { color: palette.ink, fontFamily: appFontFamily, fontSize: 44, fontWeight: '700', letterSpacing: 0, lineHeight: 48 },
   healthHeroScoreRow: { alignItems: 'baseline', flexDirection: 'row', gap: 6, marginTop: 6 },
   healthHeroTotal: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600' },
@@ -6770,9 +6841,11 @@ const styles = StyleSheet.create({
   healthMakeBadgeCool: { backgroundColor: 'rgba(77,182,172,0.14)', color: palette.teal },
   healthMakeIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 20, height: 40, justifyContent: 'center', width: 40 },
   healthMakeIconCool: { backgroundColor: 'rgba(77,182,172,0.18)' },
-  healthMakeRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingVertical: 14, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.07, shadowRadius: 24 },
+  healthMakeRow: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 0, paddingHorizontal: 16, paddingVertical: 14, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.07, shadowRadius: 24 },
+  healthMakeRowTop: { alignItems: 'center', flexDirection: 'row', gap: 12 },
   healthMakeSub: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, marginTop: 3 },
   healthMakeTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '700' },
+  healthMiniChartWrap: { height: 56, marginTop: 12, overflow: 'hidden' },
   healthMemoEditorMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, gap: 14, padding: 16, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.07, shadowRadius: 24 },
   healthMemoIconMake: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },
   healthMemoMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, gap: 12, marginTop: 14, padding: 16 },
@@ -6780,8 +6853,14 @@ const styles = StyleSheet.create({
   healthReminderIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 17, height: 34, justifyContent: 'center', width: 34 },
   healthReminderText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17, marginTop: 2 },
   healthReminderTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700', lineHeight: 19 },
+  healthRecentLink: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  healthRecentTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
   healthSectionStack: { gap: 10, marginTop: 14 },
-  healthTimelineCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, marginTop: 14, paddingHorizontal: 16, paddingVertical: 14 },
+  healthTimelineCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, marginTop: 14, paddingHorizontal: 14, paddingVertical: 8 },
+  healthTimelineIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.15)', borderRadius: 16, height: 32, justifyContent: 'center', width: 32 },
+  healthTimelineIconCool: { backgroundColor: 'rgba(77,182,172,0.18)' },
+  healthTimelineIconMuted: { backgroundColor: 'rgba(200,168,113,0.18)' },
+  healthTimelineRow: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 10 },
   heroCard: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16 },
   homeBellButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 19, borderWidth: 1, height: 38, justifyContent: 'center', position: 'relative', width: 38 },
   homeBellDot: { backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 4, borderWidth: 1.5, height: 7, position: 'absolute', right: 9, top: 8, width: 7 },
