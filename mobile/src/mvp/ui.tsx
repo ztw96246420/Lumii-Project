@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { TextStyle, ViewStyle } from 'react-native';
+import { AlertTriangle, Check, Info, X } from 'lucide-react-native';
 
 export const palette = {
   background: '#FBF7F1',
@@ -42,13 +43,18 @@ export function Button({
   onPress?: () => void;
   tone?: 'danger' | 'ghost' | 'primary' | 'secondary';
 }) {
+  const isDisabled = disabled || loading;
+  const isSolid = tone === 'primary' || tone === 'danger';
   return (
     <Pressable
-      disabled={disabled || loading}
+      disabled={isDisabled}
       onPress={onPress}
-      style={({ pressed }) => [webPressableReset, styles.button, styles[`button_${tone}`], pressed && !disabled && !loading && styles.buttonPressed, (disabled || loading) && styles.buttonDisabled]}
+      style={({ pressed }) => [webPressableReset, styles.button, styles[`button_${tone}`], pressed && !isDisabled && styles.buttonPressed, isDisabled && styles.buttonDisabled]}
     >
-      {loading ? <ActivityIndicator color={tone === 'primary' || tone === 'danger' ? '#fff' : palette.ink} size="small" /> : <Text style={[styles.buttonText, (tone === 'primary' || tone === 'danger') && styles.buttonTextPrimary]}>{children}</Text>}
+      {loading ? <ActivityIndicator color={isSolid ? '#fff' : palette.ink} size="small" /> : null}
+      <Text style={[styles.buttonText, isSolid && styles.buttonTextPrimary, isDisabled && !loading && styles.buttonTextDisabled]}>
+        {loading ? '处理中...' : children}
+      </Text>
     </Pressable>
   );
 }
@@ -133,7 +139,7 @@ export function Toast({
   actionText,
   message,
   tone = 'info',
-  variant = 'dark',
+  variant = 'surface',
 }: {
   actionText?: string;
   message?: string;
@@ -142,10 +148,11 @@ export function Toast({
 }) {
   if (!message) return null;
   const dark = variant === 'dark';
+  const Icon = toastIconByTone[tone];
   return (
     <View style={[styles.toast, dark ? styles.toastDark : styles.toastSurface, styles.toastNoPointer]}>
       <View style={[styles.toastIcon, dark ? styles.toastIconDark : styles[`toastIcon_${tone}`]]}>
-        {!dark ? <View style={[styles.toastIconMark, styles[`toastIconMark_${tone}`]]} /> : null}
+        {dark ? <View style={styles.toastIconMarkDark} /> : <Icon color={toastIconColorByTone[tone]} size={14} strokeWidth={2.5} />}
       </View>
       <Text style={[styles.toastText, dark ? styles.toastTextDark : styles.toastTextSurface]} numberOfLines={2}>{message}</Text>
       {actionText ? <Text style={dark ? styles.toastActionDark : styles.toastActionSurface}>{actionText}</Text> : null}
@@ -270,15 +277,21 @@ export function ConfirmDialog({
   title: string;
   visible: boolean;
 }) {
+  const dangerous = /删|删除|移除|退出|注销/.test(confirmText);
+  const Icon = dangerous ? AlertTriangle : Info;
+  const iconColor = dangerous ? palette.danger : palette.orange;
   return (
     <Modal animationType="fade" transparent visible={visible}>
       <View style={styles.modalBackdrop}>
         <View style={styles.modal}>
-          <Text style={styles.cardTitle}>{title}</Text>
-          <Text style={styles.body}>{body}</Text>
-          <View style={styles.row}>
+          <View style={[styles.modalIconBox, dangerous ? styles.modalIconDanger : styles.modalIconPrimary]}>
+            <Icon color={iconColor} size={22} strokeWidth={2.4} />
+          </View>
+          <Text style={styles.modalTitle}>{title}</Text>
+          <Text style={styles.modalBody}>{body}</Text>
+          <View style={styles.modalActions}>
             <Button onPress={onCancel} tone="ghost">取消</Button>
-            <Button onPress={onConfirm} tone="danger">{confirmText}</Button>
+            <Button onPress={onConfirm} tone={dangerous ? 'danger' : 'primary'}>{confirmText}</Button>
           </View>
         </View>
       </View>
@@ -286,13 +299,27 @@ export function ConfirmDialog({
   );
 }
 
+const toastIconByTone = {
+  error: X,
+  info: Info,
+  success: Check,
+  warning: AlertTriangle,
+};
+
+const toastIconColorByTone = {
+  error: palette.danger,
+  info: palette.ink,
+  success: palette.teal,
+  warning: palette.warning,
+};
+
 export const styles = StyleSheet.create({
   bottomSheetBackdrop: { backgroundColor: 'rgba(20,18,14,0.48)', flex: 1, justifyContent: 'flex-end' },
   bottomSheetBackdropTouch: { flex: 1 },
-  bottomSheetHandle: { alignSelf: 'center', backgroundColor: '#E5E0D5', borderRadius: 2, height: 4, marginBottom: 10, width: 40 },
-  bottomSheetPanel: { backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, gap: 14, paddingBottom: 32, paddingHorizontal: 22, paddingTop: 16, shadowColor: '#50371e', shadowOffset: { height: -24, width: 0 }, shadowOpacity: 0.28, shadowRadius: 50 },
+  bottomSheetHandle: { alignSelf: 'center', backgroundColor: '#E5E0D5', borderRadius: 2, height: 4, marginBottom: 10, width: 36 },
+  bottomSheetPanel: { backgroundColor: '#fff', borderColor: palette.border, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, gap: 14, paddingBottom: 30, paddingHorizontal: 16, paddingTop: 12, shadowColor: '#50371e', shadowOffset: { height: -18, width: 0 }, shadowOpacity: 0.18, shadowRadius: 40 },
   body: { color: palette.muted, fontFamily, fontSize: 14, lineHeight: 20 },
-  button: { alignItems: 'center', borderRadius: 14, justifyContent: 'center', minHeight: 44, paddingHorizontal: 18, paddingVertical: 11, shadowColor: '#ff8a5c', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 16 },
+  button: { alignItems: 'center', borderRadius: 14, flexDirection: 'row', gap: 6, height: 44, justifyContent: 'center', paddingHorizontal: 18, shadowColor: '#ff8a5c', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 16 },
   button_danger: { backgroundColor: palette.danger },
   button_ghost: { backgroundColor: 'transparent', borderColor: palette.border, borderWidth: 1 },
   button_primary: { backgroundColor: palette.orange },
@@ -300,6 +327,7 @@ export const styles = StyleSheet.create({
   buttonDisabled: { backgroundColor: palette.pale, opacity: 1 },
   buttonPressed: { opacity: 0.82, transform: [{ scale: 0.99 }] },
   buttonText: { color: palette.ink, fontFamily, fontSize: 14, fontWeight: '600' },
+  buttonTextDisabled: { color: '#B8B3A8' },
   buttonTextPrimary: { color: '#fff' },
   card: {
     backgroundColor: palette.card,
@@ -337,9 +365,15 @@ export const styles = StyleSheet.create({
   label: { color: palette.muted, fontFamily, fontSize: 12.5, fontWeight: '500' },
   loadingBlock: { alignItems: 'center', gap: 10, paddingVertical: 30 },
   loadingText: { color: palette.muted, fontFamily, fontSize: 12, fontWeight: '500' },
-  modal: { backgroundColor: palette.card, borderRadius: 20, gap: 14, margin: 32, maxWidth: 290, paddingHorizontal: 18, paddingBottom: 16, paddingTop: 20, shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.12, shadowRadius: 30, width: 290 },
+  modal: { alignItems: 'center', backgroundColor: palette.card, borderRadius: 20, gap: 0, margin: 32, maxWidth: 290, paddingBottom: 16, paddingHorizontal: 18, paddingTop: 20, shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.12, shadowRadius: 30, width: 290 },
+  modalActions: { alignSelf: 'stretch', flexDirection: 'row', gap: 8, justifyContent: 'center', marginTop: 16 },
   modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(20,18,14,0.50)', flex: 1, justifyContent: 'center' },
-  pill: { alignSelf: 'flex-start', borderRadius: 8, fontFamily, fontSize: 11, fontWeight: '600', height: 22, lineHeight: 14, overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 4 },
+  modalBody: { color: palette.muted, fontFamily, fontSize: 12, lineHeight: 19, marginTop: 6, textAlign: 'center' },
+  modalIconBox: { alignItems: 'center', borderRadius: 14, height: 48, justifyContent: 'center', marginBottom: 12, width: 48 },
+  modalIconDanger: { backgroundColor: '#FBE4DE' },
+  modalIconPrimary: { backgroundColor: '#FFE6D6' },
+  modalTitle: { color: palette.ink, fontFamily, fontSize: 16, fontWeight: '700', lineHeight: 22, textAlign: 'center' },
+  pill: { alignSelf: 'flex-start', borderRadius: 8, fontFamily, fontSize: 11, fontWeight: '500', height: 22, lineHeight: 14, overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 4 },
   pill_danger: { backgroundColor: '#ffdad6', color: palette.danger },
   pill_distance: { backgroundColor: palette.pale, color: palette.ink },
   pill_neutral: { backgroundColor: palette.pale, color: palette.muted },
@@ -351,24 +385,25 @@ export const styles = StyleSheet.create({
   sectionTitle: { gap: 8, marginBottom: 18 },
   skeletonLine: { backgroundColor: '#E5E0D5', borderRadius: 6 },
   subtitle: { color: palette.muted, fontFamily, fontSize: 15, lineHeight: 22 },
-  toast: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 10, maxWidth: '92%', minHeight: 46, minWidth: 180, paddingHorizontal: 14, paddingVertical: 10, position: 'absolute', top: 96, zIndex: 20 },
+  toast: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 10, maxWidth: '92%', minHeight: 46, minWidth: 180, paddingHorizontal: 14, paddingVertical: 10, position: 'absolute', top: 70, zIndex: 20 },
   toastActionDark: { color: '#FFB48C', fontFamily, fontSize: 12, fontWeight: '600' },
   toastActionSurface: { color: palette.orange, fontFamily, fontSize: 12, fontWeight: '600' },
   toastDark: { backgroundColor: 'rgba(27,28,25,0.92)', borderRadius: 22, paddingRight: 18, shadowColor: '#000', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.28, shadowRadius: 38 },
-  toastIcon: { alignItems: 'center', height: 24, justifyContent: 'center', width: 24 },
+  toastIcon: { alignItems: 'center', height: 26, justifyContent: 'center', width: 26 },
   toastIconDark: { backgroundColor: palette.teal, borderRadius: 12 },
-  toastIcon_error: { backgroundColor: '#FBE4DE', borderRadius: 8 },
-  toastIcon_info: { backgroundColor: palette.pale, borderRadius: 8 },
-  toastIcon_success: { backgroundColor: '#E8F5F3', borderRadius: 8 },
-  toastIcon_warning: { backgroundColor: palette.warningSoft, borderRadius: 8 },
+  toastIcon_error: { backgroundColor: '#FBE4DE', borderRadius: 9 },
+  toastIcon_info: { backgroundColor: palette.pale, borderRadius: 9 },
+  toastIcon_success: { backgroundColor: '#E8F5F3', borderRadius: 9 },
+  toastIcon_warning: { backgroundColor: palette.warningSoft, borderRadius: 9 },
   toastIconMark: { borderRadius: 5, height: 10, width: 10 },
+  toastIconMarkDark: { backgroundColor: '#fff', borderRadius: 5, height: 10, width: 10 },
   toastIconMark_error: { backgroundColor: palette.danger },
   toastIconMark_info: { backgroundColor: palette.ink },
   toastIconMark_success: { backgroundColor: palette.teal },
   toastIconMark_warning: { backgroundColor: palette.warning },
   toastNoPointer: { pointerEvents: 'none' },
   toastSurface: { backgroundColor: '#fff', borderRadius: 14, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28 },
-  toastText: { flexShrink: 1, fontFamily, fontSize: 13, fontWeight: '600' },
+  toastText: { flexShrink: 1, fontFamily, fontSize: 13, fontWeight: '500' },
   toastTextDark: { color: '#fff' },
   toastTextSurface: { color: palette.ink },
   toggleThumb: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 11, height: 22, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.15, shadowRadius: 4, width: 22 },

@@ -8,7 +8,7 @@
 
 ## 本轮确认的统一组件语言
 
-- `Button`：主按钮以暖橙 `#FF8A5C` 为主，圆角约 14，48px 左右高度，loading 使用小转圈加中文状态；危险操作使用红色 `#E5573F`。
+- `Button`：主按钮以暖橙 `#FF8A5C` 为主，圆角约 14，44px 高度，loading 使用小转圈加中文状态；危险操作使用红色 `#E5573F`。
 - `Toast`：顶部浮层，白底、14px 圆角、轻阴影、左侧小色块/图标；不再优先使用黑底系统 Toast。
 - `Dialog`：危险确认以白底圆角卡片或底部 Sheet 呈现，背景半透明深色遮罩，按钮分“取消/确认删除”。
 - `Bottom Sheet`：底部圆角 24，顶部有短 handle；用于体重编辑、地图样式、后续筛选/打招呼等复杂操作。
@@ -19,9 +19,11 @@
 ## 已落地
 
 - `mobile/src/mvp/ui.tsx`
-  - `Button` 调整为更接近 Make 的 14px 圆角、48px 高度、loading 视觉。
-  - `Toast` 调整为顶部白底浮层。
-  - `ConfirmDialog` 调整遮罩、圆角和危险按钮口径。
+  - `Button` 调整为 Screen64 的 44px 高度、14px 圆角、14px/600 字号；loading 现在显示小转圈 + “处理中...”中文状态，disabled 文案改为浅灰。
+  - `Toast` 按 Screen66/90/94 改为默认顶部白底浮层：top 70、14px 圆角、26px 状态图标块、轻阴影；`dark` 仅保留为兼容变体。
+  - `ConfirmDialog` 按 Screen67 补齐 48px 状态图标块、居中标题/描述、普通/危险确认按钮分型；删除、移除、退出、注销类文案自动走危险态。
+  - `BottomSheet` 按 Screen68 统一 36x4 handle、白底、顶部 24px 圆角、浅边框和向上阴影。
+  - `StatusPill` 字重收敛为 500，更贴近 Screen66 的轻量 Tag。
 - `mobile/src/mvp/LumiiMvpApp.tsx`
   - 新增多宠、个人资料、备忘编辑、体重编辑相关表单、Sheet、危险确认和趋势卡样式。
 

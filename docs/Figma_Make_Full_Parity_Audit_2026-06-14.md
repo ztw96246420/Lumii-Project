@@ -14,12 +14,12 @@
 
 | 组件 | Figma Make 规则 | 本轮 RN 调整 |
 | --- | --- | --- |
-| Button | 高 44、圆角 14、14px/600，primary `#FF8A5C`，secondary `#FFF1E5`，ghost 透明描边，danger `#E5573F` | `ui.tsx` 已调整高度、圆角、字号、secondary/ghost/disabled 视觉 |
+| Button | 高 44、圆角 14、14px/600，primary `#FF8A5C`，secondary `#FFF1E5`，ghost 透明描边，danger `#E5573F`，loading 显示小转圈+中文状态 | `ui.tsx` 已调整高度、圆角、字号、secondary/ghost/disabled/loading 视觉 |
 | Input | 高 46、圆角 12、1.5px 边框，focus 使用主色边框 | `Field` 输入框已调整高度、圆角、边框、字号 |
-| Toast | 主要业务 Toast 为黑色半透明胶囊，顶部约 96px，圆角 22，带图标色块 | `Toast` 已从白色浮层改为黑色半透明胶囊 |
+| Toast | 主要业务 Toast 为顶部白底浮层，top 70、圆角 14、26px 状态图标块、轻阴影；dark 只作为兼容变体 | `Toast` 已按 Screen66/90/94 改为默认白底浮层，并支持 success/error/warning/info |
 | Tag/Pill | 高 22、圆角 8、11px/600 | `StatusPill` 基础尺寸已收敛 |
 | Toggle | 44×26，thumb 22，on 为 `#4DB6AC`，off 为 `#D9D5CB` | `ToggleRow` 已从原生 Switch 改为自定义 Make 风格 |
-| Dialog | 宽 290、圆角 20、黑色 50% 遮罩、按钮 40-44 高 | `ConfirmDialog` 容器、遮罩、按钮体系已收敛 |
+| Dialog | 宽 290、圆角 20、黑色 50% 遮罩、48px 状态图标块、按钮 40-44 高 | `ConfirmDialog` 已补图标块、居中标题/描述、普通/危险确认按钮分型 |
 
 ## 全量屏幕覆盖审计
 
@@ -95,11 +95,11 @@
 | 61 | 黑名单管理 | 无 | 缺失 | 用户曾降级优先级，仍记录为缺失 |
 | 62 | 退出登录确认 | `ConfirmDialog` + logout | 部分接入 | 弹窗样式本轮已收敛，Screen62 内容需复核 |
 | 63 | 注销账号 | 无 | 缺失 | 用户曾降级优先级，仍记录为缺失 |
-| 64 | Button 按钮 | `ui.tsx/Button` | 本轮组件已修 | 仍需截图复核 |
+| 64 | Button 按钮 | `ui.tsx/Button` | 本轮组件已修 | 已按 Screen64 补 loading 中文状态和 disabled 文案色；仍需截图复核 |
 | 65 | Input 输入框 | `ui.tsx/Field` | 本轮组件已修 | 仍需截图复核 |
-| 66 | Toast · Tag · Toggle | `ui.tsx/Toast/StatusPill/ToggleRow` | 本轮组件已增强-需视觉复核 | Toast 已支持 `dark/surface` 与 success/error/warning/info；保存/切换等高频反馈已开始迁移 |
-| 67 | Dialog 弹窗 | `ui.tsx/ConfirmDialog` | 本轮组件已修 | 成功/信息/危险三类 icon card 可继续抽象 |
-| 68 | BottomSheet 底部弹层 | `ui.tsx/BottomSheet` | 本轮组件已补-需视觉复核 | 已抽统一 Bottom Sheet，并迁移打招呼、体重编辑、地图样式面板 |
+| 66 | Toast · Tag · Toggle | `ui.tsx/Toast/StatusPill/ToggleRow` | 本轮组件已增强-需视觉复核 | Toast 默认改为白底 `surface`，状态图标块和 Tag 字重已按 Screen66 收敛；仍需截图复核 |
+| 67 | Dialog 弹窗 | `ui.tsx/ConfirmDialog` | 本轮组件已修 | 已补信息/危险 icon card 分型；成功单按钮 Dialog 仍可后续抽象 |
+| 68 | BottomSheet 底部弹层 | `ui.tsx/BottomSheet` | 本轮组件已补-需视觉复核 | 已按 Screen68 收敛 handle、圆角、边框和阴影；打招呼、体重编辑、地图样式面板继续截图复核 |
 | 69 | TabBar 底部导航 | bottom tabs | 已接入-需视觉复核 | 图标、红点、选中态需复核 |
 | 70 | Card 卡片 | 多处 card | 部分接入 | 基础 card 圆角/边框/阴影需继续统一 |
 | 71 | Empty State 空状态 | `ui.tsx/EmptyState` + 多处空态 | 本轮组件已补-部分页面已迁移 | 已迁移备忘、体重、多宠、招呼请求、发现无结果、地图无结果、消息列表、通知中心；上传等空态仍需继续替换 |
@@ -137,6 +137,6 @@
 ## 下一轮 1:1 优先级
 
 1. 继续迁移统一 Empty/Error/Loading：消息列表、上传失败、健康日历等页面仍有自写空态/错误态；AI/聊天/地图定位失败已完成首轮迁移但需截图复核。
-2. 继续迁移 `surface` Toast：普通聊天发送失败、上传/生成失败、发布失败等仍需按 Screen24/25/66/90/91/94 分型。
+2. 继续检查所有 Toast 文案和触发位置：组件默认已是 `surface`，但普通聊天发送失败、上传/生成失败、发布失败等仍需按 Screen24/25/66/90/91/94 分型复核。
 3. 重点精修高频主链路：Screen1-20、26、35、41、45、54、55。
 4. 建立视觉验收：每次改完一组屏幕，用 Web/模拟器截图和 Figma Make 源码对应屏做并排复核。
