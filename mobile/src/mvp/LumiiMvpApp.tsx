@@ -5025,50 +5025,109 @@ export default function LumiiMvpApp() {
   function renderVaccine() {
     const nextVaccine = healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
     const nextVaccineDueLabel = formatDueLabel(nextVaccine?.dueAt);
-    const nextVaccineReminderLabel = vaccineReminderCopy(nextVaccine);
     const nextVaccineReminderSaving = nextVaccine ? vaccineReminderSavingIds.includes(nextVaccine.id) : false;
     const nextVaccineDoneSaving = nextVaccine ? vaccineDoneSavingIds.includes(nextVaccine.id) : false;
+    const overdueVaccine = vaccines.find((item) => item.status === 'overdue' || (daysUntilDate(item.dueAt) ?? 999) < 0);
+    const upcomingVaccine = vaccines.find((item) => item.status !== 'done' && (daysUntilDate(item.dueAt) ?? 999) >= 0 && (daysUntilDate(item.dueAt) ?? 999) <= 14);
+    const heroStatus = !nextVaccine ? '暂无计划' : nextVaccine.status === 'done' ? '已完成' : nextVaccine.status === 'overdue' ? '已逾期' : (daysUntilDate(nextVaccine.dueAt) ?? 999) <= 14 ? '即将到期' : '计划中';
+    const vaxRowMeta = (item: VaccinePlan) => {
+      const days = daysUntilDate(item.dueAt);
+      if (item.status === 'done') return { label: '已完成', style: styles.vaccineStateDone, sub: `已完成 · ${item.dueAt}`, textStyle: styles.vaccineStateDoneText };
+      if (item.status === 'overdue' || (days !== null && days < 0)) return { label: '已逾期', style: styles.vaccineStateOverdue, sub: `${vaccineReminderCopy(item)} · ${item.dueAt}`, textStyle: styles.vaccineStateOverdueText };
+      if (days !== null && days <= 14) return { label: '待接种', style: styles.vaccineStateUpcoming, sub: `${vaccineReminderCopy(item)} · ${vaccineReminderIds.includes(item.id) ? '提醒已开启' : '未开启提醒'}`, textStyle: styles.vaccineStateUpcomingText };
+      return { label: '计划中', style: styles.vaccineStatePlanned, sub: `${vaccineReminderCopy(item)} · ${item.dueAt}`, textStyle: styles.vaccineStatePlannedText };
+    };
     return (
       <Screen title="疫苗计划">
         <View style={styles.vaccineHeroMake}>
-          <View style={styles.flex}>
-            <Text style={styles.vaccineDuePill}>{nextVaccine?.status === 'done' ? '已完成' : nextVaccineReminderLabel}</Text>
-            <Text style={styles.vaccineHeroTitle}>{nextVaccine?.name ?? '暂无计划'}</Text>
-            <View style={styles.chatOnlineRow}>
-              <CalendarDays color={palette.muted} size={12} strokeWidth={2.3} />
-              <Text style={styles.vaccineHeroMeta}>{nextVaccine?.dueAt ?? '待设置'} · {nextVaccineDueLabel}</Text>
+          <View style={styles.vaccineHeroGlow} />
+          <View style={styles.vaccineHeroTop}>
+            <View style={styles.flex}>
+              <Text style={[styles.vaccineDuePill, nextVaccine?.status === 'overdue' && styles.vaccineDuePillDanger]}>{heroStatus}</Text>
+              <Text style={styles.vaccineHeroTitle}>{nextVaccine?.name ?? '暂无计划'}</Text>
+              <View style={styles.chatOnlineRow}>
+                <CalendarDays color="rgba(31,33,29,0.72)" size={12} strokeWidth={2.3} />
+                <Text style={styles.vaccineHeroMeta}>{nextVaccine?.dueAt ?? '待设置'} · {nextVaccineDueLabel}</Text>
+              </View>
+            </View>
+            <View style={styles.vaccineHeroIcon}>
+              <Syringe color={palette.orange} size={26} strokeWidth={2.5} />
             </View>
           </View>
-          <View style={styles.vaccineHeroIcon}>
-            <Syringe color={palette.orange} size={26} strokeWidth={2.5} />
+          <View style={styles.vaccineHeroActions}>
+            <Pressable disabled={!nextVaccine || nextVaccine.status === 'done' || nextVaccineReminderSaving} onPress={() => void enableVaccineReminder(nextVaccine)} style={[styles.vaccineHeroActionSecondary, (!nextVaccine || nextVaccine.status === 'done') && styles.vaccineHeroActionDisabled, webPressableReset]}>
+              {nextVaccineReminderSaving ? <ActivityIndicator color={palette.orange} size="small" /> : <Bell color={palette.orange} size={13} strokeWidth={2.4} />}
+              <Text style={[styles.vaccineHeroActionSecondaryText, (!nextVaccine || nextVaccine.status === 'done') && styles.vaccineHeroActionDisabledText]}>{nextVaccine && vaccineReminderIds.includes(nextVaccine.id) ? '提醒已开启' : '开启提醒'}</Text>
+            </Pressable>
+            <Pressable disabled={!nextVaccine || nextVaccine.status === 'done' || nextVaccineDoneSaving} onPress={() => void markVaccineDone(nextVaccine)} style={[styles.vaccineHeroActionPrimary, (!nextVaccine || nextVaccine.status === 'done') && styles.vaccineHeroActionDisabled, webPressableReset]}>
+              {nextVaccineDoneSaving ? <ActivityIndicator color="#fff" size="small" /> : <Check color="#fff" size={13} strokeWidth={3} />}
+              <Text style={styles.vaccineHeroActionPrimaryText}>{nextVaccine?.status === 'done' ? '已完成' : '标记完成'}</Text>
+            </Pressable>
           </View>
         </View>
-        <View style={styles.actionRow}>
-          <Button loading={nextVaccineReminderSaving} onPress={() => void enableVaccineReminder(nextVaccine)} tone="secondary">{nextVaccine && vaccineReminderIds.includes(nextVaccine.id) ? '提醒已开启' : '开启提醒'}</Button>
-          <Button disabled={nextVaccine?.status === 'done'} loading={nextVaccineDoneSaving} onPress={() => void markVaccineDone(nextVaccine)}>{nextVaccine?.status === 'done' ? '已完成' : '标记完成'}</Button>
-        </View>
-        <View style={styles.healthTimelineCard}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.sectionTitle}>全部计划</Text>
-            <Text style={styles.metaText}>提醒工具</Text>
+
+        {overdueVaccine ? (
+          <View style={styles.vaccineReminderDanger}>
+            <View style={styles.vaccineReminderIconDanger}>
+              <AlertTriangle color={palette.danger} size={15} strokeWidth={2.5} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.timelineTitleMake}>{overdueVaccine.name}已逾期</Text>
+              <Text style={styles.timelineSubMake}>别担心，挑个有空的下午带{getCurrentPet()?.name ?? '毛孩子'}去补打就好。</Text>
+            </View>
+            <Text style={styles.vaccineReminderActionText}>预约</Text>
           </View>
-          {vaccines.map((item, index) => (
+        ) : null}
+
+        {upcomingVaccine ? (
+          <View style={styles.vaccineReminderWarm}>
+            <View style={styles.vaccineReminderIconWarm}>
+              <Syringe color="#C99B3E" size={15} strokeWidth={2.5} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.timelineTitleMake}>{upcomingVaccine.name} · {vaccineReminderCopy(upcomingVaccine)}</Text>
+              <Text style={styles.timelineSubMake}>建议在 {upcomingVaccine.dueAt} 前完成。</Text>
+            </View>
+            <Text style={styles.timelineDateMake}>{upcomingVaccine.dueAt.slice(5)}</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.vaccinePlanBlock}>
+          <View style={styles.vaccinePlanHeader}>
+            <Text style={styles.weightSectionTitle}>全部计划</Text>
+            <Pressable onPress={() => showToast('新增疫苗计划后续开放')} style={[styles.weightAddLink, webPressableReset]}>
+              <Plus color={palette.orange} size={12} strokeWidth={2.5} />
+              <Text style={styles.weightAddLinkText}>新增</Text>
+            </Pressable>
+          </View>
+          <View style={styles.vaccinePlanCard}>
+          {vaccines.map((item, index) => {
+            const meta = vaxRowMeta(item);
+            return (
             <View key={item.id}>
-              <View style={styles.timelineRowMake}>
-                <View style={[styles.timelineDotMake, item.status === 'done' && styles.timelineDotCool]} />
-                <View style={styles.flex}>
-                  <Text style={styles.timelineTitleMake}>{item.name}</Text>
-                  <Text style={styles.timelineSubMake}>{item.status === 'done' ? '已完成' : vaccineReminderIds.includes(item.id) ? `提醒已开启 · ${vaccineReminderCopy(item)}` : vaccineReminderCopy(item)} · {item.dueAt}</Text>
+              <View style={styles.vaccinePlanRow}>
+                <View style={[styles.vaccinePlanIcon, item.status === 'done' && styles.vaccinePlanIconDone, meta.label === '计划中' && styles.vaccinePlanIconPlanned]}>
+                  {item.status === 'done' ? <Check color={palette.teal} size={16} strokeWidth={3} /> : <Syringe color={meta.label === '计划中' ? palette.muted : palette.orange} size={16} strokeWidth={2.4} />}
                 </View>
-                <StatusPill tone={item.status === 'done' ? 'success' : isVaccineReminderUrgent(item) ? 'danger' : 'neutral'}>{item.status === 'done' ? '完成' : isVaccineReminderUrgent(item) ? '临近' : '计划中'}</StatusPill>
+                <View style={styles.flex}>
+                  <View style={styles.vaccinePlanTitleRow}>
+                    <Text numberOfLines={1} style={styles.timelineTitleMake}>{item.name}</Text>
+                    <Text style={[styles.vaccineStateTag, meta.style, meta.textStyle]}>{meta.label}</Text>
+                  </View>
+                  <Text numberOfLines={1} style={styles.timelineSubMake}>{meta.sub}</Text>
+                </View>
+                <Text style={styles.timelineDateMake}>{item.dueAt.slice(5)}</Text>
               </View>
               {index < vaccines.length - 1 ? <View style={styles.makeDivider} /> : null}
             </View>
-          ))}
+            );
+          })}
+          </View>
         </View>
-        <View style={styles.chatSafetyTip}>
+
+        <View style={styles.vaccineTipMake}>
           <Sparkles color={palette.teal} size={14} strokeWidth={2.4} />
-          <Text style={styles.chatSafetyText}>疫苗计划为提醒工具，具体接种时间请以宠物医院建议为准。</Text>
+          <Text style={styles.chatSafetyText}>建议接种前 1 天减少剧烈运动，注射后观察 24 小时是否有过敏反应。具体接种时间请以宠物医院建议为准。</Text>
         </View>
       </Screen>
     );
@@ -7450,10 +7509,43 @@ const styles = StyleSheet.create({
   timelineSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 18, marginTop: 2 },
   timelineTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
   vaccineDuePill: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.72)', borderRadius: 10, color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 3 },
-  vaccineHeroIcon: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.86)', borderRadius: 28, height: 56, justifyContent: 'center', width: 56 },
-  vaccineHeroMake: { alignItems: 'center', backgroundColor: '#ffd2a8', borderRadius: 22, flexDirection: 'row', gap: 12, paddingHorizontal: 18, paddingVertical: 16, shadowColor: '#8b5e3c', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.14, shadowRadius: 30 },
-  vaccineHeroMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
+  vaccineDuePillDanger: { color: palette.danger },
+  vaccineHeroActionDisabled: { opacity: 0.58 },
+  vaccineHeroActionDisabledText: { color: palette.muted },
+  vaccineHeroActionPrimary: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 20, flex: 1, flexDirection: 'row', gap: 5, height: 40, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.26, shadowRadius: 20 },
+  vaccineHeroActionPrimaryText: { color: '#fff', fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  vaccineHeroActionSecondary: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 5, height: 40, justifyContent: 'center' },
+  vaccineHeroActionSecondaryText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  vaccineHeroActions: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  vaccineHeroGlow: { backgroundColor: 'rgba(255,255,255,0.38)', borderRadius: 64, height: 128, position: 'absolute', right: -28, top: -34, width: 128 },
+  vaccineHeroIcon: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.86)', borderRadius: 28, height: 56, justifyContent: 'center', shadowColor: '#b46e3c', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.22, shadowRadius: 22, width: 56 },
+  vaccineHeroMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFE3CB 0%, #FFD2A8 100%)' } as object) : null), backgroundColor: '#ffd2a8', borderRadius: 22, marginTop: 8, overflow: 'hidden', paddingHorizontal: 18, paddingVertical: 16, position: 'relative', shadowColor: '#b46e3c', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.18, shadowRadius: 30 },
+  vaccineHeroMeta: { color: 'rgba(31,33,29,0.72)', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
   vaccineHeroTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 20, fontWeight: '700', letterSpacing: 0, lineHeight: 27, marginTop: 10 },
+  vaccineHeroTop: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between' },
+  vaccinePlanBlock: { marginTop: 16 },
+  vaccinePlanCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, overflow: 'hidden', paddingHorizontal: 16, paddingVertical: 4, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
+  vaccinePlanHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 4 },
+  vaccinePlanIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 18, flexShrink: 0, height: 36, justifyContent: 'center', width: 36 },
+  vaccinePlanIconDone: { backgroundColor: 'rgba(77,182,172,0.16)' },
+  vaccinePlanIconPlanned: { backgroundColor: 'rgba(122,121,114,0.14)' },
+  vaccinePlanRow: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 12 },
+  vaccinePlanTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  vaccineReminderActionText: { borderColor: palette.orange, borderRadius: 9, borderWidth: 1, color: palette.orange, flexShrink: 0, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
+  vaccineReminderDanger: { alignItems: 'center', backgroundColor: '#FBE4DE', borderColor: '#F5C7BD', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
+  vaccineReminderIconDanger: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, flexShrink: 0, height: 32, justifyContent: 'center', width: 32 },
+  vaccineReminderIconWarm: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, flexShrink: 0, height: 32, justifyContent: 'center', width: 32 },
+  vaccineReminderWarm: { alignItems: 'center', backgroundColor: '#FBF2D9', borderColor: '#EFDFA8', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
+  vaccineStateDone: { backgroundColor: 'rgba(77,182,172,0.16)' },
+  vaccineStateDoneText: { color: palette.teal },
+  vaccineStateOverdue: { backgroundColor: 'rgba(229,87,63,0.12)' },
+  vaccineStateOverdueText: { color: palette.danger },
+  vaccineStatePlanned: { backgroundColor: 'rgba(122,121,114,0.14)' },
+  vaccineStatePlannedText: { color: palette.muted },
+  vaccineStateTag: { borderRadius: 9, flexShrink: 0, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 2 },
+  vaccineStateUpcoming: { backgroundColor: 'rgba(255,138,92,0.14)' },
+  vaccineStateUpcomingText: { color: palette.orange },
+  vaccineTipMake: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
   walkFieldWrap: { gap: 12, paddingBottom: 14, paddingHorizontal: 14 },
   walkInviteInline: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: palette.orangeSoft, borderRadius: 12, flexDirection: 'row', gap: 5, marginTop: 10, paddingHorizontal: 10, paddingVertical: 6 },
   walkInviteInlineText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
