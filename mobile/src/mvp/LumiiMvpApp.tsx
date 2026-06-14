@@ -4760,20 +4760,22 @@ export default function LumiiMvpApp() {
             <Text style={styles.sectionTitle}>历史记录</Text>
             <Text style={styles.metaText}>近 30 天</Text>
           </View>
-          {weights.length ? weights.map((item, index) => (
-            <View key={item.id}>
-              <Pressable onPress={() => openWeightEditor(item)} style={[styles.timelineRowMake, webPressableReset]}>
-                <View style={styles.timelineDotMake} />
-                <View style={styles.flex}>
-                  <Text style={styles.timelineTitleMake}>{item.kg} kg</Text>
-                  <Text style={styles.timelineSubMake}>{item.note ?? '无备注'}</Text>
-                </View>
-                <Text style={styles.timelineDateMake}>{item.recordedAt}</Text>
-                <Edit3 color={palette.muted} size={14} strokeWidth={2.2} />
-              </Pressable>
-              {index < weights.length - 1 ? <View style={styles.makeDivider} /> : null}
+          {weights.length ? (
+            <View style={styles.weightHistoryStack}>
+              {weights.map((item, index) => (
+                <Pressable key={item.id} onPress={() => openWeightEditor(item)} style={[styles.weightHistoryRowMake, index === 0 && styles.weightHistoryRowHighlight, webPressableReset]}>
+                  <View style={styles.weightHistoryIcon}>
+                    <Weight color={palette.teal} size={14} strokeWidth={2.4} />
+                  </View>
+                  <View style={styles.flex}>
+                    <Text style={styles.timelineTitleMake}>{item.kg} kg</Text>
+                    <Text numberOfLines={1} style={styles.timelineSubMake}>{item.recordedAt}{item.note ? ` · ${item.note}` : ''}</Text>
+                  </View>
+                  <Edit3 color={palette.muted} size={15} strokeWidth={2.2} />
+                </Pressable>
+              ))}
             </View>
-          )) : (
+          ) : (
             <EmptyState
               description="每周称一次，就能看见成长轨迹。"
               icon={<Weight color={palette.muted} size={26} strokeWidth={2.4} />}
@@ -5518,14 +5520,20 @@ export default function LumiiMvpApp() {
         {current ? (
           <View style={styles.multiPetHero}>
             <View style={styles.profileHeroOrb} />
-            <PetAvatar uri={current.avatarUrl ?? generatedGoldenAvatarUri} size={72} />
-            <View style={styles.flex}>
-              <View style={styles.profilePetNameRow}>
-                <Text style={styles.multiPetHeroName}>{current.name}</Text>
-                <Text style={styles.currentPetBadge}>当前灵伴</Text>
+            <View style={styles.multiPetHeroMain}>
+              <PetAvatar uri={current.avatarUrl ?? generatedGoldenAvatarUri} size={72} />
+              <View style={styles.flex}>
+                <View style={styles.profilePetNameRow}>
+                  <Text style={styles.multiPetHeroName}>{current.name}</Text>
+                  <Text style={styles.currentPetBadge}>当前灵伴</Text>
+                </View>
+                <Text style={styles.profilePetMeta}>{speciesLabels[current.species]} · {current.breed || '品种待补充'}</Text>
+                <Text style={styles.profilePetMeta}>{formatPetAge(current.birthday)} · {formatWeightKg(current.weightKg)}</Text>
               </View>
-              <Text style={styles.profilePetMeta}>{speciesLabels[current.species]} · {current.breed || '品种待补充'}</Text>
-              <Text style={styles.profilePetMeta}>{formatPetAge(current.birthday)} · {formatWeightKg(current.weightKg)}</Text>
+            </View>
+            <View style={styles.multiPetHeroHealth}>
+              <HeartPulse color={palette.teal} size={12} strokeWidth={2.4} />
+              <Text style={styles.multiPetHeroHealthText}>{current.healthScore >= 80 ? '近 30 天健康稳定' : '建议关注近期健康状态'}</Text>
             </View>
           </View>
         ) : null}
@@ -6556,32 +6564,35 @@ const styles = StyleSheet.create({
   dangerText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   addPetDashed: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#FFC8A6', borderRadius: 16, borderStyle: 'dashed', borderWidth: 1.5, flexDirection: 'row', gap: 8, justifyContent: 'center', minHeight: 52, paddingHorizontal: 14, paddingVertical: 14 },
   addPetDashedText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
-  currentPetBadge: { backgroundColor: '#fff', borderRadius: 8, color: palette.orange, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
+  currentPetBadge: { backgroundColor: '#fff', borderRadius: 8, color: palette.orange, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
   deleteTextButton: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 6, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 10 },
   deleteTextButtonLabel: { color: palette.danger, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
   editActionStack: { gap: 10, marginTop: 16 },
-  editFormCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 14, padding: 16 },
+  editFormCard: { gap: 4, paddingHorizontal: 0, paddingTop: 0 },
   fieldHintError: { color: palette.danger },
   fieldHintRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, minHeight: 15, paddingHorizontal: 4 },
   fieldHintText: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 15 },
   lockedFieldHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700' },
-  makeFieldGroup: { gap: 6 },
-  makeFieldLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  makeFieldGroup: { gap: 6, marginTop: 4 },
+  makeFieldLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', paddingHorizontal: 4 },
   makeTextAreaInput: { minHeight: 112, paddingTop: 12 },
   makeTextInput: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1.5, color: palette.ink, flexDirection: 'row', fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', gap: 10, minHeight: 48, paddingHorizontal: 14, paddingVertical: 10 },
   makeTextInputError: { borderColor: palette.danger },
   memoMetaBox: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   metaIconBox: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 8, height: 26, justifyContent: 'center', width: 26 },
   multiPetActions: { alignItems: 'flex-end', gap: 8 },
-  multiPetHero: { alignItems: 'center', backgroundColor: '#FFE3D1', borderRadius: 20, flexDirection: 'row', gap: 14, marginTop: 2, overflow: 'hidden', padding: 14, position: 'relative' },
+  multiPetHero: { backgroundColor: '#FFE3D1', borderRadius: 20, gap: 0, marginTop: 2, overflow: 'hidden', padding: 14, position: 'relative' },
+  multiPetHeroHealth: { alignItems: 'center', borderTopColor: 'rgba(255,255,255,0.55)', borderTopWidth: 1, flexDirection: 'row', gap: 6, marginTop: 12, paddingTop: 10 },
+  multiPetHeroHealthText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
+  multiPetHeroMain: { alignItems: 'center', flexDirection: 'row', gap: 14, position: 'relative' },
   multiPetHeroName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 24 },
   multiPetList: { gap: 10 },
-  multiPetRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  multiPetRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 80, paddingHorizontal: 14, paddingVertical: 12 },
   multiPetRowActive: { borderColor: '#FFD9C2' },
-  ownerAvatarBlock: { alignItems: 'center', paddingBottom: 10, paddingTop: 8 },
-  ownerAvatarCamera: { alignItems: 'center', backgroundColor: palette.orange, borderColor: palette.background, borderRadius: 16, borderWidth: 3, bottom: 28, height: 34, justifyContent: 'center', marginBottom: -16, marginLeft: 70, width: 34 },
+  ownerAvatarBlock: { alignItems: 'center', paddingBottom: 18, paddingTop: 14 },
+  ownerAvatarCamera: { alignItems: 'center', backgroundColor: palette.orange, borderColor: palette.background, borderRadius: 16, borderWidth: 3, bottom: 30, height: 32, justifyContent: 'center', marginBottom: -16, marginLeft: 70, width: 32 },
   ownerAvatarImage: { height: '100%', width: '100%' },
-  ownerAvatarLarge: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 50, borderWidth: 3, height: 100, justifyContent: 'center', overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.1, shadowRadius: 18, width: 100 },
+  ownerAvatarLarge: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 48, borderWidth: 3, height: 96, justifyContent: 'center', overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22, width: 96 },
   ownerAvatarOverlay: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
   petDeleteIconButton: { alignItems: 'center', backgroundColor: '#FBE4DE', borderRadius: 10, height: 30, justifyContent: 'center', width: 30 },
   petDogBadge: { backgroundColor: palette.orangeSoft, color: palette.orange },
@@ -6598,6 +6609,10 @@ const styles = StyleSheet.create({
   weightDeltaPill: { alignItems: 'center', backgroundColor: palette.tealSoft, borderRadius: 10, flexDirection: 'row', gap: 4, paddingHorizontal: 10, paddingVertical: 5 },
   weightDeltaPillWarn: { backgroundColor: '#FBF2D9' },
   weightEditSheet: { gap: 14 },
+  weightHistoryIcon: { alignItems: 'center', backgroundColor: '#E8F5F3', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
+  weightHistoryRowHighlight: { backgroundColor: '#FFF7F0', borderColor: '#FFE0CC' },
+  weightHistoryRowMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
+  weightHistoryStack: { gap: 8, marginTop: 10 },
   weightNoticeOk: { alignItems: 'center', backgroundColor: '#E8F5F3', borderColor: '#C4E0DA', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
   weightNoticeWarn: { alignItems: 'center', backgroundColor: '#FBF2D9', borderColor: '#EFDFA8', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
   weightNumberInput: { alignItems: 'flex-end', backgroundColor: '#fff', borderColor: palette.orange, borderRadius: 18, borderWidth: 1.5, flexDirection: 'row', gap: 6, justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 16 },
@@ -6734,7 +6749,7 @@ const styles = StyleSheet.create({
   logoMark: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 13, height: 38, justifyContent: 'center', width: 38 },
   logoRow: { alignItems: 'center', flexDirection: 'row', gap: 12, marginBottom: 22 },
   logoText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700' },
-  longTextInput: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, minHeight: 118, paddingHorizontal: 12, paddingVertical: 10, textAlignVertical: 'top' },
+  longTextInput: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1.5, color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, minHeight: 130, paddingHorizontal: 14, paddingVertical: 12, textAlignVertical: 'top' },
   logoutButton: { alignItems: 'center', backgroundColor: '#ffdad6', borderRadius: 18, flexDirection: 'row', gap: 10, justifyContent: 'center', minHeight: 52 },
   logoutText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
   mapCanvas: { backgroundColor: '#eef2ec', borderRadius: 24, height: 330, overflow: 'hidden', position: 'relative' },
@@ -6822,10 +6837,10 @@ const styles = StyleSheet.create({
   mascot: { alignItems: 'center', backgroundColor: '#f2c28a', justifyContent: 'center', overflow: 'hidden' },
   makeIconChip: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', position: 'relative', width: 36 },
   makeBottomActions: { gap: 12, marginTop: 22 },
-  makeDetailLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 19, width: 84 },
-  makeDetailRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 12, minHeight: 44, paddingVertical: 10 },
+  makeDetailLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 19, width: 78 },
+  makeDetailRow: { alignItems: 'center', flexDirection: 'row', gap: 14, minHeight: 44, paddingVertical: 10 },
   makeDetailRowInset: { paddingHorizontal: 16 },
-  makeDetailValue: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', lineHeight: 20, minWidth: 0, textAlign: 'right' },
+  makeDetailValue: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', lineHeight: 20, minWidth: 0, textAlign: 'left' },
   makeDivider: { backgroundColor: palette.border, height: 1 },
   makeIntroCopy: { flex: 1, gap: 4, minWidth: 0 },
   makeIntroHeader: { alignItems: 'center', flexDirection: 'row', gap: 13, marginTop: 4, paddingHorizontal: 6 },

@@ -86,8 +86,8 @@
 | 52 | 收藏 / 取消收藏 | 地点收藏逻辑 + `Toast` | 本轮已迁移-需视觉复核 | 已按 Screen52 分 dark 收藏 Toast / surface 取消 Toast；图标与副文案仍需截图复核 |
 | 53 | 高德导航确认弹窗 | 外部导航确认 | 部分接入 | 弹窗组件已收敛，内容/按钮需按 Screen53 |
 | 54 | 我的 | `renderProfile` | 已接入-需视觉复核 | 顶部资料卡、多宠入口、菜单间距需复核 |
-| 55 | 宠物档案详情 | `renderPetDetail` | 已接入-需视觉复核 | 字段对齐和卡片内边距需继续修 |
-| 56 | 多宠管理 | `renderMultiPet` | 已接入-需视觉复核 | Screen56/81 两版需合并对齐 |
+| 55 | 宠物档案详情 | `renderPetDetail` | 已接入-需视觉复核 | 本轮已把详情字段从右对齐改为左对齐并收紧 label 宽度，解决贴边/不齐；仍需截图复核 |
+| 56 | 多宠管理 | `renderMultiPet` | 已接入-需视觉复核 | 本轮已按 Screen81 增加 hero 底部健康提示分割线、调整列表 row 高度和当前宠物 badge 字重；仍需截图复核 |
 | 57 | 编辑宠物资料 | `renderPetInfo` edit mode | 部分接入 | 复用建档表单，编辑态样式需单独对齐 |
 | 58 | 设置与隐私 | `renderSettings` | 已接入-需视觉复核 | Toggle 本轮已修，菜单行还需复核 |
 | 59 | 账号安全 | `renderAccountSecurity` | 部分接入 | 账号安全详情未完全按 Screen59 |
@@ -112,25 +112,25 @@
 | 78 | 即将到期 / 逾期提醒 | `renderHealth`/`renderVaccine` | 部分接入 | 提醒逻辑有，日历提醒屏缺失 |
 | 79 | 加载中 下拉刷新 | 无 | 缺失 | 健康日历加载态缺失 |
 | 80 | 读取失败 | 无 | 缺失 | 健康日历错误态缺失 |
-| 81 | 我的宠物 默认列表 | `renderMultiPet` | 已接入-需视觉复核 | 与 Screen56/81 统一精修 |
+| 81 | 我的宠物 默认列表 | `renderMultiPet` | 已接入-需视觉复核 | 本轮已按源码细化当前宠物 hero、健康提示分割区和独立宠物列表卡；仍需截图复核 |
 | 82 | 还没有宠物 空状态 | `renderMultiPet`/`renderEmptyPet` | 部分接入 | 多宠管理内空态需按 Screen82 |
 | 83 | 切换中 loading | `renderMultiPet` | 已接入-需视觉复核 | loading 样式需复核 |
 | 84 | 切换成功 Toast | `Toast` + switch | 部分接入 | Toast 本轮已修，成功内容需复核 |
 | 85 | 删除宠物 二次确认 | `ConfirmDialog` | 部分接入 | Dialog 本轮已修，内容和危险按钮需复核 |
-| 86 | 编辑个人资料 默认态 | `renderOwnerEdit` | 已接入-需视觉复核 | 头像、输入框、简介 textarea 需复核 |
+| 86 | 编辑个人资料 默认态 | `renderOwnerEdit` | 已接入-需视觉复核 | 本轮已按源码去掉多余外层表单卡，头像改为 96px，输入框/简介 textarea 回到 14px 圆角白底描边体系；仍需截图复核 |
 | 87 | 头像上传中 | `renderOwnerEdit` | 已接入-需视觉复核 | loading overlay 需复核 |
 | 88 | 昵称错误 | `renderOwnerEdit` | 部分接入 | 校验有，错误态样式需对齐 |
 | 89 | 保存中 | `renderOwnerEdit` | 已接入-需视觉复核 | 保存按钮 loading 需复核 |
 | 90 | 保存成功 | `Toast` + owner save | 部分接入 | Toast 本轮已修，成功态内容需复核 |
 | 91 | 保存失败 | `Toast` + owner save | 部分接入 | 失败 Toast 类型化需补 |
-| 92 | 编辑备忘 默认态 | `renderMemoEdit` | 已接入-需视觉复核 | 表单和删除入口需复核 |
+| 92 | 编辑备忘 默认态 | `renderMemoEdit` | 已接入-需视觉复核 | 本轮已按源码轻表单区调整 label、textarea、日期/分类元信息卡；删除入口和确认弹窗仍需截图复核 |
 | 93 | 保存中 | `renderMemoEdit` | 已接入-需视觉复核 | 保存 loading 需复核 |
 | 94 | 保存成功 | `Toast` + memo save | 部分接入 | Toast 本轮已修，成功内容需复核 |
 | 95 | 删除备忘 二次确认 | `ConfirmDialog` | 部分接入 | Dialog 本轮已修，内容需复核 |
 | 96 | 删除成功 备忘空状态 | `renderHealthMemos` | 部分接入 | 空态需按 Screen96 精修 |
-| 97 | 体重趋势 正常 | `renderWeight` | 已接入-需视觉复核 | 趋势图、摘要卡需复核 |
-| 98 | 体重趋势 异常 | `renderWeight` | 部分接入 | 异常样式已有，需按 Screen98 精修 |
-| 99 | 编辑体重 弹层 | `renderWeight` + `BottomSheet` | 本轮已迁移-需视觉复核 | 已使用统一 Bottom Sheet；内容区和数字输入仍需截图对齐 Screen99 |
+| 97 | 体重趋势 正常 | `renderWeight` | 已接入-需视觉复核 | 本轮已将历史记录从时间线改为独立圆角记录卡，首条高亮；趋势图、摘要卡仍需截图复核 |
+| 98 | 体重趋势 异常 | `renderWeight` | 部分接入 | 本轮已同步独立记录卡样式，异常样式仍需按 Screen98 继续截图精修 |
+| 99 | 编辑体重 弹层 | `renderWeight` + `BottomSheet` | 本轮已迁移-需视觉复核 | 已使用统一 Bottom Sheet，内容区沿用源码的数字输入和元信息卡方向；仍需截图对齐 Screen99 |
 | 100 | 删除体重记录 二次确认 | `ConfirmDialog` | 部分接入 | Dialog 本轮已修，内容需复核 |
 | 101 | 体重记录 空状态 | `renderWeight` | 部分接入 | 空态需按 Screen101 精修 |
 
