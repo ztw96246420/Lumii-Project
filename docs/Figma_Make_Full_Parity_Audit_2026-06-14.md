@@ -48,7 +48,7 @@
 | 14 | 未添加宠物空状态 | `renderEmptyPet` | 已接入-需视觉复核 | 空态插图、CTA、卡片层级需复核 |
 | 15 | 宠物基础信息 | `renderPetInfo` | 已接入-需视觉复核 | 表单控件和选择 chip 需复核 |
 | 16 | 上传宠物照片 | `renderUpload` | 已接入-需视觉复核 | 上传卡片、说明文案、相册按钮需复核 |
-| 17 | 上传失败 未识别 | `renderUploadNoPet` | 已接入-需视觉复核 | 失败卡片、原因列表需复核 |
+| 17 | 上传失败 未识别 | `renderUploadNoPet` | 已接入-需视觉复核 | 已按 Screen17 首轮细调失败图卡渐变、警示浮层、原因卡间距和建议列表；仍需截图复核 |
 | 18 | 上传识别详情 | `renderUploadDetail` | 已接入-需视觉复核 | 顶部安全区、识别结果信息卡需复核 |
 | 19 | AI 灵伴生成中 | `renderGenerating` | 已接入-需视觉复核 | 进度条、步骤列表、结果预加载需复核 |
 | 20 | 生成结果 默认 | `renderAiResult` | 已接入-需视觉复核 | 形象卡、标签、按钮位置需复核 |
@@ -72,10 +72,10 @@
 | 38 | 打招呼 Bottom Sheet | `renderGreetingSheet` + `sendGreeting` | 本轮已补-需视觉复核 | 已改为先弹底部面板再确认发送，需截图对齐 Screen38 |
 | 39 | 约遛邀请 | `renderWalkInvite` | 已接入-需视觉复核 | 表单布局、时间 chip、发送态需复核 |
 | 40 | 招呼请求 | `renderGreetingRequests` | 已接入-需视觉复核 | 请求卡片、接受/拒绝按钮需复核 |
-| 41 | 消息列表 | `renderMessages` | 已接入-需视觉复核 | 分组、未读点、头像尺寸需复核 |
+| 41 | 消息列表 | `renderMessages` | 已接入-需视觉复核 | 已补 AI 灵伴会话入口、头像角标、无消息 EmptyState，并修正消息页内边距；分组/未读点仍需截图复核 |
 | 42 | 聊天详情 | `renderConversation` + `ErrorState` | 已接入-需视觉复核 | 会话失效状态已迁移 ErrorState；输入区、气泡、约遛卡片仍需复核 |
 | 43 | 消息发送失败 | `renderConversation` | 已接入-需视觉复核 | 已按 Screen43 补网络错误 banner、消息未送达重试/删除卡；仍需真机截图复核间距 |
-| 44 | 通知中心 | `renderNotifications` | 已接入-需视觉复核 | filter chip、通知分组需复核 |
+| 44 | 通知中心 | `renderNotifications` | 已接入-需视觉复核 | 已补通知空态；filter chip、通知分组和未读卡片仍需复核 |
 | 45 | 宠物友好地图 | `renderMap` | 已接入-需视觉复核 | 自定义地图已做，需继续对齐 Make 地图层次 |
 | 46 | 地图搜索与筛选 | `renderMap` + `BottomSheet` | 部分接入 | 地图样式面板已迁移统一 Bottom Sheet；搜索/地点筛选仍需按 Screen46 精修 |
 | 47 | 地图定位失败 | `renderMap` | 已接入-需视觉复核 | 已按 Screen47 在搜索框下补定位失败 banner、原因文案和重试按钮；中心空态仍需后续复核 |
@@ -102,7 +102,7 @@
 | 68 | BottomSheet 底部弹层 | `ui.tsx/BottomSheet` | 本轮组件已补-需视觉复核 | 已抽统一 Bottom Sheet，并迁移打招呼、体重编辑、地图样式面板 |
 | 69 | TabBar 底部导航 | bottom tabs | 已接入-需视觉复核 | 图标、红点、选中态需复核 |
 | 70 | Card 卡片 | 多处 card | 部分接入 | 基础 card 圆角/边框/阴影需继续统一 |
-| 71 | Empty State 空状态 | `ui.tsx/EmptyState` + 多处空态 | 本轮组件已补-部分页面已迁移 | 已迁移备忘、体重、多宠、招呼请求、发现无结果、地图无结果；消息列表/上传等空态仍需继续替换 |
+| 71 | Empty State 空状态 | `ui.tsx/EmptyState` + 多处空态 | 本轮组件已补-部分页面已迁移 | 已迁移备忘、体重、多宠、招呼请求、发现无结果、地图无结果、消息列表、通知中心；上传等空态仍需继续替换 |
 | 72 | Error State 错误页 | `ui.tsx/ErrorState` + 多处错误态 | 本轮组件已补-部分页面已迁移 | 已迁移会话失效、地点失效、约遛对象失效、附近可见关闭、AI 生成失败、AI/普通聊天发送失败、地图定位失败；上传失败仍需逐处接入 |
 | 73 | Loading & Skeleton | `ui.tsx/LoadingState/SkeletonLine` + 多处 loading | 本轮组件已补-待迁移 | Loading 与 Skeleton 基础组件已补齐，页面骨架仍需逐屏替换 |
 | 74 | App 图标 | assets/app icon | 已接入-需复核 | 已替换过图标，需核对最新包是否一致 |

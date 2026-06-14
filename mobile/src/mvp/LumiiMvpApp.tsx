@@ -5280,6 +5280,11 @@ export default function LumiiMvpApp() {
   }
 
   function renderMessages() {
+    const pet = getCurrentPet();
+    const lastPetChatMessage = chatMessages[chatMessages.length - 1];
+    const petChatPreview = lastPetChatMessage?.text || '主人，今天我们去公园吗？';
+    const petChatTime = lastPetChatMessage?.time || '09:32';
+    const hasInboxContent = Boolean(pet) || greetingRequestOwners.length > 0 || conversations.length > 0;
     return (
       <Screen showBack={false} title="">
         <View style={styles.messagesMakePage}>
@@ -5314,19 +5319,52 @@ export default function LumiiMvpApp() {
           ) : null}
 
           <View style={styles.messagesListMake}>
-          {conversations.map((conversation) => (
-            <Pressable key={conversation.id} onPress={() => void openConversation(conversation)} style={styles.conversationMakeRow}>
-              <PetAvatar uri={conversation.imageUrl ?? (conversation.id === 'c1' ? generatedGoldenAvatarUri : owners[0]?.imageUrl)} size={50} />
-              <View style={styles.flex}>
-                <Text numberOfLines={1} style={styles.conversationMakeTitle}>{conversation.name}</Text>
-                <Text numberOfLines={1} style={styles.conversationMakeText}>{conversation.lastMessage}</Text>
+            {pet ? (
+              <Pressable onPress={() => go('chat')} style={styles.conversationMakeRow}>
+                <View style={styles.conversationAvatarWrap}>
+                  <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={50} />
+                  <View style={styles.conversationAiBadge}>
+                    <Sparkles color="#fff" size={10} strokeWidth={2.6} />
+                  </View>
+                </View>
+                <View style={styles.flex}>
+                  <Text numberOfLines={1} style={styles.conversationMakeTitle}>AI 灵伴 · {pet.name}</Text>
+                  <Text numberOfLines={1} style={styles.conversationMakeText}>{petChatPreview}</Text>
+                </View>
+                <View style={styles.conversationMetaCol}>
+                  <Text style={styles.metaText}>{petChatTime}</Text>
+                </View>
+              </Pressable>
+            ) : null}
+            {conversations.map((conversation) => (
+              <Pressable key={conversation.id} onPress={() => void openConversation(conversation)} style={styles.conversationMakeRow}>
+                <View style={styles.conversationAvatarWrap}>
+                  <PetAvatar uri={conversation.imageUrl ?? (conversation.id === 'c1' ? generatedGoldenAvatarUri : owners[0]?.imageUrl)} size={50} />
+                  <View style={styles.conversationOwnerBadge}>
+                    <User color={palette.orange} size={10} strokeWidth={2.5} />
+                  </View>
+                </View>
+                <View style={styles.flex}>
+                  <Text numberOfLines={1} style={styles.conversationMakeTitle}>{conversation.name}</Text>
+                  <Text numberOfLines={1} style={styles.conversationMakeText}>{conversation.lastMessage}</Text>
+                </View>
+                <View style={styles.conversationMetaCol}>
+                  <Text style={styles.metaText}>{conversation.updatedAt ?? (conversation.id === 'c1' ? '09:32' : '刚刚')}</Text>
+                  {conversation.unread > 0 ? <Text style={styles.unreadBadge}>{conversation.unread}</Text> : null}
+                </View>
+              </Pressable>
+            ))}
+            {!hasInboxContent ? (
+              <View style={styles.messagesEmptyWrap}>
+                <EmptyState
+                  description="收到的招呼和聊天会出现在这里。去发现页看看附近有没有想认识的新伙伴。"
+                  icon={<MessageCircle color={palette.muted} size={26} strokeWidth={2.4} />}
+                  onAction={() => resetTo('discover')}
+                  action="去发现"
+                  title="还没有消息"
+                />
               </View>
-              <View style={styles.conversationMetaCol}>
-                <Text style={styles.metaText}>{conversation.updatedAt ?? (conversation.id === 'c1' ? '09:32' : '刚刚')}</Text>
-                {conversation.unread > 0 ? <Text style={styles.unreadBadge}>{conversation.unread}</Text> : null}
-              </View>
-            </Pressable>
-          ))}
+            ) : null}
           </View>
         </View>
       </Screen>
@@ -5337,6 +5375,15 @@ export default function LumiiMvpApp() {
     return (
       <Screen title="通知中心">
         <View style={styles.notificationListMake}>
+          {!notifications.length ? (
+            <EmptyState
+              action="刷新通知"
+              description="招呼请求、健康提醒和系统消息会出现在这里。"
+              icon={<Bell color={palette.muted} size={26} strokeWidth={2.4} />}
+              onAction={() => void refreshInboxManually()}
+              title="暂时没有通知"
+            />
+          ) : null}
           {notifications.map((item) => (
             <View key={item.id} style={[styles.notificationCardMake, !item.read && styles.notificationCardUnreadMake]}>
               <View style={styles.notificationIconMake}>
@@ -6808,10 +6855,13 @@ const styles = StyleSheet.create({
   messageRetryIcon: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.12)', borderRadius: 15, height: 30, justifyContent: 'center', width: 30 },
   messageRetryText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
   messageRetryTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700', lineHeight: 18 },
-  conversationMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, paddingVertical: 12 },
+  conversationAiBadge: { alignItems: 'center', backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 10, borderWidth: 2, bottom: -3, height: 20, justifyContent: 'center', position: 'absolute', right: -3, width: 20 },
+  conversationAvatarWrap: { position: 'relative' },
+  conversationMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 74, paddingVertical: 12 },
   conversationMakeText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18 },
   conversationMakeTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
   conversationMetaCol: { alignItems: 'flex-end', gap: 7 },
+  conversationOwnerBadge: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 11, borderWidth: 2, bottom: -3, height: 22, justifyContent: 'center', position: 'absolute', right: -3, shadowColor: '#50371e', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.12, shadowRadius: 10, width: 22 },
   conversationSystemBubble: { alignSelf: 'center', backgroundColor: 'rgba(122,121,114,0.10)', borderRadius: 14, maxWidth: '88%', paddingHorizontal: 12, paddingVertical: 7 },
   conversationSystemText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17, textAlign: 'center' },
   composerCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, gap: 8, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
@@ -6821,10 +6871,11 @@ const styles = StyleSheet.create({
   messagesAvatarOverlap: { marginLeft: -10 },
   messagesAvatarStack: { flexDirection: 'row', width: 60 },
   messagesHeaderActions: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  messagesEmptyWrap: { marginTop: 18 },
   messagesListMake: { marginTop: 14 },
-  messagesMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', paddingHorizontal: 20 },
+  messagesMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between' },
   messagesMakePage: { paddingTop: 0 },
-  messagesRequestMake: { alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, marginHorizontal: 20, marginTop: 14, paddingHorizontal: 14, paddingVertical: 12, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22 },
+  messagesRequestMake: { alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 14, paddingHorizontal: 14, paddingVertical: 12, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22 },
   messagesRequestText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
   messagesRequestTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700', lineHeight: 19 },
   messagesTopRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end' },
@@ -7041,15 +7092,15 @@ const styles = StyleSheet.create({
   statusText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   successText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   switchOff: { backgroundColor: palette.pale, borderRadius: 12, height: 24, width: 40 },
-  detailCardMake: { backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, marginTop: 18, paddingHorizontal: 18, paddingVertical: 16, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
+  detailCardMake: { backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, marginTop: 22, paddingHorizontal: 18, paddingVertical: 16, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
   emptyPetCta: { marginTop: 18, width: '100%' },
   emptyPetGlow: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.12)', borderRadius: 100, height: 200, justifyContent: 'center', marginBottom: 8, position: 'relative', width: 200 },
   emptyPetPlus: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.orange, borderRadius: 14, borderStyle: 'dashed', borderWidth: 2, bottom: 14, height: 28, justifyContent: 'center', position: 'absolute', right: 12, width: 28 },
   emptyPetStage: { alignItems: 'center', justifyContent: 'center', minHeight: 580, paddingHorizontal: 22 },
-  failedAlertCircle: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 34, height: 68, justifyContent: 'center', position: 'absolute', width: 68 },
-  failedBadgeMake: { backgroundColor: 'rgba(216,70,53,0.94)', borderRadius: 14, color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', left: 16, overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', top: 16 },
-  failedBlurOrb: { backgroundColor: '#8b7b64', borderRadius: 100, height: 200, opacity: 0.45, width: 200 },
-  failedPhotoMake: { alignItems: 'center', backgroundColor: '#c8c0af', borderRadius: 28, height: 320, justifyContent: 'center', marginTop: 2, overflow: 'hidden', position: 'relative' },
+  failedAlertCircle: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.90)', borderRadius: 34, height: 68, justifyContent: 'center', position: 'absolute', shadowColor: '#000', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.2, shadowRadius: 24, width: 68 },
+  failedBadgeMake: { backgroundColor: 'rgba(229,87,63,0.94)', borderRadius: 14, color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', left: 16, overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', top: 16 },
+  failedBlurOrb: { backgroundColor: '#7b6e59', borderRadius: 100, height: 200, opacity: 0.6, width: 200 },
+  failedPhotoMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, #E8E3D8 0%, #C8C0AF 100%)' } as object) : null), alignItems: 'center', backgroundColor: '#c8c0af', borderRadius: 28, height: 320, justifyContent: 'center', marginTop: 2, overflow: 'hidden', position: 'relative' },
   failedTipsIntro: { marginTop: 8 },
   featureChipCool: { backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 12, color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 11, paddingVertical: 6 },
   featureChipWarm: { backgroundColor: palette.orangeSoft, borderRadius: 12, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 11, paddingVertical: 6 },
@@ -7076,9 +7127,9 @@ const styles = StyleSheet.create({
   uploadDashedFrame: { borderColor: 'rgba(255,138,92,0.55)', borderRadius: 28, borderStyle: 'dashed', borderWidth: 2, bottom: 14, left: 14, position: 'absolute', right: 14, top: 14 },
   uploadHintMake: { bottom: 18, color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', position: 'absolute', textAlign: 'center' },
   tipsCardMake: { backgroundColor: 'rgba(255,255,255,0.72)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 8, marginTop: 14, padding: 14 },
-  tipBulletDot: { backgroundColor: palette.orange, borderRadius: 3, height: 6, width: 6 },
-  tipBulletRow: { alignItems: 'center', flexDirection: 'row', gap: 9, paddingVertical: 4 },
-  tipBulletText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  tipBulletDot: { backgroundColor: palette.orange, borderRadius: 3, height: 5, width: 5 },
+  tipBulletRow: { alignItems: 'center', flexDirection: 'row', gap: 9, paddingVertical: 3 },
+  tipBulletText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   tipMakeRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   tipMakeText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
   voiceLink: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700', marginLeft: 6 },
