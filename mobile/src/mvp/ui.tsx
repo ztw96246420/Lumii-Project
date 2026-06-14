@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { TextStyle, ViewStyle } from 'react-native';
 
 export const palette = {
@@ -118,7 +118,11 @@ export function ToggleRow({
         <Text style={styles.cardTitle}>{label}</Text>
         <Text style={styles.body}>{description}</Text>
       </View>
-      {loading ? <ActivityIndicator color={palette.teal} /> : <Switch onValueChange={onValueChange} thumbColor="#fff" trackColor={{ false: '#e4e2dd', true: palette.teal }} value={value} />}
+      <Pressable disabled={loading} onPress={onValueChange} style={[webPressableReset, styles.toggleTrack, value && styles.toggleTrackOn, loading && styles.toggleTrackLoading]}>
+        <View style={[styles.toggleThumb, value && styles.toggleThumbOn]}>
+          {loading ? <ActivityIndicator color={palette.muted} size="small" /> : null}
+        </View>
+      </Pressable>
     </Card>
   );
 }
@@ -166,14 +170,14 @@ export function ConfirmDialog({
 
 export const styles = StyleSheet.create({
   body: { color: palette.muted, fontFamily, fontSize: 14, lineHeight: 20 },
-  button: { alignItems: 'center', borderRadius: 14, justifyContent: 'center', minHeight: 48, paddingHorizontal: 20, paddingVertical: 13, shadowColor: '#ff8a5c', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 16 },
+  button: { alignItems: 'center', borderRadius: 14, justifyContent: 'center', minHeight: 44, paddingHorizontal: 18, paddingVertical: 11, shadowColor: '#ff8a5c', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 16 },
   button_danger: { backgroundColor: palette.danger },
-  button_ghost: { backgroundColor: '#fffaf5', borderColor: 'rgba(234,223,210,0.9)', borderWidth: 1 },
+  button_ghost: { backgroundColor: 'transparent', borderColor: palette.border, borderWidth: 1 },
   button_primary: { backgroundColor: palette.orange },
-  button_secondary: { backgroundColor: palette.tealSoft },
-  buttonDisabled: { backgroundColor: '#efd6c9', opacity: 0.72 },
+  button_secondary: { backgroundColor: '#FFF1E5' },
+  buttonDisabled: { backgroundColor: palette.pale, opacity: 1 },
   buttonPressed: { opacity: 0.82, transform: [{ scale: 0.99 }] },
-  buttonText: { color: palette.ink, fontFamily, fontSize: 15, fontWeight: '600' },
+  buttonText: { color: palette.ink, fontFamily, fontSize: 14, fontWeight: '600' },
   buttonTextPrimary: { color: '#fff' },
   card: {
     backgroundColor: palette.card,
@@ -189,22 +193,27 @@ export const styles = StyleSheet.create({
   cardTitle: { color: palette.ink, fontFamily, fontSize: 16, fontWeight: '600', lineHeight: 22 },
   fieldWrap: { gap: 8 },
   h1: { color: palette.ink, fontFamily, fontSize: 28, fontWeight: '600', letterSpacing: 0, lineHeight: 34 },
-  input: { backgroundColor: '#fffdf9', borderColor: 'rgba(234,223,210,0.95)', borderRadius: 18, borderWidth: 1.2, color: palette.ink, fontFamily, fontSize: 16, minHeight: 54, paddingHorizontal: 16 },
-  inputFocused: { borderColor: palette.orange, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.22, shadowRadius: 10 },
+  input: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1.5, color: palette.ink, fontFamily, fontSize: 14, minHeight: 46, paddingHorizontal: 14 },
+  inputFocused: { borderColor: palette.orange, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.18, shadowRadius: 10 },
   label: { color: palette.muted, fontFamily, fontSize: 12.5, fontWeight: '500' },
-  modal: { backgroundColor: palette.card, borderRadius: 20, gap: 14, margin: 32, padding: 20, shadowColor: '#50371e', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.18, shadowRadius: 30 },
-  modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(20,18,14,0.42)', flex: 1, justifyContent: 'center' },
-  pill: { alignSelf: 'flex-start', borderRadius: 999, fontFamily, fontSize: 12, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
+  modal: { backgroundColor: palette.card, borderRadius: 20, gap: 14, margin: 32, maxWidth: 290, paddingHorizontal: 18, paddingBottom: 16, paddingTop: 20, shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.12, shadowRadius: 30, width: 290 },
+  modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(20,18,14,0.50)', flex: 1, justifyContent: 'center' },
+  pill: { alignSelf: 'flex-start', borderRadius: 8, fontFamily, fontSize: 11, fontWeight: '600', height: 22, lineHeight: 14, overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 4 },
   pill_danger: { backgroundColor: '#ffdad6', color: palette.danger },
   pill_neutral: { backgroundColor: palette.pale, color: palette.muted },
   pill_success: { backgroundColor: '#dff5f2', color: '#006a63' },
   row: { flexDirection: 'row', gap: 10 },
   sectionTitle: { gap: 8, marginBottom: 18 },
   subtitle: { color: palette.muted, fontFamily, fontSize: 15, lineHeight: 22 },
-  toast: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: 'rgba(0,0,0,0.04)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, maxWidth: '92%', paddingHorizontal: 14, paddingVertical: 10, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.14, shadowRadius: 28, top: 82, zIndex: 20 },
-  toastIconDot: { backgroundColor: palette.teal, borderRadius: 8, height: 16, width: 16 },
+  toast: { alignItems: 'center', alignSelf: 'center', backgroundColor: 'rgba(27,28,25,0.92)', borderRadius: 22, flexDirection: 'row', gap: 10, maxWidth: '92%', minHeight: 46, minWidth: 180, paddingHorizontal: 18, paddingVertical: 12, position: 'absolute', shadowColor: '#000', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.28, shadowRadius: 38, top: 96, zIndex: 20 },
+  toastIconDot: { backgroundColor: palette.teal, borderRadius: 12, height: 24, width: 24 },
   toastNoPointer: { pointerEvents: 'none' },
-  toastText: { color: palette.ink, flexShrink: 1, fontFamily, fontSize: 13, fontWeight: '600' },
+  toastText: { color: '#fff', flexShrink: 1, fontFamily, fontSize: 13, fontWeight: '600' },
+  toggleThumb: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 11, height: 22, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.15, shadowRadius: 4, width: 22 },
+  toggleThumbOn: { transform: [{ translateX: 18 }] },
   toggleRow: { alignItems: 'center', flexDirection: 'row', gap: 12 },
   toggleText: { flex: 1, gap: 4 },
+  toggleTrack: { backgroundColor: '#D9D5CB', borderRadius: 13, height: 26, justifyContent: 'center', padding: 2, width: 44 },
+  toggleTrackLoading: { opacity: 0.8 },
+  toggleTrackOn: { backgroundColor: palette.teal },
 });

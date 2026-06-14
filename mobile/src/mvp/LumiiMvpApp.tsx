@@ -552,6 +552,8 @@ export default function LumiiMvpApp() {
   const walkInviteSavingRef = useRef(false);
   const [selectedOwner, setSelectedOwner] = useState<NearbyOwner | null>(null);
   const selectedOwnerIdRef = useRef<string | null>(null);
+  const [greetingSheetOwner, setGreetingSheetOwner] = useState<NearbyOwner | null>(null);
+  const [greetingMessage, setGreetingMessage] = useState('你好呀，我们也在附近，想认识一下吗？');
   const [walkInvitePlace, setWalkInvitePlace] = useState('滨江绿地');
   const [walkInviteTime, setWalkInviteTime] = useState('今天 19:00');
   const [walkInviteNote, setWalkInviteNote] = useState('');
@@ -3012,6 +3014,17 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function openGreetingSheet(owner: NearbyOwner) {
+    setGreetingSheetOwner(owner);
+    setGreetingMessage(`你好呀，${owner.petName}看起来好可爱，我们也在附近，想认识一下吗？`);
+  }
+
+  function closeGreetingSheet() {
+    if (greetingSheetOwner && socialActionSavingIdsRef.current.has(`greet:${greetingSheetOwner.id}`)) return;
+    setGreetingSheetOwner(null);
+    setGreetingMessage('你好呀，我们也在附近，想认识一下吗？');
+  }
+
   async function sendGreeting(ownerId: string) {
     const actionId = `greet:${ownerId}`;
     if (!beginSocialAction(actionId)) return;
@@ -3025,6 +3038,10 @@ export default function LumiiMvpApp() {
           setConversations((items) => [result.data!.conversation!, ...items.filter((item) => item.id !== result.data!.conversation!.id)]);
         }
         void loadInboxData();
+        if (greetingSheetOwner?.id === ownerId) {
+          setGreetingSheetOwner(null);
+          setGreetingMessage('你好呀，我们也在附近，想认识一下吗？');
+        }
         showToast(`已向${owner?.petName ?? '附近伙伴'}打招呼`);
       } else {
         showToast(result.error?.message ?? '发送失败');
@@ -3456,6 +3473,8 @@ export default function LumiiMvpApp() {
     setWalkInviteSaving(false);
     selectedOwnerIdRef.current = null;
     setSelectedOwner(null);
+    setGreetingSheetOwner(null);
+    setGreetingMessage('你好呀，我们也在附近，想认识一下吗？');
     setWalkInvitePlace('滨江绿地');
     setWalkInviteTime('今天 19:00');
     setWalkInviteNote('');
@@ -4876,7 +4895,7 @@ export default function LumiiMvpApp() {
                   <Text style={styles.walkInviteInlineText}>约遛邀请</Text>
                 </Pressable>
               </View>
-              <Pressable disabled={socialActionSavingIds.includes(`greet:${owner.id}`)} onPress={() => void sendGreeting(owner.id)} style={[styles.greetButtonMake, socialActionSavingIds.includes(`greet:${owner.id}`) && styles.mapSearchActionDisabled]}>
+              <Pressable disabled={socialActionSavingIds.includes(`greet:${owner.id}`)} onPress={() => openGreetingSheet(owner)} style={[styles.greetButtonMake, socialActionSavingIds.includes(`greet:${owner.id}`) && styles.mapSearchActionDisabled]}>
                 {socialActionSavingIds.includes(`greet:${owner.id}`) ? <ActivityIndicator color="#fff" size="small" /> : <MessageCircle color="#fff" size={15} strokeWidth={2.4} />}
               </Pressable>
             </View>
@@ -5863,6 +5882,65 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderGreetingSheet() {
+    const owner = greetingSheetOwner;
+    const saving = owner ? socialActionSavingIds.includes(`greet:${owner.id}`) : false;
+    const quickMessages = owner
+      ? [
+          `你好呀，${owner.petName}看起来好可爱，我们也在附近，想认识一下吗？`,
+          '我们家宝贝也想交朋友，要不要先打个招呼？',
+          '下次在附近散步时可以一起玩吗？',
+        ]
+      : [];
+    return (
+      <Modal animationType="slide" transparent visible={Boolean(owner)}>
+        <View style={styles.sheetBackdrop}>
+          <Pressable disabled={saving} onPress={closeGreetingSheet} style={styles.sheetBackdropTouch} />
+          {owner ? (
+            <View style={styles.greetingSheetMake}>
+              <View style={styles.sheetHandle} />
+              <View style={styles.greetingSheetHeader}>
+                <PetAvatar uri={owner.imageUrl} size={58} />
+                <View style={styles.flex}>
+                  <Text style={styles.sheetTitle}>向 {owner.petName} 打个招呼</Text>
+                  <Text style={styles.greetingSheetMeta}>主人 {owner.ownerName} · {owner.distance}</Text>
+                </View>
+                <Pressable disabled={saving} onPress={closeGreetingSheet} style={[styles.greetingSheetClose, webPressableReset]}>
+                  <X color={palette.muted} size={17} strokeWidth={2.4} />
+                </Pressable>
+              </View>
+
+              <View style={styles.greetingMessageCard}>
+                <MessageCircle color={palette.orange} size={16} strokeWidth={2.4} />
+                <Text style={styles.greetingMessageText}>{greetingMessage}</Text>
+              </View>
+
+              <View style={styles.greetingQuickRow}>
+                {quickMessages.map((message, index) => (
+                  <Pressable key={message} onPress={() => setGreetingMessage(message)} style={[styles.greetingQuickChip, greetingMessage === message && styles.greetingQuickChipActive, webPressableReset]}>
+                    <Text style={[styles.greetingQuickChipText, greetingMessage === message && styles.greetingQuickChipTextActive]} numberOfLines={1}>
+                      {index === 0 ? '友好开场' : index === 1 ? '想交朋友' : '约下次散步'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={styles.greetingSheetActions}>
+                <View style={styles.flex}>
+                  <Button disabled={saving} onPress={closeGreetingSheet} tone="ghost">取消</Button>
+                </View>
+                <View style={styles.flex}>
+                  <Button loading={saving} onPress={() => void sendGreeting(owner.id)}>发送招呼</Button>
+                </View>
+              </View>
+              <Text style={styles.greetingSheetHint}>发送后，对方会在招呼请求和消息中看到你。</Text>
+            </View>
+          ) : null}
+        </View>
+      </Modal>
+    );
+  }
+
   function renderScreen() {
     if (sessionBootstrapping) return renderSessionBootstrapping();
     if (session && !getCurrentPet() && petRequiredRoutes.has(route)) return renderEmptyPet();
@@ -5962,6 +6040,7 @@ export default function LumiiMvpApp() {
             </View>
           ) : null}
           <Toast message={toast} />
+          {renderGreetingSheet()}
           <ConfirmDialog
             body={confirm?.body ?? ''}
             confirmText={confirm?.confirmText}
@@ -6415,6 +6494,19 @@ const styles = StyleSheet.create({
   goldIcon: { backgroundColor: '#f2b441' },
   grid2: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   greetButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 17, height: 34, justifyContent: 'center', position: 'absolute', right: 14, top: 70, width: 34 },
+  greetingMessageCard: { alignItems: 'flex-start', backgroundColor: '#FFF7F0', borderColor: '#FFE0CC', borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
+  greetingMessageText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 20 },
+  greetingQuickChip: { backgroundColor: palette.pale, borderColor: 'transparent', borderRadius: 12, borderWidth: 1, maxWidth: '32%', paddingHorizontal: 10, paddingVertical: 7 },
+  greetingQuickChipActive: { backgroundColor: palette.orangeSoft, borderColor: '#FFD9C4' },
+  greetingQuickChipText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
+  greetingQuickChipTextActive: { color: palette.orange },
+  greetingQuickRow: { flexDirection: 'row', gap: 8 },
+  greetingSheetActions: { flexDirection: 'row', gap: 10, marginTop: 2 },
+  greetingSheetClose: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 14, height: 28, justifyContent: 'center', width: 28 },
+  greetingSheetHeader: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  greetingSheetHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 17, textAlign: 'center' },
+  greetingSheetMake: { backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, gap: 14, paddingBottom: 32, paddingHorizontal: 22, paddingTop: 16, shadowColor: '#50371e', shadowOffset: { height: -24, width: 0 }, shadowOpacity: 0.28, shadowRadius: 50 },
+  greetingSheetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18, marginTop: 3 },
   header: { backgroundColor: palette.background, paddingHorizontal: 16, paddingTop: 0 },
   headerRow: { alignItems: 'center', flexDirection: 'row', height: 44, justifyContent: 'space-between' },
   headerSpacer: { height: 36, width: 36 },
