@@ -24,6 +24,7 @@ import {
 import type { RefreshControlProps, TextStyle, ViewStyle } from 'react-native';
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowUp,
   BatteryFull,
   Bell,
@@ -517,7 +518,7 @@ export default function LumiiMvpApp() {
   const [vaccines, setVaccines] = useState<VaccinePlan[]>([]);
   const [vaccineReminderIds, setVaccineReminderIds] = useState<string[]>([]);
   const [memos, setMemos] = useState<HealthMemo[]>([]);
-  const [weightInput, setWeightInput] = useState('');
+  const [weightEditorMode, setWeightEditorMode] = useState<'add' | 'edit' | null>(null);
   const [weightEditRecord, setWeightEditRecord] = useState<WeightRecord | null>(null);
   const [weightEditValue, setWeightEditValue] = useState('');
   const [weightEditNote, setWeightEditNote] = useState('');
@@ -2384,20 +2385,29 @@ export default function LumiiMvpApp() {
       showToast('请先添加宠物档案');
       return;
     }
-    const kg = Number.parseFloat(weightInput);
+    const kg = Number.parseFloat(weightEditValue);
+    const note = weightEditNote.trim();
     if (!Number.isFinite(kg) || kg <= 0) {
       showToast('请输入正确体重');
+      return;
+    }
+    if (kg > 200) {
+      showToast('请输入 0-200kg 之间的体重');
+      return;
+    }
+    if (note.length > 40) {
+      showToast('备注最多 40 个字');
       return;
     }
     weightSavingRef.current = true;
     setWeightSaving(true);
     try {
-      const result = await lumiiApi.health.recordWeight(kg, '手动记录');
+      const result = await lumiiApi.health.recordWeight(Math.round(kg * 100) / 100, note || '手动记录');
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setWeights((items) => [result.data!, ...items]);
         setActivePet((pet) => (pet ? { ...pet, weightKg: result.data!.kg } : pet));
-        setWeightInput('');
+        closeWeightEditor();
         void refreshHealthSummary();
         showToast('体重已记录', { tone: 'success', variant: 'surface' });
       } else {
@@ -2409,13 +2419,23 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function openWeightAddEditor(initialKg?: null | number) {
+    const fallbackWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? activePet?.weightKg ?? initialKg;
+    setWeightEditorMode('add');
+    setWeightEditRecord(null);
+    setWeightEditValue(Number.isFinite(Number(fallbackWeight)) ? Number(fallbackWeight).toFixed(1).replace(/\.0$/, '') : '');
+    setWeightEditNote('');
+  }
+
   function openWeightEditor(record: WeightRecord) {
+    setWeightEditorMode('edit');
     setWeightEditRecord(record);
     setWeightEditValue(String(record.kg));
     setWeightEditNote(record.note ?? '');
   }
 
   function closeWeightEditor() {
+    setWeightEditorMode(null);
     setWeightEditRecord(null);
     setWeightEditValue('');
     setWeightEditNote('');
@@ -3459,6 +3479,7 @@ export default function LumiiMvpApp() {
     setAiUsage(null);
     setPetChatDailyCount(0);
     setWeights([]);
+    setWeightEditorMode(null);
     setWeightEditRecord(null);
     setWeightEditValue('');
     setWeightEditNote('');
@@ -3467,7 +3488,6 @@ export default function LumiiMvpApp() {
     setVaccines([]);
     setVaccineReminderIds([]);
     setMemos([]);
-    setWeightInput('');
     setConversations([]);
     setSelectedConversation(null);
     selectedConversationIdRef.current = null;
@@ -4793,97 +4813,147 @@ export default function LumiiMvpApp() {
       : 0;
     const weightDeltaLabel = weightDelta === 0 ? '0' : Math.abs(weightDelta).toFixed(1).replace(/\.0$/, '');
     const isWeightWatch = healthSummary?.weightStatus === 'watch' || Math.abs(weightDelta) >= 1.5;
-    const directionCopy = weightDelta < 0 ? `下降 ${weightDeltaLabel} kg` : weightDelta > 0 ? `上升 ${weightDeltaLabel} kg` : '基本稳定';
+    const directionCopy = weightDelta < 0 ? `30 天 -${weightDeltaLabel} kg` : weightDelta > 0 ? `30 天 +${weightDeltaLabel} kg` : '30 天稳定';
+    const weightValues = weights.map((item) => item.kg).filter((value) => Number.isFinite(Number(value)));
+    const averageWeight = weightValues.length ? weightValues.reduce((sum, value) => sum + value, 0) / weightValues.length : undefined;
+    const minWeight = weightValues.length ? Math.min(...weightValues) : undefined;
+    const maxWeight = weightValues.length ? Math.max(...weightValues) : undefined;
+    const weightSpread = Number.isFinite(Number(minWeight)) && Number.isFinite(Number(maxWeight)) ? Number(maxWeight) - Number(minWeight) : undefined;
+    const historyDeltaFor = (index: number) => {
+      const current = weights[index];
+      const next = weights[index + 1];
+      if (!current || !next) return null;
+      const delta = current.kg - next.kg;
+      if (Math.abs(delta) < 0.05) return { direction: 'flat' as const, label: '0' };
+      return {
+        direction: delta > 0 ? 'up' as const : 'down' as const,
+        label: `${delta > 0 ? '+' : '-'}${Math.abs(delta).toFixed(1).replace(/\.0$/, '')}`,
+      };
+    };
     return (
       <Screen title="体重记录">
-        <View style={styles.weightTrendCard}>
-          <View style={styles.rowBetween}>
-            <View>
-              <Text style={styles.healthHeroLabel}>当前体重</Text>
-              <View style={styles.healthHeroScoreRow}>
-                <Text style={styles.healthHeroScore}>{Number.isFinite(Number(currentWeight)) ? Number(currentWeight).toFixed(1).replace(/\.0$/, '') : '--'}</Text>
-                <Text style={styles.healthHeroTotal}>kg</Text>
+        {weights.length ? (
+          <>
+            <View style={styles.weightTrendCard}>
+              <View style={styles.weightTrendHeader}>
+                <View>
+                  <Text style={styles.weightTrendLabel}>当前体重</Text>
+                  <View style={styles.weightTrendValueRow}>
+                    <Text style={styles.weightTrendValue}>{Number.isFinite(Number(currentWeight)) ? Number(currentWeight).toFixed(1).replace(/\.0$/, '') : '--'}</Text>
+                    <Text style={styles.weightTrendUnit}>kg</Text>
+                  </View>
+                </View>
+                <View style={[styles.weightDeltaPill, isWeightWatch && styles.weightDeltaPillWarn]}>
+                  {weightDelta < 0 ? (
+                    <ArrowDown color={isWeightWatch ? '#C99B3E' : palette.teal} size={11} strokeWidth={3} />
+                  ) : (
+                    <ArrowUp color={isWeightWatch ? '#C99B3E' : palette.teal} size={11} strokeWidth={3} />
+                  )}
+                  <Text style={[styles.homeHealthDeltaText, isWeightWatch && styles.weightWarnText]}>{directionCopy}</Text>
+                </View>
+              </View>
+              <WeightTrendMiniChart abnormal={isWeightWatch} records={weights} />
+              <View style={styles.weightStatRow}>
+                <View style={styles.weightStatChip}>
+                  <Text style={styles.metricLabel}>近 7 天均值</Text>
+                  <Text numberOfLines={1} style={styles.metricValue}>{formatWeightKg(averageWeight).replace(' kg', '')}</Text>
+                </View>
+                <View style={[styles.weightStatChip, styles.weightStatChipOk]}>
+                  <Text style={styles.metricLabel}>健康区间</Text>
+                  <Text numberOfLines={1} style={[styles.metricValue, styles.weightOkText]}>观察中</Text>
+                </View>
+                <View style={[styles.weightStatChip, isWeightWatch && styles.weightStatChipWarn]}>
+                  <Text style={styles.metricLabel}>波动</Text>
+                  <Text numberOfLines={1} style={[styles.metricValue, isWeightWatch && styles.weightWarnText]}>{Number.isFinite(Number(weightSpread)) ? `±${(Number(weightSpread) / 2).toFixed(1).replace(/\.0$/, '')}` : '--'}</Text>
+                </View>
               </View>
             </View>
-            <View style={[styles.weightDeltaPill, isWeightWatch && styles.weightDeltaPillWarn]}>
-              <ArrowUp color={isWeightWatch ? '#C99B3E' : palette.teal} size={11} strokeWidth={3} />
-              <Text style={[styles.homeHealthDeltaText, isWeightWatch && styles.weightWarnText]}>{directionCopy}</Text>
+            {isWeightWatch ? (
+              <View style={styles.weightNoticeWarn}>
+                <View style={styles.weightNoticeIconWarn}>
+                  <Sparkles color="#C99B3E" size={16} strokeWidth={2.4} />
+                </View>
+                <View style={styles.flex}>
+                  <Text style={styles.timelineTitleMake}>近 30 天体重变化较快</Text>
+                  <Text style={styles.timelineSubMake}>可能与饮食、运动或天气有关。如伴随食欲/精神变化，建议咨询兽医。</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.weightNoticeOk}>
+                <View style={styles.weightNoticeIconOk}>
+                  <HeartPulse color={palette.teal} size={16} strokeWidth={2.4} />
+                </View>
+                <View style={styles.flex}>
+                  <Text style={styles.timelineTitleMake}>{pet?.name ?? '灵伴'}近 30 天体重平稳</Text>
+                  <Text style={styles.timelineSubMake}>{healthSummary?.weightSummary ?? '一直在健康区间里，继续保持现在的饮食与运动节奏。'}</Text>
+                </View>
+              </View>
+            )}
+            <View style={styles.weightHistoryHeader}>
+              <Text style={styles.weightSectionTitle}>历史记录</Text>
+              <Pressable onPress={() => openWeightAddEditor(currentWeight)} style={[styles.weightAddLink, webPressableReset]}>
+                <Plus color={palette.orange} size={12} strokeWidth={2.5} />
+                <Text style={styles.weightAddLinkText}>添加</Text>
+              </Pressable>
             </View>
-          </View>
-          <WeightTrendMiniChart abnormal={isWeightWatch} records={weights} />
-          <View style={styles.weightStatRow}>
-            <View style={styles.weightStatChip}>
-              <Text style={styles.metricLabel}>近 7 天</Text>
-              <Text style={styles.metricValue}>{weights.length > 1 ? '有记录' : '待连续记录'}</Text>
+            <View style={styles.weightHistoryStack}>
+              {weights.map((item, index) => {
+                const delta = historyDeltaFor(index);
+                const deltaColor = delta?.direction === 'down' ? palette.teal : delta?.direction === 'up' ? '#C99B3E' : palette.muted;
+                return (
+                  <Pressable key={item.id} onPress={() => openWeightEditor(item)} style={[styles.weightHistoryRowMake, index === 0 && styles.weightHistoryRowHighlight, webPressableReset]}>
+                    <View style={styles.weightHistoryIcon}>
+                      <Weight color={palette.teal} size={14} strokeWidth={2.4} />
+                    </View>
+                    <View style={styles.flex}>
+                      <View style={styles.weightHistoryTitleRow}>
+                        <Text style={styles.timelineTitleMake}>{formatWeightKg(item.kg)}</Text>
+                        {delta ? (
+                          <View style={styles.weightHistoryDelta}>
+                            {delta.direction === 'down' ? (
+                              <ArrowDown color={deltaColor} size={11} strokeWidth={2.5} />
+                            ) : delta.direction === 'up' ? (
+                              <ArrowUp color={deltaColor} size={11} strokeWidth={2.5} />
+                            ) : null}
+                            <Text style={[styles.weightHistoryDeltaText, { color: deltaColor }]}>{delta.label}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text numberOfLines={1} style={styles.timelineSubMake}>{item.recordedAt}{item.note ? ` · ${item.note}` : ''}</Text>
+                    </View>
+                    <Edit3 color={palette.muted} size={15} strokeWidth={2.2} />
+                  </Pressable>
+                );
+              })}
             </View>
-            <View style={[styles.weightStatChip, styles.weightStatChipOk]}>
-              <Text style={styles.metricLabel}>健康区间</Text>
-              <Text style={[styles.metricValue, styles.weightOkText]}>持续观察</Text>
-            </View>
-            <View style={[styles.weightStatChip, isWeightWatch && styles.weightStatChipWarn]}>
-              <Text style={styles.metricLabel}>本次变化</Text>
-              <Text style={[styles.metricValue, isWeightWatch && styles.weightWarnText]}>{directionCopy}</Text>
-            </View>
-          </View>
-        </View>
-        {isWeightWatch ? (
-          <View style={styles.weightNoticeWarn}>
-            <Sparkles color="#C99B3E" size={16} strokeWidth={2.4} />
-            <View style={styles.flex}>
-              <Text style={styles.timelineTitleMake}>近期体重变化较快</Text>
-              <Text style={styles.timelineSubMake}>可能与饮食、运动或天气有关。如伴随食欲/精神变化，建议咨询兽医。</Text>
-            </View>
-          </View>
+          </>
         ) : (
-          <View style={styles.weightNoticeOk}>
-            <HeartPulse color={palette.teal} size={16} strokeWidth={2.4} />
-            <View style={styles.flex}>
-              <Text style={styles.timelineTitleMake}>{pet?.name ?? '灵伴'}近期体重较稳定</Text>
-              <Text style={styles.timelineSubMake}>{healthSummary?.weightSummary ?? '继续保持稳定记录，趋势会越来越准。'}</Text>
+          <View style={styles.weightEmptyMake}>
+            <View style={styles.weightEmptyArt}>
+              <View style={styles.weightEmptyGlow} />
+              <View style={styles.weightEmptyCircle}>
+                <Svg height={60} viewBox="0 0 60 60" width={60}>
+                  <Path d="M 6 42 L 18 32 L 28 38 L 40 22 L 54 18" fill="none" stroke={palette.teal} strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} />
+                  <Circle cx={54} cy={18} fill={palette.teal} r={4} />
+                </Svg>
+              </View>
+            </View>
+            <Text style={styles.weightEmptyTitle}>还没有体重记录</Text>
+            <Text style={styles.weightEmptyDesc}>每周称一次，就能看见{pet?.name ?? '毛孩子'}成长的轨迹。</Text>
+            <Pressable onPress={() => openWeightAddEditor(currentWeight)} style={[styles.weightEmptyButton, webPressableReset]}>
+              <Plus color="#fff" size={14} strokeWidth={2.6} />
+              <Text style={styles.weightEmptyButtonText}>记录第一次体重</Text>
+            </Pressable>
+            <View style={styles.weightEmptyTip}>
+              <Sparkles color={palette.orange} size={13} strokeWidth={2.4} />
+              <Text style={styles.weightEmptyTipText}>记录后会自动生成趋势曲线和健康提示。</Text>
             </View>
           </View>
         )}
-        <View style={styles.weightInputMake}>
-          <Text style={styles.sectionTitle}>记录新的体重</Text>
-          <Field keyboardType="decimal-pad" label="今日体重 kg" onChangeText={setWeightInput} placeholder={currentWeight ? String(currentWeight) : '请输入体重'} value={weightInput} />
-          <View style={styles.infoChipRow}>
-            <Text style={styles.infoChip}>今天 · 09:32</Text>
-            <Text style={styles.infoChip}>照片</Text>
-          </View>
-          <Button loading={weightSaving} onPress={() => void recordWeight()}>保存记录</Button>
-        </View>
-        <View style={styles.healthTimelineCard}>
+        <BottomSheet contentStyle={styles.weightEditSheet} dismissDisabled={weightEditSaving || weightSaving} onClose={closeWeightEditor} visible={Boolean(weightEditorMode)}>
           <View style={styles.rowBetween}>
-            <Text style={styles.sectionTitle}>历史记录</Text>
-            <Text style={styles.metaText}>近 30 天</Text>
-          </View>
-          {weights.length ? (
-            <View style={styles.weightHistoryStack}>
-              {weights.map((item, index) => (
-                <Pressable key={item.id} onPress={() => openWeightEditor(item)} style={[styles.weightHistoryRowMake, index === 0 && styles.weightHistoryRowHighlight, webPressableReset]}>
-                  <View style={styles.weightHistoryIcon}>
-                    <Weight color={palette.teal} size={14} strokeWidth={2.4} />
-                  </View>
-                  <View style={styles.flex}>
-                    <Text style={styles.timelineTitleMake}>{item.kg} kg</Text>
-                    <Text numberOfLines={1} style={styles.timelineSubMake}>{item.recordedAt}{item.note ? ` · ${item.note}` : ''}</Text>
-                  </View>
-                  <Edit3 color={palette.muted} size={15} strokeWidth={2.2} />
-                </Pressable>
-              ))}
-            </View>
-          ) : (
-            <EmptyState
-              description="每周称一次，就能看见成长轨迹。"
-              icon={<Weight color={palette.muted} size={26} strokeWidth={2.4} />}
-              title="还没有体重记录"
-            />
-          )}
-        </View>
-        <BottomSheet contentStyle={styles.weightEditSheet} dismissDisabled={weightEditSaving} onClose={closeWeightEditor} visible={Boolean(weightEditRecord)}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.sheetTitle}>编辑体重记录</Text>
-            <Pressable disabled={weightEditSaving} onPress={closeWeightEditor} style={webPressableReset}>
+            <Text style={styles.sheetTitle}>{weightEditorMode === 'add' ? '记录体重' : '编辑体重记录'}</Text>
+            <Pressable disabled={weightEditSaving || weightSaving} onPress={closeWeightEditor} style={webPressableReset}>
               <X color={palette.muted} size={18} strokeWidth={2.3} />
             </Pressable>
           </View>
@@ -4912,29 +4982,40 @@ export default function LumiiMvpApp() {
               </Pressable>
             ))}
           </View>
-          <View style={styles.memoMetaBox}>
-            <View style={styles.metaIconBox}>
-              <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
+          <View style={styles.weightSheetMetaCard}>
+            <View style={styles.weightSheetMetaRow}>
+              <View style={styles.metaIconBox}>
+                <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
+              </View>
+              <Text style={styles.timelineTitleMake}>日期</Text>
+              <Text style={styles.timelineDateMake}>{weightEditRecord?.recordedAt ?? '今天 · 09:14'}</Text>
+              <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
             </View>
-            <Text style={styles.timelineTitleMake}>日期</Text>
-            <Text style={styles.timelineDateMake}>{weightEditRecord?.recordedAt ?? '今天'}</Text>
-          </View>
-          <View style={styles.makeFieldGroup}>
-            <Text style={styles.makeFieldLabel}>备注</Text>
-            <TextInput
-              onChangeText={setWeightEditNote}
-              placeholder="例如：晨起空腹"
-              placeholderTextColor="#B8B3A8"
-              style={[styles.makeTextInput, webTextInputReset]}
-              value={weightEditNote}
-            />
+            <View style={styles.makeDivider} />
+            <View style={styles.weightSheetNoteRow}>
+              <View style={styles.metaIconBox}>
+                <Edit3 color={palette.muted} size={13} strokeWidth={2.3} />
+              </View>
+              <View style={styles.flex}>
+                <Text style={styles.timelineTitleMake}>备注</Text>
+                <TextInput
+                  onChangeText={setWeightEditNote}
+                  placeholder="例如：晨起空腹"
+                  placeholderTextColor="#B8B3A8"
+                  style={[styles.weightSheetNoteInput, webTextInputReset]}
+                  value={weightEditNote}
+                />
+              </View>
+            </View>
           </View>
           <View style={styles.editActionStack}>
-            <Button loading={weightEditSaving} onPress={() => void saveWeightEdit()}>保存修改</Button>
-            <Pressable disabled={weightEditSaving} onPress={() => confirmDeleteWeightRecord(weightEditRecord)} style={[styles.deleteTextButton, webPressableReset]}>
-              <Trash2 color={palette.danger} size={15} strokeWidth={2.4} />
-              <Text style={styles.deleteTextButtonLabel}>删除这条记录</Text>
-            </Pressable>
+            <Button loading={weightEditorMode === 'add' ? weightSaving : weightEditSaving} onPress={() => void (weightEditorMode === 'add' ? recordWeight() : saveWeightEdit())}>{weightEditorMode === 'add' ? '保存记录' : '保存修改'}</Button>
+            {weightEditorMode === 'edit' ? (
+              <Pressable disabled={weightEditSaving} onPress={() => confirmDeleteWeightRecord(weightEditRecord)} style={[styles.deleteTextButton, webPressableReset]}>
+                <Trash2 color={palette.danger} size={15} strokeWidth={2.4} />
+                <Text style={styles.deleteTextButtonLabel}>删除这条记录</Text>
+              </Pressable>
+            ) : null}
           </View>
         </BottomSheet>
       </Screen>
@@ -6320,6 +6401,7 @@ function WeightTrendMiniChart({ abnormal, records }: { abnormal?: boolean; recor
   const scaleX = (index: number) => pad.left + (index * (width - pad.left - pad.right)) / Math.max(1, values.length - 1);
   const scaleY = (value: number) => pad.top + (1 - (value - minValue) / range) * (height - pad.top - pad.bottom);
   const path = values.map((value, index) => `${index === 0 ? 'M' : 'L'} ${scaleX(index)} ${scaleY(value)}`).join(' ');
+  const areaPath = `${path} L ${scaleX(values.length - 1)} ${height - pad.bottom} L ${scaleX(0)} ${height - pad.bottom} Z`;
   const lineColor = abnormal ? '#C99B3E' : palette.teal;
   const bandTop = height * 0.28;
   const bandHeight = height * 0.34;
@@ -6334,8 +6416,14 @@ function WeightTrendMiniChart({ abnormal, records }: { abnormal?: boolean; recor
         {[0.25, 0.5, 0.75].map((ratio) => (
           <Line key={ratio} stroke="#F0EBE0" strokeDasharray="2 4" strokeWidth={1} x1={pad.left} x2={width - pad.right} y1={height * ratio} y2={height * ratio} />
         ))}
+        <Path d={areaPath} fill={lineColor} opacity={0.12} />
         <Path d={path} fill="none" stroke={lineColor} strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.6} />
         <Circle cx={scaleX(values.length - 1)} cy={scaleY(values[values.length - 1])} fill="#fff" r={5} stroke={lineColor} strokeWidth={2.5} />
+        {[0, Math.floor((values.length - 1) / 3), Math.floor(((values.length - 1) * 2) / 3), values.length - 1].map((index) => (
+          <SvgText key={index} fill={palette.muted} fontSize="9" fontWeight="600" textAnchor="middle" x={scaleX(index)} y={height - 5}>
+            {index === values.length - 1 ? '今天' : `${Math.max(1, values.length - index)}次前`}
+          </SvgText>
+        ))}
       </Svg>
     </View>
   );
@@ -6744,24 +6832,52 @@ const styles = StyleSheet.create({
   switchPetButtonActive: { backgroundColor: palette.orangeSoft, borderColor: palette.orangeSoft },
   switchPetText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
   switchPetTextActive: { color: palette.orange },
+  weightAddLink: { alignItems: 'center', flexDirection: 'row', gap: 3, paddingHorizontal: 2, paddingVertical: 4 },
+  weightAddLinkText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   weightChartWrap: { marginHorizontal: -4, marginTop: 10 },
   weightDeltaPill: { alignItems: 'center', backgroundColor: palette.tealSoft, borderRadius: 10, flexDirection: 'row', gap: 4, paddingHorizontal: 10, paddingVertical: 5 },
   weightDeltaPillWarn: { backgroundColor: '#FBF2D9' },
   weightEditSheet: { gap: 14 },
-  weightHistoryIcon: { alignItems: 'center', backgroundColor: '#E8F5F3', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
+  weightEmptyArt: { height: 160, marginBottom: 16, position: 'relative', width: 160 },
+  weightEmptyButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 14, flexDirection: 'row', gap: 7, justifyContent: 'center', marginTop: 22, minHeight: 46, paddingHorizontal: 26, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.26, shadowRadius: 22 },
+  weightEmptyButtonText: { color: '#fff', fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  weightEmptyCircle: { alignItems: 'center', backgroundColor: '#DBEFEB', borderColor: 'rgba(255,255,255,0.86)', borderRadius: 62, borderWidth: 1, height: 124, justifyContent: 'center', left: 18, position: 'absolute', shadowColor: palette.teal, shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28, top: 18, width: 124 },
+  weightEmptyDesc: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21, marginTop: 8, maxWidth: 260, textAlign: 'center' },
+  weightEmptyGlow: { backgroundColor: 'rgba(77,182,172,0.18)', borderRadius: 80, height: 160, left: 0, position: 'absolute', top: 0, width: 160 },
+  weightEmptyMake: { alignItems: 'center', flex: 1, justifyContent: 'center', minHeight: 560, paddingHorizontal: 30, paddingVertical: 36 },
+  weightEmptyTip: { alignItems: 'center', backgroundColor: '#FFF7F0', borderColor: '#FFE0CC', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 28, paddingHorizontal: 14, paddingVertical: 10 },
+  weightEmptyTipText: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
+  weightEmptyTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', lineHeight: 23 },
+  weightHistoryDelta: { alignItems: 'center', flexDirection: 'row', gap: 2 },
+  weightHistoryDeltaText: { fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
+  weightHistoryHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4, paddingTop: 4 },
+  weightHistoryIcon: { alignItems: 'center', backgroundColor: '#E8F5F3', borderRadius: 10, flexShrink: 0, height: 32, justifyContent: 'center', width: 32 },
   weightHistoryRowHighlight: { backgroundColor: '#FFF7F0', borderColor: '#FFE0CC' },
   weightHistoryRowMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
-  weightHistoryStack: { gap: 8, marginTop: 10 },
+  weightHistoryStack: { gap: 8 },
+  weightHistoryTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   weightNoticeOk: { alignItems: 'center', backgroundColor: '#E8F5F3', borderColor: '#C4E0DA', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
+  weightNoticeIconOk: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
+  weightNoticeIconWarn: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 11, height: 36, justifyContent: 'center', width: 36 },
   weightNoticeWarn: { alignItems: 'center', backgroundColor: '#FBF2D9', borderColor: '#EFDFA8', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
   weightNumberInput: { alignItems: 'flex-end', backgroundColor: '#fff', borderColor: palette.orange, borderRadius: 18, borderWidth: 1.5, flexDirection: 'row', gap: 6, justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 16 },
   weightNumberInputText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 42, fontWeight: '700', letterSpacing: 0, lineHeight: 48, minWidth: 120, padding: 0, textAlign: 'center' },
   weightOkText: { color: palette.teal },
+  weightSectionTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  weightSheetMetaCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
+  weightSheetMetaRow: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 50, paddingHorizontal: 14, paddingVertical: 12 },
+  weightSheetNoteInput: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 18, minHeight: 24, paddingHorizontal: 0, paddingVertical: 0 },
+  weightSheetNoteRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   weightStatChip: { backgroundColor: palette.pale, borderRadius: 12, flex: 1, paddingHorizontal: 10, paddingVertical: 10 },
   weightStatChipOk: { backgroundColor: '#E8F5F3' },
   weightStatChipWarn: { backgroundColor: '#FBF2D9' },
   weightStatRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  weightTrendCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingBottom: 12, paddingTop: 14 },
+  weightTrendCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 8, paddingBottom: 10, paddingHorizontal: 14, paddingTop: 14 },
+  weightTrendHeader: { alignItems: 'flex-end', flexDirection: 'row', gap: 10, justifyContent: 'space-between' },
+  weightTrendLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
+  weightTrendUnit: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', marginBottom: 2 },
+  weightTrendValue: { color: palette.ink, fontFamily: appFontFamily, fontSize: 26, fontWeight: '700', letterSpacing: 0, lineHeight: 30 },
+  weightTrendValueRow: { alignItems: 'baseline', flexDirection: 'row', gap: 5, marginTop: 4 },
   weightUnitText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', marginBottom: 7 },
   weightWarnText: { color: '#C99B3E' },
   flex: { flex: 1, minWidth: 0 },
