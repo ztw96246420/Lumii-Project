@@ -51,10 +51,10 @@
 | 17 | 上传失败 未识别 | `renderUploadNoPet` | 二次收敛-需真机截图复核 | 已按 Screen17 细调失败图卡渐变、警示浮层、原因卡间距和建议列表；本轮补底部“重新选择 / 重新拍照”源码式 52px 胶囊双按钮。该页是独立上传失败设计，不再强行迁移到通用 `ErrorState` |
 | 18 | 上传识别详情 | `renderUploadDetail` | 二次收敛-需真机截图复核 | 本轮按 Screen18 将识别信息卡改为专用 18px 顶距/16px 内距白卡，字段名收敛为“宠物主体/毛色特征/五官特征/表情气质”，标签改为左对齐 `#` chip，底部改为源码式 52px 橙色胶囊 CTA；Hero 保留真实上传预览以守住识别业务，但容器渐变、badge 字重和质量角标已按 Figma 收敛 |
 | 19 | AI 灵伴生成中 | `renderGenerating` | 二次收敛-需真机截图复核 | 本轮按 Screen19 继续收敛：生成预览图补 5px 白色内圈和轻微 blur、扫描线内补静态粒子层、标题间距改为 54px、标题字重 600、进度条补 28px 顶距、步骤卡改为 14px 纵向内距；真实生成轮询/失败重试逻辑保持不变 |
-| 20 | 生成结果 默认 | `renderAiResult` | 已接入-需视觉复核 | 本轮已按 Screen20 补 PageBg 氛围层、AI 形象 halo/ring、原图浮层 chip、AI 灵伴 badge 和 54px 结果页 CTA；`PetAvatar` 远程图等待态已补圆形 Skeleton + spinner，减少结果图慢加载时的空框感；按钮底部固定位置仍需真机截图复核 |
-| 21 | 生成结果 多候选 | `renderAiResult` | 已接入-需视觉复核 | 本轮按 Screen21 补顶部 AI 候选提示、230px 主形象、三候选卡、选中勾选角标和候选切换状态；后端目前仍只返回单图，候选 UI 先作为多图接口预留 |
-| 22 | 不满意反馈面板 | `renderAvatarFeedbackSheet` + 任务反馈接口 | 已接入-需视觉复核 | 本轮按 Screen22 补 bottom sheet、反馈原因多选 chip、卡通程度条、取消/按反馈重新生成双按钮，并接 `sendGenerationFeedback` 后重试生成 |
-| 23 | 重新生成确认弹窗 | `renderAvatarRegenerateConfirm` + 重试逻辑 | 已接入-需视觉复核 | 本轮按 Screen23 新增专用居中确认弹窗、56px 图标圆、额度说明、建议反馈提示卡和取消/重新生成双按钮，不再复用普通 `ConfirmDialog` |
+| 20 | 生成结果 默认 | `renderAiResult` | 部分接入-待状态拆分 | Screen20 的 PageBg、AI 形象 halo/ring、54px CTA 等基础样式已被结果页复用；2026-06-16 本轮为避免与 Screen21 混搭，已将当前真实路由收敛为多候选态，单结果默认态的“原图浮层 chip + AI 灵伴 badge + 260px hero”需后续按真实单候选状态单独拆出 |
+| 21 | 生成结果 多候选 | `renderAiResult` | 二次收敛-需真机截图复核 | 本轮按 Screen21 继续收敛当前真实结果页：移除混入的 Screen20 原图 chip 和 hero badge，主形象容器改为 230px，特征标签改为 26px 顶距，候选标题字重改 500；三候选卡、选中勾选角标、保存/重生成/反馈入口和真实保存逻辑保持可用 |
+| 22 | 不满意反馈面板 | `renderAvatarFeedbackSheet` + 任务反馈接口 | 二次收敛-需真机截图复核 | 本轮按 Screen22 细调 bottom sheet 文案字重、选中 chip 字重、取消/提交按钮字重；反馈原因多选、卡通程度条和 `sendGenerationFeedback` 后重试生成逻辑保持不变 |
+| 23 | 重新生成确认弹窗 | `renderAvatarRegenerateConfirm` + 重试逻辑 | 二次收敛-需真机截图复核 | 本轮按 Screen23 细调弹窗标题/按钮字重，并在 Web 端补 56px 图标圆的橙青渐变背景；额度说明、建议反馈提示卡和取消/重新生成真实逻辑保持不变 |
 | 24 | 保存成功 Toast | `Toast` + 保存成功 | 已接入-需视觉复核 | 本轮扩展 `Toast` 支持副文案；形象保存成功改为深色胶囊 Toast，包含“已保存为你的电子灵伴”和“可在我的宠物中查看”副文案 |
 | 25 | 保存失败 Toast | `Toast` + 保存失败 | 已接入-需视觉复核 | 本轮保存失败改为白底错误 Toast，包含错误图标、副文案和“重试” action 文案；仍需真机复核顶部位置与遮挡 |
 | 26 | 电子宠物首页 | `renderHome` | 已接入-需视觉复核 | 本轮按 Screen26 收敛宠物舞台 halo/ring、浮层聊天提示、在线徽标、健康分 conic 圆环和 2x2 快捷卡间距；仍需真机截图复核是否遮挡宠物脸部 |

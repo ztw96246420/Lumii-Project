@@ -4834,25 +4834,17 @@ export default function LumiiMvpApp() {
             <Sparkles color={palette.teal} size={12} strokeWidth={2.4} />
             <Text style={styles.aiCandidateIntroText}>AI 为{petName}生成了 3 个不同风格的灵伴</Text>
           </View>
-          <View style={styles.aiPhotoChip}>
-            <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.aiPhotoChipImage} />
-            <Text style={styles.aiPhotoChipText}>基于你上传的{'\n'}<Text style={styles.aiPhotoChipStrong}>{petName}的照片</Text></Text>
-          </View>
           <View style={styles.aiResultHero}>
             <View pointerEvents="none" style={styles.aiResultHeroGlow} />
             <View pointerEvents="none" style={styles.aiResultHeroRing} />
             <View style={styles.aiResultAvatarFrame}>
               <PetAvatar uri={selectedAvatarUri} size={230} />
             </View>
-            <View style={styles.aiResultHeroBadge}>
-              <Sparkles color={palette.orange} size={12} strokeWidth={2.5} />
-              <Text style={styles.aiResultHeroBadgeText}>AI 灵伴 · {petName}</Text>
-            </View>
             <Sparkles color={palette.orange} fill={palette.orange} size={13} strokeWidth={2.2} style={styles.aiSparkOne} />
             <Sparkles color={palette.orange} fill={palette.orange} size={10} strokeWidth={2.2} style={styles.aiSparkTwo} />
             <Sparkles color={palette.orange} fill={palette.orange} size={12} strokeWidth={2.2} style={styles.aiSparkThree} />
           </View>
-          <View style={styles.featureChipsMake}>
+          <View style={styles.aiResultFeatureTags}>
             <Text style={styles.featureChipWarm}>真实卡通化</Text>
             <Text style={styles.featureChipCool}>亲和表情</Text>
           </View>
@@ -9579,15 +9571,15 @@ const styles = StyleSheet.create({
   aiCandidateIntroText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 18 },
   aiCandidateItem: { aspectRatio: 1, borderRadius: 22, flex: 1, padding: 4 },
   aiCandidateItemActive: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FF8A5C, #4DB6AC)' } as object) : null), backgroundColor: palette.orange },
-  aiCandidateLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', letterSpacing: 0.3, marginBottom: 10 },
+  aiCandidateLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', letterSpacing: 0.3, marginBottom: 10 },
   aiCandidateRow: { flexDirection: 'row', gap: 12 },
   aiFeedbackActions: { flexDirection: 'row', gap: 12, marginTop: 18 },
   aiFeedbackCancel: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 27, flex: 1, height: 54, justifyContent: 'center' },
-  aiFeedbackCancelText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
+  aiFeedbackCancelText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '500' },
   aiFeedbackChip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 6, paddingHorizontal: 14, paddingVertical: 9 },
   aiFeedbackChipSelected: { backgroundColor: 'rgba(255,138,92,0.12)', borderColor: palette.orange, borderWidth: 1.5 },
   aiFeedbackChipText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 18 },
-  aiFeedbackChipTextSelected: { color: palette.orange, fontWeight: '700' },
+  aiFeedbackChipTextSelected: { color: palette.orange, fontWeight: '600' },
   aiFeedbackChipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 16 },
   aiFeedbackEntry: { alignItems: 'center', alignSelf: 'center', backgroundColor: 'rgba(255,138,92,0.10)', borderColor: 'rgba(255,138,92,0.18)', borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 6, marginTop: 12, paddingHorizontal: 12, paddingVertical: 8 },
   aiFeedbackEntryText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 17 },
@@ -9602,9 +9594,9 @@ const styles = StyleSheet.create({
   aiFeedbackSliderTrack: { backgroundColor: '#E9E0D6', borderRadius: 3, height: 6, position: 'relative' },
   aiFeedbackSliderValue: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   aiFeedbackSubmit: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 27, flex: 1.4, flexDirection: 'row', gap: 8, height: 54, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.24, shadowRadius: 24 },
-  aiFeedbackSubmitText: { color: '#fff', fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
+  aiFeedbackSubmitText: { color: '#fff', fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
   aiFeedbackSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 20, marginTop: 6 },
-  aiFeedbackTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', letterSpacing: 0, lineHeight: 25 },
+  aiFeedbackTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '600', letterSpacing: 0, lineHeight: 25 },
   aiOriginalThumb: { borderColor: '#fff', borderRadius: 31, borderWidth: 3, height: 62, left: 7, overflow: 'hidden', position: 'absolute', top: 12, width: 62 },
   aiPageTealGlow: { backgroundColor: 'rgba(77,182,172,0.13)', borderRadius: 160, bottom: -80, height: 220, position: 'absolute', right: -90, width: 220 },
   aiPageWarmGlow: { backgroundColor: 'rgba(255,217,182,0.42)', borderRadius: 220, height: 240, left: -80, position: 'absolute', right: -80, top: -42 },
@@ -9628,20 +9620,21 @@ const styles = StyleSheet.create({
   aiRegenerateCancel: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 24, flex: 1, height: 48, justifyContent: 'center' },
   aiRegenerateCancelText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
   aiRegenerateDialog: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 24, marginHorizontal: 32, maxWidth: 312, paddingBottom: 20, paddingHorizontal: 22, paddingTop: 26, shadowColor: '#000', shadowOffset: { height: 30, width: 0 }, shadowOpacity: 0.28, shadowRadius: 60, width: 312 },
-  aiRegenerateIconBox: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 28, height: 56, justifyContent: 'center', marginBottom: 14, width: 56 },
+  aiRegenerateIconBox: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, rgba(255,138,92,0.18), rgba(77,182,172,0.18))' } as object) : null), alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 28, height: 56, justifyContent: 'center', marginBottom: 14, width: 56 },
   aiRegenerateNote: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: palette.background, borderRadius: 12, flexDirection: 'row', gap: 8, marginTop: 14, paddingHorizontal: 12, paddingVertical: 10 },
   aiRegenerateNoteText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17 },
   aiRegenerateSubmit: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 24, flex: 1.2, flexDirection: 'row', gap: 6, height: 48, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.22, shadowRadius: 22 },
-  aiRegenerateSubmitText: { color: '#fff', fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
-  aiRegenerateTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', letterSpacing: 0, lineHeight: 24, textAlign: 'center' },
+  aiRegenerateSubmitText: { color: '#fff', fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
+  aiRegenerateTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '600', letterSpacing: 0, lineHeight: 24, textAlign: 'center' },
   aiResultActions: { gap: 12, marginTop: 18, width: '100%' },
   aiResultAvatarFrame: { alignItems: 'center', backgroundColor: '#FFEDD9', borderColor: '#fff', borderRadius: 115, borderWidth: 4, height: 230, justifyContent: 'center', overflow: 'hidden', shadowColor: '#b46e3c', shadowOffset: { height: 24, width: 0 }, shadowOpacity: 0.26, shadowRadius: 52, width: 230 },
   aiResultDesc: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 21, marginTop: 14, textAlign: 'center' },
-  aiResultHero: { alignItems: 'center', height: 252, justifyContent: 'center', marginTop: 24, position: 'relative', width: 252 },
+  aiResultFeatureTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 26 },
+  aiResultHero: { alignItems: 'center', height: 230, justifyContent: 'center', marginTop: 24, position: 'relative', width: 230 },
   aiResultHeroBadge: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, bottom: 3, flexDirection: 'row', gap: 5, paddingHorizontal: 14, paddingVertical: 6, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.13, shadowRadius: 20 },
   aiResultHeroBadgeText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   aiResultHeroGlow: { backgroundColor: 'rgba(255,138,92,0.20)', borderRadius: 145, height: 290, position: 'absolute', width: 290 },
-  aiResultHeroRing: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'conic-gradient(from 210deg, rgba(255,138,92,0.55), rgba(77,182,172,0.5), rgba(255,200,140,0.5), rgba(255,138,92,0.55))' } as object) : null), backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 124, height: 248, opacity: 0.86, position: 'absolute', width: 248 },
+  aiResultHeroRing: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'conic-gradient(from 210deg, rgba(255,138,92,0.55), rgba(77,182,172,0.5), rgba(255,200,140,0.5), rgba(255,138,92,0.55))' } as object) : null), backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 121, height: 242, opacity: 0.86, position: 'absolute', width: 242 },
   aiResultName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', letterSpacing: 0, lineHeight: 32, marginTop: 24, textAlign: 'center' },
   aiResultPage: { alignItems: 'center', minHeight: 720, paddingHorizontal: 8, position: 'relative' },
   aiScanLine: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(90deg, rgba(255,138,92,0), rgba(255,138,92,0.9), rgba(255,138,92,0))' } as object) : null), backgroundColor: palette.orange, borderRadius: 999, height: 2, left: 28, opacity: 0.88, position: 'absolute', right: 28, top: 135, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.45, shadowRadius: 12 },
