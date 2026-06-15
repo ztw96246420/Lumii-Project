@@ -253,8 +253,18 @@ export function LoadingState({ message = '正在为你召唤灵伴...' }: { mess
   );
 }
 
-export function SkeletonLine({ height = 12, width }: { height?: number; width: ViewStyle['width'] }) {
-  return <View style={[styles.skeletonLine, webSkeletonGradient, { height, width }]} />;
+export function SkeletonLine({
+  borderRadius,
+  height = 12,
+  style,
+  width,
+}: {
+  borderRadius?: number;
+  height?: number;
+  style?: StyleProp<ViewStyle>;
+  width: ViewStyle['width'];
+}) {
+  return <View style={[styles.skeletonLine, webSkeletonGradient, { borderRadius, height, width }, style]} />;
 }
 
 export function SkeletonCard() {

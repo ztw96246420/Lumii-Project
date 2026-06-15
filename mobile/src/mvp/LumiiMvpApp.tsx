@@ -88,7 +88,7 @@ import { clearPersistedLumiiSession, loadPersistedLumiiSession, savePersistedLum
 import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
 import { apiConfig, lumiiApi, setLumiiAuthToken } from './api';
 import { productConfig } from './productConfig';
-import { BottomSheet, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, StatusPill, Toast, palette, styles as uiStyles } from './ui';
+import { BottomSheet, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, SkeletonLine, StatusPill, Toast, palette, styles as uiStyles } from './ui';
 import type {
   AppRoute,
   AppTab,
@@ -5465,7 +5465,7 @@ export default function LumiiMvpApp() {
             {showInitialLoading
               ? Array.from({ length: 35 }).map((_, index) => (
                 <View key={`skeleton-${index}`} style={styles.calendarDayCell}>
-                  <View style={styles.calendarSkeletonDay} />
+                  <SkeletonLine borderRadius={11} height={22} width={22} />
                 </View>
               ))
               : cells.map((day, index) => {
@@ -5552,10 +5552,10 @@ export default function LumiiMvpApp() {
           <View style={styles.calendarSkeletonList}>
             {[0, 1].map((item) => (
               <View key={item} style={styles.calendarSkeletonRow}>
-                <View style={styles.calendarSkeletonIcon} />
+                <SkeletonLine borderRadius={10} height={32} width={32} />
                 <View style={styles.calendarSkeletonTextStack}>
-                  <View style={[styles.calendarSkeletonLine, { width: '58%' }]} />
-                  <View style={[styles.calendarSkeletonLineSmall, { width: '42%' }]} />
+                  <SkeletonLine height={11} width="58%" />
+                  <SkeletonLine borderRadius={5} height={9} width="42%" />
                 </View>
               </View>
             ))}
@@ -8961,10 +8961,6 @@ const styles = StyleSheet.create({
   calendarSelectedDate: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '800' },
   calendarSelectedHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingHorizontal: 4 },
   calendarSelectedWeek: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', marginTop: 2 },
-  calendarSkeletonDay: { backgroundColor: '#F0EBE0', borderRadius: 11, height: 22, width: 22 },
-  calendarSkeletonIcon: { backgroundColor: '#F0EBE0', borderRadius: 10, height: 32, width: 32 },
-  calendarSkeletonLine: { backgroundColor: '#F0EBE0', borderRadius: 6, height: 11 },
-  calendarSkeletonLineSmall: { backgroundColor: '#F0EBE0', borderRadius: 5, height: 9 },
   calendarSkeletonList: { gap: 10, marginTop: 0 },
   calendarSkeletonRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   calendarSkeletonTextStack: { flex: 1, gap: 6 },
