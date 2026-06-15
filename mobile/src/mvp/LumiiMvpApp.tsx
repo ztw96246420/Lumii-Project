@@ -37,11 +37,15 @@ import {
   Clock,
   Compass,
   Edit3,
+  EyeOff,
+  Flag,
   Heart,
   HeartPulse,
   Home as HomeIcon,
   ImagePlus,
+  KeyRound,
   LogOut,
+  Mail,
   Map as MapIcon,
   MapPin,
   MessageCircle,
@@ -61,10 +65,12 @@ import {
   Sparkles,
   Star,
   Stethoscope,
+  Smartphone,
   Syringe,
   Tag,
   Trash2,
   User,
+  UserX,
   Users,
   Wifi,
   Weight,
@@ -7250,47 +7256,102 @@ export default function LumiiMvpApp() {
   function renderAccountSecurity() {
     return (
       <Screen title="账号安全">
-        <View style={styles.placeholderHeroMake}>
-          <Shield color={palette.teal} size={28} strokeWidth={2.5} />
+        <View style={[styles.accountSecurityHeroMake, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #E8F5F3 0%, #DDEFEC 100%)' } as object) : null]}>
+          <View style={styles.accountSecurityHeroIconMake}>
+            <Shield color={palette.teal} size={20} strokeWidth={2.4} />
+          </View>
           <View style={styles.flex}>
-            <Text style={styles.timelineTitleMake}>账号已实名 · 安全等级高</Text>
-            <Text style={styles.timelineSubMake}>当前登录方式为手机号验证码，微信/苹果登录后续接入。</Text>
+            <Text style={styles.accountSecurityHeroTitleMake}>账号已实名 · 安全等级高</Text>
+            <Text style={styles.accountSecurityHeroSubMake}>上次登录：Android 设备 · 中国大陆</Text>
           </View>
         </View>
+
         <View style={styles.settingsGroupMake}>
           <Text style={styles.settingsGroupTitle}>登录方式</Text>
-          <ProfileMakeRow Icon={Phone} title="手机号" value={formatMaskedPhone(session?.phone)} />
-          <ProfileMakeRow Icon={Shield} title="登录保护" value="已开启" />
-          <ProfileMakeRow Icon={Bell} title="异常登录提醒" value="已开启" />
+          <ProfileMakeRow Icon={Phone} iconBg={palette.pale} iconColor={palette.ink} title="手机号" value={formatMaskedPhone(session?.phone)} />
+          <ProfileMakeRow Icon={Mail} iconBg={palette.pale} iconColor={palette.ink} title="邮箱" value="未绑定" />
+          <ProfileMakeRow Icon={KeyRound} iconBg="#FFE6D6" iconColor={palette.orange} last title="登录密码" value="验证码登录" />
         </View>
+
+        <View style={styles.settingsGroupMake}>
+          <Text style={styles.settingsGroupTitle}>登录与设备</Text>
+          <ProfileMakeRow Icon={Smartphone} iconBg="#E8F5F3" iconColor={palette.teal} title="登录设备" value="1 台" />
+          <ProfileMakeRow Icon={EyeOff} iconBg={palette.pale} iconColor={palette.ink} last title="登录保护" value="已开启" />
+        </View>
+
         <View style={styles.settingsGroupMake}>
           <Text style={styles.settingsGroupTitle}>危险操作</Text>
-          <ProfileMakeRow Icon={LogOut} onPress={() => setLogoutConfirmVisible(true)} title="退出当前账号" value="清除本机登录" />
-          <ProfileMakeRow Icon={LogOut} title="注销账号" value="后续开放" />
+          <ProfileMakeRow Icon={Trash2} iconBg="#FBE4DE" iconColor={palette.danger} last onPress={() => showToast('注销账号流程后续开放', { tone: 'warning', variant: 'surface' })} title="注销账号" value="后续开放" />
         </View>
       </Screen>
     );
   }
 
   function renderSafety() {
+    const safetyActions = [
+      {
+        Icon: Flag,
+        bg: '#FFE6D6',
+        color: palette.orange,
+        onPress: () => showToast('举报入口后续接入审核流程', { tone: 'warning', variant: 'surface' }),
+        sub: '不当行为、虚假地点、骚扰等',
+        title: '举报用户或地点',
+      },
+      {
+        Icon: UserX,
+        bg: palette.pale,
+        color: palette.ink,
+        onPress: () => showToast('拉黑用户后续开放', { tone: 'warning', variant: 'surface' }),
+        sub: '阻止对方查看你和你的宠物',
+        title: '拉黑用户',
+      },
+      {
+        Icon: Shield,
+        bg: '#E8F5F3',
+        color: palette.teal,
+        onPress: () => showToast('黑名单管理后续开放', { tone: 'warning', variant: 'surface' }),
+        sub: '已拉黑 0 人',
+        title: '黑名单管理',
+      },
+      {
+        Icon: AlertTriangle,
+        bg: '#FBF2D9',
+        color: palette.warning,
+        onPress: () => showToast('紧急求助指南后续开放', { tone: 'warning', variant: 'surface' }),
+        sub: '走失、受伤、宠物医院 24h 联系方式',
+        title: '紧急求助指南',
+      },
+    ];
     return (
       <Screen title="安全中心">
-        <View style={styles.placeholderHeroMake}>
-          <Shield color={palette.teal} size={28} strokeWidth={2.5} />
+        <View style={[styles.safetyHeroMake, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E2 0%, #FFE3D1 100%)' } as object) : null]}>
+          <View style={styles.safetyHeroIconMake}>
+            <Shield color={palette.orange} size={22} strokeWidth={2.4} />
+          </View>
           <View style={styles.flex}>
-            <Text style={styles.timelineTitleMake}>社区安全中心</Text>
-            <Text style={styles.timelineSubMake}>举报、拉黑和隐私保护会集中在这里，上线前接入二次确认和审核流程。</Text>
+            <Text style={styles.safetyHeroTitleMake}>Lumii 守护你的每一次出门</Text>
+            <Text style={styles.safetyHeroSubMake}>遇到不安全的人或地点，可以随时举报或拉黑</Text>
           </View>
         </View>
-        <View style={styles.settingsGroupMake}>
-          <Text style={styles.settingsGroupTitle}>快速处理</Text>
-          <ProfileMakeRow Icon={AlertTriangle} title="举报不当内容" value="后续开放" />
-          <ProfileMakeRow Icon={Shield} title="拉黑用户" value="后续开放" />
-          <ProfileMakeRow Icon={Users} title="黑名单管理" value="0 人" />
+
+        <View style={styles.safetyActionStackMake}>
+          {safetyActions.map(({ Icon, bg, color, onPress, sub, title }) => (
+            <Pressable key={title} onPress={onPress} style={[styles.safetyActionCardMake, webPressableReset]}>
+              <View style={[styles.safetyActionIconMake, { backgroundColor: bg }]}>
+                <Icon color={color} size={18} strokeWidth={2.4} />
+              </View>
+              <View style={styles.flex}>
+                <Text style={styles.safetyActionTitleMake}>{title}</Text>
+                <Text style={styles.safetyActionSubMake}>{sub}</Text>
+              </View>
+              <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
+            </Pressable>
+          ))}
         </View>
-        <View style={styles.settingsFootnoteMake}>
+
+        <View style={styles.safetyAuditNoteMake}>
           <Shield color={palette.teal} size={14} strokeWidth={2.4} />
-          <Text style={styles.chatSafetyText}>MVP 阶段先展示安全入口，不提交 mock 操作；后续需要后端提供举报、拉黑、黑名单和审核接口。</Text>
+          <Text style={styles.safetyAuditNoteTextMake}>所有举报会在 24 小时内由人工与算法共同审核。情节严重的，将立刻封禁并通知平台处理。</Text>
         </View>
       </Screen>
     );
@@ -7949,6 +8010,10 @@ function HealthMiniChart() {
 
 const styles = StyleSheet.create({
   actionRow: { flexDirection: 'row', gap: 12 },
+  accountSecurityHeroIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
+  accountSecurityHeroMake: { alignItems: 'center', backgroundColor: '#E8F5F3', borderRadius: 16, flexDirection: 'row', gap: 12, marginBottom: 2, padding: 14 },
+  accountSecurityHeroSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  accountSecurityHeroTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '800', lineHeight: 20 },
   addPlaceHero: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 22, flexDirection: 'row', gap: 13, paddingHorizontal: 18, paddingVertical: 18, shadowColor: '#8b5e3c', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.16, shadowRadius: 30 },
   addPlaceHeroSub: { color: 'rgba(255,255,255,0.88)', flex: 1, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18, marginTop: 4 },
   addPlaceHeroTitle: { color: '#fff', fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', lineHeight: 23 },
@@ -8893,6 +8958,17 @@ const styles = StyleSheet.create({
   profilePhoneText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12 },
   profileSectionLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   profileSectionLabelRow: { flexDirection: 'row', justifyContent: 'space-between', paddingBottom: 8, paddingHorizontal: 4 },
+  safetyActionCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 70, padding: 14 },
+  safetyActionIconMake: { alignItems: 'center', borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
+  safetyActionStackMake: { gap: 10 },
+  safetyActionSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  safetyActionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '800', lineHeight: 20 },
+  safetyAuditNoteMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 4, padding: 12 },
+  safetyAuditNoteTextMake: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 12, lineHeight: 20 },
+  safetyHeroIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, height: 46, justifyContent: 'center', width: 46 },
+  safetyHeroMake: { alignItems: 'center', backgroundColor: '#FFE3D1', borderRadius: 18, flexDirection: 'row', gap: 14, marginBottom: 6, padding: 16 },
+  safetyHeroSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  safetyHeroTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '800', lineHeight: 22 },
   profileSettingsButton: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 },
   profileUnreadBadge: { backgroundColor: palette.danger, borderRadius: 10, color: '#fff', fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
   profileVerifyPill: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 10, flexDirection: 'row', gap: 4, marginTop: 8, paddingHorizontal: 8, paddingVertical: 3 },

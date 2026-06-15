@@ -90,8 +90,8 @@
 | 56 | 多宠管理 | `renderMultiPet` | 已接入-需视觉复核 | 本轮已按 Screen81 增加 hero 底部健康提示分割线、调整列表 row 高度和当前宠物 badge 字重；仍需截图复核 |
 | 57 | 编辑宠物资料 | `renderPetInfo` edit mode | 已接入-需视觉复核 | 本轮不再复用建档表单，按 Screen57 改为 88px 宠物头像+相机角标、白底 16px 圆角资料列表、80px 标签列、底部保存按钮和居中删除入口 |
 | 58 | 设置与隐私 | `renderSettings` | 已接入-需视觉复核 | Toggle 本轮已修，菜单行还需复核 |
-| 59 | 账号安全 | `renderAccountSecurity` | 部分接入 | 账号安全详情未完全按 Screen59 |
-| 60 | 安全中心 | `renderSafety` | 部分接入 | 入口展示有，举报/拉黑逻辑暂未做 |
+| 59 | 账号安全 | `renderAccountSecurity` | 已接入-需视觉复核 | 本轮按 Screen59 补青绿色实名安全等级 Hero、登录方式三行、登录与设备分组、危险操作注销行；退出登录保留在设置页 |
+| 60 | 安全中心 | `renderSafety` | 已接入-需视觉复核 | 本轮按 Screen60 补暖色安全 Hero、四张白底动作卡和底部审核说明卡；举报/拉黑仍只保留入口提示，后续等接口 |
 | 61 | 黑名单管理 | 无 | 缺失 | 用户曾降级优先级，仍记录为缺失 |
 | 62 | 退出登录确认 | `renderLogoutConfirmSheet` + logout | 已接入-需视觉复核 | 本轮按 Screen62 改为底部 Sheet：红色退出图标块、居中标题/说明、纵向危险确认与取消按钮；不再复用普通 `ConfirmDialog` |
 | 63 | 注销账号 | 无 | 缺失 | 用户曾降级优先级，仍记录为缺失 |
