@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Linking,
   LogBox,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -84,6 +85,7 @@ import type {
   AppRoute,
   AppTab,
   AiUsageSummary,
+  AvatarGenerationFeedbackReason,
   AuthSession,
   AvatarJob,
   ChatMessage,
@@ -319,11 +321,27 @@ type ConfirmState = {
 type AppToast = {
   actionText?: string;
   message: string;
+  subtitle?: string;
   tone?: 'error' | 'info' | 'success' | 'warning';
   variant?: 'dark' | 'surface';
 };
 
 type UserSettingKey = keyof UserSettings;
+type AvatarFeedbackChipId = 'cartoon' | 'color_deeper' | 'color_lighter' | 'ears' | 'eyes' | 'not_same_pet' | 'posture';
+type AvatarCandidateTone = 'main' | 'soft' | 'warm';
+
+const avatarFeedbackOptions: Array<{ id: AvatarFeedbackChipId; label: string; reason: AvatarGenerationFeedbackReason }> = [
+  { id: 'not_same_pet', label: '不像我家宠物', reason: 'not_same_pet' },
+  { id: 'color_lighter', label: '毛色更浅', reason: 'color' },
+  { id: 'color_deeper', label: '毛色更深', reason: 'color' },
+  { id: 'ears', label: '耳朵更像', reason: 'face_shape' },
+  { id: 'eyes', label: '眼睛更像', reason: 'expression' },
+  { id: 'posture', label: '胖瘦调整', reason: 'face_shape' },
+  { id: 'cartoon', label: '卡通程度调整', reason: 'style' },
+];
+
+const defaultAvatarFeedbackChipIds: AvatarFeedbackChipId[] = ['not_same_pet', 'color_deeper', 'eyes'];
+const avatarCandidateTones: AvatarCandidateTone[] = ['main', 'warm', 'soft'];
 
 function isGeneratedAvatarUri(uri?: null | string) {
   return Boolean(uri?.startsWith('lumii://'));
@@ -552,6 +570,12 @@ export default function LumiiMvpApp() {
   const avatarRetryingRef = useRef(false);
   const avatarResultRouteJobIdRef = useRef('');
   const avatarTransitioningJobIdRef = useRef<string | null>(null);
+  const [selectedAvatarCandidateIndex, setSelectedAvatarCandidateIndex] = useState(0);
+  const [avatarFeedbackSheetVisible, setAvatarFeedbackSheetVisible] = useState(false);
+  const [avatarFeedbackChipIds, setAvatarFeedbackChipIds] = useState<AvatarFeedbackChipId[]>(defaultAvatarFeedbackChipIds);
+  const [avatarFeedbackSubmitting, setAvatarFeedbackSubmitting] = useState(false);
+  const avatarFeedbackSubmittingRef = useRef(false);
+  const [avatarRegenerateConfirmVisible, setAvatarRegenerateConfirmVisible] = useState(false);
   const [homeHintIndex, setHomeHintIndex] = useState(() => Math.floor(Math.random() * homeChatPrompts.length));
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([createPetChatWelcomeMessage()]);
@@ -1969,6 +1993,12 @@ export default function LumiiMvpApp() {
     setAvatarResultPrefetching(false);
     setAvatarAccepting(false);
     setAvatarRetrying(false);
+    setSelectedAvatarCandidateIndex(0);
+    setAvatarFeedbackSheetVisible(false);
+    setAvatarFeedbackChipIds(defaultAvatarFeedbackChipIds);
+    avatarFeedbackSubmittingRef.current = false;
+    setAvatarFeedbackSubmitting(false);
+    setAvatarRegenerateConfirmVisible(false);
     setMediaPickerMode(null);
     avatarResultRouteJobIdRef.current = '';
   }
@@ -2172,9 +2202,9 @@ export default function LumiiMvpApp() {
         resetAvatarDraft();
         void refreshPetScopedData();
         replace('home');
-        showToast('灵伴形象已保存', { tone: 'success', variant: 'surface' });
+        showToast('已保存为你的电子灵伴', { subtitle: '可在「我的宠物」中查看', tone: 'success', variant: 'dark' });
       } else {
-        showToast(result.error?.message ?? '保存形象失败，请稍后重试', { tone: 'error', variant: 'surface' });
+        showToast(result.error?.message ?? '保存失败，请检查网络', { actionText: '重试', subtitle: '灵伴形象未上传，请稍后再试', tone: 'error', variant: 'surface' });
       }
     } finally {
       avatarAcceptingRef.current = false;
@@ -2202,16 +2232,70 @@ export default function LumiiMvpApp() {
       if (result.data) {
         avatarResultRouteJobIdRef.current = '';
         setAvatarResultPrefetching(false);
+        setSelectedAvatarCandidateIndex(0);
+        setAvatarFeedbackSheetVisible(false);
+        setAvatarRegenerateConfirmVisible(false);
         avatarJobIdRef.current = result.data.id;
         setAvatarJob(result.data);
         replace('generating');
       } else {
-        showToast(result.error?.message ?? '重新生成失败，请稍后重试');
+        showToast(result.error?.message ?? '重新生成失败，请稍后重试', { actionText: '重试', subtitle: '当前形象仍会保留在确认页', tone: 'error', variant: 'surface' });
       }
       void loadAiUsage();
     } finally {
       avatarRetryingRef.current = false;
       setAvatarRetrying(false);
+    }
+  }
+
+  function toggleAvatarFeedbackChip(id: AvatarFeedbackChipId) {
+    setAvatarFeedbackChipIds((items) => {
+      if (items.includes(id)) return items.filter((item) => item !== id);
+      return [...items, id];
+    });
+  }
+
+  function openAvatarRegenerateConfirm() {
+    if (avatarRetryingRef.current || avatarStartingRef.current || avatarAcceptingRef.current) return;
+    setAvatarRegenerateConfirmVisible(true);
+  }
+
+  async function submitAvatarFeedbackAndRetry() {
+    if (avatarFeedbackSubmittingRef.current || avatarRetryingRef.current || avatarStartingRef.current) return;
+    if (!avatarFeedbackChipIds.length) {
+      showToast('请选择至少一个反馈原因', { tone: 'warning', variant: 'surface' });
+      return;
+    }
+    const jobId = avatarJob?.id;
+    if (!jobId) {
+      setAvatarFeedbackSheetVisible(false);
+      await retryAvatarGeneration();
+      return;
+    }
+
+    avatarFeedbackSubmittingRef.current = true;
+    setAvatarFeedbackSubmitting(true);
+    try {
+      const requestSessionToken = sessionTokenRef.current;
+      const primaryOption = avatarFeedbackOptions.find((item) => item.id === avatarFeedbackChipIds[0]) ?? avatarFeedbackOptions[0];
+      const content = avatarFeedbackOptions
+        .filter((item) => avatarFeedbackChipIds.includes(item.id))
+        .map((item) => item.label)
+        .join('、');
+      const result = await lumiiApi.avatar.sendGenerationFeedback(jobId, primaryOption.reason, content);
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (avatarJobIdRef.current !== jobId) return;
+      if (result.data) {
+        setAvatarJob(result.data);
+        setAvatarFeedbackSheetVisible(false);
+        showToast('已记录反馈，正在重新生成', { tone: 'success', variant: 'surface' });
+        await retryAvatarGeneration();
+      } else {
+        showToast(result.error?.message ?? '反馈保存失败，请稍后重试', { actionText: '重试', subtitle: '当前形象仍会保留', tone: 'error', variant: 'surface' });
+      }
+    } finally {
+      avatarFeedbackSubmittingRef.current = false;
+      setAvatarFeedbackSubmitting(false);
     }
   }
 
@@ -3578,6 +3662,12 @@ export default function LumiiMvpApp() {
     setAvatarRetrying(false);
     avatarResultRouteJobIdRef.current = '';
     avatarTransitioningJobIdRef.current = null;
+    setSelectedAvatarCandidateIndex(0);
+    setAvatarFeedbackSheetVisible(false);
+    setAvatarFeedbackChipIds(defaultAvatarFeedbackChipIds);
+    avatarFeedbackSubmittingRef.current = false;
+    setAvatarFeedbackSubmitting(false);
+    setAvatarRegenerateConfirmVisible(false);
     registeredPushTokenRef.current = '';
     sessionTokenRef.current = '';
     setChatMessages([createPetChatWelcomeMessage()]);
@@ -4296,11 +4386,19 @@ export default function LumiiMvpApp() {
   function renderAiResult() {
     const petName = activePet?.name ?? (petDraft.name || '豆豆');
     const petBreed = activePet?.breed || petDraft.breed || speciesLabels[petDraft.species];
+    const resultUri = avatarJob?.resultUrl ?? generatedGoldenAvatarUri;
+    const avatarCandidates = [resultUri, resultUri, resultUri];
+    const selectedIndex = Math.min(selectedAvatarCandidateIndex, avatarCandidates.length - 1);
+    const selectedAvatarUri = avatarCandidates[selectedIndex] ?? resultUri;
     return (
-      <Screen title="遇见你的小灵伴">
+      <Screen title="挑一个你最喜欢的">
         <View style={styles.aiResultPage}>
           <View pointerEvents="none" style={styles.aiPageWarmGlow} />
           <View pointerEvents="none" style={styles.aiPageTealGlow} />
+          <View style={styles.aiCandidateIntro}>
+            <Sparkles color={palette.teal} size={12} strokeWidth={2.4} />
+            <Text style={styles.aiCandidateIntroText}>AI 为{petName}生成了 3 个不同风格的灵伴</Text>
+          </View>
           <View style={styles.aiPhotoChip}>
             <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.aiPhotoChipImage} />
             <Text style={styles.aiPhotoChipText}>基于你上传的{'\n'}<Text style={styles.aiPhotoChipStrong}>{petName}的照片</Text></Text>
@@ -4309,7 +4407,7 @@ export default function LumiiMvpApp() {
             <View pointerEvents="none" style={styles.aiResultHeroGlow} />
             <View pointerEvents="none" style={styles.aiResultHeroRing} />
             <View style={styles.aiResultAvatarFrame}>
-              <PetAvatar uri={avatarJob?.resultUrl ?? generatedGoldenAvatarUri} size={260} />
+              <PetAvatar uri={selectedAvatarUri} size={230} />
             </View>
             <View style={styles.aiResultHeroBadge}>
               <Sparkles color={palette.orange} size={12} strokeWidth={2.5} />
@@ -4319,26 +4417,153 @@ export default function LumiiMvpApp() {
             <Sparkles color={palette.orange} fill={palette.orange} size={10} strokeWidth={2.2} style={styles.aiSparkTwo} />
             <Sparkles color={palette.orange} fill={palette.orange} size={12} strokeWidth={2.2} style={styles.aiSparkThree} />
           </View>
-          <Text style={styles.aiResultName}>{petName}</Text>
-          <Text style={styles.aiResultDesc}>一只温柔亲人的{petBreed}灵伴已经准备好陪你</Text>
           <View style={styles.featureChipsMake}>
             <Text style={styles.featureChipWarm}>真实卡通化</Text>
-            <Text style={styles.featureChipCool}>保留毛色</Text>
-            <Text style={styles.featureChipWarm}>亲和表情</Text>
+            <Text style={styles.featureChipCool}>亲和表情</Text>
           </View>
+          <View style={styles.aiCandidateBlock}>
+            <Text style={styles.aiCandidateLabel}>其他候选</Text>
+            <View style={styles.aiCandidateRow}>
+              {avatarCandidates.map((candidateUri, index) => {
+                const active = index === selectedIndex;
+                const tone = avatarCandidateTones[index] ?? 'main';
+                const source = candidateUri && !isGeneratedAvatarUri(candidateUri) ? { uri: candidateUri } : generatedGoldenAvatarSource;
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    key={`${candidateUri}-${index}`}
+                    onPress={() => setSelectedAvatarCandidateIndex(index)}
+                    style={[styles.aiCandidateItem, active && styles.aiCandidateItemActive, webPressableReset]}
+                  >
+                    <View style={[styles.aiCandidateImageFrame, active && styles.aiCandidateImageFrameActive]}>
+                      <Image resizeMode="cover" source={source} style={[styles.aiCandidateImage, styles[`aiCandidateImage_${tone}`]]} />
+                      <View pointerEvents="none" style={[styles.aiCandidateImageOverlay, styles[`aiCandidateImageOverlay_${tone}`]]} />
+                      {active ? (
+                        <View style={styles.aiCandidateCheck}>
+                          <Check color="#fff" size={11} strokeWidth={3} />
+                        </View>
+                      ) : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+          <Text style={styles.aiResultDesc}>一只温柔亲人的{petBreed}灵伴已经准备好陪你</Text>
+          <Pressable disabled={avatarRetrying || avatarAccepting} onPress={() => setAvatarFeedbackSheetVisible(true)} style={[styles.aiFeedbackEntry, webPressableReset]}>
+            <AlertTriangle color={palette.orange} size={13} strokeWidth={2.4} />
+            <Text style={styles.aiFeedbackEntryText}>不像我家宠物？先告诉我们哪里不像</Text>
+          </Pressable>
           <Text style={styles.aiQuotaHint}>重新生成会消耗 1 次额度 · 今日剩余 {petAvatarDailyRemaining} 次</Text>
           <View style={styles.aiResultActions}>
             <Pressable disabled={avatarAccepting} onPress={() => void saveAvatar()} style={({ pressed }) => [styles.aiPrimaryCta, pressed && !avatarAccepting && styles.aiPrimaryCtaPressed, avatarAccepting && styles.aiCtaDisabled, webPressableReset]}>
               {avatarAccepting ? <ActivityIndicator color="#fff" size="small" /> : <Heart color="#fff" size={16} strokeWidth={2.4} />}
               <Text style={styles.aiPrimaryCtaText}>{avatarAccepting ? '保存中...' : '保存并设为电子灵伴'}</Text>
             </Pressable>
-            <Pressable disabled={avatarRetrying} onPress={() => void retryAvatarGeneration()} style={({ pressed }) => [styles.aiGhostCta, pressed && !avatarRetrying && styles.aiGhostCtaPressed, avatarRetrying && styles.aiCtaDisabled, webPressableReset]}>
+            <Pressable disabled={avatarRetrying} onPress={openAvatarRegenerateConfirm} style={({ pressed }) => [styles.aiGhostCta, pressed && !avatarRetrying && styles.aiGhostCtaPressed, avatarRetrying && styles.aiCtaDisabled, webPressableReset]}>
               {avatarRetrying ? <ActivityIndicator color={palette.ink} size="small" /> : <RefreshCw color={palette.ink} size={15} strokeWidth={2.4} />}
               <Text style={styles.aiGhostCtaText}>{avatarRetrying ? '生成中...' : '重新生成'}</Text>
             </Pressable>
           </View>
         </View>
+        {renderAvatarFeedbackSheet()}
+        {renderAvatarRegenerateConfirm()}
       </Screen>
+    );
+  }
+
+  function renderAvatarFeedbackSheet() {
+    return (
+      <BottomSheet
+        contentStyle={styles.aiFeedbackSheet}
+        dismissDisabled={avatarFeedbackSubmitting || avatarRetrying}
+        onClose={() => setAvatarFeedbackSheetVisible(false)}
+        visible={avatarFeedbackSheetVisible}
+      >
+        <Text style={styles.aiFeedbackTitle}>告诉我们哪里不满意</Text>
+        <Text style={styles.aiFeedbackSubtitle}>可选择多个，我们将据此优化下一次生成</Text>
+        <View style={styles.aiFeedbackChipWrap}>
+          {avatarFeedbackOptions.map((option) => {
+            const selected = avatarFeedbackChipIds.includes(option.id);
+            return (
+              <Pressable
+                disabled={avatarFeedbackSubmitting || avatarRetrying}
+                key={option.id}
+                onPress={() => toggleAvatarFeedbackChip(option.id)}
+                style={[styles.aiFeedbackChip, selected && styles.aiFeedbackChipSelected, webPressableReset]}
+              >
+                {selected ? <Check color={palette.orange} size={12} strokeWidth={3} /> : null}
+                <Text style={[styles.aiFeedbackChipText, selected && styles.aiFeedbackChipTextSelected]}>{option.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.aiFeedbackSliderCard}>
+          <View style={styles.aiFeedbackSliderHead}>
+            <Text style={styles.aiFeedbackSliderTitle}>卡通程度</Text>
+            <Text style={styles.aiFeedbackSliderValue}>偏真实</Text>
+          </View>
+          <View style={styles.aiFeedbackSliderTrack}>
+            <View style={styles.aiFeedbackSliderFill} />
+            <View style={styles.aiFeedbackSliderThumb} />
+          </View>
+          <View style={styles.aiFeedbackSliderLabels}>
+            <Text style={styles.aiFeedbackSliderLabel}>真实</Text>
+            <Text style={styles.aiFeedbackSliderLabel}>卡通</Text>
+          </View>
+        </View>
+        <View style={styles.aiFeedbackActions}>
+          <Pressable disabled={avatarFeedbackSubmitting || avatarRetrying} onPress={() => setAvatarFeedbackSheetVisible(false)} style={[styles.aiFeedbackCancel, webPressableReset]}>
+            <Text style={styles.aiFeedbackCancelText}>取消</Text>
+          </Pressable>
+          <Pressable disabled={avatarFeedbackSubmitting || avatarRetrying} onPress={() => void submitAvatarFeedbackAndRetry()} style={[styles.aiFeedbackSubmit, (avatarFeedbackSubmitting || avatarRetrying) && styles.aiCtaDisabled, webPressableReset]}>
+            {avatarFeedbackSubmitting || avatarRetrying ? <ActivityIndicator color="#fff" size="small" /> : <RefreshCw color="#fff" size={15} strokeWidth={2.4} />}
+            <Text style={styles.aiFeedbackSubmitText}>{avatarFeedbackSubmitting || avatarRetrying ? '处理中...' : '按反馈重新生成'}</Text>
+          </Pressable>
+        </View>
+      </BottomSheet>
+    );
+  }
+
+  function renderAvatarRegenerateConfirm() {
+    return (
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setAvatarRegenerateConfirmVisible(false)}
+        transparent
+        visible={avatarRegenerateConfirmVisible}
+      >
+        <View style={styles.aiRegenerateBackdrop}>
+          <View style={styles.aiRegenerateDialog}>
+            <View style={styles.aiRegenerateIconBox}>
+              <RefreshCw color={palette.orange} size={24} strokeWidth={2.3} />
+            </View>
+            <Text style={styles.aiRegenerateTitle}>要重新生成灵伴形象吗？</Text>
+            <Text style={styles.aiRegenerateBody}>当前形象将被替换{'\n'}每天可重新生成 {petAvatarDailyLimit} 次，今天还剩 {petAvatarDailyRemaining} 次</Text>
+            <View style={styles.aiRegenerateNote}>
+              <AlertTriangle color={palette.teal} size={14} strokeWidth={2.4} />
+              <Text style={styles.aiRegenerateNoteText}>建议先告诉我们哪里不满意，生成会更准</Text>
+            </View>
+            <View style={styles.aiRegenerateActions}>
+              <Pressable disabled={avatarRetrying} onPress={() => setAvatarRegenerateConfirmVisible(false)} style={[styles.aiRegenerateCancel, webPressableReset]}>
+                <Text style={styles.aiRegenerateCancelText}>取消</Text>
+              </Pressable>
+              <Pressable
+                disabled={avatarRetrying}
+                onPress={() => {
+                  setAvatarRegenerateConfirmVisible(false);
+                  void retryAvatarGeneration();
+                }}
+                style={[styles.aiRegenerateSubmit, avatarRetrying && styles.aiCtaDisabled, webPressableReset]}
+              >
+                {avatarRetrying ? <ActivityIndicator color="#fff" size="small" /> : <RefreshCw color="#fff" size={14} strokeWidth={2.4} />}
+                <Text style={styles.aiRegenerateSubmitText}>{avatarRetrying ? '生成中...' : '重新生成'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     );
   }
 
@@ -6929,7 +7154,7 @@ export default function LumiiMvpApp() {
               })}
             </View>
           ) : null}
-          <Toast actionText={toast?.actionText} message={toast?.message} tone={toast?.tone} variant={toast?.variant} />
+          <Toast actionText={toast?.actionText} message={toast?.message} subtitle={toast?.subtitle} tone={toast?.tone} variant={toast?.variant} />
           {renderGreetingSheet()}
           <ConfirmDialog
             body={confirm?.body ?? ''}
@@ -7526,6 +7751,48 @@ const styles = StyleSheet.create({
   aiGhostCtaPressed: { backgroundColor: '#fff' },
   aiGhostCtaText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15.5, fontWeight: '500' },
   aiCtaDisabled: { opacity: 0.72 },
+  aiCandidateBlock: { marginTop: 22, width: '100%' },
+  aiCandidateCheck: { alignItems: 'center', backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 11, borderWidth: 2, height: 22, justifyContent: 'center', position: 'absolute', right: 6, top: 6, width: 22 },
+  aiCandidateImage: { height: '100%', width: '100%' },
+  aiCandidateImageFrame: { backgroundColor: '#FFEDD9', borderColor: palette.border, borderRadius: 18, borderWidth: 1, height: '100%', overflow: 'hidden', position: 'relative', width: '100%' },
+  aiCandidateImageFrameActive: { borderColor: '#fff', borderWidth: 2 },
+  aiCandidateImageOverlay: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
+  aiCandidateImageOverlay_main: { backgroundColor: 'rgba(255,138,92,0.03)' },
+  aiCandidateImageOverlay_soft: { backgroundColor: 'rgba(77,182,172,0.12)' },
+  aiCandidateImageOverlay_warm: { backgroundColor: 'rgba(255,185,125,0.13)' },
+  aiCandidateImage_main: { opacity: 1 },
+  aiCandidateImage_soft: { opacity: 0.94 },
+  aiCandidateImage_warm: { opacity: 0.98 },
+  aiCandidateIntro: { alignItems: 'center', flexDirection: 'row', gap: 6, justifyContent: 'center', marginTop: 4 },
+  aiCandidateIntroText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 18 },
+  aiCandidateItem: { aspectRatio: 1, borderRadius: 22, flex: 1, padding: 4 },
+  aiCandidateItemActive: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FF8A5C, #4DB6AC)' } as object) : null), backgroundColor: palette.orange },
+  aiCandidateLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', letterSpacing: 0.3, marginBottom: 10 },
+  aiCandidateRow: { flexDirection: 'row', gap: 12 },
+  aiFeedbackActions: { flexDirection: 'row', gap: 12, marginTop: 18 },
+  aiFeedbackCancel: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 27, flex: 1, height: 54, justifyContent: 'center' },
+  aiFeedbackCancelText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
+  aiFeedbackChip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 6, paddingHorizontal: 14, paddingVertical: 9 },
+  aiFeedbackChipSelected: { backgroundColor: 'rgba(255,138,92,0.12)', borderColor: palette.orange, borderWidth: 1.5 },
+  aiFeedbackChipText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 18 },
+  aiFeedbackChipTextSelected: { color: palette.orange, fontWeight: '700' },
+  aiFeedbackChipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 16 },
+  aiFeedbackEntry: { alignItems: 'center', alignSelf: 'center', backgroundColor: 'rgba(255,138,92,0.10)', borderColor: 'rgba(255,138,92,0.18)', borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 6, marginTop: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  aiFeedbackEntryText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 17 },
+  aiFeedbackSheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, gap: 0, paddingBottom: 30, paddingHorizontal: 22, paddingTop: 18 },
+  aiFeedbackSliderCard: { backgroundColor: palette.background, borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginTop: 18, paddingHorizontal: 16, paddingVertical: 14 },
+  aiFeedbackSliderFill: { backgroundColor: palette.orange, borderRadius: 3, bottom: 0, left: 0, position: 'absolute', top: 0, width: '38%' },
+  aiFeedbackSliderHead: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  aiFeedbackSliderLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '500' },
+  aiFeedbackSliderLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
+  aiFeedbackSliderThumb: { backgroundColor: '#fff', borderColor: palette.orange, borderRadius: 11, borderWidth: 2, height: 22, left: '38%', marginLeft: -11, marginTop: -11, position: 'absolute', top: '50%', width: 22, shadowColor: '#50371e', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.16, shadowRadius: 10 },
+  aiFeedbackSliderTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600' },
+  aiFeedbackSliderTrack: { backgroundColor: '#E9E0D6', borderRadius: 3, height: 6, position: 'relative' },
+  aiFeedbackSliderValue: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  aiFeedbackSubmit: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 27, flex: 1.4, flexDirection: 'row', gap: 8, height: 54, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.24, shadowRadius: 24 },
+  aiFeedbackSubmitText: { color: '#fff', fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
+  aiFeedbackSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 20, marginTop: 6 },
+  aiFeedbackTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', letterSpacing: 0, lineHeight: 25 },
   aiOriginalThumb: { borderColor: '#fff', borderRadius: 31, borderWidth: 3, height: 62, left: 7, overflow: 'hidden', position: 'absolute', top: 12, width: 62 },
   aiPageTealGlow: { backgroundColor: 'rgba(77,182,172,0.13)', borderRadius: 160, bottom: -80, height: 220, position: 'absolute', right: -90, width: 220 },
   aiPageWarmGlow: { backgroundColor: 'rgba(255,217,182,0.42)', borderRadius: 220, height: 240, left: -80, position: 'absolute', right: -80, top: -42 },
@@ -7536,17 +7803,29 @@ const styles = StyleSheet.create({
   aiPrimaryCta: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 27, flexDirection: 'row', gap: 8, height: 54, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.26, shadowRadius: 28 },
   aiPrimaryCtaPressed: { backgroundColor: '#F2774A', transform: [{ scale: 0.99 }] },
   aiPrimaryCtaText: { color: '#fff', fontFamily: appFontFamily, fontSize: 16, fontWeight: '600' },
-  aiQuotaHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 18, marginTop: 12, textAlign: 'center' },
-  aiResultActions: { gap: 12, marginTop: 24, width: '100%' },
-  aiResultAvatarFrame: { alignItems: 'center', backgroundColor: '#FFEDD9', borderColor: '#fff', borderRadius: 130, borderWidth: 4, height: 260, justifyContent: 'center', overflow: 'hidden', shadowColor: '#b46e3c', shadowOffset: { height: 26, width: 0 }, shadowOpacity: 0.28, shadowRadius: 56, width: 260 },
-  aiResultDesc: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 21, marginTop: 8, textAlign: 'center' },
-  aiResultHero: { alignItems: 'center', height: 292, justifyContent: 'center', marginTop: 42, position: 'relative', width: 292 },
+  aiQuotaHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 18, marginTop: 10, textAlign: 'center' },
+  aiRegenerateActions: { flexDirection: 'row', gap: 12, marginTop: 18 },
+  aiRegenerateBackdrop: { alignItems: 'center', backgroundColor: 'rgba(27,28,25,0.45)', flex: 1, justifyContent: 'center' },
+  aiRegenerateBody: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21, marginTop: 8, textAlign: 'center' },
+  aiRegenerateCancel: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 24, flex: 1, height: 48, justifyContent: 'center' },
+  aiRegenerateCancelText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
+  aiRegenerateDialog: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 24, marginHorizontal: 32, maxWidth: 312, paddingBottom: 20, paddingHorizontal: 22, paddingTop: 26, shadowColor: '#000', shadowOffset: { height: 30, width: 0 }, shadowOpacity: 0.28, shadowRadius: 60, width: 312 },
+  aiRegenerateIconBox: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 28, height: 56, justifyContent: 'center', marginBottom: 14, width: 56 },
+  aiRegenerateNote: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: palette.background, borderRadius: 12, flexDirection: 'row', gap: 8, marginTop: 14, paddingHorizontal: 12, paddingVertical: 10 },
+  aiRegenerateNoteText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17 },
+  aiRegenerateSubmit: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 24, flex: 1.2, flexDirection: 'row', gap: 6, height: 48, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.22, shadowRadius: 22 },
+  aiRegenerateSubmitText: { color: '#fff', fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
+  aiRegenerateTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', letterSpacing: 0, lineHeight: 24, textAlign: 'center' },
+  aiResultActions: { gap: 12, marginTop: 18, width: '100%' },
+  aiResultAvatarFrame: { alignItems: 'center', backgroundColor: '#FFEDD9', borderColor: '#fff', borderRadius: 115, borderWidth: 4, height: 230, justifyContent: 'center', overflow: 'hidden', shadowColor: '#b46e3c', shadowOffset: { height: 24, width: 0 }, shadowOpacity: 0.26, shadowRadius: 52, width: 230 },
+  aiResultDesc: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 21, marginTop: 14, textAlign: 'center' },
+  aiResultHero: { alignItems: 'center', height: 252, justifyContent: 'center', marginTop: 24, position: 'relative', width: 252 },
   aiResultHeroBadge: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, bottom: 3, flexDirection: 'row', gap: 5, paddingHorizontal: 14, paddingVertical: 6, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.13, shadowRadius: 20 },
   aiResultHeroBadgeText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
-  aiResultHeroGlow: { backgroundColor: 'rgba(255,138,92,0.20)', borderRadius: 160, height: 320, position: 'absolute', width: 320 },
-  aiResultHeroRing: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'conic-gradient(from 210deg, rgba(255,138,92,0.55), rgba(77,182,172,0.5), rgba(255,200,140,0.5), rgba(255,138,92,0.55))' } as object) : null), backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 138, height: 276, opacity: 0.86, position: 'absolute', width: 276 },
+  aiResultHeroGlow: { backgroundColor: 'rgba(255,138,92,0.20)', borderRadius: 145, height: 290, position: 'absolute', width: 290 },
+  aiResultHeroRing: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'conic-gradient(from 210deg, rgba(255,138,92,0.55), rgba(77,182,172,0.5), rgba(255,200,140,0.5), rgba(255,138,92,0.55))' } as object) : null), backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 124, height: 248, opacity: 0.86, position: 'absolute', width: 248 },
   aiResultName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', letterSpacing: 0, lineHeight: 32, marginTop: 24, textAlign: 'center' },
-  aiResultPage: { alignItems: 'center', minHeight: 720, paddingHorizontal: 6, position: 'relative' },
+  aiResultPage: { alignItems: 'center', minHeight: 720, paddingHorizontal: 8, position: 'relative' },
   aiScanLine: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(90deg, rgba(255,138,92,0), rgba(255,138,92,0.9), rgba(255,138,92,0))' } as object) : null), backgroundColor: palette.orange, borderRadius: 999, height: 2, left: 28, opacity: 0.88, position: 'absolute', right: 28, top: 135, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.45, shadowRadius: 12 },
   aiSparkOne: { left: 4, position: 'absolute', top: 38 },
   aiSparkThree: { bottom: 64, position: 'absolute', right: -2 },

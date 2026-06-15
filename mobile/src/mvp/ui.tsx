@@ -138,11 +138,13 @@ export function ToggleRow({
 export function Toast({
   actionText,
   message,
+  subtitle,
   tone = 'info',
   variant = 'surface',
 }: {
   actionText?: string;
   message?: string;
+  subtitle?: string;
   tone?: 'error' | 'info' | 'success' | 'warning';
   variant?: 'dark' | 'surface';
 }) {
@@ -152,9 +154,12 @@ export function Toast({
   return (
     <View style={[styles.toast, dark ? styles.toastDark : styles.toastSurface, styles.toastNoPointer]}>
       <View style={[styles.toastIcon, dark ? styles.toastIconDark : styles[`toastIcon_${tone}`]]}>
-        {dark ? <View style={styles.toastIconMarkDark} /> : <Icon color={toastIconColorByTone[tone]} size={14} strokeWidth={2.5} />}
+        {dark ? <Icon color="#fff" size={15} strokeWidth={3} /> : <Icon color={toastIconColorByTone[tone]} size={14} strokeWidth={2.5} />}
       </View>
-      <Text style={[styles.toastText, dark ? styles.toastTextDark : styles.toastTextSurface]} numberOfLines={2}>{message}</Text>
+      <View style={styles.toastTextWrap}>
+        <Text style={[styles.toastText, dark ? styles.toastTextDark : styles.toastTextSurface]} numberOfLines={2}>{message}</Text>
+        {subtitle ? <Text style={[styles.toastSubtitle, dark ? styles.toastSubtitleDark : styles.toastSubtitleSurface]} numberOfLines={2}>{subtitle}</Text> : null}
+      </View>
       {actionText ? <Text style={dark ? styles.toastActionDark : styles.toastActionSurface}>{actionText}</Text> : null}
     </View>
   );
@@ -403,9 +408,13 @@ export const styles = StyleSheet.create({
   toastIconMark_warning: { backgroundColor: palette.warning },
   toastNoPointer: { pointerEvents: 'none' },
   toastSurface: { backgroundColor: '#fff', borderRadius: 14, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28 },
-  toastText: { flexShrink: 1, fontFamily, fontSize: 13, fontWeight: '500' },
+  toastSubtitle: { fontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 16, marginTop: 2 },
+  toastSubtitleDark: { color: 'rgba(255,255,255,0.76)' },
+  toastSubtitleSurface: { color: palette.muted },
+  toastText: { fontFamily, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   toastTextDark: { color: '#fff' },
   toastTextSurface: { color: palette.ink },
+  toastTextWrap: { flex: 1, flexShrink: 1 },
   toggleThumb: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 11, height: 22, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.15, shadowRadius: 4, width: 22 },
   toggleThumbOn: { transform: [{ translateX: 18 }] },
   toggleRow: { alignItems: 'center', flexDirection: 'row', gap: 12 },
