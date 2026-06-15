@@ -93,7 +93,7 @@
 | 59 | 账号安全 | `renderAccountSecurity` | 部分接入 | 账号安全详情未完全按 Screen59 |
 | 60 | 安全中心 | `renderSafety` | 部分接入 | 入口展示有，举报/拉黑逻辑暂未做 |
 | 61 | 黑名单管理 | 无 | 缺失 | 用户曾降级优先级，仍记录为缺失 |
-| 62 | 退出登录确认 | `ConfirmDialog` + logout | 部分接入 | 弹窗样式本轮已收敛，Screen62 内容需复核 |
+| 62 | 退出登录确认 | `renderLogoutConfirmSheet` + logout | 已接入-需视觉复核 | 本轮按 Screen62 改为底部 Sheet：红色退出图标块、居中标题/说明、纵向危险确认与取消按钮；不再复用普通 `ConfirmDialog` |
 | 63 | 注销账号 | 无 | 缺失 | 用户曾降级优先级，仍记录为缺失 |
 | 64 | Button 按钮 | `ui.tsx/Button` | 本轮组件已修 | 已按 Screen64 补 loading 中文状态和 disabled 文案色；仍需截图复核 |
 | 65 | Input 输入框 | `ui.tsx/Field` | 本轮组件已修 | 仍需截图复核 |
@@ -116,7 +116,7 @@
 | 82 | 还没有宠物 空状态 | `renderMultiPet`/`renderEmptyPet` | 部分接入 | 多宠管理内空态需按 Screen82 |
 | 83 | 切换中 loading | `renderMultiPet` | 已接入-需视觉复核 | loading 样式需复核 |
 | 84 | 切换成功 Toast | `Toast` + switch | 部分接入 | Toast 本轮已修，成功内容需复核 |
-| 85 | 删除宠物 二次确认 | `ConfirmDialog` | 部分接入 | Dialog 本轮已修，内容和危险按钮需复核 |
+| 85 | 删除宠物 二次确认 | `renderPetDeleteConfirmSheet` + deletePet | 已接入-需视觉复核 | 本轮按 Screen85 改为底部 Sheet：宠物预览行、危险说明、暖黄提示卡、确认移除 loading 与取消按钮 |
 | 86 | 编辑个人资料 默认态 | `renderOwnerEdit` | 已接入-需视觉复核 | 本轮已按源码去掉多余外层表单卡，头像改为 96px，输入框/简介 textarea 回到 14px 圆角白底描边体系；仍需截图复核 |
 | 87 | 头像上传中 | `renderOwnerEdit` | 已接入-需视觉复核 | loading overlay 需复核 |
 | 88 | 昵称错误 | `renderOwnerEdit` | 已接入-需视觉复核 | 昵称为空/超长已在表单内红色 hint 与输入框红色描边呈现；仍需截图核对 Screen88 字号和间距 |
@@ -131,7 +131,7 @@
 | 97 | 体重趋势 正常 | `renderWeight` | 已接入-需视觉复核 | 本轮按 Screen97 强化趋势卡、稳定提示、历史记录标题右侧“添加”和独立圆角记录卡，首条高亮 |
 | 98 | 体重趋势 异常 | `renderWeight` | 已接入-需视觉复核 | 本轮异常态已使用 Screen98 的暖黄提示卡、体重下降 pill 和记录卡高亮方向；仍需真机截图复核文案折行 |
 | 99 | 编辑体重 弹层 | `renderWeight` + `BottomSheet` | 已接入-需视觉复核 | 本轮将新增和编辑体重统一迁移到 Screen99 风格 Bottom Sheet：大数字输入、快捷 +/- chip、日期/备注元信息卡、删除入口 |
-| 100 | 删除体重记录 二次确认 | `ConfirmDialog` | 部分接入 | Dialog 本轮已修，内容需复核 |
+| 100 | 删除体重记录 二次确认 | `renderWeightDeleteConfirm` + deleteWeightRecord | 已接入-需视觉复核 | 本轮按 Screen100 改为居中危险弹窗：52px 红色图标块、体重记录预览卡、趋势重算说明、取消/确认删除横向按钮 |
 | 101 | 体重记录 空状态 | `renderWeight` | 已接入-需视觉复核 | 本轮补 Screen101 风格趋势插画、主 CTA 和提示卡；仍需截图核对垂直居中 |
 
 ## 下一轮 1:1 优先级

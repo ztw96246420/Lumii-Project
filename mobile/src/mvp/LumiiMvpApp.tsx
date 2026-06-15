@@ -529,6 +529,7 @@ export default function LumiiMvpApp() {
   const [history, setHistory] = useState<AppRoute[]>([]);
   const [toast, setToast] = useState<AppToast | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [sessionBootstrapping, setSessionBootstrapping] = useState(true);
 
   const [phone, setPhone] = useState('');
@@ -569,6 +570,7 @@ export default function LumiiMvpApp() {
   const petSwitchingIdRef = useRef('');
   const [petDeletingId, setPetDeletingId] = useState('');
   const petDeletingIdRef = useRef('');
+  const [petDeleteConfirm, setPetDeleteConfirm] = useState<PetProfile | null>(null);
   const [petDraft, setPetDraft] = useState(emptyPetDraft);
   const [petProfileSaving, setPetProfileSaving] = useState(false);
   const petProfileSavingRef = useRef(false);
@@ -623,6 +625,7 @@ export default function LumiiMvpApp() {
   const [weightEditNote, setWeightEditNote] = useState('');
   const [weightEditSaving, setWeightEditSaving] = useState(false);
   const weightEditSavingRef = useRef(false);
+  const [weightDeleteConfirm, setWeightDeleteConfirm] = useState<WeightRecord | null>(null);
   const [weightSaving, setWeightSaving] = useState(false);
   const weightSavingRef = useRef(false);
   const [memoTitle, setMemoTitle] = useState('今日观察');
@@ -1446,6 +1449,7 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.pets.deletePet(pet.id);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
+        setPetDeleteConfirm(null);
         const nextPet = result.data[0] ?? null;
         setPets(result.data);
         activePetIdRef.current = nextPet?.id ?? null;
@@ -1479,12 +1483,7 @@ export default function LumiiMvpApp() {
   }
 
   function confirmDeletePet(pet: PetProfile) {
-    openConfirm(
-      `移除${pet.name}？`,
-      '移除后，这只宠物的本地展示、健康记录和社交资料会从当前账号中移除。这个操作不可恢复。',
-      () => void deletePet(pet),
-      '确认移除',
-    );
+    setPetDeleteConfirm(pet);
   }
 
   async function loadInboxData(options: { silent?: boolean } = { silent: true }) {
@@ -2702,6 +2701,7 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.health.deleteWeightRecord(record.id);
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
+        setWeightDeleteConfirm(null);
         setWeights(result.data);
         const nextWeight = result.data[0]?.kg;
         setActivePet((pet) => (pet ? { ...pet, weightKg: nextWeight } : pet));
@@ -2719,12 +2719,7 @@ export default function LumiiMvpApp() {
 
   function confirmDeleteWeightRecord(record?: WeightRecord | null) {
     if (!record) return;
-    openConfirm(
-      '删除这条体重记录？',
-      `${formatWeightKg(record.kg)} · ${record.recordedAt} 删除后不可恢复，体重趋势会重新计算。`,
-      () => void deleteWeightRecord(record),
-      '确认删除',
-    );
+    setWeightDeleteConfirm(record);
   }
 
   async function enableVaccineReminder(vaccine?: VaccinePlan) {
@@ -3827,6 +3822,7 @@ export default function LumiiMvpApp() {
     try {
       await lumiiApi.auth.logout();
     } finally {
+      setLogoutConfirmVisible(false);
       await clearPersistedLumiiSession();
       clearLocalAccountState();
     }
@@ -6851,7 +6847,7 @@ export default function LumiiMvpApp() {
             <Text style={styles.timelineTitleMake}>接口模式</Text>
             <Text style={styles.timelineSubMake}>{apiConfig.mode === 'mock' ? 'Mock 服务' : apiConfig.baseUrl}</Text>
           </View>
-          <Pressable onPress={() => openConfirm('退出当前账号', '退出后会清除本机登录缓存，下次需要重新获取验证码登录。', () => void logout(), '退出')} style={styles.logoutButton}>
+          <Pressable onPress={() => setLogoutConfirmVisible(true)} style={styles.logoutButton}>
             <LogOut color={palette.danger} size={18} strokeWidth={2.3} />
             <Text style={styles.logoutText}>退出当前账号</Text>
           </Pressable>
@@ -7128,7 +7124,7 @@ export default function LumiiMvpApp() {
         </View>
         <View style={styles.settingsGroupMake}>
           <Text style={styles.settingsGroupTitle}>危险操作</Text>
-          <ProfileMakeRow Icon={LogOut} onPress={() => openConfirm('退出当前账号', '退出后会清除本机登录缓存，下次需要重新获取验证码登录。', () => void logout(), '退出')} title="退出当前账号" value="清除本机登录" />
+          <ProfileMakeRow Icon={LogOut} onPress={() => setLogoutConfirmVisible(true)} title="退出当前账号" value="清除本机登录" />
           <ProfileMakeRow Icon={LogOut} title="注销账号" value="后续开放" />
         </View>
       </Screen>
@@ -7238,6 +7234,101 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderLogoutConfirmSheet() {
+    const petName = getCurrentPet()?.name ?? '灵伴';
+    return (
+      <BottomSheet contentStyle={styles.logoutConfirmSheetMake} dismissDisabled={false} onClose={() => setLogoutConfirmVisible(false)} visible={logoutConfirmVisible}>
+        <View style={styles.logoutSheetIconMake}>
+          <LogOut color={palette.danger} size={26} strokeWidth={2.4} />
+        </View>
+        <Text style={styles.logoutSheetTitleMake}>确定要退出登录吗？</Text>
+        <Text style={styles.logoutSheetBodyMake}>退出后，本机将不再接收{petName}的健康提醒与 AI 灵伴消息。重新登录后所有数据仍会保留。</Text>
+        <View style={styles.logoutSheetActionsMake}>
+          <Pressable onPress={() => void logout()} style={[styles.sheetDangerButtonMake, webPressableReset]}>
+            <Text style={styles.sheetDangerButtonTextMake}>确认退出</Text>
+          </Pressable>
+          <Pressable onPress={() => setLogoutConfirmVisible(false)} style={[styles.sheetGhostButtonMake, webPressableReset]}>
+            <Text style={styles.sheetGhostButtonTextMake}>取消</Text>
+          </Pressable>
+        </View>
+      </BottomSheet>
+    );
+  }
+
+  function renderPetDeleteConfirmSheet() {
+    const pet = petDeleteConfirm;
+    const deleting = pet ? petDeletingId === pet.id : false;
+    return (
+      <BottomSheet contentStyle={styles.petDeleteSheetMake} dismissDisabled={deleting} onClose={() => setPetDeleteConfirm(null)} visible={Boolean(pet)}>
+        {pet ? (
+          <>
+            <View style={styles.petDeletePreviewMake}>
+              <PetAvatar size={44} uri={pet.avatarUrl ?? generatedGoldenAvatarUri} />
+              <View style={styles.flex}>
+                <Text style={styles.petDeletePreviewNameMake}>{pet.name}</Text>
+                <Text style={styles.petDeletePreviewMetaMake}>{pet.breed || speciesLabels[pet.species]} · {formatPetAge(pet.birthday)} · {formatWeightKg(pet.weightKg)}</Text>
+              </View>
+              <Trash2 color={palette.danger} size={18} strokeWidth={2.4} />
+            </View>
+            <Text style={styles.petDeleteTitleMake}>确定要移除{pet.name}吗？</Text>
+            <Text style={styles.petDeleteBodyMake}>移除后，{pet.name}的健康记录、AI 灵伴记忆和社交资料将被永久删除，且无法恢复。</Text>
+            <View style={styles.petDeleteTipMake}>
+              <AlertTriangle color={palette.orange} size={14} strokeWidth={2.4} />
+              <Text style={styles.petDeleteTipTextMake}>如果只是暂时不想看到，可以选择切换为其它宠物，记录会一直保留。</Text>
+            </View>
+            <View style={styles.petDeleteActionsMake}>
+              <Pressable disabled={deleting} onPress={() => void deletePet(pet)} style={[styles.sheetDangerButtonMake, deleting && styles.aiCtaDisabled, webPressableReset]}>
+                {deleting ? <ActivityIndicator color="#fff" size="small" /> : null}
+                <Text style={styles.sheetDangerButtonTextMake}>确认移除</Text>
+              </Pressable>
+              <Pressable disabled={deleting} onPress={() => setPetDeleteConfirm(null)} style={[styles.sheetGhostButtonMake, webPressableReset]}>
+                <Text style={styles.sheetGhostButtonTextMake}>再想想</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : null}
+      </BottomSheet>
+    );
+  }
+
+  function renderWeightDeleteConfirm() {
+    const record = weightDeleteConfirm;
+    const deleting = Boolean(record && weightEditSaving);
+    return (
+      <Modal animationType="fade" onRequestClose={() => !deleting && setWeightDeleteConfirm(null)} transparent visible={Boolean(record)}>
+        <View style={styles.weightDeleteBackdropMake}>
+          {record ? (
+            <View style={styles.weightDeleteDialogMake}>
+              <View style={styles.weightDeleteIconMake}>
+                <Trash2 color={palette.danger} size={22} strokeWidth={2.4} />
+              </View>
+              <Text style={styles.weightDeleteTitleMake}>删除这条体重记录？</Text>
+              <View style={styles.weightDeletePreviewMake}>
+                <View style={styles.weightDeletePreviewIconMake}>
+                  <Weight color={palette.teal} size={13} strokeWidth={2.5} />
+                </View>
+                <View style={styles.flex}>
+                  <Text style={styles.weightDeletePreviewKgMake}>{formatWeightKg(record.kg)}</Text>
+                  <Text style={styles.weightDeletePreviewMetaMake}>{record.recordedAt} · {record.note || '手动记录'}</Text>
+                </View>
+              </View>
+              <Text style={styles.weightDeleteBodyMake}>删除后这条记录无法恢复，{getCurrentPet()?.name ?? '灵伴'}的体重趋势将重新计算。</Text>
+              <View style={styles.weightDeleteActionsMake}>
+                <Pressable disabled={deleting} onPress={() => setWeightDeleteConfirm(null)} style={[styles.weightDeleteCancelMake, webPressableReset]}>
+                  <Text style={styles.weightDeleteCancelTextMake}>取消</Text>
+                </Pressable>
+                <Pressable disabled={deleting} onPress={() => void deleteWeightRecord(record)} style={[styles.weightDeleteSubmitMake, deleting && styles.aiCtaDisabled, webPressableReset]}>
+                  {deleting ? <ActivityIndicator color="#fff" size="small" /> : null}
+                  <Text style={styles.weightDeleteSubmitTextMake}>确认删除</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      </Modal>
+    );
+  }
+
   function renderScreen() {
     if (sessionBootstrapping) return renderSessionBootstrapping();
     if (session && !getCurrentPet() && petRequiredRoutes.has(route)) return renderEmptyPet();
@@ -7342,6 +7433,9 @@ export default function LumiiMvpApp() {
           ) : null}
           <Toast actionText={toast?.actionText} message={toast?.message} subtitle={toast?.subtitle} tone={toast?.tone} variant={toast?.variant} />
           {renderGreetingSheet()}
+          {renderLogoutConfirmSheet()}
+          {renderPetDeleteConfirmSheet()}
+          {renderWeightDeleteConfirm()}
           <ConfirmDialog
             body={confirm?.body ?? ''}
             confirmText={confirm?.confirmText}
@@ -7873,6 +7967,15 @@ const styles = StyleSheet.create({
   ownerSaveRetryMake: { alignItems: 'center', borderColor: palette.orange, borderRadius: 9, borderWidth: 1, flexDirection: 'row', flexShrink: 0, gap: 4, paddingHorizontal: 10, paddingVertical: 5 },
   ownerSaveRetryTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
   petDeleteIconButton: { alignItems: 'center', backgroundColor: '#FBE4DE', borderRadius: 10, height: 30, justifyContent: 'center', width: 30 },
+  petDeleteActionsMake: { gap: 10, marginTop: 20 },
+  petDeleteBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21, marginTop: 8, textAlign: 'center' },
+  petDeletePreviewMake: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: '#FFF7F0', borderColor: '#FFE0CC', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, marginBottom: 18, paddingHorizontal: 14, paddingVertical: 12 },
+  petDeletePreviewMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 2 },
+  petDeletePreviewNameMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '800', lineHeight: 20 },
+  petDeleteSheetMake: { gap: 0, paddingBottom: 20, paddingHorizontal: 20, paddingTop: 12 },
+  petDeleteTipMake: { alignItems: 'flex-start', backgroundColor: '#FBF2D9', borderColor: '#EFDFA8', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 14, paddingHorizontal: 12, paddingVertical: 10 },
+  petDeleteTipTextMake: { color: '#8A6B2A', flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17 },
+  petDeleteTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '800', lineHeight: 25, textAlign: 'center' },
   petDogBadge: { backgroundColor: palette.orangeSoft, color: palette.orange },
   quickWeightChip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 10, borderWidth: 1, flex: 1, paddingVertical: 8 },
   quickWeightRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
@@ -7886,6 +7989,20 @@ const styles = StyleSheet.create({
   weightAddLink: { alignItems: 'center', flexDirection: 'row', gap: 3, paddingHorizontal: 2, paddingVertical: 4 },
   weightAddLinkText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   weightChartWrap: { marginHorizontal: -4, marginTop: 10 },
+  weightDeleteActionsMake: { flexDirection: 'row', gap: 10, marginTop: 20 },
+  weightDeleteBackdropMake: { alignItems: 'center', backgroundColor: 'rgba(31,33,29,0.42)', flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
+  weightDeleteBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 20, marginTop: 12, textAlign: 'center' },
+  weightDeleteCancelMake: { alignItems: 'center', backgroundColor: '#F4EFE6', borderRadius: 16, flex: 1, height: 48, justifyContent: 'center' },
+  weightDeleteCancelTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  weightDeleteDialogMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 24, paddingBottom: 20, paddingHorizontal: 18, paddingTop: 22, shadowColor: '#000', shadowOffset: { height: 22, width: 0 }, shadowOpacity: 0.18, shadowRadius: 42, width: '100%' },
+  weightDeleteIconMake: { alignItems: 'center', backgroundColor: '#FBE4DE', borderRadius: 16, height: 52, justifyContent: 'center', marginBottom: 14, width: 52 },
+  weightDeletePreviewIconMake: { alignItems: 'center', backgroundColor: '#E8F5F3', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
+  weightDeletePreviewKgMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '800', lineHeight: 21 },
+  weightDeletePreviewMake: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: '#FFF7F0', borderColor: '#FFE0CC', borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 10, marginTop: 14, paddingHorizontal: 12, paddingVertical: 11 },
+  weightDeletePreviewMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 2 },
+  weightDeleteSubmitMake: { alignItems: 'center', backgroundColor: palette.danger, borderRadius: 16, flex: 1, flexDirection: 'row', gap: 6, height: 48, justifyContent: 'center' },
+  weightDeleteSubmitTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 14, fontWeight: '800' },
+  weightDeleteTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '800', lineHeight: 25, textAlign: 'center' },
   weightDeltaPill: { alignItems: 'center', backgroundColor: palette.tealSoft, borderRadius: 10, flexDirection: 'row', gap: 4, paddingHorizontal: 10, paddingVertical: 5 },
   weightDeltaPillWarn: { backgroundColor: '#FBF2D9' },
   weightEditSheet: { gap: 14 },
@@ -8226,8 +8343,17 @@ const styles = StyleSheet.create({
   logoRow: { alignItems: 'center', flexDirection: 'row', gap: 12, marginBottom: 22 },
   logoText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700' },
   longTextInput: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1.5, color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, minHeight: 130, paddingHorizontal: 14, paddingVertical: 12, textAlignVertical: 'top' },
+  logoutConfirmSheetMake: { alignItems: 'center', gap: 0, paddingBottom: 20, paddingHorizontal: 20, paddingTop: 12 },
   logoutButton: { alignItems: 'center', backgroundColor: '#ffdad6', borderRadius: 18, flexDirection: 'row', gap: 10, justifyContent: 'center', minHeight: 52 },
+  logoutSheetActionsMake: { alignSelf: 'stretch', gap: 10, marginTop: 22 },
+  logoutSheetBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21, marginTop: 8, paddingHorizontal: 12, textAlign: 'center' },
+  logoutSheetIconMake: { alignItems: 'center', backgroundColor: '#FBE4DE', borderRadius: 18, height: 60, justifyContent: 'center', marginBottom: 14, marginTop: 4, width: 60 },
+  logoutSheetTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '800', lineHeight: 25, textAlign: 'center' },
   logoutText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
+  sheetDangerButtonMake: { alignItems: 'center', backgroundColor: palette.danger, borderRadius: 18, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center', shadowColor: palette.danger, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.18, shadowRadius: 20 },
+  sheetDangerButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 15, fontWeight: '800' },
+  sheetGhostButtonMake: { alignItems: 'center', backgroundColor: '#F4EFE6', borderRadius: 18, height: 52, justifyContent: 'center' },
+  sheetGhostButtonTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
   mapCanvas: { backgroundColor: '#eef2ec', borderRadius: 24, height: 330, overflow: 'hidden', position: 'relative' },
   mapLabel: { backgroundColor: 'rgba(255,255,255,0.78)', borderRadius: 999, color: '#5e7d75', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', left: 18, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 6, position: 'absolute', top: 18 },
   mapMarker: { alignItems: 'center', backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 999, borderWidth: 3, height: 50, justifyContent: 'center', left: '48%', position: 'absolute', top: '48%', width: 50 },
