@@ -2183,7 +2183,7 @@ export default function LumiiMvpApp() {
           : await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (!permissionResult.granted) {
-        showToast(source === 'camera' ? '请先允许相机权限' : '请先允许访问相册');
+        showToast(source === 'camera' ? '请先允许相机权限' : '请先允许访问相册', { subtitle: '授权后才能上传宠物照片生成灵伴', tone: 'warning', variant: 'surface' });
         return;
       }
 
@@ -2236,7 +2236,7 @@ export default function LumiiMvpApp() {
         go('uploadNoPet');
       }
     } catch {
-      showToast(source === 'camera' ? '打开相机失败，请稍后重试' : '打开相册失败，请稍后重试');
+      showToast(source === 'camera' ? '打开相机失败，请稍后重试' : '打开相册失败，请稍后重试', { actionText: '重试', subtitle: '当前照片没有上传，请重新选择', tone: 'error', variant: 'surface' });
     } finally {
       mediaPickingRef.current = false;
       setMediaPickerMode(null);
@@ -2255,7 +2255,7 @@ export default function LumiiMvpApp() {
       return;
     }
     if (!media.analysis.canGenerate) {
-      showToast(media.analysis.message || '当前照片不适合生成，请重新上传');
+      showToast(media.analysis.message || '当前照片不适合生成，请重新上传', { subtitle: '建议上传清晰、单只猫狗、正脸或半身照片', tone: 'warning', variant: 'surface' });
       replace('uploadNoPet');
       return;
     }
@@ -2277,7 +2277,7 @@ export default function LumiiMvpApp() {
         setAvatarJob(result.data);
         go('generating');
       } else {
-        showToast(result.error?.message ?? '启动生成失败，请重新选择照片');
+        showToast(result.error?.message ?? '启动生成失败，请重新选择照片', { actionText: '重试', subtitle: '照片已保留，可稍后重新生成', tone: 'error', variant: 'surface' });
       }
       void loadAiUsage();
     } finally {
@@ -2540,7 +2540,7 @@ export default function LumiiMvpApp() {
         syncPetChatBusinessEffects(result.data);
         void loadAiUsage();
       } else {
-        showToast(result.error?.message ?? '消息发送失败');
+        showToast(result.error?.message ?? '消息发送失败', { actionText: '重试', subtitle: '消息气泡已保留，可在下方重新发送', tone: 'error', variant: 'surface' });
         void loadAiUsage();
       }
     } finally {
@@ -2567,7 +2567,7 @@ export default function LumiiMvpApp() {
           else delete next[messageId];
           return next;
         });
-        showToast(result.error?.message ?? '反馈保存失败，请稍后重试');
+        showToast(result.error?.message ?? '反馈保存失败，请稍后重试', { actionText: '重试', subtitle: '当前回复不会被重新训练', tone: 'error', variant: 'surface' });
       }
     } finally {
       chatFeedbackSavingIdsRef.current.delete(messageId);
@@ -2702,7 +2702,7 @@ export default function LumiiMvpApp() {
       } else {
         if (isActiveConversation) {
           setConversationMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: 'failed' } : item)));
-          showToast(result.error?.message ?? '消息发送失败');
+          showToast(result.error?.message ?? '消息发送失败', { actionText: '重试', subtitle: '消息已标记为未送达，可在气泡下方重试', tone: 'error', variant: 'surface' });
         } else {
           delete localConversationMessageIdsRef.current[local.id];
         }
@@ -3354,7 +3354,7 @@ export default function LumiiMvpApp() {
 
   function fillDailyPostDraft() {
     setDailyPostText(buildDailyPostDraft(dailyMood));
-    showToast(`已按“${dailyMood}”生成今日记录草稿`);
+    showToast(`已按“${dailyMood}”生成今日记录草稿`, { tone: 'success', variant: 'surface' });
   }
 
   async function publishDailyPost() {
@@ -3380,9 +3380,9 @@ export default function LumiiMvpApp() {
         setDailyPostText('');
         void refreshHealthSummary();
         replace('home');
-        showToast('今日小事已记录');
+        showToast('今日小事已记录', { subtitle: '已同步到健康备忘和首页动态', tone: 'success', variant: 'surface' });
       } else {
-        showToast(result.error?.message ?? '发布失败，请稍后重试');
+        showToast(result.error?.message ?? '发布失败，请稍后重试', { actionText: '重试', subtitle: '内容已留在编辑框中，不会丢失', tone: 'error', variant: 'surface' });
       }
     } finally {
       dailyPostSavingRef.current = false;
