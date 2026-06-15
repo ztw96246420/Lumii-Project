@@ -4295,7 +4295,7 @@ export default function LumiiMvpApp() {
           </View>
         ) : (
           <View style={styles.makeIntroHeader}>
-            <Mascot size={58} />
+            <Mascot size={64} />
             <View style={styles.makeIntroCopy}>
               <Text style={styles.makeIntroTitle}>为你的灵伴准备一个家</Text>
               <Text style={styles.makeIntroSubtitle}>打开下列权限，体验更完整的陪伴</Text>
@@ -4333,14 +4333,17 @@ export default function LumiiMvpApp() {
                 onPress={() => (isBlocked ? void openPermissionSettings() : void requestPermission(key))}
                 style={[styles.permissionMakeRow, isGranted && styles.permissionMakeRowGranted, isDenied && styles.permissionMakeRowDenied, webPressableReset]}
               >
-                <View style={[styles.roundIcon, key === 'media' && styles.tealIcon, key === 'notifications' && styles.goldIcon]}>
+                <View style={[styles.permissionIconMake, key === 'media' && styles.tealIcon, key === 'notifications' && styles.goldIcon]}>
                   <Icon color="#fff" size={20} strokeWidth={2.4} />
                 </View>
                 <View style={styles.flex}>
                   <View style={styles.rowBetween}>
-                    <Text style={styles.cardTitle}>{permissionCopy[key].label}</Text>
+                    <Text style={styles.permissionTitleMake}>{permissionCopy[key].label}</Text>
                     {isLoading ? (
-                      <Text style={styles.permissionStatusLoading}>授权中</Text>
+                      <View style={styles.permissionStatusLoadingRow}>
+                        <ActivityIndicator color={palette.muted} size="small" />
+                        <Text style={styles.permissionStatusLoading}>授权中</Text>
+                      </View>
                     ) : isGranted ? (
                       <View style={styles.permissionStatusOn}>
                         <Check color={palette.teal} size={12} strokeWidth={3} />
@@ -4354,7 +4357,7 @@ export default function LumiiMvpApp() {
                       </View>
                     )}
                   </View>
-                  <Text style={styles.mutedText}>{permissionCopy[key].description}</Text>
+                  <Text style={styles.permissionDescMake}>{permissionCopy[key].description}</Text>
                   {isDenied ? (
                     <View style={styles.permissionDeniedHint}>
                       <AlertTriangle color={palette.danger} size={12} strokeWidth={2.5} />
@@ -4389,7 +4392,7 @@ export default function LumiiMvpApp() {
           )}
           {allPermissionsGranted ? null : (
             <Pressable onPress={() => void continueAfterPermissions()} style={[styles.textAction, webPressableReset]}>
-              <Text style={styles.textActionText}>暂不开启，继续使用</Text>
+              <Text style={styles.textActionText}>{deniedEntry ? '暂不开启，继续使用' : '稍后再说'}</Text>
             </Pressable>
           )}
         </View>
@@ -9885,9 +9888,9 @@ const styles = StyleSheet.create({
   makeDetailValueRight: { maxWidth: 220, textAlign: 'right' },
   makeDivider: { backgroundColor: palette.border, height: 1 },
   makeIntroCopy: { flex: 1, gap: 4, minWidth: 0 },
-  makeIntroHeader: { alignItems: 'center', flexDirection: 'row', gap: 13, marginTop: 4, paddingHorizontal: 6 },
+  makeIntroHeader: { alignItems: 'center', flexDirection: 'row', gap: 13, marginTop: 4, paddingHorizontal: 8 },
   makeIntroSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 19 },
-  makeIntroTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 20, fontWeight: '700', lineHeight: 27 },
+  makeIntroTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 20, fontWeight: '600', lineHeight: 27 },
   makePageSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, marginTop: 7 },
   makePageTitleBlock: { marginTop: 2, paddingHorizontal: 6 },
   makeScreenTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 28 },
@@ -10108,22 +10111,26 @@ const styles = StyleSheet.create({
   permissionDeniedIcon: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 20, height: 68, justifyContent: 'center', position: 'relative', width: 68 },
   permissionDeniedIconBadge: { alignItems: 'center', backgroundColor: palette.danger, borderColor: '#fff', borderRadius: 13, borderWidth: 2, bottom: -4, height: 26, justifyContent: 'center', position: 'absolute', right: -4, width: 26 },
   permissionDeniedPageTitle: { marginTop: 8, paddingHorizontal: 8 },
-  permissionDeniedPageTitleText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 26, fontWeight: '700', letterSpacing: 0, lineHeight: 34 },
+  permissionDeniedPageTitleText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 26, fontWeight: '600', letterSpacing: 0, lineHeight: 34 },
   permissionDeniedText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 20, marginTop: 4 },
-  permissionDeniedTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', lineHeight: 20 },
+  permissionDeniedTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '500', lineHeight: 20 },
+  permissionDescMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 19.5 },
+  permissionIconMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 14, flexShrink: 0, height: 44, justifyContent: 'center', width: 44 },
   permissionMakeRow: { alignItems: 'flex-start', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 16, shadowColor: '#50371e', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.04, shadowRadius: 10 },
   permissionMakeRowDenied: { borderColor: 'rgba(216,70,53,0.26)' },
   permissionMakeRowGranted: { backgroundColor: '#f2fbfa', borderColor: 'rgba(77,182,172,0.32)' },
-  permissionMakeStack: { gap: 12, marginTop: 26 },
+  permissionMakeStack: { gap: 12, marginTop: 28 },
   permissionMakeStackDenied: { marginTop: 22 },
   permissionPrimaryButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.24, shadowRadius: 22 },
   permissionPrimaryButtonText: { color: '#fff', fontFamily: appFontFamily, fontSize: 16, fontWeight: '600' },
   permissionStatusDenied: { backgroundColor: 'rgba(229,87,63,0.10)', borderRadius: 12, color: palette.danger, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 4 },
-  permissionStatusLoading: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
-  permissionStatusOn: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 12, flexDirection: 'row', gap: 4, paddingHorizontal: 8, paddingVertical: 4 },
-  permissionStatusOnText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
+  permissionStatusLoading: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
+  permissionStatusLoadingRow: { alignItems: 'center', flexDirection: 'row', gap: 4 },
+  permissionStatusOn: { alignItems: 'center', flexDirection: 'row', gap: 4 },
+  permissionStatusOnText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
   permissionSwitchOff: { backgroundColor: palette.pale, borderRadius: 12, height: 24, justifyContent: 'center', paddingHorizontal: 2, width: 40 },
   permissionSwitchThumb: { alignSelf: 'flex-start', backgroundColor: '#fff', borderRadius: 10, height: 20, shadowColor: '#000', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.14, shadowRadius: 4, width: 20 },
+  permissionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '500', lineHeight: 22 },
   petInfoFormMake: { gap: 18, marginTop: 24, paddingHorizontal: 6 },
   petTypeCheck: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 10, height: 20, justifyContent: 'center', position: 'absolute', right: 11, top: 11, width: 20 },
   petTypeEmoji: { fontSize: 25, lineHeight: 31 },
