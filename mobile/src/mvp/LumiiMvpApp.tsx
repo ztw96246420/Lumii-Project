@@ -6088,7 +6088,7 @@ export default function LumiiMvpApp() {
               onChangeText={setMemoEditContent}
               placeholder="今天有什么值得记录的小事？"
               placeholderTextColor="#B8B3A8"
-              style={[styles.makeTextInput, styles.makeTextAreaInput, (!memoEditContent.trim() || contentCount > 200) && styles.makeTextInputError, webTextInputReset]}
+              style={[styles.makeTextInput, styles.makeTextAreaInput, styles.memoEditContentInputMake, (!memoEditContent.trim() || contentCount > 200) && styles.makeTextInputError, webTextInputReset]}
               textAlignVertical="top"
               value={memoEditContent}
             />
@@ -6103,16 +6103,16 @@ export default function LumiiMvpApp() {
               <View style={styles.metaIconBox}>
                 <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
               </View>
-              <Text style={styles.timelineTitleMake}>日期</Text>
-              <Text style={styles.timelineDateMake}>{selectedMemo?.updatedAt ?? '今天'}</Text>
+              <Text style={styles.memoMetaLabelMake}>日期</Text>
+              <Text style={styles.memoMetaValueMake}>{selectedMemo?.updatedAt ?? '今天'}</Text>
               <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
             </View>
             <View style={styles.memoMetaRowMake}>
               <View style={styles.metaIconBox}>
                 <Tag color={palette.muted} size={13} strokeWidth={2.3} />
               </View>
-              <Text style={styles.timelineTitleMake}>分类</Text>
-              <Text style={styles.timelineDateMake}>日常护理</Text>
+              <Text style={styles.memoMetaLabelMake}>分类</Text>
+              <Text style={styles.memoMetaValueMake}>日常护理</Text>
               <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
             </View>
           </View>
@@ -6312,8 +6312,8 @@ export default function LumiiMvpApp() {
               <View style={styles.metaIconBox}>
                 <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
               </View>
-              <Text style={styles.timelineTitleMake}>日期</Text>
-              <Text style={styles.timelineDateMake}>{weightEditRecord?.recordedAt ?? '今天 · 09:14'}</Text>
+              <Text style={styles.memoMetaLabelMake}>日期</Text>
+              <Text style={styles.memoMetaValueMake}>{weightEditRecord?.recordedAt ?? '今天 · 09:14'}</Text>
               <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
             </View>
             <View style={styles.makeDivider} />
@@ -6322,7 +6322,7 @@ export default function LumiiMvpApp() {
                 <Edit3 color={palette.muted} size={13} strokeWidth={2.3} />
               </View>
               <View style={styles.flex}>
-                <Text style={styles.timelineTitleMake}>备注</Text>
+                <Text style={styles.memoMetaLabelMake}>备注</Text>
                 <TextInput
                   onChangeText={setWeightEditNote}
                   placeholder="例如：晨起空腹"
@@ -9663,7 +9663,7 @@ const styles = StyleSheet.create({
   noPetTabTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 19, fontWeight: '600', lineHeight: 26, textAlign: 'center' },
   noPetTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '800', lineHeight: 25, textAlign: 'center' },
   deleteTextButton: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 6, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 10 },
-  deleteTextButtonLabel: { color: palette.danger, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  deleteTextButtonLabel: { color: palette.danger, fontFamily: appFontFamily, fontSize: 14, fontWeight: '500' },
   editActionStack: { gap: 10, marginTop: 16 },
   editFormCard: { gap: 4, paddingHorizontal: 0, paddingTop: 0 },
   fieldHintError: { color: palette.danger },
@@ -9687,7 +9687,8 @@ const styles = StyleSheet.create({
   memoDeleteTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', lineHeight: 23, textAlign: 'center' },
   memoMetaBox: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   memoEditFormMake: { gap: 4, paddingTop: 0 },
-  memoEditPageMake: { position: 'relative' },
+  memoEditContentInputMake: { minHeight: 130 },
+  memoEditPageMake: { marginHorizontal: -4, marginTop: -8, position: 'relative' },
   memoEmptyArt: { height: 140, marginBottom: 14, position: 'relative', width: 140 },
   memoEmptyButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 13, flexDirection: 'row', gap: 7, justifyContent: 'center', marginTop: 22, minHeight: 44, paddingHorizontal: 24, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.28, shadowRadius: 22 },
   memoEmptyButtonText: { color: '#fff', fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
@@ -9705,8 +9706,10 @@ const styles = StyleSheet.create({
   memoListRow: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 68, paddingVertical: 10 },
   memoListTrail: { alignItems: 'center', flexDirection: 'row', flexShrink: 0, gap: 4 },
   memoMetaCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, marginTop: 4, overflow: 'hidden' },
+  memoMetaLabelMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '400', lineHeight: 18 },
   memoMetaRowBorder: { borderBottomColor: palette.border, borderBottomWidth: 1 },
   memoMetaRowMake: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 50, paddingHorizontal: 14, paddingVertical: 12 },
+  memoMetaValueMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '400', lineHeight: 18 },
   memoNewPage: { paddingTop: 0 },
   memoNoteInput: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', lineHeight: 22, minHeight: 92, paddingHorizontal: 16, paddingTop: 12 },
   memoPickerRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, height: 52, paddingHorizontal: 16 },
@@ -9835,32 +9838,32 @@ const styles = StyleSheet.create({
   weightEmptyTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', lineHeight: 23 },
   weightHistoryDelta: { alignItems: 'center', flexDirection: 'row', gap: 2 },
   weightHistoryDeltaText: { fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
-  weightHistoryHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4, paddingTop: 4 },
+  weightHistoryHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 0, paddingTop: 12 },
   weightHistoryIcon: { alignItems: 'center', backgroundColor: '#E8F5F3', borderRadius: 10, flexShrink: 0, height: 32, justifyContent: 'center', width: 32 },
   weightHistoryRowHighlight: { backgroundColor: '#FFF7F0', borderColor: '#FFE0CC' },
   weightHistoryRowMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
-  weightHistoryStack: { gap: 8 },
+  weightHistoryStack: { gap: 8, marginHorizontal: -4 },
   weightHistoryTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
-  weightNoticeOk: { alignItems: 'center', backgroundColor: '#E8F5F3', borderColor: '#C4E0DA', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
+  weightNoticeOk: { alignItems: 'center', backgroundColor: '#E8F5F3', borderColor: '#C4E0DA', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, marginHorizontal: -4, padding: 12 },
   weightNoticeIconOk: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
   weightNoticeIconWarn: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 11, height: 36, justifyContent: 'center', width: 36 },
-  weightNoticeWarn: { alignItems: 'center', backgroundColor: '#FBF2D9', borderColor: '#EFDFA8', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
+  weightNoticeWarn: { alignItems: 'center', backgroundColor: '#FBF2D9', borderColor: '#EFDFA8', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, marginHorizontal: -4, padding: 12 },
   weightNumberInput: { alignItems: 'flex-end', backgroundColor: '#fff', borderColor: palette.orange, borderRadius: 18, borderWidth: 1.5, flexDirection: 'row', gap: 6, justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 16 },
   weightNumberInputText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 42, fontWeight: '700', letterSpacing: 0, lineHeight: 48, minWidth: 120, padding: 0, textAlign: 'center' },
   weightOkText: { color: palette.teal },
-  weightSectionTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  weightSectionTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600' },
   weightSheetMetaCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
   weightSheetMetaRow: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 50, paddingHorizontal: 14, paddingVertical: 12 },
-  weightSheetNoteInput: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 18, minHeight: 24, paddingHorizontal: 0, paddingVertical: 0 },
+  weightSheetNoteInput: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '400', lineHeight: 18, minHeight: 24, paddingHorizontal: 0, paddingVertical: 0 },
   weightSheetNoteRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   weightStatChip: { backgroundColor: palette.pale, borderRadius: 12, flex: 1, paddingHorizontal: 10, paddingVertical: 10 },
   weightStatChipOk: { backgroundColor: '#E8F5F3' },
   weightStatChipWarn: { backgroundColor: '#FBF2D9' },
   weightStatRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  weightTrendCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 8, paddingBottom: 10, paddingHorizontal: 14, paddingTop: 14 },
+  weightTrendCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginHorizontal: -4, marginTop: 8, paddingBottom: 10, paddingHorizontal: 14, paddingTop: 14 },
   weightTrendHeader: { alignItems: 'flex-end', flexDirection: 'row', gap: 10, justifyContent: 'space-between' },
-  weightTrendLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
-  weightTrendUnit: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', marginBottom: 2 },
+  weightTrendLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '400' },
+  weightTrendUnit: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', marginBottom: 2 },
   weightTrendValue: { color: palette.ink, fontFamily: appFontFamily, fontSize: 26, fontWeight: '700', letterSpacing: 0, lineHeight: 30 },
   weightTrendValueRow: { alignItems: 'baseline', flexDirection: 'row', gap: 5, marginTop: 4 },
   weightUnitText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', marginBottom: 7 },

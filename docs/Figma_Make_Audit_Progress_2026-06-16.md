@@ -71,6 +71,19 @@ This file records incremental parity work that should be merged back into `Figma
   - Avatar hint spacing/text, camera shadow, read-only phone color, upload note, and save-error card typography now match the Figma states more closely.
   - No change to avatar picking, owner profile validation, save retry, success state, or `lumiiApi.account.updateMe`.
 
+## Health Editing
+
+- Screen92-96 `renderMemoEdit`: aligned the existing health memo edit/delete flow with Figma's memo edit source.
+  - Memo edit body now uses the same effective 16px horizontal inset and 10px top rhythm as Figma.
+  - Memo content textarea height and date/category meta row typography now match the Figma atoms more closely.
+  - Delete entry typography was reduced to Figma's 14px/500 treatment.
+  - No change to memo validation, save, delete confirmation, or local CRUD behavior.
+
+- Screen97-101 `renderWeight`: aligned the existing weight trend, edit sheet, and delete flow with Figma's weight source.
+  - Trend card, health notice, and history list now use the same effective 16px horizontal inset as Figma.
+  - Trend label/unit, history header, and edit-sheet meta rows were adjusted to the Figma hierarchy.
+  - No change to trend calculations, abnormal-status detection, add/edit/delete record handlers, or bottom-sheet behavior.
+
 ## Verification
 
 - `npm run typecheck`
