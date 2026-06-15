@@ -4619,8 +4619,8 @@ export default function LumiiMvpApp() {
           ))}
         </View>
         <View style={styles.uploadActionsMake}>
-          <Button loading={mediaPickerMode === 'library'} onPress={() => void pickAndUploadPetMedia('library')} tone="secondary">相册选择</Button>
-          <Button loading={mediaPickerMode === 'camera'} onPress={() => void pickAndUploadPetMedia('camera')}>立即拍照</Button>
+          <UploadMakeButton loading={mediaPickerMode === 'library'} onPress={() => void pickAndUploadPetMedia('library')} tone="ghost">相册选择</UploadMakeButton>
+          <UploadMakeButton loading={mediaPickerMode === 'camera'} onPress={() => void pickAndUploadPetMedia('camera')}>立即拍照</UploadMakeButton>
         </View>
       </Screen>
     );
@@ -4689,8 +4689,8 @@ export default function LumiiMvpApp() {
           ))}
         </View>
         <View style={styles.uploadActionsMake}>
-          <Button onPress={() => replace('upload')} tone="secondary">重新选择</Button>
-          <Button onPress={() => replace('upload')}>重新拍照</Button>
+          <UploadMakeButton onPress={() => replace('upload')} tone="ghost">重新选择</UploadMakeButton>
+          <UploadMakeButton onPress={() => replace('upload')}>重新拍照</UploadMakeButton>
         </View>
       </Screen>
     );
@@ -8955,6 +8955,20 @@ function SettingsMakeToggle({ on }: { on: boolean }) {
   );
 }
 
+function UploadMakeButton({ children, loading, onPress, tone = 'solid' }: { children: string; loading?: boolean; onPress: () => void; tone?: 'ghost' | 'solid' }) {
+  const solid = tone === 'solid';
+  return (
+    <Pressable disabled={loading} onPress={onPress} style={[styles.uploadMakeButton, solid ? styles.uploadMakeButtonSolid : styles.uploadMakeButtonGhost, loading && styles.opacity60, webPressableReset]}>
+      {loading ? (
+        <ActivityIndicator color={solid ? '#fff' : palette.ink} size="small" />
+      ) : (
+        <Camera color={solid ? '#fff' : palette.ink} size={16} strokeWidth={2.4} />
+      )}
+      <Text style={[styles.uploadMakeButtonText, solid && styles.uploadMakeButtonTextSolid]}>{loading ? '处理中…' : children}</Text>
+    </Pressable>
+  );
+}
+
 function MakeDetailRow({ inset, label, value, valueAlign = 'left' }: { inset?: boolean; label: string; value: string; valueAlign?: 'left' | 'right' }) {
   return (
     <View style={[styles.makeDetailRow, inset && styles.makeDetailRowInset]}>
@@ -10356,6 +10370,11 @@ const styles = StyleSheet.create({
   uploadBoxMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, #FFF4EA 0%, #FBEEDF 100%)' } as object) : null), alignItems: 'center', backgroundColor: '#fff0df', borderRadius: 28, height: 340, justifyContent: 'center', marginTop: 22, overflow: 'hidden', position: 'relative', shadowColor: '#b46e3c', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.12, shadowRadius: 18 },
   uploadDashedFrame: { borderColor: 'rgba(255,138,92,0.55)', borderRadius: 28, borderStyle: 'dashed', borderWidth: 2, bottom: 14, left: 14, position: 'absolute', right: 14, top: 14 },
   uploadHintMake: { bottom: 18, color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', position: 'absolute', textAlign: 'center' },
+  uploadMakeButton: { alignItems: 'center', borderRadius: 26, flex: 1, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center' },
+  uploadMakeButtonGhost: { backgroundColor: palette.card, borderColor: palette.border, borderWidth: 1 },
+  uploadMakeButtonSolid: { backgroundColor: palette.orange, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.28, shadowRadius: 22 },
+  uploadMakeButtonText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '500', lineHeight: 20 },
+  uploadMakeButtonTextSolid: { color: '#fff' },
   tipsCardMake: { backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 8, marginTop: 18, paddingHorizontal: 16, paddingVertical: 14 },
   tipBulletDot: { backgroundColor: palette.orange, borderRadius: 3, height: 5, width: 5 },
   tipBulletRow: { alignItems: 'center', flexDirection: 'row', gap: 9, paddingVertical: 3 },

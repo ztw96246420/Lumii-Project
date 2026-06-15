@@ -46,6 +46,7 @@
   - Screen62/85/100 危险确认态二次收敛：退出登录改为 Screen62 底部 Sheet，删除宠物改为 Screen85 带宠物预览与暖黄提示卡的底部 Sheet，删除体重记录改为 Screen100 居中危险弹窗；三处不再复用泛化 `ConfirmDialog`。
   - Screen69 TabBar 二次收敛：底部导航从自写半透明胶囊改为 Figma 源码白底 18px 圆角描边卡，选中态仅保留橙色图标/文字和 600 字重，地图入口改为定位针图标，消息入口接入未读红点。
   - Screen9 登录成功 loading 二次收敛：验证码验证成功后不再只在 OTP 页叠小浮层，改为独立 `renderLoginSuccessLoading` 全屏状态，复用 120px 灵伴头像、`ActivityIndicator + 登录中...`、两行唤醒说明和 3 点进度结构。
+  - Screen16/17 上传链路二次收敛：相册/拍照、重新选择/重新拍照改为 Figma 源码 `GhostButton/SolidButton` 同款 52px 胶囊双按钮，带相机图标与 loading 文案；Screen17 是独立上传失败页，不再作为通用 `ErrorState` 待迁移项。
   - Screen90 个人资料保存成功二次收敛：保存成功后停留在编辑页展示 surface Toast，头像区覆盖青绿色成功勾选层，输入再次变化或重选头像会清除成功态。
   - Screen53 高德导航确认二次收敛：地点详情页不再复用普通 `ConfirmDialog`，改为专用导航确认弹窗，补绿色导航图标、地点摘要卡、地图应用选择和 48px 取消/打开导航按钮。
   - Screen50/51 地点与点评提交结果态二次收敛：新增独立 `renderPlaceSubmitResult`，成功页展示等待审核图标、三步进度和返回/继续操作，失败页展示红色警示、草稿卡、保存草稿/重新提交操作。

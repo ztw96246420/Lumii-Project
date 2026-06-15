@@ -47,8 +47,8 @@
 | 13 | 通知权限被拒 | `renderPermissions` | 已接入-需视觉复核 | 本轮按 Screen13 复用 denied hero 结构，切换为通知金色图标、通知专属提示文案和主行动 |
 | 14 | 未添加宠物空状态 | `renderEmptyPet` | 已接入-需视觉复核 | 空态插图、CTA、卡片层级需复核 |
 | 15 | 宠物基础信息 | `renderPetInfo` | 已接入-需视觉复核 | 表单控件和选择 chip 需复核 |
-| 16 | 上传宠物照片 | `renderUpload` | 已接入-需视觉复核 | 本轮已按 UploadBox/TipsList 收敛上传卡渐变、340px 高度、轻阴影、tips 白底卡间距；按钮图标/底部固定位置仍需复核 |
-| 17 | 上传失败 未识别 | `renderUploadNoPet` | 已接入-需视觉复核 | 已按 Screen17 首轮细调失败图卡渐变、警示浮层、原因卡间距和建议列表；仍需截图复核 |
+| 16 | 上传宠物照片 | `renderUpload` | 二次收敛-需真机截图复核 | 已按 UploadBox/TipsList 收敛上传卡渐变、340px 高度、轻阴影、tips 白底卡间距；本轮补 Screen16/17 共用上传专用双按钮：52px 高、26px 胶囊、相机图标、白底描边/橙色实心与 loading 文案 |
+| 17 | 上传失败 未识别 | `renderUploadNoPet` | 二次收敛-需真机截图复核 | 已按 Screen17 细调失败图卡渐变、警示浮层、原因卡间距和建议列表；本轮补底部“重新选择 / 重新拍照”源码式 52px 胶囊双按钮。该页是独立上传失败设计，不再强行迁移到通用 `ErrorState` |
 | 18 | 上传识别详情 | `renderUploadDetail` | 已接入-需视觉复核 | 本轮已将识别信息卡改为识别页专用右对齐值列，同时保留宠物档案左对齐；Hero 渐变和标签仍需截图复核 |
 | 19 | AI 灵伴生成中 | `renderGenerating` | 已接入-需视觉复核 | 本轮已按 Screen19 收敛进度条为 6px 暖橙底，并在 Web 端补 conic ring/扫描线渐变；动态粒子仍需后续截图复核 |
 | 20 | 生成结果 默认 | `renderAiResult` | 已接入-需视觉复核 | 本轮已按 Screen20 补 PageBg 氛围层、AI 形象 halo/ring、原图浮层 chip、AI 灵伴 badge 和 54px 结果页 CTA；`PetAvatar` 远程图等待态已补圆形 Skeleton + spinner，减少结果图慢加载时的空框感；按钮底部固定位置仍需真机截图复核 |
@@ -102,8 +102,8 @@
 | 68 | BottomSheet 底部弹层 | `ui.tsx/BottomSheet` | 本轮组件已补-需视觉复核 | BottomSheet 按真实业务弹层源码继续收敛为 40x4 handle、28px 顶部圆角、22px 横向 padding、浅边框和向上阴影；打招呼、体重编辑、地图样式面板继续截图复核 |
 | 69 | TabBar 底部导航 | bottom tabs | 二次收敛-需真机截图复核 | 本轮按 Screen69 收敛为白底 18px 圆角、1px 描边、`8px 6px` padding；选中态仅使用橙色图标/文字和 600 字重，不再加橙色背景块；地图 tab 改为定位针图标；消息 tab 接入会话未读 + 通知未读红点 |
 | 70 | Card 卡片 | `ui.tsx/Card` + 多处 card | 组件已增强-待逐屏迁移 | 本轮按 Screen70 将基础 Card 收敛为白底 14px 圆角轻描边，并新增 `pet/place/message` 变体；页面里仍有大量自写 card 样式，后续需逐屏替换/复核 |
-| 71 | Empty State 空状态 | `ui.tsx/EmptyState` + 多处空态 | 本轮组件已补-部分页面已迁移 | 已迁移备忘、体重、多宠、招呼请求、发现无结果、地图无结果、消息列表、通知中心；上传等空态仍需继续替换 |
-| 72 | Error State 错误页 | `ui.tsx/ErrorState` + 多处错误态 | 本轮组件已补-部分页面已迁移 | 已迁移会话失效、地点失效、约遛对象失效、附近可见关闭、AI 生成失败、AI/普通聊天发送失败、地图定位失败；上传失败仍需逐处接入 |
+| 71 | Empty State 空状态 | `ui.tsx/EmptyState` + 多处空态 | 本轮组件已补-部分页面已迁移 | 已迁移备忘、体重、多宠、招呼请求、发现无结果、地图无结果、消息列表、通知中心；上传链路当前按 Screen16/17 独立页面设计处理，不作为通用 EmptyState 迁移项 |
+| 72 | Error State 错误页 | `ui.tsx/ErrorState` + 多处错误态 | 本轮组件已补-部分页面已迁移 | 已迁移会话失效、地点失效、约遛对象失效、附近可见关闭、AI 生成失败、AI/普通聊天发送失败、地图定位失败；上传失败对应 Screen17 独立上传失败页，不强行套通用 `ErrorState` |
 | 73 | Loading & Skeleton | `ui.tsx/LoadingState/SkeletonLine/SkeletonCard` + 多处 loading | 组件已增强-逐屏迁移中 | `LoadingState` 默认文案和间距贴近 Screen73；`SkeletonLine` 已补暖灰渐变基底和可调圆角，`SkeletonCard` 已补 52px 圆形头像、双行文本与 100/85/70% 三条骨架；健康日历日历格/事件列表骨架已迁移，其他页面骨架仍需逐屏替换 |
 | 74 | App 图标 | assets/app icon | 已接入-需复核 | 已替换过图标，需核对最新包是否一致 |
 | 75 | 健康日历 默认月视图 | `renderHealthCalendar` + `/health/calendar` | 已接入 需视觉复核 | 本轮按 `health-calendar-screens.tsx` 补独立 `healthCalendar` route：宠物 mini card、月份切换、7 列日历、三色事件点、legend 和月度总结卡；loading 骨架已迁到统一 `SkeletonLine` |
