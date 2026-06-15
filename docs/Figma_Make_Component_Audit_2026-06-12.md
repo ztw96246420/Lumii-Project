@@ -43,7 +43,7 @@
   - Screen14/15 新用户建档二次收敛：未添加宠物首页空态拆出独立 Screen14 视觉（200px 插画、130px Mascot、底部 52px CTA），不再误用多宠管理空态；宠物基础信息新增流程改用 Screen15 的 52px 表单输入和 52px 主按钮，同时保留 MVP 生日/性别字段。
   - Screen58/59 设置与账号安全二次收敛：设置页不再复用我的页菜单行，改为 Figma 源码同款 Section/Row/Toggle，隐私项补 44x26 Toggle 与副文案，退出登录恢复红色危险行；账号安全页统一同款白底分组，登录保护补源码式 Toggle。
   - Screen60 安全中心二次收敛：安全中心补暖色 Hero、四张动作卡和审核说明卡，入口暂不提交举报/拉黑 mock 操作。
-  - Screen57/82-84 宠物资料与多宠状态二次收敛：编辑宠物资料从建档表单拆成源码同款头像区+资料列表+底部操作；未添加宠物/多宠空态复用 Screen82 的暖色 paw 插画；切换中补 Screen83 白底 loading puff，切换成功文案对齐 Screen84。
+  - Screen57/81-84 宠物资料与多宠状态二次收敛：编辑宠物资料从建档表单拆成源码同款头像区+资料列表+底部操作；多宠列表补 Screen81 的当前灵伴 Sparkles badge、宠物品种 badge、健康状态小胶囊和已选中按钮图标；未添加宠物/多宠空态复用 Screen82 的暖色 paw 插画；切换中补 Screen83 白底 loading puff，切换成功文案对齐 Screen84。
   - Screen75-80 健康日历首轮接入：新增 `healthCalendar` route，复用 `/health/calendar` 聚合数据，按 Figma 源码补宠物 mini card、月份切换、7 列日历、三色事件点、选中日期事件/空状态、逾期/临近提醒卡、加载骨架和读取失败页。
   - Screen37/46/91 状态页二次收敛：发现页定位/附近可见异常改为模糊预览 + 授权 CTA 面板；地图搜索/筛选改为暗色 veil + 结果 Sheet；个人资料保存失败补本地暂存提示卡和重试入口。
   - Screen62/85/100 危险确认态二次收敛：退出登录改为 Screen62 底部 Sheet，删除宠物改为 Screen85 带宠物预览与暖黄提示卡的底部 Sheet，删除体重记录改为 Screen100 居中危险弹窗；三处不再复用泛化 `ConfirmDialog`。

@@ -7482,14 +7482,17 @@ export default function LumiiMvpApp() {
                 <View style={styles.flex}>
                   <View style={styles.profilePetNameRow}>
                     <Text style={styles.multiPetHeroName}>{current.name}</Text>
-                    <Text style={styles.currentPetBadge}>当前灵伴</Text>
+                    <View style={styles.currentPetBadge}>
+                      <Sparkles color={palette.orange} size={9} strokeWidth={2.5} />
+                      <Text style={styles.currentPetBadgeText}>当前灵伴</Text>
+                    </View>
                   </View>
                   <Text style={styles.profilePetMeta}>{speciesLabels[current.species]} · {current.breed || '品种待补充'}</Text>
                   <Text style={styles.profilePetMeta}>{formatPetAge(current.birthday)} · {formatWeightKg(current.weightKg)}</Text>
                 </View>
               </View>
               <View style={styles.multiPetHeroHealth}>
-                <HeartPulse color={palette.teal} size={12} strokeWidth={2.4} />
+                <Heart color={palette.teal} size={12} strokeWidth={2.4} />
                 <Text style={styles.multiPetHeroHealthText}>{current.healthScore >= 80 ? '近 30 天健康稳定' : '建议关注近期健康状态'}</Text>
               </View>
             </View>
@@ -7528,11 +7531,14 @@ export default function LumiiMvpApp() {
                         style={[styles.flex, webPressableReset]}
                       >
                         <View style={styles.profilePetNameRow}>
-                          <Text style={styles.profilePetName}>{pet.name}</Text>
-                          <Text style={[styles.profilePetBadge, pet.species === 'dog' && styles.petDogBadge]}>{speciesLabels[pet.species]}</Text>
+                          <Text style={styles.multiPetRowName}>{pet.name}</Text>
+                          <Text numberOfLines={1} style={[styles.multiPetKindBadge, pet.species === 'dog' && styles.multiPetKindBadgeDog]}>{speciesLabels[pet.species]} · {pet.breed || '品种待补充'}</Text>
                         </View>
                         <Text style={styles.profilePetMeta}>{formatPetAge(pet.birthday)} · {formatWeightKg(pet.weightKg)}</Text>
-                        <Text style={[styles.statusText, pet.healthScore < 75 && styles.weightWarnText]}>{pet.healthScore >= 80 ? '近 30 天健康稳定' : '建议关注近期健康状态'}</Text>
+                        <View style={[styles.multiPetHealthPill, pet.healthScore < 75 && styles.multiPetHealthPillWarn]}>
+                          {pet.healthScore < 75 ? <AlertTriangle color={palette.warning} size={10} strokeWidth={2.4} /> : <Heart color={palette.teal} size={10} strokeWidth={2.4} />}
+                          <Text style={[styles.multiPetHealthPillText, pet.healthScore < 75 && styles.multiPetHealthPillTextWarn]}>{pet.healthScore >= 80 ? '近 30 天健康稳定' : '建议关注近期健康状态'}</Text>
+                        </View>
                       </Pressable>
                       <View style={styles.multiPetActions}>
                         <Pressable
@@ -7540,7 +7546,14 @@ export default function LumiiMvpApp() {
                           onPress={() => void switchActivePet(pet)}
                           style={[styles.switchPetButton, isCurrent && styles.switchPetButtonActive, switching && styles.switchPetButtonLoadingMake, webPressableReset]}
                         >
-                          {switching ? <ActivityIndicator color={palette.orange} size="small" /> : <Text style={[styles.switchPetText, isCurrent && styles.switchPetTextActive]}>{isCurrent ? '已选中' : '切换'}</Text>}
+                          {switching ? (
+                            <ActivityIndicator color={palette.orange} size="small" />
+                          ) : (
+                            <>
+                              {isCurrent ? <Check color={palette.orange} size={12} strokeWidth={2.6} /> : null}
+                              <Text style={[styles.switchPetText, isCurrent && styles.switchPetTextActive]}>{isCurrent ? '已选中' : '切换'}</Text>
+                            </>
+                          )}
                         </Pressable>
                         <Pressable disabled={deleting} onPress={() => confirmDeletePet(pet)} style={[styles.petDeleteIconButton, webPressableReset]}>
                           {deleting ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={15} strokeWidth={2.3} />}
@@ -9355,8 +9368,9 @@ const styles = StyleSheet.create({
   countryCode: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '500', minWidth: 34 },
   dangerText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   addPetDashed: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#FFC8A6', borderRadius: 16, borderStyle: 'dashed', borderWidth: 1.5, flexDirection: 'row', gap: 8, justifyContent: 'center', minHeight: 52, paddingHorizontal: 14, paddingVertical: 14 },
-  addPetDashedText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
-  currentPetBadge: { backgroundColor: '#fff', borderRadius: 8, color: palette.orange, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
+  addPetDashedText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600' },
+  currentPetBadge: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 8, flexDirection: 'row', gap: 3, overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
+  currentPetBadgeText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', lineHeight: 14 },
   noPetArtGlowMake: { backgroundColor: 'rgba(255,138,92,0.12)', borderRadius: 90, bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
   noPetArtMake: { height: 180, marginBottom: 18, position: 'relative', width: 180 },
   noPetDescMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21, marginTop: 10, textAlign: 'center' },
@@ -9444,8 +9458,15 @@ const styles = StyleSheet.create({
   multiPetHeroDimmedMake: { opacity: 0.78 },
   multiPetHeroMain: { alignItems: 'center', flexDirection: 'row', gap: 14, position: 'relative' },
   multiPetHeroName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 24 },
+  multiPetHealthPill: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: '#E8F5F3', borderRadius: 8, flexDirection: 'row', gap: 4, marginTop: 6, paddingHorizontal: 8, paddingVertical: 2 },
+  multiPetHealthPillText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '500', lineHeight: 15 },
+  multiPetHealthPillTextWarn: { color: palette.warning },
+  multiPetHealthPillWarn: { backgroundColor: '#FBF2D9' },
+  multiPetKindBadge: { backgroundColor: '#E8F5F3', borderRadius: 6, color: palette.teal, flexShrink: 1, fontFamily: appFontFamily, fontSize: 10, fontWeight: '500', lineHeight: 14, overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
+  multiPetKindBadgeDog: { backgroundColor: '#FFE6D6', color: palette.orange },
   multiPetList: { gap: 10 },
   multiPetPageMake: { position: 'relative' },
+  multiPetRowName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '700', lineHeight: 20 },
   multiPetRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 80, paddingHorizontal: 14, paddingVertical: 12 },
   multiPetRowActive: { borderColor: '#FFD9C2' },
   multiPetSwitchingTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
@@ -9479,7 +9500,7 @@ const styles = StyleSheet.create({
   quickWeightText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700' },
   readonlyField: { backgroundColor: '#F4EFE6' },
   sheetTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700', lineHeight: 22 },
-  switchPetButton: { alignItems: 'center', borderColor: palette.orange, borderRadius: 10, borderWidth: 1, justifyContent: 'center', minHeight: 32, minWidth: 58, paddingHorizontal: 10, paddingVertical: 6 },
+  switchPetButton: { alignItems: 'center', borderColor: palette.orange, borderRadius: 10, borderWidth: 1, flexDirection: 'row', gap: 4, justifyContent: 'center', minHeight: 32, minWidth: 58, paddingHorizontal: 10, paddingVertical: 6 },
   switchPetButtonActive: { backgroundColor: palette.orangeSoft, borderColor: palette.orangeSoft },
   switchPetButtonLoadingMake: { backgroundColor: '#fff', borderColor: palette.border },
   switchPetText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
