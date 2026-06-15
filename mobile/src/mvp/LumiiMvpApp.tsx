@@ -5016,7 +5016,7 @@ export default function LumiiMvpApp() {
               <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={42} />
               <View style={styles.flex}>
                 <Text style={styles.homeMakeKicker}>早安，{pet.name}！</Text>
-                <Text numberOfLines={1} style={styles.homeMakeHeadline}>今天也是元气满满的一天</Text>
+                <Text numberOfLines={1} style={styles.homeMakeHeadline}>今天也是元气满满的一天 ☀️</Text>
               </View>
             </View>
             <Pressable onPress={() => go('notifications')} style={styles.homeBellButton}>
@@ -5032,7 +5032,6 @@ export default function LumiiMvpApp() {
               <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={214} />
             </View>
             <Pressable onPress={() => go('chat')} style={[styles.homeChatHint, webPressableReset]}>
-              <Sparkles color={palette.orange} size={13} strokeWidth={2.4} />
               <Text numberOfLines={2} style={styles.homeChatHintText}>{homeChatHint}</Text>
             </Pressable>
             <View style={styles.homeOnlineBadge}>
@@ -5092,6 +5091,7 @@ export default function LumiiMvpApp() {
   function renderChat() {
     const pet = getCurrentPet();
     const failedChatMessage = chatMessages.slice().reverse().find((message) => message.author === 'me' && message.status === 'failed');
+    const chatDisconnected = Boolean(failedChatMessage);
     return (
       <Screen showBack={false} title="">
         <View style={styles.chatPageMake}>
@@ -5099,37 +5099,36 @@ export default function LumiiMvpApp() {
           <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={styles.chatBackButton}>
             <ChevronLeft color={palette.ink} size={22} strokeWidth={2.4} />
           </Pressable>
-          <View style={styles.chatAvatarWrap}>
+          <View style={[styles.chatAvatarWrap, chatDisconnected && styles.chatAvatarWrapOffline]}>
             <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={38} />
-            <View style={styles.chatAvatarDot} />
+            <View style={[styles.chatAvatarDot, chatDisconnected && styles.chatAvatarDotOffline]} />
           </View>
           <View style={styles.chatHeaderCopy}>
             <Text style={styles.chatMakeName}>{pet?.name ?? '灵伴'}</Text>
             <View style={styles.chatOnlineRow}>
-              <Smile color={palette.teal} size={11} strokeWidth={2.3} />
-              <Text style={styles.chatOnlineText}>在线 · 心情很好</Text>
+              {chatDisconnected ? <View style={styles.chatOfflineMiniDot} /> : <Smile color={palette.teal} size={11} strokeWidth={2.3} />}
+              <Text style={[styles.chatOnlineText, chatDisconnected && styles.chatOnlineTextMutedMake]}>{chatDisconnected ? '连接中断' : '在线 · 心情很好'}</Text>
             </View>
           </View>
           <Pressable onPress={openPetCompanionSettings} style={styles.makeIconChip}>
-            <Sparkles color={palette.orange} size={16} strokeWidth={2.3} />
+            <Sparkles color={chatDisconnected ? palette.muted : palette.orange} size={16} strokeWidth={2.3} />
           </Pressable>
         </View>
 
-        <View style={styles.chatSafetyTip}>
-          <Stethoscope color={palette.teal} size={13} strokeWidth={2.4} />
-          <Text style={styles.chatSafetyText}>AI 灵伴不能替代兽医，紧急情况请就医</Text>
-        </View>
-
-        {failedChatMessage ? (
-          <View style={styles.chatErrorBanner}>
-            <AlertTriangle color={palette.danger} size={14} strokeWidth={2.4} />
+        {chatDisconnected ? (
+          <View style={[styles.chatErrorBanner, styles.chatErrorBannerPet]}>
+            <AlertCircle color={palette.danger} size={14} strokeWidth={2.4} />
             <Text style={styles.chatErrorBannerText}>网络不稳定，灵伴暂时无法回复</Text>
-            <Pressable onPress={() => void sendChatMessage(failedChatMessage.text, failedChatMessage.id)} style={styles.chatErrorBannerAction}>
-              <RefreshCw color={palette.danger} size={11} strokeWidth={2.5} />
-              <Text style={styles.chatErrorBannerActionText}>重试</Text>
+            <Pressable onPress={() => showToast('可在下方重试失败消息')} style={styles.chatErrorBannerAction}>
+              <Text style={styles.chatErrorBannerActionText}>查看详情</Text>
             </Pressable>
           </View>
-        ) : null}
+        ) : (
+          <View style={styles.chatSafetyTip}>
+            <Stethoscope color={palette.teal} size={13} strokeWidth={2.4} />
+            <Text style={styles.chatSafetyText}>AI 灵伴不能替代兽医，紧急情况请就医</Text>
+          </View>
+        )}
 
         <ScrollView contentContainerStyle={styles.chatMakeList} keyboardDismissMode="none" keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false} style={styles.chatMakeScroller}>
           <Text style={styles.chatDateChip}>今天 09:32</Text>
@@ -9272,7 +9271,9 @@ const styles = StyleSheet.create({
   chatBubbleColumn: { maxWidth: '82%' },
   chatBubbleMe: { alignSelf: 'flex-end', backgroundColor: palette.orange },
   chatAvatarDot: { backgroundColor: palette.teal, borderColor: '#fff', borderRadius: 6, borderWidth: 2, bottom: -1, height: 12, position: 'absolute', right: -1, width: 12 },
+  chatAvatarDotOffline: { backgroundColor: palette.muted },
   chatAvatarWrap: { borderColor: '#fff', borderRadius: 19, borderWidth: 2, height: 38, overflow: 'visible', position: 'relative', shadowColor: '#50371e', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.18, shadowRadius: 10, width: 38 },
+  chatAvatarWrapOffline: { opacity: 0.72, shadowOpacity: 0.08 },
   chatBackButton: { alignItems: 'center', height: 36, justifyContent: 'center', width: 26 },
   chatBackButtonMake: { alignItems: 'center', height: 40, justifyContent: 'center', marginLeft: -2, width: 24 },
   chatBottomDock: { backgroundColor: palette.background, paddingBottom: Platform.OS === 'web' ? 8 : 2, paddingTop: 8 },
@@ -9280,6 +9281,7 @@ const styles = StyleSheet.create({
   chatComposerRow: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 6 },
   chatDateChip: { alignSelf: 'center', backgroundColor: 'rgba(122,121,114,0.12)', borderRadius: 12, color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 4 },
   chatErrorBanner: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.10)', borderColor: 'rgba(229,87,63,0.25)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  chatErrorBannerPet: { marginTop: 4, paddingVertical: 10 },
   chatErrorBannerAction: { alignItems: 'center', flexDirection: 'row', gap: 4, paddingHorizontal: 2, paddingVertical: 2 },
   chatErrorBannerActionText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
   chatErrorBannerText: { color: palette.danger, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
@@ -9315,6 +9317,7 @@ const styles = StyleSheet.create({
   chatMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 22 },
   chatMessageGroup: { gap: 8 },
   chatOfflineDotMake: { backgroundColor: palette.muted },
+  chatOfflineMiniDot: { backgroundColor: palette.muted, borderRadius: 3, height: 6, width: 6 },
   chatOnlineTextMutedMake: { color: palette.muted },
   chatFeedbackChip: { backgroundColor: 'rgba(255,255,255,0.72)', borderColor: palette.border, borderRadius: 999, borderWidth: 1, paddingHorizontal: 9, paddingVertical: 4 },
   chatFeedbackChipActive: { backgroundColor: palette.orangeSoft, borderColor: 'rgba(255,138,92,0.42)' },
@@ -9779,8 +9782,8 @@ const styles = StyleSheet.create({
   heroCard: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16 },
   homeBellButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 19, borderWidth: 1, height: 38, justifyContent: 'center', position: 'relative', width: 38 },
   homeBellDot: { backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 4, borderWidth: 1.5, height: 7, position: 'absolute', right: 9, top: 8, width: 7 },
-  homeChatHint: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 6, maxWidth: 154, minHeight: 34, paddingHorizontal: 12, paddingVertical: 8, position: 'absolute', right: 18, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.13, shadowRadius: 22, top: 10, zIndex: 4 },
-  homeChatHintText: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 17 },
+  homeChatHint: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, maxWidth: 150, minHeight: 34, paddingHorizontal: 12, paddingVertical: 8, position: 'absolute', right: 26, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.13, shadowRadius: 22, top: 10, zIndex: 4 },
+  homeChatHintText: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17 },
   homeHealthCard: { alignItems: 'center', backgroundColor: '#ffe3cb', borderColor: 'rgba(255,255,255,0.7)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', marginTop: 14, paddingHorizontal: 18, paddingVertical: 16, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
   homeHealthDelta: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.22)', borderRadius: 10, flexDirection: 'row', gap: 2, marginLeft: 6, paddingHorizontal: 8, paddingVertical: 3 },
   homeHealthDeltaText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
@@ -10374,9 +10377,9 @@ const styles = StyleSheet.create({
   recognitionQuality: { backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 14, color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', right: 14, top: 14 },
   recognitionSuccessBadge: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.95)', borderRadius: 14, flexDirection: 'row', gap: 5, left: 14, paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', top: 14 },
   profileCard: { alignItems: 'center', flexDirection: 'row', gap: 14 },
-  profileCurrentWrap: { marginBottom: 18, marginTop: 16, paddingHorizontal: 12 },
+  profileCurrentWrap: { marginBottom: 18, marginTop: 16, paddingHorizontal: 8 },
   profileHeroContent: { alignItems: 'center', flexDirection: 'row', gap: 14, position: 'relative' },
-  profileHeroMake: { backgroundColor: '#ffe3d1', borderRadius: 22, marginHorizontal: 12, marginTop: 16, overflow: 'hidden', padding: 18, position: 'relative' },
+  profileHeroMake: { backgroundColor: '#ffe3d1', borderRadius: 22, marginHorizontal: 8, marginTop: 16, overflow: 'hidden', padding: 18, position: 'relative' },
   profileHeroOrb: { backgroundColor: 'rgba(255,255,255,0.42)', borderRadius: 70, height: 140, position: 'absolute', right: -30, top: -20, width: 140 },
   profileMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', paddingHorizontal: 20 },
   profileMakeMenuRowValue: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
@@ -10388,7 +10391,7 @@ const styles = StyleSheet.create({
   profileMakeRowTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '400', lineHeight: 20, minWidth: 0 },
   profileMakeRowValue: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 18, maxWidth: '42%', minWidth: 0, textAlign: 'right' },
   profileManageLink: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
-  profileMenuGroup: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 12, overflow: 'hidden' },
+  profileMenuGroup: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 8, overflow: 'hidden' },
   profileOwnerAvatar: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 32, borderWidth: 3, height: 64, justifyContent: 'center', overflow: 'hidden', shadowColor: '#000', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.08, shadowRadius: 10, width: 64 },
   profileOwnerName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 24 },
   profilePetBadge: { backgroundColor: '#e8f5f3', borderRadius: 6, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
