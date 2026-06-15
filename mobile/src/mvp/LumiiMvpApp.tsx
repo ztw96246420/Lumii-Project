@@ -716,6 +716,7 @@ export default function LumiiMvpApp() {
   const [ownerAvatarDraft, setOwnerAvatarDraft] = useState('');
   const [ownerAvatarPicking, setOwnerAvatarPicking] = useState(false);
   const ownerAvatarPickingRef = useRef(false);
+  const [ownerProfileSaveError, setOwnerProfileSaveError] = useState('');
   const [ownerProfileSaving, setOwnerProfileSaving] = useState(false);
   const ownerProfileSavingRef = useRef(false);
   const healthReminderNotifiedRef = useRef<Set<string>>(new Set());
@@ -983,6 +984,7 @@ export default function LumiiMvpApp() {
     setOwnerNameDraft(ownerName);
     setOwnerBioDraft(session?.account?.ownerBio ?? '');
     setOwnerAvatarDraft(session?.account?.ownerAvatarUrl ?? '');
+    setOwnerProfileSaveError('');
   }, [activePet?.id, route, session?.account?.ownerAvatarUrl, session?.account?.ownerBio, session?.account?.ownerName, session?.phone]);
 
   useEffect(() => {
@@ -2919,6 +2921,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
     ownerProfileSavingRef.current = true;
+    setOwnerProfileSaveError('');
     setOwnerProfileSaving(true);
     try {
       const result = await lumiiApi.account.updateMe({ ownerAvatarUrl, ownerBio, ownerName });
@@ -2932,7 +2935,9 @@ export default function LumiiMvpApp() {
         showToast('资料已保存', { tone: 'success', variant: 'surface' });
         replace('profile');
       } else {
-        showToast(result.error?.message ?? '资料保存失败', { tone: 'error', variant: 'surface' });
+        const message = result.error?.message ?? '网络不稳定，资料未能保存';
+        setOwnerProfileSaveError(message);
+        showToast(message, { actionText: '重试', tone: 'error', variant: 'surface' });
       }
     } finally {
       ownerProfileSavingRef.current = false;
@@ -5893,8 +5898,68 @@ export default function LumiiMvpApp() {
 
   function renderDiscover() {
     const discoverEnabled = userSettings.nearbyVisible;
-    const visibleOwners = discoverEnabled ? owners.filter((owner) => ownerMatchesDiscoverFilter(owner, discoverFilter)) : [];
+    const locationDenied = ['blocked', 'denied', 'unavailable'].includes(permissions.location);
+    const discoverAccessIssue: null | 'location' | 'visibility' = !discoverEnabled ? 'visibility' : locationDenied ? 'location' : null;
+    const visibleOwners = discoverAccessIssue ? [] : owners.filter((owner) => ownerMatchesDiscoverFilter(owner, discoverFilter));
     const activeDiscoverFilterLabel = discoverFilterOptions.find((item) => item.key === discoverFilter)?.label ?? '全部';
+    const previewOwner: NearbyOwner = owners[0] ?? {
+      distance: '?km',
+      id: 'discover-preview',
+      imageUrl: generatedGoldenAvatarUri,
+      ownerName: '??',
+      petName: '??',
+      species: 'dog',
+      tags: ['开启后可见', '模糊距离'],
+    };
+    const discoverIssueCopy = discoverAccessIssue === 'location'
+      ? {
+        action: permissions.location === 'blocked' || permissions.location === 'unavailable' ? '去设置开启' : '开启定位',
+        banner: '定位未授权，无法显示附近的朋友',
+        body: '我们只展示模糊距离，不会暴露精确位置\n你可以随时关闭',
+        primary: () => (permissions.location === 'blocked' || permissions.location === 'unavailable' ? void openPermissionSettings() : void refreshDiscoverByPull()),
+        title: '开启定位发现附近朋友',
+      }
+      : {
+        action: '去隐私设置',
+        banner: '附近可见未开启，附近朋友暂不可见',
+        body: '开启后才会展示附近猫狗主人\n也会让附近伙伴看到你',
+        primary: () => go('settings'),
+        title: '开启附近可见发现朋友',
+      };
+    const renderOwnerCard = (owner: NearbyOwner, preview = false) => (
+      <View key={preview ? 'preview-owner-card' : owner.id} style={[styles.ownerCardMake, preview && styles.ownerCardPreviewBlur]}>
+        <PetAvatar uri={owner.imageUrl} size={92} />
+        <View style={styles.flex}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.ownerPetNameMake}>{preview ? '??' : owner.petName}</Text>
+            <Text style={styles.ownerDistanceMake}>{preview ? '?km' : owner.distance}</Text>
+          </View>
+          <Text style={styles.ownerMetaMake}>{preview ? '? · 主人 ??' : `${owner.species === 'dog' ? '狗狗' : '猫咪'} · 主人 ${owner.ownerName}`}</Text>
+          <Text style={styles.ownerBioMake} numberOfLines={2}>{preview ? '开启定位后可见附近伙伴' : `${owner.tags.join(' · ')}，也想认识附近的新朋友。`}</Text>
+          <View style={styles.ownerTagRowMake}>
+            {(preview ? ['??', '??'] : owner.tags.slice(0, 2)).map((tag) => (
+              <Text key={tag} style={styles.ownerTagMake}>{tag}</Text>
+            ))}
+          </View>
+          {!preview ? (
+            <Pressable
+              onPress={() => {
+                selectedOwnerIdRef.current = owner.id;
+                setSelectedOwner(owner);
+                go('walkInvite');
+              }}
+              style={[styles.walkInviteInline, webPressableReset]}
+            >
+              <CalendarDays color={palette.orange} size={14} strokeWidth={2.3} />
+              <Text style={styles.walkInviteInlineText}>约遛邀请</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <Pressable disabled={preview || socialActionSavingIds.includes(`greet:${owner.id}`)} onPress={() => openGreetingSheet(owner)} style={[styles.greetButtonMake, (preview || socialActionSavingIds.includes(`greet:${owner.id}`)) && styles.mapSearchActionDisabled]}>
+          {socialActionSavingIds.includes(`greet:${owner.id}`) ? <ActivityIndicator color="#fff" size="small" /> : <MessageCircle color="#fff" size={15} strokeWidth={2.4} />}
+        </Pressable>
+      </View>
+    );
     return (
       <Screen
         refreshControl={
@@ -5912,7 +5977,7 @@ export default function LumiiMvpApp() {
         <View style={styles.discoverMakeHeader}>
           <Text style={styles.makeScreenTitle}>发现</Text>
           <View style={styles.messagesHeaderActions}>
-            <Pressable accessibilityLabel="刷新附近伙伴" accessibilityRole="button" disabled={discoverRefreshing} onPress={() => void refreshDiscoverByPull()} style={[styles.makeIconChip, (discoverRefreshing || !discoverEnabled) && styles.mapSearchActionDisabled]}>
+            <Pressable accessibilityLabel="刷新附近伙伴" accessibilityRole="button" disabled={discoverRefreshing || Boolean(discoverAccessIssue)} onPress={() => void refreshDiscoverByPull()} style={[styles.makeIconChip, (discoverRefreshing || Boolean(discoverAccessIssue)) && styles.mapSearchActionDisabled]}>
               {discoverRefreshing ? <ActivityIndicator color={palette.ink} size="small" /> : <RefreshCw color={palette.ink} size={16} strokeWidth={2.3} />}
             </Pressable>
             <Pressable accessibilityLabel="切换附近筛选" accessibilityRole="button" onPress={cycleDiscoverFilter} style={styles.makeIconChip}>
@@ -5920,10 +5985,10 @@ export default function LumiiMvpApp() {
             </Pressable>
           </View>
         </View>
-        <View style={styles.locationChipMake}>
-          <MapPin color={palette.orange} size={13} strokeWidth={2.4} />
-          <Text style={styles.locationChipText}>{discoverEnabled ? `附近 · 3km 内 · ${activeDiscoverFilterLabel} · ${visibleOwners.length} 位` : '附近可见未开启'}</Text>
-          <Text style={styles.locationPrivacyPill}>{discoverEnabled ? '模糊距离' : '已隐藏'}</Text>
+        <View style={[styles.locationChipMake, discoverAccessIssue && styles.locationChipDeniedMake]}>
+          {discoverAccessIssue ? <Shield color={palette.danger} size={14} strokeWidth={2.4} /> : <MapPin color={palette.orange} size={13} strokeWidth={2.4} />}
+          <Text style={[styles.locationChipText, discoverAccessIssue && styles.locationChipDeniedText]}>{discoverAccessIssue ? discoverIssueCopy.banner : `附近 · 3km 内 · ${activeDiscoverFilterLabel} · ${visibleOwners.length} 位`}</Text>
+          {!discoverAccessIssue ? <Text style={styles.locationPrivacyPill}>模糊距离</Text> : null}
         </View>
         <ScrollView horizontal contentContainerStyle={styles.filterChipsMake} showsHorizontalScrollIndicator={false}>
           {discoverFilterOptions.map((filter) => (
@@ -5931,39 +5996,36 @@ export default function LumiiMvpApp() {
           ))}
         </ScrollView>
         <View style={styles.discoverCardsMake}>
-          {visibleOwners.map((owner) => (
-            <View key={owner.id} style={styles.ownerCardMake}>
-              <PetAvatar uri={owner.imageUrl} size={92} />
-              <View style={styles.flex}>
-                <View style={styles.rowBetween}>
-                  <Text style={styles.ownerPetNameMake}>{owner.petName}</Text>
-                  <Text style={styles.ownerDistanceMake}>{owner.distance}</Text>
-                </View>
-                <Text style={styles.ownerMetaMake}>{owner.species === 'dog' ? '狗狗' : '猫咪'} · 主人 {owner.ownerName}</Text>
-                <Text style={styles.ownerBioMake} numberOfLines={2}>{owner.tags.join(' · ')}，也想认识附近的新朋友。</Text>
-                <View style={styles.ownerTagRowMake}>
-                  {owner.tags.slice(0, 2).map((tag) => (
-                    <Text key={tag} style={styles.ownerTagMake}>{tag}</Text>
-                  ))}
-                </View>
-                <Pressable
-                  onPress={() => {
-                    selectedOwnerIdRef.current = owner.id;
-                    setSelectedOwner(owner);
-                    go('walkInvite');
-                  }}
-                  style={[styles.walkInviteInline, webPressableReset]}
-                >
-                  <CalendarDays color={palette.orange} size={14} strokeWidth={2.3} />
-                  <Text style={styles.walkInviteInlineText}>约遛邀请</Text>
-                </Pressable>
+          {discoverAccessIssue ? (
+            <>
+              <View pointerEvents="none" style={styles.discoverBlurPreviewMake}>
+                {renderOwnerCard(previewOwner, true)}
               </View>
-              <Pressable disabled={socialActionSavingIds.includes(`greet:${owner.id}`)} onPress={() => openGreetingSheet(owner)} style={[styles.greetButtonMake, socialActionSavingIds.includes(`greet:${owner.id}`) && styles.mapSearchActionDisabled]}>
-                {socialActionSavingIds.includes(`greet:${owner.id}`) ? <ActivityIndicator color="#fff" size="small" /> : <MessageCircle color="#fff" size={15} strokeWidth={2.4} />}
-              </Pressable>
-            </View>
-          ))}
-          {!visibleOwners.length ? (
+              <View style={styles.discoverPermissionPanelMake}>
+                <View style={styles.discoverPermissionIconMake}>
+                  <MapPin color={palette.orange} size={26} strokeWidth={2.3} />
+                </View>
+                <Text style={styles.discoverPermissionTitleMake}>{discoverIssueCopy.title}</Text>
+                <Text style={styles.discoverPermissionBodyMake}>{discoverIssueCopy.body}</Text>
+                <View style={styles.discoverPrivacyNoteMake}>
+                  <Shield color={palette.teal} size={13} strokeWidth={2.4} />
+                  <Text style={styles.discoverPrivacyNoteTextMake}>你的精确位置不会向任何用户公开</Text>
+                </View>
+                <View style={styles.discoverPermissionActionsMake}>
+                  <Pressable onPress={() => showToast('已暂不开启，可在我的页随时调整')} style={[styles.discoverPermissionGhostMake, webPressableReset]}>
+                    <Text style={styles.discoverPermissionGhostTextMake}>暂不开启</Text>
+                  </Pressable>
+                  <Pressable onPress={discoverIssueCopy.primary} style={[styles.discoverPermissionPrimaryMake, webPressableReset]}>
+                    <Compass color="#fff" size={13} strokeWidth={2.4} />
+                    <Text style={styles.discoverPermissionPrimaryTextMake}>{discoverIssueCopy.action}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </>
+          ) : (
+            visibleOwners.map((owner) => renderOwnerCard(owner))
+          )}
+          {!discoverAccessIssue && !visibleOwners.length ? (
             discoverEnabled ? (
               <EmptyState
                 action={discoverFilter === 'all' ? '刷新附近' : '查看全部'}
@@ -5972,16 +6034,7 @@ export default function LumiiMvpApp() {
                 onAction={() => (discoverFilter === 'all' ? void refreshDiscoverByPull() : applyDiscoverFilter('all'))}
                 title="暂无匹配伙伴"
               />
-            ) : (
-              <ErrorState
-                action="去设置"
-                description="开启后才会展示附近猫狗主人，也会让附近伙伴看到你。"
-                icon={<AlertTriangle color={palette.warning} size={20} strokeWidth={2.4} />}
-                iconTone="warning"
-                onAction={() => go('settings')}
-                title="附近可见未开启"
-              />
-            )
+            ) : null
           ) : null}
         </View>
       </Screen>
@@ -6001,6 +6054,13 @@ export default function LumiiMvpApp() {
     const placeFilterLabel = placeFilters.find((item) => item.key === placeFilter)?.label ?? '全部';
     const placeResultMeta = placeSearching ? '搜索中...' : `${visiblePlaces.length} 个 · ${placeQuery.trim() ? '搜索结果' : placeFilterLabel}`;
     const mapStyle = mapStyleOptions.find((item) => item.key === mapStyleKey) ?? mapStyleOptions[0];
+    const mapSearchPanelVisible = Boolean(placeQuery.trim() || placeFilter !== 'all');
+    const clearMapSearch = () => {
+      placeQueryRef.current = '';
+      setPlaceQuery('');
+      setPlaceFilter('all');
+      void searchPlaces();
+    };
     return (
       <Screen showBack={false} title="">
         <View style={styles.mapPageFull}>
@@ -6052,6 +6112,7 @@ export default function LumiiMvpApp() {
                 </View>
               </>
             )}
+            {mapSearchPanelVisible ? <View pointerEvents="none" style={styles.mapDimOverlayMake} /> : null}
             <View style={styles.mapControlStack}>
               <Pressable onPress={() => void locateMapToCurrentPosition()} style={styles.mapCtrlButton}>
                 {locatingMap ? <ActivityIndicator color={palette.orange} size="small" /> : <MapPin color={palette.orange} size={16} strokeWidth={2.4} />}
@@ -6116,8 +6177,8 @@ export default function LumiiMvpApp() {
               style={[styles.mapSearchInput, webTextInputReset]}
               value={placeQuery}
             />
-            <Pressable disabled={placeSearching} onPress={() => void searchPlaces()} style={[styles.mapSearchActionMake, placeSearching && styles.mapSearchActionDisabled]}>
-              {placeSearching ? <ActivityIndicator color="#fff" size="small" /> : <SlidersHorizontal color="#fff" size={14} strokeWidth={2.4} />}
+            <Pressable disabled={placeSearching} onPress={placeQuery.trim() ? clearMapSearch : () => void searchPlaces()} style={[placeQuery.trim() ? styles.mapSearchClearButtonMake : styles.mapSearchActionMake, placeSearching && styles.mapSearchActionDisabled]}>
+              {placeSearching ? <ActivityIndicator color="#fff" size="small" /> : placeQuery.trim() ? <X color={palette.muted} size={14} strokeWidth={2.4} /> : <SlidersHorizontal color="#fff" size={14} strokeWidth={2.4} />}
             </Pressable>
           </View>
 
@@ -6137,49 +6198,114 @@ export default function LumiiMvpApp() {
             </View>
           ) : null}
 
-          <ScrollView contentContainerStyle={styles.mapFilterFloatMake} horizontal showsHorizontalScrollIndicator={false} style={styles.mapFilterScrollerMake}>
-            {placeFilters.map((item) => (
-              <Pressable key={item.key} onPress={() => setPlaceFilter(item.key)} style={[styles.mapChipMake, placeFilter === item.key && styles.mapChipMakeActive]}>
-                <Text style={[styles.mapChipMakeText, placeFilter === item.key && styles.mapChipMakeTextActive]}>
-                  {item.key === 'park' ? '公园' : item.key === 'cafe' ? '咖啡店' : item.key === 'clinic' ? '医院' : '全部'}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-
-          <View style={styles.mapBottomSheetMake}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.mapSheetHeader}>
-              <Text style={styles.sectionTitle}>附近宠物友好地点</Text>
-              <Text style={styles.metaText}>{placeResultMeta}</Text>
+          {mapSearchPanelVisible ? (
+            <View style={styles.mapSearchResultSheetMake}>
+              <View style={styles.mapSearchFilterHeadMake}>
+                <Text style={styles.mapSearchFilterTitleMake}>筛选</Text>
+                <Pressable onPress={clearMapSearch} style={webPressableReset}>
+                  <Text style={styles.mapSearchResetMake}>重置</Text>
+                </Pressable>
+              </View>
+              <View style={styles.mapFilterWrapMake}>
+                {placeFilters.map((item) => (
+                  <Pressable key={item.key} onPress={() => setPlaceFilter(item.key)} style={[styles.mapChipMake, placeFilter === item.key && styles.mapChipMakeActive]}>
+                    <Text style={[styles.mapChipMakeText, placeFilter === item.key && styles.mapChipMakeTextActive]}>
+                      {item.key === 'park' ? '🌳 公园' : item.key === 'cafe' ? '☕ 咖啡店' : item.key === 'clinic' ? '🏥 医院' : '全部'}
+                    </Text>
+                  </Pressable>
+                ))}
+                <View style={styles.mapChipMake}>
+                  <Text style={styles.mapChipMakeText}>🐶 汪星友好</Text>
+                </View>
+                <View style={styles.mapChipMake}>
+                  <Text style={styles.mapChipMakeText}>🐱 喵星友好</Text>
+                </View>
+              </View>
+              <View style={styles.mapSegmentRowMake}>
+                {['距离最近', '评分最高', '点评最多'].map((label, index) => (
+                  <View key={label} style={[styles.mapSegmentButtonMake, index === 0 && styles.mapSegmentButtonActiveMake]}>
+                    <Text style={[styles.mapSegmentTextMake, index === 0 && styles.mapSegmentTextActiveMake]}>{label}</Text>
+                  </View>
+                ))}
+              </View>
+              <View style={styles.mapDistanceFilterRowMake}>
+                <Text style={styles.mapDistanceFilterLabelMake}>距离</Text>
+                <View style={styles.mapDistanceTrackMake}>
+                  <View style={styles.mapDistanceTrackFillMake} />
+                  <View style={styles.mapDistanceThumbMake} />
+                </View>
+                <Text style={styles.mapDistanceValueMake}>3km</Text>
+              </View>
+              <View style={styles.mapSearchResultHeaderMake}>
+                <Text style={styles.sectionTitle}>搜索结果</Text>
+                <Text style={styles.metaText}>{visiblePlaces.length} 个匹配</Text>
+              </View>
+              <ScrollView contentContainerStyle={styles.mapSearchResultListMake} showsVerticalScrollIndicator={false}>
+                {visiblePlaces.slice(0, 4).map((place, index) => (
+                  <PlaceSheetRow
+                    active={place.id === highlightedPlace?.id}
+                    key={place.id}
+                    onPress={() => {
+                      setSelectedPlace(place);
+                      go('placeDetail');
+                    }}
+                    place={place}
+                    rank={index + 1}
+                  />
+                ))}
+                {!visiblePlaces.length ? (
+                  <EmptyState
+                    action="清空筛选"
+                    description="可以切换筛选条件，或搜索其他关键词。"
+                    icon={<MapPin color={palette.muted} size={26} strokeWidth={2.4} />}
+                    onAction={clearMapSearch}
+                    title="没有匹配地点"
+                  />
+                ) : null}
+              </ScrollView>
             </View>
-            {visiblePlaces.slice(0, 3).map((place, index) => (
-              <PlaceSheetRow
-                active={place.id === highlightedPlace?.id}
-                key={place.id}
-                onPress={() => {
-                  setSelectedPlace(place);
-                  go('placeDetail');
-                }}
-                place={place}
-                rank={index + 1}
-              />
-            ))}
-            {!visiblePlaces.length ? (
-              <EmptyState
-                action="清空筛选"
-                description="可以切换筛选条件，或搜索其他关键词。"
-                icon={<MapPin color={palette.muted} size={26} strokeWidth={2.4} />}
-                onAction={() => {
-                  placeQueryRef.current = '';
-                  setPlaceQuery('');
-                  setPlaceFilter('all');
-                  void searchPlaces();
-                }}
-                title="没有匹配地点"
-              />
-            ) : null}
-          </View>
+          ) : (
+            <>
+              <ScrollView contentContainerStyle={styles.mapFilterFloatMake} horizontal showsHorizontalScrollIndicator={false} style={styles.mapFilterScrollerMake}>
+                {placeFilters.map((item) => (
+                  <Pressable key={item.key} onPress={() => setPlaceFilter(item.key)} style={[styles.mapChipMake, placeFilter === item.key && styles.mapChipMakeActive]}>
+                    <Text style={[styles.mapChipMakeText, placeFilter === item.key && styles.mapChipMakeTextActive]}>
+                      {item.key === 'park' ? '公园' : item.key === 'cafe' ? '咖啡店' : item.key === 'clinic' ? '医院' : '全部'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+
+              <View style={styles.mapBottomSheetMake}>
+                <View style={styles.sheetHandle} />
+                <View style={styles.mapSheetHeader}>
+                  <Text style={styles.sectionTitle}>附近宠物友好地点</Text>
+                  <Text style={styles.metaText}>{placeResultMeta}</Text>
+                </View>
+                {visiblePlaces.slice(0, 3).map((place, index) => (
+                  <PlaceSheetRow
+                    active={place.id === highlightedPlace?.id}
+                    key={place.id}
+                    onPress={() => {
+                      setSelectedPlace(place);
+                      go('placeDetail');
+                    }}
+                    place={place}
+                    rank={index + 1}
+                  />
+                ))}
+                {!visiblePlaces.length ? (
+                  <EmptyState
+                    action="清空筛选"
+                    description="可以切换筛选条件，或搜索其他关键词。"
+                    icon={<MapPin color={palette.muted} size={26} strokeWidth={2.4} />}
+                    onAction={clearMapSearch}
+                    title="没有匹配地点"
+                  />
+                ) : null}
+              </View>
+            </>
+          )}
         </View>
       </Screen>
     );
@@ -6675,6 +6801,22 @@ export default function LumiiMvpApp() {
             </View>
           </View>
         </View>
+
+        {ownerProfileSaveError ? (
+          <View style={styles.ownerSaveErrorCardMake}>
+            <View style={styles.ownerSaveErrorIconMake}>
+              <WifiOff color={palette.danger} size={15} strokeWidth={2.4} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.ownerSaveErrorTitleMake}>资料已暂存到本地</Text>
+              <Text style={styles.ownerSaveErrorTextMake}>别担心，输入不会丢失，网络恢复后再点一次即可</Text>
+            </View>
+            <Pressable onPress={() => void saveOwnerProfile()} style={[styles.ownerSaveRetryMake, webPressableReset]}>
+              <RefreshCw color={palette.orange} size={11} strokeWidth={2.5} />
+              <Text style={styles.ownerSaveRetryTextMake}>重试</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <View style={styles.editActionStack}>
           <Button disabled={invalid || ownerAvatarPicking} loading={ownerProfileSaving} onPress={() => void saveOwnerProfile()}>保存资料</Button>
@@ -7724,6 +7866,12 @@ const styles = StyleSheet.create({
   ownerAvatarImage: { height: '100%', width: '100%' },
   ownerAvatarLarge: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 48, borderWidth: 3, height: 96, justifyContent: 'center', overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22, width: 96 },
   ownerAvatarOverlay: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
+  ownerSaveErrorCardMake: { alignItems: 'center', backgroundColor: '#FBE4DE', borderColor: '#F5C7BD', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, marginTop: 8, padding: 12 },
+  ownerSaveErrorIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
+  ownerSaveErrorTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 17, marginTop: 2 },
+  ownerSaveErrorTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  ownerSaveRetryMake: { alignItems: 'center', borderColor: palette.orange, borderRadius: 9, borderWidth: 1, flexDirection: 'row', flexShrink: 0, gap: 4, paddingHorizontal: 10, paddingVertical: 5 },
+  ownerSaveRetryTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
   petDeleteIconButton: { alignItems: 'center', backgroundColor: '#FBE4DE', borderRadius: 10, height: 30, justifyContent: 'center', width: 30 },
   petDogBadge: { backgroundColor: palette.orangeSoft, color: palette.orange },
   quickWeightChip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 10, borderWidth: 1, flex: 1, paddingVertical: 8 },
@@ -8101,6 +8249,13 @@ const styles = StyleSheet.create({
   mapControlStack: { gap: 8, position: 'absolute', right: 16, top: 118 },
   mapCtrlButton: { alignItems: 'center', backgroundColor: 'rgba(255,253,249,0.94)', borderColor: 'rgba(234,223,210,0.86)', borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 5, width: 0 }, shadowOpacity: 0.1, shadowRadius: 10, width: 36 },
   mapCtrlButtonActive: { backgroundColor: palette.ink, borderColor: palette.ink },
+  mapDimOverlayMake: { backgroundColor: 'rgba(27,28,25,0.30)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 2 },
+  mapDistanceFilterLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  mapDistanceFilterRowMake: { alignItems: 'center', flexDirection: 'row', gap: 12, marginTop: 14, paddingHorizontal: 4 },
+  mapDistanceThumbMake: { backgroundColor: '#fff', borderColor: palette.orange, borderRadius: 10, borderWidth: 2, height: 20, left: '55%', marginLeft: -10, marginTop: -10, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.18, shadowRadius: 8, top: '50%', width: 20 },
+  mapDistanceTrackFillMake: { backgroundColor: palette.orange, borderRadius: 3, bottom: 0, left: 0, position: 'absolute', top: 0, width: '55%' },
+  mapDistanceTrackMake: { backgroundColor: palette.pale, borderRadius: 3, flex: 1, height: 6, position: 'relative' },
+  mapDistanceValueMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800' },
   mapFauxFull: { backgroundColor: '#eef2ec', height: 620, overflow: 'hidden', position: 'relative' },
   mapFauxFullNight: { backgroundColor: '#17222b' },
   mapFauxFullSatellite: { backgroundColor: '#2b3b32' },
@@ -8109,6 +8264,7 @@ const styles = StyleSheet.create({
   mapFilterFloatMake: { gap: 8, paddingHorizontal: 16 },
   mapFilterScroller: { left: 0, position: 'absolute', right: 0, top: 74, zIndex: 2 },
   mapFilterScrollerMake: { left: 0, position: 'absolute', right: 0, top: 64, zIndex: 4 },
+  mapFilterWrapMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   mapGreenPatchA: { backgroundColor: '#cfe7d2', borderRadius: 36, height: 122, left: -26, opacity: 0.96, position: 'absolute', top: 34, transform: [{ rotate: '-18deg' }], width: 150 },
   mapGreenPatchB: { backgroundColor: '#dcefd8', borderRadius: 46, bottom: 44, height: 126, opacity: 0.96, position: 'absolute', right: -34, transform: [{ rotate: '16deg' }], width: 184 },
   mapGreenPatchNight: { backgroundColor: '#244238', opacity: 0.88 },
@@ -8135,9 +8291,21 @@ const styles = StyleSheet.create({
   mapSearchAction: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },
   mapSearchActionDisabled: { opacity: 0.72 },
   mapSearchActionMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 16, height: 32, justifyContent: 'center', width: 32 },
+  mapSearchClearButtonMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },
   mapSearchFloat: { alignItems: 'center', backgroundColor: 'rgba(255,253,249,0.96)', borderColor: 'rgba(234,223,210,0.86)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 9, left: 14, minHeight: 48, paddingLeft: 14, paddingRight: 6, position: 'absolute', right: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.1, shadowRadius: 18, top: 14, zIndex: 3 },
   mapSearchFloatMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.95)', borderColor: 'rgba(255,255,255,0.85)', borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 8, height: 48, left: 16, paddingLeft: 16, paddingRight: 10, position: 'absolute', right: 16, shadowColor: '#000', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.14, shadowRadius: 30, top: 6, zIndex: 5 },
   mapSearchInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, minHeight: 40 },
+  mapSearchFilterHeadMake: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  mapSearchFilterTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '800' },
+  mapSearchResetMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800' },
+  mapSearchResultHeaderMake: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, marginTop: 16 },
+  mapSearchResultListMake: { gap: 10, paddingBottom: 24 },
+  mapSearchResultSheetMake: { backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, bottom: 0, left: 0, paddingBottom: 16, paddingHorizontal: 20, paddingTop: 16, position: 'absolute', right: 0, shadowColor: '#000', shadowOffset: { height: -20, width: 0 }, shadowOpacity: 0.20, shadowRadius: 40, top: 110, zIndex: 6 },
+  mapSegmentButtonActiveMake: { backgroundColor: palette.orange, shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.24, shadowRadius: 16 },
+  mapSegmentButtonMake: { alignItems: 'center', backgroundColor: palette.background, borderRadius: 12, flex: 1, justifyContent: 'center', minHeight: 34, paddingVertical: 8 },
+  mapSegmentRowMake: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  mapSegmentTextActiveMake: { color: '#fff', fontWeight: '700' },
+  mapSegmentTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   mapSheetHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 2 },
   mapStyleCurrent: { backgroundColor: palette.orangeSoft, borderRadius: 999, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
   mapStyleCloseButton: { alignItems: 'center', backgroundColor: palette.background, borderColor: palette.border, borderRadius: 999, borderWidth: 1, height: 30, justifyContent: 'center', width: 30 },
@@ -8261,16 +8429,31 @@ const styles = StyleSheet.create({
   otpVerifyingOverlay: { alignItems: 'center', alignSelf: 'center', backgroundColor: 'rgba(255,253,249,0.96)', borderColor: palette.border, borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10, position: 'absolute', top: 110 },
   otpVerifyingText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
   ownerCard: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  discoverBlurPreviewMake: { opacity: 0.5, transform: [{ scale: 0.99 }] },
   discoverCardsMake: { gap: 12, marginTop: 14 },
   discoverMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between' },
+  discoverPermissionActionsMake: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  discoverPermissionBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 21, marginTop: 8, textAlign: 'center' },
+  discoverPermissionGhostMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 24, borderWidth: 1, flex: 1, height: 48, justifyContent: 'center' },
+  discoverPermissionGhostTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '600' },
+  discoverPermissionIconMake: { alignItems: 'center', alignSelf: 'center', backgroundColor: 'rgba(255,138,92,0.16)', borderRadius: 28, height: 56, justifyContent: 'center', marginBottom: 12, width: 56 },
+  discoverPermissionPanelMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 24, borderWidth: 1, marginTop: -2, paddingBottom: 18, paddingHorizontal: 20, paddingTop: 20, shadowColor: '#50371e', shadowOffset: { height: 24, width: 0 }, shadowOpacity: 0.20, shadowRadius: 50 },
+  discoverPermissionPrimaryMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 24, flex: 1, flexDirection: 'row', gap: 6, height: 48, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.24, shadowRadius: 20 },
+  discoverPermissionPrimaryTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '700' },
+  discoverPermissionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '800', letterSpacing: 0, lineHeight: 23, textAlign: 'center' },
+  discoverPrivacyNoteMake: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderRadius: 12, flexDirection: 'row', gap: 8, marginTop: 14, paddingHorizontal: 12, paddingVertical: 10 },
+  discoverPrivacyNoteTextMake: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17 },
   filterChipMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 14, paddingVertical: 8 },
   filterChipMakeActive: { backgroundColor: palette.orange, borderColor: palette.orange, color: '#fff' },
   filterChipsMake: { gap: 8, paddingRight: 20, paddingVertical: 2 },
   locationChipMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.7)', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  locationChipDeniedMake: { backgroundColor: 'rgba(229,87,63,0.08)', borderColor: 'rgba(229,87,63,0.22)' },
+  locationChipDeniedText: { color: palette.danger },
   locationChipText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
   locationPrivacyPill: { backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 9, color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
   ownerBioMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18, marginTop: 8 },
   ownerCardMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 14, position: 'relative', shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.08, shadowRadius: 30 },
+  ownerCardPreviewBlur: { opacity: 0.78 },
   ownerDistanceMake: { backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 9, color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
   ownerInviteHero: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
   ownerMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, marginTop: 2 },

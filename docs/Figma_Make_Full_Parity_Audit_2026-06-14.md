@@ -68,7 +68,7 @@
 | 34 | 发布今日小事 | `renderDailyPost` | 已接入-需视觉复核 | 发布卡片、图片区域、按钮需复核 |
 | 35 | 社交发现页 | `renderDiscover` | 已接入-需视觉复核 | 卡片、筛选、刷新、距离 chip 需复核 |
 | 36 | 筛选无结果 | `renderDiscover` + `EmptyState` | 本轮已迁移-需视觉复核 | 已改为统一 EmptyState 并带刷新/查看全部 CTA；仍需截图对齐 Screen36 的插画层 |
-| 37 | 定位未授权 | `renderDiscover` + `ErrorState`/权限状态 | 部分接入 | 附近可见关闭已改 ErrorState；系统定位未授权的模糊预览面板仍需按 Screen37 精修 |
+| 37 | 定位未授权 | `renderDiscover` + 权限/隐私状态 | 已接入-需视觉复核 | 本轮按 Screen37 改为红色权限 banner、模糊发现卡预览、居中授权 CTA 面板、隐私说明卡和“暂不开启 / 去设置开启”双按钮；系统定位拒绝与附近可见关闭共用结构但文案区分 |
 | 38 | 打招呼 Bottom Sheet | `renderGreetingSheet` + `sendGreeting` | 本轮已补-需视觉复核 | 已改为先弹底部面板再确认发送，需截图对齐 Screen38 |
 | 39 | 约遛邀请 | `renderWalkInvite` | 已接入-需视觉复核 | 表单布局、时间 chip、发送态需复核 |
 | 40 | 招呼请求 | `renderGreetingRequests` | 已接入-需视觉复核 | 请求卡片、接受/拒绝按钮需复核 |
@@ -77,7 +77,7 @@
 | 43 | 消息发送失败 | `renderConversation` | 已接入-需视觉复核 | 已按 Screen43 补网络错误 banner、消息未送达重试/删除卡；仍需真机截图复核间距 |
 | 44 | 通知中心 | `renderNotifications` | 已接入-需视觉复核 | 已补通知空态；filter chip、通知分组和未读卡片仍需复核 |
 | 45 | 宠物友好地图 | `renderMap` | 已接入-需视觉复核 | 自定义地图已做，需继续对齐 Make 地图层次 |
-| 46 | 地图搜索与筛选 | `renderMap` + `BottomSheet` | 部分接入 | 地图样式面板已迁移统一 Bottom Sheet；搜索/地点筛选仍需按 Screen46 精修 |
+| 46 | 地图搜索与筛选 | `renderMap` | 已接入-需视觉复核 | 本轮按 Screen46 补搜索/筛选模式：地图暗色 veil、顶部搜索框清除按钮、底部 28px 圆角结果面板、筛选 chip、排序 segment、3km 距离条和搜索结果列表；地图样式面板仍保留独立 Bottom Sheet |
 | 47 | 地图定位失败 | `renderMap` | 已接入-需视觉复核 | 已按 Screen47 在搜索框下补定位失败 banner、原因文案和重试按钮；中心空态仍需后续复核 |
 | 48 | 地点详情 | `renderPlaceDetail` | 已接入-需视觉复核 | Hero 图、信息块、操作按钮需复核 |
 | 49 | 新增地点 / 点评 | `renderAddPlaceReview` | 部分接入 | 基础表单有，提交状态需按 Figma 补齐 |
@@ -119,10 +119,10 @@
 | 85 | 删除宠物 二次确认 | `ConfirmDialog` | 部分接入 | Dialog 本轮已修，内容和危险按钮需复核 |
 | 86 | 编辑个人资料 默认态 | `renderOwnerEdit` | 已接入-需视觉复核 | 本轮已按源码去掉多余外层表单卡，头像改为 96px，输入框/简介 textarea 回到 14px 圆角白底描边体系；仍需截图复核 |
 | 87 | 头像上传中 | `renderOwnerEdit` | 已接入-需视觉复核 | loading overlay 需复核 |
-| 88 | 昵称错误 | `renderOwnerEdit` | 部分接入 | 校验有，错误态样式需对齐 |
+| 88 | 昵称错误 | `renderOwnerEdit` | 已接入-需视觉复核 | 昵称为空/超长已在表单内红色 hint 与输入框红色描边呈现；仍需截图核对 Screen88 字号和间距 |
 | 89 | 保存中 | `renderOwnerEdit` | 已接入-需视觉复核 | 保存按钮 loading 需复核 |
 | 90 | 保存成功 | `Toast` + owner save | 部分接入 | Toast 本轮已修，成功态内容需复核 |
-| 91 | 保存失败 | `Toast` + owner save | 部分接入 | 失败 Toast 类型化需补 |
+| 91 | 保存失败 | `Toast` + owner save | 已接入-需视觉复核 | 本轮按 Screen91 补失败 surface Toast action 和“资料已暂存到本地”红色提示卡，含 WifiOff 图标、说明文案与重试按钮 |
 | 92 | 编辑备忘 默认态 | `renderMemoEdit` | 已接入-需视觉复核 | 本轮已按 Screen92 改为无外层卡轻表单，补 14px 圆角输入框、内容计数、日期/分类双行元信息卡和居中删除入口 |
 | 93 | 保存中 | `renderMemoEdit` | 已接入-需视觉复核 | 保存按钮保留 loading，编辑页不再立即跳回列表；顶部 loading Toast 仍可后续按 Screen93 独立增强 |
 | 94 | 保存成功 | `Toast` + memo save | 已接入-需视觉复核 | 编辑保存成功后停留在编辑页并显示 surface 成功 Toast，更接近 Screen94；Toast 副文案仍可继续复刻 |
