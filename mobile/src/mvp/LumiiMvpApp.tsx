@@ -141,7 +141,12 @@ const notificationFilterOptions: Array<{ key: NotificationFilter; label: string 
   { key: 'system', label: '系统' },
 ];
 
-const notificationTimeFallbacks = ['刚刚', '2 小时前', '09:14', '昨天 20:30', '昨天 18:02', '昨天 09:21'];
+function notificationFallbackTime(index: number) {
+  if (index === 0) return '刚刚';
+  if (index === 1) return '2 小时前';
+  if (index === 2) return formatClockTime();
+  return index < 5 ? '昨天' : '更早';
+}
 
 function isNotificationCategory(value: unknown): value is NotificationCategory {
   return value === 'health' || value === 'interaction' || value === 'system' || value === 'walk';
@@ -168,7 +173,7 @@ function notificationDateFor(item: NotificationItem) {
 
 function notificationDisplayTime(item: NotificationItem, index: number) {
   const date = notificationDateFor(item);
-  if (!date) return notificationTimeFallbacks[index] ?? (index < 3 ? '刚刚' : '昨天');
+  if (!date) return notificationFallbackTime(index);
   const diffMs = Date.now() - date.getTime();
   if (diffMs >= 0 && diffMs < 60 * 1000) return '刚刚';
   if (diffMs >= 0 && diffMs < 60 * 60 * 1000) return `${Math.max(1, Math.floor(diffMs / 60000))} 分钟前`;
@@ -572,6 +577,66 @@ function todayIsoDate() {
   return dateToIsoDate(new Date());
 }
 
+function formatClockTime(date = new Date()) {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function formatTodayTimeLabel(date = new Date()) {
+  return `今天 · ${formatClockTime(date)}`;
+}
+
+function formatIsoDateAsFriendlyLabel(dateText?: string) {
+  const date = parseIsoDate(dateText);
+  if (!date) return dateText || formatTodayTimeLabel();
+  if (isSameCalendarDay(date, new Date())) return `今天 · ${formatClockTime(new Date())}`;
+  return `${date.getMonth() + 1} 月 ${date.getDate()} 日`;
+}
+
+function defaultMemoReminderDate() {
+  const date = new Date();
+  date.setMonth(date.getMonth() + 3);
+  date.setHours(9, 0, 0, 0);
+  return date;
+}
+
+function formatMemoReminderLabel(date: Date) {
+  return `${dateToIsoDate(date)} · ${formatClockTime(date)}`;
+}
+
+function buildWalkInviteDateTiles(base = new Date()) {
+  const times = ['17:30', '18:30', '16:00'];
+  const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  return [0, 1, 2].map((offset) => {
+    const date = new Date(base);
+    date.setDate(base.getDate() + offset);
+    const day = offset === 0 ? '今天' : offset === 1 ? '明天' : weekdays[date.getDay()];
+    const monthDay = `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return {
+      date: monthDay,
+      day,
+      value: `${day} ${times[offset]}`,
+      weekday: weekdays[date.getDay()],
+    };
+  });
+}
+
+function defaultWalkInviteTime() {
+  return buildWalkInviteDateTiles()[0]?.value ?? `今天 ${formatClockTime()}`;
+}
+
+function withOperationTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  return new Promise<T>((resolve, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+      });
+  });
+}
+
 function monthStartIso(dateText = todayIsoDate()) {
   const date = parseIsoDate(dateText) ?? new Date();
   return dateToIsoDate(new Date(date.getFullYear(), date.getMonth(), 1));
@@ -618,7 +683,7 @@ function allLumiiPermissionsGranted(state: PermissionStateMap) {
 }
 
 function createConversationSafetyMessage(): ConversationMessage {
-  return { author: 'system', id: 'conversation-safe-tip', text: '为了保护隐私，聊天前不会展示精确住址。', time: '刚刚' };
+  return { author: 'system', id: 'conversation-safe-tip', text: '为了保护隐私，聊天前不会展示精确住址。', time: formatClockTime() };
 }
 
 function createPetChatWelcomeMessage(pet?: null | PetProfile): ChatMessage {
@@ -627,7 +692,7 @@ function createPetChatWelcomeMessage(pet?: null | PetProfile): ChatMessage {
     id: 'pet-chat-welcome',
     status: 'sent',
     text: `我是${pet?.name ? `${pet.name}的` : '你的'}灵伴。今天想记录什么小事？`,
-    time: '刚刚',
+    time: formatClockTime(),
   };
 }
 
@@ -744,6 +809,7 @@ export default function LumiiMvpApp() {
   const [weightEditRecord, setWeightEditRecord] = useState<WeightRecord | null>(null);
   const [weightEditValue, setWeightEditValue] = useState('');
   const [weightEditNote, setWeightEditNote] = useState('');
+  const [weightDraftRecordedAt, setWeightDraftRecordedAt] = useState(() => new Date());
   const [weightEditSaving, setWeightEditSaving] = useState(false);
   const weightEditSavingRef = useRef(false);
   const [weightDeleteConfirm, setWeightDeleteConfirm] = useState<WeightRecord | null>(null);
@@ -763,6 +829,7 @@ export default function LumiiMvpApp() {
   const [memoDeleteConfirmVisible, setMemoDeleteConfirmVisible] = useState(false);
   const [memoDraftTitle, setMemoDraftTitle] = useState('驱虫');
   const [memoDraftContent, setMemoDraftContent] = useState('外用滴剂 · 拜耳拜宠清');
+  const [memoDraftReminderAt, setMemoDraftReminderAt] = useState(() => defaultMemoReminderDate());
   const [memoDraftSaving, setMemoDraftSaving] = useState(false);
   const memoDraftSavingRef = useRef(false);
   const [vaccineReminderSavingIds, setVaccineReminderSavingIds] = useState<string[]>([]);
@@ -790,7 +857,7 @@ export default function LumiiMvpApp() {
   const [greetingSheetOwner, setGreetingSheetOwner] = useState<NearbyOwner | null>(null);
   const [greetingMessage, setGreetingMessage] = useState('你好呀，我们也在附近，想认识一下吗？');
   const [walkInvitePlace, setWalkInvitePlace] = useState('滨江绿地');
-  const [walkInviteTime, setWalkInviteTime] = useState('今天 19:00');
+  const [walkInviteTime, setWalkInviteTime] = useState(() => defaultWalkInviteTime());
   const [walkInviteNote, setWalkInviteNote] = useState('');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
@@ -1134,6 +1201,10 @@ export default function LumiiMvpApp() {
     setMemoEditTitle(selectedMemo.title);
     setMemoEditContent(selectedMemo.content);
   }, [replace, route, selectedMemo, showToast]);
+
+  useEffect(() => {
+    if (route === 'memoNew') setMemoDraftReminderAt(defaultMemoReminderDate());
+  }, [route]);
 
   useEffect(() => {
     if (route === 'petInfo') setPetDraft(emptyPetDraft);
@@ -2536,9 +2607,10 @@ export default function LumiiMvpApp() {
       showToast('今天和灵伴聊得很多啦，稍后再继续');
       return;
     }
+    const messageTime = formatClockTime();
     const local: ChatMessage = retryMessageId
-      ? { author: 'me', id: retryMessageId, status: 'sending', text, time: '刚刚' }
-      : { author: 'me', id: `me-${Date.now()}`, status: 'sending', text, time: '刚刚' };
+      ? { author: 'me', id: retryMessageId, status: 'sending', text, time: messageTime }
+      : { author: 'me', id: `me-${Date.now()}`, status: 'sending', text, time: messageTime };
     if (!retryMessageId) setChatInput('');
     chatReplyingRef.current = true;
     setChatReplying(true);
@@ -2695,9 +2767,10 @@ export default function LumiiMvpApp() {
     if (conversationSendingKeysRef.current.has(sendKey)) return;
     conversationSendingKeysRef.current.add(sendKey);
     const requestSessionToken = sessionTokenRef.current;
+    const messageTime = formatClockTime();
     const local: ConversationMessage = retryMessageId
-      ? { author: 'me', id: retryMessageId, status: 'sending', text, time: '刚刚' }
-      : { author: 'me', id: `conversation-${conversationId}-${Date.now()}`, status: 'sending', text, time: '刚刚' };
+      ? { author: 'me', id: retryMessageId, status: 'sending', text, time: messageTime }
+      : { author: 'me', id: `conversation-${conversationId}-${Date.now()}`, status: 'sending', text, time: messageTime };
     localConversationMessageIdsRef.current[local.id] = conversationId;
     if (!retryMessageId) setConversationDraft(conversationId, '');
     setConversationMessages((items) =>
@@ -2759,7 +2832,7 @@ export default function LumiiMvpApp() {
     weightSavingRef.current = true;
     setWeightSaving(true);
     try {
-      const result = await lumiiApi.health.recordWeight(Math.round(kg * 100) / 100, note || '手动记录');
+      const result = await lumiiApi.health.recordWeight(Math.round(kg * 100) / 100, note || '手动记录', dateToIsoDate(weightDraftRecordedAt));
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setWeights((items) => [result.data!, ...items]);
@@ -2780,6 +2853,7 @@ export default function LumiiMvpApp() {
     const fallbackWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? activePet?.weightKg ?? initialKg;
     setWeightEditorMode('add');
     setWeightEditRecord(null);
+    setWeightDraftRecordedAt(new Date());
     setWeightEditValue(Number.isFinite(Number(fallbackWeight)) ? Number(fallbackWeight).toFixed(1).replace(/\.0$/, '') : '');
     setWeightEditNote('');
   }
@@ -2794,6 +2868,7 @@ export default function LumiiMvpApp() {
   function closeWeightEditor() {
     setWeightEditorMode(null);
     setWeightEditRecord(null);
+    setWeightDraftRecordedAt(new Date());
     setWeightEditValue('');
     setWeightEditNote('');
   }
@@ -3233,6 +3308,7 @@ export default function LumiiMvpApp() {
         setMemos((items) => [result.data!, ...items]);
         setMemoDraftTitle('驱虫');
         setMemoDraftContent('外用滴剂 · 拜耳拜宠清');
+        setMemoDraftReminderAt(defaultMemoReminderDate());
         void refreshHealthSummary();
         showToast('健康备忘已保存', { tone: 'success', variant: 'surface' });
         replace('healthMemos');
@@ -3604,7 +3680,11 @@ export default function LumiiMvpApp() {
     const requestId = options.requestId ?? discoverRequestSeqRef.current;
     if (!requestSessionToken) return null;
     try {
-      const permissionResult = await requestLumiiPermission('location');
+      const permissionResult = await withOperationTimeout(
+        requestLumiiPermission('location'),
+        20000,
+        '定位权限请求超时，请检查系统权限后重试',
+      );
       if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
       const nextPermissions = mergePermissionState(permissionsRef.current, { location: permissionResult.status });
       permissionsRef.current = nextPermissions;
@@ -3627,7 +3707,11 @@ export default function LumiiMvpApp() {
         return fallback;
       }
 
-      const location = await getLumiiAmapCurrentLocation();
+      const location = await withOperationTimeout(
+        getLumiiAmapCurrentLocation(),
+        22000,
+        '定位超时，请检查 GPS、网络和定位权限后重试',
+      );
       if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
       const hint = {
         accuracy: location.accuracy,
@@ -3656,7 +3740,11 @@ export default function LumiiMvpApp() {
     locatingMapRequestRef.current = requestId;
     setLocatingMap(true);
     try {
-      const permissionResult = await requestLumiiPermission('location');
+      const permissionResult = await withOperationTimeout(
+        requestLumiiPermission('location'),
+        20000,
+        '定位权限请求超时，请检查系统权限后重试',
+      );
       if (sessionTokenRef.current !== requestSessionToken) return;
       const nextPermissions = mergePermissionState(permissionsRef.current, { location: permissionResult.status });
       permissionsRef.current = nextPermissions;
@@ -3684,7 +3772,11 @@ export default function LumiiMvpApp() {
         return;
       }
 
-      const location = await getLumiiAmapCurrentLocation();
+      const location = await withOperationTimeout(
+        getLumiiAmapCurrentLocation(),
+        22000,
+        '定位超时，请检查 GPS、网络和定位权限后重试',
+      );
       if (sessionTokenRef.current !== requestSessionToken) return;
       const accuracy = location.accuracy ? Math.round(location.accuracy) : undefined;
       lastDiscoverLocationRef.current = {
@@ -3931,6 +4023,7 @@ export default function LumiiMvpApp() {
     setWeights([]);
     setWeightEditorMode(null);
     setWeightEditRecord(null);
+    setWeightDraftRecordedAt(new Date());
     setWeightEditValue('');
     setWeightEditNote('');
     weightEditSavingRef.current = false;
@@ -3968,7 +4061,7 @@ export default function LumiiMvpApp() {
     setGreetingSheetOwner(null);
     setGreetingMessage('你好呀，我们也在附近，想认识一下吗？');
     setWalkInvitePlace('滨江绿地');
-    setWalkInviteTime('今天 19:00');
+    setWalkInviteTime(defaultWalkInviteTime());
     setWalkInviteNote('');
     setPlaces([]);
     placeQueryRef.current = '';
@@ -4022,6 +4115,7 @@ export default function LumiiMvpApp() {
     setMemoDeleteConfirmVisible(false);
     setMemoDraftTitle('驱虫');
     setMemoDraftContent('外用滴剂 · 拜耳拜宠清');
+    setMemoDraftReminderAt(defaultMemoReminderDate());
     memoDraftSavingRef.current = false;
     setMemoDraftSaving(false);
     vaccineReminderSavingIdsRef.current.clear();
@@ -5126,14 +5220,15 @@ export default function LumiiMvpApp() {
             <View style={styles.homePetAvatarShell}>
               <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={214} />
             </View>
-            <Pressable onPress={() => go('chat')} style={[styles.homeChatHint, webPressableReset]}>
-              <Text numberOfLines={2} style={styles.homeChatHintText}>{homeChatHint}</Text>
-            </Pressable>
             <View style={styles.homeOnlineBadge}>
               <View style={styles.homeOnlineDot} />
               <Text style={styles.homeOnlineText}>灵伴在线</Text>
             </View>
           </View>
+
+          <Pressable onPress={() => go('chat')} style={[styles.homeChatHint, webPressableReset]}>
+            <Text numberOfLines={2} style={styles.homeChatHintText}>{homeChatHint}</Text>
+          </Pressable>
 
           <View style={styles.homePetNameRow}>
             <Text style={styles.homePetName}>{pet.name}</Text>
@@ -5187,6 +5282,8 @@ export default function LumiiMvpApp() {
     const pet = getCurrentPet();
     const failedChatMessage = chatMessages.slice().reverse().find((message) => message.author === 'me' && message.status === 'failed');
     const chatDisconnected = Boolean(failedChatMessage);
+    const firstVisibleChatTime = chatMessages.find((message) => message.time && message.time !== '刚刚')?.time;
+    const chatDateChipLabel = firstVisibleChatTime ? `今天 ${firstVisibleChatTime}` : `今天 ${formatClockTime()}`;
     return (
       <Screen showBack={false} title="">
         <View style={styles.chatPageMake}>
@@ -5226,7 +5323,7 @@ export default function LumiiMvpApp() {
         )}
 
         <ScrollView contentContainerStyle={styles.chatMakeList} keyboardDismissMode="none" keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false} style={styles.chatMakeScroller}>
-          <Text style={styles.chatDateChip}>今天 09:32</Text>
+          <Text style={styles.chatDateChip}>{chatDateChipLabel}</Text>
           {chatMessages.map((message) => (
             <View key={message.id} style={styles.chatMessageGroup}>
               <View style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
@@ -5998,7 +6095,7 @@ export default function LumiiMvpApp() {
           <Text style={styles.memoFieldLabel}>提醒时间</Text>
           <View style={styles.memoPickerRow}>
             <CalendarDays color={palette.orange} size={16} strokeWidth={2.4} />
-            <Text style={styles.memoPickerValue}>2026-09-28 · 09:00</Text>
+            <Text style={styles.memoPickerValue}>{formatMemoReminderLabel(memoDraftReminderAt)}</Text>
             <ChevronRight color={palette.muted} size={16} strokeWidth={2.4} />
           </View>
 
@@ -6311,7 +6408,9 @@ export default function LumiiMvpApp() {
                 <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
               </View>
               <Text style={styles.memoMetaLabelMake}>日期</Text>
-              <Text style={styles.memoMetaValueMake}>{weightEditRecord?.recordedAt ?? '今天 · 09:14'}</Text>
+              <Text style={styles.memoMetaValueMake}>
+                {weightEditRecord ? formatIsoDateAsFriendlyLabel(weightEditRecord.recordedAt) : formatTodayTimeLabel(weightDraftRecordedAt)}
+              </Text>
               <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
             </View>
             <View style={styles.makeDivider} />
@@ -7302,7 +7401,7 @@ export default function LumiiMvpApp() {
     const pet = getCurrentPet();
     const lastPetChatMessage = chatMessages[chatMessages.length - 1];
     const petChatPreview = lastPetChatMessage?.text || '主人，今天我们去公园吗？';
-    const petChatTime = lastPetChatMessage?.time || '09:32';
+    const petChatTime = lastPetChatMessage?.time || formatClockTime();
     const hasInboxContent = Boolean(pet) || greetingRequestOwners.length > 0 || conversations.length > 0;
     return (
       <Screen
@@ -7385,7 +7484,7 @@ export default function LumiiMvpApp() {
                   </View>
                 </View>
                 <View style={styles.conversationMetaCol}>
-                  <Text style={styles.metaText}>{conversation.updatedAt ?? (conversation.id === 'c1' ? '09:32' : '刚刚')}</Text>
+                  <Text style={styles.metaText}>{conversation.updatedAt ?? formatClockTime()}</Text>
                   {conversation.unread > 0 ? <Text style={styles.unreadBadge}>{conversation.unread}</Text> : null}
                 </View>
               </Pressable>
@@ -8148,12 +8247,8 @@ export default function LumiiMvpApp() {
     const pet = getCurrentPet();
     const currentPetImageSource = pet?.avatarUrl && !isGeneratedAvatarUri(pet.avatarUrl) ? { uri: pet.avatarUrl } : generatedGoldenAvatarSource;
     const ownerPetImageSource = owner?.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
-    const dateTiles = [
-      { day: '今天', date: '06-15', value: '今天 17:30', weekday: '周一' },
-      { day: '明天', date: '06-16', value: '明天 17:30', weekday: '周二' },
-      { day: '周三', date: '06-17', value: '周三 17:30', weekday: '06-17' },
-    ];
-    const activeDateIndex = walkInviteTime.includes('明天') ? 1 : walkInviteTime.includes('周三') ? 2 : 0;
+    const dateTiles = buildWalkInviteDateTiles();
+    const activeDateIndex = Math.max(0, dateTiles.findIndex((tile) => walkInviteTime.startsWith(tile.day) || walkInviteTime.includes(tile.date)));
     return (
       <Screen title="约遛邀请">
         {owner ? (
@@ -10148,8 +10243,8 @@ const styles = StyleSheet.create({
   heroCard: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16 },
   homeBellButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 19, borderWidth: 1, height: 38, justifyContent: 'center', position: 'relative', width: 38 },
   homeBellDot: { backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 4, borderWidth: 1.5, height: 7, position: 'absolute', right: 9, top: 8, width: 7 },
-  homeChatHint: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, maxWidth: 150, minHeight: 34, paddingHorizontal: 12, paddingVertical: 8, position: 'absolute', right: 26, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.13, shadowRadius: 22, top: 10, zIndex: 4 },
-  homeChatHintText: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17 },
+  homeChatHint: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginTop: -4, maxWidth: 260, minHeight: 36, paddingHorizontal: 14, paddingVertical: 8, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.13, shadowRadius: 22, width: '78%' },
+  homeChatHintText: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 17, textAlign: 'center' },
   homeHealthCard: { alignItems: 'center', backgroundColor: '#ffe3cb', borderColor: 'rgba(255,255,255,0.7)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', marginTop: 14, paddingHorizontal: 18, paddingVertical: 16, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
   homeHealthDelta: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.22)', borderRadius: 10, flexDirection: 'row', gap: 2, marginLeft: 6, paddingHorizontal: 8, paddingVertical: 3 },
   homeHealthDeltaText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },

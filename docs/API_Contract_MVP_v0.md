@@ -665,7 +665,7 @@ type WeightTrend = {
 Request:
 
 ```json
-{ "kg": 28.6, "note": "MVP 本地记录" }
+{ "kg": 28.6, "note": "MVP 本地记录", "recordedAt": "2026-06-16" }
 ```
 
 行为：

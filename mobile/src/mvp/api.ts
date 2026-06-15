@@ -250,8 +250,8 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<HealthCalendarEvent[]>('GET', '/health/calendar');
       },
 
-      async recordWeight(kg: number, note?: string): Promise<ApiResult<WeightRecord>> {
-        return request<WeightRecord>('POST', '/health/weights', { kg, note });
+      async recordWeight(kg: number, note?: string, recordedAt?: string): Promise<ApiResult<WeightRecord>> {
+        return request<WeightRecord>('POST', '/health/weights', { kg, note, recordedAt });
       },
 
       async updateWeightRecord(id: string, patch: Partial<Pick<WeightRecord, 'kg' | 'note' | 'recordedAt'>>): Promise<ApiResult<WeightRecord>> {

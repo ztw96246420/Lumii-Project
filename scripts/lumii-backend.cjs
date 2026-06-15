@@ -1147,7 +1147,7 @@ function defaultWeightRecordsFor(user) {
   if (!pet) return [];
   const kg = Number(pet.weightKg) || (pet.species === 'cat' ? 5.2 : 28.4);
   return [
-    { id: `w-${user.phone}-${pet.id}-1`, kg, note: '建档初始体重', recordedAt: new Date().toISOString().slice(0, 10) },
+    { id: `w-${user.phone}-${pet.id}-1`, kg, note: '建档初始体重', recordedAt: todayIsoDate() },
   ];
 }
 
@@ -1188,7 +1188,11 @@ function defaultVaccinesFor(user) {
 }
 
 function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10);
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function healthList(storeName, user, defaultsFactory) {
@@ -1569,7 +1573,7 @@ function recordDeepSeekUsage(usage) {
 }
 
 function todayUsageKey() {
-  return new Date().toISOString().slice(0, 10);
+  return todayIsoDate();
 }
 
 function dailyUsageFor(storeName, key) {

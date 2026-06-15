@@ -203,7 +203,7 @@ function parseMockWeightRecordPayload(value: Partial<Pick<WeightRecord, 'kg' | '
   const note = Object.prototype.hasOwnProperty.call(source, 'note') ? String(source.note || '').trim() : String(current?.note || '').trim();
   if (note.length > 120) return { error: '体重备注最多 120 个字' };
 
-  const recordedAtInput = Object.prototype.hasOwnProperty.call(source, 'recordedAt') ? source.recordedAt : current?.recordedAt || '2026-05-30';
+  const recordedAtInput = Object.prototype.hasOwnProperty.call(source, 'recordedAt') ? source.recordedAt : current?.recordedAt || todayIsoDate();
   const recordedAt = String(recordedAtInput || '').trim();
   if (!isValidIsoCalendarDate(recordedAt)) return { error: '请选择正确日期' };
 
@@ -271,7 +271,7 @@ function parseMockPushDevicePayload(
       deviceId: normalizedDeviceId || undefined,
       platform: normalizedPlatform as PushDevice['platform'],
       token: normalizedToken,
-      updatedAt: '刚刚',
+      updatedAt: currentClockTime(),
     },
     ok: true,
   };
@@ -283,7 +283,24 @@ const goldenRetrieverAvatarUrl =
   'lumii://golden-retriever-avatar';
 
 function todayUsageKey() {
-  return new Date().toISOString().slice(0, 10);
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function todayIsoDate() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function currentClockTime() {
+  const date = new Date();
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 function smsDailyUsageFor(phone: string) {
@@ -536,7 +553,7 @@ function createMockHealthMemoFromPetChat(text: string) {
     content: content.slice(0, 240),
     id: `mock-chat-memo-${Date.now()}`,
     title,
-    updatedAt: '刚刚',
+    updatedAt: todayIsoDate(),
   };
   memos = [memo, ...memos];
   return memo;
@@ -572,13 +589,13 @@ function createMockWeightRecordFromPetChat(text: string) {
   const normalizedKg = Math.round(parsed.kg * 100) / 100;
   const existing = weights
     .slice(0, 8)
-    .find((item) => Number(item.kg) === normalizedKg && item.recordedAt === '2026-05-30' && String(item.note || '') === parsed.note);
+    .find((item) => Number(item.kg) === normalizedKg && item.recordedAt === todayIsoDate() && String(item.note || '') === parsed.note);
   if (existing) return existing;
   const record: WeightRecord = {
     id: `mock-chat-weight-${Date.now()}`,
     kg: normalizedKg,
     note: parsed.note,
-    recordedAt: '2026-05-30',
+    recordedAt: todayIsoDate(),
   };
   weights = [record, ...weights];
   syncMockPetWeightFromRecords();
@@ -824,8 +841,8 @@ const conversations: Conversation[] = [
 let greetingRequests: NearbyOwner[] = [];
 
 let conversationMessagesById: Record<string, ConversationMessage[]> = {
-  c1: [{ author: 'other', id: 'c1-welcome', text: '今晚 7 点公园见？', time: '09:32' }],
-  c2: [{ author: 'system', id: 'c2-system', text: '你提交的地点已进入审核。', time: '刚刚' }],
+  c1: [{ author: 'other', id: 'c1-welcome', text: '今晚 7 点公园见？', time: currentClockTime() }],
+  c2: [{ author: 'system', id: 'c2-system', text: '你提交的地点已进入审核。', time: currentClockTime() }],
 };
 let petChatMessages: ChatMessage[] = [];
 
@@ -949,7 +966,7 @@ function addMockNotification(notification: NotificationItem, category?: Notifica
 
 function normalizeCalendarDate(value?: string) {
   const text = String(value ?? '').trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : new Date().toISOString().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : todayIsoDate();
 }
 
 function vaccineStatusCopy(status: VaccinePlan['status']) {
@@ -1172,7 +1189,7 @@ function createMockMedicalAlertFromPetChat(text: string) {
       content,
       id: `mock-medical-alert-${Date.now()}`,
       title,
-      updatedAt: '刚刚',
+      updatedAt: todayIsoDate(),
     };
     memos = [memo, ...memos];
   }
@@ -1192,7 +1209,7 @@ export const mockApi = {
   ai: {
     async getUsage(): Promise<ApiResult<AiUsageSummary>> {
       await wait(120);
-      const day = new Date().toISOString().slice(0, 10);
+      const day = todayIsoDate();
       return success({
         daily: {
           petAvatar: {
@@ -1230,7 +1247,7 @@ export const mockApi = {
           requests: 0,
           succeeded: 0,
         },
-        updatedAt: '刚刚',
+        updatedAt: currentClockTime(),
       });
     },
   },
@@ -1595,9 +1612,9 @@ export const mockApi = {
       return success(buildHealthCalendarEvents());
     },
 
-    async recordWeight(kg: number, note?: string): Promise<ApiResult<WeightRecord>> {
+    async recordWeight(kg: number, note?: string, recordedAt?: string): Promise<ApiResult<WeightRecord>> {
       await wait();
-      const weightInput = parseMockWeightRecordPayload({ kg, note });
+      const weightInput = parseMockWeightRecordPayload({ kg, note, recordedAt });
       if (weightInput.error) return error<WeightRecord>(weightInput.error, false, undefined, 'HEALTH_WEIGHT_INVALID');
       const record: WeightRecord = { id: `w-${Date.now()}`, ...(weightInput.record as Pick<WeightRecord, 'kg' | 'note' | 'recordedAt'>) };
       weights = [record, ...weights];
@@ -1691,7 +1708,7 @@ export const mockApi = {
       await wait();
       const memoInput = parseMockHealthMemoPayload({ content, title });
       if (memoInput.error) return error<HealthMemo>(memoInput.error, false, undefined, 'HEALTH_MEMO_INVALID');
-      const memo: HealthMemo = { id: `m-${Date.now()}`, ...(memoInput.memo as Pick<HealthMemo, 'content' | 'title'>), updatedAt: '2026-05-30' };
+      const memo: HealthMemo = { id: `m-${Date.now()}`, ...(memoInput.memo as Pick<HealthMemo, 'content' | 'title'>), updatedAt: todayIsoDate() };
       memos = [memo, ...memos];
       return success(memo);
     },
@@ -1702,7 +1719,7 @@ export const mockApi = {
       if (!memo) return error('健康备忘不存在', false);
       const memoInput = parseMockHealthMemoPayload(patch, memo);
       if (memoInput.error) return error<HealthMemo>(memoInput.error, false, undefined, 'HEALTH_MEMO_INVALID');
-      const nextMemo = { ...memo, ...memoInput.memo, updatedAt: '刚刚' };
+      const nextMemo = { ...memo, ...memoInput.memo, updatedAt: todayIsoDate() };
       memos = memos.map((item) => (item.id === id ? nextMemo : item));
       return success(nextMemo);
     },
@@ -1752,11 +1769,11 @@ export const mockApi = {
         petName: owner?.petName,
         relationshipStatus: 'accepted',
         unread: 0,
-        updatedAt: '刚刚',
+        updatedAt: currentClockTime(),
       };
       conversations.unshift(conversation);
       conversationMessagesById[conversation.id] = [
-        { author: 'system', id: `${conversation.id}-system`, text: '你们已经互相打招呼，可以开始聊天。', time: '刚刚' },
+        { author: 'system', id: `${conversation.id}-system`, text: '你们已经互相打招呼，可以开始聊天。', time: currentClockTime() },
       ];
       return success({ conversation, ownerId, sent: true });
     },
@@ -1790,11 +1807,11 @@ export const mockApi = {
         petName: owner?.petName,
         relationshipStatus: 'pending',
         unread: 0,
-        updatedAt: '刚刚',
+        updatedAt: currentClockTime(),
       };
       conversations.unshift(conversation);
       conversationMessagesById[conversation.id] = [
-        { author: 'me', id: `${conversation.id}-invite`, status: 'sent', text: note ? `${message}\n${note}` : message, time: '刚刚' },
+        { author: 'me', id: `${conversation.id}-invite`, status: 'sent', text: note ? `${message}\n${note}` : message, time: currentClockTime() },
       ];
       return success({ conversation, inviteId, ownerId });
     },
@@ -1832,7 +1849,7 @@ export const mockApi = {
       const vaccineAction = medicalAlert || profileUpdate ? null : applyMockPetChatVaccineAction(text);
       const createdWeight = medicalAlert || profileUpdate ? null : createMockWeightRecordFromPetChat(text);
       const createdMemo = medicalAlert?.memo ?? (profileUpdate || vaccineAction || createdWeight ? null : createMockHealthMemoFromPetChat(text));
-      const userMessage: ChatMessage = { id: `pet-user-${Date.now()}`, author: 'me', text, status: 'sent', time: '刚刚' };
+      const userMessage: ChatMessage = { id: `pet-user-${Date.now()}`, author: 'me', text, status: 'sent', time: currentClockTime() };
       const replyText = detectMockPetMedicalEmergency(text)
         ? mockPetMedicalSafetyReply(text)
         : '我收到啦。这个情况我会放进今天的小记录里，如果和健康有关，也建议继续观察食欲、精神和便便状态。';
@@ -1853,7 +1870,7 @@ export const mockApi = {
         medicalAlert: medicalAlert ? { notificationId: medicalAlert.notificationId, reason: medicalAlert.reason } : undefined,
         status: 'sent',
         text: savedNotices.length ? `${replyText}\n\n${savedNotices.join('\n')}` : replyText,
-        time: '刚刚',
+        time: currentClockTime(),
         updatedPet: profileUpdate?.pet,
         updatedVaccine: vaccineAction?.vaccine,
         vaccineReminderIds: vaccineAction?.reminderIds,
@@ -1884,7 +1901,7 @@ export const mockApi = {
       const conversation = conversations.find((item) => item.id === conversationId);
       if (!conversation) return error('会话不存在，请返回消息列表刷新', true);
       if (conversation.canSendMessage === false) return error('对方接受招呼后才能聊天', true);
-      const message: ConversationMessage = { author: 'me', id: `conv-${Date.now()}`, status: 'sent', text: trimmedText, time: '刚刚' };
+      const message: ConversationMessage = { author: 'me', id: `conv-${Date.now()}`, status: 'sent', text: trimmedText, time: currentClockTime() };
       conversationMessagesById[conversationId] = [...(conversationMessagesById[conversationId] ?? []), message];
       return success(message);
     },
