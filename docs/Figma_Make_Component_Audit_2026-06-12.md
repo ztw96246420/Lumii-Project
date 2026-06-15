@@ -51,6 +51,7 @@
   - Screen70 Card 基础组件二次收敛：`Card` 默认样式改为白底 14px 圆角轻描边，移除旧的大圆角阴影基底，并新增 `pet/place/message` 变体，供后续页面逐屏替换自写卡片。
   - Screen73 Loading/Skeleton 基础组件二次收敛：`LoadingState` 默认文案改为灵伴场景化文案，`SkeletonLine` 改为 Figma 暖灰渐变基底并支持自定义圆角，新增 `SkeletonCard`，包含 52px 圆形头像、双行文本骨架和 100/85/70% 内容骨架；健康日历日历格/事件列表骨架已率先迁到统一组件。
   - `PetAvatar` 远程图加载态二次收敛：AI 结果页、首页和宠物资料里的远程头像加载时改为圆形 `SkeletonLine` + 小 spinner，避免慢网下只看到白色空框。
+  - Screen34 发布今日小事二次收敛：`renderDailyPost` 从旧的简单记录卡改为 Figma 源码结构，补宠物 chip、正文卡、照片 strip、心情/tag chips、AI 润色卡、顶部发布入口和 56px 底部胶囊工具条；图片上传按钮暂以 toast 标记后续接入。
 
 ## 后续注意
 

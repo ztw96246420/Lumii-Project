@@ -7398,40 +7398,95 @@ export default function LumiiMvpApp() {
 
   function renderDailyPost() {
     const pet = getCurrentPet();
+    const petName = pet?.name ?? '灵伴';
+    const aiDraft = buildDailyPostDraft(dailyMood);
+    const previewPhotos = [demoPetPhotoUrl, placeReviewPhotoUrls[1]];
     return (
-      <Screen title="记录今天的小事">
-        <View style={styles.dailyPostHero}>
-          <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={64} />
-          <View style={styles.flex}>
-            <Text style={styles.timelineTitleMake}>{pet?.name ?? '灵伴'}今天过得怎么样？</Text>
-            <Text style={styles.timelineSubMake}>这会同步到健康备忘，也能让灵伴更懂它。</Text>
+      <Screen
+        right={(
+          <Pressable disabled={dailyPostSaving} onPress={() => void publishDailyPost()} style={[styles.dailyHeaderPublishMake, webPressableReset]}>
+            {dailyPostSaving ? <ActivityIndicator color={palette.orange} size="small" /> : <Text style={styles.dailyHeaderPublishTextMake}>发布</Text>}
+          </Pressable>
+        )}
+        title="今日小事"
+      >
+        <View style={styles.dailyPostPageMake}>
+          <Pressable onPress={() => go('petDetail')} style={[styles.dailyPetChipMake, webPressableReset]}>
+            <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={38} />
+            <View style={styles.flex}>
+              <Text style={styles.dailyPetChipTitleMake}>{petName}的日常</Text>
+              <Text style={styles.dailyPetChipSubMake}>主人记录 · 仅自己可见</Text>
+            </View>
+            <ChevronRight color={palette.muted} size={16} strokeWidth={2.3} />
+          </Pressable>
+
+          <View style={styles.dailyTextCardMake}>
+            <TextInput
+              multiline
+              onChangeText={setDailyPostText}
+              placeholder="写下今天的小事，比如散步、食欲、精神状态，或者一个可爱的瞬间。"
+              placeholderTextColor="#b6aca3"
+              style={[styles.dailyTextareaMake, webTextInputReset]}
+              value={dailyPostText}
+            />
           </View>
-        </View>
-        <View style={styles.composerCardMake}>
-          <Text style={styles.settingsGroupTitle}>今日记录</Text>
-          <TextInput
-            multiline
-            onChangeText={setDailyPostText}
-            placeholder="例如：今天在公园玩得很开心，回家后食欲很好。"
-            placeholderTextColor="#b6aca3"
-            style={[styles.longTextInput, webTextInputReset]}
-            value={dailyPostText}
-          />
-          <View style={styles.dailyMoodRow}>
+
+          <View style={styles.dailyPhotoRowMake}>
+            {previewPhotos.map((uri) => (
+              <View key={uri} style={styles.dailyPhotoSquareMake}>
+                <Image resizeMode="cover" source={{ uri }} style={styles.avatarImage} />
+              </View>
+            ))}
+            <Pressable onPress={() => showToast('今日小事图片上传后续接入')} style={[styles.dailyPhotoAddMake, webPressableReset]}>
+              <ImagePlus color={palette.muted} size={20} strokeWidth={2.2} />
+              <Text style={styles.dailyPhotoAddTextMake}>添加</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.dailyChipRowMake}>
             {dailyMoodOptions.map((item) => (
               <Text
                 key={item}
                 onPress={() => setDailyMood(item)}
-                style={[styles.ownerTagMake, dailyMood === item && styles.ownerTagMakeActive]}
+                style={[styles.dailyChipMake, dailyMood === item && styles.dailyChipActiveMake]}
               >
-                {item}
+                {item === '开心' ? '😊' : item === '活跃' ? '🐾' : item === '正常' ? '🌿' : '💤'} 心情：{item}
               </Text>
             ))}
+            <Text style={styles.dailyChipMake}>#日常</Text>
+            <Text style={styles.dailyChipMake}>#健康观察</Text>
           </View>
-        </View>
-        <View style={styles.actionRow}>
-          <Button onPress={fillDailyPostDraft} tone="secondary">AI 帮我写</Button>
-          <Button loading={dailyPostSaving} onPress={() => void publishDailyPost()}>发布记录</Button>
+
+          <View style={[styles.dailyAiCardMake, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, rgba(255,138,92,0.10), rgba(77,182,172,0.10))' } as object) : null]}>
+            <View style={styles.dailyAiIconMake}>
+              <Sparkles color={palette.orange} size={15} strokeWidth={2.4} />
+            </View>
+            <View style={styles.flex}>
+              <View style={styles.rowBetween}>
+                <Text style={styles.dailyAiTitleMake}>AI 灵伴帮你润色</Text>
+                <Text onPress={fillDailyPostDraft} style={styles.dailyAiActionMake}>采用</Text>
+              </View>
+              <Text style={styles.dailyAiTextMake} numberOfLines={4}>“{aiDraft}”</Text>
+            </View>
+          </View>
+
+          <View style={styles.dailyBottomBarMake}>
+            <View style={styles.dailyToolRowMake}>
+              <Pressable onPress={() => showToast('今日小事拍照后续接入')} style={[styles.dailyToolButtonMake, webPressableReset]}>
+                <Camera color={palette.ink} size={20} strokeWidth={2.3} />
+              </Pressable>
+              <Pressable onPress={() => showToast('今日小事相册后续接入')} style={[styles.dailyToolButtonMake, webPressableReset]}>
+                <ImagePlus color={palette.ink} size={20} strokeWidth={2.3} />
+              </Pressable>
+              <Pressable onPress={() => setDailyMood(dailyMood === '开心' ? '活跃' : '开心')} style={[styles.dailyToolButtonMake, webPressableReset]}>
+                <Smile color={palette.ink} size={20} strokeWidth={2.3} />
+              </Pressable>
+            </View>
+            <Pressable disabled={dailyPostSaving} onPress={() => void publishDailyPost()} style={[styles.dailyPublishPillMake, dailyPostSaving && styles.dailyPublishPillDisabledMake, webPressableReset]}>
+              {dailyPostSaving ? <ActivityIndicator color="#fff" size="small" /> : <Send color="#fff" size={13} strokeWidth={2.8} />}
+              <Text style={styles.dailyPublishPillTextMake}>{dailyPostSaving ? '发布中' : '发布'}</Text>
+            </Pressable>
+          </View>
         </View>
       </Screen>
     );
@@ -9249,8 +9304,32 @@ const styles = StyleSheet.create({
   conversationSystemBubble: { alignSelf: 'center', backgroundColor: 'rgba(122,121,114,0.10)', borderRadius: 14, maxWidth: '88%', paddingHorizontal: 12, paddingVertical: 7 },
   conversationSystemText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17, textAlign: 'center' },
   composerCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, gap: 8, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
-  dailyMoodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
-  dailyPostHero: { alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 13, padding: 16 },
+  dailyAiActionMake: { color: palette.orange, flexShrink: 0, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', paddingHorizontal: 2, paddingVertical: 2 },
+  dailyAiCardMake: { alignItems: 'flex-start', backgroundColor: 'rgba(255,138,92,0.08)', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 2, paddingHorizontal: 16, paddingVertical: 14 },
+  dailyAiIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, flexShrink: 0, height: 34, justifyContent: 'center', width: 34 },
+  dailyAiTextMake: { color: 'rgba(27,28,25,0.86)', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 21, marginTop: 6 },
+  dailyAiTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
+  dailyBottomBarMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderColor: palette.border, borderRadius: 28, borderWidth: 1, flexDirection: 'row', height: 56, justifyContent: 'space-between', marginTop: 2, paddingHorizontal: 18, shadowColor: '#50371e', shadowOffset: { height: 16, width: 0 }, shadowOpacity: 0.18, shadowRadius: 36 },
+  dailyChipActiveMake: { backgroundColor: 'rgba(255,138,92,0.12)', borderColor: palette.orange, color: palette.orange, fontWeight: '700' },
+  dailyChipMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 6 },
+  dailyChipRowMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
+  dailyHeaderPublishMake: { alignItems: 'center', height: 36, justifyContent: 'center', width: 36 },
+  dailyHeaderPublishTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  dailyPetChipMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 60, paddingHorizontal: 14, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.08, shadowRadius: 22 },
+  dailyPetChipSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 2 },
+  dailyPetChipTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
+  dailyPhotoAddMake: { alignItems: 'center', aspectRatio: 1, backgroundColor: 'rgba(255,255,255,0.58)', borderColor: palette.border, borderRadius: 14, borderStyle: 'dashed', borderWidth: 1.5, flex: 1, gap: 4, justifyContent: 'center' },
+  dailyPhotoAddTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
+  dailyPhotoRowMake: { flexDirection: 'row', gap: 8 },
+  dailyPhotoSquareMake: { aspectRatio: 1, borderColor: '#fff', borderRadius: 14, borderWidth: 2, flex: 1, overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 18 },
+  dailyPostPageMake: { gap: 12, marginTop: -2 },
+  dailyPublishPillDisabledMake: { opacity: 0.82 },
+  dailyPublishPillMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 16, flexDirection: 'row', gap: 5, minHeight: 34, paddingHorizontal: 14, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.34, shadowRadius: 22 },
+  dailyPublishPillTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  dailyTextareaMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '500', lineHeight: 25, minHeight: 130, padding: 0, textAlignVertical: 'top' },
+  dailyTextCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, minHeight: 130, paddingHorizontal: 16, paddingVertical: 14 },
+  dailyToolButtonMake: { alignItems: 'center', height: 34, justifyContent: 'center', width: 28 },
+  dailyToolRowMake: { alignItems: 'center', flexDirection: 'row', gap: 12 },
   greetingRequestCard: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
   messagesAvatarOverlap: { marginLeft: -10 },
   messagesAvatarStack: { flexDirection: 'row', width: 60 },
