@@ -4018,6 +4018,7 @@ export default function LumiiMvpApp() {
       const isMapRoute = route === 'map';
       const isPetChatRoute = route === 'chat';
       const isConversationRoute = route === 'conversation';
+      const isProfileRoute = route === 'profile';
       return (
         <View style={styles.screen}>
           {Platform.OS === 'web' ? <PhoneStatusBar /> : null}
@@ -4046,7 +4047,7 @@ export default function LumiiMvpApp() {
             <View style={[styles.content, styles.loginContent]}>{children}</View>
           ) : (
             <ScrollView
-              contentContainerStyle={[styles.content, showBottomTabs && styles.contentWithTabs]}
+              contentContainerStyle={[styles.content, showBottomTabs && styles.contentWithTabs, isProfileRoute && styles.profileRouteContent]}
               keyboardDismissMode="none"
               keyboardShouldPersistTaps="always"
               refreshControl={refreshControl}
@@ -10245,7 +10246,7 @@ const styles = StyleSheet.create({
   profileHeroOrb: { backgroundColor: 'rgba(255,255,255,0.42)', borderRadius: 70, height: 140, position: 'absolute', right: -30, top: -20, width: 140 },
   profileMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', paddingHorizontal: 20 },
   profileMakeMenuRowValue: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
-  profileMakePage: { marginHorizontal: -20, paddingTop: 0 },
+  profileMakePage: { paddingTop: 0 },
   profileMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 14 },
   profileMakeRowIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 8, height: 28, justifyContent: 'center', width: 28 },
   profileMakeRowLast: { borderBottomWidth: 0 },
@@ -10269,6 +10270,7 @@ const styles = StyleSheet.create({
   profileSectionLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   profileSectionLabelRow: { flexDirection: 'row', justifyContent: 'space-between', paddingBottom: 8, paddingHorizontal: 4 },
   profileScreenTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 26, fontWeight: '700', letterSpacing: 0, lineHeight: 32 },
+  profileRouteContent: { paddingHorizontal: 0, paddingTop: 8 },
   safetyActionCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 70, padding: 14 },
   safetyActionIconMake: { alignItems: 'center', borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
   safetyActionStackMake: { gap: 10 },
