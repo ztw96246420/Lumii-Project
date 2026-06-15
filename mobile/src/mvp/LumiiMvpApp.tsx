@@ -20,6 +20,7 @@ import {
   Text,
   TextInput,
   StatusBar as NativeStatusBar,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import type { KeyboardTypeOptions, RefreshControlProps, TextStyle, ViewStyle } from 'react-native';
@@ -639,6 +640,10 @@ function indexPlaceReviewsByPlaceId(reviews: PlaceReview[]) {
 }
 
 export default function LumiiMvpApp() {
+  const { width: viewportWidth } = useWindowDimensions();
+  const profileHorizontalInset = Platform.OS !== 'web' && viewportWidth > 0 && viewportWidth <= 380 ? 12 : 16;
+  const profileBlockMarginStyle = useMemo<ViewStyle>(() => ({ marginHorizontal: profileHorizontalInset }), [profileHorizontalInset]);
+  const profileBlockPaddingStyle = useMemo<ViewStyle>(() => ({ paddingHorizontal: profileHorizontalInset }), [profileHorizontalInset]);
   const [route, setRoute] = useState<AppRoute>('login');
   const [history, setHistory] = useState<AppRoute[]>([]);
   const [toast, setToast] = useState<AppToast | null>(null);
@@ -4710,7 +4715,9 @@ export default function LumiiMvpApp() {
         <View style={styles.tipsCardMake}>
           {['光线明亮、自然光最佳', '完整露出五官与毛色', '尽量只有一只宠物入镜', '避免人物或其他动物干扰'].map((tip) => (
             <View key={tip} style={styles.tipMakeRow}>
-              <Check color={palette.teal} size={14} strokeWidth={2.8} />
+              <View style={styles.tipCheckMake}>
+                <Check color={palette.teal} size={11} strokeWidth={3} />
+              </View>
               <Text style={styles.tipMakeText}>{tip}</Text>
             </View>
           ))}
@@ -7565,7 +7572,7 @@ export default function LumiiMvpApp() {
             </Pressable>
           </View>
 
-          <View style={[styles.profileHeroMake, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E2 0%, #FFE3D1 60%, #FFD7BF 100%)' } as object) : null]}>
+          <View style={[styles.profileHeroMake, profileBlockMarginStyle, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E2 0%, #FFE3D1 60%, #FFD7BF 100%)' } as object) : null]}>
             <View style={styles.profileHeroOrb} />
             <View style={styles.profileHeroContent}>
               <View style={styles.profileOwnerAvatar}>
@@ -7598,7 +7605,7 @@ export default function LumiiMvpApp() {
             </View>
           </View>
 
-          <View style={styles.profileCurrentWrap}>
+          <View style={[styles.profileCurrentWrap, profileBlockPaddingStyle]}>
             <View style={styles.profileSectionLabelRow}>
               <Text style={styles.profileSectionLabel}>当前宠物</Text>
               <Pressable onPress={() => go(pet ? 'multiPet' : 'petInfo')}>
@@ -7636,7 +7643,7 @@ export default function LumiiMvpApp() {
             )}
           </View>
 
-          <View style={styles.profileMenuGroup}>
+          <View style={[styles.profileMenuGroup, profileBlockMarginStyle]}>
             <ProfileMakeRow Icon={PawPrint} iconBg="#FFE6D6" iconColor={palette.orange} onPress={() => go(pet ? 'petDetail' : 'petInfo')} title="宠物档案" value={pet?.name ?? '待添加'} />
             <ProfileMakeRow Icon={Users} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('multiPet')} title="多宠管理" value={pets.length ? `${pets.length} 只` : '去添加'} />
             <ProfileMakeRow
@@ -10536,7 +10543,7 @@ const styles = StyleSheet.create({
   ownerTagNeutralMake: { backgroundColor: '#F4EFE6', color: palette.muted },
   ownerTagRowMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 },
   pageSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, textAlign: 'center' },
-  pageTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', lineHeight: 31 },
+  pageTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 26, fontWeight: '600', lineHeight: 34 },
   permissionDeniedHero: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 16, marginTop: 24, paddingHorizontal: 18, paddingVertical: 22, shadowColor: '#50371e', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
   permissionDeniedHint: { alignItems: 'center', flexDirection: 'row', gap: 4, marginTop: 10 },
   permissionDeniedHintText: { color: palette.danger, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 16 },
@@ -10575,8 +10582,8 @@ const styles = StyleSheet.create({
   petTypeEmoji: { fontSize: 25, lineHeight: 31 },
   petTypeMakeButton: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 8, minHeight: 64, paddingHorizontal: 16, position: 'relative' },
   petTypeMakeButtonActive: { backgroundColor: 'rgba(255,138,92,0.10)', borderColor: palette.orange, borderWidth: 1.5 },
-  petTypeMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
-  petTypeMakeTextActive: { color: palette.orange, fontWeight: '700' },
+  petTypeMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '500' },
+  petTypeMakeTextActive: { color: palette.orange, fontWeight: '600' },
   petAvatar: { backgroundColor: '#f6dfbf', overflow: 'hidden' },
   petGreeting: { color: palette.ink, fontFamily: appFontFamily, fontSize: 19, fontWeight: '700', lineHeight: 25 },
   petHero: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 28, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 18 },
@@ -10882,7 +10889,7 @@ const styles = StyleSheet.create({
   uploadActionsMake: { flexDirection: 'row', gap: 12, marginTop: 18 },
   uploadBoxMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, #FFF4EA 0%, #FBEEDF 100%)' } as object) : null), alignItems: 'center', backgroundColor: '#fff0df', borderRadius: 28, height: 340, justifyContent: 'center', marginTop: 22, overflow: 'hidden', position: 'relative', shadowColor: '#b46e3c', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.12, shadowRadius: 18 },
   uploadDashedFrame: { borderColor: 'rgba(255,138,92,0.55)', borderRadius: 28, borderStyle: 'dashed', borderWidth: 2, bottom: 14, left: 14, position: 'absolute', right: 14, top: 14 },
-  uploadHintMake: { bottom: 18, color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', position: 'absolute', textAlign: 'center' },
+  uploadHintMake: { bottom: 18, color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '400', position: 'absolute', textAlign: 'center' },
   uploadMakeButton: { alignItems: 'center', borderRadius: 26, flex: 1, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center' },
   uploadMakeButtonGhost: { backgroundColor: palette.card, borderColor: palette.border, borderWidth: 1 },
   uploadMakeButtonSolid: { backgroundColor: palette.orange, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.28, shadowRadius: 22 },
@@ -10892,8 +10899,9 @@ const styles = StyleSheet.create({
   tipBulletDot: { backgroundColor: palette.orange, borderRadius: 3, height: 5, width: 5 },
   tipBulletRow: { alignItems: 'center', flexDirection: 'row', gap: 9, paddingVertical: 3 },
   tipBulletText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  tipCheckMake: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.18)', borderRadius: 8, height: 16, justifyContent: 'center', width: 16 },
   tipMakeRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
-  tipMakeText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  tipMakeText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '400' },
   voiceLink: { color: palette.teal, fontFamily: appFontFamily, fontSize: 13, fontWeight: '400', marginLeft: 6 },
   voiceRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 18 },
   voiceText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '400' },
