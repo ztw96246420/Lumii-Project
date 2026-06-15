@@ -4130,7 +4130,7 @@ export default function LumiiMvpApp() {
         <View style={styles.loginHero}>
           <View style={styles.logoRow}>
             <View style={styles.logoMark}>
-              <PawPrint color="#fff" size={21} strokeWidth={2.4} />
+              <PawPrint color="#fff" size={20} strokeWidth={2.4} />
             </View>
             <Text style={styles.logoText}>Lumii 灵伴</Text>
           </View>
@@ -10149,9 +10149,9 @@ const styles = StyleSheet.create({
   infoChipRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   label: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
   loginForm: { gap: 0, marginTop: 32 },
-  loginHero: { marginTop: 88 },
-  loginContent: { flex: 1 },
-  loginSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, marginTop: 10 },
+  loginHero: { marginTop: 50 },
+  loginContent: { flex: 1, paddingHorizontal: 28 },
+  loginSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, marginTop: 8 },
   loginSuccessDotActiveMake: { backgroundColor: palette.orange },
   loginSuccessDotMake: { backgroundColor: 'rgba(255,138,92,0.25)', borderRadius: 3, height: 6, width: 6 },
   loginSuccessDotsMake: { flexDirection: 'row', gap: 8, marginTop: 32 },
@@ -10165,12 +10165,12 @@ const styles = StyleSheet.create({
   loginSmsButtonPressed: { backgroundColor: '#F2774A', transform: [{ scale: 0.99 }] },
   loginSmsButtonText: { color: '#fff', fontFamily: appFontFamily, fontSize: 16, fontWeight: '500' },
   loginSmsButtonTextCountdown: { color: palette.muted },
-  loginTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 29, fontWeight: '700', includeFontPadding: false, letterSpacing: 0, lineHeight: 37 },
+  loginTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 28, fontWeight: '600', includeFontPadding: false, letterSpacing: 0, lineHeight: 35 },
   loginTitleBlock: { maxWidth: '100%' },
-  loginTitleLine: { color: palette.ink, fontFamily: appFontFamily, fontSize: 27, fontWeight: '700', includeFontPadding: false, letterSpacing: 0, lineHeight: 35, maxWidth: '100%' },
-  logoMark: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 13, height: 38, justifyContent: 'center', width: 38 },
-  logoRow: { alignItems: 'center', flexDirection: 'row', gap: 12, marginBottom: 22 },
-  logoText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700' },
+  loginTitleLine: { color: palette.ink, fontFamily: appFontFamily, fontSize: 28, fontWeight: '600', includeFontPadding: false, letterSpacing: 0, lineHeight: 35, maxWidth: '100%' },
+  logoMark: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 12, height: 36, justifyContent: 'center', width: 36 },
+  logoRow: { alignItems: 'center', flexDirection: 'row', gap: 12, marginBottom: 18 },
+  logoText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '600' },
   longTextInput: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1.5, color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, minHeight: 130, paddingHorizontal: 14, paddingVertical: 12, textAlignVertical: 'top' },
   logoutConfirmSheetMake: { alignItems: 'center', gap: 0, paddingBottom: 20, paddingHorizontal: 20, paddingTop: 12 },
   logoutButton: { alignItems: 'center', backgroundColor: '#ffdad6', borderRadius: 18, flexDirection: 'row', gap: 10, justifyContent: 'center', minHeight: 52 },
