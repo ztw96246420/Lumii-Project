@@ -5559,7 +5559,7 @@ export default function LumiiMvpApp() {
           <View style={styles.healthHeroGlow} />
           <View style={styles.healthHeroCopy}>
             <View style={styles.healthHeroLabelRow}>
-              <HeartPulse color={palette.orange} size={13} strokeWidth={2.4} />
+              <Heart color={palette.orange} fill={palette.orange} size={12} strokeWidth={2.4} />
               <Text style={styles.healthHeroLabel}>今日健康分</Text>
             </View>
             <View style={styles.healthHeroScoreRow}>
@@ -5575,9 +5575,9 @@ export default function LumiiMvpApp() {
 
         <View style={styles.healthSectionStack}>
           <HealthMakeRow Icon={Weight} badge={formatWeightKg(latestWeight)} chart onPress={() => go('weight')} subtitle={weightSubtitle} title="体重趋势" tone="warm" />
-          <HealthMakeRow Icon={Syringe} badge={urgentHealthCount ? `${urgentHealthCount} 项临近` : pendingHealthCount ? `${pendingHealthCount} 项` : '已完成'} onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${vaccineReminderCopy(nextHealthVaccine)}` : '暂无计划'} title="疫苗计划" tone="cool" />
+          <HealthMakeRow Icon={Syringe} badge={urgentHealthCount ? `${urgentHealthCount} 项临近` : pendingHealthCount ? `${pendingHealthCount} 项` : '已完成'} badgeTone="warm" onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${vaccineReminderCopy(nextHealthVaccine)}` : '暂无计划'} title="疫苗计划" tone="cool" />
           <HealthMakeRow Icon={CalendarDays} badge={`${healthCalendarEvents.length || recentRows.length} 条`} onPress={() => go('healthCalendar')} subtitle="按月份查看体重、疫苗和备忘记录" title="健康日历" tone="cool" />
-          <HealthMakeRow Icon={NotebookPen} badge={`${memoCount} 条`} onPress={() => go('healthMemos')} subtitle={memoSubtitle} title="健康备忘" tone="warm" />
+          <HealthMakeRow Icon={NotebookPen} badge={`${memoCount} 条`} badgeTone="muted" onPress={() => go('healthMemos')} subtitle={memoSubtitle} title="健康备忘" tone="warm" />
         </View>
 
         {urgentHealthCount ? (
@@ -9428,6 +9428,7 @@ function HealthCalendarPetCard({ healthScore, note, pet }: { healthScore: number
 function HealthMakeRow({
   Icon,
   badge,
+  badgeTone,
   chart,
   onPress,
   subtitle,
@@ -9436,6 +9437,7 @@ function HealthMakeRow({
 }: {
   Icon: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
   badge: string;
+  badgeTone?: 'cool' | 'muted' | 'warm';
   chart?: boolean;
   onPress: () => void;
   subtitle: string;
@@ -9443,6 +9445,7 @@ function HealthMakeRow({
   tone: 'cool' | 'warm';
 }) {
   const isCool = tone === 'cool';
+  const resolvedBadgeTone = badgeTone ?? tone;
   return (
     <Pressable onPress={onPress} style={styles.healthMakeRow}>
       <View style={styles.healthMakeRowTop}>
@@ -9452,7 +9455,11 @@ function HealthMakeRow({
         <View style={styles.flex}>
           <View style={styles.rowBetween}>
             <Text style={styles.healthMakeTitle}>{title}</Text>
-            <Text style={[styles.healthMakeBadge, isCool && styles.healthMakeBadgeCool]}>{badge}</Text>
+            <Text style={[
+              styles.healthMakeBadge,
+              resolvedBadgeTone === 'cool' && styles.healthMakeBadgeCool,
+              resolvedBadgeTone === 'muted' && styles.healthMakeBadgeMuted,
+            ]}>{badge}</Text>
           </View>
           <Text style={styles.healthMakeSub}>{subtitle}</Text>
         </View>
@@ -10105,22 +10112,23 @@ const styles = StyleSheet.create({
   healthScore: { color: palette.ink, fontFamily: appFontFamily, fontSize: 44, fontWeight: '700', lineHeight: 50 },
   healthHeroAvatar: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 38, height: 76, justifyContent: 'center', padding: 6, shadowColor: '#b46e3c', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.18, shadowRadius: 22, width: 76, zIndex: 2 },
   healthHeroCopy: { flex: 1, minWidth: 0 },
-  healthHeroDesc: { color: 'rgba(31,33,29,0.72)', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 19, marginTop: 8 },
+  healthHeroDesc: { color: 'rgba(31,33,29,0.72)', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 19, marginTop: 8 },
   healthHeroGlow: { backgroundColor: 'rgba(255,255,255,0.46)', borderRadius: 70, height: 140, position: 'absolute', right: -20, top: -20, width: 140 },
-  healthHeroLabel: { color: 'rgba(31,33,29,0.68)', fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  healthHeroLabel: { color: 'rgba(31,33,29,0.68)', fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
   healthHeroLabelRow: { alignItems: 'center', flexDirection: 'row', gap: 5 },
   healthHeroMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFE3CB 0%, #FFD2A8 60%, #FFC089 100%)' } as object) : null), alignItems: 'center', backgroundColor: '#ffd2a8', borderRadius: 24, flexDirection: 'row', gap: 12, marginTop: 8, overflow: 'hidden', paddingHorizontal: 20, paddingVertical: 18, position: 'relative', shadowColor: '#b46e3c', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.18, shadowRadius: 36 },
   healthHeroScore: { color: palette.ink, fontFamily: appFontFamily, fontSize: 44, fontWeight: '700', letterSpacing: 0, lineHeight: 48 },
   healthHeroScoreRow: { alignItems: 'baseline', flexDirection: 'row', gap: 6, marginTop: 6 },
-  healthHeroTotal: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600' },
-  healthMakeBadge: { backgroundColor: palette.orangeSoft, borderRadius: 12, color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 3 },
+  healthHeroTotal: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500' },
+  healthMakeBadge: { backgroundColor: palette.orangeSoft, borderRadius: 12, color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 3 },
   healthMakeBadgeCool: { backgroundColor: 'rgba(77,182,172,0.14)', color: palette.teal },
+  healthMakeBadgeMuted: { backgroundColor: 'rgba(122,121,114,0.12)', color: palette.muted },
   healthMakeIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 20, height: 40, justifyContent: 'center', width: 40 },
   healthMakeIconCool: { backgroundColor: 'rgba(77,182,172,0.18)' },
   healthMakeRow: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 0, paddingHorizontal: 16, paddingVertical: 14, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.07, shadowRadius: 24 },
   healthMakeRowTop: { alignItems: 'center', flexDirection: 'row', gap: 12 },
   healthMakeSub: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, marginTop: 3 },
-  healthMakeTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '700' },
+  healthMakeTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '600' },
   healthMiniChartWrap: { height: 56, marginTop: 12, overflow: 'hidden' },
   healthMemoEditorMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, gap: 14, padding: 16, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.07, shadowRadius: 24 },
   healthMemoIconMake: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },

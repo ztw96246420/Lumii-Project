@@ -58,6 +58,19 @@ This file records incremental parity work that should be merged back into `Figma
   - Kept the MVP reply feedback chips ("像它 / 不像它") as product behavior for improving pet persona responses.
   - No change to DeepSeek chat request flow, send/retry state, quota display, or message persistence.
 
+## Health Main Flow
+
+- Screen29 `renderHealth`: aligned health-home atoms with the Figma pet-core source.
+  - Health score hero now uses the Figma filled heart icon and lighter label/body weights.
+  - `HealthMakeRow` can now separate icon tone from badge tone, matching the source pattern where the vaccine row has a teal icon with an orange due-state badge.
+  - Health memo count badge now uses the muted grey tone from Figma.
+  - No change to health summary fetch, vaccine reminder sync, weight data, memo data, health calendar entry, or row navigation.
+
+- Screen30-34 `renderWeight` / `renderVaccine` / `renderMemoNew` / `renderDailyPost`: reviewed as part of this health pass.
+  - Weight edit/delete and memo edit/delete were already covered in the Health Editing section.
+  - Vaccine plan and daily-post layouts already follow the source structure closely enough for this pass.
+  - No code change was made in those flows.
+
 ## Profile
 
 - Screen54 `renderProfile`: adjusted the three main profile blocks for narrow Android devices after true-device review.
