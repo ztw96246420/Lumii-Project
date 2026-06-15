@@ -53,6 +53,17 @@ This file records incremental parity work that should be merged back into `Figma
   - Native screens up to 380dp width now use 12px for the hero card, current-pet block, and menu group so the blocks occupy a closer visual proportion on compact Android layouts.
   - No change to profile navigation, account data, pet detail entry, multi-pet entry, notifications, settings, or safety routes.
 
+- Screen55 `renderPetDetail`: aligned pet detail content width and typography with the Figma profile source.
+  - Body content now uses the same effective 16px horizontal inset as Figma while the hero image stays full bleed.
+  - Hero subtitle, edit button label, and stat card label/value weights were reduced to match Figma's lighter hierarchy.
+  - No change to pet avatar refresh, edit-pet navigation, vaccine entry, health memo entry, or displayed account data.
+
+- Screen81 `renderMultiPet`: aligned the current-pet and list layout with the newer Figma multi-pet source.
+  - Effective content inset changed from the generic 20px second-level page inset to Figma's 16px.
+  - Current-pet hero starts 8px below the top bar and keeps the 14px bottom rhythm from Figma.
+  - The bottom explainer card now uses the Figma white card with neutral border instead of the shared teal chat safety card.
+  - No change to active pet switching, delete confirmation, add-pet navigation, loading overlay, or toast behavior.
+
 ## Verification
 
 - `npm run typecheck`

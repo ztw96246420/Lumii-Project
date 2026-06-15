@@ -7706,7 +7706,7 @@ export default function LumiiMvpApp() {
 
           {orderedPets.length ? (
             <>
-              <View style={styles.profileSectionLabelRow}>
+              <View style={styles.multiPetSectionLabelRow}>
                 <Text style={styles.profileSectionLabel}>全部宠物 · {orderedPets.length} 只</Text>
                 <Text style={petSwitchingId ? styles.multiPetSwitchingTextMake : styles.profileManageLink}>{petSwitchingId ? `正在切换到${switchingPetName ?? '灵伴'}…` : '最多 5 只'}</Text>
               </View>
@@ -7772,9 +7772,9 @@ export default function LumiiMvpApp() {
           )}
 
           {orderedPets.length ? (
-            <View style={styles.chatSafetyTip}>
+            <View style={styles.multiPetNoteMake}>
               <PawPrint color={palette.orange} size={14} strokeWidth={2.4} />
-              <Text style={styles.chatSafetyText}>切换当前宠物后，首页、健康、AI 对话和附近资料都会同步更新。</Text>
+              <Text style={styles.multiPetNoteTextMake}>切换当前宠物后，首页、健康、AI 对话和附近资料都会同步更新。</Text>
             </View>
           ) : null}
         </View>
@@ -9737,9 +9737,9 @@ const styles = StyleSheet.create({
   memoTypeTextActive: { color: palette.orange, fontWeight: '700' },
   metaIconBox: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 8, height: 26, justifyContent: 'center', width: 26 },
   multiPetActions: { alignItems: 'flex-end', gap: 8 },
-  multiPetHero: { backgroundColor: '#FFE3D1', borderRadius: 20, gap: 0, marginTop: 2, overflow: 'hidden', padding: 14, position: 'relative' },
+  multiPetHero: { backgroundColor: '#FFE3D1', borderRadius: 20, gap: 0, marginBottom: 14, marginTop: -10, overflow: 'hidden', padding: 14, position: 'relative' },
   multiPetHeroHealth: { alignItems: 'center', borderTopColor: 'rgba(255,255,255,0.55)', borderTopWidth: 1, flexDirection: 'row', gap: 6, marginTop: 12, paddingTop: 10 },
-  multiPetHeroHealthText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
+  multiPetHeroHealthText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '400', lineHeight: 16 },
   multiPetHeroDimmedMake: { opacity: 0.78 },
   multiPetHeroMain: { alignItems: 'center', flexDirection: 'row', gap: 14, position: 'relative' },
   multiPetHeroName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 24 },
@@ -9750,8 +9750,11 @@ const styles = StyleSheet.create({
   multiPetKindBadge: { backgroundColor: '#E8F5F3', borderRadius: 6, color: palette.teal, flexShrink: 1, fontFamily: appFontFamily, fontSize: 10, fontWeight: '500', lineHeight: 14, overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
   multiPetKindBadgeDog: { backgroundColor: '#FFE6D6', color: palette.orange },
   multiPetList: { gap: 10 },
-  multiPetPageMake: { position: 'relative' },
+  multiPetNoteMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 14, padding: 12 },
+  multiPetNoteTextMake: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '400', lineHeight: 18 },
+  multiPetPageMake: { marginHorizontal: -4, position: 'relative' },
   multiPetRowName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '700', lineHeight: 20 },
+  multiPetSectionLabelRow: { flexDirection: 'row', justifyContent: 'space-between', paddingBottom: 6 },
   multiPetRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 80, paddingHorizontal: 14, paddingVertical: 12 },
   multiPetRowActive: { borderColor: '#FFD9C2' },
   multiPetSwitchingTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
@@ -10591,10 +10594,10 @@ const styles = StyleSheet.create({
   petDetailCamera: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.42)', borderRadius: 10, flexDirection: 'row', gap: 4, paddingHorizontal: 10, paddingVertical: 6, position: 'absolute', right: 16, top: 16 },
   petDetailCameraText: { color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   petDetailEdit: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, bottom: 14, flexDirection: 'row', gap: 4, paddingHorizontal: 12, paddingVertical: 7, position: 'absolute', right: 16 },
-  petDetailEditText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  petDetailEditText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   petDetailHeroImage: { height: '100%', width: '100%' },
-  petDetailHeroMake: { alignItems: 'center', backgroundColor: '#f4b879', height: 220, justifyContent: 'center', marginHorizontal: -20, marginTop: -18, overflow: 'hidden', position: 'relative' },
-  petDetailHeroMeta: { color: 'rgba(255,255,255,0.9)', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', marginTop: 2 },
+  petDetailHeroMake: { alignItems: 'center', backgroundColor: '#f4b879', height: 220, justifyContent: 'center', marginHorizontal: -16, marginTop: -18, overflow: 'hidden', position: 'relative' },
+  petDetailHeroMeta: { color: 'rgba(255,255,255,0.9)', fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', marginTop: 2 },
   petDetailHeroName: { color: '#fff', fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', lineHeight: 31 },
   petDetailHeroOverlay: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, rgba(0,0,0,0) 38%, rgba(0,0,0,0.56) 100%)' } as object) : null), backgroundColor: 'rgba(0,0,0,0.18)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
   petDetailHeroText: { bottom: 14, left: 18, position: 'absolute' },
@@ -10602,12 +10605,12 @@ const styles = StyleSheet.create({
   petDetailInfoLabelMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '400', lineHeight: 20, minWidth: 0 },
   petDetailInfoRowMake: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 14 },
   petDetailInfoValueMake: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 20, maxWidth: '56%', minWidth: 0, textAlign: 'right' },
-  petDetailMakePage: { gap: 14 },
+  petDetailMakePage: { gap: 14, marginHorizontal: -4 },
   petDetailSectionMake: { marginBottom: 4 },
   petDetailSectionTitleMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', letterSpacing: 0, paddingBottom: 8, paddingHorizontal: 4 },
-  petDetailStatCard: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, flex: 1, paddingHorizontal: 10, paddingVertical: 10 },
-  petDetailStatLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
-  petDetailStatValue: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', marginTop: 4 },
+  petDetailStatCard: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, flex: 1, paddingHorizontal: 12, paddingVertical: 10 },
+  petDetailStatLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '400' },
+  petDetailStatValue: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600', marginTop: 4 },
   petDetailStats: { flexDirection: 'row', gap: 10 },
   petEditAvatarBlock: { alignItems: 'center', paddingBottom: 18, paddingTop: 12 },
   petEditAvatarHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', marginTop: 8 },
