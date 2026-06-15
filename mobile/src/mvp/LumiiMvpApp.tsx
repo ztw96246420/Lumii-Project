@@ -6895,13 +6895,25 @@ export default function LumiiMvpApp() {
     const petChatTime = lastPetChatMessage?.time || '09:32';
     const hasInboxContent = Boolean(pet) || greetingRequestOwners.length > 0 || conversations.length > 0;
     return (
-      <Screen showBack={false} title="">
+      <Screen
+        refreshControl={
+          <RefreshControl
+            colors={[palette.orange]}
+            onRefresh={() => void refreshInboxManually()}
+            progressBackgroundColor="#fffdf9"
+            refreshing={inboxManualRefreshing}
+            tintColor={palette.orange}
+          />
+        }
+        showBack={false}
+        title=""
+      >
         <View style={styles.messagesMakePage}>
           <View style={styles.messagesMakeHeader}>
             <Text style={styles.makeScreenTitle}>消息</Text>
             <View style={styles.messagesHeaderActions}>
-              <Pressable accessibilityLabel="刷新消息" accessibilityRole="button" disabled={inboxManualRefreshing} onPress={() => void refreshInboxManually()} style={[styles.makeIconChip, inboxManualRefreshing && styles.mapSearchActionDisabled]}>
-                {inboxManualRefreshing ? <ActivityIndicator color={palette.ink} size="small" /> : <RefreshCw color={palette.ink} size={16} strokeWidth={2.3} />}
+              <Pressable accessibilityLabel="搜索消息" accessibilityRole="button" onPress={() => showToast('消息搜索后续开放')} style={styles.makeIconChip}>
+                <Search color={palette.ink} size={16} strokeWidth={2.3} />
               </Pressable>
               <Pressable onPress={() => go('notifications')} style={styles.makeIconChip}>
                 <Bell color={palette.ink} size={16} strokeWidth={2.3} />
@@ -6931,7 +6943,9 @@ export default function LumiiMvpApp() {
             {pet ? (
               <Pressable onPress={() => go('chat')} style={styles.conversationMakeRow}>
                 <View style={styles.conversationAvatarWrap}>
-                  <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={50} />
+                  <View style={styles.conversationAiAvatarRingMake}>
+                    <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={50} />
+                  </View>
                   <View style={styles.conversationAiBadge}>
                     <Sparkles color="#fff" size={10} strokeWidth={2.6} />
                   </View>
@@ -6955,7 +6969,10 @@ export default function LumiiMvpApp() {
                 </View>
                 <View style={styles.flex}>
                   <Text numberOfLines={1} style={styles.conversationMakeTitle}>{conversation.name}</Text>
-                  <Text numberOfLines={1} style={styles.conversationMakeText}>{conversation.lastMessage}</Text>
+                  <View style={styles.conversationPreviewRowMake}>
+                    {conversation.lastMessage.includes('约遛邀请') ? <Text style={styles.conversationInvitePrefixMake}>[邀请]</Text> : null}
+                    <Text numberOfLines={1} style={styles.conversationMakeText}>{conversation.lastMessage}</Text>
+                  </View>
                 </View>
                 <View style={styles.conversationMetaCol}>
                   <Text style={styles.metaText}>{conversation.updatedAt ?? (conversation.id === 'c1' ? '09:32' : '刚刚')}</Text>
@@ -9432,13 +9449,16 @@ const styles = StyleSheet.create({
   messageRetryIcon: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.12)', borderRadius: 15, height: 30, justifyContent: 'center', width: 30 },
   messageRetryText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
   messageRetryTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700', lineHeight: 18 },
+  conversationAiAvatarRingMake: { alignItems: 'center', borderColor: palette.orange, borderRadius: 27, borderWidth: 2, height: 54, justifyContent: 'center', overflow: 'hidden', width: 54 },
   conversationAiBadge: { alignItems: 'center', backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 10, borderWidth: 2, bottom: -3, height: 20, justifyContent: 'center', position: 'absolute', right: -3, width: 20 },
   conversationAvatarWrap: { position: 'relative' },
   conversationMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 74, paddingVertical: 12 },
-  conversationMakeText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18 },
+  conversationInvitePrefixMake: { color: palette.orange, flexShrink: 0, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 18, marginRight: 4 },
+  conversationMakeText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18 },
   conversationMakeTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
   conversationMetaCol: { alignItems: 'flex-end', gap: 7 },
   conversationOwnerBadge: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 11, borderWidth: 2, bottom: -3, height: 22, justifyContent: 'center', position: 'absolute', right: -3, shadowColor: '#50371e', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.12, shadowRadius: 10, width: 22 },
+  conversationPreviewRowMake: { alignItems: 'center', flexDirection: 'row', marginTop: 4, minWidth: 0 },
   conversationSystemBubble: { alignSelf: 'center', backgroundColor: 'rgba(122,121,114,0.10)', borderRadius: 14, maxWidth: '88%', paddingHorizontal: 12, paddingVertical: 7 },
   conversationSystemText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17, textAlign: 'center' },
   composerCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, gap: 8, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
@@ -9497,7 +9517,7 @@ const styles = StyleSheet.create({
   messagesListMake: { marginTop: 14 },
   messagesMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between' },
   messagesMakePage: { paddingTop: 0 },
-  messagesRequestMake: { alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 14, paddingHorizontal: 14, paddingVertical: 12, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22 },
+  messagesRequestMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, rgba(255,138,92,0.10), rgba(77,182,172,0.10))' } as object) : null), alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22 },
   messagesRequestText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
   messagesRequestTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700', lineHeight: 19 },
   messagesTopRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end' },
