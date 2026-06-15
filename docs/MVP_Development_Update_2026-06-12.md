@@ -432,3 +432,11 @@
 ## 未打包
 
 按协作约定，本次只更新代码和文档，不自动打 APK。需要真机包时再单独打包。
+
+## 2026-06-15 发现页/地图页真机强退修复
+
+- 背景：v27 小包真机点击「发现」和「地图」会强制退出 App，说明前一轮 Figma 视觉还原后没有充分保护已有业务主链路；后续视觉审计必须把功能入口冒烟列为同级验收项。
+- 定位：两个入口都依赖定位/高德链路。发现页进入会自动刷新附近伙伴并请求当前位置；地图页会初始化高德 `MapView` 并请求当前位置。release 小包还启用了压缩/混淆，原生桥接类和 React Native 注解存在被 R8 影响的风险。
+- 修复：固定高德聚合依赖版本为 `11.2.000_loc11.2.000_sea9.8.0`，不再使用 `latest.integration`；发现页/地图页定位改为 `expo-location` 系统定位，保留 `getNativeLumiiAmapCurrentLocation` 作为后续可回退接口；高德 `MapView` 创建前补 `MapsInitializer.updatePrivacyShow/updatePrivacyAgree`，并对创建异常做降级兜底；release 混淆规则补齐 `LumiiAmapPackage`、`LumiiAmapSupportModule`、`LumiiAmapViewManager`、`LumiiAmapNativeView` 以及 `@ReactMethod/@ReactProp` keep 规则。
+- 验证：`cd mobile && npm run typecheck` 通过；`cd mobile/android && .\gradlew.bat :app:compileReleaseKotlin "-PreactNativeArchitectures=arm64-v8a"` 通过；`cd mobile/android && .\gradlew.bat :app:minifyReleaseWithR8 "-PreactNativeArchitectures=arm64-v8a" "-Pandroid.enableShrinkResourcesInReleaseBuilds=true" "-Pandroid.enableMinifyInReleaseBuilds=true"` 通过；Web mock 冒烟通过：登录 -> 跳过权限 -> 底部导航进入「发现」显示 3km 内附近伙伴；进入「地图」显示附近宠物友好地点；控制台无 error。
+- 未验证：当前 ADB 未发现已连接真机，暂未拿到 vivo X200S 的 logcat 栈；需下一次真机包或无线调试连接后确认 release ARM64 原生高德页不再强退。

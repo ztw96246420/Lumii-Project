@@ -5,6 +5,7 @@ import android.widget.FrameLayout
 import com.amap.api.maps.AMap
 import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.MapView
+import com.amap.api.maps.MapsInitializer
 import com.amap.api.maps.model.LatLng
 import com.amap.api.maps.model.Marker
 import com.amap.api.maps.model.MarkerOptions
@@ -14,7 +15,7 @@ import com.facebook.react.uimanager.ThemedReactContext
 class LumiiAmapNativeView(
   private val reactContext: ThemedReactContext
 ) : FrameLayout(reactContext), LifecycleEventListener {
-  private val mapView = if (supportsNativeAmap()) MapView(reactContext) else null
+  private val mapView = createMapViewSafely()
   private var marker: Marker? = null
   private var destroyed = false
   private var latitude = 23.1291
@@ -98,6 +99,17 @@ class LumiiAmapNativeView(
     aMap.uiSettings.isMyLocationButtonEnabled = false
     applyMapPresentation()
     updateCameraAndMarker()
+  }
+
+  private fun createMapViewSafely(): MapView? {
+    if (!supportsNativeAmap()) return null
+    return try {
+      MapsInitializer.updatePrivacyShow(reactContext, true, true)
+      MapsInitializer.updatePrivacyAgree(reactContext, true)
+      MapView(reactContext)
+    } catch (_: Throwable) {
+      null
+    }
   }
 
   private fun applyMapPresentation() {
