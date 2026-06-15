@@ -52,14 +52,15 @@ export function Button({
 }) {
   const isDisabled = disabled || loading;
   const isSolid = tone === 'primary' || tone === 'danger';
+  const loadingColor = isSolid ? '#fff' : tone === 'secondary' ? palette.orange : palette.ink;
   return (
     <Pressable
       disabled={isDisabled}
       onPress={onPress}
       style={({ pressed }) => [webPressableReset, styles.button, styles[`button_${tone}`], pressed && !isDisabled && styles.buttonPressed, isDisabled && styles.buttonDisabled]}
     >
-      {loading ? <ActivityIndicator color={isSolid ? '#fff' : palette.ink} size="small" /> : null}
-      <Text style={[styles.buttonText, isSolid && styles.buttonTextPrimary, isDisabled && !loading && styles.buttonTextDisabled]}>
+      {loading ? <ActivityIndicator color={loadingColor} size="small" /> : null}
+      <Text style={[styles.buttonText, isSolid && styles.buttonTextPrimary, tone === 'secondary' && styles.buttonTextSecondary, isDisabled && !loading && styles.buttonTextDisabled]}>
         {loading ? '处理中…' : children}
       </Text>
     </Pressable>
@@ -395,6 +396,7 @@ export const styles = StyleSheet.create({
   buttonText: { color: palette.ink, fontFamily, fontSize: 14, fontWeight: '600' },
   buttonTextDisabled: { color: '#B8B3A8' },
   buttonTextPrimary: { color: '#fff' },
+  buttonTextSecondary: { color: palette.orange },
   card: {
     backgroundColor: palette.card,
     borderColor: palette.border,
@@ -485,7 +487,7 @@ export const styles = StyleSheet.create({
   toastIconMark_success: { backgroundColor: palette.teal },
   toastIconMark_warning: { backgroundColor: palette.warning },
   toastNoPointer: { pointerEvents: 'none' },
-  toastSurface: { backgroundColor: '#fff', borderColor: 'rgba(0,0,0,0.04)', borderRadius: 14, borderWidth: 1, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28 },
+  toastSurface: { backgroundColor: '#fff', borderColor: 'rgba(0,0,0,0.04)', borderRadius: 14, borderWidth: 1, shadowColor: '#50371e', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.08, shadowRadius: 14 },
   toastSubtitle: { fontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 16, marginTop: 2 },
   toastSubtitleDark: { color: 'rgba(255,255,255,0.76)' },
   toastSubtitleSurface: { color: palette.muted },
