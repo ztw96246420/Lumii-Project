@@ -1517,6 +1517,10 @@ export const mockApi = {
       if (!previous) return error('生成任务不存在', true);
       const job: AvatarJob = {
         ...previous,
+        candidateUrls:
+          progress >= 100
+            ? [goldenRetrieverAvatarUrl, goldenRetrieverAvatarUrl, goldenRetrieverAvatarUrl]
+            : previous.candidateUrls,
         id,
         progress,
         resultUrl:

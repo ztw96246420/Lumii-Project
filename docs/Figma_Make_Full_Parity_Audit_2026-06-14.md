@@ -51,7 +51,7 @@
 | 17 | 上传失败 未识别 | `renderUploadNoPet` | 二次收敛-需真机截图复核 | 已按 Screen17 细调失败图卡渐变、警示浮层、原因卡间距和建议列表；本轮补底部“重新选择 / 重新拍照”源码式 52px 胶囊双按钮。该页是独立上传失败设计，不再强行迁移到通用 `ErrorState` |
 | 18 | 上传识别详情 | `renderUploadDetail` | 二次收敛-需真机截图复核 | 本轮按 Screen18 将识别信息卡改为专用 18px 顶距/16px 内距白卡，字段名收敛为“宠物主体/毛色特征/五官特征/表情气质”，标签改为左对齐 `#` chip，底部改为源码式 52px 橙色胶囊 CTA；Hero 保留真实上传预览以守住识别业务，但容器渐变、badge 字重和质量角标已按 Figma 收敛 |
 | 19 | AI 灵伴生成中 | `renderGenerating` | 二次收敛-需真机截图复核 | 本轮按 Screen19 继续收敛：生成预览图补 5px 白色内圈和轻微 blur、扫描线内补静态粒子层、标题间距改为 54px、标题字重 600、进度条补 28px 顶距、步骤卡改为 14px 纵向内距；真实生成轮询/失败重试逻辑保持不变；2026-06-16 追加照片不适合生成 warning Toast 与启动生成失败 error Toast，均补下一步副文案 |
-| 20 | 生成结果 默认 | `renderAiResult` | 部分接入-待状态拆分 | Screen20 的 PageBg、AI 形象 halo/ring、54px CTA 等基础样式已被结果页复用；2026-06-16 本轮为避免与 Screen21 混搭，已将当前真实路由收敛为多候选态，单结果默认态的“原图浮层 chip + AI 灵伴 badge + 260px hero”需后续按真实单候选状态单独拆出 |
+| 20 | 生成结果 默认 | `renderAiResult` | 二次收敛-需真机截图复核 | 本轮已按候选数量拆出 Screen20 单候选态：无 `candidateUrls` 或仅 1 张结果时展示“遇见你的小灵伴”标题、右上 Heart、原图浮层 chip、260px AI 形象 halo/ring、AI 灵伴 badge、三枚特征 tag 和底部保存/重新生成 CTA；当前 mock 仍返回 3 个候选并继续走 Screen21 主链路 |
 | 21 | 生成结果 多候选 | `renderAiResult` | 二次收敛-需真机截图复核 | 本轮按 Screen21 继续收敛当前真实结果页：移除混入的 Screen20 原图 chip 和 hero badge，主形象容器改为 230px，特征标签改为 26px 顶距，候选标题字重改 500；三候选卡、选中勾选角标、保存/重生成/反馈入口和真实保存逻辑保持可用 |
 | 22 | 不满意反馈面板 | `renderAvatarFeedbackSheet` + 任务反馈接口 | 二次收敛-需真机截图复核 | 本轮按 Screen22 细调 bottom sheet 文案字重、选中 chip 字重、取消/提交按钮字重；反馈原因多选、卡通程度条和 `sendGenerationFeedback` 后重试生成逻辑保持不变 |
 | 23 | 重新生成确认弹窗 | `renderAvatarRegenerateConfirm` + 重试逻辑 | 二次收敛-需真机截图复核 | 本轮按 Screen23 细调弹窗标题/按钮字重，并在 Web 端补 56px 图标圆的橙青渐变背景；额度说明、建议反馈提示卡和取消/重新生成真实逻辑保持不变 |

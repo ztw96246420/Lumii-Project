@@ -93,6 +93,7 @@ export type PetTaxonomy = {
 export type AvatarJob = {
   acceptedAt?: string;
   acceptedPetId?: string;
+  candidateUrls?: string[];
   errorMessage?: string;
   feedback?: AvatarGenerationFeedback;
   id: string;

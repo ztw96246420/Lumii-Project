@@ -468,6 +468,12 @@ function isGeneratedAvatarUri(uri?: null | string) {
   return Boolean(uri?.startsWith('lumii://'));
 }
 
+function getAvatarCandidateUrls(job?: null | AvatarJob) {
+  const candidates = (job?.candidateUrls ?? []).map((uri) => uri.trim()).filter(Boolean);
+  if (candidates.length) return candidates;
+  return job?.resultUrl ? [job.resultUrl] : [];
+}
+
 function clampSmsCooldown(availableAt: number) {
   const now = Date.now();
   return Math.min(Math.max(availableAt, now), now + smsCooldownMs);
@@ -2333,7 +2339,9 @@ export default function LumiiMvpApp() {
 
   async function saveAvatar() {
     const pet = getCurrentPet();
-    if (!pet || !avatarJob?.resultUrl) {
+    const avatarCandidateUrls = getAvatarCandidateUrls(avatarJob);
+    const selectedCandidateUri = avatarCandidateUrls[Math.min(selectedAvatarCandidateIndex, Math.max(avatarCandidateUrls.length - 1, 0))] ?? avatarJob?.resultUrl;
+    if (!pet || !selectedCandidateUri) {
       showToast('还没有可保存的形象');
       return;
     }
@@ -2342,10 +2350,10 @@ export default function LumiiMvpApp() {
     setAvatarAccepting(true);
     try {
       const requestSessionToken = sessionTokenRef.current;
-      const jobId = avatarJob.id;
-      const result = avatarJob.id
-        ? await lumiiApi.avatar.acceptGeneration(avatarJob.id)
-        : await lumiiApi.avatar.saveAvatar(pet.id, avatarJob.resultUrl);
+      const jobId = avatarJob?.id;
+      const result = jobId && selectedCandidateUri === avatarJob?.resultUrl
+        ? await lumiiApi.avatar.acceptGeneration(jobId)
+        : await lumiiApi.avatar.saveAvatar(pet.id, selectedCandidateUri);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (jobId && avatarJobIdRef.current !== jobId) return;
       if (result.data) {
@@ -4828,77 +4836,117 @@ export default function LumiiMvpApp() {
     const petName = activePet?.name ?? (petDraft.name || '豆豆');
     const petBreed = activePet?.breed || petDraft.breed || speciesLabels[petDraft.species];
     const resultUri = avatarJob?.resultUrl ?? generatedGoldenAvatarUri;
-    const avatarCandidates = [resultUri, resultUri, resultUri];
-    const selectedIndex = Math.min(selectedAvatarCandidateIndex, avatarCandidates.length - 1);
-    const selectedAvatarUri = avatarCandidates[selectedIndex] ?? resultUri;
+    const avatarCandidates = getAvatarCandidateUrls(avatarJob);
+    const visibleAvatarCandidates = avatarCandidates.length ? avatarCandidates : [resultUri];
+    const multiCandidate = visibleAvatarCandidates.length > 1;
+    const selectedIndex = multiCandidate ? Math.min(selectedAvatarCandidateIndex, visibleAvatarCandidates.length - 1) : 0;
+    const selectedAvatarUri = visibleAvatarCandidates[selectedIndex] ?? resultUri;
+    const sourcePhotoUri = media?.previewUrl ?? demoPetPhotoUrl;
+    const title = multiCandidate ? '挑一个你最喜欢的' : '遇见你的小灵伴';
+    const actionButtons = (
+      <View style={[styles.aiResultActions, !multiCandidate && styles.aiResultActionsSingle]}>
+        <Pressable disabled={avatarAccepting} onPress={() => void saveAvatar()} style={({ pressed }) => [styles.aiPrimaryCta, pressed && !avatarAccepting && styles.aiPrimaryCtaPressed, avatarAccepting && styles.aiCtaDisabled, webPressableReset]}>
+          {avatarAccepting ? <ActivityIndicator color="#fff" size="small" /> : <Heart color="#fff" size={16} strokeWidth={2.4} />}
+          <Text style={styles.aiPrimaryCtaText}>{avatarAccepting ? '保存中...' : '保存并设为电子灵伴'}</Text>
+        </Pressable>
+        <Pressable disabled={avatarRetrying} onPress={openAvatarRegenerateConfirm} style={({ pressed }) => [styles.aiGhostCta, pressed && !avatarRetrying && styles.aiGhostCtaPressed, avatarRetrying && styles.aiCtaDisabled, webPressableReset]}>
+          {avatarRetrying ? <ActivityIndicator color={palette.ink} size="small" /> : <RefreshCw color={palette.ink} size={15} strokeWidth={2.4} />}
+          <Text style={styles.aiGhostCtaText}>{avatarRetrying ? '生成中...' : '重新生成'}</Text>
+        </Pressable>
+      </View>
+    );
     return (
-      <Screen title="挑一个你最喜欢的">
+      <Screen
+        right={
+          multiCandidate ? undefined : (
+            <View style={styles.aiResultHeaderHeart}>
+              <Heart color={palette.orange} fill={palette.orange} size={16} strokeWidth={2.2} />
+            </View>
+          )
+        }
+        title={title}
+      >
         <View style={styles.aiResultPage}>
           <View pointerEvents="none" style={styles.aiPageWarmGlow} />
           <View pointerEvents="none" style={styles.aiPageTealGlow} />
-          <View style={styles.aiCandidateIntro}>
-            <Sparkles color={palette.teal} size={12} strokeWidth={2.4} />
-            <Text style={styles.aiCandidateIntroText}>AI 为{petName}生成了 3 个不同风格的灵伴</Text>
-          </View>
-          <View style={styles.aiResultHero}>
-            <View pointerEvents="none" style={styles.aiResultHeroGlow} />
-            <View pointerEvents="none" style={styles.aiResultHeroRing} />
-            <View style={styles.aiResultAvatarFrame}>
-              <PetAvatar uri={selectedAvatarUri} size={230} />
+          {multiCandidate ? (
+            <View style={styles.aiCandidateIntro}>
+              <Sparkles color={palette.teal} size={12} strokeWidth={2.4} />
+              <Text style={styles.aiCandidateIntroText}>AI 为{petName}生成了 {visibleAvatarCandidates.length} 个不同风格的灵伴</Text>
             </View>
+          ) : (
+            <View style={styles.aiOriginalPhotoChip}>
+              <View style={styles.aiOriginalPhotoThumb}>
+                <Image resizeMode="cover" source={{ uri: sourcePhotoUri }} style={styles.avatarImage} />
+              </View>
+              <Text style={styles.aiOriginalPhotoText}>
+                基于你上传的{'\n'}
+                <Text style={styles.aiOriginalPhotoStrong}>{petName}的照片</Text>
+              </Text>
+            </View>
+          )}
+          <View style={[styles.aiResultHero, !multiCandidate && styles.aiResultHeroSingle]}>
+            <View pointerEvents="none" style={[styles.aiResultHeroGlow, !multiCandidate && styles.aiResultHeroGlowSingle]} />
+            <View pointerEvents="none" style={[styles.aiResultHeroRing, !multiCandidate && styles.aiResultHeroRingSingle]} />
+            <View style={[styles.aiResultAvatarFrame, !multiCandidate && styles.aiResultAvatarFrameSingle]}>
+              <PetAvatar uri={selectedAvatarUri} size={multiCandidate ? 230 : 260} />
+            </View>
+            {!multiCandidate ? (
+              <View style={styles.aiResultHeroBadge}>
+                <Sparkles color={palette.orange} fill={palette.orange} size={13} strokeWidth={2.2} />
+                <Text style={styles.aiResultHeroBadgeText}>AI 灵伴</Text>
+              </View>
+            ) : null}
             <Sparkles color={palette.orange} fill={palette.orange} size={13} strokeWidth={2.2} style={styles.aiSparkOne} />
             <Sparkles color={palette.orange} fill={palette.orange} size={10} strokeWidth={2.2} style={styles.aiSparkTwo} />
             <Sparkles color={palette.orange} fill={palette.orange} size={12} strokeWidth={2.2} style={styles.aiSparkThree} />
           </View>
-          <View style={styles.aiResultFeatureTags}>
-            <Text style={styles.featureChipWarm}>真实卡通化</Text>
-            <Text style={styles.featureChipCool}>亲和表情</Text>
-          </View>
-          <View style={styles.aiCandidateBlock}>
-            <Text style={styles.aiCandidateLabel}>其他候选</Text>
-            <View style={styles.aiCandidateRow}>
-              {avatarCandidates.map((candidateUri, index) => {
-                const active = index === selectedIndex;
-                const tone = avatarCandidateTones[index] ?? 'main';
-                const source = candidateUri && !isGeneratedAvatarUri(candidateUri) ? { uri: candidateUri } : generatedGoldenAvatarSource;
-                return (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
-                    key={`${candidateUri}-${index}`}
-                    onPress={() => setSelectedAvatarCandidateIndex(index)}
-                    style={[styles.aiCandidateItem, active && styles.aiCandidateItemActive, webPressableReset]}
-                  >
-                    <View style={[styles.aiCandidateImageFrame, active && styles.aiCandidateImageFrameActive]}>
-                      <Image resizeMode="cover" source={source} style={[styles.aiCandidateImage, styles[`aiCandidateImage_${tone}`]]} />
-                      <View pointerEvents="none" style={[styles.aiCandidateImageOverlay, styles[`aiCandidateImageOverlay_${tone}`]]} />
-                      {active ? (
-                        <View style={styles.aiCandidateCheck}>
-                          <Check color="#fff" size={11} strokeWidth={3} />
-                        </View>
-                      ) : null}
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
+          <Text style={[styles.aiResultName, !multiCandidate && styles.aiResultNameSingle]}>{petName}</Text>
           <Text style={styles.aiResultDesc}>一只温柔亲人的{petBreed}灵伴已经准备好陪你</Text>
-          <Pressable disabled={avatarRetrying || avatarAccepting} onPress={() => setAvatarFeedbackSheetVisible(true)} style={[styles.aiFeedbackEntry, webPressableReset]}>
-            <AlertTriangle color={palette.orange} size={13} strokeWidth={2.4} />
-            <Text style={styles.aiFeedbackEntryText}>不像我家宠物？先告诉我们哪里不像</Text>
-          </Pressable>
-          <Text style={styles.aiQuotaHint}>重新生成会消耗 1 次额度 · 今日剩余 {petAvatarDailyRemaining} 次</Text>
-          <View style={styles.aiResultActions}>
-            <Pressable disabled={avatarAccepting} onPress={() => void saveAvatar()} style={({ pressed }) => [styles.aiPrimaryCta, pressed && !avatarAccepting && styles.aiPrimaryCtaPressed, avatarAccepting && styles.aiCtaDisabled, webPressableReset]}>
-              {avatarAccepting ? <ActivityIndicator color="#fff" size="small" /> : <Heart color="#fff" size={16} strokeWidth={2.4} />}
-              <Text style={styles.aiPrimaryCtaText}>{avatarAccepting ? '保存中...' : '保存并设为电子灵伴'}</Text>
-            </Pressable>
-            <Pressable disabled={avatarRetrying} onPress={openAvatarRegenerateConfirm} style={({ pressed }) => [styles.aiGhostCta, pressed && !avatarRetrying && styles.aiGhostCtaPressed, avatarRetrying && styles.aiCtaDisabled, webPressableReset]}>
-              {avatarRetrying ? <ActivityIndicator color={palette.ink} size="small" /> : <RefreshCw color={palette.ink} size={15} strokeWidth={2.4} />}
-              <Text style={styles.aiGhostCtaText}>{avatarRetrying ? '生成中...' : '重新生成'}</Text>
-            </Pressable>
+          <View style={[styles.aiResultFeatureTags, !multiCandidate && styles.aiResultFeatureTagsSingle]}>
+            <Text style={styles.featureChipWarm}>真实卡通化</Text>
+            {!multiCandidate ? <Text style={styles.featureChipCool}>保留毛色</Text> : null}
+            <Text style={multiCandidate ? styles.featureChipCool : styles.featureChipWarm}>亲和表情</Text>
           </View>
+          {multiCandidate ? (
+            <View style={styles.aiCandidateBlock}>
+              <Text style={styles.aiCandidateLabel}>其他候选</Text>
+              <View style={styles.aiCandidateRow}>
+                {visibleAvatarCandidates.map((candidateUri, index) => {
+                  const active = index === selectedIndex;
+                  const tone = avatarCandidateTones[index] ?? 'main';
+                  const source = candidateUri && !isGeneratedAvatarUri(candidateUri) ? { uri: candidateUri } : generatedGoldenAvatarSource;
+                  return (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      key={`${candidateUri}-${index}`}
+                      onPress={() => setSelectedAvatarCandidateIndex(index)}
+                      style={[styles.aiCandidateItem, active && styles.aiCandidateItemActive, webPressableReset]}
+                    >
+                      <View style={[styles.aiCandidateImageFrame, active && styles.aiCandidateImageFrameActive]}>
+                        <Image resizeMode="cover" source={source} style={[styles.aiCandidateImage, styles[`aiCandidateImage_${tone}`]]} />
+                        <View pointerEvents="none" style={[styles.aiCandidateImageOverlay, styles[`aiCandidateImageOverlay_${tone}`]]} />
+                        {active ? (
+                          <View style={styles.aiCandidateCheck}>
+                            <Check color="#fff" size={11} strokeWidth={3} />
+                          </View>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+          {multiCandidate ? (
+            <Pressable disabled={avatarRetrying || avatarAccepting} onPress={() => setAvatarFeedbackSheetVisible(true)} style={[styles.aiFeedbackEntry, webPressableReset]}>
+              <AlertTriangle color={palette.orange} size={13} strokeWidth={2.4} />
+              <Text style={styles.aiFeedbackEntryText}>不像我家宠物？先告诉我们哪里不像</Text>
+            </Pressable>
+          ) : null}
+          <Text style={styles.aiQuotaHint}>重新生成会消耗 1 次额度 · 今日剩余 {petAvatarDailyRemaining} 次</Text>
+          {actionButtons}
         </View>
         {renderAvatarFeedbackSheet()}
         {renderAvatarRegenerateConfirm()}
@@ -9817,16 +9865,28 @@ const styles = StyleSheet.create({
   aiRegenerateSubmitText: { color: '#fff', fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
   aiRegenerateTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '600', letterSpacing: 0, lineHeight: 24, textAlign: 'center' },
   aiResultActions: { gap: 12, marginTop: 18, width: '100%' },
+  aiResultActionsSingle: { marginTop: 24, paddingHorizontal: 12 },
   aiResultAvatarFrame: { alignItems: 'center', backgroundColor: '#FFEDD9', borderColor: '#fff', borderRadius: 115, borderWidth: 4, height: 230, justifyContent: 'center', overflow: 'hidden', shadowColor: '#b46e3c', shadowOffset: { height: 24, width: 0 }, shadowOpacity: 0.26, shadowRadius: 52, width: 230 },
+  aiResultAvatarFrameSingle: { borderRadius: 130, height: 260, width: 260 },
   aiResultDesc: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 21, marginTop: 14, textAlign: 'center' },
   aiResultFeatureTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 26 },
+  aiResultFeatureTagsSingle: { marginTop: 18, paddingHorizontal: 20 },
+  aiResultHeaderHeart: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.7)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 },
   aiResultHero: { alignItems: 'center', height: 230, justifyContent: 'center', marginTop: 24, position: 'relative', width: 230 },
+  aiResultHeroSingle: { height: 260, marginTop: 98, width: 260 },
   aiResultHeroBadge: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, bottom: 3, flexDirection: 'row', gap: 5, paddingHorizontal: 14, paddingVertical: 6, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.13, shadowRadius: 20 },
   aiResultHeroBadgeText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   aiResultHeroGlow: { backgroundColor: 'rgba(255,138,92,0.20)', borderRadius: 145, height: 290, position: 'absolute', width: 290 },
+  aiResultHeroGlowSingle: { borderRadius: 155, height: 310, width: 310 },
   aiResultHeroRing: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'conic-gradient(from 210deg, rgba(255,138,92,0.55), rgba(77,182,172,0.5), rgba(255,200,140,0.5), rgba(255,138,92,0.55))' } as object) : null), backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 121, height: 242, opacity: 0.86, position: 'absolute', width: 242 },
+  aiResultHeroRingSingle: { borderRadius: 136, height: 272, width: 272 },
   aiResultName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', letterSpacing: 0, lineHeight: 32, marginTop: 24, textAlign: 'center' },
+  aiResultNameSingle: { marginTop: 38 },
   aiResultPage: { alignItems: 'center', minHeight: 720, paddingHorizontal: 8, position: 'relative' },
+  aiOriginalPhotoChip: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 30, borderWidth: 1, flexDirection: 'row', gap: 12, left: 0, paddingBottom: 6, paddingLeft: 6, paddingRight: 14, paddingTop: 6, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.12, shadowRadius: 22, top: 8, zIndex: 4 },
+  aiOriginalPhotoStrong: { color: palette.ink, fontWeight: '600' },
+  aiOriginalPhotoText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 15 },
+  aiOriginalPhotoThumb: { borderColor: '#fff', borderRadius: 18, borderWidth: 2, height: 36, overflow: 'hidden', width: 36 },
   aiScanLine: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(90deg, rgba(255,138,92,0), rgba(255,138,92,0.9), rgba(255,138,92,0))' } as object) : null), backgroundColor: palette.orange, borderRadius: 999, height: 2, left: 28, opacity: 0.88, position: 'absolute', right: 28, top: 135, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.45, shadowRadius: 12 },
   aiSparkOne: { left: 4, position: 'absolute', top: 38 },
   aiSparkThree: { bottom: 64, position: 'absolute', right: -2 },
