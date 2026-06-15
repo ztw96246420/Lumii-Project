@@ -53,6 +53,7 @@ import {
   Navigation,
   NotebookPen,
   PawPrint,
+  PenLine,
   Phone,
   Plus,
   RefreshCw,
@@ -135,6 +136,10 @@ const webPressableReset =
     : null;
 const demoPetPhotoUrl =
   'https://images.unsplash.com/photo-1625794084867-8ddd239946b1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=720';
+const placeReviewPhotoUrls = [
+  'https://images.unsplash.com/photo-1764660308106-72eacd973fc8?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+  'https://images.unsplash.com/photo-1599692392256-2d084495fe15?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=400',
+];
 const generatedGoldenAvatarUri = 'lumii://golden-retriever-avatar';
 const generatedGoldenAvatarSource = require('../../assets/lumii/golden-avatar-v1.png');
 
@@ -720,10 +725,12 @@ export default function LumiiMvpApp() {
   const [mapStyleKey, setMapStyleKey] = useState<MapVisualMode>('lumii');
   const [mapTrafficEnabled, setMapTrafficEnabled] = useState(false);
   const [mapStylePanelVisible, setMapStylePanelVisible] = useState(false);
+  const [placeComposerMode, setPlaceComposerMode] = useState<'place' | 'review'>('place');
   const [placeDraftAddress, setPlaceDraftAddress] = useState('滨江路 88 号');
   const [placeDraftName, setPlaceDraftName] = useState('云杉宠物友好公园');
   const [placeReviewDraft, setPlaceReviewDraft] = useState('');
   const [placeSubmissionExperience, setPlaceSubmissionExperience] = useState('');
+  const [placeSubmissionRating, setPlaceSubmissionRating] = useState(5);
   const [selectedPlaceFeatureTags, setSelectedPlaceFeatureTags] = useState<string[]>([]);
   const [placeReviewSaving, setPlaceReviewSaving] = useState(false);
   const placeReviewSavingRef = useRef(false);
@@ -3594,7 +3601,9 @@ export default function LumiiMvpApp() {
     try {
       const result = await lumiiApi.places.createReview(place.id, reviewContent);
       const stillReviewingSamePlace =
-        sessionTokenRef.current === requestSessionToken && selectedPlaceIdRef.current === place.id && routeRef.current === 'placeDetail';
+        sessionTokenRef.current === requestSessionToken &&
+        selectedPlaceIdRef.current === place.id &&
+        (routeRef.current === 'placeDetail' || routeRef.current === 'addPlaceReview');
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         if (stillReviewingSamePlace) setPlaceReviewDraft('');
@@ -3631,7 +3640,23 @@ export default function LumiiMvpApp() {
   }
 
   function buildPlaceSubmissionExperience(tags: string[], content: string) {
-    return [tags.length ? `宠物友好特色：${tags.join('、')}` : '', content.trim()].filter(Boolean).join('。');
+    return [tags.length ? `宠物友好特色：${tags.join('、')}` : '', `推荐评分：${placeSubmissionRating} 星`, content.trim()].filter(Boolean).join('。');
+  }
+
+  function openPlaceSubmissionComposer() {
+    setPlaceComposerMode('place');
+    setPlaceSubmitResult(null);
+    setSelectedPlaceFeatureTags([]);
+    go('addPlaceReview');
+  }
+
+  function openPlaceReviewComposer(place: Place) {
+    setSelectedPlace(place);
+    setPlaceComposerMode('review');
+    setPlaceSubmitResult(null);
+    setSelectedPlaceFeatureTags(place.tags.slice(0, 3));
+    setPlaceSubmissionRating(5);
+    go('addPlaceReview');
   }
 
   async function submitPlaceDraft() {
@@ -3831,8 +3856,10 @@ export default function LumiiMvpApp() {
     lastDiscoverLocationRef.current = null;
     setPlaceDraftAddress('滨江路 88 号');
     setPlaceDraftName('云杉宠物友好公园');
+    setPlaceComposerMode('place');
     setPlaceReviewDraft('');
     setPlaceSubmissionExperience('');
+    setPlaceSubmissionRating(5);
     setSelectedPlaceFeatureTags([]);
     placeReviewSavingRef.current = false;
     setPlaceReviewSaving(false);
@@ -6326,7 +6353,7 @@ export default function LumiiMvpApp() {
               <Pressable onPress={() => void locateMapToCurrentPosition()} style={styles.mapCtrlButton}>
                 {locatingMap ? <ActivityIndicator color={palette.orange} size="small" /> : <MapPin color={palette.orange} size={16} strokeWidth={2.4} />}
               </Pressable>
-              <Pressable onPress={() => go('addPlaceReview')} style={styles.mapCtrlButton}>
+              <Pressable onPress={openPlaceSubmissionComposer} style={styles.mapCtrlButton}>
                 <Plus color={palette.ink} size={16} strokeWidth={2.4} />
               </Pressable>
               <Pressable onPress={() => setMapStylePanelVisible((visible) => !visible)} style={[styles.mapCtrlButton, mapStylePanelVisible && styles.mapCtrlButtonActive]}>
@@ -6586,9 +6613,21 @@ export default function LumiiMvpApp() {
                 <Button loading={isFavoriteSaving} onPress={() => void toggleFavoritePlace(place)} tone="secondary">{isFavoritePlace ? '已收藏' : '收藏'}</Button>
                 <Button onPress={() => setAmapNavigationPlace(place)}>高德导航</Button>
               </View>
-              <View style={styles.weightInputMake}>
-                <Field label="点评内容" onChangeText={setPlaceReviewDraft} placeholder="例如：草坪很大，有饮水点" value={placeReviewDraft} />
-                <Button loading={placeReviewSaving} onPress={() => void createPlaceReview()}>{placeReviewButtonLabel}</Button>
+              <View style={styles.placeWriteReviewPanelMake}>
+                <View style={styles.rowBetween}>
+                  <View style={styles.inlineActionRow}>
+                    <NotebookPen color={palette.orange} size={15} strokeWidth={2.5} />
+                    <Text style={styles.placeWriteReviewTitleMake}>分享真实体验</Text>
+                  </View>
+                  <Text style={styles.placeWriteReviewMetaMake}>24 小时内审核</Text>
+                </View>
+                <Text style={styles.placeWriteReviewTextMake}>
+                  写一条宠物友好的点评，帮助附近主人判断是否适合带宠物前往。
+                </Text>
+                <Pressable disabled={placeReviewSaving} onPress={() => openPlaceReviewComposer(place)} style={[styles.placeWriteReviewButtonMake, webPressableReset]}>
+                  {placeReviewSaving ? <ActivityIndicator color="#fff" size="small" /> : <PenLine color="#fff" size={15} strokeWidth={2.5} />}
+                  <Text style={styles.placeWriteReviewButtonTextMake}>{placeReviewButtonLabel}</Text>
+                </Pressable>
                 {hasPendingPlaceReview ? (
                   <View style={styles.reviewStatusCard}>
                     <Check color={palette.teal} size={15} strokeWidth={3} />
@@ -7494,52 +7533,158 @@ export default function LumiiMvpApp() {
   }
 
   function renderAddPlaceReview() {
-    if (placeSubmitResult?.kind === 'place') return renderPlaceSubmitResult(placeSubmitResult);
+    if (placeSubmitResult) return renderPlaceSubmitResult(placeSubmitResult);
+    const isReviewMode = placeComposerMode === 'review';
+    const place = selectedPlace;
+    const headerTitle = isReviewMode ? '写一条点评' : '新增地点';
+    const submitLabel = isReviewMode ? '发布' : '提交';
+    const bodyValue = isReviewMode ? placeReviewDraft : placeSubmissionExperience;
+    const setBodyValue = isReviewMode ? setPlaceReviewDraft : setPlaceSubmissionExperience;
+    const bodyPlaceholder = isReviewMode
+      ? '例如：草坪很整洁，饮水点和便便袋都备得很齐。'
+      : '例如：草坪很大，有饮水点，牵引绳友好。';
+    const saving = isReviewMode ? placeReviewSaving : placeSubmissionSaving;
+    const submitComposer = () => {
+      if (isReviewMode) void createPlaceReview();
+      else void submitPlaceDraft();
+    };
+
+    if (isReviewMode && !place) {
+      return (
+        <Screen title="写一条点评">
+          <ErrorState
+            action="回到地图"
+            description="请先从地点详情进入点评页。"
+            icon={<MapPin color={palette.warning} size={20} strokeWidth={2.4} />}
+            iconTone="warning"
+            onAction={() => replace('map')}
+            title="还没有选择地点"
+          />
+        </Screen>
+      );
+    }
+
     return (
-      <Screen title="新增地点与点评">
-        <View style={styles.addPlaceHero}>
-          <MapPin color="#fff" size={26} strokeWidth={2.5} />
-          <View style={styles.flex}>
-            <Text style={styles.addPlaceHeroTitle}>分享一个宠物友好地点</Text>
-            <Text style={styles.addPlaceHeroSub}>提交后会进入审核，审核通过再展示给附近用户。</Text>
+      <Screen showBack={false} title="">
+        <View style={styles.addPlacePageMake}>
+          <View style={styles.addPlaceBgGlowMake} />
+          <View style={styles.addPlaceHeaderMake}>
+            <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={[styles.iconButton, webPressableReset]}>
+              <ChevronLeft color={palette.ink} size={18} strokeWidth={2.4} />
+            </Pressable>
+            <Text style={styles.addPlaceHeaderTitleMake}>{headerTitle}</Text>
+            <Pressable disabled={saving} onPress={submitComposer} style={[styles.addPlaceHeaderPublishMake, saving && styles.opacity60, webPressableReset]}>
+              {saving ? <ActivityIndicator color={palette.orange} size="small" /> : <Text style={styles.addPlaceHeaderPublishTextMake}>{submitLabel}</Text>}
+            </Pressable>
           </View>
-        </View>
-        <View style={styles.settingsGroupMake}>
-          <Text style={styles.settingsGroupTitle}>地点信息</Text>
-          <View style={styles.walkFieldWrap}>
-            <Field label="地点名称" onChangeText={setPlaceDraftName} placeholder="例如：阳光宠物公园" value={placeDraftName} />
-            <Field label="地址" onChangeText={setPlaceDraftAddress} placeholder="搜索或输入地址" value={placeDraftAddress} />
+
+          {isReviewMode && place ? (
+            <View style={styles.addPlacePlaceCardMake}>
+              <Image resizeMode="cover" source={{ uri: placeReviewPhotoUrls[0] }} style={styles.addPlacePlaceThumbMake} />
+              <View style={styles.flex}>
+                <Text numberOfLines={1} style={styles.addPlacePlaceNameMake}>{place.name}</Text>
+                <Text numberOfLines={1} style={styles.addPlacePlaceMetaMake}>{place.category === 'park' ? '公园' : place.category === 'cafe' ? '咖啡店' : place.category === 'clinic' ? '医院' : '宠物友好地点'} · {place.address}</Text>
+              </View>
+              <ChevronRight color={palette.muted} size={15} strokeWidth={2.2} />
+            </View>
+          ) : (
+            <View style={styles.addPlaceInputCardMake}>
+              <View style={styles.addPlaceInputRowMake}>
+                <View style={styles.addPlaceInputIconMake}>
+                  <MapPin color={palette.orange} size={16} strokeWidth={2.5} />
+                </View>
+                <TextInput
+                  onChangeText={setPlaceDraftName}
+                  placeholder="例如：阳光宠物公园"
+                  placeholderTextColor="#B8AEA4"
+                  style={[styles.addPlaceLineInputMake, webTextInputReset]}
+                  value={placeDraftName}
+                />
+              </View>
+              <View style={styles.addPlaceDividerMake} />
+              <View style={styles.addPlaceInputRowMake}>
+                <View style={styles.addPlaceInputIconMake}>
+                  <Navigation color={palette.teal} size={16} strokeWidth={2.5} />
+                </View>
+                <TextInput
+                  onChangeText={setPlaceDraftAddress}
+                  placeholder="搜索或输入地址"
+                  placeholderTextColor="#B8AEA4"
+                  style={[styles.addPlaceLineInputMake, webTextInputReset]}
+                  value={placeDraftAddress}
+                />
+              </View>
+            </View>
+          )}
+
+          <Text style={styles.addPlaceFieldLabelMake}>{isReviewMode ? '给它打个分' : '推荐程度'}</Text>
+          <View style={styles.addPlaceRatingCardMake}>
+            {Array.from({ length: 5 }).map((_, index) => {
+              const value = index + 1;
+              const active = value <= placeSubmissionRating;
+              return (
+                <Pressable key={value} onPress={() => setPlaceSubmissionRating(value)} style={[styles.addPlaceStarButtonMake, webPressableReset]}>
+                  <Star color={active ? '#FFB94B' : '#E0DBD0'} fill={active ? '#FFB94B' : 'transparent'} size={28} strokeWidth={2} />
+                </Pressable>
+              );
+            })}
+            <Text style={styles.addPlaceRatingTextMake}>{placeSubmissionRating >= 5 ? '非常推荐' : placeSubmissionRating >= 4 ? '推荐' : '一般'}</Text>
           </View>
-        </View>
-        <View style={styles.composerCardMake}>
-          <Text style={styles.settingsGroupTitle}>宠物友好体验</Text>
+
+          <Text style={styles.addPlaceFieldLabelMake}>这里的宠物友好特色</Text>
+          <View style={styles.addPlaceChipRowMake}>
+            {placeFriendlyFeatureOptions.map((item) => (
+              <Pressable key={item} onPress={() => togglePlaceFeatureTag(item)} style={[styles.addPlaceSelectChipMake, selectedPlaceFeatureTags.includes(item) && styles.addPlaceSelectChipActiveMake, webPressableReset]}>
+                <Text style={[styles.addPlaceSelectChipTextMake, selectedPlaceFeatureTags.includes(item) && styles.addPlaceSelectChipTextActiveMake]}>{item}</Text>
+              </Pressable>
+            ))}
+            <Pressable onPress={() => showToast('自定义标签后续会跟地点标签库一起开放')} style={[styles.addPlaceSelectChipMake, webPressableReset]}>
+              <Plus color={palette.ink} size={12} strokeWidth={2.5} />
+              <Text style={styles.addPlaceSelectChipTextMake}>自定义</Text>
+            </Pressable>
+          </View>
+
+          <Text style={styles.addPlaceFieldLabelMake}>{isReviewMode ? '写下你的体验' : '写下宠物友好体验'}</Text>
           <TextInput
             multiline
-            onChangeText={setPlaceSubmissionExperience}
-            placeholder="例如：草坪很大，有饮水点，牵引绳友好。"
-            placeholderTextColor="#b6aca3"
-            style={[styles.longTextInput, webTextInputReset]}
-            value={placeSubmissionExperience}
+            onChangeText={setBodyValue}
+            placeholder={bodyPlaceholder}
+            placeholderTextColor="#B8AEA4"
+            style={[styles.addPlaceTextAreaMake, webTextInputReset]}
+            textAlignVertical="top"
+            value={bodyValue}
           />
-          <View style={styles.dailyMoodRow}>
-            {placeFriendlyFeatureOptions.map((item) => (
-              <Text
-                key={item}
-                onPress={() => togglePlaceFeatureTag(item)}
-                style={[styles.ownerTagMake, selectedPlaceFeatureTags.includes(item) && styles.ownerTagMakeActive]}
-              >
-                {item}
-              </Text>
+
+          <Text style={styles.addPlaceFieldLabelMake}>添加照片（可选）</Text>
+          <View style={styles.addPlacePhotoRowMake}>
+            {placeReviewPhotoUrls.map((uri) => (
+              <Image key={uri} resizeMode="cover" source={{ uri }} style={styles.addPlacePhotoSquareMake} />
             ))}
+            <Pressable onPress={() => showToast('地点照片上传后续接入，不影响本次提交')} style={[styles.addPlacePhotoAddMake, webPressableReset]}>
+              <Camera color={palette.muted} size={20} strokeWidth={2.2} />
+              <Text style={styles.addPlacePhotoAddTextMake}>添加</Text>
+            </Pressable>
           </View>
+
+          <View style={styles.addPlaceNoticeMake}>
+            <Shield color={palette.teal} size={13} strokeWidth={2.5} />
+            <Text style={styles.addPlaceNoticeTextMake}>
+              {isReviewMode ? '点评需经过 24 小时人工审核，请保持真实客观' : '地点和体验会进入 24 小时人工审核，通过后展示给附近用户'}
+            </Text>
+          </View>
+
+          {placeSubmissionStatus === 'pending_review' && !isReviewMode ? (
+            <View style={styles.reviewStatusCard}>
+              <Check color={palette.teal} size={15} strokeWidth={3} />
+              <Text style={styles.reviewStatusText}>已提交审核。后续真实接口会返回审核单号和预计处理时间。</Text>
+            </View>
+          ) : null}
+
+          <Pressable disabled={saving} onPress={submitComposer} style={[styles.addPlaceSubmitButtonMake, saving && styles.opacity60, webPressableReset]}>
+            {saving ? <ActivityIndicator color="#fff" size="small" /> : isReviewMode ? <PenLine color="#fff" size={15} strokeWidth={2.5} /> : <Shield color="#fff" size={15} strokeWidth={2.5} />}
+            <Text style={styles.addPlaceSubmitTextMake}>{isReviewMode ? '发布点评' : '提交审核'}</Text>
+          </Pressable>
         </View>
-        {placeSubmissionStatus === 'pending_review' ? (
-          <View style={styles.reviewStatusCard}>
-            <Check color={palette.teal} size={15} strokeWidth={3} />
-            <Text style={styles.reviewStatusText}>已提交审核。后续真实接口会返回审核单号和预计处理时间。</Text>
-          </View>
-        ) : null}
-        <Button loading={placeSubmissionSaving} onPress={() => void submitPlaceDraft()}>提交审核</Button>
       </Screen>
     );
   }
@@ -8328,9 +8473,42 @@ const styles = StyleSheet.create({
   accountSecurityHeroMake: { alignItems: 'center', backgroundColor: '#E8F5F3', borderRadius: 16, flexDirection: 'row', gap: 12, marginBottom: 2, padding: 14 },
   accountSecurityHeroSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 17, marginTop: 2 },
   accountSecurityHeroTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '800', lineHeight: 20 },
+  addPlaceBgGlowMake: { backgroundColor: 'rgba(255,217,182,0.48)', borderRadius: 220, height: 240, left: -70, position: 'absolute', right: -70, top: -120 },
+  addPlaceChipRowMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  addPlaceDividerMake: { backgroundColor: palette.border, height: 1, marginLeft: 52 },
+  addPlaceFieldLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17, marginBottom: 8, marginTop: 16 },
+  addPlaceHeaderMake: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', marginBottom: 4 },
+  addPlaceHeaderPublishMake: { alignItems: 'center', height: 36, justifyContent: 'center', minWidth: 44 },
+  addPlaceHeaderPublishTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  addPlaceHeaderTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '600', lineHeight: 22 },
   addPlaceHero: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 22, flexDirection: 'row', gap: 13, paddingHorizontal: 18, paddingVertical: 18, shadowColor: '#8b5e3c', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.16, shadowRadius: 30 },
   addPlaceHeroSub: { color: 'rgba(255,255,255,0.88)', flex: 1, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18, marginTop: 4 },
   addPlaceHeroTitle: { color: '#fff', fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', lineHeight: 23 },
+  addPlaceInputCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, overflow: 'hidden' },
+  addPlaceInputIconMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 12, height: 36, justifyContent: 'center', width: 36 },
+  addPlaceInputRowMake: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 58, paddingHorizontal: 12 },
+  addPlaceLineInputMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', minHeight: 44, padding: 0 },
+  addPlaceNoticeMake: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 14, paddingHorizontal: 12, paddingVertical: 10 },
+  addPlaceNoticeTextMake: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 18 },
+  addPlacePageMake: { flex: 1, marginHorizontal: -20, marginTop: -18, minHeight: 720, overflow: 'hidden', paddingHorizontal: 20, paddingTop: 0, position: 'relative' },
+  addPlacePhotoAddMake: { alignItems: 'center', aspectRatio: 1, backgroundColor: 'rgba(255,255,255,0.68)', borderColor: palette.border, borderRadius: 14, borderStyle: 'dashed', borderWidth: 1.5, flex: 1, gap: 4, justifyContent: 'center' },
+  addPlacePhotoAddTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600' },
+  addPlacePhotoRowMake: { flexDirection: 'row', gap: 8 },
+  addPlacePhotoSquareMake: { aspectRatio: 1, borderColor: '#fff', borderRadius: 14, borderWidth: 2, flex: 1 },
+  addPlacePlaceCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  addPlacePlaceMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, lineHeight: 16, marginTop: 2 },
+  addPlacePlaceNameMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
+  addPlacePlaceThumbMake: { borderRadius: 14, height: 48, width: 48 },
+  addPlaceRatingCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', justifyContent: 'center', paddingVertical: 16 },
+  addPlaceRatingTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 14, fontWeight: '800', marginLeft: 4 },
+  addPlaceSelectChipActiveMake: { backgroundColor: 'rgba(255,138,92,0.12)', borderColor: palette.orange, borderWidth: 1.5 },
+  addPlaceSelectChipMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 4, minHeight: 34, paddingHorizontal: 12, paddingVertical: 7 },
+  addPlaceSelectChipTextActiveMake: { color: palette.orange, fontWeight: '700' },
+  addPlaceSelectChipTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 16 },
+  addPlaceStarButtonMake: { alignItems: 'center', height: 34, justifyContent: 'center', width: 34 },
+  addPlaceSubmitButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 25, flexDirection: 'row', gap: 7, height: 50, justifyContent: 'center', marginTop: 18, shadowColor: palette.orange, shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.28, shadowRadius: 24 },
+  addPlaceSubmitTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
+  addPlaceTextAreaMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 22, minHeight: 104, paddingHorizontal: 14, paddingTop: 12 },
   amapConfirmActionsMake: { flexDirection: 'row', gap: 8, marginTop: 16 },
   amapConfirmAppLabelActiveMake: { color: palette.orange, fontWeight: '600' },
   amapConfirmAppLabelMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 17 },
@@ -9122,6 +9300,7 @@ const styles = StyleSheet.create({
   otpVerifyingOverlay: { alignItems: 'center', alignSelf: 'center', backgroundColor: 'rgba(255,253,249,0.96)', borderColor: palette.border, borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10, position: 'absolute', top: 110 },
   otpVerifyingText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
   ownerCard: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  opacity60: { opacity: 0.6 },
   discoverBlurPreviewMake: { opacity: 0.5, transform: [{ scale: 0.99 }] },
   discoverCardsMake: { gap: 12, marginTop: 14 },
   discoverMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between' },
@@ -9237,6 +9416,12 @@ const styles = StyleSheet.create({
   phoneStatusTime: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
   permissionCard: { alignItems: 'flex-start', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 16 },
   permissionCardGranted: { backgroundColor: '#f2fbfa', borderColor: 'rgba(77,182,172,0.32)' },
+  placeWriteReviewButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 23, flexDirection: 'row', gap: 7, height: 46, justifyContent: 'center', marginTop: 12, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.22, shadowRadius: 18 },
+  placeWriteReviewButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  placeWriteReviewMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
+  placeWriteReviewPanelMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 16, paddingHorizontal: 14, paddingVertical: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 20 },
+  placeWriteReviewTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 19, marginTop: 8 },
+  placeWriteReviewTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
   placeSubmitActionRowMake: { flexDirection: 'row', gap: 8, marginTop: 20, width: '100%' },
   placeSubmitBgGlowMake: { backgroundColor: 'rgba(255,217,182,0.46)', borderRadius: 220, height: 260, left: -40, position: 'absolute', right: -40, top: -120 },
   placeSubmitBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21.5, marginTop: 10, textAlign: 'center' },
