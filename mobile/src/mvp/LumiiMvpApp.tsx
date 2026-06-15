@@ -6756,7 +6756,7 @@ export default function LumiiMvpApp() {
                 {placeFilters.map((item) => (
                   <Pressable key={item.key} onPress={() => setPlaceFilter(item.key)} style={[styles.mapChipMake, placeFilter === item.key && styles.mapChipMakeActive]}>
                     <Text style={[styles.mapChipMakeText, placeFilter === item.key && styles.mapChipMakeTextActive]}>
-                      {item.key === 'park' ? '公园' : item.key === 'cafe' ? '咖啡店' : item.key === 'clinic' ? '医院' : '全部'}
+                      {item.key === 'park' ? '🌳 公园' : item.key === 'cafe' ? '☕ 咖啡店' : item.key === 'clinic' ? '🏥 医院' : '全部'}
                     </Text>
                   </Pressable>
                 ))}
@@ -8897,28 +8897,45 @@ function PlaceRow({ onPress, place }: { onPress: () => void; place: Place }) {
   );
 }
 
-function PlaceSheetRow({ active, onPress, place, rank }: { active?: boolean; onPress: () => void; place: Place; rank: number }) {
+function getPlaceVisualUrl(place: Place) {
+  if (place.category === 'park') return walkInviteParkPhotoUrl;
+  if (place.category === 'cafe') return placeReviewPhotoUrls[1] ?? walkInviteParkPhotoUrl;
+  if (place.category === 'clinic') return placeReviewPhotoUrls[0] ?? walkInviteParkPhotoUrl;
+  return placeReviewPhotoUrls[0] ?? walkInviteParkPhotoUrl;
+}
+
+function getPlaceCategoryLabel(place: Place) {
+  if (place.category === 'park') return '公园';
+  if (place.category === 'cafe') return '咖啡店';
+  if (place.category === 'clinic') return '宠物医院';
+  return '宠物友好地点';
+}
+
+function PlaceSheetRow({ active, onPress, place }: { active?: boolean; onPress: () => void; place: Place; rank: number }) {
   return (
     <Pressable onPress={onPress} style={[styles.placeSheetRow, active && styles.placeSheetRowActive]}>
-      <View style={[styles.placeRankBadge, active && styles.placeRankBadgeActive]}>
-        <Text style={[styles.placeRankText, active && styles.placeRankTextActive]}>{rank}</Text>
+      <View style={styles.placeSheetPhotoMake}>
+        <Image resizeMode="cover" source={{ uri: getPlaceVisualUrl(place) }} style={styles.avatarImage} />
+        <View style={styles.placeSheetRatingBadgeMake}>
+          <Star color="#FFB94B" fill="#FFB94B" size={8} strokeWidth={0} />
+          <Text style={styles.placeSheetRatingTextMake}>{place.rating}</Text>
+        </View>
       </View>
       <View style={styles.flex}>
-        <View style={styles.rowBetween}>
+        <View style={styles.placeSheetTitleRowMake}>
           <Text numberOfLines={1} style={styles.placeSheetTitle}>{place.name}</Text>
-          <View style={styles.ratingPill}>
-            <Star color={palette.orange} fill={palette.orange} size={12} strokeWidth={2} />
-            <Text style={styles.ratingText}>{place.rating}</Text>
+          <View style={styles.placeSheetDistancePillMake}>
+            <Navigation color={palette.teal} size={9} strokeWidth={2.5} />
+            <Text style={styles.placeSheetDistanceTextMake}>{place.distance}</Text>
           </View>
         </View>
-        <Text numberOfLines={1} style={styles.placeSheetMeta}>{place.address} · {place.distance}</Text>
+        <Text numberOfLines={1} style={styles.placeSheetMeta}>{getPlaceCategoryLabel(place)} · {place.address}</Text>
         <View style={styles.placeSheetTags}>
           {place.tags.slice(0, 2).map((tag) => (
             <Text key={tag} style={styles.placeSheetTag}>{tag}</Text>
           ))}
         </View>
       </View>
-      <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
     </Pressable>
   );
 }
@@ -9893,18 +9910,18 @@ const styles = StyleSheet.create({
   mapRoad: { backgroundColor: '#fffaf4', borderColor: 'rgba(218,206,192,0.8)', borderRadius: 999, borderWidth: 1, height: 24, left: -40, position: 'absolute', right: -40, top: 144, transform: [{ rotate: '-11deg' }] },
   mapAreaLabel: { backgroundColor: 'rgba(255,255,255,0.74)', borderRadius: 999, color: '#5e7d75', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', left: 22, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5, position: 'absolute', top: 116 },
   mapBottomSheet: { backgroundColor: 'rgba(255,253,249,0.98)', borderColor: 'rgba(234,223,210,0.9)', borderRadius: 28, borderWidth: 1, gap: 10, marginTop: -56, padding: 14, shadowColor: '#50371e', shadowOffset: { height: -10, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
-  mapBottomSheetMake: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, bottom: 82, gap: 10, left: 0, maxHeight: 360, overflow: 'hidden', paddingBottom: 18, paddingHorizontal: 14, paddingTop: 10, position: 'absolute', right: 0, shadowColor: '#000', shadowOffset: { height: -18, width: 0 }, shadowOpacity: 0.16, shadowRadius: 40 },
+  mapBottomSheetMake: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, bottom: 82, gap: 10, left: 0, maxHeight: 360, overflow: 'hidden', paddingBottom: 18, paddingHorizontal: 20, paddingTop: 10, position: 'absolute', right: 0, shadowColor: '#000', shadowOffset: { height: -18, width: 0 }, shadowOpacity: 0.16, shadowRadius: 40 },
   mapChipFloat: { alignItems: 'center', backgroundColor: 'rgba(255,253,249,0.92)', borderColor: 'rgba(234,223,210,0.78)', borderRadius: 999, borderWidth: 1, height: 34, justifyContent: 'center', paddingHorizontal: 13 },
   mapChipFloatActive: { backgroundColor: palette.ink, borderColor: palette.ink },
   mapChipText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   mapChipTextActive: { color: '#fff' },
   mapChipMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.95)', borderColor: palette.border, borderRadius: 16, borderWidth: 1, height: 34, justifyContent: 'center', paddingHorizontal: 14, shadowColor: '#000', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 18 },
   mapChipMakeActive: { backgroundColor: palette.ink, borderColor: palette.ink },
-  mapChipMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  mapChipMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
   mapChipMakeTextActive: { color: '#fff', fontWeight: '600' },
   mapContent: { flex: 1, position: 'relative' },
-  mapControlStack: { gap: 8, position: 'absolute', right: 16, top: 118 },
-  mapCtrlButton: { alignItems: 'center', backgroundColor: 'rgba(255,253,249,0.94)', borderColor: 'rgba(234,223,210,0.86)', borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 5, width: 0 }, shadowOpacity: 0.1, shadowRadius: 10, width: 36 },
+  mapControlStack: { gap: 8, position: 'absolute', right: 16, top: 226 },
+  mapCtrlButton: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, height: 40, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.16, shadowRadius: 18, width: 40 },
   mapCtrlButtonActive: { backgroundColor: palette.ink, borderColor: palette.ink },
   mapDimOverlayMake: { backgroundColor: 'rgba(27,28,25,0.30)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 2 },
   mapDistanceFilterLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
@@ -10361,12 +10378,18 @@ const styles = StyleSheet.create({
   placeRankText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   placeRankTextActive: { color: '#fff' },
   placeRow: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 14 },
-  placeSheetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', lineHeight: 17 },
-  placeSheetRow: { alignItems: 'center', borderColor: 'rgba(234,223,210,0.72)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 10, minHeight: 76, paddingHorizontal: 10, paddingVertical: 10 },
-  placeSheetRowActive: { backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.32)' },
+  placeSheetDistancePillMake: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 8, flexDirection: 'row', flexShrink: 0, gap: 2, marginLeft: 6, paddingHorizontal: 7, paddingVertical: 2 },
+  placeSheetDistanceTextMake: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', lineHeight: 14 },
+  placeSheetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '500', lineHeight: 16, marginTop: 2 },
+  placeSheetPhotoMake: { backgroundColor: palette.pale, borderRadius: 14, flexShrink: 0, height: 78, overflow: 'hidden', position: 'relative', width: 78 },
+  placeSheetRatingBadgeMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 7, flexDirection: 'row', gap: 2, left: 6, paddingHorizontal: 6, paddingVertical: 2, position: 'absolute', top: 6 },
+  placeSheetRatingTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 9.5, fontWeight: '700', lineHeight: 12 },
+  placeSheetRow: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: 'rgba(234,223,210,0.72)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 100, paddingHorizontal: 10, paddingVertical: 10 },
+  placeSheetRowActive: { backgroundColor: 'rgba(255,138,92,0.06)', borderColor: palette.orange, borderWidth: 1.5, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
   placeSheetTag: { backgroundColor: palette.orangeSoft, borderRadius: 999, color: palette.orange, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
-  placeSheetTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 5 },
+  placeSheetTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
   placeSheetTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 19 },
+  placeSheetTitleRowMake: { alignItems: 'center', flexDirection: 'row', gap: 6, justifyContent: 'space-between' },
   placeAddressMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, marginTop: 12, paddingHorizontal: 12, paddingVertical: 10 },
   placeAddressMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, marginTop: 5 },
   placeAddressText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 19 },
@@ -10398,13 +10421,13 @@ const styles = StyleSheet.create({
   recognitionQuality: { backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 14, color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', right: 14, top: 14 },
   recognitionSuccessBadge: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.95)', borderRadius: 14, flexDirection: 'row', gap: 5, left: 14, paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', top: 14 },
   profileCard: { alignItems: 'center', flexDirection: 'row', gap: 14 },
-  profileCurrentWrap: { marginBottom: 18, marginTop: 16, paddingHorizontal: 8 },
+  profileCurrentWrap: { marginBottom: 18, marginTop: 16, paddingHorizontal: 16 },
   profileHeroContent: { alignItems: 'center', flexDirection: 'row', gap: 14, position: 'relative' },
-  profileHeroMake: { backgroundColor: '#ffe3d1', borderRadius: 22, marginHorizontal: 8, marginTop: 16, overflow: 'hidden', padding: 18, position: 'relative' },
+  profileHeroMake: { backgroundColor: '#ffe3d1', borderRadius: 22, marginHorizontal: 16, marginTop: 16, overflow: 'hidden', padding: 18, position: 'relative' },
   profileHeroOrb: { backgroundColor: 'rgba(255,255,255,0.42)', borderRadius: 70, height: 140, position: 'absolute', right: -30, top: -20, width: 140 },
   profileMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', paddingHorizontal: 20 },
   profileMakeMenuRowValue: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
-  profileMakePage: { paddingTop: 0 },
+  profileMakePage: { paddingTop: 0, width: '100%' },
   profileMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 14 },
   profileMakeRowIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 8, height: 28, justifyContent: 'center', width: 28 },
   profileMakeRowLast: { borderBottomWidth: 0 },
@@ -10412,7 +10435,7 @@ const styles = StyleSheet.create({
   profileMakeRowTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '400', lineHeight: 20, minWidth: 0 },
   profileMakeRowValue: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 18, maxWidth: '42%', minWidth: 0, textAlign: 'right' },
   profileManageLink: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
-  profileMenuGroup: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 8, overflow: 'hidden' },
+  profileMenuGroup: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 16, overflow: 'hidden' },
   profileOwnerAvatar: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 32, borderWidth: 3, height: 64, justifyContent: 'center', overflow: 'hidden', shadowColor: '#000', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.08, shadowRadius: 10, width: 64 },
   profileOwnerName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 24 },
   profilePetBadge: { backgroundColor: '#e8f5f3', borderRadius: 6, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
