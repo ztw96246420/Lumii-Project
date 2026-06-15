@@ -255,10 +255,10 @@ export function ErrorState({
   );
 }
 
-export function LoadingState({ message = '正在为你召唤灵伴...' }: { message?: string }) {
+export function LoadingState({ message = '正在为你召唤灵伴…' }: { message?: string }) {
   return (
     <View style={styles.loadingBlock}>
-      <ActivityIndicator color={palette.orange} size="large" />
+      <ActivityIndicator color={palette.orange} size={32} />
       <Text style={styles.loadingText}>{message}</Text>
     </View>
   );
@@ -280,7 +280,7 @@ export function SkeletonLine({
 
 export function SkeletonCard() {
   return (
-    <Card>
+    <Card style={styles.skeletonCard}>
       <View style={styles.skeletonCardHeader}>
         <View style={[styles.skeletonAvatar, webSkeletonGradient]} />
         <View style={styles.skeletonTextStack}>
@@ -443,7 +443,7 @@ export const styles = StyleSheet.create({
   inputTextDisabled: { color: '#B8B3A8' },
   label: { color: palette.muted, fontFamily, fontSize: 12.5, fontWeight: '500' },
   loadingBlock: { alignItems: 'center', gap: 10, paddingVertical: 30 },
-  loadingText: { color: palette.muted, fontFamily, fontSize: 12, fontWeight: '500' },
+  loadingText: { color: palette.muted, fontFamily, fontSize: 12, fontWeight: '400', lineHeight: 17 },
   modal: { alignItems: 'center', backgroundColor: palette.card, borderRadius: 20, gap: 0, margin: 32, maxWidth: 290, paddingBottom: 16, paddingHorizontal: 18, paddingTop: 20, shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.12, shadowRadius: 30, width: 290 },
   modalActions: { alignSelf: 'stretch', flexDirection: 'row', gap: 8, justifyContent: 'center', marginTop: 16 },
   modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(20,18,14,0.50)', flex: 1, justifyContent: 'center' },
@@ -463,6 +463,7 @@ export const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 10 },
   sectionTitle: { gap: 8, marginBottom: 18 },
   skeletonAvatar: { backgroundColor: '#F0EBE0', borderRadius: 26, flexShrink: 0, height: 52, width: 52 },
+  skeletonCard: { gap: 12 },
   skeletonCardHeader: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 4 },
   skeletonLine: { backgroundColor: '#F0EBE0', borderRadius: 6 },
   skeletonTextStack: { flex: 1, gap: 8 },
