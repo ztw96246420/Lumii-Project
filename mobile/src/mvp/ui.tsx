@@ -144,24 +144,37 @@ export function StatusPill({ children, tone = 'neutral' }: { children: ReactNode
 
 export function ToggleRow({
   description,
+  disabled,
   label,
   loading,
   onValueChange,
   value,
 }: {
   description: string;
+  disabled?: boolean;
   label: string;
   loading?: boolean;
   onValueChange: () => void;
   value: boolean;
 }) {
+  const inactive = disabled || loading;
   return (
-    <Card style={styles.toggleRow}>
+    <Card style={[styles.toggleRow, disabled && styles.toggleRowDisabled]}>
       <View style={styles.toggleText}>
-        <Text style={styles.cardTitle}>{label}</Text>
-        <Text style={styles.body}>{description}</Text>
+        <Text style={[styles.cardTitle, disabled && styles.toggleTitleDisabled]}>{label}</Text>
+        <Text style={[styles.body, disabled && styles.toggleDescriptionDisabled]}>{description}</Text>
       </View>
-      <Pressable disabled={loading} onPress={onValueChange} style={[webPressableReset, styles.toggleTrack, value && styles.toggleTrackOn, loading && styles.toggleTrackLoading]}>
+      <Pressable
+        disabled={inactive}
+        onPress={onValueChange}
+        style={[
+          webPressableReset,
+          styles.toggleTrack,
+          value && styles.toggleTrackOn,
+          disabled && styles.toggleTrackDisabled,
+          loading && styles.toggleTrackLoading,
+        ]}
+      >
         <View style={[styles.toggleThumb, value && styles.toggleThumbOn]}>
           {loading ? <ActivityIndicator color={palette.muted} size="small" /> : null}
         </View>
@@ -535,11 +548,15 @@ export const styles = StyleSheet.create({
   toastTextDark: { color: '#fff' },
   toastTextSurface: { color: palette.ink },
   toastTextWrap: { flex: 1, flexShrink: 1 },
+  toggleDescriptionDisabled: { color: '#B8B3A8' },
   toggleThumb: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 11, height: 22, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.15, shadowRadius: 4, width: 22 },
   toggleThumbOn: { transform: [{ translateX: 18 }] },
   toggleRow: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  toggleRowDisabled: { opacity: 0.92 },
   toggleText: { flex: 1, gap: 4 },
+  toggleTitleDisabled: { color: '#B8B3A8' },
   toggleTrack: { backgroundColor: '#D9D5CB', borderRadius: 13, height: 26, justifyContent: 'center', padding: 2, width: 44 },
-  toggleTrackLoading: { opacity: 0.8 },
+  toggleTrackDisabled: { backgroundColor: '#EFEAE1', opacity: 0.6 },
+  toggleTrackLoading: { opacity: 1 },
   toggleTrackOn: { backgroundColor: palette.teal },
 });
