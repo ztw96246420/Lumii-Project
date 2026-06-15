@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import type { TextStyle, ViewStyle } from 'react-native';
+import type { StyleProp, TextStyle, ViewStyle } from 'react-native';
 import { AlertTriangle, Check, Info, X } from 'lucide-react-native';
 
 export const palette = {
@@ -59,8 +59,24 @@ export function Button({
   );
 }
 
-export function Card({ children, style }: { children: ReactNode; style?: object }) {
-  return <View style={[styles.card, style]}>{children}</View>;
+export function Card({
+  children,
+  style,
+  variant = 'default',
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  variant?: 'default' | 'message' | 'pet' | 'place';
+}) {
+  const variantStyle =
+    variant === 'pet'
+      ? styles.card_pet
+      : variant === 'place'
+        ? styles.card_place
+        : variant === 'message'
+          ? styles.card_message
+          : null;
+  return <View style={[styles.card, variantStyle, style]}>{children}</View>;
 }
 
 export function Field({
@@ -336,15 +352,23 @@ export const styles = StyleSheet.create({
   buttonTextPrimary: { color: '#fff' },
   card: {
     backgroundColor: palette.card,
-    borderColor: 'rgba(234,223,210,0.78)',
-    borderRadius: 20,
+    borderColor: palette.border,
+    borderRadius: 14,
     borderWidth: 1,
-    padding: 16,
-    shadowColor: '#8b5e3c',
-    shadowOffset: { height: 10, width: 0 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
+    padding: 14,
   },
+  card_message: { alignItems: 'center', borderRadius: 14, flexDirection: 'row', gap: 12, padding: 12 },
+  card_pet: {
+    alignItems: 'center',
+    backgroundColor: '#FFE8D8',
+    borderColor: 'rgba(255,138,92,0.18)',
+    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 12,
+    padding: 12,
+    ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E2 0%, #FFE3D1 100%)' } as object) : null),
+  },
+  card_place: { borderRadius: 16, flexDirection: 'row', gap: 12, padding: 12 },
   cardTitle: { color: palette.ink, fontFamily, fontSize: 16, fontWeight: '600', lineHeight: 22 },
   emptyAction: { alignSelf: 'center', backgroundColor: palette.orange, borderRadius: 12, marginTop: 4, paddingHorizontal: 18, paddingVertical: 8 },
   emptyActionText: { color: '#fff', fontFamily, fontSize: 13, fontWeight: '600' },
