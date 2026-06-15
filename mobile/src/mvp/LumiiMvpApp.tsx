@@ -22,7 +22,7 @@ import {
   StatusBar as NativeStatusBar,
   View,
 } from 'react-native';
-import type { RefreshControlProps, TextStyle, ViewStyle } from 'react-native';
+import type { KeyboardTypeOptions, RefreshControlProps, TextStyle, ViewStyle } from 'react-native';
 import {
   AlertTriangle,
   AlertCircle,
@@ -4400,25 +4400,50 @@ export default function LumiiMvpApp() {
     );
   }
 
-  function renderNoPetMakeEmpty({ onLater }: { onLater?: () => void }) {
+  function renderNoPetMakeEmpty({ onLater, variant = 'management' }: { onLater?: () => void; variant?: 'management' | 'tabHome' }) {
+    const tabHome = variant === 'tabHome';
     return (
-      <View style={styles.noPetEmptyMake}>
-        <View style={styles.noPetArtMake}>
-          <View style={styles.noPetArtGlowMake} />
-          <View style={styles.noPetPawOrbMake}>
-            <PawPrint color={palette.orange} size={72} strokeWidth={2.1} />
-          </View>
-          <View style={styles.noPetSparkleMake}>
-            <Sparkles color="#fff" size={12} strokeWidth={2.5} />
-          </View>
+      <View style={tabHome ? styles.noPetTabHomeMake : styles.noPetEmptyMake}>
+        <View style={tabHome ? styles.noPetTabArtMake : styles.noPetArtMake}>
+          {tabHome ? (
+            <>
+              <View style={styles.noPetTabGlowMake} />
+              <View style={styles.noPetTabMascotMake}>
+                <Mascot size={130} />
+              </View>
+              <View style={styles.noPetTabPlusMake}>
+                <Plus color={palette.orange} size={14} strokeWidth={2.6} />
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.noPetArtGlowMake} />
+              <View style={styles.noPetPawOrbMake}>
+                <PawPrint color={palette.orange} size={72} strokeWidth={2.1} />
+              </View>
+              <View style={styles.noPetSparkleMake}>
+                <Sparkles color="#fff" size={12} strokeWidth={2.5} />
+              </View>
+            </>
+          )}
         </View>
-        <Text style={styles.noPetTitleMake}>先添加一位灵伴吧</Text>
-        <Text style={styles.noPetDescMake}>告诉 Lumii 你家的猫咪或狗狗{'\n'}我们会为它生成一份专属健康档案和 AI 灵伴</Text>
-        <Pressable onPress={() => go('petInfo')} style={[styles.noPetPrimaryMake, webPressableReset]}>
-          <Plus color="#fff" size={15} strokeWidth={2.6} />
-          <Text style={styles.noPetPrimaryTextMake}>添加宠物</Text>
+        <Text style={tabHome ? styles.noPetTabTitleMake : styles.noPetTitleMake}>{tabHome ? '还没有添加你的毛孩子' : '先添加一位灵伴吧'}</Text>
+        <Text style={tabHome ? styles.noPetTabDescMake : styles.noPetDescMake}>
+          {tabHome ? (
+            <>
+              告诉 Lumii 你家的猫咪或狗狗{'\n'}我们会为它生成一个专属 AI 灵伴
+            </>
+          ) : (
+            <>
+              告诉 Lumii 你家的猫咪或狗狗{'\n'}我们会为它生成一份专属健康档案和 AI 灵伴
+            </>
+          )}
+        </Text>
+        <Pressable onPress={() => go('petInfo')} style={[tabHome ? styles.noPetTabPrimaryMake : styles.noPetPrimaryMake, webPressableReset]}>
+          {tabHome ? null : <Plus color="#fff" size={15} strokeWidth={2.6} />}
+          <Text style={tabHome ? styles.noPetTabPrimaryTextMake : styles.noPetPrimaryTextMake}>{tabHome ? '添加我的宠物' : '添加宠物'}</Text>
         </Pressable>
-        {onLater ? (
+        {onLater && !tabHome ? (
           <Pressable onPress={onLater} style={[styles.noPetLaterMake, webPressableReset]}>
             <Text style={styles.noPetLaterTextMake}>稍后再说</Text>
           </Pressable>
@@ -4430,7 +4455,7 @@ export default function LumiiMvpApp() {
   function renderEmptyPet() {
     return (
       <Screen showBack={false} title="我的宠物">
-        {renderNoPetMakeEmpty({ onLater: () => resetTo('profile') })}
+        {renderNoPetMakeEmpty({ onLater: () => resetTo('profile'), variant: 'tabHome' })}
       </Screen>
     );
   }
@@ -4559,7 +4584,7 @@ export default function LumiiMvpApp() {
         </View>
 
         <View style={styles.petInfoFormMake}>
-          <Field label="宠物昵称" onChangeText={(name) => setPetDraft((draft) => ({ ...draft, name }))} placeholder="例如：奶油" value={petDraft.name} />
+          <PetInfoMakeField label="宠物昵称" onChangeText={(name) => setPetDraft((draft) => ({ ...draft, name }))} placeholder="例如：豆豆" value={petDraft.name} />
           <View style={styles.optionWrap}>
             <Text style={styles.label}>宠物类型</Text>
             <View style={styles.segmentRow}>
@@ -4580,8 +4605,8 @@ export default function LumiiMvpApp() {
               ))}
             </View>
           </View>
-          <Field label="品种" onChangeText={(breed) => setPetDraft((draft) => ({ ...draft, breed }))} placeholder="例如：金毛寻回犬" value={petDraft.breed} />
-          <Field label="生日" onChangeText={(birthday) => setPetDraft((draft) => ({ ...draft, birthday }))} placeholder="例如：2024-05-30" value={petDraft.birthday} />
+          <PetInfoMakeField label="品种" onChangeText={(breed) => setPetDraft((draft) => ({ ...draft, breed }))} placeholder="例如：金毛寻回犬" value={petDraft.breed} />
+          <PetInfoMakeField label="生日" onChangeText={(birthday) => setPetDraft((draft) => ({ ...draft, birthday }))} placeholder="例如：2024-05-30" value={petDraft.birthday} />
           <View style={styles.optionWrap}>
             <Text style={styles.label}>性别</Text>
             <View style={styles.segmentRow}>
@@ -4603,11 +4628,14 @@ export default function LumiiMvpApp() {
               })}
             </View>
           </View>
-          <Field keyboardType="decimal-pad" label="体重 kg" onChangeText={(weight) => setPetDraft((draft) => ({ ...draft, weight }))} value={petDraft.weight} />
+          <PetInfoMakeField keyboardType="decimal-pad" label="当前体重" onChangeText={(weight) => setPetDraft((draft) => ({ ...draft, weight }))} placeholder="12.5" suffix="kg" value={petDraft.weight} />
         </View>
 
         <View style={styles.makeBottomActions}>
-          <Button loading={petProfileSaving} onPress={() => void savePetProfile()}>下一步：上传它的照片</Button>
+          <Pressable disabled={petProfileSaving} onPress={() => void savePetProfile()} style={[styles.petInfoPrimaryButtonMake, petProfileSaving && styles.aiCtaDisabled, webPressableReset]}>
+            {petProfileSaving ? <ActivityIndicator color="#fff" size="small" /> : null}
+            <Text style={styles.petInfoPrimaryButtonTextMake}>下一步：上传它的照片</Text>
+          </Pressable>
         </View>
       </Screen>
     );
@@ -8708,6 +8736,39 @@ function InlineErrorMake({ style, text }: { style?: ViewStyle; text: string }) {
   );
 }
 
+function PetInfoMakeField({
+  keyboardType = 'default',
+  label,
+  onChangeText,
+  placeholder,
+  suffix,
+  value,
+}: {
+  keyboardType?: KeyboardTypeOptions;
+  label: string;
+  onChangeText: (value: string) => void;
+  placeholder?: string;
+  suffix?: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.petInfoFieldMake}>
+      <Text style={styles.petInfoFieldLabelMake}>{label}</Text>
+      <View style={styles.petInfoInputShellMake}>
+        <TextInput
+          keyboardType={keyboardType}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor="#B8B5AC"
+          style={[styles.petInfoInputTextMake, webTextInputReset]}
+          value={value}
+        />
+        {suffix ? <Text style={styles.petInfoInputSuffixMake}>{suffix}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
 function Mascot({ size = 96 }: { size?: number }) {
   return (
     <View style={[styles.mascot, { borderRadius: size / 2, height: size, width: size }]}>
@@ -9295,6 +9356,15 @@ const styles = StyleSheet.create({
   noPetPrimaryMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 14, flexDirection: 'row', gap: 7, justifyContent: 'center', marginTop: 24, minHeight: 46, paddingHorizontal: 28, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.28, shadowRadius: 22 },
   noPetPrimaryTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
   noPetSparkleMake: { alignItems: 'center', backgroundColor: palette.teal, borderRadius: 11, height: 22, justifyContent: 'center', position: 'absolute', right: 8, shadowColor: palette.teal, shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.26, shadowRadius: 14, top: 14, width: 22 },
+  noPetTabArtMake: { height: 200, marginBottom: 8, position: 'relative', width: 200 },
+  noPetTabDescMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 21.6, marginTop: 10, textAlign: 'center' },
+  noPetTabGlowMake: { backgroundColor: 'rgba(255,138,92,0.16)', borderRadius: 100, bottom: 0, left: 0, opacity: 0.72, position: 'absolute', right: 0, top: 0 },
+  noPetTabHomeMake: { alignItems: 'center', justifyContent: 'center', minHeight: 620, paddingHorizontal: 32, textAlign: 'center' },
+  noPetTabMascotMake: { alignItems: 'center', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
+  noPetTabPlusMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.orange, borderRadius: 14, borderStyle: 'dashed', borderWidth: 2, bottom: 14, height: 28, justifyContent: 'center', position: 'absolute', right: 12, width: 28 },
+  noPetTabPrimaryMake: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: palette.orange, borderRadius: 26, flexDirection: 'row', gap: 7, height: 52, justifyContent: 'center', marginTop: 64, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.28, shadowRadius: 22 },
+  noPetTabPrimaryTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 16, fontWeight: '500' },
+  noPetTabTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 19, fontWeight: '600', lineHeight: 26, textAlign: 'center' },
   noPetTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '800', lineHeight: 25, textAlign: 'center' },
   deleteTextButton: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 6, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 10 },
   deleteTextButtonLabel: { color: palette.danger, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
@@ -10131,7 +10201,14 @@ const styles = StyleSheet.create({
   permissionSwitchOff: { backgroundColor: palette.pale, borderRadius: 12, height: 24, justifyContent: 'center', paddingHorizontal: 2, width: 40 },
   permissionSwitchThumb: { alignSelf: 'flex-start', backgroundColor: '#fff', borderRadius: 10, height: 20, shadowColor: '#000', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.14, shadowRadius: 4, width: 20 },
   permissionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '500', lineHeight: 22 },
+  petInfoFieldLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', marginBottom: 8 },
+  petInfoFieldMake: { gap: 0 },
   petInfoFormMake: { gap: 18, marginTop: 24, paddingHorizontal: 6 },
+  petInfoInputShellMake: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', height: 52, paddingHorizontal: 16 },
+  petInfoInputSuffixMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '500' },
+  petInfoInputTextMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 16, fontWeight: '500', height: 52, paddingHorizontal: 0 },
+  petInfoPrimaryButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.24, shadowRadius: 22 },
+  petInfoPrimaryButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 16, fontWeight: '500' },
   petTypeCheck: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 10, height: 20, justifyContent: 'center', position: 'absolute', right: 11, top: 11, width: 20 },
   petTypeEmoji: { fontSize: 25, lineHeight: 31 },
   petTypeMakeButton: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 8, minHeight: 64, paddingHorizontal: 16, position: 'relative' },
