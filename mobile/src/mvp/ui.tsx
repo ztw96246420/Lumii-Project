@@ -344,7 +344,7 @@ export function ConfirmDialog({
   title: string;
   visible: boolean;
 }) {
-  const dangerous = /删|删除|移除|退出|注销/.test(confirmText);
+  const dangerous = /删除|移除|退出|注销/.test(`${title} ${body} ${confirmText}`);
   const Icon = dangerous ? AlertTriangle : Info;
   const iconColor = dangerous ? palette.danger : palette.orange;
   return (
@@ -391,7 +391,7 @@ export const styles = StyleSheet.create({
   button_ghost: { backgroundColor: 'transparent', borderColor: palette.border, borderWidth: 1 },
   button_primary: { backgroundColor: palette.orange },
   button_secondary: { backgroundColor: '#FFF1E5' },
-  buttonDisabled: { backgroundColor: palette.pale, opacity: 1 },
+  buttonDisabled: { backgroundColor: palette.pale, borderColor: 'transparent', borderWidth: 0, opacity: 1 },
   buttonPressed: { opacity: 0.82, transform: [{ scale: 0.99 }] },
   buttonText: { color: palette.ink, fontFamily, fontSize: 14, fontWeight: '600' },
   buttonTextDisabled: { color: '#B8B3A8' },
@@ -455,12 +455,12 @@ export const styles = StyleSheet.create({
   modalIconPrimary: { backgroundColor: '#FFE6D6' },
   modalTitle: { color: palette.ink, fontFamily, fontSize: 16, fontWeight: '700', lineHeight: 22, textAlign: 'center' },
   pill: { alignSelf: 'flex-start', borderRadius: 8, fontFamily, fontSize: 11, fontWeight: '500', height: 22, lineHeight: 14, overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 4 },
-  pill_danger: { backgroundColor: '#ffdad6', color: palette.danger },
+  pill_danger: { backgroundColor: '#FBE4DE', color: palette.danger },
   pill_distance: { backgroundColor: palette.pale, color: palette.ink },
-  pill_neutral: { backgroundColor: palette.pale, color: palette.muted },
+  pill_neutral: { backgroundColor: '#F4EFE6', color: palette.muted },
   pill_selected: { backgroundColor: palette.orange, color: '#fff' },
   pill_status: { backgroundColor: palette.warningSoft, color: palette.warning },
-  pill_success: { backgroundColor: '#dff5f2', color: '#006a63' },
+  pill_success: { backgroundColor: '#E8F5F3', color: palette.teal },
   pill_warning: { backgroundColor: palette.warningSoft, color: palette.warning },
   row: { flexDirection: 'row', gap: 10 },
   sectionTitle: { gap: 8, marginBottom: 18 },

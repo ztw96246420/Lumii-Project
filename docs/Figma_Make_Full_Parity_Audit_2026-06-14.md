@@ -95,10 +95,10 @@
 | 61 | 黑名单管理 | 无 | 缺失 | 用户曾降级优先级，仍记录为缺失 |
 | 62 | 退出登录确认 | `renderLogoutConfirmSheet` + logout | 已接入-需视觉复核 | 本轮按 Screen62 改为底部 Sheet：红色退出图标块、居中标题/说明、纵向危险确认与取消按钮；不再复用普通 `ConfirmDialog` |
 | 63 | 注销账号 | 无 | 缺失 | 用户曾降级优先级，仍记录为缺失 |
-| 64 | Button 按钮 | `ui.tsx/Button` | 本轮组件已修-需截图复核 | 已按 Screen64 补 loading 小转圈 + “处理中…”中文状态、disabled 文案色，并移除全局按钮默认阴影；2026-06-16 追加修正 secondary 按钮文字/加载色为橙色；页面级 CTA 阴影仍由各页面专用样式承载 |
+| 64 | Button 按钮 | `ui.tsx/Button` | 二次收敛-需截图复核 | 已按 Screen64 补 loading 小转圈 + “处理中…”中文状态、disabled 文案色，并移除全局按钮默认阴影；2026-06-16 追加修正 secondary 按钮文字/加载色为橙色；本轮继续补 disabled 对 ghost/secondary 的边框清理，避免禁用态残留描边；页面级 CTA 阴影仍由各页面专用样式承载 |
 | 65 | Input 输入框 | `ui.tsx/Field` | 二次收敛-需截图复核 | 本轮按 Screen65 补齐 `Field` 的已填/错误/禁用状态能力：46px 高、12px 圆角、1.5px 边框、已填绿色 check、错误红色图标与 11px 错误文案、禁用暖灰底色；现有调用保持兼容 |
-| 66 | Toast · Tag · Toggle | `ui.tsx/Toast/StatusPill/ToggleRow` | 本轮组件已增强-需视觉复核 | Toast surface 继续按 Screen66 收敛：24px/8px 状态图标块、白底 14px 圆角、轻边框/阴影、action 左分割线和 13px/500 主文案；2026-06-16 追加将 surface Toast 阴影收敛为 4px/14px；Toggle/Tag 仍需截图复核 |
-| 67 | Dialog 弹窗 | `ui.tsx/ConfirmDialog` | 本轮组件已修-需截图复核 | 通用 ConfirmDialog 回到 Screen67 的 290px 宽、20px 圆角、48px 状态图标块、16px/700 标题和危险态分型；AI/导航等专用弹窗不复用该组件 |
+| 66 | Toast · Tag · Toggle | `ui.tsx/Toast/StatusPill/ToggleRow` | 二次收敛-需视觉复核 | Toast surface 继续按 Screen66 收敛：24px/8px 状态图标块、白底 14px 圆角、轻边框/阴影、action 左分割线和 13px/500 主文案；2026-06-16 追加将 surface Toast 阴影收敛为 4px/14px；本轮继续将 `StatusPill` 的 neutral/danger/success 色值收敛到 Screen66 Tag：`#F4EFE6`、`#FBE4DE`、`#E8F5F3 + #4DB6AC`；Toggle 仍需截图复核 |
+| 67 | Dialog 弹窗 | `ui.tsx/ConfirmDialog` | 二次收敛-需截图复核 | 通用 ConfirmDialog 回到 Screen67 的 290px 宽、20px 圆角、48px 状态图标块、16px/700 标题和危险态分型；本轮将危险态判断改为同时检查标题、正文与按钮文案中的“删除/移除/退出/注销”，确保中文弹窗不会误走普通态；AI/导航等专用弹窗不复用该组件 |
 | 68 | BottomSheet 底部弹层 | `ui.tsx/BottomSheet` | 本轮组件已补-需视觉复核 | BottomSheet 按真实业务弹层源码继续收敛为 40x4 handle、28px 顶部圆角、22px 横向 padding、浅边框和向上阴影；打招呼、体重编辑、地图样式面板继续截图复核 |
 | 69 | TabBar 底部导航 | bottom tabs | 二次收敛-需真机截图复核 | 本轮按 Screen69 收敛为白底 18px 圆角、1px 描边、`8px 6px` padding；选中态仅使用橙色图标/文字和 600 字重，不再加橙色背景块；地图 tab 改为定位针图标；消息 tab 接入会话未读 + 通知未读红点 |
 | 70 | Card 卡片 | `ui.tsx/Card` + 多处 card | 组件已增强-待逐屏迁移 | 本轮按 Screen70 将基础 Card 收敛为白底 14px 圆角轻描边，并新增 `pet/place/message` 变体；页面里仍有大量自写 card 样式，后续需逐屏替换/复核 |

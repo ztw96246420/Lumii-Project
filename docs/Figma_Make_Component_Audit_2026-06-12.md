@@ -19,11 +19,11 @@
 ## 已落地
 
 - `mobile/src/mvp/ui.tsx`
-  - `Button` 调整为 Screen64 的 44px 高度、14px 圆角、14px/600 字号；loading 现在显示小转圈 + “处理中…”中文状态，disabled 文案改为浅灰，通用按钮默认阴影已移除，页面级 CTA 阴影由专用样式承担；2026-06-16 追加修正 secondary 按钮文字/加载色为橙色。
+  - `Button` 调整为 Screen64 的 44px 高度、14px 圆角、14px/600 字号；loading 现在显示小转圈 + “处理中…”中文状态，disabled 文案改为浅灰，通用按钮默认阴影已移除，页面级 CTA 阴影由专用样式承担；2026-06-16 追加修正 secondary 按钮文字/加载色为橙色；本轮继续补 disabled 对 ghost/secondary 的边框清理，避免禁用态残留描边。
   - `Toast` 按 Screen66/90/94 改为默认顶部白底浮层：top 70、14px 圆角、24px 状态图标块、轻边框/阴影；带 action 的 surface Toast 补左侧分割线，`dark` 仅保留为兼容变体；2026-06-16 追加将 surface Toast 阴影收敛为 Screen66 的轻量 4px/14px。
-  - `ConfirmDialog` 按 Screen67 补齐 48px 状态图标块、居中标题/描述、普通/危险确认按钮分型；删除、移除、退出、注销类文案自动走危险态。
+  - `ConfirmDialog` 按 Screen67 补齐 48px 状态图标块、居中标题/描述、普通/危险确认按钮分型；删除、移除、退出、注销类文案自动走危险态；本轮将危险态判断扩大到标题、正文与按钮文案，避免只看按钮导致中文弹窗误判。
   - `BottomSheet` 按 Screen68 统一 36x4 handle、白底、顶部 24px 圆角、浅边框和向上阴影。
-  - `StatusPill` 字重收敛为 500，更贴近 Screen66 的轻量 Tag。
+  - `StatusPill` 字重收敛为 500，更贴近 Screen66 的轻量 Tag；本轮继续将 neutral/danger/success 色值收敛到 Screen66 Tag：`#F4EFE6`、`#FBE4DE`、`#E8F5F3 + #4DB6AC`。
 - `mobile/src/mvp/LumiiMvpApp.tsx`
   - 新增多宠、个人资料、备忘编辑、体重编辑相关表单、Sheet、危险确认和趋势卡样式。
   - Screen81-101 二次收敛：多宠管理 hero 增加源码同款底部分割健康提示，体重历史从时间线改为独立圆角记录卡，个人资料/备忘编辑表单去掉多余外层卡片，宠物档案详情字段改为源码式右值列对齐以解决贴边/不齐。
