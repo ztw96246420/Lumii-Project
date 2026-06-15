@@ -84,7 +84,7 @@
 | 50 | 点评提交成功 等待审核 | `renderAddPlaceReview` + `Toast` | 部分接入 | 已改 warning surface Toast；独立等待审核成功页仍未 1:1 |
 | 51 | 点评提交失败 | `renderAddPlaceReview` + `Toast` | 部分接入 | 已改 error surface Toast；独立失败状态仍需按 Screen51 精修 |
 | 52 | 收藏 / 取消收藏 | 地点收藏逻辑 + `Toast` | 本轮已迁移-需视觉复核 | 已按 Screen52 分 dark 收藏 Toast / surface 取消 Toast；图标与副文案仍需截图复核 |
-| 53 | 高德导航确认弹窗 | 外部导航确认 | 部分接入 | 弹窗组件已收敛，内容/按钮需按 Screen53 |
+| 53 | 高德导航确认弹窗 | `renderAmapNavigationConfirm` + 外部导航 | 已接入-需视觉复核 | 本轮按 Screen53 新增地图详情页专用确认弹窗：绿色导航图标、离开 Lumii 提示、地点摘要卡、地图应用三选项和“取消 / 打开导航”双 48px 胶囊按钮 |
 | 54 | 我的 | `renderProfile` | 已接入-需视觉复核 | 本轮按 Screen54 收敛为 5 个菜单入口，补通知红色未读徽标、不同入口图标底色和末行无分割线；顶部资料卡仍需真机截图复核 |
 | 55 | 宠物档案详情 | `renderPetDetail` | 已接入-需视觉复核 | 本轮按 Screen55 改为全宽 220px 照片 Hero、暗色渐隐、右上更换、右下白色编辑胶囊；基础信息保持左对齐，健康区改为疫苗与驱虫/健康备忘 |
 | 56 | 多宠管理 | `renderMultiPet` | 已接入-需视觉复核 | 本轮已按 Screen81 增加 hero 底部健康提示分割线、调整列表 row 高度和当前宠物 badge 字重；仍需截图复核 |

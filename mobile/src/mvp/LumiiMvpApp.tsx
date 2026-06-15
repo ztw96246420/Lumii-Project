@@ -50,6 +50,7 @@ import {
   MapPin,
   MessageCircle,
   Mic,
+  Navigation,
   NotebookPen,
   PawPrint,
   Phone,
@@ -535,6 +536,7 @@ export default function LumiiMvpApp() {
   const [history, setHistory] = useState<AppRoute[]>([]);
   const [toast, setToast] = useState<AppToast | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  const [amapNavigationPlace, setAmapNavigationPlace] = useState<Place | null>(null);
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [sessionBootstrapping, setSessionBootstrapping] = useState(true);
 
@@ -811,6 +813,11 @@ export default function LumiiMvpApp() {
         return true;
       }
 
+      if (amapNavigationPlace) {
+        setAmapNavigationPlace(null);
+        return true;
+      }
+
       if (mapStylePanelVisible) {
         setMapStylePanelVisible(false);
         return true;
@@ -837,7 +844,7 @@ export default function LumiiMvpApp() {
     });
 
     return () => subscription.remove();
-  }, [activePet, back, confirm, mapStylePanelVisible, resetTo, route, showToast]);
+  }, [activePet, amapNavigationPlace, back, confirm, mapStylePanelVisible, resetTo, route, showToast]);
 
   useEffect(() => {
     let mounted = true;
@@ -3649,6 +3656,7 @@ export default function LumiiMvpApp() {
     clearScheduledPushRegistration();
     setLumiiAuthToken();
     setConfirm(null);
+    setAmapNavigationPlace(null);
     setToast(null);
     setSession(null);
     activePetIdRef.current = null;
@@ -6535,7 +6543,7 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.actionRow}>
                 <Button loading={isFavoriteSaving} onPress={() => void toggleFavoritePlace(place)} tone="secondary">{isFavoritePlace ? '已收藏' : '收藏'}</Button>
-                <Button onPress={() => openConfirm('打开高德地图', `将打开高德地图查看${place.name}，你可以在高德内继续发起导航。`, () => void openAmapPlace(place), '打开')}>高德导航</Button>
+                <Button onPress={() => setAmapNavigationPlace(place)}>高德导航</Button>
               </View>
               <View style={styles.weightInputMake}>
                 <Field label="点评内容" onChangeText={setPlaceReviewDraft} placeholder="例如：草坪很大，有饮水点" value={placeReviewDraft} />
@@ -6560,6 +6568,66 @@ export default function LumiiMvpApp() {
           />
         )}
       </Screen>
+    );
+  }
+
+  function renderAmapNavigationConfirm() {
+    const place = amapNavigationPlace;
+    if (!place) return null;
+    return (
+      <Modal animationType="fade" onRequestClose={() => setAmapNavigationPlace(null)} transparent visible>
+        <View style={styles.amapConfirmBackdropMake}>
+          <View style={styles.amapConfirmModalMake}>
+            <View style={styles.amapConfirmIconMake}>
+              <Navigation color="#fff" size={26} strokeWidth={2.4} />
+            </View>
+            <Text style={styles.amapConfirmTitleMake}>即将打开高德地图导航</Text>
+            <Text style={styles.amapConfirmBodyMake}>
+              离开 Lumii 前往高德地图{'\n'}为「{place.name}」规划路线
+            </Text>
+            <View style={styles.amapConfirmPlaceMake}>
+              <View style={styles.amapConfirmPlaceIconMake}>
+                <Stethoscope color={palette.danger} size={18} strokeWidth={2.4} />
+              </View>
+              <View style={styles.flex}>
+                <Text numberOfLines={1} style={styles.amapConfirmPlaceTitleMake}>{place.name}</Text>
+                <Text numberOfLines={1} style={styles.amapConfirmPlaceMetaMake}>{place.address} · {place.distance}</Text>
+              </View>
+              <View style={styles.amapConfirmEtaMake}>
+                <Navigation color={palette.teal} size={11} strokeWidth={2.6} />
+                <Text style={styles.amapConfirmEtaTextMake}>约 8 分钟</Text>
+              </View>
+            </View>
+            <View style={styles.amapConfirmAppRowMake}>
+              <View style={[styles.amapConfirmAppPickMake, styles.amapConfirmAppPickActiveMake]}>
+                <Text style={[styles.amapConfirmAppLabelMake, styles.amapConfirmAppLabelActiveMake]}>高德地图</Text>
+                <Text style={styles.amapConfirmAppSubMake}>推荐</Text>
+              </View>
+              <View style={styles.amapConfirmAppPickMake}>
+                <Text style={styles.amapConfirmAppLabelMake}>百度地图</Text>
+              </View>
+              <View style={styles.amapConfirmAppPickMake}>
+                <Text style={styles.amapConfirmAppLabelMake}>苹果地图</Text>
+              </View>
+            </View>
+            <View style={styles.amapConfirmActionsMake}>
+              <Pressable onPress={() => setAmapNavigationPlace(null)} style={[styles.amapConfirmCancelMake, webPressableReset]}>
+                <Text style={styles.amapConfirmCancelTextMake}>取消</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setAmapNavigationPlace(null);
+                  void openAmapPlace(place);
+                }}
+                style={[styles.amapConfirmSubmitMake, webPressableReset]}
+              >
+                <Navigation color="#fff" size={14} strokeWidth={2.6} />
+                <Text style={styles.amapConfirmSubmitTextMake}>打开导航</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     );
   }
 
@@ -7677,6 +7745,7 @@ export default function LumiiMvpApp() {
           ) : null}
           <Toast actionText={toast?.actionText} message={toast?.message} subtitle={toast?.subtitle} tone={toast?.tone} variant={toast?.variant} />
           {renderGreetingSheet()}
+          {renderAmapNavigationConfirm()}
           {renderLogoutConfirmSheet()}
           {renderPetDeleteConfirmSheet()}
           {renderWeightDeleteConfirm()}
@@ -8059,6 +8128,28 @@ const styles = StyleSheet.create({
   addPlaceHero: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 22, flexDirection: 'row', gap: 13, paddingHorizontal: 18, paddingVertical: 18, shadowColor: '#8b5e3c', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.16, shadowRadius: 30 },
   addPlaceHeroSub: { color: 'rgba(255,255,255,0.88)', flex: 1, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18, marginTop: 4 },
   addPlaceHeroTitle: { color: '#fff', fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', lineHeight: 23 },
+  amapConfirmActionsMake: { flexDirection: 'row', gap: 8, marginTop: 16 },
+  amapConfirmAppLabelActiveMake: { color: palette.orange, fontWeight: '600' },
+  amapConfirmAppLabelMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 17 },
+  amapConfirmAppPickActiveMake: { backgroundColor: 'rgba(255,138,92,0.10)', borderColor: palette.orange, borderWidth: 1.5 },
+  amapConfirmAppPickMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flex: 1, height: 56, justifyContent: 'center', position: 'relative' },
+  amapConfirmAppRowMake: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  amapConfirmAppSubMake: { backgroundColor: '#fff', borderRadius: 6, color: palette.orange, fontFamily: appFontFamily, fontSize: 9.5, fontWeight: '700', marginTop: 2, overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
+  amapConfirmBackdropMake: { alignItems: 'center', backgroundColor: 'rgba(27,28,25,0.45)', flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
+  amapConfirmBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 21, marginTop: 8, textAlign: 'center' },
+  amapConfirmCancelMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 24, flex: 1, height: 48, justifyContent: 'center' },
+  amapConfirmCancelTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '500' },
+  amapConfirmEtaMake: { alignItems: 'center', flexDirection: 'row', flexShrink: 0, gap: 2 },
+  amapConfirmEtaTextMake: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
+  amapConfirmIconMake: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#4CB251', borderRadius: 28, height: 56, justifyContent: 'center', marginBottom: 12, shadowColor: '#4CB251', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.32, shadowRadius: 24, width: 56 },
+  amapConfirmModalMake: { backgroundColor: '#fff', borderRadius: 24, maxWidth: 320, paddingBottom: 18, paddingHorizontal: 20, paddingTop: 22, shadowColor: '#000', shadowOffset: { height: 30, width: 0 }, shadowOpacity: 0.26, shadowRadius: 60, width: '100%' },
+  amapConfirmPlaceIconMake: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.14)', borderRadius: 12, flexShrink: 0, height: 40, justifyContent: 'center', width: 40 },
+  amapConfirmPlaceMake: { alignItems: 'center', backgroundColor: palette.background, borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 14, paddingHorizontal: 12, paddingVertical: 10 },
+  amapConfirmPlaceMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, lineHeight: 15, marginTop: 2 },
+  amapConfirmPlaceTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', lineHeight: 19 },
+  amapConfirmSubmitMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 24, flex: 1, flexDirection: 'row', gap: 6, height: 48, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.26, shadowRadius: 24 },
+  amapConfirmSubmitTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '600' },
+  amapConfirmTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', letterSpacing: 0, lineHeight: 24, textAlign: 'center' },
   agreementRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 8, marginTop: 18 },
   agreementText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 21 },
   appWrap: { alignItems: 'center', backgroundColor: '#e8e2d9', flex: 1, justifyContent: 'center' },
