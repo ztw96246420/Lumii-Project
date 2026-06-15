@@ -3934,11 +3934,12 @@ export default function LumiiMvpApp() {
   const Screen = useCallback(
     function ScreenView({ children, refreshControl, right, showBack = true, title }: { children: ReactNode; refreshControl?: ReactElement<RefreshControlProps>; right?: ReactNode; showBack?: boolean; title?: string }) {
       const headerTitle = title ?? routeTitles[route] ?? '灵伴';
-      const hideHeader = Boolean(placeSubmitResult) || route === 'login' || route === 'home' || route === 'discover' || route === 'map' || route === 'messages' || route === 'profile' || route === 'chat' || route === 'placeDetail';
+      const hideHeader = Boolean(placeSubmitResult) || route === 'login' || route === 'home' || route === 'discover' || route === 'map' || route === 'messages' || route === 'profile' || route === 'chat' || route === 'conversation' || route === 'placeDetail';
       const isLoginRoute = route === 'login';
       const isOtpRoute = route === 'otp';
       const isMapRoute = route === 'map';
       const isPetChatRoute = route === 'chat';
+      const isConversationRoute = route === 'conversation';
       return (
         <View style={styles.screen}>
           {Platform.OS === 'web' ? <PhoneStatusBar /> : null}
@@ -3961,7 +3962,7 @@ export default function LumiiMvpApp() {
             <View style={styles.otpContent}>{children}</View>
           ) : isMapRoute ? (
             <View style={styles.mapContent}>{children}</View>
-          ) : isPetChatRoute ? (
+          ) : isPetChatRoute || isConversationRoute ? (
             <View style={[styles.content, styles.chatRouteContent]}>{children}</View>
           ) : isLoginRoute ? (
             <View style={[styles.content, styles.loginContent]}>{children}</View>
@@ -5093,108 +5094,188 @@ export default function LumiiMvpApp() {
     const canSendMessage = Boolean(conversation && conversation.canSendMessage !== false);
     const conversationInput = conversation ? conversationDraftsById[conversation.id] ?? '' : '';
     const failedConversationMessage = conversationMessages.slice().reverse().find((message) => message.author === 'me' && message.status === 'failed');
+    const conversationAvatarUri = conversation?.imageUrl ?? owners[0]?.imageUrl ?? generatedGoldenAvatarUri;
+    const firstConversationTime = conversationMessages.find((message) => message.author !== 'system')?.time;
+    const conversationDateText = firstConversationTime && firstConversationTime !== '刚刚' ? `今天 ${firstConversationTime}` : '今天';
+    const parseWalkInviteMessage = (text: string) => {
+      const [rawFirstLine, ...noteLines] = text.split('\n');
+      const firstLine = rawFirstLine.trim();
+      const body = firstLine.includes('邀请你：') ? firstLine.split('邀请你：').pop()!.trim() : firstLine;
+      const parts = body.split(' · ');
+      const time = parts[0]?.trim();
+      const place = parts.slice(1).join(' · ').trim();
+      const maybeInvite = Boolean(time && place && /(\d{1,2}:\d{2}|今天|明天|周)/.test(time) && /(公园|西门|东门|咖啡|草坪|广场|宠物|医院|店|河边)/.test(place));
+      return maybeInvite ? { note: noteLines.join('\n').trim(), place, time } : null;
+    };
     return (
       <Screen showBack={false} title="">
-        <View style={styles.chatMakeHeader}>
-          <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={styles.makeIconChip}>
-            <ChevronLeft color={palette.ink} size={20} strokeWidth={2.5} />
-          </Pressable>
-          <PetAvatar uri={conversation?.imageUrl ?? owners[0]?.imageUrl ?? generatedGoldenAvatarUri} size={38} />
-          <View style={styles.flex}>
-            <Text style={styles.chatMakeName}>{conversation?.name ?? '会话已失效'}</Text>
-            <View style={styles.chatOnlineRow}>
-              <View style={styles.homeOnlineDot} />
-              <Text style={styles.chatOnlineText}>{conversation ? (canSendMessage ? '模糊距离 · 已互相打招呼' : '等待对方接受招呼') : '请返回消息列表重新选择'}</Text>
+        <View style={styles.chatPageMake}>
+          <View style={styles.chatMakeHeader}>
+            <View style={styles.chatHeaderLeftMake}>
+              <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={styles.chatBackButtonMake}>
+                <ChevronLeft color={palette.ink} size={22} strokeWidth={2.5} />
+              </Pressable>
+              <View style={styles.conversationHeaderAvatarMake}>
+                <PetAvatar uri={conversationAvatarUri} size={40} />
+                {conversation ? (
+                  <View style={styles.conversationHeaderOwnerBadgeMake}>
+                    <User color={palette.orange} size={9} strokeWidth={2.5} />
+                  </View>
+                ) : null}
+              </View>
+              <View style={styles.flex}>
+                <Text numberOfLines={1} style={styles.chatMakeName}>{conversation?.name ?? '会话已失效'}</Text>
+                <View style={styles.chatOnlineRow}>
+                  <View style={[styles.homeOnlineDot, !canSendMessage && styles.chatOfflineDotMake]} />
+                  <Text numberOfLines={1} style={[styles.chatOnlineText, !canSendMessage && styles.chatOnlineTextMutedMake]}>{conversation ? (canSendMessage ? '在线 · 模糊距离' : '等待对方接受招呼') : '请返回消息列表重新选择'}</Text>
+                </View>
+              </View>
             </View>
-          </View>
-          <Pressable onPress={() => go('safety')} style={styles.makeIconChip}>
-            <Shield color={palette.orange} size={16} strokeWidth={2.3} />
-          </Pressable>
-        </View>
-
-        <View style={styles.chatSafetyTip}>
-          <Shield color={palette.teal} size={13} strokeWidth={2.4} />
-          <Text style={styles.chatSafetyText}>
-            {conversation ? (canSendMessage ? '聊天中请勿透露精确住址，线下见面建议选择公开宠物友好地点。' : '对方接受招呼后才能继续聊天，未确认前不会暴露精确位置。') : '当前会话已经不可用，请回到消息列表刷新后重新选择。'}
-          </Text>
-        </View>
-
-        {conversation && failedConversationMessage ? (
-          <View style={styles.chatErrorBanner}>
-            <AlertTriangle color={palette.danger} size={14} strokeWidth={2.4} />
-            <Text style={styles.chatErrorBannerText}>网络不稳定，消息可能延迟送达</Text>
-            <Pressable onPress={() => void sendConversationMessage(failedConversationMessage.text, failedConversationMessage.id)} style={styles.chatErrorBannerAction}>
-              <RefreshCw color={palette.danger} size={11} strokeWidth={2.5} />
-              <Text style={styles.chatErrorBannerActionText}>重连</Text>
+            <Pressable accessibilityLabel="更多" accessibilityRole="button" onPress={() => showToast('聊天设置后续开放')} style={styles.makeIconChip}>
+              <MoreHorizontal color={palette.ink} size={16} strokeWidth={2.4} />
             </Pressable>
           </View>
-        ) : null}
 
-        <View style={styles.chatMakeList}>
-          <Text style={styles.chatDateChip}>今天</Text>
-          {conversation ? (
-            conversationMessages.map((message) => (
-              message.author === 'system' ? (
-                <View key={message.id} style={styles.conversationSystemBubble}>
-                  <Text style={styles.conversationSystemText}>{message.text}</Text>
-                </View>
-              ) : (
-                <View key={message.id} style={styles.chatMessageGroup}>
-                  <View style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
-                    {message.author === 'other' ? <PetAvatar uri={conversation.imageUrl ?? owners[0]?.imageUrl ?? generatedGoldenAvatarUri} size={26} /> : null}
-                    <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
-                      <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
-                    </View>
-                    {message.status === 'sending' ? <ActivityIndicator color={palette.orange} size="small" /> : null}
+          <View style={styles.chatSafetyTip}>
+            <Shield color={palette.teal} size={13} strokeWidth={2.4} />
+            <Text style={styles.chatSafetyText}>
+              {conversation ? (canSendMessage ? '请勿转账或线下单独见面，注意宠物与人身安全' : '对方接受招呼后才能继续聊天，未确认前不会暴露精确位置') : '当前会话已经不可用，请回到消息列表刷新后重新选择'}
+            </Text>
+            <Pressable accessibilityLabel="举报" accessibilityRole="button" onPress={() => go('safety')} style={webPressableReset}>
+              <Flag color={palette.teal} size={12} strokeWidth={2.4} />
+            </Pressable>
+          </View>
+
+          {conversation && failedConversationMessage ? (
+            <View style={styles.chatErrorBanner}>
+              <AlertTriangle color={palette.danger} size={14} strokeWidth={2.4} />
+              <Text style={styles.chatErrorBannerText}>网络不稳定，消息可能延迟送达</Text>
+              <Pressable onPress={() => void sendConversationMessage(failedConversationMessage.text, failedConversationMessage.id)} style={styles.chatErrorBannerAction}>
+                <RefreshCw color={palette.danger} size={11} strokeWidth={2.5} />
+                <Text style={styles.chatErrorBannerActionText}>重连</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          <ScrollView contentContainerStyle={styles.chatMakeList} keyboardDismissMode="none" keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false} style={styles.chatMakeScroller}>
+            <Text style={styles.chatDateChip}>{conversationDateText}</Text>
+            {conversation ? (
+              conversationMessages.map((message) => {
+                const invite = message.author !== 'system' ? parseWalkInviteMessage(message.text) : null;
+                return message.author === 'system' ? (
+                  <View key={message.id} style={styles.conversationSystemBubble}>
+                    <Text style={styles.conversationSystemText}>{message.text}</Text>
                   </View>
-                  {message.author === 'me' && message.status === 'failed' ? (
-                    <View style={[styles.messageRetryCard, styles.messageRetryCardMe]}>
-                      <View style={styles.messageRetryIcon}>
-                        <AlertTriangle color={palette.danger} size={15} strokeWidth={2.4} />
-                      </View>
-                      <View style={styles.flex}>
-                        <Text style={styles.messageRetryTitle}>消息未送达</Text>
-                        <Text style={styles.messageRetryText}>点击重试或删除这条消息</Text>
-                      </View>
-                      <View style={styles.messageRetryActions}>
-                        <Pressable onPress={() => void sendConversationMessage(message.text, message.id)} style={styles.messageRetryButton}>
-                          <RefreshCw color="#fff" size={11} strokeWidth={2.5} />
-                          <Text style={styles.messageRetryButtonText}>重试</Text>
-                        </Pressable>
-                        <Pressable onPress={() => deleteLocalConversationMessage(message.id)} style={styles.messageRetryDelete}>
-                          <Text style={styles.messageRetryDeleteText}>删除</Text>
-                        </Pressable>
-                      </View>
+                ) : (
+                  <View key={message.id} style={styles.chatMessageGroup}>
+                    <View style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
+                      {message.author === 'other' ? <PetAvatar uri={conversationAvatarUri} size={26} /> : null}
+                      {invite ? (
+                        <View style={[styles.chatInviteBubbleMake, message.author === 'me' && styles.chatInviteBubbleMeMake]}>
+                          <Image resizeMode="cover" source={{ uri: walkInviteParkPhotoUrl }} style={styles.chatInviteHeroImageMake} />
+                          <View style={styles.chatInviteHeroOverlayMake} />
+                          <View style={styles.chatInviteBadgeMake}>
+                            <PawPrint color={palette.orange} size={10} strokeWidth={2.6} />
+                            <Text style={styles.chatInviteBadgeTextMake}>约遛邀请</Text>
+                          </View>
+                          <Text numberOfLines={1} style={styles.chatInvitePlaceMake}>{invite.place}</Text>
+                          <View style={styles.chatInviteBodyMake}>
+                            <View style={styles.chatInviteTimeRowMake}>
+                              <CalendarDays color={palette.orange} size={12} strokeWidth={2.4} />
+                              <Text numberOfLines={1} style={styles.chatInviteTimeTextMake}>{invite.time}</Text>
+                            </View>
+                            {invite.note ? <Text numberOfLines={2} style={styles.chatInviteNoteMake}>{invite.note}</Text> : null}
+                            <View style={styles.chatInviteActionsMake}>
+                              <Pressable onPress={() => showToast('已暂存，稍后可在消息中继续确认')} style={[styles.chatInviteSecondaryMake, webPressableReset]}>
+                                <Text style={styles.chatInviteSecondaryTextMake}>稍后再说</Text>
+                              </Pressable>
+                              <Pressable onPress={() => showToast('约遛确认功能后续接入')} style={[styles.chatInvitePrimaryMake, webPressableReset]}>
+                                <Text style={styles.chatInvitePrimaryTextMake}>{message.author === 'me' ? '已发送' : '接受'}</Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                        </View>
+                      ) : (
+                        <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
+                          <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
+                        </View>
+                      )}
+                      {message.status === 'sending' ? (
+                        <View style={styles.chatSendingMetaMake}>
+                          <ActivityIndicator color={palette.muted} size="small" />
+                          <Text style={styles.chatSendingTextMake}>发送中</Text>
+                        </View>
+                      ) : null}
                     </View>
-                  ) : null}
-                </View>
-              )
-            ))
-          ) : (
-            <ErrorState
-              action="回到消息"
-              description="对方可能已不可见，或会话状态已刷新。请回到消息列表重新选择。"
-              icon={<MessageCircle color={palette.danger} size={20} strokeWidth={2.4} />}
-              iconTone="danger"
-              onAction={() => replace('messages')}
-              title="会话已失效"
-            />
-          )}
-        </View>
-        <View style={styles.chatComposer}>
-          <TextInput
-            editable={canSendMessage}
-            onChangeText={(text) => {
-              if (conversation) setConversationDraft(conversation.id, text);
-            }}
-            placeholder={conversation ? (canSendMessage ? '发一条友好的消息...' : '等待对方接受招呼') : '请先选择会话'}
-            placeholderTextColor="#b6aca3"
-            style={[styles.chatInput, !canSendMessage && styles.chatInputDisabled, webTextInputReset]}
-            value={conversationInput}
-          />
-          <Pressable disabled={!canSendMessage} onPress={() => void sendConversationMessage()} style={[styles.sendButton, !canSendMessage && styles.mapSearchActionDisabled]}>
-            <Send color="#fff" size={18} strokeWidth={2.4} />
-          </Pressable>
+                    {message.author === 'me' && message.status === 'failed' ? (
+                      <View style={[styles.messageRetryCard, styles.messageRetryCardMe]}>
+                        <View style={styles.messageRetryIcon}>
+                          <AlertTriangle color={palette.danger} size={15} strokeWidth={2.4} />
+                        </View>
+                        <View style={styles.flex}>
+                          <Text style={styles.messageRetryTitle}>消息未送达</Text>
+                          <Text style={styles.messageRetryText}>点击重试或删除这条消息</Text>
+                        </View>
+                        <View style={styles.messageRetryActions}>
+                          <Pressable onPress={() => void sendConversationMessage(message.text, message.id)} style={styles.messageRetryButton}>
+                            <RefreshCw color="#fff" size={11} strokeWidth={2.5} />
+                            <Text style={styles.messageRetryButtonText}>重试</Text>
+                          </Pressable>
+                          <Pressable onPress={() => deleteLocalConversationMessage(message.id)} style={styles.messageRetryDelete}>
+                            <Text style={styles.messageRetryDeleteText}>删除</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })
+            ) : (
+              <ErrorState
+                action="回到消息"
+                description="对方可能已不可见，或会话状态已刷新。请回到消息列表重新选择。"
+                icon={<MessageCircle color={palette.danger} size={20} strokeWidth={2.4} />}
+                iconTone="danger"
+                onAction={() => replace('messages')}
+                title="会话已失效"
+              />
+            )}
+          </ScrollView>
+
+          <View style={styles.chatBottomDock}>
+            <ScrollView horizontal contentContainerStyle={styles.chatAttachmentRowMake} keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false}>
+              {[
+                { Icon: MapPin, label: '地点' },
+                { Icon: PawPrint, label: '宠物卡' },
+                { Icon: CalendarDays, label: '约遛' },
+                { Icon: ImagePlus, label: '相册' },
+              ].map(({ Icon, label }) => (
+                <Pressable key={label} onPress={() => showToast(`${label}发送后续开放`)} style={[styles.chatAttachmentChipMake, webPressableReset]}>
+                  <Icon color={palette.ink} size={12} strokeWidth={2.3} />
+                  <Text style={styles.chatAttachmentTextMake}>{label}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <View style={styles.chatComposerRow}>
+              <View style={[styles.chatComposer, !canSendMessage && styles.opacity60]}>
+                <TextInput
+                  editable={canSendMessage}
+                  onChangeText={(text) => {
+                    if (conversation) setConversationDraft(conversation.id, text);
+                  }}
+                  placeholder={conversation ? (canSendMessage ? '说点什么...' : '等待对方接受招呼') : '请先选择会话'}
+                  placeholderTextColor="#b6aca3"
+                  style={[styles.chatInput, !canSendMessage && styles.chatInputDisabled, webTextInputReset]}
+                  value={conversationInput}
+                />
+                <Mic color={palette.muted} size={17} strokeWidth={2.2} />
+                <Camera color={palette.muted} size={17} strokeWidth={2.2} />
+              </View>
+              <Pressable disabled={!canSendMessage} onPress={() => void sendConversationMessage()} style={[styles.sendButton, !canSendMessage && styles.mapSearchActionDisabled]}>
+                <Send color="#fff" size={16} strokeWidth={2.4} />
+              </Pressable>
+            </View>
+          </View>
         </View>
       </Screen>
     );
@@ -8767,6 +8848,7 @@ const styles = StyleSheet.create({
   chatAvatarDot: { backgroundColor: palette.teal, borderColor: '#fff', borderRadius: 6, borderWidth: 2, bottom: -1, height: 12, position: 'absolute', right: -1, width: 12 },
   chatAvatarWrap: { borderColor: '#fff', borderRadius: 19, borderWidth: 2, height: 38, overflow: 'visible', position: 'relative', shadowColor: '#50371e', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.18, shadowRadius: 10, width: 38 },
   chatBackButton: { alignItems: 'center', height: 36, justifyContent: 'center', width: 26 },
+  chatBackButtonMake: { alignItems: 'center', height: 40, justifyContent: 'center', marginLeft: -2, width: 24 },
   chatBottomDock: { backgroundColor: palette.background, paddingBottom: Platform.OS === 'web' ? 8 : 2, paddingTop: 8 },
   chatComposer: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 8, minHeight: 48, paddingHorizontal: 14, paddingVertical: 0, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.08, shadowRadius: 20 },
   chatComposerRow: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 6 },
@@ -8776,8 +8858,25 @@ const styles = StyleSheet.create({
   chatErrorBannerActionText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
   chatErrorBannerText: { color: palette.danger, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
   chatHeaderCopy: { flex: 1, minWidth: 0 },
+  chatHeaderLeftMake: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 12, minWidth: 0 },
   chatInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, minHeight: 40, paddingHorizontal: 2 },
   chatInputDisabled: { color: palette.muted },
+  chatInviteActionsMake: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  chatInviteBadgeMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 8, flexDirection: 'row', gap: 4, left: 10, paddingHorizontal: 8, paddingVertical: 3, position: 'absolute', top: 10 },
+  chatInviteBadgeTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '800' },
+  chatInviteBodyMake: { backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 10 },
+  chatInviteBubbleMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderBottomLeftRadius: 4, borderWidth: 1, maxWidth: 260, overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.08, shadowRadius: 14, width: 240 },
+  chatInviteBubbleMeMake: { borderBottomLeftRadius: 18, borderBottomRightRadius: 4 },
+  chatInviteHeroImageMake: { height: 96, width: '100%' },
+  chatInviteHeroOverlayMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,0.52) 100%)' } as object) : null), backgroundColor: 'rgba(0,0,0,0.14)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
+  chatInviteNoteMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 17, marginTop: 6 },
+  chatInvitePlaceMake: { bottom: 8, color: '#fff', fontFamily: appFontFamily, fontSize: 13, fontWeight: '800', left: 10, lineHeight: 18, position: 'absolute', right: 10 },
+  chatInvitePrimaryMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 15, flex: 1, height: 30, justifyContent: 'center' },
+  chatInvitePrimaryTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  chatInviteSecondaryMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 15, flex: 1, height: 30, justifyContent: 'center' },
+  chatInviteSecondaryTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
+  chatInviteTimeRowMake: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  chatInviteTimeTextMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', lineHeight: 17 },
   chatList: { gap: 10, minHeight: 520 },
   chatMakeBubble: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderBottomLeftRadius: 4, borderWidth: 1, maxWidth: '82%', paddingHorizontal: 14, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
   chatMakeBubbleMe: { backgroundColor: palette.orange, borderBottomLeftRadius: 18, borderBottomRightRadius: 4, borderColor: palette.orange, shadowColor: palette.orange, shadowOpacity: 0.18 },
@@ -8789,6 +8888,8 @@ const styles = StyleSheet.create({
   chatMakeName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', lineHeight: 20 },
   chatMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 22 },
   chatMessageGroup: { gap: 8 },
+  chatOfflineDotMake: { backgroundColor: palette.muted },
+  chatOnlineTextMutedMake: { color: palette.muted },
   chatFeedbackChip: { backgroundColor: 'rgba(255,255,255,0.72)', borderColor: palette.border, borderRadius: 999, borderWidth: 1, paddingHorizontal: 9, paddingVertical: 4 },
   chatFeedbackChipActive: { backgroundColor: palette.orangeSoft, borderColor: 'rgba(255,138,92,0.42)' },
   chatFeedbackRow: { flexDirection: 'row', gap: 6, marginLeft: 2, marginTop: 5 },
@@ -8801,6 +8902,11 @@ const styles = StyleSheet.create({
   chatRouteContent: { flex: 1, gap: 0, paddingBottom: Platform.OS === 'web' ? 18 : 12, paddingHorizontal: 16, paddingTop: 0 },
   chatSafetyText: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17 },
   chatSafetyTip: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.25)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 4, paddingHorizontal: 12, paddingVertical: 8 },
+  chatSendingMetaMake: { alignItems: 'center', flexDirection: 'row', gap: 4, marginBottom: 4 },
+  chatSendingTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600' },
+  chatAttachmentChipMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingVertical: 6, shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
+  chatAttachmentRowMake: { gap: 8, paddingBottom: 4, paddingRight: 14 },
+  chatAttachmentTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
   chatTopicChip: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexShrink: 0, paddingHorizontal: 12, paddingVertical: 8, shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
   chatTopicRow: { gap: 8, paddingBottom: 4, paddingRight: 14 },
   chatTopicText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
@@ -9452,6 +9558,8 @@ const styles = StyleSheet.create({
   conversationAiAvatarRingMake: { alignItems: 'center', borderColor: palette.orange, borderRadius: 27, borderWidth: 2, height: 54, justifyContent: 'center', overflow: 'hidden', width: 54 },
   conversationAiBadge: { alignItems: 'center', backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 10, borderWidth: 2, bottom: -3, height: 20, justifyContent: 'center', position: 'absolute', right: -3, width: 20 },
   conversationAvatarWrap: { position: 'relative' },
+  conversationHeaderAvatarMake: { position: 'relative' },
+  conversationHeaderOwnerBadgeMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 10, borderWidth: 2, bottom: -3, height: 20, justifyContent: 'center', position: 'absolute', right: -3, shadowColor: '#50371e', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.12, shadowRadius: 10, width: 20 },
   conversationMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 74, paddingVertical: 12 },
   conversationInvitePrefixMake: { color: palette.orange, flexShrink: 0, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 18, marginRight: 4 },
   conversationMakeText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18 },
