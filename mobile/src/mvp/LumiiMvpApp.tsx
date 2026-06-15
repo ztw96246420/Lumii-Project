@@ -545,6 +545,7 @@ export default function LumiiMvpApp() {
   const sendLoadingRef = useRef(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
   const verifyLoadingRef = useRef(false);
+  const [loginSuccessLoading, setLoginSuccessLoading] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [otpMeta, setOtpMeta] = useState<SmsCodeTicket | null>(null);
   const [otpInlineError, setOtpInlineError] = useState('');
@@ -1828,6 +1829,7 @@ export default function LumiiMvpApp() {
       const currentTicket = otpMetaRef.current;
       if (!currentTicket || currentTicket.phone !== ticket.phone || currentTicket.expiresAt !== ticket.expiresAt) return;
       if (result.data) {
+        setLoginSuccessLoading(true);
         await restoreAfterLogin(result.data);
       } else {
         const message = result.error?.message ?? '验证码校验失败';
@@ -1837,6 +1839,7 @@ export default function LumiiMvpApp() {
     } finally {
       verifyLoadingRef.current = false;
       setVerifyLoading(false);
+      setLoginSuccessLoading(false);
     }
   }
 
@@ -3660,6 +3663,7 @@ export default function LumiiMvpApp() {
     setSendLoading(false);
     verifyLoadingRef.current = false;
     setVerifyLoading(false);
+    setLoginSuccessLoading(false);
     setOtpCode('');
     otpMetaRef.current = null;
     setOtpMeta(null);
@@ -3991,6 +3995,27 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderLoginSuccessLoading() {
+    return (
+      <View style={styles.loginSuccessPageMake}>
+        <PetAvatar size={120} uri={generatedGoldenAvatarUri} />
+        <View style={styles.loginSuccessLoadingRowMake}>
+          <ActivityIndicator color={palette.orange} size="small" />
+          <Text style={styles.loginSuccessLoadingTextMake}>登录中...</Text>
+        </View>
+        <Text style={styles.loginSuccessHintMake}>
+          正在为你唤醒专属灵伴{'\n'}请稍候片刻
+        </Text>
+        <View style={styles.loginSuccessDotsMake}>
+          {[0, 1, 2].map((index) => (
+            <View key={index} style={[styles.loginSuccessDotMake, index === 0 && styles.loginSuccessDotActiveMake]} />
+          ))}
+        </View>
+        <View style={styles.homeIndicator} />
+      </View>
+    );
+  }
+
   function renderOtp() {
     const canResend = cooldownRemaining === 0 && !sendLoading;
     const otpChars = otpCode.padEnd(6, ' ').split('').slice(0, 6);
@@ -4059,7 +4084,7 @@ export default function LumiiMvpApp() {
             新朋友提示：登录后可领养一只 AI 灵伴<Text style={styles.bottomTipMuted}>，与你的真实毛孩子一起成长。</Text>
           </Text>
         </View>
-        {verifyLoading ? (
+        {verifyLoading && !loginSuccessLoading ? (
           <View style={styles.otpVerifyingOverlay}>
             <ActivityIndicator color={palette.orange} size="small" />
             <Text style={styles.otpVerifyingText}>登录中...</Text>
@@ -7533,6 +7558,7 @@ export default function LumiiMvpApp() {
 
   function renderScreen() {
     if (sessionBootstrapping) return renderSessionBootstrapping();
+    if (loginSuccessLoading) return renderLoginSuccessLoading();
     if (session && !getCurrentPet() && petRequiredRoutes.has(route)) return renderEmptyPet();
 
     switch (route) {
@@ -8553,6 +8579,13 @@ const styles = StyleSheet.create({
   loginHero: { marginTop: 88 },
   loginContent: { flex: 1 },
   loginSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, marginTop: 10 },
+  loginSuccessDotActiveMake: { backgroundColor: palette.orange },
+  loginSuccessDotMake: { backgroundColor: 'rgba(255,138,92,0.25)', borderRadius: 3, height: 6, width: 6 },
+  loginSuccessDotsMake: { flexDirection: 'row', gap: 8, marginTop: 32 },
+  loginSuccessHintMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21, marginTop: 10, textAlign: 'center' },
+  loginSuccessLoadingRowMake: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 36 },
+  loginSuccessLoadingTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '500', lineHeight: 24 },
+  loginSuccessPageMake: { alignItems: 'center', backgroundColor: palette.background, flex: 1, justifyContent: 'center', paddingHorizontal: 32, position: 'relative' },
   loginSmsButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center', marginTop: 28, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.22, shadowRadius: 22 },
   loginSmsButtonCountdown: { backgroundColor: palette.pale, shadowOpacity: 0 },
   loginSmsButtonDisabled: { backgroundColor: '#F1D9CB', shadowOpacity: 0 },

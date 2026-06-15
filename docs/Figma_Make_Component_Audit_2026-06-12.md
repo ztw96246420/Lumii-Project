@@ -43,6 +43,7 @@
   - Screen75-80 健康日历首轮接入：新增 `healthCalendar` route，复用 `/health/calendar` 聚合数据，按 Figma 源码补宠物 mini card、月份切换、7 列日历、三色事件点、选中日期事件/空状态、逾期/临近提醒卡、加载骨架和读取失败页。
   - Screen37/46/91 状态页二次收敛：发现页定位/附近可见异常改为模糊预览 + 授权 CTA 面板；地图搜索/筛选改为暗色 veil + 结果 Sheet；个人资料保存失败补本地暂存提示卡和重试入口。
   - Screen62/85/100 危险确认态二次收敛：退出登录改为 Screen62 底部 Sheet，删除宠物改为 Screen85 带宠物预览与暖黄提示卡的底部 Sheet，删除体重记录改为 Screen100 居中危险弹窗；三处不再复用泛化 `ConfirmDialog`。
+  - Screen9 登录成功 loading 二次收敛：验证码验证成功后不再只在 OTP 页叠小浮层，改为独立 `renderLoginSuccessLoading` 全屏状态，复用 120px 灵伴头像、`ActivityIndicator + 登录中...`、两行唤醒说明和 3 点进度结构。
 
 ## 后续注意
 
