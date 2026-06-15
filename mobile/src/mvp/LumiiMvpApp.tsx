@@ -444,6 +444,7 @@ type AppToast = {
   actionText?: string;
   icon?: 'bookmark' | 'heart';
   iconTone?: 'muted' | 'orange';
+  layout?: 'avatarSaveError' | 'avatarSaveSuccess' | 'default';
   message: string;
   placement?: 'bottom' | 'top';
   subtitle?: string;
@@ -2368,9 +2369,9 @@ export default function LumiiMvpApp() {
         resetAvatarDraft();
         void refreshPetScopedData();
         replace('home');
-        showToast('已保存为你的电子灵伴', { subtitle: '可在「我的宠物」中查看', tone: 'success', variant: 'dark' });
+        showToast('已保存为你的电子灵伴', { layout: 'avatarSaveSuccess', subtitle: '可在「我的宠物」中查看', tone: 'success', variant: 'dark' });
       } else {
-        showToast(result.error?.message ?? '保存失败，请检查网络', { actionText: '重试', subtitle: '灵伴形象未上传，请稍后再试', tone: 'error', variant: 'surface' });
+        showToast(result.error?.message ?? '保存失败，请检查网络', { actionText: '重试', layout: 'avatarSaveError', subtitle: '网络连接异常，灵伴形象未上传', tone: 'error', variant: 'surface' });
       }
     } finally {
       avatarAcceptingRef.current = false;
@@ -8914,7 +8915,7 @@ export default function LumiiMvpApp() {
               })}
             </View>
           ) : null}
-          <Toast actionText={toast?.actionText} icon={toast?.icon} iconTone={toast?.iconTone} message={toast?.message} placement={toast?.placement} subtitle={toast?.subtitle} tone={toast?.tone} variant={toast?.variant} />
+          <Toast actionText={toast?.actionText} icon={toast?.icon} iconTone={toast?.iconTone} layout={toast?.layout} message={toast?.message} placement={toast?.placement} subtitle={toast?.subtitle} tone={toast?.tone} variant={toast?.variant} />
           {renderGreetingSheet()}
           {renderAmapNavigationConfirm()}
           {renderLogoutConfirmSheet()}

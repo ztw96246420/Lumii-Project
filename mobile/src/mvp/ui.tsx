@@ -174,6 +174,7 @@ export function Toast({
   actionText,
   icon,
   iconTone,
+  layout = 'default',
   message,
   placement = 'top',
   subtitle,
@@ -183,6 +184,7 @@ export function Toast({
   actionText?: string;
   icon?: 'bookmark' | 'heart';
   iconTone?: 'muted' | 'orange';
+  layout?: 'avatarSaveError' | 'avatarSaveSuccess' | 'default';
   message?: string;
   placement?: 'bottom' | 'top';
   subtitle?: string;
@@ -191,6 +193,8 @@ export function Toast({
 }) {
   if (!message) return null;
   const dark = variant === 'dark';
+  const avatarSaveSuccess = layout === 'avatarSaveSuccess';
+  const avatarSaveError = layout === 'avatarSaveError';
   const Icon = icon === 'bookmark' ? Bookmark : icon === 'heart' ? Heart : toastIconByTone[tone];
   const iconStyle = iconTone === 'orange'
     ? styles.toastIcon_orange
@@ -205,15 +209,24 @@ export function Toast({
       ? palette.muted
       : toastIconColorByTone[tone];
   return (
-    <View style={[styles.toast, placement === 'bottom' && styles.toastBottom, dark ? styles.toastDark : styles.toastSurface, styles.toastNoPointer]}>
-      <View style={[styles.toastIcon, iconStyle]}>
-        <Icon color={iconColor} fill={icon ? iconColor : 'transparent'} size={icon ? 15 : 14} strokeWidth={icon ? 2.5 : dark ? 3 : 2.5} />
+    <View
+      style={[
+        styles.toast,
+        placement === 'bottom' && styles.toastBottom,
+        dark ? styles.toastDark : styles.toastSurface,
+        avatarSaveSuccess && styles.toastAvatarSaveSuccess,
+        avatarSaveError && styles.toastAvatarSaveError,
+        styles.toastNoPointer,
+      ]}
+    >
+      <View style={[styles.toastIcon, iconStyle, avatarSaveSuccess && styles.toastIconAvatarSaveSuccess, avatarSaveError && styles.toastIconAvatarSaveError]}>
+        <Icon color={iconColor} fill={icon ? iconColor : 'transparent'} size={avatarSaveError ? 18 : avatarSaveSuccess ? 16 : icon ? 15 : 14} strokeWidth={icon ? 2.5 : dark ? 3 : 2.5} />
       </View>
       <View style={styles.toastTextWrap}>
-        <Text style={[styles.toastText, dark ? styles.toastTextDark : styles.toastTextSurface]} numberOfLines={2}>{message}</Text>
+        <Text style={[styles.toastText, dark ? styles.toastTextDark : styles.toastTextSurface, (avatarSaveSuccess || avatarSaveError) && styles.toastTextAvatarSave]} numberOfLines={2}>{message}</Text>
         {subtitle ? <Text style={[styles.toastSubtitle, dark ? styles.toastSubtitleDark : styles.toastSubtitleSurface]} numberOfLines={2}>{subtitle}</Text> : null}
       </View>
-      {actionText ? <Text style={dark ? styles.toastActionDark : styles.toastActionSurface}>{actionText}</Text> : null}
+      {actionText ? <Text style={[dark ? styles.toastActionDark : styles.toastActionSurface, avatarSaveError && styles.toastActionAvatarSaveError]}>{actionText}</Text> : null}
     </View>
   );
 }
@@ -489,11 +502,16 @@ export const styles = StyleSheet.create({
   skeletonTextStack: { flex: 1, gap: 8 },
   subtitle: { color: palette.muted, fontFamily, fontSize: 15, lineHeight: 22 },
   toast: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 10, maxWidth: 340, minHeight: 46, minWidth: 180, paddingHorizontal: 12, paddingVertical: 10, position: 'absolute', top: 70, zIndex: 20 },
+  toastActionAvatarSaveError: { backgroundColor: 'rgba(255,138,92,0.12)', borderLeftWidth: 0, borderRadius: 12, paddingHorizontal: 10, paddingLeft: 10, paddingVertical: 6 },
   toastActionDark: { color: '#FFB48C', fontFamily, fontSize: 12, fontWeight: '600' },
   toastActionSurface: { borderLeftColor: palette.border, borderLeftWidth: 1, color: palette.orange, fontFamily, fontSize: 12.5, fontWeight: '600', marginLeft: 4, paddingLeft: 8 },
+  toastAvatarSaveError: { alignSelf: 'stretch', borderColor: palette.border, borderRadius: 20, gap: 12, left: 16, maxWidth: 999, minHeight: 64, minWidth: 0, paddingHorizontal: 16, paddingVertical: 14, right: 16, shadowColor: '#50371e', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.18, shadowRadius: 38, top: 92 },
+  toastAvatarSaveSuccess: { gap: 10, minWidth: 220, paddingBottom: 12, paddingLeft: 14, paddingRight: 18, paddingTop: 12, shadowOpacity: 0.4, top: 96 },
   toastBottom: { bottom: 110, top: undefined },
   toastDark: { backgroundColor: 'rgba(27,28,25,0.92)', borderRadius: 22, paddingRight: 18, shadowColor: '#000', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.28, shadowRadius: 38 },
   toastIcon: { alignItems: 'center', height: 24, justifyContent: 'center', width: 24 },
+  toastIconAvatarSaveError: { backgroundColor: 'rgba(229,87,63,0.14)', borderRadius: 17, height: 34, width: 34 },
+  toastIconAvatarSaveSuccess: { borderRadius: 15, height: 30, width: 30 },
   toastIconDark: { backgroundColor: palette.teal, borderRadius: 12 },
   toastIcon_error: { backgroundColor: '#FBE4DE', borderRadius: 8 },
   toastIcon_info: { backgroundColor: palette.pale, borderRadius: 8 },
@@ -513,6 +531,7 @@ export const styles = StyleSheet.create({
   toastSubtitleDark: { color: 'rgba(255,255,255,0.76)' },
   toastSubtitleSurface: { color: palette.muted },
   toastText: { fontFamily, fontSize: 13, fontWeight: '500', lineHeight: 18 },
+  toastTextAvatarSave: { fontSize: 14, fontWeight: '600', lineHeight: 19 },
   toastTextDark: { color: '#fff' },
   toastTextSurface: { color: palette.ink },
   toastTextWrap: { flex: 1, flexShrink: 1 },
