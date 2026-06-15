@@ -25,6 +25,7 @@ import {
 import type { RefreshControlProps, TextStyle, ViewStyle } from 'react-native';
 import {
   AlertTriangle,
+  AlertCircle,
   ArrowDown,
   ArrowUp,
   BatteryFull,
@@ -630,6 +631,8 @@ export default function LumiiMvpApp() {
   const [phone, setPhone] = useState('');
   const [phoneFocused, setPhoneFocused] = useState(false);
   const [agreementAccepted, setAgreementAccepted] = useState(false);
+  const [agreementAttention, setAgreementAttention] = useState(false);
+  const [loginInlineError, setLoginInlineError] = useState('');
   const [sendLoading, setSendLoading] = useState(false);
   const sendLoadingRef = useRef(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
@@ -1880,15 +1883,20 @@ export default function LumiiMvpApp() {
 
   async function requestSmsCode(source: 'login' | 'otp') {
     if (sendLoadingRef.current) return;
-    if (!agreementAccepted) {
-      showToast('请先勾选并同意用户协议与隐私政策');
-      return;
-    }
     const requestPhone = phone.trim();
     if (!/^1[3-9]\d{9}$/.test(requestPhone)) {
-      showToast('请输入正确的中国大陆手机号');
+      setAgreementAttention(false);
+      setLoginInlineError('手机号格式有误，请输入 11 位中国大陆手机号');
+      phoneInputRef.current?.focus();
       return;
     }
+    setLoginInlineError('');
+    if (!agreementAccepted) {
+      setAgreementAttention(true);
+      showToast('请先勾选并同意用户协议');
+      return;
+    }
+    setAgreementAttention(false);
     if (cooldownRemaining > 0) {
       showToast(`${cooldownRemaining}s 后可重新发送`);
       return;
@@ -3821,6 +3829,8 @@ export default function LumiiMvpApp() {
     setPhone('');
     setPhoneFocused(false);
     setAgreementAccepted(false);
+    setAgreementAttention(false);
+    setLoginInlineError('');
     sendLoadingRef.current = false;
     setSendLoading(false);
     verifyLoadingRef.current = false;
@@ -4106,6 +4116,7 @@ export default function LumiiMvpApp() {
                 const nextPhone = value.replace(/\D/g, '').slice(0, 11);
                 phoneValueRef.current = nextPhone;
                 setPhone(nextPhone);
+                if (loginInlineError) setLoginInlineError('');
               }}
               onFocus={() => {
                 if (Platform.OS === 'web') setPhoneFocused(true);
@@ -4121,6 +4132,7 @@ export default function LumiiMvpApp() {
               value={phone}
             />
           </Pressable>
+          {loginInlineError ? <InlineErrorMake text={loginInlineError} /> : null}
           <Pressable
             disabled={loginSendDisabled}
             onPress={() => void requestSmsCode('login')}
@@ -4142,11 +4154,14 @@ export default function LumiiMvpApp() {
             accessibilityRole="checkbox"
             accessibilityState={{ checked: agreementAccepted }}
             hitSlop={8}
-            onPress={() => setAgreementAccepted((value) => !value)}
+            onPress={() => {
+              setAgreementAttention(false);
+              setAgreementAccepted((value) => !value);
+            }}
             style={[styles.agreementRow, webPressableReset]}
           >
-            <View style={[styles.checkbox, agreementAccepted && styles.checkboxChecked]}>{agreementAccepted ? <Check color="#fff" size={13} strokeWidth={3} /> : null}</View>
-            <Text style={styles.agreementText}>我已阅读并同意《用户协议》《隐私政策》</Text>
+            <View style={[styles.checkbox, agreementAccepted && styles.checkboxChecked, agreementAttention && !agreementAccepted && styles.checkboxAttention]}>{agreementAccepted ? <Check color="#fff" size={13} strokeWidth={3} /> : null}</View>
+            <Text style={[styles.agreementText, agreementAttention && !agreementAccepted && styles.agreementTextAttention]}>我已阅读并同意《用户协议》《隐私政策》</Text>
           </Pressable>
         </View>
       </Screen>
@@ -4225,7 +4240,7 @@ export default function LumiiMvpApp() {
             })}
           </Pressable>
           {otpInlineError ? (
-            <Text style={styles.otpInlineError}>{otpInlineError}</Text>
+            <InlineErrorMake style={styles.otpInlineErrorRow} text={otpInlineError} />
           ) : verifyLoading ? (
             <Text style={styles.otpInlineNotice}>正在校验验证码...</Text>
           ) : null}
@@ -8681,6 +8696,15 @@ function PhoneStatusBar() {
   );
 }
 
+function InlineErrorMake({ style, text }: { style?: ViewStyle; text: string }) {
+  return (
+    <View style={[styles.inlineErrorRow, style]}>
+      <AlertCircle color={palette.danger} size={14} strokeWidth={2.2} />
+      <Text style={styles.inlineErrorText}>{text}</Text>
+    </View>
+  );
+}
+
 function Mascot({ size = 96 }: { size?: number }) {
   return (
     <View style={[styles.mascot, { borderRadius: size / 2, height: size, width: size }]}>
@@ -9156,6 +9180,7 @@ const styles = StyleSheet.create({
   amapConfirmTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', letterSpacing: 0, lineHeight: 24, textAlign: 'center' },
   agreementRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 8, marginTop: 18 },
   agreementText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 21 },
+  agreementTextAttention: { color: palette.danger },
   appWrap: { alignItems: 'center', backgroundColor: '#e8e2d9', flex: 1, justifyContent: 'center' },
   avatarImage: { height: '100%', width: '100%' },
   avatarImageRemote: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
@@ -9247,6 +9272,7 @@ const styles = StyleSheet.create({
   chatTypingDotMid: { opacity: 0.58 },
   chatTypingText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700' },
   checkbox: { alignItems: 'center', backgroundColor: 'transparent', borderColor: '#C8C4BA', borderRadius: 9, borderWidth: 1.5, height: 18, justifyContent: 'center', marginTop: 2, width: 18 },
+  checkboxAttention: { borderColor: palette.danger },
   checkboxChecked: { backgroundColor: palette.orange, borderColor: palette.orange },
   content: { gap: 16, paddingBottom: 32, paddingHorizontal: 20, paddingTop: 18 },
   contentWithTabs: { paddingBottom: 110 },
@@ -9701,6 +9727,8 @@ const styles = StyleSheet.create({
   homeIndicator: { alignSelf: 'center', backgroundColor: palette.ink, borderRadius: 999, bottom: 9, height: 4, opacity: 0.9, position: 'absolute', width: 134 },
   iconButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.7)', borderColor: 'transparent', borderRadius: 18, borderWidth: 0, height: 36, justifyContent: 'center', width: 36 },
   inlineError: { color: palette.danger, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600' },
+  inlineErrorRow: { alignItems: 'center', flexDirection: 'row', gap: 6, marginTop: 10 },
+  inlineErrorText: { color: palette.danger, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 18 },
   inlineActionRow: { alignItems: 'center', flexDirection: 'row', gap: 6 },
   inlineDeleteButton: { alignItems: 'center', backgroundColor: 'rgba(122,121,114,0.12)', borderRadius: 999, justifyContent: 'center', paddingHorizontal: 9, paddingVertical: 5 },
   inlineDeleteText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
@@ -10014,8 +10042,9 @@ const styles = StyleSheet.create({
   otpHeaderRow: { height: 44 },
   otpHeaderSpacer: { height: 36, width: 36 },
   otpIconButton: { backgroundColor: 'rgba(255,255,255,0.7)', borderWidth: 0, height: 36, width: 36 },
-  otpInlineError: { color: palette.danger, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', marginTop: 14 },
-  otpInlineNotice: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', marginTop: 14 },
+  otpInlineError: { color: palette.danger, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', marginTop: 10 },
+  otpInlineErrorRow: { marginTop: 10 },
+  otpInlineNotice: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', marginTop: 10 },
   otpContent: { flex: 1, paddingBottom: 0, paddingHorizontal: 22, paddingTop: 16, position: 'relative' },
   otpPage: { paddingHorizontal: 6, paddingTop: 0 },
   otpSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, marginTop: 10 },
