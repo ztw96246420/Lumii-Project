@@ -45,6 +45,7 @@
   - Screen37/46/91 状态页二次收敛：发现页定位/附近可见异常改为模糊预览 + 授权 CTA 面板；地图搜索/筛选改为暗色 veil + 结果 Sheet；个人资料保存失败补本地暂存提示卡和重试入口。
   - Screen62/85/100 危险确认态二次收敛：退出登录改为 Screen62 底部 Sheet，删除宠物改为 Screen85 带宠物预览与暖黄提示卡的底部 Sheet，删除体重记录改为 Screen100 居中危险弹窗；三处不再复用泛化 `ConfirmDialog`。
   - Screen69 TabBar 二次收敛：底部导航从自写半透明胶囊改为 Figma 源码白底 18px 圆角描边卡，选中态仅保留橙色图标/文字和 600 字重，地图入口改为定位针图标，消息入口接入未读红点。
+  - Screen65 Input 二次收敛：`Field` 补齐 Figma 源码 5 态中的已填、错误、禁用能力，保留 46px 高/12px 圆角/1.5px 边框，新增已填绿色 check、错误图标与 11px 错误文案。
   - Screen9 登录成功 loading 二次收敛：验证码验证成功后不再只在 OTP 页叠小浮层，改为独立 `renderLoginSuccessLoading` 全屏状态，复用 120px 灵伴头像、`ActivityIndicator + 登录中...`、两行唤醒说明和 3 点进度结构。
   - Screen16/17 上传链路二次收敛：相册/拍照、重新选择/重新拍照改为 Figma 源码 `GhostButton/SolidButton` 同款 52px 胶囊双按钮，带相机图标与 loading 文案；Screen17 是独立上传失败页，不再作为通用 `ErrorState` 待迁移项。
   - Screen90 个人资料保存成功二次收敛：保存成功后停留在编辑页展示 surface Toast，头像区覆盖青绿色成功勾选层，输入再次变化或重选头像会清除成功态。

@@ -87,12 +87,16 @@ export function Card({
 }
 
 export function Field({
+  disabled,
+  error,
   label,
   onChangeText,
   placeholder,
   value,
   keyboardType,
 }: {
+  disabled?: boolean;
+  error?: string;
   keyboardType?: 'default' | 'decimal-pad' | 'number-pad' | 'phone-pad';
   label: string;
   onChangeText: (value: string) => void;
@@ -100,19 +104,26 @@ export function Field({
   value: string;
 }) {
   const [focused, setFocused] = useState(false);
+  const showFilled = Boolean(value) && !focused && !error && !disabled;
   return (
     <View style={styles.fieldWrap}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
-        keyboardType={keyboardType}
-        onBlur={() => setFocused(false)}
-        onChangeText={onChangeText}
-        onFocus={() => setFocused(true)}
-        placeholder={placeholder}
-        placeholderTextColor="#b0a69c"
-        style={[styles.input, focused && styles.inputFocused, webTextInputReset]}
-        value={value}
-      />
+      <View style={[styles.inputShell, focused && styles.inputFocused, error && styles.inputError, disabled && styles.inputDisabled]}>
+        <TextInput
+          editable={!disabled}
+          keyboardType={keyboardType}
+          onBlur={() => setFocused(false)}
+          onChangeText={onChangeText}
+          onFocus={() => setFocused(true)}
+          placeholder={placeholder}
+          placeholderTextColor="#B8B3A8"
+          style={[styles.inputText, disabled && styles.inputTextDisabled, webTextInputReset]}
+          value={value}
+        />
+        {error ? <AlertTriangle color={palette.danger} size={14} strokeWidth={2.4} /> : null}
+        {showFilled ? <Check color={palette.teal} size={14} strokeWidth={2.4} /> : null}
+      </View>
+      {error ? <Text style={styles.inputErrorText}>{error}</Text> : null}
     </View>
   );
 }
@@ -423,8 +434,13 @@ export const styles = StyleSheet.create({
   errorTitle: { color: palette.ink, fontFamily, fontSize: 14, fontWeight: '600', lineHeight: 20 },
   fieldWrap: { gap: 8 },
   h1: { color: palette.ink, fontFamily, fontSize: 28, fontWeight: '600', letterSpacing: 0, lineHeight: 34 },
-  input: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1.5, color: palette.ink, fontFamily, fontSize: 14, minHeight: 46, paddingHorizontal: 14 },
+  inputDisabled: { backgroundColor: '#F4EFE6' },
+  inputError: { borderColor: palette.danger },
+  inputErrorText: { color: palette.danger, fontFamily, fontSize: 11, lineHeight: 15, marginTop: 4 },
   inputFocused: { borderColor: palette.orange, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.18, shadowRadius: 10 },
+  inputShell: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1.5, flexDirection: 'row', gap: 8, height: 46, paddingHorizontal: 14 },
+  inputText: { color: palette.ink, flex: 1, fontFamily, fontSize: 14, height: 44, padding: 0 },
+  inputTextDisabled: { color: '#B8B3A8' },
   label: { color: palette.muted, fontFamily, fontSize: 12.5, fontWeight: '500' },
   loadingBlock: { alignItems: 'center', gap: 10, paddingVertical: 30 },
   loadingText: { color: palette.muted, fontFamily, fontSize: 12, fontWeight: '500' },
