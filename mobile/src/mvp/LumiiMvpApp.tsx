@@ -1430,7 +1430,7 @@ export default function LumiiMvpApp() {
             : current,
         );
         void refreshPetScopedData();
-        showToast(`已切换为${result.data.name}`, { tone: 'success', variant: 'surface' });
+        showToast(`已切换为${result.data.name}，首页内容已更新`, { tone: 'success', variant: 'surface' });
       } else {
         showToast(result.error?.message ?? '切换宠物失败', { tone: 'error', variant: 'surface' });
       }
@@ -4183,33 +4183,162 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderNoPetMakeEmpty({ onLater }: { onLater?: () => void }) {
+    return (
+      <View style={styles.noPetEmptyMake}>
+        <View style={styles.noPetArtMake}>
+          <View style={styles.noPetArtGlowMake} />
+          <View style={styles.noPetPawOrbMake}>
+            <PawPrint color={palette.orange} size={72} strokeWidth={2.1} />
+          </View>
+          <View style={styles.noPetSparkleMake}>
+            <Sparkles color="#fff" size={12} strokeWidth={2.5} />
+          </View>
+        </View>
+        <Text style={styles.noPetTitleMake}>先添加一位灵伴吧</Text>
+        <Text style={styles.noPetDescMake}>告诉 Lumii 你家的猫咪或狗狗{'\n'}我们会为它生成一份专属健康档案和 AI 灵伴</Text>
+        <Pressable onPress={() => go('petInfo')} style={[styles.noPetPrimaryMake, webPressableReset]}>
+          <Plus color="#fff" size={15} strokeWidth={2.6} />
+          <Text style={styles.noPetPrimaryTextMake}>添加宠物</Text>
+        </Pressable>
+        {onLater ? (
+          <Pressable onPress={onLater} style={[styles.noPetLaterMake, webPressableReset]}>
+            <Text style={styles.noPetLaterTextMake}>稍后再说</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
+
   function renderEmptyPet() {
     return (
       <Screen showBack={false} title="我的宠物">
-        <View style={styles.emptyPetStage}>
-          <View style={styles.emptyPetGlow}>
-            <Mascot size={130} />
-            <View style={styles.emptyPetPlus}>
-              <Plus color={palette.orange} size={14} strokeWidth={2.8} />
-            </View>
-          </View>
-          <Text style={styles.pageTitle}>还没有添加你的毛孩子</Text>
-          <Text style={styles.pageSubtitle}>告诉 Lumii 你家的猫咪或狗狗{'\n'}我们会为它生成一个专属 AI 灵伴</Text>
-          <View style={styles.emptyPetCta}>
-            <Button onPress={() => go('petInfo')}>添加我的宠物</Button>
-          </View>
-        </View>
+        {renderNoPetMakeEmpty({ onLater: () => resetTo('profile') })}
       </Screen>
     );
   }
 
   function renderPetInfo() {
     const editingPet = route === 'editPet';
+    const editingProfile = getCurrentPet();
+    if (editingPet) {
+      return (
+        <Screen title="编辑宠物资料">
+          <View style={styles.petEditAvatarBlock}>
+            <Pressable onPress={() => go('upload')} style={[styles.petEditAvatarWrap, webPressableReset]}>
+              <PetAvatar size={88} uri={editingProfile?.avatarUrl ?? generatedGoldenAvatarUri} />
+              <View style={styles.petEditCameraBadge}>
+                <Camera color="#fff" size={14} strokeWidth={2.4} />
+              </View>
+            </Pressable>
+            <Text style={styles.petEditAvatarHint}>点击更换头像</Text>
+          </View>
+
+          <View style={styles.petEditCardMake}>
+            <View style={styles.petEditRowMake}>
+              <Text style={styles.petEditLabelMake}>昵称</Text>
+              <TextInput
+                onChangeText={(name) => setPetDraft((draft) => ({ ...draft, name }))}
+                placeholder="例如：奶油"
+                placeholderTextColor={palette.muted}
+                style={[styles.petEditInputMake, webTextInputReset]}
+                value={petDraft.name}
+              />
+            </View>
+            <View style={styles.petEditDividerMake} />
+            <View style={styles.petEditRowMake}>
+              <Text style={styles.petEditLabelMake}>类型</Text>
+              <View style={styles.petEditChipRowMake}>
+                {productConfig.pet.supportedSpecies.map((species) => {
+                  const selected = petDraft.species === species;
+                  return (
+                    <Pressable key={species} onPress={() => setPetDraft((draft) => ({ ...draft, species }))} style={[styles.petEditMiniChipMake, selected && styles.petEditMiniChipActiveMake, webPressableReset]}>
+                      <Text style={[styles.petEditMiniChipTextMake, selected && styles.petEditMiniChipTextActiveMake]}>{speciesLabels[species]}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+            <View style={styles.petEditDividerMake} />
+            <View style={styles.petEditRowMake}>
+              <Text style={styles.petEditLabelMake}>品种</Text>
+              <TextInput
+                onChangeText={(breed) => setPetDraft((draft) => ({ ...draft, breed }))}
+                placeholder="例如：金毛寻回犬"
+                placeholderTextColor={palette.muted}
+                style={[styles.petEditInputMake, webTextInputReset]}
+                value={petDraft.breed}
+              />
+            </View>
+            <View style={styles.petEditDividerMake} />
+            <View style={styles.petEditRowMake}>
+              <Text style={styles.petEditLabelMake}>生日</Text>
+              <TextInput
+                onChangeText={(birthday) => setPetDraft((draft) => ({ ...draft, birthday }))}
+                placeholder="例如：2023-04-12"
+                placeholderTextColor={palette.muted}
+                style={[styles.petEditInputMake, webTextInputReset]}
+                value={petDraft.birthday}
+              />
+              <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
+            </View>
+            <View style={styles.petEditDividerMake} />
+            <View style={styles.petEditRowMake}>
+              <Text style={styles.petEditLabelMake}>性别</Text>
+              <View style={styles.petEditChipRowMake}>
+                {[
+                  { label: '♂ 男生', value: 'male' },
+                  { label: '♀ 女生', value: 'female' },
+                  { label: '未知', value: 'unknown' },
+                ].map((item) => {
+                  const selected = petDraft.gender === item.value;
+                  return (
+                    <Pressable key={item.value} onPress={() => setPetDraft((draft) => ({ ...draft, gender: item.value as PetProfile['gender'] }))} style={[styles.petEditMiniChipMake, selected && styles.petEditMiniChipActiveMake, webPressableReset]}>
+                      <Text style={[styles.petEditMiniChipTextMake, selected && styles.petEditMiniChipTextActiveMake]}>{item.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+            <View style={styles.petEditDividerMake} />
+            <View style={styles.petEditRowMake}>
+              <Text style={styles.petEditLabelMake}>绝育</Text>
+              <Text style={styles.petEditReadonlyMake}>暂未记录</Text>
+              <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
+            </View>
+            <View style={styles.petEditDividerMake} />
+            <View style={styles.petEditRowMake}>
+              <Text style={styles.petEditLabelMake}>体重</Text>
+              <TextInput
+                keyboardType="decimal-pad"
+                onChangeText={(weight) => setPetDraft((draft) => ({ ...draft, weight }))}
+                placeholder="--"
+                placeholderTextColor={palette.muted}
+                style={[styles.petEditInputMake, webTextInputReset]}
+                value={petDraft.weight}
+              />
+              <Text style={styles.petEditUnitMake}>kg</Text>
+            </View>
+          </View>
+
+          <Text style={styles.petEditFootnoteMake}>准确的资料能让 AI 灵伴更懂它，也能让附近的朋友更安心约遛。</Text>
+
+          <View style={styles.makeBottomActions}>
+            <Button loading={petProfileSaving} onPress={() => void savePetProfile()}>保存</Button>
+            {editingProfile ? (
+              <Pressable disabled={petProfileSaving} onPress={() => confirmDeletePet(editingProfile)} style={[styles.petEditDeleteMake, webPressableReset]}>
+                <Text style={styles.petEditDeleteTextMake}>删除该宠物档案</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </Screen>
+      );
+    }
     return (
-      <Screen title={editingPet ? '编辑宠物信息' : '添加宠物 1/2'}>
+      <Screen title="添加宠物 1/2">
         <View style={styles.makePageTitleBlock}>
-          <Text style={styles.pageTitle}>{editingPet ? '更新它的小档案' : '告诉我们它是谁'}</Text>
-          <Text style={styles.makePageSubtitle}>{editingPet ? '修改后会同步到首页、健康记录和社交资料' : '这些信息将用于生成它的专属 AI 灵伴'}</Text>
+          <Text style={styles.pageTitle}>告诉我们它是谁</Text>
+          <Text style={styles.makePageSubtitle}>这些信息将用于生成它的专属 AI 灵伴</Text>
         </View>
 
         <View style={styles.petInfoFormMake}>
@@ -4261,7 +4390,7 @@ export default function LumiiMvpApp() {
         </View>
 
         <View style={styles.makeBottomActions}>
-          <Button loading={petProfileSaving} onPress={() => void savePetProfile()}>{editingPet ? '保存宠物信息' : '下一步：上传它的照片'}</Button>
+          <Button loading={petProfileSaving} onPress={() => void savePetProfile()}>下一步：上传它的照片</Button>
         </View>
       </Screen>
     );
@@ -6635,89 +6764,101 @@ export default function LumiiMvpApp() {
       : current
         ? [current]
         : [];
+    const switchingPetName = pets.find((pet) => pet.id === petSwitchingId)?.name;
     return (
       <Screen title="我的宠物">
-        {current ? (
-          <View style={styles.multiPetHero}>
-            <View style={styles.profileHeroOrb} />
-            <View style={styles.multiPetHeroMain}>
-              <PetAvatar uri={current.avatarUrl ?? generatedGoldenAvatarUri} size={72} />
-              <View style={styles.flex}>
-                <View style={styles.profilePetNameRow}>
-                  <Text style={styles.multiPetHeroName}>{current.name}</Text>
-                  <Text style={styles.currentPetBadge}>当前灵伴</Text>
-                </View>
-                <Text style={styles.profilePetMeta}>{speciesLabels[current.species]} · {current.breed || '品种待补充'}</Text>
-                <Text style={styles.profilePetMeta}>{formatPetAge(current.birthday)} · {formatWeightKg(current.weightKg)}</Text>
-              </View>
-            </View>
-            <View style={styles.multiPetHeroHealth}>
-              <HeartPulse color={palette.teal} size={12} strokeWidth={2.4} />
-              <Text style={styles.multiPetHeroHealthText}>{current.healthScore >= 80 ? '近 30 天健康稳定' : '建议关注近期健康状态'}</Text>
-            </View>
-          </View>
-        ) : null}
-
-        <View style={styles.profileSectionLabelRow}>
-          <Text style={styles.profileSectionLabel}>全部宠物 · {orderedPets.length} 只</Text>
-          <Text style={styles.profileManageLink}>最多 5 只</Text>
-        </View>
-
-        <View style={styles.multiPetList}>
-          {orderedPets.length ? orderedPets.map((pet) => {
-            const isCurrent = pet.id === current?.id;
-            const switching = petSwitchingId === pet.id;
-            const deleting = petDeletingId === pet.id;
-            return (
-              <View key={pet.id} style={[styles.multiPetRow, isCurrent && styles.multiPetRowActive]}>
-                <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={54} />
-                <Pressable
-                  onPress={() => {
-                    if (isCurrent) {
-                      go('petDetail');
-                    } else {
-                      void switchActivePet(pet);
-                    }
-                  }}
-                  style={[styles.flex, webPressableReset]}
-                >
+        <View style={styles.multiPetPageMake}>
+          {current ? (
+            <View style={[styles.multiPetHero, Boolean(petSwitchingId) && styles.multiPetHeroDimmedMake]}>
+              <View style={styles.profileHeroOrb} />
+              <View style={styles.multiPetHeroMain}>
+                <PetAvatar uri={current.avatarUrl ?? generatedGoldenAvatarUri} size={72} />
+                <View style={styles.flex}>
                   <View style={styles.profilePetNameRow}>
-                    <Text style={styles.profilePetName}>{pet.name}</Text>
-                    <Text style={[styles.profilePetBadge, pet.species === 'dog' && styles.petDogBadge]}>{speciesLabels[pet.species]}</Text>
+                    <Text style={styles.multiPetHeroName}>{current.name}</Text>
+                    <Text style={styles.currentPetBadge}>当前灵伴</Text>
                   </View>
-                  <Text style={styles.profilePetMeta}>{formatPetAge(pet.birthday)} · {formatWeightKg(pet.weightKg)}</Text>
-                  <Text style={[styles.statusText, pet.healthScore < 75 && styles.weightWarnText]}>{pet.healthScore >= 80 ? '近 30 天健康稳定' : '建议关注近期健康状态'}</Text>
-                </Pressable>
-                <View style={styles.multiPetActions}>
-                  <Pressable
-                    disabled={isCurrent || Boolean(petSwitchingId)}
-                    onPress={() => void switchActivePet(pet)}
-                    style={[styles.switchPetButton, isCurrent && styles.switchPetButtonActive, webPressableReset]}
-                  >
-                    {switching ? <ActivityIndicator color={palette.orange} size="small" /> : <Text style={[styles.switchPetText, isCurrent && styles.switchPetTextActive]}>{isCurrent ? '已选中' : '切换'}</Text>}
-                  </Pressable>
-                  <Pressable disabled={deleting} onPress={() => confirmDeletePet(pet)} style={[styles.petDeleteIconButton, webPressableReset]}>
-                    {deleting ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={15} strokeWidth={2.3} />}
-                  </Pressable>
+                  <Text style={styles.profilePetMeta}>{speciesLabels[current.species]} · {current.breed || '品种待补充'}</Text>
+                  <Text style={styles.profilePetMeta}>{formatPetAge(current.birthday)} · {formatWeightKg(current.weightKg)}</Text>
                 </View>
               </View>
-            );
-          }) : (
-            <EmptyState
-              description="每只宠物会拥有独立健康档案和 AI 灵伴记忆。"
-              icon={<PawPrint color={palette.muted} size={26} strokeWidth={2.4} />}
-              title="先添加一位灵伴吧"
-            />
-          )}
-          <Pressable onPress={() => go('petInfo')} style={[styles.addPetDashed, webPressableReset]}>
-            <Plus color={palette.orange} size={16} strokeWidth={2.5} />
-            <Text style={styles.addPetDashedText}>添加新的宠物</Text>
-          </Pressable>
-        </View>
+              <View style={styles.multiPetHeroHealth}>
+                <HeartPulse color={palette.teal} size={12} strokeWidth={2.4} />
+                <Text style={styles.multiPetHeroHealthText}>{current.healthScore >= 80 ? '近 30 天健康稳定' : '建议关注近期健康状态'}</Text>
+              </View>
+            </View>
+          ) : null}
 
-        <View style={styles.chatSafetyTip}>
-          <PawPrint color={palette.orange} size={14} strokeWidth={2.4} />
-          <Text style={styles.chatSafetyText}>切换当前宠物后，首页、健康、AI 对话和附近资料都会同步更新。</Text>
+          {petSwitchingId ? (
+            <View style={styles.multiPetSwitchToastMake}>
+              <ActivityIndicator color={palette.orange} size="small" />
+              <Text style={styles.multiPetSwitchToastTextMake}>正在召唤{switchingPetName ?? '灵伴'}…</Text>
+            </View>
+          ) : null}
+
+          {orderedPets.length ? (
+            <>
+              <View style={styles.profileSectionLabelRow}>
+                <Text style={styles.profileSectionLabel}>全部宠物 · {orderedPets.length} 只</Text>
+                <Text style={petSwitchingId ? styles.multiPetSwitchingTextMake : styles.profileManageLink}>{petSwitchingId ? `正在切换到${switchingPetName ?? '灵伴'}…` : '最多 5 只'}</Text>
+              </View>
+
+              <View style={styles.multiPetList}>
+                {orderedPets.map((pet) => {
+                  const isCurrent = pet.id === current?.id;
+                  const switching = petSwitchingId === pet.id;
+                  const deleting = petDeletingId === pet.id;
+                  return (
+                    <View key={pet.id} style={[styles.multiPetRow, isCurrent && styles.multiPetRowActive]}>
+                      <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={54} />
+                      <Pressable
+                        onPress={() => {
+                          if (isCurrent) {
+                            go('petDetail');
+                          } else {
+                            void switchActivePet(pet);
+                          }
+                        }}
+                        style={[styles.flex, webPressableReset]}
+                      >
+                        <View style={styles.profilePetNameRow}>
+                          <Text style={styles.profilePetName}>{pet.name}</Text>
+                          <Text style={[styles.profilePetBadge, pet.species === 'dog' && styles.petDogBadge]}>{speciesLabels[pet.species]}</Text>
+                        </View>
+                        <Text style={styles.profilePetMeta}>{formatPetAge(pet.birthday)} · {formatWeightKg(pet.weightKg)}</Text>
+                        <Text style={[styles.statusText, pet.healthScore < 75 && styles.weightWarnText]}>{pet.healthScore >= 80 ? '近 30 天健康稳定' : '建议关注近期健康状态'}</Text>
+                      </Pressable>
+                      <View style={styles.multiPetActions}>
+                        <Pressable
+                          disabled={isCurrent || Boolean(petSwitchingId)}
+                          onPress={() => void switchActivePet(pet)}
+                          style={[styles.switchPetButton, isCurrent && styles.switchPetButtonActive, switching && styles.switchPetButtonLoadingMake, webPressableReset]}
+                        >
+                          {switching ? <ActivityIndicator color={palette.orange} size="small" /> : <Text style={[styles.switchPetText, isCurrent && styles.switchPetTextActive]}>{isCurrent ? '已选中' : '切换'}</Text>}
+                        </Pressable>
+                        <Pressable disabled={deleting} onPress={() => confirmDeletePet(pet)} style={[styles.petDeleteIconButton, webPressableReset]}>
+                          {deleting ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={15} strokeWidth={2.3} />}
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+                <Pressable onPress={() => go('petInfo')} style={[styles.addPetDashed, webPressableReset]}>
+                  <Plus color={palette.orange} size={16} strokeWidth={2.5} />
+                  <Text style={styles.addPetDashedText}>添加新的宠物</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : (
+            renderNoPetMakeEmpty({ onLater: () => back() })
+          )}
+
+          {orderedPets.length ? (
+            <View style={styles.chatSafetyTip}>
+              <PawPrint color={palette.orange} size={14} strokeWidth={2.4} />
+              <Text style={styles.chatSafetyText}>切换当前宠物后，首页、健康、AI 对话和附近资料都会同步更新。</Text>
+            </View>
+          ) : null}
         </View>
       </Screen>
     );
@@ -7886,6 +8027,17 @@ const styles = StyleSheet.create({
   addPetDashed: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#FFC8A6', borderRadius: 16, borderStyle: 'dashed', borderWidth: 1.5, flexDirection: 'row', gap: 8, justifyContent: 'center', minHeight: 52, paddingHorizontal: 14, paddingVertical: 14 },
   addPetDashedText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
   currentPetBadge: { backgroundColor: '#fff', borderRadius: 8, color: palette.orange, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
+  noPetArtGlowMake: { backgroundColor: 'rgba(255,138,92,0.12)', borderRadius: 90, bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
+  noPetArtMake: { height: 180, marginBottom: 18, position: 'relative', width: 180 },
+  noPetDescMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21, marginTop: 10, textAlign: 'center' },
+  noPetEmptyMake: { alignItems: 'center', flex: 1, justifyContent: 'center', minHeight: 590, paddingHorizontal: 36, textAlign: 'center' },
+  noPetLaterMake: { marginTop: 14, paddingHorizontal: 16, paddingVertical: 8 },
+  noPetLaterTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
+  noPetPawOrbMake: { alignItems: 'center', backgroundColor: '#FFE3D1', borderColor: 'rgba(255,255,255,0.82)', borderRadius: 72, borderWidth: 1, bottom: 18, justifyContent: 'center', left: 18, position: 'absolute', right: 18, shadowColor: palette.orange, shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28, top: 18 },
+  noPetPrimaryMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 14, flexDirection: 'row', gap: 7, justifyContent: 'center', marginTop: 24, minHeight: 46, paddingHorizontal: 28, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.28, shadowRadius: 22 },
+  noPetPrimaryTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  noPetSparkleMake: { alignItems: 'center', backgroundColor: palette.teal, borderRadius: 11, height: 22, justifyContent: 'center', position: 'absolute', right: 8, shadowColor: palette.teal, shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.26, shadowRadius: 14, top: 14, width: 22 },
+  noPetTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '800', lineHeight: 25, textAlign: 'center' },
   deleteTextButton: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 6, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 10 },
   deleteTextButtonLabel: { color: palette.danger, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
   editActionStack: { gap: 10, marginTop: 16 },
@@ -7950,11 +8102,16 @@ const styles = StyleSheet.create({
   multiPetHero: { backgroundColor: '#FFE3D1', borderRadius: 20, gap: 0, marginTop: 2, overflow: 'hidden', padding: 14, position: 'relative' },
   multiPetHeroHealth: { alignItems: 'center', borderTopColor: 'rgba(255,255,255,0.55)', borderTopWidth: 1, flexDirection: 'row', gap: 6, marginTop: 12, paddingTop: 10 },
   multiPetHeroHealthText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
+  multiPetHeroDimmedMake: { opacity: 0.78 },
   multiPetHeroMain: { alignItems: 'center', flexDirection: 'row', gap: 14, position: 'relative' },
   multiPetHeroName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 24 },
   multiPetList: { gap: 10 },
+  multiPetPageMake: { position: 'relative' },
   multiPetRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 80, paddingHorizontal: 14, paddingVertical: 12 },
   multiPetRowActive: { borderColor: '#FFD9C2' },
+  multiPetSwitchingTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  multiPetSwitchToastMake: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingVertical: 10, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28, top: 70, zIndex: 20 },
+  multiPetSwitchToastTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '800' },
   ownerAvatarBlock: { alignItems: 'center', paddingBottom: 18, paddingTop: 14 },
   ownerAvatarCamera: { alignItems: 'center', backgroundColor: palette.orange, borderColor: palette.background, borderRadius: 16, borderWidth: 3, bottom: 30, height: 32, justifyContent: 'center', marginBottom: -16, marginLeft: 70, width: 32 },
   ownerAvatarImage: { height: '100%', width: '100%' },
@@ -7984,6 +8141,7 @@ const styles = StyleSheet.create({
   sheetTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700', lineHeight: 22 },
   switchPetButton: { alignItems: 'center', borderColor: palette.orange, borderRadius: 10, borderWidth: 1, justifyContent: 'center', minHeight: 32, minWidth: 58, paddingHorizontal: 10, paddingVertical: 6 },
   switchPetButtonActive: { backgroundColor: palette.orangeSoft, borderColor: palette.orangeSoft },
+  switchPetButtonLoadingMake: { backgroundColor: '#fff', borderColor: palette.border },
   switchPetText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
   switchPetTextActive: { color: palette.orange },
   weightAddLink: { alignItems: 'center', flexDirection: 'row', gap: 3, paddingHorizontal: 2, paddingVertical: 4 },
@@ -8637,6 +8795,25 @@ const styles = StyleSheet.create({
   petDetailStatLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
   petDetailStatValue: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', marginTop: 4 },
   petDetailStats: { flexDirection: 'row', gap: 10 },
+  petEditAvatarBlock: { alignItems: 'center', paddingBottom: 18, paddingTop: 12 },
+  petEditAvatarHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', marginTop: 8 },
+  petEditAvatarWrap: { borderColor: '#fff', borderRadius: 44, borderWidth: 3, height: 88, overflow: 'visible', position: 'relative', shadowColor: '#000', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.08, shadowRadius: 14, width: 88 },
+  petEditCameraBadge: { alignItems: 'center', backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 15, borderWidth: 2, bottom: -2, height: 30, justifyContent: 'center', position: 'absolute', right: -2, width: 30 },
+  petEditCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 0, overflow: 'hidden' },
+  petEditDeleteMake: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 6 },
+  petEditDeleteTextMake: { color: palette.danger, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
+  petEditDividerMake: { backgroundColor: palette.border, height: 1, marginLeft: 16 },
+  petEditFootnoteMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 19, paddingHorizontal: 4, paddingTop: 10 },
+  petEditInputMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600', minHeight: 48, paddingHorizontal: 0, paddingVertical: 0 },
+  petEditLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '500', lineHeight: 20, width: 80 },
+  petEditMiniChipActiveMake: { backgroundColor: palette.orangeSoft, borderColor: palette.orange },
+  petEditMiniChipMake: { alignItems: 'center', backgroundColor: '#F8F3EA', borderColor: 'transparent', borderRadius: 10, borderWidth: 1, justifyContent: 'center', minHeight: 30, paddingHorizontal: 10 },
+  petEditMiniChipTextActiveMake: { color: palette.orange, fontWeight: '800' },
+  petEditMiniChipTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  petEditChipRowMake: { alignItems: 'center', flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 7, justifyContent: 'flex-start' },
+  petEditReadonlyMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
+  petEditRowMake: { alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 50, paddingHorizontal: 16, paddingVertical: 1 },
+  petEditUnitMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600' },
   petGenderButton: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 16, borderWidth: 1, flex: 1, justifyContent: 'center', minHeight: 44, paddingHorizontal: 12 },
   petGenderButtonActive: { backgroundColor: 'rgba(255,138,92,0.10)', borderColor: palette.orange, borderWidth: 1.5 },
   petGenderText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },

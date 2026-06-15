@@ -88,7 +88,7 @@
 | 54 | 我的 | `renderProfile` | 已接入-需视觉复核 | 本轮按 Screen54 收敛为 5 个菜单入口，补通知红色未读徽标、不同入口图标底色和末行无分割线；顶部资料卡仍需真机截图复核 |
 | 55 | 宠物档案详情 | `renderPetDetail` | 已接入-需视觉复核 | 本轮按 Screen55 改为全宽 220px 照片 Hero、暗色渐隐、右上更换、右下白色编辑胶囊；基础信息保持左对齐，健康区改为疫苗与驱虫/健康备忘 |
 | 56 | 多宠管理 | `renderMultiPet` | 已接入-需视觉复核 | 本轮已按 Screen81 增加 hero 底部健康提示分割线、调整列表 row 高度和当前宠物 badge 字重；仍需截图复核 |
-| 57 | 编辑宠物资料 | `renderPetInfo` edit mode | 部分接入 | 复用建档表单，编辑态样式需单独对齐 |
+| 57 | 编辑宠物资料 | `renderPetInfo` edit mode | 已接入-需视觉复核 | 本轮不再复用建档表单，按 Screen57 改为 88px 宠物头像+相机角标、白底 16px 圆角资料列表、80px 标签列、底部保存按钮和居中删除入口 |
 | 58 | 设置与隐私 | `renderSettings` | 已接入-需视觉复核 | Toggle 本轮已修，菜单行还需复核 |
 | 59 | 账号安全 | `renderAccountSecurity` | 部分接入 | 账号安全详情未完全按 Screen59 |
 | 60 | 安全中心 | `renderSafety` | 部分接入 | 入口展示有，举报/拉黑逻辑暂未做 |
@@ -113,9 +113,9 @@
 | 79 | 加载中 下拉刷新 | `renderHealthCalendar` | 已接入 需视觉复核 | 初始加载和下拉刷新显示暖橙同步条、日历骨架格和事件列表骨架 |
 | 80 | 读取失败 | `renderHealthCalendar` | 已接入 需视觉复核 | 日历读取失败时展示 WifiOff 红色图标块、失败说明、重新加载和稍后再试入口 |
 | 81 | 我的宠物 默认列表 | `renderMultiPet` | 已接入-需视觉复核 | 本轮已按源码细化当前宠物 hero、健康提示分割区和独立宠物列表卡；仍需截图复核 |
-| 82 | 还没有宠物 空状态 | `renderMultiPet`/`renderEmptyPet` | 部分接入 | 多宠管理内空态需按 Screen82 |
-| 83 | 切换中 loading | `renderMultiPet` | 已接入-需视觉复核 | loading 样式需复核 |
-| 84 | 切换成功 Toast | `Toast` + switch | 部分接入 | Toast 本轮已修，成功内容需复核 |
+| 82 | 还没有宠物 空状态 | `renderMultiPet`/`renderEmptyPet` | 已接入-需视觉复核 | 本轮按 Screen82 补 180px 暖色 paw 插画、青绿色 sparkle、居中文案、橙色 46px 主 CTA 和“稍后再说”入口，并复用到未添加宠物页 |
+| 83 | 切换中 loading | `renderMultiPet` | 已接入-需视觉复核 | 本轮按 Screen83 补当前宠物 hero 轻透明、顶部状态文字和居中白底 loading puff |
+| 84 | 切换成功 Toast | `Toast` + switch | 已接入-需视觉复核 | 切换成功文案已改为“已切换为X，首页内容已更新”，沿用 Screen66/84 的 surface 成功 Toast 样式 |
 | 85 | 删除宠物 二次确认 | `renderPetDeleteConfirmSheet` + deletePet | 已接入-需视觉复核 | 本轮按 Screen85 改为底部 Sheet：宠物预览行、危险说明、暖黄提示卡、确认移除 loading 与取消按钮 |
 | 86 | 编辑个人资料 默认态 | `renderOwnerEdit` | 已接入-需视觉复核 | 本轮已按源码去掉多余外层表单卡，头像改为 96px，输入框/简介 textarea 回到 14px 圆角白底描边体系；仍需截图复核 |
 | 87 | 头像上传中 | `renderOwnerEdit` | 已接入-需视觉复核 | loading overlay 需复核 |
