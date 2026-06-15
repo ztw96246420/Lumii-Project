@@ -100,7 +100,7 @@
 | 66 | Toast · Tag · Toggle | `ui.tsx/Toast/StatusPill/ToggleRow` | 本轮组件已增强-需视觉复核 | Toast surface 继续按 Screen66 收敛：24px/8px 状态图标块、白底 14px 圆角、轻边框/阴影、action 左分割线和 13px/500 主文案；Toggle/Tag 仍需截图复核 |
 | 67 | Dialog 弹窗 | `ui.tsx/ConfirmDialog` | 本轮组件已修-需截图复核 | 通用 ConfirmDialog 回到 Screen67 的 290px 宽、20px 圆角、48px 状态图标块、16px/700 标题和危险态分型；AI/导航等专用弹窗不复用该组件 |
 | 68 | BottomSheet 底部弹层 | `ui.tsx/BottomSheet` | 本轮组件已补-需视觉复核 | BottomSheet 按真实业务弹层源码继续收敛为 40x4 handle、28px 顶部圆角、22px 横向 padding、浅边框和向上阴影；打招呼、体重编辑、地图样式面板继续截图复核 |
-| 69 | TabBar 底部导航 | bottom tabs | 已接入-需视觉复核 | 图标、红点、选中态需复核 |
+| 69 | TabBar 底部导航 | bottom tabs | 二次收敛-需真机截图复核 | 本轮按 Screen69 收敛为白底 18px 圆角、1px 描边、`8px 6px` padding；选中态仅使用橙色图标/文字和 600 字重，不再加橙色背景块；地图 tab 改为定位针图标；消息 tab 接入会话未读 + 通知未读红点 |
 | 70 | Card 卡片 | `ui.tsx/Card` + 多处 card | 组件已增强-待逐屏迁移 | 本轮按 Screen70 将基础 Card 收敛为白底 14px 圆角轻描边，并新增 `pet/place/message` 变体；页面里仍有大量自写 card 样式，后续需逐屏替换/复核 |
 | 71 | Empty State 空状态 | `ui.tsx/EmptyState` + 多处空态 | 本轮组件已补-部分页面已迁移 | 已迁移备忘、体重、多宠、招呼请求、发现无结果、地图无结果、消息列表、通知中心；上传等空态仍需继续替换 |
 | 72 | Error State 错误页 | `ui.tsx/ErrorState` + 多处错误态 | 本轮组件已补-部分页面已迁移 | 已迁移会话失效、地点失效、约遛对象失效、附近可见关闭、AI 生成失败、AI/普通聊天发送失败、地图定位失败；上传失败仍需逐处接入 |

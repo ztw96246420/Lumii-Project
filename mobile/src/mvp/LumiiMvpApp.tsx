@@ -48,7 +48,6 @@ import {
   Lock,
   LogOut,
   Mail,
-  Map as MapIcon,
   MapPin,
   MessageCircle,
   Mic,
@@ -260,7 +259,7 @@ const routeTitles: Partial<Record<AppRoute, string>> = {
 const tabItems: Array<{ Icon: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>; label: string; route: AppTab }> = [
   { Icon: HomeIcon, label: '宠物', route: 'home' },
   { Icon: Compass, label: '发现', route: 'discover' },
-  { Icon: MapIcon, label: '地图', route: 'map' },
+  { Icon: MapPin, label: '地图', route: 'map' },
   { Icon: MessageCircle, label: '消息', route: 'messages' },
   { Icon: User, label: '我的', route: 'profile' },
 ];
@@ -8577,6 +8576,11 @@ export default function LumiiMvpApp() {
     }
   }
 
+  const tabUnreadCount = Math.min(
+    99,
+    conversations.reduce((sum, conversation) => sum + (conversation.unread ?? 0), 0) + notifications.filter((item) => !item.read).length,
+  );
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="dark" />
@@ -8587,8 +8591,10 @@ export default function LumiiMvpApp() {
             <View style={styles.tabBar}>
               {tabItems.map(({ Icon, ...item }) => {
                 const selected = currentTab === item.route;
+                const showBadge = item.route === 'messages' && tabUnreadCount > 0;
                 return (
-                  <Pressable key={item.route} onPress={() => resetTo(item.route)} style={[styles.tabItem, selected && styles.tabItemActive, webPressableReset]}>
+                  <Pressable key={item.route} onPress={() => resetTo(item.route)} style={[styles.tabItem, webPressableReset]}>
+                    {showBadge ? <Text style={styles.tabUnreadBadge}>{tabUnreadCount > 9 ? '9+' : tabUnreadCount}</Text> : null}
                     <Icon color={selected ? palette.orange : palette.muted} size={20} strokeWidth={selected ? 2.4 : 2} />
                     <Text style={[styles.tabText, selected && styles.tabTextActive]}>{item.label}</Text>
                   </Pressable>
@@ -10333,11 +10339,11 @@ const styles = StyleSheet.create({
   scanCornerLt: { borderColor: palette.orange, borderLeftWidth: 3, borderRadius: 4, borderTopWidth: 3, height: 22, left: 18, position: 'absolute', top: 18, width: 22 },
   scanCornerRb: { borderColor: palette.orange, borderLeftWidth: 3, borderRadius: 4, borderTopWidth: 3, bottom: 18, height: 22, position: 'absolute', right: 18, transform: [{ rotate: '180deg' }], width: 22 },
   scanCornerRt: { borderColor: palette.orange, borderLeftWidth: 3, borderRadius: 4, borderTopWidth: 3, height: 22, position: 'absolute', right: 18, top: 18, transform: [{ rotate: '90deg' }], width: 22 },
-  tabBar: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.86)', borderColor: 'rgba(255,255,255,0.9)', borderRadius: 28, borderWidth: 1, bottom: 18, flexDirection: 'row', justifyContent: 'space-between', left: 14, padding: 7, position: 'absolute', right: 14, shadowColor: '#50371e', shadowOffset: { height: 16, width: 0 }, shadowOpacity: 0.16, shadowRadius: 32 },
-  tabItem: { alignItems: 'center', borderRadius: 18, flex: 1, gap: 3, minHeight: 44, justifyContent: 'center', paddingVertical: 5 },
-  tabItemActive: { backgroundColor: 'rgba(255,138,92,0.10)' },
-  tabText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '500' },
+  tabBar: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, bottom: 18, flexDirection: 'row', justifyContent: 'space-between', left: 16, paddingHorizontal: 6, paddingVertical: 8, position: 'absolute', right: 16 },
+  tabItem: { alignItems: 'center', flex: 1, gap: 3, justifyContent: 'center', minHeight: 42, paddingVertical: 4, position: 'relative' },
+  tabText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10, fontWeight: '400', lineHeight: 13 },
   tabTextActive: { color: palette.orange, fontWeight: '600' },
+  tabUnreadBadge: { backgroundColor: palette.danger, borderColor: '#fff', borderRadius: 8, borderWidth: 2, color: '#fff', fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', height: 16, lineHeight: 12, minWidth: 16, overflow: 'hidden', paddingHorizontal: 3, position: 'absolute', right: 17, textAlign: 'center', top: 2, zIndex: 2 },
   tag: { backgroundColor: palette.orangeSoft, borderRadius: 999, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   tealIcon: { backgroundColor: palette.teal },

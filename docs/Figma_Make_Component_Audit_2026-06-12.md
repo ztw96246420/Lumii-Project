@@ -44,6 +44,7 @@
   - Screen75-80 健康日历首轮接入：新增 `healthCalendar` route，复用 `/health/calendar` 聚合数据，按 Figma 源码补宠物 mini card、月份切换、7 列日历、三色事件点、选中日期事件/空状态、逾期/临近提醒卡、加载骨架和读取失败页。
   - Screen37/46/91 状态页二次收敛：发现页定位/附近可见异常改为模糊预览 + 授权 CTA 面板；地图搜索/筛选改为暗色 veil + 结果 Sheet；个人资料保存失败补本地暂存提示卡和重试入口。
   - Screen62/85/100 危险确认态二次收敛：退出登录改为 Screen62 底部 Sheet，删除宠物改为 Screen85 带宠物预览与暖黄提示卡的底部 Sheet，删除体重记录改为 Screen100 居中危险弹窗；三处不再复用泛化 `ConfirmDialog`。
+  - Screen69 TabBar 二次收敛：底部导航从自写半透明胶囊改为 Figma 源码白底 18px 圆角描边卡，选中态仅保留橙色图标/文字和 600 字重，地图入口改为定位针图标，消息入口接入未读红点。
   - Screen9 登录成功 loading 二次收敛：验证码验证成功后不再只在 OTP 页叠小浮层，改为独立 `renderLoginSuccessLoading` 全屏状态，复用 120px 灵伴头像、`ActivityIndicator + 登录中...`、两行唤醒说明和 3 点进度结构。
   - Screen90 个人资料保存成功二次收敛：保存成功后停留在编辑页展示 surface Toast，头像区覆盖青绿色成功勾选层，输入再次变化或重选头像会清除成功态。
   - Screen53 高德导航确认二次收敛：地点详情页不再复用普通 `ConfirmDialog`，改为专用导航确认弹窗，补绿色导航图标、地点摘要卡、地图应用选择和 48px 取消/打开导航按钮。
