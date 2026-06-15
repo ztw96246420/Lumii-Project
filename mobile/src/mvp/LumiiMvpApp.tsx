@@ -727,6 +727,7 @@ export default function LumiiMvpApp() {
   const [ownerAvatarPicking, setOwnerAvatarPicking] = useState(false);
   const ownerAvatarPickingRef = useRef(false);
   const [ownerProfileSaveError, setOwnerProfileSaveError] = useState('');
+  const [ownerProfileSaved, setOwnerProfileSaved] = useState(false);
   const [ownerProfileSaving, setOwnerProfileSaving] = useState(false);
   const ownerProfileSavingRef = useRef(false);
   const healthReminderNotifiedRef = useRef<Set<string>>(new Set());
@@ -995,7 +996,8 @@ export default function LumiiMvpApp() {
     setOwnerBioDraft(session?.account?.ownerBio ?? '');
     setOwnerAvatarDraft(session?.account?.ownerAvatarUrl ?? '');
     setOwnerProfileSaveError('');
-  }, [activePet?.id, route, session?.account?.ownerAvatarUrl, session?.account?.ownerBio, session?.account?.ownerName, session?.phone]);
+    setOwnerProfileSaved(false);
+  }, [activePet?.id, route, session?.phone]);
 
   useEffect(() => {
     if (route !== 'memoEdit') return;
@@ -2897,6 +2899,7 @@ export default function LumiiMvpApp() {
       const asset = pickerResult.assets[0];
       if (asset?.uri) {
         setOwnerAvatarDraft(asset.uri);
+        setOwnerProfileSaved(false);
         showToast('头像已选择，保存后生效');
       }
     } finally {
@@ -2926,6 +2929,7 @@ export default function LumiiMvpApp() {
     if (!requestSessionToken) return;
     ownerProfileSavingRef.current = true;
     setOwnerProfileSaveError('');
+    setOwnerProfileSaved(false);
     setOwnerProfileSaving(true);
     try {
       const result = await lumiiApi.account.updateMe({ ownerAvatarUrl, ownerBio, ownerName });
@@ -2936,8 +2940,8 @@ export default function LumiiMvpApp() {
         userSettingsRef.current = profileSettings;
         setUserSettings(profileSettings);
         setActivePet(result.data.activePet ?? getCurrentPet());
-        showToast('资料已保存', { tone: 'success', variant: 'surface' });
-        replace('profile');
+        setOwnerProfileSaved(true);
+        showToast('资料已保存，新的头像也更新好了', { tone: 'success', variant: 'surface' });
       } else {
         const message = result.error?.message ?? '网络不稳定，资料未能保存';
         setOwnerProfileSaveError(message);
@@ -3825,6 +3829,7 @@ export default function LumiiMvpApp() {
     setOwnerAvatarPicking(false);
     ownerProfileSavingRef.current = false;
     setOwnerProfileSaving(false);
+    setOwnerProfileSaved(false);
     replace('login');
   }
 
@@ -6913,11 +6918,16 @@ export default function LumiiMvpApp() {
                 <ActivityIndicator color="#fff" size="small" />
               </View>
             ) : null}
+            {ownerProfileSaved && !ownerAvatarPicking ? (
+              <View style={styles.ownerAvatarSuccessOverlayMake}>
+                <Check color="#fff" size={28} strokeWidth={2.8} />
+              </View>
+            ) : null}
           </Pressable>
           <Pressable onPress={() => void pickOwnerAvatar()} style={[styles.ownerAvatarCamera, webPressableReset]}>
             <Camera color="#fff" size={14} strokeWidth={2.4} />
           </Pressable>
-          <Text style={styles.timelineSubMake}>{ownerAvatarPicking ? '正在打开相册...' : '点击更换头像'}</Text>
+          <Text style={styles.timelineSubMake}>{ownerAvatarPicking ? '正在打开相册...' : ownerProfileSaved ? '头像已更新' : '点击更换头像'}</Text>
         </View>
 
         <View style={styles.editFormCard}>
@@ -6925,7 +6935,10 @@ export default function LumiiMvpApp() {
             <Text style={styles.makeFieldLabel}>主人昵称 *</Text>
             <TextInput
               maxLength={18}
-              onChangeText={setOwnerNameDraft}
+              onChangeText={(value) => {
+                setOwnerNameDraft(value);
+                if (ownerProfileSaved) setOwnerProfileSaved(false);
+              }}
               placeholder="给自己取个昵称"
               placeholderTextColor="#B8B3A8"
               style={[styles.makeTextInput, nameCount > 14 && styles.makeTextInputError, webTextInputReset]}
@@ -6956,7 +6969,10 @@ export default function LumiiMvpApp() {
             </View>
             <TextInput
               multiline
-              onChangeText={setOwnerBioDraft}
+              onChangeText={(value) => {
+                setOwnerBioDraft(value);
+                if (ownerProfileSaved) setOwnerProfileSaved(false);
+              }}
               placeholder="写一句介绍你和毛孩子的话"
               placeholderTextColor="#B8B3A8"
               style={[styles.makeTextInput, styles.makeTextAreaInput, bioCount > 60 && styles.makeTextInputError, webTextInputReset]}
@@ -8208,6 +8224,7 @@ const styles = StyleSheet.create({
   ownerAvatarImage: { height: '100%', width: '100%' },
   ownerAvatarLarge: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 48, borderWidth: 3, height: 96, justifyContent: 'center', overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22, width: 96 },
   ownerAvatarOverlay: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
+  ownerAvatarSuccessOverlayMake: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.85)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
   ownerSaveErrorCardMake: { alignItems: 'center', backgroundColor: '#FBE4DE', borderColor: '#F5C7BD', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, marginTop: 8, padding: 12 },
   ownerSaveErrorIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
   ownerSaveErrorTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 17, marginTop: 2 },

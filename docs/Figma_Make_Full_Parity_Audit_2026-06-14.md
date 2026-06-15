@@ -121,7 +121,7 @@
 | 87 | 头像上传中 | `renderOwnerEdit` | 已接入-需视觉复核 | loading overlay 需复核 |
 | 88 | 昵称错误 | `renderOwnerEdit` | 已接入-需视觉复核 | 昵称为空/超长已在表单内红色 hint 与输入框红色描边呈现；仍需截图核对 Screen88 字号和间距 |
 | 89 | 保存中 | `renderOwnerEdit` | 已接入-需视觉复核 | 保存按钮 loading 需复核 |
-| 90 | 保存成功 | `Toast` + owner save | 部分接入 | Toast 本轮已修，成功态内容需复核 |
+| 90 | 保存成功 | `renderOwnerEdit` + owner save Toast | 已接入-需视觉复核 | 本轮按 Screen90 改为保存成功后停留编辑页，显示“资料已保存，新的头像也更新好了”surface Toast，并在头像上覆盖青绿色成功勾选层 |
 | 91 | 保存失败 | `Toast` + owner save | 已接入-需视觉复核 | 本轮按 Screen91 补失败 surface Toast action 和“资料已暂存到本地”红色提示卡，含 WifiOff 图标、说明文案与重试按钮 |
 | 92 | 编辑备忘 默认态 | `renderMemoEdit` | 已接入-需视觉复核 | 本轮已按 Screen92 改为无外层卡轻表单，补 14px 圆角输入框、内容计数、日期/分类双行元信息卡和居中删除入口 |
 | 93 | 保存中 | `renderMemoEdit` | 已接入-需视觉复核 | 保存按钮保留 loading，编辑页不再立即跳回列表；顶部 loading Toast 仍可后续按 Screen93 独立增强 |
