@@ -49,8 +49,8 @@
 | 15 | 宠物基础信息 | `renderPetInfo` | 二次收敛-需真机截图复核 | 本轮补新增流程专用 52px/16px 圆角输入框、12.5px 标签、体重 kg suffix 和 52px 底部主按钮；生日/性别作为 MVP 业务字段保留，但统一进同一套 Figma 表单体系 |
 | 16 | 上传宠物照片 | `renderUpload` | 二次收敛-需真机截图复核 | 已按 UploadBox/TipsList 收敛上传卡渐变、340px 高度、轻阴影、tips 白底卡间距；本轮补 Screen16/17 共用上传专用双按钮：52px 高、26px 胶囊、相机图标、白底描边/橙色实心与 loading 文案 |
 | 17 | 上传失败 未识别 | `renderUploadNoPet` | 二次收敛-需真机截图复核 | 已按 Screen17 细调失败图卡渐变、警示浮层、原因卡间距和建议列表；本轮补底部“重新选择 / 重新拍照”源码式 52px 胶囊双按钮。该页是独立上传失败设计，不再强行迁移到通用 `ErrorState` |
-| 18 | 上传识别详情 | `renderUploadDetail` | 已接入-需视觉复核 | 本轮已将识别信息卡改为识别页专用右对齐值列，同时保留宠物档案左对齐；Hero 渐变和标签仍需截图复核 |
-| 19 | AI 灵伴生成中 | `renderGenerating` | 已接入-需视觉复核 | 本轮已按 Screen19 收敛进度条为 6px 暖橙底，并在 Web 端补 conic ring/扫描线渐变；动态粒子仍需后续截图复核 |
+| 18 | 上传识别详情 | `renderUploadDetail` | 二次收敛-需真机截图复核 | 本轮按 Screen18 将识别信息卡改为专用 18px 顶距/16px 内距白卡，字段名收敛为“宠物主体/毛色特征/五官特征/表情气质”，标签改为左对齐 `#` chip，底部改为源码式 52px 橙色胶囊 CTA；Hero 保留真实上传预览以守住识别业务，但容器渐变、badge 字重和质量角标已按 Figma 收敛 |
+| 19 | AI 灵伴生成中 | `renderGenerating` | 二次收敛-需真机截图复核 | 本轮按 Screen19 继续收敛：生成预览图补 5px 白色内圈和轻微 blur、扫描线内补静态粒子层、标题间距改为 54px、标题字重 600、进度条补 28px 顶距、步骤卡改为 14px 纵向内距；真实生成轮询/失败重试逻辑保持不变 |
 | 20 | 生成结果 默认 | `renderAiResult` | 已接入-需视觉复核 | 本轮已按 Screen20 补 PageBg 氛围层、AI 形象 halo/ring、原图浮层 chip、AI 灵伴 badge 和 54px 结果页 CTA；`PetAvatar` 远程图等待态已补圆形 Skeleton + spinner，减少结果图慢加载时的空框感；按钮底部固定位置仍需真机截图复核 |
 | 21 | 生成结果 多候选 | `renderAiResult` | 已接入-需视觉复核 | 本轮按 Screen21 补顶部 AI 候选提示、230px 主形象、三候选卡、选中勾选角标和候选切换状态；后端目前仍只返回单图，候选 UI 先作为多图接口预留 |
 | 22 | 不满意反馈面板 | `renderAvatarFeedbackSheet` + 任务反馈接口 | 已接入-需视觉复核 | 本轮按 Screen22 补 bottom sheet、反馈原因多选 chip、卡通程度条、取消/按反馈重新生成双按钮，并接 `sendGenerationFeedback` 后重试生成 |

@@ -4675,11 +4675,14 @@ export default function LumiiMvpApp() {
 
   function renderUploadDetail() {
     const analysis = media?.analysis;
-    const analysisTags = analysis?.tags?.length ? analysis.tags : ['正脸清晰', '毛色完整', '可生成'];
-    const suggestions = analysis?.suggestions?.slice(0, 2) ?? [];
+    const analysisTags = analysis?.tags?.length ? analysis.tags : ['亲人', '活泼', '微笑脸', '温暖毛色'];
+    const featureSummary = analysis?.tags?.slice(0, 3).join(' · ') || '金黄色 · 浅金腹毛 · 浓密';
+    const faceSummary = analysis?.title ?? '主体清晰 · 五官完整';
+    const moodSummary = analysis?.message ?? '温顺亲人 · 适合生成';
+    const avatarStartDisabled = avatarStarting;
     return (
       <Screen title="识别结果">
-        <View style={styles.recognitionHeroMake}>
+        <View style={[styles.recognitionHeroMake, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg,#F8D9B7 0%, #E2A56A 100%)' } as object) : null]}>
           <PetAvatar uri={media?.previewUrl ?? demoPetPhotoUrl} size={170} />
           <View style={styles.recognitionSuccessBadge}>
             <Sparkles color="#fff" size={12} strokeWidth={2.4} />
@@ -4687,23 +4690,30 @@ export default function LumiiMvpApp() {
           </View>
           <Text style={styles.recognitionQuality}>质量 {analysis?.qualityScore ?? 96}%</Text>
         </View>
-        <View style={styles.detailCardMake}>
+        <View style={styles.recognitionDetailCardMake}>
           <MakeDetailRow label="宠物主体" value={`${speciesLabels[activePet?.species ?? petDraft.species]} · ${activePet?.breed ?? (petDraft.breed || '金毛寻回犬')}`} valueAlign="right" />
           <View style={styles.makeDivider} />
-          <MakeDetailRow label="识别状态" value={analysis?.title ?? '单只宠物主体清晰'} valueAlign="right" />
+          <MakeDetailRow label="毛色特征" value={featureSummary} valueAlign="right" />
           <View style={styles.makeDivider} />
-          <MakeDetailRow label="生成建议" value={analysis?.message ?? '当前照片适合生成真实卡通化灵伴形象'} valueAlign="right" />
+          <MakeDetailRow label="五官特征" value={faceSummary} valueAlign="right" />
           <View style={styles.makeDivider} />
-          <MakeDetailRow label="注意事项" value={suggestions.length ? suggestions.join('；') : '生成会优先保留宠物主体并弱化背景'} valueAlign="right" />
+          <MakeDetailRow label="表情气质" value={moodSummary} valueAlign="right" />
         </View>
-        <View style={styles.featureChipsMake}>
+        <View style={styles.recognitionFeatureChipsMake}>
           {analysisTags.map((tag) => (
-            <Text key={tag} style={analysis?.status === 'warning' ? styles.featureChipWarm : styles.featureChipCool}>{tag}</Text>
+            <Text key={tag} style={analysis?.status === 'warning' ? styles.featureChipWarm : styles.featureChipCool}>{tag.startsWith('#') ? tag : `# ${tag}`}</Text>
           ))}
         </View>
-        <Text style={styles.aiQuotaHint}>今日形象生成 {petAvatarDailyCount}/{petAvatarDailyLimit} · 剩余 {petAvatarDailyRemaining} 次</Text>
-        <View style={styles.makeBottomActions}>
-          <Button loading={avatarStarting} onPress={() => void startAvatarGeneration()}>确认并生成灵伴</Button>
+        <View style={styles.recognitionBottomActions}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={avatarStartDisabled}
+            onPress={() => void startAvatarGeneration()}
+            style={({ pressed }) => [styles.recognitionPrimaryCta, pressed && !avatarStartDisabled && styles.recognitionPrimaryCtaPressed, avatarStartDisabled && styles.opacity60, webPressableReset]}
+          >
+            {avatarStarting ? <ActivityIndicator color="#fff" size="small" /> : null}
+            <Text style={styles.recognitionPrimaryCtaText}>{avatarStarting ? '正在生成...' : '确认并生成灵伴'}</Text>
+          </Pressable>
         </View>
       </Screen>
     );
@@ -4777,8 +4787,14 @@ export default function LumiiMvpApp() {
         <View style={styles.aiGeneratingPage}>
           <View style={styles.aiGeneratingOrb}>
             <View style={styles.aiGeneratingRing} />
-            <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.aiGeneratingImage} />
+            <Image blurRadius={2} resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.aiGeneratingImage} />
             <View style={styles.aiScanLine} />
+            <View pointerEvents="none" style={styles.aiParticleLayer}>
+              <View style={[styles.aiParticleDot, styles.aiParticleDotOne]} />
+              <View style={[styles.aiParticleDot, styles.aiParticleDotTwo]} />
+              <View style={[styles.aiParticleDot, styles.aiParticleDotThree]} />
+              <View style={[styles.aiParticleDot, styles.aiParticleDotFour]} />
+            </View>
             <View style={styles.aiOriginalThumb}>
               <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.avatarImage} />
             </View>
@@ -9537,12 +9553,12 @@ const styles = StyleSheet.create({
   weightWarnText: { color: '#C99B3E' },
   flex: { flex: 1, minWidth: 0 },
   aiFailureSecondaryAction: { marginTop: 12, width: '100%' },
-  aiGeneratingImage: { borderRadius: 120, height: 240, opacity: 0.9, width: 240 },
+  aiGeneratingImage: { backgroundColor: '#fbeedd', borderColor: '#fff', borderRadius: 120, borderWidth: 5, height: 240, opacity: 0.92, width: 240 },
   aiGeneratingOrb: { alignItems: 'center', alignSelf: 'center', height: 286, justifyContent: 'center', marginTop: 28, position: 'relative', width: 286 },
   aiGeneratingPage: { alignItems: 'center', paddingHorizontal: 6 },
   aiGeneratingRing: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'conic-gradient(from 0deg, rgba(255,138,92,0) 0%, rgba(255,138,92,0.85) 35%, rgba(77,182,172,0.85) 70%, rgba(255,138,92,0) 100%)' } as object) : null), backgroundColor: 'rgba(255,138,92,0.18)', borderColor: 'rgba(255,138,92,0.45)', borderRadius: 136, borderWidth: 2, height: 272, opacity: 0.82, position: 'absolute', width: 272 },
   aiGeneratingSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 22, marginTop: 10, textAlign: 'center' },
-  aiGeneratingTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 29, marginTop: 30, textAlign: 'center' },
+  aiGeneratingTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '600', letterSpacing: 0, lineHeight: 29, marginTop: 54, textAlign: 'center' },
   aiGhostCta: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.72)', borderColor: palette.border, borderRadius: 27, borderWidth: 1, flexDirection: 'row', gap: 8, height: 54, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.08, shadowRadius: 18 },
   aiGhostCtaPressed: { backgroundColor: '#fff' },
   aiGhostCtaText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15.5, fontWeight: '500' },
@@ -9592,6 +9608,12 @@ const styles = StyleSheet.create({
   aiOriginalThumb: { borderColor: '#fff', borderRadius: 31, borderWidth: 3, height: 62, left: 7, overflow: 'hidden', position: 'absolute', top: 12, width: 62 },
   aiPageTealGlow: { backgroundColor: 'rgba(77,182,172,0.13)', borderRadius: 160, bottom: -80, height: 220, position: 'absolute', right: -90, width: 220 },
   aiPageWarmGlow: { backgroundColor: 'rgba(255,217,182,0.42)', borderRadius: 220, height: 240, left: -80, position: 'absolute', right: -80, top: -42 },
+  aiParticleDot: { backgroundColor: 'rgba(255,255,255,0.62)', borderRadius: 2, height: 4, position: 'absolute', width: 4 },
+  aiParticleDotFour: { bottom: 72, height: 3, left: 72, opacity: 0.8, width: 3 },
+  aiParticleDotOne: { left: 62, top: 72 },
+  aiParticleDotThree: { bottom: 58, height: 5, opacity: 0.9, right: 78, width: 5 },
+  aiParticleDotTwo: { height: 3, right: 82, top: 50, width: 3 },
+  aiParticleLayer: { borderRadius: 120, height: 240, overflow: 'hidden', position: 'absolute', width: 240 },
   aiPhotoChip: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.82)', borderColor: palette.border, borderRadius: 30, borderWidth: 1, flexDirection: 'row', gap: 10, marginLeft: 0, marginTop: 4, paddingBottom: 6, paddingLeft: 6, paddingRight: 14, paddingTop: 6, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.12, shadowRadius: 22, zIndex: 3 },
   aiPhotoChipImage: { borderColor: '#fff', borderRadius: 18, borderWidth: 2, height: 36, width: 36 },
   aiPhotoChipStrong: { color: palette.ink, fontWeight: '700' },
@@ -9626,7 +9648,7 @@ const styles = StyleSheet.create({
   aiSparkOne: { left: 4, position: 'absolute', top: 38 },
   aiSparkThree: { bottom: 64, position: 'absolute', right: -2 },
   aiSparkTwo: { position: 'absolute', right: 46, top: 12 },
-  aiStepsCard: { backgroundColor: 'rgba(255,255,255,0.76)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 22, paddingHorizontal: 16, paddingVertical: 10, width: '100%' },
+  aiStepsCard: { backgroundColor: 'rgba(255,255,255,0.70)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 22, paddingHorizontal: 16, paddingVertical: 14, width: '100%' },
   aiWorkingBadge: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, bottom: 34, flexDirection: 'row', gap: 5, paddingHorizontal: 12, paddingVertical: 6, position: 'absolute', right: 2, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.15, shadowRadius: 18 },
   aiWorkingText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   formCard: { gap: 12 },
@@ -9971,7 +9993,7 @@ const styles = StyleSheet.create({
   makeStepInnerDotActive: { backgroundColor: palette.orange, borderRadius: 4, height: 7, opacity: 1, width: 7 },
   makeStepRow: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 7 },
   makeStepText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', lineHeight: 19 },
-  makeStepTextMuted: { color: palette.muted, fontWeight: '700' },
+  makeStepTextMuted: { color: palette.muted, fontWeight: '600', opacity: 0.65 },
   menuIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 14, height: 38, justifyContent: 'center', width: 38 },
   menuRow: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 60, paddingHorizontal: 14 },
   menuTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
@@ -10348,10 +10370,16 @@ const styles = StyleSheet.create({
   placeholderHeroMake: { alignItems: 'center', backgroundColor: '#e8f5f3', borderRadius: 18, flexDirection: 'row', gap: 12, padding: 16 },
   placeholderMake: { gap: 14 },
   previewPhoto: { backgroundColor: palette.pale, borderRadius: 24, height: 330, width: '100%' },
-  recognitionBadgeText: { color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
-  recognitionHeroMake: { alignItems: 'center', backgroundColor: '#f4b879', borderRadius: 28, height: 280, justifyContent: 'center', marginTop: 2, overflow: 'hidden', position: 'relative' },
-  recognitionQuality: { backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 14, color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', right: 14, top: 14 },
-  recognitionSuccessBadge: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.95)', borderRadius: 14, flexDirection: 'row', gap: 5, left: 14, paddingHorizontal: 12, paddingVertical: 6, position: 'absolute', top: 14 },
+  recognitionBadgeText: { color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
+  recognitionBottomActions: { marginTop: 22, paddingHorizontal: 8 },
+  recognitionDetailCardMake: { backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, marginTop: 18, paddingHorizontal: 16, paddingVertical: 16, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
+  recognitionFeatureChipsMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-start', marginTop: 14 },
+  recognitionHeroMake: { alignItems: 'center', backgroundColor: '#e2a56a', borderRadius: 28, height: 280, justifyContent: 'center', marginTop: 2, overflow: 'hidden', position: 'relative' },
+  recognitionPrimaryCta: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.28, shadowRadius: 22 },
+  recognitionPrimaryCtaPressed: { opacity: 0.86, transform: [{ scale: 0.99 }] },
+  recognitionPrimaryCtaText: { color: '#fff', fontFamily: appFontFamily, fontSize: 16, fontWeight: '500', lineHeight: 22 },
+  recognitionQuality: { backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 14, color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', right: 14, top: 14 },
+  recognitionSuccessBadge: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.95)', borderRadius: 14, flexDirection: 'row', gap: 5, left: 14, paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', top: 14 },
   profileCard: { alignItems: 'center', flexDirection: 'row', gap: 14 },
   profileCurrentWrap: { marginBottom: 18, marginTop: 16, paddingHorizontal: 12 },
   profileHeroContent: { alignItems: 'center', flexDirection: 'row', gap: 14, position: 'relative' },
@@ -10400,7 +10428,7 @@ const styles = StyleSheet.create({
   profileVerifyPill: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 10, flexDirection: 'row', gap: 4, marginTop: 8, paddingHorizontal: 8, paddingVertical: 3 },
   profileVerifyText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
   progressFill: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(90deg, #FFB48C 0%, #FF8A5C 60%, #FF6F3B 100%)' } as object) : null), backgroundColor: palette.orange, borderRadius: 999, height: '100%', shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.45, shadowRadius: 12 },
-  progressTrack: { backgroundColor: 'rgba(255,138,92,0.16)', borderRadius: 999, height: 6, overflow: 'hidden', width: '100%' },
+  progressTrack: { backgroundColor: 'rgba(255,138,92,0.16)', borderRadius: 999, height: 6, marginTop: 28, overflow: 'hidden', width: '100%' },
   ratingPill: { alignItems: 'center', flexDirection: 'row', gap: 3 },
   ratingText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   requestCard: { alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.24)', borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 16 },
@@ -10461,8 +10489,8 @@ const styles = StyleSheet.create({
   failedBlurOrb: { backgroundColor: '#7b6e59', borderRadius: 100, height: 200, opacity: 0.6, width: 200 },
   failedPhotoMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, #E8E3D8 0%, #C8C0AF 100%)' } as object) : null), alignItems: 'center', backgroundColor: '#c8c0af', borderRadius: 28, height: 320, justifyContent: 'center', marginTop: 2, overflow: 'hidden', position: 'relative' },
   failedTipsIntro: { marginTop: 8 },
-  featureChipCool: { backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 12, color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 11, paddingVertical: 6 },
-  featureChipWarm: { backgroundColor: palette.orangeSoft, borderRadius: 12, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 11, paddingVertical: 6 },
+  featureChipCool: { backgroundColor: 'rgba(77,182,172,0.12)', borderRadius: 14, color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', letterSpacing: 0, overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 6 },
+  featureChipWarm: { backgroundColor: 'rgba(255,138,92,0.12)', borderRadius: 14, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', letterSpacing: 0, overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 6 },
   featureChipsMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 18 },
   scanCornerLb: { borderColor: palette.orange, borderLeftWidth: 3, borderRadius: 4, borderTopWidth: 3, bottom: 18, height: 22, left: 18, position: 'absolute', transform: [{ rotate: '270deg' }], width: 22 },
   scanCornerLt: { borderColor: palette.orange, borderLeftWidth: 3, borderRadius: 4, borderTopWidth: 3, height: 22, left: 18, position: 'absolute', top: 18, width: 22 },
