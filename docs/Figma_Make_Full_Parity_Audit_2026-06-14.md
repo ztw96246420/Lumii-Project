@@ -123,10 +123,10 @@
 | 89 | 保存中 | `renderOwnerEdit` | 二次收敛-需真机截图复核 | 本轮按 Screen89 补顶部白色 loading puff“正在保存资料...”，表单内容 0.88 透明度，保存按钮保留 loading；真实 `saveOwnerProfile` 流程不变 |
 | 90 | 保存成功 | `renderOwnerEdit` + owner save Toast | 已接入-需视觉复核 | 本轮按 Screen90 改为保存成功后停留编辑页，显示“资料已保存，新的头像也更新好了”surface Toast，并在头像上覆盖青绿色成功勾选层 |
 | 91 | 保存失败 | `Toast` + owner save | 已接入-需视觉复核 | 本轮按 Screen91 补失败 surface Toast action 和“资料已暂存到本地”红色提示卡，含 WifiOff 图标、说明文案与重试按钮 |
-| 92 | 编辑备忘 默认态 | `renderMemoEdit` | 已接入-需视觉复核 | 本轮已按 Screen92 改为无外层卡轻表单，补 14px 圆角输入框、内容计数、日期/分类双行元信息卡和居中删除入口 |
-| 93 | 保存中 | `renderMemoEdit` | 已接入-需视觉复核 | 保存按钮保留 loading，编辑页不再立即跳回列表；顶部 loading Toast 仍可后续按 Screen93 独立增强 |
-| 94 | 保存成功 | `Toast` + memo save | 已接入-需视觉复核 | 编辑保存成功后停留在编辑页并显示 surface 成功 Toast，更接近 Screen94；Toast 副文案仍可继续复刻 |
-| 95 | 删除备忘 二次确认 | `ConfirmDialog` | 已接入-需视觉复核 | Dialog 走危险态图标块和红色确认按钮，文案按当前宠物备忘标题生成；仍需截图核对宽度 |
+| 92 | 编辑备忘 默认态 | `renderMemoEdit` | 二次收敛-需真机截图复核 | 本轮已按 Screen92 改为无外层卡轻表单，补 14px 圆角输入框、内容计数、日期/分类双行元信息卡和居中删除入口；标题/内容为空时输入框立即红框 |
+| 93 | 保存中 | `renderMemoEdit` | 二次收敛-需真机截图复核 | 本轮按 Screen93 补顶部白色 loading puff“正在保存备忘...”，表单和底部操作 0.88 透明度；保存按钮保留 loading，真实 `saveMemoEdit` 流程不变 |
+| 94 | 保存成功 | `Toast` + memo save | 二次收敛-需真机截图复核 | 编辑保存成功后停留在编辑页并显示 surface 成功 Toast；本轮补副文案“X 的小日记又厚了一页”，更贴近 Screen94 |
+| 95 | 删除备忘 二次确认 | `renderMemoDeleteConfirm` + delete memo | 二次收敛-需真机截图复核 | 本轮从通用 `ConfirmDialog` 改为 Screen95 专用居中危险弹窗：50% 暗色遮罩、52px 红色图标块、20px 圆角白卡、取消/确认删除双 46px 按钮；删除接口和失败保留弹窗重试逻辑不变 |
 | 96 | 删除成功 备忘空状态 | `renderHealthMemos` | 已接入-需视觉复核 | 本轮补 Screen96 风格暖色提示卡、大号圆形备忘插画、空状态文案和“新建备忘”主 CTA |
 | 97 | 体重趋势 正常 | `renderWeight` | 已接入-需视觉复核 | 本轮按 Screen97 强化趋势卡、稳定提示、历史记录标题右侧“添加”和独立圆角记录卡，首条高亮 |
 | 98 | 体重趋势 异常 | `renderWeight` | 已接入-需视觉复核 | 本轮异常态已使用 Screen98 的暖黄提示卡、体重下降 pill 和记录卡高亮方向；仍需真机截图复核文案折行 |

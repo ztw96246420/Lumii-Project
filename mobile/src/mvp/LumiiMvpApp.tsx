@@ -746,6 +746,7 @@ export default function LumiiMvpApp() {
   const memoEditSavingRef = useRef(false);
   const [memoDeleting, setMemoDeleting] = useState(false);
   const memoDeletingRef = useRef(false);
+  const [memoDeleteConfirmVisible, setMemoDeleteConfirmVisible] = useState(false);
   const [memoDraftTitle, setMemoDraftTitle] = useState('驱虫');
   const [memoDraftContent, setMemoDraftContent] = useState('外用滴剂 · 拜耳拜宠清');
   const [memoDraftSaving, setMemoDraftSaving] = useState(false);
@@ -3280,7 +3281,7 @@ export default function LumiiMvpApp() {
         setMemos((items) => items.map((item) => (item.id === result.data!.id ? result.data! : item)));
         setSelectedMemo(result.data);
         void refreshHealthSummary();
-        showToast('备忘已保存', { tone: 'success', variant: 'surface' });
+        showToast('备忘已保存', { subtitle: `${getCurrentPet()?.name ?? '灵伴'}的小日记又厚了一页`, tone: 'success', variant: 'surface' });
       } else {
         showToast(result.error?.message ?? '备忘保存失败', { tone: 'error', variant: 'surface' });
       }
@@ -3304,6 +3305,7 @@ export default function LumiiMvpApp() {
       if (result.data) {
         setMemos(result.data);
         setSelectedMemo(null);
+        setMemoDeleteConfirmVisible(false);
         void refreshHealthSummary();
         replace('healthMemos');
         showToast('备忘已删除', { tone: 'success', variant: 'surface' });
@@ -3318,12 +3320,7 @@ export default function LumiiMvpApp() {
 
   function confirmDeleteMemo() {
     if (!selectedMemo) return;
-    openConfirm(
-      '删除这条备忘？',
-      `「${selectedMemo.title}」将从健康备忘中移除，删除后不可恢复。`,
-      () => void deleteSelectedMemo(),
-      '确认删除',
-    );
+    setMemoDeleteConfirmVisible(true);
   }
 
   function buildDailyPostDraft(mood: DailyMood) {
@@ -3985,6 +3982,7 @@ export default function LumiiMvpApp() {
     setMemoEditSaving(false);
     memoDeletingRef.current = false;
     setMemoDeleting(false);
+    setMemoDeleteConfirmVisible(false);
     setMemoDraftTitle('驱虫');
     setMemoDraftContent('外用滴剂 · 拜耳拜宠清');
     memoDraftSavingRef.current = false;
@@ -5970,14 +5968,21 @@ export default function LumiiMvpApp() {
     const invalid = !memoEditTitle.trim() || !memoEditContent.trim() || titleCount > 20 || contentCount > 200;
     return (
       <Screen title="编辑备忘">
-        <View style={styles.memoEditFormMake}>
+        <View style={styles.memoEditPageMake}>
+          {memoEditSaving ? (
+            <View style={styles.memoSavingPuffMake}>
+              <ActivityIndicator color={palette.orange} size="small" />
+              <Text style={styles.memoSavingPuffTextMake}>正在保存备忘...</Text>
+            </View>
+          ) : null}
+        <View style={[styles.memoEditFormMake, memoEditSaving && styles.memoSavingContentDimMake]}>
           <View style={styles.makeFieldGroup}>
             <Text style={styles.makeFieldLabel}>备忘标题 *</Text>
             <TextInput
               onChangeText={setMemoEditTitle}
               placeholder="例如：洗澡记录"
               placeholderTextColor="#B8B3A8"
-              style={[styles.makeTextInput, titleCount > 20 && styles.makeTextInputError, webTextInputReset]}
+              style={[styles.makeTextInput, (!memoEditTitle.trim() || titleCount > 20) && styles.makeTextInputError, webTextInputReset]}
               value={memoEditTitle}
             />
             <View style={styles.fieldHintRow}>
@@ -5992,7 +5997,7 @@ export default function LumiiMvpApp() {
               onChangeText={setMemoEditContent}
               placeholder="今天有什么值得记录的小事？"
               placeholderTextColor="#B8B3A8"
-              style={[styles.makeTextInput, styles.makeTextAreaInput, contentCount > 200 && styles.makeTextInputError, webTextInputReset]}
+              style={[styles.makeTextInput, styles.makeTextAreaInput, (!memoEditContent.trim() || contentCount > 200) && styles.makeTextInputError, webTextInputReset]}
               textAlignVertical="top"
               value={memoEditContent}
             />
@@ -6021,12 +6026,13 @@ export default function LumiiMvpApp() {
             </View>
           </View>
         </View>
-        <View style={styles.editActionStack}>
+        <View style={[styles.editActionStack, memoEditSaving && styles.memoSavingContentDimMake]}>
           <Pressable disabled={memoDeleting || memoEditSaving} onPress={confirmDeleteMemo} style={[styles.deleteTextButton, webPressableReset]}>
             {memoDeleting ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={15} strokeWidth={2.4} />}
             <Text style={styles.deleteTextButtonLabel}>删除备忘</Text>
           </Pressable>
           <Button disabled={invalid} loading={memoEditSaving} onPress={() => void saveMemoEdit()}>保存修改</Button>
+        </View>
         </View>
       </Screen>
     );
@@ -8577,6 +8583,43 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderMemoDeleteConfirm() {
+    const memo = selectedMemo;
+    return (
+      <Modal
+        animationType="fade"
+        onRequestClose={() => {
+          if (!memoDeleting) setMemoDeleteConfirmVisible(false);
+        }}
+        transparent
+        visible={memoDeleteConfirmVisible && Boolean(memo)}
+      >
+        <View style={styles.memoDeleteBackdropMake}>
+          {memo ? (
+            <View style={styles.memoDeleteDialogMake}>
+              <View style={styles.memoDeleteIconMake}>
+                <Trash2 color={palette.danger} size={22} strokeWidth={2.4} />
+              </View>
+              <Text style={styles.memoDeleteTitleMake}>删除这条备忘？</Text>
+              <Text style={styles.memoDeleteBodyMake}>
+                「{memo.title}」将从{getCurrentPet()?.name ?? '灵伴'}的健康备忘中移除，删除后不可恢复
+              </Text>
+              <View style={styles.memoDeleteActionsMake}>
+                <Pressable disabled={memoDeleting} onPress={() => setMemoDeleteConfirmVisible(false)} style={[styles.memoDeleteCancelMake, webPressableReset]}>
+                  <Text style={styles.memoDeleteCancelTextMake}>取消</Text>
+                </Pressable>
+                <Pressable disabled={memoDeleting} onPress={() => void deleteSelectedMemo()} style={[styles.memoDeleteDangerMake, memoDeleting && styles.aiCtaDisabled, webPressableReset]}>
+                  {memoDeleting ? <ActivityIndicator color="#fff" size="small" /> : null}
+                  <Text style={styles.memoDeleteDangerTextMake}>确认删除</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      </Modal>
+    );
+  }
+
   function renderWeightDeleteConfirm() {
     const record = weightDeleteConfirm;
     const deleting = Boolean(record && weightEditSaving);
@@ -8730,6 +8773,7 @@ export default function LumiiMvpApp() {
           {renderAmapNavigationConfirm()}
           {renderLogoutConfirmSheet()}
           {renderPetDeleteConfirmSheet()}
+          {renderMemoDeleteConfirm()}
           {renderWeightDeleteConfirm()}
           <ConfirmDialog
             body={confirm?.body ?? ''}
@@ -9477,8 +9521,19 @@ const styles = StyleSheet.create({
   makeTextAreaInput: { minHeight: 112, paddingTop: 12 },
   makeTextInput: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1.5, color: palette.ink, flexDirection: 'row', fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', gap: 10, minHeight: 48, paddingHorizontal: 14, paddingVertical: 10 },
   makeTextInputError: { borderColor: palette.danger },
+  memoDeleteActionsMake: { flexDirection: 'row', gap: 10, marginTop: 18 },
+  memoDeleteBackdropMake: { alignItems: 'center', backgroundColor: 'rgba(20,18,14,0.50)', flex: 1, justifyContent: 'center', paddingHorizontal: 32 },
+  memoDeleteBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 21, marginTop: 8, paddingHorizontal: 6, textAlign: 'center' },
+  memoDeleteCancelMake: { alignItems: 'center', backgroundColor: 'transparent', borderColor: palette.border, borderRadius: 13, borderWidth: 1, flex: 1, height: 46, justifyContent: 'center' },
+  memoDeleteCancelTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600' },
+  memoDeleteDangerMake: { alignItems: 'center', backgroundColor: palette.danger, borderRadius: 13, flex: 1, flexDirection: 'row', gap: 6, height: 46, justifyContent: 'center', shadowColor: palette.danger, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.22, shadowRadius: 18 },
+  memoDeleteDangerTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 14, fontWeight: '600' },
+  memoDeleteDialogMake: { backgroundColor: '#fff', borderRadius: 20, paddingBottom: 18, paddingHorizontal: 20, paddingTop: 22, shadowColor: '#50371e', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.22, shadowRadius: 40, width: '100%' },
+  memoDeleteIconMake: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#FBE4DE', borderRadius: 16, height: 52, justifyContent: 'center', marginBottom: 14, width: 52 },
+  memoDeleteTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', lineHeight: 23, textAlign: 'center' },
   memoMetaBox: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   memoEditFormMake: { gap: 4, paddingTop: 0 },
+  memoEditPageMake: { position: 'relative' },
   memoEmptyArt: { height: 140, marginBottom: 14, position: 'relative', width: 140 },
   memoEmptyButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 13, flexDirection: 'row', gap: 7, justifyContent: 'center', marginTop: 22, minHeight: 44, paddingHorizontal: 24, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.28, shadowRadius: 22 },
   memoEmptyButtonText: { color: '#fff', fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
@@ -9505,6 +9560,9 @@ const styles = StyleSheet.create({
   memoPrimaryCta: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center', marginTop: 28, shadowColor: palette.orange, shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.28, shadowRadius: 28 },
   memoPrimaryCtaDisabled: { backgroundColor: palette.pale, shadowOpacity: 0 },
   memoPrimaryCtaText: { color: '#fff', fontFamily: appFontFamily, fontSize: 15.5, fontWeight: '700' },
+  memoSavingContentDimMake: { opacity: 0.88 },
+  memoSavingPuffMake: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 10, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28, top: -4, zIndex: 20 },
+  memoSavingPuffTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   memoReminderIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 17, height: 34, justifyContent: 'center', width: 34 },
   memoReminderRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 14, paddingHorizontal: 16, paddingVertical: 14 },
   memoRepeatOption: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flex: 1, justifyContent: 'center', minHeight: 40 },
@@ -10509,13 +10567,13 @@ const styles = StyleSheet.create({
   recognitionQuality: { backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 14, color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', right: 14, top: 14 },
   recognitionSuccessBadge: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.95)', borderRadius: 14, flexDirection: 'row', gap: 5, left: 14, paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', top: 14 },
   profileCard: { alignItems: 'center', flexDirection: 'row', gap: 14 },
-  profileCurrentWrap: { marginBottom: 18, marginTop: 16, paddingHorizontal: 16 },
+  profileCurrentWrap: { alignSelf: 'stretch', marginBottom: 18, marginTop: 16, paddingHorizontal: 16 },
   profileHeroContent: { alignItems: 'center', flexDirection: 'row', gap: 14, position: 'relative' },
-  profileHeroMake: { backgroundColor: '#ffe3d1', borderRadius: 22, marginHorizontal: 16, marginTop: 16, overflow: 'hidden', padding: 18, position: 'relative' },
+  profileHeroMake: { alignSelf: 'stretch', backgroundColor: '#ffe3d1', borderRadius: 22, marginHorizontal: 16, marginTop: 16, overflow: 'hidden', padding: 18, position: 'relative' },
   profileHeroOrb: { backgroundColor: 'rgba(255,255,255,0.42)', borderRadius: 70, height: 140, position: 'absolute', right: -30, top: -20, width: 140 },
   profileMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', paddingHorizontal: 20 },
   profileMakeMenuRowValue: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
-  profileMakePage: { paddingTop: 0, width: '100%' },
+  profileMakePage: { alignSelf: 'stretch', minWidth: '100%', paddingTop: 0, width: '100%' },
   profileMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 14 },
   profileMakeRowIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 8, height: 28, justifyContent: 'center', width: 28 },
   profileMakeRowLast: { borderBottomWidth: 0 },
@@ -10523,7 +10581,7 @@ const styles = StyleSheet.create({
   profileMakeRowTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '400', lineHeight: 20, minWidth: 0 },
   profileMakeRowValue: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 18, maxWidth: '42%', minWidth: 0, textAlign: 'right' },
   profileManageLink: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
-  profileMenuGroup: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 16, overflow: 'hidden' },
+  profileMenuGroup: { alignSelf: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 16, overflow: 'hidden' },
   profileOwnerAvatar: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 32, borderWidth: 3, height: 64, justifyContent: 'center', overflow: 'hidden', shadowColor: '#000', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.08, shadowRadius: 10, width: 64 },
   profileOwnerName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 24 },
   profilePetBadge: { backgroundColor: '#e8f5f3', borderRadius: 6, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
@@ -10539,7 +10597,7 @@ const styles = StyleSheet.create({
   profileSectionLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   profileSectionLabelRow: { flexDirection: 'row', justifyContent: 'space-between', paddingBottom: 8, paddingHorizontal: 4 },
   profileScreenTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 26, fontWeight: '700', letterSpacing: 0, lineHeight: 32 },
-  profileRouteContent: { paddingHorizontal: 0, paddingTop: 8 },
+  profileRouteContent: { alignItems: 'stretch', flexGrow: 1, paddingHorizontal: 0, paddingTop: 8, width: '100%' },
   safetyActionCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 70, padding: 14 },
   safetyActionIconMake: { alignItems: 'center', borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
   safetyActionStackMake: { gap: 10 },
