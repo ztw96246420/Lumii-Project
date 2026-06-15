@@ -71,6 +71,17 @@ This file records incremental parity work that should be merged back into `Figma
   - Vaccine plan and daily-post layouts already follow the source structure closely enough for this pass.
   - No code change was made in those flows.
 
+## Foundation Components
+
+- Screen64-67 / 71-73 `ui.tsx`: reviewed Button, Field, Toast, ConfirmDialog, EmptyState, ErrorState, LoadingState, and Skeleton atoms against the Figma system source.
+  - Component sizing, radii, icon boxes, basic typography, loading copy, disabled state, and danger-state detection already match the source closely.
+  - `rg` confirms the real source text is Chinese (`处理中…`, `正在为你召唤灵伴…`, `确认`, `取消`); the garbled text seen in `Get-Content` output is a PowerShell console encoding artifact, not App copy.
+  - No code change was made here to avoid broad component churn.
+
+- Screen68-70 shared surfaces: reviewed BottomSheet, TabBar, and base Card usage.
+  - Existing BottomSheet and TabBar styles are already aligned with the Figma radius, spacing, and active-state treatment used by current production screens.
+  - Base Card remains available as a shared atom, while page-specific Figma cards are intentionally kept as local styles where the source screens require different radii, shadows, or row density.
+
 ## Profile
 
 - Screen54 `renderProfile`: adjusted the three main profile blocks for narrow Android devices after true-device review.
