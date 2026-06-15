@@ -7628,16 +7628,25 @@ export default function LumiiMvpApp() {
     const invalid = !ownerNameDraft.trim() || nameCount > 14 || bioCount > 60;
     return (
       <Screen title="编辑个人资料">
-        <View style={styles.ownerAvatarBlock}>
+        <View style={styles.ownerEditMakePage}>
+        {ownerProfileSaving ? (
+          <View style={styles.ownerSavingPuffMake}>
+            <ActivityIndicator color={palette.orange} size="small" />
+            <Text style={styles.ownerSavingPuffTextMake}>正在保存资料...</Text>
+          </View>
+        ) : null}
+
+        <View style={[styles.ownerAvatarBlock, ownerProfileSaving && styles.ownerSavingContentDimMake]}>
           <Pressable onPress={() => void pickOwnerAvatar()} style={[styles.ownerAvatarLarge, webPressableReset]}>
             {ownerAvatarDraft ? (
-              <Image source={{ uri: ownerAvatarDraft }} style={styles.ownerAvatarImage} />
+              <Image source={{ uri: ownerAvatarDraft }} style={[styles.ownerAvatarImage, ownerAvatarPicking && styles.ownerAvatarImageUploadingMake]} />
             ) : (
               <User color={palette.orange} size={42} strokeWidth={2.2} />
             )}
             {ownerAvatarPicking ? (
               <View style={styles.ownerAvatarOverlay}>
                 <ActivityIndicator color="#fff" size="small" />
+                <Text style={styles.ownerAvatarProgressTextMake}>62%</Text>
               </View>
             ) : null}
             {ownerProfileSaved && !ownerAvatarPicking ? (
@@ -7652,7 +7661,7 @@ export default function LumiiMvpApp() {
           <Text style={styles.timelineSubMake}>{ownerAvatarPicking ? '正在打开相册...' : ownerProfileSaved ? '头像已更新' : '点击更换头像'}</Text>
         </View>
 
-        <View style={styles.editFormCard}>
+        <View style={[styles.editFormCard, ownerProfileSaving && styles.ownerSavingContentDimMake]}>
           <View style={styles.makeFieldGroup}>
             <Text style={styles.makeFieldLabel}>主人昵称 *</Text>
             <TextInput
@@ -7663,7 +7672,7 @@ export default function LumiiMvpApp() {
               }}
               placeholder="给自己取个昵称"
               placeholderTextColor="#B8B3A8"
-              style={[styles.makeTextInput, nameCount > 14 && styles.makeTextInputError, webTextInputReset]}
+              style={[styles.makeTextInput, (!ownerNameDraft.trim() || nameCount > 14) && styles.makeTextInputError, webTextInputReset]}
               value={ownerNameDraft}
             />
             <View style={styles.fieldHintRow}>
@@ -7708,6 +7717,13 @@ export default function LumiiMvpApp() {
           </View>
         </View>
 
+        {ownerAvatarPicking ? (
+          <View style={styles.ownerAvatarUploadNoteMake}>
+            <ActivityIndicator color={palette.orange} size="small" />
+            <Text style={styles.ownerAvatarUploadNoteTextMake}>头像还在上传，保存按钮会在上传完成后亮起</Text>
+          </View>
+        ) : null}
+
         {ownerProfileSaveError ? (
           <View style={styles.ownerSaveErrorCardMake}>
             <View style={styles.ownerSaveErrorIconMake}>
@@ -7726,6 +7742,7 @@ export default function LumiiMvpApp() {
 
         <View style={styles.editActionStack}>
           <Button disabled={invalid || ownerAvatarPicking} loading={ownerProfileSaving} onPress={() => void saveOwnerProfile()}>保存资料</Button>
+        </View>
         </View>
       </Screen>
     );
@@ -9530,16 +9547,24 @@ const styles = StyleSheet.create({
   multiPetSwitchToastTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '800' },
   ownerAvatarBlock: { alignItems: 'center', paddingBottom: 18, paddingTop: 14 },
   ownerAvatarCamera: { alignItems: 'center', backgroundColor: palette.orange, borderColor: palette.background, borderRadius: 16, borderWidth: 3, bottom: 30, height: 32, justifyContent: 'center', marginBottom: -16, marginLeft: 70, width: 32 },
+  ownerAvatarImageUploadingMake: { opacity: 0.82 },
   ownerAvatarImage: { height: '100%', width: '100%' },
   ownerAvatarLarge: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 48, borderWidth: 3, height: 96, justifyContent: 'center', overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22, width: 96 },
-  ownerAvatarOverlay: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
+  ownerAvatarOverlay: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.32)', bottom: 0, gap: 4, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
+  ownerAvatarProgressTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', lineHeight: 13 },
   ownerAvatarSuccessOverlayMake: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.85)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
+  ownerAvatarUploadNoteMake: { alignItems: 'center', backgroundColor: '#FFF7F0', borderColor: '#FFE0CC', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 8, padding: 12 },
+  ownerAvatarUploadNoteTextMake: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 18 },
+  ownerEditMakePage: { marginHorizontal: -4, position: 'relative' },
   ownerSaveErrorCardMake: { alignItems: 'center', backgroundColor: '#FBE4DE', borderColor: '#F5C7BD', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, marginTop: 8, padding: 12 },
   ownerSaveErrorIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
   ownerSaveErrorTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 17, marginTop: 2 },
   ownerSaveErrorTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700', lineHeight: 18 },
   ownerSaveRetryMake: { alignItems: 'center', borderColor: palette.orange, borderRadius: 9, borderWidth: 1, flexDirection: 'row', flexShrink: 0, gap: 4, paddingHorizontal: 10, paddingVertical: 5 },
   ownerSaveRetryTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  ownerSavingContentDimMake: { opacity: 0.88 },
+  ownerSavingPuffMake: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 10, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28, top: 8, zIndex: 20 },
+  ownerSavingPuffTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   petDeleteIconButton: { alignItems: 'center', backgroundColor: '#FBE4DE', borderRadius: 10, height: 30, justifyContent: 'center', width: 30 },
   petDeleteActionsMake: { gap: 10, marginTop: 20 },
   petDeleteBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21, marginTop: 8, textAlign: 'center' },
