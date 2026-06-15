@@ -343,6 +343,14 @@ type ConfirmState = {
   title: string;
 };
 
+type PlaceSubmitResult = {
+  draft: string;
+  kind: 'place' | 'review';
+  placeMeta: string;
+  placeName: string;
+  status: 'error' | 'success';
+};
+
 type AppToast = {
   actionText?: string;
   message: string;
@@ -719,6 +727,7 @@ export default function LumiiMvpApp() {
   const [selectedPlaceFeatureTags, setSelectedPlaceFeatureTags] = useState<string[]>([]);
   const [placeReviewSaving, setPlaceReviewSaving] = useState(false);
   const placeReviewSavingRef = useRef(false);
+  const [placeSubmitResult, setPlaceSubmitResult] = useState<PlaceSubmitResult | null>(null);
   const [placeSubmissionSaving, setPlaceSubmissionSaving] = useState(false);
   const placeSubmissionSavingRef = useRef(false);
   const [placeSubmissionStatus, setPlaceSubmissionStatus] = useState<'idle' | 'pending_review'>('idle');
@@ -3580,6 +3589,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
     placeReviewSavingRef.current = true;
+    setPlaceSubmitResult(null);
     setPlaceReviewSaving(true);
     try {
       const result = await lumiiApi.places.createReview(place.id, reviewContent);
@@ -3590,9 +3600,23 @@ export default function LumiiMvpApp() {
         if (stillReviewingSamePlace) setPlaceReviewDraft('');
         setPlaceReviewsByPlaceId((items) => ({ ...items, [place.id]: result.data! }));
         void loadInboxData();
-        if (stillReviewingSamePlace) showToast('点评已提交，等待审核', { tone: 'warning', variant: 'surface' });
+        if (stillReviewingSamePlace) {
+          setPlaceSubmitResult({
+            draft: reviewContent,
+            kind: 'review',
+            placeMeta: `${place.address} · ${place.distance}`,
+            placeName: place.name,
+            status: 'success',
+          });
+        }
       } else if (stillReviewingSamePlace) {
-        showToast(result.error?.message ?? '提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
+        setPlaceSubmitResult({
+          draft: reviewContent,
+          kind: 'review',
+          placeMeta: `${place.address} · ${place.distance}`,
+          placeName: place.name,
+          status: 'error',
+        });
       }
     } finally {
       placeReviewSavingRef.current = false;
@@ -3627,6 +3651,7 @@ export default function LumiiMvpApp() {
     const requestFeatureTags = selectedPlaceFeatureTags;
     const requestExperience = buildPlaceSubmissionExperience(requestFeatureTags, placeSubmissionExperience);
     placeSubmissionSavingRef.current = true;
+    setPlaceSubmitResult(null);
     setPlaceSubmissionSaving(true);
     try {
       const result = await lumiiApi.places.createSubmission(requestName, requestAddress, requestExperience);
@@ -3641,9 +3666,23 @@ export default function LumiiMvpApp() {
           setPlaceSubmissionStatus('pending_review');
         }
         void loadInboxData();
-        if (stillEditingSubmission) showToast('地点已提交审核', { tone: 'warning', variant: 'surface' });
+        if (stillEditingSubmission) {
+          setPlaceSubmitResult({
+            draft: requestExperience,
+            kind: 'place',
+            placeMeta: requestAddress,
+            placeName: requestName,
+            status: 'success',
+          });
+        }
       } else if (stillEditingSubmission) {
-        showToast(result.error?.message ?? '提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
+        setPlaceSubmitResult({
+          draft: requestExperience,
+          kind: 'place',
+          placeMeta: requestAddress,
+          placeName: requestName,
+          status: 'error',
+        });
       }
     } finally {
       placeSubmissionSavingRef.current = false;
@@ -3751,6 +3790,7 @@ export default function LumiiMvpApp() {
     setNotifications([]);
     discoverRequestSeqRef.current += 1;
     applyNearbyOwners([]);
+    setPlaceSubmitResult(null);
     discoverRefreshingRef.current = false;
     setDiscoverRefreshing(false);
     setDiscoverFilter('all');
@@ -3859,7 +3899,7 @@ export default function LumiiMvpApp() {
   const Screen = useCallback(
     function ScreenView({ children, refreshControl, right, showBack = true, title }: { children: ReactNode; refreshControl?: ReactElement<RefreshControlProps>; right?: ReactNode; showBack?: boolean; title?: string }) {
       const headerTitle = title ?? routeTitles[route] ?? '灵伴';
-      const hideHeader = route === 'login' || route === 'home' || route === 'discover' || route === 'map' || route === 'messages' || route === 'profile' || route === 'chat' || route === 'placeDetail';
+      const hideHeader = Boolean(placeSubmitResult) || route === 'login' || route === 'home' || route === 'discover' || route === 'map' || route === 'messages' || route === 'profile' || route === 'chat' || route === 'placeDetail';
       const isLoginRoute = route === 'login';
       const isOtpRoute = route === 'otp';
       const isMapRoute = route === 'map';
@@ -3904,7 +3944,7 @@ export default function LumiiMvpApp() {
         </View>
       );
     },
-    [back, route, showBottomTabs],
+    [back, placeSubmitResult, route, showBottomTabs],
   );
 
   function renderLogin() {
@@ -6481,6 +6521,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderPlaceDetail() {
+    if (placeSubmitResult?.kind === 'review') return renderPlaceSubmitResult(placeSubmitResult);
     const place = selectedPlace;
     const isFavoritePlace = place ? favoritePlaceIds.includes(place.id) : false;
     const isFavoriteSaving = place ? favoritePlaceSavingIds.includes(place.id) : false;
@@ -6628,6 +6669,146 @@ export default function LumiiMvpApp() {
           </View>
         </View>
       </Modal>
+    );
+  }
+
+  function closePlaceSubmitResult() {
+    const result = placeSubmitResult;
+    setPlaceSubmitResult(null);
+    if (result?.kind === 'place' && result.status === 'success') replace('map');
+  }
+
+  function continueAfterPlaceSubmitSuccess() {
+    const result = placeSubmitResult;
+    setPlaceSubmitResult(null);
+    if (result?.kind === 'review') {
+      setPlaceReviewDraft('');
+    } else {
+      setPlaceDraftName('');
+      setPlaceDraftAddress('');
+      setPlaceSubmissionExperience('');
+      setSelectedPlaceFeatureTags([]);
+      setPlaceSubmissionStatus('idle');
+    }
+  }
+
+  function saveFailedPlaceDraft() {
+    setPlaceSubmitResult(null);
+    showToast('草稿已保存，可稍后继续提交', { tone: 'success', variant: 'surface' });
+  }
+
+  function retryFailedPlaceSubmit() {
+    const result = placeSubmitResult;
+    setPlaceSubmitResult(null);
+    if (result?.kind === 'review') {
+      void createPlaceReview();
+    } else if (result?.kind === 'place') {
+      void submitPlaceDraft();
+    }
+  }
+
+  function renderPlaceSubmitResult(result: PlaceSubmitResult) {
+    const success = result.status === 'success';
+    const isReview = result.kind === 'review';
+    const pageTitle = success ? '提交成功' : '提交失败';
+    const headline = success ? (isReview ? '点评已提交' : '地点已提交') : '提交失败，请稍后再试';
+    const body = success
+      ? isReview
+        ? '为保证社区真实可信，我们需要 24 小时内\n人工审核你的点评，通过后会通知你'
+        : '为保证地点真实可信，我们需要 24 小时内\n人工审核你的提交，通过后会通知你'
+      : '可能原因：网络不稳定 / 服务暂时繁忙\n你的草稿已自动保存，可继续编辑';
+
+    return (
+      <Screen showBack={false} title="">
+        <View style={styles.placeSubmitResultPageMake}>
+          <View style={styles.placeSubmitBgGlowMake} />
+          <View style={styles.placeSubmitHeaderMake}>
+            <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={() => setPlaceSubmitResult(null)} style={[styles.iconButton, webPressableReset]}>
+              <ChevronLeft color={palette.ink} size={19} strokeWidth={2.4} />
+            </Pressable>
+            <Text style={styles.placeSubmitHeaderTitleMake}>{pageTitle}</Text>
+            <View style={styles.headerSpacer} />
+          </View>
+          <View style={styles.placeSubmitCenterMake}>
+            {success ? (
+              <View style={styles.placeSubmitSuccessArtMake}>
+                <View style={styles.placeSubmitSuccessGlowMake} />
+                <View style={styles.placeSubmitSuccessCircleMake}>
+                  <Clock color={palette.orange} size={56} strokeWidth={2.2} />
+                </View>
+                <Sparkles color={palette.orange} fill={palette.orange} size={16} style={styles.placeSubmitSparkleLeftMake} />
+                <Sparkles color={palette.teal} fill={palette.teal} size={12} style={styles.placeSubmitSparkleRightMake} />
+                <View style={styles.placeSubmitCheckBadgeMake}>
+                  <Check color="#fff" size={18} strokeWidth={3} />
+                </View>
+              </View>
+            ) : (
+              <View style={styles.placeSubmitErrorArtMake}>
+                <View style={styles.placeSubmitErrorInnerMake}>
+                  <AlertTriangle color={palette.danger} size={32} strokeWidth={2.2} />
+                </View>
+              </View>
+            )}
+            <Text style={styles.placeSubmitHeadlineMake}>{headline}</Text>
+            <Text style={styles.placeSubmitBodyMake}>{body}</Text>
+
+            {success ? (
+              <View style={styles.placeSubmitStepperMake}>
+                <PlaceSubmitStep done text={isReview ? '已提交点评' : '已提交地点'} time="刚刚" />
+                <View style={[styles.placeSubmitStepLineMake, styles.placeSubmitStepLineActiveMake]} />
+                <PlaceSubmitStep active text="人工审核中" time="预计 24 小时内" />
+                <View style={styles.placeSubmitStepLineMake} />
+                <PlaceSubmitStep text={isReview ? '通过后发布到地点' : '通过后展示给附近用户'} time="将通知你" />
+              </View>
+            ) : (
+              <View style={styles.placeSubmitDraftCardMake}>
+                <View style={styles.rowBetween}>
+                  <View style={styles.inlineActionRow}>
+                    <NotebookPen color={palette.orange} size={13} strokeWidth={2.4} />
+                    <Text style={styles.placeSubmitDraftTitleMake}>草稿已保存</Text>
+                  </View>
+                  <Text style={styles.placeSubmitDraftTimeMake}>刚刚</Text>
+                </View>
+                <View style={styles.placeSubmitDraftMetaMake}>
+                  <View style={styles.ratingPill}>
+                    {Array.from({ length: 5 }).map((_, index) => (
+                      <Star key={index} color="#FFB94B" fill="#FFB94B" size={11} strokeWidth={2} />
+                    ))}
+                  </View>
+                  <Text numberOfLines={1} style={styles.placeSubmitDraftPlaceMake}>· {result.placeName}</Text>
+                </View>
+                <Text numberOfLines={2} style={styles.placeSubmitDraftTextMake}>{result.draft || '草稿内容已保留，稍后可以继续补充。'}</Text>
+              </View>
+            )}
+
+            <View style={styles.placeSubmitActionRowMake}>
+              {success ? (
+                <>
+                  <Pressable onPress={closePlaceSubmitResult} style={[styles.placeSubmitGhostButtonMake, webPressableReset]}>
+                    <MapPin color={palette.ink} size={14} strokeWidth={2.4} />
+                    <Text style={styles.placeSubmitGhostTextMake}>{isReview ? '返回地点' : '回到地图'}</Text>
+                  </Pressable>
+                  <Pressable onPress={continueAfterPlaceSubmitSuccess} style={[styles.placeSubmitPrimaryButtonMake, webPressableReset]}>
+                    <NotebookPen color="#fff" size={14} strokeWidth={2.4} />
+                    <Text style={styles.placeSubmitPrimaryTextMake}>{isReview ? '再写一条' : '继续提交'}</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Pressable onPress={saveFailedPlaceDraft} style={[styles.placeSubmitGhostButtonMake, webPressableReset]}>
+                    <Text style={styles.placeSubmitGhostTextMake}>保存草稿</Text>
+                  </Pressable>
+                  <Pressable onPress={retryFailedPlaceSubmit} style={[styles.placeSubmitPrimaryButtonMake, webPressableReset]}>
+                    <RefreshCw color="#fff" size={14} strokeWidth={2.4} />
+                    <Text style={styles.placeSubmitPrimaryTextMake}>重新提交</Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+          </View>
+        </View>
+        <View style={styles.homeIndicator} />
+      </Screen>
     );
   }
 
@@ -7313,6 +7494,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderAddPlaceReview() {
+    if (placeSubmitResult?.kind === 'place') return renderPlaceSubmitResult(placeSubmitResult);
     return (
       <Screen title="新增地点与点评">
         <View style={styles.addPlaceHero}>
@@ -7949,6 +8131,27 @@ function PlaceSheetRow({ active, onPress, place, rank }: { active?: boolean; onP
       </View>
       <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
     </Pressable>
+  );
+}
+
+function PlaceSubmitStep({ active, done, text, time }: { active?: boolean; done?: boolean; text: string; time: string }) {
+  const color = done ? palette.teal : active ? palette.orange : palette.muted;
+  return (
+    <View style={styles.placeSubmitStepMake}>
+      <View style={[styles.placeSubmitStepDotMake, done && styles.placeSubmitStepDotDoneMake, active && styles.placeSubmitStepDotActiveMake]}>
+        {done ? (
+          <Check color={color} size={13} strokeWidth={3} />
+        ) : active ? (
+          <View style={[styles.placeSubmitStepDotInnerMake, { backgroundColor: color }]} />
+        ) : (
+          <View style={[styles.placeSubmitStepDotTinyMake, { backgroundColor: color }]} />
+        )}
+      </View>
+      <View style={styles.flex}>
+        <Text style={[styles.placeSubmitStepTitleMake, (done || active) && styles.placeSubmitStepTitleActiveMake]}>{text}</Text>
+        <Text style={styles.placeSubmitStepTimeMake}>{time}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -9034,6 +9237,44 @@ const styles = StyleSheet.create({
   phoneStatusTime: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
   permissionCard: { alignItems: 'flex-start', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 16 },
   permissionCardGranted: { backgroundColor: '#f2fbfa', borderColor: 'rgba(77,182,172,0.32)' },
+  placeSubmitActionRowMake: { flexDirection: 'row', gap: 8, marginTop: 20, width: '100%' },
+  placeSubmitBgGlowMake: { backgroundColor: 'rgba(255,217,182,0.46)', borderRadius: 220, height: 260, left: -40, position: 'absolute', right: -40, top: -120 },
+  placeSubmitBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21.5, marginTop: 10, textAlign: 'center' },
+  placeSubmitCenterMake: { alignItems: 'center', paddingHorizontal: 32, paddingTop: 30 },
+  placeSubmitCheckBadgeMake: { alignItems: 'center', backgroundColor: palette.teal, borderColor: '#fff', borderRadius: 19, borderWidth: 3, bottom: -2, height: 38, justifyContent: 'center', position: 'absolute', right: -2, shadowColor: palette.teal, shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.3, shadowRadius: 14, width: 38 },
+  placeSubmitDraftCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 22, paddingHorizontal: 16, paddingVertical: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.08, shadowRadius: 22, width: '100%' },
+  placeSubmitDraftMetaMake: { alignItems: 'center', flexDirection: 'row', gap: 4, marginTop: 2 },
+  placeSubmitDraftPlaceMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
+  placeSubmitDraftTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 18.5, marginTop: 6 },
+  placeSubmitDraftTimeMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11 },
+  placeSubmitDraftTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600' },
+  placeSubmitErrorArtMake: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.10)', borderRadius: 48, height: 96, justifyContent: 'center', width: 96 },
+  placeSubmitErrorInnerMake: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.18)', borderRadius: 32, height: 64, justifyContent: 'center', width: 64 },
+  placeSubmitGhostButtonMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 24, flex: 1, flexDirection: 'row', gap: 6, height: 48, justifyContent: 'center' },
+  placeSubmitGhostTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '600' },
+  placeSubmitHeaderMake: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 2 },
+  placeSubmitHeaderTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
+  placeSubmitHeadlineMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 29, marginTop: 24, textAlign: 'center' },
+  placeSubmitPrimaryButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 24, flex: 1, flexDirection: 'row', gap: 6, height: 48, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.26, shadowRadius: 24 },
+  placeSubmitPrimaryTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '700' },
+  placeSubmitResultPageMake: { flex: 1, marginHorizontal: -20, marginTop: -18, minHeight: 720, overflow: 'hidden', position: 'relative' },
+  placeSubmitSparkleLeftMake: { left: -4, position: 'absolute', top: 4 },
+  placeSubmitSparkleRightMake: { position: 'absolute', right: 0, top: 20 },
+  placeSubmitStepDotActiveMake: { backgroundColor: 'rgba(255,138,92,0.16)' },
+  placeSubmitStepDotDoneMake: { backgroundColor: 'rgba(77,182,172,0.18)' },
+  placeSubmitStepDotInnerMake: { borderRadius: 4, height: 8, width: 8 },
+  placeSubmitStepDotMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 12, height: 24, justifyContent: 'center', width: 24 },
+  placeSubmitStepDotTinyMake: { borderRadius: 3, height: 6, opacity: 0.5, width: 6 },
+  placeSubmitStepLineActiveMake: { backgroundColor: palette.orange, opacity: 0.5 },
+  placeSubmitStepLineMake: { backgroundColor: palette.border, height: 14, marginLeft: 11, width: 2 },
+  placeSubmitStepMake: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 4 },
+  placeSubmitStepTimeMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, marginTop: 1 },
+  placeSubmitStepTitleActiveMake: { fontWeight: '600' },
+  placeSubmitStepTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '500', lineHeight: 19 },
+  placeSubmitStepperMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 24, paddingBottom: 12, paddingHorizontal: 16, paddingTop: 16, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 26, width: '100%' },
+  placeSubmitSuccessArtMake: { height: 160, position: 'relative', width: 160 },
+  placeSubmitSuccessCircleMake: { alignItems: 'center', backgroundColor: '#FFD2A8', borderColor: '#fff', borderRadius: 80, borderWidth: 6, bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0, shadowColor: '#b46e3c', shadowOffset: { height: 22, width: 0 }, shadowOpacity: 0.28, shadowRadius: 44 },
+  placeSubmitSuccessGlowMake: { backgroundColor: 'rgba(77,182,172,0.20)', borderRadius: 90, bottom: -10, left: -10, position: 'absolute', right: -10, top: -10 },
   placeRankBadge: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 14, height: 28, justifyContent: 'center', width: 28 },
   placeRankBadgeActive: { backgroundColor: palette.orange },
   placeRankText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },

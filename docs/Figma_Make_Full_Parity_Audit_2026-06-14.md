@@ -80,9 +80,9 @@
 | 46 | 地图搜索与筛选 | `renderMap` | 已接入-需视觉复核 | 本轮按 Screen46 补搜索/筛选模式：地图暗色 veil、顶部搜索框清除按钮、底部 28px 圆角结果面板、筛选 chip、排序 segment、3km 距离条和搜索结果列表；地图样式面板仍保留独立 Bottom Sheet |
 | 47 | 地图定位失败 | `renderMap` | 已接入-需视觉复核 | 已按 Screen47 在搜索框下补定位失败 banner、原因文案和重试按钮；中心空态仍需后续复核 |
 | 48 | 地点详情 | `renderPlaceDetail` | 已接入-需视觉复核 | Hero 图、信息块、操作按钮需复核 |
-| 49 | 新增地点 / 点评 | `renderAddPlaceReview` | 部分接入 | 基础表单有，提交状态需按 Figma 补齐 |
-| 50 | 点评提交成功 等待审核 | `renderAddPlaceReview` + `Toast` | 部分接入 | 已改 warning surface Toast；独立等待审核成功页仍未 1:1 |
-| 51 | 点评提交失败 | `renderAddPlaceReview` + `Toast` | 部分接入 | 已改 error surface Toast；独立失败状态仍需按 Screen51 精修 |
+| 49 | 新增地点 / 点评 | `renderAddPlaceReview` | 部分接入 | 基础表单仍需后续按 Figma 复核评分/照片等细节；本轮已把提交成功/失败从 Toast 升级为 Screen50/51 结果态 |
+| 50 | 点评提交成功 等待审核 | `renderPlaceSubmitResult` | 已接入-需视觉复核 | 本轮补独立等待审核成功页：大号时间/审核图标、三步审核进度、返回地点/继续提交操作 |
+| 51 | 点评提交失败 | `renderPlaceSubmitResult` | 已接入-需视觉复核 | 本轮补独立失败页：红色警示图标、草稿卡、保存草稿/重新提交操作；仍需真机截图复核 |
 | 52 | 收藏 / 取消收藏 | 地点收藏逻辑 + `Toast` | 本轮已迁移-需视觉复核 | 已按 Screen52 分 dark 收藏 Toast / surface 取消 Toast；图标与副文案仍需截图复核 |
 | 53 | 高德导航确认弹窗 | `renderAmapNavigationConfirm` + 外部导航 | 已接入-需视觉复核 | 本轮按 Screen53 新增地图详情页专用确认弹窗：绿色导航图标、离开 Lumii 提示、地点摘要卡、地图应用三选项和“取消 / 打开导航”双 48px 胶囊按钮 |
 | 54 | 我的 | `renderProfile` | 已接入-需视觉复核 | 本轮按 Screen54 收敛为 5 个菜单入口，补通知红色未读徽标、不同入口图标底色和末行无分割线；顶部资料卡仍需真机截图复核 |
