@@ -64,6 +64,8 @@ import {
   Send,
   Settings,
   Shield,
+  ShieldCheck,
+  Share2,
   Signal,
   Smile,
   SlidersHorizontal,
@@ -208,6 +210,12 @@ const placeReviewPhotoUrls = [
   'https://images.unsplash.com/photo-1764660308106-72eacd973fc8?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
   'https://images.unsplash.com/photo-1599692392256-2d084495fe15?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=400',
 ];
+const placeParkPhotoUrl =
+  'https://images.unsplash.com/photo-1761532950128-501cc3a7e735?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=900';
+const placeCafePhotoUrl =
+  'https://images.unsplash.com/photo-1691067987594-b1b7f84ba55a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600';
+const placeVetPhotoUrl =
+  'https://images.unsplash.com/photo-1746021375258-79fa1464ca1f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600';
 const walkInviteParkPhotoUrl =
   'https://images.unsplash.com/photo-1561438774-1790fe271b8f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600';
 const discoverOwnerAvatarUrls = [
@@ -6804,7 +6812,6 @@ export default function LumiiMvpApp() {
     const isFavoriteSaving = place ? favoritePlaceSavingIds.includes(place.id) : false;
     const myPlaceReview = place ? placeReviewsByPlaceId[place.id] : undefined;
     const hasPendingPlaceReview = myPlaceReview?.status === 'pending_review';
-    const placeReviewButtonLabel = hasPendingPlaceReview ? '再次提交点评' : '提交点评';
     const pet = getCurrentPet();
     const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
     return (
@@ -6812,79 +6819,111 @@ export default function LumiiMvpApp() {
         {place ? (
           <View style={styles.placeDetailPageMake}>
             <View style={styles.placeHeroMake}>
+              <Image resizeMode="cover" source={{ uri: getPlaceVisualUrl(place) }} style={styles.avatarImage} />
               <View style={styles.placeHeroOverlay} />
               <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={styles.placeBackButtonMake}>
                 <ChevronLeft color={palette.ink} size={18} strokeWidth={2.5} />
               </Pressable>
               <View style={styles.placeHeroActions}>
                 <Pressable onPress={() => void sharePlace(place)} style={styles.placeBackButtonMake}>
-                  <Send color={palette.ink} size={15} strokeWidth={2.4} />
+                  <Share2 color={palette.ink} size={15} strokeWidth={2.4} />
                 </Pressable>
                 <Pressable disabled={isFavoriteSaving} onPress={() => void toggleFavoritePlace(place)} style={styles.placeBackButtonMake}>
-                  <HeartPulse color={isFavoritePlace ? palette.orange : palette.ink} size={15} strokeWidth={2.4} />
+                  {isFavoriteSaving ? (
+                    <ActivityIndicator color={palette.orange} size="small" />
+                  ) : (
+                    <Heart color={isFavoritePlace ? palette.orange : palette.ink} fill={isFavoritePlace ? palette.orange : 'transparent'} size={15} strokeWidth={2.4} />
+                  )}
                 </Pressable>
               </View>
-              <Text style={styles.placePhotoCount}>1 / 48</Text>
+              <View style={styles.placePhotoCountMake}>
+                <Camera color="#fff" size={11} strokeWidth={2.4} />
+                <Text style={styles.placePhotoCountTextMake}>1 / 48</Text>
+              </View>
             </View>
             <View style={styles.placeSheetMake}>
               <View style={styles.placeTitleRowMake}>
-                <Text style={styles.placeTitleMake}>{place.name}</Text>
-                <Text style={styles.placeVerifyMake}>官方认证</Text>
+                <Text numberOfLines={2} style={styles.placeTitleMake}>{place.name}</Text>
+                <View style={styles.placeVerifyPillMake}>
+                  <ShieldCheck color={palette.teal} size={9} strokeWidth={2.5} />
+                  <Text style={styles.placeVerifyTextMake}>官方认证</Text>
+                </View>
               </View>
               <View style={styles.placeRatingRowMake}>
                 {Array.from({ length: 5 }).map((_, index) => (
-                  <Star key={index} color="#f2b441" fill="#f2b441" size={12} strokeWidth={2} />
+                  <Star key={index} color="#FFB94B" fill="#FFB94B" size={13} strokeWidth={2} />
                 ))}
-                <Text style={styles.ratingText}>{place.rating}</Text>
-                <Text style={styles.metaText}>· 236 条点评</Text>
-                <Text style={styles.placeDistanceMake}>{place.distance}</Text>
+                <Text style={styles.placeRatingValueMake}>{place.rating}</Text>
+                <Text style={styles.placeReviewCountMake}>· 236 条点评</Text>
+                <View style={styles.placeDistancePillDetailMake}>
+                  <Navigation color={palette.teal} size={11} strokeWidth={2.6} />
+                  <Text style={styles.placeDistanceTextDetailMake}>{place.distance}</Text>
+                </View>
               </View>
               <View style={styles.placeAddressMake}>
                 <MapPin color={palette.orange} size={13} strokeWidth={2.4} />
                 <View style={styles.flex}>
                   <Text style={styles.placeAddressText}>{place.address}</Text>
-                  <Text style={styles.placeAddressMeta}>06:00 - 22:00 · 010-8888-8888</Text>
+                  <View style={styles.placeAddressMetaRowMake}>
+                    <View style={styles.placeAddressMetaItemMake}>
+                      <Clock color={palette.muted} size={10} strokeWidth={2.2} />
+                      <Text style={styles.placeAddressMeta}>06:00 - 22:00</Text>
+                    </View>
+                    <View style={styles.placeAddressMetaItemMake}>
+                      <Phone color={palette.muted} size={10} strokeWidth={2.2} />
+                      <Text style={styles.placeAddressMeta}>010-8888-8888</Text>
+                    </View>
+                  </View>
                 </View>
               </View>
               <Text style={styles.placeSectionLabel}>宠物友好特色</Text>
               <View style={styles.tagRow}>
-                {place.tags.map((tag) => (
-                  <Text key={tag} style={styles.tag}>{tag}</Text>
+                {place.tags.map((tag, index) => (
+                  <Text
+                    key={tag}
+                    style={[
+                      styles.placeFeatureTagMake,
+                      index % 3 === 1 && styles.placeFeatureTagOliveMake,
+                      index % 3 === 2 && styles.placeFeatureTagCoolMake,
+                    ]}
+                  >
+                    {tag}
+                  </Text>
                 ))}
               </View>
               <View style={styles.placeReviewPreviewMake}>
-                <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={28} />
-                <View style={styles.flex}>
-                  <Text style={styles.timelineTitleMake}>{myPlaceReview ? `${ownerName} · ${myPlaceReview.status === 'pending_review' ? '审核中' : '已点评'}` : ownerName}</Text>
-                  <Text style={styles.timelineSubMake}>{myPlaceReview?.content ?? '草坪很大，有饮水点，周末人会稍多。'}</Text>
-                </View>
-              </View>
-              <View style={styles.actionRow}>
-                <Button loading={isFavoriteSaving} onPress={() => void toggleFavoritePlace(place)} tone="secondary">{isFavoritePlace ? '已收藏' : '收藏'}</Button>
-                <Button onPress={() => setAmapNavigationPlace(place)}>高德导航</Button>
-              </View>
-              <View style={styles.placeWriteReviewPanelMake}>
-                <View style={styles.rowBetween}>
-                  <View style={styles.inlineActionRow}>
-                    <NotebookPen color={palette.orange} size={15} strokeWidth={2.5} />
-                    <Text style={styles.placeWriteReviewTitleMake}>分享真实体验</Text>
+                <View style={styles.placeReviewHeaderMake}>
+                  <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={28} />
+                  <View style={styles.flex}>
+                    <View style={styles.placeReviewAuthorRowMake}>
+                      <Text numberOfLines={1} style={styles.placeReviewAuthorMake}>{myPlaceReview ? `${ownerName}` : ownerName}</Text>
+                      <View style={styles.placeReviewStarsMake}>
+                        {Array.from({ length: 5 }).map((_, index) => (
+                          <Star key={index} color="#FFB94B" fill="#FFB94B" size={10} strokeWidth={2} />
+                        ))}
+                      </View>
+                    </View>
+                    <Text style={styles.placeReviewTimeMake}>{myPlaceReview?.status === 'pending_review' ? '审核中' : '3 天前'}</Text>
                   </View>
-                  <Text style={styles.placeWriteReviewMetaMake}>24 小时内审核</Text>
                 </View>
-                <Text style={styles.placeWriteReviewTextMake}>
-                  写一条宠物友好的点评，帮助附近主人判断是否适合带宠物前往。
-                </Text>
-                <Pressable disabled={placeReviewSaving} onPress={() => openPlaceReviewComposer(place)} style={[styles.placeWriteReviewButtonMake, webPressableReset]}>
-                  {placeReviewSaving ? <ActivityIndicator color="#fff" size="small" /> : <PenLine color="#fff" size={15} strokeWidth={2.5} />}
-                  <Text style={styles.placeWriteReviewButtonTextMake}>{placeReviewButtonLabel}</Text>
+                <Text style={styles.placeReviewBodyMake}>{myPlaceReview?.content ?? '草坪很大，有饮水点，周末人会稍多。'}</Text>
+              </View>
+              <View style={styles.placeDetailBottomCtaMake}>
+                <Pressable disabled={placeReviewSaving} onPress={() => openPlaceReviewComposer(place)} style={[styles.placeReviewShortcutMake, webPressableReset]}>
+                  {placeReviewSaving ? <ActivityIndicator color={palette.ink} size="small" /> : <PenLine color={palette.ink} size={16} strokeWidth={2.4} />}
+                  <Text style={styles.placeReviewShortcutTextMake}>{hasPendingPlaceReview ? '再点评' : '写点评'}</Text>
                 </Pressable>
-                {hasPendingPlaceReview ? (
-                  <View style={styles.reviewStatusCard}>
-                    <Check color={palette.teal} size={15} strokeWidth={3} />
-                    <Text style={styles.reviewStatusText}>已提交，等待审核。通过后会展示在地点详情中。</Text>
-                  </View>
-                ) : null}
+                <Pressable onPress={() => setAmapNavigationPlace(place)} style={[styles.placeNavigationButtonMake, webPressableReset]}>
+                  <Navigation color="#fff" size={15} strokeWidth={2.6} />
+                  <Text style={styles.placeNavigationButtonTextMake}>高德导航</Text>
+                </Pressable>
               </View>
+              {hasPendingPlaceReview ? (
+                <View style={styles.reviewStatusCard}>
+                  <Check color={palette.teal} size={15} strokeWidth={3} />
+                  <Text style={styles.reviewStatusText}>已提交，等待审核。通过后会展示在地点详情中。</Text>
+                </View>
+              ) : null}
             </View>
           </View>
         ) : (
@@ -8898,10 +8937,10 @@ function PlaceRow({ onPress, place }: { onPress: () => void; place: Place }) {
 }
 
 function getPlaceVisualUrl(place: Place) {
-  if (place.category === 'park') return walkInviteParkPhotoUrl;
-  if (place.category === 'cafe') return placeReviewPhotoUrls[1] ?? walkInviteParkPhotoUrl;
-  if (place.category === 'clinic') return placeReviewPhotoUrls[0] ?? walkInviteParkPhotoUrl;
-  return placeReviewPhotoUrls[0] ?? walkInviteParkPhotoUrl;
+  if (place.category === 'park') return placeParkPhotoUrl;
+  if (place.category === 'cafe') return placeCafePhotoUrl;
+  if (place.category === 'clinic') return placeVetPhotoUrl;
+  return placeReviewPhotoUrls[0] ?? placeParkPhotoUrl;
 }
 
 function getPlaceCategoryLabel(place: Place) {
@@ -10391,22 +10430,46 @@ const styles = StyleSheet.create({
   placeSheetTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 19 },
   placeSheetTitleRowMake: { alignItems: 'center', flexDirection: 'row', gap: 6, justifyContent: 'space-between' },
   placeAddressMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, marginTop: 12, paddingHorizontal: 12, paddingVertical: 10 },
-  placeAddressMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, marginTop: 5 },
-  placeAddressText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 19 },
+  placeAddressMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, lineHeight: 15 },
+  placeAddressMetaItemMake: { alignItems: 'center', flexDirection: 'row', gap: 4 },
+  placeAddressMetaRowMake: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 6 },
+  placeAddressText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 19 },
   placeBackButtonMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.94)', borderRadius: 19, height: 38, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.18, shadowRadius: 14, width: 38 },
-  placeDetailPageMake: { marginHorizontal: -22, marginTop: -18 },
+  placeDetailBottomCtaMake: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 16 },
+  placeDetailPageMake: { marginHorizontal: -20, marginTop: -18 },
   placeDistanceMake: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', marginLeft: 'auto' },
+  placeDistancePillDetailMake: { alignItems: 'center', flexDirection: 'row', gap: 4, marginLeft: 'auto' },
+  placeDistanceTextDetailMake: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 15 },
+  placeFeatureTagCoolMake: { backgroundColor: 'rgba(77,182,172,0.14)', color: palette.teal },
+  placeFeatureTagMake: { backgroundColor: palette.orangeSoft, borderRadius: 999, color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
+  placeFeatureTagOliveMake: { backgroundColor: '#E8F5F3', color: '#5F8D6A' },
   placeHeroActions: { flexDirection: 'row', gap: 8, position: 'absolute', right: 16, top: 44 },
   placeHeroMake: { backgroundColor: '#9fc8a4', height: 280, overflow: 'hidden', position: 'relative' },
-  placeHeroOverlay: { backgroundColor: 'rgba(31,33,29,0.18)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
+  placeHeroOverlay: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0) 30%, rgba(0,0,0,0.55) 100%)' } as object) : null), backgroundColor: 'rgba(31,33,29,0.18)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
+  placeNavigationButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, flex: 1, flexDirection: 'row', gap: 7, height: 52, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.24, shadowRadius: 18 },
+  placeNavigationButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', lineHeight: 20 },
   placePhotoCount: { backgroundColor: 'rgba(31,33,29,0.65)', borderRadius: 11, bottom: 18, color: '#fff', fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', left: 16, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 4, position: 'absolute' },
+  placePhotoCountMake: { alignItems: 'center', backgroundColor: 'rgba(31,33,29,0.65)', borderRadius: 11, bottom: 18, flexDirection: 'row', gap: 4, left: 16, paddingHorizontal: 10, paddingVertical: 4, position: 'absolute' },
+  placePhotoCountTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 14 },
   placeRatingRowMake: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 7 },
-  placeReviewPreviewMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 10, marginTop: 16, paddingHorizontal: 14, paddingVertical: 12 },
-  placeSectionLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', letterSpacing: 0, marginTop: 14 },
-  placeSheetMake: { backgroundColor: palette.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -28, paddingBottom: 24, paddingHorizontal: 20, paddingTop: 18 },
-  placeTitleMake: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 21, fontWeight: '700', letterSpacing: 0, lineHeight: 28 },
-  placeTitleRowMake: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  placeRatingValueMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700', lineHeight: 17 },
+  placeReviewAuthorMake: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 17 },
+  placeReviewAuthorRowMake: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  placeReviewBodyMake: { color: 'rgba(27,28,25,0.85)', fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 20, marginTop: 8 },
+  placeReviewCountMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 15 },
+  placeReviewHeaderMake: { alignItems: 'center', flexDirection: 'row', gap: 10 },
+  placeReviewPreviewMake: { alignItems: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginTop: 16, paddingHorizontal: 14, paddingVertical: 12 },
+  placeReviewShortcutMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 2, height: 52, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.08, shadowRadius: 18, width: 52 },
+  placeReviewShortcutTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 9.5, fontWeight: '600', lineHeight: 12 },
+  placeReviewStarsMake: { alignItems: 'center', flexDirection: 'row', gap: 1 },
+  placeReviewTimeMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '500', lineHeight: 14, marginTop: 1 },
+  placeSectionLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', letterSpacing: 0.3, marginTop: 14 },
+  placeSheetMake: { backgroundColor: palette.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -28, paddingBottom: 30, paddingHorizontal: 20, paddingTop: 18 },
+  placeTitleMake: { color: palette.ink, flex: 1, flexShrink: 1, fontFamily: appFontFamily, fontSize: 21, fontWeight: '700', letterSpacing: 0, lineHeight: 28 },
+  placeTitleRowMake: { alignItems: 'flex-start', flexDirection: 'row', gap: 8 },
   placeVerifyMake: { backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 8, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 3 },
+  placeVerifyPillMake: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 8, flexDirection: 'row', flexShrink: 0, gap: 3, marginTop: 3, paddingHorizontal: 7, paddingVertical: 3 },
+  placeVerifyTextMake: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', lineHeight: 13 },
   placeholderHeroMake: { alignItems: 'center', backgroundColor: '#e8f5f3', borderRadius: 18, flexDirection: 'row', gap: 12, padding: 16 },
   placeholderMake: { gap: 14 },
   previewPhoto: { backgroundColor: palette.pale, borderRadius: 24, height: 330, width: '100%' },
