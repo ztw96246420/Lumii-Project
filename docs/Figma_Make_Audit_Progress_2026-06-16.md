@@ -82,6 +82,13 @@ This file records incremental parity work that should be merged back into `Figma
   - Existing BottomSheet and TabBar styles are already aligned with the Figma radius, spacing, and active-state treatment used by current production screens.
   - Base Card remains available as a shared atom, while page-specific Figma cards are intentionally kept as local styles where the source screens require different radii, shadows, or row density.
 
+## Coverage Sweep
+
+- Figma Make source coverage check completed.
+  - Source package exposes Screen1 through Screen101.
+  - Cross-checking `Figma_Make_Full_Parity_Audit_2026-06-14.md` plus this incremental file found no missing screen numbers.
+  - Remaining risk is visual-device variance, especially Android physical devices with different status-bar/safe-area behavior; this needs the next APK or Android Studio pass rather than more static source comparison.
+
 ## Profile
 
 - Screen54 `renderProfile`: adjusted the three main profile blocks for narrow Android devices after true-device review.
