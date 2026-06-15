@@ -60,7 +60,7 @@ export function Button({
     >
       {loading ? <ActivityIndicator color={isSolid ? '#fff' : palette.ink} size="small" /> : null}
       <Text style={[styles.buttonText, isSolid && styles.buttonTextPrimary, isDisabled && !loading && styles.buttonTextDisabled]}>
-        {loading ? '处理中...' : children}
+        {loading ? '处理中…' : children}
       </Text>
     </Pressable>
   );
@@ -371,10 +371,10 @@ const toastIconColorByTone = {
 export const styles = StyleSheet.create({
   bottomSheetBackdrop: { backgroundColor: 'rgba(20,18,14,0.48)', flex: 1, justifyContent: 'flex-end' },
   bottomSheetBackdropTouch: { flex: 1 },
-  bottomSheetHandle: { alignSelf: 'center', backgroundColor: '#E5E0D5', borderRadius: 2, height: 4, marginBottom: 10, width: 36 },
-  bottomSheetPanel: { backgroundColor: '#fff', borderColor: palette.border, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, gap: 14, paddingBottom: 30, paddingHorizontal: 16, paddingTop: 12, shadowColor: '#50371e', shadowOffset: { height: -18, width: 0 }, shadowOpacity: 0.18, shadowRadius: 40 },
+  bottomSheetHandle: { alignSelf: 'center', backgroundColor: '#E5E0D5', borderRadius: 2, height: 4, marginBottom: 14, width: 40 },
+  bottomSheetPanel: { backgroundColor: '#fff', borderColor: 'rgba(80,55,30,0.06)', borderTopLeftRadius: 28, borderTopRightRadius: 28, borderWidth: 1, gap: 14, paddingBottom: 32, paddingHorizontal: 22, paddingTop: 16, shadowColor: '#50371e', shadowOffset: { height: -24, width: 0 }, shadowOpacity: 0.2, shadowRadius: 50 },
   body: { color: palette.muted, fontFamily, fontSize: 14, lineHeight: 20 },
-  button: { alignItems: 'center', borderRadius: 14, flexDirection: 'row', gap: 6, height: 44, justifyContent: 'center', paddingHorizontal: 18, shadowColor: '#ff8a5c', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 16 },
+  button: { alignItems: 'center', borderRadius: 14, flexDirection: 'row', gap: 6, height: 44, justifyContent: 'center', paddingHorizontal: 18 },
   button_danger: { backgroundColor: palette.danger },
   button_ghost: { backgroundColor: 'transparent', borderColor: palette.border, borderWidth: 1 },
   button_primary: { backgroundColor: palette.orange },
@@ -451,16 +451,16 @@ export const styles = StyleSheet.create({
   skeletonLine: { backgroundColor: '#F0EBE0', borderRadius: 6 },
   skeletonTextStack: { flex: 1, gap: 8 },
   subtitle: { color: palette.muted, fontFamily, fontSize: 15, lineHeight: 22 },
-  toast: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 10, maxWidth: '92%', minHeight: 46, minWidth: 180, paddingHorizontal: 14, paddingVertical: 10, position: 'absolute', top: 70, zIndex: 20 },
+  toast: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 10, maxWidth: 340, minHeight: 46, minWidth: 180, paddingHorizontal: 12, paddingVertical: 10, position: 'absolute', top: 70, zIndex: 20 },
   toastActionDark: { color: '#FFB48C', fontFamily, fontSize: 12, fontWeight: '600' },
-  toastActionSurface: { color: palette.orange, fontFamily, fontSize: 12, fontWeight: '600' },
+  toastActionSurface: { borderLeftColor: palette.border, borderLeftWidth: 1, color: palette.orange, fontFamily, fontSize: 12.5, fontWeight: '600', marginLeft: 4, paddingLeft: 8 },
   toastDark: { backgroundColor: 'rgba(27,28,25,0.92)', borderRadius: 22, paddingRight: 18, shadowColor: '#000', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.28, shadowRadius: 38 },
-  toastIcon: { alignItems: 'center', height: 26, justifyContent: 'center', width: 26 },
+  toastIcon: { alignItems: 'center', height: 24, justifyContent: 'center', width: 24 },
   toastIconDark: { backgroundColor: palette.teal, borderRadius: 12 },
-  toastIcon_error: { backgroundColor: '#FBE4DE', borderRadius: 9 },
-  toastIcon_info: { backgroundColor: palette.pale, borderRadius: 9 },
-  toastIcon_success: { backgroundColor: '#E8F5F3', borderRadius: 9 },
-  toastIcon_warning: { backgroundColor: palette.warningSoft, borderRadius: 9 },
+  toastIcon_error: { backgroundColor: '#FBE4DE', borderRadius: 8 },
+  toastIcon_info: { backgroundColor: palette.pale, borderRadius: 8 },
+  toastIcon_success: { backgroundColor: '#E8F5F3', borderRadius: 8 },
+  toastIcon_warning: { backgroundColor: palette.warningSoft, borderRadius: 8 },
   toastIconMark: { borderRadius: 5, height: 10, width: 10 },
   toastIconMarkDark: { backgroundColor: '#fff', borderRadius: 5, height: 10, width: 10 },
   toastIconMark_error: { backgroundColor: palette.danger },
@@ -468,11 +468,11 @@ export const styles = StyleSheet.create({
   toastIconMark_success: { backgroundColor: palette.teal },
   toastIconMark_warning: { backgroundColor: palette.warning },
   toastNoPointer: { pointerEvents: 'none' },
-  toastSurface: { backgroundColor: '#fff', borderRadius: 14, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28 },
+  toastSurface: { backgroundColor: '#fff', borderColor: 'rgba(0,0,0,0.04)', borderRadius: 14, borderWidth: 1, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28 },
   toastSubtitle: { fontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 16, marginTop: 2 },
   toastSubtitleDark: { color: 'rgba(255,255,255,0.76)' },
   toastSubtitleSurface: { color: palette.muted },
-  toastText: { fontFamily, fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  toastText: { fontFamily, fontSize: 13, fontWeight: '500', lineHeight: 18 },
   toastTextDark: { color: '#fff' },
   toastTextSurface: { color: palette.ink },
   toastTextWrap: { flex: 1, flexShrink: 1 },

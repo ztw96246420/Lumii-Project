@@ -7304,12 +7304,15 @@ export default function LumiiMvpApp() {
     const maskedPhone = formatMaskedPhone(session?.phone);
     const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
     const speciesLabel = pet ? speciesLabels[pet.species] : '';
+    const petGenderSymbol = pet?.gender === 'female' ? '♀' : pet?.gender === 'male' ? '♂' : '';
+    const petBadgeText = [petGenderSymbol, pet?.breed || speciesLabel].filter(Boolean).join(' ');
+    const petTags = (pet?.personality?.length ? pet.personality : ['疫苗齐全', '活泼', '对小孩友好']).slice(0, 3);
     const unreadNotificationCount = notifications.filter((item) => !item.read).length;
     return (
       <Screen showBack={false} title="">
         <View style={styles.profileMakePage}>
           <View style={styles.profileMakeHeader}>
-            <Text style={styles.makeScreenTitle}>我的</Text>
+            <Text style={styles.profileScreenTitleMake}>我的</Text>
             <Pressable onPress={() => go('settings')} style={styles.profileSettingsButton}>
               <Settings color={palette.ink} size={18} strokeWidth={2.3} />
             </Pressable>
@@ -7352,7 +7355,7 @@ export default function LumiiMvpApp() {
             <View style={styles.profileSectionLabelRow}>
               <Text style={styles.profileSectionLabel}>当前宠物</Text>
               <Pressable onPress={() => go(pet ? 'multiPet' : 'petInfo')}>
-                <Text style={styles.profileManageLink}>{pet ? '管理全部 ›' : '添加宠物 ›'}</Text>
+                <Text style={styles.profileManageLink}>{pet ? '多宠管理 ›' : '添加宠物 ›'}</Text>
               </Pressable>
             </View>
             {pet ? (
@@ -7361,11 +7364,11 @@ export default function LumiiMvpApp() {
                 <View style={styles.flex}>
                   <View style={styles.profilePetNameRow}>
                     <Text style={styles.profilePetName}>{pet.name}</Text>
-                    <Text style={styles.profilePetBadge}>{pet.breed || speciesLabel}</Text>
+                    <Text style={styles.profilePetBadge}>{petBadgeText || speciesLabel}</Text>
                   </View>
                   <Text style={styles.profilePetMeta}>{formatPetAge(pet.birthday)} · {pet.weightKg ? `${pet.weightKg} kg` : '体重待补充'}</Text>
                   <View style={styles.profilePetTags}>
-                    {(pet.personality?.length ? pet.personality : ['真实在线', '想交朋友']).slice(0, 3).map((tag) => (
+                    {petTags.map((tag) => (
                       <Text key={tag} style={styles.profilePetTag}>{tag}</Text>
                     ))}
                   </View>
@@ -10101,12 +10104,12 @@ const styles = StyleSheet.create({
   profileMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', paddingHorizontal: 20 },
   profileMakeMenuRowValue: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   profileMakePage: { paddingTop: 0 },
-  profileMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 58, paddingHorizontal: 16, paddingVertical: 12 },
-  profileMakeRowIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 12, height: 34, justifyContent: 'center', width: 34 },
+  profileMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 14 },
+  profileMakeRowIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 8, height: 28, justifyContent: 'center', width: 28 },
   profileMakeRowLast: { borderBottomWidth: 0 },
   profileMakeRowStatic: { opacity: 0.92 },
-  profileMakeRowTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20, minWidth: 0 },
-  profileMakeRowValue: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18, maxWidth: '42%', minWidth: 0, textAlign: 'right' },
+  profileMakeRowTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '400', lineHeight: 20, minWidth: 0 },
+  profileMakeRowValue: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 18, maxWidth: '42%', minWidth: 0, textAlign: 'right' },
   profileManageLink: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   profileMenuGroup: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 16, overflow: 'hidden' },
   profileOwnerAvatar: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 32, borderWidth: 3, height: 64, justifyContent: 'center', overflow: 'hidden', shadowColor: '#000', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.08, shadowRadius: 10, width: 64 },
@@ -10117,12 +10120,13 @@ const styles = StyleSheet.create({
   profilePetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 17, marginTop: 4 },
   profilePetName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700' },
   profilePetNameRow: { alignItems: 'center', flexDirection: 'row', gap: 6 },
-  profilePetTag: { backgroundColor: '#f4efe6', borderRadius: 6, color: palette.muted, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 2 },
+  profilePetTag: { backgroundColor: '#f4efe6', borderRadius: 6, color: palette.muted, fontFamily: appFontFamily, fontSize: 10, fontWeight: '400', overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 2 },
   profilePetTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
   profilePhoneRow: { alignItems: 'center', flexDirection: 'row', gap: 4, marginTop: 4 },
   profilePhoneText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12 },
   profileSectionLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   profileSectionLabelRow: { flexDirection: 'row', justifyContent: 'space-between', paddingBottom: 8, paddingHorizontal: 4 },
+  profileScreenTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 26, fontWeight: '700', letterSpacing: 0, lineHeight: 32 },
   safetyActionCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 70, padding: 14 },
   safetyActionIconMake: { alignItems: 'center', borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
   safetyActionStackMake: { gap: 10 },
