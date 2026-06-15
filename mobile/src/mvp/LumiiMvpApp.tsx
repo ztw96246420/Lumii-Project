@@ -6397,6 +6397,41 @@ export default function LumiiMvpApp() {
         primary: () => go('settings'),
         title: '开启附近可见发现朋友',
       };
+    const renderDiscoverEmptyState = () => {
+      const filtered = discoverFilter !== 'all';
+      const clearOrRefresh = () => (filtered ? applyDiscoverFilter('all') : void refreshDiscoverByPull());
+      return (
+        <View style={styles.discoverEmptyMake}>
+          <View style={styles.discoverEmptySummaryMake}>
+            <SlidersHorizontal color={palette.orange} size={13} strokeWidth={2.4} />
+            <Text numberOfLines={1} style={styles.discoverEmptySummaryTextMake}>
+              {filtered ? `已应用筛选 · ${activeDiscoverFilterLabel} · 3km 内` : '附近 3km 内 · 模糊距离 · 0 位'}
+            </Text>
+            {filtered ? <Text onPress={() => applyDiscoverFilter('all')} style={styles.discoverEmptyClearMake}>清除</Text> : null}
+          </View>
+          <View style={styles.discoverEmptyHeroMake}>
+            <View style={styles.discoverEmptyGlowMake} />
+            <View style={styles.discoverEmptyOrbMake}>
+              <Search color="#fff" size={48} strokeWidth={2.2} />
+            </View>
+            <Text style={styles.discoverEmptyCountMake}>0 位</Text>
+          </View>
+          <Text style={styles.discoverEmptyTitleMake}>附近暂时没有匹配的朋友</Text>
+          <Text style={styles.discoverEmptyDescMake}>
+            {filtered ? '可以试试放宽筛选条件\n或切换查看全部附近伙伴' : '可以下拉刷新附近列表\n或稍后再来看看新的伙伴'}
+          </Text>
+          <View style={styles.discoverEmptyActionsMake}>
+            <Pressable onPress={clearOrRefresh} style={[styles.discoverEmptyGhostMake, webPressableReset]}>
+              <Text style={styles.discoverEmptyGhostTextMake}>{filtered ? '清除筛选' : '刷新附近'}</Text>
+            </Pressable>
+            <Pressable onPress={clearOrRefresh} style={[styles.discoverEmptyPrimaryMake, webPressableReset]}>
+              <Navigation color="#fff" size={14} strokeWidth={2.4} />
+              <Text style={styles.discoverEmptyPrimaryTextMake}>{filtered ? '查看全部' : '重新搜索'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      );
+    };
     const renderOwnerCard = (owner: NearbyOwner, preview = false, index = 0) => {
       const savingGreeting = socialActionSavingIds.includes(`greet:${owner.id}`);
       const petImageSource = owner.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
@@ -6526,15 +6561,7 @@ export default function LumiiMvpApp() {
             visibleOwners.map((owner, index) => renderOwnerCard(owner, false, index))
           )}
           {!discoverAccessIssue && !visibleOwners.length ? (
-            discoverEnabled ? (
-              <EmptyState
-                action={discoverFilter === 'all' ? '刷新附近' : '查看全部'}
-                description="可以切换筛选条件，或下拉刷新附近列表。"
-                icon={<Search color={palette.muted} size={26} strokeWidth={2.4} />}
-                onAction={() => (discoverFilter === 'all' ? void refreshDiscoverByPull() : applyDiscoverFilter('all'))}
-                title="暂无匹配伙伴"
-              />
-            ) : null
+            discoverEnabled ? renderDiscoverEmptyState() : null
           ) : null}
         </View>
       </Screen>
@@ -10307,6 +10334,21 @@ const styles = StyleSheet.create({
   opacity60: { opacity: 0.6 },
   discoverBlurPreviewMake: { opacity: 0.5, transform: [{ scale: 0.99 }] },
   discoverCardsMake: { gap: 12, marginTop: 14 },
+  discoverEmptyActionsMake: { flexDirection: 'row', gap: 12, marginTop: 22, width: '100%' },
+  discoverEmptyClearMake: { color: palette.orange, flexShrink: 0, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
+  discoverEmptyCountMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 4, position: 'absolute', right: 12, top: 8 },
+  discoverEmptyDescMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21.5, marginTop: 10, textAlign: 'center' },
+  discoverEmptyGhostMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 24, borderWidth: 1, flex: 1, height: 48, justifyContent: 'center' },
+  discoverEmptyGhostTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '600' },
+  discoverEmptyGlowMake: { backgroundColor: 'rgba(255,138,92,0.18)', borderRadius: 78, height: 156, left: 0, opacity: 0.72, position: 'absolute', top: 0, width: 156 },
+  discoverEmptyHeroMake: { height: 156, marginTop: 64, position: 'relative', width: 156 },
+  discoverEmptyMake: { alignItems: 'center', paddingHorizontal: 12, paddingTop: 0 },
+  discoverEmptyOrbMake: { alignItems: 'center', backgroundColor: '#FFD2A8', borderRadius: 65, height: 130, justifyContent: 'center', left: 13, position: 'absolute', shadowColor: '#B46E3C', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.2, shadowRadius: 30, top: 13, width: 130 },
+  discoverEmptyPrimaryMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 24, flex: 1, flexDirection: 'row', gap: 6, height: 48, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.24, shadowRadius: 20 },
+  discoverEmptyPrimaryTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '700' },
+  discoverEmptySummaryMake: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: 'rgba(255,255,255,0.6)', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, minHeight: 40, paddingHorizontal: 12, paddingVertical: 8 },
+  discoverEmptySummaryTextMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
+  discoverEmptyTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 19, fontWeight: '700', letterSpacing: 0, lineHeight: 26, marginTop: 20, textAlign: 'center' },
   discoverMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between' },
   discoverPermissionActionsMake: { flexDirection: 'row', gap: 8, marginTop: 14 },
   discoverPermissionBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 21, marginTop: 8, textAlign: 'center' },
@@ -10567,13 +10609,13 @@ const styles = StyleSheet.create({
   recognitionQuality: { backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 14, color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', right: 14, top: 14 },
   recognitionSuccessBadge: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.95)', borderRadius: 14, flexDirection: 'row', gap: 5, left: 14, paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', top: 14 },
   profileCard: { alignItems: 'center', flexDirection: 'row', gap: 14 },
-  profileCurrentWrap: { alignSelf: 'stretch', marginBottom: 18, marginTop: 16, paddingHorizontal: 16 },
+  profileCurrentWrap: { alignSelf: 'stretch', marginBottom: 18, marginTop: 16, paddingHorizontal: 12 },
   profileHeroContent: { alignItems: 'center', flexDirection: 'row', gap: 14, position: 'relative' },
-  profileHeroMake: { alignSelf: 'stretch', backgroundColor: '#ffe3d1', borderRadius: 22, marginHorizontal: 16, marginTop: 16, overflow: 'hidden', padding: 18, position: 'relative' },
+  profileHeroMake: { alignSelf: 'stretch', backgroundColor: '#ffe3d1', borderRadius: 22, marginHorizontal: 12, marginTop: 16, overflow: 'hidden', padding: 18, position: 'relative' },
   profileHeroOrb: { backgroundColor: 'rgba(255,255,255,0.42)', borderRadius: 70, height: 140, position: 'absolute', right: -30, top: -20, width: 140 },
   profileMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', paddingHorizontal: 20 },
   profileMakeMenuRowValue: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
-  profileMakePage: { alignSelf: 'stretch', minWidth: '100%', paddingTop: 0, width: '100%' },
+  profileMakePage: { alignSelf: 'stretch', flexGrow: 1, minWidth: '100%', paddingTop: 0, width: '100%' },
   profileMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 14 },
   profileMakeRowIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 8, height: 28, justifyContent: 'center', width: 28 },
   profileMakeRowLast: { borderBottomWidth: 0 },
@@ -10581,7 +10623,7 @@ const styles = StyleSheet.create({
   profileMakeRowTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '400', lineHeight: 20, minWidth: 0 },
   profileMakeRowValue: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 18, maxWidth: '42%', minWidth: 0, textAlign: 'right' },
   profileManageLink: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
-  profileMenuGroup: { alignSelf: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 16, overflow: 'hidden' },
+  profileMenuGroup: { alignSelf: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 12, overflow: 'hidden' },
   profileOwnerAvatar: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 32, borderWidth: 3, height: 64, justifyContent: 'center', overflow: 'hidden', shadowColor: '#000', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.08, shadowRadius: 10, width: 64 },
   profileOwnerName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 24 },
   profilePetBadge: { backgroundColor: '#e8f5f3', borderRadius: 6, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
@@ -10597,7 +10639,7 @@ const styles = StyleSheet.create({
   profileSectionLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   profileSectionLabelRow: { flexDirection: 'row', justifyContent: 'space-between', paddingBottom: 8, paddingHorizontal: 4 },
   profileScreenTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 26, fontWeight: '700', letterSpacing: 0, lineHeight: 32 },
-  profileRouteContent: { alignItems: 'stretch', flexGrow: 1, paddingHorizontal: 0, paddingTop: 8, width: '100%' },
+  profileRouteContent: { alignItems: 'stretch', flexGrow: 1, minWidth: '100%', paddingHorizontal: 0, paddingTop: 8, width: '100%' },
   safetyActionCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 70, padding: 14 },
   safetyActionIconMake: { alignItems: 'center', borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
   safetyActionStackMake: { gap: 10 },
