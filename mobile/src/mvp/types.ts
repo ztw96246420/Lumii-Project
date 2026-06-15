@@ -324,7 +324,11 @@ export type WalkInviteResult = {
   ownerId: string;
 };
 
+export type NotificationCategory = 'health' | 'interaction' | 'system' | 'walk';
+
 export type NotificationItem = {
+  category?: NotificationCategory;
+  createdAt?: string;
   id: string;
   read: boolean;
   text: string;

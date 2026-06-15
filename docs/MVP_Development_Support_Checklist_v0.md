@@ -369,7 +369,7 @@ Android 调用：
 需要接口：
 - ~~`POST /devices/push-token`：上报推送 token。~~ MVP 测试后端和 mock API 已支持按账号保存/更新设备 token，并已补 token、platform、deviceId 和未知字段校验，非法输入返回 `PUSH_DEVICE_INVALID`；App 真机通知授权成功后会获取 Expo Push Token 并登记，Web 预览跳过；生产厂商通道、通知模板和送达回执仍待确认。
 - ~~`GET /notifications`：通知列表。~~ MVP 测试后端已支持，App 会在消息页/通知页刷新读取。
-- ~~`POST /notifications/read`：批量标记已读。~~ MVP 测试后端已支持，进入通知中心会自动标记已读。
+- ~~`POST /notifications/read`：批量标记已读。~~ MVP 测试后端已支持；~~进入通知中心会自动标记已读~~ 已改为通知中心「全部已读」按钮手动触发，避免用户只是查看通知列表时误清未读状态。
 - ~~`PATCH /notification-settings`：通知设置。~~ MVP 测试后端已用 `PATCH /settings` 保存 `pushNotifications`。
 - ~~通知设置与系统授权联动。~~ App 在“设置与隐私”里开启通知时，会先请求系统通知权限；授权失败则不保存 App 内通知开关，授权成功后会保存设置并延迟静默登记 push token；从关闭切回开启也会在服务端设置保存成功后重新安排设备 token 登记。快速重复点击会被前端防重。
 - ~~健康提醒与系统通知状态提示。~~ 疫苗提醒开启后，如果系统通知权限或 App 通知开关未开启，App 会明确提示“系统通知需在设置中开启”；权限和开关都开启时会安排真机本地系统通知，并在标记完成、关闭通知或退出账号时取消；通知中心会自动去重并清理已关闭/已完成计划的旧健康提醒。

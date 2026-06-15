@@ -429,6 +429,14 @@
   - 当日 AI 对话：`0/80`。
   - 剩余次数：`80`。
 
+## 2026-06-15 通知中心结构化契约与 Figma 状态收口
+
+- 通知中心不再进入页面即自动标记已读，改为由 Figma 源码对应的「全部已读」按钮主动触发，避免用户只是查看列表时误清未读状态。
+- 前后端通知项补齐 `category` 和 `createdAt`；App 以 `category` 驱动全部/互动/约遛/健康提醒/系统筛选，以 `createdAt` 驱动今天/昨天/更早分组与时间显示。旧通知缺字段时，测试后端和 mock API 都会读取时补齐。
+- 约遛邀请从互动通知中拆出为 `walk` 分类；`interactionMessages=false` 时仍会同时阻止互动和约遛通知生成。
+- 临时本地后端验证通过：双账号登录、创建宠物、刷新附近位置后，A 向 B 发送招呼与约遛；B 的通知中心返回 `interaction` 与 `walk` 两类通知，均含 `createdAt`；调用 `POST /notifications/read` 后对应通知均变为已读。
+- Web 预览验证限制：当前 localhost:8081 首页可返回，但 JS bundle 请求超时且 Metro 日志显示断开，本轮未把浏览器预览作为通过依据；已记录为需重新启动预览服务后再做截图级复核。
+
 ## 未打包
 
 按协作约定，本次只更新代码和文档，不自动打 APK。需要真机包时再单独打包。
@@ -437,6 +445,6 @@
 
 - 背景：v27 小包真机点击「发现」和「地图」会强制退出 App，说明前一轮 Figma 视觉还原后没有充分保护已有业务主链路；后续视觉审计必须把功能入口冒烟列为同级验收项。
 - 定位：两个入口都依赖定位/高德链路。发现页进入会自动刷新附近伙伴并请求当前位置；地图页会初始化高德 `MapView` 并请求当前位置。release 小包还启用了压缩/混淆，原生桥接类和 React Native 注解存在被 R8 影响的风险。
-- 修复：固定高德聚合依赖版本为 `11.2.000_loc11.2.000_sea9.8.0`，不再使用 `latest.integration`；发现页/地图页定位改为 `expo-location` 系统定位，保留 `getNativeLumiiAmapCurrentLocation` 作为后续可回退接口；高德 `MapView` 创建前补 `MapsInitializer.updatePrivacyShow/updatePrivacyAgree`，并对创建异常做降级兜底；release 混淆规则补齐 `LumiiAmapPackage`、`LumiiAmapSupportModule`、`LumiiAmapViewManager`、`LumiiAmapNativeView` 以及 `@ReactMethod/@ReactProp` keep 规则。
+- 修复：固定高德聚合依赖版本为 `11.2.000_loc11.2.000_sea9.8.0`，不再使用 `latest.integration`；高德 `MapView` 创建前补 `MapsInitializer.updatePrivacyShow/updatePrivacyAgree`，并对创建异常做降级兜底；release 混淆规则补齐 `LumiiAmapPackage`、`LumiiAmapSupportModule`、`LumiiAmapViewManager`、`LumiiAmapNativeView` 以及 `@ReactMethod/@ReactProp` keep 规则。2026-06-15 晚间复盘发现：把定位入口直接切到 `expo-location` 会绕开此前真机可用的高德原生定位，导致授权后仍可能长时间等待；已改回 Android 真机优先走高德原生定位，15 秒无结果再兜底系统定位/最近定位，并在失败时复位 loading、展示地图定位失败 banner 和手动点击定位 toast。
 - 验证：`cd mobile && npm run typecheck` 通过；`cd mobile/android && .\gradlew.bat :app:compileReleaseKotlin "-PreactNativeArchitectures=arm64-v8a"` 通过；`cd mobile/android && .\gradlew.bat :app:minifyReleaseWithR8 "-PreactNativeArchitectures=arm64-v8a" "-Pandroid.enableShrinkResourcesInReleaseBuilds=true" "-Pandroid.enableMinifyInReleaseBuilds=true"` 通过；Web mock 冒烟通过：登录 -> 跳过权限 -> 底部导航进入「发现」显示 3km 内附近伙伴；进入「地图」显示附近宠物友好地点；控制台无 error。
 - 未验证：当前 ADB 未发现已连接真机，暂未拿到 vivo X200S 的 logcat 栈；需下一次真机包或无线调试连接后确认 release ARM64 原生高德页不再强退。

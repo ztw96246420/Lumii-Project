@@ -53,6 +53,7 @@ const localLanBackendBaseUrl = 'http://193.112.92.111';
 const configuredMode = env.EXPO_PUBLIC_API_MODE === 'mock' ? 'mock' : 'http';
 const configuredBaseUrl = (env.EXPO_PUBLIC_API_BASE_URL ?? localLanBackendBaseUrl).replace(/\/+$/, '');
 const shouldUseHttp = configuredMode === 'http' && configuredBaseUrl.length > 0;
+const httpRequestTimeoutMs = 15000;
 
 let authToken = '';
 let cachedActivePet: PetProfile | null = null;
@@ -421,6 +422,8 @@ function createHttpApi(baseUrl: string): LumiiApi {
   };
 
   async function request<T>(method: string, path: string, body?: unknown): Promise<ApiResult<T>> {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), httpRequestTimeoutMs) : undefined;
     try {
       const response = await fetch(`${baseUrl}${path}`, {
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -430,15 +433,22 @@ function createHttpApi(baseUrl: string): LumiiApi {
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
         method,
+        signal: controller?.signal,
       });
 
       const payload = await readJson(response);
       if (!response.ok) {
+        if (timeoutId) clearTimeout(timeoutId);
         return errorResult(messageFromPayload(payload) ?? `服务请求失败（${response.status}）`, response.status >= 500, response.status, errorCodeFromPayload(payload, response.status));
       }
 
+      if (timeoutId) clearTimeout(timeoutId);
       return normalizeResult<T>(payload);
     } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        return errorResult('网络请求超时，请检查网络后重试', true, 408, 'REQUEST_TIMEOUT');
+      }
       const message = error instanceof Error ? error.message : '网络请求失败，请稍后重试';
       return errorResult(message, true);
     }

@@ -2860,25 +2860,57 @@ function markConversationRead(phone, conversationId) {
   if (conversation) conversation.unread = 0;
 }
 
+const notificationCategories = new Set(['health', 'interaction', 'system', 'walk']);
+
+function normalizeNotificationCategory(category) {
+  const value = String(category || '').trim();
+  return notificationCategories.has(value) ? value : 'system';
+}
+
+function inferNotificationCategory(notification) {
+  const id = String(notification?.id || '');
+  if (/walk/.test(id)) return 'walk';
+  if (/(health|vaccine|medical)/.test(id)) return 'health';
+  if (/(greeting|message)/.test(id)) return 'interaction';
+  return 'system';
+}
+
+function normalizeNotificationItem(notification, fallbackCategory) {
+  const category = normalizeNotificationCategory(notification?.category || fallbackCategory || inferNotificationCategory(notification));
+  return {
+    ...notification,
+    category,
+    createdAt: notification?.createdAt || new Date().toISOString(),
+  };
+}
+
+function normalizeNotificationsFor(phone) {
+  state.notifications[phone] = (state.notifications[phone] || []).map((item) => normalizeNotificationItem(item, inferNotificationCategory(item)));
+  return state.notifications[phone];
+}
+
 function shouldStoreNotification(phone, category = 'system') {
   const user = state.users[phone];
   if (!user) return false;
   const settings = normalizeUserSettings(user.settings);
+  const normalizedCategory = normalizeNotificationCategory(category);
   if (!settings.pushNotifications) return false;
-  if (category === 'interaction' && !settings.interactionMessages) return false;
+  if ((normalizedCategory === 'interaction' || normalizedCategory === 'walk') && !settings.interactionMessages) return false;
   return true;
 }
 
-function addNotification(phone, notification, category = 'system') {
-  if (!shouldStoreNotification(phone, category)) return false;
+function addNotification(phone, notification, category) {
+  const normalizedCategory = normalizeNotificationCategory(notification?.category || category || inferNotificationCategory(notification));
+  if (!shouldStoreNotification(phone, normalizedCategory)) return false;
   state.notifications[phone] = state.notifications[phone] || [];
   if (state.notifications[phone].some((item) => item.id === notification.id)) return false;
-  state.notifications[phone].unshift(notification);
+  state.notifications[phone].unshift(normalizeNotificationItem(notification, normalizedCategory));
   return true;
 }
 
 function markNotificationsRead(phone, ids) {
   const idSet = Array.isArray(ids) && ids.length ? new Set(ids.map(String)) : null;
+  normalizeNotificationsFor(phone);
   state.notifications[phone] = (state.notifications[phone] || []).map((item) => (idSet && !idSet.has(item.id) ? item : { ...item, read: true }));
   return state.notifications[phone];
 }
@@ -3810,7 +3842,7 @@ async function handle(req, res) {
       read: false,
       text: `${user.ownerName}和${fromPet.name}邀请你在${time}去${place}`,
       title: '新的约遛邀请',
-    }, 'interaction');
+    }, 'walk');
     saveState();
     ok(res, { conversation: senderConversation, inviteId, ownerId });
     return;
@@ -3895,8 +3927,9 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/notifications') {
     ensureHealthReminderNotifications(user);
+    const notifications = normalizeNotificationsFor(user.phone);
     saveState();
-    ok(res, state.notifications[user.phone] || []);
+    ok(res, notifications);
     return;
   }
 

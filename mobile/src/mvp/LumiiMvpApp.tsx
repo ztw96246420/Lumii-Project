@@ -105,6 +105,7 @@ import type {
   HealthSummary,
   NearbyLocationHint,
   NearbyOwner,
+  NotificationCategory,
   NotificationItem,
   PetChatFeedbackRating,
   PermissionStateMap,
@@ -125,6 +126,70 @@ const fallbackPetAvatarDailyLimit = 10;
 const fallbackPetChatDailyLimit = 80;
 const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
+type NotificationFilter = 'all' | NotificationCategory;
+
+const notificationFilterOptions: Array<{ key: NotificationFilter; label: string }> = [
+  { key: 'all', label: '全部' },
+  { key: 'interaction', label: '互动' },
+  { key: 'walk', label: '约遛' },
+  { key: 'health', label: '健康提醒' },
+  { key: 'system', label: '系统' },
+];
+
+const notificationTimeFallbacks = ['刚刚', '2 小时前', '09:14', '昨天 20:30', '昨天 18:02', '昨天 09:21'];
+
+function isNotificationCategory(value: unknown): value is NotificationCategory {
+  return value === 'health' || value === 'interaction' || value === 'system' || value === 'walk';
+}
+
+function notificationCategoryFor(item: NotificationItem): NotificationCategory {
+  if (isNotificationCategory(item.category)) return item.category;
+  const id = String(item.id || '');
+  if (/walk/.test(id)) return 'walk';
+  if (/(health|vaccine|medical)/.test(id)) return 'health';
+  if (/(greeting|message)/.test(id)) return 'interaction';
+  const value = `${item.title} ${item.text}`;
+  if (/账号|安全|登录|设备|系统|隐私|注销/.test(value)) return 'system';
+  if (/约遛|邀请|公园|散步|见面|一起去|地点/.test(value)) return 'walk';
+  if (/健康|疫苗|体重|驱虫|AI|灵伴|生成|建议|提醒|不吃|拉稀|呕吐/.test(value)) return 'health';
+  return 'interaction';
+}
+
+function notificationDateFor(item: NotificationItem) {
+  if (!item.createdAt) return null;
+  const date = new Date(item.createdAt);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function notificationDisplayTime(item: NotificationItem, index: number) {
+  const date = notificationDateFor(item);
+  if (!date) return notificationTimeFallbacks[index] ?? (index < 3 ? '刚刚' : '昨天');
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs >= 0 && diffMs < 60 * 1000) return '刚刚';
+  if (diffMs >= 0 && diffMs < 60 * 60 * 1000) return `${Math.max(1, Math.floor(diffMs / 60000))} 分钟前`;
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  if (isSameCalendarDay(date, new Date())) return `${hour}:${minute}`;
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (isSameCalendarDay(date, yesterday)) return `昨天 ${hour}:${minute}`;
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${hour}:${minute}`;
+}
+
+function notificationGroupFor(item: NotificationItem, index: number) {
+  const date = notificationDateFor(item);
+  if (!date) return index < 3 ? '今天' : '昨天';
+  const today = new Date();
+  if (isSameCalendarDay(date, today)) return '今天';
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (isSameCalendarDay(date, yesterday)) return '昨天';
+  return '更早';
+}
+
+function isSameCalendarDay(left: Date, right: Date) {
+  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
+}
 
 LogBox.ignoreLogs(['SafeAreaView has been deprecated']);
 const webTextInputReset =
@@ -713,6 +778,7 @@ export default function LumiiMvpApp() {
   const [conversationDraftsById, setConversationDraftsById] = useState<Record<string, string>>({});
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([createConversationSafetyMessage()]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notificationFilter, setNotificationFilter] = useState<NotificationFilter>('all');
   const [places, setPlaces] = useState<Place[]>([]);
   const [placeQuery, setPlaceQuery] = useState('');
   const placeQueryRef = useRef('');
@@ -1145,18 +1211,6 @@ export default function LumiiMvpApp() {
     }, 15000);
     return () => clearInterval(id);
   }, [route, session]);
-
-  useEffect(() => {
-    if (!session || route !== 'notifications') return;
-    const unreadIds = notifications.filter((item) => !item.read).map((item) => item.id);
-    if (!unreadIds.length) return;
-    const requestSessionToken = sessionTokenRef.current;
-    setNotifications((items) => items.map((item) => (unreadIds.includes(item.id) ? { ...item, read: true } : item)));
-    void lumiiApi.messages.markNotificationsRead(unreadIds).then((result) => {
-      if (sessionTokenRef.current !== requestSessionToken) return;
-      if (result.data) setNotifications(result.data);
-    });
-  }, [notifications, route, session]);
 
   useEffect(() => {
     if (!session || route !== 'conversation' || !selectedConversation?.id) return undefined;
@@ -1595,6 +1649,26 @@ export default function LumiiMvpApp() {
       inboxManualRefreshingRef.current = false;
       setInboxManualRefreshing(false);
     }
+  }
+
+  async function markAllNotificationsRead() {
+    const unreadIds = notifications.filter((item) => !item.read).map((item) => item.id);
+    if (!unreadIds.length) {
+      showToast('当前没有未读通知');
+      return;
+    }
+    const requestSessionToken = sessionTokenRef.current;
+    const previousNotifications = notifications;
+    setNotifications((items) => items.map((item) => (unreadIds.includes(item.id) ? { ...item, read: true } : item)));
+    const result = await lumiiApi.messages.markNotificationsRead(unreadIds);
+    if (sessionTokenRef.current !== requestSessionToken) return;
+    if (result.data) {
+      setNotifications(result.data);
+      showToast('已全部标记为已读', { tone: 'success', variant: 'surface' });
+      return;
+    }
+    setNotifications(previousNotifications);
+    showToast(result.error?.message ?? '标记已读失败，请稍后重试', { tone: 'error', variant: 'surface' });
   }
 
   function setConversationMessagesFromServer(conversationId: string, messages: ConversationMessage[]) {
@@ -3520,7 +3594,10 @@ export default function LumiiMvpApp() {
   }
 
   async function locateMapToCurrentPosition(options: { silent?: boolean } = {}) {
-    if (locatingMapRef.current) return;
+    if (locatingMapRef.current) {
+      if (!options.silent) showToast('正在定位，请稍候');
+      return;
+    }
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
     locatingMapRef.current = true;
@@ -3536,8 +3613,8 @@ export default function LumiiMvpApp() {
       void persistPermissionSnapshot(nextPermissions);
 
       if (permissionResult.status !== 'granted') {
+        setMapLocationError(permissionResult.message || '请检查定位权限是否已开启');
         if (!options.silent) {
-          setMapLocationError(permissionResult.message || '请检查定位权限是否已开启');
           showToast(permissionResult.message);
         }
         return;
@@ -3576,9 +3653,9 @@ export default function LumiiMvpApp() {
       if (!options.silent) showToast(accuracy ? `已定位，精度约 ${accuracy} 米` : '已定位到当前位置');
     } catch (error) {
       if (sessionTokenRef.current !== requestSessionToken) return;
+      const message = error instanceof Error ? error.message : '定位失败，请稍后重试';
+      setMapLocationError(message);
       if (!options.silent) {
-        const message = error instanceof Error ? error.message : '定位失败，请稍后重试';
-        setMapLocationError(message);
         showToast(message);
       }
     } finally {
@@ -3934,7 +4011,7 @@ export default function LumiiMvpApp() {
   const Screen = useCallback(
     function ScreenView({ children, refreshControl, right, showBack = true, title }: { children: ReactNode; refreshControl?: ReactElement<RefreshControlProps>; right?: ReactNode; showBack?: boolean; title?: string }) {
       const headerTitle = title ?? routeTitles[route] ?? '灵伴';
-      const hideHeader = Boolean(placeSubmitResult) || route === 'login' || route === 'home' || route === 'discover' || route === 'map' || route === 'messages' || route === 'profile' || route === 'chat' || route === 'conversation' || route === 'placeDetail';
+      const hideHeader = Boolean(placeSubmitResult) || route === 'login' || route === 'home' || route === 'discover' || route === 'map' || route === 'messages' || route === 'notifications' || route === 'profile' || route === 'chat' || route === 'conversation' || route === 'placeDetail';
       const isLoginRoute = route === 'login';
       const isOtpRoute = route === 'otp';
       const isMapRoute = route === 'map';
@@ -7079,32 +7156,144 @@ export default function LumiiMvpApp() {
   }
 
   function renderNotifications() {
+    const unreadNotificationCount = notifications.filter((item) => !item.read).length;
+    const activeFilterLabel = notificationFilterOptions.find((item) => item.key === notificationFilter)?.label ?? '全部';
+    const notificationItems = notifications.map((item, index) => ({
+      category: notificationCategoryFor(item),
+      group: notificationGroupFor(item, index),
+      index,
+      item,
+      time: notificationDisplayTime(item, index),
+    }));
+    const filteredNotifications = notificationItems.filter((entry) => notificationFilter === 'all' || entry.category === notificationFilter);
+    const groupedNotifications = ['今天', '昨天', '更早'].map((group) => ({
+      group,
+      items: filteredNotifications.filter((entry) => entry.group === group),
+    })).filter((group) => group.items.length > 0);
+    const notificationMetaFor = (category: NotificationCategory) => {
+      if (category === 'walk') {
+        return {
+          icon: <PawPrint color={palette.orange} size={15} strokeWidth={2.5} />,
+          iconStyle: styles.notificationIconWalkMake,
+          onPress: () => go('messages'),
+          rightLabel: '查看',
+        };
+      }
+      if (category === 'interaction') {
+        return {
+          icon: <Heart color={palette.danger} size={15} strokeWidth={2.5} />,
+          iconStyle: styles.notificationIconInteractionMake,
+          onPress: () => go('greetingRequests'),
+          rightLabel: '',
+        };
+      }
+      if (category === 'health') {
+        return {
+          icon: <Sparkles color={palette.teal} size={15} strokeWidth={2.5} />,
+          iconStyle: styles.notificationIconHealthMake,
+          onPress: () => go('health'),
+          rightLabel: '',
+        };
+      }
+      return {
+        icon: <Shield color={palette.muted} size={15} strokeWidth={2.5} />,
+        iconStyle: styles.notificationIconSystemMake,
+        onPress: () => go('settings'),
+        rightLabel: '',
+      };
+    };
     return (
-      <Screen title="通知中心">
-        <View style={styles.notificationListMake}>
-          {!notifications.length ? (
-            <EmptyState
-              action="刷新通知"
-              description="招呼请求、健康提醒和系统消息会出现在这里。"
-              icon={<Bell color={palette.muted} size={26} strokeWidth={2.4} />}
-              onAction={() => void refreshInboxManually()}
-              title="暂时没有通知"
-            />
-          ) : null}
-          {notifications.map((item) => (
-            <View key={item.id} style={[styles.notificationCardMake, !item.read && styles.notificationCardUnreadMake]}>
-              <View style={styles.notificationIconMake}>
-                <Bell color={item.read ? palette.muted : palette.orange} size={16} strokeWidth={2.4} />
+      <Screen title="">
+        <View style={styles.notificationPageMake}>
+          <View style={styles.notificationMakeHeader}>
+            <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={[styles.notificationHeaderIconMake, webPressableReset]}>
+              <ChevronLeft color={palette.ink} size={20} strokeWidth={2.6} />
+            </Pressable>
+            <Text style={styles.notificationHeaderTitleMake}>通知</Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={unreadNotificationCount === 0}
+              onPress={() => void markAllNotificationsRead()}
+              style={[styles.notificationReadAllButtonMake, unreadNotificationCount === 0 && styles.notificationReadAllButtonDisabledMake, webPressableReset]}
+            >
+              <Text style={[styles.notificationReadAllTextMake, unreadNotificationCount === 0 && styles.notificationReadAllTextDisabledMake]}>全部已读</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={styles.notificationFilterRowMake}
+            horizontal
+            keyboardShouldPersistTaps="handled"
+            showsHorizontalScrollIndicator={false}
+          >
+            {notificationFilterOptions.map((option) => {
+              const active = option.key === notificationFilter;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  key={option.key}
+                  onPress={() => setNotificationFilter(option.key)}
+                  style={[styles.notificationFilterChipMake, active && styles.notificationFilterChipActiveMake, webPressableReset]}
+                >
+                  <Text style={[styles.notificationFilterTextMake, active && styles.notificationFilterTextActiveMake]}>{option.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.notificationListMake}>
+            {!notifications.length ? (
+              <EmptyState
+                action="刷新通知"
+                description="招呼请求、健康提醒和系统消息会出现在这里。"
+                icon={<Bell color={palette.muted} size={26} strokeWidth={2.4} />}
+                onAction={() => void refreshInboxManually()}
+                title="暂时没有通知"
+              />
+            ) : null}
+            {notifications.length > 0 && !filteredNotifications.length ? (
+              <EmptyState
+                action="查看全部"
+                description="切换到全部通知，或者下拉刷新看看有没有新的动态。"
+                icon={<Bell color={palette.muted} size={26} strokeWidth={2.4} />}
+                onAction={() => setNotificationFilter('all')}
+                title={`暂无${activeFilterLabel}通知`}
+              />
+            ) : null}
+            {groupedNotifications.map((group) => (
+              <View key={group.group} style={styles.notificationGroupMake}>
+                <Text style={styles.notificationGroupLabelMake}>{group.group}</Text>
+                {group.items.map((entry) => {
+                  const meta = notificationMetaFor(entry.category);
+                  return (
+                    <Pressable
+                      accessibilityRole="button"
+                      key={entry.item.id}
+                      onPress={meta.onPress}
+                      style={[styles.notificationCardMake, !entry.item.read && styles.notificationCardUnreadMake, webPressableReset]}
+                    >
+                      <View style={[styles.notificationIconMake, meta.iconStyle]}>{meta.icon}</View>
+                      <View style={styles.notificationBodyMake}>
+                        <View style={styles.notificationTitleRowMake}>
+                          <Text numberOfLines={2} style={styles.notificationTitleMake}>{entry.item.title}</Text>
+                          {!entry.item.read ? <View style={styles.notificationUnreadDotMake} /> : null}
+                        </View>
+                        {entry.item.text ? <Text numberOfLines={2} style={styles.notificationSubMake}>{entry.item.text}</Text> : null}
+                        <View style={styles.notificationMetaRowMake}>
+                          <Text style={styles.notificationTimeMake}>{entry.time}</Text>
+                          {meta.rightLabel ? (
+                            <Pressable accessibilityRole="button" onPress={meta.onPress} style={[styles.notificationActionMake, webPressableReset]}>
+                              <Text style={styles.notificationActionTextMake}>{meta.rightLabel}</Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      </View>
+                    </Pressable>
+                  );
+                })}
               </View>
-              <View style={styles.flex}>
-                <View style={styles.rowBetween}>
-                  <Text style={styles.timelineTitleMake}>{item.title}</Text>
-                  <StatusPill tone={item.read ? 'neutral' : 'success'}>{item.read ? '已读' : '未读'}</StatusPill>
-                </View>
-                <Text style={styles.timelineSubMake}>{item.text}</Text>
-              </View>
-            </View>
-          ))}
+            ))}
+          </View>
         </View>
       </Screen>
     );
@@ -9638,11 +9827,39 @@ const styles = StyleSheet.create({
   metricValue: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600', lineHeight: 20, marginTop: 3, minWidth: 0 },
   mutedText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 19 },
   notificationButton: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 22, borderWidth: 1, height: 44, justifyContent: 'center', position: 'relative', width: 44 },
-  notificationCardMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 14 },
-  notificationCardUnreadMake: { backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.25)' },
   notificationDot: { backgroundColor: palette.danger, borderColor: '#fff', borderRadius: 5, borderWidth: 1, height: 10, position: 'absolute', right: 10, top: 10, width: 10 },
-  notificationIconMake: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 17, height: 34, justifyContent: 'center', width: 34 },
-  notificationListMake: { gap: 12 },
+  notificationActionMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 14, minHeight: 28, justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 6 },
+  notificationActionTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  notificationBodyMake: { flex: 1, minWidth: 0 },
+  notificationCardMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  notificationCardUnreadMake: { backgroundColor: 'rgba(255,138,92,0.06)', borderColor: 'rgba(255,138,92,0.22)' },
+  notificationFilterChipActiveMake: { backgroundColor: palette.ink, borderColor: palette.ink },
+  notificationFilterChipMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 999, borderWidth: 1, height: 34, justifyContent: 'center', paddingHorizontal: 14 },
+  notificationFilterRowMake: { flexDirection: 'row', gap: 8, paddingBottom: 4, paddingHorizontal: 2, paddingTop: 4 },
+  notificationFilterTextActiveMake: { color: '#fff', fontWeight: '700' },
+  notificationFilterTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  notificationGroupLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', letterSpacing: 0.3, lineHeight: 16, paddingBottom: 6, paddingTop: 10 },
+  notificationGroupMake: { gap: 8 },
+  notificationHeaderIconMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.72)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 },
+  notificationHeaderTitleMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', lineHeight: 23, textAlign: 'center' },
+  notificationIconHealthMake: { backgroundColor: 'rgba(77,182,172,0.18)' },
+  notificationIconInteractionMake: { backgroundColor: 'rgba(229,87,63,0.14)' },
+  notificationIconMake: { alignItems: 'center', borderRadius: 12, flexShrink: 0, height: 34, justifyContent: 'center', width: 34 },
+  notificationIconSystemMake: { backgroundColor: 'rgba(122,121,114,0.14)' },
+  notificationIconWalkMake: { backgroundColor: 'rgba(255,138,92,0.16)' },
+  notificationListMake: { gap: 4, paddingTop: 4 },
+  notificationMakeHeader: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 44 },
+  notificationMetaRowMake: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, minHeight: 28 },
+  notificationPageMake: { gap: 8, paddingTop: 0 },
+  notificationReadAllButtonDisabledMake: { opacity: 0.55 },
+  notificationReadAllButtonMake: { alignItems: 'center', borderRadius: 14, justifyContent: 'center', minHeight: 34, minWidth: 64, paddingHorizontal: 2 },
+  notificationReadAllTextDisabledMake: { color: 'rgba(122,121,114,0.72)' },
+  notificationReadAllTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  notificationSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 17, marginTop: 3 },
+  notificationTimeMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '500', lineHeight: 15 },
+  notificationTitleMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', lineHeight: 19, minWidth: 0 },
+  notificationTitleRowMake: { alignItems: 'flex-start', flexDirection: 'row', gap: 8, justifyContent: 'space-between' },
+  notificationUnreadDotMake: { backgroundColor: palette.orange, borderRadius: 4, flexShrink: 0, height: 8, marginTop: 5, width: 8 },
   optionWrap: { gap: 8 },
   otpCursor: { backgroundColor: palette.orange, borderRadius: 1, height: 24, position: 'absolute', width: 2 },
   otpDigitBox: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 14, borderWidth: 1, height: 56, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.06, shadowRadius: 8, width: 46 },

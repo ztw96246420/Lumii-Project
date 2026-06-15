@@ -20,6 +20,7 @@ import type {
   LegalDocument,
   NearbyLocationHint,
   NearbyOwner,
+  NotificationCategory,
   NotificationItem,
   PetChatFeedbackRating,
   PetProfile,
@@ -905,15 +906,44 @@ function isSimilarMockPlaceText(a: string, b: string, minLength = 4) {
   return left.includes(right) || right.includes(left);
 }
 
-function shouldStoreMockNotification(category: 'system' | 'interaction' = 'system') {
+function normalizeMockNotificationCategory(category: unknown): NotificationCategory {
+  return category === 'health' || category === 'interaction' || category === 'system' || category === 'walk' ? category : 'system';
+}
+
+function inferMockNotificationCategory(notification: Pick<NotificationItem, 'id' | 'text' | 'title'>): NotificationCategory {
+  const id = String(notification.id || '');
+  if (/walk/.test(id)) return 'walk';
+  if (/(health|vaccine|medical)/.test(id)) return 'health';
+  if (/(greeting|message)/.test(id)) return 'interaction';
+  const value = `${notification.title} ${notification.text}`;
+  if (/约遛|邀请|公园|散步|见面|一起去/.test(value)) return 'walk';
+  if (/健康|疫苗|体重|驱虫|提醒|就医/.test(value)) return 'health';
+  return 'system';
+}
+
+function normalizeMockNotificationItem(notification: NotificationItem, fallbackCategory?: NotificationCategory): NotificationItem {
+  return {
+    ...notification,
+    category: normalizeMockNotificationCategory(notification.category || fallbackCategory || inferMockNotificationCategory(notification)),
+    createdAt: notification.createdAt || new Date().toISOString(),
+  };
+}
+
+function normalizeMockNotifications() {
+  notifications = notifications.map((item) => normalizeMockNotificationItem(item, inferMockNotificationCategory(item)));
+  return notifications;
+}
+
+function shouldStoreMockNotification(category: NotificationCategory = 'system') {
   if (!mockUserSettings.pushNotifications) return false;
-  if (category === 'interaction' && !mockUserSettings.interactionMessages) return false;
+  if ((category === 'interaction' || category === 'walk') && !mockUserSettings.interactionMessages) return false;
   return true;
 }
 
-function addMockNotification(notification: NotificationItem, category: 'system' | 'interaction' = 'system') {
-  if (!shouldStoreMockNotification(category) || notifications.some((item) => item.id === notification.id)) return false;
-  notifications = [notification, ...notifications];
+function addMockNotification(notification: NotificationItem, category?: NotificationCategory) {
+  const normalizedCategory = normalizeMockNotificationCategory(notification.category || category || inferMockNotificationCategory(notification));
+  if (!shouldStoreMockNotification(normalizedCategory) || notifications.some((item) => item.id === notification.id)) return false;
+  notifications = [normalizeMockNotificationItem(notification, normalizedCategory), ...notifications];
   return true;
 }
 
@@ -1865,12 +1895,13 @@ export const mockApi = {
     async listNotifications(): Promise<ApiResult<NotificationItem[]>> {
       await wait(160);
       ensureMockHealthReminderNotifications();
-      return success(notifications);
+      return success(normalizeMockNotifications());
     },
 
     async markNotificationsRead(ids?: string[]): Promise<ApiResult<NotificationItem[]>> {
       await wait(120);
       const idSet = ids?.length ? new Set(ids) : null;
+      normalizeMockNotifications();
       notifications = notifications.map((item) => (idSet && !idSet.has(item.id) ? item : { ...item, read: true }));
       return success(notifications);
     },
