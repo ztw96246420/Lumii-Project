@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { StyleProp, TextStyle, ViewStyle } from 'react-native';
-import { AlertTriangle, Check, Info, X } from 'lucide-react-native';
+import { AlertTriangle, Bookmark, Check, Heart, Info, X } from 'lucide-react-native';
 
 export const palette = {
   background: '#FBF7F1',
@@ -172,24 +172,42 @@ export function ToggleRow({
 
 export function Toast({
   actionText,
+  icon,
+  iconTone,
   message,
+  placement = 'top',
   subtitle,
   tone = 'info',
   variant = 'surface',
 }: {
   actionText?: string;
+  icon?: 'bookmark' | 'heart';
+  iconTone?: 'muted' | 'orange';
   message?: string;
+  placement?: 'bottom' | 'top';
   subtitle?: string;
   tone?: 'error' | 'info' | 'success' | 'warning';
   variant?: 'dark' | 'surface';
 }) {
   if (!message) return null;
   const dark = variant === 'dark';
-  const Icon = toastIconByTone[tone];
+  const Icon = icon === 'bookmark' ? Bookmark : icon === 'heart' ? Heart : toastIconByTone[tone];
+  const iconStyle = iconTone === 'orange'
+    ? styles.toastIcon_orange
+    : iconTone === 'muted'
+      ? styles.toastIcon_muted
+      : dark
+        ? styles.toastIconDark
+        : styles[`toastIcon_${tone}`];
+  const iconColor = dark || iconTone === 'orange'
+    ? '#fff'
+    : iconTone === 'muted'
+      ? palette.muted
+      : toastIconColorByTone[tone];
   return (
-    <View style={[styles.toast, dark ? styles.toastDark : styles.toastSurface, styles.toastNoPointer]}>
-      <View style={[styles.toastIcon, dark ? styles.toastIconDark : styles[`toastIcon_${tone}`]]}>
-        {dark ? <Icon color="#fff" size={15} strokeWidth={3} /> : <Icon color={toastIconColorByTone[tone]} size={14} strokeWidth={2.5} />}
+    <View style={[styles.toast, placement === 'bottom' && styles.toastBottom, dark ? styles.toastDark : styles.toastSurface, styles.toastNoPointer]}>
+      <View style={[styles.toastIcon, iconStyle]}>
+        <Icon color={iconColor} fill={icon ? iconColor : 'transparent'} size={icon ? 15 : 14} strokeWidth={icon ? 2.5 : dark ? 3 : 2.5} />
       </View>
       <View style={styles.toastTextWrap}>
         <Text style={[styles.toastText, dark ? styles.toastTextDark : styles.toastTextSurface]} numberOfLines={2}>{message}</Text>
@@ -473,11 +491,14 @@ export const styles = StyleSheet.create({
   toast: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 10, maxWidth: 340, minHeight: 46, minWidth: 180, paddingHorizontal: 12, paddingVertical: 10, position: 'absolute', top: 70, zIndex: 20 },
   toastActionDark: { color: '#FFB48C', fontFamily, fontSize: 12, fontWeight: '600' },
   toastActionSurface: { borderLeftColor: palette.border, borderLeftWidth: 1, color: palette.orange, fontFamily, fontSize: 12.5, fontWeight: '600', marginLeft: 4, paddingLeft: 8 },
+  toastBottom: { bottom: 110, top: undefined },
   toastDark: { backgroundColor: 'rgba(27,28,25,0.92)', borderRadius: 22, paddingRight: 18, shadowColor: '#000', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.28, shadowRadius: 38 },
   toastIcon: { alignItems: 'center', height: 24, justifyContent: 'center', width: 24 },
   toastIconDark: { backgroundColor: palette.teal, borderRadius: 12 },
   toastIcon_error: { backgroundColor: '#FBE4DE', borderRadius: 8 },
   toastIcon_info: { backgroundColor: palette.pale, borderRadius: 8 },
+  toastIcon_muted: { backgroundColor: palette.pale, borderRadius: 12, height: 32, width: 32 },
+  toastIcon_orange: { backgroundColor: palette.orange, borderRadius: 15, height: 30, width: 30 },
   toastIcon_success: { backgroundColor: '#E8F5F3', borderRadius: 8 },
   toastIcon_warning: { backgroundColor: palette.warningSoft, borderRadius: 8 },
   toastIconMark: { borderRadius: 5, height: 10, width: 10 },

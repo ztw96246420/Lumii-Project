@@ -442,7 +442,10 @@ type PlaceSubmitResult = {
 
 type AppToast = {
   actionText?: string;
+  icon?: 'bookmark' | 'heart';
+  iconTone?: 'muted' | 'orange';
   message: string;
+  placement?: 'bottom' | 'top';
   subtitle?: string;
   tone?: 'error' | 'info' | 'success' | 'warning';
   variant?: 'dark' | 'surface';
@@ -3104,7 +3107,27 @@ export default function LumiiMvpApp() {
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setFavoritePlaceIds(result.data);
-        showToast(nextFavorite ? '已收藏到「想去」' : '已取消收藏', nextFavorite ? { actionText: '管理' } : { actionText: '撤销', tone: 'info', variant: 'surface' });
+        showToast(
+          nextFavorite ? '已收藏到「想去」' : `已取消收藏 · ${place.name}`,
+          nextFavorite
+            ? {
+                actionText: '管理',
+                icon: 'bookmark',
+                iconTone: 'orange',
+                subtitle: '在「我的 · 收藏」中查看',
+                tone: 'success',
+                variant: 'dark',
+              }
+            : {
+                actionText: '撤销',
+                icon: 'heart',
+                iconTone: 'muted',
+                placement: 'bottom',
+                subtitle: '将不再出现在「想去」列表',
+                tone: 'info',
+                variant: 'surface',
+              },
+        );
       } else {
         setFavoritePlaceIds((ids) => (wasFavorite ? [place.id, ...ids.filter((id) => id !== place.id)] : ids.filter((id) => id !== place.id)));
         showToast(result.error?.message ?? '收藏状态保存失败', { tone: 'error', variant: 'surface' });
@@ -8881,7 +8904,7 @@ export default function LumiiMvpApp() {
               })}
             </View>
           ) : null}
-          <Toast actionText={toast?.actionText} message={toast?.message} subtitle={toast?.subtitle} tone={toast?.tone} variant={toast?.variant} />
+          <Toast actionText={toast?.actionText} icon={toast?.icon} iconTone={toast?.iconTone} message={toast?.message} placement={toast?.placement} subtitle={toast?.subtitle} tone={toast?.tone} variant={toast?.variant} />
           {renderGreetingSheet()}
           {renderAmapNavigationConfirm()}
           {renderLogoutConfirmSheet()}
