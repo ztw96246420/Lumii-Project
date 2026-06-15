@@ -140,6 +140,8 @@ const placeReviewPhotoUrls = [
   'https://images.unsplash.com/photo-1764660308106-72eacd973fc8?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
   'https://images.unsplash.com/photo-1599692392256-2d084495fe15?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=400',
 ];
+const walkInviteParkPhotoUrl =
+  'https://images.unsplash.com/photo-1561438774-1790fe271b8f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600';
 const discoverOwnerAvatarUrls = [
   'https://images.unsplash.com/photo-1662850886700-4ec19bd30d11?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=200',
   'https://images.unsplash.com/photo-1562337404-3044c84ac061?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=200',
@@ -7528,48 +7530,103 @@ export default function LumiiMvpApp() {
 
   function renderWalkInvite() {
     const owner = selectedOwner;
+    const pet = getCurrentPet();
+    const currentPetImageSource = pet?.avatarUrl && !isGeneratedAvatarUri(pet.avatarUrl) ? { uri: pet.avatarUrl } : generatedGoldenAvatarSource;
+    const ownerPetImageSource = owner?.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
+    const dateTiles = [
+      { day: '今天', date: '06-15', value: '今天 17:30', weekday: '周一' },
+      { day: '明天', date: '06-16', value: '明天 17:30', weekday: '周二' },
+      { day: '周三', date: '06-17', value: '周三 17:30', weekday: '06-17' },
+    ];
+    const activeDateIndex = walkInviteTime.includes('明天') ? 1 : walkInviteTime.includes('周三') ? 2 : 0;
     return (
       <Screen title="约遛邀请">
         {owner ? (
-          <>
-            <View style={styles.ownerInviteHero}>
-              <PetAvatar uri={owner.imageUrl} size={76} />
+          <View style={styles.walkInvitePageMake}>
+            <View style={styles.walkPetsCardMake}>
+              <View style={styles.walkAvatarStackMake}>
+                <View style={styles.walkAvatarCircleMake}>
+                  <Image resizeMode="cover" source={currentPetImageSource} style={styles.avatarImage} />
+                </View>
+                <View style={[styles.walkAvatarCircleMake, styles.walkAvatarOverlapMake]}>
+                  <Image resizeMode="cover" source={ownerPetImageSource} style={styles.avatarImage} />
+                </View>
+              </View>
               <View style={styles.flex}>
-                <View style={styles.rowBetween}>
-                  <Text style={styles.ownerPetNameMake}>{owner.petName}</Text>
-                  <Text style={styles.ownerDistanceMake}>{owner.distance}</Text>
-                </View>
-                <Text style={styles.timelineSubMake}>{owner.species === 'dog' ? '狗狗' : '猫咪'} · 主人 {owner.ownerName}</Text>
-                <View style={styles.ownerTagRowMake}>
-                  {owner.tags.slice(0, 3).map((tag) => (
-                    <Text key={tag} style={styles.ownerTagMake}>{tag}</Text>
-                  ))}
-                </View>
+                <Text numberOfLines={1} style={styles.walkPetsTitleMake}>{pet?.name ?? '我的宠物'} × {owner.petName}</Text>
+                <Text numberOfLines={1} style={styles.walkPetsMetaMake}>{pet?.breed ?? (pet?.species === 'cat' ? '猫咪' : '狗狗')} × {owner.tags[0] ?? (owner.species === 'cat' ? '猫咪' : '狗狗')} · 一起溜达？</Text>
               </View>
             </View>
-            <View style={styles.settingsGroupMake}>
-              <Text style={styles.settingsGroupTitle}>邀请信息</Text>
-              <View style={styles.walkFieldWrap}>
-                <Field label="地点" onChangeText={setWalkInvitePlace} placeholder="例如：滨江绿地" value={walkInvitePlace} />
-                <Field label="时间" onChangeText={setWalkInviteTime} placeholder="例如：今天 19:00" value={walkInviteTime} />
-              </View>
+
+            <Text style={styles.walkFieldLabelMake}>时间</Text>
+            <View style={styles.walkDateRowMake}>
+              {dateTiles.map((tile, index) => {
+                const active = index === activeDateIndex;
+                return (
+                  <Pressable key={tile.value} onPress={() => setWalkInviteTime(tile.value)} style={[styles.walkDateTileMake, active && styles.walkDateTileActiveMake, webPressableReset]}>
+                    <Text style={[styles.walkDateDayMake, active && styles.walkDateDayActiveMake]}>{tile.day}</Text>
+                    <Text style={styles.walkDateValueMake}>{tile.date}</Text>
+                    <Text style={styles.walkDateWeekMake}>{tile.weekday}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
-            <View style={styles.composerCardMake}>
-              <Text style={styles.settingsGroupTitle}>邀请留言</Text>
+            <View style={styles.walkTimeRowMake}>
+              <Clock color={palette.orange} size={15} strokeWidth={2.4} />
+              <TextInput
+                onChangeText={setWalkInviteTime}
+                placeholder="17:30 - 18:30"
+                placeholderTextColor="#B8B3A8"
+                style={[styles.walkTimeInputMake, webTextInputReset]}
+                value={walkInviteTime}
+              />
+              <ChevronRight color={palette.muted} size={15} strokeWidth={2.4} />
+            </View>
+
+            <Text style={styles.walkFieldLabelMake}>地点</Text>
+            <View style={styles.walkPlaceCardMake}>
+              <Image resizeMode="cover" source={{ uri: walkInviteParkPhotoUrl }} style={styles.avatarImage} />
+              <View style={styles.walkPlaceOverlayMake} />
+              <View style={styles.walkPlaceTitleMake}>
+                <MapPin color="#fff" size={13} strokeWidth={2.4} />
+                <TextInput
+                  onChangeText={setWalkInvitePlace}
+                  placeholder="望京公园 · 西门"
+                  placeholderTextColor="rgba(255,255,255,0.78)"
+                  style={[styles.walkPlaceInputMake, webTextInputReset]}
+                  value={walkInvitePlace}
+                />
+              </View>
+              <Text style={styles.walkPlaceBadgeMake}>宠物友好</Text>
+            </View>
+
+            <Text style={styles.walkFieldLabelMake}>留言</Text>
+            <View style={styles.walkMessageCardMake}>
               <TextInput
                 multiline
                 onChangeText={setWalkInviteNote}
-                placeholder="写一句轻松自然的邀请"
-                placeholderTextColor="#b6aca3"
-                style={[styles.longTextInput, webTextInputReset]}
+                placeholder="带个飞盘呀，奶油超爱捡飞盘 🐾"
+                placeholderTextColor="#B8B3A8"
+                style={[styles.walkMessageInputMake, webTextInputReset]}
                 value={walkInviteNote}
               />
             </View>
-            <View style={styles.actionRow}>
-              <Button loading={socialActionSavingIds.includes(`greet:${owner.id}`)} onPress={() => void sendGreeting(owner.id)} tone="secondary">先打招呼</Button>
-              <Button loading={walkInviteSaving} onPress={() => void createWalkInvite()}>发送邀请</Button>
+
+            <View style={styles.walkSafetyMake}>
+              <Shield color={palette.teal} size={13} strokeWidth={2.4} />
+              <Text style={styles.walkSafetyTextMake}>建议在公共宠物友好场所见面，注意人身与宠物安全</Text>
             </View>
-          </>
+
+            <View style={styles.walkBottomActionsMake}>
+              <Pressable disabled={walkInviteSaving} onPress={() => showToast('约遛草稿已暂存')} style={[styles.walkDraftButtonMake, webPressableReset]}>
+                <Text style={styles.walkDraftButtonTextMake}>保存草稿</Text>
+              </Pressable>
+              <Pressable disabled={walkInviteSaving} onPress={() => void createWalkInvite()} style={[styles.walkSendButtonMake, webPressableReset]}>
+                {walkInviteSaving ? <ActivityIndicator color="#fff" size="small" /> : <Send color="#fff" size={14} strokeWidth={2.5} />}
+                <Text style={styles.walkSendButtonTextMake}>{walkInviteSaving ? '发送中' : '发送邀请'}</Text>
+              </Pressable>
+            </View>
+          </View>
         ) : (
           <ErrorState
             action="回到发现页"
@@ -9792,9 +9849,37 @@ const styles = StyleSheet.create({
   vaccineStateUpcoming: { backgroundColor: 'rgba(255,138,92,0.14)' },
   vaccineStateUpcomingText: { color: palette.orange },
   vaccineTipMake: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
-  walkFieldWrap: { gap: 12, paddingBottom: 14, paddingHorizontal: 14 },
-  walkInviteInline: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: palette.orangeSoft, borderRadius: 12, flexDirection: 'row', gap: 5, marginTop: 10, paddingHorizontal: 10, paddingVertical: 6 },
-  walkInviteInlineText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  walkAvatarCircleMake: { backgroundColor: '#FFEDD9', borderColor: '#fff', borderRadius: 28, borderWidth: 3, height: 56, overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.16, shadowRadius: 14, width: 56 },
+  walkAvatarOverlapMake: { marginLeft: -16 },
+  walkAvatarStackMake: { alignItems: 'center', flexDirection: 'row', flexShrink: 0, width: 100 },
+  walkBottomActionsMake: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  walkDateDayActiveMake: { color: palette.orange },
+  walkDateDayMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', lineHeight: 15 },
+  walkDateRowMake: { flexDirection: 'row', gap: 8 },
+  walkDateTileActiveMake: { backgroundColor: 'rgba(255,138,92,0.12)', borderColor: palette.orange, borderWidth: 1.5 },
+  walkDateTileMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flex: 1, height: 64, justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 10 },
+  walkDateValueMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 19, marginTop: 2 },
+  walkDateWeekMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '500', lineHeight: 14, marginTop: 1 },
+  walkDraftButtonMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 24, borderWidth: 1, flex: 1, height: 48, justifyContent: 'center' },
+  walkDraftButtonTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '600' },
+  walkFieldLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', marginBottom: 8, marginTop: 14 },
+  walkInvitePageMake: { gap: 0, marginTop: 4 },
+  walkMessageCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, minHeight: 64, paddingHorizontal: 14, paddingVertical: 12 },
+  walkMessageInputMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '500', lineHeight: 21.5, minHeight: 38, padding: 0, textAlignVertical: 'top' },
+  walkPetsCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 18, paddingVertical: 16, shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.1, shadowRadius: 30 },
+  walkPetsMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 16, marginTop: 2 },
+  walkPetsTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700', letterSpacing: 0, lineHeight: 22 },
+  walkPlaceBadgeMake: { backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 10, color: palette.ink, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 4, position: 'absolute', right: 12, top: 12 },
+  walkPlaceCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, height: 110, overflow: 'hidden', position: 'relative' },
+  walkPlaceInputMake: { color: '#fff', flex: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700', minHeight: 22, padding: 0 },
+  walkPlaceOverlayMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,0.55) 100%)' } as object) : null), backgroundColor: 'rgba(0,0,0,0.18)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
+  walkPlaceTitleMake: { alignItems: 'center', bottom: 12, flexDirection: 'row', gap: 5, left: 12, position: 'absolute', right: 72 },
+  walkSafetyMake: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 14, paddingHorizontal: 12, paddingVertical: 10 },
+  walkSafetyTextMake: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 18 },
+  walkSendButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 24, flex: 1, flexDirection: 'row', gap: 6, height: 48, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.24, shadowRadius: 24 },
+  walkSendButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '700' },
+  walkTimeInputMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', minHeight: 44, paddingHorizontal: 10, paddingVertical: 0 },
+  walkTimeRowMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', height: 48, paddingHorizontal: 14 },
   weightHeroMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, paddingHorizontal: 22, paddingVertical: 20, shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.08, shadowRadius: 30 },
   weightInputMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, gap: 12, marginTop: 14, padding: 16 },
   apiModeMake: { borderBottomColor: palette.border, borderBottomWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
