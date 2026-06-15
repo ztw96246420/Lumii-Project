@@ -29,6 +29,13 @@ const webTextInputReset =
   Platform.OS === 'web'
     ? ({ outlineColor: 'transparent', outlineStyle: 'none', outlineWidth: 0 } as unknown as TextStyle)
     : null;
+const webSkeletonGradient =
+  Platform.OS === 'web'
+    ? ({
+        backgroundImage: 'linear-gradient(90deg, #F0EBE0 0%, #E5E0D5 50%, #F0EBE0 100%)',
+        backgroundSize: '200% 100%',
+      } as unknown as ViewStyle)
+    : null;
 
 export function Button({
   children,
@@ -237,7 +244,7 @@ export function ErrorState({
   );
 }
 
-export function LoadingState({ message = '正在为你准备内容...' }: { message?: string }) {
+export function LoadingState({ message = '正在为你召唤灵伴...' }: { message?: string }) {
   return (
     <View style={styles.loadingBlock}>
       <ActivityIndicator color={palette.orange} size="large" />
@@ -247,7 +254,24 @@ export function LoadingState({ message = '正在为你准备内容...' }: { mess
 }
 
 export function SkeletonLine({ height = 12, width }: { height?: number; width: ViewStyle['width'] }) {
-  return <View style={[styles.skeletonLine, { height, width }]} />;
+  return <View style={[styles.skeletonLine, webSkeletonGradient, { height, width }]} />;
+}
+
+export function SkeletonCard() {
+  return (
+    <Card>
+      <View style={styles.skeletonCardHeader}>
+        <View style={[styles.skeletonAvatar, webSkeletonGradient]} />
+        <View style={styles.skeletonTextStack}>
+          <SkeletonLine height={14} width="60%" />
+          <SkeletonLine height={10} width="40%" />
+        </View>
+      </View>
+      <SkeletonLine height={12} width="100%" />
+      <SkeletonLine height={12} width="85%" />
+      <SkeletonLine height={12} width="70%" />
+    </Card>
+  );
 }
 
 export function BottomSheet({
@@ -412,7 +436,10 @@ export const styles = StyleSheet.create({
   pill_warning: { backgroundColor: palette.warningSoft, color: palette.warning },
   row: { flexDirection: 'row', gap: 10 },
   sectionTitle: { gap: 8, marginBottom: 18 },
-  skeletonLine: { backgroundColor: '#E5E0D5', borderRadius: 6 },
+  skeletonAvatar: { backgroundColor: '#F0EBE0', borderRadius: 26, flexShrink: 0, height: 52, width: 52 },
+  skeletonCardHeader: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 4 },
+  skeletonLine: { backgroundColor: '#F0EBE0', borderRadius: 6 },
+  skeletonTextStack: { flex: 1, gap: 8 },
   subtitle: { color: palette.muted, fontFamily, fontSize: 15, lineHeight: 22 },
   toast: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 10, maxWidth: '92%', minHeight: 46, minWidth: 180, paddingHorizontal: 14, paddingVertical: 10, position: 'absolute', top: 70, zIndex: 20 },
   toastActionDark: { color: '#FFB48C', fontFamily, fontSize: 12, fontWeight: '600' },

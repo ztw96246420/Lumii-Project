@@ -104,7 +104,7 @@
 | 70 | Card 卡片 | `ui.tsx/Card` + 多处 card | 组件已增强-待逐屏迁移 | 本轮按 Screen70 将基础 Card 收敛为白底 14px 圆角轻描边，并新增 `pet/place/message` 变体；页面里仍有大量自写 card 样式，后续需逐屏替换/复核 |
 | 71 | Empty State 空状态 | `ui.tsx/EmptyState` + 多处空态 | 本轮组件已补-部分页面已迁移 | 已迁移备忘、体重、多宠、招呼请求、发现无结果、地图无结果、消息列表、通知中心；上传等空态仍需继续替换 |
 | 72 | Error State 错误页 | `ui.tsx/ErrorState` + 多处错误态 | 本轮组件已补-部分页面已迁移 | 已迁移会话失效、地点失效、约遛对象失效、附近可见关闭、AI 生成失败、AI/普通聊天发送失败、地图定位失败；上传失败仍需逐处接入 |
-| 73 | Loading & Skeleton | `ui.tsx/LoadingState/SkeletonLine` + 多处 loading | 本轮组件已补-待迁移 | Loading 与 Skeleton 基础组件已补齐，页面骨架仍需逐屏替换 |
+| 73 | Loading & Skeleton | `ui.tsx/LoadingState/SkeletonLine/SkeletonCard` + 多处 loading | 组件已增强-待逐屏迁移 | `LoadingState` 默认文案和间距贴近 Screen73；`SkeletonLine` 已补暖灰渐变基底，`SkeletonCard` 已补 52px 圆形头像、双行文本与 100/85/70% 三条骨架；页面级骨架仍需逐屏替换 |
 | 74 | App 图标 | assets/app icon | 已接入-需复核 | 已替换过图标，需核对最新包是否一致 |
 | 75 | 健康日历 默认月视图 | `renderHealthCalendar` + `/health/calendar` | 已接入 需视觉复核 | 本轮按 `health-calendar-screens.tsx` 补独立 `healthCalendar` route：宠物 mini card、月份切换、7 列日历、三色事件点、legend 和月度总结卡 |
 | 76 | 选中日期 有事件 | `renderHealthCalendar` | 已接入 需视觉复核 | 点击日期后展示事件列表，事件卡按体重/疫苗/备忘三类映射图标块、标题、详情和日期，并可跳转对应业务页 |
