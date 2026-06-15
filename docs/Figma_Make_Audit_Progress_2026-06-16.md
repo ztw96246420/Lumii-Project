@@ -50,7 +50,7 @@ This file records incremental parity work that should be merged back into `Figma
 - Screen54 `renderProfile`: adjusted the three main profile blocks for narrow Android devices after true-device review.
   - Figma source uses 16px horizontal inset on a 393px frame.
   - Web/Figma preview keeps 16px.
-  - Native screens up to 380dp width now use 12px for the hero card, current-pet block, and menu group so the blocks occupy a closer visual proportion on compact Android layouts.
+  - Native screens now use 12px for the hero card, current-pet block, and menu group so the blocks occupy a closer visual proportion on real Android layouts including wider vivo devices.
   - No change to profile navigation, account data, pet detail entry, multi-pet entry, notifications, settings, or safety routes.
 
 - Screen55 `renderPetDetail`: aligned pet detail content width and typography with the Figma profile source.

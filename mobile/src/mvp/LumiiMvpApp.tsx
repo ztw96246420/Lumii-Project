@@ -20,7 +20,6 @@ import {
   Text,
   TextInput,
   StatusBar as NativeStatusBar,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import type { KeyboardTypeOptions, RefreshControlProps, TextStyle, ViewStyle } from 'react-native';
@@ -640,8 +639,7 @@ function indexPlaceReviewsByPlaceId(reviews: PlaceReview[]) {
 }
 
 export default function LumiiMvpApp() {
-  const { width: viewportWidth } = useWindowDimensions();
-  const profileHorizontalInset = Platform.OS !== 'web' && viewportWidth > 0 && viewportWidth <= 380 ? 12 : 16;
+  const profileHorizontalInset = Platform.OS === 'web' ? 16 : 12;
   const profileBlockMarginStyle = useMemo<ViewStyle>(() => ({ marginHorizontal: profileHorizontalInset }), [profileHorizontalInset]);
   const profileBlockPaddingStyle = useMemo<ViewStyle>(() => ({ paddingHorizontal: profileHorizontalInset }), [profileHorizontalInset]);
   const [route, setRoute] = useState<AppRoute>('login');
