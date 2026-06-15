@@ -4094,9 +4094,19 @@ export default function LumiiMvpApp() {
             <View style={[styles.content, styles.chatRouteContent]}>{children}</View>
           ) : isLoginRoute ? (
             <View style={[styles.content, styles.loginContent]}>{children}</View>
+          ) : isProfileRoute ? (
+            <ScrollView
+              contentContainerStyle={[styles.profileRouteContent, showBottomTabs && styles.contentWithTabs]}
+              keyboardDismissMode="none"
+              keyboardShouldPersistTaps="always"
+              refreshControl={refreshControl}
+              showsVerticalScrollIndicator={false}
+            >
+              {children}
+            </ScrollView>
           ) : (
             <ScrollView
-              contentContainerStyle={[styles.content, showBottomTabs && styles.contentWithTabs, isProfileRoute && styles.profileRouteContent]}
+              contentContainerStyle={[styles.content, showBottomTabs && styles.contentWithTabs]}
               keyboardDismissMode="none"
               keyboardShouldPersistTaps="always"
               refreshControl={refreshControl}
@@ -10740,9 +10750,9 @@ const styles = StyleSheet.create({
   recognitionQuality: { backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 14, color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', right: 14, top: 14 },
   recognitionSuccessBadge: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.95)', borderRadius: 14, flexDirection: 'row', gap: 5, left: 14, paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', top: 14 },
   profileCard: { alignItems: 'center', flexDirection: 'row', gap: 14 },
-  profileCurrentWrap: { alignSelf: 'stretch', marginBottom: 18, marginTop: 16, paddingHorizontal: 12 },
+  profileCurrentWrap: { alignSelf: 'stretch', marginBottom: 18, marginTop: 16, paddingHorizontal: 16 },
   profileHeroContent: { alignItems: 'center', flexDirection: 'row', gap: 14, position: 'relative' },
-  profileHeroMake: { alignSelf: 'stretch', backgroundColor: '#ffe3d1', borderRadius: 22, marginHorizontal: 12, marginTop: 16, overflow: 'hidden', padding: 18, position: 'relative' },
+  profileHeroMake: { alignSelf: 'stretch', backgroundColor: '#ffe3d1', borderRadius: 22, marginHorizontal: 16, marginTop: 16, overflow: 'hidden', padding: 18, position: 'relative' },
   profileHeroOrb: { backgroundColor: 'rgba(255,255,255,0.42)', borderRadius: 70, height: 140, position: 'absolute', right: -30, top: -20, width: 140 },
   profileMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', paddingHorizontal: 20 },
   profileMakeMenuRowValue: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
@@ -10754,7 +10764,7 @@ const styles = StyleSheet.create({
   profileMakeRowTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '400', lineHeight: 20, minWidth: 0 },
   profileMakeRowValue: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 18, maxWidth: '42%', minWidth: 0, textAlign: 'right' },
   profileManageLink: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
-  profileMenuGroup: { alignSelf: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 12, overflow: 'hidden' },
+  profileMenuGroup: { alignSelf: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 16, overflow: 'hidden' },
   profileOwnerAvatar: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 32, borderWidth: 3, height: 64, justifyContent: 'center', overflow: 'hidden', shadowColor: '#000', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.08, shadowRadius: 10, width: 64 },
   profileOwnerName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 24 },
   profilePetBadge: { backgroundColor: '#e8f5f3', borderRadius: 6, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
