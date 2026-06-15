@@ -7231,7 +7231,7 @@ export default function LumiiMvpApp() {
             ) : (
               <View style={styles.placeSubmitErrorArtMake}>
                 <View style={styles.placeSubmitErrorInnerMake}>
-                  <AlertTriangle color={palette.danger} size={32} strokeWidth={2.2} />
+                  <AlertCircle color={palette.danger} size={32} strokeWidth={2.2} />
                 </View>
               </View>
             )}

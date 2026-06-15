@@ -127,6 +127,31 @@ This file records incremental parity work that should be merged back into `Figma
   - Kept the map bottom sheet above the real app tab bar instead of Figma's static bottom edge, because the production app has persistent bottom navigation.
   - No code change was made here to avoid destabilizing real AMap, location retry, search, map-style panel, traffic toggle, place detail, and navigation flows.
 
+## Places And Navigation
+
+- Screen48 `renderPlaceDetail`: reviewed against the Figma place-detail source.
+  - Hero height, top floating actions, photo count, rounded detail sheet, rating row, address card, feature tags, review preview, write-review shortcut, and AMap CTA already match the source closely.
+  - Kept live favorite/saving states, share action, pending-review notice, selected-place data, and AMap navigation entry.
+  - No code change was made here.
+
+- Screen49 `renderAddPlaceReview`: reviewed against the Figma add-place / review source.
+  - Place chip, rating card, selectable tags, textarea, photo squares, audit notice, header publish action, and bottom submit button already follow the Figma layout.
+  - Kept the MVP add-place mode in the same route because the production flow supports both "新增地点" and "写点评"; this is a product extension, not a Figma mismatch.
+  - No code change was made here.
+
+- Screen50-51 `renderPlaceSubmitResult`: aligned the failure visual with the Figma state.
+  - Success state was already close: 160px audit illustration, stepper card, and two 48px action buttons.
+  - Failure state now uses the Figma circular alert icon instead of the triangular warning icon.
+  - No change to draft saving, retry, success close, or continue-submit behavior.
+
+- Screen52 `Toast` for favorite / unfavorite: reviewed against the Figma favorite toast source.
+  - The shared Toast already supports the dark bookmark success layout, orange action text, surface unfavorite layout, bottom placement, icon tones, subtitle, and action text used by favorite flows.
+  - Kept the shared component instead of forking a one-off place toast, so other completed toast states stay consistent.
+
+- Screen53 `renderAmapNavigationConfirm`: reviewed against the Figma AMap confirmation source.
+  - Modal width, rounded radius, green navigation icon, title/body typography, place row, map app choices, and cancel/open actions already match the source closely.
+  - Kept real `openAmapPlace` behavior and did not alter native navigation handling.
+
 ## Verification
 
 - `npm run typecheck`
