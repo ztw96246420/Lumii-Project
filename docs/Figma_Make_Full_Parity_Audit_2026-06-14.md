@@ -51,7 +51,7 @@
 | 17 | 上传失败 未识别 | `renderUploadNoPet` | 已接入-需视觉复核 | 已按 Screen17 首轮细调失败图卡渐变、警示浮层、原因卡间距和建议列表；仍需截图复核 |
 | 18 | 上传识别详情 | `renderUploadDetail` | 已接入-需视觉复核 | 本轮已将识别信息卡改为识别页专用右对齐值列，同时保留宠物档案左对齐；Hero 渐变和标签仍需截图复核 |
 | 19 | AI 灵伴生成中 | `renderGenerating` | 已接入-需视觉复核 | 本轮已按 Screen19 收敛进度条为 6px 暖橙底，并在 Web 端补 conic ring/扫描线渐变；动态粒子仍需后续截图复核 |
-| 20 | 生成结果 默认 | `renderAiResult` | 已接入-需视觉复核 | 本轮已按 Screen20 补 PageBg 氛围层、AI 形象 halo/ring、原图浮层 chip、AI 灵伴 badge 和 54px 结果页 CTA；按钮底部固定位置仍需真机截图复核 |
+| 20 | 生成结果 默认 | `renderAiResult` | 已接入-需视觉复核 | 本轮已按 Screen20 补 PageBg 氛围层、AI 形象 halo/ring、原图浮层 chip、AI 灵伴 badge 和 54px 结果页 CTA；`PetAvatar` 远程图等待态已补圆形 Skeleton + spinner，减少结果图慢加载时的空框感；按钮底部固定位置仍需真机截图复核 |
 | 21 | 生成结果 多候选 | `renderAiResult` | 已接入-需视觉复核 | 本轮按 Screen21 补顶部 AI 候选提示、230px 主形象、三候选卡、选中勾选角标和候选切换状态；后端目前仍只返回单图，候选 UI 先作为多图接口预留 |
 | 22 | 不满意反馈面板 | `renderAvatarFeedbackSheet` + 任务反馈接口 | 已接入-需视觉复核 | 本轮按 Screen22 补 bottom sheet、反馈原因多选 chip、卡通程度条、取消/按反馈重新生成双按钮，并接 `sendGenerationFeedback` 后重试生成 |
 | 23 | 重新生成确认弹窗 | `renderAvatarRegenerateConfirm` + 重试逻辑 | 已接入-需视觉复核 | 本轮按 Screen23 新增专用居中确认弹窗、56px 图标圆、额度说明、建议反馈提示卡和取消/重新生成双按钮，不再复用普通 `ConfirmDialog` |

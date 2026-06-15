@@ -8179,7 +8179,10 @@ function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
       />
       {loading ? (
         <View pointerEvents="none" style={styles.avatarLoadingOverlay}>
-          <ActivityIndicator color={palette.orange} size="small" />
+          <SkeletonLine borderRadius={size / 2} height={size} style={styles.avatarLoadingSkeleton} width={size} />
+          <View style={styles.avatarLoadingSpinner}>
+            <ActivityIndicator color={palette.orange} size="small" />
+          </View>
         </View>
       ) : null}
     </View>
@@ -8536,7 +8539,9 @@ const styles = StyleSheet.create({
   appWrap: { alignItems: 'center', backgroundColor: '#e8e2d9', flex: 1, justifyContent: 'center' },
   avatarImage: { height: '100%', width: '100%' },
   avatarImageRemote: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
-  avatarLoadingOverlay: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.72)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
+  avatarLoadingOverlay: { alignItems: 'center', backgroundColor: 'rgba(251,247,241,0.58)', bottom: 0, justifyContent: 'center', left: 0, overflow: 'hidden', position: 'absolute', right: 0, top: 0 },
+  avatarLoadingSkeleton: { left: 0, opacity: 0.82, position: 'absolute', top: 0 },
+  avatarLoadingSpinner: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.72)', borderRadius: 16, height: 32, justifyContent: 'center', width: 32 },
   bootPage: { alignItems: 'center', flex: 1, gap: 16, justifyContent: 'center', paddingHorizontal: 32 },
   bootText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
   bottomAction: { gap: 10, marginTop: 20 },
