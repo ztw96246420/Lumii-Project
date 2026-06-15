@@ -45,6 +45,19 @@ This file records incremental parity work that should be merged back into `Figma
   - Kept the extra "avoid people or other animals" guidance because it supports the current AI image-generation safety/quality flow.
   - No change to camera, gallery, upload, media analysis, or permission logic.
 
+## Pet Home And AI Chat
+
+- Screen26 `renderHome`: aligned two low-risk visual differences with the Figma pet home source.
+  - Health score ring now uses the Figma filled heart icon instead of the heart-pulse icon.
+  - Metric cards can now separate icon tone from tag tone, so the vaccine tile keeps a teal icon while its due-date tag stays orange like the source.
+  - The floating chat hint already rotates through local prompt copy on each return to Home, so the previous fixed "今天想去公园散步吗？" issue is covered without adding a new page or external call.
+  - No change to home navigation, health summary, vaccine data, weight data, nearby owner count, or daily-post entry.
+
+- Screen27-28 `renderChat`: reviewed against the Figma AI chat and error-state source.
+  - Header, avatar online/offline state, safety tip, message bubbles, typing dots, quick topics, input dock, error banner, and failed-message retry card already match the source closely.
+  - Kept the MVP reply feedback chips ("像它 / 不像它") as product behavior for improving pet persona responses.
+  - No change to DeepSeek chat request flow, send/retry state, quota display, or message persistence.
+
 ## Profile
 
 - Screen54 `renderProfile`: adjusted the three main profile blocks for narrow Android devices after true-device review.

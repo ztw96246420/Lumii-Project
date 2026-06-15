@@ -5156,14 +5156,14 @@ export default function LumiiMvpApp() {
             <View style={styles.homeHealthRing}>
               <View style={styles.homeHealthRingTrack} />
               <View style={styles.homeHealthRingInner}>
-                <HeartPulse color={palette.orange} size={22} strokeWidth={2.3} />
+                <Heart color={palette.orange} fill={palette.orange} size={20} strokeWidth={2.3} />
               </View>
             </View>
           </Pressable>
 
           <View style={styles.homeQuickGrid}>
             <MetricCard Icon={Weight} label="今日体重" onPress={() => go('weight')} tag={weights.length ? '已记录' : '待记录'} tagTone="teal" value={formatWeightKg(latestWeight)} />
-            <MetricCard Icon={Syringe} label="疫苗提醒" onPress={() => go('vaccine')} tag={formatDueLabel(nextVaccine?.dueAt)} tagTone="orange" value={nextVaccine?.name ?? '待添加计划'} />
+            <MetricCard Icon={Syringe} iconTone="teal" label="疫苗提醒" onPress={() => go('vaccine')} tag={formatDueLabel(nextVaccine?.dueAt)} tagTone="orange" value={nextVaccine?.name ?? '待添加计划'} />
             <MetricCard Icon={NotebookPen} label="健康备忘" onPress={() => go('healthMemos')} tag={`${memoCount} 条`} tagTone="muted" value={memoSummary} />
             <MetricCard Icon={MapPin} label="附近伙伴" onPress={() => go('discover')} tag={`${defaultDiscoverRadiusKm}km`} tagTone="teal" value={onlineCopy} />
           </View>
@@ -9102,6 +9102,7 @@ function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
 
 function MetricCard({
   Icon,
+  iconTone,
   label,
   onPress,
   tag,
@@ -9109,6 +9110,7 @@ function MetricCard({
   value,
 }: {
   Icon: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
+  iconTone?: 'orange' | 'teal';
   label: string;
   onPress: () => void;
   tag?: string;
@@ -9120,7 +9122,8 @@ function MetricCard({
     : tagTone === 'muted'
       ? { bg: 'rgba(122,121,114,0.12)', color: palette.muted }
       : { bg: 'rgba(255,138,92,0.12)', color: palette.orange };
-  const iconPalette = tagTone === 'teal'
+  const resolvedIconTone = iconTone ?? (tagTone === 'teal' ? 'teal' : 'orange');
+  const iconPalette = resolvedIconTone === 'teal'
     ? { bg: 'rgba(77,182,172,0.18)', color: palette.teal }
     : { bg: 'rgba(255,138,92,0.15)', color: palette.orange };
   return (
