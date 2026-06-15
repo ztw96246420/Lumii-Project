@@ -71,7 +71,7 @@
 | 37 | 定位未授权 | `renderDiscover` + 权限/隐私状态 | 已接入-需视觉复核 | 本轮按 Screen37 改为红色权限 banner、模糊发现卡预览、居中授权 CTA 面板、隐私说明卡和“暂不开启 / 去设置开启”双按钮；系统定位拒绝与附近可见关闭共用结构但文案区分 |
 | 38 | 打招呼 Bottom Sheet | `renderGreetingSheet` + `sendGreeting` | 本轮已补-需视觉复核 | 已改为先弹底部面板再确认发送，需截图对齐 Screen38 |
 | 39 | 约遛邀请 | `renderWalkInvite` | 已二次收敛-需截图复核 | 已按 Screen39 改为宠物头像叠层配对卡、三日期选择、时间输入行、宠物友好地点图卡、留言卡、安全提示和“保存草稿 / 发送邀请”底部双按钮；真实发送逻辑与 loading 保留 |
-| 40 | 招呼请求 | `renderGreetingRequests` | 已接入-需视觉复核 | 请求卡片、接受/拒绝按钮需复核 |
+| 40 | 招呼请求 | `renderGreetingRequests` | 已二次收敛-需截图复核 | 已按 Screen40 补顶部新招呼摘要条、宠物图+主人头像叠层卡片、忽略/举报/同意&聊天三按钮和底部安全提示；接受/忽略仍走真实接口，举报暂以 toast 占位 |
 | 41 | 消息列表 | `renderMessages` | 已接入-需视觉复核 | 已补 AI 灵伴会话入口、头像角标、无消息 EmptyState，并修正消息页内边距；分组/未读点仍需截图复核 |
 | 42 | 聊天详情 | `renderConversation` + `ErrorState` | 已接入-需视觉复核 | 会话失效状态已迁移 ErrorState；输入区、气泡、约遛卡片仍需复核 |
 | 43 | 消息发送失败 | `renderConversation` | 已接入-需视觉复核 | 已按 Screen43 补网络错误 banner、消息未送达重试/删除卡；仍需真机截图复核间距 |

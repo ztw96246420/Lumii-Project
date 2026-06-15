@@ -50,6 +50,7 @@ import {
   MapPin,
   MessageCircle,
   Mic,
+  MoreHorizontal,
   Navigation,
   NotebookPen,
   PawPrint,
@@ -7643,26 +7644,68 @@ export default function LumiiMvpApp() {
 
   function renderGreetingRequests() {
     const pet = getCurrentPet();
+    const requestCount = greetingRequestOwners.length;
     return (
-      <Screen title="招呼请求">
-        <View style={styles.chatSafetyTip}>
-          <Shield color={palette.teal} size={14} strokeWidth={2.4} />
-          <Text style={styles.chatSafetyText}>接受招呼后才会进入聊天，未接受前不会暴露精确位置。</Text>
-        </View>
+      <Screen
+        right={
+          <Pressable accessibilityLabel="更多" accessibilityRole="button" onPress={() => showToast('招呼请求设置后续开放')} style={[styles.iconButton, webPressableReset]}>
+            <MoreHorizontal color={palette.ink} size={17} strokeWidth={2.4} />
+          </Pressable>
+        }
+        title="招呼请求"
+      >
+        {requestCount ? (
+          <View style={styles.greetingRequestSummaryMake}>
+            <Text style={styles.greetingRequestSummaryBadgeMake}>{requestCount} 条新招呼</Text>
+            <Text numberOfLines={1} style={styles.greetingRequestSummaryTextMake}>同意后即可开始聊天</Text>
+          </View>
+        ) : null}
         <View style={styles.requestStackMake}>
-          {greetingRequestOwners.length ? greetingRequestOwners.map((owner, index) => {
+          {requestCount ? greetingRequestOwners.map((owner, index) => {
             const accepting = socialActionSavingIds.includes(`accept:${owner.id}`);
             const rejecting = socialActionSavingIds.includes(`reject:${owner.id}`);
+            const petImageSource = owner.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
+            const ownerAvatarUrl = discoverOwnerAvatarUrls[index % discoverOwnerAvatarUrls.length];
+            const breed = owner.tags[0] ?? (owner.species === 'dog' ? '狗狗' : '猫咪');
+            const extraTags = owner.tags.slice(1, 3);
+            const tagText = [breed, owner.distance, ...extraTags].filter(Boolean).join(' · ');
+            const requestMessage = index === 0
+              ? `嗨～看起来${pet?.name ?? '你家宠物'}超有活力！要不约个时间一起玩？`
+              : `想和${pet?.name ?? '你家宠物'}做朋友～可以一起分享日常吗？`;
             return (
-              <View key={owner.id} style={styles.greetingRequestCard}>
-                <PetAvatar uri={owner.imageUrl} size={54} />
-                <View style={styles.flex}>
-                  <Text style={styles.timelineTitleMake}>{owner.ownerName}和{owner.petName}</Text>
-                  <Text style={styles.timelineSubMake}>{index === 0 ? `想认识你和${pet?.name ?? '你的宠物'}，今晚也在附近散步。` : '向你发送了友好的招呼。'}</Text>
-                  <View style={styles.requestActionRow}>
-                    <Button disabled={accepting} loading={rejecting} onPress={() => void rejectGreeting(owner)} tone="ghost">婉拒</Button>
-                    <Button disabled={rejecting} loading={accepting} onPress={() => void acceptGreeting(owner)}>接受</Button>
+              <View key={owner.id} style={styles.greetingRequestCardMake}>
+                <View style={styles.greetingRequestTopMake}>
+                  <View style={styles.greetingRequestAvatarWrapMake}>
+                    <View style={styles.greetingRequestPetPhotoMake}>
+                      <Image resizeMode="cover" source={petImageSource} style={styles.avatarImage} />
+                    </View>
+                    <View style={styles.greetingRequestOwnerAvatarMake}>
+                      <Image resizeMode="cover" source={{ uri: ownerAvatarUrl }} style={styles.avatarImage} />
+                    </View>
                   </View>
+                  <View style={styles.flex}>
+                    <View style={styles.greetingRequestTitleRowMake}>
+                      <Text numberOfLines={1} style={styles.greetingRequestTitleMake}>{owner.ownerName} & {owner.petName}</Text>
+                      <Text style={styles.greetingRequestTimeMake}>{index === 0 ? '刚刚' : index === 1 ? '2 小时前' : '昨天'}</Text>
+                    </View>
+                    <Text numberOfLines={1} style={styles.greetingRequestMetaMake}>{tagText}</Text>
+                    <Text style={styles.greetingRequestMessageMake}>{requestMessage}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.greetingRequestActionsMake}>
+                  <Pressable disabled={accepting || rejecting} onPress={() => void rejectGreeting(owner)} style={[styles.greetingRequestActionGhostMake, (accepting || rejecting) && styles.mapSearchActionDisabled, webPressableReset]}>
+                    {rejecting ? <ActivityIndicator color={palette.muted} size="small" /> : <X color={palette.muted} size={13} strokeWidth={2.5} />}
+                    <Text style={styles.greetingRequestActionGhostTextMake}>{rejecting ? '忽略中' : '忽略'}</Text>
+                  </Pressable>
+                  <Pressable disabled={accepting || rejecting} onPress={() => showToast('举报入口后续接入，当前可以先忽略该招呼')} style={[styles.greetingRequestActionReportMake, (accepting || rejecting) && styles.mapSearchActionDisabled, webPressableReset]}>
+                    <Flag color={palette.ink} size={12} strokeWidth={2.3} />
+                    <Text style={styles.greetingRequestActionReportTextMake}>举报</Text>
+                  </Pressable>
+                  <Pressable disabled={accepting || rejecting} onPress={() => void acceptGreeting(owner)} style={[styles.greetingRequestActionPrimaryMake, (accepting || rejecting) && styles.mapSearchActionDisabled, webPressableReset]}>
+                    {accepting ? <ActivityIndicator color="#fff" size="small" /> : <Check color="#fff" size={13} strokeWidth={3} />}
+                    <Text style={styles.greetingRequestActionPrimaryTextMake}>{accepting ? '同意中' : '同意 & 聊天'}</Text>
+                  </Pressable>
                 </View>
               </View>
             );
@@ -7673,6 +7716,10 @@ export default function LumiiMvpApp() {
               title="暂无新的招呼"
             />
           )}
+        </View>
+        <View style={styles.greetingRequestSafetyMake}>
+          <Shield color={palette.muted} size={12} strokeWidth={2.4} />
+          <Text style={styles.greetingRequestSafetyTextMake}>忽略的招呼不会通知对方，接受前不会暴露精确位置</Text>
         </View>
       </Screen>
     );
@@ -9421,7 +9468,28 @@ const styles = StyleSheet.create({
   dailyTextCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, minHeight: 130, paddingHorizontal: 16, paddingVertical: 14 },
   dailyToolButtonMake: { alignItems: 'center', height: 34, justifyContent: 'center', width: 28 },
   dailyToolRowMake: { alignItems: 'center', flexDirection: 'row', gap: 12 },
-  greetingRequestCard: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
+  greetingRequestActionGhostMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 18, flex: 1, flexDirection: 'row', gap: 4, height: 36, justifyContent: 'center' },
+  greetingRequestActionGhostTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
+  greetingRequestActionPrimaryMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 18, flex: 1.4, flexDirection: 'row', gap: 4, height: 36, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.28, shadowRadius: 18 },
+  greetingRequestActionPrimaryTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700' },
+  greetingRequestActionReportMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 4, height: 36, justifyContent: 'center' },
+  greetingRequestActionReportTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
+  greetingRequestActionsMake: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  greetingRequestAvatarWrapMake: { flexShrink: 0, height: 56, position: 'relative', width: 56 },
+  greetingRequestCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
+  greetingRequestMessageMake: { color: 'rgba(27,28,25,0.85)', fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 21, marginTop: 8 },
+  greetingRequestMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '500', lineHeight: 16, marginTop: 2 },
+  greetingRequestOwnerAvatarMake: { backgroundColor: '#fff', borderColor: '#fff', borderRadius: 11, borderWidth: 2, bottom: 0, height: 22, overflow: 'hidden', position: 'absolute', right: 0, width: 22 },
+  greetingRequestPetPhotoMake: { backgroundColor: palette.pale, borderRadius: 14, height: 48, overflow: 'hidden', width: 48 },
+  greetingRequestSafetyMake: { alignItems: 'center', flexDirection: 'row', gap: 7, justifyContent: 'center', marginTop: 14, paddingVertical: 10 },
+  greetingRequestSafetyTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17 },
+  greetingRequestSummaryBadgeMake: { backgroundColor: 'rgba(255,138,92,0.12)', borderRadius: 9, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 3 },
+  greetingRequestSummaryMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.62)', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 4, paddingHorizontal: 12, paddingVertical: 8 },
+  greetingRequestSummaryTextMake: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500' },
+  greetingRequestTimeMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '500', lineHeight: 15, marginLeft: 8 },
+  greetingRequestTitleMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20, minWidth: 0 },
+  greetingRequestTitleRowMake: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  greetingRequestTopMake: { alignItems: 'flex-start', flexDirection: 'row', gap: 12 },
   messagesAvatarOverlap: { marginLeft: -10 },
   messagesAvatarStack: { flexDirection: 'row', width: 60 },
   messagesHeaderActions: { alignItems: 'center', flexDirection: 'row', gap: 8 },
@@ -9730,7 +9798,6 @@ const styles = StyleSheet.create({
   ratingPill: { alignItems: 'center', flexDirection: 'row', gap: 3 },
   ratingText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   requestCard: { alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.24)', borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 16 },
-  requestActionRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   requestStackMake: { gap: 12 },
   resendAction: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
   resendActionDisabled: { color: '#b8b5ac' },
