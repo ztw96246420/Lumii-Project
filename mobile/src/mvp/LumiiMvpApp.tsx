@@ -7673,7 +7673,7 @@ export default function LumiiMvpApp() {
         {pet ? (
           <View style={styles.petDetailMakePage}>
             <View style={styles.petDetailHeroMake}>
-              <Image source={{ uri: detailImageUri }} style={styles.petDetailHeroImage} />
+              <Image resizeMode="cover" source={{ uri: detailImageUri }} style={styles.petDetailHeroImage} />
               <View style={styles.petDetailHeroOverlay} />
               <Pressable onPress={startPetAvatarRefresh} style={styles.petDetailCamera}>
                 <Camera color="#fff" size={12} strokeWidth={2.3} />
@@ -7700,20 +7700,24 @@ export default function LumiiMvpApp() {
                 </View>
               ))}
             </View>
-            <View style={styles.settingsGroupMake}>
-              <Text style={styles.settingsGroupTitle}>基础信息</Text>
-              <MakeDetailRow inset label="昵称" value={pet.name} />
-              <View style={styles.makeDivider} />
-              <MakeDetailRow inset label="品种" value={pet.breed || speciesLabels[pet.species]} />
-              <View style={styles.makeDivider} />
-              <MakeDetailRow inset label="性别 / 绝育" value={`${genderSymbol} / 待补充`} />
-              <View style={styles.makeDivider} />
-              <MakeDetailRow inset label="毛色" value={coatColor} />
+            <View style={styles.petDetailSectionMake}>
+              <Text style={styles.petDetailSectionTitleMake}>基础信息</Text>
+              <View style={styles.petDetailInfoCardMake}>
+                <PetDetailInfoRow label="昵称" value={pet.name} />
+                <View style={styles.makeDivider} />
+                <PetDetailInfoRow label="品种" value={pet.breed || speciesLabels[pet.species]} />
+                <View style={styles.makeDivider} />
+                <PetDetailInfoRow label="性别 / 绝育" value={`${genderSymbol} / 待补充`} />
+                <View style={styles.makeDivider} />
+                <PetDetailInfoRow label="毛色" value={coatColor} />
+              </View>
             </View>
-            <View style={styles.settingsGroupMake}>
-              <Text style={styles.settingsGroupTitle}>健康</Text>
-              <ProfileMakeRow Icon={Heart} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('vaccine')} title="疫苗与驱虫" value={vaccineValue} />
-              <ProfileMakeRow Icon={Clock} iconBg="#FBF2D9" iconColor={palette.warning} last onPress={() => go('healthMemos')} title="健康备忘" value={memoValue} />
+            <View style={styles.petDetailSectionMake}>
+              <Text style={styles.petDetailSectionTitleMake}>健康</Text>
+              <View style={styles.petDetailInfoCardMake}>
+                <ProfileMakeRow Icon={Heart} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('vaccine')} title="疫苗与驱虫" value={vaccineValue} />
+                <ProfileMakeRow Icon={Clock} iconBg="#FBF2D9" iconColor={palette.warning} last onPress={() => go('healthMemos')} title="健康备忘" value={memoValue} />
+              </View>
             </View>
           </View>
         ) : (
@@ -8859,6 +8863,19 @@ function MakeDetailRow({ inset, label, value, valueAlign = 'left' }: { inset?: b
   );
 }
 
+function PetDetailInfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.petDetailInfoRowMake}>
+      <Text numberOfLines={1} style={styles.petDetailInfoLabelMake}>
+        {label}
+      </Text>
+      <Text numberOfLines={2} style={styles.petDetailInfoValueMake}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 function MakeStepRow({ active, done, text }: { active?: boolean; done?: boolean; text: string }) {
   return (
     <View style={styles.makeStepRow}>
@@ -9979,7 +9996,13 @@ const styles = StyleSheet.create({
   petDetailHeroName: { color: '#fff', fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', lineHeight: 31 },
   petDetailHeroOverlay: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, rgba(0,0,0,0) 38%, rgba(0,0,0,0.56) 100%)' } as object) : null), backgroundColor: 'rgba(0,0,0,0.18)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
   petDetailHeroText: { bottom: 14, left: 18, position: 'absolute' },
+  petDetailInfoCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
+  petDetailInfoLabelMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '400', lineHeight: 20, minWidth: 0 },
+  petDetailInfoRowMake: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 14 },
+  petDetailInfoValueMake: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 20, maxWidth: '56%', minWidth: 0, textAlign: 'right' },
   petDetailMakePage: { gap: 14 },
+  petDetailSectionMake: { marginBottom: 4 },
+  petDetailSectionTitleMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', letterSpacing: 0, paddingBottom: 8, paddingHorizontal: 4 },
   petDetailStatCard: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, flex: 1, paddingHorizontal: 10, paddingVertical: 10 },
   petDetailStatLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
   petDetailStatValue: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', marginTop: 4 },
@@ -10103,7 +10126,7 @@ const styles = StyleSheet.create({
   profileHeroOrb: { backgroundColor: 'rgba(255,255,255,0.42)', borderRadius: 70, height: 140, position: 'absolute', right: -30, top: -20, width: 140 },
   profileMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', paddingHorizontal: 20 },
   profileMakeMenuRowValue: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
-  profileMakePage: { paddingTop: 0 },
+  profileMakePage: { marginHorizontal: -20, paddingTop: 0 },
   profileMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 14 },
   profileMakeRowIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 8, height: 28, justifyContent: 'center', width: 28 },
   profileMakeRowLast: { borderBottomWidth: 0 },
