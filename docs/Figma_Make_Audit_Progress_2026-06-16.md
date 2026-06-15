@@ -115,6 +115,18 @@ This file records incremental parity work that should be merged back into `Figma
   - Chat header name and safety strip typography/radius now match Screen42 more closely.
   - No change to inbox refresh, opening conversations, message send/retry/delete, or notification entry logic.
 
+## Notifications And Map
+
+- Screen44 `renderNotifications`: reviewed against the Figma notification center source.
+  - Header, filter chips, group labels, unread cards, category icons, time labels, and action button sizes already match the Figma source closely.
+  - Kept the disabled "全部已读" state when there are no unread notifications because it reflects live data state, even though the static Figma frame shows the enabled state.
+  - No code change was made here.
+
+- Screen45-47 `renderMap`: reviewed against the Figma map home, search/filter, and locate-failed frames.
+  - Apparent top-position differences are safe-area compensated in RN: the native top inset plus RN offsets match the Figma `top: 50 / 108 / 270` placement rhythm.
+  - Kept the map bottom sheet above the real app tab bar instead of Figma's static bottom edge, because the production app has persistent bottom navigation.
+  - No code change was made here to avoid destabilizing real AMap, location retry, search, map-style panel, traffic toggle, place detail, and navigation flows.
+
 ## Verification
 
 - `npm run typecheck`
