@@ -64,6 +64,13 @@ This file records incremental parity work that should be merged back into `Figma
   - The bottom explainer card now uses the Figma white card with neutral border instead of the shared teal chat safety card.
   - No change to active pet switching, delete confirmation, add-pet navigation, loading overlay, or toast behavior.
 
+## Owner Edit
+
+- Screen86-91 `renderOwnerEdit`: aligned the existing owner-edit page with Figma's owner edit component set.
+  - Shared form atoms now use Figma-like regular weights for field labels, text inputs, counters, and helper text.
+  - Avatar hint spacing/text, camera shadow, read-only phone color, upload note, and save-error card typography now match the Figma states more closely.
+  - No change to avatar picking, owner profile validation, save retry, success state, or `lumiiApi.account.updateMe`.
+
 ## Verification
 
 - `npm run typecheck`

@@ -7818,7 +7818,7 @@ export default function LumiiMvpApp() {
           <Pressable onPress={() => void pickOwnerAvatar()} style={[styles.ownerAvatarCamera, webPressableReset]}>
             <Camera color="#fff" size={14} strokeWidth={2.4} />
           </Pressable>
-          <Text style={styles.timelineSubMake}>{ownerAvatarPicking ? '正在打开相册...' : ownerProfileSaved ? '头像已更新' : '点击更换头像'}</Text>
+          <Text style={styles.ownerAvatarHintMake}>{ownerAvatarPicking ? '正在上传新头像...' : ownerProfileSaved ? '头像已更新' : '点击更换头像'}</Text>
         </View>
 
         <View style={[styles.editFormCard, ownerProfileSaving && styles.ownerSavingContentDimMake]}>
@@ -7848,7 +7848,7 @@ export default function LumiiMvpApp() {
             </View>
             <View style={[styles.makeTextInput, styles.readonlyField]}>
               <Phone color={palette.muted} size={15} strokeWidth={2.2} />
-              <Text style={styles.timelineTitleMake}>{formatMaskedPhone(session?.phone)}</Text>
+              <Text style={styles.ownerReadonlyValueMake}>{formatMaskedPhone(session?.phone)}</Text>
             </View>
             <Text style={styles.fieldHintText}>如需更换手机号，后续会在账号安全页开放。</Text>
           </View>
@@ -9668,12 +9668,12 @@ const styles = StyleSheet.create({
   editFormCard: { gap: 4, paddingHorizontal: 0, paddingTop: 0 },
   fieldHintError: { color: palette.danger },
   fieldHintRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, minHeight: 15, paddingHorizontal: 4 },
-  fieldHintText: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 15 },
-  lockedFieldHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700' },
+  fieldHintText: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 11, fontWeight: '400', lineHeight: 15 },
+  lockedFieldHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '400' },
   makeFieldGroup: { gap: 6, marginTop: 4 },
-  makeFieldLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', paddingHorizontal: 4 },
+  makeFieldLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', paddingHorizontal: 4 },
   makeTextAreaInput: { minHeight: 112, paddingTop: 12 },
-  makeTextInput: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1.5, color: palette.ink, flexDirection: 'row', fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', gap: 10, minHeight: 48, paddingHorizontal: 14, paddingVertical: 10 },
+  makeTextInput: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1.5, color: palette.ink, flexDirection: 'row', fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', gap: 10, minHeight: 48, paddingHorizontal: 14, paddingVertical: 10 },
   makeTextInputError: { borderColor: palette.danger },
   memoDeleteActionsMake: { flexDirection: 'row', gap: 10, marginTop: 18 },
   memoDeleteBackdropMake: { alignItems: 'center', backgroundColor: 'rgba(20,18,14,0.50)', flex: 1, justifyContent: 'center', paddingHorizontal: 32 },
@@ -9761,7 +9761,8 @@ const styles = StyleSheet.create({
   multiPetSwitchToastMake: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingVertical: 10, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28, top: 70, zIndex: 20 },
   multiPetSwitchToastTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '800' },
   ownerAvatarBlock: { alignItems: 'center', paddingBottom: 18, paddingTop: 14 },
-  ownerAvatarCamera: { alignItems: 'center', backgroundColor: palette.orange, borderColor: palette.background, borderRadius: 16, borderWidth: 3, bottom: 30, height: 32, justifyContent: 'center', marginBottom: -16, marginLeft: 70, width: 32 },
+  ownerAvatarCamera: { alignItems: 'center', backgroundColor: palette.orange, borderColor: palette.background, borderRadius: 16, borderWidth: 3, bottom: 30, height: 32, justifyContent: 'center', marginBottom: -16, marginLeft: 70, shadowColor: palette.orange, shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.26, shadowRadius: 14, width: 32 },
+  ownerAvatarHintMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', lineHeight: 18, marginTop: 12 },
   ownerAvatarImageUploadingMake: { opacity: 0.82 },
   ownerAvatarImage: { height: '100%', width: '100%' },
   ownerAvatarLarge: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 48, borderWidth: 3, height: 96, justifyContent: 'center', overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22, width: 96 },
@@ -9769,14 +9770,15 @@ const styles = StyleSheet.create({
   ownerAvatarProgressTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', lineHeight: 13 },
   ownerAvatarSuccessOverlayMake: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.85)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
   ownerAvatarUploadNoteMake: { alignItems: 'center', backgroundColor: '#FFF7F0', borderColor: '#FFE0CC', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 8, padding: 12 },
-  ownerAvatarUploadNoteTextMake: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 18 },
+  ownerAvatarUploadNoteTextMake: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '400', lineHeight: 18 },
   ownerEditMakePage: { marginHorizontal: -4, position: 'relative' },
   ownerSaveErrorCardMake: { alignItems: 'center', backgroundColor: '#FBE4DE', borderColor: '#F5C7BD', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, marginTop: 8, padding: 12 },
   ownerSaveErrorIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
   ownerSaveErrorTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 17, marginTop: 2 },
-  ownerSaveErrorTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  ownerReadonlyValueMake: { color: '#9C988E', flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 20 },
+  ownerSaveErrorTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   ownerSaveRetryMake: { alignItems: 'center', borderColor: palette.orange, borderRadius: 9, borderWidth: 1, flexDirection: 'row', flexShrink: 0, gap: 4, paddingHorizontal: 10, paddingVertical: 5 },
-  ownerSaveRetryTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  ownerSaveRetryTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
   ownerSavingContentDimMake: { opacity: 0.88 },
   ownerSavingPuffMake: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 10, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28, top: 8, zIndex: 20 },
   ownerSavingPuffTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 18 },
