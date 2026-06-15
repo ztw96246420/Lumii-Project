@@ -8628,11 +8628,17 @@ export default function LumiiMvpApp() {
   function renderGreetingSheet() {
     const owner = greetingSheetOwner;
     const saving = owner ? socialActionSavingIds.includes(`greet:${owner.id}`) : false;
+    const currentPet = getCurrentPet();
+    const ownerIndex = owner ? Math.max(0, owners.findIndex((item) => item.id === owner.id)) : 0;
+    const ownerAvatarUrl = discoverOwnerAvatarUrls[ownerIndex % discoverOwnerAvatarUrls.length];
+    const ownerBreed = owner ? owner.tags[0] ?? (owner.species === 'cat' ? '猫咪' : '狗狗') : '';
+    const ownerPetImageSource = owner?.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
     const quickMessages = owner
       ? [
-          `你好呀，${owner.petName}看起来好可爱，我们也在附近，想认识一下吗？`,
-          '我们家宝贝也想交朋友，要不要先打个招呼？',
-          '下次在附近散步时可以一起玩吗？',
+          { label: `嗨～看起来${owner.petName}超有活力！`, text: `嗨～看起来${owner.petName}超有活力！我家是${currentPet ? formatPetAge(currentPet.birthday) : '2 岁'}的${currentPet?.breed ?? '金毛'}${currentPet?.name ?? '奶油'}，特别想找附近同伴` },
+          { label: `我家${currentPet?.name ?? '灵伴'}也喜欢公园`, text: `我家${currentPet?.name ?? '灵伴'}也喜欢去公园玩，感觉和${owner.petName}应该会很合拍～` },
+          { label: '改天一起遛弯？', text: `我们也常在附近散步，改天方便的话可以和${owner.petName}一起遛弯吗？` },
+          { label: '自定义', text: greetingMessage || `你好呀，想和${owner.petName}打个招呼～` },
         ]
       : [];
     return (
@@ -8640,29 +8646,40 @@ export default function LumiiMvpApp() {
         {owner ? (
           <>
             <View style={styles.greetingSheetHeader}>
-              <PetAvatar uri={owner.imageUrl} size={58} />
+              <View style={styles.greetingSheetAvatarMake}>
+                <Image resizeMode="cover" source={ownerPetImageSource} style={styles.avatarImage} />
+                <View style={styles.greetingSheetOwnerAvatarMake}>
+                  <Image resizeMode="cover" source={{ uri: ownerAvatarUrl }} style={styles.avatarImage} />
+                </View>
+              </View>
               <View style={styles.flex}>
-                <Text style={styles.sheetTitle}>向 {owner.petName} 打个招呼</Text>
-                <Text style={styles.greetingSheetMeta}>主人 {owner.ownerName} · {owner.distance}</Text>
+                <Text style={styles.sheetTitle}>和{owner.petName}打个招呼</Text>
+                <Text style={styles.greetingSheetMeta}>{ownerBreed} · 主人 {owner.ownerName} · {owner.distance}</Text>
               </View>
               <Pressable disabled={saving} onPress={closeGreetingSheet} style={[styles.greetingSheetClose, webPressableReset]}>
                 <X color={palette.muted} size={17} strokeWidth={2.4} />
               </Pressable>
             </View>
 
-            <View style={styles.greetingMessageCard}>
-              <MessageCircle color={palette.orange} size={16} strokeWidth={2.4} />
-              <Text style={styles.greetingMessageText}>{greetingMessage}</Text>
-            </View>
-
+            <Text style={styles.greetingQuickLabelMake}>选一句话开场</Text>
             <View style={styles.greetingQuickRow}>
               {quickMessages.map((message, index) => (
-                <Pressable key={message} onPress={() => setGreetingMessage(message)} style={[styles.greetingQuickChip, greetingMessage === message && styles.greetingQuickChipActive, webPressableReset]}>
-                  <Text style={[styles.greetingQuickChipText, greetingMessage === message && styles.greetingQuickChipTextActive]} numberOfLines={1}>
-                    {index === 0 ? '友好开场' : index === 1 ? '想交朋友' : '约下次散步'}
+                <Pressable key={message.label} onPress={() => setGreetingMessage(message.text)} style={[styles.greetingQuickChip, greetingMessage === message.text && styles.greetingQuickChipActive, webPressableReset]}>
+                  {index === 3 ? <Plus color={greetingMessage === message.text ? palette.orange : palette.ink} size={12} strokeWidth={2.4} /> : null}
+                  <Text style={[styles.greetingQuickChipText, greetingMessage === message.text && styles.greetingQuickChipTextActive]} numberOfLines={1}>
+                    {message.label}
                   </Text>
                 </Pressable>
               ))}
+            </View>
+
+            <View style={styles.greetingMessageCard}>
+              <Text style={styles.greetingMessageText}>{greetingMessage}</Text>
+            </View>
+
+            <View style={styles.greetingSafetyMake}>
+              <Shield color={palette.teal} size={13} strokeWidth={2.4} />
+              <Text style={styles.greetingSafetyTextMake}>首次招呼后对方同意，才能继续聊天。请勿发送骚扰信息</Text>
             </View>
 
             <View style={styles.greetingSheetActions}>
@@ -8673,7 +8690,6 @@ export default function LumiiMvpApp() {
                 <Button loading={saving} onPress={() => void sendGreeting(owner.id)}>发送招呼</Button>
               </View>
             </View>
-            <Text style={styles.greetingSheetHint}>发送后，对方会在招呼请求和消息中看到你。</Text>
           </>
         ) : null}
       </BottomSheet>
@@ -9597,7 +9613,7 @@ const styles = StyleSheet.create({
   chatMakeHeader: { alignItems: 'center', flexDirection: 'row', gap: 12, height: 56, marginHorizontal: -4 },
   chatMakeList: { gap: 10, paddingBottom: 14, paddingTop: 14 },
   chatMakeScroller: { flex: 1, marginHorizontal: -4, paddingHorizontal: 4 },
-  chatMakeName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', lineHeight: 20 },
+  chatMakeName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600', lineHeight: 20 },
   chatMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 22 },
   chatMessageGroup: { gap: 8 },
   chatOfflineDotMake: { backgroundColor: palette.muted },
@@ -9613,8 +9629,8 @@ const styles = StyleSheet.create({
   chatPageMake: { flex: 1, minHeight: 0 },
   chatQuotaHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', lineHeight: 15, marginTop: 4, textAlign: 'center' },
   chatRouteContent: { flex: 1, gap: 0, paddingBottom: Platform.OS === 'web' ? 18 : 12, paddingHorizontal: 16, paddingTop: 0 },
-  chatSafetyText: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17 },
-  chatSafetyTip: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.25)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 4, paddingHorizontal: 12, paddingVertical: 8 },
+  chatSafetyText: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 11, fontWeight: '500', lineHeight: 16 },
+  chatSafetyTip: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 4, paddingHorizontal: 12, paddingVertical: 8 },
   chatSendingMetaMake: { alignItems: 'center', flexDirection: 'row', gap: 4, marginBottom: 4 },
   chatSendingTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600' },
   chatAttachmentChipMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingVertical: 6, shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
@@ -9985,19 +10001,24 @@ const styles = StyleSheet.create({
   goldIcon: { backgroundColor: '#f2b441' },
   grid2: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   greetButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 17, height: 34, justifyContent: 'center', position: 'absolute', right: 14, top: 70, width: 34 },
-  greetingMessageCard: { alignItems: 'flex-start', backgroundColor: '#FFF7F0', borderColor: '#FFE0CC', borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
-  greetingMessageText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 20 },
-  greetingQuickChip: { backgroundColor: palette.pale, borderColor: 'transparent', borderRadius: 12, borderWidth: 1, maxWidth: '32%', paddingHorizontal: 10, paddingVertical: 7 },
-  greetingQuickChipActive: { backgroundColor: palette.orangeSoft, borderColor: '#FFD9C4' },
-  greetingQuickChipText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
+  greetingMessageCard: { backgroundColor: palette.background, borderColor: palette.border, borderRadius: 16, borderWidth: 1, minHeight: 82, paddingHorizontal: 14, paddingVertical: 12 },
+  greetingMessageText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 22 },
+  greetingQuickChip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 4, maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 8 },
+  greetingQuickChipActive: { backgroundColor: 'rgba(255,138,92,0.12)', borderColor: palette.orange, borderWidth: 1.5 },
+  greetingQuickChipText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 17 },
   greetingQuickChipTextActive: { color: palette.orange },
-  greetingQuickRow: { flexDirection: 'row', gap: 8 },
-  greetingSheetActions: { flexDirection: 'row', gap: 10, marginTop: 2 },
+  greetingQuickLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17, marginBottom: -6 },
+  greetingQuickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  greetingSafetyMake: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 10 },
+  greetingSafetyTextMake: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 17 },
+  greetingSheetActions: { flexDirection: 'row', gap: 10, marginTop: 0 },
+  greetingSheetAvatarMake: { backgroundColor: palette.pale, borderRadius: 14, height: 48, overflow: 'hidden', position: 'relative', width: 48 },
   greetingSheetClose: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 14, height: 28, justifyContent: 'center', width: 28 },
   greetingSheetHeader: { alignItems: 'center', flexDirection: 'row', gap: 12 },
   greetingSheetHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 17, textAlign: 'center' },
-  greetingSheetMake: { gap: 14 },
+  greetingSheetMake: { gap: 14, paddingHorizontal: 22, paddingTop: 16 },
   greetingSheetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18, marginTop: 3 },
+  greetingSheetOwnerAvatarMake: { backgroundColor: '#fff', borderColor: '#fff', borderRadius: 11, borderWidth: 2, bottom: -3, height: 22, overflow: 'hidden', position: 'absolute', right: -3, width: 22 },
   header: { backgroundColor: palette.background, paddingHorizontal: 16, paddingTop: 0 },
   headerActionSlot: { alignItems: 'center', height: 36, justifyContent: 'center', width: 36 },
   headerRow: { alignItems: 'center', flexDirection: 'row', height: 44, justifyContent: 'space-between' },
@@ -10354,8 +10375,8 @@ const styles = StyleSheet.create({
   conversationHeaderOwnerBadgeMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 10, borderWidth: 2, bottom: -3, height: 20, justifyContent: 'center', position: 'absolute', right: -3, shadowColor: '#50371e', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.12, shadowRadius: 10, width: 20 },
   conversationMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 74, paddingVertical: 12 },
   conversationInvitePrefixMake: { color: palette.orange, flexShrink: 0, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 18, marginRight: 4 },
-  conversationMakeText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18 },
-  conversationMakeTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
+  conversationMakeText: { color: 'rgba(27,28,25,0.78)', flex: 1, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18 },
+  conversationMakeTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '600', lineHeight: 20 },
   conversationMetaCol: { alignItems: 'flex-end', gap: 7 },
   conversationOwnerBadge: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 11, borderWidth: 2, bottom: -3, height: 22, justifyContent: 'center', position: 'absolute', right: -3, shadowColor: '#50371e', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.12, shadowRadius: 10, width: 22 },
   conversationPreviewRowMake: { alignItems: 'center', flexDirection: 'row', marginTop: 4, minWidth: 0 },
@@ -10421,7 +10442,7 @@ const styles = StyleSheet.create({
   messagesRequestText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
   messagesRequestTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700', lineHeight: 19 },
   messagesTopRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end' },
-  metaText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  metaText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '500' },
   metricCard: { backgroundColor: palette.card, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexGrow: 0, flexShrink: 0, minHeight: 102, minWidth: 0, paddingHorizontal: 13, paddingVertical: 12, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.06, shadowRadius: 20, width: '48%' },
   metricIcon: { alignItems: 'center', borderRadius: 10, height: 32, justifyContent: 'center', width: 32 },
   metricLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', minWidth: 0 },

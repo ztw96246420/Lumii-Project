@@ -102,6 +102,19 @@ This file records incremental parity work that should be merged back into `Figma
   - Sheet action buttons now use 48px height, 14px radius, and 600 text weight.
   - No change to `logout`, session clearing, or cancel behavior.
 
+## Social And Messages
+
+- Screen38 `renderGreetingSheet`: aligned the greeting bottom sheet with the Figma social source.
+  - Header now uses the 48px rounded pet image with the owner's mini avatar overlay instead of a generic circular avatar.
+  - Added the Figma "选一句话开场" label, four greeting chips including "自定义", and a large 82px message preview card.
+  - Added the teal safety notice from Figma: first greeting requires the other side to agree before chatting.
+  - No change to `sendGreeting`, greeting saving state, request creation, message creation, or rate-limit extension points.
+
+- Screen41-42 `renderMessages` / `renderConversation`: aligned low-risk typography with the Figma message list and chat detail source.
+  - Conversation row title/time weights now match the lighter Figma hierarchy.
+  - Chat header name and safety strip typography/radius now match Screen42 more closely.
+  - No change to inbox refresh, opening conversations, message send/retry/delete, or notification entry logic.
+
 ## Verification
 
 - `npm run typecheck`
