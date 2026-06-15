@@ -37,6 +37,7 @@ import {
   Clock,
   Compass,
   Edit3,
+  Eye,
   EyeOff,
   Flag,
   Heart,
@@ -44,6 +45,7 @@ import {
   Home as HomeIcon,
   ImagePlus,
   KeyRound,
+  Lock,
   LogOut,
   Mail,
   Map as MapIcon,
@@ -7627,33 +7629,71 @@ export default function LumiiMvpApp() {
   function renderSettings() {
     return (
       <Screen title="设置与隐私">
-        <View style={styles.settingsGroupMake}>
-          <Text style={styles.settingsGroupTitle}>隐私</Text>
-          <ProfileMakeRow Icon={MapPin} onPress={() => void toggleUserSetting('fuzzyLocation', '模糊定位')} title="模糊定位" value={userSettings.fuzzyLocation ? '1km 范围' : '已关闭'} />
-          <ProfileMakeRow Icon={Users} onPress={() => void toggleUserSetting('nearbyVisible', '附近可见')} title="附近可见" value={userSettings.nearbyVisible ? '已开启' : '已关闭'} />
-          <ProfileMakeRow Icon={MessageCircle} onPress={() => void toggleUserSetting('interactionMessages', '互动消息提醒')} title="互动消息提醒" value={userSettings.interactionMessages ? '已开启' : '已关闭'} />
-        </View>
-        <View style={styles.settingsFootnoteMake}>
-          <Shield color={palette.teal} size={14} strokeWidth={2.4} />
-          <Text style={styles.chatSafetyText}>开启模糊定位后，附近的人只能看到大致距离，不会显示精确坐标。</Text>
-        </View>
-        <View style={styles.settingsGroupMake}>
-          <Text style={styles.settingsGroupTitle}>通用</Text>
-          <ProfileMakeRow Icon={Bell} onPress={() => void toggleUserSetting('pushNotifications', '通知')} title="通知" value={userSettings.pushNotifications ? '开启' : '关闭'} />
-          <ProfileMakeRow Icon={Settings} title="语言" value="简体中文" />
-        </View>
-        <View style={styles.settingsGroupMake}>
-          <Text style={styles.settingsGroupTitle}>安全与账号</Text>
-          <ProfileMakeRow Icon={Shield} onPress={() => go('accountSecurity')} title="账号安全" value="已实名" />
-          <ProfileMakeRow Icon={Shield} onPress={() => go('safety')} title="黑名单与举报" />
-          <View style={styles.apiModeMake}>
-            <Text style={styles.timelineTitleMake}>接口模式</Text>
-            <Text style={styles.timelineSubMake}>{apiConfig.mode === 'mock' ? 'Mock 服务' : apiConfig.baseUrl}</Text>
-          </View>
-          <Pressable onPress={() => setLogoutConfirmVisible(true)} style={styles.logoutButton}>
-            <LogOut color={palette.danger} size={18} strokeWidth={2.3} />
-            <Text style={styles.logoutText}>退出当前账号</Text>
-          </Pressable>
+        <View style={styles.settingsMakePage}>
+          <SettingsMakeSection footnote="开启「模糊定位」后，附近的人只能看到 1 公里范围内的大致位置，不会显示精确坐标。" title="隐私">
+            <SettingsMakeRow
+              Icon={MapPin}
+              iconBg="#E8F5F3"
+              iconColor={palette.teal}
+              onPress={() => void toggleUserSetting('fuzzyLocation', '模糊定位')}
+              right={<SettingsMakeToggle on={userSettings.fuzzyLocation} />}
+              sub="只显示 1 公里范围"
+              title="模糊定位"
+            />
+            <SettingsMakeRow
+              Icon={Eye}
+              iconBg="#EFEAE1"
+              iconColor={palette.ink}
+              onPress={() => void toggleUserSetting('nearbyVisible', '附近可见')}
+              right={<SettingsMakeToggle on={userSettings.nearbyVisible} />}
+              sub="允许出现在附近的人列表"
+              title="附近可见"
+            />
+            <SettingsMakeRow
+              Icon={MessageCircle}
+              iconBg="#FFE6D6"
+              iconColor={palette.orange}
+              last
+              onPress={() => void toggleUserSetting('interactionMessages', '互动消息提醒')}
+              right={<SettingsMakeToggle on={userSettings.interactionMessages} />}
+              title="互动消息提醒"
+            />
+          </SettingsMakeSection>
+
+          <SettingsMakeSection title="通用">
+            <SettingsMakeRow
+              Icon={Bell}
+              iconBg="#FBF2D9"
+              iconColor="#C99B3E"
+              onPress={() => void toggleUserSetting('pushNotifications', '通知')}
+              title="通知"
+              value={userSettings.pushNotifications ? '开启' : '关闭'}
+            />
+            <SettingsMakeRow
+              Icon={Settings}
+              iconBg="#EFEAE1"
+              iconColor={palette.muted}
+              last
+              onPress={() => showToast('语言切换后续开放', { tone: 'info', variant: 'surface' })}
+              title="语言"
+              value="简体中文"
+            />
+          </SettingsMakeSection>
+
+          <SettingsMakeSection title="安全与账号">
+            <SettingsMakeRow Icon={Lock} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('accountSecurity')} title="账号安全" />
+            <SettingsMakeRow Icon={Shield} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('safety')} title="黑名单与举报" />
+            <SettingsMakeRow
+              Icon={LogOut}
+              danger
+              iconBg="#FBE4DE"
+              iconColor={palette.danger}
+              last
+              onPress={() => setLogoutConfirmVisible(true)}
+              right={<View />}
+              title="退出登录"
+            />
+          </SettingsMakeSection>
         </View>
       </Screen>
     );
@@ -8179,32 +8219,31 @@ export default function LumiiMvpApp() {
   function renderAccountSecurity() {
     return (
       <Screen title="账号安全">
-        <View style={[styles.accountSecurityHeroMake, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #E8F5F3 0%, #DDEFEC 100%)' } as object) : null]}>
-          <View style={styles.accountSecurityHeroIconMake}>
-            <Shield color={palette.teal} size={20} strokeWidth={2.4} />
+        <View style={styles.settingsMakePage}>
+          <View style={[styles.accountSecurityHeroMake, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #E8F5F3 0%, #DDEFEC 100%)' } as object) : null]}>
+            <View style={styles.accountSecurityHeroIconMake}>
+              <Shield color={palette.teal} size={20} strokeWidth={2.4} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.accountSecurityHeroTitleMake}>账号已实名 · 安全等级高</Text>
+              <Text style={styles.accountSecurityHeroSubMake}>上次登录：Android 设备 · 中国大陆</Text>
+            </View>
           </View>
-          <View style={styles.flex}>
-            <Text style={styles.accountSecurityHeroTitleMake}>账号已实名 · 安全等级高</Text>
-            <Text style={styles.accountSecurityHeroSubMake}>上次登录：Android 设备 · 中国大陆</Text>
-          </View>
-        </View>
 
-        <View style={styles.settingsGroupMake}>
-          <Text style={styles.settingsGroupTitle}>登录方式</Text>
-          <ProfileMakeRow Icon={Phone} iconBg={palette.pale} iconColor={palette.ink} title="手机号" value={formatMaskedPhone(session?.phone)} />
-          <ProfileMakeRow Icon={Mail} iconBg={palette.pale} iconColor={palette.ink} title="邮箱" value="未绑定" />
-          <ProfileMakeRow Icon={KeyRound} iconBg="#FFE6D6" iconColor={palette.orange} last title="登录密码" value="验证码登录" />
-        </View>
+          <SettingsMakeSection title="登录方式">
+            <SettingsMakeRow Icon={Phone} iconBg="#EFEAE1" iconColor={palette.ink} title="手机号" value={formatMaskedPhone(session?.phone)} />
+            <SettingsMakeRow Icon={Mail} iconBg="#EFEAE1" iconColor={palette.ink} title="邮箱" value="未绑定" />
+            <SettingsMakeRow Icon={KeyRound} iconBg="#FFE6D6" iconColor={palette.orange} last title="登录密码" value="验证码登录" />
+          </SettingsMakeSection>
 
-        <View style={styles.settingsGroupMake}>
-          <Text style={styles.settingsGroupTitle}>登录与设备</Text>
-          <ProfileMakeRow Icon={Smartphone} iconBg="#E8F5F3" iconColor={palette.teal} title="登录设备" value="1 台" />
-          <ProfileMakeRow Icon={EyeOff} iconBg={palette.pale} iconColor={palette.ink} last title="登录保护" value="已开启" />
-        </View>
+          <SettingsMakeSection title="登录与设备">
+            <SettingsMakeRow Icon={Smartphone} iconBg="#E8F5F3" iconColor={palette.teal} title="登录设备" value="1 台" />
+            <SettingsMakeRow Icon={EyeOff} iconBg="#EFEAE1" iconColor={palette.ink} last right={<SettingsMakeToggle on />} title="登录保护" />
+          </SettingsMakeSection>
 
-        <View style={styles.settingsGroupMake}>
-          <Text style={styles.settingsGroupTitle}>危险操作</Text>
-          <ProfileMakeRow Icon={Trash2} iconBg="#FBE4DE" iconColor={palette.danger} last onPress={() => showToast('注销账号流程后续开放', { tone: 'warning', variant: 'surface' })} title="注销账号" value="后续开放" />
+          <SettingsMakeSection title="危险操作">
+            <SettingsMakeRow Icon={Trash2} danger iconBg="#FBE4DE" iconColor={palette.danger} last onPress={() => showToast('注销账号流程后续开放', { tone: 'warning', variant: 'surface' })} title="注销账号" />
+          </SettingsMakeSection>
         </View>
       </Screen>
     );
@@ -8850,6 +8889,66 @@ function ProfileMakeRow({
   );
 }
 
+function SettingsMakeSection({ children, footnote, title }: { children: ReactNode; footnote?: string; title?: string }) {
+  return (
+    <View style={styles.settingsMakeSection}>
+      {title ? <Text style={styles.settingsMakeSectionTitle}>{title}</Text> : null}
+      <View style={styles.settingsMakeCard}>{children}</View>
+      {footnote ? <Text style={styles.settingsMakeFootnote}>{footnote}</Text> : null}
+    </View>
+  );
+}
+
+function SettingsMakeRow({
+  Icon,
+  danger,
+  iconBg = palette.pale,
+  iconColor = palette.ink,
+  last,
+  onPress,
+  right,
+  sub,
+  title,
+  value,
+}: {
+  Icon?: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
+  danger?: boolean;
+  iconBg?: string;
+  iconColor?: string;
+  last?: boolean;
+  onPress?: () => void;
+  right?: ReactNode;
+  sub?: string;
+  title: string;
+  value?: string;
+}) {
+  return (
+    <Pressable disabled={!onPress} onPress={onPress} style={[styles.settingsMakeRow, last && styles.settingsMakeRowLast]}>
+      {Icon ? (
+        <View style={[styles.settingsMakeRowIcon, { backgroundColor: iconBg }]}>
+          <Icon color={iconColor} size={15} strokeWidth={2.4} />
+        </View>
+      ) : null}
+      <View style={styles.settingsMakeRowText}>
+        <Text numberOfLines={1} style={[styles.settingsMakeRowTitle, danger && styles.settingsMakeRowTitleDanger]}>
+          {title}
+        </Text>
+        {sub ? <Text numberOfLines={1} style={styles.settingsMakeRowSub}>{sub}</Text> : null}
+      </View>
+      {value ? <Text numberOfLines={1} style={styles.settingsMakeRowValue}>{value}</Text> : null}
+      {right !== undefined ? right : <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />}
+    </Pressable>
+  );
+}
+
+function SettingsMakeToggle({ on }: { on: boolean }) {
+  return (
+    <View style={[styles.settingsMakeToggleTrack, on && styles.settingsMakeToggleTrackOn]}>
+      <View style={[styles.settingsMakeToggleThumb, on && styles.settingsMakeToggleThumbOn]} />
+    </View>
+  );
+}
+
 function MakeDetailRow({ inset, label, value, valueAlign = 'left' }: { inset?: boolean; label: string; value: string; valueAlign?: 'left' | 'right' }) {
   return (
     <View style={[styles.makeDetailRow, inset && styles.makeDetailRowInset]}>
@@ -8973,7 +9072,7 @@ function HealthMiniChart() {
 const styles = StyleSheet.create({
   actionRow: { flexDirection: 'row', gap: 12 },
   accountSecurityHeroIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
-  accountSecurityHeroMake: { alignItems: 'center', backgroundColor: '#E8F5F3', borderRadius: 16, flexDirection: 'row', gap: 12, marginBottom: 2, padding: 14 },
+  accountSecurityHeroMake: { alignItems: 'center', backgroundColor: '#E8F5F3', borderRadius: 16, flexDirection: 'row', gap: 12, marginBottom: 18, marginHorizontal: 16, marginTop: 8, padding: 14 },
   accountSecurityHeroSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 17, marginTop: 2 },
   accountSecurityHeroTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '800', lineHeight: 20 },
   addPlaceBgGlowMake: { backgroundColor: 'rgba(255,217,182,0.48)', borderRadius: 220, height: 240, left: -70, position: 'absolute', right: -70, top: -120 },
@@ -10186,9 +10285,25 @@ const styles = StyleSheet.create({
   searchText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600' },
   sectionHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   sectionTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700' },
-  settingsFootnoteMake: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.20)', borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
   settingsGroupMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, gap: 0, overflow: 'hidden', paddingTop: 8 },
   settingsGroupTitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', paddingHorizontal: 16, paddingVertical: 8 },
+  settingsMakeCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginHorizontal: 16, overflow: 'hidden' },
+  settingsMakeFootnote: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '400', lineHeight: 18, paddingHorizontal: 20, paddingTop: 8 },
+  settingsMakePage: { marginHorizontal: -20, marginTop: -10, paddingTop: 8 },
+  settingsMakeRow: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 14 },
+  settingsMakeRowIcon: { alignItems: 'center', borderRadius: 8, height: 28, justifyContent: 'center', width: 28 },
+  settingsMakeRowLast: { borderBottomWidth: 0 },
+  settingsMakeRowSub: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', lineHeight: 16, marginTop: 2 },
+  settingsMakeRowText: { flex: 1, minWidth: 0 },
+  settingsMakeRowTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '400', lineHeight: 20 },
+  settingsMakeRowTitleDanger: { color: palette.danger },
+  settingsMakeRowValue: { color: palette.muted, flexShrink: 0, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 18, maxWidth: '34%', textAlign: 'right' },
+  settingsMakeSection: { marginBottom: 18 },
+  settingsMakeSectionTitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', letterSpacing: 0.4, paddingBottom: 8, paddingHorizontal: 20 },
+  settingsMakeToggleThumb: { backgroundColor: '#fff', borderRadius: 11, height: 22, left: 2, position: 'absolute', shadowColor: '#000', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.15, shadowRadius: 4, top: 2, width: 22 },
+  settingsMakeToggleThumbOn: { left: 20 },
+  settingsMakeToggleTrack: { backgroundColor: '#D9D5CB', borderRadius: 13, height: 26, position: 'relative', width: 44 },
+  settingsMakeToggleTrackOn: { backgroundColor: palette.teal },
   segmentButton: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 16, borderWidth: 1, flex: 1, minHeight: 48, justifyContent: 'center' },
   segmentButtonActive: { backgroundColor: palette.orange, borderColor: palette.orange },
   segmentRow: { flexDirection: 'row', gap: 10 },
