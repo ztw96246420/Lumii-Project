@@ -8568,34 +8568,36 @@ export default function LumiiMvpApp() {
     ];
     return (
       <Screen title="安全中心">
-        <View style={[styles.safetyHeroMake, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E2 0%, #FFE3D1 100%)' } as object) : null]}>
-          <View style={styles.safetyHeroIconMake}>
-            <Shield color={palette.orange} size={22} strokeWidth={2.4} />
+        <View style={styles.safetyPageMake}>
+          <View style={[styles.safetyHeroMake, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E2 0%, #FFE3D1 100%)' } as object) : null]}>
+            <View style={styles.safetyHeroIconMake}>
+              <Shield color={palette.orange} size={22} strokeWidth={2.4} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.safetyHeroTitleMake}>Lumii 守护你的每一次出门</Text>
+              <Text style={styles.safetyHeroSubMake}>遇到不安全的人或地点，可以随时举报或拉黑</Text>
+            </View>
           </View>
-          <View style={styles.flex}>
-            <Text style={styles.safetyHeroTitleMake}>Lumii 守护你的每一次出门</Text>
-            <Text style={styles.safetyHeroSubMake}>遇到不安全的人或地点，可以随时举报或拉黑</Text>
+
+          <View style={styles.safetyActionStackMake}>
+            {safetyActions.map(({ Icon, bg, color, onPress, sub, title }) => (
+              <Pressable key={title} onPress={onPress} style={[styles.safetyActionCardMake, webPressableReset]}>
+                <View style={[styles.safetyActionIconMake, { backgroundColor: bg }]}>
+                  <Icon color={color} size={18} strokeWidth={2.4} />
+                </View>
+                <View style={styles.flex}>
+                  <Text style={styles.safetyActionTitleMake}>{title}</Text>
+                  <Text style={styles.safetyActionSubMake}>{sub}</Text>
+                </View>
+                <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
+              </Pressable>
+            ))}
           </View>
-        </View>
 
-        <View style={styles.safetyActionStackMake}>
-          {safetyActions.map(({ Icon, bg, color, onPress, sub, title }) => (
-            <Pressable key={title} onPress={onPress} style={[styles.safetyActionCardMake, webPressableReset]}>
-              <View style={[styles.safetyActionIconMake, { backgroundColor: bg }]}>
-                <Icon color={color} size={18} strokeWidth={2.4} />
-              </View>
-              <View style={styles.flex}>
-                <Text style={styles.safetyActionTitleMake}>{title}</Text>
-                <Text style={styles.safetyActionSubMake}>{sub}</Text>
-              </View>
-              <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
-            </Pressable>
-          ))}
-        </View>
-
-        <View style={styles.safetyAuditNoteMake}>
-          <Shield color={palette.teal} size={14} strokeWidth={2.4} />
-          <Text style={styles.safetyAuditNoteTextMake}>所有举报会在 24 小时内由人工与算法共同审核。情节严重的，将立刻封禁并通知平台处理。</Text>
+          <View style={styles.safetyAuditNoteMake}>
+            <Shield color={palette.teal} size={14} strokeWidth={2.4} />
+            <Text style={styles.safetyAuditNoteTextMake}>所有举报会在 24 小时内由人工与算法共同审核。情节严重的，将立刻封禁并通知平台处理。</Text>
+          </View>
         </View>
       </Screen>
     );
@@ -9474,7 +9476,7 @@ const styles = StyleSheet.create({
   accountSecurityHeroIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
   accountSecurityHeroMake: { alignItems: 'center', backgroundColor: '#E8F5F3', borderRadius: 16, flexDirection: 'row', gap: 12, marginBottom: 18, marginHorizontal: 16, marginTop: 8, padding: 14 },
   accountSecurityHeroSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 17, marginTop: 2 },
-  accountSecurityHeroTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '800', lineHeight: 20 },
+  accountSecurityHeroTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', lineHeight: 20 },
   addPlaceBgGlowMake: { backgroundColor: 'rgba(255,217,182,0.48)', borderRadius: 220, height: 240, left: -70, position: 'absolute', right: -70, top: -120 },
   addPlaceChipRowMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   addPlaceDividerMake: { backgroundColor: palette.border, height: 1, marginLeft: 52 },
@@ -10187,17 +10189,17 @@ const styles = StyleSheet.create({
   logoRow: { alignItems: 'center', flexDirection: 'row', gap: 12, marginBottom: 18 },
   logoText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '600' },
   longTextInput: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1.5, color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, minHeight: 130, paddingHorizontal: 14, paddingVertical: 12, textAlignVertical: 'top' },
-  logoutConfirmSheetMake: { alignItems: 'center', gap: 0, paddingBottom: 20, paddingHorizontal: 20, paddingTop: 12 },
+  logoutConfirmSheetMake: { alignItems: 'center', gap: 0, paddingBottom: 20, paddingHorizontal: 20, paddingTop: 10 },
   logoutButton: { alignItems: 'center', backgroundColor: '#ffdad6', borderRadius: 18, flexDirection: 'row', gap: 10, justifyContent: 'center', minHeight: 52 },
   logoutSheetActionsMake: { alignSelf: 'stretch', gap: 10, marginTop: 22 },
   logoutSheetBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21, marginTop: 8, paddingHorizontal: 12, textAlign: 'center' },
   logoutSheetIconMake: { alignItems: 'center', backgroundColor: '#FBE4DE', borderRadius: 18, height: 60, justifyContent: 'center', marginBottom: 14, marginTop: 4, width: 60 },
-  logoutSheetTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '800', lineHeight: 25, textAlign: 'center' },
+  logoutSheetTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', lineHeight: 25, textAlign: 'center' },
   logoutText: { color: palette.danger, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
-  sheetDangerButtonMake: { alignItems: 'center', backgroundColor: palette.danger, borderRadius: 18, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center', shadowColor: palette.danger, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.18, shadowRadius: 20 },
-  sheetDangerButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 15, fontWeight: '800' },
-  sheetGhostButtonMake: { alignItems: 'center', backgroundColor: '#F4EFE6', borderRadius: 18, height: 52, justifyContent: 'center' },
-  sheetGhostButtonTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
+  sheetDangerButtonMake: { alignItems: 'center', backgroundColor: palette.danger, borderRadius: 14, flexDirection: 'row', gap: 8, height: 48, justifyContent: 'center', shadowColor: palette.danger, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.18, shadowRadius: 18 },
+  sheetDangerButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
+  sheetGhostButtonMake: { alignItems: 'center', backgroundColor: '#F4EFE6', borderRadius: 14, height: 48, justifyContent: 'center' },
+  sheetGhostButtonTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
   mapCanvas: { backgroundColor: '#eef2ec', borderRadius: 24, height: 330, overflow: 'hidden', position: 'relative' },
   mapLabel: { backgroundColor: 'rgba(255,255,255,0.78)', borderRadius: 999, color: '#5e7d75', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', left: 18, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 6, position: 'absolute', top: 18 },
   mapMarker: { alignItems: 'center', backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 999, borderWidth: 3, height: 50, justifyContent: 'center', left: '48%', position: 'absolute', top: '48%', width: 50 },
@@ -10800,14 +10802,15 @@ const styles = StyleSheet.create({
   safetyActionCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 70, padding: 14 },
   safetyActionIconMake: { alignItems: 'center', borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
   safetyActionStackMake: { gap: 10 },
-  safetyActionSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 17, marginTop: 2 },
-  safetyActionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '800', lineHeight: 20 },
+  safetyActionSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', lineHeight: 17, marginTop: 2 },
+  safetyActionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600', lineHeight: 20 },
   safetyAuditNoteMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 4, padding: 12 },
-  safetyAuditNoteTextMake: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 12, lineHeight: 20 },
+  safetyAuditNoteTextMake: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', lineHeight: 20 },
   safetyHeroIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, height: 46, justifyContent: 'center', width: 46 },
   safetyHeroMake: { alignItems: 'center', backgroundColor: '#FFE3D1', borderRadius: 18, flexDirection: 'row', gap: 14, marginBottom: 6, padding: 16 },
-  safetyHeroSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 18, marginTop: 4 },
-  safetyHeroTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '800', lineHeight: 22 },
+  safetyHeroSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', lineHeight: 18, marginTop: 4 },
+  safetyHeroTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700', lineHeight: 22 },
+  safetyPageMake: { gap: 10, marginHorizontal: -4, marginTop: -10 },
   profileSettingsButton: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 },
   profileUnreadBadge: { backgroundColor: palette.danger, borderRadius: 10, color: '#fff', fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
   profileVerifyPill: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 10, flexDirection: 'row', gap: 4, marginTop: 8, paddingHorizontal: 8, paddingVertical: 3 },

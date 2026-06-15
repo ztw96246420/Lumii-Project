@@ -84,6 +84,24 @@ This file records incremental parity work that should be merged back into `Figma
   - Trend label/unit, history header, and edit-sheet meta rows were adjusted to the Figma hierarchy.
   - No change to trend calculations, abnormal-status detection, add/edit/delete record handlers, or bottom-sheet behavior.
 
+## Settings And Safety
+
+- Screen58 `renderSettings`: reviewed the shared settings `Section` / `Row` / `Toggle` atoms against the Figma profile source.
+  - Existing row height, icon size, card inset, toggle size, and footnote rhythm already match the Figma atoms closely, so no style churn was made there.
+
+- Screen59 `renderAccountSecurity`: aligned the account-security hero hierarchy with Figma.
+  - Hero title weight now matches Figma's 14px / 600 treatment.
+  - No change to displayed phone, login protection toggle, or account-security navigation.
+
+- Screen60 `renderSafety`: aligned the safety-center page with Figma's 16px content inset and lighter card hierarchy.
+  - Added a page-level wrapper to match Figma's `8px 16px` body rhythm.
+  - Safety hero/action-card/audit-note typography now uses the Figma weights.
+  - Existing placeholder actions remain toast-only; no new report/block backend flow was added.
+
+- Screen62 `renderLogoutConfirmSheet`: aligned logout confirmation bottom sheet buttons with Figma.
+  - Sheet action buttons now use 48px height, 14px radius, and 600 text weight.
+  - No change to `logout`, session clearing, or cancel behavior.
+
 ## Verification
 
 - `npm run typecheck`
