@@ -41,10 +41,10 @@
 | 7 | 验证码错误 | `renderOtp` | 已接入-需视觉复核 | 错误格子红色、提示文案需复核 |
 | 8 | 验证码过期 | `renderOtp` | 已接入-需视觉复核 | 过期态和重新发送区域需复核 |
 | 9 | 登录成功 loading | session/loading 状态 | 部分接入 | Figma 独立成功 loading 屏未 1:1 |
-| 10 | 权限引导页 | `renderPermissions` | 已接入-需视觉复核 | 本轮已按 PermissionRow 收敛权限卡 20px 圆角、16px padding、轻阴影和 40x24 关闭开关；拒绝态独立页仍需复核 |
-| 11 | 定位权限被拒 | `renderPermissions` | 部分接入 | 独立拒绝页未完全按 Screen11 展示 |
-| 12 | 相册/相机权限被拒 | `renderPermissions` | 部分接入 | 独立拒绝页未完全按 Screen12 展示 |
-| 13 | 通知权限被拒 | `renderPermissions` | 部分接入 | 独立拒绝页未完全按 Screen13 展示 |
+| 10 | 权限引导页 | `renderPermissions` | 已接入-需视觉复核 | 本轮继续按 Screen10 收敛底部 52px 胶囊主按钮和授权中 loading；权限卡仍沿用 20px 圆角、16px padding、轻阴影和 40x24 关闭开关 |
+| 11 | 定位权限被拒 | `renderPermissions` | 已接入-需视觉复核 | 本轮按 Screen11 补独立拒绝标题、横向 denied hero、68px 定位图标块、红色 X 角标、行内红色“去系统设置开启”提示和底部主行动 |
+| 12 | 相册/相机权限被拒 | `renderPermissions` | 已接入-需视觉复核 | 本轮按 Screen12 复用 denied hero 结构，切换为相机青绿色图标、相册/相机专属提示文案和主行动 |
+| 13 | 通知权限被拒 | `renderPermissions` | 已接入-需视觉复核 | 本轮按 Screen13 复用 denied hero 结构，切换为通知金色图标、通知专属提示文案和主行动 |
 | 14 | 未添加宠物空状态 | `renderEmptyPet` | 已接入-需视觉复核 | 空态插图、CTA、卡片层级需复核 |
 | 15 | 宠物基础信息 | `renderPetInfo` | 已接入-需视觉复核 | 表单控件和选择 chip 需复核 |
 | 16 | 上传宠物照片 | `renderUpload` | 已接入-需视觉复核 | 本轮已按 UploadBox/TipsList 收敛上传卡渐变、340px 高度、轻阴影、tips 白底卡间距；按钮图标/底部固定位置仍需复核 |

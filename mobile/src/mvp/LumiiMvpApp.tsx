@@ -213,6 +213,24 @@ const permissionCopy = {
   },
 };
 
+const permissionDeniedCopy: Record<keyof PermissionStateMap, { action: string; pageTitle: string; tip: string }> = {
+  location: {
+    action: '去系统设置开启定位',
+    pageTitle: '开启定位，发现附近的它们',
+    tip: '附近的猫狗朋友与宠物友好场所将无法显示',
+  },
+  media: {
+    action: '去系统设置开启相机',
+    pageTitle: '开启相机，为灵伴留下样子',
+    tip: '无法上传宠物照片、生成专属灵伴形象',
+  },
+  notifications: {
+    action: '去系统设置开启通知',
+    pageTitle: '开启通知，不错过它的呼唤',
+    tip: '灵伴的撒娇、提醒、好友互动将无法收到',
+  },
+};
+
 const initialPermissions: PermissionStateMap = {
   location: 'unknown',
   media: 'unknown',
@@ -4052,28 +4070,40 @@ export default function LumiiMvpApp() {
     const deniedEntry = (Object.keys(permissions) as Array<keyof PermissionStateMap>).find((key) => ['blocked', 'denied', 'unavailable'].includes(permissions[key]));
     const deniedEntryStatus = deniedEntry ? permissions[deniedEntry] : undefined;
     const deniedNeedsSettings = deniedEntryStatus === 'blocked' || deniedEntryStatus === 'unavailable';
+    const deniedConfig = deniedEntry ? permissionDeniedCopy[deniedEntry] : null;
 
     return (
       <Screen showBack={false} title="">
-        <View style={styles.makeIntroHeader}>
-          <Mascot size={58} />
-          <View style={styles.makeIntroCopy}>
-            <Text style={styles.makeIntroTitle}>为你的灵伴准备一个家</Text>
-            <Text style={styles.makeIntroSubtitle}>打开下列权限，体验更完整的陪伴</Text>
+        {deniedConfig ? (
+          <View style={styles.permissionDeniedPageTitle}>
+            <Text style={styles.permissionDeniedPageTitleText}>{deniedConfig.pageTitle}</Text>
           </View>
-        </View>
+        ) : (
+          <View style={styles.makeIntroHeader}>
+            <Mascot size={58} />
+            <View style={styles.makeIntroCopy}>
+              <Text style={styles.makeIntroTitle}>为你的灵伴准备一个家</Text>
+              <Text style={styles.makeIntroSubtitle}>打开下列权限，体验更完整的陪伴</Text>
+            </View>
+          </View>
+        )}
 
-        {deniedEntry ? (
+        {deniedEntry && deniedConfig ? (
           <View style={styles.permissionDeniedHero}>
             <View style={[styles.permissionDeniedIcon, deniedEntry === 'media' && styles.tealIcon, deniedEntry === 'notifications' && styles.goldIcon]}>
               {deniedEntry === 'location' ? <MapPin color="#fff" size={30} strokeWidth={2.4} /> : deniedEntry === 'media' ? <Camera color="#fff" size={30} strokeWidth={2.4} /> : <Bell color="#fff" size={30} strokeWidth={2.4} />}
+              <View style={styles.permissionDeniedIconBadge}>
+                <X color="#fff" size={14} strokeWidth={3} />
+              </View>
             </View>
-            <Text style={styles.permissionDeniedTitle}>{permissionCopy[deniedEntry].label}未开启</Text>
-            <Text style={styles.permissionDeniedText}>{permissionCopy[deniedEntry].description}</Text>
+            <View style={styles.flex}>
+              <Text style={styles.permissionDeniedTitle}>权限当前已关闭</Text>
+              <Text style={styles.permissionDeniedText}>{deniedConfig.tip}</Text>
+            </View>
           </View>
         ) : null}
 
-        <View style={styles.permissionMakeStack}>
+        <View style={[styles.permissionMakeStack, deniedEntry && styles.permissionMakeStackDenied]}>
           {(Object.keys(permissionCopy) as Array<keyof PermissionStateMap>).map((key) => {
             const status = permissions[key];
             const Icon = key === 'location' ? MapPin : key === 'media' ? Camera : Bell;
@@ -4110,6 +4140,13 @@ export default function LumiiMvpApp() {
                     )}
                   </View>
                   <Text style={styles.mutedText}>{permissionCopy[key].description}</Text>
+                  {isDenied ? (
+                    <View style={styles.permissionDeniedHint}>
+                      <AlertTriangle color={palette.danger} size={12} strokeWidth={2.5} />
+                      <Text style={styles.permissionDeniedHintText}>已被系统拒绝，去系统设置开启</Text>
+                      <ChevronRight color={palette.danger} size={12} strokeWidth={2.5} />
+                    </View>
+                  ) : null}
                 </View>
               </Pressable>
             );
@@ -4118,15 +4155,22 @@ export default function LumiiMvpApp() {
 
         <View style={styles.makeBottomActions}>
           {deniedEntry ? (
-            <Button onPress={deniedNeedsSettings ? () => void openPermissionSettings() : () => void requestPermission(deniedEntry)}>
-              {deniedNeedsSettings ? '去系统设置开启权限' : `重新授权${permissionCopy[deniedEntry].label}`}
-            </Button>
+            <Pressable
+              onPress={deniedNeedsSettings ? () => void openPermissionSettings() : () => void requestPermission(deniedEntry)}
+              style={[styles.permissionPrimaryButton, webPressableReset]}
+            >
+              <Settings color="#fff" size={16} strokeWidth={2.4} />
+              <Text style={styles.permissionPrimaryButtonText}>{deniedNeedsSettings ? permissionDeniedCopy[deniedEntry].action : `重新授权${permissionCopy[deniedEntry].label}`}</Text>
+            </Pressable>
           ) : allPermissionsGranted ? (
-            <Button onPress={() => void continueAfterPermissions()}>下一步，添加宠物</Button>
+            <Pressable onPress={() => void continueAfterPermissions()} style={[styles.permissionPrimaryButton, webPressableReset]}>
+              <Text style={styles.permissionPrimaryButtonText}>下一步，添加宠物</Text>
+            </Pressable>
           ) : (
-            <Button loading={requestingPermission} onPress={() => void requestAllPermissions()}>
-              一键开启全部权限
-            </Button>
+            <Pressable disabled={requestingPermission} onPress={() => void requestAllPermissions()} style={[styles.permissionPrimaryButton, requestingPermission && styles.aiCtaDisabled, webPressableReset]}>
+              {requestingPermission ? <ActivityIndicator color="#fff" size="small" /> : null}
+              <Text style={styles.permissionPrimaryButtonText}>{requestingPermission ? '授权中...' : '一键开启全部权限'}</Text>
+            </Pressable>
           )}
           {allPermissionsGranted ? null : (
             <Pressable onPress={() => void continueAfterPermissions()} style={[styles.textAction, webPressableReset]}>
@@ -8236,15 +8280,23 @@ const styles = StyleSheet.create({
   ownerTagRowMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 },
   pageSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, textAlign: 'center' },
   pageTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', lineHeight: 31 },
-  permissionDeniedHero: { alignItems: 'center', backgroundColor: '#fff7ef', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 24, borderWidth: 1, gap: 8, marginTop: 22, padding: 18 },
-  permissionDeniedIcon: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 28, height: 56, justifyContent: 'center', width: 56 },
-  permissionDeniedText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 19, textAlign: 'center' },
-  permissionDeniedTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700' },
+  permissionDeniedHero: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 16, marginTop: 24, paddingHorizontal: 18, paddingVertical: 22, shadowColor: '#50371e', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
+  permissionDeniedHint: { alignItems: 'center', flexDirection: 'row', gap: 4, marginTop: 10 },
+  permissionDeniedHintText: { color: palette.danger, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 16 },
+  permissionDeniedIcon: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 20, height: 68, justifyContent: 'center', position: 'relative', width: 68 },
+  permissionDeniedIconBadge: { alignItems: 'center', backgroundColor: palette.danger, borderColor: '#fff', borderRadius: 13, borderWidth: 2, bottom: -4, height: 26, justifyContent: 'center', position: 'absolute', right: -4, width: 26 },
+  permissionDeniedPageTitle: { marginTop: 8, paddingHorizontal: 8 },
+  permissionDeniedPageTitleText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 26, fontWeight: '700', letterSpacing: 0, lineHeight: 34 },
+  permissionDeniedText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 20, marginTop: 4 },
+  permissionDeniedTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', lineHeight: 20 },
   permissionMakeRow: { alignItems: 'flex-start', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 16, shadowColor: '#50371e', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.04, shadowRadius: 10 },
   permissionMakeRowDenied: { borderColor: 'rgba(216,70,53,0.26)' },
   permissionMakeRowGranted: { backgroundColor: '#f2fbfa', borderColor: 'rgba(77,182,172,0.32)' },
   permissionMakeStack: { gap: 12, marginTop: 26 },
-  permissionStatusDenied: { color: palette.danger, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  permissionMakeStackDenied: { marginTop: 22 },
+  permissionPrimaryButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.24, shadowRadius: 22 },
+  permissionPrimaryButtonText: { color: '#fff', fontFamily: appFontFamily, fontSize: 16, fontWeight: '600' },
+  permissionStatusDenied: { backgroundColor: 'rgba(229,87,63,0.10)', borderRadius: 12, color: palette.danger, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 4 },
   permissionStatusLoading: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   permissionStatusOn: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 12, flexDirection: 'row', gap: 4, paddingHorizontal: 8, paddingVertical: 4 },
   permissionStatusOnText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
