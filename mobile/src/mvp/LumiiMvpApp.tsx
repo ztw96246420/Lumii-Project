@@ -140,6 +140,11 @@ const placeReviewPhotoUrls = [
   'https://images.unsplash.com/photo-1764660308106-72eacd973fc8?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
   'https://images.unsplash.com/photo-1599692392256-2d084495fe15?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=400',
 ];
+const discoverOwnerAvatarUrls = [
+  'https://images.unsplash.com/photo-1662850886700-4ec19bd30d11?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=200',
+  'https://images.unsplash.com/photo-1562337404-3044c84ac061?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=200',
+  'https://images.unsplash.com/photo-1567516364473-233c4b6fcfbe?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=200',
+];
 const generatedGoldenAvatarUri = 'lumii://golden-retriever-avatar';
 const generatedGoldenAvatarSource = require('../../assets/lumii/golden-avatar-v1.png');
 
@@ -6162,40 +6167,69 @@ export default function LumiiMvpApp() {
         primary: () => go('settings'),
         title: '开启附近可见发现朋友',
       };
-    const renderOwnerCard = (owner: NearbyOwner, preview = false) => (
-      <View key={preview ? 'preview-owner-card' : owner.id} style={[styles.ownerCardMake, preview && styles.ownerCardPreviewBlur]}>
-        <PetAvatar uri={owner.imageUrl} size={92} />
-        <View style={styles.flex}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.ownerPetNameMake}>{preview ? '??' : owner.petName}</Text>
-            <Text style={styles.ownerDistanceMake}>{preview ? '?km' : owner.distance}</Text>
-          </View>
-          <Text style={styles.ownerMetaMake}>{preview ? '? · 主人 ??' : `${owner.species === 'dog' ? '狗狗' : '猫咪'} · 主人 ${owner.ownerName}`}</Text>
-          <Text style={styles.ownerBioMake} numberOfLines={2}>{preview ? '开启定位后可见附近伙伴' : `${owner.tags.join(' · ')}，也想认识附近的新朋友。`}</Text>
-          <View style={styles.ownerTagRowMake}>
-            {(preview ? ['??', '??'] : owner.tags.slice(0, 2)).map((tag) => (
-              <Text key={tag} style={styles.ownerTagMake}>{tag}</Text>
-            ))}
+    const renderOwnerCard = (owner: NearbyOwner, preview = false, index = 0) => {
+      const savingGreeting = socialActionSavingIds.includes(`greet:${owner.id}`);
+      const petImageSource = owner.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
+      const ownerAvatarUrl = discoverOwnerAvatarUrls[index % discoverOwnerAvatarUrls.length];
+      const breed = preview ? '?' : owner.tags[0] ?? (owner.species === 'dog' ? '狗狗' : '猫咪');
+      const tags = preview ? ['??', '??'] : (owner.tags.length > 1 ? owner.tags.slice(1, 3) : owner.tags.slice(0, 2));
+      return (
+        <View key={preview ? 'preview-owner-card' : owner.id} style={[styles.ownerCardMake, preview && styles.ownerCardPreviewBlur]}>
+          <View style={styles.ownerCardTopMake}>
+            <View style={styles.ownerPetPhotoMake}>
+              <Image resizeMode="cover" source={petImageSource} style={styles.avatarImage} />
+              <View style={styles.ownerMiniAvatarMake}>
+                <Image resizeMode="cover" source={{ uri: ownerAvatarUrl }} style={styles.avatarImage} />
+              </View>
+            </View>
+            <View style={styles.ownerInfoMake}>
+              <View style={styles.ownerNameRowMake}>
+                <Text numberOfLines={1} style={styles.ownerPetNameMake}>{preview ? '??' : owner.petName}</Text>
+                <View style={styles.ownerDistancePillMake}>
+                  <MapPin color={palette.teal} size={10} strokeWidth={2.4} />
+                  <Text style={styles.ownerDistanceTextMake}>{preview ? '?km' : owner.distance}</Text>
+                </View>
+              </View>
+              <Text style={styles.ownerMetaMake}>{preview ? '? · 主人 ??' : `${breed} · 主人 ${owner.ownerName}`}</Text>
+              <Text style={styles.ownerBioMake} numberOfLines={2}>{preview ? '开启定位后可见附近伙伴' : `${owner.tags.join(' · ')}，也想认识附近的新朋友。`}</Text>
+              <View style={styles.ownerTagRowMake}>
+                {tags.map((tag, tagIndex) => (
+                  <Text
+                    key={`${owner.id}-${tag}-${tagIndex}`}
+                    style={[
+                      styles.ownerTagMake,
+                      /友好|交朋友/.test(tag) && styles.ownerTagCoolMake,
+                      /线上|暂不|只/.test(tag) && styles.ownerTagNeutralMake,
+                    ]}
+                  >
+                    {tag}
+                  </Text>
+                ))}
+              </View>
+            </View>
           </View>
           {!preview ? (
-            <Pressable
-              onPress={() => {
-                selectedOwnerIdRef.current = owner.id;
-                setSelectedOwner(owner);
-                go('walkInvite');
-              }}
-              style={[styles.walkInviteInline, webPressableReset]}
-            >
-              <CalendarDays color={palette.orange} size={14} strokeWidth={2.3} />
-              <Text style={styles.walkInviteInlineText}>约遛邀请</Text>
-            </Pressable>
+            <View style={styles.ownerActionsMake}>
+              <Pressable disabled={savingGreeting} onPress={() => openGreetingSheet(owner)} style={[styles.ownerGhostButtonMake, savingGreeting && styles.mapSearchActionDisabled, webPressableReset]}>
+                {savingGreeting ? <ActivityIndicator color={palette.orange} size="small" /> : <Heart color={palette.orange} size={13} strokeWidth={2.4} />}
+                <Text style={styles.ownerGhostButtonTextMake}>打个招呼</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  selectedOwnerIdRef.current = owner.id;
+                  setSelectedOwner(owner);
+                  go('walkInvite');
+                }}
+                style={[styles.ownerPrimaryButtonMake, webPressableReset]}
+              >
+                <PawPrint color="#fff" size={13} strokeWidth={2.5} />
+                <Text style={styles.ownerPrimaryButtonTextMake}>约遛</Text>
+              </Pressable>
+            </View>
           ) : null}
         </View>
-        <Pressable disabled={preview || socialActionSavingIds.includes(`greet:${owner.id}`)} onPress={() => openGreetingSheet(owner)} style={[styles.greetButtonMake, (preview || socialActionSavingIds.includes(`greet:${owner.id}`)) && styles.mapSearchActionDisabled]}>
-          {socialActionSavingIds.includes(`greet:${owner.id}`) ? <ActivityIndicator color="#fff" size="small" /> : <MessageCircle color="#fff" size={15} strokeWidth={2.4} />}
-        </Pressable>
-      </View>
-    );
+      );
+    };
     return (
       <Screen
         refreshControl={
@@ -6213,8 +6247,8 @@ export default function LumiiMvpApp() {
         <View style={styles.discoverMakeHeader}>
           <Text style={styles.makeScreenTitle}>发现</Text>
           <View style={styles.messagesHeaderActions}>
-            <Pressable accessibilityLabel="刷新附近伙伴" accessibilityRole="button" disabled={discoverRefreshing || Boolean(discoverAccessIssue)} onPress={() => void refreshDiscoverByPull()} style={[styles.makeIconChip, (discoverRefreshing || Boolean(discoverAccessIssue)) && styles.mapSearchActionDisabled]}>
-              {discoverRefreshing ? <ActivityIndicator color={palette.ink} size="small" /> : <RefreshCw color={palette.ink} size={16} strokeWidth={2.3} />}
+            <Pressable accessibilityLabel="搜索附近伙伴" accessibilityRole="button" disabled={discoverRefreshing} onPress={() => showToast('附近伙伴搜索后续开放')} style={[styles.makeIconChip, discoverRefreshing && styles.mapSearchActionDisabled]}>
+              {discoverRefreshing ? <ActivityIndicator color={palette.ink} size="small" /> : <Search color={palette.ink} size={16} strokeWidth={2.3} />}
             </Pressable>
             <Pressable accessibilityLabel="切换附近筛选" accessibilityRole="button" onPress={cycleDiscoverFilter} style={styles.makeIconChip}>
               <SlidersHorizontal color={palette.ink} size={16} strokeWidth={2.3} />
@@ -6235,7 +6269,7 @@ export default function LumiiMvpApp() {
           {discoverAccessIssue ? (
             <>
               <View pointerEvents="none" style={styles.discoverBlurPreviewMake}>
-                {renderOwnerCard(previewOwner, true)}
+                {renderOwnerCard(previewOwner, true, 0)}
               </View>
               <View style={styles.discoverPermissionPanelMake}>
                 <View style={styles.discoverPermissionIconMake}>
@@ -6259,7 +6293,7 @@ export default function LumiiMvpApp() {
               </View>
             </>
           ) : (
-            visibleOwners.map((owner) => renderOwnerCard(owner))
+            visibleOwners.map((owner, index) => renderOwnerCard(owner, false, index))
           )}
           {!discoverAccessIssue && !visibleOwners.length ? (
             discoverEnabled ? (
@@ -9403,15 +9437,29 @@ const styles = StyleSheet.create({
   locationChipDeniedText: { color: palette.danger },
   locationChipText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
   locationPrivacyPill: { backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 9, color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
-  ownerBioMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 18, marginTop: 8 },
-  ownerCardMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 14, position: 'relative', shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.08, shadowRadius: 30 },
+  ownerActionsMake: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  ownerBioMake: { color: 'rgba(27,28,25,0.78)', fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 18.6, marginTop: 6 },
+  ownerCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.10, shadowRadius: 30 },
   ownerCardPreviewBlur: { opacity: 0.78 },
+  ownerCardTopMake: { alignItems: 'flex-start', flexDirection: 'row', gap: 12 },
   ownerDistanceMake: { backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 9, color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
+  ownerDistancePillMake: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 9, flexDirection: 'row', flexShrink: 0, gap: 3, paddingHorizontal: 8, paddingVertical: 3 },
+  ownerDistanceTextMake: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700' },
+  ownerGhostButtonMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 6, height: 36, justifyContent: 'center', paddingHorizontal: 14 },
+  ownerGhostButtonTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
+  ownerInfoMake: { flex: 1, minWidth: 0 },
   ownerInviteHero: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
-  ownerMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, marginTop: 2 },
-  ownerPetNameMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700', letterSpacing: 0 },
+  ownerMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', marginTop: 2 },
+  ownerMiniAvatarMake: { backgroundColor: '#fff', borderColor: '#fff', borderRadius: 14, borderWidth: 2, bottom: 6, height: 28, overflow: 'hidden', position: 'absolute', right: 6, width: 28 },
+  ownerNameRowMake: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'space-between' },
+  ownerPetNameMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700', letterSpacing: 0, lineHeight: 21, minWidth: 0 },
+  ownerPetPhotoMake: { backgroundColor: '#FFEDD9', borderRadius: 18, flexShrink: 0, height: 92, overflow: 'hidden', position: 'relative', width: 92 },
+  ownerPrimaryButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 15, flexDirection: 'row', gap: 6, height: 30, justifyContent: 'center', minWidth: 78, paddingHorizontal: 12, shadowColor: palette.orange, shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.24, shadowRadius: 12 },
+  ownerPrimaryButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   ownerTagMake: { backgroundColor: palette.orangeSoft, borderRadius: 10, color: palette.orange, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4 },
   ownerTagMakeActive: { backgroundColor: palette.orange, color: '#fff' },
+  ownerTagCoolMake: { backgroundColor: 'rgba(77,182,172,0.14)', color: palette.teal },
+  ownerTagNeutralMake: { backgroundColor: '#F4EFE6', color: palette.muted },
   ownerTagRowMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 },
   pageSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, lineHeight: 21, textAlign: 'center' },
   pageTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', lineHeight: 31 },

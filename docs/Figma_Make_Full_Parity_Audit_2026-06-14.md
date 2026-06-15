@@ -66,7 +66,7 @@
 | 32 | 疫苗计划 | `renderVaccine` | 已接入-需视觉复核 | 本轮按 Screen32 收敛为暖橙渐变 Hero、40px 胶囊操作按钮、计划列表卡、状态 tag 和接种提示卡；仍需真机截图复核列表行距 |
 | 33 | 新增健康备忘 | `renderMemoNew` | 已接入-需视觉复核 | 本轮拆出独立新增备忘页，按 Screen33 补 4 等分备忘类型、52px 提醒时间行、重复选项、备注输入、提醒开关和 52px 底部 CTA |
 | 34 | 发布今日小事 | `renderDailyPost` | 已二次收敛-需截图复核 | 已按 Screen34 补宠物 chip、130px 正文卡、三格照片 strip、心情/tag chips、AI 润色卡、顶部发布入口和 56px 底部胶囊工具条；今日小事图片上传仍待后续 Figma/接口接入 |
-| 35 | 社交发现页 | `renderDiscover` | 已接入-需视觉复核 | 卡片、筛选、刷新、距离 chip 需复核 |
+| 35 | 社交发现页 | `renderDiscover` | 已二次收敛-需截图复核 | 已按 Screen35 将发现卡片改为 92px 圆角宠物照片、主人头像叠层、青绿色距离 pill、双按钮行动区，并将顶部右侧恢复为搜索/筛选图标；下拉刷新逻辑保留 |
 | 36 | 筛选无结果 | `renderDiscover` + `EmptyState` | 本轮已迁移-需视觉复核 | 已改为统一 EmptyState 并带刷新/查看全部 CTA；仍需截图对齐 Screen36 的插画层 |
 | 37 | 定位未授权 | `renderDiscover` + 权限/隐私状态 | 已接入-需视觉复核 | 本轮按 Screen37 改为红色权限 banner、模糊发现卡预览、居中授权 CTA 面板、隐私说明卡和“暂不开启 / 去设置开启”双按钮；系统定位拒绝与附近可见关闭共用结构但文案区分 |
 | 38 | 打招呼 Bottom Sheet | `renderGreetingSheet` + `sendGreeting` | 本轮已补-需视觉复核 | 已改为先弹底部面板再确认发送，需截图对齐 Screen38 |
