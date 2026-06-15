@@ -47,6 +47,7 @@ import {
   ImagePlus,
   KeyRound,
   Lock,
+  Locate,
   LogOut,
   Mail,
   MapPin,
@@ -801,6 +802,7 @@ export default function LumiiMvpApp() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [placeQuery, setPlaceQuery] = useState('');
   const placeQueryRef = useRef('');
+  const mapSearchInputRef = useRef<TextInput>(null);
   const [placeFilter, setPlaceFilter] = useState<'all' | Place['category']>('all');
   const [placeSearching, setPlaceSearching] = useState(false);
   const placeSearchingRef = useRef(false);
@@ -6636,6 +6638,17 @@ export default function LumiiMvpApp() {
       setPlaceFilter('all');
       void searchPlaces();
     };
+    const openMapManualSearch = () => {
+      mapSearchInputRef.current?.focus();
+      showToast('可以搜索城市、区域或地点名称');
+    };
+    const openMapLocationAction = () => {
+      if (permissions.location === 'blocked' || permissions.location === 'unavailable') {
+        void openPermissionSettings();
+        return;
+      }
+      void locateMapToCurrentPosition();
+    };
     return (
       <Screen showBack={false} title="">
         <View style={styles.mapPageFull}>
@@ -6688,6 +6701,7 @@ export default function LumiiMvpApp() {
               </>
             )}
             {mapSearchPanelVisible ? <View pointerEvents="none" style={styles.mapDimOverlayMake} /> : null}
+            {mapLocationError && !mapSearchPanelVisible ? <View pointerEvents="none" style={styles.mapLocationFailureVeilMake} /> : null}
             <View style={styles.mapControlStack}>
               <Pressable onPress={() => void locateMapToCurrentPosition()} style={styles.mapCtrlButton}>
                 {locatingMap ? <ActivityIndicator color={palette.orange} size="small" /> : <MapPin color={palette.orange} size={16} strokeWidth={2.4} />}
@@ -6741,6 +6755,7 @@ export default function LumiiMvpApp() {
           <View style={styles.mapSearchFloatMake}>
             <Search color={palette.muted} size={16} strokeWidth={2.2} />
             <TextInput
+              ref={mapSearchInputRef}
               onChangeText={(value) => {
                 placeQueryRef.current = value;
                 setPlaceQuery(value);
@@ -6839,6 +6854,29 @@ export default function LumiiMvpApp() {
                 ) : null}
               </ScrollView>
             </View>
+          ) : mapLocationError ? (
+            <>
+              <View style={styles.mapLocationCenterMake}>
+                <View style={styles.mapLocationCenterIconMake}>
+                  <Locate color={palette.muted} size={32} strokeWidth={2} />
+                </View>
+                <Text style={styles.mapLocationCenterTitleMake}>无法获取当前位置</Text>
+                <Text style={styles.mapLocationCenterTextMake}>
+                  可以手动搜索城市或区域{'\n'}
+                  或前往设置开启定位权限
+                </Text>
+              </View>
+              <View style={styles.mapLocationBottomActionsMake}>
+                <Pressable onPress={openMapManualSearch} style={[styles.mapLocationGhostActionMake, webPressableReset]}>
+                  <MapPin color={palette.ink} size={15} strokeWidth={2.3} />
+                  <Text style={styles.mapLocationGhostActionTextMake}>手动选地区</Text>
+                </Pressable>
+                <Pressable onPress={openMapLocationAction} style={[styles.mapLocationPrimaryActionMake, webPressableReset]}>
+                  <Navigation color="#fff" size={15} strokeWidth={2.3} />
+                  <Text style={styles.mapLocationPrimaryActionTextMake}>{permissions.location === 'blocked' || permissions.location === 'unavailable' ? '去开启定位' : '重新定位'}</Text>
+                </Pressable>
+              </View>
+            </>
           ) : (
             <>
               <ScrollView contentContainerStyle={styles.mapFilterFloatMake} horizontal showsHorizontalScrollIndicator={false} style={styles.mapFilterScrollerMake}>
@@ -10153,12 +10191,22 @@ const styles = StyleSheet.create({
   mapGreenPatchNight: { backgroundColor: '#244238', opacity: 0.88 },
   mapGreenPatchSatellite: { backgroundColor: '#385f3d', opacity: 0.9 },
   mapHero: { backgroundColor: '#eef2ec', borderRadius: 26, height: 456, marginHorizontal: -6, overflow: 'hidden', position: 'relative' },
+  mapLocationBottomActionsMake: { bottom: 132, flexDirection: 'row', gap: 8, left: 16, position: 'absolute', right: 16, zIndex: 5 },
+  mapLocationCenterIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 38, height: 76, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.16, shadowRadius: 30, width: 76 },
+  mapLocationCenterMake: { alignItems: 'center', left: 0, paddingHorizontal: 40, position: 'absolute', right: 0, top: 280, zIndex: 4 },
+  mapLocationCenterTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 21, marginTop: 8, textAlign: 'center' },
+  mapLocationCenterTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', letterSpacing: 0, lineHeight: 24, marginTop: 18, textAlign: 'center' },
   mapLocationErrorBanner: { alignItems: 'center', backgroundColor: '#fff', borderColor: 'rgba(229,87,63,0.25)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, left: 16, paddingHorizontal: 12, paddingVertical: 10, position: 'absolute', right: 16, shadowColor: '#000', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22, top: 64, zIndex: 6 },
   mapLocationErrorIcon: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.14)', borderRadius: 14, height: 28, justifyContent: 'center', width: 28 },
   mapLocationErrorRetry: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 12, flexDirection: 'row', gap: 4, minHeight: 32, paddingHorizontal: 12, paddingVertical: 7 },
   mapLocationErrorRetryText: { color: '#fff', fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
   mapLocationErrorText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, lineHeight: 15, marginTop: 1 },
   mapLocationErrorTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 17 },
+  mapLocationFailureVeilMake: { backgroundColor: 'rgba(238,242,236,0.55)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 1 },
+  mapLocationGhostActionMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 7, height: 48, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.10, shadowRadius: 22 },
+  mapLocationGhostActionTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  mapLocationPrimaryActionMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 18, flex: 1, flexDirection: 'row', gap: 7, height: 48, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.24, shadowRadius: 24 },
+  mapLocationPrimaryActionTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 14, fontWeight: '800' },
   mapMarkerMain: { alignItems: 'center', backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 999, borderWidth: 3, height: 48, justifyContent: 'center', left: '49%', position: 'absolute', top: '50%', shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.28, shadowRadius: 18, width: 48 },
   mapMarkerSmallA: { alignItems: 'center', backgroundColor: palette.card, borderColor: 'rgba(234,223,210,0.88)', borderRadius: 999, borderWidth: 1, height: 38, justifyContent: 'center', left: '25%', position: 'absolute', top: '29%', shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.12, shadowRadius: 12, width: 38 },
   mapMarkerSmallB: { alignItems: 'center', backgroundColor: palette.card, borderColor: 'rgba(234,223,210,0.88)', borderRadius: 999, borderWidth: 1, bottom: 92, height: 34, justifyContent: 'center', position: 'absolute', right: 86, shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.12, shadowRadius: 12, width: 34 },
