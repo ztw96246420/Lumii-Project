@@ -2879,7 +2879,7 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.messages.sendPetChatFeedback(messageId, rating);
       if (result.data) {
         setChatMessages((items) => items.map((item) => (item.id === messageId ? { ...item, feedback: result.data!.feedback } : item)));
-        showToast(rating === 'good' ? '已记录：这个回复像它' : '已记录：后续会让灵伴更贴近它');
+        showToast(rating === 'good' ? '已记录：这个回复像它' : '已记录：这条反馈会作为语气参考');
       } else {
         setChatFeedbackById((items) => {
           const next = { ...items };
@@ -9076,7 +9076,7 @@ export default function LumiiMvpApp() {
     const detailImageUri = pet?.avatarUrl ?? generatedGoldenAvatarUri;
     const birthdayShort = pet?.birthday ? pet.birthday.slice(0, 7).replace(/-/g, '.') : '待补充';
     const bodySize = petBodySizeLabel(pet);
-    const coatColor = '待识别';
+    const coatColor = '未记录';
     return (
       <Screen title="宠物档案">
         {pet ? (
