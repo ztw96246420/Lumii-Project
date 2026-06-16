@@ -6557,11 +6557,10 @@ export default function LumiiMvpApp() {
               <View style={styles.metaIconBox}>
                 <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
               </View>
-              <Text style={styles.memoMetaLabelMake}>日期</Text>
+              <Text style={styles.memoMetaLabelMake}>{weightEditRecord ? '记录日期' : '记录时间'}</Text>
               <Text style={styles.memoMetaValueMake}>
-                {weightEditRecord ? formatIsoDateAsFriendlyLabel(weightEditRecord.recordedAt) : formatTodayTimeLabel(weightDraftRecordedAt)}
+                {weightEditRecord ? formatCalendarDateLabel(weightEditRecord.recordedAt) : formatTodayTimeLabel(weightDraftRecordedAt)}
               </Text>
-              <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
             </View>
             <View style={styles.makeDivider} />
             <View style={styles.weightSheetNoteRow}>

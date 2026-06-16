@@ -706,7 +706,7 @@ WeightRecord[]
 ```
 
 说明：
-- App 暂不暴露删除入口；后续必须等 Figma 补齐删除二次确认后再接 UI。
+- App 已暴露体重记录删除入口，删除前必须经过二次确认弹窗。
 - 删除后 `GET /health/weights/trend` 和 `GET /health/calendar` 会基于最新列表重新计算/聚合。
 
 ### GET `/health/vaccines`
