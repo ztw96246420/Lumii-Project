@@ -5511,6 +5511,72 @@ export default function LumiiMvpApp() {
         : `我先看下时间，晚点再确认这个约遛邀请：${invite.time}，${invite.place}。`;
       void sendConversationMessage(reply);
     };
+    const openWalkInviteFromConversation = () => {
+      if (!conversation || !canSendMessage) {
+        showToast('对方接受招呼后才能发起约遛');
+        return;
+      }
+      const ownerId = conversation.ownerId;
+      const ownerNameSuffix = conversation.petName ? `和${conversation.petName}` : '';
+      const ownerNameFromConversation =
+        ownerNameSuffix && conversation.name.endsWith(ownerNameSuffix)
+          ? conversation.name.slice(0, -ownerNameSuffix.length) || conversation.name
+          : conversation.name;
+      const owner =
+        ownersRef.current.find((item) => item.id === ownerId) ??
+        greetingRequestOwnersRef.current.find((item) => item.id === ownerId) ??
+        (ownerId
+          ? {
+            distance: '模糊距离',
+            id: ownerId,
+            imageUrl: conversation.imageUrl,
+            ownerName: ownerNameFromConversation,
+            petName: conversation.petName ?? conversation.name,
+            species: 'dog' as const,
+            tags: ['可约遛'],
+          }
+          : null);
+      if (!owner) {
+        showToast('暂时无法识别对方资料，请回发现页重新选择伙伴');
+        return;
+      }
+      selectedOwnerIdRef.current = owner.id;
+      setSelectedOwner(owner);
+      setWalkInviteTime(defaultWalkInviteTime());
+      setWalkInvitePlace('滨江绿地');
+      setWalkInviteNote('');
+      go('walkInvite');
+    };
+    const sendPetCardFromConversation = () => {
+      if (!conversation || !canSendMessage) {
+        showToast('对方接受招呼后才能发送宠物卡');
+        return;
+      }
+      const pet = getCurrentPet();
+      if (!pet) {
+        showToast('请先添加宠物档案');
+        return;
+      }
+      const petCard = [
+        `这是${pet.name}的小资料：`,
+        `品种：${pet.breed || speciesLabels[pet.species]}`,
+        pet.weightKg ? `体重：${formatWeightKg(pet.weightKg)}` : '',
+        pet.birthday ? `年龄：${formatPetAge(pet.birthday)}` : '',
+        pet.personality.length ? `性格：${pet.personality.join('、')}` : '',
+      ].filter(Boolean).join('\n');
+      void sendConversationMessage(petCard);
+    };
+    const handleConversationAttachment = (label: string) => {
+      if (label === '约遛') {
+        openWalkInviteFromConversation();
+        return;
+      }
+      if (label === '宠物卡') {
+        sendPetCardFromConversation();
+        return;
+      }
+      showToast(`${label}发送需要补齐消息类型，已记录到缺失清单`);
+    };
     return (
       <Screen showBack={false} title="">
         <View style={styles.chatPageMake}>
@@ -5662,7 +5728,7 @@ export default function LumiiMvpApp() {
                 { Icon: CalendarDays, label: '约遛' },
                 { Icon: ImagePlus, label: '相册' },
               ].map(({ Icon, label }) => (
-                <Pressable key={label} onPress={() => showToast(`${label}发送后续开放`)} style={[styles.chatAttachmentChipMake, webPressableReset]}>
+                <Pressable key={label} onPress={() => handleConversationAttachment(label)} style={[styles.chatAttachmentChipMake, webPressableReset]}>
                   <Icon color={palette.ink} size={12} strokeWidth={2.3} />
                   <Text style={styles.chatAttachmentTextMake}>{label}</Text>
                 </Pressable>
