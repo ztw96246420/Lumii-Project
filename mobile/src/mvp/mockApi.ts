@@ -2001,12 +2001,12 @@ export const mockApi = {
   },
 
   places: {
-    async listNearbyPlaces(): Promise<ApiResult<Place[]>> {
+    async listNearbyPlaces(_location?: NearbyLocationHint): Promise<ApiResult<Place[]>> {
       await wait(180);
       return success(places);
     },
 
-    async searchPlaces(query: string): Promise<ApiResult<Place[]>> {
+    async searchPlaces(query: string, _location?: NearbyLocationHint): Promise<ApiResult<Place[]>> {
       await wait(180);
       const normalized = query.trim();
       return success(normalized ? places.filter((place) => matchesPlaceSearch(place, normalized)) : places);

@@ -73,6 +73,11 @@ export function setLumiiAuthToken(token?: string) {
   authToken = nextToken;
 }
 
+function nearbyLocationQuery(location?: NearbyLocationHint) {
+  if (!location) return '';
+  return `lat=${encodeURIComponent(location.latitude)}&lng=${encodeURIComponent(location.longitude)}&radiusKm=${encodeURIComponent(location.radiusKm ?? 3)}${location.accuracy ? `&accuracy=${encodeURIComponent(location.accuracy)}` : ''}`;
+}
+
 function createHttpApi(baseUrl: string): LumiiApi {
   return {
     ai: {
@@ -314,9 +319,8 @@ function createHttpApi(baseUrl: string): LumiiApi {
 
     social: {
       async listNearbyOwners(location?: NearbyLocationHint): Promise<ApiResult<NearbyOwner[]>> {
-        const query = location
-          ? `?lat=${encodeURIComponent(location.latitude)}&lng=${encodeURIComponent(location.longitude)}&radiusKm=${encodeURIComponent(location.radiusKm ?? 3)}${location.accuracy ? `&accuracy=${encodeURIComponent(location.accuracy)}` : ''}`
-          : '';
+        const locationQuery = nearbyLocationQuery(location);
+        const query = locationQuery ? `?${locationQuery}` : '';
         return request<NearbyOwner[]>('GET', `/social/discover${query}`);
       },
 
@@ -384,12 +388,15 @@ function createHttpApi(baseUrl: string): LumiiApi {
     },
 
     places: {
-      async listNearbyPlaces(): Promise<ApiResult<Place[]>> {
-        return request<Place[]>('GET', '/places/nearby');
+      async listNearbyPlaces(location?: NearbyLocationHint): Promise<ApiResult<Place[]>> {
+        const locationQuery = nearbyLocationQuery(location);
+        return request<Place[]>('GET', `/places/nearby${locationQuery ? `?${locationQuery}` : ''}`);
       },
 
-      async searchPlaces(query: string): Promise<ApiResult<Place[]>> {
-        return request<Place[]>('GET', `/places/search?q=${encodeURIComponent(query)}`);
+      async searchPlaces(query: string, location?: NearbyLocationHint): Promise<ApiResult<Place[]>> {
+        const locationQuery = nearbyLocationQuery(location);
+        const params = [`q=${encodeURIComponent(query)}`, locationQuery].filter(Boolean).join('&');
+        return request<Place[]>('GET', `/places/search?${params}`);
       },
 
       async getPlace(placeId: string): Promise<ApiResult<Place>> {

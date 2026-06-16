@@ -27,6 +27,7 @@
 | --- | --- | --- |
 | [PRD_v0.md](./PRD_v0.md) | 当前主文档 | 产品定位、MVP 范围、核心闭环、风险 |
 | [Development_Roadmap_v0.md](./Development_Roadmap_v0.md) | 当前路线 + 历史假设 | 技术路线、阶段规划、数据模型草案 |
+| [Place_Data_Source_Strategy_2026-06-16.md](./Place_Data_Source_Strategy_2026-06-16.md) | 当前策略 | 地图 POI 打底、Lumii 宠物友好层、用户共建与高德 Web 服务接入 |
 | [AI_Feature_Design_v0.md](./AI_Feature_Design_v0.md) | 参考 | AI 形象、AI 对话、健康 AI、社交 AI 方向 |
 | [Visual_Style_Guide_v0.md](./Visual_Style_Guide_v0.md) | 参考 | 真实卡通化风格、宠物形象提示词、视觉基调 |
 

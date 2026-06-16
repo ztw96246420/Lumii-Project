@@ -1087,6 +1087,16 @@ type Place = {
 };
 ```
 
+地点数据源策略：
+
+- 当前 MVP 测试后端仍使用 seed 地点数据。
+- 生产策略已确认采用“地图 POI 打底 + Lumii 自有宠物友好层”。
+- App 只调用 Lumii 后端接口，不直接调用高德 Web 服务。
+- 后端负责调用高德 POI 周边搜索/关键字搜索，并把 POI 标准化为 Lumii `Place`。
+- 后端再叠加 Lumii 自有的宠物友好标签、猫狗支持、点评、审核和收藏数据。
+- 生产扩展时可在不破坏当前字段的前提下增加 `source`、`sourcePoiId`、`latitude`、`longitude`、`petFriendlyStatus` 等字段。
+- 详细策略见 [Place_Data_Source_Strategy_2026-06-16.md](./Place_Data_Source_Strategy_2026-06-16.md)。
+
 ### GET `/places/nearby`
 
 附近宠物友好地点。
@@ -1307,6 +1317,6 @@ LegalDocument
 - ~~鉴权 token 刷新机制和 401 处理。~~ MVP 测试后端已支持签名登录态 token、`POST /auth/token/refresh`、`POST /auth/logout` 当前 token 撤销和 401 回登录处理；生产 access/refresh token、多端设备管理和安全审计仍待正式后端方案确认。
 - ~~短信频控规则：单手机号、单 IP、单设备、每日上限。~~ 当前测试后端已做单手机号 60s 冷却、单手机号每日上限、单设备每日上限、单 IP 每日上限和验证码输错次数限制；生产仍需补真实随机验证码、短信服务商回执、黑名单/WAF/验证码风控平台等更完整策略。
 - ~~上传图片基础限制：图片大小、格式、base64 合法性、图片文件头校验。~~ MVP 测试后端已支持 jpg/png/webp/heic/heif、默认 9MB 解码文件上限和损坏文件拦截；视频时长、对象存储直传、自动压缩、EXIF 清理和真实视觉识别模型仍待生产方案确认。
-- ~~地图供应商：已确认 MVP 首发优先高德地图。~~ Android 高德 Key 与 SDK 已接入；仍需确认 POI 数据来源、自有地点库边界、iOS Key/SDK 和外部导航规则。
+- ~~地图供应商：已确认 MVP 首发优先高德地图。~~ Android 高德 Key 与 SDK 已接入；POI 数据来源/自有地点库边界已确认采用 POI 打底 + Lumii 自有宠物友好层；仍需高德 Web 服务 Key、iOS Key/SDK 和外部导航规则。
 - AI 形象生成任务的完整状态：排队、分析、生成、成功、失败、过期。
 - AI 对话内容安全和医疗建议边界。

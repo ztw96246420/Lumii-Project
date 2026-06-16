@@ -356,9 +356,14 @@ export type Place = {
   category: 'cafe' | 'clinic' | 'other' | 'park';
   distance: string;
   id: string;
+  latitude?: number;
+  longitude?: number;
   name: string;
+  petFriendlyStatus?: 'candidate' | 'rejected' | 'unknown' | 'verified';
   rating: number;
   reviewCount?: number;
+  source?: 'amap' | 'manual' | 'seed' | 'tencent';
+  sourcePoiId?: string;
   supportedSpecies?: Array<Extract<PetSpecies, 'cat' | 'dog'>>;
   tags: string[];
 };

@@ -943,6 +943,7 @@ export default function LumiiMvpApp() {
   const [amapNavigationPlace, setAmapNavigationPlace] = useState<Place | null>(null);
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [sessionBootstrapping, setSessionBootstrapping] = useState(true);
+  const [bootPetAvatarUri, setBootPetAvatarUri] = useState<string | null>(null);
 
   const [phone, setPhone] = useState('');
   const [phoneFocused, setPhoneFocused] = useState(false);
@@ -1302,6 +1303,7 @@ export default function LumiiMvpApp() {
         const persistedSession = await loadPersistedLumiiSession();
         if (!mounted) return;
         if (persistedSession) {
+          setBootPetAvatarUri(persistedSession.account?.activePet?.avatarUrl ?? null);
           setLumiiAuthToken(persistedSession.token);
           const refreshedSession = await lumiiApi.auth.refreshSession(persistedSession);
           if (!mounted) return;
@@ -1399,15 +1401,18 @@ export default function LumiiMvpApp() {
   }, [selectedOwner?.id]);
 
   useEffect(() => {
+    setBootPetAvatarUri(activePet?.avatarUrl ?? null);
     setSession((current) => {
       if (!current?.account || arePetSnapshotsEqual(current.account.activePet, activePet)) return current;
-      return {
+      const nextSession = {
         ...current,
         account: {
           ...current.account,
           activePet,
         },
       };
+      void savePersistedLumiiSession(nextSession);
+      return nextSession;
     });
   }, [activePet]);
 
@@ -2217,6 +2222,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = nextSession.token;
     setLumiiAuthToken(nextSession.token);
     sessionTokenRef.current = nextSession.token;
+    setBootPetAvatarUri(nextSession.account?.activePet?.avatarUrl ?? null);
     setSession(nextSession);
     setHistory([]);
 
@@ -2247,6 +2253,7 @@ export default function LumiiMvpApp() {
     }
 
     const restoredPet = account?.activePet ?? petResult.data?.[0] ?? getActivePetFallback();
+    setBootPetAvatarUri(restoredPet?.avatarUrl ?? null);
     const permissionFlowDone = Boolean(account?.permissionsOnboardingCompleted || allLumiiPermissionsGranted(latestPermissions));
     const restoredSession: AuthSession = account
       ? {
@@ -4141,7 +4148,7 @@ export default function LumiiMvpApp() {
     }
   }
 
-  async function searchPlaces(options: { filter?: 'all' | Place['category']; speciesFilter?: PlaceSpeciesFilter } = {}) {
+  async function searchPlaces(options: { filter?: 'all' | Place['category']; location?: NearbyLocationHint | null; silent?: boolean; speciesFilter?: PlaceSpeciesFilter } = {}) {
     if (placeSearchingRef.current) return;
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
@@ -4153,7 +4160,8 @@ export default function LumiiMvpApp() {
     setPlaceFilter(nextFilter);
     setPlaceSpeciesFilter(nextSpeciesFilter);
     try {
-      const result = query ? await lumiiApi.places.searchPlaces(query) : await lumiiApi.places.listNearbyPlaces();
+      const location = options.location ?? lastDiscoverLocationRef.current ?? undefined;
+      const result = query ? await lumiiApi.places.searchPlaces(query, location) : await lumiiApi.places.listNearbyPlaces(location);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (placeQueryRef.current.trim() !== query) return;
       if (result.data) {
@@ -4165,7 +4173,7 @@ export default function LumiiMvpApp() {
           placeSortMode,
         );
         setSelectedPlace((current) => visibleNextPlaces.find((place) => place.id === current?.id) ?? visibleNextPlaces[0] ?? nextPlaces[0] ?? null);
-        showToast(query ? (visibleNextPlaces.length ? `找到 ${visibleNextPlaces.length} 个地点` : '没有匹配地点') : '已刷新附近地点');
+        if (!options.silent) showToast(query ? (visibleNextPlaces.length ? `找到 ${visibleNextPlaces.length} 个地点` : '没有匹配地点') : '已刷新附近地点');
       } else {
         showToast(result.error?.message ?? '搜索失败，请稍后重试');
       }
@@ -4366,13 +4374,15 @@ export default function LumiiMvpApp() {
 
       if (!isLumiiAmapAvailable) {
         if (sessionTokenRef.current !== requestSessionToken) return;
-        lastDiscoverLocationRef.current = {
+        const fallbackLocation = {
           latitude: defaultMapCenter.latitude,
           longitude: defaultMapCenter.longitude,
           radiusKm: defaultDiscoverRadiusKm,
         };
+        lastDiscoverLocationRef.current = fallbackLocation;
         setMapCenter(defaultMapCenter);
         setMapLocationError('');
+        void searchPlaces({ location: fallbackLocation, silent: true });
         if (!options.silent) showToast('当前预览环境使用模拟地图，真机将调用高德定位');
         return;
       }
@@ -4384,12 +4394,13 @@ export default function LumiiMvpApp() {
       );
       if (sessionTokenRef.current !== requestSessionToken) return;
       const accuracy = location.accuracy ? Math.round(location.accuracy) : undefined;
-      lastDiscoverLocationRef.current = {
+      const locationHint = {
         accuracy: location.accuracy,
         latitude: location.latitude,
         longitude: location.longitude,
         radiusKm: defaultDiscoverRadiusKm,
       };
+      lastDiscoverLocationRef.current = locationHint;
       setMapCenter({
         latitude: location.latitude,
         longitude: location.longitude,
@@ -4398,6 +4409,7 @@ export default function LumiiMvpApp() {
         zoom: accuracy && accuracy > 500 ? 15 : 16,
       });
       setMapLocationError('');
+      void searchPlaces({ location: locationHint, silent: options.silent });
       if (!options.silent) showToast(accuracy ? `已定位，精度约 ${accuracy} 米` : '已定位到当前位置');
     } catch (error) {
       if (sessionTokenRef.current !== requestSessionToken) return;
@@ -4810,6 +4822,7 @@ export default function LumiiMvpApp() {
     setAmapNavigationPlace(null);
     setToast(null);
     setSession(null);
+    setBootPetAvatarUri(null);
     activePetIdRef.current = null;
     setActivePet(null);
     setPets([]);
@@ -5206,9 +5219,10 @@ export default function LumiiMvpApp() {
   }
 
   function renderSessionBootstrapping() {
+    const bootAvatarUri = bootPetAvatarUri ?? activePet?.avatarUrl ?? session?.account?.activePet?.avatarUrl ?? null;
     return (
       <View style={styles.bootPage}>
-        <PetAvatar size={96} uri={generatedGoldenAvatarUri} />
+        {bootAvatarUri ? <PetAvatar size={96} uri={bootAvatarUri} /> : <Mascot size={96} />}
         <ActivityIndicator color={palette.orange} size="small" />
         <Text style={styles.bootText}>正在进入灵伴</Text>
       </View>
@@ -10528,7 +10542,11 @@ function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
 
   return (
     <View style={[styles.petAvatar, { borderRadius: size / 2, height: size, width: size }]}>
-      {remoteUri ? <Image resizeMode="cover" source={generatedGoldenAvatarSource} style={styles.avatarImage} /> : null}
+      {remoteUri ? (
+        <View style={styles.avatarPlaceholder}>
+          <PawPrint color="#8a5226" size={Math.max(18, size * 0.34)} strokeWidth={2.4} />
+        </View>
+      ) : null}
       <Image
         onError={() => setLoading(false)}
         onLoadEnd={() => setLoading(false)}
@@ -11025,6 +11043,7 @@ const styles = StyleSheet.create({
   avatarLoadingOverlay: { alignItems: 'center', backgroundColor: 'rgba(251,247,241,0.58)', bottom: 0, justifyContent: 'center', left: 0, overflow: 'hidden', position: 'absolute', right: 0, top: 0 },
   avatarLoadingSkeleton: { left: 0, opacity: 0.82, position: 'absolute', top: 0 },
   avatarLoadingSpinner: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.72)', borderRadius: 16, height: 32, justifyContent: 'center', width: 32 },
+  avatarPlaceholder: { alignItems: 'center', backgroundColor: '#f6dfbf', height: '100%', justifyContent: 'center', width: '100%' },
   bootPage: { alignItems: 'center', flex: 1, gap: 16, justifyContent: 'center', paddingHorizontal: 32 },
   bootText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
   bottomAction: { gap: 10, marginTop: 20 },
@@ -11613,7 +11632,7 @@ const styles = StyleSheet.create({
   homeBellDot: { backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 4, borderWidth: 1.5, height: 7, position: 'absolute', right: 9, top: 8, width: 7 },
   homeChatHint: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, elevation: 0, justifyContent: 'center', maxWidth: 320, minHeight: 42, paddingHorizontal: 18, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.08, shadowRadius: 18, width: '84%' },
   homeChatHintText: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 18, textAlign: 'center' },
-  homeChatHintWrap: { alignItems: 'center', marginBottom: 2, marginTop: 34, position: 'relative', width: '100%', zIndex: 1 },
+  homeChatHintWrap: { alignItems: 'center', marginBottom: 2, marginTop: 12, position: 'relative', width: '100%', zIndex: 1 },
   homeHealthCard: { alignItems: 'center', backgroundColor: '#ffe3cb', borderColor: 'rgba(255,255,255,0.7)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', marginTop: 14, paddingHorizontal: 18, paddingVertical: 16, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
   homeHealthDelta: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.22)', borderRadius: 10, flexDirection: 'row', gap: 2, marginLeft: 6, paddingHorizontal: 8, paddingVertical: 3 },
   homeHealthDeltaText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
@@ -11635,12 +11654,12 @@ const styles = StyleSheet.create({
   homeOnlineText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
   homePetAvatarShell: { alignItems: 'center', backgroundColor: '#FFEDD9', borderColor: '#fff', borderRadius: 112, borderWidth: 4, height: 224, justifyContent: 'center', overflow: 'hidden', shadowColor: '#b46e3c', shadowOffset: { height: 28, width: 0 }, shadowOpacity: 0.26, shadowRadius: 56, width: 224, zIndex: 2 },
   homePetGlow: { backgroundColor: 'rgba(255,138,92,0.20)', borderRadius: 148, height: 296, position: 'absolute', width: 296 },
-  homePetIdentityBlock: { alignItems: 'center', marginTop: 18, position: 'relative', zIndex: 5 },
+  homePetIdentityBlock: { alignItems: 'center', marginTop: 4, position: 'relative', zIndex: 5 },
   homePetRing: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'conic-gradient(from 210deg, rgba(255,138,92,0.42), rgba(77,182,172,0.38), rgba(255,200,140,0.42), rgba(255,138,92,0.42))' } as object) : null), backgroundColor: 'rgba(255,138,92,0.12)', borderRadius: 122, height: 244, opacity: 0.86, position: 'absolute', width: 244, zIndex: 1 },
   homePetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
   homePetName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 27 },
   homePetNameRow: { alignItems: 'center', flexDirection: 'row', gap: 2, justifyContent: 'center' },
-  homePetStage: { alignItems: 'center', height: 352, justifyContent: 'center', marginBottom: 22, marginTop: 12, position: 'relative', zIndex: 2 },
+  homePetStage: { alignItems: 'center', height: 304, justifyContent: 'center', marginBottom: 6, marginTop: 8, position: 'relative', zIndex: 2 },
   homeQuickGrid: { columnGap: 12, flexDirection: 'row', flexWrap: 'wrap', marginTop: 12, rowGap: 12 },
   homeStoryIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 12, height: 38, justifyContent: 'center', width: 38 },
   homeStoryStrip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 10, paddingHorizontal: 14, paddingVertical: 9, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },

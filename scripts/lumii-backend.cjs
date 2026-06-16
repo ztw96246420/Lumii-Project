@@ -18,6 +18,16 @@ const DEFAULT_DISCOVER_RADIUS_KM = 3;
 const FUZZY_LOCATION_GRID_DEGREES = 0.01;
 const FUZZY_LOCATION_MIN_ACCURACY_METERS = 1000;
 const MAX_ACCURACY_BUFFER_KM = 2;
+const AMAP_WEB_SERVICE_KEY = process.env.AMAP_WEB_SERVICE_KEY || '';
+const AMAP_WEB_SERVICE_BASE_URL = (process.env.AMAP_WEB_SERVICE_BASE_URL || 'https://restapi.amap.com').replace(/\/+$/, '');
+const AMAP_POI_TIMEOUT_MS = Number(process.env.AMAP_POI_TIMEOUT_MS || '8000');
+const AMAP_POI_CACHE_TTL_MS = Number(process.env.AMAP_POI_CACHE_TTL_MS || 10 * 60 * 1000);
+const AMAP_POI_PAGE_SIZE = Math.min(25, Math.max(1, Number(process.env.AMAP_POI_PAGE_SIZE || '20') || 20));
+const AMAP_POI_MAX_RESULTS = Math.min(80, Math.max(10, Number(process.env.AMAP_POI_MAX_RESULTS || '50') || 50));
+const AMAP_PLACE_KEYWORD_GROUPS = [
+  '宠物医院|动物医院|宠物诊所|宠物店|宠物美容|宠物寄养',
+  '宠物友好|猫咖|狗咖|宠物咖啡|公园|绿地',
+];
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/+$/, '');
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
@@ -339,6 +349,7 @@ function loadState() {
 }
 
 let state = loadState();
+const amapPoiCache = new Map();
 
 function saveState() {
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
@@ -922,6 +933,252 @@ function setFavoritePlace(user, placeId, favorite) {
 function matchesPlaceSearch(place, query) {
   const searchableText = [place.name, place.address, place.category, ...(place.tags || [])].join(' ');
   return searchableText.includes(query);
+}
+
+function clampPlaceRadiusKm(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return DEFAULT_DISCOVER_RADIUS_KM;
+  return Math.min(5, Math.max(0.5, numeric));
+}
+
+function placeLocationFromQuery(url, user) {
+  const location = locationFromQuery(url);
+  if (location) {
+    return {
+      ...location,
+      radiusKm: clampPlaceRadiusKm(location.radiusKm),
+    };
+  }
+  if (!user?.location) return null;
+  return {
+    ...user.location,
+    radiusKm: clampPlaceRadiusKm(url.searchParams.get('radiusKm') || user.location.radiusKm || DEFAULT_DISCOVER_RADIUS_KM),
+  };
+}
+
+function compactText(value) {
+  if (Array.isArray(value)) return value.map(compactText).filter(Boolean).join(' ');
+  return String(value ?? '').trim();
+}
+
+function formatDistanceMeters(meters) {
+  const numeric = Number(meters);
+  if (!Number.isFinite(numeric) || numeric < 0) return '附近';
+  if (numeric < 1000) return `${Math.max(1, Math.round(numeric))}m`;
+  return `${(numeric / 1000).toFixed(numeric < 10000 ? 1 : 0).replace(/\.0$/, '')}km`;
+}
+
+function placeDistanceMeters(place) {
+  const value = compactText(place?.distance);
+  const match = value.match(/([\d.]+)\s*(km|公里|m|米)?/i);
+  if (!match) return Number.POSITIVE_INFINITY;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) return Number.POSITIVE_INFINITY;
+  const unit = (match[2] || 'm').toLowerCase();
+  return unit === 'km' || unit === '公里' ? amount * 1000 : amount;
+}
+
+function inferAmapPlaceCategory(poi) {
+  const nameTypeText = [poi.name, poi.type, poi.typecode].map(compactText).join(' ');
+  const text = [nameTypeText, poi.address].map(compactText).join(' ');
+  if (/(宠物医院|动物医院|宠物诊所|兽医|医疗|医院|诊所)/u.test(text)) return 'clinic';
+  if (/(宠物店|宠物用品|宠物食品|宠物美容|宠物寄养|爬宠|猫舍|犬舍|萌宠|宠物生活馆)/u.test(text)) return 'other';
+  if (/(公园|绿地|景区|风景名胜|游园)/u.test(nameTypeText)) return 'park';
+  if (/(猫咖|狗咖|宠物咖啡|宠物友好|萌宠咖啡|咖啡|餐厅|餐饮|茶|商场|购物中心|甜品|烘焙)/u.test(nameTypeText)) return 'cafe';
+  return 'other';
+}
+
+function isRelevantAmapPoi(poi) {
+  const nameTypeText = [poi.name, poi.type, poi.typecode].map(compactText).join(' ');
+  const text = [nameTypeText, poi.address].map(compactText).join(' ');
+  if (/(宠物|动物医院|宠物医院|宠物诊所|兽医|宠物店|宠物用品|宠物食品|宠物美容|宠物寄养|猫咖|狗咖|猫舍|犬舍|爬宠|萌宠|喵)/u.test(text)) {
+    return true;
+  }
+  if (/(公园|绿地|景区|风景名胜|游园)/u.test(nameTypeText) && !/(餐饮|快餐|小吃|购物|商场|便利店|酒店)/u.test(nameTypeText)) {
+    return true;
+  }
+  return false;
+}
+
+function inferAmapSupportedSpecies(poi, category) {
+  const text = [poi.name, poi.type, poi.address].map(compactText).join(' ');
+  const species = new Set();
+  if (/(猫|喵|猫咖|猫咪|cat)/iu.test(text)) species.add('cat');
+  if (/(狗|犬|汪|dog|canine)/iu.test(text)) species.add('dog');
+  if (/(宠物|动物医院|宠物医院|兽医|宠物店|宠物美容|宠物寄养)/u.test(text)) {
+    species.add('cat');
+    species.add('dog');
+  }
+  if (category === 'clinic') {
+    species.add('cat');
+    species.add('dog');
+  }
+  if (category === 'park') {
+    species.add('dog');
+  }
+  return Array.from(species).filter((item) => item === 'cat' || item === 'dog');
+}
+
+function inferAmapPlaceTags(poi, category, supportedSpecies) {
+  const tags = new Set();
+  if (category === 'clinic') {
+    tags.add('就医');
+    tags.add('疫苗');
+  } else if (category === 'park') {
+    tags.add('可遛区域');
+    tags.add('待社区确认');
+  } else if (category === 'cafe') {
+    tags.add('宠物友好候选');
+    tags.add('待社区确认');
+  } else {
+    tags.add('POI候选');
+    tags.add('待社区确认');
+  }
+  if (supportedSpecies.includes('cat')) tags.add('喵星友好');
+  if (supportedSpecies.includes('dog')) tags.add('汪星友好');
+  return Array.from(tags);
+}
+
+function amapPoiLocation(poi) {
+  const raw = compactText(poi.location);
+  const [longitudeText, latitudeText] = raw.split(',');
+  const longitude = Number(longitudeText);
+  const latitude = Number(latitudeText);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+  return { latitude, longitude };
+}
+
+function amapPoiDistanceMeters(poi, viewerLocation, poiLocation) {
+  const explicit = Number(poi.distance);
+  if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+  const distanceKm = distanceKmBetween(viewerLocation, poiLocation);
+  return distanceKm === null || distanceKm === undefined ? null : distanceKm * 1000;
+}
+
+function amapPoiToPlace(poi, viewerLocation) {
+  if (!isRelevantAmapPoi(poi)) return null;
+  const sourcePoiId = compactText(poi.id);
+  const name = compactText(poi.name);
+  if (!sourcePoiId || !name) return null;
+  const poiLocation = amapPoiLocation(poi);
+  const category = inferAmapPlaceCategory(poi);
+  const supportedSpecies = inferAmapSupportedSpecies(poi, category);
+  const distanceMeters = amapPoiDistanceMeters(poi, viewerLocation, poiLocation);
+  return {
+    address: compactText(poi.address) || [poi.pname, poi.cityname, poi.adname].map(compactText).filter(Boolean).join('') || '地址待补充',
+    category,
+    distance: formatDistanceMeters(distanceMeters),
+    id: `amap-${sourcePoiId}`,
+    latitude: poiLocation?.latitude,
+    longitude: poiLocation?.longitude,
+    name,
+    petFriendlyStatus: supportedSpecies.length ? 'candidate' : 'unknown',
+    rating: 0,
+    reviewCount: 0,
+    source: 'amap',
+    sourcePoiId,
+    supportedSpecies,
+    tags: inferAmapPlaceTags(poi, category, supportedSpecies),
+  };
+}
+
+function mergeTagLists(...lists) {
+  return Array.from(new Set(lists.flatMap((items) => (Array.isArray(items) ? items : [])).map(String).filter(Boolean)));
+}
+
+function findStoredPlaceIndex(place) {
+  const places = state.places || [];
+  return places.findIndex((item) => {
+    if (item.id === place.id) return true;
+    if (item.sourcePoiId && place.sourcePoiId && item.sourcePoiId === place.sourcePoiId) return true;
+    return normalizePlaceDuplicateText(item.name) === normalizePlaceDuplicateText(place.name) && normalizePlaceDuplicateText(item.address) === normalizePlaceDuplicateText(place.address);
+  });
+}
+
+function upsertExternalPlacesForResponse(places) {
+  state.places = Array.isArray(state.places) ? state.places : [];
+  let changed = false;
+  const responsePlaces = [];
+  for (const place of places) {
+    const index = findStoredPlaceIndex(place);
+    if (index >= 0) {
+      const existing = state.places[index];
+      const merged = {
+        ...existing,
+        ...place,
+        petFriendlyStatus: existing.petFriendlyStatus ?? place.petFriendlyStatus,
+        rating: Number(existing.rating) > 0 ? existing.rating : place.rating,
+        reviewCount: Math.max(Number(existing.reviewCount || 0), Number(place.reviewCount || 0)),
+        supportedSpecies: Array.isArray(existing.supportedSpecies) && existing.supportedSpecies.length ? existing.supportedSpecies : place.supportedSpecies,
+        tags: mergeTagLists(place.tags, existing.tags),
+      };
+      state.places[index] = merged;
+      responsePlaces.push(merged);
+      changed = true;
+    } else {
+      state.places.push(place);
+      responsePlaces.push(place);
+      changed = true;
+    }
+  }
+  return { changed, places: responsePlaces };
+}
+
+function amapCacheKey({ location, query, radiusKm }) {
+  const latitude = Number(location.latitude).toFixed(3);
+  const longitude = Number(location.longitude).toFixed(3);
+  return [latitude, longitude, clampPlaceRadiusKm(radiusKm).toFixed(1), query || 'nearby'].join('|');
+}
+
+async function fetchAmapAroundPois({ keywords, location, radiusKm }) {
+  if (!AMAP_WEB_SERVICE_KEY || !location || typeof fetch !== 'function') return [];
+  const url = new URL(`${AMAP_WEB_SERVICE_BASE_URL}/v5/place/around`);
+  url.searchParams.set('key', AMAP_WEB_SERVICE_KEY);
+  url.searchParams.set('location', `${location.longitude},${location.latitude}`);
+  url.searchParams.set('radius', String(Math.round(clampPlaceRadiusKm(radiusKm) * 1000)));
+  url.searchParams.set('page_size', String(AMAP_POI_PAGE_SIZE));
+  url.searchParams.set('show_fields', 'business');
+  if (keywords) url.searchParams.set('keywords', keywords);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AMAP_POI_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    const payload = await response.json();
+    if (payload?.status !== '1') {
+      console.warn(`[amap] place around failed: ${payload?.info || 'UNKNOWN'} ${payload?.infocode || ''}`.trim());
+      return [];
+    }
+    return Array.isArray(payload.pois) ? payload.pois : [];
+  } catch (error) {
+    console.warn(`[amap] place around request failed: ${error instanceof Error ? error.message : 'UNKNOWN_ERROR'}`);
+    return [];
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function fetchAmapPlaces({ location, query = '', radiusKm = DEFAULT_DISCOVER_RADIUS_KM }) {
+  if (!AMAP_WEB_SERVICE_KEY || !location) return [];
+  const normalizedQuery = String(query || '').trim();
+  const cacheKey = amapCacheKey({ location, query: normalizedQuery, radiusKm });
+  const cached = amapPoiCache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < AMAP_POI_CACHE_TTL_MS) return cached.places;
+
+  const keywordGroups = normalizedQuery ? [normalizedQuery] : AMAP_PLACE_KEYWORD_GROUPS;
+  const poiGroups = await Promise.all(keywordGroups.map((keywords) => fetchAmapAroundPois({ keywords, location, radiusKm })));
+  const placesById = new Map();
+  for (const poi of poiGroups.flat()) {
+    const place = amapPoiToPlace(poi, location);
+    if (!place) continue;
+    if (!placesById.has(place.id)) placesById.set(place.id, place);
+  }
+  const places = Array.from(placesById.values())
+    .sort((left, right) => placeDistanceMeters(left) - placeDistanceMeters(right))
+    .slice(0, AMAP_POI_MAX_RESULTS);
+  amapPoiCache.set(cacheKey, { createdAt: Date.now(), places });
+  return places;
 }
 
 function publicPlaceContentViolation(label, value, maxLength) {
@@ -4127,6 +4384,15 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/places/nearby') {
+    const location = placeLocationFromQuery(url, user);
+    const radiusKm = clampPlaceRadiusKm(location?.radiusKm || url.searchParams.get('radiusKm') || DEFAULT_DISCOVER_RADIUS_KM);
+    const amapPlaces = await fetchAmapPlaces({ location, radiusKm });
+    if (amapPlaces.length) {
+      const upserted = upsertExternalPlacesForResponse(amapPlaces);
+      if (upserted.changed) saveState();
+      ok(res, placesForResponse(upserted.places));
+      return;
+    }
     ok(res, placesForResponse(state.places));
     return;
   }
@@ -4151,6 +4417,17 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/places/search') {
     const query = String(url.searchParams.get('q') || '').trim();
+    const location = placeLocationFromQuery(url, user);
+    const radiusKm = clampPlaceRadiusKm(location?.radiusKm || url.searchParams.get('radiusKm') || DEFAULT_DISCOVER_RADIUS_KM);
+    const amapPlaces = query ? await fetchAmapPlaces({ location, query, radiusKm }) : await fetchAmapPlaces({ location, radiusKm });
+    if (amapPlaces.length) {
+      const upserted = upsertExternalPlacesForResponse(amapPlaces);
+      if (upserted.changed) saveState();
+      const seenIds = new Set(upserted.places.map((place) => place.id));
+      const localMatches = (query ? state.places.filter((place) => matchesPlaceSearch(place, query)) : state.places).filter((place) => !seenIds.has(place.id));
+      ok(res, placesForResponse([...upserted.places, ...localMatches].slice(0, AMAP_POI_MAX_RESULTS)));
+      return;
+    }
     const matchedPlaces = query ? state.places.filter((place) => matchesPlaceSearch(place, query)) : state.places;
     ok(res, placesForResponse(matchedPlaces));
     return;
