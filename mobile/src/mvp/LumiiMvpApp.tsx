@@ -53,7 +53,6 @@ import {
   MapPin,
   MessageCircle,
   Mic,
-  MoreHorizontal,
   Navigation,
   NotebookPen,
   PawPrint,
@@ -6163,11 +6162,6 @@ export default function LumiiMvpApp() {
         sendPetCardFromConversation();
         return;
       }
-      if (label === '相册') {
-        showToast('图片消息还需要富消息样式和图片存储接口，暂时先使用文字聊天');
-        return;
-      }
-      showToast(`${label}暂未开放`);
     };
     return (
       <Screen showBack={false} title="">
@@ -6193,9 +6187,6 @@ export default function LumiiMvpApp() {
                 </View>
               </View>
             </View>
-            <Pressable accessibilityLabel="更多" accessibilityRole="button" onPress={() => showToast('聊天设置后续开放')} style={styles.makeIconChip}>
-              <MoreHorizontal color={palette.ink} size={16} strokeWidth={2.4} />
-            </Pressable>
           </View>
 
           <View style={styles.chatSafetyTip}>
@@ -6318,7 +6309,6 @@ export default function LumiiMvpApp() {
                 { Icon: MapPin, label: '地点' },
                 { Icon: PawPrint, label: '宠物卡' },
                 { Icon: CalendarDays, label: '约遛' },
-                { Icon: ImagePlus, label: '相册' },
               ].map(({ Icon, label }) => (
                 <Pressable key={label} onPress={() => handleConversationAttachment(label)} style={[styles.chatAttachmentChipMake, webPressableReset]}>
                   <Icon color={palette.ink} size={12} strokeWidth={2.3} />
@@ -9339,14 +9329,7 @@ export default function LumiiMvpApp() {
     const pet = getCurrentPet();
     const requestCount = greetingRequestOwners.length;
     return (
-      <Screen
-        right={
-          <Pressable accessibilityLabel="更多" accessibilityRole="button" onPress={() => showToast('招呼请求设置后续开放')} style={[styles.iconButton, webPressableReset]}>
-            <MoreHorizontal color={palette.ink} size={17} strokeWidth={2.4} />
-          </Pressable>
-        }
-        title="招呼请求"
-      >
+      <Screen title="招呼请求">
         {requestCount ? (
           <View style={styles.greetingRequestSummaryMake}>
             <Text style={styles.greetingRequestSummaryBadgeMake}>{requestCount} 条新招呼</Text>
