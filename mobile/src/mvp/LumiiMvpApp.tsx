@@ -2884,7 +2884,7 @@ export default function LumiiMvpApp() {
       ? { author: 'me', id: retryMessageId, status: 'sending', text, time: messageTime }
       : { author: 'me', id: `conversation-${conversationId}-${Date.now()}`, status: 'sending', text, time: messageTime };
     localConversationMessageIdsRef.current[local.id] = conversationId;
-    if (!retryMessageId) setConversationDraft(conversationId, '');
+    if (!retryMessageId && textOverride === undefined) setConversationDraft(conversationId, '');
     setConversationMessages((items) =>
       retryMessageId ? items.map((item) => (item.id === retryMessageId ? local : item)) : [...items, local],
     );
@@ -5921,7 +5921,30 @@ export default function LumiiMvpApp() {
       ].filter(Boolean).join('\n');
       void sendConversationMessage(petCard);
     };
+    const sendPlaceFromConversation = () => {
+      if (!conversation || !canSendMessage) {
+        showToast('对方接受招呼后才能发送地点');
+        return;
+      }
+      const place = selectedPlace;
+      if (!place) {
+        go('map');
+        showToast('请先在地图选择一个宠物友好地点');
+        return;
+      }
+      const placeMessage = [
+        `地点推荐：${place.name}`,
+        `地址：${place.address}`,
+        `距离：${place.distance} · 评分 ${place.rating}`,
+        place.tags.length ? `特色：${place.tags.join('、')}` : '',
+      ].filter(Boolean).join('\n');
+      void sendConversationMessage(placeMessage);
+    };
     const handleConversationAttachment = (label: string) => {
+      if (label === '地点') {
+        sendPlaceFromConversation();
+        return;
+      }
       if (label === '约遛') {
         openWalkInviteFromConversation();
         return;
@@ -5930,7 +5953,11 @@ export default function LumiiMvpApp() {
         sendPetCardFromConversation();
         return;
       }
-      showToast(`${label}发送需要补齐消息类型，已记录到缺失清单`);
+      if (label === '相册') {
+        showToast('图片消息还需要富消息样式和图片存储接口，暂时先使用文字聊天');
+        return;
+      }
+      showToast(`${label}暂未开放`);
     };
     return (
       <Screen showBack={false} title="">
