@@ -1136,6 +1136,7 @@ export default function LumiiMvpApp() {
   const [placeSortMode, setPlaceSortMode] = useState<PlaceSortMode>('distance');
   const [placeSearching, setPlaceSearching] = useState(false);
   const placeSearchingRef = useRef(false);
+  const [mapPlacesSheetExpanded, setMapPlacesSheetExpanded] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
   const selectedPlaceIdRef = useRef<string | null>(null);
   const [favoritePlaceIds, setFavoritePlaceIds] = useState<string[]>([]);
@@ -8273,7 +8274,7 @@ export default function LumiiMvpApp() {
                 <Text style={styles.metaText}>{visiblePlaces.length} 个匹配</Text>
               </View>
               <ScrollView contentContainerStyle={styles.mapSearchResultListMake} showsVerticalScrollIndicator={false}>
-                {visiblePlaces.slice(0, 4).map((place, index) => (
+                {visiblePlaces.map((place, index) => (
                   <PlaceSheetRow
                     active={place.id === highlightedPlace?.id}
                     key={place.id}
@@ -8331,32 +8332,45 @@ export default function LumiiMvpApp() {
                 ))}
               </ScrollView>
 
-              <View style={styles.mapBottomSheetMake}>
-                <View style={styles.sheetHandle} />
-                <View style={styles.mapSheetHeader}>
-                  <Text style={styles.sectionTitle}>附近宠物友好地点</Text>
-                  <Text style={styles.metaText}>{placeResultMeta}</Text>
-                </View>
-                {visiblePlaces.slice(0, 3).map((place, index) => (
-                  <PlaceSheetRow
-                    active={place.id === highlightedPlace?.id}
-                    key={place.id}
-                    onPress={() => {
-                      setSelectedPlace(place);
-                      go('placeDetail');
-                    }}
-                    place={place}
-                    rank={index + 1}
-                  />
-                ))}
-                {!visiblePlaces.length ? (
-                  <EmptyState
-                    action="清空筛选"
-                    description="可以切换筛选条件，或搜索其他关键词。"
-                    icon={<MapPin color={palette.muted} size={26} strokeWidth={2.4} />}
-                    onAction={clearMapSearch}
-                    title="没有匹配地点"
-                  />
+              <View style={[styles.mapBottomSheetMake, !mapPlacesSheetExpanded && styles.mapBottomSheetCollapsedMake]}>
+                <Pressable accessibilityRole="button" onPress={() => setMapPlacesSheetExpanded((expanded) => !expanded)} style={[styles.mapSheetHeaderButtonMake, webPressableReset]}>
+                  <View style={styles.flex}>
+                    <View style={styles.sheetHandle} />
+                    <View style={styles.mapSheetHeader}>
+                      <View style={styles.flex}>
+                        <Text style={styles.sectionTitle}>附近宠物友好地点</Text>
+                        <Text style={styles.metaText}>{mapPlacesSheetExpanded ? `${placeResultMeta} · 向下收起` : `${placeResultMeta} · 点击展开`}</Text>
+                      </View>
+                      <View style={styles.mapSheetToggleIconMake}>
+                        {mapPlacesSheetExpanded ? <ArrowDown color={palette.ink} size={15} strokeWidth={2.6} /> : <ArrowUp color={palette.ink} size={15} strokeWidth={2.6} />}
+                      </View>
+                    </View>
+                  </View>
+                </Pressable>
+                {mapPlacesSheetExpanded ? (
+                  <ScrollView contentContainerStyle={styles.mapPlacesSheetScrollContentMake} showsVerticalScrollIndicator={false} style={styles.mapPlacesSheetScrollMake}>
+                    {visiblePlaces.map((place, index) => (
+                      <PlaceSheetRow
+                        active={place.id === highlightedPlace?.id}
+                        key={place.id}
+                        onPress={() => {
+                          setSelectedPlace(place);
+                          go('placeDetail');
+                        }}
+                        place={place}
+                        rank={index + 1}
+                      />
+                    ))}
+                    {!visiblePlaces.length ? (
+                      <EmptyState
+                        action="清空筛选"
+                        description="可以切换筛选条件，或搜索其他关键词。"
+                        icon={<MapPin color={palette.muted} size={26} strokeWidth={2.4} />}
+                        onAction={clearMapSearch}
+                        title="没有匹配地点"
+                      />
+                    ) : null}
+                  </ScrollView>
                 ) : null}
               </View>
             </>
@@ -11805,6 +11819,7 @@ const styles = StyleSheet.create({
   mapAreaLabel: { backgroundColor: 'rgba(255,255,255,0.74)', borderRadius: 999, color: '#5e7d75', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', left: 22, maxWidth: 190, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5, position: 'absolute', top: 116 },
   mapBottomSheet: { backgroundColor: 'rgba(255,253,249,0.98)', borderColor: 'rgba(234,223,210,0.9)', borderRadius: 28, borderWidth: 1, gap: 10, marginTop: -56, padding: 14, shadowColor: '#50371e', shadowOffset: { height: -10, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
   mapBottomSheetMake: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, bottom: 82, gap: 10, left: 0, maxHeight: 360, overflow: 'hidden', paddingBottom: 18, paddingHorizontal: 20, paddingTop: 10, position: 'absolute', right: 0, shadowColor: '#000', shadowOffset: { height: -18, width: 0 }, shadowOpacity: 0.16, shadowRadius: 40 },
+  mapBottomSheetCollapsedMake: { maxHeight: 92, paddingBottom: 12 },
   mapChipFloat: { alignItems: 'center', backgroundColor: 'rgba(255,253,249,0.92)', borderColor: 'rgba(234,223,210,0.78)', borderRadius: 999, borderWidth: 1, height: 34, justifyContent: 'center', paddingHorizontal: 13 },
   mapChipFloatActive: { backgroundColor: palette.ink, borderColor: palette.ink },
   mapChipText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
@@ -11885,6 +11900,10 @@ const styles = StyleSheet.create({
   mapSegmentTextActiveMake: { color: '#fff', fontWeight: '700' },
   mapSegmentTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   mapSheetHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 2 },
+  mapSheetHeaderButtonMake: { alignSelf: 'stretch' },
+  mapSheetToggleIconMake: { alignItems: 'center', backgroundColor: palette.pale, borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexShrink: 0, height: 28, justifyContent: 'center', marginLeft: 10, width: 28 },
+  mapPlacesSheetScrollContentMake: { gap: 10, paddingBottom: 6 },
+  mapPlacesSheetScrollMake: { maxHeight: 282 },
   mapStyleCurrent: { backgroundColor: palette.orangeSoft, borderRadius: 999, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
   mapStyleCloseButton: { alignItems: 'center', backgroundColor: palette.background, borderColor: palette.border, borderRadius: 999, borderWidth: 1, height: 30, justifyContent: 'center', width: 30 },
   mapStyleHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 12, justifyContent: 'space-between' },
