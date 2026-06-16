@@ -582,6 +582,29 @@ function vaccineReminderCopy(vaccine?: VaccinePlan) {
   return formatDueLabel(vaccine.dueAt);
 }
 
+function petBodySizeLabel(pet?: PetProfile | null) {
+  const kg = Number(pet?.weightKg);
+  if (!Number.isFinite(kg) || kg <= 0) return '待补充';
+  if (pet?.species === 'cat') {
+    if (kg < 3.5) return '偏小';
+    if (kg <= 6.5) return '标准';
+    return '偏大';
+  }
+  if (kg < 10) return '小型';
+  if (kg < 25) return '中型';
+  return '大型';
+}
+
+function buildPetProfileTags(pet?: PetProfile | null, pendingVaccineCount = 0, vaccineCount = 0) {
+  if (!pet) return [];
+  const tags = pet.personality?.length ? [...pet.personality] : [];
+  if (pendingVaccineCount > 0) tags.push(`${pendingVaccineCount} 项待提醒`);
+  else tags.push(vaccineCount > 0 ? '疫苗已完成' : '疫苗待添加');
+  tags.push(pet.weightKg ? '体重已记录' : '体重待补充');
+  if (!pet.birthday) tags.push('生日待补充');
+  return [...new Set(tags)].slice(0, 3);
+}
+
 function dateToIsoDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -8442,7 +8465,7 @@ export default function LumiiMvpApp() {
     const speciesLabel = pet ? speciesLabels[pet.species] : '';
     const petGenderSymbol = pet?.gender === 'female' ? '♀' : pet?.gender === 'male' ? '♂' : '';
     const petBadgeText = [petGenderSymbol, pet?.breed || speciesLabel].filter(Boolean).join(' ');
-    const petTags = (pet?.personality?.length ? pet.personality : ['疫苗齐全', '活泼', '对小孩友好']).slice(0, 3);
+    const petTags = buildPetProfileTags(pet, pendingVaccines.length, vaccines.length);
     const unreadNotificationCount = notifications.filter((item) => !item.read).length;
     return (
       <Screen showBack={false} title="">
@@ -8870,8 +8893,8 @@ export default function LumiiMvpApp() {
     const memoValue = memos.length ? `${memos.length} 条` : '待记录';
     const detailImageUri = pet?.avatarUrl ?? generatedGoldenAvatarUri;
     const birthdayShort = pet?.birthday ? pet.birthday.slice(0, 7).replace(/-/g, '.') : '待补充';
-    const bodySize = pet?.species === 'dog' ? '大型' : pet?.species === 'cat' ? '中型' : '待补充';
-    const coatColor = pet?.breed?.includes('金毛') ? '奶油金' : '待识别';
+    const bodySize = petBodySizeLabel(pet);
+    const coatColor = '待识别';
     return (
       <Screen title="宠物档案">
         {pet ? (
@@ -8935,7 +8958,7 @@ export default function LumiiMvpApp() {
     const pet = getCurrentPet();
     const petName = pet?.name ?? '灵伴';
     const aiDraft = buildDailyPostDraft(dailyMood);
-    const previewPhotos = dailyPostPhotoUris.length ? dailyPostPhotoUris : [demoPetPhotoUrl, placeReviewPhotoUrls[1]];
+    const dailyPlaceholderCount = Math.max(0, 2 - dailyPostPhotoUris.length);
     return (
       <Screen
         right={(
@@ -8967,9 +8990,9 @@ export default function LumiiMvpApp() {
           </View>
 
           <View style={styles.dailyPhotoRowMake}>
-            {previewPhotos.map((uri, index) => (
+            {dailyPostPhotoUris.map((uri, index) => (
               <Pressable
-                disabled={!dailyPostPhotoUris.includes(uri)}
+                disabled={dailyPhotoPicking}
                 key={`${uri}-${index}`}
                 onPress={() => {
                   setDailyPostPhotoUris((items) => items.filter((item) => item !== uri));
@@ -8986,6 +9009,11 @@ export default function LumiiMvpApp() {
                 <Text style={styles.dailyPhotoAddTextMake}>{dailyPhotoPicking ? '选择中' : '添加'}</Text>
               </Pressable>
             ) : null}
+            {Array.from({ length: dailyPlaceholderCount }).map((_, index) => (
+              <View key={`daily-photo-placeholder-${index}`} style={styles.dailyPhotoPlaceholderMake}>
+                <ImagePlus color="rgba(122,121,114,0.32)" size={18} strokeWidth={2.1} />
+              </View>
+            ))}
           </View>
 
           <View style={styles.dailyChipRowMake}>
@@ -9242,7 +9270,7 @@ export default function LumiiMvpApp() {
       ? '例如：草坪很整洁，饮水点和便便袋都备得很齐。'
       : '例如：草坪很大，有饮水点，牵引绳友好。';
     const saving = isReviewMode ? placeReviewSaving : placeSubmissionSaving;
-    const placePreviewPhotoUris = placePhotoUris.length ? placePhotoUris : placeReviewPhotoUrls;
+    const placePhotoPlaceholderCount = Math.max(0, 2 - placePhotoUris.length);
     const customSelectedPlaceFeatureTags = selectedPlaceFeatureTags.filter((tag) => !placeFriendlyFeatureOptions.includes(tag as (typeof placeFriendlyFeatureOptions)[number]));
     const submitComposer = () => {
       if (isReviewMode) void createPlaceReview();
@@ -9389,9 +9417,9 @@ export default function LumiiMvpApp() {
 
           <Text style={styles.addPlaceFieldLabelMake}>添加照片（可选）</Text>
           <View style={styles.addPlacePhotoRowMake}>
-            {placePreviewPhotoUris.map((uri, index) => (
+            {placePhotoUris.map((uri, index) => (
               <Pressable
-                disabled={!placePhotoUris.length}
+                disabled={placePhotoPicking || saving}
                 key={`${uri}-${index}`}
                 onPress={() => {
                   setPlacePhotoUris((items) => items.filter((_, itemIndex) => itemIndex !== index));
@@ -9408,6 +9436,11 @@ export default function LumiiMvpApp() {
                 <Text style={styles.addPlacePhotoAddTextMake}>{placePhotoPicking ? '选择中' : '添加'}</Text>
               </Pressable>
             ) : null}
+            {Array.from({ length: placePhotoPlaceholderCount }).map((_, index) => (
+              <View key={`place-photo-placeholder-${index}`} style={styles.addPlacePhotoPlaceholderMake}>
+                <Camera color="rgba(122,121,114,0.32)" size={18} strokeWidth={2.1} />
+              </View>
+            ))}
           </View>
 
           <View style={styles.addPlaceNoticeMake}>
@@ -10462,6 +10495,7 @@ const styles = StyleSheet.create({
   addPlacePageMake: { flex: 1, marginHorizontal: -20, marginTop: -18, minHeight: 720, overflow: 'hidden', paddingHorizontal: 20, paddingTop: 0, position: 'relative' },
   addPlacePhotoAddMake: { alignItems: 'center', aspectRatio: 1, backgroundColor: 'rgba(255,255,255,0.68)', borderColor: palette.border, borderRadius: 14, borderStyle: 'dashed', borderWidth: 1.5, flex: 1, gap: 4, justifyContent: 'center' },
   addPlacePhotoAddTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600' },
+  addPlacePhotoPlaceholderMake: { alignItems: 'center', aspectRatio: 1, backgroundColor: 'rgba(255,255,255,0.38)', borderColor: 'rgba(122,121,114,0.14)', borderRadius: 14, borderStyle: 'dashed', borderWidth: 1, flex: 1, justifyContent: 'center' },
   addPlacePhotoRowMake: { flexDirection: 'row', gap: 8 },
   addPlacePhotoSquareMake: { aspectRatio: 1, borderColor: '#fff', borderRadius: 14, borderWidth: 2, flex: 1, overflow: 'hidden' },
   addPlacePlaceCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 12, paddingVertical: 10 },
@@ -11356,6 +11390,7 @@ const styles = StyleSheet.create({
   dailyPetChipTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
   dailyPhotoAddMake: { alignItems: 'center', aspectRatio: 1, backgroundColor: 'rgba(255,255,255,0.58)', borderColor: palette.border, borderRadius: 14, borderStyle: 'dashed', borderWidth: 1.5, flex: 1, gap: 4, justifyContent: 'center' },
   dailyPhotoAddTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
+  dailyPhotoPlaceholderMake: { alignItems: 'center', aspectRatio: 1, backgroundColor: 'rgba(255,255,255,0.38)', borderColor: 'rgba(122,121,114,0.14)', borderRadius: 14, borderStyle: 'dashed', borderWidth: 1, flex: 1, justifyContent: 'center' },
   dailyPhotoRowMake: { flexDirection: 'row', gap: 8 },
   dailyPhotoSquareMake: { aspectRatio: 1, borderColor: '#fff', borderRadius: 14, borderWidth: 2, flex: 1, overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 18 },
   dailyPostPageMake: { gap: 12, marginTop: -2 },
