@@ -175,6 +175,10 @@ function notificationDateFor(item: NotificationItem) {
 function notificationDisplayTime(item: NotificationItem, index: number) {
   const date = notificationDateFor(item);
   if (!date) return notificationFallbackTime(index);
+  return formatRelativeDisplayTime(date);
+}
+
+function formatRelativeDisplayTime(date: Date) {
   const diffMs = Date.now() - date.getTime();
   if (diffMs >= 0 && diffMs < 60 * 1000) return '刚刚';
   if (diffMs >= 0 && diffMs < 60 * 60 * 1000) return `${Math.max(1, Math.floor(diffMs / 60000))} 分钟前`;
@@ -185,6 +189,12 @@ function notificationDisplayTime(item: NotificationItem, index: number) {
   yesterday.setDate(yesterday.getDate() - 1);
   if (isSameCalendarDay(date, yesterday)) return `昨天 ${hour}:${minute}`;
   return `${date.getMonth() + 1}月${date.getDate()}日 ${hour}:${minute}`;
+}
+
+function formatGreetingRequestSeenTime(timestamp?: number) {
+  if (!timestamp) return '新招呼';
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? '新招呼' : formatRelativeDisplayTime(date);
 }
 
 function notificationGroupFor(item: NotificationItem, index: number) {
@@ -903,6 +913,8 @@ export default function LumiiMvpApp() {
   const [discoverFilter, setDiscoverFilter] = useState<DiscoverFilter>('all');
   const [greetingRequestOwners, setGreetingRequestOwners] = useState<NearbyOwner[]>([]);
   const greetingRequestOwnersRef = useRef<NearbyOwner[]>([]);
+  const [greetingRequestSeenAtById, setGreetingRequestSeenAtById] = useState<Record<string, number>>({});
+  const greetingRequestSeenAtByIdRef = useRef<Record<string, number>>({});
   const [socialActionSavingIds, setSocialActionSavingIds] = useState<string[]>([]);
   const socialActionSavingIdsRef = useRef<Set<string>>(new Set());
   const [walkInviteSaving, setWalkInviteSaving] = useState(false);
@@ -1522,8 +1534,7 @@ export default function LumiiMvpApp() {
       }
     }
     if (greetingRequestResult.data) {
-      greetingRequestOwnersRef.current = greetingRequestResult.data;
-      setGreetingRequestOwners(greetingRequestResult.data);
+      applyGreetingRequestOwners(greetingRequestResult.data);
     }
     if (conversationResult.data) setConversations(conversationResult.data);
     if (notificationResult.data) setNotifications(notificationResult.data);
@@ -1768,8 +1779,7 @@ export default function LumiiMvpApp() {
       ]);
       if (sessionTokenRef.current !== requestSessionToken) return false;
       if (greetingRequestResult.data) {
-        greetingRequestOwnersRef.current = greetingRequestResult.data;
-        setGreetingRequestOwners(greetingRequestResult.data);
+        applyGreetingRequestOwners(greetingRequestResult.data);
       }
       if (conversationResult.data) setConversations(conversationResult.data);
       if (notificationResult.data) setNotifications(notificationResult.data);
@@ -1805,6 +1815,22 @@ export default function LumiiMvpApp() {
       selectedOwnerIdRef.current = nextSelectedOwner?.id ?? null;
       return nextSelectedOwner;
     });
+  }
+
+  function applyGreetingRequestOwners(nextOwners: NearbyOwner[]) {
+    const now = Date.now();
+    const activeIds = new Set(nextOwners.map((owner) => owner.id));
+    const nextSeenAt: Record<string, number> = {};
+    nextOwners.forEach((owner) => {
+      nextSeenAt[owner.id] = greetingRequestSeenAtByIdRef.current[owner.id] ?? now;
+    });
+    Object.keys(greetingRequestSeenAtByIdRef.current).forEach((ownerId) => {
+      if (!activeIds.has(ownerId)) delete greetingRequestSeenAtByIdRef.current[ownerId];
+    });
+    greetingRequestSeenAtByIdRef.current = nextSeenAt;
+    setGreetingRequestSeenAtById(nextSeenAt);
+    greetingRequestOwnersRef.current = nextOwners;
+    setGreetingRequestOwners(nextOwners);
   }
 
   async function refreshInboxManually() {
@@ -2772,11 +2798,7 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.social.rejectGreeting(owner.id);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
-        setGreetingRequestOwners((items) => {
-          const nextItems = items.filter((item) => item.id !== owner.id);
-          greetingRequestOwnersRef.current = nextItems;
-          return nextItems;
-        });
+        applyGreetingRequestOwners(greetingRequestOwnersRef.current.filter((item) => item.id !== owner.id));
         void loadInboxData();
         showToast('已婉拒招呼');
       } else {
@@ -2800,11 +2822,7 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.social.acceptGreeting(owner.id);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
-        setGreetingRequestOwners((items) => {
-          const nextItems = items.filter((item) => item.id !== owner.id);
-          greetingRequestOwnersRef.current = nextItems;
-          return nextItems;
-        });
+        applyGreetingRequestOwners(greetingRequestOwnersRef.current.filter((item) => item.id !== owner.id));
         if (result.data.conversation) {
           setConversations((items) => [result.data!.conversation!, ...items.filter((item) => item.id !== result.data!.conversation!.id)]);
         }
@@ -4346,6 +4364,8 @@ export default function LumiiMvpApp() {
     setDiscoverFilter('all');
     setGreetingRequestOwners([]);
     greetingRequestOwnersRef.current = [];
+    setGreetingRequestSeenAtById({});
+    greetingRequestSeenAtByIdRef.current = {};
     socialActionSavingIdsRef.current.clear();
     setSocialActionSavingIds([]);
     walkInviteSavingRef.current = false;
@@ -8876,7 +8896,7 @@ export default function LumiiMvpApp() {
                   <View style={styles.flex}>
                     <View style={styles.greetingRequestTitleRowMake}>
                       <Text numberOfLines={1} style={styles.greetingRequestTitleMake}>{owner.ownerName} & {owner.petName}</Text>
-                      <Text style={styles.greetingRequestTimeMake}>{index === 0 ? '刚刚' : index === 1 ? '2 小时前' : '昨天'}</Text>
+                      <Text style={styles.greetingRequestTimeMake}>{formatGreetingRequestSeenTime(greetingRequestSeenAtById[owner.id])}</Text>
                     </View>
                     <Text numberOfLines={1} style={styles.greetingRequestMetaMake}>{tagText}</Text>
                     <Text style={styles.greetingRequestMessageMake}>{requestMessage}</Text>
