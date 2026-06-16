@@ -911,6 +911,9 @@ export default function LumiiMvpApp() {
   const discoverRefreshingRef = useRef(false);
   const discoverRequestSeqRef = useRef(0);
   const [discoverFilter, setDiscoverFilter] = useState<DiscoverFilter>('all');
+  const [discoverQuery, setDiscoverQuery] = useState('');
+  const [discoverSearchVisible, setDiscoverSearchVisible] = useState(false);
+  const discoverSearchInputRef = useRef<TextInput>(null);
   const [greetingRequestOwners, setGreetingRequestOwners] = useState<NearbyOwner[]>([]);
   const greetingRequestOwnersRef = useRef<NearbyOwner[]>([]);
   const [greetingRequestSeenAtById, setGreetingRequestSeenAtById] = useState<Record<string, number>>({});
@@ -3928,6 +3931,39 @@ export default function LumiiMvpApp() {
     return tagText.includes('约') || tagText.includes('遛') || tagText.includes('walk');
   }
 
+  function ownerMatchesDiscoverQuery(owner: NearbyOwner, query: string) {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return true;
+    const text = [
+      owner.petName,
+      owner.ownerName,
+      speciesLabels[owner.species],
+      owner.distance,
+      ...owner.tags,
+    ].join(' ').toLowerCase();
+    return text.includes(keyword);
+  }
+
+  function clearDiscoverSearchAndFilter() {
+    setDiscoverQuery('');
+    setDiscoverFilter('all');
+    showToast('已清除搜索和筛选条件');
+  }
+
+  function openDiscoverSearch() {
+    if (discoverRefreshingRef.current) return;
+    if (!discoverSearchVisible) {
+      setDiscoverSearchVisible(true);
+      setTimeout(() => discoverSearchInputRef.current?.focus(), 50);
+      return;
+    }
+    if (discoverQuery.trim()) {
+      showToast('已按关键词筛选附近伙伴');
+      return;
+    }
+    void refreshDiscoverByPull();
+  }
+
   function applyDiscoverFilter(filter: DiscoverFilter) {
     setDiscoverFilter(filter);
     const label = discoverFilterOptions.find((item) => item.key === filter)?.label ?? '全部';
@@ -4383,6 +4419,8 @@ export default function LumiiMvpApp() {
     discoverRefreshingRef.current = false;
     setDiscoverRefreshing(false);
     setDiscoverFilter('all');
+    setDiscoverQuery('');
+    setDiscoverSearchVisible(false);
     setGreetingRequestOwners([]);
     greetingRequestOwnersRef.current = [];
     setGreetingRequestSeenAtById({});
@@ -7068,7 +7106,12 @@ export default function LumiiMvpApp() {
     const discoverEnabled = userSettings.nearbyVisible;
     const locationDenied = ['blocked', 'denied', 'unavailable'].includes(permissions.location);
     const discoverAccessIssue: null | 'location' | 'visibility' = !discoverEnabled ? 'visibility' : locationDenied ? 'location' : null;
-    const visibleOwners = discoverAccessIssue ? [] : owners.filter((owner) => ownerMatchesDiscoverFilter(owner, discoverFilter));
+    const discoverSearchQuery = discoverQuery.trim();
+    const visibleOwners = discoverAccessIssue
+      ? []
+      : owners
+        .filter((owner) => ownerMatchesDiscoverFilter(owner, discoverFilter))
+        .filter((owner) => ownerMatchesDiscoverQuery(owner, discoverSearchQuery));
     const activeDiscoverFilterLabel = discoverFilterOptions.find((item) => item.key === discoverFilter)?.label ?? '全部';
     const previewOwner: NearbyOwner = owners[0] ?? {
       distance: '?km',
@@ -7095,16 +7138,16 @@ export default function LumiiMvpApp() {
         title: '开启附近可见发现朋友',
       };
     const renderDiscoverEmptyState = () => {
-      const filtered = discoverFilter !== 'all';
-      const clearOrRefresh = () => (filtered ? applyDiscoverFilter('all') : void refreshDiscoverByPull());
+      const filtered = discoverFilter !== 'all' || Boolean(discoverSearchQuery);
+      const clearOrRefresh = () => (filtered ? clearDiscoverSearchAndFilter() : void refreshDiscoverByPull());
       return (
         <View style={styles.discoverEmptyMake}>
           <View style={styles.discoverEmptySummaryMake}>
             <SlidersHorizontal color={palette.orange} size={13} strokeWidth={2.4} />
             <Text numberOfLines={1} style={styles.discoverEmptySummaryTextMake}>
-              {filtered ? `已应用筛选 · ${activeDiscoverFilterLabel} · 3km 内` : '附近 3km 内 · 模糊距离 · 0 位'}
+              {filtered ? `已应用条件 · ${discoverSearchQuery || activeDiscoverFilterLabel} · 3km 内` : '附近 3km 内 · 模糊距离 · 0 位'}
             </Text>
-            {filtered ? <Text onPress={() => applyDiscoverFilter('all')} style={styles.discoverEmptyClearMake}>清除</Text> : null}
+            {filtered ? <Text onPress={clearDiscoverSearchAndFilter} style={styles.discoverEmptyClearMake}>清除</Text> : null}
           </View>
           <View style={styles.discoverEmptyHeroMake}>
             <View style={styles.discoverEmptyGlowMake} />
@@ -7115,11 +7158,11 @@ export default function LumiiMvpApp() {
           </View>
           <Text style={styles.discoverEmptyTitleMake}>附近暂时没有匹配的朋友</Text>
           <Text style={styles.discoverEmptyDescMake}>
-            {filtered ? '可以试试放宽筛选条件\n或切换查看全部附近伙伴' : '可以下拉刷新附近列表\n或稍后再来看看新的伙伴'}
+            {filtered ? '可以试试放宽搜索或筛选条件\n或切换查看全部附近伙伴' : '可以下拉刷新附近列表\n或稍后再来看看新的伙伴'}
           </Text>
           <View style={styles.discoverEmptyActionsMake}>
             <Pressable onPress={clearOrRefresh} style={[styles.discoverEmptyGhostMake, webPressableReset]}>
-              <Text style={styles.discoverEmptyGhostTextMake}>{filtered ? '清除筛选' : '刷新附近'}</Text>
+              <Text style={styles.discoverEmptyGhostTextMake}>{filtered ? '清除条件' : '刷新附近'}</Text>
             </Pressable>
             <Pressable onPress={clearOrRefresh} style={[styles.discoverEmptyPrimaryMake, webPressableReset]}>
               <Navigation color="#fff" size={14} strokeWidth={2.4} />
@@ -7207,7 +7250,7 @@ export default function LumiiMvpApp() {
         <View style={styles.discoverMakeHeader}>
           <Text style={styles.makeScreenTitle}>发现</Text>
           <View style={styles.messagesHeaderActions}>
-            <Pressable accessibilityLabel="搜索附近伙伴" accessibilityRole="button" disabled={discoverRefreshing} onPress={() => showToast('附近伙伴搜索后续开放')} style={[styles.makeIconChip, discoverRefreshing && styles.mapSearchActionDisabled]}>
+            <Pressable accessibilityLabel="搜索附近伙伴" accessibilityRole="button" disabled={discoverRefreshing} onPress={openDiscoverSearch} style={[styles.makeIconChip, discoverRefreshing && styles.mapSearchActionDisabled]}>
               {discoverRefreshing ? <ActivityIndicator color={palette.ink} size="small" /> : <Search color={palette.ink} size={16} strokeWidth={2.3} />}
             </Pressable>
             <Pressable accessibilityLabel="切换附近筛选" accessibilityRole="button" onPress={cycleDiscoverFilter} style={styles.makeIconChip}>
@@ -7215,9 +7258,40 @@ export default function LumiiMvpApp() {
             </Pressable>
           </View>
         </View>
+        {discoverSearchVisible ? (
+          <View style={[styles.searchBar, styles.discoverSearchBarMake]}>
+            <Search color={palette.muted} size={16} strokeWidth={2.3} />
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={setDiscoverQuery}
+              onSubmitEditing={() => showToast(discoverSearchQuery ? `已筛选出 ${visibleOwners.length} 位附近伙伴` : '请输入宠物名、主人昵称、品种或标签')}
+              placeholder="搜索宠物名、主人、品种或标签"
+              placeholderTextColor={palette.muted}
+              ref={discoverSearchInputRef}
+              returnKeyType="search"
+              style={[styles.searchInput, webTextInputReset]}
+              value={discoverQuery}
+            />
+            <Pressable
+              accessibilityLabel={discoverQuery.trim() ? '清除搜索' : '收起搜索'}
+              accessibilityRole="button"
+              onPress={() => {
+                if (discoverQuery.trim()) {
+                  setDiscoverQuery('');
+                  return;
+                }
+                setDiscoverSearchVisible(false);
+              }}
+              style={[styles.discoverSearchClearMake, webPressableReset]}
+            >
+              <X color={palette.muted} size={14} strokeWidth={2.5} />
+            </Pressable>
+          </View>
+        ) : null}
         <View style={[styles.locationChipMake, discoverAccessIssue && styles.locationChipDeniedMake]}>
           {discoverAccessIssue ? <Shield color={palette.danger} size={14} strokeWidth={2.4} /> : <MapPin color={palette.orange} size={13} strokeWidth={2.4} />}
-          <Text style={[styles.locationChipText, discoverAccessIssue && styles.locationChipDeniedText]}>{discoverAccessIssue ? discoverIssueCopy.banner : `附近 · 3km 内 · ${activeDiscoverFilterLabel} · ${visibleOwners.length} 位`}</Text>
+          <Text style={[styles.locationChipText, discoverAccessIssue && styles.locationChipDeniedText]}>{discoverAccessIssue ? discoverIssueCopy.banner : `附近 · 3km 内 · ${discoverSearchQuery ? `搜索“${discoverSearchQuery}”` : activeDiscoverFilterLabel} · ${visibleOwners.length} 位`}</Text>
           {!discoverAccessIssue ? <Text style={styles.locationPrivacyPill}>模糊距离</Text> : null}
         </View>
         <ScrollView horizontal contentContainerStyle={styles.filterChipsMake} showsHorizontalScrollIndicator={false}>
@@ -11177,6 +11251,8 @@ const styles = StyleSheet.create({
   discoverEmptySummaryTextMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
   discoverEmptyTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 19, fontWeight: '700', letterSpacing: 0, lineHeight: 26, marginTop: 20, textAlign: 'center' },
   discoverMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between' },
+  discoverSearchBarMake: { marginBottom: 10, minHeight: 46, paddingHorizontal: 12 },
+  discoverSearchClearMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 13, height: 26, justifyContent: 'center', width: 26 },
   discoverPermissionActionsMake: { flexDirection: 'row', gap: 8, marginTop: 14 },
   discoverPermissionBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 21, marginTop: 8, textAlign: 'center' },
   discoverPermissionGhostMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 24, borderWidth: 1, flex: 1, height: 48, justifyContent: 'center' },
