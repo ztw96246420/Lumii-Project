@@ -2350,6 +2350,7 @@ export default function LumiiMvpApp() {
       const currentTicket = otpMetaRef.current;
       if (!currentTicket || currentTicket.phone !== ticket.phone || currentTicket.expiresAt !== ticket.expiresAt) return;
       if (result.data) {
+        setBootPetAvatarUri(result.data.account?.activePet?.avatarUrl ?? null);
         setLoginSuccessLoading(true);
         await restoreAfterLogin(result.data);
       } else {
@@ -5255,8 +5256,13 @@ export default function LumiiMvpApp() {
     );
   }
 
-  function renderSessionBootstrapping() {
+  function getSessionLoadingAvatarUri() {
     const bootAvatarUri = bootPetAvatarUri ?? activePet?.avatarUrl ?? session?.account?.activePet?.avatarUrl ?? null;
+    return bootAvatarUri && !isGeneratedAvatarUri(bootAvatarUri) ? bootAvatarUri : null;
+  }
+
+  function renderSessionBootstrapping() {
+    const bootAvatarUri = getSessionLoadingAvatarUri();
     return (
       <View style={styles.bootPage}>
         {bootAvatarUri ? <PetAvatar size={96} uri={bootAvatarUri} /> : <Mascot size={96} />}
@@ -5267,9 +5273,10 @@ export default function LumiiMvpApp() {
   }
 
   function renderLoginSuccessLoading() {
+    const loginAvatarUri = getSessionLoadingAvatarUri();
     return (
       <View style={styles.loginSuccessPageMake}>
-        <PetAvatar size={120} uri={generatedGoldenAvatarUri} />
+        {loginAvatarUri ? <PetAvatar size={120} uri={loginAvatarUri} /> : <Mascot size={120} />}
         <View style={styles.loginSuccessLoadingRowMake}>
           <ActivityIndicator color={palette.orange} size="small" />
           <Text style={styles.loginSuccessLoadingTextMake}>登录中...</Text>
