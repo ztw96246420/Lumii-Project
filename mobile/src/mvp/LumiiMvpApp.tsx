@@ -196,6 +196,15 @@ function formatTimestampDisplay(value?: string, fallback = '时间待确认') {
   return Number.isNaN(date.getTime()) ? fallback : formatRelativeDisplayTime(date);
 }
 
+function parsePlaceDistanceMeters(distance?: string) {
+  const text = String(distance ?? '').trim().toLowerCase();
+  const match = text.match(/(\d+(?:\.\d+)?)/);
+  if (!match) return Number.MAX_SAFE_INTEGER;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return Number.MAX_SAFE_INTEGER;
+  return text.includes('km') || text.includes('公里') ? value * 1000 : value;
+}
+
 function formatGreetingRequestSeenTime(timestamp?: number) {
   if (!timestamp) return '新招呼';
   const date = new Date(timestamp);
@@ -432,6 +441,7 @@ const defaultMapCenter = {
 };
 
 type MapVisualMode = 'lumii' | 'night' | 'satellite' | 'standard';
+type PlaceSortMode = 'distance' | 'rating';
 
 const mapStyleOptions: Array<{
   description: string;
@@ -443,6 +453,24 @@ const mapStyleOptions: Array<{
   { description: '真实地貌视角，适合看公园和草地', key: 'satellite', label: '卫星' },
   { description: '低亮度模式，夜间查看更舒服', key: 'night', label: '夜间' },
 ];
+
+const placeSortOptions: Array<{ key: PlaceSortMode | 'reviews'; label: string }> = [
+  { key: 'distance', label: '距离最近' },
+  { key: 'rating', label: '评分最高' },
+  { key: 'reviews', label: '点评最多' },
+];
+
+function sortPlacesByMode(items: Place[], mode: PlaceSortMode) {
+  return [...items].sort((left, right) => {
+    if (mode === 'rating') {
+      const ratingDelta = right.rating - left.rating;
+      if (ratingDelta !== 0) return ratingDelta;
+    }
+    const distanceDelta = parsePlaceDistanceMeters(left.distance) - parsePlaceDistanceMeters(right.distance);
+    if (distanceDelta !== 0) return distanceDelta;
+    return right.rating - left.rating;
+  });
+}
 
 type ConfirmState = {
   body: string;
@@ -1008,6 +1036,7 @@ export default function LumiiMvpApp() {
   const placeQueryRef = useRef('');
   const mapSearchInputRef = useRef<TextInput>(null);
   const [placeFilter, setPlaceFilter] = useState<'all' | Place['category']>('all');
+  const [placeSortMode, setPlaceSortMode] = useState<PlaceSortMode>('distance');
   const [placeSearching, setPlaceSearching] = useState(false);
   const placeSearchingRef = useRef(false);
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
@@ -3981,7 +4010,7 @@ export default function LumiiMvpApp() {
       if (result.data) {
         const nextPlaces = result.data;
         setPlaces(nextPlaces);
-        const visibleNextPlaces = nextFilter === 'all' ? nextPlaces : nextPlaces.filter((place) => place.category === nextFilter);
+        const visibleNextPlaces = sortPlacesByMode(nextFilter === 'all' ? nextPlaces : nextPlaces.filter((place) => place.category === nextFilter), placeSortMode);
         setSelectedPlace((current) => visibleNextPlaces.find((place) => place.id === current?.id) ?? visibleNextPlaces[0] ?? nextPlaces[0] ?? null);
         showToast(query ? (visibleNextPlaces.length ? `找到 ${visibleNextPlaces.length} 个地点` : '没有匹配地点') : '已刷新附近地点');
       } else {
@@ -4583,6 +4612,7 @@ export default function LumiiMvpApp() {
     placeQueryRef.current = '';
     setPlaceQuery('');
     setPlaceFilter('all');
+    setPlaceSortMode('distance');
     placeSearchingRef.current = false;
     setPlaceSearching(false);
     selectedPlaceIdRef.current = null;
@@ -7622,16 +7652,18 @@ export default function LumiiMvpApp() {
       { key: 'clinic', label: '医院' },
     ];
     const filteredPlaces = placeFilter === 'all' ? places : places.filter((place) => place.category === placeFilter);
-    const visiblePlaces = filteredPlaces;
+    const visiblePlaces = sortPlacesByMode(filteredPlaces, placeSortMode);
     const highlightedPlace = visiblePlaces[0];
     const placeFilterLabel = placeFilters.find((item) => item.key === placeFilter)?.label ?? '全部';
-    const placeResultMeta = placeSearching ? '搜索中...' : `${visiblePlaces.length} 个 · ${placeQuery.trim() ? '搜索结果' : placeFilterLabel}`;
+    const placeSortLabel = placeSortOptions.find((item) => item.key === placeSortMode)?.label ?? '距离最近';
+    const placeResultMeta = placeSearching ? '搜索中...' : `${visiblePlaces.length} 个 · ${placeQuery.trim() ? '搜索结果' : placeFilterLabel} · ${placeSortLabel}`;
     const mapStyle = mapStyleOptions.find((item) => item.key === mapStyleKey) ?? mapStyleOptions[0];
     const mapSearchPanelVisible = Boolean(placeQuery.trim() || placeFilter !== 'all');
     const clearMapSearch = () => {
       placeQueryRef.current = '';
       setPlaceQuery('');
       setPlaceFilter('all');
+      setPlaceSortMode('distance');
       void searchPlaces();
     };
     const openMapManualSearch = () => {
@@ -7808,11 +7840,26 @@ export default function LumiiMvpApp() {
                 </View>
               </View>
               <View style={styles.mapSegmentRowMake}>
-                {['距离最近', '评分最高', '点评最多'].map((label, index) => (
-                  <View key={label} style={[styles.mapSegmentButtonMake, index === 0 && styles.mapSegmentButtonActiveMake]}>
-                    <Text style={[styles.mapSegmentTextMake, index === 0 && styles.mapSegmentTextActiveMake]}>{label}</Text>
-                  </View>
-                ))}
+                {placeSortOptions.map((option) => {
+                  const active = option.key === placeSortMode;
+                  const unavailable = option.key === 'reviews';
+                  return (
+                    <Pressable
+                      accessibilityRole="button"
+                      key={option.key}
+                      onPress={() => {
+                        if (option.key === 'reviews') {
+                          showToast('点评数量字段待后端补齐，先按距离或评分排序', { tone: 'info', variant: 'surface' });
+                          return;
+                        }
+                        setPlaceSortMode(option.key);
+                      }}
+                      style={[styles.mapSegmentButtonMake, active && styles.mapSegmentButtonActiveMake, unavailable && !active && styles.opacity60, webPressableReset]}
+                    >
+                      <Text style={[styles.mapSegmentTextMake, active && styles.mapSegmentTextActiveMake]}>{option.label}</Text>
+                    </Pressable>
+                  );
+                })}
               </View>
               <View style={styles.mapDistanceFilterRowMake}>
                 <Text style={styles.mapDistanceFilterLabelMake}>距离</Text>
