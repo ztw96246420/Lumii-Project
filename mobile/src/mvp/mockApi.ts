@@ -342,6 +342,15 @@ function todayIsoDate() {
   return `${year}-${month}-${day}`;
 }
 
+function addDaysIsoDate(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function currentClockTime() {
   const date = new Date();
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
@@ -561,12 +570,12 @@ const legalDocuments: Record<LegalDocument['key'], LegalDocument> = {
 };
 
 let weights: WeightRecord[] = [
-  { id: 'w1', kg: 28.4, note: '精神很好，食欲正常', recordedAt: '2026-05-28' },
-  { id: 'w2', kg: 28.1, recordedAt: '2026-05-21' },
+  { id: 'w1', kg: 28.4, note: '精神很好，食欲正常', recordedAt: addDaysIsoDate(-7) },
+  { id: 'w2', kg: 28.1, recordedAt: addDaysIsoDate(-14) },
 ];
 
 let memos: HealthMemo[] = [
-  { id: 'm1', title: '驱虫记录', content: '体外驱虫已完成，下次 6 月底。', updatedAt: '2026-05-20' },
+  { id: 'm1', title: '驱虫记录', content: '体外驱虫已完成，下次按计划提醒。', updatedAt: addDaysIsoDate(-3) },
 ];
 
 function mockPetChatMemoTitle(text: string) {
@@ -839,8 +848,8 @@ function applyMockPetChatVaccineAction(text: string): MockPetChatVaccineAction |
 }
 
 let vaccines: VaccinePlan[] = [
-  { id: 'v1', name: '狂犬疫苗', dueAt: '2026-06-18', status: 'due' },
-  { id: 'v2', name: '体内驱虫', dueAt: '2026-06-05', status: 'due' },
+  { id: 'v1', name: '狂犬疫苗', dueAt: addDaysIsoDate(14), status: 'due' },
+  { id: 'v2', name: '体内驱虫', dueAt: addDaysIsoDate(30), status: 'due' },
 ];
 let vaccineReminderIds: string[] = [];
 

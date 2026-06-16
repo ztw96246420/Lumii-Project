@@ -1215,13 +1215,22 @@ function defaultVaccinesFor(user) {
   const pet = selectedPetFor(user);
   if (!pet) return [];
   return [
-    { dueAt: '2026-06-18', id: `v-${user.phone}-${pet.id}-1`, name: pet.species === 'cat' ? '猫三联' : '狂犬疫苗', status: 'due' },
-    { dueAt: '2026-07-05', id: `v-${user.phone}-${pet.id}-2`, name: '体内驱虫', status: 'due' },
+    { dueAt: addDaysIsoDate(14), id: `v-${user.phone}-${pet.id}-1`, name: pet.species === 'cat' ? '猫三联' : '狂犬疫苗', status: 'due' },
+    { dueAt: addDaysIsoDate(30), id: `v-${user.phone}-${pet.id}-2`, name: '体内驱虫', status: 'due' },
   ];
 }
 
 function todayIsoDate() {
   const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDaysIsoDate(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
