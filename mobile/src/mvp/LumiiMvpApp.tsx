@@ -8460,7 +8460,7 @@ export default function LumiiMvpApp() {
             </Text>
             <View style={styles.amapConfirmPlaceMake}>
               <View style={styles.amapConfirmPlaceIconMake}>
-                <Stethoscope color={palette.danger} size={18} strokeWidth={2.4} />
+                <MapPin color={palette.danger} size={18} strokeWidth={2.4} />
               </View>
               <View style={styles.flex}>
                 <Text numberOfLines={1} style={styles.amapConfirmPlaceTitleMake}>{place.name}</Text>
@@ -8468,7 +8468,7 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.amapConfirmEtaMake}>
                 <Navigation color={palette.teal} size={11} strokeWidth={2.6} />
-                <Text style={styles.amapConfirmEtaTextMake}>约 8 分钟</Text>
+                <Text style={styles.amapConfirmEtaTextMake}>外部规划</Text>
               </View>
             </View>
             <View style={styles.amapConfirmAppRowMake}>
@@ -8476,13 +8476,8 @@ export default function LumiiMvpApp() {
                 <Text style={[styles.amapConfirmAppLabelMake, styles.amapConfirmAppLabelActiveMake]}>高德地图</Text>
                 <Text style={styles.amapConfirmAppSubMake}>推荐</Text>
               </View>
-              <View style={styles.amapConfirmAppPickMake}>
-                <Text style={styles.amapConfirmAppLabelMake}>百度地图</Text>
-              </View>
-              <View style={styles.amapConfirmAppPickMake}>
-                <Text style={styles.amapConfirmAppLabelMake}>苹果地图</Text>
-              </View>
             </View>
+            <Text style={styles.amapConfirmSupportTextMake}>当前仅支持通过高德地图打开路线规划</Text>
             <View style={styles.amapConfirmActionsMake}>
               <Pressable onPress={() => setAmapNavigationPlace(null)} style={[styles.amapConfirmCancelMake, webPressableReset]}>
                 <Text style={styles.amapConfirmCancelTextMake}>取消</Text>
@@ -11006,6 +11001,7 @@ const styles = StyleSheet.create({
   amapConfirmPlaceTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', lineHeight: 19 },
   amapConfirmSubmitMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 24, flex: 1, flexDirection: 'row', gap: 6, height: 48, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.26, shadowRadius: 24 },
   amapConfirmSubmitTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '600' },
+  amapConfirmSupportTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 17, marginTop: 8, textAlign: 'center' },
   amapConfirmTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', letterSpacing: 0, lineHeight: 24, textAlign: 'center' },
   agreementRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 8, marginTop: 18 },
   agreementText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 21 },
