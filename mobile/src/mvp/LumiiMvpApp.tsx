@@ -1016,6 +1016,7 @@ export default function LumiiMvpApp() {
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([createPetChatWelcomeMessage()]);
   const [chatInput, setChatInput] = useState('');
+  const petChatScrollRef = useRef<ScrollView>(null);
   const [chatFeedbackById, setChatFeedbackById] = useState<Record<string, PetChatFeedbackRating>>({});
   const [chatFeedbackSavingIds, setChatFeedbackSavingIds] = useState<string[]>([]);
   const chatFeedbackSavingIdsRef = useRef<Set<string>>(new Set());
@@ -6144,9 +6145,11 @@ export default function LumiiMvpApp() {
             </View>
           </View>
 
-          <Pressable onPress={() => go('chat')} style={[styles.homeChatHint, webPressableReset]}>
-            <Text numberOfLines={2} style={styles.homeChatHintText}>{homeChatHint}</Text>
-          </Pressable>
+          <View style={styles.homeChatHintWrap}>
+            <Pressable onPress={() => go('chat')} style={[styles.homeChatHint, webPressableReset]}>
+              <Text numberOfLines={2} style={styles.homeChatHintText}>{homeChatHint}</Text>
+            </Pressable>
+          </View>
 
           <Pressable onPress={() => go('health')} style={[webPressableReset, styles.homeHealthCard, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E0 0%, #FFE3CB 60%, #FFD7B5 100%)' } as object) : null]}>
             <View>
@@ -6197,6 +6200,10 @@ export default function LumiiMvpApp() {
     const chatDisconnected = Boolean(failedChatMessage);
     const firstVisibleChatTime = chatMessages.find((message) => message.time && message.time !== '刚刚')?.time;
     const chatDateChipLabel = formatChatDateChip(firstVisibleChatTime);
+    const revealFailedChatMessage = () => {
+      petChatScrollRef.current?.scrollToEnd({ animated: true });
+      showToast('已定位到失败消息，可在消息下方点击重试', { tone: 'info', variant: 'surface' });
+    };
     return (
       <Screen showBack={false} title="">
         <View style={styles.chatPageMake}>
@@ -6224,7 +6231,7 @@ export default function LumiiMvpApp() {
           <View style={[styles.chatErrorBanner, styles.chatErrorBannerPet]}>
             <AlertCircle color={palette.danger} size={14} strokeWidth={2.4} />
             <Text style={styles.chatErrorBannerText}>网络不稳定，灵伴暂时无法回复</Text>
-            <Pressable onPress={() => showToast('可在下方重试失败消息')} style={styles.chatErrorBannerAction}>
+            <Pressable onPress={revealFailedChatMessage} style={styles.chatErrorBannerAction}>
               <Text style={styles.chatErrorBannerActionText}>查看详情</Text>
             </Pressable>
           </View>
@@ -6235,7 +6242,7 @@ export default function LumiiMvpApp() {
           </View>
         )}
 
-        <ScrollView contentContainerStyle={styles.chatMakeList} keyboardDismissMode="none" keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false} style={styles.chatMakeScroller}>
+        <ScrollView ref={petChatScrollRef} contentContainerStyle={styles.chatMakeList} keyboardDismissMode="none" keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false} style={styles.chatMakeScroller}>
           <Text style={styles.chatDateChip}>{chatDateChipLabel}</Text>
           {chatMessages.map((message) => (
             <View key={message.id} style={styles.chatMessageGroup}>
@@ -11571,8 +11578,9 @@ const styles = StyleSheet.create({
   heroCard: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16 },
   homeBellButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 19, borderWidth: 1, height: 38, justifyContent: 'center', position: 'relative', width: 38 },
   homeBellDot: { backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 4, borderWidth: 1.5, height: 7, position: 'absolute', right: 9, top: 8, width: 7 },
-  homeChatHint: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, elevation: 0, justifyContent: 'center', marginTop: 24, maxWidth: 320, minHeight: 42, paddingHorizontal: 18, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.08, shadowRadius: 18, width: '84%', zIndex: 0 },
+  homeChatHint: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, elevation: 0, justifyContent: 'center', maxWidth: 320, minHeight: 42, paddingHorizontal: 18, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.08, shadowRadius: 18, width: '84%' },
   homeChatHintText: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 18, textAlign: 'center' },
+  homeChatHintWrap: { alignItems: 'center', marginBottom: 2, marginTop: 34, position: 'relative', width: '100%', zIndex: 1 },
   homeHealthCard: { alignItems: 'center', backgroundColor: '#ffe3cb', borderColor: 'rgba(255,255,255,0.7)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', marginTop: 14, paddingHorizontal: 18, paddingVertical: 16, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
   homeHealthDelta: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.22)', borderRadius: 10, flexDirection: 'row', gap: 2, marginLeft: 6, paddingHorizontal: 8, paddingVertical: 3 },
   homeHealthDeltaText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
@@ -11599,7 +11607,7 @@ const styles = StyleSheet.create({
   homePetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
   homePetName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 27 },
   homePetNameRow: { alignItems: 'center', flexDirection: 'row', gap: 2, justifyContent: 'center' },
-  homePetStage: { alignItems: 'center', height: 332, justifyContent: 'center', marginBottom: 14, marginTop: 12, position: 'relative', zIndex: 2 },
+  homePetStage: { alignItems: 'center', height: 352, justifyContent: 'center', marginBottom: 22, marginTop: 12, position: 'relative', zIndex: 2 },
   homeQuickGrid: { columnGap: 12, flexDirection: 'row', flexWrap: 'wrap', marginTop: 12, rowGap: 12 },
   homeStoryIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 12, height: 38, justifyContent: 'center', width: 38 },
   homeStoryStrip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 10, paddingHorizontal: 14, paddingVertical: 9, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
