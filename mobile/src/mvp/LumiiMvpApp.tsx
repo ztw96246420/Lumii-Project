@@ -3642,7 +3642,7 @@ export default function LumiiMvpApp() {
     }
   }
 
-  function buildAmapPlaceSearchUrl(place: Place) {
+  function buildAmapWebPlaceSearchUrl(place: Place) {
     const keyword = `${place.name} ${place.address}`.trim();
     const params = new URLSearchParams({
       callnative: '1',
@@ -3653,15 +3653,44 @@ export default function LumiiMvpApp() {
     return `https://uri.amap.com/search?${params.toString()}`;
   }
 
+  function buildAmapNativeUrls(place: Place) {
+    const name = encodeURIComponent(place.name);
+    const hasCoordinate = Number.isFinite(place.latitude) && Number.isFinite(place.longitude);
+    if (!hasCoordinate) return [];
+    const lat = String(place.latitude);
+    const lon = String(place.longitude);
+    return Platform.OS === 'ios'
+      ? [
+        `iosamap://navi?sourceApplication=Lumii&backScheme=lumii&lat=${lat}&lon=${lon}&dev=0&style=2&poiname=${name}`,
+        `iosamap://path?sourceApplication=Lumii&dlat=${lat}&dlon=${lon}&dname=${name}&dev=0&t=0`,
+      ]
+      : [
+        `androidamap://navi?sourceApplication=Lumii&lat=${lat}&lon=${lon}&dev=0&style=2&poiname=${name}`,
+        `amapuri://route/plan/?sourceApplication=Lumii&dlat=${lat}&dlon=${lon}&dname=${name}&dev=0&t=0`,
+      ];
+  }
+
   async function openAmapPlace(place?: Place) {
     if (!place) {
       showToast('暂无可打开地点');
       return;
     }
+    const nativeUrls = buildAmapNativeUrls(place);
+    for (const nativeUrl of nativeUrls) {
+      try {
+        const canOpen = await Linking.canOpenURL(nativeUrl);
+        if (canOpen) {
+          await Linking.openURL(nativeUrl);
+          return;
+        }
+      } catch {
+        // Try the next native scheme before falling back to the web URI.
+      }
+    }
     try {
-      await Linking.openURL(buildAmapPlaceSearchUrl(place));
+      await Linking.openURL(buildAmapWebPlaceSearchUrl(place));
     } catch {
-      showToast('无法打开高德地图，请稍后重试');
+      showToast('未检测到高德地图 App，且无法打开网页版导航');
     }
   }
 
