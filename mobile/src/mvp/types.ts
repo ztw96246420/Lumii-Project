@@ -255,6 +255,9 @@ export type VaccinePlan = {
 export type HealthMemo = {
   content: string;
   id: string;
+  reminderAt?: string;
+  reminderEnabled?: boolean;
+  repeat?: 'monthly' | 'none' | 'quarterly' | 'yearly';
   title: string;
   updatedAt: string;
 };

@@ -216,11 +216,23 @@ function parseMockWeightRecordPayload(value: Partial<Pick<WeightRecord, 'kg' | '
   };
 }
 
-function parseMockHealthMemoPayload(value: Partial<Pick<HealthMemo, 'content' | 'title'>>, current?: HealthMemo) {
+const mockHealthMemoRepeats = new Set(['monthly', 'none', 'quarterly', 'yearly']);
+
+function isValidMockMemoReminderAt(value: string) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})$/);
+  if (!match) return false;
+  const [, dateText, hourText, minuteText] = match;
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  return isValidIsoCalendarDate(dateText) && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+}
+
+function parseMockHealthMemoPayload(value: Partial<Pick<HealthMemo, 'content' | 'reminderAt' | 'reminderEnabled' | 'repeat' | 'title'>>, current?: HealthMemo) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { error: '健康备忘参数无效，请刷新后重试' };
   }
-  const allowedKeys = new Set(['content', 'title']);
+  const allowedKeys = new Set(['content', 'reminderAt', 'reminderEnabled', 'repeat', 'title']);
   const source = value as Record<string, unknown>;
   const keys = Object.keys(source);
   const unknownKey = keys.find((key) => !allowedKeys.has(key));
@@ -228,10 +240,25 @@ function parseMockHealthMemoPayload(value: Partial<Pick<HealthMemo, 'content' | 
 
   const title = String(Object.prototype.hasOwnProperty.call(source, 'title') ? source.title : current?.title || '').trim();
   const content = String(Object.prototype.hasOwnProperty.call(source, 'content') ? source.content : current?.content || '').trim();
+  const repeatInput = Object.prototype.hasOwnProperty.call(source, 'repeat') ? source.repeat : current?.repeat ?? 'none';
+  const repeat = String(repeatInput || 'none').trim();
+  const reminderEnabled = Object.prototype.hasOwnProperty.call(source, 'reminderEnabled') ? Boolean(source.reminderEnabled) : Boolean(current?.reminderEnabled);
+  const reminderAtInput = Object.prototype.hasOwnProperty.call(source, 'reminderAt') ? source.reminderAt : current?.reminderAt ?? '';
+  const reminderAt = String(reminderAtInput || '').trim();
   if (!title || !content) return { error: '请填写备忘标题和内容' };
   if (title.length > 30) return { error: '备忘标题最多 30 个字' };
   if (content.length > 500) return { error: '备忘内容最多 500 个字' };
-  return { memo: { content, title } };
+  if (!mockHealthMemoRepeats.has(repeat)) return { error: '请选择正确重复频率' };
+  if (reminderEnabled && !isValidMockMemoReminderAt(reminderAt)) return { error: '请选择正确提醒时间' };
+  return {
+    memo: {
+      content,
+      reminderAt: reminderEnabled ? reminderAt : undefined,
+      reminderEnabled,
+      repeat: repeat as HealthMemo['repeat'],
+      title,
+    },
+  };
 }
 
 function parseMockVaccineStatusPatch(status: unknown): { error: string; ok: false } | { ok: true; status: VaccinePlan['status'] } {
@@ -1704,16 +1731,16 @@ export const mockApi = {
       return success(vaccineReminderIds);
     },
 
-    async saveHealthMemo(title: string, content: string): Promise<ApiResult<HealthMemo>> {
+    async saveHealthMemo(title: string, content: string, options: Pick<HealthMemo, 'reminderAt' | 'reminderEnabled' | 'repeat'> = {}): Promise<ApiResult<HealthMemo>> {
       await wait();
-      const memoInput = parseMockHealthMemoPayload({ content, title });
+      const memoInput = parseMockHealthMemoPayload({ content, title, ...options });
       if (memoInput.error) return error<HealthMemo>(memoInput.error, false, undefined, 'HEALTH_MEMO_INVALID');
-      const memo: HealthMemo = { id: `m-${Date.now()}`, ...(memoInput.memo as Pick<HealthMemo, 'content' | 'title'>), updatedAt: todayIsoDate() };
+      const memo: HealthMemo = { id: `m-${Date.now()}`, ...(memoInput.memo as Omit<HealthMemo, 'id' | 'updatedAt'>), updatedAt: todayIsoDate() };
       memos = [memo, ...memos];
       return success(memo);
     },
 
-    async updateHealthMemo(id: string, patch: Partial<Pick<HealthMemo, 'content' | 'title'>>): Promise<ApiResult<HealthMemo>> {
+    async updateHealthMemo(id: string, patch: Partial<Pick<HealthMemo, 'content' | 'reminderAt' | 'reminderEnabled' | 'repeat' | 'title'>>): Promise<ApiResult<HealthMemo>> {
       await wait(160);
       const memo = memos.find((item) => item.id === id);
       if (!memo) return error('健康备忘不存在', false);

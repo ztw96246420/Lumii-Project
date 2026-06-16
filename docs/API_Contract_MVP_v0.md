@@ -767,14 +767,22 @@ Request:
 Request:
 
 ```json
-{ "title": "驱虫记录", "content": "体外驱虫已完成。" }
+{
+  "title": "驱虫记录",
+  "content": "体外驱虫已完成。",
+  "reminderAt": "2026-09-16 09:00",
+  "reminderEnabled": true,
+  "repeat": "quarterly"
+}
 ```
 
 说明：
-- 当前只接受 `title`、`content` 两个字段。
+- 当前接受 `title`、`content`、`reminderAt`、`reminderEnabled`、`repeat`。
 - `title` 和 `content` 不能为空。
 - `title` 最多 30 个字，`content` 最多 500 个字。
-- 字段、标题或内容不合法时返回 400，`error.code=HEALTH_MEMO_INVALID`。
+- `repeat` 可选值为 `none`、`monthly`、`quarterly`、`yearly`；未传时按 `none` 处理。
+- `reminderEnabled=true` 时必须传合法 `reminderAt`，格式为 `YYYY-MM-DD HH:mm`；`reminderEnabled=false` 时后端不保存 `reminderAt`。
+- 字段、标题、内容、提醒时间或重复频率不合法时返回 400，`error.code=HEALTH_MEMO_INVALID`。
 
 ### PATCH `/health/memos/{memoId}`
 
@@ -783,16 +791,24 @@ Request:
 Request:
 
 ```json
-{ "title": "洗澡记录", "content": "耳朵干净，皮肤没有明显泛红。" }
+{
+  "title": "洗澡记录",
+  "content": "耳朵干净，皮肤没有明显泛红。",
+  "reminderAt": "2026-07-16 09:00",
+  "reminderEnabled": true,
+  "repeat": "monthly"
+}
 ```
 
 说明：
-- 当前只允许更新 `title`、`content`。
+- 当前允许更新 `title`、`content`、`reminderAt`、`reminderEnabled`、`repeat`。
 - `title` 和 `content` 不能为空。
 - `title` 最多 30 个字，`content` 最多 500 个字。
 - 未传入的字段会沿用原值。
-- 字段、标题或内容不合法时返回 400，`error.code=HEALTH_MEMO_INVALID`。
-- App 暂不暴露编辑入口；后续需要等 Figma 补齐编辑页/弹层与删除确认。
+- `repeat` 可选值为 `none`、`monthly`、`quarterly`、`yearly`。
+- `reminderEnabled=true` 时必须传合法 `reminderAt`，格式为 `YYYY-MM-DD HH:mm`；`reminderEnabled=false` 时后端不保存 `reminderAt`。
+- 字段、标题、内容、提醒时间或重复频率不合法时返回 400，`error.code=HEALTH_MEMO_INVALID`。
+- App 已暴露健康备忘编辑入口；编辑页当前主要更新标题和内容，提醒字段预留给后续编辑页二次补齐。
 
 ### DELETE `/health/memos/{memoId}`
 
@@ -805,7 +821,7 @@ HealthMemo[]
 ```
 
 说明：
-- App 暂不暴露删除入口；后续必须等 Figma 补齐危险操作二次确认后再接 UI。
+- App 已暴露健康备忘删除入口，删除前必须经过二次确认弹窗。
 
 ## 7. 社交与消息
 

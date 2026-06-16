@@ -593,8 +593,16 @@ function formatIsoDateAsFriendlyLabel(dateText?: string) {
 }
 
 function defaultMemoReminderDate() {
+  return nextMemoReminderDate('quarterly');
+}
+
+function nextMemoReminderDate(repeat: NonNullable<HealthMemo['repeat']>, base = new Date()) {
   const date = new Date();
-  date.setMonth(date.getMonth() + 3);
+  date.setTime(base.getTime());
+  if (repeat === 'monthly') date.setMonth(date.getMonth() + 1);
+  else if (repeat === 'quarterly') date.setMonth(date.getMonth() + 3);
+  else if (repeat === 'yearly') date.setFullYear(date.getFullYear() + 1);
+  else date.setDate(date.getDate() + 7);
   date.setHours(9, 0, 0, 0);
   return date;
 }
@@ -602,6 +610,17 @@ function defaultMemoReminderDate() {
 function formatMemoReminderLabel(date: Date) {
   return `${dateToIsoDate(date)} · ${formatClockTime(date)}`;
 }
+
+function formatMemoReminderValue(date: Date) {
+  return `${dateToIsoDate(date)} ${formatClockTime(date)}`;
+}
+
+const memoRepeatOptions: Array<{ label: string; value: NonNullable<HealthMemo['repeat']> }> = [
+  { label: '不重复', value: 'none' },
+  { label: '每月', value: 'monthly' },
+  { label: '每 3 月', value: 'quarterly' },
+  { label: '每年', value: 'yearly' },
+];
 
 function buildWalkInviteDateTiles(base = new Date()) {
   const times = ['17:30', '18:30', '16:00'];
@@ -829,7 +848,9 @@ export default function LumiiMvpApp() {
   const [memoDeleteConfirmVisible, setMemoDeleteConfirmVisible] = useState(false);
   const [memoDraftTitle, setMemoDraftTitle] = useState('驱虫');
   const [memoDraftContent, setMemoDraftContent] = useState('外用滴剂 · 拜耳拜宠清');
+  const [memoDraftRepeat, setMemoDraftRepeat] = useState<NonNullable<HealthMemo['repeat']>>('quarterly');
   const [memoDraftReminderAt, setMemoDraftReminderAt] = useState(() => defaultMemoReminderDate());
+  const [memoDraftReminderEnabled, setMemoDraftReminderEnabled] = useState(true);
   const [memoDraftSaving, setMemoDraftSaving] = useState(false);
   const memoDraftSavingRef = useRef(false);
   const [vaccineReminderSavingIds, setVaccineReminderSavingIds] = useState<string[]>([]);
@@ -1203,7 +1224,11 @@ export default function LumiiMvpApp() {
   }, [replace, route, selectedMemo, showToast]);
 
   useEffect(() => {
-    if (route === 'memoNew') setMemoDraftReminderAt(defaultMemoReminderDate());
+    if (route === 'memoNew') {
+      setMemoDraftRepeat('quarterly');
+      setMemoDraftReminderAt(defaultMemoReminderDate());
+      setMemoDraftReminderEnabled(true);
+    }
   }, [route]);
 
   useEffect(() => {
@@ -3302,13 +3327,19 @@ export default function LumiiMvpApp() {
     memoDraftSavingRef.current = true;
     setMemoDraftSaving(true);
     try {
-      const result = await lumiiApi.health.saveHealthMemo(requestTitle, requestContent);
+      const result = await lumiiApi.health.saveHealthMemo(requestTitle, requestContent, {
+        reminderAt: memoDraftReminderEnabled ? formatMemoReminderValue(memoDraftReminderAt) : undefined,
+        reminderEnabled: memoDraftReminderEnabled,
+        repeat: memoDraftRepeat,
+      });
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setMemos((items) => [result.data!, ...items]);
         setMemoDraftTitle('驱虫');
         setMemoDraftContent('外用滴剂 · 拜耳拜宠清');
+        setMemoDraftRepeat('quarterly');
         setMemoDraftReminderAt(defaultMemoReminderDate());
+        setMemoDraftReminderEnabled(true);
         void refreshHealthSummary();
         showToast('健康备忘已保存', { tone: 'success', variant: 'surface' });
         replace('healthMemos');
@@ -4115,7 +4146,9 @@ export default function LumiiMvpApp() {
     setMemoDeleteConfirmVisible(false);
     setMemoDraftTitle('驱虫');
     setMemoDraftContent('外用滴剂 · 拜耳拜宠清');
+    setMemoDraftRepeat('quarterly');
     setMemoDraftReminderAt(defaultMemoReminderDate());
+    setMemoDraftReminderEnabled(true);
     memoDraftSavingRef.current = false;
     setMemoDraftSaving(false);
     vaccineReminderSavingIdsRef.current.clear();
@@ -6065,10 +6098,17 @@ export default function LumiiMvpApp() {
       { Icon: Stethoscope, label: '体检' },
       { Icon: NotebookPen, label: '其他' },
     ];
-    const repeatOptions = ['不重复', '每月', '每 3 月', '每年'];
     const titleCount = memoDraftTitle.trim().length;
     const contentCount = memoDraftContent.trim().length;
     const invalid = !memoDraftTitle.trim() || !memoDraftContent.trim() || titleCount > 20 || contentCount > 200;
+    const adjustMemoReminderAt = () => {
+      if (!memoDraftReminderEnabled) return;
+      setMemoDraftReminderAt((current) => {
+        const next = nextMemoReminderDate(memoDraftRepeat, current);
+        showToast(`提醒时间已调整为 ${formatMemoReminderLabel(next)}`, { tone: 'success', variant: 'surface' });
+        return next;
+      });
+    };
     return (
       <Screen
         right={(
@@ -6093,20 +6133,31 @@ export default function LumiiMvpApp() {
           </View>
 
           <Text style={styles.memoFieldLabel}>提醒时间</Text>
-          <View style={styles.memoPickerRow}>
+          <Pressable
+            disabled={!memoDraftReminderEnabled}
+            onPress={adjustMemoReminderAt}
+            style={[styles.memoPickerRow, !memoDraftReminderEnabled && styles.memoPickerRowDisabled, webPressableReset]}
+          >
             <CalendarDays color={palette.orange} size={16} strokeWidth={2.4} />
-            <Text style={styles.memoPickerValue}>{formatMemoReminderLabel(memoDraftReminderAt)}</Text>
+            <Text style={styles.memoPickerValue}>{memoDraftReminderEnabled ? formatMemoReminderLabel(memoDraftReminderAt) : '未开启提醒'}</Text>
             <ChevronRight color={palette.muted} size={16} strokeWidth={2.4} />
-          </View>
+          </Pressable>
 
           <Text style={styles.memoFieldLabel}>重复</Text>
           <View style={styles.memoRepeatRow}>
-            {repeatOptions.map((item) => {
-              const active = item === '每 3 月';
+            {memoRepeatOptions.map((item) => {
+              const active = item.value === memoDraftRepeat;
               return (
-                <View key={item} style={[styles.memoRepeatOption, active && styles.memoRepeatOptionActive]}>
-                  <Text style={[styles.memoRepeatText, active && styles.memoRepeatTextActive]}>{item}</Text>
-                </View>
+                <Pressable
+                  key={item.value}
+                  onPress={() => {
+                    setMemoDraftRepeat(item.value);
+                    setMemoDraftReminderAt(nextMemoReminderDate(item.value));
+                  }}
+                  style={[styles.memoRepeatOption, active && styles.memoRepeatOptionActive, webPressableReset]}
+                >
+                  <Text style={[styles.memoRepeatText, active && styles.memoRepeatTextActive]}>{item.label}</Text>
+                </Pressable>
               );
             })}
           </View>
@@ -6126,18 +6177,18 @@ export default function LumiiMvpApp() {
             <Text style={[styles.fieldHintText, contentCount > 200 && styles.fieldHintError]}>{contentCount}/200</Text>
           </View>
 
-          <View style={styles.memoReminderRow}>
+          <Pressable onPress={() => setMemoDraftReminderEnabled((enabled) => !enabled)} style={[styles.memoReminderRow, webPressableReset]}>
             <View style={styles.memoReminderIcon}>
               <Bell color={palette.orange} size={15} strokeWidth={2.4} />
             </View>
             <View style={styles.flex}>
               <Text style={styles.timelineTitleMake}>到期前提醒</Text>
-              <Text style={styles.timelineSubMake}>提前 3 天通知</Text>
+              <Text style={styles.timelineSubMake}>{memoDraftReminderEnabled ? '提前 3 天通知' : '已关闭提醒'}</Text>
             </View>
-            <View style={styles.memoSwitchTrack}>
-              <View style={styles.memoSwitchThumb} />
+            <View style={[styles.memoSwitchTrack, !memoDraftReminderEnabled && styles.memoSwitchTrackOff]}>
+              <View style={[styles.memoSwitchThumb, !memoDraftReminderEnabled && styles.memoSwitchThumbOff]} />
             </View>
-          </View>
+          </Pressable>
 
           <Pressable disabled={invalid || memoDraftSaving} onPress={() => void saveMemoDraft()} style={[styles.memoPrimaryCta, (invalid || memoDraftSaving) && styles.memoPrimaryCtaDisabled, webPressableReset]}>
             {memoDraftSaving ? <ActivityIndicator color="#fff" size="small" /> : <Check color="#fff" size={16} strokeWidth={3} />}
@@ -9834,6 +9885,7 @@ const styles = StyleSheet.create({
   memoNewPage: { paddingTop: 0 },
   memoNoteInput: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', lineHeight: 22, minHeight: 92, paddingHorizontal: 16, paddingTop: 12 },
   memoPickerRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, height: 52, paddingHorizontal: 16 },
+  memoPickerRowDisabled: { opacity: 0.58 },
   memoPickerValue: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600' },
   memoPrimaryCta: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center', marginTop: 28, shadowColor: palette.orange, shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.28, shadowRadius: 28 },
   memoPrimaryCtaDisabled: { backgroundColor: palette.pale, shadowOpacity: 0 },
@@ -9849,7 +9901,9 @@ const styles = StyleSheet.create({
   memoRepeatText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
   memoRepeatTextActive: { color: palette.orange, fontWeight: '700' },
   memoSwitchThumb: { backgroundColor: '#fff', borderRadius: 11, height: 22, marginLeft: 18, shadowColor: '#000', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.18, shadowRadius: 4, width: 22 },
+  memoSwitchThumbOff: { marginLeft: 0 },
   memoSwitchTrack: { backgroundColor: palette.orange, borderRadius: 13, height: 26, padding: 2, width: 44 },
+  memoSwitchTrackOff: { backgroundColor: 'rgba(122,121,114,0.22)' },
   memoTopSave: { paddingHorizontal: 0, paddingVertical: 8 },
   memoTopSaveDisabled: { opacity: 0.55 },
   memoTopSaveText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
@@ -10243,7 +10297,7 @@ const styles = StyleSheet.create({
   heroCard: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16 },
   homeBellButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 19, borderWidth: 1, height: 38, justifyContent: 'center', position: 'relative', width: 38 },
   homeBellDot: { backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 4, borderWidth: 1.5, height: 7, position: 'absolute', right: 9, top: 8, width: 7 },
-  homeChatHint: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginTop: -4, maxWidth: 260, minHeight: 36, paddingHorizontal: 14, paddingVertical: 8, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.13, shadowRadius: 22, width: '78%' },
+  homeChatHint: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginTop: 14, maxWidth: 270, minHeight: 36, paddingHorizontal: 14, paddingVertical: 8, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.13, shadowRadius: 22, width: '78%' },
   homeChatHintText: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 17, textAlign: 'center' },
   homeHealthCard: { alignItems: 'center', backgroundColor: '#ffe3cb', borderColor: 'rgba(255,255,255,0.7)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', marginTop: 14, paddingHorizontal: 18, paddingVertical: 16, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
   homeHealthDelta: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.22)', borderRadius: 10, flexDirection: 'row', gap: 2, marginLeft: 6, paddingHorizontal: 8, paddingVertical: 3 },
@@ -10270,7 +10324,7 @@ const styles = StyleSheet.create({
   homePetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
   homePetName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 27 },
   homePetNameRow: { alignItems: 'center', flexDirection: 'row', gap: 2, justifyContent: 'center', marginTop: 14 },
-  homePetStage: { alignItems: 'center', height: 252, justifyContent: 'center', marginTop: 12, position: 'relative' },
+  homePetStage: { alignItems: 'center', height: 262, justifyContent: 'center', marginTop: 12, position: 'relative' },
   homeQuickGrid: { columnGap: 12, flexDirection: 'row', flexWrap: 'wrap', marginTop: 12, rowGap: 12 },
   homeStoryIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 12, height: 38, justifyContent: 'center', width: 38 },
   homeStoryStrip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 10, paddingHorizontal: 14, paddingVertical: 9, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },

@@ -286,11 +286,15 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<string[]>('PATCH', `/health/vaccine-reminders/${encodeURIComponent(id)}`, { enabled });
       },
 
-      async saveHealthMemo(title: string, content: string): Promise<ApiResult<HealthMemo>> {
-        return request<HealthMemo>('POST', '/health/memos', { content, title });
+      async saveHealthMemo(
+        title: string,
+        content: string,
+        options: Pick<HealthMemo, 'reminderAt' | 'reminderEnabled' | 'repeat'> = {},
+      ): Promise<ApiResult<HealthMemo>> {
+        return request<HealthMemo>('POST', '/health/memos', { content, title, ...options });
       },
 
-      async updateHealthMemo(id: string, patch: Partial<Pick<HealthMemo, 'content' | 'title'>>): Promise<ApiResult<HealthMemo>> {
+      async updateHealthMemo(id: string, patch: Partial<Pick<HealthMemo, 'content' | 'reminderAt' | 'reminderEnabled' | 'repeat' | 'title'>>): Promise<ApiResult<HealthMemo>> {
         return request<HealthMemo>('PATCH', `/health/memos/${encodeURIComponent(id)}`, patch);
       },
 

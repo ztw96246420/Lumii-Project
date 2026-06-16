@@ -783,21 +783,38 @@ function parseWeightRecordPayload(value, { current = null, partial = false } = {
   };
 }
 
+const healthMemoRepeats = new Set(['monthly', 'none', 'quarterly', 'yearly']);
+
+function isValidMemoReminderAt(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})$/);
+  if (!match) return false;
+  const [, dateText, hourText, minuteText] = match;
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  return isValidIsoCalendarDate(dateText) && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+}
+
 function parseHealthMemoPayload(value, current = null) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { error: '健康备忘参数无效，请刷新后重试' };
   }
-  const allowedKeys = new Set(['content', 'title']);
+  const allowedKeys = new Set(['content', 'reminderAt', 'reminderEnabled', 'repeat', 'title']);
   const keys = Object.keys(value);
   const unknownKey = keys.find((key) => !allowedKeys.has(key));
   if (unknownKey) return { error: `健康备忘字段 ${unknownKey} 暂不支持` };
 
   const title = String(Object.prototype.hasOwnProperty.call(value, 'title') ? value.title : current?.title || '').trim();
   const content = String(Object.prototype.hasOwnProperty.call(value, 'content') ? value.content : current?.content || '').trim();
+  const repeat = String(Object.prototype.hasOwnProperty.call(value, 'repeat') ? value.repeat || 'none' : current?.repeat || 'none').trim();
+  const reminderEnabled = Object.prototype.hasOwnProperty.call(value, 'reminderEnabled') ? Boolean(value.reminderEnabled) : Boolean(current?.reminderEnabled);
+  const reminderAt = String(Object.prototype.hasOwnProperty.call(value, 'reminderAt') ? value.reminderAt || '' : current?.reminderAt || '').trim();
   if (!title || !content) return { error: '请填写备忘标题和内容' };
   if (title.length > 30) return { error: '备忘标题最多 30 个字' };
   if (content.length > 500) return { error: '备忘内容最多 500 个字' };
-  return { memo: { content, title } };
+  if (!healthMemoRepeats.has(repeat)) return { error: '璇烽€夋嫨姝ｇ‘閲嶅棰戠巼' };
+  if (reminderEnabled && !isValidMemoReminderAt(reminderAt)) return { error: '璇烽€夋嫨姝ｇ‘鎻愰啋鏃堕棿' };
+  return { memo: { content, reminderAt: reminderEnabled ? reminderAt : undefined, reminderEnabled, repeat, title } };
 }
 
 function parseVaccineStatusPatch(value) {
@@ -856,7 +873,7 @@ function parsePushDevicePayload(value) {
       deviceId: deviceId || undefined,
       platform,
       token,
-      updatedAt: '刚刚',
+      updatedAt: currentClockTime(),
     },
   };
 }
@@ -1155,7 +1172,7 @@ function defaultMemosFor(user) {
   const pet = selectedPetFor(user);
   if (!pet) return [];
   return [
-    { content: `${pet.name}建档完成，可以开始记录食欲、便便、洗澡和就诊情况。`, id: `m-${user.phone}-${pet.id}-1`, title: '建档记录', updatedAt: '刚刚' },
+    { content: `${pet.name}建档完成，可以开始记录食欲、便便、洗澡和就诊情况。`, id: `m-${user.phone}-${pet.id}-1`, title: '建档记录', updatedAt: todayIsoDate() },
   ];
 }
 
@@ -1172,7 +1189,7 @@ function createHealthMemoRecord(user, title, content, options = {}) {
     content: normalizedContent,
     id: `m-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
     title: normalizedTitle,
-    updatedAt: '刚刚',
+    updatedAt: todayIsoDate(),
   };
   memos.unshift(memo);
   return memo;
@@ -1193,6 +1210,11 @@ function todayIsoDate() {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function currentClockTime() {
+  const date = new Date();
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 function healthList(storeName, user, defaultsFactory) {
@@ -2834,7 +2856,7 @@ function buildConversationFor(user, otherUser, lastMessage, unread = 0) {
     petName: otherPet.name || `灵伴${suffix}`,
     relationshipStatus: canSendMessage ? 'accepted' : 'pending',
     unread,
-    updatedAt: '刚刚',
+    updatedAt: currentClockTime(),
   };
 }
 
@@ -3644,7 +3666,7 @@ async function handle(req, res) {
     const memo = {
       id: `m-${Date.now()}`,
       ...memoInput.memo,
-      updatedAt: '刚刚',
+      updatedAt: todayIsoDate(),
     };
     memos.unshift(memo);
     saveState();
@@ -3666,7 +3688,7 @@ async function handle(req, res) {
       fail(res, 400, memoInput.error, false, undefined, 'HEALTH_MEMO_INVALID');
       return;
     }
-    memos[index] = { ...memos[index], ...memoInput.memo, updatedAt: '刚刚' };
+    memos[index] = { ...memos[index], ...memoInput.memo, updatedAt: todayIsoDate() };
     saveState();
     ok(res, memos[index]);
     return;
@@ -3772,13 +3794,13 @@ async function handle(req, res) {
       author: 'system',
       id: messageId(),
       text: '你们已经互相打招呼，可以开始聊天。',
-      time: '刚刚',
+      time: currentClockTime(),
     });
     appendConversationMessage(fromUser.phone, senderConversation.id, {
       author: 'system',
       id: messageId(),
       text: `${myPet.name}已接受${fromPet.name}的招呼，可以开始聊天。`,
-      time: '刚刚',
+      time: currentClockTime(),
     });
     addNotification(fromUser.phone, {
       id: `n-greeting-accepted-${Date.now()}`,
@@ -3832,14 +3854,14 @@ async function handle(req, res) {
       id: messageId(),
       status: 'sent',
       text: note ? `${lastMessage}\n${note}` : lastMessage,
-      time: '刚刚',
+      time: currentClockTime(),
     });
     appendConversationMessage(targetPhone, targetConversation.id, {
       author: 'other',
       id: messageId(),
       status: 'sent',
       text: note ? `${fromPet.name}邀请你：${lastMessage}\n${note}` : `${fromPet.name}邀请你：${lastMessage}`,
-      time: '刚刚',
+      time: currentClockTime(),
     });
     addNotification(targetPhone, {
       id: `n-walk-${Date.now()}`,
@@ -3902,7 +3924,7 @@ async function handle(req, res) {
       id: messageId(),
       status: 'sent',
       text,
-      time: '刚刚',
+      time: currentClockTime(),
     };
     appendConversationMessage(user.phone, conversationId, myMessage);
 
@@ -3913,7 +3935,7 @@ async function handle(req, res) {
       id: messageId(),
       status: 'sent',
       text,
-      time: '刚刚',
+      time: currentClockTime(),
     });
     upsertConversation(user.phone, buildConversationFor(user, targetUser, text, 0));
     upsertConversation(targetPhone, buildConversationFor(targetUser, user, text, 1));
@@ -3987,7 +4009,7 @@ async function handle(req, res) {
       id: messageId(),
       status: 'sent',
       text,
-      time: '刚刚',
+      time: currentClockTime(),
     };
     consumePetChatQuota(user);
     const medicalAlert = createMedicalAlertFromPetChat(user, text);
@@ -4014,7 +4036,7 @@ async function handle(req, res) {
       medicalAlert: medicalAlert ? { notificationId: medicalAlert.notificationId, reason: medicalAlert.reason } : undefined,
       status: 'sent',
       text: replyText,
-      time: '刚刚',
+      time: currentClockTime(),
       updatedPet: profileUpdate?.pet,
       updatedVaccine: vaccineAction?.vaccine,
       vaccineReminderIds: vaccineAction?.reminderIds,
