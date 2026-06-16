@@ -184,7 +184,6 @@ export function ToggleRow({
 }
 
 export function Toast({
-  actionText,
   icon,
   iconTone,
   layout = 'default',
@@ -194,7 +193,6 @@ export function Toast({
   tone = 'info',
   variant = 'surface',
 }: {
-  actionText?: string;
   icon?: 'bookmark' | 'heart';
   iconTone?: 'muted' | 'orange';
   layout?: 'avatarSaveError' | 'avatarSaveSuccess' | 'default';
@@ -239,7 +237,6 @@ export function Toast({
         <Text style={[styles.toastText, dark ? styles.toastTextDark : styles.toastTextSurface, (avatarSaveSuccess || avatarSaveError) && styles.toastTextAvatarSave]} numberOfLines={2}>{message}</Text>
         {subtitle ? <Text style={[styles.toastSubtitle, dark ? styles.toastSubtitleDark : styles.toastSubtitleSurface]} numberOfLines={2}>{subtitle}</Text> : null}
       </View>
-      {actionText ? <Text style={[dark ? styles.toastActionDark : styles.toastActionSurface, avatarSaveError && styles.toastActionAvatarSaveError]}>{actionText}</Text> : null}
     </View>
   );
 }
@@ -515,9 +512,6 @@ export const styles = StyleSheet.create({
   skeletonTextStack: { flex: 1, gap: 8 },
   subtitle: { color: palette.muted, fontFamily, fontSize: 15, lineHeight: 22 },
   toast: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 10, maxWidth: 340, minHeight: 46, minWidth: 180, paddingHorizontal: 12, paddingVertical: 10, position: 'absolute', top: 70, zIndex: 20 },
-  toastActionAvatarSaveError: { backgroundColor: 'rgba(255,138,92,0.12)', borderLeftWidth: 0, borderRadius: 12, paddingHorizontal: 10, paddingLeft: 10, paddingVertical: 6 },
-  toastActionDark: { color: '#FFB48C', fontFamily, fontSize: 12, fontWeight: '600' },
-  toastActionSurface: { borderLeftColor: palette.border, borderLeftWidth: 1, color: palette.orange, fontFamily, fontSize: 12.5, fontWeight: '600', marginLeft: 4, paddingLeft: 8 },
   toastAvatarSaveError: { alignSelf: 'stretch', borderColor: palette.border, borderRadius: 20, gap: 12, left: 16, maxWidth: 999, minHeight: 64, minWidth: 0, paddingHorizontal: 16, paddingVertical: 14, right: 16, shadowColor: '#50371e', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.18, shadowRadius: 38, top: 92 },
   toastAvatarSaveSuccess: { gap: 10, minWidth: 220, paddingBottom: 12, paddingLeft: 14, paddingRight: 18, paddingTop: 12, shadowOpacity: 0.4, top: 96 },
   toastBottom: { bottom: 110, top: undefined },

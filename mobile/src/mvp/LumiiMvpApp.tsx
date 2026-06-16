@@ -580,7 +580,6 @@ const PLACE_COMPOSER_DRAFT_STORAGE_PREFIX = 'lumii.placeComposerDraft.v1';
 const WALK_INVITE_DRAFT_STORAGE_PREFIX = 'lumii.walkInviteDraft.v1';
 
 type AppToast = {
-  actionText?: string;
   icon?: 'bookmark' | 'heart';
   iconTone?: 'muted' | 'orange';
   layout?: 'avatarSaveError' | 'avatarSaveSuccess' | 'default';
@@ -2614,7 +2613,7 @@ export default function LumiiMvpApp() {
         go('uploadNoPet');
       }
     } catch {
-      showToast(source === 'camera' ? '打开相机失败，请稍后重试' : '打开相册失败，请稍后重试', { actionText: '重试', subtitle: '当前照片没有上传，请重新选择', tone: 'error', variant: 'surface' });
+      showToast(source === 'camera' ? '打开相机失败，请稍后重试' : '打开相册失败，请稍后重试', { subtitle: '当前照片没有上传，请重新选择', tone: 'error', variant: 'surface' });
     } finally {
       mediaPickingRef.current = false;
       setMediaPickerMode(null);
@@ -2655,7 +2654,7 @@ export default function LumiiMvpApp() {
         setAvatarJob(result.data);
         go('generating');
       } else {
-        showToast(result.error?.message ?? '启动生成失败，请重新选择照片', { actionText: '重试', subtitle: '照片已保留，可稍后重新生成', tone: 'error', variant: 'surface' });
+        showToast(result.error?.message ?? '启动生成失败，请重新选择照片', { subtitle: '照片已保留，可稍后重新生成', tone: 'error', variant: 'surface' });
       }
       void loadAiUsage();
     } finally {
@@ -2737,7 +2736,7 @@ export default function LumiiMvpApp() {
         replace('home');
         showToast('已保存为你的电子灵伴', { layout: 'avatarSaveSuccess', subtitle: '可在「我的宠物」中查看', tone: 'success', variant: 'dark' });
       } else {
-        showToast(result.error?.message ?? '保存失败，请检查网络', { actionText: '重试', layout: 'avatarSaveError', subtitle: '网络连接异常，灵伴形象未上传', tone: 'error', variant: 'surface' });
+        showToast(result.error?.message ?? '保存失败，请检查网络', { layout: 'avatarSaveError', subtitle: '网络连接异常，灵伴形象未上传，可在本页重新保存', tone: 'error', variant: 'surface' });
       }
     } finally {
       avatarAcceptingRef.current = false;
@@ -2772,7 +2771,7 @@ export default function LumiiMvpApp() {
         setAvatarJob(result.data);
         replace('generating');
       } else {
-        showToast(result.error?.message ?? '重新生成失败，请稍后重试', { actionText: '重试', subtitle: '当前形象仍会保留在确认页', tone: 'error', variant: 'surface' });
+        showToast(result.error?.message ?? '重新生成失败，请稍后重试', { subtitle: '当前形象仍会保留在确认页', tone: 'error', variant: 'surface' });
       }
       void loadAiUsage();
     } finally {
@@ -2824,7 +2823,7 @@ export default function LumiiMvpApp() {
         showToast('已记录反馈，正在重新生成', { tone: 'success', variant: 'surface' });
         await retryAvatarGeneration();
       } else {
-        showToast(result.error?.message ?? '反馈保存失败，请稍后重试', { actionText: '重试', subtitle: '当前形象仍会保留', tone: 'error', variant: 'surface' });
+        showToast(result.error?.message ?? '反馈保存失败，请稍后重试', { subtitle: '当前形象仍会保留', tone: 'error', variant: 'surface' });
       }
     } finally {
       avatarFeedbackSubmittingRef.current = false;
@@ -2921,7 +2920,7 @@ export default function LumiiMvpApp() {
         syncPetChatBusinessEffects(result.data);
         void loadAiUsage();
       } else {
-        showToast(result.error?.message ?? '消息发送失败', { actionText: '重试', subtitle: '消息气泡已保留，可在下方重新发送', tone: 'error', variant: 'surface' });
+        showToast(result.error?.message ?? '消息发送失败', { subtitle: '消息气泡已保留，可在下方重新发送', tone: 'error', variant: 'surface' });
         void loadAiUsage();
       }
     } finally {
@@ -2948,7 +2947,7 @@ export default function LumiiMvpApp() {
           else delete next[messageId];
           return next;
         });
-        showToast(result.error?.message ?? '反馈保存失败，请稍后重试', { actionText: '重试', subtitle: '当前回复不会被重新训练', tone: 'error', variant: 'surface' });
+        showToast(result.error?.message ?? '反馈保存失败，请稍后重试', { subtitle: '当前回复不会被重新训练', tone: 'error', variant: 'surface' });
       }
     } finally {
       chatFeedbackSavingIdsRef.current.delete(messageId);
@@ -3117,7 +3116,7 @@ export default function LumiiMvpApp() {
       } else {
         if (isActiveConversation) {
           setConversationMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: 'failed' } : item)));
-          showToast(result.error?.message ?? '消息发送失败', { actionText: '重试', subtitle: '消息已标记为未送达，可在气泡下方重试', tone: 'error', variant: 'surface' });
+          showToast(result.error?.message ?? '消息发送失败', { subtitle: '消息已标记为未送达，可在气泡下方重试', tone: 'error', variant: 'surface' });
         } else {
           delete localConversationMessageIdsRef.current[local.id];
         }
@@ -3553,7 +3552,7 @@ export default function LumiiMvpApp() {
       } else {
         const message = result.error?.message ?? '网络不稳定，资料未能保存';
         setOwnerProfileSaveError(message);
-        showToast(message, { actionText: '重试', tone: 'error', variant: 'surface' });
+        showToast(message, { subtitle: '内容已保留，可修改后再次保存', tone: 'error', variant: 'surface' });
       }
     } finally {
       ownerProfileSavingRef.current = false;
@@ -3583,19 +3582,17 @@ export default function LumiiMvpApp() {
           nextFavorite ? '已收藏到「想去」' : `已取消收藏 · ${place.name}`,
           nextFavorite
             ? {
-                actionText: '管理',
                 icon: 'bookmark',
                 iconTone: 'orange',
-                subtitle: '在「我的 · 收藏」中查看',
+                subtitle: '后续可在收藏入口集中查看',
                 tone: 'success',
                 variant: 'dark',
               }
             : {
-                actionText: '撤销',
                 icon: 'heart',
                 iconTone: 'muted',
                 placement: 'bottom',
-                subtitle: '将不再出现在「想去」列表',
+                subtitle: '已从收藏列表移除',
                 tone: 'info',
                 variant: 'surface',
               },
@@ -3953,7 +3950,7 @@ export default function LumiiMvpApp() {
         replace('home');
         showToast('今日小事已记录', { subtitle: '已同步到健康备忘和首页动态', tone: 'success', variant: 'surface' });
       } else {
-        showToast(result.error?.message ?? '发布失败，请稍后重试', { actionText: '重试', subtitle: '内容已留在编辑框中，不会丢失', tone: 'error', variant: 'surface' });
+        showToast(result.error?.message ?? '发布失败，请稍后重试', { subtitle: '内容已留在编辑框中，不会丢失', tone: 'error', variant: 'surface' });
       }
     } finally {
       dailyPostSavingRef.current = false;
@@ -10381,7 +10378,7 @@ export default function LumiiMvpApp() {
               })}
             </View>
           ) : null}
-          <Toast actionText={toast?.actionText} icon={toast?.icon} iconTone={toast?.iconTone} layout={toast?.layout} message={toast?.message} placement={toast?.placement} subtitle={toast?.subtitle} tone={toast?.tone} variant={toast?.variant} />
+          <Toast icon={toast?.icon} iconTone={toast?.iconTone} layout={toast?.layout} message={toast?.message} placement={toast?.placement} subtitle={toast?.subtitle} tone={toast?.tone} variant={toast?.variant} />
           {renderGreetingSheet()}
           {renderAmapNavigationConfirm()}
           {renderLogoutConfirmSheet()}
