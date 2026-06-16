@@ -5659,11 +5659,11 @@ export default function LumiiMvpApp() {
               <Text style={styles.homePetName}>{pet.name}</Text>
               <Text style={styles.homePetMeta}>· {petMeta}</Text>
             </View>
-
-            <Pressable onPress={() => go('chat')} style={[styles.homeChatHint, webPressableReset]}>
-              <Text numberOfLines={2} style={styles.homeChatHintText}>{homeChatHint}</Text>
-            </Pressable>
           </View>
+
+          <Pressable onPress={() => go('chat')} style={[styles.homeChatHint, webPressableReset]}>
+            <Text numberOfLines={2} style={styles.homeChatHintText}>{homeChatHint}</Text>
+          </Pressable>
 
           <Pressable onPress={() => go('health')} style={[webPressableReset, styles.homeHealthCard, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E0 0%, #FFE3CB 60%, #FFD7B5 100%)' } as object) : null]}>
             <View>
@@ -10947,8 +10947,8 @@ const styles = StyleSheet.create({
   heroCard: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16 },
   homeBellButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 19, borderWidth: 1, height: 38, justifyContent: 'center', position: 'relative', width: 38 },
   homeBellDot: { backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 4, borderWidth: 1.5, height: 7, position: 'absolute', right: 9, top: 8, width: 7 },
-  homeChatHint: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginTop: 10, maxWidth: 270, minHeight: 36, paddingHorizontal: 14, paddingVertical: 8, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.13, shadowRadius: 22, width: '78%' },
-  homeChatHintText: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 17, textAlign: 'center' },
+  homeChatHint: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, justifyContent: 'center', marginTop: 16, minHeight: 42, paddingHorizontal: 18, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22 },
+  homeChatHintText: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 18, textAlign: 'center' },
   homeHealthCard: { alignItems: 'center', backgroundColor: '#ffe3cb', borderColor: 'rgba(255,255,255,0.7)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', marginTop: 14, paddingHorizontal: 18, paddingVertical: 16, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
   homeHealthDelta: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.22)', borderRadius: 10, flexDirection: 'row', gap: 2, marginLeft: 6, paddingHorizontal: 8, paddingVertical: 3 },
   homeHealthDeltaText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
@@ -10970,12 +10970,12 @@ const styles = StyleSheet.create({
   homeOnlineText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
   homePetAvatarShell: { alignItems: 'center', backgroundColor: '#FFEDD9', borderColor: '#fff', borderRadius: 112, borderWidth: 4, height: 224, justifyContent: 'center', overflow: 'hidden', shadowColor: '#b46e3c', shadowOffset: { height: 28, width: 0 }, shadowOpacity: 0.26, shadowRadius: 56, width: 224, zIndex: 2 },
   homePetGlow: { backgroundColor: 'rgba(255,138,92,0.20)', borderRadius: 148, height: 296, position: 'absolute', width: 296 },
-  homePetIdentityBlock: { alignItems: 'center', marginTop: 20, position: 'relative', zIndex: 5 },
+  homePetIdentityBlock: { alignItems: 'center', marginTop: 12, position: 'relative', zIndex: 5 },
   homePetRing: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'conic-gradient(from 210deg, rgba(255,138,92,0.42), rgba(77,182,172,0.38), rgba(255,200,140,0.42), rgba(255,138,92,0.42))' } as object) : null), backgroundColor: 'rgba(255,138,92,0.12)', borderRadius: 122, height: 244, opacity: 0.86, position: 'absolute', width: 244, zIndex: 1 },
   homePetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
   homePetName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 27 },
   homePetNameRow: { alignItems: 'center', flexDirection: 'row', gap: 2, justifyContent: 'center' },
-  homePetStage: { alignItems: 'center', height: 284, justifyContent: 'center', marginTop: 12, position: 'relative' },
+  homePetStage: { alignItems: 'center', height: 310, justifyContent: 'center', marginTop: 12, position: 'relative' },
   homeQuickGrid: { columnGap: 12, flexDirection: 'row', flexWrap: 'wrap', marginTop: 12, rowGap: 12 },
   homeStoryIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 12, height: 38, justifyContent: 'center', width: 38 },
   homeStoryStrip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 10, paddingHorizontal: 14, paddingVertical: 9, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
