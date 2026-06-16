@@ -26,6 +26,7 @@
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
+    "build:android:apk": "node scripts/build-arm64-apk.cjs",
     "build:android:preview": "npx eas-cli build -p android --profile preview",
     "eas:whoami": "npx eas-cli whoami",
     "ios": "expo run:ios",

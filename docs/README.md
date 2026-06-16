@@ -18,6 +18,7 @@
 - 已有页面内的逻辑、状态、接口、缓存、Bug 修复可以直接开发。
 - 尽量先做不依赖新增页面、不依赖外部模型/接口的闭环。
 - 不自动频繁打 APK；代码完成后先说明结果，需要真机包时再打。
+- Android 真机 APK 默认且唯一使用本地 `arm64-v8a` release 构建：`cd mobile && npm run build:android:apk`。不得临时手敲全架构 `assembleRelease`，除非明确需要 universal 包。
 - 服务器流量尽量省，日常优先本地模拟器、Android Studio 或云端接口热更新。
 - 历史设计源和旧测试记录不删除；过期内容统一用 `~~删除线~~` 标注。
 

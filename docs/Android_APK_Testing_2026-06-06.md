@@ -7,6 +7,7 @@
 - 不常态上传 APK 到腾讯云下载，避免消耗服务器流量包。
 - 后端逻辑改动优先云端热更新并用现有 APK 继续测。
 - 只有涉及原生配置、权限、地图 SDK、App 图标、包名、阶段验收时才重新打 APK。
+- 打 APK 的默认规则已固定：只打本地 `arm64-v8a` release 包，命令为 `cd mobile && npm run build:android:apk`。除非明确要模拟器或 universal 包，否则不再打全架构包。
 
 ## 当前状态
 
@@ -14,7 +15,8 @@
 - 已新增 EAS 构建配置：`mobile/eas.json`
 - 已新增 npm 脚本：
   - `npm run eas:whoami`
-  - `npm run build:android:preview`
+  - ~~`npm run build:android:preview`~~ 历史 EAS 构建命令，当前不作为日常真机包默认方式。
+  - `npm run build:android:apk`
 - 已验证：
   - `app.json` / `eas.json` / `package.json` JSON 正常
   - `npx expo config --type public` 正常
@@ -51,10 +53,12 @@ npm run eas:whoami
 
 ```powershell
 cd "F:\Users\Administrator\Documents\Lumii Project\mobile"
-npm run build:android:preview
+npm run build:android:apk
 ```
 
-第一次构建时，EAS 可能会询问：
+该命令会固定执行本地 Gradle release 构建，并强制 `-PreactNativeArchitectures=arm64-v8a`，构建完成后复制到仓库 `dist` 目录并输出大小、SHA256、包名、versionCode、ABI。
+
+~~第一次构建时，EAS 可能会询问：~~ 当前日常打包不再默认走 EAS。
 
 - 是否创建 EAS 项目：选择 Yes
 - Android Keystore 是否由 EAS 管理：选择 Yes
