@@ -8030,10 +8030,9 @@ export default function LumiiMvpApp() {
         </View>
       );
     };
-    const renderOwnerCard = (owner: NearbyOwner, preview = false, index = 0) => {
+    const renderOwnerCard = (owner: NearbyOwner, preview = false) => {
       const savingGreeting = socialActionSavingIds.includes(`greet:${owner.id}`);
       const petImageSource = owner.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
-      const ownerAvatarUrl = discoverOwnerAvatarUrls[index % discoverOwnerAvatarUrls.length];
       const breed = preview ? '?' : owner.tags[0] ?? (owner.species === 'dog' ? '狗狗' : '猫咪');
       const tags = preview ? ['??', '??'] : (owner.tags.length > 1 ? owner.tags.slice(1, 3) : owner.tags.slice(0, 2));
       return (
@@ -8041,9 +8040,6 @@ export default function LumiiMvpApp() {
           <View style={styles.ownerCardTopMake}>
             <View style={styles.ownerPetPhotoMake}>
               <Image resizeMode="cover" source={petImageSource} style={styles.avatarImage} />
-              <View style={styles.ownerMiniAvatarMake}>
-                <Image resizeMode="cover" source={{ uri: ownerAvatarUrl }} style={styles.avatarImage} />
-              </View>
             </View>
             <View style={styles.ownerInfoMake}>
               <View style={styles.ownerNameRowMake}>
@@ -8161,7 +8157,7 @@ export default function LumiiMvpApp() {
           {discoverAccessIssue ? (
             <>
               <View pointerEvents="none" style={styles.discoverBlurPreviewMake}>
-                {renderOwnerCard(previewOwner, true, 0)}
+                {renderOwnerCard(previewOwner, true)}
               </View>
               <View style={styles.discoverPermissionPanelMake}>
                 <View style={styles.discoverPermissionIconMake}>
@@ -8185,7 +8181,7 @@ export default function LumiiMvpApp() {
               </View>
             </>
           ) : (
-            visibleOwners.map((owner, index) => renderOwnerCard(owner, false, index))
+            visibleOwners.map((owner) => renderOwnerCard(owner))
           )}
           {!discoverAccessIssue && !visibleOwners.length ? (
             discoverEnabled ? renderDiscoverEmptyState() : null
@@ -12388,7 +12384,6 @@ const styles = StyleSheet.create({
   ownerInfoMake: { flex: 1, minWidth: 0 },
   ownerInviteHero: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
   ownerMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', marginTop: 2 },
-  ownerMiniAvatarMake: { backgroundColor: '#fff', borderColor: '#fff', borderRadius: 14, borderWidth: 2, bottom: 6, height: 28, overflow: 'hidden', position: 'absolute', right: 6, width: 28 },
   ownerNameRowMake: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'space-between' },
   ownerPetNameMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 16, fontWeight: '700', letterSpacing: 0, lineHeight: 21, minWidth: 0 },
   ownerPetPhotoMake: { backgroundColor: '#FFEDD9', borderRadius: 18, flexShrink: 0, height: 92, overflow: 'hidden', position: 'relative', width: 92 },
