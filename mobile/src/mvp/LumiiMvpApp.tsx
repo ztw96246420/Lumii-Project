@@ -473,7 +473,7 @@ const defaultMapCenter = {
 
 type MapVisualMode = 'lumii' | 'night' | 'satellite' | 'standard';
 type PlaceSpeciesFilter = 'all' | Extract<PetSpecies, 'cat' | 'dog'>;
-type PlaceSortMode = 'distance' | 'rating';
+type PlaceSortMode = 'distance' | 'rating' | 'reviews';
 
 const mapStyleOptions: Array<{
   description: string;
@@ -486,7 +486,7 @@ const mapStyleOptions: Array<{
   { description: '低亮度模式，夜间查看更舒服', key: 'night', label: '夜间' },
 ];
 
-const placeSortOptions: Array<{ key: PlaceSortMode | 'reviews'; label: string }> = [
+const placeSortOptions: Array<{ key: PlaceSortMode; label: string }> = [
   { key: 'distance', label: '距离最近' },
   { key: 'rating', label: '评分最高' },
   { key: 'reviews', label: '点评最多' },
@@ -499,6 +499,10 @@ function sortPlacesByMode(items: Place[], mode: PlaceSortMode) {
     if (mode === 'rating') {
       const ratingDelta = right.rating - left.rating;
       if (ratingDelta !== 0) return ratingDelta;
+    }
+    if (mode === 'reviews') {
+      const reviewDelta = (right.reviewCount ?? 0) - (left.reviewCount ?? 0);
+      if (reviewDelta !== 0) return reviewDelta;
     }
     const distanceDelta = parsePlaceDistanceMeters(left.distance) - parsePlaceDistanceMeters(right.distance);
     if (distanceDelta !== 0) return distanceDelta;
@@ -4405,6 +4409,11 @@ export default function LumiiMvpApp() {
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         await deletePlaceComposerDraft('review', place.id);
+        const hadReviewForPlace = Boolean(placeReviewsByPlaceId[place.id]);
+        if (!hadReviewForPlace) {
+          setPlaces((items) => items.map((item) => (item.id === place.id ? { ...item, reviewCount: (item.reviewCount ?? 0) + 1 } : item)));
+          setSelectedPlace((current) => (current?.id === place.id ? { ...current, reviewCount: (current.reviewCount ?? 0) + 1 } : current));
+        }
         if (stillReviewingSamePlace) setPlaceReviewDraft('');
         if (stillReviewingSamePlace) setPlacePhotoUris([]);
         if (stillReviewingSamePlace) setSelectedPlaceFeatureTags([]);
@@ -8129,19 +8138,12 @@ export default function LumiiMvpApp() {
               <View style={styles.mapSegmentRowMake}>
                 {placeSortOptions.map((option) => {
                   const active = option.key === placeSortMode;
-                  const unavailable = option.key === 'reviews';
                   return (
                     <Pressable
                       accessibilityRole="button"
                       key={option.key}
-                      onPress={() => {
-                        if (option.key === 'reviews') {
-                          showToast('点评数量字段待后端补齐，先按距离或评分排序', { tone: 'info', variant: 'surface' });
-                          return;
-                        }
-                        setPlaceSortMode(option.key);
-                      }}
-                      style={[styles.mapSegmentButtonMake, active && styles.mapSegmentButtonActiveMake, unavailable && !active && styles.opacity60, webPressableReset]}
+                      onPress={() => setPlaceSortMode(option.key)}
+                      style={[styles.mapSegmentButtonMake, active && styles.mapSegmentButtonActiveMake, webPressableReset]}
                     >
                       <Text style={[styles.mapSegmentTextMake, active && styles.mapSegmentTextActiveMake]}>{option.label}</Text>
                     </Pressable>

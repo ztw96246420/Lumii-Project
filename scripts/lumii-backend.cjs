@@ -74,6 +74,7 @@ const defaultPlaces = [
     id: 'place-park-1',
     name: '云杉宠物友好公园',
     rating: 4.8,
+    reviewCount: 36,
     supportedSpecies: ['dog'],
     tags: ['可遛狗', '草坪', '饮水点'],
   },
@@ -84,6 +85,7 @@ const defaultPlaces = [
     id: 'place-cafe-1',
     name: '暖爪咖啡',
     rating: 4.6,
+    reviewCount: 18,
     supportedSpecies: ['cat', 'dog'],
     tags: ['室内友好', '可带猫包'],
   },
@@ -94,6 +96,7 @@ const defaultPlaces = [
     id: 'place-clinic-1',
     name: '安心宠物医院',
     rating: 4.7,
+    reviewCount: 24,
     supportedSpecies: ['cat', 'dog'],
     tags: ['急诊', '疫苗'],
   },
@@ -959,6 +962,30 @@ function placeReviewsFor(user) {
   return state.placeReviews[user.phone];
 }
 
+function placeReviewCount(placeId) {
+  const storedPlace = (state.places || []).find((item) => item.id === placeId);
+  const storedCount = Number(storedPlace?.reviewCount);
+  if (Number.isFinite(storedCount) && storedCount >= 0) return storedCount;
+  const reviewPhones = new Set(
+    Object.entries(state.placeReviews || {})
+      .filter(([, reviews]) => Array.isArray(reviews) && reviews.some((review) => review.placeId === placeId))
+      .map(([phone]) => phone),
+  );
+  return reviewPhones.size;
+}
+
+function placeForResponse(place) {
+  if (!place) return place;
+  return {
+    ...place,
+    reviewCount: placeReviewCount(place.id),
+  };
+}
+
+function placesForResponse(places) {
+  return (places || []).map(placeForResponse);
+}
+
 function createPlaceReview(user, placeId, content) {
   const place = (state.places || []).find((item) => item.id === placeId);
   if (!place) return null;
@@ -966,6 +993,7 @@ function createPlaceReview(user, placeId, content) {
   if (!trimmedContent) return false;
   const violation = publicPlaceContentViolation('点评内容', trimmedContent, 500);
   if (violation) return { error: violation, statusCode: 400 };
+  const hadReviewForPlace = placeReviewsFor(user).some((item) => item.placeId === placeId);
   const review = {
     content: trimmedContent,
     createdAt: new Date().toISOString(),
@@ -974,6 +1002,7 @@ function createPlaceReview(user, placeId, content) {
     status: 'pending_review',
   };
   state.placeReviews[user.phone] = [review, ...placeReviewsFor(user).filter((item) => item.placeId !== placeId)];
+  if (!hadReviewForPlace) place.reviewCount = placeReviewCount(placeId) + 1;
   addNotification(user.phone, {
     id: `notification-${review.id}`,
     read: false,
@@ -4098,7 +4127,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/places/nearby') {
-    ok(res, state.places);
+    ok(res, placesForResponse(state.places));
     return;
   }
 
@@ -4122,7 +4151,8 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/places/search') {
     const query = String(url.searchParams.get('q') || '').trim();
-    ok(res, query ? state.places.filter((place) => matchesPlaceSearch(place, query)) : state.places);
+    const matchedPlaces = query ? state.places.filter((place) => matchesPlaceSearch(place, query)) : state.places;
+    ok(res, placesForResponse(matchedPlaces));
     return;
   }
 
@@ -4134,7 +4164,7 @@ async function handle(req, res) {
       fail(res, 404, '地点不存在', false);
       return;
     }
-    ok(res, place);
+    ok(res, placeForResponse(place));
     return;
   }
 

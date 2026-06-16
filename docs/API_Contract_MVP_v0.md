@@ -1081,6 +1081,7 @@ type Place = {
   id: string;
   name: string;
   rating: number;
+  reviewCount?: number;
   supportedSpecies?: Array<'cat' | 'dog'>;
   tags: string[];
 };
@@ -1106,6 +1107,7 @@ Place
 
 说明：
 - 如果地点不存在，返回 404 和中文错误 `地点不存在`。
+- `reviewCount` 用于 App 地图页“点评最多”排序；生产后端能返回真实公开点评数时应返回该字段，旧数据缺字段时 App 会按 0 处理。
 - `supportedSpecies` 用于 App 地图页“汪星友好 / 喵星友好”筛选；生产后端能判断时建议返回该字段，旧数据缺字段时 App 仅会按标签和地点类别做保守推断。
 - 当前 MVP 详情数据结构与地点列表项一致，后续可在不破坏列表接口的前提下扩展营业时间、电话、图片、点评摘要等字段。
 

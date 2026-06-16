@@ -358,6 +358,7 @@ export type Place = {
   id: string;
   name: string;
   rating: number;
+  reviewCount?: number;
   supportedSpecies?: Array<Extract<PetSpecies, 'cat' | 'dog'>>;
   tags: string[];
 };

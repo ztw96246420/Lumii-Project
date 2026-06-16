@@ -914,9 +914,9 @@ const mockPetAvatarDailyLimit = 10;
 const mockSocialMessageMaxChars = 600;
 
 const places: Place[] = [
-  { id: 'p1', name: '云杉宠物友好公园', address: '滨江路 88 号', category: 'park', distance: '900m', rating: 4.8, supportedSpecies: ['dog'], tags: ['可遛狗', '草坪', '饮水点'] },
-  { id: 'p2', name: '暖爪咖啡', address: '中央广场 B1', category: 'cafe', distance: '1.6km', rating: 4.6, supportedSpecies: ['cat', 'dog'], tags: ['室内友好', '可带猫包'] },
-  { id: 'p3', name: '安心宠物医院', address: '明湖街 12 号', category: 'clinic', distance: '2.3km', rating: 4.7, supportedSpecies: ['cat', 'dog'], tags: ['急诊', '疫苗'] },
+  { id: 'p1', name: '云杉宠物友好公园', address: '滨江路 88 号', category: 'park', distance: '900m', rating: 4.8, reviewCount: 36, supportedSpecies: ['dog'], tags: ['可遛狗', '草坪', '饮水点'] },
+  { id: 'p2', name: '暖爪咖啡', address: '中央广场 B1', category: 'cafe', distance: '1.6km', rating: 4.6, reviewCount: 18, supportedSpecies: ['cat', 'dog'], tags: ['室内友好', '可带猫包'] },
+  { id: 'p3', name: '安心宠物医院', address: '明湖街 12 号', category: 'clinic', distance: '2.3km', rating: 4.7, reviewCount: 24, supportedSpecies: ['cat', 'dog'], tags: ['急诊', '疫苗'] },
 ];
 let favoritePlaceIds: string[] = [];
 let placeReviews: PlaceReview[] = [];
@@ -2048,6 +2048,7 @@ export const mockApi = {
       if (!trimmedContent) return error('请填写点评内容', false);
       const violation = mockPublicPlaceContentViolation('点评内容', trimmedContent, 500);
       if (violation) return error(violation, false);
+      const hadReviewForPlace = placeReviews.some((item) => item.placeId === placeId);
       const review: PlaceReview = {
         content: trimmedContent,
         createdAt: new Date().toISOString(),
@@ -2056,6 +2057,7 @@ export const mockApi = {
         status: 'pending_review',
       };
       placeReviews = [review, ...placeReviews.filter((item) => item.placeId !== placeId)];
+      if (!hadReviewForPlace) place.reviewCount = (place.reviewCount ?? 0) + 1;
       addMockNotification({
         id: `notification-${review.id}`,
         read: false,
