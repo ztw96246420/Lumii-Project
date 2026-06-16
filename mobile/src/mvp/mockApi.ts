@@ -315,7 +315,7 @@ function parseMockPushDevicePayload(
       deviceId: normalizedDeviceId || undefined,
       platform: normalizedPlatform as PushDevice['platform'],
       token: normalizedToken,
-      updatedAt: currentClockTime(),
+      updatedAt: new Date().toISOString(),
     },
     ok: true,
   };
@@ -1291,7 +1291,7 @@ export const mockApi = {
           requests: 0,
           succeeded: 0,
         },
-        updatedAt: currentClockTime(),
+        updatedAt: new Date().toISOString(),
       });
     },
   },
@@ -1829,7 +1829,7 @@ export const mockApi = {
         petName: owner?.petName,
         relationshipStatus: 'accepted',
         unread: 0,
-        updatedAt: currentClockTime(),
+        updatedAt: new Date().toISOString(),
       };
       conversations.unshift(conversation);
       conversationMessagesById[conversation.id] = [
@@ -1867,7 +1867,7 @@ export const mockApi = {
         petName: owner?.petName,
         relationshipStatus: 'pending',
         unread: 0,
-        updatedAt: currentClockTime(),
+        updatedAt: new Date().toISOString(),
       };
       conversations.unshift(conversation);
       conversationMessagesById[conversation.id] = [
@@ -1962,6 +1962,9 @@ export const mockApi = {
       if (!conversation) return error('会话不存在，请返回消息列表刷新', true);
       if (conversation.canSendMessage === false) return error('对方接受招呼后才能聊天', true);
       const message: ConversationMessage = { author: 'me', id: `conv-${Date.now()}`, status: 'sent', text: trimmedText, time: currentClockTime() };
+      conversation.lastMessage = trimmedText;
+      conversation.unread = 0;
+      conversation.updatedAt = new Date().toISOString();
       conversationMessagesById[conversationId] = [...(conversationMessagesById[conversationId] ?? []), message];
       return success(message);
     },

@@ -889,7 +889,7 @@ function parsePushDevicePayload(value) {
       deviceId: deviceId || undefined,
       platform,
       token,
-      updatedAt: currentClockTime(),
+      updatedAt: new Date().toISOString(),
     },
   };
 }
@@ -2872,7 +2872,7 @@ function buildConversationFor(user, otherUser, lastMessage, unread = 0) {
     petName: otherPet.name || `灵伴${suffix}`,
     relationshipStatus: canSendMessage ? 'accepted' : 'pending',
     unread,
-    updatedAt: currentClockTime(),
+    updatedAt: new Date().toISOString(),
   };
 }
 

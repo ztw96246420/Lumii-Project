@@ -196,6 +196,20 @@ function formatTimestampDisplay(value?: string, fallback = '时间待确认') {
   return Number.isNaN(date.getTime()) ? fallback : formatRelativeDisplayTime(date);
 }
 
+function formatMessageListTime(value?: string, fallback = '新消息') {
+  const text = String(value ?? '').trim();
+  if (!text) return fallback;
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) return formatRelativeDisplayTime(date);
+  const clockMatch = text.match(/^(\d{1,2}):(\d{2})$/);
+  if (clockMatch) return `${clockMatch[1].padStart(2, '0')}:${clockMatch[2]}`;
+  return text;
+}
+
+function isPetChatWelcomeMessage(message?: ChatMessage) {
+  return message?.id === 'pet-chat-welcome';
+}
+
 function parsePlaceDistanceMeters(distance?: string) {
   const text = String(distance ?? '').trim().toLowerCase();
   const match = text.match(/(\d+(?:\.\d+)?)/);
@@ -2989,10 +3003,11 @@ export default function LumiiMvpApp() {
       const isActiveConversation = selectedConversationIdRef.current === conversationId;
       if (result.data) {
         delete localConversationMessageIdsRef.current[local.id];
+        const updatedAt = new Date().toISOString();
         if (isActiveConversation) {
           setConversationMessages((items) => items.map((item) => (item.id === local.id ? result.data! : item)));
         }
-        setConversations((items) => items.map((item) => (item.id === conversationId ? { ...item, lastMessage: text, unread: 0 } : item)));
+        setConversations((items) => items.map((item) => (item.id === conversationId ? { ...item, lastMessage: text, unread: 0, updatedAt } : item)));
       } else {
         if (isActiveConversation) {
           setConversationMessages((items) => items.map((item) => (item.id === local.id ? { ...item, status: 'failed' } : item)));
@@ -8342,9 +8357,10 @@ export default function LumiiMvpApp() {
 
   function renderMessages() {
     const pet = getCurrentPet();
-    const lastPetChatMessage = chatMessages[chatMessages.length - 1];
-    const petChatPreview = lastPetChatMessage?.text || '主人，今天我们去公园吗？';
-    const petChatTime = lastPetChatMessage?.time || formatClockTime();
+    const petChatHistoryMessages = chatMessages.filter((message) => !isPetChatWelcomeMessage(message));
+    const lastPetChatMessage = petChatHistoryMessages[petChatHistoryMessages.length - 1];
+    const petChatPreview = lastPetChatMessage?.text || '还没有开始聊天，点进来和它说第一句话';
+    const petChatTime = lastPetChatMessage ? formatMessageListTime(lastPetChatMessage.time) : '待开始';
     const hasInboxContent = Boolean(pet) || greetingRequestOwners.length > 0 || conversations.length > 0;
     return (
       <Screen
@@ -8433,7 +8449,7 @@ export default function LumiiMvpApp() {
                   </View>
                 </View>
                 <View style={styles.conversationMetaCol}>
-                  <Text style={styles.metaText}>{conversation.updatedAt ?? '新消息'}</Text>
+                  <Text style={styles.metaText}>{formatMessageListTime(conversation.updatedAt)}</Text>
                   {conversation.unread > 0 ? <Text style={styles.unreadBadge}>{conversation.unread}</Text> : null}
                 </View>
               </Pressable>
