@@ -8997,7 +8997,7 @@ export default function LumiiMvpApp() {
                     <Text style={styles.profilePetName}>{pet.name}</Text>
                     <Text style={styles.profilePetBadge}>{petBadgeText || speciesLabel}</Text>
                   </View>
-                  <Text style={styles.profilePetMeta}>{formatPetAge(pet.birthday)} · {pet.weightKg ? `${pet.weightKg} kg` : '体重待补充'}</Text>
+                  <Text style={styles.profilePetMeta}>{formatPetAge(pet.birthday)} · {formatWeightKg(pet.weightKg)}</Text>
                   <View style={styles.profilePetTags}>
                     {petTags.map((tag) => (
                       <Text key={tag} style={styles.profilePetTag}>{tag}</Text>
