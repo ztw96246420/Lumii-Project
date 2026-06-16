@@ -5351,14 +5351,14 @@ export default function LumiiMvpApp() {
             </View>
           </View>
 
-          <Pressable onPress={() => go('chat')} style={[styles.homeChatHint, webPressableReset]}>
-            <Text numberOfLines={2} style={styles.homeChatHintText}>{homeChatHint}</Text>
-          </Pressable>
-
           <View style={styles.homePetNameRow}>
             <Text style={styles.homePetName}>{pet.name}</Text>
             <Text style={styles.homePetMeta}>· {petMeta}</Text>
           </View>
+
+          <Pressable onPress={() => go('chat')} style={[styles.homeChatHint, webPressableReset]}>
+            <Text numberOfLines={2} style={styles.homeChatHintText}>{homeChatHint}</Text>
+          </Pressable>
 
           <Pressable onPress={() => go('health')} style={[webPressableReset, styles.homeHealthCard, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E0 0%, #FFE3CB 60%, #FFD7B5 100%)' } as object) : null]}>
             <View>
