@@ -9613,7 +9613,7 @@ export default function LumiiMvpApp() {
           {placeSubmissionStatus === 'pending_review' && !isReviewMode ? (
             <View style={styles.reviewStatusCard}>
               <Check color={palette.teal} size={15} strokeWidth={3} />
-              <Text style={styles.reviewStatusText}>已提交审核。后续真实接口会返回审核单号和预计处理时间。</Text>
+              <Text style={styles.reviewStatusText}>已提交审核，我们会在通知中心同步处理进度。</Text>
             </View>
           ) : null}
 
