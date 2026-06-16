@@ -71,3 +71,22 @@ export async function savePersistedLumiiSession(session: AuthSession) {
 export async function clearPersistedLumiiSession() {
   await deleteStorageValue(SESSION_KEY);
 }
+
+export async function loadLocalJsonStorage<T>(key: string) {
+  try {
+    const raw = await getStorageValue(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch {
+    await deleteStorageValue(key);
+    return null;
+  }
+}
+
+export async function saveLocalJsonStorage<T>(key: string, value: T) {
+  await setStorageValue(key, JSON.stringify(value));
+}
+
+export async function deleteLocalJsonStorage(key: string) {
+  await deleteStorageValue(key);
+}

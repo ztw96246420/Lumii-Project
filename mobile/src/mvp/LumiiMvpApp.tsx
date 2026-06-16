@@ -90,7 +90,7 @@ import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg
 import { getLumiiPermissionStatus, requestLumiiPermission } from '../services/permissions';
 import { cancelVaccineLocalReminder, cancelVaccineLocalReminders, scheduleVaccineLocalReminder, syncVaccineLocalReminders } from '../services/healthReminders';
 import { getLumiiPushRegistration } from '../services/pushToken';
-import { clearPersistedLumiiSession, loadPersistedLumiiSession, savePersistedLumiiSession } from '../services/sessionStorage';
+import { clearPersistedLumiiSession, deleteLocalJsonStorage, loadLocalJsonStorage, loadPersistedLumiiSession, saveLocalJsonStorage, savePersistedLumiiSession } from '../services/sessionStorage';
 import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
 import { apiConfig, lumiiApi, setLumiiAuthToken } from './api';
 import { productConfig } from './productConfig';
@@ -446,6 +446,17 @@ type PlaceSubmitResult = {
   status: 'error' | 'success';
   submittedAt: string;
 };
+
+type WalkInviteDraft = {
+  note: string;
+  ownerId: string;
+  place: string;
+  savedAt: number;
+  time: string;
+  version: 1;
+};
+
+const WALK_INVITE_DRAFT_STORAGE_PREFIX = 'lumii.walkInviteDraft.v1';
 
 type AppToast = {
   actionText?: string;
@@ -896,6 +907,8 @@ export default function LumiiMvpApp() {
   const socialActionSavingIdsRef = useRef<Set<string>>(new Set());
   const [walkInviteSaving, setWalkInviteSaving] = useState(false);
   const walkInviteSavingRef = useRef(false);
+  const [walkDraftSaving, setWalkDraftSaving] = useState(false);
+  const walkDraftSavingRef = useRef(false);
   const [selectedOwner, setSelectedOwner] = useState<NearbyOwner | null>(null);
   const selectedOwnerIdRef = useRef<string | null>(null);
   const [greetingSheetOwner, setGreetingSheetOwner] = useState<NearbyOwner | null>(null);
@@ -3661,6 +3674,97 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function getWalkInviteDraftStorageKey(ownerId: string) {
+    const accountKey = (session?.phone || phoneValueRef.current.trim() || 'anonymous').replace(/[^\w.-]/g, '_');
+    return `${WALK_INVITE_DRAFT_STORAGE_PREFIX}:${accountKey}:${ownerId}`;
+  }
+
+  function normalizeWalkInviteDraft(value: unknown, ownerId: string) {
+    const draft = value as Partial<WalkInviteDraft> | null;
+    if (!draft || draft.version !== 1 || draft.ownerId !== ownerId) return null;
+    const place = typeof draft.place === 'string' ? draft.place : '';
+    const time = typeof draft.time === 'string' ? draft.time : '';
+    const note = typeof draft.note === 'string' ? draft.note : '';
+    const savedAt = Number(draft.savedAt || 0);
+    if (!time && !place && !note) return null;
+    return {
+      note,
+      ownerId,
+      place,
+      savedAt: Number.isFinite(savedAt) && savedAt > 0 ? savedAt : Date.now(),
+      time,
+      version: 1 as const,
+    };
+  }
+
+  async function loadWalkInviteDraft(ownerId: string) {
+    const stored = await loadLocalJsonStorage<unknown>(getWalkInviteDraftStorageKey(ownerId));
+    return normalizeWalkInviteDraft(stored, ownerId);
+  }
+
+  async function deleteWalkInviteDraft(ownerId: string) {
+    try {
+      await deleteLocalJsonStorage(getWalkInviteDraftStorageKey(ownerId));
+    } catch {
+      // Draft cleanup should never block a sent invite.
+    }
+  }
+
+  async function openWalkInvite(owner: NearbyOwner) {
+    const requestSessionToken = sessionTokenRef.current;
+    selectedOwnerIdRef.current = owner.id;
+    setSelectedOwner(owner);
+    let draft: null | WalkInviteDraft = null;
+    try {
+      draft = await loadWalkInviteDraft(owner.id);
+    } catch {
+      draft = null;
+    }
+    if (sessionTokenRef.current !== requestSessionToken || selectedOwnerIdRef.current !== owner.id) return;
+    setWalkInviteTime(draft?.time || defaultWalkInviteTime());
+    setWalkInvitePlace(draft?.place || '滨江绿地');
+    setWalkInviteNote(draft?.note || '');
+    go('walkInvite');
+    if (draft) {
+      const savedAt = formatClockTime(new Date(draft.savedAt));
+      showToast('已恢复约遛草稿', { subtitle: `保存于 ${savedAt}`, tone: 'success', variant: 'surface' });
+    }
+  }
+
+  async function saveWalkInviteDraft() {
+    if (walkDraftSavingRef.current) return;
+    const owner = selectedOwner;
+    if (!owner) {
+      showToast('请选择附近主人');
+      return;
+    }
+    const draft: WalkInviteDraft = {
+      note: walkInviteNote.trim(),
+      ownerId: owner.id,
+      place: walkInvitePlace.trim(),
+      savedAt: Date.now(),
+      time: walkInviteTime.trim(),
+      version: 1,
+    };
+    if (!draft.time && !draft.place && !draft.note) {
+      showToast('先填写一点约遛内容再保存');
+      return;
+    }
+    walkDraftSavingRef.current = true;
+    setWalkDraftSaving(true);
+    try {
+      await saveLocalJsonStorage(getWalkInviteDraftStorageKey(owner.id), draft);
+      if (selectedOwnerIdRef.current !== owner.id) return;
+      const subtitle = [draft.time, draft.place].filter(Boolean).join(' · ') || '稍后继续编辑';
+      showToast('约遛草稿已保存', { subtitle, tone: 'success', variant: 'surface' });
+    } catch {
+      showToast('草稿保存失败，请稍后重试', { tone: 'error', variant: 'surface' });
+    } finally {
+      walkDraftSavingRef.current = false;
+      setWalkDraftSaving(false);
+    }
+  }
+
   async function createWalkInvite() {
     if (walkInviteSavingRef.current) return;
     const owner = selectedOwner;
@@ -3697,6 +3801,7 @@ export default function LumiiMvpApp() {
             unread: 0,
           };
         setConversations((items) => [conversation, ...items.filter((item) => item.id !== conversation.id)]);
+        await deleteWalkInviteDraft(requestOwnerId);
         if (stillEditingSameInvite) setWalkInviteNote('');
         void loadInboxData();
         if (stillEditingSameInvite) {
@@ -4233,6 +4338,8 @@ export default function LumiiMvpApp() {
     setSocialActionSavingIds([]);
     walkInviteSavingRef.current = false;
     setWalkInviteSaving(false);
+    walkDraftSavingRef.current = false;
+    setWalkDraftSaving(false);
     selectedOwnerIdRef.current = null;
     setSelectedOwner(null);
     setGreetingSheetOwner(null);
@@ -5658,12 +5765,7 @@ export default function LumiiMvpApp() {
         showToast('暂时无法识别对方资料，请回发现页重新选择伙伴');
         return;
       }
-      selectedOwnerIdRef.current = owner.id;
-      setSelectedOwner(owner);
-      setWalkInviteTime(defaultWalkInviteTime());
-      setWalkInvitePlace('滨江绿地');
-      setWalkInviteNote('');
-      go('walkInvite');
+      void openWalkInvite(owner);
     };
     const sendPetCardFromConversation = () => {
       if (!conversation || !canSendMessage) {
@@ -7020,9 +7122,7 @@ export default function LumiiMvpApp() {
               </Pressable>
               <Pressable
                 onPress={() => {
-                  selectedOwnerIdRef.current = owner.id;
-                  setSelectedOwner(owner);
-                  go('walkInvite');
+                  void openWalkInvite(owner);
                 }}
                 style={[styles.ownerPrimaryButtonMake, webPressableReset]}
               >
@@ -8696,8 +8796,9 @@ export default function LumiiMvpApp() {
             </View>
 
             <View style={styles.walkBottomActionsMake}>
-              <Pressable disabled={walkInviteSaving} onPress={() => showToast('约遛草稿已暂存')} style={[styles.walkDraftButtonMake, webPressableReset]}>
-                <Text style={styles.walkDraftButtonTextMake}>保存草稿</Text>
+              <Pressable disabled={walkInviteSaving || walkDraftSaving} onPress={() => void saveWalkInviteDraft()} style={[styles.walkDraftButtonMake, (walkInviteSaving || walkDraftSaving) && styles.mapSearchActionDisabled, webPressableReset]}>
+                {walkDraftSaving ? <ActivityIndicator color={palette.ink} size="small" /> : null}
+                <Text style={styles.walkDraftButtonTextMake}>{walkDraftSaving ? '保存中' : '保存草稿'}</Text>
               </Pressable>
               <Pressable disabled={walkInviteSaving} onPress={() => void createWalkInvite()} style={[styles.walkSendButtonMake, webPressableReset]}>
                 {walkInviteSaving ? <ActivityIndicator color="#fff" size="small" /> : <Send color="#fff" size={14} strokeWidth={2.5} />}
@@ -11481,7 +11582,7 @@ const styles = StyleSheet.create({
   walkDateTileMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flex: 1, height: 64, justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 10 },
   walkDateValueMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 19, marginTop: 2 },
   walkDateWeekMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '500', lineHeight: 14, marginTop: 1 },
-  walkDraftButtonMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 24, borderWidth: 1, flex: 1, height: 48, justifyContent: 'center' },
+  walkDraftButtonMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 24, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 6, height: 48, justifyContent: 'center' },
   walkDraftButtonTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '600' },
   walkFieldLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', marginBottom: 8, marginTop: 14 },
   walkInvitePageMake: { gap: 0, marginTop: 4 },
