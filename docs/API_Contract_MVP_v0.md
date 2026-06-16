@@ -808,7 +808,7 @@ Request:
 - `repeat` 可选值为 `none`、`monthly`、`quarterly`、`yearly`。
 - `reminderEnabled=true` 时必须传合法 `reminderAt`，格式为 `YYYY-MM-DD HH:mm`；`reminderEnabled=false` 时后端不保存 `reminderAt`。
 - 字段、标题、内容、提醒时间或重复频率不合法时返回 400，`error.code=HEALTH_MEMO_INVALID`。
-- App 已暴露健康备忘编辑入口；编辑页当前主要更新标题和内容，提醒字段预留给后续编辑页二次补齐。
+- App 已暴露健康备忘编辑入口；编辑页支持同步更新标题、内容、提醒时间、提醒开关和重复频率。
 
 ### DELETE `/health/memos/{memoId}`
 

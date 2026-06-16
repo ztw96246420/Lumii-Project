@@ -132,6 +132,7 @@ const fallbackPetChatDailyLimit = 80;
 const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
 type NotificationFilter = 'all' | NotificationCategory;
+type MemoRepeat = NonNullable<HealthMemo['repeat']>;
 
 const notificationFilterOptions: Array<{ key: NotificationFilter; label: string }> = [
   { key: 'all', label: '全部' },
@@ -596,7 +597,11 @@ function defaultMemoReminderDate() {
   return nextMemoReminderDate('quarterly');
 }
 
-function nextMemoReminderDate(repeat: NonNullable<HealthMemo['repeat']>, base = new Date()) {
+function normalizeMemoRepeat(value?: HealthMemo['repeat']): MemoRepeat {
+  return value === 'monthly' || value === 'quarterly' || value === 'yearly' || value === 'none' ? value : 'none';
+}
+
+function nextMemoReminderDate(repeat: MemoRepeat, base = new Date()) {
   const date = new Date();
   date.setTime(base.getTime());
   if (repeat === 'monthly') date.setMonth(date.getMonth() + 1);
@@ -615,12 +620,23 @@ function formatMemoReminderValue(date: Date) {
   return `${dateToIsoDate(date)} ${formatClockTime(date)}`;
 }
 
-const memoRepeatOptions: Array<{ label: string; value: NonNullable<HealthMemo['repeat']> }> = [
+function parseMemoReminderDate(value?: string, fallbackRepeat: MemoRepeat = 'quarterly') {
+  if (!value) return nextMemoReminderDate(fallbackRepeat);
+  const normalized = value.trim().replace(' · ', ' ').replace(' ', 'T');
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? nextMemoReminderDate(fallbackRepeat) : date;
+}
+
+const memoRepeatOptions: Array<{ label: string; value: MemoRepeat }> = [
   { label: '不重复', value: 'none' },
   { label: '每月', value: 'monthly' },
   { label: '每 3 月', value: 'quarterly' },
   { label: '每年', value: 'yearly' },
 ];
+
+function memoRepeatLabel(value?: HealthMemo['repeat']) {
+  return memoRepeatOptions.find((item) => item.value === normalizeMemoRepeat(value))?.label ?? '不重复';
+}
 
 function buildWalkInviteDateTiles(base = new Date()) {
   const times = ['17:30', '18:30', '16:00'];
@@ -841,6 +857,9 @@ export default function LumiiMvpApp() {
   const [selectedMemo, setSelectedMemo] = useState<HealthMemo | null>(null);
   const [memoEditTitle, setMemoEditTitle] = useState('');
   const [memoEditContent, setMemoEditContent] = useState('');
+  const [memoEditRepeat, setMemoEditRepeat] = useState<MemoRepeat>('none');
+  const [memoEditReminderAt, setMemoEditReminderAt] = useState(() => defaultMemoReminderDate());
+  const [memoEditReminderEnabled, setMemoEditReminderEnabled] = useState(false);
   const [memoEditSaving, setMemoEditSaving] = useState(false);
   const memoEditSavingRef = useRef(false);
   const [memoDeleting, setMemoDeleting] = useState(false);
@@ -1221,6 +1240,11 @@ export default function LumiiMvpApp() {
     }
     setMemoEditTitle(selectedMemo.title);
     setMemoEditContent(selectedMemo.content);
+    const repeat = normalizeMemoRepeat(selectedMemo.repeat);
+    const enabled = selectedMemo.reminderEnabled ?? Boolean(selectedMemo.reminderAt);
+    setMemoEditRepeat(repeat);
+    setMemoEditReminderEnabled(enabled);
+    setMemoEditReminderAt(parseMemoReminderDate(selectedMemo.reminderAt, repeat));
   }, [replace, route, selectedMemo, showToast]);
 
   useEffect(() => {
@@ -3387,9 +3411,13 @@ export default function LumiiMvpApp() {
   }
 
   function openMemoEditor(memo: HealthMemo) {
+    const repeat = normalizeMemoRepeat(memo.repeat);
     setSelectedMemo(memo);
     setMemoEditTitle(memo.title);
     setMemoEditContent(memo.content);
+    setMemoEditRepeat(repeat);
+    setMemoEditReminderEnabled(memo.reminderEnabled ?? Boolean(memo.reminderAt));
+    setMemoEditReminderAt(parseMemoReminderDate(memo.reminderAt, repeat));
     go('memoEdit');
   }
 
@@ -3419,7 +3447,13 @@ export default function LumiiMvpApp() {
     memoEditSavingRef.current = true;
     setMemoEditSaving(true);
     try {
-      const result = await lumiiApi.health.updateHealthMemo(memo.id, { content, title });
+      const result = await lumiiApi.health.updateHealthMemo(memo.id, {
+        content,
+        reminderAt: memoEditReminderEnabled ? formatMemoReminderValue(memoEditReminderAt) : undefined,
+        reminderEnabled: memoEditReminderEnabled,
+        repeat: memoEditRepeat,
+        title,
+      });
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setMemos((items) => items.map((item) => (item.id === result.data!.id ? result.data! : item)));
@@ -4149,6 +4183,9 @@ export default function LumiiMvpApp() {
     setMemoDraftRepeat('quarterly');
     setMemoDraftReminderAt(defaultMemoReminderDate());
     setMemoDraftReminderEnabled(true);
+    setMemoEditRepeat('none');
+    setMemoEditReminderAt(defaultMemoReminderDate());
+    setMemoEditReminderEnabled(false);
     memoDraftSavingRef.current = false;
     setMemoDraftSaving(false);
     vaccineReminderSavingIdsRef.current.clear();
@@ -6061,6 +6098,11 @@ export default function LumiiMvpApp() {
                   <View style={styles.flex}>
                     <Text numberOfLines={1} style={styles.timelineTitleMake}>{memo.title}</Text>
                     <Text numberOfLines={2} style={styles.timelineSubMake}>{memo.content}</Text>
+                    {memo.reminderEnabled && memo.reminderAt ? (
+                      <Text numberOfLines={1} style={styles.memoListReminderText}>
+                        提醒：{memo.reminderAt} · {memoRepeatLabel(memo.repeat)}
+                      </Text>
+                    ) : null}
                   </View>
                   <View style={styles.memoListTrail}>
                     <Text style={styles.timelineDateMake}>{memo.updatedAt}</Text>
@@ -6203,6 +6245,13 @@ export default function LumiiMvpApp() {
     const titleCount = memoEditTitle.trim().length;
     const contentCount = memoEditContent.trim().length;
     const invalid = !memoEditTitle.trim() || !memoEditContent.trim() || titleCount > 20 || contentCount > 200;
+    const controlsDisabled = memoEditSaving || memoDeleting;
+    const adjustMemoEditReminderAt = () => {
+      if (!memoEditReminderEnabled || controlsDisabled) return;
+      const next = nextMemoReminderDate(memoEditRepeat, memoEditReminderAt);
+      setMemoEditReminderAt(next);
+      showToast(`提醒时间已调整为 ${formatMemoReminderLabel(next)}`, { tone: 'success', variant: 'surface' });
+    };
     return (
       <Screen title="编辑备忘">
         <View style={styles.memoEditPageMake}>
@@ -6244,14 +6293,65 @@ export default function LumiiMvpApp() {
             </View>
           </View>
 
+          <View style={styles.makeFieldGroup}>
+            <Text style={styles.makeFieldLabel}>提醒时间</Text>
+            <Pressable
+              disabled={!memoEditReminderEnabled || controlsDisabled}
+              onPress={adjustMemoEditReminderAt}
+              style={[styles.memoPickerRow, (!memoEditReminderEnabled || controlsDisabled) && styles.memoPickerRowDisabled, webPressableReset]}
+            >
+              <CalendarDays color={palette.orange} size={16} strokeWidth={2.4} />
+              <Text style={styles.memoPickerValue}>{memoEditReminderEnabled ? formatMemoReminderLabel(memoEditReminderAt) : '未开启提醒'}</Text>
+              <ChevronRight color={palette.muted} size={16} strokeWidth={2.4} />
+            </Pressable>
+          </View>
+
+          <View style={styles.makeFieldGroup}>
+            <Text style={styles.makeFieldLabel}>重复</Text>
+            <View style={styles.memoRepeatRow}>
+              {memoRepeatOptions.map((item) => {
+                const active = item.value === memoEditRepeat;
+                return (
+                  <Pressable
+                    disabled={controlsDisabled}
+                    key={item.value}
+                    onPress={() => {
+                      setMemoEditRepeat(item.value);
+                      setMemoEditReminderAt(nextMemoReminderDate(item.value));
+                    }}
+                    style={[styles.memoRepeatOption, active && styles.memoRepeatOptionActive, controlsDisabled && styles.opacity60, webPressableReset]}
+                  >
+                    <Text style={[styles.memoRepeatText, active && styles.memoRepeatTextActive]}>{item.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
+          <Pressable
+            disabled={controlsDisabled}
+            onPress={() => setMemoEditReminderEnabled((enabled) => !enabled)}
+            style={[styles.memoReminderRow, controlsDisabled && styles.opacity60, webPressableReset]}
+          >
+            <View style={styles.memoReminderIcon}>
+              <Bell color={palette.orange} size={15} strokeWidth={2.4} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.timelineTitleMake}>到期前提醒</Text>
+              <Text style={styles.timelineSubMake}>{memoEditReminderEnabled ? '提前 3 天通知' : '已关闭提醒'}</Text>
+            </View>
+            <View style={[styles.memoSwitchTrack, !memoEditReminderEnabled && styles.memoSwitchTrackOff]}>
+              <View style={[styles.memoSwitchThumb, !memoEditReminderEnabled && styles.memoSwitchThumbOff]} />
+            </View>
+          </Pressable>
+
           <View style={styles.memoMetaCard}>
             <View style={[styles.memoMetaRowMake, styles.memoMetaRowBorder]}>
               <View style={styles.metaIconBox}>
                 <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
               </View>
-              <Text style={styles.memoMetaLabelMake}>日期</Text>
+              <Text style={styles.memoMetaLabelMake}>更新日期</Text>
               <Text style={styles.memoMetaValueMake}>{selectedMemo?.updatedAt ?? '今天'}</Text>
-              <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
             </View>
             <View style={styles.memoMetaRowMake}>
               <View style={styles.metaIconBox}>
@@ -6259,7 +6359,6 @@ export default function LumiiMvpApp() {
               </View>
               <Text style={styles.memoMetaLabelMake}>分类</Text>
               <Text style={styles.memoMetaValueMake}>日常护理</Text>
-              <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
             </View>
           </View>
         </View>
@@ -9875,6 +9974,7 @@ const styles = StyleSheet.create({
   memoIntroText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17 },
   memoListCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 14, paddingHorizontal: 14, paddingVertical: 8 },
   memoListIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 10, flexShrink: 0, height: 32, justifyContent: 'center', width: 32 },
+  memoListReminderText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17, marginTop: 4 },
   memoListRow: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 68, paddingVertical: 10 },
   memoListTrail: { alignItems: 'center', flexDirection: 'row', flexShrink: 0, gap: 4 },
   memoMetaCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, marginTop: 4, overflow: 'hidden' },
