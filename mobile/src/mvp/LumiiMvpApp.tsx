@@ -525,6 +525,22 @@ type PlaceSubmitResult = {
   submittedAt: string;
 };
 
+type PlaceComposerDraft = {
+  address: string;
+  customFeatureDraft: string;
+  customFeatureVisible: boolean;
+  experience: string;
+  featureTags: string[];
+  kind: 'place' | 'review';
+  name: string;
+  photoUris: string[];
+  placeId?: string;
+  rating: number;
+  reviewDraft: string;
+  savedAt: number;
+  version: 1;
+};
+
 type WalkInviteDraft = {
   note: string;
   ownerId: string;
@@ -534,6 +550,7 @@ type WalkInviteDraft = {
   version: 1;
 };
 
+const PLACE_COMPOSER_DRAFT_STORAGE_PREFIX = 'lumii.placeComposerDraft.v1';
 const WALK_INVITE_DRAFT_STORAGE_PREFIX = 'lumii.walkInviteDraft.v1';
 
 type AppToast = {
@@ -1107,6 +1124,8 @@ export default function LumiiMvpApp() {
   const [placeReviewSaving, setPlaceReviewSaving] = useState(false);
   const placeReviewSavingRef = useRef(false);
   const [placeSubmitResult, setPlaceSubmitResult] = useState<PlaceSubmitResult | null>(null);
+  const [placeDraftSaving, setPlaceDraftSaving] = useState(false);
+  const placeDraftSavingRef = useRef(false);
   const [placeSubmissionSaving, setPlaceSubmissionSaving] = useState(false);
   const placeSubmissionSavingRef = useRef(false);
   const [placeSubmissionStatus, setPlaceSubmissionStatus] = useState<'idle' | 'pending_review'>('idle');
@@ -4359,6 +4378,7 @@ export default function LumiiMvpApp() {
         (routeRef.current === 'placeDetail' || routeRef.current === 'addPlaceReview');
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
+        await deletePlaceComposerDraft('review', place.id);
         if (stillReviewingSamePlace) setPlaceReviewDraft('');
         if (stillReviewingSamePlace) setPlacePhotoUris([]);
         if (stillReviewingSamePlace) setSelectedPlaceFeatureTags([]);
@@ -4428,6 +4448,124 @@ export default function LumiiMvpApp() {
     return count ? `\n附照片 ${count} 张（本次提交预览）` : '';
   }
 
+  function normalizePlaceDraftTextArray(value: unknown, maxCount = 8) {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean)
+      .filter((item, index, items) => items.indexOf(item) === index)
+      .slice(0, maxCount);
+  }
+
+  function normalizePlaceDraftRating(value: unknown) {
+    const rating = Number(value);
+    if (!Number.isFinite(rating)) return 5;
+    return Math.min(5, Math.max(1, Math.round(rating)));
+  }
+
+  function getPlaceComposerDraftStorageKey(kind: PlaceComposerDraft['kind'], placeId?: string) {
+    const accountKey = (session?.phone || phoneValueRef.current.trim() || 'anonymous').replace(/[^\w.-]/g, '_');
+    const targetKey = kind === 'review' ? placeId || 'unknown-place' : 'new-place';
+    return `${PLACE_COMPOSER_DRAFT_STORAGE_PREFIX}:${accountKey}:${kind}:${targetKey}`;
+  }
+
+  function normalizePlaceComposerDraft(value: unknown, kind: PlaceComposerDraft['kind'], placeId?: string) {
+    const draft = value as Partial<PlaceComposerDraft> | null;
+    if (!draft || draft.version !== 1 || draft.kind !== kind) return null;
+    if (kind === 'review' && draft.placeId !== placeId) return null;
+    const featureTags = normalizePlaceDraftTextArray(draft.featureTags);
+    const photoUris = normalizePlaceDraftTextArray(draft.photoUris, 3);
+    const name = typeof draft.name === 'string' ? draft.name.trim() : '';
+    const address = typeof draft.address === 'string' ? draft.address.trim() : '';
+    const reviewDraft = typeof draft.reviewDraft === 'string' ? draft.reviewDraft.trim() : '';
+    const experience = typeof draft.experience === 'string' ? draft.experience.trim() : '';
+    const customFeatureDraft = typeof draft.customFeatureDraft === 'string' ? draft.customFeatureDraft.trim() : '';
+    const savedAt = Number(draft.savedAt || 0);
+    const hasContent =
+      kind === 'place'
+        ? Boolean(name || address || experience || featureTags.length || photoUris.length || customFeatureDraft)
+        : Boolean(reviewDraft || experience || featureTags.length || photoUris.length || customFeatureDraft);
+    if (!hasContent) return null;
+    return {
+      address,
+      customFeatureDraft,
+      customFeatureVisible: Boolean(draft.customFeatureVisible && customFeatureDraft),
+      experience,
+      featureTags,
+      kind,
+      name,
+      photoUris,
+      placeId: kind === 'review' ? placeId : undefined,
+      rating: normalizePlaceDraftRating(draft.rating),
+      reviewDraft,
+      savedAt: Number.isFinite(savedAt) && savedAt > 0 ? savedAt : Date.now(),
+      version: 1 as const,
+    };
+  }
+
+  async function loadPlaceComposerDraft(kind: PlaceComposerDraft['kind'], placeId?: string) {
+    const stored = await loadLocalJsonStorage<unknown>(getPlaceComposerDraftStorageKey(kind, placeId));
+    return normalizePlaceComposerDraft(stored, kind, placeId);
+  }
+
+  async function savePlaceComposerDraft(draft: PlaceComposerDraft) {
+    await saveLocalJsonStorage(getPlaceComposerDraftStorageKey(draft.kind, draft.placeId), draft);
+  }
+
+  async function deletePlaceComposerDraft(kind: PlaceComposerDraft['kind'], placeId?: string) {
+    try {
+      await deleteLocalJsonStorage(getPlaceComposerDraftStorageKey(kind, placeId));
+    } catch {
+      // Draft cleanup should never block a successful submission.
+    }
+  }
+
+  function buildCurrentPlaceComposerDraft(kind: PlaceComposerDraft['kind']) {
+    const place = selectedPlace;
+    const featureTags = normalizePlaceDraftTextArray(selectedPlaceFeatureTags);
+    const photoUris = normalizePlaceDraftTextArray(placePhotoUris, 3);
+    const customFeatureDraft = customPlaceFeatureDraft.trim();
+    const draft: PlaceComposerDraft = {
+      address: kind === 'place' ? placeDraftAddress.trim() : place ? `${place.address} · ${place.distance}` : '',
+      customFeatureDraft,
+      customFeatureVisible: Boolean(customPlaceFeatureVisible && customFeatureDraft),
+      experience: placeSubmissionExperience.trim(),
+      featureTags,
+      kind,
+      name: kind === 'place' ? placeDraftName.trim() : place?.name ?? '',
+      photoUris,
+      placeId: kind === 'review' ? place?.id : undefined,
+      rating: normalizePlaceDraftRating(placeSubmissionRating),
+      reviewDraft: placeReviewDraft.trim(),
+      savedAt: Date.now(),
+      version: 1,
+    };
+    const hasContent =
+      kind === 'place'
+        ? Boolean(draft.name || draft.address || draft.experience || draft.featureTags.length || draft.photoUris.length || draft.customFeatureDraft)
+        : Boolean(draft.placeId && (draft.reviewDraft || draft.featureTags.length || draft.photoUris.length || draft.customFeatureDraft));
+    return hasContent ? draft : null;
+  }
+
+  function applyPlaceComposerDraft(draft: PlaceComposerDraft) {
+    setPlacePhotoUris(draft.photoUris);
+    setSelectedPlaceFeatureTags(draft.featureTags);
+    setCustomPlaceFeatureDraft(draft.customFeatureDraft);
+    setCustomPlaceFeatureVisible(draft.customFeatureVisible);
+    setPlaceSubmissionRating(draft.rating);
+    if (draft.kind === 'review') {
+      setPlaceDraftName('');
+      setPlaceDraftAddress('');
+      setPlaceSubmissionExperience('');
+      setPlaceReviewDraft(draft.reviewDraft || draft.experience);
+      return;
+    }
+    setPlaceReviewDraft('');
+    setPlaceDraftName(draft.name);
+    setPlaceDraftAddress(draft.address);
+    setPlaceSubmissionExperience(draft.experience);
+  }
+
   async function pickPlacePhoto() {
     if (placePhotoPickingRef.current) return;
     if (placePhotoUris.length >= 3) {
@@ -4465,30 +4603,70 @@ export default function LumiiMvpApp() {
     }
   }
 
-  function openPlaceSubmissionComposer() {
+  async function openPlaceSubmissionComposer() {
+    const requestSessionToken = sessionTokenRef.current;
     setPlaceComposerMode('place');
     setPlaceSubmitResult(null);
     placePhotoPickingRef.current = false;
     setPlacePhotoPicking(false);
-    setPlacePhotoUris([]);
-    setSelectedPlaceFeatureTags([]);
-    setCustomPlaceFeatureDraft('');
-    setCustomPlaceFeatureVisible(false);
+    let draft: null | PlaceComposerDraft = null;
+    try {
+      draft = await loadPlaceComposerDraft('place');
+    } catch {
+      draft = null;
+    }
+    if (sessionTokenRef.current !== requestSessionToken) return;
+    if (draft) {
+      applyPlaceComposerDraft(draft);
+    } else {
+      setPlacePhotoUris([]);
+      setSelectedPlaceFeatureTags([]);
+      setCustomPlaceFeatureDraft('');
+      setCustomPlaceFeatureVisible(false);
+      setPlaceSubmissionRating(5);
+      setPlaceDraftName('');
+      setPlaceDraftAddress('');
+      setPlaceSubmissionExperience('');
+      setPlaceReviewDraft('');
+    }
     go('addPlaceReview');
+    if (draft) {
+      showToast('已恢复新增地点草稿', { subtitle: `保存于 ${formatClockTime(new Date(draft.savedAt))}`, tone: 'success', variant: 'surface' });
+    }
   }
 
-  function openPlaceReviewComposer(place: Place) {
+  async function openPlaceReviewComposer(place: Place) {
+    const requestSessionToken = sessionTokenRef.current;
+    selectedPlaceIdRef.current = place.id;
     setSelectedPlace(place);
     setPlaceComposerMode('review');
     setPlaceSubmitResult(null);
     placePhotoPickingRef.current = false;
     setPlacePhotoPicking(false);
-    setPlacePhotoUris([]);
-    setSelectedPlaceFeatureTags(place.tags.slice(0, 3));
-    setCustomPlaceFeatureDraft('');
-    setCustomPlaceFeatureVisible(false);
-    setPlaceSubmissionRating(5);
+    let draft: null | PlaceComposerDraft = null;
+    try {
+      draft = await loadPlaceComposerDraft('review', place.id);
+    } catch {
+      draft = null;
+    }
+    if (sessionTokenRef.current !== requestSessionToken || selectedPlaceIdRef.current !== place.id) return;
+    if (draft) {
+      applyPlaceComposerDraft(draft);
+    } else {
+      setPlacePhotoUris([]);
+      setSelectedPlaceFeatureTags(place.tags.slice(0, 3));
+      setCustomPlaceFeatureDraft('');
+      setCustomPlaceFeatureVisible(false);
+      setPlaceSubmissionRating(5);
+      setPlaceReviewDraft('');
+      setPlaceSubmissionExperience('');
+      setPlaceDraftName('');
+      setPlaceDraftAddress('');
+    }
     go('addPlaceReview');
+    if (draft) {
+      showToast('已恢复点评草稿', { subtitle: `保存于 ${formatClockTime(new Date(draft.savedAt))}`, tone: 'success', variant: 'surface' });
+    }
   }
 
   async function submitPlaceDraft() {
@@ -4516,6 +4694,7 @@ export default function LumiiMvpApp() {
       const stillEditingSubmission = sessionTokenRef.current === requestSessionToken && routeRef.current === 'addPlaceReview';
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
+        await deletePlaceComposerDraft('place');
         if (stillEditingSubmission) {
           setPlaceSubmissionExperience('');
           setPlaceDraftName('');
@@ -4720,6 +4899,8 @@ export default function LumiiMvpApp() {
     setSelectedPlaceFeatureTags([]);
     placeReviewSavingRef.current = false;
     setPlaceReviewSaving(false);
+    placeDraftSavingRef.current = false;
+    setPlaceDraftSaving(false);
     placeSubmissionSavingRef.current = false;
     setPlaceSubmissionSaving(false);
     setPlaceSubmissionStatus('idle');
@@ -7804,7 +7985,7 @@ export default function LumiiMvpApp() {
               <Pressable onPress={() => void locateMapToCurrentPosition()} style={styles.mapCtrlButton}>
                 {locatingMap ? <ActivityIndicator color={palette.orange} size="small" /> : <MapPin color={palette.orange} size={16} strokeWidth={2.4} />}
               </Pressable>
-              <Pressable onPress={openPlaceSubmissionComposer} style={styles.mapCtrlButton}>
+              <Pressable onPress={() => void openPlaceSubmissionComposer()} style={styles.mapCtrlButton}>
                 <Plus color={palette.ink} size={16} strokeWidth={2.4} />
               </Pressable>
               <Pressable onPress={() => setMapStylePanelVisible((visible) => !visible)} style={[styles.mapCtrlButton, mapStylePanelVisible && styles.mapCtrlButtonActive]}>
@@ -8150,7 +8331,7 @@ export default function LumiiMvpApp() {
                 <Text style={styles.placeReviewBodyMake}>{placeReviewBody}</Text>
               </View>
               <View style={styles.placeDetailBottomCtaMake}>
-                <Pressable disabled={placeReviewSaving} onPress={() => openPlaceReviewComposer(place)} style={[styles.placeReviewShortcutMake, webPressableReset]}>
+                <Pressable disabled={placeReviewSaving} onPress={() => void openPlaceReviewComposer(place)} style={[styles.placeReviewShortcutMake, webPressableReset]}>
                   {placeReviewSaving ? <ActivityIndicator color={palette.ink} size="small" /> : <PenLine color={palette.ink} size={16} strokeWidth={2.4} />}
                   <Text style={styles.placeReviewShortcutTextMake}>{hasPendingPlaceReview ? '再点评' : '写点评'}</Text>
                 </Pressable>
@@ -8267,9 +8448,27 @@ export default function LumiiMvpApp() {
     }
   }
 
-  function saveFailedPlaceDraft() {
-    setPlaceSubmitResult(null);
-    showToast('草稿已保存，可稍后继续提交', { tone: 'success', variant: 'surface' });
+  async function saveFailedPlaceDraft() {
+    if (placeDraftSavingRef.current) return;
+    const result = placeSubmitResult;
+    if (!result) return;
+    const draft = buildCurrentPlaceComposerDraft(result.kind);
+    if (!draft) {
+      showToast('先填写一点草稿内容再保存', { tone: 'warning', variant: 'surface' });
+      return;
+    }
+    placeDraftSavingRef.current = true;
+    setPlaceDraftSaving(true);
+    try {
+      await savePlaceComposerDraft(draft);
+      setPlaceSubmitResult(null);
+      showToast('草稿已保存', { subtitle: `保存于 ${formatClockTime(new Date(draft.savedAt))}`, tone: 'success', variant: 'surface' });
+    } catch {
+      showToast('草稿保存失败，请稍后重试', { tone: 'error', variant: 'surface' });
+    } finally {
+      placeDraftSavingRef.current = false;
+      setPlaceDraftSaving(false);
+    }
   }
 
   function retryFailedPlaceSubmit() {
@@ -8292,7 +8491,7 @@ export default function LumiiMvpApp() {
       ? isReview
         ? '为保证社区真实可信，我们需要 24 小时内\n人工审核你的点评，通过后会通知你'
         : '为保证地点真实可信，我们需要 24 小时内\n人工审核你的提交，通过后会通知你'
-      : '可能原因：网络不稳定 / 服务暂时繁忙\n你的草稿已自动保存，可继续编辑';
+      : '可能原因：网络不稳定 / 服务暂时繁忙\n草稿仍保留在当前页面，可保存后稍后继续编辑';
 
     return (
       <Screen showBack={false} title="">
@@ -8341,7 +8540,7 @@ export default function LumiiMvpApp() {
                 <View style={styles.rowBetween}>
                   <View style={styles.inlineActionRow}>
                     <NotebookPen color={palette.orange} size={13} strokeWidth={2.4} />
-                    <Text style={styles.placeSubmitDraftTitleMake}>草稿已保存</Text>
+                    <Text style={styles.placeSubmitDraftTitleMake}>草稿内容</Text>
                   </View>
                   <Text style={styles.placeSubmitDraftTimeMake}>{submittedAt}</Text>
                 </View>
@@ -8371,10 +8570,11 @@ export default function LumiiMvpApp() {
                 </>
               ) : (
                 <>
-                  <Pressable onPress={saveFailedPlaceDraft} style={[styles.placeSubmitGhostButtonMake, webPressableReset]}>
-                    <Text style={styles.placeSubmitGhostTextMake}>保存草稿</Text>
+                  <Pressable disabled={placeDraftSaving} onPress={() => void saveFailedPlaceDraft()} style={[styles.placeSubmitGhostButtonMake, placeDraftSaving && styles.mapSearchActionDisabled, webPressableReset]}>
+                    {placeDraftSaving ? <ActivityIndicator color={palette.ink} size="small" /> : null}
+                    <Text style={styles.placeSubmitGhostTextMake}>{placeDraftSaving ? '保存中' : '保存草稿'}</Text>
                   </Pressable>
-                  <Pressable onPress={retryFailedPlaceSubmit} style={[styles.placeSubmitPrimaryButtonMake, webPressableReset]}>
+                  <Pressable disabled={placeDraftSaving} onPress={retryFailedPlaceSubmit} style={[styles.placeSubmitPrimaryButtonMake, placeDraftSaving && styles.mapSearchActionDisabled, webPressableReset]}>
                     <RefreshCw color="#fff" size={14} strokeWidth={2.4} />
                     <Text style={styles.placeSubmitPrimaryTextMake}>重新提交</Text>
                   </Pressable>
