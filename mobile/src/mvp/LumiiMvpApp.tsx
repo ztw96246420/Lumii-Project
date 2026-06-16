@@ -969,12 +969,15 @@ export default function LumiiMvpApp() {
   const [mapTrafficEnabled, setMapTrafficEnabled] = useState(false);
   const [mapStylePanelVisible, setMapStylePanelVisible] = useState(false);
   const [placeComposerMode, setPlaceComposerMode] = useState<'place' | 'review'>('place');
-  const [placeDraftAddress, setPlaceDraftAddress] = useState('滨江路 88 号');
-  const [placeDraftName, setPlaceDraftName] = useState('云杉宠物友好公园');
+  const [placeDraftAddress, setPlaceDraftAddress] = useState('');
+  const [placeDraftName, setPlaceDraftName] = useState('');
   const [placeReviewDraft, setPlaceReviewDraft] = useState('');
   const [placeSubmissionExperience, setPlaceSubmissionExperience] = useState('');
   const [placeSubmissionRating, setPlaceSubmissionRating] = useState(5);
   const [selectedPlaceFeatureTags, setSelectedPlaceFeatureTags] = useState<string[]>([]);
+  const [customPlaceFeatureDraft, setCustomPlaceFeatureDraft] = useState('');
+  const [customPlaceFeatureVisible, setCustomPlaceFeatureVisible] = useState(false);
+  const customPlaceFeatureInputRef = useRef<TextInput>(null);
   const [placePhotoUris, setPlacePhotoUris] = useState<string[]>([]);
   const [placePhotoPicking, setPlacePhotoPicking] = useState(false);
   const placePhotoPickingRef = useRef(false);
@@ -4131,8 +4134,9 @@ export default function LumiiMvpApp() {
       showToast('请填写点评内容');
       return;
     }
+    const reviewFeatureTags = [...selectedPlaceFeatureTags];
     const reviewContent = placeReviewDraft.trim();
-    const reviewDraft = `${reviewContent}${buildPlacePhotoSummary()}`;
+    const reviewDraft = `${buildPlaceSubmissionExperience(reviewFeatureTags, reviewContent)}${buildPlacePhotoSummary()}`;
     const submittedAt = formatClockTime();
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
@@ -4149,6 +4153,10 @@ export default function LumiiMvpApp() {
       if (result.data) {
         if (stillReviewingSamePlace) setPlaceReviewDraft('');
         if (stillReviewingSamePlace) setPlacePhotoUris([]);
+        if (stillReviewingSamePlace) setSelectedPlaceFeatureTags([]);
+        if (stillReviewingSamePlace) setCustomPlaceFeatureDraft('');
+        if (stillReviewingSamePlace) setCustomPlaceFeatureVisible(false);
+        if (stillReviewingSamePlace) setPlaceSubmissionRating(5);
         setPlaceReviewsByPlaceId((items) => ({ ...items, [place.id]: result.data! }));
         void loadInboxData();
         if (stillReviewingSamePlace) {
@@ -4181,6 +4189,27 @@ export default function LumiiMvpApp() {
     setSelectedPlaceFeatureTags((items) =>
       items.includes(tag) ? items.filter((item) => item !== tag) : [...items, tag],
     );
+  }
+
+  function addCustomPlaceFeatureTag() {
+    const tag = customPlaceFeatureDraft.trim();
+    if (!tag) {
+      setCustomPlaceFeatureVisible(true);
+      setTimeout(() => customPlaceFeatureInputRef.current?.focus(), 50);
+      return;
+    }
+    if (tag.length > 8) {
+      showToast('特色标签最多 8 个字');
+      return;
+    }
+    if ([...placeFriendlyFeatureOptions, ...selectedPlaceFeatureTags].includes(tag)) {
+      showToast('这个特色已经添加过了');
+      return;
+    }
+    setSelectedPlaceFeatureTags((items) => [...items, tag]);
+    setCustomPlaceFeatureDraft('');
+    setCustomPlaceFeatureVisible(false);
+    showToast(`已添加特色：${tag}`, { tone: 'success', variant: 'surface' });
   }
 
   function buildPlaceSubmissionExperience(tags: string[], content: string) {
@@ -4235,6 +4264,8 @@ export default function LumiiMvpApp() {
     setPlacePhotoPicking(false);
     setPlacePhotoUris([]);
     setSelectedPlaceFeatureTags([]);
+    setCustomPlaceFeatureDraft('');
+    setCustomPlaceFeatureVisible(false);
     go('addPlaceReview');
   }
 
@@ -4246,6 +4277,8 @@ export default function LumiiMvpApp() {
     setPlacePhotoPicking(false);
     setPlacePhotoUris([]);
     setSelectedPlaceFeatureTags(place.tags.slice(0, 3));
+    setCustomPlaceFeatureDraft('');
+    setCustomPlaceFeatureVisible(false);
     setPlaceSubmissionRating(5);
     go('addPlaceReview');
   }
@@ -4264,7 +4297,7 @@ export default function LumiiMvpApp() {
     if (!requestSessionToken) return;
     const requestName = placeDraftName.trim();
     const requestAddress = placeDraftAddress.trim();
-    const requestFeatureTags = selectedPlaceFeatureTags;
+    const requestFeatureTags = [...selectedPlaceFeatureTags];
     const requestExperience = `${buildPlaceSubmissionExperience(requestFeatureTags, placeSubmissionExperience)}${buildPlacePhotoSummary()}`;
     const submittedAt = formatClockTime();
     placeSubmissionSavingRef.current = true;
@@ -4281,6 +4314,9 @@ export default function LumiiMvpApp() {
           setPlaceDraftAddress('');
           setPlacePhotoUris([]);
           setSelectedPlaceFeatureTags([]);
+          setCustomPlaceFeatureDraft('');
+          setCustomPlaceFeatureVisible(false);
+          setPlaceSubmissionRating(5);
           setPlaceSubmissionStatus('pending_review');
         }
         void loadInboxData();
@@ -4450,6 +4486,8 @@ export default function LumiiMvpApp() {
     favoritePlaceSavingIdsRef.current.clear();
     setFavoritePlaceSavingIds([]);
     setPlaceReviewsByPlaceId({});
+    setCustomPlaceFeatureDraft('');
+    setCustomPlaceFeatureVisible(false);
     locatingMapRef.current = false;
     locatingMapRequestRef.current += 1;
     setLocatingMap(false);
@@ -4460,8 +4498,8 @@ export default function LumiiMvpApp() {
     setMapStylePanelVisible(false);
     mapAutoLocateAttemptedRef.current = false;
     lastDiscoverLocationRef.current = null;
-    setPlaceDraftAddress('滨江路 88 号');
-    setPlaceDraftName('云杉宠物友好公园');
+    setPlaceDraftAddress('');
+    setPlaceDraftName('');
     setPlaceComposerMode('place');
     setPlaceReviewDraft('');
     setPlaceSubmissionExperience('');
@@ -7849,11 +7887,17 @@ export default function LumiiMvpApp() {
     setPlaceSubmitResult(null);
     if (result?.kind === 'review') {
       setPlaceReviewDraft('');
+      setSelectedPlaceFeatureTags([]);
+      setCustomPlaceFeatureDraft('');
+      setCustomPlaceFeatureVisible(false);
+      setPlaceSubmissionRating(5);
     } else {
       setPlaceDraftName('');
       setPlaceDraftAddress('');
       setPlaceSubmissionExperience('');
       setSelectedPlaceFeatureTags([]);
+      setCustomPlaceFeatureDraft('');
+      setCustomPlaceFeatureVisible(false);
       setPlaceSubmissionStatus('idle');
     }
   }
@@ -9046,6 +9090,7 @@ export default function LumiiMvpApp() {
       : '例如：草坪很大，有饮水点，牵引绳友好。';
     const saving = isReviewMode ? placeReviewSaving : placeSubmissionSaving;
     const placePreviewPhotoUris = placePhotoUris.length ? placePhotoUris : placeReviewPhotoUrls;
+    const customSelectedPlaceFeatureTags = selectedPlaceFeatureTags.filter((tag) => !placeFriendlyFeatureOptions.includes(tag as (typeof placeFriendlyFeatureOptions)[number]));
     const submitComposer = () => {
       if (isReviewMode) void createPlaceReview();
       else void submitPlaceDraft();
@@ -9140,11 +9185,43 @@ export default function LumiiMvpApp() {
                 <Text style={[styles.addPlaceSelectChipTextMake, selectedPlaceFeatureTags.includes(item) && styles.addPlaceSelectChipTextActiveMake]}>{item}</Text>
               </Pressable>
             ))}
-            <Pressable onPress={() => showToast('自定义标签后续会跟地点标签库一起开放')} style={[styles.addPlaceSelectChipMake, webPressableReset]}>
-              <Plus color={palette.ink} size={12} strokeWidth={2.5} />
-              <Text style={styles.addPlaceSelectChipTextMake}>自定义</Text>
-            </Pressable>
+            {customSelectedPlaceFeatureTags.map((item) => (
+              <Pressable key={item} onPress={() => togglePlaceFeatureTag(item)} style={[styles.addPlaceSelectChipMake, styles.addPlaceSelectChipActiveMake, webPressableReset]}>
+                <Text style={[styles.addPlaceSelectChipTextMake, styles.addPlaceSelectChipTextActiveMake]}>{item}</Text>
+              </Pressable>
+            ))}
+            {!customPlaceFeatureVisible ? (
+              <Pressable
+                onPress={() => {
+                  setCustomPlaceFeatureVisible(true);
+                  setTimeout(() => customPlaceFeatureInputRef.current?.focus(), 50);
+                }}
+                style={[styles.addPlaceSelectChipMake, webPressableReset]}
+              >
+                <Plus color={palette.ink} size={12} strokeWidth={2.5} />
+                <Text style={styles.addPlaceSelectChipTextMake}>自定义</Text>
+              </Pressable>
+            ) : null}
           </View>
+          {customPlaceFeatureVisible ? (
+            <View style={styles.addPlaceCustomTagRowMake}>
+              <TextInput
+                maxLength={8}
+                onChangeText={setCustomPlaceFeatureDraft}
+                onSubmitEditing={addCustomPlaceFeatureTag}
+                placeholder="输入特色，例如：有草坪"
+                placeholderTextColor="#B8AEA4"
+                ref={customPlaceFeatureInputRef}
+                returnKeyType="done"
+                style={[styles.addPlaceCustomTagInputMake, webTextInputReset]}
+                value={customPlaceFeatureDraft}
+              />
+              <Pressable onPress={addCustomPlaceFeatureTag} style={[styles.addPlaceCustomTagButtonMake, webPressableReset]}>
+                <Plus color="#fff" size={12} strokeWidth={2.7} />
+                <Text style={styles.addPlaceCustomTagButtonTextMake}>添加</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           <Text style={styles.addPlaceFieldLabelMake}>{isReviewMode ? '写下你的体验' : '写下宠物友好体验'}</Text>
           <TextInput
@@ -10210,6 +10287,10 @@ const styles = StyleSheet.create({
   accountSecurityHeroTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', lineHeight: 20 },
   addPlaceBgGlowMake: { backgroundColor: 'rgba(255,217,182,0.48)', borderRadius: 220, height: 240, left: -70, position: 'absolute', right: -70, top: -120 },
   addPlaceChipRowMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  addPlaceCustomTagButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 14, flexDirection: 'row', gap: 4, height: 38, justifyContent: 'center', paddingHorizontal: 13, shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.18, shadowRadius: 16 },
+  addPlaceCustomTagButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  addPlaceCustomTagInputMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', minHeight: 38, paddingHorizontal: 0, paddingVertical: 0 },
+  addPlaceCustomTagRowMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 10, marginTop: 10, minHeight: 46, paddingHorizontal: 12, paddingVertical: 4 },
   addPlaceDividerMake: { backgroundColor: palette.border, height: 1, marginLeft: 52 },
   addPlaceFieldLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17, marginBottom: 8, marginTop: 16 },
   addPlaceHeaderMake: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between', marginBottom: 4 },

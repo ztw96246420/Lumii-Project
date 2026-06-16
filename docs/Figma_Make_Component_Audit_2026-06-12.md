@@ -60,7 +60,7 @@
   - Screen90 个人资料保存成功二次收敛：保存成功后停留在编辑页展示 surface Toast，头像区覆盖青绿色成功勾选层，输入再次变化或重选头像会清除成功态。
   - Screen53 高德导航确认二次收敛：地点详情页不再复用普通 `ConfirmDialog`，改为专用导航确认弹窗，补绿色导航图标、地点摘要卡、地图应用选择和 48px 取消/打开导航按钮。
   - Screen50/51 地点与点评提交结果态二次收敛：新增独立 `renderPlaceSubmitResult`，成功页展示等待审核图标、三步进度和返回/继续操作，失败页展示红色警示、草稿卡、保存草稿/重新提交操作。
-  - Screen49 新增地点/点评表单二次收敛：`renderAddPlaceReview` 改为 Figma Make 源码式结构，补顶部发布栏、地点摘要卡、5 星评分、特色 chip、体验 textarea、照片 strip、审核提示，并让地点详情写点评入口进入完整点评页；照片 strip 已支持本地相册选择、最多 3 张预览和点击移除，云端媒体上传仍待接口。
+  - Screen49 新增地点/点评表单二次收敛：`renderAddPlaceReview` 改为 Figma Make 源码式结构，补顶部发布栏、地点摘要卡、5 星评分、特色 chip、体验 textarea、照片 strip、审核提示，并让地点详情写点评入口进入完整点评页；照片 strip 已支持本地相册选择、最多 3 张预览和点击移除，新增地点默认假资料已清空，自定义特色标签和点评评分/标签已接提交内容，云端媒体上传仍待接口。
   - Screen52 收藏/取消收藏 Toast 二次收敛：`Toast` 补 `icon/iconTone/placement` 能力，收藏成功使用顶部 dark Bookmark + 橙色图标块 + 管理 action，取消收藏使用底部 surface Heart + 灰底图标块 + 撤销 action；收藏接口和乐观更新逻辑不变。
   - Screen70 Card 基础组件二次收敛：`Card` 默认样式改为白底 14px 圆角轻描边，移除旧的大圆角阴影基底，并新增 `pet/place/message` 变体，供后续页面逐屏替换自写卡片。
   - Screen73 Loading/Skeleton 基础组件二次收敛：`LoadingState` 默认文案改为灵伴场景化文案，`SkeletonLine` 改为 Figma 暖灰渐变基底并支持自定义圆角，新增 `SkeletonCard`，包含 52px 圆形头像、双行文本骨架和 100/85/70% 内容骨架；健康日历日历格/事件列表骨架已率先迁到统一组件。
