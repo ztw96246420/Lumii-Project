@@ -220,8 +220,6 @@ const webPressableReset =
   Platform.OS === 'web'
     ? ({ outlineColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, userSelect: 'none' } as unknown as ViewStyle)
     : null;
-const demoPetPhotoUrl =
-  'https://images.unsplash.com/photo-1625794084867-8ddd239946b1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=720';
 const placeReviewPhotoUrls = [
   'https://images.unsplash.com/photo-1764660308106-72eacd973fc8?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
   'https://images.unsplash.com/photo-1599692392256-2d084495fe15?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=400',
@@ -524,6 +522,18 @@ function formatOwnerName(phone?: null | string, pet?: null | PetProfile, ownerNa
   const digits = String(phone ?? '').replace(/\D/g, '');
   if (/^1[3-9]\d{9}$/.test(digits)) return `用户${digits.slice(-4)}`;
   return '灵伴用户';
+}
+
+function accountVerificationLabel(phone?: null | string) {
+  const digits = String(phone ?? '').replace(/\D/g, '');
+  return /^1[3-9]\d{9}$/.test(digits) ? '手机号已验证' : '手机号待验证';
+}
+
+function currentDeviceLabel() {
+  if (Platform.OS === 'android') return 'Android 当前设备';
+  if (Platform.OS === 'ios') return 'iPhone 当前设备';
+  if (Platform.OS === 'web') return 'Web 预览设备';
+  return '当前设备';
 }
 
 function formatPetAge(birthday?: string) {
@@ -5341,16 +5351,20 @@ export default function LumiiMvpApp() {
   }
 
   function renderUploadDetail() {
+    if (!media) {
+      return renderMissingUploadMedia('识别结果');
+    }
     const analysis = media?.analysis;
-    const analysisTags = analysis?.tags?.length ? analysis.tags : ['亲人', '活泼', '微笑脸', '温暖毛色'];
-    const featureSummary = analysis?.tags?.slice(0, 3).join(' · ') || '金黄色 · 浅金腹毛 · 浓密';
+    const analysisTags = analysis?.tags?.length ? analysis.tags : ['主体清晰', '五官完整', '光线正常'];
+    const featureSummary = analysis?.tags?.slice(0, 3).join(' · ') || '待生成时进一步提取';
     const faceSummary = analysis?.title ?? '主体清晰 · 五官完整';
     const moodSummary = analysis?.message ?? '温顺亲人 · 适合生成';
     const avatarStartDisabled = avatarStarting;
+    const petSubjectParts = [speciesLabels[activePet?.species ?? petDraft.species], activePet?.breed || petDraft.breed].filter(Boolean);
     return (
       <Screen title="识别结果">
         <View style={[styles.recognitionHeroMake, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg,#F8D9B7 0%, #E2A56A 100%)' } as object) : null]}>
-          <PetAvatar uri={media?.previewUrl ?? demoPetPhotoUrl} size={170} />
+          <PetAvatar uri={media.previewUrl} size={170} />
           <View style={styles.recognitionSuccessBadge}>
             <Sparkles color="#fff" size={12} strokeWidth={2.4} />
             <Text style={styles.recognitionBadgeText}>{analysis?.status === 'warning' ? '建议优化' : '识别成功'}</Text>
@@ -5358,7 +5372,7 @@ export default function LumiiMvpApp() {
           <Text style={styles.recognitionQuality}>质量 {analysis?.qualityScore ?? 96}%</Text>
         </View>
         <View style={styles.recognitionDetailCardMake}>
-          <MakeDetailRow label="宠物主体" value={`${speciesLabels[activePet?.species ?? petDraft.species]} · ${activePet?.breed ?? (petDraft.breed || '金毛寻回犬')}`} valueAlign="right" />
+          <MakeDetailRow label="宠物主体" value={petSubjectParts.join(' · ') || '待确认'} valueAlign="right" />
           <View style={styles.makeDivider} />
           <MakeDetailRow label="毛色特征" value={featureSummary} valueAlign="right" />
           <View style={styles.makeDivider} />
@@ -5420,7 +5434,27 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderMissingUploadMedia(title: string) {
+    return (
+      <Screen title={title}>
+        <View style={styles.aiGeneratingPage}>
+          <ErrorState
+            action="重新选择照片"
+            description="当前没有可用的上传照片，可能是页面状态已被清理或上传中断。请重新选择宠物照片后再继续。"
+            icon={<ImagePlus color={palette.orange} size={20} strokeWidth={2.4} />}
+            iconTone="primary"
+            onAction={() => replace('upload')}
+            title="需要先上传宠物照片"
+          />
+        </View>
+      </Screen>
+    );
+  }
+
   function renderGenerating() {
+    if (!media) {
+      return renderMissingUploadMedia('生成灵伴');
+    }
     const progress = avatarResultPrefetching ? 100 : avatarJob?.progress ?? 62;
     const generatingTitle = avatarResultPrefetching ? '正在载入高清灵伴形象' : '正在生成你的小灵伴';
     const generatingSubtitle = avatarResultPrefetching ? '形象已经生成完成，正在载入结果图\n马上就能确认保存' : '正在捕捉毛色、五官和表情特征\n这个过程可能需要几十秒';
@@ -5429,9 +5463,9 @@ export default function LumiiMvpApp() {
         <Screen title="生成灵伴">
           <View style={styles.aiGeneratingPage}>
             <View style={styles.aiGeneratingOrb}>
-              <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.aiGeneratingImage} />
+              <Image resizeMode="cover" source={{ uri: media.previewUrl }} style={styles.aiGeneratingImage} />
               <View style={styles.aiOriginalThumb}>
-                <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.avatarImage} />
+                <Image resizeMode="cover" source={{ uri: media.previewUrl }} style={styles.avatarImage} />
               </View>
             </View>
             <ErrorState
@@ -5454,7 +5488,7 @@ export default function LumiiMvpApp() {
         <View style={styles.aiGeneratingPage}>
           <View style={styles.aiGeneratingOrb}>
             <View style={styles.aiGeneratingRing} />
-            <Image blurRadius={2} resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.aiGeneratingImage} />
+            <Image blurRadius={2} resizeMode="cover" source={{ uri: media.previewUrl }} style={styles.aiGeneratingImage} />
             <View style={styles.aiScanLine} />
             <View pointerEvents="none" style={styles.aiParticleLayer}>
               <View style={[styles.aiParticleDot, styles.aiParticleDotOne]} />
@@ -5463,7 +5497,7 @@ export default function LumiiMvpApp() {
               <View style={[styles.aiParticleDot, styles.aiParticleDotFour]} />
             </View>
             <View style={styles.aiOriginalThumb}>
-              <Image resizeMode="cover" source={{ uri: media?.previewUrl ?? demoPetPhotoUrl }} style={styles.avatarImage} />
+              <Image resizeMode="cover" source={{ uri: media.previewUrl }} style={styles.avatarImage} />
             </View>
             <View style={styles.aiWorkingBadge}>
               <Sparkles color={palette.orange} size={12} strokeWidth={2.5} />
@@ -5485,16 +5519,39 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderMissingAvatarResult() {
+    return (
+      <Screen title="形象确认">
+        <View style={styles.aiGeneratingPage}>
+          <ErrorState
+            action="重新生成"
+            description="当前没有可确认的灵伴生成结果，可能是生成任务已过期或被新的上传任务替换。请重新上传照片生成。"
+            icon={<Sparkles color={palette.orange} size={20} strokeWidth={2.4} />}
+            iconTone="primary"
+            onAction={() => replace('upload')}
+            title="还没有可保存的灵伴形象"
+          />
+        </View>
+      </Screen>
+    );
+  }
+
   function renderAiResult() {
-    const petName = activePet?.name ?? (petDraft.name || '豆豆');
-    const petBreed = activePet?.breed || petDraft.breed || speciesLabels[petDraft.species];
-    const resultUri = avatarJob?.resultUrl ?? generatedGoldenAvatarUri;
+    if (!media) {
+      return renderMissingUploadMedia('形象确认');
+    }
     const avatarCandidates = getAvatarCandidateUrls(avatarJob);
+    if (!avatarJob || (!avatarCandidates.length && !avatarJob.resultUrl)) {
+      return renderMissingAvatarResult();
+    }
+    const petName = activePet?.name ?? (petDraft.name || '你的宠物');
+    const petBreed = activePet?.breed || petDraft.breed || speciesLabels[petDraft.species];
+    const resultUri = avatarJob.resultUrl ?? avatarCandidates[0]!;
     const visibleAvatarCandidates = avatarCandidates.length ? avatarCandidates : [resultUri];
     const multiCandidate = visibleAvatarCandidates.length > 1;
     const selectedIndex = multiCandidate ? Math.min(selectedAvatarCandidateIndex, visibleAvatarCandidates.length - 1) : 0;
     const selectedAvatarUri = visibleAvatarCandidates[selectedIndex] ?? resultUri;
-    const sourcePhotoUri = media?.previewUrl ?? demoPetPhotoUrl;
+    const sourcePhotoUri = media.previewUrl;
     const title = multiCandidate ? '挑一个你最喜欢的' : '遇见你的小灵伴';
     const actionButtons = (
       <View style={[styles.aiResultActions, !multiCandidate && styles.aiResultActionsSingle]}>
@@ -8495,7 +8552,7 @@ export default function LumiiMvpApp() {
                 </View>
                 <View style={styles.profileVerifyPill}>
                   <Shield color={palette.teal} size={10} strokeWidth={2.4} />
-                  <Text style={styles.profileVerifyText}>已实名 · Lv.3</Text>
+                  <Text style={styles.profileVerifyText}>{accountVerificationLabel(session?.phone)}</Text>
                 </View>
               </View>
               <Pressable
@@ -9072,6 +9129,9 @@ export default function LumiiMvpApp() {
     const ownerPetImageSource = owner?.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
     const dateTiles = buildWalkInviteDateTiles();
     const activeDateIndex = Math.max(0, dateTiles.findIndex((tile) => walkInviteTime.startsWith(tile.day) || walkInviteTime.includes(tile.date)));
+    const walkNotePlaceholder = pet?.name
+      ? `可以写下${pet.name}喜欢的玩具、性格或见面注意事项`
+      : '可以写下宠物喜欢的玩具、性格或见面注意事项';
     return (
       <Screen title="约遛邀请">
         {owner ? (
@@ -9138,7 +9198,7 @@ export default function LumiiMvpApp() {
               <TextInput
                 multiline
                 onChangeText={setWalkInviteNote}
-                placeholder="带个飞盘呀，奶油超爱捡飞盘 🐾"
+                placeholder={walkNotePlaceholder}
                 placeholderTextColor="#B8B3A8"
                 style={[styles.walkMessageInputMake, webTextInputReset]}
                 value={walkInviteNote}
@@ -9467,6 +9527,8 @@ export default function LumiiMvpApp() {
   }
 
   function renderAccountSecurity() {
+    const deviceLabel = currentDeviceLabel();
+    const verificationLabel = accountVerificationLabel(session?.phone);
     return (
       <Screen title="账号安全">
         <View style={styles.settingsMakePage}>
@@ -9475,8 +9537,8 @@ export default function LumiiMvpApp() {
               <Shield color={palette.teal} size={20} strokeWidth={2.4} />
             </View>
             <View style={styles.flex}>
-              <Text style={styles.accountSecurityHeroTitleMake}>账号已实名 · 安全等级高</Text>
-              <Text style={styles.accountSecurityHeroSubMake}>上次登录：Android 设备 · 中国大陆</Text>
+              <Text style={styles.accountSecurityHeroTitleMake}>账号已登录 · {verificationLabel}</Text>
+              <Text style={styles.accountSecurityHeroSubMake}>当前登录：{deviceLabel}</Text>
             </View>
           </View>
 
@@ -9487,8 +9549,8 @@ export default function LumiiMvpApp() {
           </SettingsMakeSection>
 
           <SettingsMakeSection title="登录与设备">
-            <SettingsMakeRow Icon={Smartphone} iconBg="#E8F5F3" iconColor={palette.teal} title="登录设备" value="1 台" />
-            <SettingsMakeRow Icon={EyeOff} iconBg="#EFEAE1" iconColor={palette.ink} last right={<SettingsMakeToggle on />} title="登录保护" />
+            <SettingsMakeRow Icon={Smartphone} iconBg="#E8F5F3" iconColor={palette.teal} title="登录设备" value={deviceLabel} />
+            <SettingsMakeRow Icon={EyeOff} iconBg="#EFEAE1" iconColor={palette.ink} last title="登录保护" value="验证码登录" />
           </SettingsMakeSection>
 
           <SettingsMakeSection title="危险操作">
@@ -9580,7 +9642,7 @@ export default function LumiiMvpApp() {
           <View style={styles.placeholderHeroMake}>
             <Shield color={palette.teal} size={28} strokeWidth={2.5} />
             <View style={styles.flex}>
-              <Text style={styles.timelineTitleMake}>{isAccount ? '账号已实名 · 安全等级高' : isSafety ? '社区安全中心' : title}</Text>
+              <Text style={styles.timelineTitleMake}>{isAccount ? `账号已登录 · ${accountVerificationLabel(session?.phone)}` : isSafety ? '社区安全中心' : title}</Text>
               <Text style={styles.timelineSubMake}>{body}</Text>
             </View>
           </View>
@@ -9603,9 +9665,12 @@ export default function LumiiMvpApp() {
     const ownerAvatarUrl = discoverOwnerAvatarUrls[ownerIndex % discoverOwnerAvatarUrls.length];
     const ownerBreed = owner ? owner.tags[0] ?? (owner.species === 'cat' ? '猫咪' : '狗狗') : '';
     const ownerPetImageSource = owner?.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
+    const currentPetIntro = currentPet
+      ? `我家${currentPet.name}${currentPet.breed ? `（${currentPet.breed}）` : ''}`
+      : '我家的灵伴';
     const quickMessages = owner
       ? [
-          { label: `嗨～看起来${owner.petName}超有活力！`, text: `嗨～看起来${owner.petName}超有活力！我家是${currentPet ? formatPetAge(currentPet.birthday) : '2 岁'}的${currentPet?.breed ?? '金毛'}${currentPet?.name ?? '奶油'}，特别想找附近同伴` },
+          { label: `嗨～看起来${owner.petName}超有活力！`, text: `嗨～看起来${owner.petName}超有活力！${currentPetIntro}特别想找附近同伴` },
           { label: `我家${currentPet?.name ?? '灵伴'}也喜欢公园`, text: `我家${currentPet?.name ?? '灵伴'}也喜欢去公园玩，感觉和${owner.petName}应该会很合拍～` },
           { label: '改天一起遛弯？', text: `我们也常在附近散步，改天方便的话可以和${owner.petName}一起遛弯吗？` },
           { label: '自定义', text: greetingMessage || `你好呀，想和${owner.petName}打个招呼～` },
