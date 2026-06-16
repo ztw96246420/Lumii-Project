@@ -7632,7 +7632,6 @@ export default function LumiiMvpApp() {
     const nextVaccine = healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
     const nextVaccineDueLabel = formatDueLabel(nextVaccine?.dueAt);
     const nextVaccineReminderSaving = nextVaccine ? vaccineReminderSavingIds.includes(nextVaccine.id) : false;
-    const nextVaccineDoneSaving = nextVaccine ? vaccineDoneSavingIds.includes(nextVaccine.id) : false;
     const overdueVaccine = vaccines.find((item) => item.status === 'overdue' || (daysUntilDate(item.dueAt) ?? 999) < 0);
     const upcomingVaccine = vaccines.find((item) => item.status !== 'done' && (daysUntilDate(item.dueAt) ?? 999) >= 0 && (daysUntilDate(item.dueAt) ?? 999) <= 14);
     const heroStatus = !nextVaccine ? '暂无计划' : nextVaccine.status === 'done' ? '已完成' : nextVaccine.status === 'overdue' ? '已逾期' : (daysUntilDate(nextVaccine.dueAt) ?? 999) <= 14 ? '即将到期' : '计划中';
@@ -7671,10 +7670,6 @@ export default function LumiiMvpApp() {
             <Pressable disabled={!nextVaccine || nextVaccine.status === 'done' || nextVaccineReminderSaving} onPress={() => void enableVaccineReminder(nextVaccine)} style={[styles.vaccineHeroActionSecondary, (!nextVaccine || nextVaccine.status === 'done') && styles.vaccineHeroActionDisabled, webPressableReset]}>
               {nextVaccineReminderSaving ? <ActivityIndicator color={palette.orange} size="small" /> : <Bell color={palette.orange} size={13} strokeWidth={2.4} />}
               <Text style={[styles.vaccineHeroActionSecondaryText, (!nextVaccine || nextVaccine.status === 'done') && styles.vaccineHeroActionDisabledText]}>{nextVaccine && vaccineReminderIds.includes(nextVaccine.id) ? '提醒已开启' : '开启提醒'}</Text>
-            </Pressable>
-            <Pressable disabled={!nextVaccine || nextVaccine.status === 'done' || nextVaccineDoneSaving} onPress={() => void markVaccineDone(nextVaccine)} style={[styles.vaccineHeroActionPrimary, (!nextVaccine || nextVaccine.status === 'done') && styles.vaccineHeroActionDisabled, webPressableReset]}>
-              {nextVaccineDoneSaving ? <ActivityIndicator color="#fff" size="small" /> : <Check color="#fff" size={13} strokeWidth={3} />}
-              <Text style={styles.vaccineHeroActionPrimaryText}>{nextVaccine?.status === 'done' ? '已完成' : '标记完成'}</Text>
             </Pressable>
           </View>
         </View>
@@ -7756,6 +7751,7 @@ export default function LumiiMvpApp() {
           <View style={styles.vaccinePlanCard}>
           {vaccines.length ? vaccines.map((item, index) => {
             const meta = vaxRowMeta(item);
+            const doneSaving = vaccineDoneSavingIds.includes(item.id);
             return (
             <View key={item.id}>
               <View style={styles.vaccinePlanRow}>
@@ -7769,7 +7765,20 @@ export default function LumiiMvpApp() {
                   </View>
                   <Text numberOfLines={1} style={styles.timelineSubMake}>{meta.sub}</Text>
                 </View>
-                <Text style={styles.timelineDateMake}>{formatCompactDateLabel(item.dueAt)}</Text>
+                <View style={styles.vaccinePlanRightMake}>
+                  <Text style={styles.timelineDateMake}>{formatCompactDateLabel(item.dueAt)}</Text>
+                  {item.status !== 'done' ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={doneSaving}
+                      onPress={() => void markVaccineDone(item)}
+                      style={[styles.vaccinePlanDoneButtonMake, doneSaving && styles.vaccinePlanDoneButtonDisabledMake, webPressableReset]}
+                    >
+                      {doneSaving ? <ActivityIndicator color={palette.orange} size="small" /> : <Check color={palette.orange} size={11} strokeWidth={2.8} />}
+                      <Text style={styles.vaccinePlanDoneButtonTextMake}>完成</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               </View>
               {index < vaccines.length - 1 ? <View style={styles.makeDivider} /> : null}
             </View>
@@ -12578,6 +12587,10 @@ const styles = StyleSheet.create({
   vaccinePlanIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 18, flexShrink: 0, height: 36, justifyContent: 'center', width: 36 },
   vaccinePlanIconDone: { backgroundColor: 'rgba(77,182,172,0.16)' },
   vaccinePlanIconPlanned: { backgroundColor: 'rgba(122,121,114,0.14)' },
+  vaccinePlanDoneButtonDisabledMake: { opacity: 0.58 },
+  vaccinePlanDoneButtonMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.orange, borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 4, justifyContent: 'center', minHeight: 28, paddingHorizontal: 9 },
+  vaccinePlanDoneButtonTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', lineHeight: 16 },
+  vaccinePlanRightMake: { alignItems: 'flex-end', flexShrink: 0, gap: 7, minWidth: 58 },
   vaccinePlanRow: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 12 },
   vaccinePlanTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   vaccineQuickDateChip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 999, borderWidth: 1, flex: 1, justifyContent: 'center', minHeight: 32, paddingHorizontal: 8 },
