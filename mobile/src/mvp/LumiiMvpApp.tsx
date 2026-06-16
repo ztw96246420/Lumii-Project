@@ -3249,7 +3249,7 @@ export default function LumiiMvpApp() {
       return;
     }
     if (!isExactIsoCalendarDate(dueAt)) {
-      showToast('请选择正确的计划日期，例如 2026-06-30');
+      showToast(`请选择正确的计划日期，例如 ${addDaysIsoDate(30)}`);
       return;
     }
     const requestSessionToken = sessionTokenRef.current;
