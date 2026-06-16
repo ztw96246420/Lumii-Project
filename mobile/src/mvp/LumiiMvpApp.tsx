@@ -7850,12 +7850,14 @@ export default function LumiiMvpApp() {
             {filtered ? '可以试试放宽搜索或筛选条件\n或切换查看全部附近伙伴' : '可以下拉刷新附近列表\n或稍后再来看看新的伙伴'}
           </Text>
           <View style={styles.discoverEmptyActionsMake}>
-            <Pressable onPress={clearOrRefresh} style={[styles.discoverEmptyGhostMake, webPressableReset]}>
-              <Text style={styles.discoverEmptyGhostTextMake}>{filtered ? '清除条件' : '刷新附近'}</Text>
-            </Pressable>
+            {filtered ? (
+              <Pressable onPress={clearDiscoverSearchAndFilter} style={[styles.discoverEmptyGhostMake, webPressableReset]}>
+                <Text style={styles.discoverEmptyGhostTextMake}>清除条件</Text>
+              </Pressable>
+            ) : null}
             <Pressable onPress={clearOrRefresh} style={[styles.discoverEmptyPrimaryMake, webPressableReset]}>
-              <Navigation color="#fff" size={14} strokeWidth={2.4} />
-              <Text style={styles.discoverEmptyPrimaryTextMake}>{filtered ? '查看全部' : '重新搜索'}</Text>
+              {filtered ? <Navigation color="#fff" size={14} strokeWidth={2.4} /> : <RefreshCw color="#fff" size={14} strokeWidth={2.4} />}
+              <Text style={styles.discoverEmptyPrimaryTextMake}>{filtered ? '查看全部' : '刷新附近'}</Text>
             </Pressable>
           </View>
         </View>
