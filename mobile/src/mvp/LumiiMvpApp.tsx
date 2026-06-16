@@ -9627,10 +9627,6 @@ export default function LumiiMvpApp() {
             <SettingsMakeRow Icon={Smartphone} iconBg="#E8F5F3" iconColor={palette.teal} title="登录设备" value={deviceLabel} />
             <SettingsMakeRow Icon={EyeOff} iconBg="#EFEAE1" iconColor={palette.ink} last title="登录保护" value="验证码登录" />
           </SettingsMakeSection>
-
-          <SettingsMakeSection title="危险操作">
-            <SettingsMakeRow Icon={Trash2} danger iconBg="#FBE4DE" iconColor={palette.danger} last onPress={() => showToast('注销账号流程后续开放', { tone: 'warning', variant: 'surface' })} title="注销账号" />
-          </SettingsMakeSection>
         </View>
       </Screen>
     );
@@ -9725,7 +9721,6 @@ export default function LumiiMvpApp() {
             <Text style={styles.settingsGroupTitle}>{isAccount ? '登录方式' : isSafety ? '安全工具' : '功能入口'}</Text>
             <ProfileMakeRow Icon={Phone} title="手机号" value={formatMaskedPhone(session?.phone)} />
             <ProfileMakeRow Icon={Shield} title={isSafety ? '举报与拉黑' : '登录保护'} value={isSafety ? '后续开放' : '已开启'} />
-            <ProfileMakeRow Icon={LogOut} title={isAccount ? '注销账号' : '危险操作'} value="后续开放" />
           </View>
         </View>
       </Screen>
