@@ -8999,18 +8999,10 @@ export default function LumiiMvpApp() {
               Icon={Bell}
               iconBg="#FBF2D9"
               iconColor="#C99B3E"
+              last
               onPress={() => void toggleUserSetting('pushNotifications', '通知')}
               title="通知"
               value={userSettings.pushNotifications ? '开启' : '关闭'}
-            />
-            <SettingsMakeRow
-              Icon={Settings}
-              iconBg="#EFEAE1"
-              iconColor={palette.muted}
-              last
-              onPress={() => showToast('语言切换后续开放', { tone: 'info', variant: 'surface' })}
-              title="语言"
-              value="简体中文"
             />
           </SettingsMakeSection>
 
