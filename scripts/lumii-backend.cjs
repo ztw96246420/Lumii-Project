@@ -101,6 +101,17 @@ const defaultPlaces = [
     tags: ['室内友好', '可带猫包'],
   },
   {
+    address: '中央广场 2F',
+    category: 'shop',
+    distance: '1.9km',
+    id: 'place-shop-1',
+    name: '毛球宠物生活馆',
+    rating: 4.5,
+    reviewCount: 21,
+    supportedSpecies: ['cat', 'dog'],
+    tags: ['宠物用品', '洗护美容'],
+  },
+  {
     address: '明湖街 12 号',
     category: 'clinic',
     distance: '2.3km',
@@ -983,7 +994,7 @@ function inferAmapPlaceCategory(poi) {
   const nameTypeText = [poi.name, poi.type, poi.typecode].map(compactText).join(' ');
   const text = [nameTypeText, poi.address].map(compactText).join(' ');
   if (/(宠物医院|动物医院|宠物诊所|兽医|医疗|医院|诊所)/u.test(text)) return 'clinic';
-  if (/(宠物店|宠物用品|宠物食品|宠物美容|宠物寄养|爬宠|猫舍|犬舍|萌宠|宠物生活馆)/u.test(text)) return 'other';
+  if (/(宠物店|宠物用品|宠物食品|宠物美容|宠物寄养|爬宠|猫舍|犬舍|萌宠|宠物生活馆)/u.test(text)) return 'shop';
   if (/(公园|绿地|景区|风景名胜|游园)/u.test(nameTypeText)) return 'park';
   if (/(猫咖|狗咖|宠物咖啡|宠物友好|萌宠咖啡|咖啡|餐厅|餐饮|茶|商场|购物中心|甜品|烘焙)/u.test(nameTypeText)) return 'cafe';
   return 'other';
@@ -1010,7 +1021,7 @@ function inferAmapSupportedSpecies(poi, category) {
     species.add('cat');
     species.add('dog');
   }
-  if (category === 'clinic') {
+  if (category === 'clinic' || category === 'shop') {
     species.add('cat');
     species.add('dog');
   }
@@ -1031,6 +1042,9 @@ function inferAmapPlaceTags(poi, category, supportedSpecies) {
   } else if (category === 'cafe') {
     tags.add('宠物友好候选');
     tags.add('待社区确认');
+  } else if (category === 'shop') {
+    tags.add('宠物用品');
+    tags.add('洗护候选');
   } else {
     tags.add('POI候选');
     tags.add('待社区确认');
@@ -1308,10 +1322,20 @@ function placeReviewCount(placeId) {
   return reviewPhones.size;
 }
 
+function normalizePlaceCategoryForResponse(place) {
+  const category = String(place?.category || 'other');
+  if (['cafe', 'clinic', 'park', 'shop'].includes(category)) return category;
+  const text = [place?.name, place?.address, place?.poiType, ...(place?.tags || [])].map(compactText).join(' ');
+  if (/(宠物医院|动物医院|宠物诊所|兽医|医疗|医院|诊所)/u.test(text)) return 'clinic';
+  if (/(宠物店|宠物用品|宠物食品|宠物美容|宠物寄养|爬宠|猫舍|犬舍|萌宠|宠物生活馆)/u.test(text)) return 'shop';
+  return 'other';
+}
+
 function placeForResponse(place) {
   if (!place) return place;
   return {
     ...place,
+    category: normalizePlaceCategoryForResponse(place),
     reviewCount: placeReviewCount(place.id),
   };
 }

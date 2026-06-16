@@ -354,7 +354,7 @@ export type PushDevice = {
 export type Place = {
   address: string;
   businessArea?: string;
-  category: 'cafe' | 'clinic' | 'other' | 'park';
+  category: 'cafe' | 'clinic' | 'other' | 'park' | 'shop';
   coverImageUrl?: string;
   distance: string;
   entranceLatitude?: number;

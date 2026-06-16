@@ -8031,6 +8031,7 @@ export default function LumiiMvpApp() {
       { key: 'all', label: '全部' },
       { key: 'park', label: '公园' },
       { key: 'cafe', label: '咖啡店' },
+      { key: 'shop', label: '宠物店' },
       { key: 'clinic', label: '医院' },
     ];
     const categoryFilteredPlaces = placeFilter === 'all' ? places : places.filter((place) => place.category === placeFilter);
@@ -8231,12 +8232,10 @@ export default function LumiiMvpApp() {
                   <Text style={styles.mapSearchResetMake}>重置</Text>
                 </Pressable>
               </View>
-              <View style={styles.mapFilterWrapMake}>
+              <ScrollView contentContainerStyle={styles.mapFilterSearchContentMake} horizontal showsHorizontalScrollIndicator={false} style={styles.mapFilterSearchScrollerMake}>
                 {placeFilters.map((item) => (
                   <Pressable key={item.key} onPress={() => setPlaceFilter(item.key)} style={[styles.mapChipMake, placeFilter === item.key && styles.mapChipMakeActive]}>
-                    <Text style={[styles.mapChipMakeText, placeFilter === item.key && styles.mapChipMakeTextActive]}>
-                      {item.key === 'park' ? '🌳 公园' : item.key === 'cafe' ? '☕ 咖啡店' : item.key === 'clinic' ? '🏥 医院' : '全部'}
-                    </Text>
+                    <Text style={[styles.mapChipMakeText, placeFilter === item.key && styles.mapChipMakeTextActive]}>{getPlaceFilterChipLabel(item.key)}</Text>
                   </Pressable>
                 ))}
                 <Pressable onPress={() => togglePlaceSpeciesFilter('dog')} style={[styles.mapChipMake, placeSpeciesFilter === 'dog' && styles.mapChipMakeActive, webPressableReset]}>
@@ -8245,7 +8244,7 @@ export default function LumiiMvpApp() {
                 <Pressable onPress={() => togglePlaceSpeciesFilter('cat')} style={[styles.mapChipMake, placeSpeciesFilter === 'cat' && styles.mapChipMakeActive, webPressableReset]}>
                   <Text style={[styles.mapChipMakeText, placeSpeciesFilter === 'cat' && styles.mapChipMakeTextActive]}>🐱 喵星友好</Text>
                 </Pressable>
-              </View>
+              </ScrollView>
               <View style={styles.mapSegmentRowMake}>
                 {placeSortOptions.map((option) => {
                   const active = option.key === placeSortMode;
@@ -8325,12 +8324,11 @@ export default function LumiiMvpApp() {
               <ScrollView contentContainerStyle={styles.mapFilterFloatMake} horizontal showsHorizontalScrollIndicator={false} style={styles.mapFilterScrollerMake}>
                 {placeFilters.map((item) => (
                   <Pressable key={item.key} onPress={() => setPlaceFilter(item.key)} style={[styles.mapChipMake, placeFilter === item.key && styles.mapChipMakeActive]}>
-                    <Text style={[styles.mapChipMakeText, placeFilter === item.key && styles.mapChipMakeTextActive]}>
-                      {item.key === 'park' ? '🌳 公园' : item.key === 'cafe' ? '☕ 咖啡店' : item.key === 'clinic' ? '🏥 医院' : '全部'}
-                    </Text>
+                    <Text style={[styles.mapChipMakeText, placeFilter === item.key && styles.mapChipMakeTextActive]}>{getPlaceFilterChipLabel(item.key)}</Text>
                   </Pressable>
                 ))}
               </ScrollView>
+              <View pointerEvents="none" style={styles.mapFilterRightFadeMake} />
 
               <View style={[styles.mapBottomSheetMake, !mapPlacesSheetExpanded && styles.mapBottomSheetCollapsedMake]}>
                 <Pressable accessibilityRole="button" onPress={() => setMapPlacesSheetExpanded((expanded) => !expanded)} style={[styles.mapSheetHeaderButtonMake, webPressableReset]}>
@@ -9861,7 +9859,7 @@ export default function LumiiMvpApp() {
               <Image resizeMode="cover" source={{ uri: placeReviewPhotoUrls[0] }} style={styles.addPlacePlaceThumbMake} />
               <View style={styles.flex}>
                 <Text numberOfLines={1} style={styles.addPlacePlaceNameMake}>{place.name}</Text>
-                <Text numberOfLines={1} style={styles.addPlacePlaceMetaMake}>{place.category === 'park' ? '公园' : place.category === 'cafe' ? '咖啡店' : place.category === 'clinic' ? '医院' : '宠物友好地点'} · {place.address}</Text>
+                <Text numberOfLines={1} style={styles.addPlacePlaceMetaMake}>{getPlaceCategoryLabel(place)} · {place.address}</Text>
               </View>
               <ChevronRight color={palette.muted} size={15} strokeWidth={2.2} />
             </View>
@@ -10715,6 +10713,7 @@ function getPlaceVisualUrl(place: Place) {
   if (photoUrl) return photoUrl;
   if (place.category === 'park') return placeParkPhotoUrl;
   if (place.category === 'cafe') return placeCafePhotoUrl;
+  if (place.category === 'shop') return placeReviewPhotoUrls[1] ?? placeCafePhotoUrl;
   if (place.category === 'clinic') return placeVetPhotoUrl;
   return placeReviewPhotoUrls[0] ?? placeParkPhotoUrl;
 }
@@ -10745,8 +10744,17 @@ function getPlacePhoneText(place: Place) {
 function getPlaceCategoryLabel(place: Place) {
   if (place.category === 'park') return '公园';
   if (place.category === 'cafe') return '咖啡店';
+  if (place.category === 'shop') return '宠物店';
   if (place.category === 'clinic') return '宠物医院';
   return '宠物友好地点';
+}
+
+function getPlaceFilterChipLabel(category: 'all' | Place['category']) {
+  if (category === 'park') return '🌳 公园';
+  if (category === 'cafe') return '☕ 咖啡店';
+  if (category === 'shop') return '🛍️ 宠物店';
+  if (category === 'clinic') return '🏥 医院';
+  return '全部';
 }
 
 function PlaceSheetRow({ active, onPress, place }: { active?: boolean; onPress: () => void; place: Place; rank: number }) {
@@ -11845,8 +11853,11 @@ const styles = StyleSheet.create({
   mapFauxFullStandard: { backgroundColor: '#edf1ec' },
   mapFilterFloat: { gap: 8, paddingHorizontal: 14 },
   mapFilterFloatMake: { gap: 8, paddingHorizontal: 16 },
+  mapFilterRightFadeMake: { backgroundColor: 'rgba(255,255,255,0.72)', height: 40, position: 'absolute', right: 0, top: 64, width: 18, zIndex: 4 },
   mapFilterScroller: { left: 0, position: 'absolute', right: 0, top: 74, zIndex: 2 },
   mapFilterScrollerMake: { left: 0, position: 'absolute', right: 0, top: 64, zIndex: 4 },
+  mapFilterSearchContentMake: { gap: 8, paddingRight: 4 },
+  mapFilterSearchScrollerMake: { marginHorizontal: -2 },
   mapFilterWrapMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   mapGreenPatchA: { backgroundColor: '#cfe7d2', borderRadius: 36, height: 122, left: -26, opacity: 0.96, position: 'absolute', top: 34, transform: [{ rotate: '-18deg' }], width: 150 },
   mapGreenPatchB: { backgroundColor: '#dcefd8', borderRadius: 46, bottom: 44, height: 126, opacity: 0.96, position: 'absolute', right: -34, transform: [{ rotate: '16deg' }], width: 184 },

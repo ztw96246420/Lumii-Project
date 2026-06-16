@@ -916,6 +916,7 @@ const mockSocialMessageMaxChars = 600;
 const places: Place[] = [
   { id: 'p1', name: '云杉宠物友好公园', address: '滨江路 88 号', category: 'park', distance: '900m', rating: 4.8, reviewCount: 36, supportedSpecies: ['dog'], tags: ['可遛狗', '草坪', '饮水点'] },
   { id: 'p2', name: '暖爪咖啡', address: '中央广场 B1', category: 'cafe', distance: '1.6km', rating: 4.6, reviewCount: 18, supportedSpecies: ['cat', 'dog'], tags: ['室内友好', '可带猫包'] },
+  { id: 'p4', name: '毛球宠物生活馆', address: '中央广场 2F', category: 'shop', distance: '1.9km', rating: 4.5, reviewCount: 21, supportedSpecies: ['cat', 'dog'], tags: ['宠物用品', '洗护美容'] },
   { id: 'p3', name: '安心宠物医院', address: '明湖街 12 号', category: 'clinic', distance: '2.3km', rating: 4.7, reviewCount: 24, supportedSpecies: ['cat', 'dog'], tags: ['急诊', '疫苗'] },
 ];
 let favoritePlaceIds: string[] = [];
