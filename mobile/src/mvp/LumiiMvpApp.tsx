@@ -472,6 +472,7 @@ const defaultMapCenter = {
 };
 
 type MapVisualMode = 'lumii' | 'night' | 'satellite' | 'standard';
+type PlaceSpeciesFilter = 'all' | Extract<PetSpecies, 'cat' | 'dog'>;
 type PlaceSortMode = 'distance' | 'rating';
 
 const mapStyleOptions: Array<{
@@ -507,6 +508,27 @@ function sortPlacesByMode(items: Place[], mode: PlaceSortMode) {
 
 function filterPlacesByDistance(items: Place[], radiusKm: PlaceDistanceFilterKm) {
   return items.filter((place) => parsePlaceDistanceMeters(place.distance) <= radiusKm * 1000);
+}
+
+function getPlaceSupportedSpecies(place: Place) {
+  const explicit = Array.isArray(place.supportedSpecies)
+    ? place.supportedSpecies.filter((species): species is Extract<PetSpecies, 'cat' | 'dog'> => species === 'cat' || species === 'dog')
+    : [];
+  if (explicit.length) return Array.from(new Set(explicit));
+  const text = [place.name, place.category, ...place.tags].join(' ').toLowerCase();
+  const inferred = new Set<Extract<PetSpecies, 'cat' | 'dog'>>();
+  if (/狗|汪|遛|dog|canine/.test(text)) inferred.add('dog');
+  if (/猫|喵|cat|feline/.test(text)) inferred.add('cat');
+  if (place.category === 'clinic') {
+    inferred.add('cat');
+    inferred.add('dog');
+  }
+  return Array.from(inferred);
+}
+
+function filterPlacesBySpecies(items: Place[], speciesFilter: PlaceSpeciesFilter) {
+  if (speciesFilter === 'all') return items;
+  return items.filter((place) => getPlaceSupportedSpecies(place).includes(speciesFilter));
 }
 
 type ConfirmState = {
@@ -1091,6 +1113,7 @@ export default function LumiiMvpApp() {
   const mapSearchInputRef = useRef<TextInput>(null);
   const [placeFilter, setPlaceFilter] = useState<'all' | Place['category']>('all');
   const [placeDistanceRadiusKm, setPlaceDistanceRadiusKm] = useState<PlaceDistanceFilterKm>(3);
+  const [placeSpeciesFilter, setPlaceSpeciesFilter] = useState<PlaceSpeciesFilter>('all');
   const [placeSortMode, setPlaceSortMode] = useState<PlaceSortMode>('distance');
   const [placeSearching, setPlaceSearching] = useState(false);
   const placeSearchingRef = useRef(false);
@@ -4080,15 +4103,17 @@ export default function LumiiMvpApp() {
     }
   }
 
-  async function searchPlaces(options: { filter?: 'all' | Place['category'] } = {}) {
+  async function searchPlaces(options: { filter?: 'all' | Place['category']; speciesFilter?: PlaceSpeciesFilter } = {}) {
     if (placeSearchingRef.current) return;
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
     const query = placeQueryRef.current.trim();
     const nextFilter = options.filter ?? 'all';
+    const nextSpeciesFilter = options.speciesFilter ?? placeSpeciesFilter;
     placeSearchingRef.current = true;
     setPlaceSearching(true);
     setPlaceFilter(nextFilter);
+    setPlaceSpeciesFilter(nextSpeciesFilter);
     try {
       const result = query ? await lumiiApi.places.searchPlaces(query) : await lumiiApi.places.listNearbyPlaces();
       if (sessionTokenRef.current !== requestSessionToken) return;
@@ -4096,8 +4121,9 @@ export default function LumiiMvpApp() {
       if (result.data) {
         const nextPlaces = result.data;
         setPlaces(nextPlaces);
+        const nextCategoryPlaces = nextFilter === 'all' ? nextPlaces : nextPlaces.filter((place) => place.category === nextFilter);
         const visibleNextPlaces = sortPlacesByMode(
-          filterPlacesByDistance(nextFilter === 'all' ? nextPlaces : nextPlaces.filter((place) => place.category === nextFilter), placeDistanceRadiusKm),
+          filterPlacesByDistance(filterPlacesBySpecies(nextCategoryPlaces, nextSpeciesFilter), placeDistanceRadiusKm),
           placeSortMode,
         );
         setSelectedPlace((current) => visibleNextPlaces.find((place) => place.id === current?.id) ?? visibleNextPlaces[0] ?? nextPlaces[0] ?? null);
@@ -4866,6 +4892,7 @@ export default function LumiiMvpApp() {
     setPlaceQuery('');
     setPlaceFilter('all');
     setPlaceDistanceRadiusKm(3);
+    setPlaceSpeciesFilter('all');
     setPlaceSortMode('distance');
     placeSearchingRef.current = false;
     setPlaceSearching(false);
@@ -7892,24 +7919,33 @@ export default function LumiiMvpApp() {
       { key: 'clinic', label: '医院' },
     ];
     const categoryFilteredPlaces = placeFilter === 'all' ? places : places.filter((place) => place.category === placeFilter);
-    const filteredPlaces = filterPlacesByDistance(categoryFilteredPlaces, placeDistanceRadiusKm);
+    const speciesFilteredPlaces = filterPlacesBySpecies(categoryFilteredPlaces, placeSpeciesFilter);
+    const filteredPlaces = filterPlacesByDistance(speciesFilteredPlaces, placeDistanceRadiusKm);
     const visiblePlaces = sortPlacesByMode(filteredPlaces, placeSortMode);
     const highlightedPlace = visiblePlaces[0];
     const placeFilterLabel = placeFilters.find((item) => item.key === placeFilter)?.label ?? '全部';
+    const placeSpeciesFilterLabel = placeSpeciesFilter === 'dog' ? '汪星友好' : placeSpeciesFilter === 'cat' ? '喵星友好' : '';
     const placeSortLabel = placeSortOptions.find((item) => item.key === placeSortMode)?.label ?? '距离最近';
-    const placeResultMeta = placeSearching ? '搜索中...' : `${visiblePlaces.length} 个 · ${placeDistanceRadiusKm}km 内 · ${placeQuery.trim() ? '搜索结果' : placeFilterLabel} · ${placeSortLabel}`;
+    const placeFilterMeta = [placeQuery.trim() ? '搜索结果' : placeFilterLabel, placeSpeciesFilterLabel || null, placeSortLabel].filter(Boolean).join(' · ');
+    const placeResultMeta = placeSearching ? '搜索中...' : `${visiblePlaces.length} 个 · ${placeDistanceRadiusKm}km 内 · ${placeFilterMeta}`;
     const distanceProgress = `${Math.round((placeDistanceRadiusKm / 5) * 100)}%`;
     const distanceProgressStyle = { width: distanceProgress as ViewStyle['width'] };
     const distanceThumbStyle = { left: distanceProgress as ViewStyle['left'] };
     const mapStyle = mapStyleOptions.find((item) => item.key === mapStyleKey) ?? mapStyleOptions[0];
-    const mapSearchPanelVisible = Boolean(placeQuery.trim() || placeFilter !== 'all');
+    const mapSearchPanelVisible = Boolean(placeQuery.trim() || placeFilter !== 'all' || placeSpeciesFilter !== 'all');
     const clearMapSearch = () => {
       placeQueryRef.current = '';
       setPlaceQuery('');
       setPlaceFilter('all');
+      setPlaceSpeciesFilter('all');
       setPlaceDistanceRadiusKm(3);
       setPlaceSortMode('distance');
-      void searchPlaces();
+      void searchPlaces({ filter: 'all', speciesFilter: 'all' });
+    };
+    const togglePlaceSpeciesFilter = (species: Extract<PetSpecies, 'cat' | 'dog'>) => {
+      const nextSpecies = placeSpeciesFilter === species ? 'all' : species;
+      setPlaceSpeciesFilter(nextSpecies);
+      showToast(nextSpecies === 'all' ? '已取消宠物类型筛选' : `已筛选${nextSpecies === 'dog' ? '汪星' : '喵星'}友好地点`, { tone: 'info', variant: 'surface' });
     };
     const cyclePlaceDistanceFilter = () => {
       const currentIndex = placeDistanceFilterOptions.indexOf(placeDistanceRadiusKm);
@@ -8083,11 +8119,11 @@ export default function LumiiMvpApp() {
                     </Text>
                   </Pressable>
                 ))}
-                <Pressable onPress={() => showToast('地点物种适配字段待后端补齐，暂不做假筛选', { tone: 'info', variant: 'surface' })} style={[styles.mapChipMake, styles.opacity60, webPressableReset]}>
-                  <Text style={styles.mapChipMakeText}>🐶 汪星友好</Text>
+                <Pressable onPress={() => togglePlaceSpeciesFilter('dog')} style={[styles.mapChipMake, placeSpeciesFilter === 'dog' && styles.mapChipMakeActive, webPressableReset]}>
+                  <Text style={[styles.mapChipMakeText, placeSpeciesFilter === 'dog' && styles.mapChipMakeTextActive]}>🐶 汪星友好</Text>
                 </Pressable>
-                <Pressable onPress={() => showToast('地点物种适配字段待后端补齐，暂不做假筛选', { tone: 'info', variant: 'surface' })} style={[styles.mapChipMake, styles.opacity60, webPressableReset]}>
-                  <Text style={styles.mapChipMakeText}>🐱 喵星友好</Text>
+                <Pressable onPress={() => togglePlaceSpeciesFilter('cat')} style={[styles.mapChipMake, placeSpeciesFilter === 'cat' && styles.mapChipMakeActive, webPressableReset]}>
+                  <Text style={[styles.mapChipMakeText, placeSpeciesFilter === 'cat' && styles.mapChipMakeTextActive]}>🐱 喵星友好</Text>
                 </Pressable>
               </View>
               <View style={styles.mapSegmentRowMake}>

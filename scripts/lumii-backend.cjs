@@ -74,6 +74,7 @@ const defaultPlaces = [
     id: 'place-park-1',
     name: '云杉宠物友好公园',
     rating: 4.8,
+    supportedSpecies: ['dog'],
     tags: ['可遛狗', '草坪', '饮水点'],
   },
   {
@@ -83,6 +84,7 @@ const defaultPlaces = [
     id: 'place-cafe-1',
     name: '暖爪咖啡',
     rating: 4.6,
+    supportedSpecies: ['cat', 'dog'],
     tags: ['室内友好', '可带猫包'],
   },
   {
@@ -92,6 +94,7 @@ const defaultPlaces = [
     id: 'place-clinic-1',
     name: '安心宠物医院',
     rating: 4.7,
+    supportedSpecies: ['cat', 'dog'],
     tags: ['急诊', '疫苗'],
   },
 ];
