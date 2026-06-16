@@ -2305,18 +2305,6 @@ export default function LumiiMvpApp() {
     if (next.length === 6 && !verifyLoadingRef.current) void verifySmsCode(next);
   }
 
-  function requestVoiceSmsCode() {
-    if (sendLoading) {
-      showToast('短信验证码发送中，请稍候');
-      return;
-    }
-    if (cooldownRemaining > 0) {
-      showToast(`${cooldownRemaining}s 后可重新发送短信验证码`);
-      return;
-    }
-    showToast('语音验证码暂未开放，先使用短信验证码登录');
-  }
-
   async function requestPermission(key: keyof PermissionStateMap) {
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
@@ -5005,12 +4993,6 @@ export default function LumiiMvpApp() {
               <Text style={[styles.resendAction, !canResend && styles.resendActionDisabled]}>
                 {sendLoading ? '发送中...' : cooldownRemaining > 0 ? `${cooldownRemaining}s 后重新发送` : '重新发送'}
               </Text>
-            </Pressable>
-          </View>
-          <View style={styles.voiceRow}>
-            <Text style={styles.voiceText}>收不到？试试</Text>
-            <Pressable onPress={requestVoiceSmsCode} style={webPressableReset}>
-              <Text style={styles.voiceLink}>语音验证码</Text>
             </Pressable>
           </View>
         </View>
@@ -12109,9 +12091,6 @@ const styles = StyleSheet.create({
   tipCheckMake: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.18)', borderRadius: 8, height: 16, justifyContent: 'center', width: 16 },
   tipMakeRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   tipMakeText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '400' },
-  voiceLink: { color: palette.teal, fontFamily: appFontFamily, fontSize: 13, fontWeight: '400', marginLeft: 6 },
-  voiceRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 18 },
-  voiceText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '400' },
   timelineDateMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
   timelineDotCool: { backgroundColor: palette.teal },
   timelineDotMake: { backgroundColor: palette.orange, borderRadius: 3, height: 6, width: 6 },
