@@ -373,12 +373,12 @@ const discoverFilterOptions: Array<{ key: DiscoverFilter; label: string }> = [
 ];
 
 const emptyPetDraft: PetDraft = {
-  birthday: '2024-05-30',
-  breed: '金毛寻回犬',
+  birthday: '',
+  breed: '',
   gender: 'unknown',
-  name: '奶油',
+  name: '',
   species: 'dog',
-  weight: '28.4',
+  weight: '',
 };
 
 function draftFromPet(pet: PetProfile): PetDraft {
@@ -607,13 +607,6 @@ function formatTodayTimeLabel(date = new Date()) {
   return `今天 · ${formatClockTime(date)}`;
 }
 
-function formatIsoDateAsFriendlyLabel(dateText?: string) {
-  const date = parseIsoDate(dateText);
-  if (!date) return dateText || formatTodayTimeLabel();
-  if (isSameCalendarDay(date, new Date())) return `今天 · ${formatClockTime(new Date())}`;
-  return `${date.getMonth() + 1} 月 ${date.getDate()} 日`;
-}
-
 function defaultMemoReminderDate() {
   return nextMemoReminderDate('quarterly');
 }
@@ -711,7 +704,15 @@ function formatMonthLabel(monthIso: string) {
 function formatCalendarDateLabel(dateText: string) {
   const date = parseIsoDate(dateText);
   if (!date) return dateText;
+  if (isSameCalendarDay(date, new Date())) return '今天';
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (isSameCalendarDay(date, yesterday)) return '昨天';
   return `${date.getMonth() + 1} 月 ${date.getDate()} 日`;
+}
+
+function formatOptionalDateLabel(dateText?: string, fallback = '今天') {
+  return dateText ? formatCalendarDateLabel(dateText) : fallback;
 }
 
 function weekdayLabel(dateText: string) {
@@ -5544,6 +5545,7 @@ export default function LumiiMvpApp() {
     const healthStatusLabel =
       healthSummary?.weightStatus === 'watch' ? '关注' : healthSummary?.weightStatus === 'empty' ? '待记' : healthSummary ? '稳定' : '+3';
     const healthDescription = healthSummary?.weightSummary ?? '体重稳定，运动量良好';
+    const todayWeightRecorded = weights.some((item) => item.recordedAt === todayIsoDate());
     return (
       <Screen showBack={false} title="">
         <View style={styles.homeMakePage}>
@@ -5606,7 +5608,7 @@ export default function LumiiMvpApp() {
           </Pressable>
 
           <View style={styles.homeQuickGrid}>
-            <MetricCard Icon={Weight} label="今日体重" onPress={() => go('weight')} tag={weights.length ? '已记录' : '待记录'} tagTone="teal" value={formatWeightKg(latestWeight)} />
+            <MetricCard Icon={Weight} label="今日体重" onPress={() => go('weight')} tag={todayWeightRecorded ? '已记录' : '待记录'} tagTone="teal" value={formatWeightKg(latestWeight)} />
             <MetricCard Icon={Syringe} iconTone="teal" label="疫苗提醒" onPress={() => go('vaccine')} tag={formatDueLabel(nextVaccine?.dueAt)} tagTone="orange" value={nextVaccine?.name ?? '待添加计划'} />
             <MetricCard Icon={NotebookPen} label="健康备忘" onPress={() => go('healthMemos')} tag={`${memoCount} 条`} tagTone="muted" value={memoSummary} />
             <MetricCard Icon={MapPin} label="附近伙伴" onPress={() => go('discover')} tag={`${defaultDiscoverRadiusKm}km`} tagTone="teal" value={onlineCopy} />
@@ -6038,16 +6040,16 @@ export default function LumiiMvpApp() {
     const nextHealthVaccine = healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
     const latestWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet?.weightKg;
     const healthScore = healthSummary?.healthScore ?? pet?.healthScore ?? 92;
-    const weightSubtitle = healthSummary?.weightSummary ?? (weights.length > 1 ? `最近一次 ${weights[0]?.recordedAt}` : '暂无连续记录，先从今天开始');
+    const weightSubtitle = healthSummary?.weightSummary ?? (weights.length > 1 ? `最近一次 ${formatOptionalDateLabel(weights[0]?.recordedAt)}` : '暂无连续记录，先从今天开始');
     const latestMemo = healthSummary?.latestMemo ?? memos[0];
     const memoCount = healthSummary?.memoCount ?? memos.length;
-    const memoSubtitle = latestMemo ? `${latestMemo.title} · ${latestMemo.updatedAt}` : '记录洗澡、驱虫、食欲或异常观察';
+    const memoSubtitle = latestMemo ? `${latestMemo.title} · ${formatOptionalDateLabel(latestMemo.updatedAt)}` : '记录洗澡、驱虫、食欲或异常观察';
     const urgentHealthCount = healthSummary?.urgentVaccineCount ?? urgentVaccines.length;
     const pendingHealthCount = healthSummary?.pendingVaccineCount ?? pendingVaccines.length;
     const recentRows = [
       {
         Icon: Weight,
-        date: weights[0]?.recordedAt ?? '待记录',
+        date: weights[0]?.recordedAt ? formatOptionalDateLabel(weights[0].recordedAt) : '待记录',
         dot: 'warm' as const,
         sub: weights[1] ? `较上次 ${Number(latestWeight ?? 0) >= weights[1].kg ? '+' : ''}${(Number(latestWeight ?? 0) - weights[1].kg).toFixed(1).replace(/\.0$/, '')}kg` : weightSubtitle,
         title: `体重 ${formatWeightKg(latestWeight)}`,
@@ -6055,7 +6057,7 @@ export default function LumiiMvpApp() {
       nextHealthVaccine
         ? {
           Icon: nextHealthVaccine.status === 'done' ? Check : Syringe,
-          date: nextHealthVaccine.dueAt,
+          date: formatOptionalDateLabel(nextHealthVaccine.dueAt, '日期待确认'),
           dot: 'cool' as const,
           sub: nextHealthVaccine.status === 'done' ? '已完成' : vaccineReminderCopy(nextHealthVaccine),
           title: nextHealthVaccine.status === 'done' ? `${nextHealthVaccine.name}完成` : `${nextHealthVaccine.name}提醒`,
@@ -6064,7 +6066,7 @@ export default function LumiiMvpApp() {
       latestMemo
         ? {
           Icon: Sparkles,
-          date: latestMemo.updatedAt,
+          date: formatOptionalDateLabel(latestMemo.updatedAt),
           dot: 'muted' as const,
           sub: latestMemo.content,
           title: latestMemo.title,
@@ -6463,7 +6465,7 @@ export default function LumiiMvpApp() {
                     ) : null}
                   </View>
                   <View style={styles.memoListTrail}>
-                    <Text style={styles.timelineDateMake}>{memo.updatedAt}</Text>
+                    <Text style={styles.timelineDateMake}>{formatOptionalDateLabel(memo.updatedAt)}</Text>
                     <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
                   </View>
                 </Pressable>
@@ -6709,7 +6711,7 @@ export default function LumiiMvpApp() {
                 <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
               </View>
               <Text style={styles.memoMetaLabelMake}>更新日期</Text>
-              <Text style={styles.memoMetaValueMake}>{selectedMemo?.updatedAt ?? '今天'}</Text>
+              <Text style={styles.memoMetaValueMake}>{formatOptionalDateLabel(selectedMemo?.updatedAt)}</Text>
             </View>
             <View style={styles.memoMetaRowMake}>
               <View style={styles.metaIconBox}>
@@ -6847,7 +6849,7 @@ export default function LumiiMvpApp() {
                           </View>
                         ) : null}
                       </View>
-                      <Text numberOfLines={1} style={styles.timelineSubMake}>{item.recordedAt}{item.note ? ` · ${item.note}` : ''}</Text>
+                      <Text numberOfLines={1} style={styles.timelineSubMake}>{formatOptionalDateLabel(item.recordedAt)}{item.note ? ` · ${item.note}` : ''}</Text>
                     </View>
                     <Edit3 color={palette.muted} size={15} strokeWidth={2.2} />
                   </Pressable>
@@ -7996,7 +7998,7 @@ export default function LumiiMvpApp() {
                   </View>
                 </View>
                 <View style={styles.conversationMetaCol}>
-                  <Text style={styles.metaText}>{conversation.updatedAt ?? formatClockTime()}</Text>
+                  <Text style={styles.metaText}>{conversation.updatedAt ?? '新消息'}</Text>
                   {conversation.unread > 0 ? <Text style={styles.unreadBadge}>{conversation.unread}</Text> : null}
                 </View>
               </Pressable>
@@ -9439,7 +9441,7 @@ export default function LumiiMvpApp() {
                 </View>
                 <View style={styles.flex}>
                   <Text style={styles.weightDeletePreviewKgMake}>{formatWeightKg(record.kg)}</Text>
-                  <Text style={styles.weightDeletePreviewMetaMake}>{record.recordedAt} · {record.note || '手动记录'}</Text>
+                  <Text style={styles.weightDeletePreviewMetaMake}>{formatOptionalDateLabel(record.recordedAt)} · {record.note || '手动记录'}</Text>
                 </View>
               </View>
               <Text style={styles.weightDeleteBodyMake}>删除后这条记录无法恢复，{getCurrentPet()?.name ?? '灵伴'}的体重趋势将重新计算。</Text>
