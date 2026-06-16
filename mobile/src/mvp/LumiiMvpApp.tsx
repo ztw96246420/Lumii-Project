@@ -3399,13 +3399,21 @@ export default function LumiiMvpApp() {
     void loadInboxData();
   }
 
-  async function toggleUserSetting(key: UserSettingKey, label: string) {
-    if (userSettingSavingKeysRef.current.has(key)) return;
+  async function setUserSettingValue(
+    key: UserSettingKey,
+    label: string,
+    nextValue: boolean,
+    options: { unchangedMessage?: string; successMessage?: string } = {},
+  ): Promise<boolean> {
+    if (userSettingSavingKeysRef.current.has(key)) return false;
     const requestSessionToken = sessionTokenRef.current;
-    if (!requestSessionToken) return;
-    userSettingSavingKeysRef.current.add(key);
+    if (!requestSessionToken) return false;
     const previousSettings = userSettingsRef.current;
-    const nextValue = !previousSettings[key];
+    if (previousSettings[key] === nextValue) {
+      if (options.unchangedMessage) showToast(options.unchangedMessage, { tone: 'info', variant: 'surface' });
+      return true;
+    }
+    userSettingSavingKeysRef.current.add(key);
     const nextSettings = { ...previousSettings, [key]: nextValue };
 
     try {
@@ -3416,14 +3424,14 @@ export default function LumiiMvpApp() {
       if (key === 'pushNotifications' && nextValue && permissionsRef.current.notifications !== 'granted') {
         setPermissions((items) => ({ ...items, notifications: 'requesting' }));
         const permissionResult = await requestLumiiPermission('notifications');
-        if (sessionTokenRef.current !== requestSessionToken) return;
+        if (sessionTokenRef.current !== requestSessionToken) return false;
         const nextPermissions = mergePermissionState(permissionsRef.current, { notifications: permissionResult.status });
         const savedPermissions = await persistPermissionSnapshot(nextPermissions);
-        if (sessionTokenRef.current !== requestSessionToken) return;
+        if (sessionTokenRef.current !== requestSessionToken) return false;
         setPermissions(savedPermissions);
         if (permissionResult.status !== 'granted') {
           showToast(permissionResult.status === 'blocked' ? '请先在系统设置开启消息通知权限' : '请先允许消息通知权限');
-          return;
+          return false;
         }
         schedulePushDeviceRegistration();
       }
@@ -3431,7 +3439,7 @@ export default function LumiiMvpApp() {
       setUserSettings(nextSettings);
       userSettingsRef.current = nextSettings;
       const result = await lumiiApi.settings.updateUserSettings({ [key]: nextValue });
-      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (sessionTokenRef.current !== requestSessionToken) return false;
       if (result.data) {
         const serverSettings = { ...defaultUserSettings, ...result.data };
         const savedSettings = { ...userSettingsRef.current, [key]: serverSettings[key] };
@@ -3449,8 +3457,9 @@ export default function LumiiMvpApp() {
             localHealthReminderSyncKeyRef.current = '';
           }
         }
-        void syncNearbySettingsChange(key, nextValue);
-        showToast(`${label}已${nextValue ? '开启' : '关闭'}`);
+        void syncNearbySettingsChange(key, serverSettings[key]);
+        showToast(options.successMessage ?? `${label}已${serverSettings[key] ? '开启' : '关闭'}`, { tone: 'success', variant: 'surface' });
+        return true;
       } else {
         const rolledBackSettings = { ...userSettingsRef.current, [key]: previousSettings[key] };
         userSettingsRef.current = rolledBackSettings;
@@ -3459,10 +3468,23 @@ export default function LumiiMvpApp() {
           schedulePushDeviceRegistration({ delayMs: 500 });
         }
         showToast(result.error?.message ?? '设置保存失败，请稍后重试');
+        return false;
       }
     } finally {
       userSettingSavingKeysRef.current.delete(key);
     }
+  }
+
+  async function toggleUserSetting(key: UserSettingKey, label: string) {
+    await setUserSettingValue(key, label, !userSettingsRef.current[key]);
+  }
+
+  async function disableDiscoverForNow() {
+    const saved = await setUserSettingValue('nearbyVisible', '附近可见', false, {
+      successMessage: '已关闭附近可见，可在我的页重新开启',
+      unchangedMessage: '附近可见已关闭，可在我的页重新开启',
+    });
+    if (saved) clearDiscoverSearchAndFilter();
   }
 
   async function pickOwnerAvatar() {
@@ -7921,7 +7943,7 @@ export default function LumiiMvpApp() {
                   <Text style={styles.discoverPrivacyNoteTextMake}>你的精确位置不会向任何用户公开</Text>
                 </View>
                 <View style={styles.discoverPermissionActionsMake}>
-                  <Pressable onPress={() => showToast('已暂不开启，可在我的页随时调整')} style={[styles.discoverPermissionGhostMake, webPressableReset]}>
+                  <Pressable onPress={() => void disableDiscoverForNow()} style={[styles.discoverPermissionGhostMake, webPressableReset]}>
                     <Text style={styles.discoverPermissionGhostTextMake}>暂不开启</Text>
                   </Pressable>
                   <Pressable onPress={discoverIssueCopy.primary} style={[styles.discoverPermissionPrimaryMake, webPressableReset]}>
