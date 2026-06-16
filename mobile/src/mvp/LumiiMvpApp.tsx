@@ -878,6 +878,9 @@ export default function LumiiMvpApp() {
   const vaccineDoneSavingIdsRef = useRef<Set<string>>(new Set());
   const [dailyPostText, setDailyPostText] = useState('');
   const [dailyMood, setDailyMood] = useState<DailyMood>('开心');
+  const [dailyPostPhotoUris, setDailyPostPhotoUris] = useState<string[]>([]);
+  const [dailyPhotoPicking, setDailyPhotoPicking] = useState(false);
+  const dailyPhotoPickingRef = useRef(false);
   const [dailyPostSaving, setDailyPostSaving] = useState(false);
   const dailyPostSavingRef = useRef(false);
   const [owners, setOwners] = useState<NearbyOwner[]>([]);
@@ -3535,6 +3538,53 @@ export default function LumiiMvpApp() {
     showToast(`已按“${dailyMood}”生成今日记录草稿`, { tone: 'success', variant: 'surface' });
   }
 
+  async function pickDailyPostPhoto(source: 'camera' | 'library') {
+    if (dailyPhotoPickingRef.current) return;
+    if (dailyPostPhotoUris.length >= 3) {
+      showToast('今日小事最多添加 3 张照片');
+      return;
+    }
+    dailyPhotoPickingRef.current = true;
+    setDailyPhotoPicking(true);
+    try {
+      const permissionResult =
+        source === 'camera'
+          ? await ImagePicker.requestCameraPermissionsAsync()
+          : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        showToast(source === 'camera' ? '请先允许相机权限' : '请先允许访问相册', { tone: 'warning', variant: 'surface' });
+        return;
+      }
+      const pickerResult =
+        source === 'camera'
+          ? await ImagePicker.launchCameraAsync({
+              allowsEditing: false,
+              mediaTypes: ['images'],
+              quality: 0.78,
+            })
+          : await ImagePicker.launchImageLibraryAsync({
+              allowsMultipleSelection: true,
+              mediaTypes: ['images'],
+              quality: 0.78,
+              selectionLimit: Math.max(1, 3 - dailyPostPhotoUris.length),
+            });
+      if (pickerResult.canceled || !pickerResult.assets?.length) {
+        showToast(source === 'camera' ? '已取消拍照' : '已取消选择照片');
+        return;
+      }
+      const nextUris = pickerResult.assets.map((asset) => asset.uri).filter(Boolean);
+      if (!nextUris.length) {
+        showToast('没有读取到可用照片，请重新选择');
+        return;
+      }
+      setDailyPostPhotoUris((items) => [...items, ...nextUris].slice(0, 3));
+      showToast(`已添加 ${nextUris.length} 张照片`, { tone: 'success', variant: 'surface' });
+    } finally {
+      dailyPhotoPickingRef.current = false;
+      setDailyPhotoPicking(false);
+    }
+  }
+
   async function publishDailyPost() {
     if (dailyPostSavingRef.current) return;
     const requestSessionToken = sessionTokenRef.current;
@@ -3548,14 +3598,16 @@ export default function LumiiMvpApp() {
       return;
     }
     const requestText = dailyPostText.trim();
+    const photoSummary = dailyPostPhotoUris.length ? `\n附照片 ${dailyPostPhotoUris.length} 张（本次记录预览）` : '';
     dailyPostSavingRef.current = true;
     setDailyPostSaving(true);
     try {
-      const result = await lumiiApi.health.saveHealthMemo('今日小事', requestText);
+      const result = await lumiiApi.health.saveHealthMemo('今日小事', `${requestText}${photoSummary}`);
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setMemos((items) => [result.data!, ...items]);
         setDailyPostText('');
+        setDailyPostPhotoUris([]);
         void refreshHealthSummary();
         replace('home');
         showToast('今日小事已记录', { subtitle: '已同步到健康备忘和首页动态', tone: 'success', variant: 'surface' });
@@ -4193,6 +4245,9 @@ export default function LumiiMvpApp() {
     vaccineDoneSavingIdsRef.current.clear();
     setVaccineDoneSavingIds([]);
     setDailyPostText('');
+    setDailyPostPhotoUris([]);
+    dailyPhotoPickingRef.current = false;
+    setDailyPhotoPicking(false);
     setDailyMood('开心');
     dailyPostSavingRef.current = false;
     setDailyPostSaving(false);
@@ -8389,7 +8444,7 @@ export default function LumiiMvpApp() {
     const pet = getCurrentPet();
     const petName = pet?.name ?? '灵伴';
     const aiDraft = buildDailyPostDraft(dailyMood);
-    const previewPhotos = [demoPetPhotoUrl, placeReviewPhotoUrls[1]];
+    const previewPhotos = dailyPostPhotoUris.length ? dailyPostPhotoUris : [demoPetPhotoUrl, placeReviewPhotoUrls[1]];
     return (
       <Screen
         right={(
@@ -8421,15 +8476,25 @@ export default function LumiiMvpApp() {
           </View>
 
           <View style={styles.dailyPhotoRowMake}>
-            {previewPhotos.map((uri) => (
-              <View key={uri} style={styles.dailyPhotoSquareMake}>
+            {previewPhotos.map((uri, index) => (
+              <Pressable
+                disabled={!dailyPostPhotoUris.includes(uri)}
+                key={`${uri}-${index}`}
+                onPress={() => {
+                  setDailyPostPhotoUris((items) => items.filter((item) => item !== uri));
+                  showToast('已移除这张照片');
+                }}
+                style={[styles.dailyPhotoSquareMake, webPressableReset]}
+              >
                 <Image resizeMode="cover" source={{ uri }} style={styles.avatarImage} />
-              </View>
+              </Pressable>
             ))}
-            <Pressable onPress={() => showToast('今日小事图片上传后续接入')} style={[styles.dailyPhotoAddMake, webPressableReset]}>
-              <ImagePlus color={palette.muted} size={20} strokeWidth={2.2} />
-              <Text style={styles.dailyPhotoAddTextMake}>添加</Text>
-            </Pressable>
+            {dailyPostPhotoUris.length < 3 ? (
+              <Pressable disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('library')} style={[styles.dailyPhotoAddMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
+                {dailyPhotoPicking ? <ActivityIndicator color={palette.muted} size="small" /> : <ImagePlus color={palette.muted} size={20} strokeWidth={2.2} />}
+                <Text style={styles.dailyPhotoAddTextMake}>{dailyPhotoPicking ? '选择中' : '添加'}</Text>
+              </Pressable>
+            ) : null}
           </View>
 
           <View style={styles.dailyChipRowMake}>
@@ -8461,10 +8526,10 @@ export default function LumiiMvpApp() {
 
           <View style={styles.dailyBottomBarMake}>
             <View style={styles.dailyToolRowMake}>
-              <Pressable onPress={() => showToast('今日小事拍照后续接入')} style={[styles.dailyToolButtonMake, webPressableReset]}>
-                <Camera color={palette.ink} size={20} strokeWidth={2.3} />
+              <Pressable disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('camera')} style={[styles.dailyToolButtonMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
+                {dailyPhotoPicking ? <ActivityIndicator color={palette.ink} size="small" /> : <Camera color={palette.ink} size={20} strokeWidth={2.3} />}
               </Pressable>
-              <Pressable onPress={() => showToast('今日小事相册后续接入')} style={[styles.dailyToolButtonMake, webPressableReset]}>
+              <Pressable disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('library')} style={[styles.dailyToolButtonMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
                 <ImagePlus color={palette.ink} size={20} strokeWidth={2.3} />
               </Pressable>
               <Pressable onPress={() => setDailyMood(dailyMood === '开心' ? '活跃' : '开心')} style={[styles.dailyToolButtonMake, webPressableReset]}>
