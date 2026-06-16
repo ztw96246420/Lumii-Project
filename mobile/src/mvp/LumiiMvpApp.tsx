@@ -459,6 +459,8 @@ const placeSortOptions: Array<{ key: PlaceSortMode | 'reviews'; label: string }>
   { key: 'rating', label: '评分最高' },
   { key: 'reviews', label: '点评最多' },
 ];
+const placeDistanceFilterOptions = [1, 3, 5] as const;
+type PlaceDistanceFilterKm = (typeof placeDistanceFilterOptions)[number];
 
 function sortPlacesByMode(items: Place[], mode: PlaceSortMode) {
   return [...items].sort((left, right) => {
@@ -470,6 +472,10 @@ function sortPlacesByMode(items: Place[], mode: PlaceSortMode) {
     if (distanceDelta !== 0) return distanceDelta;
     return right.rating - left.rating;
   });
+}
+
+function filterPlacesByDistance(items: Place[], radiusKm: PlaceDistanceFilterKm) {
+  return items.filter((place) => parsePlaceDistanceMeters(place.distance) <= radiusKm * 1000);
 }
 
 type ConfirmState = {
@@ -1036,6 +1042,7 @@ export default function LumiiMvpApp() {
   const placeQueryRef = useRef('');
   const mapSearchInputRef = useRef<TextInput>(null);
   const [placeFilter, setPlaceFilter] = useState<'all' | Place['category']>('all');
+  const [placeDistanceRadiusKm, setPlaceDistanceRadiusKm] = useState<PlaceDistanceFilterKm>(3);
   const [placeSortMode, setPlaceSortMode] = useState<PlaceSortMode>('distance');
   const [placeSearching, setPlaceSearching] = useState(false);
   const placeSearchingRef = useRef(false);
@@ -4010,7 +4017,10 @@ export default function LumiiMvpApp() {
       if (result.data) {
         const nextPlaces = result.data;
         setPlaces(nextPlaces);
-        const visibleNextPlaces = sortPlacesByMode(nextFilter === 'all' ? nextPlaces : nextPlaces.filter((place) => place.category === nextFilter), placeSortMode);
+        const visibleNextPlaces = sortPlacesByMode(
+          filterPlacesByDistance(nextFilter === 'all' ? nextPlaces : nextPlaces.filter((place) => place.category === nextFilter), placeDistanceRadiusKm),
+          placeSortMode,
+        );
         setSelectedPlace((current) => visibleNextPlaces.find((place) => place.id === current?.id) ?? visibleNextPlaces[0] ?? nextPlaces[0] ?? null);
         showToast(query ? (visibleNextPlaces.length ? `找到 ${visibleNextPlaces.length} 个地点` : '没有匹配地点') : '已刷新附近地点');
       } else {
@@ -4612,6 +4622,7 @@ export default function LumiiMvpApp() {
     placeQueryRef.current = '';
     setPlaceQuery('');
     setPlaceFilter('all');
+    setPlaceDistanceRadiusKm(3);
     setPlaceSortMode('distance');
     placeSearchingRef.current = false;
     setPlaceSearching(false);
@@ -7651,20 +7662,31 @@ export default function LumiiMvpApp() {
       { key: 'cafe', label: '咖啡店' },
       { key: 'clinic', label: '医院' },
     ];
-    const filteredPlaces = placeFilter === 'all' ? places : places.filter((place) => place.category === placeFilter);
+    const categoryFilteredPlaces = placeFilter === 'all' ? places : places.filter((place) => place.category === placeFilter);
+    const filteredPlaces = filterPlacesByDistance(categoryFilteredPlaces, placeDistanceRadiusKm);
     const visiblePlaces = sortPlacesByMode(filteredPlaces, placeSortMode);
     const highlightedPlace = visiblePlaces[0];
     const placeFilterLabel = placeFilters.find((item) => item.key === placeFilter)?.label ?? '全部';
     const placeSortLabel = placeSortOptions.find((item) => item.key === placeSortMode)?.label ?? '距离最近';
-    const placeResultMeta = placeSearching ? '搜索中...' : `${visiblePlaces.length} 个 · ${placeQuery.trim() ? '搜索结果' : placeFilterLabel} · ${placeSortLabel}`;
+    const placeResultMeta = placeSearching ? '搜索中...' : `${visiblePlaces.length} 个 · ${placeDistanceRadiusKm}km 内 · ${placeQuery.trim() ? '搜索结果' : placeFilterLabel} · ${placeSortLabel}`;
+    const distanceProgress = `${Math.round((placeDistanceRadiusKm / 5) * 100)}%`;
+    const distanceProgressStyle = { width: distanceProgress as ViewStyle['width'] };
+    const distanceThumbStyle = { left: distanceProgress as ViewStyle['left'] };
     const mapStyle = mapStyleOptions.find((item) => item.key === mapStyleKey) ?? mapStyleOptions[0];
     const mapSearchPanelVisible = Boolean(placeQuery.trim() || placeFilter !== 'all');
     const clearMapSearch = () => {
       placeQueryRef.current = '';
       setPlaceQuery('');
       setPlaceFilter('all');
+      setPlaceDistanceRadiusKm(3);
       setPlaceSortMode('distance');
       void searchPlaces();
+    };
+    const cyclePlaceDistanceFilter = () => {
+      const currentIndex = placeDistanceFilterOptions.indexOf(placeDistanceRadiusKm);
+      const nextRadius = placeDistanceFilterOptions[(currentIndex + 1) % placeDistanceFilterOptions.length] ?? 3;
+      setPlaceDistanceRadiusKm(nextRadius);
+      showToast(`已筛选 ${nextRadius}km 内地点`, { tone: 'info', variant: 'surface' });
     };
     const openMapManualSearch = () => {
       mapSearchInputRef.current?.focus();
@@ -7832,12 +7854,12 @@ export default function LumiiMvpApp() {
                     </Text>
                   </Pressable>
                 ))}
-                <View style={styles.mapChipMake}>
+                <Pressable onPress={() => showToast('地点物种适配字段待后端补齐，暂不做假筛选', { tone: 'info', variant: 'surface' })} style={[styles.mapChipMake, styles.opacity60, webPressableReset]}>
                   <Text style={styles.mapChipMakeText}>🐶 汪星友好</Text>
-                </View>
-                <View style={styles.mapChipMake}>
+                </Pressable>
+                <Pressable onPress={() => showToast('地点物种适配字段待后端补齐，暂不做假筛选', { tone: 'info', variant: 'surface' })} style={[styles.mapChipMake, styles.opacity60, webPressableReset]}>
                   <Text style={styles.mapChipMakeText}>🐱 喵星友好</Text>
-                </View>
+                </Pressable>
               </View>
               <View style={styles.mapSegmentRowMake}>
                 {placeSortOptions.map((option) => {
@@ -7861,14 +7883,14 @@ export default function LumiiMvpApp() {
                   );
                 })}
               </View>
-              <View style={styles.mapDistanceFilterRowMake}>
+              <Pressable accessibilityRole="button" onPress={cyclePlaceDistanceFilter} style={[styles.mapDistanceFilterRowMake, webPressableReset]}>
                 <Text style={styles.mapDistanceFilterLabelMake}>距离</Text>
                 <View style={styles.mapDistanceTrackMake}>
-                  <View style={styles.mapDistanceTrackFillMake} />
-                  <View style={styles.mapDistanceThumbMake} />
+                  <View style={[styles.mapDistanceTrackFillMake, distanceProgressStyle]} />
+                  <View style={[styles.mapDistanceThumbMake, distanceThumbStyle]} />
                 </View>
-                <Text style={styles.mapDistanceValueMake}>3km</Text>
-              </View>
+                <Text style={styles.mapDistanceValueMake}>{placeDistanceRadiusKm}km</Text>
+              </Pressable>
               <View style={styles.mapSearchResultHeaderMake}>
                 <Text style={styles.sectionTitle}>搜索结果</Text>
                 <Text style={styles.metaText}>{visiblePlaces.length} 个匹配</Text>
@@ -11254,7 +11276,7 @@ const styles = StyleSheet.create({
   heroCard: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16 },
   homeBellButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 19, borderWidth: 1, height: 38, justifyContent: 'center', position: 'relative', width: 38 },
   homeBellDot: { backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 4, borderWidth: 1.5, height: 7, position: 'absolute', right: 9, top: 8, width: 7 },
-  homeChatHint: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, justifyContent: 'center', marginTop: 16, minHeight: 42, paddingHorizontal: 18, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22 },
+  homeChatHint: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, elevation: 0, justifyContent: 'center', marginTop: 22, minHeight: 42, paddingHorizontal: 18, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.08, shadowRadius: 18, zIndex: 0 },
   homeChatHintText: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 18, textAlign: 'center' },
   homeHealthCard: { alignItems: 'center', backgroundColor: '#ffe3cb', borderColor: 'rgba(255,255,255,0.7)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', marginTop: 14, paddingHorizontal: 18, paddingVertical: 16, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
   homeHealthDelta: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.22)', borderRadius: 10, flexDirection: 'row', gap: 2, marginLeft: 6, paddingHorizontal: 8, paddingVertical: 3 },
@@ -11282,7 +11304,7 @@ const styles = StyleSheet.create({
   homePetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
   homePetName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 27 },
   homePetNameRow: { alignItems: 'center', flexDirection: 'row', gap: 2, justifyContent: 'center' },
-  homePetStage: { alignItems: 'center', height: 310, justifyContent: 'center', marginTop: 12, position: 'relative' },
+  homePetStage: { alignItems: 'center', height: 332, justifyContent: 'center', marginBottom: 4, marginTop: 12, position: 'relative', zIndex: 2 },
   homeQuickGrid: { columnGap: 12, flexDirection: 'row', flexWrap: 'wrap', marginTop: 12, rowGap: 12 },
   homeStoryIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 12, height: 38, justifyContent: 'center', width: 38 },
   homeStoryStrip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 10, paddingHorizontal: 14, paddingVertical: 9, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
