@@ -508,7 +508,7 @@ const petTaxonomy: PetTaxonomy = {
 
 const legalDocuments: Record<LegalDocument['key'], LegalDocument> = {
   privacy: {
-    disclaimer: 'MVP 占位版，仅用于产品联调与体验测试，正式上线前需由法务或合规顾问确认。',
+    disclaimer: '当前为灵伴测试版协议文本，用于说明现阶段核心功能与数据处理方式；正式上线前会更新经法务确认的完整版本。',
     effectiveDate: '2026-06-12',
     key: 'privacy',
     sections: [
@@ -522,30 +522,30 @@ const legalDocuments: Record<LegalDocument['key'], LegalDocument> = {
       {
         body: [
           '你上传的宠物照片用于识别宠物主体、生成电子宠物形象和保存宠物档案。',
-          '如果照片包含人脸、多个宠物或无宠物内容，MVP 会提示重新上传或进入人工/模型校验策略。',
+          '如果照片包含人脸、多个宠物或无宠物内容，灵伴会提示重新上传或进入人工/模型校验策略。',
         ],
         title: '宠物照片与 AI 处理',
       },
       {
         body: [
           '你可以在设置中关闭附近可见、互动消息提醒和推送通知。',
-          '正式版本需要补充个人信息收集清单、第三方 SDK 清单、注销规则和未成年人保护说明。',
+          '正式上线前，我们会补充个人信息收集清单、第三方 SDK 清单、注销规则和未成年人保护说明。',
         ],
         title: '你的控制权',
       },
     ],
     title: '灵伴隐私政策',
-    version: 'mvp-placeholder-2026-06-12',
+    version: 'test-2026-06-12',
   },
   terms: {
-    disclaimer: 'MVP 占位版，仅用于产品联调与体验测试，正式上线前需由法务或合规顾问确认。',
+    disclaimer: '当前为灵伴测试版协议文本，用于说明现阶段核心功能与数据处理方式；正式上线前会更新经法务确认的完整版本。',
     effectiveDate: '2026-06-12',
     key: 'terms',
     sections: [
       {
         body: [
           '灵伴是围绕真实宠物、电子宠物形象、健康记录和宠物主人社交的移动端服务。',
-          'MVP 阶段功能仍在测试，页面、接口和 AI 结果可能持续调整。',
+          '当前版本功能仍在测试，页面、接口和 AI 结果可能持续调整。',
         ],
         title: '服务范围',
       },
@@ -559,13 +559,13 @@ const legalDocuments: Record<LegalDocument['key'], LegalDocument> = {
       {
         body: [
           '附近发现、聊天和约遛等功能应遵守友善、安全原则，线下见面建议选择公开宠物友好地点。',
-          '正式版本需要补充举报处理、拉黑、账号注销和争议处理规则。',
+          '正式上线前，我们会补充举报处理、拉黑、账号注销和争议处理规则。',
         ],
         title: '社交与安全',
       },
     ],
     title: '灵伴用户协议',
-    version: 'mvp-placeholder-2026-06-12',
+    version: 'test-2026-06-12',
   },
 };
 

@@ -123,7 +123,7 @@ const petTaxonomy = {
 
 const legalDocuments = {
   privacy: {
-    disclaimer: 'MVP 占位版，仅用于产品联调与体验测试，正式上线前需由法务或合规顾问确认。',
+    disclaimer: '当前为灵伴测试版协议文本，用于说明现阶段核心功能与数据处理方式；正式上线前会更新经法务确认的完整版本。',
     effectiveDate: '2026-06-12',
     key: 'privacy',
     sections: [
@@ -137,30 +137,30 @@ const legalDocuments = {
       {
         body: [
           '你上传的宠物照片用于识别宠物主体、生成电子宠物形象和保存宠物档案。',
-          '如果照片包含人脸、多个宠物或无宠物内容，MVP 会提示重新上传或进入人工/模型校验策略。',
+          '如果照片包含人脸、多个宠物或无宠物内容，灵伴会提示重新上传或进入人工/模型校验策略。',
         ],
         title: '宠物照片与 AI 处理',
       },
       {
         body: [
           '你可以在设置中关闭附近可见、互动消息提醒和推送通知。',
-          '正式版本需要补充个人信息收集清单、第三方 SDK 清单、注销规则和未成年人保护说明。',
+          '正式上线前，我们会补充个人信息收集清单、第三方 SDK 清单、注销规则和未成年人保护说明。',
         ],
         title: '你的控制权',
       },
     ],
     title: '灵伴隐私政策',
-    version: 'mvp-placeholder-2026-06-12',
+    version: 'test-2026-06-12',
   },
   terms: {
-    disclaimer: 'MVP 占位版，仅用于产品联调与体验测试，正式上线前需由法务或合规顾问确认。',
+    disclaimer: '当前为灵伴测试版协议文本，用于说明现阶段核心功能与数据处理方式；正式上线前会更新经法务确认的完整版本。',
     effectiveDate: '2026-06-12',
     key: 'terms',
     sections: [
       {
         body: [
           '灵伴是围绕真实宠物、电子宠物形象、健康记录和宠物主人社交的移动端服务。',
-          'MVP 阶段功能仍在测试，页面、接口和 AI 结果可能持续调整。',
+          '当前版本功能仍在测试，页面、接口和 AI 结果可能持续调整。',
         ],
         title: '服务范围',
       },
@@ -174,13 +174,13 @@ const legalDocuments = {
       {
         body: [
           '附近发现、聊天和约遛等功能应遵守友善、安全原则，线下见面建议选择公开宠物友好地点。',
-          '正式版本需要补充举报处理、拉黑、账号注销和争议处理规则。',
+          '正式上线前，我们会补充举报处理、拉黑、账号注销和争议处理规则。',
         ],
         title: '社交与安全',
       },
     ],
     title: '灵伴用户协议',
-    version: 'mvp-placeholder-2026-06-12',
+    version: 'test-2026-06-12',
   },
 };
 
@@ -1943,7 +1943,7 @@ function analyzeUploadedPetMedia(body, dataUrl, uploadIssue, uploadBytes) {
       petCount: 2,
       qualityScore: 68,
       status: 'blocked',
-      suggestions: ['换一张单只宠物照片', '后续版本会支持裁剪并指定其中一只宠物', '避免多人多宠合照直接生成'],
+      suggestions: ['换一张单只宠物照片', '让目标宠物单独位于画面中央', '避免多人多宠合照直接生成'],
       tags: ['多个宠物', '需要单宠'],
       title: '检测到多个宠物',
     });
@@ -1957,7 +1957,7 @@ function analyzeUploadedPetMedia(body, dataUrl, uploadIssue, uploadBytes) {
       needsCrop: true,
       qualityScore: 72,
       status: 'blocked',
-      suggestions: ['尽量裁掉人的脸和身体', '让宠物单独位于画面中央', '后续版本会补充宠物主体裁剪页'],
+      suggestions: ['尽量裁掉人的脸和身体', '让宠物单独位于画面中央', '换一张宠物单独入镜的清晰照片'],
       tags: ['人物入镜', '建议裁剪'],
       title: '人物入镜较明显',
     });
@@ -1972,7 +1972,7 @@ function analyzeUploadedPetMedia(body, dataUrl, uploadIssue, uploadBytes) {
       petCount: 2,
       qualityScore: 66,
       status: 'blocked',
-      suggestions: ['换一张只有目标宠物的照片', '避免猫狗同框或多动物同框', '后续版本会支持选择目标宠物'],
+      suggestions: ['换一张只有目标宠物的照片', '避免猫狗同框或多动物同框', '让目标宠物占据画面主要位置'],
       tags: ['其他动物', '目标不明确'],
       title: '存在其他动物干扰',
     });
