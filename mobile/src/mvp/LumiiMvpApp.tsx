@@ -2923,7 +2923,7 @@ export default function LumiiMvpApp() {
 
   async function rejectGreeting(owner: NearbyOwner) {
     const actionId = `reject:${owner.id}`;
-    if (socialActionSavingIdsRef.current.has(`accept:${owner.id}`)) return;
+    if (socialActionSavingIdsRef.current.has(`accept:${owner.id}`) || socialActionSavingIdsRef.current.has(`report:${owner.id}`)) return;
     if (!beginSocialAction(actionId)) return;
     const requestSessionToken = sessionTokenRef.current;
     try {
@@ -2945,9 +2945,49 @@ export default function LumiiMvpApp() {
     }
   }
 
+  async function reportGreeting(owner: NearbyOwner) {
+    const actionId = `report:${owner.id}`;
+    if (socialActionSavingIdsRef.current.has(`accept:${owner.id}`) || socialActionSavingIdsRef.current.has(`reject:${owner.id}`)) return;
+    if (!beginSocialAction(actionId)) return;
+    const requestSessionToken = sessionTokenRef.current;
+    const pet = getCurrentPet();
+    const feedbackContent = [
+      '招呼请求举报',
+      `对方：${owner.ownerName} & ${owner.petName}`,
+      `对方ID：${owner.id}`,
+      `距离：${owner.distance}`,
+      owner.tags.length ? `标签：${owner.tags.join('、')}` : '',
+      pet ? `我的宠物：${pet.name}${pet.breed ? `（${pet.breed}）` : ''}` : '',
+      '来源：招呼请求列表',
+    ].filter(Boolean).join('\n');
+    try {
+      if (!greetingRequestOwnersRef.current.some((item) => item.id === owner.id)) {
+        showToast('招呼请求已更新，请返回消息页刷新');
+        return;
+      }
+      const feedbackResult = await lumiiApi.support.submitFeedback(feedbackContent, 'safety', session?.phone);
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (!feedbackResult.data) {
+        showToast(feedbackResult.error?.message ?? '举报提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
+        return;
+      }
+      const rejectResult = await lumiiApi.social.rejectGreeting(owner.id);
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (rejectResult.data) {
+        applyGreetingRequestOwners(greetingRequestOwnersRef.current.filter((item) => item.id !== owner.id));
+        void loadInboxData();
+        showToast('举报已提交，招呼请求已忽略', { tone: 'success', variant: 'surface' });
+      } else {
+        showToast(rejectResult.error?.message ?? '举报已提交，但招呼状态更新失败，请稍后刷新', { tone: 'warning', variant: 'surface' });
+      }
+    } finally {
+      endSocialAction(actionId);
+    }
+  }
+
   async function acceptGreeting(owner: NearbyOwner) {
     const actionId = `accept:${owner.id}`;
-    if (socialActionSavingIdsRef.current.has(`reject:${owner.id}`)) return;
+    if (socialActionSavingIdsRef.current.has(`reject:${owner.id}`) || socialActionSavingIdsRef.current.has(`report:${owner.id}`)) return;
     if (!beginSocialAction(actionId)) return;
     const requestSessionToken = sessionTokenRef.current;
     try {
@@ -4143,14 +4183,18 @@ export default function LumiiMvpApp() {
     applyDiscoverFilter(nextFilter);
   }
 
-  function openVaccineClinicSearch(vaccine?: VaccinePlan) {
+  function openClinicMapSearch(message = '正在查找附近宠物医院') {
     const query = '宠物医院';
     placeQueryRef.current = query;
     setPlaceQuery(query);
     setPlaceFilter('clinic');
     go('map');
-    showToast(vaccine ? `正在查找可处理${vaccine.name}的附近宠物医院` : '正在查找附近宠物医院', { tone: 'info', variant: 'surface' });
+    showToast(message, { tone: 'info', variant: 'surface' });
     void searchPlaces({ filter: 'clinic' });
+  }
+
+  function openVaccineClinicSearch(vaccine?: VaccinePlan) {
+    openClinicMapSearch(vaccine ? `正在查找可处理${vaccine.name}的附近宠物医院` : '正在查找附近宠物医院');
   }
 
   async function getDiscoverLocationHint(options: { allowCachedOnError?: boolean; requestId?: number; requestSessionToken?: string; silent?: boolean } = {}): Promise<NearbyLocationHint | null> {
@@ -9332,6 +9376,8 @@ export default function LumiiMvpApp() {
           {requestCount ? greetingRequestOwners.map((owner, index) => {
             const accepting = socialActionSavingIds.includes(`accept:${owner.id}`);
             const rejecting = socialActionSavingIds.includes(`reject:${owner.id}`);
+            const reporting = socialActionSavingIds.includes(`report:${owner.id}`);
+            const busy = accepting || rejecting || reporting;
             const petImageSource = owner.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
             const ownerAvatarUrl = discoverOwnerAvatarUrls[index % discoverOwnerAvatarUrls.length];
             const breed = owner.tags[0] ?? (owner.species === 'dog' ? '狗狗' : '猫咪');
@@ -9362,15 +9408,15 @@ export default function LumiiMvpApp() {
                 </View>
 
                 <View style={styles.greetingRequestActionsMake}>
-                  <Pressable disabled={accepting || rejecting} onPress={() => void rejectGreeting(owner)} style={[styles.greetingRequestActionGhostMake, (accepting || rejecting) && styles.mapSearchActionDisabled, webPressableReset]}>
+                  <Pressable disabled={busy} onPress={() => void rejectGreeting(owner)} style={[styles.greetingRequestActionGhostMake, busy && styles.mapSearchActionDisabled, webPressableReset]}>
                     {rejecting ? <ActivityIndicator color={palette.muted} size="small" /> : <X color={palette.muted} size={13} strokeWidth={2.5} />}
                     <Text style={styles.greetingRequestActionGhostTextMake}>{rejecting ? '忽略中' : '忽略'}</Text>
                   </Pressable>
-                  <Pressable disabled={accepting || rejecting} onPress={() => showToast('举报入口后续接入，当前可以先忽略该招呼')} style={[styles.greetingRequestActionReportMake, (accepting || rejecting) && styles.mapSearchActionDisabled, webPressableReset]}>
-                    <Flag color={palette.ink} size={12} strokeWidth={2.3} />
-                    <Text style={styles.greetingRequestActionReportTextMake}>举报</Text>
+                  <Pressable disabled={busy} onPress={() => void reportGreeting(owner)} style={[styles.greetingRequestActionReportMake, busy && styles.mapSearchActionDisabled, webPressableReset]}>
+                    {reporting ? <ActivityIndicator color={palette.ink} size="small" /> : <Flag color={palette.ink} size={12} strokeWidth={2.3} />}
+                    <Text style={styles.greetingRequestActionReportTextMake}>{reporting ? '提交中' : '举报'}</Text>
                   </Pressable>
-                  <Pressable disabled={accepting || rejecting} onPress={() => void acceptGreeting(owner)} style={[styles.greetingRequestActionPrimaryMake, (accepting || rejecting) && styles.mapSearchActionDisabled, webPressableReset]}>
+                  <Pressable disabled={busy} onPress={() => void acceptGreeting(owner)} style={[styles.greetingRequestActionPrimaryMake, busy && styles.mapSearchActionDisabled, webPressableReset]}>
                     {accepting ? <ActivityIndicator color="#fff" size="small" /> : <Check color="#fff" size={13} strokeWidth={3} />}
                     <Text style={styles.greetingRequestActionPrimaryTextMake}>{accepting ? '同意中' : '同意 & 聊天'}</Text>
                   </Pressable>
@@ -9638,23 +9684,23 @@ export default function LumiiMvpApp() {
         Icon: Flag,
         bg: '#FFE6D6',
         color: palette.orange,
-        onPress: () => showToast('举报入口后续接入审核流程', { tone: 'warning', variant: 'surface' }),
-        sub: '不当行为、虚假地点、骚扰等',
+        status: '对象页提交',
+        sub: '请在招呼请求、聊天或地点详情中提交，便于带上对象信息',
         title: '举报用户或地点',
       },
       {
         Icon: UserX,
         bg: palette.pale,
         color: palette.ink,
-        onPress: () => showToast('拉黑用户后续开放', { tone: 'warning', variant: 'surface' }),
-        sub: '阻止对方查看你和你的宠物',
+        status: '待接入',
+        sub: '需要对象资料页确认后再开放，当前不会做假拦截',
         title: '拉黑用户',
       },
       {
         Icon: Shield,
         bg: '#E8F5F3',
         color: palette.teal,
-        onPress: () => showToast('黑名单管理后续开放', { tone: 'warning', variant: 'surface' }),
+        status: '0 人',
         sub: '已拉黑 0 人',
         title: '黑名单管理',
       },
@@ -9662,8 +9708,8 @@ export default function LumiiMvpApp() {
         Icon: AlertTriangle,
         bg: '#FBF2D9',
         color: palette.warning,
-        onPress: () => showToast('紧急求助指南后续开放', { tone: 'warning', variant: 'surface' }),
-        sub: '走失、受伤、宠物医院 24h 联系方式',
+        onPress: () => openClinicMapSearch('正在查找附近宠物医院和可求助地点'),
+        sub: '查找附近宠物医院和可求助地点',
         title: '紧急求助指南',
       },
     ];
@@ -9681,18 +9727,29 @@ export default function LumiiMvpApp() {
           </View>
 
           <View style={styles.safetyActionStackMake}>
-            {safetyActions.map(({ Icon, bg, color, onPress, sub, title }) => (
-              <Pressable key={title} onPress={onPress} style={[styles.safetyActionCardMake, webPressableReset]}>
-                <View style={[styles.safetyActionIconMake, { backgroundColor: bg }]}>
-                  <Icon color={color} size={18} strokeWidth={2.4} />
+            {safetyActions.map(({ Icon, bg, color, onPress, status, sub, title }) => {
+              const content = (
+                <>
+                  <View style={[styles.safetyActionIconMake, { backgroundColor: bg }]}>
+                    <Icon color={color} size={18} strokeWidth={2.4} />
+                  </View>
+                  <View style={styles.flex}>
+                    <Text style={styles.safetyActionTitleMake}>{title}</Text>
+                    <Text style={styles.safetyActionSubMake}>{sub}</Text>
+                  </View>
+                  {onPress ? <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} /> : <Text style={styles.safetyActionStatusMake}>{status}</Text>}
+                </>
+              );
+              return onPress ? (
+                <Pressable key={title} onPress={onPress} style={[styles.safetyActionCardMake, webPressableReset]}>
+                  {content}
+                </Pressable>
+              ) : (
+                <View key={title} style={[styles.safetyActionCardMake, styles.safetyActionCardStaticMake]}>
+                  {content}
                 </View>
-                <View style={styles.flex}>
-                  <Text style={styles.safetyActionTitleMake}>{title}</Text>
-                  <Text style={styles.safetyActionSubMake}>{sub}</Text>
-                </View>
-                <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />
-              </Pressable>
-            ))}
+              );
+            })}
           </View>
 
           <View style={styles.safetyAuditNoteMake}>
@@ -9720,7 +9777,7 @@ export default function LumiiMvpApp() {
           <View style={styles.settingsGroupMake}>
             <Text style={styles.settingsGroupTitle}>{isAccount ? '登录方式' : isSafety ? '安全工具' : '功能入口'}</Text>
             <ProfileMakeRow Icon={Phone} title="手机号" value={formatMaskedPhone(session?.phone)} />
-            <ProfileMakeRow Icon={Shield} title={isSafety ? '举报与拉黑' : '登录保护'} value={isSafety ? '后续开放' : '已开启'} />
+            <ProfileMakeRow Icon={Shield} title={isSafety ? '举报与拉黑' : '登录保护'} value={isSafety ? '对象页提交' : '已开启'} />
           </View>
         </View>
       </Screen>
@@ -11948,8 +12005,10 @@ const styles = StyleSheet.create({
   profileScreenTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 26, fontWeight: '700', letterSpacing: 0, lineHeight: 32 },
   profileRouteContent: { alignItems: 'stretch', flexGrow: 1, minWidth: '100%', paddingHorizontal: 0, paddingTop: 8, width: '100%' },
   safetyActionCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 70, padding: 14 },
+  safetyActionCardStaticMake: { opacity: 0.82 },
   safetyActionIconMake: { alignItems: 'center', borderRadius: 12, height: 40, justifyContent: 'center', width: 40 },
   safetyActionStackMake: { gap: 10 },
+  safetyActionStatusMake: { backgroundColor: palette.pale, borderRadius: 10, color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
   safetyActionSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', lineHeight: 17, marginTop: 2 },
   safetyActionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600', lineHeight: 20 },
   safetyAuditNoteMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 4, padding: 12 },
