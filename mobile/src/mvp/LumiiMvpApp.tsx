@@ -874,6 +874,20 @@ function formatOptionalDateLabel(dateText?: string, fallback = '今天') {
   return dateText ? formatCalendarDateLabel(dateText) : fallback;
 }
 
+function formatCompactDateLabel(dateText?: string, fallback = '待设置') {
+  if (!dateText) return fallback;
+  const date = parseIsoDate(dateText);
+  if (!date) return dateText;
+  if (isSameCalendarDay(date, new Date())) return '今天';
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (isSameCalendarDay(date, tomorrow)) return '明天';
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (isSameCalendarDay(date, yesterday)) return '昨天';
+  return `${date.getMonth() + 1}.${date.getDate()}`;
+}
+
 function weekdayLabel(dateText: string) {
   const date = parseIsoDate(dateText);
   if (!date) return '日期待确认';
@@ -6938,7 +6952,7 @@ export default function LumiiMvpApp() {
               <Text style={styles.calendarUpcomingTitle}>{upcomingVaccines[0].title} · {formatDueLabel(upcomingVaccines[0].date)}</Text>
               <Text style={styles.calendarUpcomingText}>建议在 {formatCalendarDateLabel(upcomingVaccines[0].date)} 前完成</Text>
             </View>
-            <Text style={styles.calendarUpcomingDate}>{upcomingVaccines[0].date.slice(5).replace('-', '/')}</Text>
+            <Text style={styles.calendarUpcomingDate}>{formatCompactDateLabel(upcomingVaccines[0].date, '待设置')}</Text>
           </Pressable>
         ) : (
           <View style={styles.calendarSummaryCard}>
@@ -7539,10 +7553,11 @@ export default function LumiiMvpApp() {
     ];
     const vaxRowMeta = (item: VaccinePlan) => {
       const days = daysUntilDate(item.dueAt);
-      if (item.status === 'done') return { label: '已完成', style: styles.vaccineStateDone, sub: `已完成 · ${item.dueAt}`, textStyle: styles.vaccineStateDoneText };
-      if (item.status === 'overdue' || (days !== null && days < 0)) return { label: '已逾期', style: styles.vaccineStateOverdue, sub: `${vaccineReminderCopy(item)} · ${item.dueAt}`, textStyle: styles.vaccineStateOverdueText };
+      const dueDateLabel = formatOptionalDateLabel(item.dueAt, '日期待确认');
+      if (item.status === 'done') return { label: '已完成', style: styles.vaccineStateDone, sub: `已完成 · ${dueDateLabel}`, textStyle: styles.vaccineStateDoneText };
+      if (item.status === 'overdue' || (days !== null && days < 0)) return { label: '已逾期', style: styles.vaccineStateOverdue, sub: `${vaccineReminderCopy(item)} · ${dueDateLabel}`, textStyle: styles.vaccineStateOverdueText };
       if (days !== null && days <= 14) return { label: '待接种', style: styles.vaccineStateUpcoming, sub: `${vaccineReminderCopy(item)} · ${vaccineReminderIds.includes(item.id) ? '提醒已开启' : '未开启提醒'}`, textStyle: styles.vaccineStateUpcomingText };
-      return { label: '计划中', style: styles.vaccineStatePlanned, sub: `${vaccineReminderCopy(item)} · ${item.dueAt}`, textStyle: styles.vaccineStatePlannedText };
+      return { label: '计划中', style: styles.vaccineStatePlanned, sub: `${vaccineReminderCopy(item)} · ${dueDateLabel}`, textStyle: styles.vaccineStatePlannedText };
     };
     return (
       <Screen title="疫苗计划">
@@ -7554,7 +7569,7 @@ export default function LumiiMvpApp() {
               <Text style={styles.vaccineHeroTitle}>{nextVaccine?.name ?? '暂无计划'}</Text>
               <View style={styles.chatOnlineRow}>
                 <CalendarDays color="rgba(31,33,29,0.72)" size={12} strokeWidth={2.3} />
-                <Text style={styles.vaccineHeroMeta}>{nextVaccine?.dueAt ?? '待设置'} · {nextVaccineDueLabel}</Text>
+                <Text style={styles.vaccineHeroMeta}>{formatOptionalDateLabel(nextVaccine?.dueAt, '待设置')} · {nextVaccineDueLabel}</Text>
               </View>
             </View>
             <View style={styles.vaccineHeroIcon}>
@@ -7593,9 +7608,9 @@ export default function LumiiMvpApp() {
             </View>
             <View style={styles.flex}>
               <Text style={styles.timelineTitleMake}>{upcomingVaccine.name} · {vaccineReminderCopy(upcomingVaccine)}</Text>
-              <Text style={styles.timelineSubMake}>建议在 {upcomingVaccine.dueAt} 前完成。</Text>
+              <Text style={styles.timelineSubMake}>建议在 {formatOptionalDateLabel(upcomingVaccine.dueAt)} 前完成。</Text>
             </View>
-            <Text style={styles.timelineDateMake}>{upcomingVaccine.dueAt.slice(5)}</Text>
+            <Text style={styles.timelineDateMake}>{formatCompactDateLabel(upcomingVaccine.dueAt)}</Text>
           </View>
         ) : null}
 
@@ -7663,7 +7678,7 @@ export default function LumiiMvpApp() {
                   </View>
                   <Text numberOfLines={1} style={styles.timelineSubMake}>{meta.sub}</Text>
                 </View>
-                <Text style={styles.timelineDateMake}>{item.dueAt.slice(5)}</Text>
+                <Text style={styles.timelineDateMake}>{formatCompactDateLabel(item.dueAt)}</Text>
               </View>
               {index < vaccines.length - 1 ? <View style={styles.makeDivider} /> : null}
             </View>
