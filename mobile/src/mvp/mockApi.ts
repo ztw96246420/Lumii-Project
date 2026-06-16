@@ -1216,14 +1216,28 @@ function detectMockPetMedicalEmergency(text: string): ChatMessage['medicalAlert'
   return null;
 }
 
+function activeMockPet() {
+  return pets.find((pet) => pet.id === activePetId) ?? pets[0];
+}
+
+function mockPetChatVoiceParticle(pet = activeMockPet()) {
+  if (pet?.species === 'cat') return '喵~';
+  if (pet?.species === 'dog') return '汪~';
+  return '';
+}
+
+function mockPetChatOpener() {
+  const particle = mockPetChatVoiceParticle();
+  return particle ? `主人，${particle} ` : '主人，';
+}
+
 function mockPetMedicalSafetyReply(text: string) {
-  const petName = (pets.find((pet) => pet.id === activePetId) ?? pets[0])?.name || '你的宠物';
   const ingestionHint = /(误食|吃了|吞了|舔了|咬了)/.test(String(text || ''));
   const extra = ingestionHint
     ? '如果是误食，请尽量保留包装、成分、照片和大概时间，不要自行催吐或喂药。'
-    : '请先让它保持安静，避免继续运动；如果有出血、呼吸异常或抽搐，优先就近急诊。';
+    : '请先让我保持安静，避免继续运动；如果有出血、呼吸异常或抽搐，优先就近急诊。';
   return [
-    `这个情况我不能当作普通聊天处理。${petName}可能存在需要尽快评估的风险，请马上联系宠物医院或兽医。`,
+    '主人，这个情况我不能当作普通聊天处理。我可能存在需要尽快评估的风险，请马上联系宠物医院或兽医。',
     extra,
     '我不能替代兽医诊断，也不建议在没有医生指导时自行用药。你可以同时记录：发生时间、持续多久、精神/呼吸/食欲变化，带给医生判断。',
   ].join('\n\n');
@@ -1257,6 +1271,22 @@ function createMockMedicalAlertFromPetChat(text: string) {
     title: '就医提醒',
   });
   return { memo, notificationId, reason: emergency.reason };
+}
+
+function mockFallbackPetChatReply(text: string) {
+  const emergency = detectMockPetMedicalEmergency(text);
+  if (emergency) return mockPetMedicalSafetyReply(text);
+  const opener = mockPetChatOpener();
+  if (/吐|拉稀|腹泻|不吃|不喝|没精神|发烧|咳|喘|抽搐|流血|疼|瘸|异常|医院|疫苗|驱虫/.test(text)) {
+    return `${opener}我今天有点让人担心，我先把这件事放进健康观察里。\n\n我不能替代兽医判断，但如果症状持续、精神明显变差，或出现呕吐腹泻、呼吸异常、拒食拒水，建议尽快联系宠物医院。你也可以补充一下：这个情况大概持续多久了？`;
+  }
+  if (/散步|出门|公园|遛/.test(text)) {
+    return `${opener}听起来我会很开心。出门前可以带好牵引、饮水和拾便袋，尽量选开阔的宠物友好地点。\n\n要不要顺手把这次散步记录到我的健康备忘里？`;
+  }
+  if (/吃|饭|零食|食欲/.test(text)) {
+    return `${opener}收到，我会把我今天的饮食状态放在心上。食欲稳定通常是个好信号，零食还是控制一点点更安心。\n\n今天我吃得比平时多、少，还是差不多？`;
+  }
+  return `${opener}我收到啦。\n\n这件事我会当作今天的小记录记在心里。你愿意再告诉我一点细节吗，比如我当时的心情、食欲或者运动量？`;
 }
 
 export const mockApi = {
@@ -1920,17 +1950,15 @@ export const mockApi = {
       const createdWeight = medicalAlert || profileUpdate ? null : createMockWeightRecordFromPetChat(text);
       const createdMemo = medicalAlert?.memo ?? (profileUpdate || vaccineAction || createdWeight ? null : createMockHealthMemoFromPetChat(text));
       const userMessage: ChatMessage = { id: `pet-user-${Date.now()}`, author: 'me', text, status: 'sent', time: new Date().toISOString() };
-      const replyText = detectMockPetMedicalEmergency(text)
-        ? mockPetMedicalSafetyReply(text)
-        : '我收到啦。这个情况我会放进今天的小记录里，如果和健康有关，也建议继续观察食欲、精神和便便状态。';
+      const replyText = mockFallbackPetChatReply(text);
       const savedNotices = [
-        medicalAlert ? `已帮你记录到健康备忘：「${medicalAlert.memo.title}」，并生成就医提醒。` : '',
-        profileUpdate ? `已帮你更新宠物档案：${describeMockPetProfilePatch(profileUpdate.patch)}。` : '',
-        vaccineAction?.action === 'done' ? `已帮你标记${vaccineAction.vaccine.name}完成。` : '',
-        vaccineAction?.action === 'reminder_on' ? `已帮你开启${vaccineAction.vaccine.name}提醒。` : '',
-        vaccineAction?.action === 'reminder_off' ? `已帮你关闭${vaccineAction.vaccine.name}提醒。` : '',
-        createdWeight ? `已帮你记录体重：${createdWeight.kg}kg。` : '',
-        createdMemo ? `已帮你记到健康备忘：「${createdMemo.title}」。` : '',
+        medicalAlert ? `我已经把这个情况记到我的健康备忘：「${medicalAlert.memo.title}」，并生成就医提醒。` : '',
+        profileUpdate ? `我已经更新了我的档案：${describeMockPetProfilePatch(profileUpdate.patch)}。` : '',
+        vaccineAction?.action === 'done' ? `我已经把我的${vaccineAction.vaccine.name}标记完成。` : '',
+        vaccineAction?.action === 'reminder_on' ? `我已经开启我的${vaccineAction.vaccine.name}提醒。` : '',
+        vaccineAction?.action === 'reminder_off' ? `我已经关闭我的${vaccineAction.vaccine.name}提醒。` : '',
+        createdWeight ? `我已经记录我的体重：${createdWeight.kg}kg。` : '',
+        createdMemo ? `我已经记到我的健康备忘：「${createdMemo.title}」。` : '',
       ].filter(Boolean);
       const aiMessage: ChatMessage = {
         id: `pet-ai-${Date.now()}`,

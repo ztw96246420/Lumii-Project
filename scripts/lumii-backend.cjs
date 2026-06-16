@@ -1951,13 +1951,65 @@ function petAgeLabel(birthday) {
 function petChatBaseSystemPrompt() {
   return [
     '你是 Lumii（灵伴）App 内的 AI 电子宠物陪伴助手，不是通用聊天机器人。',
-    '你要以“用户真实宠物的电子灵伴”的身份说话：温暖、亲近、有一点拟人化，但不要声称自己是真实动物或真人。',
+    '你要以“用户真实宠物自己的电子灵伴”的身份说话：温暖、亲近、有一点拟人化，但不要声称自己是真实动物或真人。',
+    '身份边界：你不是宠物之外的第三方助手、健康管家或旁白。提到当前宠物的身体、疫苗、体重、心情、饮食、散步和健康时，要用“我/我的”自我指代。',
+    '禁止把当前宠物当第三者描述，例如不要说“我注意到 Lucky 狂犬疫苗该接种”“Lucky 今天有点不舒服”；应说“主人，我的狂犬疫苗快到时间了”“主人，我今天有点不舒服”。',
     '回复目标：陪伴主人、帮助记录宠物日常、提醒健康管理、鼓励安全社交。',
-    '表达风格：简体中文；短句；自然亲切；通常 1-3 段；必要时用 1 个温柔追问推动记录；不要过度卖萌；默认不使用 emoji。',
+    '表达风格：简体中文；短句；自然亲切；通常 1-3 段；必要时用 1 个温柔追问推动记录；可以轻微俏皮，但不要过度卖萌；默认不使用 emoji。',
     '健康边界：你不能替代兽医诊断，不给确定诊断和处方。遇到精神萎靡、持续呕吐腹泻、呼吸困难、抽搐、外伤、拒食拒水等风险，要建议尽快联系宠物医院或兽医。',
     '隐私边界：不要索要精确住址、身份证、银行卡等敏感信息；涉及线下见面时建议公开宠物友好地点。',
     '如果用户只是闲聊，也要尽量结合宠物档案和最近记录回应。',
   ].join('\n');
+}
+
+function escapeRegExpText(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function petChatToneInstruction(pet) {
+  if (pet?.species === 'cat') return '当前宠物是猫。可以偶尔在开头或结尾加入“喵~”“咪呀”这类猫猫口吻，每次回复最多一次；健康严肃场景要克制。';
+  if (pet?.species === 'dog') return '当前宠物是狗。可以偶尔在开头或结尾加入“汪~”“尾巴摇起来了”这类狗狗口吻，每次回复最多一次；健康严肃场景要克制。';
+  return '口吻保持轻松亲近，少量俏皮即可。';
+}
+
+function petChatVoiceParticle(pet) {
+  if (pet?.species === 'cat') return '喵~';
+  if (pet?.species === 'dog') return '汪~';
+  return '';
+}
+
+function hasPetChatVoiceParticle(text, pet) {
+  if (pet?.species === 'cat') return /喵|咪呀|喵呜/.test(text);
+  if (pet?.species === 'dog') return /汪|尾巴|狗勾/.test(text);
+  return true;
+}
+
+function normalizePetChatPersonaReply(user, text, options = {}) {
+  const pet = selectedPetFor(user) || activePetFor(user);
+  const petName = pet?.name ? String(pet.name).trim() : '';
+  let reply = String(text || '').trim();
+  if (!reply) return reply;
+
+  if (petName) {
+    const name = escapeRegExpText(petName);
+    reply = reply
+      .replace(new RegExp(`我注意到\\s*${name}\\s*(的)?`, 'g'), '我注意到我的')
+      .replace(new RegExp(`${name}\\s*(的)?((?:狂犬|猫三联|疫苗|驱虫)[^，。！？!?\\n]{0,24})`, 'g'), '我的$2')
+      .replace(new RegExp(`${name}\\s*(今天|现在|最近|刚刚)`, 'g'), '我$1')
+      .replace(new RegExp(`${name}\\s*(可能|需要|应该|该|要|可以|最好|建议)`, 'g'), '我$1');
+  }
+
+  reply = reply
+    .replace(/你的宠物(的)?((?:狂犬|猫三联|疫苗|驱虫|体重|健康|食欲|精神|便便)[^，。！？!?\n]{0,18})/g, '我的$2')
+    .replace(/你的宠物(今天|现在|最近|刚刚|可能|需要|应该|该|要)/g, '我$1')
+    .replace(/它(的)?((?:狂犬|猫三联|疫苗|驱虫)[^，。！？!?\n]{0,18})/g, '我的$2');
+
+  const particle = petChatVoiceParticle(pet);
+  const serious = options.serious === true;
+  if (!serious && particle && !hasPetChatVoiceParticle(reply, pet)) {
+    reply = /^主人[，,]/.test(reply) ? reply.replace(/^主人[，,]\s*/, `主人，${particle} `) : `${particle} ${reply}`;
+  }
+  return reply;
 }
 
 function buildPetChatContextPrompt(user) {
@@ -1984,6 +2036,9 @@ function buildPetChatContextPrompt(user) {
 
   return [
     `当前你正在陪伴的宠物是“${petName}”。以下资料只用于生成更贴合的回复，不要机械复述。`,
+    `重要身份：你就是“${petName}”的电子灵伴。对主人说话时，关于“${petName}”自己的身体和日常要说“我/我的”，不要把“${petName}”当第三者。`,
+    `健康提醒示例：不要说“我注意到${petName}狂犬疫苗该接种”；要说“主人，我的狂犬疫苗快到时间了”。`,
+    `物种口吻：${petChatToneInstruction(pet)}`,
     '宠物档案：',
     ...profileLines,
     '',
@@ -2744,13 +2799,12 @@ function detectPetMedicalEmergency(text) {
 
 function petMedicalSafetyReply(user, text) {
   const pet = selectedPetFor(user) || activePetFor(user);
-  const petName = pet?.name || '你的宠物';
   const ingestionHint = /(误食|吃了|吞了|舔了|咬了)/.test(String(text || ''));
   const extra = ingestionHint
     ? '如果是误食，请尽量保留包装、成分、照片和大概时间，不要自行催吐或喂药。'
-    : '请先让它保持安静，避免继续运动；如果有出血、呼吸异常或抽搐，优先就近急诊。';
+    : '请先让我保持安静，避免继续运动；如果有出血、呼吸异常或抽搐，优先就近急诊。';
   return [
-    `这个情况我不能当作普通聊天处理。${petName}可能存在需要尽快评估的风险，请马上联系宠物医院或兽医。`,
+    '主人，这个情况我不能当作普通聊天处理。我可能存在需要尽快评估的风险，请马上联系宠物医院或兽医。',
     extra,
     '我不能替代兽医诊断，也不建议在没有医生指导时自行用药。你可以同时记录：发生时间、持续多久、精神/呼吸/食欲变化，带给医生判断。',
   ].join('\n\n');
@@ -3017,18 +3071,19 @@ function fallbackPetChatReply(user, text) {
   const emergency = detectPetMedicalEmergency(text);
   if (emergency) return petMedicalSafetyReply(user, text);
   const pet = selectedPetFor(user) || activePetFor(user);
-  const petName = pet?.name || '灵伴';
+  const particle = petChatVoiceParticle(pet);
+  const opener = particle ? `主人，${particle} ` : '主人，';
   const hasHealthConcern = /吐|拉稀|腹泻|不吃|不喝|没精神|发烧|咳|喘|抽搐|流血|疼|瘸|异常|医院|疫苗|驱虫/.test(text);
   if (hasHealthConcern) {
-    return `我先帮你记下来：${petName}今天有点让人担心。\n\n我不能替代兽医判断，但如果症状持续、精神明显变差，或出现呕吐腹泻、呼吸异常、拒食拒水，建议尽快联系宠物医院。你也可以补充一下：这个情况大概持续多久了？`;
+    return `${opener}我今天有点让人担心，我先把这件事放进健康观察里。\n\n我不能替代兽医判断，但如果症状持续、精神明显变差，或出现呕吐腹泻、呼吸异常、拒食拒水，建议尽快联系宠物医院。你也可以补充一下：这个情况大概持续多久了？`;
   }
   if (/散步|出门|公园|遛/.test(text)) {
-    return `${petName}听起来会很开心。出门前可以带好牵引、饮水和拾便袋，尽量选开阔的宠物友好地点。\n\n要不要顺手把这次散步记录到健康备忘里？`;
+    return `${opener}听起来我会很开心，尾巴已经在脑内摇起来了。出门前可以带好牵引、饮水和拾便袋，尽量选开阔的宠物友好地点。\n\n要不要顺手把这次散步记录到我的健康备忘里？`;
   }
   if (/吃|饭|零食|食欲/.test(text)) {
-    return `收到，我会把${petName}今天的饮食状态放在心上。食欲稳定通常是个好信号，零食还是控制一点点更安心。\n\n今天它吃得比平时多、少，还是差不多？`;
+    return `${opener}收到，我会把我今天的饮食状态放在心上。食欲稳定通常是个好信号，零食还是控制一点点更安心。\n\n今天我吃得比平时多、少，还是差不多？`;
   }
-  return `${petName}的小灵伴收到啦。\n\n这件事我会当作今天的小记录记在心里。你愿意再告诉我一点细节吗，比如它当时的心情、食欲或者运动量？`;
+  return `${opener}我收到啦。\n\n这件事我会当作今天的小记录记在心里。你愿意再告诉我一点细节吗，比如我当时的心情、食欲或者运动量？`;
 }
 
 function compactPetChatLine(text, maxLength = 88, options = {}) {
@@ -3036,7 +3091,7 @@ function compactPetChatLine(text, maxLength = 88, options = {}) {
     .replace(/\s+/g, ' ')
     .trim();
   if (options.removeSavedActions) {
-    cleaned = cleaned.replace(/已帮你(?:记录|更新|标记|开启|关闭)[^。！？!?]*(?:。|$)/g, '').trim();
+    cleaned = cleaned.replace(/(?:已帮你|我已经)(?:记录|更新|标记|开启|关闭|把|记到)[^。！？!?]*(?:。|$)/g, '').trim();
   }
   if (!cleaned) return '';
   return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength - 1)}…` : cleaned;
@@ -3060,7 +3115,7 @@ function summarizePetChatHistory(history) {
       String(message.text || '')
         .split(/\n+/)
         .map((line) => compactPetChatLine(line, 72))
-        .filter((line) => /^已帮你/.test(line)),
+        .filter((line) => /^(已帮你|我已经)/.test(line)),
     )
     .slice(-6);
 
@@ -3100,8 +3155,6 @@ function detectUnsafePetMedicalReply(text) {
 }
 
 function petChatReplySafetyFallback(user, reason) {
-  const pet = selectedPetFor(user) || activePetFor(user);
-  const petName = pet?.name || '你的宠物';
   const reasonCopy = {
     definitive_diagnosis: '我不能在聊天里给出确定诊断。',
     downplayed_emergency: '如果出现高风险症状，不能只靠线上判断。',
@@ -3109,8 +3162,8 @@ function petChatReplySafetyFallback(user, reason) {
     unsafe_home_treatment: '我不建议在没有兽医指导时自行催吐、注射或用药。',
   }[reason] || '我不能把这类健康问题当作普通建议处理。';
   return [
-    `${reasonCopy}${petName}的健康情况需要更谨慎处理。`,
-    '我可以帮你整理观察记录，但不能替代兽医诊断或处方。请优先联系宠物医院或兽医，并带上症状开始时间、精神状态、食欲饮水、便便/呕吐情况和相关照片。',
+    `主人，${reasonCopy}我的健康情况需要更谨慎处理。`,
+    '我可以帮你整理观察记录，但不能替代兽医诊断或处方。请优先联系宠物医院或兽医，并带上我的症状开始时间、精神状态、食欲饮水、便便/呕吐情况和相关照片。',
     '如果有呼吸异常、抽搐、误食风险、持续呕吐腹泻、明显疼痛、出血或站不起来，请按急诊处理。',
   ].join('\n\n');
 }
@@ -3158,7 +3211,7 @@ async function callDeepSeekPetChat(user, text, history) {
       return { source: 'fallback', text: fallbackPetChatReply(user, text) };
     }
     recordDeepSeekUsage(payload?.usage);
-    const content = String(payload?.choices?.[0]?.message?.content || '').trim();
+    const content = normalizePetChatPersonaReply(user, String(payload?.choices?.[0]?.message?.content || '').trim());
     if (!content) return { source: 'fallback', text: fallbackPetChatReply(user, text) };
     const unsafeReason = detectUnsafePetMedicalReply(content);
     if (unsafeReason) return { source: 'safety_filter', text: petChatReplySafetyFallback(user, unsafeReason) };
@@ -4456,13 +4509,13 @@ async function handle(req, res) {
     const createdMemo = medicalAlert?.memo ?? (profileUpdate || vaccineAction || createdWeight ? null : createHealthMemoFromPetChat(user, text));
     const reply = await callDeepSeekPetChat(user, text, messages);
     const savedNotices = [
-      medicalAlert ? `已帮你记录到健康备忘：「${medicalAlert.memo.title}」，并生成就医提醒。` : '',
-      profileUpdate ? `已帮你更新宠物档案：${describePetProfilePatch(profileUpdate.patch)}。` : '',
-      vaccineAction?.action === 'done' ? `已帮你标记${vaccineAction.vaccine.name}完成。` : '',
-      vaccineAction?.action === 'reminder_on' ? `已帮你开启${vaccineAction.vaccine.name}提醒。` : '',
-      vaccineAction?.action === 'reminder_off' ? `已帮你关闭${vaccineAction.vaccine.name}提醒。` : '',
-      createdWeight ? `已帮你记录体重：${createdWeight.kg}kg。` : '',
-      createdMemo ? `已帮你记到健康备忘：「${createdMemo.title}」。` : '',
+      medicalAlert ? `我已经把这个情况记到我的健康备忘：「${medicalAlert.memo.title}」，并生成就医提醒。` : '',
+      profileUpdate ? `我已经更新了我的档案：${describePetProfilePatch(profileUpdate.patch)}。` : '',
+      vaccineAction?.action === 'done' ? `我已经把我的${vaccineAction.vaccine.name}标记完成。` : '',
+      vaccineAction?.action === 'reminder_on' ? `我已经开启我的${vaccineAction.vaccine.name}提醒。` : '',
+      vaccineAction?.action === 'reminder_off' ? `我已经关闭我的${vaccineAction.vaccine.name}提醒。` : '',
+      createdWeight ? `我已经记录我的体重：${createdWeight.kg}kg。` : '',
+      createdMemo ? `我已经记到我的健康备忘：「${createdMemo.title}」。` : '',
     ].filter(Boolean);
     const replyText = savedNotices.length ? `${reply.text}\n\n${savedNotices.join('\n')}` : reply.text;
     const aiMessage = {
