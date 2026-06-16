@@ -5325,8 +5325,7 @@ export default function LumiiMvpApp() {
             <View style={styles.petEditDividerMake} />
             <View style={styles.petEditRowMake}>
               <Text style={styles.petEditLabelMake}>绝育</Text>
-              <Text style={styles.petEditReadonlyMake}>暂未记录</Text>
-              <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
+              <Text style={styles.petEditReadonlyMake}>未记录</Text>
             </View>
             <View style={styles.petEditDividerMake} />
             <View style={styles.petEditRowMake}>
@@ -8902,7 +8901,7 @@ export default function LumiiMvpApp() {
             {ownerAvatarPicking ? (
               <View style={styles.ownerAvatarOverlay}>
                 <ActivityIndicator color="#fff" size="small" />
-                <Text style={styles.ownerAvatarProgressTextMake}>62%</Text>
+                <Text style={styles.ownerAvatarProgressTextMake}>处理中</Text>
               </View>
             ) : null}
             {ownerProfileSaved && !ownerAvatarPicking ? (
@@ -8914,7 +8913,7 @@ export default function LumiiMvpApp() {
           <Pressable onPress={() => void pickOwnerAvatar()} style={[styles.ownerAvatarCamera, webPressableReset]}>
             <Camera color="#fff" size={14} strokeWidth={2.4} />
           </Pressable>
-          <Text style={styles.ownerAvatarHintMake}>{ownerAvatarPicking ? '正在上传新头像...' : ownerProfileSaved ? '头像已更新' : '点击更换头像'}</Text>
+          <Text style={styles.ownerAvatarHintMake}>{ownerAvatarPicking ? '正在处理头像...' : ownerProfileSaved ? '头像已更新' : '点击更换头像'}</Text>
         </View>
 
         <View style={[styles.editFormCard, ownerProfileSaving && styles.ownerSavingContentDimMake]}>
@@ -8946,7 +8945,7 @@ export default function LumiiMvpApp() {
               <Phone color={palette.muted} size={15} strokeWidth={2.2} />
               <Text style={styles.ownerReadonlyValueMake}>{formatMaskedPhone(session?.phone)}</Text>
             </View>
-            <Text style={styles.fieldHintText}>如需更换手机号，后续会在账号安全页开放。</Text>
+            <Text style={styles.fieldHintText}>手机号是当前登录账号，暂不支持在资料页修改。</Text>
           </View>
 
           <View style={styles.makeFieldGroup}>
@@ -8976,7 +8975,7 @@ export default function LumiiMvpApp() {
         {ownerAvatarPicking ? (
           <View style={styles.ownerAvatarUploadNoteMake}>
             <ActivityIndicator color={palette.orange} size="small" />
-            <Text style={styles.ownerAvatarUploadNoteTextMake}>头像还在上传，保存按钮会在上传完成后亮起</Text>
+            <Text style={styles.ownerAvatarUploadNoteTextMake}>正在处理头像，完成后保存按钮会恢复可用</Text>
           </View>
         ) : null}
 
@@ -9117,7 +9116,7 @@ export default function LumiiMvpApp() {
                 <View style={styles.makeDivider} />
                 <PetDetailInfoRow label="品种" value={pet.breed || speciesLabels[pet.species]} />
                 <View style={styles.makeDivider} />
-                <PetDetailInfoRow label="性别 / 绝育" value={`${genderSymbol} / 待补充`} />
+                <PetDetailInfoRow label="性别 / 绝育" value={`${genderSymbol} / 未记录`} />
                 <View style={styles.makeDivider} />
                 <PetDetailInfoRow label="毛色" value={coatColor} />
               </View>
