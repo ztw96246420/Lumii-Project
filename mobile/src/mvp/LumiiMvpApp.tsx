@@ -7353,7 +7353,13 @@ export default function LumiiMvpApp() {
       : 0;
     const weightDeltaLabel = weightDelta === 0 ? '0' : Math.abs(weightDelta).toFixed(1).replace(/\.0$/, '');
     const isWeightWatch = healthSummary?.weightStatus === 'watch' || Math.abs(weightDelta) >= 1.5;
-    const directionCopy = weightDelta < 0 ? `30 天 -${weightDeltaLabel} kg` : weightDelta > 0 ? `30 天 +${weightDeltaLabel} kg` : '30 天稳定';
+    const directionCopy = weights.length < 2
+      ? '首次记录'
+      : weightDelta < 0
+        ? `30 天 -${weightDeltaLabel} kg`
+        : weightDelta > 0
+          ? `30 天 +${weightDeltaLabel} kg`
+          : '30 天稳定';
     const weightValues = weights.map((item) => item.kg).filter((value) => Number.isFinite(Number(value)));
     const averageWeight = weightValues.length ? weightValues.reduce((sum, value) => sum + value, 0) / weightValues.length : undefined;
     const minWeight = weightValues.length ? Math.min(...weightValues) : undefined;
@@ -7424,8 +7430,8 @@ export default function LumiiMvpApp() {
                   <HeartPulse color={palette.teal} size={16} strokeWidth={2.4} />
                 </View>
                 <View style={styles.flex}>
-                  <Text style={styles.timelineTitleMake}>{pet?.name ?? '灵伴'}近 30 天体重平稳</Text>
-                  <Text style={styles.timelineSubMake}>{healthSummary?.weightSummary ?? '一直在健康区间里，继续保持现在的饮食与运动节奏。'}</Text>
+                  <Text style={styles.timelineTitleMake}>{weights.length < 2 ? '已开始记录体重' : `${pet?.name ?? '灵伴'}近 30 天体重平稳`}</Text>
+                  <Text style={styles.timelineSubMake}>{weights.length < 2 ? '再记录几次后，灵伴会给出更可靠的趋势判断。' : healthSummary?.weightSummary ?? '一直在健康区间里，继续保持现在的饮食与运动节奏。'}</Text>
                 </View>
               </View>
             )}
@@ -10404,12 +10410,17 @@ export default function LumiiMvpApp() {
 }
 
 function WeightTrendMiniChart({ abnormal, records }: { abnormal?: boolean; records: WeightRecord[] }) {
-  const values = records.length
-    ? records.slice(0, 12).reverse().map((item) => item.kg)
-    : [26.0, 26.1, 26.2, 26.1, 26.3, 26.4, 26.3, 26.4];
+  const values = records.slice(0, 12).reverse().map((item) => item.kg).filter((value) => Number.isFinite(Number(value)));
   const width = 320;
   const height = 128;
   const pad = { bottom: 22, left: 10, right: 10, top: 16 };
+  if (!values.length) {
+    return (
+      <View style={[styles.weightChartWrap, styles.weightChartEmptyMake]}>
+        <Text style={styles.weightChartEmptyText}>暂无体重曲线，记录第一次体重后生成</Text>
+      </View>
+    );
+  }
   const minValue = Math.min(...values, 24);
   const maxValue = Math.max(...values, 28);
   const range = Math.max(1, maxValue - minValue);
@@ -11285,6 +11296,8 @@ const styles = StyleSheet.create({
   weightAddLink: { alignItems: 'center', flexDirection: 'row', gap: 3, paddingHorizontal: 2, paddingVertical: 4 },
   weightAddLinkText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   weightChartWrap: { marginHorizontal: -4, marginTop: 10 },
+  weightChartEmptyMake: { alignItems: 'center', backgroundColor: '#F8F5EE', borderColor: palette.border, borderRadius: 16, borderStyle: 'dashed', borderWidth: 1, height: 128, justifyContent: 'center' },
+  weightChartEmptyText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   weightDeleteActionsMake: { flexDirection: 'row', gap: 10, marginTop: 20 },
   weightDeleteBackdropMake: { alignItems: 'center', backgroundColor: 'rgba(31,33,29,0.42)', flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
   weightDeleteBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 20, marginTop: 12, textAlign: 'center' },
