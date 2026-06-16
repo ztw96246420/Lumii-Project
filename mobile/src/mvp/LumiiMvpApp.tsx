@@ -7986,6 +7986,11 @@ export default function LumiiMvpApp() {
     const distanceThumbStyle = { left: distanceProgress as ViewStyle['left'] };
     const mapStyle = mapStyleOptions.find((item) => item.key === mapStyleKey) ?? mapStyleOptions[0];
     const mapSearchPanelVisible = Boolean(placeQuery.trim() || placeFilter !== 'all' || placeSpeciesFilter !== 'all');
+    const mapAreaDisplayLabel = mapStyleKey === 'satellite'
+      ? highlightedPlace
+        ? `${highlightedPlace.name}实景`
+        : '当前区域实景'
+      : highlightedPlace?.name ?? (placeQuery.trim() ? '搜索区域' : '附近区域');
     const clearMapSearch = () => {
       placeQueryRef.current = '';
       setPlaceQuery('');
@@ -8056,7 +8061,7 @@ export default function LumiiMvpApp() {
                     <View style={styles.mapTrafficLineB} />
                   </>
                 ) : null}
-                <Text style={[styles.mapAreaLabel, mapStyleKey === 'night' && styles.mapAreaLabelNight]}>{mapStyleKey === 'satellite' ? '绿地实景' : '滨江绿地'}</Text>
+                <Text numberOfLines={1} style={[styles.mapAreaLabel, mapStyleKey === 'night' && styles.mapAreaLabelNight]}>{mapAreaDisplayLabel}</Text>
                 <View style={styles.mapMarkerMain}>
                   <MapPin color="#fff" size={22} strokeWidth={2.4} />
                 </View>
@@ -11686,7 +11691,7 @@ const styles = StyleSheet.create({
   mapPatchA: { backgroundColor: '#cfe7d2', borderRadius: 44, height: 128, left: -20, position: 'absolute', top: 32, transform: [{ rotate: '-18deg' }], width: 160 },
   mapPatchB: { backgroundColor: '#cfe8e7', borderRadius: 52, bottom: -26, height: 132, position: 'absolute', right: -34, transform: [{ rotate: '16deg' }], width: 190 },
   mapRoad: { backgroundColor: '#fffaf4', borderColor: 'rgba(218,206,192,0.8)', borderRadius: 999, borderWidth: 1, height: 24, left: -40, position: 'absolute', right: -40, top: 144, transform: [{ rotate: '-11deg' }] },
-  mapAreaLabel: { backgroundColor: 'rgba(255,255,255,0.74)', borderRadius: 999, color: '#5e7d75', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', left: 22, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5, position: 'absolute', top: 116 },
+  mapAreaLabel: { backgroundColor: 'rgba(255,255,255,0.74)', borderRadius: 999, color: '#5e7d75', fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', left: 22, maxWidth: 190, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5, position: 'absolute', top: 116 },
   mapBottomSheet: { backgroundColor: 'rgba(255,253,249,0.98)', borderColor: 'rgba(234,223,210,0.9)', borderRadius: 28, borderWidth: 1, gap: 10, marginTop: -56, padding: 14, shadowColor: '#50371e', shadowOffset: { height: -10, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
   mapBottomSheetMake: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, bottom: 82, gap: 10, left: 0, maxHeight: 360, overflow: 'hidden', paddingBottom: 18, paddingHorizontal: 20, paddingTop: 10, position: 'absolute', right: 0, shadowColor: '#000', shadowOffset: { height: -18, width: 0 }, shadowOpacity: 0.16, shadowRadius: 40 },
   mapChipFloat: { alignItems: 'center', backgroundColor: 'rgba(255,253,249,0.92)', borderColor: 'rgba(234,223,210,0.78)', borderRadius: 999, borderWidth: 1, height: 34, justifyContent: 'center', paddingHorizontal: 13 },
