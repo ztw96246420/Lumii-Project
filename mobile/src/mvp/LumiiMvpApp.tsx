@@ -7654,8 +7654,14 @@ export default function LumiiMvpApp() {
           <View style={styles.messagesMakeHeader}>
             <Text style={styles.makeScreenTitle}>消息</Text>
             <View style={styles.messagesHeaderActions}>
-              <Pressable accessibilityLabel="搜索消息" accessibilityRole="button" onPress={() => showToast('消息搜索后续开放')} style={styles.makeIconChip}>
-                <Search color={palette.ink} size={16} strokeWidth={2.3} />
+              <Pressable
+                accessibilityLabel="刷新消息"
+                accessibilityRole="button"
+                disabled={inboxManualRefreshing}
+                onPress={() => void refreshInboxManually()}
+                style={[styles.makeIconChip, inboxManualRefreshing && styles.mapSearchActionDisabled]}
+              >
+                {inboxManualRefreshing ? <ActivityIndicator color={palette.ink} size="small" /> : <RefreshCw color={palette.ink} size={15} strokeWidth={2.3} />}
               </Pressable>
               <Pressable onPress={() => go('notifications')} style={styles.makeIconChip}>
                 <Bell color={palette.ink} size={16} strokeWidth={2.3} />
