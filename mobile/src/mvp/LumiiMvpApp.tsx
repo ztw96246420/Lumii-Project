@@ -872,7 +872,7 @@ export default function LumiiMvpApp() {
   const [weightDeleteConfirm, setWeightDeleteConfirm] = useState<WeightRecord | null>(null);
   const [weightSaving, setWeightSaving] = useState(false);
   const weightSavingRef = useRef(false);
-  const [memoTitle, setMemoTitle] = useState('今日观察');
+  const [memoTitle, setMemoTitle] = useState('');
   const [memoContent, setMemoContent] = useState('');
   const [memoSaving, setMemoSaving] = useState(false);
   const memoSavingRef = useRef(false);
@@ -887,8 +887,8 @@ export default function LumiiMvpApp() {
   const [memoDeleting, setMemoDeleting] = useState(false);
   const memoDeletingRef = useRef(false);
   const [memoDeleteConfirmVisible, setMemoDeleteConfirmVisible] = useState(false);
-  const [memoDraftTitle, setMemoDraftTitle] = useState('驱虫');
-  const [memoDraftContent, setMemoDraftContent] = useState('外用滴剂 · 拜耳拜宠清');
+  const [memoDraftTitle, setMemoDraftTitle] = useState('');
+  const [memoDraftContent, setMemoDraftContent] = useState('');
   const [memoDraftRepeat, setMemoDraftRepeat] = useState<NonNullable<HealthMemo['repeat']>>('quarterly');
   const [memoDraftReminderAt, setMemoDraftReminderAt] = useState(() => defaultMemoReminderDate());
   const [memoDraftReminderEnabled, setMemoDraftReminderEnabled] = useState(true);
@@ -928,7 +928,7 @@ export default function LumiiMvpApp() {
   const selectedOwnerIdRef = useRef<string | null>(null);
   const [greetingSheetOwner, setGreetingSheetOwner] = useState<NearbyOwner | null>(null);
   const [greetingMessage, setGreetingMessage] = useState('你好呀，我们也在附近，想认识一下吗？');
-  const [walkInvitePlace, setWalkInvitePlace] = useState('滨江绿地');
+  const [walkInvitePlace, setWalkInvitePlace] = useState('');
   const [walkInviteTime, setWalkInviteTime] = useState(() => defaultWalkInviteTime());
   const [walkInviteNote, setWalkInviteNote] = useState('');
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -3422,8 +3422,8 @@ export default function LumiiMvpApp() {
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setMemos((items) => [result.data!, ...items]);
-        setMemoDraftTitle('驱虫');
-        setMemoDraftContent('外用滴剂 · 拜耳拜宠清');
+        setMemoDraftTitle('');
+        setMemoDraftContent('');
         setMemoDraftRepeat('quarterly');
         setMemoDraftReminderAt(defaultMemoReminderDate());
         setMemoDraftReminderEnabled(true);
@@ -3765,7 +3765,7 @@ export default function LumiiMvpApp() {
     }
     if (sessionTokenRef.current !== requestSessionToken || selectedOwnerIdRef.current !== owner.id) return;
     setWalkInviteTime(draft?.time || defaultWalkInviteTime());
-    setWalkInvitePlace(draft?.place || '滨江绿地');
+    setWalkInvitePlace(draft?.place || '');
     setWalkInviteNote(draft?.note || '');
     go('walkInvite');
     if (draft) {
@@ -3845,7 +3845,10 @@ export default function LumiiMvpApp() {
           };
         setConversations((items) => [conversation, ...items.filter((item) => item.id !== conversation.id)]);
         await deleteWalkInviteDraft(requestOwnerId);
-        if (stillEditingSameInvite) setWalkInviteNote('');
+        if (stillEditingSameInvite) {
+          setWalkInvitePlace('');
+          setWalkInviteNote('');
+        }
         void loadInboxData();
         if (stillEditingSameInvite) {
           replace('messages');
@@ -4471,7 +4474,7 @@ export default function LumiiMvpApp() {
     setSelectedOwner(null);
     setGreetingSheetOwner(null);
     setGreetingMessage('你好呀，我们也在附近，想认识一下吗？');
-    setWalkInvitePlace('滨江绿地');
+    setWalkInvitePlace('');
     setWalkInviteTime(defaultWalkInviteTime());
     setWalkInviteNote('');
     setPlaces([]);
@@ -4517,7 +4520,7 @@ export default function LumiiMvpApp() {
     setHealthSummary(null);
     weightSavingRef.current = false;
     setWeightSaving(false);
-    setMemoTitle('今日观察');
+    setMemoTitle('');
     setMemoContent('');
     memoSavingRef.current = false;
     setMemoSaving(false);
@@ -4529,8 +4532,8 @@ export default function LumiiMvpApp() {
     memoDeletingRef.current = false;
     setMemoDeleting(false);
     setMemoDeleteConfirmVisible(false);
-    setMemoDraftTitle('驱虫');
-    setMemoDraftContent('外用滴剂 · 拜耳拜宠清');
+    setMemoDraftTitle('');
+    setMemoDraftContent('');
     setMemoDraftRepeat('quarterly');
     setMemoDraftReminderAt(defaultMemoReminderDate());
     setMemoDraftReminderEnabled(true);
@@ -6608,6 +6611,10 @@ export default function LumiiMvpApp() {
                 </Pressable>
               );
             })}
+          </View>
+          <View style={styles.fieldHintRow}>
+            <Text style={[styles.fieldHintText, !memoDraftTitle.trim() && styles.fieldHintError]}>{!memoDraftTitle.trim() ? '请选择备忘类型' : ' '}</Text>
+            <Text style={styles.fieldHintText}>{titleCount}/20</Text>
           </View>
 
           <Text style={styles.memoFieldLabel}>提醒时间</Text>
