@@ -965,7 +965,7 @@ function createPlaceReview(user, placeId, content) {
   if (violation) return { error: violation, statusCode: 400 };
   const review = {
     content: trimmedContent,
-    createdAt: '刚刚',
+    createdAt: new Date().toISOString(),
     id: `review-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
     placeId,
     status: 'pending_review',
@@ -1051,7 +1051,7 @@ function createPlaceSubmission(user, body) {
   const submission = {
     address,
     content,
-    createdAt: '刚刚',
+    createdAt: new Date().toISOString(),
     id: `place-submission-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
     name,
     status: 'pending_review',

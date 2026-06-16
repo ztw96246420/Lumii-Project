@@ -1306,7 +1306,7 @@ export const mockApi = {
         category,
         contact: contact?.trim() || undefined,
         content: cleanContent,
-        createdAt: '刚刚',
+        createdAt: new Date().toISOString(),
         id: `feedback-${Date.now()}`,
         status: 'received',
       };
@@ -1619,7 +1619,7 @@ export const mockApi = {
       const updatedPet = { ...pet, avatarUrl: job.resultUrl };
       pets = pets.map((item) => (item.id === updatedPet.id ? updatedPet : item));
       activePetId = updatedPet.id;
-      avatarJobsById = { ...avatarJobsById, [jobId]: { ...job, acceptedAt: '刚刚', acceptedPetId: updatedPet.id } };
+      avatarJobsById = { ...avatarJobsById, [jobId]: { ...job, acceptedAt: new Date().toISOString(), acceptedPetId: updatedPet.id } };
       return success(updatedPet);
     },
 
@@ -1631,7 +1631,7 @@ export const mockApi = {
         ...job,
         feedback: {
           content: content?.trim() || undefined,
-          createdAt: '刚刚',
+          createdAt: new Date().toISOString(),
           reason,
           status: 'received',
         },
@@ -2038,7 +2038,7 @@ export const mockApi = {
       if (violation) return error(violation, false);
       const review: PlaceReview = {
         content: trimmedContent,
-        createdAt: '刚刚',
+        createdAt: new Date().toISOString(),
         id: `review-${Date.now()}`,
         placeId,
         status: 'pending_review',
@@ -2079,7 +2079,7 @@ export const mockApi = {
       const submission: PlaceSubmission = {
         address: trimmedAddress,
         content: trimmedContent,
-        createdAt: '刚刚',
+        createdAt: new Date().toISOString(),
         id: `place-submission-${Date.now()}`,
         name: trimmedName,
         status: 'pending_review',

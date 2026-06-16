@@ -190,6 +190,12 @@ function formatRelativeDisplayTime(date: Date) {
   return `${date.getMonth() + 1}月${date.getDate()}日 ${hour}:${minute}`;
 }
 
+function formatTimestampDisplay(value?: string, fallback = '时间待确认') {
+  if (!value) return fallback;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? fallback : formatRelativeDisplayTime(date);
+}
+
 function formatGreetingRequestSeenTime(timestamp?: number) {
   if (!timestamp) return '新招呼';
   const date = new Date(timestamp);
@@ -4265,7 +4271,7 @@ export default function LumiiMvpApp() {
             placeMeta: `${place.address} · ${place.distance}`,
             placeName: place.name,
             status: 'success',
-            submittedAt,
+            submittedAt: formatTimestampDisplay(result.data.createdAt, submittedAt),
           });
         }
       } else if (stillReviewingSamePlace) {
@@ -4426,7 +4432,7 @@ export default function LumiiMvpApp() {
             placeMeta: requestAddress,
             placeName: requestName,
             status: 'success',
-            submittedAt,
+            submittedAt: formatTimestampDisplay(result.data.createdAt, submittedAt),
           });
         }
       } else if (stillEditingSubmission) {
@@ -7923,6 +7929,13 @@ export default function LumiiMvpApp() {
     const hasPendingPlaceReview = myPlaceReview?.status === 'pending_review';
     const pet = getCurrentPet();
     const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
+    const placeReviewSummary = myPlaceReview ? '· 我的点评 1 条' : '· 暂无我的点评';
+    const placeReviewTime = myPlaceReview
+      ? hasPendingPlaceReview
+        ? `审核中 · ${formatTimestampDisplay(myPlaceReview.createdAt)}`
+        : formatTimestampDisplay(myPlaceReview.createdAt)
+      : '暂无点评';
+    const placeReviewBody = myPlaceReview?.content ?? '分享你的真实体验，帮助附近养宠人判断是否适合前往。';
     return (
       <Screen title="">
         {place ? (
@@ -7947,7 +7960,7 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.placePhotoCountMake}>
                 <Camera color="#fff" size={11} strokeWidth={2.4} />
-                <Text style={styles.placePhotoCountTextMake}>1 / 48</Text>
+                <Text style={styles.placePhotoCountTextMake}>封面图</Text>
               </View>
             </View>
             <View style={styles.placeSheetMake}>
@@ -7955,7 +7968,7 @@ export default function LumiiMvpApp() {
                 <Text numberOfLines={2} style={styles.placeTitleMake}>{place.name}</Text>
                 <View style={styles.placeVerifyPillMake}>
                   <ShieldCheck color={palette.teal} size={9} strokeWidth={2.5} />
-                  <Text style={styles.placeVerifyTextMake}>官方认证</Text>
+                  <Text style={styles.placeVerifyTextMake}>社区共建</Text>
                 </View>
               </View>
               <View style={styles.placeRatingRowMake}>
@@ -7963,7 +7976,7 @@ export default function LumiiMvpApp() {
                   <Star key={index} color="#FFB94B" fill="#FFB94B" size={13} strokeWidth={2} />
                 ))}
                 <Text style={styles.placeRatingValueMake}>{place.rating}</Text>
-                <Text style={styles.placeReviewCountMake}>· 236 条点评</Text>
+                <Text style={styles.placeReviewCountMake}>{placeReviewSummary}</Text>
                 <View style={styles.placeDistancePillDetailMake}>
                   <Navigation color={palette.teal} size={11} strokeWidth={2.6} />
                   <Text style={styles.placeDistanceTextDetailMake}>{place.distance}</Text>
@@ -7976,11 +7989,11 @@ export default function LumiiMvpApp() {
                   <View style={styles.placeAddressMetaRowMake}>
                     <View style={styles.placeAddressMetaItemMake}>
                       <Clock color={palette.muted} size={10} strokeWidth={2.2} />
-                      <Text style={styles.placeAddressMeta}>06:00 - 22:00</Text>
+                      <Text style={styles.placeAddressMeta}>营业时间待补充</Text>
                     </View>
                     <View style={styles.placeAddressMetaItemMake}>
                       <Phone color={palette.muted} size={10} strokeWidth={2.2} />
-                      <Text style={styles.placeAddressMeta}>010-8888-8888</Text>
+                      <Text style={styles.placeAddressMeta}>联系电话待补充</Text>
                     </View>
                   </View>
                 </View>
@@ -8005,17 +8018,19 @@ export default function LumiiMvpApp() {
                   <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={28} />
                   <View style={styles.flex}>
                     <View style={styles.placeReviewAuthorRowMake}>
-                      <Text numberOfLines={1} style={styles.placeReviewAuthorMake}>{myPlaceReview ? `${ownerName}` : ownerName}</Text>
-                      <View style={styles.placeReviewStarsMake}>
-                        {Array.from({ length: 5 }).map((_, index) => (
-                          <Star key={index} color="#FFB94B" fill="#FFB94B" size={10} strokeWidth={2} />
-                        ))}
-                      </View>
+                      <Text numberOfLines={1} style={styles.placeReviewAuthorMake}>{myPlaceReview ? ownerName : '还没有你的点评'}</Text>
+                      {myPlaceReview ? (
+                        <View style={styles.placeReviewStarsMake}>
+                          {Array.from({ length: 5 }).map((_, index) => (
+                            <Star key={index} color="#FFB94B" fill="#FFB94B" size={10} strokeWidth={2} />
+                          ))}
+                        </View>
+                      ) : null}
                     </View>
-                    <Text style={styles.placeReviewTimeMake}>{myPlaceReview?.status === 'pending_review' ? '审核中' : '3 天前'}</Text>
+                    <Text style={styles.placeReviewTimeMake}>{placeReviewTime}</Text>
                   </View>
                 </View>
-                <Text style={styles.placeReviewBodyMake}>{myPlaceReview?.content ?? '草坪很大，有饮水点，周末人会稍多。'}</Text>
+                <Text style={styles.placeReviewBodyMake}>{placeReviewBody}</Text>
               </View>
               <View style={styles.placeDetailBottomCtaMake}>
                 <Pressable disabled={placeReviewSaving} onPress={() => openPlaceReviewComposer(place)} style={[styles.placeReviewShortcutMake, webPressableReset]}>
