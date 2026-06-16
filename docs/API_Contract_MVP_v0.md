@@ -713,6 +713,22 @@ WeightRecord[]
 
 当前宠物疫苗/驱虫计划。测试后端会按 `phone + activePetId` 持久化，默认根据猫/狗生成基础计划。
 
+### POST `/health/vaccines`
+
+在当前宠物下新增一条疫苗/驱虫计划。App 现有疫苗计划页内联新增表单会调用该接口，保存成功后刷新健康摘要、健康日历和计划列表。
+
+Request:
+
+```json
+{ "name": "狂犬疫苗", "dueAt": "2026-06-30" }
+```
+
+说明：
+- `name` 必填，最多 24 个字。
+- `dueAt` 必须是合法 `YYYY-MM-DD` 日期。
+- 测试后端会根据 `dueAt` 自动设置 `status`：过去日期为 `overdue`，今天或未来为 `due`。
+- 请求只接受 `name`、`dueAt` 两个字段；未知字段返回 `HEALTH_VACCINE_INVALID`。
+
 ### PATCH `/health/vaccines/{vaccineId}`
 
 Request:

@@ -11,6 +11,7 @@ import type {
   Conversation,
   ConversationMessage,
   CreatePetInput,
+  CreateVaccinePlanInput,
   FeedbackCategory,
   FeedbackSubmission,
   GreetingResult,
@@ -270,6 +271,22 @@ function parseMockVaccineStatusPatch(status: unknown): { error: string; ok: fals
 function parseMockVaccineReminderPatch(enabled: unknown): { error: string; ok: false } | { enabled: boolean; ok: true } {
   if (typeof enabled !== 'boolean') return { error: '疫苗提醒开关必须是开启或关闭', ok: false };
   return { enabled, ok: true };
+}
+
+function parseMockVaccineCreatePayload(value: Partial<CreateVaccinePlanInput>): { error: string; ok: false } | { input: CreateVaccinePlanInput; ok: true } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '疫苗计划参数无效，请刷新后重试', ok: false };
+  }
+  const source = value as Record<string, unknown>;
+  const allowedKeys = new Set(['dueAt', 'name']);
+  const unknownKey = Object.keys(source).find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `疫苗计划字段 ${unknownKey} 暂不支持`, ok: false };
+  const name = String(source.name || '').trim();
+  const dueAt = String(source.dueAt || '').trim();
+  if (!name) return { error: '请输入疫苗或驱虫名称', ok: false };
+  if (name.length > 24) return { error: '疫苗名称最多 24 个字', ok: false };
+  if (!isValidIsoCalendarDate(dueAt)) return { error: '请选择正确的计划日期', ok: false };
+  return { input: { dueAt, name }, ok: true };
 }
 
 function parseMockPushDevicePayload(
@@ -1685,6 +1702,22 @@ export const mockApi = {
     async listVaccines(): Promise<ApiResult<VaccinePlan[]>> {
       await wait(140);
       return success(vaccines);
+    },
+
+    async createVaccinePlan(input: CreateVaccinePlanInput): Promise<ApiResult<VaccinePlan>> {
+      await wait();
+      const vaccineInput = parseMockVaccineCreatePayload(input);
+      if (!vaccineInput.ok) return error<VaccinePlan>(vaccineInput.error, false, undefined, 'HEALTH_VACCINE_INVALID');
+      const days = daysUntilDate(vaccineInput.input.dueAt);
+      const vaccine: VaccinePlan = {
+        dueAt: vaccineInput.input.dueAt,
+        id: `v-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+        name: vaccineInput.input.name,
+        status: days !== null && days < 0 ? 'overdue' : 'due',
+      };
+      vaccines = [vaccine, ...vaccines].sort((left, right) => left.dueAt.localeCompare(right.dueAt));
+      ensureMockHealthReminderNotifications();
+      return success(vaccine);
     },
 
     async updateVaccineStatus(id: string, status: VaccinePlan['status']): Promise<ApiResult<VaccinePlan>> {

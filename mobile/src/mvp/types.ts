@@ -252,6 +252,11 @@ export type VaccinePlan = {
   status: 'done' | 'due' | 'overdue';
 };
 
+export type CreateVaccinePlanInput = {
+  dueAt: string;
+  name: string;
+};
+
 export type HealthMemo = {
   content: string;
   id: string;

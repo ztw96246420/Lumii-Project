@@ -302,6 +302,7 @@ Android 调用：
 - ~~`DELETE /pets/{petId}/weights/{weightId}`：删除历史体重。~~ 测试后端已接 `DELETE /health/weights/{weightId}`，删除后会回填/清空当前宠物体重；RN 已补删除二次确认。
 - ~~`GET /pets/{petId}/weights/trend`：体重趋势。~~ 测试后端已接 `GET /health/weights/trend`，按当前宠物返回轻量趋势摘要；趋势详情 UI 仍需 Figma 设计。
 - ~~`GET /pets/{petId}/vaccines/plan`：疫苗计划。~~ 测试后端已接 `GET /health/vaccines`。
+- ~~新增疫苗/驱虫计划。~~ 测试后端、mock API 和 App 已接 `POST /health/vaccines`；现有疫苗计划页内联新增表单支持名称、日期、快捷日期、保存 loading 和失败 toast，不新增页面。
 - ~~`PATCH /pets/{petId}/vaccines/plan`：更新疫苗计划。~~ 测试后端已接 `PATCH /health/vaccines/{vaccineId}`，支持标记完成；只接受 `due/done/overdue` 状态，非法字段或非法状态返回 `HEALTH_VACCINE_INVALID`。
 - ~~疫苗/驱虫提醒开关接口。~~ 测试后端已接 `GET /health/vaccine-reminders` 与 `PATCH /health/vaccine-reminders/{vaccineId}`，只接受布尔 `enabled`，非法字段、非布尔值或已完成计划重新开启提醒返回 `HEALTH_REMINDER_INVALID`。
 - ~~疫苗/驱虫提醒和标记完成的前端状态保护。~~ App 已补 ref 级互斥、最新通知权限/推送设置读取和退出账号清理；不需要你额外补页面或接口。
@@ -488,7 +489,7 @@ P2 后续：
 - `permissions`：当前通过 `src/services/permissions.ts` 调用 Expo 权限服务；Web 预览模拟授权
 - `pets`：`getTaxonomy`、`createPet`、`updatePet`、`listPets`、`setActivePet`
 - `avatar`：`uploadPetMedia`、`getUploadedMedia`、`startGeneration`、`getGenerationStatus`、`retryGeneration`、`acceptGeneration`、`sendGenerationFeedback`、`saveAvatar`
-- `health`：`getHealthSummary`、`listHealthCalendar`、`recordWeight`、`updateWeightRecord`、`deleteWeightRecord`、`listWeightRecords`、`getWeightTrend`、`listVaccines`、`updateVaccineStatus`、`listVaccineReminderIds`、`setVaccineReminder`、`saveHealthMemo`、`updateHealthMemo`、`deleteHealthMemo`、`listHealthMemos`
+- `health`：`getHealthSummary`、`listHealthCalendar`、`recordWeight`、`updateWeightRecord`、`deleteWeightRecord`、`listWeightRecords`、`getWeightTrend`、`listVaccines`、`createVaccinePlan`、`updateVaccineStatus`、`listVaccineReminderIds`、`setVaccineReminder`、`saveHealthMemo`、`updateHealthMemo`、`deleteHealthMemo`、`listHealthMemos`
 - `social`：`listNearbyOwners`、`sendGreeting`、`createWalkInvite`
 - `messages`：`registerPushToken`、`listConversations`、`sendMessage`、`listNotifications`
 - `places`：`listNearbyPlaces`、`searchPlaces`、`getPlace`、`listFavoritePlaceIds`、`setFavoritePlace`、`listMyReviews`、`listMySubmissions`、`createReview`、`createSubmission`

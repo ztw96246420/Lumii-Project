@@ -599,6 +599,18 @@ function todayIsoDate() {
   return dateToIsoDate(new Date());
 }
 
+function addDaysIsoDate(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return dateToIsoDate(date);
+}
+
+function isExactIsoCalendarDate(dateText: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) return false;
+  const date = parseIsoDate(dateText);
+  return Boolean(date && dateToIsoDate(date) === dateText);
+}
+
 function formatClockTime(date = new Date()) {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
@@ -898,6 +910,11 @@ export default function LumiiMvpApp() {
   const vaccineReminderSavingIdsRef = useRef<Set<string>>(new Set());
   const [vaccineDoneSavingIds, setVaccineDoneSavingIds] = useState<string[]>([]);
   const vaccineDoneSavingIdsRef = useRef<Set<string>>(new Set());
+  const [vaccineComposerVisible, setVaccineComposerVisible] = useState(false);
+  const [vaccineNameDraft, setVaccineNameDraft] = useState('');
+  const [vaccineDueDraft, setVaccineDueDraft] = useState('');
+  const [vaccineCreating, setVaccineCreating] = useState(false);
+  const vaccineCreatingRef = useRef(false);
   const [dailyPostText, setDailyPostText] = useState('');
   const [dailyMood, setDailyMood] = useState<DailyMood>('开心');
   const [dailyPostPhotoUris, setDailyPostPhotoUris] = useState<string[]>([]);
@@ -3123,6 +3140,52 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function openVaccineComposer() {
+    setVaccineComposerVisible(true);
+    setVaccineNameDraft('');
+    setVaccineDueDraft('');
+  }
+
+  async function createVaccinePlan() {
+    if (vaccineCreatingRef.current) return;
+    const name = vaccineNameDraft.trim();
+    const dueAt = vaccineDueDraft.trim();
+    if (!name) {
+      showToast('请输入疫苗或驱虫名称');
+      return;
+    }
+    if (name.length > 24) {
+      showToast('疫苗名称最多 24 个字');
+      return;
+    }
+    if (!isExactIsoCalendarDate(dueAt)) {
+      showToast('请选择正确的计划日期，例如 2026-06-30');
+      return;
+    }
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = activePetIdRef.current;
+    if (!requestPetId) return;
+    vaccineCreatingRef.current = true;
+    setVaccineCreating(true);
+    try {
+      const result = await lumiiApi.health.createVaccinePlan({ dueAt, name });
+      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
+      if (result.data) {
+        setVaccines((items) => [result.data!, ...items.filter((item) => item.id !== result.data!.id)].sort((left, right) => left.dueAt.localeCompare(right.dueAt)));
+        setVaccineComposerVisible(false);
+        setVaccineNameDraft('');
+        setVaccineDueDraft('');
+        void refreshPetScopedData();
+        showToast('疫苗计划已添加', { tone: 'success', variant: 'surface' });
+      } else {
+        showToast(result.error?.message ?? '新增计划失败，请稍后重试', { tone: 'error', variant: 'surface' });
+      }
+    } finally {
+      vaccineCreatingRef.current = false;
+      setVaccineCreating(false);
+    }
+  }
+
   async function syncNearbySettingsChange(key: UserSettingKey, nextValue: boolean) {
     if (key !== 'nearbyVisible' && key !== 'fuzzyLocation') return;
 
@@ -4546,6 +4609,11 @@ export default function LumiiMvpApp() {
     setVaccineReminderSavingIds([]);
     vaccineDoneSavingIdsRef.current.clear();
     setVaccineDoneSavingIds([]);
+    setVaccineComposerVisible(false);
+    setVaccineNameDraft('');
+    setVaccineDueDraft('');
+    vaccineCreatingRef.current = false;
+    setVaccineCreating(false);
     setDailyPostText('');
     setDailyPostPhotoUris([]);
     dailyPhotoPickingRef.current = false;
@@ -7071,6 +7139,12 @@ export default function LumiiMvpApp() {
     const overdueVaccine = vaccines.find((item) => item.status === 'overdue' || (daysUntilDate(item.dueAt) ?? 999) < 0);
     const upcomingVaccine = vaccines.find((item) => item.status !== 'done' && (daysUntilDate(item.dueAt) ?? 999) >= 0 && (daysUntilDate(item.dueAt) ?? 999) <= 14);
     const heroStatus = !nextVaccine ? '暂无计划' : nextVaccine.status === 'done' ? '已完成' : nextVaccine.status === 'overdue' ? '已逾期' : (daysUntilDate(nextVaccine.dueAt) ?? 999) <= 14 ? '即将到期' : '计划中';
+    const vaccineQuickDates = [
+      { date: todayIsoDate(), label: '今天' },
+      { date: addDaysIsoDate(7), label: '7 天后' },
+      { date: addDaysIsoDate(30), label: '30 天后' },
+      { date: addDaysIsoDate(90), label: '90 天后' },
+    ];
     const vaxRowMeta = (item: VaccinePlan) => {
       const days = daysUntilDate(item.dueAt);
       if (item.status === 'done') return { label: '已完成', style: styles.vaccineStateDone, sub: `已完成 · ${item.dueAt}`, textStyle: styles.vaccineStateDoneText };
@@ -7136,13 +7210,53 @@ export default function LumiiMvpApp() {
         <View style={styles.vaccinePlanBlock}>
           <View style={styles.vaccinePlanHeader}>
             <Text style={styles.weightSectionTitle}>全部计划</Text>
-            <Pressable onPress={() => showToast('新增疫苗计划后续开放')} style={[styles.weightAddLink, webPressableReset]}>
-              <Plus color={palette.orange} size={12} strokeWidth={2.5} />
-              <Text style={styles.weightAddLinkText}>新增</Text>
+            <Pressable disabled={vaccineCreating} onPress={vaccineComposerVisible ? () => setVaccineComposerVisible(false) : openVaccineComposer} style={[styles.weightAddLink, vaccineCreating && styles.mapSearchActionDisabled, webPressableReset]}>
+              {vaccineComposerVisible ? <X color={palette.orange} size={12} strokeWidth={2.5} /> : <Plus color={palette.orange} size={12} strokeWidth={2.5} />}
+              <Text style={styles.weightAddLinkText}>{vaccineComposerVisible ? '取消' : '新增'}</Text>
             </Pressable>
           </View>
+          {vaccineComposerVisible ? (
+            <View style={styles.vaccineComposerCard}>
+              <View style={styles.vaccineComposerField}>
+                <Text style={styles.label}>名称</Text>
+                <TextInput
+                  editable={!vaccineCreating}
+                  onChangeText={setVaccineNameDraft}
+                  placeholder="例如：狂犬疫苗 / 体内驱虫"
+                  placeholderTextColor="#B8B3A8"
+                  style={[styles.makeTextInput, webTextInputReset]}
+                  value={vaccineNameDraft}
+                />
+              </View>
+              <View style={styles.vaccineComposerField}>
+                <Text style={styles.label}>计划日期</Text>
+                <TextInput
+                  editable={!vaccineCreating}
+                  keyboardType="numbers-and-punctuation"
+                  onChangeText={setVaccineDueDraft}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor="#B8B3A8"
+                  style={[styles.makeTextInput, !vaccineDueDraft.trim() && styles.vaccineDateInputEmpty, webTextInputReset]}
+                  value={vaccineDueDraft}
+                />
+                <View style={styles.vaccineQuickDateRow}>
+                  {vaccineQuickDates.map((item) => (
+                    <Pressable
+                      disabled={vaccineCreating}
+                      key={item.label}
+                      onPress={() => setVaccineDueDraft(item.date)}
+                      style={[styles.vaccineQuickDateChip, vaccineDueDraft === item.date && styles.vaccineQuickDateChipActive, webPressableReset]}
+                    >
+                      <Text style={[styles.vaccineQuickDateText, vaccineDueDraft === item.date && styles.vaccineQuickDateTextActive]}>{item.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+              <Button loading={vaccineCreating} onPress={() => void createVaccinePlan()}>保存计划</Button>
+            </View>
+          ) : null}
           <View style={styles.vaccinePlanCard}>
-          {vaccines.map((item, index) => {
+          {vaccines.length ? vaccines.map((item, index) => {
             const meta = vaxRowMeta(item);
             return (
             <View key={item.id}>
@@ -7162,7 +7276,12 @@ export default function LumiiMvpApp() {
               {index < vaccines.length - 1 ? <View style={styles.makeDivider} /> : null}
             </View>
             );
-          })}
+          }) : (
+            <View style={styles.vaccineEmptyPlanMake}>
+              <Text style={styles.timelineTitleMake}>暂无疫苗或驱虫计划</Text>
+              <Text style={styles.timelineSubMake}>点右上角“新增”，为{getCurrentPet()?.name ?? '毛孩子'}添加下一次提醒。</Text>
+            </View>
+          )}
           </View>
         </View>
 
@@ -11783,6 +11902,10 @@ const styles = StyleSheet.create({
   timelineTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
   vaccineDuePill: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.72)', borderRadius: 10, color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 3 },
   vaccineDuePillDanger: { color: palette.danger },
+  vaccineComposerCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 13, marginBottom: 10, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
+  vaccineComposerField: { gap: 8 },
+  vaccineDateInputEmpty: { borderColor: 'rgba(122,121,114,0.26)' },
+  vaccineEmptyPlanMake: { gap: 4, paddingHorizontal: 2, paddingVertical: 18 },
   vaccineHeroActionDisabled: { opacity: 0.58 },
   vaccineHeroActionDisabledText: { color: palette.muted },
   vaccineHeroActionPrimary: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 20, flex: 1, flexDirection: 'row', gap: 5, height: 40, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.26, shadowRadius: 20 },
@@ -11804,6 +11927,11 @@ const styles = StyleSheet.create({
   vaccinePlanIconPlanned: { backgroundColor: 'rgba(122,121,114,0.14)' },
   vaccinePlanRow: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 12 },
   vaccinePlanTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  vaccineQuickDateChip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 999, borderWidth: 1, flex: 1, justifyContent: 'center', minHeight: 32, paddingHorizontal: 8 },
+  vaccineQuickDateChipActive: { backgroundColor: palette.orange, borderColor: palette.orange },
+  vaccineQuickDateRow: { flexDirection: 'row', gap: 7 },
+  vaccineQuickDateText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700' },
+  vaccineQuickDateTextActive: { color: '#fff' },
   vaccineReminderActionText: { borderColor: palette.orange, borderRadius: 9, borderWidth: 1, color: palette.orange, flexShrink: 0, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
   vaccineReminderDanger: { alignItems: 'center', backgroundColor: '#FBE4DE', borderColor: '#F5C7BD', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 12 },
   vaccineReminderIconDanger: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, flexShrink: 0, height: 32, justifyContent: 'center', width: 32 },

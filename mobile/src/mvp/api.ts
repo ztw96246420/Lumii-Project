@@ -11,6 +11,7 @@ import type {
   Conversation,
   ConversationMessage,
   CreatePetInput,
+  CreateVaccinePlanInput,
   FeedbackCategory,
   FeedbackSubmission,
   GreetingResult,
@@ -272,6 +273,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
 
       async listVaccines(): Promise<ApiResult<VaccinePlan[]>> {
         return request<VaccinePlan[]>('GET', '/health/vaccines');
+      },
+
+      async createVaccinePlan(input: CreateVaccinePlanInput): Promise<ApiResult<VaccinePlan>> {
+        return request<VaccinePlan>('POST', '/health/vaccines', input);
       },
 
       async updateVaccineStatus(id: string, status: VaccinePlan['status']): Promise<ApiResult<VaccinePlan>> {

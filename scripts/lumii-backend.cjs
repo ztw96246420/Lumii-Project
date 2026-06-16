@@ -843,6 +843,22 @@ function parseVaccineReminderPatch(value) {
   return { enabled: value.enabled };
 }
 
+function parseVaccineCreatePayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '疫苗计划参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(['dueAt', 'name']);
+  const keys = Object.keys(value);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `疫苗计划字段 ${unknownKey} 暂不支持` };
+  const name = String(value.name || '').trim();
+  const dueAt = String(value.dueAt || '').trim();
+  if (!name) return { error: '请输入疫苗或驱虫名称' };
+  if (name.length > 24) return { error: '疫苗名称最多 24 个字' };
+  if (!isValidIsoCalendarDate(dueAt)) return { error: '请选择正确的计划日期' };
+  return { input: { dueAt, name } };
+}
+
 function parsePushDevicePayload(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { error: '推送设备参数无效，请刷新后重试' };
@@ -3580,6 +3596,28 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/health/vaccines') {
     ok(res, healthList('vaccines', user, defaultVaccinesFor));
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/health/vaccines') {
+    const vaccineInput = parseVaccineCreatePayload(body);
+    if (vaccineInput.error) {
+      fail(res, 400, vaccineInput.error, false, undefined, 'HEALTH_VACCINE_INVALID');
+      return;
+    }
+    const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+    const days = daysUntilDate(vaccineInput.input.dueAt);
+    const vaccine = {
+      dueAt: vaccineInput.input.dueAt,
+      id: `v-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      name: vaccineInput.input.name,
+      status: days !== null && days < 0 ? 'overdue' : 'due',
+    };
+    vaccines.unshift(vaccine);
+    vaccines.sort((left, right) => String(left.dueAt).localeCompare(String(right.dueAt)));
+    ensureHealthReminderNotifications(user);
+    saveState();
+    ok(res, vaccine);
     return;
   }
 
