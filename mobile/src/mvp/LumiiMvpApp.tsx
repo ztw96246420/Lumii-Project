@@ -3817,14 +3817,15 @@ export default function LumiiMvpApp() {
     }
   }
 
-  async function searchPlaces() {
+  async function searchPlaces(options: { filter?: 'all' | Place['category'] } = {}) {
     if (placeSearchingRef.current) return;
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
     const query = placeQueryRef.current.trim();
+    const nextFilter = options.filter ?? 'all';
     placeSearchingRef.current = true;
     setPlaceSearching(true);
-    setPlaceFilter('all');
+    setPlaceFilter(nextFilter);
     try {
       const result = query ? await lumiiApi.places.searchPlaces(query) : await lumiiApi.places.listNearbyPlaces();
       if (sessionTokenRef.current !== requestSessionToken) return;
@@ -3832,8 +3833,9 @@ export default function LumiiMvpApp() {
       if (result.data) {
         const nextPlaces = result.data;
         setPlaces(nextPlaces);
-        setSelectedPlace((current) => nextPlaces.find((place) => place.id === current?.id) ?? nextPlaces[0] ?? null);
-        showToast(query ? (nextPlaces.length ? `找到 ${nextPlaces.length} 个地点` : '没有匹配地点') : '已刷新附近地点');
+        const visibleNextPlaces = nextFilter === 'all' ? nextPlaces : nextPlaces.filter((place) => place.category === nextFilter);
+        setSelectedPlace((current) => visibleNextPlaces.find((place) => place.id === current?.id) ?? visibleNextPlaces[0] ?? nextPlaces[0] ?? null);
+        showToast(query ? (visibleNextPlaces.length ? `找到 ${visibleNextPlaces.length} 个地点` : '没有匹配地点') : '已刷新附近地点');
       } else {
         showToast(result.error?.message ?? '搜索失败，请稍后重试');
       }
@@ -3899,6 +3901,16 @@ export default function LumiiMvpApp() {
     const currentIndex = discoverFilterOptions.findIndex((item) => item.key === discoverFilter);
     const nextFilter = discoverFilterOptions[(currentIndex + 1) % discoverFilterOptions.length]?.key ?? 'all';
     applyDiscoverFilter(nextFilter);
+  }
+
+  function openVaccineClinicSearch(vaccine?: VaccinePlan) {
+    const query = '宠物医院';
+    placeQueryRef.current = query;
+    setPlaceQuery(query);
+    setPlaceFilter('clinic');
+    go('map');
+    showToast(vaccine ? `正在查找可处理${vaccine.name}的附近宠物医院` : '正在查找附近宠物医院', { tone: 'info', variant: 'surface' });
+    void searchPlaces({ filter: 'clinic' });
   }
 
   async function getDiscoverLocationHint(options: { allowCachedOnError?: boolean; requestId?: number; requestSessionToken?: string; silent?: boolean } = {}): Promise<NearbyLocationHint | null> {
@@ -6942,7 +6954,7 @@ export default function LumiiMvpApp() {
         </View>
 
         {overdueVaccine ? (
-          <View style={styles.vaccineReminderDanger}>
+          <Pressable onPress={() => openVaccineClinicSearch(overdueVaccine)} style={[styles.vaccineReminderDanger, webPressableReset]}>
             <View style={styles.vaccineReminderIconDanger}>
               <AlertTriangle color={palette.danger} size={15} strokeWidth={2.5} />
             </View>
@@ -6951,7 +6963,7 @@ export default function LumiiMvpApp() {
               <Text style={styles.timelineSubMake}>别担心，挑个有空的下午带{getCurrentPet()?.name ?? '毛孩子'}去补打就好。</Text>
             </View>
             <Text style={styles.vaccineReminderActionText}>预约</Text>
-          </View>
+          </Pressable>
         ) : null}
 
         {upcomingVaccine ? (
