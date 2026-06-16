@@ -599,6 +599,8 @@ type WalkInviteDraft = {
   note: string;
   ownerId: string;
   place: string;
+  placeAddress?: string;
+  placeId?: string;
   savedAt: number;
   time: string;
   version: 1;
@@ -1136,6 +1138,9 @@ export default function LumiiMvpApp() {
   const [greetingSheetOwner, setGreetingSheetOwner] = useState<NearbyOwner | null>(null);
   const [greetingMessage, setGreetingMessage] = useState('你好呀，我们也在附近，想认识一下吗？');
   const [walkInvitePlace, setWalkInvitePlace] = useState('');
+  const [walkInvitePlaceAddress, setWalkInvitePlaceAddress] = useState('');
+  const [walkInvitePlaceId, setWalkInvitePlaceId] = useState('');
+  const [walkInvitePickingPlace, setWalkInvitePickingPlace] = useState(false);
   const [walkInviteTime, setWalkInviteTime] = useState(() => defaultWalkInviteTime());
   const [walkInviteNote, setWalkInviteNote] = useState('');
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -1302,6 +1307,11 @@ export default function LumiiMvpApp() {
         return true;
       }
 
+      if (walkInvitePickingPlace && route === 'map') {
+        cancelWalkInvitePlacePick();
+        return true;
+      }
+
       if (tabBackToHomeRoutes.has(route)) {
         resetTo(activePet ? 'home' : 'emptyPet');
         return true;
@@ -1323,7 +1333,7 @@ export default function LumiiMvpApp() {
     });
 
     return () => subscription.remove();
-  }, [activePet, amapNavigationPlace, back, confirm, mapStylePanelVisible, resetTo, route, showToast]);
+  }, [activePet, amapNavigationPlace, back, confirm, mapStylePanelVisible, resetTo, route, showToast, walkInvitePickingPlace]);
 
   useEffect(() => {
     let mounted = true;
@@ -1401,6 +1411,10 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     selectedPlaceIdRef.current = selectedPlace?.id ?? null;
   }, [selectedPlace?.id]);
+
+  useEffect(() => {
+    if (walkInvitePickingPlace && route !== 'map' && route !== 'placeDetail') setWalkInvitePickingPlace(false);
+  }, [route, walkInvitePickingPlace]);
 
   useEffect(() => {
     permissionsRef.current = permissions;
@@ -4136,6 +4150,8 @@ export default function LumiiMvpApp() {
     const draft = value as Partial<WalkInviteDraft> | null;
     if (!draft || draft.version !== 1 || draft.ownerId !== ownerId) return null;
     const place = typeof draft.place === 'string' ? draft.place : '';
+    const placeAddress = typeof draft.placeAddress === 'string' ? draft.placeAddress : '';
+    const placeId = typeof draft.placeId === 'string' ? draft.placeId : '';
     const time = typeof draft.time === 'string' ? draft.time : '';
     const note = typeof draft.note === 'string' ? draft.note : '';
     const savedAt = Number(draft.savedAt || 0);
@@ -4144,6 +4160,8 @@ export default function LumiiMvpApp() {
       note,
       ownerId,
       place,
+      placeAddress,
+      placeId,
       savedAt: Number.isFinite(savedAt) && savedAt > 0 ? savedAt : Date.now(),
       time,
       version: 1 as const,
@@ -4176,12 +4194,59 @@ export default function LumiiMvpApp() {
     if (sessionTokenRef.current !== requestSessionToken || selectedOwnerIdRef.current !== owner.id) return;
     setWalkInviteTime(draft?.time || defaultWalkInviteTime());
     setWalkInvitePlace(draft?.place || '');
+    setWalkInvitePlaceAddress(draft?.placeAddress || '');
+    setWalkInvitePlaceId(draft?.placeId || '');
     setWalkInviteNote(draft?.note || '');
     go('walkInvite');
     if (draft) {
       const savedAt = formatClockTime(new Date(draft.savedAt));
       showToast('已恢复约遛草稿', { subtitle: `保存于 ${savedAt}`, tone: 'success', variant: 'surface' });
     }
+  }
+
+  function walkInvitePlaceMetaFor(place: Place) {
+    return [place.address, place.distance].filter(Boolean).join(' · ');
+  }
+
+  function returnToWalkInviteFromMap() {
+    setHistory((items) => {
+      const walkInviteIndex = items.lastIndexOf('walkInvite');
+      setRoute(selectedOwnerIdRef.current ? 'walkInvite' : 'discover');
+      return walkInviteIndex >= 0 ? items.slice(0, walkInviteIndex) : items;
+    });
+  }
+
+  function cancelWalkInvitePlacePick() {
+    setWalkInvitePickingPlace(false);
+    returnToWalkInviteFromMap();
+  }
+
+  function finishWalkInvitePlacePick(place: Place) {
+    setSelectedPlace(place);
+    setWalkInvitePlace(place.name);
+    setWalkInvitePlaceAddress(walkInvitePlaceMetaFor(place));
+    setWalkInvitePlaceId(place.id);
+    setWalkInvitePickingPlace(false);
+    returnToWalkInviteFromMap();
+    showToast('已选择约遛地点', { subtitle: place.name, tone: 'success', variant: 'surface' });
+  }
+
+  function openWalkInvitePlacePicker() {
+    if (!selectedOwner) {
+      showToast('请选择附近主人');
+      return;
+    }
+    setWalkInvitePickingPlace(true);
+    setMapPlacesSheetExpanded(true);
+    placeQueryRef.current = '';
+    setPlaceQuery('');
+    setPlaceFilter('all');
+    setPlaceSpeciesFilter('all');
+    setPlaceDistanceRadiusKm(3);
+    setPlaceSortMode('distance');
+    go('map');
+    showToast('请选择约遛地点', { subtitle: '点击地图下方地点即可带回邀请页', tone: 'info', variant: 'surface' });
+    if (!places.length) void searchPlaces({ filter: 'all', silent: true, speciesFilter: 'all' });
   }
 
   async function saveWalkInviteDraft() {
@@ -4195,6 +4260,8 @@ export default function LumiiMvpApp() {
       note: walkInviteNote.trim(),
       ownerId: owner.id,
       place: walkInvitePlace.trim(),
+      placeAddress: walkInvitePlaceAddress.trim(),
+      placeId: walkInvitePlaceId,
       savedAt: Date.now(),
       time: walkInviteTime.trim(),
       version: 1,
@@ -4257,6 +4324,8 @@ export default function LumiiMvpApp() {
         await deleteWalkInviteDraft(requestOwnerId);
         if (stillEditingSameInvite) {
           setWalkInvitePlace('');
+          setWalkInvitePlaceAddress('');
+          setWalkInvitePlaceId('');
           setWalkInviteNote('');
         }
         void loadInboxData();
@@ -5066,6 +5135,9 @@ export default function LumiiMvpApp() {
     setGreetingSheetOwner(null);
     setGreetingMessage('你好呀，我们也在附近，想认识一下吗？');
     setWalkInvitePlace('');
+    setWalkInvitePlaceAddress('');
+    setWalkInvitePlaceId('');
+    setWalkInvitePickingPlace(false);
     setWalkInviteTime(defaultWalkInviteTime());
     setWalkInviteNote('');
     setPlaces([]);
@@ -8141,6 +8213,7 @@ export default function LumiiMvpApp() {
     const placeSortLabel = placeSortOptions.find((item) => item.key === placeSortMode)?.label ?? '距离最近';
     const placeFilterMeta = [placeQuery.trim() ? '搜索结果' : placeFilterLabel, placeSpeciesFilterLabel || null, placeSortLabel].filter(Boolean).join(' · ');
     const placeResultMeta = placeSearching ? '搜索中...' : `${visiblePlaces.length} 个 · ${placeDistanceRadiusKm}km 内 · ${placeFilterMeta}`;
+    const mapSheetTitle = walkInvitePickingPlace ? '选择约遛地点' : '附近宠物友好地点';
     const distanceProgress = `${Math.round((placeDistanceRadiusKm / 5) * 100)}%`;
     const distanceProgressStyle = { width: distanceProgress as ViewStyle['width'] };
     const distanceThumbStyle = { left: distanceProgress as ViewStyle['left'] };
@@ -8181,6 +8254,11 @@ export default function LumiiMvpApp() {
         return;
       }
       void locateMapToCurrentPosition();
+    };
+    const openOrPickPlace = (place: Place) => {
+      setSelectedPlace(place);
+      if (walkInvitePickingPlace) finishWalkInvitePlacePick(place);
+      else go('placeDetail');
     };
     return (
       <Screen showBack={false} title="">
@@ -8305,6 +8383,21 @@ export default function LumiiMvpApp() {
             </Pressable>
           </View>
 
+          {walkInvitePickingPlace ? (
+            <View style={styles.mapPickBannerMake}>
+              <View style={styles.mapPickIconMake}>
+                <PawPrint color={palette.orange} size={14} strokeWidth={2.5} />
+              </View>
+              <View style={styles.flex}>
+                <Text style={styles.mapPickTitleMake}>正在选择约遛地点</Text>
+                <Text numberOfLines={1} style={styles.mapPickSubMake}>点击下方地点即可带回邀请页</Text>
+              </View>
+              <Pressable onPress={cancelWalkInvitePlacePick} style={[styles.mapPickCancelMake, webPressableReset]}>
+                <Text style={styles.mapPickCancelTextMake}>取消</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           {mapLocationError ? (
             <View style={styles.mapLocationErrorBanner}>
               <View style={styles.mapLocationErrorIcon}>
@@ -8375,8 +8468,7 @@ export default function LumiiMvpApp() {
                     active={place.id === highlightedPlace?.id}
                     key={place.id}
                     onPress={() => {
-                      setSelectedPlace(place);
-                      go('placeDetail');
+                      openOrPickPlace(place);
                     }}
                     place={place}
                     rank={index + 1}
@@ -8433,7 +8525,7 @@ export default function LumiiMvpApp() {
                     <View style={styles.sheetHandle} />
                     <View style={styles.mapSheetHeader}>
                       <View style={styles.flex}>
-                        <Text style={styles.sectionTitle}>附近宠物友好地点</Text>
+                        <Text style={styles.sectionTitle}>{mapSheetTitle}</Text>
                         <Text style={styles.metaText}>{mapPlacesSheetExpanded ? `${placeResultMeta} · 向下收起` : `${placeResultMeta} · 点击展开`}</Text>
                       </View>
                       <View style={styles.mapSheetToggleIconMake}>
@@ -8449,8 +8541,7 @@ export default function LumiiMvpApp() {
                         active={place.id === highlightedPlace?.id}
                         key={place.id}
                         onPress={() => {
-                          setSelectedPlace(place);
-                          go('placeDetail');
+                          openOrPickPlace(place);
                         }}
                         place={place}
                         rank={index + 1}
@@ -8601,14 +8692,29 @@ export default function LumiiMvpApp() {
                 <Text style={styles.placeReviewBodyMake}>{placeReviewBody}</Text>
               </View>
               <View style={styles.placeDetailBottomCtaMake}>
-                <Pressable disabled={placeReviewSaving} onPress={() => void openPlaceReviewComposer(place)} style={[styles.placeReviewShortcutMake, webPressableReset]}>
-                  {placeReviewSaving ? <ActivityIndicator color={palette.ink} size="small" /> : <PenLine color={palette.ink} size={16} strokeWidth={2.4} />}
-                  <Text style={styles.placeReviewShortcutTextMake}>{hasPendingPlaceReview ? '再点评' : '写点评'}</Text>
-                </Pressable>
-                <Pressable onPress={() => setAmapNavigationPlace(place)} style={[styles.placeNavigationButtonMake, webPressableReset]}>
-                  <Navigation color="#fff" size={15} strokeWidth={2.6} />
-                  <Text style={styles.placeNavigationButtonTextMake}>高德导航</Text>
-                </Pressable>
+                {walkInvitePickingPlace ? (
+                  <>
+                    <Pressable onPress={cancelWalkInvitePlacePick} style={[styles.placeReviewShortcutMake, webPressableReset]}>
+                      <X color={palette.ink} size={16} strokeWidth={2.4} />
+                      <Text style={styles.placeReviewShortcutTextMake}>取消</Text>
+                    </Pressable>
+                    <Pressable onPress={() => finishWalkInvitePlacePick(place)} style={[styles.placeNavigationButtonMake, webPressableReset]}>
+                      <Check color="#fff" size={15} strokeWidth={2.8} />
+                      <Text style={styles.placeNavigationButtonTextMake}>选为约遛地点</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <>
+                    <Pressable disabled={placeReviewSaving} onPress={() => void openPlaceReviewComposer(place)} style={[styles.placeReviewShortcutMake, webPressableReset]}>
+                      {placeReviewSaving ? <ActivityIndicator color={palette.ink} size="small" /> : <PenLine color={palette.ink} size={16} strokeWidth={2.4} />}
+                      <Text style={styles.placeReviewShortcutTextMake}>{hasPendingPlaceReview ? '再点评' : '写点评'}</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setAmapNavigationPlace(place)} style={[styles.placeNavigationButtonMake, webPressableReset]}>
+                      <Navigation color="#fff" size={15} strokeWidth={2.6} />
+                      <Text style={styles.placeNavigationButtonTextMake}>高德导航</Text>
+                    </Pressable>
+                  </>
+                )}
               </View>
               {hasPendingPlaceReview ? (
                 <View style={styles.reviewStatusCard}>
@@ -9721,6 +9827,9 @@ export default function LumiiMvpApp() {
     const walkNotePlaceholder = pet?.name
       ? `可以写下${pet.name}喜欢的玩具、性格或见面注意事项`
       : '可以写下宠物喜欢的玩具、性格或见面注意事项';
+    const selectedWalkPlace = walkInvitePlaceId ? places.find((place) => place.id === walkInvitePlaceId) ?? null : null;
+    const walkPlaceVisualUrl = selectedWalkPlace ? getPlaceVisualUrl(selectedWalkPlace) : walkInviteParkPhotoUrl;
+    const walkPlaceMeta = walkInvitePlaceAddress || (selectedWalkPlace ? walkInvitePlaceMetaFor(selectedWalkPlace) : '');
     return (
       <Screen title="约遛邀请">
         {owner ? (
@@ -9767,19 +9876,26 @@ export default function LumiiMvpApp() {
 
             <Text style={styles.walkFieldLabelMake}>地点</Text>
             <View style={styles.walkPlaceCardMake}>
-              <Image resizeMode="cover" source={{ uri: walkInviteParkPhotoUrl }} style={styles.avatarImage} />
+              <Image resizeMode="cover" source={{ uri: walkPlaceVisualUrl }} style={styles.avatarImage} />
               <View style={styles.walkPlaceOverlayMake} />
-              <View style={styles.walkPlaceTitleMake}>
+              <View style={[styles.walkPlaceTitleMake, walkPlaceMeta && styles.walkPlaceTitleWithMetaMake]}>
                 <MapPin color="#fff" size={13} strokeWidth={2.4} />
                 <TextInput
-                  onChangeText={setWalkInvitePlace}
-                  placeholder="望京公园 · 西门"
+                  onChangeText={(value) => {
+                    setWalkInvitePlace(value);
+                    setWalkInvitePlaceAddress('');
+                    setWalkInvitePlaceId('');
+                  }}
+                  placeholder="搜索或选择宠物友好地点"
                   placeholderTextColor="rgba(255,255,255,0.78)"
                   style={[styles.walkPlaceInputMake, webTextInputReset]}
                   value={walkInvitePlace}
                 />
               </View>
-              <Text style={styles.walkPlaceBadgeMake}>宠物友好</Text>
+              {walkPlaceMeta ? <Text numberOfLines={1} style={styles.walkPlaceMetaMake}>{walkPlaceMeta}</Text> : null}
+              <Pressable onPress={openWalkInvitePlacePicker} style={[styles.walkPlacePickBadgeMake, webPressableReset]}>
+                <Text style={styles.walkPlacePickBadgeTextMake}>{walkInvitePlaceId ? '重选地点' : '地图选择'}</Text>
+              </Pressable>
             </View>
 
             <Text style={styles.walkFieldLabelMake}>留言</Text>
@@ -12011,6 +12127,12 @@ const styles = StyleSheet.create({
   mapSheetToggleIconMake: { alignItems: 'center', backgroundColor: palette.pale, borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexShrink: 0, height: 28, justifyContent: 'center', marginLeft: 10, width: 28 },
   mapPlacesSheetScrollContentMake: { gap: 10, paddingBottom: 6 },
   mapPlacesSheetScrollMake: { maxHeight: 282 },
+  mapPickBannerMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.96)', borderColor: 'rgba(255,138,92,0.24)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 10, left: 16, minHeight: 48, paddingHorizontal: 12, paddingVertical: 8, position: 'absolute', right: 16, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24, top: 62, zIndex: 7 },
+  mapPickCancelMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 14, flexShrink: 0, height: 28, justifyContent: 'center', paddingHorizontal: 10 },
+  mapPickCancelTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '800' },
+  mapPickIconMake: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 14, flexShrink: 0, height: 28, justifyContent: 'center', width: 28 },
+  mapPickSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 15, marginTop: 1 },
+  mapPickTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '800', lineHeight: 17 },
   mapStyleCurrent: { backgroundColor: palette.orangeSoft, borderRadius: 999, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
   mapStyleCloseButton: { alignItems: 'center', backgroundColor: palette.background, borderColor: palette.border, borderRadius: 999, borderWidth: 1, height: 30, justifyContent: 'center', width: 30 },
   mapStyleHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 12, justifyContent: 'space-between' },
@@ -12721,8 +12843,12 @@ const styles = StyleSheet.create({
   walkPlaceBadgeMake: { backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 10, color: palette.ink, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 4, position: 'absolute', right: 12, top: 12 },
   walkPlaceCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, height: 110, overflow: 'hidden', position: 'relative' },
   walkPlaceInputMake: { color: '#fff', flex: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700', minHeight: 22, padding: 0 },
+  walkPlaceMetaMake: { bottom: 8, color: 'rgba(255,255,255,0.76)', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', left: 30, position: 'absolute', right: 82 },
   walkPlaceOverlayMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,0.55) 100%)' } as object) : null), backgroundColor: 'rgba(0,0,0,0.18)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
+  walkPlacePickBadgeMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 10, justifyContent: 'center', minHeight: 28, paddingHorizontal: 9, paddingVertical: 4, position: 'absolute', right: 12, top: 12 },
+  walkPlacePickBadgeTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 11, fontWeight: '800', lineHeight: 14 },
   walkPlaceTitleMake: { alignItems: 'center', bottom: 12, flexDirection: 'row', gap: 5, left: 12, position: 'absolute', right: 72 },
+  walkPlaceTitleWithMetaMake: { bottom: 26 },
   walkSafetyMake: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 14, paddingHorizontal: 12, paddingVertical: 10 },
   walkSafetyTextMake: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 18 },
   walkSendButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 24, flex: 1, flexDirection: 'row', gap: 6, height: 48, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.24, shadowRadius: 24 },
