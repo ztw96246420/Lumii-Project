@@ -444,6 +444,7 @@ type PlaceSubmitResult = {
   placeMeta: string;
   placeName: string;
   status: 'error' | 'success';
+  submittedAt: string;
 };
 
 type AppToast = {
@@ -944,6 +945,9 @@ export default function LumiiMvpApp() {
   const [placeSubmissionExperience, setPlaceSubmissionExperience] = useState('');
   const [placeSubmissionRating, setPlaceSubmissionRating] = useState(5);
   const [selectedPlaceFeatureTags, setSelectedPlaceFeatureTags] = useState<string[]>([]);
+  const [placePhotoUris, setPlacePhotoUris] = useState<string[]>([]);
+  const [placePhotoPicking, setPlacePhotoPicking] = useState(false);
+  const placePhotoPickingRef = useRef(false);
   const [placeReviewSaving, setPlaceReviewSaving] = useState(false);
   const placeReviewSavingRef = useRef(false);
   const [placeSubmitResult, setPlaceSubmitResult] = useState<PlaceSubmitResult | null>(null);
@@ -3938,13 +3942,15 @@ export default function LumiiMvpApp() {
       return;
     }
     const reviewContent = placeReviewDraft.trim();
+    const reviewDraft = `${reviewContent}${buildPlacePhotoSummary()}`;
+    const submittedAt = formatClockTime();
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
     placeReviewSavingRef.current = true;
     setPlaceSubmitResult(null);
     setPlaceReviewSaving(true);
     try {
-      const result = await lumiiApi.places.createReview(place.id, reviewContent);
+      const result = await lumiiApi.places.createReview(place.id, reviewDraft);
       const stillReviewingSamePlace =
         sessionTokenRef.current === requestSessionToken &&
         selectedPlaceIdRef.current === place.id &&
@@ -3952,24 +3958,27 @@ export default function LumiiMvpApp() {
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         if (stillReviewingSamePlace) setPlaceReviewDraft('');
+        if (stillReviewingSamePlace) setPlacePhotoUris([]);
         setPlaceReviewsByPlaceId((items) => ({ ...items, [place.id]: result.data! }));
         void loadInboxData();
         if (stillReviewingSamePlace) {
           setPlaceSubmitResult({
-            draft: reviewContent,
+            draft: reviewDraft,
             kind: 'review',
             placeMeta: `${place.address} · ${place.distance}`,
             placeName: place.name,
             status: 'success',
+            submittedAt,
           });
         }
       } else if (stillReviewingSamePlace) {
         setPlaceSubmitResult({
-          draft: reviewContent,
+          draft: reviewDraft,
           kind: 'review',
           placeMeta: `${place.address} · ${place.distance}`,
           placeName: place.name,
           status: 'error',
+          submittedAt,
         });
       }
     } finally {
@@ -3988,9 +3997,53 @@ export default function LumiiMvpApp() {
     return [tags.length ? `宠物友好特色：${tags.join('、')}` : '', `推荐评分：${placeSubmissionRating} 星`, content.trim()].filter(Boolean).join('。');
   }
 
+  function buildPlacePhotoSummary(count = placePhotoUris.length) {
+    return count ? `\n附照片 ${count} 张（本次提交预览）` : '';
+  }
+
+  async function pickPlacePhoto() {
+    if (placePhotoPickingRef.current) return;
+    if (placePhotoUris.length >= 3) {
+      showToast('地点照片最多添加 3 张');
+      return;
+    }
+    placePhotoPickingRef.current = true;
+    setPlacePhotoPicking(true);
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        showToast('请先允许访问相册', { subtitle: '授权后才能添加地点照片', tone: 'warning', variant: 'surface' });
+        return;
+      }
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        allowsMultipleSelection: true,
+        mediaTypes: ['images'],
+        quality: 0.78,
+        selectionLimit: Math.max(1, 3 - placePhotoUris.length),
+      });
+      if (pickerResult.canceled || !pickerResult.assets?.length) {
+        showToast('已取消选择照片');
+        return;
+      }
+      const nextUris = pickerResult.assets.map((asset) => asset.uri).filter(Boolean);
+      if (!nextUris.length) {
+        showToast('没有读取到可用照片，请重新选择');
+        return;
+      }
+      setPlacePhotoUris((items) => [...items, ...nextUris].slice(0, 3));
+      showToast(`已添加 ${nextUris.length} 张地点照片`, { tone: 'success', variant: 'surface' });
+    } finally {
+      placePhotoPickingRef.current = false;
+      setPlacePhotoPicking(false);
+    }
+  }
+
   function openPlaceSubmissionComposer() {
     setPlaceComposerMode('place');
     setPlaceSubmitResult(null);
+    placePhotoPickingRef.current = false;
+    setPlacePhotoPicking(false);
+    setPlacePhotoUris([]);
     setSelectedPlaceFeatureTags([]);
     go('addPlaceReview');
   }
@@ -3999,6 +4052,9 @@ export default function LumiiMvpApp() {
     setSelectedPlace(place);
     setPlaceComposerMode('review');
     setPlaceSubmitResult(null);
+    placePhotoPickingRef.current = false;
+    setPlacePhotoPicking(false);
+    setPlacePhotoUris([]);
     setSelectedPlaceFeatureTags(place.tags.slice(0, 3));
     setPlaceSubmissionRating(5);
     go('addPlaceReview');
@@ -4019,7 +4075,8 @@ export default function LumiiMvpApp() {
     const requestName = placeDraftName.trim();
     const requestAddress = placeDraftAddress.trim();
     const requestFeatureTags = selectedPlaceFeatureTags;
-    const requestExperience = buildPlaceSubmissionExperience(requestFeatureTags, placeSubmissionExperience);
+    const requestExperience = `${buildPlaceSubmissionExperience(requestFeatureTags, placeSubmissionExperience)}${buildPlacePhotoSummary()}`;
+    const submittedAt = formatClockTime();
     placeSubmissionSavingRef.current = true;
     setPlaceSubmitResult(null);
     setPlaceSubmissionSaving(true);
@@ -4032,6 +4089,7 @@ export default function LumiiMvpApp() {
           setPlaceSubmissionExperience('');
           setPlaceDraftName('');
           setPlaceDraftAddress('');
+          setPlacePhotoUris([]);
           setSelectedPlaceFeatureTags([]);
           setPlaceSubmissionStatus('pending_review');
         }
@@ -4043,6 +4101,7 @@ export default function LumiiMvpApp() {
             placeMeta: requestAddress,
             placeName: requestName,
             status: 'success',
+            submittedAt,
           });
         }
       } else if (stillEditingSubmission) {
@@ -4052,6 +4111,7 @@ export default function LumiiMvpApp() {
           placeMeta: requestAddress,
           placeName: requestName,
           status: 'error',
+          submittedAt,
         });
       }
     } finally {
@@ -4208,6 +4268,9 @@ export default function LumiiMvpApp() {
     setPlaceReviewDraft('');
     setPlaceSubmissionExperience('');
     setPlaceSubmissionRating(5);
+    placePhotoPickingRef.current = false;
+    setPlacePhotoPicking(false);
+    setPlacePhotoUris([]);
     setSelectedPlaceFeatureTags([]);
     placeReviewSavingRef.current = false;
     setPlaceReviewSaving(false);
@@ -7583,6 +7646,7 @@ export default function LumiiMvpApp() {
   function renderPlaceSubmitResult(result: PlaceSubmitResult) {
     const success = result.status === 'success';
     const isReview = result.kind === 'review';
+    const submittedAt = result.submittedAt || formatClockTime();
     const pageTitle = success ? '提交成功' : '提交失败';
     const headline = success ? (isReview ? '点评已提交' : '地点已提交') : '提交失败，请稍后再试';
     const body = success
@@ -7627,7 +7691,7 @@ export default function LumiiMvpApp() {
 
             {success ? (
               <View style={styles.placeSubmitStepperMake}>
-                <PlaceSubmitStep done text={isReview ? '已提交点评' : '已提交地点'} time="刚刚" />
+                <PlaceSubmitStep done text={isReview ? '已提交点评' : '已提交地点'} time={submittedAt} />
                 <View style={[styles.placeSubmitStepLineMake, styles.placeSubmitStepLineActiveMake]} />
                 <PlaceSubmitStep active text="人工审核中" time="预计 24 小时内" />
                 <View style={styles.placeSubmitStepLineMake} />
@@ -7640,7 +7704,7 @@ export default function LumiiMvpApp() {
                     <NotebookPen color={palette.orange} size={13} strokeWidth={2.4} />
                     <Text style={styles.placeSubmitDraftTitleMake}>草稿已保存</Text>
                   </View>
-                  <Text style={styles.placeSubmitDraftTimeMake}>刚刚</Text>
+                  <Text style={styles.placeSubmitDraftTimeMake}>{submittedAt}</Text>
                 </View>
                 <View style={styles.placeSubmitDraftMetaMake}>
                   <View style={styles.ratingPill}>
@@ -8750,6 +8814,7 @@ export default function LumiiMvpApp() {
       ? '例如：草坪很整洁，饮水点和便便袋都备得很齐。'
       : '例如：草坪很大，有饮水点，牵引绳友好。';
     const saving = isReviewMode ? placeReviewSaving : placeSubmissionSaving;
+    const placePreviewPhotoUris = placePhotoUris.length ? placePhotoUris : placeReviewPhotoUrls;
     const submitComposer = () => {
       if (isReviewMode) void createPlaceReview();
       else void submitPlaceDraft();
@@ -8863,13 +8928,25 @@ export default function LumiiMvpApp() {
 
           <Text style={styles.addPlaceFieldLabelMake}>添加照片（可选）</Text>
           <View style={styles.addPlacePhotoRowMake}>
-            {placeReviewPhotoUrls.map((uri) => (
-              <Image key={uri} resizeMode="cover" source={{ uri }} style={styles.addPlacePhotoSquareMake} />
+            {placePreviewPhotoUris.map((uri, index) => (
+              <Pressable
+                disabled={!placePhotoUris.length}
+                key={`${uri}-${index}`}
+                onPress={() => {
+                  setPlacePhotoUris((items) => items.filter((_, itemIndex) => itemIndex !== index));
+                  showToast('已移除这张地点照片');
+                }}
+                style={[styles.addPlacePhotoSquareMake, webPressableReset]}
+              >
+                <Image resizeMode="cover" source={{ uri }} style={styles.avatarImage} />
+              </Pressable>
             ))}
-            <Pressable onPress={() => showToast('地点照片上传后续接入，不影响本次提交')} style={[styles.addPlacePhotoAddMake, webPressableReset]}>
-              <Camera color={palette.muted} size={20} strokeWidth={2.2} />
-              <Text style={styles.addPlacePhotoAddTextMake}>添加</Text>
-            </Pressable>
+            {placePhotoUris.length < 3 ? (
+              <Pressable disabled={placePhotoPicking || saving} onPress={() => void pickPlacePhoto()} style={[styles.addPlacePhotoAddMake, (placePhotoPicking || saving) && styles.mapSearchActionDisabled, webPressableReset]}>
+                {placePhotoPicking ? <ActivityIndicator color={palette.muted} size="small" /> : <Camera color={palette.muted} size={20} strokeWidth={2.2} />}
+                <Text style={styles.addPlacePhotoAddTextMake}>{placePhotoPicking ? '选择中' : '添加'}</Text>
+              </Pressable>
+            ) : null}
           </View>
 
           <View style={styles.addPlaceNoticeMake}>
@@ -9921,7 +9998,7 @@ const styles = StyleSheet.create({
   addPlacePhotoAddMake: { alignItems: 'center', aspectRatio: 1, backgroundColor: 'rgba(255,255,255,0.68)', borderColor: palette.border, borderRadius: 14, borderStyle: 'dashed', borderWidth: 1.5, flex: 1, gap: 4, justifyContent: 'center' },
   addPlacePhotoAddTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600' },
   addPlacePhotoRowMake: { flexDirection: 'row', gap: 8 },
-  addPlacePhotoSquareMake: { aspectRatio: 1, borderColor: '#fff', borderRadius: 14, borderWidth: 2, flex: 1 },
+  addPlacePhotoSquareMake: { aspectRatio: 1, borderColor: '#fff', borderRadius: 14, borderWidth: 2, flex: 1, overflow: 'hidden' },
   addPlacePlaceCardMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 12, paddingVertical: 10 },
   addPlacePlaceMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, lineHeight: 16, marginTop: 2 },
   addPlacePlaceNameMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
