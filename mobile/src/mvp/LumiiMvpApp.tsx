@@ -111,6 +111,7 @@ import type {
   NearbyOwner,
   NotificationCategory,
   NotificationItem,
+  NotificationKind,
   PetChatFeedbackRating,
   PermissionStateMap,
   PetProfile,
@@ -156,6 +157,33 @@ function notificationCategoryFor(item: NotificationItem): NotificationCategory {
   if (/约遛|邀请|公园|散步|见面|一起去|地点/.test(value)) return 'walk';
   if (/健康|疫苗|体重|驱虫|AI|灵伴|生成|建议|提醒|不吃|拉稀|呕吐/.test(value)) return 'health';
   return 'interaction';
+}
+
+function isNotificationKind(value: unknown): value is NotificationKind {
+  return value === 'conversation_message' || value === 'greeting_accepted' || value === 'greeting_request' || value === 'health_reminder' || value === 'system' || value === 'walk_invite';
+}
+
+function notificationKindFor(item: NotificationItem): NotificationKind {
+  if (isNotificationKind(item.kind)) return item.kind;
+  const id = String(item.id || '');
+  if (/message/.test(id)) return 'conversation_message';
+  if (/greeting-accepted/.test(id)) return 'greeting_accepted';
+  if (/greeting/.test(id)) return 'greeting_request';
+  if (/walk/.test(id)) return 'walk_invite';
+  if (/(health|vaccine|medical)/.test(id)) return 'health_reminder';
+  const category = notificationCategoryFor(item);
+  if (category === 'walk') return 'walk_invite';
+  if (category === 'health') return 'health_reminder';
+  if (category === 'system') return 'system';
+  return 'greeting_request';
+}
+
+function conversationIdFromNotification(item: NotificationItem) {
+  if (item.conversationId) return item.conversationId;
+  const ownerId = String(item.ownerId || '');
+  const kind = notificationKindFor(item);
+  if (kind !== 'greeting_request' && ownerId.startsWith('user-')) return `c-${ownerId.slice('user-'.length)}`;
+  return '';
 }
 
 function notificationDateFor(item: NotificationItem) {
@@ -1111,6 +1139,7 @@ export default function LumiiMvpApp() {
   const [walkInviteTime, setWalkInviteTime] = useState(() => defaultWalkInviteTime());
   const [walkInviteNote, setWalkInviteNote] = useState('');
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const conversationsRef = useRef<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const selectedConversationIdRef = useRef<string | null>(null);
   const inboxRefreshInFlightRef = useRef(false);
@@ -1543,6 +1572,10 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     selectedConversationIdRef.current = selectedConversation?.id ?? null;
   }, [selectedConversation?.id]);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
 
   useEffect(() => {
     const selectedId = selectedConversationIdRef.current;
@@ -2077,6 +2110,59 @@ export default function LumiiMvpApp() {
     }
     setNotifications(previousNotifications);
     showToast(result.error?.message ?? '标记已读失败，请稍后重试', { tone: 'error', variant: 'surface' });
+  }
+
+  async function markNotificationReadSilently(notificationId: string) {
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
+    setNotifications((items) => items.map((item) => (item.id === notificationId ? { ...item, read: true } : item)));
+    const result = await lumiiApi.messages.markNotificationsRead([notificationId]);
+    if (sessionTokenRef.current !== requestSessionToken) return;
+    if (result.data) applyNotifications(result.data);
+  }
+
+  async function openConversationFromNotification(conversationId: string) {
+    const requestSessionToken = sessionTokenRef.current;
+    let conversation = conversationsRef.current.find((item) => item.id === conversationId);
+    if (!conversation) {
+      const result = await lumiiApi.messages.listConversations();
+      if (sessionTokenRef.current !== requestSessionToken) return false;
+      if (result.data) {
+        conversationsRef.current = result.data;
+        setConversations(result.data);
+        conversation = result.data.find((item) => item.id === conversationId);
+      }
+    }
+    if (!conversation) {
+      go('messages');
+      showToast('会话已更新，请在消息列表查看');
+      return false;
+    }
+    await openConversation(conversation);
+    return true;
+  }
+
+  async function openNotification(item: NotificationItem) {
+    if (!item.read) void markNotificationReadSilently(item.id);
+    const kind = notificationKindFor(item);
+    const conversationId = conversationIdFromNotification(item);
+    if (conversationId && (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite')) {
+      await openConversationFromNotification(conversationId);
+      return;
+    }
+    if (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite') {
+      go('messages');
+      return;
+    }
+    if (kind === 'greeting_request') {
+      go('greetingRequests');
+      return;
+    }
+    const category = notificationCategoryFor(item);
+    if (category === 'health') go('health');
+    else if (category === 'walk') go('messages');
+    else if (category === 'system') go('settings');
+    else go('messages');
   }
 
   function setConversationMessagesFromServer(conversationId: string, messages: ConversationMessage[]) {
@@ -8898,35 +8984,34 @@ export default function LumiiMvpApp() {
       group,
       items: filteredNotifications.filter((entry) => entry.group === group),
     })).filter((group) => group.items.length > 0);
-    const notificationMetaFor = (category: NotificationCategory) => {
+    const notificationMetaFor = (item: NotificationItem) => {
+      const category = notificationCategoryFor(item);
+      const kind = notificationKindFor(item);
       if (category === 'walk') {
         return {
           icon: <PawPrint color={palette.orange} size={15} strokeWidth={2.5} />,
           iconStyle: styles.notificationIconWalkMake,
-          onPress: () => go('messages'),
-          rightLabel: '查看',
+          rightLabel: kind === 'walk_invite' ? '聊天' : '查看',
         };
       }
       if (category === 'interaction') {
+        const opensConversation = kind === 'conversation_message' || kind === 'greeting_accepted' || Boolean(conversationIdFromNotification(item));
         return {
           icon: <Heart color={palette.danger} size={15} strokeWidth={2.5} />,
           iconStyle: styles.notificationIconInteractionMake,
-          onPress: () => go('greetingRequests'),
-          rightLabel: '',
+          rightLabel: opensConversation ? '聊天' : '处理',
         };
       }
       if (category === 'health') {
         return {
           icon: <Sparkles color={palette.teal} size={15} strokeWidth={2.5} />,
           iconStyle: styles.notificationIconHealthMake,
-          onPress: () => go('health'),
           rightLabel: '',
         };
       }
       return {
         icon: <Shield color={palette.muted} size={15} strokeWidth={2.5} />,
         iconStyle: styles.notificationIconSystemMake,
-        onPress: () => go('settings'),
         rightLabel: '',
       };
     };
@@ -8992,12 +9077,12 @@ export default function LumiiMvpApp() {
               <View key={group.group} style={styles.notificationGroupMake}>
                 <Text style={styles.notificationGroupLabelMake}>{group.group}</Text>
                 {group.items.map((entry) => {
-                  const meta = notificationMetaFor(entry.category);
+                  const meta = notificationMetaFor(entry.item);
                   return (
                     <Pressable
                       accessibilityRole="button"
                       key={entry.item.id}
-                      onPress={meta.onPress}
+                      onPress={() => void openNotification(entry.item)}
                       style={[styles.notificationCardMake, !entry.item.read && styles.notificationCardUnreadMake, webPressableReset]}
                     >
                       <View style={[styles.notificationIconMake, meta.iconStyle]}>{meta.icon}</View>
@@ -9010,7 +9095,7 @@ export default function LumiiMvpApp() {
                         <View style={styles.notificationMetaRowMake}>
                           <Text style={styles.notificationTimeMake}>{entry.time}</Text>
                           {meta.rightLabel ? (
-                            <Pressable accessibilityRole="button" onPress={meta.onPress} style={[styles.notificationActionMake, webPressableReset]}>
+                            <Pressable accessibilityRole="button" onPress={() => void openNotification(entry.item)} style={[styles.notificationActionMake, webPressableReset]}>
                               <Text style={styles.notificationActionTextMake}>{meta.rightLabel}</Text>
                             </Pressable>
                           ) : null}

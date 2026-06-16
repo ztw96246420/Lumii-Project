@@ -3355,6 +3355,7 @@ function markConversationRead(phone, conversationId) {
 }
 
 const notificationCategories = new Set(['health', 'interaction', 'system', 'walk']);
+const notificationKinds = new Set(['conversation_message', 'greeting_accepted', 'greeting_request', 'health_reminder', 'system', 'walk_invite']);
 
 function normalizeNotificationCategory(category) {
   const value = String(category || '').trim();
@@ -3369,12 +3370,33 @@ function inferNotificationCategory(notification) {
   return 'system';
 }
 
+function normalizeNotificationKind(kind) {
+  const value = String(kind || '').trim();
+  return notificationKinds.has(value) ? value : '';
+}
+
+function inferNotificationKind(notification) {
+  const id = String(notification?.id || '');
+  if (/message/.test(id)) return 'conversation_message';
+  if (/greeting-accepted/.test(id)) return 'greeting_accepted';
+  if (/greeting/.test(id)) return 'greeting_request';
+  if (/walk/.test(id)) return 'walk_invite';
+  if (/(health|vaccine|medical)/.test(id)) return 'health_reminder';
+  const category = normalizeNotificationCategory(notification?.category || inferNotificationCategory(notification));
+  if (category === 'walk') return 'walk_invite';
+  if (category === 'health') return 'health_reminder';
+  if (category === 'system') return 'system';
+  return 'greeting_request';
+}
+
 function normalizeNotificationItem(notification, fallbackCategory) {
   const category = normalizeNotificationCategory(notification?.category || fallbackCategory || inferNotificationCategory(notification));
+  const kind = normalizeNotificationKind(notification?.kind) || inferNotificationKind({ ...notification, category });
   return {
     ...notification,
     category,
     createdAt: notification?.createdAt || new Date().toISOString(),
+    kind,
   };
 }
 
@@ -4242,6 +4264,8 @@ async function handle(req, res) {
     if (!existing) {
       addNotification(targetPhone, {
         id: `n-greeting-${Date.now()}`,
+        kind: 'greeting_request',
+        ownerId: `user-${user.phone}`,
         read: false,
         text: `${user.ownerName}和${fromPet.name}向你和${targetPet.name}打了招呼`,
         title: '新的招呼',
@@ -4293,7 +4317,10 @@ async function handle(req, res) {
       time: new Date().toISOString(),
     });
     addNotification(fromUser.phone, {
+      conversationId: conversationIdFor(user.phone),
       id: `n-greeting-accepted-${Date.now()}`,
+      kind: 'greeting_accepted',
+      ownerId: `user-${user.phone}`,
       read: false,
       text: `${user.ownerName}和${myPet.name}已接受你的招呼`,
       title: '招呼已接受',
@@ -4354,7 +4381,10 @@ async function handle(req, res) {
       time: new Date().toISOString(),
     });
     addNotification(targetPhone, {
+      conversationId: targetConversation.id,
       id: `n-walk-${Date.now()}`,
+      kind: 'walk_invite',
+      ownerId: `user-${user.phone}`,
       read: false,
       text: `${user.ownerName}和${fromPet.name}邀请你在${time}去${place}`,
       title: '新的约遛邀请',
@@ -4430,8 +4460,11 @@ async function handle(req, res) {
     upsertConversation(user.phone, buildConversationFor(user, targetUser, text, 0));
     upsertConversation(targetPhone, buildConversationFor(targetUser, user, text, 1));
     addNotification(targetPhone, {
+      conversationId: targetConversationId,
       id: `n-message-${myMessage.id}`,
-      read: false,
+      kind: 'conversation_message',
+      ownerId: `user-${user.phone}`,
+      read: true,
       text: `${user.ownerName || '附近主人'}：${text.slice(0, 48)}`,
       title: '新的消息',
     }, 'interaction');

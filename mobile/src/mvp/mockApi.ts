@@ -23,6 +23,7 @@ import type {
   NearbyOwner,
   NotificationCategory,
   NotificationItem,
+  NotificationKind,
   PetChatFeedbackRating,
   PetProfile,
   PetTaxonomy,
@@ -992,11 +993,31 @@ function inferMockNotificationCategory(notification: Pick<NotificationItem, 'id'
   return 'system';
 }
 
+function normalizeMockNotificationKind(kind: unknown): NotificationKind | '' {
+  return kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'greeting_request' || kind === 'health_reminder' || kind === 'system' || kind === 'walk_invite' ? kind : '';
+}
+
+function inferMockNotificationKind(notification: NotificationItem): NotificationKind {
+  const id = String(notification.id || '');
+  if (/message/.test(id)) return 'conversation_message';
+  if (/greeting-accepted/.test(id)) return 'greeting_accepted';
+  if (/greeting/.test(id)) return 'greeting_request';
+  if (/walk/.test(id)) return 'walk_invite';
+  if (/(health|vaccine|medical)/.test(id)) return 'health_reminder';
+  const category = normalizeMockNotificationCategory(notification.category || inferMockNotificationCategory(notification));
+  if (category === 'walk') return 'walk_invite';
+  if (category === 'health') return 'health_reminder';
+  if (category === 'system') return 'system';
+  return 'greeting_request';
+}
+
 function normalizeMockNotificationItem(notification: NotificationItem, fallbackCategory?: NotificationCategory): NotificationItem {
+  const category = normalizeMockNotificationCategory(notification.category || fallbackCategory || inferMockNotificationCategory(notification));
   return {
     ...notification,
-    category: normalizeMockNotificationCategory(notification.category || fallbackCategory || inferMockNotificationCategory(notification)),
+    category,
     createdAt: notification.createdAt || new Date().toISOString(),
+    kind: normalizeMockNotificationKind(notification.kind) || inferMockNotificationKind({ ...notification, category }),
   };
 }
 

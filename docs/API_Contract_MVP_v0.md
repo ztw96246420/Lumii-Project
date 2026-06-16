@@ -975,6 +975,8 @@ type PushDevice = {
 - 地点点评提交、用户新增地点提交也会写入通知中心，App 成功提交后会重新拉取该列表，不再只依赖前端临时通知。
 - 通知项会返回 `category` 与 `createdAt`，App 以这两个字段驱动筛选、分组和时间显示；旧通知缺字段时，测试后端会在读取时补齐。
 - `category` 当前取值为 `health`、`interaction`、`walk`、`system`。普通聊天和招呼归入 `interaction`，约遛邀请归入 `walk`；互动和约遛通知是否生成受 `pushNotifications` 与 `interactionMessages` 控制。
+- 通知项会返回可选 `kind`、`conversationId`、`ownerId`，用于区分落页：`greeting_request` 进入招呼请求；`conversation_message`、`greeting_accepted`、`walk_invite` 优先使用 `conversationId` 打开对话框；`health_reminder` 进入健康页；`system` 进入设置或对应系统页。
+- 已建立会话后的普通聊天消息不应再进入招呼请求。测试后端会为接收方写入 `kind=conversation_message`、`conversationId=c-{senderPhone}`、`ownerId=user-{senderPhone}`，且通知本身默认 `read=true`；未读状态由 `/conversations` 的 `unread` 字段承载，避免通知中心和消息列表重复计数。
 
 ### POST `/notifications/read`
 

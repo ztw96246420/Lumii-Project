@@ -334,11 +334,15 @@ export type WalkInviteResult = {
 };
 
 export type NotificationCategory = 'health' | 'interaction' | 'system' | 'walk';
+export type NotificationKind = 'conversation_message' | 'greeting_accepted' | 'greeting_request' | 'health_reminder' | 'system' | 'walk_invite';
 
 export type NotificationItem = {
   category?: NotificationCategory;
+  conversationId?: string;
   createdAt?: string;
   id: string;
+  kind?: NotificationKind;
+  ownerId?: string;
   read: boolean;
   text: string;
   title: string;
