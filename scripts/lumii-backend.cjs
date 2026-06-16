@@ -24,6 +24,7 @@ const AMAP_POI_TIMEOUT_MS = Number(process.env.AMAP_POI_TIMEOUT_MS || '8000');
 const AMAP_POI_CACHE_TTL_MS = Number(process.env.AMAP_POI_CACHE_TTL_MS || 10 * 60 * 1000);
 const AMAP_POI_PAGE_SIZE = Math.min(25, Math.max(1, Number(process.env.AMAP_POI_PAGE_SIZE || '20') || 20));
 const AMAP_POI_MAX_RESULTS = Math.min(80, Math.max(10, Number(process.env.AMAP_POI_MAX_RESULTS || '50') || 50));
+const AMAP_POI_SHOW_FIELDS = process.env.AMAP_POI_SHOW_FIELDS || 'business,photos,navi';
 const AMAP_PLACE_KEYWORD_GROUPS = [
   '宠物医院|动物医院|宠物诊所|宠物店|宠物美容|宠物寄养',
   '宠物友好|猫咖|狗咖|宠物咖啡|公园|绿地',
@@ -1041,6 +1042,11 @@ function inferAmapPlaceTags(poi, category, supportedSpecies) {
 
 function amapPoiLocation(poi) {
   const raw = compactText(poi.location);
+  return amapLocationFromText(raw);
+}
+
+function amapLocationFromText(rawLocation) {
+  const raw = compactText(rawLocation);
   const [longitudeText, latitudeText] = raw.split(',');
   const longitude = Number(longitudeText);
   const latitude = Number(latitudeText);
@@ -1056,25 +1062,78 @@ function amapPoiDistanceMeters(poi, viewerLocation, poiLocation) {
   return distanceKm === null || distanceKm === undefined ? null : distanceKm * 1000;
 }
 
+function amapPoiBusiness(poi) {
+  return poi && typeof poi.business === 'object' && !Array.isArray(poi.business) && poi.business ? poi.business : {};
+}
+
+function amapPoiNavi(poi) {
+  return poi && typeof poi.navi === 'object' && !Array.isArray(poi.navi) && poi.navi ? poi.navi : {};
+}
+
+function amapPoiPhotos(poi) {
+  const rawPhotos = poi?.photos;
+  const photos = Array.isArray(rawPhotos) ? rawPhotos : rawPhotos && typeof rawPhotos === 'object' ? [rawPhotos] : [];
+  const seen = new Set();
+  return photos
+    .map((photo) => ({
+      title: compactText(photo?.title),
+      url: compactText(photo?.url),
+    }))
+    .filter((photo) => {
+      if (!photo.url || seen.has(photo.url)) return false;
+      seen.add(photo.url);
+      return /^https?:\/\//i.test(photo.url);
+    })
+    .slice(0, 6);
+}
+
+function firstCompactText(...values) {
+  for (const value of values) {
+    const text = compactText(value);
+    if (text) return text;
+  }
+  return '';
+}
+
+function amapPoiRating(poi) {
+  const business = amapPoiBusiness(poi);
+  const rating = Number(firstCompactText(business.rating, poi.rating));
+  return Number.isFinite(rating) && rating > 0 ? Math.round(rating * 10) / 10 : 0;
+}
+
 function amapPoiToPlace(poi, viewerLocation) {
   if (!isRelevantAmapPoi(poi)) return null;
   const sourcePoiId = compactText(poi.id);
   const name = compactText(poi.name);
   if (!sourcePoiId || !name) return null;
   const poiLocation = amapPoiLocation(poi);
+  const business = amapPoiBusiness(poi);
+  const navi = amapPoiNavi(poi);
+  const photos = amapPoiPhotos(poi);
+  const entranceLocation = amapLocationFromText(firstCompactText(navi.entr_location, poi.entr_location));
   const category = inferAmapPlaceCategory(poi);
   const supportedSpecies = inferAmapSupportedSpecies(poi, category);
   const distanceMeters = amapPoiDistanceMeters(poi, viewerLocation, poiLocation);
   return {
     address: compactText(poi.address) || [poi.pname, poi.cityname, poi.adname].map(compactText).filter(Boolean).join('') || '地址待补充',
+    businessArea: firstCompactText(business.business_area, poi.business_area),
     category,
+    coverImageUrl: photos[0]?.url,
     distance: formatDistanceMeters(distanceMeters),
     id: `amap-${sourcePoiId}`,
+    entranceLatitude: entranceLocation?.latitude,
+    entranceLongitude: entranceLocation?.longitude,
     latitude: poiLocation?.latitude,
     longitude: poiLocation?.longitude,
     name,
+    openingHoursToday: firstCompactText(business.opentime_today, poi.opentime_today),
+    openingHoursWeek: firstCompactText(business.opentime_week, poi.opentime_week),
     petFriendlyStatus: supportedSpecies.length ? 'candidate' : 'unknown',
-    rating: 0,
+    phone: firstCompactText(business.tel, poi.tel),
+    photoUrls: photos.map((photo) => photo.url),
+    poiType: compactText(poi.type),
+    poiTypeCode: compactText(poi.typecode),
+    rating: amapPoiRating(poi),
     reviewCount: 0,
     source: 'amap',
     sourcePoiId,
@@ -1085,6 +1144,14 @@ function amapPoiToPlace(poi, viewerLocation) {
 
 function mergeTagLists(...lists) {
   return Array.from(new Set(lists.flatMap((items) => (Array.isArray(items) ? items : [])).map(String).filter(Boolean)));
+}
+
+function preferPlaceText(placeValue, existingValue) {
+  return firstCompactText(placeValue, existingValue) || undefined;
+}
+
+function preferPlaceList(placeValue, existingValue) {
+  return Array.isArray(placeValue) && placeValue.length ? placeValue : Array.isArray(existingValue) && existingValue.length ? existingValue : undefined;
 }
 
 function findStoredPlaceIndex(place) {
@@ -1107,7 +1174,17 @@ function upsertExternalPlacesForResponse(places) {
       const merged = {
         ...existing,
         ...place,
+        businessArea: preferPlaceText(place.businessArea, existing.businessArea),
+        coverImageUrl: preferPlaceText(place.coverImageUrl, existing.coverImageUrl),
+        entranceLatitude: place.entranceLatitude ?? existing.entranceLatitude,
+        entranceLongitude: place.entranceLongitude ?? existing.entranceLongitude,
+        openingHoursToday: preferPlaceText(place.openingHoursToday, existing.openingHoursToday),
+        openingHoursWeek: preferPlaceText(place.openingHoursWeek, existing.openingHoursWeek),
         petFriendlyStatus: existing.petFriendlyStatus ?? place.petFriendlyStatus,
+        phone: preferPlaceText(place.phone, existing.phone),
+        photoUrls: preferPlaceList(place.photoUrls, existing.photoUrls),
+        poiType: preferPlaceText(place.poiType, existing.poiType),
+        poiTypeCode: preferPlaceText(place.poiTypeCode, existing.poiTypeCode),
         rating: Number(existing.rating) > 0 ? existing.rating : place.rating,
         reviewCount: Math.max(Number(existing.reviewCount || 0), Number(place.reviewCount || 0)),
         supportedSpecies: Array.isArray(existing.supportedSpecies) && existing.supportedSpecies.length ? existing.supportedSpecies : place.supportedSpecies,
@@ -1138,7 +1215,7 @@ async function fetchAmapAroundPois({ keywords, location, radiusKm }) {
   url.searchParams.set('location', `${location.longitude},${location.latitude}`);
   url.searchParams.set('radius', String(Math.round(clampPlaceRadiusKm(radiusKm) * 1000)));
   url.searchParams.set('page_size', String(AMAP_POI_PAGE_SIZE));
-  url.searchParams.set('show_fields', 'business');
+  url.searchParams.set('show_fields', AMAP_POI_SHOW_FIELDS);
   if (keywords) url.searchParams.set('keywords', keywords);
 
   const controller = new AbortController();

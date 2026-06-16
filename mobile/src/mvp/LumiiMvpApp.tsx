@@ -3616,10 +3616,16 @@ export default function LumiiMvpApp() {
 
   function buildPlaceShareMessage(place: Place) {
     const tags = place.tags.length ? `\n宠物友好特色：${place.tags.join('、')}` : '';
+    const opening = place.openingHoursToday || place.openingHoursWeek ? `营业：${getPlaceOpeningText(place)}` : '';
+    const phone = place.phone ? `电话：${place.phone}` : '';
+    const rating = hasPlaceRating(place) ? `评分：${getPlaceRatingLabel(place)}` : '';
     return [
       `我在灵伴发现了一个宠物友好地点：${place.name}`,
       `地址：${place.address}`,
-      `距离：${place.distance} · 评分 ${place.rating}`,
+      `距离：${place.distance}`,
+      rating,
+      opening,
+      phone,
       tags,
       '\n来自 Lumii 灵伴',
     ].filter(Boolean).join('\n');
@@ -3655,10 +3661,12 @@ export default function LumiiMvpApp() {
 
   function buildAmapNativeUrls(place: Place) {
     const name = encodeURIComponent(place.name);
-    const hasCoordinate = Number.isFinite(place.latitude) && Number.isFinite(place.longitude);
+    const destinationLatitude = place.entranceLatitude ?? place.latitude;
+    const destinationLongitude = place.entranceLongitude ?? place.longitude;
+    const hasCoordinate = Number.isFinite(destinationLatitude) && Number.isFinite(destinationLongitude);
     if (!hasCoordinate) return [];
-    const lat = String(place.latitude);
-    const lon = String(place.longitude);
+    const lat = String(destinationLatitude);
+    const lon = String(destinationLongitude);
     return Platform.OS === 'ios'
       ? [
         `iosamap://navi?sourceApplication=Lumii&backScheme=lumii&lat=${lat}&lon=${lon}&dev=0&style=2&poiname=${name}`,
@@ -8360,7 +8368,8 @@ export default function LumiiMvpApp() {
     const hasPendingPlaceReview = myPlaceReview?.status === 'pending_review';
     const pet = getCurrentPet();
     const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
-    const placeReviewSummary = myPlaceReview ? '· 我的点评 1 条' : '· 暂无我的点评';
+    const placeReviewSummary = place?.reviewCount ? `· 社区点评 ${place.reviewCount} 条` : '· 待社区点评';
+    const placeHasRating = place ? hasPlaceRating(place) : false;
     const placeReviewTime = myPlaceReview
       ? hasPendingPlaceReview
         ? `审核中 · ${formatTimestampDisplay(myPlaceReview.createdAt)}`
@@ -8391,7 +8400,7 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.placePhotoCountMake}>
                 <Camera color="#fff" size={11} strokeWidth={2.4} />
-                <Text style={styles.placePhotoCountTextMake}>封面图</Text>
+                <Text style={styles.placePhotoCountTextMake}>{getPlacePhotoBadgeText(place)}</Text>
               </View>
             </View>
             <View style={styles.placeSheetMake}>
@@ -8403,10 +8412,16 @@ export default function LumiiMvpApp() {
                 </View>
               </View>
               <View style={styles.placeRatingRowMake}>
-                {Array.from({ length: 5 }).map((_, index) => (
-                  <Star key={index} color="#FFB94B" fill="#FFB94B" size={13} strokeWidth={2} />
-                ))}
-                <Text style={styles.placeRatingValueMake}>{place.rating}</Text>
+                {placeHasRating ? (
+                  <>
+                    {Array.from({ length: 5 }).map((_, index) => (
+                      <Star key={index} color="#FFB94B" fill="#FFB94B" size={13} strokeWidth={2} />
+                    ))}
+                    <Text style={styles.placeRatingValueMake}>{getPlaceRatingLabel(place)}</Text>
+                  </>
+                ) : (
+                  <Text style={styles.placeRatingMissingMake}>暂无评分</Text>
+                )}
                 <Text style={styles.placeReviewCountMake}>{placeReviewSummary}</Text>
                 <View style={styles.placeDistancePillDetailMake}>
                   <Navigation color={palette.teal} size={11} strokeWidth={2.6} />
@@ -8420,12 +8435,18 @@ export default function LumiiMvpApp() {
                   <View style={styles.placeAddressMetaRowMake}>
                     <View style={styles.placeAddressMetaItemMake}>
                       <Clock color={palette.muted} size={10} strokeWidth={2.2} />
-                      <Text style={styles.placeAddressMeta}>营业时间待补充</Text>
+                      <Text style={styles.placeAddressMeta}>{getPlaceOpeningText(place)}</Text>
                     </View>
                     <View style={styles.placeAddressMetaItemMake}>
                       <Phone color={palette.muted} size={10} strokeWidth={2.2} />
-                      <Text style={styles.placeAddressMeta}>联系电话待补充</Text>
+                      <Text style={styles.placeAddressMeta}>{getPlacePhoneText(place)}</Text>
                     </View>
+                    {place.businessArea ? (
+                      <View style={styles.placeAddressMetaItemMake}>
+                        <Tag color={palette.muted} size={10} strokeWidth={2.2} />
+                        <Text style={styles.placeAddressMeta}>{place.businessArea}</Text>
+                      </View>
+                    ) : null}
                   </View>
                 </View>
               </View>
@@ -10661,18 +10682,43 @@ function PlaceRow({ onPress, place }: { onPress: () => void; place: Place }) {
         <Text style={uiStyles.body}>{place.address} · {place.distance}</Text>
       </View>
       <View style={styles.ratingPill}>
-        <Star color={palette.orange} fill={palette.orange} size={13} strokeWidth={2} />
-        <Text style={styles.ratingText}>{place.rating}</Text>
+        {hasPlaceRating(place) ? <Star color={palette.orange} fill={palette.orange} size={13} strokeWidth={2} /> : null}
+        <Text style={styles.ratingText}>{getPlaceRatingLabel(place)}</Text>
       </View>
     </Pressable>
   );
 }
 
 function getPlaceVisualUrl(place: Place) {
+  const photoUrl = place.coverImageUrl || place.photoUrls?.find((url) => /^https?:\/\//i.test(url));
+  if (photoUrl) return photoUrl;
   if (place.category === 'park') return placeParkPhotoUrl;
   if (place.category === 'cafe') return placeCafePhotoUrl;
   if (place.category === 'clinic') return placeVetPhotoUrl;
   return placeReviewPhotoUrls[0] ?? placeParkPhotoUrl;
+}
+
+function hasPlaceRating(place: Place) {
+  return Number.isFinite(Number(place.rating)) && Number(place.rating) > 0;
+}
+
+function getPlaceRatingLabel(place: Place) {
+  return hasPlaceRating(place) ? Number(place.rating).toFixed(1).replace(/\.0$/, '') : '待评';
+}
+
+function getPlacePhotoBadgeText(place: Place) {
+  const photoCount = Array.isArray(place.photoUrls) ? place.photoUrls.filter((url) => /^https?:\/\//i.test(url)).length : 0;
+  if (photoCount > 0) return `${photoCount} 张图片`;
+  if (place.coverImageUrl) return 'POI图片';
+  return '示意图';
+}
+
+function getPlaceOpeningText(place: Place) {
+  return place.openingHoursToday || place.openingHoursWeek || '营业时间待补充';
+}
+
+function getPlacePhoneText(place: Place) {
+  return place.phone || '联系电话待补充';
 }
 
 function getPlaceCategoryLabel(place: Place) {
@@ -10688,8 +10734,8 @@ function PlaceSheetRow({ active, onPress, place }: { active?: boolean; onPress: 
       <View style={styles.placeSheetPhotoMake}>
         <Image resizeMode="cover" source={{ uri: getPlaceVisualUrl(place) }} style={styles.avatarImage} />
         <View style={styles.placeSheetRatingBadgeMake}>
-          <Star color="#FFB94B" fill="#FFB94B" size={8} strokeWidth={0} />
-          <Text style={styles.placeSheetRatingTextMake}>{place.rating}</Text>
+          {hasPlaceRating(place) ? <Star color="#FFB94B" fill="#FFB94B" size={8} strokeWidth={0} /> : null}
+          <Text style={styles.placeSheetRatingTextMake}>{getPlaceRatingLabel(place)}</Text>
         </View>
       </View>
       <View style={styles.flex}>
@@ -12260,8 +12306,8 @@ const styles = StyleSheet.create({
   placeSheetTitle: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 19 },
   placeSheetTitleRowMake: { alignItems: 'center', flexDirection: 'row', gap: 6, justifyContent: 'space-between' },
   placeAddressMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, marginTop: 12, paddingHorizontal: 12, paddingVertical: 10 },
-  placeAddressMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, lineHeight: 15 },
-  placeAddressMetaItemMake: { alignItems: 'center', flexDirection: 'row', gap: 4 },
+  placeAddressMeta: { color: palette.muted, flexShrink: 1, fontFamily: appFontFamily, fontSize: 11, lineHeight: 15 },
+  placeAddressMetaItemMake: { alignItems: 'center', flexDirection: 'row', gap: 4, maxWidth: '100%' },
   placeAddressMetaRowMake: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 6 },
   placeAddressText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 19 },
   placeBackButtonMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.94)', borderRadius: 19, height: 38, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.18, shadowRadius: 14, width: 38 },
@@ -12282,6 +12328,7 @@ const styles = StyleSheet.create({
   placePhotoCountMake: { alignItems: 'center', backgroundColor: 'rgba(31,33,29,0.65)', borderRadius: 11, bottom: 18, flexDirection: 'row', gap: 4, left: 16, paddingHorizontal: 10, paddingVertical: 4, position: 'absolute' },
   placePhotoCountTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 14 },
   placeRatingRowMake: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 7 },
+  placeRatingMissingMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 16 },
   placeRatingValueMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700', lineHeight: 17 },
   placeReviewAuthorMake: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 17 },
   placeReviewAuthorRowMake: { alignItems: 'center', flexDirection: 'row', gap: 8 },

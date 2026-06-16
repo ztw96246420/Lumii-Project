@@ -1076,12 +1076,27 @@ type AiUsageSummary = {
 ```ts
 type Place = {
   address: string;
+  businessArea?: string;
   category: 'cafe' | 'clinic' | 'other' | 'park';
+  coverImageUrl?: string;
   distance: string;
+  entranceLatitude?: number;
+  entranceLongitude?: number;
   id: string;
+  latitude?: number;
+  longitude?: number;
   name: string;
+  openingHoursToday?: string;
+  openingHoursWeek?: string;
+  petFriendlyStatus?: 'candidate' | 'rejected' | 'unknown' | 'verified';
+  phone?: string;
+  photoUrls?: string[];
+  poiType?: string;
+  poiTypeCode?: string;
   rating: number;
   reviewCount?: number;
+  source?: 'amap' | 'manual' | 'seed' | 'tencent';
+  sourcePoiId?: string;
   supportedSpecies?: Array<'cat' | 'dog'>;
   tags: string[];
 };
@@ -1089,12 +1104,12 @@ type Place = {
 
 地点数据源策略：
 
-- 当前 MVP 测试后端仍使用 seed 地点数据。
+- ~~当前 MVP 测试后端仍使用 seed 地点数据。~~ 当前测试后端已接入高德 Web Service POI；无定位、无 Key、接口失败或无有效 POI 时才回退 seed 地点数据。
 - 生产策略已确认采用“地图 POI 打底 + Lumii 自有宠物友好层”。
 - App 只调用 Lumii 后端接口，不直接调用高德 Web 服务。
-- 后端负责调用高德 POI 周边搜索/关键字搜索，并把 POI 标准化为 Lumii `Place`。
+- 后端负责调用高德 POI 周边搜索/关键字搜索，并把 POI 标准化为 Lumii `Place`；当前请求 `show_fields=business,photos,navi`。
 - 后端再叠加 Lumii 自有的宠物友好标签、猫狗支持、点评、审核和收藏数据。
-- 生产扩展时可在不破坏当前字段的前提下增加 `source`、`sourcePoiId`、`latitude`、`longitude`、`petFriendlyStatus` 等字段。
+- `phone`、`openingHoursToday`、`openingHoursWeek`、`businessArea`、`coverImageUrl`、`photoUrls`、`entranceLatitude`、`entranceLongitude` 等字段来自 POI 增强信息，不保证每个地点都有；App 应按“有则展示、无则待补充或隐藏”处理。
 - 详细策略见 [Place_Data_Source_Strategy_2026-06-16.md](./Place_Data_Source_Strategy_2026-06-16.md)。
 
 ### GET `/places/nearby`
@@ -1119,7 +1134,7 @@ Place
 - 如果地点不存在，返回 404 和中文错误 `地点不存在`。
 - `reviewCount` 用于 App 地图页“点评最多”排序；生产后端能返回真实公开点评数时应返回该字段，旧数据缺字段时 App 会按 0 处理。
 - `supportedSpecies` 用于 App 地图页“汪星友好 / 喵星友好”筛选；生产后端能判断时建议返回该字段，旧数据缺字段时 App 仅会按标签和地点类别做保守推断。
-- 当前 MVP 详情数据结构与地点列表项一致，后续可在不破坏列表接口的前提下扩展营业时间、电话、图片、点评摘要等字段。
+- 当前 MVP 详情数据结构与地点列表项一致；高德 POI 有返回时，地点详情会展示图片、营业时间、联系电话和商圈；缺失时显示“待补充”或隐藏非关键字段。
 
 ### GET `/places/favorites`
 

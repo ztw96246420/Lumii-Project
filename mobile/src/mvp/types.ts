@@ -353,13 +353,23 @@ export type PushDevice = {
 
 export type Place = {
   address: string;
+  businessArea?: string;
   category: 'cafe' | 'clinic' | 'other' | 'park';
+  coverImageUrl?: string;
   distance: string;
+  entranceLatitude?: number;
+  entranceLongitude?: number;
   id: string;
   latitude?: number;
   longitude?: number;
   name: string;
+  openingHoursToday?: string;
+  openingHoursWeek?: string;
   petFriendlyStatus?: 'candidate' | 'rejected' | 'unknown' | 'verified';
+  phone?: string;
+  photoUrls?: string[];
+  poiType?: string;
+  poiTypeCode?: string;
   rating: number;
   reviewCount?: number;
   source?: 'amap' | 'manual' | 'seed' | 'tencent';
