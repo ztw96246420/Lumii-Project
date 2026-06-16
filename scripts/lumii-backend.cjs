@@ -3832,13 +3832,13 @@ async function handle(req, res) {
       author: 'system',
       id: messageId(),
       text: '你们已经互相打招呼，可以开始聊天。',
-      time: currentClockTime(),
+      time: new Date().toISOString(),
     });
     appendConversationMessage(fromUser.phone, senderConversation.id, {
       author: 'system',
       id: messageId(),
       text: `${myPet.name}已接受${fromPet.name}的招呼，可以开始聊天。`,
-      time: currentClockTime(),
+      time: new Date().toISOString(),
     });
     addNotification(fromUser.phone, {
       id: `n-greeting-accepted-${Date.now()}`,
@@ -3892,14 +3892,14 @@ async function handle(req, res) {
       id: messageId(),
       status: 'sent',
       text: note ? `${lastMessage}\n${note}` : lastMessage,
-      time: currentClockTime(),
+      time: new Date().toISOString(),
     });
     appendConversationMessage(targetPhone, targetConversation.id, {
       author: 'other',
       id: messageId(),
       status: 'sent',
       text: note ? `${fromPet.name}邀请你：${lastMessage}\n${note}` : `${fromPet.name}邀请你：${lastMessage}`,
-      time: currentClockTime(),
+      time: new Date().toISOString(),
     });
     addNotification(targetPhone, {
       id: `n-walk-${Date.now()}`,
@@ -3962,7 +3962,7 @@ async function handle(req, res) {
       id: messageId(),
       status: 'sent',
       text,
-      time: currentClockTime(),
+      time: new Date().toISOString(),
     };
     appendConversationMessage(user.phone, conversationId, myMessage);
 
@@ -3973,7 +3973,7 @@ async function handle(req, res) {
       id: messageId(),
       status: 'sent',
       text,
-      time: currentClockTime(),
+      time: new Date().toISOString(),
     });
     upsertConversation(user.phone, buildConversationFor(user, targetUser, text, 0));
     upsertConversation(targetPhone, buildConversationFor(targetUser, user, text, 1));
@@ -4047,7 +4047,7 @@ async function handle(req, res) {
       id: messageId(),
       status: 'sent',
       text,
-      time: currentClockTime(),
+      time: new Date().toISOString(),
     };
     consumePetChatQuota(user);
     const medicalAlert = createMedicalAlertFromPetChat(user, text);
@@ -4074,7 +4074,7 @@ async function handle(req, res) {
       medicalAlert: medicalAlert ? { notificationId: medicalAlert.notificationId, reason: medicalAlert.reason } : undefined,
       status: 'sent',
       text: replyText,
-      time: currentClockTime(),
+      time: new Date().toISOString(),
       updatedPet: profileUpdate?.pet,
       updatedVaccine: vaccineAction?.vaccine,
       vaccineReminderIds: vaccineAction?.reminderIds,

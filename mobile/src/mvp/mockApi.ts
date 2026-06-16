@@ -885,8 +885,8 @@ const conversations: Conversation[] = [
 let greetingRequests: NearbyOwner[] = [];
 
 let conversationMessagesById: Record<string, ConversationMessage[]> = {
-  c1: [{ author: 'other', id: 'c1-welcome', text: '今晚 7 点公园见？', time: currentClockTime() }],
-  c2: [{ author: 'system', id: 'c2-system', text: '你提交的地点已进入审核。', time: currentClockTime() }],
+  c1: [{ author: 'other', id: 'c1-welcome', text: '今晚 7 点公园见？', time: new Date().toISOString() }],
+  c2: [{ author: 'system', id: 'c2-system', text: '你提交的地点已进入审核。', time: new Date().toISOString() }],
 };
 let petChatMessages: ChatMessage[] = [];
 
@@ -1833,7 +1833,7 @@ export const mockApi = {
       };
       conversations.unshift(conversation);
       conversationMessagesById[conversation.id] = [
-        { author: 'system', id: `${conversation.id}-system`, text: '你们已经互相打招呼，可以开始聊天。', time: currentClockTime() },
+        { author: 'system', id: `${conversation.id}-system`, text: '你们已经互相打招呼，可以开始聊天。', time: new Date().toISOString() },
       ];
       return success({ conversation, ownerId, sent: true });
     },
@@ -1871,7 +1871,7 @@ export const mockApi = {
       };
       conversations.unshift(conversation);
       conversationMessagesById[conversation.id] = [
-        { author: 'me', id: `${conversation.id}-invite`, status: 'sent', text: note ? `${message}\n${note}` : message, time: currentClockTime() },
+        { author: 'me', id: `${conversation.id}-invite`, status: 'sent', text: note ? `${message}\n${note}` : message, time: new Date().toISOString() },
       ];
       return success({ conversation, inviteId, ownerId });
     },
@@ -1909,7 +1909,7 @@ export const mockApi = {
       const vaccineAction = medicalAlert || profileUpdate ? null : applyMockPetChatVaccineAction(text);
       const createdWeight = medicalAlert || profileUpdate ? null : createMockWeightRecordFromPetChat(text);
       const createdMemo = medicalAlert?.memo ?? (profileUpdate || vaccineAction || createdWeight ? null : createMockHealthMemoFromPetChat(text));
-      const userMessage: ChatMessage = { id: `pet-user-${Date.now()}`, author: 'me', text, status: 'sent', time: currentClockTime() };
+      const userMessage: ChatMessage = { id: `pet-user-${Date.now()}`, author: 'me', text, status: 'sent', time: new Date().toISOString() };
       const replyText = detectMockPetMedicalEmergency(text)
         ? mockPetMedicalSafetyReply(text)
         : '我收到啦。这个情况我会放进今天的小记录里，如果和健康有关，也建议继续观察食欲、精神和便便状态。';
@@ -1930,7 +1930,7 @@ export const mockApi = {
         medicalAlert: medicalAlert ? { notificationId: medicalAlert.notificationId, reason: medicalAlert.reason } : undefined,
         status: 'sent',
         text: savedNotices.length ? `${replyText}\n\n${savedNotices.join('\n')}` : replyText,
-        time: currentClockTime(),
+        time: new Date().toISOString(),
         updatedPet: profileUpdate?.pet,
         updatedVaccine: vaccineAction?.vaccine,
         vaccineReminderIds: vaccineAction?.reminderIds,
@@ -1961,7 +1961,7 @@ export const mockApi = {
       const conversation = conversations.find((item) => item.id === conversationId);
       if (!conversation) return error('会话不存在，请返回消息列表刷新', true);
       if (conversation.canSendMessage === false) return error('对方接受招呼后才能聊天', true);
-      const message: ConversationMessage = { author: 'me', id: `conv-${Date.now()}`, status: 'sent', text: trimmedText, time: currentClockTime() };
+      const message: ConversationMessage = { author: 'me', id: `conv-${Date.now()}`, status: 'sent', text: trimmedText, time: new Date().toISOString() };
       conversation.lastMessage = trimmedText;
       conversation.unread = 0;
       conversation.updatedAt = new Date().toISOString();

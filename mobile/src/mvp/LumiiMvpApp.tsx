@@ -206,6 +206,24 @@ function formatMessageListTime(value?: string, fallback = '新消息') {
   return text;
 }
 
+function formatChatDateChip(value?: string) {
+  const text = String(value ?? '').trim();
+  if (!text) return `今天 ${formatClockTime()}`;
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) {
+    const time = formatClockTime(date);
+    if (isSameCalendarDay(date, new Date())) return `今天 ${time}`;
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (isSameCalendarDay(date, yesterday)) return `昨天 ${time}`;
+    return `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
+  }
+  const clockMatch = text.match(/^(\d{1,2}):(\d{2})$/);
+  if (clockMatch) return `今天 ${clockMatch[1].padStart(2, '0')}:${clockMatch[2]}`;
+  if (text === '刚刚') return `今天 ${formatClockTime()}`;
+  return text;
+}
+
 function isPetChatWelcomeMessage(message?: ChatMessage) {
   return message?.id === 'pet-chat-welcome';
 }
@@ -839,7 +857,7 @@ function allLumiiPermissionsGranted(state: PermissionStateMap) {
 }
 
 function createConversationSafetyMessage(): ConversationMessage {
-  return { author: 'system', id: 'conversation-safe-tip', text: '为了保护隐私，聊天前不会展示精确住址。', time: formatClockTime() };
+  return { author: 'system', id: 'conversation-safe-tip', text: '为了保护隐私，聊天前不会展示精确住址。', time: new Date().toISOString() };
 }
 
 function createPetChatWelcomeMessage(pet?: null | PetProfile): ChatMessage {
@@ -848,7 +866,7 @@ function createPetChatWelcomeMessage(pet?: null | PetProfile): ChatMessage {
     id: 'pet-chat-welcome',
     status: 'sent',
     text: `我是${pet?.name ? `${pet.name}的` : '你的'}灵伴。今天想记录什么小事？`,
-    time: formatClockTime(),
+    time: new Date().toISOString(),
   };
 }
 
@@ -2833,7 +2851,7 @@ export default function LumiiMvpApp() {
       showToast('今天和灵伴聊得很多啦，稍后再继续');
       return;
     }
-    const messageTime = formatClockTime();
+    const messageTime = new Date().toISOString();
     const local: ChatMessage = retryMessageId
       ? { author: 'me', id: retryMessageId, status: 'sending', text, time: messageTime }
       : { author: 'me', id: `me-${Date.now()}`, status: 'sending', text, time: messageTime };
@@ -2985,7 +3003,7 @@ export default function LumiiMvpApp() {
     if (conversationSendingKeysRef.current.has(sendKey)) return;
     conversationSendingKeysRef.current.add(sendKey);
     const requestSessionToken = sessionTokenRef.current;
-    const messageTime = formatClockTime();
+    const messageTime = new Date().toISOString();
     const local: ConversationMessage = retryMessageId
       ? { author: 'me', id: retryMessageId, status: 'sending', text, time: messageTime }
       : { author: 'me', id: `conversation-${conversationId}-${Date.now()}`, status: 'sending', text, time: messageTime };
@@ -5923,7 +5941,7 @@ export default function LumiiMvpApp() {
     const failedChatMessage = chatMessages.slice().reverse().find((message) => message.author === 'me' && message.status === 'failed');
     const chatDisconnected = Boolean(failedChatMessage);
     const firstVisibleChatTime = chatMessages.find((message) => message.time && message.time !== '刚刚')?.time;
-    const chatDateChipLabel = firstVisibleChatTime ? `今天 ${firstVisibleChatTime}` : `今天 ${formatClockTime()}`;
+    const chatDateChipLabel = formatChatDateChip(firstVisibleChatTime);
     return (
       <Screen showBack={false} title="">
         <View style={styles.chatPageMake}>
@@ -6060,7 +6078,7 @@ export default function LumiiMvpApp() {
     const failedConversationMessage = conversationMessages.slice().reverse().find((message) => message.author === 'me' && message.status === 'failed');
     const conversationAvatarUri = conversation?.imageUrl ?? owners[0]?.imageUrl ?? generatedGoldenAvatarUri;
     const firstConversationTime = conversationMessages.find((message) => message.author !== 'system')?.time;
-    const conversationDateText = firstConversationTime && firstConversationTime !== '刚刚' ? `今天 ${firstConversationTime}` : '今天';
+    const conversationDateText = firstConversationTime ? formatChatDateChip(firstConversationTime) : '今天';
     const parseWalkInviteMessage = (text: string) => {
       const [rawFirstLine, ...noteLines] = text.split('\n');
       const firstLine = rawFirstLine.trim();
