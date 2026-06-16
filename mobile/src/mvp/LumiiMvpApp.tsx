@@ -5501,6 +5501,16 @@ export default function LumiiMvpApp() {
       const maybeInvite = Boolean(time && place && /(\d{1,2}:\d{2}|今天|明天|周)/.test(time) && /(公园|西门|东门|咖啡|草坪|广场|宠物|医院|店|河边)/.test(place));
       return maybeInvite ? { note: noteLines.join('\n').trim(), place, time } : null;
     };
+    const replyToWalkInvite = (invite: NonNullable<ReturnType<typeof parseWalkInviteMessage>>, accepted: boolean) => {
+      if (!canSendMessage) {
+        showToast('对方接受招呼后才能确认约遛');
+        return;
+      }
+      const reply = accepted
+        ? `好呀，我确认参加：${invite.time}，${invite.place}。`
+        : `我先看下时间，晚点再确认这个约遛邀请：${invite.time}，${invite.place}。`;
+      void sendConversationMessage(reply);
+    };
     return (
       <Screen showBack={false} title="">
         <View style={styles.chatPageMake}>
@@ -5579,14 +5589,22 @@ export default function LumiiMvpApp() {
                               <Text numberOfLines={1} style={styles.chatInviteTimeTextMake}>{invite.time}</Text>
                             </View>
                             {invite.note ? <Text numberOfLines={2} style={styles.chatInviteNoteMake}>{invite.note}</Text> : null}
-                            <View style={styles.chatInviteActionsMake}>
-                              <Pressable onPress={() => showToast('已暂存，稍后可在消息中继续确认')} style={[styles.chatInviteSecondaryMake, webPressableReset]}>
-                                <Text style={styles.chatInviteSecondaryTextMake}>稍后再说</Text>
-                              </Pressable>
-                              <Pressable onPress={() => showToast('约遛确认功能后续接入')} style={[styles.chatInvitePrimaryMake, webPressableReset]}>
-                                <Text style={styles.chatInvitePrimaryTextMake}>{message.author === 'me' ? '已发送' : '接受'}</Text>
-                              </Pressable>
-                            </View>
+                            {message.author === 'me' ? (
+                              <View style={styles.chatInviteActionsMake}>
+                                <View style={[styles.chatInvitePrimaryMake, styles.mapSearchActionDisabled]}>
+                                  <Text style={styles.chatInvitePrimaryTextMake}>已发送</Text>
+                                </View>
+                              </View>
+                            ) : (
+                              <View style={styles.chatInviteActionsMake}>
+                                <Pressable onPress={() => replyToWalkInvite(invite, false)} style={[styles.chatInviteSecondaryMake, webPressableReset]}>
+                                  <Text style={styles.chatInviteSecondaryTextMake}>稍后再说</Text>
+                                </Pressable>
+                                <Pressable onPress={() => replyToWalkInvite(invite, true)} style={[styles.chatInvitePrimaryMake, webPressableReset]}>
+                                  <Text style={styles.chatInvitePrimaryTextMake}>接受</Text>
+                                </Pressable>
+                              </View>
+                            )}
                           </View>
                         </View>
                       ) : (
