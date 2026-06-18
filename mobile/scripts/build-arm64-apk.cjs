@@ -10,6 +10,10 @@ const sourceApk = path.join(androidRoot, 'app', 'build', 'outputs', 'apk', 'rele
 const distDir = path.join(repoRoot, 'dist');
 
 function run(command, args, cwd) {
+  if (process.platform === 'win32' && command.endsWith('.bat')) {
+    execFileSync('cmd.exe', ['/d', '/s', '/c', command, ...args], { cwd, stdio: 'inherit' });
+    return;
+  }
   execFileSync(command, args, { cwd, stdio: 'inherit' });
 }
 
