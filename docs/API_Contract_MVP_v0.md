@@ -248,7 +248,12 @@ Response:
 更新当前登录用户资料。MVP 测试后端当前支持：
 - `ownerName`：1 到 14 个字。
 - `ownerBio`：可为空，最多 60 个字。
-- `ownerAvatarUrl`：可为空，最多 2000 字符；MVP 先保存 App 传入的本地/URL 占位，正式对象存储上传后续替换。
+- `ownerAvatarUrl`：可为空，最多 2000 字符；`http(s)` 图片会尽量转存到 COS。
+- `ownerAvatarBase64` / `ownerAvatarMimeType` / `ownerAvatarFileName`：App 相册选择头像时传入，服务端转存 COS 后回填稳定代理 URL。
+
+说明：
+- `file://`、`content://`、`ph://`、`assets-library://`、`data:` 等本机临时地址不能单独持久化；如果没有对应 base64 上传内容，返回 400。
+- 如果上传服务暂不可用，不会把本机临时地址当成头像保存，返回可重试错误。
 
 Request:
 
@@ -256,7 +261,9 @@ Request:
 {
   "ownerName": "Serena",
   "ownerBio": "一个会陪奶油晒太阳的人",
-  "ownerAvatarUrl": "file:///local/avatar.jpg"
+  "ownerAvatarBase64": "iVBORw0KGgo...",
+  "ownerAvatarMimeType": "image/png",
+  "ownerAvatarFileName": "avatar.png"
 }
 ```
 
@@ -403,11 +410,13 @@ MVP 产品约束：
 MVP 兜底校验：
 - `POST /pets` 必填 `name`、`species`，`breed` 为空时保存为“待完善”，`gender` 为空时保存为 `unknown`。
 - `PATCH /pets/{petId}` 当前只允许更新 `name`、`species`、`breed`、`gender`、`birthday`、`weightKg`、`avatarUrl`。
+- `avatarBase64` / `avatarMimeType` / `avatarFileName` 可随 `POST /pets` 或 `PATCH /pets/{petId}` 一起传入，用于保存宠物普通头像；服务端转存 COS 后回填 `avatarUrl`。
 - `name` 最多 12 个字；`breed` 最多 20 个字。
 - `species` 当前只接受 `dog`、`cat`。
 - `gender` 只接受 `male`、`female`、`unknown`。
 - `birthday` 如填写必须是合法 `YYYY-MM-DD` 日期；传空字符串会清空生日。
 - `weightKg` 如填写必须是 `0-200kg` 之间的数字；传空字符串或 `null` 会清空体重。
+- `file://`、`content://` 等本机临时头像地址不能单独持久化；如果没有对应 base64 上传内容，返回 400。
 - 未支持字段、非法物种、非法生日、非法体重等返回 400，`error.code=PET_PROFILE_INVALID`，不会静默改成默认值或污染宠物档案。
 
 ### PATCH `/pets/{petId}`

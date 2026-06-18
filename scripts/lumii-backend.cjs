@@ -575,6 +575,10 @@ async function storeBase64ImageToCos(req, user, body, { base64Key, fileNamePrefi
   };
 }
 
+function isLocalImagePlaceholderUrl(value) {
+  return /^(file|content|ph|assets-library|data):/i.test(String(value || '').trim());
+}
+
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
@@ -980,6 +984,7 @@ function parsePetProfilePayload(value, { partial = false } = {}) {
     const avatarUrl = String(value.avatarUrl || '').trim();
     if (avatarUrl) {
       if (avatarUrl.length > 2000) return { error: '宠物头像地址过长，请重新上传' };
+      if (isLocalImagePlaceholderUrl(avatarUrl) && !value.avatarBase64) return { error: '宠物头像还没有上传完成，请重新选择头像' };
       patch.avatarUrl = avatarUrl;
     } else {
       unset.push('avatarUrl');
@@ -3966,6 +3971,10 @@ async function handle(req, res) {
       fail(res, 400, '头像地址过长，请重新选择', false);
       return;
     }
+    if (isLocalImagePlaceholderUrl(ownerAvatarUrl) && !body.ownerAvatarBase64) {
+      fail(res, 400, '头像还没有上传完成，请重新选择头像', false, undefined, 'OWNER_AVATAR_UPLOAD_REQUIRED');
+      return;
+    }
     if (body.ownerAvatarBase64) {
       const stored = await storeBase64ImageToCos(req, user, body, {
         base64Key: 'ownerAvatarBase64',
@@ -3978,6 +3987,10 @@ async function handle(req, res) {
         return;
       }
       if (stored.url) ownerAvatarUrl = stored.url;
+      else if (isLocalImagePlaceholderUrl(ownerAvatarUrl)) {
+        fail(res, 503, '头像上传服务暂不可用，请稍后重试', true, undefined, 'OWNER_AVATAR_STORAGE_UNAVAILABLE');
+        return;
+      }
     } else if (/^https?:\/\//i.test(ownerAvatarUrl) && !ownerAvatarUrl.includes('/storage/objects/')) {
       try {
         ownerAvatarUrl = await storeAvatarUrlToCos(req, user, ownerAvatarUrl, { scope: 'owner-avatar' });
@@ -4095,6 +4108,10 @@ async function handle(req, res) {
         return;
       }
       if (stored.url) pet.avatarUrl = stored.url;
+      else if (isLocalImagePlaceholderUrl(pet.avatarUrl)) {
+        fail(res, 503, '宠物头像上传服务暂不可用，请稍后重试', true, undefined, 'PET_AVATAR_STORAGE_UNAVAILABLE');
+        return;
+      }
     }
     user.pets.unshift(pet);
     user.activePetId = pet.id;
@@ -4140,6 +4157,10 @@ async function handle(req, res) {
         return;
       }
       if (stored.url) petPatch.patch.avatarUrl = stored.url;
+      else if (isLocalImagePlaceholderUrl(petPatch.patch?.avatarUrl)) {
+        fail(res, 503, '宠物头像上传服务暂不可用，请稍后重试', true, undefined, 'PET_AVATAR_STORAGE_UNAVAILABLE');
+        return;
+      }
     } else if (petPatch.patch?.avatarUrl && /^https?:\/\//i.test(petPatch.patch.avatarUrl) && !petPatch.patch.avatarUrl.includes('/storage/objects/')) {
       try {
         petPatch.patch.avatarUrl = await storeAvatarUrlToCos(req, user, petPatch.patch.avatarUrl, { petId: pet.id, scope: 'pet-profile-avatar' });

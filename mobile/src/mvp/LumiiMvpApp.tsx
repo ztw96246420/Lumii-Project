@@ -436,6 +436,8 @@ const defaultUserSettings: UserSettings = {
   nearbyVisible: true,
   pushNotifications: true,
 };
+const avatarUploadMaxBytes = 9 * 1024 * 1024;
+const supportedAvatarMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
 
 type PetDraft = {
   avatarBase64?: string;
@@ -455,6 +457,48 @@ type LocalImageUploadDraft = {
   mimeType?: string;
   uri: string;
 };
+
+function normalizeLocalImageMimeType(mimeType?: null | string, uri?: string, fileName?: null | string) {
+  const source = `${mimeType ?? ''} ${uri ?? ''} ${fileName ?? ''}`.toLowerCase();
+  if (source.includes('jpg') || source.includes('jpeg')) return 'image/jpeg';
+  if (source.includes('png')) return 'image/png';
+  if (source.includes('webp')) return 'image/webp';
+  if (source.includes('heic')) return 'image/heic';
+  if (source.includes('heif')) return 'image/heif';
+  return '';
+}
+
+function estimateBase64Bytes(value?: null | string) {
+  const clean = String(value || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s/g, '');
+  if (!clean) return 0;
+  const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((clean.length * 3) / 4) - padding);
+}
+
+function avatarExtensionForMimeType(mimeType: string) {
+  if (mimeType === 'image/png') return 'png';
+  if (mimeType === 'image/webp') return 'webp';
+  if (mimeType === 'image/heic') return 'heic';
+  if (mimeType === 'image/heif') return 'heif';
+  return 'jpg';
+}
+
+function buildAvatarUploadDraft(asset?: ImagePicker.ImagePickerAsset): { draft?: LocalImageUploadDraft; error?: string } {
+  if (!asset?.uri) return { error: '没有读取到头像，请重新选择' };
+  const mimeType = normalizeLocalImageMimeType(asset.mimeType, asset.uri, asset.fileName);
+  if (!mimeType || !supportedAvatarMimeTypes.has(mimeType)) return { error: '头像仅支持 JPG、PNG、WebP、HEIC 图片' };
+  if (!asset.base64) return { error: '头像没有读取到可上传内容，请重新选择或裁剪后再试' };
+  const bytes = Number(asset.fileSize) || estimateBase64Bytes(asset.base64);
+  if (bytes > avatarUploadMaxBytes) return { error: `头像文件过大，请选择 ${Math.round(avatarUploadMaxBytes / 1024 / 1024)}MB 以内的图片` };
+  return {
+    draft: {
+      base64: asset.base64,
+      fileName: asset.fileName || `avatar-${Date.now()}.${avatarExtensionForMimeType(mimeType)}`,
+      mimeType,
+      uri: asset.uri,
+    },
+  };
+}
 type DiscoverFilter = 'all' | 'dog' | 'cat' | 'social' | 'walk';
 const discoverFilterOptions: Array<{ key: DiscoverFilter; label: string }> = [
   { key: 'all', label: '全部' },
@@ -2918,16 +2962,17 @@ export default function LumiiMvpApp() {
       });
       if (pickerResult.canceled) return;
       const asset = pickerResult.assets[0];
-      if (!asset?.uri) {
-        showToast('没有读取到头像，请重新选择');
+      const uploadDraft = buildAvatarUploadDraft(asset);
+      if (uploadDraft.error || !uploadDraft.draft) {
+        showToast(uploadDraft.error ?? '没有读取到头像，请重新选择', { tone: 'error', variant: 'surface' });
         return;
       }
       setPetDraft((draft) => ({
         ...draft,
-        avatarBase64: asset.base64 ?? undefined,
-        avatarFileName: asset.fileName ?? undefined,
-        avatarMimeType: asset.mimeType ?? undefined,
-        avatarUrl: asset.uri,
+        avatarBase64: uploadDraft.draft!.base64,
+        avatarFileName: uploadDraft.draft!.fileName,
+        avatarMimeType: uploadDraft.draft!.mimeType,
+        avatarUrl: uploadDraft.draft!.uri,
       }));
       showToast('宠物头像已选择，保存资料后生效');
     } catch {
@@ -3932,17 +3977,17 @@ export default function LumiiMvpApp() {
       });
       if (pickerResult.canceled) return;
       const asset = pickerResult.assets[0];
-      if (asset?.uri) {
-        setOwnerAvatarDraft(asset.uri);
-        setOwnerAvatarUploadDraft({
-          base64: asset.base64 ?? undefined,
-          fileName: asset.fileName ?? undefined,
-          mimeType: asset.mimeType ?? undefined,
-          uri: asset.uri,
-        });
-        setOwnerProfileSaved(false);
-        showToast('头像已选择，保存后生效');
+      const uploadDraft = buildAvatarUploadDraft(asset);
+      if (uploadDraft.error || !uploadDraft.draft) {
+        showToast(uploadDraft.error ?? '没有读取到头像，请重新选择', { tone: 'error', variant: 'surface' });
+        return;
       }
+      setOwnerAvatarDraft(uploadDraft.draft.uri);
+      setOwnerAvatarUploadDraft(uploadDraft.draft);
+      setOwnerProfileSaved(false);
+      showToast('头像已选择，保存后生效');
+    } catch {
+      showToast('打开相册失败，请稍后重试', { tone: 'error', variant: 'surface' });
     } finally {
       ownerAvatarPickingRef.current = false;
       setOwnerAvatarPicking(false);
