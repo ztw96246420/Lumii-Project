@@ -5,6 +5,7 @@
   "dependencies": {
     "@expo-google-fonts/plus-jakarta-sans": "^0.4.2",
     "@expo/metro-runtime": "~56.0.13",
+    "@react-native-community/datetimepicker": "9.1.0",
     "expo": "~56.0.5",
     "expo-font": "~56.0.5",
     "expo-image-picker": "~56.0.14",

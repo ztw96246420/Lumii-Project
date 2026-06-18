@@ -1,5 +1,6 @@
 ﻿import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactElement, type ReactNode } from 'react';
 import {
   ActivityIndicator,
@@ -22,7 +23,7 @@ import {
   StatusBar as NativeStatusBar,
   View,
 } from 'react-native';
-import type { KeyboardTypeOptions, RefreshControlProps, TextStyle, ViewStyle } from 'react-native';
+import type { KeyboardTypeOptions, RefreshControlProps, StyleProp, TextStyle, ViewStyle } from 'react-native';
 import {
   AlertTriangle,
   AlertCircle,
@@ -133,6 +134,14 @@ const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Ari
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
 type NotificationFilter = 'all' | NotificationCategory;
 type MemoRepeat = NonNullable<HealthMemo['repeat']>;
+type DatePickerMode = 'date' | 'time';
+type DatePickerRequest = {
+  maximumDate?: Date;
+  minimumDate?: Date;
+  mode: DatePickerMode;
+  title: string;
+  value: Date;
+};
 
 const notificationFilterOptions: Array<{ key: NotificationFilter; label: string }> = [
   { key: 'all', label: '全部' },
@@ -1022,7 +1031,9 @@ export default function LumiiMvpApp() {
   const permissionsRef = useRef<PermissionStateMap>(initialPermissions);
   const userSettingsRef = useRef<UserSettings>(defaultUserSettings);
   const userSettingSavingKeysRef = useRef<Set<UserSettingKey>>(new Set());
+  const datePickerCommitRef = useRef<(date: Date) => void>(() => undefined);
 
+  const [datePickerRequest, setDatePickerRequest] = useState<DatePickerRequest | null>(null);
   const [permissions, setPermissions] = useState<PermissionStateMap>(initialPermissions);
   const [activePet, setActivePet] = useState<PetProfile | null>(null);
   const [pets, setPets] = useState<PetProfile[]>([]);
@@ -1271,6 +1282,101 @@ export default function LumiiMvpApp() {
   }
 
   const showToast = useCallback((message: string, options?: Omit<AppToast, 'message'>) => setToast({ message, ...options }), []);
+
+  function closeDatePicker() {
+    setDatePickerRequest(null);
+  }
+
+  function openDatePicker(request: DatePickerRequest, onCommit: (date: Date) => void) {
+    if (Platform.OS === 'web') return;
+    datePickerCommitRef.current = onCommit;
+    setDatePickerRequest(request);
+  }
+
+  function handleNativeDatePickerChange(event: DateTimePickerEvent, selectedDate?: Date) {
+    if (Platform.OS === 'android') {
+      closeDatePicker();
+    }
+    if (event.type !== 'set' || !selectedDate) return;
+    if (Platform.OS === 'ios') {
+      setDatePickerRequest((current) => (current ? { ...current, value: selectedDate } : current));
+      return;
+    }
+    datePickerCommitRef.current(selectedDate);
+  }
+
+  function commitIosDatePicker() {
+    if (!datePickerRequest) return;
+    datePickerCommitRef.current(datePickerRequest.value);
+    closeDatePicker();
+  }
+
+  function preserveClockTime(base: Date, selectedDate: Date) {
+    const next = new Date(selectedDate);
+    next.setHours(base.getHours(), base.getMinutes(), 0, 0);
+    return next;
+  }
+
+  function openPetBirthdayPicker() {
+    openDatePicker(
+      {
+        maximumDate: new Date(),
+        mode: 'date',
+        title: '选择生日',
+        value: parseIsoDate(petDraft.birthday) ?? new Date(),
+      },
+      (date) => setPetDraft((draft) => ({ ...draft, birthday: dateToIsoDate(date) })),
+    );
+  }
+
+  function openWeightRecordDatePicker() {
+    const value = weightEditRecord?.recordedAt ? parseIsoDate(weightEditRecord.recordedAt) ?? new Date() : weightDraftRecordedAt;
+    openDatePicker(
+      {
+        maximumDate: new Date(),
+        mode: 'date',
+        title: '选择记录日期',
+        value,
+      },
+      (date) => {
+        const selectedIso = dateToIsoDate(date);
+        if (weightEditRecord) {
+          setWeightEditRecord((record) => (record ? { ...record, recordedAt: selectedIso } : record));
+          return;
+        }
+        setWeightDraftRecordedAt(preserveClockTime(weightDraftRecordedAt, date));
+      },
+    );
+  }
+
+  function openVaccineDueDatePicker() {
+    openDatePicker(
+      {
+        minimumDate: parseIsoDate(todayIsoDate()) ?? new Date(),
+        mode: 'date',
+        title: '选择计划日期',
+        value: parseIsoDate(vaccineDueDraft) ?? parseIsoDate(addDaysIsoDate(30)) ?? new Date(),
+      },
+      (date) => setVaccineDueDraft(dateToIsoDate(date)),
+    );
+  }
+
+  function openMemoReminderDatePicker(kind: 'draft' | 'edit') {
+    const current = kind === 'draft' ? memoDraftReminderAt : memoEditReminderAt;
+    openDatePicker(
+      {
+        minimumDate: parseIsoDate(todayIsoDate()) ?? new Date(),
+        mode: 'date',
+        title: '选择提醒日期',
+        value: current,
+      },
+      (date) => {
+        const next = preserveClockTime(current, date);
+        if (kind === 'draft') setMemoDraftReminderAt(next);
+        else setMemoEditReminderAt(next);
+      },
+    );
+  }
 
   const go = useCallback(
     (nextRoute: AppRoute) => {
@@ -3529,7 +3635,7 @@ export default function LumiiMvpApp() {
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         const wasLatestRecord = weights[0]?.id === record.id;
-        setWeights((items) => items.map((item) => (item.id === result.data!.id ? result.data! : item)));
+        setWeights((items) => items.map((item) => (item.id === result.data!.id ? result.data! : item)).sort((left, right) => right.recordedAt.localeCompare(left.recordedAt)));
         if (wasLatestRecord) {
           setActivePet((pet) => (pet ? { ...pet, weightKg: result.data!.kg } : pet));
         }
@@ -6006,14 +6112,17 @@ export default function LumiiMvpApp() {
             <View style={styles.petEditDividerMake} />
             <View style={styles.petEditRowMake}>
               <Text style={styles.petEditLabelMake}>生日</Text>
-              <TextInput
-                onChangeText={(birthday) => setPetDraft((draft) => ({ ...draft, birthday }))}
-                placeholder="例如：2023-04-12"
-                placeholderTextColor={palette.muted}
-                style={[styles.petEditInputMake, webTextInputReset]}
-                value={petDraft.birthday}
-              />
-              <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
+              {Platform.OS === 'web' ? (
+                <TextInput
+                  onChangeText={(birthday) => setPetDraft((draft) => ({ ...draft, birthday }))}
+                  placeholder="例如：2023-04-12"
+                  placeholderTextColor={palette.muted}
+                  style={[styles.petEditInputMake, webTextInputReset]}
+                  value={petDraft.birthday}
+                />
+              ) : (
+                <DateValueButton onPress={openPetBirthdayPicker} style={styles.petEditDateButtonMake} textStyle={styles.petEditInputMake} value={petDraft.birthday} />
+              )}
             </View>
             <View style={styles.petEditDividerMake} />
             <View style={styles.petEditRowMake}>
@@ -6096,7 +6205,14 @@ export default function LumiiMvpApp() {
             </View>
           </View>
           <PetInfoMakeField label="品种" onChangeText={(breed) => setPetDraft((draft) => ({ ...draft, breed }))} placeholder="例如：金毛寻回犬" value={petDraft.breed} />
-          <PetInfoMakeField label="生日" onChangeText={(birthday) => setPetDraft((draft) => ({ ...draft, birthday }))} placeholder="例如：2024-05-30" value={petDraft.birthday} />
+          {Platform.OS === 'web' ? (
+            <PetInfoMakeField label="生日" onChangeText={(birthday) => setPetDraft((draft) => ({ ...draft, birthday }))} placeholder="例如：2024-05-30" value={petDraft.birthday} />
+          ) : (
+            <View style={styles.petInfoFieldMake}>
+              <Text style={styles.petInfoFieldLabelMake}>生日</Text>
+              <DateValueButton onPress={openPetBirthdayPicker} placeholder="选择生日" style={styles.petInfoInputShellMake} textStyle={styles.petInfoDateValueTextMake} value={petDraft.birthday} />
+            </View>
+          )}
           <View style={styles.optionWrap}>
             <Text style={styles.label}>性别</Text>
             <View style={styles.segmentRow}>
@@ -7610,7 +7726,7 @@ export default function LumiiMvpApp() {
           <Text style={styles.memoFieldLabel}>提醒时间</Text>
           <Pressable
             disabled={!memoDraftReminderEnabled}
-            onPress={adjustMemoReminderAt}
+            onPress={Platform.OS === 'web' ? adjustMemoReminderAt : () => openMemoReminderDatePicker('draft')}
             style={[styles.memoPickerRow, !memoDraftReminderEnabled && styles.memoPickerRowDisabled, webPressableReset]}
           >
             <CalendarDays color={palette.orange} size={16} strokeWidth={2.4} />
@@ -7730,7 +7846,7 @@ export default function LumiiMvpApp() {
             <Text style={styles.makeFieldLabel}>提醒时间</Text>
             <Pressable
               disabled={!memoEditReminderEnabled || controlsDisabled}
-              onPress={adjustMemoEditReminderAt}
+              onPress={Platform.OS === 'web' ? adjustMemoEditReminderAt : () => openMemoReminderDatePicker('edit')}
               style={[styles.memoPickerRow, (!memoEditReminderEnabled || controlsDisabled) && styles.memoPickerRowDisabled, webPressableReset]}
             >
               <CalendarDays color={palette.orange} size={16} strokeWidth={2.4} />
@@ -7992,7 +8108,11 @@ export default function LumiiMvpApp() {
             ))}
           </View>
           <View style={styles.weightSheetMetaCard}>
-            <View style={styles.weightSheetMetaRow}>
+            <Pressable
+              disabled={weightEditSaving || weightSaving}
+              onPress={openWeightRecordDatePicker}
+              style={[styles.weightSheetMetaRow, (weightEditSaving || weightSaving) && styles.opacity60, webPressableReset]}
+            >
               <View style={styles.metaIconBox}>
                 <CalendarDays color={palette.muted} size={13} strokeWidth={2.3} />
               </View>
@@ -8000,7 +8120,8 @@ export default function LumiiMvpApp() {
               <Text style={styles.memoMetaValueMake}>
                 {weightEditRecord ? formatCalendarDateLabel(weightEditRecord.recordedAt) : formatTodayTimeLabel(weightDraftRecordedAt)}
               </Text>
-            </View>
+              <ChevronRight color={palette.muted} size={14} strokeWidth={2.3} />
+            </Pressable>
             <View style={styles.makeDivider} />
             <View style={styles.weightSheetNoteRow}>
               <View style={styles.metaIconBox}>
@@ -8127,15 +8248,26 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.vaccineComposerField}>
                 <Text style={styles.label}>计划日期</Text>
-                <TextInput
-                  editable={!vaccineCreating}
-                  keyboardType="numbers-and-punctuation"
-                  onChangeText={setVaccineDueDraft}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#B8B3A8"
-                  style={[styles.makeTextInput, !vaccineDueDraft.trim() && styles.vaccineDateInputEmpty, webTextInputReset]}
-                  value={vaccineDueDraft}
-                />
+                {Platform.OS === 'web' ? (
+                  <TextInput
+                    editable={!vaccineCreating}
+                    keyboardType="numbers-and-punctuation"
+                    onChangeText={setVaccineDueDraft}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor="#B8B3A8"
+                    style={[styles.makeTextInput, !vaccineDueDraft.trim() && styles.vaccineDateInputEmpty, webTextInputReset]}
+                    value={vaccineDueDraft}
+                  />
+                ) : (
+                  <DateValueButton
+                    disabled={vaccineCreating}
+                    onPress={openVaccineDueDatePicker}
+                    placeholder="选择计划日期"
+                    style={[styles.makeTextInput, !vaccineDueDraft.trim() && styles.vaccineDateInputEmpty]}
+                    textStyle={styles.vaccineDateValueTextMake}
+                    value={vaccineDueDraft}
+                  />
+                )}
                 <View style={styles.vaccineQuickDateRow}>
                   {vaccineQuickDates.map((item) => (
                     <Pressable
@@ -10926,6 +11058,51 @@ export default function LumiiMvpApp() {
             </View>
           ) : null}
           <Toast icon={toast?.icon} iconTone={toast?.iconTone} layout={toast?.layout} message={toast?.message} placement={toast?.placement} subtitle={toast?.subtitle} tone={toast?.tone} variant={toast?.variant} />
+          {datePickerRequest && Platform.OS !== 'web' ? (
+            Platform.OS === 'ios' ? (
+              <Modal animationType="fade" transparent visible>
+                <View style={styles.datePickerBackdrop}>
+                  <View style={styles.datePickerSheet}>
+                    <View style={styles.rowBetween}>
+                      <Text style={styles.sheetTitle}>{datePickerRequest.title}</Text>
+                      <Pressable onPress={closeDatePicker} style={webPressableReset}>
+                        <X color={palette.muted} size={18} strokeWidth={2.3} />
+                      </Pressable>
+                    </View>
+                    <DateTimePicker
+                      display="spinner"
+                      locale="zh-CN"
+                      maximumDate={datePickerRequest.maximumDate}
+                      minimumDate={datePickerRequest.minimumDate}
+                      mode={datePickerRequest.mode}
+                      onChange={handleNativeDatePickerChange}
+                      themeVariant="light"
+                      value={datePickerRequest.value}
+                    />
+                    <View style={styles.datePickerActionRow}>
+                      <Pressable onPress={closeDatePicker} style={[styles.datePickerCancelButton, webPressableReset]}>
+                        <Text style={styles.datePickerCancelText}>取消</Text>
+                      </Pressable>
+                      <Pressable onPress={commitIosDatePicker} style={[styles.datePickerConfirmButton, webPressableReset]}>
+                        <Text style={styles.datePickerConfirmText}>确定</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+              </Modal>
+            ) : (
+              <DateTimePicker
+                display={datePickerRequest.mode === 'date' ? 'calendar' : 'clock'}
+                maximumDate={datePickerRequest.maximumDate}
+                minimumDate={datePickerRequest.minimumDate}
+                mode={datePickerRequest.mode}
+                onChange={handleNativeDatePickerChange}
+                positiveButton={{ label: '确定', textColor: palette.orange }}
+                negativeButton={{ label: '取消' }}
+                value={datePickerRequest.value}
+              />
+            )
+          ) : null}
           {renderGreetingSheet()}
           {renderAmapNavigationConfirm()}
           {renderLogoutConfirmSheet()}
@@ -11015,6 +11192,30 @@ function InlineErrorMake({ style, text }: { style?: ViewStyle; text: string }) {
       <AlertCircle color={palette.danger} size={14} strokeWidth={2.2} />
       <Text style={styles.inlineErrorText}>{text}</Text>
     </View>
+  );
+}
+
+function DateValueButton({
+  disabled,
+  onPress,
+  placeholder = '选择日期',
+  style,
+  textStyle,
+  value,
+}: {
+  disabled?: boolean;
+  onPress: () => void;
+  placeholder?: string;
+  style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
+  value?: string;
+}) {
+  const hasValue = Boolean(value);
+  return (
+    <Pressable disabled={disabled} onPress={onPress} style={[styles.dateValueButton, style, disabled && styles.opacity60, webPressableReset]}>
+      <Text numberOfLines={1} style={[styles.dateValueText, textStyle, !hasValue && styles.dateValuePlaceholder]}>{hasValue ? value : placeholder}</Text>
+      <CalendarDays color={hasValue ? palette.orange : palette.muted} size={15} strokeWidth={2.4} />
+    </Pressable>
   );
 }
 
@@ -11728,6 +11929,16 @@ const styles = StyleSheet.create({
   noPetTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '800', lineHeight: 25, textAlign: 'center' },
   deleteTextButton: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 6, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 10 },
   deleteTextButtonLabel: { color: palette.danger, fontFamily: appFontFamily, fontSize: 14, fontWeight: '500' },
+  datePickerActionRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  datePickerBackdrop: { alignItems: 'center', backgroundColor: 'rgba(20,18,14,0.46)', flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
+  datePickerCancelButton: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flex: 1, height: 46, justifyContent: 'center' },
+  datePickerCancelText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600' },
+  datePickerConfirmButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 14, flex: 1, height: 46, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.22, shadowRadius: 18 },
+  datePickerConfirmText: { color: '#fff', fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  datePickerSheet: { backgroundColor: '#fff', borderRadius: 22, paddingBottom: 18, paddingHorizontal: 18, paddingTop: 18, shadowColor: '#50371e', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.22, shadowRadius: 38, width: '100%' },
+  dateValueButton: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'space-between' },
+  dateValuePlaceholder: { color: palette.muted, fontWeight: '500' },
+  dateValueText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600' },
   editActionStack: { gap: 10, marginTop: 16 },
   editFormCard: { gap: 4, paddingHorizontal: 0, paddingTop: 0 },
   fieldHintError: { color: palette.danger },
@@ -12674,6 +12885,7 @@ const styles = StyleSheet.create({
   permissionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '500', lineHeight: 22 },
   petInfoFieldLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', marginBottom: 8 },
   petInfoFieldMake: { gap: 0 },
+  petInfoDateValueTextMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 16, fontWeight: '500' },
   petInfoFormMake: { gap: 18, marginTop: 24, paddingHorizontal: 6 },
   petInfoInputShellMake: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', height: 52, paddingHorizontal: 16 },
   petInfoInputSuffixMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '500' },
@@ -12720,6 +12932,7 @@ const styles = StyleSheet.create({
   petEditDeleteTextMake: { color: palette.danger, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
   petEditDividerMake: { backgroundColor: palette.border, height: 1, marginLeft: 16 },
   petEditFootnoteMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 19, paddingHorizontal: 4, paddingTop: 10 },
+  petEditDateButtonMake: { flex: 1, minHeight: 48 },
   petEditInputMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600', minHeight: 48, paddingHorizontal: 0, paddingVertical: 0 },
   petEditLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '500', lineHeight: 20, width: 80 },
   petEditMiniChipActiveMake: { backgroundColor: palette.orangeSoft, borderColor: palette.orange },
@@ -13019,6 +13232,7 @@ const styles = StyleSheet.create({
   vaccineComposerCard: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 13, marginBottom: 10, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
   vaccineComposerField: { gap: 8 },
   vaccineDateInputEmpty: { borderColor: 'rgba(122,121,114,0.26)' },
+  vaccineDateValueTextMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400' },
   vaccineEmptyPlanMake: { gap: 4, paddingHorizontal: 2, paddingVertical: 18 },
   vaccineHeroActionDisabled: { opacity: 0.58 },
   vaccineHeroActionDisabledText: { color: palette.muted },
