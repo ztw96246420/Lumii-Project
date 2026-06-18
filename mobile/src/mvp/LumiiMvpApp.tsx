@@ -1692,7 +1692,7 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     if (route !== 'memoEdit') return;
     if (!selectedMemo) {
-      replace('healthMemos');
+      replace('healthCalendar');
       showToast('请选择要编辑的备忘');
       return;
     }
@@ -3321,7 +3321,7 @@ export default function LumiiMvpApp() {
     if (message.createdMemo) {
       setMemos((items) => [message.createdMemo!, ...items.filter((item) => item.id !== message.createdMemo!.id)]);
       shouldRefreshHealth = true;
-      addSyncLabel('健康备忘');
+      addSyncLabel('健康日历');
     }
 
     if (message.medicalAlert) {
@@ -4231,8 +4231,8 @@ export default function LumiiMvpApp() {
         setMemoDraftReminderAt(defaultMemoReminderDate());
         setMemoDraftReminderEnabled(true);
         void refreshHealthSummary();
-        showToast('健康备忘已保存', { tone: 'success', variant: 'surface' });
-        replace('healthMemos');
+        showToast('健康备忘已保存', { subtitle: '已同步到健康日历', tone: 'success', variant: 'surface' });
+        replace('healthCalendar');
       } else {
         showToast(result.error?.message ?? '保存失败，请稍后重试', { tone: 'error', variant: 'surface' });
       }
@@ -4351,7 +4351,7 @@ export default function LumiiMvpApp() {
         setSelectedMemo(null);
         setMemoDeleteConfirmVisible(false);
         void refreshHealthSummary();
-        replace('healthMemos');
+        replace('healthCalendar');
         showToast('备忘已删除', { tone: 'success', variant: 'surface' });
       } else {
         showToast(result.error?.message ?? '删除备忘失败', { tone: 'error', variant: 'surface' });
@@ -4473,7 +4473,7 @@ export default function LumiiMvpApp() {
         setDailyPostPhotoUris([]);
         void refreshHealthSummary();
         replace('home');
-        showToast('今日小事已记录', { subtitle: '已同步到健康备忘和首页动态', tone: 'success', variant: 'surface' });
+        showToast('今日小事已记录', { subtitle: '已同步到健康日历，可在首页动态查看', tone: 'success', variant: 'surface' });
       } else {
         showToast(result.error?.message ?? '发布失败，请稍后重试', { subtitle: '内容已留在编辑框中，不会丢失', tone: 'error', variant: 'surface' });
       }
@@ -6761,7 +6761,7 @@ export default function LumiiMvpApp() {
     const healthScore = healthSummary?.healthScore ?? pet.healthScore ?? 92;
     const petMeta = [pet.breed || speciesLabels[pet.species], formatPetAge(pet.birthday)].filter(Boolean).join(' · ');
     const memoCount = healthSummary?.memoCount ?? memos.length;
-    const memoSummary = healthSummary?.latestMemo?.title ?? memos[0]?.title ?? '暂无备忘';
+    const calendarSummary = healthCalendarEvents.length ? `${healthCalendarEvents.length} 条记录` : (healthSummary?.latestMemo?.title ?? memos[0]?.title ?? '查看记录');
     const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : '暂无附近伙伴';
     const homeChatHint = homeChatPrompts[homeHintIndex].replace(/\{petName\}/g, pet.name);
     const healthStatusLabel =
@@ -6831,7 +6831,7 @@ export default function LumiiMvpApp() {
           <View style={styles.homeQuickGrid}>
             <MetricCard Icon={Weight} label="今日体重" onPress={() => go('weight')} tag={todayWeightRecorded ? '已记录' : '待记录'} tagTone="teal" value={formatWeightKg(latestWeight)} />
             <MetricCard Icon={Syringe} iconTone="teal" label="疫苗提醒" onPress={() => go('vaccine')} tag={formatDueLabel(nextVaccine?.dueAt)} tagTone="orange" value={nextVaccine?.name ?? '待添加计划'} />
-            <MetricCard Icon={NotebookPen} label="健康备忘" onPress={() => go('healthMemos')} tag={`${memoCount} 条`} tagTone="muted" value={memoSummary} />
+            <MetricCard Icon={CalendarDays} label="健康日历" onPress={() => go('healthCalendar')} tag={`${memoCount} 条`} tagTone="muted" value={calendarSummary} />
             <MetricCard Icon={MapPin} label="附近伙伴" onPress={() => go('discover')} tag={`${defaultDiscoverRadiusKm}km`} tagTone="teal" value={onlineCopy} />
           </View>
 
@@ -7288,8 +7288,6 @@ export default function LumiiMvpApp() {
     const healthScore = healthSummary?.healthScore ?? pet?.healthScore ?? 92;
     const weightSubtitle = healthSummary?.weightSummary ?? (weights.length > 1 ? `最近一次 ${formatOptionalDateLabel(weights[0]?.recordedAt)}` : '暂无连续记录，先从今天开始');
     const latestMemo = healthSummary?.latestMemo ?? memos[0];
-    const memoCount = healthSummary?.memoCount ?? memos.length;
-    const memoSubtitle = latestMemo ? `${latestMemo.title} · ${formatOptionalDateLabel(latestMemo.updatedAt)}` : '记录洗澡、驱虫、食欲或异常观察';
     const urgentHealthCount = healthSummary?.urgentVaccineCount ?? urgentVaccines.length;
     const pendingHealthCount = healthSummary?.pendingVaccineCount ?? pendingVaccines.length;
     const recentRows = [
@@ -7322,7 +7320,7 @@ export default function LumiiMvpApp() {
     return (
       <Screen
         right={(
-          <Pressable accessibilityLabel="新增健康记录" accessibilityRole="button" onPress={() => go('healthMemos')} style={styles.makeIconChip}>
+          <Pressable accessibilityLabel="新增健康记录" accessibilityRole="button" onPress={() => go('memoNew')} style={styles.makeIconChip}>
             <Plus color={palette.ink} size={18} strokeWidth={2.4} />
           </Pressable>
         )}
@@ -7350,7 +7348,6 @@ export default function LumiiMvpApp() {
           <HealthMakeRow Icon={Weight} badge={formatWeightKg(latestWeight)} chart onPress={() => go('weight')} subtitle={weightSubtitle} title="体重趋势" tone="warm" />
           <HealthMakeRow Icon={Syringe} badge={urgentHealthCount ? `${urgentHealthCount} 项临近` : pendingHealthCount ? `${pendingHealthCount} 项` : '已完成'} badgeTone="warm" onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${vaccineReminderCopy(nextHealthVaccine)}` : '暂无计划'} title="疫苗计划" tone="cool" />
           <HealthMakeRow Icon={CalendarDays} badge={`${healthCalendarEvents.length || recentRows.length} 条`} onPress={() => go('healthCalendar')} subtitle="按月份查看体重、疫苗和备忘记录" title="健康日历" tone="cool" />
-          <HealthMakeRow Icon={NotebookPen} badge={`${memoCount} 条`} badgeTone="muted" onPress={() => go('healthMemos')} subtitle={memoSubtitle} title="健康备忘" tone="warm" />
         </View>
 
         {urgentHealthCount ? (
@@ -7369,8 +7366,8 @@ export default function LumiiMvpApp() {
         <View style={styles.healthTimelineCard}>
           <View style={styles.rowBetween}>
             <Text style={styles.healthRecentTitle}>近期记录</Text>
-            <Pressable onPress={() => go('healthMemos')} style={[styles.textAction, webPressableReset]}>
-              <Text style={styles.healthRecentLink}>查看全部</Text>
+            <Pressable onPress={() => go('healthCalendar')} style={[styles.textAction, webPressableReset]}>
+              <Text style={styles.healthRecentLink}>查看日历</Text>
             </Pressable>
           </View>
           {recentRows.map(({ Icon, date, dot, sub, title }, index) => (
@@ -7399,7 +7396,6 @@ export default function LumiiMvpApp() {
 
   function renderHealthCalendar() {
     const pet = getCurrentPet();
-    const healthScore = healthSummary?.healthScore ?? pet?.healthScore ?? 92;
     const monthDate = parseIsoDate(healthCalendarMonth) ?? new Date();
     const year = monthDate.getFullYear();
     const month = monthDate.getMonth();
@@ -7481,7 +7477,7 @@ export default function LumiiMvpApp() {
             if (event.type === 'memo') {
               const memo = memos.find((item) => item.id === event.sourceId);
               if (memo) openMemoEditor(memo);
-              else go('healthMemos');
+              else go('memoNew');
             }
           }}
           style={[styles.calendarEventItem, webPressableReset]}
@@ -7501,7 +7497,7 @@ export default function LumiiMvpApp() {
     if (showError) {
       return (
         <Screen title="健康日历">
-          <HealthCalendarPetCard healthScore={healthScore} note="日历暂时无法加载" pet={pet} />
+          <HealthCalendarPetCard note="日历暂时无法加载" pet={pet} />
           <View style={styles.calendarErrorState}>
             <View style={styles.calendarErrorIcon}>
               <WifiOff color={palette.danger} size={28} strokeWidth={2.3} />
@@ -7532,7 +7528,7 @@ export default function LumiiMvpApp() {
           </View>
         ) : null}
 
-        <HealthCalendarPetCard healthScore={healthScore} note={petNote} pet={pet} />
+        <HealthCalendarPetCard note={petNote} pet={pet} />
 
         <View style={styles.calendarMonthSwitcher}>
           <Pressable onPress={() => moveMonth(-1)} style={[styles.calendarMonthButton, webPressableReset]}>
@@ -10079,7 +10075,7 @@ export default function LumiiMvpApp() {
     const pet = getCurrentPet();
     const genderSymbol = pet?.gender === 'female' ? '♀' : pet?.gender === 'male' ? '♂' : '未知';
     const vaccineValue = pendingVaccines.length ? `${pendingVaccines.length} 项待提醒` : vaccines.length ? '已完成' : '待添加';
-    const memoValue = memos.length ? `${memos.length} 条` : '待记录';
+    const memoValue = memos.length ? `${memos.length} 条记录` : '待记录';
     const detailImageUri = pet?.avatarUrl ?? generatedGoldenAvatarUri;
     const birthdayShort = pet?.birthday ? pet.birthday.slice(0, 7).replace(/-/g, '.') : '待补充';
     const bodySize = petBodySizeLabel(pet);
@@ -10132,7 +10128,7 @@ export default function LumiiMvpApp() {
               <Text style={styles.petDetailSectionTitleMake}>健康</Text>
               <View style={styles.petDetailInfoCardMake}>
                 <ProfileMakeRow Icon={Heart} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('vaccine')} title="疫苗与驱虫" value={vaccineValue} />
-                <ProfileMakeRow Icon={Clock} iconBg="#FBF2D9" iconColor={palette.warning} last onPress={() => go('healthMemos')} title="健康备忘" value={memoValue} />
+                <ProfileMakeRow Icon={CalendarDays} iconBg="#FBF2D9" iconColor={palette.warning} last onPress={() => go('healthCalendar')} title="健康日历" value={memoValue} />
               </View>
             </View>
           </View>
@@ -11698,7 +11694,7 @@ function MakeStepRow({ active, done, text }: { active?: boolean; done?: boolean;
   );
 }
 
-function HealthCalendarPetCard({ healthScore, note, pet }: { healthScore: number; note: string; pet?: null | PetProfile }) {
+function HealthCalendarPetCard({ note, pet }: { note: string; pet?: null | PetProfile }) {
   const speciesLabel = pet?.breed || speciesLabels[pet?.species ?? 'dog'] || '宠物';
   return (
     <View style={styles.calendarPetCard}>
@@ -11709,10 +11705,6 @@ function HealthCalendarPetCard({ healthScore, note, pet }: { healthScore: number
           <Text numberOfLines={1} style={styles.calendarPetTag}>♥ {speciesLabel}</Text>
         </View>
         <Text numberOfLines={1} style={styles.calendarPetNote}>{note}</Text>
-      </View>
-      <View style={styles.calendarPetScoreBox}>
-        <Text style={styles.calendarPetScoreLabel}>健康分</Text>
-        <Text style={styles.calendarPetScore}>{healthScore}</Text>
       </View>
     </View>
   );
@@ -12395,12 +12387,9 @@ const styles = StyleSheet.create({
   calendarOverdueTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '800' },
   calendarPetCard: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, marginBottom: 14, marginTop: 8, padding: 12 },
   calendarPetCopy: { flex: 1, minWidth: 0 },
-  calendarPetName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', maxWidth: 104 },
+  calendarPetName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', maxWidth: 138 },
   calendarPetNote: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 16, marginTop: 3 },
-  calendarPetScore: { color: palette.teal, fontFamily: appFontFamily, fontSize: 18, fontWeight: '800', lineHeight: 22 },
-  calendarPetScoreBox: { alignItems: 'flex-end', borderLeftColor: palette.border, borderLeftWidth: 1, paddingLeft: 10 },
-  calendarPetScoreLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10, fontWeight: '600' },
-  calendarPetTag: { backgroundColor: '#E8F5F3', borderRadius: 6, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', maxWidth: 108, overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
+  calendarPetTag: { backgroundColor: '#E8F5F3', borderRadius: 6, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', maxWidth: 132, overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
   calendarPetTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 6 },
   calendarRetryButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 13, flexDirection: 'row', gap: 8, marginTop: 22, minHeight: 40, paddingHorizontal: 20, shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.24, shadowRadius: 16 },
   calendarRetryText: { color: '#fff', fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
