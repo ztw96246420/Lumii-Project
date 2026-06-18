@@ -1,12 +1,12 @@
 # Lumii / 灵伴 文档索引
 
-维护日期：2026-06-12
+维护日期：2026-06-19
 
 ## 阅读顺序
 
 1. 产品范围：[PRD_v0.md](./PRD_v0.md)
 2. 开发路线：[Development_Roadmap_v0.md](./Development_Roadmap_v0.md)
-3. 当前开发记录：[MVP_Development_Update_2026-06-12.md](./MVP_Development_Update_2026-06-12.md)
+3. 当前开发记录：[MVP_Development_Update_2026-06-18.md](./MVP_Development_Update_2026-06-18.md)
 4. 设计门禁：[Design_Gate_Rule_2026-06-06.md](./Design_Gate_Rule_2026-06-06.md)
 5. 缺失设计提示词：[Figma_Make_Missing_Page_Prompts_2026-06-06.md](./Figma_Make_Missing_Page_Prompts_2026-06-06.md)
 6. 接口契约：[API_Contract_MVP_v0.md](./API_Contract_MVP_v0.md)
@@ -52,6 +52,7 @@
 | --- | --- | --- |
 | [API_Contract_MVP_v0.md](./API_Contract_MVP_v0.md) | 当前主文档 | 前端 API 门面、测试后端、接口契约 |
 | [MVP_Development_Support_Checklist_v0.md](./MVP_Development_Support_Checklist_v0.md) | 当前主文档 | 需要用户/后端/设计继续支持的事项 |
+| [Health_Calendar_Entry_Update_2026-06-18.md](./Health_Calendar_Entry_Update_2026-06-18.md) | 当前专项记录 | 健康日历入口收敛、健康备忘主流程调整 |
 | [MVP_Implementation_Status_2026-05-30.md](./MVP_Implementation_Status_2026-05-30.md) | 历史参考 | 早期原生化实现状态 |
 | [SMS_Integration_Testing_v0.md](./SMS_Integration_Testing_v0.md) | 历史测试记录 | Spug 短信通道测试和后端代理策略 |
 
@@ -78,7 +79,8 @@
 
 | 文档 | 状态 | 内容 |
 | --- | --- | --- |
-| [MVP_Development_Update_2026-06-12.md](./MVP_Development_Update_2026-06-12.md) | 最新开发记录 | 权限页卡顿优化、设置联动、社交动作回显、建档/形象保存数据刷新、AI 业务动作同步、当前宠物状态一致性、推送 token 字段校验、疫苗提醒字段校验、健康记录字段校验、宠物资料兜底校验、权限/设置 patch 校验、上传媒体基础校验、签名 token、退出 token 撤销、短信票据消费、验证码输错次数限制、健康提醒闭环、二次登录会话恢复、缺失设计清单清理 |
+| [MVP_Development_Update_2026-06-18.md](./MVP_Development_Update_2026-06-18.md) | 最新开发记录 | COS 存储接入、发现/约遛无新页面逻辑补强、多宠维度刷新、头像上传硬化、健康日历入口收敛 |
+| [MVP_Development_Update_2026-06-12.md](./MVP_Development_Update_2026-06-12.md) | 历史开发记录 | 权限页卡顿优化、设置联动、社交动作回显、建档/形象保存数据刷新、AI 业务动作同步、当前宠物状态一致性、推送 token 字段校验、疫苗提醒字段校验、健康记录字段校验、宠物资料兜底校验、权限/设置 patch 校验、上传媒体基础校验、签名 token、退出 token 撤销、短信票据消费、验证码输错次数限制、健康提醒闭环、二次登录会话恢复、缺失设计清单清理 |
 | [MVP_Development_Update_2026-06-11.md](./MVP_Development_Update_2026-06-11.md) | 历史开发记录 | 宠物编辑、会话缓存、返回手势、健康提醒、通知已读 |
 | [MVP_Development_Update_2026-06-10.md](./MVP_Development_Update_2026-06-10.md) | 历史开发记录 | 发现、招呼请求、接口、聊天未读闭环 |
 | [MVP_Development_Update_2026-06-09.md](./MVP_Development_Update_2026-06-09.md) | 历史开发记录 | 本地/云端后端、社交接口同步 |

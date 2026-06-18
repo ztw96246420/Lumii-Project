@@ -616,6 +616,7 @@ type HealthSummary = {
 - `urgentVaccineCount` 当前按未完成且 14 天内到期/已逾期计算。
 - 该接口只做摘要聚合，不替代 `GET /health/weights`、`GET /health/vaccines`、`GET /health/memos` 的详情读取。
 - App 首页、健康页、体重页和疫苗页顶部摘要已优先使用该接口；详情列表仍读取各自明细接口，不需要新增设计页面。
+- 2026-06-18 起，App 主导航口径收敛为“健康日历”承载健康备忘记录；`memoCount/latestMemo` 仍用于首页和健康日历入口展示记录摘要。
 
 ### GET `/health/calendar`
 
@@ -640,6 +641,8 @@ type HealthCalendarEvent = {
 - `vaccine` 来自疫苗/驱虫计划，`status` 会保留原计划状态。
 - `memo` 来自健康备忘，若 `updatedAt` 不是日期格式，会归到当天。
 - 返回按 `date` 倒序排列。
+- App 已将宠物首页、健康页近期记录和宠物详情健康区的主入口统一指向健康日历；健康日历顶部宠物卡不再展示健康分，健康分只保留在首页和健康首页。
+- 健康日历空状态的“添加一条记录”会进入新增健康备忘页，新增、编辑、删除备忘后统一回到健康日历。
 
 ### GET `/health/weights`
 
@@ -795,6 +798,10 @@ Request:
 
 当前宠物健康备忘列表。测试后端会按 `phone + activePetId` 持久化。
 
+产品入口说明：
+- 健康备忘仍是健康记录数据类型和 CRUD 接口，但不再作为 MVP 主流程的独立入口页。
+- App 主入口改为健康日历；旧健康备忘列表页仅保留兼容旧路由、历史栈或调试查看。
+
 ### POST `/health/memos`
 
 Request:
@@ -841,7 +848,7 @@ Request:
 - `repeat` 可选值为 `none`、`monthly`、`quarterly`、`yearly`。
 - `reminderEnabled=true` 时必须传合法 `reminderAt`，格式为 `YYYY-MM-DD HH:mm`；`reminderEnabled=false` 时后端不保存 `reminderAt`。
 - 字段、标题、内容、提醒时间或重复频率不合法时返回 400，`error.code=HEALTH_MEMO_INVALID`。
-- App 已暴露健康备忘编辑入口；编辑页支持同步更新标题、内容、提醒时间、提醒开关和重复频率。
+- App 已暴露健康备忘编辑入口；编辑页支持同步更新标题、内容、提醒时间、提醒开关和重复频率。当前主要从健康日历事件进入编辑。
 
 ### DELETE `/health/memos/{memoId}`
 
@@ -854,7 +861,7 @@ HealthMemo[]
 ```
 
 说明：
-- App 已暴露健康备忘删除入口，删除前必须经过二次确认弹窗。
+- App 已暴露健康备忘删除入口，删除前必须经过二次确认弹窗；删除成功后回到健康日历。
 
 ## 7. 社交与消息
 

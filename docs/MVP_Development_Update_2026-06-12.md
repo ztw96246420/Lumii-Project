@@ -117,12 +117,12 @@
 - 健康摘要接口补齐：新增 `GET /health/summary`，测试后端和 mock API 会按当前宠物聚合健康分、最近体重、体重趋势、疫苗/驱虫计划、健康备忘数量和提醒开关；当前首页/健康页可后续逐步切换到该接口，不需要新增页面。
 - 设备推送 token 上报接口补齐：新增 `POST /devices/push-token`，测试后端和 mock API 会按当前账号保存/更新设备 token；生产厂商推送通道、通知模板和送达回执仍待后续确认。
 - 健康备忘 CRUD 接口补齐：新增 `PATCH /health/memos/{memoId}`、`DELETE /health/memos/{memoId}`，测试后端和 mock API 均已支持按当前宠物编辑/删除备忘。
-- 健康备忘编辑/删除 UI 暂不暴露，仍等待 Figma Make 的编辑态、删除确认弹窗和 toast 状态设计。
+- ~~健康备忘编辑/删除 UI 暂不暴露，仍等待 Figma Make 的编辑态、删除确认弹窗和 toast 状态设计。~~ 2026-06-12 后已接入 Screen92-96；2026-06-18 起健康备忘列表页退出主流程入口，编辑/删除仍可从健康日历事件进入。
 - 体重趋势接口补齐：新增 `GET /health/weights/trend`，测试后端和 mock API 会基于当前宠物体重记录返回趋势方向、变化幅度、状态和提示文案。
 - 历史体重编辑/删除接口补齐：新增 `PATCH /health/weights/{weightId}`、`DELETE /health/weights/{weightId}`，测试后端和 mock API 均支持按当前宠物编辑/删除体重记录；删除最新体重后会用下一条记录回填当前宠物体重，没有剩余记录则清空。
 - 体重趋势详情、历史体重编辑/删除弹层和异常态 UI 暂不新增，仍等待 Figma Make 设计。
 - 健康日历数据接口补齐：新增 `GET /health/calendar`，测试后端和 mock API 会按当前宠物聚合体重、疫苗/驱虫计划和健康备忘，返回统一日历事件列表。
-- 健康日历独立页面暂不新增；已在 `Figma_Make_Missing_Page_Prompts_2026-06-06.md` 单独记录“健康日历总览页（暂缓开发）”，并明确健康管理、体重、疫苗、备忘基础页不要重复补图。
+- ~~健康日历独立页面暂不新增；已在 `Figma_Make_Missing_Page_Prompts_2026-06-06.md` 单独记录“健康日历总览页（暂缓开发）”，并明确健康管理、体重、疫苗、备忘基础页不要重复补图。~~ 2026-06-15 后已接入 Screen75-80 健康日历；2026-06-18 起作为健康模块主入口之一。
 - 文档同步清理：`Figma_Make_Missing_Page_Prompts_2026-06-06.md` 不再把二次登录免验证码列为待开发项；`MVP_Development_Support_Checklist_v0.md` 不再把当前代码里不存在的“MVP 验收入口”误记为待处理。
 - 历史设计迁移文档和 Stitch 缺口文档中关于“MVP 验收入口”的描述已统一删除线标记，避免被当作当前现状或待办。
 - 地点详情接口补齐：新增 `GET /places/{placeId}`，测试后端和 mock API 均支持按地点 ID 读取单个宠物友好地点；不存在时返回 404 中文错误。该能力服务于现有地图/地点详情流程，不新增页面、不需要 Figma 补图。
