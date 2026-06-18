@@ -6833,7 +6833,7 @@ export default function LumiiMvpApp() {
             </View>
           </View>
 
-          <Pressable onPress={() => go('discover')} style={[webPressableReset, styles.homeMomentCard, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF9F1 0%, #FFECD8 100%)' } as object) : null]}>
+          <Pressable onPress={() => go('discover')} style={[webPressableReset, styles.homeMomentCard, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF9F3 0%, #FFF1E4 100%)' } as object) : null]}>
             <View style={styles.homeMomentHeader}>
               <View style={styles.homeMomentTitleRow}>
                 <View style={styles.homeMomentIcon}>
@@ -12514,7 +12514,7 @@ const styles = StyleSheet.create({
   homeMomentAutoPill: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.15)', borderRadius: 11, flexDirection: 'row', gap: 3, paddingHorizontal: 8, paddingVertical: 4 },
   homeMomentAutoText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700' },
   homeMomentBody: { alignItems: 'center', flexDirection: 'row', gap: 9 },
-  homeMomentCard: { backgroundColor: '#FFE3CA', borderColor: 'rgba(255,255,255,0.78)', borderRadius: 24, borderWidth: 1, marginTop: 8, paddingHorizontal: 12, paddingBottom: 11, paddingTop: 12, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
+  homeMomentCard: { backgroundColor: '#FFF9F3', borderColor: 'rgba(255,255,255,0.86)', borderRadius: 24, borderWidth: 1, marginTop: 8, paddingHorizontal: 12, paddingBottom: 11, paddingTop: 12, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.09, shadowRadius: 24 },
   homeMomentCopy: { flex: 1, minWidth: 0 },
   homeMomentDistance: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.12)', borderRadius: 9, flexDirection: 'row', gap: 2, maxWidth: 82, paddingHorizontal: 6, paddingVertical: 2 },
   homeMomentDistanceText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700' },
@@ -12525,7 +12525,7 @@ const styles = StyleSheet.create({
   homeMomentHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   homeMomentHint: { color: '#A98566', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600' },
   homeMomentIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.15)', borderRadius: 11, height: 24, justifyContent: 'center', width: 24 },
-  homeMomentLayer: { backgroundColor: '#FFF9F3', borderColor: 'rgba(255,255,255,0.92)', borderRadius: 19, borderWidth: 1, marginTop: 10, padding: 9, shadowColor: '#8b5e3c', shadowOffset: { height: 7, width: 0 }, shadowOpacity: 0.08, shadowRadius: 14 },
+  homeMomentLayer: { backgroundColor: '#FFFDFC', borderColor: 'rgba(255,255,255,0.96)', borderRadius: 19, borderWidth: 1, marginTop: 10, padding: 9, shadowColor: '#8b5e3c', shadowOffset: { height: 7, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
   homeMomentMeta: { color: '#A98566', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', marginTop: 4 },
   homeMomentName: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '800', lineHeight: 18 },
   homeMomentNameRow: { alignItems: 'center', flexDirection: 'row', gap: 6, minWidth: 0 },
