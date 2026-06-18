@@ -334,8 +334,12 @@ export type GreetingResult = {
 };
 
 export type WalkInviteInput = {
+  latitude?: number;
+  longitude?: number;
   note?: string;
   place?: string;
+  placeAddress?: string;
+  placeId?: string;
   time?: string;
 };
 

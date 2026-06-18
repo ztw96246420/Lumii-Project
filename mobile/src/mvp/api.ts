@@ -343,7 +343,16 @@ function createHttpApi(baseUrl: string): LumiiApi {
       },
 
       async createWalkInvite(ownerId: string, input?: WalkInviteInput): Promise<ApiResult<WalkInviteResult>> {
-        return request<WalkInviteResult>('POST', '/social/walk-invites', { note: input?.note, ownerId, place: input?.place, time: input?.time });
+        return request<WalkInviteResult>('POST', '/social/walk-invites', {
+          latitude: input?.latitude,
+          longitude: input?.longitude,
+          note: input?.note,
+          ownerId,
+          place: input?.place,
+          placeAddress: input?.placeAddress,
+          placeId: input?.placeId,
+          time: input?.time,
+        });
       },
     },
 

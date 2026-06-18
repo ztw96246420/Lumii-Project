@@ -1913,13 +1913,16 @@ export const mockApi = {
       const inviteId = `walk-${Date.now()}`;
       const place = input?.place ?? '附近宠物友好地点';
       const time = input?.time ?? '今天';
+      const placeAddress = input?.placeAddress ?? '';
       const note = input?.note ?? '';
       const inviteViolation =
         mockSocialChatContentViolation('约遛地点', place, 80) ||
+        mockSocialChatContentViolation('约遛地址', placeAddress, 160) ||
         mockSocialChatContentViolation('约遛时间', time, 60) ||
         mockSocialChatContentViolation('约遛备注', note, 240);
       if (inviteViolation) return error(inviteViolation, false);
-      const message = `${time} · ${place}`;
+      const message = `约遛邀请 · ${time} · ${place}`;
+      const messageBody = [message, placeAddress ? `地址：${placeAddress}` : '', note].filter(Boolean).join('\n');
       const conversation: Conversation = {
         canSendMessage: false,
         id: `walk-${ownerId}-${Date.now()}`,
@@ -1934,7 +1937,7 @@ export const mockApi = {
       };
       conversations.unshift(conversation);
       conversationMessagesById[conversation.id] = [
-        { author: 'me', id: `${conversation.id}-invite`, status: 'sent', text: note ? `${message}\n${note}` : message, time: new Date().toISOString() },
+        { author: 'me', id: `${conversation.id}-invite`, status: 'sent', text: messageBody, time: new Date().toISOString() },
       ];
       return success({ conversation, inviteId, ownerId });
     },

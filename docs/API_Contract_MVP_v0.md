@@ -897,11 +897,22 @@ MVP 产品约束：
 Request:
 
 ```json
-{ "ownerId": "user-13500000002" }
+{
+  "ownerId": "user-13500000002",
+  "place": "珠江公园",
+  "placeAddress": "广州市天河区金穗路900号",
+  "placeId": "amap-poi-xxxx",
+  "latitude": 23.126,
+  "longitude": 113.34,
+  "time": "今天 18:30",
+  "note": "东门集合，带牵引绳"
+}
 ```
 
 说明：
 - 如果 `ownerId` 不存在、指向自己，或对方已关闭附近可见，返回 404 中文错误，不创建约遛邀请、会话、消息或通知。
+- `place`、`time`、`note` 仍可作为文字兜底；如果来自地图/地点选择，应同步传 `placeAddress`、`placeId`、`latitude`、`longitude`，用于会话约遛卡片、后续导航和服务端 invite 记录。
+- 测试后端会把约遛消息写成 `约遛邀请 · {time} · {place}`，并在消息正文中追加 `地址：{placeAddress}`；接收方通知 `kind=walk_invite`。
 
 ### GET `/conversations`
 

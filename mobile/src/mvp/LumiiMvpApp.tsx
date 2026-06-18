@@ -608,6 +608,8 @@ type PlaceComposerDraft = {
 };
 
 type WalkInviteDraft = {
+  latitude?: number;
+  longitude?: number;
   note: string;
   ownerId: string;
   place: string;
@@ -1130,6 +1132,8 @@ export default function LumiiMvpApp() {
   const ownersRef = useRef<NearbyOwner[]>([]);
   const [discoverRefreshing, setDiscoverRefreshing] = useState(false);
   const discoverRefreshingRef = useRef(false);
+  const [discoverLocationError, setDiscoverLocationError] = useState('');
+  const [discoverLastRefreshedAt, setDiscoverLastRefreshedAt] = useState(0);
   const discoverRequestSeqRef = useRef(0);
   const [discoverFilter, setDiscoverFilter] = useState<DiscoverFilter>('all');
   const [discoverQuery, setDiscoverQuery] = useState('');
@@ -1152,6 +1156,8 @@ export default function LumiiMvpApp() {
   const [walkInvitePlace, setWalkInvitePlace] = useState('');
   const [walkInvitePlaceAddress, setWalkInvitePlaceAddress] = useState('');
   const [walkInvitePlaceId, setWalkInvitePlaceId] = useState('');
+  const [walkInvitePlaceLatitude, setWalkInvitePlaceLatitude] = useState<number | undefined>(undefined);
+  const [walkInvitePlaceLongitude, setWalkInvitePlaceLongitude] = useState<number | undefined>(undefined);
   const [walkInvitePickingPlace, setWalkInvitePickingPlace] = useState(false);
   const [walkInviteTime, setWalkInviteTime] = useState(() => defaultWalkInviteTime());
   const [walkInviteNote, setWalkInviteNote] = useState('');
@@ -1579,7 +1585,11 @@ export default function LumiiMvpApp() {
     const refreshOwners = async () => {
       if (discoverRefreshingRef.current) return;
       const nextOwners = await fetchNearbyOwners({ forceLocation: !lastDiscoverLocationRef.current, silent: true });
-      if (active && nextOwners) applyNearbyOwners(nextOwners);
+      if (active && nextOwners) {
+        applyNearbyOwners(nextOwners);
+        setDiscoverLocationError('');
+        setDiscoverLastRefreshedAt(Date.now());
+      }
     };
     void refreshOwners();
     const id = setInterval(() => {
@@ -1658,6 +1668,29 @@ export default function LumiiMvpApp() {
     }, 5000);
     return () => clearInterval(id);
   }, [route, selectedConversation?.id, session]);
+
+  useEffect(() => {
+    if (!session) return undefined;
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return;
+      if (focusedInboxRoutes.has(route) || passiveInboxRoutes.has(route) || route === 'conversation') void loadInboxData();
+      if (route === 'conversation' && selectedConversationIdRef.current) {
+        void loadConversationMessages(selectedConversationIdRef.current, { markRead: true, silent: true });
+      }
+      if (route === 'discover' && userSettingsRef.current.nearbyVisible && !discoverRefreshingRef.current) {
+        void fetchNearbyOwners({ forceLocation: false, silent: true }).then((nextOwners) => {
+          if (!nextOwners) return;
+          applyNearbyOwners(nextOwners);
+          setDiscoverLocationError('');
+          setDiscoverLastRefreshedAt(Date.now());
+        });
+      }
+      if (route === 'map' && !locatingMapRef.current && !lastDiscoverLocationRef.current) {
+        void locateMapToCurrentPosition({ silent: true });
+      }
+    });
+    return () => subscription.remove();
+  }, [route, session]);
 
   useEffect(() => {
     if (!session || route !== 'chat') return;
@@ -2062,6 +2095,7 @@ export default function LumiiMvpApp() {
     if (!userSettingsRef.current.nearbyVisible) {
       ownersRef.current = [];
       setOwners([]);
+      setDiscoverLocationError('');
       selectedOwnerIdRef.current = null;
       setSelectedOwner(null);
       return;
@@ -4220,12 +4254,16 @@ export default function LumiiMvpApp() {
     const place = typeof draft.place === 'string' ? draft.place : '';
     const placeAddress = typeof draft.placeAddress === 'string' ? draft.placeAddress : '';
     const placeId = typeof draft.placeId === 'string' ? draft.placeId : '';
+    const latitude = Number(draft.latitude);
+    const longitude = Number(draft.longitude);
     const time = typeof draft.time === 'string' ? draft.time : '';
     const note = typeof draft.note === 'string' ? draft.note : '';
     const savedAt = Number(draft.savedAt || 0);
     if (!time && !place && !note) return null;
     return {
       note,
+      ...(Number.isFinite(latitude) ? { latitude } : {}),
+      ...(Number.isFinite(longitude) ? { longitude } : {}),
       ownerId,
       place,
       placeAddress,
@@ -4264,6 +4302,8 @@ export default function LumiiMvpApp() {
     setWalkInvitePlace(draft?.place || '');
     setWalkInvitePlaceAddress(draft?.placeAddress || '');
     setWalkInvitePlaceId(draft?.placeId || '');
+    setWalkInvitePlaceLatitude(draft?.latitude);
+    setWalkInvitePlaceLongitude(draft?.longitude);
     setWalkInviteNote(draft?.note || '');
     go('walkInvite');
     if (draft) {
@@ -4294,6 +4334,8 @@ export default function LumiiMvpApp() {
     setWalkInvitePlace(place.name);
     setWalkInvitePlaceAddress(walkInvitePlaceMetaFor(place));
     setWalkInvitePlaceId(place.id);
+    setWalkInvitePlaceLatitude(place.latitude);
+    setWalkInvitePlaceLongitude(place.longitude);
     setWalkInvitePickingPlace(false);
     returnToWalkInviteFromMap();
     showToast('已选择约遛地点', { subtitle: place.name, tone: 'success', variant: 'surface' });
@@ -4325,6 +4367,8 @@ export default function LumiiMvpApp() {
       return;
     }
     const draft: WalkInviteDraft = {
+      latitude: walkInvitePlaceLatitude,
+      longitude: walkInvitePlaceLongitude,
       note: walkInviteNote.trim(),
       ownerId: owner.id,
       place: walkInvitePlace.trim(),
@@ -4367,14 +4411,23 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     const requestOwnerId = owner.id;
     const requestPlace = walkInvitePlace.trim();
+    const requestPlaceAddress = walkInvitePlaceAddress.trim();
+    const requestPlaceId = walkInvitePlaceId;
+    const selectedWalkPlace = requestPlaceId ? places.find((place) => place.id === requestPlaceId) ?? selectedPlace : null;
+    const requestLatitude = walkInvitePlaceLatitude ?? selectedWalkPlace?.latitude;
+    const requestLongitude = walkInvitePlaceLongitude ?? selectedWalkPlace?.longitude;
     const requestTime = walkInviteTime.trim();
     const requestNote = walkInviteNote.trim();
     walkInviteSavingRef.current = true;
     setWalkInviteSaving(true);
     try {
       const result = await lumiiApi.social.createWalkInvite(owner.id, {
+        latitude: requestLatitude,
+        longitude: requestLongitude,
         note: requestNote,
         place: requestPlace,
+        placeAddress: requestPlaceAddress,
+        placeId: requestPlaceId,
         time: requestTime,
       });
       if (sessionTokenRef.current !== requestSessionToken) return;
@@ -4394,6 +4447,8 @@ export default function LumiiMvpApp() {
           setWalkInvitePlace('');
           setWalkInvitePlaceAddress('');
           setWalkInvitePlaceId('');
+          setWalkInvitePlaceLatitude(undefined);
+          setWalkInvitePlaceLongitude(undefined);
           setWalkInviteNote('');
         }
         void loadInboxData();
@@ -4459,6 +4514,7 @@ export default function LumiiMvpApp() {
     if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
     if (result.data) return result.data;
     if (!options.silent) showToast(result.error?.message ?? '附近伙伴刷新失败，请稍后重试');
+    if (!options.silent) setDiscoverLocationError(result.error?.message ?? '附近伙伴刷新失败，请稍后重试');
     return null;
   }
 
@@ -4475,6 +4531,8 @@ export default function LumiiMvpApp() {
       const nextOwners = await fetchNearbyOwners({ forceLocation: true, silent: false });
       if (nextOwners) {
         applyNearbyOwners(nextOwners);
+        setDiscoverLocationError('');
+        setDiscoverLastRefreshedAt(Date.now());
         showToast(nextOwners.length ? '已刷新附近伙伴' : '3km 内暂时没有新的伙伴');
       }
     } finally {
@@ -4567,6 +4625,7 @@ export default function LumiiMvpApp() {
       void persistPermissionSnapshot(nextPermissions);
 
       if (permissionResult.status !== 'granted') {
+        setDiscoverLocationError(permissionResult.message || '定位权限未开启');
         if (!options.silent) showToast(permissionResult.message);
         return null;
       }
@@ -4595,10 +4654,13 @@ export default function LumiiMvpApp() {
         radiusKm: defaultDiscoverRadiusKm,
       };
       lastDiscoverLocationRef.current = hint;
+      setDiscoverLocationError('');
       return hint;
     } catch (error) {
       if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
-      if (!options.silent) showToast(error instanceof Error ? error.message : '定位失败，请稍后重试');
+      const message = error instanceof Error ? error.message : '定位失败，请稍后重试';
+      setDiscoverLocationError(message);
+      if (!options.silent) showToast(message, { tone: 'error', variant: 'surface' });
       return options.allowCachedOnError === false ? null : lastDiscoverLocationRef.current;
     }
   }
@@ -5205,6 +5267,8 @@ export default function LumiiMvpApp() {
     setWalkInvitePlace('');
     setWalkInvitePlaceAddress('');
     setWalkInvitePlaceId('');
+    setWalkInvitePlaceLatitude(undefined);
+    setWalkInvitePlaceLongitude(undefined);
     setWalkInvitePickingPlace(false);
     setWalkInviteTime(defaultWalkInviteTime());
     setWalkInviteNote('');
@@ -6649,12 +6713,14 @@ export default function LumiiMvpApp() {
     const parseWalkInviteMessage = (text: string) => {
       const [rawFirstLine, ...noteLines] = text.split('\n');
       const firstLine = rawFirstLine.trim();
-      const body = firstLine.includes('邀请你：') ? firstLine.split('邀请你：').pop()!.trim() : firstLine;
+      const body = (firstLine.includes('邀请你：') ? firstLine.split('邀请你：').pop()!.trim() : firstLine).replace(/^约遛邀请\s*·\s*/, '');
       const parts = body.split(' · ');
       const time = parts[0]?.trim();
       const place = parts.slice(1).join(' · ').trim();
       const maybeInvite = Boolean(time && place && /(\d{1,2}:\d{2}|今天|明天|周)/.test(time) && /(公园|西门|东门|咖啡|草坪|广场|宠物|医院|店|河边)/.test(place));
-      return maybeInvite ? { note: noteLines.join('\n').trim(), place, time } : null;
+      const addressLine = noteLines.find((line) => line.trim().startsWith('地址：'))?.trim();
+      const note = noteLines.filter((line) => !line.trim().startsWith('地址：')).join('\n').trim();
+      return maybeInvite ? { address: addressLine?.replace(/^地址：/, '') ?? '', note, place, time } : null;
     };
     const replyToWalkInvite = (invite: NonNullable<ReturnType<typeof parseWalkInviteMessage>>, accepted: boolean) => {
       if (!canSendMessage) {
@@ -6823,6 +6889,7 @@ export default function LumiiMvpApp() {
                               <CalendarDays color={palette.orange} size={12} strokeWidth={2.4} />
                               <Text numberOfLines={1} style={styles.chatInviteTimeTextMake}>{invite.time}</Text>
                             </View>
+                            {invite.address ? <Text numberOfLines={1} style={styles.chatInviteNoteMake}>地址：{invite.address}</Text> : null}
                             {invite.note ? <Text numberOfLines={2} style={styles.chatInviteNoteMake}>{invite.note}</Text> : null}
                             {message.author === 'me' ? (
                               <View style={styles.chatInviteActionsMake}>
@@ -8032,12 +8099,14 @@ export default function LumiiMvpApp() {
     const locationDenied = ['blocked', 'denied', 'unavailable'].includes(permissions.location);
     const discoverAccessIssue: null | 'location' | 'visibility' = !discoverEnabled ? 'visibility' : locationDenied ? 'location' : null;
     const discoverSearchQuery = discoverQuery.trim();
+    const discoverHasLocationError = Boolean(discoverLocationError && !discoverAccessIssue);
     const visibleOwners = discoverAccessIssue
       ? []
       : owners
         .filter((owner) => ownerMatchesDiscoverFilter(owner, discoverFilter))
         .filter((owner) => ownerMatchesDiscoverQuery(owner, discoverSearchQuery));
     const activeDiscoverFilterLabel = discoverFilterOptions.find((item) => item.key === discoverFilter)?.label ?? '全部';
+    const discoverRefreshCopy = discoverLastRefreshedAt ? ` · ${formatClockTime(new Date(discoverLastRefreshedAt))}刷新` : '';
     const previewOwner: NearbyOwner = owners[0] ?? {
       distance: '?km',
       id: 'discover-preview',
@@ -8070,7 +8139,7 @@ export default function LumiiMvpApp() {
           <View style={styles.discoverEmptySummaryMake}>
             <SlidersHorizontal color={palette.orange} size={13} strokeWidth={2.4} />
             <Text numberOfLines={1} style={styles.discoverEmptySummaryTextMake}>
-              {filtered ? `已应用条件 · ${discoverSearchQuery || activeDiscoverFilterLabel} · 3km 内` : '附近 3km 内 · 模糊距离 · 0 位'}
+              {discoverHasLocationError ? '定位失败 · 可重新刷新' : filtered ? `已应用条件 · ${discoverSearchQuery || activeDiscoverFilterLabel} · 3km 内` : `附近 3km 内 · 模糊距离 · 0 位${discoverRefreshCopy}`}
             </Text>
             {filtered ? <Text onPress={clearDiscoverSearchAndFilter} style={styles.discoverEmptyClearMake}>清除</Text> : null}
           </View>
@@ -8081,9 +8150,9 @@ export default function LumiiMvpApp() {
             </View>
             <Text style={styles.discoverEmptyCountMake}>0 位</Text>
           </View>
-          <Text style={styles.discoverEmptyTitleMake}>附近暂时没有匹配的朋友</Text>
+          <Text style={styles.discoverEmptyTitleMake}>{discoverHasLocationError ? '暂时无法刷新附近伙伴' : '附近暂时没有匹配的朋友'}</Text>
           <Text style={styles.discoverEmptyDescMake}>
-            {filtered ? '可以试试放宽搜索或筛选条件\n或切换查看全部附近伙伴' : '可以下拉刷新附近列表\n或稍后再来看看新的伙伴'}
+            {discoverHasLocationError ? `${discoverLocationError}\n请检查定位权限、GPS 或网络后重试` : filtered ? '可以试试放宽搜索或筛选条件\n或切换查看全部附近伙伴' : '可以下拉刷新附近列表\n或稍后再来看看新的伙伴'}
           </Text>
           <View style={styles.discoverEmptyActionsMake}>
             {filtered ? (
@@ -8093,7 +8162,7 @@ export default function LumiiMvpApp() {
             ) : null}
             <Pressable onPress={clearOrRefresh} style={[styles.discoverEmptyPrimaryMake, webPressableReset]}>
               {filtered ? <Navigation color="#fff" size={14} strokeWidth={2.4} /> : <RefreshCw color="#fff" size={14} strokeWidth={2.4} />}
-              <Text style={styles.discoverEmptyPrimaryTextMake}>{filtered ? '查看全部' : '刷新附近'}</Text>
+              <Text style={styles.discoverEmptyPrimaryTextMake}>{filtered ? '查看全部' : discoverHasLocationError ? '重新定位' : '刷新附近'}</Text>
             </Pressable>
           </View>
         </View>
@@ -8212,9 +8281,9 @@ export default function LumiiMvpApp() {
             </Pressable>
           </View>
         ) : null}
-        <View style={[styles.locationChipMake, discoverAccessIssue && styles.locationChipDeniedMake]}>
-          {discoverAccessIssue ? <Shield color={palette.danger} size={14} strokeWidth={2.4} /> : <MapPin color={palette.orange} size={13} strokeWidth={2.4} />}
-          <Text style={[styles.locationChipText, discoverAccessIssue && styles.locationChipDeniedText]}>{discoverAccessIssue ? discoverIssueCopy.banner : `附近 · 3km 内 · ${discoverSearchQuery ? `搜索“${discoverSearchQuery}”` : activeDiscoverFilterLabel} · ${visibleOwners.length} 位`}</Text>
+        <View style={[styles.locationChipMake, (discoverAccessIssue || discoverHasLocationError) && styles.locationChipDeniedMake]}>
+          {discoverAccessIssue ? <Shield color={palette.danger} size={14} strokeWidth={2.4} /> : discoverHasLocationError ? <WifiOff color={palette.danger} size={14} strokeWidth={2.4} /> : <MapPin color={palette.orange} size={13} strokeWidth={2.4} />}
+          <Text style={[styles.locationChipText, (discoverAccessIssue || discoverHasLocationError) && styles.locationChipDeniedText]}>{discoverAccessIssue ? discoverIssueCopy.banner : discoverHasLocationError ? `定位失败 · ${discoverLocationError}` : `附近 · 3km 内 · ${discoverSearchQuery ? `搜索“${discoverSearchQuery}”` : activeDiscoverFilterLabel} · ${visibleOwners.length} 位${discoverRefreshCopy}`}</Text>
           {!discoverAccessIssue ? <Text style={styles.locationPrivacyPill}>模糊距离</Text> : null}
         </View>
         <ScrollView horizontal contentContainerStyle={styles.filterChipsMake} showsHorizontalScrollIndicator={false}>
@@ -9950,6 +10019,8 @@ export default function LumiiMvpApp() {
                     setWalkInvitePlace(value);
                     setWalkInvitePlaceAddress('');
                     setWalkInvitePlaceId('');
+                    setWalkInvitePlaceLatitude(undefined);
+                    setWalkInvitePlaceLongitude(undefined);
                   }}
                   placeholder="搜索或选择宠物友好地点"
                   placeholderTextColor="rgba(255,255,255,0.78)"

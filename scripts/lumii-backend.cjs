@@ -4673,10 +4673,15 @@ async function handle(req, res) {
     const { targetPhone, targetUser } = target;
     const inviteId = `walk-${Date.now()}`;
     const place = String(body.place || '附近宠物友好地点');
+    const placeAddress = String(body.placeAddress || '').trim().slice(0, 160);
+    const placeId = String(body.placeId || '').trim().slice(0, 120);
+    const latitude = Number(body.latitude);
+    const longitude = Number(body.longitude);
     const time = String(body.time || '今天');
     const note = String(body.note || '');
     const inviteViolation =
       socialChatContentViolation('约遛地点', place, 80) ||
+      socialChatContentViolation('约遛地址', placeAddress, 160) ||
       socialChatContentViolation('约遛时间', time, 60) ||
       socialChatContentViolation('约遛备注', note, 240);
     if (inviteViolation) {
@@ -4684,14 +4689,20 @@ async function handle(req, res) {
       return;
     }
     const fromPet = activePetFor(user);
-    const lastMessage = `${time} · ${place}`;
+    const lastMessage = `约遛邀请 · ${time} · ${place}`;
+    const messageBody = [lastMessage, placeAddress ? `地址：${placeAddress}` : '', note].filter(Boolean).join('\n');
     let senderConversation = null;
     state.invites.push({
       at: Date.now(),
       fromPhone: user.phone,
       inviteId,
+      ...(Number.isFinite(latitude) ? { latitude } : {}),
+      ...(Number.isFinite(longitude) ? { longitude } : {}),
       ownerId,
       place,
+      ...(placeAddress ? { placeAddress } : {}),
+      ...(placeId ? { placeId } : {}),
+      status: 'pending',
       targetPhone,
       time,
     });
@@ -4703,14 +4714,14 @@ async function handle(req, res) {
       author: 'me',
       id: messageId(),
       status: 'sent',
-      text: note ? `${lastMessage}\n${note}` : lastMessage,
+      text: messageBody,
       time: new Date().toISOString(),
     });
     appendConversationMessage(targetPhone, targetConversation.id, {
       author: 'other',
       id: messageId(),
       status: 'sent',
-      text: note ? `${fromPet.name}邀请你：${lastMessage}\n${note}` : `${fromPet.name}邀请你：${lastMessage}`,
+      text: `${fromPet.name}邀请你：${messageBody}`,
       time: new Date().toISOString(),
     });
     addNotification(targetPhone, {
