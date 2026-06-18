@@ -7,6 +7,7 @@ import {
   AppState,
   BackHandler,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   LogBox,
@@ -1034,6 +1035,7 @@ export default function LumiiMvpApp() {
   const datePickerCommitRef = useRef<(date: Date) => void>(() => undefined);
 
   const [datePickerRequest, setDatePickerRequest] = useState<DatePickerRequest | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [permissions, setPermissions] = useState<PermissionStateMap>(initialPermissions);
   const [activePet, setActivePet] = useState<PetProfile | null>(null);
   const [pets, setPets] = useState<PetProfile[]>([]);
@@ -1459,6 +1461,20 @@ export default function LumiiMvpApp() {
 
     return () => subscription.remove();
   }, [activePet, amapNavigationPlace, back, confirm, mapStylePanelVisible, resetTo, route, showToast, walkInvitePickingPlace]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
+    const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardHeight(Math.max(0, Math.round(event.endCoordinates.height)));
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -5615,6 +5631,9 @@ export default function LumiiMvpApp() {
       const isPetChatRoute = route === 'chat';
       const isConversationRoute = route === 'conversation';
       const isProfileRoute = route === 'profile';
+      const keyboardAwareContentInset = keyboardHeight > 0 && Platform.OS !== 'web'
+        ? { paddingBottom: Math.max(showBottomTabs ? 110 : 32, Math.min(keyboardHeight + 36, 420)) }
+        : null;
       return (
         <View style={styles.screen}>
           {Platform.OS === 'web' ? <PhoneStatusBar /> : null}
@@ -5643,7 +5662,7 @@ export default function LumiiMvpApp() {
             <View style={[styles.content, styles.loginContent]}>{children}</View>
           ) : isProfileRoute ? (
             <ScrollView
-              contentContainerStyle={[styles.profileRouteContent, showBottomTabs && styles.contentWithTabs]}
+              contentContainerStyle={[styles.profileRouteContent, showBottomTabs && styles.contentWithTabs, keyboardAwareContentInset]}
               keyboardDismissMode="none"
               keyboardShouldPersistTaps="always"
               refreshControl={refreshControl}
@@ -5653,7 +5672,7 @@ export default function LumiiMvpApp() {
             </ScrollView>
           ) : (
             <ScrollView
-              contentContainerStyle={[styles.content, showBottomTabs && styles.contentWithTabs]}
+              contentContainerStyle={[styles.content, showBottomTabs && styles.contentWithTabs, keyboardAwareContentInset]}
               keyboardDismissMode="none"
               keyboardShouldPersistTaps="always"
               refreshControl={refreshControl}
@@ -5665,7 +5684,7 @@ export default function LumiiMvpApp() {
         </View>
       );
     },
-    [back, placeSubmitResult, route, showBottomTabs],
+    [back, keyboardHeight, placeSubmitResult, route, showBottomTabs],
   );
 
   function renderLogin() {
@@ -11039,7 +11058,7 @@ export default function LumiiMvpApp() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="dark" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.appWrap}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined} keyboardVerticalOffset={0} style={styles.appWrap}>
         <View style={[styles.phoneFrame, nativeTopInset ? { paddingTop: nativeTopInset } : null]}>
           {renderScreen()}
           {showBottomTabs ? (
