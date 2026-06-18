@@ -6803,7 +6803,7 @@ export default function LumiiMvpApp() {
               <View style={styles.flex}>
                 <Text style={styles.homeMakeKicker}>早安，{pet.name}！</Text>
                 <Pressable onPress={() => go('chat')} style={[styles.homeMakeChatEntry, webPressableReset]}>
-                  <Text numberOfLines={1} style={styles.homeMakeHeadline}>灵伴聊天 · {homeChatHint}</Text>
+                  <Text adjustsFontSizeToFit minimumFontScale={0.76} numberOfLines={1} style={styles.homeMakeHeadline}>灵伴聊天 · {homeChatHint}</Text>
                   <ChevronRight color={palette.orange} size={13} strokeWidth={2.5} />
                 </Pressable>
               </View>
@@ -12535,9 +12535,9 @@ const styles = StyleSheet.create({
   homeMomentTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '800', letterSpacing: 0 },
   homeMomentTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 7 },
   homeMakeGreeting: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 12, minWidth: 0 },
-  homeMakeChatEntry: { alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: 2, maxWidth: '100%', paddingRight: 2, paddingVertical: 2 },
+  homeMakeChatEntry: { alignItems: 'center', alignSelf: 'stretch', flexDirection: 'row', gap: 2, maxWidth: '100%', minWidth: 0, paddingRight: 2, paddingVertical: 2 },
   homeMakeHeader: { alignItems: 'center', flexDirection: 'row', gap: 12, justifyContent: 'space-between', paddingTop: 6 },
-  homeMakeHeadline: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 15.5, fontWeight: '700', letterSpacing: 0, lineHeight: 21 },
+  homeMakeHeadline: { color: palette.ink, flex: 1, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', letterSpacing: 0, lineHeight: 17, minWidth: 0 },
   homeMakeKicker: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
   homeMakePage: { gap: 0, position: 'relative' },
   homeOnlineBadge: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.16)', borderRadius: 14, bottom: 8, flexDirection: 'row', gap: 5, left: 34, paddingHorizontal: 11, paddingVertical: 5, position: 'absolute', zIndex: 4 },
