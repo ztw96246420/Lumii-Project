@@ -144,6 +144,10 @@ type DatePickerRequest = {
   value: Date;
 };
 
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 const notificationFilterOptions: Array<{ key: NotificationFilter; label: string }> = [
   { key: 'all', label: '全部' },
   { key: 'interaction', label: '互动' },
@@ -323,6 +327,39 @@ const discoverOwnerAvatarUrls = [
 ];
 const generatedGoldenAvatarUri = 'lumii://golden-retriever-avatar';
 const generatedGoldenAvatarSource = require('../../assets/lumii/golden-avatar-v1.png');
+const demoNearbyOwners: NearbyOwner[] = [
+  {
+    distance: '约 1.2km',
+    id: 'demo-nearby-doubao',
+    imageUrl: discoverOwnerAvatarUrls[0],
+    ownerName: '安安',
+    petName: '豆包',
+    species: 'dog',
+    tags: ['金毛', '公园打卡', '想交朋友'],
+  },
+  {
+    distance: '约 2.1km',
+    id: 'demo-nearby-naiyou',
+    imageUrl: discoverOwnerAvatarUrls[1],
+    ownerName: '小北',
+    petName: '奶油',
+    species: 'dog',
+    tags: ['柯基', '晒太阳', '约遛友好'],
+  },
+  {
+    distance: '约 2.8km',
+    id: 'demo-nearby-tuanzi',
+    imageUrl: discoverOwnerAvatarUrls[2],
+    ownerName: 'Mia',
+    petName: '团子',
+    species: 'cat',
+    tags: ['英短', '咖啡店门口', '安静观察'],
+  },
+];
+
+function isDemoNearbyOwnerId(ownerId?: string) {
+  return Boolean(ownerId?.startsWith('demo-nearby-'));
+}
 
 const routeTitles: Partial<Record<AppRoute, string>> = {
   accountSecurity: '账号安全',
@@ -4507,8 +4544,17 @@ export default function LumiiMvpApp() {
     const actionId = `greet:${ownerId}`;
     if (!beginSocialAction(actionId)) return;
     const requestSessionToken = sessionTokenRef.current;
-    const owner = ownersRef.current.find((item) => item.id === ownerId);
+    const owner = ownersRef.current.find((item) => item.id === ownerId) ?? demoNearbyOwners.find((item) => item.id === ownerId) ?? (greetingSheetOwner?.id === ownerId ? greetingSheetOwner : undefined);
     try {
+      if (isDemoNearbyOwnerId(ownerId)) {
+        await sleep(300);
+        if (greetingSheetOwner?.id === ownerId) {
+          setGreetingSheetOwner(null);
+          setGreetingMessage('你好呀，我们也在附近，想认识一下吗？');
+        }
+        showToast(`已向${owner?.petName ?? '附近伙伴'}打招呼`, { subtitle: '当前为演示附近数据，真实用户会走消息链路', tone: 'success', variant: 'surface' });
+        return;
+      }
       const result = await lumiiApi.social.sendGreeting(ownerId);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
@@ -4704,9 +4750,25 @@ export default function LumiiMvpApp() {
     const requestLongitude = walkInvitePlaceLongitude ?? selectedWalkPlace?.longitude;
     const requestTime = walkInviteTime.trim();
     const requestNote = walkInviteNote.trim();
+    const stillEditingSameInvite = selectedOwnerIdRef.current === requestOwnerId && routeRef.current === 'walkInvite';
     walkInviteSavingRef.current = true;
     setWalkInviteSaving(true);
     try {
+      if (isDemoNearbyOwnerId(owner.id)) {
+        await sleep(300);
+        await deleteWalkInviteDraft(requestOwnerId);
+        if (stillEditingSameInvite) {
+          setWalkInvitePlace('');
+          setWalkInvitePlaceAddress('');
+          setWalkInvitePlaceId('');
+          setWalkInvitePlaceLatitude(undefined);
+          setWalkInvitePlaceLongitude(undefined);
+          setWalkInviteNote('');
+          replace('messages');
+          showToast('约遛邀请已发送', { subtitle: '当前为演示附近数据，不会真正通知其他用户', tone: 'success', variant: 'surface' });
+        }
+        return;
+      }
       const result = await lumiiApi.social.createWalkInvite(owner.id, {
         latitude: requestLatitude,
         longitude: requestLongitude,
@@ -4717,7 +4779,6 @@ export default function LumiiMvpApp() {
         time: requestTime,
       });
       if (sessionTokenRef.current !== requestSessionToken) return;
-      const stillEditingSameInvite = selectedOwnerIdRef.current === requestOwnerId && routeRef.current === 'walkInvite';
       if (result.data) {
         const conversation =
           result.data.conversation ??
@@ -4819,7 +4880,7 @@ export default function LumiiMvpApp() {
         applyNearbyOwners(nextOwners);
         setDiscoverLocationError('');
         setDiscoverLastRefreshedAt(Date.now());
-        showToast(nextOwners.length ? '已刷新附近伙伴' : '3km 内暂时没有新的伙伴');
+        showToast(nextOwners.length ? '已刷新附近伙伴' : '暂时未找到真实伙伴，已显示演示数据');
       }
     } finally {
       discoverRefreshingRef.current = false;
@@ -6770,10 +6831,11 @@ export default function LumiiMvpApp() {
     const petMeta = [pet.breed || speciesLabels[pet.species], formatPetAge(pet.birthday)].filter(Boolean).join(' · ');
     const memoCount = healthSummary?.memoCount ?? memos.length;
     const calendarSummary = healthCalendarEvents.length ? `${healthCalendarEvents.length} 条记录` : (healthSummary?.latestMemo?.title ?? memos[0]?.title ?? '查看记录');
-    const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : '暂无附近伙伴';
+    const nearbyPreviewOwners = owners.length ? owners : demoNearbyOwners;
+    const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : `${nearbyPreviewOwners.length} 位演示伙伴`;
     const homeChatHint = homeChatPrompts[homeHintIndex].replace(/\{petName\}/g, pet.name);
     const todayWeightRecorded = weights.some((item) => item.recordedAt === todayIsoDate());
-    const ownerMoments = owners.slice(0, 3).map((owner, index) => ({
+    const ownerMoments = nearbyPreviewOwners.slice(0, 3).map((owner, index) => ({
       distance: owner.distance,
       imageUrl: owner.imageUrl,
       meta: `${owner.ownerName} · ${owner.tags[0] ?? speciesLabels[owner.species]}`,
@@ -6784,12 +6846,17 @@ export default function LumiiMvpApp() {
         `${owner.petName}分享了今天的小日常，离你不远。`,
       ][index % 3],
     }));
-    const fallbackMoments = [
-      { distance: '约 1.2km', imageUrl: generatedGoldenAvatarUri, meta: '安安 · 公园打卡', petName: '豆包', text: '豆包刚在望京公园打卡，今天交到新朋友啦。' },
-      { distance: '约 2.1km', imageUrl: generatedGoldenAvatarUri, meta: '小北 · 晒太阳', petName: '奶油', text: '奶油午后晒了会儿太阳，回家路上还闻到了小花。' },
-      { distance: '约 2.8km', imageUrl: generatedGoldenAvatarUri, meta: 'Mia · 咖啡店门口', petName: '团子', text: '团子发现一家宠物友好小店，门口有给狗狗的水碗。' },
-    ];
-    const homeMoments = [...ownerMoments, ...fallbackMoments].slice(0, 3);
+    const homeMoments = ownerMoments.length ? ownerMoments : demoNearbyOwners.slice(0, 3).map((owner, index) => ({
+      distance: owner.distance,
+      imageUrl: owner.imageUrl,
+      meta: `${owner.ownerName} · ${owner.tags[0] ?? speciesLabels[owner.species]}`,
+      petName: owner.petName,
+      text: [
+        `${owner.petName}刚在附近更新了小事，今天也想认识新朋友。`,
+        `${owner.petName}在常去路线打卡，状态看起来很开心。`,
+        `${owner.petName}分享了今天的小日常，离你不远。`,
+      ][index % 3],
+    }));
     const activeMoment = homeMoments[homeMomentIndex % homeMoments.length];
     const activeMomentImageSource = activeMoment.imageUrl && !isGeneratedAvatarUri(activeMoment.imageUrl)
       ? { uri: activeMoment.imageUrl }
@@ -8446,14 +8513,15 @@ export default function LumiiMvpApp() {
     const discoverAccessIssue: null | 'location' | 'visibility' = !discoverEnabled ? 'visibility' : locationDenied ? 'location' : null;
     const discoverSearchQuery = discoverQuery.trim();
     const discoverHasLocationError = Boolean(discoverLocationError && !discoverAccessIssue);
+    const nearbyPreviewOwners = owners.length ? owners : demoNearbyOwners;
     const visibleOwners = discoverAccessIssue
       ? []
-      : owners
+      : nearbyPreviewOwners
         .filter((owner) => ownerMatchesDiscoverFilter(owner, discoverFilter))
         .filter((owner) => ownerMatchesDiscoverQuery(owner, discoverSearchQuery));
     const activeDiscoverFilterLabel = discoverFilterOptions.find((item) => item.key === discoverFilter)?.label ?? '全部';
     const discoverRefreshCopy = discoverLastRefreshedAt ? ` · ${formatClockTime(new Date(discoverLastRefreshedAt))}刷新` : '';
-    const previewOwner: NearbyOwner = owners[0] ?? {
+    const previewOwner: NearbyOwner = nearbyPreviewOwners[0] ?? {
       distance: '?km',
       id: 'discover-preview',
       imageUrl: generatedGoldenAvatarUri,
