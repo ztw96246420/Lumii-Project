@@ -1811,10 +1811,54 @@ function createHealthMemoRecord(user, title, content, options = {}) {
 function defaultVaccinesFor(user) {
   const pet = selectedPetFor(user);
   if (!pet) return [];
+  return vaccineTemplatesForPet(pet).map((template) => ({
+    dueAt: addDaysIsoDate(template.daysFromNow),
+    id: `v-${user.phone}-${pet.id}-${template.key}`,
+    name: template.name,
+    status: 'due',
+  }));
+}
+
+function vaccineTemplatesForPet(pet) {
+  if (pet?.species === 'cat') {
+    return [
+      { daysFromNow: 14, key: 'cat-core', name: '猫三联' },
+      { daysFromNow: 21, key: 'rabies', name: '狂犬疫苗' },
+      { daysFromNow: 30, key: 'internal-deworm', name: '体内驱虫' },
+      { daysFromNow: 30, key: 'external-deworm', name: '体外驱虫' },
+    ];
+  }
   return [
-    { dueAt: addDaysIsoDate(14), id: `v-${user.phone}-${pet.id}-1`, name: pet.species === 'cat' ? '猫三联' : '狂犬疫苗', status: 'due' },
-    { dueAt: addDaysIsoDate(30), id: `v-${user.phone}-${pet.id}-2`, name: '体内驱虫', status: 'due' },
+    { daysFromNow: 14, key: 'dog-core', name: '犬四联/犬六联' },
+    { daysFromNow: 21, key: 'rabies', name: '狂犬疫苗' },
+    { daysFromNow: 30, key: 'internal-deworm', name: '体内驱虫' },
+    { daysFromNow: 30, key: 'external-deworm', name: '体外驱虫' },
   ];
+}
+
+function normalizeVaccineTemplateName(value) {
+  return String(value || '').replace(/\s+/g, '').toLowerCase();
+}
+
+function ensureVaccineTemplateCoverage(user, vaccines) {
+  const pet = selectedPetFor(user);
+  if (!pet) return false;
+  const existingNames = new Set(vaccines.map((item) => normalizeVaccineTemplateName(item.name)));
+  let added = false;
+  vaccineTemplatesForPet(pet).forEach((template) => {
+    const nameKey = normalizeVaccineTemplateName(template.name);
+    if (existingNames.has(nameKey)) return;
+    vaccines.push({
+      dueAt: addDaysIsoDate(template.daysFromNow),
+      id: `v-${user.phone}-${pet.id}-${template.key}`,
+      name: template.name,
+      status: 'due',
+    });
+    existingNames.add(nameKey);
+    added = true;
+  });
+  if (added) vaccines.sort((left, right) => String(left.dueAt).localeCompare(String(right.dueAt)));
+  return added;
 }
 
 function todayIsoDate() {
@@ -1845,6 +1889,12 @@ function healthList(storeName, user, defaultsFactory) {
   const key = healthKeyFor(user);
   if (!state.health[storeName][key]) state.health[storeName][key] = defaultsFactory(user);
   return state.health[storeName][key];
+}
+
+function vaccineListFor(user) {
+  const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+  if (ensureVaccineTemplateCoverage(user, vaccines)) saveState();
+  return vaccines;
 }
 
 function createWeightRecord(user, kg, note, options = {}) {
@@ -1905,7 +1955,7 @@ function vaccineStatusCopy(status) {
 
 function buildHealthCalendarEvents(user) {
   const weights = healthList('weights', user, defaultWeightRecordsFor);
-  const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+  const vaccines = vaccineListFor(user);
   const memos = healthList('memos', user, defaultMemosFor);
   return [
     ...weights.map((record) => ({
@@ -2004,7 +2054,7 @@ function buildHealthSummary(user) {
     };
   }
   const weights = healthList('weights', user, defaultWeightRecordsFor);
-  const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+  const vaccines = vaccineListFor(user);
   const memos = healthList('memos', user, defaultMemosFor);
   const trend = buildWeightTrend(weights);
   const pendingVaccines = vaccines.filter((item) => item.status !== 'done');
@@ -2052,7 +2102,7 @@ function shouldCreateHealthReminderNotification(vaccine) {
 function activeHealthReminderNotificationIdsFor(user) {
   const reminderIds = new Set(vaccineReminderIdsFor(user));
   if (!reminderIds.size) return new Set();
-  const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+  const vaccines = vaccineListFor(user);
   return new Set(
     vaccines
       .filter((vaccine) => reminderIds.has(vaccine.id) && shouldCreateHealthReminderNotification(vaccine))
@@ -2073,7 +2123,7 @@ function ensureHealthReminderNotifications(user) {
   let changed = pruneHealthReminderNotifications(user);
   const reminderIds = new Set(vaccineReminderIdsFor(user));
   if (!reminderIds.size) return changed;
-  const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+  const vaccines = vaccineListFor(user);
   vaccines
     .filter((vaccine) => vaccine.status !== 'done' && reminderIds.has(vaccine.id))
     .filter(shouldCreateHealthReminderNotification)
@@ -2223,7 +2273,7 @@ function buildPetChatContextPrompt(user) {
   const pet = selectedPetFor(user) || activePetFor(user);
   const healthMemos = healthList('memos', user, defaultMemosFor).slice(0, 3);
   const weights = healthList('weights', user, defaultWeightRecordsFor).slice(0, 2);
-  const vaccines = healthList('vaccines', user, defaultVaccinesFor).slice(0, 3);
+  const vaccines = vaccineListFor(user).slice(0, 3);
   const feedbackLines = petChatFeedbackContextFor(user);
   const petName = pet?.name || `灵伴${user.phone.slice(-4)}`;
   const profileLines = [
@@ -3222,7 +3272,7 @@ function detectPetChatVaccineAction(text) {
 }
 
 function findVaccineForPetChat(user, text) {
-  const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+  const vaccines = vaccineListFor(user);
   const rawText = String(text || '').trim();
   const scored = vaccines.map((vaccine, index) => {
     let score = 0;
@@ -3245,7 +3295,7 @@ function findVaccineForPetChat(user, text) {
 function applyPetChatVaccineAction(user, text) {
   const action = detectPetChatVaccineAction(text);
   if (!action) return null;
-  const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+  const vaccines = vaccineListFor(user);
   const vaccine = findVaccineForPetChat(user, text);
   if (!vaccine) return null;
   const index = vaccines.findIndex((item) => item.id === vaccine.id);
@@ -4402,7 +4452,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/health/vaccines') {
-    ok(res, healthList('vaccines', user, defaultVaccinesFor));
+    ok(res, vaccineListFor(user));
     return;
   }
 
@@ -4412,7 +4462,7 @@ async function handle(req, res) {
       fail(res, 400, vaccineInput.error, false, undefined, 'HEALTH_VACCINE_INVALID');
       return;
     }
-    const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+    const vaccines = vaccineListFor(user);
     const days = daysUntilDate(vaccineInput.input.dueAt);
     const vaccine = {
       dueAt: vaccineInput.input.dueAt,
@@ -4437,7 +4487,7 @@ async function handle(req, res) {
       return;
     }
     const { status } = vaccinePatch;
-    const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+    const vaccines = vaccineListFor(user);
     const index = vaccines.findIndex((item) => item.id === id);
     if (index < 0) {
       fail(res, 404, '疫苗计划不存在', true);
@@ -4474,7 +4524,7 @@ async function handle(req, res) {
       fail(res, 400, reminderPatch.error, false, undefined, 'HEALTH_REMINDER_INVALID');
       return;
     }
-    const vaccines = healthList('vaccines', user, defaultVaccinesFor);
+    const vaccines = vaccineListFor(user);
     const vaccine = vaccines.find((item) => item.id === vaccineId);
     if (!vaccine) {
       fail(res, 404, '疫苗计划不存在', false);

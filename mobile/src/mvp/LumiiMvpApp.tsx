@@ -1916,11 +1916,89 @@ export default function LumiiMvpApp() {
     }
   }
 
-  async function refreshPetScopedData() {
+  function resetPetScopedRuntimeState(nextPet?: PetProfile | null) {
+    if (localHealthReminderScheduledIdsRef.current.length) void cancelVaccineLocalReminders(localHealthReminderScheduledIdsRef.current);
+    resetAvatarDraft();
+    setChatMessages([createPetChatWelcomeMessage(nextPet)]);
+    setChatInput('');
+    setChatFeedbackById({});
+    chatFeedbackSavingIdsRef.current.clear();
+    setChatFeedbackSavingIds([]);
+    chatReplyingRef.current = false;
+    setChatReplying(false);
+    setAiUsage(null);
+    setPetChatDailyCount(0);
+    setHealthSummary(null);
+    setHealthCalendarEvents([]);
+    setHealthCalendarError('');
+    healthCalendarLoadingRef.current = false;
+    setHealthCalendarLoading(false);
+    setHealthCalendarRefreshing(false);
+    setHealthCalendarMonth(monthStartIso());
+    setSelectedHealthCalendarDate(todayIsoDate());
+    setWeights([]);
+    setWeightEditorMode(null);
+    setWeightEditRecord(null);
+    setWeightDraftRecordedAt(new Date());
+    setWeightEditValue('');
+    setWeightEditNote('');
+    weightEditSavingRef.current = false;
+    setWeightEditSaving(false);
+    weightSavingRef.current = false;
+    setWeightSaving(false);
+    setWeightDeleteConfirm(null);
+    setVaccines([]);
+    setVaccineReminderIds([]);
+    setMemos([]);
+    setMemoTitle('');
+    setMemoContent('');
+    memoSavingRef.current = false;
+    setMemoSaving(false);
+    setSelectedMemo(null);
+    setMemoEditTitle('');
+    setMemoEditContent('');
+    setMemoEditRepeat('none');
+    setMemoEditReminderAt(defaultMemoReminderDate());
+    setMemoEditReminderEnabled(false);
+    memoEditSavingRef.current = false;
+    setMemoEditSaving(false);
+    memoDeletingRef.current = false;
+    setMemoDeleting(false);
+    setMemoDeleteConfirmVisible(false);
+    setMemoDraftTitle('');
+    setMemoDraftContent('');
+    setMemoDraftRepeat('quarterly');
+    setMemoDraftReminderAt(defaultMemoReminderDate());
+    setMemoDraftReminderEnabled(true);
+    memoDraftSavingRef.current = false;
+    setMemoDraftSaving(false);
+    vaccineReminderSavingIdsRef.current.clear();
+    setVaccineReminderSavingIds([]);
+    vaccineDoneSavingIdsRef.current.clear();
+    setVaccineDoneSavingIds([]);
+    setVaccineComposerVisible(false);
+    setVaccineNameDraft('');
+    setVaccineDueDraft('');
+    vaccineCreatingRef.current = false;
+    setVaccineCreating(false);
+    setDailyPostText('');
+    setDailyPostPhotoUris([]);
+    dailyPhotoPickingRef.current = false;
+    setDailyPhotoPicking(false);
+    setDailyMood('开心');
+    dailyPostSavingRef.current = false;
+    setDailyPostSaving(false);
+    healthReminderNotifiedRef.current.clear();
+    localHealthReminderScheduledIdsRef.current = [];
+    localHealthReminderSyncKeyRef.current = '';
+  }
+
+  async function refreshPetScopedData(options: { pet?: PetProfile | null; reset?: boolean; silent?: boolean } = {}) {
     const requestSessionToken = sessionTokenRef.current;
     const requestPetId = activePetIdRef.current;
-    if (!requestPetId) return;
-    const [healthSummaryResult, healthCalendarResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, aiUsageResult] = await Promise.all([
+    if (!requestPetId) return false;
+    if (options.reset) resetPetScopedRuntimeState(options.pet ?? getCurrentPet());
+    const [healthSummaryResult, healthCalendarResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, aiUsageResult, petChatResult] = await Promise.all([
       lumiiApi.health.getHealthSummary(),
       lumiiApi.health.listHealthCalendar(),
       lumiiApi.health.listWeightRecords(),
@@ -1928,9 +2006,11 @@ export default function LumiiMvpApp() {
       lumiiApi.health.listVaccineReminderIds(),
       lumiiApi.health.listHealthMemos(),
       lumiiApi.ai.getUsage(),
+      lumiiApi.messages.listPetChatMessages(),
     ]);
-    if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
+    if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return false;
 
+    let refreshed = true;
     if (healthSummaryResult.data) {
       setHealthSummary(healthSummaryResult.data);
       setVaccineReminderIds(healthSummaryResult.data.vaccineReminderIds);
@@ -1956,6 +2036,32 @@ export default function LumiiMvpApp() {
       setAiUsage(aiUsageResult.data);
       setPetChatDailyCount(aiUsageResult.data.daily.petChat.count);
     }
+    if (petChatResult.data) {
+      const currentPet = getCurrentPet();
+      setChatMessages(petChatResult.data.length ? petChatResult.data : [createPetChatWelcomeMessage(currentPet)]);
+      setChatFeedbackById(
+        Object.fromEntries(
+          petChatResult.data
+            .filter((message) => message.author === 'ai' && message.feedback)
+            .map((message) => [message.id, message.feedback!]),
+        ),
+      );
+      if (!aiUsageResult.data) setPetChatDailyCount(petChatResult.data.filter((message) => message.author === 'me').length);
+    }
+    const errorMessage =
+      healthSummaryResult.error?.message ??
+      healthCalendarResult.error?.message ??
+      weightResult.error?.message ??
+      vaccineResult.error?.message ??
+      vaccineReminderResult.error?.message ??
+      memoResult.error?.message ??
+      aiUsageResult.error?.message ??
+      petChatResult.error?.message;
+    if (errorMessage) {
+      refreshed = false;
+      if (options.silent === false) showToast(errorMessage, { tone: 'error', variant: 'surface' });
+    }
+    return refreshed;
   }
 
   async function refreshPets() {
@@ -1993,8 +2099,11 @@ export default function LumiiMvpApp() {
               }
             : current,
         );
-        void refreshPetScopedData();
-        showToast(`已切换为${result.data.name}，首页内容已更新`, { tone: 'success', variant: 'surface' });
+        const refreshed = await refreshPetScopedData({ pet: result.data, reset: true, silent: true });
+        showToast(refreshed ? `已切换为${result.data.name}，首页内容已更新` : `已切换为${result.data.name}，部分数据稍后刷新`, {
+          tone: refreshed ? 'success' : 'warning',
+          variant: 'surface',
+        });
       } else {
         showToast(result.error?.message ?? '切换宠物失败', { tone: 'error', variant: 'surface' });
       }
@@ -2030,9 +2139,10 @@ export default function LumiiMvpApp() {
             : current,
         );
         if (nextPet) {
-          void refreshPetScopedData();
-          showToast(`已移除${pet.name}`, { tone: 'success', variant: 'surface' });
+          const refreshed = await refreshPetScopedData({ pet: nextPet, reset: true, silent: true });
+          showToast(refreshed ? `已移除${pet.name}` : `已移除${pet.name}，部分数据稍后刷新`, { tone: refreshed ? 'success' : 'warning', variant: 'surface' });
         } else {
+          resetPetScopedRuntimeState(null);
           setHistory([]);
           replace('emptyPet');
           showToast('宠物档案已移除', { tone: 'success', variant: 'surface' });
@@ -2657,7 +2767,7 @@ export default function LumiiMvpApp() {
               }
             : current,
         );
-        resetAvatarDraft();
+        resetPetScopedRuntimeState(result.data);
         void refreshPetScopedData();
         go('upload');
       } else {

@@ -851,10 +851,51 @@ function applyMockPetChatVaccineAction(text: string): MockPetChatVaccineAction |
 }
 
 let vaccines: VaccinePlan[] = [
-  { id: 'v1', name: '狂犬疫苗', dueAt: addDaysIsoDate(14), status: 'due' },
-  { id: 'v2', name: '体内驱虫', dueAt: addDaysIsoDate(30), status: 'due' },
+  { id: 'v-dog-core', name: '犬四联/犬六联', dueAt: addDaysIsoDate(14), status: 'due' },
+  { id: 'v-rabies', name: '狂犬疫苗', dueAt: addDaysIsoDate(21), status: 'due' },
+  { id: 'v-internal-deworm', name: '体内驱虫', dueAt: addDaysIsoDate(30), status: 'due' },
+  { id: 'v-external-deworm', name: '体外驱虫', dueAt: addDaysIsoDate(30), status: 'due' },
 ];
 let vaccineReminderIds: string[] = [];
+
+function mockVaccineTemplatesForPet(pet?: PetProfile) {
+  if (pet?.species === 'cat') {
+    return [
+      { daysFromNow: 14, key: 'cat-core', name: '猫三联' },
+      { daysFromNow: 21, key: 'rabies', name: '狂犬疫苗' },
+      { daysFromNow: 30, key: 'internal-deworm', name: '体内驱虫' },
+      { daysFromNow: 30, key: 'external-deworm', name: '体外驱虫' },
+    ];
+  }
+  return [
+    { daysFromNow: 14, key: 'dog-core', name: '犬四联/犬六联' },
+    { daysFromNow: 21, key: 'rabies', name: '狂犬疫苗' },
+    { daysFromNow: 30, key: 'internal-deworm', name: '体内驱虫' },
+    { daysFromNow: 30, key: 'external-deworm', name: '体外驱虫' },
+  ];
+}
+
+function normalizeMockVaccineTemplateName(value: string) {
+  return String(value || '').replace(/\s+/g, '').toLowerCase();
+}
+
+function ensureMockVaccineTemplateCoverage() {
+  const pet = activeMockPet();
+  if (!pet) return;
+  const existingNames = new Set(vaccines.map((item) => normalizeMockVaccineTemplateName(item.name)));
+  mockVaccineTemplatesForPet(pet).forEach((template) => {
+    const nameKey = normalizeMockVaccineTemplateName(template.name);
+    if (existingNames.has(nameKey)) return;
+    vaccines.push({
+      dueAt: addDaysIsoDate(template.daysFromNow),
+      id: `v-${pet?.id ?? 'mock'}-${template.key}`,
+      name: template.name,
+      status: 'due',
+    });
+    existingNames.add(nameKey);
+  });
+  vaccines = vaccines.sort((left, right) => left.dueAt.localeCompare(right.dueAt));
+}
 
 const owners: NearbyOwner[] = [
   {
@@ -1053,6 +1094,7 @@ function vaccineStatusCopy(status: VaccinePlan['status']) {
 }
 
 function buildHealthCalendarEvents(): HealthCalendarEvent[] {
+  ensureMockVaccineTemplateCoverage();
   return [
     ...weights.map((record) => ({
       date: normalizeCalendarDate(record.recordedAt),
@@ -1188,6 +1230,7 @@ function ensureMockHealthReminderNotifications() {
 }
 
 function buildHealthSummary(): HealthSummary {
+  ensureMockVaccineTemplateCoverage();
   const petId = activePetId || pets[0]?.id;
   const pet = pets.find((item) => item.id === petId);
   if (!pet) {
@@ -1764,6 +1807,7 @@ export const mockApi = {
 
     async listVaccines(): Promise<ApiResult<VaccinePlan[]>> {
       await wait(140);
+      ensureMockVaccineTemplateCoverage();
       return success(vaccines);
     },
 
@@ -1785,6 +1829,7 @@ export const mockApi = {
 
     async updateVaccineStatus(id: string, status: VaccinePlan['status']): Promise<ApiResult<VaccinePlan>> {
       await wait();
+      ensureMockVaccineTemplateCoverage();
       const statusPatch = parseMockVaccineStatusPatch(status);
       if (!statusPatch.ok) return error<VaccinePlan>(statusPatch.error, false, undefined, 'HEALTH_VACCINE_INVALID');
       const vaccine = vaccines.find((item) => item.id === id);
@@ -1808,11 +1853,13 @@ export const mockApi = {
 
     async listVaccineReminderIds(): Promise<ApiResult<string[]>> {
       await wait(120);
+      ensureMockVaccineTemplateCoverage();
       return success(vaccineReminderIds);
     },
 
     async setVaccineReminder(id: string, enabled: boolean): Promise<ApiResult<string[]>> {
       await wait(160);
+      ensureMockVaccineTemplateCoverage();
       const reminderPatch = parseMockVaccineReminderPatch(enabled);
       if (!reminderPatch.ok) return error<string[]>(reminderPatch.error, false, undefined, 'HEALTH_REMINDER_INVALID');
       const vaccine = vaccines.find((item) => item.id === id);
