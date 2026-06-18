@@ -24,8 +24,10 @@ import type {
   NotificationCategory,
   NotificationItem,
   NotificationKind,
+  OwnerProfilePatch,
   PetChatFeedbackRating,
   PetProfile,
+  PetProfilePatch,
   PetTaxonomy,
   Place,
   PlaceReview,
@@ -115,7 +117,7 @@ function parseMockPetProfilePayload(value: Partial<CreatePetInput | PetProfile>,
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { error: '宠物资料参数无效，请刷新后重试' };
   }
-  const allowedKeys = new Set(['avatarUrl', 'birthday', 'breed', 'gender', 'name', 'species', 'weightKg']);
+  const allowedKeys = new Set(['avatarBase64', 'avatarFileName', 'avatarMimeType', 'avatarUrl', 'birthday', 'breed', 'gender', 'name', 'species', 'weightKg']);
   const source = value as Record<string, unknown>;
   const keys = Object.keys(source);
   const unknownKey = keys.find((key) => !allowedKeys.has(key));
@@ -1394,7 +1396,7 @@ export const mockApi = {
       return success(buildMockUserProfile());
     },
 
-    async updateMe(patch: Partial<Pick<UserProfile, 'ownerAvatarUrl' | 'ownerBio' | 'ownerName'>>): Promise<ApiResult<UserProfile>> {
+    async updateMe(patch: OwnerProfilePatch): Promise<ApiResult<UserProfile>> {
       await wait(120);
       const ownerName = String(patch.ownerName ?? '').trim();
       const ownerBio = String(patch.ownerBio ?? '').trim();
@@ -1552,7 +1554,7 @@ export const mockApi = {
       return success(pet);
     },
 
-    async updatePet(id: string, patch: Partial<PetProfile>): Promise<ApiResult<PetProfile>> {
+    async updatePet(id: string, patch: PetProfilePatch): Promise<ApiResult<PetProfile>> {
       await wait();
       const petPatch = parseMockPetProfilePayload(patch, { partial: true });
       if (petPatch.error) return error<PetProfile>(petPatch.error, false, undefined, 'PET_PROFILE_INVALID');

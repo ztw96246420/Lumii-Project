@@ -36,6 +36,12 @@ export type UserProfile = AccountSnapshot & {
   phone: string;
 };
 
+export type OwnerProfilePatch = Partial<Pick<UserProfile, 'ownerAvatarUrl' | 'ownerBio' | 'ownerName'>> & {
+  ownerAvatarBase64?: string;
+  ownerAvatarFileName?: string;
+  ownerAvatarMimeType?: string;
+};
+
 export type SmsCodeTicket = {
   availableAt: number;
   code?: string;
@@ -65,6 +71,12 @@ export type PetProfile = {
   personality: string[];
   species: PetSpecies;
   weightKg?: number;
+};
+
+export type PetProfilePatch = Partial<PetProfile> & {
+  avatarBase64?: string;
+  avatarFileName?: string;
+  avatarMimeType?: string;
 };
 
 export type CreatePetInput = Omit<PetProfile, 'healthScore' | 'id' | 'personality'>;

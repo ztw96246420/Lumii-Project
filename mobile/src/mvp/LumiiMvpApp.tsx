@@ -428,12 +428,22 @@ const defaultUserSettings: UserSettings = {
 };
 
 type PetDraft = {
+  avatarBase64?: string;
+  avatarFileName?: string;
+  avatarMimeType?: string;
+  avatarUrl: string;
   birthday: string;
   breed: string;
   gender: PetProfile['gender'];
   name: string;
   species: PetSpecies;
   weight: string;
+};
+type LocalImageUploadDraft = {
+  base64?: string;
+  fileName?: string;
+  mimeType?: string;
+  uri: string;
 };
 type DiscoverFilter = 'all' | 'dog' | 'cat' | 'social' | 'walk';
 const discoverFilterOptions: Array<{ key: DiscoverFilter; label: string }> = [
@@ -445,6 +455,7 @@ const discoverFilterOptions: Array<{ key: DiscoverFilter; label: string }> = [
 ];
 
 const emptyPetDraft: PetDraft = {
+  avatarUrl: '',
   birthday: '',
   breed: '',
   gender: 'unknown',
@@ -455,6 +466,7 @@ const emptyPetDraft: PetDraft = {
 
 function draftFromPet(pet: PetProfile): PetDraft {
   return {
+    avatarUrl: pet.avatarUrl ?? '',
     birthday: pet.birthday ?? '',
     breed: pet.breed ?? '',
     gender: pet.gender,
@@ -1210,6 +1222,7 @@ export default function LumiiMvpApp() {
   const [ownerNameDraft, setOwnerNameDraft] = useState('');
   const [ownerBioDraft, setOwnerBioDraft] = useState('');
   const [ownerAvatarDraft, setOwnerAvatarDraft] = useState('');
+  const [ownerAvatarUploadDraft, setOwnerAvatarUploadDraft] = useState<LocalImageUploadDraft | null>(null);
   const [ownerAvatarPicking, setOwnerAvatarPicking] = useState(false);
   const ownerAvatarPickingRef = useRef(false);
   const [ownerProfileSaveError, setOwnerProfileSaveError] = useState('');
@@ -1499,6 +1512,7 @@ export default function LumiiMvpApp() {
     setOwnerNameDraft(ownerName);
     setOwnerBioDraft(session?.account?.ownerBio ?? '');
     setOwnerAvatarDraft(session?.account?.ownerAvatarUrl ?? '');
+    setOwnerAvatarUploadDraft(null);
     setOwnerProfileSaveError('');
     setOwnerProfileSaved(false);
   }, [activePet?.id, route, session?.phone]);
@@ -2547,6 +2561,10 @@ export default function LumiiMvpApp() {
       return;
     }
     const payload = {
+      avatarBase64: petDraft.avatarBase64,
+      avatarFileName: petDraft.avatarFileName,
+      avatarMimeType: petDraft.avatarMimeType,
+      avatarUrl: petDraft.avatarUrl || undefined,
       birthday: petDraft.birthday,
       breed: petDraft.breed.trim() || '未知品种',
       gender: petDraft.gender,
@@ -2614,6 +2632,40 @@ export default function LumiiMvpApp() {
     } finally {
       petProfileSavingRef.current = false;
       setPetProfileSaving(false);
+    }
+  }
+
+  async function pickPetProfileAvatar() {
+    if (route !== 'editPet') return;
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        showToast('请先允许访问相册');
+        return;
+      }
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        base64: true,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.82,
+      });
+      if (pickerResult.canceled) return;
+      const asset = pickerResult.assets[0];
+      if (!asset?.uri) {
+        showToast('没有读取到头像，请重新选择');
+        return;
+      }
+      setPetDraft((draft) => ({
+        ...draft,
+        avatarBase64: asset.base64 ?? undefined,
+        avatarFileName: asset.fileName ?? undefined,
+        avatarMimeType: asset.mimeType ?? undefined,
+        avatarUrl: asset.uri,
+      }));
+      showToast('宠物头像已选择，保存资料后生效');
+    } catch {
+      showToast('打开相册失败，请稍后重试', { tone: 'error', variant: 'surface' });
     }
   }
 
@@ -3608,6 +3660,7 @@ export default function LumiiMvpApp() {
       const pickerResult = await ImagePicker.launchImageLibraryAsync({
         allowsEditing: true,
         aspect: [1, 1],
+        base64: true,
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 0.82,
       });
@@ -3615,6 +3668,12 @@ export default function LumiiMvpApp() {
       const asset = pickerResult.assets[0];
       if (asset?.uri) {
         setOwnerAvatarDraft(asset.uri);
+        setOwnerAvatarUploadDraft({
+          base64: asset.base64 ?? undefined,
+          fileName: asset.fileName ?? undefined,
+          mimeType: asset.mimeType ?? undefined,
+          uri: asset.uri,
+        });
         setOwnerProfileSaved(false);
         showToast('头像已选择，保存后生效');
       }
@@ -3648,7 +3707,14 @@ export default function LumiiMvpApp() {
     setOwnerProfileSaved(false);
     setOwnerProfileSaving(true);
     try {
-      const result = await lumiiApi.account.updateMe({ ownerAvatarUrl, ownerBio, ownerName });
+      const result = await lumiiApi.account.updateMe({
+        ownerAvatarBase64: ownerAvatarUploadDraft?.base64,
+        ownerAvatarFileName: ownerAvatarUploadDraft?.fileName,
+        ownerAvatarMimeType: ownerAvatarUploadDraft?.mimeType,
+        ownerAvatarUrl,
+        ownerBio,
+        ownerName,
+      });
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         const profileSettings = { ...defaultUserSettings, ...result.data.settings };
@@ -3656,6 +3722,8 @@ export default function LumiiMvpApp() {
         userSettingsRef.current = profileSettings;
         setUserSettings(profileSettings);
         setActivePet(result.data.activePet ?? getCurrentPet());
+        setOwnerAvatarDraft(result.data.ownerAvatarUrl ?? '');
+        setOwnerAvatarUploadDraft(null);
         setOwnerProfileSaved(true);
         showToast('资料已保存，新的头像也更新好了', { tone: 'success', variant: 'surface' });
       } else {
@@ -5233,6 +5301,7 @@ export default function LumiiMvpApp() {
     setOwnerNameDraft('');
     setOwnerBioDraft('');
     setOwnerAvatarDraft('');
+    setOwnerAvatarUploadDraft(null);
     ownerAvatarPickingRef.current = false;
     setOwnerAvatarPicking(false);
     ownerProfileSavingRef.current = false;
@@ -5715,8 +5784,8 @@ export default function LumiiMvpApp() {
       return (
         <Screen title="编辑宠物资料">
           <View style={styles.petEditAvatarBlock}>
-            <Pressable onPress={() => go('upload')} style={[styles.petEditAvatarWrap, webPressableReset]}>
-              <PetAvatar size={88} uri={editingProfile?.avatarUrl ?? generatedGoldenAvatarUri} />
+            <Pressable onPress={() => void pickPetProfileAvatar()} style={[styles.petEditAvatarWrap, webPressableReset]}>
+              <PetAvatar size={88} uri={petDraft.avatarUrl || editingProfile?.avatarUrl || generatedGoldenAvatarUri} />
               <View style={styles.petEditCameraBadge}>
                 <Camera color="#fff" size={14} strokeWidth={2.4} />
               </View>

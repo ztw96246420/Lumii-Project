@@ -1,4 +1,5 @@
 const http = require('http');
+const https = require('https');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -51,6 +52,11 @@ const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10'
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
 const MEDIA_UPLOAD_MAX_BYTES = Number(process.env.MEDIA_UPLOAD_MAX_BYTES || '9000000');
+const COS_BUCKET = process.env.COS_BUCKET || '';
+const COS_REGION = process.env.COS_REGION || 'ap-guangzhou';
+const COS_SECRET_ID = process.env.COS_SECRET_ID || '';
+const COS_SECRET_KEY = process.env.COS_SECRET_KEY || '';
+const COS_PROXY_CACHE_SECONDS = Number(process.env.COS_PROXY_CACHE_SECONDS || '3600');
 
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
@@ -366,6 +372,207 @@ const amapPoiCache = new Map();
 function saveState() {
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
   fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
+}
+
+function cosEnabled() {
+  return Boolean(COS_BUCKET && COS_REGION && COS_SECRET_ID && COS_SECRET_KEY);
+}
+
+function cosHost() {
+  return `${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com`;
+}
+
+function cosEncode(value) {
+  return encodeURIComponent(String(value)).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function cosObjectPath(objectKey) {
+  return `/${String(objectKey || '').split('/').map(cosEncode).join('/')}`;
+}
+
+function cosSignature(method, objectPath, headers = {}) {
+  const now = Math.floor(Date.now() / 1000);
+  const keyTime = `${now};${now + 600}`;
+  const normalizedHeaders = Object.fromEntries(
+    Object.entries({ host: cosHost(), ...headers }).map(([key, value]) => [String(key).toLowerCase(), String(value).trim()]),
+  );
+  const headerKeys = Object.keys(normalizedHeaders).sort();
+  const headerList = headerKeys.join(';');
+  const headerString = headerKeys.map((key) => `${key}=${cosEncode(normalizedHeaders[key])}`).join('&');
+  const httpString = `${String(method).toLowerCase()}\n${objectPath}\n\n${headerString}\n`;
+  const stringToSign = `sha1\n${keyTime}\n${crypto.createHash('sha1').update(httpString).digest('hex')}\n`;
+  const signKey = crypto.createHmac('sha1', COS_SECRET_KEY).update(keyTime).digest('hex');
+  const signature = crypto.createHmac('sha1', signKey).update(stringToSign).digest('hex');
+  return [
+    'q-sign-algorithm=sha1',
+    `q-ak=${COS_SECRET_ID}`,
+    `q-sign-time=${keyTime}`,
+    `q-key-time=${keyTime}`,
+    `q-header-list=${headerList}`,
+    'q-url-param-list=',
+    `q-signature=${signature}`,
+  ].join('&');
+}
+
+function cosRequest(method, objectKey, { body, headers = {}, timeoutMs = 20000 } = {}) {
+  if (!cosEnabled()) return Promise.reject(new Error('COS is not configured'));
+  const objectPath = cosObjectPath(objectKey);
+  const requestHeaders = Object.fromEntries(Object.entries(headers).map(([key, value]) => [String(key).toLowerCase(), String(value)]));
+  requestHeaders.host = cosHost();
+  if (body && !requestHeaders['content-length']) requestHeaders['content-length'] = String(Buffer.byteLength(body));
+  requestHeaders.authorization = cosSignature(method, objectPath, requestHeaders);
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        headers: requestHeaders,
+        hostname: cosHost(),
+        method,
+        path: objectPath,
+        timeout: timeoutMs,
+      },
+      (response) => {
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => {
+          const buffer = Buffer.concat(chunks);
+          if (response.statusCode >= 200 && response.statusCode < 300) {
+            resolve({ body: buffer, headers: response.headers, statusCode: response.statusCode });
+            return;
+          }
+          const message = buffer.toString('utf8').match(/<Message>(.*?)<\/Message>/)?.[1] || `COS request failed: ${response.statusCode}`;
+          const error = new Error(message);
+          error.statusCode = response.statusCode;
+          error.body = buffer.toString('utf8');
+          reject(error);
+        });
+      },
+    );
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('COS request timed out')));
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+function mimeExtension(mimeType, fallback = 'jpg') {
+  const normalized = normalizeImageMimeType(mimeType);
+  if (normalized === 'image/png') return 'png';
+  if (normalized === 'image/webp') return 'webp';
+  if (normalized === 'image/heic') return 'heic';
+  if (normalized === 'image/heif') return 'heif';
+  if (normalized === 'image/jpeg') return 'jpg';
+  return fallback;
+}
+
+function ownerStorageId(user) {
+  return crypto.createHash('sha256').update(String(user?.phone || 'anonymous')).digest('hex').slice(0, 16);
+}
+
+function storageObjectUrl(req, objectKey) {
+  const base = (PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+  if (base) return `${base}/storage/objects/${encodeURIComponent(objectKey)}`;
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const proto = req.headers['x-forwarded-proto'] || 'http';
+  return `${proto}://${host}/storage/objects/${encodeURIComponent(objectKey)}`;
+}
+
+function cosObjectKeyFor(user, scope, fileName, petId = '') {
+  const safeScope = String(scope || 'misc').replace(/[^a-z0-9_-]/gi, '-').toLowerCase();
+  const safeFileName = String(fileName || `${Date.now()}.jpg`).replace(/[^a-z0-9._-]/gi, '-').toLowerCase();
+  return [safeScope, ownerStorageId(user), petId ? String(petId).replace(/[^a-z0-9_-]/gi, '-') : '', safeFileName].filter(Boolean).join('/');
+}
+
+async function uploadBufferToCos(req, user, { buffer, fileName, mimeType, petId = '', scope }) {
+  if (!cosEnabled() || !Buffer.isBuffer(buffer) || buffer.length <= 0) return null;
+  const finalMimeType = normalizeImageMimeType(mimeType) || 'application/octet-stream';
+  const objectKey = cosObjectKeyFor(user, scope, fileName, petId);
+  await cosRequest('PUT', objectKey, {
+    body: buffer,
+    headers: {
+      'cache-control': 'private, max-age=31536000',
+      'content-type': finalMimeType,
+    },
+  });
+  return {
+    bucket: COS_BUCKET,
+    bytes: buffer.length,
+    mimeType: finalMimeType,
+    objectKey,
+    provider: 'cos',
+    region: COS_REGION,
+    url: storageObjectUrl(req, objectKey),
+  };
+}
+
+async function downloadImageBuffer(urlInput, maxBytes = MEDIA_UPLOAD_MAX_BYTES) {
+  const url = String(urlInput || '').trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Image download failed: ${response.status}`);
+    const contentType = normalizeImageMimeType(response.headers.get('content-type')) || 'image/jpeg';
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    if (!buffer.length || buffer.length > maxBytes) throw new Error('Image file is empty or too large');
+    const detectedMimeType = detectImageMimeType(buffer) || contentType;
+    if (!isSupportedPetMediaMimeType(detectedMimeType)) throw new Error('Downloaded image format is not supported');
+    return { buffer, mimeType: detectedMimeType };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function base64UploadBuffer(parsedUpload) {
+  const match = String(parsedUpload?.dataUrl || '').match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  return {
+    buffer: Buffer.from(match[2], 'base64'),
+    mimeType: normalizeImageMimeType(match[1]) || parsedUpload.mimeType,
+  };
+}
+
+async function storeAvatarUrlToCos(req, user, avatarUrl, { petId = '', scope = 'pet-avatar' } = {}) {
+  const value = String(avatarUrl || '').trim();
+  if (!value || value.startsWith('lumii://') || value.includes('/storage/objects/')) return value;
+  const downloaded = await downloadImageBuffer(value);
+  if (!downloaded?.buffer?.length) return value;
+  const extension = mimeExtension(downloaded.mimeType);
+  const stored = await uploadBufferToCos(req, user, {
+    buffer: downloaded.buffer,
+    fileName: `avatar-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${extension}`,
+    mimeType: downloaded.mimeType,
+    petId,
+    scope,
+  });
+  return stored?.url || value;
+}
+
+async function storeBase64ImageToCos(req, user, body, { base64Key, fileNamePrefix, mimeTypeKey, nameKey, petId = '', scope }) {
+  if (!cosEnabled()) return { url: '' };
+  const parsedUpload = parseBase64Upload(body?.[base64Key], body?.[mimeTypeKey]);
+  if (!parsedUpload.dataUrl) {
+    if (parsedUpload.issue) return { error: mediaUploadIssueAnalysis(parsedUpload.issue, parsedUpload.bytes)?.message || '图片上传失败，请重新选择' };
+    return { url: '' };
+  }
+  const fileParts = base64UploadBuffer(parsedUpload);
+  if (!fileParts?.buffer?.length) return { error: '图片上传失败，请重新选择' };
+  const extension = mimeExtension(fileParts.mimeType);
+  const stored = await uploadBufferToCos(req, user, {
+    buffer: fileParts.buffer,
+    fileName: `${fileNamePrefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${extension}`,
+    mimeType: fileParts.mimeType,
+    petId,
+    scope,
+  });
+  if (!stored?.url) return { error: '图片上传失败，请稍后重试' };
+  return {
+    bytes: stored.bytes,
+    objectKey: stored.objectKey,
+    url: stored.url,
+  };
 }
 
 function sendJson(res, statusCode, payload) {
@@ -712,7 +919,7 @@ function parsePetProfilePayload(value, { partial = false } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { error: '宠物资料参数无效，请刷新后重试' };
   }
-  const allowedKeys = new Set(['avatarUrl', 'birthday', 'breed', 'gender', 'name', 'species', 'weightKg']);
+  const allowedKeys = new Set(['avatarBase64', 'avatarFileName', 'avatarMimeType', 'avatarUrl', 'birthday', 'breed', 'gender', 'name', 'species', 'weightKg']);
   const keys = Object.keys(value);
   const unknownKey = keys.find((key) => !allowedKeys.has(key));
   if (unknownKey) return { error: `宠物资料字段 ${unknownKey} 暂不支持` };
@@ -3619,6 +3826,21 @@ async function handle(req, res) {
   if (req.method === 'GET' && mediaFileMatch) {
     const mediaId = decodeURIComponent(mediaFileMatch[1]);
     const media = state.mediaUploads?.[mediaId];
+    if (media?.objectKey && cosEnabled()) {
+      try {
+        const result = await cosRequest('GET', media.objectKey, { timeoutMs: 20000 });
+        res.writeHead(200, {
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': `private, max-age=${COS_PROXY_CACHE_SECONDS}`,
+          'Content-Length': result.body.length,
+          'Content-Type': media.mimeType || result.headers['content-type'] || 'application/octet-stream',
+        });
+        res.end(result.body);
+        return;
+      } catch {
+        // Fall back to the legacy in-state data URL below when available.
+      }
+    }
     if (!media?.dataUrl) {
       fail(res, 404, 'Media file not found', false);
       return;
@@ -3639,6 +3861,28 @@ async function handle(req, res) {
     return;
   }
 
+  const storageObjectMatch = pathname.match(/^\/storage\/objects\/(.+)$/);
+  if (req.method === 'GET' && storageObjectMatch) {
+    const objectKey = decodeURIComponent(storageObjectMatch[1]);
+    if (!objectKey || objectKey.includes('..') || objectKey.startsWith('/')) {
+      fail(res, 400, 'Storage object is invalid', false);
+      return;
+    }
+    try {
+      const result = await cosRequest('GET', objectKey, { timeoutMs: 20000 });
+      res.writeHead(200, {
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': `private, max-age=${COS_PROXY_CACHE_SECONDS}`,
+        'Content-Length': result.body.length,
+        'Content-Type': result.headers['content-type'] || 'application/octet-stream',
+      });
+      res.end(result.body);
+    } catch {
+      fail(res, 404, 'Storage object not found', false);
+    }
+    return;
+  }
+
   const user = requireUser(req, res);
   if (!user) return;
 
@@ -3655,7 +3899,7 @@ async function handle(req, res) {
   if (req.method === 'PATCH' && pathname === '/me') {
     const ownerName = String(body.ownerName || '').trim();
     const ownerBio = String(body.ownerBio || '').trim();
-    const ownerAvatarUrl = String(body.ownerAvatarUrl || '').trim();
+    let ownerAvatarUrl = String(body.ownerAvatarUrl || '').trim();
     if (!ownerName) {
       fail(res, 400, '请输入昵称', false);
       return;
@@ -3671,6 +3915,25 @@ async function handle(req, res) {
     if (ownerAvatarUrl.length > 2000) {
       fail(res, 400, '头像地址过长，请重新选择', false);
       return;
+    }
+    if (body.ownerAvatarBase64) {
+      const stored = await storeBase64ImageToCos(req, user, body, {
+        base64Key: 'ownerAvatarBase64',
+        fileNamePrefix: 'owner-avatar',
+        mimeTypeKey: 'ownerAvatarMimeType',
+        scope: 'owner-avatar',
+      });
+      if (stored.error) {
+        fail(res, 400, stored.error, true);
+        return;
+      }
+      if (stored.url) ownerAvatarUrl = stored.url;
+    } else if (/^https?:\/\//i.test(ownerAvatarUrl) && !ownerAvatarUrl.includes('/storage/objects/')) {
+      try {
+        ownerAvatarUrl = await storeAvatarUrlToCos(req, user, ownerAvatarUrl, { scope: 'owner-avatar' });
+      } catch {
+        // Keep the original URL if the mirror step is temporarily unavailable.
+      }
     }
     user.ownerName = ownerName;
     user.ownerBio = ownerBio;
@@ -3769,6 +4032,20 @@ async function handle(req, res) {
       id: `pet-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       personality: ['亲人', '爱互动', '想交朋友'],
     };
+    if (body.avatarBase64) {
+      const stored = await storeBase64ImageToCos(req, user, body, {
+        base64Key: 'avatarBase64',
+        fileNamePrefix: 'pet-profile-avatar',
+        mimeTypeKey: 'avatarMimeType',
+        petId: pet.id,
+        scope: 'pet-profile-avatar',
+      });
+      if (stored.error) {
+        fail(res, 400, stored.error, true);
+        return;
+      }
+      if (stored.url) pet.avatarUrl = stored.url;
+    }
     user.pets.unshift(pet);
     user.activePetId = pet.id;
     saveState();
@@ -3799,6 +4076,26 @@ async function handle(req, res) {
     if (petPatch.error) {
       fail(res, 400, petPatch.error, false, undefined, 'PET_PROFILE_INVALID');
       return;
+    }
+    if (body.avatarBase64) {
+      const stored = await storeBase64ImageToCos(req, user, body, {
+        base64Key: 'avatarBase64',
+        fileNamePrefix: 'pet-profile-avatar',
+        mimeTypeKey: 'avatarMimeType',
+        petId: pet.id,
+        scope: 'pet-profile-avatar',
+      });
+      if (stored.error) {
+        fail(res, 400, stored.error, true);
+        return;
+      }
+      if (stored.url) petPatch.patch.avatarUrl = stored.url;
+    } else if (petPatch.patch?.avatarUrl && /^https?:\/\//i.test(petPatch.patch.avatarUrl) && !petPatch.patch.avatarUrl.includes('/storage/objects/')) {
+      try {
+        petPatch.patch.avatarUrl = await storeAvatarUrlToCos(req, user, petPatch.patch.avatarUrl, { petId: pet.id, scope: 'pet-profile-avatar' });
+      } catch {
+        // Keep the original URL if mirroring fails.
+      }
     }
     for (const key of petPatch.unset || []) delete pet[key];
     Object.assign(pet, petPatch.patch || {});
@@ -3843,7 +4140,12 @@ async function handle(req, res) {
       fail(res, 404, '宠物档案不存在', false);
       return;
     }
-    pet.avatarUrl = String(body.avatarUrl || generatedAvatarUrl);
+    const incomingAvatarUrl = String(body.avatarUrl || generatedAvatarUrl);
+    try {
+      pet.avatarUrl = await storeAvatarUrlToCos(req, user, incomingAvatarUrl, { petId: pet.id, scope: 'pet-avatar' });
+    } catch {
+      pet.avatarUrl = incomingAvatarUrl;
+    }
     saveState();
     ok(res, pet);
     return;
@@ -3854,11 +4156,38 @@ async function handle(req, res) {
     const parsedUpload = parseBase64Upload(body.base64, body.mimeType);
     const dataUrl = parsedUpload.dataUrl;
     const analysis = analyzeUploadedPetMedia(body, dataUrl, parsedUpload.issue, parsedUpload.bytes);
+    const activePet = selectedPetFor(user);
+    const fileParts = base64UploadBuffer(parsedUpload);
+    let cosStored = null;
+    if (fileParts?.buffer?.length) {
+      const extension = mimeExtension(fileParts.mimeType);
+      try {
+        cosStored = await uploadBufferToCos(req, user, {
+          buffer: fileParts.buffer,
+          fileName: `${mediaId}.${extension}`,
+          mimeType: fileParts.mimeType,
+          petId: activePet?.id || '',
+          scope: 'pet-source',
+        });
+      } catch (error) {
+        if (!dataUrl) {
+          fail(res, 502, '宠物照片上传到云存储失败，请稍后重试', true);
+          return;
+        }
+      }
+    }
     state.mediaUploads = state.mediaUploads || {};
     state.mediaUploads[mediaId] = {
       analysis,
       createdAt: Date.now(),
       dataUrl,
+      ...(cosStored
+        ? {
+            objectKey: cosStored.objectKey,
+            objectUrl: cosStored.url,
+            storageProvider: cosStored.provider,
+          }
+        : {}),
       fileName: String(body.fileName || ''),
       mediaId,
       mimeType: parsedUpload.mimeType || normalizeImageMimeType(body.mimeType) || 'application/octet-stream',
@@ -3963,7 +4292,11 @@ async function handle(req, res) {
         fail(res, 400, '请先添加宠物档案', false);
         return;
       }
-      pet.avatarUrl = job.resultUrl;
+      try {
+        pet.avatarUrl = await storeAvatarUrlToCos(req, user, job.resultUrl, { petId: pet.id, scope: 'pet-avatar' });
+      } catch {
+        pet.avatarUrl = job.resultUrl;
+      }
       job.acceptedAt = new Date().toISOString();
       job.acceptedPetId = pet.id;
       user.activePetId = pet.id;

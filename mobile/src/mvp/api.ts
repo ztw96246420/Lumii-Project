@@ -22,8 +22,10 @@ import type {
   NearbyLocationHint,
   NearbyOwner,
   NotificationItem,
+  OwnerProfilePatch,
   PetChatFeedbackRating,
   PetProfile,
+  PetProfilePatch,
   PetTaxonomy,
   Place,
   PlaceReview,
@@ -107,7 +109,7 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<UserProfile>('GET', '/me');
       },
 
-      async updateMe(patch: Partial<Pick<UserProfile, 'ownerAvatarUrl' | 'ownerBio' | 'ownerName'>>): Promise<ApiResult<UserProfile>> {
+      async updateMe(patch: OwnerProfilePatch): Promise<ApiResult<UserProfile>> {
         return request<UserProfile>('PATCH', '/me', patch);
       },
     },
@@ -174,7 +176,7 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return result;
       },
 
-      async updatePet(id: string, patch: Partial<PetProfile>): Promise<ApiResult<PetProfile>> {
+      async updatePet(id: string, patch: PetProfilePatch): Promise<ApiResult<PetProfile>> {
         const result = await request<PetProfile>('PATCH', `/pets/${encodeURIComponent(id)}`, patch);
         if (result.data && cachedActivePet?.id === id) cachedActivePet = result.data;
         return result;
