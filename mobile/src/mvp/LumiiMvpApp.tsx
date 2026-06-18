@@ -1114,6 +1114,7 @@ export default function LumiiMvpApp() {
   const avatarFeedbackSubmittingRef = useRef(false);
   const [avatarRegenerateConfirmVisible, setAvatarRegenerateConfirmVisible] = useState(false);
   const [homeHintIndex, setHomeHintIndex] = useState(() => Math.floor(Math.random() * homeChatPrompts.length));
+  const [homeMomentIndex, setHomeMomentIndex] = useState(0);
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([createPetChatWelcomeMessage()]);
   const [chatInput, setChatInput] = useState('');
@@ -1665,6 +1666,14 @@ export default function LumiiMvpApp() {
       setHomeHintIndex((index) => (index + 1) % homeChatPrompts.length);
     }
     previousRouteRef.current = route;
+  }, [route]);
+
+  useEffect(() => {
+    if (route !== 'home') return undefined;
+    const id = setInterval(() => {
+      setHomeMomentIndex((index) => index + 1);
+    }, 5200);
+    return () => clearInterval(id);
   }, [route]);
 
   useEffect(() => {
@@ -6758,16 +6767,33 @@ export default function LumiiMvpApp() {
     if (!pet) return renderEmptyPet();
     const nextVaccine = healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
     const latestWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet.weightKg;
-    const healthScore = healthSummary?.healthScore ?? pet.healthScore ?? 92;
     const petMeta = [pet.breed || speciesLabels[pet.species], formatPetAge(pet.birthday)].filter(Boolean).join(' · ');
     const memoCount = healthSummary?.memoCount ?? memos.length;
     const calendarSummary = healthCalendarEvents.length ? `${healthCalendarEvents.length} 条记录` : (healthSummary?.latestMemo?.title ?? memos[0]?.title ?? '查看记录');
     const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : '暂无附近伙伴';
     const homeChatHint = homeChatPrompts[homeHintIndex].replace(/\{petName\}/g, pet.name);
-    const healthStatusLabel =
-      healthSummary?.weightStatus === 'watch' ? '关注' : healthSummary?.weightStatus === 'empty' ? '待记' : healthSummary ? '稳定' : '+3';
-    const healthDescription = healthSummary?.weightSummary ?? '体重稳定，运动量良好';
     const todayWeightRecorded = weights.some((item) => item.recordedAt === todayIsoDate());
+    const ownerMoments = owners.slice(0, 3).map((owner, index) => ({
+      distance: owner.distance,
+      imageUrl: owner.imageUrl,
+      meta: `${owner.ownerName} · ${owner.tags[0] ?? speciesLabels[owner.species]}`,
+      petName: owner.petName,
+      text: [
+        `${owner.petName}刚在附近更新了小事，今天也想认识新朋友。`,
+        `${owner.petName}在常去路线打卡，状态看起来很开心。`,
+        `${owner.petName}分享了今天的小日常，离你不远。`,
+      ][index % 3],
+    }));
+    const fallbackMoments = [
+      { distance: '约 1.2km', imageUrl: generatedGoldenAvatarUri, meta: '安安 · 公园打卡', petName: '豆包', text: '豆包刚在望京公园打卡，今天交到新朋友啦。' },
+      { distance: '约 2.1km', imageUrl: generatedGoldenAvatarUri, meta: '小北 · 晒太阳', petName: '奶油', text: '奶油午后晒了会儿太阳，回家路上还闻到了小花。' },
+      { distance: '约 2.8km', imageUrl: generatedGoldenAvatarUri, meta: 'Mia · 咖啡店门口', petName: '团子', text: '团子发现一家宠物友好小店，门口有给狗狗的水碗。' },
+    ];
+    const homeMoments = [...ownerMoments, ...fallbackMoments].slice(0, 3);
+    const activeMoment = homeMoments[homeMomentIndex % homeMoments.length];
+    const activeMomentImageSource = activeMoment.imageUrl && !isGeneratedAvatarUri(activeMoment.imageUrl)
+      ? { uri: activeMoment.imageUrl }
+      : generatedGoldenAvatarSource;
     return (
       <Screen showBack={false} title="">
         <View style={styles.homeMakePage}>
@@ -6807,23 +6833,42 @@ export default function LumiiMvpApp() {
             </View>
           </View>
 
-          <Pressable onPress={() => go('health')} style={[webPressableReset, styles.homeHealthCard, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E0 0%, #FFE3CB 60%, #FFD7B5 100%)' } as object) : null]}>
-            <View>
-              <Text style={styles.homeHealthLabel}>今日健康分</Text>
-              <View style={styles.homeHealthScoreRow}>
-                <Text style={styles.homeHealthScore}>{healthScore}</Text>
-                <Text style={styles.homeHealthTotal}>/ 100</Text>
-                <View style={styles.homeHealthDelta}>
-                  <ArrowUp color={palette.teal} size={10} strokeWidth={3} />
-                  <Text style={styles.homeHealthDeltaText}>{healthStatusLabel}</Text>
+          <Pressable onPress={() => go('discover')} style={[webPressableReset, styles.homeMomentCard, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF9F1 0%, #FFECD8 100%)' } as object) : null]}>
+            <View style={styles.homeMomentHeader}>
+              <View style={styles.homeMomentTitleRow}>
+                <View style={styles.homeMomentIcon}>
+                  <MessageCircle color={palette.orange} size={15} strokeWidth={2.4} />
                 </View>
+                <Text style={styles.homeMomentTitle}>附近宠友小事</Text>
               </View>
-              <Text style={styles.homeHealthDesc}>{healthDescription}</Text>
+              <View style={styles.homeMomentAutoPill}>
+                <Sparkles color={palette.teal} size={10} strokeWidth={2.4} />
+                <Text style={styles.homeMomentAutoText}>自动轮播</Text>
+              </View>
             </View>
-            <View style={styles.homeHealthRing}>
-              <View style={styles.homeHealthRingTrack} />
-              <View style={styles.homeHealthRingInner}>
-                <Heart color={palette.orange} fill={palette.orange} size={20} strokeWidth={2.3} />
+            <View style={styles.homeMomentBody}>
+              <PetAvatar uri={activeMoment.imageUrl ?? generatedGoldenAvatarUri} size={42} />
+              <View style={styles.homeMomentCopy}>
+                <View style={styles.homeMomentNameRow}>
+                  <Text numberOfLines={1} style={styles.homeMomentName}>{activeMoment.petName}</Text>
+                  <View style={styles.homeMomentDistance}>
+                    <MapPin color={palette.teal} size={10} strokeWidth={2.5} />
+                    <Text numberOfLines={1} style={styles.homeMomentDistanceText}>{activeMoment.distance}</Text>
+                  </View>
+                </View>
+                <Text numberOfLines={2} style={styles.homeMomentText}>{activeMoment.text}</Text>
+                <Text numberOfLines={1} style={styles.homeMomentMeta}>{activeMoment.meta}</Text>
+              </View>
+              <View style={styles.homeMomentThumb}>
+                <Image resizeMode="cover" source={activeMomentImageSource} style={styles.homeMomentThumbImage} />
+              </View>
+            </View>
+            <View style={styles.homeMomentFooter}>
+              <Text style={styles.homeMomentHint}>轻点查看附近动态</Text>
+              <View style={styles.homeMomentDots}>
+                {homeMoments.map((item, index) => (
+                  <View key={`${item.petName}-${index}`} style={[styles.homeMomentDot, index === homeMomentIndex % homeMoments.length && styles.homeMomentDotActive]} />
+                ))}
               </View>
             </View>
           </Pressable>
@@ -12464,6 +12509,28 @@ const styles = StyleSheet.create({
   homeHealthScore: { color: palette.ink, fontFamily: appFontFamily, fontSize: 36, fontWeight: '700', letterSpacing: 0, lineHeight: 38 },
   homeHealthScoreRow: { alignItems: 'baseline', flexDirection: 'row', gap: 2, marginTop: 4 },
   homeHealthTotal: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500' },
+  homeMomentAutoPill: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.13)', borderRadius: 11, flexDirection: 'row', gap: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  homeMomentAutoText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700' },
+  homeMomentBody: { alignItems: 'center', flexDirection: 'row', gap: 10, marginTop: 12 },
+  homeMomentCard: { backgroundColor: '#fff3e5', borderColor: 'rgba(255,255,255,0.76)', borderRadius: 22, borderWidth: 1, marginTop: 8, minHeight: 116, paddingHorizontal: 14, paddingVertical: 13, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
+  homeMomentCopy: { flex: 1, minWidth: 0 },
+  homeMomentDistance: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.12)', borderRadius: 9, flexDirection: 'row', gap: 2, maxWidth: 78, paddingHorizontal: 6, paddingVertical: 2 },
+  homeMomentDistanceText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700' },
+  homeMomentDot: { backgroundColor: 'rgba(122,121,114,0.22)', borderRadius: 3, height: 6, width: 6 },
+  homeMomentDotActive: { backgroundColor: palette.orange, width: 16 },
+  homeMomentDots: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  homeMomentFooter: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 9 },
+  homeMomentHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  homeMomentHint: { color: '#A98566', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600' },
+  homeMomentIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.15)', borderRadius: 11, height: 24, justifyContent: 'center', width: 24 },
+  homeMomentMeta: { color: '#A98566', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', marginTop: 4 },
+  homeMomentName: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '800', lineHeight: 18 },
+  homeMomentNameRow: { alignItems: 'center', flexDirection: 'row', gap: 6, minWidth: 0 },
+  homeMomentText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 17, marginTop: 3 },
+  homeMomentThumb: { backgroundColor: '#fff', borderColor: 'rgba(255,255,255,0.86)', borderRadius: 15, borderWidth: 2, height: 54, overflow: 'hidden', shadowColor: '#8b5e3c', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.12, shadowRadius: 12, width: 54 },
+  homeMomentThumbImage: { height: '100%', width: '100%' },
+  homeMomentTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '800', letterSpacing: 0 },
+  homeMomentTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 7 },
   homeMakeGreeting: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 12, minWidth: 0 },
   homeMakeChatEntry: { alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: 2, maxWidth: '100%', paddingRight: 2, paddingVertical: 2 },
   homeMakeHeader: { alignItems: 'center', flexDirection: 'row', gap: 12, justifyContent: 'space-between', paddingTop: 6 },
