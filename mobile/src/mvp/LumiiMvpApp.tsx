@@ -6846,29 +6846,31 @@ export default function LumiiMvpApp() {
                 <Text style={styles.homeMomentAutoText}>自动轮播</Text>
               </View>
             </View>
-            <View style={styles.homeMomentBody}>
-              <PetAvatar uri={activeMoment.imageUrl ?? generatedGoldenAvatarUri} size={42} />
-              <View style={styles.homeMomentCopy}>
-                <View style={styles.homeMomentNameRow}>
-                  <Text numberOfLines={1} style={styles.homeMomentName}>{activeMoment.petName}</Text>
-                  <View style={styles.homeMomentDistance}>
-                    <MapPin color={palette.teal} size={10} strokeWidth={2.5} />
-                    <Text numberOfLines={1} style={styles.homeMomentDistanceText}>{activeMoment.distance}</Text>
+            <View style={styles.homeMomentLayer}>
+              <View style={styles.homeMomentBody}>
+                <PetAvatar uri={activeMoment.imageUrl ?? generatedGoldenAvatarUri} size={38} />
+                <View style={styles.homeMomentCopy}>
+                  <View style={styles.homeMomentNameRow}>
+                    <Text numberOfLines={1} style={styles.homeMomentName}>{activeMoment.petName}</Text>
+                    <View style={styles.homeMomentDistance}>
+                      <MapPin color={palette.teal} size={10} strokeWidth={2.5} />
+                      <Text numberOfLines={1} style={styles.homeMomentDistanceText}>{activeMoment.distance}</Text>
+                    </View>
                   </View>
+                  <Text numberOfLines={2} style={styles.homeMomentText}>{activeMoment.text}</Text>
+                  <Text numberOfLines={1} style={styles.homeMomentMeta}>{activeMoment.meta}</Text>
                 </View>
-                <Text numberOfLines={2} style={styles.homeMomentText}>{activeMoment.text}</Text>
-                <Text numberOfLines={1} style={styles.homeMomentMeta}>{activeMoment.meta}</Text>
+                <View style={styles.homeMomentThumb}>
+                  <Image resizeMode="cover" source={activeMomentImageSource} style={styles.homeMomentThumbImage} />
+                </View>
               </View>
-              <View style={styles.homeMomentThumb}>
-                <Image resizeMode="cover" source={activeMomentImageSource} style={styles.homeMomentThumbImage} />
-              </View>
-            </View>
-            <View style={styles.homeMomentFooter}>
-              <Text style={styles.homeMomentHint}>轻点查看附近动态</Text>
-              <View style={styles.homeMomentDots}>
-                {homeMoments.map((item, index) => (
-                  <View key={`${item.petName}-${index}`} style={[styles.homeMomentDot, index === homeMomentIndex % homeMoments.length && styles.homeMomentDotActive]} />
-                ))}
+              <View style={styles.homeMomentFooter}>
+                <Text style={styles.homeMomentHint}>轻点查看附近动态</Text>
+                <View style={styles.homeMomentDots}>
+                  {homeMoments.map((item, index) => (
+                    <View key={`${item.petName}-${index}`} style={[styles.homeMomentDot, index === homeMomentIndex % homeMoments.length && styles.homeMomentDotActive]} />
+                  ))}
+                </View>
               </View>
             </View>
           </Pressable>
@@ -12509,25 +12511,26 @@ const styles = StyleSheet.create({
   homeHealthScore: { color: palette.ink, fontFamily: appFontFamily, fontSize: 36, fontWeight: '700', letterSpacing: 0, lineHeight: 38 },
   homeHealthScoreRow: { alignItems: 'baseline', flexDirection: 'row', gap: 2, marginTop: 4 },
   homeHealthTotal: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500' },
-  homeMomentAutoPill: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.13)', borderRadius: 11, flexDirection: 'row', gap: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  homeMomentAutoPill: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.15)', borderRadius: 11, flexDirection: 'row', gap: 3, paddingHorizontal: 8, paddingVertical: 4 },
   homeMomentAutoText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700' },
-  homeMomentBody: { alignItems: 'center', flexDirection: 'row', gap: 10, marginTop: 12 },
-  homeMomentCard: { backgroundColor: '#fff3e5', borderColor: 'rgba(255,255,255,0.76)', borderRadius: 22, borderWidth: 1, marginTop: 8, minHeight: 116, paddingHorizontal: 14, paddingVertical: 13, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
+  homeMomentBody: { alignItems: 'center', flexDirection: 'row', gap: 9 },
+  homeMomentCard: { backgroundColor: '#FFE3CA', borderColor: 'rgba(255,255,255,0.78)', borderRadius: 24, borderWidth: 1, marginTop: 8, paddingHorizontal: 12, paddingBottom: 11, paddingTop: 12, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
   homeMomentCopy: { flex: 1, minWidth: 0 },
-  homeMomentDistance: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.12)', borderRadius: 9, flexDirection: 'row', gap: 2, maxWidth: 78, paddingHorizontal: 6, paddingVertical: 2 },
+  homeMomentDistance: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.12)', borderRadius: 9, flexDirection: 'row', gap: 2, maxWidth: 82, paddingHorizontal: 6, paddingVertical: 2 },
   homeMomentDistanceText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700' },
   homeMomentDot: { backgroundColor: 'rgba(122,121,114,0.22)', borderRadius: 3, height: 6, width: 6 },
   homeMomentDotActive: { backgroundColor: palette.orange, width: 16 },
   homeMomentDots: { alignItems: 'center', flexDirection: 'row', gap: 5 },
-  homeMomentFooter: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 9 },
+  homeMomentFooter: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
   homeMomentHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   homeMomentHint: { color: '#A98566', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600' },
   homeMomentIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.15)', borderRadius: 11, height: 24, justifyContent: 'center', width: 24 },
+  homeMomentLayer: { backgroundColor: '#FFF9F3', borderColor: 'rgba(255,255,255,0.92)', borderRadius: 19, borderWidth: 1, marginTop: 10, padding: 9, shadowColor: '#8b5e3c', shadowOffset: { height: 7, width: 0 }, shadowOpacity: 0.08, shadowRadius: 14 },
   homeMomentMeta: { color: '#A98566', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', marginTop: 4 },
   homeMomentName: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '800', lineHeight: 18 },
   homeMomentNameRow: { alignItems: 'center', flexDirection: 'row', gap: 6, minWidth: 0 },
-  homeMomentText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 17, marginTop: 3 },
-  homeMomentThumb: { backgroundColor: '#fff', borderColor: 'rgba(255,255,255,0.86)', borderRadius: 15, borderWidth: 2, height: 54, overflow: 'hidden', shadowColor: '#8b5e3c', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.12, shadowRadius: 12, width: 54 },
+  homeMomentText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 16.5, marginTop: 3 },
+  homeMomentThumb: { backgroundColor: '#fff', borderColor: 'rgba(255,255,255,0.92)', borderRadius: 18, borderWidth: 2, height: 76, overflow: 'hidden', shadowColor: '#8b5e3c', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.14, shadowRadius: 14, width: 76 },
   homeMomentThumbImage: { height: '100%', width: '100%' },
   homeMomentTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '800', letterSpacing: 0 },
   homeMomentTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 7 },
