@@ -327,6 +327,7 @@ const discoverOwnerAvatarUrls = [
 ];
 const generatedGoldenAvatarUri = 'lumii://golden-retriever-avatar';
 const generatedGoldenAvatarSource = require('../../assets/lumii/golden-avatar-v1.png');
+const loadedRemoteAvatarUris = new Set<string>();
 const demoNearbyOwners: NearbyOwner[] = [
   {
     distance: '约 1.2km',
@@ -6890,12 +6891,11 @@ export default function LumiiMvpApp() {
     const homeMomentStates = [
       { key: 'users-no-posts', kind: 'usersNoPosts' as const, pill: '可互动' },
       { key: 'empty', kind: 'empty' as const, pill: '暂无动态' },
-      { key: 'loading-error', kind: 'loadingError' as const, pill: '加载中' },
+      { key: 'loading-error', kind: 'loadingError' as const, pill: '加载失败' },
     ];
     const forcedHomeMomentIndex = forcedHomeMomentKind ? homeMomentStates.findIndex((item) => item.kind === forcedHomeMomentKind) : -1;
     const activeHomeMomentIndex = forcedHomeMomentIndex >= 0 ? forcedHomeMomentIndex : homeMomentIndex % homeMomentStates.length;
     const activeHomeMomentState = homeMomentStates[activeHomeMomentIndex];
-    const homeMomentFooterHint = activeHomeMomentState.kind === 'loadingError' ? '轻点重试' : activeHomeMomentState.kind === 'empty' ? '轻点刷新附近' : '轻点进入宠友圈';
     const handleHomeMomentPress = () => {
       if (activeHomeMomentState.kind === 'loadingError' || activeHomeMomentState.kind === 'empty') {
         void refreshDiscoverByPull();
@@ -7020,7 +7020,6 @@ export default function LumiiMvpApp() {
             <View style={styles.homeMomentLayer}>
               {renderHomeMomentContent()}
               <View style={styles.homeMomentFooter}>
-                <Text style={styles.homeMomentHint}>{homeMomentFooterHint}</Text>
                 <View style={styles.homeMomentDots}>
                   {homeMomentStates.map((item, index) => (
                     <View key={item.key} style={[styles.homeMomentDot, index === activeHomeMomentIndex && styles.homeMomentDotActive]} />
@@ -11521,10 +11520,10 @@ function Mascot({ size = 96 }: { size?: number }) {
 
 function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
   const remoteUri = uri && !isGeneratedAvatarUri(uri) ? uri : null;
-  const [loading, setLoading] = useState(Boolean(remoteUri));
+  const [loading, setLoading] = useState(Boolean(remoteUri && !loadedRemoteAvatarUris.has(remoteUri)));
 
   useEffect(() => {
-    setLoading(Boolean(remoteUri));
+    setLoading(Boolean(remoteUri && !loadedRemoteAvatarUris.has(remoteUri)));
   }, [remoteUri]);
 
   return (
@@ -11536,9 +11535,12 @@ function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
       ) : null}
       <Image
         onError={() => setLoading(false)}
-        onLoadEnd={() => setLoading(false)}
+        onLoadEnd={() => {
+          if (remoteUri) loadedRemoteAvatarUris.add(remoteUri);
+          setLoading(false);
+        }}
         onLoadStart={() => {
-          if (remoteUri) setLoading(true);
+          if (remoteUri && !loadedRemoteAvatarUris.has(remoteUri)) setLoading(true);
         }}
         resizeMode="cover"
         source={remoteUri ? { uri: remoteUri } : generatedGoldenAvatarSource}
@@ -12677,9 +12679,8 @@ const styles = StyleSheet.create({
   homeMomentDot: { backgroundColor: 'rgba(122,121,114,0.22)', borderRadius: 3, height: 6, width: 6 },
   homeMomentDotActive: { backgroundColor: palette.orange, width: 16 },
   homeMomentDots: { alignItems: 'center', flexDirection: 'row', gap: 5 },
-  homeMomentFooter: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
+  homeMomentFooter: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 },
   homeMomentHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
-  homeMomentHint: { color: '#A98566', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600' },
   homeMomentIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.15)', borderRadius: 11, height: 24, justifyContent: 'center', width: 24 },
   homeMomentLayer: { backgroundColor: '#FFFDFC', borderColor: 'rgba(255,255,255,0.96)', borderRadius: 19, borderWidth: 1, marginTop: 10, padding: 9, shadowColor: '#8b5e3c', shadowOffset: { height: 7, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
   homeMomentEmptyIcon: { alignItems: 'center', backgroundColor: '#F7EEE7', borderColor: '#FFF9F2', borderRadius: 25, borderWidth: 1, height: 50, justifyContent: 'center', width: 50 },
