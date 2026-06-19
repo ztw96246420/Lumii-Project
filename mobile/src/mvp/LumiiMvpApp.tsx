@@ -473,8 +473,55 @@ const defaultUserSettings: UserSettings = {
   nearbyVisible: true,
   pushNotifications: true,
 };
+const webPreviewPermissions: PermissionStateMap = {
+  location: 'granted',
+  media: 'granted',
+  notifications: 'granted',
+};
+const webPreviewPet: PetProfile = {
+  avatarUrl: generatedGoldenAvatarUri,
+  birthday: '2023-05-18',
+  breed: '金毛',
+  gender: 'male',
+  healthScore: 96,
+  id: 'preview-pet-lucky',
+  name: 'Lucky',
+  personality: ['亲人', '爱撒娇', '喜欢散步'],
+  species: 'dog',
+  weightKg: 28.6,
+};
+const webPreviewSession: AuthSession = {
+  account: {
+    activePet: webPreviewPet,
+    ownerName: 'Serenaqing',
+    permissions: webPreviewPermissions,
+    permissionsOnboardingCompleted: true,
+    settings: defaultUserSettings,
+  },
+  phone: '13531850966',
+  token: 'lumii-web-preview-token',
+};
 const avatarUploadMaxBytes = 9 * 1024 * 1024;
 const supportedAvatarMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
+
+function getWebPreviewParam(key: string) {
+  if (Platform.OS !== 'web') return '';
+  try {
+    const location = (globalThis as unknown as { location?: { search?: string } }).location;
+    return new URLSearchParams(location?.search ?? '').get(key) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+type HomeMomentPreviewKind = 'empty' | 'loadingError' | 'usersNoPosts';
+
+function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null {
+  if (value === 'users' || value === 'friends' || value === 'online') return 'usersNoPosts';
+  if (value === 'empty') return 'empty';
+  if (value === 'loading' || value === 'error') return 'loadingError';
+  return null;
+}
 
 type PetDraft = {
   avatarBase64?: string;
@@ -1068,17 +1115,19 @@ function indexPlaceReviewsByPlaceId(reviews: PlaceReview[]) {
 }
 
 export default function LumiiMvpApp() {
+  const isHomePreviewMode = getWebPreviewParam('preview') === 'home' || getWebPreviewParam('preview') === 'pet-home';
+  const forcedHomeMomentKind = normalizeHomeMomentPreview(getWebPreviewParam('moment'));
   const profileHorizontalInset = Platform.OS === 'web' ? 16 : 12;
   const profileBlockMarginStyle = useMemo<ViewStyle>(() => ({ marginHorizontal: profileHorizontalInset }), [profileHorizontalInset]);
   const profileBlockPaddingStyle = useMemo<ViewStyle>(() => ({ paddingHorizontal: profileHorizontalInset }), [profileHorizontalInset]);
-  const [route, setRoute] = useState<AppRoute>('login');
+  const [route, setRoute] = useState<AppRoute>(isHomePreviewMode ? 'home' : 'login');
   const [history, setHistory] = useState<AppRoute[]>([]);
   const [toast, setToast] = useState<AppToast | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [amapNavigationPlace, setAmapNavigationPlace] = useState<Place | null>(null);
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
-  const [sessionBootstrapping, setSessionBootstrapping] = useState(true);
-  const [bootPetAvatarUri, setBootPetAvatarUri] = useState<string | null>(null);
+  const [sessionBootstrapping, setSessionBootstrapping] = useState(!isHomePreviewMode);
+  const [bootPetAvatarUri, setBootPetAvatarUri] = useState<string | null>(isHomePreviewMode ? webPreviewPet.avatarUrl ?? null : null);
 
   const [phone, setPhone] = useState('');
   const [phoneFocused, setPhoneFocused] = useState(false);
@@ -1095,7 +1144,7 @@ export default function LumiiMvpApp() {
   const [otpInlineError, setOtpInlineError] = useState('');
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [clock, setClock] = useState(Date.now());
-  const [session, setSession] = useState<AuthSession | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(isHomePreviewMode ? webPreviewSession : null);
   const activePetIdRef = useRef<string | null>(null);
   const phoneInputRef = useRef<TextInput>(null);
   const phoneValueRef = useRef('');
@@ -1104,22 +1153,22 @@ export default function LumiiMvpApp() {
   const mapAutoLocateAttemptedRef = useRef(false);
   const lastDiscoverLocationRef = useRef<NearbyLocationHint | null>(null);
   const exitBackPressedAtRef = useRef(0);
-  const previousRouteRef = useRef<AppRoute>('login');
-  const routeRef = useRef<AppRoute>('login');
+  const previousRouteRef = useRef<AppRoute>(isHomePreviewMode ? 'home' : 'login');
+  const routeRef = useRef<AppRoute>(isHomePreviewMode ? 'home' : 'login');
   const systemSettingsOpenedAtRef = useRef(0);
   const registeredPushTokenRef = useRef('');
   const scheduledPushRegistrationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sessionTokenRef = useRef('');
-  const permissionsRef = useRef<PermissionStateMap>(initialPermissions);
+  const sessionTokenRef = useRef(isHomePreviewMode ? webPreviewSession.token : '');
+  const permissionsRef = useRef<PermissionStateMap>(isHomePreviewMode ? webPreviewPermissions : initialPermissions);
   const userSettingsRef = useRef<UserSettings>(defaultUserSettings);
   const userSettingSavingKeysRef = useRef<Set<UserSettingKey>>(new Set());
   const datePickerCommitRef = useRef<(date: Date) => void>(() => undefined);
 
   const [datePickerRequest, setDatePickerRequest] = useState<DatePickerRequest | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [permissions, setPermissions] = useState<PermissionStateMap>(initialPermissions);
-  const [activePet, setActivePet] = useState<PetProfile | null>(null);
-  const [pets, setPets] = useState<PetProfile[]>([]);
+  const [permissions, setPermissions] = useState<PermissionStateMap>(isHomePreviewMode ? webPreviewPermissions : initialPermissions);
+  const [activePet, setActivePet] = useState<PetProfile | null>(isHomePreviewMode ? webPreviewPet : null);
+  const [pets, setPets] = useState<PetProfile[]>(isHomePreviewMode ? [webPreviewPet] : []);
   const [petSwitchingId, setPetSwitchingId] = useState('');
   const petSwitchingIdRef = useRef('');
   const [petDeletingId, setPetDeletingId] = useState('');
@@ -1319,7 +1368,7 @@ export default function LumiiMvpApp() {
   const [placeSubmissionSaving, setPlaceSubmissionSaving] = useState(false);
   const placeSubmissionSavingRef = useRef(false);
   const [placeSubmissionStatus, setPlaceSubmissionStatus] = useState<'idle' | 'pending_review'>('idle');
-  const [userSettings, setUserSettings] = useState<UserSettings>(defaultUserSettings);
+  const [userSettings, setUserSettings] = useState<UserSettings>(isHomePreviewMode ? webPreviewSession.account!.settings : defaultUserSettings);
   const [ownerNameDraft, setOwnerNameDraft] = useState('');
   const [ownerBioDraft, setOwnerBioDraft] = useState('');
   const [ownerAvatarDraft, setOwnerAvatarDraft] = useState('');
@@ -1559,6 +1608,12 @@ export default function LumiiMvpApp() {
   }, []);
 
   useEffect(() => {
+    if (isHomePreviewMode) {
+      setLumiiAuthToken(webPreviewSession.token);
+      setSessionBootstrapping(false);
+      return undefined;
+    }
+
     let mounted = true;
 
     const bootstrapSession = async () => {
@@ -1591,7 +1646,7 @@ export default function LumiiMvpApp() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [isHomePreviewMode]);
 
   useEffect(() => {
     if (!toast?.message) return undefined;
@@ -1612,8 +1667,9 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     if (!session) return;
     sessionTokenRef.current = session.token;
+    if (isHomePreviewMode) return;
     void loadCommonData(session.token);
-  }, [session?.token]);
+  }, [isHomePreviewMode, session?.token]);
 
   useEffect(() => {
     sessionTokenRef.current = session?.token ?? '';
@@ -1706,12 +1762,12 @@ export default function LumiiMvpApp() {
   }, [route]);
 
   useEffect(() => {
-    if (route !== 'home') return undefined;
+    if (route !== 'home' || forcedHomeMomentKind) return undefined;
     const id = setInterval(() => {
       setHomeMomentIndex((index) => index + 1);
     }, 5200);
     return () => clearInterval(id);
-  }, [route]);
+  }, [forcedHomeMomentKind, route]);
 
   useEffect(() => {
     if (route !== 'editPet') return;
@@ -6836,7 +6892,8 @@ export default function LumiiMvpApp() {
       { key: 'empty', kind: 'empty' as const, pill: '暂无动态' },
       { key: 'loading-error', kind: 'loadingError' as const, pill: '加载中' },
     ];
-    const activeHomeMomentIndex = homeMomentIndex % homeMomentStates.length;
+    const forcedHomeMomentIndex = forcedHomeMomentKind ? homeMomentStates.findIndex((item) => item.kind === forcedHomeMomentKind) : -1;
+    const activeHomeMomentIndex = forcedHomeMomentIndex >= 0 ? forcedHomeMomentIndex : homeMomentIndex % homeMomentStates.length;
     const activeHomeMomentState = homeMomentStates[activeHomeMomentIndex];
     const homeMomentFooterHint = activeHomeMomentState.kind === 'loadingError' ? '轻点重试' : activeHomeMomentState.kind === 'empty' ? '轻点刷新附近' : '轻点进入宠友圈';
     const handleHomeMomentPress = () => {
