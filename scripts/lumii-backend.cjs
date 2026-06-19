@@ -256,6 +256,7 @@ function createInitialState() {
     notifications: {},
     pushDevices: {},
     revokedAuthTokens: {},
+    socialMoments: [],
     aiUsage: {
       deepseek: {
         cacheHitTokens: 0,
@@ -360,6 +361,7 @@ function loadState() {
         ...initialState.revokedAuthTokens,
         ...(loadedState.revokedAuthTokens || {}),
       },
+      socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
     };
   } catch {
     return createInitialState();
@@ -3527,6 +3529,81 @@ function listOnlineOwners(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM) {
   return realOwners;
 }
 
+function normalizeSocialMomentContent(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 280);
+}
+
+function ensureSocialMoments() {
+  if (!Array.isArray(state.socialMoments)) state.socialMoments = [];
+  return state.socialMoments;
+}
+
+function createSocialMoment(user, body = {}) {
+  const content = normalizeSocialMomentContent(body.content);
+  if (!content) return { error: '先写一点今天的小事吧', statusCode: 400 };
+  const pet = activePetFor(user);
+  const moment = {
+    content,
+    createdAt: new Date().toISOString(),
+    id: `moment-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    mood: String(body.mood || '').trim().slice(0, 12),
+    petId: pet.id,
+    phone: user.phone,
+    photoCount: Math.max(0, Math.min(3, Number(body.photoCount) || 0)),
+  };
+  const moments = ensureSocialMoments();
+  moments.unshift(moment);
+  state.socialMoments = moments.slice(0, 500);
+  return { moment };
+}
+
+function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
+  const pet = activePetFor(momentUser);
+  const suffix = momentUser.phone.slice(-4);
+  return {
+    createdAt: moment.createdAt,
+    distance: distanceKm === undefined ? '附近' : fuzzyDistance(distanceKm),
+    id: moment.id,
+    imageUrl: pet.avatarUrl,
+    mood: moment.mood || undefined,
+    ownerId: `user-${momentUser.phone}`,
+    ownerName: momentUser.ownerName || `用户${suffix}`,
+    petName: pet.name || `灵伴${suffix}`,
+    photoCount: moment.photoCount || 0,
+    species: pet.species === 'cat' ? 'cat' : 'dog',
+    text: moment.content,
+  };
+}
+
+function listNearbyMoments(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM) {
+  if (!viewer?.location) return [];
+  const moments = ensureSocialMoments();
+  const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  return moments
+    .map((moment, index) => {
+      const momentUser = state.users[moment.phone];
+      if (!momentUser || moment.phone === viewer.phone) return null;
+      if (momentUser.settings?.nearbyVisible === false) return null;
+      const createdAtMs = new Date(moment.createdAt).getTime();
+      if (!Number.isFinite(createdAtMs) || now - createdAtMs > maxAgeMs) return null;
+      const distanceKm = distanceKmBetween(viewer.location, momentUser.location);
+      if (viewer.location) {
+        if (!momentUser.location || distanceKm === null || distanceKm === undefined) return null;
+        if (distanceKm > radiusKm + accuracyBufferKm(viewer.location, momentUser.location)) return null;
+      }
+      return {
+        card: buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm ?? undefined),
+        createdAtMs,
+        distanceKm,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.distanceKm ?? Number.MAX_SAFE_INTEGER) - (b.distanceKm ?? Number.MAX_SAFE_INTEGER) || b.createdAtMs - a.createdAtMs)
+    .slice(0, 20)
+    .map(({ card }) => card);
+}
+
 function upsertConversation(phone, conversation) {
   state.conversations[phone] = state.conversations[phone] || [];
   const existingIndex = state.conversations[phone].findIndex((item) => item.id === conversation.id);
@@ -4634,6 +4711,34 @@ async function handle(req, res) {
     }
     const viewerForDiscovery = location ? { ...user, location } : user;
     ok(res, listOnlineOwners(viewerForDiscovery, location?.radiusKm || user.location?.radiusKm || DEFAULT_DISCOVER_RADIUS_KM));
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/social/nearby-moments') {
+    const location = locationFromQuery(url);
+    const publishNearbyPresence = user.settings?.nearbyVisible !== false;
+    if (publishNearbyPresence) {
+      user.lastSeenAt = Date.now();
+      if (location) user.location = locationForPersistence(user, location);
+      saveState();
+    }
+    const viewerForMoments = location ? { ...user, location } : user;
+    ok(res, listNearbyMoments(viewerForMoments, location?.radiusKm || user.location?.radiusKm || DEFAULT_DISCOVER_RADIUS_KM));
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/social/moments') {
+    if (user.settings?.nearbyVisible === false) {
+      fail(res, 403, '请先开启附近可见后再分享小事', false, undefined, 'NEARBY_HIDDEN');
+      return;
+    }
+    const created = createSocialMoment(user, body);
+    if (created.error) {
+      fail(res, created.statusCode || 400, created.error, false, undefined, 'SOCIAL_MOMENT_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, buildNearbyMomentCard(created.moment, user, user, 0, undefined));
     return;
   }
 

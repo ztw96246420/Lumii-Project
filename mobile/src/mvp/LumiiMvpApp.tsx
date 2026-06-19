@@ -110,6 +110,7 @@ import type {
   HealthMemo,
   HealthSummary,
   NearbyLocationHint,
+  NearbyMoment,
   NearbyOwner,
   NotificationCategory,
   NotificationItem,
@@ -328,39 +329,6 @@ const discoverOwnerAvatarUrls = [
 const generatedGoldenAvatarUri = 'lumii://golden-retriever-avatar';
 const generatedGoldenAvatarSource = require('../../assets/lumii/golden-avatar-v1.png');
 const loadedRemoteAvatarUris = new Set<string>();
-const demoNearbyOwners: NearbyOwner[] = [
-  {
-    distance: '约 1.2km',
-    id: 'demo-nearby-doubao',
-    imageUrl: discoverOwnerAvatarUrls[0],
-    ownerName: '安安',
-    petName: '豆包',
-    species: 'dog',
-    tags: ['金毛', '公园打卡', '想交朋友'],
-  },
-  {
-    distance: '约 2.1km',
-    id: 'demo-nearby-naiyou',
-    imageUrl: discoverOwnerAvatarUrls[1],
-    ownerName: '小北',
-    petName: '奶油',
-    species: 'dog',
-    tags: ['柯基', '晒太阳', '约遛友好'],
-  },
-  {
-    distance: '约 2.8km',
-    id: 'demo-nearby-tuanzi',
-    imageUrl: discoverOwnerAvatarUrls[2],
-    ownerName: 'Mia',
-    petName: '团子',
-    species: 'cat',
-    tags: ['英短', '咖啡店门口', '安静观察'],
-  },
-];
-
-function isDemoNearbyOwnerId(ownerId?: string) {
-  return Boolean(ownerId?.startsWith('demo-nearby-'));
-}
 
 const routeTitles: Partial<Record<AppRoute, string>> = {
   accountSecurity: '账号安全',
@@ -1274,6 +1242,11 @@ export default function LumiiMvpApp() {
   const dailyPostSavingRef = useRef(false);
   const [owners, setOwners] = useState<NearbyOwner[]>([]);
   const ownersRef = useRef<NearbyOwner[]>([]);
+  const [nearbyMoments, setNearbyMoments] = useState<NearbyMoment[]>([]);
+  const [nearbyMomentsError, setNearbyMomentsError] = useState('');
+  const [nearbyMomentsLoading, setNearbyMomentsLoading] = useState(false);
+  const nearbyMomentsLoadingRef = useRef(false);
+  const [homeMomentIndex, setHomeMomentIndex] = useState(0);
   const [discoverRefreshing, setDiscoverRefreshing] = useState(false);
   const discoverRefreshingRef = useRef(false);
   const [discoverLocationError, setDiscoverLocationError] = useState('');
@@ -1762,6 +1735,19 @@ export default function LumiiMvpApp() {
   }, [route]);
 
   useEffect(() => {
+    if (!session || route !== 'home' || isHomePreviewMode) return;
+    void loadNearbyMoments({ silent: true });
+  }, [isHomePreviewMode, route, session, userSettings.nearbyVisible]);
+
+  useEffect(() => {
+    if (route !== 'home' || nearbyMoments.length <= 1) return undefined;
+    const id = setInterval(() => {
+      setHomeMomentIndex((index) => index + 1);
+    }, 5200);
+    return () => clearInterval(id);
+  }, [nearbyMoments.length, route]);
+
+  useEffect(() => {
     if (route !== 'editPet') return;
     const pet = getCurrentPet();
     if (!pet) {
@@ -2012,7 +1998,7 @@ export default function LumiiMvpApp() {
   async function loadCommonData(targetSessionToken = sessionTokenRef.current) {
     const requestSessionToken = targetSessionToken;
     if (!requestSessionToken) return;
-    const [profileResult, petListResult, healthSummaryResult, healthCalendarResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult, aiUsageResult] = await Promise.all([
+    const [profileResult, petListResult, healthSummaryResult, healthCalendarResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, momentResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult, aiUsageResult] = await Promise.all([
       lumiiApi.account.getMe(),
       lumiiApi.pets.listPets(),
       lumiiApi.health.getHealthSummary(),
@@ -2022,6 +2008,7 @@ export default function LumiiMvpApp() {
       lumiiApi.health.listVaccineReminderIds(),
       lumiiApi.health.listHealthMemos(),
       lumiiApi.social.listNearbyOwners(),
+      lumiiApi.social.listNearbyMoments(),
       lumiiApi.social.listGreetingRequests(),
       lumiiApi.messages.listConversations(),
       lumiiApi.messages.listNotifications(),
@@ -2079,6 +2066,12 @@ export default function LumiiMvpApp() {
         lastDiscoverLocationRef.current = null;
         applyNearbyOwners([]);
       }
+    }
+    if (momentResult.data) {
+      setNearbyMoments(momentResult.data);
+      setNearbyMomentsError('');
+    } else if (momentResult.error) {
+      setNearbyMomentsError(momentResult.error.message);
     }
     if (greetingRequestResult.data) {
       applyGreetingRequestOwners(greetingRequestResult.data);
@@ -4561,9 +4554,21 @@ export default function LumiiMvpApp() {
         setMemos((items) => [result.data!, ...items]);
         setDailyPostText('');
         setDailyPostPhotoUris([]);
+        const momentResult = await lumiiApi.social.createMoment(requestText, dailyMood, dailyPostPhotoUris.length);
+        if (sessionTokenRef.current === requestSessionToken && momentResult.data) {
+          setNearbyMomentsError('');
+          setHomeMomentIndex(0);
+          void loadNearbyMoments({ silent: true });
+        } else if (sessionTokenRef.current === requestSessionToken && momentResult.error) {
+          setNearbyMomentsError(momentResult.error.message);
+        }
         void refreshHealthSummary();
         replace('home');
-        showToast('今日小事已记录', { subtitle: '已同步到健康日历，可在首页动态查看', tone: 'success', variant: 'surface' });
+        showToast('今日小事已记录', {
+          subtitle: momentResult.data ? '已同步到健康日历和附近小事' : '已同步到健康日历，小事同步稍后再试',
+          tone: momentResult.data ? 'success' : 'info',
+          variant: 'surface',
+        });
       } else {
         showToast(result.error?.message ?? '发布失败，请稍后重试', { subtitle: '内容已留在编辑框中，不会丢失', tone: 'error', variant: 'surface' });
       }
@@ -4588,17 +4593,8 @@ export default function LumiiMvpApp() {
     const actionId = `greet:${ownerId}`;
     if (!beginSocialAction(actionId)) return;
     const requestSessionToken = sessionTokenRef.current;
-    const owner = ownersRef.current.find((item) => item.id === ownerId) ?? demoNearbyOwners.find((item) => item.id === ownerId) ?? (greetingSheetOwner?.id === ownerId ? greetingSheetOwner : undefined);
+    const owner = ownersRef.current.find((item) => item.id === ownerId) ?? (greetingSheetOwner?.id === ownerId ? greetingSheetOwner : undefined);
     try {
-      if (isDemoNearbyOwnerId(ownerId)) {
-        await sleep(300);
-        if (greetingSheetOwner?.id === ownerId) {
-          setGreetingSheetOwner(null);
-          setGreetingMessage('你好呀，我们也在附近，想认识一下吗？');
-        }
-        showToast(`已向${owner?.petName ?? '附近伙伴'}打招呼`, { subtitle: '当前为演示附近数据，真实用户会走消息链路', tone: 'success', variant: 'surface' });
-        return;
-      }
       const result = await lumiiApi.social.sendGreeting(ownerId);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
@@ -4798,21 +4794,6 @@ export default function LumiiMvpApp() {
     walkInviteSavingRef.current = true;
     setWalkInviteSaving(true);
     try {
-      if (isDemoNearbyOwnerId(owner.id)) {
-        await sleep(300);
-        await deleteWalkInviteDraft(requestOwnerId);
-        if (stillEditingSameInvite) {
-          setWalkInvitePlace('');
-          setWalkInvitePlaceAddress('');
-          setWalkInvitePlaceId('');
-          setWalkInvitePlaceLatitude(undefined);
-          setWalkInvitePlaceLongitude(undefined);
-          setWalkInviteNote('');
-          replace('messages');
-          showToast('约遛邀请已发送', { subtitle: '当前为演示附近数据，不会真正通知其他用户', tone: 'success', variant: 'surface' });
-        }
-        return;
-      }
       const result = await lumiiApi.social.createWalkInvite(owner.id, {
         latitude: requestLatitude,
         longitude: requestLongitude,
@@ -4909,6 +4890,36 @@ export default function LumiiMvpApp() {
     return null;
   }
 
+  async function loadNearbyMoments(options: { location?: NearbyLocationHint | null; silent?: boolean } = {}) {
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken || !userSettingsRef.current.nearbyVisible) {
+      setNearbyMoments([]);
+      setNearbyMomentsError('');
+      return null;
+    }
+    if (nearbyMomentsLoadingRef.current) return null;
+    nearbyMomentsLoadingRef.current = true;
+    setNearbyMomentsLoading(true);
+    try {
+      const location = options.location ?? lastDiscoverLocationRef.current ?? undefined;
+      const result = await lumiiApi.social.listNearbyMoments(location ?? undefined);
+      if (sessionTokenRef.current !== requestSessionToken) return null;
+      if (result.data) {
+        setNearbyMoments(result.data);
+        setNearbyMomentsError('');
+        setHomeMomentIndex(0);
+        return result.data;
+      }
+      const message = result.error?.message ?? '附近小事刷新失败，请稍后重试';
+      setNearbyMomentsError(message);
+      if (!options.silent) showToast(message, { tone: 'error', variant: 'surface' });
+      return null;
+    } finally {
+      nearbyMomentsLoadingRef.current = false;
+      setNearbyMomentsLoading(false);
+    }
+  }
+
   async function refreshDiscoverByPull() {
     if (discoverRefreshingRef.current) return;
     if (!userSettingsRef.current.nearbyVisible) {
@@ -4924,6 +4935,7 @@ export default function LumiiMvpApp() {
         applyNearbyOwners(nextOwners);
         setDiscoverLocationError('');
         setDiscoverLastRefreshedAt(Date.now());
+        void loadNearbyMoments({ location: lastDiscoverLocationRef.current, silent: true });
         showToast(nextOwners.length ? '已刷新附近伙伴' : '3km 内暂时没有新的伙伴');
       }
     } finally {
@@ -6875,39 +6887,84 @@ export default function LumiiMvpApp() {
     const petMeta = [pet.breed || speciesLabels[pet.species], formatPetAge(pet.birthday)].filter(Boolean).join(' · ');
     const memoCount = healthSummary?.memoCount ?? memos.length;
     const calendarSummary = healthCalendarEvents.length ? `${healthCalendarEvents.length} 条记录` : (healthSummary?.latestMemo?.title ?? memos[0]?.title ?? '查看记录');
-    const nearbyPreviewOwners = owners.length ? owners : demoNearbyOwners;
-    const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : `${nearbyPreviewOwners.length} 位演示伙伴`;
+    const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : '暂无附近伙伴';
     const homeChatHint = homeChatPrompts[homeHintIndex].replace(/\{petName\}/g, pet.name);
     const todayWeightRecorded = weights.some((item) => item.recordedAt === todayIsoDate());
+    const visibleNearbyMoments = nearbyMoments.slice(0, 5);
+    const activeNearbyMoment = visibleNearbyMoments.length ? visibleNearbyMoments[homeMomentIndex % visibleNearbyMoments.length] : null;
+    const hasMomentError = Boolean(nearbyMomentsError && !visibleNearbyMoments.length);
     const homeMomentStates = [
+      { key: 'moments', kind: 'moments' as const, pill: visibleNearbyMoments.length > 1 ? `${visibleNearbyMoments.length} 条小事` : '新小事' },
       { key: 'users-no-posts', kind: 'usersNoPosts' as const, pill: '可互动' },
       { key: 'empty', kind: 'empty' as const, pill: '暂无动态' },
       { key: 'loading-error', kind: 'loadingError' as const, pill: '加载失败' },
     ];
     const forcedHomeMomentIndex = forcedHomeMomentKind ? homeMomentStates.findIndex((item) => item.kind === forcedHomeMomentKind) : -1;
-    const activeHomeMomentIndex = forcedHomeMomentIndex >= 0 ? forcedHomeMomentIndex : 0;
-    const activeHomeMomentState = homeMomentStates[activeHomeMomentIndex];
+    const fallbackHomeMomentState = hasMomentError
+      ? homeMomentStates[3]
+      : activeNearbyMoment
+        ? homeMomentStates[0]
+        : owners.length
+          ? homeMomentStates[1]
+          : homeMomentStates[2];
+    const activeHomeMomentState = forcedHomeMomentIndex >= 0 ? homeMomentStates[forcedHomeMomentIndex] : fallbackHomeMomentState;
     const handleHomeMomentPress = () => {
-      if (activeHomeMomentState.kind === 'loadingError' || activeHomeMomentState.kind === 'empty') {
+      if (activeHomeMomentState.kind === 'loadingError') {
+        void loadNearbyMoments({ silent: false });
+        return;
+      }
+      if (activeHomeMomentState.kind === 'empty') {
         void refreshDiscoverByPull();
         return;
       }
       go('discover');
     };
     const renderHomeMomentContent = () => {
+      if (activeHomeMomentState.kind === 'moments' && activeNearbyMoment) {
+        return (
+          <>
+            <View style={styles.homeMomentBody}>
+              <PetAvatar uri={activeNearbyMoment.imageUrl ?? generatedGoldenAvatarUri} size={70} />
+              <View style={styles.homeMomentCopy}>
+                <View style={styles.homeMomentNameRow}>
+                  <Text numberOfLines={1} style={styles.homeMomentName}>{activeNearbyMoment.petName} 的小事</Text>
+                  <View style={styles.homeMomentDistance}>
+                    <MapPin color={palette.teal} size={9} strokeWidth={2.4} />
+                    <Text numberOfLines={1} style={styles.homeMomentDistanceText}>{activeNearbyMoment.distance}</Text>
+                  </View>
+                </View>
+                <Text numberOfLines={2} style={styles.homeMomentText}>{activeNearbyMoment.text}</Text>
+                <Text numberOfLines={1} style={styles.homeMomentMeta}>
+                  {activeNearbyMoment.ownerName} · {formatTimestampDisplay(activeNearbyMoment.createdAt)}
+                  {activeNearbyMoment.photoCount ? ` · ${activeNearbyMoment.photoCount} 张照片` : ''}
+                </Text>
+              </View>
+            </View>
+            {visibleNearbyMoments.length > 1 ? (
+              <View style={styles.homeMomentFooter}>
+                <View style={styles.homeMomentDots}>
+                  {visibleNearbyMoments.map((item, index) => (
+                    <View key={item.id} style={[styles.homeMomentDot, index === homeMomentIndex % visibleNearbyMoments.length && styles.homeMomentDotActive]} />
+                  ))}
+                </View>
+              </View>
+            ) : null}
+          </>
+        );
+      }
       if (activeHomeMomentState.kind === 'usersNoPosts') {
         return (
           <>
             <View style={styles.homeMomentStateBody}>
               <View style={styles.homeMomentAvatarStack}>
-                {nearbyPreviewOwners.slice(0, 3).map((owner, index) => (
+                {owners.slice(0, 3).map((owner, index) => (
                   <View key={`${owner.id}-home-stack`} style={[styles.homeMomentStackAvatar, { left: index * 25, zIndex: 3 - index }]}>
                     <PetAvatar uri={owner.imageUrl ?? generatedGoldenAvatarUri} size={42} />
                   </View>
                 ))}
               </View>
               <View style={styles.homeMomentStateCopy}>
-                <Text numberOfLines={1} style={styles.homeMomentStateTitle}>附近 {nearbyPreviewOwners.length} 位伙伴在线</Text>
+                <Text numberOfLines={1} style={styles.homeMomentStateTitle}>附近 {owners.length} 位伙伴在线</Text>
                 <Text numberOfLines={2} style={styles.homeMomentStateText}>暂时还没有人分享小事，先去宠友圈打个招呼吧。</Text>
               </View>
             </View>
@@ -7003,8 +7060,8 @@ export default function LumiiMvpApp() {
                 </View>
                 <Text style={styles.homeMomentTitle}>附近宠友小事</Text>
               </View>
-              <View style={styles.homeMomentAutoPill}>
-                {activeHomeMomentState.kind === 'loadingError' ? <RefreshCw color={palette.teal} size={10} strokeWidth={2.4} /> : activeHomeMomentState.kind === 'empty' ? <MapPin color={palette.teal} size={10} strokeWidth={2.4} /> : <Users color={palette.teal} size={10} strokeWidth={2.4} />}
+            <View style={styles.homeMomentAutoPill}>
+                {activeHomeMomentState.kind === 'moments' ? <Sparkles color={palette.teal} size={10} strokeWidth={2.4} /> : activeHomeMomentState.kind === 'loadingError' ? <RefreshCw color={palette.teal} size={10} strokeWidth={2.4} /> : activeHomeMomentState.kind === 'empty' ? <MapPin color={palette.teal} size={10} strokeWidth={2.4} /> : <Users color={palette.teal} size={10} strokeWidth={2.4} />}
                 <Text style={styles.homeMomentAutoText}>{activeHomeMomentState.pill}</Text>
               </View>
             </View>
@@ -12660,6 +12717,10 @@ const styles = StyleSheet.create({
   homeMomentCopy: { flex: 1, minWidth: 0 },
   homeMomentDistance: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.12)', borderRadius: 9, flexDirection: 'row', gap: 2, maxWidth: 82, paddingHorizontal: 6, paddingVertical: 2 },
   homeMomentDistanceText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700' },
+  homeMomentDot: { backgroundColor: 'rgba(122,121,114,0.22)', borderRadius: 3, height: 6, width: 6 },
+  homeMomentDotActive: { backgroundColor: palette.orange, width: 16 },
+  homeMomentDots: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  homeMomentFooter: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end', marginTop: 7 },
   homeMomentHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   homeMomentIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.15)', borderRadius: 11, height: 24, justifyContent: 'center', width: 24 },
   homeMomentLayer: { backgroundColor: '#FFFDFC', borderColor: 'rgba(255,255,255,0.96)', borderRadius: 19, borderWidth: 1, marginTop: 8, paddingHorizontal: 8, paddingVertical: 7, shadowColor: '#8b5e3c', shadowOffset: { height: 7, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },

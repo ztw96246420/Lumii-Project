@@ -299,6 +299,20 @@ export type NearbyOwner = {
   tags: string[];
 };
 
+export type NearbyMoment = {
+  createdAt: string;
+  distance: string;
+  id: string;
+  imageUrl?: string;
+  mood?: string;
+  ownerId: string;
+  ownerName: string;
+  petName: string;
+  photoCount?: number;
+  species: Extract<PetSpecies, 'cat' | 'dog'>;
+  text: string;
+};
+
 export type NearbyLocationHint = {
   accuracy?: number;
   latitude: number;

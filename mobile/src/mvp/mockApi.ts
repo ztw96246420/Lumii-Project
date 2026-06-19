@@ -20,6 +20,7 @@ import type {
   HealthSummary,
   LegalDocument,
   NearbyLocationHint,
+  NearbyMoment,
   NearbyOwner,
   NotificationCategory,
   NotificationItem,
@@ -580,6 +581,8 @@ let weights: WeightRecord[] = [
 let memos: HealthMemo[] = [
   { id: 'm1', title: '驱虫记录', content: '体外驱虫已完成，下次按计划提醒。', updatedAt: addDaysIsoDate(-3) },
 ];
+
+let nearbyMoments: NearbyMoment[] = [];
 
 function mockPetChatMemoTitle(text: string) {
   if (/吃|饭|粮|零食|食欲|喝水|饮水/.test(text)) return '饮食记录';
@@ -1911,6 +1914,33 @@ export const mockApi = {
     async listNearbyOwners(_location?: NearbyLocationHint): Promise<ApiResult<NearbyOwner[]>> {
       await wait(200);
       return success(owners);
+    },
+
+    async listNearbyMoments(_location?: NearbyLocationHint): Promise<ApiResult<NearbyMoment[]>> {
+      await wait(180);
+      return success(nearbyMoments.slice(0, 8));
+    },
+
+    async createMoment(content: string, mood?: string, photoCount = 0): Promise<ApiResult<NearbyMoment>> {
+      await wait(180);
+      const text = String(content || '').trim();
+      if (!text) return error<NearbyMoment>('先写一点今天的小事吧', false, undefined, 'SOCIAL_MOMENT_INVALID');
+      const pet = activeMockPet();
+      const moment: NearbyMoment = {
+        createdAt: new Date().toISOString(),
+        distance: '附近',
+        id: `mock-moment-${Date.now()}`,
+        imageUrl: pet?.avatarUrl,
+        mood,
+        ownerId: `mock-${currentMockPhone}`,
+        ownerName: mockOwnerName,
+        petName: pet?.name ?? '灵伴',
+        photoCount,
+        species: pet?.species === 'cat' ? 'cat' : 'dog',
+        text: text.slice(0, 280),
+      };
+      nearbyMoments = [moment, ...nearbyMoments].slice(0, 20);
+      return success(moment);
     },
 
     async sendGreeting(ownerId: string): Promise<ApiResult<GreetingResult>> {

@@ -20,6 +20,7 @@ import type {
   HealthSummary,
   LegalDocument,
   NearbyLocationHint,
+  NearbyMoment,
   NearbyOwner,
   NotificationItem,
   OwnerProfilePatch,
@@ -324,6 +325,16 @@ function createHttpApi(baseUrl: string): LumiiApi {
         const locationQuery = nearbyLocationQuery(location);
         const query = locationQuery ? `?${locationQuery}` : '';
         return request<NearbyOwner[]>('GET', `/social/discover${query}`);
+      },
+
+      async listNearbyMoments(location?: NearbyLocationHint): Promise<ApiResult<NearbyMoment[]>> {
+        const locationQuery = nearbyLocationQuery(location);
+        const query = locationQuery ? `?${locationQuery}` : '';
+        return request<NearbyMoment[]>('GET', `/social/nearby-moments${query}`);
+      },
+
+      async createMoment(content: string, mood?: string, photoCount = 0): Promise<ApiResult<NearbyMoment>> {
+        return request<NearbyMoment>('POST', '/social/moments', { content, mood, photoCount });
       },
 
       async sendGreeting(ownerId: string): Promise<ApiResult<GreetingResult>> {

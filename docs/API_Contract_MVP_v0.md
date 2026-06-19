@@ -884,6 +884,68 @@ lat=23.1291&lng=113.2644&radiusKm=3&accuracy=30
 - 超过在线时间窗口或超出距离范围不会返回。
 - 返回卡片的 `id` 形如 `user-{phone}`，当前作为 `POST /social/greetings`、`POST /social/walk-invites` 和招呼请求处理接口的 `ownerId` 入参。
 
+### GET `/social/nearby-moments`
+
+读取附近宠友分享的“今日小事”，用于宠物首页的“附近宠友小事”模块。
+
+Query:
+
+```txt
+lat=23.1291&lng=113.2644&radiusKm=3&accuracy=30
+```
+
+Response data:
+
+```ts
+NearbyMoment[]
+```
+
+```ts
+type NearbyMoment = {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  petName: string;
+  species: 'cat' | 'dog';
+  text: string;
+  createdAt: string;
+  distance: string;
+  imageUrl?: string;
+  mood?: string;
+  photoCount?: number;
+};
+```
+
+说明：
+- 当前测试后端复用 `/social/discover` 的定位策略和默认 3km 范围。
+- 如果当前请求和账号都没有可用定位，返回空数组，不降级为全量动态流。
+- 只返回附近其他用户的小事，不返回当前登录用户自己发布的小事。
+- 只返回猫/狗宠物、开启附近可见、在线窗口内、未超过 7 天的小事。
+- 距离只返回模糊文案，不暴露精确定位。
+- 首页展示四态：附近有小事时轮播；附近有伙伴但暂无小事时展示静态伙伴态；附近无伙伴时展示静态空态；接口失败时展示错误态并允许重试。
+
+### POST `/social/moments`
+
+发布一条“今日小事”到附近小事流。App 发布今日小事时会先写入健康日历的健康备忘，再调用该接口同步到附近小事。
+
+Request:
+
+```json
+{ "content": "今天 Lucky 主动叼球来找我玩", "mood": "开心", "photoCount": 1 }
+```
+
+Response data:
+
+```ts
+NearbyMoment
+```
+
+说明：
+- `content` 必填，MVP 最大 280 字。
+- `photoCount` 只记录本次选择的照片数量；真实媒体 URL/审核结果后续由媒体接口补齐。
+- 如果当前账号没有宠物档案，返回中文错误，不创建小事。
+- 创建成功后，其他附近用户可通过 `GET /social/nearby-moments` 看到；当前用户首页不会把自己的小事当成附近小事展示。
+
 ### POST `/social/greetings`
 
 Request:
