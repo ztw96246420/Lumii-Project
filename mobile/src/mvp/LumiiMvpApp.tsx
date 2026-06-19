@@ -11341,7 +11341,7 @@ export default function LumiiMvpApp() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="dark" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined} keyboardVerticalOffset={0} style={styles.appWrap}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={0} style={styles.appWrap}>
         <View style={[styles.phoneFrame, nativeTopInset ? { paddingTop: nativeTopInset } : null]}>
           {renderScreen()}
           {showBottomTabs ? (
@@ -12101,7 +12101,7 @@ const styles = StyleSheet.create({
   agreementRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 8, marginTop: 18 },
   agreementText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 21 },
   agreementTextAttention: { color: palette.danger },
-  appWrap: { alignItems: 'center', backgroundColor: '#e8e2d9', flex: 1, justifyContent: 'center' },
+  appWrap: { alignItems: 'center', backgroundColor: Platform.OS === 'web' ? '#e8e2d9' : palette.background, flex: 1, justifyContent: 'center' },
   avatarImage: { height: '100%', width: '100%' },
   avatarImageRemote: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
   avatarLoadingOverlay: { alignItems: 'center', backgroundColor: 'rgba(251,247,241,0.58)', bottom: 0, justifyContent: 'center', left: 0, overflow: 'hidden', position: 'absolute', right: 0, top: 0 },
@@ -13480,7 +13480,7 @@ const styles = StyleSheet.create({
   rowBetween: { alignItems: 'center', flexDirection: 'row', gap: 10, justifyContent: 'space-between' },
   reviewStatusCard: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, paddingHorizontal: 12, paddingVertical: 10 },
   reviewStatusText: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18 },
-  safe: { backgroundColor: '#e8e2d9', flex: 1 },
+  safe: { backgroundColor: Platform.OS === 'web' ? '#e8e2d9' : palette.background, flex: 1 },
   screen: { backgroundColor: palette.background, flex: 1 },
   searchBar: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 10, minHeight: 52, paddingHorizontal: 14 },
   searchInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, minHeight: 42 },

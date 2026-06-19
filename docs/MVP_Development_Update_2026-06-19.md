@@ -33,3 +33,11 @@
 - 根因是键盘弹起时全局 `keyboardHeight` 状态变化会让 `Screen` 包装组件身份变化，导致登录页 `TextInput` 被卸载重建并丢失焦点。
 - 处理方式：键盘高度改为 ref 驱动布局读取，避免键盘事件改变 `Screen` 组件身份；手机号输入框外层从 `Pressable` 改为普通 `View` 触摸聚焦，避免安卓原生输入和父级触摸容器抢事件。
 - 验证：`npm run typecheck` 通过；已重新构建 Android `arm64-v8a` APK。
+
+## Android bottom background hotfix
+
+- 修复真机底部偶发灰色区域：输入手机号后收起键盘、首页跳转其他页面再返回时，底部可能露出灰米色背景。
+- 根因是 Web 手机外框背景 `#e8e2d9` 被复用到 native 根容器；同时 Android 已用 `adjustResize`，外层 `KeyboardAvoidingView behavior="height"` 会二次调整窗口高度，键盘收起后容易短暂露出根背景。
+- 处理方式：native `SafeAreaView`、`appWrap`、Android `windowBackground`、`navigationBarColor` 统一改为页面底色 `#FBF7F1`；安卓外层 `KeyboardAvoidingView` 不再使用 `height` 行为，交给系统 `adjustResize` 和页面滚动 inset 处理。
+- `app.json` 同步增加 `androidNavigationBar` 配置，避免后续重新 prebuild 时导航栏颜色回退。
+- 验证：`npm run typecheck` 通过；`app.json` JSON 解析通过。该项涉及 Android 原生资源，需重新构建 APK 后真机复测。

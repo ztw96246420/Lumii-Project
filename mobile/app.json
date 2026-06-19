@@ -36,6 +36,10 @@
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "resize"
     },
+    "androidNavigationBar": {
+      "backgroundColor": "#FBF7F1",
+      "barStyle": "dark-content"
+    },
     "web": {
       "favicon": "./assets/favicon.png"
     },
