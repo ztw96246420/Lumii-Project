@@ -1201,7 +1201,6 @@ export default function LumiiMvpApp() {
   const avatarFeedbackSubmittingRef = useRef(false);
   const [avatarRegenerateConfirmVisible, setAvatarRegenerateConfirmVisible] = useState(false);
   const [homeHintIndex, setHomeHintIndex] = useState(() => Math.floor(Math.random() * homeChatPrompts.length));
-  const [homeMomentIndex, setHomeMomentIndex] = useState(0);
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([createPetChatWelcomeMessage()]);
   const [chatInput, setChatInput] = useState('');
@@ -1761,14 +1760,6 @@ export default function LumiiMvpApp() {
     }
     previousRouteRef.current = route;
   }, [route]);
-
-  useEffect(() => {
-    if (route !== 'home' || forcedHomeMomentKind) return undefined;
-    const id = setInterval(() => {
-      setHomeMomentIndex((index) => index + 1);
-    }, 5200);
-    return () => clearInterval(id);
-  }, [forcedHomeMomentKind, route]);
 
   useEffect(() => {
     if (route !== 'editPet') return;
@@ -6894,7 +6885,7 @@ export default function LumiiMvpApp() {
       { key: 'loading-error', kind: 'loadingError' as const, pill: '加载失败' },
     ];
     const forcedHomeMomentIndex = forcedHomeMomentKind ? homeMomentStates.findIndex((item) => item.kind === forcedHomeMomentKind) : -1;
-    const activeHomeMomentIndex = forcedHomeMomentIndex >= 0 ? forcedHomeMomentIndex : homeMomentIndex % homeMomentStates.length;
+    const activeHomeMomentIndex = forcedHomeMomentIndex >= 0 ? forcedHomeMomentIndex : 0;
     const activeHomeMomentState = homeMomentStates[activeHomeMomentIndex];
     const handleHomeMomentPress = () => {
       if (activeHomeMomentState.kind === 'loadingError' || activeHomeMomentState.kind === 'empty') {
@@ -7019,13 +7010,6 @@ export default function LumiiMvpApp() {
             </View>
             <View style={styles.homeMomentLayer}>
               {renderHomeMomentContent()}
-              <View style={styles.homeMomentFooter}>
-                <View style={styles.homeMomentDots}>
-                  {homeMomentStates.map((item, index) => (
-                    <View key={item.key} style={[styles.homeMomentDot, index === activeHomeMomentIndex && styles.homeMomentDotActive]} />
-                  ))}
-                </View>
-              </View>
             </View>
           </Pressable>
 
@@ -12672,23 +12656,19 @@ const styles = StyleSheet.create({
   homeMomentAutoText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700' },
   homeMomentAvatarStack: { height: 48, position: 'relative', width: 98 },
   homeMomentBody: { alignItems: 'center', flexDirection: 'row', gap: 9 },
-  homeMomentCard: { backgroundColor: '#FFFCF8', borderColor: 'rgba(255,255,255,0.9)', borderRadius: 24, borderWidth: 1, marginTop: 8, paddingHorizontal: 12, paddingBottom: 11, paddingTop: 12, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
+  homeMomentCard: { backgroundColor: '#FFFCF8', borderColor: 'rgba(255,255,255,0.9)', borderRadius: 24, borderWidth: 1, marginTop: 8, paddingHorizontal: 12, paddingBottom: 9, paddingTop: 12, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
   homeMomentCopy: { flex: 1, minWidth: 0 },
   homeMomentDistance: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.12)', borderRadius: 9, flexDirection: 'row', gap: 2, maxWidth: 82, paddingHorizontal: 6, paddingVertical: 2 },
   homeMomentDistanceText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700' },
-  homeMomentDot: { backgroundColor: 'rgba(122,121,114,0.22)', borderRadius: 3, height: 6, width: 6 },
-  homeMomentDotActive: { backgroundColor: palette.orange, width: 16 },
-  homeMomentDots: { alignItems: 'center', flexDirection: 'row', gap: 5 },
-  homeMomentFooter: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 },
   homeMomentHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   homeMomentIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.15)', borderRadius: 11, height: 24, justifyContent: 'center', width: 24 },
-  homeMomentLayer: { backgroundColor: '#FFFDFC', borderColor: 'rgba(255,255,255,0.96)', borderRadius: 19, borderWidth: 1, marginTop: 10, padding: 9, shadowColor: '#8b5e3c', shadowOffset: { height: 7, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
+  homeMomentLayer: { backgroundColor: '#FFFDFC', borderColor: 'rgba(255,255,255,0.96)', borderRadius: 19, borderWidth: 1, marginTop: 8, paddingHorizontal: 8, paddingVertical: 7, shadowColor: '#8b5e3c', shadowOffset: { height: 7, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
   homeMomentEmptyIcon: { alignItems: 'center', backgroundColor: '#F7EEE7', borderColor: '#FFF9F2', borderRadius: 25, borderWidth: 1, height: 50, justifyContent: 'center', width: 50 },
-  homeMomentLoadingBody: { alignItems: 'center', flexDirection: 'row', gap: 18, minHeight: 75, paddingHorizontal: 9, paddingVertical: 5 },
+  homeMomentLoadingBody: { alignItems: 'center', flexDirection: 'row', gap: 16, minHeight: 62, paddingHorizontal: 8, paddingVertical: 3 },
   homeMomentMeta: { color: '#A98566', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', marginTop: 4 },
   homeMomentName: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '800', lineHeight: 18 },
   homeMomentNameRow: { alignItems: 'center', flexDirection: 'row', gap: 6, minWidth: 0 },
-  homeMomentRefreshChip: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: '#FFF1E4', borderRadius: 10, flexDirection: 'row', gap: 4, marginTop: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  homeMomentRefreshChip: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: '#FFF1E4', borderRadius: 10, flexDirection: 'row', gap: 4, marginTop: 6, paddingHorizontal: 8, paddingVertical: 4 },
   homeMomentRefreshText: { color: '#B9784B', fontFamily: appFontFamily, fontSize: 9.5, fontWeight: '800' },
   homeMomentRetryChip: { alignItems: 'center', alignSelf: 'flex-end', backgroundColor: '#FFF4EA', borderRadius: 11, flexDirection: 'row', gap: 4, marginTop: 4, paddingHorizontal: 8, paddingVertical: 5 },
   homeMomentRetryText: { color: '#B9784B', fontFamily: appFontFamily, fontSize: 9.5, fontWeight: '800' },
@@ -12702,8 +12682,8 @@ const styles = StyleSheet.create({
   homeMomentSkeletonLineShort: { width: 55 },
   homeMomentSkeletonLineWide: { width: '88%' },
   homeMomentStackAvatar: { borderColor: '#FFFDFC', borderRadius: 23, borderWidth: 2, height: 46, overflow: 'hidden', position: 'absolute', top: 1, width: 46 },
-  homeMomentStateActionRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
-  homeMomentStateBody: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 66, paddingHorizontal: 8, paddingVertical: 5 },
+  homeMomentStateActionRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
+  homeMomentStateBody: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 60, paddingHorizontal: 8, paddingVertical: 3 },
   homeMomentStateCopy: { flex: 1, minWidth: 0 },
   homeMomentStateCta: { alignItems: 'center', backgroundColor: '#D08A54', borderRadius: 13, justifyContent: 'center', minWidth: 78, paddingHorizontal: 12, paddingVertical: 6 },
   homeMomentStateCtaText: { color: '#fff', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '800' },
