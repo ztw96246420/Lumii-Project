@@ -17,6 +17,9 @@ mobile/*.png
 mobile/*.xml
 mobile/layout-qa/
 mobile/logs/
+docs/qa-screenshots/*
+!docs/qa-screenshots/
+!docs/qa-screenshots/lumii-current-qa-*.png
 
 # local environment and secrets
 .env
