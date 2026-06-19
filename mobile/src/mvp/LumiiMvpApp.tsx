@@ -1804,12 +1804,8 @@ export default function LumiiMvpApp() {
       }
     };
     void refreshOwners();
-    const id = setInterval(() => {
-      void refreshOwners();
-    }, 8000);
     return () => {
       active = false;
-      clearInterval(id);
     };
   }, [route, session, userSettings.nearbyVisible]);
 
@@ -4880,7 +4876,7 @@ export default function LumiiMvpApp() {
         applyNearbyOwners(nextOwners);
         setDiscoverLocationError('');
         setDiscoverLastRefreshedAt(Date.now());
-        showToast(nextOwners.length ? '已刷新附近伙伴' : '暂时未找到真实伙伴，已显示演示数据');
+        showToast(nextOwners.length ? '已刷新附近伙伴' : '3km 内暂时没有新的伙伴');
       }
     } finally {
       discoverRefreshingRef.current = false;
@@ -8513,15 +8509,14 @@ export default function LumiiMvpApp() {
     const discoverAccessIssue: null | 'location' | 'visibility' = !discoverEnabled ? 'visibility' : locationDenied ? 'location' : null;
     const discoverSearchQuery = discoverQuery.trim();
     const discoverHasLocationError = Boolean(discoverLocationError && !discoverAccessIssue);
-    const nearbyPreviewOwners = owners.length ? owners : demoNearbyOwners;
     const visibleOwners = discoverAccessIssue
       ? []
-      : nearbyPreviewOwners
+      : owners
         .filter((owner) => ownerMatchesDiscoverFilter(owner, discoverFilter))
         .filter((owner) => ownerMatchesDiscoverQuery(owner, discoverSearchQuery));
     const activeDiscoverFilterLabel = discoverFilterOptions.find((item) => item.key === discoverFilter)?.label ?? '全部';
     const discoverRefreshCopy = discoverLastRefreshedAt ? ` · ${formatClockTime(new Date(discoverLastRefreshedAt))}刷新` : '';
-    const previewOwner: NearbyOwner = nearbyPreviewOwners[0] ?? {
+    const previewOwner: NearbyOwner = owners[0] ?? {
       distance: '?km',
       id: 'discover-preview',
       imageUrl: generatedGoldenAvatarUri,
