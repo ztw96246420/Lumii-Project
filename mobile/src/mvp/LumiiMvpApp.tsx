@@ -6831,32 +6831,83 @@ export default function LumiiMvpApp() {
     const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : `${nearbyPreviewOwners.length} 位演示伙伴`;
     const homeChatHint = homeChatPrompts[homeHintIndex].replace(/\{petName\}/g, pet.name);
     const todayWeightRecorded = weights.some((item) => item.recordedAt === todayIsoDate());
-    const ownerMoments = nearbyPreviewOwners.slice(0, 3).map((owner, index) => ({
-      distance: owner.distance,
-      imageUrl: owner.imageUrl,
-      meta: `${owner.ownerName} · ${owner.tags[0] ?? speciesLabels[owner.species]}`,
-      petName: owner.petName,
-      text: [
-        `${owner.petName}刚在附近更新了小事，今天也想认识新朋友。`,
-        `${owner.petName}在常去路线打卡，状态看起来很开心。`,
-        `${owner.petName}分享了今天的小日常，离你不远。`,
-      ][index % 3],
-    }));
-    const homeMoments = ownerMoments.length ? ownerMoments : demoNearbyOwners.slice(0, 3).map((owner, index) => ({
-      distance: owner.distance,
-      imageUrl: owner.imageUrl,
-      meta: `${owner.ownerName} · ${owner.tags[0] ?? speciesLabels[owner.species]}`,
-      petName: owner.petName,
-      text: [
-        `${owner.petName}刚在附近更新了小事，今天也想认识新朋友。`,
-        `${owner.petName}在常去路线打卡，状态看起来很开心。`,
-        `${owner.petName}分享了今天的小日常，离你不远。`,
-      ][index % 3],
-    }));
-    const activeMoment = homeMoments[homeMomentIndex % homeMoments.length];
-    const activeMomentImageSource = activeMoment.imageUrl && !isGeneratedAvatarUri(activeMoment.imageUrl)
-      ? { uri: activeMoment.imageUrl }
-      : generatedGoldenAvatarSource;
+    const homeMomentStates = [
+      { key: 'users-no-posts', kind: 'usersNoPosts' as const, pill: '可互动' },
+      { key: 'empty', kind: 'empty' as const, pill: '暂无动态' },
+      { key: 'loading-error', kind: 'loadingError' as const, pill: '加载中' },
+    ];
+    const activeHomeMomentIndex = homeMomentIndex % homeMomentStates.length;
+    const activeHomeMomentState = homeMomentStates[activeHomeMomentIndex];
+    const homeMomentFooterHint = activeHomeMomentState.kind === 'loadingError' ? '轻点重试' : activeHomeMomentState.kind === 'empty' ? '轻点刷新附近' : '轻点进入宠友圈';
+    const handleHomeMomentPress = () => {
+      if (activeHomeMomentState.kind === 'loadingError' || activeHomeMomentState.kind === 'empty') {
+        void refreshDiscoverByPull();
+        return;
+      }
+      go('discover');
+    };
+    const renderHomeMomentContent = () => {
+      if (activeHomeMomentState.kind === 'usersNoPosts') {
+        return (
+          <>
+            <View style={styles.homeMomentStateBody}>
+              <View style={styles.homeMomentAvatarStack}>
+                {nearbyPreviewOwners.slice(0, 3).map((owner, index) => (
+                  <View key={`${owner.id}-home-stack`} style={[styles.homeMomentStackAvatar, { left: index * 25, zIndex: 3 - index }]}>
+                    <PetAvatar uri={owner.imageUrl ?? generatedGoldenAvatarUri} size={42} />
+                  </View>
+                ))}
+              </View>
+              <View style={styles.homeMomentStateCopy}>
+                <Text numberOfLines={1} style={styles.homeMomentStateTitle}>附近 {nearbyPreviewOwners.length} 位伙伴在线</Text>
+                <Text numberOfLines={2} style={styles.homeMomentStateText}>暂时还没有人分享小事，先去宠友圈打个招呼吧。</Text>
+              </View>
+            </View>
+            <View style={styles.homeMomentStateActionRow}>
+              <Text numberOfLines={1} style={styles.homeMomentStateSubtle}>模糊距离 · 只展示猫狗伙伴</Text>
+              <View style={styles.homeMomentStateCta}>
+                <Text style={styles.homeMomentStateCtaText}>去宠友圈</Text>
+              </View>
+            </View>
+          </>
+        );
+      }
+      if (activeHomeMomentState.kind === 'empty') {
+        return (
+          <View style={styles.homeMomentStateBody}>
+            <View style={styles.homeMomentEmptyIcon}>
+              <PawPrint color="#C9A58A" size={22} strokeWidth={2.4} />
+            </View>
+            <View style={styles.homeMomentStateCopy}>
+              <Text numberOfLines={1} style={styles.homeMomentStateTitle}>附近暂时还没有小事</Text>
+              <Text numberOfLines={1} style={styles.homeMomentStateText}>稍后再来看看</Text>
+              <View style={styles.homeMomentRefreshChip}>
+                <RefreshCw color="#B9784B" size={10} strokeWidth={2.6} />
+                <Text style={styles.homeMomentRefreshText}>刷新附近</Text>
+              </View>
+            </View>
+          </View>
+        );
+      }
+      return (
+        <View style={styles.homeMomentLoadingBody}>
+          <View style={styles.homeMomentSkeletonColumn}>
+            <View style={[styles.homeMomentSkeletonLine, styles.homeMomentSkeletonLineShort]} />
+            <View style={[styles.homeMomentSkeletonLine, styles.homeMomentSkeletonLineLong]} />
+            <View style={[styles.homeMomentSkeletonLine, styles.homeMomentSkeletonLineMini]} />
+          </View>
+          <View style={styles.homeMomentSkeletonColumnWide}>
+            <View style={[styles.homeMomentSkeletonLine, styles.homeMomentSkeletonLineWide]} />
+            <View style={[styles.homeMomentSkeletonLine, styles.homeMomentSkeletonLineMid]} />
+            <View style={[styles.homeMomentSkeletonLine, styles.homeMomentSkeletonLineFull]} />
+            <View style={styles.homeMomentRetryChip}>
+              <RefreshCw color="#B9784B" size={10} strokeWidth={2.6} />
+              <Text style={styles.homeMomentRetryText}>网络不稳，轻点重试</Text>
+            </View>
+          </View>
+        </View>
+      );
+    };
     return (
       <Screen showBack={false} title="">
         <View style={styles.homeMakePage}>
@@ -6896,7 +6947,7 @@ export default function LumiiMvpApp() {
             </View>
           </View>
 
-          <Pressable onPress={() => go('discover')} style={[webPressableReset, styles.homeMomentCard, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFFCF8 0%, #FFF6EE 100%)' } as object) : null]}>
+          <Pressable onPress={handleHomeMomentPress} style={[webPressableReset, styles.homeMomentCard, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFFCF8 0%, #FFF6EE 100%)' } as object) : null]}>
             <View style={styles.homeMomentHeader}>
               <View style={styles.homeMomentTitleRow}>
                 <View style={styles.homeMomentIcon}>
@@ -6905,33 +6956,17 @@ export default function LumiiMvpApp() {
                 <Text style={styles.homeMomentTitle}>附近宠友小事</Text>
               </View>
               <View style={styles.homeMomentAutoPill}>
-                <Sparkles color={palette.teal} size={10} strokeWidth={2.4} />
-                <Text style={styles.homeMomentAutoText}>自动轮播</Text>
+                {activeHomeMomentState.kind === 'loadingError' ? <RefreshCw color={palette.teal} size={10} strokeWidth={2.4} /> : activeHomeMomentState.kind === 'empty' ? <MapPin color={palette.teal} size={10} strokeWidth={2.4} /> : <Users color={palette.teal} size={10} strokeWidth={2.4} />}
+                <Text style={styles.homeMomentAutoText}>{activeHomeMomentState.pill}</Text>
               </View>
             </View>
             <View style={styles.homeMomentLayer}>
-              <View style={styles.homeMomentBody}>
-                <PetAvatar uri={activeMoment.imageUrl ?? generatedGoldenAvatarUri} size={38} />
-                <View style={styles.homeMomentCopy}>
-                  <View style={styles.homeMomentNameRow}>
-                    <Text numberOfLines={1} style={styles.homeMomentName}>{activeMoment.petName}</Text>
-                    <View style={styles.homeMomentDistance}>
-                      <MapPin color={palette.teal} size={10} strokeWidth={2.5} />
-                      <Text numberOfLines={1} style={styles.homeMomentDistanceText}>{activeMoment.distance}</Text>
-                    </View>
-                  </View>
-                  <Text numberOfLines={2} style={styles.homeMomentText}>{activeMoment.text}</Text>
-                  <Text numberOfLines={1} style={styles.homeMomentMeta}>{activeMoment.meta}</Text>
-                </View>
-                <View style={styles.homeMomentThumb}>
-                  <Image resizeMode="cover" source={activeMomentImageSource} style={styles.homeMomentThumbImage} />
-                </View>
-              </View>
+              {renderHomeMomentContent()}
               <View style={styles.homeMomentFooter}>
-                <Text style={styles.homeMomentHint}>轻点查看附近动态</Text>
+                <Text style={styles.homeMomentHint}>{homeMomentFooterHint}</Text>
                 <View style={styles.homeMomentDots}>
-                  {homeMoments.map((item, index) => (
-                    <View key={`${item.petName}-${index}`} style={[styles.homeMomentDot, index === homeMomentIndex % homeMoments.length && styles.homeMomentDotActive]} />
+                  {homeMomentStates.map((item, index) => (
+                    <View key={item.key} style={[styles.homeMomentDot, index === activeHomeMomentIndex && styles.homeMomentDotActive]} />
                   ))}
                 </View>
               </View>
@@ -12576,6 +12611,7 @@ const styles = StyleSheet.create({
   homeHealthTotal: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500' },
   homeMomentAutoPill: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.15)', borderRadius: 11, flexDirection: 'row', gap: 3, paddingHorizontal: 8, paddingVertical: 4 },
   homeMomentAutoText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700' },
+  homeMomentAvatarStack: { height: 48, position: 'relative', width: 98 },
   homeMomentBody: { alignItems: 'center', flexDirection: 'row', gap: 9 },
   homeMomentCard: { backgroundColor: '#FFFCF8', borderColor: 'rgba(255,255,255,0.9)', borderRadius: 24, borderWidth: 1, marginTop: 8, paddingHorizontal: 12, paddingBottom: 11, paddingTop: 12, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
   homeMomentCopy: { flex: 1, minWidth: 0 },
@@ -12589,9 +12625,33 @@ const styles = StyleSheet.create({
   homeMomentHint: { color: '#A98566', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600' },
   homeMomentIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.15)', borderRadius: 11, height: 24, justifyContent: 'center', width: 24 },
   homeMomentLayer: { backgroundColor: '#FFFDFC', borderColor: 'rgba(255,255,255,0.96)', borderRadius: 19, borderWidth: 1, marginTop: 10, padding: 9, shadowColor: '#8b5e3c', shadowOffset: { height: 7, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
+  homeMomentEmptyIcon: { alignItems: 'center', backgroundColor: '#F7EEE7', borderColor: '#FFF9F2', borderRadius: 25, borderWidth: 1, height: 50, justifyContent: 'center', width: 50 },
+  homeMomentLoadingBody: { alignItems: 'center', flexDirection: 'row', gap: 18, minHeight: 75, paddingHorizontal: 9, paddingVertical: 5 },
   homeMomentMeta: { color: '#A98566', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', marginTop: 4 },
   homeMomentName: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '800', lineHeight: 18 },
   homeMomentNameRow: { alignItems: 'center', flexDirection: 'row', gap: 6, minWidth: 0 },
+  homeMomentRefreshChip: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: '#FFF1E4', borderRadius: 10, flexDirection: 'row', gap: 4, marginTop: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  homeMomentRefreshText: { color: '#B9784B', fontFamily: appFontFamily, fontSize: 9.5, fontWeight: '800' },
+  homeMomentRetryChip: { alignItems: 'center', alignSelf: 'flex-end', backgroundColor: '#FFF4EA', borderRadius: 11, flexDirection: 'row', gap: 4, marginTop: 4, paddingHorizontal: 8, paddingVertical: 5 },
+  homeMomentRetryText: { color: '#B9784B', fontFamily: appFontFamily, fontSize: 9.5, fontWeight: '800' },
+  homeMomentSkeletonColumn: { gap: 10, width: 88 },
+  homeMomentSkeletonColumnWide: { flex: 1, gap: 9, minWidth: 0 },
+  homeMomentSkeletonLine: { backgroundColor: '#F0E6DC', borderRadius: 8, height: 11 },
+  homeMomentSkeletonLineFull: { width: '100%' },
+  homeMomentSkeletonLineLong: { width: 82 },
+  homeMomentSkeletonLineMid: { width: '72%' },
+  homeMomentSkeletonLineMini: { height: 9, width: 48 },
+  homeMomentSkeletonLineShort: { width: 55 },
+  homeMomentSkeletonLineWide: { width: '88%' },
+  homeMomentStackAvatar: { borderColor: '#FFFDFC', borderRadius: 23, borderWidth: 2, height: 46, overflow: 'hidden', position: 'absolute', top: 1, width: 46 },
+  homeMomentStateActionRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
+  homeMomentStateBody: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 66, paddingHorizontal: 8, paddingVertical: 5 },
+  homeMomentStateCopy: { flex: 1, minWidth: 0 },
+  homeMomentStateCta: { alignItems: 'center', backgroundColor: '#D08A54', borderRadius: 13, justifyContent: 'center', minWidth: 78, paddingHorizontal: 12, paddingVertical: 6 },
+  homeMomentStateCtaText: { color: '#fff', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '800' },
+  homeMomentStateSubtle: { color: '#B09986', flex: 1, fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', marginRight: 8 },
+  homeMomentStateText: { color: '#8A7667', fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 4 },
+  homeMomentStateTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '800', lineHeight: 19 },
   homeMomentText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 16.5, marginTop: 3 },
   homeMomentThumb: { backgroundColor: '#fff', borderColor: 'rgba(255,255,255,0.92)', borderRadius: 18, borderWidth: 2, height: 76, overflow: 'hidden', shadowColor: '#8b5e3c', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.14, shadowRadius: 14, width: 76 },
   homeMomentThumbImage: { height: '100%', width: '100%' },
