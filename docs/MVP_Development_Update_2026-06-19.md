@@ -26,3 +26,10 @@
   - `node --check scripts/lumii-backend.cjs`
   - 云端后端热更新与 `/social/nearby-moments` smoke test
   - Android `arm64-v8a` release APK 构建
+
+## Android login keyboard hotfix
+
+- 修复 Android 登录页手机号输入框点击后键盘秒闪/无法唤起的问题。
+- 根因是键盘弹起时全局 `keyboardHeight` 状态变化会让 `Screen` 包装组件身份变化，导致登录页 `TextInput` 被卸载重建并丢失焦点。
+- 处理方式：键盘高度改为 ref 驱动布局读取，避免键盘事件改变 `Screen` 组件身份；手机号输入框外层从 `Pressable` 改为普通 `View` 触摸聚焦，避免安卓原生输入和父级触摸容器抢事件。
+- 验证：`npm run typecheck` 通过；已重新构建 Android `arm64-v8a` APK。

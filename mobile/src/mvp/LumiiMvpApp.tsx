@@ -1132,9 +1132,10 @@ export default function LumiiMvpApp() {
   const userSettingsRef = useRef<UserSettings>(defaultUserSettings);
   const userSettingSavingKeysRef = useRef<Set<UserSettingKey>>(new Set());
   const datePickerCommitRef = useRef<(date: Date) => void>(() => undefined);
+  const keyboardHeightRef = useRef(0);
 
   const [datePickerRequest, setDatePickerRequest] = useState<DatePickerRequest | null>(null);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [, setKeyboardHeight] = useState(0);
   const [permissions, setPermissions] = useState<PermissionStateMap>(isHomePreviewMode ? webPreviewPermissions : initialPermissions);
   const [activePet, setActivePet] = useState<PetProfile | null>(isHomePreviewMode ? webPreviewPet : null);
   const [pets, setPets] = useState<PetProfile[]>(isHomePreviewMode ? [webPreviewPet] : []);
@@ -1569,9 +1570,12 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     if (Platform.OS === 'web') return undefined;
     const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
-      setKeyboardHeight(Math.max(0, Math.round(event.endCoordinates.height)));
+      const nextHeight = Math.max(0, Math.round(event.endCoordinates.height));
+      keyboardHeightRef.current = nextHeight;
+      setKeyboardHeight(nextHeight);
     });
     const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      keyboardHeightRef.current = 0;
       setKeyboardHeight(0);
     });
     return () => {
@@ -5802,8 +5806,9 @@ export default function LumiiMvpApp() {
       const isPetChatRoute = route === 'chat';
       const isConversationRoute = route === 'conversation';
       const isProfileRoute = route === 'profile';
-      const keyboardAwareContentInset = keyboardHeight > 0 && Platform.OS !== 'web'
-        ? { paddingBottom: Math.max(showBottomTabs ? 110 : 32, Math.min(keyboardHeight + 36, 420)) }
+      const currentKeyboardHeight = keyboardHeightRef.current;
+      const keyboardAwareContentInset = currentKeyboardHeight > 0 && Platform.OS !== 'web'
+        ? { paddingBottom: Math.max(showBottomTabs ? 110 : 32, Math.min(currentKeyboardHeight + 36, 420)) }
         : null;
       return (
         <View style={styles.screen}>
@@ -5855,7 +5860,7 @@ export default function LumiiMvpApp() {
         </View>
       );
     },
-    [back, keyboardHeight, placeSubmitResult, route, showBottomTabs],
+    [back, placeSubmitResult, route, showBottomTabs],
   );
 
   function renderLogin() {
@@ -5880,10 +5885,8 @@ export default function LumiiMvpApp() {
         </View>
 
         <View style={styles.loginForm}>
-          <Pressable
-            accessibilityLabel="请输入中国大陆手机号"
-            accessibilityRole="button"
-            onPress={() => phoneInputRef.current?.focus()}
+          <View
+            onTouchStart={() => phoneInputRef.current?.focus()}
             style={[styles.phoneInputShell, phoneFocused && styles.phoneInputShellFocused, webPressableReset]}
           >
             <Text style={styles.countryCode}>+86</Text>
@@ -5896,7 +5899,7 @@ export default function LumiiMvpApp() {
               keyboardType="phone-pad"
               maxLength={11}
               onBlur={() => {
-                if (Platform.OS === 'web') setPhoneFocused(false);
+                setPhoneFocused(false);
               }}
               onChangeText={(value) => {
                 const nextPhone = value.replace(/\D/g, '').slice(0, 11);
@@ -5905,7 +5908,7 @@ export default function LumiiMvpApp() {
                 if (loginInlineError) setLoginInlineError('');
               }}
               onFocus={() => {
-                if (Platform.OS === 'web') setPhoneFocused(true);
+                setPhoneFocused(true);
               }}
               placeholder="请输入中国大陆手机号"
               placeholderTextColor="#b6aca3"
@@ -5917,7 +5920,7 @@ export default function LumiiMvpApp() {
               underlineColorAndroid="transparent"
               value={phone}
             />
-          </Pressable>
+          </View>
           {loginInlineError ? <InlineErrorMake text={loginInlineError} /> : null}
           <Pressable
             disabled={loginSendDisabled}
