@@ -256,6 +256,8 @@ function createInitialState() {
     notifications: {},
     pushDevices: {},
     revokedAuthTokens: {},
+    socialComments: [],
+    socialLikes: [],
     socialMoments: [],
     aiUsage: {
       deepseek: {
@@ -361,6 +363,8 @@ function loadState() {
         ...initialState.revokedAuthTokens,
         ...(loadedState.revokedAuthTokens || {}),
       },
+      socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
+      socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
       socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
     };
   } catch {
@@ -1783,16 +1787,18 @@ function defaultWeightRecordsFor(user) {
   const pet = selectedPetFor(user);
   if (!pet) return [];
   const kg = Number(pet.weightKg) || (pet.species === 'cat' ? 5.2 : 28.4);
+  const createdAt = normalizeCalendarDate(pet.createdAt, isoDateFromTimestampId(pet.id));
   return [
-    { id: `w-${user.phone}-${pet.id}-1`, kg, note: '建档初始体重', recordedAt: todayIsoDate() },
+    { id: `w-${user.phone}-${pet.id}-1`, kg, note: '建档初始体重', recordedAt: createdAt },
   ];
 }
 
 function defaultMemosFor(user) {
   const pet = selectedPetFor(user);
   if (!pet) return [];
+  const createdAt = normalizeCalendarDate(pet.createdAt, isoDateFromTimestampId(pet.id));
   return [
-    { content: `${pet.name}建档完成，可以开始记录食欲、便便、洗澡和就诊情况。`, id: `m-${user.phone}-${pet.id}-1`, title: '建档记录', updatedAt: todayIsoDate() },
+    { content: `${pet.name}建档完成，可以开始记录食欲、便便、洗澡和就诊情况。`, createdAt, id: `m-${user.phone}-${pet.id}-1`, title: '建档记录', updatedAt: createdAt },
   ];
 }
 
@@ -1807,6 +1813,7 @@ function createHealthMemoRecord(user, title, content, options = {}) {
   }
   const memo = {
     content: normalizedContent,
+    createdAt: todayIsoDate(),
     id: `m-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
     title: normalizedTitle,
     updatedAt: todayIsoDate(),
@@ -1874,6 +1881,14 @@ function todayIsoDate() {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function isoDateFromTimestampId(id) {
+  const match = String(id || '').match(/(\d{13})/);
+  if (!match) return '';
+  const date = new Date(Number(match[1]));
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function addDaysIsoDate(days) {
@@ -1949,9 +1964,14 @@ function syncPetWeightFromRecords(user, records) {
   }
 }
 
-function normalizeCalendarDate(value, fallback = todayIsoDate()) {
+function calendarDatePart(value) {
   const text = String(value || '').trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : fallback;
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/);
+  return match && isValidIsoCalendarDate(match[1]) ? match[1] : '';
+}
+
+function normalizeCalendarDate(value, fallback = todayIsoDate()) {
+  return calendarDatePart(value) || calendarDatePart(fallback) || todayIsoDate();
 }
 
 function vaccineStatusCopy(status) {
@@ -1983,7 +2003,7 @@ function buildHealthCalendarEvents(user) {
       type: 'vaccine',
     })),
     ...memos.map((memo) => ({
-      date: normalizeCalendarDate(memo.updatedAt),
+      date: normalizeCalendarDate(memo.createdAt, isoDateFromTimestampId(memo.id) || memo.updatedAt),
       detail: memo.content,
       id: `calendar-memo-${memo.id}`,
       sourceId: memo.id,
@@ -3533,23 +3553,52 @@ function normalizeSocialMomentContent(value) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 280);
 }
 
+function normalizeSocialMomentImageUrls(body = {}) {
+  const rawUrls = Array.isArray(body.imageUrls) ? body.imageUrls : Array.isArray(body.photoUrls) ? body.photoUrls : [];
+  const urls = rawUrls
+    .map((item) => String(item || '').trim())
+    .filter((item) => /^https?:\/\//i.test(item) || /^data:image\//i.test(item))
+    .slice(0, 6);
+  return urls;
+}
+
+function normalizeSocialVisibility(value) {
+  return value === 'private' ? 'private' : 'nearby';
+}
+
 function ensureSocialMoments() {
   if (!Array.isArray(state.socialMoments)) state.socialMoments = [];
   return state.socialMoments;
+}
+
+function ensureSocialLikes() {
+  if (!Array.isArray(state.socialLikes)) state.socialLikes = [];
+  return state.socialLikes;
+}
+
+function ensureSocialComments() {
+  if (!Array.isArray(state.socialComments)) state.socialComments = [];
+  return state.socialComments;
 }
 
 function createSocialMoment(user, body = {}) {
   const content = normalizeSocialMomentContent(body.content);
   if (!content) return { error: '先写一点今天的小事吧', statusCode: 400 };
   const pet = activePetFor(user);
+  const visibility = normalizeSocialVisibility(body.visibility);
+  const imageUrls = normalizeSocialMomentImageUrls(body);
   const moment = {
     content,
     createdAt: new Date().toISOString(),
     id: `moment-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    imageUrls,
     mood: String(body.mood || '').trim().slice(0, 12),
     petId: pet.id,
     phone: user.phone,
-    photoCount: Math.max(0, Math.min(3, Number(body.photoCount) || 0)),
+    photoCount: imageUrls.length || Math.max(0, Math.min(6, Number(body.photoCount) || 0)),
+    status: 'published',
+    updatedAt: new Date().toISOString(),
+    visibility,
   };
   const moments = ensureSocialMoments();
   moments.unshift(moment);
@@ -3557,14 +3606,34 @@ function createSocialMoment(user, body = {}) {
   return { moment };
 }
 
+function findSocialMomentById(postId) {
+  return ensureSocialMoments().find((moment) => moment.id === postId);
+}
+
+function publishedSocialComments(postId) {
+  return ensureSocialComments()
+    .filter((comment) => comment.postId === postId && comment.status !== 'deleted')
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+}
+
+function socialLikesForPost(postId) {
+  return ensureSocialLikes().filter((like) => like.postId === postId);
+}
+
 function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
   const pet = activePetFor(momentUser);
   const suffix = momentUser.phone.slice(-4);
+  const likes = socialLikesForPost(moment.id);
+  const comments = publishedSocialComments(moment.id);
   return {
+    commentCount: comments.length,
     createdAt: moment.createdAt,
     distance: distanceKm === undefined ? '附近' : fuzzyDistance(distanceKm),
     id: moment.id,
     imageUrl: pet.avatarUrl,
+    imageUrls: Array.isArray(moment.imageUrls) ? moment.imageUrls.slice(0, 6) : [],
+    likedByMe: likes.some((like) => like.phone === viewer.phone),
+    likeCount: likes.length,
     mood: moment.mood || undefined,
     ownerId: `user-${momentUser.phone}`,
     ownerName: momentUser.ownerName || `用户${suffix}`,
@@ -3572,23 +3641,26 @@ function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
     photoCount: moment.photoCount || 0,
     species: pet.species === 'cat' ? 'cat' : 'dog',
     text: moment.content,
+    visibility: moment.visibility || 'nearby',
   };
 }
 
-function listNearbyMoments(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM) {
-  if (!viewer?.location) return [];
+function listNearbyMoments(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, options = {}) {
   const moments = ensureSocialMoments();
   const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
   const now = Date.now();
   return moments
     .map((moment, index) => {
       const momentUser = state.users[moment.phone];
-      if (!momentUser || moment.phone === viewer.phone) return null;
+      if (!momentUser) return null;
+      if (moment.status === 'deleted') return null;
+      if ((moment.visibility || 'nearby') !== 'nearby' && moment.phone !== viewer.phone) return null;
       if (momentUser.settings?.nearbyVisible === false) return null;
       const createdAtMs = new Date(moment.createdAt).getTime();
-      if (!Number.isFinite(createdAtMs) || now - createdAtMs > maxAgeMs) return null;
+      if (!Number.isFinite(createdAtMs) || (moment.phone !== viewer.phone && now - createdAtMs > maxAgeMs)) return null;
       const distanceKm = distanceKmBetween(viewer.location, momentUser.location);
-      if (viewer.location) {
+      if (!viewer.location && moment.phone !== viewer.phone) return null;
+      if (viewer.location && moment.phone !== viewer.phone) {
         if (!momentUser.location || distanceKm === null || distanceKm === undefined) return null;
         if (distanceKm > radiusKm + accuracyBufferKm(viewer.location, momentUser.location)) return null;
       }
@@ -3600,8 +3672,101 @@ function listNearbyMoments(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM) {
     })
     .filter(Boolean)
     .sort((a, b) => (a.distanceKm ?? Number.MAX_SAFE_INTEGER) - (b.distanceKm ?? Number.MAX_SAFE_INTEGER) || b.createdAtMs - a.createdAtMs)
-    .slice(0, 20)
+    .slice(0, options.limit || 20)
     .map(({ card }) => card);
+}
+
+function listPetCircleComments(postId) {
+  return publishedSocialComments(postId).map((comment) => {
+    const author = state.users[comment.phone];
+    const pet = author ? activePetFor(author) : null;
+    return {
+      author: author?.ownerName || `用户${String(comment.phone || '').slice(-4)}`,
+      avatarUrl: pet?.avatarUrl,
+      content: comment.content,
+      createdAt: comment.createdAt,
+      id: comment.id,
+      ownerId: `user-${comment.phone}`,
+      postId: comment.postId,
+      text: comment.content,
+    };
+  });
+}
+
+function likeSocialMoment(postId, user) {
+  const moment = findSocialMomentById(postId);
+  if (!moment || moment.status === 'deleted') return { error: '这条小事已不可见', statusCode: 404 };
+  if (moment.phone === user.phone) return { error: '暂不支持给自己的小事点赞', statusCode: 400 };
+  const likes = ensureSocialLikes();
+  if (!likes.some((like) => like.postId === postId && like.phone === user.phone)) {
+    likes.unshift({ createdAt: new Date().toISOString(), id: `like-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`, phone: user.phone, postId });
+    addNotification(moment.phone, {
+      category: 'interaction',
+      id: `n-pet-circle-like-${postId}-${user.phone}`,
+      kind: 'pet_circle_like',
+      read: false,
+      text: `${user.ownerName || `用户${user.phone.slice(-4)}`}赞了这条小事`,
+      title: '宠友圈有新互动',
+    }, 'interaction');
+  }
+  return { moment };
+}
+
+function unlikeSocialMoment(postId, user) {
+  const moment = findSocialMomentById(postId);
+  if (!moment || moment.status === 'deleted') return { error: '这条小事已不可见', statusCode: 404 };
+  state.socialLikes = ensureSocialLikes().filter((like) => !(like.postId === postId && like.phone === user.phone));
+  return { moment };
+}
+
+function createPetCircleComment(postId, user, body = {}) {
+  const moment = findSocialMomentById(postId);
+  if (!moment || moment.status === 'deleted') return { error: '这条小事已不可见', statusCode: 404 };
+  const content = String(body.content || body.text || '').replace(/\s+/g, ' ').trim();
+  if (!content) return { error: '先写一句评论吧', statusCode: 400 };
+  const violation = socialChatContentViolation('评论内容', content, 140);
+  if (violation) return { error: violation, statusCode: 400 };
+  const comment = {
+    content: content.slice(0, 140),
+    createdAt: new Date().toISOString(),
+    id: `comment-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    phone: user.phone,
+    postId,
+    status: 'published',
+  };
+  ensureSocialComments().push(comment);
+  if (moment.phone !== user.phone) {
+    addNotification(moment.phone, {
+      category: 'interaction',
+      id: `n-pet-circle-comment-${comment.id}`,
+      kind: 'pet_circle_comment',
+      read: false,
+      text: `${user.ownerName || `用户${user.phone.slice(-4)}`}评论了这条小事`,
+      title: '宠友圈有新评论',
+    }, 'interaction');
+  }
+  return { comment, moment };
+}
+
+function deletePetCircleComment(commentId, user) {
+  const comments = ensureSocialComments();
+  const comment = comments.find((item) => item.id === commentId);
+  if (!comment || comment.status === 'deleted') return { error: '评论不存在或已删除', statusCode: 404 };
+  const post = findSocialMomentById(comment.postId);
+  if (comment.phone !== user.phone && post?.phone !== user.phone) return { error: '只能删除自己的评论', statusCode: 403 };
+  comment.status = 'deleted';
+  comment.deletedAt = new Date().toISOString();
+  return { comment };
+}
+
+function deleteSocialMoment(postId, user) {
+  const moment = findSocialMomentById(postId);
+  if (!moment || moment.status === 'deleted') return { error: '这条小事已不可见', statusCode: 404 };
+  if (moment.phone !== user.phone) return { error: '只能删除自己的小事', statusCode: 403 };
+  moment.status = 'deleted';
+  moment.deletedAt = new Date().toISOString();
+  moment.updatedAt = new Date().toISOString();
+  return { moment };
 }
 
 function upsertConversation(phone, conversation) {
@@ -4168,6 +4333,7 @@ async function handle(req, res) {
     }
     const pet = {
       ...petInput.patch,
+      createdAt: new Date().toISOString(),
       healthScore: 96,
       id: `pet-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       personality: ['亲人', '爱互动', '想交朋友'],
@@ -4659,6 +4825,7 @@ async function handle(req, res) {
     const memo = {
       id: `m-${Date.now()}`,
       ...memoInput.memo,
+      createdAt: todayIsoDate(),
       updatedAt: todayIsoDate(),
     };
     memos.unshift(memo);
@@ -4727,7 +4894,20 @@ async function handle(req, res) {
     return;
   }
 
-  if (req.method === 'POST' && pathname === '/social/moments') {
+  if (req.method === 'GET' && pathname === '/social/pet-circle/posts') {
+    const location = locationFromQuery(url);
+    const publishNearbyPresence = user.settings?.nearbyVisible !== false;
+    if (publishNearbyPresence) {
+      user.lastSeenAt = Date.now();
+      if (location) user.location = locationForPersistence(user, location);
+      saveState();
+    }
+    const viewerForMoments = location ? { ...user, location } : user;
+    ok(res, { items: listNearbyMoments(viewerForMoments, location?.radiusKm || user.location?.radiusKm || DEFAULT_DISCOVER_RADIUS_KM, { limit: 30 }) });
+    return;
+  }
+
+  if (req.method === 'POST' && (pathname === '/social/moments' || pathname === '/social/pet-circle/posts')) {
     if (user.settings?.nearbyVisible === false) {
       fail(res, 403, '请先开启附近可见后再分享小事', false, undefined, 'NEARBY_HIDDEN');
       return;
@@ -4739,6 +4919,67 @@ async function handle(req, res) {
     }
     saveState();
     ok(res, buildNearbyMomentCard(created.moment, user, user, 0, undefined));
+    return;
+  }
+
+  const petCirclePostMatch = pathname.match(/^\/social\/pet-circle\/posts\/([^/]+)$/);
+  if (req.method === 'DELETE' && petCirclePostMatch) {
+    const deleted = deleteSocialMoment(decodeURIComponent(petCirclePostMatch[1]), user);
+    if (deleted.error) {
+      fail(res, deleted.statusCode || 400, deleted.error, false, undefined, 'PET_CIRCLE_POST_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, { deleted: true, id: deleted.moment.id });
+    return;
+  }
+
+  const petCircleLikeMatch = pathname.match(/^\/social\/pet-circle\/posts\/([^/]+)\/like$/);
+  if ((req.method === 'POST' || req.method === 'DELETE') && petCircleLikeMatch) {
+    const postId = decodeURIComponent(petCircleLikeMatch[1]);
+    const result = req.method === 'POST' ? likeSocialMoment(postId, user) : unlikeSocialMoment(postId, user);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'PET_CIRCLE_LIKE_INVALID');
+      return;
+    }
+    const owner = state.users[result.moment.phone] || user;
+    saveState();
+    ok(res, buildNearbyMomentCard(result.moment, owner, user, 0, undefined));
+    return;
+  }
+
+  const petCircleCommentsMatch = pathname.match(/^\/social\/pet-circle\/posts\/([^/]+)\/comments$/);
+  if (req.method === 'GET' && petCircleCommentsMatch) {
+    const postId = decodeURIComponent(petCircleCommentsMatch[1]);
+    const moment = findSocialMomentById(postId);
+    if (!moment || moment.status === 'deleted') {
+      fail(res, 404, '这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      return;
+    }
+    ok(res, listPetCircleComments(postId));
+    return;
+  }
+  if (req.method === 'POST' && petCircleCommentsMatch) {
+    const postId = decodeURIComponent(petCircleCommentsMatch[1]);
+    const result = createPetCircleComment(postId, user, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'PET_CIRCLE_COMMENT_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, listPetCircleComments(postId));
+    return;
+  }
+
+  const petCircleCommentMatch = pathname.match(/^\/social\/pet-circle\/comments\/([^/]+)$/);
+  if (req.method === 'DELETE' && petCircleCommentMatch) {
+    const result = deletePetCircleComment(decodeURIComponent(petCircleCommentMatch[1]), user);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'PET_CIRCLE_COMMENT_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, { deleted: true, id: result.comment.id });
     return;
   }
 

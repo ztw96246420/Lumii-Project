@@ -64,6 +64,7 @@ export type PetProfile = {
   avatarUrl?: string;
   birthday?: string;
   breed: string;
+  createdAt?: string;
   gender: 'female' | 'male' | 'unknown';
   healthScore: number;
   id: string;
@@ -271,6 +272,7 @@ export type CreateVaccinePlanInput = {
 
 export type HealthMemo = {
   content: string;
+  createdAt?: string;
   id: string;
   reminderAt?: string;
   reminderEnabled?: boolean;
@@ -300,10 +302,14 @@ export type NearbyOwner = {
 };
 
 export type NearbyMoment = {
+  commentCount?: number;
   createdAt: string;
   distance: string;
   id: string;
   imageUrl?: string;
+  imageUrls?: string[];
+  likedByMe?: boolean;
+  likeCount?: number;
   mood?: string;
   ownerId: string;
   ownerName: string;
@@ -311,6 +317,23 @@ export type NearbyMoment = {
   photoCount?: number;
   species: Extract<PetSpecies, 'cat' | 'dog'>;
   text: string;
+  visibility?: 'nearby' | 'private';
+};
+
+export type PetCircleComment = {
+  author: string;
+  avatarUrl?: string;
+  content: string;
+  createdAt: string;
+  id: string;
+  ownerId: string;
+  postId: string;
+  text: string;
+};
+
+export type PetCirclePostList = {
+  items: NearbyMoment[];
+  nextCursor?: string;
 };
 
 export type NearbyLocationHint = {

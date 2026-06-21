@@ -22,6 +22,8 @@ import type {
   NearbyLocationHint,
   NearbyMoment,
   NearbyOwner,
+  PetCircleComment,
+  PetCirclePostList,
   NotificationItem,
   OwnerProfilePatch,
   PetChatFeedbackRating,
@@ -333,8 +335,38 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<NearbyMoment[]>('GET', `/social/nearby-moments${query}`);
       },
 
-      async createMoment(content: string, mood?: string, photoCount = 0): Promise<ApiResult<NearbyMoment>> {
-        return request<NearbyMoment>('POST', '/social/moments', { content, mood, photoCount });
+      async listPetCirclePosts(location?: NearbyLocationHint): Promise<ApiResult<PetCirclePostList>> {
+        const locationQuery = nearbyLocationQuery(location);
+        const query = locationQuery ? `?${locationQuery}` : '';
+        return request<PetCirclePostList>('GET', `/social/pet-circle/posts${query}`);
+      },
+
+      async createMoment(content: string, mood?: string, photoCount = 0, options: { imageUrls?: string[]; visibility?: 'nearby' | 'private' } = {}): Promise<ApiResult<NearbyMoment>> {
+        return request<NearbyMoment>('POST', '/social/pet-circle/posts', { content, imageUrls: options.imageUrls, mood, photoCount, visibility: options.visibility ?? 'nearby' });
+      },
+
+      async likePetCirclePost(postId: string): Promise<ApiResult<NearbyMoment>> {
+        return request<NearbyMoment>('POST', `/social/pet-circle/posts/${encodeURIComponent(postId)}/like`);
+      },
+
+      async unlikePetCirclePost(postId: string): Promise<ApiResult<NearbyMoment>> {
+        return request<NearbyMoment>('DELETE', `/social/pet-circle/posts/${encodeURIComponent(postId)}/like`);
+      },
+
+      async listPetCircleComments(postId: string): Promise<ApiResult<PetCircleComment[]>> {
+        return request<PetCircleComment[]>('GET', `/social/pet-circle/posts/${encodeURIComponent(postId)}/comments`);
+      },
+
+      async createPetCircleComment(postId: string, content: string): Promise<ApiResult<PetCircleComment[]>> {
+        return request<PetCircleComment[]>('POST', `/social/pet-circle/posts/${encodeURIComponent(postId)}/comments`, { content });
+      },
+
+      async deletePetCircleComment(commentId: string): Promise<ApiResult<{ deleted: boolean; id: string }>> {
+        return request<{ deleted: boolean; id: string }>('DELETE', `/social/pet-circle/comments/${encodeURIComponent(commentId)}`);
+      },
+
+      async deletePetCirclePost(postId: string): Promise<ApiResult<{ deleted: boolean; id: string }>> {
+        return request<{ deleted: boolean; id: string }>('DELETE', `/social/pet-circle/posts/${encodeURIComponent(postId)}`);
       },
 
       async sendGreeting(ownerId: string): Promise<ApiResult<GreetingResult>> {

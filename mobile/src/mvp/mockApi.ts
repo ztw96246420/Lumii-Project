@@ -22,6 +22,8 @@ import type {
   NearbyLocationHint,
   NearbyMoment,
   NearbyOwner,
+  PetCircleComment,
+  PetCirclePostList,
   NotificationCategory,
   NotificationItem,
   NotificationKind,
@@ -346,6 +348,18 @@ function todayIsoDate() {
   return `${year}-${month}-${day}`;
 }
 
+function isoDateFromTimestampId(id?: string) {
+  const match = String(id || '').match(/(\d{13})/);
+  if (!match) return '';
+  const date = new Date(Number(match[1]));
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function healthMemoCalendarDate(memo: HealthMemo) {
+  return normalizeCalendarDate(memo.createdAt, isoDateFromTimestampId(memo.id) || memo.updatedAt);
+}
+
 function addDaysIsoDate(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
@@ -579,10 +593,12 @@ let weights: WeightRecord[] = [
 ];
 
 let memos: HealthMemo[] = [
-  { id: 'm1', title: '驱虫记录', content: '体外驱虫已完成，下次按计划提醒。', updatedAt: addDaysIsoDate(-3) },
+  { createdAt: addDaysIsoDate(-3), id: 'm1', title: '驱虫记录', content: '体外驱虫已完成，下次按计划提醒。', updatedAt: addDaysIsoDate(-3) },
 ];
 
 let nearbyMoments: NearbyMoment[] = [];
+let petCircleComments: PetCircleComment[] = [];
+let petCircleLikedIds: string[] = [];
 
 function mockPetChatMemoTitle(text: string) {
   if (/吃|饭|粮|零食|食欲|喝水|饮水/.test(text)) return '饮食记录';
@@ -610,6 +626,7 @@ function createMockHealthMemoFromPetChat(text: string) {
   if (existing) return existing;
   const memo: HealthMemo = {
     content: content.slice(0, 240),
+    createdAt: todayIsoDate(),
     id: `mock-chat-memo-${Date.now()}`,
     title,
     updatedAt: todayIsoDate(),
@@ -1085,9 +1102,14 @@ function addMockNotification(notification: NotificationItem, category?: Notifica
   return true;
 }
 
-function normalizeCalendarDate(value?: string) {
+function calendarDatePart(value?: string) {
   const text = String(value ?? '').trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : todayIsoDate();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/);
+  return match && isValidIsoCalendarDate(match[1]) ? match[1] : '';
+}
+
+function normalizeCalendarDate(value?: string, fallback = todayIsoDate()) {
+  return calendarDatePart(value) || calendarDatePart(fallback) || todayIsoDate();
 }
 
 function vaccineStatusCopy(status: VaccinePlan['status']) {
@@ -1117,7 +1139,7 @@ function buildHealthCalendarEvents(): HealthCalendarEvent[] {
       type: 'vaccine' as const,
     })),
     ...memos.map((memo) => ({
-      date: normalizeCalendarDate(memo.updatedAt),
+      date: healthMemoCalendarDate(memo),
       detail: memo.content,
       id: `calendar-memo-${memo.id}`,
       sourceId: memo.id,
@@ -1324,6 +1346,7 @@ function createMockMedicalAlertFromPetChat(text: string) {
   if (!memo) {
     memo = {
       content,
+      createdAt: todayIsoDate(),
       id: `mock-medical-alert-${Date.now()}`,
       title,
       updatedAt: todayIsoDate(),
@@ -1591,6 +1614,7 @@ export const mockApi = {
       if (petInput.error) return error<PetProfile>(petInput.error, false, undefined, 'PET_PROFILE_INVALID');
       const pet: PetProfile = {
         ...(petInput.patch as CreatePetInput),
+        createdAt: new Date().toISOString(),
         healthScore: 96,
         id: `pet-${Date.now()}`,
         personality: ['亲人', '爱笑', '饭量稳定'],
@@ -1881,7 +1905,7 @@ export const mockApi = {
       await wait();
       const memoInput = parseMockHealthMemoPayload({ content, title, ...options });
       if (memoInput.error) return error<HealthMemo>(memoInput.error, false, undefined, 'HEALTH_MEMO_INVALID');
-      const memo: HealthMemo = { id: `m-${Date.now()}`, ...(memoInput.memo as Omit<HealthMemo, 'id' | 'updatedAt'>), updatedAt: todayIsoDate() };
+      const memo: HealthMemo = { id: `m-${Date.now()}`, ...(memoInput.memo as Omit<HealthMemo, 'id' | 'updatedAt'>), createdAt: todayIsoDate(), updatedAt: todayIsoDate() };
       memos = [memo, ...memos];
       return success(memo);
     },
@@ -1918,29 +1942,105 @@ export const mockApi = {
 
     async listNearbyMoments(_location?: NearbyLocationHint): Promise<ApiResult<NearbyMoment[]>> {
       await wait(180);
-      return success(nearbyMoments.slice(0, 8));
+      return success(nearbyMoments.slice(0, 8).map((moment) => ({
+        ...moment,
+        commentCount: petCircleComments.filter((comment) => comment.postId === moment.id).length,
+        likedByMe: petCircleLikedIds.includes(moment.id),
+        likeCount: moment.likeCount ?? (petCircleLikedIds.includes(moment.id) ? 1 : 0),
+      })));
     },
 
-    async createMoment(content: string, mood?: string, photoCount = 0): Promise<ApiResult<NearbyMoment>> {
+    async listPetCirclePosts(location?: NearbyLocationHint): Promise<ApiResult<PetCirclePostList>> {
+      const result = await mockApi.social.listNearbyMoments(location);
+      return result.data ? success({ items: result.data }) : error(result.error?.message ?? '宠友圈读取失败', true);
+    },
+
+    async createMoment(content: string, mood?: string, photoCount = 0, options: { imageUrls?: string[]; visibility?: 'nearby' | 'private' } = {}): Promise<ApiResult<NearbyMoment>> {
       await wait(180);
       const text = String(content || '').trim();
       if (!text) return error<NearbyMoment>('先写一点今天的小事吧', false, undefined, 'SOCIAL_MOMENT_INVALID');
       const pet = activeMockPet();
+      const imageUrls = Array.isArray(options.imageUrls) ? options.imageUrls.slice(0, 6) : [];
       const moment: NearbyMoment = {
+        commentCount: 0,
         createdAt: new Date().toISOString(),
         distance: '附近',
         id: `mock-moment-${Date.now()}`,
         imageUrl: pet?.avatarUrl,
+        imageUrls,
+        likedByMe: false,
+        likeCount: 0,
         mood,
         ownerId: `mock-${currentMockPhone}`,
         ownerName: mockOwnerName,
         petName: pet?.name ?? '灵伴',
-        photoCount,
+        photoCount: imageUrls.length || Math.max(0, Math.min(6, photoCount)),
         species: pet?.species === 'cat' ? 'cat' : 'dog',
         text: text.slice(0, 280),
+        visibility: options.visibility ?? 'nearby',
       };
       nearbyMoments = [moment, ...nearbyMoments].slice(0, 20);
       return success(moment);
+    },
+
+    async likePetCirclePost(postId: string): Promise<ApiResult<NearbyMoment>> {
+      await wait(120);
+      const moment = nearbyMoments.find((item) => item.id === postId);
+      if (!moment) return error<NearbyMoment>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      if (!petCircleLikedIds.includes(postId)) petCircleLikedIds = [postId, ...petCircleLikedIds];
+      const nextMoment = { ...moment, likedByMe: true, likeCount: (moment.likeCount ?? 0) + 1 };
+      nearbyMoments = nearbyMoments.map((item) => (item.id === postId ? nextMoment : item));
+      return success(nextMoment);
+    },
+
+    async unlikePetCirclePost(postId: string): Promise<ApiResult<NearbyMoment>> {
+      await wait(120);
+      const moment = nearbyMoments.find((item) => item.id === postId);
+      if (!moment) return error<NearbyMoment>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      petCircleLikedIds = petCircleLikedIds.filter((id) => id !== postId);
+      const nextMoment = { ...moment, likedByMe: false, likeCount: Math.max(0, (moment.likeCount ?? 0) - 1) };
+      nearbyMoments = nearbyMoments.map((item) => (item.id === postId ? nextMoment : item));
+      return success(nextMoment);
+    },
+
+    async listPetCircleComments(postId: string): Promise<ApiResult<PetCircleComment[]>> {
+      await wait(120);
+      return success(petCircleComments.filter((comment) => comment.postId === postId));
+    },
+
+    async createPetCircleComment(postId: string, content: string): Promise<ApiResult<PetCircleComment[]>> {
+      await wait(150);
+      const moment = nearbyMoments.find((item) => item.id === postId);
+      if (!moment) return error<PetCircleComment[]>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      const text = String(content || '').trim();
+      if (!text) return error<PetCircleComment[]>('先写一句评论吧', false, undefined, 'PET_CIRCLE_COMMENT_INVALID');
+      const comment: PetCircleComment = {
+        author: mockOwnerName,
+        avatarUrl: activeMockPet()?.avatarUrl,
+        content: text.slice(0, 140),
+        createdAt: new Date().toISOString(),
+        id: `mock-comment-${Date.now()}`,
+        ownerId: `mock-${currentMockPhone}`,
+        postId,
+        text: text.slice(0, 140),
+      };
+      petCircleComments = [...petCircleComments, comment];
+      nearbyMoments = nearbyMoments.map((item) => (item.id === postId ? { ...item, commentCount: petCircleComments.filter((next) => next.postId === postId).length } : item));
+      return success(petCircleComments.filter((next) => next.postId === postId));
+    },
+
+    async deletePetCircleComment(commentId: string): Promise<ApiResult<{ deleted: boolean; id: string }>> {
+      await wait(120);
+      petCircleComments = petCircleComments.filter((comment) => comment.id !== commentId);
+      return success({ deleted: true, id: commentId });
+    },
+
+    async deletePetCirclePost(postId: string): Promise<ApiResult<{ deleted: boolean; id: string }>> {
+      await wait(140);
+      nearbyMoments = nearbyMoments.filter((moment) => moment.id !== postId);
+      petCircleComments = petCircleComments.filter((comment) => comment.postId !== postId);
+      petCircleLikedIds = petCircleLikedIds.filter((id) => id !== postId);
+      return success({ deleted: true, id: postId });
     },
 
     async sendGreeting(ownerId: string): Promise<ApiResult<GreetingResult>> {
