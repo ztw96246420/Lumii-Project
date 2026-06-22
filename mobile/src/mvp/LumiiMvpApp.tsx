@@ -1620,6 +1620,7 @@ export default function LumiiMvpApp() {
   const [socialBlockRemovingOwnerIds, setSocialBlockRemovingOwnerIds] = useState<string[]>([]);
   const [greetingRequestOwners, setGreetingRequestOwners] = useState<NearbyOwner[]>([]);
   const greetingRequestOwnersRef = useRef<NearbyOwner[]>([]);
+  const [focusedGreetingRequestOwnerId, setFocusedGreetingRequestOwnerId] = useState('');
   const [greetingRequestSeenAtById, setGreetingRequestSeenAtById] = useState<Record<string, number>>({});
   const greetingRequestSeenAtByIdRef = useRef<Record<string, number>>({});
   const [socialActionSavingIds, setSocialActionSavingIds] = useState<string[]>([]);
@@ -2061,6 +2062,11 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     greetingRequestOwnersRef.current = greetingRequestOwners;
   }, [greetingRequestOwners]);
+
+  useEffect(() => {
+    if (!focusedGreetingRequestOwnerId) return;
+    if (!greetingRequestOwners.some((owner) => owner.id === focusedGreetingRequestOwnerId)) setFocusedGreetingRequestOwnerId('');
+  }, [focusedGreetingRequestOwnerId, greetingRequestOwners]);
 
   useEffect(() => {
     selectedOwnerIdRef.current = selectedOwner?.id ?? null;
@@ -3076,7 +3082,12 @@ export default function LumiiMvpApp() {
     const kind = notificationKindFor(item);
     const conversationId = conversationIdFromNotification(item);
     const petCircleSourcePostId = petCirclePostIdFromNotification(item);
-    if (kind === 'pet_circle_comment' || kind === 'pet_circle_like' || (kind === 'pet_circle_greeting' && petCircleSourcePostId)) {
+    if (kind === 'greeting_request' || kind === 'pet_circle_greeting') {
+      setFocusedGreetingRequestOwnerId(item.ownerId ?? '');
+      go('greetingRequests');
+      return;
+    }
+    if (kind === 'pet_circle_comment' || kind === 'pet_circle_like') {
       setPetCircleFocusedPostId(petCircleSourcePostId);
       setDiscoverTab('circle');
       setDiscoverFilter('all');
@@ -3102,10 +3113,6 @@ export default function LumiiMvpApp() {
     }
     if (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite') {
       go('messages');
-      return;
-    }
-    if (kind === 'greeting_request' || kind === 'pet_circle_greeting') {
-      go('greetingRequests');
       return;
     }
     const category = notificationCategoryFor(item);
@@ -6357,6 +6364,7 @@ export default function LumiiMvpApp() {
     setDiscoverSearchVisible(false);
     setGreetingRequestOwners([]);
     greetingRequestOwnersRef.current = [];
+    setFocusedGreetingRequestOwnerId('');
     setGreetingRequestSeenAtById({});
     greetingRequestSeenAtByIdRef.current = {};
     socialActionSavingIdsRef.current.clear();
@@ -11283,7 +11291,7 @@ export default function LumiiMvpApp() {
         };
       }
       if (category === 'interaction') {
-        const opensPetCircle = kind === 'pet_circle_comment' || kind === 'pet_circle_like' || (kind === 'pet_circle_greeting' && Boolean(petCirclePostIdFromNotification(item)));
+        const opensPetCircle = kind === 'pet_circle_comment' || kind === 'pet_circle_like';
         const opensConversation = kind === 'conversation_message' || kind === 'greeting_accepted' || Boolean(conversationIdFromNotification(item));
         return {
           icon: <Heart color={palette.danger} size={15} strokeWidth={2.5} />,
@@ -12180,6 +12188,9 @@ export default function LumiiMvpApp() {
   function renderGreetingRequests() {
     const pet = getCurrentPet();
     const requestCount = greetingRequestOwners.length;
+    const visibleGreetingRequestOwners = focusedGreetingRequestOwnerId
+      ? [...greetingRequestOwners].sort((left, right) => (left.id === focusedGreetingRequestOwnerId ? -1 : right.id === focusedGreetingRequestOwnerId ? 1 : 0))
+      : greetingRequestOwners;
     return (
       <Screen title="招呼请求">
         {requestCount ? (
@@ -12189,11 +12200,12 @@ export default function LumiiMvpApp() {
           </View>
         ) : null}
         <View style={styles.requestStackMake}>
-          {requestCount ? greetingRequestOwners.map((owner, index) => {
+          {requestCount ? visibleGreetingRequestOwners.map((owner, index) => {
             const accepting = socialActionSavingIds.includes(`accept:${owner.id}`);
             const rejecting = socialActionSavingIds.includes(`reject:${owner.id}`);
             const reporting = socialActionSavingIds.includes(`report:${owner.id}`);
             const busy = accepting || rejecting || reporting;
+            const focusedFromNotification = owner.id === focusedGreetingRequestOwnerId;
             const petImageSource = owner.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
             const ownerAvatarUrl = discoverOwnerAvatarUrls[index % discoverOwnerAvatarUrls.length];
             const breed = owner.tags[0] ?? (owner.species === 'dog' ? '狗狗' : '猫咪');
@@ -12203,7 +12215,7 @@ export default function LumiiMvpApp() {
               ? `嗨～看起来${pet?.name ?? '你家宠物'}超有活力！要不约个时间一起玩？`
               : `想和${pet?.name ?? '你家宠物'}做朋友～可以一起分享日常吗？`;
             return (
-              <View key={owner.id} style={styles.greetingRequestCardMake}>
+              <View key={owner.id} style={[styles.greetingRequestCardMake, focusedFromNotification && styles.greetingRequestCardFocusedMake]}>
                 <View style={styles.greetingRequestTopMake}>
                   <View style={styles.greetingRequestAvatarWrapMake}>
                     <View style={styles.greetingRequestPetPhotoMake}>
@@ -14678,6 +14690,7 @@ const styles = StyleSheet.create({
   greetingRequestActionReportTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
   greetingRequestActionsMake: { flexDirection: 'row', gap: 8, marginTop: 12 },
   greetingRequestAvatarWrapMake: { flexShrink: 0, height: 56, position: 'relative', width: 56 },
+  greetingRequestCardFocusedMake: { borderColor: palette.orange, borderWidth: 1.5, shadowColor: palette.orange, shadowOpacity: 0.16 },
   greetingRequestCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
   greetingRequestMessageMake: { color: 'rgba(27,28,25,0.85)', fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 21, marginTop: 8 },
   greetingRequestMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '500', lineHeight: 16, marginTop: 2 },
