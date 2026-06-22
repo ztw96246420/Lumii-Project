@@ -2974,6 +2974,13 @@ export default function LumiiMvpApp() {
     if (result.data) applyNotifications(result.data);
   }
 
+  function removeGreetingRequestNotificationsLocally(ownerId: string) {
+    setNotifications((items) => items.filter((item) => {
+      const kind = notificationKindFor(item);
+      return !((kind === 'greeting_request' || kind === 'pet_circle_greeting') && item.ownerId === ownerId);
+    }));
+  }
+
   async function openConversationFromNotification(conversationId: string, notification?: NotificationItem) {
     const requestSessionToken = sessionTokenRef.current;
     let conversation = conversationsRef.current.find((item) => item.id === conversationId);
@@ -4067,6 +4074,7 @@ export default function LumiiMvpApp() {
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         applyGreetingRequestOwners(greetingRequestOwnersRef.current.filter((item) => item.id !== owner.id));
+        removeGreetingRequestNotificationsLocally(owner.id);
         void loadInboxData();
         showToast('已婉拒招呼');
       } else {
@@ -4107,6 +4115,7 @@ export default function LumiiMvpApp() {
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (rejectResult.data) {
         applyGreetingRequestOwners(greetingRequestOwnersRef.current.filter((item) => item.id !== owner.id));
+        removeGreetingRequestNotificationsLocally(owner.id);
         void loadInboxData();
         showToast('举报已提交，招呼请求已忽略', { tone: 'success', variant: 'surface' });
       } else {
@@ -4131,6 +4140,7 @@ export default function LumiiMvpApp() {
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         applyGreetingRequestOwners(greetingRequestOwnersRef.current.filter((item) => item.id !== owner.id));
+        removeGreetingRequestNotificationsLocally(owner.id);
         if (result.data.conversation) {
           setConversations((items) => [result.data!.conversation!, ...items.filter((item) => item.id !== result.data!.conversation!.id)]);
         }

@@ -1282,6 +1282,13 @@ function addMockNotification(notification: NotificationItem, category?: Notifica
   return true;
 }
 
+function removeMockGreetingRequestNotificationsFor(ownerId: string) {
+  notifications = notifications.filter((item) => {
+    const kind = normalizeMockNotificationKind(item.kind) || inferMockNotificationKind(item);
+    return !((kind === 'greeting_request' || kind === 'pet_circle_greeting') && item.ownerId === ownerId);
+  });
+}
+
 function calendarDatePart(value?: string) {
   const text = String(value ?? '').trim();
   const match = text.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/);
@@ -2399,6 +2406,7 @@ export const mockApi = {
       if (isMockOwnerBlocked(ownerId)) return error<GreetingResult>('招呼请求不存在或已处理', true, undefined, 'SOCIAL_TARGET_GONE');
       const owner = greetingRequests.find((item) => item.id === ownerId) ?? owners.find((item) => item.id === ownerId);
       greetingRequests = greetingRequests.filter((item) => item.id !== ownerId);
+      removeMockGreetingRequestNotificationsFor(ownerId);
       const conversation: Conversation = {
         canSendMessage: true,
         id: `accepted-${ownerId}`,
@@ -2421,6 +2429,7 @@ export const mockApi = {
     async rejectGreeting(ownerId: string): Promise<ApiResult<{ ownerId: string; rejected: true }>> {
       await wait();
       greetingRequests = greetingRequests.filter((item) => item.id !== ownerId);
+      removeMockGreetingRequestNotificationsFor(ownerId);
       return success({ ownerId, rejected: true });
     },
 

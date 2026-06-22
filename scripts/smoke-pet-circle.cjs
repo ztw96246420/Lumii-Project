@@ -947,10 +947,18 @@ async function run() {
     method: 'POST',
     token: readSenderToken,
   });
+  const readTargetNotificationsBeforeAccept = await request('/notifications', { token: readTargetToken });
+  const readTargetGreetingRequestNotification = readTargetNotificationsBeforeAccept.data.find((item) => item.kind === 'greeting_request' && item.ownerId === readSenderOwnerId);
+  assert.ok(readTargetGreetingRequestNotification, 'incoming greeting should create a request notification for the receiver');
   await request(`/social/greeting-requests/${encodeURIComponent(readSenderOwnerId)}/accept`, {
     method: 'POST',
     token: readTargetToken,
   });
+  const readTargetNotificationsAfterAccept = await request('/notifications', { token: readTargetToken });
+  assert.ok(
+    !readTargetNotificationsAfterAccept.data.some((item) => (item.kind === 'greeting_request' || item.kind === 'pet_circle_greeting') && item.ownerId === readSenderOwnerId),
+    'accepting a greeting should remove stale greeting request notifications',
+  );
   const readSenderConversationId = `c-${readTargetPhone}`;
   const readTargetConversationId = `c-${readSenderPhone}`;
   const readSenderConversationsBeforeRead = await request('/conversations', { token: readSenderToken });
@@ -1037,6 +1045,45 @@ async function run() {
   assert.ok(placeSubmissionNotification, 'place submission notification should exist');
   assert.equal(placeSubmissionNotification.kind, 'place_submission', 'place submission notification should carry route kind');
   assert.equal(placeSubmissionNotification.submissionId, placeSubmission.data.id, 'place submission notification should carry submission id');
+
+  const petCircleRejectOwnerPhone = '19900002003';
+  const petCircleRejectViewerPhone = '19900002004';
+  const petCircleRejectOwnerToken = await login(petCircleRejectOwnerPhone);
+  const petCircleRejectViewerToken = await login(petCircleRejectViewerPhone);
+  await createPet(petCircleRejectOwnerToken, 'RejectOwn');
+  await createPet(petCircleRejectViewerToken, 'RejectView');
+  await refreshPresence(petCircleRejectOwnerToken, ownerLoc);
+  await refreshPresence(petCircleRejectViewerToken, viewerLoc);
+  const petCircleRejectPost = await request('/social/pet-circle/posts', {
+    body: {
+      content: 'pet circle greeting reject notification cleanup',
+      location: ownerLoc,
+      visibility: 'nearby',
+    },
+    method: 'POST',
+    token: petCircleRejectOwnerToken,
+  });
+  const petCircleRejectOwnerId = `user-${petCircleRejectOwnerPhone}`;
+  const petCircleRejectViewerId = `user-${petCircleRejectViewerPhone}`;
+  await request('/social/greetings', {
+    body: { ownerId: petCircleRejectOwnerId, postId: petCircleRejectPost.data.id, source: 'pet_circle' },
+    method: 'POST',
+    token: petCircleRejectViewerToken,
+  });
+  const petCircleRejectOwnerNotificationsBeforeReject = await request('/notifications', { token: petCircleRejectOwnerToken });
+  assert.ok(
+    petCircleRejectOwnerNotificationsBeforeReject.data.some((item) => item.kind === 'pet_circle_greeting' && item.ownerId === petCircleRejectViewerId && item.postId === petCircleRejectPost.data.id),
+    'pet circle greeting should create a routeable request notification',
+  );
+  await request(`/social/greeting-requests/${encodeURIComponent(petCircleRejectViewerId)}/reject`, {
+    method: 'POST',
+    token: petCircleRejectOwnerToken,
+  });
+  const petCircleRejectOwnerNotificationsAfterReject = await request('/notifications', { token: petCircleRejectOwnerToken });
+  assert.ok(
+    !petCircleRejectOwnerNotificationsAfterReject.data.some((item) => item.kind === 'pet_circle_greeting' && item.ownerId === petCircleRejectViewerId),
+    'rejecting a pet circle greeting should remove the stale pet circle greeting notification',
+  );
 
   const routeVaccine = await request('/health/vaccines', {
     body: { dueAt: addDaysIsoDate(1), name: 'Smoke Route Vaccine' },

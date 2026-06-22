@@ -4289,6 +4289,17 @@ function removePetCircleNotificationsForPost(phone, postId, commentIds = new Set
   return true;
 }
 
+function removeGreetingRequestNotificationsFor(phone, ownerId) {
+  const current = state.notifications[phone] || [];
+  const next = current.filter((item) => {
+    const kind = normalizeNotificationKind(item?.kind) || inferNotificationKind(item);
+    return !((kind === 'greeting_request' || kind === 'pet_circle_greeting') && item.ownerId === ownerId);
+  });
+  if (next.length === current.length) return false;
+  state.notifications[phone] = next;
+  return true;
+}
+
 function markNotificationsRead(phone, ids) {
   const idSet = Array.isArray(ids) && ids.length ? new Set(ids.map(String)) : null;
   normalizeNotificationsFor(phone);
@@ -5498,6 +5509,7 @@ async function handle(req, res) {
 
     greeting.status = action === 'accept' ? 'accepted' : 'rejected';
     greeting.respondedAt = Date.now();
+    removeGreetingRequestNotificationsFor(user.phone, ownerId);
 
     if (action === 'reject') {
       saveState();

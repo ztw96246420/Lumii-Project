@@ -1105,11 +1105,11 @@ MVP 产品约束：
 
 ### POST `/social/greeting-requests/{ownerId}/accept`
 
-接受招呼请求，创建双方会话。
+接受招呼请求，创建双方会话。成功后测试后端会清理当前用户来自该 `ownerId` 的 `greeting_request` / `pet_circle_greeting` 通知，避免已处理招呼继续占用通知中心未读角标。
 
 ### POST `/social/greeting-requests/{ownerId}/reject`
 
-婉拒招呼请求。
+婉拒招呼请求。成功后测试后端会清理当前用户来自该 `ownerId` 的 `greeting_request` / `pet_circle_greeting` 通知。
 
 ### POST `/social/walk-invites`
 
