@@ -247,7 +247,13 @@ function notificationBelongsToConversation(item: NotificationItem, conversationI
   return isConversationNotification(item) && conversationIdFromNotification(item) === conversationId;
 }
 
+function isGreetingRequestNotification(item: NotificationItem) {
+  const kind = notificationKindFor(item);
+  return kind === 'greeting_request' || kind === 'pet_circle_greeting';
+}
+
 function countsTowardMessageTabNotificationBadge(item: NotificationItem) {
+  if (isGreetingRequestNotification(item)) return false;
   return !isConversationNotification(item) || !conversationIdFromNotification(item);
 }
 
@@ -12948,7 +12954,9 @@ export default function LumiiMvpApp() {
 
   const tabUnreadCount = Math.min(
     99,
-    conversations.reduce((sum, conversation) => sum + (conversation.unread ?? 0), 0) + notifications.filter((item) => !item.read && countsTowardMessageTabNotificationBadge(item)).length,
+    greetingRequestOwners.length +
+      conversations.reduce((sum, conversation) => sum + (conversation.unread ?? 0), 0) +
+      notifications.filter((item) => !item.read && countsTowardMessageTabNotificationBadge(item)).length,
   );
 
   return (
