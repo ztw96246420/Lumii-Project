@@ -1526,6 +1526,7 @@ export default function LumiiMvpApp() {
   const [selectedHealthCalendarDate, setSelectedHealthCalendarDate] = useState(() => todayIsoDate());
   const [weights, setWeights] = useState<WeightRecord[]>([]);
   const [vaccines, setVaccines] = useState<VaccinePlan[]>([]);
+  const [focusedVaccineId, setFocusedVaccineId] = useState('');
   const [vaccineReminderIds, setVaccineReminderIds] = useState<string[]>([]);
   const [memos, setMemos] = useState<HealthMemo[]>([]);
   const [weightEditorMode, setWeightEditorMode] = useState<'add' | 'edit' | null>(null);
@@ -2067,6 +2068,12 @@ export default function LumiiMvpApp() {
     if (!focusedGreetingRequestOwnerId) return;
     if (!greetingRequestOwners.some((owner) => owner.id === focusedGreetingRequestOwnerId)) setFocusedGreetingRequestOwnerId('');
   }, [focusedGreetingRequestOwnerId, greetingRequestOwners]);
+
+  useEffect(() => {
+    if (!focusedVaccineId) return;
+    if (!vaccines.length) return;
+    if (!vaccines.some((vaccine) => vaccine.id === focusedVaccineId)) setFocusedVaccineId('');
+  }, [focusedVaccineId, vaccines]);
 
   useEffect(() => {
     selectedOwnerIdRef.current = selectedOwner?.id ?? null;
@@ -2620,6 +2627,7 @@ export default function LumiiMvpApp() {
     setWeightSaving(false);
     setWeightDeleteConfirm(null);
     setVaccines([]);
+    setFocusedVaccineId('');
     setVaccineReminderIds([]);
     setMemos([]);
     setMemoTitle('');
@@ -3070,6 +3078,7 @@ export default function LumiiMvpApp() {
     }
     if (kind === 'vaccine_reminder' || kind === 'vaccine_done') {
       const vaccine = item.vaccineId ? vaccines.find((entry) => entry.id === item.vaccineId) : null;
+      if (item.vaccineId) setFocusedVaccineId(item.vaccineId);
       focusHealthCalendarDate(vaccine?.dueAt);
       go('vaccine');
       return;
@@ -6313,6 +6322,7 @@ export default function LumiiMvpApp() {
     weightEditSavingRef.current = false;
     setWeightEditSaving(false);
     setVaccines([]);
+    setFocusedVaccineId('');
     setVaccineReminderIds([]);
     setMemos([]);
     setConversations([]);
@@ -9179,7 +9189,9 @@ export default function LumiiMvpApp() {
   }
 
   function renderVaccine() {
-    const nextVaccine = healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
+    const focusedVaccine = focusedVaccineId ? vaccines.find((item) => item.id === focusedVaccineId) : undefined;
+    const visibleVaccines = focusedVaccine ? [focusedVaccine, ...vaccines.filter((item) => item.id !== focusedVaccine.id)] : vaccines;
+    const nextVaccine = focusedVaccine ?? healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
     const nextVaccineDueLabel = formatDueLabel(nextVaccine?.dueAt);
     const nextVaccineReminderSaving = nextVaccine ? vaccineReminderSavingIds.includes(nextVaccine.id) : false;
     const overdueVaccine = vaccines.find((item) => item.status === 'overdue' || (daysUntilDate(item.dueAt) ?? 999) < 0);
@@ -9310,12 +9322,13 @@ export default function LumiiMvpApp() {
             </View>
           ) : null}
           <View style={styles.vaccinePlanCard}>
-          {vaccines.length ? vaccines.map((item, index) => {
+          {visibleVaccines.length ? visibleVaccines.map((item, index) => {
             const meta = vaxRowMeta(item);
             const doneSaving = vaccineDoneSavingIds.includes(item.id);
+            const focusedFromNotification = item.id === focusedVaccineId;
             return (
             <View key={item.id}>
-              <View style={styles.vaccinePlanRow}>
+              <View style={[styles.vaccinePlanRow, focusedFromNotification && styles.vaccinePlanRowFocusedMake]}>
                 <View style={[styles.vaccinePlanIcon, item.status === 'done' && styles.vaccinePlanIconDone, meta.label === '计划中' && styles.vaccinePlanIconPlanned]}>
                   {item.status === 'done' ? <Check color={palette.teal} size={16} strokeWidth={3} /> : <Syringe color={meta.label === '计划中' ? palette.muted : palette.orange} size={16} strokeWidth={2.4} />}
                 </View>
@@ -9341,7 +9354,7 @@ export default function LumiiMvpApp() {
                   ) : null}
                 </View>
               </View>
-              {index < vaccines.length - 1 ? <View style={styles.makeDivider} /> : null}
+              {index < visibleVaccines.length - 1 ? <View style={styles.makeDivider} /> : null}
             </View>
             );
           }) : (
@@ -15362,6 +15375,7 @@ const styles = StyleSheet.create({
   vaccinePlanDoneButtonTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', lineHeight: 16 },
   vaccinePlanRightMake: { alignItems: 'flex-end', flexShrink: 0, gap: 7, minWidth: 58 },
   vaccinePlanRow: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 12 },
+  vaccinePlanRowFocusedMake: { backgroundColor: 'rgba(255,138,92,0.08)', borderColor: 'rgba(255,138,92,0.28)', borderRadius: 14, borderWidth: 1, marginHorizontal: -8, paddingHorizontal: 8 },
   vaccinePlanTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   vaccineQuickDateChip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 999, borderWidth: 1, flex: 1, justifyContent: 'center', minHeight: 32, paddingHorizontal: 8 },
   vaccineQuickDateChipActive: { backgroundColor: palette.orange, borderColor: palette.orange },
