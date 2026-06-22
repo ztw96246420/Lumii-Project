@@ -174,12 +174,20 @@ function isNotificationCategory(value: unknown): value is NotificationCategory {
   return value === 'health' || value === 'interaction' || value === 'system' || value === 'walk';
 }
 
+function isAvatarGenerationNotification(item: NotificationItem) {
+  const explicitKind = isNotificationKind(item.kind) ? item.kind : '';
+  if (explicitKind && explicitKind !== 'system') return false;
+  const value = `${item.id} ${item.title} ${item.text}`;
+  return /(avatar|pet-avatar|ai[-_\s]?avatar)/i.test(value) || /(AI\s*形象|形象生成|电子宠物形象|电子灵伴|宠物头像|头像生成|灵伴形象)/.test(value);
+}
+
 function notificationCategoryFor(item: NotificationItem): NotificationCategory {
   if (isNotificationCategory(item.category)) return item.category;
   const id = String(item.id || '');
   if (/walk/.test(id)) return 'walk';
   if (/(health|vaccine|medical)/.test(id)) return 'health';
   if (/(greeting|message|pet-circle|pet_circle)/.test(id)) return 'interaction';
+  if (isAvatarGenerationNotification(item)) return 'system';
   const value = `${item.title} ${item.text}`;
   if (/账号|安全|登录|设备|系统|隐私|注销/.test(value)) return 'system';
   if (/约遛|邀请|公园|散步|见面|一起去|地点/.test(value)) return 'walk';
@@ -3161,6 +3169,10 @@ export default function LumiiMvpApp() {
     }
     if (kind === 'medical_alert' || kind === 'vaccine_done' || kind === 'vaccine_reminder' || kind === 'health_reminder') {
       openHealthNotification(item, kind);
+      return;
+    }
+    if (isAvatarGenerationNotification(item)) {
+      go(getCurrentPet() ? 'petDetail' : 'home');
       return;
     }
     if (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite') {
@@ -11359,6 +11371,13 @@ export default function LumiiMvpApp() {
     const notificationMetaFor = (item: NotificationItem) => {
       const category = notificationCategoryFor(item);
       const kind = notificationKindFor(item);
+      if (isAvatarGenerationNotification(item)) {
+        return {
+          icon: <Sparkles color={palette.orange} size={15} strokeWidth={2.5} />,
+          iconStyle: styles.notificationIconHealthMake,
+          rightLabel: '查看形象',
+        };
+      }
       if (category === 'walk') {
         return {
           icon: <PawPrint color={palette.orange} size={15} strokeWidth={2.5} />,
