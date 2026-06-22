@@ -246,6 +246,10 @@ function notificationBelongsToConversation(item: NotificationItem, conversationI
   return isConversationNotification(item) && conversationIdFromNotification(item) === conversationId;
 }
 
+function countsTowardMessageTabNotificationBadge(item: NotificationItem) {
+  return !isConversationNotification(item) || !conversationIdFromNotification(item);
+}
+
 function notificationDateFor(item: NotificationItem) {
   if (!item.createdAt) return null;
   const date = new Date(item.createdAt);
@@ -12911,7 +12915,7 @@ export default function LumiiMvpApp() {
 
   const tabUnreadCount = Math.min(
     99,
-    conversations.reduce((sum, conversation) => sum + (conversation.unread ?? 0), 0) + notifications.filter((item) => !item.read).length,
+    conversations.reduce((sum, conversation) => sum + (conversation.unread ?? 0), 0) + notifications.filter((item) => !item.read && countsTowardMessageTabNotificationBadge(item)).length,
   );
 
   return (
