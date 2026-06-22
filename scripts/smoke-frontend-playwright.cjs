@@ -86,6 +86,56 @@ async function waitFirstVisibleText(page, texts, options = {}) {
   throw new Error(`None of these texts became visible: ${texts.join(', ')}`);
 }
 
+function textWindowAround(text, marker, radius = 220) {
+  const index = text.indexOf(marker);
+  if (index < 0) return text.slice(0, radius * 2);
+  return text.slice(Math.max(0, index - radius), index + marker.length + radius);
+}
+
+function assertMessageTabBadge(text, expected, context) {
+  const badgePattern = new RegExp(`\\n${expected}\\n消息`);
+  if (!badgePattern.test(text)) {
+    throw new Error(`${context}: expected bottom message tab badge ${expected}.\n${textWindowAround(text, '消息', 320)}`);
+  }
+}
+
+function conversationRowText(text, conversationName, nextConversationName) {
+  const start = text.indexOf(conversationName);
+  if (start < 0) return textWindowAround(text, conversationName);
+  const nextStart = nextConversationName ? text.indexOf(`\n${nextConversationName}`, start + conversationName.length) : -1;
+  return text.slice(start, nextStart > start ? nextStart : start + 180);
+}
+
+function assertConversationUnreadBadge(text, conversationName, expected, context, nextConversationName) {
+  const aroundConversation = conversationRowText(text, conversationName, nextConversationName);
+  const badgePattern = new RegExp(`(?:^|\\n)${expected}(?:\\n|$)`);
+  if (!badgePattern.test(aroundConversation)) {
+    throw new Error(`${context}: expected ${conversationName} unread badge ${expected}.\n${aroundConversation}`);
+  }
+}
+
+function assertConversationUnreadBadgeCleared(text, conversationName, clearedValue, context, nextConversationName) {
+  const aroundConversation = conversationRowText(text, conversationName, nextConversationName);
+  const badgePattern = new RegExp(`(?:^|\\n)${clearedValue}(?:\\n|$)`);
+  if (badgePattern.test(aroundConversation)) {
+    throw new Error(`${context}: expected ${conversationName} unread badge ${clearedValue} to be cleared.\n${aroundConversation}`);
+  }
+}
+
+async function loginMockUser(page, phone) {
+  await page.goto(baseUrl, { timeout: 60_000, waitUntil: 'networkidle' });
+  await page.getByPlaceholder('请输入中国大陆手机号').fill(phone);
+  await page.getByLabel('同意用户协议与隐私政策').click();
+  await clickExactText(page, '获取验证码');
+  await waitExactText(page, '输入验证码');
+  await page.keyboard.type('962464');
+  const permissionAction = await clickFirstVisibleText(page, ['一键开启全部权限', '下一步，添加宠物'], { timeout: 30_000 });
+  if (permissionAction === '一键开启全部权限') {
+    await clickFirstVisibleText(page, ['下一步，添加宠物', '稍后再说'], { timeout: 30_000 });
+  }
+  await waitExactText(page, '添加我的宠物');
+}
+
 async function main() {
   const playwright = requirePlaywright();
   const executablePath = browserExecutablePath();
@@ -246,6 +296,33 @@ async function main() {
     await screenshot(interactionPage, 'smoke-frontend-05-pet-circle-interactions.png');
     await interactionContext.close();
 
+    const messageContext = await browser.newContext({
+      deviceScaleFactor: 1,
+      geolocation: { latitude: 31.2304, longitude: 121.4737 },
+      permissions: ['geolocation'],
+      viewport: { height: 920, width: 430 },
+    });
+    const messagePage = await messageContext.newPage();
+    collectPageErrors(messagePage, pageErrors);
+
+    await loginMockUser(messagePage, '13900009992');
+    await clickExactText(messagePage, '消息');
+    await waitExactText(messagePage, '林然和奶油');
+    await waitExactText(messagePage, '今晚 7 点公园见？');
+    const unreadMessagesText = await messagePage.locator('body').innerText();
+    assertMessageTabBadge(unreadMessagesText, 2, 'Before opening unread conversation');
+    assertConversationUnreadBadge(unreadMessagesText, '林然和奶油', 1, 'Before opening unread conversation', '地点审核通知');
+    await screenshot(messagePage, 'smoke-frontend-06-message-unread-before.png');
+    await clickExactText(messagePage, '林然和奶油');
+    await waitExactText(messagePage, '今晚 7 点公园见？');
+    await messagePage.getByLabel('返回').click();
+    await waitExactText(messagePage, '林然和奶油');
+    const readMessagesText = await messagePage.locator('body').innerText();
+    assertMessageTabBadge(readMessagesText, 1, 'After opening unread conversation');
+    assertConversationUnreadBadgeCleared(readMessagesText, '林然和奶油', 1, 'After opening unread conversation', '地点审核通知');
+    await screenshot(messagePage, 'smoke-frontend-06b-message-unread-cleared.png');
+    await messageContext.close();
+
     const realContext = await browser.newContext({
       deviceScaleFactor: 1,
       geolocation: { latitude: 31.2304, longitude: 121.4737 },
@@ -255,17 +332,7 @@ async function main() {
     const realPage = await realContext.newPage();
     collectPageErrors(realPage, pageErrors);
 
-    await realPage.goto(baseUrl, { timeout: 60_000, waitUntil: 'networkidle' });
-    await realPage.getByPlaceholder('请输入中国大陆手机号').fill('13900009991');
-    await realPage.getByLabel('同意用户协议与隐私政策').click();
-    await clickExactText(realPage, '获取验证码');
-    await waitExactText(realPage, '输入验证码');
-    await realPage.keyboard.type('962464');
-    const permissionAction = await clickFirstVisibleText(realPage, ['一键开启全部权限', '下一步，添加宠物'], { timeout: 30_000 });
-    if (permissionAction === '一键开启全部权限') {
-      await clickFirstVisibleText(realPage, ['下一步，添加宠物', '稍后再说'], { timeout: 30_000 });
-    }
-    await waitExactText(realPage, '添加我的宠物');
+    await loginMockUser(realPage, '13900009991');
     await clickExactText(realPage, '发现');
     await waitExactText(realPage, '宠友圈');
     await realPage.getByText('分享 Lucky 的今日小事', { exact: true }).waitFor({ state: 'hidden', timeout: 8_000 });
