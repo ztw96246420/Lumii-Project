@@ -223,6 +223,16 @@ async function main() {
     await waitExactText(page, '林然和奶油');
     await waitExactText(page, '今晚 7 点公园见？');
     await screenshot(page, 'smoke-frontend-02e-notification-to-conversation.png');
+    await page.getByLabel('返回').click();
+    await waitExactText(page, '通知');
+    await page.getByLabel('返回').click();
+    await waitExactText(page, '宠物');
+    await clickExactText(page, '消息');
+    await waitExactText(page, '林然和奶油');
+    const notificationReadMessagesText = await page.locator('body').innerText();
+    assertMessageTabBadge(notificationReadMessagesText, 1, 'After opening conversation notification');
+    assertConversationUnreadBadgeCleared(notificationReadMessagesText, '林然和奶油', 1, 'After opening conversation notification', '地点审核通知');
+    await screenshot(page, 'smoke-frontend-02f-notification-conversation-read.png');
 
     await page.goto(`${baseUrl}/?route=dailyPost`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '今日小事');
