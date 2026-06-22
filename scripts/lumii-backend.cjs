@@ -3416,9 +3416,11 @@ function applyPetChatVaccineAction(user, text) {
     const reminderIds = setVaccineReminderFor(user, vaccines[index].id, false);
     addNotification(user.phone, {
       id: `n-vaccine-done-${healthKeyFor(user)}-${vaccines[index].id}`,
+      kind: 'vaccine_done',
       read: false,
       text: `${vaccines[index].name}已标记完成，健康时间线已更新。`,
       title: '疫苗计划已完成',
+      vaccineId: vaccines[index].id,
     });
     return { action, reminderIds, vaccine: vaccines[index] };
   }
@@ -5124,9 +5126,11 @@ async function handle(req, res) {
       pruneHealthReminderNotifications(user);
       addNotification(user.phone, {
         id: `n-vaccine-done-${healthKeyFor(user)}-${id}`,
+        kind: 'vaccine_done',
         read: false,
         text: `${vaccines[index].name}已标记完成，健康时间线已更新。`,
         title: '疫苗计划已完成',
+        vaccineId: id,
       });
     } else {
       ensureHealthReminderNotifications(user);
