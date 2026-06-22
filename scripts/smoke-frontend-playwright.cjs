@@ -215,6 +215,15 @@ async function main() {
     const avatarNotificationErrors = pageErrors.splice(avatarNotificationErrorStart);
     pageErrors.push(...avatarNotificationErrors.filter((message) => !message.includes('net::ERR_UNKNOWN_URL_SCHEME')));
 
+    await page.goto(`${baseUrl}/?route=notifications`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '林然发来新消息');
+    await waitExactText(page, '聊天');
+    await clickExactText(page, '林然发来新消息');
+    await waitExactText(page, '在线 · 模糊距离');
+    await waitExactText(page, '林然和奶油');
+    await waitExactText(page, '今晚 7 点公园见？');
+    await screenshot(page, 'smoke-frontend-02e-notification-to-conversation.png');
+
     await page.goto(`${baseUrl}/?route=dailyPost`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '今日小事');
     await page

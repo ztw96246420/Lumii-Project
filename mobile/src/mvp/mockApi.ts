@@ -1082,6 +1082,17 @@ let petChatMessages: ChatMessage[] = [];
 let notifications: NotificationItem[] = [
   {
     category: 'interaction',
+    conversationId: 'c1',
+    createdAt: new Date().toISOString(),
+    id: 'mock-conversation-message-notification',
+    kind: 'conversation_message',
+    ownerId: owners[0]?.id,
+    read: false,
+    text: '今晚 7 点公园见？',
+    title: '林然发来新消息',
+  },
+  {
+    category: 'interaction',
     createdAt: new Date().toISOString(),
     id: 'mock-pet-circle-comment-notification',
     kind: 'pet_circle_comment',
