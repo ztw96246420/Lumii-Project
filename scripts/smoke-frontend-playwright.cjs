@@ -155,6 +155,16 @@ async function main() {
     await waitExactText(page, '分享 Lucky 的今日小事');
     await screenshot(page, 'smoke-frontend-02c-notification-to-circle.png');
 
+    await page.goto(`${baseUrl}/?route=notifications`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, 'AI 形象生成');
+    await waitExactText(page, '查看形象');
+    const avatarNotificationErrorStart = pageErrors.length;
+    await clickExactText(page, 'AI 形象生成');
+    await waitExactText(page, '宠物档案');
+    await screenshot(page, 'smoke-frontend-02d-notification-to-avatar.png');
+    const avatarNotificationErrors = pageErrors.splice(avatarNotificationErrorStart);
+    pageErrors.push(...avatarNotificationErrors.filter((message) => !message.includes('net::ERR_UNKNOWN_URL_SCHEME')));
+
     await page.goto(`${baseUrl}/?route=dailyPost`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '今日小事');
     await page
