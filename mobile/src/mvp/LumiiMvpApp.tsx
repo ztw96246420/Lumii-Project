@@ -233,6 +233,15 @@ function conversationIdFromNotification(item: NotificationItem) {
   return '';
 }
 
+function isConversationNotification(item: NotificationItem) {
+  const kind = notificationKindFor(item);
+  return kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite';
+}
+
+function notificationBelongsToConversation(item: NotificationItem, conversationId: string) {
+  return isConversationNotification(item) && conversationIdFromNotification(item) === conversationId;
+}
+
 function notificationDateFor(item: NotificationItem) {
   if (!item.createdAt) return null;
   const date = new Date(item.createdAt);
@@ -2438,7 +2447,7 @@ export default function LumiiMvpApp() {
     if (greetingRequestResult.data) {
       applyGreetingRequestOwners(greetingRequestResult.data);
     }
-    if (conversationResult.data) setConversations(conversationResult.data);
+    if (conversationResult.data) applyConversations(conversationResult.data);
     if (notificationResult.data) applyNotifications(notificationResult.data);
     if (placeResult.data) setPlaces(placeResult.data);
     if (favoritePlaceResult.data) setFavoritePlaceIds(favoritePlaceResult.data);
@@ -2825,7 +2834,7 @@ export default function LumiiMvpApp() {
       if (greetingRequestResult.data) {
         applyGreetingRequestOwners(greetingRequestResult.data);
       }
-      if (conversationResult.data) setConversations(conversationResult.data);
+      if (conversationResult.data) applyConversations(conversationResult.data);
       if (notificationResult.data) applyNotifications(notificationResult.data);
       const errorMessage = greetingRequestResult.error?.message ?? conversationResult.error?.message ?? notificationResult.error?.message;
       if (errorMessage) {
@@ -2878,6 +2887,15 @@ export default function LumiiMvpApp() {
     setGreetingRequestOwners(nextOwners);
   }
 
+  function applyConversations(nextConversations: Conversation[]) {
+    const activeConversationId = route === 'conversation' ? selectedConversationIdRef.current : null;
+    const normalizedConversations = activeConversationId
+      ? nextConversations.map((conversation) => (conversation.id === activeConversationId ? { ...conversation, unread: 0 } : conversation))
+      : nextConversations;
+    conversationsRef.current = normalizedConversations;
+    setConversations(normalizedConversations);
+  }
+
   function applyNotifications(nextNotifications: NotificationItem[]) {
     const now = Date.now();
     const activeIds = new Set(nextNotifications.map((item) => item.id));
@@ -2893,6 +2911,18 @@ export default function LumiiMvpApp() {
     notificationSeenAtByIdRef.current = nextSeenAt;
     setNotificationSeenAtById(nextSeenAt);
     setNotifications(nextNotifications);
+  }
+
+  async function markConversationNotificationsReadSilently(conversationId: string) {
+    const unreadIds = notifications
+      .filter((item) => !item.read && notificationBelongsToConversation(item, conversationId))
+      .map((item) => item.id);
+    if (!unreadIds.length) return;
+    const requestSessionToken = sessionTokenRef.current;
+    setNotifications((items) => items.map((item) => (unreadIds.includes(item.id) ? { ...item, read: true } : item)));
+    const result = await lumiiApi.messages.markNotificationsRead(unreadIds);
+    if (sessionTokenRef.current !== requestSessionToken) return;
+    if (result.data) applyNotifications(result.data);
   }
 
   async function refreshInboxManually() {
@@ -2936,17 +2966,28 @@ export default function LumiiMvpApp() {
     if (result.data) applyNotifications(result.data);
   }
 
-  async function openConversationFromNotification(conversationId: string) {
+  async function openConversationFromNotification(conversationId: string, notification?: NotificationItem) {
     const requestSessionToken = sessionTokenRef.current;
     let conversation = conversationsRef.current.find((item) => item.id === conversationId);
     if (!conversation) {
       const result = await lumiiApi.messages.listConversations();
       if (sessionTokenRef.current !== requestSessionToken) return false;
       if (result.data) {
-        conversationsRef.current = result.data;
-        setConversations(result.data);
+        applyConversations(result.data);
         conversation = result.data.find((item) => item.id === conversationId);
       }
+    }
+    if (!conversation) {
+      conversation = {
+        canSendMessage: true,
+        id: conversationId,
+        lastMessage: notification?.text || '新消息',
+        name: notification?.title || '新消息',
+        ownerId: notification?.ownerId,
+        relationshipStatus: 'accepted',
+        unread: 0,
+        updatedAt: notification?.createdAt,
+      };
     }
     if (!conversation) {
       go('messages');
@@ -2971,7 +3012,7 @@ export default function LumiiMvpApp() {
       return;
     }
     if (conversationId && (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite')) {
-      await openConversationFromNotification(conversationId);
+      await openConversationFromNotification(conversationId, item);
       return;
     }
     if (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite') {
@@ -3020,6 +3061,7 @@ export default function LumiiMvpApp() {
             if (!markResult.data && !options.silent) showToast(markResult.error?.message ?? '已读状态同步失败');
           });
           setConversations((items) => items.map((item) => (item.id === conversationId ? { ...item, unread: 0 } : item)));
+          void markConversationNotificationsReadSilently(conversationId);
         }
       } else if (!options.silent && isActiveConversation) {
         showToast(result.error?.message ?? '聊天记录加载失败');
@@ -3918,6 +3960,7 @@ export default function LumiiMvpApp() {
     setSelectedConversation(conversation);
     if (conversation.canSendMessage === false) setConversationDraft(conversation.id, '');
     setConversations((items) => items.map((item) => (item.id === conversation.id ? { ...item, unread: 0 } : item)));
+    void markConversationNotificationsReadSilently(conversation.id);
     setConversationMessages([createConversationSafetyMessage()]);
     go('conversation');
     await loadConversationMessages(conversation.id, { markRead: true });
@@ -10994,6 +11037,7 @@ export default function LumiiMvpApp() {
     const petChatPreview = lastPetChatMessage?.text || '还没有开始聊天，点进来和它说第一句话';
     const petChatTime = lastPetChatMessage ? formatMessageListTime(lastPetChatMessage.time) : '待开始';
     const hasInboxContent = Boolean(pet) || greetingRequestOwners.length > 0 || conversations.length > 0;
+    const unreadNotificationCount = notifications.filter((item) => !item.read).length;
     return (
       <Screen
         refreshControl={
@@ -11023,7 +11067,7 @@ export default function LumiiMvpApp() {
               </Pressable>
               <Pressable onPress={() => go('notifications')} style={styles.makeIconChip}>
                 <Bell color={palette.ink} size={16} strokeWidth={2.3} />
-                {notifications.some((item) => !item.read) ? <View style={styles.homeBellDot} /> : null}
+                {unreadNotificationCount ? <Text style={styles.messagesHeaderBadge}>{unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}</Text> : null}
               </Pressable>
             </View>
           </View>
@@ -14532,6 +14576,7 @@ const styles = StyleSheet.create({
   messagesAvatarStack: { flexDirection: 'row', width: 60 },
   messagesHeaderActions: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   messagesEmptyWrap: { marginTop: 18 },
+  messagesHeaderBadge: { backgroundColor: palette.danger, borderColor: '#fff', borderRadius: 9, borderWidth: 1.5, color: '#fff', fontFamily: appFontFamily, fontSize: 9.5, fontWeight: '700', lineHeight: 13, minWidth: 17, overflow: 'hidden', paddingHorizontal: 3, position: 'absolute', right: -4, textAlign: 'center', top: -4 },
   messagesListMake: { marginTop: 14 },
   messagesMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between' },
   messagesMakePage: { paddingTop: 0 },

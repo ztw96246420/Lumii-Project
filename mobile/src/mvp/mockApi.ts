@@ -1239,6 +1239,28 @@ function normalizeMockNotifications() {
   return notifications;
 }
 
+function mockNotificationConversationId(notification: NotificationItem) {
+  if (notification.conversationId) return notification.conversationId;
+  const ownerId = String(notification.ownerId || '');
+  const kind = normalizeMockNotificationKind(notification.kind) || inferMockNotificationKind(notification);
+  if (kind !== 'conversation_message' && kind !== 'greeting_accepted' && kind !== 'walk_invite') return '';
+  if (ownerId.startsWith('user-')) return `c-${ownerId.slice('user-'.length)}`;
+  return '';
+}
+
+function mockNotificationBelongsToConversation(notification: NotificationItem, conversationId: string) {
+  const kind = normalizeMockNotificationKind(notification.kind) || inferMockNotificationKind(notification);
+  return (
+    (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite') &&
+    mockNotificationConversationId(notification) === conversationId
+  );
+}
+
+function markMockConversationNotificationsRead(conversationId: string) {
+  normalizeMockNotifications();
+  notifications = notifications.map((item) => (mockNotificationBelongsToConversation(item, conversationId) ? { ...item, read: true } : item));
+}
+
 function shouldStoreMockNotification(category: NotificationCategory = 'system') {
   if (!mockUserSettings.pushNotifications) return false;
   if ((category === 'interaction' || category === 'walk') && !mockUserSettings.interactionMessages) return false;
@@ -2522,6 +2544,7 @@ export const mockApi = {
       await wait(100);
       const conversation = conversations.find((item) => item.id === conversationId);
       if (conversation) conversation.unread = 0;
+      markMockConversationNotificationsRead(conversationId);
       return success(true);
     },
 

@@ -919,6 +919,85 @@ async function run() {
   });
   assert.equal(greetingAfterUnblock.data.sent, true, 'unblocked user should be able to greet again');
 
+  const readSenderPhone = '19900002001';
+  const readTargetPhone = '19900002002';
+  const readSenderToken = await login(readSenderPhone);
+  const readTargetToken = await login(readTargetPhone);
+  await createPet(readSenderToken, 'ReadSender');
+  await createPet(readTargetToken, 'ReadTarget');
+  await refreshPresence(readSenderToken, ownerLoc);
+  await refreshPresence(readTargetToken, viewerLoc);
+  const readSenderOwnerId = `user-${readSenderPhone}`;
+  const readTargetOwnerId = `user-${readTargetPhone}`;
+  await request('/social/greetings', {
+    body: { ownerId: readTargetOwnerId },
+    method: 'POST',
+    token: readSenderToken,
+  });
+  await request(`/social/greeting-requests/${encodeURIComponent(readSenderOwnerId)}/accept`, {
+    method: 'POST',
+    token: readTargetToken,
+  });
+  const readSenderConversationId = `c-${readTargetPhone}`;
+  const readTargetConversationId = `c-${readSenderPhone}`;
+  const readSenderConversationsBeforeRead = await request('/conversations', { token: readSenderToken });
+  const greetingAcceptedConversation = readSenderConversationsBeforeRead.data.find((conversation) => conversation.id === readSenderConversationId);
+  assert.equal(greetingAcceptedConversation?.unread, 1, 'accepted greeting should create an unread conversation for sender');
+  const readSenderNotificationsBeforeRead = await request('/notifications', { token: readSenderToken });
+  const greetingAcceptedNotification = readSenderNotificationsBeforeRead.data.find((item) => item.kind === 'greeting_accepted' && item.conversationId === readSenderConversationId);
+  assert.ok(greetingAcceptedNotification, 'accepted greeting should create conversation notification');
+  assert.equal(greetingAcceptedNotification.read, false, 'accepted greeting notification should start unread');
+  await request(`/conversations/${encodeURIComponent(readSenderConversationId)}/read`, {
+    method: 'POST',
+    token: readSenderToken,
+  });
+  const readSenderConversationsAfterRead = await request('/conversations', { token: readSenderToken });
+  assert.equal(
+    readSenderConversationsAfterRead.data.find((conversation) => conversation.id === readSenderConversationId)?.unread,
+    0,
+    'reading a conversation should clear the conversation unread count',
+  );
+  const readSenderNotificationsAfterRead = await request('/notifications', { token: readSenderToken });
+  assert.equal(
+    readSenderNotificationsAfterRead.data.find((item) => item.id === greetingAcceptedNotification.id)?.read,
+    true,
+    'reading a conversation should mark related conversation notifications read',
+  );
+  await request(`/conversations/${encodeURIComponent(readTargetConversationId)}/messages`, {
+    body: { text: 'hello unread sync' },
+    method: 'POST',
+    token: readTargetToken,
+  });
+  const readSenderConversationsAfterMessage = await request('/conversations', { token: readSenderToken });
+  assert.equal(
+    readSenderConversationsAfterMessage.data.find((conversation) => conversation.id === readSenderConversationId)?.unread,
+    1,
+    'incoming chat should increment unread on the target conversation',
+  );
+  const readSenderNotificationsAfterMessage = await request('/notifications', { token: readSenderToken });
+  const messageNotification = readSenderNotificationsAfterMessage.data.find((item) => item.kind === 'conversation_message' && item.conversationId === readSenderConversationId);
+  assert.ok(messageNotification, 'incoming chat should retain a routeable conversation notification');
+  assert.equal(messageNotification.read, true, 'ordinary chat notifications should not double-count unread outside conversations');
+  await request(`/social/walk-invites`, {
+    body: { ownerId: readSenderOwnerId, place: 'Smoke Park', placeAddress: 'Smoke Road 1', time: 'today 19:00' },
+    method: 'POST',
+    token: readTargetToken,
+  });
+  const readSenderWalkNotificationsBeforeRead = await request('/notifications', { token: readSenderToken });
+  const walkNotification = readSenderWalkNotificationsBeforeRead.data.find((item) => item.kind === 'walk_invite' && item.conversationId === readSenderConversationId);
+  assert.ok(walkNotification, 'walk invite should create a routeable conversation notification');
+  assert.equal(walkNotification.read, false, 'walk invite notification should start unread');
+  await request(`/conversations/${encodeURIComponent(readSenderConversationId)}/read`, {
+    method: 'POST',
+    token: readSenderToken,
+  });
+  const readSenderWalkNotificationsAfterRead = await request('/notifications', { token: readSenderToken });
+  assert.equal(
+    readSenderWalkNotificationsAfterRead.data.find((item) => item.id === walkNotification.id)?.read,
+    true,
+    'reading a walk invite conversation should mark the walk notification read',
+  );
+
   await request('/feedback', {
     body: {
       category: 'safety',

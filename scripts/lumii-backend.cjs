@@ -4154,6 +4154,27 @@ function markConversationRead(phone, conversationId) {
   const conversations = state.conversations[phone] || [];
   const conversation = conversations.find((item) => item.id === conversationId);
   if (conversation) conversation.unread = 0;
+  state.notifications[phone] = (state.notifications[phone] || []).map((notification) => {
+    if (notification.read || !notificationBelongsToConversation(notification, conversationId)) return notification;
+    return { ...notification, read: true };
+  });
+}
+
+function notificationConversationId(notification) {
+  if (notification?.conversationId) return notification.conversationId;
+  const ownerId = String(notification?.ownerId || '');
+  const kind = normalizeNotificationKind(notification?.kind) || inferNotificationKind(notification);
+  if (kind !== 'conversation_message' && kind !== 'greeting_accepted' && kind !== 'walk_invite') return '';
+  if (ownerId.startsWith('user-')) return conversationIdFor(ownerId.slice('user-'.length));
+  return '';
+}
+
+function notificationBelongsToConversation(notification, conversationId) {
+  const kind = normalizeNotificationKind(notification?.kind) || inferNotificationKind(notification);
+  return (
+    (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite') &&
+    notificationConversationId(notification) === conversationId
+  );
 }
 
 const notificationCategories = new Set(['health', 'interaction', 'system', 'walk']);
