@@ -11101,7 +11101,7 @@ export default function LumiiMvpApp() {
         <View style={styles.placeSubmitResultPageMake}>
           <View style={styles.placeSubmitBgGlowMake} />
           <View style={styles.placeSubmitHeaderMake}>
-            <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={() => setPlaceSubmitResult(null)} style={[styles.iconButton, webPressableReset]}>
+            <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={closePlaceSubmitResult} style={[styles.iconButton, webPressableReset]}>
               <ChevronLeft color={palette.ink} size={19} strokeWidth={2.4} />
             </Pressable>
             <Text style={styles.placeSubmitHeaderTitleMake}>{pageTitle}</Text>
@@ -11374,7 +11374,7 @@ export default function LumiiMvpApp() {
         return {
           icon: <MapPin color={palette.teal} size={15} strokeWidth={2.5} />,
           iconStyle: styles.notificationIconSystemMake,
-          rightLabel: kind === 'place_review' ? '查看地点' : '查看地图',
+          rightLabel: kind === 'place_review' ? '查看地点' : '查看进度',
         };
       }
       return {
