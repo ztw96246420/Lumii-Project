@@ -4182,7 +4182,7 @@ function notificationBelongsToConversation(notification, conversationId) {
 }
 
 const notificationCategories = new Set(['health', 'interaction', 'system', 'walk']);
-const notificationKinds = new Set(['conversation_message', 'greeting_accepted', 'greeting_request', 'health_reminder', 'pet_circle_comment', 'pet_circle_greeting', 'pet_circle_like', 'place_review', 'place_submission', 'system', 'walk_invite']);
+const notificationKinds = new Set(['conversation_message', 'greeting_accepted', 'greeting_request', 'health_reminder', 'medical_alert', 'pet_circle_comment', 'pet_circle_greeting', 'pet_circle_like', 'place_review', 'place_submission', 'system', 'vaccine_done', 'vaccine_reminder', 'walk_invite']);
 
 function normalizeNotificationCategory(category) {
   const value = String(category || '').trim();
@@ -4213,7 +4213,9 @@ function inferNotificationKind(notification) {
   if (/walk/.test(id)) return 'walk_invite';
   if (/place-submission/.test(id)) return 'place_submission';
   if (/review/.test(id)) return 'place_review';
-  if (/(health|vaccine|medical)/.test(id)) return 'health_reminder';
+  if (/medical/.test(id)) return 'medical_alert';
+  if (/vaccine-done/.test(id)) return 'vaccine_done';
+  if (/(health|vaccine)/.test(id)) return 'vaccine_reminder';
   const category = normalizeNotificationCategory(notification?.category || inferNotificationCategory(notification));
   if (category === 'walk') return 'walk_invite';
   if (category === 'health') return 'health_reminder';
