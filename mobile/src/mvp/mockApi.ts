@@ -1101,7 +1101,7 @@ let notifications: NotificationItem[] = [
     text: '奶油评论了 Lucky 的小事',
     title: 'Lucky 的小事有新互动',
   },
-  { id: 'n1', title: '疫苗提醒', text: '狂犬疫苗将在 19 天后到期。', read: false },
+  { category: 'health', id: 'n1', kind: 'vaccine_reminder', read: false, text: '狂犬疫苗将在 19 天后到期。', title: '疫苗提醒', vaccineId: 'v-rabies' },
   { id: 'n2', title: 'AI 形象生成', text: '新的电子宠物形象已保存。', read: true },
 ];
 

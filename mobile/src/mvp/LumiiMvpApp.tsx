@@ -3114,7 +3114,7 @@ export default function LumiiMvpApp() {
     setSelectedHealthCalendarDate(isoDate);
   }
 
-  function openHealthNotification(item: NotificationItem, kind: NotificationKind) {
+  async function openHealthNotification(item: NotificationItem, kind: NotificationKind) {
     if (kind === 'medical_alert') {
       const memo = item.memoId ? memos.find((entry) => entry.id === item.memoId) : null;
       if (memo) {
@@ -3128,7 +3128,16 @@ export default function LumiiMvpApp() {
       return;
     }
     if (kind === 'vaccine_reminder' || kind === 'vaccine_done') {
-      const vaccine = item.vaccineId ? vaccines.find((entry) => entry.id === item.vaccineId) : null;
+      const requestSessionToken = sessionTokenRef.current;
+      let vaccine = item.vaccineId ? vaccines.find((entry) => entry.id === item.vaccineId) : null;
+      if (item.vaccineId && !vaccine) {
+        const result = await lumiiApi.health.listVaccines();
+        if (sessionTokenRef.current !== requestSessionToken) return;
+        if (result.data) {
+          setVaccines(result.data);
+          vaccine = result.data.find((entry) => entry.id === item.vaccineId) ?? null;
+        }
+      }
       if (item.vaccineId) setFocusedVaccineId(item.vaccineId);
       focusHealthCalendarDate(vaccine?.dueAt);
       go('vaccine');
@@ -3168,7 +3177,7 @@ export default function LumiiMvpApp() {
       return;
     }
     if (kind === 'medical_alert' || kind === 'vaccine_done' || kind === 'vaccine_reminder' || kind === 'health_reminder') {
-      openHealthNotification(item, kind);
+      await openHealthNotification(item, kind);
       return;
     }
     if (isAvatarGenerationNotification(item)) {

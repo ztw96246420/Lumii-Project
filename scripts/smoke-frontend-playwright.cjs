@@ -122,6 +122,14 @@ function assertConversationUnreadBadgeCleared(text, conversationName, clearedVal
   }
 }
 
+function assertTextBefore(text, earlier, later, context) {
+  const earlierIndex = text.indexOf(earlier);
+  const laterIndex = text.indexOf(later);
+  if (earlierIndex < 0 || laterIndex < 0 || earlierIndex >= laterIndex) {
+    throw new Error(`${context}: expected ${earlier} before ${later}.\n${textWindowAround(text, earlierIndex >= 0 ? earlier : later, 360)}`);
+  }
+}
+
 async function loginMockUser(page, phone) {
   await page.goto(baseUrl, { timeout: 60_000, waitUntil: 'networkidle' });
   await page.getByPlaceholder('请输入中国大陆手机号').fill(phone);
@@ -233,6 +241,17 @@ async function main() {
     assertMessageTabBadge(notificationReadMessagesText, 1, 'After opening conversation notification');
     assertConversationUnreadBadgeCleared(notificationReadMessagesText, '林然和奶油', 1, 'After opening conversation notification', '地点审核通知');
     await screenshot(page, 'smoke-frontend-02f-notification-conversation-read.png');
+
+    await page.goto(`${baseUrl}/?route=notifications`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '疫苗提醒');
+    await waitExactText(page, '查看计划');
+    await clickExactText(page, '疫苗提醒');
+    await waitExactText(page, '疫苗计划');
+    await waitExactText(page, '狂犬疫苗');
+    await waitExactText(page, '犬四联/犬六联');
+    const vaccineNotificationText = await page.locator('body').innerText();
+    assertTextBefore(vaccineNotificationText, '狂犬疫苗', '犬四联/犬六联', 'After opening vaccine reminder notification');
+    await screenshot(page, 'smoke-frontend-02g-notification-to-vaccine.png');
 
     await page.goto(`${baseUrl}/?route=dailyPost`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '今日小事');
