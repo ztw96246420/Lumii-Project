@@ -90,6 +90,7 @@ import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg
 
 import { getLumiiPermissionStatus, requestLumiiPermission } from '../services/permissions';
 import { cancelVaccineLocalReminder, cancelVaccineLocalReminders, scheduleVaccineLocalReminder, syncVaccineLocalReminders } from '../services/healthReminders';
+import { watchLumiiNotificationResponses } from '../services/notificationResponses';
 import { getLumiiPushRegistration } from '../services/pushToken';
 import { clearPersistedLumiiSession, deleteLocalJsonStorage, loadLocalJsonStorage, loadPersistedLumiiSession, saveLocalJsonStorage, savePersistedLumiiSession } from '../services/sessionStorage';
 import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
@@ -3107,6 +3108,27 @@ export default function LumiiMvpApp() {
     else if (category === 'system') go('settings');
     else go('messages');
   }
+
+  useEffect(() => {
+    if (!session || Platform.OS === 'web') return undefined;
+    let disposed = false;
+    let removeListener: (() => void) | undefined;
+    void watchLumiiNotificationResponses((item) => {
+      if (disposed || !sessionTokenRef.current) return;
+      void openNotification(item);
+      void loadInboxData({ silent: true });
+    }).then((cleanup) => {
+      if (disposed) {
+        cleanup();
+        return;
+      }
+      removeListener = cleanup;
+    });
+    return () => {
+      disposed = true;
+      removeListener?.();
+    };
+  }, [session?.token]);
 
   function setConversationMessagesFromServer(conversationId: string, messages: ConversationMessage[]) {
     const cleanMessages = messages.filter((message) => message.author !== 'system');

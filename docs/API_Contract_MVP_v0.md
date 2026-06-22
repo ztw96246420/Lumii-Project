@@ -1207,6 +1207,7 @@ type PushDevice = {
 - 通知项会返回 `category` 与 `createdAt`，App 以这两个字段驱动筛选、分组和时间显示；旧通知缺字段时，测试后端会在读取时补齐。
 - `category` 当前取值为 `health`、`interaction`、`walk`、`system`。普通聊天和招呼归入 `interaction`，约遛邀请归入 `walk`；互动和约遛通知是否生成受 `pushNotifications` 与 `interactionMessages` 控制。
 - 通知项会返回可选 `kind`、`conversationId`、`ownerId`、`postId`、`commentId`、`placeId`、`submissionId`、`memoId`、`vaccineId`，用于区分落页：`greeting_request` 进入招呼请求；`conversation_message`、`greeting_accepted`、`walk_invite` 优先使用 `conversationId` 打开对话框；`pet_circle_like` / `pet_circle_comment` / `pet_circle_greeting` 使用 `postId` 进入宠友圈并高亮对应动态；`place_review` 使用 `placeId` 进入地点详情；`place_submission` 进入地图页；`vaccine_reminder` / `vaccine_done` 使用 `vaccineId` 进入疫苗计划；`medical_alert` 使用 `memoId` 进入健康备忘；`health_reminder` 进入健康页；`system` 进入设置或对应系统页。
+- App 也会监听 Android/iOS 系统通知点击；系统通知 payload 只要携带上述 `kind` 与路由字段，点击后会复用通知中心的同一套落页逻辑。疫苗本地提醒会携带 `source=lumii-health`、`type=vaccine-reminder`、`vaccineId`，点击后进入疫苗计划页。
 - 已建立会话后的普通聊天消息不应再进入招呼请求。测试后端会为接收方写入 `kind=conversation_message`、`conversationId=c-{senderPhone}`、`ownerId=user-{senderPhone}`，且通知本身默认 `read=true`；未读状态由 `/conversations` 的 `unread` 字段承载，避免通知中心和消息列表重复计数。
 
 ### POST `/notifications/read`
