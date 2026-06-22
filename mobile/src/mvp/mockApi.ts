@@ -859,9 +859,11 @@ function applyMockPetChatVaccineAction(text: string): MockPetChatVaccineAction |
     vaccineReminderIds = vaccineReminderIds.filter((item) => item !== vaccines[index].id);
     addMockNotification({
       id: `mock-vaccine-done-${vaccines[index].id}`,
+      kind: 'vaccine_done',
       read: false,
       text: `${vaccines[index].name}已标记完成，健康时间线已更新。`,
       title: '疫苗计划已完成',
+      vaccineId: vaccines[index].id,
     });
     return { action, reminderIds: vaccineReminderIds, vaccine: vaccines[index] };
   }
@@ -871,9 +873,11 @@ function applyMockPetChatVaccineAction(text: string): MockPetChatVaccineAction |
     vaccineReminderIds = [...new Set([vaccines[index].id, ...vaccineReminderIds])];
     addMockNotification({
       id: `mock-health-reminder-${vaccines[index].id}`,
+      kind: 'vaccine_reminder',
       read: false,
       text: `${vaccines[index].name}即将到期，记得按宠物医院建议确认时间。`,
       title: '健康提醒',
+      vaccineId: vaccines[index].id,
     });
     return { action, reminderIds: vaccineReminderIds, vaccine: vaccines[index] };
   }
@@ -1179,7 +1183,7 @@ function inferMockNotificationCategory(notification: Pick<NotificationItem, 'id'
 }
 
 function normalizeMockNotificationKind(kind: unknown): NotificationKind | '' {
-  return kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'greeting_request' || kind === 'health_reminder' || kind === 'pet_circle_comment' || kind === 'pet_circle_greeting' || kind === 'pet_circle_like' || kind === 'place_review' || kind === 'place_submission' || kind === 'system' || kind === 'walk_invite' ? kind : '';
+  return kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'greeting_request' || kind === 'health_reminder' || kind === 'medical_alert' || kind === 'pet_circle_comment' || kind === 'pet_circle_greeting' || kind === 'pet_circle_like' || kind === 'place_review' || kind === 'place_submission' || kind === 'system' || kind === 'vaccine_done' || kind === 'vaccine_reminder' || kind === 'walk_invite' ? kind : '';
 }
 
 function isStaleMockNearbyLocation(location?: NearbyLocationHint | null) {
@@ -1218,7 +1222,9 @@ function inferMockNotificationKind(notification: NotificationItem): Notification
   if (/walk/.test(id)) return 'walk_invite';
   if (/place-submission/.test(id)) return 'place_submission';
   if (/review/.test(id)) return 'place_review';
-  if (/(health|vaccine|medical)/.test(id)) return 'health_reminder';
+  if (/medical/.test(id)) return 'medical_alert';
+  if (/vaccine-done/.test(id)) return 'vaccine_done';
+  if (/(health|vaccine)/.test(id)) return 'vaccine_reminder';
   const category = normalizeMockNotificationCategory(notification.category || inferMockNotificationCategory(notification));
   if (category === 'walk') return 'walk_invite';
   if (category === 'health') return 'health_reminder';
@@ -1419,9 +1425,11 @@ function ensureMockHealthReminderNotifications() {
     .forEach((vaccine) => {
       const added = addMockNotification({
         id: mockHealthReminderNotificationId(vaccine),
+        kind: 'vaccine_reminder',
         read: false,
         text: `${vaccine.name}：${mockVaccineReminderCopy(vaccine)}，记得按宠物医院建议确认时间。`,
         title: '健康提醒',
+        vaccineId: vaccine.id,
       });
       changed = added || changed;
     });
@@ -1530,6 +1538,8 @@ function createMockMedicalAlertFromPetChat(text: string) {
   const notificationId = `mock-medical-alert-notification-${memo.id}`;
   addMockNotification({
     id: notificationId,
+    kind: 'medical_alert',
+    memoId: memo.id,
     read: false,
     text: emergency.reason === 'toxic_ingestion'
       ? '已记录疑似误食风险，请尽快联系宠物医院或兽医确认处理方式。'
@@ -2043,9 +2053,11 @@ export const mockApi = {
         pruneMockHealthReminderNotifications();
         addMockNotification({
           id: `mock-vaccine-done-${id}`,
+          kind: 'vaccine_done',
           read: false,
           text: `${nextVaccine.name}已标记完成，健康时间线已更新。`,
           title: '疫苗计划已完成',
+          vaccineId: id,
         });
       } else {
         ensureMockHealthReminderNotifications();
