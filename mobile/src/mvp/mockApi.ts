@@ -14,6 +14,7 @@ import type {
   CreateVaccinePlanInput,
   FeedbackCategory,
   FeedbackSubmission,
+  GreetingOptions,
   GreetingResult,
   HealthCalendarEvent,
   HealthMemo,
@@ -24,6 +25,7 @@ import type {
   NearbyOwner,
   PetCircleComment,
   PetCirclePostList,
+  PetCircleReportResult,
   NotificationCategory,
   NotificationItem,
   NotificationKind,
@@ -37,6 +39,8 @@ import type {
   PlaceSubmission,
   PermissionStateMap,
   PushDevice,
+  SocialBlockListItem,
+  SocialBlockResult,
   SmsCodeTicket,
   UploadPetMediaInput,
   UploadedPetMedia,
@@ -63,6 +67,7 @@ const SMS_DEVICE_DAILY_LIMIT = 80;
 const SMS_VERIFY_MAX_ATTEMPTS = 5;
 const OTP_TTL_MS = 5 * 60 * 1000;
 const MOCK_MEDIA_UPLOAD_MAX_BASE64_CHARS = 12_000_000;
+const MOCK_NEARBY_LOCATION_MAX_AGE_MS = 10 * 60 * 1000;
 
 let currentMockPhone = '13800138000';
 let mockOwnerName = '灵伴用户';
@@ -599,6 +604,13 @@ let memos: HealthMemo[] = [
 let nearbyMoments: NearbyMoment[] = [];
 let petCircleComments: PetCircleComment[] = [];
 let petCircleLikedIds: string[] = [];
+let socialBlocks: Array<{ blockedAt: string; id: string; ownerId: string }> = [];
+
+function isMockOwnerBlocked(ownerId?: string) {
+  return Boolean(ownerId && socialBlocks.some((block) => block.ownerId === ownerId));
+}
+let petCircleReportedCommentIds: string[] = [];
+let petCircleReportedPostIds: string[] = [];
 
 function mockPetChatMemoTitle(text: string) {
   if (/吃|饭|粮|零食|食欲|喝水|饮水/.test(text)) return '饮食记录';
@@ -950,6 +962,106 @@ const owners: NearbyOwner[] = [
   },
 ];
 
+function getMockWebPreviewParam(key: string) {
+  try {
+    const location = (globalThis as unknown as { location?: { search?: string } }).location;
+    return new URLSearchParams(location?.search ?? '').get(key) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+const mockPetCircleInteractionFixtureOwners: Record<string, string> = {
+  'mock-fixture-pet-circle-block': 'o2',
+  'mock-fixture-pet-circle-interaction': 'o1',
+};
+
+function ensureMockPetCircleInteractionFixtures() {
+  if (getMockWebPreviewParam('mockPetCircle') !== 'interactive') return;
+  const now = Date.now();
+  const firstOwner = owners[0];
+  const secondOwner = owners[1];
+  if (!nearbyMoments.some((moment) => moment.id === 'mock-fixture-pet-circle-interaction')) {
+    nearbyMoments = [
+      {
+        commentCount: 1,
+        createdAt: new Date(now - 8 * 60 * 1000).toISOString(),
+        distance: firstOwner.distance,
+        id: 'mock-fixture-pet-circle-interaction',
+        imageUrl: firstOwner.imageUrl,
+        imageUrls: [
+          'https://images.unsplash.com/photo-1587300003388-59208cc962cb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+        ],
+        likedByMe: petCircleLikedIds.includes('mock-fixture-pet-circle-interaction'),
+        likeCount: petCircleLikedIds.includes('mock-fixture-pet-circle-interaction') ? 4 : 3,
+        mood: '开心',
+        ownerId: firstOwner.id,
+        ownerName: firstOwner.ownerName,
+        ownedByMe: false,
+        petName: firstOwner.petName,
+        photoCount: 1,
+        species: firstOwner.species,
+        text: 'Playwright 互动夹具：奶油今天在草坪练习等待口令。',
+        visibility: 'nearby',
+      },
+      {
+        commentCount: 0,
+        createdAt: new Date(now - 18 * 60 * 1000).toISOString(),
+        distance: secondOwner.distance,
+        id: 'mock-fixture-pet-circle-block',
+        imageUrl: secondOwner.imageUrl,
+        imageUrls: [
+          'https://images.unsplash.com/photo-1552053831-71594a27632d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+          'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+        ],
+        likedByMe: false,
+        likeCount: 6,
+        mood: '想约遛',
+        ownerId: secondOwner.id,
+        ownerName: secondOwner.ownerName,
+        ownedByMe: false,
+        petName: secondOwner.petName,
+        photoCount: 2,
+        species: secondOwner.species,
+        text: 'Playwright 拉黑夹具：豆包想找附近的朋友绕一圈。',
+        visibility: 'nearby',
+      },
+      ...nearbyMoments,
+    ];
+  }
+  if (!petCircleComments.some((comment) => comment.id === 'mock-fixture-pet-circle-comment')) {
+    petCircleComments = [
+      {
+        author: secondOwner.ownerName,
+        avatarUrl: secondOwner.imageUrl,
+        content: 'Playwright 评论举报夹具：这个口令练习很稳。',
+        createdAt: new Date(now - 4 * 60 * 1000).toISOString(),
+        id: 'mock-fixture-pet-circle-comment',
+        ownerId: secondOwner.id,
+        ownedByMe: false,
+        postId: 'mock-fixture-pet-circle-interaction',
+        text: 'Playwright 评论举报夹具：这个口令练习很稳。',
+      },
+      ...petCircleComments,
+    ];
+  }
+}
+
+function mockVisiblePetCircleMoments(includeOwn = true) {
+  ensureMockPetCircleInteractionFixtures();
+  return nearbyMoments
+    .filter((moment) => includeOwn || !moment.ownedByMe)
+    .filter((moment) => (moment.visibility ?? 'nearby') === 'nearby')
+    .filter((moment) => !isMockOwnerBlocked(moment.ownerId))
+    .filter((moment) => !petCircleReportedPostIds.includes(moment.id))
+    .map((moment) => ({
+      ...moment,
+      commentCount: petCircleComments.filter((comment) => comment.postId === moment.id && !petCircleReportedCommentIds.includes(comment.id)).length,
+      likedByMe: petCircleLikedIds.includes(moment.id),
+      likeCount: moment.likeCount ?? (petCircleLikedIds.includes(moment.id) ? 1 : 0),
+    }));
+}
+
 const conversations: Conversation[] = [
   { canSendMessage: true, id: 'c1', imageUrl: owners[0]?.imageUrl, lastMessage: '今晚 7 点公园见？', name: '林然和奶油', ownerId: owners[0]?.id, petName: '奶油', relationshipStatus: 'accepted', unread: 1 },
   { canSendMessage: false, id: 'c2', lastMessage: '你提交的地点已进入审核。', name: '地点审核通知', relationshipStatus: 'pending', unread: 0 },
@@ -964,6 +1076,16 @@ let conversationMessagesById: Record<string, ConversationMessage[]> = {
 let petChatMessages: ChatMessage[] = [];
 
 let notifications: NotificationItem[] = [
+  {
+    category: 'interaction',
+    createdAt: new Date().toISOString(),
+    id: 'mock-pet-circle-comment-notification',
+    kind: 'pet_circle_comment',
+    postId: 'pet-circle-fallback-lucky',
+    read: false,
+    text: '奶油评论了 Lucky 的小事',
+    title: 'Lucky 的小事有新互动',
+  },
   { id: 'n1', title: '疫苗提醒', text: '狂犬疫苗将在 19 天后到期。', read: false },
   { id: 'n2', title: 'AI 形象生成', text: '新的电子宠物形象已保存。', read: true },
 ];
@@ -1049,7 +1171,7 @@ function inferMockNotificationCategory(notification: Pick<NotificationItem, 'id'
   const id = String(notification.id || '');
   if (/walk/.test(id)) return 'walk';
   if (/(health|vaccine|medical)/.test(id)) return 'health';
-  if (/(greeting|message)/.test(id)) return 'interaction';
+  if (/(greeting|message|pet-circle|pet_circle)/.test(id)) return 'interaction';
   const value = `${notification.title} ${notification.text}`;
   if (/约遛|邀请|公园|散步|见面|一起去/.test(value)) return 'walk';
   if (/健康|疫苗|体重|驱虫|提醒|就医/.test(value)) return 'health';
@@ -1057,12 +1179,40 @@ function inferMockNotificationCategory(notification: Pick<NotificationItem, 'id'
 }
 
 function normalizeMockNotificationKind(kind: unknown): NotificationKind | '' {
-  return kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'greeting_request' || kind === 'health_reminder' || kind === 'system' || kind === 'walk_invite' ? kind : '';
+  return kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'greeting_request' || kind === 'health_reminder' || kind === 'pet_circle_comment' || kind === 'pet_circle_greeting' || kind === 'pet_circle_like' || kind === 'system' || kind === 'walk_invite' ? kind : '';
+}
+
+function isStaleMockNearbyLocation(location?: NearbyLocationHint | null) {
+  if (!location?.updatedAt) return false;
+  return Date.now() - Number(location.updatedAt) > MOCK_NEARBY_LOCATION_MAX_AGE_MS;
+}
+
+function normalizeMockPetCircleImageUrls(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  value.forEach((item) => {
+    if (urls.length >= 6) return;
+    const url = String(item || '').trim();
+    if (!url || url.length > 2000 || seen.has(url)) return;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+      seen.add(url);
+      urls.push(url);
+    } catch {
+      // Ignore invalid image URLs; public posts should use media upload fileUrl values.
+    }
+  });
+  return urls;
 }
 
 function inferMockNotificationKind(notification: NotificationItem): NotificationKind {
   const id = String(notification.id || '');
   if (/message/.test(id)) return 'conversation_message';
+  if (/(pet-circle-comment|pet_circle_comment)/.test(id)) return 'pet_circle_comment';
+  if (/(pet-circle-greeting|pet_circle_greeting)/.test(id)) return 'pet_circle_greeting';
+  if (/(pet-circle-like|pet_circle_like)/.test(id)) return 'pet_circle_like';
   if (/greeting-accepted/.test(id)) return 'greeting_accepted';
   if (/greeting/.test(id)) return 'greeting_request';
   if (/walk/.test(id)) return 'walk_invite';
@@ -1676,6 +1826,7 @@ export const mockApi = {
       const analysis = analyzeMockPetMediaUpload(input);
       const media: UploadedPetMedia = {
         analysis,
+        fileUrl: input?.previewUrl ?? goldenRetrieverPhotoUrl,
         mediaId: `media-${Date.now()}`,
         previewUrl: input?.previewUrl ?? goldenRetrieverPhotoUrl,
         quality: analysis.status === 'blocked' ? 'blocked' : analysis.status === 'warning' ? 'warning' : 'good',
@@ -1935,32 +2086,45 @@ export const mockApi = {
   },
 
   social: {
-    async listNearbyOwners(_location?: NearbyLocationHint): Promise<ApiResult<NearbyOwner[]>> {
+    async listNearbyOwners(location?: NearbyLocationHint): Promise<ApiResult<NearbyOwner[]>> {
       await wait(200);
-      return success(owners);
+      if (!mockUserSettings.nearbyVisible || !location) return success([]);
+      return success(owners.filter((owner) => !isMockOwnerBlocked(owner.id)));
     },
 
-    async listNearbyMoments(_location?: NearbyLocationHint): Promise<ApiResult<NearbyMoment[]>> {
+    async listNearbyMoments(location?: NearbyLocationHint): Promise<ApiResult<NearbyMoment[]>> {
       await wait(180);
-      return success(nearbyMoments.slice(0, 8).map((moment) => ({
-        ...moment,
-        commentCount: petCircleComments.filter((comment) => comment.postId === moment.id).length,
-        likedByMe: petCircleLikedIds.includes(moment.id),
-        likeCount: moment.likeCount ?? (petCircleLikedIds.includes(moment.id) ? 1 : 0),
-      })));
+      if (!mockUserSettings.nearbyVisible || !location) return success([]);
+      return success(mockVisiblePetCircleMoments(false).slice(0, 8));
     },
 
-    async listPetCirclePosts(location?: NearbyLocationHint): Promise<ApiResult<PetCirclePostList>> {
-      const result = await mockApi.social.listNearbyMoments(location);
-      return result.data ? success({ items: result.data }) : error(result.error?.message ?? '宠友圈读取失败', true);
+    async listPetCirclePosts(location?: NearbyLocationHint, options: { cursor?: string; limit?: number } = {}): Promise<ApiResult<PetCirclePostList>> {
+      await wait(180);
+      if (!mockUserSettings.nearbyVisible || !location) return success({ items: [] });
+      const data = mockVisiblePetCircleMoments(true);
+      const offset = Math.max(0, Math.floor(Number(options.cursor) || 0));
+      const limit = Math.max(1, Math.min(50, Math.floor(Number(options.limit) || data.length || 8)));
+      const items = data.slice(offset, offset + limit);
+      const nextOffset = offset + items.length;
+      return success({
+        items,
+        nextCursor: nextOffset < data.length ? String(nextOffset) : undefined,
+      });
     },
 
-    async createMoment(content: string, mood?: string, photoCount = 0, options: { imageUrls?: string[]; visibility?: 'nearby' | 'private' } = {}): Promise<ApiResult<NearbyMoment>> {
+    async createMoment(content: string, mood?: string, photoCount = 0, options: { imageUrls?: string[]; location?: NearbyLocationHint | null; syncToHealthCalendar?: boolean; visibility?: 'nearby' | 'private' } = {}): Promise<ApiResult<NearbyMoment>> {
       await wait(180);
       const text = String(content || '').trim();
       if (!text) return error<NearbyMoment>('先写一点今天的小事吧', false, undefined, 'SOCIAL_MOMENT_INVALID');
+      const violation = mockSocialChatContentViolation('小事内容', text, 280);
+      if (violation) return error<NearbyMoment>(violation, false, undefined, 'SOCIAL_MOMENT_INVALID');
+      if ((options.visibility ?? 'nearby') === 'nearby' && !mockUserSettings.nearbyVisible) return error<NearbyMoment>('请先开启附近可见后再分享小事', false, undefined, 'NEARBY_HIDDEN');
+      if ((options.visibility ?? 'nearby') === 'nearby' && !options.location) return error<NearbyMoment>('请先完成定位后再发布到宠友圈', true, undefined, 'NEARBY_LOCATION_REQUIRED');
+      if ((options.visibility ?? 'nearby') === 'nearby' && isStaleMockNearbyLocation(options.location)) return error<NearbyMoment>('定位已过期，请重新定位后再发布到宠友圈', true, undefined, 'NEARBY_LOCATION_STALE');
       const pet = activeMockPet();
-      const imageUrls = Array.isArray(options.imageUrls) ? options.imageUrls.slice(0, 6) : [];
+      const hasImageUrls = Array.isArray(options.imageUrls);
+      const imageUrls = normalizeMockPetCircleImageUrls(options.imageUrls);
+      const visibility = options.visibility ?? 'nearby';
       const moment: NearbyMoment = {
         commentCount: 0,
         createdAt: new Date().toISOString(),
@@ -1973,90 +2137,230 @@ export const mockApi = {
         mood,
         ownerId: `mock-${currentMockPhone}`,
         ownerName: mockOwnerName,
+        ownedByMe: true,
         petName: pet?.name ?? '灵伴',
-        photoCount: imageUrls.length || Math.max(0, Math.min(6, photoCount)),
+        photoCount: hasImageUrls ? imageUrls.length : Math.max(0, Math.min(6, photoCount)),
         species: pet?.species === 'cat' ? 'cat' : 'dog',
         text: text.slice(0, 280),
-        visibility: options.visibility ?? 'nearby',
+        visibility,
       };
+      if (visibility === 'private' || options.syncToHealthCalendar) {
+        const memo: HealthMemo = {
+          content: text.slice(0, 240),
+          createdAt: todayIsoDate(),
+          id: `m-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+          title: mockPetChatMemoTitle(text),
+          updatedAt: todayIsoDate(),
+        };
+        memos = [memo, ...memos];
+      }
       nearbyMoments = [moment, ...nearbyMoments].slice(0, 20);
       return success(moment);
     },
 
     async likePetCirclePost(postId: string): Promise<ApiResult<NearbyMoment>> {
       await wait(120);
+      ensureMockPetCircleInteractionFixtures();
       const moment = nearbyMoments.find((item) => item.id === postId);
       if (!moment) return error<NearbyMoment>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      if (isMockOwnerBlocked(moment.ownerId)) return error<NearbyMoment>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      if (petCircleReportedPostIds.includes(postId)) return error<NearbyMoment>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      if (moment.ownedByMe) return error<NearbyMoment>('暂不支持给自己的小事点赞', false, undefined, 'PET_CIRCLE_OWN_POST_LIKE');
       if (!petCircleLikedIds.includes(postId)) petCircleLikedIds = [postId, ...petCircleLikedIds];
       const nextMoment = { ...moment, likedByMe: true, likeCount: (moment.likeCount ?? 0) + 1 };
       nearbyMoments = nearbyMoments.map((item) => (item.id === postId ? nextMoment : item));
+      if (!moment.ownedByMe) {
+        addMockNotification({
+          category: 'interaction',
+          id: `mock-pet-circle-like-${postId}`,
+          kind: 'pet_circle_like',
+          postId,
+          read: false,
+          text: `你赞了 ${moment.petName} 的小事`,
+          title: `${moment.petName} 的小事有新互动`,
+        }, 'interaction');
+      }
       return success(nextMoment);
     },
 
     async unlikePetCirclePost(postId: string): Promise<ApiResult<NearbyMoment>> {
       await wait(120);
+      ensureMockPetCircleInteractionFixtures();
       const moment = nearbyMoments.find((item) => item.id === postId);
       if (!moment) return error<NearbyMoment>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      if (isMockOwnerBlocked(moment.ownerId)) return error<NearbyMoment>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      if (petCircleReportedPostIds.includes(postId)) return error<NearbyMoment>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
       petCircleLikedIds = petCircleLikedIds.filter((id) => id !== postId);
       const nextMoment = { ...moment, likedByMe: false, likeCount: Math.max(0, (moment.likeCount ?? 0) - 1) };
       nearbyMoments = nearbyMoments.map((item) => (item.id === postId ? nextMoment : item));
+      notifications = notifications.filter((item) => item.id !== `mock-pet-circle-like-${postId}`);
       return success(nextMoment);
     },
 
     async listPetCircleComments(postId: string): Promise<ApiResult<PetCircleComment[]>> {
       await wait(120);
-      return success(petCircleComments.filter((comment) => comment.postId === postId));
+      ensureMockPetCircleInteractionFixtures();
+      if (!nearbyMoments.some((item) => item.id === postId)) return error<PetCircleComment[]>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      if (nearbyMoments.some((item) => item.id === postId && isMockOwnerBlocked(item.ownerId))) return error<PetCircleComment[]>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      if (petCircleReportedPostIds.includes(postId)) return error<PetCircleComment[]>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      return success(petCircleComments.filter((comment) => comment.postId === postId && !petCircleReportedCommentIds.includes(comment.id)));
     },
 
     async createPetCircleComment(postId: string, content: string): Promise<ApiResult<PetCircleComment[]>> {
       await wait(150);
+      ensureMockPetCircleInteractionFixtures();
       const moment = nearbyMoments.find((item) => item.id === postId);
       if (!moment) return error<PetCircleComment[]>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      if (isMockOwnerBlocked(moment.ownerId)) return error<PetCircleComment[]>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      if (petCircleReportedPostIds.includes(postId)) return error<PetCircleComment[]>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
       const text = String(content || '').trim();
       if (!text) return error<PetCircleComment[]>('先写一句评论吧', false, undefined, 'PET_CIRCLE_COMMENT_INVALID');
+      const violation = mockSocialChatContentViolation('评论内容', text, 140);
+      if (violation) return error<PetCircleComment[]>(violation, false, undefined, 'PET_CIRCLE_COMMENT_INVALID');
       const comment: PetCircleComment = {
         author: mockOwnerName,
         avatarUrl: activeMockPet()?.avatarUrl,
-        content: text.slice(0, 140),
+        content: text,
         createdAt: new Date().toISOString(),
         id: `mock-comment-${Date.now()}`,
         ownerId: `mock-${currentMockPhone}`,
+        ownedByMe: true,
         postId,
-        text: text.slice(0, 140),
+        text,
       };
       petCircleComments = [...petCircleComments, comment];
       nearbyMoments = nearbyMoments.map((item) => (item.id === postId ? { ...item, commentCount: petCircleComments.filter((next) => next.postId === postId).length } : item));
-      return success(petCircleComments.filter((next) => next.postId === postId));
+      if (!moment.ownedByMe) {
+        addMockNotification({
+          category: 'interaction',
+          commentId: comment.id,
+          id: `mock-pet-circle-comment-${comment.id}`,
+          kind: 'pet_circle_comment',
+          postId,
+          read: false,
+          text: `你评论了 ${moment.petName} 的小事`,
+          title: `${moment.petName} 的小事有新评论`,
+        }, 'interaction');
+      }
+      return success(petCircleComments.filter((next) => next.postId === postId && !petCircleReportedCommentIds.includes(next.id)));
     },
 
     async deletePetCircleComment(commentId: string): Promise<ApiResult<{ deleted: boolean; id: string }>> {
       await wait(120);
+      ensureMockPetCircleInteractionFixtures();
+      const comment = petCircleComments.find((item) => item.id === commentId);
+      if (!comment) return error<{ deleted: boolean; id: string }>('评论不存在或已删除', false, undefined, 'PET_CIRCLE_COMMENT_GONE');
+      const moment = nearbyMoments.find((item) => item.id === comment.postId);
+      if (!comment.ownedByMe && !moment?.ownedByMe) return error<{ deleted: boolean; id: string }>('只能删除自己的评论', false, undefined, 'PET_CIRCLE_COMMENT_FORBIDDEN');
       petCircleComments = petCircleComments.filter((comment) => comment.id !== commentId);
+      nearbyMoments = nearbyMoments.map((item) => (item.id === moment?.id ? { ...item, commentCount: petCircleComments.filter((next) => next.postId === item.id).length } : item));
+      notifications = notifications.filter((item) => item.id !== `mock-pet-circle-comment-${commentId}`);
       return success({ deleted: true, id: commentId });
     },
 
     async deletePetCirclePost(postId: string): Promise<ApiResult<{ deleted: boolean; id: string }>> {
       await wait(140);
+      const moment = nearbyMoments.find((item) => item.id === postId);
+      if (!moment) return error<{ deleted: boolean; id: string }>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      if (!moment.ownedByMe) return error<{ deleted: boolean; id: string }>('只能删除自己的小事', false, undefined, 'PET_CIRCLE_POST_FORBIDDEN');
+      const removedCommentIds = new Set(petCircleComments.filter((comment) => comment.postId === postId).map((comment) => comment.id));
       nearbyMoments = nearbyMoments.filter((moment) => moment.id !== postId);
       petCircleComments = petCircleComments.filter((comment) => comment.postId !== postId);
       petCircleLikedIds = petCircleLikedIds.filter((id) => id !== postId);
+      petCircleReportedPostIds = petCircleReportedPostIds.filter((id) => id !== postId);
+      notifications = notifications.filter((item) => {
+        const id = String(item.id || '');
+        if (item.postId === postId) return false;
+        if (id === `mock-pet-circle-like-${postId}`) return false;
+        if (id.startsWith('mock-pet-circle-comment-') && removedCommentIds.has(id.slice('mock-pet-circle-comment-'.length))) return false;
+        return true;
+      });
       return success({ deleted: true, id: postId });
     },
 
-    async sendGreeting(ownerId: string): Promise<ApiResult<GreetingResult>> {
+    async reportPetCirclePost(postId: string, _content?: string): Promise<ApiResult<PetCircleReportResult>> {
+      await wait(140);
+      ensureMockPetCircleInteractionFixtures();
+      const moment = nearbyMoments.find((item) => item.id === postId);
+      if (petCircleReportedPostIds.includes(postId)) return success({ id: `mock-report-post-${postId}`, reported: true, targetId: postId, targetType: 'post' });
+      if (!moment) return error<PetCircleReportResult>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      if (moment.ownedByMe) return error<PetCircleReportResult>('不能举报自己的小事', false, undefined, 'PET_CIRCLE_REPORT_INVALID');
+      petCircleReportedPostIds = [postId, ...petCircleReportedPostIds];
+      return success({ id: `mock-report-${Date.now()}`, reported: true, targetId: postId, targetType: 'post' });
+    },
+
+    async reportPetCircleComment(commentId: string, _content?: string): Promise<ApiResult<PetCircleReportResult>> {
+      await wait(140);
+      ensureMockPetCircleInteractionFixtures();
+      const comment = petCircleComments.find((item) => item.id === commentId);
+      if (petCircleReportedCommentIds.includes(commentId)) return success({ id: `mock-report-comment-${commentId}`, reported: true, targetId: commentId, targetType: 'comment' });
+      if (!comment) return error<PetCircleReportResult>('评论不存在或已删除', false, undefined, 'PET_CIRCLE_COMMENT_GONE');
+      if (comment.ownedByMe) return error<PetCircleReportResult>('不能举报自己的评论', false, undefined, 'PET_CIRCLE_REPORT_INVALID');
+      petCircleReportedCommentIds = [commentId, ...petCircleReportedCommentIds];
+      return success({ id: `mock-report-${Date.now()}`, reported: true, targetId: commentId, targetType: 'comment' });
+    },
+
+    async blockOwner(ownerId: string): Promise<ApiResult<SocialBlockResult>> {
+      await wait(140);
+      ensureMockPetCircleInteractionFixtures();
+      const owner = owners.find((item) => item.id === ownerId) ?? nearbyMoments.find((item) => item.ownerId === ownerId);
+      if (!owner) return error<SocialBlockResult>('用户不存在或已不可见', false, undefined, 'SOCIAL_BLOCK_INVALID');
+      if (ownerId === `mock-${currentMockPhone}`) return error<SocialBlockResult>('不能拉黑自己', false, undefined, 'SOCIAL_BLOCK_INVALID');
+      if (!isMockOwnerBlocked(ownerId)) socialBlocks = [{ blockedAt: new Date().toISOString(), id: `mock-block-${ownerId}`, ownerId }, ...socialBlocks];
+      greetingRequests = greetingRequests.filter((item) => item.id !== ownerId);
+      return success({ blocked: true, id: `mock-block-${ownerId}`, ownerId });
+    },
+
+    async listBlocks(): Promise<ApiResult<SocialBlockListItem[]>> {
+      await wait(140);
+      return success(socialBlocks.map((block) => {
+        const owner = owners.find((item) => item.id === block.ownerId);
+        const moment = nearbyMoments.find((item) => item.ownerId === block.ownerId);
+        return {
+          avatarUrl: owner?.imageUrl ?? moment?.imageUrl,
+          blockedAt: block.blockedAt,
+          id: block.id,
+          ownerId: block.ownerId,
+          ownerName: owner?.ownerName ?? moment?.ownerName ?? '附近主人',
+          petName: owner?.petName ?? moment?.petName,
+          species: owner?.species ?? moment?.species,
+        };
+      }));
+    },
+
+    async unblockOwner(ownerId: string): Promise<ApiResult<{ deleted: boolean; ownerId: string }>> {
+      await wait(140);
+      const before = socialBlocks.length;
+      socialBlocks = socialBlocks.filter((block) => block.ownerId !== ownerId);
+      if (socialBlocks.length === before) return error<{ deleted: boolean; ownerId: string }>('黑名单对象不存在', false, undefined, 'SOCIAL_BLOCK_INVALID');
+      return success({ deleted: true, ownerId });
+    },
+
+    async sendGreeting(ownerId: string, options: GreetingOptions = {}): Promise<ApiResult<GreetingResult>> {
       await wait();
+      ensureMockPetCircleInteractionFixtures();
+      if (isMockOwnerBlocked(ownerId)) return error<GreetingResult>('对方暂时不可打招呼，请刷新附近列表后再试', true, undefined, 'SOCIAL_TARGET_GONE');
       const owner = owners.find((item) => item.id === ownerId);
-      if (!owner) return error('对方暂时不可打招呼，请刷新附近列表后再试', true);
-      return success({ ownerId, sent: true });
+      if (!owner) return error<GreetingResult>('对方暂时不可打招呼，请刷新附近列表后再试', true);
+      const postId = String(options.postId || '').trim();
+      if (options.source === 'pet_circle') {
+        const visibleSourcePost = nearbyMoments.some((moment) => moment.id === postId && moment.ownerId === ownerId && !petCircleReportedPostIds.includes(moment.id) && !isMockOwnerBlocked(moment.ownerId));
+        const visiblePreviewFixture = mockPetCircleInteractionFixtureOwners[postId] === ownerId && !petCircleReportedPostIds.includes(postId) && !isMockOwnerBlocked(ownerId);
+        if (!postId || (!visibleSourcePost && !visiblePreviewFixture)) {
+          return error<GreetingResult>('这条小事已不可见，暂时不能从这里打招呼', true, undefined, 'PET_CIRCLE_POST_GONE');
+        }
+      }
+      return success({ ownerId, ...(options.source === 'pet_circle' ? { postId, source: 'pet_circle' as const } : {}), sent: true });
     },
 
     async listGreetingRequests(): Promise<ApiResult<NearbyOwner[]>> {
       await wait(160);
-      return success(greetingRequests);
+      return success(greetingRequests.filter((owner) => !isMockOwnerBlocked(owner.id)));
     },
 
     async acceptGreeting(ownerId: string): Promise<ApiResult<GreetingResult>> {
       await wait();
+      if (isMockOwnerBlocked(ownerId)) return error<GreetingResult>('招呼请求不存在或已处理', true, undefined, 'SOCIAL_TARGET_GONE');
       const owner = greetingRequests.find((item) => item.id === ownerId) ?? owners.find((item) => item.id === ownerId);
       greetingRequests = greetingRequests.filter((item) => item.id !== ownerId);
       const conversation: Conversation = {
@@ -2086,6 +2390,7 @@ export const mockApi = {
 
     async createWalkInvite(ownerId: string, input?: WalkInviteInput): Promise<ApiResult<WalkInviteResult>> {
       await wait();
+      if (isMockOwnerBlocked(ownerId)) return error<WalkInviteResult>('对方暂时不可约遛，请刷新附近列表后再试', true, undefined, 'SOCIAL_TARGET_GONE');
       const owner = owners.find((item) => item.id === ownerId);
       const inviteId = `walk-${Date.now()}`;
       const place = input?.place ?? '附近宠物友好地点';
@@ -2135,11 +2440,13 @@ export const mockApi = {
 
     async listConversations(): Promise<ApiResult<Conversation[]>> {
       await wait(160);
-      return success(conversations);
+      return success(conversations.filter((conversation) => !conversation.ownerId || !isMockOwnerBlocked(conversation.ownerId)));
     },
 
     async listConversationMessages(conversationId: string): Promise<ApiResult<ConversationMessage[]>> {
       await wait(160);
+      const conversation = conversations.find((item) => item.id === conversationId);
+      if (conversation?.ownerId && isMockOwnerBlocked(conversation.ownerId)) return error<ConversationMessage[]>('会话不存在，请返回消息列表刷新', true, undefined, 'SOCIAL_TARGET_GONE');
       return success(conversationMessagesById[conversationId] ?? []);
     },
 
@@ -2196,12 +2503,13 @@ export const mockApi = {
     async sendConversationMessage(conversationId: string, text: string): Promise<ApiResult<ConversationMessage>> {
       await wait();
       const trimmedText = text.trim();
-      if (!trimmedText) return error('请输入消息内容', false);
+      if (!trimmedText) return error<ConversationMessage>('请输入消息内容', false);
       const violation = mockSocialChatContentViolation('聊天内容', trimmedText);
-      if (violation) return error(violation, false);
+      if (violation) return error<ConversationMessage>(violation, false);
       const conversation = conversations.find((item) => item.id === conversationId);
-      if (!conversation) return error('会话不存在，请返回消息列表刷新', true);
-      if (conversation.canSendMessage === false) return error('对方接受招呼后才能聊天', true);
+      if (!conversation) return error<ConversationMessage>('会话不存在，请返回消息列表刷新', true);
+      if (conversation.ownerId && isMockOwnerBlocked(conversation.ownerId)) return error<ConversationMessage>('会话不存在，请返回消息列表刷新', true, undefined, 'SOCIAL_TARGET_GONE');
+      if (conversation.canSendMessage === false) return error<ConversationMessage>('对方接受招呼后才能聊天', true);
       const message: ConversationMessage = { author: 'me', id: `conv-${Date.now()}`, status: 'sent', text: trimmedText, time: new Date().toISOString() };
       conversation.lastMessage = trimmedText;
       conversation.unread = 0;

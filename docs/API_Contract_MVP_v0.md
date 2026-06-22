@@ -639,7 +639,8 @@ type HealthCalendarEvent = {
 说明：
 - `weight` 来自体重记录，`detail` 为体重和备注。
 - `vaccine` 来自疫苗/驱虫计划，`status` 会保留原计划状态。
-- `memo` 来自健康备忘，若 `updatedAt` 不是日期格式，会归到当天。
+- `memo` 来自健康备忘，优先按 `createdAt` 归档；兼容旧数据时可从带时间戳的 `id` 推导日期，仍无法识别时才回退到 `updatedAt` 或当天。
+- 系统默认建档记录和建档初始体重应跟随宠物 `createdAt`，避免旧记录在后续刷新时漂移到当天。
 - 返回按 `date` 倒序排列。
 - App 已将宠物首页、健康页近期记录和宠物详情健康区的主入口统一指向健康日历；健康日历顶部宠物卡不再展示健康分，健康分只保留在首页和健康首页。
 - 健康日历空状态的“添加一条记录”会进入新增健康备忘页，新增、编辑、删除备忘后统一回到健康日历。
@@ -911,8 +912,14 @@ type NearbyMoment = {
   createdAt: string;
   distance: string;
   imageUrl?: string;
+  imageUrls?: string[];
+  likedByMe?: boolean;
+  likeCount?: number;
+  commentCount?: number;
   mood?: string;
   photoCount?: number;
+  ownedByMe?: boolean;
+  visibility?: 'nearby' | 'private';
 };
 ```
 
@@ -921,6 +928,7 @@ type NearbyMoment = {
 - 如果当前请求和账号都没有可用定位，返回空数组，不降级为全量动态流。
 - 只返回附近其他用户的小事，不返回当前登录用户自己发布的小事。
 - 只返回猫/狗宠物、开启附近可见、在线窗口内、未超过 7 天的小事。
+- 只返回 `visibility=nearby` 的公开小事；`private` 小事只作为健康日历记录保留。
 - 距离只返回模糊文案，不暴露精确定位。
 - 首页展示四态：附近有小事时轮播；附近有伙伴但暂无小事时展示静态伙伴态；附近无伙伴时展示静态空态；接口失败时展示错误态并允许重试。
 
@@ -931,7 +939,15 @@ type NearbyMoment = {
 Request:
 
 ```json
-{ "content": "今天 Lucky 主动叼球来找我玩", "mood": "开心", "photoCount": 1 }
+{
+  "content": "今天 Lucky 主动叼球来找我玩",
+  "mood": "开心",
+  "photoCount": 1,
+  "imageUrls": ["https://..."],
+  "syncToHealthCalendar": true,
+  "visibility": "nearby",
+  "location": { "latitude": 23.1291, "longitude": 113.2644, "radiusKm": 3, "accuracy": 30, "updatedAt": 1782054000000 }
+}
 ```
 
 Response data:
@@ -942,9 +958,118 @@ NearbyMoment
 
 说明：
 - `content` 必填，MVP 最大 280 字。
-- `photoCount` 只记录本次选择的照片数量；真实媒体 URL/审核结果后续由媒体接口补齐。
+- `imageUrls` 最多保存 6 张，来自媒体上传接口返回的公开 `fileUrl`；`photoCount` 按实际图片数封顶为 6。
+- `imageUrls` 只接受 `http/https` 图片地址；`data:`、`file://`、`content://` 等本机或内联地址会被过滤，必须先走媒体上传接口。
+- `syncToHealthCalendar=true` 时，测试后端会同时生成一条健康备忘；`visibility=private` 默认也会写入健康日历，但不进入宠友圈/附近小事流。
+- `visibility=nearby` 时必须开启附近可见，并提供 10 分钟内的新鲜定位。
 - 如果当前账号没有宠物档案，返回中文错误，不创建小事。
 - 创建成功后，其他附近用户可通过 `GET /social/nearby-moments` 看到；当前用户首页不会把自己的小事当成附近小事展示。
+
+### GET `/social/pet-circle/posts`
+
+读取宠友圈动态流。该接口用于发现页「宠友圈」Tab，返回分页结构。
+
+Query:
+
+```txt
+lat=23.1291&lng=113.2644&radiusKm=3&accuracy=30&cursor=opaque&limit=30
+```
+
+Response data:
+
+```ts
+type PetCirclePostList = {
+  items: NearbyMoment[];
+  nextCursor?: string;
+};
+```
+
+说明：
+- 返回结构中的 `items` 使用 `NearbyMoment`，并补充点赞、评论、图片、可见性和 `ownedByMe` 状态。
+- 排序按模糊距离优先、发布时间倒序；`nextCursor` 为不透明游标，客户端只透传。
+- 当前请求和账号都没有定位时返回空列表；当前账号关闭附近可见时不刷新在线曝光。
+- 已删除、仅自己可见、发布者关闭附近可见、超过 7 天或超出距离范围的小事不返回。
+- 当前用户已举报的小事不再返回；举报只先对举报者隐藏，后台审核/全局隐藏属于后续治理能力。
+
+### DELETE `/social/pet-circle/posts/{postId}`
+
+删除自己发布的宠友圈动态。删除后该动态不再展示，关联点赞会移除，关联评论会标记为删除且不再返回，相关 `pet_circle_like` / `pet_circle_comment` / `pet_circle_greeting` 通知会同步清理；健康日历记录保留。
+
+### POST `/social/pet-circle/posts/{postId}/report`
+
+举报宠友圈动态。成功后返回 `{ reported: true, targetType: 'post' }`，该动态会立即从举报者自己的宠友圈列表和后续互动入口隐藏；不能举报自己的动态。
+
+### POST `/social/pet-circle/posts/{postId}/like`
+
+点赞宠友圈动态。不能给自己的动态点赞；对方会收到 `pet_circle_like` 互动通知。
+
+### DELETE `/social/pet-circle/posts/{postId}/like`
+
+取消点赞宠友圈动态。测试后端会同步移除同一用户对同一动态产生的 `pet_circle_like` 通知，避免通知中心残留过时点赞。
+
+### GET `/social/pet-circle/posts/{postId}/comments`
+
+读取某条宠友圈动态的评论列表。动态不可见、已删除或超出距离范围时返回 404；当前用户已举报的评论不再返回。
+
+### POST `/social/pet-circle/posts/{postId}/comments`
+
+新增文本评论，最多 140 字；对方会收到 `pet_circle_comment` 互动通知。
+
+### DELETE `/social/pet-circle/comments/{commentId}`
+
+删除自己的评论；动态作者也可删除该动态下的评论。测试后端会同步移除该评论产生的 `pet_circle_comment` 通知，避免通知中心残留已删除评论。
+
+### POST `/social/pet-circle/comments/{commentId}/report`
+
+举报宠友圈评论。成功后返回 `{ reported: true, targetType: 'comment' }`，该评论会立即从举报者自己的评论列表隐藏；不能举报自己的评论。
+
+### POST `/social/blocks`
+
+拉黑附近用户或宠友圈动态作者。
+
+Request:
+
+```json
+{ "ownerId": "user-13500000002" }
+```
+
+Response data:
+
+```ts
+type SocialBlockResult = {
+  blocked: true;
+  id: string;
+  ownerId: string;
+};
+```
+
+说明：
+- `ownerId` 使用附近主人卡片或宠友圈动态返回的 `ownerId`。
+- 不能拉黑自己；目标不存在或已不可见时返回 404。
+- 拉黑成功后双方互不可见：附近伙伴、宠友圈动态、评论、打招呼和约遛入口都会过滤对方。
+- 双方之间待处理的招呼请求会被标记为 `blocked`，不再出现在收件列表。
+
+### GET `/social/blocks`
+
+读取当前账号主动拉黑的用户列表，用于安全中心黑名单管理。
+
+Response data:
+
+```ts
+type SocialBlockListItem = {
+  avatarUrl?: string;
+  blockedAt: string;
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  petName?: string;
+  species?: 'cat' | 'dog';
+};
+```
+
+### DELETE `/social/blocks/{ownerId}`
+
+解除对某个用户的拉黑。只允许删除当前账号主动创建的拉黑关系；成功后返回 `{ deleted: true, ownerId }`。解除后双方会重新按附近可见、定位距离、动态可见性等既有规则展示。
 
 ### POST `/social/greetings`
 
@@ -954,6 +1079,12 @@ Request:
 { "ownerId": "user-13500000002" }
 ```
 
+从宠友圈动态发起打招呼时可携带来源：
+
+```json
+{ "ownerId": "user-13500000002", "source": "pet_circle", "postId": "moment-xxx" }
+```
+
 MVP 产品约束：
 - 打招呼暂不限制次数。
 - 前端保留配置口，后续可加每日次数、单用户频次、风控灰度。
@@ -961,6 +1092,8 @@ MVP 产品约束：
 
 当前测试后端策略：
 - ~~发送招呼时直接给双方创建会话。~~ 当前已改为只创建待处理招呼请求；接收方接受后才创建双方会话。
+- `source=pet_circle` 时，`postId` 必须是当前发送者可见且属于目标用户的宠友圈动态；成功后通知中心写入 `kind=pet_circle_greeting`，并携带 `postId` 用于回流高亮对应动态。
+- 如果双方已有待处理招呼，再从宠友圈动态发起招呼时不会创建第二条待处理请求；测试后端会刷新原请求时间并补充 `source=pet_circle` / `postId`，仍可生成去重后的宠友圈来源通知。
 - 如果 `ownerId` 不存在、指向自己，或对方已关闭附近可见，返回 404 中文错误，不创建招呼、会话、消息或通知，前端应提示刷新附近列表后重试。
 
 ### GET `/social/greeting-requests`
@@ -1072,7 +1205,7 @@ type PushDevice = {
 - 地点点评提交、用户新增地点提交也会写入通知中心，App 成功提交后会重新拉取该列表，不再只依赖前端临时通知。
 - 通知项会返回 `category` 与 `createdAt`，App 以这两个字段驱动筛选、分组和时间显示；旧通知缺字段时，测试后端会在读取时补齐。
 - `category` 当前取值为 `health`、`interaction`、`walk`、`system`。普通聊天和招呼归入 `interaction`，约遛邀请归入 `walk`；互动和约遛通知是否生成受 `pushNotifications` 与 `interactionMessages` 控制。
-- 通知项会返回可选 `kind`、`conversationId`、`ownerId`，用于区分落页：`greeting_request` 进入招呼请求；`conversation_message`、`greeting_accepted`、`walk_invite` 优先使用 `conversationId` 打开对话框；`health_reminder` 进入健康页；`system` 进入设置或对应系统页。
+- 通知项会返回可选 `kind`、`conversationId`、`ownerId`、`postId`、`commentId`，用于区分落页：`greeting_request` 进入招呼请求；`conversation_message`、`greeting_accepted`、`walk_invite` 优先使用 `conversationId` 打开对话框；`pet_circle_like` / `pet_circle_comment` / `pet_circle_greeting` 使用 `postId` 进入宠友圈并高亮对应动态；`health_reminder` 进入健康页；`system` 进入设置或对应系统页。
 - 已建立会话后的普通聊天消息不应再进入招呼请求。测试后端会为接收方写入 `kind=conversation_message`、`conversationId=c-{senderPhone}`、`ownerId=user-{senderPhone}`，且通知本身默认 `read=true`；未读状态由 `/conversations` 的 `unread` 字段承载，避免通知中心和消息列表重复计数。
 
 ### POST `/notifications/read`
@@ -1386,7 +1519,7 @@ type FeedbackSubmission = {
 - `category` 支持 `bug`、`suggestion`、`safety`、`other`；未知值会落到 `other`。
 - `content` 不能为空，最多 1000 个字。
 - 服务端会保存账号归属，返回给 App 的结果不包含手机号。
-- 这不是举报/拉黑流程；举报和拉黑按此前优先级暂缓。
+- 这不是宠友圈正式举报/拉黑流程；宠友圈动态和评论应优先调用对应 report 接口，拉黑应调用 `/social/blocks`。
 
 ## 10. 合规静态文本
 

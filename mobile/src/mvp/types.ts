@@ -166,6 +166,7 @@ export type AiUsageSummary = {
 
 export type UploadedPetMedia = {
   analysis: PetMediaAnalysis;
+  fileUrl?: string;
   mediaId: string;
   previewUrl: string;
   quality: 'blocked' | 'good' | 'warning';
@@ -313,6 +314,7 @@ export type NearbyMoment = {
   mood?: string;
   ownerId: string;
   ownerName: string;
+  ownedByMe?: boolean;
   petName: string;
   photoCount?: number;
   species: Extract<PetSpecies, 'cat' | 'dog'>;
@@ -327,6 +329,7 @@ export type PetCircleComment = {
   createdAt: string;
   id: string;
   ownerId: string;
+  ownedByMe?: boolean;
   postId: string;
   text: string;
 };
@@ -336,11 +339,35 @@ export type PetCirclePostList = {
   nextCursor?: string;
 };
 
+export type PetCircleReportResult = {
+  id: string;
+  reported: true;
+  targetId: string;
+  targetType: 'comment' | 'post';
+};
+
+export type SocialBlockResult = {
+  blocked: true;
+  id: string;
+  ownerId: string;
+};
+
+export type SocialBlockListItem = {
+  avatarUrl?: string;
+  blockedAt: string;
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  petName?: string;
+  species?: Extract<PetSpecies, 'cat' | 'dog'>;
+};
+
 export type NearbyLocationHint = {
   accuracy?: number;
   latitude: number;
   longitude: number;
   radiusKm?: number;
+  updatedAt?: number;
 };
 
 export type Conversation = {
@@ -364,9 +391,16 @@ export type ConversationMessage = {
   time: string;
 };
 
+export type GreetingOptions = {
+  postId?: string;
+  source?: 'pet_circle';
+};
+
 export type GreetingResult = {
   conversation?: Conversation;
   ownerId: string;
+  postId?: string;
+  source?: 'pet_circle';
   sent: true;
 };
 
@@ -387,15 +421,17 @@ export type WalkInviteResult = {
 };
 
 export type NotificationCategory = 'health' | 'interaction' | 'system' | 'walk';
-export type NotificationKind = 'conversation_message' | 'greeting_accepted' | 'greeting_request' | 'health_reminder' | 'system' | 'walk_invite';
+export type NotificationKind = 'conversation_message' | 'greeting_accepted' | 'greeting_request' | 'health_reminder' | 'pet_circle_comment' | 'pet_circle_greeting' | 'pet_circle_like' | 'system' | 'walk_invite';
 
 export type NotificationItem = {
   category?: NotificationCategory;
+  commentId?: string;
   conversationId?: string;
   createdAt?: string;
   id: string;
   kind?: NotificationKind;
   ownerId?: string;
+  postId?: string;
   read: boolean;
   text: string;
   title: string;

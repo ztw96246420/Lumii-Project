@@ -1,9 +1,9 @@
-﻿import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactElement, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   AppState,
   BackHandler,
   Image,
@@ -99,6 +99,7 @@ import { BottomSheet, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field
 import type {
   AppRoute,
   AppTab,
+  ApiError,
   AiUsageSummary,
   AvatarGenerationFeedbackReason,
   AuthSession,
@@ -122,6 +123,7 @@ import type {
   PetSpecies,
   Place,
   PlaceReview,
+  SocialBlockListItem,
   SmsCodeTicket,
   UploadedPetMedia,
   UserSettings,
@@ -131,10 +133,19 @@ import type {
 
 const smsCooldownMs = 60 * 1000;
 const defaultDiscoverRadiusKm = 3;
+const nearbyPublishLocationMaxAgeMs = 10 * 60 * 1000;
 const fallbackPetAvatarDailyLimit = 10;
 const fallbackPetChatDailyLimit = 80;
 const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
+
+function applyStableAndroidStatusBar() {
+  if (Platform.OS !== 'android') return;
+  NativeStatusBar.setBarStyle('dark-content');
+  NativeStatusBar.setBackgroundColor(palette.background, false);
+  NativeStatusBar.setTranslucent(false);
+}
+
 type NotificationFilter = 'all' | NotificationCategory;
 type MemoRepeat = NonNullable<HealthMemo['repeat']>;
 type DatePickerMode = 'date' | 'time';
@@ -167,7 +178,7 @@ function notificationCategoryFor(item: NotificationItem): NotificationCategory {
   const id = String(item.id || '');
   if (/walk/.test(id)) return 'walk';
   if (/(health|vaccine|medical)/.test(id)) return 'health';
-  if (/(greeting|message)/.test(id)) return 'interaction';
+  if (/(greeting|message|pet-circle|pet_circle)/.test(id)) return 'interaction';
   const value = `${item.title} ${item.text}`;
   if (/账号|安全|登录|设备|系统|隐私|注销/.test(value)) return 'system';
   if (/约遛|邀请|公园|散步|见面|一起去|地点/.test(value)) return 'walk';
@@ -176,13 +187,16 @@ function notificationCategoryFor(item: NotificationItem): NotificationCategory {
 }
 
 function isNotificationKind(value: unknown): value is NotificationKind {
-  return value === 'conversation_message' || value === 'greeting_accepted' || value === 'greeting_request' || value === 'health_reminder' || value === 'system' || value === 'walk_invite';
+  return value === 'conversation_message' || value === 'greeting_accepted' || value === 'greeting_request' || value === 'health_reminder' || value === 'pet_circle_comment' || value === 'pet_circle_greeting' || value === 'pet_circle_like' || value === 'system' || value === 'walk_invite';
 }
 
 function notificationKindFor(item: NotificationItem): NotificationKind {
   if (isNotificationKind(item.kind)) return item.kind;
   const id = String(item.id || '');
   if (/message/.test(id)) return 'conversation_message';
+  if (/(pet-circle-comment|pet_circle_comment)/.test(id)) return 'pet_circle_comment';
+  if (/(pet-circle-greeting|pet_circle_greeting)/.test(id)) return 'pet_circle_greeting';
+  if (/(pet-circle-like|pet_circle_like)/.test(id)) return 'pet_circle_like';
   if (/greeting-accepted/.test(id)) return 'greeting_accepted';
   if (/greeting/.test(id)) return 'greeting_request';
   if (/walk/.test(id)) return 'walk_invite';
@@ -194,11 +208,28 @@ function notificationKindFor(item: NotificationItem): NotificationKind {
   return 'greeting_request';
 }
 
+function petCirclePostIdFromNotification(item: NotificationItem) {
+  if (item.postId) return item.postId;
+  const match = String(item.id || '').match(/^n-pet-circle-like-(.+)-\d+$/);
+  return match?.[1] ?? '';
+}
+
+function isPetCirclePostGoneError(error?: ApiError) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  return code === 'PET_CIRCLE_POST_GONE' || /小事已不可见|已不可见|不存在或已删除/.test(message);
+}
+
+function isFreshNearbyLocation(location?: NearbyLocationHint | null, now = Date.now()) {
+  const updatedAt = Number(location?.updatedAt || 0);
+  return Boolean(location && Number.isFinite(updatedAt) && updatedAt > 0 && now - updatedAt <= nearbyPublishLocationMaxAgeMs);
+}
+
 function conversationIdFromNotification(item: NotificationItem) {
   if (item.conversationId) return item.conversationId;
   const ownerId = String(item.ownerId || '');
   const kind = notificationKindFor(item);
-  if (kind !== 'greeting_request' && ownerId.startsWith('user-')) return `c-${ownerId.slice('user-'.length)}`;
+  if (kind !== 'greeting_request' && kind !== 'pet_circle_greeting' && ownerId.startsWith('user-')) return `c-${ownerId.slice('user-'.length)}`;
   return '';
 }
 
@@ -502,7 +533,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'dailyPost' || value === 'discover' || value === 'home') return value;
+  if (value === 'dailyPost' || value === 'discover' || value === 'home' || value === 'memoNew' || value === 'notifications' || value === 'safety' || value === 'settings') return value;
   return null;
 }
 
@@ -522,6 +553,7 @@ type LocalImageUploadDraft = {
   base64?: string;
   fileName?: string;
   mimeType?: string;
+  source?: 'camera' | 'library';
   uri: string;
 };
 
@@ -566,6 +598,46 @@ function buildAvatarUploadDraft(asset?: ImagePicker.ImagePickerAsset): { draft?:
     },
   };
 }
+
+function buildDailyPostPhotoDraft(asset: ImagePicker.ImagePickerAsset | undefined, source: 'camera' | 'library'): { draft?: LocalImageUploadDraft; error?: string } {
+  if (!asset?.uri) return { error: '没有读取到照片，请重新选择' };
+  const mimeType = normalizeLocalImageMimeType(asset.mimeType, asset.uri, asset.fileName);
+  if (!mimeType || !supportedAvatarMimeTypes.has(mimeType)) return { error: '照片仅支持 JPG、PNG、WebP、HEIC 图片' };
+  if (!asset.base64) return { error: '照片没有读取到可上传内容，请重新选择' };
+  const bytes = Number(asset.fileSize) || estimateBase64Bytes(asset.base64);
+  if (bytes > avatarUploadMaxBytes) return { error: `照片文件过大，请选择 ${Math.round(avatarUploadMaxBytes / 1024 / 1024)}MB 以内的图片` };
+  return {
+    draft: {
+      base64: asset.base64,
+      fileName: asset.fileName || `daily-post-${Date.now()}.${avatarExtensionForMimeType(mimeType)}`,
+      mimeType,
+      source,
+      uri: asset.uri,
+    },
+  };
+}
+
+function confirmAction(title: string, message: string, confirmText = '确认', destructive = false) {
+  if (Platform.OS === 'web') {
+    const confirm = (globalThis as typeof globalThis & { confirm?: (message?: string) => boolean }).confirm;
+    return Promise.resolve(confirm ? confirm(`${title}\n${message}`) : true);
+  }
+  return new Promise<boolean>((resolve) => {
+    Alert.alert(
+      title,
+      message,
+      [
+        { onPress: () => resolve(false), style: 'cancel', text: '取消' },
+        { onPress: () => resolve(true), style: destructive ? 'destructive' : 'default', text: confirmText },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
+}
+
+function confirmDestructiveAction(title: string, message: string) {
+  return confirmAction(title, message, '确认删除', true);
+}
 type DiscoverFilter = 'all' | 'dog' | 'cat' | 'social' | 'walk';
 type DiscoverTab = 'circle' | 'partners';
 type DailyPostVisibility = 'nearby' | 'private';
@@ -574,6 +646,7 @@ type PetCircleCommentView = {
   author: string;
   avatarUrl?: string;
   id: string;
+  ownedByMe?: boolean;
   text: string;
   time: string;
 };
@@ -583,6 +656,7 @@ type PetCirclePostView = NearbyMoment & {
   imageUrls: string[];
   likedByMe: boolean;
   likeCount: number;
+  ownedByMe: boolean;
   tags: string[];
 };
 const discoverFilterOptions: Array<{ key: DiscoverFilter; label: string }> = [
@@ -593,6 +667,8 @@ const discoverFilterOptions: Array<{ key: DiscoverFilter; label: string }> = [
   { key: 'walk', label: '可约遛' },
 ];
 const dailyPostMaxPhotoCount = 6;
+const petCircleCollapsedTextLength = 96;
+const petCircleCommentMaxLength = 140;
 const petCircleFallbackMomentSeeds: Array<NearbyMoment & { fallbackMinutesAgo: number }> = [
   {
     createdAt: '',
@@ -606,7 +682,7 @@ const petCircleFallbackMomentSeeds: Array<NearbyMoment & { fallbackMinutesAgo: n
     petName: 'Lucky',
     photoCount: 6,
     species: 'dog',
-    text: '傍晚在楼下花园跑了三圈，遇到两只新朋友。最后一张是回家路上累到趴下的样子。',
+    text: '傍晚在楼下花园跑了三圈，遇到两只新朋友。最后一张是回家路上累到趴下的样子。路上还认真闻了每一棵树，像是在读附近宠友留下的小纸条。回家以后喝水正常，精神也很好，明天想试试同一条路线，顺便看看会不会再遇到刚才那只很会摇尾巴的小柯基。',
   },
   {
     createdAt: '',
@@ -1167,6 +1243,55 @@ function buildPetCircleFallbackMoments() {
   }));
 }
 
+function buildPetCircleInteractivePreviewMoments(): NearbyMoment[] {
+  const now = Date.now();
+  return [
+    {
+      commentCount: 1,
+      createdAt: new Date(now - 8 * 60 * 1000).toISOString(),
+      distance: '1km 内',
+      id: 'mock-fixture-pet-circle-interaction',
+      imageUrl: discoverOwnerAvatarUrls[0],
+      imageUrls: [
+        'https://images.unsplash.com/photo-1587300003388-59208cc962cb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+      ],
+      likedByMe: false,
+      likeCount: 3,
+      mood: '开心',
+      ownerId: 'o1',
+      ownerName: '林然',
+      ownedByMe: false,
+      petName: '奶油',
+      photoCount: 1,
+      species: 'dog',
+      text: 'Playwright 互动夹具：奶油今天在草坪练习等待口令。',
+      visibility: 'nearby',
+    },
+    {
+      commentCount: 0,
+      createdAt: new Date(now - 18 * 60 * 1000).toISOString(),
+      distance: '约 1-2km',
+      id: 'mock-fixture-pet-circle-block',
+      imageUrl: discoverOwnerAvatarUrls[1],
+      imageUrls: [
+        'https://images.unsplash.com/photo-1552053831-71594a27632d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+        'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+      ],
+      likedByMe: false,
+      likeCount: 6,
+      mood: '想约遛',
+      ownerId: 'o2',
+      ownerName: '小夏',
+      ownedByMe: false,
+      petName: '豆包',
+      photoCount: 2,
+      species: 'dog',
+      text: 'Playwright 拉黑夹具：豆包想找附近的朋友绕一圈。',
+      visibility: 'nearby',
+    },
+  ];
+}
+
 function buildPetCircleTags(moment: NearbyMoment, index: number) {
   const baseTags = moment.species === 'dog' ? ['可约遛', '想交朋友'] : ['窗边日常', '想交朋友'];
   const moodTag = moment.mood ? `心情${moment.mood}` : index % 2 === 0 ? '附近小事' : '轻互动';
@@ -1189,19 +1314,19 @@ function buildPetCircleComments(moment: NearbyMoment, index: number): PetCircleC
   const secondAvatar = discoverOwnerAvatarUrls[(index + 2) % discoverOwnerAvatarUrls.length];
   if (moment.species === 'cat') {
     return [
-      { author: '圆圆', avatarUrl: firstAvatar, id: `${moment.id}-comment-1`, text: '这张窗边照好舒服，像在晒一整天的太阳。', time: '12分钟前' },
-      { author: '豆豆主人', avatarUrl: secondAvatar, id: `${moment.id}-comment-2`, text: '我家猫也喜欢这个角落，握手。', time: '刚刚' },
+      { author: '圆圆', avatarUrl: firstAvatar, id: `${moment.id}-comment-1`, ownedByMe: false, text: '这张窗边照好舒服，像在晒一整天的太阳。', time: '12分钟前' },
+      { author: '豆豆主人', avatarUrl: secondAvatar, id: `${moment.id}-comment-2`, ownedByMe: false, text: '我家猫也喜欢这个角落，握手。', time: '刚刚' },
     ];
   }
   return [
-    { author: '奶茶爸', avatarUrl: firstAvatar, id: `${moment.id}-comment-1`, text: `好可爱，${moment.petName}看起来很适合一起遛弯。`, time: '8分钟前' },
-    { author: 'Momo', avatarUrl: secondAvatar, id: `${moment.id}-comment-2`, text: '这个路线在哪呀？感觉很适合傍晚去。', time: '2分钟前' },
+    { author: '奶茶爸', avatarUrl: firstAvatar, id: `${moment.id}-comment-1`, ownedByMe: false, text: `好可爱，${moment.petName}看起来很适合一起遛弯。`, time: '8分钟前' },
+    { author: 'Momo', avatarUrl: secondAvatar, id: `${moment.id}-comment-2`, ownedByMe: false, text: '这个路线在哪呀？感觉很适合傍晚去。', time: '2分钟前' },
   ];
 }
 
-function buildPetCirclePosts(moments: NearbyMoment[], commentsByPostId: Record<string, PetCircleComment[]>): PetCirclePostView[] {
-  const sourceMoments = moments.length ? moments : buildPetCircleFallbackMoments();
-  const usingFallbackMoments = !moments.length;
+function buildPetCirclePosts(moments: NearbyMoment[], commentsByPostId: Record<string, PetCircleComment[]>, useFallback = false): PetCirclePostView[] {
+  const usingFallbackMoments = useFallback && !moments.length;
+  const sourceMoments = usingFallbackMoments ? buildPetCircleFallbackMoments() : moments;
   return sourceMoments.map((moment, index) => {
     const loadedComments = commentsByPostId[moment.id];
     const comments = loadedComments
@@ -1209,6 +1334,7 @@ function buildPetCirclePosts(moments: NearbyMoment[], commentsByPostId: Record<s
         author: comment.author,
         avatarUrl: comment.avatarUrl,
         id: comment.id,
+        ownedByMe: Boolean(comment.ownedByMe),
         text: comment.text || comment.content,
         time: formatTimestampDisplay(comment.createdAt, '刚刚'),
       }))
@@ -1223,6 +1349,7 @@ function buildPetCirclePosts(moments: NearbyMoment[], commentsByPostId: Record<s
       imageUrls: buildPetCirclePhotoUrls(moment, index),
       likedByMe,
       likeCount: moment.likeCount ?? (usingFallbackMoments ? 18 + index * 7 + (likedByMe ? 1 : 0) : 0),
+      ownedByMe: Boolean(moment.ownedByMe),
       tags: buildPetCircleTags(moment, index),
     };
   });
@@ -1253,6 +1380,21 @@ function petCirclePostMatchesQuery(post: PetCirclePostView, query: string) {
 export default function LumiiMvpApp() {
   const previewRoute = normalizeWebPreviewRoute(getWebPreviewParam('route'));
   const isHomePreviewMode = Boolean(previewRoute) || getWebPreviewParam('preview') === 'home' || getWebPreviewParam('preview') === 'pet-home';
+  const interactivePetCirclePreview = getWebPreviewParam('mockPetCircle') === 'interactive';
+  const previewNearbyVisibleParam = getWebPreviewParam('nearbyVisible');
+  const initialUserSettings: UserSettings = isHomePreviewMode
+    ? {
+      ...webPreviewSession.account!.settings,
+      nearbyVisible: previewNearbyVisibleParam === 'false'
+        ? false
+        : previewNearbyVisibleParam === 'true'
+          ? true
+          : webPreviewSession.account!.settings.nearbyVisible,
+    }
+    : defaultUserSettings;
+  const initialPreviewSession: AuthSession = isHomePreviewMode
+    ? { ...webPreviewSession, account: { ...webPreviewSession.account!, settings: initialUserSettings } }
+    : webPreviewSession;
   const initialPreviewRoute = previewRoute ?? 'home';
   const forcedHomeMomentKind = normalizeHomeMomentPreview(getWebPreviewParam('moment'));
   const profileHorizontalInset = Platform.OS === 'web' ? 16 : 12;
@@ -1282,7 +1424,7 @@ export default function LumiiMvpApp() {
   const [otpInlineError, setOtpInlineError] = useState('');
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [clock, setClock] = useState(Date.now());
-  const [session, setSession] = useState<AuthSession | null>(isHomePreviewMode ? webPreviewSession : null);
+  const [session, setSession] = useState<AuthSession | null>(isHomePreviewMode ? initialPreviewSession : null);
   const activePetIdRef = useRef<string | null>(null);
   const phoneInputRef = useRef<TextInput>(null);
   const phoneValueRef = useRef('');
@@ -1296,9 +1438,9 @@ export default function LumiiMvpApp() {
   const systemSettingsOpenedAtRef = useRef(0);
   const registeredPushTokenRef = useRef('');
   const scheduledPushRegistrationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sessionTokenRef = useRef(isHomePreviewMode ? webPreviewSession.token : '');
+  const sessionTokenRef = useRef(isHomePreviewMode ? initialPreviewSession.token : '');
   const permissionsRef = useRef<PermissionStateMap>(isHomePreviewMode ? webPreviewPermissions : initialPermissions);
-  const userSettingsRef = useRef<UserSettings>(defaultUserSettings);
+  const userSettingsRef = useRef<UserSettings>(initialUserSettings);
   const userSettingSavingKeysRef = useRef<Set<UserSettingKey>>(new Set());
   const datePickerCommitRef = useRef<(date: Date) => void>(() => undefined);
   const keyboardHeightRef = useRef(0);
@@ -1406,6 +1548,7 @@ export default function LumiiMvpApp() {
   const [dailyPostText, setDailyPostText] = useState('');
   const [dailyMood, setDailyMood] = useState<DailyMood>('开心');
   const [dailyPostPhotoUris, setDailyPostPhotoUris] = useState<string[]>([]);
+  const [dailyPostPhotoDrafts, setDailyPostPhotoDrafts] = useState<LocalImageUploadDraft[]>([]);
   const [dailyVisibility, setDailyVisibility] = useState<DailyPostVisibility>('nearby');
   const [dailyPhotoPicking, setDailyPhotoPicking] = useState(false);
   const dailyPhotoPickingRef = useRef(false);
@@ -1413,10 +1556,13 @@ export default function LumiiMvpApp() {
   const dailyPostSavingRef = useRef(false);
   const [owners, setOwners] = useState<NearbyOwner[]>([]);
   const ownersRef = useRef<NearbyOwner[]>([]);
-  const [nearbyMoments, setNearbyMoments] = useState<NearbyMoment[]>([]);
+  const [nearbyMoments, setNearbyMoments] = useState<NearbyMoment[]>(isHomePreviewMode && interactivePetCirclePreview ? buildPetCircleInteractivePreviewMoments() : []);
   const [nearbyMomentsError, setNearbyMomentsError] = useState('');
   const [nearbyMomentsLoading, setNearbyMomentsLoading] = useState(false);
   const nearbyMomentsLoadingRef = useRef(false);
+  const [petCircleNextCursor, setPetCircleNextCursor] = useState<string | undefined>();
+  const [petCircleLoadingMore, setPetCircleLoadingMore] = useState(false);
+  const petCircleLoadingMoreRef = useRef(false);
   const [homeMomentIndex, setHomeMomentIndex] = useState(0);
   const [discoverRefreshing, setDiscoverRefreshing] = useState(false);
   const discoverRefreshingRef = useRef(false);
@@ -1435,7 +1581,19 @@ export default function LumiiMvpApp() {
   const [petCircleCommentDraft, setPetCircleCommentDraft] = useState('');
   const [petCircleCommentLoadingId, setPetCircleCommentLoadingId] = useState('');
   const [petCircleCommentSending, setPetCircleCommentSending] = useState(false);
+  const [petCircleDeletingCommentIds, setPetCircleDeletingCommentIds] = useState<string[]>([]);
+  const [petCircleDeletingPostIds, setPetCircleDeletingPostIds] = useState<string[]>([]);
+  const [petCircleExpandedPostIds, setPetCircleExpandedPostIds] = useState<string[]>([]);
+  const [petCircleFocusedPostId, setPetCircleFocusedPostId] = useState('');
+  const [petCircleBlockingOwnerIds, setPetCircleBlockingOwnerIds] = useState<string[]>([]);
+  const [petCircleReportingCommentIds, setPetCircleReportingCommentIds] = useState<string[]>([]);
+  const [petCircleReportingPostIds, setPetCircleReportingPostIds] = useState<string[]>([]);
   const [petCirclePhotoViewer, setPetCirclePhotoViewer] = useState<PetCirclePhotoViewerState | null>(null);
+  const [petCircleOwnerSheetOwner, setPetCircleOwnerSheetOwner] = useState<NearbyOwner | null>(null);
+  const [socialBlocks, setSocialBlocks] = useState<SocialBlockListItem[]>([]);
+  const [socialBlocksError, setSocialBlocksError] = useState('');
+  const [socialBlocksLoading, setSocialBlocksLoading] = useState(false);
+  const [socialBlockRemovingOwnerIds, setSocialBlockRemovingOwnerIds] = useState<string[]>([]);
   const [greetingRequestOwners, setGreetingRequestOwners] = useState<NearbyOwner[]>([]);
   const greetingRequestOwnersRef = useRef<NearbyOwner[]>([]);
   const [greetingRequestSeenAtById, setGreetingRequestSeenAtById] = useState<Record<string, number>>({});
@@ -1449,6 +1607,7 @@ export default function LumiiMvpApp() {
   const [selectedOwner, setSelectedOwner] = useState<NearbyOwner | null>(null);
   const selectedOwnerIdRef = useRef<string | null>(null);
   const [greetingSheetOwner, setGreetingSheetOwner] = useState<NearbyOwner | null>(null);
+  const [greetingSheetSourcePostId, setGreetingSheetSourcePostId] = useState('');
   const [greetingMessage, setGreetingMessage] = useState('你好呀，我们也在附近，想认识一下吗？');
   const [walkInvitePlace, setWalkInvitePlace] = useState('');
   const [walkInvitePlaceAddress, setWalkInvitePlaceAddress] = useState('');
@@ -1521,7 +1680,7 @@ export default function LumiiMvpApp() {
   const [placeSubmissionSaving, setPlaceSubmissionSaving] = useState(false);
   const placeSubmissionSavingRef = useRef(false);
   const [placeSubmissionStatus, setPlaceSubmissionStatus] = useState<'idle' | 'pending_review'>('idle');
-  const [userSettings, setUserSettings] = useState<UserSettings>(isHomePreviewMode ? webPreviewSession.account!.settings : defaultUserSettings);
+  const [userSettings, setUserSettings] = useState<UserSettings>(initialUserSettings);
   const [ownerNameDraft, setOwnerNameDraft] = useState('');
   const [ownerBioDraft, setOwnerBioDraft] = useState('');
   const [ownerAvatarDraft, setOwnerAvatarDraft] = useState('');
@@ -1860,6 +2019,10 @@ export default function LumiiMvpApp() {
   }, [userSettings]);
 
   useEffect(() => {
+    if (!userSettings.nearbyVisible && dailyVisibility === 'nearby') setDailyVisibility('private');
+  }, [dailyVisibility, userSettings.nearbyVisible]);
+
+  useEffect(() => {
     mediaIdRef.current = media?.mediaId ?? null;
   }, [media?.mediaId]);
 
@@ -1992,11 +2155,12 @@ export default function LumiiMvpApp() {
   }, [route, session]);
 
   useEffect(() => {
-    if (Platform.OS !== 'android') return;
-    NativeStatusBar.setBarStyle('dark-content');
-    NativeStatusBar.setBackgroundColor(palette.background);
-    NativeStatusBar.setTranslucent(false);
+    applyStableAndroidStatusBar();
   }, []);
+
+  useEffect(() => {
+    applyStableAndroidStatusBar();
+  }, [route]);
 
   useEffect(() => {
     if (Platform.OS === 'web' || !session) return undefined;
@@ -2105,6 +2269,7 @@ export default function LumiiMvpApp() {
     if (!session) return undefined;
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState !== 'active') return;
+      applyStableAndroidStatusBar();
       if (focusedInboxRoutes.has(route) || passiveInboxRoutes.has(route) || route === 'conversation') void loadInboxData();
       if (route === 'conversation' && selectedConversationIdRef.current) {
         void loadConversationMessages(selectedConversationIdRef.current, { markRead: true, silent: true });
@@ -2134,6 +2299,11 @@ export default function LumiiMvpApp() {
     if (!session || route !== 'healthCalendar') return;
     void loadHealthCalendar({ silent: true });
   }, [activePet?.id, route, session]);
+
+  useEffect(() => {
+    if (!session || route !== 'safety') return;
+    void loadSocialBlocks({ silent: true });
+  }, [route, session]);
 
   useEffect(() => {
     if (!session || (route !== 'upload' && route !== 'uploadDetail' && route !== 'aiResult')) return;
@@ -2259,8 +2429,10 @@ export default function LumiiMvpApp() {
     }
     if (momentResult.data) {
       setNearbyMoments(momentResult.data.items);
+      setPetCircleNextCursor(momentResult.data.nextCursor);
       setNearbyMomentsError('');
     } else if (momentResult.error) {
+      setPetCircleNextCursor(undefined);
       setNearbyMomentsError(momentResult.error.message);
     }
     if (greetingRequestResult.data) {
@@ -2276,6 +2448,37 @@ export default function LumiiMvpApp() {
       setPetChatDailyCount(aiUsageResult.data.daily.petChat.count);
     }
     setActivePet((pet) => pet ?? getActivePetFallback());
+  }
+
+  async function loadSocialBlocks(options: { silent?: boolean } = {}) {
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
+    if (!options.silent || !socialBlocks.length) setSocialBlocksLoading(true);
+    const result = await lumiiApi.social.listBlocks();
+    if (sessionTokenRef.current !== requestSessionToken) return;
+    setSocialBlocksLoading(false);
+    if (result.data) {
+      setSocialBlocks(result.data);
+      setSocialBlocksError('');
+      return;
+    }
+    setSocialBlocksError(result.error?.message ?? '黑名单读取失败，请稍后重试');
+    if (!options.silent) showToast(result.error?.message ?? '黑名单读取失败，请稍后重试', { tone: 'error', variant: 'surface' });
+  }
+
+  async function unblockSocialOwner(block: SocialBlockListItem) {
+    if (socialBlockRemovingOwnerIds.includes(block.ownerId)) return;
+    const confirmed = await confirmAction('解除拉黑？', `解除后，你和${block.ownerName}会重新按附近可见与距离规则互相出现。`, '解除拉黑', true);
+    if (!confirmed) return;
+    setSocialBlockRemovingOwnerIds((ids) => [...ids, block.ownerId]);
+    const result = await lumiiApi.social.unblockOwner(block.ownerId);
+    setSocialBlockRemovingOwnerIds((ids) => ids.filter((id) => id !== block.ownerId));
+    if (result.data) {
+      setSocialBlocks((items) => items.filter((item) => item.ownerId !== block.ownerId));
+      showToast('已解除拉黑', { subtitle: '重新刷新附近列表后可按规则看到对方', tone: 'success', variant: 'surface' });
+      return;
+    }
+    showToast(result.error?.message ?? '解除拉黑失败，请稍后重试', { tone: 'error', variant: 'surface' });
   }
 
   async function loadAiUsage(options: { silent?: boolean } = { silent: true }) {
@@ -2422,6 +2625,7 @@ export default function LumiiMvpApp() {
     setVaccineCreating(false);
     setDailyPostText('');
     setDailyPostPhotoUris([]);
+    setDailyPostPhotoDrafts([]);
     dailyPhotoPickingRef.current = false;
     setDailyPhotoPicking(false);
     setDailyMood('开心');
@@ -2757,6 +2961,15 @@ export default function LumiiMvpApp() {
     if (!item.read) void markNotificationReadSilently(item.id);
     const kind = notificationKindFor(item);
     const conversationId = conversationIdFromNotification(item);
+    const petCircleSourcePostId = petCirclePostIdFromNotification(item);
+    if (kind === 'pet_circle_comment' || kind === 'pet_circle_like' || (kind === 'pet_circle_greeting' && petCircleSourcePostId)) {
+      setPetCircleFocusedPostId(petCircleSourcePostId);
+      setDiscoverTab('circle');
+      setDiscoverFilter('all');
+      setDiscoverQuery('');
+      go('discover');
+      return;
+    }
     if (conversationId && (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite')) {
       await openConversationFromNotification(conversationId);
       return;
@@ -2765,7 +2978,7 @@ export default function LumiiMvpApp() {
       go('messages');
       return;
     }
-    if (kind === 'greeting_request') {
+    if (kind === 'greeting_request' || kind === 'pet_circle_greeting') {
       go('greetingRequests');
       return;
     }
@@ -4695,11 +4908,13 @@ export default function LumiiMvpApp() {
         source === 'camera'
           ? await ImagePicker.launchCameraAsync({
               allowsEditing: false,
+              base64: true,
               mediaTypes: ['images'],
               quality: 0.78,
             })
           : await ImagePicker.launchImageLibraryAsync({
             allowsMultipleSelection: true,
+            base64: true,
             mediaTypes: ['images'],
             quality: 0.78,
               selectionLimit: Math.max(1, dailyPostMaxPhotoCount - dailyPostPhotoUris.length),
@@ -4708,17 +4923,39 @@ export default function LumiiMvpApp() {
         showToast(source === 'camera' ? '已取消拍照' : '已取消选择照片');
         return;
       }
-      const nextUris = pickerResult.assets.map((asset) => asset.uri).filter(Boolean);
-      if (!nextUris.length) {
-        showToast('没有读取到可用照片，请重新选择');
+      const parsedDrafts = pickerResult.assets.map((asset) => buildDailyPostPhotoDraft(asset, source));
+      const nextDrafts = parsedDrafts.map((item) => item.draft).filter(Boolean) as LocalImageUploadDraft[];
+      if (!nextDrafts.length) {
+        showToast(parsedDrafts.find((item) => item.error)?.error ?? '没有读取到可用照片，请重新选择', { tone: 'warning', variant: 'surface' });
         return;
       }
+      const nextUris = nextDrafts.map((draft) => draft.uri);
       setDailyPostPhotoUris((items) => [...items, ...nextUris].slice(0, dailyPostMaxPhotoCount));
+      setDailyPostPhotoDrafts((items) => [...items, ...nextDrafts].slice(0, dailyPostMaxPhotoCount));
       showToast(`已添加 ${nextUris.length} 张照片`, { tone: 'success', variant: 'surface' });
     } finally {
       dailyPhotoPickingRef.current = false;
       setDailyPhotoPicking(false);
     }
+  }
+
+  async function uploadDailyPostImages(drafts: LocalImageUploadDraft[]) {
+    const urls: string[] = [];
+    for (const draft of drafts.slice(0, dailyPostMaxPhotoCount)) {
+      const result = await lumiiApi.avatar.uploadPetMedia({
+        base64: draft.base64,
+        fileName: draft.fileName,
+        mimeType: draft.mimeType,
+        previewUrl: draft.uri,
+        source: draft.source ?? 'library',
+      });
+      if (!result.data) return { error: result.error?.message ?? '照片上传失败，请稍后重试', urls };
+      if (result.data.quality === 'blocked') return { error: result.data.analysis.message || '这张照片暂不适合公开发布，请换一张', urls };
+      const publicUrl = result.data.fileUrl || result.data.previewUrl;
+      if (!publicUrl) return { error: '照片上传后没有生成可访问地址，请稍后重试', urls };
+      urls.push(publicUrl);
+    }
+    return { urls };
   }
 
   async function publishDailyPost() {
@@ -4733,28 +4970,53 @@ export default function LumiiMvpApp() {
       showToast('先写一点今天的小事吧');
       return;
     }
+    if (dailyVisibility === 'nearby' && !userSettingsRef.current.nearbyVisible) {
+      showToast('请先开启附近可见', { subtitle: '草稿已保留，也可以改为仅自己可见', tone: 'warning', variant: 'surface' });
+      return;
+    }
     const requestText = dailyPostText.trim();
     const requestPhotoUris = dailyPostPhotoUris.slice(0, dailyPostMaxPhotoCount);
+    const requestPhotoDrafts = dailyPostPhotoDrafts.slice(0, dailyPostMaxPhotoCount);
     const requestPhotoCount = requestPhotoUris.length;
     const photoSummary = requestPhotoCount ? `\n附照片 ${requestPhotoCount} 张（本次记录预览）` : '';
     dailyPostSavingRef.current = true;
     setDailyPostSaving(true);
     try {
+      let requestLocation: NearbyLocationHint | null = null;
+      if (dailyVisibility === 'nearby') {
+        requestLocation = isFreshNearbyLocation(lastDiscoverLocationRef.current)
+          ? lastDiscoverLocationRef.current
+          : await getDiscoverLocationHint({ allowCachedOnError: false, silent: false });
+        if (!requestLocation) {
+          showToast('请先完成定位后再发布到宠友圈', { subtitle: '草稿已保留，也可以切换为仅自己可见', tone: 'warning', variant: 'surface' });
+          return;
+        }
+      }
+      let uploadedImageUrls: string[] = [];
+      if (dailyVisibility === 'nearby' && requestPhotoDrafts.length) {
+        const uploadResult = await uploadDailyPostImages(requestPhotoDrafts);
+        if (uploadResult.error) {
+          showToast(uploadResult.error, { tone: 'error', variant: 'surface' });
+          return;
+        }
+        uploadedImageUrls = uploadResult.urls;
+      }
       const result = await lumiiApi.health.saveHealthMemo('今日小事', `${requestText}${photoSummary}`);
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setMemos((items) => [result.data!, ...items]);
         setDailyPostText('');
         setDailyPostPhotoUris([]);
+        setDailyPostPhotoDrafts([]);
         let momentSynced = false;
         let momentSyncError = '';
         if (dailyVisibility === 'nearby') {
-          const momentResult = await lumiiApi.social.createMoment(requestText, dailyMood, requestPhotoCount, { imageUrls: requestPhotoUris, visibility: 'nearby' });
+          const momentResult = await lumiiApi.social.createMoment(requestText, dailyMood, uploadedImageUrls.length || requestPhotoCount, { imageUrls: uploadedImageUrls, location: requestLocation, visibility: 'nearby' });
           if (sessionTokenRef.current === requestSessionToken && momentResult.data) {
             momentSynced = true;
             setNearbyMomentsError('');
             setHomeMomentIndex(0);
-            void loadNearbyMoments({ silent: true });
+            void loadNearbyMoments({ location: requestLocation, silent: true });
           } else if (sessionTokenRef.current === requestSessionToken && momentResult.error) {
             momentSyncError = momentResult.error.message;
             setNearbyMomentsError(momentResult.error.message);
@@ -4779,14 +5041,16 @@ export default function LumiiMvpApp() {
     }
   }
 
-  function openGreetingSheet(owner: NearbyOwner) {
+  function openGreetingSheet(owner: NearbyOwner, sourcePostId = '') {
     setGreetingSheetOwner(owner);
+    setGreetingSheetSourcePostId(sourcePostId);
     setGreetingMessage(`你好呀，${owner.petName}看起来好可爱，我们也在附近，想认识一下吗？`);
   }
 
   function closeGreetingSheet() {
     if (greetingSheetOwner && socialActionSavingIdsRef.current.has(`greet:${greetingSheetOwner.id}`)) return;
     setGreetingSheetOwner(null);
+    setGreetingSheetSourcePostId('');
     setGreetingMessage('你好呀，我们也在附近，想认识一下吗？');
   }
 
@@ -4796,7 +5060,19 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     const owner = ownersRef.current.find((item) => item.id === ownerId) ?? (greetingSheetOwner?.id === ownerId ? greetingSheetOwner : undefined);
     try {
-      const result = await lumiiApi.social.sendGreeting(ownerId);
+      if (ownerId.startsWith('pet-circle-owner-')) {
+        await sleep(350);
+        if (sessionTokenRef.current !== requestSessionToken) return;
+        if (greetingSheetOwner?.id === ownerId) {
+          setGreetingSheetOwner(null);
+          setGreetingSheetSourcePostId('');
+          setGreetingMessage('你好呀，我们也在附近，想认识一下吗？');
+        }
+        showToast(`已向${owner?.petName ?? '附近伙伴'}打招呼`, { subtitle: '预览动态已模拟发送', tone: 'success', variant: 'surface' });
+        return;
+      }
+      const sourcePostId = greetingSheetSourcePostId;
+      const result = await lumiiApi.social.sendGreeting(ownerId, sourcePostId ? { postId: sourcePostId, source: 'pet_circle' } : undefined);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         if (result.data.conversation) {
@@ -4805,6 +5081,7 @@ export default function LumiiMvpApp() {
         void loadInboxData();
         if (greetingSheetOwner?.id === ownerId) {
           setGreetingSheetOwner(null);
+          setGreetingSheetSourcePostId('');
           setGreetingMessage('你好呀，我们也在附近，想认识一下吗？');
         }
         showToast(`已向${owner?.petName ?? '附近伙伴'}打招呼`, { tone: 'success', variant: 'surface' });
@@ -5101,6 +5378,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken || !userSettingsRef.current.nearbyVisible) {
       setNearbyMoments([]);
+      setPetCircleNextCursor(undefined);
       setNearbyMomentsError('');
       return null;
     }
@@ -5113,17 +5391,54 @@ export default function LumiiMvpApp() {
       if (sessionTokenRef.current !== requestSessionToken) return null;
       if (result.data) {
         setNearbyMoments(result.data.items);
+        setPetCircleNextCursor(result.data.nextCursor);
         setNearbyMomentsError('');
         setHomeMomentIndex(0);
         return result.data.items;
       }
       const message = result.error?.message ?? '附近小事刷新失败，请稍后重试';
+      setPetCircleNextCursor(undefined);
       setNearbyMomentsError(message);
       if (!options.silent) showToast(message, { tone: 'error', variant: 'surface' });
       return null;
     } finally {
       nearbyMomentsLoadingRef.current = false;
       setNearbyMomentsLoading(false);
+    }
+  }
+
+  async function loadMorePetCirclePosts() {
+    const requestSessionToken = sessionTokenRef.current;
+    const cursor = petCircleNextCursor;
+    if (!requestSessionToken || !cursor || petCircleLoadingMoreRef.current || nearbyMomentsLoadingRef.current) return;
+    if (!userSettingsRef.current.nearbyVisible) {
+      setPetCircleNextCursor(undefined);
+      showToast('请先在我的页开启附近可见');
+      return;
+    }
+    petCircleLoadingMoreRef.current = true;
+    setPetCircleLoadingMore(true);
+    try {
+      const location = lastDiscoverLocationRef.current ?? undefined;
+      const result = await lumiiApi.social.listPetCirclePosts(location ?? undefined, { cursor, limit: 20 });
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (result.data) {
+        setNearbyMoments((current) => {
+          const currentIds = new Set(current.map((item) => item.id));
+          const additions = result.data!.items.filter((item) => !currentIds.has(item.id));
+          return additions.length ? [...current, ...additions] : current;
+        });
+        setPetCircleNextCursor(result.data.nextCursor);
+        setNearbyMomentsError('');
+        if (!result.data.nextCursor) showToast('附近小事已加载完');
+        return;
+      }
+      const message = result.error?.message ?? '加载更多小事失败，请稍后重试';
+      setNearbyMomentsError(message);
+      showToast(message, { tone: 'error', variant: 'surface' });
+    } finally {
+      petCircleLoadingMoreRef.current = false;
+      setPetCircleLoadingMore(false);
     }
   }
 
@@ -5246,6 +5561,7 @@ export default function LumiiMvpApp() {
           latitude: defaultMapCenter.latitude,
           longitude: defaultMapCenter.longitude,
           radiusKm: defaultDiscoverRadiusKm,
+          updatedAt: Date.now(),
         };
         lastDiscoverLocationRef.current = fallback;
         return fallback;
@@ -5262,6 +5578,7 @@ export default function LumiiMvpApp() {
         latitude: location.latitude,
         longitude: location.longitude,
         radiusKm: defaultDiscoverRadiusKm,
+        updatedAt: Date.now(),
       };
       lastDiscoverLocationRef.current = hint;
       setDiscoverLocationError('');
@@ -5312,6 +5629,7 @@ export default function LumiiMvpApp() {
           latitude: defaultMapCenter.latitude,
           longitude: defaultMapCenter.longitude,
           radiusKm: defaultDiscoverRadiusKm,
+          updatedAt: Date.now(),
         };
         lastDiscoverLocationRef.current = fallbackLocation;
         setMapCenter(defaultMapCenter);
@@ -5333,6 +5651,7 @@ export default function LumiiMvpApp() {
         latitude: location.latitude,
         longitude: location.longitude,
         radiusKm: defaultDiscoverRadiusKm,
+        updatedAt: Date.now(),
       };
       lastDiscoverLocationRef.current = locationHint;
       setMapCenter({
@@ -5854,6 +6173,30 @@ export default function LumiiMvpApp() {
     notificationSeenAtByIdRef.current = {};
     discoverRequestSeqRef.current += 1;
     applyNearbyOwners([]);
+    setNearbyMoments([]);
+    setNearbyMomentsError('');
+    nearbyMomentsLoadingRef.current = false;
+    setNearbyMomentsLoading(false);
+    setPetCircleNextCursor(undefined);
+    petCircleLoadingMoreRef.current = false;
+    setPetCircleLoadingMore(false);
+    setPetCircleCommentPostId('');
+    setPetCircleCommentsByPostId({});
+    setPetCircleCommentDraft('');
+    setPetCircleCommentLoadingId('');
+    setPetCircleCommentSending(false);
+    setPetCircleDeletingCommentIds([]);
+    setPetCircleDeletingPostIds([]);
+    setPetCircleExpandedPostIds([]);
+    setPetCircleFocusedPostId('');
+    setPetCircleBlockingOwnerIds([]);
+    setPetCircleReportingCommentIds([]);
+    setPetCircleReportingPostIds([]);
+    setPetCirclePhotoViewer(null);
+    setSocialBlocks([]);
+    setSocialBlocksError('');
+    setSocialBlocksLoading(false);
+    setSocialBlockRemovingOwnerIds([]);
     setPlaceSubmitResult(null);
     discoverRefreshingRef.current = false;
     setDiscoverRefreshing(false);
@@ -5963,6 +6306,7 @@ export default function LumiiMvpApp() {
     setVaccineCreating(false);
     setDailyPostText('');
     setDailyPostPhotoUris([]);
+    setDailyPostPhotoDrafts([]);
     dailyPhotoPickingRef.current = false;
     setDailyPhotoPicking(false);
     setDailyMood('开心');
@@ -6046,6 +6390,7 @@ export default function LumiiMvpApp() {
               keyboardShouldPersistTaps="always"
               refreshControl={refreshControl}
               showsVerticalScrollIndicator={false}
+              style={styles.routeScroll}
             >
               {children}
             </ScrollView>
@@ -6056,6 +6401,7 @@ export default function LumiiMvpApp() {
               keyboardShouldPersistTaps="always"
               refreshControl={refreshControl}
               showsVerticalScrollIndicator={false}
+              style={styles.routeScroll}
             >
               {children}
             </ScrollView>
@@ -7096,7 +7442,7 @@ export default function LumiiMvpApp() {
     const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : '暂无附近伙伴';
     const homeChatHint = homeChatPrompts[homeHintIndex].replace(/\{petName\}/g, pet.name);
     const todayWeightRecorded = weights.some((item) => item.recordedAt === todayIsoDate());
-    const visibleNearbyMoments = nearbyMoments.slice(0, 5);
+    const visibleNearbyMoments = nearbyMoments.filter((moment) => !moment.ownedByMe).slice(0, 5);
     const activeNearbyMoment = visibleNearbyMoments.length ? visibleNearbyMoments[homeMomentIndex % visibleNearbyMoments.length] : null;
     const hasMomentError = Boolean(nearbyMomentsError && !visibleNearbyMoments.length);
     const homeMomentStates = [
@@ -8866,12 +9212,15 @@ export default function LumiiMvpApp() {
       : owners
         .filter((owner) => ownerMatchesDiscoverFilter(owner, discoverFilter))
         .filter((owner) => ownerMatchesDiscoverQuery(owner, discoverSearchQuery));
-    const allPetCirclePosts = buildPetCirclePosts(nearbyMoments, petCircleCommentsByPostId);
-    const visiblePetCirclePosts = discoverAccessIssue
+    const allPetCirclePosts = buildPetCirclePosts(nearbyMoments, petCircleCommentsByPostId, isHomePreviewMode);
+    const visiblePetCirclePostsBase = discoverAccessIssue
       ? []
       : allPetCirclePosts
         .filter((post) => petCirclePostMatchesFilter(post, discoverFilter))
         .filter((post) => petCirclePostMatchesQuery(post, discoverSearchQuery));
+    const visiblePetCirclePosts = petCircleFocusedPostId
+      ? [...visiblePetCirclePostsBase].sort((left, right) => (left.id === petCircleFocusedPostId ? -1 : right.id === petCircleFocusedPostId ? 1 : 0))
+      : visiblePetCirclePostsBase;
     const activeDiscoverCount = discoverTab === 'circle' ? visiblePetCirclePosts.length : visibleOwners.length;
     const activeDiscoverFilterLabel = discoverFilterOptions.find((item) => item.key === discoverFilter)?.label ?? '全部';
     const discoverRefreshCopy = discoverLastRefreshedAt ? ` · ${formatClockTime(new Date(discoverLastRefreshedAt))}刷新` : '';
@@ -8996,10 +9345,36 @@ export default function LumiiMvpApp() {
     const openPetCircleGreeting = (post: PetCirclePostView) => {
       const owner = owners.find((item) => item.id === post.ownerId || (item.petName === post.petName && item.ownerName === post.ownerName));
       if (owner) {
-        openGreetingSheet(owner);
+        openGreetingSheet(owner, post.id);
         return;
       }
-      showToast(`已准备向 ${post.petName} 打招呼`, { subtitle: '真实用户资料接入后会进入招呼流程', tone: 'info', variant: 'surface' });
+      openGreetingSheet({
+        distance: post.distance,
+        id: post.ownerId,
+        imageUrl: post.imageUrl,
+        ownerName: post.ownerName,
+        petName: post.petName,
+        species: post.species,
+        tags: post.tags,
+      }, post.id);
+    };
+    const ownerFromPetCirclePost = (post: PetCirclePostView): NearbyOwner => {
+      return owners.find((item) => item.id === post.ownerId || (item.petName === post.petName && item.ownerName === post.ownerName)) ?? {
+        distance: post.distance,
+        id: post.ownerId,
+        imageUrl: post.imageUrl,
+        ownerName: post.ownerName,
+        petName: post.petName,
+        species: post.species,
+        tags: post.tags,
+      };
+    };
+    const openPetCircleOwnerSheet = (post: PetCirclePostView) => {
+      if (post.ownedByMe) {
+        showToast('这是你自己的小事', { subtitle: '可以在宠友圈里删除，健康日历记录仍会保留', tone: 'info', variant: 'surface' });
+        return;
+      }
+      setPetCircleOwnerSheetOwner(ownerFromPetCirclePost(post));
     };
     const syncPetCirclePost = (post: NearbyMoment) => {
       setNearbyMoments((items) => items.map((item) => (item.id === post.id ? { ...item, ...post } : item)));
@@ -9007,9 +9382,49 @@ export default function LumiiMvpApp() {
     const patchPetCirclePost = (postId: string, patch: Partial<NearbyMoment>) => {
       setNearbyMoments((items) => items.map((item) => (item.id === postId ? { ...item, ...patch } : item)));
     };
+    const removeUnavailablePetCirclePost = (postId: string) => {
+      setNearbyMoments((items) => items.filter((item) => item.id !== postId));
+      setPetCircleCommentsByPostId((items) => {
+        const next = { ...items };
+        delete next[postId];
+        return next;
+      });
+      if (petCircleCommentPostId === postId) setPetCircleCommentPostId('');
+      if (petCirclePhotoViewer?.postId === postId) setPetCirclePhotoViewer(null);
+      if (petCircleFocusedPostId === postId) setPetCircleFocusedPostId('');
+    };
+    const removeBlockedOwnerFromLocalSocial = (ownerId: string) => {
+      const blockedPostIds = new Set(nearbyMoments.filter((item) => item.ownerId === ownerId).map((item) => item.id));
+      applyNearbyOwners(ownersRef.current.filter((item) => item.id !== ownerId));
+      applyGreetingRequestOwners(greetingRequestOwnersRef.current.filter((item) => item.id !== ownerId));
+      setConversations((items) => items.filter((item) => item.ownerId !== ownerId));
+      setNearbyMoments((items) => items.filter((item) => item.ownerId !== ownerId));
+      setPetCircleCommentsByPostId((items) => {
+        const next = { ...items };
+        blockedPostIds.forEach((postId) => {
+          delete next[postId];
+        });
+        return next;
+      });
+      setPetCircleExpandedPostIds((ids) => ids.filter((postId) => !blockedPostIds.has(postId)));
+      if (greetingSheetOwner?.id === ownerId) setGreetingSheetOwner(null);
+      if (petCircleOwnerSheetOwner?.id === ownerId) setPetCircleOwnerSheetOwner(null);
+      if (selectedOwner?.id === ownerId) setSelectedOwner(null);
+      if (selectedConversation?.ownerId === ownerId) {
+        selectedConversationIdRef.current = '';
+        setSelectedConversation(null);
+        setConversationMessages([createConversationSafetyMessage()]);
+      }
+      if (petCircleCommentPostId && blockedPostIds.has(petCircleCommentPostId)) setPetCircleCommentPostId('');
+      if (petCirclePhotoViewer?.postId && blockedPostIds.has(petCirclePhotoViewer.postId)) setPetCirclePhotoViewer(null);
+    };
     const togglePetCircleLike = async (post: PetCirclePostView) => {
       if (!nearbyMoments.some((item) => item.id === post.id)) {
         showToast('预览小事暂不支持互动，发布真实小事后可点赞评论');
+        return;
+      }
+      if (post.ownedByMe) {
+        showToast('自己的小事暂不支持点赞');
         return;
       }
       if (petCircleLikeSavingIds.includes(post.id)) return;
@@ -9023,8 +9438,13 @@ export default function LumiiMvpApp() {
       if (result.data) {
         syncPetCirclePost(result.data);
       } else {
-        patchPetCirclePost(post.id, { likedByMe: wasLiked, likeCount: post.likeCount });
-        showToast(result.error?.message ?? (wasLiked ? '取消点赞失败，请稍后再试' : '点赞失败，请稍后再试'), { tone: 'error', variant: 'surface' });
+        if (isPetCirclePostGoneError(result.error)) {
+          removeUnavailablePetCirclePost(post.id);
+          showToast('这条小事已不可见', { subtitle: '已从宠友圈列表移除', tone: 'info', variant: 'surface' });
+        } else {
+          patchPetCirclePost(post.id, { likedByMe: wasLiked, likeCount: post.likeCount });
+          showToast(result.error?.message ?? (wasLiked ? '取消点赞失败，请稍后再试' : '点赞失败，请稍后再试'), { tone: 'error', variant: 'surface' });
+        }
       }
       setPetCircleLikeSavingIds((ids) => ids.filter((id) => id !== post.id));
     };
@@ -9038,6 +9458,11 @@ export default function LumiiMvpApp() {
         patchPetCirclePost(postId, { commentCount: result.data.length });
         return result.data;
       }
+      if (isPetCirclePostGoneError(result.error)) {
+        removeUnavailablePetCirclePost(postId);
+        if (!options.silent) showToast('这条小事已不可见', { subtitle: '已从宠友圈列表移除', tone: 'info', variant: 'surface' });
+        return null;
+      }
       if (!options.silent) showToast(result.error?.message ?? '评论读取失败，请稍后再试', { tone: 'error', variant: 'surface' });
       return null;
     };
@@ -9049,6 +9474,10 @@ export default function LumiiMvpApp() {
       const content = petCircleCommentDraft.trim();
       if (!content) {
         showToast('先写一句评论吧');
+        return;
+      }
+      if (content.length > petCircleCommentMaxLength) {
+        showToast(`评论最多 ${petCircleCommentMaxLength} 字`);
         return;
       }
       if (!nearbyMoments.some((item) => item.id === post.id)) {
@@ -9066,7 +9495,160 @@ export default function LumiiMvpApp() {
         showToast('评论已发送', { tone: 'success', variant: 'surface' });
         return;
       }
+      if (isPetCirclePostGoneError(result.error)) {
+        removeUnavailablePetCirclePost(post.id);
+        showToast('这条小事已不可见', { subtitle: '评论没有发送，已从列表移除', tone: 'info', variant: 'surface' });
+        return;
+      }
       showToast(result.error?.message ?? '评论发送失败，请稍后再试', { tone: 'error', variant: 'surface' });
+    };
+    const deletePetCirclePost = async (post: PetCirclePostView) => {
+      if (!post.ownedByMe) return;
+      if (petCircleDeletingPostIds.includes(post.id)) return;
+      const confirmed = await confirmDestructiveAction('删除这条小事？', '删除后会从宠友圈移除，评论和互动也将不再展示。');
+      if (!confirmed) return;
+      setPetCircleDeletingPostIds((ids) => [...ids, post.id]);
+      const result = await lumiiApi.social.deletePetCirclePost(post.id);
+      setPetCircleDeletingPostIds((ids) => ids.filter((id) => id !== post.id));
+      if (result.data) {
+        setNearbyMoments((items) => items.filter((item) => item.id !== post.id));
+        setPetCircleCommentsByPostId((items) => {
+          const next = { ...items };
+          delete next[post.id];
+          return next;
+        });
+        if (petCircleCommentPostId === post.id) setPetCircleCommentPostId('');
+        if (petCirclePhotoViewer?.postId === post.id) setPetCirclePhotoViewer(null);
+        showToast('已删除这条小事', { tone: 'success', variant: 'surface' });
+        return;
+      }
+      showToast(result.error?.message ?? '删除失败，请稍后再试', { tone: 'error', variant: 'surface' });
+    };
+    const deletePetCircleComment = async (post: PetCirclePostView, comment: PetCircleCommentView) => {
+      if (!comment.ownedByMe && !post.ownedByMe) return;
+      if (petCircleDeletingCommentIds.includes(comment.id)) return;
+      const confirmed = await confirmDestructiveAction('删除这条评论？', '删除后这条评论不会再展示。');
+      if (!confirmed) return;
+      setPetCircleDeletingCommentIds((ids) => [...ids, comment.id]);
+      const result = await lumiiApi.social.deletePetCircleComment(comment.id);
+      setPetCircleDeletingCommentIds((ids) => ids.filter((id) => id !== comment.id));
+      if (result.data) {
+        setPetCircleCommentsByPostId((items) => {
+          const nextComments = (items[post.id] ?? []).filter((item) => item.id !== comment.id);
+          return { ...items, [post.id]: nextComments };
+        });
+        patchPetCirclePost(post.id, { commentCount: Math.max(0, post.commentCount - 1) });
+        showToast('评论已删除', { tone: 'success', variant: 'surface' });
+        return;
+      }
+      showToast(result.error?.message ?? '删除评论失败，请稍后再试', { tone: 'error', variant: 'surface' });
+    };
+    const reportPetCirclePost = async (post: PetCirclePostView) => {
+      if (post.ownedByMe) return;
+      if (petCircleReportingPostIds.includes(post.id)) return;
+      const confirmed = await confirmAction('举报这条小事？', '我们会把这条小事和发布者信息提交给安全审核。', '提交举报', true);
+      if (!confirmed) return;
+      setPetCircleReportingPostIds((ids) => [...ids, post.id]);
+      try {
+        if (!nearbyMoments.some((item) => item.id === post.id)) {
+          await sleep(350);
+          showToast('举报已提交', { subtitle: '预览内容已模拟进入安全审核', tone: 'success', variant: 'surface' });
+          return;
+        }
+        const feedbackContent = [
+          '宠友圈小事举报',
+          `帖子ID：${post.id}`,
+          `发布者：${post.ownerName} / ${post.ownerId}`,
+          `宠物：${post.petName}`,
+          `距离：${post.distance}`,
+          `内容：${post.text}`,
+          post.tags.length ? `标签：${post.tags.join('、')}` : '',
+          `图片数量：${post.imageUrls.length}`,
+          '来源：宠友圈帖子',
+        ].filter(Boolean).join('\n');
+        const result = await lumiiApi.social.reportPetCirclePost(post.id, feedbackContent);
+        if (result.data) {
+          removeUnavailablePetCirclePost(post.id);
+          showToast('举报已提交', { subtitle: '已从你的宠友圈列表隐藏这条小事', tone: 'success', variant: 'surface' });
+          return;
+        }
+        if (isPetCirclePostGoneError(result.error)) {
+          removeUnavailablePetCirclePost(post.id);
+          showToast('这条小事已不可见', { subtitle: '已从宠友圈列表移除', tone: 'info', variant: 'surface' });
+          return;
+        }
+        showToast(result.error?.message ?? '举报提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
+      } finally {
+        setPetCircleReportingPostIds((ids) => ids.filter((id) => id !== post.id));
+      }
+    };
+    const reportPetCircleComment = async (post: PetCirclePostView, comment: PetCircleCommentView) => {
+      if (comment.ownedByMe) return;
+      if (petCircleReportingCommentIds.includes(comment.id)) return;
+      const confirmed = await confirmAction('举报这条评论？', '我们会把这条评论和关联小事提交给安全审核。', '提交举报', true);
+      if (!confirmed) return;
+      setPetCircleReportingCommentIds((ids) => [...ids, comment.id]);
+      try {
+        if (!nearbyMoments.some((item) => item.id === post.id)) {
+          await sleep(350);
+          showToast('举报已提交', { subtitle: '预览评论已模拟进入安全审核', tone: 'success', variant: 'surface' });
+          return;
+        }
+        const feedbackContent = [
+          '宠友圈评论举报',
+          `评论ID：${comment.id}`,
+          `评论者：${comment.author}`,
+          `评论内容：${comment.text}`,
+          `帖子ID：${post.id}`,
+          `发布者：${post.ownerName} / ${post.ownerId}`,
+          `宠物：${post.petName}`,
+          `帖子内容：${post.text}`,
+          '来源：宠友圈评论',
+        ].filter(Boolean).join('\n');
+        const result = await lumiiApi.social.reportPetCircleComment(comment.id, feedbackContent);
+        if (result.data) {
+          setPetCircleCommentsByPostId((items) => {
+            const nextComments = (items[post.id] ?? []).filter((item) => item.id !== comment.id);
+            return { ...items, [post.id]: nextComments };
+          });
+          patchPetCirclePost(post.id, { commentCount: Math.max(0, post.commentCount - 1) });
+          showToast('举报已提交', { subtitle: '已从你的评论列表隐藏这条评论', tone: 'success', variant: 'surface' });
+          return;
+        }
+        showToast(result.error?.message ?? '举报提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
+      } finally {
+        setPetCircleReportingCommentIds((ids) => ids.filter((id) => id !== comment.id));
+      }
+    };
+    const blockPetCircleOwner = async (post: PetCirclePostView) => {
+      if (post.ownedByMe) return;
+      if (petCircleBlockingOwnerIds.includes(post.ownerId)) return;
+      if (!nearbyMoments.some((item) => item.id === post.id)) {
+        showToast('预览小事暂不支持拉黑', { subtitle: '发布真实小事后可对实际用户操作', tone: 'info', variant: 'surface' });
+        return;
+      }
+      const confirmed = await confirmAction('拉黑这个用户？', '拉黑后你们将互相不可见，也不能继续打招呼或约遛。', '确认拉黑', true);
+      if (!confirmed) return;
+      setPetCircleBlockingOwnerIds((ids) => [...ids, post.ownerId]);
+      try {
+        const result = await lumiiApi.social.blockOwner(post.ownerId);
+        if (result.data) {
+          removeBlockedOwnerFromLocalSocial(post.ownerId);
+          showToast('已拉黑该用户', { subtitle: '对方的小事、评论和附近入口已从你的列表移除', tone: 'success', variant: 'surface' });
+          return;
+        }
+        if (isPetCirclePostGoneError(result.error)) {
+          removeUnavailablePetCirclePost(post.id);
+          showToast('这条小事已不可见', { subtitle: '已从宠友圈列表移除', tone: 'info', variant: 'surface' });
+          return;
+        }
+        showToast(result.error?.message ?? '拉黑失败，请稍后重试', { tone: 'error', variant: 'surface' });
+      } finally {
+        setPetCircleBlockingOwnerIds((ids) => ids.filter((id) => id !== post.ownerId));
+      }
+    };
+    const togglePetCircleTextExpanded = (postId: string) => {
+      setPetCircleExpandedPostIds((ids) => (ids.includes(postId) ? ids.filter((id) => id !== postId) : [...ids, postId]));
     };
     const renderPetCirclePhotoGrid = (post: PetCirclePostView) => {
       const photos = post.imageUrls.slice(0, 3);
@@ -9114,27 +9696,94 @@ export default function LumiiMvpApp() {
         </View>
       );
     };
-    const renderPetCircleCard = (post: PetCirclePostView) => (
-      <View key={post.id} style={styles.petCircleCardMake}>
-        <View style={styles.petCircleCardHeaderMake}>
-          <PetAvatar uri={post.imageUrl ?? generatedGoldenAvatarUri} size={42} />
-          <View style={styles.flex}>
-            <View style={styles.petCircleNameRowMake}>
-              <Text numberOfLines={1} style={styles.petCirclePetNameMake}>{post.petName}</Text>
-              <View style={styles.petCircleDistancePillMake}>
-                <MapPin color={palette.teal} size={10} strokeWidth={2.4} />
-                <Text numberOfLines={1} style={styles.petCircleDistanceTextMake}>{post.distance}</Text>
-              </View>
-            </View>
-            <Text numberOfLines={1} style={styles.petCircleMetaMake}>
-              主人 {post.ownerName} · {formatTimestampDisplay(post.createdAt)}
-            </Text>
+    const renderPetCircleCard = (post: PetCirclePostView) => {
+      const focusedFromNotification = post.id === petCircleFocusedPostId;
+      const textExpanded = petCircleExpandedPostIds.includes(post.id);
+      const textExpandable = post.text.length > petCircleCollapsedTextLength || post.text.split(/\r?\n/).length > 4;
+      const blockOwnerLoading = petCircleBlockingOwnerIds.includes(post.ownerId);
+      const reportPostLoading = petCircleReportingPostIds.includes(post.id);
+      const deletePostLoading = petCircleDeletingPostIds.includes(post.id);
+      return (
+      <View key={post.id} style={[styles.petCircleCardMake, focusedFromNotification && styles.petCircleCardFocusedMake]}>
+        {focusedFromNotification ? (
+          <View style={styles.petCircleFocusPillMake}>
+            <Bell color={palette.orange} size={12} strokeWidth={2.5} />
+            <Text style={styles.petCircleFocusTextMake}>来自通知</Text>
           </View>
-          <Pressable onPress={() => openPetCircleGreeting(post)} style={[styles.petCircleSmallActionMake, webPressableReset]}>
-            <PawPrint color={palette.orange} size={15} strokeWidth={2.4} />
+        ) : null}
+        <View style={styles.petCircleCardHeaderMake}>
+          <Pressable
+            accessibilityLabel={post.ownedByMe ? '我的宠友圈资料' : `查看${post.petName}的主人资料`}
+            accessibilityRole="button"
+            onPress={() => openPetCircleOwnerSheet(post)}
+            style={[styles.petCircleOwnerTapMake, webPressableReset]}
+          >
+            <PetAvatar uri={post.imageUrl ?? generatedGoldenAvatarUri} size={42} />
+            <View style={styles.flex}>
+              <View style={styles.petCircleNameRowMake}>
+                <Text numberOfLines={1} style={styles.petCirclePetNameMake}>{post.petName}</Text>
+                <View style={styles.petCircleDistancePillMake}>
+                  <MapPin color={palette.teal} size={10} strokeWidth={2.4} />
+                  <Text numberOfLines={1} style={styles.petCircleDistanceTextMake}>{post.distance}</Text>
+                </View>
+              </View>
+              <Text numberOfLines={1} style={styles.petCircleMetaMake}>
+                主人 {post.ownerName} · {formatTimestampDisplay(post.createdAt)}
+              </Text>
+            </View>
           </Pressable>
+          <View style={styles.petCircleHeaderActionsMake}>
+            <Pressable
+              accessibilityLabel={post.ownedByMe ? '删除小事' : '举报小事'}
+              disabled={post.ownedByMe ? deletePostLoading : reportPostLoading}
+              onPress={() => {
+                if (post.ownedByMe) void deletePetCirclePost(post);
+                else void reportPetCirclePost(post);
+              }}
+              style={[
+                styles.petCircleSmallActionMake,
+                post.ownedByMe ? styles.petCircleDeleteActionMake : styles.petCircleReportActionMake,
+                (post.ownedByMe ? deletePostLoading : reportPostLoading) && styles.mapSearchActionDisabled,
+                webPressableReset,
+              ]}
+            >
+              {post.ownedByMe && deletePostLoading ? (
+                <ActivityIndicator color={palette.danger} size="small" />
+              ) : !post.ownedByMe && reportPostLoading ? (
+                <ActivityIndicator color={palette.warning} size="small" />
+              ) : post.ownedByMe ? (
+                <Trash2 color={palette.danger} size={15} strokeWidth={2.4} />
+              ) : (
+                <Flag color={palette.warning} size={15} strokeWidth={2.4} />
+              )}
+            </Pressable>
+            {!post.ownedByMe ? (
+              <Pressable
+                accessibilityLabel="拉黑用户"
+                disabled={blockOwnerLoading}
+                onPress={() => void blockPetCircleOwner(post)}
+                style={[
+                  styles.petCircleSmallActionMake,
+                  styles.petCircleBlockActionMake,
+                  blockOwnerLoading && styles.mapSearchActionDisabled,
+                  webPressableReset,
+                ]}
+              >
+                {blockOwnerLoading ? (
+                  <ActivityIndicator color={palette.ink} size="small" />
+                ) : (
+                  <UserX color={palette.ink} size={15} strokeWidth={2.4} />
+                )}
+              </Pressable>
+            ) : null}
+          </View>
         </View>
-        <Text style={styles.petCircleTextMake}>{post.text}</Text>
+        <Text numberOfLines={textExpandable && !textExpanded ? 4 : undefined} style={styles.petCircleTextMake}>{post.text}</Text>
+        {textExpandable ? (
+          <Pressable accessibilityLabel={textExpanded ? '收起小事正文' : '展开小事正文'} onPress={() => togglePetCircleTextExpanded(post.id)} style={[styles.petCircleTextToggleMake, webPressableReset]}>
+            <Text style={styles.petCircleTextToggleTextMake}>{textExpanded ? '收起' : '展开'}</Text>
+          </Pressable>
+        ) : null}
         <View style={styles.petCircleTagRowMake}>
           {post.tags.map((tag) => (
             <Text key={`${post.id}-${tag}`} style={styles.petCircleTagMake}>#{tag}</Text>
@@ -9142,34 +9791,87 @@ export default function LumiiMvpApp() {
         </View>
         {renderPetCirclePhotoGrid(post)}
         <View style={styles.petCircleActionRowMake}>
-          <Pressable disabled={petCircleLikeSavingIds.includes(post.id)} onPress={() => void togglePetCircleLike(post)} style={[styles.petCircleActionMake, post.likedByMe && styles.petCircleActionActiveMake, petCircleLikeSavingIds.includes(post.id) && styles.mapSearchActionDisabled, webPressableReset]}>
+          <Pressable accessibilityLabel={post.ownedByMe ? '自己的小事不可点赞' : post.likedByMe ? '取消点赞小事' : '点赞小事'} disabled={post.ownedByMe || petCircleLikeSavingIds.includes(post.id)} onPress={() => void togglePetCircleLike(post)} style={[styles.petCircleActionMake, post.likedByMe && styles.petCircleActionActiveMake, post.ownedByMe && styles.petCircleOwnActionMake, (post.ownedByMe || petCircleLikeSavingIds.includes(post.id)) && styles.mapSearchActionDisabled, webPressableReset]}>
             {petCircleLikeSavingIds.includes(post.id) ? <ActivityIndicator color={post.likedByMe ? '#fff' : palette.orange} size="small" /> : <Heart color={post.likedByMe ? '#fff' : palette.orange} fill={post.likedByMe ? '#fff' : 'transparent'} size={14} strokeWidth={2.4} />}
             <Text style={[styles.petCircleActionTextMake, post.likedByMe && styles.petCircleActionTextActiveMake]}>{post.likeCount}</Text>
           </Pressable>
-          <Pressable onPress={() => openPetCircleComments(post)} style={[styles.petCircleActionMake, webPressableReset]}>
+          <Pressable accessibilityLabel="查看小事评论" onPress={() => openPetCircleComments(post)} style={[styles.petCircleActionMake, webPressableReset]}>
             <MessageCircle color={palette.ink} size={14} strokeWidth={2.4} />
             <Text style={styles.petCircleActionTextMake}>{post.commentCount}</Text>
           </Pressable>
-          <Pressable onPress={() => openPetCircleGreeting(post)} style={[styles.petCircleGreetButtonMake, webPressableReset]}>
-            <Send color="#fff" size={13} strokeWidth={2.5} />
-            <Text style={styles.petCircleGreetButtonTextMake}>打招呼</Text>
+          <Pressable
+            accessibilityLabel={post.ownedByMe ? '删除我的小事' : '向宠友打招呼'}
+            disabled={post.ownedByMe && petCircleDeletingPostIds.includes(post.id)}
+            onPress={() => {
+              if (post.ownedByMe) void deletePetCirclePost(post);
+              else openPetCircleGreeting(post);
+            }}
+            style={[styles.petCircleGreetButtonMake, post.ownedByMe && styles.petCircleDeleteButtonMake, post.ownedByMe && petCircleDeletingPostIds.includes(post.id) && styles.mapSearchActionDisabled, webPressableReset]}
+          >
+            {post.ownedByMe && petCircleDeletingPostIds.includes(post.id) ? <ActivityIndicator color="#fff" size="small" /> : post.ownedByMe ? <Trash2 color="#fff" size={13} strokeWidth={2.5} /> : <Send color="#fff" size={13} strokeWidth={2.5} />}
+            <Text style={styles.petCircleGreetButtonTextMake}>{post.ownedByMe ? '删除' : '打招呼'}</Text>
           </Pressable>
         </View>
       </View>
-    );
-    const renderPetCircleEmptyState = () => (
-      <View style={styles.petCircleEmptyMake}>
-        <View style={styles.petCircleEmptyIconMake}>
-          <MessageCircle color={palette.orange} size={26} strokeWidth={2.4} />
+      );
+    };
+    const renderPetCircleEmptyState = () => {
+      const filtered = discoverFilter !== 'all' || Boolean(discoverSearchQuery);
+      const hasNearbyPartners = owners.length > 0;
+      const hasMomentError = Boolean(nearbyMomentsError && !nearbyMomentsLoading);
+      const currentPetName = getCurrentPet()?.name ?? '灵伴';
+      if (nearbyMomentsLoading) {
+        return (
+          <View style={styles.petCircleEmptyMake}>
+            <View style={styles.petCircleEmptyIconMake}>
+              <ActivityIndicator color={palette.orange} size="small" />
+            </View>
+            <Text style={styles.petCircleEmptyTitleMake}>正在加载附近小事</Text>
+            <Text style={styles.petCircleEmptyDescMake}>我们会按模糊距离聚合附近宠友的公开日常。</Text>
+          </View>
+        );
+      }
+      const title = hasMomentError
+        ? '附近小事暂时加载失败'
+        : filtered
+          ? '没有匹配的小事'
+          : hasNearbyPartners
+            ? '附近伙伴还没发布小事'
+            : '附近暂时还没有小事';
+      const desc = hasMomentError
+        ? `${nearbyMomentsError}\n可以重新定位后再刷新`
+        : filtered
+          ? '可以清除搜索或筛选条件，看看更多附近宠友的日常。'
+          : hasNearbyPartners
+            ? `附近已有 ${owners.length} 位伙伴在线，可以先分享 ${currentPetName} 的今日小事。`
+            : '3km 内暂时没有公开小事，发布后附近宠友就能看到你的模糊距离动态。';
+      const actionText = hasMomentError ? '重新刷新' : filtered ? '清除条件' : '发布小事';
+      const actionIcon = hasMomentError ? <RefreshCw color="#fff" size={14} strokeWidth={2.5} /> : filtered ? <X color="#fff" size={14} strokeWidth={2.5} /> : <Plus color="#fff" size={14} strokeWidth={2.5} />;
+      const onAction = () => {
+        if (hasMomentError) {
+          void refreshDiscoverByPull();
+          return;
+        }
+        if (filtered) {
+          clearDiscoverSearchAndFilter();
+          return;
+        }
+        go('dailyPost');
+      };
+      return (
+        <View style={styles.petCircleEmptyMake}>
+          <View style={styles.petCircleEmptyIconMake}>
+            {hasMomentError ? <WifiOff color={palette.orange} size={26} strokeWidth={2.4} /> : hasNearbyPartners ? <Users color={palette.orange} size={26} strokeWidth={2.4} /> : <MessageCircle color={palette.orange} size={26} strokeWidth={2.4} />}
+          </View>
+          <Text style={styles.petCircleEmptyTitleMake}>{title}</Text>
+          <Text style={styles.petCircleEmptyDescMake}>{desc}</Text>
+          <Pressable onPress={onAction} style={[styles.petCircleEmptyButtonMake, webPressableReset]}>
+            {actionIcon}
+            <Text style={styles.petCircleEmptyButtonTextMake}>{actionText}</Text>
+          </Pressable>
         </View>
-        <Text style={styles.petCircleEmptyTitleMake}>附近暂时没有匹配小事</Text>
-        <Text style={styles.petCircleEmptyDescMake}>试试切换筛选，或者先发布一条 {getCurrentPet()?.name ?? '灵伴'} 的日常。</Text>
-        <Pressable onPress={() => go('dailyPost')} style={[styles.petCircleEmptyButtonMake, webPressableReset]}>
-          <Plus color="#fff" size={14} strokeWidth={2.5} />
-          <Text style={styles.petCircleEmptyButtonTextMake}>发布小事</Text>
-        </Pressable>
-      </View>
-    );
+      );
+    };
     const selectedCommentPost = petCircleCommentPostId ? allPetCirclePosts.find((post) => post.id === petCircleCommentPostId) ?? null : null;
     const selectedViewerPost = petCirclePhotoViewer ? allPetCirclePosts.find((post) => post.id === petCirclePhotoViewer.postId) ?? null : null;
     const viewerIndex = selectedViewerPost ? Math.min(petCirclePhotoViewer?.index ?? 0, selectedViewerPost.imageUrls.length - 1) : 0;
@@ -9185,7 +9887,7 @@ export default function LumiiMvpApp() {
                 <Text style={styles.sheetTitle}>{selectedCommentPost.petName} 的评论</Text>
                 <Text style={styles.petCircleSheetMetaMake}>{selectedCommentPost.commentCount} 条互动 · 模糊距离 {selectedCommentPost.distance}</Text>
               </View>
-              <Pressable onPress={() => setPetCircleCommentPostId('')} style={[styles.greetingSheetClose, webPressableReset]}>
+              <Pressable accessibilityLabel="关闭宠友圈评论" accessibilityRole="button" onPress={() => setPetCircleCommentPostId('')} style={[styles.greetingSheetClose, webPressableReset]}>
                 <X color={palette.muted} size={17} strokeWidth={2.4} />
               </Pressable>
             </View>
@@ -9196,28 +9898,63 @@ export default function LumiiMvpApp() {
                   <Text style={styles.petCircleCommentLoadingTextMake}>正在加载评论</Text>
                 </View>
               ) : null}
-              {selectedCommentPost.comments.map((comment) => (
-                <View key={comment.id} style={styles.petCircleCommentRowMake}>
-                  <PetAvatar uri={comment.avatarUrl ?? generatedGoldenAvatarUri} size={32} />
-                  <View style={styles.flex}>
-                    <View style={styles.petCircleCommentTitleRowMake}>
-                      <Text style={styles.petCircleCommentAuthorMake}>{comment.author}</Text>
-                      <Text style={styles.petCircleCommentTimeMake}>{comment.time}</Text>
+              {selectedCommentPost.comments.map((comment) => {
+                const canDeleteComment = Boolean(comment.ownedByMe || selectedCommentPost.ownedByMe);
+                const deletingComment = petCircleDeletingCommentIds.includes(comment.id);
+                const reportingComment = petCircleReportingCommentIds.includes(comment.id);
+                return (
+                  <View key={comment.id} style={styles.petCircleCommentRowMake}>
+                    <PetAvatar uri={comment.avatarUrl ?? generatedGoldenAvatarUri} size={32} />
+                    <View style={styles.flex}>
+                      <View style={styles.petCircleCommentTitleRowMake}>
+                        <Text style={styles.petCircleCommentAuthorMake}>{comment.author}</Text>
+                        <Text style={styles.petCircleCommentTimeMake}>{comment.time}</Text>
+                      </View>
+                      <Text style={styles.petCircleCommentTextMake}>{comment.text}</Text>
                     </View>
-                    <Text style={styles.petCircleCommentTextMake}>{comment.text}</Text>
+                    {canDeleteComment ? (
+                      <Pressable
+                        accessibilityLabel="删除评论"
+                        accessibilityRole="button"
+                        disabled={deletingComment}
+                        onPress={() => void deletePetCircleComment(selectedCommentPost, comment)}
+                        style={[styles.petCircleCommentDeleteMake, deletingComment && styles.mapSearchActionDisabled, webPressableReset]}
+                      >
+                        {deletingComment ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={13} strokeWidth={2.4} />}
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        accessibilityLabel="举报评论"
+                        accessibilityRole="button"
+                        disabled={reportingComment}
+                        onPress={() => void reportPetCircleComment(selectedCommentPost, comment)}
+                        style={[styles.petCircleCommentReportMake, reportingComment && styles.mapSearchActionDisabled, webPressableReset]}
+                      >
+                        {reportingComment ? <ActivityIndicator color={palette.warning} size="small" /> : <Flag color={palette.warning} size={13} strokeWidth={2.4} />}
+                      </Pressable>
+                    )}
                   </View>
+                );
+              })}
+              {!selectedCommentPost.comments.length && petCircleCommentLoadingId !== selectedCommentPost.id ? (
+                <View style={styles.petCircleCommentEmptyMake}>
+                  <Text style={styles.petCircleCommentLoadingTextMake}>还没有评论，来写第一句吧</Text>
                 </View>
-              ))}
+              ) : null}
             </View>
             <View style={styles.petCircleCommentInputRowMake}>
               <TextInput
+                maxLength={petCircleCommentMaxLength}
                 onChangeText={setPetCircleCommentDraft}
                 placeholder={`回复 ${selectedCommentPost.petName} 的主人`}
                 placeholderTextColor={palette.muted}
                 style={[styles.petCircleCommentInputMake, webTextInputReset]}
                 value={petCircleCommentDraft}
               />
+              <Text style={styles.petCircleCommentCounterMake}>{petCircleCommentDraft.length}/{petCircleCommentMaxLength}</Text>
               <Pressable
+                accessibilityLabel="发送宠友圈评论"
+                accessibilityRole="button"
                 disabled={petCircleCommentSending}
                 onPress={() => void submitPetCircleComment(selectedCommentPost)}
                 style={[styles.petCircleCommentSendMake, petCircleCommentSending && styles.mapSearchActionDisabled, webPressableReset]}
@@ -9267,6 +10004,78 @@ export default function LumiiMvpApp() {
         </View>
       </Modal>
     );
+    const renderPetCircleOwnerSheet = () => {
+      const owner = petCircleOwnerSheetOwner;
+      const savingGreeting = owner ? socialActionSavingIds.includes(`greet:${owner.id}`) : false;
+      const conversation = owner ? conversations.find((item) => item.ownerId === owner.id && item.canSendMessage !== false) : undefined;
+      const ownerBreed = owner ? owner.tags[0] ?? (owner.species === 'cat' ? '猫咪' : '狗狗') : '';
+      const ownerPetImageSource = owner?.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
+      return (
+        <BottomSheet contentStyle={styles.petCircleOwnerSheetMake} onClose={() => setPetCircleOwnerSheetOwner(null)} visible={Boolean(owner)}>
+          {owner ? (
+            <>
+              <View style={styles.petCircleOwnerSheetHeaderMake}>
+                <View style={styles.ownerPetPhotoMake}>
+                  <Image resizeMode="cover" source={ownerPetImageSource} style={styles.avatarImage} />
+                </View>
+                <View style={styles.flex}>
+                  <Text numberOfLines={1} style={styles.sheetTitle}>{owner.petName}</Text>
+                  <Text numberOfLines={1} style={styles.greetingSheetMeta}>{ownerBreed} · 主人 {owner.ownerName} · {owner.distance}</Text>
+                </View>
+                <Pressable accessibilityLabel="关闭宠友资料卡" onPress={() => setPetCircleOwnerSheetOwner(null)} style={[styles.greetingSheetClose, webPressableReset]}>
+                  <X color={palette.muted} size={17} strokeWidth={2.4} />
+                </Pressable>
+              </View>
+              <Text style={styles.ownerBioMake}>{owner.tags.join(' · ')}，也想认识附近的新朋友。</Text>
+              <View style={styles.ownerTagRowMake}>
+                {owner.tags.slice(0, 3).map((tag, index) => (
+                  <Text key={`${owner.id}-sheet-tag-${tag}-${index}`} style={[styles.ownerTagMake, /友好|交朋友/.test(tag) && styles.ownerTagCoolMake, /线上|暂不|只/.test(tag) && styles.ownerTagNeutralMake]}>{tag}</Text>
+                ))}
+              </View>
+              <View style={styles.ownerActionsMake}>
+                {conversation ? (
+                  <Pressable
+                    accessibilityLabel="给资料卡宠友发消息"
+                    onPress={() => {
+                      setPetCircleOwnerSheetOwner(null);
+                      void openConversation(conversation);
+                    }}
+                    style={[styles.ownerGhostButtonMake, webPressableReset]}
+                  >
+                    <MessageCircle color={palette.orange} size={13} strokeWidth={2.4} />
+                    <Text style={styles.ownerGhostButtonTextMake}>发消息</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    accessibilityLabel="向资料卡宠友打招呼"
+                    disabled={savingGreeting}
+                    onPress={() => {
+                      setPetCircleOwnerSheetOwner(null);
+                      openGreetingSheet(owner);
+                    }}
+                    style={[styles.ownerGhostButtonMake, savingGreeting && styles.mapSearchActionDisabled, webPressableReset]}
+                  >
+                    {savingGreeting ? <ActivityIndicator color={palette.orange} size="small" /> : <Heart color={palette.orange} size={13} strokeWidth={2.4} />}
+                    <Text style={styles.ownerGhostButtonTextMake}>打个招呼</Text>
+                  </Pressable>
+                )}
+                <Pressable
+                  accessibilityLabel="约遛资料卡宠友"
+                  onPress={() => {
+                    setPetCircleOwnerSheetOwner(null);
+                    void openWalkInvite(owner);
+                  }}
+                  style={[styles.ownerPrimaryButtonMake, webPressableReset]}
+                >
+                  <PawPrint color="#fff" size={13} strokeWidth={2.5} />
+                  <Text style={styles.ownerPrimaryButtonTextMake}>约遛</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : null}
+        </BottomSheet>
+      );
+    };
     return (
       <>
         <Screen
@@ -9384,7 +10193,21 @@ export default function LumiiMvpApp() {
                 </View>
               </>
             ) : discoverTab === 'circle' ? (
-              visiblePetCirclePosts.length ? visiblePetCirclePosts.map((post) => renderPetCircleCard(post)) : renderPetCircleEmptyState()
+              visiblePetCirclePosts.length ? (
+                <>
+                  {visiblePetCirclePosts.map((post) => renderPetCircleCard(post))}
+                  {petCircleNextCursor ? (
+                    <Pressable disabled={petCircleLoadingMore} onPress={() => void loadMorePetCirclePosts()} style={[styles.petCircleLoadMoreMake, petCircleLoadingMore && styles.mapSearchActionDisabled, webPressableReset]}>
+                      {petCircleLoadingMore ? <ActivityIndicator color={palette.orange} size="small" /> : <ArrowDown color={palette.orange} size={14} strokeWidth={2.5} />}
+                      <Text style={styles.petCircleLoadMoreTextMake}>{petCircleLoadingMore ? '加载中' : '加载更多小事'}</Text>
+                    </Pressable>
+                  ) : (
+                    <View style={styles.petCircleEndMake}>
+                      <Text style={styles.petCircleEndTextMake}>已看到附近最新小事</Text>
+                    </View>
+                  )}
+                </>
+              ) : renderPetCircleEmptyState()
             ) : (
               visibleOwners.map((owner) => renderOwnerCard(owner))
             )}
@@ -9395,6 +10218,7 @@ export default function LumiiMvpApp() {
         </Screen>
         {renderPetCircleCommentsSheet()}
         {renderPetCirclePhotoViewer()}
+        {renderPetCircleOwnerSheet()}
       </>
     );
   }
@@ -10305,11 +11129,12 @@ export default function LumiiMvpApp() {
         };
       }
       if (category === 'interaction') {
+        const opensPetCircle = kind === 'pet_circle_comment' || kind === 'pet_circle_like' || (kind === 'pet_circle_greeting' && Boolean(petCirclePostIdFromNotification(item)));
         const opensConversation = kind === 'conversation_message' || kind === 'greeting_accepted' || Boolean(conversationIdFromNotification(item));
         return {
           icon: <Heart color={palette.danger} size={15} strokeWidth={2.5} />,
           iconStyle: styles.notificationIconInteractionMake,
-          rightLabel: opensConversation ? '聊天' : '处理',
+          rightLabel: opensPetCircle ? '查看' : opensConversation ? '聊天' : '处理',
         };
       }
       if (category === 'health') {
@@ -10405,9 +11230,9 @@ export default function LumiiMvpApp() {
                         <View style={styles.notificationMetaRowMake}>
                           <Text style={styles.notificationTimeMake}>{entry.time}</Text>
                           {meta.rightLabel ? (
-                            <Pressable accessibilityRole="button" onPress={() => void openNotification(entry.item)} style={[styles.notificationActionMake, webPressableReset]}>
+                            <View style={styles.notificationActionMake}>
                               <Text style={styles.notificationActionTextMake}>{meta.rightLabel}</Text>
-                            </Pressable>
+                            </View>
                           ) : null}
                         </View>
                       </View>
@@ -10915,7 +11740,10 @@ export default function LumiiMvpApp() {
     const petName = pet?.name ?? '灵伴';
     const aiDraft = buildDailyPostDraft(dailyMood);
     const dailyPlaceholderCount = Math.max(0, Math.min(2, dailyPostMaxPhotoCount - dailyPostPhotoUris.length - 1));
-    const visibilitySubtitle = dailyVisibility === 'nearby' ? '同步到宠友圈 · 模糊距离可见' : '主人记录 · 仅自己可见';
+    const nearbySharingDisabled = !userSettings.nearbyVisible;
+    const visibilitySubtitle = dailyVisibility === 'nearby'
+      ? nearbySharingDisabled ? '附近可见未开启 · 将先保留草稿' : '同步到宠友圈 · 模糊距离可见'
+      : '主人记录 · 仅自己可见';
     return (
       <Screen
         right={(
@@ -10953,6 +11781,7 @@ export default function LumiiMvpApp() {
                 key={`${uri}-${index}`}
                 onPress={() => {
                   setDailyPostPhotoUris((items) => items.filter((item) => item !== uri));
+                  setDailyPostPhotoDrafts((items) => items.filter((item) => item.uri !== uri));
                   showToast('已移除这张照片');
                 }}
                 style={[styles.dailyPhotoSquareMake, webPressableReset]}
@@ -10980,7 +11809,7 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.flex}>
                 <Text style={styles.dailyVisibilityTitleMake}>可见范围</Text>
-                <Text style={styles.dailyVisibilitySubMake}>{dailyVisibility === 'nearby' ? '附近宠友可在宠友圈看到，位置只展示模糊距离' : '只保存到健康日历，不出现在宠友圈'}</Text>
+                <Text style={styles.dailyVisibilitySubMake}>{dailyVisibility === 'nearby' ? nearbySharingDisabled ? '先在我的隐私设置开启附近可见，或切换为仅自己' : '附近宠友可在宠友圈看到，位置只展示模糊距离' : '只保存到健康日历，不出现在宠友圈'}</Text>
               </View>
             </View>
             <View style={styles.dailyVisibilityOptionsMake}>
@@ -10989,10 +11818,23 @@ export default function LumiiMvpApp() {
                 { icon: Lock, key: 'private', label: '仅自己' },
               ] as Array<{ icon: typeof Users; key: DailyPostVisibility; label: string }>).map(({ icon: Icon, key, label }) => {
                 const active = dailyVisibility === key;
+                const disabled = key === 'nearby' && nearbySharingDisabled;
                 return (
-                  <Pressable key={key} onPress={() => setDailyVisibility(key)} style={[styles.dailyVisibilityOptionMake, active && styles.dailyVisibilityOptionActiveMake, webPressableReset]}>
-                    <Icon color={active ? '#fff' : palette.ink} size={14} strokeWidth={2.4} />
-                    <Text style={[styles.dailyVisibilityOptionTextMake, active && styles.dailyVisibilityOptionTextActiveMake]}>{label}</Text>
+                  <Pressable
+                    accessibilityLabel={disabled ? '附近可见未开启' : `选择${label}`}
+                    accessibilityState={{ disabled }}
+                    key={key}
+                    onPress={() => {
+                      if (disabled) {
+                        showToast('请先开启附近可见', { subtitle: '草稿会继续保留', tone: 'warning', variant: 'surface' });
+                        return;
+                      }
+                      setDailyVisibility(key);
+                    }}
+                    style={[styles.dailyVisibilityOptionMake, active && styles.dailyVisibilityOptionActiveMake, disabled && styles.dailyVisibilityOptionDisabledMake, webPressableReset]}
+                  >
+                    <Icon color={active ? '#fff' : disabled ? palette.muted : palette.ink} size={14} strokeWidth={2.4} />
+                    <Text style={[styles.dailyVisibilityOptionTextMake, active && styles.dailyVisibilityOptionTextActiveMake, disabled && styles.dailyVisibilityOptionTextDisabledMake]}>{label}</Text>
                   </Pressable>
                 );
               })}
@@ -11491,6 +12333,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderSafety() {
+    const socialBlockCountLabel = socialBlocksLoading && !socialBlocks.length ? '读取中' : socialBlocks.length ? `${socialBlocks.length} 人` : '暂无';
     const safetyActions = [
       {
         Icon: Flag,
@@ -11504,16 +12347,16 @@ export default function LumiiMvpApp() {
         Icon: UserX,
         bg: palette.pale,
         color: palette.ink,
-        status: '待接入',
-        sub: '需要对象资料页确认后再开放，当前不会做假拦截',
+        status: '已接入',
+        sub: '可在宠友圈动态卡片中拉黑，对方与你将互不可见',
         title: '拉黑用户',
       },
       {
         Icon: Shield,
         bg: '#E8F5F3',
         color: palette.teal,
-        status: '0 人',
-        sub: '已拉黑 0 人',
+        status: socialBlockCountLabel,
+        sub: '下方可查看和解除已拉黑用户',
         title: '黑名单管理',
       },
       {
@@ -11562,6 +12405,67 @@ export default function LumiiMvpApp() {
                 </View>
               );
             })}
+          </View>
+
+          <View style={styles.safetyBlockSectionMake}>
+            <View style={styles.safetyBlockHeaderMake}>
+              <View>
+                <Text style={styles.safetyBlockTitleMake}>黑名单管理</Text>
+                <Text style={styles.safetyBlockSubMake}>解除后，对方会重新按隐私与距离规则出现</Text>
+              </View>
+              <Pressable disabled={socialBlocksLoading} onPress={() => void loadSocialBlocks()} style={[styles.safetyBlockRefreshMake, socialBlocksLoading && styles.mapSearchActionDisabled, webPressableReset]}>
+                {socialBlocksLoading ? <ActivityIndicator color={palette.teal} size="small" /> : <RefreshCw color={palette.teal} size={14} strokeWidth={2.4} />}
+              </Pressable>
+            </View>
+            {socialBlocksLoading && !socialBlocks.length ? (
+              <View style={styles.safetyBlockLoadingMake}>
+                {[0, 1].map((item) => (
+                  <View key={`block-loading-${item}`} style={styles.safetyBlockSkeletonRowMake}>
+                    <SkeletonLine borderRadius={18} height={36} width={36} />
+                    <View style={styles.flex}>
+                      <SkeletonLine height={12} width="44%" />
+                      <SkeletonLine height={10} style={styles.safetyBlockSkeletonGapMake} width="66%" />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : socialBlocksError && !socialBlocks.length ? (
+              <View style={styles.safetyBlockEmptyMake}>
+                <AlertCircle color={palette.danger} size={20} strokeWidth={2.4} />
+                <Text style={styles.safetyBlockEmptyTitleMake}>黑名单读取失败</Text>
+                <Text style={styles.safetyBlockEmptySubMake}>{socialBlocksError}</Text>
+                <Pressable onPress={() => void loadSocialBlocks()} style={[styles.safetyBlockRetryMake, webPressableReset]}>
+                  <RefreshCw color="#fff" size={13} strokeWidth={2.5} />
+                  <Text style={styles.safetyBlockRetryTextMake}>重试</Text>
+                </Pressable>
+              </View>
+            ) : socialBlocks.length ? (
+              <View style={styles.safetyBlockListMake}>
+                {socialBlocks.map((block) => {
+                  const removing = socialBlockRemovingOwnerIds.includes(block.ownerId);
+                  return (
+                    <View key={block.id} style={styles.safetyBlockRowMake}>
+                      <PetAvatar uri={block.avatarUrl ?? generatedGoldenAvatarUri} size={38} />
+                      <View style={styles.flex}>
+                        <Text numberOfLines={1} style={styles.safetyBlockOwnerMake}>{block.ownerName}</Text>
+                        <Text numberOfLines={1} style={styles.safetyBlockMetaMake}>
+                          {block.petName ? `${block.petName} · ` : ''}{formatTimestampDisplay(block.blockedAt)}
+                        </Text>
+                      </View>
+                      <Pressable disabled={removing} onPress={() => void unblockSocialOwner(block)} style={[styles.safetyBlockUnblockMake, removing && styles.mapSearchActionDisabled, webPressableReset]}>
+                        {removing ? <ActivityIndicator color={palette.orange} size="small" /> : <Text style={styles.safetyBlockUnblockTextMake}>解除</Text>}
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={styles.safetyBlockEmptyMake}>
+                <UserX color={palette.teal} size={20} strokeWidth={2.4} />
+                <Text style={styles.safetyBlockEmptyTitleMake}>还没有拉黑用户</Text>
+                <Text style={styles.safetyBlockEmptySubMake}>在宠友圈动态卡片上可拉黑不想再遇见的用户。</Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.safetyAuditNoteMake}>
@@ -11893,7 +12797,7 @@ export default function LumiiMvpApp() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar style="dark" />
+      <NativeStatusBar backgroundColor={palette.background} barStyle="dark-content" translucent={false} />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={0} style={styles.appWrap}>
         <View style={[styles.phoneFrame, nativeTopInset ? { paddingTop: nativeTopInset } : null]}>
           {renderScreen()}
@@ -13594,8 +14498,10 @@ const styles = StyleSheet.create({
   dailyVisibilityHeaderMake: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   dailyVisibilityIconMake: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.12)', borderRadius: 12, height: 34, justifyContent: 'center', width: 34 },
   dailyVisibilityOptionActiveMake: { backgroundColor: palette.orange, borderColor: palette.orange, shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.22, shadowRadius: 18 },
+  dailyVisibilityOptionDisabledMake: { opacity: 0.56 },
   dailyVisibilityOptionMake: { alignItems: 'center', backgroundColor: palette.pale, borderColor: palette.border, borderRadius: 15, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 6, height: 38, justifyContent: 'center' },
   dailyVisibilityOptionTextActiveMake: { color: '#fff' },
+  dailyVisibilityOptionTextDisabledMake: { color: palette.muted },
   dailyVisibilityOptionTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700' },
   dailyVisibilityOptionsMake: { flexDirection: 'row', gap: 8 },
   dailyVisibilitySubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 17, marginTop: 2 },
@@ -13702,7 +14608,7 @@ const styles = StyleSheet.create({
   ownerCard: { alignItems: 'center', flexDirection: 'row', gap: 12 },
   opacity60: { opacity: 0.6 },
   discoverBlurPreviewMake: { opacity: 0.5, transform: [{ scale: 0.99 }] },
-  discoverCardsMake: { gap: 12, marginTop: 14 },
+  discoverCardsMake: { gap: 12, marginTop: 2 },
   discoverEmptyActionsMake: { flexDirection: 'row', gap: 12, marginTop: 22, width: '100%' },
   discoverEmptyClearMake: { color: palette.orange, flexShrink: 0, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
   discoverEmptyCountMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 4, position: 'absolute', right: 12, top: 8 },
@@ -13718,12 +14624,12 @@ const styles = StyleSheet.create({
   discoverEmptySummaryMake: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: 'rgba(255,255,255,0.6)', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, minHeight: 40, paddingHorizontal: 12, paddingVertical: 8 },
   discoverEmptySummaryTextMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
   discoverEmptyTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 19, fontWeight: '700', letterSpacing: 0, lineHeight: 26, marginTop: 20, textAlign: 'center' },
-  discoverMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 50, justifyContent: 'space-between' },
+  discoverMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 46, justifyContent: 'space-between' },
   discoverSearchBarMake: { marginBottom: 10, minHeight: 46, paddingHorizontal: 12 },
   discoverSearchClearMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 13, height: 26, justifyContent: 'center', width: 26 },
   discoverTabActiveMake: { backgroundColor: '#fff', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.10, shadowRadius: 18 },
   discoverTabMake: { alignItems: 'center', borderRadius: 16, flex: 1, height: 34, justifyContent: 'center' },
-  discoverTabSegmentMake: { backgroundColor: 'rgba(255,255,255,0.52)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 4, marginBottom: 10, padding: 4 },
+  discoverTabSegmentMake: { backgroundColor: 'rgba(255,255,255,0.52)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 4, marginBottom: 0, padding: 4 },
   discoverTabTextActiveMake: { color: palette.ink, fontWeight: '800' },
   discoverTabTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700' },
   discoverPermissionActionsMake: { flexDirection: 'row', gap: 8, marginTop: 14 },
@@ -13740,7 +14646,7 @@ const styles = StyleSheet.create({
   filterChipMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 14, paddingVertical: 8 },
   filterChipMakeActive: { backgroundColor: palette.orange, borderColor: palette.orange, color: '#fff' },
   filterChipsMake: { gap: 8, paddingRight: 20, paddingVertical: 2 },
-  locationChipMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.7)', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  locationChipMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.7)', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 0, paddingHorizontal: 12, paddingVertical: 9 },
   locationChipDeniedMake: { backgroundColor: 'rgba(229,87,63,0.08)', borderColor: 'rgba(229,87,63,0.22)' },
   locationChipDeniedText: { color: palette.danger },
   locationChipText: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
@@ -13750,14 +14656,20 @@ const styles = StyleSheet.create({
   petCircleActionRowMake: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 12 },
   petCircleActionTextActiveMake: { color: '#fff' },
   petCircleActionTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  petCircleBlockActionMake: { backgroundColor: 'rgba(27,28,25,0.06)', borderColor: 'rgba(27,28,25,0.14)' },
   petCircleCardHeaderMake: { alignItems: 'center', flexDirection: 'row', gap: 10 },
+  petCircleCardFocusedMake: { backgroundColor: '#FFF9F4', borderColor: palette.orange, borderWidth: 1.5, shadowColor: palette.orange, shadowOpacity: 0.18 },
   petCircleCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.10, shadowRadius: 30 },
   petCircleCommentAuthorMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '800' },
+  petCircleCommentCounterMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', minWidth: 42, textAlign: 'right' },
+  petCircleCommentDeleteMake: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.08)', borderRadius: 13, height: 28, justifyContent: 'center', width: 28 },
+  petCircleCommentEmptyMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 14, justifyContent: 'center', minHeight: 42 },
   petCircleCommentInputMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', minHeight: 42, paddingHorizontal: 12, paddingVertical: 0 },
   petCircleCommentInputRowMake: { alignItems: 'center', backgroundColor: palette.pale, borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 12, padding: 5 },
   petCircleCommentListMake: { gap: 12, marginTop: 14 },
   petCircleCommentLoadingMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 14, flexDirection: 'row', gap: 8, justifyContent: 'center', minHeight: 42 },
   petCircleCommentLoadingTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
+  petCircleCommentReportMake: { alignItems: 'center', backgroundColor: 'rgba(245,184,76,0.12)', borderRadius: 13, height: 28, justifyContent: 'center', width: 28 },
   petCircleCommentRowMake: { alignItems: 'flex-start', flexDirection: 'row', gap: 10 },
   petCircleCommentSendMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 15, height: 34, justifyContent: 'center', width: 34 },
   petCircleCommentTextMake: { color: 'rgba(27,28,25,0.80)', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 19, marginTop: 3 },
@@ -13765,38 +14677,54 @@ const styles = StyleSheet.create({
   petCircleCommentTitleRowMake: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   petCircleCommentsSheetMake: { gap: 0, paddingBottom: 18 },
   petCircleComposerIconMake: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.13)', borderRadius: 14, height: 38, justifyContent: 'center', width: 38 },
-  petCircleComposerStripMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 10, paddingHorizontal: 14, paddingVertical: 12, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.08, shadowRadius: 22 },
+  petCircleComposerStripMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 0, paddingHorizontal: 14, paddingVertical: 12, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.08, shadowRadius: 22 },
   petCircleComposerSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 17, marginTop: 2 },
   petCircleComposerTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '800', lineHeight: 19 },
   petCircleDistancePillMake: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.12)', borderRadius: 9, flexDirection: 'row', flexShrink: 0, gap: 3, paddingHorizontal: 7, paddingVertical: 3 },
   petCircleDistanceTextMake: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '800' },
+  petCircleDeleteActionMake: { backgroundColor: 'rgba(229,87,63,0.08)', borderColor: 'rgba(229,87,63,0.20)' },
+  petCircleDeleteButtonMake: { backgroundColor: palette.danger, shadowColor: palette.danger },
   petCircleEmptyButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 20, flexDirection: 'row', gap: 6, height: 40, justifyContent: 'center', marginTop: 16, paddingHorizontal: 16, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.24, shadowRadius: 18 },
   petCircleEmptyButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 13, fontWeight: '800' },
   petCircleEmptyDescMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 20, marginTop: 6, textAlign: 'center' },
   petCircleEmptyIconMake: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 26, height: 52, justifyContent: 'center', width: 52 },
   petCircleEmptyMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, paddingHorizontal: 20, paddingVertical: 24 },
   petCircleEmptyTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '800', lineHeight: 22, marginTop: 12, textAlign: 'center' },
+  petCircleEndMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.54)', borderColor: palette.border, borderRadius: 16, borderWidth: 1, minHeight: 40, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 10 },
+  petCircleEndTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 17 },
+  petCircleFocusPillMake: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,138,92,0.12)', borderColor: 'rgba(255,138,92,0.24)', borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 4, marginBottom: 10, paddingHorizontal: 9, paddingVertical: 4 },
+  petCircleFocusTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11, fontWeight: '900', lineHeight: 15 },
   petCircleGreetButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 16, flex: 1, flexDirection: 'row', gap: 5, height: 34, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.24, shadowRadius: 18 },
   petCircleGreetButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '800' },
+  petCircleHeaderActionsMake: { alignItems: 'center', flexDirection: 'row', gap: 6 },
+  petCircleLoadMoreMake: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 8, height: 44, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.06, shadowRadius: 16 },
+  petCircleLoadMoreTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '800', lineHeight: 18 },
   petCircleMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 2 },
   petCircleNameRowMake: { alignItems: 'center', flexDirection: 'row', gap: 8, minWidth: 0 },
   petCirclePetNameMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '800', lineHeight: 20 },
+  petCircleOwnActionMake: { opacity: 0.72 },
   petCirclePhotoLargeMake: { borderRadius: 16, flex: 1, overflow: 'hidden' },
-  petCirclePhotoMosaicMake: { flexDirection: 'row', gap: 7, height: 214, marginTop: 12 },
+  petCirclePhotoMosaicMake: { flexDirection: 'row', gap: 7, height: 172, marginTop: 12 },
   petCirclePhotoMoreOverlayMake: { alignItems: 'center', backgroundColor: 'rgba(27,28,25,0.46)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
   petCirclePhotoMoreTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 22, fontWeight: '900' },
   petCirclePhotoSmallMake: { borderRadius: 14, flex: 1, overflow: 'hidden', position: 'relative' },
-  petCirclePhotoStackMake: { gap: 7, width: 104 },
+  petCirclePhotoStackMake: { gap: 7, width: 92 },
+  petCircleOwnerSheetHeaderMake: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  petCircleOwnerSheetMake: { gap: 12, paddingHorizontal: 22, paddingTop: 16 },
+  petCircleOwnerTapMake: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 10, minWidth: 0 },
+  petCircleReportActionMake: { backgroundColor: 'rgba(245,184,76,0.12)', borderColor: 'rgba(245,184,76,0.24)' },
   petCircleSheetHeaderMake: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   petCircleSheetIconMake: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.12)', borderRadius: 14, height: 38, justifyContent: 'center', width: 38 },
   petCircleSheetMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 2 },
-  petCircleSinglePhotoMake: { borderRadius: 18, height: 236, marginTop: 12, overflow: 'hidden' },
+  petCircleSinglePhotoMake: { borderRadius: 18, height: 196, marginTop: 12, overflow: 'hidden' },
   petCircleSmallActionMake: { alignItems: 'center', backgroundColor: palette.pale, borderColor: palette.border, borderRadius: 16, borderWidth: 1, height: 34, justifyContent: 'center', width: 34 },
   petCircleTagMake: { backgroundColor: 'rgba(77,182,172,0.10)', borderRadius: 10, color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4 },
   petCircleTagRowMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 },
   petCircleTextMake: { color: 'rgba(27,28,25,0.86)', fontFamily: appFontFamily, fontSize: 13.2, fontWeight: '500', lineHeight: 21, marginTop: 10 },
+  petCircleTextToggleMake: { alignSelf: 'flex-start', borderRadius: 12, marginTop: 5, paddingHorizontal: 4, paddingVertical: 2 },
+  petCircleTextToggleTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800' },
   petCircleTwoPhotoMake: { borderRadius: 16, flex: 1, overflow: 'hidden' },
-  petCircleTwoPhotosMake: { flexDirection: 'row', gap: 7, height: 184, marginTop: 12 },
+  petCircleTwoPhotosMake: { flexDirection: 'row', gap: 7, height: 164, marginTop: 12 },
   petCircleViewerBackdropMake: { alignItems: 'center', backgroundColor: 'rgba(19,18,16,0.92)', flex: 1, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 18 },
   petCircleViewerCaptionMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.95)', borderColor: 'rgba(255,255,255,0.44)', borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 12, paddingHorizontal: 14, paddingVertical: 12 },
   petCircleViewerCommentButtonMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 16, height: 36, justifyContent: 'center', width: 36 },
@@ -14092,6 +15020,25 @@ const styles = StyleSheet.create({
   safetyActionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600', lineHeight: 20 },
   safetyAuditNoteMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 4, padding: 12 },
   safetyAuditNoteTextMake: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', lineHeight: 20 },
+  safetyBlockEmptyMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, gap: 6, paddingHorizontal: 18, paddingVertical: 20 },
+  safetyBlockEmptySubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 18, textAlign: 'center' },
+  safetyBlockEmptyTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '800', lineHeight: 20 },
+  safetyBlockHeaderMake: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  safetyBlockListMake: { gap: 8 },
+  safetyBlockLoadingMake: { gap: 8 },
+  safetyBlockMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 2 },
+  safetyBlockOwnerMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '800', lineHeight: 19 },
+  safetyBlockRefreshMake: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.12)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 14, borderWidth: 1, height: 34, justifyContent: 'center', width: 34 },
+  safetyBlockRetryMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 15, flexDirection: 'row', gap: 6, height: 34, justifyContent: 'center', marginTop: 6, paddingHorizontal: 14 },
+  safetyBlockRetryTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '800' },
+  safetyBlockRowMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 11, paddingHorizontal: 12, paddingVertical: 11 },
+  safetyBlockSectionMake: { gap: 10 },
+  safetyBlockSkeletonGapMake: { marginTop: 7 },
+  safetyBlockSkeletonRowMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 11, paddingHorizontal: 12, paddingVertical: 13 },
+  safetyBlockSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 16, marginTop: 2 },
+  safetyBlockTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '800', lineHeight: 21 },
+  safetyBlockUnblockMake: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.12)', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 13, borderWidth: 1, height: 32, justifyContent: 'center', minWidth: 52, paddingHorizontal: 10 },
+  safetyBlockUnblockTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800' },
   safetyHeroIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, height: 46, justifyContent: 'center', width: 46 },
   safetyHeroMake: { alignItems: 'center', backgroundColor: '#FFE3D1', borderRadius: 18, flexDirection: 'row', gap: 14, marginBottom: 6, padding: 16 },
   safetyHeroSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', lineHeight: 18, marginTop: 4 },
@@ -14116,6 +15063,7 @@ const styles = StyleSheet.create({
   reviewStatusCard: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, paddingHorizontal: 12, paddingVertical: 10 },
   reviewStatusText: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18 },
   safe: { backgroundColor: Platform.OS === 'web' ? '#e8e2d9' : palette.background, flex: 1 },
+  routeScroll: { flex: 1 },
   screen: { backgroundColor: palette.background, flex: 1 },
   searchBar: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 10, minHeight: 52, paddingHorizontal: 14 },
   searchInput: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, minHeight: 42 },

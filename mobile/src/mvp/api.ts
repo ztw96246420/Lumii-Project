@@ -14,6 +14,7 @@ import type {
   CreateVaccinePlanInput,
   FeedbackCategory,
   FeedbackSubmission,
+  GreetingOptions,
   GreetingResult,
   HealthCalendarEvent,
   HealthMemo,
@@ -24,6 +25,7 @@ import type {
   NearbyOwner,
   PetCircleComment,
   PetCirclePostList,
+  PetCircleReportResult,
   NotificationItem,
   OwnerProfilePatch,
   PetChatFeedbackRating,
@@ -35,6 +37,8 @@ import type {
   PlaceSubmission,
   PermissionStateMap,
   PushDevice,
+  SocialBlockListItem,
+  SocialBlockResult,
   SmsCodeTicket,
   UploadPetMediaInput,
   UploadedPetMedia,
@@ -335,14 +339,19 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<NearbyMoment[]>('GET', `/social/nearby-moments${query}`);
       },
 
-      async listPetCirclePosts(location?: NearbyLocationHint): Promise<ApiResult<PetCirclePostList>> {
+      async listPetCirclePosts(location?: NearbyLocationHint, options: { cursor?: string; limit?: number } = {}): Promise<ApiResult<PetCirclePostList>> {
         const locationQuery = nearbyLocationQuery(location);
-        const query = locationQuery ? `?${locationQuery}` : '';
+        const queryParts = [
+          locationQuery,
+          options.cursor ? `cursor=${encodeURIComponent(options.cursor)}` : '',
+          options.limit ? `limit=${encodeURIComponent(options.limit)}` : '',
+        ].filter(Boolean);
+        const query = queryParts.length ? `?${queryParts.join('&')}` : '';
         return request<PetCirclePostList>('GET', `/social/pet-circle/posts${query}`);
       },
 
-      async createMoment(content: string, mood?: string, photoCount = 0, options: { imageUrls?: string[]; visibility?: 'nearby' | 'private' } = {}): Promise<ApiResult<NearbyMoment>> {
-        return request<NearbyMoment>('POST', '/social/pet-circle/posts', { content, imageUrls: options.imageUrls, mood, photoCount, visibility: options.visibility ?? 'nearby' });
+      async createMoment(content: string, mood?: string, photoCount = 0, options: { imageUrls?: string[]; location?: NearbyLocationHint | null; syncToHealthCalendar?: boolean; visibility?: 'nearby' | 'private' } = {}): Promise<ApiResult<NearbyMoment>> {
+        return request<NearbyMoment>('POST', '/social/pet-circle/posts', { content, imageUrls: options.imageUrls, location: options.location ?? undefined, mood, photoCount, syncToHealthCalendar: options.syncToHealthCalendar, visibility: options.visibility ?? 'nearby' });
       },
 
       async likePetCirclePost(postId: string): Promise<ApiResult<NearbyMoment>> {
@@ -369,8 +378,28 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<{ deleted: boolean; id: string }>('DELETE', `/social/pet-circle/posts/${encodeURIComponent(postId)}`);
       },
 
-      async sendGreeting(ownerId: string): Promise<ApiResult<GreetingResult>> {
-        return request<GreetingResult>('POST', '/social/greetings', { ownerId });
+      async reportPetCirclePost(postId: string, content?: string): Promise<ApiResult<PetCircleReportResult>> {
+        return request<PetCircleReportResult>('POST', `/social/pet-circle/posts/${encodeURIComponent(postId)}/report`, { content });
+      },
+
+      async reportPetCircleComment(commentId: string, content?: string): Promise<ApiResult<PetCircleReportResult>> {
+        return request<PetCircleReportResult>('POST', `/social/pet-circle/comments/${encodeURIComponent(commentId)}/report`, { content });
+      },
+
+      async blockOwner(ownerId: string): Promise<ApiResult<SocialBlockResult>> {
+        return request<SocialBlockResult>('POST', '/social/blocks', { ownerId });
+      },
+
+      async listBlocks(): Promise<ApiResult<SocialBlockListItem[]>> {
+        return request<SocialBlockListItem[]>('GET', '/social/blocks');
+      },
+
+      async unblockOwner(ownerId: string): Promise<ApiResult<{ deleted: boolean; ownerId: string }>> {
+        return request<{ deleted: boolean; ownerId: string }>('DELETE', `/social/blocks/${encodeURIComponent(ownerId)}`);
+      },
+
+      async sendGreeting(ownerId: string, options: GreetingOptions = {}): Promise<ApiResult<GreetingResult>> {
+        return request<GreetingResult>('POST', '/social/greetings', { ownerId, postId: options.postId, source: options.source });
       },
 
       async listGreetingRequests(): Promise<ApiResult<NearbyOwner[]>> {

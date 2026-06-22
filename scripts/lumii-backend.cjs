@@ -15,6 +15,7 @@ const SMS_VERIFY_MAX_ATTEMPTS = Math.max(1, Number(process.env.SMS_VERIFY_MAX_AT
 const AUTH_TOKEN_TTL_MS = Number(process.env.AUTH_TOKEN_TTL_MS || 30 * 24 * 60 * 60 * 1000);
 const AUTH_TOKEN_SECRET = process.env.LUMII_TOKEN_SECRET || process.env.AUTH_TOKEN_SECRET || 'lumii-mvp-dev-token-secret';
 const ONLINE_TTL_MS = 30 * 60 * 1000;
+const NEARBY_LOCATION_MAX_AGE_MS = Number(process.env.NEARBY_LOCATION_MAX_AGE_MS || String(10 * 60 * 1000));
 const DEFAULT_DISCOVER_RADIUS_KM = 3;
 const FUZZY_LOCATION_GRID_DEGREES = 0.01;
 const FUZZY_LOCATION_MIN_ACCURACY_METERS = 1000;
@@ -258,7 +259,9 @@ function createInitialState() {
     revokedAuthTokens: {},
     socialComments: [],
     socialLikes: [],
+    socialBlocks: [],
     socialMoments: [],
+    socialReports: [],
     aiUsage: {
       deepseek: {
         cacheHitTokens: 0,
@@ -676,6 +679,13 @@ function numberFromQuery(value) {
   return Number.isFinite(numeric) ? numeric : undefined;
 }
 
+function timestampFromValue(value) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric;
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function locationFromQuery(url) {
   const latitude = numberFromQuery(url.searchParams.get('lat'));
   const longitude = numberFromQuery(url.searchParams.get('lng'));
@@ -688,6 +698,26 @@ function locationFromQuery(url) {
     radiusKm: numberFromQuery(url.searchParams.get('radiusKm')) || DEFAULT_DISCOVER_RADIUS_KM,
     updatedAt: Date.now(),
   };
+}
+
+function locationFromPayload(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const latitude = numberFromQuery(source.latitude ?? source.lat);
+  const longitude = numberFromQuery(source.longitude ?? source.lng);
+  if (latitude === undefined || longitude === undefined) return null;
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+  return {
+    accuracy: numberFromQuery(source.accuracy),
+    latitude,
+    longitude,
+    radiusKm: numberFromQuery(source.radiusKm) || DEFAULT_DISCOVER_RADIUS_KM,
+    updatedAt: timestampFromValue(source.updatedAt) || Date.now(),
+  };
+}
+
+function isFreshNearbyLocation(location, now = Date.now()) {
+  const updatedAt = Number(location?.updatedAt || 0);
+  return Number.isFinite(updatedAt) && updatedAt > 0 && now - updatedAt <= NEARBY_LOCATION_MAX_AGE_MS;
 }
 
 function fuzzyLocationForPersistence(location) {
@@ -723,6 +753,18 @@ function distanceKmBetween(a, b) {
 function accuracyBufferKm(a, b) {
   const meters = Math.max(0, Number(a?.accuracy || 0)) + Math.max(0, Number(b?.accuracy || 0));
   return Math.min(MAX_ACCURACY_BUFFER_KM, meters / 1000);
+}
+
+function nearbyRadiusKmFor(viewer, fallback = DEFAULT_DISCOVER_RADIUS_KM) {
+  const radiusKm = Number(viewer?.location?.radiusKm || fallback || DEFAULT_DISCOVER_RADIUS_KM);
+  return Number.isFinite(radiusKm) && radiusKm > 0 ? radiusKm : DEFAULT_DISCOVER_RADIUS_KM;
+}
+
+function canViewNearbyUser(viewer, targetUser, radiusKm = DEFAULT_DISCOVER_RADIUS_KM) {
+  if (!viewer?.location || !targetUser?.location) return false;
+  const distanceKm = distanceKmBetween(viewer.location, targetUser.location);
+  if (distanceKm === null || distanceKm === undefined) return false;
+  return distanceKm <= nearbyRadiusKmFor(viewer, radiusKm) + accuracyBufferKm(viewer.location, targetUser.location);
 }
 
 function fuzzyDistance(distanceKm) {
@@ -1674,11 +1716,12 @@ function createPlaceSubmission(user, body) {
   return { submission };
 }
 
-function publicUploadedMedia(media) {
+function publicUploadedMedia(media, req) {
   if (!media) return null;
   const analysis = media.analysis || analyzeUploadedPetMedia({}, media.dataUrl);
   return {
     analysis,
+    fileUrl: media.objectUrl || mediaUploadFileUrl(req, media.mediaId),
     mediaId: media.mediaId,
     previewUrl: media.previewUrl || samplePhotoUrl,
     quality: analysis.status === 'blocked' ? 'blocked' : analysis.status === 'warning' ? 'warning' : 'good',
@@ -1802,6 +1845,27 @@ function defaultMemosFor(user) {
   ];
 }
 
+function reconcileDefaultHealthListDate(storeName, user, list) {
+  const pet = selectedPetFor(user);
+  if (!pet || !Array.isArray(list)) return false;
+  const createdAt = normalizeCalendarDate(pet.createdAt, isoDateFromTimestampId(pet.id));
+  if (storeName === 'memos') {
+    const memo = list.find((item) => item?.id === `m-${user.phone}-${pet.id}-1`);
+    if (memo && memo.createdAt !== createdAt) {
+      memo.createdAt = createdAt;
+      return true;
+    }
+  }
+  if (storeName === 'weights') {
+    const record = list.find((item) => item?.id === `w-${user.phone}-${pet.id}-1`);
+    if (record && record.recordedAt !== createdAt) {
+      record.recordedAt = createdAt;
+      return true;
+    }
+  }
+  return false;
+}
+
 function createHealthMemoRecord(user, title, content, options = {}) {
   const normalizedTitle = String(title || '').trim();
   const normalizedContent = String(content || '').trim();
@@ -1820,6 +1884,16 @@ function createHealthMemoRecord(user, title, content, options = {}) {
   };
   memos.unshift(memo);
   return memo;
+}
+
+function createHealthMemoFromSocialMoment(user, content) {
+  const normalizedContent = String(content || '').trim();
+  if (!normalizedContent) return null;
+  return createHealthMemoRecord(user, petChatMemoTitle(normalizedContent), normalizedContent.slice(0, 240));
+}
+
+function shouldSyncSocialMomentToHealthCalendar(body = {}, visibility = 'nearby') {
+  return visibility === 'private' || body.syncToHealthCalendar === true || body.syncToHealthCalendar === 'true';
 }
 
 function defaultVaccinesFor(user) {
@@ -1910,6 +1984,7 @@ function healthList(storeName, user, defaultsFactory) {
   state.health[storeName] = state.health[storeName] || {};
   const key = healthKeyFor(user);
   if (!state.health[storeName][key]) state.health[storeName][key] = defaultsFactory(user);
+  if (reconcileDefaultHealthListDate(storeName, user, state.health[storeName][key])) saveState();
   return state.health[storeName][key];
 }
 
@@ -3529,21 +3604,88 @@ function buildOwnerCard(user, viewerPhone, index, distanceKm) {
   };
 }
 
+function ensureSocialBlocks() {
+  if (!Array.isArray(state.socialBlocks)) state.socialBlocks = [];
+  return state.socialBlocks;
+}
+
+function socialBlockBetween(phoneA, phoneB) {
+  if (!phoneA || !phoneB || phoneA === phoneB) return null;
+  return ensureSocialBlocks().find(
+    (block) =>
+      (block.blockerPhone === phoneA && block.blockedPhone === phoneB) ||
+      (block.blockerPhone === phoneB && block.blockedPhone === phoneA),
+  );
+}
+
+function createSocialBlock(user, ownerId) {
+  const targetPhone = resolveOwnerId(String(ownerId || ''));
+  const targetUser = targetPhone ? state.users[targetPhone] : null;
+  if (!targetUser) return { error: '用户不存在或已不可见', statusCode: 404 };
+  if (targetPhone === user.phone) return { error: '不能拉黑自己', statusCode: 400 };
+  const existing = ensureSocialBlocks().find((block) => block.blockerPhone === user.phone && block.blockedPhone === targetPhone);
+  if (existing) return { block: existing, targetPhone };
+  const visibleTarget = resolveVisibleSocialTarget(user, ownerId);
+  if (!visibleTarget) return { error: '用户不存在或已不可见', statusCode: 404 };
+  const block = {
+    blockedPhone: targetPhone,
+    blockerPhone: user.phone,
+    createdAt: new Date().toISOString(),
+    id: `block-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+  };
+  ensureSocialBlocks().unshift(block);
+  state.greetings = state.greetings.map((greeting) =>
+    ((greeting.fromPhone === user.phone && greeting.targetPhone === targetPhone) || (greeting.fromPhone === targetPhone && greeting.targetPhone === user.phone)) &&
+    (greeting.status || 'pending') === 'pending'
+      ? { ...greeting, blockedAt: Date.now(), status: 'blocked' }
+      : greeting,
+  );
+  return { block, targetPhone };
+}
+
+function buildSocialBlockListItem(block) {
+  const targetUser = state.users[block.blockedPhone];
+  const suffix = String(block.blockedPhone || '').slice(-4);
+  const pet = targetUser ? activePetFor(targetUser) : null;
+  return {
+    avatarUrl: pet?.avatarUrl,
+    blockedAt: block.createdAt,
+    id: block.id,
+    ownerId: `user-${block.blockedPhone}`,
+    ownerName: targetUser?.ownerName || `用户${suffix}`,
+    petName: pet?.name,
+    species: pet?.species === 'cat' ? 'cat' : pet?.species === 'dog' ? 'dog' : undefined,
+  };
+}
+
+function listSocialBlocksFor(user) {
+  return ensureSocialBlocks()
+    .filter((block) => block.blockerPhone === user.phone)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .map(buildSocialBlockListItem);
+}
+
+function deleteSocialBlock(user, ownerId) {
+  const targetPhone = resolveOwnerId(String(ownerId || ''));
+  if (!targetPhone || targetPhone === user.phone) return { error: '黑名单对象不存在', statusCode: 404 };
+  const before = ensureSocialBlocks().length;
+  state.socialBlocks = ensureSocialBlocks().filter((block) => !(block.blockerPhone === user.phone && block.blockedPhone === targetPhone));
+  if (state.socialBlocks.length === before) return { error: '黑名单对象不存在', statusCode: 404 };
+  return { ownerId: `user-${targetPhone}` };
+}
+
 function listOnlineOwners(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM) {
   const now = Date.now();
   const realOwners = Object.values(state.users)
     .filter((user) => user.phone !== viewer.phone)
     .filter((user) => user.settings?.nearbyVisible !== false)
+    .filter((user) => !socialBlockBetween(viewer.phone, user.phone))
     .filter((user) => now - (user.lastSeenAt || 0) < ONLINE_TTL_MS)
     .map((user, index) => {
       const distanceKm = distanceKmBetween(viewer.location, user.location);
       return { card: buildOwnerCard(user, viewer.phone, index, distanceKm ?? undefined), distanceKm, user };
     })
-    .filter(({ distanceKm, user }) => {
-      if (!viewer.location) return true;
-      if (!user.location || distanceKm === null || distanceKm === undefined) return false;
-      return distanceKm <= radiusKm + accuracyBufferKm(viewer.location, user.location);
-    })
+    .filter(({ user }) => canViewNearbyUser(viewer, user, radiusKm))
     .sort((a, b) => (a.distanceKm ?? Number.MAX_SAFE_INTEGER) - (b.distanceKm ?? Number.MAX_SAFE_INTEGER))
     .map(({ card }) => card);
   return realOwners;
@@ -3555,11 +3697,26 @@ function normalizeSocialMomentContent(value) {
 
 function normalizeSocialMomentImageUrls(body = {}) {
   const rawUrls = Array.isArray(body.imageUrls) ? body.imageUrls : Array.isArray(body.photoUrls) ? body.photoUrls : [];
-  const urls = rawUrls
-    .map((item) => String(item || '').trim())
-    .filter((item) => /^https?:\/\//i.test(item) || /^data:image\//i.test(item))
-    .slice(0, 6);
+  const urls = [];
+  const seen = new Set();
+  for (const item of rawUrls) {
+    const url = String(item || '').trim();
+    if (!url || url.length > 2000 || seen.has(url)) continue;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+      seen.add(url);
+      urls.push(url);
+    } catch {
+      // Invalid image URLs are ignored; public posts should only store media upload fileUrl values.
+    }
+    if (urls.length >= 6) break;
+  }
   return urls;
+}
+
+function hasSocialMomentImageUrlPayload(body = {}) {
+  return Array.isArray(body.imageUrls) || Array.isArray(body.photoUrls);
 }
 
 function normalizeSocialVisibility(value) {
@@ -3581,12 +3738,42 @@ function ensureSocialComments() {
   return state.socialComments;
 }
 
+function ensureSocialReports() {
+  if (!Array.isArray(state.socialReports)) state.socialReports = [];
+  return state.socialReports;
+}
+
+function socialReportFor(user, targetType, targetId) {
+  return ensureSocialReports().find((report) => report.phone === user.phone && report.targetType === targetType && report.targetId === targetId);
+}
+
+function createSocialReport(user, targetType, targetId, ownerPhone, body = {}) {
+  const existing = socialReportFor(user, targetType, targetId);
+  if (existing) return existing;
+  const report = {
+    content: String(body.content || body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+    createdAt: new Date().toISOString(),
+    id: `report-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    ownerPhone,
+    phone: user.phone,
+    status: 'pending',
+    targetId,
+    targetType,
+  };
+  ensureSocialReports().unshift(report);
+  return report;
+}
+
 function createSocialMoment(user, body = {}) {
-  const content = normalizeSocialMomentContent(body.content);
+  const rawContent = String(body.content || '').replace(/\s+/g, ' ').trim();
+  const violation = socialChatContentViolation('小事内容', rawContent, 280);
+  if (violation) return { error: violation, statusCode: 400 };
+  const content = normalizeSocialMomentContent(rawContent);
   if (!content) return { error: '先写一点今天的小事吧', statusCode: 400 };
   const pet = activePetFor(user);
   const visibility = normalizeSocialVisibility(body.visibility);
   const imageUrls = normalizeSocialMomentImageUrls(body);
+  const hasImageUrlPayload = hasSocialMomentImageUrlPayload(body);
   const moment = {
     content,
     createdAt: new Date().toISOString(),
@@ -3595,7 +3782,7 @@ function createSocialMoment(user, body = {}) {
     mood: String(body.mood || '').trim().slice(0, 12),
     petId: pet.id,
     phone: user.phone,
-    photoCount: imageUrls.length || Math.max(0, Math.min(6, Number(body.photoCount) || 0)),
+    photoCount: hasImageUrlPayload ? imageUrls.length : Math.max(0, Math.min(6, Number(body.photoCount) || 0)),
     status: 'published',
     updatedAt: new Date().toISOString(),
     visibility,
@@ -3610,9 +3797,34 @@ function findSocialMomentById(postId) {
   return ensureSocialMoments().find((moment) => moment.id === postId);
 }
 
-function publishedSocialComments(postId) {
+function socialMomentAccessError(moment, viewer, options = {}) {
+  if (!moment || moment.status === 'deleted') return { error: '这条小事已不可见', statusCode: 404 };
+  const owner = state.users[moment.phone];
+  if (!owner) return { error: '这条小事已不可见', statusCode: 404 };
+  owner.settings = normalizeUserSettings(owner.settings);
+  if (owner.settings.nearbyVisible === false) return { error: '这条小事已不可见', statusCode: 404 };
+  if ((moment.visibility || 'nearby') !== 'nearby') return { error: '这条小事已不可见', statusCode: 404 };
+  if (socialBlockBetween(viewer.phone, moment.phone)) return { error: '这条小事已不可见', statusCode: 404 };
+  if (!options.ignoreReports && socialReportFor(viewer, 'post', moment.id)) return { error: '这条小事已不可见', statusCode: 404 };
+  const createdAtMs = new Date(moment.createdAt).getTime();
+  const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
+  if (!Number.isFinite(createdAtMs) || Date.now() - createdAtMs > maxAgeMs) return { error: '这条小事已不可见', statusCode: 404 };
+  if (moment.phone === viewer.phone) return null;
+  if (!canViewNearbyUser(viewer, owner, nearbyRadiusKmFor(viewer))) return { error: '这条小事已不可见', statusCode: 404 };
+  return null;
+}
+
+function visibleSocialMomentForViewer(postId, viewer) {
+  const moment = findSocialMomentById(postId);
+  const accessError = socialMomentAccessError(moment, viewer);
+  return accessError ? accessError : { moment };
+}
+
+function publishedSocialComments(postId, viewer = null) {
   return ensureSocialComments()
     .filter((comment) => comment.postId === postId && comment.status !== 'deleted')
+    .filter((comment) => !viewer || !socialReportFor(viewer, 'comment', comment.id))
+    .filter((comment) => !viewer || !socialBlockBetween(viewer.phone, comment.phone))
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
 }
 
@@ -3624,7 +3836,7 @@ function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
   const pet = activePetFor(momentUser);
   const suffix = momentUser.phone.slice(-4);
   const likes = socialLikesForPost(moment.id);
-  const comments = publishedSocialComments(moment.id);
+  const comments = publishedSocialComments(moment.id, viewer);
   return {
     commentCount: comments.length,
     createdAt: moment.createdAt,
@@ -3637,6 +3849,7 @@ function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
     mood: moment.mood || undefined,
     ownerId: `user-${momentUser.phone}`,
     ownerName: momentUser.ownerName || `用户${suffix}`,
+    ownedByMe: moment.phone === viewer.phone,
     petName: pet.name || `灵伴${suffix}`,
     photoCount: moment.photoCount || 0,
     species: pet.species === 'cat' ? 'cat' : 'dog',
@@ -3645,25 +3858,46 @@ function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
   };
 }
 
-function listNearbyMoments(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, options = {}) {
+function petCircleListLimit(value, fallback = 20) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(50, Math.floor(parsed)));
+}
+
+function encodePetCircleCursor(offset) {
+  return base64UrlEncode(JSON.stringify({ offset }));
+}
+
+function decodePetCircleCursor(cursor) {
+  if (!cursor) return 0;
+  try {
+    const payload = JSON.parse(base64UrlDecode(cursor));
+    const offset = Number(payload?.offset);
+    return Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function listNearbyMomentEntries(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, options = {}) {
   const moments = ensureSocialMoments();
   const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
   const now = Date.now();
+  const includeOwn = options.includeOwn !== false;
   return moments
     .map((moment, index) => {
       const momentUser = state.users[moment.phone];
       if (!momentUser) return null;
       if (moment.status === 'deleted') return null;
-      if ((moment.visibility || 'nearby') !== 'nearby' && moment.phone !== viewer.phone) return null;
+      if (!includeOwn && moment.phone === viewer.phone) return null;
+      if ((moment.visibility || 'nearby') !== 'nearby') return null;
+      if (socialBlockBetween(viewer.phone, moment.phone)) return null;
+      if (socialReportFor(viewer, 'post', moment.id)) return null;
       if (momentUser.settings?.nearbyVisible === false) return null;
       const createdAtMs = new Date(moment.createdAt).getTime();
-      if (!Number.isFinite(createdAtMs) || (moment.phone !== viewer.phone && now - createdAtMs > maxAgeMs)) return null;
+      if (!Number.isFinite(createdAtMs) || now - createdAtMs > maxAgeMs) return null;
       const distanceKm = distanceKmBetween(viewer.location, momentUser.location);
-      if (!viewer.location && moment.phone !== viewer.phone) return null;
-      if (viewer.location && moment.phone !== viewer.phone) {
-        if (!momentUser.location || distanceKm === null || distanceKm === undefined) return null;
-        if (distanceKm > radiusKm + accuracyBufferKm(viewer.location, momentUser.location)) return null;
-      }
+      if (moment.phone !== viewer.phone && !canViewNearbyUser(viewer, momentUser, radiusKm)) return null;
       return {
         card: buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm ?? undefined),
         createdAtMs,
@@ -3671,13 +3905,28 @@ function listNearbyMoments(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, option
       };
     })
     .filter(Boolean)
-    .sort((a, b) => (a.distanceKm ?? Number.MAX_SAFE_INTEGER) - (b.distanceKm ?? Number.MAX_SAFE_INTEGER) || b.createdAtMs - a.createdAtMs)
-    .slice(0, options.limit || 20)
-    .map(({ card }) => card);
+    .sort((a, b) => (a.distanceKm ?? Number.MAX_SAFE_INTEGER) - (b.distanceKm ?? Number.MAX_SAFE_INTEGER) || b.createdAtMs - a.createdAtMs);
 }
 
-function listPetCircleComments(postId) {
-  return publishedSocialComments(postId).map((comment) => {
+function listNearbyMomentsPage(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, options = {}) {
+  const limit = petCircleListLimit(options.limit, 20);
+  const offset = decodePetCircleCursor(options.cursor);
+  const entries = listNearbyMomentEntries(viewer, radiusKm, options);
+  const pageEntries = entries.slice(offset, offset + limit);
+  const nextOffset = offset + pageEntries.length;
+  const page = {
+    items: pageEntries.map(({ card }) => card),
+  };
+  if (nextOffset < entries.length) page.nextCursor = encodePetCircleCursor(nextOffset);
+  return page;
+}
+
+function listNearbyMoments(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, options = {}) {
+  return listNearbyMomentsPage(viewer, radiusKm, options).items;
+}
+
+function listPetCircleComments(postId, viewer) {
+  return publishedSocialComments(postId, viewer).map((comment) => {
     const author = state.users[comment.phone];
     const pet = author ? activePetFor(author) : null;
     return {
@@ -3687,6 +3936,7 @@ function listPetCircleComments(postId) {
       createdAt: comment.createdAt,
       id: comment.id,
       ownerId: `user-${comment.phone}`,
+      ownedByMe: viewer ? comment.phone === viewer.phone : false,
       postId: comment.postId,
       text: comment.content,
     };
@@ -3694,8 +3944,9 @@ function listPetCircleComments(postId) {
 }
 
 function likeSocialMoment(postId, user) {
-  const moment = findSocialMomentById(postId);
-  if (!moment || moment.status === 'deleted') return { error: '这条小事已不可见', statusCode: 404 };
+  const visible = visibleSocialMomentForViewer(postId, user);
+  if (visible.error) return visible;
+  const { moment } = visible;
   if (moment.phone === user.phone) return { error: '暂不支持给自己的小事点赞', statusCode: 400 };
   const likes = ensureSocialLikes();
   if (!likes.some((like) => like.postId === postId && like.phone === user.phone)) {
@@ -3704,6 +3955,7 @@ function likeSocialMoment(postId, user) {
       category: 'interaction',
       id: `n-pet-circle-like-${postId}-${user.phone}`,
       kind: 'pet_circle_like',
+      postId: moment.id,
       read: false,
       text: `${user.ownerName || `用户${user.phone.slice(-4)}`}赞了这条小事`,
       title: '宠友圈有新互动',
@@ -3713,15 +3965,18 @@ function likeSocialMoment(postId, user) {
 }
 
 function unlikeSocialMoment(postId, user) {
-  const moment = findSocialMomentById(postId);
-  if (!moment || moment.status === 'deleted') return { error: '这条小事已不可见', statusCode: 404 };
+  const visible = visibleSocialMomentForViewer(postId, user);
+  if (visible.error) return visible;
+  const { moment } = visible;
   state.socialLikes = ensureSocialLikes().filter((like) => !(like.postId === postId && like.phone === user.phone));
+  removeNotification(moment.phone, `n-pet-circle-like-${postId}-${user.phone}`);
   return { moment };
 }
 
 function createPetCircleComment(postId, user, body = {}) {
-  const moment = findSocialMomentById(postId);
-  if (!moment || moment.status === 'deleted') return { error: '这条小事已不可见', statusCode: 404 };
+  const visible = visibleSocialMomentForViewer(postId, user);
+  if (visible.error) return visible;
+  const { moment } = visible;
   const content = String(body.content || body.text || '').replace(/\s+/g, ' ').trim();
   if (!content) return { error: '先写一句评论吧', statusCode: 400 };
   const violation = socialChatContentViolation('评论内容', content, 140);
@@ -3738,8 +3993,10 @@ function createPetCircleComment(postId, user, body = {}) {
   if (moment.phone !== user.phone) {
     addNotification(moment.phone, {
       category: 'interaction',
+      commentId: comment.id,
       id: `n-pet-circle-comment-${comment.id}`,
       kind: 'pet_circle_comment',
+      postId: moment.id,
       read: false,
       text: `${user.ownerName || `用户${user.phone.slice(-4)}`}评论了这条小事`,
       title: '宠友圈有新评论',
@@ -3756,16 +4013,47 @@ function deletePetCircleComment(commentId, user) {
   if (comment.phone !== user.phone && post?.phone !== user.phone) return { error: '只能删除自己的评论', statusCode: 403 };
   comment.status = 'deleted';
   comment.deletedAt = new Date().toISOString();
+  if (post?.phone) removeNotification(post.phone, `n-pet-circle-comment-${comment.id}`);
   return { comment };
+}
+
+function reportSocialMoment(postId, user, body = {}) {
+  const existing = socialReportFor(user, 'post', postId);
+  if (existing) return { report: existing };
+  const moment = findSocialMomentById(postId);
+  const accessError = socialMomentAccessError(moment, user, { ignoreReports: true });
+  if (accessError) return accessError;
+  if (moment.phone === user.phone) return { error: '不能举报自己的小事', statusCode: 400 };
+  return { report: createSocialReport(user, 'post', postId, moment.phone, body), moment };
+}
+
+function reportPetCircleComment(commentId, user, body = {}) {
+  const existing = socialReportFor(user, 'comment', commentId);
+  if (existing) return { report: existing };
+  const comment = ensureSocialComments().find((item) => item.id === commentId);
+  if (!comment || comment.status === 'deleted') return { error: '评论不存在或已删除', statusCode: 404 };
+  if (comment.phone === user.phone) return { error: '不能举报自己的评论', statusCode: 400 };
+  const visible = visibleSocialMomentForViewer(comment.postId, user);
+  if (visible.error) return visible;
+  return { report: createSocialReport(user, 'comment', commentId, comment.phone, body), comment };
 }
 
 function deleteSocialMoment(postId, user) {
   const moment = findSocialMomentById(postId);
   if (!moment || moment.status === 'deleted') return { error: '这条小事已不可见', statusCode: 404 };
   if (moment.phone !== user.phone) return { error: '只能删除自己的小事', statusCode: 403 };
+  const deletedAt = new Date().toISOString();
+  const relatedComments = ensureSocialComments().filter((comment) => comment.postId === postId);
+  const relatedCommentIds = new Set(relatedComments.map((comment) => comment.id));
   moment.status = 'deleted';
-  moment.deletedAt = new Date().toISOString();
-  moment.updatedAt = new Date().toISOString();
+  moment.deletedAt = deletedAt;
+  moment.updatedAt = deletedAt;
+  relatedComments.forEach((comment) => {
+    comment.status = 'deleted';
+    comment.deletedAt = comment.deletedAt || deletedAt;
+  });
+  state.socialLikes = ensureSocialLikes().filter((like) => like.postId !== postId);
+  removePetCircleNotificationsForPost(moment.phone, postId, relatedCommentIds);
   return { moment };
 }
 
@@ -3794,12 +4082,21 @@ function conversationTargetPhone(conversationId) {
 
 function enrichConversationFor(user, conversation) {
   const targetPhone = conversationTargetPhone(conversation.id);
-  const canSendMessage = Boolean(targetPhone && state.users[targetPhone] && acceptedGreetingBetween(user.phone, targetPhone));
+  const canSendMessage = Boolean(targetPhone && state.users[targetPhone] && !socialBlockBetween(user.phone, targetPhone) && acceptedGreetingBetween(user.phone, targetPhone));
   return {
     ...conversation,
     canSendMessage,
     relationshipStatus: canSendMessage ? 'accepted' : 'pending',
   };
+}
+
+function listConversationsFor(user) {
+  return (state.conversations[user.phone] || [])
+    .filter((conversation) => {
+      const targetPhone = conversationTargetPhone(conversation.id);
+      return Boolean(targetPhone && targetPhone !== user.phone && state.users[targetPhone] && !socialBlockBetween(user.phone, targetPhone));
+    })
+    .map((conversation) => enrichConversationFor(user, conversation));
 }
 
 function getConversationMessages(phone, conversationId) {
@@ -3817,7 +4114,7 @@ function appendConversationMessage(phone, conversationId, message) {
 function buildConversationFor(user, otherUser, lastMessage, unread = 0) {
   const otherPet = activePetFor(otherUser);
   const suffix = otherUser.phone.slice(-4);
-  const canSendMessage = acceptedGreetingBetween(user.phone, otherUser.phone);
+  const canSendMessage = acceptedGreetingBetween(user.phone, otherUser.phone) && !socialBlockBetween(user.phone, otherUser.phone);
   return {
     canSendMessage,
     id: conversationIdFor(otherUser.phone),
@@ -3845,6 +4142,7 @@ function pendingGreetingFor(fromPhone, targetPhone) {
 function listGreetingRequestsFor(user) {
   return state.greetings
     .filter((item) => item.targetPhone === user.phone && (item.status || 'pending') === 'pending')
+    .filter((item) => !socialBlockBetween(user.phone, item.fromPhone))
     .map((item, index) => {
       const fromUser = state.users[item.fromPhone];
       return fromUser ? buildOwnerCard(fromUser, user.phone, index, distanceKmBetween(user.location, fromUser.location) ?? undefined) : null;
@@ -3859,7 +4157,7 @@ function markConversationRead(phone, conversationId) {
 }
 
 const notificationCategories = new Set(['health', 'interaction', 'system', 'walk']);
-const notificationKinds = new Set(['conversation_message', 'greeting_accepted', 'greeting_request', 'health_reminder', 'system', 'walk_invite']);
+const notificationKinds = new Set(['conversation_message', 'greeting_accepted', 'greeting_request', 'health_reminder', 'pet_circle_comment', 'pet_circle_greeting', 'pet_circle_like', 'system', 'walk_invite']);
 
 function normalizeNotificationCategory(category) {
   const value = String(category || '').trim();
@@ -3870,7 +4168,7 @@ function inferNotificationCategory(notification) {
   const id = String(notification?.id || '');
   if (/walk/.test(id)) return 'walk';
   if (/(health|vaccine|medical)/.test(id)) return 'health';
-  if (/(greeting|message)/.test(id)) return 'interaction';
+  if (/(greeting|message|pet-circle|pet_circle)/.test(id)) return 'interaction';
   return 'system';
 }
 
@@ -3882,6 +4180,9 @@ function normalizeNotificationKind(kind) {
 function inferNotificationKind(notification) {
   const id = String(notification?.id || '');
   if (/message/.test(id)) return 'conversation_message';
+  if (/(pet-circle-comment|pet_circle_comment)/.test(id)) return 'pet_circle_comment';
+  if (/(pet-circle-greeting|pet_circle_greeting)/.test(id)) return 'pet_circle_greeting';
+  if (/(pet-circle-like|pet_circle_like)/.test(id)) return 'pet_circle_like';
   if (/greeting-accepted/.test(id)) return 'greeting_accepted';
   if (/greeting/.test(id)) return 'greeting_request';
   if (/walk/.test(id)) return 'walk_invite';
@@ -3928,6 +4229,31 @@ function addNotification(phone, notification, category) {
   return true;
 }
 
+function removeNotification(phone, notificationId) {
+  const current = state.notifications[phone] || [];
+  const next = current.filter((item) => item.id !== notificationId);
+  if (next.length === current.length) return false;
+  state.notifications[phone] = next;
+  return true;
+}
+
+function removePetCircleNotificationsForPost(phone, postId, commentIds = new Set()) {
+  const current = state.notifications[phone] || [];
+  const next = current.filter((item) => {
+    const id = String(item.id || '');
+    if (item.postId === postId) return false;
+    if (id.startsWith(`n-pet-circle-like-${postId}-`)) return false;
+    if (id.startsWith('n-pet-circle-comment-')) {
+      const commentId = String(item.commentId || id.slice('n-pet-circle-comment-'.length));
+      if (commentIds.has(commentId)) return false;
+    }
+    return true;
+  });
+  if (next.length === current.length) return false;
+  state.notifications[phone] = next;
+  return true;
+}
+
 function markNotificationsRead(phone, ids) {
   const idSet = Array.isArray(ids) && ids.length ? new Set(ids.map(String)) : null;
   normalizeNotificationsFor(phone);
@@ -3945,8 +4271,10 @@ function resolveVisibleSocialTarget(viewer, ownerId) {
   if (!targetPhone || targetPhone === viewer.phone) return null;
   const targetUser = state.users[targetPhone];
   if (!targetUser) return null;
+  if (socialBlockBetween(viewer.phone, targetPhone)) return null;
   targetUser.settings = normalizeUserSettings(targetUser.settings);
   if (targetUser.settings.nearbyVisible === false) return null;
+  if (!canViewNearbyUser(viewer, targetUser, nearbyRadiusKmFor(viewer))) return null;
   return { targetPhone, targetUser };
 }
 
@@ -4510,7 +4838,7 @@ async function handle(req, res) {
       source: body.source || 'mvp_sample',
     };
     saveState();
-    ok(res, publicUploadedMedia(state.mediaUploads[mediaId]));
+    ok(res, publicUploadedMedia(state.mediaUploads[mediaId], req));
     return;
   }
 
@@ -4522,7 +4850,7 @@ async function handle(req, res) {
       fail(res, 404, '上传照片已失效，请重新上传', true);
       return;
     }
-    ok(res, publicUploadedMedia(media));
+    ok(res, publicUploadedMedia(media, req));
     return;
   }
 
@@ -4890,12 +5218,14 @@ async function handle(req, res) {
       saveState();
     }
     const viewerForMoments = location ? { ...user, location } : user;
-    ok(res, listNearbyMoments(viewerForMoments, location?.radiusKm || user.location?.radiusKm || DEFAULT_DISCOVER_RADIUS_KM));
+    ok(res, listNearbyMoments(viewerForMoments, location?.radiusKm || user.location?.radiusKm || DEFAULT_DISCOVER_RADIUS_KM, { includeOwn: false }));
     return;
   }
 
   if (req.method === 'GET' && pathname === '/social/pet-circle/posts') {
     const location = locationFromQuery(url);
+    const cursor = url.searchParams.get('cursor') || '';
+    const limit = url.searchParams.get('limit') || 30;
     const publishNearbyPresence = user.settings?.nearbyVisible !== false;
     if (publishNearbyPresence) {
       user.lastSeenAt = Date.now();
@@ -4903,13 +5233,27 @@ async function handle(req, res) {
       saveState();
     }
     const viewerForMoments = location ? { ...user, location } : user;
-    ok(res, { items: listNearbyMoments(viewerForMoments, location?.radiusKm || user.location?.radiusKm || DEFAULT_DISCOVER_RADIUS_KM, { limit: 30 }) });
+    ok(res, listNearbyMomentsPage(viewerForMoments, location?.radiusKm || user.location?.radiusKm || DEFAULT_DISCOVER_RADIUS_KM, { cursor, limit }));
     return;
   }
 
   if (req.method === 'POST' && (pathname === '/social/moments' || pathname === '/social/pet-circle/posts')) {
-    if (user.settings?.nearbyVisible === false) {
+    const visibility = normalizeSocialVisibility(body.visibility);
+    if (visibility === 'nearby' && user.settings?.nearbyVisible === false) {
       fail(res, 403, '请先开启附近可见后再分享小事', false, undefined, 'NEARBY_HIDDEN');
+      return;
+    }
+    const publishLocation = locationFromPayload(body.location);
+    if (publishLocation) {
+      if (!isFreshNearbyLocation(publishLocation)) {
+        fail(res, 400, '定位已过期，请重新定位后再发布到宠友圈', true, undefined, 'NEARBY_LOCATION_STALE');
+        return;
+      }
+      user.lastSeenAt = Date.now();
+      user.location = locationForPersistence(user, publishLocation);
+    }
+    if (visibility === 'nearby' && !isFreshNearbyLocation(user.location)) {
+      fail(res, 400, '请先完成定位后再发布到宠友圈', true, undefined, 'NEARBY_LOCATION_REQUIRED');
       return;
     }
     const created = createSocialMoment(user, body);
@@ -4917,8 +5261,11 @@ async function handle(req, res) {
       fail(res, created.statusCode || 400, created.error, false, undefined, 'SOCIAL_MOMENT_INVALID');
       return;
     }
+    const createdMemo = shouldSyncSocialMomentToHealthCalendar(body, visibility)
+      ? createHealthMemoFromSocialMoment(user, created.moment.content)
+      : null;
     saveState();
-    ok(res, buildNearbyMomentCard(created.moment, user, user, 0, undefined));
+    ok(res, { ...buildNearbyMomentCard(created.moment, user, user, 0, undefined), ...(createdMemo ? { createdMemo } : {}) });
     return;
   }
 
@@ -4931,6 +5278,18 @@ async function handle(req, res) {
     }
     saveState();
     ok(res, { deleted: true, id: deleted.moment.id });
+    return;
+  }
+
+  const petCirclePostReportMatch = pathname.match(/^\/social\/pet-circle\/posts\/([^/]+)\/report$/);
+  if (req.method === 'POST' && petCirclePostReportMatch) {
+    const result = reportSocialMoment(decodeURIComponent(petCirclePostReportMatch[1]), user, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'PET_CIRCLE_REPORT_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, { id: result.report.id, reported: true, targetId: result.report.targetId, targetType: result.report.targetType });
     return;
   }
 
@@ -4951,12 +5310,12 @@ async function handle(req, res) {
   const petCircleCommentsMatch = pathname.match(/^\/social\/pet-circle\/posts\/([^/]+)\/comments$/);
   if (req.method === 'GET' && petCircleCommentsMatch) {
     const postId = decodeURIComponent(petCircleCommentsMatch[1]);
-    const moment = findSocialMomentById(postId);
-    if (!moment || moment.status === 'deleted') {
-      fail(res, 404, '这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+    const visible = visibleSocialMomentForViewer(postId, user);
+    if (visible.error) {
+      fail(res, visible.statusCode || 404, visible.error, false, undefined, 'PET_CIRCLE_POST_GONE');
       return;
     }
-    ok(res, listPetCircleComments(postId));
+    ok(res, listPetCircleComments(postId, user));
     return;
   }
   if (req.method === 'POST' && petCircleCommentsMatch) {
@@ -4967,7 +5326,7 @@ async function handle(req, res) {
       return;
     }
     saveState();
-    ok(res, listPetCircleComments(postId));
+    ok(res, listPetCircleComments(postId, user));
     return;
   }
 
@@ -4980,6 +5339,46 @@ async function handle(req, res) {
     }
     saveState();
     ok(res, { deleted: true, id: result.comment.id });
+    return;
+  }
+
+  const petCircleCommentReportMatch = pathname.match(/^\/social\/pet-circle\/comments\/([^/]+)\/report$/);
+  if (req.method === 'POST' && petCircleCommentReportMatch) {
+    const result = reportPetCircleComment(decodeURIComponent(petCircleCommentReportMatch[1]), user, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'PET_CIRCLE_REPORT_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, { id: result.report.id, reported: true, targetId: result.report.targetId, targetType: result.report.targetType });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/social/blocks') {
+    const result = createSocialBlock(user, body.ownerId);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'SOCIAL_BLOCK_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, { blocked: true, id: result.block.id, ownerId: `user-${result.targetPhone}` });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/social/blocks') {
+    ok(res, listSocialBlocksFor(user));
+    return;
+  }
+
+  const socialBlockMatch = pathname.match(/^\/social\/blocks\/([^/]+)$/);
+  if (req.method === 'DELETE' && socialBlockMatch) {
+    const result = deleteSocialBlock(user, decodeURIComponent(socialBlockMatch[1]));
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'SOCIAL_BLOCK_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, { deleted: true, ownerId: result.ownerId });
     return;
   }
 
@@ -4998,31 +5397,53 @@ async function handle(req, res) {
     const { targetPhone, targetUser } = target;
     const fromPet = activePetFor(user);
     const targetPet = activePetFor(targetUser);
+    const source = String(body.source || '').trim();
+    const rawPostId = String(body.postId || '').trim();
+    const isPetCircleGreeting = source === 'pet_circle' || source === 'pet-circle' || Boolean(rawPostId);
+    let sourcePostId = '';
+    if (isPetCircleGreeting) {
+      if (!rawPostId) {
+        fail(res, 400, '这条小事已不可见，暂时不能从这里打招呼', true, undefined, 'PET_CIRCLE_POST_GONE');
+        return;
+      }
+      const visible = visibleSocialMomentForViewer(rawPostId, user);
+      if (!visible.moment || visible.moment.phone !== targetPhone) {
+        fail(res, 404, '这条小事已不可见，暂时不能从这里打招呼', true, undefined, 'PET_CIRCLE_POST_GONE');
+        return;
+      }
+      sourcePostId = visible.moment.id;
+    }
     const existing = pendingGreetingFor(user.phone, targetPhone);
     if (existing) {
       existing.at = Date.now();
+      if (sourcePostId) {
+        existing.source = 'pet_circle';
+        existing.postId = sourcePostId;
+      }
     } else {
       state.greetings.push({
         at: Date.now(),
         fromPhone: user.phone,
         message: '我想认识你和你的毛孩子',
         ownerId,
+        ...(sourcePostId ? { postId: sourcePostId, source: 'pet_circle' } : {}),
         status: 'pending',
         targetPhone,
       });
     }
-    if (!existing) {
+    if (!existing || sourcePostId) {
       addNotification(targetPhone, {
-        id: `n-greeting-${Date.now()}`,
-        kind: 'greeting_request',
+        id: sourcePostId ? `n-pet-circle-greeting-${sourcePostId}-${user.phone}` : `n-greeting-${Date.now()}`,
+        kind: sourcePostId ? 'pet_circle_greeting' : 'greeting_request',
         ownerId: `user-${user.phone}`,
+        ...(sourcePostId ? { postId: sourcePostId } : {}),
         read: false,
-        text: `${user.ownerName}和${fromPet.name}向你和${targetPet.name}打了招呼`,
-        title: '新的招呼',
+        text: sourcePostId ? `${user.ownerName}和${fromPet.name}从这条小事向你和${targetPet.name}打了招呼` : `${user.ownerName}和${fromPet.name}向你和${targetPet.name}打了招呼`,
+        title: sourcePostId ? `${targetPet.name}的小事有新互动` : '新的招呼',
       }, 'interaction');
     }
     saveState();
-    ok(res, { ownerId, sent: true });
+    ok(res, { ownerId, ...(sourcePostId ? { postId: sourcePostId, source: 'pet_circle' } : {}), sent: true });
     return;
   }
 
@@ -5156,7 +5577,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/conversations') {
-    ok(res, (state.conversations[user.phone] || []).map((conversation) => enrichConversationFor(user, conversation)));
+    ok(res, listConversationsFor(user));
     return;
   }
 
@@ -5171,6 +5592,11 @@ async function handle(req, res) {
   const conversationMessagesMatch = pathname.match(/^\/conversations\/([^/]+)\/messages$/);
   if (req.method === 'GET' && conversationMessagesMatch) {
     const conversationId = decodeURIComponent(conversationMessagesMatch[1]);
+    const targetPhone = conversationTargetPhone(conversationId);
+    if (!targetPhone || targetPhone === user.phone || !state.users[targetPhone] || socialBlockBetween(user.phone, targetPhone)) {
+      fail(res, 404, '会话不存在，请返回消息列表刷新', true);
+      return;
+    }
     ok(res, getConversationMessages(user.phone, conversationId));
     return;
   }
@@ -5193,6 +5619,10 @@ async function handle(req, res) {
     }
     const targetPhone = conversationTargetPhone(conversationId);
     if (!targetPhone || targetPhone === user.phone || !state.users[targetPhone]) {
+      fail(res, 404, '会话不存在，请返回消息列表刷新', true);
+      return;
+    }
+    if (socialBlockBetween(user.phone, targetPhone)) {
       fail(res, 404, '会话不存在，请返回消息列表刷新', true);
       return;
     }
