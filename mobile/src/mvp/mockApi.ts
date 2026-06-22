@@ -1289,6 +1289,17 @@ function removeMockGreetingRequestNotificationsFor(ownerId: string) {
   });
 }
 
+function removeMockSocialNotificationsForBlockedOwner(ownerId: string) {
+  const blockedPostIds = new Set(nearbyMoments.filter((moment) => moment.ownerId === ownerId).map((moment) => moment.id));
+  const blockedCommentIds = new Set(petCircleComments.filter((comment) => comment.ownerId === ownerId).map((comment) => comment.id));
+  notifications = notifications.filter((item) => {
+    if (item.ownerId === ownerId) return false;
+    if (item.postId && blockedPostIds.has(item.postId)) return false;
+    if (item.commentId && blockedCommentIds.has(item.commentId)) return false;
+    return true;
+  });
+}
+
 function calendarDatePart(value?: string) {
   const text = String(value ?? '').trim();
   const match = text.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/);
@@ -2351,6 +2362,7 @@ export const mockApi = {
       if (ownerId === `mock-${currentMockPhone}`) return error<SocialBlockResult>('不能拉黑自己', false, undefined, 'SOCIAL_BLOCK_INVALID');
       if (!isMockOwnerBlocked(ownerId)) socialBlocks = [{ blockedAt: new Date().toISOString(), id: `mock-block-${ownerId}`, ownerId }, ...socialBlocks];
       greetingRequests = greetingRequests.filter((item) => item.id !== ownerId);
+      removeMockSocialNotificationsForBlockedOwner(ownerId);
       return success({ blocked: true, id: `mock-block-${ownerId}`, ownerId });
     },
 

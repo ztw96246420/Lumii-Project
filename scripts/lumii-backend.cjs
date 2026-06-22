@@ -3634,7 +3634,10 @@ function createSocialBlock(user, ownerId) {
   if (!targetUser) return { error: '用户不存在或已不可见', statusCode: 404 };
   if (targetPhone === user.phone) return { error: '不能拉黑自己', statusCode: 400 };
   const existing = ensureSocialBlocks().find((block) => block.blockerPhone === user.phone && block.blockedPhone === targetPhone);
-  if (existing) return { block: existing, targetPhone };
+  if (existing) {
+    removeSocialNotificationsBetween(user.phone, targetPhone);
+    return { block: existing, targetPhone };
+  }
   const visibleTarget = resolveVisibleSocialTarget(user, ownerId);
   if (!visibleTarget) return { error: '用户不存在或已不可见', statusCode: 404 };
   const block = {
@@ -3650,6 +3653,7 @@ function createSocialBlock(user, ownerId) {
       ? { ...greeting, blockedAt: Date.now(), status: 'blocked' }
       : greeting,
   );
+  removeSocialNotificationsBetween(user.phone, targetPhone);
   return { block, targetPhone };
 }
 
@@ -4298,6 +4302,33 @@ function removeGreetingRequestNotificationsFor(phone, ownerId) {
   if (next.length === current.length) return false;
   state.notifications[phone] = next;
   return true;
+}
+
+function removeSocialNotificationsBetween(phoneA, phoneB) {
+  const removeFor = (phone, otherPhone) => {
+    const current = state.notifications[phone] || [];
+    if (!current.length) return false;
+    const otherOwnerId = `user-${otherPhone}`;
+    const otherConversationId = conversationIdFor(otherPhone);
+    const otherCommentIds = new Set(ensureSocialComments().filter((comment) => comment.phone === otherPhone).map((comment) => comment.id));
+    const next = current.filter((item) => {
+      const id = String(item.id || '');
+      if (item.ownerId === otherOwnerId) return false;
+      if (item.conversationId === otherConversationId) return false;
+      if (id.startsWith('n-pet-circle-like-') && id.endsWith(`-${otherPhone}`)) return false;
+      if (id.startsWith('n-pet-circle-comment-')) {
+        const commentId = String(item.commentId || id.slice('n-pet-circle-comment-'.length));
+        if (otherCommentIds.has(commentId)) return false;
+      }
+      return true;
+    });
+    if (next.length === current.length) return false;
+    state.notifications[phone] = next;
+    return true;
+  };
+  const removedA = removeFor(phoneA, phoneB);
+  const removedB = removeFor(phoneB, phoneA);
+  return removedA || removedB;
 }
 
 function markNotificationsRead(phone, ids) {

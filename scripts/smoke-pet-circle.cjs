@@ -932,6 +932,57 @@ async function run() {
   });
   assert.equal(greetingAfterUnblock.data.sent, true, 'unblocked user should be able to greet again');
 
+  const blockNotifyOwnerPhone = '19900002005';
+  const blockNotifyViewerPhone = '19900002006';
+  const blockNotifyOwnerToken = await login(blockNotifyOwnerPhone);
+  const blockNotifyViewerToken = await login(blockNotifyViewerPhone);
+  await createPet(blockNotifyOwnerToken, 'BlockOwner');
+  await createPet(blockNotifyViewerToken, 'BlockViewer');
+  await refreshPresence(blockNotifyOwnerToken, ownerLoc);
+  await refreshPresence(blockNotifyViewerToken, viewerLoc);
+  const blockNotifyViewerOwnerId = `user-${blockNotifyViewerPhone}`;
+  const blockNotifyPost = await request('/social/pet-circle/posts', {
+    body: {
+      content: 'block notification cleanup source post',
+      location: ownerLoc,
+      visibility: 'nearby',
+    },
+    method: 'POST',
+    token: blockNotifyOwnerToken,
+  });
+  await request(`/social/pet-circle/posts/${encodeURIComponent(blockNotifyPost.data.id)}/like`, {
+    method: 'POST',
+    token: blockNotifyViewerToken,
+  });
+  await request('/social/greetings', {
+    body: { ownerId: `user-${blockNotifyOwnerPhone}` },
+    method: 'POST',
+    token: blockNotifyViewerToken,
+  });
+  const blockNotifyOwnerNotificationsBeforeBlock = await request('/notifications', { token: blockNotifyOwnerToken });
+  assert.ok(
+    blockNotifyOwnerNotificationsBeforeBlock.data.some((item) => item.id === `n-pet-circle-like-${blockNotifyPost.data.id}-${blockNotifyViewerPhone}`),
+    'pet circle like notification should exist before blocking the liker',
+  );
+  assert.ok(
+    blockNotifyOwnerNotificationsBeforeBlock.data.some((item) => item.kind === 'greeting_request' && item.ownerId === blockNotifyViewerOwnerId),
+    'greeting request notification should exist before blocking the greeter',
+  );
+  await request('/social/blocks', {
+    body: { ownerId: blockNotifyViewerOwnerId },
+    method: 'POST',
+    token: blockNotifyOwnerToken,
+  });
+  const blockNotifyOwnerNotificationsAfterBlock = await request('/notifications', { token: blockNotifyOwnerToken });
+  assert.ok(
+    !blockNotifyOwnerNotificationsAfterBlock.data.some((item) => item.id === `n-pet-circle-like-${blockNotifyPost.data.id}-${blockNotifyViewerPhone}`),
+    'blocking a liker should remove stale pet circle like notifications from that user',
+  );
+  assert.ok(
+    !blockNotifyOwnerNotificationsAfterBlock.data.some((item) => (item.kind === 'greeting_request' || item.kind === 'pet_circle_greeting') && item.ownerId === blockNotifyViewerOwnerId),
+    'blocking a greeter should remove stale greeting notifications from that user',
+  );
+
   const readSenderPhone = '19900002001';
   const readTargetPhone = '19900002002';
   const readSenderToken = await login(readSenderPhone);

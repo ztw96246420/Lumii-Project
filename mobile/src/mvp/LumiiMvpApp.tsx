@@ -9523,6 +9523,7 @@ export default function LumiiMvpApp() {
       applyGreetingRequestOwners(greetingRequestOwnersRef.current.filter((item) => item.id !== ownerId));
       setConversations((items) => items.filter((item) => item.ownerId !== ownerId));
       setNearbyMoments((items) => items.filter((item) => item.ownerId !== ownerId));
+      setNotifications((items) => items.filter((item) => item.ownerId !== ownerId && (!item.postId || !blockedPostIds.has(item.postId))));
       setPetCircleCommentsByPostId((items) => {
         const next = { ...items };
         blockedPostIds.forEach((postId) => {
