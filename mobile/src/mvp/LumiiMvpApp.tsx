@@ -1661,6 +1661,7 @@ export default function LumiiMvpApp() {
   const [conversationDraftsById, setConversationDraftsById] = useState<Record<string, string>>({});
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([createConversationSafetyMessage()]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const notificationsRef = useRef<NotificationItem[]>([]);
   const [notificationSeenAtById, setNotificationSeenAtById] = useState<Record<string, number>>({});
   const notificationSeenAtByIdRef = useRef<Record<string, number>>({});
   const [notificationFilter, setNotificationFilter] = useState<NotificationFilter>('all');
@@ -2942,17 +2943,29 @@ export default function LumiiMvpApp() {
       if (!activeIds.has(notificationId)) delete notificationSeenAtByIdRef.current[notificationId];
     });
     notificationSeenAtByIdRef.current = nextSeenAt;
+    notificationsRef.current = nextNotifications;
     setNotificationSeenAtById(nextSeenAt);
     setNotifications(nextNotifications);
   }
 
+  function setNotificationsAndRef(nextNotifications: NotificationItem[]) {
+    notificationsRef.current = nextNotifications;
+    setNotifications(nextNotifications);
+  }
+
+  function updateNotificationsAndRef(update: (items: NotificationItem[]) => NotificationItem[]) {
+    const nextNotifications = update(notificationsRef.current);
+    setNotificationsAndRef(nextNotifications);
+    return nextNotifications;
+  }
+
   async function markConversationNotificationsReadSilently(conversationId: string) {
-    const unreadIds = notifications
+    const unreadIds = notificationsRef.current
       .filter((item) => !item.read && notificationBelongsToConversation(item, conversationId))
       .map((item) => item.id);
     if (!unreadIds.length) return;
     const requestSessionToken = sessionTokenRef.current;
-    setNotifications((items) => items.map((item) => (unreadIds.includes(item.id) ? { ...item, read: true } : item)));
+    updateNotificationsAndRef((items) => items.map((item) => (unreadIds.includes(item.id) ? { ...item, read: true } : item)));
     const result = await lumiiApi.messages.markNotificationsRead(unreadIds);
     if (sessionTokenRef.current !== requestSessionToken) return;
     if (result.data) applyNotifications(result.data);
@@ -2971,14 +2984,14 @@ export default function LumiiMvpApp() {
   }
 
   async function markAllNotificationsRead() {
-    const unreadIds = notifications.filter((item) => !item.read).map((item) => item.id);
+    const unreadIds = notificationsRef.current.filter((item) => !item.read).map((item) => item.id);
     if (!unreadIds.length) {
       showToast('当前没有未读通知');
       return;
     }
     const requestSessionToken = sessionTokenRef.current;
-    const previousNotifications = notifications;
-    setNotifications((items) => items.map((item) => (unreadIds.includes(item.id) ? { ...item, read: true } : item)));
+    const previousNotifications = notificationsRef.current;
+    updateNotificationsAndRef((items) => items.map((item) => (unreadIds.includes(item.id) ? { ...item, read: true } : item)));
     const result = await lumiiApi.messages.markNotificationsRead(unreadIds);
     if (sessionTokenRef.current !== requestSessionToken) return;
     if (result.data) {
@@ -2986,21 +2999,21 @@ export default function LumiiMvpApp() {
       showToast('已全部标记为已读', { tone: 'success', variant: 'surface' });
       return;
     }
-    setNotifications(previousNotifications);
+    setNotificationsAndRef(previousNotifications);
     showToast(result.error?.message ?? '标记已读失败，请稍后重试', { tone: 'error', variant: 'surface' });
   }
 
   async function markNotificationReadSilently(notificationId: string) {
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
-    setNotifications((items) => items.map((item) => (item.id === notificationId ? { ...item, read: true } : item)));
+    updateNotificationsAndRef((items) => items.map((item) => (item.id === notificationId ? { ...item, read: true } : item)));
     const result = await lumiiApi.messages.markNotificationsRead([notificationId]);
     if (sessionTokenRef.current !== requestSessionToken) return;
     if (result.data) applyNotifications(result.data);
   }
 
   function removeGreetingRequestNotificationsLocally(ownerId: string) {
-    setNotifications((items) => items.filter((item) => {
+    updateNotificationsAndRef((items) => items.filter((item) => {
       const kind = notificationKindFor(item);
       return !((kind === 'greeting_request' || kind === 'pet_circle_greeting') && item.ownerId === ownerId);
     }));
@@ -6367,7 +6380,7 @@ export default function LumiiMvpApp() {
     setInboxManualRefreshing(false);
     setConversationDraftsById({});
     setConversationMessages([createConversationSafetyMessage()]);
-    setNotifications([]);
+    setNotificationsAndRef([]);
     setNotificationSeenAtById({});
     notificationSeenAtByIdRef.current = {};
     discoverRequestSeqRef.current += 1;
@@ -9602,7 +9615,7 @@ export default function LumiiMvpApp() {
       applyGreetingRequestOwners(greetingRequestOwnersRef.current.filter((item) => item.id !== ownerId));
       setConversations((items) => items.filter((item) => item.ownerId !== ownerId));
       setNearbyMoments((items) => items.filter((item) => item.ownerId !== ownerId));
-      setNotifications((items) => items.filter((item) => item.ownerId !== ownerId && (!item.postId || !blockedPostIds.has(item.postId))));
+      updateNotificationsAndRef((items) => items.filter((item) => item.ownerId !== ownerId && (!item.postId || !blockedPostIds.has(item.postId))));
       setPetCircleCommentsByPostId((items) => {
         const next = { ...items };
         blockedPostIds.forEach((postId) => {
