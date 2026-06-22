@@ -2236,9 +2236,11 @@ function ensureHealthReminderNotifications(user) {
     .forEach((vaccine) => {
       const added = addNotification(user.phone, {
         id: healthReminderNotificationId(user, vaccine),
+        kind: 'vaccine_reminder',
         read: false,
         text: `${vaccine.name}：${vaccineReminderCopy(vaccine)}，记得按宠物医院建议确认时间。`,
         title: '健康提醒',
+        vaccineId: vaccine.id,
       });
       changed = added || changed;
     });
@@ -3210,6 +3212,8 @@ function createMedicalAlertFromPetChat(user, text) {
   const notificationId = `n-medical-alert-${memo.id}`;
   addNotification(user.phone, {
     id: notificationId,
+    kind: 'medical_alert',
+    memoId: memo.id,
     read: false,
     text: emergency.reason === 'toxic_ingestion'
       ? '已记录疑似误食风险，请尽快联系宠物医院或兽医确认处理方式。'
