@@ -254,7 +254,11 @@ function isGreetingRequestNotification(item: NotificationItem) {
 
 function countsTowardMessageTabNotificationBadge(item: NotificationItem) {
   if (isGreetingRequestNotification(item)) return false;
-  return !isConversationNotification(item) || !conversationIdFromNotification(item);
+  if (isConversationNotification(item)) return !conversationIdFromNotification(item);
+  const kind = notificationKindFor(item);
+  if (kind === 'pet_circle_comment' || kind === 'pet_circle_like') return true;
+  const category = notificationCategoryFor(item);
+  return category === 'interaction' || category === 'walk';
 }
 
 function notificationDateFor(item: NotificationItem) {

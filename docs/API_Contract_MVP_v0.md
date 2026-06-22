@@ -1210,6 +1210,7 @@ type PushDevice = {
 - App 也会监听 Android/iOS 系统通知点击；系统通知 payload 只要携带上述 `kind` 与路由字段，点击后会复用通知中心的同一套落页逻辑。疫苗本地提醒会携带 `source=lumii-health`、`type=vaccine-reminder`、`vaccineId`，点击后进入疫苗计划页。
 - 已建立会话后的普通聊天消息不应再进入招呼请求。测试后端会为接收方写入 `kind=conversation_message`、`conversationId=c-{senderPhone}`、`ownerId=user-{senderPhone}`，且通知本身默认 `read=true`；未读状态由 `/conversations` 的 `unread` 字段承载，避免通知中心和消息列表重复计数。
 - `greeting_request` / `pet_circle_greeting` 的通知读态不等同于招呼请求已处理；消息 Tab 角标应由待处理招呼请求列表独立计数，接受、忽略、举报或拉黑后才消失，避免用户点开通知但未处理请求时入口角标丢失。
+- 底部消息 Tab 角标只统计待处理招呼请求、会话 `unread`、宠友圈互动通知，以及缺少会话 ID 的约遛/互动兜底通知；健康提醒、系统消息、地点审核通知只在消息页右上角通知铃铛和通知中心展示未读，避免用户读完聊天后底部消息角标仍被非聊天通知占用。
 
 ### POST `/notifications/read`
 
