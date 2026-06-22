@@ -3059,6 +3059,32 @@ export default function LumiiMvpApp() {
     return false;
   }
 
+  async function openPlaceSubmissionFromNotification(submissionId?: string) {
+    if (!submissionId) {
+      go('map');
+      return false;
+    }
+    const requestSessionToken = sessionTokenRef.current;
+    const result = await lumiiApi.places.listMySubmissions();
+    if (sessionTokenRef.current !== requestSessionToken) return false;
+    const submission = result.data?.find((item) => item.id === submissionId);
+    if (submission) {
+      setPlaceSubmitResult({
+        draft: submission.content,
+        kind: 'place',
+        placeMeta: submission.address,
+        placeName: submission.name,
+        status: 'success',
+        submittedAt: formatTimestampDisplay(submission.createdAt),
+      });
+      go('addPlaceReview');
+      return true;
+    }
+    go('map');
+    showToast(result.error?.message ?? '地点提交记录已更新，请在地图里重新查看', { tone: 'warning', variant: 'surface' });
+    return false;
+  }
+
   function focusHealthCalendarDate(dateText?: string) {
     const date = parseIsoDate(dateText);
     if (!date) return;
@@ -3117,7 +3143,7 @@ export default function LumiiMvpApp() {
       return;
     }
     if (kind === 'place_submission') {
-      go('map');
+      await openPlaceSubmissionFromNotification(item.submissionId);
       return;
     }
     if (kind === 'medical_alert' || kind === 'vaccine_done' || kind === 'vaccine_reminder' || kind === 'health_reminder') {
@@ -11105,6 +11131,7 @@ export default function LumiiMvpApp() {
             <Text style={styles.placeSubmitBodyMake}>{body}</Text>
 
             {success ? (
+              <>
               <View style={styles.placeSubmitStepperMake}>
                 <PlaceSubmitStep done text={isReview ? '已提交点评' : '已提交地点'} time={submittedAt} />
                 <View style={[styles.placeSubmitStepLineMake, styles.placeSubmitStepLineActiveMake]} />
@@ -11112,6 +11139,25 @@ export default function LumiiMvpApp() {
                 <View style={styles.placeSubmitStepLineMake} />
                 <PlaceSubmitStep text={isReview ? '通过后发布到地点' : '通过后展示给附近用户'} time="将通知你" />
               </View>
+              <View style={styles.placeSubmitDraftCardMake}>
+                <View style={styles.rowBetween}>
+                  <View style={styles.inlineActionRow}>
+                    <NotebookPen color={palette.orange} size={13} strokeWidth={2.4} />
+                    <Text style={styles.placeSubmitDraftTitleMake}>提交内容</Text>
+                  </View>
+                  <Text style={styles.placeSubmitDraftTimeMake}>{submittedAt}</Text>
+                </View>
+                <View style={styles.placeSubmitDraftMetaMake}>
+                  <View style={styles.ratingPill}>
+                    {Array.from({ length: 5 }).map((_, index) => (
+                      <Star key={index} color="#FFB94B" fill="#FFB94B" size={11} strokeWidth={2} />
+                    ))}
+                  </View>
+                  <Text numberOfLines={1} style={styles.placeSubmitDraftPlaceMake}>· {result.placeName}</Text>
+                </View>
+                <Text numberOfLines={2} style={styles.placeSubmitDraftTextMake}>{result.draft || '提交内容已保留，稍后可以继续补充。'}</Text>
+              </View>
+              </>
             ) : (
               <View style={styles.placeSubmitDraftCardMake}>
                 <View style={styles.rowBetween}>
