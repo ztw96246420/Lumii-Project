@@ -766,7 +766,7 @@ Request:
 
 当疫苗计划被标记为 `done` 后：
 - 测试后端会自动移除该计划的提醒开关。
-- 测试后端会生成一条“疫苗计划已完成”通知，可通过 `GET /notifications` 读回；是否生成受 `pushNotifications` 控制。
+- 测试后端会生成一条“疫苗计划已完成”通知，可通过 `GET /notifications` 读回；通知 `kind=vaccine_done`，并携带 `vaccineId` 用于从通知中心回到疫苗计划；是否生成受 `pushNotifications` 控制。
 
 ### GET `/health/vaccine-reminders`
 
@@ -792,7 +792,7 @@ Request:
 - 当前测试后端按 `phone + activePetId` 持久化提醒开关。
 - 只接受 `enabled` 布尔字段，未知字段或非布尔值会返回 `HEALTH_REMINDER_INVALID`。
 - 已完成的疫苗计划不能重新开启提醒。
-- 开启提醒后，如计划已临近或逾期，`GET /notifications` 会生成一条去重后的健康提醒通知；关闭提醒或标记计划完成后，测试后端和 mock API 会清理对应的旧健康提醒通知，避免通知中心继续展示过期提醒。
+- 开启提醒后，如计划已临近或逾期，`GET /notifications` 会生成一条去重后的健康提醒通知；通知 `kind=vaccine_reminder`，并携带 `vaccineId` 用于从通知中心回到疫苗计划；关闭提醒或标记计划完成后，测试后端和 mock API 会清理对应的旧健康提醒通知，避免通知中心继续展示过期提醒。
 - App 真机侧会在系统通知权限和 App 通知开关均开启时，为已开启的疫苗/驱虫计划安排本地系统通知；标记完成、关闭通知或退出账号会取消对应本地提醒。
 
 ### GET `/health/memos`
@@ -1205,7 +1205,7 @@ type PushDevice = {
 - 地点点评提交、用户新增地点提交也会写入通知中心，App 成功提交后会重新拉取该列表，不再只依赖前端临时通知。
 - 通知项会返回 `category` 与 `createdAt`，App 以这两个字段驱动筛选、分组和时间显示；旧通知缺字段时，测试后端会在读取时补齐。
 - `category` 当前取值为 `health`、`interaction`、`walk`、`system`。普通聊天和招呼归入 `interaction`，约遛邀请归入 `walk`；互动和约遛通知是否生成受 `pushNotifications` 与 `interactionMessages` 控制。
-- 通知项会返回可选 `kind`、`conversationId`、`ownerId`、`postId`、`commentId`、`placeId`、`submissionId`，用于区分落页：`greeting_request` 进入招呼请求；`conversation_message`、`greeting_accepted`、`walk_invite` 优先使用 `conversationId` 打开对话框；`pet_circle_like` / `pet_circle_comment` / `pet_circle_greeting` 使用 `postId` 进入宠友圈并高亮对应动态；`place_review` 使用 `placeId` 进入地点详情；`place_submission` 进入地图页；`health_reminder` 进入健康页；`system` 进入设置或对应系统页。
+- 通知项会返回可选 `kind`、`conversationId`、`ownerId`、`postId`、`commentId`、`placeId`、`submissionId`、`memoId`、`vaccineId`，用于区分落页：`greeting_request` 进入招呼请求；`conversation_message`、`greeting_accepted`、`walk_invite` 优先使用 `conversationId` 打开对话框；`pet_circle_like` / `pet_circle_comment` / `pet_circle_greeting` 使用 `postId` 进入宠友圈并高亮对应动态；`place_review` 使用 `placeId` 进入地点详情；`place_submission` 进入地图页；`vaccine_reminder` / `vaccine_done` 使用 `vaccineId` 进入疫苗计划；`medical_alert` 使用 `memoId` 进入健康备忘；`health_reminder` 进入健康页；`system` 进入设置或对应系统页。
 - 已建立会话后的普通聊天消息不应再进入招呼请求。测试后端会为接收方写入 `kind=conversation_message`、`conversationId=c-{senderPhone}`、`ownerId=user-{senderPhone}`，且通知本身默认 `read=true`；未读状态由 `/conversations` 的 `unread` 字段承载，避免通知中心和消息列表重复计数。
 
 ### POST `/notifications/read`
@@ -1239,7 +1239,7 @@ Request:
 
 行为：
 - 后端保存用户消息和 AI 回复。
-- 命中高风险医疗关键词时，后端会在调用模型前返回固定安全回复，提示尽快联系宠物医院或兽医；该路径不触发 DeepSeek 请求，并会自动写入一条“紧急健康观察/误食风险观察”健康备忘，生成通知中心“就医提醒”，回复携带 `medicalAlert` 和 `createdMemo`。同一内容会去重，不重复创建备忘或通知。
+- 命中高风险医疗关键词时，后端会在调用模型前返回固定安全回复，提示尽快联系宠物医院或兽医；该路径不触发 DeepSeek 请求，并会自动写入一条“紧急健康观察/误食风险观察”健康备忘，生成通知中心“就医提醒”，通知 `kind=medical_alert`，并携带 `memoId` 用于从通知中心回到对应健康备忘；回复携带 `medicalAlert` 和 `createdMemo`。同一内容会去重，不重复创建备忘或通知。
 - 当用户明确表达“记一下 / 记录一下 / 记到健康备忘 / 加到健康备忘”等意图时，后端会把本条内容写入当前宠物健康备忘，并在 AI 回复里附带 `createdMemo`；重复同一内容会命中去重，不重复创建备忘。
 - 当用户在对话里明确记录体重，如“帮我记录体重 29.5kg / 今天称重 59斤”，后端会写入当前宠物体重记录并在 AI 回复里附带 `createdWeight`；同一天同体重同备注会命中去重，不重复创建体重记录。
 - 当用户在对话里明确处理疫苗/驱虫计划，如“狂犬疫苗已打 / 开启体内驱虫提醒 / 关闭体内驱虫提醒”，后端会更新当前宠物匹配到的疫苗/驱虫计划，并在 AI 回复里附带 `updatedVaccine` 和最新 `vaccineReminderIds`。

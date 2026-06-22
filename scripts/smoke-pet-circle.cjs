@@ -29,6 +29,19 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function dateToIsoDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDaysIsoDate(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return dateToIsoDate(date);
+}
+
 async function request(pathname, { body, expectedStatus = 200, method = 'GET', token } = {}) {
   const response = await fetch(`${baseUrl}${pathname}`, {
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -1024,6 +1037,43 @@ async function run() {
   assert.ok(placeSubmissionNotification, 'place submission notification should exist');
   assert.equal(placeSubmissionNotification.kind, 'place_submission', 'place submission notification should carry route kind');
   assert.equal(placeSubmissionNotification.submissionId, placeSubmission.data.id, 'place submission notification should carry submission id');
+
+  const routeVaccine = await request('/health/vaccines', {
+    body: { dueAt: addDaysIsoDate(1), name: 'Smoke Route Vaccine' },
+    method: 'POST',
+    token: readSenderToken,
+  });
+  assert.ok(routeVaccine.data?.id, 'route vaccine should be created');
+  await request(`/health/vaccine-reminders/${encodeURIComponent(routeVaccine.data.id)}`, {
+    body: { enabled: true },
+    method: 'PATCH',
+    token: readSenderToken,
+  });
+  const notificationsAfterVaccineReminder = await request('/notifications', { token: readSenderToken });
+  const vaccineReminderNotification = notificationsAfterVaccineReminder.data.find((item) => item.kind === 'vaccine_reminder' && item.vaccineId === routeVaccine.data.id);
+  assert.ok(vaccineReminderNotification, 'vaccine reminder notification should carry route kind and vaccine id');
+
+  await request(`/health/vaccines/${encodeURIComponent(routeVaccine.data.id)}`, {
+    body: { status: 'done' },
+    method: 'PATCH',
+    token: readSenderToken,
+  });
+  const notificationsAfterVaccineDone = await request('/notifications', { token: readSenderToken });
+  const vaccineDoneNotification = notificationsAfterVaccineDone.data.find((item) => item.kind === 'vaccine_done' && item.vaccineId === routeVaccine.data.id);
+  assert.ok(vaccineDoneNotification, 'vaccine completion notification should carry route kind and vaccine id');
+
+  const medicalAlertReply = await request('/ai/pet-chat/messages', {
+    body: { text: 'my dog ate chocolate and is breathing strangely' },
+    method: 'POST',
+    token: readSenderToken,
+  });
+  assert.ok(medicalAlertReply.data?.medicalAlert?.notificationId, 'medical alert reply should include notification id');
+  assert.ok(medicalAlertReply.data?.createdMemo?.id, 'medical alert reply should include created memo');
+  const notificationsAfterMedicalAlert = await request('/notifications', { token: readSenderToken });
+  const medicalAlertNotification = notificationsAfterMedicalAlert.data.find((item) => item.id === medicalAlertReply.data.medicalAlert.notificationId);
+  assert.ok(medicalAlertNotification, 'medical alert notification should exist');
+  assert.equal(medicalAlertNotification.kind, 'medical_alert', 'medical alert notification should carry route kind');
+  assert.equal(medicalAlertNotification.memoId, medicalAlertReply.data.createdMemo.id, 'medical alert notification should carry memo id');
 
   await request('/feedback', {
     body: {
