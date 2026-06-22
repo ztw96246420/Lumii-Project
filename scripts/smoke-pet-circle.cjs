@@ -268,9 +268,29 @@ async function run() {
     throw new Error(`private post setup failed: ${error.message}`);
   });
   assert.ok(hiddenPost.data?.id, 'private post should be creatable without nearby exposure');
+  assert.equal(hiddenPost.data.createdMemo?.source, 'pet_circle', 'private post memo should keep pet circle source');
+  assert.equal(hiddenPost.data.createdMemo?.sourceId, hiddenPost.data.id, 'private post memo should link back to source post');
+  patchState((state) => {
+    const hidden = state.users[hiddenPhone];
+    const moment = state.socialMoments.find((item) => item.id === hiddenPost.data.id);
+    assert.ok(moment, 'private post missing from state');
+    moment.createdAt = `${backdated}T10:45:00.000Z`;
+    const memoBucketKey = `${hiddenPhone}:${hidden.pets[0].id}`;
+    const memo = state.health.memos[memoBucketKey].find((item) => item.sourceId === hiddenPost.data.id);
+    assert.ok(memo, 'private post memo missing source link');
+    memo.createdAt = new Date().toISOString();
+    memo.updatedAt = new Date().toISOString();
+  });
+  await restartBackend(port);
   const hiddenCalendar = await request('/health/calendar', { token: hiddenToken });
+  const hiddenPostCalendarEvent = findByDetail(hiddenCalendar.data, 'hidden private post');
+  assert.equal(
+    hiddenPostCalendarEvent?.date,
+    backdated,
+    'pet circle synced health memo should follow the source post createdAt',
+  );
   assert.ok(
-    findByDetail(hiddenCalendar.data, 'hidden private post'),
+    hiddenPostCalendarEvent,
     'private pet circle post should be saved to health calendar',
   );
 

@@ -1881,19 +1881,25 @@ function createHealthMemoRecord(user, title, content, options = {}) {
   }
   const memo = {
     content: normalizedContent,
-    createdAt: todayIsoDate(),
+    createdAt: normalizeCalendarDate(options.createdAt),
     id: `m-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    ...(options.source ? { source: String(options.source) } : {}),
+    ...(options.sourceId ? { sourceId: String(options.sourceId) } : {}),
     title: normalizedTitle,
-    updatedAt: todayIsoDate(),
+    updatedAt: normalizeCalendarDate(options.updatedAt),
   };
   memos.unshift(memo);
   return memo;
 }
 
-function createHealthMemoFromSocialMoment(user, content) {
-  const normalizedContent = String(content || '').trim();
+function createHealthMemoFromSocialMoment(user, moment) {
+  const normalizedContent = String(moment?.content || moment || '').trim();
   if (!normalizedContent) return null;
-  return createHealthMemoRecord(user, petChatMemoTitle(normalizedContent), normalizedContent.slice(0, 240));
+  return createHealthMemoRecord(user, petChatMemoTitle(normalizedContent), normalizedContent.slice(0, 240), {
+    createdAt: moment?.createdAt,
+    source: 'pet_circle',
+    sourceId: moment?.id,
+  });
 }
 
 function shouldSyncSocialMomentToHealthCalendar(body = {}, visibility = 'nearby') {
@@ -2053,6 +2059,12 @@ function normalizeCalendarDate(value, fallback = todayIsoDate()) {
   return calendarDatePart(value) || calendarDatePart(fallback) || todayIsoDate();
 }
 
+function sourceDateForHealthMemo(user, memo) {
+  if (memo?.source !== 'pet_circle' || !memo.sourceId) return '';
+  const moment = ensureSocialMoments().find((item) => item.id === memo.sourceId && item.phone === user.phone);
+  return moment?.createdAt || '';
+}
+
 function vaccineStatusCopy(status) {
   if (status === 'done') return '已完成';
   if (status === 'overdue') return '已逾期';
@@ -2082,7 +2094,7 @@ function buildHealthCalendarEvents(user) {
       type: 'vaccine',
     })),
     ...memos.map((memo) => ({
-      date: normalizeCalendarDate(memo.createdAt, isoDateFromTimestampId(memo.id) || memo.updatedAt),
+      date: normalizeCalendarDate(sourceDateForHealthMemo(user, memo) || memo.createdAt, isoDateFromTimestampId(memo.id) || memo.updatedAt),
       detail: memo.content,
       id: `calendar-memo-${memo.id}`,
       sourceId: memo.id,
@@ -5341,7 +5353,7 @@ async function handle(req, res) {
       return;
     }
     const createdMemo = shouldSyncSocialMomentToHealthCalendar(body, visibility)
-      ? createHealthMemoFromSocialMoment(user, created.moment.content)
+      ? createHealthMemoFromSocialMoment(user, created.moment)
       : null;
     saveState();
     ok(res, { ...buildNearbyMomentCard(created.moment, user, user, 0, undefined), ...(createdMemo ? { createdMemo } : {}) });

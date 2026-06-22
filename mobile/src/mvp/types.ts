@@ -278,6 +278,8 @@ export type HealthMemo = {
   reminderAt?: string;
   reminderEnabled?: boolean;
   repeat?: 'monthly' | 'none' | 'quarterly' | 'yearly';
+  source?: 'pet_circle';
+  sourceId?: string;
   title: string;
   updatedAt: string;
 };

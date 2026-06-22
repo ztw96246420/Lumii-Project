@@ -1310,6 +1310,11 @@ function normalizeCalendarDate(value?: string, fallback = todayIsoDate()) {
   return calendarDatePart(value) || calendarDatePart(fallback) || todayIsoDate();
 }
 
+function sourceDateForMockHealthMemo(memo: HealthMemo) {
+  if (memo.source !== 'pet_circle' || !memo.sourceId) return '';
+  return nearbyMoments.find((moment) => moment.id === memo.sourceId && moment.ownedByMe)?.createdAt || '';
+}
+
 function vaccineStatusCopy(status: VaccinePlan['status']) {
   if (status === 'done') return '已完成';
   if (status === 'overdue') return '已逾期';
@@ -1337,7 +1342,7 @@ function buildHealthCalendarEvents(): HealthCalendarEvent[] {
       type: 'vaccine' as const,
     })),
     ...memos.map((memo) => ({
-      date: healthMemoCalendarDate(memo),
+      date: normalizeCalendarDate(sourceDateForMockHealthMemo(memo), healthMemoCalendarDate(memo)),
       detail: memo.content,
       id: `calendar-memo-${memo.id}`,
       sourceId: memo.id,
@@ -2201,10 +2206,12 @@ export const mockApi = {
       if (visibility === 'private' || options.syncToHealthCalendar) {
         const memo: HealthMemo = {
           content: text.slice(0, 240),
-          createdAt: todayIsoDate(),
+          createdAt: normalizeCalendarDate(moment.createdAt),
           id: `m-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+          source: 'pet_circle',
+          sourceId: moment.id,
           title: mockPetChatMemoTitle(text),
-          updatedAt: todayIsoDate(),
+          updatedAt: normalizeCalendarDate(moment.createdAt),
         };
         memos = [memo, ...memos];
       }

@@ -960,7 +960,7 @@ NearbyMoment
 - `content` 必填，MVP 最大 280 字。
 - `imageUrls` 最多保存 6 张，来自媒体上传接口返回的公开 `fileUrl`；`photoCount` 按实际图片数封顶为 6。
 - `imageUrls` 只接受 `http/https` 图片地址；`data:`、`file://`、`content://` 等本机或内联地址会被过滤，必须先走媒体上传接口。
-- `syncToHealthCalendar=true` 时，测试后端会同时生成一条健康备忘；`visibility=private` 默认也会写入健康日历，但不进入宠友圈/附近小事流。
+- `syncToHealthCalendar=true` 时，测试后端会同时生成一条健康备忘；`visibility=private` 默认也会写入健康日历，但不进入宠友圈/附近小事流。由宠友圈小事同步出的健康备忘会携带 `source=pet_circle` / `sourceId={postId}`，健康日历归档日期应跟随源小事的 `createdAt`，避免历史小事在后续刷新时漂移到当天。
 - `visibility=nearby` 时必须开启附近可见，并提供 10 分钟内的新鲜定位。
 - 如果当前账号没有宠物档案，返回中文错误，不创建小事。
 - 创建成功后，其他附近用户可通过 `GET /social/nearby-moments` 看到；当前用户首页不会把自己的小事当成附近小事展示。
