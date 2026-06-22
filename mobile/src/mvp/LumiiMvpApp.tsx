@@ -187,7 +187,7 @@ function notificationCategoryFor(item: NotificationItem): NotificationCategory {
 }
 
 function isNotificationKind(value: unknown): value is NotificationKind {
-  return value === 'conversation_message' || value === 'greeting_accepted' || value === 'greeting_request' || value === 'health_reminder' || value === 'pet_circle_comment' || value === 'pet_circle_greeting' || value === 'pet_circle_like' || value === 'place_review' || value === 'place_submission' || value === 'system' || value === 'walk_invite';
+  return value === 'conversation_message' || value === 'greeting_accepted' || value === 'greeting_request' || value === 'health_reminder' || value === 'medical_alert' || value === 'pet_circle_comment' || value === 'pet_circle_greeting' || value === 'pet_circle_like' || value === 'place_review' || value === 'place_submission' || value === 'system' || value === 'vaccine_done' || value === 'vaccine_reminder' || value === 'walk_invite';
 }
 
 function notificationKindFor(item: NotificationItem): NotificationKind {
@@ -202,7 +202,9 @@ function notificationKindFor(item: NotificationItem): NotificationKind {
   if (/walk/.test(id)) return 'walk_invite';
   if (/place-submission/.test(id)) return 'place_submission';
   if (/review/.test(id)) return 'place_review';
-  if (/(health|vaccine|medical)/.test(id)) return 'health_reminder';
+  if (/medical/.test(id)) return 'medical_alert';
+  if (/vaccine-done/.test(id)) return 'vaccine_done';
+  if (/(health|vaccine)/.test(id)) return 'vaccine_reminder';
   const category = notificationCategoryFor(item);
   if (category === 'walk') return 'walk_invite';
   if (category === 'health') return 'health_reminder';
@@ -3021,6 +3023,36 @@ export default function LumiiMvpApp() {
     return false;
   }
 
+  function focusHealthCalendarDate(dateText?: string) {
+    const date = parseIsoDate(dateText);
+    if (!date) return;
+    const isoDate = dateToIsoDate(date);
+    setHealthCalendarMonth(monthStartIso(isoDate));
+    setSelectedHealthCalendarDate(isoDate);
+  }
+
+  function openHealthNotification(item: NotificationItem, kind: NotificationKind) {
+    if (kind === 'medical_alert') {
+      const memo = item.memoId ? memos.find((entry) => entry.id === item.memoId) : null;
+      if (memo) {
+        focusHealthCalendarDate(memo.createdAt);
+        openMemoEditor(memo);
+        return;
+      }
+      const memoEvent = item.memoId ? healthCalendarEvents.find((event) => event.type === 'memo' && event.sourceId === item.memoId) : null;
+      focusHealthCalendarDate(memoEvent?.date);
+      go('healthCalendar');
+      return;
+    }
+    if (kind === 'vaccine_reminder' || kind === 'vaccine_done') {
+      const vaccine = item.vaccineId ? vaccines.find((entry) => entry.id === item.vaccineId) : null;
+      focusHealthCalendarDate(vaccine?.dueAt);
+      go('vaccine');
+      return;
+    }
+    go('health');
+  }
+
   async function openNotification(item: NotificationItem) {
     if (!item.read) void markNotificationReadSilently(item.id);
     const kind = notificationKindFor(item);
@@ -3044,6 +3076,10 @@ export default function LumiiMvpApp() {
     }
     if (kind === 'place_submission') {
       go('map');
+      return;
+    }
+    if (kind === 'medical_alert' || kind === 'vaccine_done' || kind === 'vaccine_reminder' || kind === 'health_reminder') {
+      openHealthNotification(item, kind);
       return;
     }
     if (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite') {
@@ -11213,10 +11249,11 @@ export default function LumiiMvpApp() {
         };
       }
       if (category === 'health') {
+        const rightLabel = kind === 'medical_alert' ? '查看备忘' : kind === 'vaccine_done' || kind === 'vaccine_reminder' ? '查看计划' : '查看';
         return {
           icon: <Sparkles color={palette.teal} size={15} strokeWidth={2.5} />,
           iconStyle: styles.notificationIconHealthMake,
-          rightLabel: '',
+          rightLabel,
         };
       }
       if (kind === 'place_review' || kind === 'place_submission') {

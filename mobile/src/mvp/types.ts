@@ -421,7 +421,7 @@ export type WalkInviteResult = {
 };
 
 export type NotificationCategory = 'health' | 'interaction' | 'system' | 'walk';
-export type NotificationKind = 'conversation_message' | 'greeting_accepted' | 'greeting_request' | 'health_reminder' | 'pet_circle_comment' | 'pet_circle_greeting' | 'pet_circle_like' | 'place_review' | 'place_submission' | 'system' | 'walk_invite';
+export type NotificationKind = 'conversation_message' | 'greeting_accepted' | 'greeting_request' | 'health_reminder' | 'medical_alert' | 'pet_circle_comment' | 'pet_circle_greeting' | 'pet_circle_like' | 'place_review' | 'place_submission' | 'system' | 'vaccine_done' | 'vaccine_reminder' | 'walk_invite';
 
 export type NotificationItem = {
   category?: NotificationCategory;
@@ -430,6 +430,7 @@ export type NotificationItem = {
   createdAt?: string;
   id: string;
   kind?: NotificationKind;
+  memoId?: string;
   ownerId?: string;
   placeId?: string;
   postId?: string;
@@ -437,6 +438,7 @@ export type NotificationItem = {
   submissionId?: string;
   text: string;
   title: string;
+  vaccineId?: string;
 };
 
 export type PushDevice = {
