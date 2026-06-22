@@ -421,7 +421,7 @@ export type WalkInviteResult = {
 };
 
 export type NotificationCategory = 'health' | 'interaction' | 'system' | 'walk';
-export type NotificationKind = 'conversation_message' | 'greeting_accepted' | 'greeting_request' | 'health_reminder' | 'pet_circle_comment' | 'pet_circle_greeting' | 'pet_circle_like' | 'system' | 'walk_invite';
+export type NotificationKind = 'conversation_message' | 'greeting_accepted' | 'greeting_request' | 'health_reminder' | 'pet_circle_comment' | 'pet_circle_greeting' | 'pet_circle_like' | 'place_review' | 'place_submission' | 'system' | 'walk_invite';
 
 export type NotificationItem = {
   category?: NotificationCategory;
@@ -431,8 +431,10 @@ export type NotificationItem = {
   id: string;
   kind?: NotificationKind;
   ownerId?: string;
+  placeId?: string;
   postId?: string;
   read: boolean;
+  submissionId?: string;
   text: string;
   title: string;
 };

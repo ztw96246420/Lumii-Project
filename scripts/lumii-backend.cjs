@@ -1623,6 +1623,8 @@ function createPlaceReview(user, placeId, content) {
   if (!hadReviewForPlace) place.reviewCount = placeReviewCount(placeId) + 1;
   addNotification(user.phone, {
     id: `notification-${review.id}`,
+    kind: 'place_review',
+    placeId,
     read: false,
     text: `${place.name}的点评已进入审核队列`,
     title: '地点点评待审核',
@@ -1709,7 +1711,9 @@ function createPlaceSubmission(user, body) {
   state.placeSubmissions[user.phone] = [submission, ...placeSubmissionsFor(user)];
   addNotification(user.phone, {
     id: `notification-${submission.id}`,
+    kind: 'place_submission',
     read: false,
+    submissionId: submission.id,
     text: `${submission.name}已提交审核，通过后会展示给附近用户`,
     title: '地点提交待审核',
   });
@@ -4178,7 +4182,7 @@ function notificationBelongsToConversation(notification, conversationId) {
 }
 
 const notificationCategories = new Set(['health', 'interaction', 'system', 'walk']);
-const notificationKinds = new Set(['conversation_message', 'greeting_accepted', 'greeting_request', 'health_reminder', 'pet_circle_comment', 'pet_circle_greeting', 'pet_circle_like', 'system', 'walk_invite']);
+const notificationKinds = new Set(['conversation_message', 'greeting_accepted', 'greeting_request', 'health_reminder', 'pet_circle_comment', 'pet_circle_greeting', 'pet_circle_like', 'place_review', 'place_submission', 'system', 'walk_invite']);
 
 function normalizeNotificationCategory(category) {
   const value = String(category || '').trim();
@@ -4207,6 +4211,8 @@ function inferNotificationKind(notification) {
   if (/greeting-accepted/.test(id)) return 'greeting_accepted';
   if (/greeting/.test(id)) return 'greeting_request';
   if (/walk/.test(id)) return 'walk_invite';
+  if (/place-submission/.test(id)) return 'place_submission';
+  if (/review/.test(id)) return 'place_review';
   if (/(health|vaccine|medical)/.test(id)) return 'health_reminder';
   const category = normalizeNotificationCategory(notification?.category || inferNotificationCategory(notification));
   if (category === 'walk') return 'walk_invite';

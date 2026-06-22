@@ -1179,7 +1179,7 @@ function inferMockNotificationCategory(notification: Pick<NotificationItem, 'id'
 }
 
 function normalizeMockNotificationKind(kind: unknown): NotificationKind | '' {
-  return kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'greeting_request' || kind === 'health_reminder' || kind === 'pet_circle_comment' || kind === 'pet_circle_greeting' || kind === 'pet_circle_like' || kind === 'system' || kind === 'walk_invite' ? kind : '';
+  return kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'greeting_request' || kind === 'health_reminder' || kind === 'pet_circle_comment' || kind === 'pet_circle_greeting' || kind === 'pet_circle_like' || kind === 'place_review' || kind === 'place_submission' || kind === 'system' || kind === 'walk_invite' ? kind : '';
 }
 
 function isStaleMockNearbyLocation(location?: NearbyLocationHint | null) {
@@ -1216,6 +1216,8 @@ function inferMockNotificationKind(notification: NotificationItem): Notification
   if (/greeting-accepted/.test(id)) return 'greeting_accepted';
   if (/greeting/.test(id)) return 'greeting_request';
   if (/walk/.test(id)) return 'walk_invite';
+  if (/place-submission/.test(id)) return 'place_submission';
+  if (/review/.test(id)) return 'place_review';
   if (/(health|vaccine|medical)/.test(id)) return 'health_reminder';
   const category = normalizeMockNotificationCategory(notification.category || inferMockNotificationCategory(notification));
   if (category === 'walk') return 'walk_invite';
@@ -2623,6 +2625,8 @@ export const mockApi = {
       if (!hadReviewForPlace) place.reviewCount = (place.reviewCount ?? 0) + 1;
       addMockNotification({
         id: `notification-${review.id}`,
+        kind: 'place_review',
+        placeId,
         read: false,
         text: `${place.name}的点评已进入审核队列`,
         title: '地点点评待审核',
@@ -2664,7 +2668,9 @@ export const mockApi = {
       placeSubmissions = [submission, ...placeSubmissions];
       addMockNotification({
         id: `notification-${submission.id}`,
+        kind: 'place_submission',
         read: false,
+        submissionId: submission.id,
         text: `${submission.name}已提交审核，通过后会展示给附近用户`,
         title: '地点提交待审核',
       });

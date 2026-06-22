@@ -187,7 +187,7 @@ function notificationCategoryFor(item: NotificationItem): NotificationCategory {
 }
 
 function isNotificationKind(value: unknown): value is NotificationKind {
-  return value === 'conversation_message' || value === 'greeting_accepted' || value === 'greeting_request' || value === 'health_reminder' || value === 'pet_circle_comment' || value === 'pet_circle_greeting' || value === 'pet_circle_like' || value === 'system' || value === 'walk_invite';
+  return value === 'conversation_message' || value === 'greeting_accepted' || value === 'greeting_request' || value === 'health_reminder' || value === 'pet_circle_comment' || value === 'pet_circle_greeting' || value === 'pet_circle_like' || value === 'place_review' || value === 'place_submission' || value === 'system' || value === 'walk_invite';
 }
 
 function notificationKindFor(item: NotificationItem): NotificationKind {
@@ -200,6 +200,8 @@ function notificationKindFor(item: NotificationItem): NotificationKind {
   if (/greeting-accepted/.test(id)) return 'greeting_accepted';
   if (/greeting/.test(id)) return 'greeting_request';
   if (/walk/.test(id)) return 'walk_invite';
+  if (/place-submission/.test(id)) return 'place_submission';
+  if (/review/.test(id)) return 'place_review';
   if (/(health|vaccine|medical)/.test(id)) return 'health_reminder';
   const category = notificationCategoryFor(item);
   if (category === 'walk') return 'walk_invite';
@@ -2998,6 +3000,27 @@ export default function LumiiMvpApp() {
     return true;
   }
 
+  async function openPlaceFromNotification(placeId: string) {
+    const requestSessionToken = sessionTokenRef.current;
+    const cachedPlace = places.find((place) => place.id === placeId);
+    if (cachedPlace) {
+      setSelectedPlace(cachedPlace);
+      go('placeDetail');
+      return true;
+    }
+    const result = await lumiiApi.places.getPlace(placeId);
+    if (sessionTokenRef.current !== requestSessionToken) return false;
+    if (result.data) {
+      setSelectedPlace(result.data);
+      setPlaces((items) => (items.some((place) => place.id === result.data!.id) ? items.map((place) => (place.id === result.data!.id ? result.data! : place)) : [result.data!, ...items]));
+      go('placeDetail');
+      return true;
+    }
+    go('map');
+    showToast(result.error?.message ?? '地点已更新，请在地图里重新查看', { tone: 'warning', variant: 'surface' });
+    return false;
+  }
+
   async function openNotification(item: NotificationItem) {
     if (!item.read) void markNotificationReadSilently(item.id);
     const kind = notificationKindFor(item);
@@ -3013,6 +3036,14 @@ export default function LumiiMvpApp() {
     }
     if (conversationId && (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite')) {
       await openConversationFromNotification(conversationId, item);
+      return;
+    }
+    if (kind === 'place_review' && item.placeId) {
+      await openPlaceFromNotification(item.placeId);
+      return;
+    }
+    if (kind === 'place_submission') {
+      go('map');
       return;
     }
     if (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite') {
@@ -11186,6 +11217,13 @@ export default function LumiiMvpApp() {
           icon: <Sparkles color={palette.teal} size={15} strokeWidth={2.5} />,
           iconStyle: styles.notificationIconHealthMake,
           rightLabel: '',
+        };
+      }
+      if (kind === 'place_review' || kind === 'place_submission') {
+        return {
+          icon: <MapPin color={palette.teal} size={15} strokeWidth={2.5} />,
+          iconStyle: styles.notificationIconSystemMake,
+          rightLabel: kind === 'place_review' ? '查看地点' : '查看地图',
         };
       }
       return {

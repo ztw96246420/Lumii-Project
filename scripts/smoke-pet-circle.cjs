@@ -998,6 +998,33 @@ async function run() {
     'reading a walk invite conversation should mark the walk notification read',
   );
 
+  const nearbyPlacesForNotification = await request('/places/nearby', { token: readSenderToken });
+  const reviewPlaceId = nearbyPlacesForNotification.data[0]?.id;
+  assert.ok(reviewPlaceId, 'nearby places should include a review target');
+  const placeReview = await request(`/places/${encodeURIComponent(reviewPlaceId)}/reviews`, {
+    body: { content: 'place review notification route smoke' },
+    method: 'POST',
+    token: readSenderToken,
+  });
+  assert.ok(placeReview.data.id, 'place review should be created');
+  const notificationsAfterPlaceReview = await request('/notifications', { token: readSenderToken });
+  const placeReviewNotification = notificationsAfterPlaceReview.data.find((item) => item.id === `notification-${placeReview.data.id}`);
+  assert.ok(placeReviewNotification, 'place review notification should exist');
+  assert.equal(placeReviewNotification.kind, 'place_review', 'place review notification should carry route kind');
+  assert.equal(placeReviewNotification.placeId, reviewPlaceId, 'place review notification should carry place id');
+
+  const placeSubmission = await request('/places/submissions', {
+    body: { address: 'Smoke New Place 42', content: 'friendly water bowl and outdoor seats', name: 'Smoke Friendly Yard' },
+    method: 'POST',
+    token: readSenderToken,
+  });
+  assert.ok(placeSubmission.data.id, 'place submission should be created');
+  const notificationsAfterPlaceSubmission = await request('/notifications', { token: readSenderToken });
+  const placeSubmissionNotification = notificationsAfterPlaceSubmission.data.find((item) => item.id === `notification-${placeSubmission.data.id}`);
+  assert.ok(placeSubmissionNotification, 'place submission notification should exist');
+  assert.equal(placeSubmissionNotification.kind, 'place_submission', 'place submission notification should carry route kind');
+  assert.equal(placeSubmissionNotification.submissionId, placeSubmission.data.id, 'place submission notification should carry submission id');
+
   await request('/feedback', {
     body: {
       category: 'safety',

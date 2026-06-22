@@ -1205,7 +1205,7 @@ type PushDevice = {
 - 地点点评提交、用户新增地点提交也会写入通知中心，App 成功提交后会重新拉取该列表，不再只依赖前端临时通知。
 - 通知项会返回 `category` 与 `createdAt`，App 以这两个字段驱动筛选、分组和时间显示；旧通知缺字段时，测试后端会在读取时补齐。
 - `category` 当前取值为 `health`、`interaction`、`walk`、`system`。普通聊天和招呼归入 `interaction`，约遛邀请归入 `walk`；互动和约遛通知是否生成受 `pushNotifications` 与 `interactionMessages` 控制。
-- 通知项会返回可选 `kind`、`conversationId`、`ownerId`、`postId`、`commentId`，用于区分落页：`greeting_request` 进入招呼请求；`conversation_message`、`greeting_accepted`、`walk_invite` 优先使用 `conversationId` 打开对话框；`pet_circle_like` / `pet_circle_comment` / `pet_circle_greeting` 使用 `postId` 进入宠友圈并高亮对应动态；`health_reminder` 进入健康页；`system` 进入设置或对应系统页。
+- 通知项会返回可选 `kind`、`conversationId`、`ownerId`、`postId`、`commentId`、`placeId`、`submissionId`，用于区分落页：`greeting_request` 进入招呼请求；`conversation_message`、`greeting_accepted`、`walk_invite` 优先使用 `conversationId` 打开对话框；`pet_circle_like` / `pet_circle_comment` / `pet_circle_greeting` 使用 `postId` 进入宠友圈并高亮对应动态；`place_review` 使用 `placeId` 进入地点详情；`place_submission` 进入地图页；`health_reminder` 进入健康页；`system` 进入设置或对应系统页。
 - 已建立会话后的普通聊天消息不应再进入招呼请求。测试后端会为接收方写入 `kind=conversation_message`、`conversationId=c-{senderPhone}`、`ownerId=user-{senderPhone}`，且通知本身默认 `read=true`；未读状态由 `/conversations` 的 `unread` 字段承载，避免通知中心和消息列表重复计数。
 
 ### POST `/notifications/read`
@@ -1398,7 +1398,7 @@ Request:
 提交点评。测试后端会按用户持久化当前地点最新一条点评，MVP 返回审核中状态。
 
 副作用：
-- 成功后会为当前用户生成一条“地点点评待审核”通知，可通过 `GET /notifications` 读回。
+- 成功后会为当前用户生成一条“地点点评待审核”通知，可通过 `GET /notifications` 读回；通知 `kind=place_review`，并携带 `placeId` 用于从通知中心回到对应地点详情。
 
 基础内容安全：
 - 点评内容最多 500 字。
@@ -1434,7 +1434,7 @@ Response data:
 提交新的宠物友好地点和体验内容。MVP 测试后端只进入审核中，不会立刻加入附近地点列表。
 
 副作用：
-- 成功后会为当前用户生成一条“地点提交待审核”通知，可通过 `GET /notifications` 读回。
+- 成功后会为当前用户生成一条“地点提交待审核”通知，可通过 `GET /notifications` 读回；通知 `kind=place_submission`，并携带 `submissionId`，App 点击后回到地图页。
 
 重复校验：
 - 如果名称和地址都与已存在地点高度相似，返回 `409`，中文错误提示用户先查看已有地点或修改名称/地址。
