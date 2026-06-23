@@ -569,7 +569,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'dailyPost' || value === 'discover' || value === 'home' || value === 'memoNew' || value === 'notifications' || value === 'safety' || value === 'settings') return value;
+  if (value === 'dailyPost' || value === 'discover' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'safety' || value === 'settings') return value;
   return null;
 }
 
@@ -10924,10 +10924,10 @@ export default function LumiiMvpApp() {
                 <ChevronLeft color={palette.ink} size={18} strokeWidth={2.5} />
               </Pressable>
               <View style={styles.placeHeroActions}>
-                <Pressable onPress={() => void sharePlace(place)} style={styles.placeBackButtonMake}>
+                <Pressable accessibilityLabel="分享地点" accessibilityRole="button" onPress={() => void sharePlace(place)} style={styles.placeBackButtonMake}>
                   <Share2 color={palette.ink} size={15} strokeWidth={2.4} />
                 </Pressable>
-                <Pressable disabled={isFavoriteSaving} onPress={() => void toggleFavoritePlace(place)} style={styles.placeBackButtonMake}>
+                <Pressable accessibilityLabel={isFavoritePlace ? '取消收藏地点' : '收藏地点'} accessibilityRole="button" disabled={isFavoriteSaving} onPress={() => void toggleFavoritePlace(place)} style={styles.placeBackButtonMake}>
                   {isFavoriteSaving ? (
                     <ActivityIndicator color={palette.orange} size="small" />
                   ) : (
@@ -11126,7 +11126,12 @@ export default function LumiiMvpApp() {
   function closePlaceSubmitResult() {
     const result = placeSubmitResult;
     setPlaceSubmitResult(null);
-    if (result?.kind === 'place' && result.status === 'success') replace('map');
+    if (result?.status !== 'success') return;
+    if (result.kind === 'place') {
+      replace('map');
+      return;
+    }
+    if (result.kind === 'review') replace(selectedPlaceIdRef.current ? 'placeDetail' : 'map');
   }
 
   function continueAfterPlaceSubmitSuccess() {

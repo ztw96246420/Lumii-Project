@@ -296,6 +296,38 @@ async function main() {
     await waitInputValue(page, '体外驱虫已完成，下次按计划提醒。');
     await screenshot(page, 'smoke-frontend-02h-notification-to-medical-memo.png');
 
+    await page.goto(`${baseUrl}/?route=map`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '附近宠物友好地点');
+    await clickExactText(page, '附近宠物友好地点');
+    await waitExactText(page, '云杉宠物友好公园');
+    await clickExactText(page, '云杉宠物友好公园');
+    await waitExactText(page, '社区共建');
+    await waitExactText(page, '滨江路 88 号');
+    await page.getByLabel('分享地点').click();
+    await waitExactText(page, '地点已分享');
+    const placeSharePayload = await page.evaluate(() => window.__lumiiLastShare ?? null);
+    const placeShareText = placeSharePayload?.text ?? '';
+    if (!placeShareText.includes('云杉宠物友好公园') || !placeShareText.includes('滨江路 88 号') || !placeShareText.includes('来自 Lumii 灵伴')) {
+      throw new Error(`Unexpected place share payload: ${JSON.stringify(placeSharePayload)}`);
+    }
+    await page.getByLabel('收藏地点').click();
+    await waitExactText(page, '已收藏到「想去」');
+    await page.getByLabel('取消收藏地点').waitFor({ timeout: 30_000 });
+    await clickExactText(page, '写点评');
+    await waitExactText(page, '写一条点评');
+    await page.getByPlaceholder(/草坪很整洁/).fill('Playwright 地点点评：草坪整洁，饮水点清楚。');
+    await clickExactText(page, '发布点评');
+    await waitExactText(page, '提交成功');
+    await waitExactText(page, '点评已提交');
+    await screenshot(page, 'smoke-frontend-02i-map-place-review-submitted.png');
+    await clickExactText(page, '返回地点');
+    await waitExactText(page, '云杉宠物友好公园');
+    const placeDetailReviewText = await page.locator('body').innerText();
+    if (!placeDetailReviewText.includes('Playwright 地点点评：草坪整洁，饮水点清楚。') || !placeDetailReviewText.includes('已提交，等待审核。通过后会展示在地点详情中。')) {
+      throw new Error(`Place review did not render after returning to detail:\n${placeDetailReviewText}`);
+    }
+    await screenshot(page, 'smoke-frontend-02j-place-review-status.png');
+
     await page.goto(`${baseUrl}/?route=dailyPost`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '今日小事');
     await page
