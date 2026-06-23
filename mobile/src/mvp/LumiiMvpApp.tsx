@@ -630,7 +630,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'greetingRequests' || value === 'health' || value === 'healthCalendar' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'uploadNoPet' || value === 'vaccine' || value === 'weight') return value;
+  if (value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'editPet' || value === 'greetingRequests' || value === 'health' || value === 'healthCalendar' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'uploadNoPet' || value === 'vaccine' || value === 'weight') return value;
   return null;
 }
 
@@ -3680,6 +3680,39 @@ export default function LumiiMvpApp() {
         const pet = getCurrentPet();
         if (!pet) {
           showToast('请先添加宠物档案');
+          return;
+        }
+        if (isHomePreviewMode) {
+          const nextPet: PetProfile = {
+            ...pet,
+            avatarUrl: payload.avatarUrl ?? pet.avatarUrl,
+            birthday: payload.birthday,
+            breed: payload.breed,
+            gender: payload.gender,
+            name: payload.name,
+            species: payload.species,
+            weightKg: payload.weightKg,
+          };
+          activePetIdRef.current = nextPet.id;
+          setActivePet(nextPet);
+          setPets((items) => {
+            const nextItems = items.map((item) => (item.id === nextPet.id ? nextPet : item));
+            return nextItems.some((item) => item.id === nextPet.id) ? nextItems : [nextPet, ...nextItems];
+          });
+          setSession((current) =>
+            current?.account
+              ? {
+                  ...current,
+                  account: {
+                    ...current.account,
+                    activePet: nextPet,
+                  },
+                }
+              : current,
+          );
+          setHistory((items) => items.slice(0, -1));
+          replace('petDetail');
+          showToast('宠物信息已保存');
           return;
         }
         const result = await lumiiApi.pets.updatePet(pet.id, payload);
@@ -7194,6 +7227,7 @@ export default function LumiiMvpApp() {
             <View style={styles.petEditRowMake}>
               <Text style={styles.petEditLabelMake}>昵称</Text>
               <TextInput
+                accessibilityLabel="edit-pet-name-input"
                 onChangeText={(name) => setPetDraft((draft) => ({ ...draft, name }))}
                 placeholder="例如：奶油"
                 placeholderTextColor={palette.muted}
@@ -7219,6 +7253,7 @@ export default function LumiiMvpApp() {
             <View style={styles.petEditRowMake}>
               <Text style={styles.petEditLabelMake}>品种</Text>
               <TextInput
+                accessibilityLabel="edit-pet-breed-input"
                 onChangeText={(breed) => setPetDraft((draft) => ({ ...draft, breed }))}
                 placeholder="例如：金毛寻回犬"
                 placeholderTextColor={palette.muted}
@@ -7231,6 +7266,7 @@ export default function LumiiMvpApp() {
               <Text style={styles.petEditLabelMake}>生日</Text>
               {Platform.OS === 'web' ? (
                 <TextInput
+                  accessibilityLabel="edit-pet-birthday-input"
                   onChangeText={(birthday) => setPetDraft((draft) => ({ ...draft, birthday }))}
                   placeholder="例如：2023-04-12"
                   placeholderTextColor={palette.muted}
@@ -7268,6 +7304,7 @@ export default function LumiiMvpApp() {
             <View style={styles.petEditRowMake}>
               <Text style={styles.petEditLabelMake}>体重</Text>
               <TextInput
+                accessibilityLabel="edit-pet-weight-input"
                 keyboardType="decimal-pad"
                 onChangeText={(weight) => setPetDraft((draft) => ({ ...draft, weight }))}
                 placeholder="--"
@@ -7282,7 +7319,10 @@ export default function LumiiMvpApp() {
           <Text style={styles.petEditFootnoteMake}>准确的资料能让 AI 灵伴更懂它，也能让附近的朋友更安心约遛。</Text>
 
           <View style={styles.makeBottomActions}>
-            <Button loading={petProfileSaving} onPress={() => void savePetProfile()}>保存</Button>
+            <Pressable accessibilityLabel="save-edit-pet-profile" accessibilityRole="button" disabled={petProfileSaving} onPress={() => void savePetProfile()} style={[styles.petInfoPrimaryButtonMake, petProfileSaving && styles.aiCtaDisabled, webPressableReset]}>
+              {petProfileSaving ? <ActivityIndicator color="#fff" size="small" /> : null}
+              <Text style={styles.petInfoPrimaryButtonTextMake}>保存</Text>
+            </Pressable>
             {editingProfile ? (
               <Pressable disabled={petProfileSaving} onPress={() => confirmDeletePet(editingProfile)} style={[styles.petEditDeleteMake, webPressableReset]}>
                 <Text style={styles.petEditDeleteTextMake}>删除该宠物档案</Text>

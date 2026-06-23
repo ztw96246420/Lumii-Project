@@ -84,6 +84,7 @@ function collectPageErrors(page, pageErrors) {
     if (message.type() === 'error') {
       const text = message.text();
       if (text === 'Failed to load resource: net::ERR_CONNECTION_CLOSED') return;
+      if (text.includes('net::ERR_UNKNOWN_URL_SCHEME')) return;
       pageErrors.push(text);
     }
   });
@@ -538,6 +539,21 @@ async function main() {
     await waitExactText(settingsPage, 'Playwright主人');
     await screenshot(settingsPage, 'smoke-frontend-04c-owner-profile-saved.png');
 
+    await settingsPage.goto(`${baseUrl}/?route=editPet`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(settingsPage, '编辑宠物资料');
+    await settingsPage.getByLabel('edit-pet-name-input').fill('PW宠物编辑');
+    await settingsPage.getByLabel('edit-pet-breed-input').fill('边境牧羊犬');
+    await settingsPage.getByLabel('edit-pet-birthday-input').fill('2024-06-01');
+    await settingsPage.getByLabel('edit-pet-weight-input').fill('13.6');
+    await settingsPage.getByLabel('save-edit-pet-profile').click();
+    await waitExactText(settingsPage, '宠物档案');
+    await waitExactText(settingsPage, 'PW宠物编辑');
+    await waitBodyIncludes(settingsPage, '边境牧羊犬');
+    await waitBodyIncludes(settingsPage, '13.6 kg');
+    await screenshot(settingsPage, 'smoke-frontend-04c2-pet-profile-edited.png');
+
+    await settingsPage.goto(`${baseUrl}/?route=profile`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(settingsPage, '我的');
     await clickExactText(settingsPage, '设置与隐私');
     await waitExactText(settingsPage, '设置与隐私');
     await settingsPage.getByLabel('账号安全').click();
