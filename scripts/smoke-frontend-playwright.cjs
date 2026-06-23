@@ -188,6 +188,11 @@ async function main() {
       }
     });
 
+    await page.goto(`${baseUrl}/?route=health`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '近期记录');
+    await waitExactText(page, '健康日历');
+    await screenshot(page, 'smoke-frontend-00-health-preview.png');
+
     await page.goto(`${baseUrl}/?route=memoNew`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '新增健康备忘');
     await page.getByPlaceholder('例如：洗澡记录、复诊提醒').fill('洗澡记录');

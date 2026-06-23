@@ -569,7 +569,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'dailyPost' || value === 'discover' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'safety' || value === 'settings') return value;
+  if (value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'safety' || value === 'settings') return value;
   return null;
 }
 
@@ -8403,7 +8403,7 @@ export default function LumiiMvpApp() {
       latestMemo
         ? {
           Icon: Sparkles,
-          date: formatOptionalDateLabel(latestMemo.updatedAt),
+          date: formatOptionalDateLabel(latestMemo.createdAt || latestMemo.updatedAt),
           dot: 'muted' as const,
           sub: latestMemo.content,
           title: latestMemo.title,
@@ -8800,7 +8800,7 @@ export default function LumiiMvpApp() {
                     ) : null}
                   </View>
                   <View style={styles.memoListTrail}>
-                    <Text style={styles.timelineDateMake}>{formatOptionalDateLabel(memo.updatedAt)}</Text>
+                    <Text style={styles.timelineDateMake}>{formatOptionalDateLabel(memo.createdAt || memo.updatedAt)}</Text>
                     <ChevronRight color={palette.muted} size={14} strokeWidth={2.2} />
                   </View>
                 </Pressable>

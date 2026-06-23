@@ -598,7 +598,7 @@ let weights: WeightRecord[] = [
 ];
 
 let memos: HealthMemo[] = [
-  { createdAt: addDaysIsoDate(-3), id: 'm1', title: '驱虫记录', content: '体外驱虫已完成，下次按计划提醒。', updatedAt: addDaysIsoDate(-3) },
+  { createdAt: addDaysIsoDate(-3), id: 'm1', title: '驱虫记录', content: '体外驱虫已完成，下次按计划提醒。', updatedAt: todayIsoDate() },
 ];
 
 let nearbyMoments: NearbyMoment[] = [];
