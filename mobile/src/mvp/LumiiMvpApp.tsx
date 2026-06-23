@@ -5178,9 +5178,12 @@ export default function LumiiMvpApp() {
       });
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
-        setMemos((items) => items.map((item) => (item.id === result.data!.id ? result.data! : item)));
-        setSelectedMemo(result.data);
+        const updatedMemo = result.data;
+        setMemos((items) => items.map((item) => (item.id === updatedMemo.id ? updatedMemo : item)));
+        setSelectedMemo(updatedMemo);
+        focusHealthCalendarDate(updatedMemo.createdAt || updatedMemo.updatedAt);
         void refreshHealthSummary();
+        replace('healthCalendar');
         showToast('备忘已保存', { subtitle: `${getCurrentPet()?.name ?? '灵伴'}的小日记又厚了一页`, tone: 'success', variant: 'surface' });
       } else {
         showToast(result.error?.message ?? '备忘保存失败', { tone: 'error', variant: 'surface' });
@@ -9061,6 +9064,7 @@ export default function LumiiMvpApp() {
           <View style={styles.makeFieldGroup}>
             <Text style={styles.makeFieldLabel}>备忘标题 *</Text>
             <TextInput
+              accessibilityLabel="memo-edit-title-input"
               onChangeText={setMemoEditTitle}
               placeholder="例如：洗澡记录"
               placeholderTextColor="#B8B3A8"
@@ -9075,6 +9079,7 @@ export default function LumiiMvpApp() {
           <View style={styles.makeFieldGroup}>
             <Text style={styles.makeFieldLabel}>备忘内容 *</Text>
             <TextInput
+              accessibilityLabel="memo-edit-content-input"
               multiline
               onChangeText={setMemoEditContent}
               placeholder="今天有什么值得记录的小事？"
@@ -9159,7 +9164,7 @@ export default function LumiiMvpApp() {
           </View>
         </View>
         <View style={[styles.editActionStack, memoEditSaving && styles.memoSavingContentDimMake]}>
-          <Pressable disabled={memoDeleting || memoEditSaving} onPress={confirmDeleteMemo} style={[styles.deleteTextButton, webPressableReset]}>
+          <Pressable accessibilityLabel="delete-health-memo" accessibilityRole="button" disabled={memoDeleting || memoEditSaving} onPress={confirmDeleteMemo} style={[styles.deleteTextButton, webPressableReset]}>
             {memoDeleting ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={15} strokeWidth={2.4} />}
             <Text style={styles.deleteTextButtonLabel}>删除备忘</Text>
           </Pressable>
@@ -13094,10 +13099,10 @@ export default function LumiiMvpApp() {
                 「{memo.title}」将从{getCurrentPet()?.name ?? '灵伴'}的健康备忘中移除，删除后不可恢复
               </Text>
               <View style={styles.memoDeleteActionsMake}>
-                <Pressable disabled={memoDeleting} onPress={() => setMemoDeleteConfirmVisible(false)} style={[styles.memoDeleteCancelMake, webPressableReset]}>
+                <Pressable accessibilityLabel="cancel-delete-health-memo" accessibilityRole="button" disabled={memoDeleting} onPress={() => setMemoDeleteConfirmVisible(false)} style={[styles.memoDeleteCancelMake, webPressableReset]}>
                   <Text style={styles.memoDeleteCancelTextMake}>取消</Text>
                 </Pressable>
-                <Pressable disabled={memoDeleting} onPress={() => void deleteSelectedMemo()} style={[styles.memoDeleteDangerMake, memoDeleting && styles.aiCtaDisabled, webPressableReset]}>
+                <Pressable accessibilityLabel="confirm-delete-health-memo" accessibilityRole="button" disabled={memoDeleting} onPress={() => void deleteSelectedMemo()} style={[styles.memoDeleteDangerMake, memoDeleting && styles.aiCtaDisabled, webPressableReset]}>
                   {memoDeleting ? <ActivityIndicator color="#fff" size="small" /> : null}
                   <Text style={styles.memoDeleteDangerTextMake}>确认删除</Text>
                 </Pressable>

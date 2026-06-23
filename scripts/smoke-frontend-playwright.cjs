@@ -332,6 +332,24 @@ async function main() {
     await waitExactText(page, '健康日历');
     await screenshot(page, 'smoke-frontend-01-memo-saved.png');
 
+    const editedMemoTitle = 'PW备忘编辑';
+    const editedMemoContent = 'Playwright 已编辑健康备忘内容';
+    await page.getByLabel(/^health-calendar-event-memo-m-/).first().click();
+    await waitExactText(page, '编辑备忘');
+    await page.getByLabel('memo-edit-title-input').fill(editedMemoTitle);
+    await page.getByLabel('memo-edit-content-input').fill(editedMemoContent);
+    await clickExactText(page, '保存修改');
+    await waitExactText(page, '健康日历');
+    await waitBodyIncludes(page, editedMemoTitle);
+    await screenshot(page, 'smoke-frontend-01b-memo-edited.png');
+    await page.getByLabel(/^health-calendar-event-memo-m-/).first().click();
+    await waitExactText(page, '编辑备忘');
+    await page.getByLabel('delete-health-memo').click();
+    await page.getByLabel('confirm-delete-health-memo').click();
+    await waitExactText(page, '健康日历');
+    await waitBodyExcludes(page, editedMemoTitle);
+    await screenshot(page, 'smoke-frontend-01c-memo-deleted.png');
+
     await page.goto(`${baseUrl}/?route=discover`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '宠友圈');
     await waitExactText(page, '分享 Lucky 的今日小事');
