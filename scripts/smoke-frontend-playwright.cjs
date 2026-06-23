@@ -238,6 +238,15 @@ async function main() {
     await waitExactText(page, '猫咪 · 英短');
     await page.getByLabel('switch-pet-preview-pet-lucky').waitFor({ state: 'visible', timeout: 30_000 });
     await screenshot(page, 'smoke-frontend-00a-multi-pet-switched.png');
+    await page.getByLabel('delete-pet-preview-pet-lucky').click();
+    await page.getByLabel('confirm-delete-pet-preview-pet-lucky').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('confirm-delete-pet-preview-pet-lucky').click();
+    await waitExactText(page, '全部宠物 · 1 只');
+    await page.getByLabel('confirm-delete-pet-preview-pet-lucky').waitFor({ state: 'hidden', timeout: 30_000 });
+    await page.getByLabel('delete-pet-preview-pet-lucky').waitFor({ state: 'hidden', timeout: 30_000 });
+    await waitBodyIncludes(page, 'Mochi');
+    await page.waitForTimeout(800);
+    await screenshot(page, 'smoke-frontend-00a2-multi-pet-deleted.png');
 
     await page.goto(`${baseUrl}/?route=uploadNoPet&mockUpload=noPet`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '识别失败');

@@ -115,6 +115,16 @@ const mockMultiPetFixturePets: PetProfile[] = [
     weightKg: 4.8,
   },
 ];
+const mockMultiPetFixtureWeights: Record<string, WeightRecord[]> = {
+  'preview-pet-lucky': [
+    { id: 'w-preview-lucky-1', kg: 28.4, note: '精神很好，食欲正常', recordedAt: addDaysIsoDate(-7) },
+    { id: 'w-preview-lucky-2', kg: 28.1, recordedAt: addDaysIsoDate(-14) },
+  ],
+  'preview-pet-mochi': [
+    { id: 'w-preview-mochi-1', kg: 4.8, note: '食欲稳定，精神不错', recordedAt: addDaysIsoDate(-5) },
+    { id: 'w-preview-mochi-2', kg: 4.7, recordedAt: addDaysIsoDate(-12) },
+  ],
+};
 
 function parseMockPermissionPatch(value: Partial<PermissionStateMap>) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -1008,6 +1018,14 @@ function ensureMockMultiPetFixtures() {
   const missingPets = mockMultiPetFixturePets.filter((pet) => !existingIds.has(pet.id));
   if (missingPets.length) pets = [...pets, ...missingPets];
   if (!activePetId || !pets.some((pet) => pet.id === activePetId)) activePetId = mockMultiPetFixturePets[0]?.id ?? pets[0]?.id ?? '';
+}
+
+function ensureMockMultiPetHealthFixtures() {
+  if (getMockWebPreviewParam('mockMultiPet') !== 'interactive') return;
+  const petId = activePetId || pets[0]?.id || mockMultiPetFixturePets[0]?.id || '';
+  const fixtureWeights = mockMultiPetFixtureWeights[petId];
+  if (!fixtureWeights) return;
+  weights = fixtureWeights.map((record) => ({ ...record }));
 }
 
 function ensureMockBackdatedHealthCalendarFixtures() {
@@ -2107,12 +2125,14 @@ export const mockApi = {
   health: {
     async getHealthSummary(): Promise<ApiResult<HealthSummary>> {
       await wait(120);
+      ensureMockMultiPetHealthFixtures();
       ensureMockBackdatedHealthCalendarFixtures();
       return success(buildHealthSummary());
     },
 
     async listHealthCalendar(): Promise<ApiResult<HealthCalendarEvent[]>> {
       await wait(140);
+      ensureMockMultiPetHealthFixtures();
       ensureMockBackdatedHealthCalendarFixtures();
       return success(buildHealthCalendarEvents());
     },
@@ -2152,11 +2172,13 @@ export const mockApi = {
 
     async listWeightRecords(): Promise<ApiResult<WeightRecord[]>> {
       await wait(140);
+      ensureMockMultiPetHealthFixtures();
       return success(weights);
     },
 
     async getWeightTrend(): Promise<ApiResult<WeightTrend>> {
       await wait(140);
+      ensureMockMultiPetHealthFixtures();
       return success(buildWeightTrend(weights));
     },
 

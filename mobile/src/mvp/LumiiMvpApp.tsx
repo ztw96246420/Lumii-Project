@@ -13058,11 +13058,11 @@ export default function LumiiMvpApp() {
               <Text style={styles.petDeleteTipTextMake}>如果只是暂时不想看到，可以选择切换为其它宠物，记录会一直保留。</Text>
             </View>
             <View style={styles.petDeleteActionsMake}>
-              <Pressable disabled={deleting} onPress={() => void deletePet(pet)} style={[styles.sheetDangerButtonMake, deleting && styles.aiCtaDisabled, webPressableReset]}>
+              <Pressable accessibilityLabel={`confirm-delete-pet-${pet.id}`} accessibilityRole="button" disabled={deleting} onPress={() => void deletePet(pet)} style={[styles.sheetDangerButtonMake, deleting && styles.aiCtaDisabled, webPressableReset]}>
                 {deleting ? <ActivityIndicator color="#fff" size="small" /> : null}
                 <Text style={styles.sheetDangerButtonTextMake}>确认移除</Text>
               </Pressable>
-              <Pressable disabled={deleting} onPress={() => setPetDeleteConfirm(null)} style={[styles.sheetGhostButtonMake, webPressableReset]}>
+              <Pressable accessibilityLabel={`cancel-delete-pet-${pet.id}`} accessibilityRole="button" disabled={deleting} onPress={() => setPetDeleteConfirm(null)} style={[styles.sheetGhostButtonMake, webPressableReset]}>
                 <Text style={styles.sheetGhostButtonTextMake}>再想想</Text>
               </Pressable>
             </View>
