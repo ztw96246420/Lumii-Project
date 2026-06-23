@@ -3116,7 +3116,16 @@ export default function LumiiMvpApp() {
 
   async function openHealthNotification(item: NotificationItem, kind: NotificationKind) {
     if (kind === 'medical_alert') {
-      const memo = item.memoId ? memos.find((entry) => entry.id === item.memoId) : null;
+      const requestSessionToken = sessionTokenRef.current;
+      let memo = item.memoId ? memos.find((entry) => entry.id === item.memoId) : null;
+      if (item.memoId && !memo) {
+        const result = await lumiiApi.health.listHealthMemos();
+        if (sessionTokenRef.current !== requestSessionToken) return;
+        if (result.data) {
+          setMemos(result.data);
+          memo = result.data.find((entry) => entry.id === item.memoId) ?? null;
+        }
+      }
       if (memo) {
         focusHealthCalendarDate(memo.createdAt);
         openMemoEditor(memo);

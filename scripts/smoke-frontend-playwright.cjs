@@ -45,6 +45,15 @@ async function waitExactText(page, text, options = {}) {
   await page.getByText(text, { exact: true }).first().waitFor({ timeout: 30_000, ...options });
 }
 
+async function waitInputValue(page, value) {
+  await page.waitForFunction(
+    (expected) =>
+      Array.from(document.querySelectorAll('input, textarea')).some((element) => element.value === expected),
+    value,
+    { timeout: 30_000 },
+  );
+}
+
 async function screenshot(page, name) {
   fs.mkdirSync(artifactsDir, { recursive: true });
   await page.screenshot({ fullPage: true, path: path.join(artifactsDir, name) });
@@ -252,6 +261,15 @@ async function main() {
     const vaccineNotificationText = await page.locator('body').innerText();
     assertTextBefore(vaccineNotificationText, '狂犬疫苗', '犬四联/犬六联', 'After opening vaccine reminder notification');
     await screenshot(page, 'smoke-frontend-02g-notification-to-vaccine.png');
+
+    await page.goto(`${baseUrl}/?route=notifications`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '就医提醒');
+    await waitExactText(page, '查看备忘');
+    await clickExactText(page, '就医提醒');
+    await waitExactText(page, '编辑备忘');
+    await waitInputValue(page, '驱虫记录');
+    await waitInputValue(page, '体外驱虫已完成，下次按计划提醒。');
+    await screenshot(page, 'smoke-frontend-02h-notification-to-medical-memo.png');
 
     await page.goto(`${baseUrl}/?route=dailyPost`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '今日小事');

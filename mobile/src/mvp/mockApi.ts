@@ -1102,6 +1102,15 @@ let notifications: NotificationItem[] = [
     title: 'Lucky 的小事有新互动',
   },
   { category: 'health', id: 'n1', kind: 'vaccine_reminder', read: false, text: '狂犬疫苗将在 19 天后到期。', title: '疫苗提醒', vaccineId: 'v-rabies' },
+  {
+    category: 'health',
+    id: 'mock-medical-alert-notification-m1',
+    kind: 'medical_alert',
+    memoId: 'm1',
+    read: false,
+    text: '已记录健康异常观察，请查看备忘并按需联系宠物医院。',
+    title: '就医提醒',
+  },
   { id: 'n2', title: 'AI 形象生成', text: '新的电子宠物形象已保存。', read: true },
 ];
 
