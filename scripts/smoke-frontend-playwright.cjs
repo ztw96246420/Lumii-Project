@@ -221,6 +221,17 @@ async function main() {
     await waitExactText(page, '健康日历');
     await screenshot(page, 'smoke-frontend-00-health-preview.png');
 
+    const petChatSmokeText = 'Playwright 想和 Lucky 聊一会儿';
+    await page.goto(`${baseUrl}/?route=chat`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '在线 · 心情很好');
+    await page.getByLabel('pet-chat-input').fill(petChatSmokeText);
+    await page.getByLabel('send-pet-chat-message').click();
+    await waitBodyIncludes(page, petChatSmokeText);
+    await waitBodyIncludes(page, '我收到啦');
+    await page.getByLabel(/^pet-chat-feedback-good-pet-ai-/).last().click();
+    await waitExactText(page, '已记录：这个回复像它');
+    await screenshot(page, 'smoke-frontend-00a-pet-chat-feedback.png');
+
     await page.goto(`${baseUrl}/?route=weight`, { timeout: 60_000, waitUntil: 'networkidle' });
     await page.getByLabel('add-weight-record').first().waitFor({ state: 'visible', timeout: 30_000 });
     await page.getByLabel('add-weight-record').first().click();

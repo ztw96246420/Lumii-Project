@@ -600,7 +600,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'aiResult' || value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
+  if (value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
   return null;
 }
 
@@ -8048,6 +8048,8 @@ export default function LumiiMvpApp() {
                     <View style={styles.chatFeedbackRow}>
                       {(['good', 'off'] as const).map((rating) => (
                         <Pressable
+                          accessibilityLabel={`pet-chat-feedback-${rating}-${message.id}`}
+                          accessibilityRole="button"
                           disabled={chatFeedbackSavingIds.includes(message.id)}
                           key={rating}
                           onPress={() => void ratePetChatReply(message.id, rating)}
@@ -8103,6 +8105,7 @@ export default function LumiiMvpApp() {
           <View style={styles.chatComposerRow}>
             <View style={styles.chatComposer}>
               <TextInput
+                accessibilityLabel="pet-chat-input"
                 onChangeText={setChatInput}
                 placeholder={`告诉${pet?.name ?? '灵伴'}今天发生了什么...`}
                 placeholderTextColor="#b6aca3"
@@ -8112,7 +8115,7 @@ export default function LumiiMvpApp() {
               <Mic color={palette.muted} size={18} strokeWidth={2.2} />
               <Camera color={palette.muted} size={18} strokeWidth={2.2} />
             </View>
-            <Pressable onPress={() => void sendChatMessage()} style={styles.sendButton}>
+            <Pressable accessibilityLabel="send-pet-chat-message" accessibilityRole="button" onPress={() => void sendChatMessage()} style={styles.sendButton}>
               {chatReplying ? <ActivityIndicator color="#fff" size="small" /> : <Send color="#fff" size={18} strokeWidth={2.4} />}
             </Pressable>
           </View>
