@@ -12332,6 +12332,7 @@ export default function LumiiMvpApp() {
             <View style={styles.walkTimeRowMake}>
               <Clock color={palette.orange} size={15} strokeWidth={2.4} />
               <TextInput
+                accessibilityLabel="walk-invite-time-input"
                 onChangeText={setWalkInviteTime}
                 placeholder="17:30 - 18:30"
                 placeholderTextColor="#B8B3A8"
@@ -12348,6 +12349,7 @@ export default function LumiiMvpApp() {
               <View style={[styles.walkPlaceTitleMake, walkPlaceMeta && styles.walkPlaceTitleWithMetaMake]}>
                 <MapPin color="#fff" size={13} strokeWidth={2.4} />
                 <TextInput
+                  accessibilityLabel="walk-invite-place-input"
                   onChangeText={(value) => {
                     setWalkInvitePlace(value);
                     setWalkInvitePlaceAddress('');
@@ -12370,6 +12372,7 @@ export default function LumiiMvpApp() {
             <Text style={styles.walkFieldLabelMake}>留言</Text>
             <View style={styles.walkMessageCardMake}>
               <TextInput
+                accessibilityLabel="walk-invite-note-input"
                 multiline
                 onChangeText={setWalkInviteNote}
                 placeholder={walkNotePlaceholder}
@@ -12385,11 +12388,11 @@ export default function LumiiMvpApp() {
             </View>
 
             <View style={styles.walkBottomActionsMake}>
-              <Pressable disabled={walkInviteSaving || walkDraftSaving} onPress={() => void saveWalkInviteDraft()} style={[styles.walkDraftButtonMake, (walkInviteSaving || walkDraftSaving) && styles.mapSearchActionDisabled, webPressableReset]}>
+              <Pressable accessibilityLabel="save-walk-invite-draft" accessibilityRole="button" disabled={walkInviteSaving || walkDraftSaving} onPress={() => void saveWalkInviteDraft()} style={[styles.walkDraftButtonMake, (walkInviteSaving || walkDraftSaving) && styles.mapSearchActionDisabled, webPressableReset]}>
                 {walkDraftSaving ? <ActivityIndicator color={palette.ink} size="small" /> : null}
                 <Text style={styles.walkDraftButtonTextMake}>{walkDraftSaving ? '保存中' : '保存草稿'}</Text>
               </Pressable>
-              <Pressable disabled={walkInviteSaving} onPress={() => void createWalkInvite()} style={[styles.walkSendButtonMake, webPressableReset]}>
+              <Pressable accessibilityLabel="send-walk-invite" accessibilityRole="button" disabled={walkInviteSaving} onPress={() => void createWalkInvite()} style={[styles.walkSendButtonMake, webPressableReset]}>
                 {walkInviteSaving ? <ActivityIndicator color="#fff" size="small" /> : <Send color="#fff" size={14} strokeWidth={2.5} />}
                 <Text style={styles.walkSendButtonTextMake}>{walkInviteSaving ? '发送中' : '发送邀请'}</Text>
               </Pressable>

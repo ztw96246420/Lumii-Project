@@ -527,6 +527,24 @@ async function main() {
     await waitExactText(interactionPage, '和奶油打个招呼');
     await clickExactText(interactionPage, '取消');
     await interactionPage.getByText('和奶油打个招呼', { exact: true }).waitFor({ state: 'hidden', timeout: 30_000 });
+    try {
+      await interactionPage.getByLabel('约遛资料卡宠友').waitFor({ state: 'visible', timeout: 3_000 });
+    } catch {
+      await interactionPage.getByLabel('查看奶油的主人资料').first().click();
+      await waitExactText(interactionPage, '金毛 · 主人 林然 · 1km 内');
+    }
+    await interactionPage.getByLabel('约遛资料卡宠友').click();
+    await waitExactText(interactionPage, '约遛邀请');
+    await waitExactText(interactionPage, 'Lucky × 奶油');
+    await interactionPage.getByLabel('walk-invite-place-input').fill('Playwright 宠物友好公园');
+    await interactionPage.getByLabel('walk-invite-note-input').fill('Playwright 约遛邀请：牵引绳和饮水都带好。');
+    await interactionPage.getByLabel('send-walk-invite').click();
+    await waitExactText(interactionPage, '约遛邀请已发送');
+    await waitExactText(interactionPage, '林然和奶油');
+    await waitBodyIncludes(interactionPage, '约遛邀请 ·');
+    await screenshot(interactionPage, 'smoke-frontend-05a-walk-invite-sent.png');
+    await interactionPage.goto(`${baseUrl}/?route=discover&mockPetCircle=interactive`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(interactionPage, fixturePostText);
     await interactionPage.getByLabel('向宠友打招呼').first().click();
     await waitExactText(interactionPage, '和奶油打个招呼');
     await waitExactText(interactionPage, '选一句话开场');
