@@ -48,7 +48,13 @@ const TTAPI_MJ_TIMEOUT = Number(process.env.TTAPI_MJ_TIMEOUT || '600');
 const TTAPI_MJ_AUTO_UPSAMPLE = process.env.TTAPI_MJ_AUTO_UPSAMPLE === 'true';
 const TTAPI_FLUX_BASE_URL = (process.env.TTAPI_FLUX_BASE_URL || 'https://api.ttapi.io').replace(/\/+$/, '');
 const TTAPI_FLUX_MODE = process.env.TTAPI_FLUX_MODE || 'flux-2-max';
-const PET_AVATAR_PROVIDER = (process.env.PET_AVATAR_PROVIDER || (TTAPI_API_KEY ? 'ttapi-flux-edits' : 'mock')).toLowerCase();
+const GPT_IMAGE2_API_KEY = process.env.GPT_IMAGE2_API_KEY || '';
+const GPT_IMAGE2_BASE_URL = (process.env.GPT_IMAGE2_BASE_URL || 'https://api.apimart.ai').replace(/\/+$/, '');
+const GPT_IMAGE2_MODEL = process.env.GPT_IMAGE2_MODEL || 'gpt-image-2';
+const GPT_IMAGE2_SIZE = process.env.GPT_IMAGE2_SIZE || '1:1';
+const GPT_IMAGE2_RESOLUTION = process.env.GPT_IMAGE2_RESOLUTION || '2k';
+const GPT_IMAGE2_OFFICIAL_FALLBACK = process.env.GPT_IMAGE2_OFFICIAL_FALLBACK === 'true';
+const PET_AVATAR_PROVIDER = (process.env.PET_AVATAR_PROVIDER || (GPT_IMAGE2_API_KEY ? 'gpt-image-2' : TTAPI_API_KEY ? 'ttapi-flux-edits' : 'mock')).toLowerCase();
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
@@ -280,6 +286,13 @@ function createInitialState() {
       ttapiFlux: {
         failed: 0,
         quota: 0,
+        requests: 0,
+        succeeded: 0,
+      },
+      gptImage2: {
+        cost: 0,
+        creditsCost: 0,
+        failed: 0,
         requests: 0,
         succeeded: 0,
       },
@@ -2554,6 +2567,17 @@ function recordTtapiAvatarUsage(result, succeeded) {
   if (Number.isFinite(quota)) state.aiUsage[bucket].quota += quota;
 }
 
+function recordGptImage2AvatarUsage(result, succeeded) {
+  state.aiUsage = state.aiUsage || createInitialState().aiUsage;
+  state.aiUsage.gptImage2 = state.aiUsage.gptImage2 || createInitialState().aiUsage.gptImage2;
+  if (succeeded) state.aiUsage.gptImage2.succeeded += 1;
+  if (!succeeded) state.aiUsage.gptImage2.failed += 1;
+  const cost = Number(result?.data?.cost ?? result?.cost ?? 0);
+  const creditsCost = Number(result?.data?.credits_cost ?? result?.credits_cost ?? 0);
+  if (Number.isFinite(cost)) state.aiUsage.gptImage2.cost += cost;
+  if (Number.isFinite(creditsCost)) state.aiUsage.gptImage2.creditsCost += creditsCost;
+}
+
 function readDailyUsage(storeName, phone) {
   const store = state[storeName] || {};
   const usage = store[phone];
@@ -2577,6 +2601,7 @@ function buildAiUsageSummary(user) {
   const initialUsage = createInitialState().aiUsage;
   state.aiUsage = state.aiUsage || initialUsage;
   const deepseek = { ...initialUsage.deepseek, ...(state.aiUsage.deepseek || {}) };
+  const gptImage2 = { ...initialUsage.gptImage2, ...(state.aiUsage.gptImage2 || {}) };
   const ttapiFlux = { ...initialUsage.ttapiFlux, ...(state.aiUsage.ttapiFlux || {}) };
   const ttapiMidjourney = { ...initialUsage.ttapiMidjourney, ...(state.aiUsage.ttapiMidjourney || {}) };
   return {
@@ -2589,6 +2614,7 @@ function buildAiUsageSummary(user) {
       model: DEEPSEEK_MODEL,
     },
     petAvatarProvider: PET_AVATAR_PROVIDER,
+    gptImage2,
     ttapiFlux,
     ttapiMidjourney,
     updatedAt: new Date().toISOString(),
@@ -2886,6 +2912,22 @@ function buildFluxPetAvatarPrompt(user) {
   ].join('\n');
 }
 
+function buildGptImage2PetAvatarPrompt(user) {
+  const pet = selectedPetFor(user) || activePetFor(user);
+  const species = pet?.species === 'cat' ? 'cat' : 'dog';
+  const breed = pet?.breed || species;
+  return [
+    `Create a premium 3D cartoon transformation of the exact same ${species} in the reference image for Lumii.`,
+    `Breed/profile hint: ${breed}. If breed is unknown, use only ${species}; do not invent a specific breed. Keep this individual pet recognizable, not a generic ${breed}.`,
+    'Preserve this individual pet identity first: same fur color, main markings, eye shape and eye color impression, nose shape, muzzle length, ear shape, face proportions, age impression, posture, expression, and natural dog/cat anatomy.',
+    'Style direction: high-quality 3D pet companion avatar, cute and expressive but still recognizable as the uploaded pet. Soft fluffy groomed fur, detailed natural fur strands, rounded friendly features, glossy lively eyes, warm black nose, gentle cheerful expression, tactile premium mobile app mascot quality.',
+    'Make it feel like the pet became a polished Lumii digital companion: realistic semi-3D hand-painted fur texture, soft studio lighting, warm off-white background, clean rounded silhouette, subtle depth, soft shadows, premium animated character quality, not a flat illustration.',
+    'Composition: one pet only, centered square portrait, front view or slight 3/4 view matching the reference photo, head and upper body or sitting pose, clean edges, simple warm white / off-white studio background, enough negative space for app avatar cropping.',
+    'Optional styling: a small tasteful fabric neck ribbon or scarf may be added only if it does not cover important markings or reduce recognizability. If the original photo has a distinctive object, pose, or expression, preserve it unless it distracts from the pet portrait.',
+    'Avoid: realistic photo, generic breed mascot, newly invented pet, changed breed, changed fur color, changed markings, changed age, exaggerated baby transformation, flat vector illustration, black comic outline, anime, low-quality toy plastic, human body, full clothing outfit, hat, sunglasses, text, logo, watermark, extra limbs, distorted face, multiple pets, busy background.',
+  ].join('\n');
+}
+
 function dataUrlToFileParts(dataUrl, fallbackMimeType) {
   const match = String(dataUrl || '').match(/^data:([^;]+);base64,(.+)$/);
   if (!match) return null;
@@ -2933,14 +2975,51 @@ async function ttapiFluxRequest(pathname, options = {}) {
   return payload;
 }
 
+async function gptImage2Request(pathname, options = {}) {
+  const response = await fetch(`${GPT_IMAGE2_BASE_URL}${pathname}`, {
+    method: options.method || 'GET',
+    headers: {
+      Authorization: `Bearer ${GPT_IMAGE2_API_KEY}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || (payload.code && Number(payload.code) !== 200)) {
+    const message = payload?.error?.message || payload?.message || `GPT Image 2 request failed: ${response.status}`;
+    const error = new Error(message);
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
 function ttapiJobIdFrom(payload) {
   return payload?.data?.job_id || payload?.data?.jobId || payload?.jobId || '';
+}
+
+function gptImage2TaskIdFrom(payload) {
+  const data = payload?.data;
+  if (Array.isArray(data)) return data[0]?.task_id || data[0]?.taskId || data[0]?.id || '';
+  return data?.task_id || data?.taskId || data?.id || payload?.task_id || payload?.taskId || payload?.id || '';
 }
 
 function ttapiResultUrlFrom(payload) {
   const data = payload?.data || {};
   if (Array.isArray(data.images) && data.images[0]) return data.images[0];
   return data.imageUrl || data.image_url || data.cdnImage || data.discordImage || '';
+}
+
+function gptImage2ResultUrlFrom(payload) {
+  const data = payload?.data || payload || {};
+  const images = data?.result?.images || payload?.result?.images || [];
+  for (const image of Array.isArray(images) ? images : []) {
+    if (Array.isArray(image?.url) && image.url[0]) return image.url[0];
+    if (typeof image?.url === 'string' && image.url) return image.url;
+    if (typeof image === 'string' && image) return image;
+  }
+  return data?.imageUrl || data?.image_url || payload?.imageUrl || payload?.image_url || '';
 }
 
 function nextProcessingProgress(current, remoteProgress) {
@@ -2978,7 +3057,15 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
   job.ownerPhone = user.phone;
   if (originalJobId) job.originalJobId = originalJobId;
   state.avatarJobs[id] = job;
-  if (PET_AVATAR_PROVIDER === 'ttapi-flux-edits') {
+  if (PET_AVATAR_PROVIDER === 'gpt-image-2') {
+    try {
+      await startGptImage2AvatarJob(user, job, media);
+    } catch (error) {
+      job.errorMessage = error.message || 'Avatar generation failed to start';
+      job.progress = 0;
+      job.status = 'failed';
+    }
+  } else if (PET_AVATAR_PROVIDER === 'ttapi-flux-edits') {
     try {
       await startTtapiFluxAvatarJob(user, job, media);
     } catch (error) {
@@ -3005,6 +3092,38 @@ function avatarJobForUser(user, jobId) {
 }
 
 const avatarFeedbackReasons = new Set(['color', 'expression', 'face_shape', 'not_same_pet', 'other', 'style']);
+
+async function startGptImage2AvatarJob(user, job, media) {
+  if (!GPT_IMAGE2_API_KEY) throw new Error('GPT Image 2 key is not configured');
+  if (!media?.dataUrl) throw new Error('Pet photo is missing. Please upload again.');
+  const prompt = buildGptImage2PetAvatarPrompt(user);
+  const payload = await gptImage2Request('/v1/images/generations', {
+    method: 'POST',
+    body: {
+      image_urls: [media.dataUrl],
+      model: GPT_IMAGE2_MODEL,
+      n: 1,
+      official_fallback: GPT_IMAGE2_OFFICIAL_FALLBACK,
+      prompt,
+      resolution: GPT_IMAGE2_RESOLUTION,
+      size: GPT_IMAGE2_SIZE,
+    },
+  });
+  const providerJobId = gptImage2TaskIdFrom(payload);
+  if (!providerJobId) throw new Error('GPT Image 2 did not return a task id');
+  state.aiUsage = state.aiUsage || createInitialState().aiUsage;
+  state.aiUsage.gptImage2 = state.aiUsage.gptImage2 || createInitialState().aiUsage.gptImage2;
+  state.aiUsage.gptImage2.requests += 1;
+  Object.assign(job, {
+    mediaId: media.mediaId,
+    progress: 10,
+    provider: 'gpt-image-2',
+    providerJobId,
+    providerStatus: payload?.data?.[0]?.status || payload?.data?.status || payload.status || 'submitted',
+    promptVersion: 'gpt-image-2-premium-3d-avatar-v1',
+    status: 'processing',
+  });
+}
 
 async function startTtapiAvatarJob(req, user, job, media) {
   if (!TTAPI_API_KEY) throw new Error('TTAPI key is not configured');
@@ -3068,6 +3187,44 @@ async function startTtapiFluxAvatarJob(user, job, media) {
     promptVersion: 'flux-2-max-realistic-avatar-v1',
     status: 'processing',
   });
+}
+
+async function refreshGptImage2AvatarJob(job) {
+  if (!job.providerJobId) throw new Error('GPT Image 2 task id is missing');
+  const payload = await gptImage2Request(`/v1/tasks/${encodeURIComponent(job.providerJobId)}`, {
+    method: 'GET',
+  });
+  const data = payload?.data || {};
+  const status = String(data.status || payload.status || '').toLowerCase();
+  job.providerStatus = status || job.providerStatus;
+
+  if (status === 'completed' || status === 'succeeded' || status === 'success') {
+    const resultUrl = gptImage2ResultUrlFrom(payload);
+    if (!resultUrl) throw new Error('GPT Image 2 result does not include an image URL');
+    job.progress = 100;
+    job.resultUrl = resultUrl;
+    job.status = 'ready';
+    if (!job.usageRecorded) {
+      recordGptImage2AvatarUsage(payload, true);
+      job.usageRecorded = true;
+    }
+    return job;
+  }
+
+  if (status === 'failed' || status === 'error' || status === 'cancelled' || status === 'canceled') {
+    job.errorMessage = data?.error?.message || payload?.error?.message || payload?.message || 'GPT Image 2 generation failed';
+    job.progress = Math.max(10, Number(job.progress || 10));
+    job.status = 'failed';
+    if (!job.usageRecorded) {
+      recordGptImage2AvatarUsage(payload, false);
+      job.usageRecorded = true;
+    }
+    return job;
+  }
+
+  job.progress = nextProcessingProgress(job.progress, data.progress);
+  job.status = 'processing';
+  return job;
 }
 
 async function refreshTtapiAvatarJob(job) {
@@ -4962,7 +5119,14 @@ async function handle(req, res) {
       fail(res, 404, '生成任务不存在', true);
       return;
     }
-    if (job.provider === 'ttapi-flux-edits' && job.status === 'processing') {
+    if (job.provider === 'gpt-image-2' && job.status === 'processing') {
+      try {
+        await refreshGptImage2AvatarJob(job);
+      } catch (error) {
+        job.errorMessage = error.message || 'Avatar generation status failed';
+        job.status = 'failed';
+      }
+    } else if (job.provider === 'ttapi-flux-edits' && job.status === 'processing') {
       try {
         await refreshTtapiFluxAvatarJob(job);
       } catch (error) {

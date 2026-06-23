@@ -1749,6 +1749,13 @@ export const mockApi = {
           totalTokens: 0,
         },
         petAvatarProvider: 'mock',
+        gptImage2: {
+          cost: 0,
+          creditsCost: 0,
+          failed: 0,
+          requests: 0,
+          succeeded: 0,
+        },
         ttapiFlux: {
           failed: 0,
           quota: 0,

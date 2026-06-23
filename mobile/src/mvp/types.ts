@@ -113,7 +113,7 @@ export type AvatarJob = {
   mediaId?: string;
   originalJobId?: string;
   progress: number;
-  provider?: 'mock' | 'ttapi-flux-edits' | 'ttapi-midjourney';
+  provider?: 'gpt-image-2' | 'mock' | 'ttapi-flux-edits' | 'ttapi-midjourney';
   resultUrl?: string;
   status: 'failed' | 'processing' | 'ready';
 };
@@ -149,6 +149,13 @@ export type AiUsageSummary = {
     totalTokens: number;
   };
   petAvatarProvider: string;
+  gptImage2: {
+    cost: number;
+    creditsCost: number;
+    failed: number;
+    requests: number;
+    succeeded: number;
+  };
   ttapiFlux: {
     failed: number;
     quota: number;
