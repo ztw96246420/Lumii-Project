@@ -1819,23 +1819,7 @@ function requireUser(req, res) {
 }
 
 function activePetFor(user) {
-  const pet = user.pets.find((item) => item.id === user.activePetId) || user.pets[0];
-  if (pet) return pet;
-  const suffix = user.phone.slice(-4);
-  const dogFirst = Number(suffix[suffix.length - 1]) % 2 === 0;
-  return {
-    avatarUrl: dogFirst
-      ? 'https://images.unsplash.com/photo-1552053831-71594a27632d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600'
-      : 'https://images.unsplash.com/photo-1573865526739-10659fec78a5?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
-    breed: dogFirst ? '金毛' : '英短',
-    gender: 'unknown',
-    healthScore: 92,
-    id: `fallback-pet-${user.phone}`,
-    name: `灵伴${suffix}`,
-    personality: ['真实在线', '想交朋友'],
-    species: dogFirst ? 'dog' : 'cat',
-    weightKg: dogFirst ? 28.4 : 5.2,
-  };
+  return selectedPetFor(user);
 }
 
 function healthKeyFor(user) {
@@ -3796,6 +3780,7 @@ async function callDeepSeekPetChat(user, text, history) {
 
 function buildOwnerCard(user, viewerPhone, index, distanceKm) {
   const pet = activePetFor(user);
+  if (!pet) return null;
   const suffix = user.phone.slice(-4);
   const safeSpecies = pet.species === 'cat' ? 'cat' : 'dog';
   const distanceOptions = ['附近 500m 内', '附近 1km 内', '约 1-2km', '约 2-3km'];
@@ -3896,13 +3881,14 @@ function listOnlineOwners(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM) {
   const realOwners = Object.values(state.users)
     .filter((user) => user.phone !== viewer.phone)
     .filter((user) => user.settings?.nearbyVisible !== false)
+    .filter((user) => Boolean(activePetFor(user)))
     .filter((user) => !socialBlockBetween(viewer.phone, user.phone))
     .filter((user) => now - (user.lastSeenAt || 0) < ONLINE_TTL_MS)
     .map((user, index) => {
       const distanceKm = distanceKmBetween(viewer.location, user.location);
       return { card: buildOwnerCard(user, viewer.phone, index, distanceKm ?? undefined), distanceKm, user };
     })
-    .filter(({ user }) => canViewNearbyUser(viewer, user, radiusKm))
+    .filter(({ card, user }) => card && canViewNearbyUser(viewer, user, radiusKm))
     .sort((a, b) => (a.distanceKm ?? Number.MAX_SAFE_INTEGER) - (b.distanceKm ?? Number.MAX_SAFE_INTEGER))
     .map(({ card }) => card);
   return realOwners;
@@ -3988,6 +3974,7 @@ function createSocialMoment(user, body = {}) {
   const content = normalizeSocialMomentContent(rawContent);
   if (!content) return { error: '先写一点今天的小事吧', statusCode: 400 };
   const pet = activePetFor(user);
+  if (!pet) return { error: '请先为宠物建档后再发布小事', statusCode: 400 };
   const visibility = normalizeSocialVisibility(body.visibility);
   const imageUrls = normalizeSocialMomentImageUrls(body);
   const hasImageUrlPayload = hasSocialMomentImageUrlPayload(body);
@@ -4017,6 +4004,7 @@ function findSocialMomentById(postId) {
 function socialMomentAccessError(moment, viewer, options = {}) {
   if (!moment || moment.status === 'deleted') return { error: '这条小事已不可见', statusCode: 404 };
   const owner = state.users[moment.phone];
+  if (owner && !activePetFor(owner)) return { error: '这条小事已不可见', statusCode: 404 };
   if (!owner) return { error: '这条小事已不可见', statusCode: 404 };
   owner.settings = normalizeUserSettings(owner.settings);
   if (owner.settings.nearbyVisible === false) return { error: '这条小事已不可见', statusCode: 404 };
@@ -4051,6 +4039,7 @@ function socialLikesForPost(postId) {
 
 function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
   const pet = activePetFor(momentUser);
+  if (!pet) return null;
   const suffix = momentUser.phone.slice(-4);
   const likes = socialLikesForPost(moment.id);
   const comments = publishedSocialComments(moment.id, viewer);
@@ -4105,6 +4094,7 @@ function listNearbyMomentEntries(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, 
     .map((moment, index) => {
       const momentUser = state.users[moment.phone];
       if (!momentUser) return null;
+      if (!activePetFor(momentUser)) return null;
       if (moment.status === 'deleted') return null;
       if (!includeOwn && moment.phone === viewer.phone) return null;
       if ((moment.visibility || 'nearby') !== 'nearby') return null;
@@ -4132,7 +4122,7 @@ function listNearbyMomentsPage(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, op
   const pageEntries = entries.slice(offset, offset + limit);
   const nextOffset = offset + pageEntries.length;
   const page = {
-    items: pageEntries.map(({ card }) => card),
+    items: pageEntries.map(({ card }) => card).filter(Boolean),
   };
   if (nextOffset < entries.length) page.nextCursor = encodePetCircleCursor(nextOffset);
   return page;
@@ -4275,6 +4265,7 @@ function deleteSocialMoment(postId, user) {
 }
 
 function upsertConversation(phone, conversation) {
+  if (!conversation) return;
   state.conversations[phone] = state.conversations[phone] || [];
   const existingIndex = state.conversations[phone].findIndex((item) => item.id === conversation.id);
   if (existingIndex >= 0) state.conversations[phone].splice(existingIndex, 1);
@@ -4311,7 +4302,14 @@ function listConversationsFor(user) {
   return (state.conversations[user.phone] || [])
     .filter((conversation) => {
       const targetPhone = conversationTargetPhone(conversation.id);
-      return Boolean(targetPhone && targetPhone !== user.phone && state.users[targetPhone] && !socialBlockBetween(user.phone, targetPhone));
+      return Boolean(
+        targetPhone &&
+          targetPhone !== user.phone &&
+          state.users[targetPhone] &&
+          activePetFor(user) &&
+          activePetFor(state.users[targetPhone]) &&
+          !socialBlockBetween(user.phone, targetPhone),
+      );
     })
     .map((conversation) => enrichConversationFor(user, conversation));
 }
@@ -4330,6 +4328,7 @@ function appendConversationMessage(phone, conversationId, message) {
 
 function buildConversationFor(user, otherUser, lastMessage, unread = 0) {
   const otherPet = activePetFor(otherUser);
+  if (!otherPet) return null;
   const suffix = otherUser.phone.slice(-4);
   const canSendMessage = acceptedGreetingBetween(user.phone, otherUser.phone) && !socialBlockBetween(user.phone, otherUser.phone);
   return {
@@ -4551,6 +4550,7 @@ function resolveVisibleSocialTarget(viewer, ownerId) {
   if (!targetPhone || targetPhone === viewer.phone) return null;
   const targetUser = state.users[targetPhone];
   if (!targetUser) return null;
+  if (!activePetFor(viewer) || !activePetFor(targetUser)) return null;
   if (socialBlockBetween(viewer.phone, targetPhone)) return null;
   targetUser.settings = normalizeUserSettings(targetUser.settings);
   if (targetUser.settings.nearbyVisible === false) return null;
@@ -5760,9 +5760,17 @@ async function handle(req, res) {
 
     const myPet = activePetFor(user);
     const fromPet = activePetFor(fromUser);
+    if (!myPet || !fromPet) {
+      fail(res, 400, '请先为宠物建档后再互动', true);
+      return;
+    }
     const acceptedText = '我们已经互相打招呼啦';
     const myConversation = buildConversationFor(user, fromUser, acceptedText, 0);
     const senderConversation = buildConversationFor(fromUser, user, `${myPet.name}已接受你的招呼`, 1);
+    if (!myConversation || !senderConversation) {
+      fail(res, 400, '请先为宠物建档后再互动', true);
+      return;
+    }
     upsertConversation(user.phone, myConversation);
     upsertConversation(fromUser.phone, senderConversation);
     appendConversationMessage(user.phone, myConversation.id, {
@@ -5836,6 +5844,10 @@ async function handle(req, res) {
     });
     senderConversation = buildConversationFor(user, targetUser, lastMessage, 0);
     const targetConversation = buildConversationFor(targetUser, user, `${fromPet.name}发来约遛邀请`, 1);
+    if (!senderConversation || !targetConversation) {
+      fail(res, 400, '请先为宠物建档后再互动', true);
+      return;
+    }
     upsertConversation(user.phone, senderConversation);
     upsertConversation(targetPhone, targetConversation);
     appendConversationMessage(user.phone, senderConversation.id, {
@@ -5918,6 +5930,10 @@ async function handle(req, res) {
     }
     if (!acceptedGreetingBetween(user.phone, targetPhone)) {
       fail(res, 403, '对方接受招呼后才能聊天', true);
+      return;
+    }
+    if (!activePetFor(user) || !activePetFor(state.users[targetPhone])) {
+      fail(res, 400, '请先为宠物建档后再互动', true);
       return;
     }
     const myMessage = {

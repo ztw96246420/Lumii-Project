@@ -2043,11 +2043,10 @@ export default function LumiiMvpApp() {
         const persistedSession = await loadPersistedLumiiSession();
         if (!mounted) return;
         if (persistedSession) {
-          setBootPetAvatarUri(persistedSession.account?.activePet?.avatarUrl ?? null);
           setLumiiAuthToken(persistedSession.token);
           const refreshedSession = await lumiiApi.auth.refreshSession(persistedSession);
           if (!mounted) return;
-          if (refreshedSession.error?.statusCode === 401) {
+          if (refreshedSession.error) {
             await clearPersistedLumiiSession();
             clearLocalAccountState();
             return;
