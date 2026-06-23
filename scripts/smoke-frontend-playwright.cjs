@@ -378,6 +378,17 @@ async function main() {
 
     await settingsPage.goto(`${baseUrl}/?route=profile`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(settingsPage, '我的');
+    await settingsPage.getByLabel('编辑个人资料').click();
+    await waitExactText(settingsPage, '编辑个人资料');
+    await settingsPage.getByPlaceholder('给自己取个昵称').fill('Playwright主人');
+    await settingsPage.getByPlaceholder('写一句介绍你和毛孩子的话').fill('和 Lucky 一起测试资料保存');
+    await clickExactText(settingsPage, '保存资料');
+    await waitExactText(settingsPage, '资料已保存，新的头像也更新好了');
+    await settingsPage.getByLabel('返回').click();
+    await waitExactText(settingsPage, '我的');
+    await waitExactText(settingsPage, 'Playwright主人');
+    await screenshot(settingsPage, 'smoke-frontend-04c-owner-profile-saved.png');
+
     await clickExactText(settingsPage, '设置与隐私');
     await waitExactText(settingsPage, '设置与隐私');
     await settingsPage.getByLabel('附近可见').click();
@@ -387,7 +398,7 @@ async function main() {
     await clickExactText(settingsPage, '发现');
     await waitExactText(settingsPage, '附近可见未开启，附近朋友暂不可见');
     await waitExactText(settingsPage, '去隐私设置');
-    await screenshot(settingsPage, 'smoke-frontend-04c-settings-nearby-visible-off.png');
+    await screenshot(settingsPage, 'smoke-frontend-04d-settings-nearby-visible-off.png');
     await settingsContext.close();
 
     const interactionContext = await browser.newContext({
