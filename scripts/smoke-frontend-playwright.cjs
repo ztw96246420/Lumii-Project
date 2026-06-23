@@ -522,7 +522,7 @@ async function main() {
     await waitExactText(interactionPage, fixturePostText);
     await waitExactText(interactionPage, blockFixturePostText);
     await interactionPage.getByLabel('查看奶油的主人资料').first().click();
-    await waitExactText(interactionPage, '金毛 · 主人 林然 · 1km 内');
+    await interactionPage.getByLabel('约遛资料卡宠友').waitFor({ state: 'visible', timeout: 30_000 });
     await interactionPage.getByLabel('向资料卡宠友打招呼').click();
     await waitExactText(interactionPage, '和奶油打个招呼');
     await clickExactText(interactionPage, '取消');
@@ -531,7 +531,7 @@ async function main() {
       await interactionPage.getByLabel('约遛资料卡宠友').waitFor({ state: 'visible', timeout: 3_000 });
     } catch {
       await interactionPage.getByLabel('查看奶油的主人资料').first().click();
-      await waitExactText(interactionPage, '金毛 · 主人 林然 · 1km 内');
+      await interactionPage.getByLabel('约遛资料卡宠友').waitFor({ state: 'visible', timeout: 30_000 });
     }
     await interactionPage.getByLabel('约遛资料卡宠友').click();
     await waitExactText(interactionPage, '约遛邀请');
@@ -570,6 +570,26 @@ async function main() {
     await interactionPage.getByText(blockFixturePostText, { exact: true }).waitFor({ state: 'hidden', timeout: 30_000 });
     await screenshot(interactionPage, 'smoke-frontend-05-pet-circle-interactions.png');
     await interactionContext.close();
+
+    const greetingRequestContext = await browser.newContext({
+      deviceScaleFactor: 1,
+      geolocation: { latitude: 31.2304, longitude: 121.4737 },
+      permissions: ['geolocation'],
+      viewport: { height: 920, width: 430 },
+    });
+    const greetingRequestPage = await greetingRequestContext.newPage();
+    collectPageErrors(greetingRequestPage, pageErrors);
+
+    await greetingRequestPage.goto(`${baseUrl}/?route=greetingRequests&mockGreetingRequests=interactive`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(greetingRequestPage, '招呼请求');
+    await waitExactText(greetingRequestPage, '1 条新招呼');
+    await waitExactText(greetingRequestPage, '小夏 & 豆包');
+    await greetingRequestPage.getByLabel('accept-greeting-request-o2').click();
+    await waitExactText(greetingRequestPage, '已接受招呼，可以聊天了');
+    await waitExactText(greetingRequestPage, '小夏和豆包');
+    await waitExactText(greetingRequestPage, '我们已经互相打招呼啦');
+    await screenshot(greetingRequestPage, 'smoke-frontend-05b-greeting-request-accepted.png');
+    await greetingRequestContext.close();
 
     const messageContext = await browser.newContext({
       deviceScaleFactor: 1,

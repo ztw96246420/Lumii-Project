@@ -600,7 +600,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
+  if (value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'greetingRequests' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
   return null;
 }
 
@@ -12463,15 +12463,15 @@ export default function LumiiMvpApp() {
                 </View>
 
                 <View style={styles.greetingRequestActionsMake}>
-                  <Pressable disabled={busy} onPress={() => void rejectGreeting(owner)} style={[styles.greetingRequestActionGhostMake, busy && styles.mapSearchActionDisabled, webPressableReset]}>
+                  <Pressable accessibilityLabel={`reject-greeting-request-${owner.id}`} accessibilityRole="button" disabled={busy} onPress={() => void rejectGreeting(owner)} style={[styles.greetingRequestActionGhostMake, busy && styles.mapSearchActionDisabled, webPressableReset]}>
                     {rejecting ? <ActivityIndicator color={palette.muted} size="small" /> : <X color={palette.muted} size={13} strokeWidth={2.5} />}
                     <Text style={styles.greetingRequestActionGhostTextMake}>{rejecting ? '忽略中' : '忽略'}</Text>
                   </Pressable>
-                  <Pressable disabled={busy} onPress={() => void reportGreeting(owner)} style={[styles.greetingRequestActionReportMake, busy && styles.mapSearchActionDisabled, webPressableReset]}>
+                  <Pressable accessibilityLabel={`report-greeting-request-${owner.id}`} accessibilityRole="button" disabled={busy} onPress={() => void reportGreeting(owner)} style={[styles.greetingRequestActionReportMake, busy && styles.mapSearchActionDisabled, webPressableReset]}>
                     {reporting ? <ActivityIndicator color={palette.ink} size="small" /> : <Flag color={palette.ink} size={12} strokeWidth={2.3} />}
                     <Text style={styles.greetingRequestActionReportTextMake}>{reporting ? '提交中' : '举报'}</Text>
                   </Pressable>
-                  <Pressable disabled={busy} onPress={() => void acceptGreeting(owner)} style={[styles.greetingRequestActionPrimaryMake, busy && styles.mapSearchActionDisabled, webPressableReset]}>
+                  <Pressable accessibilityLabel={`accept-greeting-request-${owner.id}`} accessibilityRole="button" disabled={busy} onPress={() => void acceptGreeting(owner)} style={[styles.greetingRequestActionPrimaryMake, busy && styles.mapSearchActionDisabled, webPressableReset]}>
                     {accepting ? <ActivityIndicator color="#fff" size="small" /> : <Check color="#fff" size={13} strokeWidth={3} />}
                     <Text style={styles.greetingRequestActionPrimaryTextMake}>{accepting ? '同意中' : '同意 & 聊天'}</Text>
                   </Pressable>

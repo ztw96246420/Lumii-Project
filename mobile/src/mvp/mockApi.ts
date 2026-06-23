@@ -1051,6 +1051,14 @@ function ensureMockPetCircleInteractionFixtures() {
   }
 }
 
+function ensureMockGreetingRequestFixtures() {
+  if (getMockWebPreviewParam('mockGreetingRequests') !== 'interactive' || mockGreetingRequestFixturesSeeded) return;
+  mockGreetingRequestFixturesSeeded = true;
+  const fixtureOwner = owners[1] ?? owners[0];
+  if (!fixtureOwner || greetingRequests.some((owner) => owner.id === fixtureOwner.id)) return;
+  greetingRequests = [fixtureOwner, ...greetingRequests];
+}
+
 function mockVisiblePetCircleMoments(includeOwn = true) {
   ensureMockPetCircleInteractionFixtures();
   return nearbyMoments
@@ -1072,6 +1080,7 @@ const conversations: Conversation[] = [
 ];
 
 let greetingRequests: NearbyOwner[] = [];
+let mockGreetingRequestFixturesSeeded = false;
 
 let conversationMessagesById: Record<string, ConversationMessage[]> = {
   c1: [{ author: 'other', id: 'c1-welcome', text: '今晚 7 点公园见？', time: new Date().toISOString() }],
@@ -2437,6 +2446,7 @@ export const mockApi = {
 
     async listGreetingRequests(): Promise<ApiResult<NearbyOwner[]>> {
       await wait(160);
+      ensureMockGreetingRequestFixtures();
       return success(greetingRequests.filter((owner) => !isMockOwnerBlocked(owner.id)));
     },
 
