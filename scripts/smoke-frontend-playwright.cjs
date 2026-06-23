@@ -59,6 +59,14 @@ async function screenshot(page, name) {
   await page.screenshot({ fullPage: true, path: path.join(artifactsDir, name) });
 }
 
+async function waitBodyIncludes(page, text) {
+  await page.waitForFunction((expected) => document.body.innerText.includes(expected), text, { timeout: 30_000 });
+}
+
+async function waitBodyExcludes(page, text) {
+  await page.waitForFunction((expected) => !document.body.innerText.includes(expected), text, { timeout: 30_000 });
+}
+
 function collectPageErrors(page, pageErrors) {
   page.on('pageerror', (error) => pageErrors.push(error.message));
   page.on('console', (message) => {
@@ -192,6 +200,30 @@ async function main() {
     await waitExactText(page, '近期记录');
     await waitExactText(page, '健康日历');
     await screenshot(page, 'smoke-frontend-00-health-preview.png');
+
+    await page.goto(`${baseUrl}/?route=weight`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await page.getByLabel('add-weight-record').first().waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('add-weight-record').first().click();
+    await page.getByLabel('weight-value-input').fill('29.2');
+    await page.getByLabel('weight-note-input').fill('PW weight add');
+    await page.getByLabel('save-weight-record').click();
+    await waitBodyIncludes(page, '29.2 kg');
+    await waitBodyIncludes(page, 'PW weight add');
+    await screenshot(page, 'smoke-frontend-00b-weight-added.png');
+
+    await page.getByLabel(/^edit-weight-record-/).first().click();
+    await page.getByLabel('weight-value-input').fill('29.4');
+    await page.getByLabel('weight-note-input').fill('PW weight edit');
+    await page.getByLabel('save-weight-edit').click();
+    await waitBodyIncludes(page, '29.4 kg');
+    await waitBodyIncludes(page, 'PW weight edit');
+    await screenshot(page, 'smoke-frontend-00c-weight-edited.png');
+
+    await page.getByLabel(/^edit-weight-record-/).first().click();
+    await page.getByLabel('delete-weight-record').click();
+    await page.getByLabel('confirm-delete-weight-record').click();
+    await waitBodyExcludes(page, 'PW weight edit');
+    await screenshot(page, 'smoke-frontend-00d-weight-deleted.png');
 
     await page.goto(`${baseUrl}/?route=memoNew`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '新增健康备忘');

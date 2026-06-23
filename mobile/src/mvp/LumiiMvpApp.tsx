@@ -569,7 +569,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'profile' || value === 'safety' || value === 'settings') return value;
+  if (value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'weight') return value;
   return null;
 }
 
@@ -4468,6 +4468,7 @@ export default function LumiiMvpApp() {
 
   function confirmDeleteWeightRecord(record?: WeightRecord | null) {
     if (!record) return;
+    closeWeightEditor();
     setWeightDeleteConfirm(record);
   }
 
@@ -9179,7 +9180,7 @@ export default function LumiiMvpApp() {
             )}
             <View style={styles.weightHistoryHeader}>
               <Text style={styles.weightSectionTitle}>历史记录</Text>
-              <Pressable onPress={() => openWeightAddEditor(currentWeight)} style={[styles.weightAddLink, webPressableReset]}>
+              <Pressable accessibilityLabel="add-weight-record" accessibilityRole="button" onPress={() => openWeightAddEditor(currentWeight)} style={[styles.weightAddLink, webPressableReset]}>
                 <Plus color={palette.orange} size={12} strokeWidth={2.5} />
                 <Text style={styles.weightAddLinkText}>添加</Text>
               </Pressable>
@@ -9189,7 +9190,7 @@ export default function LumiiMvpApp() {
                 const delta = historyDeltaFor(index);
                 const deltaColor = delta?.direction === 'down' ? palette.teal : delta?.direction === 'up' ? '#C99B3E' : palette.muted;
                 return (
-                  <Pressable key={item.id} onPress={() => openWeightEditor(item)} style={[styles.weightHistoryRowMake, index === 0 && styles.weightHistoryRowHighlight, webPressableReset]}>
+                  <Pressable accessibilityLabel={`edit-weight-record-${item.id}`} accessibilityRole="button" key={item.id} onPress={() => openWeightEditor(item)} style={[styles.weightHistoryRowMake, index === 0 && styles.weightHistoryRowHighlight, webPressableReset]}>
                     <View style={styles.weightHistoryIcon}>
                       <Weight color={palette.teal} size={14} strokeWidth={2.4} />
                     </View>
@@ -9228,7 +9229,7 @@ export default function LumiiMvpApp() {
             </View>
             <Text style={styles.weightEmptyTitle}>还没有体重记录</Text>
             <Text style={styles.weightEmptyDesc}>每周称一次，就能看见{pet?.name ?? '毛孩子'}成长的轨迹。</Text>
-            <Pressable onPress={() => openWeightAddEditor(currentWeight)} style={[styles.weightEmptyButton, webPressableReset]}>
+            <Pressable accessibilityLabel="add-weight-record" accessibilityRole="button" onPress={() => openWeightAddEditor(currentWeight)} style={[styles.weightEmptyButton, webPressableReset]}>
               <Plus color="#fff" size={14} strokeWidth={2.6} />
               <Text style={styles.weightEmptyButtonText}>记录第一次体重</Text>
             </Pressable>
@@ -9247,6 +9248,7 @@ export default function LumiiMvpApp() {
           </View>
           <View style={styles.weightNumberInput}>
             <TextInput
+              accessibilityLabel="weight-value-input"
               keyboardType="decimal-pad"
               onChangeText={setWeightEditValue}
               placeholder="0.0"
@@ -9293,6 +9295,7 @@ export default function LumiiMvpApp() {
               <View style={styles.flex}>
                 <Text style={styles.memoMetaLabelMake}>备注</Text>
                 <TextInput
+                  accessibilityLabel="weight-note-input"
                   onChangeText={setWeightEditNote}
                   placeholder="例如：晨起空腹"
                   placeholderTextColor="#B8B3A8"
@@ -9303,9 +9306,9 @@ export default function LumiiMvpApp() {
             </View>
           </View>
           <View style={styles.editActionStack}>
-            <Button loading={weightEditorMode === 'add' ? weightSaving : weightEditSaving} onPress={() => void (weightEditorMode === 'add' ? recordWeight() : saveWeightEdit())}>{weightEditorMode === 'add' ? '保存记录' : '保存修改'}</Button>
+            <Button accessibilityLabel={weightEditorMode === 'add' ? 'save-weight-record' : 'save-weight-edit'} loading={weightEditorMode === 'add' ? weightSaving : weightEditSaving} onPress={() => void (weightEditorMode === 'add' ? recordWeight() : saveWeightEdit())}>{weightEditorMode === 'add' ? '保存记录' : '保存修改'}</Button>
             {weightEditorMode === 'edit' ? (
-              <Pressable disabled={weightEditSaving} onPress={() => confirmDeleteWeightRecord(weightEditRecord)} style={[styles.deleteTextButton, webPressableReset]}>
+              <Pressable accessibilityLabel="delete-weight-record" accessibilityRole="button" disabled={weightEditSaving} onPress={() => confirmDeleteWeightRecord(weightEditRecord)} style={[styles.deleteTextButton, webPressableReset]}>
                 <Trash2 color={palette.danger} size={15} strokeWidth={2.4} />
                 <Text style={styles.deleteTextButtonLabel}>删除这条记录</Text>
               </Pressable>
@@ -13038,10 +13041,10 @@ export default function LumiiMvpApp() {
               </View>
               <Text style={styles.weightDeleteBodyMake}>删除后这条记录无法恢复，{getCurrentPet()?.name ?? '灵伴'}的体重趋势将重新计算。</Text>
               <View style={styles.weightDeleteActionsMake}>
-                <Pressable disabled={deleting} onPress={() => setWeightDeleteConfirm(null)} style={[styles.weightDeleteCancelMake, webPressableReset]}>
+                <Pressable accessibilityLabel="cancel-delete-weight-record" accessibilityRole="button" disabled={deleting} onPress={() => setWeightDeleteConfirm(null)} style={[styles.weightDeleteCancelMake, webPressableReset]}>
                   <Text style={styles.weightDeleteCancelTextMake}>取消</Text>
                 </Pressable>
-                <Pressable disabled={deleting} onPress={() => void deleteWeightRecord(record)} style={[styles.weightDeleteSubmitMake, deleting && styles.aiCtaDisabled, webPressableReset]}>
+                <Pressable accessibilityLabel="confirm-delete-weight-record" accessibilityRole="button" disabled={deleting} onPress={() => void deleteWeightRecord(record)} style={[styles.weightDeleteSubmitMake, deleting && styles.aiCtaDisabled, webPressableReset]}>
                   {deleting ? <ActivityIndicator color="#fff" size="small" /> : null}
                   <Text style={styles.weightDeleteSubmitTextMake}>确认删除</Text>
                 </Pressable>
@@ -13257,6 +13260,12 @@ function WeightTrendMiniChart({ abnormal, records }: { abnormal?: boolean; recor
   const lineColor = abnormal ? '#C99B3E' : palette.teal;
   const bandTop = height * 0.28;
   const bandHeight = height * 0.34;
+  const tickIndexes = Array.from(new Set([
+    0,
+    Math.floor((values.length - 1) / 3),
+    Math.floor(((values.length - 1) * 2) / 3),
+    values.length - 1,
+  ])).sort((left, right) => left - right);
 
   return (
     <View style={styles.weightChartWrap}>
@@ -13271,7 +13280,7 @@ function WeightTrendMiniChart({ abnormal, records }: { abnormal?: boolean; recor
         <Path d={areaPath} fill={lineColor} opacity={0.12} />
         <Path d={path} fill="none" stroke={lineColor} strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.6} />
         <Circle cx={scaleX(values.length - 1)} cy={scaleY(values[values.length - 1])} fill="#fff" r={5} stroke={lineColor} strokeWidth={2.5} />
-        {[0, Math.floor((values.length - 1) / 3), Math.floor(((values.length - 1) * 2) / 3), values.length - 1].map((index) => (
+        {tickIndexes.map((index) => (
           <SvgText key={index} fill={palette.muted} fontSize="9" fontWeight="600" textAnchor="middle" x={scaleX(index)} y={height - 5}>
             {index === values.length - 1 ? '今天' : `${Math.max(1, values.length - index)}次前`}
           </SvgText>

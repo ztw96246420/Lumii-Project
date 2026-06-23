@@ -38,12 +38,14 @@ const webSkeletonGradient =
     : null;
 
 export function Button({
+  accessibilityLabel,
   children,
   disabled,
   loading,
   onPress,
   tone = 'primary',
 }: {
+  accessibilityLabel?: string;
   children: ReactNode;
   disabled?: boolean;
   loading?: boolean;
@@ -55,6 +57,8 @@ export function Button({
   const loadingColor = isSolid ? '#fff' : tone === 'secondary' ? palette.orange : palette.ink;
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
       disabled={isDisabled}
       onPress={onPress}
       style={({ pressed }) => [webPressableReset, styles.button, styles[`button_${tone}`], pressed && !isDisabled && styles.buttonPressed, isDisabled && styles.buttonDisabled]}
