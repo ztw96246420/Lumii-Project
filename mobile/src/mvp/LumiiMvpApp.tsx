@@ -569,7 +569,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'safety' || value === 'settings') return value;
+  if (value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'profile' || value === 'safety' || value === 'settings') return value;
   return null;
 }
 
@@ -13671,7 +13671,14 @@ function SettingsMakeRow({
   value?: string;
 }) {
   return (
-    <Pressable disabled={!onPress} onPress={onPress} style={[styles.settingsMakeRow, last && styles.settingsMakeRowLast]}>
+    <Pressable
+      accessibilityLabel={title}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityState={{ disabled: !onPress }}
+      disabled={!onPress}
+      onPress={onPress}
+      style={[styles.settingsMakeRow, last && styles.settingsMakeRowLast]}
+    >
       {Icon ? (
         <View style={[styles.settingsMakeRowIcon, { backgroundColor: iconBg }]}>
           <Icon color={iconColor} size={15} strokeWidth={2.4} />

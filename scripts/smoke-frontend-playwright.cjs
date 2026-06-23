@@ -367,6 +367,29 @@ async function main() {
     await screenshot(visibilityPage, 'smoke-frontend-04b-discover-visibility-disabled.png');
     await visibilityContext.close();
 
+    const settingsContext = await browser.newContext({
+      deviceScaleFactor: 1,
+      geolocation: { latitude: 31.2304, longitude: 121.4737 },
+      permissions: ['geolocation'],
+      viewport: { height: 920, width: 430 },
+    });
+    const settingsPage = await settingsContext.newPage();
+    collectPageErrors(settingsPage, pageErrors);
+
+    await settingsPage.goto(`${baseUrl}/?route=profile`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(settingsPage, '我的');
+    await clickExactText(settingsPage, '设置与隐私');
+    await waitExactText(settingsPage, '设置与隐私');
+    await settingsPage.getByLabel('附近可见').click();
+    await waitExactText(settingsPage, '附近可见已关闭');
+    await settingsPage.getByLabel('返回').click();
+    await waitExactText(settingsPage, '我的');
+    await clickExactText(settingsPage, '发现');
+    await waitExactText(settingsPage, '附近可见未开启，附近朋友暂不可见');
+    await waitExactText(settingsPage, '去隐私设置');
+    await screenshot(settingsPage, 'smoke-frontend-04c-settings-nearby-visible-off.png');
+    await settingsContext.close();
+
     const interactionContext = await browser.newContext({
       deviceScaleFactor: 1,
       geolocation: { latitude: 31.2304, longitude: 121.4737 },
