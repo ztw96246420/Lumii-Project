@@ -577,6 +577,26 @@ async function main() {
     await screenshot(realPage, 'smoke-frontend-06-real-session-empty-circle.png');
     await realContext.close();
 
+    const petOnboardingContext = await browser.newContext({
+      deviceScaleFactor: 1,
+      geolocation: { latitude: 31.2304, longitude: 121.4737 },
+      permissions: ['geolocation'],
+      viewport: { height: 920, width: 430 },
+    });
+    const petOnboardingPage = await petOnboardingContext.newPage();
+    collectPageErrors(petOnboardingPage, pageErrors);
+
+    await petOnboardingPage.goto(`${baseUrl}/?route=petInfo`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await petOnboardingPage.getByLabel('new-pet-name-input').fill('PW建档Lucky');
+    await petOnboardingPage.getByLabel('new-pet-breed-input').fill('边牧');
+    await petOnboardingPage.getByLabel('new-pet-birthday-input').fill('2024-05-30');
+    await petOnboardingPage.getByLabel('new-pet-weight-input').fill('12.5');
+    await petOnboardingPage.getByLabel('save-new-pet-profile').click();
+    await waitExactText(petOnboardingPage, '添加宠物 2/2');
+    await waitBodyIncludes(petOnboardingPage, 'PW建档Lucky');
+    await screenshot(petOnboardingPage, 'smoke-frontend-07-pet-profile-created-upload-step.png');
+    await petOnboardingContext.close();
+
     if (pageErrors.length) {
       throw new Error(`Frontend console/page errors:\n${pageErrors.join('\n')}`);
     }

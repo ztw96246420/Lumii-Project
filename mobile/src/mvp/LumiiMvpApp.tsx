@@ -600,7 +600,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'aiResult' || value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
+  if (value === 'aiResult' || value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
   return null;
 }
 
@@ -7261,7 +7261,7 @@ export default function LumiiMvpApp() {
         </View>
 
         <View style={styles.petInfoFormMake}>
-          <PetInfoMakeField label="宠物昵称" onChangeText={(name) => setPetDraft((draft) => ({ ...draft, name }))} placeholder="例如：豆豆" value={petDraft.name} />
+          <PetInfoMakeField accessibilityLabel="new-pet-name-input" label="宠物昵称" onChangeText={(name) => setPetDraft((draft) => ({ ...draft, name }))} placeholder="例如：豆豆" value={petDraft.name} />
           <View style={styles.optionWrap}>
             <Text style={styles.label}>宠物类型</Text>
             <View style={styles.segmentRow}>
@@ -7282,9 +7282,9 @@ export default function LumiiMvpApp() {
               ))}
             </View>
           </View>
-          <PetInfoMakeField label="品种" onChangeText={(breed) => setPetDraft((draft) => ({ ...draft, breed }))} placeholder="例如：金毛寻回犬" value={petDraft.breed} />
+          <PetInfoMakeField accessibilityLabel="new-pet-breed-input" label="品种" onChangeText={(breed) => setPetDraft((draft) => ({ ...draft, breed }))} placeholder="例如：金毛寻回犬" value={petDraft.breed} />
           {Platform.OS === 'web' ? (
-            <PetInfoMakeField label="生日" onChangeText={(birthday) => setPetDraft((draft) => ({ ...draft, birthday }))} placeholder="例如：2024-05-30" value={petDraft.birthday} />
+            <PetInfoMakeField accessibilityLabel="new-pet-birthday-input" label="生日" onChangeText={(birthday) => setPetDraft((draft) => ({ ...draft, birthday }))} placeholder="例如：2024-05-30" value={petDraft.birthday} />
           ) : (
             <View style={styles.petInfoFieldMake}>
               <Text style={styles.petInfoFieldLabelMake}>生日</Text>
@@ -7312,11 +7312,11 @@ export default function LumiiMvpApp() {
               })}
             </View>
           </View>
-          <PetInfoMakeField keyboardType="decimal-pad" label="当前体重" onChangeText={(weight) => setPetDraft((draft) => ({ ...draft, weight }))} placeholder="12.5" suffix="kg" value={petDraft.weight} />
+          <PetInfoMakeField accessibilityLabel="new-pet-weight-input" keyboardType="decimal-pad" label="当前体重" onChangeText={(weight) => setPetDraft((draft) => ({ ...draft, weight }))} placeholder="12.5" suffix="kg" value={petDraft.weight} />
         </View>
 
         <View style={styles.makeBottomActions}>
-          <Pressable disabled={petProfileSaving} onPress={() => void savePetProfile()} style={[styles.petInfoPrimaryButtonMake, petProfileSaving && styles.aiCtaDisabled, webPressableReset]}>
+          <Pressable accessibilityLabel="save-new-pet-profile" accessibilityRole="button" disabled={petProfileSaving} onPress={() => void savePetProfile()} style={[styles.petInfoPrimaryButtonMake, petProfileSaving && styles.aiCtaDisabled, webPressableReset]}>
             {petProfileSaving ? <ActivityIndicator color="#fff" size="small" /> : null}
             <Text style={styles.petInfoPrimaryButtonTextMake}>下一步：上传它的照片</Text>
           </Pressable>
@@ -13382,6 +13382,7 @@ function DateValueButton({
 }
 
 function PetInfoMakeField({
+  accessibilityLabel,
   keyboardType = 'default',
   label,
   onChangeText,
@@ -13389,6 +13390,7 @@ function PetInfoMakeField({
   suffix,
   value,
 }: {
+  accessibilityLabel?: string;
   keyboardType?: KeyboardTypeOptions;
   label: string;
   onChangeText: (value: string) => void;
@@ -13401,6 +13403,7 @@ function PetInfoMakeField({
       <Text style={styles.petInfoFieldLabelMake}>{label}</Text>
       <View style={styles.petInfoInputShellMake}>
         <TextInput
+          accessibilityLabel={accessibilityLabel}
           keyboardType={keyboardType}
           onChangeText={onChangeText}
           placeholder={placeholder}
