@@ -2857,7 +2857,7 @@ function mediaUploadFileUrl(req, mediaId) {
 function buildPetAvatarPrompt(user, mediaUrl) {
   const pet = selectedPetFor(user) || activePetFor(user);
   const species = pet?.species === 'cat' ? 'cat' : 'dog';
-  const breed = pet?.breed || (species === 'cat' ? 'cat' : 'golden retriever');
+  const breed = pet?.breed || species;
   return [
     mediaUrl,
     `Transform the exact same ${species} from the reference photo into a realistic semi-cartoon pet portrait for Lumii.`,
@@ -2873,7 +2873,7 @@ function buildPetAvatarPrompt(user, mediaUrl) {
 function buildFluxPetAvatarPrompt(user) {
   const pet = selectedPetFor(user) || activePetFor(user);
   const species = pet?.species === 'cat' ? 'cat' : 'dog';
-  const breed = pet?.breed || (species === 'cat' ? 'cat' : 'golden retriever');
+  const breed = pet?.breed || species;
   return [
     `Create a realistic cartoon transformation of the exact same ${species} in the reference image, preserving identity and facial likeness.`,
     `Breed/profile hint: ${breed}. Keep this individual pet recognizable, not a generic ${breed}.`,
