@@ -2975,16 +2975,36 @@ async function ttapiFluxRequest(pathname, options = {}) {
   return payload;
 }
 
+function gptImage2NetworkError(error) {
+  if (error?.name === 'AbortError') return 'GPT Image 2 request timed out';
+  const cause = error?.cause || {};
+  const code = cause.code || error?.code || '';
+  if (code) return `GPT Image 2 upstream network error: ${code}`;
+  return `GPT Image 2 upstream network error: ${error?.message || 'request failed'}`;
+}
+
 async function gptImage2Request(pathname, options = {}) {
-  const response = await fetch(`${GPT_IMAGE2_BASE_URL}${pathname}`, {
-    method: options.method || 'GET',
-    headers: {
-      Authorization: `Bearer ${GPT_IMAGE2_API_KEY}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(options.timeoutMs || 90000));
+  let response;
+  try {
+    response = await fetch(`${GPT_IMAGE2_BASE_URL}${pathname}`, {
+      method: options.method || 'GET',
+      headers: {
+        Authorization: `Bearer ${GPT_IMAGE2_API_KEY}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const wrapped = new Error(gptImage2NetworkError(error));
+    wrapped.cause = error;
+    throw wrapped;
+  } finally {
+    clearTimeout(timeout);
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || (payload.code && Number(payload.code) !== 200)) {
     const message = payload?.error?.message || payload?.message || `GPT Image 2 request failed: ${response.status}`;
@@ -3057,17 +3077,26 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
   job.ownerPhone = user.phone;
   if (originalJobId) job.originalJobId = originalJobId;
   state.avatarJobs[id] = job;
+  let started = PET_AVATAR_PROVIDER === 'mock';
   if (PET_AVATAR_PROVIDER === 'gpt-image-2') {
     try {
       await startGptImage2AvatarJob(user, job, media);
+      started = true;
     } catch (error) {
       job.errorMessage = error.message || 'Avatar generation failed to start';
       job.progress = 0;
+      job.provider = 'gpt-image-2';
       job.status = 'failed';
+      console.warn('[avatar:gpt-image-2] start failed', {
+        jobId: job.id,
+        message: job.errorMessage,
+        provider: job.provider,
+      });
     }
   } else if (PET_AVATAR_PROVIDER === 'ttapi-flux-edits') {
     try {
       await startTtapiFluxAvatarJob(user, job, media);
+      started = true;
     } catch (error) {
       job.errorMessage = error.message || 'Avatar generation failed to start';
       job.progress = 0;
@@ -3076,13 +3105,14 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
   } else if (PET_AVATAR_PROVIDER === 'ttapi-midjourney') {
     try {
       await startTtapiAvatarJob(req, user, job, media);
+      started = true;
     } catch (error) {
       job.errorMessage = error.message || 'Avatar generation failed to start';
       job.progress = 0;
       job.status = 'failed';
     }
   }
-  consumePetAvatarQuota(user);
+  if (started) consumePetAvatarQuota(user);
   return { job };
 }
 
@@ -3097,6 +3127,13 @@ async function startGptImage2AvatarJob(user, job, media) {
   if (!GPT_IMAGE2_API_KEY) throw new Error('GPT Image 2 key is not configured');
   if (!media?.dataUrl) throw new Error('Pet photo is missing. Please upload again.');
   const prompt = buildGptImage2PetAvatarPrompt(user);
+  Object.assign(job, {
+    mediaId: media.mediaId,
+    progress: 2,
+    provider: 'gpt-image-2',
+    promptVersion: 'gpt-image-2-premium-3d-avatar-v1',
+    status: 'processing',
+  });
   const payload = await gptImage2Request('/v1/images/generations', {
     method: 'POST',
     body: {
@@ -3115,12 +3152,9 @@ async function startGptImage2AvatarJob(user, job, media) {
   state.aiUsage.gptImage2 = state.aiUsage.gptImage2 || createInitialState().aiUsage.gptImage2;
   state.aiUsage.gptImage2.requests += 1;
   Object.assign(job, {
-    mediaId: media.mediaId,
     progress: 10,
-    provider: 'gpt-image-2',
     providerJobId,
     providerStatus: payload?.data?.[0]?.status || payload?.data?.status || payload.status || 'submitted',
-    promptVersion: 'gpt-image-2-premium-3d-avatar-v1',
     status: 'processing',
   });
 }
