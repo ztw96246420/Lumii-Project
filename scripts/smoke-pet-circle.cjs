@@ -421,6 +421,18 @@ async function run() {
     token: ownerToken,
   });
   assert.ok(secondPost.data?.id && thirdPost.data?.id, 'pagination seed posts should be created');
+  const newerFartherLoc = location(31.246, 121.474);
+  await refreshPresence(noLocationToken, newerFartherLoc);
+  const newerFartherPost = await request('/social/pet-circle/posts', {
+    body: {
+      content: 'newer farther post should sort first',
+      location: newerFartherLoc,
+      visibility: 'nearby',
+    },
+    method: 'POST',
+    token: noLocationToken,
+  });
+  assert.ok(newerFartherPost.data?.id, 'newer farther sorting seed post should be created');
   const expiredOwnPost = await request('/social/pet-circle/posts', {
     body: {
       content: 'expired own post should not remain in pet circle',
@@ -442,6 +454,7 @@ async function run() {
     token: viewerToken,
   });
   assert.equal(firstPage.data.items.length, 2, 'first cursor page should honor limit');
+  assert.equal(firstPage.data.items[0]?.id, newerFartherPost.data.id, 'pet circle list should sort by newest post before distance');
   assert.ok(firstPage.data.nextCursor, 'first cursor page should include nextCursor');
   const secondPage = await request(`/social/pet-circle/posts?lat=31.231&lng=121.474&radiusKm=3&accuracy=30&limit=2&cursor=${encodeURIComponent(firstPage.data.nextCursor)}`, {
     token: viewerToken,
@@ -1089,6 +1102,67 @@ async function run() {
     true,
     'reading a walk invite conversation should mark the walk notification read',
   );
+
+  const walkSenderPhone = '19900002007';
+  const walkTargetPhone = '19900002008';
+  const walkSenderToken = await login(walkSenderPhone);
+  const walkTargetToken = await login(walkTargetPhone);
+  await createPet(walkSenderToken, 'WalkSender');
+  await createPet(walkTargetToken, 'WalkTarget');
+  await refreshPresence(walkSenderToken, ownerLoc);
+  await refreshPresence(walkTargetToken, viewerLoc);
+  const walkTargetOwnerId = `user-${walkTargetPhone}`;
+  const walkInvite = await request('/social/walk-invites', {
+    body: { ownerId: walkTargetOwnerId, place: 'First Chat Park', placeAddress: 'First Chat Road 8', time: 'today 20:00' },
+    method: 'POST',
+    token: walkSenderToken,
+  });
+  assert.equal(walkInvite.data.conversation?.canSendMessage, false, 'walk invite sender should still wait for receiver response');
+  const walkSenderConversationId = `c-${walkTargetPhone}`;
+  const walkTargetConversationId = `c-${walkSenderPhone}`;
+  const walkSenderConversationsBeforeReply = await request('/conversations', { token: walkSenderToken });
+  assert.equal(
+    walkSenderConversationsBeforeReply.data.find((conversation) => conversation.id === walkSenderConversationId)?.canSendMessage,
+    false,
+    'walk invite sender conversation should stay pending before receiver replies',
+  );
+  const walkTargetConversationsBeforeReply = await request('/conversations', { token: walkTargetToken });
+  assert.equal(
+    walkTargetConversationsBeforeReply.data.find((conversation) => conversation.id === walkTargetConversationId)?.canSendMessage,
+    true,
+    'walk invite receiver should be able to reply without accepting a separate greeting',
+  );
+  await expectApiError(`/conversations/${encodeURIComponent(walkSenderConversationId)}/messages`, {
+    body: { text: 'sender before receiver reply should fail' },
+    method: 'POST',
+    status: 403,
+    token: walkSenderToken,
+  });
+  await request(`/conversations/${encodeURIComponent(walkTargetConversationId)}/messages`, {
+    body: { text: 'receiver can reply to first walk invite' },
+    method: 'POST',
+    token: walkTargetToken,
+  });
+  const walkStateAfterReply = loadState();
+  assert.ok(
+    walkStateAfterReply.invites.some((item) => item.fromPhone === walkSenderPhone && item.targetPhone === walkTargetPhone && item.status === 'accepted'),
+    'receiver reply should accept the pending walk invite',
+  );
+  assert.ok(
+    walkStateAfterReply.greetings.some((item) => item.status === 'accepted' && ((item.fromPhone === walkSenderPhone && item.targetPhone === walkTargetPhone) || (item.fromPhone === walkTargetPhone && item.targetPhone === walkSenderPhone))),
+    'receiver reply should establish an accepted conversation relationship',
+  );
+  const walkSenderConversationsAfterReply = await request('/conversations', { token: walkSenderToken });
+  assert.equal(
+    walkSenderConversationsAfterReply.data.find((conversation) => conversation.id === walkSenderConversationId)?.canSendMessage,
+    true,
+    'walk invite sender should be able to chat after receiver replies',
+  );
+  await request(`/conversations/${encodeURIComponent(walkSenderConversationId)}/messages`, {
+    body: { text: 'sender can chat after receiver reply' },
+    method: 'POST',
+    token: walkSenderToken,
+  });
 
   const nearbyPlacesForNotification = await request('/places/nearby', { token: readSenderToken });
   const reviewPlaceId = nearbyPlacesForNotification.data[0]?.id;

@@ -4112,7 +4112,7 @@ function listNearbyMomentEntries(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, 
       };
     })
     .filter(Boolean)
-    .sort((a, b) => (a.distanceKm ?? Number.MAX_SAFE_INTEGER) - (b.distanceKm ?? Number.MAX_SAFE_INTEGER) || b.createdAtMs - a.createdAtMs);
+    .sort((a, b) => b.createdAtMs - a.createdAtMs || (a.distanceKm ?? Number.MAX_SAFE_INTEGER) - (b.distanceKm ?? Number.MAX_SAFE_INTEGER));
 }
 
 function listNearbyMomentsPage(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, options = {}) {
@@ -4130,6 +4130,17 @@ function listNearbyMomentsPage(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, op
 
 function listNearbyMoments(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, options = {}) {
   return listNearbyMomentsPage(viewer, radiusKm, options).items;
+}
+
+function getPetCirclePostCard(postId, viewer) {
+  const visible = visibleSocialMomentForViewer(postId, viewer);
+  if (visible.error) return visible;
+  const { moment } = visible;
+  const momentUser = state.users[moment.phone];
+  if (!momentUser) return { error: '这条小事已不可见', statusCode: 404 };
+  const distanceKm = distanceKmBetween(viewer.location, momentUser.location);
+  const card = buildNearbyMomentCard(moment, momentUser, viewer, 0, distanceKm ?? undefined);
+  return card ? { card } : { error: '这条小事已不可见', statusCode: 404 };
 }
 
 function listPetCircleComments(postId, viewer) {
@@ -4284,13 +4295,75 @@ function acceptedGreetingBetween(phoneA, phoneB) {
   );
 }
 
+function pendingWalkInviteFromTo(fromPhone, targetPhone) {
+  return (state.invites || []).find(
+    (item) => item.fromPhone === fromPhone && item.targetPhone === targetPhone && (item.status || 'pending') === 'pending',
+  );
+}
+
+function canReplyToPendingWalkInvite(phone, otherPhone) {
+  return Boolean(pendingWalkInviteFromTo(otherPhone, phone));
+}
+
+function canMessageBetween(phone, otherPhone) {
+  return acceptedGreetingBetween(phone, otherPhone) || canReplyToPendingWalkInvite(phone, otherPhone);
+}
+
+function ensureAcceptedGreetingBetween(fromPhone, targetPhone, options = {}) {
+  state.greetings = state.greetings || [];
+  const existingAccepted = state.greetings.find(
+    (item) =>
+      item.status === 'accepted' &&
+      ((item.fromPhone === fromPhone && item.targetPhone === targetPhone) || (item.fromPhone === targetPhone && item.targetPhone === fromPhone)),
+  );
+  if (existingAccepted) return existingAccepted;
+
+  const existingPending = state.greetings.find(
+    (item) =>
+      (item.status || 'pending') === 'pending' &&
+      ((item.fromPhone === fromPhone && item.targetPhone === targetPhone) || (item.fromPhone === targetPhone && item.targetPhone === fromPhone)),
+  );
+  if (existingPending) {
+    existingPending.status = 'accepted';
+    existingPending.respondedAt = Date.now();
+    existingPending.source = existingPending.source || options.source;
+    return existingPending;
+  }
+
+  const accepted = {
+    at: Date.now(),
+    fromPhone,
+    message: options.message || 'walk invite opened conversation',
+    ownerId: options.ownerId || `user-${targetPhone}`,
+    source: options.source || 'walk_invite',
+    status: 'accepted',
+    targetPhone,
+  };
+  state.greetings.push(accepted);
+  return accepted;
+}
+
+function acceptPendingWalkInviteForReply(phone, inviterPhone) {
+  const invite = pendingWalkInviteFromTo(inviterPhone, phone);
+  if (!invite) return false;
+  invite.status = 'accepted';
+  invite.respondedAt = Date.now();
+  ensureAcceptedGreetingBetween(inviterPhone, phone, {
+    message: 'walk invite reply accepted conversation',
+    ownerId: invite.ownerId,
+    source: 'walk_invite',
+  });
+  removeGreetingRequestNotificationsFor(phone, `user-${inviterPhone}`);
+  return true;
+}
+
 function conversationTargetPhone(conversationId) {
   return conversationId.startsWith('c-') ? conversationId.slice(2) : '';
 }
 
 function enrichConversationFor(user, conversation) {
   const targetPhone = conversationTargetPhone(conversation.id);
-  const canSendMessage = Boolean(targetPhone && state.users[targetPhone] && !socialBlockBetween(user.phone, targetPhone) && acceptedGreetingBetween(user.phone, targetPhone));
+  const canSendMessage = Boolean(targetPhone && state.users[targetPhone] && !socialBlockBetween(user.phone, targetPhone) && canMessageBetween(user.phone, targetPhone));
   return {
     ...conversation,
     canSendMessage,
@@ -4330,7 +4403,7 @@ function buildConversationFor(user, otherUser, lastMessage, unread = 0) {
   const otherPet = activePetFor(otherUser);
   if (!otherPet) return null;
   const suffix = otherUser.phone.slice(-4);
-  const canSendMessage = acceptedGreetingBetween(user.phone, otherUser.phone) && !socialBlockBetween(user.phone, otherUser.phone);
+  const canSendMessage = canMessageBetween(user.phone, otherUser.phone) && !socialBlockBetween(user.phone, otherUser.phone);
   return {
     canSendMessage,
     id: conversationIdFor(otherUser.phone),
@@ -5559,6 +5632,18 @@ async function handle(req, res) {
   }
 
   const petCirclePostMatch = pathname.match(/^\/social\/pet-circle\/posts\/([^/]+)$/);
+  if (req.method === 'GET' && petCirclePostMatch) {
+    const location = locationFromQuery(url);
+    const viewerForMoment = location ? { ...user, location } : user;
+    const result = getPetCirclePostCard(decodeURIComponent(petCirclePostMatch[1]), viewerForMoment);
+    if (result.error) {
+      fail(res, result.statusCode || 404, result.error, false, undefined, 'PET_CIRCLE_POST_GONE');
+      return;
+    }
+    ok(res, result.card);
+    return;
+  }
+
   if (req.method === 'DELETE' && petCirclePostMatch) {
     const deleted = deleteSocialMoment(decodeURIComponent(petCirclePostMatch[1]), user);
     if (deleted.error) {
@@ -5928,14 +6013,16 @@ async function handle(req, res) {
       fail(res, 404, '会话不存在，请返回消息列表刷新', true);
       return;
     }
-    if (!acceptedGreetingBetween(user.phone, targetPhone)) {
-      fail(res, 403, '对方接受招呼后才能聊天', true);
-      return;
-    }
     if (!activePetFor(user) || !activePetFor(state.users[targetPhone])) {
       fail(res, 400, '请先为宠物建档后再互动', true);
       return;
     }
+    const alreadyAccepted = acceptedGreetingBetween(user.phone, targetPhone);
+    if (!alreadyAccepted && !canReplyToPendingWalkInvite(user.phone, targetPhone)) {
+      fail(res, 403, '对方接受招呼后才能聊天', true);
+      return;
+    }
+    if (!alreadyAccepted) acceptPendingWalkInviteForReply(user.phone, targetPhone);
     const myMessage = {
       author: 'me',
       id: messageId(),

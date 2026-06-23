@@ -470,8 +470,6 @@ const homeChatPrompts = [
   '给{petName}补一条健康记录吧',
   '今天也想陪你待一会儿',
 ];
-const dailyMoodOptions = ['开心', '活跃', '正常', '有点累'] as const;
-type DailyMood = (typeof dailyMoodOptions)[number];
 const placeFriendlyFeatureOptions = ['可遛狗', '饮水点', '室内友好', '停车方便'] as const;
 
 const permissionCopy = {
@@ -735,7 +733,7 @@ function confirmAction(title: string, message: string, confirmText = '确认', d
 function confirmDestructiveAction(title: string, message: string) {
   return confirmAction(title, message, '确认删除', true);
 }
-type DiscoverFilter = 'all' | 'dog' | 'cat' | 'social' | 'walk';
+type DiscoverFilter = 'all' | 'dog' | 'cat';
 type DiscoverTab = 'circle' | 'partners';
 type DailyPostVisibility = 'nearby' | 'private';
 type PetCirclePhotoViewerState = { index: number; postId: string };
@@ -754,14 +752,11 @@ type PetCirclePostView = NearbyMoment & {
   likedByMe: boolean;
   likeCount: number;
   ownedByMe: boolean;
-  tags: string[];
 };
 const discoverFilterOptions: Array<{ key: DiscoverFilter; label: string }> = [
   { key: 'all', label: '全部' },
   { key: 'dog', label: '🐶 汪星人' },
   { key: 'cat', label: '🐱 喵星人' },
-  { key: 'social', label: '想交朋友' },
-  { key: 'walk', label: '可约遛' },
 ];
 const dailyPostMaxPhotoCount = 6;
 const petCircleCollapsedTextLength = 96;
@@ -773,7 +768,6 @@ const petCircleFallbackMomentSeeds: Array<NearbyMoment & { fallbackMinutesAgo: n
     fallbackMinutesAgo: 18,
     id: 'pet-circle-fallback-lucky',
     imageUrl: generatedGoldenAvatarUri,
-    mood: '开心',
     ownerId: 'pet-circle-owner-lucky',
     ownerName: 'Serena',
     petName: 'Lucky',
@@ -787,7 +781,6 @@ const petCircleFallbackMomentSeeds: Array<NearbyMoment & { fallbackMinutesAgo: n
     fallbackMinutesAgo: 42,
     id: 'pet-circle-fallback-mochi',
     imageUrl: discoverOwnerAvatarUrls[1],
-    mood: '正常',
     ownerId: 'pet-circle-owner-mochi',
     ownerName: '小眠',
     petName: 'Mochi',
@@ -801,7 +794,6 @@ const petCircleFallbackMomentSeeds: Array<NearbyMoment & { fallbackMinutesAgo: n
     fallbackMinutesAgo: 96,
     id: 'pet-circle-fallback-baozi',
     imageUrl: discoverOwnerAvatarUrls[2],
-    mood: '活跃',
     ownerId: 'pet-circle-owner-baozi',
     ownerName: '阿宁',
     petName: '包子',
@@ -930,6 +922,15 @@ function getPlaceSupportedSpecies(place: Place) {
 function filterPlacesBySpecies(items: Place[], speciesFilter: PlaceSpeciesFilter) {
   if (speciesFilter === 'all') return items;
   return items.filter((place) => getPlaceSupportedSpecies(place).includes(speciesFilter));
+}
+
+function petCircleCreatedAtMs(item: Pick<NearbyMoment, 'createdAt'>) {
+  const time = new Date(item.createdAt).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function sortPetCircleMomentsByRecency(items: NearbyMoment[]) {
+  return [...items].sort((left, right) => petCircleCreatedAtMs(right) - petCircleCreatedAtMs(left));
 }
 
 type ConfirmState = {
@@ -1354,7 +1355,6 @@ function buildPetCircleInteractivePreviewMoments(): NearbyMoment[] {
       ],
       likedByMe: false,
       likeCount: 3,
-      mood: '开心',
       ownerId: 'o1',
       ownerName: '林然',
       ownedByMe: false,
@@ -1376,7 +1376,6 @@ function buildPetCircleInteractivePreviewMoments(): NearbyMoment[] {
       ],
       likedByMe: false,
       likeCount: 6,
-      mood: '想约遛',
       ownerId: 'o2',
       ownerName: '小夏',
       ownedByMe: false,
@@ -1387,12 +1386,6 @@ function buildPetCircleInteractivePreviewMoments(): NearbyMoment[] {
       visibility: 'nearby',
     },
   ];
-}
-
-function buildPetCircleTags(moment: NearbyMoment, index: number) {
-  const baseTags = moment.species === 'dog' ? ['可约遛', '想交朋友'] : ['窗边日常', '想交朋友'];
-  const moodTag = moment.mood ? `心情${moment.mood}` : index % 2 === 0 ? '附近小事' : '轻互动';
-  return [moodTag, ...baseTags].slice(0, 3);
 }
 
 function buildPetCirclePhotoUrls(moment: NearbyMoment, index: number) {
@@ -1447,17 +1440,13 @@ function buildPetCirclePosts(moments: NearbyMoment[], commentsByPostId: Record<s
       likedByMe,
       likeCount: moment.likeCount ?? (usingFallbackMoments ? 18 + index * 7 + (likedByMe ? 1 : 0) : 0),
       ownedByMe: Boolean(moment.ownedByMe),
-      tags: buildPetCircleTags(moment, index),
     };
   });
 }
 
 function petCirclePostMatchesFilter(post: PetCirclePostView, filter: DiscoverFilter) {
   if (filter === 'all') return true;
-  if (filter === 'dog' || filter === 'cat') return post.species === filter;
-  const tagText = post.tags.join(' ');
-  if (filter === 'social') return tagText.includes('朋友') || tagText.includes('互动');
-  return tagText.includes('约') || tagText.includes('遛');
+  return post.species === filter;
 }
 
 function petCirclePostMatchesQuery(post: PetCirclePostView, query: string) {
@@ -1469,7 +1458,6 @@ function petCirclePostMatchesQuery(post: PetCirclePostView, query: string) {
     post.distance,
     post.text,
     speciesLabels[post.species],
-    ...post.tags,
   ].join(' ').toLowerCase();
   return text.includes(keyword);
 }
@@ -1651,7 +1639,6 @@ export default function LumiiMvpApp() {
   const [vaccineCreating, setVaccineCreating] = useState(false);
   const vaccineCreatingRef = useRef(false);
   const [dailyPostText, setDailyPostText] = useState('');
-  const [dailyMood, setDailyMood] = useState<DailyMood>('开心');
   const [dailyPostPhotoUris, setDailyPostPhotoUris] = useState<string[]>([]);
   const [dailyPostPhotoDrafts, setDailyPostPhotoDrafts] = useState<LocalImageUploadDraft[]>([]);
   const [dailyVisibility, setDailyVisibility] = useState<DailyPostVisibility>('nearby');
@@ -2545,7 +2532,7 @@ export default function LumiiMvpApp() {
       }
     }
     if (momentResult.data) {
-      setNearbyMoments(momentResult.data.items);
+      setNearbyMoments(sortPetCircleMomentsByRecency(momentResult.data.items));
       setPetCircleNextCursor(momentResult.data.nextCursor);
       setNearbyMomentsError('');
     } else if (momentResult.error) {
@@ -2746,7 +2733,6 @@ export default function LumiiMvpApp() {
     setDailyPostPhotoDrafts([]);
     dailyPhotoPickingRef.current = false;
     setDailyPhotoPicking(false);
-    setDailyMood('开心');
     dailyPostSavingRef.current = false;
     setDailyPostSaving(false);
     healthReminderNotifiedRef.current.clear();
@@ -3222,6 +3208,65 @@ export default function LumiiMvpApp() {
     go('health');
   }
 
+  function upsertPetCirclePost(post: NearbyMoment) {
+    setNearbyMoments((items) => {
+      const index = items.findIndex((item) => item.id === post.id);
+      const nextItems = index < 0 ? [post, ...items] : items.map((item) => (item.id === post.id ? { ...item, ...post } : item));
+      return sortPetCircleMomentsByRecency(nextItems);
+    });
+  }
+
+  function patchPetCirclePostFromNotification(postId: string, patch: Partial<NearbyMoment>) {
+    setNearbyMoments((items) => sortPetCircleMomentsByRecency(items.map((item) => (item.id === postId ? { ...item, ...patch } : item))));
+  }
+
+  function removePetCirclePostFromNotification(postId: string) {
+    setNearbyMoments((items) => items.filter((item) => item.id !== postId));
+    setPetCircleCommentsByPostId((items) => {
+      const next = { ...items };
+      delete next[postId];
+      return next;
+    });
+    setPetCircleCommentPostId((current) => (current === postId ? '' : current));
+    setPetCircleFocusedPostId((current) => (current === postId ? '' : current));
+    setPetCirclePhotoViewer((current) => (current?.postId === postId ? null : current));
+  }
+
+  async function refreshPetCirclePostFromNotification(postId: string, options: { preloadComments?: boolean } = {}) {
+    if (!postId) return false;
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return false;
+    const location = lastDiscoverLocationRef.current ?? undefined;
+    const postResult = await lumiiApi.social.getPetCirclePost(postId, location);
+    if (sessionTokenRef.current !== requestSessionToken) return false;
+    if (!postResult.data) {
+      if (isPetCirclePostGoneError(postResult.error)) {
+        removePetCirclePostFromNotification(postId);
+        showToast('这条小事已不可见', { subtitle: '已从宠友圈列表移除', tone: 'info', variant: 'surface' });
+      }
+      return false;
+    }
+
+    upsertPetCirclePost(postResult.data);
+    setNearbyMomentsError('');
+
+    if (!options.preloadComments) return true;
+    setPetCircleCommentLoadingId(postId);
+    const commentsResult = await lumiiApi.social.listPetCircleComments(postId);
+    if (sessionTokenRef.current !== requestSessionToken) return false;
+    setPetCircleCommentLoadingId((current) => (current === postId ? '' : current));
+    if (commentsResult.data) {
+      setPetCircleCommentsByPostId((items) => ({ ...items, [postId]: commentsResult.data! }));
+      patchPetCirclePostFromNotification(postId, { commentCount: commentsResult.data.length });
+      return true;
+    }
+    if (isPetCirclePostGoneError(commentsResult.error)) {
+      removePetCirclePostFromNotification(postId);
+      showToast('这条小事已不可见', { subtitle: '已从宠友圈列表移除', tone: 'info', variant: 'surface' });
+    }
+    return false;
+  }
+
   async function openNotification(item: NotificationItem) {
     if (!item.read) void markNotificationReadSilently(item.id);
     const kind = notificationKindFor(item);
@@ -3238,6 +3283,7 @@ export default function LumiiMvpApp() {
       setDiscoverFilter('all');
       setDiscoverQuery('');
       go('discover');
+      void refreshPetCirclePostFromNotification(petCircleSourcePostId, { preloadComments: kind === 'pet_circle_comment' });
       return;
     }
     if (conversationId && (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite')) {
@@ -4975,7 +5021,6 @@ export default function LumiiMvpApp() {
       post.ownedByMe ? `我在灵伴记录了 ${post.petName} 的今日小事` : `我在灵伴看到 ${post.petName} 的今日小事`,
       post.ownerName ? `主人：${post.ownerName}` : '',
       post.distance ? `距离：${post.distance}` : '',
-      post.mood ? `心情：${post.mood}` : '',
       photoCopy,
       `内容：${post.text}`,
       '\n来自 Lumii 灵伴宠友圈',
@@ -5258,40 +5303,6 @@ export default function LumiiMvpApp() {
     setMemoDeleteConfirmVisible(true);
   }
 
-  function buildDailyPostDraft(mood: DailyMood) {
-    const pet = getCurrentPet();
-    const petName = pet?.name ?? '宝贝';
-    const latestWeight = healthSummary?.latestWeightKg ?? pet?.weightKg;
-    const weightCopy = latestWeight ? `最近体重记录是 ${formatWeightKg(latestWeight)}，` : '';
-    const vaccineCopy = healthSummary?.nextVaccine ? `也记得留意${healthSummary.nextVaccine.name}。` : '';
-    const moodCopy: Record<DailyMood, string[]> = {
-      开心: [
-        `今天${petName}心情很好，一直主动靠近人，互动时眼神很亮。`,
-        `${petName}今天状态很放松，散步和玩耍都很配合。`,
-      ],
-      活跃: [
-        `今天${petName}精力很足，活动量比平时更高，回家后喝水正常。`,
-        `${petName}今天很有精神，玩具互动和外出时都很积极。`,
-      ],
-      正常: [
-        `今天${petName}整体状态正常，食欲、精神和排便都没有明显异常。`,
-        `${petName}今天表现稳定，日常活动和休息节奏都比较规律。`,
-      ],
-      有点累: [
-        `今天${petName}看起来有点累，活动后休息时间变长，需要继续观察精神和食欲。`,
-        `${petName}今天没那么活跃，先减少剧烈运动，晚上留意恢复情况。`,
-      ],
-    };
-    const variants = moodCopy[mood];
-    const variant = variants[(new Date().getDate() + petName.length) % variants.length];
-    return [variant, weightCopy ? `${weightCopy}可以作为后续健康趋势参考。` : '', vaccineCopy].filter(Boolean).join('');
-  }
-
-  function fillDailyPostDraft() {
-    setDailyPostText(buildDailyPostDraft(dailyMood));
-    showToast(`已按“${dailyMood}”生成今日记录草稿`, { tone: 'success', variant: 'surface' });
-  }
-
   async function pickDailyPostPhoto(source: 'camera' | 'library') {
     if (dailyPhotoPickingRef.current) return;
     if (dailyPostPhotoUris.length >= dailyPostMaxPhotoCount) {
@@ -5416,7 +5427,7 @@ export default function LumiiMvpApp() {
         let momentSynced = false;
         let momentSyncError = '';
         if (dailyVisibility === 'nearby') {
-          const momentResult = await lumiiApi.social.createMoment(requestText, dailyMood, uploadedImageUrls.length || requestPhotoCount, { imageUrls: uploadedImageUrls, location: requestLocation, visibility: 'nearby' });
+          const momentResult = await lumiiApi.social.createMoment(requestText, undefined, uploadedImageUrls.length || requestPhotoCount, { imageUrls: uploadedImageUrls, location: requestLocation, visibility: 'nearby' });
           if (sessionTokenRef.current === requestSessionToken && momentResult.data) {
             momentSynced = true;
             setNearbyMomentsError('');
@@ -5795,11 +5806,12 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.social.listPetCirclePosts(location ?? undefined);
       if (sessionTokenRef.current !== requestSessionToken) return null;
       if (result.data) {
-        setNearbyMoments(result.data.items);
+        const sortedItems = sortPetCircleMomentsByRecency(result.data.items);
+        setNearbyMoments(sortedItems);
         setPetCircleNextCursor(result.data.nextCursor);
         setNearbyMomentsError('');
         setHomeMomentIndex(0);
-        return result.data.items;
+        return sortedItems;
       }
       const message = result.error?.message ?? '附近小事刷新失败，请稍后重试';
       setPetCircleNextCursor(undefined);
@@ -5831,7 +5843,7 @@ export default function LumiiMvpApp() {
         setNearbyMoments((current) => {
           const currentIds = new Set(current.map((item) => item.id));
           const additions = result.data!.items.filter((item) => !currentIds.has(item.id));
-          return additions.length ? [...current, ...additions] : current;
+          return additions.length ? sortPetCircleMomentsByRecency([...current, ...additions]) : current;
         });
         setPetCircleNextCursor(result.data.nextCursor);
         setNearbyMomentsError('');
@@ -5873,10 +5885,7 @@ export default function LumiiMvpApp() {
 
   function ownerMatchesDiscoverFilter(owner: NearbyOwner, filter: DiscoverFilter) {
     if (filter === 'all') return true;
-    if (filter === 'dog' || filter === 'cat') return owner.species === filter;
-    const tagText = owner.tags.join(' ').toLowerCase();
-    if (filter === 'social') return tagText.includes('交') || tagText.includes('朋友') || tagText.includes('friend');
-    return tagText.includes('约') || tagText.includes('遛') || tagText.includes('walk');
+    return owner.species === filter;
   }
 
   function ownerMatchesDiscoverQuery(owner: NearbyOwner, query: string) {
@@ -6716,7 +6725,6 @@ export default function LumiiMvpApp() {
     setDailyPostPhotoDrafts([]);
     dailyPhotoPickingRef.current = false;
     setDailyPhotoPicking(false);
-    setDailyMood('开心');
     dailyPostSavingRef.current = false;
     setDailyPostSaving(false);
     healthReminderNotifiedRef.current.clear();
@@ -9657,7 +9665,6 @@ export default function LumiiMvpApp() {
       : visiblePetCirclePostsBase;
     const activeDiscoverCount = discoverTab === 'circle' ? visiblePetCirclePosts.length : visibleOwners.length;
     const activeDiscoverFilterLabel = discoverFilterOptions.find((item) => item.key === discoverFilter)?.label ?? '全部';
-    const discoverRefreshCopy = discoverLastRefreshedAt ? ` · ${formatClockTime(new Date(discoverLastRefreshedAt))}刷新` : '';
     const previewOwner: NearbyOwner = owners[0] ?? {
       distance: '?km',
       id: 'discover-preview',
@@ -9690,7 +9697,7 @@ export default function LumiiMvpApp() {
           <View style={styles.discoverEmptySummaryMake}>
             <SlidersHorizontal color={palette.orange} size={13} strokeWidth={2.4} />
             <Text numberOfLines={1} style={styles.discoverEmptySummaryTextMake}>
-              {discoverHasLocationError ? '定位失败 · 可重新刷新' : filtered ? `已应用条件 · ${discoverSearchQuery || activeDiscoverFilterLabel} · 3km 内` : `附近 3km 内 · 模糊距离 · 0 位${discoverRefreshCopy}`}
+              {discoverHasLocationError ? '定位失败 · 可重新刷新' : filtered ? `已应用条件 · ${discoverSearchQuery || activeDiscoverFilterLabel} · 3km 内` : '附近 3km 内 · 模糊距离 · 0 位'}
             </Text>
             {filtered ? <Text onPress={clearDiscoverSearchAndFilter} style={styles.discoverEmptyClearMake}>清除</Text> : null}
           </View>
@@ -9789,7 +9796,7 @@ export default function LumiiMvpApp() {
         ownerName: post.ownerName,
         petName: post.petName,
         species: post.species,
-        tags: post.tags,
+        tags: [],
       }, post.id);
     };
     const ownerFromPetCirclePost = (post: PetCirclePostView): NearbyOwner => {
@@ -9800,7 +9807,7 @@ export default function LumiiMvpApp() {
         ownerName: post.ownerName,
         petName: post.petName,
         species: post.species,
-        tags: post.tags,
+        tags: [],
       };
     };
     const openPetCircleOwnerSheet = (post: PetCirclePostView) => {
@@ -9811,10 +9818,10 @@ export default function LumiiMvpApp() {
       setPetCircleOwnerSheetOwner(ownerFromPetCirclePost(post));
     };
     const syncPetCirclePost = (post: NearbyMoment) => {
-      setNearbyMoments((items) => items.map((item) => (item.id === post.id ? { ...item, ...post } : item)));
+      setNearbyMoments((items) => sortPetCircleMomentsByRecency(items.map((item) => (item.id === post.id ? { ...item, ...post } : item))));
     };
     const patchPetCirclePost = (postId: string, patch: Partial<NearbyMoment>) => {
-      setNearbyMoments((items) => items.map((item) => (item.id === postId ? { ...item, ...patch } : item)));
+      setNearbyMoments((items) => sortPetCircleMomentsByRecency(items.map((item) => (item.id === postId ? { ...item, ...patch } : item))));
     };
     const removeUnavailablePetCirclePost = (postId: string) => {
       setNearbyMoments((items) => items.filter((item) => item.id !== postId));
@@ -9997,7 +10004,6 @@ export default function LumiiMvpApp() {
           `宠物：${post.petName}`,
           `距离：${post.distance}`,
           `内容：${post.text}`,
-          post.tags.length ? `标签：${post.tags.join('、')}` : '',
           `图片数量：${post.imageUrls.length}`,
           '来源：宠友圈帖子',
         ].filter(Boolean).join('\n');
@@ -10219,11 +10225,6 @@ export default function LumiiMvpApp() {
             <Text style={styles.petCircleTextToggleTextMake}>{textExpanded ? '收起' : '展开'}</Text>
           </Pressable>
         ) : null}
-        <View style={styles.petCircleTagRowMake}>
-          {post.tags.map((tag) => (
-            <Text key={`${post.id}-${tag}`} style={styles.petCircleTagMake}>#{tag}</Text>
-          ))}
-        </View>
         {renderPetCirclePhotoGrid(post)}
         <View style={styles.petCircleActionRowMake}>
           <Pressable accessibilityLabel={post.ownedByMe ? '自己的小事不可点赞' : post.likedByMe ? '取消点赞小事' : '点赞小事'} disabled={post.ownedByMe || petCircleLikeSavingIds.includes(post.id)} onPress={() => void togglePetCircleLike(post)} style={[styles.petCircleActionMake, post.likedByMe && styles.petCircleActionActiveMake, post.ownedByMe && styles.petCircleOwnActionMake, (post.ownedByMe || petCircleLikeSavingIds.includes(post.id)) && styles.mapSearchActionDisabled, webPressableReset]}>
@@ -10580,7 +10581,7 @@ export default function LumiiMvpApp() {
           ) : null}
           <View style={[styles.locationChipMake, (discoverAccessIssue || discoverHasLocationError) && styles.locationChipDeniedMake]}>
             {discoverAccessIssue ? <Shield color={palette.danger} size={14} strokeWidth={2.4} /> : discoverHasLocationError ? <WifiOff color={palette.danger} size={14} strokeWidth={2.4} /> : <MapPin color={palette.orange} size={13} strokeWidth={2.4} />}
-            <Text style={[styles.locationChipText, (discoverAccessIssue || discoverHasLocationError) && styles.locationChipDeniedText]}>{discoverAccessIssue ? discoverIssueCopy.banner : discoverHasLocationError ? `定位失败 · ${discoverLocationError}` : `附近 · 3km 内 · ${discoverSearchQuery ? `搜索“${discoverSearchQuery}”` : activeDiscoverFilterLabel} · ${activeDiscoverCount} ${discoverTab === 'circle' ? '条小事' : '位伙伴'}${discoverRefreshCopy}`}</Text>
+            <Text style={[styles.locationChipText, (discoverAccessIssue || discoverHasLocationError) && styles.locationChipDeniedText]}>{discoverAccessIssue ? discoverIssueCopy.banner : discoverHasLocationError ? `定位失败 · ${discoverLocationError}` : `附近 · 3km 内 · ${discoverSearchQuery ? `搜索“${discoverSearchQuery}”` : activeDiscoverFilterLabel} · ${activeDiscoverCount} ${discoverTab === 'circle' ? '条小事' : '位伙伴'}`}</Text>
             {!discoverAccessIssue ? <Text style={styles.locationPrivacyPill}>模糊距离</Text> : null}
           </View>
           <ScrollView horizontal contentContainerStyle={styles.filterChipsMake} showsHorizontalScrollIndicator={false}>
@@ -12217,8 +12218,7 @@ export default function LumiiMvpApp() {
   function renderDailyPost() {
     const pet = getCurrentPet();
     const petName = pet?.name ?? '灵伴';
-    const aiDraft = buildDailyPostDraft(dailyMood);
-    const dailyPlaceholderCount = Math.max(0, Math.min(2, dailyPostMaxPhotoCount - dailyPostPhotoUris.length - 1));
+    const dailyPhotoCount = dailyPostPhotoUris.length;
     const nearbySharingDisabled = !userSettings.nearbyVisible;
     const visibilitySubtitle = dailyVisibility === 'nearby'
       ? nearbySharingDisabled ? '附近可见未开启 · 将先保留草稿' : '同步到宠友圈 · 模糊距离可见'
@@ -12253,6 +12253,10 @@ export default function LumiiMvpApp() {
             />
           </View>
 
+          <View style={styles.dailyPhotoSectionHeaderMake}>
+            <Text style={styles.dailyPhotoSectionTitleMake}>图片</Text>
+            <Text style={styles.dailyPhotoCounterMake}>{dailyPhotoCount}/{dailyPostMaxPhotoCount}</Text>
+          </View>
           <View style={styles.dailyPhotoGridMake}>
             {dailyPostPhotoUris.map((uri, index) => (
               <Pressable
@@ -12266,19 +12270,16 @@ export default function LumiiMvpApp() {
                 style={[styles.dailyPhotoSquareMake, webPressableReset]}
               >
                 <Image resizeMode="cover" source={{ uri }} style={styles.avatarImage} />
+                <View style={styles.dailyPhotoRemoveBadgeMake}>
+                  <X color="#fff" size={11} strokeWidth={3} />
+                </View>
               </Pressable>
             ))}
             {dailyPostPhotoUris.length < dailyPostMaxPhotoCount ? (
               <Pressable disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('library')} style={[styles.dailyPhotoAddMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
-                {dailyPhotoPicking ? <ActivityIndicator color={palette.muted} size="small" /> : <ImagePlus color={palette.muted} size={20} strokeWidth={2.2} />}
-                <Text style={styles.dailyPhotoAddTextMake}>{dailyPhotoPicking ? '选择中' : '添加'}</Text>
+                {dailyPhotoPicking ? <ActivityIndicator color={palette.muted} size="small" /> : <Plus color={palette.muted} size={24} strokeWidth={2.1} />}
               </Pressable>
             ) : null}
-            {Array.from({ length: dailyPlaceholderCount }).map((_, index) => (
-              <View key={`daily-photo-placeholder-${index}`} style={styles.dailyPhotoPlaceholderMake}>
-                <ImagePlus color="rgba(122,121,114,0.32)" size={18} strokeWidth={2.1} />
-              </View>
-            ))}
           </View>
 
           <View style={styles.dailyVisibilityCardMake}>
@@ -12320,33 +12321,6 @@ export default function LumiiMvpApp() {
             </View>
           </View>
 
-          <View style={styles.dailyChipRowMake}>
-            {dailyMoodOptions.map((item) => (
-              <Text
-                key={item}
-                onPress={() => setDailyMood(item)}
-                style={[styles.dailyChipMake, dailyMood === item && styles.dailyChipActiveMake]}
-              >
-                {item === '开心' ? '😊' : item === '活跃' ? '🐾' : item === '正常' ? '🌿' : '💤'} 心情：{item}
-              </Text>
-            ))}
-            <Text style={styles.dailyChipMake}>#日常</Text>
-            <Text style={styles.dailyChipMake}>#健康观察</Text>
-          </View>
-
-          <View style={[styles.dailyAiCardMake, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, rgba(255,138,92,0.10), rgba(77,182,172,0.10))' } as object) : null]}>
-            <View style={styles.dailyAiIconMake}>
-              <Sparkles color={palette.orange} size={15} strokeWidth={2.4} />
-            </View>
-            <View style={styles.flex}>
-              <View style={styles.rowBetween}>
-                <Text style={styles.dailyAiTitleMake}>AI 灵伴帮你润色</Text>
-                <Text onPress={fillDailyPostDraft} style={styles.dailyAiActionMake}>采用</Text>
-              </View>
-              <Text style={styles.dailyAiTextMake} numberOfLines={4}>“{aiDraft}”</Text>
-            </View>
-          </View>
-
           <View style={styles.dailyBottomBarMake}>
             <View style={styles.dailyToolRowMake}>
               <Pressable disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('camera')} style={[styles.dailyToolButtonMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
@@ -12354,9 +12328,6 @@ export default function LumiiMvpApp() {
               </Pressable>
               <Pressable disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('library')} style={[styles.dailyToolButtonMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
                 <ImagePlus color={palette.ink} size={20} strokeWidth={2.3} />
-              </Pressable>
-              <Pressable onPress={() => setDailyMood(dailyMood === '开心' ? '活跃' : '开心')} style={[styles.dailyToolButtonMake, webPressableReset]}>
-                <Smile color={palette.ink} size={20} strokeWidth={2.3} />
               </Pressable>
             </View>
             <Pressable disabled={dailyPostSaving} onPress={() => void publishDailyPost()} style={[styles.dailyPublishPillMake, dailyPostSaving && styles.dailyPublishPillDisabledMake, webPressableReset]}>
@@ -14975,26 +14946,20 @@ const styles = StyleSheet.create({
   conversationSystemBubble: { alignSelf: 'center', backgroundColor: 'rgba(122,121,114,0.10)', borderRadius: 14, maxWidth: '88%', paddingHorizontal: 12, paddingVertical: 7 },
   conversationSystemText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17, textAlign: 'center' },
   composerCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, gap: 8, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
-  dailyAiActionMake: { color: palette.orange, flexShrink: 0, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', paddingHorizontal: 2, paddingVertical: 2 },
-  dailyAiCardMake: { alignItems: 'flex-start', backgroundColor: 'rgba(255,138,92,0.08)', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 2, paddingHorizontal: 16, paddingVertical: 14 },
-  dailyAiIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, flexShrink: 0, height: 34, justifyContent: 'center', width: 34 },
-  dailyAiTextMake: { color: 'rgba(27,28,25,0.86)', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 21, marginTop: 6 },
-  dailyAiTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '700' },
   dailyBottomBarMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderColor: palette.border, borderRadius: 28, borderWidth: 1, flexDirection: 'row', height: 56, justifyContent: 'space-between', marginTop: 2, paddingHorizontal: 18, shadowColor: '#50371e', shadowOffset: { height: 16, width: 0 }, shadowOpacity: 0.18, shadowRadius: 36 },
-  dailyChipActiveMake: { backgroundColor: 'rgba(255,138,92,0.12)', borderColor: palette.orange, color: palette.orange, fontWeight: '700' },
-  dailyChipMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 6 },
-  dailyChipRowMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
   dailyHeaderPublishMake: { alignItems: 'center', height: 36, justifyContent: 'center', width: 36 },
   dailyHeaderPublishTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
   dailyPetChipMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 60, paddingHorizontal: 14, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.08, shadowRadius: 22 },
   dailyPetChipSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 2 },
   dailyPetChipTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
-  dailyPhotoAddMake: { alignItems: 'center', aspectRatio: 1, backgroundColor: 'rgba(255,255,255,0.58)', borderColor: palette.border, borderRadius: 14, borderStyle: 'dashed', borderWidth: 1.5, gap: 4, justifyContent: 'center', width: '31.7%' },
-  dailyPhotoAddTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700' },
-  dailyPhotoGridMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  dailyPhotoPlaceholderMake: { alignItems: 'center', aspectRatio: 1, backgroundColor: 'rgba(255,255,255,0.38)', borderColor: 'rgba(122,121,114,0.14)', borderRadius: 14, borderStyle: 'dashed', borderWidth: 1, justifyContent: 'center', width: '31.7%' },
+  dailyPhotoAddMake: { alignItems: 'center', aspectRatio: 1, backgroundColor: '#fff', borderColor: 'rgba(122,121,114,0.34)', borderRadius: 4, borderStyle: 'dashed', borderWidth: 1, justifyContent: 'center', width: '31.7%' },
+  dailyPhotoCounterMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', lineHeight: 16 },
+  dailyPhotoGridMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: -6 },
+  dailyPhotoRemoveBadgeMake: { alignItems: 'center', backgroundColor: 'rgba(27,28,25,0.72)', borderRadius: 9, height: 18, justifyContent: 'center', position: 'absolute', right: 5, top: 5, width: 18 },
   dailyPhotoRowMake: { flexDirection: 'row', gap: 8 },
-  dailyPhotoSquareMake: { aspectRatio: 1, borderColor: '#fff', borderRadius: 14, borderWidth: 2, overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 18, width: '31.7%' },
+  dailyPhotoSectionHeaderMake: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 2, minHeight: 22 },
+  dailyPhotoSectionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '800', lineHeight: 18 },
+  dailyPhotoSquareMake: { aspectRatio: 1, backgroundColor: palette.pale, borderRadius: 4, overflow: 'hidden', position: 'relative', width: '31.7%' },
   dailyPostPageMake: { gap: 12, marginTop: -2 },
   dailyPublishPillDisabledMake: { opacity: 0.82 },
   dailyPublishPillMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 16, flexDirection: 'row', gap: 5, minHeight: 34, paddingHorizontal: 14, shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.34, shadowRadius: 22 },
@@ -15229,8 +15194,6 @@ const styles = StyleSheet.create({
   petCircleSheetMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 2 },
   petCircleSinglePhotoMake: { borderRadius: 18, height: 196, marginTop: 12, overflow: 'hidden' },
   petCircleSmallActionMake: { alignItems: 'center', backgroundColor: palette.pale, borderColor: palette.border, borderRadius: 16, borderWidth: 1, height: 34, justifyContent: 'center', width: 34 },
-  petCircleTagMake: { backgroundColor: 'rgba(77,182,172,0.10)', borderRadius: 10, color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4 },
-  petCircleTagRowMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 },
   petCircleTextMake: { color: 'rgba(27,28,25,0.86)', fontFamily: appFontFamily, fontSize: 13.2, fontWeight: '500', lineHeight: 21, marginTop: 10 },
   petCircleTextToggleMake: { alignSelf: 'flex-start', borderRadius: 12, marginTop: 5, paddingHorizontal: 4, paddingVertical: 2 },
   petCircleTextToggleTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800' },

@@ -1173,7 +1173,12 @@ function mockVisiblePetCircleMoments(includeOwn = true) {
       commentCount: petCircleComments.filter((comment) => comment.postId === moment.id && !petCircleReportedCommentIds.includes(comment.id)).length,
       likedByMe: petCircleLikedIds.includes(moment.id),
       likeCount: moment.likeCount ?? (petCircleLikedIds.includes(moment.id) ? 1 : 0),
-    }));
+    }))
+    .sort((left, right) => {
+      const leftTime = new Date(left.createdAt).getTime();
+      const rightTime = new Date(right.createdAt).getTime();
+      return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
+    });
 }
 
 const conversations: Conversation[] = [
@@ -2319,6 +2324,14 @@ export const mockApi = {
         items,
         nextCursor: nextOffset < data.length ? String(nextOffset) : undefined,
       });
+    },
+
+    async getPetCirclePost(postId: string, _location?: NearbyLocationHint): Promise<ApiResult<NearbyMoment>> {
+      await wait(120);
+      ensureMockPetCircleInteractionFixtures();
+      const moment = mockVisiblePetCircleMoments(true).find((item) => item.id === postId);
+      if (!moment) return error<NearbyMoment>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
+      return success(moment);
     },
 
     async createMoment(content: string, mood?: string, photoCount = 0, options: { imageUrls?: string[]; location?: NearbyLocationHint | null; syncToHealthCalendar?: boolean; visibility?: 'nearby' | 'private' } = {}): Promise<ApiResult<NearbyMoment>> {

@@ -350,6 +350,12 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<PetCirclePostList>('GET', `/social/pet-circle/posts${query}`);
       },
 
+      async getPetCirclePost(postId: string, location?: NearbyLocationHint): Promise<ApiResult<NearbyMoment>> {
+        const locationQuery = nearbyLocationQuery(location);
+        const query = locationQuery ? `?${locationQuery}` : '';
+        return request<NearbyMoment>('GET', `/social/pet-circle/posts/${encodeURIComponent(postId)}${query}`);
+      },
+
       async createMoment(content: string, mood?: string, photoCount = 0, options: { imageUrls?: string[]; location?: NearbyLocationHint | null; syncToHealthCalendar?: boolean; visibility?: 'nearby' | 'private' } = {}): Promise<ApiResult<NearbyMoment>> {
         return request<NearbyMoment>('POST', '/social/pet-circle/posts', { content, imageUrls: options.imageUrls, location: options.location ?? undefined, mood, photoCount, syncToHealthCalendar: options.syncToHealthCalendar, visibility: options.visibility ?? 'nearby' });
       },
