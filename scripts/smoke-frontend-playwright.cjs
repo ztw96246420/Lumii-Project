@@ -221,6 +221,13 @@ async function main() {
     await waitExactText(page, '健康日历');
     await screenshot(page, 'smoke-frontend-00-health-preview.png');
 
+    const backdatedHealthDate = isoDateAfterDays(-6);
+    await page.goto(`${baseUrl}/?route=healthCalendar&mockHealthCalendar=backdated`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await page.getByLabel(`health-calendar-day-${backdatedHealthDate}`).click();
+    await page.getByLabel('health-calendar-event-memo-mock-backdated-profile-memo').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('health-calendar-event-memo-mock-backdated-social-memo').waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(page, 'smoke-frontend-00a-health-calendar-backdated.png');
+
     await page.goto(`${baseUrl}/?route=multiPet&mockMultiPet=interactive`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '我的宠物');
     await waitExactText(page, '全部宠物 · 2 只');

@@ -613,7 +613,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'greetingRequests' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
+  if (value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'greetingRequests' || value === 'health' || value === 'healthCalendar' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
   return null;
 }
 
@@ -1462,6 +1462,8 @@ export default function LumiiMvpApp() {
   const isHomePreviewMode = Boolean(previewRoute) || getWebPreviewParam('preview') === 'home' || getWebPreviewParam('preview') === 'pet-home';
   const interactivePetCirclePreview = getWebPreviewParam('mockPetCircle') === 'interactive';
   const interactiveMultiPetPreview = getWebPreviewParam('mockMultiPet') === 'interactive';
+  const backdatedHealthCalendarPreview = getWebPreviewParam('mockHealthCalendar') === 'backdated';
+  const backdatedHealthCalendarDate = addDaysIsoDate(-6);
   const initialPreviewPets = isHomePreviewMode && interactiveMultiPetPreview ? [webPreviewPet, webPreviewSecondPet] : [webPreviewPet];
   const previewNearbyVisibleParam = getWebPreviewParam('nearbyVisible');
   const initialUserSettings: UserSettings = isHomePreviewMode
@@ -1581,8 +1583,8 @@ export default function LumiiMvpApp() {
   const [healthCalendarLoading, setHealthCalendarLoading] = useState(false);
   const healthCalendarLoadingRef = useRef(false);
   const [healthCalendarRefreshing, setHealthCalendarRefreshing] = useState(false);
-  const [healthCalendarMonth, setHealthCalendarMonth] = useState(() => monthStartIso());
-  const [selectedHealthCalendarDate, setSelectedHealthCalendarDate] = useState(() => todayIsoDate());
+  const [healthCalendarMonth, setHealthCalendarMonth] = useState(() => monthStartIso(isHomePreviewMode && backdatedHealthCalendarPreview ? backdatedHealthCalendarDate : todayIsoDate()));
+  const [selectedHealthCalendarDate, setSelectedHealthCalendarDate] = useState(() => (isHomePreviewMode && backdatedHealthCalendarPreview ? backdatedHealthCalendarDate : todayIsoDate()));
   const [weights, setWeights] = useState<WeightRecord[]>([]);
   const [vaccines, setVaccines] = useState<VaccinePlan[]>([]);
   const [focusedVaccineId, setFocusedVaccineId] = useState('');
@@ -8624,6 +8626,8 @@ export default function LumiiMvpApp() {
       const isOverdue = event.type === 'vaccine' && (event.status === 'overdue' || (daysUntilDate(event.date) ?? 99) < 0);
       return (
         <Pressable
+          accessibilityLabel={`health-calendar-event-${event.type}-${event.sourceId}`}
+          accessibilityRole="button"
           key={event.id}
           onPress={() => {
             if (event.type === 'weight') go('weight');
@@ -8715,7 +8719,7 @@ export default function LumiiMvpApp() {
                 const isToday = dayDate === today && !selected;
                 const overdue = dayEvents.some((event) => event.type === 'vaccine' && (event.status === 'overdue' || (daysUntilDate(event.date) ?? 99) < 0));
                 return (
-                  <Pressable key={dayDate} onPress={() => selectDay(day)} style={[styles.calendarDayCell, webPressableReset]}>
+                  <Pressable accessibilityLabel={`health-calendar-day-${dayDate}`} accessibilityRole="button" key={dayDate} onPress={() => selectDay(day)} style={[styles.calendarDayCell, webPressableReset]}>
                     <View style={[
                       styles.calendarDayCircle,
                       selected && styles.calendarDayCircleSelected,

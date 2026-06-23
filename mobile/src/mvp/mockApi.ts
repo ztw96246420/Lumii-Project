@@ -1010,6 +1010,55 @@ function ensureMockMultiPetFixtures() {
   if (!activePetId || !pets.some((pet) => pet.id === activePetId)) activePetId = mockMultiPetFixturePets[0]?.id ?? pets[0]?.id ?? '';
 }
 
+function ensureMockBackdatedHealthCalendarFixtures() {
+  if (getMockWebPreviewParam('mockHealthCalendar') !== 'backdated') return;
+  const backdated = addDaysIsoDate(-6);
+  const now = todayIsoDate();
+  const socialMomentId = 'mock-backdated-health-moment';
+  const profileMemo: HealthMemo = {
+    content: 'Lucky 建档完成，可以开始记录健康和小事。',
+    createdAt: backdated,
+    id: 'mock-backdated-profile-memo',
+    title: '建档记录',
+    updatedAt: now,
+  };
+  const socialMemo: HealthMemo = {
+    content: '六天前同步到健康日历的宠友圈小事。',
+    createdAt: now,
+    id: 'mock-backdated-social-memo',
+    source: 'pet_circle',
+    sourceId: socialMomentId,
+    title: '历史小事同步',
+    updatedAt: now,
+  };
+  const upsertMemo = (nextMemo: HealthMemo) => {
+    const index = memos.findIndex((memo) => memo.id === nextMemo.id);
+    if (index >= 0) {
+      memos = memos.map((memo, memoIndex) => (memoIndex === index ? { ...memo, ...nextMemo } : memo));
+      return;
+    }
+    memos = [nextMemo, ...memos];
+  };
+  const momentIndex = nearbyMoments.findIndex((moment) => moment.id === socialMomentId);
+  const nextMoment: NearbyMoment = {
+    createdAt: `${backdated}T10:45:00.000Z`,
+    distance: '0.8km',
+    id: socialMomentId,
+    ownerId: 'mock-self-owner',
+    ownerName: mockOwnerName,
+    ownedByMe: true,
+    petName: 'Lucky',
+    species: 'dog',
+    text: '六天前和 Lucky 在楼下晒太阳。',
+    visibility: 'nearby',
+  };
+  nearbyMoments = momentIndex >= 0
+    ? nearbyMoments.map((moment, index) => (index === momentIndex ? { ...moment, ...nextMoment } : moment))
+    : [nextMoment, ...nearbyMoments];
+  upsertMemo(profileMemo);
+  upsertMemo(socialMemo);
+}
+
 const mockPetCircleInteractionFixtureOwners: Record<string, string> = {
   'mock-fixture-pet-circle-block': 'o2',
   'mock-fixture-pet-circle-interaction': 'o1',
@@ -2058,11 +2107,13 @@ export const mockApi = {
   health: {
     async getHealthSummary(): Promise<ApiResult<HealthSummary>> {
       await wait(120);
+      ensureMockBackdatedHealthCalendarFixtures();
       return success(buildHealthSummary());
     },
 
     async listHealthCalendar(): Promise<ApiResult<HealthCalendarEvent[]>> {
       await wait(140);
+      ensureMockBackdatedHealthCalendarFixtures();
       return success(buildHealthCalendarEvents());
     },
 
@@ -2209,6 +2260,7 @@ export const mockApi = {
 
     async listHealthMemos(): Promise<ApiResult<HealthMemo[]>> {
       await wait(140);
+      ensureMockBackdatedHealthCalendarFixtures();
       return success(memos);
     },
   },
