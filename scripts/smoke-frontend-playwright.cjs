@@ -67,6 +67,17 @@ async function waitBodyExcludes(page, text) {
   await page.waitForFunction((expected) => !document.body.innerText.includes(expected), text, { timeout: 30_000 });
 }
 
+async function waitLabelEnabled(page, label) {
+  await page.waitForFunction(
+    (name) => {
+      const element = document.querySelector(`[aria-label="${name}"]`);
+      return Boolean(element && !element.disabled && element.getAttribute('aria-disabled') !== 'true');
+    },
+    label,
+    { timeout: 30_000 },
+  );
+}
+
 function collectPageErrors(page, pageErrors) {
   page.on('pageerror', (error) => pageErrors.push(error.message));
   page.on('console', (message) => {
@@ -151,6 +162,15 @@ function assertTextBefore(text, earlier, later, context) {
   }
 }
 
+function isoDateAfterDays(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 async function loginMockUser(page, phone) {
   await page.goto(baseUrl, { timeout: 60_000, waitUntil: 'networkidle' });
   await page.getByPlaceholder('请输入中国大陆手机号').fill(phone);
@@ -224,6 +244,26 @@ async function main() {
     await page.getByLabel('confirm-delete-weight-record').click();
     await waitBodyExcludes(page, 'PW weight edit');
     await screenshot(page, 'smoke-frontend-00d-weight-deleted.png');
+
+    const smokeVaccineName = 'PW vaccine smoke';
+    await page.goto(`${baseUrl}/?route=vaccine`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await page.getByLabel('toggle-vaccine-composer').click();
+    await page.getByLabel('vaccine-name-input').fill(smokeVaccineName);
+    await page.getByLabel('vaccine-date-input').fill(isoDateAfterDays(0));
+    await page.getByLabel('save-vaccine-plan').click();
+    await waitBodyIncludes(page, smokeVaccineName);
+    await screenshot(page, 'smoke-frontend-00e-vaccine-added.png');
+
+    await waitLabelEnabled(page, 'enable-vaccine-reminder');
+    await page.getByLabel('enable-vaccine-reminder').click();
+    await waitBodyIncludes(page, '提醒已开启');
+    await screenshot(page, 'smoke-frontend-00f-vaccine-reminder-enabled.png');
+
+    const smokeVaccineDoneButton = page.getByLabel(/^complete-vaccine-PW vaccine smoke-/);
+    await smokeVaccineDoneButton.click();
+    await smokeVaccineDoneButton.waitFor({ state: 'hidden', timeout: 30_000 });
+    await waitBodyIncludes(page, smokeVaccineName);
+    await screenshot(page, 'smoke-frontend-00g-vaccine-completed.png');
 
     await page.goto(`${baseUrl}/?route=memoNew`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '新增健康备忘');

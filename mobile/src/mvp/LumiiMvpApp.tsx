@@ -569,7 +569,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'weight') return value;
+  if (value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
   return null;
 }
 
@@ -9360,7 +9360,7 @@ export default function LumiiMvpApp() {
             </View>
           </View>
           <View style={styles.vaccineHeroActions}>
-            <Pressable disabled={!nextVaccine || nextVaccine.status === 'done' || nextVaccineReminderSaving} onPress={() => void enableVaccineReminder(nextVaccine)} style={[styles.vaccineHeroActionSecondary, (!nextVaccine || nextVaccine.status === 'done') && styles.vaccineHeroActionDisabled, webPressableReset]}>
+            <Pressable accessibilityLabel="enable-vaccine-reminder" accessibilityRole="button" disabled={!nextVaccine || nextVaccine.status === 'done' || nextVaccineReminderSaving} onPress={() => void enableVaccineReminder(nextVaccine)} style={[styles.vaccineHeroActionSecondary, (!nextVaccine || nextVaccine.status === 'done') && styles.vaccineHeroActionDisabled, webPressableReset]}>
               {nextVaccineReminderSaving ? <ActivityIndicator color={palette.orange} size="small" /> : <Bell color={palette.orange} size={13} strokeWidth={2.4} />}
               <Text style={[styles.vaccineHeroActionSecondaryText, (!nextVaccine || nextVaccine.status === 'done') && styles.vaccineHeroActionDisabledText]}>{nextVaccine && vaccineReminderIds.includes(nextVaccine.id) ? '提醒已开启' : '开启提醒'}</Text>
             </Pressable>
@@ -9396,7 +9396,7 @@ export default function LumiiMvpApp() {
         <View style={styles.vaccinePlanBlock}>
           <View style={styles.vaccinePlanHeader}>
             <Text style={styles.weightSectionTitle}>全部计划</Text>
-            <Pressable disabled={vaccineCreating} onPress={vaccineComposerVisible ? () => setVaccineComposerVisible(false) : openVaccineComposer} style={[styles.weightAddLink, vaccineCreating && styles.mapSearchActionDisabled, webPressableReset]}>
+            <Pressable accessibilityLabel="toggle-vaccine-composer" accessibilityRole="button" disabled={vaccineCreating} onPress={vaccineComposerVisible ? () => setVaccineComposerVisible(false) : openVaccineComposer} style={[styles.weightAddLink, vaccineCreating && styles.mapSearchActionDisabled, webPressableReset]}>
               {vaccineComposerVisible ? <X color={palette.orange} size={12} strokeWidth={2.5} /> : <Plus color={palette.orange} size={12} strokeWidth={2.5} />}
               <Text style={styles.weightAddLinkText}>{vaccineComposerVisible ? '取消' : '新增'}</Text>
             </Pressable>
@@ -9406,6 +9406,7 @@ export default function LumiiMvpApp() {
               <View style={styles.vaccineComposerField}>
                 <Text style={styles.label}>名称</Text>
                 <TextInput
+                  accessibilityLabel="vaccine-name-input"
                   editable={!vaccineCreating}
                   onChangeText={setVaccineNameDraft}
                   placeholder="例如：狂犬疫苗 / 体内驱虫"
@@ -9418,6 +9419,7 @@ export default function LumiiMvpApp() {
                 <Text style={styles.label}>计划日期</Text>
                 {Platform.OS === 'web' ? (
                   <TextInput
+                    accessibilityLabel="vaccine-date-input"
                     editable={!vaccineCreating}
                     keyboardType="numbers-and-punctuation"
                     onChangeText={setVaccineDueDraft}
@@ -9449,7 +9451,7 @@ export default function LumiiMvpApp() {
                   ))}
                 </View>
               </View>
-              <Button loading={vaccineCreating} onPress={() => void createVaccinePlan()}>保存计划</Button>
+              <Button accessibilityLabel="save-vaccine-plan" loading={vaccineCreating} onPress={() => void createVaccinePlan()}>保存计划</Button>
             </View>
           ) : null}
           <View style={styles.vaccinePlanCard}>
@@ -9474,6 +9476,7 @@ export default function LumiiMvpApp() {
                   <Text style={styles.timelineDateMake}>{formatCompactDateLabel(item.dueAt)}</Text>
                   {item.status !== 'done' ? (
                     <Pressable
+                      accessibilityLabel={`complete-vaccine-${item.name}-${item.id}`}
                       accessibilityRole="button"
                       disabled={doneSaving}
                       onPress={() => void markVaccineDone(item)}
