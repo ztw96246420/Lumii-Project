@@ -88,6 +88,33 @@ let mockUserSettings: UserSettings = {
   nearbyVisible: true,
   pushNotifications: true,
 };
+const mockMultiPetFixturePets: PetProfile[] = [
+  {
+    avatarUrl: 'lumii://preview-golden-retriever',
+    birthday: '2023-05-18',
+    breed: '金毛',
+    gender: 'male',
+    healthScore: 96,
+    id: 'preview-pet-lucky',
+    name: 'Lucky',
+    personality: ['亲人', '爱撒娇', '喜欢散步'],
+    species: 'dog',
+    weightKg: 28.6,
+  },
+  {
+    avatarUrl:
+      'https://images.unsplash.com/photo-1574158622682-e40e69881006?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+    birthday: '2022-11-02',
+    breed: '英短',
+    gender: 'female',
+    healthScore: 88,
+    id: 'preview-pet-mochi',
+    name: 'Mochi',
+    personality: ['安静', '粘人', '喜欢晒太阳'],
+    species: 'cat',
+    weightKg: 4.8,
+  },
+];
 
 function parseMockPermissionPatch(value: Partial<PermissionStateMap>) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -973,6 +1000,14 @@ function getMockWebPreviewParam(key: string) {
   } catch {
     return '';
   }
+}
+
+function ensureMockMultiPetFixtures() {
+  if (getMockWebPreviewParam('mockMultiPet') !== 'interactive') return;
+  const existingIds = new Set(pets.map((pet) => pet.id));
+  const missingPets = mockMultiPetFixturePets.filter((pet) => !existingIds.has(pet.id));
+  if (missingPets.length) pets = [...pets, ...missingPets];
+  if (!activePetId || !pets.some((pet) => pet.id === activePetId)) activePetId = mockMultiPetFixturePets[0]?.id ?? pets[0]?.id ?? '';
 }
 
 const mockPetCircleInteractionFixtureOwners: Record<string, string> = {
@@ -1876,12 +1911,14 @@ export const mockApi = {
 
     async getPet(id: string): Promise<ApiResult<PetProfile>> {
       await wait(120);
+      ensureMockMultiPetFixtures();
       const pet = pets.find((item) => item.id === id);
       return pet ? success(pet) : error('宠物档案不存在', false);
     },
 
     async deletePet(id: string): Promise<ApiResult<PetProfile[]>> {
       await wait(160);
+      ensureMockMultiPetFixtures();
       if (!pets.some((item) => item.id === id)) return error('宠物档案不存在', false);
       pets = pets.filter((item) => item.id !== id);
       if (activePetId === id) activePetId = pets[0]?.id ?? '';
@@ -1890,11 +1927,13 @@ export const mockApi = {
 
     async listPets(): Promise<ApiResult<PetProfile[]>> {
       await wait(160);
+      ensureMockMultiPetFixtures();
       return success(pets);
     },
 
     async setActivePet(id: string): Promise<ApiResult<PetProfile>> {
       await wait(160);
+      ensureMockMultiPetFixtures();
       const pet = pets.find((item) => item.id === id);
       if (!pet) return error('宠物档案不存在', false);
       activePetId = id;
@@ -1902,6 +1941,7 @@ export const mockApi = {
     },
 
     getActivePet(): PetProfile | null {
+      ensureMockMultiPetFixtures();
       return pets.find((pet) => pet.id === activePetId) ?? pets[0] ?? null;
     },
   },

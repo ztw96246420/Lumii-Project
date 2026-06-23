@@ -536,6 +536,19 @@ const webPreviewPet: PetProfile = {
   species: 'dog',
   weightKg: 28.6,
 };
+const webPreviewSecondPet: PetProfile = {
+  avatarUrl:
+    'https://images.unsplash.com/photo-1574158622682-e40e69881006?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+  birthday: '2022-11-02',
+  breed: '英短',
+  gender: 'female',
+  healthScore: 88,
+  id: 'preview-pet-mochi',
+  name: 'Mochi',
+  personality: ['安静', '粘人', '喜欢晒太阳'],
+  species: 'cat',
+  weightKg: 4.8,
+};
 const webPreviewSession: AuthSession = {
   account: {
     activePet: webPreviewPet,
@@ -600,7 +613,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'greetingRequests' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
+  if (value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'greetingRequests' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
   return null;
 }
 
@@ -1448,6 +1461,8 @@ export default function LumiiMvpApp() {
   const previewRoute = normalizeWebPreviewRoute(getWebPreviewParam('route'));
   const isHomePreviewMode = Boolean(previewRoute) || getWebPreviewParam('preview') === 'home' || getWebPreviewParam('preview') === 'pet-home';
   const interactivePetCirclePreview = getWebPreviewParam('mockPetCircle') === 'interactive';
+  const interactiveMultiPetPreview = getWebPreviewParam('mockMultiPet') === 'interactive';
+  const initialPreviewPets = isHomePreviewMode && interactiveMultiPetPreview ? [webPreviewPet, webPreviewSecondPet] : [webPreviewPet];
   const previewNearbyVisibleParam = getWebPreviewParam('nearbyVisible');
   const initialUserSettings: UserSettings = isHomePreviewMode
     ? {
@@ -1460,7 +1475,7 @@ export default function LumiiMvpApp() {
     }
     : defaultUserSettings;
   const initialPreviewSession: AuthSession = isHomePreviewMode
-    ? { ...webPreviewSession, account: { ...webPreviewSession.account!, settings: initialUserSettings } }
+    ? { ...webPreviewSession, account: { ...webPreviewSession.account!, activePet: initialPreviewPets[0], settings: initialUserSettings } }
     : webPreviewSession;
   const initialPreviewRoute = previewRoute ?? 'home';
   const forcedHomeMomentKind = normalizeHomeMomentPreview(getWebPreviewParam('moment'));
@@ -1474,7 +1489,7 @@ export default function LumiiMvpApp() {
   const [amapNavigationPlace, setAmapNavigationPlace] = useState<Place | null>(null);
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [sessionBootstrapping, setSessionBootstrapping] = useState(!isHomePreviewMode);
-  const [bootPetAvatarUri, setBootPetAvatarUri] = useState<string | null>(isHomePreviewMode ? webPreviewPet.avatarUrl ?? null : null);
+  const [bootPetAvatarUri, setBootPetAvatarUri] = useState<string | null>(isHomePreviewMode ? initialPreviewPets[0]?.avatarUrl ?? null : null);
 
   const [phone, setPhone] = useState('');
   const [phoneFocused, setPhoneFocused] = useState(false);
@@ -1515,8 +1530,8 @@ export default function LumiiMvpApp() {
   const [datePickerRequest, setDatePickerRequest] = useState<DatePickerRequest | null>(null);
   const [, setKeyboardHeight] = useState(0);
   const [permissions, setPermissions] = useState<PermissionStateMap>(isHomePreviewMode ? webPreviewPermissions : initialPermissions);
-  const [activePet, setActivePet] = useState<PetProfile | null>(isHomePreviewMode ? webPreviewPet : null);
-  const [pets, setPets] = useState<PetProfile[]>(isHomePreviewMode ? [webPreviewPet] : []);
+  const [activePet, setActivePet] = useState<PetProfile | null>(isHomePreviewMode ? initialPreviewPets[0] ?? webPreviewPet : null);
+  const [pets, setPets] = useState<PetProfile[]>(isHomePreviewMode ? initialPreviewPets : []);
   const [petSwitchingId, setPetSwitchingId] = useState('');
   const petSwitchingIdRef = useRef('');
   const [petDeletingId, setPetDeletingId] = useState('');
@@ -11829,6 +11844,8 @@ export default function LumiiMvpApp() {
                       </Pressable>
                       <View style={styles.multiPetActions}>
                         <Pressable
+                          accessibilityLabel={`switch-pet-${pet.id}`}
+                          accessibilityRole="button"
                           disabled={isCurrent || Boolean(petSwitchingId)}
                           onPress={() => void switchActivePet(pet)}
                           style={[styles.switchPetButton, isCurrent && styles.switchPetButtonActive, switching && styles.switchPetButtonLoadingMake, webPressableReset]}
@@ -11842,7 +11859,7 @@ export default function LumiiMvpApp() {
                             </>
                           )}
                         </Pressable>
-                        <Pressable disabled={deleting} onPress={() => confirmDeletePet(pet)} style={[styles.petDeleteIconButton, webPressableReset]}>
+                        <Pressable accessibilityLabel={`delete-pet-${pet.id}`} accessibilityRole="button" disabled={deleting} onPress={() => confirmDeletePet(pet)} style={[styles.petDeleteIconButton, webPressableReset]}>
                           {deleting ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={15} strokeWidth={2.3} />}
                         </Pressable>
                       </View>
