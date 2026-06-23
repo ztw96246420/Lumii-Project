@@ -239,6 +239,14 @@ async function main() {
     await page.getByLabel('switch-pet-preview-pet-lucky').waitFor({ state: 'visible', timeout: 30_000 });
     await screenshot(page, 'smoke-frontend-00a-multi-pet-switched.png');
 
+    await page.goto(`${baseUrl}/?route=uploadNoPet&mockUpload=noPet`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '识别失败');
+    await waitExactText(page, '未检测到宠物主体');
+    await waitExactText(page, '让宠物占画面主体');
+    await screenshot(page, 'smoke-frontend-00b-upload-no-pet.png');
+    await clickExactText(page, '重新选择');
+    await waitExactText(page, '添加宠物 2/2');
+
     const petChatSmokeText = 'Playwright 想和 Lucky 聊一会儿';
     await page.goto(`${baseUrl}/?route=chat`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '在线 · 心情很好');

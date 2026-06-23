@@ -577,6 +577,23 @@ const webPreviewAvatarMedia: UploadedPetMedia = {
   previewUrl: generatedGoldenAvatarUri,
   quality: 'good',
 };
+const webPreviewNoPetMedia: UploadedPetMedia = {
+  analysis: {
+    canGenerate: false,
+    code: 'no_pet',
+    message: '这张照片里暂时没有识别到清晰的猫狗主体，请重新选择宠物正脸或半身照片。',
+    petCount: 0,
+    qualityScore: 0,
+    status: 'blocked',
+    suggestions: ['让宠物占画面主体', '避免背光、遮挡和多人合照', '尽量只拍一只猫狗'],
+    tags: ['未检测到宠物'],
+    title: '未检测到宠物主体',
+  },
+  fileUrl: 'lumii://preview-no-pet-source',
+  mediaId: 'preview-no-pet-media',
+  previewUrl: 'lumii://preview-no-pet-source',
+  quality: 'blocked',
+};
 const webPreviewAvatarJob: AvatarJob = {
   candidateUrls: [
     generatedGoldenAvatarUri,
@@ -613,7 +630,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'greetingRequests' || value === 'health' || value === 'healthCalendar' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
+  if (value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'greetingRequests' || value === 'health' || value === 'healthCalendar' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'uploadNoPet' || value === 'vaccine' || value === 'weight') return value;
   return null;
 }
 
@@ -1543,8 +1560,10 @@ export default function LumiiMvpApp() {
   const [petProfileSaving, setPetProfileSaving] = useState(false);
   const petProfileSavingRef = useRef(false);
   const initialPreviewAvatarResult = isHomePreviewMode && initialPreviewRoute === 'aiResult';
-  const [media, setMedia] = useState<UploadedPetMedia | null>(initialPreviewAvatarResult ? webPreviewAvatarMedia : null);
-  const mediaIdRef = useRef<string | null>(initialPreviewAvatarResult ? webPreviewAvatarMedia.mediaId : null);
+  const initialPreviewUploadNoPet = isHomePreviewMode && initialPreviewRoute === 'uploadNoPet' && getWebPreviewParam('mockUpload') === 'noPet';
+  const initialPreviewMedia = initialPreviewAvatarResult ? webPreviewAvatarMedia : initialPreviewUploadNoPet ? webPreviewNoPetMedia : null;
+  const [media, setMedia] = useState<UploadedPetMedia | null>(initialPreviewMedia);
+  const mediaIdRef = useRef<string | null>(initialPreviewMedia?.mediaId ?? null);
   const [mediaPickerMode, setMediaPickerMode] = useState<'camera' | 'library' | null>(null);
   const mediaPickingRef = useRef(false);
   const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(initialPreviewAvatarResult ? webPreviewAvatarJob : null);
