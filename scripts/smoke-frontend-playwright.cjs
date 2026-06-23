@@ -590,6 +590,24 @@ async function main() {
     await waitExactText(settingsPage, '附近可见未开启，附近朋友暂不可见');
     await waitExactText(settingsPage, '去隐私设置');
     await screenshot(settingsPage, 'smoke-frontend-04e-settings-nearby-visible-off.png');
+
+    await settingsPage.goto(`${baseUrl}/?route=profile`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(settingsPage, '我的');
+    await clickExactText(settingsPage, '设置与隐私');
+    await waitExactText(settingsPage, '设置与隐私');
+    await settingsPage.getByLabel('logout-from-settings').click();
+    await waitExactText(settingsPage, '确定要退出登录吗？');
+    await settingsPage.getByLabel('cancel-logout').click();
+    await settingsPage.getByText('确定要退出登录吗？', { exact: true }).waitFor({ state: 'hidden', timeout: 30_000 });
+    await waitExactText(settingsPage, '设置与隐私');
+    await settingsPage.getByLabel('logout-from-settings').click();
+    await waitExactText(settingsPage, '确定要退出登录吗？');
+    await settingsPage.getByLabel('confirm-logout').click();
+    await settingsPage.getByText('确定要退出登录吗？', { exact: true }).waitFor({ state: 'hidden', timeout: 30_000 });
+    await waitExactText(settingsPage, 'Lumii 灵伴');
+    await waitExactText(settingsPage, '准备好遇见你的灵伴了吗？');
+    await waitExactText(settingsPage, '获取验证码');
+    await screenshot(settingsPage, 'smoke-frontend-04f-logout-confirmed.png');
     await settingsContext.close();
 
     const interactionContext = await browser.newContext({

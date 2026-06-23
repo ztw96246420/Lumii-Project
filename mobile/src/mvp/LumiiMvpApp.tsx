@@ -12131,6 +12131,7 @@ export default function LumiiMvpApp() {
             <SettingsMakeRow Icon={Lock} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('accountSecurity')} title="账号安全" />
             <SettingsMakeRow Icon={Shield} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('safety')} title="黑名单与举报" />
             <SettingsMakeRow
+              accessibilityLabel="logout-from-settings"
               Icon={LogOut}
               danger
               iconBg="#FBE4DE"
@@ -13073,10 +13074,10 @@ export default function LumiiMvpApp() {
         <Text style={styles.logoutSheetTitleMake}>确定要退出登录吗？</Text>
         <Text style={styles.logoutSheetBodyMake}>退出后，本机将不再接收{petName}的健康提醒与 AI 灵伴消息。重新登录后所有数据仍会保留。</Text>
         <View style={styles.logoutSheetActionsMake}>
-          <Pressable onPress={() => void logout()} style={[styles.sheetDangerButtonMake, webPressableReset]}>
+          <Pressable accessibilityLabel="confirm-logout" accessibilityRole="button" onPress={() => void logout()} style={[styles.sheetDangerButtonMake, webPressableReset]}>
             <Text style={styles.sheetDangerButtonTextMake}>确认退出</Text>
           </Pressable>
-          <Pressable onPress={() => setLogoutConfirmVisible(false)} style={[styles.sheetGhostButtonMake, webPressableReset]}>
+          <Pressable accessibilityLabel="cancel-logout" accessibilityRole="button" onPress={() => setLogoutConfirmVisible(false)} style={[styles.sheetGhostButtonMake, webPressableReset]}>
             <Text style={styles.sheetGhostButtonTextMake}>取消</Text>
           </Pressable>
         </View>
@@ -13799,6 +13800,7 @@ function SettingsMakeSection({ children, footnote, title }: { children: ReactNod
 }
 
 function SettingsMakeRow({
+  accessibilityLabel,
   Icon,
   danger,
   iconBg = palette.pale,
@@ -13810,6 +13812,7 @@ function SettingsMakeRow({
   title,
   value,
 }: {
+  accessibilityLabel?: string;
   Icon?: ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
   danger?: boolean;
   iconBg?: string;
@@ -13823,7 +13826,7 @@ function SettingsMakeRow({
 }) {
   return (
     <Pressable
-      accessibilityLabel={title}
+      accessibilityLabel={accessibilityLabel ?? title}
       accessibilityRole={onPress ? 'button' : undefined}
       accessibilityState={{ disabled: !onPress }}
       disabled={!onPress}
