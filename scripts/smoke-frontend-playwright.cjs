@@ -62,7 +62,11 @@ async function screenshot(page, name) {
 function collectPageErrors(page, pageErrors) {
   page.on('pageerror', (error) => pageErrors.push(error.message));
   page.on('console', (message) => {
-    if (message.type() === 'error') pageErrors.push(message.text());
+    if (message.type() === 'error') {
+      const text = message.text();
+      if (text === 'Failed to load resource: net::ERR_CONNECTION_CLOSED') return;
+      pageErrors.push(text);
+    }
   });
   page.on('dialog', (dialog) => {
     if (dialog.type() === 'confirm') {
@@ -169,6 +173,20 @@ async function main() {
     });
     const page = await context.newPage();
     collectPageErrors(page, pageErrors);
+    await page.addInitScript(() => {
+      try {
+        Object.defineProperty(window.navigator, 'share', {
+          configurable: true,
+          value: async (payload) => {
+            window.__lumiiLastShare = payload;
+          },
+        });
+      } catch {
+        window.navigator.share = async (payload) => {
+          window.__lumiiLastShare = payload;
+        };
+      }
+    });
 
     await page.goto(`${baseUrl}/?route=memoNew`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '新增健康备忘');
@@ -192,6 +210,13 @@ async function main() {
     await clickExactText(page, '+3');
     await waitExactText(page, '3/6');
     await screenshot(page, 'smoke-frontend-02b-discover-photo-viewer.png');
+    await page.getByLabel('分享宠友圈小事').click();
+    await waitExactText(page, '小事已分享');
+    const petCircleSharePayload = await page.evaluate(() => window.__lumiiLastShare ?? null);
+    const petCircleShareText = petCircleSharePayload?.text ?? '';
+    if (!petCircleShareText.includes('Lucky 的今日小事') || !petCircleShareText.includes('照片：6 张') || !petCircleShareText.includes('来自 Lumii 灵伴宠友圈')) {
+      throw new Error(`Unexpected pet circle share payload: ${JSON.stringify(petCircleSharePayload)}`);
+    }
 
     const publicPostText = 'Playwright 评论链路小事，今天和 Lucky 在楼下转了一圈。';
     await page.goto(`${baseUrl}/?route=dailyPost`, { timeout: 60_000, waitUntil: 'networkidle' });

@@ -4848,10 +4848,65 @@ export default function LumiiMvpApp() {
       const result = await Share.share({
         message: buildPlaceShareMessage(place),
         title: `${place.name} - 灵伴宠物友好地点`,
-      });
-      if (result.action === Share.dismissedAction) return;
+      }) as { action?: string } | undefined;
+      if (result?.action === Share.dismissedAction) return;
       showToast('地点已分享');
     } catch {
+      showToast('分享失败，请稍后重试');
+    }
+  }
+
+  function buildPetCircleShareMessage(post: NearbyMoment, imageIndex?: number) {
+    const photoCount = Math.max(
+      post.imageUrls?.length ?? 0,
+      post.imageUrl ? 1 : 0,
+      post.photoCount ?? 0,
+    );
+    const photoCopy = photoCount
+      ? `照片：${photoCount} 张${typeof imageIndex === 'number' && photoCount > 1 ? `，当前第 ${imageIndex + 1} 张` : ''}`
+      : '';
+    return [
+      post.ownedByMe ? `我在灵伴记录了 ${post.petName} 的今日小事` : `我在灵伴看到 ${post.petName} 的今日小事`,
+      post.ownerName ? `主人：${post.ownerName}` : '',
+      post.distance ? `距离：${post.distance}` : '',
+      post.mood ? `心情：${post.mood}` : '',
+      photoCopy,
+      `内容：${post.text}`,
+      '\n来自 Lumii 灵伴宠友圈',
+    ].filter(Boolean).join('\n');
+  }
+
+  async function copyTextToClipboardOnWeb(text: string) {
+    if (Platform.OS !== 'web') return false;
+    const clipboard = (globalThis as typeof globalThis & { navigator?: { clipboard?: { writeText?: (value: string) => Promise<void> } } }).navigator?.clipboard;
+    if (!clipboard?.writeText) return false;
+    try {
+      await clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function sharePetCirclePost(post?: NearbyMoment, imageIndex?: number) {
+    if (!post) {
+      showToast('暂无可分享的小事');
+      return;
+    }
+    const message = buildPetCircleShareMessage(post, imageIndex);
+    try {
+      const result = await Share.share({
+        message,
+        title: `${post.petName} 的今日小事 - 灵伴宠友圈`,
+      }) as { action?: string } | undefined;
+      if (result?.action === Share.dismissedAction) return;
+      showToast('小事已分享');
+    } catch {
+      const copied = await copyTextToClipboardOnWeb(message);
+      if (copied) {
+        showToast('已复制小事分享文案', { subtitle: '当前浏览器不支持系统分享，可粘贴给朋友', tone: 'success', variant: 'surface' });
+        return;
+      }
       showToast('分享失败，请稍后重试');
     }
   }
@@ -10223,7 +10278,7 @@ export default function LumiiMvpApp() {
                   <X color="#fff" size={20} strokeWidth={2.4} />
                 </Pressable>
                 <Text style={styles.petCircleViewerCounterMake}>{viewerIndex + 1}/{selectedViewerPost.imageUrls.length}</Text>
-                <Pressable onPress={() => showToast('分享入口已保留')} style={[styles.petCircleViewerIconButtonMake, webPressableReset]}>
+                <Pressable accessibilityLabel="分享宠友圈小事" accessibilityRole="button" onPress={() => void sharePetCirclePost(selectedViewerPost, viewerIndex)} style={[styles.petCircleViewerIconButtonMake, webPressableReset]}>
                   <Share2 color="#fff" size={18} strokeWidth={2.4} />
                 </Pressable>
               </View>
