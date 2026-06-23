@@ -476,6 +476,15 @@ async function main() {
 
     await clickExactText(settingsPage, '设置与隐私');
     await waitExactText(settingsPage, '设置与隐私');
+    await settingsPage.getByLabel('账号安全').click();
+    await waitExactText(settingsPage, '账号安全');
+    await waitExactText(settingsPage, '账号已登录 · 手机号已验证');
+    await settingsPage.waitForFunction(() => /1[3-9]\d \*\*\*\* \d{4}/.test(document.body.innerText), undefined, { timeout: 30_000 });
+    await waitExactText(settingsPage, 'Web 预览设备');
+    await waitExactText(settingsPage, '验证码登录');
+    await screenshot(settingsPage, 'smoke-frontend-04d-account-security.png');
+    await settingsPage.getByLabel('返回').click();
+    await waitExactText(settingsPage, '设置与隐私');
     await settingsPage.getByLabel('附近可见').click();
     await waitExactText(settingsPage, '附近可见已关闭');
     await settingsPage.getByLabel('返回').click();
@@ -483,7 +492,7 @@ async function main() {
     await clickExactText(settingsPage, '发现');
     await waitExactText(settingsPage, '附近可见未开启，附近朋友暂不可见');
     await waitExactText(settingsPage, '去隐私设置');
-    await screenshot(settingsPage, 'smoke-frontend-04d-settings-nearby-visible-off.png');
+    await screenshot(settingsPage, 'smoke-frontend-04e-settings-nearby-visible-off.png');
     await settingsContext.close();
 
     const interactionContext = await browser.newContext({
