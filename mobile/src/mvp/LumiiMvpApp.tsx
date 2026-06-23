@@ -101,6 +101,7 @@ import type {
   AppRoute,
   AppTab,
   ApiError,
+  ApiResult,
   AiUsageSummary,
   AvatarGenerationFeedbackReason,
   AuthSession,
@@ -546,6 +547,36 @@ const webPreviewSession: AuthSession = {
   phone: '13531850966',
   token: 'lumii-web-preview-token',
 };
+const webPreviewAvatarMedia: UploadedPetMedia = {
+  analysis: {
+    canGenerate: true,
+    code: 'single_pet_clear',
+    message: '主体清晰，毛色和五官都适合生成电子灵伴。',
+    petCount: 1,
+    qualityScore: 96,
+    status: 'accepted',
+    suggestions: [],
+    tags: ['主体清晰', '五官完整', '光线自然'],
+    title: '识别成功',
+  },
+  fileUrl: 'lumii://preview-golden-retriever-source',
+  mediaId: 'preview-avatar-media',
+  previewUrl: generatedGoldenAvatarUri,
+  quality: 'good',
+};
+const webPreviewAvatarJob: AvatarJob = {
+  candidateUrls: [
+    generatedGoldenAvatarUri,
+    `${generatedGoldenAvatarUri}?variant=warm`,
+    `${generatedGoldenAvatarUri}?variant=soft`,
+  ],
+  id: 'preview-avatar-job',
+  mediaId: webPreviewAvatarMedia.mediaId,
+  progress: 100,
+  provider: 'mock',
+  resultUrl: generatedGoldenAvatarUri,
+  status: 'ready',
+};
 const avatarUploadMaxBytes = 9 * 1024 * 1024;
 const supportedAvatarMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
 
@@ -569,7 +600,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
+  if (value === 'aiResult' || value === 'dailyPost' || value === 'discover' || value === 'health' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'notifications' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'vaccine' || value === 'weight') return value;
   return null;
 }
 
@@ -1494,12 +1525,13 @@ export default function LumiiMvpApp() {
   const [petDraft, setPetDraft] = useState(emptyPetDraft);
   const [petProfileSaving, setPetProfileSaving] = useState(false);
   const petProfileSavingRef = useRef(false);
-  const [media, setMedia] = useState<UploadedPetMedia | null>(null);
-  const mediaIdRef = useRef<string | null>(null);
+  const initialPreviewAvatarResult = isHomePreviewMode && initialPreviewRoute === 'aiResult';
+  const [media, setMedia] = useState<UploadedPetMedia | null>(initialPreviewAvatarResult ? webPreviewAvatarMedia : null);
+  const mediaIdRef = useRef<string | null>(initialPreviewAvatarResult ? webPreviewAvatarMedia.mediaId : null);
   const [mediaPickerMode, setMediaPickerMode] = useState<'camera' | 'library' | null>(null);
   const mediaPickingRef = useRef(false);
-  const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(null);
-  const avatarJobIdRef = useRef<string | null>(null);
+  const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(initialPreviewAvatarResult ? webPreviewAvatarJob : null);
+  const avatarJobIdRef = useRef<string | null>(initialPreviewAvatarResult ? webPreviewAvatarJob.id : null);
   const avatarPollingJobIdRef = useRef<string | null>(null);
   const [avatarStarting, setAvatarStarting] = useState(false);
   const avatarStartingRef = useRef(false);
@@ -3917,9 +3949,14 @@ export default function LumiiMvpApp() {
     try {
       const requestSessionToken = sessionTokenRef.current;
       const jobId = avatarJob?.id;
-      const result = jobId && selectedCandidateUri === avatarJob?.resultUrl
-        ? await lumiiApi.avatar.acceptGeneration(jobId)
-        : await lumiiApi.avatar.saveAvatar(pet.id, selectedCandidateUri);
+      let result: ApiResult<PetProfile>;
+      if (isHomePreviewMode && jobId === webPreviewAvatarJob.id) {
+        result = { data: { ...pet, avatarUrl: selectedCandidateUri }, state: 'success' };
+      } else {
+        result = jobId && selectedCandidateUri === avatarJob?.resultUrl
+          ? await lumiiApi.avatar.acceptGeneration(jobId)
+          : await lumiiApi.avatar.saveAvatar(pet.id, selectedCandidateUri);
+      }
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (jobId && avatarJobIdRef.current !== jobId) return;
       if (result.data) {
@@ -7527,11 +7564,11 @@ export default function LumiiMvpApp() {
     const title = multiCandidate ? '挑一个你最喜欢的' : '遇见你的小灵伴';
     const actionButtons = (
       <View style={[styles.aiResultActions, !multiCandidate && styles.aiResultActionsSingle]}>
-        <Pressable disabled={avatarAccepting} onPress={() => void saveAvatar()} style={({ pressed }) => [styles.aiPrimaryCta, pressed && !avatarAccepting && styles.aiPrimaryCtaPressed, avatarAccepting && styles.aiCtaDisabled, webPressableReset]}>
+        <Pressable accessibilityLabel="save-avatar-result" accessibilityRole="button" disabled={avatarAccepting} onPress={() => void saveAvatar()} style={({ pressed }) => [styles.aiPrimaryCta, pressed && !avatarAccepting && styles.aiPrimaryCtaPressed, avatarAccepting && styles.aiCtaDisabled, webPressableReset]}>
           {avatarAccepting ? <ActivityIndicator color="#fff" size="small" /> : <Heart color="#fff" size={16} strokeWidth={2.4} />}
           <Text style={styles.aiPrimaryCtaText}>{avatarAccepting ? '保存中...' : '保存并设为电子灵伴'}</Text>
         </Pressable>
-        <Pressable disabled={avatarRetrying} onPress={openAvatarRegenerateConfirm} style={({ pressed }) => [styles.aiGhostCta, pressed && !avatarRetrying && styles.aiGhostCtaPressed, avatarRetrying && styles.aiCtaDisabled, webPressableReset]}>
+        <Pressable accessibilityLabel="open-avatar-regenerate-confirm" accessibilityRole="button" disabled={avatarRetrying} onPress={openAvatarRegenerateConfirm} style={({ pressed }) => [styles.aiGhostCta, pressed && !avatarRetrying && styles.aiGhostCtaPressed, avatarRetrying && styles.aiCtaDisabled, webPressableReset]}>
           {avatarRetrying ? <ActivityIndicator color={palette.ink} size="small" /> : <RefreshCw color={palette.ink} size={15} strokeWidth={2.4} />}
           <Text style={styles.aiGhostCtaText}>{avatarRetrying ? '生成中...' : '重新生成'}</Text>
         </Pressable>
@@ -7600,6 +7637,7 @@ export default function LumiiMvpApp() {
                   const source = candidateUri && !isGeneratedAvatarUri(candidateUri) ? { uri: candidateUri } : generatedGoldenAvatarSource;
                   return (
                     <Pressable
+                      accessibilityLabel={`select-avatar-candidate-${index}`}
                       accessibilityRole="button"
                       accessibilityState={{ selected: active }}
                       key={`${candidateUri}-${index}`}
@@ -7622,7 +7660,7 @@ export default function LumiiMvpApp() {
             </View>
           ) : null}
           {multiCandidate ? (
-            <Pressable disabled={avatarRetrying || avatarAccepting} onPress={() => setAvatarFeedbackSheetVisible(true)} style={[styles.aiFeedbackEntry, webPressableReset]}>
+            <Pressable accessibilityLabel="open-avatar-feedback" accessibilityRole="button" disabled={avatarRetrying || avatarAccepting} onPress={() => setAvatarFeedbackSheetVisible(true)} style={[styles.aiFeedbackEntry, webPressableReset]}>
               <AlertTriangle color={palette.orange} size={13} strokeWidth={2.4} />
               <Text style={styles.aiFeedbackEntryText}>不像我家宠物？先告诉我们哪里不像</Text>
             </Pressable>
@@ -7651,6 +7689,8 @@ export default function LumiiMvpApp() {
             const selected = avatarFeedbackChipIds.includes(option.id);
             return (
               <Pressable
+                accessibilityLabel={`avatar-feedback-chip-${option.id}`}
+                accessibilityRole="button"
                 disabled={avatarFeedbackSubmitting || avatarRetrying}
                 key={option.id}
                 onPress={() => toggleAvatarFeedbackChip(option.id)}
@@ -7677,10 +7717,10 @@ export default function LumiiMvpApp() {
           </View>
         </View>
         <View style={styles.aiFeedbackActions}>
-          <Pressable disabled={avatarFeedbackSubmitting || avatarRetrying} onPress={() => setAvatarFeedbackSheetVisible(false)} style={[styles.aiFeedbackCancel, webPressableReset]}>
+          <Pressable accessibilityLabel="cancel-avatar-feedback" accessibilityRole="button" disabled={avatarFeedbackSubmitting || avatarRetrying} onPress={() => setAvatarFeedbackSheetVisible(false)} style={[styles.aiFeedbackCancel, webPressableReset]}>
             <Text style={styles.aiFeedbackCancelText}>取消</Text>
           </Pressable>
-          <Pressable disabled={avatarFeedbackSubmitting || avatarRetrying} onPress={() => void submitAvatarFeedbackAndRetry()} style={[styles.aiFeedbackSubmit, (avatarFeedbackSubmitting || avatarRetrying) && styles.aiCtaDisabled, webPressableReset]}>
+          <Pressable accessibilityLabel="submit-avatar-feedback" accessibilityRole="button" disabled={avatarFeedbackSubmitting || avatarRetrying} onPress={() => void submitAvatarFeedbackAndRetry()} style={[styles.aiFeedbackSubmit, (avatarFeedbackSubmitting || avatarRetrying) && styles.aiCtaDisabled, webPressableReset]}>
             {avatarFeedbackSubmitting || avatarRetrying ? <ActivityIndicator color="#fff" size="small" /> : <RefreshCw color="#fff" size={15} strokeWidth={2.4} />}
             <Text style={styles.aiFeedbackSubmitText}>{avatarFeedbackSubmitting || avatarRetrying ? '处理中...' : '按反馈重新生成'}</Text>
           </Pressable>
@@ -7709,10 +7749,12 @@ export default function LumiiMvpApp() {
               <Text style={styles.aiRegenerateNoteText}>建议先告诉我们哪里不满意，生成会更准</Text>
             </View>
             <View style={styles.aiRegenerateActions}>
-              <Pressable disabled={avatarRetrying} onPress={() => setAvatarRegenerateConfirmVisible(false)} style={[styles.aiRegenerateCancel, webPressableReset]}>
+              <Pressable accessibilityLabel="cancel-avatar-regenerate" accessibilityRole="button" disabled={avatarRetrying} onPress={() => setAvatarRegenerateConfirmVisible(false)} style={[styles.aiRegenerateCancel, webPressableReset]}>
                 <Text style={styles.aiRegenerateCancelText}>取消</Text>
               </Pressable>
               <Pressable
+                accessibilityLabel="confirm-avatar-regenerate"
+                accessibilityRole="button"
                 disabled={avatarRetrying}
                 onPress={() => {
                   setAvatarRegenerateConfirmVisible(false);

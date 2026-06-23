@@ -265,6 +265,19 @@ async function main() {
     await waitBodyIncludes(page, smokeVaccineName);
     await screenshot(page, 'smoke-frontend-00g-vaccine-completed.png');
 
+    await page.goto(`${baseUrl}/?route=aiResult`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await page.getByLabel('select-avatar-candidate-1').click();
+    await page.getByLabel('open-avatar-feedback').click();
+    await page.getByLabel('avatar-feedback-chip-color_lighter').click();
+    await screenshot(page, 'smoke-frontend-00h-avatar-feedback-open.png');
+    await page.getByLabel('cancel-avatar-feedback').click();
+    await page.getByLabel('open-avatar-regenerate-confirm').click();
+    await screenshot(page, 'smoke-frontend-00i-avatar-regenerate-confirm.png');
+    await page.getByLabel('cancel-avatar-regenerate').click();
+    await page.getByLabel('save-avatar-result').click();
+    await waitExactText(page, '早安，Lucky！');
+    await screenshot(page, 'smoke-frontend-00j-avatar-saved-home.png');
+
     await page.goto(`${baseUrl}/?route=memoNew`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '新增健康备忘');
     await page.getByPlaceholder('例如：洗澡记录、复诊提醒').fill('洗澡记录');
