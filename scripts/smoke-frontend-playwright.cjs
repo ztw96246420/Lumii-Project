@@ -483,6 +483,23 @@ async function main() {
     }
     await screenshot(page, 'smoke-frontend-02j-place-review-status.png');
 
+    await page.goto(`${baseUrl}/?route=map`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '附近宠物友好地点');
+    await page.getByLabel('open-place-submission-composer').click();
+    await waitExactText(page, '新增地点');
+    await page.getByLabel('place-draft-name-input').fill('PW新增宠物公园');
+    await page.getByLabel('place-draft-address-input').fill('Playwright 路 18 号');
+    await clickExactText(page, '饮水点');
+    await page.getByLabel('place-draft-experience-input').fill('Playwright 新增地点：草坪宽敞，饮水点清楚，牵引绳友好。');
+    await page.getByLabel('submit-place-draft').click();
+    await waitExactText(page, '提交成功');
+    await waitExactText(page, '地点已提交');
+    await waitBodyIncludes(page, 'PW新增宠物公园');
+    await waitBodyIncludes(page, 'Playwright 新增地点：草坪宽敞，饮水点清楚，牵引绳友好。');
+    await screenshot(page, 'smoke-frontend-02k-place-submission-created.png');
+    await clickExactText(page, '回到地图');
+    await waitExactText(page, '附近宠物友好地点');
+
     await page.goto(`${baseUrl}/?route=dailyPost`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '今日小事');
     await page

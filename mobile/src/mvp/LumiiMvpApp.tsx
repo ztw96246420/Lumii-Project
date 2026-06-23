@@ -630,7 +630,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'editPet' || value === 'greetingRequests' || value === 'health' || value === 'healthCalendar' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'uploadNoPet' || value === 'vaccine' || value === 'weight') return value;
+  if (value === 'addPlaceReview' || value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'editPet' || value === 'greetingRequests' || value === 'health' || value === 'healthCalendar' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'uploadNoPet' || value === 'vaccine' || value === 'weight') return value;
   return null;
 }
 
@@ -10781,7 +10781,7 @@ export default function LumiiMvpApp() {
               <Pressable onPress={() => void locateMapToCurrentPosition()} style={styles.mapCtrlButton}>
                 {locatingMap ? <ActivityIndicator color={palette.orange} size="small" /> : <MapPin color={palette.orange} size={16} strokeWidth={2.4} />}
               </Pressable>
-              <Pressable onPress={() => void openPlaceSubmissionComposer()} style={styles.mapCtrlButton}>
+              <Pressable accessibilityLabel="open-place-submission-composer" accessibilityRole="button" onPress={() => void openPlaceSubmissionComposer()} style={styles.mapCtrlButton}>
                 <Plus color={palette.ink} size={16} strokeWidth={2.4} />
               </Pressable>
               <Pressable onPress={() => setMapStylePanelVisible((visible) => !visible)} style={[styles.mapCtrlButton, mapStylePanelVisible && styles.mapCtrlButtonActive]}>
@@ -12622,7 +12622,7 @@ export default function LumiiMvpApp() {
               <ChevronLeft color={palette.ink} size={18} strokeWidth={2.4} />
             </Pressable>
             <Text style={styles.addPlaceHeaderTitleMake}>{headerTitle}</Text>
-            <Pressable disabled={saving} onPress={submitComposer} style={[styles.addPlaceHeaderPublishMake, saving && styles.opacity60, webPressableReset]}>
+            <Pressable accessibilityLabel={isReviewMode ? 'header-place-review-submit' : 'header-place-draft-submit'} accessibilityRole="button" disabled={saving} onPress={submitComposer} style={[styles.addPlaceHeaderPublishMake, saving && styles.opacity60, webPressableReset]}>
               {saving ? <ActivityIndicator color={palette.orange} size="small" /> : <Text style={styles.addPlaceHeaderPublishTextMake}>{submitLabel}</Text>}
             </Pressable>
           </View>
@@ -12643,6 +12643,7 @@ export default function LumiiMvpApp() {
                   <MapPin color={palette.orange} size={16} strokeWidth={2.5} />
                 </View>
                 <TextInput
+                  accessibilityLabel="place-draft-name-input"
                   onChangeText={setPlaceDraftName}
                   placeholder="例如：阳光宠物公园"
                   placeholderTextColor="#B8AEA4"
@@ -12656,6 +12657,7 @@ export default function LumiiMvpApp() {
                   <Navigation color={palette.teal} size={16} strokeWidth={2.5} />
                 </View>
                 <TextInput
+                  accessibilityLabel="place-draft-address-input"
                   onChangeText={setPlaceDraftAddress}
                   placeholder="搜索或输入地址"
                   placeholderTextColor="#B8AEA4"
@@ -12727,6 +12729,7 @@ export default function LumiiMvpApp() {
 
           <Text style={styles.addPlaceFieldLabelMake}>{isReviewMode ? '写下你的体验' : '写下宠物友好体验'}</Text>
           <TextInput
+            accessibilityLabel={isReviewMode ? 'place-review-content-input' : 'place-draft-experience-input'}
             multiline
             onChangeText={setBodyValue}
             placeholder={bodyPlaceholder}
@@ -12778,7 +12781,7 @@ export default function LumiiMvpApp() {
             </View>
           ) : null}
 
-          <Pressable disabled={saving} onPress={submitComposer} style={[styles.addPlaceSubmitButtonMake, saving && styles.opacity60, webPressableReset]}>
+          <Pressable accessibilityLabel={isReviewMode ? 'submit-place-review' : 'submit-place-draft'} accessibilityRole="button" disabled={saving} onPress={submitComposer} style={[styles.addPlaceSubmitButtonMake, saving && styles.opacity60, webPressableReset]}>
             {saving ? <ActivityIndicator color="#fff" size="small" /> : isReviewMode ? <PenLine color="#fff" size={15} strokeWidth={2.5} /> : <Shield color="#fff" size={15} strokeWidth={2.5} />}
             <Text style={styles.addPlaceSubmitTextMake}>{isReviewMode ? '发布点评' : '提交审核'}</Text>
           </Pressable>
