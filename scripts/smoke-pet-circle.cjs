@@ -1026,6 +1026,34 @@ async function run() {
   await refreshPresence(readTargetToken, viewerLoc);
   const readSenderOwnerId = `user-${readSenderPhone}`;
   const readTargetOwnerId = `user-${readTargetPhone}`;
+  const readTargetProfilePost = await request('/social/pet-circle/posts', {
+    body: {
+      content: 'profile page should expose accepted pet circle history',
+      imageUrls: ['https://cdn.example.com/lumii/pet-circle/profile-history.jpg'],
+      location: viewerLoc,
+      visibility: 'nearby',
+    },
+    method: 'POST',
+    token: readTargetToken,
+  });
+  const readTargetOwnProfile = await request('/social/pet-circle/profiles/me/posts', { token: readTargetToken });
+  assert.equal(readTargetOwnProfile.data.profile.ownedByMe, true, 'own pet circle profile should be marked as owned');
+  assert.equal(readTargetOwnProfile.data.profile.canChangeCover, true, 'own pet circle profile should allow cover changes');
+  assert.ok(
+    readTargetOwnProfile.data.items.some((item) => item.id === readTargetProfilePost.data.id && item.ownedByMe),
+    'own pet circle profile should include owned posts',
+  );
+  const readTargetCover = await request('/social/pet-circle/profile/cover', {
+    body: { coverImageUrl: 'lumii://pet-circle-cover-smoke' },
+    method: 'PATCH',
+    token: readTargetToken,
+  });
+  assert.equal(readTargetCover.data.coverImageUrl, 'lumii://pet-circle-cover-smoke', 'cover endpoint should persist the selected profile cover');
+  await expectApiError(`/social/pet-circle/profiles/${encodeURIComponent(readTargetOwnerId)}/posts`, {
+    code: 'PET_CIRCLE_PROFILE_FORBIDDEN',
+    status: 403,
+    token: readSenderToken,
+  });
   await request('/social/greetings', {
     body: { ownerId: readTargetOwnerId },
     method: 'POST',
@@ -1038,6 +1066,16 @@ async function run() {
     method: 'POST',
     token: readTargetToken,
   });
+  const readTargetAcceptedProfile = await request(`/social/pet-circle/profiles/${encodeURIComponent(readTargetOwnerId)}/posts`, {
+    token: readSenderToken,
+  });
+  assert.equal(readTargetAcceptedProfile.data.profile.ownedByMe, false, 'accepted peer pet circle profile should not be marked as owned');
+  assert.equal(readTargetAcceptedProfile.data.profile.canChangeCover, false, 'accepted peer pet circle profile should not allow cover changes');
+  assert.equal(readTargetAcceptedProfile.data.profile.relationshipStatus, 'accepted', 'accepted peer pet circle profile should expose relationship status');
+  assert.ok(
+    readTargetAcceptedProfile.data.items.some((item) => item.id === readTargetProfilePost.data.id && item.ownedByMe === false),
+    'accepted peer pet circle profile posts should not be marked as mine',
+  );
   const readTargetNotificationsAfterAccept = await request('/notifications', { token: readTargetToken });
   assert.ok(
     !readTargetNotificationsAfterAccept.data.some((item) => (item.kind === 'greeting_request' || item.kind === 'pet_circle_greeting') && item.ownerId === readSenderOwnerId),

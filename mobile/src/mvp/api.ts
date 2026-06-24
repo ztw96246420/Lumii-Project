@@ -24,6 +24,8 @@ import type {
   NearbyMoment,
   NearbyOwner,
   PetCircleComment,
+  PetCircleProfile,
+  PetCircleProfilePostList,
   PetCirclePostList,
   PetCircleReportResult,
   NotificationItem,
@@ -354,6 +356,19 @@ function createHttpApi(baseUrl: string): LumiiApi {
         const locationQuery = nearbyLocationQuery(location);
         const query = locationQuery ? `?${locationQuery}` : '';
         return request<NearbyMoment>('GET', `/social/pet-circle/posts/${encodeURIComponent(postId)}${query}`);
+      },
+
+      async listPetCircleProfilePosts(ownerId = 'me', options: { cursor?: string; limit?: number } = {}): Promise<ApiResult<PetCircleProfilePostList>> {
+        const queryParts = [
+          options.cursor ? `cursor=${encodeURIComponent(options.cursor)}` : '',
+          options.limit ? `limit=${encodeURIComponent(options.limit)}` : '',
+        ].filter(Boolean);
+        const query = queryParts.length ? `?${queryParts.join('&')}` : '';
+        return request<PetCircleProfilePostList>('GET', `/social/pet-circle/profiles/${encodeURIComponent(ownerId || 'me')}/posts${query}`);
+      },
+
+      async updatePetCircleCover(coverImageUrl: string): Promise<ApiResult<PetCircleProfile>> {
+        return request<PetCircleProfile>('PATCH', '/social/pet-circle/profile/cover', { coverImageUrl });
       },
 
       async createMoment(content: string, mood?: string, photoCount = 0, options: { imageUrls?: string[]; location?: NearbyLocationHint | null; syncToHealthCalendar?: boolean; visibility?: 'nearby' | 'private' } = {}): Promise<ApiResult<NearbyMoment>> {

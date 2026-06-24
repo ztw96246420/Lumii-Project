@@ -70,6 +70,7 @@ export type PetProfile = {
   id: string;
   name: string;
   personality: string[];
+  petCircleCoverImageUrl?: string;
   species: PetSpecies;
   weightKg?: number;
 };
@@ -348,6 +349,31 @@ export type PetCirclePostList = {
   nextCursor?: string;
 };
 
+export type PetCircleProfile = {
+  avatarUrl?: string;
+  canChangeCover?: boolean;
+  coverImageUrl?: string;
+  latestPostAt?: string;
+  ownerId: string;
+  ownerName: string;
+  ownedByMe: boolean;
+  petName: string;
+  relationshipStatus?: 'accepted' | 'self';
+  species: Extract<PetSpecies, 'cat' | 'dog'>;
+  stats: {
+    commentCount: number;
+    likeCount: number;
+    photoCount: number;
+    postCount: number;
+  };
+};
+
+export type PetCircleProfilePostList = {
+  items: NearbyMoment[];
+  nextCursor?: string;
+  profile: PetCircleProfile;
+};
+
 export type PetCircleReportResult = {
   id: string;
   reported: true;
@@ -554,6 +580,7 @@ export type AppRoute =
   | 'permissions'
   | 'petDetail'
   | 'petInfo'
+  | 'petCircleProfile'
   | 'placeDetail'
   | 'profile'
   | 'safety'

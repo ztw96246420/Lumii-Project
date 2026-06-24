@@ -4011,10 +4011,11 @@ function socialMomentAccessError(moment, viewer, options = {}) {
   if ((moment.visibility || 'nearby') !== 'nearby') return { error: '这条小事已不可见', statusCode: 404 };
   if (socialBlockBetween(viewer.phone, moment.phone)) return { error: '这条小事已不可见', statusCode: 404 };
   if (!options.ignoreReports && socialReportFor(viewer, 'post', moment.id)) return { error: '这条小事已不可见', statusCode: 404 };
+  if (moment.phone === viewer.phone) return null;
+  if (acceptedGreetingBetween(viewer.phone, moment.phone)) return null;
   const createdAtMs = new Date(moment.createdAt).getTime();
   const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
   if (!Number.isFinite(createdAtMs) || Date.now() - createdAtMs > maxAgeMs) return { error: '这条小事已不可见', statusCode: 404 };
-  if (moment.phone === viewer.phone) return null;
   if (!canViewNearbyUser(viewer, owner, nearbyRadiusKmFor(viewer))) return { error: '这条小事已不可见', statusCode: 404 };
   return null;
 }
@@ -4130,6 +4131,107 @@ function listNearbyMomentsPage(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, op
 
 function listNearbyMoments(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, options = {}) {
   return listNearbyMomentsPage(viewer, radiusKm, options).items;
+}
+
+function resolvePetCircleProfileTarget(viewer, ownerId = 'me') {
+  const normalizedOwnerId = String(ownerId || 'me');
+  if (normalizedOwnerId === 'me' || normalizedOwnerId === `user-${viewer.phone}`) {
+    const pet = activePetFor(viewer);
+    if (!pet) return { error: '请先为宠物建档后再查看宠友圈', statusCode: 400 };
+    return { ownedByMe: true, relationshipStatus: 'self', targetPhone: viewer.phone, targetUser: viewer };
+  }
+  const targetPhone = resolveOwnerId(normalizedOwnerId);
+  const targetUser = targetPhone ? state.users[targetPhone] : null;
+  if (!targetPhone || !targetUser || targetPhone === viewer.phone) return { error: '宠友圈暂不可见', statusCode: 404 };
+  if (!activePetFor(targetUser)) return { error: '宠友圈暂不可见', statusCode: 404 };
+  if (socialBlockBetween(viewer.phone, targetPhone)) return { error: '宠友圈暂不可见', statusCode: 404 };
+  if (!acceptedGreetingBetween(viewer.phone, targetPhone)) return { error: '双方同意招呼后才能查看完整宠友圈', statusCode: 403 };
+  targetUser.settings = normalizeUserSettings(targetUser.settings);
+  if (targetUser.settings.nearbyVisible === false) return { error: '宠友圈暂不可见', statusCode: 404 };
+  return { ownedByMe: false, relationshipStatus: 'accepted', targetPhone, targetUser };
+}
+
+function petCircleProfilePostEntries(viewer, targetUser, options = {}) {
+  const includeReported = targetUser.phone === viewer.phone;
+  return ensureSocialMoments()
+    .map((moment, index) => ({ index, moment }))
+    .filter(({ moment }) => moment.phone === targetUser.phone)
+    .filter(({ moment }) => moment.status !== 'deleted')
+    .filter(({ moment }) => (moment.visibility || 'nearby') === 'nearby')
+    .filter(({ moment }) => includeReported || !socialReportFor(viewer, 'post', moment.id))
+    .map(({ index, moment }) => {
+      const createdAtMs = new Date(moment.createdAt).getTime();
+      if (!Number.isFinite(createdAtMs)) return null;
+      const distanceKm = distanceKmBetween(viewer.location, targetUser.location);
+      return {
+        card: buildNearbyMomentCard(moment, targetUser, viewer, index, distanceKm ?? undefined),
+        createdAtMs,
+        moment,
+      };
+    })
+    .filter((entry) => entry && entry.card)
+    .sort((a, b) => b.createdAtMs - a.createdAtMs);
+}
+
+function defaultPetCircleCoverImageUrl(pet, posts = []) {
+  return (
+    pet?.petCircleCoverImageUrl ||
+    posts.flatMap((post) => (Array.isArray(post.imageUrls) ? post.imageUrls : [])).find(Boolean) ||
+    pet?.avatarUrl ||
+    ''
+  );
+}
+
+function buildPetCircleProfile(viewer, targetUser, entries, target = {}) {
+  const pet = activePetFor(targetUser);
+  const cards = entries.map((entry) => entry.card).filter(Boolean);
+  const suffix = targetUser.phone.slice(-4);
+  return {
+    avatarUrl: pet?.avatarUrl,
+    canChangeCover: Boolean(target.ownedByMe),
+    coverImageUrl: defaultPetCircleCoverImageUrl(pet, cards),
+    latestPostAt: cards[0]?.createdAt,
+    ownerId: `user-${targetUser.phone}`,
+    ownerName: targetUser.ownerName || `用户${suffix}`,
+    ownedByMe: Boolean(target.ownedByMe),
+    petName: pet?.name || `灵伴${suffix}`,
+    relationshipStatus: target.relationshipStatus || (target.ownedByMe ? 'self' : 'accepted'),
+    species: pet?.species === 'cat' ? 'cat' : 'dog',
+    stats: {
+      commentCount: cards.reduce((sum, post) => sum + (post.commentCount || 0), 0),
+      likeCount: cards.reduce((sum, post) => sum + (post.likeCount || 0), 0),
+      photoCount: cards.reduce((sum, post) => sum + ((Array.isArray(post.imageUrls) ? post.imageUrls.length : post.photoCount) || 0), 0),
+      postCount: cards.length,
+    },
+  };
+}
+
+function listPetCircleProfilePosts(viewer, ownerId = 'me', options = {}) {
+  const target = resolvePetCircleProfileTarget(viewer, ownerId);
+  if (target.error) return target;
+  const limit = petCircleListLimit(options.limit, 20);
+  const offset = decodePetCircleCursor(options.cursor);
+  const entries = petCircleProfilePostEntries(viewer, target.targetUser, options);
+  const pageEntries = entries.slice(offset, offset + limit);
+  const nextOffset = offset + pageEntries.length;
+  const page = {
+    items: pageEntries.map((entry) => entry.card).filter(Boolean),
+    profile: buildPetCircleProfile(viewer, target.targetUser, entries, target),
+  };
+  if (nextOffset < entries.length) page.nextCursor = encodePetCircleCursor(nextOffset);
+  return { page };
+}
+
+async function updatePetCircleCover(req, user, body = {}) {
+  const pet = activePetFor(user);
+  if (!pet) return { error: '请先为宠物建档后再更换封面', statusCode: 400 };
+  const coverImageUrl = String(body.coverImageUrl || '').trim();
+  if (!coverImageUrl) return { error: '请选择可用的封面图', statusCode: 400 };
+  if (coverImageUrl.length > 2000) return { error: '封面图地址过长，请重新选择', statusCode: 400 };
+  if (isLocalImagePlaceholderUrl(coverImageUrl)) return { error: '封面图还没有上传完成，请重新选择', statusCode: 400 };
+  pet.petCircleCoverImageUrl = await storeAvatarUrlToCos(req, user, coverImageUrl, { petId: pet.id, scope: 'pet-circle-cover' });
+  const entries = petCircleProfilePostEntries(user, user);
+  return { profile: buildPetCircleProfile(user, user, entries, { ownedByMe: true, relationshipStatus: 'self' }) };
 }
 
 function getPetCirclePostCard(postId, viewer) {
@@ -5596,6 +5698,31 @@ async function handle(req, res) {
     }
     const viewerForMoments = location ? { ...user, location } : user;
     ok(res, listNearbyMomentsPage(viewerForMoments, location?.radiusKm || user.location?.radiusKm || DEFAULT_DISCOVER_RADIUS_KM, { cursor, limit }));
+    return;
+  }
+
+  const petCircleProfilePostsMatch = pathname.match(/^\/social\/pet-circle\/profiles\/([^/]+)\/posts$/);
+  if (req.method === 'GET' && petCircleProfilePostsMatch) {
+    const ownerId = decodeURIComponent(petCircleProfilePostsMatch[1]);
+    const cursor = url.searchParams.get('cursor') || '';
+    const limit = url.searchParams.get('limit') || 30;
+    const result = listPetCircleProfilePosts(user, ownerId, { cursor, limit });
+    if (result.error) {
+      fail(res, result.statusCode || 404, result.error, false, undefined, 'PET_CIRCLE_PROFILE_FORBIDDEN');
+      return;
+    }
+    ok(res, result.page);
+    return;
+  }
+
+  if (req.method === 'PATCH' && pathname === '/social/pet-circle/profile/cover') {
+    const result = await updatePetCircleCover(req, user, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'PET_CIRCLE_COVER_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, result.profile);
     return;
   }
 

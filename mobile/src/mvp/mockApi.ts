@@ -24,6 +24,8 @@ import type {
   NearbyMoment,
   NearbyOwner,
   PetCircleComment,
+  PetCircleProfile,
+  PetCircleProfilePostList,
   PetCirclePostList,
   PetCircleReportResult,
   NotificationCategory,
@@ -1082,6 +1084,183 @@ const mockPetCircleInteractionFixtureOwners: Record<string, string> = {
   'mock-fixture-pet-circle-interaction': 'o1',
 };
 
+const mockPetCircleDefaultCoverUrl = 'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=900';
+
+function currentMockOwnerId() {
+  return `mock-${currentMockPhone}`;
+}
+
+function petCircleProfileCursorOffset(cursor?: string) {
+  const offset = Math.floor(Number(cursor) || 0);
+  return Math.max(0, offset);
+}
+
+function petCircleProfileLimit(value?: number, fallback = 20) {
+  const limit = Math.floor(Number(value) || fallback);
+  return Math.max(1, Math.min(50, limit));
+}
+
+function mockPetCircleVisibleProfilePosts(ownerId = 'me') {
+  ensureMockMyPetCircleProfileFixtures();
+  ensureMockPetCircleInteractionFixtures();
+  const normalizedOwnerId = ownerId && ownerId !== 'me' ? ownerId : currentMockOwnerId();
+  return nearbyMoments
+    .filter((moment) => moment.ownerId === normalizedOwnerId)
+    .filter((moment) => (moment.visibility ?? 'nearby') === 'nearby')
+    .filter((moment) => !petCircleReportedPostIds.includes(moment.id))
+    .map((moment) => ({
+      ...moment,
+      commentCount: petCircleComments.filter((comment) => comment.postId === moment.id && !petCircleReportedCommentIds.includes(comment.id)).length,
+      likedByMe: petCircleLikedIds.includes(moment.id),
+      likeCount: moment.likeCount ?? (petCircleLikedIds.includes(moment.id) ? 1 : 0),
+      ownedByMe: moment.ownerId === currentMockOwnerId(),
+    }))
+    .sort((left, right) => {
+      const leftTime = new Date(left.createdAt).getTime();
+      const rightTime = new Date(right.createdAt).getTime();
+      return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
+    });
+}
+
+function buildMockPetCircleProfile(ownerId = 'me', posts?: NearbyMoment[]): PetCircleProfile {
+  const normalizedOwnerId = ownerId && ownerId !== 'me' ? ownerId : currentMockOwnerId();
+  const ownedByMe = normalizedOwnerId === currentMockOwnerId();
+  const pet = activeMockPet();
+  const owner = owners.find((item) => item.id === normalizedOwnerId);
+  const profilePosts = posts ?? mockPetCircleVisibleProfilePosts(normalizedOwnerId);
+  const latestPostAt = profilePosts[0]?.createdAt;
+  const latestPostImage = profilePosts.flatMap((post) => post.imageUrls ?? []).find(Boolean);
+  const avatarUrl = ownedByMe ? pet?.avatarUrl : owner?.imageUrl;
+  const coverImageUrl = ownedByMe
+    ? pet?.petCircleCoverImageUrl || latestPostImage || mockPetCircleDefaultCoverUrl
+    : latestPostImage || owner?.imageUrl || mockPetCircleDefaultCoverUrl;
+  return {
+    avatarUrl,
+    canChangeCover: ownedByMe,
+    coverImageUrl,
+    latestPostAt,
+    ownerId: normalizedOwnerId,
+    ownerName: ownedByMe ? mockOwnerName : owner?.ownerName ?? '附近宠友',
+    ownedByMe,
+    petName: ownedByMe ? pet?.name ?? '灵伴' : owner?.petName ?? '宠友',
+    relationshipStatus: ownedByMe ? 'self' : 'accepted',
+    species: (ownedByMe ? pet?.species : owner?.species) === 'cat' ? 'cat' : 'dog',
+    stats: {
+      commentCount: profilePosts.reduce((sum, post) => sum + (post.commentCount ?? 0), 0),
+      likeCount: profilePosts.reduce((sum, post) => sum + (post.likeCount ?? 0), 0),
+      photoCount: profilePosts.reduce((sum, post) => sum + ((post.imageUrls?.length ?? post.photoCount) || 0), 0),
+      postCount: profilePosts.length,
+    },
+  };
+}
+
+function ensureMockMyPetCircleProfileFixtures() {
+  if (!activeMockPet()) {
+    pets = [mockMultiPetFixturePets[0], ...pets.filter((pet) => pet.id !== mockMultiPetFixturePets[0].id)];
+    activePetId = mockMultiPetFixturePets[0].id;
+  }
+  const pet = activeMockPet();
+  if (!pet || nearbyMoments.some((moment) => moment.id === 'mock-my-circle-today-evening')) return;
+  const ownerId = currentMockOwnerId();
+  const now = new Date();
+  const todayLate = new Date(now);
+  todayLate.setHours(16, 42, 0, 0);
+  const todayEarly = new Date(now);
+  todayEarly.setHours(10, 18, 0, 0);
+  const lastWeek = new Date(now);
+  lastWeek.setDate(lastWeek.getDate() - 6);
+  lastWeek.setHours(18, 5, 0, 0);
+  const lastMonth = new Date(now);
+  lastMonth.setMonth(lastMonth.getMonth() - 1);
+  lastMonth.setDate(19);
+  lastMonth.setHours(19, 36, 0, 0);
+  const fixtures: NearbyMoment[] = [
+    {
+      commentCount: 8,
+      createdAt: todayLate.toISOString(),
+      distance: '附近',
+      id: 'mock-my-circle-today-evening',
+      imageUrl: pet.avatarUrl,
+      imageUrls: [
+        'https://images.unsplash.com/photo-1552053831-71594a27632d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=800',
+        'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+        'https://images.unsplash.com/photo-1587300003388-59208cc962cb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+      ],
+      likeCount: 24,
+      ownerId,
+      ownerName: mockOwnerName,
+      ownedByMe: true,
+      petName: pet.name,
+      photoCount: 3,
+      species: pet.species === 'cat' ? 'cat' : 'dog',
+      text: '今天阳光超好，我们去公园散步啦！遇到了新朋友，一起追泡泡、跑跑跳跳，开心到停不下来～',
+      visibility: 'nearby',
+    },
+    {
+      commentCount: 3,
+      createdAt: todayEarly.toISOString(),
+      distance: '附近',
+      id: 'mock-my-circle-today-morning',
+      imageUrl: pet.avatarUrl,
+      imageUrls: [
+        'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+        'https://images.unsplash.com/photo-1568572933382-74d440642117?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+      ],
+      likeCount: 12,
+      ownerId,
+      ownerName: mockOwnerName,
+      ownedByMe: true,
+      petName: pet.name,
+      photoCount: 2,
+      species: pet.species === 'cat' ? 'cat' : 'dog',
+      text: '早上吃饭饭很开心，顺手记录一下精神状态。',
+      visibility: 'nearby',
+    },
+    {
+      commentCount: 6,
+      createdAt: lastWeek.toISOString(),
+      distance: '附近',
+      id: 'mock-my-circle-last-week',
+      imageUrl: pet.avatarUrl,
+      imageUrls: [
+        'https://images.unsplash.com/photo-1598134493136-7b63ebbd7bde?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+        'https://images.unsplash.com/photo-1558788353-f76d92427f16?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+        'https://images.unsplash.com/photo-1537151625747-768eb6cf92b2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+      ],
+      likeCount: 18,
+      ownerId,
+      ownerName: mockOwnerName,
+      ownedByMe: true,
+      petName: pet.name,
+      photoCount: 3,
+      species: pet.species === 'cat' ? 'cat' : 'dog',
+      text: '周末小记，玩具被翻出来以后又兴奋了一整晚。',
+      visibility: 'nearby',
+    },
+    {
+      commentCount: 4,
+      createdAt: lastMonth.toISOString(),
+      distance: '附近',
+      id: 'mock-my-circle-last-month',
+      imageUrl: pet.avatarUrl,
+      imageUrls: [
+        'https://images.unsplash.com/photo-1507146426996-ef05306b995a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+        'https://images.unsplash.com/photo-1517849845537-4d257902454a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+      ],
+      likeCount: 15,
+      ownerId,
+      ownerName: mockOwnerName,
+      ownedByMe: true,
+      petName: pet.name,
+      photoCount: 2,
+      species: pet.species === 'cat' ? 'cat' : 'dog',
+      text: '晚霞超美，散步回来的路上忍不住拍了两张。',
+      visibility: 'nearby',
+    },
+  ];
+  nearbyMoments = [...fixtures, ...nearbyMoments.filter((moment) => !fixtures.some((fixture) => fixture.id === moment.id))];
+}
+
 function ensureMockPetCircleInteractionFixtures() {
   if (getMockWebPreviewParam('mockPetCircle') !== 'interactive') return;
   const now = Date.now();
@@ -1162,6 +1341,7 @@ function ensureMockGreetingRequestFixtures() {
 }
 
 function mockVisiblePetCircleMoments(includeOwn = true) {
+  if (includeOwn) ensureMockMyPetCircleProfileFixtures();
   ensureMockPetCircleInteractionFixtures();
   return nearbyMoments
     .filter((moment) => includeOwn || !moment.ownedByMe)
@@ -2332,6 +2512,35 @@ export const mockApi = {
       const moment = mockVisiblePetCircleMoments(true).find((item) => item.id === postId);
       if (!moment) return error<NearbyMoment>('这条小事已不可见', false, undefined, 'PET_CIRCLE_POST_GONE');
       return success(moment);
+    },
+
+    async listPetCircleProfilePosts(ownerId = 'me', options: { cursor?: string; limit?: number } = {}): Promise<ApiResult<PetCircleProfilePostList>> {
+      await wait(180);
+      const posts = mockPetCircleVisibleProfilePosts(ownerId);
+      const offset = petCircleProfileCursorOffset(options.cursor);
+      const limit = petCircleProfileLimit(options.limit, posts.length || 20);
+      const items = posts.slice(offset, offset + limit);
+      const nextOffset = offset + items.length;
+      return success({
+        items,
+        nextCursor: nextOffset < posts.length ? String(nextOffset) : undefined,
+        profile: buildMockPetCircleProfile(ownerId, posts),
+      });
+    },
+
+    async updatePetCircleCover(coverImageUrl: string): Promise<ApiResult<PetCircleProfile>> {
+      await wait(160);
+      const value = String(coverImageUrl || '').trim();
+      if (!value) return error<PetCircleProfile>('请选择可用的封面图', false, undefined, 'PET_CIRCLE_COVER_INVALID');
+      if (!activeMockPet()) {
+        pets = [mockMultiPetFixturePets[0], ...pets.filter((pet) => pet.id !== mockMultiPetFixturePets[0].id)];
+        activePetId = mockMultiPetFixturePets[0].id;
+      }
+      const pet = activeMockPet();
+      if (!pet) return error<PetCircleProfile>('请先为宠物建档后再更换封面', false, undefined, 'PET_CIRCLE_COVER_INVALID');
+      const updatedPet: PetProfile = { ...pet, petCircleCoverImageUrl: value };
+      pets = pets.map((item) => (item.id === updatedPet.id ? updatedPet : item));
+      return success(buildMockPetCircleProfile('me'));
     },
 
     async createMoment(content: string, mood?: string, photoCount = 0, options: { imageUrls?: string[]; location?: NearbyLocationHint | null; syncToHealthCalendar?: boolean; visibility?: 'nearby' | 'private' } = {}): Promise<ApiResult<NearbyMoment>> {

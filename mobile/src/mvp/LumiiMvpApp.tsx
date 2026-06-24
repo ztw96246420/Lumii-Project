@@ -24,7 +24,7 @@ import {
   StatusBar as NativeStatusBar,
   View,
 } from 'react-native';
-import type { KeyboardTypeOptions, RefreshControlProps, StyleProp, TextStyle, ViewStyle } from 'react-native';
+import type { ImageStyle, KeyboardTypeOptions, RefreshControlProps, StyleProp, TextStyle, ViewStyle } from 'react-native';
 import {
   AlertTriangle,
   AlertCircle,
@@ -55,6 +55,7 @@ import {
   MapPin,
   MessageCircle,
   Mic,
+  MoreHorizontal,
   Navigation,
   NotebookPen,
   PawPrint,
@@ -119,6 +120,8 @@ import type {
   NotificationItem,
   NotificationKind,
   PetCircleComment,
+  PetCircleProfile,
+  PetCircleProfilePostList,
   PetChatFeedbackRating,
   PermissionStateMap,
   PetProfile,
@@ -335,6 +338,62 @@ function formatChatDateChip(value?: string) {
   return text;
 }
 
+function petCircleProfileDate(value?: string) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function petCircleProfileDateKey(value?: string) {
+  const date = petCircleProfileDate(value);
+  if (!date) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function petCircleProfileMonthKey(value?: string) {
+  const date = petCircleProfileDate(value);
+  if (!date) return '未知';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function petCircleProfileMonthLabel(value?: string) {
+  const date = petCircleProfileDate(value);
+  if (!date) return '未知';
+  return `${date.getMonth() + 1}月`;
+}
+
+function petCircleProfileWeekdayLabel(value?: string) {
+  const date = petCircleProfileDate(value);
+  if (!date) return '';
+  return ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][date.getDay()] ?? '';
+}
+
+function petCircleProfileDayLabel(value?: string) {
+  const date = petCircleProfileDate(value);
+  if (!date) return '--';
+  if (isSameCalendarDay(date, new Date())) return '今天';
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (isSameCalendarDay(date, yesterday)) return '昨天';
+  return `${date.getMonth() + 1}-${date.getDate()}`;
+}
+
+function petCircleProfileExactTimeLabel(value?: string) {
+  const date = petCircleProfileDate(value);
+  if (!date) return '时间待确认';
+  return `${petCircleProfileDayLabel(value)} ${formatClockTime(date)}`;
+}
+
+function petCircleProfileRecentLabel(value?: string) {
+  const date = petCircleProfileDate(value);
+  if (!date) return '暂无';
+  if (isSameCalendarDay(date, new Date())) return '今天';
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (isSameCalendarDay(date, yesterday)) return '昨天';
+  return `${date.getMonth() + 1}-${date.getDate()}`;
+}
+
 function isPetChatWelcomeMessage(message?: ChatMessage) {
   return message?.id === 'pet-chat-welcome';
 }
@@ -434,6 +493,7 @@ const routeTitles: Partial<Record<AppRoute, string>> = {
   permissions: '权限设置',
   petDetail: '宠物档案',
   petInfo: '宠物信息',
+  petCircleProfile: '我发布的小事',
   placeDetail: '地点详情',
   profile: '我的',
   safety: '安全中心',
@@ -458,7 +518,7 @@ const tabBackToHomeRoutes = new Set<AppRoute>(['discover', 'map', 'messages', 'p
 const appExitPromptRoutes = new Set<AppRoute>(['emptyPet', 'home', 'login', 'permissions']);
 const focusedInboxRoutes = new Set<AppRoute>(['greetingRequests', 'messages', 'notifications']);
 const passiveInboxRoutes = new Set<AppRoute>(['discover', 'home', 'map', 'profile']);
-const petRequiredRoutes = new Set<AppRoute>(['aiResult', 'chat', 'dailyPost', 'editPet', 'generating', 'health', 'healthCalendar', 'healthMemos', 'home', 'memoEdit', 'memoNew', 'petDetail', 'upload', 'uploadDetail', 'uploadNoPet', 'vaccine', 'weight']);
+const petRequiredRoutes = new Set<AppRoute>(['aiResult', 'chat', 'dailyPost', 'editPet', 'generating', 'health', 'healthCalendar', 'healthMemos', 'home', 'memoEdit', 'memoNew', 'petCircleProfile', 'petDetail', 'upload', 'uploadDetail', 'uploadNoPet', 'vaccine', 'weight']);
 const avatarFlowRoutes = new Set<AppRoute>(['upload', 'uploadDetail', 'uploadNoPet', 'generating', 'aiResult']);
 const homeChatPrompts = [
   '今天想和{petName}聊点什么？',
@@ -628,7 +688,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'addPlaceReview' || value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'editPet' || value === 'greetingRequests' || value === 'health' || value === 'healthCalendar' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'uploadNoPet' || value === 'vaccine' || value === 'weight') return value;
+  if (value === 'addPlaceReview' || value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'editPet' || value === 'greetingRequests' || value === 'health' || value === 'healthCalendar' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petCircleProfile' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'uploadNoPet' || value === 'vaccine' || value === 'weight') return value;
   return null;
 }
 
@@ -762,6 +822,26 @@ const dailyPostMaxPhotoCount = 6;
 const petCircleCollapsedTextLength = 96;
 const petCircleCommentMaxLength = 140;
 const petCircleFallbackMomentSeeds: Array<NearbyMoment & { fallbackMinutesAgo: number }> = [
+  {
+    createdAt: '',
+    distance: '附近',
+    fallbackMinutesAgo: 6,
+    id: 'pet-circle-fallback-my-lucky',
+    imageUrl: generatedGoldenAvatarUri,
+    imageUrls: [
+      'https://images.unsplash.com/photo-1552053831-71594a27632d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=800',
+      'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+      'https://images.unsplash.com/photo-1587300003388-59208cc962cb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+    ],
+    likeCount: 0,
+    ownerId: 'mock-13800138000',
+    ownerName: '我',
+    ownedByMe: true,
+    petName: 'Lucky',
+    photoCount: 3,
+    species: 'dog',
+    text: '今天阳光超好，我们去公园散步啦！遇到了新朋友，一起追泡泡、跑跑跳跳，开心到停不下来～',
+  },
   {
     createdAt: '',
     distance: '1.2km',
@@ -1682,6 +1762,19 @@ export default function LumiiMvpApp() {
   const [petCircleReportingPostIds, setPetCircleReportingPostIds] = useState<string[]>([]);
   const [petCirclePhotoViewer, setPetCirclePhotoViewer] = useState<PetCirclePhotoViewerState | null>(null);
   const [petCircleOwnerSheetOwner, setPetCircleOwnerSheetOwner] = useState<NearbyOwner | null>(null);
+  const [petCircleProfileOwnerId, setPetCircleProfileOwnerId] = useState('me');
+  const petCircleProfileOwnerIdRef = useRef('me');
+  const [petCircleProfile, setPetCircleProfile] = useState<PetCircleProfile | null>(null);
+  const [petCircleProfilePosts, setPetCircleProfilePosts] = useState<NearbyMoment[]>([]);
+  const [petCircleProfileNextCursor, setPetCircleProfileNextCursor] = useState<string | undefined>();
+  const [petCircleProfileLoading, setPetCircleProfileLoading] = useState(false);
+  const petCircleProfileLoadingRef = useRef(false);
+  const [petCircleProfileLoadingMore, setPetCircleProfileLoadingMore] = useState(false);
+  const petCircleProfileLoadingMoreRef = useRef(false);
+  const [petCircleProfileError, setPetCircleProfileError] = useState('');
+  const [petCircleProfileActionPostId, setPetCircleProfileActionPostId] = useState('');
+  const [petCircleCoverUpdating, setPetCircleCoverUpdating] = useState(false);
+  const petCircleCoverUpdatingRef = useRef(false);
   const [socialBlocks, setSocialBlocks] = useState<SocialBlockListItem[]>([]);
   const [socialBlocksError, setSocialBlocksError] = useState('');
   const [socialBlocksLoading, setSocialBlocksLoading] = useState(false);
@@ -2147,6 +2240,10 @@ export default function LumiiMvpApp() {
   }, [selectedOwner?.id]);
 
   useEffect(() => {
+    petCircleProfileOwnerIdRef.current = petCircleProfileOwnerId;
+  }, [petCircleProfileOwnerId]);
+
+  useEffect(() => {
     setBootPetAvatarUri(activePet?.avatarUrl ?? null);
     setSession((current) => {
       if (!current?.account || arePetSnapshotsEqual(current.account.activePet, activePet)) return current;
@@ -2188,6 +2285,11 @@ export default function LumiiMvpApp() {
     if (!session || route !== 'home' || isHomePreviewMode) return;
     void loadNearbyMoments({ silent: true });
   }, [isHomePreviewMode, route, session, userSettings.nearbyVisible]);
+
+  useEffect(() => {
+    if (!session || route !== 'petCircleProfile') return;
+    void loadPetCircleProfilePosts(petCircleProfileOwnerIdRef.current || 'me', { silent: true });
+  }, [activePet?.id, route, session]);
 
   useEffect(() => {
     if (route !== 'home' || nearbyMoments.length <= 1) return undefined;
@@ -5859,6 +5961,235 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function applyPetCircleProfilePage(page: PetCircleProfilePostList, options: { append?: boolean } = {}) {
+    setPetCircleProfile(page.profile);
+    setPetCircleProfileNextCursor(page.nextCursor);
+    setPetCircleProfileError('');
+    setPetCircleProfilePosts((current) => {
+      if (!options.append) return sortPetCircleMomentsByRecency(page.items);
+      const currentIds = new Set(current.map((item) => item.id));
+      const additions = page.items.filter((item) => !currentIds.has(item.id));
+      return additions.length ? sortPetCircleMomentsByRecency([...current, ...additions]) : current;
+    });
+  }
+
+  async function loadPetCircleProfilePosts(ownerId = petCircleProfileOwnerIdRef.current || 'me', options: { append?: boolean; cursor?: string; silent?: boolean } = {}) {
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return null;
+    if (options.append) {
+      if (petCircleProfileLoadingMoreRef.current) return null;
+      petCircleProfileLoadingMoreRef.current = true;
+      setPetCircleProfileLoadingMore(true);
+    } else {
+      if (petCircleProfileLoadingRef.current) return null;
+      petCircleProfileLoadingRef.current = true;
+      setPetCircleProfileLoading(true);
+    }
+    try {
+      const result = await lumiiApi.social.listPetCircleProfilePosts(ownerId || 'me', { cursor: options.cursor, limit: options.append ? 20 : 30 });
+      if (sessionTokenRef.current !== requestSessionToken) return null;
+      if (ownerId !== petCircleProfileOwnerIdRef.current && !(ownerId === 'me' && petCircleProfileOwnerIdRef.current === '')) return null;
+      if (result.data) {
+        applyPetCircleProfilePage(result.data, { append: options.append });
+        return result.data;
+      }
+      const message = result.error?.message ?? '宠友圈加载失败，请稍后重试';
+      if (!options.append) {
+        setPetCircleProfileError(message);
+        setPetCircleProfilePosts([]);
+        setPetCircleProfileNextCursor(undefined);
+      }
+      if (!options.silent) showToast(message, { tone: 'error', variant: 'surface' });
+      return null;
+    } finally {
+      if (options.append) {
+        petCircleProfileLoadingMoreRef.current = false;
+        setPetCircleProfileLoadingMore(false);
+      } else {
+        petCircleProfileLoadingRef.current = false;
+        setPetCircleProfileLoading(false);
+      }
+    }
+  }
+
+  function openPetCircleProfile(ownerId = 'me') {
+    const nextOwnerId = ownerId || 'me';
+    petCircleProfileOwnerIdRef.current = nextOwnerId;
+    setPetCircleProfileOwnerId(nextOwnerId);
+    setPetCircleProfileActionPostId('');
+    setPetCircleCommentPostId('');
+    setPetCircleCommentDraft('');
+    void loadPetCircleProfilePosts(nextOwnerId);
+    go('petCircleProfile');
+  }
+
+  async function loadMorePetCircleProfilePosts() {
+    const cursor = petCircleProfileNextCursor;
+    if (!cursor) return;
+    await loadPetCircleProfilePosts(petCircleProfileOwnerIdRef.current || 'me', { append: true, cursor });
+  }
+
+  async function refreshPetCircleProfilePosts(options: { silent?: boolean } = {}) {
+    return loadPetCircleProfilePosts(petCircleProfileOwnerIdRef.current || 'me', { silent: options.silent });
+  }
+
+  async function pickPetCircleCover() {
+    if (petCircleCoverUpdatingRef.current) return;
+    if (!petCircleProfile?.ownedByMe) return;
+    petCircleCoverUpdatingRef.current = true;
+    setPetCircleCoverUpdating(true);
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        showToast('请先允许访问相册', { tone: 'warning', variant: 'surface' });
+        return;
+      }
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: true,
+        aspect: [16, 9],
+        base64: true,
+        mediaTypes: ['images'],
+        quality: 0.82,
+      });
+      if (pickerResult.canceled || !pickerResult.assets?.[0]) return;
+      const uploadDraft = buildAvatarUploadDraft(pickerResult.assets[0]);
+      if (!uploadDraft.draft) {
+        showToast(uploadDraft.error ?? '封面图读取失败，请重新选择', { tone: 'warning', variant: 'surface' });
+        return;
+      }
+      const uploadResult = await lumiiApi.avatar.uploadPetMedia({
+        base64: uploadDraft.draft.base64,
+        fileName: uploadDraft.draft.fileName,
+        mimeType: uploadDraft.draft.mimeType,
+        previewUrl: uploadDraft.draft.uri,
+        source: uploadDraft.draft.source ?? 'library',
+      });
+      if (!uploadResult.data) {
+        showToast(uploadResult.error?.message ?? '封面图上传失败，请稍后重试', { tone: 'error', variant: 'surface' });
+        return;
+      }
+      if (uploadResult.data.quality === 'blocked') {
+        showToast(uploadResult.data.analysis.message || '这张图片暂不适合作为公开封面', { tone: 'warning', variant: 'surface' });
+        return;
+      }
+      const publicUrl = uploadResult.data.fileUrl || uploadResult.data.previewUrl;
+      if (!publicUrl) {
+        showToast('封面图上传后没有生成可访问地址，请稍后重试', { tone: 'error', variant: 'surface' });
+        return;
+      }
+      const result = await lumiiApi.social.updatePetCircleCover(publicUrl);
+      if (!result.data) {
+        showToast(result.error?.message ?? '封面更新失败，请稍后重试', { tone: 'error', variant: 'surface' });
+        return;
+      }
+      setPetCircleProfile(result.data);
+      setActivePet((pet) => (pet ? { ...pet, petCircleCoverImageUrl: result.data!.coverImageUrl } : pet));
+      setPets((items) => items.map((pet) => (pet.id === activePetIdRef.current ? { ...pet, petCircleCoverImageUrl: result.data!.coverImageUrl } : pet)));
+      showToast('封面已更新', { tone: 'success', variant: 'surface' });
+    } finally {
+      petCircleCoverUpdatingRef.current = false;
+      setPetCircleCoverUpdating(false);
+    }
+  }
+
+  async function loadPetCircleProfileComments(postId: string, options: { silent?: boolean } = {}) {
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
+    setPetCircleCommentLoadingId(postId);
+    try {
+      const result = await lumiiApi.social.listPetCircleComments(postId);
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (result.data) {
+        setPetCircleCommentsByPostId((items) => ({ ...items, [postId]: result.data! }));
+      } else if (!options.silent) {
+        showToast(result.error?.message ?? '评论加载失败，请稍后重试', { tone: 'error', variant: 'surface' });
+      }
+    } finally {
+      setPetCircleCommentLoadingId((current) => (current === postId ? '' : current));
+    }
+  }
+
+  function openPetCircleProfileComments(post: NearbyMoment) {
+    setPetCircleProfileActionPostId('');
+    setPetCircleCommentPostId(post.id);
+    setPetCircleCommentDraft('');
+    if (!petCircleCommentsByPostId[post.id]) void loadPetCircleProfileComments(post.id, { silent: true });
+  }
+
+  async function sendPetCircleProfileComment(post: NearbyMoment) {
+    const content = petCircleCommentDraft.trim();
+    if (!content) {
+      showToast('先写一句评论吧');
+      return;
+    }
+    if (content.length > petCircleCommentMaxLength) {
+      showToast(`评论最多 ${petCircleCommentMaxLength} 字`);
+      return;
+    }
+    if (petCircleCommentSending) return;
+    setPetCircleCommentSending(true);
+    try {
+      const result = await lumiiApi.social.createPetCircleComment(post.id, content);
+      if (result.data) {
+        setPetCircleCommentDraft('');
+        setPetCircleCommentsByPostId((items) => ({ ...items, [post.id]: result.data! }));
+        setPetCircleProfilePosts((items) => items.map((item) => (item.id === post.id ? { ...item, commentCount: result.data!.length } : item)));
+        setNearbyMoments((items) => items.map((item) => (item.id === post.id ? { ...item, commentCount: result.data!.length } : item)));
+        void refreshPetCircleProfilePosts({ silent: true });
+      } else {
+        showToast(result.error?.message ?? '评论发送失败，请稍后重试', { tone: 'error', variant: 'surface' });
+      }
+    } finally {
+      setPetCircleCommentSending(false);
+    }
+  }
+
+  async function deletePetCircleProfileComment(comment: PetCircleComment) {
+    if (petCircleDeletingCommentIds.includes(comment.id)) return;
+    setPetCircleDeletingCommentIds((ids) => [...ids, comment.id]);
+    try {
+      const result = await lumiiApi.social.deletePetCircleComment(comment.id);
+      if (result.data) {
+        setPetCircleCommentsByPostId((items) => {
+          const nextComments = (items[comment.postId] ?? []).filter((item) => item.id !== comment.id);
+          setPetCircleProfilePosts((posts) => posts.map((post) => (post.id === comment.postId ? { ...post, commentCount: nextComments.length } : post)));
+          setNearbyMoments((posts) => posts.map((post) => (post.id === comment.postId ? { ...post, commentCount: nextComments.length } : post)));
+          return { ...items, [comment.postId]: nextComments };
+        });
+        void refreshPetCircleProfilePosts({ silent: true });
+      } else {
+        showToast(result.error?.message ?? '删除评论失败，请稍后重试', { tone: 'error', variant: 'surface' });
+      }
+    } finally {
+      setPetCircleDeletingCommentIds((ids) => ids.filter((id) => id !== comment.id));
+    }
+  }
+
+  async function deletePetCircleProfilePost(post: NearbyMoment) {
+    if (!post.ownedByMe || petCircleDeletingPostIds.includes(post.id)) return;
+    setPetCircleProfileActionPostId('');
+    setPetCircleDeletingPostIds((ids) => [...ids, post.id]);
+    try {
+      const result = await lumiiApi.social.deletePetCirclePost(post.id);
+      if (result.data) {
+        setPetCircleProfilePosts((items) => items.filter((item) => item.id !== post.id));
+        setNearbyMoments((items) => items.filter((item) => item.id !== post.id));
+        setPetCircleCommentsByPostId((items) => {
+          const next = { ...items };
+          delete next[post.id];
+          return next;
+        });
+        if (petCircleCommentPostId === post.id) setPetCircleCommentPostId('');
+        showToast('小事已删除', { tone: 'success', variant: 'surface' });
+        void refreshPetCircleProfilePosts({ silent: true });
+      } else {
+        showToast(result.error?.message ?? '删除小事失败，请稍后重试', { tone: 'error', variant: 'surface' });
+      }
+    } finally {
+      setPetCircleDeletingPostIds((ids) => ids.filter((id) => id !== post.id));
+    }
+  }
+
   async function refreshDiscoverByPull() {
     if (discoverRefreshingRef.current) return;
     if (!userSettingsRef.current.nearbyVisible) {
@@ -5925,12 +6256,6 @@ export default function LumiiMvpApp() {
     setDiscoverFilter(filter);
     const label = discoverFilterOptions.find((item) => item.key === filter)?.label ?? '全部';
     showToast(filter === 'all' ? '已显示全部附近伙伴' : `已筛选：${label}`);
-  }
-
-  function cycleDiscoverFilter() {
-    const currentIndex = discoverFilterOptions.findIndex((item) => item.key === discoverFilter);
-    const nextFilter = discoverFilterOptions[(currentIndex + 1) % discoverFilterOptions.length]?.key ?? 'all';
-    applyDiscoverFilter(nextFilter);
   }
 
   function openClinicMapSearch(message = '正在查找附近宠物医院') {
@@ -9643,6 +9968,350 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderPetCircleProfile() {
+    const profile = petCircleProfile;
+    const coverUri = profile?.coverImageUrl || getCurrentPet()?.petCircleCoverImageUrl || petCircleProfilePosts.find((post) => post.imageUrls?.length)?.imageUrls?.[0] || getCurrentPet()?.avatarUrl || generatedGoldenAvatarUri;
+    const coverSource = coverUri && !isGeneratedAvatarUri(coverUri) ? { uri: coverUri } : generatedGoldenAvatarSource;
+    const avatarUri = profile?.avatarUrl || getCurrentPet()?.avatarUrl || generatedGoldenAvatarUri;
+    const selectedCommentPost = petCircleCommentPostId ? petCircleProfilePosts.find((post) => post.id === petCircleCommentPostId) ?? null : null;
+    const selectedViewerPost = petCirclePhotoViewer ? petCircleProfilePosts.find((post) => post.id === petCirclePhotoViewer.postId) ?? null : null;
+    const viewerIndex = selectedViewerPost ? Math.min(petCirclePhotoViewer?.index ?? 0, selectedViewerPost.imageUrls?.length ? selectedViewerPost.imageUrls.length - 1 : 0) : 0;
+    const monthGroups = petCircleProfilePosts.reduce<Array<{ key: string; label: string; posts: NearbyMoment[] }>>((groups, post) => {
+      const key = petCircleProfileMonthKey(post.createdAt);
+      const existing = groups.find((group) => group.key === key);
+      if (existing) existing.posts.push(post);
+      else groups.push({ key, label: petCircleProfileMonthLabel(post.createdAt), posts: [post] });
+      return groups;
+    }, []);
+
+    const renderProfilePhotoStrip = (post: NearbyMoment, compact = false) => {
+      const photos = (post.imageUrls ?? []).slice(0, 6);
+      if (!photos.length) return null;
+      const renderPhoto = (uri: string, index: number, style: ImageStyle | ImageStyle[]) => {
+        const displayedCount = compact ? Math.min(photos.length, 3) : photos.length >= 3 ? 3 : photos.length;
+        const extraCount = index === displayedCount - 1 && photos.length > displayedCount ? photos.length - displayedCount : 0;
+        return (
+          <Pressable
+            key={`${post.id}-profile-photo-${index}`}
+            onPress={() => setPetCirclePhotoViewer({ index, postId: post.id })}
+            style={[style, webPressableReset]}
+          >
+            <Image resizeMode="cover" source={{ uri }} style={styles.avatarImage} />
+            {extraCount ? (
+              <View style={styles.petCircleProfilePhotoMoreMake}>
+                <Text style={styles.petCircleProfilePhotoMoreTextMake}>+{extraCount}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        );
+      };
+      if (!compact && photos.length >= 3) {
+        return (
+          <View style={styles.petCircleProfileFeaturedPhotoGridMake}>
+            {renderPhoto(photos[0], 0, styles.petCircleProfileFeaturedPhotoLargeMake)}
+            <View style={styles.petCircleProfileFeaturedPhotoStackMake}>
+              {renderPhoto(photos[1], 1, styles.petCircleProfileFeaturedPhotoStackItemMake)}
+              {renderPhoto(photos[2], 2, styles.petCircleProfileFeaturedPhotoStackItemMake)}
+            </View>
+          </View>
+        );
+      }
+      if (!compact && photos.length === 1) {
+        return (
+          <View style={styles.petCircleProfileFeaturedPhotoGridMake}>
+            {renderPhoto(photos[0], 0, styles.petCircleProfileFeaturedPhotoSingleMake)}
+          </View>
+        );
+      }
+      const visiblePhotos = photos.slice(0, compact ? 3 : 2);
+      return (
+        <View style={compact ? styles.petCircleProfilePhotoStripCompactMake : styles.petCircleProfileFeaturedPhotoGridMake}>
+          {visiblePhotos.map((uri, index) => renderPhoto(uri, index, compact ? styles.petCircleProfilePhotoThumbCompactMake : styles.petCircleProfileFeaturedPhotoHalfMake))}
+        </View>
+      );
+    };
+
+    const renderProfilePost = (post: NearbyMoment, index: number, previousPost?: NearbyMoment) => {
+      const dateKey = petCircleProfileDateKey(post.createdAt);
+      const previousDateKey = petCircleProfileDateKey(previousPost?.createdAt);
+      const sameDateAsPrevious = Boolean(previousPost && dateKey && dateKey === previousDateKey);
+      const deleting = petCircleDeletingPostIds.includes(post.id);
+      const actionOpen = petCircleProfileActionPostId === post.id;
+      const canDelete = Boolean(profile?.ownedByMe && post.ownedByMe);
+      const featured = post.id === petCircleProfilePosts[0]?.id;
+      const compact = !featured;
+      const dateCol = (
+        <View style={styles.petCircleProfileDateColMake}>
+          <Text style={sameDateAsPrevious ? styles.petCircleProfileSameDayTimeMake : styles.petCircleProfileDayMake}>
+            {sameDateAsPrevious ? formatClockTime(petCircleProfileDate(post.createdAt) ?? new Date()) : petCircleProfileDayLabel(post.createdAt)}
+          </Text>
+          <Text style={styles.petCircleProfileWeekMake}>{sameDateAsPrevious ? '同日' : petCircleProfileWeekdayLabel(post.createdAt)}</Text>
+        </View>
+      );
+      const postMeta = (
+        <View style={styles.petCircleProfilePostMetaMake}>
+          <View style={styles.petCircleProfileMetricMake}>
+            <Heart color={palette.orange} size={16} strokeWidth={2.2} />
+            <Text style={styles.petCircleProfileMetricTextMake}>{post.likeCount ?? 0}</Text>
+          </View>
+          <Pressable onPress={() => openPetCircleProfileComments(post)} style={[styles.petCircleProfileMetricMake, webPressableReset]}>
+            <MessageCircle color={palette.ink} size={16} strokeWidth={2.2} />
+            <Text style={styles.petCircleProfileMetricTextMake}>{post.commentCount ?? 0}</Text>
+          </Pressable>
+          <View style={styles.flex} />
+          <View style={styles.petCircleProfileActionAnchorMake}>
+            <Pressable
+              accessibilityLabel="打开小事操作菜单"
+              accessibilityRole="button"
+              onPress={() => setPetCircleProfileActionPostId((current) => (current === post.id ? '' : post.id))}
+              style={[styles.petCircleProfileMoreButtonMake, webPressableReset]}
+            >
+              <MoreHorizontal color={palette.muted} size={20} strokeWidth={2.6} />
+            </Pressable>
+            {actionOpen ? (
+              <View style={styles.petCircleProfileActionMenuMake}>
+                <Pressable onPress={() => openPetCircleProfileComments(post)} style={[styles.petCircleProfileActionMenuItemMake, webPressableReset]}>
+                  <MessageCircle color={palette.ink} size={17} strokeWidth={2.4} />
+                  <Text style={styles.petCircleProfileActionMenuTextMake}>查看评论</Text>
+                </Pressable>
+                {canDelete ? (
+                  <Pressable disabled={deleting} onPress={() => void deletePetCircleProfilePost(post)} style={[styles.petCircleProfileActionMenuItemMake, deleting && styles.mapSearchActionDisabled, webPressableReset]}>
+                    {deleting ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={17} strokeWidth={2.4} />}
+                    <Text style={[styles.petCircleProfileActionMenuTextMake, styles.petCircleProfileActionMenuDangerTextMake]}>{deleting ? '删除中' : '删除'}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        </View>
+      );
+      return (
+        <View key={post.id} style={styles.petCircleProfilePostRowMake}>
+          <View style={[styles.petCircleProfilePostCardMake, featured && styles.petCircleProfileFeaturedPostCardMake, compact && styles.petCircleProfilePostCardCompactMake]}>
+            {featured ? (
+              <View style={styles.petCircleProfileLatestBadgeMake}>
+                <Text style={styles.petCircleProfileLatestBadgeTextMake}>最新</Text>
+              </View>
+            ) : null}
+            {compact ? (
+              <View style={styles.petCircleProfileCompactRowMake}>
+                {dateCol}
+                <View style={styles.petCircleProfileCompactContentMake}>
+                  <View style={styles.petCircleProfileCompactBodyMake}>
+                    {renderProfilePhotoStrip(post, true)}
+                    <View style={styles.flex}>
+                      <Text numberOfLines={1} style={styles.petCircleProfilePostPetNameMake}>{post.petName}</Text>
+                      <Text numberOfLines={1} style={styles.petCircleProfilePostTimeMake}>{petCircleProfileExactTimeLabel(post.createdAt)}</Text>
+                      <Text numberOfLines={2} style={styles.petCircleProfilePostTextMake}>{post.text}</Text>
+                      {postMeta}
+                    </View>
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.petCircleProfileFeaturedBodyMake}>
+                <View style={styles.petCircleProfileFeaturedPhotosMake}>{renderProfilePhotoStrip(post)}</View>
+                <View style={styles.petCircleProfileFeaturedTextMake}>
+                  <Text numberOfLines={1} style={styles.petCircleProfilePostPetNameMake}>{post.petName}</Text>
+                  <Text numberOfLines={1} style={styles.petCircleProfilePostTimeMake}>{petCircleProfileExactTimeLabel(post.createdAt)}</Text>
+                  <Text numberOfLines={5} style={styles.petCircleProfilePostTextMake}>{post.text}</Text>
+                  {post.distance ? (
+                    <View style={styles.petCircleProfilePlaceMake}>
+                      <MapPin color={palette.teal} size={12} strokeWidth={2.5} />
+                      <Text numberOfLines={1} style={styles.petCircleProfilePlaceTextMake}>{post.distance === '附近' ? '附近公开' : post.distance}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            )}
+            {compact ? null : postMeta}
+          </View>
+        </View>
+      );
+    };
+
+    return (
+      <View style={styles.screen}>
+        {Platform.OS === 'web' ? <PhoneStatusBar /> : null}
+        <ScrollView
+          contentContainerStyle={styles.petCircleProfilePageMake}
+          keyboardDismissMode="none"
+          keyboardShouldPersistTaps="always"
+          refreshControl={<RefreshControl colors={[palette.orange]} onRefresh={() => void refreshPetCircleProfilePosts()} refreshing={petCircleProfileLoading} tintColor={palette.orange} />}
+          showsVerticalScrollIndicator={false}
+          style={styles.routeScroll}
+        >
+          <View style={styles.petCircleProfileTopBarMake}>
+            <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={[styles.petCircleProfileBackMake, webPressableReset]}>
+              <ChevronLeft color={palette.ink} size={22} strokeWidth={3} />
+            </Pressable>
+            <Text numberOfLines={1} style={styles.petCircleProfileTitleMake}>{profile?.ownedByMe === false ? `${profile.petName} 的宠友圈` : '我发布的小事'}</Text>
+            <Pressable accessibilityLabel="发布小事" accessibilityRole="button" onPress={() => go('dailyPost')} style={[styles.petCircleProfilePublishMake, webPressableReset]}>
+              <Text style={styles.petCircleProfilePublishTextMake}>发布</Text>
+            </Pressable>
+          </View>
+          <View style={styles.petCircleProfileCoverMake}>
+            <Image resizeMode="cover" source={coverSource} style={styles.avatarImage} />
+            {profile?.canChangeCover ? (
+              <Pressable disabled={petCircleCoverUpdating} onPress={() => void pickPetCircleCover()} style={[styles.petCircleProfileCoverButtonMake, petCircleCoverUpdating && styles.mapSearchActionDisabled, webPressableReset]}>
+                {petCircleCoverUpdating ? <ActivityIndicator color={palette.ink} size="small" /> : <Camera color={palette.ink} size={15} strokeWidth={2.5} />}
+                <Text style={styles.petCircleProfileCoverButtonTextMake}>{petCircleCoverUpdating ? '上传中' : '更换封面'}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          <View style={styles.petCircleProfileHeaderMake}>
+            <View style={styles.petCircleProfileAvatarWrapMake}>
+              <PetAvatar uri={avatarUri} size={96} />
+            </View>
+            <View style={styles.petCircleProfileHeaderTextMake}>
+              <View style={styles.petCircleProfileNameRowMake}>
+                <Text numberOfLines={1} style={styles.petCircleProfileNameMake}>{profile?.petName ?? getCurrentPet()?.name ?? '灵伴'} 的宠友圈</Text>
+                {profile?.ownedByMe ? (
+                  <View style={styles.petCircleProfileMineBadgeMake}>
+                    <Text style={styles.petCircleProfileMineBadgeTextMake}>我</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text numberOfLines={1} style={styles.petCircleProfileSubMake}>{profile?.ownedByMe ? '我的宠友圈公开记录' : `${profile?.ownerName ?? '宠友'} 的公开小事`}</Text>
+            </View>
+            <View style={styles.petCircleProfileStatsMake}>
+              <View style={styles.petCircleProfileStatMake}>
+                <Text style={styles.petCircleProfileStatValueMake}>{profile?.stats.postCount ?? 0}</Text>
+                <Text style={styles.petCircleProfileStatLabelMake}>条小事</Text>
+              </View>
+              <View style={styles.petCircleProfileStatDividerMake} />
+              <View style={styles.petCircleProfileStatMake}>
+                <Text style={styles.petCircleProfileStatValueMake}>{profile?.stats.photoCount ?? 0}</Text>
+                <Text style={styles.petCircleProfileStatLabelMake}>张照片</Text>
+              </View>
+              <View style={styles.petCircleProfileStatDividerMake} />
+              <View style={styles.petCircleProfileStatMake}>
+                <Text style={styles.petCircleProfileStatSmallMake}>最近发布</Text>
+                <Text style={styles.petCircleProfileStatRecentMake}>{petCircleProfileRecentLabel(profile?.latestPostAt)}</Text>
+              </View>
+            </View>
+          </View>
+          {petCircleProfileError ? (
+            <View style={styles.petCircleProfileEmptyMake}>
+              <Text style={styles.petCircleProfileEmptyTitleMake}>宠友圈暂不可见</Text>
+              <Text style={styles.petCircleProfileEmptyDescMake}>{petCircleProfileError}</Text>
+              <Pressable onPress={() => void refreshPetCircleProfilePosts()} style={[styles.petCircleProfileRetryMake, webPressableReset]}>
+                <Text style={styles.petCircleProfileRetryTextMake}>重新加载</Text>
+              </Pressable>
+            </View>
+          ) : petCircleProfileLoading && !petCircleProfilePosts.length ? (
+            <View style={styles.petCircleProfileEmptyMake}>
+              <ActivityIndicator color={palette.orange} size="small" />
+              <Text style={styles.petCircleProfileEmptyDescMake}>正在加载小事</Text>
+            </View>
+          ) : !petCircleProfilePosts.length ? (
+            <View style={styles.petCircleProfileEmptyMake}>
+              <Text style={styles.petCircleProfileEmptyTitleMake}>还没有公开小事</Text>
+              <Text style={styles.petCircleProfileEmptyDescMake}>{profile?.ownedByMe ? '发布今日小事后，会在这里形成你的宠友圈归档。' : '对方暂时还没有公开过小事。'}</Text>
+            </View>
+          ) : (
+            <View style={styles.petCircleProfileArchiveMake}>
+              {monthGroups.map((group) => (
+                <View key={group.key} style={styles.petCircleProfileMonthGroupMake}>
+                  <Text style={styles.petCircleProfileMonthTitleMake}>{group.label}</Text>
+                  {group.posts.map((post, index) => renderProfilePost(post, index, group.posts[index - 1]))}
+                </View>
+              ))}
+              {petCircleProfileNextCursor ? (
+                <Pressable disabled={petCircleProfileLoadingMore} onPress={() => void loadMorePetCircleProfilePosts()} style={[styles.petCircleProfileLoadMoreMake, petCircleProfileLoadingMore && styles.mapSearchActionDisabled, webPressableReset]}>
+                  {petCircleProfileLoadingMore ? <ActivityIndicator color={palette.orange} size="small" /> : <ArrowDown color={palette.orange} size={14} strokeWidth={2.5} />}
+                  <Text style={styles.petCircleProfileLoadMoreTextMake}>{petCircleProfileLoadingMore ? '加载中' : '加载更多小事'}</Text>
+                </Pressable>
+              ) : (
+                <Text style={styles.petCircleProfileEndTextMake}>已看到全部公开小事</Text>
+              )}
+            </View>
+          )}
+        </ScrollView>
+        <BottomSheet contentStyle={styles.petCircleCommentsSheetMake} onClose={() => { setPetCircleCommentPostId(''); setPetCircleCommentDraft(''); }} visible={Boolean(selectedCommentPost)}>
+          {selectedCommentPost ? (
+            <>
+              <View style={styles.petCircleSheetHeaderMake}>
+                <View style={styles.petCircleSheetIconMake}>
+                  <MessageCircle color={palette.orange} size={18} strokeWidth={2.5} />
+                </View>
+                <View style={styles.flex}>
+                  <Text style={styles.sheetTitle}>{selectedCommentPost.petName} 的评论</Text>
+                  <Text style={styles.petCircleSheetMetaMake}>{selectedCommentPost.commentCount ?? 0} 条评论 · {petCircleProfileExactTimeLabel(selectedCommentPost.createdAt)}</Text>
+                </View>
+              </View>
+              <View style={styles.petCircleCommentListMake}>
+                {petCircleCommentLoadingId === selectedCommentPost.id ? (
+                  <View style={styles.petCircleCommentLoadingMake}>
+                    <ActivityIndicator color={palette.orange} size="small" />
+                    <Text style={styles.petCircleCommentLoadingTextMake}>正在加载评论</Text>
+                  </View>
+                ) : (petCircleCommentsByPostId[selectedCommentPost.id] ?? []).map((comment) => {
+                  const deletingComment = petCircleDeletingCommentIds.includes(comment.id);
+                  const canDeleteComment = Boolean(comment.ownedByMe || selectedCommentPost.ownedByMe);
+                  return (
+                    <View key={comment.id} style={styles.petCircleCommentRowMake}>
+                      <PetAvatar uri={comment.avatarUrl ?? generatedGoldenAvatarUri} size={32} />
+                      <View style={styles.flex}>
+                        <View style={styles.petCircleCommentTitleRowMake}>
+                          <Text style={styles.petCircleCommentAuthorMake}>{comment.author}</Text>
+                          <Text style={styles.petCircleCommentTimeMake}>{formatTimestampDisplay(comment.createdAt)}</Text>
+                        </View>
+                        <Text style={styles.petCircleCommentTextMake}>{comment.text}</Text>
+                      </View>
+                      {canDeleteComment ? (
+                        <Pressable disabled={deletingComment} onPress={() => void deletePetCircleProfileComment(comment)} style={[styles.petCircleCommentDeleteMake, deletingComment && styles.mapSearchActionDisabled, webPressableReset]}>
+                          {deletingComment ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={14} strokeWidth={2.4} />}
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  );
+                })}
+                {!(petCircleCommentsByPostId[selectedCommentPost.id] ?? []).length && petCircleCommentLoadingId !== selectedCommentPost.id ? (
+                  <View style={styles.petCircleCommentEmptyMake}>
+                    <Text style={styles.petCircleCommentLoadingTextMake}>还没有评论，来写第一句吧</Text>
+                  </View>
+                ) : null}
+              </View>
+              <View style={styles.petCircleCommentInputRowMake}>
+                <TextInput
+                  maxLength={petCircleCommentMaxLength}
+                  onChangeText={setPetCircleCommentDraft}
+                  placeholder="写评论..."
+                  placeholderTextColor={palette.muted}
+                  style={[styles.petCircleCommentInputMake, webTextInputReset]}
+                  value={petCircleCommentDraft}
+                />
+                <Text style={styles.petCircleCommentCounterMake}>{petCircleCommentDraft.length}/{petCircleCommentMaxLength}</Text>
+                <Pressable disabled={petCircleCommentSending} onPress={() => void sendPetCircleProfileComment(selectedCommentPost)} style={[styles.petCircleCommentSendMake, petCircleCommentSending && styles.mapSearchActionDisabled, webPressableReset]}>
+                  {petCircleCommentSending ? <ActivityIndicator color="#fff" size="small" /> : <Send color="#fff" size={14} strokeWidth={2.5} />}
+                </Pressable>
+              </View>
+            </>
+          ) : null}
+        </BottomSheet>
+        <Modal animationType="fade" transparent visible={Boolean(selectedViewerPost && selectedViewerPost.imageUrls?.length)}>
+          <View style={styles.petCircleViewerBackdropMake}>
+            {selectedViewerPost ? (
+              <View style={styles.petCircleViewerMake}>
+                <View style={styles.petCircleViewerHeaderMake}>
+                  <Pressable onPress={() => setPetCirclePhotoViewer(null)} style={[styles.petCircleViewerIconButtonMake, webPressableReset]}>
+                    <X color="#fff" size={18} strokeWidth={2.6} />
+                  </Pressable>
+                  <Text style={styles.petCircleViewerCounterMake}>{viewerIndex + 1}/{selectedViewerPost.imageUrls?.length ?? 0}</Text>
+                  <View style={styles.petCircleViewerIconButtonMake} />
+                </View>
+                <View style={styles.petCircleViewerImageWrapMake}>
+                  <Image resizeMode="contain" source={{ uri: selectedViewerPost.imageUrls?.[viewerIndex] ?? '' }} style={styles.avatarImage} />
+                </View>
+              </View>
+            ) : null}
+          </View>
+        </Modal>
+      </View>
+    );
+  }
+
   function renderDiscover() {
     const discoverEnabled = userSettings.nearbyVisible;
     const locationDenied = ['blocked', 'denied', 'unavailable'].includes(permissions.location);
@@ -10162,7 +10831,14 @@ export default function LumiiMvpApp() {
             <PetAvatar uri={post.imageUrl ?? generatedGoldenAvatarUri} size={42} />
             <View style={styles.flex}>
               <View style={styles.petCircleNameRowMake}>
-                <Text numberOfLines={1} style={styles.petCirclePetNameMake}>{post.petName}</Text>
+                <View style={styles.petCircleIdentityMake}>
+                  <Text numberOfLines={1} style={styles.petCirclePetNameMake}>{post.petName}</Text>
+                  {post.ownedByMe ? (
+                    <View style={styles.petCircleMineBadgeMake}>
+                      <Text style={styles.petCircleMineBadgeTextMake}>我</Text>
+                    </View>
+                  ) : null}
+                </View>
                 <View style={styles.petCircleDistancePillMake}>
                   <MapPin color={palette.teal} size={10} strokeWidth={2.4} />
                   <Text numberOfLines={1} style={styles.petCircleDistanceTextMake}>{post.distance}</Text>
@@ -10495,6 +11171,19 @@ export default function LumiiMvpApp() {
                     <Text style={styles.ownerGhostButtonTextMake}>打个招呼</Text>
                   </Pressable>
                 )}
+                {conversation ? (
+                  <Pressable
+                    accessibilityLabel="查看资料卡宠友圈"
+                    onPress={() => {
+                      setPetCircleOwnerSheetOwner(null);
+                      openPetCircleProfile(owner.id);
+                    }}
+                    style={[styles.ownerGhostButtonMake, webPressableReset]}
+                  >
+                    <NotebookPen color={palette.orange} size={13} strokeWidth={2.4} />
+                    <Text style={styles.ownerGhostButtonTextMake}>宠友圈</Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   accessibilityLabel="约遛资料卡宠友"
                   onPress={() => {
@@ -10533,8 +11222,14 @@ export default function LumiiMvpApp() {
               <Pressable accessibilityLabel="搜索附近内容" accessibilityRole="button" disabled={discoverRefreshing} onPress={openDiscoverSearch} style={[styles.makeIconChip, discoverRefreshing && styles.mapSearchActionDisabled]}>
                 {discoverRefreshing ? <ActivityIndicator color={palette.ink} size="small" /> : <Search color={palette.ink} size={16} strokeWidth={2.3} />}
               </Pressable>
-              <Pressable accessibilityLabel="切换附近筛选" accessibilityRole="button" onPress={cycleDiscoverFilter} style={styles.makeIconChip}>
-                <SlidersHorizontal color={palette.ink} size={16} strokeWidth={2.3} />
+              <Pressable
+                accessibilityLabel="查看我发布的小事"
+                accessibilityRole="button"
+                onPress={() => openPetCircleProfile('me')}
+                style={[styles.discoverMyPostsButtonMake, webPressableReset]}
+              >
+                <User color={palette.ink} size={14} strokeWidth={2.4} />
+                <Text style={styles.discoverMyPostsButtonTextMake}>我的小事</Text>
               </Pressable>
             </View>
           </View>
@@ -13189,6 +13884,8 @@ export default function LumiiMvpApp() {
       case 'editPet':
       case 'petInfo':
         return renderPetInfo();
+      case 'petCircleProfile':
+        return renderPetCircleProfile();
       case 'emptyPet':
         return renderEmptyPet();
       case 'generating':
@@ -15101,6 +15798,8 @@ const styles = StyleSheet.create({
   discoverEmptySummaryTextMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
   discoverEmptyTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 19, fontWeight: '700', letterSpacing: 0, lineHeight: 26, marginTop: 20, textAlign: 'center' },
   discoverMakeHeader: { alignItems: 'center', flexDirection: 'row', height: 46, justifyContent: 'space-between' },
+  discoverMyPostsButtonMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 5, height: 36, justifyContent: 'center', paddingHorizontal: 11 },
+  discoverMyPostsButtonTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800', lineHeight: 16 },
   discoverSearchBarMake: { marginBottom: 10, minHeight: 46, paddingHorizontal: 12 },
   discoverSearchClearMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 13, height: 26, justifyContent: 'center', width: 26 },
   discoverTabActiveMake: { backgroundColor: '#fff', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.10, shadowRadius: 18 },
@@ -15173,11 +15872,14 @@ const styles = StyleSheet.create({
   petCircleGreetButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 16, flex: 1, flexDirection: 'row', gap: 5, height: 34, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.24, shadowRadius: 18 },
   petCircleGreetButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '800' },
   petCircleHeaderActionsMake: { alignItems: 'center', flexDirection: 'row', gap: 6 },
+  petCircleIdentityMake: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 6, minWidth: 0 },
   petCircleLoadMoreMake: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 8, height: 44, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.06, shadowRadius: 16 },
   petCircleLoadMoreTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '800', lineHeight: 18 },
   petCircleMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 2 },
+  petCircleMineBadgeMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 10, flexShrink: 0, height: 20, justifyContent: 'center', minWidth: 22, paddingHorizontal: 6 },
+  petCircleMineBadgeTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 11, fontWeight: '900', lineHeight: 15 },
   petCircleNameRowMake: { alignItems: 'center', flexDirection: 'row', gap: 8, minWidth: 0 },
-  petCirclePetNameMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '800', lineHeight: 20 },
+  petCirclePetNameMake: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '800', lineHeight: 20 },
   petCircleOwnActionMake: { opacity: 0.72 },
   petCirclePhotoLargeMake: { borderRadius: 16, flex: 1, overflow: 'hidden' },
   petCirclePhotoMosaicMake: { flexDirection: 'row', gap: 7, height: 172, marginTop: 12 },
@@ -15188,6 +15890,83 @@ const styles = StyleSheet.create({
   petCircleOwnerSheetHeaderMake: { alignItems: 'center', flexDirection: 'row', gap: 12 },
   petCircleOwnerSheetMake: { gap: 12, paddingHorizontal: 22, paddingTop: 16 },
   petCircleOwnerTapMake: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 10, minWidth: 0 },
+  petCircleProfileActionAnchorMake: { position: 'relative' },
+  petCircleProfileActionMenuDangerTextMake: { color: palette.danger },
+  petCircleProfileActionMenuItemMake: { alignItems: 'center', flexDirection: 'row', gap: 10, minHeight: 44, paddingHorizontal: 14 },
+  petCircleProfileActionMenuMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, bottom: 34, position: 'absolute', right: 0, shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.16, shadowRadius: 28, width: 134, zIndex: 20 },
+  petCircleProfileActionMenuTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '800', lineHeight: 19 },
+  petCircleProfileArchiveMake: { gap: 18, paddingBottom: 28, paddingHorizontal: 14 },
+  petCircleProfileAvatarWrapMake: { alignSelf: 'flex-start', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 54, borderWidth: 4, marginLeft: 18, marginTop: -42, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
+  petCircleProfileBackMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.88)', borderRadius: 24, height: 48, justifyContent: 'center', width: 48 },
+  petCircleProfileCompactBodyMake: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  petCircleProfileCoverButtonMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.90)', borderColor: 'rgba(255,255,255,0.62)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 38, paddingHorizontal: 13, position: 'absolute', right: 14, top: 18 },
+  petCircleProfileCoverButtonTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '800', lineHeight: 17 },
+  petCircleProfileCompactContentMake: { flex: 1, minWidth: 0 },
+  petCircleProfileCompactRowMake: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  petCircleProfileCoverMake: { backgroundColor: palette.pale, height: 138, marginTop: 8, overflow: 'hidden' },
+  petCircleProfileDateColMake: { alignItems: 'center', flexShrink: 0, width: 58 },
+  petCircleProfileDayMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 21, fontWeight: '900', lineHeight: 27 },
+  petCircleProfileEmptyDescMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 20, marginTop: 8, textAlign: 'center' },
+  petCircleProfileEmptyMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, marginHorizontal: 14, marginTop: 18, paddingHorizontal: 22, paddingVertical: 26 },
+  petCircleProfileEmptyTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '900', lineHeight: 23, textAlign: 'center' },
+  petCircleProfileEndTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 18, textAlign: 'center' },
+  petCircleProfileFeaturedBodyMake: { flexDirection: 'row', gap: 12 },
+  petCircleProfileFeaturedPhotoGridMake: { flexDirection: 'row', gap: 4, height: 158 },
+  petCircleProfileFeaturedPhotoHalfMake: { backgroundColor: palette.pale, borderRadius: 10, flex: 1, height: 132, overflow: 'hidden', position: 'relative' },
+  petCircleProfileFeaturedPhotoLargeMake: { backgroundColor: palette.pale, borderRadius: 10, flex: 1.2, height: '100%', overflow: 'hidden', position: 'relative' },
+  petCircleProfileFeaturedPhotoSingleMake: { backgroundColor: palette.pale, borderRadius: 10, flex: 1, height: '100%', overflow: 'hidden', position: 'relative' },
+  petCircleProfileFeaturedPhotoStackItemMake: { backgroundColor: palette.pale, borderRadius: 9, flex: 1, overflow: 'hidden', position: 'relative' },
+  petCircleProfileFeaturedPhotoStackMake: { flex: 0.86, gap: 4 },
+  petCircleProfileFeaturedPostCardMake: { padding: 10 },
+  petCircleProfileFeaturedPhotosMake: { flex: 1.08, minWidth: 0 },
+  petCircleProfileFeaturedTextMake: { flex: 0.92, minWidth: 0 },
+  petCircleProfileHeaderMake: { backgroundColor: '#fffdf9', paddingBottom: 18 },
+  petCircleProfileHeaderTextMake: { marginTop: -46, minHeight: 62, paddingLeft: 132, paddingRight: 18 },
+  petCircleProfileLatestBadgeMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 10, height: 22, justifyContent: 'center', left: 12, paddingHorizontal: 8, position: 'absolute', top: 12, zIndex: 4 },
+  petCircleProfileLatestBadgeTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '900', lineHeight: 16 },
+  petCircleProfileLoadMoreMake: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 8, height: 44, justifyContent: 'center' },
+  petCircleProfileLoadMoreTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '800', lineHeight: 18 },
+  petCircleProfileMetricMake: { alignItems: 'center', flexDirection: 'row', gap: 6, minHeight: 28, minWidth: 46 },
+  petCircleProfileMetricTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  petCircleProfileMineBadgeMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 12, height: 24, justifyContent: 'center', minWidth: 26, paddingHorizontal: 7 },
+  petCircleProfileMineBadgeTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 13, fontWeight: '900', lineHeight: 17 },
+  petCircleProfileMonthGroupMake: { gap: 10 },
+  petCircleProfileMonthTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '900', lineHeight: 30, paddingHorizontal: 4 },
+  petCircleProfileMoreButtonMake: { alignItems: 'center', borderRadius: 16, height: 32, justifyContent: 'center', width: 36 },
+  petCircleProfileNameMake: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 24, fontWeight: '900', includeFontPadding: false, lineHeight: 31 },
+  petCircleProfileNameRowMake: { alignItems: 'center', flexDirection: 'row', gap: 10, minWidth: 0 },
+  petCircleProfilePageMake: { backgroundColor: palette.background, paddingBottom: 18 },
+  petCircleProfilePhotoMoreMake: { alignItems: 'center', backgroundColor: 'rgba(27,28,25,0.46)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
+  petCircleProfilePhotoMoreTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 22, fontWeight: '900' },
+  petCircleProfilePhotoStripCompactMake: { flexDirection: 'row', flexShrink: 0, gap: 5, width: 160 },
+  petCircleProfilePhotoStripMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 3 },
+  petCircleProfilePhotoThumbCompactMake: { backgroundColor: palette.pale, borderRadius: 8, height: 58, overflow: 'hidden', position: 'relative', width: 48 },
+  petCircleProfilePhotoThumbMake: { backgroundColor: palette.pale, borderRadius: 10, height: 96, minWidth: 64, overflow: 'hidden', position: 'relative', width: '48%' },
+  petCircleProfilePlaceMake: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 10 },
+  petCircleProfilePlaceTextMake: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '800', lineHeight: 17 },
+  petCircleProfilePostCardCompactMake: { paddingHorizontal: 12, paddingVertical: 12 },
+  petCircleProfilePostCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flex: 1, padding: 10, position: 'relative', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.08, shadowRadius: 20 },
+  petCircleProfilePostMetaMake: { alignItems: 'center', flexDirection: 'row', gap: 16, marginTop: 10 },
+  petCircleProfilePostPetNameMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '900', lineHeight: 22 },
+  petCircleProfilePostRowMake: { alignItems: 'stretch', flexDirection: 'row' },
+  petCircleProfilePostTextMake: { color: 'rgba(27,28,25,0.82)', fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '500', lineHeight: 21, marginTop: 8 },
+  petCircleProfilePostTimeMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', lineHeight: 16, marginTop: 2 },
+  petCircleProfilePublishMake: { alignItems: 'center', borderRadius: 18, minHeight: 36, justifyContent: 'center', paddingHorizontal: 4 },
+  petCircleProfilePublishTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 18, fontWeight: '900', lineHeight: 24 },
+  petCircleProfileRetryMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 18, height: 38, justifyContent: 'center', marginTop: 14, paddingHorizontal: 16 },
+  petCircleProfileRetryTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 13, fontWeight: '800' },
+  petCircleProfileSameDayTimeMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '900', lineHeight: 21 },
+  petCircleProfileStatDividerMake: { backgroundColor: palette.border, height: 44, width: 1 },
+  petCircleProfileStatLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 18, marginTop: 2, textAlign: 'center' },
+  petCircleProfileStatMake: { alignItems: 'center', flex: 1, justifyContent: 'center' },
+  petCircleProfileStatRecentMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 16, fontWeight: '900', lineHeight: 22, marginTop: 3 },
+  petCircleProfileStatSmallMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', lineHeight: 16 },
+  petCircleProfileStatValueMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 23, fontWeight: '800', lineHeight: 30 },
+  petCircleProfileStatsMake: { alignItems: 'center', flexDirection: 'row', gap: 12, marginTop: 16, paddingHorizontal: 24 },
+  petCircleProfileSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 17, marginTop: 5 },
+  petCircleProfileTitleMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 21, fontWeight: '900', lineHeight: 28, textAlign: 'center' },
+  petCircleProfileTopBarMake: { alignItems: 'center', flexDirection: 'row', gap: 12, height: 68, paddingHorizontal: 16, paddingTop: 8 },
+  petCircleProfileWeekMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', lineHeight: 16, marginTop: 3 },
   petCircleReportActionMake: { backgroundColor: 'rgba(245,184,76,0.12)', borderColor: 'rgba(245,184,76,0.24)' },
   petCircleSheetHeaderMake: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   petCircleSheetIconMake: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.12)', borderRadius: 14, height: 38, justifyContent: 'center', width: 38 },
