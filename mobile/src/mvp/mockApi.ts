@@ -925,50 +925,10 @@ function applyMockPetChatVaccineAction(text: string): MockPetChatVaccineAction |
   return { action, reminderIds: vaccineReminderIds, vaccine: vaccines[index] };
 }
 
-let vaccines: VaccinePlan[] = [
-  { id: 'v-dog-core', name: '犬四联/犬六联', dueAt: addDaysIsoDate(14), status: 'due' },
-  { id: 'v-rabies', name: '狂犬疫苗', dueAt: addDaysIsoDate(21), status: 'due' },
-  { id: 'v-internal-deworm', name: '体内驱虫', dueAt: addDaysIsoDate(30), status: 'due' },
-  { id: 'v-external-deworm', name: '体外驱虫', dueAt: addDaysIsoDate(30), status: 'due' },
-];
+let vaccines: VaccinePlan[] = [];
 let vaccineReminderIds: string[] = [];
 
-function mockVaccineTemplatesForPet(pet?: PetProfile) {
-  if (pet?.species === 'cat') {
-    return [
-      { daysFromNow: 14, key: 'cat-core', name: '猫三联' },
-      { daysFromNow: 21, key: 'rabies', name: '狂犬疫苗' },
-      { daysFromNow: 30, key: 'internal-deworm', name: '体内驱虫' },
-      { daysFromNow: 30, key: 'external-deworm', name: '体外驱虫' },
-    ];
-  }
-  return [
-    { daysFromNow: 14, key: 'dog-core', name: '犬四联/犬六联' },
-    { daysFromNow: 21, key: 'rabies', name: '狂犬疫苗' },
-    { daysFromNow: 30, key: 'internal-deworm', name: '体内驱虫' },
-    { daysFromNow: 30, key: 'external-deworm', name: '体外驱虫' },
-  ];
-}
-
-function normalizeMockVaccineTemplateName(value: string) {
-  return String(value || '').replace(/\s+/g, '').toLowerCase();
-}
-
 function ensureMockVaccineTemplateCoverage() {
-  const pet = activeMockPet();
-  if (!pet) return;
-  const existingNames = new Set(vaccines.map((item) => normalizeMockVaccineTemplateName(item.name)));
-  mockVaccineTemplatesForPet(pet).forEach((template) => {
-    const nameKey = normalizeMockVaccineTemplateName(template.name);
-    if (existingNames.has(nameKey)) return;
-    vaccines.push({
-      dueAt: addDaysIsoDate(template.daysFromNow),
-      id: `v-${pet?.id ?? 'mock'}-${template.key}`,
-      name: template.name,
-      status: 'due',
-    });
-    existingNames.add(nameKey);
-  });
   vaccines = vaccines.sort((left, right) => left.dueAt.localeCompare(right.dueAt));
 }
 
@@ -1397,7 +1357,6 @@ let notifications: NotificationItem[] = [
     text: '奶油评论了 Lucky 的小事',
     title: 'Lucky 的小事有新互动',
   },
-  { category: 'health', id: 'n1', kind: 'vaccine_reminder', read: false, text: '狂犬疫苗将在 19 天后到期。', title: '疫苗提醒', vaccineId: 'v-rabies' },
   {
     category: 'health',
     id: 'mock-medical-alert-notification-m1',

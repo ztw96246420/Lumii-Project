@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, 
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   AppState,
   BackHandler,
+  Easing,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -1088,6 +1090,59 @@ const avatarFeedbackOptions: Array<{ id: AvatarFeedbackChipId; label: string; re
 
 const defaultAvatarFeedbackChipIds: AvatarFeedbackChipId[] = ['not_same_pet', 'color_deeper', 'eyes'];
 const avatarCandidateTones: AvatarCandidateTone[] = ['main', 'warm', 'soft'];
+const avatarGeneratingStatusCopies = [
+  ['正在读取照片里的眼睛、鼻子和嘴巴位置', '正在确认宠物主体边界', '正在检查照片清晰度和光线'],
+  ['正在保留毛色、耳朵和脸型特征', '正在对齐独特标记和身体比例', '正在把真实特征转成 3D 风格'],
+  ['正在生成 3D 灵伴形象', '正在打磨毛发层次和柔和光影', '正在检查形象是否像同一只宠物'],
+];
+const avatarResultLoadingStatusCopies = ['生成已完成，正在载入高清结果图', '正在准备可确认的灵伴形象', '马上可以预览并保存'];
+const avatarGeneratingStepTextGroups = [
+  ['正在识别宠物主体与五官位置', '正在确认眼睛、鼻子和嘴巴位置'],
+  ['正在捕捉毛色、纹理与体态', '正在保留耳朵、脸型和独特标记'],
+  ['正在生成 3D 灵伴形象', '正在打磨毛发层次和柔和光影'],
+];
+const avatarGeneratingStepDoneTexts = ['已识别宠物主体与五官位置', '已捕捉毛色、纹理与体态', '3D 灵伴形象生成中'];
+
+function getRotatingText(items: string[], index: number) {
+  return items[Math.abs(index) % items.length] ?? items[0] ?? '';
+}
+
+function getAvatarGeneratingStage(progress: number, resultPrefetching: boolean) {
+  if (resultPrefetching) return 3;
+  if (progress >= 76) return 2;
+  if (progress >= 38) return 1;
+  return 0;
+}
+
+function getAvatarGeneratingStatusText(progress: number, resultPrefetching: boolean, hintIndex: number) {
+  if (resultPrefetching) return getRotatingText(avatarResultLoadingStatusCopies, hintIndex);
+  const stage = getAvatarGeneratingStage(progress, resultPrefetching);
+  return getRotatingText(avatarGeneratingStatusCopies[stage] ?? avatarGeneratingStatusCopies[0], hintIndex);
+}
+
+function getAvatarGeneratingStageLabel(progress: number, resultPrefetching: boolean) {
+  if (resultPrefetching) return '高清结果载入';
+  const stage = getAvatarGeneratingStage(progress, resultPrefetching);
+  if (stage === 0) return '照片识别中';
+  if (stage === 1) return '特征转化中';
+  return '形象打磨中';
+}
+
+function getAvatarGeneratingStepRows(progress: number, resultPrefetching: boolean, hintIndex: number) {
+  if (resultPrefetching) {
+    return [
+      { done: true, text: '已识别宠物主体与五官位置' },
+      { done: true, text: '已捕捉毛色、纹理与体态' },
+      { active: true, text: getRotatingText(avatarResultLoadingStatusCopies, hintIndex) },
+    ];
+  }
+  const stage = getAvatarGeneratingStage(progress, resultPrefetching);
+  return avatarGeneratingStepTextGroups.map((items, index) => ({
+    active: index === stage,
+    done: index < stage,
+    text: index < stage ? avatarGeneratingStepDoneTexts[index] : getRotatingText(items, hintIndex + index),
+  }));
+}
 
 function isGeneratedAvatarUri(uri?: null | string) {
   return Boolean(uri?.startsWith('lumii://'));
@@ -1628,8 +1683,9 @@ export default function LumiiMvpApp() {
   const [petProfileSaving, setPetProfileSaving] = useState(false);
   const petProfileSavingRef = useRef(false);
   const initialPreviewAvatarResult = isHomePreviewMode && initialPreviewRoute === 'aiResult';
+  const initialPreviewAvatarGenerating = isHomePreviewMode && initialPreviewRoute === 'generating';
   const initialPreviewUploadNoPet = isHomePreviewMode && initialPreviewRoute === 'uploadNoPet' && getWebPreviewParam('mockUpload') === 'noPet';
-  const initialPreviewMedia = initialPreviewAvatarResult ? webPreviewAvatarMedia : initialPreviewUploadNoPet ? webPreviewNoPetMedia : null;
+  const initialPreviewMedia = initialPreviewAvatarResult || initialPreviewAvatarGenerating ? webPreviewAvatarMedia : initialPreviewUploadNoPet ? webPreviewNoPetMedia : null;
   const [media, setMedia] = useState<UploadedPetMedia | null>(initialPreviewMedia);
   const mediaIdRef = useRef<string | null>(initialPreviewMedia?.mediaId ?? null);
   const [mediaPickerMode, setMediaPickerMode] = useState<'camera' | 'library' | null>(null);
@@ -1652,6 +1708,9 @@ export default function LumiiMvpApp() {
   const [avatarFeedbackSubmitting, setAvatarFeedbackSubmitting] = useState(false);
   const avatarFeedbackSubmittingRef = useRef(false);
   const [avatarRegenerateConfirmVisible, setAvatarRegenerateConfirmVisible] = useState(false);
+  const [avatarLoadingHintIndex, setAvatarLoadingHintIndex] = useState(0);
+  const avatarScanAnim = useRef(new Animated.Value(0)).current;
+  const avatarLoadingPulseAnim = useRef(new Animated.Value(0)).current;
   const [homeHintIndex, setHomeHintIndex] = useState(() => Math.floor(Math.random() * homeChatPrompts.length));
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([createPetChatWelcomeMessage()]);
@@ -2215,6 +2274,52 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     avatarJobIdRef.current = avatarJob?.id ?? null;
   }, [avatarJob?.id]);
+
+  useEffect(() => {
+    if (route !== 'generating' || avatarJob?.status === 'failed') {
+      avatarScanAnim.stopAnimation();
+      avatarLoadingPulseAnim.stopAnimation();
+      avatarScanAnim.setValue(0);
+      avatarLoadingPulseAnim.setValue(0);
+      return undefined;
+    }
+
+    const scanLoop = Animated.loop(
+      Animated.timing(avatarScanAnim, {
+        duration: 1800,
+        easing: Easing.inOut(Easing.quad),
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+    );
+    const pulseLoop = Animated.loop(
+      Animated.timing(avatarLoadingPulseAnim, {
+        duration: 1500,
+        easing: Easing.linear,
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+    );
+    scanLoop.start();
+    pulseLoop.start();
+    return () => {
+      scanLoop.stop();
+      pulseLoop.stop();
+      avatarScanAnim.setValue(0);
+      avatarLoadingPulseAnim.setValue(0);
+    };
+  }, [avatarJob?.status, avatarLoadingPulseAnim, avatarScanAnim, route]);
+
+  useEffect(() => {
+    if (route !== 'generating' || avatarJob?.status === 'failed') {
+      setAvatarLoadingHintIndex(0);
+      return undefined;
+    }
+    const id = setInterval(() => {
+      setAvatarLoadingHintIndex((index) => index + 1);
+    }, 2200);
+    return () => clearInterval(id);
+  }, [avatarJob?.status, route]);
 
   useEffect(() => {
     ownersRef.current = owners;
@@ -3972,6 +4077,7 @@ export default function LumiiMvpApp() {
     avatarFeedbackSubmittingRef.current = false;
     setAvatarFeedbackSubmitting(false);
     setAvatarRegenerateConfirmVisible(false);
+    setAvatarLoadingHintIndex(0);
     setMediaPickerMode(null);
     avatarResultRouteJobIdRef.current = '';
   }
@@ -7875,17 +7981,86 @@ export default function LumiiMvpApp() {
     if (!media) {
       return renderMissingUploadMedia('生成灵伴');
     }
-    const progress = avatarResultPrefetching ? 100 : avatarJob?.progress ?? 62;
+    const generatingPhotoSource = isGeneratedAvatarUri(media.previewUrl) ? generatedGoldenAvatarSource : { uri: media.previewUrl };
+    const rawProgress = avatarResultPrefetching ? 100 : avatarJob?.progress ?? 62;
+    const progress = Math.max(8, Math.min(100, Math.round(rawProgress)));
     const generatingTitle = avatarResultPrefetching ? '正在载入高清灵伴形象' : '正在生成你的小灵伴';
     const generatingSubtitle = avatarResultPrefetching ? '形象已经生成完成，正在载入结果图\n马上就能确认保存' : '正在捕捉毛色、五官和表情特征\n这个过程可能需要几十秒';
+    const generatingStageLabel = getAvatarGeneratingStageLabel(progress, avatarResultPrefetching);
+    const generatingStatusText = getAvatarGeneratingStatusText(progress, avatarResultPrefetching, avatarLoadingHintIndex);
+    const generatingStepRows = getAvatarGeneratingStepRows(progress, avatarResultPrefetching, avatarLoadingHintIndex);
+    const scanLineAnimatedStyle = {
+      opacity: avatarScanAnim.interpolate({
+        inputRange: [0, 0.08, 0.92, 1],
+        outputRange: [0.2, 0.96, 0.96, 0.2],
+      }),
+      transform: [
+        {
+          translateY: avatarScanAnim.interpolate({
+            inputRange: [0, 0.5, 1],
+            outputRange: [-84, 84, -84],
+          }),
+        },
+      ],
+    };
+    const scanGlowAnimatedStyle = {
+      opacity: avatarScanAnim.interpolate({
+        inputRange: [0, 0.12, 0.5, 0.88, 1],
+        outputRange: [0, 0.2, 0.34, 0.2, 0],
+      }),
+      transform: scanLineAnimatedStyle.transform,
+    };
+    const loadingDotAnimatedStyles = [
+      {
+        opacity: avatarLoadingPulseAnim.interpolate({
+          inputRange: [0, 0.18, 0.36, 1],
+          outputRange: [0.35, 1, 0.35, 0.35],
+        }),
+        transform: [
+          {
+            scale: avatarLoadingPulseAnim.interpolate({
+              inputRange: [0, 0.18, 0.36, 1],
+              outputRange: [0.8, 1.25, 0.8, 0.8],
+            }),
+          },
+        ],
+      },
+      {
+        opacity: avatarLoadingPulseAnim.interpolate({
+          inputRange: [0, 0.28, 0.46, 0.64, 1],
+          outputRange: [0.35, 0.35, 1, 0.35, 0.35],
+        }),
+        transform: [
+          {
+            scale: avatarLoadingPulseAnim.interpolate({
+              inputRange: [0, 0.28, 0.46, 0.64, 1],
+              outputRange: [0.8, 0.8, 1.25, 0.8, 0.8],
+            }),
+          },
+        ],
+      },
+      {
+        opacity: avatarLoadingPulseAnim.interpolate({
+          inputRange: [0, 0.56, 0.74, 0.92, 1],
+          outputRange: [0.35, 0.35, 1, 0.35, 0.35],
+        }),
+        transform: [
+          {
+            scale: avatarLoadingPulseAnim.interpolate({
+              inputRange: [0, 0.56, 0.74, 0.92, 1],
+              outputRange: [0.8, 0.8, 1.25, 0.8, 0.8],
+            }),
+          },
+        ],
+      },
+    ];
     if (avatarJob?.status === 'failed') {
       return (
         <Screen title="生成灵伴">
           <View style={styles.aiGeneratingPage}>
             <View style={styles.aiGeneratingOrb}>
-              <Image resizeMode="cover" source={{ uri: media.previewUrl }} style={styles.aiGeneratingImage} />
-              <View style={styles.aiOriginalThumb}>
-                <Image resizeMode="cover" source={{ uri: media.previewUrl }} style={styles.avatarImage} />
+              <View style={styles.aiGeneratingPhotoFrame}>
+                <Image resizeMode="contain" source={generatingPhotoSource} style={styles.aiGeneratingImage} />
               </View>
             </View>
             <ErrorState
@@ -7908,16 +8083,16 @@ export default function LumiiMvpApp() {
         <View style={styles.aiGeneratingPage}>
           <View style={styles.aiGeneratingOrb}>
             <View style={styles.aiGeneratingRing} />
-            <Image blurRadius={2} resizeMode="cover" source={{ uri: media.previewUrl }} style={styles.aiGeneratingImage} />
-            <View style={styles.aiScanLine} />
-            <View pointerEvents="none" style={styles.aiParticleLayer}>
-              <View style={[styles.aiParticleDot, styles.aiParticleDotOne]} />
-              <View style={[styles.aiParticleDot, styles.aiParticleDotTwo]} />
-              <View style={[styles.aiParticleDot, styles.aiParticleDotThree]} />
-              <View style={[styles.aiParticleDot, styles.aiParticleDotFour]} />
-            </View>
-            <View style={styles.aiOriginalThumb}>
-              <Image resizeMode="cover" source={{ uri: media.previewUrl }} style={styles.avatarImage} />
+            <View style={styles.aiGeneratingPhotoFrame}>
+              <Image resizeMode="contain" source={generatingPhotoSource} style={styles.aiGeneratingImage} />
+              <Animated.View pointerEvents="none" style={[styles.aiScanGlow, scanGlowAnimatedStyle]} />
+              <Animated.View pointerEvents="none" style={[styles.aiScanLine, scanLineAnimatedStyle]} />
+              <View pointerEvents="none" style={styles.aiParticleLayer}>
+                <View style={[styles.aiParticleDot, styles.aiParticleDotOne]} />
+                <View style={[styles.aiParticleDot, styles.aiParticleDotTwo]} />
+                <View style={[styles.aiParticleDot, styles.aiParticleDotThree]} />
+                <View style={[styles.aiParticleDot, styles.aiParticleDotFour]} />
+              </View>
             </View>
             <View style={styles.aiWorkingBadge}>
               <Sparkles color={palette.orange} size={12} strokeWidth={2.5} />
@@ -7926,13 +8101,27 @@ export default function LumiiMvpApp() {
           </View>
           <Text style={styles.aiGeneratingTitle}>{generatingTitle}</Text>
           <Text style={styles.aiGeneratingSubtitle}>{generatingSubtitle}</Text>
+          <View style={styles.aiLoadingStatusCard}>
+            <View style={styles.aiLoadingStatusIcon}>
+              <Sparkles color={palette.orange} size={15} strokeWidth={2.4} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.aiLoadingStatusLabel}>{generatingStageLabel}</Text>
+              <Text style={styles.aiLoadingStatusText}>{generatingStatusText}</Text>
+            </View>
+            <View style={styles.aiLoadingDots}>
+              {loadingDotAnimatedStyles.map((dotStyle, index) => (
+                <Animated.View key={index} style={[styles.aiLoadingDot, dotStyle]} />
+              ))}
+            </View>
+          </View>
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${progress}%` }]} />
           </View>
           <View style={styles.aiStepsCard}>
-            <MakeStepRow done text="识别宠物主体与五官位置" />
-            <MakeStepRow done={avatarResultPrefetching} active={!avatarResultPrefetching} text="捕捉毛色、纹理与体态" />
-            <MakeStepRow active={avatarResultPrefetching} text={avatarResultPrefetching ? '载入真实卡通化结果图' : '生成真实卡通化灵伴形象'} />
+            {generatingStepRows.map((step, index) => (
+              <MakeStepRow active={step.active} done={step.done} key={index} text={step.text} />
+            ))}
           </View>
         </View>
       </Screen>
@@ -15087,12 +15276,13 @@ const styles = StyleSheet.create({
   weightWarnText: { color: '#C99B3E' },
   flex: { flex: 1, minWidth: 0 },
   aiFailureSecondaryAction: { marginTop: 12, width: '100%' },
-  aiGeneratingImage: { backgroundColor: '#fbeedd', borderColor: '#fff', borderRadius: 120, borderWidth: 5, height: 240, opacity: 0.92, width: 240 },
+  aiGeneratingImage: { height: '100%', width: '100%' },
   aiGeneratingOrb: { alignItems: 'center', alignSelf: 'center', height: 286, justifyContent: 'center', marginTop: 28, position: 'relative', width: 286 },
   aiGeneratingPage: { alignItems: 'center', paddingHorizontal: 6 },
+  aiGeneratingPhotoFrame: { alignItems: 'center', backgroundColor: '#FFF8F0', borderColor: '#fff', borderRadius: 120, borderWidth: 5, height: 240, justifyContent: 'center', overflow: 'hidden', width: 240 },
   aiGeneratingRing: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'conic-gradient(from 0deg, rgba(255,138,92,0) 0%, rgba(255,138,92,0.85) 35%, rgba(77,182,172,0.85) 70%, rgba(255,138,92,0) 100%)' } as object) : null), backgroundColor: 'rgba(255,138,92,0.18)', borderColor: 'rgba(255,138,92,0.45)', borderRadius: 136, borderWidth: 2, height: 272, opacity: 0.82, position: 'absolute', width: 272 },
   aiGeneratingSubtitle: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 22, marginTop: 10, textAlign: 'center' },
-  aiGeneratingTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '600', letterSpacing: 0, lineHeight: 29, marginTop: 54, textAlign: 'center' },
+  aiGeneratingTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '600', letterSpacing: 0, lineHeight: 29, marginTop: 38, textAlign: 'center' },
   aiGhostCta: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.72)', borderColor: palette.border, borderRadius: 27, borderWidth: 1, flexDirection: 'row', gap: 8, height: 54, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.08, shadowRadius: 18 },
   aiGhostCtaPressed: { backgroundColor: '#fff' },
   aiGhostCtaText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15.5, fontWeight: '500' },
@@ -15191,13 +15381,20 @@ const styles = StyleSheet.create({
   aiOriginalPhotoStrong: { color: palette.ink, fontWeight: '600' },
   aiOriginalPhotoText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 15 },
   aiOriginalPhotoThumb: { borderColor: '#fff', borderRadius: 18, borderWidth: 2, height: 36, overflow: 'hidden', width: 36 },
-  aiScanLine: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(90deg, rgba(255,138,92,0), rgba(255,138,92,0.9), rgba(255,138,92,0))' } as object) : null), backgroundColor: palette.orange, borderRadius: 999, height: 2, left: 28, opacity: 0.88, position: 'absolute', right: 28, top: 135, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.45, shadowRadius: 12 },
+  aiScanGlow: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, rgba(255,138,92,0), rgba(255,138,92,0.34), rgba(77,182,172,0.12), rgba(255,138,92,0))' } as object) : null), backgroundColor: 'rgba(255,138,92,0.18)', borderRadius: 20, height: 34, left: 18, position: 'absolute', right: 18, top: 103 },
+  aiScanLine: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(90deg, rgba(255,138,92,0), rgba(255,138,92,0.95), rgba(255,255,255,0.92), rgba(77,182,172,0.78), rgba(255,138,92,0))' } as object) : null), backgroundColor: palette.orange, borderRadius: 999, height: 2.5, left: 24, position: 'absolute', right: 24, top: 119, shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.55, shadowRadius: 12 },
   aiSparkOne: { left: 4, position: 'absolute', top: 38 },
   aiSparkThree: { bottom: 64, position: 'absolute', right: -2 },
   aiSparkTwo: { position: 'absolute', right: 46, top: 12 },
   aiStepsCard: { backgroundColor: 'rgba(255,255,255,0.70)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 22, paddingHorizontal: 16, paddingVertical: 14, width: '100%' },
   aiWorkingBadge: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, bottom: 34, flexDirection: 'row', gap: 5, paddingHorizontal: 12, paddingVertical: 6, position: 'absolute', right: 2, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.15, shadowRadius: 18 },
   aiWorkingText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
+  aiLoadingDot: { backgroundColor: palette.orange, borderRadius: 3, height: 6, width: 6 },
+  aiLoadingDots: { alignItems: 'center', flexDirection: 'row', gap: 4, justifyContent: 'center', width: 26 },
+  aiLoadingStatusCard: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.76)', borderColor: 'rgba(255,138,92,0.18)', borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 10, marginTop: 16, paddingHorizontal: 14, paddingVertical: 12, width: '100%' },
+  aiLoadingStatusIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.12)', borderRadius: 13, height: 30, justifyContent: 'center', width: 30 },
+  aiLoadingStatusLabel: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  aiLoadingStatusText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17, marginTop: 2 },
   formCard: { gap: 12 },
   goldIcon: { backgroundColor: '#f2b441' },
   grid2: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },

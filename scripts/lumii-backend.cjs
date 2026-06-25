@@ -1840,12 +1840,7 @@ function defaultWeightRecordsFor(user) {
 }
 
 function defaultMemosFor(user) {
-  const pet = selectedPetFor(user);
-  if (!pet) return [];
-  const createdAt = normalizeCalendarDate(pet.createdAt, isoDateFromTimestampId(pet.id));
-  return [
-    { content: `${pet.name}建档完成，可以开始记录食欲、便便、洗澡和就诊情况。`, createdAt, id: `m-${user.phone}-${pet.id}-1`, title: '建档记录', updatedAt: createdAt },
-  ];
+  return [];
 }
 
 function reconcileDefaultHealthListDate(storeName, user, list) {
@@ -1906,56 +1901,7 @@ function shouldSyncSocialMomentToHealthCalendar(body = {}, visibility = 'nearby'
 }
 
 function defaultVaccinesFor(user) {
-  const pet = selectedPetFor(user);
-  if (!pet) return [];
-  return vaccineTemplatesForPet(pet).map((template) => ({
-    dueAt: addDaysIsoDate(template.daysFromNow),
-    id: `v-${user.phone}-${pet.id}-${template.key}`,
-    name: template.name,
-    status: 'due',
-  }));
-}
-
-function vaccineTemplatesForPet(pet) {
-  if (pet?.species === 'cat') {
-    return [
-      { daysFromNow: 14, key: 'cat-core', name: '猫三联' },
-      { daysFromNow: 21, key: 'rabies', name: '狂犬疫苗' },
-      { daysFromNow: 30, key: 'internal-deworm', name: '体内驱虫' },
-      { daysFromNow: 30, key: 'external-deworm', name: '体外驱虫' },
-    ];
-  }
-  return [
-    { daysFromNow: 14, key: 'dog-core', name: '犬四联/犬六联' },
-    { daysFromNow: 21, key: 'rabies', name: '狂犬疫苗' },
-    { daysFromNow: 30, key: 'internal-deworm', name: '体内驱虫' },
-    { daysFromNow: 30, key: 'external-deworm', name: '体外驱虫' },
-  ];
-}
-
-function normalizeVaccineTemplateName(value) {
-  return String(value || '').replace(/\s+/g, '').toLowerCase();
-}
-
-function ensureVaccineTemplateCoverage(user, vaccines) {
-  const pet = selectedPetFor(user);
-  if (!pet) return false;
-  const existingNames = new Set(vaccines.map((item) => normalizeVaccineTemplateName(item.name)));
-  let added = false;
-  vaccineTemplatesForPet(pet).forEach((template) => {
-    const nameKey = normalizeVaccineTemplateName(template.name);
-    if (existingNames.has(nameKey)) return;
-    vaccines.push({
-      dueAt: addDaysIsoDate(template.daysFromNow),
-      id: `v-${user.phone}-${pet.id}-${template.key}`,
-      name: template.name,
-      status: 'due',
-    });
-    existingNames.add(nameKey);
-    added = true;
-  });
-  if (added) vaccines.sort((left, right) => String(left.dueAt).localeCompare(String(right.dueAt)));
-  return added;
+  return [];
 }
 
 function todayIsoDate() {
@@ -1998,10 +1944,51 @@ function healthList(storeName, user, defaultsFactory) {
 }
 
 function vaccineListFor(user) {
-  const vaccines = healthList('vaccines', user, defaultVaccinesFor);
-  if (ensureVaccineTemplateCoverage(user, vaccines)) saveState();
-  return vaccines;
+  return healthList('vaccines', user, defaultVaccinesFor);
 }
+
+const deprecatedDefaultVaccineKeys = new Set(['cat-core', 'dog-core', 'external-deworm', 'internal-deworm', 'rabies']);
+
+function pruneDeprecatedDefaultHealthRecords() {
+  let changed = false;
+  const users = state.users || {};
+  const memosByKey = state.health?.memos || {};
+  const vaccinesByKey = state.health?.vaccines || {};
+
+  Object.values(users).forEach((user) => {
+    const phone = normalizePhone(user?.phone);
+    if (!phone || !Array.isArray(user?.pets)) return;
+    user.pets.forEach((pet) => {
+      if (!pet?.id) return;
+      const key = `${phone}:${pet.id}`;
+      const deprecatedMemoId = `m-${phone}-${pet.id}-1`;
+      const memos = memosByKey[key];
+      if (Array.isArray(memos)) {
+        const nextMemos = memos.filter((memo) => !(memo?.id === deprecatedMemoId && memo?.title === '建档记录'));
+        if (nextMemos.length !== memos.length) {
+          memosByKey[key] = nextMemos;
+          changed = true;
+        }
+      }
+
+      const vaccines = vaccinesByKey[key];
+      if (Array.isArray(vaccines)) {
+        const nextVaccines = vaccines.filter((vaccine) => {
+          const match = String(vaccine?.id || '').match(new RegExp(`^v-${phone}-${pet.id}-(.+)$`));
+          return !match || !deprecatedDefaultVaccineKeys.has(match[1]);
+        });
+        if (nextVaccines.length !== vaccines.length) {
+          vaccinesByKey[key] = nextVaccines;
+          changed = true;
+        }
+      }
+    });
+  });
+
+  if (changed) saveState();
+}
+
+pruneDeprecatedDefaultHealthRecords();
 
 function createWeightRecord(user, kg, note, options = {}) {
   const normalizedKg = Math.round(Number(kg) * 100) / 100;

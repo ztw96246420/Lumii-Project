@@ -431,15 +431,23 @@ async function main() {
     assertConversationUnreadBadgeCleared(notificationReadMessagesText, '林然和奶油', 1, 'After opening conversation notification', '地点审核通知');
     await screenshot(page, 'smoke-frontend-02f-notification-conversation-read.png');
 
+    const notificationVaccineName = 'PW notification vaccine';
+    await page.goto(`${baseUrl}/?route=vaccine`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await page.getByLabel('toggle-vaccine-composer').click();
+    await page.getByLabel('vaccine-name-input').fill(notificationVaccineName);
+    await page.getByLabel('vaccine-date-input').fill(isoDateAfterDays(3));
+    await page.getByLabel('save-vaccine-plan').click();
+    await waitExactText(page, notificationVaccineName);
+    await waitLabelEnabled(page, 'enable-vaccine-reminder');
+    await page.getByLabel('enable-vaccine-reminder').click();
+    await waitExactText(page, '提醒已开启');
+
     await page.goto(`${baseUrl}/?route=notifications`, { timeout: 60_000, waitUntil: 'networkidle' });
-    await waitExactText(page, '疫苗提醒');
+    await waitExactText(page, '健康提醒');
     await waitExactText(page, '查看计划');
-    await clickExactText(page, '疫苗提醒');
+    await clickExactText(page, '健康提醒');
     await waitExactText(page, '疫苗计划');
-    await waitExactText(page, '狂犬疫苗');
-    await waitExactText(page, '犬四联/犬六联');
-    const vaccineNotificationText = await page.locator('body').innerText();
-    assertTextBefore(vaccineNotificationText, '狂犬疫苗', '犬四联/犬六联', 'After opening vaccine reminder notification');
+    await waitExactText(page, notificationVaccineName);
     await screenshot(page, 'smoke-frontend-02g-notification-to-vaccine.png');
 
     await page.goto(`${baseUrl}/?route=notifications`, { timeout: 60_000, waitUntil: 'networkidle' });

@@ -245,7 +245,7 @@ async function run() {
   const backdatedMemoEvent = findByTitle(calendar.data, 'Backdated Memo');
   assert.equal(backdatedMemoEvent?.date, backdated, 'backdated memo should remain on its created day');
   const profileEvent = findByTitle(calendar.data, '建档记录');
-  assert.equal(profileEvent?.date, backdated, 'profile seed memo should follow pet createdAt');
+  assert.equal(profileEvent, undefined, 'new pets should not create a default profile memo event');
 
   const ownerLoc = location(31.2304, 121.4737);
   const viewerLoc = location(31.231, 121.474);
