@@ -6,40 +6,39 @@
 
 ## Implementation Screenshot
 
-- `F:\Users\Administrator\Documents\Lumii Project\artifacts\pet-circle-profile-refined-2.png`
+- `F:\Users\Administrator\Documents\Lumii Project\artifacts\pet-circle-profile-typography-tight-final.png`
 
 ## Viewport And State
 
-- Mobile web preview, `390 x 844`, route `petCircleProfile`, my own pet circle profile with inline archive list.
+- Mobile web preview, `390 x 844`, route `petCircleProfile`, my own pet circle profile archive.
 
 ## Full-View Comparison Evidence
 
-- Source design uses a full-width latest card without a separate date rail, followed by compact archive cards with date/photo/content inside each card.
-- Current implementation has been updated to match that structure: the latest card is full width with a `最新` badge, and compact rows keep the date column inside the white card.
+- The latest post now uses the source-like wide featured card with a `最新` badge.
+- Compact archive rows now keep date, thumbnails, title, exact time, summary, metrics, and menu inside one white row card.
+- Typography was reduced across title, profile title, stats, post title, post time, body copy, metrics, and action menu.
+- Header height was reduced by tightening the top bar, cover, avatar, profile block, and stat block.
 
 ## Focused Region Comparison Evidence
 
-- Header region still differs: implementation has a visible status bar and a required `更换封面` control, and the fallback cover image crop is less polished than the source.
-- Compact row density is closer than before, but still slightly taller than the source because comments/likes/actions remain more spacious.
+- Typography hierarchy is now closer to the source: the page title, profile name, stats, and card copy no longer compete at the same oversized level.
+- Compact row density is closer after reducing card padding, thumbnail size, body line count, metric spacing, and row gaps.
+- Header cover still differs because the implementation uses a required change-cover control and the current fallback image crop is not as clean as the generated source cover.
 
 ## Findings
 
-- [P2] Header cover crop is not source-quality.
-  Location: pet circle profile cover.
-  Evidence: source cover shows a clean landscape pet scene; implementation fallback cover crops the pet face awkwardly.
-  Fix: use a dedicated landscape cover fallback or tune cover selection/crop instead of reusing a portrait post image.
-
-- [P2] Compact archive rows are still slightly too tall.
-  Location: compact post rows after the latest card.
-  Evidence: source rows are tighter; implementation has more vertical breathing room around action metadata.
-  Fix: reduce compact card vertical padding and tighten metric row spacing after final visual approval.
+- [P2] Cover image crop still lowers fidelity.
+  Location: profile cover.
+  Evidence: source has a clean landscape pet-room cover; implementation fallback uses a dog photo that crops awkwardly in the short cover slot.
+  Fix: use a dedicated landscape cover fallback asset or tune fallback selection/crop for this screen.
 
 ## Patches Made Since Previous QA
 
-- Latest post changed to a full-width featured card with `最新` badge.
-- Date rail removed from the featured card.
-- Compact rows now keep date, thumbnails, copy, metrics, and action menu inside the same card.
-- Cover/topbar/header vertical proportions were reduced.
+- Reduced top bar height and title size.
+- Reduced cover height, avatar size, profile-name size, stat value size, stat row spacing, and header padding.
+- Reduced featured card photo grid height and gaps.
+- Reduced compact row padding, thumbnail size, body copy size/line height, metric spacing, and action menu size.
+- Changed compact post summary from two lines to one line to match archive-list density.
 
 ## Final Result
 
