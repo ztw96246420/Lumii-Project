@@ -219,7 +219,7 @@ async function main() {
 
     await page.goto(`${baseUrl}/?route=health`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '近期记录');
-    await waitExactText(page, '健康日历');
+    await waitExactText(page, '宠物日历');
     await screenshot(page, 'smoke-frontend-00-health-preview.png');
 
     const backdatedHealthDate = isoDateAfterDays(-6);
@@ -326,28 +326,28 @@ async function main() {
     await screenshot(page, 'smoke-frontend-00j-avatar-saved-home.png');
 
     await page.goto(`${baseUrl}/?route=memoNew`, { timeout: 60_000, waitUntil: 'networkidle' });
-    await waitExactText(page, '新增健康备忘');
+    await waitExactText(page, '新增备忘');
     await page.getByPlaceholder('例如：洗澡记录、复诊提醒').fill('洗澡记录');
     await page.getByPlaceholder('今天有什么值得记录的小事？').fill('今天洗澡后精神很好');
     await clickExactText(page, '保存备忘');
-    await waitExactText(page, '健康日历');
+    await waitExactText(page, '宠物日历');
     await screenshot(page, 'smoke-frontend-01-memo-saved.png');
 
     const editedMemoTitle = 'PW备忘编辑';
-    const editedMemoContent = 'Playwright 已编辑健康备忘内容';
+    const editedMemoContent = 'Playwright 已编辑备忘内容';
     await page.getByLabel(/^health-calendar-event-memo-m-/).first().click();
     await waitExactText(page, '编辑备忘');
     await page.getByLabel('memo-edit-title-input').fill(editedMemoTitle);
     await page.getByLabel('memo-edit-content-input').fill(editedMemoContent);
     await clickExactText(page, '保存修改');
-    await waitExactText(page, '健康日历');
+    await waitExactText(page, '宠物日历');
     await waitBodyIncludes(page, editedMemoTitle);
     await screenshot(page, 'smoke-frontend-01b-memo-edited.png');
     await page.getByLabel(/^health-calendar-event-memo-m-/).first().click();
     await waitExactText(page, '编辑备忘');
     await page.getByLabel('delete-health-memo').click();
     await page.getByLabel('confirm-delete-health-memo').click();
-    await waitExactText(page, '健康日历');
+    await waitExactText(page, '宠物日历');
     await waitBodyExcludes(page, editedMemoTitle);
     await screenshot(page, 'smoke-frontend-01c-memo-deleted.png');
 

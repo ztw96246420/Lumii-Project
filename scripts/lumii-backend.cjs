@@ -202,7 +202,7 @@ const legalDocuments = {
     sections: [
       {
         body: [
-          '灵伴是围绕真实宠物、电子宠物形象、健康记录和宠物主人社交的移动端服务。',
+          '灵伴是围绕真实宠物、电子宠物形象、宠物日历记录和宠物主人社交的移动端服务。',
           '当前版本功能仍在测试，页面、接口和 AI 结果可能持续调整。',
         ],
         title: '服务范围',
@@ -1101,12 +1101,12 @@ function isValidMemoReminderAt(value) {
 
 function parseHealthMemoPayload(value, current = null) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { error: '健康备忘参数无效，请刷新后重试' };
+    return { error: '备忘参数无效，请刷新后重试' };
   }
   const allowedKeys = new Set(['content', 'reminderAt', 'reminderEnabled', 'repeat', 'title']);
   const keys = Object.keys(value);
   const unknownKey = keys.find((key) => !allowedKeys.has(key));
-  if (unknownKey) return { error: `健康备忘字段 ${unknownKey} 暂不支持` };
+  if (unknownKey) return { error: `备忘字段 ${unknownKey} 暂不支持` };
 
   const title = String(Object.prototype.hasOwnProperty.call(value, 'title') ? value.title : current?.title || '').trim();
   const content = String(Object.prototype.hasOwnProperty.call(value, 'content') ? value.content : current?.content || '').trim();
@@ -2393,7 +2393,7 @@ function buildPetChatContextPrompt(user) {
   ];
   const contextLines = [
     `近期体重：${weights.length ? weights.map((item) => `${item.recordedAt} ${item.kg}kg`).join('；') : '暂无'}`,
-    `健康备忘：${healthMemos.length ? healthMemos.map((item) => `${item.title}：${item.content}`).join('；') : '暂无'}`,
+    `备忘：${healthMemos.length ? healthMemos.map((item) => `${item.title}：${item.content}`).join('；') : '暂无'}`,
     `疫苗/驱虫：${vaccines.length ? vaccines.map((item) => `${item.name} ${item.status} ${item.dueAt}`).join('；') : '暂无'}`,
   ];
 
@@ -3415,14 +3415,14 @@ function petChatMemoTitle(text) {
 function normalizePetChatMemoContent(text) {
   return String(text || '')
     .replace(/^(麻烦|请|帮我|帮忙|可以)?(把|将)?/u, '')
-    .replace(/(帮我)?(记一下|记录一下|记一笔|记到健康备忘|记到备忘|加到健康备忘|加到备忘|保存到健康备忘|保存到备忘|写进健康备忘|写进备忘)[：:，,\s]*/u, '')
+    .replace(/(帮我)?(记一下|记录一下|记一笔|记到(?:健康)?备忘|加到(?:健康)?备忘|保存到(?:健康)?备忘|写进(?:健康)?备忘)[：:，,\s]*/u, '')
     .trim();
 }
 
 function createHealthMemoFromPetChat(user, text) {
   const rawText = String(text || '').trim();
   if (!rawText || /不要记|别记|不用记|不要记录|别记录/.test(rawText)) return null;
-  if (!/(记一下|记录一下|记一笔|记到健康备忘|记到备忘|加到健康备忘|加到备忘|保存到健康备忘|保存到备忘|写进健康备忘|写进备忘)/.test(rawText)) return null;
+  if (!/(记一下|记录一下|记一笔|记到(?:健康)?备忘|加到(?:健康)?备忘|保存到(?:健康)?备忘|写进(?:健康)?备忘)/.test(rawText)) return null;
   const content = normalizePetChatMemoContent(rawText) || rawText;
   if (content.length < 2) return null;
   return createHealthMemoRecord(user, petChatMemoTitle(content), content.slice(0, 240), { dedupe: true });
@@ -3676,7 +3676,7 @@ function fallbackPetChatReply(user, text) {
     return `${opener}我今天有点让人担心，我先把这件事放进健康观察里。\n\n我不能替代兽医判断，但如果症状持续、精神明显变差，或出现呕吐腹泻、呼吸异常、拒食拒水，建议尽快联系宠物医院。你也可以补充一下：这个情况大概持续多久了？`;
   }
   if (/散步|出门|公园|遛/.test(text)) {
-    return `${opener}听起来我会很开心，尾巴已经在脑内摇起来了。出门前可以带好牵引、饮水和拾便袋，尽量选开阔的宠物友好地点。\n\n要不要顺手把这次散步记录到我的健康备忘里？`;
+    return `${opener}听起来我会很开心，尾巴已经在脑内摇起来了。出门前可以带好牵引、饮水和拾便袋，尽量选开阔的宠物友好地点。\n\n要不要顺手把这次散步记录到我的备忘里？`;
   }
   if (/吃|饭|零食|食欲/.test(text)) {
     return `${opener}收到，我会把我今天的饮食状态放在心上。食欲稳定通常是个好信号，零食还是控制一点点更安心。\n\n今天我吃得比平时多、少，还是差不多？`;
@@ -5674,7 +5674,7 @@ async function handle(req, res) {
     const memos = healthList('memos', user, defaultMemosFor);
     const index = memos.findIndex((item) => item.id === memoId);
     if (index < 0) {
-      fail(res, 404, '健康备忘不存在', false);
+      fail(res, 404, '备忘不存在', false);
       return;
     }
     const memoInput = parseHealthMemoPayload(body, memos[index]);
@@ -5693,7 +5693,7 @@ async function handle(req, res) {
     const memos = healthList('memos', user, defaultMemosFor);
     const index = memos.findIndex((item) => item.id === memoId);
     if (index < 0) {
-      fail(res, 404, '健康备忘不存在', false);
+      fail(res, 404, '备忘不存在', false);
       return;
     }
     memos.splice(index, 1);
@@ -6295,13 +6295,13 @@ async function handle(req, res) {
     const createdMemo = medicalAlert?.memo ?? (profileUpdate || vaccineAction || createdWeight ? null : createHealthMemoFromPetChat(user, text));
     const reply = await callDeepSeekPetChat(user, text, messages);
     const savedNotices = [
-      medicalAlert ? `我已经把这个情况记到我的健康备忘：「${medicalAlert.memo.title}」，并生成就医提醒。` : '',
+      medicalAlert ? `我已经把这个情况记到我的备忘：「${medicalAlert.memo.title}」，并生成就医提醒。` : '',
       profileUpdate ? `我已经更新了我的档案：${describePetProfilePatch(profileUpdate.patch)}。` : '',
       vaccineAction?.action === 'done' ? `我已经把我的${vaccineAction.vaccine.name}标记完成。` : '',
       vaccineAction?.action === 'reminder_on' ? `我已经开启我的${vaccineAction.vaccine.name}提醒。` : '',
       vaccineAction?.action === 'reminder_off' ? `我已经关闭我的${vaccineAction.vaccine.name}提醒。` : '',
       createdWeight ? `我已经记录我的体重：${createdWeight.kg}kg。` : '',
-      createdMemo ? `我已经记到我的健康备忘：「${createdMemo.title}」。` : '',
+      createdMemo ? `我已经记到我的备忘：「${createdMemo.title}」。` : '',
     ].filter(Boolean);
     const replyText = savedNotices.length ? `${reply.text}\n\n${savedNotices.join('\n')}` : reply.text;
     const aiMessage = {

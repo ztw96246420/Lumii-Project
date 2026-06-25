@@ -481,12 +481,12 @@ const routeTitles: Partial<Record<AppRoute, string>> = {
   generating: 'AI 生成中',
   greetingRequests: '招呼请求',
   health: '健康管理',
-  healthCalendar: '健康日历',
-  healthMemos: '健康备忘',
+  healthCalendar: '宠物日历',
+  healthMemos: '备忘',
   home: '灵伴',
   map: '地图',
   memoEdit: '编辑备忘',
-  memoNew: '新增健康备忘',
+  memoNew: '新增备忘',
   messages: '消息',
   multiPet: '我的宠物',
   notifications: '通知中心',
@@ -529,7 +529,7 @@ const homeChatPrompts = [
   '今天适合来一点轻松互动',
   '{petName}好像有话想和你说',
   '要不要安排一次温柔散步？',
-  '给{petName}补一条健康记录吧',
+  '给{petName}补一条日历记录吧',
   '今天也想陪你待一会儿',
 ];
 const placeFriendlyFeatureOptions = ['可遛狗', '饮水点', '室内友好', '停车方便'] as const;
@@ -2856,7 +2856,7 @@ export default function LumiiMvpApp() {
         setHealthCalendarError('');
         return result.data;
       }
-      const message = result.error?.message ?? '健康日历读取失败';
+      const message = result.error?.message ?? '宠物日历读取失败';
       setHealthCalendarError(message);
       if (!options.silent) showToast(message, { tone: 'error', variant: 'surface' });
       return null;
@@ -4403,7 +4403,7 @@ export default function LumiiMvpApp() {
     if (message.createdMemo) {
       setMemos((items) => [message.createdMemo!, ...items.filter((item) => item.id !== message.createdMemo!.id)]);
       shouldRefreshHealth = true;
-      addSyncLabel('健康日历');
+      addSyncLabel('宠物日历');
     }
 
     if (message.medicalAlert) {
@@ -5372,7 +5372,7 @@ export default function LumiiMvpApp() {
         setMemoDraftReminderAt(defaultMemoReminderDate());
         setMemoDraftReminderEnabled(true);
         void refreshHealthSummary();
-        showToast('健康备忘已保存', { subtitle: '已同步到健康日历', tone: 'success', variant: 'surface' });
+        showToast('备忘已保存', { subtitle: '已同步到宠物日历', tone: 'success', variant: 'surface' });
         replace('healthCalendar');
       } else {
         showToast(result.error?.message ?? '保存失败，请稍后重试', { tone: 'error', variant: 'surface' });
@@ -5407,7 +5407,7 @@ export default function LumiiMvpApp() {
         setMemoTitle('');
         setMemoContent('');
         void refreshHealthSummary();
-        showToast('健康备忘已保存', { tone: 'success', variant: 'surface' });
+        showToast('备忘已保存', { tone: 'success', variant: 'surface' });
       } else {
         showToast(result.error?.message ?? '保存失败，请稍后重试', { tone: 'error', variant: 'surface' });
       }
@@ -5649,10 +5649,10 @@ export default function LumiiMvpApp() {
         void refreshHealthSummary();
         replace('home');
         const publicSubtitle = momentSynced
-          ? '已同步到健康日历和宠友圈'
-          : `已同步到健康日历，宠友圈同步${momentSyncError ? '稍后再试' : '稍后再试'}`;
+          ? '已同步到宠物日历和宠友圈'
+          : `已同步到宠物日历，宠友圈同步${momentSyncError ? '稍后再试' : '稍后再试'}`;
         showToast('今日小事已记录', {
-          subtitle: dailyVisibility === 'nearby' ? publicSubtitle : '已保存为仅自己可见的健康记录',
+          subtitle: dailyVisibility === 'nearby' ? publicSubtitle : '已保存为仅自己可见的日历记录',
           tone: dailyVisibility === 'nearby' && !momentSynced ? 'info' : 'success',
           variant: 'surface',
         });
@@ -8567,7 +8567,7 @@ export default function LumiiMvpApp() {
           <View style={styles.homeQuickGrid}>
             <MetricCard Icon={Weight} label="今日体重" onPress={() => go('weight')} tag={todayWeightRecorded ? '已记录' : '待记录'} tagTone="teal" value={formatWeightKg(latestWeight)} />
             <MetricCard Icon={Syringe} iconTone="teal" label="疫苗提醒" onPress={() => go('vaccine')} tag={formatDueLabel(nextVaccine?.dueAt)} tagTone="orange" value={nextVaccine?.name ?? '待添加计划'} />
-            <MetricCard Icon={CalendarDays} label="健康日历" onPress={() => go('healthCalendar')} tag={`${memoCount} 条`} tagTone="muted" value={calendarSummary} />
+            <MetricCard Icon={CalendarDays} label="宠物日历" onPress={() => go('healthCalendar')} tag={`${memoCount} 条`} tagTone="muted" value={calendarSummary} />
             <MetricCard Icon={MapPin} label="附近伙伴" onPress={() => { setDiscoverTab('partners'); go('discover'); }} tag={`${defaultDiscoverRadiusKm}km`} tagTone="teal" value={onlineCopy} />
           </View>
 
@@ -9059,7 +9059,7 @@ export default function LumiiMvpApp() {
     return (
       <Screen
         right={(
-          <Pressable accessibilityLabel="新增健康记录" accessibilityRole="button" onPress={() => go('memoNew')} style={styles.makeIconChip}>
+          <Pressable accessibilityLabel="新增日历记录" accessibilityRole="button" onPress={() => go('memoNew')} style={styles.makeIconChip}>
             <Plus color={palette.ink} size={18} strokeWidth={2.4} />
           </Pressable>
         )}
@@ -9086,7 +9086,7 @@ export default function LumiiMvpApp() {
         <View style={styles.healthSectionStack}>
           <HealthMakeRow Icon={Weight} badge={formatWeightKg(latestWeight)} chart onPress={() => go('weight')} subtitle={weightSubtitle} title="体重趋势" tone="warm" />
           <HealthMakeRow Icon={Syringe} badge={urgentHealthCount ? `${urgentHealthCount} 项临近` : pendingHealthCount ? `${pendingHealthCount} 项` : '已完成'} badgeTone="warm" onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${vaccineReminderCopy(nextHealthVaccine)}` : '暂无计划'} title="疫苗计划" tone="cool" />
-          <HealthMakeRow Icon={CalendarDays} badge={`${healthCalendarEvents.length || recentRows.length} 条`} onPress={() => go('healthCalendar')} subtitle="按月份查看体重、疫苗和备忘记录" title="健康日历" tone="cool" />
+          <HealthMakeRow Icon={CalendarDays} badge={`${healthCalendarEvents.length || recentRows.length} 条`} onPress={() => go('healthCalendar')} subtitle="按月份查看体重、疫苗和备忘记录" title="宠物日历" tone="cool" />
         </View>
 
         {urgentHealthCount ? (
@@ -9168,12 +9168,12 @@ export default function LumiiMvpApp() {
       return days !== null && days >= 0 && days <= 14;
     });
     const monthSummary = visibleEvents.length
-      ? `本月共有 ${visibleEvents.length} 条健康记录，继续保持温柔记录`
-      : '本月还没有健康记录，先从今天开始';
+      ? `本月共有 ${visibleEvents.length} 条记录，继续保持温柔记录`
+      : '本月还没有记录，先从今天开始';
     const petNote = overdueVaccines.length
       ? `${overdueVaccines.length} 项疫苗/驱虫已逾期，建议尽快处理`
       : visibleEvents.length
-        ? `本月已有 ${visibleEvents.length} 条健康记录`
+        ? `本月已有 ${visibleEvents.length} 条记录`
         : '记录越完整，灵伴越懂它';
     const selectedCountLabel = selectedEvents.length ? `${selectedEvents.length} 条记录` : '无记录';
     const showInitialLoading = healthCalendarLoading && !healthCalendarEvents.length;
@@ -9191,10 +9191,18 @@ export default function LumiiMvpApp() {
       setHealthCalendarMonth(nextMonth);
       setSelectedHealthCalendarDate(nextSelected);
     };
+    const openCalendarWeightShortcut = () => {
+      go('weight');
+      openWeightAddEditor(healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet?.weightKg);
+    };
+    const openCalendarVaccineShortcut = () => {
+      go('vaccine');
+      openVaccineComposer();
+    };
     const eventMeta = (event: HealthCalendarEvent) => {
       if (event.type === 'weight') return { bg: '#E8F5F3', color: palette.teal, Icon: Weight, label: '体重' };
       if (event.type === 'vaccine') return { bg: '#FBF2D9', color: '#C99B3E', Icon: Syringe, label: '疫苗 / 驱虫' };
-      return { bg: '#FFE6D6', color: palette.orange, Icon: NotebookPen, label: '健康备忘' };
+      return { bg: '#FFE6D6', color: palette.orange, Icon: NotebookPen, label: '备忘' };
     };
     const renderDots = (dayEvents: HealthCalendarEvent[] = []) => (
       <View style={styles.calendarDots}>
@@ -9237,14 +9245,14 @@ export default function LumiiMvpApp() {
 
     if (showError) {
       return (
-        <Screen title="健康日历">
+        <Screen title="宠物日历">
           <HealthCalendarPetCard note="日历暂时无法加载" pet={pet} />
           <View style={styles.calendarErrorState}>
             <View style={styles.calendarErrorIcon}>
               <WifiOff color={palette.danger} size={28} strokeWidth={2.3} />
             </View>
             <Text style={styles.calendarErrorTitle}>日历读取失败</Text>
-            <Text style={styles.calendarErrorText}>可能是网络抖了一下，{pet?.name ?? '灵伴'}的健康记录都在云端保存着，不会丢失</Text>
+            <Text style={styles.calendarErrorText}>可能是网络抖了一下，{pet?.name ?? '灵伴'}的日历记录都在云端保存着，不会丢失</Text>
             <Pressable onPress={() => void loadHealthCalendar()} style={[styles.calendarRetryButton, webPressableReset]}>
               <RefreshCw color="#fff" size={14} strokeWidth={2.5} />
               <Text style={styles.calendarRetryText}>重新加载</Text>
@@ -9260,12 +9268,12 @@ export default function LumiiMvpApp() {
     return (
       <Screen
         refreshControl={<RefreshControl refreshing={healthCalendarRefreshing} tintColor={palette.orange} onRefresh={() => void loadHealthCalendar({ refreshing: true })} />}
-        title="健康日历"
+        title="宠物日历"
       >
         {(showInitialLoading || healthCalendarRefreshing) ? (
           <View style={styles.calendarSyncRibbon}>
             <ActivityIndicator color={palette.orange} size="small" />
-            <Text style={styles.calendarSyncText}>正在为{pet?.name ?? '灵伴'}同步健康日历...</Text>
+            <Text style={styles.calendarSyncText}>正在为{pet?.name ?? '灵伴'}同步宠物日历...</Text>
           </View>
         ) : null}
 
@@ -9325,12 +9333,34 @@ export default function LumiiMvpApp() {
             {[
               { bg: palette.teal, label: '体重' },
               { bg: '#C99B3E', label: '疫苗 / 驱虫' },
-              { bg: palette.orange, label: '健康备忘' },
+              { bg: palette.orange, label: '备忘' },
             ].map((item) => (
               <View key={item.label} style={styles.calendarLegendItem}>
                 <View style={[styles.calendarLegendDot, { backgroundColor: item.bg }]} />
                 <Text style={styles.calendarLegendText}>{item.label}</Text>
               </View>
+            ))}
+          </View>
+          <View style={styles.calendarQuickActions}>
+            {[
+              { Icon: Weight, label: '+体重', onPress: openCalendarWeightShortcut, tone: 'teal' as const },
+              { Icon: Syringe, label: '+疫苗/驱虫', onPress: openCalendarVaccineShortcut, tone: 'gold' as const },
+              { Icon: NotebookPen, label: '+备忘', onPress: () => go('memoNew'), tone: 'orange' as const },
+            ].map(({ Icon, label, onPress, tone }) => (
+              <Pressable
+                accessibilityLabel={`calendar-quick-${label.replace('+', '')}`}
+                accessibilityRole="button"
+                key={label}
+                onPress={onPress}
+                style={[
+                  styles.calendarQuickAction,
+                  tone === 'teal' ? styles.calendarQuickActionTeal : tone === 'gold' ? styles.calendarQuickActionGold : styles.calendarQuickActionOrange,
+                  webPressableReset,
+                ]}
+              >
+                <Icon color={tone === 'teal' ? palette.teal : tone === 'gold' ? '#C99B3E' : palette.orange} size={13} strokeWidth={2.5} />
+                <Text style={[styles.calendarQuickActionText, tone === 'teal' ? styles.calendarQuickActionTextTeal : tone === 'gold' ? styles.calendarQuickActionTextGold : styles.calendarQuickActionTextOrange]}>{label}</Text>
+              </Pressable>
             ))}
           </View>
         </View>
@@ -9395,8 +9425,8 @@ export default function LumiiMvpApp() {
             <View style={styles.calendarEmptyIcon}>
               <PawPrint color={palette.muted} size={22} strokeWidth={2.3} />
             </View>
-            <Text style={styles.calendarEmptyTitle}>这一天还没有健康记录</Text>
-            <Text style={styles.calendarEmptyText}>随手记一笔，让{pet?.name ?? '灵伴'}的健康曲线更完整</Text>
+            <Text style={styles.calendarEmptyTitle}>这一天还没有备忘记录</Text>
+            <Text style={styles.calendarEmptyText}>随手记一笔，让{pet?.name ?? '灵伴'}的日历记录更完整</Text>
             <Pressable onPress={() => go('memoNew')} style={[styles.calendarEmptyButton, webPressableReset]}>
               <Plus color="#fff" size={14} strokeWidth={2.6} />
               <Text style={styles.calendarEmptyButtonText}>添加一条记录</Text>
@@ -9412,12 +9442,12 @@ export default function LumiiMvpApp() {
     return (
       <Screen
         right={(
-          <Pressable accessibilityLabel="新增健康备忘" accessibilityRole="button" onPress={() => go('memoNew')} style={[styles.weightAddLink, webPressableReset]}>
+          <Pressable accessibilityLabel="新增备忘" accessibilityRole="button" onPress={() => go('memoNew')} style={[styles.weightAddLink, webPressableReset]}>
             <Plus color={palette.orange} size={15} strokeWidth={2.6} />
             <Text style={styles.weightAddLinkText}>新增</Text>
           </Pressable>
         )}
-        title="健康备忘"
+        title="备忘"
       >
         <View style={styles.memoIntroCard}>
           <View style={styles.memoIntroIcon}>
@@ -9464,7 +9494,7 @@ export default function LumiiMvpApp() {
                 <NotebookPen color={palette.orange} size={38} strokeWidth={1.7} />
               </View>
             </View>
-            <Text style={styles.memoEmptyTitle}>还没有健康备忘</Text>
+            <Text style={styles.memoEmptyTitle}>还没有备忘</Text>
             <Text style={styles.memoEmptyDesc}>随手记下{petName}今天的小事，未来翻起来会很温暖</Text>
             <Pressable onPress={() => go('memoNew')} style={[styles.memoEmptyButton, webPressableReset]}>
               <Plus color="#fff" size={15} strokeWidth={2.7} />
@@ -9479,7 +9509,7 @@ export default function LumiiMvpApp() {
   function renderMemoNew() {
     const memoTypes = [
       { Icon: Sparkles, label: '洗澡' },
-      { Icon: Shield, label: '驱虫' },
+      { Icon: Star, label: '纪念日' },
       { Icon: Stethoscope, label: '体检' },
       { Icon: NotebookPen, label: '其他' },
     ];
@@ -9501,7 +9531,7 @@ export default function LumiiMvpApp() {
             <Text style={[styles.memoTopSaveText, (invalid || memoDraftSaving) && styles.memoTopSaveTextDisabled]}>{memoDraftSaving ? '保存中' : '保存'}</Text>
           </Pressable>
         )}
-        title="新增健康备忘"
+        title="新增备忘"
       >
         <View style={styles.memoNewPage}>
           <Text style={styles.memoFieldLabel}>快捷类型</Text>
@@ -10670,7 +10700,7 @@ export default function LumiiMvpApp() {
     };
     const openPetCircleOwnerSheet = (post: PetCirclePostView) => {
       if (post.ownedByMe) {
-        showToast('这是你自己的小事', { subtitle: '可以在宠友圈里删除，健康日历记录仍会保留', tone: 'info', variant: 'surface' });
+        showToast('这是你自己的小事', { subtitle: '可以在宠友圈里删除，宠物日历记录仍会保留', tone: 'info', variant: 'surface' });
         return;
       }
       setPetCircleOwnerSheetOwner(ownerFromPetCirclePost(post));
@@ -13088,7 +13118,7 @@ export default function LumiiMvpApp() {
               <Text style={styles.petDetailSectionTitleMake}>健康</Text>
               <View style={styles.petDetailInfoCardMake}>
                 <ProfileMakeRow Icon={Heart} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('vaccine')} title="疫苗与驱虫" value={vaccineValue} />
-                <ProfileMakeRow Icon={CalendarDays} iconBg="#FBF2D9" iconColor={palette.warning} last onPress={() => go('healthCalendar')} title="健康日历" value={memoValue} />
+                <ProfileMakeRow Icon={CalendarDays} iconBg="#FBF2D9" iconColor={palette.warning} last onPress={() => go('healthCalendar')} title="宠物日历" value={memoValue} />
               </View>
             </View>
           </View>
@@ -13173,7 +13203,7 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.flex}>
                 <Text style={styles.dailyVisibilityTitleMake}>可见范围</Text>
-                <Text style={styles.dailyVisibilitySubMake}>{dailyVisibility === 'nearby' ? nearbySharingDisabled ? '先在我的隐私设置开启附近可见，或切换为仅自己' : '附近宠友可在宠友圈看到，位置只展示模糊距离' : '只保存到健康日历，不出现在宠友圈'}</Text>
+                <Text style={styles.dailyVisibilitySubMake}>{dailyVisibility === 'nearby' ? nearbySharingDisabled ? '先在我的隐私设置开启附近可见，或切换为仅自己' : '附近宠友可在宠友圈看到，位置只展示模糊距离' : '只保存到宠物日历，不出现在宠友圈'}</Text>
               </View>
             </View>
             <View style={styles.dailyVisibilityOptionsMake}>
@@ -13955,7 +13985,7 @@ export default function LumiiMvpApp() {
               <Trash2 color={palette.danger} size={18} strokeWidth={2.4} />
             </View>
             <Text style={styles.petDeleteTitleMake}>确定要移除{pet.name}吗？</Text>
-            <Text style={styles.petDeleteBodyMake}>移除后，{pet.name}的健康记录、AI 灵伴记忆和社交资料将被永久删除，且无法恢复。</Text>
+            <Text style={styles.petDeleteBodyMake}>移除后，{pet.name}的体重、疫苗、备忘记录、AI 灵伴记忆和社交资料将被永久删除，且无法恢复。</Text>
             <View style={styles.petDeleteTipMake}>
               <AlertTriangle color={palette.orange} size={14} strokeWidth={2.4} />
               <Text style={styles.petDeleteTipTextMake}>如果只是暂时不想看到，可以选择切换为其它宠物，记录会一直保留。</Text>
@@ -13994,7 +14024,7 @@ export default function LumiiMvpApp() {
               </View>
               <Text style={styles.memoDeleteTitleMake}>删除这条备忘？</Text>
               <Text style={styles.memoDeleteBodyMake}>
-                「{memo.title}」将从{getCurrentPet()?.name ?? '灵伴'}的健康备忘中移除，删除后不可恢复
+                「{memo.title}」将从{getCurrentPet()?.name ?? '灵伴'}的备忘中移除，删除后不可恢复
               </Text>
               <View style={styles.memoDeleteActionsMake}>
                 <Pressable accessibilityLabel="cancel-delete-health-memo" accessibilityRole="button" disabled={memoDeleting} onPress={() => setMemoDeleteConfirmVisible(false)} style={[styles.memoDeleteCancelMake, webPressableReset]}>
@@ -15471,6 +15501,15 @@ const styles = StyleSheet.create({
   calendarPetNote: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 16, marginTop: 3 },
   calendarPetTag: { backgroundColor: '#E8F5F3', borderRadius: 6, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', maxWidth: 132, overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
   calendarPetTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 6 },
+  calendarQuickAction: { alignItems: 'center', borderRadius: 12, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 5, justifyContent: 'center', minHeight: 34, paddingHorizontal: 8, paddingVertical: 7 },
+  calendarQuickActionGold: { backgroundColor: '#FFFAEC', borderColor: '#F1DCAB' },
+  calendarQuickActionOrange: { backgroundColor: '#FFF4EE', borderColor: '#FFD5C3' },
+  calendarQuickActionTeal: { backgroundColor: '#F0FBF9', borderColor: '#CFEDEA' },
+  calendarQuickActionText: { fontFamily: appFontFamily, fontSize: 11, fontWeight: '800' },
+  calendarQuickActionTextGold: { color: '#A67A25' },
+  calendarQuickActionTextOrange: { color: palette.orange },
+  calendarQuickActionTextTeal: { color: palette.teal },
+  calendarQuickActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
   calendarRetryButton: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 13, flexDirection: 'row', gap: 8, marginTop: 22, minHeight: 40, paddingHorizontal: 20, shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.24, shadowRadius: 16 },
   calendarRetryText: { color: '#fff', fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
   calendarSelectedCount: { backgroundColor: '#E8F5F3', borderRadius: 10, color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 4 },
