@@ -54,6 +54,8 @@ const GPT_IMAGE2_MODEL = process.env.GPT_IMAGE2_MODEL || 'gpt-image-2';
 const GPT_IMAGE2_SIZE = process.env.GPT_IMAGE2_SIZE || '1:1';
 const GPT_IMAGE2_RESOLUTION = process.env.GPT_IMAGE2_RESOLUTION || '2k';
 const GPT_IMAGE2_OFFICIAL_FALLBACK = process.env.GPT_IMAGE2_OFFICIAL_FALLBACK === 'true';
+const GPT_IMAGE2_STUCK_TASK_MIN_TIMEOUT_MS = Number(process.env.GPT_IMAGE2_STUCK_TASK_MIN_TIMEOUT_MS || 5 * 60 * 1000);
+const GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER = Number(process.env.GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER || '4');
 const PET_AVATAR_PROVIDER = (process.env.PET_AVATAR_PROVIDER || (GPT_IMAGE2_API_KEY ? 'gpt-image-2' : TTAPI_API_KEY ? 'ttapi-flux-edits' : 'mock')).toLowerCase();
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
@@ -3062,6 +3064,14 @@ function nextProcessingProgress(current, remoteProgress) {
   return Math.min(98, Math.max(10, Number(current || 10) + 12));
 }
 
+function gptImage2StuckTaskTimeoutMs(data) {
+  const estimatedSeconds = Number(data?.estimated_time ?? data?.estimatedTime ?? 0);
+  const multiplier = Number.isFinite(GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER) && GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER > 0 ? GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER : 4;
+  const estimatedTimeoutMs = Number.isFinite(estimatedSeconds) && estimatedSeconds > 0 ? estimatedSeconds * 1000 * multiplier : 0;
+  const minTimeoutMs = Number.isFinite(GPT_IMAGE2_STUCK_TASK_MIN_TIMEOUT_MS) && GPT_IMAGE2_STUCK_TASK_MIN_TIMEOUT_MS > 0 ? GPT_IMAGE2_STUCK_TASK_MIN_TIMEOUT_MS : 5 * 60 * 1000;
+  return Math.max(minTimeoutMs, estimatedTimeoutMs);
+}
+
 function createMockAvatarJob(id) {
   return {
     createdAt: Date.now(),
@@ -3263,6 +3273,21 @@ async function refreshGptImage2AvatarJob(job) {
     job.errorMessage = data?.error?.message || payload?.error?.message || payload?.message || 'GPT Image 2 generation failed';
     job.progress = Math.max(10, Number(job.progress || 10));
     job.status = 'failed';
+    if (!job.usageRecorded) {
+      recordGptImage2AvatarUsage(payload, false);
+      job.usageRecorded = true;
+    }
+    return job;
+  }
+
+  const ageMs = Date.now() - Number(job.createdAt || Date.now());
+  const timeoutMs = gptImage2StuckTaskTimeoutMs(data);
+  if (ageMs >= timeoutMs) {
+    job.errorMessage = 'AI 灵伴生成超时，上游图像任务长时间未返回结果，请重新生成。';
+    job.progress = Math.max(10, Number(job.progress || 10));
+    job.providerStatus = status || 'processing_timeout';
+    job.status = 'failed';
+    job.timedOutAt = Date.now();
     if (!job.usageRecorded) {
       recordGptImage2AvatarUsage(payload, false);
       job.usageRecorded = true;
