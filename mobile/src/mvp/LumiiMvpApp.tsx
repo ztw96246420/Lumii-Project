@@ -7205,7 +7205,7 @@ export default function LumiiMvpApp() {
         : null;
       return (
         <View style={styles.screen}>
-          {Platform.OS === 'web' ? <PhoneStatusBar /> : null}
+          {Platform.OS === 'web' && route !== 'home' ? <PhoneStatusBar /> : null}
           {hideHeader ? null : (
             <View style={[styles.header, isOtpRoute && styles.otpHeader]}>
               <View style={[styles.headerRow, isOtpRoute && styles.otpHeaderRow]}>
@@ -8381,6 +8381,8 @@ export default function LumiiMvpApp() {
     const memoCount = healthSummary?.memoCount ?? memos.length;
     const calendarSummary = healthCalendarEvents.length ? `${healthCalendarEvents.length} 条记录` : (healthSummary?.latestMemo?.title ?? memos[0]?.title ?? '查看记录');
     const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : '暂无附近伙伴';
+    const petImageSource = pet.avatarUrl && !isGeneratedAvatarUri(pet.avatarUrl) ? { uri: pet.avatarUrl } : generatedGoldenAvatarSource;
+    const vaccineDueLabel = formatDueLabel(nextVaccine?.dueAt);
     const homeChatHint = homeChatPrompts[homeHintIndex].replace(/\{petName\}/g, pet.name);
     const todayWeightRecorded = weights.some((item) => item.recordedAt === todayIsoDate());
     const visibleNearbyMoments = nearbyMoments.filter((moment) => !moment.ownedByMe).slice(0, 5);
@@ -8517,7 +8519,6 @@ export default function LumiiMvpApp() {
                 <Text style={styles.homeMakeKicker}>早安，{pet.name}！</Text>
                 <Pressable onPress={() => go('chat')} style={[styles.homeMakeChatEntry, webPressableReset]}>
                   <Text adjustsFontSizeToFit minimumFontScale={0.76} numberOfLines={1} style={styles.homeMakeHeadline}>灵伴聊天 · {homeChatHint}</Text>
-                  <ChevronRight color={palette.orange} size={13} strokeWidth={2.5} />
                 </Pressable>
               </View>
             </View>
@@ -8527,22 +8528,25 @@ export default function LumiiMvpApp() {
             </Pressable>
           </View>
 
-          <View style={styles.homePetStage}>
-            <View style={styles.homePetGlow} />
-            <View style={styles.homePetRing} />
-            <View style={styles.homePetAvatarShell}>
-              <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={214} />
+          <View style={[styles.homePetHeroCard, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.94) 0%, rgba(255,249,241,0.88) 56%, rgba(245,251,249,0.86) 100%)' } as object) : null]}>
+            <View style={styles.homePetHeroCopy}>
+              <Text style={styles.homePetHeroName}>{pet.name}</Text>
+              <Text style={styles.homePetHeroMeta}>{petMeta}</Text>
+              <View style={styles.homeHeroOnlineBadge}>
+                <View style={styles.homeOnlineDot} />
+                <Text style={styles.homeOnlineText}>灵伴在线</Text>
+              </View>
+              <Pressable onPress={() => go('chat')} style={[styles.homeHeroMiniCard, webPressableReset]}>
+                <Heart color={palette.orange} fill={palette.orange} size={14} strokeWidth={2.4} />
+                <Text style={styles.homeHeroMiniText}>轻松互动{'\n'}已准备好</Text>
+              </Pressable>
+              <Pressable onPress={() => go('dailyPost')} style={[styles.homeHeroMiniCard, styles.homeHeroMiniCardWide, webPressableReset]}>
+                <MessageCircle color={palette.teal} size={14} strokeWidth={2.4} />
+                <Text style={styles.homeHeroMiniText}>要不要记录一件{'\n'}开心小事？</Text>
+              </Pressable>
             </View>
-            <View style={styles.homeOnlineBadge}>
-              <View style={styles.homeOnlineDot} />
-              <Text style={styles.homeOnlineText}>灵伴在线</Text>
-            </View>
-          </View>
-
-          <View style={styles.homePetIdentityBlock}>
-            <View style={styles.homePetNameRow}>
-              <Text style={styles.homePetName}>{pet.name}</Text>
-              <Text style={styles.homePetMeta}>· {petMeta}</Text>
+            <View style={styles.homePetHeroMedia}>
+              <Image resizeMode="contain" source={petImageSource} style={styles.homePetHeroImage} />
             </View>
           </View>
 
@@ -8564,23 +8568,52 @@ export default function LumiiMvpApp() {
             </View>
           </Pressable>
 
-          <View style={styles.homeQuickGrid}>
-            <MetricCard Icon={Weight} label="今日体重" onPress={() => go('weight')} tag={todayWeightRecorded ? '已记录' : '待记录'} tagTone="teal" value={formatWeightKg(latestWeight)} />
-            <MetricCard Icon={Syringe} iconTone="teal" label="疫苗提醒" onPress={() => go('vaccine')} tag={formatDueLabel(nextVaccine?.dueAt)} tagTone="orange" value={nextVaccine?.name ?? '待添加计划'} />
-            <MetricCard Icon={CalendarDays} label="宠物日历" onPress={() => go('healthCalendar')} tag={`${memoCount} 条`} tagTone="muted" value={calendarSummary} />
-            <MetricCard Icon={MapPin} label="附近伙伴" onPress={() => { setDiscoverTab('partners'); go('discover'); }} tag={`${defaultDiscoverRadiusKm}km`} tagTone="teal" value={onlineCopy} />
+          <View style={styles.homeMetricList}>
+            <Pressable onPress={() => go('weight')} style={[styles.homeMetricListRow, webPressableReset]}>
+              <View style={styles.homeMetricListIcon}>
+                <Weight color={palette.teal} size={19} strokeWidth={2.5} />
+              </View>
+              <View style={styles.homeMetricListCopy}>
+                <Text numberOfLines={1} style={styles.homeMetricListLabel}>今日体重</Text>
+                <Text numberOfLines={1} style={styles.homeMetricListValue}>{formatWeightKg(latestWeight)}</Text>
+              </View>
+              <Text numberOfLines={1} style={[styles.homeMetricListTag, styles.homeMetricListTagTeal]}>{todayWeightRecorded ? '已记录' : '待记录'}</Text>
+              <ChevronRight color={palette.muted} size={17} strokeWidth={2.2} />
+            </Pressable>
+            <Pressable onPress={() => go('vaccine')} style={[styles.homeMetricListRow, webPressableReset]}>
+              <View style={styles.homeMetricListIcon}>
+                <Syringe color={palette.teal} size={19} strokeWidth={2.5} />
+              </View>
+              <View style={styles.homeMetricListCopy}>
+                <Text numberOfLines={1} style={styles.homeMetricListLabel}>疫苗提醒</Text>
+                <Text numberOfLines={1} style={styles.homeMetricListValue}>{nextVaccine?.name ?? '待添加计划'}</Text>
+              </View>
+              <Text numberOfLines={1} style={[styles.homeMetricListTag, styles.homeMetricListTagOrange]}>{vaccineDueLabel}</Text>
+              <ChevronRight color={palette.muted} size={17} strokeWidth={2.2} />
+            </Pressable>
+            <Pressable onPress={() => go('healthCalendar')} style={[styles.homeMetricListRow, webPressableReset]}>
+              <View style={[styles.homeMetricListIcon, styles.homeMetricListIconOrange]}>
+                <CalendarDays color={palette.orange} size={19} strokeWidth={2.5} />
+              </View>
+              <View style={styles.homeMetricListCopy}>
+                <Text numberOfLines={1} style={styles.homeMetricListLabel}>健康日历</Text>
+                <Text numberOfLines={1} style={styles.homeMetricListValue}>{calendarSummary}</Text>
+              </View>
+              <Text numberOfLines={1} style={[styles.homeMetricListTag, styles.homeMetricListTagMuted]}>{memoCount} 条</Text>
+              <ChevronRight color={palette.muted} size={17} strokeWidth={2.2} />
+            </Pressable>
+            <Pressable onPress={() => { setDiscoverTab('partners'); go('discover'); }} style={[styles.homeMetricListRow, styles.homeMetricListRowLast, webPressableReset]}>
+              <View style={styles.homeMetricListIcon}>
+                <MapPin color={palette.teal} size={19} strokeWidth={2.5} />
+              </View>
+              <View style={styles.homeMetricListCopy}>
+                <Text numberOfLines={1} style={styles.homeMetricListLabel}>附近伙伴</Text>
+                <Text numberOfLines={1} style={styles.homeMetricListValue}>{onlineCopy}</Text>
+              </View>
+              <Text numberOfLines={1} style={[styles.homeMetricListTag, styles.homeMetricListTagTeal]}>{defaultDiscoverRadiusKm}km</Text>
+              <ChevronRight color={palette.muted} size={17} strokeWidth={2.2} />
+            </Pressable>
           </View>
-
-          <Pressable onPress={() => go('dailyPost')} style={[styles.homeStoryStrip, webPressableReset]}>
-            <View style={styles.homeStoryIcon}>
-              <Camera color={palette.orange} size={18} strokeWidth={2.4} />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.homeStoryTitle}>记录今天的小事</Text>
-              <Text style={styles.homeStorySub}>让 AI 灵伴更懂{pet.name}</Text>
-            </View>
-            <ChevronRight color={palette.muted} size={18} strokeWidth={2.2} />
-          </Pressable>
         </View>
       </Screen>
     );
@@ -15570,8 +15603,8 @@ const styles = StyleSheet.create({
   healthTimelineIconMuted: { backgroundColor: 'rgba(200,168,113,0.18)' },
   healthTimelineRow: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 10 },
   heroCard: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, flexDirection: 'row', gap: 14, padding: 16 },
-  homeBellButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.78)', borderColor: palette.border, borderRadius: 19, borderWidth: 1, height: 38, justifyContent: 'center', position: 'relative', width: 38 },
-  homeBellDot: { backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 4, borderWidth: 1.5, height: 7, position: 'absolute', right: 9, top: 8, width: 7 },
+  homeBellButton: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderColor: 'rgba(236,231,222,0.78)', borderRadius: 20, borderWidth: 1, height: 48, justifyContent: 'center', position: 'relative', shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 22, width: 48 },
+  homeBellDot: { backgroundColor: palette.orange, borderColor: '#fff', borderRadius: 5, borderWidth: 1.5, height: 9, position: 'absolute', right: 12, top: 11, width: 9 },
   homeHealthCard: { alignItems: 'center', backgroundColor: '#ffe3cb', borderColor: 'rgba(255,255,255,0.7)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingHorizontal: 18, paddingVertical: 15, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.12, shadowRadius: 24 },
   homeHealthDelta: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.22)', borderRadius: 10, flexDirection: 'row', gap: 2, marginLeft: 6, paddingHorizontal: 8, paddingVertical: 3 },
   homeHealthDeltaText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
@@ -15583,11 +15616,11 @@ const styles = StyleSheet.create({
   homeHealthScore: { color: palette.ink, fontFamily: appFontFamily, fontSize: 36, fontWeight: '700', letterSpacing: 0, lineHeight: 38 },
   homeHealthScoreRow: { alignItems: 'baseline', flexDirection: 'row', gap: 2, marginTop: 4 },
   homeHealthTotal: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500' },
-  homeMomentAutoPill: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.15)', borderRadius: 11, flexDirection: 'row', gap: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  homeMomentAutoPill: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 13, flexDirection: 'row', gap: 4, paddingHorizontal: 10, paddingVertical: 5 },
   homeMomentAutoText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700' },
   homeMomentAvatarStack: { height: 48, position: 'relative', width: 98 },
-  homeMomentBody: { alignItems: 'center', flexDirection: 'row', gap: 9 },
-  homeMomentCard: { backgroundColor: '#FFFCF8', borderColor: 'rgba(255,255,255,0.9)', borderRadius: 24, borderWidth: 1, marginTop: 8, paddingHorizontal: 12, paddingBottom: 9, paddingTop: 12, shadowColor: '#8b5e3c', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24 },
+  homeMomentBody: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  homeMomentCard: { backgroundColor: '#FFFCF8', borderColor: 'rgba(255,255,255,0.95)', borderRadius: 24, borderWidth: 1, marginTop: 12, paddingBottom: 10, paddingHorizontal: 14, paddingTop: 11, shadowColor: '#50371e', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.08, shadowRadius: 34 },
   homeMomentCopy: { flex: 1, minWidth: 0 },
   homeMomentDistance: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.12)', borderRadius: 9, flexDirection: 'row', gap: 2, maxWidth: 82, paddingHorizontal: 6, paddingVertical: 2 },
   homeMomentDistanceText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700' },
@@ -15596,15 +15629,15 @@ const styles = StyleSheet.create({
   homeMomentDots: { alignItems: 'center', flexDirection: 'row', gap: 5 },
   homeMomentFooter: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end', marginTop: 7 },
   homeMomentHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
-  homeMomentIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.15)', borderRadius: 11, height: 24, justifyContent: 'center', width: 24 },
-  homeMomentLayer: { backgroundColor: '#FFFDFC', borderColor: 'rgba(255,255,255,0.96)', borderRadius: 19, borderWidth: 1, marginTop: 8, paddingHorizontal: 8, paddingVertical: 7, shadowColor: '#8b5e3c', shadowOffset: { height: 7, width: 0 }, shadowOpacity: 0.06, shadowRadius: 14 },
-  homeMomentEmptyIcon: { alignItems: 'center', backgroundColor: '#F7EEE7', borderColor: '#FFF9F2', borderRadius: 25, borderWidth: 1, height: 50, justifyContent: 'center', width: 50 },
+  homeMomentIcon: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.14)', borderRadius: 14, height: 30, justifyContent: 'center', width: 30 },
+  homeMomentLayer: { backgroundColor: '#FFFDFC', borderColor: 'rgba(255,255,255,0.98)', borderRadius: 20, borderWidth: 1, marginTop: 9, minHeight: 72, paddingHorizontal: 12, paddingVertical: 8 },
+  homeMomentEmptyIcon: { alignItems: 'center', backgroundColor: '#F7EEE7', borderColor: '#FFF9F2', borderRadius: 29, borderWidth: 1, height: 58, justifyContent: 'center', width: 58 },
   homeMomentLoadingBody: { alignItems: 'center', flexDirection: 'row', gap: 16, minHeight: 62, paddingHorizontal: 8, paddingVertical: 3 },
   homeMomentMeta: { color: '#A98566', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', marginTop: 4 },
-  homeMomentName: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '800', lineHeight: 18 },
+  homeMomentName: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 17 },
   homeMomentNameRow: { alignItems: 'center', flexDirection: 'row', gap: 6, minWidth: 0 },
-  homeMomentRefreshChip: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: '#FFF1E4', borderRadius: 10, flexDirection: 'row', gap: 4, marginTop: 6, paddingHorizontal: 8, paddingVertical: 4 },
-  homeMomentRefreshText: { color: '#B9784B', fontFamily: appFontFamily, fontSize: 9.5, fontWeight: '800' },
+  homeMomentRefreshChip: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: '#FFF1E4', borderRadius: 11, flexDirection: 'row', gap: 4, marginTop: 5, paddingHorizontal: 9, paddingVertical: 4 },
+  homeMomentRefreshText: { color: '#E87547', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '800' },
   homeMomentRetryChip: { alignItems: 'center', alignSelf: 'flex-end', backgroundColor: '#FFF4EA', borderRadius: 11, flexDirection: 'row', gap: 4, marginTop: 4, paddingHorizontal: 8, paddingVertical: 5 },
   homeMomentRetryText: { color: '#B9784B', fontFamily: appFontFamily, fontSize: 9.5, fontWeight: '800' },
   homeMomentSkeletonColumn: { gap: 10, width: 88 },
@@ -15618,27 +15651,49 @@ const styles = StyleSheet.create({
   homeMomentSkeletonLineWide: { width: '88%' },
   homeMomentStackAvatar: { borderColor: '#FFFDFC', borderRadius: 23, borderWidth: 2, height: 46, overflow: 'hidden', position: 'absolute', top: 1, width: 46 },
   homeMomentStateActionRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-  homeMomentStateBody: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 60, paddingHorizontal: 8, paddingVertical: 3 },
+  homeMomentStateBody: { alignItems: 'center', flexDirection: 'row', gap: 14, minHeight: 58, paddingHorizontal: 0, paddingVertical: 0 },
   homeMomentStateCopy: { flex: 1, minWidth: 0 },
   homeMomentStateCta: { alignItems: 'center', backgroundColor: '#D08A54', borderRadius: 13, justifyContent: 'center', minWidth: 78, paddingHorizontal: 12, paddingVertical: 6 },
   homeMomentStateCtaText: { color: '#fff', fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '800' },
   homeMomentStateSubtle: { color: '#B09986', flex: 1, fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', marginRight: 8 },
-  homeMomentStateText: { color: '#8A7667', fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 4 },
-  homeMomentStateTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '800', lineHeight: 19 },
-  homeMomentText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 16.5, marginTop: 3 },
+  homeMomentStateText: { color: '#8A7667', fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17, marginTop: 3 },
+  homeMomentStateTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '700', lineHeight: 20 },
+  homeMomentText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 16, marginTop: 3 },
   homeMomentThumb: { backgroundColor: '#fff', borderColor: 'rgba(255,255,255,0.92)', borderRadius: 18, borderWidth: 2, height: 76, overflow: 'hidden', shadowColor: '#8b5e3c', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.14, shadowRadius: 14, width: 76 },
   homeMomentThumbImage: { height: '100%', width: '100%' },
-  homeMomentTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '800', letterSpacing: 0 },
-  homeMomentTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 7 },
-  homeMakeGreeting: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 12, minWidth: 0 },
-  homeMakeChatEntry: { alignItems: 'center', alignSelf: 'stretch', flexDirection: 'row', gap: 2, maxWidth: '100%', minWidth: 0, paddingRight: 2, paddingVertical: 2 },
-  homeMakeHeader: { alignItems: 'center', flexDirection: 'row', gap: 12, justifyContent: 'space-between', paddingTop: 6 },
-  homeMakeHeadline: { color: palette.ink, flex: 1, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', letterSpacing: 0, lineHeight: 17, minWidth: 0 },
-  homeMakeKicker: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
-  homeMakePage: { gap: 0, position: 'relative' },
+  homeMomentTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15.5, fontWeight: '800', letterSpacing: 0 },
+  homeMomentTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 10 },
+  homeMakeGreeting: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 16, minWidth: 0 },
+  homeMakeChatEntry: { alignItems: 'center', alignSelf: 'stretch', flexDirection: 'row', maxWidth: '100%', minWidth: 0, paddingVertical: 2 },
+  homeMakeHeader: { alignItems: 'center', flexDirection: 'row', gap: 12, justifyContent: 'space-between', marginBottom: 15, paddingTop: 2 },
+  homeMakeHeadline: { color: palette.muted, flex: 1, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', letterSpacing: 0, lineHeight: 17, minWidth: 0 },
+  homeMakeKicker: { color: palette.ink, fontFamily: appFontFamily, fontSize: 20, fontWeight: '800', letterSpacing: 0, lineHeight: 25 },
+  homeMakePage: { gap: 0, paddingBottom: 6, position: 'relative' },
+  homeHeroMiniCard: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.94)', borderColor: 'rgba(236,231,222,0.72)', borderRadius: 15, borderWidth: 1, flexDirection: 'row', gap: 7, marginTop: 10, minHeight: 44, paddingHorizontal: 11, paddingVertical: 7, shadowColor: '#50371e', shadowOffset: { height: 9, width: 0 }, shadowOpacity: 0.07, shadowRadius: 18 },
+  homeHeroMiniCardWide: { marginTop: 8, minHeight: 50, paddingRight: 13 },
+  homeHeroMiniText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', lineHeight: 16 },
+  homeHeroOnlineBadge: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 17, flexDirection: 'row', gap: 7, marginTop: 10, paddingHorizontal: 13, paddingVertical: 7 },
+  homeMetricList: { backgroundColor: 'rgba(255,255,255,0.94)', borderColor: 'rgba(236,231,222,0.9)', borderRadius: 24, borderWidth: 1, marginTop: 10, overflow: 'hidden', paddingHorizontal: 14, paddingVertical: 4, shadowColor: '#50371e', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.08, shadowRadius: 34 },
+  homeMetricListCopy: { flex: 1, minWidth: 0 },
+  homeMetricListIcon: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.14)', borderRadius: 14, height: 36, justifyContent: 'center', width: 36 },
+  homeMetricListIconOrange: { backgroundColor: 'rgba(255,138,92,0.12)' },
+  homeMetricListLabel: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 16 },
+  homeMetricListRow: { alignItems: 'center', borderBottomColor: 'rgba(122,121,114,0.16)', borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 52, paddingHorizontal: 0, paddingVertical: 5 },
+  homeMetricListRowLast: { borderBottomWidth: 0 },
+  homeMetricListTag: { borderRadius: 14, flexShrink: 0, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', minWidth: 48, overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 5, textAlign: 'center' },
+  homeMetricListTagMuted: { backgroundColor: 'rgba(122,121,114,0.12)', color: palette.muted },
+  homeMetricListTagOrange: { backgroundColor: 'rgba(255,138,92,0.12)', color: palette.orange },
+  homeMetricListTagTeal: { backgroundColor: 'rgba(77,182,172,0.14)', color: palette.teal },
+  homeMetricListValue: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '800', letterSpacing: 0, lineHeight: 19, marginTop: 1 },
   homeOnlineBadge: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.16)', borderRadius: 14, bottom: 8, flexDirection: 'row', gap: 5, left: 34, paddingHorizontal: 11, paddingVertical: 5, position: 'absolute', zIndex: 4 },
   homeOnlineDot: { backgroundColor: palette.teal, borderRadius: 3, height: 6, width: 6 },
-  homeOnlineText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600' },
+  homeOnlineText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700' },
+  homePetHeroCard: { backgroundColor: 'rgba(255,255,255,0.92)', borderColor: 'rgba(255,255,255,0.96)', borderRadius: 26, borderWidth: 1, flexDirection: 'row', height: 284, overflow: 'hidden', paddingLeft: 22, paddingVertical: 24, position: 'relative', shadowColor: '#50371e', shadowOffset: { height: 20, width: 0 }, shadowOpacity: 0.08, shadowRadius: 36 },
+  homePetHeroCopy: { flexShrink: 0, paddingTop: 16, width: 138, zIndex: 2 },
+  homePetHeroImage: { height: 286, resizeMode: 'contain', width: 264 },
+  homePetHeroMedia: { alignItems: 'center', bottom: 0, justifyContent: 'flex-end', left: 116, paddingBottom: 0, paddingTop: 4, position: 'absolute', right: -24, top: 0, zIndex: 1 },
+  homePetHeroMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', height: 19, lineHeight: 19, marginTop: 5 },
+  homePetHeroName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 29, fontWeight: '800', height: 35, letterSpacing: 0, lineHeight: 35 },
   homePetAvatarShell: { alignItems: 'center', backgroundColor: '#FFEDD9', borderColor: '#fff', borderRadius: 112, borderWidth: 4, height: 224, justifyContent: 'center', overflow: 'hidden', shadowColor: '#b46e3c', shadowOffset: { height: 28, width: 0 }, shadowOpacity: 0.26, shadowRadius: 56, width: 224, zIndex: 2 },
   homePetGlow: { backgroundColor: 'rgba(255,138,92,0.20)', borderRadius: 148, height: 296, position: 'absolute', width: 296 },
   homePetIdentityBlock: { alignItems: 'center', marginTop: 0, position: 'relative', zIndex: 5 },
@@ -16607,10 +16662,10 @@ const styles = StyleSheet.create({
   scanCornerLt: { borderColor: palette.orange, borderLeftWidth: 3, borderRadius: 4, borderTopWidth: 3, height: 22, left: 18, position: 'absolute', top: 18, width: 22 },
   scanCornerRb: { borderColor: palette.orange, borderLeftWidth: 3, borderRadius: 4, borderTopWidth: 3, bottom: 18, height: 22, position: 'absolute', right: 18, transform: [{ rotate: '180deg' }], width: 22 },
   scanCornerRt: { borderColor: palette.orange, borderLeftWidth: 3, borderRadius: 4, borderTopWidth: 3, height: 22, position: 'absolute', right: 18, top: 18, transform: [{ rotate: '90deg' }], width: 22 },
-  tabBar: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, bottom: 18, flexDirection: 'row', justifyContent: 'space-between', left: 16, paddingHorizontal: 6, paddingVertical: 8, position: 'absolute', right: 16 },
-  tabItem: { alignItems: 'center', flex: 1, gap: 3, justifyContent: 'center', minHeight: 42, paddingVertical: 4, position: 'relative' },
-  tabText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10, fontWeight: '400', lineHeight: 13 },
-  tabTextActive: { color: palette.orange, fontWeight: '600' },
+  tabBar: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.96)', borderColor: 'rgba(236,231,222,0.95)', borderRadius: 23, borderWidth: 1, bottom: 8, flexDirection: 'row', height: 60, justifyContent: 'space-between', left: 16, paddingHorizontal: 10, paddingVertical: 7, position: 'absolute', right: 16, shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.12, shadowRadius: 30 },
+  tabItem: { alignItems: 'center', flex: 1, gap: 3, justifyContent: 'center', minHeight: 44, paddingVertical: 3, position: 'relative' },
+  tabText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 15 },
+  tabTextActive: { color: palette.orange, fontWeight: '800' },
   tabUnreadBadge: { backgroundColor: palette.danger, borderColor: '#fff', borderRadius: 8, borderWidth: 2, color: '#fff', fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', height: 16, lineHeight: 12, minWidth: 16, overflow: 'hidden', paddingHorizontal: 3, position: 'absolute', right: 17, textAlign: 'center', top: 2, zIndex: 2 },
   tag: { backgroundColor: palette.orangeSoft, borderRadius: 999, color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
