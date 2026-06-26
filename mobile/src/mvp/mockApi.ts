@@ -1593,7 +1593,7 @@ function sourceDateForMockHealthMemo(memo: HealthMemo) {
 function vaccineStatusCopy(status: VaccinePlan['status']) {
   if (status === 'done') return '已完成';
   if (status === 'overdue') return '已逾期';
-  return '待提醒';
+  return '计划中';
 }
 
 function buildHealthCalendarEvents(): HealthCalendarEvent[] {

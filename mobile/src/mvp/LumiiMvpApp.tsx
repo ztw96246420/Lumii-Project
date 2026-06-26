@@ -1232,10 +1232,10 @@ function isVaccineReminderUrgent(vaccine: VaccinePlan) {
 }
 
 function vaccineReminderCopy(vaccine?: VaccinePlan) {
-  if (!vaccine) return '暂无待提醒计划';
+  if (!vaccine) return '暂无计划';
   if (vaccine.status === 'done') return '已完成';
   const days = daysUntilDate(vaccine.dueAt);
-  if (days === null) return '待提醒';
+  if (days === null) return '计划中';
   if (days < 0) return `已逾期 ${Math.abs(days)} 天`;
   if (days === 0) return '今天到期';
   if (days <= 7) return `${days} 天后到期`;
@@ -1258,7 +1258,7 @@ function petBodySizeLabel(pet?: PetProfile | null) {
 function buildPetProfileTags(pet?: PetProfile | null, pendingVaccineCount = 0, vaccineCount = 0) {
   if (!pet) return [];
   const tags = pet.personality?.length ? [...pet.personality] : [];
-  if (pendingVaccineCount > 0) tags.push(`${pendingVaccineCount} 项待提醒`);
+  if (pendingVaccineCount > 0) tags.push(`${pendingVaccineCount} 项计划中`);
   else tags.push(vaccineCount > 0 ? '疫苗已完成' : '疫苗待添加');
   tags.push(pet.weightKg ? '体重已记录' : '体重待补充');
   if (!pet.birthday) tags.push('生日待补充');
@@ -10018,7 +10018,7 @@ export default function LumiiMvpApp() {
       const dueDateLabel = formatOptionalDateLabel(item.dueAt, '日期待确认');
       if (item.status === 'done') return { label: '已完成', style: styles.vaccineStateDone, sub: `已完成 · ${dueDateLabel}`, textStyle: styles.vaccineStateDoneText };
       if (item.status === 'overdue' || (days !== null && days < 0)) return { label: '已逾期', style: styles.vaccineStateOverdue, sub: `${vaccineReminderCopy(item)} · ${dueDateLabel}`, textStyle: styles.vaccineStateOverdueText };
-      if (days !== null && days <= 14) return { label: '待接种', style: styles.vaccineStateUpcoming, sub: `${vaccineReminderCopy(item)} · ${vaccineReminderIds.includes(item.id) ? '提醒已开启' : '未开启提醒'}`, textStyle: styles.vaccineStateUpcomingText };
+      if (days !== null && days <= 14) return { label: '计划中', style: styles.vaccineStatePlanned, sub: `${vaccineReminderCopy(item)} · ${vaccineReminderIds.includes(item.id) ? '提醒已开启' : '未开启提醒'}`, textStyle: styles.vaccineStatePlannedText };
       return { label: '计划中', style: styles.vaccineStatePlanned, sub: `${vaccineReminderCopy(item)} · ${dueDateLabel}`, textStyle: styles.vaccineStatePlannedText };
     };
     return (
@@ -13064,7 +13064,7 @@ export default function LumiiMvpApp() {
   function renderPetDetail() {
     const pet = getCurrentPet();
     const genderSymbol = pet?.gender === 'female' ? '♀' : pet?.gender === 'male' ? '♂' : '未知';
-    const vaccineValue = pendingVaccines.length ? `${pendingVaccines.length} 项待提醒` : vaccines.length ? '已完成' : '待添加';
+    const vaccineValue = pendingVaccines.length ? `${pendingVaccines.length} 项计划中` : vaccines.length ? '已完成' : '待添加';
     const memoValue = memos.length ? `${memos.length} 条记录` : '待记录';
     const detailImageUri = pet?.avatarUrl ?? generatedGoldenAvatarUri;
     const birthdayShort = pet?.birthday ? pet.birthday.slice(0, 7).replace(/-/g, '.') : '待补充';
