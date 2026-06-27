@@ -3,6 +3,7 @@ const https = require('https');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { URL } = require('url');
 
 const TEST_CODE = '962464';
@@ -501,6 +502,336 @@ function storageObjectUrl(req, objectKey) {
   return `${proto}://${host}/storage/objects/${encodeURIComponent(objectKey)}`;
 }
 
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+let pngCrcTable = null;
+
+function isPngBuffer(buffer) {
+  return Buffer.isBuffer(buffer) && buffer.length > PNG_SIGNATURE.length && buffer.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE);
+}
+
+function pngCrc32(buffer) {
+  if (!pngCrcTable) {
+    pngCrcTable = new Uint32Array(256);
+    for (let n = 0; n < 256; n += 1) {
+      let c = n;
+      for (let k = 0; k < 8; k += 1) {
+        c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      }
+      pngCrcTable[n] = c >>> 0;
+    }
+  }
+  let crc = 0xffffffff;
+  for (let i = 0; i < buffer.length; i += 1) {
+    crc = pngCrcTable[(crc ^ buffer[i]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type, data = Buffer.alloc(0)) {
+  const typeBuffer = Buffer.from(type, 'ascii');
+  const chunk = Buffer.alloc(12 + data.length);
+  chunk.writeUInt32BE(data.length, 0);
+  typeBuffer.copy(chunk, 4);
+  data.copy(chunk, 8);
+  chunk.writeUInt32BE(pngCrc32(Buffer.concat([typeBuffer, data])), 8 + data.length);
+  return chunk;
+}
+
+function pngPaethPredictor(a, b, c) {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  if (pa <= pb && pa <= pc) return a;
+  if (pb <= pc) return b;
+  return c;
+}
+
+function decodePngToRgba(buffer) {
+  if (!isPngBuffer(buffer)) return null;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  let palette = null;
+  let transparency = null;
+  const idatChunks = [];
+  let offset = PNG_SIGNATURE.length;
+
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString('ascii', offset + 4, offset + 8);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    if (dataEnd + 4 > buffer.length) return null;
+    const data = buffer.subarray(dataStart, dataEnd);
+
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      bitDepth = data[8];
+      colorType = data[9];
+      if (data[10] !== 0 || data[11] !== 0 || data[12] !== 0) return null;
+    } else if (type === 'PLTE') {
+      palette = data;
+    } else if (type === 'tRNS') {
+      transparency = data;
+    } else if (type === 'IDAT') {
+      idatChunks.push(data);
+    } else if (type === 'IEND') {
+      break;
+    }
+
+    offset = dataEnd + 4;
+  }
+
+  if (!width || !height || bitDepth !== 8 || !idatChunks.length) return null;
+  if (width * height > 25000000) return null;
+
+  const channelsByColorType = {
+    0: 1,
+    2: 3,
+    3: 1,
+    4: 2,
+    6: 4,
+  };
+  const channels = channelsByColorType[colorType];
+  if (!channels) return null;
+  if (colorType === 3 && !palette) return null;
+
+  const rowBytes = width * channels;
+  const inflated = zlib.inflateSync(Buffer.concat(idatChunks));
+  if (inflated.length < (rowBytes + 1) * height) return null;
+
+  const rgba = Buffer.alloc(width * height * 4);
+  let sourceOffset = 0;
+  let previousRow = Buffer.alloc(rowBytes);
+
+  for (let y = 0; y < height; y += 1) {
+    const filter = inflated[sourceOffset];
+    sourceOffset += 1;
+    const row = Buffer.alloc(rowBytes);
+    for (let i = 0; i < rowBytes; i += 1) {
+      const raw = inflated[sourceOffset + i];
+      const left = i >= channels ? row[i - channels] : 0;
+      const up = previousRow[i] || 0;
+      const upLeft = i >= channels ? previousRow[i - channels] || 0 : 0;
+      let value = raw;
+      if (filter === 1) value = raw + left;
+      else if (filter === 2) value = raw + up;
+      else if (filter === 3) value = raw + Math.floor((left + up) / 2);
+      else if (filter === 4) value = raw + pngPaethPredictor(left, up, upLeft);
+      else if (filter !== 0) return null;
+      row[i] = value & 0xff;
+    }
+    sourceOffset += rowBytes;
+
+    for (let x = 0; x < width; x += 1) {
+      const src = x * channels;
+      const dst = (y * width + x) * 4;
+      if (colorType === 6) {
+        rgba[dst] = row[src];
+        rgba[dst + 1] = row[src + 1];
+        rgba[dst + 2] = row[src + 2];
+        rgba[dst + 3] = row[src + 3];
+      } else if (colorType === 2) {
+        rgba[dst] = row[src];
+        rgba[dst + 1] = row[src + 1];
+        rgba[dst + 2] = row[src + 2];
+        rgba[dst + 3] = 255;
+      } else if (colorType === 0) {
+        rgba[dst] = row[src];
+        rgba[dst + 1] = row[src];
+        rgba[dst + 2] = row[src];
+        rgba[dst + 3] = 255;
+      } else if (colorType === 4) {
+        rgba[dst] = row[src];
+        rgba[dst + 1] = row[src];
+        rgba[dst + 2] = row[src];
+        rgba[dst + 3] = row[src + 1];
+      } else if (colorType === 3) {
+        const index = row[src];
+        const paletteOffset = index * 3;
+        rgba[dst] = palette[paletteOffset] || 0;
+        rgba[dst + 1] = palette[paletteOffset + 1] || 0;
+        rgba[dst + 2] = palette[paletteOffset + 2] || 0;
+        rgba[dst + 3] = transparency && index < transparency.length ? transparency[index] : 255;
+      }
+    }
+
+    previousRow = row;
+  }
+
+  return { height, rgba, width };
+}
+
+function encodeRgbaPng(width, height, rgba) {
+  const rowBytes = width * 4;
+  const raw = Buffer.alloc((rowBytes + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const rowStart = y * (rowBytes + 1);
+    raw[rowStart] = 0;
+    rgba.copy(raw, rowStart + 1, y * rowBytes, (y + 1) * rowBytes);
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', zlib.deflateSync(raw, { level: 9 })),
+    pngChunk('IEND'),
+  ]);
+}
+
+function isLightNeutralPixel(r, g, b) {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const avg = (r + g + b) / 3;
+  return avg >= 145 && max - min <= 34;
+}
+
+function detectCheckerboardProfile({ height, rgba, width }) {
+  const edgeSize = Math.max(3, Math.round(Math.min(width, height) * 0.035));
+  const bins = new Map();
+  let samples = 0;
+  let candidates = 0;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (x >= edgeSize && y >= edgeSize && x < width - edgeSize && y < height - edgeSize) continue;
+      const offset = (y * width + x) * 4;
+      const alpha = rgba[offset + 3];
+      if (alpha < 24) continue;
+      samples += 1;
+      const r = rgba[offset];
+      const g = rgba[offset + 1];
+      const b = rgba[offset + 2];
+      if (!isLightNeutralPixel(r, g, b)) continue;
+      candidates += 1;
+      const brightness = (r + g + b) / 3;
+      const key = String(Math.round(brightness / 16) * 16);
+      const bin = bins.get(key) || { brightness: 0, b: 0, count: 0, g: 0, r: 0 };
+      bin.count += 1;
+      bin.brightness += brightness;
+      bin.r += r;
+      bin.g += g;
+      bin.b += b;
+      bins.set(key, bin);
+    }
+  }
+
+  if (samples < 64 || candidates / samples < 0.38) return null;
+  const sortedBins = [...bins.values()]
+    .map((bin) => ({
+      avg: bin.brightness / bin.count,
+      b: bin.b / bin.count,
+      count: bin.count,
+      g: bin.g / bin.count,
+      r: bin.r / bin.count,
+    }))
+    .sort((a, b) => b.count - a.count);
+  const primary = sortedBins[0];
+  const secondary = sortedBins.find((bin) => Math.abs(bin.avg - primary.avg) >= 18);
+  if (!primary || !secondary) return null;
+  if (secondary.count / candidates < 0.08) return null;
+  if ((primary.count + secondary.count) / candidates < 0.28) return null;
+
+  const brightnessGap = Math.abs(primary.avg - secondary.avg);
+  const threshold = Math.max(30, Math.min(58, brightnessGap * 1.3));
+  return {
+    colors: [
+      [primary.r, primary.g, primary.b],
+      [secondary.r, secondary.g, secondary.b],
+    ],
+    thresholdSq: threshold * threshold,
+  };
+}
+
+function colorDistanceSq(r, g, b, color) {
+  return (r - color[0]) ** 2 + (g - color[1]) ** 2 + (b - color[2]) ** 2;
+}
+
+function isCheckerboardBackgroundPixel(rgba, offset, profile) {
+  const alpha = rgba[offset + 3];
+  if (alpha < 24) return true;
+  const r = rgba[offset];
+  const g = rgba[offset + 1];
+  const b = rgba[offset + 2];
+  if (!isLightNeutralPixel(r, g, b)) return false;
+  return profile.colors.some((color) => colorDistanceSq(r, g, b, color) <= profile.thresholdSq);
+}
+
+function removeCheckerboardBackground(decoded) {
+  const profile = detectCheckerboardProfile(decoded);
+  if (!profile) return null;
+
+  const { height, width } = decoded;
+  const rgba = Buffer.from(decoded.rgba);
+  const pixels = width * height;
+  const visited = new Uint8Array(pixels);
+  const stack = [];
+
+  for (let x = 0; x < width; x += 1) {
+    stack.push(x);
+    stack.push((height - 1) * width + x);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    stack.push(y * width);
+    stack.push(y * width + width - 1);
+  }
+
+  let removed = 0;
+  while (stack.length) {
+    const pixel = stack.pop();
+    if (visited[pixel]) continue;
+    visited[pixel] = 1;
+    const offset = pixel * 4;
+    if (!isCheckerboardBackgroundPixel(rgba, offset, profile)) continue;
+
+    rgba[offset] = 255;
+    rgba[offset + 1] = 255;
+    rgba[offset + 2] = 255;
+    rgba[offset + 3] = 0;
+    removed += 1;
+
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    if (x > 0) stack.push(pixel - 1);
+    if (x < width - 1) stack.push(pixel + 1);
+    if (y > 0) stack.push(pixel - width);
+    if (y < height - 1) stack.push(pixel + width);
+  }
+
+  if (removed < Math.max(64, Math.round((width + height) * 2))) return null;
+  return { height, removed, rgba, width };
+}
+
+function cleanPetAvatarImage(downloaded, scope) {
+  if (String(scope || '') !== 'pet-avatar') return downloaded;
+  if (!isPngBuffer(downloaded?.buffer)) return downloaded;
+  try {
+    const decoded = decodePngToRgba(downloaded.buffer);
+    if (!decoded) return downloaded;
+    const cleaned = removeCheckerboardBackground(decoded);
+    if (!cleaned) return downloaded;
+    return {
+      buffer: encodeRgbaPng(cleaned.width, cleaned.height, cleaned.rgba),
+      cleanedCheckerboard: true,
+      mimeType: 'image/png',
+      removedPixels: cleaned.removed,
+    };
+  } catch (error) {
+    console.warn('[avatar:image] checkerboard cleanup skipped', { message: error.message || String(error) });
+    return downloaded;
+  }
+}
+
 function cosObjectKeyFor(user, scope, fileName, petId = '') {
   const safeScope = String(scope || 'misc').replace(/[^a-z0-9_-]/gi, '-').toLowerCase();
   const safeFileName = String(fileName || `${Date.now()}.jpg`).replace(/[^a-z0-9._-]/gi, '-').toLowerCase();
@@ -563,11 +894,20 @@ async function storeAvatarUrlToCos(req, user, avatarUrl, { petId = '', scope = '
   if (!value || value.startsWith('lumii://') || value.includes('/storage/objects/')) return value;
   const downloaded = await downloadImageBuffer(value);
   if (!downloaded?.buffer?.length) return value;
-  const extension = mimeExtension(downloaded.mimeType);
+  const prepared = cleanPetAvatarImage(downloaded, scope);
+  if (prepared.cleanedCheckerboard) {
+    console.log('[avatar:image] removed fake transparent checkerboard', {
+      bytesAfter: prepared.buffer.length,
+      bytesBefore: downloaded.buffer.length,
+      removedPixels: prepared.removedPixels,
+      scope,
+    });
+  }
+  const extension = mimeExtension(prepared.mimeType);
   const stored = await uploadBufferToCos(req, user, {
-    buffer: downloaded.buffer,
+    buffer: prepared.buffer,
     fileName: `avatar-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${extension}`,
-    mimeType: downloaded.mimeType,
+    mimeType: prepared.mimeType,
     petId,
     scope,
   });
@@ -3239,7 +3579,7 @@ async function startTtapiFluxAvatarJob(user, job, media) {
   });
 }
 
-async function refreshGptImage2AvatarJob(job) {
+async function refreshGptImage2AvatarJob(req, user, job) {
   if (!job.providerJobId) throw new Error('GPT Image 2 task id is missing');
   const payload = await gptImage2Request(`/v1/tasks/${encodeURIComponent(job.providerJobId)}`, {
     method: 'GET',
@@ -3251,8 +3591,20 @@ async function refreshGptImage2AvatarJob(job) {
   if (status === 'completed' || status === 'succeeded' || status === 'success') {
     const resultUrl = gptImage2ResultUrlFrom(payload);
     if (!resultUrl) throw new Error('GPT Image 2 result does not include an image URL');
+    let finalResultUrl = resultUrl;
+    try {
+      const pet = selectedPetFor(user);
+      finalResultUrl = await storeAvatarUrlToCos(req, user, resultUrl, { petId: pet?.id || '', scope: 'pet-avatar' });
+      if (finalResultUrl && finalResultUrl !== resultUrl) job.sourceResultUrl = resultUrl;
+    } catch (error) {
+      console.warn('[avatar:gpt-image-2] result storage skipped', {
+        jobId: job.id,
+        message: error.message || String(error),
+      });
+      finalResultUrl = resultUrl;
+    }
     job.progress = 100;
-    job.resultUrl = resultUrl;
+    job.resultUrl = finalResultUrl;
     job.status = 'ready';
     if (!job.usageRecorded) {
       recordGptImage2AvatarUsage(payload, true);
@@ -5377,7 +5729,7 @@ async function handle(req, res) {
     }
     if (job.provider === 'gpt-image-2' && job.status === 'processing') {
       try {
-        await refreshGptImage2AvatarJob(job);
+        await refreshGptImage2AvatarJob(req, user, job);
       } catch (error) {
         job.errorMessage = error.message || 'Avatar generation status failed';
         job.status = 'failed';
