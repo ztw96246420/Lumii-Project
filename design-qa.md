@@ -6,11 +6,19 @@
 
 ## Implementation Screenshot
 
-- `F:\Users\Administrator\Documents\Lumii Project\artifacts\product-design-home-redesign\v5-implementation-home-final.png`
+- `F:\Users\Administrator\Documents\Lumii Project\artifacts\product-design-home-redesign\v5-implementation-home-original-typography-390.png`
 
 ## Full-View Comparison Evidence
 
 - `F:\Users\Administrator\Documents\Lumii Project\artifacts\product-design-home-redesign\v5-source-implementation-comparison.png`
+
+## Focused Region Comparison Evidence
+
+- Hero typography was checked against the prior Lumii code scale: pet name uses the old `homePetName` values, 22px / 700 / 27px.
+- Header typography was checked against the prior Lumii code scale: greeting uses the old `homeMakeKicker` values, 12px / 500.
+- Metric typography was checked against the prior `MetricCard` styles: labels map to `metricLabel`, values map to `metricValue`, and tags map to `metricTag`.
+- Browser computed style confirmed `35 kg` and `待添加计划` render at 15px / 600 / 20px, matching old `metricValue`.
+- Browser computed style confirmed bottom-tab labels render at 10px, with active weight 600 and inactive weight 400, matching old `tabText` / `tabTextActive`.
 
 ## Viewport And State
 
@@ -19,17 +27,17 @@
 - Route: home tab.
 - Real pet image source is the current COS/API avatar for `lucky`; the implementation does not replace or redraw the pet image.
 
-## QA Notes
-
-- The V5 structure is implemented: greeting header, split pet hero, two interactive hero chips, nearby moments card, four-row metric list, and rounded bottom navigation.
-- The hero no longer uses a circular avatar frame. The pet is rendered as a layered central visual using the live image source with `contain`, so different uploaded cats/dogs can fit without a fixed stage prop.
-- The `health score` concept is not present. The metric list uses current product data only: weight, vaccine reminder, health calendar, and nearby partners.
-- The comparison shows acceptable content differences from live state: `today weight` is `待记录` because the current account data is not recorded today, while the generated V5 mock used `已记录`.
-- The web preview includes the existing app preview shell/background. This is outside the home UI content and does not affect the in-app layout.
-
 ## Findings
 
-- No P0/P1/P2 fidelity blockers found.
+- No P0/P1/P2 blockers found.
+
+## Patches Made Since Previous QA Pass
+
+- Restored non-hero home text to the V5-before code values where direct mappings exist.
+- Mapped the four metric rows back to `metricLabel`, `metricValue`, and `metricTag` typography.
+- Restored bottom navigation labels to the old `tabText` and `tabTextActive` typography.
+- Kept the middle pet image layout change while matching pet-name and pet-meta text to the old pet identity styles.
+- Regenerated the 390px implementation screenshot and final source-vs-implementation comparison.
 
 ## Verification
 
