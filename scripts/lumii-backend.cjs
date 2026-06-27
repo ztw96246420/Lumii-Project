@@ -2907,11 +2907,11 @@ function buildGptImage2PetAvatarPrompt(user) {
     '- high-end 3D render',
     '- collectible figurine / premium mascot aesthetic',
     '- hybrid look of soft realistic fur + polished figurine-quality character design',
-    '- studio product-shot quality',
+    '- premium app asset / character cutout quality',
     '- soft global illumination',
     '- gentle softbox lighting',
     '- subtle ambient occlusion',
-    '- soft contact shadow',
+    '- clean self-shadowing and depth on the pet itself, without a floor shadow or backdrop shadow',
     '- clean edge separation',
     '- smooth, premium, commercial finish',
     'Composition:',
@@ -2921,13 +2921,16 @@ function buildGptImage2PetAvatarPrompt(user) {
     '- front view or very slight 3/4 view, matching the reference as closely as possible',
     '- symmetrical, stable composition',
     '- enough negative space for app-avatar or card-style cropping',
-    '- isolated clean warm white / off-white studio background',
+    '- isolated transparent-background PNG-style cutout asset',
+    '- transparent alpha canvas if supported by the image pipeline',
+    '- no visible background color, no studio backdrop, no floor plane, no horizon line, no environment',
+    '- crisp but natural cutout edges around fur, ears, whiskers, tail, and paws so the pet can be composited cleanly on any app background',
     'Accessory handling:',
     'Preserve any distinctive accessory, clothing, bib, scarf, or signature item from the original photo if it helps recognizability. Keep its main colors and visual identity, but simplify it slightly into a clean premium 3D character style. Do not add random fashion items. Only add a small accessory if it supports the original look and does not reduce recognizability.',
     'Output feeling:',
     'The final image should feel like a premium pet character collectible, as if the real pet has been transformed into a polished, adorable 3D figurine or animated companion for a high-end pet social app. It should be charming, clean, premium, and emotionally warm.',
     'Avoid:',
-    'photorealistic image, realistic street/environment background, generic breed mascot, newly invented pet, changed breed, changed fur color, changed markings, changed age, exaggerated babyfication, flat vector illustration, black comic outline, anime look, low-quality plastic toy, rough sculpt, overly glossy cheap material, human body, full fashion outfit, hat, sunglasses, text, logo, watermark, extra limbs, distorted face, multiple pets, cluttered background, dramatic action pose.',
+    'photorealistic image, realistic street/environment background, white background, off-white background, colored background, gradient background, studio backdrop, floor, ground shadow, generic breed mascot, newly invented pet, changed breed, changed fur color, changed markings, changed age, exaggerated babyfication, flat vector illustration, black comic outline, anime look, low-quality plastic toy, rough sculpt, overly glossy cheap material, human body, full fashion outfit, hat, sunglasses, text, logo, watermark, extra limbs, distorted face, multiple pets, cluttered background, dramatic action pose.',
   ].join('\n');
 }
 
@@ -3142,7 +3145,7 @@ async function startGptImage2AvatarJob(user, job, media) {
     mediaId: media.mediaId,
     progress: 2,
     provider: 'gpt-image-2',
-    promptVersion: 'gpt-image-2-collectible-character-v2',
+    promptVersion: 'gpt-image-2-collectible-character-transparent-v3',
     status: 'processing',
   });
   const payload = await gptImage2Request('/v1/images/generations', {
