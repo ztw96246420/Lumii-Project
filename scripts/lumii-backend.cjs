@@ -2911,7 +2911,8 @@ function buildGptImage2PetAvatarPrompt(user) {
     '- soft global illumination',
     '- gentle softbox lighting',
     '- subtle ambient occlusion',
-    '- clean self-shadowing and depth on the pet itself, without a floor shadow or backdrop shadow',
+    '- clean self-shadowing and depth on the pet itself',
+    '- optional subtle soft contact shadow directly under the paws/body is allowed, as long as it remains clean and compositable on a transparent canvas',
     '- clean edge separation',
     '- smooth, premium, commercial finish',
     'Composition:',
@@ -2930,7 +2931,7 @@ function buildGptImage2PetAvatarPrompt(user) {
     'Output feeling:',
     'The final image should feel like a premium pet character collectible, as if the real pet has been transformed into a polished, adorable 3D figurine or animated companion for a high-end pet social app. It should be charming, clean, premium, and emotionally warm.',
     'Avoid:',
-    'photorealistic image, realistic street/environment background, white background, off-white background, colored background, gradient background, studio backdrop, floor, ground shadow, generic breed mascot, newly invented pet, changed breed, changed fur color, changed markings, changed age, exaggerated babyfication, flat vector illustration, black comic outline, anime look, low-quality plastic toy, rough sculpt, overly glossy cheap material, human body, full fashion outfit, hat, sunglasses, text, logo, watermark, extra limbs, distorted face, multiple pets, cluttered background, dramatic action pose.',
+    'photorealistic image, realistic street/environment background, white background, off-white background, colored background, gradient background, studio backdrop, visible floor plane, hard cast shadow, large backdrop shadow, generic breed mascot, newly invented pet, changed breed, changed fur color, changed markings, changed age, exaggerated babyfication, flat vector illustration, black comic outline, anime look, low-quality plastic toy, rough sculpt, overly glossy cheap material, human body, full fashion outfit, hat, sunglasses, text, logo, watermark, extra limbs, distorted face, multiple pets, cluttered background, dramatic action pose.',
   ].join('\n');
 }
 
