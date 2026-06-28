@@ -13535,6 +13535,11 @@ export default function LumiiMvpApp() {
             ))}
             {dailyPostPhotoUris.length < dailyPostMaxPhotoCount ? (
               <Pressable disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('library')} style={[styles.dailyPhotoAddMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
+                <View pointerEvents="none" style={styles.dailyPhotoAddDashMake}>
+                  <Svg height="100%" viewBox="0 0 100 100" width="100%">
+                    <Rect fill="none" height="96" rx="4" stroke="rgba(122,121,114,0.38)" strokeDasharray="5 5" strokeWidth="1.5" width="96" x="2" y="2" />
+                  </Svg>
+                </View>
                 {dailyPhotoPicking ? <ActivityIndicator color={palette.muted} size="small" /> : <Plus color={palette.muted} size={24} strokeWidth={2.1} />}
               </Pressable>
             ) : null}
@@ -16354,7 +16359,8 @@ const styles = StyleSheet.create({
   dailyPetChipMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 60, paddingHorizontal: 14, paddingVertical: 10, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.08, shadowRadius: 22 },
   dailyPetChipSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 2 },
   dailyPetChipTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 20 },
-  dailyPhotoAddMake: { alignItems: 'center', aspectRatio: 1, backgroundColor: '#fff', borderColor: 'rgba(122,121,114,0.34)', borderRadius: 4, borderStyle: 'dashed', borderWidth: 1, justifyContent: 'center', width: '31.7%' },
+  dailyPhotoAddDashMake: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
+  dailyPhotoAddMake: { alignItems: 'center', aspectRatio: 1, backgroundColor: '#fff', borderRadius: 4, justifyContent: 'center', overflow: 'hidden', position: 'relative', width: '31.7%' },
   dailyPhotoCounterMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', lineHeight: 16 },
   dailyPhotoGridMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: -6 },
   dailyPhotoRemoveBadgeMake: { alignItems: 'center', backgroundColor: 'rgba(27,28,25,0.72)', borderRadius: 9, height: 18, justifyContent: 'center', position: 'absolute', right: 5, top: 5, width: 18 },
