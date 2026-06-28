@@ -1616,11 +1616,12 @@ function createConversationSafetyMessage(): ConversationMessage {
 }
 
 function createPetChatWelcomeMessage(pet?: null | PetProfile): ChatMessage {
+  const petName = pet?.name?.trim();
   return {
     author: 'ai',
     id: 'pet-chat-welcome',
     status: 'sent',
-    text: `我是${pet?.name ? `${pet.name}的` : '你的'}灵伴。今天想记录什么小事？`,
+    text: petName ? `我是${petName}。主人，今天想和我聊点什么？` : '我是你的毛孩子。主人，今天想和我聊点什么？',
     time: new Date().toISOString(),
   };
 }

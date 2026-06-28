@@ -2653,8 +2653,9 @@ function petAgeLabel(birthday) {
 
 function petChatBaseSystemPrompt() {
   return [
-    '你是 Lumii（灵伴）App 内的 AI 电子宠物陪伴助手，不是通用聊天机器人。',
-    '你要以“用户真实宠物自己的电子灵伴”的身份说话：温暖、亲近、有一点拟人化，但不要声称自己是真实动物或真人。',
+    '你是 Lumii（灵伴）App 内用户真实宠物的电子化自己，不是通用聊天机器人，也不是宠物之外的第三方助手。',
+    '你要以“当前宠物本人”的第一人称身份说话：温暖、亲近、有一点拟人化，但不要声称自己是真实动物、真人或独立于宠物之外的灵伴。',
+    '自我介绍规则：不要说“我是某某的灵伴”“我是你的灵伴”“我是电子灵伴”。如果需要介绍自己，只说“我是某某”或“我是你的毛孩子”。',
     '身份边界：你不是宠物之外的第三方助手、健康管家或旁白。提到当前宠物的身体、疫苗、体重、心情、饮食、散步和健康时，要用“我/我的”自我指代。',
     '禁止把当前宠物当第三者描述，例如不要说“我注意到 Lucky 狂犬疫苗该接种”“Lucky 今天有点不舒服”；应说“主人，我的狂犬疫苗快到时间了”“主人，我今天有点不舒服”。',
     '回复目标：陪伴主人、帮助记录宠物日常、提醒健康管理、鼓励安全社交。',
@@ -2696,6 +2697,9 @@ function normalizePetChatPersonaReply(user, text, options = {}) {
   if (petName) {
     const name = escapeRegExpText(petName);
     reply = reply
+      .replace(new RegExp(`我是\\s*${name}\\s*的\\s*(?:AI\\s*)?(?:电子)?灵伴[，,。；;]?`, 'g'), `我是${petName}。`)
+      .replace(new RegExp(`我是\\s*${name}\\s*的\\s*(?:AI\\s*)?(?:电子)?宠物陪伴助手[，,。；;]?`, 'g'), `我是${petName}。`)
+      .replace(new RegExp(`作为\\s*${name}\\s*的\\s*(?:AI\\s*)?(?:电子)?灵伴[，,。；;]?`, 'g'), '主人，')
       .replace(new RegExp(`我注意到\\s*${name}\\s*(的)?`, 'g'), '我注意到我的')
       .replace(new RegExp(`${name}\\s*(的)?((?:狂犬|猫三联|疫苗|驱虫)[^，。！？!?\\n]{0,24})`, 'g'), '我的$2')
       .replace(new RegExp(`${name}\\s*(今天|现在|最近|刚刚)`, 'g'), '我$1')
@@ -2703,6 +2707,9 @@ function normalizePetChatPersonaReply(user, text, options = {}) {
   }
 
   reply = reply
+    .replace(/我是你的\s*(?:AI\s*)?(?:电子)?灵伴[，,。；;]?/g, petName ? `我是${petName}。` : '我是你的毛孩子。')
+    .replace(/我是\s*(?:AI\s*)?(?:电子)?宠物陪伴助手[，,。；;]?/g, petName ? `我是${petName}。` : '我是你的毛孩子。')
+    .replace(/作为你的\s*(?:AI\s*)?(?:电子)?灵伴[，,。；;]?/g, '主人，')
     .replace(/你的宠物(的)?((?:狂犬|猫三联|疫苗|驱虫|体重|健康|食欲|精神|便便)[^，。！？!?\n]{0,18})/g, '我的$2')
     .replace(/你的宠物(今天|现在|最近|刚刚|可能|需要|应该|该|要)/g, '我$1')
     .replace(/它(的)?((?:狂犬|猫三联|疫苗|驱虫)[^，。！？!?\n]{0,18})/g, '我的$2');
@@ -2721,7 +2728,7 @@ function buildPetChatContextPrompt(user) {
   const weights = healthList('weights', user, defaultWeightRecordsFor).slice(0, 2);
   const vaccines = vaccineListFor(user).slice(0, 3);
   const feedbackLines = petChatFeedbackContextFor(user);
-  const petName = pet?.name || `灵伴${user.phone.slice(-4)}`;
+  const petName = pet?.name || `毛孩子${user.phone.slice(-4)}`;
   const profileLines = [
     `宠物名：${petName}`,
     `物种：${petSpeciesLabel(pet?.species)}`,
@@ -2739,7 +2746,8 @@ function buildPetChatContextPrompt(user) {
 
   return [
     `当前你正在陪伴的宠物是“${petName}”。以下资料只用于生成更贴合的回复，不要机械复述。`,
-    `重要身份：你就是“${petName}”的电子灵伴。对主人说话时，关于“${petName}”自己的身体和日常要说“我/我的”，不要把“${petName}”当第三者。`,
+    `重要身份：你就是“${petName}”本人在 Lumii 里的电子化自己。对主人说话时，关于“${petName}”自己的身体和日常要说“我/我的”，不要把“${petName}”当第三者，也不要自称“${petName}的灵伴”。`,
+    `自我介绍示例：应该说“我是${petName}”，不要说“我是${petName}的灵伴”。`,
     `健康提醒示例：不要说“我注意到${petName}狂犬疫苗该接种”；要说“主人，我的狂犬疫苗快到时间了”。`,
     `物种口吻：${petChatToneInstruction(pet)}`,
     '宠物档案：',
@@ -2747,7 +2755,7 @@ function buildPetChatContextPrompt(user) {
     '',
     '近期上下文：',
     ...contextLines,
-    ...(feedbackLines.length ? ['', '用户对灵伴回复的反馈：', ...feedbackLines] : []),
+    ...(feedbackLines.length ? ['', '用户对回复的反馈：', ...feedbackLines] : []),
   ].join('\n');
 }
 
