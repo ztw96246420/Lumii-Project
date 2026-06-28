@@ -166,11 +166,17 @@ type DatePickerRequest = {
 };
 type MemoReminderPickerKind = 'draft' | 'edit';
 type MemoReminderWheelPart = 'day' | 'hour' | 'minute' | 'month' | 'year';
+type PetBirthdayWheelPart = 'day' | 'month' | 'year';
 type VaccineDueWheelPart = 'day' | 'month' | 'year';
 type MemoReminderWheelOption = {
   disabled?: boolean;
   label: string;
   value: number;
+};
+type PetBirthdayDraft = {
+  day: null | number;
+  month: null | number;
+  year: number;
 };
 
 function sleep(ms: number) {
@@ -1195,18 +1201,50 @@ function currentDeviceLabel() {
   return '当前设备';
 }
 
+function parsePetBirthdayValue(value?: string) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = match[2] ? Number(match[2]) : null;
+  const day = match[3] ? Number(match[3]) : null;
+  if (!Number.isInteger(year) || year < 1900) return null;
+  if (month !== null && (!Number.isInteger(month) || month < 1 || month > 12)) return null;
+  if (day !== null) {
+    if (month === null) return null;
+    if (!Number.isInteger(day) || day < 1 || day > daysInDateMonth(year, month)) return null;
+  }
+  return { day, month, year };
+}
+
+function petBirthdayReferenceDate(parts: NonNullable<ReturnType<typeof parsePetBirthdayValue>>) {
+  const month = parts.month ?? 1;
+  const day = parts.day ?? 1;
+  return new Date(parts.year, month - 1, day, 0, 0, 0, 0);
+}
+
+function formatPetBirthdayValue(value?: string) {
+  const parts = parsePetBirthdayValue(value);
+  if (!parts) return '';
+  if (parts.month === null) return `${parts.year}年`;
+  if (parts.day === null) return `${parts.year}年${parts.month}月`;
+  return `${parts.year}年${parts.month}月${parts.day}日`;
+}
+
 function formatPetAge(birthday?: string) {
-  if (!birthday) return '年龄待补充';
-  const bornAt = new Date(birthday);
-  if (Number.isNaN(bornAt.getTime())) return '年龄待补充';
+  const parts = parsePetBirthdayValue(birthday);
+  if (!parts) return '年龄待补充';
+  const bornAt = petBirthdayReferenceDate(parts);
+  if (bornAt.getTime() > Date.now()) return '年龄待补充';
   const now = new Date();
   let months = (now.getFullYear() - bornAt.getFullYear()) * 12 + (now.getMonth() - bornAt.getMonth());
   if (now.getDate() < bornAt.getDate()) months -= 1;
-  if (months <= 0) return '未满 1 个月';
+  const prefix = parts.month === null || parts.day === null ? '约 ' : '';
+  if (months <= 0) return `${prefix}未满 1 个月`;
   const years = Math.floor(months / 12);
   const restMonths = months % 12;
-  if (!years) return `${restMonths} 个月`;
-  return restMonths ? `${years} 岁 ${restMonths} 个月` : `${years} 岁`;
+  if (!years) return `${prefix}${restMonths} 个月`;
+  return restMonths ? `${prefix}${years} 岁 ${restMonths} 个月` : `${prefix}${years} 岁`;
 }
 
 function formatWeightKg(kg?: null | number) {
@@ -1497,6 +1535,94 @@ function buildVaccineDueWheelOptions(date: Date): Record<VaccineDueWheelPart, Me
 
 function formatVaccineDueSheetLabel(date: Date) {
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日  ${memoReminderWeekdays[date.getDay()]}`;
+}
+
+const petBirthdayWheelParts: Array<{ key: PetBirthdayWheelPart; width: number }> = [
+  { key: 'year', width: 84 },
+  { key: 'month', width: 72 },
+  { key: 'day', width: 72 },
+];
+
+function petBirthdayYearRange(base = new Date()) {
+  const currentYear = base.getFullYear();
+  return { maxYear: currentYear, minYear: currentYear - 30 };
+}
+
+function normalizePetBirthdayDraft(draft: PetBirthdayDraft, base = new Date()): PetBirthdayDraft {
+  const { maxYear, minYear } = petBirthdayYearRange(base);
+  const currentMonth = base.getMonth() + 1;
+  const currentDay = base.getDate();
+  let year = Number.isInteger(draft.year) ? draft.year : maxYear;
+  year = Math.max(minYear, Math.min(maxYear, year));
+  let month = draft.month && draft.month >= 1 && draft.month <= 12 ? draft.month : null;
+  let day = draft.day && draft.day >= 1 ? draft.day : null;
+  if (year === maxYear && month !== null && month > currentMonth) {
+    month = null;
+    day = null;
+  }
+  if (month === null) day = null;
+  if (month !== null) {
+    const maxDay = year === maxYear && month === currentMonth ? currentDay : daysInDateMonth(year, month);
+    day = day === null ? null : Math.min(day, maxDay);
+  }
+  return { day, month, year };
+}
+
+function parsePetBirthdayDraft(value?: string): PetBirthdayDraft {
+  const now = new Date();
+  const parts = parsePetBirthdayValue(value);
+  return normalizePetBirthdayDraft({
+    day: parts?.day ?? null,
+    month: parts?.month ?? null,
+    year: parts?.year ?? now.getFullYear(),
+  }, now);
+}
+
+function formatPetBirthdayDraftValue(draft: PetBirthdayDraft) {
+  const normalized = normalizePetBirthdayDraft(draft);
+  if (normalized.month === null) return `${normalized.year}`;
+  const month = String(normalized.month).padStart(2, '0');
+  if (normalized.day === null) return `${normalized.year}-${month}`;
+  return `${normalized.year}-${month}-${String(normalized.day).padStart(2, '0')}`;
+}
+
+function formatPetBirthdayDraftLabel(draft: PetBirthdayDraft) {
+  const normalized = normalizePetBirthdayDraft(draft);
+  if (normalized.month === null) return `${normalized.year}年`;
+  if (normalized.day === null) return `${normalized.year}年${normalized.month}月`;
+  return `${normalized.year}年${normalized.month}月${normalized.day}日  ${memoReminderWeekdays[petBirthdayReferenceDate(normalized).getDay()]}`;
+}
+
+function buildPetBirthdayWheelOptions(draft: PetBirthdayDraft): Record<PetBirthdayWheelPart, MemoReminderWheelOption[]> {
+  const normalized = normalizePetBirthdayDraft(draft);
+  const now = new Date();
+  const { maxYear, minYear } = petBirthdayYearRange(now);
+  const currentMonth = now.getMonth() + 1;
+  const currentDay = now.getDate();
+  const yearOptions = Array.from({ length: maxYear - minYear + 1 }, (_, index) => maxYear - index);
+  const monthOptions = Array.from({ length: 12 }, (_, index) => index + 1);
+  const maxDay = normalized.month === null
+    ? 0
+    : normalized.year === maxYear && normalized.month === currentMonth
+      ? currentDay
+      : daysInDateMonth(normalized.year, normalized.month);
+  const dayOptions = Array.from({ length: maxDay }, (_, index) => index + 1);
+
+  return {
+    day: [
+      { label: '未知', value: 0 },
+      ...dayOptions.map((value) => ({ label: `${value}日`, value })),
+    ],
+    month: [
+      { label: '未知', value: 0 },
+      ...monthOptions.map((value) => ({
+        disabled: normalized.year === maxYear && value > currentMonth,
+        label: `${value}月`,
+        value,
+      })),
+    ],
+    year: yearOptions.map((value) => ({ label: `${value}年`, value })),
+  };
 }
 
 const memoRepeatOptions: Array<{ label: string; value: MemoRepeat }> = [
@@ -1836,6 +1962,9 @@ export default function LumiiMvpApp() {
   const [datePickerRequest, setDatePickerRequest] = useState<DatePickerRequest | null>(null);
   const [memoReminderPickerKind, setMemoReminderPickerKind] = useState<MemoReminderPickerKind | null>(null);
   const [memoReminderPickerDraft, setMemoReminderPickerDraft] = useState(() => minimumMemoReminderDate());
+  const [petBirthdayPickerVisible, setPetBirthdayPickerVisible] = useState(false);
+  const [petBirthdayPickerDraft, setPetBirthdayPickerDraft] = useState<PetBirthdayDraft>(() => parsePetBirthdayDraft(''));
+  const petBirthdayWheelRefs = useRef<Partial<Record<PetBirthdayWheelPart, { scrollTo: (options: { animated: boolean; y: number }) => void } | null>>>({});
   const [vaccineDuePickerVisible, setVaccineDuePickerVisible] = useState(false);
   const [vaccineDuePickerDraft, setVaccineDuePickerDraft] = useState(() => defaultVaccineDueDate());
   const vaccineDueWheelRefs = useRef<Partial<Record<VaccineDueWheelPart, { scrollTo: (options: { animated: boolean; y: number }) => void } | null>>>({});
@@ -2142,6 +2271,27 @@ export default function LumiiMvpApp() {
   }, [clock, vaccineDuePickerVisible]);
 
   useEffect(() => {
+    if (!petBirthdayPickerVisible) return;
+    setPetBirthdayPickerDraft((current) => {
+      const next = normalizePetBirthdayDraft(current);
+      return next.year === current.year && next.month === current.month && next.day === current.day ? current : next;
+    });
+  }, [clock, petBirthdayPickerVisible]);
+
+  useEffect(() => {
+    if (!petBirthdayPickerVisible) return;
+    const timeout = setTimeout(() => {
+      const optionsByPart = buildPetBirthdayWheelOptions(petBirthdayPickerDraft);
+      petBirthdayWheelParts.forEach((part) => {
+        const selectedValue = part.key === 'year' ? petBirthdayPickerDraft.year : part.key === 'month' ? petBirthdayPickerDraft.month ?? 0 : petBirthdayPickerDraft.day ?? 0;
+        const selectedIndex = Math.max(0, optionsByPart[part.key].findIndex((option) => option.value === selectedValue));
+        petBirthdayWheelRefs.current[part.key]?.scrollTo({ animated: false, y: selectedIndex * memoReminderWheelItemHeight });
+      });
+    }, 30);
+    return () => clearTimeout(timeout);
+  }, [petBirthdayPickerDraft, petBirthdayPickerVisible]);
+
+  useEffect(() => {
     if (!vaccineDuePickerVisible) return;
     const timeout = setTimeout(() => {
       const optionsByPart = buildVaccineDueWheelOptions(vaccineDuePickerDraft);
@@ -2294,14 +2444,79 @@ export default function LumiiMvpApp() {
   }
 
   function openPetBirthdayPicker() {
-    openDatePicker(
-      {
-        maximumDate: new Date(),
-        mode: 'date',
-        title: '选择生日',
-        value: parseIsoDate(petDraft.birthday) ?? new Date(),
-      },
-      (date) => setPetDraft((draft) => ({ ...draft, birthday: dateToIsoDate(date) })),
+    setPetBirthdayPickerDraft(parsePetBirthdayDraft(petDraft.birthday));
+    setPetBirthdayPickerVisible(true);
+  }
+
+  function closePetBirthdayPicker() {
+    setPetBirthdayPickerVisible(false);
+  }
+
+  function clearPetBirthdayFromPicker() {
+    setPetDraft((draft) => ({ ...draft, birthday: '' }));
+    closePetBirthdayPicker();
+  }
+
+  function commitPetBirthdayPicker() {
+    const next = normalizePetBirthdayDraft(petBirthdayPickerDraft);
+    setPetDraft((draft) => ({ ...draft, birthday: formatPetBirthdayDraftValue(next) }));
+    closePetBirthdayPicker();
+  }
+
+  function updatePetBirthdayPickerPart(part: PetBirthdayWheelPart, value: number) {
+    setPetBirthdayPickerDraft((current) => {
+      if (part === 'year') return normalizePetBirthdayDraft({ ...current, year: value });
+      if (part === 'month') return normalizePetBirthdayDraft({ day: value === 0 ? null : current.day, month: value === 0 ? null : value, year: current.year });
+      return normalizePetBirthdayDraft({ ...current, day: value === 0 ? null : value });
+    });
+  }
+
+  function petBirthdaySelectedValue(part: PetBirthdayWheelPart) {
+    if (part === 'year') return petBirthdayPickerDraft.year;
+    if (part === 'month') return petBirthdayPickerDraft.month ?? 0;
+    return petBirthdayPickerDraft.day ?? 0;
+  }
+
+  function handlePetBirthdayWheelScrollEnd(part: PetBirthdayWheelPart, options: MemoReminderWheelOption[], event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const index = Math.round(event.nativeEvent.contentOffset.y / memoReminderWheelItemHeight);
+    const option = nearestMemoReminderOption(options, index);
+    if (option) updatePetBirthdayPickerPart(part, option.value);
+  }
+
+  function renderPetBirthdayWheelColumn(part: PetBirthdayWheelPart, options: MemoReminderWheelOption[], width: number) {
+    const selectedValue = petBirthdaySelectedValue(part);
+    const selectedIndex = Math.max(0, options.findIndex((option) => option.value === selectedValue));
+    return (
+      <ScrollView
+        contentContainerStyle={styles.memoReminderWheelColumnContent}
+        contentOffset={{ x: 0, y: selectedIndex * memoReminderWheelItemHeight }}
+        decelerationRate="fast"
+        key={`${part}-${selectedValue}-${options.length}`}
+        nestedScrollEnabled
+        onMomentumScrollEnd={(event) => handlePetBirthdayWheelScrollEnd(part, options, event)}
+        ref={(node) => { petBirthdayWheelRefs.current[part] = node; }}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={memoReminderWheelItemHeight}
+        style={[styles.memoReminderWheelColumn, { width }]}
+      >
+        {options.map((option) => {
+          const selected = option.value === selectedValue;
+          return (
+            <Pressable
+              accessibilityLabel={`pet-birthday-${part}-${option.value}`}
+              accessibilityRole="button"
+              disabled={option.disabled}
+              key={`${part}-${option.value}`}
+              onPress={() => updatePetBirthdayPickerPart(part, option.value)}
+              style={[styles.memoReminderWheelItem, webPressableReset]}
+            >
+              <Text style={[styles.memoReminderWheelText, selected && styles.memoReminderWheelTextSelected, option.disabled && styles.memoReminderWheelTextDisabled]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
     );
   }
 
@@ -2778,7 +2993,11 @@ export default function LumiiMvpApp() {
   }, [route]);
 
   useEffect(() => {
-    if (route === 'petInfo') setPetDraft(emptyPetDraft);
+    if (route === 'petInfo') {
+      setPetDraft(emptyPetDraft);
+      setPetBirthdayPickerDraft(parsePetBirthdayDraft(''));
+      setPetBirthdayPickerVisible(false);
+    }
   }, [route]);
 
   useEffect(() => {
@@ -7287,6 +7506,8 @@ export default function LumiiMvpApp() {
     setClock(Date.now());
     setPermissions(initialPermissions);
     setPetDraft(emptyPetDraft);
+    setPetBirthdayPickerDraft(parsePetBirthdayDraft(''));
+    setPetBirthdayPickerVisible(false);
     petProfileSavingRef.current = false;
     setPetProfileSaving(false);
     mediaPickingRef.current = false;
@@ -8041,18 +8262,7 @@ export default function LumiiMvpApp() {
             <View style={styles.petEditDividerMake} />
             <View style={styles.petEditRowMake}>
               <Text style={styles.petEditLabelMake}>生日</Text>
-              {Platform.OS === 'web' ? (
-                <TextInput
-                  accessibilityLabel="edit-pet-birthday-input"
-                  onChangeText={(birthday) => setPetDraft((draft) => ({ ...draft, birthday }))}
-                  placeholder="例如：2023-04-12"
-                  placeholderTextColor={palette.muted}
-                  style={[styles.petEditInputMake, webTextInputReset]}
-                  value={petDraft.birthday}
-                />
-              ) : (
-                <DateValueButton onPress={openPetBirthdayPicker} style={styles.petEditDateButtonMake} textStyle={styles.petEditInputMake} value={petDraft.birthday} />
-              )}
+              <DateValueButton onPress={openPetBirthdayPicker} placeholder="未知" style={styles.petEditDateButtonMake} textStyle={styles.petEditInputMake} value={formatPetBirthdayValue(petDraft.birthday)} />
             </View>
             <View style={styles.petEditDividerMake} />
             <View style={styles.petEditRowMake}>
@@ -8139,14 +8349,10 @@ export default function LumiiMvpApp() {
             </View>
           </View>
           <PetInfoMakeField accessibilityLabel="new-pet-breed-input" label="品种" onChangeText={(breed) => setPetDraft((draft) => ({ ...draft, breed }))} placeholder="例如：金毛寻回犬" value={petDraft.breed} />
-          {Platform.OS === 'web' ? (
-            <PetInfoMakeField accessibilityLabel="new-pet-birthday-input" label="生日" onChangeText={(birthday) => setPetDraft((draft) => ({ ...draft, birthday }))} placeholder="例如：2024-05-30" value={petDraft.birthday} />
-          ) : (
-            <View style={styles.petInfoFieldMake}>
-              <Text style={styles.petInfoFieldLabelMake}>生日</Text>
-              <DateValueButton onPress={openPetBirthdayPicker} placeholder="选择生日" style={styles.petInfoInputShellMake} textStyle={styles.petInfoDateValueTextMake} value={petDraft.birthday} />
-            </View>
-          )}
+          <View style={styles.petInfoFieldMake}>
+            <Text style={styles.petInfoFieldLabelMake}>生日</Text>
+            <DateValueButton onPress={openPetBirthdayPicker} placeholder="未知" style={styles.petInfoInputShellMake} textStyle={styles.petInfoDateValueTextMake} value={formatPetBirthdayValue(petDraft.birthday)} />
+          </View>
           <View style={styles.optionWrap}>
             <Text style={styles.label}>性别</Text>
             <View style={styles.segmentRow}>
@@ -14508,6 +14714,50 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderPetBirthdayPicker() {
+    if (!petBirthdayPickerVisible) return null;
+    const optionsByPart = buildPetBirthdayWheelOptions(petBirthdayPickerDraft);
+    return (
+      <Modal animationType="slide" onRequestClose={closePetBirthdayPicker} transparent visible>
+        <Pressable onPress={closePetBirthdayPicker} style={styles.memoReminderPickerBackdrop}>
+          <Pressable onPress={() => undefined} style={styles.memoReminderPickerSheet}>
+            <View style={styles.memoReminderPickerHandle} />
+            <View style={styles.memoReminderPickerHeader}>
+              <Pressable accessibilityLabel="cancel-pet-birthday-picker" accessibilityRole="button" onPress={closePetBirthdayPicker} style={[styles.memoReminderPickerNavButton, webPressableReset]}>
+                <Text style={styles.memoReminderPickerCancelText}>取消</Text>
+              </Pressable>
+              <Text style={styles.memoReminderPickerTitle}>选择宠物生日</Text>
+              <Pressable accessibilityLabel="confirm-pet-birthday-picker" accessibilityRole="button" onPress={commitPetBirthdayPicker} style={[styles.memoReminderPickerNavButton, styles.memoReminderPickerNavButtonRight, webPressableReset]}>
+                <Text style={styles.memoReminderPickerConfirmText}>确定</Text>
+              </Pressable>
+            </View>
+            <View style={styles.memoReminderPickerSummary}>
+              <CalendarDays color={palette.orange} size={15} strokeWidth={2.4} />
+              <Text numberOfLines={1} style={styles.memoReminderPickerSummaryText}>{formatPetBirthdayDraftLabel(petBirthdayPickerDraft)}</Text>
+            </View>
+            <View style={styles.memoReminderWheelWrap}>
+              <View pointerEvents="none" style={styles.memoReminderWheelSelection} />
+              <View style={styles.memoReminderWheelRow}>
+                {petBirthdayWheelParts.map((part, index) => (
+                  <View key={part.key} style={styles.memoReminderWheelColumnShell}>
+                    {renderPetBirthdayWheelColumn(part.key, optionsByPart[part.key], part.width)}
+                    {index < petBirthdayWheelParts.length - 1 ? <View pointerEvents="none" style={styles.memoReminderWheelDivider} /> : null}
+                  </View>
+                ))}
+              </View>
+            </View>
+            <View style={styles.petBirthdayPickerFooter}>
+              <Text style={styles.petBirthdayPickerHint}>可以只选年份或年月，生日不能晚于今天</Text>
+              <Pressable accessibilityLabel="unknown-pet-birthday" accessibilityRole="button" onPress={clearPetBirthdayFromPicker} style={[styles.petBirthdayUnknownButton, webPressableReset]}>
+                <Text style={styles.petBirthdayUnknownText}>不清楚宠物生日</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    );
+  }
+
   function renderScreen() {
     if (sessionBootstrapping) return renderSessionBootstrapping();
     if (loginSuccessLoading) return renderLoginSuccessLoading();
@@ -14675,6 +14925,7 @@ export default function LumiiMvpApp() {
           {renderMemoDeleteConfirm()}
           {renderWeightDeleteConfirm()}
           {renderVaccineDueDatePicker()}
+          {renderPetBirthdayPicker()}
           {renderMemoReminderPicker()}
           <ConfirmDialog
             body={confirm?.body ?? ''}
@@ -15625,6 +15876,10 @@ const styles = StyleSheet.create({
   memoReminderWheelTextDisabled: { color: '#D4CCC0' },
   memoReminderWheelTextSelected: { color: palette.ink, fontSize: 18, fontWeight: '800', lineHeight: 24 },
   memoReminderWheelWrap: { backgroundColor: '#FFFCF8', borderColor: '#F0E7DD', borderRadius: 18, borderWidth: 1, height: 158, marginTop: 16, overflow: 'hidden', position: 'relative' },
+  petBirthdayPickerFooter: { alignItems: 'center', flexDirection: 'row', gap: 10, justifyContent: 'space-between', marginTop: 12, paddingHorizontal: 4 },
+  petBirthdayPickerHint: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 11, fontWeight: '400', lineHeight: 16 },
+  petBirthdayUnknownButton: { alignItems: 'center', borderColor: 'rgba(255,138,92,0.32)', borderRadius: 999, borderWidth: 1, justifyContent: 'center', minHeight: 32, paddingHorizontal: 12 },
+  petBirthdayUnknownText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '800', lineHeight: 16 },
   metaIconBox: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 8, height: 26, justifyContent: 'center', width: 26 },
   multiPetActions: { alignItems: 'flex-end', gap: 8 },
   multiPetHero: { backgroundColor: '#FFE3D1', borderRadius: 20, gap: 0, marginBottom: 14, marginTop: -10, overflow: 'hidden', padding: 14, position: 'relative' },

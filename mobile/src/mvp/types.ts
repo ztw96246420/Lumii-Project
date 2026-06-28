@@ -85,7 +85,7 @@ export type CreatePetInput = Omit<PetProfile, 'healthScore' | 'id' | 'personalit
 
 export type PetTaxonomy = {
   fieldRules: {
-    birthdayFormat: 'YYYY-MM-DD';
+    birthdayFormat: 'YYYY / YYYY-MM / YYYY-MM-DD';
     maxBreedLength: number;
     maxNameLength: number;
     supportedSpecies: Array<Extract<PetSpecies, 'cat' | 'dog'>>;

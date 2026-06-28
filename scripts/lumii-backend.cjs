@@ -142,7 +142,7 @@ const defaultPlaces = [
 
 const petTaxonomy = {
   fieldRules: {
-    birthdayFormat: 'YYYY-MM-DD',
+    birthdayFormat: 'YYYY / YYYY-MM / YYYY-MM-DD',
     maxBreedLength: 20,
     maxNameLength: 12,
     supportedSpecies: ['dog', 'cat'],
@@ -1366,7 +1366,7 @@ function parsePetProfilePayload(value, { partial = false } = {}) {
   if (Object.prototype.hasOwnProperty.call(value, 'birthday')) {
     const birthday = String(value.birthday || '').trim();
     if (birthday) {
-      if (!isValidIsoCalendarDate(birthday)) return { error: '宠物生日格式应为 YYYY-MM-DD' };
+      if (!isValidPetBirthdayValue(birthday)) return { error: '宠物生日格式应为 YYYY、YYYY-MM 或 YYYY-MM-DD，且不能晚于今天' };
       patch.birthday = birthday;
     } else {
       unset.push('birthday');
@@ -2364,6 +2364,37 @@ function isValidIsoCalendarDate(value) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === text;
 }
 
+function parsePetBirthdayValue(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = match[2] ? Number(match[2]) : null;
+  const day = match[3] ? Number(match[3]) : null;
+  if (!Number.isInteger(year)) return null;
+  if (month !== null && (!Number.isInteger(month) || month < 1 || month > 12)) return null;
+  if (day !== null) {
+    if (month === null || !Number.isInteger(day) || day < 1) return null;
+    const maxDay = new Date(year, month, 0).getDate();
+    if (day > maxDay) return null;
+  }
+  return { day, month, year };
+}
+
+function isValidPetBirthdayValue(value) {
+  const parts = parsePetBirthdayValue(value);
+  if (!parts) return false;
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  if (parts.year < currentYear - 30 || parts.year > currentYear) return false;
+  if (parts.year !== currentYear) return true;
+  const currentMonth = now.getMonth() + 1;
+  const currentDay = now.getDate();
+  if (parts.month !== null && parts.month > currentMonth) return false;
+  if (parts.month === currentMonth && parts.day !== null && parts.day > currentDay) return false;
+  return true;
+}
+
 function syncPetWeightFromRecords(user, records) {
   const pet = selectedPetFor(user);
   if (!pet) return;
@@ -2638,17 +2669,19 @@ function petSpeciesLabel(species) {
 }
 
 function petAgeLabel(birthday) {
-  if (!birthday) return '年龄待补充';
-  const bornAt = new Date(`${birthday}T00:00:00`);
-  if (Number.isNaN(bornAt.getTime())) return '年龄待补充';
+  const parts = parsePetBirthdayValue(birthday);
+  if (!parts) return '年龄待补充';
+  const bornAt = new Date(parts.year, (parts.month ?? 1) - 1, parts.day ?? 1, 0, 0, 0, 0);
+  if (Number.isNaN(bornAt.getTime()) || bornAt.getTime() > Date.now()) return '年龄待补充';
   const now = new Date();
   let months = (now.getFullYear() - bornAt.getFullYear()) * 12 + (now.getMonth() - bornAt.getMonth());
   if (now.getDate() < bornAt.getDate()) months -= 1;
-  if (months <= 0) return '未满 1 个月';
+  const prefix = parts.month === null || parts.day === null ? '约 ' : '';
+  if (months <= 0) return `${prefix}未满 1 个月`;
   const years = Math.floor(months / 12);
   const restMonths = months % 12;
-  if (!years) return `${restMonths} 个月`;
-  return restMonths ? `${years} 岁 ${restMonths} 个月` : `${years} 岁`;
+  if (!years) return `${prefix}${restMonths} 个月`;
+  return restMonths ? `${prefix}${years} 岁 ${restMonths} 个月` : `${prefix}${years} 岁`;
 }
 
 function petChatBaseSystemPrompt() {

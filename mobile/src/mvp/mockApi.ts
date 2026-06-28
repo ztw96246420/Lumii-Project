@@ -205,7 +205,7 @@ function parseMockPetProfilePayload(value: Partial<CreatePetInput | PetProfile>,
   if (Object.prototype.hasOwnProperty.call(source, 'birthday')) {
     const birthday = String(source.birthday || '').trim();
     if (birthday) {
-      if (!isValidIsoCalendarDate(birthday)) return { error: '宠物生日格式应为 YYYY-MM-DD' };
+      if (!isValidPetBirthdayValue(birthday)) return { error: '宠物生日格式应为 YYYY、YYYY-MM 或 YYYY-MM-DD，且不能晚于今天' };
       patch.birthday = birthday;
     } else {
       unset.push('birthday');
@@ -545,7 +545,7 @@ function analyzeMockPetMediaUpload(input?: UploadPetMediaInput): UploadedPetMedi
 
 const petTaxonomy: PetTaxonomy = {
   fieldRules: {
-    birthdayFormat: 'YYYY-MM-DD',
+    birthdayFormat: 'YYYY / YYYY-MM / YYYY-MM-DD',
     maxBreedLength: 20,
     maxNameLength: 12,
     supportedSpecies: ['dog', 'cat'],
@@ -1636,6 +1636,33 @@ function isValidIsoCalendarDate(value: string) {
   if (!isIsoDate(text)) return false;
   const date = new Date(`${text}T00:00:00.000Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === text;
+}
+
+function daysInDateMonth(year: number, month: number) {
+  return new Date(year, month, 0).getDate();
+}
+
+function isValidPetBirthdayValue(value: string) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/);
+  if (!match) return false;
+  const now = new Date();
+  const year = Number(match[1]);
+  const month = match[2] ? Number(match[2]) : null;
+  const day = match[3] ? Number(match[3]) : null;
+  const currentYear = now.getFullYear();
+  if (!Number.isInteger(year) || year < currentYear - 30 || year > currentYear) return false;
+  if (month !== null && (!Number.isInteger(month) || month < 1 || month > 12)) return false;
+  if (day !== null) {
+    if (month === null || !Number.isInteger(day) || day < 1) return false;
+    if (day > daysInDateMonth(year, month)) return false;
+  }
+  if (year !== currentYear) return true;
+  const currentMonth = now.getMonth() + 1;
+  const currentDay = now.getDate();
+  if (month !== null && month > currentMonth) return false;
+  if (month === currentMonth && day !== null && day > currentDay) return false;
+  return true;
 }
 
 function syncMockPetWeightFromRecords() {
