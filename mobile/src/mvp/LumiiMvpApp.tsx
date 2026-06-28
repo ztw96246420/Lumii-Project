@@ -166,6 +166,7 @@ type DatePickerRequest = {
 };
 type MemoReminderPickerKind = 'draft' | 'edit';
 type MemoReminderWheelPart = 'day' | 'hour' | 'minute' | 'month' | 'year';
+type VaccineDueWheelPart = 'day' | 'month' | 'year';
 type MemoReminderWheelOption = {
   disabled?: boolean;
   label: string;
@@ -1433,6 +1434,71 @@ function formatMemoReminderSheetLabel(date: Date) {
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${formatClockTime(date)}  ${memoReminderWeekdays[date.getDay()]}`;
 }
 
+const vaccineDueWheelParts: Array<{ key: VaccineDueWheelPart; width: number }> = [
+  { key: 'year', width: 82 },
+  { key: 'month', width: 66 },
+  { key: 'day', width: 66 },
+];
+
+function startOfCalendarDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function minimumVaccineDueDate(base = new Date()) {
+  return startOfCalendarDay(base);
+}
+
+function buildVaccineDueDate(year: number, month: number, day: number) {
+  const safeDay = Math.min(Math.max(1, day), daysInDateMonth(year, month));
+  return new Date(year, month - 1, safeDay, 0, 0, 0, 0);
+}
+
+function clampVaccineDueDate(date: Date, minDate = minimumVaccineDueDate()) {
+  const candidate = startOfCalendarDay(date);
+  return candidate.getTime() < minDate.getTime() ? minDate : candidate;
+}
+
+function defaultVaccineDueDate() {
+  return clampVaccineDueDate(parseIsoDate(addDaysIsoDate(30)) ?? new Date());
+}
+
+function updateVaccineDueDatePart(date: Date, part: VaccineDueWheelPart, value: number) {
+  const year = part === 'year' ? value : date.getFullYear();
+  const month = part === 'month' ? value : date.getMonth() + 1;
+  const day = part === 'day' ? value : date.getDate();
+  return clampVaccineDueDate(buildVaccineDueDate(year, month, day));
+}
+
+function isVaccineDueWheelOptionDisabled(date: Date, part: VaccineDueWheelPart, value: number) {
+  const candidate = buildVaccineDueDate(
+    part === 'year' ? value : date.getFullYear(),
+    part === 'month' ? value : date.getMonth() + 1,
+    part === 'day' ? value : date.getDate(),
+  );
+  return candidate.getTime() < minimumVaccineDueDate().getTime();
+}
+
+function buildVaccineDueWheelOptions(date: Date): Record<VaccineDueWheelPart, MemoReminderWheelOption[]> {
+  const minimum = minimumVaccineDueDate();
+  const minYear = minimum.getFullYear();
+  const maxYear = Math.max(minYear + 5, date.getFullYear() + 1);
+  const yearOptions = Array.from({ length: maxYear - minYear + 1 }, (_, index) => minYear + index);
+  const monthOptions = Array.from({ length: 12 }, (_, index) => index + 1);
+  const dayOptions = Array.from({ length: daysInDateMonth(date.getFullYear(), date.getMonth() + 1) }, (_, index) => index + 1);
+
+  return {
+    day: dayOptions.map((value) => ({ disabled: isVaccineDueWheelOptionDisabled(date, 'day', value), label: `${value}日`, value })),
+    month: monthOptions.map((value) => ({ disabled: isVaccineDueWheelOptionDisabled(date, 'month', value), label: `${value}月`, value })),
+    year: yearOptions.map((value) => ({ disabled: isVaccineDueWheelOptionDisabled(date, 'year', value), label: `${value}年`, value })),
+  };
+}
+
+function formatVaccineDueSheetLabel(date: Date) {
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日  ${memoReminderWeekdays[date.getDay()]}`;
+}
+
 const memoRepeatOptions: Array<{ label: string; value: MemoRepeat }> = [
   { label: '不重复', value: 'none' },
   { label: '每月', value: 'monthly' },
@@ -1769,6 +1835,9 @@ export default function LumiiMvpApp() {
   const [datePickerRequest, setDatePickerRequest] = useState<DatePickerRequest | null>(null);
   const [memoReminderPickerKind, setMemoReminderPickerKind] = useState<MemoReminderPickerKind | null>(null);
   const [memoReminderPickerDraft, setMemoReminderPickerDraft] = useState(() => minimumMemoReminderDate());
+  const [vaccineDuePickerVisible, setVaccineDuePickerVisible] = useState(false);
+  const [vaccineDuePickerDraft, setVaccineDuePickerDraft] = useState(() => defaultVaccineDueDate());
+  const vaccineDueWheelRefs = useRef<Partial<Record<VaccineDueWheelPart, { scrollTo: (options: { animated: boolean; y: number }) => void } | null>>>({});
   const [, setKeyboardHeight] = useState(0);
   const [permissions, setPermissions] = useState<PermissionStateMap>(isHomePreviewMode ? webPreviewPermissions : initialPermissions);
   const [activePet, setActivePet] = useState<PetProfile | null>(isHomePreviewMode ? initialPreviewPets[0] ?? webPreviewPet : null);
@@ -2063,6 +2132,27 @@ export default function LumiiMvpApp() {
     });
   }, [clock, memoReminderPickerKind]);
 
+  useEffect(() => {
+    if (!vaccineDuePickerVisible) return;
+    setVaccineDuePickerDraft((current) => {
+      const next = clampVaccineDueDate(current);
+      return next.getTime() === current.getTime() ? current : next;
+    });
+  }, [clock, vaccineDuePickerVisible]);
+
+  useEffect(() => {
+    if (!vaccineDuePickerVisible) return;
+    const timeout = setTimeout(() => {
+      const optionsByPart = buildVaccineDueWheelOptions(vaccineDuePickerDraft);
+      vaccineDueWheelParts.forEach((part) => {
+        const selectedValue = part.key === 'year' ? vaccineDuePickerDraft.getFullYear() : part.key === 'month' ? vaccineDuePickerDraft.getMonth() + 1 : vaccineDuePickerDraft.getDate();
+        const selectedIndex = Math.max(0, optionsByPart[part.key].findIndex((option) => option.value === selectedValue));
+        vaccineDueWheelRefs.current[part.key]?.scrollTo({ animated: false, y: selectedIndex * memoReminderWheelItemHeight });
+      });
+    }, 30);
+    return () => clearTimeout(timeout);
+  }, [vaccineDuePickerDraft, vaccineDuePickerVisible]);
+
   function getActivePetFallback() {
     return apiConfig.mode === 'mock' ? lumiiApi.pets.getActivePet() : null;
   }
@@ -2235,14 +2325,73 @@ export default function LumiiMvpApp() {
   }
 
   function openVaccineDueDatePicker() {
-    openDatePicker(
-      {
-        minimumDate: parseIsoDate(todayIsoDate()) ?? new Date(),
-        mode: 'date',
-        title: '选择计划日期',
-        value: parseIsoDate(vaccineDueDraft) ?? parseIsoDate(addDaysIsoDate(30)) ?? new Date(),
-      },
-      (date) => setVaccineDueDraft(dateToIsoDate(date)),
+    setVaccineDuePickerDraft(clampVaccineDueDate(parseIsoDate(vaccineDueDraft) ?? defaultVaccineDueDate()));
+    setVaccineDuePickerVisible(true);
+  }
+
+  function closeVaccineDueDatePicker() {
+    setVaccineDuePickerVisible(false);
+  }
+
+  function commitVaccineDueDatePicker() {
+    const next = clampVaccineDueDate(vaccineDuePickerDraft);
+    if (next.getTime() !== vaccineDuePickerDraft.getTime()) {
+      showToast(`计划日期不能早于今天，已调整为 ${dateToIsoDate(next)}`, { tone: 'warning', variant: 'surface' });
+    }
+    setVaccineDueDraft(dateToIsoDate(next));
+    closeVaccineDueDatePicker();
+  }
+
+  function updateVaccineDuePickerPart(part: VaccineDueWheelPart, value: number) {
+    setVaccineDuePickerDraft((current) => updateVaccineDueDatePart(current, part, value));
+  }
+
+  function vaccineDueSelectedValue(part: VaccineDueWheelPart) {
+    if (part === 'year') return vaccineDuePickerDraft.getFullYear();
+    if (part === 'month') return vaccineDuePickerDraft.getMonth() + 1;
+    return vaccineDuePickerDraft.getDate();
+  }
+
+  function handleVaccineDueWheelScrollEnd(part: VaccineDueWheelPart, options: MemoReminderWheelOption[], event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const index = Math.round(event.nativeEvent.contentOffset.y / memoReminderWheelItemHeight);
+    const option = nearestMemoReminderOption(options, index);
+    if (option) updateVaccineDuePickerPart(part, option.value);
+  }
+
+  function renderVaccineDueWheelColumn(part: VaccineDueWheelPart, options: MemoReminderWheelOption[], width: number) {
+    const selectedValue = vaccineDueSelectedValue(part);
+    const selectedIndex = Math.max(0, options.findIndex((option) => option.value === selectedValue));
+    return (
+      <ScrollView
+        contentContainerStyle={styles.memoReminderWheelColumnContent}
+        contentOffset={{ x: 0, y: selectedIndex * memoReminderWheelItemHeight }}
+        decelerationRate="fast"
+        key={`${part}-${selectedValue}-${options.length}`}
+        nestedScrollEnabled
+        onMomentumScrollEnd={(event) => handleVaccineDueWheelScrollEnd(part, options, event)}
+        ref={(node) => { vaccineDueWheelRefs.current[part] = node; }}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={memoReminderWheelItemHeight}
+        style={[styles.memoReminderWheelColumn, { width }]}
+      >
+        {options.map((option) => {
+          const selected = option.value === selectedValue;
+          return (
+            <Pressable
+              accessibilityLabel={`vaccine-due-${part}-${option.value}`}
+              accessibilityRole="button"
+              disabled={option.disabled}
+              key={`${part}-${option.value}`}
+              onPress={() => updateVaccineDuePickerPart(part, option.value)}
+              style={[styles.memoReminderWheelItem, webPressableReset]}
+            >
+              <Text style={[styles.memoReminderWheelText, selected && styles.memoReminderWheelTextSelected, option.disabled && styles.memoReminderWheelTextDisabled]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
     );
   }
 
@@ -3110,6 +3259,8 @@ export default function LumiiMvpApp() {
     setVaccineComposerVisible(false);
     setVaccineNameDraft('');
     setVaccineDueDraft('');
+    setVaccineDuePickerVisible(false);
+    setVaccineDuePickerDraft(defaultVaccineDueDate());
     vaccineCreatingRef.current = false;
     setVaccineCreating(false);
     setDailyPostText('');
@@ -10302,27 +10453,14 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.vaccineComposerField}>
                 <Text style={styles.label}>计划日期</Text>
-                {Platform.OS === 'web' ? (
-                  <TextInput
-                    accessibilityLabel="vaccine-date-input"
-                    editable={!vaccineCreating}
-                    keyboardType="numbers-and-punctuation"
-                    onChangeText={setVaccineDueDraft}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor="#B8B3A8"
-                    style={[styles.makeTextInput, !vaccineDueDraft.trim() && styles.vaccineDateInputEmpty, webTextInputReset]}
-                    value={vaccineDueDraft}
-                  />
-                ) : (
-                  <DateValueButton
-                    disabled={vaccineCreating}
-                    onPress={openVaccineDueDatePicker}
-                    placeholder="选择计划日期"
-                    style={[styles.makeTextInput, !vaccineDueDraft.trim() && styles.vaccineDateInputEmpty]}
-                    textStyle={styles.vaccineDateValueTextMake}
-                    value={vaccineDueDraft}
-                  />
-                )}
+                <DateValueButton
+                  disabled={vaccineCreating}
+                  onPress={openVaccineDueDatePicker}
+                  placeholder="选择计划日期"
+                  style={[styles.makeTextInput, !vaccineDueDraft.trim() && styles.vaccineDateInputEmpty]}
+                  textStyle={styles.vaccineDateValueTextMake}
+                  value={vaccineDueDraft}
+                />
                 <View style={styles.vaccineQuickDateRow}>
                   {vaccineQuickDates.map((item) => (
                     <Pressable
@@ -14325,6 +14463,45 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderVaccineDueDatePicker() {
+    if (!vaccineDuePickerVisible) return null;
+    const optionsByPart = buildVaccineDueWheelOptions(vaccineDuePickerDraft);
+    return (
+      <Modal animationType="slide" onRequestClose={closeVaccineDueDatePicker} transparent visible>
+        <Pressable onPress={closeVaccineDueDatePicker} style={styles.memoReminderPickerBackdrop}>
+          <Pressable onPress={() => undefined} style={styles.memoReminderPickerSheet}>
+            <View style={styles.memoReminderPickerHandle} />
+            <View style={styles.memoReminderPickerHeader}>
+              <Pressable accessibilityLabel="cancel-vaccine-due-picker" accessibilityRole="button" onPress={closeVaccineDueDatePicker} style={[styles.memoReminderPickerNavButton, webPressableReset]}>
+                <Text style={styles.memoReminderPickerCancelText}>取消</Text>
+              </Pressable>
+              <Text style={styles.memoReminderPickerTitle}>选择计划日期</Text>
+              <Pressable accessibilityLabel="confirm-vaccine-due-picker" accessibilityRole="button" onPress={commitVaccineDueDatePicker} style={[styles.memoReminderPickerNavButton, styles.memoReminderPickerNavButtonRight, webPressableReset]}>
+                <Text style={styles.memoReminderPickerConfirmText}>确定</Text>
+              </Pressable>
+            </View>
+            <View style={styles.memoReminderPickerSummary}>
+              <CalendarDays color={palette.orange} size={15} strokeWidth={2.4} />
+              <Text numberOfLines={1} style={styles.memoReminderPickerSummaryText}>{formatVaccineDueSheetLabel(vaccineDuePickerDraft)}</Text>
+            </View>
+            <View style={styles.memoReminderWheelWrap}>
+              <View pointerEvents="none" style={styles.memoReminderWheelSelection} />
+              <View style={styles.memoReminderWheelRow}>
+                {vaccineDueWheelParts.map((part, index) => (
+                  <View key={part.key} style={styles.memoReminderWheelColumnShell}>
+                    {renderVaccineDueWheelColumn(part.key, optionsByPart[part.key], part.width)}
+                    {index < vaccineDueWheelParts.length - 1 ? <View pointerEvents="none" style={styles.memoReminderWheelDivider} /> : null}
+                  </View>
+                ))}
+              </View>
+            </View>
+            <Text style={styles.memoReminderPickerHint}>上下滑动调整年月日，最早可选今天</Text>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    );
+  }
+
   function renderScreen() {
     if (sessionBootstrapping) return renderSessionBootstrapping();
     if (loginSuccessLoading) return renderLoginSuccessLoading();
@@ -14491,6 +14668,7 @@ export default function LumiiMvpApp() {
           {renderPetDeleteConfirmSheet()}
           {renderMemoDeleteConfirm()}
           {renderWeightDeleteConfirm()}
+          {renderVaccineDueDatePicker()}
           {renderMemoReminderPicker()}
           <ConfirmDialog
             body={confirm?.body ?? ''}
