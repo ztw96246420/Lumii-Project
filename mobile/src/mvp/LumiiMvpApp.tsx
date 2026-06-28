@@ -27,6 +27,7 @@ import {
   View,
 } from 'react-native';
 import type { ImageStyle, KeyboardTypeOptions, RefreshControlProps, StyleProp, TextStyle, ViewStyle } from 'react-native';
+import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import {
   AlertTriangle,
   AlertCircle,
@@ -162,6 +163,13 @@ type DatePickerRequest = {
   mode: DatePickerMode;
   title: string;
   value: Date;
+};
+type MemoReminderPickerKind = 'draft' | 'edit';
+type MemoReminderWheelPart = 'day' | 'hour' | 'minute' | 'month' | 'year';
+type MemoReminderWheelOption = {
+  disabled?: boolean;
+  label: string;
+  value: number;
 };
 
 function sleep(ms: number) {
@@ -1336,6 +1344,95 @@ function parseMemoReminderDate(value?: string, fallbackRepeat: MemoRepeat = 'qua
   return Number.isNaN(date.getTime()) ? nextMemoReminderDate(fallbackRepeat) : date;
 }
 
+const memoReminderWheelItemHeight = 34;
+const memoReminderMinuteStep = 15;
+const memoReminderWeekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const memoReminderWheelParts: Array<{ key: MemoReminderWheelPart; width: number }> = [
+  { key: 'year', width: 63 },
+  { key: 'month', width: 51 },
+  { key: 'day', width: 55 },
+  { key: 'hour', width: 55 },
+  { key: 'minute', width: 67 },
+];
+
+function startOfMinute(date: Date) {
+  const next = new Date(date);
+  next.setSeconds(0, 0);
+  return next;
+}
+
+function roundUpMemoReminderSlot(date: Date) {
+  const next = startOfMinute(date);
+  const remainder = next.getMinutes() % memoReminderMinuteStep;
+  if (remainder > 0 || date.getSeconds() > 0 || date.getMilliseconds() > 0) {
+    next.setMinutes(next.getMinutes() + (remainder > 0 ? memoReminderMinuteStep - remainder : memoReminderMinuteStep));
+  }
+  return next;
+}
+
+function minimumMemoReminderDate(base = new Date()) {
+  const next = new Date(base);
+  next.setMilliseconds(next.getMilliseconds() + 1);
+  return roundUpMemoReminderSlot(next);
+}
+
+function daysInDateMonth(year: number, month: number) {
+  return new Date(year, month, 0).getDate();
+}
+
+function buildMemoReminderDate(year: number, month: number, day: number, hour: number, minute: number) {
+  const safeDay = Math.min(Math.max(1, day), daysInDateMonth(year, month));
+  return new Date(year, month - 1, safeDay, hour, minute, 0, 0);
+}
+
+function clampMemoReminderDate(date: Date, minDate = minimumMemoReminderDate()) {
+  const candidate = roundUpMemoReminderSlot(date);
+  return candidate.getTime() < minDate.getTime() ? minDate : candidate;
+}
+
+function updateMemoReminderDatePart(date: Date, part: MemoReminderWheelPart, value: number) {
+  const year = part === 'year' ? value : date.getFullYear();
+  const month = part === 'month' ? value : date.getMonth() + 1;
+  const day = part === 'day' ? value : date.getDate();
+  const hour = part === 'hour' ? value : date.getHours();
+  const minute = part === 'minute' ? value : date.getMinutes();
+  return clampMemoReminderDate(buildMemoReminderDate(year, month, day, hour, minute));
+}
+
+function isMemoReminderWheelOptionDisabled(date: Date, part: MemoReminderWheelPart, value: number) {
+  const candidate = buildMemoReminderDate(
+    part === 'year' ? value : date.getFullYear(),
+    part === 'month' ? value : date.getMonth() + 1,
+    part === 'day' ? value : date.getDate(),
+    part === 'hour' ? value : date.getHours(),
+    part === 'minute' ? value : date.getMinutes(),
+  );
+  return candidate.getTime() < minimumMemoReminderDate().getTime();
+}
+
+function buildMemoReminderWheelOptions(date: Date): Record<MemoReminderWheelPart, MemoReminderWheelOption[]> {
+  const minimum = minimumMemoReminderDate();
+  const minYear = minimum.getFullYear();
+  const maxYear = Math.max(minYear + 5, date.getFullYear() + 1);
+  const yearOptions = Array.from({ length: maxYear - minYear + 1 }, (_, index) => minYear + index);
+  const monthOptions = Array.from({ length: 12 }, (_, index) => index + 1);
+  const dayOptions = Array.from({ length: daysInDateMonth(date.getFullYear(), date.getMonth() + 1) }, (_, index) => index + 1);
+  const hourOptions = Array.from({ length: 24 }, (_, index) => index);
+  const minuteOptions = Array.from({ length: 60 / memoReminderMinuteStep }, (_, index) => index * memoReminderMinuteStep);
+
+  return {
+    day: dayOptions.map((value) => ({ disabled: isMemoReminderWheelOptionDisabled(date, 'day', value), label: `${value}日`, value })),
+    hour: hourOptions.map((value) => ({ disabled: isMemoReminderWheelOptionDisabled(date, 'hour', value), label: `${String(value).padStart(2, '0')}时`, value })),
+    minute: minuteOptions.map((value) => ({ disabled: isMemoReminderWheelOptionDisabled(date, 'minute', value), label: `${String(value).padStart(2, '0')}分`, value })),
+    month: monthOptions.map((value) => ({ disabled: isMemoReminderWheelOptionDisabled(date, 'month', value), label: `${value}月`, value })),
+    year: yearOptions.map((value) => ({ disabled: isMemoReminderWheelOptionDisabled(date, 'year', value), label: `${value}年`, value })),
+  };
+}
+
+function formatMemoReminderSheetLabel(date: Date) {
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${formatClockTime(date)}  ${memoReminderWeekdays[date.getDay()]}`;
+}
+
 const memoRepeatOptions: Array<{ label: string; value: MemoRepeat }> = [
   { label: '不重复', value: 'none' },
   { label: '每月', value: 'monthly' },
@@ -1670,6 +1767,8 @@ export default function LumiiMvpApp() {
   const keyboardHeightRef = useRef(0);
 
   const [datePickerRequest, setDatePickerRequest] = useState<DatePickerRequest | null>(null);
+  const [memoReminderPickerKind, setMemoReminderPickerKind] = useState<MemoReminderPickerKind | null>(null);
+  const [memoReminderPickerDraft, setMemoReminderPickerDraft] = useState(() => minimumMemoReminderDate());
   const [, setKeyboardHeight] = useState(0);
   const [permissions, setPermissions] = useState<PermissionStateMap>(isHomePreviewMode ? webPreviewPermissions : initialPermissions);
   const [activePet, setActivePet] = useState<PetProfile | null>(isHomePreviewMode ? initialPreviewPets[0] ?? webPreviewPet : null);
@@ -1956,6 +2055,14 @@ export default function LumiiMvpApp() {
   const pendingVaccines = useMemo(() => vaccines.filter((item) => item.status !== 'done'), [vaccines]);
   const urgentVaccines = useMemo(() => pendingVaccines.filter(isVaccineReminderUrgent), [pendingVaccines]);
 
+  useEffect(() => {
+    if (!memoReminderPickerKind) return;
+    setMemoReminderPickerDraft((current) => {
+      const next = clampMemoReminderDate(current);
+      return next.getTime() === current.getTime() ? current : next;
+    });
+  }, [clock, memoReminderPickerKind]);
+
   function getActivePetFallback() {
     return apiConfig.mode === 'mock' ? lumiiApi.pets.getActivePet() : null;
   }
@@ -2008,6 +2115,93 @@ export default function LumiiMvpApp() {
     return next;
   }
 
+  function closeMemoReminderPicker() {
+    setMemoReminderPickerKind(null);
+  }
+
+  function openMemoReminderDatePicker(kind: MemoReminderPickerKind) {
+    const current = kind === 'draft' ? memoDraftReminderAt : memoEditReminderAt;
+    setMemoReminderPickerDraft(clampMemoReminderDate(current));
+    setMemoReminderPickerKind(kind);
+  }
+
+  function commitMemoReminderPicker() {
+    if (!memoReminderPickerKind) return;
+    const next = clampMemoReminderDate(memoReminderPickerDraft);
+    if (next.getTime() !== memoReminderPickerDraft.getTime()) {
+      showToast(`提醒时间不能早于当前时间，已调整为 ${formatMemoReminderLabel(next)}`, { tone: 'warning', variant: 'surface' });
+    }
+    if (memoReminderPickerKind === 'draft') setMemoDraftReminderAt(next);
+    else setMemoEditReminderAt(next);
+    closeMemoReminderPicker();
+  }
+
+  function updateMemoReminderPickerPart(part: MemoReminderWheelPart, value: number) {
+    setMemoReminderPickerDraft((current) => updateMemoReminderDatePart(current, part, value));
+  }
+
+  function memoReminderSelectedValue(part: MemoReminderWheelPart) {
+    if (part === 'year') return memoReminderPickerDraft.getFullYear();
+    if (part === 'month') return memoReminderPickerDraft.getMonth() + 1;
+    if (part === 'day') return memoReminderPickerDraft.getDate();
+    if (part === 'hour') return memoReminderPickerDraft.getHours();
+    return memoReminderPickerDraft.getMinutes();
+  }
+
+  function nearestMemoReminderOption(options: MemoReminderWheelOption[], index: number) {
+    const safeIndex = Math.max(0, Math.min(options.length - 1, index));
+    if (!options[safeIndex]?.disabled) return options[safeIndex];
+    for (let distance = 1; distance < options.length; distance += 1) {
+      const next = options[safeIndex + distance];
+      if (next && !next.disabled) return next;
+      const previous = options[safeIndex - distance];
+      if (previous && !previous.disabled) return previous;
+    }
+    return null;
+  }
+
+  function handleMemoReminderWheelScrollEnd(part: MemoReminderWheelPart, options: MemoReminderWheelOption[], event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const index = Math.round(event.nativeEvent.contentOffset.y / memoReminderWheelItemHeight);
+    const option = nearestMemoReminderOption(options, index);
+    if (option) updateMemoReminderPickerPart(part, option.value);
+  }
+
+  function renderMemoReminderWheelColumn(part: MemoReminderWheelPart, options: MemoReminderWheelOption[], width: number) {
+    const selectedValue = memoReminderSelectedValue(part);
+    const selectedIndex = Math.max(0, options.findIndex((option) => option.value === selectedValue));
+    return (
+      <ScrollView
+        contentContainerStyle={styles.memoReminderWheelColumnContent}
+        contentOffset={{ x: 0, y: selectedIndex * memoReminderWheelItemHeight }}
+        decelerationRate="fast"
+        key={`${part}-${selectedValue}-${options.length}`}
+        nestedScrollEnabled
+        onMomentumScrollEnd={(event) => handleMemoReminderWheelScrollEnd(part, options, event)}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={memoReminderWheelItemHeight}
+        style={[styles.memoReminderWheelColumn, { width }]}
+      >
+        {options.map((option) => {
+          const selected = option.value === selectedValue;
+          return (
+            <Pressable
+              accessibilityLabel={`memo-reminder-${part}-${option.value}`}
+              accessibilityRole="button"
+              disabled={option.disabled}
+              key={`${part}-${option.value}`}
+              onPress={() => updateMemoReminderPickerPart(part, option.value)}
+              style={[styles.memoReminderWheelItem, webPressableReset]}
+            >
+              <Text style={[styles.memoReminderWheelText, selected && styles.memoReminderWheelTextSelected, option.disabled && styles.memoReminderWheelTextDisabled]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    );
+  }
+
   function openPetBirthdayPicker() {
     openDatePicker(
       {
@@ -2049,23 +2243,6 @@ export default function LumiiMvpApp() {
         value: parseIsoDate(vaccineDueDraft) ?? parseIsoDate(addDaysIsoDate(30)) ?? new Date(),
       },
       (date) => setVaccineDueDraft(dateToIsoDate(date)),
-    );
-  }
-
-  function openMemoReminderDatePicker(kind: 'draft' | 'edit') {
-    const current = kind === 'draft' ? memoDraftReminderAt : memoEditReminderAt;
-    openDatePicker(
-      {
-        minimumDate: parseIsoDate(todayIsoDate()) ?? new Date(),
-        mode: 'date',
-        title: '选择提醒日期',
-        value: current,
-      },
-      (date) => {
-        const next = preserveClockTime(current, date);
-        if (kind === 'draft') setMemoDraftReminderAt(next);
-        else setMemoEditReminderAt(next);
-      },
     );
   }
 
@@ -5355,11 +5532,16 @@ export default function LumiiMvpApp() {
       showToast('内容最多 200 个字');
       return;
     }
+    const requestReminderAt = memoDraftReminderEnabled ? clampMemoReminderDate(memoDraftReminderAt) : memoDraftReminderAt;
+    if (memoDraftReminderEnabled && requestReminderAt.getTime() !== memoDraftReminderAt.getTime()) {
+      setMemoDraftReminderAt(requestReminderAt);
+      showToast(`提醒时间已自动调整为 ${formatMemoReminderLabel(requestReminderAt)}`, { tone: 'warning', variant: 'surface' });
+    }
     memoDraftSavingRef.current = true;
     setMemoDraftSaving(true);
     try {
       const result = await lumiiApi.health.saveHealthMemo(requestTitle, requestContent, {
-        reminderAt: memoDraftReminderEnabled ? formatMemoReminderValue(memoDraftReminderAt) : undefined,
+        reminderAt: memoDraftReminderEnabled ? formatMemoReminderValue(requestReminderAt) : undefined,
         reminderEnabled: memoDraftReminderEnabled,
         repeat: memoDraftRepeat,
       });
@@ -5451,12 +5633,17 @@ export default function LumiiMvpApp() {
       showToast('内容最多 200 个字');
       return;
     }
+    const requestReminderAt = memoEditReminderEnabled ? clampMemoReminderDate(memoEditReminderAt) : memoEditReminderAt;
+    if (memoEditReminderEnabled && requestReminderAt.getTime() !== memoEditReminderAt.getTime()) {
+      setMemoEditReminderAt(requestReminderAt);
+      showToast(`提醒时间已自动调整为 ${formatMemoReminderLabel(requestReminderAt)}`, { tone: 'warning', variant: 'surface' });
+    }
     memoEditSavingRef.current = true;
     setMemoEditSaving(true);
     try {
       const result = await lumiiApi.health.updateHealthMemo(memo.id, {
         content,
-        reminderAt: memoEditReminderEnabled ? formatMemoReminderValue(memoEditReminderAt) : undefined,
+        reminderAt: memoEditReminderEnabled ? formatMemoReminderValue(requestReminderAt) : undefined,
         reminderEnabled: memoEditReminderEnabled,
         repeat: memoEditRepeat,
         title,
@@ -9549,14 +9736,6 @@ export default function LumiiMvpApp() {
     const titleCount = memoDraftTitle.trim().length;
     const contentCount = memoDraftContent.trim().length;
     const invalid = !memoDraftTitle.trim() || !memoDraftContent.trim() || titleCount > 20 || contentCount > 200;
-    const adjustMemoReminderAt = () => {
-      if (!memoDraftReminderEnabled) return;
-      setMemoDraftReminderAt((current) => {
-        const next = nextMemoReminderDate(memoDraftRepeat, current);
-        showToast(`提醒时间已调整为 ${formatMemoReminderLabel(next)}`, { tone: 'success', variant: 'surface' });
-        return next;
-      });
-    };
     return (
       <Screen
         right={(
@@ -9600,7 +9779,7 @@ export default function LumiiMvpApp() {
           <Text style={styles.memoFieldLabel}>提醒时间</Text>
           <Pressable
             disabled={!memoDraftReminderEnabled}
-            onPress={Platform.OS === 'web' ? adjustMemoReminderAt : () => openMemoReminderDatePicker('draft')}
+            onPress={() => openMemoReminderDatePicker('draft')}
             style={[styles.memoPickerRow, !memoDraftReminderEnabled && styles.memoPickerRowDisabled, webPressableReset]}
           >
             <CalendarDays color={palette.orange} size={16} strokeWidth={2.4} />
@@ -9669,12 +9848,6 @@ export default function LumiiMvpApp() {
     const contentCount = memoEditContent.trim().length;
     const invalid = !memoEditTitle.trim() || !memoEditContent.trim() || titleCount > 20 || contentCount > 200;
     const controlsDisabled = memoEditSaving || memoDeleting;
-    const adjustMemoEditReminderAt = () => {
-      if (!memoEditReminderEnabled || controlsDisabled) return;
-      const next = nextMemoReminderDate(memoEditRepeat, memoEditReminderAt);
-      setMemoEditReminderAt(next);
-      showToast(`提醒时间已调整为 ${formatMemoReminderLabel(next)}`, { tone: 'success', variant: 'surface' });
-    };
     return (
       <Screen title="编辑备忘">
         <View style={styles.memoEditPageMake}>
@@ -9722,7 +9895,7 @@ export default function LumiiMvpApp() {
             <Text style={styles.makeFieldLabel}>提醒时间</Text>
             <Pressable
               disabled={!memoEditReminderEnabled || controlsDisabled}
-              onPress={Platform.OS === 'web' ? adjustMemoEditReminderAt : () => openMemoReminderDatePicker('edit')}
+              onPress={() => openMemoReminderDatePicker('edit')}
               style={[styles.memoPickerRow, (!memoEditReminderEnabled || controlsDisabled) && styles.memoPickerRowDisabled, webPressableReset]}
             >
               <CalendarDays color={palette.orange} size={16} strokeWidth={2.4} />
@@ -14113,6 +14286,45 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderMemoReminderPicker() {
+    if (!memoReminderPickerKind) return null;
+    const optionsByPart = buildMemoReminderWheelOptions(memoReminderPickerDraft);
+    return (
+      <Modal animationType="slide" onRequestClose={closeMemoReminderPicker} transparent visible>
+        <Pressable onPress={closeMemoReminderPicker} style={styles.memoReminderPickerBackdrop}>
+          <Pressable onPress={() => undefined} style={styles.memoReminderPickerSheet}>
+            <View style={styles.memoReminderPickerHandle} />
+            <View style={styles.memoReminderPickerHeader}>
+              <Pressable accessibilityLabel="cancel-memo-reminder-picker" accessibilityRole="button" onPress={closeMemoReminderPicker} style={[styles.memoReminderPickerNavButton, webPressableReset]}>
+                <Text style={styles.memoReminderPickerCancelText}>取消</Text>
+              </Pressable>
+              <Text style={styles.memoReminderPickerTitle}>选择提醒时间</Text>
+              <Pressable accessibilityLabel="confirm-memo-reminder-picker" accessibilityRole="button" onPress={commitMemoReminderPicker} style={[styles.memoReminderPickerNavButton, styles.memoReminderPickerNavButtonRight, webPressableReset]}>
+                <Text style={styles.memoReminderPickerConfirmText}>确定</Text>
+              </Pressable>
+            </View>
+            <View style={styles.memoReminderPickerSummary}>
+              <CalendarDays color={palette.orange} size={15} strokeWidth={2.4} />
+              <Text numberOfLines={1} style={styles.memoReminderPickerSummaryText}>{formatMemoReminderSheetLabel(memoReminderPickerDraft)}</Text>
+            </View>
+            <View style={styles.memoReminderWheelWrap}>
+              <View pointerEvents="none" style={styles.memoReminderWheelSelection} />
+              <View style={styles.memoReminderWheelRow}>
+                {memoReminderWheelParts.map((part, index) => (
+                  <View key={part.key} style={styles.memoReminderWheelColumnShell}>
+                    {renderMemoReminderWheelColumn(part.key, optionsByPart[part.key], part.width)}
+                    {index < memoReminderWheelParts.length - 1 ? <View pointerEvents="none" style={styles.memoReminderWheelDivider} /> : null}
+                  </View>
+                ))}
+              </View>
+            </View>
+            <Text style={styles.memoReminderPickerHint}>上下滑动调整年月日时分，最早可选下一个 15 分钟</Text>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    );
+  }
+
   function renderScreen() {
     if (sessionBootstrapping) return renderSessionBootstrapping();
     if (loginSuccessLoading) return renderLoginSuccessLoading();
@@ -14279,6 +14491,7 @@ export default function LumiiMvpApp() {
           {renderPetDeleteConfirmSheet()}
           {renderMemoDeleteConfirm()}
           {renderWeightDeleteConfirm()}
+          {renderMemoReminderPicker()}
           <ConfirmDialog
             body={confirm?.body ?? ''}
             confirmText={confirm?.confirmText}
@@ -15185,6 +15398,18 @@ const styles = StyleSheet.create({
   memoSavingPuffMake: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 10, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.18, shadowRadius: 28, top: -4, zIndex: 20 },
   memoSavingPuffTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   memoReminderIcon: { alignItems: 'center', backgroundColor: palette.orangeSoft, borderRadius: 17, height: 34, justifyContent: 'center', width: 34 },
+  memoReminderPickerBackdrop: { backgroundColor: 'rgba(20,18,14,0.46)', flex: 1, justifyContent: 'flex-end' },
+  memoReminderPickerCancelText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  memoReminderPickerConfirmText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  memoReminderPickerHandle: { alignSelf: 'center', backgroundColor: '#E4DDD2', borderRadius: 3, height: 5, marginBottom: 13, width: 46 },
+  memoReminderPickerHeader: { alignItems: 'center', flexDirection: 'row', height: 34, justifyContent: 'center', position: 'relative' },
+  memoReminderPickerHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '400', lineHeight: 16, marginTop: 12, paddingHorizontal: 18 },
+  memoReminderPickerNavButton: { alignItems: 'center', height: 34, justifyContent: 'center', left: 0, minWidth: 58, paddingHorizontal: 6, position: 'absolute', top: 0 },
+  memoReminderPickerNavButtonRight: { left: undefined, right: 0 },
+  memoReminderPickerSheet: { backgroundColor: '#fff', borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingBottom: 18, paddingHorizontal: 18, paddingTop: 12, shadowColor: '#50371e', shadowOffset: { height: -8, width: 0 }, shadowOpacity: 0.18, shadowRadius: 30 },
+  memoReminderPickerSummary: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#FFF4EE', borderRadius: 16, flexDirection: 'row', gap: 7, height: 32, justifyContent: 'center', marginTop: 12, maxWidth: 278, paddingHorizontal: 16 },
+  memoReminderPickerSummaryText: { color: palette.orange, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800' },
+  memoReminderPickerTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '800', lineHeight: 24, textAlign: 'center' },
   memoReminderRow: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 12, marginTop: 14, paddingHorizontal: 16, paddingVertical: 14 },
   memoRepeatOption: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flex: 1, justifyContent: 'center', minHeight: 40 },
   memoRepeatOptionActive: { backgroundColor: 'rgba(255,138,92,0.12)', borderColor: palette.orange, borderWidth: 1.5 },
@@ -15205,6 +15430,17 @@ const styles = StyleSheet.create({
   memoTypeGrid: { flexDirection: 'row', gap: 8 },
   memoTypeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
   memoTypeTextActive: { color: palette.orange, fontWeight: '700' },
+  memoReminderWheelColumn: { height: 158 },
+  memoReminderWheelColumnContent: { paddingVertical: 62 },
+  memoReminderWheelColumnShell: { alignItems: 'center', flexDirection: 'row', height: 158 },
+  memoReminderWheelDivider: { backgroundColor: '#F0E7DD', height: 122, marginTop: 18, width: 1 },
+  memoReminderWheelItem: { alignItems: 'center', height: 34, justifyContent: 'center' },
+  memoReminderWheelRow: { alignItems: 'center', flexDirection: 'row', height: '100%', justifyContent: 'center', position: 'relative', zIndex: 1 },
+  memoReminderWheelSelection: { backgroundColor: '#FFF1E8', borderColor: '#FFD8C4', borderRadius: 14, borderWidth: 1, height: 42, left: 12, position: 'absolute', right: 12, top: 58, zIndex: 0 },
+  memoReminderWheelText: { color: '#8F8A80', fontFamily: appFontFamily, fontSize: 16, fontWeight: '500', lineHeight: 22, textAlign: 'center' },
+  memoReminderWheelTextDisabled: { color: '#D4CCC0' },
+  memoReminderWheelTextSelected: { color: palette.ink, fontSize: 18, fontWeight: '800', lineHeight: 24 },
+  memoReminderWheelWrap: { backgroundColor: '#FFFCF8', borderColor: '#F0E7DD', borderRadius: 18, borderWidth: 1, height: 158, marginTop: 16, overflow: 'hidden', position: 'relative' },
   metaIconBox: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 8, height: 26, justifyContent: 'center', width: 26 },
   multiPetActions: { alignItems: 'flex-end', gap: 8 },
   multiPetHero: { backgroundColor: '#FFE3D1', borderRadius: 20, gap: 0, marginBottom: 14, marginTop: -10, overflow: 'hidden', padding: 14, position: 'relative' },
