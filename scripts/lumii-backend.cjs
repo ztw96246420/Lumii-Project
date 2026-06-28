@@ -737,7 +737,7 @@ function detectCheckerboardProfile({ height, rgba, width }) {
     }))
     .sort((a, b) => b.count - a.count);
   const primary = sortedBins[0];
-  const secondary = sortedBins.find((bin) => Math.abs(bin.avg - primary.avg) >= 18);
+  const secondary = sortedBins.find((bin) => Math.abs(bin.avg - primary.avg) >= 8);
   if (!primary || !secondary) return null;
   if (secondary.count / candidates < 0.08) return null;
   if ((primary.count + secondary.count) / candidates < 0.28) return null;
@@ -5349,13 +5349,22 @@ async function handle(req, res) {
     }
     try {
       const result = await cosRequest('GET', objectKey, { timeoutMs: 20000 });
+      const prepared = objectKey.startsWith('pet-avatar/')
+        ? cleanPetAvatarImage({ buffer: result.body, mimeType: result.headers['content-type'] }, 'pet-avatar')
+        : { buffer: result.body, mimeType: result.headers['content-type'] || 'application/octet-stream' };
+      if (prepared.cleanedCheckerboard) {
+        console.log('[avatar:image] cleaned storage response checkerboard', {
+          objectKey,
+          removedPixels: prepared.removedPixels,
+        });
+      }
       res.writeHead(200, {
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': `private, max-age=${COS_PROXY_CACHE_SECONDS}`,
-        'Content-Length': result.body.length,
-        'Content-Type': result.headers['content-type'] || 'application/octet-stream',
+        'Content-Length': prepared.buffer.length,
+        'Content-Type': prepared.mimeType || result.headers['content-type'] || 'application/octet-stream',
       });
-      res.end(result.body);
+      res.end(prepared.buffer);
     } catch {
       fail(res, 404, 'Storage object not found', false);
     }
