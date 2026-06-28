@@ -512,7 +512,7 @@ const routeTitles: Partial<Record<AppRoute, string>> = {
   upload: '上传照片',
   uploadDetail: '识别详情',
   uploadNoPet: '上传失败',
-  vaccine: '疫苗计划',
+  vaccine: '疫苗/驱虫计划',
   walkInvite: '约遛邀请',
   weight: '体重记录',
 };
@@ -4750,7 +4750,7 @@ export default function LumiiMvpApp() {
       setVaccines((items) => items.map((item) => (item.id === message.updatedVaccine!.id ? message.updatedVaccine! : item)));
       shouldRefreshHealth = true;
       shouldRefreshInbox = true;
-      addSyncLabel('疫苗计划');
+      addSyncLabel('疫苗/驱虫计划');
     }
 
     if (message.vaccineReminderIds) {
@@ -5161,7 +5161,7 @@ export default function LumiiMvpApp() {
 
   async function enableVaccineReminder(vaccine?: VaccinePlan) {
     if (!vaccine) {
-      showToast('暂无可提醒的疫苗计划');
+      showToast('暂无可提醒的疫苗/驱虫计划');
       return;
     }
     if (vaccineReminderIds.includes(vaccine.id)) {
@@ -5183,7 +5183,7 @@ export default function LumiiMvpApp() {
         if (localReminder?.scheduled) {
           localHealthReminderScheduledIdsRef.current = [...new Set([vaccine.id, ...localHealthReminderScheduledIdsRef.current])];
         }
-        showToast(pushReady ? (localReminder?.scheduled ? '疫苗提醒已开启，系统通知已安排' : '疫苗提醒已开启；系统通知调度失败') : '疫苗提醒已开启；系统通知需在设置中开启');
+        showToast(pushReady ? (localReminder?.scheduled ? '疫苗/驱虫提醒已开启，系统通知已安排' : '疫苗/驱虫提醒已开启；系统通知调度失败') : '疫苗/驱虫提醒已开启；系统通知需在设置中开启');
       } else {
         setVaccineReminderIds((items) => items.filter((id) => id !== vaccine.id));
         showToast(result.error?.message ?? '提醒开启失败，请稍后重试');
@@ -5196,7 +5196,7 @@ export default function LumiiMvpApp() {
 
   async function markVaccineDone(vaccine?: VaccinePlan) {
     if (!vaccine) {
-      showToast('暂无可完成的疫苗计划');
+      showToast('暂无可完成的疫苗/驱虫计划');
       return;
     }
     if (vaccineDoneSavingIdsRef.current.has(vaccine.id)) return;
@@ -5258,7 +5258,7 @@ export default function LumiiMvpApp() {
         setVaccineNameDraft('');
         setVaccineDueDraft('');
         void refreshPetScopedData();
-        showToast('疫苗计划已添加', { tone: 'success', variant: 'surface' });
+        showToast('疫苗/驱虫计划已添加', { tone: 'success', variant: 'surface' });
       } else {
         showToast(result.error?.message ?? '新增计划失败，请稍后重试', { tone: 'error', variant: 'surface' });
       }
@@ -8923,7 +8923,7 @@ export default function LumiiMvpApp() {
                 <Syringe color={palette.teal} size={19} strokeWidth={2.5} />
               </View>
               <View style={styles.homeMetricListCopy}>
-                <Text numberOfLines={1} style={styles.homeMetricListLabel}>疫苗提醒</Text>
+                <Text numberOfLines={1} style={styles.homeMetricListLabel}>疫苗/驱虫提醒</Text>
                 <Text numberOfLines={1} style={styles.homeMetricListValue}>{nextVaccine?.name ?? '待添加计划'}</Text>
               </View>
               <Text numberOfLines={1} style={[styles.homeMetricListTag, styles.homeMetricListTagOrange]}>{vaccineDueLabel}</Text>
@@ -8934,7 +8934,7 @@ export default function LumiiMvpApp() {
                 <CalendarDays color={palette.orange} size={19} strokeWidth={2.5} />
               </View>
               <View style={styles.homeMetricListCopy}>
-                <Text numberOfLines={1} style={styles.homeMetricListLabel}>健康日历</Text>
+                <Text numberOfLines={1} style={styles.homeMetricListLabel}>宠物日历</Text>
                 <Text numberOfLines={1} style={styles.homeMetricListValue}>{calendarSummary}</Text>
               </View>
               <Text numberOfLines={1} style={[styles.homeMetricListTag, styles.homeMetricListTagMuted]}>{memoCount} 条</Text>
@@ -9456,7 +9456,7 @@ export default function LumiiMvpApp() {
 
         <View style={styles.healthSectionStack}>
           <HealthMakeRow Icon={Weight} badge={formatWeightKg(latestWeight)} chart onPress={() => go('weight')} subtitle={weightSubtitle} title="体重趋势" tone="warm" />
-          <HealthMakeRow Icon={Syringe} badge={urgentHealthCount ? `${urgentHealthCount} 项临近` : pendingHealthCount ? `${pendingHealthCount} 项` : '已完成'} badgeTone="warm" onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${vaccineReminderCopy(nextHealthVaccine)}` : '暂无计划'} title="疫苗计划" tone="cool" />
+          <HealthMakeRow Icon={Syringe} badge={urgentHealthCount ? `${urgentHealthCount} 项临近` : pendingHealthCount ? `${pendingHealthCount} 项` : '已完成'} badgeTone="warm" onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${vaccineReminderCopy(nextHealthVaccine)}` : '暂无计划'} title="疫苗/驱虫计划" tone="cool" />
           <HealthMakeRow Icon={CalendarDays} badge={`${healthCalendarEvents.length || recentRows.length} 条`} onPress={() => go('healthCalendar')} subtitle="按月份查看体重、疫苗和备忘记录" title="宠物日历" tone="cool" />
         </View>
 
@@ -10379,7 +10379,7 @@ export default function LumiiMvpApp() {
       return { label: '计划中', style: styles.vaccineStatePlanned, sub: `${vaccineReminderCopy(item)} · ${dueDateLabel}`, textStyle: styles.vaccineStatePlannedText };
     };
     return (
-      <Screen title="疫苗计划">
+      <Screen title="疫苗/驱虫计划">
         <View style={styles.vaccineHeroMake}>
           <View style={styles.vaccineHeroGlow} />
           <View style={styles.vaccineHeroTop}>
