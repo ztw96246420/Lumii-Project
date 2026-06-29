@@ -40,6 +40,8 @@ import type {
   PlaceSubmission,
   PermissionStateMap,
   PushDevice,
+  SanctionAppealItem,
+  SanctionAppealList,
   SocialBlockListItem,
   SocialBlockResult,
   SmsCodeTicket,
@@ -109,6 +111,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
     },
 
     support: {
+      async getSanctionAppeals(): Promise<ApiResult<SanctionAppealList>> {
+        return request<SanctionAppealList>('GET', '/sanction-appeals');
+      },
+
       async getTicket(ticketId: string): Promise<ApiResult<SupportTicketDetail>> {
         return request<SupportTicketDetail>('GET', `/support/tickets/${encodeURIComponent(ticketId)}`);
       },
@@ -119,6 +125,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
 
       async replyTicket(ticketId: string, content: string): Promise<ApiResult<SupportTicketDetail>> {
         return request<SupportTicketDetail>('POST', `/support/tickets/${encodeURIComponent(ticketId)}/reply`, { content });
+      },
+
+      async submitSanctionAppeal(content: string, sanctionId?: string): Promise<ApiResult<SanctionAppealItem>> {
+        return request<SanctionAppealItem>('POST', '/sanction-appeals', { content, sanctionId });
       },
 
       async submitFeedback(content: string, category: FeedbackCategory = 'other', contact?: string): Promise<ApiResult<FeedbackSubmission>> {

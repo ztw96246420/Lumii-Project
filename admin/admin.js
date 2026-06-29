@@ -1,5 +1,7 @@
 const state = {
   admin: null,
+  appealQ: '',
+  appealStatus: 'open',
   cache: {},
   moderationQ: '',
   moderationStatus: 'pending',
@@ -23,6 +25,7 @@ const navItems = [
   { key: 'config', label: '配置中心' },
   { key: 'audit', label: '审计日志' },
   { key: 'sanctions', label: '用户处罚' },
+  { key: 'sanctionAppeals', label: '申诉中心' },
   { key: 'exports', label: '数据导出', reserved: true },
 ];
 
@@ -36,6 +39,7 @@ const titles = {
   notifications: ['通知运营', '系统通知、定向触达和移动端通知中心联动'],
   places: ['地图地点', '地点点评与新增地点审核'],
   reports: ['举报中心', '宠友圈举报处理闭环'],
+  sanctionAppeals: ['申诉中心', '账号处罚申诉、复核和撤销联动'],
   sanctions: ['用户处罚', '禁言、冻结、封禁与撤销记录'],
   socialPosts: ['宠友圈', '动态与评论内容安全'],
   tickets: ['工单中心', '用户反馈、客服备注和回复闭环'],
@@ -73,6 +77,10 @@ function statusPill(status) {
       ? 'bad'
       : 'warn';
   return `<span class="pill ${tone}">${escapeHtml(value)}</span>`;
+}
+
+function option(value, label, selected) {
+  return `<option value="${escapeHtml(value)}" ${String(value) === String(selected) ? 'selected' : ''}>${escapeHtml(label)}</option>`;
 }
 
 function help(text) {
@@ -230,6 +238,21 @@ async function onContentClick(event) {
     if (action === 'ticket-status') await saveTicketStatus(id);
     if (action === 'ticket-note') await addTicketNote(id);
     if (action === 'ticket-reply') await replyTicket(id);
+    if (action === 'appeal-filter') {
+      state.appealStatus = $('appealStatus').value;
+      state.appealQ = $('appealQ').value.trim();
+      state.cache = { ...state.cache, sanctionAppeals: null };
+      await render(true);
+      return;
+    }
+    if (action === 'appeal-clear') {
+      state.appealStatus = 'open';
+      state.appealQ = '';
+      state.cache = { ...state.cache, sanctionAppeals: null };
+      await render(true);
+      return;
+    }
+    if (action === 'appeal-review' || action === 'appeal-approve' || action === 'appeal-reject') await handleSanctionAppealAction(button);
     if (action === 'send-notification') await sendSystemNotification();
     if (action === 'save-config') await saveConfig();
     if (action === 'sanction-create') await createSanction();
@@ -276,7 +299,7 @@ async function handleModerationTaskAction(button) {
 }
 
 function clearOperationalCaches() {
-  ['audit', 'feedback', 'moderation', 'notifications', 'placeReviews', 'placeSubmissions', 'reports', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'tickets', 'users'].forEach((key) => {
+  ['audit', 'feedback', 'moderation', 'notifications', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -307,6 +330,17 @@ async function replyTicket(id) {
   if (!content) throw new Error('请先填写客服回复');
   const notifyUser = Boolean($(`ticketNotify-${id}`)?.checked);
   await post(`/admin/tickets/${encodeURIComponent(id)}/reply`, { content, notifyUser, reason: '客服回复用户' });
+}
+
+async function handleSanctionAppealAction(button) {
+  const id = button.dataset.id;
+  const op = button.dataset.action === 'appeal-approve' ? 'approve' : button.dataset.action === 'appeal-reject' ? 'reject' : 'review';
+  const title = button.dataset.title || '账号申诉';
+  const defaultReason = op === 'approve' ? `申诉通过：${title}` : op === 'reject' ? `申诉未通过：${title}` : `接手申诉：${title}`;
+  const reason = op === 'review' ? defaultReason : window.prompt('请输入处理说明，会同步给用户', defaultReason);
+  if (reason === null) return;
+  const revokeSanction = op === 'approve' ? Boolean($(`appealRevoke-${id}`)?.checked ?? true) : undefined;
+  await post(`/admin/sanction-appeals/${encodeURIComponent(id)}/${op}`, { reason, revokeSanction });
 }
 
 async function sendSystemNotification() {
@@ -357,6 +391,7 @@ async function render(force = false) {
     notifications: renderNotifications,
     places: renderPlaces,
     reports: renderReports,
+    sanctionAppeals: renderSanctionAppeals,
     sanctions: renderSanctions,
     socialPosts: renderSocialPosts,
     tickets: renderTickets,
@@ -387,6 +422,7 @@ async function renderDashboard(force) {
     <div class="grid metrics">
       ${metric('用户总数', data.users.total, `${data.users.withPets} 位已建档`, '来自当前后端 users 状态。')}
       ${metric('生效处罚', data.users.activeSanctions || 0, '禁言/冻结/封禁/警告', '仍处于 active 状态的处罚记录，过期或撤销后不计入。')}
+      ${metric('待处理申诉', data.appeals?.open || 0, `${data.appeals?.pending || 0} 条新申诉`, '用户对禁言、冻结、封禁发起的账号申诉，需要运营复核。')}
       ${metric('AI 处理中', data.ai.avatarProcessing, `${data.ai.avatarStuck} 个可能卡住`, '超过 5 分钟未更新会进入卡住计数。')}
       ${metric('审核任务', data.moderation?.pending ?? data.content.pendingReports, `${data.moderation?.escalated || 0} 个升级`, '统一内容安全任务池：举报、被举报动态/评论、地点点评和新增地点。')}
       ${metric('地点待审', data.places.pendingReviews + data.places.pendingSubmissions, `${data.places.total} 个地点`, '地点点评与新增地点提交合计。')}
@@ -633,6 +669,82 @@ async function createSanction() {
   state.cache.sanctions = null;
   state.cache.summary = null;
   state.cache.users = null;
+}
+
+async function renderSanctionAppeals(force) {
+  const query = new URLSearchParams({
+    q: state.appealQ,
+    status: state.appealStatus,
+  });
+  const data = await load('sanctionAppeals', `/admin/sanction-appeals?${query}`, force);
+  const appeals = data.appeals || [];
+  const summary = data.summary || {};
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('待处理', summary.open || 0, `${summary.pending || 0} 条新申诉`, 'pending/reviewing 都属于待处理。')}
+      ${metric('处理中', summary.reviewing || 0, '已接手', '接手后代表有运营正在复核。')}
+      ${metric('已通过', summary.approved || 0, '可联动撤销处罚', '通过时可选择同时撤销原处罚。')}
+      ${metric('未通过', summary.rejected || 0, '保留处罚', '驳回后会把处理说明同步给用户。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>账号申诉队列</h2>
+          <div class="section-sub">用户对禁言、冻结、封禁发起申诉；处理结果会进入 App 通知中心</div>
+        </div>
+        ${help('通过申诉时默认撤销对应处罚；如果只认可申诉但不撤销，可取消卡片内的复选框。')}
+      </div>
+      <div class="toolbar">
+        <select id="appealStatus">
+          ${option('open', '未关闭', state.appealStatus)}
+          ${option('pending', '待处理', state.appealStatus)}
+          ${option('reviewing', '处理中', state.appealStatus)}
+          ${option('approved', '已通过', state.appealStatus)}
+          ${option('rejected', '未通过', state.appealStatus)}
+          ${option('all', '全部', state.appealStatus)}
+        </select>
+        <input id="appealQ" placeholder="手机号、内容、处罚原因" value="${escapeHtml(state.appealQ)}" />
+        <button class="small-button" data-action="appeal-filter">筛选</button>
+        <button class="small-button" data-action="appeal-clear">清空</button>
+      </div>
+      ${appeals.length ? `<div class="ticket-list">${appeals.map(renderSanctionAppealCard).join('')}</div>` : '<div class="placeholder"><div><strong>暂无申诉</strong><div>当前筛选下没有账号申诉。</div></div></div>'}
+    </div>
+  `;
+}
+
+function renderSanctionAppealCard(appeal) {
+  const active = appeal.status === 'pending' || appeal.status === 'reviewing';
+  const sanctionLabel = appeal.sanctionTypeLabel || appeal.sanctionType || '账号限制';
+  const title = `${appeal.ownerName || appeal.phone} · ${sanctionLabel}`;
+  return `
+    <div class="ticket-card">
+      <div class="ticket-main">
+        <div class="ticket-top">
+          <div>
+            <div class="cell-title">${escapeHtml(title)}</div>
+            <div class="cell-sub">${shortPhone(appeal.phone)} ${appeal.petName ? `· ${escapeHtml(appeal.petName)}` : ''} · ${formatTime(appeal.createdAt)}</div>
+          </div>
+          <div>${statusPill(appeal.status)} ${statusPill(sanctionLabel)}</div>
+        </div>
+        <p>${escapeHtml(appeal.content)}</p>
+        <div class="cell-sub">处罚原因：${escapeHtml(appeal.sanctionReason || appeal.sanction?.reason || '-')}</div>
+        ${appeal.reviewReason ? `<div class="note-line"><strong>处理说明：</strong>${escapeHtml(appeal.reviewReason)}</div>` : ''}
+        <div class="ticket-meta">
+          <span>处罚状态：${escapeHtml(appeal.sanctionStatus || appeal.sanction?.status || '-')}</span>
+          <span>处理人：${escapeHtml(appeal.handledBy || '-')}</span>
+          <span>更新时间：${formatTime(appeal.updatedAt || appeal.createdAt)}</span>
+        </div>
+      </div>
+      <div class="ticket-side">
+        ${active ? `
+          <button class="small-button" data-action="appeal-review" data-id="${escapeHtml(appeal.id)}" data-title="${escapeHtml(title)}">接手</button>
+          <label class="inline-check"><input id="appealRevoke-${escapeHtml(appeal.id)}" type="checkbox" checked /> 通过时撤销处罚</label>
+          <button class="small-button" data-action="appeal-approve" data-id="${escapeHtml(appeal.id)}" data-title="${escapeHtml(title)}">通过</button>
+          <button class="small-button danger" data-action="appeal-reject" data-id="${escapeHtml(appeal.id)}" data-title="${escapeHtml(title)}">驳回</button>
+        ` : '<span class="cell-sub">已处理</span>'}
+      </div>
+    </div>
+  `;
 }
 
 async function renderAvatarJobs(force) {
@@ -960,7 +1072,9 @@ function notificationActionLabel(value) {
     map: '地图',
     notifications: '通知中心',
     profile: '我的',
+    safety: '安全中心',
     settings: '设置',
+    supportTickets: '反馈进度',
   }[value] || '无跳转';
 }
 
@@ -1037,8 +1151,10 @@ async function renderNotifications(force) {
                 <option value="discover">发现</option>
                 <option value="map">地图</option>
                 <option value="profile">我的</option>
+                <option value="safety">安全中心</option>
                 <option value="settings">设置</option>
                 <option value="notifications">通知中心</option>
+                <option value="supportTickets">反馈进度</option>
               </select>
             </label>
           </div>
@@ -1142,8 +1258,10 @@ async function renderConfig(force) {
               ${configRouteOption(announcement.actionRoute || '', 'discover', '发现')}
               ${configRouteOption(announcement.actionRoute || '', 'map', '地图')}
               ${configRouteOption(announcement.actionRoute || '', 'profile', '我的')}
+              ${configRouteOption(announcement.actionRoute || '', 'safety', '安全中心')}
               ${configRouteOption(announcement.actionRoute || '', 'settings', '设置')}
               ${configRouteOption(announcement.actionRoute || '', 'notifications', '通知中心')}
+              ${configRouteOption(announcement.actionRoute || '', 'supportTickets', '反馈进度')}
             </select>
           </label>
           <label class="wide">公告正文<textarea id="cfgAnnouncementBody" maxlength="180" placeholder="建议 60 字以内，直接说明发生了什么、用户需要做什么。">${escapeHtml(announcement.body || '')}</textarea></label>

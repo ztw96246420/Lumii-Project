@@ -310,6 +310,7 @@ function createInitialState() {
     socialBlocks: [],
     socialMoments: [],
     socialReports: [],
+    sanctionAppeals: [],
     supportTickets: [],
     systemNotifications: [],
     userSanctions: [],
@@ -379,7 +380,7 @@ function normalizeOpsConfig(value) {
     app: {
       announcement: {
         actionLabel: String(app.announcement?.actionLabel || defaults.app.announcement.actionLabel).slice(0, 16),
-        actionRoute: ['discover', 'home', 'map', 'notifications', 'profile', 'settings'].includes(String(app.announcement?.actionRoute || '')) ? String(app.announcement.actionRoute) : '',
+        actionRoute: ['discover', 'home', 'map', 'notifications', 'profile', 'safety', 'settings', 'supportTickets'].includes(String(app.announcement?.actionRoute || '')) ? String(app.announcement.actionRoute) : '',
         body: String(app.announcement?.body || '').slice(0, 180),
         enabled: Boolean(app.announcement?.enabled),
         title: String(app.announcement?.title || '').slice(0, 40),
@@ -437,7 +438,7 @@ function maintenanceMessage() {
 function failIfMaintenanceWriteBlocked(req, pathname, res) {
   if (!currentOpsConfig().app.maintenanceEnabled) return false;
   if (req.method === 'GET') return false;
-  if (['/auth/logout', '/auth/token/refresh', '/feedback', '/notifications/read'].includes(pathname) || pathname.startsWith('/support/tickets')) return false;
+  if (['/auth/logout', '/auth/token/refresh', '/feedback', '/notifications/read'].includes(pathname) || pathname.startsWith('/support/tickets') || pathname.startsWith('/sanction-appeals')) return false;
   fail(res, 503, maintenanceMessage(), true, { maintenanceEnabled: true }, 'APP_MAINTENANCE');
   return true;
 }
@@ -514,6 +515,7 @@ function loadState() {
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
       socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
+      sanctionAppeals: Array.isArray(loadedState.sanctionAppeals) ? loadedState.sanctionAppeals : initialState.sanctionAppeals,
       supportTickets: Array.isArray(loadedState.supportTickets) ? loadedState.supportTickets : initialState.supportTickets,
       systemNotifications: Array.isArray(loadedState.systemNotifications) ? loadedState.systemNotifications : initialState.systemNotifications,
       userSanctions: Array.isArray(loadedState.userSanctions) ? loadedState.userSanctions : initialState.userSanctions,
@@ -1482,10 +1484,16 @@ const SANCTION_DEFAULT_DURATION_HOURS = {
   mute: 24,
   warning: 0,
 };
+const SANCTION_APPEAL_STATUSES = new Set(['approved', 'closed', 'pending', 'rejected', 'reviewing']);
 
 function ensureUserSanctions() {
   if (!Array.isArray(state.userSanctions)) state.userSanctions = [];
   return state.userSanctions;
+}
+
+function ensureSanctionAppeals() {
+  if (!Array.isArray(state.sanctionAppeals)) state.sanctionAppeals = [];
+  return state.sanctionAppeals;
 }
 
 function normalizeSanctionType(value) {
@@ -1564,6 +1572,40 @@ function adminSanctionItem(sanction) {
   };
 }
 
+function notifySanctionEvent(phone, sanction, title, text, idPrefix = 'update') {
+  if (!phone || !state.users?.[phone]) return false;
+  const suffix = sanction?.id || `${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+  return addNotification(phone, {
+    actionRoute: 'safety',
+    category: 'system',
+    createdAt: new Date().toISOString(),
+    id: `n-sanction-${idPrefix}-${suffix}`,
+    kind: 'system',
+    read: false,
+    sanctionId: sanction?.id || '',
+    text,
+    title,
+  }, 'system', { force: true });
+}
+
+function notifyExpiredSanctionsFor(user) {
+  if (!user?.phone) return false;
+  let changed = false;
+  for (const sanction of userSanctionsFor(user.phone)) {
+    if (sanctionRuntimeStatus(sanction) !== 'expired' || sanction.expiredNotifiedAt) continue;
+    sanction.expiredNotifiedAt = new Date().toISOString();
+    notifySanctionEvent(
+      user.phone,
+      sanction,
+      '账号限制已到期',
+      `${SANCTION_TYPE_LABELS[sanction.type] || '账号限制'}已自动到期，如页面状态未更新，可重新登录或刷新。`,
+      'expired',
+    );
+    changed = true;
+  }
+  return changed;
+}
+
 function adminSanctions() {
   return ensureUserSanctions()
     .map(adminSanctionItem)
@@ -1599,10 +1641,17 @@ function createUserSanction(admin, phone, body = {}) {
   };
   ensureUserSanctions().unshift(sanction);
   user.accountStatus = accountStatusFor(user);
+  notifySanctionEvent(
+    phone,
+    sanction,
+    '账号状态已更新',
+    `你的账号已被${SANCTION_TYPE_LABELS[type] || '限制'}。原因：${reason}`,
+    'created',
+  );
   return { sanction };
 }
 
-function revokeUserSanction(admin, phone, sanctionId, reason = '') {
+function revokeUserSanction(admin, phone, sanctionId, reason = '', options = {}) {
   const sanction = ensureUserSanctions().find((item) => item.id === sanctionId && item.phone === phone);
   if (!sanction) return { error: '处罚记录不存在', statusCode: 404 };
   if (sanction.revokedAt) return { sanction };
@@ -1611,7 +1660,201 @@ function revokeUserSanction(admin, phone, sanctionId, reason = '') {
   sanction.revokeReason = String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
   const user = state.users?.[phone];
   if (user) user.accountStatus = accountStatusFor(user);
+  if (options.notify !== false) {
+    notifySanctionEvent(
+      phone,
+      sanction,
+      '账号限制已撤销',
+      `${SANCTION_TYPE_LABELS[sanction.type] || '账号限制'}已撤销。${sanction.revokeReason ? `说明：${sanction.revokeReason}` : ''}`,
+      'revoked',
+    );
+  }
   return { sanction };
+}
+
+function sanctionAppealStatusFor(value) {
+  const status = String(value || 'pending');
+  return SANCTION_APPEAL_STATUSES.has(status) ? status : 'pending';
+}
+
+function findSanctionAppeal(appealId) {
+  return ensureSanctionAppeals().find((item) => item.id === appealId);
+}
+
+function findUserSanction(phone, sanctionId) {
+  return ensureUserSanctions().find((item) => item.phone === phone && item.id === sanctionId);
+}
+
+function appealableSanctionFor(user, sanctionId = '') {
+  const explicit = sanctionId ? findUserSanction(user.phone, sanctionId) : null;
+  if (explicit && sanctionRuntimeStatus(explicit) === 'active' && explicit.type !== 'warning') return explicit;
+  return activeUserSanctionsFor(user.phone)
+    .filter((sanction) => sanction.type !== 'warning')
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] || null;
+}
+
+function publicSanctionAppealItem(appeal) {
+  const sanction = findUserSanction(appeal.phone, appeal.sanctionId);
+  const status = sanctionAppealStatusFor(appeal.status);
+  return {
+    content: appeal.content || '',
+    createdAt: appeal.createdAt,
+    id: appeal.id,
+    reviewReason: appeal.reviewReason || '',
+    reviewedAt: appeal.reviewedAt || '',
+    sanctionId: appeal.sanctionId,
+    sanctionReason: appeal.sanctionReason || sanction?.reason || '',
+    sanctionStatus: sanction ? sanctionRuntimeStatus(sanction) : 'unknown',
+    sanctionType: appeal.sanctionType || sanction?.type || '',
+    sanctionTypeLabel: SANCTION_TYPE_LABELS[appeal.sanctionType || sanction?.type] || appeal.sanctionType || sanction?.type || '账号限制',
+    status,
+    updatedAt: appeal.updatedAt || appeal.createdAt,
+  };
+}
+
+function adminSanctionAppealItem(appeal) {
+  const user = state.users?.[appeal.phone];
+  const sanction = findUserSanction(appeal.phone, appeal.sanctionId);
+  const pet = user ? selectedPetFor(user) : null;
+  return {
+    ...publicSanctionAppealItem(appeal),
+    handledBy: appeal.handledBy || '',
+    ownerName: user?.ownerName || appeal.ownerName || `用户${String(appeal.phone || '').slice(-4)}`,
+    petName: pet?.name || '',
+    phone: appeal.phone,
+    revokeSanction: appeal.revokeSanction !== false,
+    sanction: sanction ? adminSanctionItem(sanction) : null,
+  };
+}
+
+function sanctionAppealsForUser(user) {
+  const appeals = ensureSanctionAppeals()
+    .filter((appeal) => appeal.phone === user.phone)
+    .map(publicSanctionAppealItem)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return {
+    appeals,
+    summary: {
+      all: appeals.length,
+      open: appeals.filter((appeal) => appeal.status === 'pending' || appeal.status === 'reviewing').length,
+    },
+  };
+}
+
+function adminSanctionAppeals(options = {}) {
+  const status = String(options.status || 'open');
+  const q = String(options.q || '').trim().toLowerCase();
+  const all = ensureSanctionAppeals().map(adminSanctionAppealItem);
+  const appeals = all
+    .filter((appeal) => {
+      if (status === 'all') return true;
+      if (status === 'open') return appeal.status === 'pending' || appeal.status === 'reviewing';
+      return appeal.status === status;
+    })
+    .filter((appeal) => {
+      if (!q) return true;
+      return [appeal.id, appeal.phone, appeal.ownerName, appeal.petName, appeal.content, appeal.reviewReason, appeal.sanctionReason, appeal.sanctionTypeLabel]
+        .some((value) => String(value || '').toLowerCase().includes(q));
+    })
+    .sort((a, b) => {
+      const rank = { pending: 4, reviewing: 3, approved: 2, rejected: 1, closed: 0 };
+      return (rank[b.status] || 0) - (rank[a.status] || 0) || String(b.createdAt).localeCompare(String(a.createdAt));
+    });
+  return {
+    appeals: appeals.slice(0, 300),
+    summary: {
+      all: all.length,
+      approved: all.filter((appeal) => appeal.status === 'approved').length,
+      open: all.filter((appeal) => appeal.status === 'pending' || appeal.status === 'reviewing').length,
+      pending: all.filter((appeal) => appeal.status === 'pending').length,
+      rejected: all.filter((appeal) => appeal.status === 'rejected').length,
+      reviewing: all.filter((appeal) => appeal.status === 'reviewing').length,
+    },
+  };
+}
+
+function createSanctionAppeal(user, body = {}) {
+  const sanction = appealableSanctionFor(user, String(body.sanctionId || '').trim());
+  if (!sanction) return { error: '当前没有可申诉的生效账号限制', statusCode: 400 };
+  const duplicate = ensureSanctionAppeals().find((appeal) =>
+    appeal.phone === user.phone &&
+    appeal.sanctionId === sanction.id &&
+    (appeal.status === 'pending' || appeal.status === 'reviewing')
+  );
+  if (duplicate) return { appeal: duplicate, duplicate: true };
+  const content = String(body.content || '').replace(/\s+/g, ' ').trim();
+  if (!content) return { error: '请填写申诉说明', statusCode: 400 };
+  if (content.length < 8) return { error: '申诉说明至少 8 个字', statusCode: 400 };
+  if (content.length > 1000) return { error: '申诉说明最多 1000 个字', statusCode: 400 };
+  const now = new Date().toISOString();
+  const appeal = {
+    content,
+    createdAt: now,
+    id: `appeal-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    ownerName: user.ownerName || '',
+    phone: user.phone,
+    sanctionId: sanction.id,
+    sanctionReason: sanction.reason || '',
+    sanctionType: sanction.type,
+    status: 'pending',
+    updatedAt: now,
+  };
+  ensureSanctionAppeals().unshift(appeal);
+  return { appeal };
+}
+
+function handleSanctionAppeal(admin, appeal, action, body = {}) {
+  const before = JSON.parse(JSON.stringify(appeal));
+  const now = new Date().toISOString();
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (action === 'review') {
+    appeal.status = 'reviewing';
+    appeal.handledBy = admin?.username || 'admin';
+    appeal.updatedAt = now;
+    writeAdminAudit(admin, 'sanction.appeal.review', 'sanction_appeal', appeal.id, before, appeal, reason || '申诉接手处理');
+    return { appeal };
+  }
+  if ((action === 'approve' || action === 'reject') && !reason) {
+    return { error: '请填写处理说明', statusCode: 400 };
+  }
+  if (action === 'approve') {
+    const sanction = findUserSanction(appeal.phone, appeal.sanctionId);
+    appeal.status = 'approved';
+    appeal.reviewReason = reason;
+    appeal.reviewedAt = now;
+    appeal.handledBy = admin?.username || 'admin';
+    appeal.revokeSanction = body.revokeSanction !== false;
+    appeal.updatedAt = now;
+    if (appeal.revokeSanction && sanction && sanctionRuntimeStatus(sanction) === 'active') {
+      revokeUserSanction(admin, appeal.phone, appeal.sanctionId, `申诉通过：${reason}`, { notify: false });
+    }
+    notifySanctionEvent(
+      appeal.phone,
+      sanction || { id: appeal.sanctionId, type: appeal.sanctionType },
+      appeal.revokeSanction ? '申诉通过，账号限制已撤销' : '申诉通过',
+      reason,
+      `appeal-approved-${appeal.id}`,
+    );
+    writeAdminAudit(admin, 'sanction.appeal.approve', 'sanction_appeal', appeal.id, before, appeal, reason);
+    return { appeal };
+  }
+  if (action === 'reject') {
+    appeal.status = 'rejected';
+    appeal.reviewReason = reason;
+    appeal.reviewedAt = now;
+    appeal.handledBy = admin?.username || 'admin';
+    appeal.updatedAt = now;
+    notifySanctionEvent(
+      appeal.phone,
+      { id: appeal.sanctionId, type: appeal.sanctionType },
+      '账号申诉已处理',
+      reason,
+      `appeal-rejected-${appeal.id}`,
+    );
+    writeAdminAudit(admin, 'sanction.appeal.reject', 'sanction_appeal', appeal.id, before, appeal, reason);
+    return { appeal };
+  }
+  return { error: '不支持的申诉处理动作', statusCode: 400 };
 }
 
 function accountWriteRestrictionFor(user) {
@@ -1625,7 +1868,7 @@ function mutedRestrictionFor(user) {
 }
 
 function allowRestrictedWrite(pathname) {
-  return pathname === '/auth/token/refresh' || pathname === '/feedback' || pathname === '/notifications/read' || pathname.startsWith('/support/tickets');
+  return pathname === '/auth/token/refresh' || pathname === '/feedback' || pathname === '/notifications/read' || pathname.startsWith('/support/tickets') || pathname.startsWith('/sanction-appeals');
 }
 
 function failIfAccountRestricted(user, req, pathname, res) {
@@ -2527,6 +2770,7 @@ function allPermissionsGranted(permissions) {
 }
 
 function buildAccountSnapshot(user) {
+  if (notifyExpiredSanctionsFor(user)) saveState();
   const permissions = normalizePermissionState(user.permissions);
   return {
     activePet: selectedPetFor(user),
@@ -5769,7 +6013,7 @@ function markNotificationsRead(phone, ids) {
 }
 
 const systemNotificationTargets = new Set(['active_today', 'all', 'phones']);
-const systemNotificationActionRoutes = new Set(['discover', 'home', 'map', 'notifications', 'profile', 'settings']);
+const systemNotificationActionRoutes = new Set(['discover', 'home', 'map', 'notifications', 'profile', 'safety', 'settings', 'supportTickets']);
 
 function ensureSystemNotifications() {
   state.systemNotifications = Array.isArray(state.systemNotifications) ? state.systemNotifications : [];
@@ -5949,6 +6193,7 @@ function adminDashboardSummary() {
   const placeReviews = adminPlaceReviews();
   const placeSubmissions = adminPlaceSubmissions();
   const tickets = adminSupportTickets({ status: 'all' }).summary;
+  const appeals = adminSanctionAppeals({ status: 'all' }).summary;
   const pendingReports = reports.filter((item) => (item.status || 'pending') === 'pending');
   const processingAvatarJobs = avatarJobs.filter((job) => job.status === 'processing');
   const stuckAvatarJobs = processingAvatarJobs.filter((job) => Date.now() - Number(job.updatedAt || job.createdAt || 0) > 5 * 60 * 1000);
@@ -5978,6 +6223,7 @@ function adminDashboardSummary() {
       total: tickets.all,
       urgent: tickets.urgent,
     },
+    appeals,
     places: {
       pendingReviews: placeReviews.filter((item) => item.status === 'pending_review').length,
       pendingSubmissions: placeSubmissions.filter((item) => item.status === 'pending_review').length,
@@ -7134,6 +7380,33 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/sanction-appeals') {
+    ok(res, adminSanctionAppeals({
+      q: url.searchParams.get('q') || '',
+      status: url.searchParams.get('status') || 'open',
+    }));
+    return true;
+  }
+
+  const adminSanctionAppealActionMatch = pathname.match(/^\/admin\/sanction-appeals\/([^/]+)\/(approve|reject|review)$/);
+  if (req.method === 'POST' && adminSanctionAppealActionMatch) {
+    const appealId = decodeURIComponent(adminSanctionAppealActionMatch[1]);
+    const action = adminSanctionAppealActionMatch[2];
+    const appeal = findSanctionAppeal(appealId);
+    if (!appeal) {
+      fail(res, 404, '申诉不存在', false, undefined, 'ADMIN_SANCTION_APPEAL_NOT_FOUND');
+      return true;
+    }
+    const result = handleSanctionAppeal(admin, appeal, action, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SANCTION_APPEAL_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, adminSanctionAppealItem(result.appeal));
+    return true;
+  }
+
   if (req.method === 'GET' && pathname === '/admin/ai/avatar-jobs') {
     ok(res, adminAvatarJobs());
     return true;
@@ -7778,6 +8051,25 @@ async function handle(req, res) {
     }
     saveState();
     ok(res, user.settings);
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/sanction-appeals') {
+    ok(res, sanctionAppealsForUser(user));
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/sanction-appeals') {
+    const result = createSanctionAppeal(user, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'SANCTION_APPEAL_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, {
+      ...publicSanctionAppealItem(result.appeal),
+      duplicate: Boolean(result.duplicate),
+    });
     return;
   }
 

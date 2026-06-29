@@ -42,6 +42,8 @@ import type {
   PlaceSubmission,
   PermissionStateMap,
   PushDevice,
+  SanctionAppealItem,
+  SanctionAppealList,
   SocialBlockListItem,
   SocialBlockResult,
   SmsCodeTicket,
@@ -1401,6 +1403,7 @@ let notifications: NotificationItem[] = [
 
 let pushDevices: PushDevice[] = [];
 let feedbackSubmissions: FeedbackSubmission[] = [];
+let sanctionAppeals: SanctionAppealItem[] = [];
 let supportTickets: SupportTicketDetail[] = [];
 let uploadedMediaById: Record<string, UploadedPetMedia> = {};
 let avatarJobsById: Record<string, AvatarJob> = {};
@@ -1418,6 +1421,17 @@ const places: Place[] = [
 let favoritePlaceIds: string[] = [];
 let placeReviews: PlaceReview[] = [];
 let placeSubmissions: PlaceSubmission[] = [];
+
+function buildMockSanctionAppealList(): SanctionAppealList {
+  const appeals = sanctionAppeals.slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return {
+    appeals,
+    summary: {
+      all: appeals.length,
+      open: appeals.filter((appeal) => appeal.status === 'pending' || appeal.status === 'reviewing').length,
+    },
+  };
+}
 
 function supportTicketStatusLabelPriority(category: FeedbackCategory) {
   if (category === 'safety') return 'urgent';
@@ -2060,6 +2074,11 @@ export const mockApi = {
   },
 
   support: {
+    async getSanctionAppeals(): Promise<ApiResult<SanctionAppealList>> {
+      await wait(100);
+      return success(buildMockSanctionAppealList());
+    },
+
     async getTicket(ticketId: string): Promise<ApiResult<SupportTicketDetail>> {
       await wait(100);
       const ticket = supportTickets.find((item) => item.id === ticketId);
@@ -2093,6 +2112,31 @@ export const mockApi = {
       ticket.updatedAt = message.createdAt;
       ticket.lastActivityAt = message.createdAt;
       return success({ ...ticket, ...publicSupportTicketItem(ticket) });
+    },
+
+    async submitSanctionAppeal(content: string, sanctionId?: string): Promise<ApiResult<SanctionAppealItem>> {
+      await wait(140);
+      const cleanContent = content.trim();
+      if (!cleanContent) return error('请填写申诉说明', false);
+      if (cleanContent.length < 8) return error('申诉说明至少 8 个字', false);
+      if (cleanContent.length > 1000) return error('申诉说明最多 1000 个字', false);
+      const duplicate = sanctionAppeals.find((appeal) => appeal.status === 'pending' || appeal.status === 'reviewing');
+      if (duplicate) return success({ ...duplicate, duplicate: true });
+      const now = new Date().toISOString();
+      const appeal: SanctionAppealItem = {
+        content: cleanContent,
+        createdAt: now,
+        id: `appeal-${Date.now()}`,
+        sanctionId: sanctionId || 'mock-sanction-active',
+        sanctionReason: '模拟账号限制，可在真机后端场景中由后台处理',
+        sanctionStatus: 'active',
+        sanctionType: 'freeze',
+        sanctionTypeLabel: '冻结',
+        status: 'pending',
+        updatedAt: now,
+      };
+      sanctionAppeals = [appeal, ...sanctionAppeals];
+      return success(appeal);
     },
 
     async submitFeedback(content: string, category: FeedbackCategory = 'other', contact?: string): Promise<ApiResult<FeedbackSubmission>> {

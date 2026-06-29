@@ -484,7 +484,7 @@ export type NotificationCategory = 'health' | 'interaction' | 'system' | 'walk';
 export type NotificationKind = 'conversation_message' | 'greeting_accepted' | 'greeting_request' | 'health_reminder' | 'medical_alert' | 'pet_circle_comment' | 'pet_circle_greeting' | 'pet_circle_like' | 'place_review' | 'place_submission' | 'support_reply' | 'system' | 'vaccine_done' | 'vaccine_reminder' | 'walk_invite';
 
 export type NotificationItem = {
-  actionRoute?: 'discover' | 'home' | 'map' | 'notifications' | 'profile' | 'settings';
+  actionRoute?: 'discover' | 'home' | 'map' | 'notifications' | 'profile' | 'safety' | 'settings' | 'supportTickets';
   campaignId?: string;
   category?: NotificationCategory;
   commentId?: string;
@@ -580,6 +580,32 @@ export type FeedbackSubmission = {
   supportTicketId?: string;
 };
 
+export type SanctionAppealStatus = 'approved' | 'closed' | 'pending' | 'rejected' | 'reviewing';
+
+export type SanctionAppealItem = {
+  content: string;
+  createdAt: string;
+  duplicate?: boolean;
+  id: string;
+  reviewReason?: string;
+  reviewedAt?: string;
+  sanctionId: string;
+  sanctionReason?: string;
+  sanctionStatus?: string;
+  sanctionType: string;
+  sanctionTypeLabel: string;
+  status: SanctionAppealStatus;
+  updatedAt?: string;
+};
+
+export type SanctionAppealList = {
+  appeals: SanctionAppealItem[];
+  summary: {
+    all: number;
+    open: number;
+  };
+};
+
 export type SupportTicketStatus = 'closed' | 'received' | 'resolved' | 'reviewing' | 'waiting_user';
 export type SupportTicketPriority = 'high' | 'low' | 'normal' | 'urgent';
 
@@ -631,7 +657,7 @@ export type AppRemoteConfig = {
   app: {
     announcement?: {
       actionLabel?: string;
-      actionRoute?: 'discover' | 'home' | 'map' | 'notifications' | 'profile' | 'settings' | '';
+      actionRoute?: 'discover' | 'home' | 'map' | 'notifications' | 'profile' | 'safety' | 'settings' | 'supportTickets' | '';
       body?: string;
       enabled?: boolean;
       title?: string;
