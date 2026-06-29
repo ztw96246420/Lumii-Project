@@ -450,6 +450,106 @@ th {
   flex-wrap: wrap;
 }
 
+.toolbar-left {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.toolbar-left label {
+  margin: 0;
+  min-width: 180px;
+}
+
+.moderation-toolbar {
+  align-items: flex-end;
+  background: rgba(255, 247, 239, 0.5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.moderation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.moderation-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px;
+  gap: 16px;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 14px;
+}
+
+.moderation-card-main {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.moderation-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.moderation-status {
+  flex: none;
+}
+
+.moderation-text {
+  color: var(--ink);
+  line-height: 1.65;
+  max-width: 900px;
+}
+
+.moderation-meta,
+.risk-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.moderation-meta span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.risk-score,
+.risk-badge {
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 9px;
+}
+
+.risk-score {
+  color: var(--red);
+  background: rgba(220, 96, 78, 0.1);
+}
+
+.risk-badge {
+  color: var(--amber);
+  background: rgba(201, 150, 55, 0.1);
+}
+
+.moderation-actions {
+  align-content: start;
+  background: rgba(250, 247, 242, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+}
+
 .placeholder {
   display: grid;
   place-items: center;
@@ -573,7 +673,8 @@ th {
   .grid.metrics,
   .grid.two,
   .config-grid,
-  .form-grid {
+  .form-grid,
+  .moderation-card {
     grid-template-columns: 1fr;
   }
 }

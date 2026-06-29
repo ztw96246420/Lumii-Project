@@ -1,6 +1,8 @@
 const state = {
   admin: null,
   cache: {},
+  moderationQ: '',
+  moderationStatus: 'pending',
   route: 'dashboard',
   token: localStorage.getItem('lumii-admin-token') || '',
 };
@@ -9,6 +11,7 @@ const navItems = [
   { key: 'dashboard', label: '工作台' },
   { key: 'users', label: '用户管理' },
   { key: 'avatarJobs', label: 'AI 灵伴' },
+  { key: 'moderation', label: '内容安全' },
   { key: 'socialPosts', label: '宠友圈' },
   { key: 'reports', label: '举报中心' },
   { key: 'places', label: '地图地点' },
@@ -26,6 +29,7 @@ const titles = {
   dashboard: ['总览', '运营工作台'],
   exports: ['数据导出', '需要审批的生产能力'],
   feedback: ['反馈工单', '用户反馈和客服处理队列'],
+  moderation: ['内容安全', '举报、动态、评论和地点审核任务池'],
   places: ['地图地点', '地点点评与新增地点审核'],
   reports: ['举报中心', '宠友圈举报处理闭环'],
   sanctions: ['用户处罚', '禁言、冻结、封禁与撤销记录'],
@@ -183,6 +187,24 @@ async function onContentClick(event) {
   const phone = button.dataset.phone || '';
   const reason = button.dataset.reason || '运营后台处理';
   try {
+    if (action === 'moderation-filter') {
+      state.moderationStatus = $('moderationStatus').value;
+      state.moderationQ = $('moderationQ').value.trim();
+      state.cache = { ...state.cache, moderation: null };
+      await render(true);
+      return;
+    }
+    if (action === 'moderation-clear') {
+      state.moderationStatus = 'pending';
+      state.moderationQ = '';
+      state.cache = { ...state.cache, moderation: null };
+      await render(true);
+      return;
+    }
+    if (action === 'moderation-task-action') {
+      const handled = await handleModerationTaskAction(button);
+      if (!handled) return;
+    }
     if (action === 'save-config') await saveConfig();
     if (action === 'sanction-create') await createSanction();
     if (action === 'sanction-revoke') await confirmPost(`/admin/users/${encodeURIComponent(phone)}/sanctions/${encodeURIComponent(id)}/revoke`, { reason }, '确认撤销这条处罚？');
@@ -206,12 +228,33 @@ async function onContentClick(event) {
     if (action === 'feedback-reviewing') await patch(`/admin/feedback/${id}`, { reason, status: 'reviewing' });
     if (action === 'feedback-close') await patch(`/admin/feedback/${id}`, { reason, status: 'closed' });
     if (action !== 'save-config') {
+      clearOperationalCaches();
       showToast('处理完成');
       await render(true);
     }
   } catch (error) {
     showToast(error.message);
   }
+}
+
+async function handleModerationTaskAction(button) {
+  const taskId = button.dataset.id;
+  const op = button.dataset.op;
+  const label = button.textContent.trim() || op;
+  const title = button.dataset.title || '审核任务';
+  if (button.dataset.confirm === 'true' && !window.confirm(`确认${label}：${title}？`)) return false;
+  const reason = window.prompt('请输入处理原因', `${label}：${title}`);
+  if (reason === null) return false;
+  await post(`/admin/moderation/tasks/${encodeURIComponent(taskId)}/${encodeURIComponent(op)}`, {
+    reason: reason.trim() || `${label}：${title}`,
+  });
+  return true;
+}
+
+function clearOperationalCaches() {
+  ['audit', 'moderation', 'placeReviews', 'placeSubmissions', 'reports', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'users'].forEach((key) => {
+    state.cache[key] = null;
+  });
 }
 
 async function post(path, body) {
@@ -239,6 +282,7 @@ async function render(force = false) {
     config: renderConfig,
     dashboard: renderDashboard,
     feedback: renderFeedback,
+    moderation: renderModeration,
     places: renderPlaces,
     reports: renderReports,
     sanctions: renderSanctions,
@@ -271,7 +315,7 @@ async function renderDashboard(force) {
       ${metric('用户总数', data.users.total, `${data.users.withPets} 位已建档`, '来自当前后端 users 状态。')}
       ${metric('生效处罚', data.users.activeSanctions || 0, '禁言/冻结/封禁/警告', '仍处于 active 状态的处罚记录，过期或撤销后不计入。')}
       ${metric('AI 处理中', data.ai.avatarProcessing, `${data.ai.avatarStuck} 个可能卡住`, '超过 5 分钟未更新会进入卡住计数。')}
-      ${metric('待处理举报', data.content.pendingReports, `${data.content.posts} 条公开动态`, '当前举报状态为 pending 的记录。')}
+      ${metric('审核任务', data.moderation?.pending ?? data.content.pendingReports, `${data.moderation?.escalated || 0} 个升级`, '统一内容安全任务池：举报、被举报动态/评论、地点点评和新增地点。')}
       ${metric('地点待审', data.places.pendingReviews + data.places.pendingSubmissions, `${data.places.total} 个地点`, '地点点评与新增地点提交合计。')}
     </div>
     <div class="grid two">
@@ -325,7 +369,7 @@ function renderOpsChart(data) {
     series: [{
       barMaxWidth: 34,
       data: [
-        data.content.pendingReports,
+        data.moderation?.pending ?? data.content.pendingReports,
         data.places.pendingReviews + data.places.pendingSubmissions,
         data.feedback.open,
         data.ai.avatarStuck,
@@ -334,6 +378,104 @@ function renderOpsChart(data) {
       type: 'bar',
     }],
   });
+}
+
+async function renderModeration(force) {
+  const query = new URLSearchParams({
+    q: state.moderationQ,
+    status: state.moderationStatus,
+  });
+  const data = await load('moderation', `/admin/moderation/tasks?${query.toString()}`, force);
+  const tasks = data.tasks || [];
+  const summary = data.summary || {};
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('待处理', summary.pending || 0, `${summary.escalated || 0} 个已升级`, 'pending / reviewing / escalated 都算作待处理任务。')}
+      ${metric('举报任务', summary.reports || 0, '来自用户举报', '用户举报会自动关联被举报动态或评论。')}
+      ${metric('社交内容', summary.social || 0, '动态/评论聚合', '被举报内容会聚合为内容级任务，便于一次隐藏或删除。')}
+      ${metric('地点审核', summary.places || 0, '点评/新增地点', '地点点评和新增地点共用这套审核视角。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>审核任务池</h2>
+          <div class="section-sub">按风险和时间排序，处理动作会写入审计并实时影响 App 可见性</div>
+        </div>
+        ${help('这是一张统一运营队列：举报负责判断有效性，内容任务负责隐藏/删除，地点任务负责通过/驳回。')}
+      </div>
+      <div class="toolbar moderation-toolbar">
+        <div class="toolbar-left">
+          <label>状态
+            <select id="moderationStatus">
+              ${moderationStatusOption('pending', '待处理')}
+              ${moderationStatusOption('escalated', '已升级')}
+              ${moderationStatusOption('reviewing', '处理中')}
+              ${moderationStatusOption('handled', '已处理')}
+              ${moderationStatusOption('all', '全部')}
+            </select>
+          </label>
+          <label>搜索
+            <input id="moderationQ" placeholder="手机号、内容、任务 ID" value="${escapeHtml(state.moderationQ)}" />
+          </label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="moderation-filter">应用</button>
+          <button class="small-button" data-action="moderation-clear">重置</button>
+        </div>
+      </div>
+      ${tasks.length ? `<div class="moderation-list">${tasks.map(renderModerationTaskCard).join('')}</div>` : '<div class="placeholder"><div><strong>暂无审核任务</strong><div>当前筛选下没有需要处理的内容。</div></div></div>'}
+    </div>
+  `;
+}
+
+function moderationStatusOption(value, label) {
+  return `<option value="${value}" ${state.moderationStatus === value ? 'selected' : ''}>${label}</option>`;
+}
+
+function riskBadge(label) {
+  return `<span class="risk-badge">${escapeHtml(label)}</span>`;
+}
+
+function renderModerationTaskCard(task) {
+  const riskTypes = (task.riskTypes || []).map(riskBadge).join('') || riskBadge('待人工判断');
+  const actions = (task.actions || []).map((item) => `
+    <button
+      class="small-button ${item.tone === 'danger' ? 'danger' : ''}"
+      data-action="moderation-task-action"
+      data-confirm="${item.confirm ? 'true' : 'false'}"
+      data-id="${escapeHtml(task.id)}"
+      data-op="${escapeHtml(item.action)}"
+      data-title="${escapeHtml(task.title)}"
+    >${escapeHtml(item.label)}</button>
+  `).join('');
+  return `
+    <article class="moderation-card">
+      <div class="moderation-card-main">
+        <div class="moderation-title-row">
+          <div>
+            <div class="cell-title">${escapeHtml(task.title)}</div>
+            <div class="cell-sub">${escapeHtml(task.kindLabel)} · ${escapeHtml(task.sourceLabel)} · ${escapeHtml(task.id)}</div>
+          </div>
+          <div class="moderation-status">${statusPill(task.status)}</div>
+        </div>
+        <div class="moderation-text">${escapeHtml(task.contentText || task.reason || '无正文内容')}</div>
+        <div class="moderation-meta">
+          <span>对象：${escapeHtml(task.targetLabel || task.targetType)} ${task.targetStatus ? `· ${escapeHtml(task.targetStatus)}` : ''}</span>
+          <span>作者：${escapeHtml(task.ownerName || '-')} ${shortPhone(task.ownerPhone)}</span>
+          ${task.reporterPhone ? `<span>举报人：${escapeHtml(task.reporterName || '-')} ${shortPhone(task.reporterPhone)}</span>` : ''}
+          <span>时间：${formatTime(task.createdAt)}</span>
+        </div>
+        <div class="risk-row">
+          <span class="risk-score">风险 ${task.riskScore || 0}</span>
+          ${riskTypes}
+          ${task.relatedCount ? `<span class="risk-badge">${task.relatedCount} 条关联</span>` : ''}
+        </div>
+      </div>
+      <div class="moderation-actions">
+        ${actions || '<span class="muted">无可用动作</span>'}
+      </div>
+    </article>
+  `;
 }
 
 async function renderUsers(force) {

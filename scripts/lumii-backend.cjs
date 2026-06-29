@@ -5800,6 +5800,7 @@ function adminDashboardSummary() {
   const pendingReports = reports.filter((item) => (item.status || 'pending') === 'pending');
   const processingAvatarJobs = avatarJobs.filter((job) => job.status === 'processing');
   const stuckAvatarJobs = processingAvatarJobs.filter((job) => Date.now() - Number(job.updatedAt || job.createdAt || 0) > 5 * 60 * 1000);
+  const moderation = adminModerationTasks({ status: 'all' }).summary;
   return {
     ai: {
       avatarFailed: avatarJobs.filter((job) => job.status === 'failed').length,
@@ -5814,6 +5815,7 @@ function adminDashboardSummary() {
     content: {
       comments: socialComments.filter((item) => (item.status || 'published') === 'published').length,
       hiddenPosts: socialPosts.filter((item) => item.status === 'hidden').length,
+      moderationPending: moderation.pending,
       pendingReports: pendingReports.length,
       posts: socialPosts.filter((item) => item.status === 'published').length,
     },
@@ -5832,6 +5834,7 @@ function adminDashboardSummary() {
       total: users.length,
       withPets: users.filter((user) => (user.pets || []).length > 0).length,
     },
+    moderation,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -5995,6 +5998,405 @@ function adminFeedbackItems() {
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
+function adminReason(body = {}, fallback = '运营后台处理') {
+  return String(body.reason || fallback).replace(/\s+/g, ' ').trim().slice(0, 240);
+}
+
+function moderationTaskStatus(rawStatus) {
+  const status = String(rawStatus || 'pending');
+  if (status === 'pending_review') return 'pending';
+  if (['pending', 'reviewing', 'escalated'].includes(status)) return status;
+  if (['approved', 'valid', 'published'].includes(status)) return 'approved';
+  if (['rejected', 'invalid'].includes(status)) return 'rejected';
+  if (['hidden', 'deleted', 'closed'].includes(status)) return status;
+  return 'pending';
+}
+
+function moderationTaskPriority(status, riskScore = 0) {
+  if (status === 'escalated') return 110 + riskScore;
+  if (status === 'pending') return 90 + riskScore;
+  if (status === 'reviewing') return 70 + riskScore;
+  return riskScore;
+}
+
+function moderationTaskActions(task) {
+  if (['deleted', 'closed', 'approved', 'rejected'].includes(task.status) && task.kind === 'report') return [];
+  if (task.kind === 'report') {
+    const actions = [
+      { action: 'reviewing', label: '接手' },
+      { action: 'invalid', label: '无效关闭' },
+      { action: 'escalate', label: '升级' },
+    ];
+    if (task.targetType === 'post' || task.targetType === 'comment') {
+      actions.splice(1, 0, { action: 'hide', label: '有效并隐藏', tone: 'danger' });
+      actions.splice(2, 0, { action: 'delete', label: '有效并删除', tone: 'danger', confirm: true });
+    } else {
+      actions.splice(1, 0, { action: 'valid', label: '标记有效' });
+    }
+    return actions;
+  }
+  if (task.kind === 'place_review' || task.kind === 'place_submission') {
+    if (task.status !== 'pending') return [];
+    return [
+      { action: 'approve', label: '通过' },
+      { action: 'reject', label: '驳回', tone: 'danger' },
+    ];
+  }
+  if (task.kind === 'pet_circle_post' || task.kind === 'pet_circle_comment') {
+    if (task.status === 'deleted') return [];
+    if (task.status === 'hidden') {
+      return [
+        { action: 'restore', label: '恢复' },
+        { action: 'delete', label: '删除', tone: 'danger', confirm: true },
+      ];
+    }
+    return [
+      { action: 'hide', label: '隐藏', tone: 'danger' },
+      { action: 'delete', label: '删除', tone: 'danger', confirm: true },
+    ];
+  }
+  return [];
+}
+
+function socialReportTargetSnapshot(report) {
+  if (report.targetType === 'post') {
+    const post = adminSocialPosts().find((item) => item.id === report.targetId);
+    if (!post) return { contentText: '', targetLabel: '动态不存在', targetStatus: 'missing' };
+    return {
+      contentText: post.content,
+      mediaUrls: post.imageUrls,
+      ownerName: post.ownerName,
+      ownerPhone: post.ownerPhone,
+      targetLabel: post.petName ? `${post.petName} 的小事` : '宠友圈动态',
+      targetStatus: post.status,
+    };
+  }
+  if (report.targetType === 'comment') {
+    const comment = adminSocialComments().find((item) => item.id === report.targetId);
+    if (!comment) return { contentText: '', targetLabel: '评论不存在', targetStatus: 'missing' };
+    return {
+      contentText: comment.content,
+      ownerName: comment.ownerName,
+      ownerPhone: comment.ownerPhone,
+      targetLabel: '宠友圈评论',
+      targetStatus: comment.status,
+    };
+  }
+  return { contentText: report.content || '', targetLabel: report.targetType, targetStatus: 'unknown' };
+}
+
+function buildModerationTask(input) {
+  const status = moderationTaskStatus(input.status);
+  const riskScore = Math.max(0, Math.min(100, Number(input.riskScore || 0)));
+  const task = {
+    actions: [],
+    contentText: input.contentText || '',
+    createdAt: input.createdAt || new Date().toISOString(),
+    id: input.id,
+    kind: input.kind,
+    kindLabel: input.kindLabel,
+    mediaUrls: Array.isArray(input.mediaUrls) ? input.mediaUrls : [],
+    ownerName: input.ownerName || '',
+    ownerPhone: input.ownerPhone || '',
+    reason: input.reason || '',
+    relatedCount: Number(input.relatedCount || 0),
+    reporterName: input.reporterName || '',
+    reporterPhone: input.reporterPhone || '',
+    riskScore,
+    riskTypes: Array.isArray(input.riskTypes) ? input.riskTypes : [],
+    source: input.source || 'manual',
+    sourceLabel: input.sourceLabel || '',
+    status,
+    targetId: input.targetId || '',
+    targetLabel: input.targetLabel || '',
+    targetStatus: input.targetStatus || '',
+    targetType: input.targetType || '',
+    title: input.title || input.kindLabel,
+    updatedAt: input.updatedAt || input.createdAt || new Date().toISOString(),
+  };
+  task.priority = moderationTaskPriority(task.status, task.riskScore);
+  task.actions = moderationTaskActions(task);
+  return task;
+}
+
+function adminModerationTasks(options = {}) {
+  const statusFilter = String(options.status || 'pending');
+  const q = String(options.q || '').trim().toLowerCase();
+  const reportTasks = adminSocialReports().map((report) => {
+    const target = socialReportTargetSnapshot(report);
+    const riskScore = report.status === 'escalated' ? 95 : 82;
+    return buildModerationTask({
+      ...target,
+      createdAt: report.createdAt,
+      id: `report:${report.id}`,
+      kind: 'report',
+      kindLabel: '举报',
+      ownerName: target.ownerName || report.ownerName,
+      ownerPhone: target.ownerPhone || report.ownerPhone,
+      reason: report.content || '',
+      reporterName: report.reporterName,
+      reporterPhone: report.reporterPhone,
+      riskScore,
+      riskTypes: ['用户举报'],
+      source: 'report',
+      sourceLabel: '用户举报',
+      status: report.status,
+      targetId: report.targetId,
+      targetLabel: target.targetLabel,
+      targetType: report.targetType,
+      title: `举报 · ${target.targetLabel || report.targetType}`,
+      updatedAt: report.reviewedAt || report.createdAt,
+    });
+  });
+  const postTasks = adminSocialPosts()
+    .filter((post) => post.reportCount > 0 || post.status === 'hidden')
+    .map((post) => buildModerationTask({
+      contentText: post.content,
+      createdAt: post.createdAt,
+      id: `post:${post.id}`,
+      kind: 'pet_circle_post',
+      kindLabel: '宠友圈动态',
+      mediaUrls: post.imageUrls,
+      ownerName: post.ownerName,
+      ownerPhone: post.ownerPhone,
+      relatedCount: post.reportCount,
+      riskScore: post.reportCount > 1 ? 88 : 70,
+      riskTypes: post.reportCount ? [`${post.reportCount} 次举报`] : ['人工隐藏复核'],
+      source: post.reportCount ? 'report' : 'manual',
+      sourceLabel: post.reportCount ? '举报聚合' : '人工处理',
+      status: post.status === 'published' && post.reportCount > 0 ? 'pending' : post.status,
+      targetId: post.id,
+      targetLabel: post.petName ? `${post.petName} 的小事` : '宠友圈动态',
+      targetStatus: post.status,
+      targetType: 'post',
+      title: post.petName ? `${post.petName} 的小事` : '宠友圈动态',
+      updatedAt: post.updatedAt || post.createdAt,
+    }));
+  const commentTasks = adminSocialComments()
+    .filter((comment) => comment.reportCount > 0 || comment.status === 'hidden')
+    .map((comment) => buildModerationTask({
+      contentText: comment.content,
+      createdAt: comment.createdAt,
+      id: `comment:${comment.id}`,
+      kind: 'pet_circle_comment',
+      kindLabel: '宠友圈评论',
+      ownerName: comment.ownerName,
+      ownerPhone: comment.ownerPhone,
+      relatedCount: comment.reportCount,
+      riskScore: comment.reportCount > 1 ? 86 : 68,
+      riskTypes: comment.reportCount ? [`${comment.reportCount} 次举报`] : ['人工隐藏复核'],
+      source: comment.reportCount ? 'report' : 'manual',
+      sourceLabel: comment.reportCount ? '举报聚合' : '人工处理',
+      status: comment.status === 'published' && comment.reportCount > 0 ? 'pending' : comment.status,
+      targetId: comment.id,
+      targetLabel: '宠友圈评论',
+      targetStatus: comment.status,
+      targetType: 'comment',
+      title: '宠友圈评论',
+      updatedAt: comment.createdAt,
+    }));
+  const reviewTasks = adminPlaceReviews().map((review) => buildModerationTask({
+    contentText: review.content,
+    createdAt: review.createdAt,
+    id: `placeReview:${review.id}`,
+    kind: 'place_review',
+    kindLabel: '地点点评',
+    ownerName: review.ownerName,
+    ownerPhone: review.ownerPhone,
+    reason: review.reviewReason || '',
+    riskScore: review.status === 'pending_review' ? 55 : 20,
+    riskTypes: ['地点内容待审'],
+    source: 'manual',
+    sourceLabel: '用户提交',
+    status: review.status,
+    targetId: review.id,
+    targetLabel: review.placeName,
+    targetStatus: review.status,
+    targetType: 'place_review',
+    title: review.placeName,
+    updatedAt: review.reviewedAt || review.createdAt,
+  }));
+  const submissionTasks = adminPlaceSubmissions().map((submission) => buildModerationTask({
+    contentText: [submission.address, submission.content].filter(Boolean).join(' · '),
+    createdAt: submission.createdAt,
+    id: `placeSubmission:${submission.id}`,
+    kind: 'place_submission',
+    kindLabel: '新增地点',
+    ownerName: submission.ownerName,
+    ownerPhone: submission.ownerPhone,
+    reason: submission.reviewReason || '',
+    riskScore: submission.status === 'pending_review' ? 58 : 20,
+    riskTypes: ['地点入库待审'],
+    source: 'manual',
+    sourceLabel: '用户提交',
+    status: submission.status,
+    targetId: submission.id,
+    targetLabel: submission.name,
+    targetStatus: submission.status,
+    targetType: 'place_submission',
+    title: submission.name,
+    updatedAt: submission.reviewedAt || submission.createdAt,
+  }));
+  const tasks = [...reportTasks, ...postTasks, ...commentTasks, ...reviewTasks, ...submissionTasks]
+    .filter((task) => {
+      if (statusFilter === 'all') return true;
+      if (statusFilter === 'pending') return ['pending', 'reviewing', 'escalated'].includes(task.status);
+      if (statusFilter === 'handled') return !['pending', 'reviewing', 'escalated'].includes(task.status);
+      return task.status === statusFilter;
+    })
+    .filter((task) => {
+      if (!q) return true;
+      return [task.id, task.title, task.kindLabel, task.ownerName, task.ownerPhone, task.reporterName, task.reporterPhone, task.contentText, task.reason, task.targetId]
+        .some((value) => String(value || '').toLowerCase().includes(q));
+    })
+    .sort((a, b) => b.priority - a.priority || String(b.createdAt).localeCompare(String(a.createdAt)));
+  const allTasks = [...reportTasks, ...postTasks, ...commentTasks, ...reviewTasks, ...submissionTasks];
+  return {
+    summary: {
+      all: allTasks.length,
+      escalated: allTasks.filter((task) => task.status === 'escalated').length,
+      handled: allTasks.filter((task) => !['pending', 'reviewing', 'escalated'].includes(task.status)).length,
+      pending: allTasks.filter((task) => ['pending', 'reviewing', 'escalated'].includes(task.status)).length,
+      places: allTasks.filter((task) => task.kind === 'place_review' || task.kind === 'place_submission').length,
+      reports: allTasks.filter((task) => task.kind === 'report').length,
+      social: allTasks.filter((task) => task.kind === 'pet_circle_post' || task.kind === 'pet_circle_comment').length,
+    },
+    tasks: tasks.slice(0, 300),
+  };
+}
+
+function splitModerationTaskId(taskId) {
+  const index = String(taskId || '').indexOf(':');
+  if (index <= 0) return { id: '', kind: '' };
+  return { id: taskId.slice(index + 1), kind: taskId.slice(0, index) };
+}
+
+function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
+  const { kind, id } = splitModerationTaskId(taskId);
+  const reason = adminReason(body, `审核任务 ${action}`);
+  const now = new Date().toISOString();
+  if (kind === 'report') {
+    const report = ensureSocialReports().find((item) => item.id === id);
+    if (!report) return { error: '审核任务不存在', statusCode: 404 };
+    const beforeReport = { ...report };
+    if (action === 'reviewing') report.status = 'reviewing';
+    else if (action === 'invalid') report.status = 'invalid';
+    else if (action === 'valid') report.status = 'valid';
+    else if (action === 'escalate') report.status = 'escalated';
+    else if (action === 'hide' || action === 'delete') {
+      if (report.targetType === 'post') {
+        const post = findSocialMomentById(report.targetId);
+        if (!post) return { error: '被举报动态不存在', statusCode: 404 };
+        const beforePost = { ...post };
+        post.status = action === 'hide' ? 'hidden' : 'deleted';
+        post.updatedAt = now;
+        post.adminModerationReason = reason;
+        if (action === 'delete') {
+          post.deletedAt = now;
+          state.socialLikes = ensureSocialLikes().filter((like) => like.postId !== post.id);
+          ensureSocialComments().filter((comment) => comment.postId === post.id).forEach((comment) => {
+            comment.status = 'deleted';
+            comment.deletedAt = comment.deletedAt || now;
+          });
+        }
+        writeAdminAudit(admin, `moderation.post.${action}`, 'pet_circle_post', post.id, beforePost, post, reason);
+      } else if (report.targetType === 'comment') {
+        const comment = ensureSocialComments().find((item) => item.id === report.targetId);
+        if (!comment) return { error: '被举报评论不存在', statusCode: 404 };
+        const beforeComment = { ...comment };
+        comment.status = action === 'hide' ? 'hidden' : 'deleted';
+        comment.adminModerationReason = reason;
+        if (action === 'delete') comment.deletedAt = now;
+        writeAdminAudit(admin, `moderation.comment.${action}`, 'pet_circle_comment', comment.id, beforeComment, comment, reason);
+      } else {
+        return { error: '该举报对象暂不支持这个动作', statusCode: 400 };
+      }
+      report.status = 'valid';
+    } else return { error: '不支持的审核动作', statusCode: 400 };
+    report.reviewedAt = now;
+    report.reviewedBy = admin.username;
+    report.reviewReason = reason;
+    writeAdminAudit(admin, 'moderation.report.resolve', 'social_report', report.id, beforeReport, report, reason);
+    return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
+  }
+  if (kind === 'post') {
+    const post = findSocialMomentById(id);
+    if (!post) return { error: '动态不存在', statusCode: 404 };
+    const before = { ...post };
+    if (action === 'hide') post.status = 'hidden';
+    else if (action === 'restore') post.status = 'published';
+    else if (action === 'delete') {
+      post.status = 'deleted';
+      post.deletedAt = now;
+      state.socialLikes = ensureSocialLikes().filter((like) => like.postId !== id);
+      ensureSocialComments().filter((comment) => comment.postId === id).forEach((comment) => {
+        comment.status = 'deleted';
+        comment.deletedAt = comment.deletedAt || now;
+      });
+    } else return { error: '不支持的动态处理动作', statusCode: 400 };
+    post.updatedAt = now;
+    post.adminModerationReason = reason;
+    writeAdminAudit(admin, `moderation.post.${action}`, 'pet_circle_post', id, before, post, reason);
+    return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
+  }
+  if (kind === 'comment') {
+    const comment = ensureSocialComments().find((item) => item.id === id);
+    if (!comment) return { error: '评论不存在', statusCode: 404 };
+    const before = { ...comment };
+    if (action === 'hide') comment.status = 'hidden';
+    else if (action === 'restore') comment.status = 'published';
+    else if (action === 'delete') {
+      comment.status = 'deleted';
+      comment.deletedAt = now;
+    } else return { error: '不支持的评论处理动作', statusCode: 400 };
+    comment.adminModerationReason = reason;
+    writeAdminAudit(admin, `moderation.comment.${action}`, 'pet_circle_comment', id, before, comment, reason);
+    return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
+  }
+  if (kind === 'placeReview') {
+    const found = findPlaceReview(id);
+    if (!found) return { error: '地点点评不存在', statusCode: 404 };
+    if (action !== 'approve' && action !== 'reject') return { error: '不支持的地点点评处理动作', statusCode: 400 };
+    const before = { ...found.review };
+    found.review.status = action === 'approve' ? 'approved' : 'rejected';
+    found.review.reviewedAt = now;
+    found.review.reviewedBy = admin.username;
+    found.review.reviewReason = reason;
+    writeAdminAudit(admin, `moderation.placeReview.${action}`, 'place_review', id, before, found.review, reason);
+    return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
+  }
+  if (kind === 'placeSubmission') {
+    const found = findPlaceSubmission(id);
+    if (!found) return { error: '新增地点提交不存在', statusCode: 404 };
+    if (action !== 'approve' && action !== 'reject') return { error: '不支持的新增地点处理动作', statusCode: 400 };
+    const before = { ...found.submission };
+    found.submission.status = action === 'approve' ? 'approved' : 'rejected';
+    found.submission.reviewedAt = now;
+    found.submission.reviewedBy = admin.username;
+    found.submission.reviewReason = reason;
+    if (action === 'approve' && !found.submission.approvedPlaceId) {
+      const place = {
+        address: found.submission.address,
+        category: 'other',
+        distance: '附近',
+        id: `manual-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+        name: found.submission.name,
+        petFriendlyStatus: 'candidate',
+        rating: 0,
+        reviewCount: 0,
+        source: 'manual',
+        supportedSpecies: ['cat', 'dog'],
+        tags: ['用户提交', '待完善'],
+      };
+      state.places = [place, ...(state.places || [])];
+      found.submission.approvedPlaceId = place.id;
+    }
+    writeAdminAudit(admin, `moderation.placeSubmission.${action}`, 'place_submission', id, before, found.submission, reason);
+    return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
+  }
+  return { error: '审核任务不存在', statusCode: 404 };
+}
+
 async function handleAdminRequest(req, res, pathname, url, body) {
   if (req.method === 'POST' && pathname === '/admin/auth/login') {
     const username = String(body.username || '').trim();
@@ -6020,6 +6422,28 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/dashboard/summary') {
     ok(res, adminDashboardSummary());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/moderation/tasks') {
+    ok(res, adminModerationTasks({
+      q: url.searchParams.get('q') || '',
+      status: url.searchParams.get('status') || 'pending',
+    }));
+    return true;
+  }
+
+  const adminModerationTaskActionMatch = pathname.match(/^\/admin\/moderation\/tasks\/([^/]+)\/([^/]+)$/);
+  if (req.method === 'POST' && adminModerationTaskActionMatch) {
+    const taskId = decodeURIComponent(adminModerationTaskActionMatch[1]);
+    const action = decodeURIComponent(adminModerationTaskActionMatch[2]);
+    const result = adminHandleModerationTaskAction(admin, taskId, action, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_MODERATION_TASK_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.task || null);
     return true;
   }
 
