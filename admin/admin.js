@@ -498,6 +498,7 @@ async function renderModeration(force) {
   });
   const data = await load('moderation', `/admin/moderation/tasks?${query.toString()}`, force);
   const tasks = data.tasks || [];
+  const samples = data.samples || [];
   const summary = data.summary || {};
   $('content').innerHTML = `
     <div class="grid metrics">
@@ -505,6 +506,7 @@ async function renderModeration(force) {
       ${metric('举报任务', summary.reports || 0, '来自用户举报', '用户举报会自动关联被举报动态或评论。')}
       ${metric('社交内容', summary.social || 0, '动态/评论聚合', '被举报内容会聚合为内容级任务，便于一次隐藏或删除。')}
       ${metric('地点审核', summary.places || 0, '点评/新增地点', '地点点评和新增地点共用这套审核视角。')}
+      ${metric('规则命中', summary.ruleHits || 0, '关键词样本', '来自配置中心内容安全规则的命中样本，用于后续调规则和接模型。')}
     </div>
     <div class="card">
       <div class="section-head">
@@ -535,6 +537,16 @@ async function renderModeration(force) {
         </div>
       </div>
       ${tasks.length ? `<div class="moderation-list">${tasks.map(renderModerationTaskCard).join('')}</div>` : '<div class="placeholder"><div><strong>暂无审核任务</strong><div>当前筛选下没有需要处理的内容。</div></div></div>'}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>规则命中样本</h2>
+          <div class="section-sub">最近 12 条命中，用来回看规则质量；关键词只在后台展示</div>
+        </div>
+        ${help('命中样本来自小事、地点点评、地点提交等用户内容。后续接入第三方内容安全模型时，可把这里作为人工样本池的基础。')}
+      </div>
+      ${samples.length ? `<div class="moderation-list compact">${samples.map(renderModerationSample).join('')}</div>` : '<div class="placeholder"><div><strong>暂无规则命中</strong><div>开启规则并命中后，这里会沉淀样本。</div></div></div>'}
     </div>
   `;
 }
@@ -584,6 +596,34 @@ function renderModerationTaskCard(task) {
       </div>
       <div class="moderation-actions">
         ${actions || '<span class="muted">无可用动作</span>'}
+      </div>
+    </article>
+  `;
+}
+
+function renderModerationSample(sample) {
+  const riskTypes = (sample.riskTypes || []).map(riskBadge).join('') || riskBadge('规则命中');
+  const keywords = (sample.matchedKeywords || []).slice(0, 4).map((item) => riskBadge(`命中：${item}`)).join('');
+  return `
+    <article class="moderation-card">
+      <div class="moderation-card-main">
+        <div class="moderation-title-row">
+          <div>
+            <div class="cell-title">${escapeHtml(sample.scope || '内容样本')}</div>
+            <div class="cell-sub">${escapeHtml(sample.id)} · ${formatTime(sample.createdAt)}</div>
+          </div>
+          <div class="moderation-status">${statusPill(sample.action || 'review')}</div>
+        </div>
+        <div class="moderation-text">${escapeHtml(sample.contentText || '无正文内容')}</div>
+        <div class="moderation-meta">
+          <span>用户：${shortPhone(sample.ownerPhone)}</span>
+          <span>对象：${escapeHtml(sample.targetId || '-')}</span>
+        </div>
+        <div class="risk-row">
+          <span class="risk-score">风险 ${sample.riskScore || 0}</span>
+          ${riskTypes}
+          ${keywords}
+        </div>
       </div>
     </article>
   `;
@@ -1211,6 +1251,7 @@ async function renderNotifications(force) {
 async function renderConfig(force) {
   const config = await load('config', '/admin/config', force);
   const announcement = config.app?.announcement || {};
+  const moderation = config.moderation || {};
   $('content').innerHTML = `
     <div class="card">
       <div class="section-head">
@@ -1235,6 +1276,26 @@ async function renderConfig(force) {
         ${featureCheckbox('cfgFeaturePetChat', 'AI 宠物对话', config.features.petChat)}
         ${featureCheckbox('cfgFeatureWalkInvite', '约遛邀请', config.features.walkInvite)}
         ${featureCheckbox('cfgMaintenanceEnabled', '维护模式', config.app.maintenanceEnabled)}
+      </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>内容安全规则</h2>
+            <div class="section-sub">保存后立即影响小事、评论、地点点评和新增地点提交</div>
+          </div>
+          ${help('阻断词会直接拒绝提交；高风险词和复审词会让小事/地点进入审核池。评论命中规则时会提示用户修改，避免出现“发了但看不到”。')}
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgModerationEnabled', '启用内容安全规则', moderation.enabled)}
+          ${featureCheckbox('cfgModerationTextRulesEnabled', '启用文本关键词规则', moderation.textRulesEnabled !== false)}
+        </div>
+        <div class="config-grid announcement-grid">
+          <label class="wide">阻断关键词<textarea id="cfgModerationBlockKeywords" maxlength="1200" placeholder="一行一个，命中后直接拒绝提交">${escapeHtml(keywordTextareaValue(moderation.blockKeywords))}</textarea></label>
+          <label class="wide">高风险关键词<textarea id="cfgModerationHighRiskKeywords" maxlength="1200" placeholder="一行一个，命中后进入人工审核">${escapeHtml(keywordTextareaValue(moderation.highRiskKeywords))}</textarea></label>
+          <label class="wide">复审关键词<textarea id="cfgModerationReviewKeywords" maxlength="1200" placeholder="一行一个，命中后进入人工审核">${escapeHtml(keywordTextareaValue(moderation.reviewKeywords))}</textarea></label>
+          <label>阻断提示<input id="cfgModerationBlockMessage" maxlength="80" value="${escapeHtml(moderation.blockMessage || '')}" /></label>
+          <label>复审提示<input id="cfgModerationReviewMessage" maxlength="80" value="${escapeHtml(moderation.reviewMessage || '')}" /></label>
+        </div>
       </div>
       <div class="config-section">
         <div class="section-head compact">
@@ -1280,6 +1341,10 @@ function configRouteOption(current, value, label) {
   return `<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`;
 }
 
+function keywordTextareaValue(value) {
+  return (Array.isArray(value) ? value : []).join('\n');
+}
+
 async function saveConfig() {
   const announcementEnabled = $('cfgAnnouncementEnabled').checked;
   if (announcementEnabled && (!$('cfgAnnouncementVersion').value.trim() || !$('cfgAnnouncementTitle').value.trim() || !$('cfgAnnouncementBody').value.trim())) {
@@ -1308,6 +1373,15 @@ async function saveConfig() {
       petCircle: $('cfgFeaturePetCircle').checked,
       places: $('cfgFeaturePlaces').checked,
       walkInvite: $('cfgFeatureWalkInvite').checked,
+    },
+    moderation: {
+      blockKeywords: $('cfgModerationBlockKeywords').value,
+      blockMessage: $('cfgModerationBlockMessage').value,
+      enabled: $('cfgModerationEnabled').checked,
+      highRiskKeywords: $('cfgModerationHighRiskKeywords').value,
+      reviewKeywords: $('cfgModerationReviewKeywords').value,
+      reviewMessage: $('cfgModerationReviewMessage').value,
+      textRulesEnabled: $('cfgModerationTextRulesEnabled').checked,
     },
     reason: '配置中心保存',
     social: {

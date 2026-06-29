@@ -178,6 +178,11 @@ const fallbackRemoteConfig: AppRemoteConfig = {
     places: true,
     walkInvite: true,
   },
+  moderation: {
+    enabled: false,
+    reviewMessage: '内容已进入人工审核，通过后会展示给附近用户',
+    textRulesEnabled: true,
+  },
   social: {
     discoverRadiusKm: defaultDiscoverRadiusKm,
     nearbyMomentTtlDays: 7,
@@ -6721,13 +6726,19 @@ export default function LumiiMvpApp() {
         setDailyPostPhotoDrafts([]);
         let momentSynced = false;
         let momentSyncError = '';
+        let momentUnderReview = false;
         if (dailyVisibility === 'nearby') {
           const momentResult = await lumiiApi.social.createMoment(requestText, undefined, uploadedImageUrls.length || requestPhotoCount, { imageUrls: uploadedImageUrls, location: requestLocation, visibility: 'nearby' });
           if (sessionTokenRef.current === requestSessionToken && momentResult.data) {
-            momentSynced = true;
-            setNearbyMomentsError('');
-            setHomeMomentIndex(0);
-            void loadNearbyMoments({ location: requestLocation, silent: true });
+            momentUnderReview = momentResult.data.moderationStatus === 'pending_review';
+            momentSynced = !momentUnderReview;
+            if (momentUnderReview) {
+              setNearbyMomentsError('');
+            } else {
+              setNearbyMomentsError('');
+              setHomeMomentIndex(0);
+              void loadNearbyMoments({ location: requestLocation, silent: true });
+            }
           } else if (sessionTokenRef.current === requestSessionToken && momentResult.error) {
             momentSyncError = momentResult.error.message;
             setNearbyMomentsError(momentResult.error.message);
@@ -6737,10 +6748,12 @@ export default function LumiiMvpApp() {
         replace('home');
         const publicSubtitle = momentSynced
           ? '已同步到宠物日历和宠友圈'
-          : `已同步到宠物日历，宠友圈同步${momentSyncError ? '稍后再试' : '稍后再试'}`;
+          : momentUnderReview
+            ? '已同步到宠物日历，宠友圈内容已进入审核'
+            : `已同步到宠物日历，宠友圈同步${momentSyncError ? '稍后再试' : '稍后再试'}`;
         showToast('今日小事已记录', {
           subtitle: dailyVisibility === 'nearby' ? publicSubtitle : '已保存为仅自己可见的日历记录',
-          tone: dailyVisibility === 'nearby' && !momentSynced ? 'info' : 'success',
+          tone: dailyVisibility === 'nearby' && (!momentSynced || momentUnderReview) ? 'info' : 'success',
           variant: 'surface',
         });
       } else {

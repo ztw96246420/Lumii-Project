@@ -347,6 +347,7 @@ export type NearbyMoment = {
   likedByMe?: boolean;
   likeCount?: number;
   mood?: string;
+  moderationStatus?: 'pending_review';
   ownerId: string;
   ownerName: string;
   ownedByMe?: boolean;
@@ -672,6 +673,11 @@ export type AppRemoteConfig = {
     petCircle: boolean;
     places: boolean;
     walkInvite: boolean;
+  };
+  moderation?: {
+    enabled?: boolean;
+    reviewMessage?: string;
+    textRulesEnabled?: boolean;
   };
   social: {
     discoverRadiusKm: number;

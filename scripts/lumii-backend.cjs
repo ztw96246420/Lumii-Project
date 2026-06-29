@@ -278,6 +278,15 @@ function defaultOpsConfig() {
       places: true,
       walkInvite: true,
     },
+    moderation: {
+      blockKeywords: [],
+      blockMessage: '内容包含平台暂不支持公开展示的信息，请修改后再提交',
+      enabled: false,
+      highRiskKeywords: [],
+      reviewKeywords: [],
+      reviewMessage: '内容已进入人工审核，通过后会展示给附近用户',
+      textRulesEnabled: true,
+    },
     social: {
       discoverRadiusKm: DEFAULT_DISCOVER_RADIUS_KM,
       nearbyMomentTtlDays: 7,
@@ -309,6 +318,7 @@ function createInitialState() {
     socialLikes: [],
     socialBlocks: [],
     socialMoments: [],
+    moderationSamples: [],
     socialReports: [],
     sanctionAppeals: [],
     supportTickets: [],
@@ -365,12 +375,47 @@ function clampNumber(value, fallback, min, max) {
   return Math.min(max, Math.max(min, numeric));
 }
 
+function normalizeKeywordList(value, fallback = [], maxItems = 80) {
+  const rawItems = Array.isArray(value)
+    ? value
+    : String(value || '')
+      .split(/[\n,，;；]+/u);
+  const seen = new Set();
+  const items = [];
+  for (const raw of rawItems) {
+    const keyword = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (!keyword) continue;
+    const key = keyword.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push(keyword);
+    if (items.length >= maxItems) break;
+  }
+  if (items.length) return items;
+  if (fallback && fallback !== value) return normalizeKeywordList(fallback, null, maxItems);
+  return [];
+}
+
+function normalizeModerationConfig(value, defaults) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    blockKeywords: normalizeKeywordList(source.blockKeywords, defaults.blockKeywords),
+    blockMessage: String(source.blockMessage || defaults.blockMessage).slice(0, 80),
+    enabled: Boolean(source.enabled),
+    highRiskKeywords: normalizeKeywordList(source.highRiskKeywords, defaults.highRiskKeywords),
+    reviewKeywords: normalizeKeywordList(source.reviewKeywords, defaults.reviewKeywords),
+    reviewMessage: String(source.reviewMessage || defaults.reviewMessage).slice(0, 80),
+    textRulesEnabled: source.textRulesEnabled !== false,
+  };
+}
+
 function normalizeOpsConfig(value) {
   const defaults = defaultOpsConfig();
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const ai = source.ai && typeof source.ai === 'object' ? source.ai : {};
   const app = source.app && typeof source.app === 'object' ? source.app : {};
   const features = source.features && typeof source.features === 'object' ? source.features : {};
+  const moderation = source.moderation && typeof source.moderation === 'object' ? source.moderation : {};
   const social = source.social && typeof source.social === 'object' ? source.social : {};
   return {
     ai: {
@@ -396,6 +441,7 @@ function normalizeOpsConfig(value) {
       places: features.places !== false,
       walkInvite: features.walkInvite !== false,
     },
+    moderation: normalizeModerationConfig(moderation, defaults.moderation),
     social: {
       discoverRadiusKm: clampNumber(social.discoverRadiusKm, defaults.social.discoverRadiusKm, 1, 20),
       nearbyMomentTtlDays: Math.floor(clampNumber(social.nearbyMomentTtlDays, defaults.social.nearbyMomentTtlDays, 1, 90)),
@@ -416,6 +462,11 @@ function publicAppConfig() {
     ai: config.ai,
     app: config.app,
     features: config.features,
+    moderation: {
+      enabled: config.moderation.enabled,
+      reviewMessage: config.moderation.reviewMessage,
+      textRulesEnabled: config.moderation.textRulesEnabled,
+    },
     social: config.social,
     updatedAt: config.updatedAt,
   };
@@ -515,6 +566,7 @@ function loadState() {
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
       socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
+      moderationSamples: Array.isArray(loadedState.moderationSamples) ? loadedState.moderationSamples : initialState.moderationSamples,
       sanctionAppeals: Array.isArray(loadedState.sanctionAppeals) ? loadedState.sanctionAppeals : initialState.sanctionAppeals,
       supportTickets: Array.isArray(loadedState.supportTickets) ? loadedState.supportTickets : initialState.supportTickets,
       systemNotifications: Array.isArray(loadedState.systemNotifications) ? loadedState.systemNotifications : initialState.systemNotifications,
@@ -2566,6 +2618,101 @@ function socialChatContentViolation(label, value, maxLength = SOCIAL_MESSAGE_MAX
   return null;
 }
 
+function ensureModerationSamples() {
+  if (!Array.isArray(state.moderationSamples)) state.moderationSamples = [];
+  return state.moderationSamples;
+}
+
+function matchedModerationKeywords(text, keywords = []) {
+  const source = String(text || '').toLowerCase();
+  if (!source) return [];
+  return (Array.isArray(keywords) ? keywords : [])
+    .filter((keyword) => {
+      const value = String(keyword || '').trim().toLowerCase();
+      return value && source.includes(value);
+    })
+    .slice(0, 8);
+}
+
+function evaluateTextModeration(label, text, options = {}) {
+  const config = currentOpsConfig().moderation || {};
+  if (!config.enabled || !config.textRulesEnabled) return { action: 'allow', matchedKeywords: [], riskScore: 0, riskTypes: [] };
+  const normalized = String(text || '').trim();
+  if (!normalized) return { action: 'allow', matchedKeywords: [], riskScore: 0, riskTypes: [] };
+  const blockMatches = matchedModerationKeywords(normalized, config.blockKeywords);
+  if (blockMatches.length) {
+    return {
+      action: 'block',
+      matchedKeywords: blockMatches,
+      message: config.blockMessage || `${label}包含不适合公开展示的内容，请修改后再提交`,
+      riskScore: 100,
+      riskTypes: ['阻断规则命中'],
+    };
+  }
+  const highRiskMatches = matchedModerationKeywords(normalized, config.highRiskKeywords);
+  if (highRiskMatches.length) {
+    const action = options.reviewAsBlock ? 'block' : 'review';
+    return {
+      action,
+      matchedKeywords: highRiskMatches,
+      message: action === 'block' ? (config.blockMessage || `${label}命中高风险规则，请修改后再提交`) : (config.reviewMessage || `${label}已进入人工审核`),
+      riskScore: 92,
+      riskTypes: ['高风险规则命中'],
+    };
+  }
+  const reviewMatches = matchedModerationKeywords(normalized, config.reviewKeywords);
+  if (reviewMatches.length) {
+    const action = options.reviewAsBlock ? 'block' : 'review';
+    return {
+      action,
+      matchedKeywords: reviewMatches,
+      message: action === 'block' ? (config.blockMessage || `${label}命中复审规则，请修改后再提交`) : (config.reviewMessage || `${label}已进入人工审核`),
+      riskScore: 72,
+      riskTypes: ['复审规则命中'],
+    };
+  }
+  return { action: 'allow', matchedKeywords: [], riskScore: 0, riskTypes: [] };
+}
+
+function moderationMetadataFromEvaluation(evaluation, scope) {
+  if (!evaluation || evaluation.action === 'allow') return null;
+  return {
+    action: evaluation.action,
+    matchedKeywords: evaluation.matchedKeywords || [],
+    riskScore: evaluation.riskScore || 0,
+    riskTypes: evaluation.riskTypes || [],
+    scope,
+    source: 'rule',
+    sourceLabel: '规则命中',
+  };
+}
+
+function recordModerationSample(input = {}) {
+  const now = new Date().toISOString();
+  const sample = {
+    action: input.action || 'review',
+    contentText: String(input.contentText || '').slice(0, 500),
+    createdAt: now,
+    id: `sample-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    matchedKeywords: Array.isArray(input.matchedKeywords) ? input.matchedKeywords.slice(0, 8) : [],
+    ownerPhone: input.ownerPhone || '',
+    riskScore: Math.max(0, Math.min(100, Number(input.riskScore || 0))),
+    riskTypes: Array.isArray(input.riskTypes) ? input.riskTypes.slice(0, 6) : [],
+    scope: input.scope || 'text',
+    targetId: input.targetId || '',
+  };
+  const samples = ensureModerationSamples();
+  samples.unshift(sample);
+  state.moderationSamples = samples.slice(0, 500);
+  return sample;
+}
+
+function adminModerationSamples() {
+  return ensureModerationSamples()
+    .slice()
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
 function placeReviewsFor(user) {
   state.placeReviews = state.placeReviews || {};
   state.placeReviews[user.phone] = Array.isArray(state.placeReviews[user.phone]) ? state.placeReviews[user.phone] : [];
@@ -2613,14 +2760,21 @@ function createPlaceReview(user, placeId, content) {
   if (!trimmedContent) return false;
   const violation = publicPlaceContentViolation('点评内容', trimmedContent, 500);
   if (violation) return { error: violation, statusCode: 400 };
+  const moderation = evaluateTextModeration('点评内容', trimmedContent, { scope: 'place_review' });
+  if (moderation.action === 'block') {
+    recordModerationSample({ ...moderation, contentText: trimmedContent, ownerPhone: user.phone, scope: 'place_review' });
+    return { error: moderation.message || '点评内容需要修改后再提交', statusCode: 400 };
+  }
   const hadReviewForPlace = placeReviewsFor(user).some((item) => item.placeId === placeId);
   const review = {
     content: trimmedContent,
     createdAt: new Date().toISOString(),
     id: `review-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    moderation: moderationMetadataFromEvaluation(moderation, 'place_review'),
     placeId,
     status: 'pending_review',
   };
+  if (review.moderation) recordModerationSample({ ...moderation, contentText: trimmedContent, ownerPhone: user.phone, scope: 'place_review', targetId: review.id });
   state.placeReviews[user.phone] = [review, ...placeReviewsFor(user).filter((item) => item.placeId !== placeId)];
   if (!hadReviewForPlace) place.reviewCount = placeReviewCount(placeId) + 1;
   addNotification(user.phone, {
@@ -2700,6 +2854,11 @@ function createPlaceSubmission(user, body) {
     publicPlaceContentViolation('地点地址', address, 120) ||
     publicPlaceContentViolation('宠物友好体验', content, 500);
   if (violation) return { error: violation, statusCode: 400 };
+  const moderation = evaluateTextModeration('新增地点内容', [name, address, content].join(' '), { scope: 'place_submission' });
+  if (moderation.action === 'block') {
+    recordModerationSample({ ...moderation, contentText: [name, address, content].join(' · '), ownerPhone: user.phone, scope: 'place_submission' });
+    return { error: moderation.message || '地点内容需要修改后再提交', statusCode: 400 };
+  }
   const duplicate = findDuplicatePlaceSubmission(user, name, address);
   if (duplicate) return { duplicateType: duplicate.type, error: duplicate.message, statusCode: 409 };
   const submission = {
@@ -2707,9 +2866,11 @@ function createPlaceSubmission(user, body) {
     content,
     createdAt: new Date().toISOString(),
     id: `place-submission-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    moderation: moderationMetadataFromEvaluation(moderation, 'place_submission'),
     name,
     status: 'pending_review',
   };
+  if (submission.moderation) recordModerationSample({ ...moderation, contentText: [name, address, content].join(' · '), ownerPhone: user.phone, scope: 'place_submission', targetId: submission.id });
   state.placeSubmissions[user.phone] = [submission, ...placeSubmissionsFor(user)];
   addNotification(user.phone, {
     id: `notification-${submission.id}`,
@@ -5271,6 +5432,11 @@ function createSocialMoment(user, body = {}) {
   if (!content) return { error: '先写一点今天的小事吧', statusCode: 400 };
   const pet = activePetFor(user);
   if (!pet) return { error: '请先为宠物建档后再发布小事', statusCode: 400 };
+  const moderation = evaluateTextModeration('小事内容', content, { scope: 'pet_circle_post' });
+  if (moderation.action === 'block') {
+    recordModerationSample({ ...moderation, contentText: content, ownerPhone: user.phone, scope: 'pet_circle_post' });
+    return { error: moderation.message || '小事内容需要修改后再发布', statusCode: 400 };
+  }
   const visibility = normalizeSocialVisibility(body.visibility);
   const imageUrls = normalizeSocialMomentImageUrls(body);
   const hasImageUrlPayload = hasSocialMomentImageUrlPayload(body);
@@ -5280,13 +5446,15 @@ function createSocialMoment(user, body = {}) {
     id: `moment-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     imageUrls,
     mood: String(body.mood || '').trim().slice(0, 12),
+    moderation: moderationMetadataFromEvaluation(moderation, 'pet_circle_post'),
     petId: pet.id,
     phone: user.phone,
     photoCount: hasImageUrlPayload ? imageUrls.length : Math.max(0, Math.min(effectivePetCircleMaxPhotos(), Number(body.photoCount) || 0)),
-    status: 'published',
+    status: moderation.action === 'review' ? 'pending_review' : 'published',
     updatedAt: new Date().toISOString(),
     visibility,
   };
+  if (moment.moderation) recordModerationSample({ ...moderation, contentText: content, ownerPhone: user.phone, scope: 'pet_circle_post', targetId: moment.id });
   const moments = ensureSocialMoments();
   moments.unshift(moment);
   state.socialMoments = moments.slice(0, 500);
@@ -5298,7 +5466,7 @@ function findSocialMomentById(postId) {
 }
 
 function socialMomentAccessError(moment, viewer, options = {}) {
-  if (!moment || moment.status === 'deleted' || moment.status === 'hidden') return { error: '这条小事已不可见', statusCode: 404 };
+  if (!moment || moment.status === 'deleted' || moment.status === 'hidden' || moment.status === 'pending_review') return { error: '这条小事已不可见', statusCode: 404 };
   const owner = state.users[moment.phone];
   if (owner && !activePetFor(owner)) return { error: '这条小事已不可见', statusCode: 404 };
   if (!owner) return { error: '这条小事已不可见', statusCode: 404 };
@@ -5350,6 +5518,7 @@ function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
     likedByMe: likes.some((like) => like.phone === viewer.phone),
     likeCount: likes.length,
     mood: moment.mood || undefined,
+    moderationStatus: moment.status === 'pending_review' ? 'pending_review' : undefined,
     ownerId: `user-${momentUser.phone}`,
     ownerName: momentUser.ownerName || `用户${suffix}`,
     ownedByMe: moment.phone === viewer.phone,
@@ -5392,7 +5561,7 @@ function listNearbyMomentEntries(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, 
       const momentUser = state.users[moment.phone];
       if (!momentUser) return null;
       if (!activePetFor(momentUser)) return null;
-      if (moment.status === 'deleted' || moment.status === 'hidden') return null;
+      if ((moment.status || 'published') !== 'published') return null;
       if (!includeOwn && moment.phone === viewer.phone) return null;
       if ((moment.visibility || 'nearby') !== 'nearby') return null;
       if (socialBlockBetween(viewer.phone, moment.phone)) return null;
@@ -5452,7 +5621,7 @@ function petCircleProfilePostEntries(viewer, targetUser, options = {}) {
   return ensureSocialMoments()
     .map((moment, index) => ({ index, moment }))
     .filter(({ moment }) => moment.phone === targetUser.phone)
-    .filter(({ moment }) => moment.status !== 'deleted' && moment.status !== 'hidden')
+    .filter(({ moment }) => (moment.status || 'published') === 'published')
     .filter(({ moment }) => (moment.visibility || 'nearby') === 'nearby')
     .filter(({ moment }) => includeReported || !socialReportFor(viewer, 'post', moment.id))
     .map(({ index, moment }) => {
@@ -5597,6 +5766,11 @@ function createPetCircleComment(postId, user, body = {}) {
   if (!content) return { error: '先写一句评论吧', statusCode: 400 };
   const violation = socialChatContentViolation('评论内容', content, 140);
   if (violation) return { error: violation, statusCode: 400 };
+  const moderation = evaluateTextModeration('评论内容', content, { reviewAsBlock: true, scope: 'pet_circle_comment' });
+  if (moderation.action === 'block') {
+    recordModerationSample({ ...moderation, contentText: content, ownerPhone: user.phone, scope: 'pet_circle_comment' });
+    return { error: moderation.message || '评论内容需要修改后再发送', statusCode: 400 };
+  }
   const comment = {
     content: content.slice(0, 140),
     createdAt: new Date().toISOString(),
@@ -6285,6 +6459,7 @@ function adminSocialPosts() {
         id: moment.id,
         imageUrls: Array.isArray(moment.imageUrls) ? moment.imageUrls : [],
         likeCount: ensureSocialLikes().filter((like) => like.postId === moment.id).length,
+        moderation: moment.moderation || null,
         ownerName: owner?.ownerName || `用户${String(moment.phone || '').slice(-4)}`,
         ownerPhone: moment.phone,
         petName: pet?.name,
@@ -6311,6 +6486,7 @@ function adminSocialComments() {
         ownerPhone: comment.phone,
         postId: comment.postId,
         postOwnerPhone: post?.phone,
+        moderation: comment.moderation || null,
         reportCount: reports.length,
         status: comment.status || 'published',
       };
@@ -6805,6 +6981,13 @@ function moderationTaskActions(task) {
   }
   if (task.kind === 'pet_circle_post' || task.kind === 'pet_circle_comment') {
     if (task.status === 'deleted') return [];
+    if (task.status === 'pending') {
+      return [
+        { action: 'approve', label: '通过' },
+        { action: 'hide', label: '隐藏', tone: 'danger' },
+        { action: 'delete', label: '删除', tone: 'danger', confirm: true },
+      ];
+    }
     if (task.status === 'hidden') {
       return [
         { action: 'restore', label: '恢复' },
@@ -6910,7 +7093,7 @@ function adminModerationTasks(options = {}) {
     });
   });
   const postTasks = adminSocialPosts()
-    .filter((post) => post.reportCount > 0 || post.status === 'hidden')
+    .filter((post) => post.reportCount > 0 || post.status === 'hidden' || post.status === 'pending_review')
     .map((post) => buildModerationTask({
       contentText: post.content,
       createdAt: post.createdAt,
@@ -6921,10 +7104,10 @@ function adminModerationTasks(options = {}) {
       ownerName: post.ownerName,
       ownerPhone: post.ownerPhone,
       relatedCount: post.reportCount,
-      riskScore: post.reportCount > 1 ? 88 : 70,
-      riskTypes: post.reportCount ? [`${post.reportCount} 次举报`] : ['人工隐藏复核'],
-      source: post.reportCount ? 'report' : 'manual',
-      sourceLabel: post.reportCount ? '举报聚合' : '人工处理',
+      riskScore: post.moderation?.riskScore || (post.reportCount > 1 ? 88 : 70),
+      riskTypes: post.moderation?.riskTypes?.length ? post.moderation.riskTypes : (post.reportCount ? [`${post.reportCount} 次举报`] : ['人工隐藏复核']),
+      source: post.moderation?.source || (post.reportCount ? 'report' : 'manual'),
+      sourceLabel: post.moderation?.sourceLabel || (post.reportCount ? '举报聚合' : '人工处理'),
       status: post.status === 'published' && post.reportCount > 0 ? 'pending' : post.status,
       targetId: post.id,
       targetLabel: post.petName ? `${post.petName} 的小事` : '宠友圈动态',
@@ -6934,7 +7117,7 @@ function adminModerationTasks(options = {}) {
       updatedAt: post.updatedAt || post.createdAt,
     }));
   const commentTasks = adminSocialComments()
-    .filter((comment) => comment.reportCount > 0 || comment.status === 'hidden')
+    .filter((comment) => comment.reportCount > 0 || comment.status === 'hidden' || comment.status === 'pending_review')
     .map((comment) => buildModerationTask({
       contentText: comment.content,
       createdAt: comment.createdAt,
@@ -6944,10 +7127,10 @@ function adminModerationTasks(options = {}) {
       ownerName: comment.ownerName,
       ownerPhone: comment.ownerPhone,
       relatedCount: comment.reportCount,
-      riskScore: comment.reportCount > 1 ? 86 : 68,
-      riskTypes: comment.reportCount ? [`${comment.reportCount} 次举报`] : ['人工隐藏复核'],
-      source: comment.reportCount ? 'report' : 'manual',
-      sourceLabel: comment.reportCount ? '举报聚合' : '人工处理',
+      riskScore: comment.moderation?.riskScore || (comment.reportCount > 1 ? 86 : 68),
+      riskTypes: comment.moderation?.riskTypes?.length ? comment.moderation.riskTypes : (comment.reportCount ? [`${comment.reportCount} 次举报`] : ['人工隐藏复核']),
+      source: comment.moderation?.source || (comment.reportCount ? 'report' : 'manual'),
+      sourceLabel: comment.moderation?.sourceLabel || (comment.reportCount ? '举报聚合' : '人工处理'),
       status: comment.status === 'published' && comment.reportCount > 0 ? 'pending' : comment.status,
       targetId: comment.id,
       targetLabel: '宠友圈评论',
@@ -6965,10 +7148,10 @@ function adminModerationTasks(options = {}) {
     ownerName: review.ownerName,
     ownerPhone: review.ownerPhone,
     reason: review.reviewReason || '',
-    riskScore: review.status === 'pending_review' ? 55 : 20,
-    riskTypes: ['地点内容待审'],
-    source: 'manual',
-    sourceLabel: '用户提交',
+    riskScore: review.moderation?.riskScore || (review.status === 'pending_review' ? 55 : 20),
+    riskTypes: review.moderation?.riskTypes?.length ? review.moderation.riskTypes : ['地点内容待审'],
+    source: review.moderation?.source || 'manual',
+    sourceLabel: review.moderation?.sourceLabel || '用户提交',
     status: review.status,
     targetId: review.id,
     targetLabel: review.placeName,
@@ -6986,10 +7169,10 @@ function adminModerationTasks(options = {}) {
     ownerName: submission.ownerName,
     ownerPhone: submission.ownerPhone,
     reason: submission.reviewReason || '',
-    riskScore: submission.status === 'pending_review' ? 58 : 20,
-    riskTypes: ['地点入库待审'],
-    source: 'manual',
-    sourceLabel: '用户提交',
+    riskScore: submission.moderation?.riskScore || (submission.status === 'pending_review' ? 58 : 20),
+    riskTypes: submission.moderation?.riskTypes?.length ? submission.moderation.riskTypes : ['地点入库待审'],
+    source: submission.moderation?.source || 'manual',
+    sourceLabel: submission.moderation?.sourceLabel || '用户提交',
     status: submission.status,
     targetId: submission.id,
     targetLabel: submission.name,
@@ -7012,7 +7195,9 @@ function adminModerationTasks(options = {}) {
     })
     .sort((a, b) => b.priority - a.priority || String(b.createdAt).localeCompare(String(a.createdAt)));
   const allTasks = [...reportTasks, ...postTasks, ...commentTasks, ...reviewTasks, ...submissionTasks];
+  const samples = adminModerationSamples();
   return {
+    samples: samples.slice(0, 12),
     summary: {
       all: allTasks.length,
       escalated: allTasks.filter((task) => task.status === 'escalated').length,
@@ -7020,6 +7205,7 @@ function adminModerationTasks(options = {}) {
       pending: allTasks.filter((task) => ['pending', 'reviewing', 'escalated'].includes(task.status)).length,
       places: allTasks.filter((task) => task.kind === 'place_review' || task.kind === 'place_submission').length,
       reports: allTasks.filter((task) => task.kind === 'report').length,
+      ruleHits: samples.length,
       social: allTasks.filter((task) => task.kind === 'pet_circle_post' || task.kind === 'pet_circle_comment').length,
     },
     tasks: tasks.slice(0, 300),
@@ -7084,7 +7270,8 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     const post = findSocialMomentById(id);
     if (!post) return { error: '动态不存在', statusCode: 404 };
     const before = { ...post };
-    if (action === 'hide') post.status = 'hidden';
+    if (action === 'approve') post.status = 'published';
+    else if (action === 'hide') post.status = 'hidden';
     else if (action === 'restore') post.status = 'published';
     else if (action === 'delete') {
       post.status = 'deleted';
@@ -7104,7 +7291,8 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     const comment = ensureSocialComments().find((item) => item.id === id);
     if (!comment) return { error: '评论不存在', statusCode: 404 };
     const before = { ...comment };
-    if (action === 'hide') comment.status = 'hidden';
+    if (action === 'approve') comment.status = 'published';
+    else if (action === 'hide') comment.status = 'hidden';
     else if (action === 'restore') comment.status = 'published';
     else if (action === 'delete') {
       comment.status = 'deleted';
@@ -7669,6 +7857,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
         },
       },
       features: { ...before.features, ...(body.features || {}) },
+      moderation: { ...before.moderation, ...(body.moderation || {}) },
       social: { ...before.social, ...(body.social || {}) },
       updatedAt: new Date().toISOString(),
     });
@@ -8801,6 +8990,7 @@ async function handle(req, res) {
     }
     const created = createSocialMoment(user, body);
     if (created.error) {
+      saveState();
       fail(res, created.statusCode || 400, created.error, false, undefined, 'SOCIAL_MOMENT_INVALID');
       return;
     }
@@ -8885,6 +9075,7 @@ async function handle(req, res) {
     const postId = decodeURIComponent(petCircleCommentsMatch[1]);
     const result = createPetCircleComment(postId, user, body);
     if (result.error) {
+      saveState();
       fail(res, result.statusCode || 400, result.error, false, undefined, 'PET_CIRCLE_COMMENT_INVALID');
       return;
     }
@@ -9436,6 +9627,7 @@ async function handle(req, res) {
     if (failIfMuted(user, res, '提交地点')) return;
     const result = createPlaceSubmission(user, body);
     if (result.error) {
+      saveState();
       fail(res, result.statusCode || 400, result.error, false);
       return;
     }
@@ -9459,6 +9651,7 @@ async function handle(req, res) {
       return;
     }
     if (review.error) {
+      saveState();
       fail(res, review.statusCode || 400, review.error, false);
       return;
     }

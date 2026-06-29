@@ -95,6 +95,11 @@ const mockAppRemoteConfig: AppRemoteConfig = {
     places: true,
     walkInvite: true,
   },
+  moderation: {
+    enabled: false,
+    reviewMessage: '内容已进入人工审核，通过后会展示给附近用户',
+    textRulesEnabled: true,
+  },
   social: {
     discoverRadiusKm: 3,
     nearbyMomentTtlDays: 7,
