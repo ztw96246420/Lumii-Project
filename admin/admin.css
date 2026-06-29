@@ -608,6 +608,73 @@ th {
   font-size: 12px;
 }
 
+.pet-chat-card {
+  grid-template-columns: minmax(0, 1fr) 180px;
+}
+
+.pet-chat-pair {
+  display: grid;
+  gap: 8px;
+}
+
+.pet-chat-pair div {
+  background: rgba(255, 247, 239, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.pet-chat-pair strong,
+.pet-chat-line strong {
+  color: var(--orange);
+  font-size: 12px;
+}
+
+.pet-chat-pair span {
+  line-height: 1.65;
+}
+
+.pet-chat-detail {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.pet-chat-context {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.pet-chat-line {
+  background: rgba(72, 182, 168, 0.08);
+  border: 1px solid rgba(72, 182, 168, 0.16);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.pet-chat-line.ai {
+  background: rgba(255, 127, 79, 0.08);
+  border-color: rgba(255, 127, 79, 0.16);
+}
+
+.pet-chat-line span,
+.pet-chat-line em {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.pet-chat-line p {
+  line-height: 1.7;
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+}
+
 .risk-score,
 .risk-badge {
   border-radius: 999px;

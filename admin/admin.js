@@ -5,6 +5,9 @@ const state = {
   cache: {},
   moderationQ: '',
   moderationStatus: 'pending',
+  petChatDetails: {},
+  petChatFlag: 'all',
+  petChatQ: '',
   route: 'dashboard',
   ticketPriority: 'all',
   ticketQ: '',
@@ -17,6 +20,7 @@ const navItems = [
   { key: 'analytics', label: '数据看板' },
   { key: 'users', label: '用户管理' },
   { key: 'avatarJobs', label: 'AI 灵伴' },
+  { key: 'petChat', label: 'AI 对话' },
   { key: 'moderation', label: '内容安全' },
   { key: 'socialPosts', label: '宠友圈' },
   { key: 'reports', label: '举报中心' },
@@ -39,6 +43,7 @@ const titles = {
   exports: ['数据导出', '可审计的运营 CSV 下载'],
   moderation: ['内容安全', '举报、动态、评论和地点审核任务池'],
   notifications: ['通知运营', '系统通知、定向触达和移动端通知中心联动'],
+  petChat: ['AI 对话', '宠物第一人称回复、医疗风险和自动写入排查'],
   places: ['地图地点', '地点点评与新增地点审核'],
   reports: ['举报中心', '宠友圈举报处理闭环'],
   sanctionAppeals: ['申诉中心', '账号处罚申诉、复核和撤销联动'],
@@ -251,6 +256,32 @@ async function onContentClick(event) {
       const handled = await handleModerationBatch();
       if (!handled) return;
     }
+    if (action === 'pet-chat-filter') {
+      state.petChatFlag = $('petChatFlag').value;
+      state.petChatQ = $('petChatQ').value.trim();
+      state.cache = { ...state.cache, petChat: null };
+      await render(true);
+      return;
+    }
+    if (action === 'pet-chat-clear') {
+      state.petChatFlag = 'all';
+      state.petChatQ = '';
+      state.cache = { ...state.cache, petChat: null };
+      await render(true);
+      return;
+    }
+    if (action === 'pet-chat-view') {
+      await viewPetChatDetail(id);
+      return;
+    }
+    if (action === 'pet-chat-tag') {
+      await tagPetChatMessage(button);
+      return;
+    }
+    if (action === 'pet-chat-hide') {
+      await hidePetChatMessage(button);
+      return;
+    }
     if (action === 'ticket-filter') {
       state.ticketStatus = $('ticketStatus').value;
       state.ticketPriority = $('ticketPriority').value;
@@ -380,8 +411,53 @@ async function handleModerationBatch() {
   return true;
 }
 
+async function viewPetChatDetail(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入查看完整 AI 对话的原因', `排查 AI 对话 ${id}`);
+  if (reason === null) return;
+  const detail = await post(`/admin/ai/pet-chat/messages/${encodeURIComponent(id)}/view`, {
+    reason: reason.trim(),
+  });
+  state.petChatDetails[id] = detail;
+  state.cache.audit = null;
+  showToast('已加载完整对话');
+  await render(false);
+}
+
+async function tagPetChatMessage(button) {
+  const id = button.dataset.id;
+  const tag = button.dataset.tag;
+  if (!id || !tag) return;
+  const label = petChatTagLabel(tag);
+  const reason = window.prompt('请输入标记原因', `${label}：${id}`);
+  if (reason === null) return;
+  await post(`/admin/ai/pet-chat/messages/${encodeURIComponent(id)}/tag`, {
+    reason: reason.trim() || `${label}：${id}`,
+    tag,
+  });
+  state.cache.petChat = null;
+  state.cache.audit = null;
+  showToast('已标记 AI 回复');
+  await render(true);
+}
+
+async function hidePetChatMessage(button) {
+  const id = button.dataset.id;
+  if (!id) return;
+  const reason = window.prompt('请输入隐藏原因；隐藏后移动端不再展示这条 AI 回复', `隐藏 AI 回复：${id}`);
+  if (reason === null) return;
+  await post(`/admin/ai/pet-chat/messages/${encodeURIComponent(id)}/hide`, {
+    reason: reason.trim(),
+  });
+  delete state.petChatDetails[id];
+  state.cache.petChat = null;
+  state.cache.audit = null;
+  showToast('AI 回复已隐藏');
+  await render(true);
+}
+
 function clearOperationalCaches() {
-  ['audit', 'feedback', 'moderation', 'notifications', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'tickets', 'users'].forEach((key) => {
+  ['audit', 'feedback', 'moderation', 'notifications', 'petChat', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -519,6 +595,7 @@ async function render(force = false) {
     exports: renderExports,
     moderation: renderModeration,
     notifications: renderNotifications,
+    petChat: renderPetChat,
     places: renderPlaces,
     reports: renderReports,
     sanctionAppeals: renderSanctionAppeals,
@@ -978,6 +1055,138 @@ function renderModerationSample(sample) {
         </div>
       </div>
     </article>
+  `;
+}
+
+function petChatFlagLabel(flag) {
+  return {
+    all: '全部',
+    feedback_good: '像它',
+    feedback_off: '不像它',
+    hidden: '已隐藏',
+    medical: '医疗风险',
+    tagged: '运营标记',
+    writes: '写入记录',
+  }[flag] || flag;
+}
+
+function petChatTagLabel(tag) {
+  return {
+    false_negative: '漏触发',
+    false_positive: '误触发',
+    medical_sample: '医疗样本',
+    quality_issue: '质量问题',
+  }[tag] || tag;
+}
+
+async function renderPetChat(force) {
+  const query = new URLSearchParams({
+    flag: state.petChatFlag,
+    q: state.petChatQ,
+  });
+  const rows = await load('petChat', `/admin/ai/pet-chat/messages?${query.toString()}`, force);
+  const medicalCount = rows.filter((row) => row.hasMedicalAlert).length;
+  const writeCount = rows.filter((row) => row.hasCalendarWrite || row.updatedPet).length;
+  const offCount = rows.filter((row) => row.feedback === 'off').length;
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('AI 回复', rows.length, `${petChatFlagLabel(state.petChatFlag)}筛选`, '后台默认只展示摘要；查看完整正文必须填写原因并写审计。')}
+      ${metric('医疗风险', medicalCount, '自动写入备忘/提醒', 'AI 对话命中医疗风险门禁后，会记录备忘并提示就医。')}
+      ${metric('业务写入', writeCount, '备忘/体重/疫苗/档案', 'AI 对话触发的结构化业务动作，用于排查自动写入是否合理。')}
+      ${metric('不像它反馈', offCount, '用户点了“不像它”', '这些反馈会进入后续提示词上下文，也适合运营抽查。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>AI 对话排查</h2>
+          <div class="section-sub">摘要默认可见，完整正文需要填写查看原因</div>
+        </div>
+        ${help('隐藏 AI 回复后，移动端消息列表不再返回这条 AI 消息；服务端后续生成回复也会跳过被隐藏消息。')}
+      </div>
+      <div class="toolbar moderation-toolbar">
+        <div class="toolbar-left">
+          <label>状态筛选
+            <select id="petChatFlag">
+              ${['all', 'medical', 'writes', 'feedback_off', 'feedback_good', 'tagged', 'hidden'].map((flag) => `<option value="${flag}" ${state.petChatFlag === flag ? 'selected' : ''}>${petChatFlagLabel(flag)}</option>`).join('')}
+            </select>
+          </label>
+          <label>搜索
+            <input id="petChatQ" value="${escapeHtml(state.petChatQ)}" placeholder="手机号、宠物名、摘要、消息ID" />
+          </label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="pet-chat-filter">筛选</button>
+          <button class="small-button" data-action="pet-chat-clear">清空</button>
+        </div>
+      </div>
+      <div class="moderation-list">
+        ${rows.length ? rows.map(renderPetChatRow).join('') : '<div class="placeholder"><div><strong>暂无 AI 对话记录</strong><div>切换筛选或刷新后再看。</div></div></div>'}
+      </div>
+    </div>
+  `;
+}
+
+function renderPetChatRow(row) {
+  const actionLabels = (row.actionLabels || []).map(riskBadge).join('');
+  const tags = (row.adminTags || []).map((tag) => riskBadge(petChatTagLabel(tag))).join('');
+  const detail = state.petChatDetails[row.id];
+  return `
+    <article class="moderation-card pet-chat-card">
+      <div class="moderation-card-main">
+        <div class="moderation-title-row">
+          <div>
+            <div class="cell-title">${escapeHtml(row.ownerName || '-')} ${row.petName ? `· ${escapeHtml(row.petName)}` : ''}</div>
+            <div class="cell-sub">${shortPhone(row.ownerPhone)} · ${escapeHtml(row.id)} · ${formatTime(row.time)}</div>
+          </div>
+          <div class="moderation-status">${statusPill(row.adminHiddenAt ? 'hidden' : row.feedback || 'normal')}</div>
+        </div>
+        <div class="pet-chat-pair">
+          <div><strong>主人</strong><span>${escapeHtml(row.userSummary || '无用户输入摘要')}</span></div>
+          <div><strong>AI</strong><span>${escapeHtml(row.aiSummary || '无 AI 回复摘要')}</span></div>
+        </div>
+        <div class="risk-row">
+          ${actionLabels || riskBadge('普通回复')}
+          ${row.feedback ? riskBadge(`反馈：${row.feedback === 'good' ? '像它' : '不像它'}`) : ''}
+          ${tags}
+          ${row.adminHiddenAt ? riskBadge(`隐藏：${formatTime(row.adminHiddenAt)}`) : ''}
+        </div>
+        ${detail ? renderPetChatDetail(detail) : ''}
+      </div>
+      <div class="moderation-actions">
+        <button class="small-button" data-action="pet-chat-view" data-id="${escapeHtml(row.id)}">查看全文</button>
+        <button class="small-button" data-action="pet-chat-tag" data-id="${escapeHtml(row.id)}" data-tag="quality_issue">质量问题</button>
+        <button class="small-button" data-action="pet-chat-tag" data-id="${escapeHtml(row.id)}" data-tag="medical_sample">医疗样本</button>
+        <button class="small-button" data-action="pet-chat-tag" data-id="${escapeHtml(row.id)}" data-tag="false_positive">误触发</button>
+        <button class="small-button" data-action="pet-chat-tag" data-id="${escapeHtml(row.id)}" data-tag="false_negative">漏触发</button>
+        ${row.adminHiddenAt ? '<span class="muted">已隐藏</span>' : `<button class="small-button danger" data-action="pet-chat-hide" data-id="${escapeHtml(row.id)}">隐藏回复</button>`}
+      </div>
+    </article>
+  `;
+}
+
+function renderPetChatDetail(detail) {
+  const context = (detail.context || []).map((message) => `
+    <div class="pet-chat-line ${message.author === 'ai' ? 'ai' : 'me'}">
+      <strong>${message.author === 'ai' ? 'AI' : '主人'}</strong>
+      <span>${formatTime(message.time)}</span>
+      <p>${escapeHtml(message.text || '')}</p>
+      ${message.adminHiddenAt ? `<em>已隐藏：${formatTime(message.adminHiddenAt)}</em>` : ''}
+    </div>
+  `).join('');
+  const actionSummary = [
+    detail.medicalAlert ? `医疗风险：${detail.medicalAlert.reason || '-'}` : '',
+    detail.createdMemo ? `写入备忘：${detail.createdMemo.title || '-'}` : '',
+    detail.createdWeight ? `写入体重：${detail.createdWeight.kg || '-'}kg` : '',
+    detail.updatedVaccine ? `更新疫苗/驱虫：${detail.updatedVaccine.name || '-'}` : '',
+    detail.updatedPet ? '更新宠物档案' : '',
+  ].filter(Boolean);
+  return `
+    <div class="pet-chat-detail">
+      <div class="cell-title">完整上下文</div>
+      <div class="cell-sub">查看动作已写入审计日志</div>
+      ${actionSummary.length ? `<div class="risk-row">${actionSummary.map(riskBadge).join('')}</div>` : ''}
+      <div class="pet-chat-context">${context}</div>
+    </div>
   `;
 }
 

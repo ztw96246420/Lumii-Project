@@ -3868,6 +3868,184 @@ function petChatMessagesFor(user) {
   return state.petChatMessages[key];
 }
 
+function visiblePetChatMessagesFor(user) {
+  return petChatMessagesFor(user).filter((message) => !message.adminHiddenAt);
+}
+
+function parsePetChatStorageKey(key) {
+  const [phone, ...petIdParts] = String(key || '').split(':');
+  return {
+    petId: petIdParts.join(':'),
+    phone: normalizePhone(phone),
+  };
+}
+
+function petChatAdminActionLabels(message = {}) {
+  return [
+    message.medicalAlert ? '医疗风险' : '',
+    message.createdMemo ? '写入备忘' : '',
+    message.createdWeight ? '写入体重' : '',
+    message.updatedVaccine ? '更新疫苗/驱虫' : '',
+    message.updatedPet ? '更新档案' : '',
+    message.adminHiddenAt ? '已隐藏' : '',
+    ...(Array.isArray(message.adminTags) ? message.adminTags : []),
+  ].filter(Boolean);
+}
+
+function adminPetChatMessages(options = {}) {
+  const q = String(options.q || '').trim().toLowerCase();
+  const flag = String(options.flag || 'all');
+  const rows = Object.entries(state.petChatMessages || {}).flatMap(([key, messages]) => {
+    const { phone, petId } = parsePetChatStorageKey(key);
+    const user = phone ? state.users?.[phone] : null;
+    const pet = user?.pets?.find((item) => item.id === petId) || (user ? selectedPetFor(user) : null);
+    const list = Array.isArray(messages) ? messages : [];
+    return list
+      .map((message, index) => ({ index, message }))
+      .filter(({ message }) => message?.author === 'ai')
+      .map(({ index, message }) => {
+        const userMessage = [...list.slice(0, index)].reverse().find((item) => item.author === 'me');
+        const actionLabels = petChatAdminActionLabels(message);
+        return {
+          actionLabels,
+          adminHiddenAt: message.adminHiddenAt || '',
+          adminHiddenBy: message.adminHiddenBy || '',
+          adminHiddenReason: message.adminHiddenReason || '',
+          adminTags: Array.isArray(message.adminTags) ? message.adminTags : [],
+          aiSummary: compactPetChatLine(message.text || '', 120, { removeSavedActions: true }),
+          createdMemoTitle: message.createdMemo?.title || '',
+          createdWeightKg: message.createdWeight?.kg || '',
+          feedback: message.feedback || '',
+          feedbackAt: message.feedbackAt || '',
+          hasCalendarWrite: Boolean(message.createdMemo || message.createdWeight || message.updatedVaccine),
+          hasMedicalAlert: Boolean(message.medicalAlert),
+          id: message.id,
+          medicalReason: message.medicalAlert?.reason || '',
+          ownerName: user?.ownerName || (phone ? `用户${phone.slice(-4)}` : '-'),
+          ownerPhone: phone,
+          petId,
+          petName: pet?.name || '',
+          time: message.time || message.createdAt || '',
+          updatedPet: Boolean(message.updatedPet),
+          updatedVaccineName: message.updatedVaccine?.name || '',
+          userMessageId: userMessage?.id || '',
+          userSummary: compactPetChatLine(userMessage?.text || '', 100),
+        };
+      });
+  });
+  return rows
+    .filter((row) => {
+      if (flag === 'medical') return row.hasMedicalAlert;
+      if (flag === 'writes') return row.hasCalendarWrite || row.updatedPet;
+      if (flag === 'feedback_good') return row.feedback === 'good';
+      if (flag === 'feedback_off') return row.feedback === 'off';
+      if (flag === 'hidden') return Boolean(row.adminHiddenAt);
+      if (flag === 'tagged') return row.adminTags.length > 0;
+      return true;
+    })
+    .filter((row) => {
+      if (!q) return true;
+      return [row.id, row.ownerPhone, row.ownerName, row.petName, row.userSummary, row.aiSummary, row.medicalReason, row.feedback, row.actionLabels.join(' ')]
+        .some((value) => String(value || '').toLowerCase().includes(q));
+    })
+    .sort((a, b) => String(b.time).localeCompare(String(a.time)))
+    .slice(0, 300);
+}
+
+function findPetChatAdminMessage(messageId) {
+  const id = String(messageId || '');
+  for (const [key, messages] of Object.entries(state.petChatMessages || {})) {
+    const list = Array.isArray(messages) ? messages : [];
+    const index = list.findIndex((message) => message.id === id);
+    if (index >= 0) {
+      const { phone, petId } = parsePetChatStorageKey(key);
+      const user = phone ? state.users?.[phone] : null;
+      const pet = user?.pets?.find((item) => item.id === petId) || (user ? selectedPetFor(user) : null);
+      return { index, key, list, message: list[index], pet, petId, phone, user };
+    }
+  }
+  return null;
+}
+
+function adminPetChatDetail(admin, messageId, reason = '') {
+  const normalizedReason = String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!normalizedReason) return { error: '查看完整对话必须填写原因', statusCode: 400 };
+  const found = findPetChatAdminMessage(messageId);
+  if (!found || found.message?.author !== 'ai') return { error: 'AI 对话消息不存在', statusCode: 404 };
+  const start = Math.max(0, found.index - 6);
+  const end = Math.min(found.list.length, found.index + 5);
+  const context = found.list.slice(start, end).map((message) => ({
+    adminHiddenAt: message.adminHiddenAt || '',
+    author: message.author,
+    feedback: message.feedback || '',
+    id: message.id,
+    text: message.text || '',
+    time: message.time || message.createdAt || '',
+  }));
+  const detail = {
+    actions: petChatAdminActionLabels(found.message),
+    context,
+    createdMemo: found.message.createdMemo || null,
+    createdWeight: found.message.createdWeight || null,
+    feedback: found.message.feedback || '',
+    feedbackAt: found.message.feedbackAt || '',
+    medicalAlert: found.message.medicalAlert || null,
+    message: found.message,
+    ownerName: found.user?.ownerName || (found.phone ? `用户${found.phone.slice(-4)}` : '-'),
+    ownerPhone: found.phone,
+    pet: found.pet || null,
+    petId: found.petId,
+    updatedPet: found.message.updatedPet || null,
+    updatedVaccine: found.message.updatedVaccine || null,
+  };
+  writeAdminAudit(admin, 'ai.petChat.view', 'pet_chat_message', found.message.id, null, {
+    ownerPhone: found.phone,
+    petId: found.petId,
+    reason: normalizedReason,
+  }, normalizedReason);
+  return { detail };
+}
+
+function tagPetChatAdminMessage(admin, messageId, body = {}) {
+  const found = findPetChatAdminMessage(messageId);
+  if (!found || found.message?.author !== 'ai') return { error: 'AI 对话消息不存在', statusCode: 404 };
+  const allowedTags = new Set(['quality_issue', 'medical_sample', 'false_positive', 'false_negative']);
+  const tag = String(body.tag || '').trim();
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!allowedTags.has(tag)) return { error: '请选择正确的 AI 对话标签', statusCode: 400 };
+  const before = { adminTags: Array.isArray(found.message.adminTags) ? [...found.message.adminTags] : [] };
+  const tags = new Set(before.adminTags);
+  tags.add(tag);
+  found.message.adminTags = [...tags];
+  found.message.adminTaggedAt = new Date().toISOString();
+  found.message.adminTaggedBy = admin?.username || 'admin';
+  found.message.adminTagReason = reason;
+  writeAdminAudit(admin, 'ai.petChat.tag', 'pet_chat_message', found.message.id, before, {
+    adminTags: found.message.adminTags,
+    reason,
+  }, reason || tag);
+  return { row: adminPetChatMessages({ flag: 'all' }).find((item) => item.id === found.message.id) };
+}
+
+function hidePetChatAdminMessage(admin, messageId, body = {}) {
+  const found = findPetChatAdminMessage(messageId);
+  if (!found || found.message?.author !== 'ai') return { error: 'AI 对话消息不存在', statusCode: 404 };
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '隐藏 AI 回复必须填写原因', statusCode: 400 };
+  const before = {
+    adminHiddenAt: found.message.adminHiddenAt || '',
+    adminHiddenReason: found.message.adminHiddenReason || '',
+  };
+  found.message.adminHiddenAt = new Date().toISOString();
+  found.message.adminHiddenBy = admin?.username || 'admin';
+  found.message.adminHiddenReason = reason;
+  writeAdminAudit(admin, 'ai.petChat.hide', 'pet_chat_message', found.message.id, before, {
+    adminHiddenAt: found.message.adminHiddenAt,
+    reason,
+  }, reason);
+  return { row: adminPetChatMessages({ flag: 'all' }).find((item) => item.id === found.message.id) };
+}
+
 function setPetChatFeedback(user, messageId, rating) {
   const normalizedRating = rating === 'good' || rating === 'off' ? rating : '';
   if (!normalizedRating) return { error: 'Invalid feedback rating', statusCode: 400 };
@@ -8856,6 +9034,50 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/ai/pet-chat/messages') {
+    ok(res, adminPetChatMessages({
+      flag: url.searchParams.get('flag') || 'all',
+      q: url.searchParams.get('q') || '',
+    }));
+    return true;
+  }
+
+  const adminPetChatViewMatch = pathname.match(/^\/admin\/ai\/pet-chat\/messages\/([^/]+)\/view$/);
+  if (req.method === 'POST' && adminPetChatViewMatch) {
+    const result = adminPetChatDetail(admin, decodeURIComponent(adminPetChatViewMatch[1]), body.reason);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PET_CHAT_VIEW_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.detail);
+    return true;
+  }
+
+  const adminPetChatTagMatch = pathname.match(/^\/admin\/ai\/pet-chat\/messages\/([^/]+)\/tag$/);
+  if (req.method === 'POST' && adminPetChatTagMatch) {
+    const result = tagPetChatAdminMessage(admin, decodeURIComponent(adminPetChatTagMatch[1]), body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PET_CHAT_TAG_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.row || null);
+    return true;
+  }
+
+  const adminPetChatHideMatch = pathname.match(/^\/admin\/ai\/pet-chat\/messages\/([^/]+)\/hide$/);
+  if (req.method === 'POST' && adminPetChatHideMatch) {
+    const result = hidePetChatAdminMessage(admin, decodeURIComponent(adminPetChatHideMatch[1]), body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PET_CHAT_HIDE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.row || null);
+    return true;
+  }
+
   const adminAvatarActionMatch = pathname.match(/^\/admin\/ai\/avatar-jobs\/([^/]+)\/(refresh|retry|mark-failed|refund-quota)$/);
   if (req.method === 'POST' && adminAvatarActionMatch) {
     const jobId = decodeURIComponent(adminAvatarActionMatch[1]);
@@ -10756,7 +10978,7 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/ai/pet-chat/messages') {
     if (failIfFeatureDisabled(res, 'petChat', 'AI 宠物对话')) return;
-    ok(res, petChatMessagesFor(user));
+    ok(res, visiblePetChatMessagesFor(user));
     return;
   }
 
@@ -10790,6 +11012,7 @@ async function handle(req, res) {
       return;
     }
     const messages = petChatMessagesFor(user);
+    const visibleMessages = visiblePetChatMessagesFor(user);
     const userMessage = {
       author: 'me',
       id: messageId(),
@@ -10803,7 +11026,7 @@ async function handle(req, res) {
     const vaccineAction = medicalAlert || profileUpdate ? null : applyPetChatVaccineAction(user, text);
     const createdWeight = medicalAlert || profileUpdate ? null : createWeightRecordFromPetChat(user, text);
     const createdMemo = medicalAlert?.memo ?? (profileUpdate || vaccineAction || createdWeight ? null : createHealthMemoFromPetChat(user, text));
-    const reply = await callDeepSeekPetChat(user, text, messages);
+    const reply = await callDeepSeekPetChat(user, text, visibleMessages);
     const savedNotices = [
       medicalAlert ? `我已经把这个情况记到我的备忘：「${medicalAlert.memo.title}」，并生成就医提醒。` : '',
       profileUpdate ? `我已经更新了我的档案：${describePetProfilePatch(profileUpdate.patch)}。` : '',
