@@ -1077,6 +1077,18 @@ type WalkInviteDraft = {
 
 const PLACE_COMPOSER_DRAFT_STORAGE_PREFIX = 'lumii.placeComposerDraft.v1';
 const WALK_INVITE_DRAFT_STORAGE_PREFIX = 'lumii.walkInviteDraft.v1';
+const AVATAR_GENERATION_STORAGE_PREFIX = 'lumii.avatarGeneration.v1';
+const AVATAR_GENERATION_TTL_MS = 24 * 60 * 60 * 1000;
+
+type PersistedAvatarGeneration = {
+  job: AvatarJob;
+  media: UploadedPetMedia;
+  petId: string;
+  phone: string;
+  route: Extract<AppRoute, 'aiResult' | 'generating'>;
+  savedAt: number;
+  version: 1;
+};
 
 type AppToast = {
   icon?: 'bookmark' | 'heart';
@@ -1167,6 +1179,21 @@ function getAvatarCandidateUrls(job?: null | AvatarJob) {
   const candidates = (job?.candidateUrls ?? []).map((uri) => uri.trim()).filter(Boolean);
   if (candidates.length) return candidates;
   return job?.resultUrl ? [job.resultUrl] : [];
+}
+
+function getAvatarGenerationStorageKey(phone?: null | string, petId?: null | string) {
+  const normalizedPhone = String(phone || 'anonymous').replace(/[^\dA-Za-z_-]/g, '');
+  return `${AVATAR_GENERATION_STORAGE_PREFIX}.${normalizedPhone}.${petId || 'no-pet'}`;
+}
+
+function isRecoverableAvatarGeneration(value: unknown, phone?: null | string, petId?: null | string): value is PersistedAvatarGeneration {
+  const data = value as Partial<PersistedAvatarGeneration> | null;
+  if (!data || data.version !== 1 || !data.job?.id || !data.media?.mediaId) return false;
+  if (Date.now() - Number(data.savedAt || 0) > AVATAR_GENERATION_TTL_MS) return false;
+  if (phone && data.phone && data.phone !== phone) return false;
+  if (petId && data.petId && data.petId !== petId) return false;
+  if (data.job.acceptedAt) return false;
+  return data.job.status === 'processing' || data.job.status === 'ready';
 }
 
 function clampSmsCooldown(availableAt: number) {
@@ -1991,8 +2018,11 @@ export default function LumiiMvpApp() {
   const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(initialPreviewAvatarResult ? webPreviewAvatarJob : null);
   const avatarJobIdRef = useRef<string | null>(initialPreviewAvatarResult ? webPreviewAvatarJob.id : null);
   const avatarPollingJobIdRef = useRef<string | null>(null);
+  const avatarPollFailureCountRef = useRef(0);
+  const avatarRecoveryAttemptKeyRef = useRef('');
   const [avatarStarting, setAvatarStarting] = useState(false);
   const avatarStartingRef = useRef(false);
+  const [avatarPollingError, setAvatarPollingError] = useState('');
   const [avatarResultPrefetching, setAvatarResultPrefetching] = useState(false);
   const [avatarAccepting, setAvatarAccepting] = useState(false);
   const avatarAcceptingRef = useRef(false);
@@ -2911,6 +2941,14 @@ export default function LumiiMvpApp() {
   }, [activePet?.id]);
 
   useEffect(() => {
+    if (!session?.phone || !activePet?.id || isHomePreviewMode) return;
+    const attemptKey = `${session.phone}:${activePet.id}`;
+    if (avatarRecoveryAttemptKeyRef.current === attemptKey) return;
+    avatarRecoveryAttemptKeyRef.current = attemptKey;
+    void recoverLatestAvatarGeneration({ silent: true });
+  }, [activePet?.id, isHomePreviewMode, session?.phone]);
+
+  useEffect(() => {
     if (!activePet) return;
     setPets((items) => {
       const withoutActive = items.filter((item) => item.id !== activePet.id);
@@ -3142,9 +3180,12 @@ export default function LumiiMvpApp() {
       if (route === 'map' && !locatingMapRef.current && !lastDiscoverLocationRef.current) {
         void locateMapToCurrentPosition({ silent: true });
       }
+      if (avatarJobIdRef.current && avatarJob?.status === 'processing') {
+        void pollAvatarJob();
+      }
     });
     return () => subscription.remove();
-  }, [route, session]);
+  }, [avatarJob?.status, route, session]);
 
   useEffect(() => {
     if (!session || route !== 'chat') return;
@@ -4605,10 +4646,12 @@ export default function LumiiMvpApp() {
   }
 
   function resetAvatarDraft() {
+    void clearPersistedAvatarGeneration();
     mediaPickingRef.current = false;
     mediaIdRef.current = null;
     avatarJobIdRef.current = null;
     avatarPollingJobIdRef.current = null;
+    avatarPollFailureCountRef.current = 0;
     avatarStartingRef.current = false;
     avatarAcceptingRef.current = false;
     avatarRetryingRef.current = false;
@@ -4616,6 +4659,7 @@ export default function LumiiMvpApp() {
     setMedia(null);
     setAvatarJob(null);
     setAvatarStarting(false);
+    setAvatarPollingError('');
     setAvatarResultPrefetching(false);
     setAvatarAccepting(false);
     setAvatarRetrying(false);
@@ -4628,6 +4672,90 @@ export default function LumiiMvpApp() {
     setAvatarLoadingHintIndex(0);
     setMediaPickerMode(null);
     avatarResultRouteJobIdRef.current = '';
+  }
+
+  async function clearPersistedAvatarGeneration(petId = activePetIdRef.current, phone = session?.phone) {
+    if (!phone || !petId) return;
+    await deleteLocalJsonStorage(getAvatarGenerationStorageKey(phone, petId));
+  }
+
+  async function persistAvatarGenerationSnapshot(nextJob: AvatarJob | null = avatarJob, nextMedia: UploadedPetMedia | null = media, nextRoute?: Extract<AppRoute, 'aiResult' | 'generating'>) {
+    const petId = activePetIdRef.current;
+    const phone = session?.phone;
+    if (!phone || !petId || !nextJob?.id || !nextMedia?.mediaId) return;
+    if (nextJob.acceptedAt || nextJob.status === 'failed') {
+      await clearPersistedAvatarGeneration(petId, phone);
+      return;
+    }
+    const routeValue = nextRoute ?? (nextJob.status === 'ready' ? 'aiResult' : 'generating');
+    const payload: PersistedAvatarGeneration = {
+      job: nextJob,
+      media: nextMedia,
+      petId,
+      phone,
+      route: routeValue,
+      savedAt: Date.now(),
+      version: 1,
+    };
+    await saveLocalJsonStorage(getAvatarGenerationStorageKey(phone, petId), payload);
+  }
+
+  async function recoverLatestAvatarGeneration(options: { force?: boolean; silent?: boolean } = {}) {
+    const pet = getCurrentPet();
+    const phone = session?.phone;
+    if (!phone || !pet?.id || isHomePreviewMode) return false;
+    if (!options.force && avatarJobIdRef.current && avatarFlowRoutes.has(routeRef.current)) return false;
+
+    const storageKey = getAvatarGenerationStorageKey(phone, pet.id);
+    const localSnapshot = await loadLocalJsonStorage<PersistedAvatarGeneration>(storageKey);
+    const recoverableLocalSnapshot = isRecoverableAvatarGeneration(localSnapshot, phone, pet.id) ? localSnapshot : null;
+    let recoveredJob = recoverableLocalSnapshot?.job ?? null;
+    let recoveredMedia = recoverableLocalSnapshot?.media ?? null;
+
+    const latestResult = await lumiiApi.avatar.getLatestGeneration(pet.id);
+    if (latestResult.data?.id && !latestResult.data.acceptedAt) {
+      const latestUpdatedAt = Number(latestResult.data.updatedAt || latestResult.data.createdAt || 0);
+      const localUpdatedAt = Number(recoveredJob?.updatedAt || recoveredJob?.createdAt || 0);
+      if (!recoveredJob || latestResult.data.id !== recoveredJob.id || latestUpdatedAt >= localUpdatedAt) {
+        recoveredJob = latestResult.data;
+        if (!recoveredMedia || recoveredMedia.mediaId !== latestResult.data.mediaId) recoveredMedia = null;
+      }
+    }
+
+    if (!recoveredJob?.id || recoveredJob.acceptedAt) {
+      await deleteLocalJsonStorage(storageKey);
+      return false;
+    }
+
+    if (!recoveredMedia && recoveredJob.mediaId) {
+      const mediaResult = await lumiiApi.avatar.getUploadedMedia(recoveredJob.mediaId);
+      if (mediaResult.data) recoveredMedia = mediaResult.data;
+    }
+
+    if (!recoveredMedia?.mediaId) {
+      await deleteLocalJsonStorage(storageKey);
+      return false;
+    }
+
+    mediaIdRef.current = recoveredMedia.mediaId;
+    avatarJobIdRef.current = recoveredJob.id;
+    avatarResultRouteJobIdRef.current = '';
+    avatarPollFailureCountRef.current = 0;
+    setMedia(recoveredMedia);
+    setAvatarJob(recoveredJob);
+    setAvatarPollingError('');
+    setAvatarResultPrefetching(false);
+    await persistAvatarGenerationSnapshot(recoveredJob, recoveredMedia, recoveredJob.status === 'ready' ? 'aiResult' : 'generating');
+
+    if (recoveredJob.status === 'ready') {
+      replace('aiResult');
+      if (!options.silent) showToast('已找回刚生成好的灵伴形象');
+    } else {
+      replace('generating');
+      if (!options.silent) showToast(recoveredJob.status === 'failed' ? '已找回失败记录，可以直接重试' : '已继续同步灵伴生成进度');
+      if (recoveredJob.status === 'processing') setTimeout(() => void pollAvatarJob(), 100);
+    }
+    return true;
   }
 
   function startPetAvatarRefresh() {
@@ -4749,9 +4877,13 @@ export default function LumiiMvpApp() {
         setAvatarResultPrefetching(false);
         avatarJobIdRef.current = result.data.id;
         setAvatarJob(result.data);
+        avatarPollFailureCountRef.current = 0;
+        setAvatarPollingError('');
+        void persistAvatarGenerationSnapshot(result.data, media, 'generating');
         go('generating');
       } else {
         showToast(result.error?.message ?? '启动生成失败，请重新选择照片', { subtitle: '照片已保留，可稍后重新生成', tone: 'error', variant: 'surface' });
+        void recoverLatestAvatarGeneration({ silent: true });
       }
       void loadAiUsage();
     } finally {
@@ -4783,6 +4915,7 @@ export default function LumiiMvpApp() {
     }
     setAvatarResultPrefetching(false);
     avatarTransitioningJobIdRef.current = null;
+    void persistAvatarGenerationSnapshot(job, media, 'aiResult');
     replace('aiResult');
   }
 
@@ -4796,9 +4929,19 @@ export default function LumiiMvpApp() {
       if (avatarJobIdRef.current !== requestedJobId) return;
       if (!avatarFlowRoutes.has(routeRef.current)) return;
       if (result.data) {
+        avatarPollFailureCountRef.current = 0;
+        setAvatarPollingError('');
         avatarJobIdRef.current = result.data.id;
         setAvatarJob(result.data);
+        void persistAvatarGenerationSnapshot(result.data, media, result.data.status === 'ready' ? 'aiResult' : 'generating');
         if (result.data.status === 'ready') void transitionToAvatarResult(result.data);
+      } else if (result.error) {
+        avatarPollFailureCountRef.current += 1;
+        setAvatarPollingError(
+          avatarPollFailureCountRef.current >= 2
+            ? `${result.error.message}，已保留当前生成任务，网络恢复后会继续同步。`
+            : '正在同步生成进度，网络稍慢时可能需要多等几秒。',
+        );
       }
     } finally {
       if (avatarPollingJobIdRef.current === requestedJobId) avatarPollingJobIdRef.current = null;
@@ -4833,6 +4976,7 @@ export default function LumiiMvpApp() {
         activePetIdRef.current = result.data.id;
         setActivePet(result.data);
         setPets((items) => [result.data!, ...items.filter((item) => item.id !== result.data!.id)]);
+        await clearPersistedAvatarGeneration(result.data.id, session?.phone);
         resetAvatarDraft();
         void refreshPetScopedData();
         replace('home');
@@ -4871,6 +5015,9 @@ export default function LumiiMvpApp() {
         setAvatarRegenerateConfirmVisible(false);
         avatarJobIdRef.current = result.data.id;
         setAvatarJob(result.data);
+        avatarPollFailureCountRef.current = 0;
+        setAvatarPollingError('');
+        void persistAvatarGenerationSnapshot(result.data, media, 'generating');
         replace('generating');
       } else {
         showToast(result.error?.message ?? '重新生成失败，请稍后重试', { subtitle: '当前形象仍会保留在确认页', tone: 'error', variant: 'surface' });
@@ -7471,6 +7618,9 @@ export default function LumiiMvpApp() {
   }
 
   function clearLocalAccountState() {
+    const previousPhone = session?.phone;
+    const previousPetId = activePetIdRef.current;
+    if (previousPhone && previousPetId) void deleteLocalJsonStorage(getAvatarGenerationStorageKey(previousPhone, previousPetId));
     if (localHealthReminderScheduledIdsRef.current.length) void cancelVaccineLocalReminders(localHealthReminderScheduledIdsRef.current);
     clearScheduledPushRegistration();
     setLumiiAuthToken();
@@ -8534,6 +8684,12 @@ export default function LumiiMvpApp() {
     const generatingStageLabel = getAvatarGeneratingStageLabel(progress, avatarResultPrefetching);
     const generatingStatusText = getAvatarGeneratingStatusText(progress, avatarResultPrefetching, avatarLoadingHintIndex);
     const generatingStepRows = getAvatarGeneratingStepRows(progress, avatarResultPrefetching, avatarLoadingHintIndex);
+    const avatarSyncNotice =
+      avatarPollingError ||
+      avatarJob?.lastStatusError ||
+      (avatarJob?.status === 'processing' && (avatarJob.providerStatus === 'queued' || avatarJob.providerStatus === 'submitting')
+        ? '生成任务已提交，正在等待 AI 图像服务接收。可以留在本页，也可以稍后回来继续查看。'
+        : '');
     const scanLineAnimatedStyle = {
       opacity: avatarScanAnim.interpolate({
         inputRange: [0, 0.08, 0.92, 1],
@@ -8663,6 +8819,12 @@ export default function LumiiMvpApp() {
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${progress}%` }]} />
           </View>
+          {avatarSyncNotice ? (
+            <View style={styles.aiSyncNotice}>
+              <AlertTriangle color={palette.orange} size={14} strokeWidth={2.4} />
+              <Text style={styles.aiSyncNoticeText}>{avatarSyncNotice}</Text>
+            </View>
+          ) : null}
           <View style={styles.aiStepsCard}>
             {generatingStepRows.map((step, index) => (
               <MakeStepRow active={step.active} done={step.done} key={index} text={step.text} />
@@ -16125,6 +16287,8 @@ const styles = StyleSheet.create({
   aiSparkThree: { bottom: 64, position: 'absolute', right: -2 },
   aiSparkTwo: { position: 'absolute', right: 46, top: 12 },
   aiStepsCard: { backgroundColor: 'rgba(255,255,255,0.70)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 22, paddingHorizontal: 16, paddingVertical: 14, width: '100%' },
+  aiSyncNotice: { alignItems: 'flex-start', backgroundColor: 'rgba(255,138,92,0.10)', borderColor: 'rgba(255,138,92,0.20)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 10, width: '100%' },
+  aiSyncNoticeText: { color: palette.orange, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17 },
   aiWorkingBadge: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, bottom: 34, flexDirection: 'row', gap: 5, paddingHorizontal: 12, paddingVertical: 6, position: 'absolute', right: 2, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.15, shadowRadius: 18 },
   aiWorkingText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   aiLoadingDot: { backgroundColor: palette.orange, borderRadius: 3, height: 6, width: 6 },

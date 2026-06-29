@@ -108,15 +108,23 @@ export type AvatarJob = {
   acceptedAt?: string;
   acceptedPetId?: string;
   candidateUrls?: string[];
+  createdAt?: number;
+  errorCode?: string;
   errorMessage?: string;
   feedback?: AvatarGenerationFeedback;
   id: string;
+  lastStatusError?: string;
+  lastStatusCheckedAt?: number;
   mediaId?: string;
   originalJobId?: string;
+  petId?: string;
+  petName?: string;
   progress: number;
+  providerStatus?: string;
   provider?: 'gpt-image-2' | 'mock' | 'ttapi-flux-edits' | 'ttapi-midjourney';
   resultUrl?: string;
   status: 'failed' | 'processing' | 'ready';
+  updatedAt?: number;
 };
 
 export type AvatarGenerationFeedbackReason = 'color' | 'expression' | 'face_shape' | 'not_same_pet' | 'other' | 'style';

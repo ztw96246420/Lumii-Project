@@ -66,6 +66,8 @@ const configuredMode = env.EXPO_PUBLIC_API_MODE === 'mock' ? 'mock' : 'http';
 const configuredBaseUrl = (env.EXPO_PUBLIC_API_BASE_URL ?? localLanBackendBaseUrl).replace(/\/+$/, '');
 const shouldUseHttp = configuredMode === 'http' && configuredBaseUrl.length > 0;
 const httpRequestTimeoutMs = 15000;
+const avatarStartRequestTimeoutMs = 120000;
+const avatarStatusRequestTimeoutMs = 30000;
 
 let authToken = '';
 let cachedActivePet: PetProfile | null = null;
@@ -230,15 +232,20 @@ function createHttpApi(baseUrl: string): LumiiApi {
       },
 
       async startGeneration(mediaId: string): Promise<ApiResult<AvatarJob>> {
-        return request<AvatarJob>('POST', '/ai/pet-avatar/jobs', { mediaId });
+        return request<AvatarJob>('POST', '/ai/pet-avatar/jobs', { mediaId }, { timeoutMs: avatarStartRequestTimeoutMs });
       },
 
       async getGenerationStatus(id: string): Promise<ApiResult<AvatarJob>> {
-        return request<AvatarJob>('GET', `/ai/pet-avatar/jobs/${encodeURIComponent(id)}`);
+        return request<AvatarJob>('GET', `/ai/pet-avatar/jobs/${encodeURIComponent(id)}`, undefined, { timeoutMs: avatarStatusRequestTimeoutMs });
+      },
+
+      async getLatestGeneration(petId?: string): Promise<ApiResult<AvatarJob | null>> {
+        const query = petId ? `?petId=${encodeURIComponent(petId)}` : '';
+        return request<AvatarJob | null>('GET', `/ai/pet-avatar/jobs/latest${query}`, undefined, { timeoutMs: avatarStatusRequestTimeoutMs });
       },
 
       async retryGeneration(jobId: string): Promise<ApiResult<AvatarJob>> {
-        return request<AvatarJob>('POST', `/ai/pet-avatar/jobs/${encodeURIComponent(jobId)}/retry`);
+        return request<AvatarJob>('POST', `/ai/pet-avatar/jobs/${encodeURIComponent(jobId)}/retry`, undefined, { timeoutMs: avatarStartRequestTimeoutMs });
       },
 
       async acceptGeneration(jobId: string): Promise<ApiResult<PetProfile>> {
@@ -541,9 +548,9 @@ function createHttpApi(baseUrl: string): LumiiApi {
     },
   };
 
-  async function request<T>(method: string, path: string, body?: unknown): Promise<ApiResult<T>> {
+  async function request<T>(method: string, path: string, body?: unknown, options: { timeoutMs?: number } = {}): Promise<ApiResult<T>> {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), httpRequestTimeoutMs) : undefined;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), options.timeoutMs ?? httpRequestTimeoutMs) : undefined;
     try {
       const response = await fetch(`${baseUrl}${path}`, {
         body: body === undefined ? undefined : JSON.stringify(body),

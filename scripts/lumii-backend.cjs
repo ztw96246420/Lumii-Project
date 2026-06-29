@@ -2911,6 +2911,12 @@ function consumePetAvatarQuota(user) {
   return usage;
 }
 
+function refundPetAvatarQuota(user) {
+  const usage = petAvatarDailyUsageFor(user.phone);
+  usage.count = Math.max(0, Number(usage.count || 0) - 1);
+  return usage;
+}
+
 function recordTtapiAvatarUsage(result, succeeded) {
   state.aiUsage = state.aiUsage || createInitialState().aiUsage;
   const bucket = result?.provider === 'ttapi-flux-edits' ? 'ttapiFlux' : 'ttapiMidjourney';
@@ -3445,6 +3451,14 @@ function gptImage2StuckTaskTimeoutMs(data) {
   return Math.max(minTimeoutMs, estimatedTimeoutMs);
 }
 
+const AVATAR_JOB_START_TIMEOUT_MS = 2 * 60 * 1000;
+const AVATAR_JOB_RECOVERY_TTL_MS = 24 * 60 * 60 * 1000;
+
+function touchAvatarJob(job) {
+  if (job) job.updatedAt = Date.now();
+  return job;
+}
+
 function createMockAvatarJob(id) {
   return {
     createdAt: Date.now(),
@@ -3453,7 +3467,107 @@ function createMockAvatarJob(id) {
     provider: 'mock',
     resultUrl: undefined,
     status: 'processing',
+    updatedAt: Date.now(),
   };
+}
+
+function latestAvatarJobForUser(user, petIdInput) {
+  const petId = String(petIdInput || '').trim();
+  const cutoff = Date.now() - AVATAR_JOB_RECOVERY_TTL_MS;
+  return Object.values(state.avatarJobs || {})
+    .filter((job) => job && job.ownerPhone === user.phone && !job.acceptedAt)
+    .filter((job) => job.status === 'processing' || job.status === 'ready')
+    .filter((job) => !petId || !job.petId || job.petId === petId)
+    .filter((job) => Number(job.updatedAt || job.createdAt || 0) >= cutoff)
+    .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))[0] || null;
+}
+
+function avatarRefreshFailureMessage(error) {
+  const message = String(error?.message || error || '').trim();
+  if (/timed out|timeout/i.test(message)) return 'AI 图像服务状态查询超时，正在继续同步生成进度。';
+  if (/network|fetch failed|ECONN|ETIMEDOUT|ENOTFOUND|socket|TLS/i.test(message)) return 'AI 图像服务网络暂时不稳定，正在继续同步生成进度。';
+  return message || 'AI 图像服务状态查询失败，正在继续同步生成进度。';
+}
+
+function markAvatarRefreshFailure(job, error) {
+  const message = avatarRefreshFailureMessage(error);
+  job.lastStatusError = message;
+  job.lastStatusCheckedAt = Date.now();
+  job.statusErrorCount = Number(job.statusErrorCount || 0) + 1;
+  const ageMs = Date.now() - Number(job.createdAt || Date.now());
+  const timeoutMs = PET_AVATAR_PROVIDER === 'gpt-image-2' ? gptImage2StuckTaskTimeoutMs({}) : 8 * 60 * 1000;
+  if (ageMs >= timeoutMs) {
+    job.errorCode = 'AVATAR_PROVIDER_STATUS_TIMEOUT';
+    job.errorMessage = 'AI 灵伴生成超时，上游图像任务长时间未返回结果，请重新生成。';
+    job.progress = Math.max(10, Number(job.progress || 10));
+    job.status = 'failed';
+  } else {
+    job.progress = Math.min(98, Math.max(10, Number(job.progress || 10) + 3));
+    job.status = 'processing';
+    job.providerStatus = job.providerStatus || 'status_retrying';
+  }
+  touchAvatarJob(job);
+  return job;
+}
+
+function requestSnapshotForAvatarJob(req) {
+  return {
+    headers: {
+      host: req.headers.host,
+      'x-forwarded-host': req.headers['x-forwarded-host'],
+      'x-forwarded-proto': req.headers['x-forwarded-proto'],
+    },
+  };
+}
+
+function avatarStartFailureMessage(error) {
+  const message = String(error?.message || error || '').trim();
+  if (/timed out|timeout/i.test(message)) return 'AI 灵伴生成任务提交超时，请稍后重新生成。';
+  if (/network|fetch failed|ECONN|ETIMEDOUT|ENOTFOUND|socket|TLS/i.test(message)) return 'AI 图像服务网络连接失败，请稍后重新生成。';
+  return message || 'AI 灵伴生成任务提交失败，请稍后重试。';
+}
+
+async function startAvatarGenerationJobInBackground(reqSnapshot, user, job, media) {
+  try {
+    if (PET_AVATAR_PROVIDER === 'gpt-image-2') {
+      await startGptImage2AvatarJob(user, job, media);
+    } else if (PET_AVATAR_PROVIDER === 'ttapi-flux-edits') {
+      await startTtapiFluxAvatarJob(user, job, media);
+    } else if (PET_AVATAR_PROVIDER === 'ttapi-midjourney') {
+      await startTtapiAvatarJob(reqSnapshot, user, job, media);
+    }
+    job.submittedAt = Date.now();
+    job.submitErrorCount = 0;
+    touchAvatarJob(job);
+  } catch (error) {
+    job.errorCode = 'AVATAR_PROVIDER_START_FAILED';
+    job.errorMessage = avatarStartFailureMessage(error);
+    job.lastStatusError = job.errorMessage;
+    job.progress = Math.max(0, Number(job.progress || 0));
+    job.provider = PET_AVATAR_PROVIDER;
+    job.providerStatus = 'submit_failed';
+    job.status = 'failed';
+    job.submitErrorCount = Number(job.submitErrorCount || 0) + 1;
+    if (job.quotaConsumed && !job.providerJobId && !job.quotaRefunded) {
+      refundPetAvatarQuota(user);
+      job.quotaRefunded = true;
+    }
+    touchAvatarJob(job);
+    console.warn('[avatar] background start failed', {
+      jobId: job.id,
+      message: job.errorMessage,
+      provider: job.provider,
+    });
+  } finally {
+    saveState();
+  }
+}
+
+function queueAvatarGenerationStart(req, user, job, media) {
+  const reqSnapshot = requestSnapshotForAvatarJob(req);
+  setTimeout(() => {
+    void startAvatarGenerationJobInBackground(reqSnapshot, user, job, media);
+  }, 0);
 }
 
 async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId) {
@@ -3470,46 +3584,40 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
   }
   const id = `job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const job = createMockAvatarJob(id);
+  const pet = selectedPetFor(user) || activePetFor(user);
   job.mediaId = mediaId;
   job.ownerPhone = user.phone;
+  job.petId = pet?.id || '';
+  job.petName = pet?.name || '';
   if (originalJobId) job.originalJobId = originalJobId;
   state.avatarJobs[id] = job;
-  let started = PET_AVATAR_PROVIDER === 'mock';
-  if (PET_AVATAR_PROVIDER === 'gpt-image-2') {
-    try {
-      await startGptImage2AvatarJob(user, job, media);
-      started = true;
-    } catch (error) {
-      job.errorMessage = error.message || 'Avatar generation failed to start';
-      job.progress = 0;
-      job.provider = 'gpt-image-2';
-      job.status = 'failed';
-      console.warn('[avatar:gpt-image-2] start failed', {
-        jobId: job.id,
-        message: job.errorMessage,
-        provider: job.provider,
-      });
-    }
-  } else if (PET_AVATAR_PROVIDER === 'ttapi-flux-edits') {
-    try {
-      await startTtapiFluxAvatarJob(user, job, media);
-      started = true;
-    } catch (error) {
-      job.errorMessage = error.message || 'Avatar generation failed to start';
-      job.progress = 0;
-      job.status = 'failed';
-    }
-  } else if (PET_AVATAR_PROVIDER === 'ttapi-midjourney') {
-    try {
-      await startTtapiAvatarJob(req, user, job, media);
-      started = true;
-    } catch (error) {
-      job.errorMessage = error.message || 'Avatar generation failed to start';
-      job.progress = 0;
-      job.status = 'failed';
-    }
+  touchAvatarJob(job);
+
+  if (PET_AVATAR_PROVIDER === 'mock') {
+    consumePetAvatarQuota(user);
+    job.quotaConsumed = true;
+    saveState();
+    return { job };
   }
-  if (started) consumePetAvatarQuota(user);
+
+  if (PET_AVATAR_PROVIDER === 'gpt-image-2' || PET_AVATAR_PROVIDER === 'ttapi-flux-edits' || PET_AVATAR_PROVIDER === 'ttapi-midjourney') {
+    job.progress = 2;
+    job.provider = PET_AVATAR_PROVIDER;
+    job.providerStatus = 'queued';
+    job.status = 'processing';
+    consumePetAvatarQuota(user);
+    job.quotaConsumed = true;
+    touchAvatarJob(job);
+    saveState();
+    queueAvatarGenerationStart(req, user, job, media);
+    return { job };
+  }
+
+  job.errorCode = 'AVATAR_PROVIDER_UNAVAILABLE';
+  job.errorMessage = 'AI 灵伴生成服务暂不可用，请稍后重试。';
+  job.provider = PET_AVATAR_PROVIDER;
+  job.status = 'failed';
+  touchAvatarJob(job);
   return { job };
 }
 
@@ -3528,9 +3636,11 @@ async function startGptImage2AvatarJob(user, job, media) {
     mediaId: media.mediaId,
     progress: 2,
     provider: 'gpt-image-2',
+    providerStatus: 'submitting',
     promptVersion: 'gpt-image-2-collectible-character-cutout-v4',
     status: 'processing',
   });
+  touchAvatarJob(job);
   const payload = await gptImage2Request('/v1/images/generations', {
     method: 'POST',
     body: {
@@ -3554,6 +3664,7 @@ async function startGptImage2AvatarJob(user, job, media) {
     providerStatus: payload?.data?.[0]?.status || payload?.data?.status || payload.status || 'submitted',
     status: 'processing',
   });
+  touchAvatarJob(job);
 }
 
 async function startTtapiAvatarJob(req, user, job, media) {
@@ -3584,6 +3695,7 @@ async function startTtapiAvatarJob(req, user, job, media) {
     referenceUrl,
     status: 'processing',
   });
+  touchAvatarJob(job);
 }
 
 async function startTtapiFluxAvatarJob(user, job, media) {
@@ -3618,16 +3730,36 @@ async function startTtapiFluxAvatarJob(user, job, media) {
     promptVersion: 'flux-2-max-realistic-avatar-v1',
     status: 'processing',
   });
+  touchAvatarJob(job);
 }
 
 async function refreshGptImage2AvatarJob(req, user, job) {
-  if (!job.providerJobId) throw new Error('GPT Image 2 task id is missing');
+  if (!job.providerJobId) {
+    const ageMs = Date.now() - Number(job.createdAt || Date.now());
+    if (ageMs >= AVATAR_JOB_START_TIMEOUT_MS) {
+      job.errorCode = 'AVATAR_PROVIDER_START_TIMEOUT';
+      job.errorMessage = 'AI 灵伴生成任务提交超时，请重新生成。';
+      job.progress = Math.max(2, Number(job.progress || 2));
+      job.providerStatus = job.providerStatus || 'submit_timeout';
+      job.status = 'failed';
+      touchAvatarJob(job);
+      return job;
+    }
+    job.progress = Math.min(12, Math.max(2, Number(job.progress || 2) + 2));
+    job.providerStatus = job.providerStatus || 'queued';
+    job.status = 'processing';
+    touchAvatarJob(job);
+    return job;
+  }
   const payload = await gptImage2Request(`/v1/tasks/${encodeURIComponent(job.providerJobId)}`, {
     method: 'GET',
   });
   const data = payload?.data || {};
   const status = String(data.status || payload.status || '').toLowerCase();
   job.providerStatus = status || job.providerStatus;
+  job.lastStatusCheckedAt = Date.now();
+  job.lastStatusError = '';
+  job.statusErrorCount = 0;
 
   if (status === 'completed' || status === 'succeeded' || status === 'success') {
     const resultUrl = gptImage2ResultUrlFrom(payload);
@@ -3647,6 +3779,7 @@ async function refreshGptImage2AvatarJob(req, user, job) {
     job.progress = 100;
     job.resultUrl = finalResultUrl;
     job.status = 'ready';
+    touchAvatarJob(job);
     if (!job.usageRecorded) {
       recordGptImage2AvatarUsage(payload, true);
       job.usageRecorded = true;
@@ -3656,8 +3789,10 @@ async function refreshGptImage2AvatarJob(req, user, job) {
 
   if (status === 'failed' || status === 'error' || status === 'cancelled' || status === 'canceled') {
     job.errorMessage = data?.error?.message || payload?.error?.message || payload?.message || 'GPT Image 2 generation failed';
+    job.errorCode = 'AVATAR_PROVIDER_FAILED';
     job.progress = Math.max(10, Number(job.progress || 10));
     job.status = 'failed';
+    touchAvatarJob(job);
     if (!job.usageRecorded) {
       recordGptImage2AvatarUsage(payload, false);
       job.usageRecorded = true;
@@ -3673,6 +3808,8 @@ async function refreshGptImage2AvatarJob(req, user, job) {
     job.providerStatus = status || 'processing_timeout';
     job.status = 'failed';
     job.timedOutAt = Date.now();
+    job.errorCode = 'AVATAR_PROVIDER_TIMEOUT';
+    touchAvatarJob(job);
     if (!job.usageRecorded) {
       recordGptImage2AvatarUsage(payload, false);
       job.usageRecorded = true;
@@ -3682,14 +3819,34 @@ async function refreshGptImage2AvatarJob(req, user, job) {
 
   job.progress = nextProcessingProgress(job.progress, data.progress);
   job.status = 'processing';
+  touchAvatarJob(job);
   return job;
 }
 
 async function refreshTtapiAvatarJob(job) {
   const activeProviderJobId = job.upsampleJobId || job.providerJobId;
-  if (!activeProviderJobId) throw new Error('TTAPI job id is missing');
+  if (!activeProviderJobId) {
+    const ageMs = Date.now() - Number(job.createdAt || Date.now());
+    if (ageMs >= AVATAR_JOB_START_TIMEOUT_MS) {
+      job.errorCode = 'AVATAR_PROVIDER_START_TIMEOUT';
+      job.errorMessage = 'AI 灵伴生成任务提交超时，请重新生成。';
+      job.progress = Math.max(2, Number(job.progress || 2));
+      job.providerStatus = job.providerStatus || 'submit_timeout';
+      job.status = 'failed';
+      touchAvatarJob(job);
+      return job;
+    }
+    job.progress = Math.min(12, Math.max(2, Number(job.progress || 2) + 2));
+    job.providerStatus = job.providerStatus || 'queued';
+    job.status = 'processing';
+    touchAvatarJob(job);
+    return job;
+  }
   const payload = await ttapiMidjourneyRequest(`/midjourney/v1/fetch?jobId=${encodeURIComponent(activeProviderJobId)}`);
   job.providerStatus = payload.status;
+  job.lastStatusCheckedAt = Date.now();
+  job.lastStatusError = '';
+  job.statusErrorCount = 0;
 
   if (payload.status === 'SUCCESS') {
     if (TTAPI_MJ_AUTO_UPSAMPLE && !job.upsampleJobId) {
@@ -3706,6 +3863,7 @@ async function refreshTtapiAvatarJob(job) {
       if (upsampleJobId) {
         job.progress = 82;
         job.upsampleJobId = upsampleJobId;
+        touchAvatarJob(job);
         return job;
       }
     }
@@ -3715,6 +3873,7 @@ async function refreshTtapiAvatarJob(job) {
     job.progress = 100;
     job.resultUrl = resultUrl;
     job.status = 'ready';
+    touchAvatarJob(job);
     if (!job.usageRecorded) {
       recordTtapiAvatarUsage(payload, true);
       job.usageRecorded = true;
@@ -3723,8 +3882,11 @@ async function refreshTtapiAvatarJob(job) {
   }
 
   if (payload.status === 'FAILED') {
+    job.errorCode = 'AVATAR_PROVIDER_FAILED';
+    job.errorMessage = payload.message || payload?.data?.message || 'AI 灵伴生成失败，请重新生成。';
     job.progress = Math.max(10, Number(job.progress || 10));
     job.status = 'failed';
+    touchAvatarJob(job);
     if (!job.usageRecorded) {
       recordTtapiAvatarUsage(payload, false);
       job.usageRecorded = true;
@@ -3734,15 +3896,35 @@ async function refreshTtapiAvatarJob(job) {
 
   job.progress = nextProcessingProgress(job.progress, payload?.data?.progress);
   job.status = 'processing';
+  touchAvatarJob(job);
   return job;
 }
 
 async function refreshTtapiFluxAvatarJob(job) {
-  if (!job.providerJobId) throw new Error('TTAPI Flux job id is missing');
+  if (!job.providerJobId) {
+    const ageMs = Date.now() - Number(job.createdAt || Date.now());
+    if (ageMs >= AVATAR_JOB_START_TIMEOUT_MS) {
+      job.errorCode = 'AVATAR_PROVIDER_START_TIMEOUT';
+      job.errorMessage = 'AI 灵伴生成任务提交超时，请重新生成。';
+      job.progress = Math.max(2, Number(job.progress || 2));
+      job.providerStatus = job.providerStatus || 'submit_timeout';
+      job.status = 'failed';
+      touchAvatarJob(job);
+      return job;
+    }
+    job.progress = Math.min(12, Math.max(2, Number(job.progress || 2) + 2));
+    job.providerStatus = job.providerStatus || 'queued';
+    job.status = 'processing';
+    touchAvatarJob(job);
+    return job;
+  }
   const payload = await ttapiFluxRequest(`/flux/fetch?jobId=${encodeURIComponent(job.providerJobId)}`, {
     method: 'GET',
   });
   job.providerStatus = payload.status;
+  job.lastStatusCheckedAt = Date.now();
+  job.lastStatusError = '';
+  job.statusErrorCount = 0;
 
   if (payload.status === 'SUCCESS') {
     const resultUrl = ttapiResultUrlFrom(payload);
@@ -3750,6 +3932,7 @@ async function refreshTtapiFluxAvatarJob(job) {
     job.progress = 100;
     job.resultUrl = resultUrl;
     job.status = 'ready';
+    touchAvatarJob(job);
     if (!job.usageRecorded) {
       recordTtapiAvatarUsage({ ...payload, provider: 'ttapi-flux-edits' }, true);
       job.usageRecorded = true;
@@ -3758,8 +3941,11 @@ async function refreshTtapiFluxAvatarJob(job) {
   }
 
   if (payload.status === 'FAILED') {
+    job.errorCode = 'AVATAR_PROVIDER_FAILED';
+    job.errorMessage = payload.message || payload?.data?.message || 'AI 灵伴生成失败，请重新生成。';
     job.progress = Math.max(10, Number(job.progress || 10));
     job.status = 'failed';
+    touchAvatarJob(job);
     if (!job.usageRecorded) {
       recordTtapiAvatarUsage({ ...payload, provider: 'ttapi-flux-edits' }, false);
       job.usageRecorded = true;
@@ -3769,6 +3955,7 @@ async function refreshTtapiFluxAvatarJob(job) {
 
   job.progress = nextProcessingProgress(job.progress, payload?.data?.progress);
   job.status = 'processing';
+  touchAvatarJob(job);
   return job;
 }
 
@@ -5769,6 +5956,16 @@ async function handle(req, res) {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/ai/pet-avatar/jobs/latest') {
+    const job = latestAvatarJobForUser(user, url.searchParams.get('petId'));
+    if (!job) {
+      ok(res, null);
+      return;
+    }
+    ok(res, job);
+    return;
+  }
+
   const avatarJobMatch = pathname.match(/^\/ai\/pet-avatar\/jobs\/([^/]+)$/);
   if (req.method === 'GET' && avatarJobMatch) {
     const id = decodeURIComponent(avatarJobMatch[1]);
@@ -5781,22 +5978,19 @@ async function handle(req, res) {
       try {
         await refreshGptImage2AvatarJob(req, user, job);
       } catch (error) {
-        job.errorMessage = error.message || 'Avatar generation status failed';
-        job.status = 'failed';
+        markAvatarRefreshFailure(job, error);
       }
     } else if (job.provider === 'ttapi-flux-edits' && job.status === 'processing') {
       try {
         await refreshTtapiFluxAvatarJob(job);
       } catch (error) {
-        job.errorMessage = error.message || 'Avatar generation status failed';
-        job.status = 'failed';
+        markAvatarRefreshFailure(job, error);
       }
     } else if (job.provider === 'ttapi-midjourney' && job.status === 'processing') {
       try {
         await refreshTtapiAvatarJob(job);
       } catch (error) {
-        job.errorMessage = error.message || 'Avatar generation status failed';
-        job.status = 'failed';
+        markAvatarRefreshFailure(job, error);
       }
     } else if (job.status === 'processing') {
       job.progress = Math.min(100, Number(job.progress || 24) + 38);
@@ -5804,6 +5998,7 @@ async function handle(req, res) {
         job.status = 'ready';
         job.resultUrl = generatedAvatarUrl;
       }
+      touchAvatarJob(job);
     }
     saveState();
     ok(res, job);
@@ -5852,6 +6047,7 @@ async function handle(req, res) {
       }
       job.acceptedAt = new Date().toISOString();
       job.acceptedPetId = pet.id;
+      touchAvatarJob(job);
       user.activePetId = pet.id;
       saveState();
       ok(res, pet);
@@ -5871,6 +6067,7 @@ async function handle(req, res) {
       reason,
       status: 'received',
     };
+    touchAvatarJob(job);
     saveState();
     ok(res, job);
     return;

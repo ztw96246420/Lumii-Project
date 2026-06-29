@@ -2220,7 +2220,8 @@ export const mockApi = {
       mockPetAvatarDailyCount += 1;
       const id = `job-${mediaId}`;
       generationProgressById[id] = 24;
-      const job: AvatarJob = { id, mediaId, progress: 24, provider: 'mock', status: 'processing' };
+      const pet = pets.find((item) => item.id === activePetId) ?? pets[0];
+      const job: AvatarJob = { createdAt: Date.now(), id, mediaId, petId: pet?.id, petName: pet?.name, progress: 24, provider: 'mock', status: 'processing', updatedAt: Date.now() };
       avatarJobsById = { ...avatarJobsById, [id]: job };
       return success(job);
     },
@@ -2244,8 +2245,21 @@ export const mockApi = {
             ? goldenRetrieverAvatarUrl
             : undefined,
         status: progress >= 100 ? 'ready' : 'processing',
+        updatedAt: Date.now(),
       };
       avatarJobsById = { ...avatarJobsById, [id]: job };
+      return success(job);
+    },
+
+    async getLatestGeneration(petId?: string): Promise<ApiResult<AvatarJob | null>> {
+      await wait(120);
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      const job = Object.values(avatarJobsById)
+        .filter((item) => !item.acceptedAt)
+        .filter((item) => item.status === 'processing' || item.status === 'ready')
+        .filter((item) => !petId || !item.petId || item.petId === petId)
+        .filter((item) => Number(item.updatedAt || item.createdAt || 0) >= cutoff)
+        .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))[0] ?? null;
       return success(job);
     },
 
@@ -2259,7 +2273,7 @@ export const mockApi = {
       mockPetAvatarDailyCount += 1;
       const id = `job-${previous.mediaId}-${Date.now()}`;
       generationProgressById[id] = 24;
-      const job: AvatarJob = { id, mediaId: previous.mediaId, originalJobId: jobId, progress: 24, provider: 'mock', status: 'processing' };
+      const job: AvatarJob = { createdAt: Date.now(), id, mediaId: previous.mediaId, originalJobId: jobId, petId: previous.petId, petName: previous.petName, progress: 24, provider: 'mock', status: 'processing', updatedAt: Date.now() };
       avatarJobsById = { ...avatarJobsById, [id]: job };
       return success(job);
     },
@@ -2274,7 +2288,7 @@ export const mockApi = {
       const updatedPet = { ...pet, avatarUrl: job.resultUrl };
       pets = pets.map((item) => (item.id === updatedPet.id ? updatedPet : item));
       activePetId = updatedPet.id;
-      avatarJobsById = { ...avatarJobsById, [jobId]: { ...job, acceptedAt: new Date().toISOString(), acceptedPetId: updatedPet.id } };
+      avatarJobsById = { ...avatarJobsById, [jobId]: { ...job, acceptedAt: new Date().toISOString(), acceptedPetId: updatedPet.id, updatedAt: Date.now() } };
       return success(updatedPet);
     },
 
