@@ -774,6 +774,33 @@ th {
   gap: 14px;
 }
 
+.config-section {
+  background: rgba(255, 247, 239, 0.44);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+}
+
+.section-head.compact {
+  margin-bottom: 0;
+}
+
+.announcement-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.announcement-grid .wide {
+  grid-column: 1 / -1;
+}
+
+.announcement-grid textarea {
+  min-height: 86px;
+  resize: vertical;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr);
@@ -846,10 +873,15 @@ th {
   .grid.two,
   .config-grid,
   .form-grid,
+  .announcement-grid,
   .moderation-card,
   .notification-form-row,
   .ticket-card {
     grid-template-columns: 1fr;
+  }
+
+  .announcement-grid .wide {
+    grid-column: auto;
   }
 
   .ticket-head {

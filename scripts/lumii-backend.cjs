@@ -260,6 +260,14 @@ function defaultOpsConfig() {
       petChatDailyLimit: PET_CHAT_DAILY_LIMIT,
     },
     app: {
+      announcement: {
+        actionLabel: '知道了',
+        actionRoute: '',
+        body: '',
+        enabled: false,
+        title: '',
+        version: '',
+      },
       maintenanceEnabled: false,
       maintenanceMessage: '',
     },
@@ -369,6 +377,14 @@ function normalizeOpsConfig(value) {
       petChatDailyLimit: Math.floor(clampNumber(ai.petChatDailyLimit, defaults.ai.petChatDailyLimit, 0, 1000)),
     },
     app: {
+      announcement: {
+        actionLabel: String(app.announcement?.actionLabel || defaults.app.announcement.actionLabel).slice(0, 16),
+        actionRoute: ['discover', 'home', 'map', 'notifications', 'profile', 'settings'].includes(String(app.announcement?.actionRoute || '')) ? String(app.announcement.actionRoute) : '',
+        body: String(app.announcement?.body || '').slice(0, 180),
+        enabled: Boolean(app.announcement?.enabled),
+        title: String(app.announcement?.title || '').slice(0, 40),
+        version: String(app.announcement?.version || '').slice(0, 40),
+      },
       maintenanceEnabled: Boolean(app.maintenanceEnabled),
       maintenanceMessage: String(app.maintenanceMessage || '').slice(0, 120),
     },
@@ -7274,7 +7290,22 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'PATCH' && pathname === '/admin/config') {
     const before = currentOpsConfig();
-    const next = normalizeOpsConfig({ ...before, ...body, updatedAt: new Date().toISOString() });
+    const next = normalizeOpsConfig({
+      ...before,
+      ...body,
+      ai: { ...before.ai, ...(body.ai || {}) },
+      app: {
+        ...before.app,
+        ...(body.app || {}),
+        announcement: {
+          ...(before.app?.announcement || {}),
+          ...(body.app?.announcement || {}),
+        },
+      },
+      features: { ...before.features, ...(body.features || {}) },
+      social: { ...before.social, ...(body.social || {}) },
+      updatedAt: new Date().toISOString(),
+    });
     state.opsConfig = next;
     writeAdminAudit(admin, 'config.update', 'ops_config', 'app', before, next, body.reason);
     saveState();

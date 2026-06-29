@@ -425,6 +425,7 @@ function configSnapshot(config) {
     <div class="switch-row"><span>AI 对话额度</span><strong>${config.ai.petChatDailyLimit}/天</strong></div>
     <div class="switch-row"><span>宠友圈开关</span>${statusPill(config.features.petCircle ? 'active' : 'closed')}</div>
     <div class="switch-row"><span>地图地点开关</span>${statusPill(config.features.places ? 'active' : 'closed')}</div>
+    <div class="switch-row"><span>App 公告</span>${statusPill(config.app?.announcement?.enabled ? 'active' : 'closed')}</div>
   `;
 }
 
@@ -1093,6 +1094,7 @@ async function renderNotifications(force) {
 
 async function renderConfig(force) {
   const config = await load('config', '/admin/config', force);
+  const announcement = config.app?.announcement || {};
   $('content').innerHTML = `
     <div class="card">
       <div class="section-head">
@@ -1118,6 +1120,35 @@ async function renderConfig(force) {
         ${featureCheckbox('cfgFeatureWalkInvite', '约遛邀请', config.features.walkInvite)}
         ${featureCheckbox('cfgMaintenanceEnabled', '维护模式', config.app.maintenanceEnabled)}
       </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>App 公告弹窗</h2>
+            <div class="section-sub">开启后，用户下次拉取 /app/config 会看到弹窗；同一版本每个用户只展示一次</div>
+          </div>
+          ${help('需要再次触达同一批用户时，请修改公告版本号。按钮跳转为空时，主按钮只关闭弹窗。')}
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgAnnouncementEnabled', '启用公告弹窗', announcement.enabled)}
+        </div>
+        <div class="config-grid announcement-grid">
+          <label>公告版本<input id="cfgAnnouncementVersion" maxlength="40" placeholder="例如 2026-06-30-v1" value="${escapeHtml(announcement.version || '')}" /></label>
+          <label>公告标题<input id="cfgAnnouncementTitle" maxlength="40" placeholder="例如 灵伴新功能上线" value="${escapeHtml(announcement.title || '')}" /></label>
+          <label>按钮文案<input id="cfgAnnouncementActionLabel" maxlength="16" placeholder="例如 去看看" value="${escapeHtml(announcement.actionLabel || '知道了')}" /></label>
+          <label>点击跳转
+            <select id="cfgAnnouncementActionRoute">
+              ${configRouteOption(announcement.actionRoute || '', '', '无跳转')}
+              ${configRouteOption(announcement.actionRoute || '', 'home', '首页')}
+              ${configRouteOption(announcement.actionRoute || '', 'discover', '发现')}
+              ${configRouteOption(announcement.actionRoute || '', 'map', '地图')}
+              ${configRouteOption(announcement.actionRoute || '', 'profile', '我的')}
+              ${configRouteOption(announcement.actionRoute || '', 'settings', '设置')}
+              ${configRouteOption(announcement.actionRoute || '', 'notifications', '通知中心')}
+            </select>
+          </label>
+          <label class="wide">公告正文<textarea id="cfgAnnouncementBody" maxlength="180" placeholder="建议 60 字以内，直接说明发生了什么、用户需要做什么。">${escapeHtml(announcement.body || '')}</textarea></label>
+        </div>
+      </div>
       <button class="primary-button" data-action="save-config">保存配置</button>
     </div>
   `;
@@ -1127,13 +1158,29 @@ function featureCheckbox(id, label, checked) {
   return `<label class="switch-row"><span>${label}</span><input id="${id}" type="checkbox" ${checked ? 'checked' : ''} /></label>`;
 }
 
+function configRouteOption(current, value, label) {
+  return `<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`;
+}
+
 async function saveConfig() {
+  const announcementEnabled = $('cfgAnnouncementEnabled').checked;
+  if (announcementEnabled && (!$('cfgAnnouncementVersion').value.trim() || !$('cfgAnnouncementTitle').value.trim() || !$('cfgAnnouncementBody').value.trim())) {
+    throw new Error('启用公告时，请填写版本、标题和正文');
+  }
   const payload = {
     ai: {
       petAvatarDailyLimit: Number($('cfgPetAvatarDailyLimit').value),
       petChatDailyLimit: Number($('cfgPetChatDailyLimit').value),
     },
     app: {
+      announcement: {
+        actionLabel: $('cfgAnnouncementActionLabel').value,
+        actionRoute: $('cfgAnnouncementActionRoute').value,
+        body: $('cfgAnnouncementBody').value,
+        enabled: announcementEnabled,
+        title: $('cfgAnnouncementTitle').value,
+        version: $('cfgAnnouncementVersion').value,
+      },
       maintenanceEnabled: $('cfgMaintenanceEnabled').checked,
       maintenanceMessage: $('cfgMaintenanceMessage').value,
     },

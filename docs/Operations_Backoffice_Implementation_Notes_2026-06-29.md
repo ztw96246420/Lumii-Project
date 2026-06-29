@@ -204,6 +204,12 @@
 - `features.walkInvite`
 - `app.maintenanceEnabled`
 - `app.maintenanceMessage`
+- `app.announcement.enabled`
+- `app.announcement.version`
+- `app.announcement.title`
+- `app.announcement.body`
+- `app.announcement.actionLabel`
+- `app.announcement.actionRoute`
 
 移动端已接入：
 
@@ -218,6 +224,7 @@
 - `features.walkInvite`：拦截约遛邀请入口和创建接口；后端返回 `FEATURE_DISABLED`。
 - `app.maintenanceEnabled`：App 进入维护页并隐藏底部导航；后端拦截非 GET 写操作，保留反馈、退出登录、刷新 token、通知已读等基础接口。
 - `app.maintenanceMessage`：维护页和后端 `APP_MAINTENANCE` 响应共用文案。
+- `app.announcement`：后台可开启 App 公告弹窗；移动端在登录后展示，按手机号和版本号记录已读，同一版本每个用户只展示一次；支持跳转首页、发现、地图、我的、设置、通知中心。
 
 移动端暂未完整接入：
 
@@ -331,7 +338,6 @@
 - 真实厂商 Push 下发，例如 FCM、APNs、华为/小米/OPPO/VIVO 推送。
 - 通知模板、草稿、定时发送、撤回。
 - 发送审批和频控策略。
-- 用户端公告弹窗，当前仅进入通知中心。
 - 通知点击后的复杂深链参数，例如指定帖子、地点、工单详情。
 
 ## 4. 预留菜单
@@ -367,6 +373,6 @@
 1. 处罚申诉：用户端申诉入口、后台处理、处罚到期/撤销通知。
 2. 内容安全模型接入：文本/图片审核、规则配置、自动风险分、样本沉淀。
 3. 用户端我的工单：反馈进度、客服回复详情、继续补充信息。
-4. 通知运营进阶：厂商 Push、通知模板、定时发送、频控、公告弹窗。
+4. 通知运营进阶：厂商 Push、通知模板、定时发送、频控。
 5. 继续扩大移动端配置化范围：灰度策略、强制升级、启动页素材。
 6. 后台静态资源和 API 增加更细权限与更完整审计字段。

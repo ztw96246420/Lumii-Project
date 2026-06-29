@@ -155,6 +155,14 @@ const fallbackRemoteConfig: AppRemoteConfig = {
     petChatDailyLimit: fallbackPetChatDailyLimit,
   },
   app: {
+    announcement: {
+      actionLabel: '知道了',
+      actionRoute: '',
+      body: '',
+      enabled: false,
+      title: '',
+      version: '',
+    },
     maintenanceEnabled: false,
     maintenanceMessage: '',
   },
@@ -739,6 +747,10 @@ function normalizeWebPreviewRoute(value: string): AppRoute | null {
 function normalizeNotificationActionRoute(value?: string): AppRoute | null {
   if (value === 'discover' || value === 'home' || value === 'map' || value === 'notifications' || value === 'profile' || value === 'settings') return value;
   return null;
+}
+
+function getAppAnnouncementSeenStorageKey(phone: string, version: string) {
+  return `lumii-app-announcement-seen:${phone}:${version}`;
 }
 
 type PetDraft = {
@@ -1999,6 +2011,7 @@ export default function LumiiMvpApp() {
   const [clock, setClock] = useState(Date.now());
   const [session, setSession] = useState<AuthSession | null>(isHomePreviewMode ? initialPreviewSession : null);
   const [remoteConfig, setRemoteConfig] = useState<AppRemoteConfig>(fallbackRemoteConfig);
+  const [appAnnouncementVisible, setAppAnnouncementVisible] = useState(false);
   const remoteConfigRef = useRef<AppRemoteConfig>(fallbackRemoteConfig);
   const activePetIdRef = useRef<string | null>(null);
   const phoneInputRef = useRef<TextInput>(null);
@@ -2323,6 +2336,9 @@ export default function LumiiMvpApp() {
   const walkInviteEnabled = remoteConfig.features.walkInvite !== false;
   const maintenanceEnabled = remoteConfig.app.maintenanceEnabled && !isHomePreviewMode;
   const maintenanceMessage = remoteConfig.app.maintenanceMessage || '灵伴正在维护升级，请稍后再试';
+  const appAnnouncement = remoteConfig.app.announcement;
+  const appAnnouncementVersion = String(appAnnouncement?.version || remoteConfig.updatedAt || '').trim();
+  const appAnnouncementSeenKey = session?.phone && appAnnouncement?.enabled && appAnnouncementVersion ? getAppAnnouncementSeenStorageKey(session.phone, appAnnouncementVersion) : '';
   const showBottomTabs = Boolean(session && currentTab && !maintenanceEnabled);
   const pendingVaccines = useMemo(() => vaccines.filter((item) => item.status !== 'done'), [vaccines]);
   const urgentVaccines = useMemo(() => pendingVaccines.filter(isVaccineReminderUrgent), [pendingVaccines]);
@@ -2338,6 +2354,23 @@ export default function LumiiMvpApp() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!session || maintenanceEnabled || isHomePreviewMode || !appAnnouncement?.enabled || !appAnnouncementSeenKey || !appAnnouncement.title || !appAnnouncement.body) {
+      setAppAnnouncementVisible(false);
+      return;
+    }
+    let cancelled = false;
+    loadLocalJsonStorage<{ dismissedAt?: string }>(appAnnouncementSeenKey).then((seen) => {
+      if (cancelled) return;
+      setAppAnnouncementVisible(!seen?.dismissedAt);
+    }).catch(() => {
+      if (!cancelled) setAppAnnouncementVisible(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [appAnnouncement?.body, appAnnouncement?.enabled, appAnnouncement?.title, appAnnouncementSeenKey, isHomePreviewMode, maintenanceEnabled, session?.phone]);
 
   useEffect(() => {
     if (!memoReminderPickerKind) return;
@@ -4225,6 +4258,19 @@ export default function LumiiMvpApp() {
     else if (category === 'walk') go('messages');
     else if (category === 'system') go('settings');
     else go('messages');
+  }
+
+  async function dismissAppAnnouncement() {
+    setAppAnnouncementVisible(false);
+    if (appAnnouncementSeenKey) {
+      await saveLocalJsonStorage(appAnnouncementSeenKey, { dismissedAt: new Date().toISOString() }).catch(() => undefined);
+    }
+  }
+
+  async function openAppAnnouncementAction() {
+    const actionRoute = normalizeNotificationActionRoute(appAnnouncement?.actionRoute || '');
+    await dismissAppAnnouncement();
+    if (actionRoute) go(actionRoute);
   }
 
   useEffect(() => {
@@ -14764,6 +14810,38 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderAppAnnouncementModal() {
+    const announcement = appAnnouncement;
+    if (!announcement?.enabled || !announcement.title || !announcement.body) return null;
+    const actionLabel = announcement.actionLabel?.trim() || '知道了';
+    const actionRoute = normalizeNotificationActionRoute(announcement.actionRoute || '');
+    return (
+      <Modal animationType="fade" onRequestClose={() => void dismissAppAnnouncement()} transparent visible={appAnnouncementVisible}>
+        <View style={styles.appAnnouncementBackdrop}>
+          <View style={styles.appAnnouncementCard}>
+            <View style={styles.appAnnouncementIcon}>
+              <Bell color="#fff" size={24} strokeWidth={2.4} />
+            </View>
+            <Text style={styles.appAnnouncementTitle}>{announcement.title}</Text>
+            <Text style={styles.appAnnouncementBody}>{announcement.body}</Text>
+            <View style={styles.appAnnouncementMetaRow}>
+              <Sparkles color={palette.teal} size={13} strokeWidth={2.4} />
+              <Text style={styles.appAnnouncementMetaText}>来自灵伴运营</Text>
+            </View>
+            <View style={styles.appAnnouncementActions}>
+              <Pressable accessibilityLabel="dismiss-app-announcement" accessibilityRole="button" onPress={() => void dismissAppAnnouncement()} style={[styles.appAnnouncementSecondary, webPressableReset]}>
+                <Text style={styles.appAnnouncementSecondaryText}>关闭</Text>
+              </Pressable>
+              <Pressable accessibilityLabel="open-app-announcement-action" accessibilityRole="button" onPress={() => void openAppAnnouncementAction()} style={[styles.appAnnouncementPrimary, webPressableReset]}>
+                <Text style={styles.appAnnouncementPrimaryText}>{actionRoute ? actionLabel : '知道了'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
   function renderGreetingSheet() {
     const owner = greetingSheetOwner;
     const saving = owner ? socialActionSavingIds.includes(`greet:${owner.id}`) : false;
@@ -15207,6 +15285,7 @@ export default function LumiiMvpApp() {
               })}
             </View>
           ) : null}
+          {renderAppAnnouncementModal()}
           <Toast icon={toast?.icon} iconTone={toast?.iconTone} layout={toast?.layout} message={toast?.message} placement={toast?.placement} subtitle={toast?.subtitle} tone={toast?.tone} variant={toast?.variant} />
           {datePickerRequest && Platform.OS !== 'web' ? (
             Platform.OS === 'ios' ? (
@@ -15944,6 +16023,18 @@ const styles = StyleSheet.create({
   addPlaceSubmitButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 25, flexDirection: 'row', gap: 7, height: 50, justifyContent: 'center', marginTop: 18, shadowColor: palette.orange, shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.28, shadowRadius: 24 },
   addPlaceSubmitTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 15, fontWeight: '700' },
   addPlaceTextAreaMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, lineHeight: 22, minHeight: 104, paddingHorizontal: 14, paddingTop: 12 },
+  appAnnouncementActions: { flexDirection: 'row', gap: 10, marginTop: 18 },
+  appAnnouncementBackdrop: { alignItems: 'center', backgroundColor: 'rgba(27,28,25,0.44)', flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
+  appAnnouncementBody: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 22, marginTop: 10, textAlign: 'center' },
+  appAnnouncementCard: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 24, borderWidth: 1, maxWidth: 340, paddingBottom: 18, paddingHorizontal: 20, paddingTop: 22, shadowColor: '#000', shadowOffset: { height: 28, width: 0 }, shadowOpacity: 0.22, shadowRadius: 55, width: '100%' },
+  appAnnouncementIcon: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, height: 52, justifyContent: 'center', marginBottom: 14, shadowColor: palette.orange, shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.28, shadowRadius: 24, width: 52 },
+  appAnnouncementMetaRow: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.10)', borderRadius: 999, flexDirection: 'row', gap: 5, marginTop: 14, paddingHorizontal: 10, paddingVertical: 5 },
+  appAnnouncementMetaText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
+  appAnnouncementPrimary: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 22, flex: 1, height: 46, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.22, shadowRadius: 20 },
+  appAnnouncementPrimaryText: { color: '#fff', fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '600', lineHeight: 19 },
+  appAnnouncementSecondary: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 22, flex: 1, height: 46, justifyContent: 'center' },
+  appAnnouncementSecondaryText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '500', lineHeight: 19 },
+  appAnnouncementTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', letterSpacing: 0, lineHeight: 25, textAlign: 'center' },
   amapConfirmActionsMake: { flexDirection: 'row', gap: 8, marginTop: 16 },
   amapConfirmAppLabelActiveMake: { color: palette.orange, fontWeight: '600' },
   amapConfirmAppLabelMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 17 },

@@ -585,6 +585,14 @@ export type AppRemoteConfig = {
     petChatDailyLimit: number;
   };
   app: {
+    announcement?: {
+      actionLabel?: string;
+      actionRoute?: 'discover' | 'home' | 'map' | 'notifications' | 'profile' | 'settings' | '';
+      body?: string;
+      enabled?: boolean;
+      title?: string;
+      version?: string;
+    };
     maintenanceEnabled: boolean;
     maintenanceMessage: string;
   };
