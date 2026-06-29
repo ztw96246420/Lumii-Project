@@ -574,6 +574,311 @@ function adminOpsConfigResponse() {
   };
 }
 
+const ADMIN_EXPORT_ROW_LIMIT = 1000;
+
+function exportDateText(value) {
+  if (!value) return '';
+  const date = typeof value === 'number' ? new Date(value) : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value || '');
+  return date.toISOString();
+}
+
+function exportBoolText(value) {
+  if (value === true) return '是';
+  if (value === false) return '否';
+  return '';
+}
+
+function exportJoin(value, separator = ' | ') {
+  if (!Array.isArray(value)) return '';
+  return value.map((item) => String(item || '').trim()).filter(Boolean).join(separator);
+}
+
+function exportColumn(key, label, value) {
+  return { key, label, value };
+}
+
+function exportCellValue(row, column) {
+  const raw = typeof column.value === 'function' ? column.value(row) : row?.[column.key];
+  if (raw === null || raw === undefined) return '';
+  if (Array.isArray(raw)) return exportJoin(raw);
+  if (typeof raw === 'object') return JSON.stringify(raw);
+  return String(raw);
+}
+
+function escapeCsvCell(value) {
+  const text = String(value ?? '');
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvFromRows(rows, columns) {
+  const header = columns.map((column) => escapeCsvCell(column.label));
+  const lines = rows.map((row) => columns.map((column) => escapeCsvCell(exportCellValue(row, column))).join(','));
+  return `\ufeff${[header.join(','), ...lines].join('\r\n')}\r\n`;
+}
+
+function adminExportTimestamp() {
+  return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+}
+
+function adminExportDataset(type) {
+  const users = () => Object.values(state.users || {}).map(adminUserSummary)
+    .sort((a, b) => Number(b.lastSeenAt || b.createdAt || 0) - Number(a.lastSeenAt || a.createdAt || 0));
+  const specs = {
+    users: {
+      description: '账号、宠物数量、附近可见、处罚和内容计数，用于用户排查和运营盘点。',
+      label: '用户账号',
+      rows: users,
+      columns: [
+        exportColumn('phone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('status', '账号状态'),
+        exportColumn('petCount', '宠物数'),
+        exportColumn('activePet', '当前宠物', (row) => row.activePet?.name || ''),
+        exportColumn('nearbyVisible', '附近可见', (row) => exportBoolText(row.settings?.nearbyVisible)),
+        exportColumn('socialPostCount', '小事数'),
+        exportColumn('reportsAgainstCount', '被举报数'),
+        exportColumn('activeSanctions', '生效处罚数', (row) => row.sanctions?.activeCount || 0),
+        exportColumn('createdAt', '注册时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('lastSeenAt', '最近活跃', (row) => exportDateText(row.lastSeenAt)),
+      ],
+    },
+    avatar_jobs: {
+      description: 'AI 灵伴生成任务状态、供应商、进度和错误信息，用于排查卡住或失败任务。',
+      label: 'AI 灵伴任务',
+      rows: adminAvatarJobs,
+      columns: [
+        exportColumn('id', '任务ID'),
+        exportColumn('status', '状态'),
+        exportColumn('provider', '供应商'),
+        exportColumn('providerStatus', '供应商状态'),
+        exportColumn('progress', '进度'),
+        exportColumn('ownerPhone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('petName', '宠物名'),
+        exportColumn('errorCode', '错误码'),
+        exportColumn('errorMessage', '错误信息'),
+        exportColumn('createdAt', '创建时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('updatedAt', '更新时间', (row) => exportDateText(row.updatedAt)),
+      ],
+    },
+    moderation_tasks: {
+      description: '统一内容安全任务池，覆盖举报、被举报内容、地点点评和新增地点。',
+      label: '内容安全任务',
+      rows: () => adminModerationTasks({ limit: ADMIN_EXPORT_ROW_LIMIT, status: 'all' }).tasks,
+      columns: [
+        exportColumn('id', '任务ID'),
+        exportColumn('kindLabel', '类型'),
+        exportColumn('status', '状态'),
+        exportColumn('priority', '优先级'),
+        exportColumn('riskScore', '风险分'),
+        exportColumn('riskTypes', '风险标签', (row) => exportJoin(row.riskTypes)),
+        exportColumn('assignee', '负责人'),
+        exportColumn('slaStatus', 'SLA状态', (row) => row.sla?.status || ''),
+        exportColumn('ownerPhone', '作者手机号'),
+        exportColumn('ownerName', '作者昵称'),
+        exportColumn('targetType', '对象类型'),
+        exportColumn('targetId', '对象ID'),
+        exportColumn('title', '标题'),
+        exportColumn('contentText', '内容摘要'),
+        exportColumn('createdAt', '创建时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('updatedAt', '更新时间', (row) => exportDateText(row.updatedAt)),
+      ],
+    },
+    social_posts: {
+      description: '宠友圈小事内容状态、互动和举报计数，用于内容复盘。',
+      label: '宠友圈小事',
+      rows: adminSocialPosts,
+      columns: [
+        exportColumn('id', '小事ID'),
+        exportColumn('status', '状态'),
+        exportColumn('visibility', '可见性'),
+        exportColumn('ownerPhone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('petName', '宠物名'),
+        exportColumn('content', '正文'),
+        exportColumn('imageCount', '图片数', (row) => row.imageUrls?.length || 0),
+        exportColumn('likeCount', '点赞数'),
+        exportColumn('commentCount', '评论数'),
+        exportColumn('reportCount', '举报数'),
+        exportColumn('createdAt', '发布时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('updatedAt', '更新时间', (row) => exportDateText(row.updatedAt)),
+      ],
+    },
+    social_comments: {
+      description: '宠友圈评论状态和举报计数，用于评论审核追踪。',
+      label: '宠友圈评论',
+      rows: adminSocialComments,
+      columns: [
+        exportColumn('id', '评论ID'),
+        exportColumn('status', '状态'),
+        exportColumn('postId', '小事ID'),
+        exportColumn('postOwnerPhone', '小事作者'),
+        exportColumn('ownerPhone', '评论者手机号'),
+        exportColumn('ownerName', '评论者昵称'),
+        exportColumn('content', '评论内容'),
+        exportColumn('reportCount', '举报数'),
+        exportColumn('createdAt', '创建时间', (row) => exportDateText(row.createdAt)),
+      ],
+    },
+    reports: {
+      description: '举报记录、处理状态和站内通知回执，用于安全处理复盘。',
+      label: '举报记录',
+      rows: adminSocialReports,
+      columns: [
+        exportColumn('id', '举报ID'),
+        exportColumn('status', '状态'),
+        exportColumn('targetType', '对象类型'),
+        exportColumn('targetId', '对象ID'),
+        exportColumn('reporterPhone', '举报人手机号'),
+        exportColumn('reporterName', '举报人昵称'),
+        exportColumn('ownerPhone', '被举报人手机号'),
+        exportColumn('ownerName', '被举报人昵称'),
+        exportColumn('content', '举报原因'),
+        exportColumn('resultNotifiedAt', '举报人通知时间', (row) => exportDateText(row.resultNotifiedAt)),
+        exportColumn('ownerResultNotifiedAt', '作者通知时间', (row) => exportDateText(row.ownerResultNotifiedAt)),
+        exportColumn('createdAt', '创建时间', (row) => exportDateText(row.createdAt)),
+      ],
+    },
+    place_reviews: {
+      description: '地点点评审核记录，用于地点内容运营和审核追踪。',
+      label: '地点点评',
+      rows: adminPlaceReviews,
+      columns: [
+        exportColumn('id', '点评ID'),
+        exportColumn('status', '状态'),
+        exportColumn('placeId', '地点ID'),
+        exportColumn('placeName', '地点名'),
+        exportColumn('ownerPhone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('rating', '评分'),
+        exportColumn('content', '点评内容'),
+        exportColumn('reviewedBy', '审核人'),
+        exportColumn('reviewReason', '审核原因'),
+        exportColumn('createdAt', '提交时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('reviewedAt', '审核时间', (row) => exportDateText(row.reviewedAt)),
+      ],
+    },
+    place_submissions: {
+      description: '新增地点提交与审核记录，用于地点入库运营。',
+      label: '新增地点',
+      rows: adminPlaceSubmissions,
+      columns: [
+        exportColumn('id', '提交ID'),
+        exportColumn('status', '状态'),
+        exportColumn('name', '地点名'),
+        exportColumn('address', '地址'),
+        exportColumn('ownerPhone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('content', '补充说明'),
+        exportColumn('approvedPlaceId', '通过后地点ID'),
+        exportColumn('reviewedBy', '审核人'),
+        exportColumn('reviewReason', '审核原因'),
+        exportColumn('createdAt', '提交时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('reviewedAt', '审核时间', (row) => exportDateText(row.reviewedAt)),
+      ],
+    },
+    tickets: {
+      description: '用户反馈工单、负责人、SLA 和回复数，用于客服处理复盘。',
+      label: '工单',
+      rows: () => adminSupportTickets({ limit: ADMIN_EXPORT_ROW_LIMIT, priority: 'all', status: 'all' }).tickets,
+      columns: [
+        exportColumn('id', '工单ID'),
+        exportColumn('status', '状态'),
+        exportColumn('priority', '优先级'),
+        exportColumn('slaState', 'SLA状态'),
+        exportColumn('category', '分类'),
+        exportColumn('phone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('title', '标题'),
+        exportColumn('content', '内容'),
+        exportColumn('assignee', '负责人'),
+        exportColumn('replyCount', '回复数'),
+        exportColumn('createdAt', '创建时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('updatedAt', '更新时间', (row) => exportDateText(row.updatedAt)),
+      ],
+    },
+    sanctions: {
+      description: '账号处罚和撤销记录，用于风控复盘。',
+      label: '用户处罚',
+      rows: adminSanctions,
+      columns: [
+        exportColumn('id', '处罚ID'),
+        exportColumn('status', '状态'),
+        exportColumn('typeLabel', '类型'),
+        exportColumn('phone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('petName', '宠物名'),
+        exportColumn('reason', '处罚原因'),
+        exportColumn('durationHours', '时长小时'),
+        exportColumn('createdBy', '创建人'),
+        exportColumn('createdAt', '创建时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('expiresAt', '到期时间', (row) => exportDateText(row.expiresAt)),
+        exportColumn('revokedAt', '撤销时间', (row) => exportDateText(row.revokedAt)),
+        exportColumn('revokeReason', '撤销原因'),
+      ],
+    },
+    audit_logs: {
+      description: '后台写操作审计摘要，不导出 before/after 完整快照。',
+      label: '审计日志',
+      rows: () => (state.adminAuditLogs || []).slice(0, ADMIN_EXPORT_ROW_LIMIT),
+      columns: [
+        exportColumn('id', '审计ID'),
+        exportColumn('action', '动作'),
+        exportColumn('adminName', '管理员'),
+        exportColumn('role', '角色'),
+        exportColumn('targetType', '对象类型'),
+        exportColumn('targetId', '对象ID'),
+        exportColumn('reason', '原因'),
+        exportColumn('createdAt', '时间', (row) => exportDateText(row.createdAt)),
+      ],
+    },
+  };
+  return specs[type] || null;
+}
+
+function adminExportCatalog() {
+  return ['users', 'avatar_jobs', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
+    .map((type) => {
+      const dataset = adminExportDataset(type);
+      const rows = dataset ? dataset.rows() : [];
+      return {
+        columns: dataset.columns.map((column) => column.label),
+        description: dataset.description,
+        label: dataset.label,
+        limit: ADMIN_EXPORT_ROW_LIMIT,
+        rowCount: rows.length,
+        type,
+      };
+    });
+}
+
+function buildAdminExportCsv(type) {
+  const dataset = adminExportDataset(type);
+  if (!dataset) return null;
+  const allRows = dataset.rows();
+  const rows = allRows.slice(0, ADMIN_EXPORT_ROW_LIMIT);
+  return {
+    columns: dataset.columns.map((column) => column.label),
+    csv: csvFromRows(rows, dataset.columns),
+    filename: `lumii-${type}-${adminExportTimestamp()}.csv`,
+    label: dataset.label,
+    rowCount: rows.length,
+    totalRows: allRows.length,
+    type,
+  };
+}
+
+function sendCsv(res, filename, csv) {
+  res.writeHead(200, {
+    'Access-Control-Allow-Origin': '*',
+    'Content-Disposition': `attachment; filename="${encodeURIComponent(filename)}"`,
+    'Content-Type': 'text/csv; charset=utf-8',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(csv);
+}
+
 function publicAppConfig() {
   const config = currentOpsConfig();
   return {
@@ -7204,6 +7509,7 @@ function adminSupportTickets(options = {}) {
   const q = String(options.q || '').trim().toLowerCase();
   const status = String(options.status || 'open');
   const priority = String(options.priority || 'all');
+  const limit = Math.floor(clampNumber(options.limit, 300, 1, ADMIN_EXPORT_ROW_LIMIT));
   const rows = ensureSupportTickets().map(supportTicketItem)
     .filter((ticket) => {
       if (status === 'all') return true;
@@ -7232,7 +7538,7 @@ function adminSupportTickets(options = {}) {
       urgent: all.filter((ticket) => ticket.priority === 'urgent' || ticket.priority === 'high').length,
       waitingUser: all.filter((ticket) => ticket.status === 'waiting_user').length,
     },
-    tickets: rows.slice(0, 300),
+    tickets: rows.slice(0, limit),
   };
 }
 
@@ -7609,6 +7915,7 @@ function buildModerationTask(input) {
 function adminModerationTasks(options = {}) {
   const statusFilter = String(options.status || 'pending');
   const q = String(options.q || '').trim().toLowerCase();
+  const limit = Math.floor(clampNumber(options.limit, 300, 1, ADMIN_EXPORT_ROW_LIMIT));
   const reportTasks = adminSocialReports().map((report) => {
     const target = socialReportTargetSnapshot(report);
     const riskScore = report.status === 'escalated' ? 95 : 82;
@@ -7753,7 +8060,7 @@ function adminModerationTasks(options = {}) {
       ruleHits: samples.length,
       social: allTasks.filter((task) => task.kind === 'pet_circle_post' || task.kind === 'pet_circle_comment').length,
     },
-    tasks: tasks.slice(0, 300),
+    tasks: tasks.slice(0, limit),
   };
 }
 
@@ -7967,6 +8274,31 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/dashboard/summary') {
     ok(res, adminDashboardSummary());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/exports') {
+    ok(res, adminExportCatalog());
+    return true;
+  }
+
+  const adminExportMatch = pathname.match(/^\/admin\/exports\/([^/]+)\.csv$/);
+  if (req.method === 'GET' && adminExportMatch) {
+    const type = decodeURIComponent(adminExportMatch[1]);
+    const result = buildAdminExportCsv(type);
+    if (!result) {
+      fail(res, 404, '导出数据集不存在', false, undefined, 'ADMIN_EXPORT_NOT_FOUND');
+      return true;
+    }
+    writeAdminAudit(admin, 'data.export.download', 'data_export', type, null, {
+      columns: result.columns,
+      filename: result.filename,
+      rowCount: result.rowCount,
+      totalRows: result.totalRows,
+      type,
+    }, `导出${result.label}`);
+    saveState();
+    sendCsv(res, result.filename, result.csv);
     return true;
   }
 

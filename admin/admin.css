@@ -431,6 +431,23 @@ th {
   border-color: rgba(220, 96, 78, 0.2);
 }
 
+.export-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 520px;
+}
+
+.export-fields span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 8px;
+}
+
 .toolbar {
   display: flex;
   gap: 10px;

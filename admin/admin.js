@@ -26,7 +26,7 @@ const navItems = [
   { key: 'audit', label: '审计日志' },
   { key: 'sanctions', label: '用户处罚' },
   { key: 'sanctionAppeals', label: '申诉中心' },
-  { key: 'exports', label: '数据导出', reserved: true },
+  { key: 'exports', label: '数据导出' },
 ];
 
 const titles = {
@@ -34,7 +34,7 @@ const titles = {
   avatarJobs: ['AI 灵伴', '生成任务、失败排查、额度返还'],
   config: ['配置中心', '这些配置会被移动端 /app/config 读取'],
   dashboard: ['总览', '运营工作台'],
-  exports: ['数据导出', '需要审批的生产能力'],
+  exports: ['数据导出', '可审计的运营 CSV 下载'],
   moderation: ['内容安全', '举报、动态、评论和地点审核任务池'],
   notifications: ['通知运营', '系统通知、定向触达和移动端通知中心联动'],
   places: ['地图地点', '地点点评与新增地点审核'],
@@ -277,6 +277,10 @@ async function onContentClick(event) {
       await rollbackConfigRevision(id);
       return;
     }
+    if (action === 'download-export') {
+      await downloadExport(id);
+      return;
+    }
     if (action === 'sanction-create') await createSanction();
     if (action === 'sanction-revoke') await confirmPost(`/admin/users/${encodeURIComponent(phone)}/sanctions/${encodeURIComponent(id)}/revoke`, { reason }, '确认撤销这条处罚？');
     if (action === 'quick-mute') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 24, reason: '用户列表快捷禁言', type: 'mute' });
@@ -486,6 +490,7 @@ async function render(force = false) {
     avatarJobs: renderAvatarJobs,
     config: renderConfig,
     dashboard: renderDashboard,
+    exports: renderExports,
     moderation: renderModeration,
     notifications: renderNotifications,
     places: renderPlaces,
@@ -1731,6 +1736,61 @@ async function rollbackConfigRevision(id) {
   state.cache.summary = null;
   showToast('配置已回滚');
   await render(true);
+}
+
+async function renderExports(force) {
+  const rows = await load('exports', '/admin/exports', force);
+  const totalRows = rows.reduce((sum, item) => sum + Number(item.rowCount || 0), 0);
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('可导出数据集', rows.length, 'CSV 下载', '导出接口需要管理员登录，并会写入审计日志。')}
+      ${metric('当前总行数', totalRows, '按数据集独立统计', '页面展示的是当前后端状态里可导出的业务行数。')}
+      ${metric('单次上限', rows[0]?.limit || 1000, '每个 CSV 最多行数', '防止误导出过大文件；后续可增加审批和异步导出。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>导出数据</h2>
+          <div class="section-sub">下载会生成 CSV 文件，并记录到系统审计</div>
+        </div>
+        ${help('当前不导出图片二进制、设备 token、完整审计 before/after 快照等大字段或敏感字段。')}
+      </div>
+      ${tableHtml(rows, [
+        ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.type)}</div><div class="cell-sub">${escapeHtml(row.description)}</div>`],
+        ['当前行数', (row) => `<div class="cell-title">${escapeHtml(row.rowCount)}</div><div class="cell-sub">上限 ${escapeHtml(row.limit)}</div>`],
+        ['字段', (row) => `<div class="export-fields">${(row.columns || []).slice(0, 8).map((item) => `<span>${escapeHtml(item)}</span>`).join('')}${(row.columns || []).length > 8 ? `<span>+${(row.columns || []).length - 8}</span>` : ''}</div>`],
+        ['操作', (row) => `<button class="small-button" data-action="download-export" data-id="${escapeHtml(row.type)}">下载 CSV</button>`],
+      ], '暂无可导出数据')}
+    </div>
+  `;
+}
+
+async function downloadExport(type) {
+  if (!type) return;
+  const response = await fetch(`/admin/exports/${encodeURIComponent(type)}.csv`, {
+    headers: {
+      Accept: 'text/csv',
+      ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+    },
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload?.error?.message || `导出失败：${response.status}`);
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  const filename = match ? decodeURIComponent(match[1]) : `lumii-${type}.csv`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  state.cache.audit = null;
+  showToast('导出已开始下载');
 }
 
 async function renderAudit(force) {
