@@ -575,6 +575,8 @@ function adminOpsConfigResponse() {
 }
 
 const ADMIN_EXPORT_ROW_LIMIT = 1000;
+const ADMIN_ANALYTICS_DEFAULT_DAYS = 14;
+const ADMIN_ANALYTICS_MAX_DAYS = 90;
 
 function exportDateText(value) {
   if (!value) return '';
@@ -7184,6 +7186,268 @@ function adminDashboardSummary() {
   };
 }
 
+function analyticsDateKeyFromDate(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function analyticsTimeMs(value) {
+  if (!value) return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const text = String(value || '').trim();
+  if (!text) return 0;
+  const timestamp = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00:00` : text);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function analyticsDateKey(value) {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  }
+  const timestamp = analyticsTimeMs(value);
+  if (!timestamp) return '';
+  return analyticsDateKeyFromDate(new Date(timestamp));
+}
+
+function analyticsWindow(daysInput) {
+  const days = Math.floor(clampNumber(daysInput, ADMIN_ANALYTICS_DEFAULT_DAYS, 7, ADMIN_ANALYTICS_MAX_DAYS));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const buckets = [];
+  for (let index = days - 1; index >= 0; index -= 1) {
+    const date = new Date(today);
+    date.setDate(today.getDate() - index);
+    const day = analyticsDateKeyFromDate(date);
+    buckets.push({
+      activeUsers: 0,
+      aiActionRecords: 0,
+      avatarFailed: 0,
+      avatarReady: 0,
+      avatarStarted: 0,
+      conversationMessages: 0,
+      date: day,
+      greetings: 0,
+      greetingsAccepted: 0,
+      healthMemos: 0,
+      healthVaccines: 0,
+      healthWeights: 0,
+      label: day.slice(5).replace('-', '/'),
+      moderationTasks: 0,
+      newUsers: 0,
+      petChatRequests: 0,
+      placeReviews: 0,
+      placeSubmissions: 0,
+      reports: 0,
+      socialComments: 0,
+      socialImages: 0,
+      socialLikes: 0,
+      socialPosts: 0,
+      tickets: 0,
+      walkInvites: 0,
+    });
+  }
+  return {
+    bucketMap: new Map(buckets.map((bucket) => [bucket.date, bucket])),
+    buckets,
+    days,
+  };
+}
+
+function incrementAnalyticsBucket(bucketMap, value, key, amount = 1) {
+  const day = analyticsDateKey(value);
+  const bucket = bucketMap.get(day);
+  if (!bucket) return false;
+  bucket[key] = Number(bucket[key] || 0) + amount;
+  return true;
+}
+
+function sumAnalyticsBuckets(buckets, key) {
+  return buckets.reduce((sum, bucket) => sum + Number(bucket[key] || 0), 0);
+}
+
+function analyticsPercent(part, total) {
+  if (!total) return 0;
+  return Math.round((Number(part || 0) / Number(total || 0)) * 1000) / 10;
+}
+
+function analyticsAverage(values) {
+  const finiteValues = values.filter((value) => Number.isFinite(value) && value >= 0);
+  if (!finiteValues.length) return 0;
+  return Math.round(finiteValues.reduce((sum, value) => sum + value, 0) / finiteValues.length);
+}
+
+function flattenAnalyticsMap(map) {
+  return Object.values(map || {}).flatMap((items) => (Array.isArray(items) ? items : []));
+}
+
+function flattenConversationMessagesForAnalytics() {
+  return Object.values(state.conversationMessages || {}).flatMap((conversationMap) =>
+    Object.values(conversationMap || {}).flatMap((messages) => (Array.isArray(messages) ? messages : [])),
+  );
+}
+
+function flattenPetChatMessagesForAnalytics() {
+  return Object.values(state.petChatMessages || {}).flatMap((messages) => (Array.isArray(messages) ? messages : []));
+}
+
+function analyticsAvatarDurationSeconds(job) {
+  const start = analyticsTimeMs(job.acceptedAt || job.createdAt);
+  const end = analyticsTimeMs(job.completedAt || job.updatedAt);
+  if (!start || !end || end < start) return null;
+  return Math.round((end - start) / 1000);
+}
+
+function adminAnalytics(options = {}) {
+  const { bucketMap, buckets, days } = analyticsWindow(options.days);
+  const users = Object.values(state.users || {}).map((user) => ({
+    ...user,
+    settings: normalizeUserSettings(user.settings),
+  }));
+  const avatarJobs = Object.values(state.avatarJobs || {});
+  const petChatMessages = flattenPetChatMessagesForAnalytics();
+  const petChatRequests = petChatMessages.filter((message) => message.author === 'me');
+  const petChatReplies = petChatMessages.filter((message) => message.author === 'ai');
+  const healthWeights = flattenAnalyticsMap(state.health?.weights);
+  const healthMemos = flattenAnalyticsMap(state.health?.memos);
+  const healthVaccines = flattenAnalyticsMap(state.health?.vaccines);
+  const vaccineReminderIds = flattenAnalyticsMap(state.health?.vaccineReminders);
+  const socialPosts = ensureSocialMoments();
+  const socialComments = ensureSocialComments();
+  const socialLikes = ensureSocialLikes();
+  const socialReports = ensureSocialReports();
+  const socialBlocks = ensureSocialBlocks();
+  const greetings = Array.isArray(state.greetings) ? state.greetings : [];
+  const walkInvites = Array.isArray(state.invites) ? state.invites : [];
+  const conversationMessages = flattenConversationMessagesForAnalytics().filter((message) => message.author === 'me');
+  const placeReviews = adminPlaceReviews();
+  const placeSubmissions = adminPlaceSubmissions();
+  const tickets = adminSupportTickets({ limit: ADMIN_EXPORT_ROW_LIMIT, priority: 'all', status: 'all' }).tickets;
+  const moderationTasks = adminModerationTasks({ limit: ADMIN_EXPORT_ROW_LIMIT, status: 'all' }).tasks;
+  const sanctions = adminSanctions();
+  const aiUsage = state.aiUsage || createInitialState().aiUsage;
+
+  users.forEach((user) => {
+    incrementAnalyticsBucket(bucketMap, user.createdAt, 'newUsers');
+    incrementAnalyticsBucket(bucketMap, user.lastSeenAt, 'activeUsers');
+  });
+  avatarJobs.forEach((job) => {
+    incrementAnalyticsBucket(bucketMap, job.createdAt, 'avatarStarted');
+    if (job.status === 'ready') incrementAnalyticsBucket(bucketMap, job.updatedAt || job.createdAt, 'avatarReady');
+    if (job.status === 'failed') incrementAnalyticsBucket(bucketMap, job.updatedAt || job.createdAt, 'avatarFailed');
+  });
+  petChatRequests.forEach((message) => incrementAnalyticsBucket(bucketMap, message.time || message.createdAt, 'petChatRequests'));
+  petChatReplies
+    .filter((message) => message.medicalAlert || message.createdMemo || message.createdWeight || message.updatedVaccine || message.updatedPet)
+    .forEach((message) => incrementAnalyticsBucket(bucketMap, message.time || message.createdAt, 'aiActionRecords'));
+  healthWeights.forEach((record) => incrementAnalyticsBucket(bucketMap, record.recordedAt || isoDateFromTimestampId(record.id), 'healthWeights'));
+  healthMemos.forEach((memo) => incrementAnalyticsBucket(bucketMap, memo.createdAt || isoDateFromTimestampId(memo.id), 'healthMemos'));
+  healthVaccines.forEach((vaccine) => incrementAnalyticsBucket(bucketMap, isoDateFromTimestampId(vaccine.id) || vaccine.dueAt, 'healthVaccines'));
+  socialPosts.forEach((post) => {
+    incrementAnalyticsBucket(bucketMap, post.createdAt, 'socialPosts');
+    incrementAnalyticsBucket(bucketMap, post.createdAt, 'socialImages', Array.isArray(post.imageUrls) ? post.imageUrls.length : 0);
+  });
+  socialLikes.forEach((like) => incrementAnalyticsBucket(bucketMap, like.createdAt, 'socialLikes'));
+  socialComments.forEach((comment) => incrementAnalyticsBucket(bucketMap, comment.createdAt, 'socialComments'));
+  socialReports.forEach((report) => incrementAnalyticsBucket(bucketMap, report.createdAt, 'reports'));
+  greetings.forEach((greeting) => {
+    incrementAnalyticsBucket(bucketMap, greeting.at || greeting.createdAt, 'greetings');
+    if (greeting.status === 'accepted') incrementAnalyticsBucket(bucketMap, greeting.respondedAt || greeting.at, 'greetingsAccepted');
+  });
+  walkInvites.forEach((invite) => incrementAnalyticsBucket(bucketMap, invite.at || invite.createdAt, 'walkInvites'));
+  conversationMessages.forEach((message) => incrementAnalyticsBucket(bucketMap, message.time || message.createdAt, 'conversationMessages'));
+  placeReviews.forEach((review) => incrementAnalyticsBucket(bucketMap, review.createdAt, 'placeReviews'));
+  placeSubmissions.forEach((submission) => incrementAnalyticsBucket(bucketMap, submission.createdAt, 'placeSubmissions'));
+  tickets.forEach((ticket) => incrementAnalyticsBucket(bucketMap, ticket.createdAt, 'tickets'));
+  moderationTasks.forEach((task) => incrementAnalyticsBucket(bucketMap, task.createdAt, 'moderationTasks'));
+
+  const windowAvatarStarted = sumAnalyticsBuckets(buckets, 'avatarStarted');
+  const windowAvatarReady = sumAnalyticsBuckets(buckets, 'avatarReady');
+  const windowAvatarFailed = sumAnalyticsBuckets(buckets, 'avatarFailed');
+  const avatarDurations = avatarJobs
+    .filter((job) => job.status === 'ready')
+    .map(analyticsAvatarDurationSeconds)
+    .filter((value) => value !== null);
+  const usersWithReadyAvatar = new Set(avatarJobs.filter((job) => job.status === 'ready' && job.ownerPhone).map((job) => job.ownerPhone));
+  const acceptedGreetings = greetings.filter((greeting) => greeting.status === 'accepted').length;
+  const handledModerationTasks = moderationTasks.filter((task) => !['pending', 'reviewing', 'escalated'].includes(task.status)).length;
+  const validReports = socialReports.filter((report) => report.status === 'valid').length;
+  const reviewedPlaceItems = [...placeReviews, ...placeSubmissions].filter((item) => item.status === 'approved' || item.status === 'rejected');
+  const approvedPlaceItems = reviewedPlaceItems.filter((item) => item.status === 'approved');
+  const activeTodayCutoff = Date.now() - 24 * 60 * 60 * 1000;
+
+  return {
+    buckets,
+    dataGaps: [
+      { label: '附近发现曝光人数', reason: '移动端暂未上报曝光事件，当前只能看附近可见用户和小事发布结果。' },
+      { label: '地图打开/POI 搜索/地点详情查看', reason: '当前后端未存行为事件，地点看板先基于点评和新增地点审核数据。' },
+      { label: '严格留存 Cohort', reason: '当前只有用户 createdAt 与 lastSeenAt，没有每日活跃事件流水。' },
+      { label: 'Push 真实送达/点击', reason: '当前只记录站内通知与设备 token，未接厂商回执。' },
+    ],
+    days,
+    generatedAt: new Date().toISOString(),
+    summary: {
+      ai: {
+        avatarAverageSeconds: analyticsAverage(avatarDurations),
+        avatarFailed: windowAvatarFailed,
+        avatarReady: windowAvatarReady,
+        avatarStarted: windowAvatarStarted,
+        avatarSuccessRate: analyticsPercent(windowAvatarReady, windowAvatarReady + windowAvatarFailed),
+        deepseekRequests: Number(aiUsage.deepseek?.requests || 0),
+        deepseekTokens: Number(aiUsage.deepseek?.totalTokens || 0),
+        gptImage2Cost: Number(aiUsage.gptImage2?.cost || 0),
+        medicalRisk: petChatReplies.filter((message) => message.medicalAlert).length,
+        petChatRequests: sumAnalyticsBuckets(buckets, 'petChatRequests'),
+        readyUserRate: analyticsPercent(usersWithReadyAvatar.size, users.length),
+      },
+      calendar: {
+        aiActionRecords: sumAnalyticsBuckets(buckets, 'aiActionRecords'),
+        memos: sumAnalyticsBuckets(buckets, 'healthMemos'),
+        reminderEnabled: vaccineReminderIds.length,
+        vaccines: sumAnalyticsBuckets(buckets, 'healthVaccines'),
+        weights: sumAnalyticsBuckets(buckets, 'healthWeights'),
+      },
+      places: {
+        approvalRate: analyticsPercent(approvedPlaceItems.length, reviewedPlaceItems.length),
+        approved: approvedPlaceItems.length,
+        reviews: sumAnalyticsBuckets(buckets, 'placeReviews'),
+        submissions: sumAnalyticsBuckets(buckets, 'placeSubmissions'),
+      },
+      safety: {
+        handledModerationTasks,
+        moderationTasks: sumAnalyticsBuckets(buckets, 'moderationTasks'),
+        reportValidRate: analyticsPercent(validReports, socialReports.filter((report) => report.status !== 'pending').length),
+        reports: sumAnalyticsBuckets(buckets, 'reports'),
+        ruleHits: (state.moderationSamples || []).length,
+        sanctions: sanctions.filter((item) => item.status === 'active').length,
+      },
+      social: {
+        blockCount: socialBlocks.length,
+        comments: sumAnalyticsBuckets(buckets, 'socialComments'),
+        conversationMessages: sumAnalyticsBuckets(buckets, 'conversationMessages'),
+        greetingAcceptRate: analyticsPercent(acceptedGreetings, greetings.length),
+        greetings: sumAnalyticsBuckets(buckets, 'greetings'),
+        images: sumAnalyticsBuckets(buckets, 'socialImages'),
+        likes: sumAnalyticsBuckets(buckets, 'socialLikes'),
+        posts: sumAnalyticsBuckets(buckets, 'socialPosts'),
+        reports: sumAnalyticsBuckets(buckets, 'reports'),
+        walkInvites: sumAnalyticsBuckets(buckets, 'walkInvites'),
+      },
+      users: {
+        activeToday: users.filter((user) => Number(user.lastSeenAt || 0) >= activeTodayCutoff).length,
+        activeUsers: sumAnalyticsBuckets(buckets, 'activeUsers'),
+        nearbyVisibleRate: analyticsPercent(users.filter((user) => user.settings.nearbyVisible !== false).length, users.length),
+        newUsers: sumAnalyticsBuckets(buckets, 'newUsers'),
+        pushDeviceCount: Object.values(state.pushDevices || {}).length,
+        pushEnabledRate: analyticsPercent(users.filter((user) => user.settings.pushNotifications !== false).length, users.length),
+        total: users.length,
+        withPetRate: analyticsPercent(users.filter((user) => (user.pets || []).length > 0).length, users.length),
+      },
+    },
+  };
+}
+
 function adminAvatarJobs() {
   return Object.values(state.avatarJobs || {})
     .map((job) => {
@@ -8274,6 +8538,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/dashboard/summary') {
     ok(res, adminDashboardSummary());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/analytics') {
+    ok(res, adminAnalytics({ days: url.searchParams.get('days') }));
     return true;
   }
 

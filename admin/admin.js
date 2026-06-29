@@ -14,6 +14,7 @@ const state = {
 
 const navItems = [
   { key: 'dashboard', label: '工作台' },
+  { key: 'analytics', label: '数据看板' },
   { key: 'users', label: '用户管理' },
   { key: 'avatarJobs', label: 'AI 灵伴' },
   { key: 'moderation', label: '内容安全' },
@@ -30,6 +31,7 @@ const navItems = [
 ];
 
 const titles = {
+  analytics: ['数据看板', '增长、AI、社交和安全趋势'],
   audit: ['系统审计', '后台所有写操作都会沉淀为审计记录'],
   avatarJobs: ['AI 灵伴', '生成任务、失败排查、额度返还'],
   config: ['配置中心', '这些配置会被移动端 /app/config 读取'],
@@ -62,6 +64,29 @@ function formatTime(value) {
   const date = typeof value === 'number' ? new Date(value) : new Date(String(value));
   if (Number.isNaN(date.getTime())) return '-';
   return date.toLocaleString('zh-CN', { hour12: false });
+}
+
+function numberText(value, digits = 0) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return '0';
+  return number.toLocaleString('zh-CN', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
+}
+
+function percentText(value) {
+  const number = Number(value || 0);
+  return `${Number.isInteger(number) ? number : number.toFixed(1)}%`;
+}
+
+function secondsText(value) {
+  const number = Number(value || 0);
+  if (!number) return '-';
+  return number >= 60 ? `${Math.round(number / 60)} 分钟` : `${Math.round(number)} 秒`;
+}
+
+function moneyText(value) {
+  const number = Number(value || 0);
+  if (!number) return '$0';
+  return `$${number.toFixed(number < 1 ? 4 : 2)}`;
 }
 
 function shortPhone(value) {
@@ -486,6 +511,7 @@ async function render(force = false) {
     return;
   }
   const renderers = {
+    analytics: renderAnalytics,
     audit: renderAudit,
     avatarJobs: renderAvatarJobs,
     config: renderConfig,
@@ -594,6 +620,183 @@ function renderOpsChart(data) {
       itemStyle: { borderRadius: [10, 10, 0, 0] },
       type: 'bar',
     }],
+  });
+}
+
+async function renderAnalytics(force) {
+  const data = await load('analytics', '/admin/analytics?days=14', force);
+  const summary = data.summary || {};
+  const users = summary.users || {};
+  const ai = summary.ai || {};
+  const calendar = summary.calendar || {};
+  const social = summary.social || {};
+  const places = summary.places || {};
+  const safety = summary.safety || {};
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('新增用户', numberText(users.newUsers), `${numberText(users.activeUsers)} 位窗口内活跃`, '基于用户注册时间和 lastSeenAt 聚合，默认 14 天窗口。')}
+      ${metric('建档率', percentText(users.withPetRate), `${numberText(users.total)} 个账号`, '当前用户中至少有一只宠物档案的比例。')}
+      ${metric('AI 形象成功率', percentText(ai.avatarSuccessRate), `${numberText(ai.avatarReady)} 成功 / ${numberText(ai.avatarFailed)} 失败`, '按窗口内 ready 与 failed 任务计算；处理中任务不进入分母。')}
+      ${metric('AI 平均耗时', secondsText(ai.avatarAverageSeconds), `成本累计 ${moneyText(ai.gptImage2Cost)}`, '使用任务创建到更新时间估算，适合发现卡住和异常耗时。')}
+      ${metric('宠友圈小事', numberText(social.posts), `${numberText(social.images)} 张图 · ${numberText(social.comments)} 条评论`, '来自移动端发布、图片、评论和点赞的当前业务数据。')}
+      ${metric('安全任务', numberText(safety.moderationTasks), `${numberText(safety.handledModerationTasks)} 已处理`, '统一内容安全任务池：举报、被举报内容、地点点评和新增地点。')}
+    </div>
+    <div class="grid two analytics-grid">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>用户增长与活跃</h2>
+            <div class="section-sub">新增用户、窗口内活跃用户</div>
+          </div>
+          ${help('当前没有完整 DAU 事件流水，活跃按 lastSeenAt 落到日期桶。')}
+        </div>
+        <div id="analyticsGrowthChart" class="analytics-chart"></div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>AI 使用质量</h2>
+            <div class="section-sub">形象生成、AI 对话和自动写入</div>
+          </div>
+          ${help('自动写入包括 AI 对话触发的备忘、体重、疫苗/驱虫、档案更新或医疗风险记录。')}
+        </div>
+        <div id="analyticsAiChart" class="analytics-chart"></div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>社交互动</h2>
+            <div class="section-sub">小事、点赞、评论、招呼和约遛</div>
+          </div>
+          ${help('会话消息只统计发送方 author=me，避免双方镜像消息重复计算。')}
+        </div>
+        <div id="analyticsSocialChart" class="analytics-chart"></div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>运营处理压力</h2>
+            <div class="section-sub">审核任务、地点内容和工单</div>
+          </div>
+          ${help('地点审核通过率基于已审核的点评和新增地点提交，不含待审核项。')}
+        </div>
+        <div id="analyticsOpsChart" class="analytics-chart"></div>
+      </div>
+    </div>
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>业务健康快照</h2>
+            <div class="section-sub">当前可从后端状态直接证明的核心比例</div>
+          </div>
+        </div>
+        <div class="insight-list">
+          <div><span>附近可见率</span><strong>${percentText(users.nearbyVisibleRate)}</strong></div>
+          <div><span>推送开启率</span><strong>${percentText(users.pushEnabledRate)}</strong></div>
+          <div><span>推送设备数</span><strong>${numberText(users.pushDeviceCount)}</strong></div>
+          <div><span>AI 灵伴完成人群</span><strong>${percentText(ai.readyUserRate)}</strong></div>
+          <div><span>宠物日历记录</span><strong>${numberText(calendar.weights + calendar.memos + calendar.vaccines)}</strong></div>
+          <div><span>疫苗/驱虫提醒开启</span><strong>${numberText(calendar.reminderEnabled)}</strong></div>
+          <div><span>打招呼接受率</span><strong>${percentText(social.greetingAcceptRate)}</strong></div>
+          <div><span>地点审核通过率</span><strong>${percentText(places.approvalRate)}</strong></div>
+          <div><span>举报有效率</span><strong>${percentText(safety.reportValidRate)}</strong></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>数据口径缺口</h2>
+            <div class="section-sub">这些指标需要移动端补事件埋点后才能精确统计</div>
+          </div>
+          ${help('这里不是后台缺陷，而是当前业务链路尚未采集的事件。后续补埋点后可直接进入本看板。')}
+        </div>
+        <div class="gap-list">
+          ${(data.dataGaps || []).map((item) => `<div><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.reason)}</span></div>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>最近 7 天明细</h2>
+          <div class="section-sub">用于快速核对趋势图背后的原始日汇总</div>
+        </div>
+      </div>
+      ${tableHtml((data.buckets || []).slice(-7).reverse(), [
+        ['日期', (row) => `<div class="cell-title">${escapeHtml(row.date)}</div>`],
+        ['用户', (row) => `<div>新增 ${escapeHtml(row.newUsers)}</div><div class="cell-sub">活跃 ${escapeHtml(row.activeUsers)}</div>`],
+        ['AI', (row) => `<div>形象 ${escapeHtml(row.avatarStarted)}</div><div class="cell-sub">对话 ${escapeHtml(row.petChatRequests)}</div>`],
+        ['宠物日历', (row) => `<div>体重 ${escapeHtml(row.healthWeights)}</div><div class="cell-sub">备忘 ${escapeHtml(row.healthMemos)} · 疫苗 ${escapeHtml(row.healthVaccines)}</div>`],
+        ['社交', (row) => `<div>小事 ${escapeHtml(row.socialPosts)} · 评论 ${escapeHtml(row.socialComments)}</div><div class="cell-sub">招呼 ${escapeHtml(row.greetings)} · 约遛 ${escapeHtml(row.walkInvites)}</div>`],
+        ['运营', (row) => `<div>审核 ${escapeHtml(row.moderationTasks)}</div><div class="cell-sub">举报 ${escapeHtml(row.reports)} · 工单 ${escapeHtml(row.tickets)}</div>`],
+      ], '暂无日汇总')}
+    </div>
+  `;
+  renderAnalyticsCharts(data);
+}
+
+function renderAnalyticsCharts(data) {
+  const buckets = data.buckets || [];
+  const labels = buckets.map((item) => item.label);
+  const chartIds = ['analyticsGrowthChart', 'analyticsAiChart', 'analyticsSocialChart', 'analyticsOpsChart'];
+  if (!window.echarts) {
+    chartIds.forEach((id) => {
+      const node = $(id);
+      if (node) node.innerHTML = '<div class="placeholder">图表组件加载中</div>';
+    });
+    return;
+  }
+  const axisStyle = {
+    axisLine: { show: false },
+    axisTick: { show: false },
+  };
+  const splitLine = { lineStyle: { color: 'rgba(91,70,48,.1)' } };
+  const baseGrid = { bottom: 28, left: 38, right: 16, top: 24 };
+  const renderChart = (id, option) => {
+    const node = $(id);
+    if (!node) return;
+    const chart = echarts.init(node);
+    chart.setOption({
+      color: ['#ff7f4f', '#48b6a8', '#c99637', '#dc604e', '#8b79f6'],
+      grid: baseGrid,
+      legend: { bottom: 0, itemHeight: 8, itemWidth: 12, textStyle: { color: '#7a756d' } },
+      tooltip: { trigger: 'axis' },
+      xAxis: { ...axisStyle, data: labels, type: 'category' },
+      yAxis: { ...axisStyle, splitLine, type: 'value' },
+      ...option,
+    });
+  };
+  renderChart('analyticsGrowthChart', {
+    series: [
+      { name: '新增用户', smooth: true, type: 'line', data: buckets.map((item) => item.newUsers) },
+      { name: '活跃用户', smooth: true, type: 'line', data: buckets.map((item) => item.activeUsers) },
+    ],
+  });
+  renderChart('analyticsAiChart', {
+    series: [
+      { barMaxWidth: 20, name: '形象启动', stack: 'avatar', type: 'bar', data: buckets.map((item) => item.avatarStarted) },
+      { barMaxWidth: 20, name: '形象成功', stack: 'result', type: 'bar', data: buckets.map((item) => item.avatarReady) },
+      { barMaxWidth: 20, name: '形象失败', stack: 'result', type: 'bar', data: buckets.map((item) => item.avatarFailed) },
+      { name: 'AI 对话', smooth: true, type: 'line', data: buckets.map((item) => item.petChatRequests) },
+    ],
+  });
+  renderChart('analyticsSocialChart', {
+    series: [
+      { name: '小事', smooth: true, type: 'line', data: buckets.map((item) => item.socialPosts) },
+      { name: '点赞', smooth: true, type: 'line', data: buckets.map((item) => item.socialLikes) },
+      { name: '评论', smooth: true, type: 'line', data: buckets.map((item) => item.socialComments) },
+      { name: '招呼', smooth: true, type: 'line', data: buckets.map((item) => item.greetings) },
+      { name: '约遛', smooth: true, type: 'line', data: buckets.map((item) => item.walkInvites) },
+    ],
+  });
+  renderChart('analyticsOpsChart', {
+    series: [
+      { barMaxWidth: 20, name: '审核任务', type: 'bar', data: buckets.map((item) => item.moderationTasks) },
+      { barMaxWidth: 20, name: '地点点评', type: 'bar', data: buckets.map((item) => item.placeReviews) },
+      { barMaxWidth: 20, name: '新增地点', type: 'bar', data: buckets.map((item) => item.placeSubmissions) },
+      { name: '工单', smooth: true, type: 'line', data: buckets.map((item) => item.tickets) },
+    ],
   });
 }
 

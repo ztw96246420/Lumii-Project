@@ -365,6 +365,57 @@ textarea {
   height: 270px;
 }
 
+.analytics-chart {
+  height: 300px;
+}
+
+.analytics-grid .card {
+  min-height: 386px;
+}
+
+.insight-list,
+.gap-list {
+  display: grid;
+  gap: 10px;
+}
+
+.insight-list div,
+.gap-list div {
+  background: rgba(255, 247, 239, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 11px 12px;
+}
+
+.insight-list div {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.insight-list span,
+.gap-list span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.insight-list strong {
+  color: var(--orange);
+  font-size: 18px;
+  white-space: nowrap;
+}
+
+.gap-list div {
+  display: grid;
+  gap: 4px;
+}
+
+.gap-list strong {
+  font-size: 13px;
+}
+
 .table-wrap {
   overflow: auto;
 }
