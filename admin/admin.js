@@ -930,7 +930,7 @@ async function renderReports(force) {
       ['举报对象', (r) => `<div class="cell-title">${escapeHtml(r.targetType)} · ${escapeHtml(r.targetId)}</div><div class="cell-sub">被举报：${escapeHtml(r.ownerName)} ${shortPhone(r.ownerPhone)}</div>`],
       ['举报人', (r) => `<div>${escapeHtml(r.reporterName)}</div><div class="cell-sub">${shortPhone(r.reporterPhone)}</div>`],
       ['原因', (r) => escapeHtml(r.content || '-')],
-      ['状态', (r) => statusPill(r.status)],
+      ['状态', (r) => `${statusPill(r.status)}<div class="cell-sub">举报人：${r.resultNotifiedAt ? formatTime(r.resultNotifiedAt) : '未通知'}</div><div class="cell-sub">作者：${r.ownerResultNotifiedAt ? formatTime(r.ownerResultNotifiedAt) : '未通知'}</div>`],
       ['时间', (r) => formatTime(r.createdAt)],
       ['操作', (r) => `
         <div class="actions">
@@ -958,7 +958,7 @@ async function renderPlaces(force) {
       ${tableHtml(reviews, [
         ['点评', (r) => `<div class="cell-title">${escapeHtml(r.placeName)}</div><div class="cell-sub">${escapeHtml(r.content).slice(0, 90)}</div>`],
         ['用户', (r) => `<div>${escapeHtml(r.ownerName)}</div><div class="cell-sub">${shortPhone(r.ownerPhone)}</div>`],
-        ['状态', (r) => statusPill(r.status)],
+        ['状态', (r) => `${statusPill(r.status)}<div class="cell-sub">${r.resultNotifiedAt ? '已通知：' + formatTime(r.resultNotifiedAt) : '未通知用户'}</div>`],
         ['时间', (r) => formatTime(r.createdAt)],
         ['操作', (r) => `
           <div class="actions">
@@ -979,7 +979,7 @@ async function renderPlaces(force) {
         ['地点', (s) => `<div class="cell-title">${escapeHtml(s.name)}</div><div class="cell-sub">${escapeHtml(s.address)}</div>`],
         ['体验', (s) => escapeHtml(s.content).slice(0, 100)],
         ['用户', (s) => `<div>${escapeHtml(s.ownerName)}</div><div class="cell-sub">${shortPhone(s.ownerPhone)}</div>`],
-        ['状态', (s) => statusPill(s.status)],
+        ['状态', (s) => `${statusPill(s.status)}<div class="cell-sub">${s.resultNotifiedAt ? '已通知：' + formatTime(s.resultNotifiedAt) : '未通知用户'}</div>`],
         ['时间', (s) => formatTime(s.createdAt)],
         ['操作', (s) => `
           <div class="actions">

@@ -6169,6 +6169,123 @@ function addNotification(phone, notification, category, options = {}) {
   return true;
 }
 
+function markResultNotification(record, status, statusKey = 'resultNotifiedStatus', atKey = 'resultNotifiedAt') {
+  if (!record) return null;
+  const normalizedStatus = String(status || '').trim();
+  if (!normalizedStatus || record[statusKey] === normalizedStatus) return null;
+  const notifiedAt = new Date().toISOString();
+  record[statusKey] = normalizedStatus;
+  record[atKey] = notifiedAt;
+  return notifiedAt;
+}
+
+function socialReportTargetLabel(targetType) {
+  if (targetType === 'post') return '小事';
+  if (targetType === 'comment') return '评论';
+  return '内容';
+}
+
+function notifySocialReportResolution(report, actionOrStatus, reason = '') {
+  if (!report) return false;
+  const rawStatus = String(actionOrStatus || report.status || '').trim();
+  const status = rawStatus === 'hide' || rawStatus === 'delete' ? 'valid' : rawStatus;
+  if (!['valid', 'invalid', 'closed'].includes(status)) return false;
+  const targetLabel = socialReportTargetLabel(report.targetType);
+  const reasonText = String(reason || report.reviewReason || '').trim();
+  let changed = false;
+  const reporterCanNotify = Boolean(report.phone && state.users?.[report.phone]);
+  const reporterNotifiedAt = reporterCanNotify ? markResultNotification(report, status) : null;
+  if (reporterNotifiedAt) {
+    const title = status === 'valid' ? '举报已处理' : status === 'invalid' ? '举报未通过' : '举报已关闭';
+    const text =
+      status === 'valid'
+        ? `你提交的${targetLabel}举报已核实并处理，感谢帮助维护社区环境。`
+        : status === 'invalid'
+          ? `你提交的${targetLabel}举报暂未发现明确违规${reasonText ? `：${reasonText}。` : '。'}`
+          : `你提交的${targetLabel}举报已关闭${reasonText ? `：${reasonText}。` : '。'}`;
+    changed = addNotification(report.phone, {
+      actionRoute: 'notifications',
+      category: 'system',
+      createdAt: reporterNotifiedAt,
+      id: `n-report-result-${report.id}-${status}`,
+      kind: 'system',
+      read: false,
+      reportId: report.id,
+      text,
+      title,
+    }, 'system', { force: true }) || changed;
+  }
+  if (status === 'valid' && report.ownerPhone && state.users?.[report.ownerPhone]) {
+    const ownerStatus = rawStatus === 'delete' ? 'deleted' : rawStatus === 'hide' ? 'hidden' : 'valid';
+    const ownerNotifiedAt = markResultNotification(report, ownerStatus, 'ownerResultNotifiedStatus', 'ownerResultNotifiedAt');
+    if (ownerNotifiedAt) {
+      const actionText = ownerStatus === 'deleted' ? '删除' : ownerStatus === 'hidden' ? '隐藏' : '处理';
+      changed = addNotification(report.ownerPhone, {
+        actionRoute: 'safety',
+        category: 'system',
+        createdAt: ownerNotifiedAt,
+        id: `n-report-owner-${report.id}-${ownerStatus}`,
+        kind: 'system',
+        read: false,
+        reportId: report.id,
+        text: reasonText
+          ? `你发布的${targetLabel}因用户举报已被平台${actionText}，原因：${reasonText}。如有疑问可在安全中心查看或申诉。`
+          : `你发布的${targetLabel}因用户举报已被平台${actionText}。如有疑问可在安全中心查看或申诉。`,
+        title: `${targetLabel}已被处理`,
+      }, 'system', { force: true }) || changed;
+    }
+  }
+  return changed;
+}
+
+function notifyPlaceReviewModeration(phone, review, actionOrStatus, reason = '') {
+  if (!phone || !review || !state.users?.[phone]) return false;
+  const status = actionOrStatus === 'approve' ? 'approved' : actionOrStatus === 'reject' ? 'rejected' : String(actionOrStatus || review.status || '');
+  if (!['approved', 'rejected'].includes(status)) return false;
+  const notifiedAt = markResultNotification(review, status);
+  if (!notifiedAt) return false;
+  const place = (state.places || []).find((item) => item.id === review.placeId);
+  const placeName = place?.name || '地点';
+  const reasonText = String(reason || review.reviewReason || '').trim();
+  return addNotification(phone, {
+    category: 'system',
+    createdAt: notifiedAt,
+    id: `n-place-review-result-${review.id}-${status}`,
+    kind: 'place_review',
+    placeId: review.placeId,
+    read: false,
+    reviewId: review.id,
+    text:
+      status === 'approved'
+        ? `你对${placeName}的点评已通过审核。`
+        : `你对${placeName}的点评未通过审核${reasonText ? `：${reasonText}。` : '。'}`,
+    title: status === 'approved' ? '地点点评已通过' : '地点点评未通过',
+  }, 'system', { force: true });
+}
+
+function notifyPlaceSubmissionModeration(phone, submission, actionOrStatus, reason = '') {
+  if (!phone || !submission || !state.users?.[phone]) return false;
+  const status = actionOrStatus === 'approve' ? 'approved' : actionOrStatus === 'reject' ? 'rejected' : String(actionOrStatus || submission.status || '');
+  if (!['approved', 'rejected'].includes(status)) return false;
+  const notifiedAt = markResultNotification(submission, status);
+  if (!notifiedAt) return false;
+  const reasonText = String(reason || submission.reviewReason || '').trim();
+  return addNotification(phone, {
+    category: 'system',
+    createdAt: notifiedAt,
+    id: `n-place-submission-result-${submission.id}-${status}`,
+    kind: 'place_submission',
+    placeId: submission.approvedPlaceId || '',
+    read: false,
+    submissionId: submission.id,
+    text:
+      status === 'approved'
+        ? `${submission.name || '新增地点'}已通过审核，后续会展示给附近用户。`
+        : `${submission.name || '新增地点'}未通过审核${reasonText ? `：${reasonText}。` : '。'}`,
+    title: status === 'approved' ? '新增地点已通过' : '新增地点未通过',
+  }, 'system', { force: true });
+}
+
 function removeNotification(phone, notificationId) {
   const current = state.notifications[phone] || [];
   const next = current.filter((item) => item.id !== notificationId);
@@ -6786,8 +6903,12 @@ function adminSocialReports() {
         id: report.id,
         ownerName: owner?.ownerName || `用户${String(report.ownerPhone || '').slice(-4)}`,
         ownerPhone: report.ownerPhone,
+        ownerResultNotifiedAt: report.ownerResultNotifiedAt || '',
+        ownerResultNotifiedStatus: report.ownerResultNotifiedStatus || '',
         reporterName: reporter?.ownerName || `用户${String(report.phone || '').slice(-4)}`,
         reporterPhone: report.phone,
+        resultNotifiedAt: report.resultNotifiedAt || '',
+        resultNotifiedStatus: report.resultNotifiedStatus || '',
         status: report.status || 'pending',
         targetId: report.targetId,
         targetType: report.targetType,
@@ -7544,6 +7665,7 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     report.reviewedAt = now;
     report.reviewedBy = admin.username;
     report.reviewReason = reason;
+    notifySocialReportResolution(report, action, reason);
     writeAdminAudit(admin, 'moderation.report.resolve', 'social_report', report.id, beforeReport, report, reason);
     return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
   }
@@ -7592,6 +7714,7 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     found.review.reviewedAt = now;
     found.review.reviewedBy = admin.username;
     found.review.reviewReason = reason;
+    notifyPlaceReviewModeration(found.phone, found.review, action, reason);
     writeAdminAudit(admin, `moderation.placeReview.${action}`, 'place_review', id, before, found.review, reason);
     return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
   }
@@ -7621,6 +7744,7 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
       state.places = [place, ...(state.places || [])];
       found.submission.approvedPlaceId = place.id;
     }
+    notifyPlaceSubmissionModeration(found.phone, found.submission, action, reason);
     writeAdminAudit(admin, `moderation.placeSubmission.${action}`, 'place_submission', id, before, found.submission, reason);
     return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
   }
@@ -8043,6 +8167,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     report.reviewedAt = new Date().toISOString();
     report.reviewedBy = admin.username;
     report.reviewReason = String(body.reason || '').slice(0, 240);
+    notifySocialReportResolution(report, report.status, body.reason);
     writeAdminAudit(admin, 'social.report.resolve', 'social_report', reportId, before, report, body.reason);
     saveState();
     ok(res, adminSocialReports().find((item) => item.id === reportId));
@@ -8078,6 +8203,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     found.review.reviewedAt = new Date().toISOString();
     found.review.reviewedBy = admin.username;
     found.review.reviewReason = String(body.reason || '').slice(0, 240);
+    notifyPlaceReviewModeration(found.phone, found.review, action, body.reason);
     writeAdminAudit(admin, `place.review.${action}`, 'place_review', reviewId, before, found.review, body.reason);
     saveState();
     ok(res, adminPlaceReviews().find((item) => item.id === reviewId));
@@ -8115,6 +8241,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       state.places = [place, ...(state.places || [])];
       found.submission.approvedPlaceId = place.id;
     }
+    notifyPlaceSubmissionModeration(found.phone, found.submission, action, body.reason);
     writeAdminAudit(admin, `place.submission.${action}`, 'place_submission', submissionId, before, found.submission, body.reason);
     saveState();
     ok(res, adminPlaceSubmissions().find((item) => item.id === submissionId));
