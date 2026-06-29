@@ -217,6 +217,22 @@
 - `app.announcement.body`
 - `app.announcement.actionLabel`
 - `app.announcement.actionRoute`
+- `app.update.enabled`
+- `app.update.force`
+- `app.update.minVersion`
+- `app.update.latestVersion`
+- `app.update.rolloutPercent`
+- `app.update.androidUrl`
+- `app.update.iosUrl`
+- `app.update.title`
+- `app.update.subtitle`
+- `app.splash.enabled`
+- `app.splash.version`
+- `app.splash.title`
+- `app.splash.body`
+- `app.splash.imageUrl`
+- `app.splash.actionLabel`
+- `app.splash.actionRoute`
 - `moderation.enabled`
 - `moderation.textRulesEnabled`
 - `moderation.blockKeywords`
@@ -239,6 +255,8 @@
 - `app.maintenanceEnabled`：App 进入维护页并隐藏底部导航；后端拦截非 GET 写操作，保留反馈、工单补充、退出登录、刷新 token、通知已读等基础接口。
 - `app.maintenanceMessage`：维护页和后端 `APP_MAINTENANCE` 响应共用文案。
 - `app.announcement`：后台可开启 App 公告弹窗；移动端在登录后展示，按手机号和版本号记录已读，同一版本每个用户只展示一次；支持跳转首页、发现、地图、我的、安全中心、设置、通知中心、反馈进度。
+- `app.update`：后台可配置强制更新/可选更新、最低可用版本、最新版本、Android/iOS 下载地址和灰度比例；移动端读取后按当前 App 版本比较，强制更新不可关闭并隐藏底部导航，可选更新按用户手机号稳定灰度展示并支持“稍后再说”。
+- `app.splash`：后台可配置启动提示版本、标题、正文、图片和跳转；移动端登录后按手机号和提示版本记录已读，同一版本每个用户只展示一次；展示优先级低于版本更新、高于普通 App 公告。
 - `moderation.enabled` / `moderation.textRulesEnabled`：后端实时读取，用于拦截或送审小事、评论、地点点评和新增地点提交；移动端公开配置只返回开关和复审提示，不暴露关键词。
 
 移动端暂未完整接入：
@@ -409,5 +427,5 @@
 2. 内容安全模型接入：第三方文本/图片审核、规则命中回标、模型样本沉淀和误杀回收。
 3. 用户端工单进阶：附件补充、客服回复模板联动、满意度评价、关闭后重新打开。
 4. 通知运营进阶：厂商 Push、通知模板、定时发送、频控。
-5. 继续扩大移动端配置化范围：灰度策略、强制升级、启动页素材。
+5. 配置发布治理进阶：配置草稿、发布审批、版本回滚、灰度人群包和 A/B 策略实验。
 6. 后台静态资源和 API 增加更细权限与更完整审计字段。

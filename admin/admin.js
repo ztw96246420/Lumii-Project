@@ -462,6 +462,8 @@ function configSnapshot(config) {
     <div class="switch-row"><span>宠友圈开关</span>${statusPill(config.features.petCircle ? 'active' : 'closed')}</div>
     <div class="switch-row"><span>地图地点开关</span>${statusPill(config.features.places ? 'active' : 'closed')}</div>
     <div class="switch-row"><span>App 公告</span>${statusPill(config.app?.announcement?.enabled ? 'active' : 'closed')}</div>
+    <div class="switch-row"><span>版本更新</span>${statusPill(config.app?.update?.enabled ? 'active' : 'closed')}</div>
+    <div class="switch-row"><span>启动提示</span>${statusPill(config.app?.splash?.enabled ? 'active' : 'closed')}</div>
   `;
 }
 
@@ -1252,6 +1254,8 @@ async function renderConfig(force) {
   const config = await load('config', '/admin/config', force);
   const announcement = config.app?.announcement || {};
   const moderation = config.moderation || {};
+  const splash = config.app?.splash || {};
+  const update = config.app?.update || {};
   $('content').innerHTML = `
     <div class="card">
       <div class="section-head">
@@ -1328,6 +1332,47 @@ async function renderConfig(force) {
           <label class="wide">公告正文<textarea id="cfgAnnouncementBody" maxlength="180" placeholder="建议 60 字以内，直接说明发生了什么、用户需要做什么。">${escapeHtml(announcement.body || '')}</textarea></label>
         </div>
       </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>版本与启动策略</h2>
+            <div class="section-sub">App 每次读取 /app/config 后会按版本、灰度比例和启动提示版本展示对应弹窗</div>
+          </div>
+          ${help('强制更新需要填写最低可用版本和下载地址；可选更新按最新版本与灰度比例展示。启动提示按用户和提示版本只展示一次，修改版本号即可再次触达。')}
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgUpdateEnabled', '启用版本更新提示', update.enabled)}
+          ${featureCheckbox('cfgUpdateForce', '强制更新', update.force)}
+          ${featureCheckbox('cfgSplashEnabled', '启用启动提示', splash.enabled)}
+        </div>
+        <div class="config-grid announcement-grid">
+          <label>最低可用版本<input id="cfgUpdateMinVersion" maxlength="32" placeholder="例如 1.0.1" value="${escapeHtml(update.minVersion || '')}" /></label>
+          <label>最新版本<input id="cfgUpdateLatestVersion" maxlength="32" placeholder="例如 1.1.0" value="${escapeHtml(update.latestVersion || '')}" /></label>
+          <label>灰度比例 %<input id="cfgUpdateRolloutPercent" type="number" min="0" max="100" value="${Number.isFinite(Number(update.rolloutPercent)) ? update.rolloutPercent : 100}" /></label>
+          <label>更新标题<input id="cfgUpdateTitle" maxlength="40" placeholder="例如 发现新版本" value="${escapeHtml(update.title || '发现新版本')}" /></label>
+          <label class="wide">更新说明<textarea id="cfgUpdateSubtitle" maxlength="140" placeholder="给用户说明为什么需要更新">${escapeHtml(update.subtitle || '')}</textarea></label>
+          <label class="wide">Android 下载地址<input id="cfgUpdateAndroidUrl" maxlength="1000" placeholder="https://..." value="${escapeHtml(update.androidUrl || '')}" /></label>
+          <label class="wide">iOS 下载地址<input id="cfgUpdateIosUrl" maxlength="1000" placeholder="https://..." value="${escapeHtml(update.iosUrl || '')}" /></label>
+          <label>启动提示版本<input id="cfgSplashVersion" maxlength="40" placeholder="例如 2026-06-30-v1" value="${escapeHtml(splash.version || '')}" /></label>
+          <label>启动提示标题<input id="cfgSplashTitle" maxlength="40" placeholder="例如 今日灵伴提醒" value="${escapeHtml(splash.title || '')}" /></label>
+          <label>启动按钮文案<input id="cfgSplashActionLabel" maxlength="16" placeholder="例如 去看看" value="${escapeHtml(splash.actionLabel || '知道了')}" /></label>
+          <label>启动点击跳转
+            <select id="cfgSplashActionRoute">
+              ${configRouteOption(splash.actionRoute || '', '', '无跳转')}
+              ${configRouteOption(splash.actionRoute || '', 'home', '首页')}
+              ${configRouteOption(splash.actionRoute || '', 'discover', '发现')}
+              ${configRouteOption(splash.actionRoute || '', 'map', '地图')}
+              ${configRouteOption(splash.actionRoute || '', 'profile', '我的')}
+              ${configRouteOption(splash.actionRoute || '', 'safety', '安全中心')}
+              ${configRouteOption(splash.actionRoute || '', 'settings', '设置')}
+              ${configRouteOption(splash.actionRoute || '', 'notifications', '通知中心')}
+              ${configRouteOption(splash.actionRoute || '', 'supportTickets', '反馈进度')}
+            </select>
+          </label>
+          <label class="wide">启动提示图<input id="cfgSplashImageUrl" maxlength="1000" placeholder="https://..." value="${escapeHtml(splash.imageUrl || '')}" /></label>
+          <label class="wide">启动提示正文<textarea id="cfgSplashBody" maxlength="180" placeholder="建议 60 字以内，说明本次运营提示">${escapeHtml(splash.body || '')}</textarea></label>
+        </div>
+      </div>
       <button class="primary-button" data-action="save-config">保存配置</button>
     </div>
   `;
@@ -1350,6 +1395,28 @@ async function saveConfig() {
   if (announcementEnabled && (!$('cfgAnnouncementVersion').value.trim() || !$('cfgAnnouncementTitle').value.trim() || !$('cfgAnnouncementBody').value.trim())) {
     throw new Error('启用公告时，请填写版本、标题和正文');
   }
+  const updateEnabled = $('cfgUpdateEnabled').checked;
+  const updateForce = $('cfgUpdateForce').checked;
+  const updateMinVersion = $('cfgUpdateMinVersion').value.trim();
+  const updateLatestVersion = $('cfgUpdateLatestVersion').value.trim();
+  const updateAndroidUrl = $('cfgUpdateAndroidUrl').value.trim();
+  const updateIosUrl = $('cfgUpdateIosUrl').value.trim();
+  const splashEnabled = $('cfgSplashEnabled').checked;
+  if (updateEnabled && !updateMinVersion && !updateLatestVersion) {
+    throw new Error('启用版本更新时，请至少填写最低可用版本或最新版本');
+  }
+  if (updateEnabled && !updateForce && !updateLatestVersion) {
+    throw new Error('可选更新需要填写最新版本');
+  }
+  if (updateForce && (!updateMinVersion || (!updateAndroidUrl && !updateIosUrl))) {
+    throw new Error('强制更新需要填写最低可用版本，并至少配置一个下载地址');
+  }
+  if ((updateAndroidUrl && !/^https?:\/\//i.test(updateAndroidUrl)) || (updateIosUrl && !/^https?:\/\//i.test(updateIosUrl))) {
+    throw new Error('更新下载地址必须以 http:// 或 https:// 开头');
+  }
+  if (splashEnabled && (!$('cfgSplashVersion').value.trim() || !$('cfgSplashTitle').value.trim() || !$('cfgSplashBody').value.trim())) {
+    throw new Error('启用启动提示时，请填写提示版本、标题和正文');
+  }
   const payload = {
     ai: {
       petAvatarDailyLimit: Number($('cfgPetAvatarDailyLimit').value),
@@ -1366,6 +1433,26 @@ async function saveConfig() {
       },
       maintenanceEnabled: $('cfgMaintenanceEnabled').checked,
       maintenanceMessage: $('cfgMaintenanceMessage').value,
+      splash: {
+        actionLabel: $('cfgSplashActionLabel').value,
+        actionRoute: $('cfgSplashActionRoute').value,
+        body: $('cfgSplashBody').value,
+        enabled: splashEnabled,
+        imageUrl: $('cfgSplashImageUrl').value,
+        title: $('cfgSplashTitle').value,
+        version: $('cfgSplashVersion').value,
+      },
+      update: {
+        androidUrl: updateAndroidUrl,
+        enabled: updateEnabled,
+        force: updateForce,
+        iosUrl: updateIosUrl,
+        latestVersion: updateLatestVersion,
+        minVersion: updateMinVersion,
+        rolloutPercent: Number($('cfgUpdateRolloutPercent').value),
+        subtitle: $('cfgUpdateSubtitle').value,
+        title: $('cfgUpdateTitle').value,
+      },
     },
     features: {
       aiAvatar: $('cfgFeatureAiAvatar').checked,

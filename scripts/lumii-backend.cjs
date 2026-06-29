@@ -270,6 +270,26 @@ function defaultOpsConfig() {
       },
       maintenanceEnabled: false,
       maintenanceMessage: '',
+      splash: {
+        actionLabel: '知道了',
+        actionRoute: '',
+        body: '',
+        enabled: false,
+        imageUrl: '',
+        title: '',
+        version: '',
+      },
+      update: {
+        androidUrl: '',
+        enabled: false,
+        force: false,
+        iosUrl: '',
+        latestVersion: '',
+        minVersion: '',
+        rolloutPercent: 100,
+        subtitle: '',
+        title: '发现新版本',
+      },
     },
     features: {
       aiAvatar: true,
@@ -409,6 +429,17 @@ function normalizeModerationConfig(value, defaults) {
   };
 }
 
+function normalizeAppVersionText(value) {
+  return String(value || '').trim().replace(/[^0-9A-Za-z.+_-]/g, '').slice(0, 32);
+}
+
+function normalizeHttpUrlText(value, maxLength = 500) {
+  const text = String(value || '').trim().slice(0, maxLength);
+  if (!text) return '';
+  if (!/^https?:\/\//i.test(text)) return '';
+  return text;
+}
+
 function normalizeOpsConfig(value) {
   const defaults = defaultOpsConfig();
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -433,6 +464,26 @@ function normalizeOpsConfig(value) {
       },
       maintenanceEnabled: Boolean(app.maintenanceEnabled),
       maintenanceMessage: String(app.maintenanceMessage || '').slice(0, 120),
+      splash: {
+        actionLabel: String(app.splash?.actionLabel || defaults.app.splash.actionLabel).slice(0, 16),
+        actionRoute: ['discover', 'home', 'map', 'notifications', 'profile', 'safety', 'settings', 'supportTickets'].includes(String(app.splash?.actionRoute || '')) ? String(app.splash.actionRoute) : '',
+        body: String(app.splash?.body || '').slice(0, 180),
+        enabled: Boolean(app.splash?.enabled),
+        imageUrl: normalizeHttpUrlText(app.splash?.imageUrl, 1000),
+        title: String(app.splash?.title || '').slice(0, 40),
+        version: String(app.splash?.version || '').slice(0, 40),
+      },
+      update: {
+        androidUrl: normalizeHttpUrlText(app.update?.androidUrl, 1000),
+        enabled: Boolean(app.update?.enabled),
+        force: Boolean(app.update?.force),
+        iosUrl: normalizeHttpUrlText(app.update?.iosUrl, 1000),
+        latestVersion: normalizeAppVersionText(app.update?.latestVersion),
+        minVersion: normalizeAppVersionText(app.update?.minVersion),
+        rolloutPercent: Math.floor(clampNumber(app.update?.rolloutPercent, defaults.app.update.rolloutPercent, 0, 100)),
+        subtitle: String(app.update?.subtitle || '').slice(0, 140),
+        title: String(app.update?.title || defaults.app.update.title).slice(0, 40),
+      },
     },
     features: {
       aiAvatar: features.aiAvatar !== false,
@@ -7854,6 +7905,14 @@ async function handleAdminRequest(req, res, pathname, url, body) {
         announcement: {
           ...(before.app?.announcement || {}),
           ...(body.app?.announcement || {}),
+        },
+        splash: {
+          ...(before.app?.splash || {}),
+          ...(body.app?.splash || {}),
+        },
+        update: {
+          ...(before.app?.update || {}),
+          ...(body.app?.update || {}),
         },
       },
       features: { ...before.features, ...(body.features || {}) },

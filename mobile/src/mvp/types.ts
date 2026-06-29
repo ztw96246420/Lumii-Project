@@ -666,6 +666,26 @@ export type AppRemoteConfig = {
     };
     maintenanceEnabled: boolean;
     maintenanceMessage: string;
+    splash?: {
+      actionLabel?: string;
+      actionRoute?: 'discover' | 'home' | 'map' | 'notifications' | 'profile' | 'safety' | 'settings' | 'supportTickets' | '';
+      body?: string;
+      enabled?: boolean;
+      imageUrl?: string;
+      title?: string;
+      version?: string;
+    };
+    update?: {
+      androidUrl?: string;
+      enabled?: boolean;
+      force?: boolean;
+      iosUrl?: string;
+      latestVersion?: string;
+      minVersion?: string;
+      rolloutPercent?: number;
+      subtitle?: string;
+      title?: string;
+    };
   };
   features: {
     aiAvatar: boolean;

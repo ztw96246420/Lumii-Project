@@ -87,6 +87,26 @@ const mockAppRemoteConfig: AppRemoteConfig = {
   app: {
     maintenanceEnabled: false,
     maintenanceMessage: '',
+    splash: {
+      actionLabel: '知道了',
+      actionRoute: '',
+      body: '',
+      enabled: false,
+      imageUrl: '',
+      title: '',
+      version: '',
+    },
+    update: {
+      androidUrl: '',
+      enabled: false,
+      force: false,
+      iosUrl: '',
+      latestVersion: '',
+      minVersion: '',
+      rolloutPercent: 100,
+      subtitle: '',
+      title: '发现新版本',
+    },
   },
   features: {
     aiAvatar: true,

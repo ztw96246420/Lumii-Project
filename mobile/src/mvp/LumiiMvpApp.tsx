@@ -151,6 +151,8 @@ const defaultDiscoverRadiusKm = 3;
 const nearbyPublishLocationMaxAgeMs = 10 * 60 * 1000;
 const fallbackPetAvatarDailyLimit = 10;
 const fallbackPetChatDailyLimit = 80;
+const lumiiAppVersion = '1.0.0';
+const lumiiAppBuildNumber = 1;
 const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
 
@@ -170,6 +172,26 @@ const fallbackRemoteConfig: AppRemoteConfig = {
     },
     maintenanceEnabled: false,
     maintenanceMessage: '',
+    splash: {
+      actionLabel: '知道了',
+      actionRoute: '',
+      body: '',
+      enabled: false,
+      imageUrl: '',
+      title: '',
+      version: '',
+    },
+    update: {
+      androidUrl: '',
+      enabled: false,
+      force: false,
+      iosUrl: '',
+      latestVersion: '',
+      minVersion: '',
+      rolloutPercent: 100,
+      subtitle: '',
+      title: '发现新版本',
+    },
   },
   features: {
     aiAvatar: true,
@@ -796,6 +818,49 @@ function normalizeNotificationActionRoute(value?: string): AppRoute | null {
 
 function getAppAnnouncementSeenStorageKey(phone: string, version: string) {
   return `lumii-app-announcement-seen:${phone}:${version}`;
+}
+
+function getAppSplashSeenStorageKey(phone: string, version: string) {
+  return `lumii-app-splash-seen:${phone}:${version}`;
+}
+
+function getAppUpdateDismissedStorageKey(phone: string, version: string) {
+  return `lumii-app-update-dismissed:${phone}:${version}`;
+}
+
+function normalizeAppVersionNumbers(value?: null | string) {
+  return String(value || '')
+    .trim()
+    .split(/[^\d]+/)
+    .filter(Boolean)
+    .map((part) => Number(part));
+}
+
+function compareAppVersions(left?: null | string, right?: null | string) {
+  const leftParts = normalizeAppVersionNumbers(left);
+  const rightParts = normalizeAppVersionNumbers(right);
+  if (!rightParts.length) return 0;
+  const length = Math.max(leftParts.length, rightParts.length, 3);
+  for (let index = 0; index < length; index += 1) {
+    const diff = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (diff > 0) return 1;
+    if (diff < 0) return -1;
+  }
+  return 0;
+}
+
+function hashStringToPercent(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash) % 100;
+}
+
+function getAppUpdateTargetUrl(update?: AppRemoteConfig['app']['update']) {
+  const platformUrl = Platform.OS === 'ios' ? update?.iosUrl : update?.androidUrl;
+  return (platformUrl || update?.androidUrl || update?.iosUrl || '').trim();
 }
 
 type PetDraft = {
@@ -2057,6 +2122,8 @@ export default function LumiiMvpApp() {
   const [session, setSession] = useState<AuthSession | null>(isHomePreviewMode ? initialPreviewSession : null);
   const [remoteConfig, setRemoteConfig] = useState<AppRemoteConfig>(fallbackRemoteConfig);
   const [appAnnouncementVisible, setAppAnnouncementVisible] = useState(false);
+  const [appSplashVisible, setAppSplashVisible] = useState(false);
+  const [appUpdateVisible, setAppUpdateVisible] = useState(false);
   const remoteConfigRef = useRef<AppRemoteConfig>(fallbackRemoteConfig);
   const activePetIdRef = useRef<string | null>(null);
   const phoneInputRef = useRef<TextInput>(null);
@@ -2395,10 +2462,23 @@ export default function LumiiMvpApp() {
   const walkInviteEnabled = remoteConfig.features.walkInvite !== false;
   const maintenanceEnabled = remoteConfig.app.maintenanceEnabled && !isHomePreviewMode;
   const maintenanceMessage = remoteConfig.app.maintenanceMessage || '灵伴正在维护升级，请稍后再试';
+  const appUpdate = remoteConfig.app.update;
+  const appUpdateLatestVersion = String(appUpdate?.latestVersion || '').trim();
+  const appUpdateMinVersion = String(appUpdate?.minVersion || '').trim();
+  const appUpdateVersionKey = appUpdateLatestVersion || appUpdateMinVersion;
+  const appUpdateRolloutPercent = Math.max(0, Math.min(100, Math.floor(appUpdate?.rolloutPercent ?? 100)));
+  const appUpdateRequired = Boolean(appUpdate?.enabled && appUpdate.force && appUpdateMinVersion && compareAppVersions(lumiiAppVersion, appUpdateMinVersion) < 0 && !isHomePreviewMode);
+  const appUpdateAvailable = Boolean(appUpdate?.enabled && appUpdateLatestVersion && compareAppVersions(lumiiAppVersion, appUpdateLatestVersion) < 0 && !isHomePreviewMode);
+  const appUpdateRolloutAllowed = appUpdateRequired || appUpdateRolloutPercent >= 100 || hashStringToPercent(session?.phone || 'guest') < appUpdateRolloutPercent;
+  const appUpdateDismissedKey = session?.phone && appUpdateAvailable && appUpdateVersionKey ? getAppUpdateDismissedStorageKey(session.phone, appUpdateVersionKey) : '';
+  const shouldShowAppUpdate = appUpdateRequired || Boolean(session && appUpdateAvailable && appUpdateRolloutAllowed);
+  const appSplash = remoteConfig.app.splash;
+  const appSplashVersion = String(appSplash?.version || remoteConfig.updatedAt || '').trim();
+  const appSplashSeenKey = session?.phone && appSplash?.enabled && appSplashVersion ? getAppSplashSeenStorageKey(session.phone, appSplashVersion) : '';
   const appAnnouncement = remoteConfig.app.announcement;
   const appAnnouncementVersion = String(appAnnouncement?.version || remoteConfig.updatedAt || '').trim();
   const appAnnouncementSeenKey = session?.phone && appAnnouncement?.enabled && appAnnouncementVersion ? getAppAnnouncementSeenStorageKey(session.phone, appAnnouncementVersion) : '';
-  const showBottomTabs = Boolean(session && currentTab && !maintenanceEnabled);
+  const showBottomTabs = Boolean(session && currentTab && !maintenanceEnabled && !appUpdateRequired);
   const pendingVaccines = useMemo(() => vaccines.filter((item) => item.status !== 'done'), [vaccines]);
   const urgentVaccines = useMemo(() => pendingVaccines.filter(isVaccineReminderUrgent), [pendingVaccines]);
 
@@ -2415,7 +2495,45 @@ export default function LumiiMvpApp() {
   }, []);
 
   useEffect(() => {
-    if (!session || maintenanceEnabled || isHomePreviewMode || !appAnnouncement?.enabled || !appAnnouncementSeenKey || !appAnnouncement.title || !appAnnouncement.body) {
+    if (!shouldShowAppUpdate || !appUpdate?.enabled || !appUpdateVersionKey) {
+      setAppUpdateVisible(false);
+      return;
+    }
+    if (appUpdateRequired || !appUpdateDismissedKey) {
+      setAppUpdateVisible(true);
+      return;
+    }
+    let cancelled = false;
+    loadLocalJsonStorage<{ dismissedAt?: string }>(appUpdateDismissedKey).then((seen) => {
+      if (cancelled) return;
+      setAppUpdateVisible(!seen?.dismissedAt);
+    }).catch(() => {
+      if (!cancelled) setAppUpdateVisible(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [appUpdate?.enabled, appUpdateDismissedKey, appUpdateRequired, appUpdateVersionKey, shouldShowAppUpdate]);
+
+  useEffect(() => {
+    if (!session || maintenanceEnabled || appUpdateRequired || appUpdateVisible || isHomePreviewMode || !appSplash?.enabled || !appSplashSeenKey || !appSplash.title || !appSplash.body) {
+      setAppSplashVisible(false);
+      return;
+    }
+    let cancelled = false;
+    loadLocalJsonStorage<{ dismissedAt?: string }>(appSplashSeenKey).then((seen) => {
+      if (cancelled) return;
+      setAppSplashVisible(!seen?.dismissedAt);
+    }).catch(() => {
+      if (!cancelled) setAppSplashVisible(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [appSplash?.body, appSplash?.enabled, appSplash?.title, appSplashSeenKey, appUpdateRequired, appUpdateVisible, isHomePreviewMode, maintenanceEnabled, session?.phone]);
+
+  useEffect(() => {
+    if (!session || maintenanceEnabled || appUpdateRequired || appSplashVisible || isHomePreviewMode || !appAnnouncement?.enabled || !appAnnouncementSeenKey || !appAnnouncement.title || !appAnnouncement.body) {
       setAppAnnouncementVisible(false);
       return;
     }
@@ -2429,7 +2547,7 @@ export default function LumiiMvpApp() {
     return () => {
       cancelled = true;
     };
-  }, [appAnnouncement?.body, appAnnouncement?.enabled, appAnnouncement?.title, appAnnouncementSeenKey, isHomePreviewMode, maintenanceEnabled, session?.phone]);
+  }, [appAnnouncement?.body, appAnnouncement?.enabled, appAnnouncement?.title, appAnnouncementSeenKey, appSplashVisible, appUpdateRequired, isHomePreviewMode, maintenanceEnabled, session?.phone]);
 
   useEffect(() => {
     if (!memoReminderPickerKind) return;
@@ -4481,10 +4599,42 @@ export default function LumiiMvpApp() {
     }
   }
 
+  async function dismissAppSplash() {
+    setAppSplashVisible(false);
+    if (appSplashSeenKey) {
+      await saveLocalJsonStorage(appSplashSeenKey, { dismissedAt: new Date().toISOString() }).catch(() => undefined);
+    }
+  }
+
+  async function dismissAppUpdate() {
+    if (appUpdateRequired) return;
+    setAppUpdateVisible(false);
+    if (appUpdateDismissedKey) {
+      await saveLocalJsonStorage(appUpdateDismissedKey, { dismissedAt: new Date().toISOString() }).catch(() => undefined);
+    }
+  }
+
   async function openAppAnnouncementAction() {
     const actionRoute = normalizeNotificationActionRoute(appAnnouncement?.actionRoute || '');
     await dismissAppAnnouncement();
     if (actionRoute) go(actionRoute);
+  }
+
+  async function openAppSplashAction() {
+    const actionRoute = normalizeNotificationActionRoute(appSplash?.actionRoute || '');
+    await dismissAppSplash();
+    if (actionRoute) go(actionRoute);
+  }
+
+  async function openAppUpdateAction() {
+    const targetUrl = getAppUpdateTargetUrl(appUpdate);
+    if (!targetUrl) {
+      showToast('更新下载地址未配置', { tone: 'warning', variant: 'surface' });
+      return;
+    }
+    await Linking.openURL(targetUrl).catch(() => {
+      showToast('无法打开更新地址，请稍后重试', { tone: 'error', variant: 'surface' });
+    });
   }
 
   useEffect(() => {
@@ -15417,6 +15567,76 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderAppSplashModal() {
+    const splash = appSplash;
+    if (!splash?.enabled || !splash.title || !splash.body) return null;
+    const actionLabel = splash.actionLabel?.trim() || '知道了';
+    const actionRoute = normalizeNotificationActionRoute(splash.actionRoute || '');
+    return (
+      <Modal animationType="fade" onRequestClose={() => void dismissAppSplash()} transparent visible={appSplashVisible}>
+        <View style={styles.appAnnouncementBackdrop}>
+          <View style={styles.appAnnouncementCard}>
+            {splash.imageUrl ? (
+              <Image resizeMode="cover" source={{ uri: splash.imageUrl }} style={styles.appAnnouncementImage} />
+            ) : (
+              <View style={styles.appAnnouncementIcon}>
+                <Sparkles color="#fff" size={24} strokeWidth={2.4} />
+              </View>
+            )}
+            <Text style={styles.appAnnouncementTitle}>{splash.title}</Text>
+            <Text style={styles.appAnnouncementBody}>{splash.body}</Text>
+            <View style={styles.appAnnouncementMetaRow}>
+              <Sparkles color={palette.teal} size={13} strokeWidth={2.4} />
+              <Text style={styles.appAnnouncementMetaText}>启动提示</Text>
+            </View>
+            <View style={styles.appAnnouncementActions}>
+              <Pressable accessibilityLabel="dismiss-app-splash" accessibilityRole="button" onPress={() => void dismissAppSplash()} style={[styles.appAnnouncementSecondary, webPressableReset]}>
+                <Text style={styles.appAnnouncementSecondaryText}>关闭</Text>
+              </Pressable>
+              <Pressable accessibilityLabel="open-app-splash-action" accessibilityRole="button" onPress={() => void openAppSplashAction()} style={[styles.appAnnouncementPrimary, webPressableReset]}>
+                <Text style={styles.appAnnouncementPrimaryText}>{actionRoute ? actionLabel : '知道了'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
+  function renderAppUpdateModal() {
+    if (!appUpdate?.enabled || (!appUpdateRequired && !appUpdateAvailable)) return null;
+    const latestVersionText = appUpdateLatestVersion || appUpdateMinVersion || '新版本';
+    const title = appUpdate.title?.trim() || (appUpdateRequired ? '需要更新后继续使用' : '发现新版本');
+    const body = appUpdate.subtitle?.trim() || (appUpdateRequired ? '当前版本已经低于最低可用版本，请先更新到最新版本。' : '新版本已准备好，建议更新后体验更稳定的灵伴。');
+    return (
+      <Modal animationType="fade" onRequestClose={() => { if (!appUpdateRequired) void dismissAppUpdate(); }} transparent visible={appUpdateVisible}>
+        <View style={styles.appAnnouncementBackdrop}>
+          <View style={styles.appAnnouncementCard}>
+            <View style={styles.appAnnouncementIcon}>
+              <ArrowUp color="#fff" size={24} strokeWidth={2.4} />
+            </View>
+            <Text style={styles.appAnnouncementTitle}>{title}</Text>
+            <Text style={styles.appAnnouncementBody}>{body}</Text>
+            <View style={styles.appAnnouncementMetaRow}>
+              <Smartphone color={palette.teal} size={13} strokeWidth={2.4} />
+              <Text style={styles.appAnnouncementMetaText}>当前 {lumiiAppVersion} ({lumiiAppBuildNumber}) · 最新 {latestVersionText}</Text>
+            </View>
+            <View style={styles.appAnnouncementActions}>
+              {appUpdateRequired ? null : (
+                <Pressable accessibilityLabel="dismiss-app-update" accessibilityRole="button" onPress={() => void dismissAppUpdate()} style={[styles.appAnnouncementSecondary, webPressableReset]}>
+                  <Text style={styles.appAnnouncementSecondaryText}>稍后再说</Text>
+                </Pressable>
+              )}
+              <Pressable accessibilityLabel="open-app-update-action" accessibilityRole="button" onPress={() => void openAppUpdateAction()} style={[styles.appAnnouncementPrimary, appUpdateRequired && styles.appAnnouncementPrimaryFull, webPressableReset]}>
+                <Text style={styles.appAnnouncementPrimaryText}>立即更新</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
   function renderGreetingSheet() {
     const owner = greetingSheetOwner;
     const saving = owner ? socialActionSavingIds.includes(`greet:${owner.id}`) : false;
@@ -15862,7 +16082,9 @@ export default function LumiiMvpApp() {
               })}
             </View>
           ) : null}
+          {renderAppSplashModal()}
           {renderAppAnnouncementModal()}
+          {renderAppUpdateModal()}
           <Toast icon={toast?.icon} iconTone={toast?.iconTone} layout={toast?.layout} message={toast?.message} placement={toast?.placement} subtitle={toast?.subtitle} tone={toast?.tone} variant={toast?.variant} />
           {datePickerRequest && Platform.OS !== 'web' ? (
             Platform.OS === 'ios' ? (
@@ -16605,9 +16827,11 @@ const styles = StyleSheet.create({
   appAnnouncementBody: { color: palette.muted, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 22, marginTop: 10, textAlign: 'center' },
   appAnnouncementCard: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 24, borderWidth: 1, maxWidth: 340, paddingBottom: 18, paddingHorizontal: 20, paddingTop: 22, shadowColor: '#000', shadowOffset: { height: 28, width: 0 }, shadowOpacity: 0.22, shadowRadius: 55, width: '100%' },
   appAnnouncementIcon: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, height: 52, justifyContent: 'center', marginBottom: 14, shadowColor: palette.orange, shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.28, shadowRadius: 24, width: 52 },
+  appAnnouncementImage: { backgroundColor: palette.pale, borderRadius: 18, height: 126, marginBottom: 14, width: '100%' },
   appAnnouncementMetaRow: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.10)', borderRadius: 999, flexDirection: 'row', gap: 5, marginTop: 14, paddingHorizontal: 10, paddingVertical: 5 },
   appAnnouncementMetaText: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
   appAnnouncementPrimary: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 22, flex: 1, height: 46, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.22, shadowRadius: 20 },
+  appAnnouncementPrimaryFull: { flex: 0, width: '100%' },
   appAnnouncementPrimaryText: { color: '#fff', fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '600', lineHeight: 19 },
   appAnnouncementSecondary: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 22, flex: 1, height: 46, justifyContent: 'center' },
   appAnnouncementSecondaryText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '500', lineHeight: 19 },
