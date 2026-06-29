@@ -71,6 +71,10 @@ const COS_PROXY_CACHE_SECONDS = Number(process.env.COS_PROXY_CACHE_SECONDS || '3
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
 const statePath = process.env.LUMII_BACKEND_STATE_PATH || path.join(__dirname, '..', 'dist', 'lumii-backend-state.json');
+const adminStaticDir = path.join(__dirname, '..', 'admin');
+const ADMIN_USERNAME = process.env.LUMII_ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = process.env.LUMII_ADMIN_PASSWORD || 'LumiiAdmin@2026';
+const ADMIN_TOKEN_TTL_MS = Number(process.env.LUMII_ADMIN_TOKEN_TTL_MS || 12 * 60 * 60 * 1000);
 
 const seedOwners = [
   {
@@ -249,8 +253,35 @@ function defaultUserSettings() {
   };
 }
 
+function defaultOpsConfig() {
+  return {
+    ai: {
+      petAvatarDailyLimit: PET_AVATAR_DAILY_LIMIT,
+      petChatDailyLimit: PET_CHAT_DAILY_LIMIT,
+    },
+    app: {
+      maintenanceEnabled: false,
+      maintenanceMessage: '',
+    },
+    features: {
+      aiAvatar: true,
+      petChat: true,
+      petCircle: true,
+      places: true,
+      walkInvite: true,
+    },
+    social: {
+      discoverRadiusKm: DEFAULT_DISCOVER_RADIUS_KM,
+      nearbyMomentTtlDays: 7,
+      petCircleMaxPhotos: 6,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function createInitialState() {
   return {
+    adminAuditLogs: [],
     avatarJobs: {},
     conversations: {},
     conversationMessages: {},
@@ -304,6 +335,7 @@ function createInitialState() {
     petAvatarDailyUsage: {},
     petChatDailyUsage: {},
     petChatMessages: {},
+    opsConfig: defaultOpsConfig(),
     placeReviews: {},
     placeSubmissions: {},
     places: defaultPlaces,
@@ -312,6 +344,60 @@ function createInitialState() {
     smsDailyUsage: {},
     smsIpDailyUsage: {},
     users: {},
+  };
+}
+
+function clampNumber(value, fallback, min, max) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(max, Math.max(min, numeric));
+}
+
+function normalizeOpsConfig(value) {
+  const defaults = defaultOpsConfig();
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const ai = source.ai && typeof source.ai === 'object' ? source.ai : {};
+  const app = source.app && typeof source.app === 'object' ? source.app : {};
+  const features = source.features && typeof source.features === 'object' ? source.features : {};
+  const social = source.social && typeof source.social === 'object' ? source.social : {};
+  return {
+    ai: {
+      petAvatarDailyLimit: Math.floor(clampNumber(ai.petAvatarDailyLimit, defaults.ai.petAvatarDailyLimit, 0, 1000)),
+      petChatDailyLimit: Math.floor(clampNumber(ai.petChatDailyLimit, defaults.ai.petChatDailyLimit, 0, 1000)),
+    },
+    app: {
+      maintenanceEnabled: Boolean(app.maintenanceEnabled),
+      maintenanceMessage: String(app.maintenanceMessage || '').slice(0, 120),
+    },
+    features: {
+      aiAvatar: features.aiAvatar !== false,
+      petChat: features.petChat !== false,
+      petCircle: features.petCircle !== false,
+      places: features.places !== false,
+      walkInvite: features.walkInvite !== false,
+    },
+    social: {
+      discoverRadiusKm: clampNumber(social.discoverRadiusKm, defaults.social.discoverRadiusKm, 1, 20),
+      nearbyMomentTtlDays: Math.floor(clampNumber(social.nearbyMomentTtlDays, defaults.social.nearbyMomentTtlDays, 1, 90)),
+      petCircleMaxPhotos: Math.floor(clampNumber(social.petCircleMaxPhotos, defaults.social.petCircleMaxPhotos, 1, 9)),
+    },
+    updatedAt: String(source.updatedAt || defaults.updatedAt),
+  };
+}
+
+function currentOpsConfig() {
+  state.opsConfig = normalizeOpsConfig(state.opsConfig || defaultOpsConfig());
+  return state.opsConfig;
+}
+
+function publicAppConfig() {
+  const config = currentOpsConfig();
+  return {
+    ai: config.ai,
+    app: config.app,
+    features: config.features,
+    social: config.social,
+    updatedAt: config.updatedAt,
   };
 }
 
@@ -366,6 +452,7 @@ function loadState() {
         ...initialState.mediaUploads,
         ...(loadedState.mediaUploads || {}),
       },
+      opsConfig: normalizeOpsConfig(loadedState.opsConfig || initialState.opsConfig),
       petAvatarDailyUsage: {
         ...initialState.petAvatarDailyUsage,
         ...(loadedState.petAvatarDailyUsage || {}),
@@ -382,6 +469,7 @@ function loadState() {
         ...initialState.revokedAuthTokens,
         ...(loadedState.revokedAuthTokens || {}),
       },
+      adminAuditLogs: Array.isArray(loadedState.adminAuditLogs) ? loadedState.adminAuditLogs : initialState.adminAuditLogs,
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
       socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
@@ -955,6 +1043,43 @@ function sendJson(res, statusCode, payload) {
   res.end(body);
 }
 
+function staticContentType(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.css') return 'text/css; charset=utf-8';
+  if (extension === '.js') return 'application/javascript; charset=utf-8';
+  if (extension === '.png') return 'image/png';
+  if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
+  if (extension === '.svg') return 'image/svg+xml; charset=utf-8';
+  return 'text/html; charset=utf-8';
+}
+
+function sendStaticFile(res, filePath) {
+  const buffer = fs.readFileSync(filePath);
+  res.writeHead(200, {
+    'Cache-Control': filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=300',
+    'Content-Length': buffer.length,
+    'Content-Type': staticContentType(filePath),
+  });
+  res.end(buffer);
+}
+
+function serveAdminStatic(req, res, pathname) {
+  if (req.method !== 'GET') return false;
+  if (pathname === '/admin' || pathname === '/admin/') {
+    sendStaticFile(res, path.join(adminStaticDir, 'index.html'));
+    return true;
+  }
+  if (!pathname.startsWith('/admin/')) return false;
+  const relative = decodeURIComponent(pathname.slice('/admin/'.length));
+  if (!relative || relative.startsWith('api/') || relative.startsWith('auth/') || relative.includes('..') || path.isAbsolute(relative)) return false;
+  const filePath = path.resolve(adminStaticDir, relative);
+  const root = path.resolve(adminStaticDir);
+  if (!filePath.startsWith(root + path.sep)) return false;
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return false;
+  sendStaticFile(res, filePath);
+  return true;
+}
+
 function ok(res, data) {
   sendJson(res, 200, { data, state: 'success' });
 }
@@ -1239,6 +1364,65 @@ function phoneFromRequest(req) {
   if (token.startsWith('lumii-v1.')) return phoneFromSignedToken(token);
   if (token.startsWith('lumii-local-')) return normalizePhone(token.slice('lumii-local-'.length));
   return '';
+}
+
+function createAdminToken(username) {
+  const now = Date.now();
+  const payloadPart = base64UrlEncode(
+    JSON.stringify({
+      exp: now + ADMIN_TOKEN_TTL_MS,
+      iat: now,
+      jti: crypto.randomBytes(12).toString('hex'),
+      role: 'admin',
+      username,
+      version: 1,
+    }),
+  );
+  return `lumii-admin-v1.${payloadPart}.${authTokenSignature(payloadPart)}`;
+}
+
+function adminFromRequest(req) {
+  const token = bearerTokenFromRequest(req);
+  try {
+    const [prefix, payloadPart, signature] = String(token || '').split('.');
+    if (prefix !== 'lumii-admin-v1' || !payloadPart || !signature) return null;
+    if (!safeEqualText(signature, authTokenSignature(payloadPart))) return null;
+    const payload = JSON.parse(base64UrlDecode(payloadPart));
+    if (payload?.version !== 1 || payload?.role !== 'admin') return null;
+    if (Number(payload.exp || 0) < Date.now()) return null;
+    return {
+      role: 'admin',
+      username: String(payload.username || ADMIN_USERNAME),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function requireAdmin(req, res) {
+  const admin = adminFromRequest(req);
+  if (!admin) {
+    fail(res, 401, '请先登录运营后台', true, undefined, 'ADMIN_AUTH_REQUIRED');
+    return null;
+  }
+  return admin;
+}
+
+function writeAdminAudit(admin, action, targetType, targetId, before, after, reason = '') {
+  state.adminAuditLogs = Array.isArray(state.adminAuditLogs) ? state.adminAuditLogs : [];
+  state.adminAuditLogs.unshift({
+    action,
+    adminName: admin?.username || 'admin',
+    after,
+    before,
+    createdAt: new Date().toISOString(),
+    id: `audit-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    reason: String(reason || '').slice(0, 240),
+    role: admin?.role || 'admin',
+    targetId: String(targetId || ''),
+    targetType,
+  });
+  state.adminAuditLogs = state.adminAuditLogs.slice(0, 1000);
 }
 
 function ensureUser(phone) {
@@ -2869,6 +3053,22 @@ function consumeSmsIpQuota(ip) {
   return usage;
 }
 
+function effectivePetChatDailyLimit() {
+  return currentOpsConfig().ai.petChatDailyLimit;
+}
+
+function effectivePetAvatarDailyLimit() {
+  return currentOpsConfig().ai.petAvatarDailyLimit;
+}
+
+function effectivePetCircleMaxPhotos() {
+  return currentOpsConfig().social.petCircleMaxPhotos;
+}
+
+function effectiveNearbyMomentTtlMs() {
+  return currentOpsConfig().social.nearbyMomentTtlDays * 24 * 60 * 60 * 1000;
+}
+
 function petChatDailyUsageFor(phone) {
   state.petChatDailyUsage = state.petChatDailyUsage || {};
   const day = todayUsageKey();
@@ -2881,7 +3081,7 @@ function petChatDailyUsageFor(phone) {
 
 function canUsePetChat(user) {
   const usage = petChatDailyUsageFor(user.phone);
-  return usage.count < PET_CHAT_DAILY_LIMIT;
+  return usage.count < effectivePetChatDailyLimit();
 }
 
 function consumePetChatQuota(user) {
@@ -2902,7 +3102,7 @@ function petAvatarDailyUsageFor(phone) {
 
 function canUsePetAvatarGeneration(user) {
   const usage = petAvatarDailyUsageFor(user.phone);
-  return usage.count < PET_AVATAR_DAILY_LIMIT;
+  return usage.count < effectivePetAvatarDailyLimit();
 }
 
 function consumePetAvatarQuota(user) {
@@ -2966,8 +3166,8 @@ function buildAiUsageSummary(user) {
   const ttapiMidjourney = { ...initialUsage.ttapiMidjourney, ...(state.aiUsage.ttapiMidjourney || {}) };
   return {
     daily: {
-      petAvatar: quotaCounter(readDailyUsage('petAvatarDailyUsage', user.phone), PET_AVATAR_DAILY_LIMIT),
-      petChat: quotaCounter(readDailyUsage('petChatDailyUsage', user.phone), PET_CHAT_DAILY_LIMIT),
+      petAvatar: quotaCounter(readDailyUsage('petAvatarDailyUsage', user.phone), effectivePetAvatarDailyLimit()),
+      petChat: quotaCounter(readDailyUsage('petChatDailyUsage', user.phone), effectivePetChatDailyLimit()),
     },
     deepseek: {
       ...deepseek,
@@ -4540,7 +4740,7 @@ function normalizeSocialMomentImageUrls(body = {}) {
     } catch {
       // Invalid image URLs are ignored; public posts should only store media upload fileUrl values.
     }
-    if (urls.length >= 6) break;
+    if (urls.length >= effectivePetCircleMaxPhotos()) break;
   }
   return urls;
 }
@@ -4613,7 +4813,7 @@ function createSocialMoment(user, body = {}) {
     mood: String(body.mood || '').trim().slice(0, 12),
     petId: pet.id,
     phone: user.phone,
-    photoCount: hasImageUrlPayload ? imageUrls.length : Math.max(0, Math.min(6, Number(body.photoCount) || 0)),
+    photoCount: hasImageUrlPayload ? imageUrls.length : Math.max(0, Math.min(effectivePetCircleMaxPhotos(), Number(body.photoCount) || 0)),
     status: 'published',
     updatedAt: new Date().toISOString(),
     visibility,
@@ -4629,7 +4829,7 @@ function findSocialMomentById(postId) {
 }
 
 function socialMomentAccessError(moment, viewer, options = {}) {
-  if (!moment || moment.status === 'deleted') return { error: '这条小事已不可见', statusCode: 404 };
+  if (!moment || moment.status === 'deleted' || moment.status === 'hidden') return { error: '这条小事已不可见', statusCode: 404 };
   const owner = state.users[moment.phone];
   if (owner && !activePetFor(owner)) return { error: '这条小事已不可见', statusCode: 404 };
   if (!owner) return { error: '这条小事已不可见', statusCode: 404 };
@@ -4641,7 +4841,7 @@ function socialMomentAccessError(moment, viewer, options = {}) {
   if (moment.phone === viewer.phone) return null;
   if (acceptedGreetingBetween(viewer.phone, moment.phone)) return null;
   const createdAtMs = new Date(moment.createdAt).getTime();
-  const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
+  const maxAgeMs = effectiveNearbyMomentTtlMs();
   if (!Number.isFinite(createdAtMs) || Date.now() - createdAtMs > maxAgeMs) return { error: '这条小事已不可见', statusCode: 404 };
   if (!canViewNearbyUser(viewer, owner, nearbyRadiusKmFor(viewer))) return { error: '这条小事已不可见', statusCode: 404 };
   return null;
@@ -4655,7 +4855,7 @@ function visibleSocialMomentForViewer(postId, viewer) {
 
 function publishedSocialComments(postId, viewer = null) {
   return ensureSocialComments()
-    .filter((comment) => comment.postId === postId && comment.status !== 'deleted')
+    .filter((comment) => comment.postId === postId && (comment.status || 'published') === 'published')
     .filter((comment) => !viewer || !socialReportFor(viewer, 'comment', comment.id))
     .filter((comment) => !viewer || !socialBlockBetween(viewer.phone, comment.phone))
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
@@ -4677,7 +4877,7 @@ function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
     distance: distanceKm === undefined ? '附近' : fuzzyDistance(distanceKm),
     id: moment.id,
     imageUrl: pet.avatarUrl,
-    imageUrls: Array.isArray(moment.imageUrls) ? moment.imageUrls.slice(0, 6) : [],
+    imageUrls: Array.isArray(moment.imageUrls) ? moment.imageUrls.slice(0, effectivePetCircleMaxPhotos()) : [],
     likedByMe: likes.some((like) => like.phone === viewer.phone),
     likeCount: likes.length,
     mood: moment.mood || undefined,
@@ -4715,7 +4915,7 @@ function decodePetCircleCursor(cursor) {
 
 function listNearbyMomentEntries(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, options = {}) {
   const moments = ensureSocialMoments();
-  const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
+  const maxAgeMs = effectiveNearbyMomentTtlMs();
   const now = Date.now();
   const includeOwn = options.includeOwn !== false;
   return moments
@@ -4723,7 +4923,7 @@ function listNearbyMomentEntries(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, 
       const momentUser = state.users[moment.phone];
       if (!momentUser) return null;
       if (!activePetFor(momentUser)) return null;
-      if (moment.status === 'deleted') return null;
+      if (moment.status === 'deleted' || moment.status === 'hidden') return null;
       if (!includeOwn && moment.phone === viewer.phone) return null;
       if ((moment.visibility || 'nearby') !== 'nearby') return null;
       if (socialBlockBetween(viewer.phone, moment.phone)) return null;
@@ -4783,7 +4983,7 @@ function petCircleProfilePostEntries(viewer, targetUser, options = {}) {
   return ensureSocialMoments()
     .map((moment, index) => ({ index, moment }))
     .filter(({ moment }) => moment.phone === targetUser.phone)
-    .filter(({ moment }) => moment.status !== 'deleted')
+    .filter(({ moment }) => moment.status !== 'deleted' && moment.status !== 'hidden')
     .filter(({ moment }) => (moment.visibility || 'nearby') === 'nearby')
     .filter(({ moment }) => includeReported || !socialReportFor(viewer, 'post', moment.id))
     .map(({ index, moment }) => {
@@ -5360,6 +5560,550 @@ function resolveVisibleSocialTarget(viewer, ownerId) {
   return { targetPhone, targetUser };
 }
 
+function adminUserSummary(user) {
+  const pets = Array.isArray(user.pets) ? user.pets : [];
+  const activePet = selectedPetFor(user);
+  const socialPosts = ensureSocialMoments().filter((item) => item.phone === user.phone && item.status !== 'deleted');
+  const reportsAgainstUser = ensureSocialReports().filter((report) => report.ownerPhone === user.phone);
+  return {
+    activePet,
+    createdAt: user.createdAt,
+    lastSeenAt: user.lastSeenAt || 0,
+    ownerAvatarUrl: user.ownerAvatarUrl || '',
+    ownerBio: user.ownerBio || '',
+    ownerName: user.ownerName || `用户${user.phone.slice(-4)}`,
+    permissions: normalizePermissionState(user.permissions),
+    petCount: pets.length,
+    pets,
+    phone: user.phone,
+    reportsAgainstCount: reportsAgainstUser.length,
+    settings: normalizeUserSettings(user.settings),
+    socialPostCount: socialPosts.length,
+    status: user.accountStatus || 'active',
+  };
+}
+
+function adminDashboardSummary() {
+  const users = Object.values(state.users || {});
+  const avatarJobs = Object.values(state.avatarJobs || {});
+  const socialPosts = ensureSocialMoments();
+  const socialComments = ensureSocialComments();
+  const reports = ensureSocialReports();
+  const placeReviews = adminPlaceReviews();
+  const placeSubmissions = adminPlaceSubmissions();
+  const feedback = Array.isArray(state.feedback) ? state.feedback : [];
+  const pendingReports = reports.filter((item) => (item.status || 'pending') === 'pending');
+  const processingAvatarJobs = avatarJobs.filter((job) => job.status === 'processing');
+  const stuckAvatarJobs = processingAvatarJobs.filter((job) => Date.now() - Number(job.updatedAt || job.createdAt || 0) > 5 * 60 * 1000);
+  return {
+    ai: {
+      avatarFailed: avatarJobs.filter((job) => job.status === 'failed').length,
+      avatarProcessing: processingAvatarJobs.length,
+      avatarReady: avatarJobs.filter((job) => job.status === 'ready').length,
+      avatarStuck: stuckAvatarJobs.length,
+      gptImage2: state.aiUsage?.gptImage2 || createInitialState().aiUsage.gptImage2,
+      petAvatarDailyLimit: effectivePetAvatarDailyLimit(),
+      petChatDailyLimit: effectivePetChatDailyLimit(),
+    },
+    config: publicAppConfig(),
+    content: {
+      comments: socialComments.filter((item) => (item.status || 'published') === 'published').length,
+      hiddenPosts: socialPosts.filter((item) => item.status === 'hidden').length,
+      pendingReports: pendingReports.length,
+      posts: socialPosts.filter((item) => item.status === 'published').length,
+    },
+    feedback: {
+      open: feedback.filter((item) => item.status !== 'closed').length,
+      total: feedback.length,
+    },
+    places: {
+      pendingReviews: placeReviews.filter((item) => item.status === 'pending_review').length,
+      pendingSubmissions: placeSubmissions.filter((item) => item.status === 'pending_review').length,
+      total: (state.places || []).length,
+    },
+    users: {
+      activeToday: users.filter((user) => Date.now() - Number(user.lastSeenAt || 0) < 24 * 60 * 60 * 1000).length,
+      total: users.length,
+      withPets: users.filter((user) => (user.pets || []).length > 0).length,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function adminAvatarJobs() {
+  return Object.values(state.avatarJobs || {})
+    .map((job) => {
+      const owner = job.ownerPhone ? state.users[job.ownerPhone] : null;
+      const media = job.mediaId ? state.mediaUploads?.[job.mediaId] : null;
+      const pet = owner?.pets?.find((item) => item.id === job.petId) || (owner ? selectedPetFor(owner) : null);
+      return {
+        acceptedAt: job.acceptedAt,
+        createdAt: job.createdAt,
+        errorCode: job.errorCode,
+        errorMessage: job.errorMessage,
+        id: job.id,
+        lastStatusError: job.lastStatusError,
+        mediaId: job.mediaId,
+        ownerName: owner?.ownerName,
+        ownerPhone: job.ownerPhone,
+        petId: job.petId,
+        petName: pet?.name || job.petName,
+        previewUrl: media?.objectUrl || media?.previewUrl || '',
+        progress: job.progress,
+        provider: job.provider,
+        providerStatus: job.providerStatus,
+        resultUrl: job.resultUrl,
+        status: job.status,
+        updatedAt: job.updatedAt,
+      };
+    })
+    .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
+}
+
+function adminSocialPosts() {
+  return ensureSocialMoments()
+    .map((moment) => {
+      const owner = state.users[moment.phone];
+      const pet = owner ? activePetFor(owner) : null;
+      const comments = ensureSocialComments().filter((comment) => comment.postId === moment.id && (comment.status || 'published') === 'published');
+      const reports = ensureSocialReports().filter((report) => report.targetType === 'post' && report.targetId === moment.id);
+      return {
+        commentCount: comments.length,
+        content: moment.content,
+        createdAt: moment.createdAt,
+        id: moment.id,
+        imageUrls: Array.isArray(moment.imageUrls) ? moment.imageUrls : [],
+        likeCount: ensureSocialLikes().filter((like) => like.postId === moment.id).length,
+        ownerName: owner?.ownerName || `用户${String(moment.phone || '').slice(-4)}`,
+        ownerPhone: moment.phone,
+        petName: pet?.name,
+        reportCount: reports.length,
+        status: moment.status || 'published',
+        updatedAt: moment.updatedAt,
+        visibility: moment.visibility || 'nearby',
+      };
+    })
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function adminSocialComments() {
+  return ensureSocialComments()
+    .map((comment) => {
+      const owner = state.users[comment.phone];
+      const post = findSocialMomentById(comment.postId);
+      const reports = ensureSocialReports().filter((report) => report.targetType === 'comment' && report.targetId === comment.id);
+      return {
+        content: comment.content,
+        createdAt: comment.createdAt,
+        id: comment.id,
+        ownerName: owner?.ownerName || `用户${String(comment.phone || '').slice(-4)}`,
+        ownerPhone: comment.phone,
+        postId: comment.postId,
+        postOwnerPhone: post?.phone,
+        reportCount: reports.length,
+        status: comment.status || 'published',
+      };
+    })
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function adminSocialReports() {
+  return ensureSocialReports()
+    .map((report) => {
+      const reporter = state.users[report.phone];
+      const owner = state.users[report.ownerPhone];
+      return {
+        content: report.content,
+        createdAt: report.createdAt,
+        id: report.id,
+        ownerName: owner?.ownerName || `用户${String(report.ownerPhone || '').slice(-4)}`,
+        ownerPhone: report.ownerPhone,
+        reporterName: reporter?.ownerName || `用户${String(report.phone || '').slice(-4)}`,
+        reporterPhone: report.phone,
+        status: report.status || 'pending',
+        targetId: report.targetId,
+        targetType: report.targetType,
+      };
+    })
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function adminPlaceReviews() {
+  state.placeReviews = state.placeReviews || {};
+  return Object.entries(state.placeReviews).flatMap(([phone, reviews]) =>
+    (Array.isArray(reviews) ? reviews : []).map((review) => {
+      const place = (state.places || []).find((item) => item.id === review.placeId);
+      const owner = state.users[phone];
+      return {
+        ...review,
+        ownerName: owner?.ownerName || `用户${phone.slice(-4)}`,
+        ownerPhone: phone,
+        placeName: place?.name || review.placeId,
+      };
+    }),
+  ).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function adminPlaceSubmissions() {
+  state.placeSubmissions = state.placeSubmissions || {};
+  return Object.entries(state.placeSubmissions).flatMap(([phone, submissions]) =>
+    (Array.isArray(submissions) ? submissions : []).map((submission) => {
+      const owner = state.users[phone];
+      return {
+        ...submission,
+        ownerName: owner?.ownerName || `用户${phone.slice(-4)}`,
+        ownerPhone: phone,
+      };
+    }),
+  ).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function findPlaceReview(reviewId) {
+  for (const [phone, reviews] of Object.entries(state.placeReviews || {})) {
+    const review = Array.isArray(reviews) ? reviews.find((item) => item.id === reviewId) : null;
+    if (review) return { phone, review };
+  }
+  return null;
+}
+
+function findPlaceSubmission(submissionId) {
+  for (const [phone, submissions] of Object.entries(state.placeSubmissions || {})) {
+    const submission = Array.isArray(submissions) ? submissions.find((item) => item.id === submissionId) : null;
+    if (submission) return { phone, submission };
+  }
+  return null;
+}
+
+function adminFeedbackItems() {
+  return (Array.isArray(state.feedback) ? state.feedback : [])
+    .map((item) => ({
+      category: item.category,
+      contact: item.contact,
+      content: item.content,
+      createdAt: item.createdAt,
+      id: item.id,
+      ownerName: item.ownerName,
+      phone: item.phone,
+      status: item.status || 'received',
+    }))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+async function handleAdminRequest(req, res, pathname, url, body) {
+  if (req.method === 'POST' && pathname === '/admin/auth/login') {
+    const username = String(body.username || '').trim();
+    const password = String(body.password || '');
+    if (!safeEqualText(username, ADMIN_USERNAME) || !safeEqualText(password, ADMIN_PASSWORD)) {
+      fail(res, 401, '管理员账号或密码不正确', false, undefined, 'ADMIN_LOGIN_FAILED');
+      return true;
+    }
+    const admin = { role: 'admin', username };
+    writeAdminAudit(admin, 'admin.login', 'admin_user', username, null, { username }, 'login');
+    saveState();
+    ok(res, { admin, token: createAdminToken(username) });
+    return true;
+  }
+
+  const admin = requireAdmin(req, res);
+  if (!admin) return true;
+
+  if (req.method === 'GET' && pathname === '/admin/me') {
+    ok(res, admin);
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/dashboard/summary') {
+    ok(res, adminDashboardSummary());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/users') {
+    const q = String(url.searchParams.get('q') || '').trim();
+    const users = Object.values(state.users || {})
+      .map(adminUserSummary)
+      .filter((user) => !q || user.phone.includes(q) || user.ownerName.includes(q) || user.pets.some((pet) => String(pet.name || '').includes(q)))
+      .sort((a, b) => Number(b.lastSeenAt || b.createdAt || 0) - Number(a.lastSeenAt || a.createdAt || 0));
+    ok(res, users.slice(0, 200));
+    return true;
+  }
+
+  const adminUserMatch = pathname.match(/^\/admin\/users\/([^/]+)$/);
+  if (req.method === 'GET' && adminUserMatch) {
+    const phone = normalizePhone(decodeURIComponent(adminUserMatch[1]));
+    const user = phone ? state.users[phone] : null;
+    if (!user) {
+      fail(res, 404, '用户不存在', false, undefined, 'ADMIN_USER_NOT_FOUND');
+      return true;
+    }
+    ok(res, {
+      ...adminUserSummary(user),
+      aiUsage: buildAiUsageSummary(user),
+      avatarJobs: adminAvatarJobs().filter((job) => job.ownerPhone === phone),
+      feedback: adminFeedbackItems().filter((item) => item.phone === phone),
+      notifications: normalizeNotificationsFor(phone),
+      socialPosts: adminSocialPosts().filter((post) => post.ownerPhone === phone),
+    });
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/ai/avatar-jobs') {
+    ok(res, adminAvatarJobs());
+    return true;
+  }
+
+  const adminAvatarActionMatch = pathname.match(/^\/admin\/ai\/avatar-jobs\/([^/]+)\/(refresh|retry|mark-failed|refund-quota)$/);
+  if (req.method === 'POST' && adminAvatarActionMatch) {
+    const jobId = decodeURIComponent(adminAvatarActionMatch[1]);
+    const action = adminAvatarActionMatch[2];
+    const job = state.avatarJobs?.[jobId];
+    const owner = job?.ownerPhone ? state.users[job.ownerPhone] : null;
+    if (!job || !owner) {
+      fail(res, 404, 'AI 任务不存在', false, undefined, 'ADMIN_AVATAR_JOB_NOT_FOUND');
+      return true;
+    }
+    const before = { ...job };
+    if (action === 'refresh') {
+      if (job.provider === 'gpt-image-2' && job.status === 'processing') await refreshGptImage2AvatarJob(req, owner, job).catch((error) => markAvatarRefreshFailure(job, error));
+      else if (job.provider === 'ttapi-flux-edits' && job.status === 'processing') await refreshTtapiFluxAvatarJob(job).catch((error) => markAvatarRefreshFailure(job, error));
+      else if (job.provider === 'ttapi-midjourney' && job.status === 'processing') await refreshTtapiAvatarJob(job).catch((error) => markAvatarRefreshFailure(job, error));
+      else touchAvatarJob(job);
+    } else if (action === 'retry') {
+      if (!job.mediaId) {
+        fail(res, 400, '原始照片缺失，无法重试', false, undefined, 'ADMIN_AVATAR_RETRY_INVALID');
+        return true;
+      }
+      const result = await createAvatarGenerationJob(req, owner, job.mediaId, job.id);
+      if (result.error) {
+        fail(res, result.statusCode || 400, result.error, Boolean(result.retryable));
+        return true;
+      }
+      writeAdminAudit(admin, 'ai.avatar.retry', 'avatar_job', job.id, before, result.job, body.reason);
+      saveState();
+      ok(res, result.job);
+      return true;
+    } else if (action === 'mark-failed') {
+      job.status = 'failed';
+      job.errorCode = 'ADMIN_MARKED_FAILED';
+      job.errorMessage = String(body.reason || '运营后台标记失败').slice(0, 240);
+      touchAvatarJob(job);
+    } else if (action === 'refund-quota') {
+      refundPetAvatarQuota(owner);
+      job.adminQuotaRefundedAt = new Date().toISOString();
+      touchAvatarJob(job);
+    }
+    writeAdminAudit(admin, `ai.avatar.${action}`, 'avatar_job', job.id, before, job, body.reason);
+    saveState();
+    ok(res, job);
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/social/posts') {
+    ok(res, adminSocialPosts());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/social/comments') {
+    ok(res, adminSocialComments());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/social/reports') {
+    ok(res, adminSocialReports());
+    return true;
+  }
+
+  const adminPostActionMatch = pathname.match(/^\/admin\/social\/posts\/([^/]+)\/(hide|restore|delete)$/);
+  if (req.method === 'POST' && adminPostActionMatch) {
+    const postId = decodeURIComponent(adminPostActionMatch[1]);
+    const action = adminPostActionMatch[2];
+    const post = findSocialMomentById(postId);
+    if (!post) {
+      fail(res, 404, '动态不存在', false, undefined, 'ADMIN_POST_NOT_FOUND');
+      return true;
+    }
+    const before = { ...post };
+    if (action === 'hide') post.status = 'hidden';
+    if (action === 'restore') post.status = 'published';
+    if (action === 'delete') {
+      post.status = 'deleted';
+      post.deletedAt = new Date().toISOString();
+      state.socialLikes = ensureSocialLikes().filter((like) => like.postId !== postId);
+      ensureSocialComments().filter((comment) => comment.postId === postId).forEach((comment) => {
+        comment.status = 'deleted';
+        comment.deletedAt = comment.deletedAt || new Date().toISOString();
+      });
+    }
+    post.updatedAt = new Date().toISOString();
+    post.adminModerationReason = String(body.reason || '').slice(0, 240);
+    writeAdminAudit(admin, `social.post.${action}`, 'pet_circle_post', postId, before, post, body.reason);
+    saveState();
+    ok(res, adminSocialPosts().find((item) => item.id === postId));
+    return true;
+  }
+
+  const adminCommentActionMatch = pathname.match(/^\/admin\/social\/comments\/([^/]+)\/(hide|restore|delete)$/);
+  if (req.method === 'POST' && adminCommentActionMatch) {
+    const commentId = decodeURIComponent(adminCommentActionMatch[1]);
+    const action = adminCommentActionMatch[2];
+    const comment = ensureSocialComments().find((item) => item.id === commentId);
+    if (!comment) {
+      fail(res, 404, '评论不存在', false, undefined, 'ADMIN_COMMENT_NOT_FOUND');
+      return true;
+    }
+    const before = { ...comment };
+    if (action === 'hide') comment.status = 'hidden';
+    if (action === 'restore') comment.status = 'published';
+    if (action === 'delete') {
+      comment.status = 'deleted';
+      comment.deletedAt = new Date().toISOString();
+    }
+    comment.adminModerationReason = String(body.reason || '').slice(0, 240);
+    writeAdminAudit(admin, `social.comment.${action}`, 'pet_circle_comment', commentId, before, comment, body.reason);
+    saveState();
+    ok(res, adminSocialComments().find((item) => item.id === commentId));
+    return true;
+  }
+
+  const adminReportResolveMatch = pathname.match(/^\/admin\/social\/reports\/([^/]+)\/resolve$/);
+  if (req.method === 'POST' && adminReportResolveMatch) {
+    const reportId = decodeURIComponent(adminReportResolveMatch[1]);
+    const report = ensureSocialReports().find((item) => item.id === reportId);
+    if (!report) {
+      fail(res, 404, '举报不存在', false, undefined, 'ADMIN_REPORT_NOT_FOUND');
+      return true;
+    }
+    const before = { ...report };
+    const nextStatus = String(body.status || 'closed');
+    report.status = ['valid', 'invalid', 'closed', 'escalated', 'reviewing'].includes(nextStatus) ? nextStatus : 'closed';
+    report.reviewedAt = new Date().toISOString();
+    report.reviewedBy = admin.username;
+    report.reviewReason = String(body.reason || '').slice(0, 240);
+    writeAdminAudit(admin, 'social.report.resolve', 'social_report', reportId, before, report, body.reason);
+    saveState();
+    ok(res, adminSocialReports().find((item) => item.id === reportId));
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/places') {
+    ok(res, placesForResponse(state.places || []));
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/places/reviews') {
+    ok(res, adminPlaceReviews());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/places/submissions') {
+    ok(res, adminPlaceSubmissions());
+    return true;
+  }
+
+  const adminPlaceReviewActionMatch = pathname.match(/^\/admin\/places\/reviews\/([^/]+)\/(approve|reject)$/);
+  if (req.method === 'POST' && adminPlaceReviewActionMatch) {
+    const reviewId = decodeURIComponent(adminPlaceReviewActionMatch[1]);
+    const action = adminPlaceReviewActionMatch[2];
+    const found = findPlaceReview(reviewId);
+    if (!found) {
+      fail(res, 404, '地点点评不存在', false, undefined, 'ADMIN_PLACE_REVIEW_NOT_FOUND');
+      return true;
+    }
+    const before = { ...found.review };
+    found.review.status = action === 'approve' ? 'approved' : 'rejected';
+    found.review.reviewedAt = new Date().toISOString();
+    found.review.reviewedBy = admin.username;
+    found.review.reviewReason = String(body.reason || '').slice(0, 240);
+    writeAdminAudit(admin, `place.review.${action}`, 'place_review', reviewId, before, found.review, body.reason);
+    saveState();
+    ok(res, adminPlaceReviews().find((item) => item.id === reviewId));
+    return true;
+  }
+
+  const adminPlaceSubmissionActionMatch = pathname.match(/^\/admin\/places\/submissions\/([^/]+)\/(approve|reject)$/);
+  if (req.method === 'POST' && adminPlaceSubmissionActionMatch) {
+    const submissionId = decodeURIComponent(adminPlaceSubmissionActionMatch[1]);
+    const action = adminPlaceSubmissionActionMatch[2];
+    const found = findPlaceSubmission(submissionId);
+    if (!found) {
+      fail(res, 404, '新增地点提交不存在', false, undefined, 'ADMIN_PLACE_SUBMISSION_NOT_FOUND');
+      return true;
+    }
+    const before = { ...found.submission };
+    found.submission.status = action === 'approve' ? 'approved' : 'rejected';
+    found.submission.reviewedAt = new Date().toISOString();
+    found.submission.reviewedBy = admin.username;
+    found.submission.reviewReason = String(body.reason || '').slice(0, 240);
+    if (action === 'approve' && !found.submission.approvedPlaceId) {
+      const place = {
+        address: found.submission.address,
+        category: 'other',
+        distance: '附近',
+        id: `manual-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+        name: found.submission.name,
+        petFriendlyStatus: 'candidate',
+        rating: 0,
+        reviewCount: 0,
+        source: 'manual',
+        supportedSpecies: ['cat', 'dog'],
+        tags: ['用户提交', '待完善'],
+      };
+      state.places = [place, ...(state.places || [])];
+      found.submission.approvedPlaceId = place.id;
+    }
+    writeAdminAudit(admin, `place.submission.${action}`, 'place_submission', submissionId, before, found.submission, body.reason);
+    saveState();
+    ok(res, adminPlaceSubmissions().find((item) => item.id === submissionId));
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/feedback') {
+    ok(res, adminFeedbackItems());
+    return true;
+  }
+
+  const adminFeedbackMatch = pathname.match(/^\/admin\/feedback\/([^/]+)$/);
+  if (req.method === 'PATCH' && adminFeedbackMatch) {
+    const feedbackId = decodeURIComponent(adminFeedbackMatch[1]);
+    const feedback = (state.feedback || []).find((item) => item.id === feedbackId);
+    if (!feedback) {
+      fail(res, 404, '反馈不存在', false, undefined, 'ADMIN_FEEDBACK_NOT_FOUND');
+      return true;
+    }
+    const before = { ...feedback };
+    const status = String(body.status || feedback.status);
+    feedback.status = ['received', 'reviewing', 'closed'].includes(status) ? status : feedback.status;
+    feedback.handledAt = new Date().toISOString();
+    feedback.handledBy = admin.username;
+    writeAdminAudit(admin, 'feedback.update', 'feedback', feedbackId, before, feedback, body.reason);
+    saveState();
+    ok(res, adminFeedbackItems().find((item) => item.id === feedbackId));
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/config') {
+    ok(res, currentOpsConfig());
+    return true;
+  }
+
+  if (req.method === 'PATCH' && pathname === '/admin/config') {
+    const before = currentOpsConfig();
+    const next = normalizeOpsConfig({ ...before, ...body, updatedAt: new Date().toISOString() });
+    state.opsConfig = next;
+    writeAdminAudit(admin, 'config.update', 'ops_config', 'app', before, next, body.reason);
+    saveState();
+    ok(res, next);
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/audit-logs') {
+    ok(res, (state.adminAuditLogs || []).slice(0, 300));
+    return true;
+  }
+
+  fail(res, 404, `未找到后台接口 ${req.method} ${pathname}`, false, undefined, 'ADMIN_ROUTE_NOT_FOUND');
+  return true;
+}
+
 async function handle(req, res) {
   if (req.method === 'OPTIONS') {
     sendJson(res, 200, true);
@@ -5387,6 +6131,20 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/legal/privacy') {
     ok(res, legalDocuments.privacy);
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/app/config') {
+    ok(res, publicAppConfig());
+    return;
+  }
+
+  if (serveAdminStatic(req, res, pathname)) {
+    return;
+  }
+
+  if (pathname.startsWith('/admin/')) {
+    await handleAdminRequest(req, res, pathname, url, body);
     return;
   }
 
@@ -6880,7 +7638,7 @@ async function handle(req, res) {
       return;
     }
     if (!canUsePetChat(user)) {
-      fail(res, 429, `今天和灵伴聊天次数已达上限（${PET_CHAT_DAILY_LIMIT} 次），明天再继续吧`, true);
+      fail(res, 429, `今天和灵伴聊天次数已达上限（${effectivePetChatDailyLimit()} 次），明天再继续吧`, true);
       return;
     }
     const messages = petChatMessagesFor(user);

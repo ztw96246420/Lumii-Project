@@ -3,6 +3,7 @@ import { getLumiiInstallationId } from '../services/installationId';
 import type {
   ApiError,
   ApiResult,
+  AppRemoteConfig,
   AiUsageSummary,
   AvatarGenerationFeedbackReason,
   AuthSession,
@@ -93,6 +94,12 @@ function nearbyLocationQuery(location?: NearbyLocationHint) {
 
 function createHttpApi(baseUrl: string): LumiiApi {
   return {
+    config: {
+      async getAppConfig(): Promise<ApiResult<AppRemoteConfig>> {
+        return request<AppRemoteConfig>('GET', '/app/config');
+      },
+    },
+
     ai: {
       async getUsage(): Promise<ApiResult<AiUsageSummary>> {
         return request<AiUsageSummary>('GET', '/ai/usage');

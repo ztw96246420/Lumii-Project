@@ -3,6 +3,7 @@ import { getLumiiInstallationId } from '../services/installationId';
 import type {
   AccountSnapshot,
   ApiResult,
+  AppRemoteConfig,
   AiUsageSummary,
   AvatarGenerationFeedbackReason,
   AuthSession,
@@ -70,6 +71,30 @@ const SMS_VERIFY_MAX_ATTEMPTS = 5;
 const OTP_TTL_MS = 5 * 60 * 1000;
 const MOCK_MEDIA_UPLOAD_MAX_BASE64_CHARS = 12_000_000;
 const MOCK_NEARBY_LOCATION_MAX_AGE_MS = 10 * 60 * 1000;
+
+const mockAppRemoteConfig: AppRemoteConfig = {
+  ai: {
+    petAvatarDailyLimit: 10,
+    petChatDailyLimit: 80,
+  },
+  app: {
+    maintenanceEnabled: false,
+    maintenanceMessage: '',
+  },
+  features: {
+    aiAvatar: true,
+    petChat: true,
+    petCircle: true,
+    places: true,
+    walkInvite: true,
+  },
+  social: {
+    discoverRadiusKm: 3,
+    nearbyMomentTtlDays: 7,
+    petCircleMaxPhotos: 6,
+  },
+  updatedAt: new Date().toISOString(),
+};
 
 let currentMockPhone = '13800138000';
 let mockOwnerName = '灵伴用户';
@@ -1891,6 +1916,13 @@ function mockFallbackPetChatReply(text: string) {
 }
 
 export const mockApi = {
+  config: {
+    async getAppConfig(): Promise<ApiResult<AppRemoteConfig>> {
+      await wait(80);
+      return success(mockAppRemoteConfig);
+    },
+  },
+
   ai: {
     async getUsage(): Promise<ApiResult<AiUsageSummary>> {
       await wait(120);

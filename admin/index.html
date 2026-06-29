@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lumii 运营后台</title>
+    <link rel="stylesheet" href="/admin/admin.css" />
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" defer></script>
+    <script src="/admin/admin.js" defer></script>
+  </head>
+  <body>
+    <div id="app" class="admin-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">L</div>
+          <div>
+            <div class="brand-name">Lumii Ops</div>
+            <div class="brand-sub">灵伴运营后台</div>
+          </div>
+        </div>
+        <nav id="nav" class="nav"></nav>
+        <div class="sidebar-note">
+          <span class="note-title">当前权限</span>
+          <strong>admin</strong>
+          <p>第一版仅开放单管理员。更细角色、双人审批和导出审批已预留。</p>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <div id="pageEyebrow" class="eyebrow">运营工作台</div>
+            <h1 id="pageTitle">总览</h1>
+          </div>
+          <div class="top-actions">
+            <button id="refreshBtn" class="ghost-button">刷新</button>
+            <button id="logoutBtn" class="ghost-button danger">退出</button>
+          </div>
+        </header>
+
+        <section id="loginPanel" class="login-panel">
+          <div class="login-card">
+            <div class="login-mark">Lumii</div>
+            <h2>进入运营后台</h2>
+            <p>用于处理 AI 任务、宠友圈审核、地点审核、反馈工单和移动端配置。</p>
+            <label>
+              管理员账号
+              <input id="usernameInput" autocomplete="username" value="admin" />
+            </label>
+            <label>
+              管理员密码
+              <input id="passwordInput" autocomplete="current-password" type="password" />
+            </label>
+            <button id="loginBtn" class="primary-button">登录</button>
+            <div id="loginError" class="form-error"></div>
+          </div>
+        </section>
+
+        <section id="content" class="content"></section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast"></div>
+  </body>
+</html>

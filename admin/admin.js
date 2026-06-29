@@ -1,0 +1,625 @@
+const state = {
+  admin: null,
+  cache: {},
+  route: 'dashboard',
+  token: localStorage.getItem('lumii-admin-token') || '',
+};
+
+const navItems = [
+  { key: 'dashboard', label: '工作台' },
+  { key: 'users', label: '用户管理' },
+  { key: 'avatarJobs', label: 'AI 灵伴' },
+  { key: 'socialPosts', label: '宠友圈' },
+  { key: 'reports', label: '举报中心' },
+  { key: 'places', label: '地图地点' },
+  { key: 'feedback', label: '反馈工单' },
+  { key: 'config', label: '配置中心' },
+  { key: 'audit', label: '审计日志' },
+  { key: 'sanctions', label: '用户处罚', reserved: true },
+  { key: 'exports', label: '数据导出', reserved: true },
+];
+
+const titles = {
+  audit: ['系统审计', '后台所有写操作都会沉淀为审计记录'],
+  avatarJobs: ['AI 灵伴', '生成任务、失败排查、额度返还'],
+  config: ['配置中心', '这些配置会被移动端 /app/config 读取'],
+  dashboard: ['总览', '运营工作台'],
+  exports: ['数据导出', '需要审批的生产能力'],
+  feedback: ['反馈工单', '用户反馈和客服处理队列'],
+  places: ['地图地点', '地点点评与新增地点审核'],
+  reports: ['举报中心', '宠友圈举报处理闭环'],
+  sanctions: ['用户处罚', '禁言、冻结、封禁策略预留'],
+  socialPosts: ['宠友圈', '动态与评论内容安全'],
+  users: ['用户管理', '账号、宠物、设置和风险排查'],
+};
+
+const $ = (id) => document.getElementById(id);
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function formatTime(value) {
+  if (!value) return '-';
+  const date = typeof value === 'number' ? new Date(value) : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('zh-CN', { hour12: false });
+}
+
+function shortPhone(value) {
+  const text = String(value || '');
+  return text.length === 11 ? `${text.slice(0, 3)}****${text.slice(7)}` : text || '-';
+}
+
+function statusPill(status) {
+  const value = String(status || '-');
+  const tone = /ready|approved|active|published|valid|closed|success|done/.test(value)
+    ? 'ok'
+    : /failed|rejected|deleted|hidden|invalid|bad/.test(value)
+      ? 'bad'
+      : 'warn';
+  return `<span class="pill ${tone}">${escapeHtml(value)}</span>`;
+}
+
+function help(text) {
+  return `<span class="help" data-tip="${escapeHtml(text)}">?</span>`;
+}
+
+function showToast(message) {
+  const toast = $('toast');
+  toast.textContent = message;
+  toast.classList.add('visible');
+  window.clearTimeout(showToast.timer);
+  showToast.timer = window.setTimeout(() => toast.classList.remove('visible'), 2200);
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      Accept: 'application/json',
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.state === 'error') {
+    const message = payload?.error?.message || `请求失败（${response.status}）`;
+    throw new Error(message);
+  }
+  return payload.data;
+}
+
+function setChrome() {
+  const [title, eyebrow] = titles[state.route] || titles.dashboard;
+  $('pageTitle').textContent = title;
+  $('pageEyebrow').textContent = eyebrow;
+  $('nav').innerHTML = navItems.map((item) => `
+    <button class="${state.route === item.key ? 'active' : ''}" data-route="${item.key}">
+      <span>${item.label}</span>
+      ${item.reserved ? '<span class="reserved">预留</span>' : ''}
+    </button>
+  `).join('');
+}
+
+function setLoggedIn(loggedIn) {
+  $('loginPanel').classList.toggle('visible', !loggedIn);
+  $('content').style.display = loggedIn ? 'grid' : 'none';
+  document.querySelector('.top-actions').style.display = loggedIn ? 'flex' : 'none';
+}
+
+async function login() {
+  $('loginError').textContent = '';
+  try {
+    const data = await api('/admin/auth/login', {
+      body: JSON.stringify({
+        password: $('passwordInput').value,
+        username: $('usernameInput').value,
+      }),
+      method: 'POST',
+    });
+    state.token = data.token;
+    state.admin = data.admin;
+    localStorage.setItem('lumii-admin-token', state.token);
+    setLoggedIn(true);
+    await render();
+    showToast('已进入运营后台');
+  } catch (error) {
+    $('loginError').textContent = error.message;
+  }
+}
+
+function logout() {
+  state.token = '';
+  state.admin = null;
+  localStorage.removeItem('lumii-admin-token');
+  setLoggedIn(false);
+}
+
+async function bootstrap() {
+  bindEvents();
+  setChrome();
+  if (!state.token) {
+    setLoggedIn(false);
+    return;
+  }
+  try {
+    state.admin = await api('/admin/me');
+    setLoggedIn(true);
+    await render();
+  } catch {
+    logout();
+  }
+}
+
+function bindEvents() {
+  $('loginBtn').addEventListener('click', login);
+  $('passwordInput').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') login();
+  });
+  $('logoutBtn').addEventListener('click', logout);
+  $('refreshBtn').addEventListener('click', () => render(true));
+  $('nav').addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-route]');
+    if (!button) return;
+    state.route = button.dataset.route;
+    setChrome();
+    render();
+  });
+  $('content').addEventListener('click', onContentClick);
+}
+
+async function onContentClick(event) {
+  const button = event.target.closest('[data-action]');
+  if (!button) return;
+  const action = button.dataset.action;
+  const id = button.dataset.id;
+  const reason = button.dataset.reason || '运营后台处理';
+  try {
+    if (action === 'save-config') await saveConfig();
+    if (action === 'avatar-refresh') await post(`/admin/ai/avatar-jobs/${id}/refresh`, { reason });
+    if (action === 'avatar-retry') await post(`/admin/ai/avatar-jobs/${id}/retry`, { reason });
+    if (action === 'avatar-fail') await post(`/admin/ai/avatar-jobs/${id}/mark-failed`, { reason });
+    if (action === 'avatar-refund') await post(`/admin/ai/avatar-jobs/${id}/refund-quota`, { reason });
+    if (action === 'post-hide') await post(`/admin/social/posts/${id}/hide`, { reason });
+    if (action === 'post-restore') await post(`/admin/social/posts/${id}/restore`, { reason });
+    if (action === 'post-delete') await confirmPost(`/admin/social/posts/${id}/delete`, { reason }, '确认删除这条动态？');
+    if (action === 'comment-hide') await post(`/admin/social/comments/${id}/hide`, { reason });
+    if (action === 'comment-restore') await post(`/admin/social/comments/${id}/restore`, { reason });
+    if (action === 'report-valid') await post(`/admin/social/reports/${id}/resolve`, { reason, status: 'valid' });
+    if (action === 'report-invalid') await post(`/admin/social/reports/${id}/resolve`, { reason, status: 'invalid' });
+    if (action === 'review-approve') await post(`/admin/places/reviews/${id}/approve`, { reason });
+    if (action === 'review-reject') await post(`/admin/places/reviews/${id}/reject`, { reason });
+    if (action === 'submission-approve') await post(`/admin/places/submissions/${id}/approve`, { reason });
+    if (action === 'submission-reject') await post(`/admin/places/submissions/${id}/reject`, { reason });
+    if (action === 'feedback-reviewing') await patch(`/admin/feedback/${id}`, { reason, status: 'reviewing' });
+    if (action === 'feedback-close') await patch(`/admin/feedback/${id}`, { reason, status: 'closed' });
+    if (action !== 'save-config') {
+      showToast('处理完成');
+      await render(true);
+    }
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function post(path, body) {
+  return api(path, { body: JSON.stringify(body), method: 'POST' });
+}
+
+async function patch(path, body) {
+  return api(path, { body: JSON.stringify(body), method: 'PATCH' });
+}
+
+async function confirmPost(path, body, message) {
+  if (!window.confirm(message)) return null;
+  return post(path, body);
+}
+
+async function render(force = false) {
+  setChrome();
+  if (navItems.find((item) => item.key === state.route)?.reserved) {
+    renderReserved();
+    return;
+  }
+  const renderers = {
+    audit: renderAudit,
+    avatarJobs: renderAvatarJobs,
+    config: renderConfig,
+    dashboard: renderDashboard,
+    feedback: renderFeedback,
+    places: renderPlaces,
+    reports: renderReports,
+    socialPosts: renderSocialPosts,
+    users: renderUsers,
+  };
+  await renderers[state.route](force);
+}
+
+async function load(key, path, force = false) {
+  if (!force && state.cache[key]) return state.cache[key];
+  state.cache[key] = await api(path);
+  return state.cache[key];
+}
+
+function metric(label, value, foot, tip) {
+  return `
+    <div class="card metric">
+      <div class="metric-label">${label} ${tip ? help(tip) : ''}</div>
+      <div class="metric-value">${escapeHtml(value)}</div>
+      <div class="metric-foot">${escapeHtml(foot || '')}</div>
+    </div>
+  `;
+}
+
+async function renderDashboard(force) {
+  const data = await load('summary', '/admin/dashboard/summary', force);
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('用户总数', data.users.total, `${data.users.withPets} 位已建档`, '来自当前后端 users 状态。')}
+      ${metric('AI 处理中', data.ai.avatarProcessing, `${data.ai.avatarStuck} 个可能卡住`, '超过 5 分钟未更新会进入卡住计数。')}
+      ${metric('待处理举报', data.content.pendingReports, `${data.content.posts} 条公开动态`, '当前举报状态为 pending 的记录。')}
+      ${metric('地点待审', data.places.pendingReviews + data.places.pendingSubmissions, `${data.places.total} 个地点`, '地点点评与新增地点提交合计。')}
+    </div>
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>运营压力分布</h2>
+            <div class="section-sub">举报、地点、反馈、AI 卡住任务的处理量</div>
+          </div>
+          ${help('用于判断今天运营优先处理什么。后续会接 SLA 和负责人。')}
+        </div>
+        <div id="opsChart" class="chart"></div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>移动端配置</h2>
+            <div class="section-sub">App 正在读取这些后台配置</div>
+          </div>
+        </div>
+        ${configSnapshot(data.config)}
+      </div>
+    </div>
+  `;
+  renderOpsChart(data);
+}
+
+function configSnapshot(config) {
+  return `
+    <div class="switch-row"><span>宠友圈图片上限</span><strong>${config.social.petCircleMaxPhotos}</strong></div>
+    <div class="switch-row"><span>附近默认半径</span><strong>${config.social.discoverRadiusKm}km</strong></div>
+    <div class="switch-row"><span>形象生成额度</span><strong>${config.ai.petAvatarDailyLimit}/天</strong></div>
+    <div class="switch-row"><span>AI 对话额度</span><strong>${config.ai.petChatDailyLimit}/天</strong></div>
+    <div class="switch-row"><span>宠友圈开关</span>${statusPill(config.features.petCircle ? 'active' : 'closed')}</div>
+    <div class="switch-row"><span>地图地点开关</span>${statusPill(config.features.places ? 'active' : 'closed')}</div>
+  `;
+}
+
+function renderOpsChart(data) {
+  if (!window.echarts) {
+    $('opsChart').innerHTML = '<div class="placeholder">图表组件加载中</div>';
+    return;
+  }
+  const chart = echarts.init($('opsChart'));
+  chart.setOption({
+    color: ['#ff7f4f', '#48b6a8', '#c99637', '#dc604e'],
+    grid: { bottom: 28, left: 38, right: 14, top: 20 },
+    tooltip: {},
+    xAxis: { axisLine: { show: false }, axisTick: { show: false }, data: ['举报', '地点待审', '反馈', 'AI卡住'], type: 'category' },
+    yAxis: { splitLine: { lineStyle: { color: 'rgba(91,70,48,.1)' } }, type: 'value' },
+    series: [{
+      barMaxWidth: 34,
+      data: [
+        data.content.pendingReports,
+        data.places.pendingReviews + data.places.pendingSubmissions,
+        data.feedback.open,
+        data.ai.avatarStuck,
+      ],
+      itemStyle: { borderRadius: [10, 10, 0, 0] },
+      type: 'bar',
+    }],
+  });
+}
+
+async function renderUsers(force) {
+  const users = await load('users', '/admin/users', force);
+  renderTable({
+    empty: '暂无用户',
+    rows: users,
+    columns: [
+      ['用户', (u) => `<div class="cell-title">${escapeHtml(u.ownerName)}</div><div class="cell-sub">${shortPhone(u.phone)}</div>`],
+      ['宠物', (u) => `${u.activePet ? `<div class="cell-title">${escapeHtml(u.activePet.name)}</div><div class="cell-sub">${escapeHtml(u.activePet.species)} · ${escapeHtml(u.activePet.breed || '-')}</div>` : '-'}`],
+      ['设置', (u) => `${statusPill(u.settings.nearbyVisible ? 'nearby on' : 'nearby off')} ${statusPill(u.settings.pushNotifications ? 'push on' : 'push off')}`],
+      ['内容', (u) => `<div>${u.socialPostCount} 条小事</div><div class="cell-sub">${u.reportsAgainstCount} 次被举报</div>`],
+      ['最近活跃', (u) => formatTime(u.lastSeenAt)],
+    ],
+  });
+}
+
+async function renderAvatarJobs(force) {
+  const rows = await load('avatarJobs', '/admin/ai/avatar-jobs', force);
+  renderTable({
+    empty: '暂无 AI 形象任务',
+    rows,
+    columns: [
+      ['任务', (job) => `<div class="cell-title">${escapeHtml(job.petName || job.id)}</div><div class="cell-sub">${escapeHtml(job.id)}</div>`],
+      ['用户', (job) => `<div>${escapeHtml(job.ownerName || '-')}</div><div class="cell-sub">${shortPhone(job.ownerPhone)}</div>`],
+      ['状态', (job) => `${statusPill(job.status)}<div class="cell-sub">${escapeHtml(job.provider || '-')} · ${job.progress || 0}%</div>`],
+      ['错误', (job) => `<div>${escapeHtml(job.errorCode || '-')}</div><div class="cell-sub">${escapeHtml(job.lastStatusError || job.errorMessage || '')}</div>`],
+      ['更新时间', (job) => formatTime(job.updatedAt || job.createdAt)],
+      ['操作', (job) => `
+        <div class="actions">
+          <button class="small-button" data-action="avatar-refresh" data-id="${job.id}">刷新</button>
+          <button class="small-button" data-action="avatar-retry" data-id="${job.id}">重试</button>
+          <button class="small-button" data-action="avatar-refund" data-id="${job.id}">返还</button>
+          <button class="small-button danger" data-action="avatar-fail" data-id="${job.id}">失败</button>
+        </div>
+      `],
+    ],
+  });
+}
+
+async function renderSocialPosts(force) {
+  const [posts, comments] = await Promise.all([
+    load('socialPosts', '/admin/social/posts', force),
+    load('socialComments', '/admin/social/comments', force),
+  ]);
+  $('content').innerHTML = `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>宠友圈动态</h2>
+          <div class="section-sub">隐藏用于运营处理，删除用于严重违规或用户要求删除</div>
+        </div>
+        ${help('隐藏后 App 列表不展示，但后台可恢复；删除会同时清理点赞和评论展示。')}
+      </div>
+      ${tableHtml(posts, [
+        ['动态', (p) => `<div class="cell-title">${escapeHtml(p.petName || p.ownerName)}</div><div class="cell-sub">${escapeHtml(p.content).slice(0, 90)}</div>`],
+        ['用户', (p) => `<div>${escapeHtml(p.ownerName)}</div><div class="cell-sub">${shortPhone(p.ownerPhone)}</div>`],
+        ['状态', (p) => `${statusPill(p.status)}<div class="cell-sub">${p.imageUrls.length} 图 · ${p.commentCount} 评 · ${p.likeCount} 赞</div>`],
+        ['举报', (p) => p.reportCount],
+        ['发布时间', (p) => formatTime(p.createdAt)],
+        ['操作', (p) => `
+          <div class="actions">
+            <button class="small-button" data-action="post-hide" data-id="${p.id}">隐藏</button>
+            <button class="small-button" data-action="post-restore" data-id="${p.id}">恢复</button>
+            <button class="small-button danger" data-action="post-delete" data-id="${p.id}">删除</button>
+          </div>
+        `],
+      ])}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>评论</h2>
+          <div class="section-sub">评论隐藏后不再进入 App 评论列表</div>
+        </div>
+      </div>
+      ${tableHtml(comments, [
+        ['评论', (c) => `<div class="cell-title">${escapeHtml(c.content)}</div><div class="cell-sub">${escapeHtml(c.postId)}</div>`],
+        ['用户', (c) => `<div>${escapeHtml(c.ownerName)}</div><div class="cell-sub">${shortPhone(c.ownerPhone)}</div>`],
+        ['状态', (c) => statusPill(c.status)],
+        ['举报', (c) => c.reportCount],
+        ['时间', (c) => formatTime(c.createdAt)],
+        ['操作', (c) => `
+          <div class="actions">
+            <button class="small-button" data-action="comment-hide" data-id="${c.id}">隐藏</button>
+            <button class="small-button" data-action="comment-restore" data-id="${c.id}">恢复</button>
+          </div>
+        `],
+      ])}
+    </div>
+  `;
+}
+
+async function renderReports(force) {
+  const rows = await load('reports', '/admin/social/reports', force);
+  renderTable({
+    empty: '暂无举报',
+    rows,
+    columns: [
+      ['举报对象', (r) => `<div class="cell-title">${escapeHtml(r.targetType)} · ${escapeHtml(r.targetId)}</div><div class="cell-sub">被举报：${escapeHtml(r.ownerName)} ${shortPhone(r.ownerPhone)}</div>`],
+      ['举报人', (r) => `<div>${escapeHtml(r.reporterName)}</div><div class="cell-sub">${shortPhone(r.reporterPhone)}</div>`],
+      ['原因', (r) => escapeHtml(r.content || '-')],
+      ['状态', (r) => statusPill(r.status)],
+      ['时间', (r) => formatTime(r.createdAt)],
+      ['操作', (r) => `
+        <div class="actions">
+          <button class="small-button" data-action="report-valid" data-id="${r.id}">有效</button>
+          <button class="small-button" data-action="report-invalid" data-id="${r.id}">无效</button>
+        </div>
+      `],
+    ],
+  });
+}
+
+async function renderPlaces(force) {
+  const [reviews, submissions] = await Promise.all([
+    load('placeReviews', '/admin/places/reviews', force),
+    load('placeSubmissions', '/admin/places/submissions', force),
+  ]);
+  $('content').innerHTML = `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>地点点评审核</h2>
+          <div class="section-sub">点评默认 pending_review，审核后才适合公开展示</div>
+        </div>
+      </div>
+      ${tableHtml(reviews, [
+        ['点评', (r) => `<div class="cell-title">${escapeHtml(r.placeName)}</div><div class="cell-sub">${escapeHtml(r.content).slice(0, 90)}</div>`],
+        ['用户', (r) => `<div>${escapeHtml(r.ownerName)}</div><div class="cell-sub">${shortPhone(r.ownerPhone)}</div>`],
+        ['状态', (r) => statusPill(r.status)],
+        ['时间', (r) => formatTime(r.createdAt)],
+        ['操作', (r) => `
+          <div class="actions">
+            <button class="small-button" data-action="review-approve" data-id="${r.id}">通过</button>
+            <button class="small-button danger" data-action="review-reject" data-id="${r.id}">驳回</button>
+          </div>
+        `],
+      ])}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>新增地点审核</h2>
+          <div class="section-sub">通过后会创建 manual 地点，宠物友好状态为 candidate</div>
+        </div>
+      </div>
+      ${tableHtml(submissions, [
+        ['地点', (s) => `<div class="cell-title">${escapeHtml(s.name)}</div><div class="cell-sub">${escapeHtml(s.address)}</div>`],
+        ['体验', (s) => escapeHtml(s.content).slice(0, 100)],
+        ['用户', (s) => `<div>${escapeHtml(s.ownerName)}</div><div class="cell-sub">${shortPhone(s.ownerPhone)}</div>`],
+        ['状态', (s) => statusPill(s.status)],
+        ['时间', (s) => formatTime(s.createdAt)],
+        ['操作', (s) => `
+          <div class="actions">
+            <button class="small-button" data-action="submission-approve" data-id="${s.id}">通过</button>
+            <button class="small-button danger" data-action="submission-reject" data-id="${s.id}">驳回</button>
+          </div>
+        `],
+      ])}
+    </div>
+  `;
+}
+
+async function renderFeedback(force) {
+  const rows = await load('feedback', '/admin/feedback', force);
+  renderTable({
+    empty: '暂无反馈',
+    rows,
+    columns: [
+      ['反馈', (f) => `<div class="cell-title">${escapeHtml(f.category)}</div><div class="cell-sub">${escapeHtml(f.content).slice(0, 120)}</div>`],
+      ['用户', (f) => `<div>${escapeHtml(f.ownerName || '-')}</div><div class="cell-sub">${shortPhone(f.phone)}</div>`],
+      ['联系', (f) => escapeHtml(f.contact || '-')],
+      ['状态', (f) => statusPill(f.status)],
+      ['时间', (f) => formatTime(f.createdAt)],
+      ['操作', (f) => `
+        <div class="actions">
+          <button class="small-button" data-action="feedback-reviewing" data-id="${f.id}">处理中</button>
+          <button class="small-button" data-action="feedback-close" data-id="${f.id}">关闭</button>
+        </div>
+      `],
+    ],
+  });
+}
+
+async function renderConfig(force) {
+  const config = await load('config', '/admin/config', force);
+  $('content').innerHTML = `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>移动端联动配置</h2>
+          <div class="section-sub">保存后，移动端下次启动会读取 /app/config 并影响对应功能</div>
+        </div>
+        ${help('当前第一版已接入：图片上限、附近半径、AI 额度、功能开关。未接入项在文档里标注。')}
+      </div>
+      <div class="config-grid">
+        <label>宠友圈图片上限<input id="cfgPetCircleMaxPhotos" type="number" min="1" max="9" value="${config.social.petCircleMaxPhotos}" /></label>
+        <label>附近默认半径 km<input id="cfgDiscoverRadiusKm" type="number" min="1" max="20" value="${config.social.discoverRadiusKm}" /></label>
+        <label>附近小事有效天数<input id="cfgNearbyMomentTtlDays" type="number" min="1" max="90" value="${config.social.nearbyMomentTtlDays}" /></label>
+        <label>灵伴形象每日额度<input id="cfgPetAvatarDailyLimit" type="number" min="0" max="1000" value="${config.ai.petAvatarDailyLimit}" /></label>
+        <label>AI 对话每日额度<input id="cfgPetChatDailyLimit" type="number" min="0" max="1000" value="${config.ai.petChatDailyLimit}" /></label>
+        <label>维护提示<input id="cfgMaintenanceMessage" value="${escapeHtml(config.app.maintenanceMessage || '')}" /></label>
+      </div>
+      <div class="switch-panel">
+        ${featureCheckbox('cfgFeaturePetCircle', '宠友圈', config.features.petCircle)}
+        ${featureCheckbox('cfgFeaturePlaces', '地图地点', config.features.places)}
+        ${featureCheckbox('cfgFeatureAiAvatar', 'AI 灵伴形象', config.features.aiAvatar)}
+        ${featureCheckbox('cfgFeaturePetChat', 'AI 宠物对话', config.features.petChat)}
+        ${featureCheckbox('cfgFeatureWalkInvite', '约遛邀请', config.features.walkInvite)}
+        ${featureCheckbox('cfgMaintenanceEnabled', '维护模式', config.app.maintenanceEnabled)}
+      </div>
+      <button class="primary-button" data-action="save-config">保存配置</button>
+    </div>
+  `;
+}
+
+function featureCheckbox(id, label, checked) {
+  return `<label class="switch-row"><span>${label}</span><input id="${id}" type="checkbox" ${checked ? 'checked' : ''} /></label>`;
+}
+
+async function saveConfig() {
+  const payload = {
+    ai: {
+      petAvatarDailyLimit: Number($('cfgPetAvatarDailyLimit').value),
+      petChatDailyLimit: Number($('cfgPetChatDailyLimit').value),
+    },
+    app: {
+      maintenanceEnabled: $('cfgMaintenanceEnabled').checked,
+      maintenanceMessage: $('cfgMaintenanceMessage').value,
+    },
+    features: {
+      aiAvatar: $('cfgFeatureAiAvatar').checked,
+      petChat: $('cfgFeaturePetChat').checked,
+      petCircle: $('cfgFeaturePetCircle').checked,
+      places: $('cfgFeaturePlaces').checked,
+      walkInvite: $('cfgFeatureWalkInvite').checked,
+    },
+    reason: '配置中心保存',
+    social: {
+      discoverRadiusKm: Number($('cfgDiscoverRadiusKm').value),
+      nearbyMomentTtlDays: Number($('cfgNearbyMomentTtlDays').value),
+      petCircleMaxPhotos: Number($('cfgPetCircleMaxPhotos').value),
+    },
+  };
+  state.cache.config = await patch('/admin/config', payload);
+  state.cache.summary = null;
+  showToast('配置已保存');
+  await render(true);
+}
+
+async function renderAudit(force) {
+  const rows = await load('audit', '/admin/audit-logs', force);
+  renderTable({
+    empty: '暂无审计日志',
+    rows,
+    columns: [
+      ['动作', (r) => `<div class="cell-title">${escapeHtml(r.action)}</div><div class="cell-sub">${escapeHtml(r.targetType)} · ${escapeHtml(r.targetId)}</div>`],
+      ['管理员', (r) => escapeHtml(r.adminName)],
+      ['原因', (r) => escapeHtml(r.reason || '-')],
+      ['时间', (r) => formatTime(r.createdAt)],
+    ],
+  });
+}
+
+function renderReserved() {
+  const [title] = titles[state.route] || ['预留能力'];
+  $('content').innerHTML = `
+    <div class="card placeholder">
+      <div>
+        <strong>${escapeHtml(title)}已预留</strong>
+        <div>菜单入口已经放好，后续会按运营后台需求文档继续补完整逻辑、权限和审计。</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTable({ columns, empty, rows }) {
+  $('content').innerHTML = `<div class="card">${tableHtml(rows, columns, empty)}</div>`;
+}
+
+function tableHtml(rows, columns, empty = '暂无数据') {
+  if (!rows.length) return `<div class="placeholder"><div><strong>${empty}</strong><div>刷新或切换筛选后再看看。</div></div></div>`;
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead><tr>${columns.map(([label]) => `<th>${label}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${rows.map((row) => `<tr>${columns.map(([, renderCell]) => `<td>${renderCell(row)}</td>`).join('')}</tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+bootstrap();

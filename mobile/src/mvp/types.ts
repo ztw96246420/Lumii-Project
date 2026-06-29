@@ -559,6 +559,30 @@ export type FeedbackSubmission = {
   status: 'closed' | 'received' | 'reviewing';
 };
 
+export type AppRemoteConfig = {
+  ai: {
+    petAvatarDailyLimit: number;
+    petChatDailyLimit: number;
+  };
+  app: {
+    maintenanceEnabled: boolean;
+    maintenanceMessage: string;
+  };
+  features: {
+    aiAvatar: boolean;
+    petChat: boolean;
+    petCircle: boolean;
+    places: boolean;
+    walkInvite: boolean;
+  };
+  social: {
+    discoverRadiusKm: number;
+    nearbyMomentTtlDays: number;
+    petCircleMaxPhotos: number;
+  };
+  updatedAt: string;
+};
+
 export type AppTab = 'discover' | 'home' | 'map' | 'messages' | 'profile';
 
 export type AppRoute =

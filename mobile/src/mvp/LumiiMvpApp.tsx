@@ -106,6 +106,7 @@ import type {
   AppTab,
   ApiError,
   ApiResult,
+  AppRemoteConfig,
   AiUsageSummary,
   AvatarGenerationFeedbackReason,
   AuthSession,
@@ -146,6 +147,30 @@ const fallbackPetAvatarDailyLimit = 10;
 const fallbackPetChatDailyLimit = 80;
 const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
+
+const fallbackRemoteConfig: AppRemoteConfig = {
+  ai: {
+    petAvatarDailyLimit: fallbackPetAvatarDailyLimit,
+    petChatDailyLimit: fallbackPetChatDailyLimit,
+  },
+  app: {
+    maintenanceEnabled: false,
+    maintenanceMessage: '',
+  },
+  features: {
+    aiAvatar: true,
+    petChat: true,
+    petCircle: true,
+    places: true,
+    walkInvite: true,
+  },
+  social: {
+    discoverRadiusKm: defaultDiscoverRadiusKm,
+    nearbyMomentTtlDays: 7,
+    petCircleMaxPhotos: 6,
+  },
+  updatedAt: '',
+};
 
 function applyStableAndroidStatusBar() {
   if (Platform.OS !== 'android') return;
@@ -1966,6 +1991,8 @@ export default function LumiiMvpApp() {
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [clock, setClock] = useState(Date.now());
   const [session, setSession] = useState<AuthSession | null>(isHomePreviewMode ? initialPreviewSession : null);
+  const [remoteConfig, setRemoteConfig] = useState<AppRemoteConfig>(fallbackRemoteConfig);
+  const remoteConfigRef = useRef<AppRemoteConfig>(fallbackRemoteConfig);
   const activePetIdRef = useRef<string | null>(null);
   const phoneInputRef = useRef<TextInput>(null);
   const phoneValueRef = useRef('');
@@ -2276,13 +2303,27 @@ export default function LumiiMvpApp() {
 
   const showBottomTabs = Boolean(session && currentTab);
   const cooldownRemaining = Math.min(60, Math.max(0, Math.ceil((cooldownUntil - clock) / 1000)));
+  const configuredDiscoverRadiusKm = remoteConfig.social.discoverRadiusKm || defaultDiscoverRadiusKm;
+  const dailyPostPhotoLimit = Math.max(1, Math.min(9, Math.floor(remoteConfig.social.petCircleMaxPhotos || dailyPostMaxPhotoCount)));
   const petAvatarDailyUsage = aiUsage?.daily.petAvatar;
-  const petAvatarDailyLimit = petAvatarDailyUsage?.limit ?? fallbackPetAvatarDailyLimit;
+  const petAvatarDailyLimit = petAvatarDailyUsage?.limit ?? remoteConfig.ai.petAvatarDailyLimit ?? fallbackPetAvatarDailyLimit;
   const petAvatarDailyCount = petAvatarDailyUsage?.count ?? 0;
   const petAvatarDailyRemaining = petAvatarDailyUsage?.remaining ?? Math.max(0, petAvatarDailyLimit - petAvatarDailyCount);
-  const petChatDailyLimit = aiUsage?.daily.petChat.limit ?? fallbackPetChatDailyLimit;
+  const petChatDailyLimit = aiUsage?.daily.petChat.limit ?? remoteConfig.ai.petChatDailyLimit ?? fallbackPetChatDailyLimit;
   const pendingVaccines = useMemo(() => vaccines.filter((item) => item.status !== 'done'), [vaccines]);
   const urgentVaccines = useMemo(() => pendingVaccines.filter(isVaccineReminderUrgent), [pendingVaccines]);
+
+  useEffect(() => {
+    let cancelled = false;
+    lumiiApi.config.getAppConfig().then((result) => {
+      if (cancelled || result.state !== 'success' || !result.data) return;
+      remoteConfigRef.current = result.data;
+      setRemoteConfig(result.data);
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!memoReminderPickerKind) return;
@@ -6218,8 +6259,8 @@ export default function LumiiMvpApp() {
 
   async function pickDailyPostPhoto(source: 'camera' | 'library') {
     if (dailyPhotoPickingRef.current) return;
-    if (dailyPostPhotoUris.length >= dailyPostMaxPhotoCount) {
-      showToast(`今日小事最多添加 ${dailyPostMaxPhotoCount} 张照片`);
+    if (dailyPostPhotoUris.length >= dailyPostPhotoLimit) {
+      showToast(`今日小事最多添加 ${dailyPostPhotoLimit} 张照片`);
       return;
     }
     dailyPhotoPickingRef.current = true;
@@ -6246,7 +6287,7 @@ export default function LumiiMvpApp() {
             base64: true,
             mediaTypes: ['images'],
             quality: 0.78,
-              selectionLimit: Math.max(1, dailyPostMaxPhotoCount - dailyPostPhotoUris.length),
+              selectionLimit: Math.max(1, dailyPostPhotoLimit - dailyPostPhotoUris.length),
             });
       if (pickerResult.canceled || !pickerResult.assets?.length) {
         showToast(source === 'camera' ? '已取消拍照' : '已取消选择照片');
@@ -6259,8 +6300,8 @@ export default function LumiiMvpApp() {
         return;
       }
       const nextUris = nextDrafts.map((draft) => draft.uri);
-      setDailyPostPhotoUris((items) => [...items, ...nextUris].slice(0, dailyPostMaxPhotoCount));
-      setDailyPostPhotoDrafts((items) => [...items, ...nextDrafts].slice(0, dailyPostMaxPhotoCount));
+      setDailyPostPhotoUris((items) => [...items, ...nextUris].slice(0, dailyPostPhotoLimit));
+      setDailyPostPhotoDrafts((items) => [...items, ...nextDrafts].slice(0, dailyPostPhotoLimit));
       showToast(`已添加 ${nextUris.length} 张照片`, { tone: 'success', variant: 'surface' });
     } finally {
       dailyPhotoPickingRef.current = false;
@@ -6270,7 +6311,7 @@ export default function LumiiMvpApp() {
 
   async function uploadDailyPostImages(drafts: LocalImageUploadDraft[]) {
     const urls: string[] = [];
-    for (const draft of drafts.slice(0, dailyPostMaxPhotoCount)) {
+    for (const draft of drafts.slice(0, dailyPostPhotoLimit)) {
       const result = await lumiiApi.avatar.uploadPetMedia({
         base64: draft.base64,
         fileName: draft.fileName,
@@ -6304,8 +6345,8 @@ export default function LumiiMvpApp() {
       return;
     }
     const requestText = dailyPostText.trim();
-    const requestPhotoUris = dailyPostPhotoUris.slice(0, dailyPostMaxPhotoCount);
-    const requestPhotoDrafts = dailyPostPhotoDrafts.slice(0, dailyPostMaxPhotoCount);
+    const requestPhotoUris = dailyPostPhotoUris.slice(0, dailyPostPhotoLimit);
+    const requestPhotoDrafts = dailyPostPhotoDrafts.slice(0, dailyPostPhotoLimit);
     const requestPhotoCount = requestPhotoUris.length;
     const photoSummary = requestPhotoCount ? `\n附照片 ${requestPhotoCount} 张（本次记录预览）` : '';
     dailyPostSavingRef.current = true;
@@ -7110,7 +7151,7 @@ export default function LumiiMvpApp() {
         const fallback = {
           latitude: defaultMapCenter.latitude,
           longitude: defaultMapCenter.longitude,
-          radiusKm: defaultDiscoverRadiusKm,
+          radiusKm: configuredDiscoverRadiusKm,
           updatedAt: Date.now(),
         };
         lastDiscoverLocationRef.current = fallback;
@@ -7127,7 +7168,7 @@ export default function LumiiMvpApp() {
         accuracy: location.accuracy,
         latitude: location.latitude,
         longitude: location.longitude,
-        radiusKm: defaultDiscoverRadiusKm,
+        radiusKm: configuredDiscoverRadiusKm,
         updatedAt: Date.now(),
       };
       lastDiscoverLocationRef.current = hint;
@@ -7178,7 +7219,7 @@ export default function LumiiMvpApp() {
         const fallbackLocation = {
           latitude: defaultMapCenter.latitude,
           longitude: defaultMapCenter.longitude,
-          radiusKm: defaultDiscoverRadiusKm,
+          radiusKm: configuredDiscoverRadiusKm,
           updatedAt: Date.now(),
         };
         lastDiscoverLocationRef.current = fallbackLocation;
@@ -7200,7 +7241,7 @@ export default function LumiiMvpApp() {
         accuracy: location.accuracy,
         latitude: location.latitude,
         longitude: location.longitude,
-        radiusKm: defaultDiscoverRadiusKm,
+        radiusKm: configuredDiscoverRadiusKm,
         updatedAt: Date.now(),
       };
       lastDiscoverLocationRef.current = locationHint;
@@ -9317,7 +9358,7 @@ export default function LumiiMvpApp() {
                 <Text numberOfLines={1} style={styles.homeMetricListLabel}>附近伙伴</Text>
                 <Text numberOfLines={1} style={styles.homeMetricListValue}>{onlineCopy}</Text>
               </View>
-              <Text numberOfLines={1} style={[styles.homeMetricListTag, styles.homeMetricListTagTeal]}>{defaultDiscoverRadiusKm}km</Text>
+              <Text numberOfLines={1} style={[styles.homeMetricListTag, styles.homeMetricListTagTeal]}>{configuredDiscoverRadiusKm}km</Text>
               <ChevronRight color={palette.muted} size={17} strokeWidth={2.2} />
             </Pressable>
           </View>
@@ -12223,7 +12264,7 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.flex}>
                 <Text style={styles.petCircleComposerTitleMake}>分享 {getCurrentPet()?.name ?? '灵伴'} 的今日小事</Text>
-                <Text style={styles.petCircleComposerSubMake}>最多 6 张照片 · 可选择同步到附近宠友圈</Text>
+                <Text style={styles.petCircleComposerSubMake}>最多 {dailyPostPhotoLimit} 张照片 · 可选择同步到附近宠友圈</Text>
               </View>
               <Plus color={palette.muted} size={18} strokeWidth={2.3} />
             </Pressable>
@@ -13882,7 +13923,7 @@ export default function LumiiMvpApp() {
 
           <View style={styles.dailyPhotoSectionHeaderMake}>
             <Text style={styles.dailyPhotoSectionTitleMake}>图片</Text>
-            <Text style={styles.dailyPhotoCounterMake}>{dailyPhotoCount}/{dailyPostMaxPhotoCount}</Text>
+            <Text style={styles.dailyPhotoCounterMake}>{dailyPhotoCount}/{dailyPostPhotoLimit}</Text>
           </View>
           <View style={styles.dailyPhotoGridMake}>
             {dailyPostPhotoUris.map((uri, index) => (
@@ -13902,7 +13943,7 @@ export default function LumiiMvpApp() {
                 </View>
               </Pressable>
             ))}
-            {dailyPostPhotoUris.length < dailyPostMaxPhotoCount ? (
+            {dailyPostPhotoUris.length < dailyPostPhotoLimit ? (
               <Pressable disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('library')} style={[styles.dailyPhotoAddMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
                 <View pointerEvents="none" style={styles.dailyPhotoAddDashMake}>
                   <Svg height="100%" viewBox="0 0 100 100" width="100%">
