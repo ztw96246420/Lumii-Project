@@ -302,6 +302,7 @@ function createInitialState() {
     socialBlocks: [],
     socialMoments: [],
     socialReports: [],
+    supportTickets: [],
     userSanctions: [],
     aiUsage: {
       deepseek: {
@@ -496,6 +497,7 @@ function loadState() {
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
       socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
+      supportTickets: Array.isArray(loadedState.supportTickets) ? loadedState.supportTickets : initialState.supportTickets,
       userSanctions: Array.isArray(loadedState.userSanctions) ? loadedState.userSanctions : initialState.userSanctions,
     };
   } catch {
@@ -2477,7 +2479,7 @@ function createFeedbackSubmission(user, body) {
   const content = String(body.content || '').trim();
   if (!content) return { error: '请填写反馈内容', statusCode: 400 };
   if (content.length > 1000) return { error: '反馈内容最多 1000 个字', statusCode: 400 };
-  const categoryInput = String(body.category || 'other');
+  const categoryInput = String(body.category || body.type || 'other');
   const category = feedbackCategories.has(categoryInput) ? categoryInput : 'other';
   const contact = String(body.contact || '').trim().slice(0, 80);
   const feedback = {
@@ -2492,6 +2494,8 @@ function createFeedbackSubmission(user, body) {
   };
   state.feedback = state.feedback || [];
   state.feedback.unshift(feedback);
+  const ticket = createSupportTicketFromFeedback(feedback);
+  feedback.supportTicketId = ticket.id;
   const { phone, ...publicFeedback } = feedback;
   return { feedback: publicFeedback };
 }
@@ -5599,7 +5603,7 @@ function notificationBelongsToConversation(notification, conversationId) {
 }
 
 const notificationCategories = new Set(['health', 'interaction', 'system', 'walk']);
-const notificationKinds = new Set(['conversation_message', 'greeting_accepted', 'greeting_request', 'health_reminder', 'medical_alert', 'pet_circle_comment', 'pet_circle_greeting', 'pet_circle_like', 'place_review', 'place_submission', 'system', 'vaccine_done', 'vaccine_reminder', 'walk_invite']);
+const notificationKinds = new Set(['conversation_message', 'greeting_accepted', 'greeting_request', 'health_reminder', 'medical_alert', 'pet_circle_comment', 'pet_circle_greeting', 'pet_circle_like', 'place_review', 'place_submission', 'support_reply', 'system', 'vaccine_done', 'vaccine_reminder', 'walk_invite']);
 
 function normalizeNotificationCategory(category) {
   const value = String(category || '').trim();
@@ -5629,6 +5633,7 @@ function inferNotificationKind(notification) {
   if (/greeting/.test(id)) return 'greeting_request';
   if (/walk/.test(id)) return 'walk_invite';
   if (/place-submission/.test(id)) return 'place_submission';
+  if (/(support|ticket|feedback|customer-service)/.test(id)) return 'support_reply';
   if (/review/.test(id)) return 'place_review';
   if (/medical/.test(id)) return 'medical_alert';
   if (/vaccine-done/.test(id)) return 'vaccine_done';
@@ -5796,7 +5801,7 @@ function adminDashboardSummary() {
   const reports = ensureSocialReports();
   const placeReviews = adminPlaceReviews();
   const placeSubmissions = adminPlaceSubmissions();
-  const feedback = Array.isArray(state.feedback) ? state.feedback : [];
+  const tickets = adminSupportTickets({ status: 'all' }).summary;
   const pendingReports = reports.filter((item) => (item.status || 'pending') === 'pending');
   const processingAvatarJobs = avatarJobs.filter((job) => job.status === 'processing');
   const stuckAvatarJobs = processingAvatarJobs.filter((job) => Date.now() - Number(job.updatedAt || job.createdAt || 0) > 5 * 60 * 1000);
@@ -5820,8 +5825,10 @@ function adminDashboardSummary() {
       posts: socialPosts.filter((item) => item.status === 'published').length,
     },
     feedback: {
-      open: feedback.filter((item) => item.status !== 'closed').length,
-      total: feedback.length,
+      open: tickets.open,
+      overdue: tickets.overdue,
+      total: tickets.all,
+      urgent: tickets.urgent,
     },
     places: {
       pendingReviews: placeReviews.filter((item) => item.status === 'pending_review').length,
@@ -5984,6 +5991,7 @@ function findPlaceSubmission(submissionId) {
 }
 
 function adminFeedbackItems() {
+  ensureSupportTickets();
   return (Array.isArray(state.feedback) ? state.feedback : [])
     .map((item) => ({
       category: item.category,
@@ -5993,9 +6001,274 @@ function adminFeedbackItems() {
       id: item.id,
       ownerName: item.ownerName,
       phone: item.phone,
+      priority: supportTicketPriorityFor(item),
       status: item.status || 'received',
+      supportTicketId: item.supportTicketId || `ticket-${item.id}`,
     }))
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+const ticketStatuses = new Set(['closed', 'received', 'resolved', 'reviewing', 'waiting_user']);
+const ticketPriorities = new Set(['low', 'normal', 'high', 'urgent']);
+
+function supportTicketPriorityFor(feedback = {}) {
+  if (ticketPriorities.has(feedback.priority)) return feedback.priority;
+  if (feedback.category === 'safety') return 'urgent';
+  if (feedback.category === 'bug') return 'high';
+  if (feedback.category === 'suggestion') return 'low';
+  return 'normal';
+}
+
+function supportTicketStatusFor(value) {
+  const status = String(value || 'received');
+  return ticketStatuses.has(status) ? status : 'received';
+}
+
+function ticketFeedbackStatus(status) {
+  if (status === 'closed' || status === 'resolved') return 'closed';
+  if (status === 'reviewing' || status === 'waiting_user') return 'reviewing';
+  return 'received';
+}
+
+function supportTicketTitle(feedback = {}) {
+  const categoryLabel = {
+    bug: '问题反馈',
+    other: '用户反馈',
+    safety: '安全投诉',
+    suggestion: '产品建议',
+  }[feedback.category] || '用户反馈';
+  return `${categoryLabel} · ${feedback.ownerName || `用户${String(feedback.phone || '').slice(-4)}`}`;
+}
+
+function createSupportTicketFromFeedback(feedback) {
+  state.supportTickets = Array.isArray(state.supportTickets) ? state.supportTickets : [];
+  const existing = state.supportTickets.find((ticket) => ticket.source === 'feedback' && ticket.sourceId === feedback.id);
+  if (existing) {
+    feedback.supportTicketId = existing.id;
+    return existing;
+  }
+  const ticket = {
+    assignee: '',
+    category: feedback.category || 'other',
+    contact: feedback.contact || '',
+    content: feedback.content || '',
+    createdAt: feedback.createdAt || new Date().toISOString(),
+    id: feedback.supportTicketId || `ticket-${feedback.id}`,
+    notes: [],
+    ownerName: feedback.ownerName || '',
+    phone: feedback.phone || '',
+    priority: supportTicketPriorityFor(feedback),
+    relatedObjects: [],
+    replies: [],
+    source: 'feedback',
+    sourceId: feedback.id,
+    status: supportTicketStatusFor(feedback.status),
+    title: supportTicketTitle(feedback),
+    updatedAt: feedback.handledAt || feedback.createdAt || new Date().toISOString(),
+  };
+  state.supportTickets.unshift(ticket);
+  feedback.supportTicketId = ticket.id;
+  return ticket;
+}
+
+function ensureSupportTickets() {
+  state.supportTickets = Array.isArray(state.supportTickets) ? state.supportTickets : [];
+  state.feedback = Array.isArray(state.feedback) ? state.feedback : [];
+  let changed = false;
+  for (const feedback of state.feedback) {
+    const beforeTicketId = feedback.supportTicketId;
+    const ticket = createSupportTicketFromFeedback(feedback);
+    if (!beforeTicketId || beforeTicketId !== ticket.id) changed = true;
+  }
+  if (changed) saveState();
+  return state.supportTickets;
+}
+
+function syncFeedbackFromTicket(ticket) {
+  if (!ticket || ticket.source !== 'feedback' || !ticket.sourceId) return;
+  const feedback = (state.feedback || []).find((item) => item.id === ticket.sourceId);
+  if (!feedback) return;
+  feedback.status = ticketFeedbackStatus(ticket.status);
+  feedback.handledAt = ticket.updatedAt;
+  feedback.handledBy = ticket.assignee || feedback.handledBy || '';
+  feedback.priority = ticket.priority;
+  feedback.supportTicketId = ticket.id;
+}
+
+function findSupportTicket(ticketId) {
+  return ensureSupportTickets().find((ticket) => ticket.id === ticketId);
+}
+
+function supportTicketSlaHours(ticket) {
+  if (ticket.priority === 'urgent' || ticket.category === 'safety') return 2;
+  if (ticket.priority === 'high' || ticket.category === 'bug') return 24;
+  return 72;
+}
+
+function supportTicketSlaState(ticket) {
+  if (ticket.status === 'closed' || ticket.status === 'resolved') return 'done';
+  const createdAtMs = new Date(ticket.createdAt).getTime();
+  if (!Number.isFinite(createdAtMs)) return 'unknown';
+  const elapsedHours = (Date.now() - createdAtMs) / 36e5;
+  const limit = supportTicketSlaHours(ticket);
+  if (elapsedHours >= limit) return 'overdue';
+  if (elapsedHours >= limit * 0.75) return 'due_soon';
+  return 'healthy';
+}
+
+function normalizeRelatedObjects(input) {
+  const source = Array.isArray(input) ? input : [];
+  return source
+    .map((item) => {
+      const type = String(item?.type || '').trim().slice(0, 40);
+      const id = String(item?.id || '').trim().slice(0, 120);
+      if (!type || !id) return null;
+      return { id, type };
+    })
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function supportTicketItem(ticket) {
+  const user = ticket.phone ? state.users?.[ticket.phone] : null;
+  const replies = Array.isArray(ticket.replies) ? ticket.replies : [];
+  const notes = Array.isArray(ticket.notes) ? ticket.notes : [];
+  const relatedObjects = normalizeRelatedObjects(ticket.relatedObjects);
+  return {
+    assignee: ticket.assignee || '',
+    category: ticket.category || 'other',
+    contact: ticket.contact || '',
+    content: ticket.content || '',
+    createdAt: ticket.createdAt,
+    firstReplyAt: replies[0]?.createdAt || '',
+    id: ticket.id,
+    lastActivityAt: ticket.updatedAt || ticket.createdAt,
+    latestNote: notes[0]?.content || '',
+    latestReply: replies[0]?.content || '',
+    noteCount: notes.length,
+    ownerName: ticket.ownerName || user?.ownerName || `用户${String(ticket.phone || '').slice(-4)}`,
+    phone: ticket.phone || '',
+    priority: supportTicketPriorityFor(ticket),
+    relatedObjects,
+    replyCount: replies.length,
+    slaHours: supportTicketSlaHours(ticket),
+    slaState: supportTicketSlaState(ticket),
+    source: ticket.source || 'manual',
+    sourceId: ticket.sourceId || '',
+    status: supportTicketStatusFor(ticket.status),
+    title: ticket.title || supportTicketTitle(ticket),
+    updatedAt: ticket.updatedAt || ticket.createdAt,
+  };
+}
+
+function adminSupportTickets(options = {}) {
+  const q = String(options.q || '').trim().toLowerCase();
+  const status = String(options.status || 'open');
+  const priority = String(options.priority || 'all');
+  const rows = ensureSupportTickets().map(supportTicketItem)
+    .filter((ticket) => {
+      if (status === 'all') return true;
+      if (status === 'open') return ticket.status !== 'closed' && ticket.status !== 'resolved';
+      return ticket.status === status;
+    })
+    .filter((ticket) => priority === 'all' || ticket.priority === priority)
+    .filter((ticket) => {
+      if (!q) return true;
+      return [ticket.id, ticket.title, ticket.content, ticket.ownerName, ticket.phone, ticket.assignee, ticket.contact, ticket.category, ticket.sourceId]
+        .some((value) => String(value || '').toLowerCase().includes(q));
+    })
+    .sort((a, b) => {
+      const priorityRank = { urgent: 4, high: 3, normal: 2, low: 1 };
+      const statusRank = (ticket) => (ticket.slaState === 'overdue' ? 10 : ticket.slaState === 'due_soon' ? 8 : ticket.status === 'received' ? 5 : 0);
+      return statusRank(b) - statusRank(a) || (priorityRank[b.priority] || 0) - (priorityRank[a.priority] || 0) || String(b.updatedAt).localeCompare(String(a.updatedAt));
+    });
+  const all = ensureSupportTickets().map(supportTicketItem);
+  return {
+    summary: {
+      all: all.length,
+      closed: all.filter((ticket) => ticket.status === 'closed' || ticket.status === 'resolved').length,
+      open: all.filter((ticket) => ticket.status !== 'closed' && ticket.status !== 'resolved').length,
+      overdue: all.filter((ticket) => ticket.slaState === 'overdue').length,
+      safety: all.filter((ticket) => ticket.category === 'safety').length,
+      urgent: all.filter((ticket) => ticket.priority === 'urgent' || ticket.priority === 'high').length,
+      waitingUser: all.filter((ticket) => ticket.status === 'waiting_user').length,
+    },
+    tickets: rows.slice(0, 300),
+  };
+}
+
+function supportTicketDetail(ticket) {
+  return {
+    ...supportTicketItem(ticket),
+    notes: Array.isArray(ticket.notes) ? ticket.notes : [],
+    replies: Array.isArray(ticket.replies) ? ticket.replies : [],
+  };
+}
+
+function updateSupportTicket(admin, ticket, patch = {}, reason = '') {
+  const before = JSON.parse(JSON.stringify(ticket));
+  const nextStatus = patch.status !== undefined ? supportTicketStatusFor(patch.status) : ticket.status;
+  const nextPriority = patch.priority !== undefined && ticketPriorities.has(String(patch.priority)) ? String(patch.priority) : ticket.priority;
+  ticket.status = nextStatus;
+  ticket.priority = nextPriority;
+  if (patch.assignee !== undefined) ticket.assignee = String(patch.assignee || '').trim().slice(0, 80);
+  if (patch.relatedObjects !== undefined) ticket.relatedObjects = normalizeRelatedObjects(patch.relatedObjects);
+  ticket.updatedAt = new Date().toISOString();
+  if (!ticket.firstHandledAt && ticket.status !== 'received') ticket.firstHandledAt = ticket.updatedAt;
+  if (ticket.status === 'closed' || ticket.status === 'resolved') ticket.closedAt = ticket.updatedAt;
+  syncFeedbackFromTicket(ticket);
+  writeAdminAudit(admin, 'ticket.update', 'support_ticket', ticket.id, before, ticket, reason);
+  return ticket;
+}
+
+function addSupportTicketNote(admin, ticket, content) {
+  const note = String(content || '').trim();
+  if (!note) return { error: '请填写内部备注', statusCode: 400 };
+  const before = JSON.parse(JSON.stringify(ticket));
+  ticket.notes = Array.isArray(ticket.notes) ? ticket.notes : [];
+  ticket.notes.unshift({
+    adminName: admin?.username || 'admin',
+    content: note.slice(0, 1000),
+    createdAt: new Date().toISOString(),
+    id: `ticket-note-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+  });
+  ticket.updatedAt = ticket.notes[0].createdAt;
+  syncFeedbackFromTicket(ticket);
+  writeAdminAudit(admin, 'ticket.note.create', 'support_ticket', ticket.id, before, ticket, note);
+  return { note: ticket.notes[0], ticket };
+}
+
+function replySupportTicket(admin, ticket, body = {}) {
+  const content = String(body.content || '').trim();
+  if (!content) return { error: '请填写客服回复内容', statusCode: 400 };
+  const before = JSON.parse(JSON.stringify(ticket));
+  ticket.replies = Array.isArray(ticket.replies) ? ticket.replies : [];
+  const reply = {
+    adminName: admin?.username || 'admin',
+    content: content.slice(0, 1000),
+    createdAt: new Date().toISOString(),
+    id: `ticket-reply-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    notifyUser: body.notifyUser !== false,
+  };
+  ticket.replies.unshift(reply);
+  ticket.status = supportTicketStatusFor(body.nextStatus || 'waiting_user');
+  ticket.updatedAt = reply.createdAt;
+  ticket.lastReplyAt = reply.createdAt;
+  if (!ticket.firstHandledAt) ticket.firstHandledAt = reply.createdAt;
+  if (reply.notifyUser && ticket.phone) {
+    addNotification(ticket.phone, {
+      category: 'system',
+      id: `n-support-reply-${ticket.id}-${reply.id}`,
+      kind: 'support_reply',
+      read: false,
+      text: reply.content,
+      ticketId: ticket.id,
+      title: '客服回复了你的反馈',
+    }, 'system');
+  }
+  syncFeedbackFromTicket(ticket);
+  writeAdminAudit(admin, 'ticket.reply.create', 'support_ticket', ticket.id, before, ticket, body.reason || content);
+  return { reply, ticket };
 }
 
 function adminReason(body = {}, fallback = '运营后台处理') {
@@ -6425,6 +6698,75 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/tickets') {
+    ok(res, adminSupportTickets({
+      priority: url.searchParams.get('priority') || 'all',
+      q: url.searchParams.get('q') || '',
+      status: url.searchParams.get('status') || 'open',
+    }));
+    return true;
+  }
+
+  const adminTicketMatch = pathname.match(/^\/admin\/tickets\/([^/]+)$/);
+  if (req.method === 'GET' && adminTicketMatch) {
+    const ticketId = decodeURIComponent(adminTicketMatch[1]);
+    const ticket = findSupportTicket(ticketId);
+    if (!ticket) {
+      fail(res, 404, '工单不存在', false, undefined, 'ADMIN_TICKET_NOT_FOUND');
+      return true;
+    }
+    ok(res, supportTicketDetail(ticket));
+    return true;
+  }
+
+  if (req.method === 'PATCH' && adminTicketMatch) {
+    const ticketId = decodeURIComponent(adminTicketMatch[1]);
+    const ticket = findSupportTicket(ticketId);
+    if (!ticket) {
+      fail(res, 404, '工单不存在', false, undefined, 'ADMIN_TICKET_NOT_FOUND');
+      return true;
+    }
+    const updated = updateSupportTicket(admin, ticket, {
+      priority: body.priority,
+      relatedObjects: body.relatedObjects,
+      status: body.status,
+    }, body.reason);
+    saveState();
+    ok(res, supportTicketDetail(updated));
+    return true;
+  }
+
+  const adminTicketActionMatch = pathname.match(/^\/admin\/tickets\/([^/]+)\/(assign|notes|reply|status)$/);
+  if ((req.method === 'POST' || req.method === 'PATCH') && adminTicketActionMatch) {
+    const ticketId = decodeURIComponent(adminTicketActionMatch[1]);
+    const action = adminTicketActionMatch[2];
+    const ticket = findSupportTicket(ticketId);
+    if (!ticket) {
+      fail(res, 404, '工单不存在', false, undefined, 'ADMIN_TICKET_NOT_FOUND');
+      return true;
+    }
+    if (action === 'assign') {
+      updateSupportTicket(admin, ticket, { assignee: body.assignee || admin.username, status: body.status || 'reviewing' }, body.reason || '工单分配');
+    } else if (action === 'notes') {
+      const result = addSupportTicketNote(admin, ticket, body.content);
+      if (result.error) {
+        fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_TICKET_NOTE_INVALID');
+        return true;
+      }
+    } else if (action === 'reply') {
+      const result = replySupportTicket(admin, ticket, body);
+      if (result.error) {
+        fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_TICKET_REPLY_INVALID');
+        return true;
+      }
+    } else if (action === 'status') {
+      updateSupportTicket(admin, ticket, { priority: body.priority, status: body.status }, body.reason || '工单状态更新');
+    }
+    saveState();
+    ok(res, supportTicketDetail(ticket));
+    return true;
+  }
+
   if (req.method === 'GET' && pathname === '/admin/moderation/tasks') {
     ok(res, adminModerationTasks({
       q: url.searchParams.get('q') || '',
@@ -6757,6 +7099,14 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     feedback.status = ['received', 'reviewing', 'closed'].includes(status) ? status : feedback.status;
     feedback.handledAt = new Date().toISOString();
     feedback.handledBy = admin.username;
+    const ticket = findSupportTicket(feedback.supportTicketId || `ticket-${feedback.id}`);
+    if (ticket) {
+      ticket.status = supportTicketStatusFor(feedback.status);
+      ticket.updatedAt = feedback.handledAt;
+      ticket.assignee = ticket.assignee || admin.username;
+      ticket.priority = ticket.priority || supportTicketPriorityFor(feedback);
+      syncFeedbackFromTicket(ticket);
+    }
     writeAdminAudit(admin, 'feedback.update', 'feedback', feedbackId, before, feedback, body.reason);
     saveState();
     ok(res, adminFeedbackItems().find((item) => item.id === feedbackId));

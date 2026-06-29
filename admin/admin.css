@@ -462,7 +462,8 @@ th {
   min-width: 180px;
 }
 
-.moderation-toolbar {
+.moderation-toolbar,
+.ticket-toolbar {
   align-items: flex-end;
   background: rgba(255, 247, 239, 0.5);
   border: 1px solid var(--line);
@@ -470,7 +471,8 @@ th {
   padding: 12px;
 }
 
-.moderation-list {
+.moderation-list,
+.ticket-list {
   display: grid;
   gap: 12px;
 }
@@ -548,6 +550,106 @@ th {
   flex-wrap: wrap;
   gap: 8px;
   padding: 10px;
+}
+
+.ticket-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 16px;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 14px;
+}
+
+.ticket-main,
+.ticket-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ticket-head,
+.ticket-status-row,
+.ticket-form-row,
+.inline-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ticket-head {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.ticket-status-row {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ticket-content {
+  color: var(--ink);
+  line-height: 1.65;
+}
+
+.ticket-thread {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 247, 239, 0.48);
+  padding: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ticket-thread strong {
+  color: var(--ink);
+}
+
+.ticket-panel {
+  align-content: start;
+  background: rgba(250, 247, 242, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  padding: 10px;
+}
+
+.ticket-form-row input,
+.ticket-form-row select {
+  min-width: 0;
+}
+
+.ticket-form-row.two {
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.ticket-form-row.two select {
+  flex: 1 1 110px;
+}
+
+.ticket-form-row.two button {
+  flex: 1 1 100%;
+}
+
+.ticket-panel textarea {
+  min-height: 70px;
+}
+
+.inline-check {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.inline-check input {
+  width: 16px;
+  height: 16px;
 }
 
 .placeholder {
@@ -674,7 +776,16 @@ th {
   .grid.two,
   .config-grid,
   .form-grid,
-  .moderation-card {
+  .moderation-card,
+  .ticket-card {
     grid-template-columns: 1fr;
+  }
+
+  .ticket-head {
+    display: grid;
+  }
+
+  .ticket-status-row {
+    justify-content: flex-start;
   }
 }

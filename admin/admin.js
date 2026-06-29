@@ -4,6 +4,9 @@ const state = {
   moderationQ: '',
   moderationStatus: 'pending',
   route: 'dashboard',
+  ticketPriority: 'all',
+  ticketQ: '',
+  ticketStatus: 'open',
   token: localStorage.getItem('lumii-admin-token') || '',
 };
 
@@ -15,7 +18,7 @@ const navItems = [
   { key: 'socialPosts', label: '宠友圈' },
   { key: 'reports', label: '举报中心' },
   { key: 'places', label: '地图地点' },
-  { key: 'feedback', label: '反馈工单' },
+  { key: 'tickets', label: '工单中心' },
   { key: 'config', label: '配置中心' },
   { key: 'audit', label: '审计日志' },
   { key: 'sanctions', label: '用户处罚' },
@@ -28,12 +31,12 @@ const titles = {
   config: ['配置中心', '这些配置会被移动端 /app/config 读取'],
   dashboard: ['总览', '运营工作台'],
   exports: ['数据导出', '需要审批的生产能力'],
-  feedback: ['反馈工单', '用户反馈和客服处理队列'],
   moderation: ['内容安全', '举报、动态、评论和地点审核任务池'],
   places: ['地图地点', '地点点评与新增地点审核'],
   reports: ['举报中心', '宠友圈举报处理闭环'],
   sanctions: ['用户处罚', '禁言、冻结、封禁与撤销记录'],
   socialPosts: ['宠友圈', '动态与评论内容安全'],
+  tickets: ['工单中心', '用户反馈、客服备注和回复闭环'],
   users: ['用户管理', '账号、宠物、设置和风险排查'],
 };
 
@@ -205,6 +208,26 @@ async function onContentClick(event) {
       const handled = await handleModerationTaskAction(button);
       if (!handled) return;
     }
+    if (action === 'ticket-filter') {
+      state.ticketStatus = $('ticketStatus').value;
+      state.ticketPriority = $('ticketPriority').value;
+      state.ticketQ = $('ticketQ').value.trim();
+      state.cache = { ...state.cache, tickets: null };
+      await render(true);
+      return;
+    }
+    if (action === 'ticket-clear') {
+      state.ticketStatus = 'open';
+      state.ticketPriority = 'all';
+      state.ticketQ = '';
+      state.cache = { ...state.cache, tickets: null };
+      await render(true);
+      return;
+    }
+    if (action === 'ticket-assign') await assignTicket(id);
+    if (action === 'ticket-status') await saveTicketStatus(id);
+    if (action === 'ticket-note') await addTicketNote(id);
+    if (action === 'ticket-reply') await replyTicket(id);
     if (action === 'save-config') await saveConfig();
     if (action === 'sanction-create') await createSanction();
     if (action === 'sanction-revoke') await confirmPost(`/admin/users/${encodeURIComponent(phone)}/sanctions/${encodeURIComponent(id)}/revoke`, { reason }, '确认撤销这条处罚？');
@@ -225,8 +248,6 @@ async function onContentClick(event) {
     if (action === 'review-reject') await post(`/admin/places/reviews/${id}/reject`, { reason });
     if (action === 'submission-approve') await post(`/admin/places/submissions/${id}/approve`, { reason });
     if (action === 'submission-reject') await post(`/admin/places/submissions/${id}/reject`, { reason });
-    if (action === 'feedback-reviewing') await patch(`/admin/feedback/${id}`, { reason, status: 'reviewing' });
-    if (action === 'feedback-close') await patch(`/admin/feedback/${id}`, { reason, status: 'closed' });
     if (action !== 'save-config') {
       clearOperationalCaches();
       showToast('处理完成');
@@ -252,9 +273,37 @@ async function handleModerationTaskAction(button) {
 }
 
 function clearOperationalCaches() {
-  ['audit', 'moderation', 'placeReviews', 'placeSubmissions', 'reports', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'users'].forEach((key) => {
+  ['audit', 'feedback', 'moderation', 'placeReviews', 'placeSubmissions', 'reports', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
+}
+
+function valueOf(id) {
+  return $(id)?.value?.trim() || '';
+}
+
+async function assignTicket(id) {
+  const assignee = valueOf(`ticketAssignee-${id}`) || state.admin?.username || 'admin';
+  await post(`/admin/tickets/${encodeURIComponent(id)}/assign`, { assignee, reason: '工单分配' });
+}
+
+async function saveTicketStatus(id) {
+  const status = valueOf(`ticketStatus-${id}`);
+  const priority = valueOf(`ticketPriority-${id}`);
+  await post(`/admin/tickets/${encodeURIComponent(id)}/status`, { priority, reason: '工单状态更新', status });
+}
+
+async function addTicketNote(id) {
+  const content = valueOf(`ticketNote-${id}`);
+  if (!content) throw new Error('请先填写内部备注');
+  await post(`/admin/tickets/${encodeURIComponent(id)}/notes`, { content });
+}
+
+async function replyTicket(id) {
+  const content = valueOf(`ticketReply-${id}`);
+  if (!content) throw new Error('请先填写客服回复');
+  const notifyUser = Boolean($(`ticketNotify-${id}`)?.checked);
+  await post(`/admin/tickets/${encodeURIComponent(id)}/reply`, { content, notifyUser, reason: '客服回复用户' });
 }
 
 async function post(path, body) {
@@ -281,12 +330,12 @@ async function render(force = false) {
     avatarJobs: renderAvatarJobs,
     config: renderConfig,
     dashboard: renderDashboard,
-    feedback: renderFeedback,
     moderation: renderModeration,
     places: renderPlaces,
     reports: renderReports,
     sanctions: renderSanctions,
     socialPosts: renderSocialPosts,
+    tickets: renderTickets,
     users: renderUsers,
   };
   await renderers[state.route](force);
@@ -726,6 +775,148 @@ async function renderFeedback(force) {
       `],
     ],
   });
+}
+
+async function renderTickets(force) {
+  const query = new URLSearchParams({
+    priority: state.ticketPriority,
+    q: state.ticketQ,
+    status: state.ticketStatus,
+  });
+  const data = await load('tickets', `/admin/tickets?${query.toString()}`, force);
+  const tickets = data.tickets || [];
+  const summary = data.summary || {};
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('未关闭工单', summary.open || 0, `${summary.overdue || 0} 个已超 SLA`, '状态不是 closed/resolved 的工单都计入未关闭。')}
+      ${metric('高优先级', summary.urgent || 0, 'urgent/high', '安全投诉默认 urgent，bug 默认 high。')}
+      ${metric('等待用户', summary.waitingUser || 0, '已发送客服回复', '客服回复后默认进入 waiting_user，可继续备注或关闭。')}
+      ${metric('安全投诉', summary.safety || 0, 'safety 分类', '安全投诉建议 2 小时内首次处理。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>工单队列</h2>
+          <div class="section-sub">用户反馈会自动进入工单；客服回复可同步生成 App 系统通知</div>
+        </div>
+        ${help('第一版仅 admin 角色。分配、备注、状态、回复都会写审计；回复通知使用移动端现有通知中心。')}
+      </div>
+      <div class="toolbar ticket-toolbar">
+        <div class="toolbar-left">
+          <label>状态
+            <select id="ticketStatus">
+              ${ticketFilterOption('ticketStatus', 'open', '未关闭')}
+              ${ticketFilterOption('ticketStatus', 'received', '新反馈')}
+              ${ticketFilterOption('ticketStatus', 'reviewing', '处理中')}
+              ${ticketFilterOption('ticketStatus', 'waiting_user', '等待用户')}
+              ${ticketFilterOption('ticketStatus', 'resolved', '已解决')}
+              ${ticketFilterOption('ticketStatus', 'closed', '已关闭')}
+              ${ticketFilterOption('ticketStatus', 'all', '全部')}
+            </select>
+          </label>
+          <label>优先级
+            <select id="ticketPriority">
+              ${ticketFilterOption('ticketPriority', 'all', '全部')}
+              ${ticketFilterOption('ticketPriority', 'urgent', '紧急')}
+              ${ticketFilterOption('ticketPriority', 'high', '高')}
+              ${ticketFilterOption('ticketPriority', 'normal', '普通')}
+              ${ticketFilterOption('ticketPriority', 'low', '低')}
+            </select>
+          </label>
+          <label>搜索
+            <input id="ticketQ" placeholder="手机号、内容、工单 ID" value="${escapeHtml(state.ticketQ)}" />
+          </label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="ticket-filter">应用</button>
+          <button class="small-button" data-action="ticket-clear">重置</button>
+        </div>
+      </div>
+      ${tickets.length ? `<div class="ticket-list">${tickets.map(renderTicketCard).join('')}</div>` : '<div class="placeholder"><div><strong>暂无工单</strong><div>当前筛选下没有用户反馈。</div></div></div>'}
+    </div>
+  `;
+}
+
+function ticketFilterOption(field, value, label) {
+  const current = field === 'ticketStatus' ? state.ticketStatus : state.ticketPriority;
+  return `<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`;
+}
+
+function ticketStatusOption(current, value, label) {
+  return `<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`;
+}
+
+function ticketPriorityOption(current, value, label) {
+  return `<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`;
+}
+
+function ticketSlaPill(ticket) {
+  const label = ticket.slaState === 'overdue' ? 'SLA 超时' : ticket.slaState === 'due_soon' ? 'SLA 临近' : ticket.slaState === 'done' ? 'SLA 完成' : `${ticket.slaHours || 72}h SLA`;
+  const tone = ticket.slaState === 'overdue' ? 'bad' : ticket.slaState === 'due_soon' ? 'warn' : 'ok';
+  return `<span class="pill ${tone}">${escapeHtml(label)}</span>`;
+}
+
+function renderTicketCard(ticket) {
+  const related = (ticket.relatedObjects || []).map((item) => `<span class="risk-badge">${escapeHtml(item.type)} · ${escapeHtml(item.id)}</span>`).join('');
+  return `
+    <article class="ticket-card">
+      <div class="ticket-main">
+        <div class="ticket-head">
+          <div>
+            <div class="cell-title">${escapeHtml(ticket.title)}</div>
+            <div class="cell-sub">${escapeHtml(ticket.id)} · ${escapeHtml(ticket.category)} · ${escapeHtml(ticket.source)}</div>
+          </div>
+          <div class="ticket-status-row">
+            ${statusPill(ticket.status)}
+            ${statusPill(ticket.priority)}
+            ${ticketSlaPill(ticket)}
+          </div>
+        </div>
+        <div class="ticket-content">${escapeHtml(ticket.content || '无反馈正文')}</div>
+        <div class="moderation-meta">
+          <span>用户：${escapeHtml(ticket.ownerName || '-')} ${shortPhone(ticket.phone)}</span>
+          <span>联系：${escapeHtml(ticket.contact || '-')}</span>
+          <span>负责人：${escapeHtml(ticket.assignee || '未分配')}</span>
+          <span>创建：${formatTime(ticket.createdAt)}</span>
+          <span>更新：${formatTime(ticket.updatedAt)}</span>
+        </div>
+        <div class="risk-row">
+          ${related || '<span class="risk-badge">暂未关联对象</span>'}
+          <span class="risk-badge">${ticket.noteCount || 0} 条备注</span>
+          <span class="risk-badge">${ticket.replyCount || 0} 次回复</span>
+        </div>
+        ${ticket.latestNote ? `<div class="ticket-thread"><strong>最近备注</strong><span>${escapeHtml(ticket.latestNote)}</span></div>` : ''}
+        ${ticket.latestReply ? `<div class="ticket-thread"><strong>最近回复</strong><span>${escapeHtml(ticket.latestReply)}</span></div>` : ''}
+      </div>
+      <div class="ticket-panel">
+        <div class="ticket-form-row">
+          <input id="ticketAssignee-${escapeHtml(ticket.id)}" placeholder="负责人" value="${escapeHtml(ticket.assignee || '')}" />
+          <button class="small-button" data-action="ticket-assign" data-id="${escapeHtml(ticket.id)}">分配</button>
+        </div>
+        <div class="ticket-form-row two">
+          <select id="ticketStatus-${escapeHtml(ticket.id)}">
+            ${ticketStatusOption(ticket.status, 'received', '新反馈')}
+            ${ticketStatusOption(ticket.status, 'reviewing', '处理中')}
+            ${ticketStatusOption(ticket.status, 'waiting_user', '等待用户')}
+            ${ticketStatusOption(ticket.status, 'resolved', '已解决')}
+            ${ticketStatusOption(ticket.status, 'closed', '已关闭')}
+          </select>
+          <select id="ticketPriority-${escapeHtml(ticket.id)}">
+            ${ticketPriorityOption(ticket.priority, 'urgent', '紧急')}
+            ${ticketPriorityOption(ticket.priority, 'high', '高')}
+            ${ticketPriorityOption(ticket.priority, 'normal', '普通')}
+            ${ticketPriorityOption(ticket.priority, 'low', '低')}
+          </select>
+          <button class="small-button" data-action="ticket-status" data-id="${escapeHtml(ticket.id)}">保存状态</button>
+        </div>
+        <textarea id="ticketNote-${escapeHtml(ticket.id)}" placeholder="内部备注：排查过程、关联对象、处理判断"></textarea>
+        <button class="small-button" data-action="ticket-note" data-id="${escapeHtml(ticket.id)}">添加备注</button>
+        <textarea id="ticketReply-${escapeHtml(ticket.id)}" placeholder="客服回复：用户会在 App 通知中心收到"></textarea>
+        <label class="inline-check"><input id="ticketNotify-${escapeHtml(ticket.id)}" type="checkbox" checked /> 通知用户</label>
+        <button class="small-button" data-action="ticket-reply" data-id="${escapeHtml(ticket.id)}">发送回复</button>
+      </div>
+    </article>
+  `;
 }
 
 async function renderConfig(force) {

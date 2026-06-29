@@ -236,14 +236,14 @@ function notificationCategoryFor(item: NotificationItem): NotificationCategory {
   if (/(greeting|message|pet-circle|pet_circle)/.test(id)) return 'interaction';
   if (isAvatarGenerationNotification(item)) return 'system';
   const value = `${item.title} ${item.text}`;
-  if (/账号|安全|登录|设备|系统|隐私|注销/.test(value)) return 'system';
+  if (/账号|安全|登录|设备|系统|隐私|注销|客服|反馈|工单/.test(value)) return 'system';
   if (/约遛|邀请|公园|散步|见面|一起去|地点/.test(value)) return 'walk';
   if (/健康|疫苗|体重|驱虫|AI|灵伴|生成|建议|提醒|不吃|拉稀|呕吐/.test(value)) return 'health';
   return 'interaction';
 }
 
 function isNotificationKind(value: unknown): value is NotificationKind {
-  return value === 'conversation_message' || value === 'greeting_accepted' || value === 'greeting_request' || value === 'health_reminder' || value === 'medical_alert' || value === 'pet_circle_comment' || value === 'pet_circle_greeting' || value === 'pet_circle_like' || value === 'place_review' || value === 'place_submission' || value === 'system' || value === 'vaccine_done' || value === 'vaccine_reminder' || value === 'walk_invite';
+  return value === 'conversation_message' || value === 'greeting_accepted' || value === 'greeting_request' || value === 'health_reminder' || value === 'medical_alert' || value === 'pet_circle_comment' || value === 'pet_circle_greeting' || value === 'pet_circle_like' || value === 'place_review' || value === 'place_submission' || value === 'support_reply' || value === 'system' || value === 'vaccine_done' || value === 'vaccine_reminder' || value === 'walk_invite';
 }
 
 function notificationKindFor(item: NotificationItem): NotificationKind {
@@ -257,6 +257,7 @@ function notificationKindFor(item: NotificationItem): NotificationKind {
   if (/greeting/.test(id)) return 'greeting_request';
   if (/walk/.test(id)) return 'walk_invite';
   if (/place-submission/.test(id)) return 'place_submission';
+  if (/(support|ticket|feedback|customer-service)/.test(id)) return 'support_reply';
   if (/review/.test(id)) return 'place_review';
   if (/medical/.test(id)) return 'medical_alert';
   if (/vaccine-done/.test(id)) return 'vaccine_done';
@@ -4189,6 +4190,10 @@ export default function LumiiMvpApp() {
     }
     if (kind === 'place_submission') {
       await openPlaceSubmissionFromNotification(item.submissionId);
+      return;
+    }
+    if (kind === 'support_reply') {
+      go('settings');
       return;
     }
     if (kind === 'medical_alert' || kind === 'vaccine_done' || kind === 'vaccine_reminder' || kind === 'health_reminder') {
@@ -13373,6 +13378,13 @@ export default function LumiiMvpApp() {
           icon: <MapPin color={palette.teal} size={15} strokeWidth={2.5} />,
           iconStyle: styles.notificationIconSystemMake,
           rightLabel: kind === 'place_review' ? '查看地点' : '查看进度',
+        };
+      }
+      if (kind === 'support_reply') {
+        return {
+          icon: <Mail color={palette.orange} size={15} strokeWidth={2.5} />,
+          iconStyle: styles.notificationIconSystemMake,
+          rightLabel: '查看反馈',
         };
       }
       return {
