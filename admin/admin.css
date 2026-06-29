@@ -663,7 +663,8 @@ th {
 
 .notification-form,
 .notification-rules,
-.notification-history {
+.notification-history,
+.notification-template-list {
   display: grid;
   gap: 12px;
 }
@@ -688,6 +689,14 @@ th {
   border: 1px solid rgba(72, 182, 168, 0.2);
   border-radius: 13px;
   padding: 10px 12px;
+}
+
+.notification-action-row,
+.notification-campaign-actions,
+.notification-template-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .notification-rules div {
@@ -720,6 +729,19 @@ th {
   display: grid;
   gap: 10px;
   min-width: 0;
+}
+
+.notification-template {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+}
+
+.placeholder.mini {
+  min-height: 120px;
 }
 
 .placeholder {

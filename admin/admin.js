@@ -253,7 +253,17 @@ async function onContentClick(event) {
       return;
     }
     if (action === 'appeal-review' || action === 'appeal-approve' || action === 'appeal-reject') await handleSanctionAppealAction(button);
-    if (action === 'send-notification') await sendSystemNotification();
+    if (action === 'notification-template-use' || action === 'notification-campaign-use') {
+      fillNotificationFormFromDataset(button);
+      showToast('已套用到发送表单');
+      return;
+    }
+    if (action === 'notification-template-save') await saveNotificationTemplate();
+    if (action === 'notification-template-delete') await confirmPost(`/admin/notifications/templates/${encodeURIComponent(id)}/delete`, { reason: '删除通知模板' }, '确认删除这个通知模板？');
+    if (action === 'notification-cancel') await cancelNotificationCampaign(id, button.dataset.status);
+    if (action === 'send-notification') await sendSystemNotification('send');
+    if (action === 'save-notification-draft') await sendSystemNotification('draft');
+    if (action === 'schedule-notification') await sendSystemNotification('scheduled');
     if (action === 'save-config') await saveConfig();
     if (action === 'sanction-create') await createSanction();
     if (action === 'sanction-revoke') await confirmPost(`/admin/users/${encodeURIComponent(phone)}/sanctions/${encodeURIComponent(id)}/revoke`, { reason }, '确认撤销这条处罚？');
@@ -343,19 +353,65 @@ async function handleSanctionAppealAction(button) {
   await post(`/admin/sanction-appeals/${encodeURIComponent(id)}/${op}`, { reason, revokeSanction });
 }
 
-async function sendSystemNotification() {
+function fillNotificationFormFromDataset(button) {
+  const fields = [
+    ['notifyTitle', 'title'],
+    ['notifyText', 'text'],
+    ['notifyActionRoute', 'actionRoute'],
+    ['notifyTarget', 'target'],
+    ['notifyPhones', 'phones'],
+  ];
+  fields.forEach(([inputId, dataKey]) => {
+    const element = $(inputId);
+    if (element && Object.prototype.hasOwnProperty.call(button.dataset, dataKey)) element.value = button.dataset[dataKey] || '';
+  });
+  if (Object.prototype.hasOwnProperty.call(button.dataset, 'respectUserSettings')) {
+    const checkbox = $('notifyRespectSettings');
+    if (checkbox) checkbox.checked = button.dataset.respectUserSettings !== 'false';
+  }
+}
+
+async function saveNotificationTemplate() {
+  const title = valueOf('notifyTitle');
+  const text = valueOf('notifyText');
+  const name = valueOf('notifyTemplateName') || title;
+  if (!title) throw new Error('请先填写通知标题');
+  if (!text) throw new Error('请先填写通知内容');
+  await post('/admin/notifications/templates', {
+    actionRoute: valueOf('notifyActionRoute'),
+    name,
+    respectUserSettings: Boolean($('notifyRespectSettings')?.checked),
+    text,
+    title,
+  });
+  state.cache.notifications = null;
+}
+
+async function cancelNotificationCampaign(id, status) {
+  const label = status === 'sent' ? '撤回已发送通知' : status === 'scheduled' ? '取消预约通知' : '作废通知草稿';
+  const reason = window.prompt('请输入处理原因', label);
+  if (reason === null) return;
+  await post(`/admin/notifications/${encodeURIComponent(id)}/cancel`, { reason: reason.trim() || label });
+  state.cache.notifications = null;
+}
+
+async function sendSystemNotification(mode = 'send') {
   const title = valueOf('notifyTitle');
   const text = valueOf('notifyText');
   if (!title) throw new Error('请填写通知标题');
   if (!text) throw new Error('请填写通知内容');
   const target = valueOf('notifyTarget') || 'phones';
   const phones = valueOf('notifyPhones');
-  if (target === 'phones' && !phones) throw new Error('请填写目标手机号');
+  if (mode !== 'draft' && target === 'phones' && !phones) throw new Error('请填写目标手机号');
+  const scheduledAt = valueOf('notifyScheduledAt');
+  if (mode === 'scheduled' && !scheduledAt) throw new Error('请选择预约发送时间');
   await post('/admin/notifications/system', {
     actionRoute: valueOf('notifyActionRoute'),
+    mode,
     phones,
-    reason: '发送系统通知',
+    reason: mode === 'scheduled' ? '预约发送系统通知' : mode === 'draft' ? '保存系统通知草稿' : '发送系统通知',
     respectUserSettings: Boolean($('notifyRespectSettings')?.checked),
+    scheduledAt,
     target,
     text,
     title,
@@ -1120,9 +1176,34 @@ function notificationActionLabel(value) {
   }[value] || '无跳转';
 }
 
+function renderNotificationTemplate(template) {
+  return `
+    <article class="notification-template">
+      <div>
+        <div class="cell-title">${escapeHtml(template.name || template.title)}</div>
+        <div class="cell-sub">${escapeHtml(template.title)} · ${escapeHtml(notificationActionLabel(template.actionRoute))}</div>
+      </div>
+      <div class="ticket-content">${escapeHtml(template.text)}</div>
+      <div class="notification-template-actions">
+        <button
+          class="small-button"
+          data-action="notification-template-use"
+          data-action-route="${escapeHtml(template.actionRoute || '')}"
+          data-respect-user-settings="${template.respectUserSettings !== false ? 'true' : 'false'}"
+          data-text="${escapeHtml(template.text || '')}"
+          data-title="${escapeHtml(template.title || '')}"
+        >套用</button>
+        ${template.builtin ? '<span class="risk-badge">内置</span>' : `<button class="small-button danger" data-action="notification-template-delete" data-id="${escapeHtml(template.id)}">删除</button>`}
+      </div>
+    </article>
+  `;
+}
+
 function renderNotificationCampaign(campaign) {
   const failed = (campaign.failedPhones || []).slice(0, 5).map(shortPhone).join('、');
-  const phones = (campaign.targetPhones || []).slice(0, 6).map(shortPhone).join('、');
+  const phones = (campaign.targetPhones || []).length ? (campaign.targetPhones || []).slice(0, 6).map(shortPhone).join('、') : String(campaign.phonesInput || '').split(/[\s,，;；]+/).filter(Boolean).slice(0, 6).map(shortPhone).join('、');
+  const canCancel = ['draft', 'scheduled', 'sent'].includes(campaign.status);
+  const cancelLabel = campaign.status === 'sent' ? '撤回' : campaign.status === 'scheduled' ? '取消预约' : '作废草稿';
   return `
     <article class="notification-campaign">
       <div class="notification-campaign-main">
@@ -1142,12 +1223,30 @@ function renderNotificationCampaign(campaign) {
           <span>目标：${campaign.audienceCount || 0}</span>
           <span>送达：${campaign.deliveredCount || 0}</span>
           <span>跳转：${escapeHtml(notificationActionLabel(campaign.actionRoute))}</span>
+          ${campaign.scheduledAt ? `<span>预约：${formatTime(campaign.scheduledAt)}</span>` : ''}
+          ${campaign.deliveredAt ? `<span>发送：${formatTime(campaign.deliveredAt)}</span>` : ''}
+          ${campaign.canceledAt ? `<span>撤回：${formatTime(campaign.canceledAt)}</span>` : ''}
           <span>${campaign.respectUserSettings ? '尊重用户通知开关' : '重要通知强制入站'}</span>
         </div>
         <div class="risk-row">
           <span class="risk-badge">跳过 ${campaign.skippedCount || 0}</span>
           ${phones ? `<span class="risk-badge">样本 ${escapeHtml(phones)}</span>` : ''}
           ${failed ? `<span class="risk-badge">未入站 ${escapeHtml(failed)}</span>` : ''}
+          ${campaign.failedReason ? `<span class="risk-badge">失败：${escapeHtml(campaign.failedReason)}</span>` : ''}
+          ${campaign.revokedCount ? `<span class="risk-badge">已撤回 ${campaign.revokedCount}</span>` : ''}
+        </div>
+        <div class="notification-campaign-actions">
+          <button
+            class="small-button"
+            data-action="notification-campaign-use"
+            data-action-route="${escapeHtml(campaign.actionRoute || '')}"
+            data-phones="${escapeHtml(campaign.phonesInput || (campaign.targetPhones || []).join('\n'))}"
+            data-respect-user-settings="${campaign.respectUserSettings !== false ? 'true' : 'false'}"
+            data-target="${escapeHtml(campaign.target || 'phones')}"
+            data-text="${escapeHtml(campaign.text || '')}"
+            data-title="${escapeHtml(campaign.title || '')}"
+          >套用</button>
+          ${canCancel ? `<button class="small-button danger" data-action="notification-cancel" data-id="${escapeHtml(campaign.id)}" data-status="${escapeHtml(campaign.status)}">${cancelLabel}</button>` : ''}
         </div>
       </div>
     </article>
@@ -1159,11 +1258,13 @@ async function renderNotifications(force) {
   const summary = data.summary || {};
   const campaigns = data.campaigns || [];
   const devices = data.devices || [];
+  const templates = data.templates || [];
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('发送批次', summary.campaigns || 0, '系统通知历史', '每次后台发送系统通知都会形成一条发送记录，并写入审计日志。')}
       ${metric('用户总数', summary.users || 0, `${summary.activeToday || 0} 今日活跃`, '“今日活跃用户”目标按 lastSeenAt 近 24 小时计算。')}
       ${metric('推送设备', summary.devices || 0, '已登记 token', '当前只是设备登记和站内通知记录；真实厂商推送服务后续可接入。')}
+      ${metric('待处理', (summary.drafts || 0) + (summary.scheduled || 0), `${summary.drafts || 0} 草稿 · ${summary.scheduled || 0} 预约`, '草稿不会触达用户；预约通知到点后由服务自动写入 App 通知中心。')}
     </div>
 
     <div class="grid two notification-workspace">
@@ -1176,6 +1277,7 @@ async function renderNotifications(force) {
           ${help('建议只把产品公告、维护提醒、安全提醒放在这里。营销类消息默认尊重用户通知开关。')}
         </div>
         <div class="notification-form">
+          <label>模板名称<input id="notifyTemplateName" maxlength="32" placeholder="保存为模板时使用，例如：维护提醒" /></label>
           <label>通知标题<input id="notifyTitle" maxlength="48" placeholder="例如：今晚 23:30 服务维护" /></label>
           <label>通知内容<textarea id="notifyText" maxlength="240" placeholder="用用户能直接理解的话说明发生了什么、影响什么、是否需要操作。"></textarea></label>
           <div class="notification-form-row">
@@ -1201,23 +1303,33 @@ async function renderNotifications(force) {
             </label>
           </div>
           <label>指定手机号<textarea id="notifyPhones" placeholder="多个手机号可用换行、逗号或空格分隔；目标范围不是“指定手机号”时可留空。"></textarea></label>
+          <label>预约发送时间<input id="notifyScheduledAt" type="datetime-local" /></label>
           <label class="inline-check notification-check"><input id="notifyRespectSettings" type="checkbox" checked /> 尊重用户通知开关</label>
-          <button class="primary-button" data-action="send-notification">发送通知</button>
+          <div class="notification-action-row">
+            <button class="primary-button" data-action="send-notification">立即发送</button>
+            <button class="small-button" data-action="schedule-notification">预约发送</button>
+            <button class="small-button" data-action="save-notification-draft">保存草稿</button>
+            <button class="small-button" data-action="notification-template-save">保存模板</button>
+          </div>
         </div>
       </div>
 
       <div class="card notification-guide">
         <div class="section-head">
           <div>
-            <h2>发送前检查</h2>
-            <div class="section-sub">这不是短信，也不是厂商 Push 的最终接入；当前先落 App 通知中心</div>
+            <h2>模板与发送前检查</h2>
+            <div class="section-sub">模板可一键套用；当前先落 App 通知中心，厂商 Push 后续接入</div>
           </div>
+        </div>
+        <div class="notification-template-list">
+          ${templates.length ? templates.map(renderNotificationTemplate).join('') : '<div class="placeholder mini"><div><strong>暂无模板</strong><div>可把常用标题和正文保存为模板。</div></div></div>'}
         </div>
         <div class="notification-rules">
           <div><strong>全部用户</strong><span>适合维护、停服、重要版本提醒。</span></div>
           <div><strong>今日活跃</strong><span>适合短时运营提醒，减少打扰沉默用户。</span></div>
           <div><strong>指定手机号</strong><span>适合客服、灰度验证、单用户补偿通知。</span></div>
           <div><strong>强制入站</strong><span>仅用于安全、封禁、维护等必须告知的信息。</span></div>
+          <div><strong>草稿/预约</strong><span>草稿只保留在后台；预约到点后自动写入目标用户通知中心。</span></div>
         </div>
       </div>
     </div>

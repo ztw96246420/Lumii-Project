@@ -343,6 +343,7 @@ function createInitialState() {
     sanctionAppeals: [],
     supportTickets: [],
     systemNotifications: [],
+    notificationTemplates: [],
     userSanctions: [],
     aiUsage: {
       deepseek: {
@@ -621,6 +622,7 @@ function loadState() {
       sanctionAppeals: Array.isArray(loadedState.sanctionAppeals) ? loadedState.sanctionAppeals : initialState.sanctionAppeals,
       supportTickets: Array.isArray(loadedState.supportTickets) ? loadedState.supportTickets : initialState.supportTickets,
       systemNotifications: Array.isArray(loadedState.systemNotifications) ? loadedState.systemNotifications : initialState.systemNotifications,
+      notificationTemplates: Array.isArray(loadedState.notificationTemplates) ? loadedState.notificationTemplates : initialState.notificationTemplates,
       userSanctions: Array.isArray(loadedState.userSanctions) ? loadedState.userSanctions : initialState.userSanctions,
     };
   } catch {
@@ -6239,10 +6241,16 @@ function markNotificationsRead(phone, ids) {
 
 const systemNotificationTargets = new Set(['active_today', 'all', 'phones']);
 const systemNotificationActionRoutes = new Set(['discover', 'home', 'map', 'notifications', 'profile', 'safety', 'settings', 'supportTickets']);
+const systemNotificationModes = new Set(['draft', 'scheduled', 'send']);
 
 function ensureSystemNotifications() {
   state.systemNotifications = Array.isArray(state.systemNotifications) ? state.systemNotifications : [];
   return state.systemNotifications;
+}
+
+function ensureNotificationTemplates() {
+  state.notificationTemplates = Array.isArray(state.notificationTemplates) ? state.notificationTemplates : [];
+  return state.notificationTemplates;
 }
 
 function parseNotificationPhones(value) {
@@ -6260,6 +6268,93 @@ function systemNotificationTargetPhones(target, phones) {
       .filter(Boolean);
   }
   return parseNotificationPhones(phones).filter((phone) => Boolean(state.users?.[phone]));
+}
+
+function normalizeSystemNotificationScheduledAt(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString();
+}
+
+function defaultNotificationTemplates() {
+  return [
+    {
+      actionRoute: 'notifications',
+      builtin: true,
+      id: 'builtin-maintenance',
+      name: '维护提醒',
+      respectUserSettings: false,
+      text: '灵伴将在稍后进行服务维护，期间部分功能可能短暂不可用。维护完成后我们会尽快恢复。',
+      title: '服务维护提醒',
+    },
+    {
+      actionRoute: 'safety',
+      builtin: true,
+      id: 'builtin-safety',
+      name: '安全提醒',
+      respectUserSettings: false,
+      text: '我们发现你的账号有一条需要留意的安全提醒，请前往安全中心查看详情。',
+      title: '账号安全提醒',
+    },
+    {
+      actionRoute: 'supportTickets',
+      builtin: true,
+      id: 'builtin-support',
+      name: '客服进度',
+      respectUserSettings: true,
+      text: '你的反馈有新的处理进展，请到我的反馈里查看。',
+      title: '反馈进度更新',
+    },
+  ];
+}
+
+function normalizeNotificationTemplate(item) {
+  return {
+    actionRoute: systemNotificationActionRoutes.has(String(item.actionRoute || '')) ? String(item.actionRoute || '') : '',
+    builtin: Boolean(item.builtin),
+    createdAt: item.createdAt || '',
+    createdBy: item.createdBy || '',
+    id: String(item.id || `notification-template-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`),
+    name: String(item.name || item.title || '通知模板').trim().slice(0, 32),
+    respectUserSettings: item.respectUserSettings !== false,
+    text: String(item.text || '').trim().slice(0, 240),
+    title: String(item.title || '').trim().slice(0, 48),
+  };
+}
+
+function adminNotificationTemplates() {
+  const custom = ensureNotificationTemplates().map((item) => normalizeNotificationTemplate(item)).filter((item) => item.title && item.text);
+  return [...defaultNotificationTemplates(), ...custom];
+}
+
+function createNotificationTemplate(admin, body = {}) {
+  const template = normalizeNotificationTemplate({
+    actionRoute: body.actionRoute,
+    createdAt: new Date().toISOString(),
+    createdBy: admin?.username || 'admin',
+    name: body.name,
+    respectUserSettings: body.respectUserSettings !== false,
+    text: body.text,
+    title: body.title,
+  });
+  if (!template.name) return { error: '请填写模板名称', statusCode: 400 };
+  if (!template.title) return { error: '请填写通知标题', statusCode: 400 };
+  if (!template.text) return { error: '请填写通知内容', statusCode: 400 };
+  ensureNotificationTemplates().unshift(template);
+  state.notificationTemplates = state.notificationTemplates.slice(0, 80);
+  writeAdminAudit(admin, 'notification.template.create', 'notification_template', template.id, null, template, template.name);
+  return { template, templates: adminNotificationTemplates() };
+}
+
+function removeNotificationTemplate(admin, id) {
+  const before = ensureNotificationTemplates();
+  const target = before.find((item) => item.id === id);
+  if (!target) return { error: '通知模板不存在或内置模板不可删除', statusCode: 404 };
+  state.notificationTemplates = before.filter((item) => item.id !== id);
+  writeAdminAudit(admin, 'notification.template.delete', 'notification_template', id, target, null, target.name || id);
+  return { templates: adminNotificationTemplates() };
 }
 
 function adminPushDevices() {
@@ -6281,12 +6376,20 @@ function systemNotificationItem(item) {
   return {
     actionRoute: item.actionRoute || '',
     audienceCount: Number(item.audienceCount || targetPhones.length || 0),
+    canceledAt: item.canceledAt || '',
+    canceledBy: item.canceledBy || '',
     createdAt: item.createdAt,
     createdBy: item.createdBy || 'admin',
+    deliveredAt: item.deliveredAt || '',
     deliveredCount: Number(item.deliveredCount || 0),
     failedPhones: Array.isArray(item.failedPhones) ? item.failedPhones.slice(0, 20) : [],
+    failedReason: item.failedReason || '',
     id: item.id,
+    mode: item.mode || (item.status === 'draft' ? 'draft' : item.status === 'scheduled' ? 'scheduled' : 'send'),
+    phonesInput: item.phonesInput || '',
     respectUserSettings: item.respectUserSettings !== false,
+    revokedCount: Number(item.revokedCount || 0),
+    scheduledAt: item.scheduledAt || '',
     skippedCount: Number(item.skippedCount || 0),
     status: item.status || 'sent',
     target: item.target || 'phones',
@@ -6297,6 +6400,7 @@ function systemNotificationItem(item) {
 }
 
 function adminSystemNotifications() {
+  processDueSystemNotifications();
   const campaigns = ensureSystemNotifications().map(systemNotificationItem)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
     .slice(0, 200);
@@ -6309,8 +6413,11 @@ function adminSystemNotifications() {
       activeToday: users.filter((user) => Date.now() - Number(user.lastSeenAt || 0) < 24 * 60 * 60 * 1000).length,
       campaigns: campaigns.length,
       devices: devices.length,
+      drafts: campaigns.filter((item) => item.status === 'draft').length,
+      scheduled: campaigns.filter((item) => item.status === 'scheduled').length,
       users: users.length,
     },
+    templates: adminNotificationTemplates(),
   };
 }
 
@@ -6364,6 +6471,129 @@ function createSystemNotification(admin, body = {}) {
   state.systemNotifications = state.systemNotifications.slice(0, 300);
   writeAdminAudit(admin, 'notification.system.send', 'system_notification', notification.id, null, systemNotificationItem(notification), title);
   return { notification: systemNotificationItem(notification), summary: adminSystemNotifications().summary };
+}
+
+function deliverManagedSystemNotification(notification, admin, reason = '发送系统通知') {
+  const now = new Date().toISOString();
+  const targetPhones = systemNotificationTargetPhones(notification.target, notification.phonesInput || notification.targetPhones);
+  notification.audienceCount = targetPhones.length;
+  notification.deliveredAt = now;
+  notification.deliveredCount = 0;
+  notification.failedPhones = [];
+  notification.skippedCount = 0;
+  notification.targetPhones = targetPhones;
+  notification.updatedAt = now;
+  if (!targetPhones.length) {
+    notification.failedReason = '没有可触达的目标用户';
+    notification.status = 'failed';
+    writeAdminAudit(admin, 'notification.system.failed', 'system_notification', notification.id, null, systemNotificationItem(notification), reason);
+    return false;
+  }
+  for (const phone of targetPhones) {
+    const added = addNotification(phone, {
+      actionRoute: notification.actionRoute || undefined,
+      campaignId: notification.id,
+      category: 'system',
+      createdAt: now,
+      id: `${notification.id}-${phone}`,
+      kind: 'system',
+      read: false,
+      text: notification.text,
+      title: notification.title,
+    }, 'system', { force: !notification.respectUserSettings });
+    if (added) notification.deliveredCount += 1;
+    else {
+      notification.skippedCount += 1;
+      notification.failedPhones.push(phone);
+    }
+  }
+  notification.failedReason = '';
+  notification.status = 'sent';
+  writeAdminAudit(admin, 'notification.system.send', 'system_notification', notification.id, null, systemNotificationItem(notification), reason);
+  return true;
+}
+
+function createManagedSystemNotification(admin, body = {}) {
+  const title = String(body.title || '').trim().slice(0, 48);
+  const text = String(body.text || '').trim().slice(0, 240);
+  if (!title) return { error: '请填写通知标题', statusCode: 400 };
+  if (!text) return { error: '请填写通知内容', statusCode: 400 };
+  const modeInput = String(body.mode || 'send').trim();
+  const mode = systemNotificationModes.has(modeInput) ? modeInput : 'send';
+  const targetInput = String(body.target || 'phones').trim();
+  const target = systemNotificationTargets.has(targetInput) ? targetInput : 'phones';
+  const actionRouteInput = String(body.actionRoute || '').trim();
+  const actionRoute = systemNotificationActionRoutes.has(actionRouteInput) ? actionRouteInput : '';
+  const phonesInput = Array.isArray(body.phones || body.targetPhones) ? (body.phones || body.targetPhones).join('\n') : String(body.phones || body.targetPhones || '');
+  const targetPhones = systemNotificationTargetPhones(target, phonesInput);
+  if (mode !== 'draft' && !targetPhones.length) return { error: '没有可触达的目标用户', statusCode: 400 };
+  const scheduledAt = mode === 'scheduled' ? normalizeSystemNotificationScheduledAt(body.scheduledAt) : '';
+  if (mode === 'scheduled') {
+    if (!scheduledAt) return { error: '请填写正确的定时发送时间', statusCode: 400 };
+    if (new Date(scheduledAt).getTime() <= Date.now() + 30 * 1000) return { error: '定时发送时间需要晚于当前时间至少 30 秒', statusCode: 400 };
+  }
+  const now = new Date().toISOString();
+  const notification = {
+    actionRoute,
+    audienceCount: mode === 'draft' ? 0 : targetPhones.length,
+    createdAt: now,
+    createdBy: admin?.username || 'admin',
+    deliveredCount: 0,
+    failedPhones: [],
+    id: `system-notification-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    mode,
+    phonesInput,
+    respectUserSettings: body.respectUserSettings !== false,
+    scheduledAt,
+    skippedCount: 0,
+    status: mode === 'draft' ? 'draft' : mode === 'scheduled' ? 'scheduled' : 'sent',
+    target,
+    targetPhones: mode === 'draft' || mode === 'scheduled' ? [] : targetPhones,
+    text,
+    title,
+  };
+  if (mode === 'send') deliverManagedSystemNotification(notification, admin, body.reason || '发送系统通知');
+  else writeAdminAudit(admin, mode === 'draft' ? 'notification.system.draft' : 'notification.system.schedule', 'system_notification', notification.id, null, systemNotificationItem(notification), title);
+  ensureSystemNotifications().unshift(notification);
+  state.systemNotifications = state.systemNotifications.slice(0, 300);
+  return { notification: systemNotificationItem(notification), summary: adminSystemNotifications().summary };
+}
+
+function revokeSystemNotification(admin, id, body = {}) {
+  const notification = ensureSystemNotifications().find((item) => item.id === id);
+  if (!notification) return { error: '系统通知不存在', statusCode: 404 };
+  if (notification.status === 'canceled') return { notification: systemNotificationItem(notification), summary: adminSystemNotifications().summary };
+  const before = systemNotificationItem(notification);
+  const now = new Date().toISOString();
+  let revokedCount = 0;
+  if (notification.status === 'sent') {
+    for (const [phone, items] of Object.entries(state.notifications || {})) {
+      const current = Array.isArray(items) ? items : [];
+      const next = current.filter((item) => item.campaignId !== id);
+      revokedCount += current.length - next.length;
+      state.notifications[phone] = next;
+    }
+  }
+  notification.canceledAt = now;
+  notification.canceledBy = admin?.username || 'admin';
+  notification.revokedCount = revokedCount;
+  notification.status = 'canceled';
+  notification.updatedAt = now;
+  writeAdminAudit(admin, before.status === 'sent' ? 'notification.system.revoke' : 'notification.system.cancel', 'system_notification', id, before, systemNotificationItem(notification), body.reason || '运营后台撤回通知');
+  return { notification: systemNotificationItem(notification), summary: adminSystemNotifications().summary };
+}
+
+function processDueSystemNotifications() {
+  let changed = false;
+  const systemAdmin = { role: 'system', username: 'system' };
+  for (const notification of ensureSystemNotifications()) {
+    if (notification.status !== 'scheduled' || !notification.scheduledAt) continue;
+    if (new Date(notification.scheduledAt).getTime() > Date.now()) continue;
+    deliverManagedSystemNotification(notification, systemAdmin, '定时系统通知到点发送');
+    changed = true;
+  }
+  if (changed) saveState();
+  return changed;
 }
 
 function resolveOwnerId(ownerId) {
@@ -7436,9 +7666,44 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   }
 
   if (req.method === 'POST' && pathname === '/admin/notifications/system') {
-    const result = createSystemNotification(admin, body);
+    const result = createManagedSystemNotification(admin, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_NOTIFICATION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminNotificationCancelMatch = pathname.match(/^\/admin\/notifications\/([^/]+)\/cancel$/);
+  if (req.method === 'POST' && adminNotificationCancelMatch) {
+    const result = revokeSystemNotification(admin, decodeURIComponent(adminNotificationCancelMatch[1]), body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_NOTIFICATION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/notifications/templates') {
+    const result = createNotificationTemplate(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_NOTIFICATION_TEMPLATE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminNotificationTemplateDeleteMatch = pathname.match(/^\/admin\/notifications\/templates\/([^/]+)\/delete$/);
+  if (req.method === 'POST' && adminNotificationTemplateDeleteMatch) {
+    const result = removeNotificationTemplate(admin, decodeURIComponent(adminNotificationTemplateDeleteMatch[1]));
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_NOTIFICATION_TEMPLATE_INVALID');
       return true;
     }
     saveState();
@@ -9504,6 +9769,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/notifications') {
+    processDueSystemNotifications();
     ensureHealthReminderNotifications(user);
     const notifications = normalizeNotificationsFor(user.phone);
     saveState();
@@ -9733,3 +9999,12 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`State file: ${statePath}`);
   console.log(`Test OTP code: ${TEST_CODE}`);
 });
+
+const notificationScheduler = setInterval(() => {
+  try {
+    processDueSystemNotifications();
+  } catch (error) {
+    console.error('Failed to process scheduled notifications', error);
+  }
+}, 60 * 1000);
+if (typeof notificationScheduler.unref === 'function') notificationScheduler.unref();
