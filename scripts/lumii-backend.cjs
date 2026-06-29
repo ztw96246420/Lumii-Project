@@ -1962,6 +1962,40 @@ const SANCTION_DEFAULT_DURATION_HOURS = {
   mute: 24,
   warning: 0,
 };
+const SANCTION_TEMPLATES = [
+  {
+    description: '轻微违规或证据不足但需要留痕，通知用户注意社区规范。',
+    durationHours: 0,
+    id: 'warning_community_notice',
+    label: '社区提醒',
+    reason: '违反社区规范，先做警告留痕；如再次违规将升级限制。',
+    type: 'warning',
+  },
+  {
+    description: '举报成立后的默认处理，适合广告、骚扰、低俗评论等首次违规。',
+    durationHours: 24,
+    id: 'report_valid_mute_24h',
+    label: '举报成立 · 禁言 24 小时',
+    reason: '用户举报成立，相关内容违反社区规范，禁言 24 小时。',
+    type: 'mute',
+  },
+  {
+    description: '重复违规或较严重骚扰，临时冻结账号写操作。',
+    durationHours: 72,
+    id: 'repeat_violation_freeze_72h',
+    label: '重复违规 · 冻结 72 小时',
+    reason: '多次违规或情节较重，冻结账号 72 小时，保留申诉入口。',
+    type: 'freeze',
+  },
+  {
+    description: '严重违规、灰产、恶意攻击等高风险账号。',
+    durationHours: 0,
+    id: 'severe_violation_ban',
+    label: '严重违规 · 长期封禁',
+    reason: '存在严重违规或高风险行为，长期封禁账号。',
+    type: 'ban',
+  },
+];
 const SANCTION_APPEAL_STATUSES = new Set(['approved', 'closed', 'pending', 'rejected', 'reviewing']);
 
 function ensureUserSanctions() {
@@ -2035,6 +2069,7 @@ function adminSanctionItem(sanction) {
     createdAt: sanction.createdAt,
     createdBy: sanction.createdBy || '',
     durationHours: Number(sanction.durationHours || 0),
+    evidenceSnapshot: sanction.evidenceSnapshot || null,
     expiresAt: sanction.expiresAt || '',
     id: sanction.id,
     ownerName: user?.ownerName || `用户${String(sanction.phone || '').slice(-4)}`,
@@ -2044,7 +2079,12 @@ function adminSanctionItem(sanction) {
     revokedAt: sanction.revokedAt || '',
     revokedBy: sanction.revokedBy || '',
     revokeReason: sanction.revokeReason || '',
+    source: sanction.source || 'manual',
+    sourceReportId: sanction.sourceReportId || '',
+    sourceTargetId: sanction.sourceTargetId || '',
+    sourceTargetType: sanction.sourceTargetType || '',
     status: sanctionRuntimeStatus(sanction),
+    templateId: sanction.templateId || '',
     type: sanction.type,
     typeLabel: SANCTION_TYPE_LABELS[sanction.type] || sanction.type,
   };
@@ -2111,10 +2151,16 @@ function createUserSanction(admin, phone, body = {}) {
     createdAt,
     createdBy: admin?.username || 'admin',
     durationHours,
+    evidenceSnapshot: normalizeSanctionEvidenceSnapshot(body.evidenceSnapshot),
     expiresAt: durationHours > 0 ? new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString() : '',
     id: `sanction-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     phone,
     reason,
+    source: String(body.source || 'manual').slice(0, 60),
+    sourceReportId: String(body.sourceReportId || '').slice(0, 120),
+    sourceTargetId: String(body.sourceTargetId || '').slice(0, 120),
+    sourceTargetType: String(body.sourceTargetType || '').slice(0, 60),
+    templateId: String(body.templateId || '').slice(0, 120),
     type,
   };
   ensureUserSanctions().unshift(sanction);
@@ -2161,6 +2207,36 @@ function findSanctionAppeal(appealId) {
 
 function findUserSanction(phone, sanctionId) {
   return ensureUserSanctions().find((item) => item.phone === phone && item.id === sanctionId);
+}
+
+function adminSanctionTemplates() {
+  return SANCTION_TEMPLATES.map((template) => ({
+    ...template,
+    typeLabel: SANCTION_TYPE_LABELS[template.type] || template.type,
+  }));
+}
+
+function sanctionTemplateById(templateId) {
+  return SANCTION_TEMPLATES.find((template) => template.id === templateId) || null;
+}
+
+function normalizeSanctionEvidenceSnapshot(snapshot = {}) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
+  return {
+    contentText: String(snapshot.contentText || '').slice(0, 600),
+    createdAt: snapshot.createdAt || '',
+    mediaUrls: Array.isArray(snapshot.mediaUrls) ? snapshot.mediaUrls.slice(0, 6).map((url) => String(url || '').slice(0, 500)).filter(Boolean) : [],
+    ownerName: String(snapshot.ownerName || '').slice(0, 80),
+    ownerPhone: normalizePhone(snapshot.ownerPhone || ''),
+    reportContent: String(snapshot.reportContent || '').slice(0, 240),
+    reportId: String(snapshot.reportId || '').slice(0, 120),
+    reporterName: String(snapshot.reporterName || '').slice(0, 80),
+    reporterPhone: normalizePhone(snapshot.reporterPhone || ''),
+    targetId: String(snapshot.targetId || '').slice(0, 120),
+    targetLabel: String(snapshot.targetLabel || '').slice(0, 120),
+    targetStatus: String(snapshot.targetStatus || '').slice(0, 60),
+    targetType: String(snapshot.targetType || '').slice(0, 60),
+  };
 }
 
 function appealableSanctionFor(user, sanctionId = '') {
@@ -7710,9 +7786,14 @@ function adminSocialReports() {
     .map((report) => {
       const reporter = state.users[report.phone];
       const owner = state.users[report.ownerPhone];
+      const evidenceSnapshot = socialReportEvidenceSnapshot(report);
+      const suggestion = report.sanctionSuggestion || ((report.status || 'pending') === 'valid'
+        ? buildReportSanctionSuggestion({ username: report.reviewedBy || 'admin' }, report, report.reviewReason || '')
+        : null);
       return {
         content: report.content,
         createdAt: report.createdAt,
+        evidenceSnapshot,
         id: report.id,
         ownerName: owner?.ownerName || `用户${String(report.ownerPhone || '').slice(-4)}`,
         ownerPhone: report.ownerPhone,
@@ -7722,6 +7803,11 @@ function adminSocialReports() {
         reporterPhone: report.phone,
         resultNotifiedAt: report.resultNotifiedAt || '',
         resultNotifiedStatus: report.resultNotifiedStatus || '',
+        sanctionId: report.sanctionId || suggestion?.sanctionId || '',
+        sanctionSuggestion: suggestion ? {
+          ...suggestion,
+          typeLabel: SANCTION_TYPE_LABELS[suggestion.type] || suggestion.type,
+        } : null,
         status: report.status || 'pending',
         targetId: report.targetId,
         targetType: report.targetType,
@@ -8312,6 +8398,111 @@ function socialReportTargetSnapshot(report) {
   return { contentText: report.content || '', targetLabel: report.targetType, targetStatus: 'unknown' };
 }
 
+function socialReportEvidenceSnapshot(report) {
+  const target = socialReportTargetSnapshot(report);
+  return normalizeSanctionEvidenceSnapshot({
+    ...target,
+    createdAt: report.createdAt || '',
+    ownerPhone: target.ownerPhone || report.ownerPhone,
+    reportContent: report.content || '',
+    reportId: report.id,
+    reporterName: report.reporterName || state.users?.[report.phone]?.ownerName || '',
+    reporterPhone: report.phone,
+    targetId: report.targetId,
+    targetType: report.targetType,
+  });
+}
+
+function suggestSanctionTemplateForReport(report) {
+  const activeRestrictive = activeUserSanctionsFor(report.ownerPhone)
+    .filter((sanction) => sanction.type !== 'warning');
+  if (activeRestrictive.length > 0) return sanctionTemplateById('repeat_violation_freeze_72h');
+  const target = socialReportTargetSnapshot(report);
+  const hasMedia = Array.isArray(target.mediaUrls) && target.mediaUrls.length > 0;
+  if (!String(target.contentText || '').trim() && !hasMedia) return sanctionTemplateById('warning_community_notice');
+  return sanctionTemplateById('report_valid_mute_24h');
+}
+
+function buildReportSanctionSuggestion(admin, report, reason = '') {
+  const template = suggestSanctionTemplateForReport(report) || sanctionTemplateById('report_valid_mute_24h');
+  const evidenceSnapshot = socialReportEvidenceSnapshot(report);
+  return {
+    createdAt: report.sanctionSuggestion?.createdAt || new Date().toISOString(),
+    createdBy: report.sanctionSuggestion?.createdBy || admin?.username || 'admin',
+    durationHours: template.durationHours,
+    evidenceSnapshot,
+    id: report.sanctionSuggestion?.id || `suggestion-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    reason: String(reason || template.reason || '举报成立，建议处罚').replace(/\s+/g, ' ').trim().slice(0, 240),
+    status: 'suggested',
+    templateId: template.id,
+    type: template.type,
+    typeLabel: SANCTION_TYPE_LABELS[template.type] || template.type,
+  };
+}
+
+function ensureReportSanctionSuggestion(admin, report, reason = '') {
+  if (!report || !report.ownerPhone) return null;
+  if (report.sanctionSuggestion?.status === 'applied') return report.sanctionSuggestion;
+  const suggestion = buildReportSanctionSuggestion(admin, report, reason);
+  report.sanctionSuggestion = suggestion;
+  return suggestion;
+}
+
+function applyReportSanctionSuggestion(admin, reportId, body = {}) {
+  const report = ensureSocialReports().find((item) => item.id === reportId);
+  if (!report) return { error: '举报不存在', statusCode: 404 };
+  if (!report.ownerPhone || !state.users?.[report.ownerPhone]) return { error: '被举报用户不存在', statusCode: 404 };
+  if (!['valid', 'escalated', 'reviewing'].includes(report.status || 'pending')) {
+    return { error: '只有有效或复核中的举报可以创建处罚', statusCode: 400 };
+  }
+  if (report.sanctionSuggestion?.status === 'applied' && report.sanctionSuggestion.sanctionId) {
+    return { error: '该举报已经创建过处罚', statusCode: 400 };
+  }
+  const beforeReport = JSON.parse(JSON.stringify(report));
+  const baseSuggestion = ensureReportSanctionSuggestion(admin, report, report.reviewReason || body.reason || '');
+  const template = sanctionTemplateById(String(body.templateId || baseSuggestion.templateId || '')) || sanctionTemplateById(baseSuggestion.templateId);
+  const type = normalizeSanctionType(body.type) || template?.type || baseSuggestion.type;
+  const durationHours = parseSanctionDurationHours(type, body.durationHours ?? template?.durationHours ?? baseSuggestion.durationHours);
+  if (!type || durationHours === null) return { error: '处罚模板配置不正确', statusCode: 400 };
+  const reason = String(body.reason || baseSuggestion.reason || template?.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '请填写处罚原因', statusCode: 400 };
+  const evidenceSnapshot = socialReportEvidenceSnapshot(report);
+  const result = createUserSanction(admin, report.ownerPhone, {
+    durationHours,
+    evidenceSnapshot,
+    reason,
+    source: 'social_report',
+    sourceReportId: report.id,
+    sourceTargetId: report.targetId,
+    sourceTargetType: report.targetType,
+    templateId: template?.id || baseSuggestion.templateId || '',
+    type,
+  });
+  if (result.error) return result;
+  report.sanctionId = result.sanction.id;
+  report.sanctionSuggestion = {
+    ...baseSuggestion,
+    appliedAt: new Date().toISOString(),
+    appliedBy: admin?.username || 'admin',
+    durationHours,
+    evidenceSnapshot,
+    reason,
+    sanctionId: result.sanction.id,
+    status: 'applied',
+    templateId: template?.id || baseSuggestion.templateId || '',
+    type,
+    typeLabel: SANCTION_TYPE_LABELS[type] || type,
+  };
+  writeAdminAudit(admin, 'social.report.sanction', 'social_report', report.id, beforeReport, {
+    report,
+    sanction: adminSanctionItem(result.sanction),
+  }, reason);
+  return {
+    report: adminSocialReports().find((item) => item.id === report.id),
+    sanction: adminSanctionItem(result.sanction),
+  };
+}
+
 function buildModerationTask(input) {
   const status = moderationTaskStatus(input.status);
   const riskScore = Math.max(0, Math.min(100, Number(input.riskScore || 0)));
@@ -8600,6 +8791,7 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     report.reviewedAt = now;
     report.reviewedBy = admin.username;
     report.reviewReason = reason;
+    if (report.status === 'valid') ensureReportSanctionSuggestion(admin, report, reason);
     markModerationTaskMeta(taskId, admin, action, reason);
     notifySocialReportResolution(report, action, reason);
     writeAdminAudit(admin, 'moderation.report.resolve', 'social_report', report.id, beforeReport, report, reason);
@@ -8958,6 +9150,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/sanction-templates') {
+    ok(res, adminSanctionTemplates());
+    return true;
+  }
+
   const adminUserSanctionsMatch = pathname.match(/^\/admin\/users\/([^/]+)\/sanctions$/);
   if (req.method === 'GET' && adminUserSanctionsMatch) {
     const phone = normalizePhone(decodeURIComponent(adminUserSanctionsMatch[1]));
@@ -9205,10 +9402,24 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     report.reviewedAt = new Date().toISOString();
     report.reviewedBy = admin.username;
     report.reviewReason = String(body.reason || '').slice(0, 240);
+    if (report.status === 'valid') ensureReportSanctionSuggestion(admin, report, report.reviewReason);
     notifySocialReportResolution(report, report.status, body.reason);
     writeAdminAudit(admin, 'social.report.resolve', 'social_report', reportId, before, report, body.reason);
     saveState();
     ok(res, adminSocialReports().find((item) => item.id === reportId));
+    return true;
+  }
+
+  const adminReportSanctionMatch = pathname.match(/^\/admin\/social\/reports\/([^/]+)\/sanction$/);
+  if (req.method === 'POST' && adminReportSanctionMatch) {
+    const reportId = decodeURIComponent(adminReportSanctionMatch[1]);
+    const result = applyReportSanctionSuggestion(admin, reportId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_REPORT_SANCTION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

@@ -337,6 +337,10 @@ async function onContentClick(event) {
       await downloadExport(id);
       return;
     }
+    if (action === 'sanction-template-apply') {
+      applySanctionTemplate();
+      return;
+    }
     if (action === 'sanction-create') await createSanction();
     if (action === 'sanction-revoke') await confirmPost(`/admin/users/${encodeURIComponent(phone)}/sanctions/${encodeURIComponent(id)}/revoke`, { reason }, '确认撤销这条处罚？');
     if (action === 'quick-mute') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 24, reason: '用户列表快捷禁言', type: 'mute' });
@@ -352,6 +356,10 @@ async function onContentClick(event) {
     if (action === 'comment-restore') await post(`/admin/social/comments/${id}/restore`, { reason });
     if (action === 'report-valid') await post(`/admin/social/reports/${id}/resolve`, { reason, status: 'valid' });
     if (action === 'report-invalid') await post(`/admin/social/reports/${id}/resolve`, { reason, status: 'invalid' });
+    if (action === 'report-sanction') {
+      await applyReportSanction(button);
+      return;
+    }
     if (action === 'review-approve') await post(`/admin/places/reviews/${id}/approve`, { reason });
     if (action === 'review-reject') await post(`/admin/places/reviews/${id}/reject`, { reason });
     if (action === 'submission-approve') await post(`/admin/places/submissions/${id}/approve`, { reason });
@@ -457,7 +465,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['audit', 'feedback', 'moderation', 'notifications', 'petChat', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'tickets', 'users'].forEach((key) => {
+  ['audit', 'feedback', 'moderation', 'notifications', 'petChat', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -1213,7 +1221,10 @@ async function renderUsers(force) {
 }
 
 async function renderSanctions(force) {
-  const rows = await load('sanctions', '/admin/sanctions', force);
+  const [rows, templates] = await Promise.all([
+    load('sanctions', '/admin/sanctions', force),
+    load('sanctionTemplates', '/admin/sanction-templates', force),
+  ]);
   $('content').innerHTML = `
     <div class="card">
       <div class="section-head">
@@ -1224,6 +1235,12 @@ async function renderSanctions(force) {
         ${help('时长填 0 表示长期有效。警告只记录风险，不限制移动端操作；禁言/冻结/封禁会实时影响后端接口。')}
       </div>
       <div class="form-grid">
+        <label>处罚模板
+          <select id="sanctionTemplate">
+            <option value="">不使用模板</option>
+            ${templates.map((template) => `<option value="${escapeHtml(template.id)}">${escapeHtml(template.label)} · ${escapeHtml(template.typeLabel)}${template.durationHours ? ` ${template.durationHours}h` : ''}</option>`).join('')}
+          </select>
+        </label>
         <label>用户手机号<input id="sanctionPhone" placeholder="例如 13531850966" inputmode="numeric" /></label>
         <label>处罚类型
           <select id="sanctionType">
@@ -1236,7 +1253,10 @@ async function renderSanctions(force) {
         <label>时长（小时）<input id="sanctionDurationHours" type="number" min="0" max="8760" value="24" /></label>
       </div>
       <label>处罚原因<textarea id="sanctionReason" placeholder="写清楚依据，例如：多次发布广告评论，经举报核实"></textarea></label>
-      <button class="primary-button" data-action="sanction-create">创建处罚</button>
+      <div class="actions">
+        <button class="small-button" data-action="sanction-template-apply">套用模板</button>
+        <button class="primary-button" data-action="sanction-create">创建处罚</button>
+      </div>
     </div>
     <div class="card">
       <div class="section-head">
@@ -1249,6 +1269,7 @@ async function renderSanctions(force) {
       ${tableHtml(rows, [
         ['用户', (r) => `<div class="cell-title">${escapeHtml(r.ownerName)}</div><div class="cell-sub">${shortPhone(r.phone)} ${r.petName ? `· ${escapeHtml(r.petName)}` : ''}</div>`],
         ['处罚', (r) => `<div>${statusPill(r.typeLabel)}</div><div class="cell-sub">${escapeHtml(r.reason || '-')}</div>`],
+        ['来源', (r) => `<div>${escapeHtml(r.source || 'manual')}</div><div class="cell-sub">${escapeHtml(r.sourceReportId || r.templateId || '-')}</div>`],
         ['状态', (r) => `${statusPill(r.status)}<div class="cell-sub">${r.expiresAt ? `到期：${formatTime(r.expiresAt)}` : '长期或仅记录'}</div>`],
         ['创建', (r) => `<div>${formatTime(r.createdAt)}</div><div class="cell-sub">${escapeHtml(r.createdBy || '-')}</div>`],
         ['撤销', (r) => r.revokedAt ? `<div>${formatTime(r.revokedAt)}</div><div class="cell-sub">${escapeHtml(r.revokeReason || '-')}</div>` : '-'],
@@ -1260,16 +1281,51 @@ async function renderSanctions(force) {
 
 async function createSanction() {
   const phone = $('sanctionPhone').value.replace(/\D/g, '');
-  const type = $('sanctionType').value;
-  const durationHours = Number($('sanctionDurationHours').value);
-  const reason = $('sanctionReason').value.trim();
+  const templateId = $('sanctionTemplate')?.value || '';
+  const template = (state.cache.sanctionTemplates || []).find((item) => item.id === templateId);
+  const type = template?.type || $('sanctionType').value;
+  const durationHours = Number(template ? template.durationHours : $('sanctionDurationHours').value);
+  const reason = $('sanctionReason').value.trim() || template?.reason || '';
   if (!phone || !reason) {
     throw new Error('请填写手机号和处罚原因');
   }
-  await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours, reason, type });
+  await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours, reason, templateId, type });
   state.cache.sanctions = null;
   state.cache.summary = null;
   state.cache.users = null;
+}
+
+function applySanctionTemplate() {
+  const templateId = $('sanctionTemplate')?.value || '';
+  const template = (state.cache.sanctionTemplates || []).find((item) => item.id === templateId);
+  if (!template) {
+    showToast('请先选择处罚模板');
+    return;
+  }
+  $('sanctionType').value = template.type;
+  $('sanctionDurationHours').value = template.durationHours;
+  $('sanctionReason').value = template.reason;
+  showToast('已套用处罚模板');
+}
+
+async function applyReportSanction(button) {
+  const id = button.dataset.id;
+  const templateId = button.dataset.templateId || '';
+  const defaultReason = button.dataset.reason || '用户举报成立，按处罚建议处理';
+  const reason = window.prompt('确认按举报建议创建处罚？请填写处罚原因', defaultReason);
+  if (reason === null) return;
+  await post(`/admin/social/reports/${encodeURIComponent(id)}/sanction`, {
+    reason: reason.trim() || defaultReason,
+    templateId,
+  });
+  state.cache.reports = null;
+  state.cache.moderation = null;
+  state.cache.sanctions = null;
+  state.cache.summary = null;
+  state.cache.users = null;
+  state.cache.audit = null;
+  showToast('已根据举报创建处罚');
+  await render(true);
 }
 
 async function renderSanctionAppeals(force) {
@@ -1433,7 +1489,9 @@ async function renderReports(force) {
       ['举报对象', (r) => `<div class="cell-title">${escapeHtml(r.targetType)} · ${escapeHtml(r.targetId)}</div><div class="cell-sub">被举报：${escapeHtml(r.ownerName)} ${shortPhone(r.ownerPhone)}</div>`],
       ['举报人', (r) => `<div>${escapeHtml(r.reporterName)}</div><div class="cell-sub">${shortPhone(r.reporterPhone)}</div>`],
       ['原因', (r) => escapeHtml(r.content || '-')],
+      ['内容快照', (r) => `<div class="cell-title">${escapeHtml(r.evidenceSnapshot?.targetLabel || '-')}</div><div class="cell-sub">${escapeHtml(r.evidenceSnapshot?.contentText || '无文本内容').slice(0, 90)}</div>`],
       ['状态', (r) => `${statusPill(r.status)}<div class="cell-sub">举报人：${r.resultNotifiedAt ? formatTime(r.resultNotifiedAt) : '未通知'}</div><div class="cell-sub">作者：${r.ownerResultNotifiedAt ? formatTime(r.ownerResultNotifiedAt) : '未通知'}</div>`],
+      ['处罚建议', renderReportSanctionSuggestion],
       ['时间', (r) => formatTime(r.createdAt)],
       ['操作', (r) => `
         <div class="actions">
@@ -1443,6 +1501,21 @@ async function renderReports(force) {
       `],
     ],
   });
+}
+
+function renderReportSanctionSuggestion(report) {
+  const suggestion = report.sanctionSuggestion;
+  if (suggestion?.status === 'applied') {
+    return `<div>${statusPill('已处罚')}</div><div class="cell-sub">${escapeHtml(suggestion.typeLabel || suggestion.type)} · ${escapeHtml(suggestion.sanctionId || report.sanctionId || '-')}</div>`;
+  }
+  if (!suggestion) {
+    return `<div class="cell-sub">${report.status === 'valid' ? '刷新后生成建议' : '有效举报后生成'}</div>`;
+  }
+  return `
+    <div>${statusPill(suggestion.typeLabel || suggestion.type)}</div>
+    <div class="cell-sub">${suggestion.durationHours ? `${suggestion.durationHours} 小时` : '长期或仅警告'}</div>
+    <button class="small-button" data-action="report-sanction" data-id="${escapeHtml(report.id)}" data-template-id="${escapeHtml(suggestion.templateId || '')}" data-reason="${escapeHtml(suggestion.reason || '')}">按建议处罚</button>
+  `;
 }
 
 async function renderPlaces(force) {
