@@ -191,11 +191,16 @@
 - `social.discoverRadiusKm`：附近发现和地图定位请求半径。
 - `ai.petAvatarDailyLimit`：AI 形象额度兜底展示。
 - `ai.petChatDailyLimit`：AI 对话额度兜底展示。
+- `features.aiAvatar`：隐藏/拦截 AI 灵伴形象上传、生成、重试入口；后端返回 `FEATURE_DISABLED`。
+- `features.petChat`：隐藏/拦截 AI 宠物对话入口和消息预加载；后端返回 `FEATURE_DISABLED`。
+- `features.petCircle`：隐藏/拦截宠友圈、发布小事、我的小事、评论/点赞/举报/封面入口；后端返回 `FEATURE_DISABLED`。
+- `features.places`：隐藏/拦截地图地点、地点详情、地点点评/提交入口；后端返回 `FEATURE_DISABLED`。
+- `features.walkInvite`：拦截约遛邀请入口和创建接口；后端返回 `FEATURE_DISABLED`。
+- `app.maintenanceEnabled`：App 进入维护页并隐藏底部导航；后端拦截非 GET 写操作，保留反馈、退出登录、刷新 token、通知已读等基础接口。
+- `app.maintenanceMessage`：维护页和后端 `APP_MAINTENANCE` 响应共用文案。
 
 移动端暂未完整接入：
 
-- `features.*` 功能开关暂未系统性隐藏入口。
-- `app.maintenanceEnabled` 暂未弹维护提示。
 - `social.nearbyMomentTtlDays` 目前主要由后端可见性使用。
 
 ### 3.10 审计日志
@@ -278,5 +283,5 @@
 1. 工单中心：负责人、备注、关联对象、客服回复。
 2. 内容安全任务池：把举报、动态、评论、地点点评统一到审核任务。
 3. 处罚申诉与通知：用户端申诉入口、后台处理、处罚到期/撤销通知。
-4. 移动端功能开关完整接入：宠友圈、地图、AI 对话、约遛入口。
+4. 继续扩大移动端配置化范围：公告弹窗、灰度策略、强制升级、启动页素材。
 5. 后台静态资源和 API 增加更细权限与更完整审计字段。

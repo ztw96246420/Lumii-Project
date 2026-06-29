@@ -124,6 +124,7 @@ import type {
   NotificationItem,
   NotificationKind,
   PetCircleComment,
+  PetCirclePostList,
   PetCircleProfile,
   PetCircleProfilePostList,
   PetChatFeedbackRating,
@@ -2301,7 +2302,6 @@ export default function LumiiMvpApp() {
     return tabItems.some((item) => item.route === route) ? (route as AppTab) : null;
   }, [route]);
 
-  const showBottomTabs = Boolean(session && currentTab);
   const cooldownRemaining = Math.min(60, Math.max(0, Math.ceil((cooldownUntil - clock) / 1000)));
   const configuredDiscoverRadiusKm = remoteConfig.social.discoverRadiusKm || defaultDiscoverRadiusKm;
   const dailyPostPhotoLimit = Math.max(1, Math.min(9, Math.floor(remoteConfig.social.petCircleMaxPhotos || dailyPostMaxPhotoCount)));
@@ -2310,6 +2310,14 @@ export default function LumiiMvpApp() {
   const petAvatarDailyCount = petAvatarDailyUsage?.count ?? 0;
   const petAvatarDailyRemaining = petAvatarDailyUsage?.remaining ?? Math.max(0, petAvatarDailyLimit - petAvatarDailyCount);
   const petChatDailyLimit = aiUsage?.daily.petChat.limit ?? remoteConfig.ai.petChatDailyLimit ?? fallbackPetChatDailyLimit;
+  const aiAvatarEnabled = remoteConfig.features.aiAvatar !== false;
+  const petChatEnabled = remoteConfig.features.petChat !== false;
+  const petCircleEnabled = remoteConfig.features.petCircle !== false;
+  const placesEnabled = remoteConfig.features.places !== false;
+  const walkInviteEnabled = remoteConfig.features.walkInvite !== false;
+  const maintenanceEnabled = remoteConfig.app.maintenanceEnabled && !isHomePreviewMode;
+  const maintenanceMessage = remoteConfig.app.maintenanceMessage || '灵伴正在维护升级，请稍后再试';
+  const showBottomTabs = Boolean(session && currentTab && !maintenanceEnabled);
   const pendingVaccines = useMemo(() => vaccines.filter((item) => item.status !== 'done'), [vaccines]);
   const urgentVaccines = useMemo(() => pendingVaccines.filter(isVaccineReminderUrgent), [pendingVaccines]);
 
@@ -2703,6 +2711,20 @@ export default function LumiiMvpApp() {
     setRoute(nextRoute);
   }, []);
 
+  function showFeatureUnavailable(label: string) {
+    showToast(`${label}暂时维护中`, { subtitle: '请稍后再试', tone: 'warning', variant: 'surface' });
+  }
+
+  function guardFeature(enabled: boolean, label: string) {
+    if (enabled) return true;
+    showFeatureUnavailable(label);
+    return false;
+  }
+
+  function successResult<T>(data: T): ApiResult<T> {
+    return { data, state: 'success' };
+  }
+
   const getDefaultBackRoute = useCallback((): AppRoute => {
     if (!session) return 'login';
     return activePet ? 'home' : 'emptyPet';
@@ -3008,14 +3030,46 @@ export default function LumiiMvpApp() {
   }, [route]);
 
   useEffect(() => {
-    if (!session || route !== 'home' || isHomePreviewMode) return;
-    void loadNearbyMoments({ silent: true });
-  }, [isHomePreviewMode, route, session, userSettings.nearbyVisible]);
+    if (maintenanceEnabled) return;
+    if (!aiAvatarEnabled && (route === 'upload' || route === 'uploadDetail' || route === 'uploadNoPet' || route === 'generating' || route === 'aiResult')) {
+      showFeatureUnavailable('AI 灵伴形象');
+      replace('home');
+      return;
+    }
+    if (!petChatEnabled && route === 'chat') {
+      showFeatureUnavailable('AI 宠物对话');
+      replace('home');
+      return;
+    }
+    if (!petCircleEnabled && (route === 'dailyPost' || route === 'petCircleProfile')) {
+      showFeatureUnavailable('宠友圈');
+      replace('home');
+      return;
+    }
+    if (!placesEnabled && (route === 'map' || route === 'placeDetail' || route === 'addPlaceReview')) {
+      showFeatureUnavailable('地图地点');
+      replace('home');
+      return;
+    }
+    if (!walkInviteEnabled && route === 'walkInvite') {
+      showFeatureUnavailable('约遛邀请');
+      replace('discover');
+    }
+  }, [aiAvatarEnabled, maintenanceEnabled, petChatEnabled, petCircleEnabled, placesEnabled, replace, route, walkInviteEnabled]);
 
   useEffect(() => {
-    if (!session || route !== 'petCircleProfile') return;
+    if (!petCircleEnabled && discoverTab === 'circle') setDiscoverTab('partners');
+  }, [discoverTab, petCircleEnabled]);
+
+  useEffect(() => {
+    if (!session || route !== 'home' || isHomePreviewMode || !petCircleEnabled) return;
+    void loadNearbyMoments({ silent: true });
+  }, [isHomePreviewMode, petCircleEnabled, route, session, userSettings.nearbyVisible]);
+
+  useEffect(() => {
+    if (!session || route !== 'petCircleProfile' || !petCircleEnabled) return;
     void loadPetCircleProfilePosts(petCircleProfileOwnerIdRef.current || 'me', { silent: true });
-  }, [activePet?.id, route, session]);
+  }, [activePet?.id, petCircleEnabled, route, session]);
 
   useEffect(() => {
     if (route !== 'home' || nearbyMoments.length <= 1) return undefined;
@@ -3307,13 +3361,13 @@ export default function LumiiMvpApp() {
       lumiiApi.health.listVaccineReminderIds(),
       lumiiApi.health.listHealthMemos(),
       lumiiApi.social.listNearbyOwners(),
-      lumiiApi.social.listPetCirclePosts(),
+      petCircleEnabled ? lumiiApi.social.listPetCirclePosts() : Promise.resolve(successResult<PetCirclePostList>({ items: [], nextCursor: undefined })),
       lumiiApi.social.listGreetingRequests(),
       lumiiApi.messages.listConversations(),
       lumiiApi.messages.listNotifications(),
-      lumiiApi.places.listNearbyPlaces(),
-      lumiiApi.places.listFavoritePlaceIds(),
-      lumiiApi.places.listMyReviews(),
+      placesEnabled ? lumiiApi.places.listNearbyPlaces() : Promise.resolve(successResult<Place[]>([])),
+      placesEnabled ? lumiiApi.places.listFavoritePlaceIds() : Promise.resolve(successResult<string[]>([])),
+      placesEnabled ? lumiiApi.places.listMyReviews() : Promise.resolve(successResult<PlaceReview[]>([])),
       lumiiApi.ai.getUsage(),
     ]);
     if (sessionTokenRef.current !== requestSessionToken) return;
@@ -3590,7 +3644,7 @@ export default function LumiiMvpApp() {
       lumiiApi.health.listVaccineReminderIds(),
       lumiiApi.health.listHealthMemos(),
       lumiiApi.ai.getUsage(),
-      lumiiApi.messages.listPetChatMessages(),
+      petChatEnabled ? lumiiApi.messages.listPetChatMessages() : Promise.resolve(successResult<ChatMessage[]>([])),
     ]);
     if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return false;
 
@@ -3620,7 +3674,7 @@ export default function LumiiMvpApp() {
       setAiUsage(aiUsageResult.data);
       setPetChatDailyCount(aiUsageResult.data.daily.petChat.count);
     }
-    if (petChatResult.data) {
+    if (petChatEnabled && petChatResult.data) {
       const currentPet = getCurrentPet();
       setChatMessages(petChatResult.data.length ? petChatResult.data : [createPetChatWelcomeMessage(currentPet)]);
       setChatFeedbackById(
@@ -3640,7 +3694,7 @@ export default function LumiiMvpApp() {
       vaccineReminderResult.error?.message ??
       memoResult.error?.message ??
       aiUsageResult.error?.message ??
-      petChatResult.error?.message;
+      (petChatEnabled ? petChatResult.error?.message : undefined);
     if (errorMessage) {
       refreshed = false;
       if (options.silent === false) showToast(errorMessage, { tone: 'error', variant: 'surface' });
@@ -3950,6 +4004,7 @@ export default function LumiiMvpApp() {
   }
 
   async function openPlaceFromNotification(placeId: string) {
+    if (!guardFeature(placesEnabled, '地图地点')) return false;
     const requestSessionToken = sessionTokenRef.current;
     const cachedPlace = places.find((place) => place.id === placeId);
     if (cachedPlace) {
@@ -3965,14 +4020,15 @@ export default function LumiiMvpApp() {
       go('placeDetail');
       return true;
     }
-    go('map');
+    if (guardFeature(placesEnabled, '地图地点')) go('map');
     showToast(result.error?.message ?? '地点已更新，请在地图里重新查看', { tone: 'warning', variant: 'surface' });
     return false;
   }
 
   async function openPlaceSubmissionFromNotification(submissionId?: string) {
+    if (!guardFeature(placesEnabled, '地图地点')) return false;
     if (!submissionId) {
-      go('map');
+      if (guardFeature(placesEnabled, '地图地点')) go('map');
       return false;
     }
     const requestSessionToken = sessionTokenRef.current;
@@ -3991,7 +4047,7 @@ export default function LumiiMvpApp() {
       go('addPlaceReview');
       return true;
     }
-    go('map');
+    if (guardFeature(placesEnabled, '地图地点')) go('map');
     showToast(result.error?.message ?? '地点提交记录已更新，请在地图里重新查看', { tone: 'warning', variant: 'surface' });
     return false;
   }
@@ -4217,6 +4273,10 @@ export default function LumiiMvpApp() {
   }
 
   async function loadPetChatMessages() {
+    if (!petChatEnabled) {
+      setChatMessages((items) => (items.length ? items : [createPetChatWelcomeMessage(activePet)]));
+      return;
+    }
     const requestSessionToken = sessionTokenRef.current;
     const requestPetId = activePetIdRef.current;
     if (!requestPetId) return;
@@ -4641,7 +4701,12 @@ export default function LumiiMvpApp() {
         );
         resetPetScopedRuntimeState(result.data);
         void refreshPetScopedData();
-        go('upload');
+        if (aiAvatarEnabled) {
+          go('upload');
+        } else {
+          replace('home');
+          showFeatureUnavailable('AI 灵伴形象');
+        }
       } else {
         showToast(result.error?.message ?? '保存宠物档案失败');
       }
@@ -4800,6 +4865,7 @@ export default function LumiiMvpApp() {
   }
 
   function startPetAvatarRefresh() {
+    if (!guardFeature(aiAvatarEnabled, 'AI 灵伴形象')) return;
     const pet = getCurrentPet();
     if (!pet) {
       showToast('请先添加宠物档案');
@@ -4810,6 +4876,7 @@ export default function LumiiMvpApp() {
   }
 
   async function pickAndUploadPetMedia(source: 'camera' | 'library') {
+    if (!guardFeature(aiAvatarEnabled, 'AI 灵伴形象')) return;
     if (mediaPickingRef.current) return;
     if (avatarStartingRef.current || avatarRetryingRef.current || avatarAcceptingRef.current) {
       showToast('当前操作处理中，请稍后');
@@ -5172,6 +5239,7 @@ export default function LumiiMvpApp() {
   }
 
   async function sendChatMessage(textOverride?: string, retryMessageId?: string) {
+    if (!guardFeature(petChatEnabled, 'AI 宠物对话')) return;
     const requestSessionToken = sessionTokenRef.current;
     const requestPetId = activePetIdRef.current;
     if (!requestPetId) {
@@ -6329,6 +6397,7 @@ export default function LumiiMvpApp() {
   }
 
   async function publishDailyPost() {
+    if (!guardFeature(petCircleEnabled, '宠友圈')) return;
     if (dailyPostSavingRef.current) return;
     const requestSessionToken = sessionTokenRef.current;
     const requestPetId = activePetIdRef.current;
@@ -6508,6 +6577,7 @@ export default function LumiiMvpApp() {
   }
 
   async function openWalkInvite(owner: NearbyOwner) {
+    if (!guardFeature(walkInviteEnabled, '约遛邀请')) return;
     const requestSessionToken = sessionTokenRef.current;
     selectedOwnerIdRef.current = owner.id;
     setSelectedOwner(owner);
@@ -6562,6 +6632,7 @@ export default function LumiiMvpApp() {
   }
 
   function openWalkInvitePlacePicker() {
+    if (!guardFeature(placesEnabled, '地图地点')) return;
     if (!selectedOwner) {
       showToast('请选择附近主人');
       return;
@@ -6574,7 +6645,7 @@ export default function LumiiMvpApp() {
     setPlaceSpeciesFilter('all');
     setPlaceDistanceRadiusKm(3);
     setPlaceSortMode('distance');
-    go('map');
+    if (guardFeature(placesEnabled, '地图地点')) go('map');
     showToast('请选择约遛地点', { subtitle: '点击地图下方地点即可带回邀请页', tone: 'info', variant: 'surface' });
     if (!places.length) void searchPlaces({ filter: 'all', silent: true, speciesFilter: 'all' });
   }
@@ -6686,6 +6757,10 @@ export default function LumiiMvpApp() {
   }
 
   async function searchPlaces(options: { filter?: 'all' | Place['category']; location?: NearbyLocationHint | null; silent?: boolean; speciesFilter?: PlaceSpeciesFilter } = {}) {
+    if (!placesEnabled) {
+      if (!options.silent) showFeatureUnavailable('地图地点');
+      return;
+    }
     if (placeSearchingRef.current) return;
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
@@ -6746,7 +6821,7 @@ export default function LumiiMvpApp() {
 
   async function loadNearbyMoments(options: { location?: NearbyLocationHint | null; silent?: boolean } = {}) {
     const requestSessionToken = sessionTokenRef.current;
-    if (!requestSessionToken || !userSettingsRef.current.nearbyVisible) {
+    if (!requestSessionToken || !userSettingsRef.current.nearbyVisible || !petCircleEnabled) {
       setNearbyMoments([]);
       setPetCircleNextCursor(undefined);
       setNearbyMomentsError('');
@@ -6781,6 +6856,7 @@ export default function LumiiMvpApp() {
   async function loadMorePetCirclePosts() {
     const requestSessionToken = sessionTokenRef.current;
     const cursor = petCircleNextCursor;
+    if (!guardFeature(petCircleEnabled, '宠友圈')) return;
     if (!requestSessionToken || !cursor || petCircleLoadingMoreRef.current || nearbyMomentsLoadingRef.current) return;
     if (!userSettingsRef.current.nearbyVisible) {
       setPetCircleNextCursor(undefined);
@@ -6827,6 +6903,12 @@ export default function LumiiMvpApp() {
 
   async function loadPetCircleProfilePosts(ownerId = petCircleProfileOwnerIdRef.current || 'me', options: { append?: boolean; cursor?: string; silent?: boolean } = {}) {
     const requestSessionToken = sessionTokenRef.current;
+    if (!petCircleEnabled) {
+      if (!options.silent) showFeatureUnavailable('宠友圈');
+      setPetCircleProfilePosts([]);
+      setPetCircleProfileNextCursor(undefined);
+      return null;
+    }
     if (!requestSessionToken) return null;
     if (options.append) {
       if (petCircleProfileLoadingMoreRef.current) return null;
@@ -6865,6 +6947,7 @@ export default function LumiiMvpApp() {
   }
 
   function openPetCircleProfile(ownerId = 'me') {
+    if (!guardFeature(petCircleEnabled, '宠友圈')) return;
     const nextOwnerId = ownerId || 'me';
     petCircleProfileOwnerIdRef.current = nextOwnerId;
     setPetCircleProfileOwnerId(nextOwnerId);
@@ -6886,6 +6969,7 @@ export default function LumiiMvpApp() {
   }
 
   async function pickPetCircleCover() {
+    if (!guardFeature(petCircleEnabled, '宠友圈')) return;
     if (petCircleCoverUpdatingRef.current) return;
     if (!petCircleProfile?.ownedByMe) return;
     petCircleCoverUpdatingRef.current = true;
@@ -7115,7 +7199,7 @@ export default function LumiiMvpApp() {
     placeQueryRef.current = query;
     setPlaceQuery(query);
     setPlaceFilter('clinic');
-    go('map');
+    if (guardFeature(placesEnabled, '地图地点')) go('map');
     showToast(message, { tone: 'info', variant: 'surface' });
     void searchPlaces({ filter: 'clinic' });
   }
@@ -9265,7 +9349,7 @@ export default function LumiiMvpApp() {
               <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={42} />
               <View style={styles.flex}>
                 <Text style={styles.homeMakeKicker}>早安，{pet.name}！</Text>
-                <Pressable onPress={() => go('chat')} style={[styles.homeMakeChatEntry, webPressableReset]}>
+                <Pressable onPress={() => { if (guardFeature(petChatEnabled, 'AI 宠物对话')) go('chat'); }} style={[styles.homeMakeChatEntry, webPressableReset]}>
                   <Text adjustsFontSizeToFit minimumFontScale={0.76} numberOfLines={1} style={styles.homeMakeHeadline}>灵伴聊天 · {homeChatHint}</Text>
                 </Pressable>
               </View>
@@ -9284,11 +9368,11 @@ export default function LumiiMvpApp() {
                 <View style={styles.homeOnlineDot} />
                 <Text style={styles.homeOnlineText}>灵伴在线</Text>
               </View>
-              <Pressable onPress={() => go('chat')} style={[styles.homeHeroMiniCard, webPressableReset]}>
+              <Pressable onPress={() => { if (guardFeature(petChatEnabled, 'AI 宠物对话')) go('chat'); }} style={[styles.homeHeroMiniCard, webPressableReset]}>
                 <Heart color={palette.orange} fill={palette.orange} size={14} strokeWidth={2.4} />
                 <Text style={styles.homeHeroMiniText}>轻松互动{'\n'}已准备好</Text>
               </Pressable>
-              <Pressable onPress={() => go('dailyPost')} style={[styles.homeHeroMiniCard, styles.homeHeroMiniCardWide, webPressableReset]}>
+              <Pressable onPress={() => { if (guardFeature(petCircleEnabled, '宠友圈')) go('dailyPost'); }} style={[styles.homeHeroMiniCard, styles.homeHeroMiniCardWide, webPressableReset]}>
                 <MessageCircle color={palette.teal} size={14} strokeWidth={2.4} />
                 <Text style={styles.homeHeroMiniText}>要不要记录一件{'\n'}开心小事？</Text>
               </Pressable>
@@ -9596,7 +9680,7 @@ export default function LumiiMvpApp() {
       }
       const place = selectedPlace;
       if (!place) {
-        go('map');
+        if (guardFeature(placesEnabled, '地图地点')) go('map');
         showToast('请先在地图选择一个宠物友好地点');
         return;
       }
@@ -11119,7 +11203,7 @@ export default function LumiiMvpApp() {
               <ChevronLeft color={palette.ink} size={22} strokeWidth={3} />
             </Pressable>
             <Text numberOfLines={1} style={styles.petCircleProfileTitleMake}>{profile?.ownedByMe === false ? `${profile.petName} 的宠友圈` : '我发布的小事'}</Text>
-            <Pressable accessibilityLabel="发布小事" accessibilityRole="button" onPress={() => go('dailyPost')} style={[styles.petCircleProfilePublishMake, webPressableReset]}>
+            <Pressable accessibilityLabel="发布小事" accessibilityRole="button" onPress={() => { if (guardFeature(petCircleEnabled, '宠友圈')) go('dailyPost'); }} style={[styles.petCircleProfilePublishMake, webPressableReset]}>
               <Text style={styles.petCircleProfilePublishTextMake}>发布</Text>
             </Pressable>
           </View>
@@ -11941,7 +12025,7 @@ export default function LumiiMvpApp() {
           clearDiscoverSearchAndFilter();
           return;
         }
-        go('dailyPost');
+        if (guardFeature(petCircleEnabled, '宠友圈')) go('dailyPost');
       };
       return (
         <View style={styles.petCircleEmptyMake}>
@@ -12195,23 +12279,25 @@ export default function LumiiMvpApp() {
               <Pressable accessibilityLabel="搜索附近内容" accessibilityRole="button" disabled={discoverRefreshing} onPress={openDiscoverSearch} style={[styles.makeIconChip, discoverRefreshing && styles.mapSearchActionDisabled]}>
                 {discoverRefreshing ? <ActivityIndicator color={palette.ink} size="small" /> : <Search color={palette.ink} size={16} strokeWidth={2.3} />}
               </Pressable>
-              <Pressable
-                accessibilityLabel="查看我发布的小事"
-                accessibilityRole="button"
-                onPress={() => openPetCircleProfile('me')}
-                style={[styles.discoverMyPostsButtonMake, webPressableReset]}
-              >
-                <User color={palette.ink} size={14} strokeWidth={2.4} />
-                <Text style={styles.discoverMyPostsButtonTextMake}>我的小事</Text>
-              </Pressable>
+              {petCircleEnabled ? (
+                <Pressable
+                  accessibilityLabel="查看我发布的小事"
+                  accessibilityRole="button"
+                  onPress={() => openPetCircleProfile('me')}
+                  style={[styles.discoverMyPostsButtonMake, webPressableReset]}
+                >
+                  <User color={palette.ink} size={14} strokeWidth={2.4} />
+                  <Text style={styles.discoverMyPostsButtonTextMake}>我的小事</Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
           <View style={styles.discoverTabSegmentMake}>
             {([
               { key: 'circle', label: '宠友圈' },
               { key: 'partners', label: '附近伙伴' },
-            ] as Array<{ key: DiscoverTab; label: string }>).map((item) => (
-              <Pressable key={item.key} onPress={() => setDiscoverTab(item.key)} style={[styles.discoverTabMake, discoverTab === item.key && styles.discoverTabActiveMake, webPressableReset]}>
+            ] as Array<{ key: DiscoverTab; label: string }>).filter((item) => petCircleEnabled || item.key !== 'circle').map((item) => (
+              <Pressable key={item.key} onPress={() => { if (item.key !== 'circle' || guardFeature(petCircleEnabled, '宠友圈')) setDiscoverTab(item.key); }} style={[styles.discoverTabMake, discoverTab === item.key && styles.discoverTabActiveMake, webPressableReset]}>
                 <Text style={[styles.discoverTabTextMake, discoverTab === item.key && styles.discoverTabTextActiveMake]}>{item.label}</Text>
               </Pressable>
             ))}
@@ -12257,8 +12343,8 @@ export default function LumiiMvpApp() {
               <Text key={filter.key} onPress={() => applyDiscoverFilter(filter.key)} style={[styles.filterChipMake, discoverFilter === filter.key && styles.filterChipMakeActive]}>{filter.label}</Text>
             ))}
           </ScrollView>
-          {discoverTab === 'circle' && !discoverAccessIssue ? (
-            <Pressable onPress={() => go('dailyPost')} style={[styles.petCircleComposerStripMake, webPressableReset]}>
+          {petCircleEnabled && discoverTab === 'circle' && !discoverAccessIssue ? (
+            <Pressable onPress={() => { if (guardFeature(petCircleEnabled, '宠友圈')) go('dailyPost'); }} style={[styles.petCircleComposerStripMake, webPressableReset]}>
               <View style={styles.petCircleComposerIconMake}>
                 <Camera color={palette.orange} size={16} strokeWidth={2.4} />
               </View>
@@ -13176,8 +13262,8 @@ export default function LumiiMvpApp() {
           ) : null}
 
           <View style={styles.messagesListMake}>
-            {pet ? (
-              <Pressable onPress={() => go('chat')} style={styles.conversationMakeRow}>
+            {pet && petChatEnabled ? (
+              <Pressable onPress={() => { if (guardFeature(petChatEnabled, 'AI 宠物对话')) go('chat'); }} style={styles.conversationMakeRow}>
                 <View style={styles.conversationAvatarWrap}>
                   <View style={styles.conversationAiAvatarRingMake}>
                     <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={50} />
@@ -14633,6 +14719,27 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderMaintenance() {
+    return (
+      <Screen showBack={false} title="维护中">
+        <View style={styles.placeholderMake}>
+          <View style={styles.placeholderHeroMake}>
+            <Shield color={palette.orange} size={28} strokeWidth={2.5} />
+            <View style={styles.flex}>
+              <Text style={styles.timelineTitleMake}>灵伴正在维护升级</Text>
+              <Text style={styles.timelineSubMake}>{maintenanceMessage}</Text>
+            </View>
+          </View>
+          <View style={styles.settingsGroupMake}>
+            <Text style={styles.settingsGroupTitle}>当前状态</Text>
+            <ProfileMakeRow Icon={Shield} title="服务状态" value="维护中" />
+            <ProfileMakeRow Icon={Bell} title="恢复通知" value="稍后重试" />
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
   function renderGreetingSheet() {
     const owner = greetingSheetOwner;
     const saving = owner ? socialActionSavingIds.includes(`greet:${owner.id}`) : false;
@@ -14962,6 +15069,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderScreen() {
+    if (maintenanceEnabled) return renderMaintenance();
     if (sessionBootstrapping) return renderSessionBootstrapping();
     if (loginSuccessLoading) return renderLoginSuccessLoading();
     if (session && !getCurrentPet() && petRequiredRoutes.has(route)) return renderEmptyPet();

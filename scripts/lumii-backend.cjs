@@ -402,6 +402,28 @@ function publicAppConfig() {
   };
 }
 
+function featureEnabled(key) {
+  return currentOpsConfig().features?.[key] !== false;
+}
+
+function failIfFeatureDisabled(res, key, label) {
+  if (featureEnabled(key)) return false;
+  fail(res, 403, `${label}暂时维护中，请稍后再试`, true, { feature: key }, 'FEATURE_DISABLED');
+  return true;
+}
+
+function maintenanceMessage() {
+  return currentOpsConfig().app.maintenanceMessage || '灵伴正在维护升级，请稍后再试';
+}
+
+function failIfMaintenanceWriteBlocked(req, pathname, res) {
+  if (!currentOpsConfig().app.maintenanceEnabled) return false;
+  if (req.method === 'GET') return false;
+  if (['/auth/logout', '/auth/token/refresh', '/feedback', '/notifications/read'].includes(pathname)) return false;
+  fail(res, 503, maintenanceMessage(), true, { maintenanceEnabled: true }, 'APP_MAINTENANCE');
+  return true;
+}
+
 function loadState() {
   try {
     const initialState = createInitialState();
@@ -6597,6 +6619,7 @@ async function handle(req, res) {
   const user = requireUser(req, res);
   if (!user) return;
   if (failIfAccountRestricted(user, req, pathname, res)) return;
+  if (failIfMaintenanceWriteBlocked(req, pathname, res)) return;
 
   if (req.method === 'POST' && pathname === '/auth/token/refresh') {
     ok(res, { account: buildAccountSnapshot(user), phone: user.phone, token: createAuthToken(user.phone) });
@@ -6881,6 +6904,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/media/uploads') {
+    if (failIfFeatureDisabled(res, 'aiAvatar', 'AI 灵伴形象')) return;
     const mediaId = `media-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const parsedUpload = parseBase64Upload(body.base64, body.mimeType);
     const dataUrl = parsedUpload.dataUrl;
@@ -6942,6 +6966,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/ai/pet-avatar/jobs') {
+    if (failIfFeatureDisabled(res, 'aiAvatar', 'AI 灵伴形象')) return;
     const result = await createAvatarGenerationJob(req, user, body.mediaId);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, Boolean(result.retryable), result.data);
@@ -7012,6 +7037,7 @@ async function handle(req, res) {
     }
 
     if (action === 'retry') {
+      if (failIfFeatureDisabled(res, 'aiAvatar', 'AI 灵伴形象')) return;
       if (!job.mediaId) {
         fail(res, 404, '原始照片已失效，请重新上传', true);
         return;
@@ -7316,6 +7342,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/social/nearby-moments') {
+    if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     const location = locationFromQuery(url);
     const publishNearbyPresence = user.settings?.nearbyVisible !== false;
     if (publishNearbyPresence) {
@@ -7329,6 +7356,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/social/pet-circle/posts') {
+    if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     const location = locationFromQuery(url);
     const cursor = url.searchParams.get('cursor') || '';
     const limit = url.searchParams.get('limit') || 30;
@@ -7345,6 +7373,7 @@ async function handle(req, res) {
 
   const petCircleProfilePostsMatch = pathname.match(/^\/social\/pet-circle\/profiles\/([^/]+)\/posts$/);
   if (req.method === 'GET' && petCircleProfilePostsMatch) {
+    if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     const ownerId = decodeURIComponent(petCircleProfilePostsMatch[1]);
     const cursor = url.searchParams.get('cursor') || '';
     const limit = url.searchParams.get('limit') || 30;
@@ -7358,6 +7387,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'PATCH' && pathname === '/social/pet-circle/profile/cover') {
+    if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     if (failIfMuted(user, res, '更换宠友圈封面')) return;
     const result = await updatePetCircleCover(req, user, body);
     if (result.error) {
@@ -7370,6 +7400,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && (pathname === '/social/moments' || pathname === '/social/pet-circle/posts')) {
+    if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     if (failIfMuted(user, res, '发布小事')) return;
     const visibility = normalizeSocialVisibility(body.visibility);
     if (visibility === 'nearby' && user.settings?.nearbyVisible === false) {
@@ -7404,6 +7435,7 @@ async function handle(req, res) {
 
   const petCirclePostMatch = pathname.match(/^\/social\/pet-circle\/posts\/([^/]+)$/);
   if (req.method === 'GET' && petCirclePostMatch) {
+    if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     const location = locationFromQuery(url);
     const viewerForMoment = location ? { ...user, location } : user;
     const result = getPetCirclePostCard(decodeURIComponent(petCirclePostMatch[1]), viewerForMoment);
@@ -7416,6 +7448,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'DELETE' && petCirclePostMatch) {
+    if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     const deleted = deleteSocialMoment(decodeURIComponent(petCirclePostMatch[1]), user);
     if (deleted.error) {
       fail(res, deleted.statusCode || 400, deleted.error, false, undefined, 'PET_CIRCLE_POST_INVALID');
@@ -7428,6 +7461,7 @@ async function handle(req, res) {
 
   const petCirclePostReportMatch = pathname.match(/^\/social\/pet-circle\/posts\/([^/]+)\/report$/);
   if (req.method === 'POST' && petCirclePostReportMatch) {
+    if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     const result = reportSocialMoment(decodeURIComponent(petCirclePostReportMatch[1]), user, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'PET_CIRCLE_REPORT_INVALID');
@@ -7440,6 +7474,7 @@ async function handle(req, res) {
 
   const petCircleLikeMatch = pathname.match(/^\/social\/pet-circle\/posts\/([^/]+)\/like$/);
   if ((req.method === 'POST' || req.method === 'DELETE') && petCircleLikeMatch) {
+    if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     if (req.method === 'POST' && failIfMuted(user, res, '点赞互动')) return;
     const postId = decodeURIComponent(petCircleLikeMatch[1]);
     const result = req.method === 'POST' ? likeSocialMoment(postId, user) : unlikeSocialMoment(postId, user);
@@ -7455,6 +7490,7 @@ async function handle(req, res) {
 
   const petCircleCommentsMatch = pathname.match(/^\/social\/pet-circle\/posts\/([^/]+)\/comments$/);
   if (req.method === 'GET' && petCircleCommentsMatch) {
+    if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     const postId = decodeURIComponent(petCircleCommentsMatch[1]);
     const visible = visibleSocialMomentForViewer(postId, user);
     if (visible.error) {
@@ -7465,6 +7501,7 @@ async function handle(req, res) {
     return;
   }
   if (req.method === 'POST' && petCircleCommentsMatch) {
+    if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     if (failIfMuted(user, res, '发表评论')) return;
     const postId = decodeURIComponent(petCircleCommentsMatch[1]);
     const result = createPetCircleComment(postId, user, body);
@@ -7479,6 +7516,7 @@ async function handle(req, res) {
 
   const petCircleCommentMatch = pathname.match(/^\/social\/pet-circle\/comments\/([^/]+)$/);
   if (req.method === 'DELETE' && petCircleCommentMatch) {
+    if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     const result = deletePetCircleComment(decodeURIComponent(petCircleCommentMatch[1]), user);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'PET_CIRCLE_COMMENT_INVALID');
@@ -7491,6 +7529,7 @@ async function handle(req, res) {
 
   const petCircleCommentReportMatch = pathname.match(/^\/social\/pet-circle\/comments\/([^/]+)\/report$/);
   if (req.method === 'POST' && petCircleCommentReportMatch) {
+    if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     const result = reportPetCircleComment(decodeURIComponent(petCircleCommentReportMatch[1]), user, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'PET_CIRCLE_REPORT_INVALID');
@@ -7659,6 +7698,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/social/walk-invites') {
+    if (failIfFeatureDisabled(res, 'walkInvite', '约遛邀请')) return;
     if (failIfMuted(user, res, '发起约遛')) return;
     const ownerId = String(body.ownerId || '');
     const target = resolveVisibleSocialTarget(user, ownerId);
@@ -7855,12 +7895,14 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/ai/pet-chat/messages') {
+    if (failIfFeatureDisabled(res, 'petChat', 'AI 宠物对话')) return;
     ok(res, petChatMessagesFor(user));
     return;
   }
 
   const petChatFeedbackMatch = pathname.match(/^\/ai\/pet-chat\/messages\/([^/]+)\/feedback$/);
   if (req.method === 'POST' && petChatFeedbackMatch) {
+    if (failIfFeatureDisabled(res, 'petChat', 'AI 宠物对话')) return;
     const messageIdValue = decodeURIComponent(petChatFeedbackMatch[1]);
     const feedbackResult = setPetChatFeedback(user, messageIdValue, String(body.rating || ''));
     if (feedbackResult.error) {
@@ -7873,6 +7915,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/ai/pet-chat/messages') {
+    if (failIfFeatureDisabled(res, 'petChat', 'AI 宠物对话')) return;
     const text = String(body.text || '').trim();
     if (!text) {
       fail(res, 400, '请输入消息内容', false);
@@ -7931,6 +7974,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/places/nearby') {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     const location = placeLocationFromQuery(url, user);
     const radiusKm = clampPlaceRadiusKm(location?.radiusKm || url.searchParams.get('radiusKm') || DEFAULT_DISCOVER_RADIUS_KM);
     const amapPlaces = await fetchAmapPlaces({ location, radiusKm });
@@ -7945,12 +7989,14 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/places/favorites') {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     ok(res, favoritePlaceIdsFor(user));
     return;
   }
 
   const placeFavoriteMatch = pathname.match(/^\/places\/([^/]+)\/favorite$/);
   if (req.method === 'PATCH' && placeFavoriteMatch) {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     const placeId = decodeURIComponent(placeFavoriteMatch[1]);
     const favoriteIds = setFavoritePlace(user, placeId, Boolean(body.favorite));
     if (!favoriteIds) {
@@ -7963,6 +8009,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/places/search') {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     const query = String(url.searchParams.get('q') || '').trim();
     const location = placeLocationFromQuery(url, user);
     const radiusKm = clampPlaceRadiusKm(location?.radiusKm || url.searchParams.get('radiusKm') || DEFAULT_DISCOVER_RADIUS_KM);
@@ -7982,6 +8029,7 @@ async function handle(req, res) {
 
   const placeDetailMatch = pathname.match(/^\/places\/([^/]+)$/);
   if (req.method === 'GET' && placeDetailMatch) {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     const placeId = decodeURIComponent(placeDetailMatch[1]);
     const place = (state.places || []).find((item) => item.id === placeId);
     if (!place) {
@@ -7993,16 +8041,19 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/places/reviews/my') {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     ok(res, placeReviewsFor(user));
     return;
   }
 
   if (req.method === 'GET' && pathname === '/places/submissions/my') {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     ok(res, placeSubmissionsFor(user));
     return;
   }
 
   if (req.method === 'POST' && pathname === '/places/submissions') {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     if (failIfMuted(user, res, '提交地点')) return;
     const result = createPlaceSubmission(user, body);
     if (result.error) {
@@ -8016,6 +8067,7 @@ async function handle(req, res) {
 
   const reviewMatch = pathname.match(/^\/places\/([^/]+)\/reviews$/);
   if (req.method === 'POST' && reviewMatch) {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     if (failIfMuted(user, res, '发布地点点评')) return;
     const placeId = decodeURIComponent(reviewMatch[1]);
     const review = createPlaceReview(user, placeId, body.content);
