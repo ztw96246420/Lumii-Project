@@ -345,6 +345,7 @@ function createInitialState() {
     supportTickets: [],
     systemNotifications: [],
     notificationTemplates: [],
+    opsConfigRevisions: [],
     userSanctions: [],
     aiUsage: {
       deepseek: {
@@ -507,6 +508,70 @@ function normalizeOpsConfig(value) {
 function currentOpsConfig() {
   state.opsConfig = normalizeOpsConfig(state.opsConfig || defaultOpsConfig());
   return state.opsConfig;
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value || {}));
+}
+
+function opsConfigSummary(config) {
+  const features = config?.features || {};
+  return {
+    announcementEnabled: Boolean(config?.app?.announcement?.enabled),
+    maintenanceEnabled: Boolean(config?.app?.maintenanceEnabled),
+    moderationEnabled: Boolean(config?.moderation?.enabled),
+    discoverRadiusKm: Number(config?.social?.discoverRadiusKm || 0),
+    enabledFeatures: Object.values(features).filter((value) => value !== false).length,
+    nearbyMomentTtlDays: Number(config?.social?.nearbyMomentTtlDays || 0),
+    petAvatarDailyLimit: Number(config?.ai?.petAvatarDailyLimit || 0),
+    petChatDailyLimit: Number(config?.ai?.petChatDailyLimit || 0),
+    petCircleMaxPhotos: Number(config?.social?.petCircleMaxPhotos || 0),
+    updateEnabled: Boolean(config?.app?.update?.enabled),
+  };
+}
+
+function ensureOpsConfigRevisions() {
+  if (!Array.isArray(state.opsConfigRevisions)) state.opsConfigRevisions = [];
+  state.opsConfigRevisions = state.opsConfigRevisions
+    .filter((item) => item && item.id && item.config)
+    .slice(0, 80);
+  return state.opsConfigRevisions;
+}
+
+function adminOpsConfigRevisions() {
+  return ensureOpsConfigRevisions().map((item) => ({
+    action: item.action || 'publish',
+    createdAt: item.createdAt,
+    createdBy: item.createdBy || 'admin',
+    id: item.id,
+    reason: item.reason || '',
+    sourceRevisionId: item.sourceRevisionId || '',
+    summary: item.summary || opsConfigSummary(item.config),
+  }));
+}
+
+function recordOpsConfigRevision(admin, config, reason = '', action = 'publish', sourceRevisionId = '') {
+  const snapshot = normalizeOpsConfig(config);
+  const createdAt = snapshot.updatedAt || new Date().toISOString();
+  const revision = {
+    action,
+    config: cloneJson(snapshot),
+    createdAt,
+    createdBy: admin?.username || 'admin',
+    id: `config-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    reason: String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+    sourceRevisionId,
+    summary: opsConfigSummary(snapshot),
+  };
+  state.opsConfigRevisions = [revision, ...ensureOpsConfigRevisions()].slice(0, 80);
+  return revision;
+}
+
+function adminOpsConfigResponse() {
+  return {
+    ...currentOpsConfig(),
+    revisions: adminOpsConfigRevisions(),
+  };
 }
 
 function publicAppConfig() {
@@ -8431,7 +8496,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   }
 
   if (req.method === 'GET' && pathname === '/admin/config') {
-    ok(res, currentOpsConfig());
+    ok(res, adminOpsConfigResponse());
     return true;
   }
 
@@ -8463,9 +8528,31 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       updatedAt: new Date().toISOString(),
     });
     state.opsConfig = next;
-    writeAdminAudit(admin, 'config.update', 'ops_config', 'app', before, next, body.reason);
+    const revision = recordOpsConfigRevision(admin, next, body.reason || '配置中心保存', 'publish');
+    writeAdminAudit(admin, 'config.update', 'ops_config', 'app', before, { ...next, revisionId: revision.id }, body.reason);
     saveState();
-    ok(res, next);
+    ok(res, adminOpsConfigResponse());
+    return true;
+  }
+
+  const adminConfigRollbackMatch = pathname.match(/^\/admin\/config\/revisions\/([^/]+)\/rollback$/);
+  if (req.method === 'POST' && adminConfigRollbackMatch) {
+    const revisionId = decodeURIComponent(adminConfigRollbackMatch[1]);
+    const revision = ensureOpsConfigRevisions().find((item) => item.id === revisionId);
+    if (!revision) {
+      fail(res, 404, '配置版本不存在', false, undefined, 'ADMIN_CONFIG_REVISION_NOT_FOUND');
+      return true;
+    }
+    const before = currentOpsConfig();
+    const next = normalizeOpsConfig({
+      ...cloneJson(revision.config),
+      updatedAt: new Date().toISOString(),
+    });
+    state.opsConfig = next;
+    const rollbackRevision = recordOpsConfigRevision(admin, next, body.reason || `回滚到 ${revisionId}`, 'rollback', revisionId);
+    writeAdminAudit(admin, 'config.rollback', 'ops_config', revisionId, before, { ...next, revisionId: rollbackRevision.id, sourceRevisionId: revisionId }, body.reason);
+    saveState();
+    ok(res, { ...adminOpsConfigResponse(), rolledBackFrom: revisionId });
     return true;
   }
 

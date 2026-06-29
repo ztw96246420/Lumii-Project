@@ -273,6 +273,10 @@ async function onContentClick(event) {
     if (action === 'save-notification-draft') await sendSystemNotification('draft');
     if (action === 'schedule-notification') await sendSystemNotification('scheduled');
     if (action === 'save-config') await saveConfig();
+    if (action === 'config-rollback') {
+      await rollbackConfigRevision(id);
+      return;
+    }
     if (action === 'sanction-create') await createSanction();
     if (action === 'sanction-revoke') await confirmPost(`/admin/users/${encodeURIComponent(phone)}/sanctions/${encodeURIComponent(id)}/revoke`, { reason }, '确认撤销这条处罚？');
     if (action === 'quick-mute') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 24, reason: '用户列表快捷禁言', type: 'mute' });
@@ -1335,6 +1339,35 @@ function renderNotificationCampaign(campaign) {
   `;
 }
 
+function configRevisionSummaryText(summary = {}) {
+  const toggles = [
+    summary.maintenanceEnabled ? '维护中' : '正常服务',
+    summary.announcementEnabled ? '公告开' : '公告关',
+    summary.updateEnabled ? '更新开' : '更新关',
+    summary.moderationEnabled ? '审核规则开' : '审核规则关',
+  ];
+  return [
+    `${summary.enabledFeatures || 0}/5 功能开启`,
+    `图片 ${summary.petCircleMaxPhotos || 0}`,
+    `半径 ${summary.discoverRadiusKm || 0}km`,
+    `TTL ${summary.nearbyMomentTtlDays || 0}天`,
+    ...toggles,
+  ].join(' · ');
+}
+
+function renderConfigRevisions(revisions = []) {
+  const rows = Array.isArray(revisions) ? revisions.slice(0, 12) : [];
+  if (!rows.length) {
+    return '<div class="placeholder"><div><strong>暂无配置版本</strong><div>保存配置后会自动生成版本快照，可用于回滚。</div></div></div>';
+  }
+  return tableHtml(rows, [
+    ['版本', (item) => `<div class="cell-title">${escapeHtml(item.id)}</div><div class="cell-sub">${formatTime(item.createdAt)} · ${escapeHtml(item.createdBy || '-')}</div>`],
+    ['类型', (item) => statusPill(item.action || 'publish')],
+    ['摘要', (item) => `<div class="cell-sub">${escapeHtml(configRevisionSummaryText(item.summary || {}))}</div><div>${escapeHtml(item.reason || '-')}</div>`],
+    ['操作', (item) => `<button class="small-button danger" data-action="config-rollback" data-id="${escapeHtml(item.id)}">回滚到此版本</button>`],
+  ], '暂无配置版本');
+}
+
 async function renderNotifications(force) {
   const data = await load('notifications', '/admin/notifications', force);
   const summary = data.summary || {};
@@ -1448,6 +1481,7 @@ async function renderConfig(force) {
   const config = await load('config', '/admin/config', force);
   const announcement = config.app?.announcement || {};
   const moderation = config.moderation || {};
+  const revisions = config.revisions || [];
   const splash = config.app?.splash || {};
   const update = config.app?.update || {};
   $('content').innerHTML = `
@@ -1568,6 +1602,16 @@ async function renderConfig(force) {
         </div>
       </div>
       <button class="primary-button" data-action="save-config">保存配置</button>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>配置版本历史</h2>
+            <div class="section-sub">每次保存都会生成版本快照；回滚后移动端下一次读取 /app/config 即生效</div>
+          </div>
+          ${help('回滚也是一次新的配置发布，会写审计日志，并生成新的 rollback 版本，方便继续追踪。')}
+        </div>
+        ${renderConfigRevisions(revisions)}
+      </div>
     </div>
   `;
 }
@@ -1674,6 +1718,18 @@ async function saveConfig() {
   state.cache.config = await patch('/admin/config', payload);
   state.cache.summary = null;
   showToast('配置已保存');
+  await render(true);
+}
+
+async function rollbackConfigRevision(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入回滚原因', `回滚到配置版本 ${id}`);
+  if (reason === null) return;
+  state.cache.config = await post(`/admin/config/revisions/${encodeURIComponent(id)}/rollback`, {
+    reason: reason.trim() || `回滚到配置版本 ${id}`,
+  });
+  state.cache.summary = null;
+  showToast('配置已回滚');
   await render(true);
 }
 
