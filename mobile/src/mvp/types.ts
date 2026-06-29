@@ -577,6 +577,50 @@ export type FeedbackSubmission = {
   id: string;
   ownerName?: string;
   status: 'closed' | 'received' | 'reviewing';
+  supportTicketId?: string;
+};
+
+export type SupportTicketStatus = 'closed' | 'received' | 'resolved' | 'reviewing' | 'waiting_user';
+export type SupportTicketPriority = 'high' | 'low' | 'normal' | 'urgent';
+
+export type SupportTicketItem = {
+  canReply: boolean;
+  category: FeedbackCategory;
+  content: string;
+  createdAt: string;
+  id: string;
+  lastActivityAt?: string;
+  latestReply?: string;
+  latestReplyAt?: string;
+  priority: SupportTicketPriority;
+  replyCount: number;
+  status: SupportTicketStatus;
+  title: string;
+  updatedAt?: string;
+};
+
+export type SupportTicketMessage = {
+  author: 'support' | 'user';
+  authorName: string;
+  content: string;
+  createdAt: string;
+  id: string;
+  type: 'feedback' | 'support_reply' | 'user_reply';
+};
+
+export type SupportTicketDetail = SupportTicketItem & {
+  messages: SupportTicketMessage[];
+};
+
+export type SupportTicketSummary = {
+  all: number;
+  open: number;
+  waitingUser: number;
+};
+
+export type SupportTicketList = {
+  summary: SupportTicketSummary;
+  tickets: SupportTicketItem[];
 };
 
 export type AppRemoteConfig = {
@@ -645,6 +689,7 @@ export type AppRoute =
   | 'profile'
   | 'safety'
   | 'settings'
+  | 'supportTickets'
   | 'upload'
   | 'uploadDetail'
   | 'uploadNoPet'

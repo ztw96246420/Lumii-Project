@@ -437,7 +437,7 @@ function maintenanceMessage() {
 function failIfMaintenanceWriteBlocked(req, pathname, res) {
   if (!currentOpsConfig().app.maintenanceEnabled) return false;
   if (req.method === 'GET') return false;
-  if (['/auth/logout', '/auth/token/refresh', '/feedback', '/notifications/read'].includes(pathname)) return false;
+  if (['/auth/logout', '/auth/token/refresh', '/feedback', '/notifications/read'].includes(pathname) || pathname.startsWith('/support/tickets')) return false;
   fail(res, 503, maintenanceMessage(), true, { maintenanceEnabled: true }, 'APP_MAINTENANCE');
   return true;
 }
@@ -1625,7 +1625,7 @@ function mutedRestrictionFor(user) {
 }
 
 function allowRestrictedWrite(pathname) {
-  return pathname === '/auth/token/refresh' || pathname === '/feedback' || pathname === '/notifications/read';
+  return pathname === '/auth/token/refresh' || pathname === '/feedback' || pathname === '/notifications/read' || pathname.startsWith('/support/tickets');
 }
 
 function failIfAccountRestricted(user, req, pathname, res) {
@@ -6354,6 +6354,74 @@ function supportTicketDetail(ticket) {
   };
 }
 
+function supportTicketPublicItem(ticket) {
+  const item = supportTicketItem(ticket);
+  const replies = Array.isArray(ticket.replies) ? ticket.replies : [];
+  const latestSupportReply = replies.find((reply) => reply?.author !== 'user');
+  const status = supportTicketStatusFor(ticket.status);
+  return {
+    canReply: status !== 'closed' && status !== 'resolved',
+    category: item.category,
+    content: item.content,
+    createdAt: item.createdAt,
+    id: item.id,
+    lastActivityAt: item.lastActivityAt,
+    latestReply: latestSupportReply?.content || '',
+    latestReplyAt: latestSupportReply?.createdAt || '',
+    priority: item.priority,
+    replyCount: replies.length,
+    status,
+    title: item.title,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function supportTicketPublicDetail(ticket) {
+  const replies = Array.isArray(ticket.replies) ? ticket.replies : [];
+  const messages = [
+    {
+      author: 'user',
+      authorName: '我',
+      content: ticket.content || '',
+      createdAt: ticket.createdAt,
+      id: `ticket-source-${ticket.id}`,
+      type: 'feedback',
+    },
+    ...replies.map((reply) => {
+      const isUser = reply?.author === 'user';
+      return {
+        author: isUser ? 'user' : 'support',
+        authorName: isUser ? '我' : 'Lumii 客服',
+        content: reply?.content || '',
+        createdAt: reply?.createdAt || ticket.updatedAt || ticket.createdAt,
+        id: reply?.id || `ticket-message-${Date.now()}`,
+        type: isUser ? 'user_reply' : 'support_reply',
+      };
+    }),
+  ]
+    .filter((message) => message.content)
+    .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+  return {
+    ...supportTicketPublicItem(ticket),
+    messages,
+  };
+}
+
+function supportTicketsForUser(user) {
+  const tickets = ensureSupportTickets()
+    .filter((ticket) => ticket.phone === user.phone)
+    .map(supportTicketPublicItem)
+    .sort((a, b) => String(b.lastActivityAt || b.createdAt).localeCompare(String(a.lastActivityAt || a.createdAt)));
+  return {
+    summary: {
+      all: tickets.length,
+      open: tickets.filter((ticket) => ticket.status !== 'closed' && ticket.status !== 'resolved').length,
+      waitingUser: tickets.filter((ticket) => ticket.status === 'waiting_user').length,
+    },
+    tickets,
+  };
+}
+
 function updateSupportTicket(admin, ticket, patch = {}, reason = '') {
   const before = JSON.parse(JSON.stringify(ticket));
   const nextStatus = patch.status !== undefined ? supportTicketStatusFor(patch.status) : ticket.status;
@@ -6393,6 +6461,7 @@ function replySupportTicket(admin, ticket, body = {}) {
   const before = JSON.parse(JSON.stringify(ticket));
   ticket.replies = Array.isArray(ticket.replies) ? ticket.replies : [];
   const reply = {
+    author: 'support',
     adminName: admin?.username || 'admin',
     content: content.slice(0, 1000),
     createdAt: new Date().toISOString(),
@@ -6417,6 +6486,30 @@ function replySupportTicket(admin, ticket, body = {}) {
   }
   syncFeedbackFromTicket(ticket);
   writeAdminAudit(admin, 'ticket.reply.create', 'support_ticket', ticket.id, before, ticket, body.reason || content);
+  return { reply, ticket };
+}
+
+function addUserSupportTicketReply(user, ticket, content) {
+  const cleanContent = String(content || '').trim();
+  if (!cleanContent) return { error: '请填写补充内容', statusCode: 400 };
+  if (cleanContent.length > 1000) return { error: '补充内容最多 1000 个字', statusCode: 400 };
+  const status = supportTicketStatusFor(ticket.status);
+  if (status === 'closed' || status === 'resolved') return { error: '工单已关闭，不能继续补充', statusCode: 409 };
+  const before = JSON.parse(JSON.stringify(ticket));
+  ticket.replies = Array.isArray(ticket.replies) ? ticket.replies : [];
+  const reply = {
+    author: 'user',
+    authorName: user.ownerName || `用户${String(user.phone || '').slice(-4)}`,
+    content: cleanContent.slice(0, 1000),
+    createdAt: new Date().toISOString(),
+    id: `ticket-user-reply-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+  };
+  ticket.replies.unshift(reply);
+  ticket.status = 'reviewing';
+  ticket.updatedAt = reply.createdAt;
+  ticket.userLastReplyAt = reply.createdAt;
+  syncFeedbackFromTicket(ticket);
+  writeAdminAudit({ username: `user:${user.phone}`, role: 'user' }, 'ticket.user.reply', 'support_ticket', ticket.id, before, ticket, cleanContent);
   return { reply, ticket };
 }
 
@@ -7685,6 +7778,41 @@ async function handle(req, res) {
     }
     saveState();
     ok(res, user.settings);
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/support/tickets') {
+    ok(res, supportTicketsForUser(user));
+    return;
+  }
+
+  const userSupportTicketMatch = pathname.match(/^\/support\/tickets\/([^/]+)$/);
+  if (req.method === 'GET' && userSupportTicketMatch) {
+    const ticketId = decodeURIComponent(userSupportTicketMatch[1]);
+    const ticket = findSupportTicket(ticketId);
+    if (!ticket || ticket.phone !== user.phone) {
+      fail(res, 404, '工单不存在', false, undefined, 'SUPPORT_TICKET_NOT_FOUND');
+      return;
+    }
+    ok(res, supportTicketPublicDetail(ticket));
+    return;
+  }
+
+  const userSupportTicketReplyMatch = pathname.match(/^\/support\/tickets\/([^/]+)\/reply$/);
+  if (req.method === 'POST' && userSupportTicketReplyMatch) {
+    const ticketId = decodeURIComponent(userSupportTicketReplyMatch[1]);
+    const ticket = findSupportTicket(ticketId);
+    if (!ticket || ticket.phone !== user.phone) {
+      fail(res, 404, '工单不存在', false, undefined, 'SUPPORT_TICKET_NOT_FOUND');
+      return;
+    }
+    const result = addUserSupportTicketReply(user, ticket, body.content);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'SUPPORT_TICKET_REPLY_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, supportTicketPublicDetail(ticket));
     return;
   }
 

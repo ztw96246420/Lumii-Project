@@ -45,6 +45,11 @@ import type {
   SocialBlockListItem,
   SocialBlockResult,
   SmsCodeTicket,
+  SupportTicketDetail,
+  SupportTicketItem,
+  SupportTicketList,
+  SupportTicketMessage,
+  SupportTicketSummary,
   UploadPetMediaInput,
   UploadedPetMedia,
   UserSettings,
@@ -1396,6 +1401,7 @@ let notifications: NotificationItem[] = [
 
 let pushDevices: PushDevice[] = [];
 let feedbackSubmissions: FeedbackSubmission[] = [];
+let supportTickets: SupportTicketDetail[] = [];
 let uploadedMediaById: Record<string, UploadedPetMedia> = {};
 let avatarJobsById: Record<string, AvatarJob> = {};
 let mockPetChatDailyCount = 0;
@@ -1412,6 +1418,83 @@ const places: Place[] = [
 let favoritePlaceIds: string[] = [];
 let placeReviews: PlaceReview[] = [];
 let placeSubmissions: PlaceSubmission[] = [];
+
+function supportTicketStatusLabelPriority(category: FeedbackCategory) {
+  if (category === 'safety') return 'urgent';
+  if (category === 'bug') return 'high';
+  if (category === 'suggestion') return 'low';
+  return 'normal';
+}
+
+function supportTicketTitle(category: FeedbackCategory) {
+  const labels: Record<FeedbackCategory, string> = {
+    bug: '问题反馈',
+    other: '用户反馈',
+    safety: '安全投诉',
+    suggestion: '产品建议',
+  };
+  return `${labels[category] ?? '用户反馈'} · ${mockOwnerName || '灵伴用户'}`;
+}
+
+function publicSupportTicketItem(ticket: SupportTicketDetail): SupportTicketItem {
+  const latestSupportMessage = [...ticket.messages].reverse().find((message) => message.author === 'support');
+  return {
+    canReply: ticket.status !== 'closed' && ticket.status !== 'resolved',
+    category: ticket.category,
+    content: ticket.content,
+    createdAt: ticket.createdAt,
+    id: ticket.id,
+    lastActivityAt: ticket.lastActivityAt ?? ticket.updatedAt ?? ticket.createdAt,
+    latestReply: latestSupportMessage?.content ?? '',
+    latestReplyAt: latestSupportMessage?.createdAt ?? '',
+    priority: ticket.priority,
+    replyCount: ticket.messages.length > 0 ? ticket.messages.length - 1 : 0,
+    status: ticket.status,
+    title: ticket.title,
+    updatedAt: ticket.updatedAt,
+  };
+}
+
+function buildSupportTicketList(): SupportTicketList {
+  const tickets = supportTickets
+    .map(publicSupportTicketItem)
+    .sort((a, b) => String(b.lastActivityAt ?? b.createdAt).localeCompare(String(a.lastActivityAt ?? a.createdAt)));
+  const summary: SupportTicketSummary = {
+    all: tickets.length,
+    open: tickets.filter((ticket) => ticket.status !== 'closed' && ticket.status !== 'resolved').length,
+    waitingUser: tickets.filter((ticket) => ticket.status === 'waiting_user').length,
+  };
+  return { summary, tickets };
+}
+
+function createMockSupportTicket(feedback: FeedbackSubmission): SupportTicketDetail {
+  const message: SupportTicketMessage = {
+    author: 'user',
+    authorName: '我',
+    content: feedback.content,
+    createdAt: feedback.createdAt,
+    id: `ticket-source-${feedback.id}`,
+    type: 'feedback',
+  };
+  const ticket: SupportTicketDetail = {
+    canReply: true,
+    category: feedback.category,
+    content: feedback.content,
+    createdAt: feedback.createdAt,
+    id: feedback.supportTicketId ?? `ticket-${feedback.id}`,
+    lastActivityAt: feedback.createdAt,
+    latestReply: '',
+    latestReplyAt: '',
+    messages: [message],
+    priority: supportTicketStatusLabelPriority(feedback.category),
+    replyCount: 0,
+    status: 'received',
+    title: supportTicketTitle(feedback.category),
+    updatedAt: feedback.createdAt,
+  };
+  supportTickets = [ticket, ...supportTickets];
+  return ticket;
+}
 
 function matchesPlaceSearch(place: Place, query: string) {
   const searchableText = [place.name, place.address, place.category, ...place.tags].join(' ');
@@ -1977,19 +2060,57 @@ export const mockApi = {
   },
 
   support: {
+    async getTicket(ticketId: string): Promise<ApiResult<SupportTicketDetail>> {
+      await wait(100);
+      const ticket = supportTickets.find((item) => item.id === ticketId);
+      if (!ticket) return error<SupportTicketDetail>('工单不存在或已失效', false, undefined, 'RESOURCE_NOT_FOUND');
+      return success({ ...ticket, ...publicSupportTicketItem(ticket) });
+    },
+
+    async getTickets(): Promise<ApiResult<SupportTicketList>> {
+      await wait(100);
+      return success(buildSupportTicketList());
+    },
+
+    async replyTicket(ticketId: string, content: string): Promise<ApiResult<SupportTicketDetail>> {
+      await wait(120);
+      const cleanContent = content.trim();
+      if (!cleanContent) return error('请填写补充内容', false);
+      if (cleanContent.length > 1000) return error('补充内容最多 1000 个字', false);
+      const ticket = supportTickets.find((item) => item.id === ticketId);
+      if (!ticket) return error<SupportTicketDetail>('工单不存在或已失效', false, undefined, 'RESOURCE_NOT_FOUND');
+      if (ticket.status === 'closed' || ticket.status === 'resolved') return error('工单已关闭，不能继续补充', false);
+      const message: SupportTicketMessage = {
+        author: 'user',
+        authorName: '我',
+        content: cleanContent,
+        createdAt: new Date().toISOString(),
+        id: `ticket-user-reply-${Date.now()}`,
+        type: 'user_reply',
+      };
+      ticket.messages = [...ticket.messages, message];
+      ticket.status = 'reviewing';
+      ticket.updatedAt = message.createdAt;
+      ticket.lastActivityAt = message.createdAt;
+      return success({ ...ticket, ...publicSupportTicketItem(ticket) });
+    },
+
     async submitFeedback(content: string, category: FeedbackCategory = 'other', contact?: string): Promise<ApiResult<FeedbackSubmission>> {
       await wait(120);
       const cleanContent = content.trim();
       if (!cleanContent) return error('请填写反馈内容', false);
       if (cleanContent.length > 1000) return error('反馈内容最多 1000 个字', false);
+      const feedbackId = `feedback-${Date.now()}`;
       const feedback: FeedbackSubmission = {
         category,
         contact: contact?.trim() || undefined,
         content: cleanContent,
         createdAt: new Date().toISOString(),
-        id: `feedback-${Date.now()}`,
+        id: feedbackId,
         status: 'received',
+        supportTicketId: `ticket-${feedbackId}`,
       };
+      createMockSupportTicket(feedback);
       feedbackSubmissions = [feedback, ...feedbackSubmissions];
       return success(feedback);
     },

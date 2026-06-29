@@ -135,6 +135,10 @@ import type {
   PlaceReview,
   SocialBlockListItem,
   SmsCodeTicket,
+  SupportTicketDetail,
+  SupportTicketItem,
+  SupportTicketMessage,
+  SupportTicketSummary,
   UploadedPetMedia,
   UserSettings,
   VaccinePlan,
@@ -224,6 +228,25 @@ const notificationFilterOptions: Array<{ key: NotificationFilter; label: string 
   { key: 'health', label: '健康提醒' },
   { key: 'system', label: '系统' },
 ];
+
+const supportTicketStatusCopy: Record<SupportTicketItem['status'], { label: string; tone: 'danger' | 'done' | 'muted' | 'orange' | 'teal' }> = {
+  closed: { label: '已关闭', tone: 'muted' },
+  received: { label: '新反馈', tone: 'orange' },
+  resolved: { label: '已解决', tone: 'done' },
+  reviewing: { label: '处理中', tone: 'teal' },
+  waiting_user: { label: '等待你补充', tone: 'danger' },
+};
+
+const supportTicketCategoryLabels: Record<SupportTicketItem['category'], string> = {
+  bug: '问题反馈',
+  other: '用户反馈',
+  safety: '安全投诉',
+  suggestion: '产品建议',
+};
+
+function supportTicketStatusMeta(status: SupportTicketItem['status']) {
+  return supportTicketStatusCopy[status] ?? supportTicketStatusCopy.received;
+}
 
 function isNotificationCategory(value: unknown): value is NotificationCategory {
   return value === 'health' || value === 'interaction' || value === 'system' || value === 'walk';
@@ -360,6 +383,13 @@ function formatTimestampDisplay(value?: string, fallback = '时间待确认') {
   if (!value) return fallback;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? fallback : formatRelativeDisplayTime(date);
+}
+
+function formatSupportTicketTime(value?: string, fallback = '时间待确认') {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${formatClockTime(date)}`;
 }
 
 function formatMessageListTime(value?: string, fallback = '新消息') {
@@ -550,6 +580,7 @@ const routeTitles: Partial<Record<AppRoute, string>> = {
   profile: '我的',
   safety: '安全中心',
   settings: '设置与隐私',
+  supportTickets: '我的反馈',
   upload: '上传照片',
   uploadDetail: '识别详情',
   uploadNoPet: '上传失败',
@@ -740,7 +771,7 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
 }
 
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'addPlaceReview' || value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'editPet' || value === 'greetingRequests' || value === 'health' || value === 'healthCalendar' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petCircleProfile' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'uploadNoPet' || value === 'vaccine' || value === 'weight') return value;
+  if (value === 'addPlaceReview' || value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'editPet' || value === 'greetingRequests' || value === 'health' || value === 'healthCalendar' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petCircleProfile' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'supportTickets' || value === 'uploadNoPet' || value === 'vaccine' || value === 'weight') return value;
   return null;
 }
 
@@ -2255,6 +2286,15 @@ export default function LumiiMvpApp() {
   const [notificationSeenAtById, setNotificationSeenAtById] = useState<Record<string, number>>({});
   const notificationSeenAtByIdRef = useRef<Record<string, number>>({});
   const [notificationFilter, setNotificationFilter] = useState<NotificationFilter>('all');
+  const [supportTickets, setSupportTickets] = useState<SupportTicketItem[]>([]);
+  const [supportTicketSummary, setSupportTicketSummary] = useState<SupportTicketSummary | null>(null);
+  const [supportTicketsLoading, setSupportTicketsLoading] = useState(false);
+  const [supportTicketsError, setSupportTicketsError] = useState('');
+  const [selectedSupportTicketId, setSelectedSupportTicketId] = useState('');
+  const [supportTicketDetail, setSupportTicketDetail] = useState<SupportTicketDetail | null>(null);
+  const [supportTicketDetailLoading, setSupportTicketDetailLoading] = useState(false);
+  const [supportTicketReplyDraft, setSupportTicketReplyDraft] = useState('');
+  const [supportTicketReplySending, setSupportTicketReplySending] = useState(false);
   const [places, setPlaces] = useState<Place[]>([]);
   const [placeQuery, setPlaceQuery] = useState('');
   const placeQueryRef = useRef('');
@@ -3338,6 +3378,17 @@ export default function LumiiMvpApp() {
   }, [route, session]);
 
   useEffect(() => {
+    if (!session || route !== 'settings') return;
+    void loadSupportTickets({ silent: true });
+  }, [route, session]);
+
+  useEffect(() => {
+    if (!session || route !== 'supportTickets') return;
+    void loadSupportTickets({ silent: supportTickets.length > 0 });
+    if (selectedSupportTicketId) void loadSupportTicketDetail(selectedSupportTicketId, { silent: Boolean(supportTicketDetail) });
+  }, [route, selectedSupportTicketId, session]);
+
+  useEffect(() => {
     if (!session || (route !== 'upload' && route !== 'uploadDetail' && route !== 'aiResult')) return;
     void loadAiUsage();
   }, [route, session]);
@@ -3878,6 +3929,94 @@ export default function LumiiMvpApp() {
     return refreshed;
   }
 
+  async function loadSupportTickets(options: { silent?: boolean } = {}) {
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return false;
+    const silent = options.silent === true;
+    if (!silent) setSupportTicketsLoading(true);
+    setSupportTicketsError('');
+    try {
+      const result = await lumiiApi.support.getTickets();
+      if (sessionTokenRef.current !== requestSessionToken) return false;
+      if (result.data) {
+        setSupportTickets(result.data.tickets);
+        setSupportTicketSummary(result.data.summary);
+        return true;
+      }
+      const message = result.error?.message ?? '反馈进度加载失败';
+      setSupportTicketsError(message);
+      if (!silent) showToast(message, { tone: 'error', variant: 'surface' });
+      return false;
+    } finally {
+      if (!silent) setSupportTicketsLoading(false);
+    }
+  }
+
+  async function loadSupportTicketDetail(ticketId: string, options: { silent?: boolean } = {}) {
+    if (!ticketId) return false;
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return false;
+    const silent = options.silent === true;
+    if (!silent) setSupportTicketDetailLoading(true);
+    try {
+      const result = await lumiiApi.support.getTicket(ticketId);
+      if (sessionTokenRef.current !== requestSessionToken) return false;
+      if (result.data) {
+        setSupportTicketDetail(result.data);
+        setSupportTickets((items) => {
+          const nextItem: SupportTicketItem = result.data!;
+          return items.some((item) => item.id === nextItem.id)
+            ? items.map((item) => (item.id === nextItem.id ? nextItem : item))
+            : [nextItem, ...items];
+        });
+        return true;
+      }
+      const message = result.error?.message ?? '反馈详情加载失败';
+      if (!silent) showToast(message, { tone: 'error', variant: 'surface' });
+      return false;
+    } finally {
+      if (!silent) setSupportTicketDetailLoading(false);
+    }
+  }
+
+  function openSupportTickets(ticketId = '') {
+    setSelectedSupportTicketId(ticketId);
+    if (!ticketId) {
+      setSupportTicketDetail(null);
+      setSupportTicketReplyDraft('');
+    }
+    go('supportTickets');
+    void loadSupportTickets({ silent: true });
+    if (ticketId) void loadSupportTicketDetail(ticketId, { silent: false });
+  }
+
+  async function submitSupportTicketReply() {
+    const ticketId = selectedSupportTicketId || supportTicketDetail?.id || '';
+    const content = supportTicketReplyDraft.trim();
+    if (!ticketId || supportTicketReplySending) return;
+    if (!content) {
+      showToast('请先填写补充内容', { tone: 'warning', variant: 'surface' });
+      return;
+    }
+    const requestSessionToken = sessionTokenRef.current;
+    setSupportTicketReplySending(true);
+    try {
+      const result = await lumiiApi.support.replyTicket(ticketId, content);
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (result.data) {
+        setSupportTicketDetail(result.data);
+        setSupportTicketReplyDraft('');
+        setSupportTickets((items) => items.map((item) => (item.id === result.data!.id ? result.data! : item)));
+        void loadSupportTickets({ silent: true });
+        showToast('已补充反馈', { subtitle: '客服会继续在这条进度里回复', tone: 'success', variant: 'surface' });
+      } else {
+        showToast(result.error?.message ?? '补充反馈失败，请稍后重试', { tone: 'error', variant: 'surface' });
+      }
+    } finally {
+      setSupportTicketReplySending(false);
+    }
+  }
+
   function applyNearbyOwners(nextOwners: NearbyOwner[]) {
     if (!userSettingsRef.current.nearbyVisible) {
       ownersRef.current = [];
@@ -4238,7 +4377,7 @@ export default function LumiiMvpApp() {
       }
     }
     if (kind === 'support_reply') {
-      go('settings');
+      openSupportTickets(item.ticketId ?? '');
       return;
     }
     if (kind === 'medical_alert' || kind === 'vaccine_done' || kind === 'vaccine_reminder' || kind === 'health_reminder') {
@@ -7915,6 +8054,16 @@ export default function LumiiMvpApp() {
     setNotificationsAndRef([]);
     setNotificationSeenAtById({});
     notificationSeenAtByIdRef.current = {};
+    setNotificationFilter('all');
+    setSupportTickets([]);
+    setSupportTicketSummary(null);
+    setSupportTicketsLoading(false);
+    setSupportTicketsError('');
+    setSelectedSupportTicketId('');
+    setSupportTicketDetail(null);
+    setSupportTicketDetailLoading(false);
+    setSupportTicketReplyDraft('');
+    setSupportTicketReplySending(false);
     discoverRequestSeqRef.current += 1;
     applyNearbyOwners([]);
     setNearbyMoments([]);
@@ -13955,6 +14104,15 @@ export default function LumiiMvpApp() {
             <SettingsMakeRow Icon={Lock} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('accountSecurity')} title="账号安全" />
             <SettingsMakeRow Icon={Shield} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('safety')} title="黑名单与举报" />
             <SettingsMakeRow
+              Icon={Mail}
+              iconBg="#FFE6D6"
+              iconColor={palette.orange}
+              onPress={() => openSupportTickets()}
+              sub="查看客服回复和处理进度"
+              title="我的反馈"
+              value={supportTicketSummary?.open ? `${supportTicketSummary.open} 条进行中` : undefined}
+            />
+            <SettingsMakeRow
               accessibilityLabel="logout-from-settings"
               Icon={LogOut}
               danger
@@ -14035,6 +14193,269 @@ export default function LumiiMvpApp() {
         ) : (
           renderEmptyPet()
         )}
+      </Screen>
+    );
+  }
+
+  function renderSupportTicketStatusPill(status: SupportTicketItem['status']) {
+    const meta = supportTicketStatusMeta(status);
+    const toneStyle =
+      meta.tone === 'danger'
+        ? styles.supportTicketStatusDangerMake
+        : meta.tone === 'done'
+          ? styles.supportTicketStatusDoneMake
+          : meta.tone === 'teal'
+            ? styles.supportTicketStatusTealMake
+            : meta.tone === 'orange'
+              ? styles.supportTicketStatusOrangeMake
+              : styles.supportTicketStatusMutedMake;
+    return (
+      <View style={[styles.supportTicketStatusMake, toneStyle]}>
+        <Text
+          style={[
+            styles.supportTicketStatusTextMake,
+            meta.tone === 'danger' && styles.supportTicketStatusTextDangerMake,
+            meta.tone === 'done' && styles.supportTicketStatusTextDoneMake,
+            meta.tone === 'teal' && styles.supportTicketStatusTextTealMake,
+            meta.tone === 'muted' && styles.supportTicketStatusTextMutedMake,
+          ]}
+        >
+          {meta.label}
+        </Text>
+      </View>
+    );
+  }
+
+  function renderSupportTicketMessage(message: SupportTicketMessage) {
+    const mine = message.author === 'user';
+    return (
+      <View key={message.id} style={[styles.supportTicketMessageRowMake, mine && styles.supportTicketMessageRowMineMake]}>
+        <View style={[styles.supportTicketMessageDotMake, mine && styles.supportTicketMessageDotMineMake]} />
+        <View style={[styles.supportTicketMessageBubbleMake, mine && styles.supportTicketMessageBubbleMineMake]}>
+          <View style={styles.supportTicketMessageTopMake}>
+            <Text style={[styles.supportTicketMessageAuthorMake, mine && styles.supportTicketMessageAuthorMineMake]}>{message.authorName}</Text>
+            <Text style={[styles.supportTicketMessageTimeMake, mine && styles.supportTicketMessageTimeMineMake]}>{formatSupportTicketTime(message.createdAt)}</Text>
+          </View>
+          <Text style={[styles.supportTicketMessageTextMake, mine && styles.supportTicketMessageTextMineMake]}>{message.content}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  function renderSupportTickets() {
+    const selectedTicket = selectedSupportTicketId ? supportTicketDetail : null;
+    const summary = supportTicketSummary ?? {
+      all: supportTickets.length,
+      open: supportTickets.filter((ticket) => ticket.status !== 'closed' && ticket.status !== 'resolved').length,
+      waitingUser: supportTickets.filter((ticket) => ticket.status === 'waiting_user').length,
+    };
+    const replyLength = supportTicketReplyDraft.trim().length;
+    const canSendReply = Boolean(selectedTicket?.canReply && replyLength > 0 && replyLength <= 1000 && !supportTicketReplySending);
+
+    if (selectedSupportTicketId) {
+      return (
+        <Screen
+          right={(
+            <Pressable disabled={supportTicketDetailLoading} onPress={() => void loadSupportTicketDetail(selectedSupportTicketId, { silent: false })} style={[styles.notificationReadAllButtonMake, webPressableReset]}>
+              {supportTicketDetailLoading ? <ActivityIndicator color={palette.orange} size="small" /> : <Text style={styles.notificationReadAllTextMake}>刷新</Text>}
+            </Pressable>
+          )}
+          title="反馈详情"
+        >
+          <View style={styles.supportTicketPageMake}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setSelectedSupportTicketId('');
+                setSupportTicketDetail(null);
+                setSupportTicketReplyDraft('');
+              }}
+              style={[styles.supportTicketBackToListMake, webPressableReset]}
+            >
+              <ChevronLeft color={palette.orange} size={16} strokeWidth={2.5} />
+              <Text style={styles.supportTicketBackToListTextMake}>返回我的反馈</Text>
+            </Pressable>
+
+            {!selectedTicket && supportTicketDetailLoading ? (
+              <View style={styles.supportTicketLoadingMake}>
+                <ActivityIndicator color={palette.orange} size="small" />
+                <Text style={styles.supportTicketLoadingTextMake}>正在读取反馈详情</Text>
+              </View>
+            ) : null}
+
+            {!selectedTicket && !supportTicketDetailLoading ? (
+              <EmptyState
+                action="返回列表"
+                description="这条反馈可能已更新，请回到我的反馈重新进入。"
+                icon={<Mail color={palette.muted} size={26} strokeWidth={2.4} />}
+                onAction={() => setSelectedSupportTicketId('')}
+                title="反馈详情暂不可见"
+              />
+            ) : null}
+
+            {selectedTicket ? (
+              <>
+                <View style={styles.supportTicketDetailCardMake}>
+                  <View style={styles.supportTicketDetailTopMake}>
+                    <View style={styles.supportTicketDetailIconMake}>
+                      <Mail color={palette.orange} size={18} strokeWidth={2.4} />
+                    </View>
+                    <View style={styles.flex}>
+                      <Text style={styles.supportTicketDetailTitleMake}>{supportTicketCategoryLabels[selectedTicket.category] ?? '用户反馈'}</Text>
+                      <Text style={styles.supportTicketDetailSubMake}>提交于 {formatSupportTicketTime(selectedTicket.createdAt)}</Text>
+                    </View>
+                    {renderSupportTicketStatusPill(selectedTicket.status)}
+                  </View>
+                  <Text style={styles.supportTicketDetailContentMake}>{selectedTicket.content}</Text>
+                  <View style={styles.supportTicketDetailMetaMake}>
+                    <Text style={styles.supportTicketMetaTextMake}>最近更新 {formatTimestampDisplay(selectedTicket.lastActivityAt || selectedTicket.updatedAt)}</Text>
+                    <Text style={styles.supportTicketMetaTextMake}>{selectedTicket.replyCount} 条进度</Text>
+                  </View>
+                </View>
+
+                <View style={styles.supportTicketTimelineMake}>
+                  <Text style={styles.supportTicketSectionTitleMake}>处理记录</Text>
+                  {selectedTicket.messages.length ? selectedTicket.messages.map(renderSupportTicketMessage) : (
+                    <View style={styles.supportTicketLoadingMake}>
+                      <Text style={styles.supportTicketLoadingTextMake}>暂无处理记录</Text>
+                    </View>
+                  )}
+                </View>
+
+                {selectedTicket.canReply ? (
+                  <View style={styles.supportTicketComposerMake}>
+                    <Text style={styles.supportTicketSectionTitleMake}>补充信息</Text>
+                    <TextInput
+                      multiline
+                      onChangeText={setSupportTicketReplyDraft}
+                      placeholder="补充更多现象、截图说明或你希望客服继续处理的内容"
+                      placeholderTextColor="#B8B3A8"
+                      style={[styles.supportTicketComposerInputMake, replyLength > 1000 && styles.makeTextInputError, webTextInputReset]}
+                      textAlignVertical="top"
+                      value={supportTicketReplyDraft}
+                    />
+                    <View style={styles.supportTicketComposerFooterMake}>
+                      <Text style={[styles.supportTicketComposerCounterMake, replyLength > 1000 && styles.fieldHintError]}>{replyLength}/1000</Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={!canSendReply}
+                        onPress={() => void submitSupportTicketReply()}
+                        style={[styles.supportTicketComposerButtonMake, !canSendReply && styles.supportTicketComposerButtonDisabledMake, webPressableReset]}
+                      >
+                        {supportTicketReplySending ? <ActivityIndicator color="#fff" size="small" /> : <Send color="#fff" size={14} strokeWidth={2.5} />}
+                        <Text style={styles.supportTicketComposerButtonTextMake}>提交补充</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.supportTicketClosedNoteMake}>
+                    <ShieldCheck color={palette.teal} size={17} strokeWidth={2.4} />
+                    <Text style={styles.supportTicketClosedNoteTextMake}>这条反馈已结束处理，如仍需帮助，请重新提交一条反馈。</Text>
+                  </View>
+                )}
+              </>
+            ) : null}
+          </View>
+        </Screen>
+      );
+    }
+
+    return (
+      <Screen
+        right={(
+          <Pressable disabled={supportTicketsLoading} onPress={() => void loadSupportTickets({ silent: false })} style={[styles.notificationReadAllButtonMake, webPressableReset]}>
+            {supportTicketsLoading ? <ActivityIndicator color={palette.orange} size="small" /> : <Text style={styles.notificationReadAllTextMake}>刷新</Text>}
+          </Pressable>
+        )}
+        title="我的反馈"
+      >
+        <View style={styles.supportTicketPageMake}>
+          <View style={styles.supportTicketHeroMake}>
+            <View style={styles.supportTicketHeroTopMake}>
+              <View style={styles.supportTicketHeroIconMake}>
+                <Mail color={palette.orange} size={20} strokeWidth={2.4} />
+              </View>
+              <View style={styles.flex}>
+                <Text style={styles.supportTicketHeroTitleMake}>反馈处理进度</Text>
+                <Text style={styles.supportTicketHeroSubMake}>客服回复、补充信息和处理状态都会汇总在这里。</Text>
+              </View>
+            </View>
+            <View style={styles.supportTicketHeroStatsMake}>
+              {[
+                ['全部', summary.all],
+                ['进行中', summary.open],
+                ['待补充', summary.waitingUser],
+              ].map(([label, value]) => (
+                <View key={label} style={styles.supportTicketStatMake}>
+                  <Text style={styles.supportTicketStatValueMake}>{value}</Text>
+                  <Text style={styles.supportTicketStatLabelMake}>{label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {supportTicketsError ? (
+            <View style={styles.supportTicketErrorMake}>
+              <AlertCircle color={palette.danger} size={16} strokeWidth={2.4} />
+              <Text style={styles.supportTicketErrorTextMake}>{supportTicketsError}</Text>
+              <Pressable onPress={() => void loadSupportTickets({ silent: false })} style={[styles.supportTicketRetryMake, webPressableReset]}>
+                <Text style={styles.supportTicketRetryTextMake}>重试</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {!supportTickets.length && supportTicketsLoading ? (
+            <View style={styles.supportTicketLoadingMake}>
+              <ActivityIndicator color={palette.orange} size="small" />
+              <Text style={styles.supportTicketLoadingTextMake}>正在读取反馈进度</Text>
+            </View>
+          ) : null}
+
+          {!supportTickets.length && !supportTicketsLoading && !supportTicketsError ? (
+            <EmptyState
+              action="去安全中心"
+              description="你提交的举报、问题反馈和产品建议会在这里显示处理进度。"
+              icon={<Mail color={palette.muted} size={26} strokeWidth={2.4} />}
+              onAction={() => go('safety')}
+              title="还没有反馈记录"
+            />
+          ) : null}
+
+          <View style={styles.supportTicketListMake}>
+            {supportTickets.map((ticket) => (
+              <Pressable
+                accessibilityRole="button"
+                key={ticket.id}
+                onPress={() => {
+                  setSelectedSupportTicketId(ticket.id);
+                  setSupportTicketDetail(null);
+                  setSupportTicketReplyDraft('');
+                  void loadSupportTicketDetail(ticket.id, { silent: false });
+                }}
+                style={[styles.supportTicketCardMake, webPressableReset]}
+              >
+                <View style={styles.supportTicketCardTopMake}>
+                  <Text numberOfLines={1} style={styles.supportTicketCategoryMake}>{supportTicketCategoryLabels[ticket.category] ?? '用户反馈'}</Text>
+                  {renderSupportTicketStatusPill(ticket.status)}
+                </View>
+                <Text numberOfLines={2} style={styles.supportTicketContentMake}>{ticket.content}</Text>
+                {ticket.latestReply ? (
+                  <View style={styles.supportTicketLatestMake}>
+                    <MessageCircle color={palette.orange} size={13} strokeWidth={2.4} />
+                    <Text numberOfLines={1} style={styles.supportTicketLatestTextMake}>{ticket.latestReply}</Text>
+                  </View>
+                ) : null}
+                <View style={styles.supportTicketCardMetaMake}>
+                  <Text style={styles.supportTicketMetaTextMake}>{formatTimestampDisplay(ticket.lastActivityAt || ticket.updatedAt || ticket.createdAt)}</Text>
+                  <View style={styles.supportTicketCardRightMake}>
+                    <Text style={styles.supportTicketMetaTextMake}>{ticket.replyCount} 条进度</Text>
+                    <ChevronRight color={palette.muted} size={15} strokeWidth={2.3} />
+                  </View>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        </View>
       </Screen>
     );
   }
@@ -15240,6 +15661,8 @@ export default function LumiiMvpApp() {
         return renderSafety();
       case 'settings':
         return renderSettings();
+      case 'supportTickets':
+        return renderSupportTickets();
       case 'upload':
         return renderUpload();
       case 'uploadDetail':
@@ -17149,6 +17572,76 @@ const styles = StyleSheet.create({
   notificationTitleMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '600', lineHeight: 19, minWidth: 0 },
   notificationTitleRowMake: { alignItems: 'flex-start', flexDirection: 'row', gap: 8, justifyContent: 'space-between' },
   notificationUnreadDotMake: { backgroundColor: palette.orange, borderRadius: 4, flexShrink: 0, height: 8, marginTop: 5, width: 8 },
+  supportTicketBackToListMake: { alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: 4, marginBottom: -2, paddingHorizontal: 2, paddingVertical: 2 },
+  supportTicketBackToListTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 17 },
+  supportTicketCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, gap: 9, paddingHorizontal: 14, paddingVertical: 13, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.05, shadowRadius: 18 },
+  supportTicketCardMetaMake: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', minHeight: 20 },
+  supportTicketCardRightMake: { alignItems: 'center', flexDirection: 'row', gap: 4 },
+  supportTicketCardTopMake: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'space-between' },
+  supportTicketCategoryMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '800', lineHeight: 19, minWidth: 0 },
+  supportTicketClosedNoteMake: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, paddingHorizontal: 13, paddingVertical: 12 },
+  supportTicketClosedNoteTextMake: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18 },
+  supportTicketComposerButtonDisabledMake: { opacity: 0.45 },
+  supportTicketComposerButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 15, flexDirection: 'row', gap: 6, minHeight: 36, justifyContent: 'center', paddingHorizontal: 14 },
+  supportTicketComposerButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '800' },
+  supportTicketComposerCounterMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
+  supportTicketComposerFooterMake: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  supportTicketComposerInputMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '500', lineHeight: 20, minHeight: 104, paddingHorizontal: 13, paddingVertical: 11 },
+  supportTicketComposerMake: { gap: 9 },
+  supportTicketContentMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 20 },
+  supportTicketDetailCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 12, padding: 15, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.05, shadowRadius: 18 },
+  supportTicketDetailContentMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '500', lineHeight: 22 },
+  supportTicketDetailIconMake: { alignItems: 'center', backgroundColor: '#FFE6D6', borderRadius: 13, height: 40, justifyContent: 'center', width: 40 },
+  supportTicketDetailMetaMake: { alignItems: 'center', borderTopColor: palette.border, borderTopWidth: 1, flexDirection: 'row', justifyContent: 'space-between', paddingTop: 10 },
+  supportTicketDetailSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 16, marginTop: 2 },
+  supportTicketDetailTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15.5, fontWeight: '800', lineHeight: 21 },
+  supportTicketDetailTopMake: { alignItems: 'center', flexDirection: 'row', gap: 10 },
+  supportTicketErrorMake: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.10)', borderColor: 'rgba(229,87,63,0.24)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 10 },
+  supportTicketErrorTextMake: { color: palette.danger, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 17 },
+  supportTicketHeroIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, height: 44, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 7, width: 0 }, shadowOpacity: 0.16, shadowRadius: 16, width: 44 },
+  supportTicketHeroMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFF1E2 0%, #FFE6D6 100%)' } as object) : null), backgroundColor: '#FFE6D6', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 18, borderWidth: 1, gap: 15, padding: 16 },
+  supportTicketHeroStatsMake: { flexDirection: 'row', gap: 8 },
+  supportTicketHeroSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 18, marginTop: 3 },
+  supportTicketHeroTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '800', lineHeight: 23 },
+  supportTicketHeroTopMake: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  supportTicketLatestMake: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.08)', borderRadius: 12, flexDirection: 'row', gap: 6, paddingHorizontal: 9, paddingVertical: 7 },
+  supportTicketLatestTextMake: { color: palette.orange, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', lineHeight: 16 },
+  supportTicketListMake: { gap: 10 },
+  supportTicketLoadingMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 10, justifyContent: 'center', minHeight: 72, paddingHorizontal: 16, paddingVertical: 16 },
+  supportTicketLoadingTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600' },
+  supportTicketMessageAuthorMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '800', lineHeight: 17 },
+  supportTicketMessageAuthorMineMake: { color: '#fff' },
+  supportTicketMessageBubbleMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderBottomLeftRadius: 5, borderWidth: 1, flex: 1, gap: 6, paddingHorizontal: 12, paddingVertical: 10 },
+  supportTicketMessageBubbleMineMake: { backgroundColor: palette.orange, borderBottomLeftRadius: 16, borderBottomRightRadius: 5, borderColor: palette.orange },
+  supportTicketMessageDotMake: { backgroundColor: palette.teal, borderColor: '#fff', borderRadius: 6, borderWidth: 2, height: 12, marginTop: 16, width: 12 },
+  supportTicketMessageDotMineMake: { backgroundColor: palette.orange },
+  supportTicketMessageRowMake: { alignItems: 'flex-start', flexDirection: 'row', gap: 9 },
+  supportTicketMessageRowMineMake: { flexDirection: 'row-reverse' },
+  supportTicketMessageTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 20 },
+  supportTicketMessageTextMineMake: { color: '#fff' },
+  supportTicketMessageTimeMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', lineHeight: 15 },
+  supportTicketMessageTimeMineMake: { color: 'rgba(255,255,255,0.82)' },
+  supportTicketMessageTopMake: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  supportTicketMetaTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 16 },
+  supportTicketPageMake: { gap: 14, marginHorizontal: -4, marginTop: -6 },
+  supportTicketRetryMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, justifyContent: 'center', minHeight: 30, paddingHorizontal: 10 },
+  supportTicketRetryTextMake: { color: palette.danger, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '800' },
+  supportTicketSectionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '800', lineHeight: 21 },
+  supportTicketStatLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 15, marginTop: 2 },
+  supportTicketStatMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.66)', borderColor: 'rgba(255,255,255,0.82)', borderRadius: 14, borderWidth: 1, flex: 1, paddingHorizontal: 8, paddingVertical: 10 },
+  supportTicketStatValueMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '800', lineHeight: 23 },
+  supportTicketStatusDangerMake: { backgroundColor: 'rgba(229,87,63,0.12)' },
+  supportTicketStatusDoneMake: { backgroundColor: 'rgba(77,182,172,0.14)' },
+  supportTicketStatusMake: { alignItems: 'center', borderRadius: 999, flexShrink: 0, justifyContent: 'center', minHeight: 24, paddingHorizontal: 9, paddingVertical: 4 },
+  supportTicketStatusMutedMake: { backgroundColor: 'rgba(122,121,114,0.12)' },
+  supportTicketStatusOrangeMake: { backgroundColor: 'rgba(255,138,92,0.14)' },
+  supportTicketStatusTealMake: { backgroundColor: 'rgba(77,182,172,0.14)' },
+  supportTicketStatusTextDangerMake: { color: palette.danger },
+  supportTicketStatusTextDoneMake: { color: palette.teal },
+  supportTicketStatusTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '800', lineHeight: 14 },
+  supportTicketStatusTextMutedMake: { color: palette.muted },
+  supportTicketStatusTextTealMake: { color: palette.teal },
+  supportTicketTimelineMake: { gap: 10 },
   optionWrap: { gap: 8 },
   otpCursor: { backgroundColor: palette.orange, borderRadius: 1, height: 24, position: 'absolute', width: 2 },
   otpDigitBox: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 14, borderWidth: 1, height: 56, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.06, shadowRadius: 8, width: 46 },

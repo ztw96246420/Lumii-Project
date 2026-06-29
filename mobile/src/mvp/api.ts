@@ -43,6 +43,8 @@ import type {
   SocialBlockListItem,
   SocialBlockResult,
   SmsCodeTicket,
+  SupportTicketDetail,
+  SupportTicketList,
   UploadPetMediaInput,
   UploadedPetMedia,
   UserSettings,
@@ -107,6 +109,18 @@ function createHttpApi(baseUrl: string): LumiiApi {
     },
 
     support: {
+      async getTicket(ticketId: string): Promise<ApiResult<SupportTicketDetail>> {
+        return request<SupportTicketDetail>('GET', `/support/tickets/${encodeURIComponent(ticketId)}`);
+      },
+
+      async getTickets(): Promise<ApiResult<SupportTicketList>> {
+        return request<SupportTicketList>('GET', '/support/tickets');
+      },
+
+      async replyTicket(ticketId: string, content: string): Promise<ApiResult<SupportTicketDetail>> {
+        return request<SupportTicketDetail>('POST', `/support/tickets/${encodeURIComponent(ticketId)}/reply`, { content });
+      },
+
       async submitFeedback(content: string, category: FeedbackCategory = 'other', contact?: string): Promise<ApiResult<FeedbackSubmission>> {
         return request<FeedbackSubmission>('POST', '/feedback', { category, contact, content });
       },
