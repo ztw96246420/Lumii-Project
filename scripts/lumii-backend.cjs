@@ -302,6 +302,7 @@ function createInitialState() {
     socialBlocks: [],
     socialMoments: [],
     socialReports: [],
+    userSanctions: [],
     aiUsage: {
       deepseek: {
         cacheHitTokens: 0,
@@ -473,6 +474,7 @@ function loadState() {
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
       socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
+      userSanctions: Array.isArray(loadedState.userSanctions) ? loadedState.userSanctions : initialState.userSanctions,
     };
   } catch {
     return createInitialState();
@@ -1425,6 +1427,182 @@ function writeAdminAudit(admin, action, targetType, targetId, before, after, rea
   state.adminAuditLogs = state.adminAuditLogs.slice(0, 1000);
 }
 
+const SANCTION_TYPES = new Set(['warning', 'mute', 'freeze', 'ban']);
+const SANCTION_TYPE_LABELS = {
+  ban: '封禁',
+  freeze: '冻结',
+  mute: '禁言',
+  warning: '警告',
+};
+const SANCTION_DEFAULT_DURATION_HOURS = {
+  ban: 0,
+  freeze: 72,
+  mute: 24,
+  warning: 0,
+};
+
+function ensureUserSanctions() {
+  if (!Array.isArray(state.userSanctions)) state.userSanctions = [];
+  return state.userSanctions;
+}
+
+function normalizeSanctionType(value) {
+  const type = String(value || '').trim();
+  return SANCTION_TYPES.has(type) ? type : '';
+}
+
+function sanctionExpiresAtMs(sanction) {
+  if (!sanction?.expiresAt) return 0;
+  const expiresAtMs = new Date(sanction.expiresAt).getTime();
+  return Number.isFinite(expiresAtMs) ? expiresAtMs : 0;
+}
+
+function sanctionRuntimeStatus(sanction, now = Date.now()) {
+  if (!sanction) return 'unknown';
+  if (sanction.revokedAt) return 'revoked';
+  const expiresAtMs = sanctionExpiresAtMs(sanction);
+  if (expiresAtMs && expiresAtMs <= now) return 'expired';
+  return 'active';
+}
+
+function userSanctionsFor(phone) {
+  return ensureUserSanctions().filter((sanction) => sanction.phone === phone);
+}
+
+function activeUserSanctionsFor(phone, now = Date.now()) {
+  return userSanctionsFor(phone).filter((sanction) => sanctionRuntimeStatus(sanction, now) === 'active');
+}
+
+function activeUserSanctionOfType(phone, types, now = Date.now()) {
+  const typeSet = new Set(Array.isArray(types) ? types : [types]);
+  return activeUserSanctionsFor(phone, now).find((sanction) => typeSet.has(sanction.type)) || null;
+}
+
+function accountStatusFor(user) {
+  if (!user?.phone) return 'active';
+  if (activeUserSanctionOfType(user.phone, 'ban')) return 'banned';
+  if (activeUserSanctionOfType(user.phone, 'freeze')) return 'frozen';
+  if (activeUserSanctionOfType(user.phone, 'mute')) return 'muted';
+  return user.accountStatus && !['banned', 'frozen', 'muted'].includes(user.accountStatus) ? user.accountStatus : 'active';
+}
+
+function userSanctionSummary(phone) {
+  const active = activeUserSanctionsFor(phone);
+  const activeRestrictive = active.filter((sanction) => sanction.type !== 'warning');
+  const latest = userSanctionsFor(phone)
+    .slice()
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] || null;
+  return {
+    activeCount: active.length,
+    activeRestrictiveCount: activeRestrictive.length,
+    activeTypes: active.map((sanction) => sanction.type),
+    latest: latest ? adminSanctionItem(latest) : null,
+  };
+}
+
+function adminSanctionItem(sanction) {
+  const user = state.users?.[sanction.phone];
+  const pet = user ? selectedPetFor(user) : null;
+  return {
+    createdAt: sanction.createdAt,
+    createdBy: sanction.createdBy || '',
+    durationHours: Number(sanction.durationHours || 0),
+    expiresAt: sanction.expiresAt || '',
+    id: sanction.id,
+    ownerName: user?.ownerName || `用户${String(sanction.phone || '').slice(-4)}`,
+    petName: pet?.name || '',
+    phone: sanction.phone,
+    reason: sanction.reason || '',
+    revokedAt: sanction.revokedAt || '',
+    revokedBy: sanction.revokedBy || '',
+    revokeReason: sanction.revokeReason || '',
+    status: sanctionRuntimeStatus(sanction),
+    type: sanction.type,
+    typeLabel: SANCTION_TYPE_LABELS[sanction.type] || sanction.type,
+  };
+}
+
+function adminSanctions() {
+  return ensureUserSanctions()
+    .map(adminSanctionItem)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function parseSanctionDurationHours(type, value) {
+  if (value === '' || value === null || value === undefined) return SANCTION_DEFAULT_DURATION_HOURS[type] || 0;
+  const durationHours = Math.floor(Number(value));
+  if (!Number.isFinite(durationHours) || durationHours < 0 || durationHours > 24 * 365) return null;
+  return durationHours;
+}
+
+function createUserSanction(admin, phone, body = {}) {
+  const user = state.users?.[phone];
+  if (!user) return { error: '用户不存在', statusCode: 404 };
+  const type = normalizeSanctionType(body.type);
+  if (!type) return { error: '请选择正确的处罚类型', statusCode: 400 };
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '请填写处罚原因', statusCode: 400 };
+  const durationHours = parseSanctionDurationHours(type, body.durationHours);
+  if (durationHours === null) return { error: '处罚时长需为 0 到 8760 小时', statusCode: 400 };
+  const createdAt = new Date().toISOString();
+  const sanction = {
+    createdAt,
+    createdBy: admin?.username || 'admin',
+    durationHours,
+    expiresAt: durationHours > 0 ? new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString() : '',
+    id: `sanction-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    phone,
+    reason,
+    type,
+  };
+  ensureUserSanctions().unshift(sanction);
+  user.accountStatus = accountStatusFor(user);
+  return { sanction };
+}
+
+function revokeUserSanction(admin, phone, sanctionId, reason = '') {
+  const sanction = ensureUserSanctions().find((item) => item.id === sanctionId && item.phone === phone);
+  if (!sanction) return { error: '处罚记录不存在', statusCode: 404 };
+  if (sanction.revokedAt) return { sanction };
+  sanction.revokedAt = new Date().toISOString();
+  sanction.revokedBy = admin?.username || 'admin';
+  sanction.revokeReason = String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  const user = state.users?.[phone];
+  if (user) user.accountStatus = accountStatusFor(user);
+  return { sanction };
+}
+
+function accountWriteRestrictionFor(user) {
+  if (!user?.phone) return null;
+  return activeUserSanctionOfType(user.phone, ['ban', 'freeze']);
+}
+
+function mutedRestrictionFor(user) {
+  if (!user?.phone) return null;
+  return activeUserSanctionOfType(user.phone, 'mute');
+}
+
+function allowRestrictedWrite(pathname) {
+  return pathname === '/auth/token/refresh' || pathname === '/feedback' || pathname === '/notifications/read';
+}
+
+function failIfAccountRestricted(user, req, pathname, res) {
+  const sanction = accountWriteRestrictionFor(user);
+  if (!sanction || req.method === 'GET' || allowRestrictedWrite(pathname)) return false;
+  const label = SANCTION_TYPE_LABELS[sanction.type] || '限制';
+  const suffix = sanction.expiresAt ? `，解除时间：${sanction.expiresAt}` : '';
+  fail(res, 403, `账号已被${label}，暂时不能继续操作${suffix}。如有疑问，请通过反馈联系灵伴。`, false, { sanction: adminSanctionItem(sanction) }, 'ACCOUNT_RESTRICTED');
+  return true;
+}
+
+function failIfMuted(user, res, actionLabel) {
+  const sanction = mutedRestrictionFor(user);
+  if (!sanction) return false;
+  const suffix = sanction.expiresAt ? `，解除时间：${sanction.expiresAt}` : '';
+  fail(res, 403, `账号已被禁言，暂时不能${actionLabel}${suffix}。如有疑问，请通过反馈联系灵伴。`, false, { sanction: adminSanctionItem(sanction) }, 'ACCOUNT_MUTED');
+  return true;
+}
+
 function ensureUser(phone) {
   if (!state.users[phone]) {
     const suffix = phone.slice(-4);
@@ -2308,11 +2486,13 @@ function buildAccountSnapshot(user) {
   const permissions = normalizePermissionState(user.permissions);
   return {
     activePet: selectedPetFor(user),
+    accountStatus: accountStatusFor(user),
     ownerAvatarUrl: user.ownerAvatarUrl || '',
     ownerBio: user.ownerBio || '',
     ownerName: user.ownerName || `用户${user.phone.slice(-4)}`,
     permissions,
     permissionsOnboardingCompleted: Boolean(user.permissionsOnboardingCompleted || allPermissionsGranted(permissions)),
+    sanctions: userSanctionSummary(user.phone),
     settings: normalizeUserSettings(user.settings),
   };
 }
@@ -2339,6 +2519,7 @@ function requireUser(req, res) {
   user.settings = normalizeUserSettings(user.settings);
   user.favoritePlaceIds = normalizeFavoritePlaceIds(user.favoritePlaceIds);
   user.permissionsOnboardingCompleted = Boolean(user.permissionsOnboardingCompleted);
+  user.accountStatus = accountStatusFor(user);
   user.lastSeenAt = user.settings.nearbyVisible === false ? 0 : Date.now();
   saveState();
   return user;
@@ -5565,6 +5746,7 @@ function adminUserSummary(user) {
   const activePet = selectedPetFor(user);
   const socialPosts = ensureSocialMoments().filter((item) => item.phone === user.phone && item.status !== 'deleted');
   const reportsAgainstUser = ensureSocialReports().filter((report) => report.ownerPhone === user.phone);
+  const sanctionSummary = userSanctionSummary(user.phone);
   return {
     activePet,
     createdAt: user.createdAt,
@@ -5577,9 +5759,10 @@ function adminUserSummary(user) {
     pets,
     phone: user.phone,
     reportsAgainstCount: reportsAgainstUser.length,
+    sanctions: sanctionSummary,
     settings: normalizeUserSettings(user.settings),
     socialPostCount: socialPosts.length,
-    status: user.accountStatus || 'active',
+    status: accountStatusFor(user),
   };
 }
 
@@ -5623,6 +5806,7 @@ function adminDashboardSummary() {
     },
     users: {
       activeToday: users.filter((user) => Date.now() - Number(user.lastSeenAt || 0) < 24 * 60 * 60 * 1000).length,
+      activeSanctions: adminSanctions().filter((item) => item.status === 'active').length,
       total: users.length,
       withPets: users.filter((user) => (user.pets || []).length > 0).length,
     },
@@ -5843,6 +6027,59 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       notifications: normalizeNotificationsFor(phone),
       socialPosts: adminSocialPosts().filter((post) => post.ownerPhone === phone),
     });
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/sanctions') {
+    const q = String(url.searchParams.get('q') || '').trim();
+    const rows = adminSanctions().filter((item) =>
+      !q || item.phone.includes(q) || item.ownerName.includes(q) || item.reason.includes(q) || item.typeLabel.includes(q) || item.type.includes(q)
+    );
+    ok(res, rows.slice(0, 300));
+    return true;
+  }
+
+  const adminUserSanctionsMatch = pathname.match(/^\/admin\/users\/([^/]+)\/sanctions$/);
+  if (req.method === 'GET' && adminUserSanctionsMatch) {
+    const phone = normalizePhone(decodeURIComponent(adminUserSanctionsMatch[1]));
+    const user = phone ? state.users[phone] : null;
+    if (!user) {
+      fail(res, 404, '用户不存在', false, undefined, 'ADMIN_USER_NOT_FOUND');
+      return true;
+    }
+    ok(res, userSanctionsFor(phone).map(adminSanctionItem));
+    return true;
+  }
+
+  if (req.method === 'POST' && adminUserSanctionsMatch) {
+    const phone = normalizePhone(decodeURIComponent(adminUserSanctionsMatch[1]));
+    const before = phone && state.users[phone] ? adminUserSummary(state.users[phone]) : null;
+    const result = phone ? createUserSanction(admin, phone, body) : { error: '用户不存在', statusCode: 404 };
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SANCTION_INVALID');
+      return true;
+    }
+    const after = adminUserSummary(state.users[phone]);
+    writeAdminAudit(admin, 'user.sanction.create', 'user', phone, before, { ...after, sanction: adminSanctionItem(result.sanction) }, body.reason);
+    saveState();
+    ok(res, adminSanctionItem(result.sanction));
+    return true;
+  }
+
+  const adminUserSanctionRevokeMatch = pathname.match(/^\/admin\/users\/([^/]+)\/sanctions\/([^/]+)\/revoke$/);
+  if (req.method === 'POST' && adminUserSanctionRevokeMatch) {
+    const phone = normalizePhone(decodeURIComponent(adminUserSanctionRevokeMatch[1]));
+    const sanctionId = decodeURIComponent(adminUserSanctionRevokeMatch[2]);
+    const before = phone && state.users[phone] ? adminUserSummary(state.users[phone]) : null;
+    const result = phone ? revokeUserSanction(admin, phone, sanctionId, body.reason) : { error: '用户不存在', statusCode: 404 };
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SANCTION_NOT_FOUND');
+      return true;
+    }
+    const after = state.users[phone] ? adminUserSummary(state.users[phone]) : null;
+    writeAdminAudit(admin, 'user.sanction.revoke', 'user', phone, before, { ...after, sanction: adminSanctionItem(result.sanction) }, body.reason);
+    saveState();
+    ok(res, adminSanctionItem(result.sanction));
     return true;
   }
 
@@ -6359,6 +6596,7 @@ async function handle(req, res) {
 
   const user = requireUser(req, res);
   if (!user) return;
+  if (failIfAccountRestricted(user, req, pathname, res)) return;
 
   if (req.method === 'POST' && pathname === '/auth/token/refresh') {
     ok(res, { account: buildAccountSnapshot(user), phone: user.phone, token: createAuthToken(user.phone) });
@@ -7120,6 +7358,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'PATCH' && pathname === '/social/pet-circle/profile/cover') {
+    if (failIfMuted(user, res, '更换宠友圈封面')) return;
     const result = await updatePetCircleCover(req, user, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'PET_CIRCLE_COVER_INVALID');
@@ -7131,6 +7370,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && (pathname === '/social/moments' || pathname === '/social/pet-circle/posts')) {
+    if (failIfMuted(user, res, '发布小事')) return;
     const visibility = normalizeSocialVisibility(body.visibility);
     if (visibility === 'nearby' && user.settings?.nearbyVisible === false) {
       fail(res, 403, '请先开启附近可见后再分享小事', false, undefined, 'NEARBY_HIDDEN');
@@ -7200,6 +7440,7 @@ async function handle(req, res) {
 
   const petCircleLikeMatch = pathname.match(/^\/social\/pet-circle\/posts\/([^/]+)\/like$/);
   if ((req.method === 'POST' || req.method === 'DELETE') && petCircleLikeMatch) {
+    if (req.method === 'POST' && failIfMuted(user, res, '点赞互动')) return;
     const postId = decodeURIComponent(petCircleLikeMatch[1]);
     const result = req.method === 'POST' ? likeSocialMoment(postId, user) : unlikeSocialMoment(postId, user);
     if (result.error) {
@@ -7224,6 +7465,7 @@ async function handle(req, res) {
     return;
   }
   if (req.method === 'POST' && petCircleCommentsMatch) {
+    if (failIfMuted(user, res, '发表评论')) return;
     const postId = decodeURIComponent(petCircleCommentsMatch[1]);
     const result = createPetCircleComment(postId, user, body);
     if (result.error) {
@@ -7293,6 +7535,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/social/greetings') {
+    if (failIfMuted(user, res, '打招呼')) return;
     const ownerId = String(body.ownerId || '');
     const target = resolveVisibleSocialTarget(user, ownerId);
     if (!target) {
@@ -7416,6 +7659,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/social/walk-invites') {
+    if (failIfMuted(user, res, '发起约遛')) return;
     const ownerId = String(body.ownerId || '');
     const target = resolveVisibleSocialTarget(user, ownerId);
     if (!target) {
@@ -7520,6 +7764,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && conversationMessagesMatch) {
+    if (failIfMuted(user, res, '发送消息')) return;
     const conversationId = decodeURIComponent(conversationMessagesMatch[1]);
     const text = String(body.text || '').trim();
     if (!text) {
@@ -7758,6 +8003,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/places/submissions') {
+    if (failIfMuted(user, res, '提交地点')) return;
     const result = createPlaceSubmission(user, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false);
@@ -7770,6 +8016,7 @@ async function handle(req, res) {
 
   const reviewMatch = pathname.match(/^\/places\/([^/]+)\/reviews$/);
   if (req.method === 'POST' && reviewMatch) {
+    if (failIfMuted(user, res, '发布地点点评')) return;
     const placeId = decodeURIComponent(reviewMatch[1]);
     const review = createPlaceReview(user, placeId, body.content);
     if (review === null) {

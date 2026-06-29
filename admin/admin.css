@@ -300,7 +300,7 @@ textarea {
 }
 
 .grid.metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
 }
 
 .grid.two {
@@ -502,6 +502,12 @@ th {
   gap: 14px;
 }
 
+.form-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr);
+  gap: 14px;
+}
+
 .switch-row {
   display: flex;
   justify-content: space-between;
@@ -566,7 +572,8 @@ th {
 
   .grid.metrics,
   .grid.two,
-  .config-grid {
+  .config-grid,
+  .form-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -15,7 +15,7 @@ const navItems = [
   { key: 'feedback', label: '反馈工单' },
   { key: 'config', label: '配置中心' },
   { key: 'audit', label: '审计日志' },
-  { key: 'sanctions', label: '用户处罚', reserved: true },
+  { key: 'sanctions', label: '用户处罚' },
   { key: 'exports', label: '数据导出', reserved: true },
 ];
 
@@ -28,7 +28,7 @@ const titles = {
   feedback: ['反馈工单', '用户反馈和客服处理队列'],
   places: ['地图地点', '地点点评与新增地点审核'],
   reports: ['举报中心', '宠友圈举报处理闭环'],
-  sanctions: ['用户处罚', '禁言、冻结、封禁策略预留'],
+  sanctions: ['用户处罚', '禁言、冻结、封禁与撤销记录'],
   socialPosts: ['宠友圈', '动态与评论内容安全'],
   users: ['用户管理', '账号、宠物、设置和风险排查'],
 };
@@ -60,7 +60,7 @@ function statusPill(status) {
   const value = String(status || '-');
   const tone = /ready|approved|active|published|valid|closed|success|done/.test(value)
     ? 'ok'
-    : /failed|rejected|deleted|hidden|invalid|bad/.test(value)
+    : /failed|rejected|deleted|hidden|invalid|bad|ban|banned|freeze|frozen|muted|禁言|冻结|封禁/.test(value)
       ? 'bad'
       : 'warn';
   return `<span class="pill ${tone}">${escapeHtml(value)}</span>`;
@@ -180,9 +180,14 @@ async function onContentClick(event) {
   if (!button) return;
   const action = button.dataset.action;
   const id = button.dataset.id;
+  const phone = button.dataset.phone || '';
   const reason = button.dataset.reason || '运营后台处理';
   try {
     if (action === 'save-config') await saveConfig();
+    if (action === 'sanction-create') await createSanction();
+    if (action === 'sanction-revoke') await confirmPost(`/admin/users/${encodeURIComponent(phone)}/sanctions/${encodeURIComponent(id)}/revoke`, { reason }, '确认撤销这条处罚？');
+    if (action === 'quick-mute') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 24, reason: '用户列表快捷禁言', type: 'mute' });
+    if (action === 'quick-freeze') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 72, reason: '用户列表快捷冻结', type: 'freeze' });
     if (action === 'avatar-refresh') await post(`/admin/ai/avatar-jobs/${id}/refresh`, { reason });
     if (action === 'avatar-retry') await post(`/admin/ai/avatar-jobs/${id}/retry`, { reason });
     if (action === 'avatar-fail') await post(`/admin/ai/avatar-jobs/${id}/mark-failed`, { reason });
@@ -236,6 +241,7 @@ async function render(force = false) {
     feedback: renderFeedback,
     places: renderPlaces,
     reports: renderReports,
+    sanctions: renderSanctions,
     socialPosts: renderSocialPosts,
     users: renderUsers,
   };
@@ -263,6 +269,7 @@ async function renderDashboard(force) {
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('用户总数', data.users.total, `${data.users.withPets} 位已建档`, '来自当前后端 users 状态。')}
+      ${metric('生效处罚', data.users.activeSanctions || 0, '禁言/冻结/封禁/警告', '仍处于 active 状态的处罚记录，过期或撤销后不计入。')}
       ${metric('AI 处理中', data.ai.avatarProcessing, `${data.ai.avatarStuck} 个可能卡住`, '超过 5 分钟未更新会进入卡住计数。')}
       ${metric('待处理举报', data.content.pendingReports, `${data.content.posts} 条公开动态`, '当前举报状态为 pending 的记录。')}
       ${metric('地点待审', data.places.pendingReviews + data.places.pendingSubmissions, `${data.places.total} 个地点`, '地点点评与新增地点提交合计。')}
@@ -339,9 +346,76 @@ async function renderUsers(force) {
       ['宠物', (u) => `${u.activePet ? `<div class="cell-title">${escapeHtml(u.activePet.name)}</div><div class="cell-sub">${escapeHtml(u.activePet.species)} · ${escapeHtml(u.activePet.breed || '-')}</div>` : '-'}`],
       ['设置', (u) => `${statusPill(u.settings.nearbyVisible ? 'nearby on' : 'nearby off')} ${statusPill(u.settings.pushNotifications ? 'push on' : 'push off')}`],
       ['内容', (u) => `<div>${u.socialPostCount} 条小事</div><div class="cell-sub">${u.reportsAgainstCount} 次被举报</div>`],
+      ['账号状态', (u) => `${statusPill(u.status)}<div class="cell-sub">${(u.sanctions?.activeTypes || []).map((type) => statusPill(type)).join(' ') || '无生效处罚'}</div>`],
       ['最近活跃', (u) => formatTime(u.lastSeenAt)],
+      ['操作', (u) => `
+        <div class="actions">
+          <button class="small-button" data-action="quick-mute" data-phone="${escapeHtml(u.phone)}">禁言24h</button>
+          <button class="small-button danger" data-action="quick-freeze" data-phone="${escapeHtml(u.phone)}">冻结72h</button>
+        </div>
+      `],
     ],
   });
+}
+
+async function renderSanctions(force) {
+  const rows = await load('sanctions', '/admin/sanctions', force);
+  $('content').innerHTML = `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>创建处罚</h2>
+          <div class="section-sub">禁言影响发布、评论、私信、约遛和地点投稿；冻结/封禁会拦截大多数写操作，反馈入口保留</div>
+        </div>
+        ${help('时长填 0 表示长期有效。警告只记录风险，不限制移动端操作；禁言/冻结/封禁会实时影响后端接口。')}
+      </div>
+      <div class="form-grid">
+        <label>用户手机号<input id="sanctionPhone" placeholder="例如 13531850966" inputmode="numeric" /></label>
+        <label>处罚类型
+          <select id="sanctionType">
+            <option value="mute">禁言</option>
+            <option value="freeze">冻结</option>
+            <option value="ban">封禁</option>
+            <option value="warning">警告</option>
+          </select>
+        </label>
+        <label>时长（小时）<input id="sanctionDurationHours" type="number" min="0" max="8760" value="24" /></label>
+      </div>
+      <label>处罚原因<textarea id="sanctionReason" placeholder="写清楚依据，例如：多次发布广告评论，经举报核实"></textarea></label>
+      <button class="primary-button" data-action="sanction-create">创建处罚</button>
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>处罚流水</h2>
+          <div class="section-sub">展示最新 300 条处罚、过期、撤销记录</div>
+        </div>
+        ${help('状态 active 表示仍生效；expired 表示已过期；revoked 表示运营手动撤销。')}
+      </div>
+      ${tableHtml(rows, [
+        ['用户', (r) => `<div class="cell-title">${escapeHtml(r.ownerName)}</div><div class="cell-sub">${shortPhone(r.phone)} ${r.petName ? `· ${escapeHtml(r.petName)}` : ''}</div>`],
+        ['处罚', (r) => `<div>${statusPill(r.typeLabel)}</div><div class="cell-sub">${escapeHtml(r.reason || '-')}</div>`],
+        ['状态', (r) => `${statusPill(r.status)}<div class="cell-sub">${r.expiresAt ? `到期：${formatTime(r.expiresAt)}` : '长期或仅记录'}</div>`],
+        ['创建', (r) => `<div>${formatTime(r.createdAt)}</div><div class="cell-sub">${escapeHtml(r.createdBy || '-')}</div>`],
+        ['撤销', (r) => r.revokedAt ? `<div>${formatTime(r.revokedAt)}</div><div class="cell-sub">${escapeHtml(r.revokeReason || '-')}</div>` : '-'],
+        ['操作', (r) => r.status === 'active' ? `<button class="small-button" data-action="sanction-revoke" data-id="${escapeHtml(r.id)}" data-phone="${escapeHtml(r.phone)}" data-reason="运营后台撤销处罚">撤销</button>` : '-'],
+      ], '暂无处罚记录')}
+    </div>
+  `;
+}
+
+async function createSanction() {
+  const phone = $('sanctionPhone').value.replace(/\D/g, '');
+  const type = $('sanctionType').value;
+  const durationHours = Number($('sanctionDurationHours').value);
+  const reason = $('sanctionReason').value.trim();
+  if (!phone || !reason) {
+    throw new Error('请填写手机号和处罚原因');
+  }
+  await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours, reason, type });
+  state.cache.sanctions = null;
+  state.cache.summary = null;
+  state.cache.users = null;
 }
 
 async function renderAvatarJobs(force) {

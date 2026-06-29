@@ -21,13 +21,30 @@ export type AuthSession = {
   token: string;
 };
 
+export type AccountSanctionSnapshot = {
+  activeCount: number;
+  activeRestrictiveCount: number;
+  activeTypes: string[];
+  latest?: {
+    createdAt?: string;
+    expiresAt?: string;
+    id: string;
+    reason?: string;
+    status?: string;
+    type: string;
+    typeLabel?: string;
+  } | null;
+};
+
 export type AccountSnapshot = {
   activePet: PetProfile | null;
+  accountStatus?: 'active' | 'banned' | 'frozen' | 'muted' | string;
   ownerAvatarUrl?: string;
   ownerBio?: string;
   ownerName?: string;
   permissions: PermissionStateMap;
   permissionsOnboardingCompleted: boolean;
+  sanctions?: AccountSanctionSnapshot;
   settings: UserSettings;
 };
 
