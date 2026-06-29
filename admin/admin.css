@@ -500,6 +500,23 @@ th {
   gap: 12px;
 }
 
+.moderation-check-row {
+  align-items: center;
+  color: var(--muted);
+  display: inline-flex;
+  flex-direction: row;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 6px;
+  margin: 0 0 5px;
+  min-width: auto;
+}
+
+.moderation-check-row input {
+  accent-color: var(--orange);
+  width: auto;
+}
+
 .moderation-status {
   flex: none;
 }
@@ -539,6 +556,21 @@ th {
 .risk-badge {
   color: var(--amber);
   background: rgba(201, 150, 55, 0.1);
+}
+
+.sla-badge.overdue {
+  color: var(--red);
+  background: rgba(220, 96, 78, 0.12);
+}
+
+.sla-badge.soon {
+  color: var(--orange);
+  background: rgba(255, 127, 79, 0.12);
+}
+
+.sla-badge.done {
+  color: var(--teal);
+  background: rgba(72, 182, 168, 0.12);
 }
 
 .moderation-actions {

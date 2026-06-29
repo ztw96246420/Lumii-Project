@@ -338,6 +338,7 @@ function createInitialState() {
     socialLikes: [],
     socialBlocks: [],
     socialMoments: [],
+    moderationTaskMeta: {},
     moderationSamples: [],
     socialReports: [],
     sanctionAppeals: [],
@@ -7341,6 +7342,73 @@ function adminReason(body = {}, fallback = '运营后台处理') {
   return String(body.reason || fallback).replace(/\s+/g, ' ').trim().slice(0, 240);
 }
 
+function ensureModerationTaskMeta() {
+  if (!state.moderationTaskMeta || typeof state.moderationTaskMeta !== 'object' || Array.isArray(state.moderationTaskMeta)) {
+    state.moderationTaskMeta = {};
+  }
+  return state.moderationTaskMeta;
+}
+
+function moderationTaskMeta(taskId) {
+  const meta = ensureModerationTaskMeta();
+  meta[taskId] = meta[taskId] && typeof meta[taskId] === 'object' && !Array.isArray(meta[taskId]) ? meta[taskId] : {};
+  return meta[taskId];
+}
+
+function moderationSlaHours(kind, riskScore = 0) {
+  const score = Number(riskScore || 0);
+  if (score >= 90) return 4;
+  if (score >= 80) return 8;
+  if (kind === 'place_submission') return 72;
+  if (kind === 'place_review') return 48;
+  if (kind === 'report') return 24;
+  return 12;
+}
+
+function moderationSlaSnapshot(task) {
+  const createdAtMs = new Date(task.createdAt || Date.now()).getTime();
+  const hours = moderationSlaHours(task.kind, task.riskScore);
+  const dueAtMs = Number.isFinite(createdAtMs) ? createdAtMs + hours * 60 * 60 * 1000 : Date.now() + hours * 60 * 60 * 1000;
+  const remainingMinutes = Math.ceil((dueAtMs - Date.now()) / 60000);
+  const terminal = !['pending', 'reviewing', 'escalated'].includes(task.status);
+  return {
+    dueAt: new Date(dueAtMs).toISOString(),
+    hours,
+    remainingMinutes,
+    status: terminal ? 'done' : remainingMinutes < 0 ? 'overdue' : remainingMinutes <= 120 ? 'due_soon' : 'active',
+  };
+}
+
+function markModerationTaskMeta(taskId, admin, action, reason = '') {
+  const meta = moderationTaskMeta(taskId);
+  const now = new Date().toISOString();
+  meta.lastAction = action;
+  meta.lastReason = String(reason || '').slice(0, 240);
+  meta.updatedAt = now;
+  if (action === 'reviewing' || action === 'assign') {
+    meta.assignee = admin?.username || 'admin';
+    meta.assignedAt = now;
+    meta.assignedBy = admin?.username || 'admin';
+  }
+  if (!['assign', 'reviewing', 'escalate'].includes(action)) {
+    meta.completedAt = now;
+    meta.completedBy = admin?.username || 'admin';
+  }
+  return meta;
+}
+
+function assignModerationTaskMeta(taskId, admin, assignee, reason = '') {
+  const meta = moderationTaskMeta(taskId);
+  const now = new Date().toISOString();
+  meta.assignee = String(assignee || admin?.username || 'admin').trim().slice(0, 40) || 'admin';
+  meta.assignedAt = now;
+  meta.assignedBy = admin?.username || 'admin';
+  meta.lastAction = 'assign';
+  meta.lastReason = String(reason || '').slice(0, 240);
+  meta.updatedAt = now;
+  return meta;
+}
+
 function moderationTaskStatus(rawStatus) {
   const status = String(rawStatus || 'pending');
   if (status === 'pending_review') return 'pending';
@@ -7460,6 +7528,14 @@ function buildModerationTask(input) {
     title: input.title || input.kindLabel,
     updatedAt: input.updatedAt || input.createdAt || new Date().toISOString(),
   };
+  const meta = ensureModerationTaskMeta()[task.id] || {};
+  task.assignee = meta.assignee || '';
+  task.assignedAt = meta.assignedAt || '';
+  task.completedAt = meta.completedAt || '';
+  task.completedBy = meta.completedBy || '';
+  task.lastAction = meta.lastAction || '';
+  task.lastReason = meta.lastReason || '';
+  task.sla = moderationSlaSnapshot(task);
   task.priority = moderationTaskPriority(task.status, task.riskScore);
   task.actions = moderationTaskActions(task);
   return task;
@@ -7602,8 +7678,10 @@ function adminModerationTasks(options = {}) {
     samples: samples.slice(0, 12),
     summary: {
       all: allTasks.length,
+      assigned: allTasks.filter((task) => task.assignee).length,
       escalated: allTasks.filter((task) => task.status === 'escalated').length,
       handled: allTasks.filter((task) => !['pending', 'reviewing', 'escalated'].includes(task.status)).length,
+      overdue: allTasks.filter((task) => task.sla?.status === 'overdue').length,
       pending: allTasks.filter((task) => ['pending', 'reviewing', 'escalated'].includes(task.status)).length,
       places: allTasks.filter((task) => task.kind === 'place_review' || task.kind === 'place_submission').length,
       reports: allTasks.filter((task) => task.kind === 'report').length,
@@ -7620,9 +7698,52 @@ function splitModerationTaskId(taskId) {
   return { id: taskId.slice(index + 1), kind: taskId.slice(0, index) };
 }
 
+function findAdminModerationTask(taskId) {
+  return adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) || null;
+}
+
+function adminAssignModerationTask(admin, taskId, body = {}) {
+  const task = findAdminModerationTask(taskId);
+  if (!task) return { error: 'Moderation task not found', statusCode: 404 };
+  const reason = adminReason(body, 'Assign moderation task');
+  const assignee = String(body.assignee || admin.username || 'admin').replace(/\s+/g, ' ').trim().slice(0, 40) || 'admin';
+  const before = { ...(ensureModerationTaskMeta()[taskId] || {}) };
+  const meta = assignModerationTaskMeta(taskId, admin, assignee, reason);
+  writeAdminAudit(admin, 'moderation.task.assign', 'moderation_task', taskId, before, meta, reason);
+  return { task: findAdminModerationTask(taskId) };
+}
+
+function adminHandleModerationTaskBatch(admin, body = {}) {
+  const rawTaskIds = Array.isArray(body.taskIds) ? body.taskIds : [];
+  const taskIds = Array.from(new Set(rawTaskIds.map((item) => String(item || '').trim()).filter(Boolean))).slice(0, 50);
+  const action = String(body.action || '').trim();
+  if (!taskIds.length) return { error: 'No moderation tasks selected', statusCode: 400 };
+  if (!action) return { error: 'No moderation batch action selected', statusCode: 400 };
+  const reason = adminReason(body, `Batch moderation ${action}`);
+  const results = [];
+  for (const taskId of taskIds) {
+    const result = action === 'assign'
+      ? adminAssignModerationTask(admin, taskId, { assignee: body.assignee || admin.username, reason })
+      : adminHandleModerationTaskAction(admin, taskId, action, { reason });
+    results.push({
+      error: result.error || '',
+      id: taskId,
+      ok: !result.error,
+      statusCode: result.statusCode || 200,
+    });
+  }
+  return {
+    action,
+    errorCount: results.filter((item) => !item.ok).length,
+    results,
+    successCount: results.filter((item) => item.ok).length,
+    total: results.length,
+  };
+}
+
 function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
   const { kind, id } = splitModerationTaskId(taskId);
-  const reason = adminReason(body, `审核任务 ${action}`);
+  const reason = adminReason(body, `Moderation task ${action}`);
   const now = new Date().toISOString();
   if (kind === 'report') {
     const report = ensureSocialReports().find((item) => item.id === id);
@@ -7665,6 +7786,7 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     report.reviewedAt = now;
     report.reviewedBy = admin.username;
     report.reviewReason = reason;
+    markModerationTaskMeta(taskId, admin, action, reason);
     notifySocialReportResolution(report, action, reason);
     writeAdminAudit(admin, 'moderation.report.resolve', 'social_report', report.id, beforeReport, report, reason);
     return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
@@ -7687,6 +7809,7 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     } else return { error: '不支持的动态处理动作', statusCode: 400 };
     post.updatedAt = now;
     post.adminModerationReason = reason;
+    markModerationTaskMeta(taskId, admin, action, reason);
     writeAdminAudit(admin, `moderation.post.${action}`, 'pet_circle_post', id, before, post, reason);
     return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
   }
@@ -7702,6 +7825,7 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
       comment.deletedAt = now;
     } else return { error: '不支持的评论处理动作', statusCode: 400 };
     comment.adminModerationReason = reason;
+    markModerationTaskMeta(taskId, admin, action, reason);
     writeAdminAudit(admin, `moderation.comment.${action}`, 'pet_circle_comment', id, before, comment, reason);
     return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
   }
@@ -7714,6 +7838,7 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     found.review.reviewedAt = now;
     found.review.reviewedBy = admin.username;
     found.review.reviewReason = reason;
+    markModerationTaskMeta(taskId, admin, action, reason);
     notifyPlaceReviewModeration(found.phone, found.review, action, reason);
     writeAdminAudit(admin, `moderation.placeReview.${action}`, 'place_review', id, before, found.review, reason);
     return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
@@ -7744,6 +7869,7 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
       state.places = [place, ...(state.places || [])];
       found.submission.approvedPlaceId = place.id;
     }
+    markModerationTaskMeta(taskId, admin, action, reason);
     notifyPlaceSubmissionModeration(found.phone, found.submission, action, reason);
     writeAdminAudit(admin, `moderation.placeSubmission.${action}`, 'place_submission', id, before, found.submission, reason);
     return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
@@ -7909,6 +8035,30 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       q: url.searchParams.get('q') || '',
       status: url.searchParams.get('status') || 'pending',
     }));
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/moderation/tasks/batch') {
+    const result = adminHandleModerationTaskBatch(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_MODERATION_BATCH_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminModerationTaskAssignMatch = pathname.match(/^\/admin\/moderation\/tasks\/([^/]+)\/assign$/);
+  if (req.method === 'POST' && adminModerationTaskAssignMatch) {
+    const taskId = decodeURIComponent(adminModerationTaskAssignMatch[1]);
+    const result = adminAssignModerationTask(admin, taskId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_MODERATION_ASSIGN_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.task || null);
     return true;
   }
 

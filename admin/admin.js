@@ -218,6 +218,14 @@ async function onContentClick(event) {
       const handled = await handleModerationTaskAction(button);
       if (!handled) return;
     }
+    if (action === 'moderation-task-assign') {
+      const handled = await assignModerationTask(button);
+      if (!handled) return;
+    }
+    if (action === 'moderation-batch') {
+      const handled = await handleModerationBatch();
+      if (!handled) return;
+    }
     if (action === 'ticket-filter') {
       state.ticketStatus = $('ticketStatus').value;
       state.ticketPriority = $('ticketPriority').value;
@@ -305,6 +313,37 @@ async function handleModerationTaskAction(button) {
   await post(`/admin/moderation/tasks/${encodeURIComponent(taskId)}/${encodeURIComponent(op)}`, {
     reason: reason.trim() || `${label}：${title}`,
   });
+  return true;
+}
+
+async function assignModerationTask(button) {
+  const taskId = button.dataset.id;
+  const title = button.dataset.title || '审核任务';
+  const assignee = window.prompt(`认领给谁？`, state.admin?.username || 'admin');
+  if (assignee === null) return false;
+  await post(`/admin/moderation/tasks/${encodeURIComponent(taskId)}/assign`, {
+    assignee: assignee.trim() || state.admin?.username || 'admin',
+    reason: `认领：${title}`,
+  });
+  return true;
+}
+
+async function handleModerationBatch() {
+  const taskIds = Array.from(document.querySelectorAll('.moderation-batch-check:checked')).map((item) => item.value).filter(Boolean);
+  if (!taskIds.length) {
+    showToast('请先勾选要批量处理的任务');
+    return false;
+  }
+  const action = $('moderationBulkAction')?.value || 'assign';
+  const reason = window.prompt(`批量处理 ${taskIds.length} 个任务`, `批量 ${action}`);
+  if (reason === null) return false;
+  const result = await post('/admin/moderation/tasks/batch', {
+    action,
+    assignee: state.admin?.username || 'admin',
+    reason: reason.trim() || `批量 ${action}`,
+    taskIds,
+  });
+  showToast(`批量完成：成功 ${result.successCount || 0}，失败 ${result.errorCount || 0}`);
   return true;
 }
 
@@ -565,6 +604,7 @@ async function renderModeration(force) {
       ${metric('社交内容', summary.social || 0, '动态/评论聚合', '被举报内容会聚合为内容级任务，便于一次隐藏或删除。')}
       ${metric('地点审核', summary.places || 0, '点评/新增地点', '地点点评和新增地点共用这套审核视角。')}
       ${metric('规则命中', summary.ruleHits || 0, '关键词样本', '来自配置中心内容安全规则的命中样本，用于后续调规则和接模型。')}
+      ${metric('SLA 超时', summary.overdue || 0, `${summary.assigned || 0} 已认领`, 'SLA 由任务类型和风险分自动计算，高风险任务会更短。')}
     </div>
     <div class="card">
       <div class="section-head">
@@ -590,6 +630,15 @@ async function renderModeration(force) {
           </label>
         </div>
         <div class="actions">
+          <select id="moderationBulkAction">
+            <option value="assign">批量认领</option>
+            <option value="reviewing">批量接手</option>
+            <option value="invalid">举报无效</option>
+            <option value="hide">隐藏/有效隐藏</option>
+            <option value="approve">通过</option>
+            <option value="reject">驳回</option>
+          </select>
+          <button class="small-button" data-action="moderation-batch">批量处理选中</button>
           <button class="small-button" data-action="moderation-filter">应用</button>
           <button class="small-button" data-action="moderation-clear">重置</button>
         </div>
@@ -617,6 +666,23 @@ function riskBadge(label) {
   return `<span class="risk-badge">${escapeHtml(label)}</span>`;
 }
 
+function moderationSlaBadge(task) {
+  const sla = task.sla || {};
+  if (!sla.status) return '';
+  const status = sla.status;
+  const className = status === 'overdue' ? 'overdue' : status === 'due_soon' ? 'soon' : status === 'done' ? 'done' : '';
+  let label = 'SLA 正常';
+  if (status === 'overdue') label = `SLA 超时 ${Math.abs(sla.remainingMinutes || 0)} 分钟`;
+  else if (status === 'due_soon') label = `SLA 临近 ${Math.max(0, sla.remainingMinutes || 0)} 分钟`;
+  else if (status === 'done') label = 'SLA 已完成';
+  else if (sla.hours) label = `${sla.hours}h SLA`;
+  return `<span class="risk-badge sla-badge ${className}">${escapeHtml(label)}</span>`;
+}
+
+function moderationAssigneeText(task) {
+  return task.assignee ? `负责人：${escapeHtml(task.assignee)}` : '负责人：未认领';
+}
+
 function renderModerationTaskCard(task) {
   const riskTypes = (task.riskTypes || []).map(riskBadge).join('') || riskBadge('待人工判断');
   const actions = (task.actions || []).map((item) => `
@@ -629,11 +695,23 @@ function renderModerationTaskCard(task) {
       data-title="${escapeHtml(task.title)}"
     >${escapeHtml(item.label)}</button>
   `).join('');
+  const assignAction = `
+    <button
+      class="small-button"
+      data-action="moderation-task-assign"
+      data-id="${escapeHtml(task.id)}"
+      data-title="${escapeHtml(task.title)}"
+    >认领</button>
+  `;
   return `
     <article class="moderation-card">
       <div class="moderation-card-main">
         <div class="moderation-title-row">
           <div>
+            <label class="moderation-check-row">
+              <input class="moderation-batch-check" type="checkbox" value="${escapeHtml(task.id)}" />
+              <span>批量</span>
+            </label>
             <div class="cell-title">${escapeHtml(task.title)}</div>
             <div class="cell-sub">${escapeHtml(task.kindLabel)} · ${escapeHtml(task.sourceLabel)} · ${escapeHtml(task.id)}</div>
           </div>
@@ -644,15 +722,19 @@ function renderModerationTaskCard(task) {
           <span>对象：${escapeHtml(task.targetLabel || task.targetType)} ${task.targetStatus ? `· ${escapeHtml(task.targetStatus)}` : ''}</span>
           <span>作者：${escapeHtml(task.ownerName || '-')} ${shortPhone(task.ownerPhone)}</span>
           ${task.reporterPhone ? `<span>举报人：${escapeHtml(task.reporterName || '-')} ${shortPhone(task.reporterPhone)}</span>` : ''}
+          <span>${moderationAssigneeText(task)}</span>
+          ${task.sla?.dueAt ? `<span>SLA：${formatTime(task.sla.dueAt)}</span>` : ''}
           <span>时间：${formatTime(task.createdAt)}</span>
         </div>
         <div class="risk-row">
           <span class="risk-score">风险 ${task.riskScore || 0}</span>
+          ${moderationSlaBadge(task)}
           ${riskTypes}
           ${task.relatedCount ? `<span class="risk-badge">${task.relatedCount} 条关联</span>` : ''}
         </div>
       </div>
       <div class="moderation-actions">
+        ${assignAction}
         ${actions || '<span class="muted">无可用动作</span>'}
       </div>
     </article>
