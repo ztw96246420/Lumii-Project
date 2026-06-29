@@ -19,6 +19,7 @@ const navItems = [
   { key: 'reports', label: '举报中心' },
   { key: 'places', label: '地图地点' },
   { key: 'tickets', label: '工单中心' },
+  { key: 'notifications', label: '通知运营' },
   { key: 'config', label: '配置中心' },
   { key: 'audit', label: '审计日志' },
   { key: 'sanctions', label: '用户处罚' },
@@ -32,6 +33,7 @@ const titles = {
   dashboard: ['总览', '运营工作台'],
   exports: ['数据导出', '需要审批的生产能力'],
   moderation: ['内容安全', '举报、动态、评论和地点审核任务池'],
+  notifications: ['通知运营', '系统通知、定向触达和移动端通知中心联动'],
   places: ['地图地点', '地点点评与新增地点审核'],
   reports: ['举报中心', '宠友圈举报处理闭环'],
   sanctions: ['用户处罚', '禁言、冻结、封禁与撤销记录'],
@@ -228,6 +230,7 @@ async function onContentClick(event) {
     if (action === 'ticket-status') await saveTicketStatus(id);
     if (action === 'ticket-note') await addTicketNote(id);
     if (action === 'ticket-reply') await replyTicket(id);
+    if (action === 'send-notification') await sendSystemNotification();
     if (action === 'save-config') await saveConfig();
     if (action === 'sanction-create') await createSanction();
     if (action === 'sanction-revoke') await confirmPost(`/admin/users/${encodeURIComponent(phone)}/sanctions/${encodeURIComponent(id)}/revoke`, { reason }, '确认撤销这条处罚？');
@@ -273,7 +276,7 @@ async function handleModerationTaskAction(button) {
 }
 
 function clearOperationalCaches() {
-  ['audit', 'feedback', 'moderation', 'placeReviews', 'placeSubmissions', 'reports', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'tickets', 'users'].forEach((key) => {
+  ['audit', 'feedback', 'moderation', 'notifications', 'placeReviews', 'placeSubmissions', 'reports', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -306,6 +309,26 @@ async function replyTicket(id) {
   await post(`/admin/tickets/${encodeURIComponent(id)}/reply`, { content, notifyUser, reason: '客服回复用户' });
 }
 
+async function sendSystemNotification() {
+  const title = valueOf('notifyTitle');
+  const text = valueOf('notifyText');
+  if (!title) throw new Error('请填写通知标题');
+  if (!text) throw new Error('请填写通知内容');
+  const target = valueOf('notifyTarget') || 'phones';
+  const phones = valueOf('notifyPhones');
+  if (target === 'phones' && !phones) throw new Error('请填写目标手机号');
+  await post('/admin/notifications/system', {
+    actionRoute: valueOf('notifyActionRoute'),
+    phones,
+    reason: '发送系统通知',
+    respectUserSettings: Boolean($('notifyRespectSettings')?.checked),
+    target,
+    text,
+    title,
+  });
+  state.cache.notifications = null;
+}
+
 async function post(path, body) {
   return api(path, { body: JSON.stringify(body), method: 'POST' });
 }
@@ -331,6 +354,7 @@ async function render(force = false) {
     config: renderConfig,
     dashboard: renderDashboard,
     moderation: renderModeration,
+    notifications: renderNotifications,
     places: renderPlaces,
     reports: renderReports,
     sanctions: renderSanctions,
@@ -366,6 +390,7 @@ async function renderDashboard(force) {
       ${metric('AI 处理中', data.ai.avatarProcessing, `${data.ai.avatarStuck} 个可能卡住`, '超过 5 分钟未更新会进入卡住计数。')}
       ${metric('审核任务', data.moderation?.pending ?? data.content.pendingReports, `${data.moderation?.escalated || 0} 个升级`, '统一内容安全任务池：举报、被举报动态/评论、地点点评和新增地点。')}
       ${metric('地点待审', data.places.pendingReviews + data.places.pendingSubmissions, `${data.places.total} 个地点`, '地点点评与新增地点提交合计。')}
+      ${metric('通知触达', data.notifications?.campaigns || 0, `${data.notifications?.devices || 0} 台设备`, '后台系统通知发送批次和当前注册推送设备数。')}
     </div>
     <div class="grid two">
       <div class="card">
@@ -916,6 +941,153 @@ function renderTicketCard(ticket) {
         <button class="small-button" data-action="ticket-reply" data-id="${escapeHtml(ticket.id)}">发送回复</button>
       </div>
     </article>
+  `;
+}
+
+function notificationTargetLabel(value) {
+  return {
+    active_today: '今日活跃用户',
+    all: '全部用户',
+    phones: '指定手机号',
+  }[value] || value || '-';
+}
+
+function notificationActionLabel(value) {
+  return {
+    discover: '发现',
+    home: '首页',
+    map: '地图',
+    notifications: '通知中心',
+    profile: '我的',
+    settings: '设置',
+  }[value] || '无跳转';
+}
+
+function renderNotificationCampaign(campaign) {
+  const failed = (campaign.failedPhones || []).slice(0, 5).map(shortPhone).join('、');
+  const phones = (campaign.targetPhones || []).slice(0, 6).map(shortPhone).join('、');
+  return `
+    <article class="notification-campaign">
+      <div class="notification-campaign-main">
+        <div class="ticket-head">
+          <div>
+            <div class="cell-title">${escapeHtml(campaign.title)}</div>
+            <div class="cell-sub">${escapeHtml(campaign.id)} · ${formatTime(campaign.createdAt)}</div>
+          </div>
+          <div class="ticket-status-row">
+            ${statusPill(campaign.status)}
+            ${statusPill(notificationTargetLabel(campaign.target))}
+          </div>
+        </div>
+        <div class="ticket-content">${escapeHtml(campaign.text)}</div>
+        <div class="moderation-meta">
+          <span>发送人：${escapeHtml(campaign.createdBy || '-')}</span>
+          <span>目标：${campaign.audienceCount || 0}</span>
+          <span>送达：${campaign.deliveredCount || 0}</span>
+          <span>跳转：${escapeHtml(notificationActionLabel(campaign.actionRoute))}</span>
+          <span>${campaign.respectUserSettings ? '尊重用户通知开关' : '重要通知强制入站'}</span>
+        </div>
+        <div class="risk-row">
+          <span class="risk-badge">跳过 ${campaign.skippedCount || 0}</span>
+          ${phones ? `<span class="risk-badge">样本 ${escapeHtml(phones)}</span>` : ''}
+          ${failed ? `<span class="risk-badge">未入站 ${escapeHtml(failed)}</span>` : ''}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+async function renderNotifications(force) {
+  const data = await load('notifications', '/admin/notifications', force);
+  const summary = data.summary || {};
+  const campaigns = data.campaigns || [];
+  const devices = data.devices || [];
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('发送批次', summary.campaigns || 0, '系统通知历史', '每次后台发送系统通知都会形成一条发送记录，并写入审计日志。')}
+      ${metric('用户总数', summary.users || 0, `${summary.activeToday || 0} 今日活跃`, '“今日活跃用户”目标按 lastSeenAt 近 24 小时计算。')}
+      ${metric('推送设备', summary.devices || 0, '已登记 token', '当前只是设备登记和站内通知记录；真实厂商推送服务后续可接入。')}
+    </div>
+
+    <div class="grid two notification-workspace">
+      <div class="card notification-compose">
+        <div class="section-head">
+          <div>
+            <h2>发送系统通知</h2>
+            <div class="section-sub">发送后会写入用户 App 通知中心；重要通知可不受用户通知开关影响</div>
+          </div>
+          ${help('建议只把产品公告、维护提醒、安全提醒放在这里。营销类消息默认尊重用户通知开关。')}
+        </div>
+        <div class="notification-form">
+          <label>通知标题<input id="notifyTitle" maxlength="48" placeholder="例如：今晚 23:30 服务维护" /></label>
+          <label>通知内容<textarea id="notifyText" maxlength="240" placeholder="用用户能直接理解的话说明发生了什么、影响什么、是否需要操作。"></textarea></label>
+          <div class="notification-form-row">
+            <label>目标范围
+              <select id="notifyTarget">
+                <option value="all">全部用户</option>
+                <option value="active_today">今日活跃用户</option>
+                <option value="phones">指定手机号</option>
+              </select>
+            </label>
+            <label>点击跳转
+              <select id="notifyActionRoute">
+                <option value="">无跳转</option>
+                <option value="home">首页</option>
+                <option value="discover">发现</option>
+                <option value="map">地图</option>
+                <option value="profile">我的</option>
+                <option value="settings">设置</option>
+                <option value="notifications">通知中心</option>
+              </select>
+            </label>
+          </div>
+          <label>指定手机号<textarea id="notifyPhones" placeholder="多个手机号可用换行、逗号或空格分隔；目标范围不是“指定手机号”时可留空。"></textarea></label>
+          <label class="inline-check notification-check"><input id="notifyRespectSettings" type="checkbox" checked /> 尊重用户通知开关</label>
+          <button class="primary-button" data-action="send-notification">发送通知</button>
+        </div>
+      </div>
+
+      <div class="card notification-guide">
+        <div class="section-head">
+          <div>
+            <h2>发送前检查</h2>
+            <div class="section-sub">这不是短信，也不是厂商 Push 的最终接入；当前先落 App 通知中心</div>
+          </div>
+        </div>
+        <div class="notification-rules">
+          <div><strong>全部用户</strong><span>适合维护、停服、重要版本提醒。</span></div>
+          <div><strong>今日活跃</strong><span>适合短时运营提醒，减少打扰沉默用户。</span></div>
+          <div><strong>指定手机号</strong><span>适合客服、灰度验证、单用户补偿通知。</span></div>
+          <div><strong>强制入站</strong><span>仅用于安全、封禁、维护等必须告知的信息。</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid two notification-workspace">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>发送历史</h2>
+            <div class="section-sub">最近 200 条系统通知发送记录</div>
+          </div>
+        </div>
+        ${campaigns.length ? `<div class="notification-history">${campaigns.map(renderNotificationCampaign).join('')}</div>` : '<div class="placeholder"><div><strong>暂无系统通知</strong><div>发送后会在这里看到批次、目标和送达统计。</div></div></div>'}
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>最近设备</h2>
+            <div class="section-sub">用于后续接入厂商 Push 的设备 token 概览</div>
+          </div>
+        </div>
+        ${devices.length ? tableHtml(devices.slice(0, 8), [
+          ['用户', (d) => `<div>${escapeHtml(d.ownerName || '-')}</div><div class="cell-sub">${shortPhone(d.phone)}</div>`],
+          ['平台', (d) => statusPill(d.platform)],
+          ['Token', (d) => `<span class="cell-sub">...${escapeHtml(d.tokenTail || '-')}</span>`],
+          ['更新', (d) => formatTime(d.updatedAt)],
+        ]) : '<div class="placeholder"><div><strong>暂无设备</strong><div>用户授权通知后，App 会登记设备 token。</div></div></div>'}
+      </div>
+    </div>
   `;
 }
 

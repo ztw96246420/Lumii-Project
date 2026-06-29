@@ -652,6 +652,76 @@ th {
   height: 16px;
 }
 
+.notification-workspace {
+  align-items: start;
+}
+
+.notification-compose,
+.notification-guide {
+  min-height: 100%;
+}
+
+.notification-form,
+.notification-rules,
+.notification-history {
+  display: grid;
+  gap: 12px;
+}
+
+.notification-form label {
+  margin: 0;
+}
+
+.notification-form textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.notification-form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.notification-check {
+  background: rgba(72, 182, 168, 0.08);
+  border: 1px solid rgba(72, 182, 168, 0.2);
+  border-radius: 13px;
+  padding: 10px 12px;
+}
+
+.notification-rules div {
+  background: rgba(250, 247, 242, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+}
+
+.notification-rules strong {
+  color: var(--ink);
+}
+
+.notification-rules span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.notification-campaign {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.notification-campaign-main {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
 .placeholder {
   display: grid;
   place-items: center;
@@ -777,6 +847,7 @@ th {
   .config-grid,
   .form-grid,
   .moderation-card,
+  .notification-form-row,
   .ticket-card {
     grid-template-columns: 1fr;
   }

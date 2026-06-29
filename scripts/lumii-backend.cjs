@@ -303,6 +303,7 @@ function createInitialState() {
     socialMoments: [],
     socialReports: [],
     supportTickets: [],
+    systemNotifications: [],
     userSanctions: [],
     aiUsage: {
       deepseek: {
@@ -498,6 +499,7 @@ function loadState() {
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
       socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
       supportTickets: Array.isArray(loadedState.supportTickets) ? loadedState.supportTickets : initialState.supportTickets,
+      systemNotifications: Array.isArray(loadedState.systemNotifications) ? loadedState.systemNotifications : initialState.systemNotifications,
       userSanctions: Array.isArray(loadedState.userSanctions) ? loadedState.userSanctions : initialState.userSanctions,
     };
   } catch {
@@ -5671,9 +5673,9 @@ function shouldStoreNotification(phone, category = 'system') {
   return true;
 }
 
-function addNotification(phone, notification, category) {
+function addNotification(phone, notification, category, options = {}) {
   const normalizedCategory = normalizeNotificationCategory(notification?.category || category || inferNotificationCategory(notification));
-  if (!shouldStoreNotification(phone, normalizedCategory)) return false;
+  if (!options.force && !shouldStoreNotification(phone, normalizedCategory)) return false;
   state.notifications[phone] = state.notifications[phone] || [];
   if (state.notifications[phone].some((item) => item.id === notification.id)) return false;
   state.notifications[phone].unshift(normalizeNotificationItem(notification, normalizedCategory));
@@ -5750,6 +5752,135 @@ function markNotificationsRead(phone, ids) {
   return state.notifications[phone];
 }
 
+const systemNotificationTargets = new Set(['active_today', 'all', 'phones']);
+const systemNotificationActionRoutes = new Set(['discover', 'home', 'map', 'notifications', 'profile', 'settings']);
+
+function ensureSystemNotifications() {
+  state.systemNotifications = Array.isArray(state.systemNotifications) ? state.systemNotifications : [];
+  return state.systemNotifications;
+}
+
+function parseNotificationPhones(value) {
+  const source = Array.isArray(value) ? value.join('\n') : String(value || '');
+  return Array.from(new Set(source.split(/[\s,，;；]+/).map(normalizePhone).filter(Boolean)));
+}
+
+function systemNotificationTargetPhones(target, phones) {
+  const users = Object.values(state.users || {});
+  if (target === 'all') return users.map((user) => user.phone).filter(Boolean);
+  if (target === 'active_today') {
+    return users
+      .filter((user) => Date.now() - Number(user.lastSeenAt || 0) < 24 * 60 * 60 * 1000)
+      .map((user) => user.phone)
+      .filter(Boolean);
+  }
+  return parseNotificationPhones(phones).filter((phone) => Boolean(state.users?.[phone]));
+}
+
+function adminPushDevices() {
+  return Object.entries(state.pushDevices || {}).flatMap(([phone, devices]) => {
+    const user = state.users?.[phone];
+    return (Array.isArray(devices) ? devices : []).map((device) => ({
+      deviceId: device.deviceId || '',
+      ownerName: user?.ownerName || `用户${String(phone).slice(-4)}`,
+      phone,
+      platform: device.platform || 'unknown',
+      tokenTail: String(device.token || '').slice(-8),
+      updatedAt: device.updatedAt || '',
+    }));
+  }).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+}
+
+function systemNotificationItem(item) {
+  const targetPhones = Array.isArray(item.targetPhones) ? item.targetPhones : [];
+  return {
+    actionRoute: item.actionRoute || '',
+    audienceCount: Number(item.audienceCount || targetPhones.length || 0),
+    createdAt: item.createdAt,
+    createdBy: item.createdBy || 'admin',
+    deliveredCount: Number(item.deliveredCount || 0),
+    failedPhones: Array.isArray(item.failedPhones) ? item.failedPhones.slice(0, 20) : [],
+    id: item.id,
+    respectUserSettings: item.respectUserSettings !== false,
+    skippedCount: Number(item.skippedCount || 0),
+    status: item.status || 'sent',
+    target: item.target || 'phones',
+    targetPhones: targetPhones.slice(0, 30),
+    text: item.text || '',
+    title: item.title || '',
+  };
+}
+
+function adminSystemNotifications() {
+  const campaigns = ensureSystemNotifications().map(systemNotificationItem)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .slice(0, 200);
+  const devices = adminPushDevices();
+  const users = Object.values(state.users || {});
+  return {
+    campaigns,
+    devices: devices.slice(0, 200),
+    summary: {
+      activeToday: users.filter((user) => Date.now() - Number(user.lastSeenAt || 0) < 24 * 60 * 60 * 1000).length,
+      campaigns: campaigns.length,
+      devices: devices.length,
+      users: users.length,
+    },
+  };
+}
+
+function createSystemNotification(admin, body = {}) {
+  const title = String(body.title || '').trim().slice(0, 48);
+  const text = String(body.text || '').trim().slice(0, 240);
+  if (!title) return { error: '请填写通知标题', statusCode: 400 };
+  if (!text) return { error: '请填写通知内容', statusCode: 400 };
+  const targetInput = String(body.target || 'phones').trim();
+  const target = systemNotificationTargets.has(targetInput) ? targetInput : 'phones';
+  const actionRouteInput = String(body.actionRoute || '').trim();
+  const actionRoute = systemNotificationActionRoutes.has(actionRouteInput) ? actionRouteInput : '';
+  const targetPhones = systemNotificationTargetPhones(target, body.phones || body.targetPhones);
+  if (!targetPhones.length) return { error: '没有可触达的目标用户', statusCode: 400 };
+  const now = new Date().toISOString();
+  const notification = {
+    actionRoute,
+    audienceCount: targetPhones.length,
+    createdAt: now,
+    createdBy: admin?.username || 'admin',
+    deliveredCount: 0,
+    failedPhones: [],
+    id: `system-notification-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    respectUserSettings: body.respectUserSettings !== false,
+    skippedCount: 0,
+    status: 'sent',
+    target,
+    targetPhones,
+    text,
+    title,
+  };
+  for (const phone of targetPhones) {
+    const added = addNotification(phone, {
+      actionRoute: actionRoute || undefined,
+      campaignId: notification.id,
+      category: 'system',
+      createdAt: now,
+      id: `${notification.id}-${phone}`,
+      kind: 'system',
+      read: false,
+      text,
+      title,
+    }, 'system', { force: !notification.respectUserSettings });
+    if (added) notification.deliveredCount += 1;
+    else {
+      notification.skippedCount += 1;
+      notification.failedPhones.push(phone);
+    }
+  }
+  ensureSystemNotifications().unshift(notification);
+  state.systemNotifications = state.systemNotifications.slice(0, 300);
+  writeAdminAudit(admin, 'notification.system.send', 'system_notification', notification.id, null, systemNotificationItem(notification), title);
+  return { notification: systemNotificationItem(notification), summary: adminSystemNotifications().summary };
+}
+
 function resolveOwnerId(ownerId) {
   if (ownerId.startsWith('user-')) return ownerId.slice('user-'.length);
   return '';
@@ -5806,6 +5937,7 @@ function adminDashboardSummary() {
   const processingAvatarJobs = avatarJobs.filter((job) => job.status === 'processing');
   const stuckAvatarJobs = processingAvatarJobs.filter((job) => Date.now() - Number(job.updatedAt || job.createdAt || 0) > 5 * 60 * 1000);
   const moderation = adminModerationTasks({ status: 'all' }).summary;
+  const notifications = adminSystemNotifications().summary;
   return {
     ai: {
       avatarFailed: avatarJobs.filter((job) => job.status === 'failed').length,
@@ -5842,6 +5974,7 @@ function adminDashboardSummary() {
       withPets: users.filter((user) => (user.pets || []).length > 0).length,
     },
     moderation,
+    notifications,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -6695,6 +6828,27 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/dashboard/summary') {
     ok(res, adminDashboardSummary());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/notifications') {
+    ok(res, adminSystemNotifications());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/push-devices') {
+    ok(res, adminPushDevices());
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/notifications/system') {
+    const result = createSystemNotification(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_NOTIFICATION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

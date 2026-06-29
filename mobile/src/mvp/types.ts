@@ -484,6 +484,8 @@ export type NotificationCategory = 'health' | 'interaction' | 'system' | 'walk';
 export type NotificationKind = 'conversation_message' | 'greeting_accepted' | 'greeting_request' | 'health_reminder' | 'medical_alert' | 'pet_circle_comment' | 'pet_circle_greeting' | 'pet_circle_like' | 'place_review' | 'place_submission' | 'support_reply' | 'system' | 'vaccine_done' | 'vaccine_reminder' | 'walk_invite';
 
 export type NotificationItem = {
+  actionRoute?: 'discover' | 'home' | 'map' | 'notifications' | 'profile' | 'settings';
+  campaignId?: string;
   category?: NotificationCategory;
   commentId?: string;
   conversationId?: string;

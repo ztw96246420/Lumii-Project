@@ -736,6 +736,11 @@ function normalizeWebPreviewRoute(value: string): AppRoute | null {
   return null;
 }
 
+function normalizeNotificationActionRoute(value?: string): AppRoute | null {
+  if (value === 'discover' || value === 'home' || value === 'map' || value === 'notifications' || value === 'profile' || value === 'settings') return value;
+  return null;
+}
+
 type PetDraft = {
   avatarBase64?: string;
   avatarFileName?: string;
@@ -4191,6 +4196,13 @@ export default function LumiiMvpApp() {
     if (kind === 'place_submission') {
       await openPlaceSubmissionFromNotification(item.submissionId);
       return;
+    }
+    if (kind === 'system') {
+      const actionRoute = normalizeNotificationActionRoute(item.actionRoute);
+      if (actionRoute) {
+        go(actionRoute);
+        return;
+      }
     }
     if (kind === 'support_reply') {
       go('settings');
