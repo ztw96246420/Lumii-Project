@@ -548,12 +548,42 @@ th {
 .moderation-toolbar,
 .ticket-toolbar,
 .pet-calendar-toolbar,
+.pet-profile-toolbar,
 .relationship-toolbar {
   align-items: flex-end;
   background: rgba(255, 247, 239, 0.5);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 12px;
+}
+
+.pet-profile-cell {
+  align-items: center;
+  display: flex;
+  gap: 11px;
+  min-width: 230px;
+}
+
+.pet-avatar-thumb {
+  align-items: center;
+  background: linear-gradient(135deg, #fff7ef, #fff);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--orange);
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 900;
+  height: 46px;
+  justify-content: center;
+  overflow: hidden;
+  width: 46px;
+}
+
+.pet-avatar-thumb img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
 }
 
 .moderation-list,

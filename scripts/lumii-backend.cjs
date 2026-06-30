@@ -646,6 +646,31 @@ function adminExportDataset(type) {
         exportColumn('lastSeenAt', '最近活跃', (row) => exportDateText(row.lastSeenAt)),
       ],
     },
+    pets: {
+      description: '宠物档案、生日完整度、头像/AI 形象和关联内容计数，用于全局宠物排查。',
+      label: '宠物档案',
+      rows: () => adminPetProfiles({ limit: ADMIN_EXPORT_ROW_LIMIT }).items,
+      columns: [
+        exportColumn('id', '宠物ID'),
+        exportColumn('name', '宠物名'),
+        exportColumn('speciesLabel', '物种'),
+        exportColumn('breed', '品种'),
+        exportColumn('genderLabel', '性别'),
+        exportColumn('birthday', '生日'),
+        exportColumn('birthdayCompletenessLabel', '生日完整度'),
+        exportColumn('weightKg', '体重kg'),
+        exportColumn('phone', '主人手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('isActivePet', '当前默认宠物', (row) => exportBoolText(row.isActivePet)),
+        exportColumn('avatarStatusLabel', '头像状态'),
+        exportColumn('latestAvatarJobStatus', '最近AI任务状态'),
+        exportColumn('hasPetCircleCover', '宠友圈封面', (row) => exportBoolText(row.hasPetCircleCover)),
+        exportColumn('calendarCount', '日历记录数'),
+        exportColumn('socialPostCount', '小事数'),
+        exportColumn('createdAt', '建档时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('latestActivityAt', '最近关联时间', (row) => exportDateText(row.latestActivityAt)),
+      ],
+    },
     pet_calendar: {
       description: '宠物日历体重、疫苗/驱虫、备忘及来源，用于客服排查移动端日历记录。',
       label: '宠物日历',
@@ -885,7 +910,7 @@ function adminExportDataset(type) {
 }
 
 function adminExportCatalog() {
-  return ['users', 'pet_calendar', 'social_relations', 'avatar_jobs', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
+  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
@@ -7432,6 +7457,186 @@ function adminUserSummary(user) {
   };
 }
 
+function adminPetBirthdayInfo(pet) {
+  const birthday = String(pet?.birthday || '').trim();
+  if (!birthday) return { key: 'unknown', label: '未知' };
+  if (/^\d{4}$/u.test(birthday)) return { key: 'year', label: '仅年份' };
+  if (/^\d{4}-\d{2}$/u.test(birthday)) return { key: 'month', label: '年月' };
+  if (/^\d{4}-\d{2}-\d{2}$/u.test(birthday)) return { key: 'full', label: '完整日期' };
+  return { key: 'invalid', label: '格式异常' };
+}
+
+function adminPetGenderLabel(gender) {
+  if (gender === 'male') return '男孩';
+  if (gender === 'female') return '女孩';
+  return '未知';
+}
+
+function adminPetAvatarJobMap() {
+  const map = new Map();
+  Object.values(state.avatarJobs || {}).forEach((job) => {
+    const ownerPhone = normalizePhone(job?.ownerPhone);
+    if (!ownerPhone) return;
+    const petIds = new Set([job?.petId, job?.acceptedPetId].map((value) => String(value || '').trim()).filter(Boolean));
+    petIds.forEach((petId) => {
+      const key = `${ownerPhone}:${petId}`;
+      const entry = map.get(key) || { accepted: null, latest: null };
+      const currentTime = analyticsTimeMs(job.updatedAt || job.createdAt);
+      const latestTime = analyticsTimeMs(entry.latest?.updatedAt || entry.latest?.createdAt);
+      if (!entry.latest || currentTime >= latestTime) entry.latest = job;
+      if (job.status === 'ready' && job.acceptedPetId === petId) {
+        const acceptedTime = analyticsTimeMs(entry.accepted?.acceptedAt || entry.accepted?.updatedAt || entry.accepted?.createdAt);
+        const currentAcceptedTime = analyticsTimeMs(job.acceptedAt || job.updatedAt || job.createdAt);
+        if (!entry.accepted || currentAcceptedTime >= acceptedTime) entry.accepted = job;
+      }
+      map.set(key, entry);
+    });
+  });
+  return map;
+}
+
+function adminPetCalendarStats(phone, petId) {
+  const key = `${phone}:${petId}`;
+  const rows = [
+    ...adminHealthStoreList('weights', key).map((record) => record.updatedAt || record.recordedAt || record.id),
+    ...adminHealthStoreList('vaccines', key).map((record) => record.updatedAt || record.dueAt || record.id),
+    ...adminHealthStoreList('memos', key).map((record) => record.updatedAt || record.createdAt || record.id),
+  ];
+  const latestActivityAt = rows
+    .map((value) => analyticsTimeMs(value))
+    .filter((value) => value > 0)
+    .sort((a, b) => b - a)[0] || 0;
+  return {
+    count:
+      adminHealthStoreList('weights', key).length +
+      adminHealthStoreList('vaccines', key).length +
+      adminHealthStoreList('memos', key).length,
+    latestActivityAt,
+  };
+}
+
+function adminPetAvatarStatus(pet, acceptedAvatarJob) {
+  const hasAvatar = Boolean(String(pet?.avatarUrl || '').trim());
+  const hasAiAvatar = Boolean(acceptedAvatarJob?.acceptedPetId === pet?.id && acceptedAvatarJob?.status === 'ready');
+  if (hasAiAvatar) return { key: 'ai', label: 'AI 形象已应用' };
+  if (hasAvatar) return { key: 'basic', label: '普通头像' };
+  return { key: 'missing', label: '缺头像' };
+}
+
+function adminPetProfiles(options = {}) {
+  const speciesFilter = String(options.species || 'all');
+  const birthdayFilter = String(options.birthday || 'all');
+  const avatarFilter = String(options.avatar || 'all');
+  const q = String(options.q || '').trim().toLowerCase();
+  const limit = Math.floor(clampNumber(options.limit, 300, 1, ADMIN_EXPORT_ROW_LIMIT));
+  const avatarJobs = adminPetAvatarJobMap();
+  const socialPosts = ensureSocialMoments();
+  const placeReviews = adminPlaceReviews();
+  const rows = [];
+
+  Object.values(state.users || {}).forEach((user) => {
+    const phone = normalizePhone(user?.phone);
+    if (!phone) return;
+    const ownerName = user.ownerName || `用户${phone.slice(-4)}`;
+    const pets = Array.isArray(user.pets) ? user.pets : [];
+    pets.forEach((pet, index) => {
+      if (!pet?.id) return;
+      const avatarJobInfo = avatarJobs.get(`${phone}:${pet.id}`) || {};
+      const avatarJob = avatarJobInfo.latest || null;
+      const acceptedAvatarJob = avatarJobInfo.accepted || null;
+      const birthdayInfo = adminPetBirthdayInfo(pet);
+      const avatarStatus = adminPetAvatarStatus(pet, acceptedAvatarJob);
+      const calendarStats = adminPetCalendarStats(phone, pet.id);
+      const petPosts = socialPosts.filter((post) => post.phone === phone && post.petId === pet.id && post.status !== 'deleted');
+      const petReviews = placeReviews.filter((review) => review.ownerPhone === phone);
+      const createdAt = pet.createdAt || isoDateFromTimestampId(pet.id) || user.createdAt || '';
+      const latestActivityAt = [
+        analyticsTimeMs(pet.updatedAt),
+        analyticsTimeMs(calendarStats.latestActivityAt),
+        ...petPosts.map((post) => analyticsTimeMs(post.updatedAt || post.createdAt)),
+        ...petReviews.map((review) => analyticsTimeMs(review.reviewedAt || review.createdAt)),
+        analyticsTimeMs(avatarJob?.updatedAt || avatarJob?.createdAt),
+        analyticsTimeMs(createdAt),
+      ].filter((value) => value > 0).sort((a, b) => b - a)[0] || 0;
+      rows.push({
+        ageLabel: petAgeLabel(pet.birthday),
+        avatarJobId: avatarJob?.id || '',
+        avatarStatusKey: avatarStatus.key,
+        avatarStatusLabel: avatarStatus.label,
+        avatarUrl: pet.avatarUrl || '',
+        birthday: pet.birthday || '',
+        birthdayCompleteness: birthdayInfo.key,
+        birthdayCompletenessLabel: birthdayInfo.label,
+        breed: pet.breed || '待完善',
+        calendarCount: calendarStats.count,
+        createdAt,
+        gender: pet.gender || 'unknown',
+        genderLabel: adminPetGenderLabel(pet.gender),
+        hasAvatar: Boolean(pet.avatarUrl),
+        hasPetCircleCover: Boolean(pet.petCircleCoverImageUrl),
+        id: pet.id,
+        isActivePet: user.activePetId ? user.activePetId === pet.id : index === 0,
+        latestActivityAt,
+        latestAvatarJobStatus: avatarJob?.status || 'none',
+        name: pet.name || '未命名宠物',
+        ownerName,
+        ownerStatus: accountStatusFor(user),
+        petCircleCoverImageUrl: pet.petCircleCoverImageUrl || '',
+        phone,
+        placeReviewCount: petReviews.length,
+        socialPostCount: petPosts.length,
+        species: pet.species === 'cat' ? 'cat' : pet.species === 'dog' ? 'dog' : 'other',
+        speciesLabel: petSpeciesLabel(pet.species),
+        weightKg: pet.weightKg || '',
+      });
+    });
+  });
+
+  const filtered = rows
+    .filter((row) => speciesFilter === 'all' || row.species === speciesFilter)
+    .filter((row) => birthdayFilter === 'all' || row.birthdayCompleteness === birthdayFilter)
+    .filter((row) => avatarFilter === 'all' || (avatarFilter === 'cover' ? row.hasPetCircleCover : row.avatarStatusKey === avatarFilter))
+    .filter((row) => {
+      if (!q) return true;
+      return [
+        row.id,
+        row.name,
+        row.phone,
+        row.ownerName,
+        row.species,
+        row.speciesLabel,
+        row.breed,
+        row.genderLabel,
+        row.birthday,
+        row.birthdayCompletenessLabel,
+        row.avatarStatusLabel,
+        row.avatarJobId,
+      ].some((value) => String(value || '').toLowerCase().includes(q));
+    })
+    .sort((a, b) => Number(b.latestActivityAt || 0) - Number(a.latestActivityAt || 0) || String(a.id).localeCompare(String(b.id)));
+
+  const summarySource = filtered;
+  const summary = {
+    aiAvatar: summarySource.filter((row) => row.avatarStatusKey === 'ai').length,
+    all: summarySource.length,
+    cats: summarySource.filter((row) => row.species === 'cat').length,
+    cover: summarySource.filter((row) => row.hasPetCircleCover).length,
+    dogs: summarySource.filter((row) => row.species === 'dog').length,
+    fullBirthday: summarySource.filter((row) => row.birthdayCompleteness === 'full').length,
+    missingAvatar: summarySource.filter((row) => row.avatarStatusKey === 'missing').length,
+    partialBirthday: summarySource.filter((row) => ['year', 'month'].includes(row.birthdayCompleteness)).length,
+    socialPosts: summarySource.reduce((sum, row) => sum + Number(row.socialPostCount || 0), 0),
+    totalPets: rows.length,
+    unknownBirthday: summarySource.filter((row) => row.birthdayCompleteness === 'unknown').length,
+  };
+
+  return {
+    filters: { avatar: avatarFilter, birthday: birthdayFilter, q: options.q || '', species: speciesFilter },
+    items: filtered.slice(0, limit),
+    summary,
+  };
+}
+
 function adminHealthStoreList(storeName, key) {
   const store = state.health?.[storeName] || {};
   const rows = store[key];
@@ -9964,6 +10169,16 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       notifications: normalizeNotificationsFor(phone),
       socialPosts: adminSocialPosts().filter((post) => post.ownerPhone === phone),
     });
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/pets') {
+    ok(res, adminPetProfiles({
+      avatar: url.searchParams.get('avatar') || 'all',
+      birthday: url.searchParams.get('birthday') || 'all',
+      q: url.searchParams.get('q') || '',
+      species: url.searchParams.get('species') || 'all',
+    }));
     return true;
   }
 

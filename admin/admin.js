@@ -5,6 +5,8 @@ const state = {
   cache: {},
   moderationQ: '',
   moderationStatus: 'pending',
+  petAvatar: 'all',
+  petBirthday: 'all',
   petCalendarFrom: '',
   petCalendarQ: '',
   petCalendarSource: 'all',
@@ -14,6 +16,8 @@ const state = {
   petChatDetails: {},
   petChatFlag: 'all',
   petChatQ: '',
+  petQ: '',
+  petSpecies: 'all',
   socialRelationKind: 'all',
   socialRelationQ: '',
   socialRelationStatus: 'all',
@@ -28,6 +32,7 @@ const navItems = [
   { key: 'dashboard', label: '工作台' },
   { key: 'analytics', label: '数据看板' },
   { key: 'users', label: '用户管理' },
+  { key: 'pets', label: '宠物档案' },
   { key: 'petCalendar', label: '宠物日历' },
   { key: 'avatarJobs', label: 'AI 灵伴' },
   { key: 'petChat', label: 'AI 对话' },
@@ -56,6 +61,7 @@ const titles = {
   notifications: ['通知运营', '系统通知、定向触达和移动端通知中心联动'],
   petCalendar: ['宠物日历', '体重、疫苗/驱虫、备忘和自动写入排查'],
   petChat: ['AI 对话', '宠物第一人称回复、医疗风险和自动写入排查'],
+  pets: ['宠物档案', '宠物资料、头像、AI 形象和关联记录排查'],
   places: ['地图地点', '地点点评与新增地点审核'],
   reports: ['举报中心', '宠友圈举报处理闭环'],
   sanctionAppeals: ['申诉中心', '账号处罚申诉、复核和撤销联动'],
@@ -295,6 +301,24 @@ async function onContentClick(event) {
       await hidePetChatMessage(button);
       return;
     }
+    if (action === 'pets-filter') {
+      state.petSpecies = $('petSpecies').value;
+      state.petBirthday = $('petBirthday').value;
+      state.petAvatar = $('petAvatar').value;
+      state.petQ = $('petQ').value.trim();
+      state.cache = { ...state.cache, pets: null };
+      await render(true);
+      return;
+    }
+    if (action === 'pets-clear') {
+      state.petSpecies = 'all';
+      state.petBirthday = 'all';
+      state.petAvatar = 'all';
+      state.petQ = '';
+      state.cache = { ...state.cache, pets: null };
+      await render(true);
+      return;
+    }
     if (action === 'pet-calendar-filter') {
       state.petCalendarType = $('petCalendarType').value;
       state.petCalendarStatus = $('petCalendarStatus').value;
@@ -528,7 +552,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['audit', 'feedback', 'moderation', 'notifications', 'petChat', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['audit', 'feedback', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -756,6 +780,7 @@ async function render(force = false) {
     notifications: renderNotifications,
     petCalendar: renderPetCalendar,
     petChat: renderPetChat,
+    pets: renderPets,
     places: renderPlaces,
     reports: renderReports,
     sanctionAppeals: renderSanctionAppeals,
@@ -1371,6 +1396,137 @@ async function renderUsers(force) {
       `],
     ],
   });
+}
+
+function petFilterOption(current, value, label) {
+  return `<option value="${escapeHtml(value)}" ${String(current) === String(value) ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+}
+
+function petProfileCell(row) {
+  const avatar = row.avatarUrl
+    ? `<img src="${escapeHtml(row.avatarUrl)}" alt="${escapeHtml(row.name || '宠物头像')}" />`
+    : '<span>宠</span>';
+  return `
+    <div class="pet-profile-cell">
+      <div class="pet-avatar-thumb">${avatar}</div>
+      <div>
+        <div class="cell-title">${escapeHtml(row.name || '-')} ${row.isActivePet ? statusPill('默认') : ''}</div>
+        <div class="cell-sub">${escapeHtml(row.id || '-')}</div>
+      </div>
+    </div>
+  `;
+}
+
+function petAvatarStatus(row) {
+  const tags = [statusPill(row.avatarStatusLabel || '缺头像')];
+  if (row.latestAvatarJobStatus && row.latestAvatarJobStatus !== 'none') tags.push(statusPill(`AI ${row.latestAvatarJobStatus}`));
+  if (row.hasPetCircleCover) tags.push(statusPill('有封面'));
+  return `${tags.join(' ')}<div class="cell-sub">${row.avatarJobId ? escapeHtml(row.avatarJobId) : '暂无 AI 任务关联'}</div>`;
+}
+
+async function renderPets(force) {
+  const query = new URLSearchParams({
+    avatar: state.petAvatar,
+    birthday: state.petBirthday,
+    q: state.petQ,
+    species: state.petSpecies,
+  });
+  const data = await load('pets', `/admin/pets?${query.toString()}`, force);
+  const rows = data.items || [];
+  const summary = data.summary || {};
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('宠物档案', numberText(summary.all), `${numberText(summary.totalPets)} 只全量`, '当前筛选下的宠物档案数量；全量不受筛选影响。')}
+      ${metric('狗狗 / 猫咪', `${numberText(summary.dogs)} / ${numberText(summary.cats)}`, 'MVP 支持物种', '用于观察当前测试用户的宠物结构。')}
+      ${metric('AI 形象', numberText(summary.aiAvatar), `${numberText(summary.missingAvatar)} 只缺头像`, 'AI 形象已应用表示有 ready 且 acceptedPetId 关联该宠物的生成任务。')}
+      ${metric('生日完整', numberText(summary.fullBirthday), `${numberText(summary.partialBirthday)} 只部分日期`, '生日可能只知道年份或年月，本页按完整度拆开排查。')}
+      ${metric('未知生日', numberText(summary.unknownBirthday), '主人未填写或不清楚', '这能帮助后续决定是否做生日补全引导。')}
+      ${metric('宠友圈内容', numberText(summary.socialPosts), `${numberText(summary.cover)} 只有封面`, '按宠物维度统计已发布且未删除的小事。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>宠物档案</h2>
+          <div class="section-sub">全局只读排查：宠物资料、头像、AI 形象、宠友圈和日历关联记录</div>
+        </div>
+        ${help('这页直接聚合 users.pets 和关联业务数据，不会修改用户宠物档案。头像、AI 形象和封面只展示状态，不导出图片二进制。')}
+      </div>
+      <div class="toolbar moderation-toolbar pet-profile-toolbar">
+        <div class="toolbar-left">
+          <label>物种
+            <select id="petSpecies">
+              ${petFilterOption(state.petSpecies, 'all', '全部')}
+              ${petFilterOption(state.petSpecies, 'dog', '狗狗')}
+              ${petFilterOption(state.petSpecies, 'cat', '猫咪')}
+              ${petFilterOption(state.petSpecies, 'other', '其他')}
+            </select>
+          </label>
+          <label>生日完整度
+            <select id="petBirthday">
+              ${petFilterOption(state.petBirthday, 'all', '全部')}
+              ${petFilterOption(state.petBirthday, 'unknown', '未知')}
+              ${petFilterOption(state.petBirthday, 'year', '仅年份')}
+              ${petFilterOption(state.petBirthday, 'month', '年月')}
+              ${petFilterOption(state.petBirthday, 'full', '完整日期')}
+              ${petFilterOption(state.petBirthday, 'invalid', '格式异常')}
+            </select>
+          </label>
+          <label>形象状态
+            <select id="petAvatar">
+              ${petFilterOption(state.petAvatar, 'all', '全部')}
+              ${petFilterOption(state.petAvatar, 'missing', '缺头像')}
+              ${petFilterOption(state.petAvatar, 'basic', '普通头像')}
+              ${petFilterOption(state.petAvatar, 'ai', 'AI 形象已应用')}
+              ${petFilterOption(state.petAvatar, 'cover', '有宠友圈封面')}
+            </select>
+          </label>
+          <label>搜索<input id="petQ" placeholder="手机号、主人、宠物、品种、宠物ID、任务ID" value="${escapeHtml(state.petQ)}" /></label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="pets-filter">筛选</button>
+          <button class="small-button ghost" data-action="pets-clear">清空</button>
+        </div>
+      </div>
+      ${tableHtml(rows, [
+        ['宠物', petProfileCell],
+        ['主人', (r) => `<div class="cell-title">${escapeHtml(r.ownerName || '-')}</div><div class="cell-sub">${shortPhone(r.phone)} · ${escapeHtml(r.ownerStatus || 'active')}</div>`],
+        ['档案', (r) => `<div>${statusPill(r.speciesLabel || r.species)} ${escapeHtml(r.breed || '-')}</div><div class="cell-sub">${escapeHtml(r.genderLabel || '未知')} · ${escapeHtml(r.birthday || '生日未知')} · ${escapeHtml(r.ageLabel || '-')}</div><div class="cell-sub">${r.weightKg ? `${escapeHtml(r.weightKg)} kg` : '体重待记录'}</div>`],
+        ['形象', petAvatarStatus],
+        ['关联记录', (r) => `<div>${numberText(r.calendarCount)} 条日历</div><div class="cell-sub">${numberText(r.socialPostCount)} 条小事 · ${numberText(r.placeReviewCount)} 条地点点评</div>`],
+        ['时间', (r) => `<div>建档：${formatTime(r.createdAt)}</div><div class="cell-sub">最近关联：${formatTime(r.latestActivityAt)}</div>`],
+      ], '暂无宠物档案')}
+    </div>
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>运营口径</h2>
+            <div class="section-sub">宠物档案是用户、AI、日历和社交的共同底座</div>
+          </div>
+          ${help('同一主人可以有多只宠物；默认宠物会影响首页、AI 对话、宠友圈和约遛展示，所以这里单独标出默认宠物。')}
+        </div>
+        <div class="gap-list">
+          <div><strong>生日可不完整</strong><span>支持未知、仅年份、年月、完整日期，后台不要把未知误当作异常。</span></div>
+          <div><strong>AI 形象不是普通头像</strong><span>只有已接受并应用到宠物的 ready 任务，才标为 AI 形象已应用。</span></div>
+          <div><strong>关联排查</strong><span>日历、小事、地点点评和 AI 任务都可以通过宠物维度串起来。</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>后续动作预留</h2>
+            <div class="section-sub">资料修复属于高影响操作，先不在单 admin 第一版开放</div>
+          </div>
+          ${help('需求文档里的修正宠物资料、隐藏违规头像、清空 AI 形象、替换宠友圈封面都需要原因、before/after 审计和更细权限。')}
+        </div>
+        <div class="gap-list">
+          <div><strong>修正档案</strong><span>只处理明显错误字段，例如物种识别错、生日格式异常、体重离谱。</span></div>
+          <div><strong>媒体处理</strong><span>隐藏头像、清空 AI 形象、换封面都应保留原图和处理记录。</span></div>
+          <div><strong>合并重复宠物</strong><span>生产阶段需要迁移日历、AI、宠友圈和会话引用，不能直接删档。</span></div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function petCalendarOption(current, value, label) {
