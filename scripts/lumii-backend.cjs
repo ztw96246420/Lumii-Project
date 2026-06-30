@@ -2503,12 +2503,87 @@ function writeAdminAudit(admin, action, targetType, targetId, before, after, rea
     before,
     createdAt: new Date().toISOString(),
     id: `audit-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    ip: admin?.ip || '',
     reason: String(reason || '').slice(0, 240),
     role: admin?.role || 'admin',
     targetId: String(targetId || ''),
     targetType,
+    userAgent: String(admin?.userAgent || '').slice(0, 180),
   });
   state.adminAuditLogs = state.adminAuditLogs.slice(0, 1000);
+}
+
+function auditDateEndMs(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/u.test(text)) {
+    const parsed = Date.parse(`${text}T23:59:59.999`);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function auditDateStartMs(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/u.test(text)) {
+    const parsed = Date.parse(`${text}T00:00:00.000`);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function auditSearchHaystack(log) {
+  return [
+    log?.action,
+    log?.adminName,
+    log?.id,
+    log?.ip,
+    log?.reason,
+    log?.role,
+    log?.targetId,
+    log?.targetType,
+    log?.userAgent,
+    JSON.stringify(log?.before || {}),
+    JSON.stringify(log?.after || {}),
+  ].map((value) => String(value || '').toLowerCase()).join(' ');
+}
+
+function adminAuditLogs(options = {}) {
+  const logs = Array.isArray(state.adminAuditLogs) ? state.adminAuditLogs : [];
+  const action = String(options.action || 'all');
+  const adminName = String(options.admin || 'all');
+  const targetType = String(options.targetType || 'all');
+  const q = String(options.q || '').trim().toLowerCase();
+  const fromMs = auditDateStartMs(options.from);
+  const toMs = auditDateEndMs(options.to);
+  const limit = Math.min(500, Math.max(20, Number(options.limit || 300) || 300));
+  const matched = logs.filter((log) => {
+    if (action !== 'all' && log.action !== action) return false;
+    if (adminName !== 'all' && log.adminName !== adminName) return false;
+    if (targetType !== 'all' && log.targetType !== targetType) return false;
+    const createdMs = Date.parse(String(log.createdAt || ''));
+    if (fromMs !== null && (!Number.isFinite(createdMs) || createdMs < fromMs)) return false;
+    if (toMs !== null && (!Number.isFinite(createdMs) || createdMs > toMs)) return false;
+    if (q && !auditSearchHaystack(log).includes(q)) return false;
+    return true;
+  });
+  const highRiskPattern = /(ban|clear|config|delete|export|freeze|hide|revoke|rollback|sanction|send|submission|update)/i;
+  const actions = Array.from(new Set(logs.map((log) => log.action).filter(Boolean))).sort();
+  const admins = Array.from(new Set(logs.map((log) => log.adminName).filter(Boolean))).sort();
+  const targetTypes = Array.from(new Set(logs.map((log) => log.targetType).filter(Boolean))).sort();
+  return {
+    filters: { actions, admins, targetTypes },
+    items: matched.slice(0, limit),
+    summary: {
+      highRisk: matched.filter((log) => highRiskPattern.test(String(log.action || ''))).length,
+      matched: matched.length,
+      missingReason: matched.filter((log) => highRiskPattern.test(String(log.action || '')) && !String(log.reason || '').trim()).length,
+      total: logs.length,
+    },
+  };
 }
 
 const ADMIN_USER_RISK_TAGS = [
@@ -11551,7 +11626,12 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       fail(res, 401, '管理员账号或密码不正确', false, undefined, 'ADMIN_LOGIN_FAILED');
       return true;
     }
-    const admin = { role: 'admin', username };
+    const admin = {
+      ip: clientIpFromRequest(req),
+      role: 'admin',
+      userAgent: String(req.headers['user-agent'] || '').slice(0, 180),
+      username,
+    };
     writeAdminAudit(admin, 'admin.login', 'admin_user', username, null, { username }, 'login');
     saveState();
     ok(res, { admin, token: createAdminToken(username) });
@@ -11560,6 +11640,8 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   const admin = requireAdmin(req, res);
   if (!admin) return true;
+  admin.ip = clientIpFromRequest(req);
+  admin.userAgent = String(req.headers['user-agent'] || '').slice(0, 180);
 
   if (req.method === 'GET' && pathname === '/admin/me') {
     ok(res, admin);
@@ -12456,7 +12538,15 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   }
 
   if (req.method === 'GET' && pathname === '/admin/audit-logs') {
-    ok(res, (state.adminAuditLogs || []).slice(0, 300));
+    ok(res, adminAuditLogs({
+      action: url.searchParams.get('action') || 'all',
+      admin: url.searchParams.get('admin') || 'all',
+      from: url.searchParams.get('from') || '',
+      limit: url.searchParams.get('limit') || 300,
+      q: url.searchParams.get('q') || '',
+      targetType: url.searchParams.get('targetType') || 'all',
+      to: url.searchParams.get('to') || '',
+    }));
     return true;
   }
 

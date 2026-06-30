@@ -5,6 +5,12 @@ const state = {
   aiFeedbackStatus: 'all',
   aiMediaQ: '',
   aiMediaQuality: 'all',
+  auditAction: 'all',
+  auditAdmin: 'all',
+  auditFrom: '',
+  auditQ: '',
+  auditTargetType: 'all',
+  auditTo: '',
   appealQ: '',
   appealStatus: 'open',
   cache: {},
@@ -402,6 +408,28 @@ async function onContentClick(event) {
     }
     if (action === 'feedback-status') {
       await updateFeedbackStatus(button);
+      return;
+    }
+    if (action === 'audit-filter') {
+      state.auditAction = $('auditAction').value;
+      state.auditAdmin = $('auditAdmin').value;
+      state.auditTargetType = $('auditTargetType').value;
+      state.auditFrom = $('auditFrom').value;
+      state.auditTo = $('auditTo').value;
+      state.auditQ = $('auditQ').value.trim();
+      state.cache = { ...state.cache, audit: null };
+      await render(true);
+      return;
+    }
+    if (action === 'audit-clear') {
+      state.auditAction = 'all';
+      state.auditAdmin = 'all';
+      state.auditTargetType = 'all';
+      state.auditFrom = '';
+      state.auditTo = '';
+      state.auditQ = '';
+      state.cache = { ...state.cache, audit: null };
+      await render(true);
       return;
     }
     if (action === 'ticket-filter') {
@@ -3868,18 +3896,78 @@ async function downloadExport(type) {
   showToast('导出已开始下载');
 }
 
-async function renderAudit(force) {
-  const rows = await load('audit', '/admin/audit-logs', force);
-  renderTable({
-    empty: '暂无审计日志',
-    rows,
-    columns: [
-      ['动作', (r) => `<div class="cell-title">${escapeHtml(r.action)}</div><div class="cell-sub">${escapeHtml(r.targetType)} · ${escapeHtml(r.targetId)}</div>`],
-      ['管理员', (r) => escapeHtml(r.adminName)],
-      ['原因', (r) => escapeHtml(r.reason || '-')],
-      ['时间', (r) => formatTime(r.createdAt)],
-    ],
+function auditOptionList(values = [], current = 'all', allLabel = '全部') {
+  return [
+    `<option value="all" ${current === 'all' ? 'selected' : ''}>${allLabel}</option>`,
+    ...values.map((value) => `<option value="${escapeHtml(value)}" ${current === value ? 'selected' : ''}>${escapeHtml(value)}</option>`),
+  ].join('');
+}
+
+function auditSnapshotSummary(value) {
+  if (!value) return '<span class="cell-sub">无</span>';
+  if (typeof value !== 'object') return `<div class="cell-sub clamp">${escapeHtml(String(value)).slice(0, 180)}</div>`;
+  const keys = Object.keys(value).slice(0, 5);
+  if (!keys.length) return '<span class="cell-sub">空对象</span>';
+  const parts = keys.map((key) => {
+    const raw = value[key];
+    const text = raw && typeof raw === 'object' ? Array.isArray(raw) ? `[${raw.length}]` : '{...}' : String(raw ?? '');
+    return `${key}: ${text}`.slice(0, 70);
   });
+  return `<div class="cell-sub clamp">${escapeHtml(parts.join(' · '))}</div>`;
+}
+
+async function renderAudit(force) {
+  const query = new URLSearchParams({
+    action: state.auditAction,
+    admin: state.auditAdmin,
+    from: state.auditFrom,
+    q: state.auditQ,
+    targetType: state.auditTargetType,
+    to: state.auditTo,
+  });
+  const data = await load('audit', `/admin/audit-logs?${query.toString()}`, force);
+  const rows = Array.isArray(data) ? data : data.items || [];
+  const summary = Array.isArray(data) ? { matched: rows.length, total: rows.length } : data.summary || {};
+  const filters = Array.isArray(data) ? { actions: [], admins: [], targetTypes: [] } : data.filters || {};
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('匹配日志', numberText(summary.matched || 0), `${numberText(summary.total || 0)} 条总审计`, '按当前筛选条件命中的审计记录数量。')}
+      ${metric('高风险动作', numberText(summary.highRisk || 0), '删除/隐藏/处罚/配置/导出等', '用于快速复核影响用户或系统配置的后台动作。')}
+      ${metric('缺少原因', numberText(summary.missingReason || 0), '高风险动作原因为空', '高风险操作应尽量填写原因；历史兼容记录可能为空。')}
+      ${metric('可筛动作', numberText((filters.actions || []).length), `${numberText((filters.targetTypes || []).length)} 类对象`, '筛选项来自当前审计日志实际 action 和 targetType。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>审计日志</h2>
+          <div class="section-sub">追踪后台谁在什么时候对什么对象做了什么</div>
+        </div>
+        ${help('审计日志是后台安全底座。所有写操作应留下 action、目标对象、原因和 before/after 摘要；从本版本开始也会记录后台请求 IP 和 User-Agent。')}
+      </div>
+      <div class="toolbar moderation-toolbar">
+        <div class="toolbar-left">
+          <label>动作<select id="auditAction">${auditOptionList(filters.actions || [], state.auditAction, '全部动作')}</select></label>
+          <label>对象<select id="auditTargetType">${auditOptionList(filters.targetTypes || [], state.auditTargetType, '全部对象')}</select></label>
+          <label>管理员<select id="auditAdmin">${auditOptionList(filters.admins || [], state.auditAdmin, '全部管理员')}</select></label>
+          <label>开始日期<input id="auditFrom" type="date" value="${escapeHtml(state.auditFrom)}" /></label>
+          <label>结束日期<input id="auditTo" type="date" value="${escapeHtml(state.auditTo)}" /></label>
+          <input id="auditQ" value="${escapeHtml(state.auditQ)}" placeholder="目标 ID / 手机号 / 原因 / IP" />
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="audit-filter">筛选</button>
+          <button class="small-button ghost" data-action="audit-clear">清空</button>
+        </div>
+      </div>
+      ${tableHtml(rows, [
+        ['动作', (r) => `<div class="cell-title">${escapeHtml(r.action || '-')}</div><div class="cell-sub">${escapeHtml(r.id || '-')}</div>`],
+        ['目标', (r) => `<div>${statusPill(r.targetType || '-')}</div><div class="cell-sub">${escapeHtml(r.targetId || '-')}</div>`],
+        ['管理员', (r) => `<div>${escapeHtml(r.adminName || '-')}</div><div class="cell-sub">${escapeHtml(r.role || '-')}</div><div class="cell-sub">${escapeHtml(r.ip || 'IP 未记录')}</div>`],
+        ['原因', (r) => `<div class="cell-sub clamp">${escapeHtml(r.reason || '未填写')}</div>`],
+        ['变更摘要', (r) => `<div><strong>Before</strong>${auditSnapshotSummary(r.before)}</div><div style="margin-top:8px"><strong>After</strong>${auditSnapshotSummary(r.after)}</div>`],
+        ['时间', (r) => `<div>${formatTime(r.createdAt)}</div><div class="cell-sub clamp">${escapeHtml(r.userAgent || 'UA 未记录')}</div>`],
+      ], '暂无审计日志')}
+    </div>
+  `;
 }
 
 function renderReserved() {
