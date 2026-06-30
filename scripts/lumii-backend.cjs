@@ -1563,6 +1563,64 @@ function buildAdminExportCsv(type, filters = {}) {
   };
 }
 
+function adminExportHistory(options = {}) {
+  const type = String(options.type || 'all').trim() || 'all';
+  const q = String(options.q || '').trim().toLowerCase();
+  const limit = Math.min(80, Math.max(10, Number(options.limit || 20) || 20));
+  const logs = (state.adminAuditLogs || [])
+    .filter((log) => log?.action === 'data.export.download' && log?.targetType === 'data_export')
+    .map((log) => {
+      const datasetType = String(log.targetId || log.after?.type || '');
+      const dataset = adminExportDataset(datasetType);
+      const after = log.after || {};
+      const rowCount = Number(after.rowCount || 0);
+      return {
+        adminName: log.adminName || '',
+        columnsCount: Array.isArray(after.columns) ? after.columns.length : 0,
+        createdAt: log.createdAt,
+        datasetLabel: dataset?.label || datasetType || '未知数据集',
+        datasetType,
+        filename: after.filename || '',
+        filterSummary: after.filterSummary || log.reason || '全部数据',
+        filters: after.filters || {},
+        id: log.id,
+        ip: log.ip || '',
+        matchedRows: Number(after.matchedRows ?? rowCount),
+        reason: log.reason || '',
+        role: log.role || '',
+        rowCount,
+        totalRows: Number(after.totalRows || 0),
+        userAgent: log.userAgent || '',
+      };
+    })
+    .filter((item) => {
+      if (type !== 'all' && item.datasetType !== type) return false;
+      if (!q) return true;
+      return [
+        item.adminName,
+        item.datasetLabel,
+        item.datasetType,
+        item.filename,
+        item.filterSummary,
+        item.id,
+        item.ip,
+        item.reason,
+        item.userAgent,
+        adminExportJson(item.filters),
+      ].some((value) => String(value || '').toLowerCase().includes(q));
+    });
+  return {
+    items: logs.slice(0, limit),
+    summary: {
+      lastExportAt: logs[0]?.createdAt || '',
+      matched: logs.length,
+      rowsExported: logs.reduce((sum, item) => sum + Number(item.rowCount || 0), 0),
+      total: (state.adminAuditLogs || []).filter((log) => log?.action === 'data.export.download' && log?.targetType === 'data_export').length,
+      uniqueDatasets: new Set(logs.map((item) => item.datasetType).filter(Boolean)).size,
+    },
+  };
+}
+
 function sendCsv(res, filename, csv) {
   res.writeHead(200, {
     'Access-Control-Allow-Origin': '*',
@@ -11797,6 +11855,15 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/exports') {
     ok(res, adminExportCatalog(adminExportFiltersFromUrl(url)));
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/exports/history') {
+    ok(res, adminExportHistory({
+      limit: url.searchParams.get('limit') || 20,
+      q: url.searchParams.get('q') || '',
+      type: url.searchParams.get('type') || 'all',
+    }));
     return true;
   }
 

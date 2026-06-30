@@ -3879,6 +3879,12 @@ function exportQueryParams() {
   return query;
 }
 
+function exportHistoryUrl() {
+  const query = new URLSearchParams({ limit: '20' });
+  if (state.exportType !== 'all') query.set('type', state.exportType);
+  return `/admin/exports/history?${query.toString()}`;
+}
+
 function exportFilterSummary(rows = []) {
   const dataset = rows.find((row) => row.type === state.exportType);
   const parts = [];
@@ -3930,10 +3936,13 @@ async function renderExports(force) {
   const query = exportQueryParams();
   const exportUrl = query.toString() ? `/admin/exports?${query.toString()}` : '/admin/exports';
   const rows = await load('exports', exportUrl, force);
+  const history = await api(exportHistoryUrl());
   const visibleRows = state.exportType === 'all' ? rows : rows.filter((row) => row.type === state.exportType);
   const matchedRows = visibleRows.reduce((sum, item) => sum + Number(item.rowCount || 0), 0);
   const originalRows = visibleRows.reduce((sum, item) => sum + Number(item.totalRows ?? item.rowCount ?? 0), 0);
   const activeFilterSummary = exportFilterSummary(rows);
+  const historyRows = history.items || [];
+  const historySummary = history.summary || {};
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('可导出数据集', visibleRows.length, `${rows.length} 个总数据集`, '导出接口需要管理员登录，并会写入审计日志。')}
@@ -3970,6 +3979,22 @@ async function renderExports(force) {
         ['操作', (row) => `<button class="small-button" data-action="download-export" data-id="${escapeHtml(row.type)}">下载匹配 CSV</button><div class="cell-sub">${escapeHtml(row.filterSummary || activeFilterSummary)}</div>`],
       ], '暂无可导出数据')}
     </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>最近导出记录</h2>
+          <div class="section-sub">${escapeHtml(state.exportType === 'all' ? '所有数据集' : visibleRows[0]?.label || state.exportType)} · 匹配 ${escapeHtml(historySummary.matched || 0)} 条 · 最近 ${escapeHtml(formatTime(historySummary.lastExportAt))}</div>
+        </div>
+        ${help('这里复用审计日志里的 data.export.download 记录，展示最近导出的数据集、筛选条件、行数、管理员和 IP；不展示 before/after 大对象。')}
+      </div>
+      ${tableHtml(historyRows, [
+        ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.datasetLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.datasetType || '-')}</div>`],
+        ['文件', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filename || '-')}</div><div class="cell-sub">字段 ${escapeHtml(row.columnsCount || 0)} 个</div>`],
+        ['筛选/行数', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filterSummary || '全部数据')}</div><div class="cell-sub">导出 ${escapeHtml(row.rowCount || 0)} / 匹配 ${escapeHtml(row.matchedRows || 0)} / 原始 ${escapeHtml(row.totalRows || 0)}</div>`],
+        ['管理员', (row) => `<div>${escapeHtml(row.adminName || '-')}</div><div class="cell-sub">${escapeHtml(row.ip || 'IP 未记录')}</div>`],
+        ['时间', (row) => `<div>${formatTime(row.createdAt)}</div><div class="cell-sub clamp">${escapeHtml(row.userAgent || 'UA 未记录')}</div>`],
+      ], '暂无导出记录')}
+    </div>
   `;
 }
 
@@ -4000,7 +4025,9 @@ async function downloadExport(type) {
   link.remove();
   URL.revokeObjectURL(url);
   state.cache.audit = null;
+  state.cache.exports = null;
   showToast('导出已开始下载');
+  if (state.route === 'exports') await render(true);
 }
 
 function auditOptionList(values = [], current = 'all', allLabel = '全部') {
