@@ -93,6 +93,7 @@
 ### 3.4 AI 灵伴
 
 - `GET /admin/ai/avatar-jobs`
+- `GET /admin/ai/usage`
 - `GET /admin/ai/media`
 - `GET /admin/ai/avatar-feedback`
 - `POST /admin/ai/avatar-feedback/{jobId}/review`
@@ -110,16 +111,19 @@
 - 支持按反馈状态、反馈原因、关键词筛选生成反馈。
 - 支持按素材质量、关键词筛选上传素材。
 - 支持将用户生成反馈标记为已处理，写入处理人、处理时间、备注和审计日志。
+- 查看 AI 用量成本：今日灵伴形象消耗、今日 AI 对话消耗、额度触顶用户、DeepSeek 请求和 token、平均回复字数、gpt-image2 累计成本和 credits。
+- 查看供应商监控：当前启用 provider、历史/备用 provider、请求数、成功失败、任务 ready/processing/stuck、平均耗时、成功率和 Top 错误码。
+- AI 灵伴页使用 ECharts 展示 provider ready / failed / stuck 对比。
 - 刷新上游任务状态。
 - 重试。
 - 后台标记失败。
 - 返还形象生成额度。
 - 写入审计日志。
-- 数据导出新增 AI 上传素材 CSV 和 AI 生成反馈 CSV；不导出图片二进制或 base64 原图。
+- 数据导出新增 AI 上传素材、AI 生成反馈、AI 供应商用量 CSV；不导出图片二进制或 base64 原图。
 
 当前限制：
 
-- 尚未沉淀供应商原始 request / response、每次调用成本、完整 SLA 时间线。
+- 尚未沉淀供应商原始 request / response、逐次调用成本快照、完整 SLA 时间线。
 - 尚未开放“加入提示词样本集”、“供应商异常样本”或“直接应用结果图到宠物头像”等高权限动作。
 
 ### 3.4.1 AI 对话
@@ -555,7 +559,7 @@
 已支持：
 
 - 后台新增一级菜单：数据导出。
-- 支持 16 类 CSV 数据集：
+- 支持 17 类 CSV 数据集：
   - 用户账号。
   - 宠物档案。
   - 宠物日历。
@@ -563,6 +567,7 @@
   - AI 灵伴任务。
   - AI 上传素材。
   - AI 生成反馈。
+  - AI 供应商用量。
   - 内容安全任务。
   - 宠友圈小事。
   - 宠友圈评论。

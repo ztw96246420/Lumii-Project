@@ -596,7 +596,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -2039,6 +2039,61 @@ function avatarMediaCell(row) {
   `;
 }
 
+function aiProviderRolePill(row) {
+  const tone = row.roleLabel === '当前启用' ? 'ok' : row.roleLabel === '兜底/测试' ? 'warn' : '';
+  return tonePill(row.roleLabel || '-', tone);
+}
+
+function aiErrorList(errors = []) {
+  if (!errors.length) {
+    return '<div class="gap-list"><div><strong>暂无错误码</strong><span>当前没有失败任务或状态刷新错误。</span></div></div>';
+  }
+  return `
+    <div class="gap-list">
+      ${errors.map((item) => `
+        <div>
+          <strong>${escapeHtml(item.code)} · ${numberText(item.count)} 次</strong>
+          <span>${escapeHtml((item.providers || []).join(' / ') || '未知供应商')} · ${escapeHtml(item.latestMessage || '暂无错误详情')}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderAiProviderChart(usage) {
+  const node = $('aiProviderChart');
+  if (!node) return;
+  const providers = usage.providers || [];
+  if (!window.echarts) {
+    node.innerHTML = '<div class="placeholder">图表组件加载中</div>';
+    return;
+  }
+  const chart = echarts.init(node);
+  chart.setOption({
+    color: ['#48b6a8', '#dc604e', '#ff7f4f'],
+    grid: { bottom: 42, left: 38, right: 14, top: 24 },
+    legend: { bottom: 0, itemHeight: 8, itemWidth: 12, textStyle: { color: '#7a756d' } },
+    tooltip: { trigger: 'axis' },
+    xAxis: {
+      axisLine: { show: false },
+      axisTick: { show: false },
+      data: providers.map((item) => item.label),
+      type: 'category',
+    },
+    yAxis: {
+      axisLine: { show: false },
+      axisTick: { show: false },
+      splitLine: { lineStyle: { color: 'rgba(91,70,48,.1)' } },
+      type: 'value',
+    },
+    series: [
+      { barMaxWidth: 24, data: providers.map((item) => item.ready), name: 'Ready', stack: 'jobs', type: 'bar' },
+      { barMaxWidth: 24, data: providers.map((item) => item.failed), name: '失败', stack: 'jobs', type: 'bar' },
+      { data: providers.map((item) => item.stuck), name: '卡住', smooth: true, type: 'line' },
+    ],
+  });
+}
+
 async function renderAvatarJobs(force) {
   const feedbackQuery = new URLSearchParams({
     q: state.aiFeedbackQ,
@@ -2049,16 +2104,20 @@ async function renderAvatarJobs(force) {
     q: state.aiMediaQ,
     quality: state.aiMediaQuality,
   });
-  const [jobs, feedbackData, mediaData] = await Promise.all([
+  const [jobs, feedbackData, mediaData, aiUsage] = await Promise.all([
     load('avatarJobs', '/admin/ai/avatar-jobs', force),
     load('avatarFeedback', `/admin/ai/avatar-feedback?${feedbackQuery.toString()}`, force),
     load('aiMedia', `/admin/ai/media?${mediaQuery.toString()}`, force),
+    load('aiUsage', '/admin/ai/usage?days=14', force),
   ]);
   const jobRows = Array.isArray(jobs) ? jobs : [];
   const feedbackRows = feedbackData.items || [];
   const feedbackSummary = feedbackData.summary || {};
   const mediaRows = mediaData.items || [];
   const mediaSummary = mediaData.summary || {};
+  const usageSummary = aiUsage.summary || {};
+  const providerRows = aiUsage.providers || [];
+  const topErrors = aiUsage.topErrors || [];
   const processing = jobRows.filter((job) => job.status === 'processing');
   const failed = jobRows.filter((job) => job.status === 'failed');
   const ready = jobRows.filter((job) => job.status === 'ready');
@@ -2184,32 +2243,110 @@ async function renderAvatarJobs(force) {
       <div class="card">
         <div class="section-head">
           <div>
+            <h2>用量成本</h2>
+            <div class="section-sub">今日额度消耗、DeepSeek token 和 gpt-image2 累计成本</div>
+          </div>
+          ${help('当前成本字段来自 provider 累计回传；由于缺少每次调用时间，今日成本暂不拆分，只展示累计成本和今日次数。')}
+        </div>
+        <div class="insight-list">
+          <div><span>今日灵伴形象</span><strong>${numberText(usageSummary.todayPetAvatarCount)}</strong></div>
+          <div><span>今日 AI 对话</span><strong>${numberText(usageSummary.todayPetChatCount)}</strong></div>
+          <div><span>DeepSeek 请求</span><strong>${numberText(usageSummary.deepseekRequests)}</strong></div>
+          <div><span>DeepSeek Token</span><strong>${numberText(usageSummary.deepseekTokens)}</strong></div>
+          <div><span>平均回复字数</span><strong>${numberText(usageSummary.averageReplyLength)}</strong></div>
+          <div><span>gpt-image2 累计成本</span><strong>${moneyText(usageSummary.gptImage2Cost)}</strong></div>
+          <div><span>gpt-image2 Credits</span><strong>${numberText(usageSummary.gptImage2CreditsCost, 2)}</strong></div>
+          <div><span>形象额度触顶用户</span><strong>${numberText(usageSummary.petAvatarQuotaHitUsers)}</strong></div>
+          <div><span>对话额度触顶用户</span><strong>${numberText(usageSummary.petChatQuotaHitUsers)}</strong></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>供应商监控</h2>
+            <div class="section-sub">按 provider 对比 ready、失败和卡住任务</div>
+          </div>
+          ${help('柱状图来自业务任务状态；请求数、成本和 credits 来自 aiUsage 累计字段。')}
+        </div>
+        <div id="aiProviderChart" class="analytics-chart"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>供应商明细</h2>
+          <div class="section-sub">请求、成功失败、成本、额度、任务健康和最近任务</div>
+        </div>
+        ${help('当前启用供应商来自后端 PET_AVATAR_PROVIDER；历史供应商保留是为了排查旧任务和迁移前后的成功率变化。')}
+      </div>
+      ${tableHtml(providerRows, [
+        ['供应商', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.provider)} · ${aiProviderRolePill(row)}</div>`],
+        ['请求 / 成功', (row) => `<div>${numberText(row.requests)} 请求</div><div class="cell-sub">${numberText(row.succeeded)} 成功 · ${numberText(row.failed)} 失败</div>`],
+        ['任务健康', (row) => `<div>${numberText(row.jobCount)} 任务</div><div class="cell-sub">${numberText(row.ready)} ready · ${numberText(row.processing)} 处理中 · ${numberText(row.stuck)} 卡住</div>`],
+        ['成本 / 额度', (row) => `<div>${moneyText(row.cost || 0)}</div><div class="cell-sub">${numberText(row.creditsCost || 0, 2)} credits · ${numberText(row.quota || 0, 2)} quota</div>`],
+        ['质量', (row) => `<div>${percentText(row.successRate)} 成功率</div><div class="cell-sub">平均 ${secondsText(row.averageSeconds)} · ${escapeHtml(row.topErrorCode || '无 Top 错误')}</div>`],
+        ['最近任务', (row) => formatTime(row.latestJobAt)],
+      ], '暂无供应商用量')}
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>Top 错误码</h2>
+            <div class="section-sub">失败任务和状态刷新错误的聚合</div>
+          </div>
+          ${help('错误码用于快速判断是提交失败、上游失败、超时，还是状态查询网络波动。')}
+        </div>
+        ${aiErrorList(topErrors)}
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>数据口径缺口</h2>
+            <div class="section-sub">这些指标还需要后续补上更细事件</div>
+          </div>
+          ${help('这不是当前后台不可用，而是业务状态里还没有足够强的时间戳或成本快照。')}
+        </div>
+        <div class="gap-list">
+          ${(aiUsage.dataGaps || []).map((item) => `<div><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.reason)}</span></div>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
             <h2>运营口径</h2>
-            <div class="section-sub">从任务、反馈和素材一起判断问题来源</div>
+            <div class="section-sub">从任务、反馈、素材、成本和供应商一起判断问题来源</div>
           </div>
         </div>
         <div class="gap-list">
           <div><strong>卡住优先看任务</strong><span>processing 超过 5 分钟未更新，先刷新 provider 状态，再判断是否重试或标记失败。</span></div>
           <div><strong>不像宠物优先看反馈</strong><span>毛色、脸型、表情和不像同一只宠物，都会进入生成反馈，后续可沉淀为提示词样本。</span></div>
           <div><strong>清晰度优先看素材</strong><span>warning 和 blocked 通常来自图片太小、多宠、人物入镜或主体不清晰。</span></div>
+          <div><strong>成本异常看供应商</strong><span>同样任务量下成本或 credits 突增，优先检查 provider 配置、尺寸档位和重试次数。</span></div>
         </div>
       </div>
       <div class="card">
         <div class="section-head">
           <div>
             <h2>下一阶段预留</h2>
-            <div class="section-sub">成本和供应商监控还需要更完整的上游回传</div>
+            <div class="section-sub">保留高权限动作，不在单 admin 第一版贸然开放</div>
           </div>
-          ${help('当前已有请求次数、任务状态和错误信息；若要做成本看板，还需要记录每次调用的价格、模型、尺寸和供应商原始状态。')}
+          ${help('成本和供应商监控已可读；后续高风险动作仍需要更细权限、原因、审计和可能的双人审批。')}
         </div>
         <div class="gap-list">
-          <div><strong>成本估算</strong><span>按 provider、模型、尺寸和成功率统计每只宠物生成成本。</span></div>
-          <div><strong>供应商 SLA</strong><span>记录提交、轮询、完成、失败和超时节点，用于对比 gpt-image-2 和历史供应商。</span></div>
+          <div><strong>完整 SLA</strong><span>记录 submit、queued、running、completed 等上游节点，精确评估供应商耗时。</span></div>
           <div><strong>样本集</strong><span>把已处理反馈沉淀成身份不一致、风格不满意、素材质量差等训练/评估样本。</span></div>
+          <div><strong>供应商切换</strong><span>生产阶段应通过配置中心和灰度策略切换，不直接在任务页一键切 provider。</span></div>
         </div>
       </div>
     </div>
   `;
+  renderAiProviderChart(aiUsage);
 }
 
 async function renderSocialPosts(force) {

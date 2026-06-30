@@ -778,6 +778,30 @@ function adminExportDataset(type) {
         exportColumn('createdAt', '反馈时间', (row) => exportDateText(row.createdAt)),
       ],
     },
+    ai_provider_usage: {
+      description: 'AI 供应商请求、成功失败、成本、额度和任务健康，用于成本复盘和供应商监控。',
+      label: 'AI 供应商用量',
+      rows: () => adminAiUsage().providers,
+      columns: [
+        exportColumn('provider', '供应商'),
+        exportColumn('label', '名称'),
+        exportColumn('roleLabel', '当前角色'),
+        exportColumn('requests', '请求数'),
+        exportColumn('succeeded', '成功数'),
+        exportColumn('failed', '失败数'),
+        exportColumn('quota', '消耗额度'),
+        exportColumn('cost', '成本USD'),
+        exportColumn('creditsCost', 'Credits'),
+        exportColumn('jobCount', '任务数'),
+        exportColumn('ready', 'Ready任务'),
+        exportColumn('processing', '处理中'),
+        exportColumn('stuck', '卡住'),
+        exportColumn('successRate', '成功率'),
+        exportColumn('averageSeconds', '平均耗时秒'),
+        exportColumn('latestJobAt', '最近任务时间', (row) => exportDateText(row.latestJobAt)),
+        exportColumn('topErrorCode', 'Top错误码'),
+      ],
+    },
     moderation_tasks: {
       description: '统一内容安全任务池，覆盖举报、被举报内容、地点点评和新增地点。',
       label: '内容安全任务',
@@ -954,7 +978,7 @@ function adminExportDataset(type) {
 }
 
 function adminExportCatalog() {
-  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
+  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
@@ -8175,6 +8199,7 @@ function analyticsWindow(daysInput) {
       healthVaccines: 0,
       healthWeights: 0,
       label: day.slice(5).replace('-', '/'),
+      medicalRisk: 0,
       moderationTasks: 0,
       newUsers: 0,
       petChatRequests: 0,
@@ -8625,6 +8650,202 @@ function reviewAvatarFeedback(admin, jobId, body = {}, req = null) {
   touchAvatarJob(job);
   writeAdminAudit(admin, 'ai.avatar.feedback.review', 'avatar_job', job.id, before, job.feedback, adminReason(body, '标记 AI 生成反馈已处理'));
   return { item: adminAvatarFeedbackItem(job, req) };
+}
+
+function adminProviderLabel(provider) {
+  if (provider === 'gpt-image-2') return 'GPT Image 2';
+  if (provider === 'ttapi-flux-edits') return 'TTAPI Flux';
+  if (provider === 'ttapi-midjourney') return 'TTAPI Midjourney';
+  if (provider === 'mock') return 'Mock 本地生成';
+  return provider || '未知供应商';
+}
+
+function adminProviderUsageBucket(provider, aiUsage) {
+  if (provider === 'gpt-image-2') {
+    return { ...(createInitialState().aiUsage.gptImage2), ...(aiUsage.gptImage2 || {}) };
+  }
+  if (provider === 'ttapi-flux-edits') {
+    return { ...(createInitialState().aiUsage.ttapiFlux), ...(aiUsage.ttapiFlux || {}) };
+  }
+  if (provider === 'ttapi-midjourney') {
+    return { ...(createInitialState().aiUsage.ttapiMidjourney), ...(aiUsage.ttapiMidjourney || {}) };
+  }
+  return { failed: 0, quota: 0, requests: 0, succeeded: 0 };
+}
+
+function adminProviderRoleLabel(provider) {
+  if (provider === PET_AVATAR_PROVIDER) return '当前启用';
+  if (provider === 'mock') return '兜底/测试';
+  return '历史/备用';
+}
+
+function adminUsageCountForToday(store = {}) {
+  const day = todayUsageKey();
+  const rows = Object.entries(store || {}).filter(([, usage]) => usage?.day === day);
+  return {
+    count: rows.reduce((sum, [, usage]) => sum + Number(usage?.count || 0), 0),
+    users: rows.length,
+  };
+}
+
+function adminQuotaHitCount(store = {}, limit = 0) {
+  const day = todayUsageKey();
+  const normalizedLimit = Math.max(0, Number(limit) || 0);
+  if (!normalizedLimit) return 0;
+  return Object.values(store || {}).filter((usage) => usage?.day === day && Number(usage.count || 0) >= normalizedLimit).length;
+}
+
+function adminErrorCodeRows(jobs) {
+  const map = new Map();
+  jobs
+    .filter((job) => job.status === 'failed' || job.errorCode || job.lastStatusError)
+    .forEach((job) => {
+      const code = String(job.errorCode || (job.lastStatusError ? 'STATUS_REFRESH_ERROR' : 'UNKNOWN')).trim() || 'UNKNOWN';
+      const entry = map.get(code) || {
+        code,
+        count: 0,
+        latestAt: 0,
+        latestMessage: '',
+        providers: new Set(),
+      };
+      entry.count += 1;
+      entry.providers.add(job.provider || 'unknown');
+      const latestAt = analyticsTimeMs(job.updatedAt || job.createdAt);
+      if (latestAt >= entry.latestAt) {
+        entry.latestAt = latestAt;
+        entry.latestMessage = job.errorMessage || job.lastStatusError || '';
+      }
+      map.set(code, entry);
+    });
+  return [...map.values()]
+    .map((entry) => ({
+      code: entry.code,
+      count: entry.count,
+      latestAt: entry.latestAt,
+      latestMessage: entry.latestMessage,
+      providers: [...entry.providers],
+    }))
+    .sort((a, b) => b.count - a.count || b.latestAt - a.latestAt)
+    .slice(0, 8);
+}
+
+function adminAiUsage(options = {}) {
+  const { bucketMap, buckets, days } = analyticsWindow(options.days || 14);
+  const aiUsage = {
+    ...createInitialState().aiUsage,
+    ...(state.aiUsage || {}),
+    deepseek: { ...createInitialState().aiUsage.deepseek, ...(state.aiUsage?.deepseek || {}) },
+    gptImage2: { ...createInitialState().aiUsage.gptImage2, ...(state.aiUsage?.gptImage2 || {}) },
+    ttapiFlux: { ...createInitialState().aiUsage.ttapiFlux, ...(state.aiUsage?.ttapiFlux || {}) },
+    ttapiMidjourney: { ...createInitialState().aiUsage.ttapiMidjourney, ...(state.aiUsage?.ttapiMidjourney || {}) },
+  };
+  const avatarJobs = Object.values(state.avatarJobs || {});
+  const petChatMessages = flattenPetChatMessagesForAnalytics();
+  const petChatRequests = petChatMessages.filter((message) => message.author === 'me');
+  const petChatReplies = petChatMessages.filter((message) => message.author === 'ai');
+  const actionReplies = petChatReplies.filter((message) => message.medicalAlert || message.createdMemo || message.createdWeight || message.updatedVaccine || message.updatedPet);
+  const medicalRisk = petChatReplies.filter((message) => message.medicalAlert);
+
+  avatarJobs.forEach((job) => {
+    incrementAnalyticsBucket(bucketMap, job.createdAt, 'avatarStarted');
+    if (job.status === 'ready') incrementAnalyticsBucket(bucketMap, job.updatedAt || job.createdAt, 'avatarReady');
+    if (job.status === 'failed') incrementAnalyticsBucket(bucketMap, job.updatedAt || job.createdAt, 'avatarFailed');
+  });
+  petChatRequests.forEach((message) => incrementAnalyticsBucket(bucketMap, message.time || message.createdAt, 'petChatRequests'));
+  actionReplies.forEach((message) => incrementAnalyticsBucket(bucketMap, message.time || message.createdAt, 'aiActionRecords'));
+  medicalRisk.forEach((message) => incrementAnalyticsBucket(bucketMap, message.time || message.createdAt, 'medicalRisk'));
+
+  const processing = avatarJobs.filter((job) => job.status === 'processing');
+  const stuck = processing.filter((job) => Date.now() - analyticsTimeMs(job.updatedAt || job.createdAt) > 5 * 60 * 1000);
+  const ready = avatarJobs.filter((job) => job.status === 'ready');
+  const failed = avatarJobs.filter((job) => job.status === 'failed');
+  const avatarDurations = ready.map(analyticsAvatarDurationSeconds).filter((value) => value !== null);
+  const ownerPhones = new Set(avatarJobs.map((job) => job.ownerPhone).filter(Boolean));
+  const errorCodes = adminErrorCodeRows(avatarJobs);
+
+  const providers = ['gpt-image-2', 'ttapi-flux-edits', 'ttapi-midjourney', 'mock']
+    .map((provider) => {
+      const usage = adminProviderUsageBucket(provider, aiUsage);
+      const jobs = avatarJobs.filter((job) => (job.provider || 'mock') === provider);
+      const providerReady = jobs.filter((job) => job.status === 'ready');
+      const providerFailed = jobs.filter((job) => job.status === 'failed');
+      const providerProcessing = jobs.filter((job) => job.status === 'processing');
+      const providerStuck = providerProcessing.filter((job) => Date.now() - analyticsTimeMs(job.updatedAt || job.createdAt) > 5 * 60 * 1000);
+      const durations = providerReady.map(analyticsAvatarDurationSeconds).filter((value) => value !== null);
+      const providerErrors = adminErrorCodeRows(jobs);
+      return {
+        averageSeconds: analyticsAverage(durations),
+        cost: Number(usage.cost || 0),
+        creditsCost: Number(usage.creditsCost || 0),
+        failed: Number(usage.failed || providerFailed.length || 0),
+        jobCount: jobs.length,
+        label: adminProviderLabel(provider),
+        latestJobAt: jobs.map((job) => analyticsTimeMs(job.updatedAt || job.createdAt)).sort((a, b) => b - a)[0] || 0,
+        processing: providerProcessing.length,
+        provider,
+        quota: Number(usage.quota || 0),
+        ready: providerReady.length,
+        requests: Number(usage.requests || jobs.length || 0),
+        roleLabel: adminProviderRoleLabel(provider),
+        stuck: providerStuck.length,
+        succeeded: Number(usage.succeeded || providerReady.length || 0),
+        successRate: analyticsPercent(providerReady.length, providerReady.length + providerFailed.length),
+        topErrorCode: providerErrors[0]?.code || '',
+      };
+    })
+    .filter((provider) => provider.jobCount || provider.requests || provider.provider === PET_AVATAR_PROVIDER);
+
+  const todayAvatarUsage = adminUsageCountForToday(state.petAvatarDailyUsage);
+  const todayPetChatUsage = adminUsageCountForToday(state.petChatDailyUsage);
+  const averageReplyLength = analyticsAverage(petChatReplies.map((message) => String(message.text || '').length));
+  const windowAvatarReady = sumAnalyticsBuckets(buckets, 'avatarReady');
+  const windowAvatarFailed = sumAnalyticsBuckets(buckets, 'avatarFailed');
+  const deepseekRequests = Number(aiUsage.deepseek?.requests || 0);
+  const deepseekTokens = Number(aiUsage.deepseek?.totalTokens || 0);
+  return {
+    buckets,
+    dataGaps: [
+      { label: '今日 AI 成本', reason: '当前 gpt-image2 成本是累计字段，缺少逐次调用时间，不能可靠拆成今日成本。' },
+      { label: '供应商原始 SLA', reason: '当前只持久化业务任务时间，未完整保存 submit / queued / running / completed 每个上游节点。' },
+      { label: 'DeepSeek 单次成本', reason: '当前记录 token 总量，未配置单价和每条消息成本快照。' },
+    ],
+    days,
+    generatedAt: new Date().toISOString(),
+    limits: {
+      petAvatarDailyLimit: effectivePetAvatarDailyLimit(),
+      petChatDailyLimit: effectivePetChatDailyLimit(),
+    },
+    providers,
+    summary: {
+      actionRecords: actionReplies.length,
+      averageReplyLength,
+      avatarAverageSeconds: analyticsAverage(avatarDurations),
+      avatarFailed: failed.length,
+      avatarProcessing: processing.length,
+      avatarReady: ready.length,
+      avatarStarted: avatarJobs.length,
+      avatarStuck: stuck.length,
+      avatarSuccessRate: analyticsPercent(windowAvatarReady, windowAvatarReady + windowAvatarFailed),
+      averageAvatarJobsPerUser: ownerPhones.size ? Math.round((avatarJobs.length / ownerPhones.size) * 10) / 10 : 0,
+      deepseekAverageTokens: deepseekRequests ? Math.round(deepseekTokens / deepseekRequests) : 0,
+      deepseekRequests,
+      deepseekTokens,
+      gptImage2Cost: Number(aiUsage.gptImage2?.cost || 0),
+      gptImage2CreditsCost: Number(aiUsage.gptImage2?.creditsCost || 0),
+      medicalRisk: medicalRisk.length,
+      petAvatarQuotaHitUsers: adminQuotaHitCount(state.petAvatarDailyUsage, effectivePetAvatarDailyLimit()),
+      petChatQuotaHitUsers: adminQuotaHitCount(state.petChatDailyUsage, effectivePetChatDailyLimit()),
+      todayPetAvatarCount: todayAvatarUsage.count,
+      todayPetAvatarUsers: todayAvatarUsage.users,
+      todayPetChatCount: todayPetChatUsage.count,
+      todayPetChatUsers: todayPetChatUsage.users,
+      windowAvatarFailed,
+      windowAvatarReady,
+      windowAvatarStarted: sumAnalyticsBuckets(buckets, 'avatarStarted'),
+      windowPetChatRequests: sumAnalyticsBuckets(buckets, 'petChatRequests'),
+    },
+    topErrors: errorCodes,
+  };
 }
 
 function adminSocialPosts() {
@@ -10542,6 +10763,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/ai/avatar-jobs') {
     ok(res, adminAvatarJobs());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/ai/usage') {
+    ok(res, adminAiUsage({ days: url.searchParams.get('days') || 14 }));
     return true;
   }
 
