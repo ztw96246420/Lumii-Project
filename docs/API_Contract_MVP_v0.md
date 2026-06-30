@@ -1499,6 +1499,14 @@ Request:
 
 ```json
 {
+  "attachments": [
+    {
+      "base64": "可选，图片 base64 或 data URL",
+      "fileName": "screen.png",
+      "mimeType": "image/png",
+      "previewUrl": "本地预览 URL，可选"
+    }
+  ],
   "category": "suggestion",
   "content": "希望补充猫咪体重模板",
   "contact": "可选联系方式"
@@ -1516,14 +1524,157 @@ type FeedbackSubmission = {
   id: string;
   ownerName?: string;
   status: 'closed' | 'received' | 'reviewing';
+  supportTicketId?: string;
 };
 ```
 
 说明：
 - `category` 支持 `bug`、`suggestion`、`safety`、`other`；未知值会落到 `other`。
 - `content` 不能为空，最多 1000 个字。
+- `attachments` 可选，当前用于问题截图；后端最多接收 6 张图片，支持 JPG、PNG、WebP、HEIC/HEIF。
 - 服务端会保存账号归属，返回给 App 的结果不包含手机号。
 - 这不是宠友圈正式举报/拉黑流程；宠友圈动态和评论应优先调用对应 report 接口，拉黑应调用 `/social/blocks`。
+
+### GET `/support/tickets`
+
+读取当前登录用户的反馈工单列表。冻结/封禁用户仍允许读取，便于申诉和客服沟通。
+
+Response data:
+
+```ts
+type SupportTicketList = {
+  summary: {
+    all: number;
+    open: number;
+    waitingUser: number;
+  };
+  tickets: SupportTicketItem[];
+};
+```
+
+### GET `/support/tickets/{ticketId}`
+
+读取单个反馈工单详情，仅允许工单归属用户访问。
+
+Response data:
+
+```ts
+type SupportTicketAttachment = {
+  createdAt?: string;
+  id: string;
+  mediaId?: string;
+  mimeType: string;
+  name: string;
+  previewUrl?: string;
+  sizeBytes?: number;
+  type: 'image';
+  url: string;
+};
+
+type SupportTicketSatisfaction = {
+  comment?: string;
+  createdAt?: string;
+  rating: number;
+  updatedAt?: string;
+};
+
+type SupportTicketItem = {
+  attachmentCount?: number;
+  canRate?: boolean;
+  canReply: boolean;
+  canReopen?: boolean;
+  category: 'bug' | 'other' | 'safety' | 'suggestion';
+  content: string;
+  createdAt: string;
+  id: string;
+  lastActivityAt?: string;
+  latestReply?: string;
+  latestReplyAt?: string;
+  priority: 'high' | 'low' | 'normal' | 'urgent';
+  replyCount: number;
+  reopenCount?: number;
+  satisfaction?: null | SupportTicketSatisfaction;
+  status: 'closed' | 'received' | 'resolved' | 'reviewing' | 'waiting_user';
+  title: string;
+  updatedAt?: string;
+};
+
+type SupportTicketMessage = {
+  attachments?: SupportTicketAttachment[];
+  author: 'support' | 'user';
+  authorName: string;
+  content: string;
+  createdAt: string;
+  id: string;
+  type: 'feedback' | 'reopen' | 'support_reply' | 'user_reply';
+};
+
+type SupportTicketDetail = SupportTicketItem & {
+  attachments?: SupportTicketAttachment[];
+  messages: SupportTicketMessage[];
+};
+```
+
+### POST `/support/tickets/{ticketId}/reply`
+
+用户在未关闭工单中补充文字或截图。补充成功后工单状态回到 `reviewing`。
+
+Request:
+
+```json
+{
+  "attachments": [
+    {
+      "base64": "可选，图片 base64 或 data URL",
+      "fileName": "screen.png",
+      "mimeType": "image/png",
+      "previewUrl": "本地预览 URL，可选"
+    }
+  ],
+  "content": "补充说明"
+}
+```
+
+说明：
+- `content` 最多 1000 个字。
+- `content` 和 `attachments` 至少提供一个。
+- 工单为 `closed` 或 `resolved` 时不能继续补充，应使用 reopen 接口。
+
+### POST `/support/tickets/{ticketId}/rate`
+
+用户在 `closed` 或 `resolved` 工单上提交满意度。
+
+Request:
+
+```json
+{
+  "comment": "可选说明",
+  "rating": 5
+}
+```
+
+说明：
+- `rating` 为 1-5 的整数。
+- `comment` 最多 400 个字。
+- 返回 `SupportTicketDetail`。
+
+### POST `/support/tickets/{ticketId}/reopen`
+
+用户在 `closed` 或 `resolved` 工单上重新打开原工单。重开后状态回到 `reviewing`，不会创建新工单。
+
+Request:
+
+```json
+{
+  "attachments": [],
+  "content": "问题还没有解决，补充一下新截图"
+}
+```
+
+说明：
+- `content` 最多 1000 个字。
+- `content` 和 `attachments` 至少提供一个。
+- 返回 `SupportTicketDetail`。
 
 ## 10. 合规静态文本
 

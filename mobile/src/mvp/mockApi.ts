@@ -47,6 +47,7 @@ import type {
   SocialBlockListItem,
   SocialBlockResult,
   SmsCodeTicket,
+  SupportTicketAttachmentDraft,
   SupportTicketDetail,
   SupportTicketItem,
   SupportTicketList,
@@ -1475,10 +1476,28 @@ function supportTicketTitle(category: FeedbackCategory) {
   return `${labels[category] ?? '用户反馈'} · ${mockOwnerName || '灵伴用户'}`;
 }
 
+function mockSupportTicketAttachments(attachments: SupportTicketAttachmentDraft[] = []) {
+  return attachments.slice(0, 3).map((attachment, index) => ({
+    createdAt: new Date().toISOString(),
+    id: `mock-support-attachment-${Date.now()}-${index}`,
+    mediaId: '',
+    mimeType: attachment.mimeType || 'image/jpeg',
+    name: attachment.name || attachment.fileName || `截图 ${index + 1}`,
+    previewUrl: attachment.previewUrl || '',
+    sizeBytes: 0,
+    type: 'image' as const,
+    url: attachment.previewUrl || '',
+  })).filter((attachment) => attachment.url);
+}
+
 function publicSupportTicketItem(ticket: SupportTicketDetail): SupportTicketItem {
   const latestSupportMessage = [...ticket.messages].reverse().find((message) => message.author === 'support');
+  const attachmentCount = ticket.messages.reduce((total, message) => total + (message.attachments?.length ?? 0), 0);
   return {
+    attachmentCount,
+    canRate: ticket.status === 'closed' || ticket.status === 'resolved',
     canReply: ticket.status !== 'closed' && ticket.status !== 'resolved',
+    canReopen: ticket.status === 'closed' || ticket.status === 'resolved',
     category: ticket.category,
     content: ticket.content,
     createdAt: ticket.createdAt,
@@ -1488,6 +1507,8 @@ function publicSupportTicketItem(ticket: SupportTicketDetail): SupportTicketItem
     latestReplyAt: latestSupportMessage?.createdAt ?? '',
     priority: ticket.priority,
     replyCount: ticket.messages.length > 0 ? ticket.messages.length - 1 : 0,
+    reopenCount: ticket.reopenCount ?? ticket.messages.filter((message) => message.type === 'reopen').length,
+    satisfaction: ticket.satisfaction ?? null,
     status: ticket.status,
     title: ticket.title,
     updatedAt: ticket.updatedAt,
@@ -1516,7 +1537,10 @@ function createMockSupportTicket(feedback: FeedbackSubmission): SupportTicketDet
     type: 'feedback',
   };
   const ticket: SupportTicketDetail = {
+    attachmentCount: 0,
+    canRate: false,
     canReply: true,
+    canReopen: false,
     category: feedback.category,
     content: feedback.content,
     createdAt: feedback.createdAt,
@@ -1527,6 +1551,8 @@ function createMockSupportTicket(feedback: FeedbackSubmission): SupportTicketDet
     messages: [message],
     priority: supportTicketStatusLabelPriority(feedback.category),
     replyCount: 0,
+    reopenCount: 0,
+    satisfaction: null,
     status: 'received',
     title: supportTicketTitle(feedback.category),
     updatedAt: feedback.createdAt,
@@ -2116,15 +2142,60 @@ export const mockApi = {
       return success(buildSupportTicketList());
     },
 
-    async replyTicket(ticketId: string, content: string): Promise<ApiResult<SupportTicketDetail>> {
+    async rateTicket(ticketId: string, rating: number, comment = ''): Promise<ApiResult<SupportTicketDetail>> {
+      await wait(120);
+      const ticket = supportTickets.find((item) => item.id === ticketId);
+      if (!ticket) return error<SupportTicketDetail>('工单不存在或已失效', false, undefined, 'RESOURCE_NOT_FOUND');
+      if (ticket.status !== 'closed' && ticket.status !== 'resolved') return error('工单结束处理后才能评价', false);
+      if (rating < 1 || rating > 5) return error('请选择 1-5 分满意度', false);
+      const now = new Date().toISOString();
+      ticket.satisfaction = {
+        comment: comment.trim(),
+        createdAt: ticket.satisfaction?.createdAt || now,
+        rating,
+        updatedAt: now,
+      };
+      ticket.updatedAt = now;
+      return success({ ...ticket, ...publicSupportTicketItem(ticket) });
+    },
+
+    async reopenTicket(ticketId: string, content: string, attachments: SupportTicketAttachmentDraft[] = []): Promise<ApiResult<SupportTicketDetail>> {
+      await wait(140);
+      const cleanContent = content.trim();
+      const ticket = supportTickets.find((item) => item.id === ticketId);
+      if (!ticket) return error<SupportTicketDetail>('工单不存在或已失效', false, undefined, 'RESOURCE_NOT_FOUND');
+      if (ticket.status !== 'closed' && ticket.status !== 'resolved') return error('当前工单还在处理中，不需要重新打开', false);
+      const parsedAttachments = mockSupportTicketAttachments(attachments);
+      if (!cleanContent && !parsedAttachments.length) return error('请填写需要继续处理的问题或添加截图', false);
+      if (cleanContent.length > 1000) return error('重开说明最多 1000 个字', false);
+      const message: SupportTicketMessage = {
+        attachments: parsedAttachments,
+        author: 'user',
+        authorName: '我',
+        content: cleanContent,
+        createdAt: new Date().toISOString(),
+        id: `ticket-reopen-${Date.now()}`,
+        type: 'reopen',
+      };
+      ticket.messages = [...ticket.messages, message];
+      ticket.status = 'reviewing';
+      ticket.updatedAt = message.createdAt;
+      ticket.lastActivityAt = message.createdAt;
+      ticket.reopenCount = (ticket.reopenCount ?? 0) + 1;
+      return success({ ...ticket, ...publicSupportTicketItem(ticket) });
+    },
+
+    async replyTicket(ticketId: string, content: string, attachments: SupportTicketAttachmentDraft[] = []): Promise<ApiResult<SupportTicketDetail>> {
       await wait(120);
       const cleanContent = content.trim();
-      if (!cleanContent) return error('请填写补充内容', false);
       if (cleanContent.length > 1000) return error('补充内容最多 1000 个字', false);
       const ticket = supportTickets.find((item) => item.id === ticketId);
       if (!ticket) return error<SupportTicketDetail>('工单不存在或已失效', false, undefined, 'RESOURCE_NOT_FOUND');
       if (ticket.status === 'closed' || ticket.status === 'resolved') return error('工单已关闭，不能继续补充', false);
+      const parsedAttachments = mockSupportTicketAttachments(attachments);
+      if (!cleanContent && !parsedAttachments.length) return error('请填写补充内容或添加截图', false);
       const message: SupportTicketMessage = {
+        attachments: parsedAttachments,
         author: 'user',
         authorName: '我',
         content: cleanContent,

@@ -136,6 +136,7 @@ import type {
   SanctionAppealItem,
   SocialBlockListItem,
   SmsCodeTicket,
+  SupportTicketAttachment,
   SupportTicketDetail,
   SupportTicketItem,
   SupportTicketMessage,
@@ -785,6 +786,7 @@ const webPreviewAvatarJob: AvatarJob = {
   status: 'ready',
 };
 const avatarUploadMaxBytes = 9 * 1024 * 1024;
+const supportTicketAttachmentDraftLimit = 3;
 const supportedAvatarMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
 
 function getWebPreviewParam(key: string) {
@@ -2379,8 +2381,15 @@ export default function LumiiMvpApp() {
   const [selectedSupportTicketId, setSelectedSupportTicketId] = useState('');
   const [supportTicketDetail, setSupportTicketDetail] = useState<SupportTicketDetail | null>(null);
   const [supportTicketDetailLoading, setSupportTicketDetailLoading] = useState(false);
+  const [supportTicketAttachmentDrafts, setSupportTicketAttachmentDrafts] = useState<LocalImageUploadDraft[]>([]);
+  const [supportTicketAttachmentPicking, setSupportTicketAttachmentPicking] = useState(false);
+  const [supportTicketRatingSending, setSupportTicketRatingSending] = useState(false);
   const [supportTicketReplyDraft, setSupportTicketReplyDraft] = useState('');
   const [supportTicketReplySending, setSupportTicketReplySending] = useState(false);
+  const [supportTicketReopenDraft, setSupportTicketReopenDraft] = useState('');
+  const [supportTicketReopenSending, setSupportTicketReopenSending] = useState(false);
+  const [supportTicketSatisfactionComment, setSupportTicketSatisfactionComment] = useState('');
+  const [supportTicketSatisfactionDraft, setSupportTicketSatisfactionDraft] = useState(0);
   const [places, setPlaces] = useState<Place[]>([]);
   const [placeQuery, setPlaceQuery] = useState('');
   const placeQueryRef = useRef('');
@@ -4172,32 +4181,89 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function resetSupportTicketDrafts() {
+    setSupportTicketAttachmentDrafts([]);
+    setSupportTicketRatingSending(false);
+    setSupportTicketReplyDraft('');
+    setSupportTicketReplySending(false);
+    setSupportTicketReopenDraft('');
+    setSupportTicketReopenSending(false);
+    setSupportTicketSatisfactionComment('');
+    setSupportTicketSatisfactionDraft(0);
+  }
+
   function openSupportTickets(ticketId = '') {
     setSelectedSupportTicketId(ticketId);
+    resetSupportTicketDrafts();
     if (!ticketId) {
       setSupportTicketDetail(null);
-      setSupportTicketReplyDraft('');
     }
     go('supportTickets');
     void loadSupportTickets({ silent: true });
     if (ticketId) void loadSupportTicketDetail(ticketId, { silent: false });
   }
 
+  function supportTicketAttachmentPayload() {
+    return supportTicketAttachmentDrafts.map((draft) => ({
+      base64: draft.base64,
+      fileName: draft.fileName,
+      mimeType: draft.mimeType,
+      name: draft.fileName,
+      previewUrl: draft.uri,
+    }));
+  }
+
+  async function pickSupportTicketAttachment() {
+    if (supportTicketAttachmentPicking) return;
+    if (supportTicketAttachmentDrafts.length >= supportTicketAttachmentDraftLimit) {
+      showToast(`最多添加 ${supportTicketAttachmentDraftLimit} 张截图`, { tone: 'warning', variant: 'surface' });
+      return;
+    }
+    setSupportTicketAttachmentPicking(true);
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        showToast('请先允许访问相册', { tone: 'warning', variant: 'surface' });
+        return;
+      }
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        allowsMultipleSelection: true,
+        base64: true,
+        mediaTypes: ['images'],
+        quality: 0.78,
+        selectionLimit: Math.max(1, supportTicketAttachmentDraftLimit - supportTicketAttachmentDrafts.length),
+      });
+      if (pickerResult.canceled || !pickerResult.assets?.length) return;
+      const parsedDrafts = pickerResult.assets.map((asset) => buildDailyPostPhotoDraft(asset, 'library'));
+      const nextDrafts = parsedDrafts.map((item) => item.draft).filter(Boolean) as LocalImageUploadDraft[];
+      if (!nextDrafts.length) {
+        showToast(parsedDrafts.find((item) => item.error)?.error ?? '没有读取到可用截图，请重新选择', { tone: 'warning', variant: 'surface' });
+        return;
+      }
+      setSupportTicketAttachmentDrafts((items) => [...items, ...nextDrafts].slice(0, supportTicketAttachmentDraftLimit));
+      showToast(`已添加 ${nextDrafts.length} 张截图`, { tone: 'success', variant: 'surface' });
+    } finally {
+      setSupportTicketAttachmentPicking(false);
+    }
+  }
+
   async function submitSupportTicketReply() {
     const ticketId = selectedSupportTicketId || supportTicketDetail?.id || '';
     const content = supportTicketReplyDraft.trim();
     if (!ticketId || supportTicketReplySending) return;
-    if (!content) {
-      showToast('请先填写补充内容', { tone: 'warning', variant: 'surface' });
+    const attachments = supportTicketAttachmentPayload();
+    if (!content && !attachments.length) {
+      showToast('请先填写补充内容或添加截图', { tone: 'warning', variant: 'surface' });
       return;
     }
     const requestSessionToken = sessionTokenRef.current;
     setSupportTicketReplySending(true);
     try {
-      const result = await lumiiApi.support.replyTicket(ticketId, content);
+      const result = await lumiiApi.support.replyTicket(ticketId, content, attachments);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setSupportTicketDetail(result.data);
+        setSupportTicketAttachmentDrafts([]);
         setSupportTicketReplyDraft('');
         setSupportTickets((items) => items.map((item) => (item.id === result.data!.id ? result.data! : item)));
         void loadSupportTickets({ silent: true });
@@ -4207,6 +4273,62 @@ export default function LumiiMvpApp() {
       }
     } finally {
       setSupportTicketReplySending(false);
+    }
+  }
+
+  async function rateSupportTicket(rating?: number) {
+    const ticketId = selectedSupportTicketId || supportTicketDetail?.id || '';
+    const finalRating = rating || supportTicketSatisfactionDraft;
+    if (!ticketId || supportTicketRatingSending) return;
+    if (finalRating < 1 || finalRating > 5) {
+      showToast('请选择满意度评分', { tone: 'warning', variant: 'surface' });
+      return;
+    }
+    const requestSessionToken = sessionTokenRef.current;
+    setSupportTicketRatingSending(true);
+    try {
+      const result = await lumiiApi.support.rateTicket(ticketId, finalRating, supportTicketSatisfactionComment.trim());
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (result.data) {
+        setSupportTicketDetail(result.data);
+        setSupportTicketSatisfactionComment('');
+        setSupportTicketSatisfactionDraft(0);
+        setSupportTickets((items) => items.map((item) => (item.id === result.data!.id ? result.data! : item)));
+        showToast('评价已提交', { tone: 'success', variant: 'surface' });
+      } else {
+        showToast(result.error?.message ?? '评价提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
+      }
+    } finally {
+      setSupportTicketRatingSending(false);
+    }
+  }
+
+  async function reopenSupportTicket() {
+    const ticketId = selectedSupportTicketId || supportTicketDetail?.id || '';
+    const content = supportTicketReopenDraft.trim();
+    const attachments = supportTicketAttachmentPayload();
+    if (!ticketId || supportTicketReopenSending) return;
+    if (!content && !attachments.length) {
+      showToast('请填写还需要继续处理的问题或添加截图', { tone: 'warning', variant: 'surface' });
+      return;
+    }
+    const requestSessionToken = sessionTokenRef.current;
+    setSupportTicketReopenSending(true);
+    try {
+      const result = await lumiiApi.support.reopenTicket(ticketId, content, attachments);
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (result.data) {
+        setSupportTicketDetail(result.data);
+        setSupportTicketAttachmentDrafts([]);
+        setSupportTicketReopenDraft('');
+        setSupportTickets((items) => items.map((item) => (item.id === result.data!.id ? result.data! : item)));
+        void loadSupportTickets({ silent: true });
+        showToast('工单已重新打开', { subtitle: '客服会继续在原工单中处理', tone: 'success', variant: 'surface' });
+      } else {
+        showToast(result.error?.message ?? '重新打开失败，请稍后重试', { tone: 'error', variant: 'surface' });
+      }
+    } finally {
+      setSupportTicketReopenSending(false);
     }
   }
 
@@ -8300,8 +8422,7 @@ export default function LumiiMvpApp() {
     setSelectedSupportTicketId('');
     setSupportTicketDetail(null);
     setSupportTicketDetailLoading(false);
-    setSupportTicketReplyDraft('');
-    setSupportTicketReplySending(false);
+    resetSupportTicketDrafts();
     discoverRequestSeqRef.current += 1;
     applyNearbyOwners([]);
     setNearbyMoments([]);
@@ -14464,6 +14585,58 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function supportTicketAttachmentUrl(attachment: SupportTicketAttachment) {
+    const rawUrl = String(attachment.previewUrl || attachment.url || '').trim();
+    if (!rawUrl) return '';
+    if (/^(https?:|file:|content:|data:)/i.test(rawUrl)) return rawUrl;
+    if (rawUrl.startsWith('/')) return `${apiConfig.baseUrl.replace(/\/+$/, '')}${rawUrl}`;
+    return rawUrl;
+  }
+
+  function renderSupportTicketAttachments(attachments?: SupportTicketAttachment[], mine = false) {
+    const rows = (attachments || []).filter((item) => supportTicketAttachmentUrl(item));
+    if (!rows.length) return null;
+    return (
+      <View style={[styles.supportTicketAttachmentGridMake, mine && styles.supportTicketAttachmentGridMineMake]}>
+        {rows.map((attachment) => {
+          const uri = supportTicketAttachmentUrl(attachment);
+          return (
+            <Pressable
+              accessibilityRole="imagebutton"
+              key={attachment.id || uri}
+              onPress={() => {
+                if (/^https?:/i.test(uri)) Linking.openURL(uri).catch(() => undefined);
+              }}
+              style={[styles.supportTicketAttachmentThumbMake, mine && styles.supportTicketAttachmentThumbMineMake, webPressableReset]}
+            >
+              <Image source={{ uri }} style={styles.supportTicketAttachmentImageMake} />
+            </Pressable>
+          );
+        })}
+      </View>
+    );
+  }
+
+  function renderSupportTicketAttachmentDrafts() {
+    if (!supportTicketAttachmentDrafts.length) return null;
+    return (
+      <View style={styles.supportTicketDraftGridMake}>
+        {supportTicketAttachmentDrafts.map((draft) => (
+          <View key={draft.uri} style={styles.supportTicketDraftThumbMake}>
+            <Image source={{ uri: draft.uri }} style={styles.supportTicketAttachmentImageMake} />
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setSupportTicketAttachmentDrafts((items) => items.filter((item) => item.uri !== draft.uri))}
+              style={[styles.supportTicketDraftRemoveMake, webPressableReset]}
+            >
+              <X color="#fff" size={11} strokeWidth={3} />
+            </Pressable>
+          </View>
+        ))}
+      </View>
+    );
+  }
+
   function renderSupportTicketMessage(message: SupportTicketMessage) {
     const mine = message.author === 'user';
     return (
@@ -14474,7 +14647,8 @@ export default function LumiiMvpApp() {
             <Text style={[styles.supportTicketMessageAuthorMake, mine && styles.supportTicketMessageAuthorMineMake]}>{message.authorName}</Text>
             <Text style={[styles.supportTicketMessageTimeMake, mine && styles.supportTicketMessageTimeMineMake]}>{formatSupportTicketTime(message.createdAt)}</Text>
           </View>
-          <Text style={[styles.supportTicketMessageTextMake, mine && styles.supportTicketMessageTextMineMake]}>{message.content}</Text>
+          {message.content ? <Text style={[styles.supportTicketMessageTextMake, mine && styles.supportTicketMessageTextMineMake]}>{message.content}</Text> : null}
+          {renderSupportTicketAttachments(message.attachments, mine)}
         </View>
       </View>
     );
@@ -14488,7 +14662,11 @@ export default function LumiiMvpApp() {
       waitingUser: supportTickets.filter((ticket) => ticket.status === 'waiting_user').length,
     };
     const replyLength = supportTicketReplyDraft.trim().length;
-    const canSendReply = Boolean(selectedTicket?.canReply && replyLength > 0 && replyLength <= 1000 && !supportTicketReplySending);
+    const attachmentDraftCount = supportTicketAttachmentDrafts.length;
+    const reopenLength = supportTicketReopenDraft.trim().length;
+    const canSendReply = Boolean(selectedTicket?.canReply && (replyLength > 0 || attachmentDraftCount > 0) && replyLength <= 1000 && !supportTicketReplySending);
+    const canSubmitRating = Boolean(selectedTicket?.canRate && !selectedTicket.satisfaction?.rating && supportTicketSatisfactionDraft >= 1 && supportTicketSatisfactionDraft <= 5 && !supportTicketRatingSending);
+    const canSubmitReopen = Boolean(selectedTicket?.canReopen && (reopenLength > 0 || attachmentDraftCount > 0) && reopenLength <= 1000 && !supportTicketReopenSending);
 
     if (selectedSupportTicketId) {
       return (
@@ -14506,7 +14684,7 @@ export default function LumiiMvpApp() {
               onPress={() => {
                 setSelectedSupportTicketId('');
                 setSupportTicketDetail(null);
-                setSupportTicketReplyDraft('');
+                resetSupportTicketDrafts();
               }}
               style={[styles.supportTicketBackToListMake, webPressableReset]}
             >
@@ -14526,7 +14704,10 @@ export default function LumiiMvpApp() {
                 action="返回列表"
                 description="这条反馈可能已更新，请回到我的反馈重新进入。"
                 icon={<Mail color={palette.muted} size={26} strokeWidth={2.4} />}
-                onAction={() => setSelectedSupportTicketId('')}
+                onAction={() => {
+                  setSelectedSupportTicketId('');
+                  resetSupportTicketDrafts();
+                }}
                 title="反馈详情暂不可见"
               />
             ) : null}
@@ -14547,7 +14728,7 @@ export default function LumiiMvpApp() {
                   <Text style={styles.supportTicketDetailContentMake}>{selectedTicket.content}</Text>
                   <View style={styles.supportTicketDetailMetaMake}>
                     <Text style={styles.supportTicketMetaTextMake}>最近更新 {formatTimestampDisplay(selectedTicket.lastActivityAt || selectedTicket.updatedAt)}</Text>
-                    <Text style={styles.supportTicketMetaTextMake}>{selectedTicket.replyCount} 条进度</Text>
+                    <Text style={styles.supportTicketMetaTextMake}>{selectedTicket.replyCount} 条进度{selectedTicket.attachmentCount ? ` · ${selectedTicket.attachmentCount} 张附件` : ''}</Text>
                   </View>
                 </View>
 
@@ -14572,8 +14753,20 @@ export default function LumiiMvpApp() {
                       textAlignVertical="top"
                       value={supportTicketReplyDraft}
                     />
+                    {renderSupportTicketAttachmentDrafts()}
                     <View style={styles.supportTicketComposerFooterMake}>
-                      <Text style={[styles.supportTicketComposerCounterMake, replyLength > 1000 && styles.fieldHintError]}>{replyLength}/1000</Text>
+                      <View style={styles.supportTicketComposerLeftMake}>
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={supportTicketAttachmentPicking || attachmentDraftCount >= supportTicketAttachmentDraftLimit}
+                          onPress={() => void pickSupportTicketAttachment()}
+                          style={[styles.supportTicketAttachButtonMake, (supportTicketAttachmentPicking || attachmentDraftCount >= supportTicketAttachmentDraftLimit) && styles.supportTicketComposerButtonDisabledMake, webPressableReset]}
+                        >
+                          {supportTicketAttachmentPicking ? <ActivityIndicator color={palette.orange} size="small" /> : <ImagePlus color={palette.orange} size={14} strokeWidth={2.5} />}
+                          <Text style={styles.supportTicketAttachButtonTextMake}>截图 {attachmentDraftCount}/{supportTicketAttachmentDraftLimit}</Text>
+                        </Pressable>
+                        <Text style={[styles.supportTicketComposerCounterMake, replyLength > 1000 && styles.fieldHintError]}>{replyLength}/1000</Text>
+                      </View>
                       <Pressable
                         accessibilityRole="button"
                         disabled={!canSendReply}
@@ -14586,9 +14779,87 @@ export default function LumiiMvpApp() {
                     </View>
                   </View>
                 ) : (
-                  <View style={styles.supportTicketClosedNoteMake}>
-                    <ShieldCheck color={palette.teal} size={17} strokeWidth={2.4} />
-                    <Text style={styles.supportTicketClosedNoteTextMake}>这条反馈已结束处理，如仍需帮助，请重新提交一条反馈。</Text>
+                  <View style={styles.supportTicketClosedPanelMake}>
+                    <View style={styles.supportTicketClosedNoteMake}>
+                      <ShieldCheck color={palette.teal} size={17} strokeWidth={2.4} />
+                      <Text style={styles.supportTicketClosedNoteTextMake}>这条反馈已结束处理，你可以评价本次处理；如果问题还没解决，也可以重新打开原工单。</Text>
+                    </View>
+                    {selectedTicket.satisfaction?.rating ? (
+                      <View style={styles.supportTicketRatingResultMake}>
+                        <Text style={styles.supportTicketClosedTitleMake}>已评价 {selectedTicket.satisfaction.rating}/5</Text>
+                        {selectedTicket.satisfaction.comment ? <Text style={styles.supportTicketClosedSubMake}>{selectedTicket.satisfaction.comment}</Text> : null}
+                      </View>
+                    ) : (
+                      <View style={styles.supportTicketRatingBoxMake}>
+                        <Text style={styles.supportTicketClosedTitleMake}>本次处理满意吗</Text>
+                        <View style={styles.supportTicketStarRowMake}>
+                          {[1, 2, 3, 4, 5].map((rating) => (
+                            <Pressable
+                              accessibilityRole="button"
+                              key={rating}
+                              onPress={() => setSupportTicketSatisfactionDraft(rating)}
+                              style={[styles.supportTicketStarButtonMake, supportTicketSatisfactionDraft >= rating && styles.supportTicketStarButtonActiveMake, webPressableReset]}
+                            >
+                              <Star color={supportTicketSatisfactionDraft >= rating ? '#fff' : palette.orange} fill={supportTicketSatisfactionDraft >= rating ? '#fff' : 'transparent'} size={15} strokeWidth={2.4} />
+                            </Pressable>
+                          ))}
+                        </View>
+                        <TextInput
+                          multiline
+                          onChangeText={setSupportTicketSatisfactionComment}
+                          placeholder="可选：补充一点评价说明"
+                          placeholderTextColor="#B8B3A8"
+                          style={[styles.supportTicketClosedInputMake, webTextInputReset]}
+                          textAlignVertical="top"
+                          value={supportTicketSatisfactionComment}
+                        />
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={!canSubmitRating}
+                          onPress={() => void rateSupportTicket()}
+                          style={[styles.supportTicketComposerButtonMake, !canSubmitRating && styles.supportTicketComposerButtonDisabledMake, webPressableReset]}
+                        >
+                          {supportTicketRatingSending ? <ActivityIndicator color="#fff" size="small" /> : <Star color="#fff" size={14} strokeWidth={2.5} />}
+                          <Text style={styles.supportTicketComposerButtonTextMake}>提交评价</Text>
+                        </Pressable>
+                      </View>
+                    )}
+                    <View style={styles.supportTicketReopenBoxMake}>
+                      <Text style={styles.supportTicketClosedTitleMake}>需要继续处理</Text>
+                      <TextInput
+                        multiline
+                        onChangeText={setSupportTicketReopenDraft}
+                        placeholder="说明还没解决的问题，也可以继续添加截图"
+                        placeholderTextColor="#B8B3A8"
+                        style={[styles.supportTicketClosedInputMake, reopenLength > 1000 && styles.makeTextInputError, webTextInputReset]}
+                        textAlignVertical="top"
+                        value={supportTicketReopenDraft}
+                      />
+                      {renderSupportTicketAttachmentDrafts()}
+                      <View style={styles.supportTicketComposerFooterMake}>
+                        <View style={styles.supportTicketComposerLeftMake}>
+                          <Pressable
+                            accessibilityRole="button"
+                            disabled={supportTicketAttachmentPicking || attachmentDraftCount >= supportTicketAttachmentDraftLimit}
+                            onPress={() => void pickSupportTicketAttachment()}
+                            style={[styles.supportTicketAttachButtonMake, (supportTicketAttachmentPicking || attachmentDraftCount >= supportTicketAttachmentDraftLimit) && styles.supportTicketComposerButtonDisabledMake, webPressableReset]}
+                          >
+                            {supportTicketAttachmentPicking ? <ActivityIndicator color={palette.orange} size="small" /> : <ImagePlus color={palette.orange} size={14} strokeWidth={2.5} />}
+                            <Text style={styles.supportTicketAttachButtonTextMake}>截图 {attachmentDraftCount}/{supportTicketAttachmentDraftLimit}</Text>
+                          </Pressable>
+                          <Text style={[styles.supportTicketComposerCounterMake, reopenLength > 1000 && styles.fieldHintError]}>{reopenLength}/1000</Text>
+                        </View>
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={!canSubmitReopen}
+                          onPress={() => void reopenSupportTicket()}
+                          style={[styles.supportTicketComposerButtonMake, !canSubmitReopen && styles.supportTicketComposerButtonDisabledMake, webPressableReset]}
+                        >
+                          {supportTicketReopenSending ? <ActivityIndicator color="#fff" size="small" /> : <RefreshCw color="#fff" size={14} strokeWidth={2.5} />}
+                          <Text style={styles.supportTicketComposerButtonTextMake}>重新打开</Text>
+                        </Pressable>
+                      </View>
+                    </View>
                   </View>
                 )}
               </>
@@ -14667,7 +14938,7 @@ export default function LumiiMvpApp() {
                 onPress={() => {
                   setSelectedSupportTicketId(ticket.id);
                   setSupportTicketDetail(null);
-                  setSupportTicketReplyDraft('');
+                  resetSupportTicketDrafts();
                   void loadSupportTicketDetail(ticket.id, { silent: false });
                 }}
                 style={[styles.supportTicketCardMake, webPressableReset]}
@@ -14687,6 +14958,9 @@ export default function LumiiMvpApp() {
                   <Text style={styles.supportTicketMetaTextMake}>{formatTimestampDisplay(ticket.lastActivityAt || ticket.updatedAt || ticket.createdAt)}</Text>
                   <View style={styles.supportTicketCardRightMake}>
                     <Text style={styles.supportTicketMetaTextMake}>{ticket.replyCount} 条进度</Text>
+                    {ticket.attachmentCount ? <Text style={styles.supportTicketMetaTextMake}>· {ticket.attachmentCount} 张附件</Text> : null}
+                    {ticket.reopenCount ? <Text style={styles.supportTicketMetaTextMake}>· 重开 {ticket.reopenCount}</Text> : null}
+                    {ticket.satisfaction?.rating ? <Text style={styles.supportTicketMetaTextMake}>· 已评价</Text> : null}
                     <ChevronRight color={palette.muted} size={15} strokeWidth={2.3} />
                   </View>
                 </View>
@@ -17952,19 +18226,31 @@ const styles = StyleSheet.create({
   notificationUnreadDotMake: { backgroundColor: palette.orange, borderRadius: 4, flexShrink: 0, height: 8, marginTop: 5, width: 8 },
   supportTicketBackToListMake: { alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: 4, marginBottom: -2, paddingHorizontal: 2, paddingVertical: 2 },
   supportTicketBackToListTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', lineHeight: 17 },
+  supportTicketAttachmentGridMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 2 },
+  supportTicketAttachmentGridMineMake: { justifyContent: 'flex-end' },
+  supportTicketAttachmentImageMake: { height: '100%', width: '100%' },
+  supportTicketAttachmentThumbMake: { backgroundColor: '#F7F3EC', borderColor: palette.border, borderRadius: 10, borderWidth: 1, height: 72, overflow: 'hidden', width: 72 },
+  supportTicketAttachmentThumbMineMake: { borderColor: 'rgba(255,255,255,0.62)' },
+  supportTicketAttachButtonMake: { alignItems: 'center', backgroundColor: 'rgba(255,138,92,0.10)', borderColor: 'rgba(255,138,92,0.24)', borderRadius: 13, borderWidth: 1, flexDirection: 'row', gap: 5, minHeight: 32, paddingHorizontal: 10 },
+  supportTicketAttachButtonTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '800' },
   supportTicketCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, gap: 9, paddingHorizontal: 14, paddingVertical: 13, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.05, shadowRadius: 18 },
   supportTicketCardMetaMake: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', minHeight: 20 },
-  supportTicketCardRightMake: { alignItems: 'center', flexDirection: 'row', gap: 4 },
+  supportTicketCardRightMake: { alignItems: 'center', flexDirection: 'row', flexShrink: 1, flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end' },
   supportTicketCardTopMake: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'space-between' },
   supportTicketCategoryMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '800', lineHeight: 19, minWidth: 0 },
+  supportTicketClosedInputMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 19, minHeight: 76, paddingHorizontal: 12, paddingVertical: 10 },
   supportTicketClosedNoteMake: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.10)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, paddingHorizontal: 13, paddingVertical: 12 },
+  supportTicketClosedPanelMake: { gap: 11 },
+  supportTicketClosedSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18 },
   supportTicketClosedNoteTextMake: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18 },
+  supportTicketClosedTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '800', lineHeight: 19 },
   supportTicketComposerButtonDisabledMake: { opacity: 0.45 },
   supportTicketComposerButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 15, flexDirection: 'row', gap: 6, minHeight: 36, justifyContent: 'center', paddingHorizontal: 14 },
   supportTicketComposerButtonTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '800' },
   supportTicketComposerCounterMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
   supportTicketComposerFooterMake: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   supportTicketComposerInputMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, color: palette.ink, fontFamily: appFontFamily, fontSize: 13.5, fontWeight: '500', lineHeight: 20, minHeight: 104, paddingHorizontal: 13, paddingVertical: 11 },
+  supportTicketComposerLeftMake: { alignItems: 'center', flexDirection: 'row', flexShrink: 1, gap: 8 },
   supportTicketComposerMake: { gap: 9 },
   supportTicketContentMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 20 },
   supportTicketDetailCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 12, padding: 15, shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.05, shadowRadius: 18 },
@@ -17974,6 +18260,9 @@ const styles = StyleSheet.create({
   supportTicketDetailSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 16, marginTop: 2 },
   supportTicketDetailTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15.5, fontWeight: '800', lineHeight: 21 },
   supportTicketDetailTopMake: { alignItems: 'center', flexDirection: 'row', gap: 10 },
+  supportTicketDraftGridMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  supportTicketDraftRemoveMake: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.58)', borderRadius: 999, height: 20, justifyContent: 'center', position: 'absolute', right: 4, top: 4, width: 20 },
+  supportTicketDraftThumbMake: { backgroundColor: '#F7F3EC', borderColor: palette.border, borderRadius: 12, borderWidth: 1, height: 76, overflow: 'hidden', width: 76 },
   supportTicketErrorMake: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.10)', borderColor: 'rgba(229,87,63,0.24)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 10 },
   supportTicketErrorTextMake: { color: palette.danger, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 17 },
   supportTicketHeroIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, height: 44, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 7, width: 0 }, shadowOpacity: 0.16, shadowRadius: 16, width: 44 },
@@ -18002,12 +18291,18 @@ const styles = StyleSheet.create({
   supportTicketMessageTopMake: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   supportTicketMetaTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 16 },
   supportTicketPageMake: { gap: 14, marginHorizontal: -4, marginTop: -6 },
+  supportTicketRatingBoxMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, gap: 9, padding: 12 },
+  supportTicketRatingResultMake: { backgroundColor: '#fff', borderColor: 'rgba(77,182,172,0.20)', borderRadius: 16, borderWidth: 1, gap: 5, padding: 12 },
+  supportTicketReopenBoxMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, gap: 9, padding: 12 },
   supportTicketRetryMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, justifyContent: 'center', minHeight: 30, paddingHorizontal: 10 },
   supportTicketRetryTextMake: { color: palette.danger, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '800' },
   supportTicketSectionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '800', lineHeight: 21 },
   supportTicketStatLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 15, marginTop: 2 },
   supportTicketStatMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.66)', borderColor: 'rgba(255,255,255,0.82)', borderRadius: 14, borderWidth: 1, flex: 1, paddingHorizontal: 8, paddingVertical: 10 },
   supportTicketStatValueMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '800', lineHeight: 23 },
+  supportTicketStarButtonActiveMake: { backgroundColor: palette.orange, borderColor: palette.orange },
+  supportTicketStarButtonMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: 'rgba(255,138,92,0.28)', borderRadius: 13, borderWidth: 1, height: 32, justifyContent: 'center', width: 32 },
+  supportTicketStarRowMake: { flexDirection: 'row', gap: 7 },
   supportTicketStatusDangerMake: { backgroundColor: 'rgba(229,87,63,0.12)' },
   supportTicketStatusDoneMake: { backgroundColor: 'rgba(77,182,172,0.14)' },
   supportTicketStatusMake: { alignItems: 'center', borderRadius: 999, flexShrink: 0, justifyContent: 'center', minHeight: 24, paddingHorizontal: 9, paddingVertical: 4 },

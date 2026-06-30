@@ -610,8 +610,38 @@ export type SanctionAppealList = {
 export type SupportTicketStatus = 'closed' | 'received' | 'resolved' | 'reviewing' | 'waiting_user';
 export type SupportTicketPriority = 'high' | 'low' | 'normal' | 'urgent';
 
+export type SupportTicketAttachment = {
+  createdAt?: string;
+  id: string;
+  mediaId?: string;
+  mimeType: string;
+  name: string;
+  previewUrl?: string;
+  sizeBytes?: number;
+  type: 'image';
+  url: string;
+};
+
+export type SupportTicketSatisfaction = {
+  comment?: string;
+  createdAt?: string;
+  rating: number;
+  updatedAt?: string;
+};
+
+export type SupportTicketAttachmentDraft = {
+  base64?: string;
+  fileName?: string;
+  mimeType?: string;
+  name?: string;
+  previewUrl?: string;
+};
+
 export type SupportTicketItem = {
+  attachmentCount?: number;
+  canRate?: boolean;
   canReply: boolean;
+  canReopen?: boolean;
   category: FeedbackCategory;
   content: string;
   createdAt: string;
@@ -621,21 +651,25 @@ export type SupportTicketItem = {
   latestReplyAt?: string;
   priority: SupportTicketPriority;
   replyCount: number;
+  reopenCount?: number;
+  satisfaction?: null | SupportTicketSatisfaction;
   status: SupportTicketStatus;
   title: string;
   updatedAt?: string;
 };
 
 export type SupportTicketMessage = {
+  attachments?: SupportTicketAttachment[];
   author: 'support' | 'user';
   authorName: string;
   content: string;
   createdAt: string;
   id: string;
-  type: 'feedback' | 'support_reply' | 'user_reply';
+  type: 'feedback' | 'reopen' | 'support_reply' | 'user_reply';
 };
 
 export type SupportTicketDetail = SupportTicketItem & {
+  attachments?: SupportTicketAttachment[];
   messages: SupportTicketMessage[];
 };
 

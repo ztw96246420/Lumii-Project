@@ -1670,6 +1670,7 @@ function ticketSlaPill(ticket) {
 
 function renderTicketCard(ticket) {
   const related = (ticket.relatedObjects || []).map((item) => `<span class="risk-badge">${escapeHtml(item.type)} · ${escapeHtml(item.id)}</span>`).join('');
+  const satisfaction = ticket.satisfaction?.rating ? `<span class="risk-badge">满意度 ${ticket.satisfaction.rating}/5</span>` : '';
   return `
     <article class="ticket-card">
       <div class="ticket-main">
@@ -1696,7 +1697,11 @@ function renderTicketCard(ticket) {
           ${related || '<span class="risk-badge">暂未关联对象</span>'}
           <span class="risk-badge">${ticket.noteCount || 0} 条备注</span>
           <span class="risk-badge">${ticket.replyCount || 0} 次回复</span>
+          <span class="risk-badge">${ticket.attachmentCount || 0} 个附件</span>
+          ${ticket.reopenCount ? `<span class="risk-badge">用户重开 ${ticket.reopenCount} 次</span>` : ''}
+          ${satisfaction}
         </div>
+        ${ticket.satisfaction?.comment ? `<div class="ticket-thread"><strong>满意度说明</strong><span>${escapeHtml(ticket.satisfaction.comment)}</span></div>` : ''}
         ${ticket.latestNote ? `<div class="ticket-thread"><strong>最近备注</strong><span>${escapeHtml(ticket.latestNote)}</span></div>` : ''}
         ${ticket.latestReply ? `<div class="ticket-thread"><strong>最近回复</strong><span>${escapeHtml(ticket.latestReply)}</span></div>` : ''}
       </div>

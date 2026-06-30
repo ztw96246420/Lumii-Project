@@ -46,6 +46,7 @@ import type {
   SocialBlockResult,
   SmsCodeTicket,
   SupportTicketDetail,
+  SupportTicketAttachmentDraft,
   SupportTicketList,
   UploadPetMediaInput,
   UploadedPetMedia,
@@ -123,8 +124,16 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<SupportTicketList>('GET', '/support/tickets');
       },
 
-      async replyTicket(ticketId: string, content: string): Promise<ApiResult<SupportTicketDetail>> {
-        return request<SupportTicketDetail>('POST', `/support/tickets/${encodeURIComponent(ticketId)}/reply`, { content });
+      async rateTicket(ticketId: string, rating: number, comment = ''): Promise<ApiResult<SupportTicketDetail>> {
+        return request<SupportTicketDetail>('POST', `/support/tickets/${encodeURIComponent(ticketId)}/rate`, { comment, rating });
+      },
+
+      async reopenTicket(ticketId: string, content: string, attachments: SupportTicketAttachmentDraft[] = []): Promise<ApiResult<SupportTicketDetail>> {
+        return request<SupportTicketDetail>('POST', `/support/tickets/${encodeURIComponent(ticketId)}/reopen`, { attachments, content });
+      },
+
+      async replyTicket(ticketId: string, content: string, attachments: SupportTicketAttachmentDraft[] = []): Promise<ApiResult<SupportTicketDetail>> {
+        return request<SupportTicketDetail>('POST', `/support/tickets/${encodeURIComponent(ticketId)}/reply`, { attachments, content });
       },
 
       async submitSanctionAppeal(content: string, sanctionId?: string): Promise<ApiResult<SanctionAppealItem>> {

@@ -3399,14 +3399,17 @@ function publicUploadedMedia(media, req) {
 
 const feedbackCategories = new Set(['bug', 'other', 'safety', 'suggestion']);
 
-function createFeedbackSubmission(user, body) {
+async function createFeedbackSubmission(req, user, body) {
   const content = String(body.content || '').trim();
   if (!content) return { error: '请填写反馈内容', statusCode: 400 };
   if (content.length > 1000) return { error: '反馈内容最多 1000 个字', statusCode: 400 };
   const categoryInput = String(body.category || body.type || 'other');
   const category = feedbackCategories.has(categoryInput) ? categoryInput : 'other';
   const contact = String(body.contact || '').trim().slice(0, 80);
+  const attachmentResult = await buildSupportAttachments(req, user, body);
+  if (attachmentResult.error) return attachmentResult;
   const feedback = {
+    attachments: attachmentResult.attachments || [],
     category,
     ...(contact ? { contact } : {}),
     content,
@@ -7866,6 +7869,7 @@ function adminFeedbackItems() {
   ensureSupportTickets();
   return (Array.isArray(state.feedback) ? state.feedback : [])
     .map((item) => ({
+      attachmentCount: normalizeSupportAttachments(item.attachments).length,
       category: item.category,
       contact: item.contact,
       content: item.content,
@@ -7882,6 +7886,7 @@ function adminFeedbackItems() {
 
 const ticketStatuses = new Set(['closed', 'received', 'resolved', 'reviewing', 'waiting_user']);
 const ticketPriorities = new Set(['low', 'normal', 'high', 'urgent']);
+const supportTicketAttachmentLimit = 6;
 
 function supportTicketPriorityFor(feedback = {}) {
   if (ticketPriorities.has(feedback.priority)) return feedback.priority;
@@ -7912,15 +7917,163 @@ function supportTicketTitle(feedback = {}) {
   return `${categoryLabel} · ${feedback.ownerName || `用户${String(feedback.phone || '').slice(-4)}`}`;
 }
 
+function supportAttachmentInputsFrom(body = {}) {
+  const inputs = [];
+  if (Array.isArray(body.attachments)) inputs.push(...body.attachments);
+  if (Array.isArray(body.attachmentUrls)) inputs.push(...body.attachmentUrls);
+  if (body.attachmentUrl) inputs.push(body.attachmentUrl);
+  return inputs.slice(0, supportTicketAttachmentLimit);
+}
+
+function normalizeSupportAttachmentUrl(value) {
+  const url = String(value || '').trim();
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url.slice(0, 1000);
+  if (/^\/media\/uploads\/[^/]+\/file$/i.test(url)) return url;
+  return '';
+}
+
+function publicSupportAttachment(attachment = {}) {
+  const url = normalizeSupportAttachmentUrl(attachment.url || attachment.fileUrl || attachment.previewUrl);
+  if (!url) return null;
+  const mimeType = normalizeImageMimeType(attachment.mimeType) || 'image/jpeg';
+  return {
+    createdAt: attachment.createdAt || '',
+    id: String(attachment.id || `support-attachment-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`),
+    mediaId: attachment.mediaId || '',
+    mimeType,
+    name: String(attachment.name || attachment.fileName || '问题截图').trim().slice(0, 120),
+    previewUrl: normalizeSupportAttachmentUrl(attachment.previewUrl) || url,
+    sizeBytes: Math.max(0, Math.floor(Number(attachment.sizeBytes || attachment.bytes || 0))),
+    type: 'image',
+    url,
+  };
+}
+
+function normalizeSupportAttachments(input) {
+  return (Array.isArray(input) ? input : [])
+    .map(publicSupportAttachment)
+    .filter(Boolean)
+    .slice(0, supportTicketAttachmentLimit);
+}
+
+function supportTicketAttachmentCount(ticket = {}) {
+  const ownCount = normalizeSupportAttachments(ticket.attachments).length;
+  const replyCount = (Array.isArray(ticket.replies) ? ticket.replies : [])
+    .reduce((total, reply) => total + normalizeSupportAttachments(reply?.attachments).length, 0);
+  return ownCount + replyCount;
+}
+
+function supportTicketReplySummary(reply = {}) {
+  const content = String(reply.content || '').trim();
+  if (content) return content;
+  const attachmentCount = normalizeSupportAttachments(reply.attachments).length;
+  if (attachmentCount) return `补充了 ${attachmentCount} 张附件`;
+  return '';
+}
+
+async function createSupportAttachment(req, user, input, index = 0) {
+  const source = typeof input === 'string' ? { url: input } : input || {};
+  const rawUrl = String(source.url || source.fileUrl || source.previewUrl || '').trim();
+  const rawBase64 = String(source.base64 || source.dataUrl || (/^data:image\//i.test(rawUrl) ? rawUrl : '')).trim();
+  const createdAt = new Date().toISOString();
+  const name = String(source.name || source.fileName || `support-${Date.now()}-${index + 1}`).trim().slice(0, 120) || '问题截图';
+
+  if (rawBase64) {
+    const parsedUpload = parseBase64Upload(rawBase64, source.mimeType);
+    if (!parsedUpload.dataUrl) {
+      const message = mediaUploadIssueAnalysis(parsedUpload.issue, parsedUpload.bytes)?.message || '附件上传失败，请重新选择图片';
+      return { error: message, statusCode: 400 };
+    }
+    const fileParts = base64UploadBuffer(parsedUpload);
+    if (!fileParts?.buffer?.length) return { error: '附件上传失败，请重新选择图片', statusCode: 400 };
+    const mediaId = `support-media-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    let cosStored = null;
+    try {
+      const extension = mimeExtension(fileParts.mimeType);
+      cosStored = await uploadBufferToCos(req, user, {
+        buffer: fileParts.buffer,
+        fileName: `${mediaId}.${extension}`,
+        mimeType: fileParts.mimeType,
+        petId: '',
+        scope: 'support-ticket',
+      });
+    } catch {
+      cosStored = null;
+    }
+    state.mediaUploads = state.mediaUploads || {};
+    state.mediaUploads[mediaId] = {
+      createdAt: Date.now(),
+      dataUrl: parsedUpload.dataUrl,
+      ...(cosStored
+        ? {
+            objectKey: cosStored.objectKey,
+            objectUrl: cosStored.url,
+            storageProvider: cosStored.provider,
+          }
+        : {}),
+      fileName: name,
+      mediaId,
+      mimeType: fileParts.mimeType,
+      ownerPhone: user.phone,
+      previewUrl: source.previewUrl || mediaUploadFileUrl(req, mediaId),
+      source: 'support_ticket',
+    };
+    return {
+      attachment: {
+        createdAt,
+        id: `support-attachment-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+        mediaId,
+        mimeType: fileParts.mimeType,
+        name,
+        previewUrl: mediaUploadFileUrl(req, mediaId),
+        sizeBytes: fileParts.buffer.length,
+        type: 'image',
+        url: mediaUploadFileUrl(req, mediaId),
+      },
+    };
+  }
+
+  const url = normalizeSupportAttachmentUrl(rawUrl);
+  if (!url) return { error: '附件地址无效，请重新选择图片', statusCode: 400 };
+  return {
+    attachment: {
+      createdAt,
+      id: `support-attachment-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      mediaId: '',
+      mimeType: normalizeImageMimeType(source.mimeType) || 'image/jpeg',
+      name,
+      previewUrl: url,
+      sizeBytes: Math.max(0, Math.floor(Number(source.sizeBytes || source.bytes || 0))),
+      type: 'image',
+      url,
+    },
+  };
+}
+
+async function buildSupportAttachments(req, user, body = {}) {
+  const inputs = supportAttachmentInputsFrom(body);
+  const attachments = [];
+  for (let index = 0; index < inputs.length; index += 1) {
+    const result = await createSupportAttachment(req, user, inputs[index], index);
+    if (result.error) return result;
+    if (result.attachment) attachments.push(result.attachment);
+  }
+  return { attachments };
+}
+
 function createSupportTicketFromFeedback(feedback) {
   state.supportTickets = Array.isArray(state.supportTickets) ? state.supportTickets : [];
   const existing = state.supportTickets.find((ticket) => ticket.source === 'feedback' && ticket.sourceId === feedback.id);
   if (existing) {
+    const feedbackAttachments = normalizeSupportAttachments(feedback.attachments);
+    if (feedbackAttachments.length && !normalizeSupportAttachments(existing.attachments).length) existing.attachments = feedbackAttachments;
     feedback.supportTicketId = existing.id;
     return existing;
   }
   const ticket = {
     assignee: '',
+    attachments: normalizeSupportAttachments(feedback.attachments),
     category: feedback.category || 'other',
     contact: feedback.contact || '',
     content: feedback.content || '',
@@ -7965,6 +8118,7 @@ function syncFeedbackFromTicket(ticket) {
   feedback.handledBy = ticket.assignee || feedback.handledBy || '';
   feedback.priority = ticket.priority;
   feedback.supportTicketId = ticket.id;
+  feedback.attachments = normalizeSupportAttachments(ticket.attachments);
 }
 
 function findSupportTicket(ticketId) {
@@ -8006,8 +8160,10 @@ function supportTicketItem(ticket) {
   const replies = Array.isArray(ticket.replies) ? ticket.replies : [];
   const notes = Array.isArray(ticket.notes) ? ticket.notes : [];
   const relatedObjects = normalizeRelatedObjects(ticket.relatedObjects);
+  const latestReply = replies.find((reply) => supportTicketReplySummary(reply));
   return {
     assignee: ticket.assignee || '',
+    attachmentCount: supportTicketAttachmentCount(ticket),
     category: ticket.category || 'other',
     contact: ticket.contact || '',
     content: ticket.content || '',
@@ -8016,13 +8172,15 @@ function supportTicketItem(ticket) {
     id: ticket.id,
     lastActivityAt: ticket.updatedAt || ticket.createdAt,
     latestNote: notes[0]?.content || '',
-    latestReply: replies[0]?.content || '',
+    latestReply: supportTicketReplySummary(latestReply) || '',
     noteCount: notes.length,
     ownerName: ticket.ownerName || user?.ownerName || `用户${String(ticket.phone || '').slice(-4)}`,
     phone: ticket.phone || '',
     priority: supportTicketPriorityFor(ticket),
     relatedObjects,
     replyCount: replies.length,
+    reopenCount: Math.max(0, Math.floor(Number(ticket.reopenCount || 0))),
+    satisfaction: ticket.satisfaction || null,
     slaHours: supportTicketSlaHours(ticket),
     slaState: supportTicketSlaState(ticket),
     source: ticket.source || 'manual',
@@ -8073,8 +8231,12 @@ function adminSupportTickets(options = {}) {
 function supportTicketDetail(ticket) {
   return {
     ...supportTicketItem(ticket),
+    attachments: normalizeSupportAttachments(ticket.attachments),
     notes: Array.isArray(ticket.notes) ? ticket.notes : [],
-    replies: Array.isArray(ticket.replies) ? ticket.replies : [],
+    replies: (Array.isArray(ticket.replies) ? ticket.replies : []).map((reply) => ({
+      ...reply,
+      attachments: normalizeSupportAttachments(reply?.attachments),
+    })),
   };
 }
 
@@ -8084,16 +8246,21 @@ function supportTicketPublicItem(ticket) {
   const latestSupportReply = replies.find((reply) => reply?.author !== 'user');
   const status = supportTicketStatusFor(ticket.status);
   return {
+    attachmentCount: item.attachmentCount,
+    canRate: status === 'closed' || status === 'resolved',
     canReply: status !== 'closed' && status !== 'resolved',
+    canReopen: status === 'closed' || status === 'resolved',
     category: item.category,
     content: item.content,
     createdAt: item.createdAt,
     id: item.id,
     lastActivityAt: item.lastActivityAt,
-    latestReply: latestSupportReply?.content || '',
+    latestReply: supportTicketReplySummary(latestSupportReply) || '',
     latestReplyAt: latestSupportReply?.createdAt || '',
     priority: item.priority,
     replyCount: replies.length,
+    reopenCount: item.reopenCount,
+    satisfaction: item.satisfaction,
     status,
     title: item.title,
     updatedAt: item.updatedAt,
@@ -8106,6 +8273,7 @@ function supportTicketPublicDetail(ticket) {
     {
       author: 'user',
       authorName: '我',
+      attachments: normalizeSupportAttachments(ticket.attachments),
       content: ticket.content || '',
       createdAt: ticket.createdAt,
       id: `ticket-source-${ticket.id}`,
@@ -8116,14 +8284,15 @@ function supportTicketPublicDetail(ticket) {
       return {
         author: isUser ? 'user' : 'support',
         authorName: isUser ? '我' : 'Lumii 客服',
+        attachments: normalizeSupportAttachments(reply?.attachments),
         content: reply?.content || '',
         createdAt: reply?.createdAt || ticket.updatedAt || ticket.createdAt,
         id: reply?.id || `ticket-message-${Date.now()}`,
-        type: isUser ? 'user_reply' : 'support_reply',
+        type: reply?.type === 'reopen' ? 'reopen' : isUser ? 'user_reply' : 'support_reply',
       };
     }),
   ]
-    .filter((message) => message.content)
+    .filter((message) => message.content || normalizeSupportAttachments(message.attachments).length)
     .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
   return {
     ...supportTicketPublicItem(ticket),
@@ -8213,15 +8382,19 @@ function replySupportTicket(admin, ticket, body = {}) {
   return { reply, ticket };
 }
 
-function addUserSupportTicketReply(user, ticket, content) {
-  const cleanContent = String(content || '').trim();
-  if (!cleanContent) return { error: '请填写补充内容', statusCode: 400 };
+async function addUserSupportTicketReply(req, user, ticket, body = {}) {
+  const cleanContent = String(body.content || '').trim();
   if (cleanContent.length > 1000) return { error: '补充内容最多 1000 个字', statusCode: 400 };
   const status = supportTicketStatusFor(ticket.status);
   if (status === 'closed' || status === 'resolved') return { error: '工单已关闭，不能继续补充', statusCode: 409 };
+  const attachmentResult = await buildSupportAttachments(req, user, body);
+  if (attachmentResult.error) return attachmentResult;
+  const attachments = attachmentResult.attachments || [];
+  if (!cleanContent && !attachments.length) return { error: '请填写补充内容或添加截图', statusCode: 400 };
   const before = JSON.parse(JSON.stringify(ticket));
   ticket.replies = Array.isArray(ticket.replies) ? ticket.replies : [];
   const reply = {
+    attachments,
     author: 'user',
     authorName: user.ownerName || `用户${String(user.phone || '').slice(-4)}`,
     content: cleanContent.slice(0, 1000),
@@ -8233,7 +8406,63 @@ function addUserSupportTicketReply(user, ticket, content) {
   ticket.updatedAt = reply.createdAt;
   ticket.userLastReplyAt = reply.createdAt;
   syncFeedbackFromTicket(ticket);
-  writeAdminAudit({ username: `user:${user.phone}`, role: 'user' }, 'ticket.user.reply', 'support_ticket', ticket.id, before, ticket, cleanContent);
+  writeAdminAudit({ username: `user:${user.phone}`, role: 'user' }, 'ticket.user.reply', 'support_ticket', ticket.id, before, ticket, cleanContent || `补充 ${attachments.length} 张附件`);
+  return { reply, ticket };
+}
+
+function rateSupportTicket(user, ticket, body = {}) {
+  const status = supportTicketStatusFor(ticket.status);
+  if (status !== 'closed' && status !== 'resolved') return { error: '工单结束处理后才能评价', statusCode: 409 };
+  const rating = Math.floor(Number(body.rating || 0));
+  if (rating < 1 || rating > 5) return { error: '请选择 1-5 分满意度', statusCode: 400 };
+  const comment = String(body.comment || '').trim();
+  if (comment.length > 400) return { error: '评价说明最多 400 个字', statusCode: 400 };
+  const before = JSON.parse(JSON.stringify(ticket));
+  const now = new Date().toISOString();
+  ticket.satisfaction = {
+    byPhone: user.phone,
+    comment,
+    createdAt: ticket.satisfaction?.createdAt || now,
+    rating,
+    updatedAt: now,
+  };
+  ticket.updatedAt = now;
+  syncFeedbackFromTicket(ticket);
+  writeAdminAudit({ username: `user:${user.phone}`, role: 'user' }, 'ticket.user.rate', 'support_ticket', ticket.id, before, ticket, `rating:${rating}`);
+  return { ticket };
+}
+
+async function reopenSupportTicket(req, user, ticket, body = {}) {
+  const status = supportTicketStatusFor(ticket.status);
+  if (status !== 'closed' && status !== 'resolved') return { error: '当前工单还在处理中，不需要重新打开', statusCode: 409 };
+  const cleanContent = String(body.content || body.reason || '').trim();
+  if (cleanContent.length > 1000) return { error: '重开说明最多 1000 个字', statusCode: 400 };
+  const attachmentResult = await buildSupportAttachments(req, user, body);
+  if (attachmentResult.error) return attachmentResult;
+  const attachments = attachmentResult.attachments || [];
+  if (!cleanContent && !attachments.length) return { error: '请填写需要继续处理的问题或添加截图', statusCode: 400 };
+  const before = JSON.parse(JSON.stringify(ticket));
+  const now = new Date().toISOString();
+  ticket.replies = Array.isArray(ticket.replies) ? ticket.replies : [];
+  const reply = {
+    attachments,
+    author: 'user',
+    authorName: user.ownerName || `用户${String(user.phone || '').slice(-4)}`,
+    content: cleanContent.slice(0, 1000),
+    createdAt: now,
+    id: `ticket-reopen-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    type: 'reopen',
+  };
+  ticket.replies.unshift(reply);
+  ticket.lastClosedAt = ticket.closedAt || ticket.lastClosedAt || '';
+  ticket.closedAt = '';
+  ticket.reopenCount = Math.max(0, Math.floor(Number(ticket.reopenCount || 0))) + 1;
+  ticket.reopenedAt = now;
+  ticket.status = 'reviewing';
+  ticket.updatedAt = now;
+  ticket.userLastReplyAt = now;
+  syncFeedbackFromTicket(ticket);
+  writeAdminAudit({ username: `user:${user.phone}`, role: 'user' }, 'ticket.user.reopen', 'support_ticket', ticket.id, before, ticket, cleanContent || `重开并补充 ${attachments.length} 张附件`);
   return { reply, ticket };
 }
 
@@ -10009,7 +10238,7 @@ async function handle(req, res) {
       fail(res, 404, '工单不存在', false, undefined, 'SUPPORT_TICKET_NOT_FOUND');
       return;
     }
-    const result = addUserSupportTicketReply(user, ticket, body.content);
+    const result = await addUserSupportTicketReply(req, user, ticket, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'SUPPORT_TICKET_REPLY_INVALID');
       return;
@@ -10019,8 +10248,44 @@ async function handle(req, res) {
     return;
   }
 
+  const userSupportTicketRateMatch = pathname.match(/^\/support\/tickets\/([^/]+)\/rate$/);
+  if (req.method === 'POST' && userSupportTicketRateMatch) {
+    const ticketId = decodeURIComponent(userSupportTicketRateMatch[1]);
+    const ticket = findSupportTicket(ticketId);
+    if (!ticket || ticket.phone !== user.phone) {
+      fail(res, 404, '工单不存在', false, undefined, 'SUPPORT_TICKET_NOT_FOUND');
+      return;
+    }
+    const result = rateSupportTicket(user, ticket, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'SUPPORT_TICKET_RATE_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, supportTicketPublicDetail(ticket));
+    return;
+  }
+
+  const userSupportTicketReopenMatch = pathname.match(/^\/support\/tickets\/([^/]+)\/reopen$/);
+  if (req.method === 'POST' && userSupportTicketReopenMatch) {
+    const ticketId = decodeURIComponent(userSupportTicketReopenMatch[1]);
+    const ticket = findSupportTicket(ticketId);
+    if (!ticket || ticket.phone !== user.phone) {
+      fail(res, 404, '工单不存在', false, undefined, 'SUPPORT_TICKET_NOT_FOUND');
+      return;
+    }
+    const result = await reopenSupportTicket(req, user, ticket, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'SUPPORT_TICKET_REOPEN_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, supportTicketPublicDetail(ticket));
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/feedback') {
-    const result = createFeedbackSubmission(user, body);
+    const result = await createFeedbackSubmission(req, user, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false);
       return;
