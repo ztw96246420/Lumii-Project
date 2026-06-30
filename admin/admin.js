@@ -23,6 +23,8 @@ const state = {
   feedbackCategory: 'all',
   feedbackQ: '',
   feedbackStatus: 'open',
+  mediaModerationQ: '',
+  mediaModerationStatus: 'pending_review',
   moderationQ: '',
   moderationStatus: 'pending',
   petAvatar: 'all',
@@ -180,9 +182,9 @@ function shortPhone(value) {
 
 function statusPill(status) {
   const value = String(status || '-');
-  const tone = /ready|approved|active|published|valid|closed|success|done/.test(value)
+  const tone = /ready|approved|active|published|valid|closed|success|done|已通过|通过|已处理|已配置|已启用/.test(value)
     ? 'ok'
-    : /failed|rejected|deleted|hidden|invalid|bad|ban|banned|freeze|frozen|muted|禁言|冻结|封禁/.test(value)
+    : /failed|rejected|deleted|hidden|invalid|bad|ban|banned|freeze|frozen|muted|禁言|冻结|封禁|已隐藏|已驳回|驳回/.test(value)
       ? 'bad'
       : 'warn';
   return `<span class="pill ${tone}">${escapeHtml(value)}</span>`;
@@ -326,6 +328,24 @@ async function onContentClick(event) {
       state.moderationQ = '';
       state.cache = { ...state.cache, moderation: null };
       await render(true);
+      return;
+    }
+    if (action === 'media-moderation-filter') {
+      state.mediaModerationStatus = $('mediaModerationStatus').value;
+      state.mediaModerationQ = $('mediaModerationQ').value.trim();
+      state.cache = { ...state.cache, mediaModeration: null };
+      await render(true);
+      return;
+    }
+    if (action === 'media-moderation-clear') {
+      state.mediaModerationStatus = 'pending_review';
+      state.mediaModerationQ = '';
+      state.cache = { ...state.cache, mediaModeration: null };
+      await render(true);
+      return;
+    }
+    if (action === 'media-moderate') {
+      await moderateMediaUpload(button);
       return;
     }
     if (action === 'moderation-task-action') {
@@ -666,6 +686,31 @@ async function handleModerationTaskAction(button) {
   return true;
 }
 
+async function moderateMediaUpload(button) {
+  const mediaId = button.dataset.id || '';
+  const op = button.dataset.op || '';
+  const label = button.textContent.trim() || op;
+  const title = button.dataset.title || mediaId || '图片素材';
+  if (!mediaId || !op) return;
+  if ((op === 'hide' || op === 'reject') && !window.confirm(`确认${label}这张图片：${title}？`)) return;
+  const reason = window.prompt('请输入图片审核原因', `${label}：${title}`);
+  if (reason === null) return;
+  await post(`/admin/media/${encodeURIComponent(mediaId)}/moderate`, {
+    action: op,
+    reason: reason.trim() || `${label}：${title}`,
+  });
+  state.cache = {
+    ...state.cache,
+    aiMedia: null,
+    audit: null,
+    mediaModeration: null,
+    moderation: null,
+    socialPosts: null,
+  };
+  showToast('图片审核已处理');
+  await render(true);
+}
+
 function placeModerationActionLabel(action) {
   if (action === 'approve') return '通过';
   if (action === 'reject') return '驳回';
@@ -852,7 +897,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -1856,15 +1901,25 @@ async function renderModeration(force) {
     q: state.moderationQ,
     status: state.moderationStatus,
   });
-  const data = await load('moderation', `/admin/moderation/tasks?${query.toString()}`, force);
+  const mediaQuery = new URLSearchParams({
+    q: state.mediaModerationQ,
+    status: state.mediaModerationStatus,
+  });
+  const [data, mediaData] = await Promise.all([
+    load('moderation', `/admin/moderation/tasks?${query.toString()}`, force),
+    load('mediaModeration', `/admin/media/moderation?${mediaQuery.toString()}`, force),
+  ]);
   const tasks = data.tasks || [];
   const samples = data.samples || [];
   const summary = data.summary || {};
+  const mediaRows = mediaData.items || [];
+  const mediaSummary = mediaData.summary || {};
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('待处理', summary.pending || 0, `${summary.escalated || 0} 个已升级`, 'pending / reviewing / escalated 都算作待处理任务。')}
       ${metric('举报任务', summary.reports || 0, '来自用户举报', '用户举报会自动关联被举报动态或评论。')}
       ${metric('社交内容', summary.social || 0, '动态/评论聚合', '被举报内容会聚合为内容级任务，便于一次隐藏或删除。')}
+      ${metric('图片待审', mediaSummary.pending || 0, `${mediaSummary.hidden || 0} 隐藏 / ${mediaSummary.rejected || 0} 驳回`, '上传图片会进入独立审核视角；隐藏或驳回后 App 列表不再展示该图。')}
       ${metric('地点审核', summary.places || 0, '点评/新增地点', '地点点评和新增地点共用这套审核视角。')}
       ${metric('规则命中', summary.ruleHits || 0, '关键词样本', '来自配置中心内容安全规则的命中样本，用于后续调规则和接模型。')}
       ${metric('SLA 超时', summary.overdue || 0, `${summary.assigned || 0} 已认领`, 'SLA 由任务类型和风险分自动计算，高风险任务会更短。')}
@@ -1911,10 +1966,48 @@ async function renderModeration(force) {
     <div class="card">
       <div class="section-head">
         <div>
+          <h2>图片审核</h2>
+          <div class="section-sub">上传素材、宠友圈图片和 AI 原图的人工处理入口</div>
+        </div>
+        ${help('腾讯云图片机审命中 Review 会进入这里；通过后正常展示，隐藏或驳回后，附近小事、我的小事和媒体文件接口都会过滤该图片。')}
+      </div>
+      <div class="toolbar moderation-toolbar">
+        <div class="toolbar-left">
+          <label>状态
+            <select id="mediaModerationStatus">
+              ${mediaModerationStatusOption('pending_review', '待审核')}
+              ${mediaModerationStatusOption('approved', '已通过')}
+              ${mediaModerationStatusOption('hidden', '已隐藏')}
+              ${mediaModerationStatusOption('rejected', '已驳回')}
+              ${mediaModerationStatusOption('all', '全部')}
+            </select>
+          </label>
+          <label>搜索
+            <input id="mediaModerationQ" placeholder="手机号、宠物、媒体ID、动态ID" value="${escapeHtml(state.mediaModerationQ)}" />
+          </label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="media-moderation-filter">应用</button>
+          <button class="small-button ghost" data-action="media-moderation-clear">重置</button>
+        </div>
+      </div>
+      ${tableHtml(mediaRows, [
+        ['图片', avatarMediaCell],
+        ['用户 / 宠物', (row) => `<div>${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.ownerPhone)} · ${escapeHtml(row.petName || '-')}</div>`],
+        ['审核', mediaModerationStatusCell],
+        ['质量', (row) => `${avatarQualityPill(row)}<div class="cell-sub">${numberText(row.qualityScore)} 分 · ${escapeHtml(row.analysisCode || '-')}</div><div class="cell-sub clamp">${escapeHtml(row.analysisTitle || row.analysisMessage || '')}</div>`],
+        ['关联', mediaReferenceCell],
+        ['时间', (row) => `<div>上传：${formatTime(row.createdAt)}</div><div class="cell-sub">${row.moderatedAt ? `处理：${formatTime(row.moderatedAt)}` : '暂未人工处理'}</div>`],
+        ['操作', mediaModerationActions],
+      ], '暂无图片素材')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
           <h2>规则命中样本</h2>
           <div class="section-sub">最近 12 条命中，用来回看规则质量；关键词只在后台展示</div>
         </div>
-        ${help('命中样本来自小事、地点点评、地点提交等用户内容。后续接入第三方内容安全模型时，可把这里作为人工样本池的基础。')}
+        ${help('命中样本来自小事、评论、地点内容、资料文本和图片机审。腾讯云返回的 Biztype、RequestId 和风险标签会一起沉淀，便于复核误杀。')}
       </div>
       ${samples.length ? `<div class="moderation-list compact">${samples.map(renderModerationSample).join('')}</div>` : '<div class="placeholder"><div><strong>暂无规则命中</strong><div>开启规则并命中后，这里会沉淀样本。</div></div></div>'}
     </div>
@@ -1923,6 +2016,56 @@ async function renderModeration(force) {
 
 function moderationStatusOption(value, label) {
   return `<option value="${value}" ${state.moderationStatus === value ? 'selected' : ''}>${label}</option>`;
+}
+
+function mediaModerationStatusOption(value, label) {
+  return `<option value="${value}" ${state.mediaModerationStatus === value ? 'selected' : ''}>${label}</option>`;
+}
+
+function mediaModerationStatusCell(row) {
+  const safety = row.contentSafety || {};
+  return `
+    <div>${statusPill(row.statusLabel || row.moderationStatusLabel || row.status)}</div>
+    <div class="cell-sub">${escapeHtml(row.moderatedBy || '未处理')}</div>
+    ${safety.bizType ? `<div class="cell-sub">${escapeHtml(safety.bizType)} · ${escapeHtml(safety.requestId || '-')}</div>` : ''}
+    ${safety.riskTypes?.length ? `<div class="cell-sub clamp">${escapeHtml(safety.riskTypes.join(' / '))}</div>` : ''}
+    ${row.moderationReason ? `<div class="cell-sub clamp">${escapeHtml(row.moderationReason)}</div>` : ''}
+  `;
+}
+
+function mediaReferenceCell(row) {
+  const refs = row.references || {};
+  const parts = [
+    refs.postCount ? `小事 ${refs.postCount}` : '',
+    refs.avatarJobCount ? `AI任务 ${refs.avatarJobCount}` : '',
+    refs.coverPetCount ? `封面 ${refs.coverPetCount}` : '',
+    refs.avatarPetCount ? `头像 ${refs.avatarPetCount}` : '',
+  ].filter(Boolean);
+  const postIds = (refs.posts || []).slice(0, 2).map((post) => post.id).join(' / ');
+  return `
+    <div>${escapeHtml(parts.join(' · ') || '暂无业务引用')}</div>
+    <div class="cell-sub">${escapeHtml(postIds || row.sourceLabel || '-')}</div>
+  `;
+}
+
+function mediaModerationActions(row) {
+  const title = row.petName || row.mediaId || '图片素材';
+  const button = (op, label, tone = '') => `
+    <button
+      class="small-button ${tone}"
+      data-action="media-moderate"
+      data-id="${escapeHtml(row.mediaId)}"
+      data-op="${escapeHtml(op)}"
+      data-title="${escapeHtml(title)}"
+    >${escapeHtml(label)}</button>
+  `;
+  if (row.status === 'pending_review') {
+    return `<div class="actions">${button('approve', '通过')}${button('hide', '隐藏', 'danger')}${button('reject', '驳回', 'danger')}</div>`;
+  }
+  if (row.status === 'hidden' || row.status === 'rejected') {
+    return `<div class="actions">${button('restore', '恢复')}</div>`;
+  }
+  return `<div class="actions">${button('hide', '隐藏', 'danger')}${button('reject', '驳回', 'danger')}</div>`;
 }
 
 function riskBadge(label) {
@@ -1948,6 +2091,11 @@ function moderationAssigneeText(task) {
 
 function renderModerationTaskCard(task) {
   const riskTypes = (task.riskTypes || []).map(riskBadge).join('') || riskBadge('待人工判断');
+  const mediaStrip = (task.mediaUrls || []).length ? `
+    <div class="moderation-media-strip">
+      ${(task.mediaUrls || []).slice(0, 6).map((url) => `<img src="${escapeHtml(url)}" alt="" loading="lazy" />`).join('')}
+    </div>
+  ` : '';
   const actions = (task.actions || []).map((item) => `
     <button
       class="small-button ${item.tone === 'danger' ? 'danger' : ''}"
@@ -1981,6 +2129,7 @@ function renderModerationTaskCard(task) {
           <div class="moderation-status">${statusPill(task.status)}</div>
         </div>
         <div class="moderation-text">${escapeHtml(task.contentText || task.reason || '无正文内容')}</div>
+        ${mediaStrip}
         <div class="moderation-meta">
           <span>对象：${escapeHtml(task.targetLabel || task.targetType)} ${task.targetStatus ? `· ${escapeHtml(task.targetStatus)}` : ''}</span>
           <span>作者：${escapeHtml(task.ownerName || '-')} ${shortPhone(task.ownerPhone)}</span>
@@ -2013,7 +2162,7 @@ function renderModerationSample(sample) {
         <div class="moderation-title-row">
           <div>
             <div class="cell-title">${escapeHtml(sample.scope || '内容样本')}</div>
-            <div class="cell-sub">${escapeHtml(sample.id)} · ${formatTime(sample.createdAt)}</div>
+            <div class="cell-sub">${escapeHtml(sample.id)} · ${escapeHtml(sample.sourceLabel || sample.source || '规则命中')} · ${formatTime(sample.createdAt)}</div>
           </div>
           <div class="moderation-status">${statusPill(sample.action || 'review')}</div>
         </div>
@@ -2021,6 +2170,8 @@ function renderModerationSample(sample) {
         <div class="moderation-meta">
           <span>用户：${shortPhone(sample.ownerPhone)}</span>
           <span>对象：${escapeHtml(sample.targetId || '-')}</span>
+          ${sample.bizType ? `<span>Biztype：${escapeHtml(sample.bizType)}</span>` : ''}
+          ${sample.requestId ? `<span>RequestId：${escapeHtml(sample.requestId)}</span>` : ''}
         </div>
         <div class="risk-row">
           <span class="risk-score">风险 ${sample.riskScore || 0}</span>
@@ -2825,7 +2976,7 @@ function avatarFeedbackAction(row) {
 function avatarMediaCell(row) {
   return `
     <div class="ai-job-cell">
-      ${avatarPreview(row.previewUrl || row.fileUrl, '原')}
+      ${avatarPreview(row.adminPreviewUrl || row.previewUrl || row.fileUrl, '原')}
       <div>
         <div class="cell-title">${escapeHtml(row.mediaId || '-')}</div>
         <div class="cell-sub">${escapeHtml(row.fileName || row.mimeType || '-')}</div>
@@ -3952,6 +4103,7 @@ async function renderNotifications(force) {
 async function renderConfig(force) {
   const config = await load('config', '/admin/config', force);
   const announcement = config.app?.announcement || {};
+  const contentSafety = config.contentSafety || {};
   const moderation = config.moderation || {};
   const revisions = config.revisions || [];
   const splash = config.app?.splash || {};
@@ -4027,7 +4179,10 @@ async function renderConfig(force) {
         <div class="switch-panel">
           ${featureCheckbox('cfgModerationEnabled', '启用内容安全规则', moderation.enabled)}
           ${featureCheckbox('cfgModerationTextRulesEnabled', '启用文本关键词规则', moderation.textRulesEnabled !== false)}
+          ${featureCheckbox('cfgModerationMachineTextEnabled', '启用腾讯云文本机审', moderation.machineTextEnabled)}
+          ${featureCheckbox('cfgModerationMachineImageEnabled', '启用腾讯云图片机审', moderation.machineImageEnabled)}
         </div>
+        ${renderContentSafetyStatus(contentSafety)}
         <div class="config-grid announcement-grid">
           <label class="wide">阻断关键词<textarea id="cfgModerationBlockKeywords" maxlength="1200" placeholder="一行一个，命中后直接拒绝提交">${escapeHtml(keywordTextareaValue(moderation.blockKeywords))}</textarea></label>
           <label class="wide">高风险关键词<textarea id="cfgModerationHighRiskKeywords" maxlength="1200" placeholder="一行一个，命中后进入人工审核">${escapeHtml(keywordTextareaValue(moderation.highRiskKeywords))}</textarea></label>
@@ -4135,6 +4290,45 @@ function keywordTextareaValue(value) {
   return (Array.isArray(value) ? value : []).join('\n');
 }
 
+function renderContentSafetyStatus(contentSafety = {}) {
+  const text = contentSafety.text || {};
+  const image = contentSafety.image || {};
+  const rows = [
+    ...(text.bizTypes || []).map((row) => ({ ...row, service: '文本内容安全' })),
+    ...(image.bizTypes || []).map((row) => ({ ...row, service: '图片内容安全' })),
+  ];
+  return `
+    <div class="content-safety-panel">
+      <div class="content-safety-status">
+        <div>
+          <span>腾讯云凭据</span>
+          ${statusPill(contentSafety.credentialsConfigured ? '已配置' : '未配置')}
+        </div>
+        <div>
+          <span>文本机审</span>
+          ${statusPill(text.enabled ? '已启用' : '未启用')}
+        </div>
+        <div>
+          <span>图片机审</span>
+          ${statusPill(image.enabled ? '已启用' : '未启用')}
+        </div>
+        <div>
+          <span>Region</span>
+          <strong>${escapeHtml(contentSafety.region || '-')}</strong>
+        </div>
+      </div>
+      <div class="cell-sub">
+        环境变量只在服务器读取：${escapeHtml((contentSafety.requiredEnv || []).join(' / ') || 'TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY')}
+      </div>
+      ${tableHtml(rows, [
+        ['服务', (row) => `<div>${escapeHtml(row.service)}</div><div class="cell-sub">${escapeHtml(row.scope)}</div>`],
+        ['Biztype 名称', (row) => `<div class="cell-title">${escapeHtml(row.bizType || '-')}</div>`],
+        ['场景', (row) => `<div class="cell-sub">${escapeHtml(row.label || '-')}</div>`],
+      ], '暂无腾讯云 Biztype 映射')}
+    </div>
+  `;
+}
+
 async function saveConfig() {
   const announcementEnabled = $('cfgAnnouncementEnabled').checked;
   if (announcementEnabled && (!$('cfgAnnouncementVersion').value.trim() || !$('cfgAnnouncementTitle').value.trim() || !$('cfgAnnouncementBody').value.trim())) {
@@ -4236,6 +4430,8 @@ async function saveConfig() {
       blockMessage: $('cfgModerationBlockMessage').value,
       enabled: $('cfgModerationEnabled').checked,
       highRiskKeywords: $('cfgModerationHighRiskKeywords').value,
+      machineImageEnabled: $('cfgModerationMachineImageEnabled').checked,
+      machineTextEnabled: $('cfgModerationMachineTextEnabled').checked,
       reviewKeywords: $('cfgModerationReviewKeywords').value,
       reviewMessage: $('cfgModerationReviewMessage').value,
       textRulesEnabled: $('cfgModerationTextRulesEnabled').checked,

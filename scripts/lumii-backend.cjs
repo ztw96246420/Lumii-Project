@@ -67,6 +67,30 @@ const COS_REGION = process.env.COS_REGION || 'ap-guangzhou';
 const COS_SECRET_ID = process.env.COS_SECRET_ID || '';
 const COS_SECRET_KEY = process.env.COS_SECRET_KEY || '';
 const COS_PROXY_CACHE_SECONDS = Number(process.env.COS_PROXY_CACHE_SECONDS || '3600');
+const TENCENTCLOUD_SECRET_ID = process.env.TENCENTCLOUD_SECRET_ID || process.env.TENCENT_CLOUD_SECRET_ID || '';
+const TENCENTCLOUD_SECRET_KEY = process.env.TENCENTCLOUD_SECRET_KEY || process.env.TENCENT_CLOUD_SECRET_KEY || '';
+const TENCENT_CMS_REGION = process.env.TENCENT_CMS_REGION || 'ap-guangzhou';
+const TENCENT_CMS_TEXT_ENDPOINT = process.env.TENCENT_CMS_TEXT_ENDPOINT || 'tms.tencentcloudapi.com';
+const TENCENT_CMS_TEXT_VERSION = process.env.TENCENT_CMS_TEXT_VERSION || '2020-12-29';
+const TENCENT_CMS_TEXT_BIZ_TYPE = process.env.TENCENT_CMS_TEXT_BIZ_TYPE || '';
+const TENCENT_CMS_TEXT_BIZ_TYPES = {
+  pet_circle_comment: process.env.TENCENT_CMS_TEXT_BIZ_SOCIAL_COMMENT || process.env.TENCENT_CMS_TEXT_BIZ_COMMENT || 'lumii_t_social_comment',
+  pet_circle_post: process.env.TENCENT_CMS_TEXT_BIZ_SOCIAL_POST || process.env.TENCENT_CMS_TEXT_BIZ_POST || 'lumii_t_social_post',
+  pet_profile: process.env.TENCENT_CMS_TEXT_BIZ_PROFILE || 'lumii_t_profile',
+  place_review: process.env.TENCENT_CMS_TEXT_BIZ_PLACE || process.env.TENCENT_CMS_TEXT_BIZ_PLACE_REVIEW || 'lumii_t_place',
+  place_submission: process.env.TENCENT_CMS_TEXT_BIZ_PLACE || process.env.TENCENT_CMS_TEXT_BIZ_PLACE_SUBMISSION || 'lumii_t_place',
+};
+const TENCENT_CMS_IMAGE_ENDPOINT = process.env.TENCENT_CMS_IMAGE_ENDPOINT || 'ims.tencentcloudapi.com';
+const TENCENT_CMS_IMAGE_VERSION = process.env.TENCENT_CMS_IMAGE_VERSION || '2020-12-29';
+const TENCENT_CMS_IMAGE_BIZ_TYPE = process.env.TENCENT_CMS_IMAGE_BIZ_TYPE || '';
+const TENCENT_CMS_IMAGE_BIZ_TYPES = {
+  media_upload: process.env.TENCENT_CMS_IMAGE_BIZ_PET_AVATAR || 'lumii_i_pet_avatar',
+  pet_avatar: process.env.TENCENT_CMS_IMAGE_BIZ_PET_AVATAR || 'lumii_i_pet_avatar',
+  pet_circle_cover: process.env.TENCENT_CMS_IMAGE_BIZ_COVER || 'lumii_i_cover',
+  pet_circle_photo: process.env.TENCENT_CMS_IMAGE_BIZ_SOCIAL_PHOTO || 'lumii_i_social_photo',
+  support: process.env.TENCENT_CMS_IMAGE_BIZ_SUPPORT || 'lumii_i_support',
+};
+const TENCENT_CMS_TIMEOUT_MS = Number(process.env.TENCENT_CMS_TIMEOUT_MS || '12000');
 
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
@@ -310,6 +334,8 @@ function defaultOpsConfig() {
       blockMessage: '内容包含平台暂不支持公开展示的信息，请修改后再提交',
       enabled: false,
       highRiskKeywords: [],
+      machineImageEnabled: false,
+      machineTextEnabled: false,
       reviewKeywords: [],
       reviewMessage: '内容已进入人工审核，通过后会展示给附近用户',
       textRulesEnabled: true,
@@ -453,6 +479,8 @@ function normalizeModerationConfig(value, defaults) {
     blockMessage: String(source.blockMessage || defaults.blockMessage).slice(0, 80),
     enabled: Boolean(source.enabled),
     highRiskKeywords: normalizeKeywordList(source.highRiskKeywords, defaults.highRiskKeywords),
+    machineImageEnabled: Boolean(source.machineImageEnabled),
+    machineTextEnabled: Boolean(source.machineTextEnabled),
     reviewKeywords: normalizeKeywordList(source.reviewKeywords, defaults.reviewKeywords),
     reviewMessage: String(source.reviewMessage || defaults.reviewMessage).slice(0, 80),
     textRulesEnabled: source.textRulesEnabled !== false,
@@ -575,6 +603,8 @@ function opsConfigSummary(config) {
     analyticsEnabled: config?.analytics?.enabled !== false,
     analyticsSampleRatePercent: Number(config?.analytics?.sampleRatePercent ?? 100),
     maintenanceEnabled: Boolean(config?.app?.maintenanceEnabled),
+    machineImageModerationEnabled: Boolean(config?.moderation?.machineImageEnabled),
+    machineTextModerationEnabled: Boolean(config?.moderation?.machineTextEnabled),
     moderationEnabled: Boolean(config?.moderation?.enabled),
     discoverRadiusKm: Number(config?.social?.discoverRadiusKm || 0),
     enabledFeatures: Object.values(features).filter((value) => value !== false).length,
@@ -585,6 +615,44 @@ function opsConfigSummary(config) {
     supportHighSlaHours: Number(config?.support?.slaHours?.high || 0),
     supportUrgentSlaHours: Number(config?.support?.slaHours?.urgent || 0),
     updateEnabled: Boolean(config?.app?.update?.enabled),
+  };
+}
+
+function adminContentSafetyStatus(config = currentOpsConfig()) {
+  const moderation = config.moderation || {};
+  const textScopes = [
+    ['pet_circle_post', '宠友圈小事文本'],
+    ['pet_circle_comment', '宠友圈评论文本'],
+    ['place_review', '地点点评文本'],
+    ['place_submission', '新增地点文本'],
+    ['pet_profile', '宠物资料文本'],
+  ];
+  const imageScopes = [
+    ['pet_avatar', '宠物头像与灵伴原图'],
+    ['pet_circle_photo', '宠友圈小事图片'],
+    ['pet_circle_cover', '宠友圈封面图片'],
+    ['support', '反馈/工单附件图片'],
+  ];
+  return {
+    credentialsConfigured: tencentCmsConfigured(),
+    image: {
+      bizTypes: imageScopes.map(([scope, label]) => ({ bizType: tencentImageBizTypeForScope(scope), label, scope })),
+      enabled: Boolean(moderation.enabled && moderation.machineImageEnabled),
+      endpoint: TENCENT_CMS_IMAGE_ENDPOINT,
+      version: TENCENT_CMS_IMAGE_VERSION,
+    },
+    region: TENCENT_CMS_REGION,
+    requiredEnv: [
+      'TENCENTCLOUD_SECRET_ID',
+      'TENCENTCLOUD_SECRET_KEY',
+      '可选：TENCENT_CMS_*_BIZ_* 用于覆盖默认 Biztype',
+    ],
+    text: {
+      bizTypes: textScopes.map(([scope, label]) => ({ bizType: tencentTextBizTypeForScope(scope), label, scope })),
+      enabled: Boolean(moderation.enabled && moderation.machineTextEnabled),
+      endpoint: TENCENT_CMS_TEXT_ENDPOINT,
+      version: TENCENT_CMS_TEXT_VERSION,
+    },
   };
 }
 
@@ -863,6 +931,28 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       userImpact: '控制文本内容是否被关键词规则拦截或送审。',
     },
     {
+      backendEvidence: 'evaluateContentTextModeration 调用腾讯云 TextModeration；Pass 放行，Review 进入人工池，Block 直接拒绝公开提交。',
+      backendEnforced: true,
+      group: '内容安全',
+      key: 'moderation.machineTextEnabled',
+      label: '腾讯云文本机审',
+      mobileApplied: false,
+      mobileEvidence: '移动端不消费 Biztype 和规则，只展示后端返回的拦截/送审文案。',
+      operatorNote: '需要服务器环境变量 TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY；Biztype 默认按生产细分策略选择。',
+      userImpact: '影响宠友圈小事、评论、地点点评和新增地点文本是否由腾讯云机审。',
+    },
+    {
+      backendEvidence: '上传素材、宠物头像、宠友圈封面会调用腾讯云 ImageModeration；Pass 放行，Review 暂不公开，Block 拒绝或隐藏。',
+      backendEnforced: true,
+      group: '内容安全',
+      key: 'moderation.machineImageEnabled',
+      label: '腾讯云图片机审',
+      mobileApplied: false,
+      mobileEvidence: '移动端不消费图片策略，只按后端返回结果继续上传、提示等待审核或提示换图。',
+      operatorNote: '需要服务器环境变量 TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY；Biztype 默认按图片业务场景选择。',
+      userImpact: '影响宠物头像、灵伴原图、宠友圈图片、封面和工单附件是否由腾讯云机审。',
+    },
+    {
       backendEvidence: 'supportTicketSlaHours 读取 currentOpsConfig().support.slaHours.urgent，影响工单排序、SLA badge、工作台统计和导出。',
       backendEnforced: true,
       group: '客服工单',
@@ -944,6 +1034,7 @@ function adminOpsConfigResponse() {
   const linkageItems = adminConfigLinkageItems(config);
   return {
     ...config,
+    contentSafety: adminContentSafetyStatus(config),
     linkage: {
       items: linkageItems,
       summary: adminConfigLinkageSummary(linkageItems),
@@ -1655,6 +1746,8 @@ function publicAppConfig() {
     features: config.features,
     moderation: {
       enabled: config.moderation.enabled,
+      machineImageEnabled: config.moderation.machineImageEnabled,
+      machineTextEnabled: config.moderation.machineTextEnabled,
       reviewMessage: config.moderation.reviewMessage,
       textRulesEnabled: config.moderation.textRulesEnabled,
     },
@@ -4172,6 +4265,261 @@ function socialChatContentViolation(label, value, maxLength = SOCIAL_MESSAGE_MAX
   return null;
 }
 
+function tencentCmsConfigured() {
+  return Boolean(TENCENTCLOUD_SECRET_ID && TENCENTCLOUD_SECRET_KEY);
+}
+
+function tencentCmsIsoDate(timestampSeconds) {
+  return new Date(timestampSeconds * 1000).toISOString().slice(0, 10);
+}
+
+function hmacSha256(key, value, encoding) {
+  return crypto.createHmac('sha256', key).update(value).digest(encoding);
+}
+
+function sha256Hex(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+async function callTencentCloudApi({ action, endpoint, payload, region = TENCENT_CMS_REGION, service, version }) {
+  if (!tencentCmsConfigured()) throw new Error('Tencent Cloud content safety credentials are not configured');
+  const timestamp = Math.floor(Date.now() / 1000);
+  const date = tencentCmsIsoDate(timestamp);
+  const body = JSON.stringify(payload || {});
+  const canonicalHeaders = `content-type:application/json; charset=utf-8\nhost:${endpoint}\nx-tc-action:${String(action).toLowerCase()}\n`;
+  const signedHeaders = 'content-type;host;x-tc-action';
+  const canonicalRequest = [
+    'POST',
+    '/',
+    '',
+    canonicalHeaders,
+    signedHeaders,
+    sha256Hex(body),
+  ].join('\n');
+  const credentialScope = `${date}/${service}/tc3_request`;
+  const stringToSign = [
+    'TC3-HMAC-SHA256',
+    String(timestamp),
+    credentialScope,
+    sha256Hex(canonicalRequest),
+  ].join('\n');
+  const secretDate = hmacSha256(`TC3${TENCENTCLOUD_SECRET_KEY}`, date);
+  const secretService = hmacSha256(secretDate, service);
+  const secretSigning = hmacSha256(secretService, 'tc3_request');
+  const signature = hmacSha256(secretSigning, stringToSign, 'hex');
+  const authorization = `TC3-HMAC-SHA256 Credential=${TENCENTCLOUD_SECRET_ID}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TENCENT_CMS_TIMEOUT_MS);
+  try {
+    const response = await fetch(`https://${endpoint}`, {
+      body,
+      headers: {
+        Authorization: authorization,
+        'Content-Type': 'application/json; charset=utf-8',
+        Host: endpoint,
+        'X-TC-Action': action,
+        'X-TC-Region': region,
+        'X-TC-Timestamp': String(timestamp),
+        'X-TC-Version': version,
+      },
+      method: 'POST',
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let parsed = {};
+    try {
+      parsed = text ? JSON.parse(text) : {};
+    } catch {
+      throw new Error(`Tencent Cloud response is not JSON: ${text.slice(0, 120)}`);
+    }
+    if (!response.ok || parsed.Response?.Error) {
+      const error = parsed.Response?.Error;
+      throw new Error(error?.Message || `Tencent Cloud request failed: ${response.status}`);
+    }
+    return parsed.Response || {};
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function normalizeTencentSuggestion(value) {
+  const suggestion = String(value || '').trim().toLowerCase();
+  if (suggestion === 'pass' || suggestion === 'allow') return 'allow';
+  if (suggestion === 'review') return 'review';
+  if (suggestion === 'block' || suggestion === 'forbid') return 'block';
+  return 'review';
+}
+
+function tencentTextBizTypeForScope(scope) {
+  return TENCENT_CMS_TEXT_BIZ_TYPES[String(scope || '')] || TENCENT_CMS_TEXT_BIZ_TYPE || '';
+}
+
+function tencentImageBizTypeForScope(scope) {
+  return TENCENT_CMS_IMAGE_BIZ_TYPES[String(scope || '')] || TENCENT_CMS_IMAGE_BIZ_TYPE || '';
+}
+
+function imageModerationScopeForUploadSource(source) {
+  const value = String(source || '').trim();
+  if (/pet[-_]?circle|social|moment|post/i.test(value)) return 'pet_circle_photo';
+  if (/cover/i.test(value)) return 'pet_circle_cover';
+  if (/support|feedback|ticket/i.test(value)) return 'support';
+  return 'pet_avatar';
+}
+
+function tencentKeywordsFromResponse(response = {}) {
+  const values = [];
+  const pushValue = (value) => {
+    const text = String(value || '').trim();
+    if (text && !values.includes(text)) values.push(text.slice(0, 40));
+  };
+  if (Array.isArray(response.Keywords)) response.Keywords.forEach(pushValue);
+  else String(response.Keywords || '').split(/[,\s，、]+/u).forEach(pushValue);
+  [response.DetailResults, response.LabelResults, response.ObjectResults, response.OcrResults, response.LibResults].forEach((list) => {
+    if (!Array.isArray(list)) return;
+    list.forEach((item) => {
+      if (Array.isArray(item.Keywords)) item.Keywords.forEach(pushValue);
+      else String(item.Keywords || '').split(/[,\s，、]+/u).forEach(pushValue);
+    });
+  });
+  return values.slice(0, 8);
+}
+
+function tencentRiskTypesFromResponse(response = {}, fallback = '腾讯云内容安全') {
+  const values = [];
+  const pushValue = (value) => {
+    const text = String(value || '').trim();
+    if (text && !values.includes(text)) values.push(text.slice(0, 40));
+  };
+  pushValue(response.Label);
+  pushValue(response.SubLabel);
+  [response.DetailResults, response.LabelResults, response.ObjectResults, response.OcrResults, response.LibResults].forEach((list) => {
+    if (!Array.isArray(list)) return;
+    list.forEach((item) => {
+      pushValue(item.Label);
+      pushValue(item.SubLabel);
+      pushValue(item.Name);
+    });
+  });
+  if (!values.length) values.push(fallback);
+  return values.slice(0, 6);
+}
+
+function tencentRiskScoreFromResponse(response = {}) {
+  const candidates = [response.Score, response.HitFlag ? 100 : 0];
+  [response.DetailResults, response.LabelResults, response.ObjectResults, response.OcrResults, response.LibResults].forEach((list) => {
+    if (!Array.isArray(list)) return;
+    list.forEach((item) => candidates.push(item.Score));
+  });
+  const scores = candidates.map(Number).filter((value) => Number.isFinite(value));
+  return Math.max(0, Math.min(100, scores.length ? Math.max(...scores) : 0));
+}
+
+function contentSafetyMachineError(scope, error) {
+  return {
+    action: 'review',
+    matchedKeywords: [],
+    message: currentOpsConfig().moderation?.reviewMessage || '内容已进入人工审核，通过后会展示给附近用户',
+    provider: 'tencent_cloud',
+    providerError: String(error?.message || error || '内容安全服务调用失败').slice(0, 240),
+    riskScore: 66,
+    riskTypes: ['机审调用异常'],
+    scope,
+    source: 'tencent_cms_error',
+    sourceLabel: '机器审核异常',
+  };
+}
+
+async function evaluateTencentTextModeration(label, text, options = {}) {
+  const config = currentOpsConfig().moderation || {};
+  if (!config.enabled || !config.machineTextEnabled) return null;
+  const content = String(text || '').trim();
+  if (!content) return null;
+  const scope = options.scope || 'text';
+  const bizType = tencentTextBizTypeForScope(scope);
+  try {
+    const response = await callTencentCloudApi({
+      action: 'TextModeration',
+      endpoint: TENCENT_CMS_TEXT_ENDPOINT,
+      payload: {
+        BizType: bizType || undefined,
+        Content: Buffer.from(content, 'utf8').toString('base64'),
+        DataId: options.targetId || `${scope}-${Date.now()}`,
+        User: options.ownerPhone ? { UserId: String(options.ownerPhone) } : undefined,
+      },
+      service: 'tms',
+      version: TENCENT_CMS_TEXT_VERSION,
+    });
+    const action = normalizeTencentSuggestion(response.Suggestion);
+    return {
+      action: action === 'review' && options.reviewAsBlock ? 'block' : action,
+      bizType,
+      label: response.Label || '',
+      matchedKeywords: tencentKeywordsFromResponse(response),
+      message: action === 'block'
+        ? (config.blockMessage || `${label}包含不适合公开展示的内容，请修改后再提交`)
+        : (config.reviewMessage || `${label}已进入人工审核`),
+      provider: 'tencent_cloud',
+      providerRawSuggestion: response.Suggestion || '',
+      requestId: response.RequestId || '',
+      riskScore: tencentRiskScoreFromResponse(response),
+      riskTypes: tencentRiskTypesFromResponse(response, '腾讯云文本机审'),
+      scope,
+      source: 'tencent_cms',
+      sourceLabel: '腾讯云文本机审',
+    };
+  } catch (error) {
+    return { ...contentSafetyMachineError(scope, error), bizType };
+  }
+}
+
+async function evaluateTencentImageModeration(media, options = {}) {
+  const config = currentOpsConfig().moderation || {};
+  if (!config.enabled || !config.machineImageEnabled) return null;
+  const scope = options.scope || 'image';
+  const bizType = tencentImageBizTypeForScope(scope);
+  try {
+    const payload = {
+      BizType: bizType || undefined,
+      DataId: options.targetId || media?.mediaId || `image-${Date.now()}`,
+      User: media?.ownerPhone ? { UserId: String(media.ownerPhone) } : undefined,
+    };
+    if (options.fileUrl) payload.FileUrl = options.fileUrl;
+    else if (options.fileContent) payload.FileContent = options.fileContent;
+    else if (media?.dataUrl) {
+      const match = String(media.dataUrl).match(/^data:[^;]+;base64,(.+)$/);
+      if (match) payload.FileContent = match[1];
+    }
+    if (!payload.FileUrl && !payload.FileContent) return null;
+    const response = await callTencentCloudApi({
+      action: 'ImageModeration',
+      endpoint: TENCENT_CMS_IMAGE_ENDPOINT,
+      payload,
+      service: 'ims',
+      version: TENCENT_CMS_IMAGE_VERSION,
+    });
+    const action = normalizeTencentSuggestion(response.Suggestion);
+    return {
+      action,
+      bizType,
+      label: response.Label || '',
+      matchedKeywords: tencentKeywordsFromResponse(response),
+      message: action === 'block'
+        ? (config.blockMessage || '图片包含不适合公开展示的内容，请重新上传')
+        : (config.reviewMessage || '图片已进入人工审核，通过后会展示'),
+      provider: 'tencent_cloud',
+      providerRawSuggestion: response.Suggestion || '',
+      requestId: response.RequestId || '',
+      riskScore: tencentRiskScoreFromResponse(response),
+      riskTypes: tencentRiskTypesFromResponse(response, '腾讯云图片机审'),
+      scope,
+      source: 'tencent_cms',
+      sourceLabel: '腾讯云图片机审',
+    };
+  } catch (error) {
+    return { ...contentSafetyMachineError(scope, error), bizType };
+  }
+}
+
 function ensureModerationSamples() {
   if (!Array.isArray(state.moderationSamples)) state.moderationSamples = [];
   return state.moderationSamples;
@@ -4228,16 +4576,52 @@ function evaluateTextModeration(label, text, options = {}) {
   return { action: 'allow', matchedKeywords: [], riskScore: 0, riskTypes: [] };
 }
 
+async function evaluateContentTextModeration(label, text, options = {}) {
+  const local = evaluateTextModeration(label, text, options);
+  if (local.action !== 'allow') return local;
+  const machine = await evaluateTencentTextModeration(label, text, options);
+  return machine || local;
+}
+
+function petProfileModerationText(patch = {}) {
+  return ['name', 'breed', 'species', 'gender']
+    .map((key) => String(patch?.[key] || '').trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
+async function moderatePetProfileTextForPublicUse(patch, user, targetId = '') {
+  const contentText = petProfileModerationText(patch);
+  if (!contentText) return { action: 'allow' };
+  const moderation = await evaluateContentTextModeration('宠物资料', contentText, {
+    ownerPhone: user.phone,
+    scope: 'pet_profile',
+    targetId,
+  });
+  if (moderation.action === 'allow') return moderation;
+  recordModerationSample({ ...moderation, contentText, ownerPhone: user.phone, scope: 'pet_profile', targetId });
+  return {
+    ...moderation,
+    error: moderation.message || '宠物资料需要修改后再保存',
+    statusCode: moderation.action === 'block' ? 400 : 409,
+  };
+}
+
 function moderationMetadataFromEvaluation(evaluation, scope) {
   if (!evaluation || evaluation.action === 'allow') return null;
   return {
     action: evaluation.action,
+    bizType: evaluation.bizType || '',
+    label: evaluation.label || '',
     matchedKeywords: evaluation.matchedKeywords || [],
+    provider: evaluation.provider || '',
+    providerRawSuggestion: evaluation.providerRawSuggestion || '',
+    requestId: evaluation.requestId || '',
     riskScore: evaluation.riskScore || 0,
     riskTypes: evaluation.riskTypes || [],
     scope,
-    source: 'rule',
-    sourceLabel: '规则命中',
+    source: evaluation.source || 'rule',
+    sourceLabel: evaluation.sourceLabel || '规则命中',
   };
 }
 
@@ -4250,9 +4634,15 @@ function recordModerationSample(input = {}) {
     id: `sample-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     matchedKeywords: Array.isArray(input.matchedKeywords) ? input.matchedKeywords.slice(0, 8) : [],
     ownerPhone: input.ownerPhone || '',
+    bizType: input.bizType || '',
+    provider: input.provider || '',
+    providerRawSuggestion: input.providerRawSuggestion || '',
+    requestId: input.requestId || '',
     riskScore: Math.max(0, Math.min(100, Number(input.riskScore || 0))),
     riskTypes: Array.isArray(input.riskTypes) ? input.riskTypes.slice(0, 6) : [],
     scope: input.scope || 'text',
+    source: input.source || 'rule',
+    sourceLabel: input.sourceLabel || '规则命中',
     targetId: input.targetId || '',
   };
   const samples = ensureModerationSamples();
@@ -4307,14 +4697,14 @@ function placesForResponse(places) {
   return (places || []).map(placeForResponse);
 }
 
-function createPlaceReview(user, placeId, content) {
+async function createPlaceReview(user, placeId, content) {
   const place = (state.places || []).find((item) => item.id === placeId);
   if (!place) return null;
   const trimmedContent = String(content || '').trim();
   if (!trimmedContent) return false;
   const violation = publicPlaceContentViolation('点评内容', trimmedContent, 500);
   if (violation) return { error: violation, statusCode: 400 };
-  const moderation = evaluateTextModeration('点评内容', trimmedContent, { scope: 'place_review' });
+  const moderation = await evaluateContentTextModeration('点评内容', trimmedContent, { ownerPhone: user.phone, scope: 'place_review' });
   if (moderation.action === 'block') {
     recordModerationSample({ ...moderation, contentText: trimmedContent, ownerPhone: user.phone, scope: 'place_review' });
     return { error: moderation.message || '点评内容需要修改后再提交', statusCode: 400 };
@@ -4397,7 +4787,7 @@ function findDuplicatePlaceSubmission(user, name, address) {
   };
 }
 
-function createPlaceSubmission(user, body) {
+async function createPlaceSubmission(user, body) {
   const name = String(body.name || '').trim();
   const address = String(body.address || '').trim();
   const content = String(body.content || '').trim();
@@ -4408,7 +4798,7 @@ function createPlaceSubmission(user, body) {
     publicPlaceContentViolation('地点地址', address, 120) ||
     publicPlaceContentViolation('宠物友好体验', content, 500);
   if (violation) return { error: violation, statusCode: 400 };
-  const moderation = evaluateTextModeration('新增地点内容', [name, address, content].join(' '), { scope: 'place_submission' });
+  const moderation = await evaluateContentTextModeration('新增地点内容', [name, address, content].join(' '), { ownerPhone: user.phone, scope: 'place_submission' });
   if (moderation.action === 'block') {
     recordModerationSample({ ...moderation, contentText: [name, address, content].join(' · '), ownerPhone: user.phone, scope: 'place_submission' });
     return { error: moderation.message || '地点内容需要修改后再提交', statusCode: 400 };
@@ -4437,16 +4827,143 @@ function createPlaceSubmission(user, body) {
   return { submission };
 }
 
+function normalizeMediaModerationStatus(value, media) {
+  const status = String(value || '').trim();
+  if (['approved', 'hidden', 'pending_review', 'rejected'].includes(status)) return status;
+  return 'approved';
+}
+
+function mediaModerationStatusLabel(status) {
+  if (status === 'pending_review') return '待审核';
+  if (status === 'approved') return '已通过';
+  if (status === 'hidden') return '已隐藏';
+  if (status === 'rejected') return '已驳回';
+  return status || '-';
+}
+
+function mediaUploadForImageUrl(imageUrl) {
+  const url = String(imageUrl || '').trim();
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    const match = parsed.pathname.match(/\/media\/uploads\/([^/]+)\/file$/);
+    if (match) {
+      const mediaId = decodeURIComponent(match[1]);
+      return state.mediaUploads?.[mediaId] || null;
+    }
+  } catch {
+    return null;
+  }
+  return Object.values(state.mediaUploads || {}).find((media) => {
+    if (!media) return false;
+    return url === media.objectUrl;
+  }) || null;
+}
+
+function mediaUploadForObjectKey(objectKey) {
+  const key = String(objectKey || '').trim();
+  if (!key) return null;
+  return Object.values(state.mediaUploads || {}).find((media) => media?.objectKey === key) || null;
+}
+
+function isMediaUploadPubliclyVisible(media) {
+  const status = normalizeMediaModerationStatus(media?.moderationStatus, media);
+  return status === 'approved';
+}
+
+function isMediaUploadBlockedFromPublic(media) {
+  if (!media) return false;
+  return !isMediaUploadPubliclyVisible(media);
+}
+
+function isImageUrlPubliclyVisible(imageUrl) {
+  const media = mediaUploadForImageUrl(imageUrl);
+  return media ? isMediaUploadPubliclyVisible(media) : true;
+}
+
+function visibleImageUrl(imageUrl) {
+  const url = String(imageUrl || '').trim();
+  return url && isImageUrlPubliclyVisible(url) ? url : '';
+}
+
+function visibleImageUrls(imageUrls) {
+  const seen = new Set();
+  const urls = [];
+  for (const item of Array.isArray(imageUrls) ? imageUrls : []) {
+    const url = visibleImageUrl(item);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    urls.push(url);
+    if (urls.length >= effectivePetCircleMaxPhotos()) break;
+  }
+  return urls;
+}
+
 function publicUploadedMedia(media, req) {
   if (!media) return null;
   const analysis = media.analysis || analyzeUploadedPetMedia({}, media.dataUrl);
+  const moderationStatus = normalizeMediaModerationStatus(media.moderationStatus, { ...media, analysis });
   return {
     analysis,
     fileUrl: media.objectUrl || mediaUploadFileUrl(req, media.mediaId),
     mediaId: media.mediaId,
+    moderationReason: media.moderationReason || '',
+    moderationStatus,
+    moderationStatusLabel: mediaModerationStatusLabel(moderationStatus),
     previewUrl: media.previewUrl || samplePhotoUrl,
     quality: analysis.status === 'blocked' ? 'blocked' : analysis.status === 'warning' ? 'warning' : 'good',
   };
+}
+
+function mediaModerationStatusFromEvaluation(evaluation) {
+  if (!evaluation) return 'approved';
+  if (evaluation.action === 'block') return 'rejected';
+  if (evaluation.action === 'review') return 'pending_review';
+  return 'approved';
+}
+
+function contentSafetySnapshot(evaluation) {
+  if (!evaluation) return null;
+  return {
+    action: evaluation.action || 'allow',
+    bizType: evaluation.bizType || '',
+    label: evaluation.label || '',
+    matchedKeywords: Array.isArray(evaluation.matchedKeywords) ? evaluation.matchedKeywords.slice(0, 8) : [],
+    provider: evaluation.provider || '',
+    providerError: evaluation.providerError || '',
+    providerRawSuggestion: evaluation.providerRawSuggestion || '',
+    requestId: evaluation.requestId || '',
+    riskScore: Math.max(0, Math.min(100, Number(evaluation.riskScore || 0))),
+    riskTypes: Array.isArray(evaluation.riskTypes) ? evaluation.riskTypes.slice(0, 6) : [],
+    source: evaluation.source || '',
+    sourceLabel: evaluation.sourceLabel || '',
+  };
+}
+
+function mediaModerationReasonFromEvaluation(evaluation) {
+  if (!evaluation) return '';
+  if (evaluation.action === 'allow') return '';
+  if (evaluation.providerError) return evaluation.providerError;
+  const types = Array.isArray(evaluation.riskTypes) ? evaluation.riskTypes.filter(Boolean).slice(0, 3).join('、') : '';
+  return evaluation.message || types || mediaModerationStatusLabel(mediaModerationStatusFromEvaluation(evaluation));
+}
+
+async function moderateImageFileContentForPublicUse(fileContent, ownerPhone, scope, targetId) {
+  const result = await evaluateTencentImageModeration({ mediaId: targetId, ownerPhone }, {
+    fileContent,
+    scope,
+    targetId,
+  });
+  if (!result) return { action: 'allow' };
+  if (result.action === 'block') {
+    recordModerationSample({ ...result, contentText: targetId || scope, ownerPhone, scope, targetId });
+    return { action: 'block', error: result.message || '图片包含不适合公开展示的内容，请重新上传', result };
+  }
+  if (result.action === 'review') {
+    recordModerationSample({ ...result, contentText: targetId || scope, ownerPhone, scope, targetId });
+    return { action: 'review', error: result.message || '图片已进入人工审核，请稍后再试', result };
+  }
+  return { action: 'allow', result };
 }
 
 const feedbackCategories = new Set(['bug', 'other', 'safety', 'suggestion']);
@@ -6144,6 +6661,13 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
   if (mediaId && (!media || media.ownerPhone !== user.phone)) {
     return { error: '上传照片已失效，请重新上传', retryable: true, statusCode: 404 };
   }
+  const mediaSafetyStatus = normalizeMediaModerationStatus(media?.moderationStatus, media);
+  if (media && mediaSafetyStatus === 'pending_review') {
+    return { error: '这张照片正在进行安全审核，请通过后再生成灵伴形象', retryable: true, statusCode: 409 };
+  }
+  if (media && (mediaSafetyStatus === 'hidden' || mediaSafetyStatus === 'rejected')) {
+    return { error: '这张照片未通过平台安全审核，请重新上传合适的图片', retryable: false, statusCode: 400 };
+  }
   if (media?.analysis && !media.analysis.canGenerate) {
     return { data: media.analysis, error: media.analysis.message || '当前照片不适合生成灵伴形象，请重新上传', retryable: false, statusCode: 400 };
   }
@@ -7100,6 +7624,7 @@ function normalizeSocialMomentImageUrls(body = {}) {
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+      if (!isImageUrlPubliclyVisible(url)) continue;
       seen.add(url);
       urls.push(url);
     } catch {
@@ -7108,6 +7633,18 @@ function normalizeSocialMomentImageUrls(body = {}) {
     if (urls.length >= effectivePetCircleMaxPhotos()) break;
   }
   return urls;
+}
+
+function socialMomentImageModerationError(body = {}) {
+  const rawUrls = Array.isArray(body.imageUrls) ? body.imageUrls : Array.isArray(body.photoUrls) ? body.photoUrls : [];
+  for (const item of rawUrls) {
+    const media = mediaUploadForImageUrl(item);
+    if (!media) continue;
+    const status = normalizeMediaModerationStatus(media.moderationStatus, media);
+    if (status === 'pending_review') return '有图片正在安全审核中，通过后才能发布';
+    if (status === 'hidden' || status === 'rejected') return '有图片未通过平台安全审核，请重新选择图片';
+  }
+  return '';
 }
 
 function hasSocialMomentImageUrlPayload(body = {}) {
@@ -7160,7 +7697,7 @@ function createSocialReport(user, targetType, targetId, ownerPhone, body = {}) {
   return report;
 }
 
-function createSocialMoment(user, body = {}) {
+async function createSocialMoment(user, body = {}) {
   const rawContent = String(body.content || '').replace(/\s+/g, ' ').trim();
   const violation = socialChatContentViolation('小事内容', rawContent, 280);
   if (violation) return { error: violation, statusCode: 400 };
@@ -7168,12 +7705,14 @@ function createSocialMoment(user, body = {}) {
   if (!content) return { error: '先写一点今天的小事吧', statusCode: 400 };
   const pet = activePetFor(user);
   if (!pet) return { error: '请先为宠物建档后再发布小事', statusCode: 400 };
-  const moderation = evaluateTextModeration('小事内容', content, { scope: 'pet_circle_post' });
+  const moderation = await evaluateContentTextModeration('小事内容', content, { ownerPhone: user.phone, scope: 'pet_circle_post' });
   if (moderation.action === 'block') {
     recordModerationSample({ ...moderation, contentText: content, ownerPhone: user.phone, scope: 'pet_circle_post' });
     return { error: moderation.message || '小事内容需要修改后再发布', statusCode: 400 };
   }
   const visibility = normalizeSocialVisibility(body.visibility);
+  const imageModerationError = socialMomentImageModerationError(body);
+  if (imageModerationError) return { error: imageModerationError, statusCode: 400 };
   const imageUrls = normalizeSocialMomentImageUrls(body);
   const hasImageUrlPayload = hasSocialMomentImageUrlPayload(body);
   const moment = {
@@ -7244,13 +7783,14 @@ function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
   const suffix = momentUser.phone.slice(-4);
   const likes = socialLikesForPost(moment.id);
   const comments = publishedSocialComments(moment.id, viewer);
+  const publicImageUrls = visibleImageUrls(moment.imageUrls);
   return {
     commentCount: comments.length,
     createdAt: moment.createdAt,
     distance: distanceKm === undefined ? '附近' : fuzzyDistance(distanceKm),
     id: moment.id,
-    imageUrl: pet.avatarUrl,
-    imageUrls: Array.isArray(moment.imageUrls) ? moment.imageUrls.slice(0, effectivePetCircleMaxPhotos()) : [],
+    imageUrl: visibleImageUrl(pet.avatarUrl),
+    imageUrls: publicImageUrls,
     likedByMe: likes.some((like) => like.phone === viewer.phone),
     likeCount: likes.length,
     mood: moment.mood || undefined,
@@ -7259,7 +7799,7 @@ function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
     ownerName: momentUser.ownerName || `用户${suffix}`,
     ownedByMe: moment.phone === viewer.phone,
     petName: pet.name || `灵伴${suffix}`,
-    photoCount: moment.photoCount || 0,
+    photoCount: publicImageUrls.length,
     species: pet.species === 'cat' ? 'cat' : 'dog',
     text: moment.content,
     visibility: moment.visibility || 'nearby',
@@ -7376,9 +7916,9 @@ function petCircleProfilePostEntries(viewer, targetUser, options = {}) {
 
 function defaultPetCircleCoverImageUrl(pet, posts = []) {
   return (
-    pet?.petCircleCoverImageUrl ||
+    visibleImageUrl(pet?.petCircleCoverImageUrl) ||
     posts.flatMap((post) => (Array.isArray(post.imageUrls) ? post.imageUrls : [])).find(Boolean) ||
-    pet?.avatarUrl ||
+    visibleImageUrl(pet?.avatarUrl) ||
     ''
   );
 }
@@ -7388,7 +7928,7 @@ function buildPetCircleProfile(viewer, targetUser, entries, target = {}) {
   const cards = entries.map((entry) => entry.card).filter(Boolean);
   const suffix = targetUser.phone.slice(-4);
   return {
-    avatarUrl: pet?.avatarUrl,
+    avatarUrl: visibleImageUrl(pet?.avatarUrl),
     canChangeCover: Boolean(target.ownedByMe),
     coverImageUrl: defaultPetCircleCoverImageUrl(pet, cards),
     latestPostAt: cards[0]?.createdAt,
@@ -7430,6 +7970,14 @@ async function updatePetCircleCover(req, user, body = {}) {
   if (!coverImageUrl) return { error: '请选择可用的封面图', statusCode: 400 };
   if (coverImageUrl.length > 2000) return { error: '封面图地址过长，请重新选择', statusCode: 400 };
   if (isLocalImagePlaceholderUrl(coverImageUrl)) return { error: '封面图还没有上传完成，请重新选择', statusCode: 400 };
+  if (!isImageUrlPubliclyVisible(coverImageUrl)) return { error: '这张封面图正在审核或已不可用，请重新选择', statusCode: 400 };
+  if (!mediaUploadForImageUrl(coverImageUrl)) {
+    const downloaded = await downloadImageBuffer(coverImageUrl).catch(() => null);
+    if (downloaded?.buffer?.length) {
+      const safety = await moderateImageFileContentForPublicUse(downloaded.buffer.toString('base64'), user.phone, 'pet_circle_cover', pet.id);
+      if (safety.action !== 'allow') return { error: safety.error, statusCode: safety.action === 'block' ? 400 : 409 };
+    }
+  }
   pet.petCircleCoverImageUrl = await storeAvatarUrlToCos(req, user, coverImageUrl, { petId: pet.id, scope: 'pet-circle-cover' });
   const entries = petCircleProfilePostEntries(user, user);
   return { profile: buildPetCircleProfile(user, user, entries, { ownedByMe: true, relationshipStatus: 'self' }) };
@@ -7452,7 +8000,7 @@ function listPetCircleComments(postId, viewer) {
     const pet = author ? activePetFor(author) : null;
     return {
       author: author?.ownerName || `用户${String(comment.phone || '').slice(-4)}`,
-      avatarUrl: pet?.avatarUrl,
+      avatarUrl: visibleImageUrl(pet?.avatarUrl),
       content: comment.content,
       createdAt: comment.createdAt,
       id: comment.id,
@@ -7494,7 +8042,7 @@ function unlikeSocialMoment(postId, user) {
   return { moment };
 }
 
-function createPetCircleComment(postId, user, body = {}) {
+async function createPetCircleComment(postId, user, body = {}) {
   const visible = visibleSocialMomentForViewer(postId, user);
   if (visible.error) return visible;
   const { moment } = visible;
@@ -7502,7 +8050,7 @@ function createPetCircleComment(postId, user, body = {}) {
   if (!content) return { error: '先写一句评论吧', statusCode: 400 };
   const violation = socialChatContentViolation('评论内容', content, 140);
   if (violation) return { error: violation, statusCode: 400 };
-  const moderation = evaluateTextModeration('评论内容', content, { reviewAsBlock: true, scope: 'pet_circle_comment' });
+  const moderation = await evaluateContentTextModeration('评论内容', content, { ownerPhone: user.phone, scope: 'pet_circle_comment' });
   if (moderation.action === 'block') {
     recordModerationSample({ ...moderation, contentText: content, ownerPhone: user.phone, scope: 'pet_circle_comment' });
     return { error: moderation.message || '评论内容需要修改后再发送', statusCode: 400 };
@@ -7511,12 +8059,14 @@ function createPetCircleComment(postId, user, body = {}) {
     content: content.slice(0, 140),
     createdAt: new Date().toISOString(),
     id: `comment-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    moderation: moderationMetadataFromEvaluation(moderation, 'pet_circle_comment'),
     phone: user.phone,
     postId,
-    status: 'published',
+    status: moderation.action === 'review' ? 'pending_review' : 'published',
   };
   ensureSocialComments().push(comment);
-  if (moment.phone !== user.phone) {
+  if (comment.moderation) recordModerationSample({ ...moderation, contentText: content, ownerPhone: user.phone, scope: 'pet_circle_comment', targetId: comment.id });
+  if (comment.status === 'published' && moment.phone !== user.phone) {
     addNotification(moment.phone, {
       category: 'interaction',
       commentId: comment.id,
@@ -10467,6 +11017,208 @@ function avatarMediaSourceLabel(source) {
   return source || '用户上传';
 }
 
+function mediaModerationRiskScore(media, analysis = {}) {
+  const status = normalizeMediaModerationStatus(media?.moderationStatus, media);
+  const safetyScore = Number(media?.contentSafety?.riskScore);
+  if (Number.isFinite(safetyScore) && safetyScore > 0) return Math.max(0, Math.min(100, safetyScore));
+  if (status === 'pending_review') return analysis.status === 'blocked' ? 88 : 64;
+  if (status === 'hidden' || status === 'rejected') return 76;
+  if (analysis.status === 'warning') return 42;
+  return 16;
+}
+
+function mediaAuditSnapshot(media) {
+  if (!media) return null;
+  const analysis = media.analysis || {};
+  return {
+    analysisCode: analysis.code || '',
+    analysisStatus: analysis.status || '',
+    fileName: media.fileName || '',
+    mediaId: media.mediaId || '',
+    mimeType: media.mimeType || '',
+    contentSafety: media.contentSafety || null,
+    moderatedAt: media.moderatedAt || '',
+    moderatedBy: media.moderatedBy || '',
+    moderationReason: media.moderationReason || '',
+    moderationStatus: normalizeMediaModerationStatus(media.moderationStatus, media),
+    objectKey: media.objectKey || '',
+    objectUrl: media.objectUrl || '',
+    ownerPhone: media.ownerPhone || '',
+    source: media.source || '',
+    storageProvider: media.storageProvider || '',
+    updatedAt: media.updatedAt || media.createdAt || '',
+  };
+}
+
+function mediaUrlCandidates(media, req = null) {
+  const urls = new Set();
+  if (!media) return urls;
+  if (media.objectUrl) urls.add(media.objectUrl);
+  if (req && media.mediaId) urls.add(mediaUploadFileUrl(req, media.mediaId));
+  return urls;
+}
+
+function imageUrlMatchesMedia(imageUrl, media, req = null) {
+  const url = String(imageUrl || '').trim();
+  if (!url || !media) return false;
+  const upload = mediaUploadForImageUrl(url);
+  if (upload?.mediaId && upload.mediaId === media.mediaId) return true;
+  return mediaUrlCandidates(media, req).has(url);
+}
+
+function adminMediaUsage(media, req = null) {
+  const mediaId = media?.mediaId || '';
+  const posts = ensureSocialMoments()
+    .filter((moment) => (moment.imageUrls || []).some((url) => imageUrlMatchesMedia(url, media, req)))
+    .map((moment) => ({
+      id: moment.id,
+      ownerPhone: moment.phone,
+      status: moment.status || 'published',
+    }));
+  const coverPets = [];
+  const avatarPets = [];
+  for (const user of Object.values(state.users || {})) {
+    for (const pet of Array.isArray(user.pets) ? user.pets : []) {
+      if (imageUrlMatchesMedia(pet.petCircleCoverImageUrl, media, req)) coverPets.push({ id: pet.id, name: pet.name || '', ownerPhone: user.phone });
+      if (imageUrlMatchesMedia(pet.avatarUrl, media, req)) avatarPets.push({ id: pet.id, name: pet.name || '', ownerPhone: user.phone });
+    }
+  }
+  const avatarJobs = Object.values(state.avatarJobs || {})
+    .filter((job) => job.mediaId === mediaId)
+    .map((job) => ({ id: job.id, status: job.status || '', ownerPhone: job.ownerPhone || '' }));
+  return {
+    avatarJobCount: avatarJobs.length,
+    avatarJobs,
+    avatarPetCount: avatarPets.length,
+    avatarPets,
+    coverPetCount: coverPets.length,
+    coverPets,
+    postCount: posts.length,
+    posts,
+  };
+}
+
+function adminMediaModerationItem(media, req = null) {
+  const base = adminAiMediaItem(media, req);
+  const analysis = media?.analysis || {};
+  const contentSafety = media?.contentSafety || null;
+  const status = normalizeMediaModerationStatus(media?.moderationStatus, media);
+  const usage = adminMediaUsage(media, req);
+  const riskTypes = [
+    ...(Array.isArray(contentSafety?.riskTypes) ? contentSafety.riskTypes : []),
+    avatarMediaQualityLabel(base.quality),
+    ...(Array.isArray(analysis.tags) ? analysis.tags : []),
+  ].filter(Boolean);
+  return {
+    ...base,
+    contentSafety,
+    moderatedAt: media?.moderatedAt || '',
+    moderatedBy: media?.moderatedBy || '',
+    moderationReason: media?.moderationReason || '',
+    moderationStatus: status,
+    moderationStatusLabel: mediaModerationStatusLabel(status),
+    references: usage,
+    riskScore: mediaModerationRiskScore(media, analysis),
+    riskTypes,
+    status,
+    statusLabel: mediaModerationStatusLabel(status),
+  };
+}
+
+function adminMediaModeration(options = {}, req = null) {
+  const q = String(options.q || '').trim().toLowerCase();
+  const statusFilter = String(options.status || 'pending_review');
+  const limit = Math.floor(clampNumber(options.limit, 300, 1, ADMIN_EXPORT_ROW_LIMIT));
+  const allItems = Object.values(state.mediaUploads || {})
+    .map((media) => adminMediaModerationItem(media, req))
+    .sort((a, b) => {
+      if (a.status === 'pending_review' && b.status !== 'pending_review') return -1;
+      if (b.status === 'pending_review' && a.status !== 'pending_review') return 1;
+      return analyticsTimeMs(b.createdAt || b.updatedAt) - analyticsTimeMs(a.createdAt || a.updatedAt);
+    });
+  const filtered = allItems.filter((item) => {
+    if (statusFilter !== 'all' && item.status !== statusFilter) return false;
+    if (!q) return true;
+    const haystack = [
+      item.mediaId,
+      item.ownerPhone,
+      item.ownerName,
+      item.petName,
+      item.petId,
+      item.analysisCode,
+      item.analysisTitle,
+      item.source,
+      item.sourceLabel,
+      item.statusLabel,
+      item.moderationReason,
+      item.latestAvatarJobId,
+      item.latestAvatarJobStatus,
+      ...(item.references?.posts || []).map((post) => post.id),
+    ].join(' ').toLowerCase();
+    return haystack.includes(q);
+  });
+  return {
+    items: filtered.slice(0, limit),
+    summary: {
+      all: allItems.length,
+      approved: allItems.filter((item) => item.status === 'approved').length,
+      hidden: allItems.filter((item) => item.status === 'hidden').length,
+      pending: allItems.filter((item) => item.status === 'pending_review').length,
+      referencedByPosts: allItems.filter((item) => item.references?.postCount > 0).length,
+      rejected: allItems.filter((item) => item.status === 'rejected').length,
+      totalMedia: allItems.length,
+    },
+  };
+}
+
+function notifyMediaModeration(media, action, reason) {
+  const phone = normalizePhone(media?.ownerPhone);
+  if (!phone || !state.users?.[phone]) return false;
+  if (action !== 'hide' && action !== 'reject') return false;
+  const label = action === 'reject' ? '未通过审核' : '已被隐藏';
+  const reasonText = String(reason || '').trim();
+  return addNotification(phone, {
+    actionRoute: 'profile',
+    category: 'system',
+    createdAt: new Date().toISOString(),
+    id: `n-media-${media.mediaId}-${Date.now()}`,
+    kind: 'system',
+    read: false,
+    text: reasonText
+      ? `你上传的一张图片${label}，原因：${reasonText}。请重新上传合适的图片。`
+      : `你上传的一张图片${label}。请重新上传合适的图片。`,
+    title: `图片${label}`,
+  }, 'system', { force: true });
+}
+
+function adminModerateMediaUpload(admin, mediaId, actionInput, body = {}, req = null) {
+  const id = String(mediaId || '').trim();
+  const media = state.mediaUploads?.[id];
+  if (!media) return { error: '图片素材不存在', statusCode: 404 };
+  const action = String(actionInput || '').trim();
+  const nextStatusByAction = {
+    approve: 'approved',
+    hide: 'hidden',
+    reject: 'rejected',
+    restore: 'approved',
+    review: 'pending_review',
+  };
+  const nextStatus = nextStatusByAction[action];
+  if (!nextStatus) return { error: '不支持的图片审核动作', statusCode: 400 };
+  const reason = adminReason(body, `图片审核：${mediaModerationStatusLabel(nextStatus)}`);
+  const before = mediaAuditSnapshot(media);
+  const now = new Date().toISOString();
+  media.moderationStatus = nextStatus;
+  media.moderationReason = reason;
+  media.moderatedAt = now;
+  media.moderatedBy = admin?.username || 'admin';
+  media.updatedAt = now;
+  notifyMediaModeration(media, action, reason);
+  const after = mediaAuditSnapshot(media);
+  writeAdminAudit(admin, `media.moderation.${action}`, 'media_upload', id, before, after, reason);
+  return { item: adminMediaModerationItem(media, req) };
+}
+
 function avatarFeedbackReasonLabel(reason) {
   const labels = {
     color: '毛色/花纹不像',
@@ -10496,11 +11248,13 @@ function adminAiMediaItem(media, req) {
   const quality = avatarMediaQuality(analysis);
   const fileUrl = media?.objectUrl || (req && mediaId ? mediaUploadFileUrl(req, mediaId) : '');
   const previewUrl = media?.objectUrl || media?.previewUrl || fileUrl || '';
+  const adminPreviewUrl = media?.dataUrl || previewUrl;
   const sizeKb = Math.round(uploadedMediaBytes(media?.dataUrl) / 1024);
   return {
     analysisCode: analysis.code || '',
     analysisMessage: analysis.message || '',
     analysisTitle: analysis.title || '',
+    adminPreviewUrl,
     avatarJobCount: relatedJobs.length,
     canGenerate: analysis.canGenerate !== false,
     createdAt: media?.createdAt || '',
@@ -11177,8 +11931,18 @@ async function createSupportAttachment(req, user, input, index = 0) {
     } catch {
       cosStored = null;
     }
+    const imageModeration = await evaluateTencentImageModeration(
+      { mediaId, ownerPhone: user.phone },
+      {
+        fileContent: fileParts.buffer.toString('base64'),
+        scope: 'support',
+        targetId: mediaId,
+      },
+    );
+    const moderationStatus = mediaModerationStatusFromEvaluation(imageModeration);
     state.mediaUploads = state.mediaUploads || {};
     state.mediaUploads[mediaId] = {
+      contentSafety: contentSafetySnapshot(imageModeration),
       createdAt: Date.now(),
       dataUrl: parsedUpload.dataUrl,
       ...(cosStored
@@ -11191,10 +11955,17 @@ async function createSupportAttachment(req, user, input, index = 0) {
       fileName: name,
       mediaId,
       mimeType: fileParts.mimeType,
+      moderatedAt: imageModeration?.action && imageModeration.action !== 'allow' ? new Date().toISOString() : '',
+      moderatedBy: imageModeration?.action && imageModeration.action !== 'allow' ? (imageModeration.sourceLabel || 'machine') : '',
+      moderationReason: mediaModerationReasonFromEvaluation(imageModeration),
+      moderationStatus,
       ownerPhone: user.phone,
       previewUrl: source.previewUrl || mediaUploadFileUrl(req, mediaId),
       source: 'support_ticket',
     };
+    if (imageModeration?.action && imageModeration.action !== 'allow') {
+      recordModerationSample({ ...imageModeration, contentText: name, ownerPhone: user.phone, scope: 'support', targetId: mediaId });
+    }
     return {
       attachment: {
         createdAt,
@@ -11877,6 +12648,24 @@ function moderationTaskActions(task) {
       { action: 'reject', label: '驳回', tone: 'danger' },
     ];
   }
+  if (task.kind === 'media_upload') {
+    if (task.status === 'pending') {
+      return [
+        { action: 'approve', label: '通过' },
+        { action: 'hide', label: '隐藏', tone: 'danger' },
+        { action: 'reject', label: '驳回', tone: 'danger', confirm: true },
+      ];
+    }
+    if (task.status === 'hidden' || task.status === 'rejected') {
+      return [
+        { action: 'restore', label: '恢复' },
+      ];
+    }
+    return [
+      { action: 'hide', label: '隐藏', tone: 'danger' },
+      { action: 'reject', label: '驳回', tone: 'danger', confirm: true },
+    ];
+  }
   if (task.kind === 'pet_circle_post' || task.kind === 'pet_circle_comment') {
     if (task.status === 'deleted') return [];
     if (task.status === 'pending') {
@@ -12212,7 +13001,32 @@ function adminModerationTasks(options = {}) {
     title: submission.name,
     updatedAt: submission.reviewedAt || submission.createdAt,
   }));
-  const tasks = [...reportTasks, ...postTasks, ...commentTasks, ...reviewTasks, ...submissionTasks]
+  const mediaTasks = adminMediaModeration({ limit: ADMIN_EXPORT_ROW_LIMIT, status: 'all' }, options.req || null).items
+    .filter((media) => media.status !== 'approved')
+    .map((media) => buildModerationTask({
+      contentText: [media.analysisTitle, media.analysisMessage, media.fileName].filter(Boolean).join(' · '),
+      createdAt: media.createdAt,
+      id: `media:${media.mediaId}`,
+      kind: 'media_upload',
+      kindLabel: '图片素材',
+      mediaUrls: media.fileUrl ? [media.fileUrl] : [],
+      ownerName: media.ownerName,
+      ownerPhone: media.ownerPhone,
+      reason: media.moderationReason || '',
+      relatedCount: media.references?.postCount || media.references?.avatarJobCount || 0,
+      riskScore: media.riskScore,
+      riskTypes: media.riskTypes?.length ? media.riskTypes : ['图片审核'],
+      source: media.source || 'upload',
+      sourceLabel: media.sourceLabel || '用户上传',
+      status: media.status,
+      targetId: media.mediaId,
+      targetLabel: media.petName || media.mediaId,
+      targetStatus: media.status,
+      targetType: 'media_upload',
+      title: media.petName ? `${media.petName} 的图片素材` : '图片素材',
+      updatedAt: media.moderatedAt || media.updatedAt || media.createdAt,
+    }));
+  const tasks = [...reportTasks, ...postTasks, ...commentTasks, ...reviewTasks, ...submissionTasks, ...mediaTasks]
     .filter((task) => {
       if (statusFilter === 'all') return true;
       if (statusFilter === 'pending') return ['pending', 'reviewing', 'escalated'].includes(task.status);
@@ -12225,7 +13039,7 @@ function adminModerationTasks(options = {}) {
         .some((value) => String(value || '').toLowerCase().includes(q));
     })
     .sort((a, b) => b.priority - a.priority || String(b.createdAt).localeCompare(String(a.createdAt)));
-  const allTasks = [...reportTasks, ...postTasks, ...commentTasks, ...reviewTasks, ...submissionTasks];
+  const allTasks = [...reportTasks, ...postTasks, ...commentTasks, ...reviewTasks, ...submissionTasks, ...mediaTasks];
   const samples = adminModerationSamples();
   return {
     samples: samples.slice(0, 12),
@@ -12234,6 +13048,7 @@ function adminModerationTasks(options = {}) {
       assigned: allTasks.filter((task) => task.assignee).length,
       escalated: allTasks.filter((task) => task.status === 'escalated').length,
       handled: allTasks.filter((task) => !['pending', 'reviewing', 'escalated'].includes(task.status)).length,
+      media: allTasks.filter((task) => task.kind === 'media_upload').length,
       overdue: allTasks.filter((task) => task.sla?.status === 'overdue').length,
       pending: allTasks.filter((task) => ['pending', 'reviewing', 'escalated'].includes(task.status)).length,
       places: allTasks.filter((task) => task.kind === 'place_review' || task.kind === 'place_submission').length,
@@ -12374,7 +13189,23 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     const comment = ensureSocialComments().find((item) => item.id === id);
     if (!comment) return { error: '评论不存在', statusCode: 404 };
     const before = { ...comment };
-    if (action === 'approve') comment.status = 'published';
+    if (action === 'approve') {
+      comment.status = 'published';
+      const post = findSocialMomentById(comment.postId);
+      if (post?.phone && post.phone !== comment.phone) {
+        const commenter = state.users[comment.phone];
+        addNotification(post.phone, {
+          category: 'interaction',
+          commentId: comment.id,
+          id: `n-pet-circle-comment-${comment.id}`,
+          kind: 'pet_circle_comment',
+          postId: post.id,
+          read: false,
+          text: `${commenter?.ownerName || `用户${String(comment.phone || '').slice(-4)}`}评论了这条小事`,
+          title: '宠友圈有新评论',
+        }, 'interaction');
+      }
+    }
     else if (action === 'hide') comment.status = 'hidden';
     else if (action === 'restore') comment.status = 'published';
     else if (action === 'delete') {
@@ -12384,6 +13215,12 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     comment.adminModerationReason = reason;
     markModerationTaskMeta(taskId, admin, action, reason);
     writeAdminAudit(admin, `moderation.comment.${action}`, 'pet_circle_comment', id, before, comment, reason);
+    return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
+  }
+  if (kind === 'media') {
+    const result = adminModerateMediaUpload(admin, id, action, body);
+    if (result.error) return result;
+    markModerationTaskMeta(taskId, admin, action, reason);
     return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
   }
   if (kind === 'placeReview') {
@@ -12711,6 +13548,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   if (req.method === 'GET' && pathname === '/admin/moderation/tasks') {
     ok(res, adminModerationTasks({
       q: url.searchParams.get('q') || '',
+      req,
       status: url.searchParams.get('status') || 'pending',
     }));
     return true;
@@ -12751,6 +13589,27 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     }
     saveState();
     ok(res, result.task || null);
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/media/moderation') {
+    ok(res, adminMediaModeration({
+      q: url.searchParams.get('q') || '',
+      status: url.searchParams.get('status') || 'pending_review',
+    }, req));
+    return true;
+  }
+
+  const adminMediaModerationMatch = pathname.match(/^\/admin\/media\/([^/]+)\/moderate$/);
+  if (req.method === 'POST' && adminMediaModerationMatch) {
+    const mediaId = decodeURIComponent(adminMediaModerationMatch[1]);
+    const result = adminModerateMediaUpload(admin, mediaId, body.action, body, req);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_MEDIA_MODERATION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.item || null);
     return true;
   }
 
@@ -13602,6 +14461,10 @@ async function handle(req, res) {
   if (req.method === 'GET' && mediaFileMatch) {
     const mediaId = decodeURIComponent(mediaFileMatch[1]);
     const media = state.mediaUploads?.[mediaId];
+    if (isMediaUploadBlockedFromPublic(media)) {
+      fail(res, 404, 'Media file not found', false);
+      return;
+    }
     if (media?.objectKey && cosEnabled()) {
       try {
         const result = await cosRequest('GET', media.objectKey, { timeoutMs: 20000 });
@@ -13642,6 +14505,11 @@ async function handle(req, res) {
     const objectKey = decodeURIComponent(storageObjectMatch[1]);
     if (!objectKey || objectKey.includes('..') || objectKey.startsWith('/')) {
       fail(res, 400, 'Storage object is invalid', false);
+      return;
+    }
+    const media = mediaUploadForObjectKey(objectKey);
+    if (isMediaUploadBlockedFromPublic(media)) {
+      fail(res, 404, 'Storage object not found', false);
       return;
     }
     try {
@@ -13929,7 +14797,28 @@ async function handle(req, res) {
       id: `pet-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       personality: ['亲人', '爱互动', '想交朋友'],
     };
+    const profileModeration = await moderatePetProfileTextForPublicUse(petInput.patch, user, pet.id);
+    if (profileModeration.action && profileModeration.action !== 'allow') {
+      fail(
+        res,
+        profileModeration.statusCode || 400,
+        profileModeration.error,
+        profileModeration.action === 'review',
+        profileModeration,
+        profileModeration.action === 'block' ? 'PROFILE_CONTENT_BLOCKED' : 'PROFILE_CONTENT_REVIEW',
+      );
+      return;
+    }
     if (body.avatarBase64) {
+      const avatarParsedUpload = parseBase64Upload(body.avatarBase64, body.avatarMimeType);
+      const avatarFileContent = String(avatarParsedUpload.dataUrl || '').match(/^data:[^;]+;base64,(.+)$/)?.[1] || '';
+      if (avatarFileContent) {
+        const safety = await moderateImageFileContentForPublicUse(avatarFileContent, user.phone, 'pet_avatar', pet.id);
+        if (safety.action !== 'allow') {
+          fail(res, safety.action === 'block' ? 400 : 409, safety.error, safety.action === 'review', safety.result, safety.action === 'block' ? 'IMAGE_CONTENT_BLOCKED' : 'IMAGE_CONTENT_REVIEW');
+          return;
+        }
+      }
       const stored = await storeBase64ImageToCos(req, user, body, {
         base64Key: 'avatarBase64',
         fileNamePrefix: 'pet-profile-avatar',
@@ -13978,7 +14867,28 @@ async function handle(req, res) {
       fail(res, 400, petPatch.error, false, undefined, 'PET_PROFILE_INVALID');
       return;
     }
+    const profileModeration = await moderatePetProfileTextForPublicUse(petPatch.patch || {}, user, pet.id);
+    if (profileModeration.action && profileModeration.action !== 'allow') {
+      fail(
+        res,
+        profileModeration.statusCode || 400,
+        profileModeration.error,
+        profileModeration.action === 'review',
+        profileModeration,
+        profileModeration.action === 'block' ? 'PROFILE_CONTENT_BLOCKED' : 'PROFILE_CONTENT_REVIEW',
+      );
+      return;
+    }
     if (body.avatarBase64) {
+      const avatarParsedUpload = parseBase64Upload(body.avatarBase64, body.avatarMimeType);
+      const avatarFileContent = String(avatarParsedUpload.dataUrl || '').match(/^data:[^;]+;base64,(.+)$/)?.[1] || '';
+      if (avatarFileContent) {
+        const safety = await moderateImageFileContentForPublicUse(avatarFileContent, user.phone, 'pet_avatar', pet.id);
+        if (safety.action !== 'allow') {
+          fail(res, safety.action === 'block' ? 400 : 409, safety.error, safety.action === 'review', safety.result, safety.action === 'block' ? 'IMAGE_CONTENT_BLOCKED' : 'IMAGE_CONTENT_REVIEW');
+          return;
+        }
+      }
       const stored = await storeBase64ImageToCos(req, user, body, {
         base64Key: 'avatarBase64',
         fileNamePrefix: 'pet-profile-avatar',
@@ -14083,7 +14993,8 @@ async function handle(req, res) {
       }
     }
     state.mediaUploads = state.mediaUploads || {};
-    state.mediaUploads[mediaId] = {
+    const uploadSource = body.source || 'mvp_sample';
+    const uploadMedia = {
       analysis,
       createdAt: Date.now(),
       dataUrl,
@@ -14099,8 +15010,25 @@ async function handle(req, res) {
       mimeType: parsedUpload.mimeType || normalizeImageMimeType(body.mimeType) || 'application/octet-stream',
       ownerPhone: user.phone,
       previewUrl: body.previewUrl || samplePhotoUrl,
-      source: body.source || 'mvp_sample',
+      source: uploadSource,
     };
+    const uploadFileContent = String(dataUrl || '').match(/^data:[^;]+;base64,(.+)$/)?.[1] || '';
+    const imageModerationScope = imageModerationScopeForUploadSource(uploadSource);
+    const imageModeration = await evaluateTencentImageModeration(uploadMedia, {
+      fileContent: uploadFileContent,
+      scope: imageModerationScope,
+      targetId: mediaId,
+    });
+    const moderationStatus = mediaModerationStatusFromEvaluation(imageModeration);
+    uploadMedia.contentSafety = contentSafetySnapshot(imageModeration);
+    uploadMedia.moderationReason = mediaModerationReasonFromEvaluation(imageModeration);
+    uploadMedia.moderationStatus = moderationStatus;
+    if (imageModeration?.action && imageModeration.action !== 'allow') {
+      uploadMedia.moderatedAt = new Date().toISOString();
+      uploadMedia.moderatedBy = imageModeration.sourceLabel || 'machine';
+      recordModerationSample({ ...imageModeration, contentText: String(body.fileName || mediaId), ownerPhone: user.phone, scope: imageModerationScope, targetId: mediaId });
+    }
+    state.mediaUploads[mediaId] = uploadMedia;
     saveState();
     ok(res, publicUploadedMedia(state.mediaUploads[mediaId], req));
     return;
@@ -14573,7 +15501,7 @@ async function handle(req, res) {
       fail(res, 400, '请先完成定位后再发布到宠友圈', true, undefined, 'NEARBY_LOCATION_REQUIRED');
       return;
     }
-    const created = createSocialMoment(user, body);
+    const created = await createSocialMoment(user, body);
     if (created.error) {
       saveState();
       fail(res, created.statusCode || 400, created.error, false, undefined, 'SOCIAL_MOMENT_INVALID');
@@ -14658,7 +15586,7 @@ async function handle(req, res) {
     if (failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     if (failIfMuted(user, res, '发表评论')) return;
     const postId = decodeURIComponent(petCircleCommentsMatch[1]);
-    const result = createPetCircleComment(postId, user, body);
+    const result = await createPetCircleComment(postId, user, body);
     if (result.error) {
       saveState();
       fail(res, result.statusCode || 400, result.error, false, undefined, 'PET_CIRCLE_COMMENT_INVALID');
@@ -15212,7 +16140,7 @@ async function handle(req, res) {
   if (req.method === 'POST' && pathname === '/places/submissions') {
     if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     if (failIfMuted(user, res, '提交地点')) return;
-    const result = createPlaceSubmission(user, body);
+    const result = await createPlaceSubmission(user, body);
     if (result.error) {
       saveState();
       fail(res, result.statusCode || 400, result.error, false);
@@ -15228,7 +16156,7 @@ async function handle(req, res) {
     if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     if (failIfMuted(user, res, '发布地点点评')) return;
     const placeId = decodeURIComponent(reviewMatch[1]);
-    const review = createPlaceReview(user, placeId, body.content);
+    const review = await createPlaceReview(user, placeId, body.content);
     if (review === null) {
       fail(res, 404, '地点不存在', false);
       return;
