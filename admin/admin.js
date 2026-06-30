@@ -2540,7 +2540,7 @@ async function renderReports(force) {
       ['举报对象', (r) => `<div class="cell-title">${escapeHtml(r.targetType)} · ${escapeHtml(r.targetId)}</div><div class="cell-sub">被举报：${escapeHtml(r.ownerName)} ${shortPhone(r.ownerPhone)}</div>`],
       ['举报人', (r) => `<div>${escapeHtml(r.reporterName)}</div><div class="cell-sub">${shortPhone(r.reporterPhone)}</div>`],
       ['原因', (r) => escapeHtml(r.content || '-')],
-      ['内容快照', (r) => `<div class="cell-title">${escapeHtml(r.evidenceSnapshot?.targetLabel || '-')}</div><div class="cell-sub">${escapeHtml(r.evidenceSnapshot?.contentText || '无文本内容').slice(0, 90)}</div>`],
+      ['内容快照', renderReportEvidenceSnapshot],
       ['状态', (r) => `${statusPill(r.status)}<div class="cell-sub">举报人：${r.resultNotifiedAt ? formatTime(r.resultNotifiedAt) : '未通知'}</div><div class="cell-sub">作者：${r.ownerResultNotifiedAt ? formatTime(r.ownerResultNotifiedAt) : '未通知'}</div>`],
       ['处罚建议', renderReportSanctionSuggestion],
       ['时间', (r) => formatTime(r.createdAt)],
@@ -2552,6 +2552,18 @@ async function renderReports(force) {
       `],
     ],
   });
+}
+
+function renderReportEvidenceSnapshot(report) {
+  const snapshot = report.evidenceSnapshot || {};
+  const frozen = snapshot.snapshotId && snapshot.snapshotAt;
+  const content = escapeHtml(snapshot.contentText || '无文本内容').slice(0, 90);
+  return `
+    <div class="cell-title">${escapeHtml(snapshot.targetLabel || '-')}</div>
+    <div class="cell-sub">${frozen ? `已固化：${formatTime(snapshot.snapshotAt)}` : '动态预览，旧举报待处理时会固化'}</div>
+    <div class="cell-sub">状态：${escapeHtml(snapshot.targetStatus || '-')} ${snapshot.mediaUrls?.length ? `· ${snapshot.mediaUrls.length} 张图` : ''}</div>
+    <div class="cell-sub">${content}</div>
+  `;
 }
 
 function renderReportSanctionSuggestion(report) {

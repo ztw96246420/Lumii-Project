@@ -1145,6 +1145,10 @@ function adminExportDataset(type) {
         exportColumn('ownerPhone', '被举报人手机号'),
         exportColumn('ownerName', '被举报人昵称'),
         exportColumn('content', '举报原因'),
+        exportColumn('evidenceSnapshotId', '证据快照ID', (row) => row.evidenceSnapshot?.snapshotId || ''),
+        exportColumn('evidenceSnapshotAt', '证据快照时间', (row) => exportDateText(row.evidenceSnapshot?.snapshotAt)),
+        exportColumn('evidenceTargetStatus', '快照目标状态', (row) => row.evidenceSnapshot?.targetStatus || ''),
+        exportColumn('evidenceContentText', '证据内容摘要', (row) => row.evidenceSnapshot?.contentText || ''),
         exportColumn('resultNotifiedAt', '举报人通知时间', (row) => exportDateText(row.resultNotifiedAt)),
         exportColumn('ownerResultNotifiedAt', '作者通知时间', (row) => exportDateText(row.ownerResultNotifiedAt)),
         exportColumn('createdAt', '创建时间', (row) => exportDateText(row.createdAt)),
@@ -2699,6 +2703,8 @@ function normalizeSanctionEvidenceSnapshot(snapshot = {}) {
     reportId: String(snapshot.reportId || '').slice(0, 120),
     reporterName: String(snapshot.reporterName || '').slice(0, 80),
     reporterPhone: normalizePhone(snapshot.reporterPhone || ''),
+    snapshotAt: String(snapshot.snapshotAt || '').slice(0, 40),
+    snapshotId: String(snapshot.snapshotId || '').slice(0, 120),
     targetId: String(snapshot.targetId || '').slice(0, 120),
     targetLabel: String(snapshot.targetLabel || '').slice(0, 120),
     targetStatus: String(snapshot.targetStatus || '').slice(0, 60),
@@ -6572,6 +6578,7 @@ function createSocialReport(user, targetType, targetId, ownerPhone, body = {}) {
     targetId,
     targetType,
   };
+  report.evidenceSnapshot = buildSocialReportEvidenceSnapshot(report);
   ensureSocialReports().unshift(report);
   return report;
 }
@@ -10427,8 +10434,17 @@ function socialReportTargetSnapshot(report) {
   return { contentText: report.content || '', targetLabel: report.targetType, targetStatus: 'unknown' };
 }
 
+function isFrozenEvidenceSnapshot(snapshot) {
+  return Boolean(snapshot?.snapshotId && snapshot?.snapshotAt);
+}
+
 function socialReportEvidenceSnapshot(report) {
+  return normalizeSanctionEvidenceSnapshot(report?.evidenceSnapshot) || buildSocialReportEvidenceSnapshot(report, { frozen: false });
+}
+
+function buildSocialReportEvidenceSnapshot(report, options = {}) {
   const target = socialReportTargetSnapshot(report);
+  const frozen = options.frozen !== false;
   return normalizeSanctionEvidenceSnapshot({
     ...target,
     createdAt: report.createdAt || '',
@@ -10437,9 +10453,19 @@ function socialReportEvidenceSnapshot(report) {
     reportId: report.id,
     reporterName: report.reporterName || state.users?.[report.phone]?.ownerName || '',
     reporterPhone: report.phone,
+    snapshotAt: frozen ? new Date().toISOString() : '',
+    snapshotId: frozen ? `evidence-${report.id || Date.now()}` : '',
     targetId: report.targetId,
     targetType: report.targetType,
   });
+}
+
+function ensureSocialReportEvidenceSnapshot(report) {
+  if (!report) return null;
+  const existing = normalizeSanctionEvidenceSnapshot(report.evidenceSnapshot);
+  const snapshot = isFrozenEvidenceSnapshot(existing) ? existing : buildSocialReportEvidenceSnapshot(report);
+  report.evidenceSnapshot = snapshot;
+  return snapshot;
 }
 
 function suggestSanctionTemplateForReport(report) {
@@ -10454,7 +10480,7 @@ function suggestSanctionTemplateForReport(report) {
 
 function buildReportSanctionSuggestion(admin, report, reason = '') {
   const template = suggestSanctionTemplateForReport(report) || sanctionTemplateById('report_valid_mute_24h');
-  const evidenceSnapshot = socialReportEvidenceSnapshot(report);
+  const evidenceSnapshot = ensureSocialReportEvidenceSnapshot(report);
   return {
     createdAt: report.sanctionSuggestion?.createdAt || new Date().toISOString(),
     createdBy: report.sanctionSuggestion?.createdBy || admin?.username || 'admin',
@@ -10495,7 +10521,7 @@ function applyReportSanctionSuggestion(admin, reportId, body = {}) {
   if (!type || durationHours === null) return { error: '处罚模板配置不正确', statusCode: 400 };
   const reason = String(body.reason || baseSuggestion.reason || template?.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
   if (!reason) return { error: '请填写处罚原因', statusCode: 400 };
-  const evidenceSnapshot = socialReportEvidenceSnapshot(report);
+  const evidenceSnapshot = ensureSocialReportEvidenceSnapshot(report);
   const result = createUserSanction(admin, report.ownerPhone, {
     durationHours,
     evidenceSnapshot,
@@ -10820,7 +10846,10 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     report.reviewedAt = now;
     report.reviewedBy = admin.username;
     report.reviewReason = reason;
-    if (report.status === 'valid') ensureReportSanctionSuggestion(admin, report, reason);
+    if (report.status === 'valid') {
+      ensureSocialReportEvidenceSnapshot(report);
+      ensureReportSanctionSuggestion(admin, report, reason);
+    }
     markModerationTaskMeta(taskId, admin, action, reason);
     notifySocialReportResolution(report, action, reason);
     writeAdminAudit(admin, 'moderation.report.resolve', 'social_report', report.id, beforeReport, report, reason);
@@ -11588,7 +11617,10 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     report.reviewedAt = new Date().toISOString();
     report.reviewedBy = admin.username;
     report.reviewReason = String(body.reason || '').slice(0, 240);
-    if (report.status === 'valid') ensureReportSanctionSuggestion(admin, report, report.reviewReason);
+    if (report.status === 'valid') {
+      ensureSocialReportEvidenceSnapshot(report);
+      ensureReportSanctionSuggestion(admin, report, report.reviewReason);
+    }
     notifySocialReportResolution(report, report.status, body.reason);
     writeAdminAudit(admin, 'social.report.resolve', 'social_report', reportId, before, report, body.reason);
     saveState();
