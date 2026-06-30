@@ -1370,6 +1370,7 @@ Place
 - 如果地点不存在，返回 404 和中文错误 `地点不存在`。
 - `reviewCount` 用于 App 地图页“点评最多”排序；生产后端能返回真实公开点评数时应返回该字段，旧数据缺字段时 App 会按 0 处理。
 - `supportedSpecies` 用于 App 地图页“汪星友好 / 喵星友好”筛选；生产后端能判断时建议返回该字段，旧数据缺字段时 App 仅会按标签和地点类别做保守推断。
+- `qualityScore`、`qualityLabel`、`qualityReasons` 和 `duplicateCandidateCount` 来自 Lumii 后台地点质量治理；App 可用于同分排序或后续展示，后台不会因重复候选自动合并地点。
 - 当前 MVP 详情数据结构与地点列表项一致；高德 POI 有返回时，地点详情会展示图片、营业时间、联系电话和商圈；缺失时显示“待补充”或隐藏非关键字段。
 
 ### GET `/places/favorites`

@@ -531,6 +531,10 @@ export type Place = {
   photoUrls?: string[];
   poiType?: string;
   poiTypeCode?: string;
+  duplicateCandidateCount?: number;
+  qualityLabel?: string;
+  qualityReasons?: string[];
+  qualityScore?: number;
   rating: number;
   reviewCount?: number;
   source?: 'amap' | 'manual' | 'seed' | 'tencent';

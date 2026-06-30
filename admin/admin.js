@@ -852,6 +852,7 @@ async function handlePlaceModerationAction(button) {
     audit: null,
     moderation: null,
     notifications: null,
+    places: null,
     placeReviews: null,
     placeSubmissions: null,
     summary: null,
@@ -938,7 +939,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'places', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -3470,13 +3471,67 @@ function renderReportSanctionSuggestion(report) {
   `;
 }
 
+function placeQualityPill(place) {
+  const score = Number(place.qualityScore || 0);
+  const tone = score >= 80 ? 'ok' : score >= 60 ? 'warn' : 'bad';
+  return `<span class="pill ${tone}">${escapeHtml(place.qualityLabel || '待完善')} ${numberText(score)}分</span>`;
+}
+
+function placeDuplicateSummary(place) {
+  const candidates = Array.isArray(place.duplicateCandidates) ? place.duplicateCandidates : [];
+  if (!candidates.length) return '<div class="cell-sub">暂无重复候选</div>';
+  return candidates.slice(0, 3).map((candidate) => {
+    const distance = Number.isFinite(Number(candidate.distanceMeters)) ? ` · ${numberText(candidate.distanceMeters)}m` : '';
+    const reasons = Array.isArray(candidate.reasons) ? candidate.reasons.join(' / ') : '';
+    return `
+      <div class="cell-sub">
+        <strong>${escapeHtml(candidate.name || candidate.id)}</strong>
+        · 相似 ${numberText(candidate.score)}${distance}
+      </div>
+      <div class="cell-sub">${escapeHtml(reasons || candidate.address || '-')}</div>
+    `;
+  }).join('');
+}
+
+function placeQualityEvidence(place) {
+  const reasons = Array.isArray(place.qualityReasons) ? place.qualityReasons : [];
+  return [
+    reasons.length ? reasons.join(' / ') : '暂无质量证据',
+    `点评 ${numberText(place.reviewCount || 0)} · 已审 ${numberText(place.approvedReviewCount || 0)} · 收藏 ${numberText(place.favoriteCount || 0)}`,
+  ].map((line) => `<div class="cell-sub">${escapeHtml(line)}</div>`).join('');
+}
+
 async function renderPlaces(force) {
-  const [reviews, submissions, templates] = await Promise.all([
+  const [catalog, reviews, submissions, templates] = await Promise.all([
+    load('places', '/admin/places', force),
     load('placeReviews', '/admin/places/reviews', force),
     load('placeSubmissions', '/admin/places/submissions', force),
     load('placeModerationTemplates', '/admin/places/moderation-templates', force),
   ]);
+  const places = Array.isArray(catalog) ? catalog : catalog.places || [];
+  const placeSummary = Array.isArray(catalog) ? {} : catalog.summary || {};
   $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('地点总数', numberText(placeSummary.total || places.length), `${numberText(placeSummary.highQuality || 0)} 个高质量`, '来自 seed、高德回流和用户审核入库的地点目录总数。')}
+      ${metric('平均质量分', numberText(placeSummary.averageQualityScore || 0), '实时计算', '质量分由地址、坐标、分类、标签、评分、点评、收藏和宠物友好状态综合计算，不会自动改写地点。')}
+      ${metric('重复候选', numberText(placeSummary.duplicatePlaceCount || 0), '需人工确认', '重复候选只给运营证据，不自动合并或隐藏，避免误伤真实不同地点。')}
+      ${metric('待治理', numberText(placeSummary.needsReview || 0), '低分/重复/candidate', '质量分低于 60、有重复候选或宠物友好状态仍为 candidate 的地点会进入待治理口径。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>地点质量治理</h2>
+          <div class="section-sub">质量分和重复候选会同步进入移动端地点响应，用于排序和后续运营判断；当前不做自动合并</div>
+        </div>
+        ${help('质量分是运营信号：高分优先展示和排查更可信；重复候选用于提示人工合并，正式合并/编辑能力仍是预留入口。')}
+      </div>
+      ${tableHtml(places, [
+        ['地点', (row) => `<div class="cell-title">${escapeHtml(row.name)}</div><div class="cell-sub">${escapeHtml(row.address || '-')}</div><div class="cell-sub">${escapeHtml(row.id)}</div>`],
+        ['质量', (row) => `${placeQualityPill(row)}${placeQualityEvidence(row)}`],
+        ['重复候选', (row) => placeDuplicateSummary(row)],
+        ['来源', (row) => `<div>${escapeHtml(row.source || '-')} · ${escapeHtml(row.category || '-')}</div><div class="cell-sub">${escapeHtml(row.petFriendlyStatus || 'unknown')}</div><div class="cell-sub">${escapeHtml((row.tags || []).slice(0, 4).join(' / ') || '-')}</div>`],
+      ], '暂无地点目录')}
+    </div>
     <div class="card">
       <div class="section-head">
         <div>

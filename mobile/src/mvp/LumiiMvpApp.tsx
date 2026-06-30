@@ -1162,6 +1162,8 @@ function sortPlacesByMode(items: Place[], mode: PlaceSortMode) {
     }
     const distanceDelta = parsePlaceDistanceMeters(left.distance) - parsePlaceDistanceMeters(right.distance);
     if (distanceDelta !== 0) return distanceDelta;
+    const qualityDelta = (right.qualityScore ?? 0) - (left.qualityScore ?? 0);
+    if (qualityDelta !== 0) return qualityDelta;
     return right.rating - left.rating;
   });
 }

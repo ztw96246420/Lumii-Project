@@ -1841,6 +1841,32 @@ function adminExportDataset(type) {
         exportColumn('createdAt', '创建时间', (row) => exportDateText(row.createdAt)),
       ],
     },
+    places: {
+      description: '地点目录质量治理数据，覆盖质量分、重复候选、收藏、点评、来源和宠物友好状态。',
+      label: '地点目录',
+      rows: () => adminPlaceCatalog().places,
+      columns: [
+        exportColumn('id', '地点ID'),
+        exportColumn('name', '地点名称'),
+        exportColumn('address', '地址'),
+        exportColumn('category', '分类'),
+        exportColumn('source', '来源'),
+        exportColumn('petFriendlyStatus', '宠物友好状态'),
+        exportColumn('qualityScore', '质量分'),
+        exportColumn('qualityLabel', '质量标签'),
+        exportColumn('qualityReasons', '质量证据', (row) => exportJoin(row.qualityReasons || [])),
+        exportColumn('duplicateCandidateCount', '重复候选数'),
+        exportColumn('duplicateCandidates', '重复候选', (row) => exportJoin((row.duplicateCandidates || []).map((item) => `${item.name}:${item.score}`))),
+        exportColumn('rating', '评分'),
+        exportColumn('reviewCount', '点评数'),
+        exportColumn('approvedReviewCount', '已审点评数'),
+        exportColumn('favoriteCount', '收藏数'),
+        exportColumn('supportedSpecies', '支持物种', (row) => exportJoin(row.supportedSpecies || [])),
+        exportColumn('tags', '标签', (row) => exportJoin(row.tags || [])),
+        exportColumn('latitude', '纬度'),
+        exportColumn('longitude', '经度'),
+      ],
+    },
     place_reviews: {
       description: '地点点评审核记录，用于地点内容运营和审核追踪。',
       label: '地点点评',
@@ -1967,7 +1993,7 @@ function adminExportDataset(type) {
 
 function adminExportCatalog(filters = {}) {
   const normalizedFilters = normalizeAdminExportFilters(filters);
-  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
+  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'places', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
@@ -5174,6 +5200,23 @@ function placeReviewCount(placeId) {
   return reviewPhones.size;
 }
 
+function approvedPlaceReviewCount(placeId) {
+  return Object.values(state.placeReviews || {}).reduce((sum, reviews) => {
+    if (!Array.isArray(reviews)) return sum;
+    return sum + reviews.filter((review) => review.placeId === placeId && review.status === 'approved').length;
+  }, 0);
+}
+
+function placeFavoriteCount(placeId) {
+  return Object.values(state.users || {}).reduce((sum, user) => (
+    Array.isArray(user?.favoritePlaceIds) && user.favoritePlaceIds.includes(placeId) ? sum + 1 : sum
+  ), 0);
+}
+
+function approvedPlaceSubmissionCount(placeId) {
+  return allPlaceSubmissions().filter((submission) => submission.status === 'approved' && submission.approvedPlaceId === placeId).length;
+}
+
 function normalizePlaceCategoryForResponse(place) {
   const category = String(place?.category || 'other');
   if (['cafe', 'clinic', 'park', 'shop'].includes(category)) return category;
@@ -5183,17 +5226,201 @@ function normalizePlaceCategoryForResponse(place) {
   return 'other';
 }
 
+function placeQualityDetails(place) {
+  const category = normalizePlaceCategoryForResponse(place);
+  const reviewCount = placeReviewCount(place?.id);
+  const approvedReviews = approvedPlaceReviewCount(place?.id);
+  const favoriteCount = placeFavoriteCount(place?.id);
+  const approvedSubmissions = approvedPlaceSubmissionCount(place?.id);
+  const tags = Array.isArray(place?.tags) ? place.tags.filter(Boolean) : [];
+  const supportedSpecies = Array.isArray(place?.supportedSpecies)
+    ? place.supportedSpecies.filter((species) => species === 'cat' || species === 'dog')
+    : [];
+  const rating = Number(place?.rating || 0);
+  const hasCoordinates = Number.isFinite(Number(place?.latitude)) && Number.isFinite(Number(place?.longitude));
+  const status = String(place?.petFriendlyStatus || 'unknown');
+  const source = String(place?.source || '');
+  const reasons = [];
+  let score = 28;
+  if (compactText(place?.name)) {
+    score += 8;
+    reasons.push('名称完整');
+  }
+  if (compactText(place?.address)) {
+    score += 10;
+    reasons.push('地址完整');
+  }
+  if (hasCoordinates) {
+    score += 10;
+    reasons.push('有坐标');
+  }
+  if (category !== 'other') {
+    score += 8;
+    reasons.push('分类明确');
+  }
+  if (supportedSpecies.length) {
+    score += 8;
+    reasons.push('猫狗适配已标注');
+  }
+  if (tags.length) {
+    score += Math.min(10, tags.length * 3);
+    reasons.push('标签可检索');
+  }
+  if (Number.isFinite(rating) && rating > 0) {
+    score += Math.min(24, Math.round(rating * 5));
+    reasons.push('有评分');
+  }
+  if (reviewCount > 0) {
+    score += Math.min(12, reviewCount * 3);
+    reasons.push('有用户点评');
+  }
+  if (approvedReviews > 0) {
+    score += Math.min(10, approvedReviews * 4);
+    reasons.push('有已审点评');
+  }
+  if (favoriteCount > 0) {
+    score += Math.min(8, favoriteCount * 2);
+    reasons.push('被用户收藏');
+  }
+  if (approvedSubmissions > 0) {
+    score += Math.min(6, approvedSubmissions * 3);
+    reasons.push('来自审核入库');
+  }
+  if (source === 'amap' || source === 'tencent') score += 4;
+  if (status === 'verified') {
+    score += 10;
+    reasons.push('宠物友好已验证');
+  } else if (status === 'candidate') {
+    score -= 10;
+    reasons.push('宠物友好待验证');
+  } else if (status === 'rejected') {
+    score -= 25;
+    reasons.push('宠物友好被驳回');
+  }
+  const normalizedScore = Math.max(0, Math.min(100, Math.round(score)));
+  const label = normalizedScore >= 80 ? '高质量' : normalizedScore >= 60 ? '可用' : '待完善';
+  return {
+    approvedReviews,
+    approvedSubmissions,
+    category,
+    favoriteCount,
+    label,
+    reasons: reasons.slice(0, 6),
+    reviewCount,
+    score: normalizedScore,
+  };
+}
+
+function placeLocationForQuality(place) {
+  const latitude = Number(place?.latitude);
+  const longitude = Number(place?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+  return { latitude, longitude };
+}
+
+function placeDuplicateCandidates(place, allPlaces = state.places || [], limit = 3) {
+  const placeLocation = placeLocationForQuality(place);
+  return (allPlaces || [])
+    .filter((candidate) => candidate && candidate.id !== place?.id)
+    .map((candidate) => {
+      const reasons = [];
+      let score = 0;
+      if (compactText(place?.sourcePoiId) && compactText(place?.sourcePoiId) === compactText(candidate.sourcePoiId)) {
+        score += 80;
+        reasons.push('外部 POI ID 相同');
+      }
+      if (isSimilarPlaceText(place?.name, candidate.name, 3)) {
+        score += 45;
+        reasons.push('名称相似');
+      }
+      if (isSimilarPlaceText(place?.address, candidate.address, 6)) {
+        score += 30;
+        reasons.push('地址相似');
+      }
+      if (normalizePlaceCategoryForResponse(place) === normalizePlaceCategoryForResponse(candidate)) {
+        score += 8;
+        reasons.push('分类相同');
+      }
+      const candidateLocation = placeLocationForQuality(candidate);
+      const distanceKm = placeLocation && candidateLocation ? distanceKmBetween(placeLocation, candidateLocation) : null;
+      if (distanceKm !== null && distanceKm !== undefined) {
+        if (distanceKm <= 0.05) {
+          score += 25;
+          reasons.push('50m 内');
+        } else if (distanceKm <= 0.2) {
+          score += 12;
+          reasons.push('200m 内');
+        }
+      }
+      return {
+        address: candidate.address || '',
+        category: normalizePlaceCategoryForResponse(candidate),
+        distanceMeters: distanceKm === null || distanceKm === undefined ? null : Math.round(distanceKm * 1000),
+        id: candidate.id,
+        name: candidate.name || candidate.id,
+        reasons,
+        score: Math.max(0, Math.min(100, score)),
+      };
+    })
+    .filter((candidate) => candidate.score >= 55)
+    .sort((a, b) => b.score - a.score || String(a.name).localeCompare(String(b.name)))
+    .slice(0, limit);
+}
+
 function placeForResponse(place) {
   if (!place) return place;
+  const quality = placeQualityDetails(place);
+  const duplicateCandidateCount = placeDuplicateCandidates(place, state.places || [], 4).length;
   return {
     ...place,
-    category: normalizePlaceCategoryForResponse(place),
-    reviewCount: placeReviewCount(place.id),
+    category: quality.category,
+    duplicateCandidateCount,
+    qualityLabel: quality.label,
+    qualityReasons: quality.reasons,
+    qualityScore: quality.score,
+    reviewCount: quality.reviewCount,
   };
 }
 
 function placesForResponse(places) {
   return (places || []).map(placeForResponse);
+}
+
+function adminPlaceCatalog() {
+  const sourcePlaces = state.places || [];
+  const places = sourcePlaces.map((place) => {
+    const quality = placeQualityDetails(place);
+    const duplicateCandidates = placeDuplicateCandidates(place, sourcePlaces, 5);
+    return {
+      ...placeForResponse(place),
+      approvedReviewCount: quality.approvedReviews,
+      approvedSubmissionCount: quality.approvedSubmissions,
+      duplicateCandidates,
+      duplicateCandidateCount: duplicateCandidates.length,
+      favoriteCount: quality.favoriteCount,
+    };
+  }).sort((a, b) =>
+    (b.duplicateCandidateCount || 0) - (a.duplicateCandidateCount || 0) ||
+    (a.qualityScore || 0) - (b.qualityScore || 0) ||
+    String(a.name).localeCompare(String(b.name))
+  );
+  const total = places.length;
+  const duplicatePlaceCount = places.filter((place) => place.duplicateCandidateCount > 0).length;
+  const needsReview = places.filter((place) => Number(place.qualityScore || 0) < 60 || place.duplicateCandidateCount > 0 || place.petFriendlyStatus === 'candidate').length;
+  const averageQualityScore = total
+    ? Math.round(places.reduce((sum, place) => sum + Number(place.qualityScore || 0), 0) / total)
+    : 0;
+  return {
+    places,
+    summary: {
+      averageQualityScore,
+      duplicatePlaceCount,
+      highQuality: places.filter((place) => Number(place.qualityScore || 0) >= 80).length,
+      needsReview,
+      total,
+    },
+  };
 }
 
 async function createPlaceReview(user, placeId, content) {
@@ -14701,7 +14928,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   }
 
   if (req.method === 'GET' && pathname === '/admin/places') {
-    ok(res, placesForResponse(state.places || []));
+    ok(res, adminPlaceCatalog());
     return true;
   }
 
