@@ -55,6 +55,8 @@
 
 - `GET /admin/users`
 - `GET /admin/users/{phone}`
+- `GET /admin/users/{phone}/business-data-summary`
+- `POST /admin/users/{phone}/clear-business-data`
 
 已支持：
 
@@ -62,10 +64,14 @@
 - 用户详情聚合：宠物、AI 用量、AI 任务、反馈、通知、宠友圈动态。
 - 用户列表快捷禁言 24 小时、冻结 72 小时。
 - 账号状态和生效处罚会在用户列表展示。
+- 用户列表支持高危操作“清理业务数据”：先拉取清理预览，再要求填写原因和完整手机号确认。
+- 清理范围覆盖宠物档案、宠物日历、AI 素材/任务/额度、宠物 AI 对话、宠友圈、点赞/评论/举报、黑名单、招呼、约遛、会话、地点收藏/点评/提交、通知、推送设备、反馈和工单。
+- 清理后移动端 `/me` 会返回 `activePet=null`，用户重新进入时回到无宠物业务数据状态；账号壳、昵称、头像、简介、设置、权限、短信登录记录、后台审计日志和系统通知批次保留。
+- 清理动作写入 `adminAuditLogs`，action 为 `user.clear_business_data`，审计中只保存清理前后摘要和用户概览，不导出被清理内容原文。
+- 详见 `docs/Operations_Backoffice_User_Data_Clear_2026-06-30.md`。
 
 未实现：
 
-- 用户业务数据清理。
 - 用户备注和风险标签。
 
 ### 3.3.1 宠物档案

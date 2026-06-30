@@ -437,6 +437,10 @@ async function onContentClick(event) {
     if (action === 'sanction-revoke') await confirmPost(`/admin/users/${encodeURIComponent(phone)}/sanctions/${encodeURIComponent(id)}/revoke`, { reason }, '确认撤销这条处罚？');
     if (action === 'quick-mute') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 24, reason: '用户列表快捷禁言', type: 'mute' });
     if (action === 'quick-freeze') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 72, reason: '用户列表快捷冻结', type: 'freeze' });
+    if (action === 'clear-user-business-data') {
+      await clearUserBusinessData(phone);
+      return;
+    }
     if (action === 'avatar-feedback-filter') {
       state.aiFeedbackStatus = $('aiFeedbackStatus').value;
       state.aiFeedbackReason = $('aiFeedbackReason').value;
@@ -599,6 +603,39 @@ function clearOperationalCaches() {
   ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
+}
+
+function userBusinessSummaryText(summary = {}) {
+  const groups = [
+    ['宠物/日历', Number(summary.pets || 0) + Number(summary.healthStores || 0)],
+    ['AI', Number(summary.avatarJobs || 0) + Number(summary.mediaUploads || 0) + Number(summary.petChatMessages || 0)],
+    ['宠友圈', Number(summary.socialMoments || 0) + Number(summary.socialComments || 0) + Number(summary.socialLikes || 0) + Number(summary.socialReports || 0)],
+    ['关系消息', Number(summary.greetings || 0) + Number(summary.invites || 0) + Number(summary.conversations || 0) + Number(summary.conversationMessages || 0)],
+    ['地点/工单', Number(summary.placeReviews || 0) + Number(summary.placeSubmissions || 0) + Number(summary.feedback || 0) + Number(summary.supportTickets || 0)],
+    ['通知/设备', Number(summary.notifications || 0) + Number(summary.pushDevices || 0)],
+  ];
+  return groups.map(([label, value]) => `${label} ${value}`).join(' · ');
+}
+
+async function clearUserBusinessData(phone) {
+  if (!phone) return;
+  const preview = await api(`/admin/users/${encodeURIComponent(phone)}/business-data-summary`);
+  const summary = preview.summary || {};
+  const summaryText = userBusinessSummaryText(summary);
+  const reason = window.prompt(
+    `这是高危操作，会保留账号和审计日志，但清理该用户的宠物、AI、宠友圈、关系消息、地点、通知、工单等业务数据。\n\n${shortPhone(phone)}：${summaryText}\n\n请输入清理原因：`,
+    '测试重置用户业务数据',
+  );
+  if (reason === null) return;
+  const confirmation = window.prompt(`请再次输入完整手机号 ${phone} 确认清理`, '');
+  if (confirmation === null) return;
+  const result = await post(`/admin/users/${encodeURIComponent(phone)}/clear-business-data`, {
+    confirmation: confirmation.trim(),
+    reason: reason.trim() || '测试重置用户业务数据',
+  });
+  clearOperationalCaches();
+  showToast(`已清理：${userBusinessSummaryText(result.before || {})}`);
+  await render(true);
 }
 
 function valueOf(id) {
@@ -1436,6 +1473,7 @@ async function renderUsers(force) {
         <div class="actions">
           <button class="small-button" data-action="quick-mute" data-phone="${escapeHtml(u.phone)}">禁言24h</button>
           <button class="small-button danger" data-action="quick-freeze" data-phone="${escapeHtml(u.phone)}">冻结72h</button>
+          <button class="small-button danger" data-action="clear-user-business-data" data-phone="${escapeHtml(u.phone)}">清理业务数据</button>
         </div>
       `],
     ],

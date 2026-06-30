@@ -7792,6 +7792,195 @@ function adminUserSummary(user) {
   };
 }
 
+function conversationMessageCountForMap(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 0;
+  return Object.values(value).reduce((sum, messages) => sum + (Array.isArray(messages) ? messages.length : 0), 0);
+}
+
+function deleteObjectKeysByPredicate(objectValue, predicate) {
+  if (!objectValue || typeof objectValue !== 'object' || Array.isArray(objectValue)) return 0;
+  let count = 0;
+  for (const key of Object.keys(objectValue)) {
+    if (!predicate(key, objectValue[key])) continue;
+    delete objectValue[key];
+    count += 1;
+  }
+  return count;
+}
+
+function businessDataIdsForUser(phone) {
+  const postIds = new Set(ensureSocialMoments().filter((item) => item.phone === phone).map((item) => item.id).filter(Boolean));
+  const commentIds = new Set(
+    ensureSocialComments()
+      .filter((item) => item.phone === phone || postIds.has(item.postId))
+      .map((item) => item.id)
+      .filter(Boolean),
+  );
+  const reportIds = new Set(
+    ensureSocialReports()
+      .filter((item) => item.phone === phone || item.ownerPhone === phone || postIds.has(item.targetId) || commentIds.has(item.targetId))
+      .map((item) => item.id)
+      .filter(Boolean),
+  );
+  const placeReviewIds = new Set((state.placeReviews?.[phone] || []).map((item) => item.id).filter(Boolean));
+  const placeSubmissionIds = new Set((state.placeSubmissions?.[phone] || []).map((item) => item.id).filter(Boolean));
+  return { commentIds, placeReviewIds, placeSubmissionIds, postIds, reportIds };
+}
+
+function moderationTaskMetaBelongsToClearedUser(taskId, ids) {
+  const { kind, id } = splitModerationTaskId(taskId);
+  if (kind === 'post') return ids.postIds.has(id);
+  if (kind === 'comment') return ids.commentIds.has(id);
+  if (kind === 'report') return ids.reportIds.has(id);
+  if (kind === 'placeReview') return ids.placeReviewIds.has(id);
+  if (kind === 'placeSubmission') return ids.placeSubmissionIds.has(id);
+  return false;
+}
+
+function notificationBelongsToClearedUser(notification = {}, phone, ids) {
+  const text = String(notification.id || '');
+  if (notification.ownerId === `user-${phone}`) return true;
+  if (notification.postId && ids.postIds.has(notification.postId)) return true;
+  if (notification.commentId && ids.commentIds.has(notification.commentId)) return true;
+  if (notification.reportId && ids.reportIds.has(notification.reportId)) return true;
+  if (notification.conversationId === `c-${phone}`) return true;
+  if (text.includes(phone)) return true;
+  for (const postId of ids.postIds) if (postId && text.includes(postId)) return true;
+  for (const commentId of ids.commentIds) if (commentId && text.includes(commentId)) return true;
+  return false;
+}
+
+function adminUserBusinessDataSummary(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  const user = normalizedPhone ? state.users[normalizedPhone] : null;
+  if (!user) return null;
+  const ids = businessDataIdsForUser(normalizedPhone);
+  const healthPrefix = `${normalizedPhone}:`;
+  const petChatKeys = Object.keys(state.petChatMessages || {}).filter((key) => key.startsWith(healthPrefix));
+  const conversationCount = (state.conversations?.[normalizedPhone] || []).length +
+    Object.entries(state.conversations || {}).reduce((sum, [ownerPhone, conversations]) => {
+      if (ownerPhone === normalizedPhone || !Array.isArray(conversations)) return sum;
+      return sum + conversations.filter((item) => item.id === `c-${normalizedPhone}` || item.ownerId === `user-${normalizedPhone}`).length;
+    }, 0);
+  const conversationMessageCount = conversationMessageCountForMap(state.conversationMessages?.[normalizedPhone]) +
+    Object.entries(state.conversationMessages || {}).reduce((sum, [ownerPhone, map]) => {
+      if (ownerPhone === normalizedPhone || !map || typeof map !== 'object' || Array.isArray(map)) return sum;
+      const messages = map[`c-${normalizedPhone}`];
+      return sum + (Array.isArray(messages) ? messages.length : 0);
+    }, 0);
+  const notificationCount = (state.notifications?.[normalizedPhone] || []).length +
+    Object.entries(state.notifications || {}).reduce((sum, [ownerPhone, notifications]) => {
+      if (ownerPhone === normalizedPhone || !Array.isArray(notifications)) return sum;
+      return sum + notifications.filter((item) => notificationBelongsToClearedUser(item, normalizedPhone, ids)).length;
+    }, 0);
+  const mediaIds = new Set(Object.values(state.mediaUploads || {}).filter((item) => item?.ownerPhone === normalizedPhone).map((item) => item.mediaId).filter(Boolean));
+  const avatarJobs = Object.values(state.avatarJobs || {}).filter((job) => job?.ownerPhone === normalizedPhone || mediaIds.has(job?.mediaId));
+  const healthStoreCount = ['weights', 'vaccines', 'memos', 'vaccineReminders'].reduce((sum, key) => (
+    sum + Object.keys(state.health?.[key] || {}).filter((itemKey) => itemKey.startsWith(healthPrefix)).length
+  ), 0);
+  const feedbackIds = new Set((state.feedback || []).filter((item) => item.phone === normalizedPhone).map((item) => item.id).filter(Boolean));
+  const supportTicketCount = (state.supportTickets || []).filter((item) => item.phone === normalizedPhone || feedbackIds.has(item.sourceId)).length;
+  return {
+    aiAvatarDailyUsage: state.petAvatarDailyUsage?.[normalizedPhone] ? 1 : 0,
+    avatarJobs: avatarJobs.length,
+    conversations: conversationCount,
+    conversationMessages: conversationMessageCount,
+    feedback: feedbackIds.size,
+    greetings: (state.greetings || []).filter((item) => item.fromPhone === normalizedPhone || item.targetPhone === normalizedPhone).length,
+    healthStores: healthStoreCount,
+    invites: (state.invites || []).filter((item) => item.fromPhone === normalizedPhone || item.targetPhone === normalizedPhone).length,
+    mediaUploads: mediaIds.size,
+    moderationSamples: (state.moderationSamples || []).filter((item) => item.ownerPhone === normalizedPhone || ids.postIds.has(item.targetId) || ids.commentIds.has(item.targetId)).length,
+    notifications: notificationCount,
+    petChatDailyUsage: state.petChatDailyUsage?.[normalizedPhone] ? 1 : 0,
+    petChatMessages: petChatKeys.reduce((sum, key) => sum + (Array.isArray(state.petChatMessages?.[key]) ? state.petChatMessages[key].length : 0), 0),
+    petChatThreads: petChatKeys.length,
+    pets: Array.isArray(user.pets) ? user.pets.length : 0,
+    placeReviews: (state.placeReviews?.[normalizedPhone] || []).length,
+    placeSubmissions: (state.placeSubmissions?.[normalizedPhone] || []).length,
+    pushDevices: (state.pushDevices?.[normalizedPhone] || []).length,
+    socialBlocks: ensureSocialBlocks().filter((item) => item.blockerPhone === normalizedPhone || item.blockedPhone === normalizedPhone).length,
+    socialComments: ids.commentIds.size,
+    socialLikes: ensureSocialLikes().filter((item) => item.phone === normalizedPhone || ids.postIds.has(item.postId)).length,
+    socialMoments: ids.postIds.size,
+    socialReports: ids.reportIds.size,
+    supportTickets: supportTicketCount,
+  };
+}
+
+function adminClearUserBusinessData(admin, phone, body = {}) {
+  const normalizedPhone = normalizePhone(phone);
+  const user = normalizedPhone ? state.users[normalizedPhone] : null;
+  if (!user) return { error: '用户不存在', statusCode: 404 };
+  const reason = adminReason(body, '清理用户业务数据');
+  const confirmation = String(body.confirmation || '').trim();
+  if (confirmation !== normalizedPhone) return { error: '请用目标手机号确认清理动作', statusCode: 400 };
+  const beforeSummary = adminUserBusinessDataSummary(normalizedPhone);
+  const beforeUser = adminUserSummary(user);
+  const ids = businessDataIdsForUser(normalizedPhone);
+  const healthPrefix = `${normalizedPhone}:`;
+  const feedbackIds = new Set((state.feedback || []).filter((item) => item.phone === normalizedPhone).map((item) => item.id).filter(Boolean));
+  const mediaIds = new Set(Object.values(state.mediaUploads || {}).filter((item) => item?.ownerPhone === normalizedPhone).map((item) => item.mediaId).filter(Boolean));
+
+  user.pets = [];
+  user.activePetId = '';
+  user.favoritePlaceIds = [];
+  user.location = null;
+  user.lastSeenAt = 0;
+
+  ['weights', 'vaccines', 'memos', 'vaccineReminders'].forEach((key) => {
+    if (!state.health?.[key]) return;
+    deleteObjectKeysByPredicate(state.health[key], (itemKey) => itemKey.startsWith(healthPrefix));
+  });
+  deleteObjectKeysByPredicate(state.petChatMessages, (key) => key.startsWith(healthPrefix));
+  deleteObjectKeysByPredicate(state.mediaUploads, (_key, item) => item?.ownerPhone === normalizedPhone);
+  deleteObjectKeysByPredicate(state.avatarJobs, (_key, job) => job?.ownerPhone === normalizedPhone || mediaIds.has(job?.mediaId));
+  deleteObjectKeysByPredicate(state.moderationTaskMeta, (taskId) => moderationTaskMetaBelongsToClearedUser(taskId, ids));
+  if (state.petAvatarDailyUsage) delete state.petAvatarDailyUsage[normalizedPhone];
+  if (state.petChatDailyUsage) delete state.petChatDailyUsage[normalizedPhone];
+  if (state.placeReviews) delete state.placeReviews[normalizedPhone];
+  if (state.placeSubmissions) delete state.placeSubmissions[normalizedPhone];
+  if (state.notifications) delete state.notifications[normalizedPhone];
+  if (state.pushDevices) delete state.pushDevices[normalizedPhone];
+  if (state.conversations) delete state.conversations[normalizedPhone];
+  if (state.conversationMessages) delete state.conversationMessages[normalizedPhone];
+
+  state.socialMoments = ensureSocialMoments().filter((item) => item.phone !== normalizedPhone);
+  state.socialComments = ensureSocialComments().filter((item) => item.phone !== normalizedPhone && !ids.postIds.has(item.postId));
+  state.socialLikes = ensureSocialLikes().filter((item) => item.phone !== normalizedPhone && !ids.postIds.has(item.postId));
+  state.socialReports = ensureSocialReports().filter((item) => item.phone !== normalizedPhone && item.ownerPhone !== normalizedPhone && !ids.postIds.has(item.targetId) && !ids.commentIds.has(item.targetId));
+  state.socialBlocks = ensureSocialBlocks().filter((item) => item.blockerPhone !== normalizedPhone && item.blockedPhone !== normalizedPhone);
+  state.greetings = (state.greetings || []).filter((item) => item.fromPhone !== normalizedPhone && item.targetPhone !== normalizedPhone);
+  state.invites = (state.invites || []).filter((item) => item.fromPhone !== normalizedPhone && item.targetPhone !== normalizedPhone);
+  state.feedback = (state.feedback || []).filter((item) => item.phone !== normalizedPhone);
+  state.supportTickets = (state.supportTickets || []).filter((item) => item.phone !== normalizedPhone && !feedbackIds.has(item.sourceId));
+  state.moderationSamples = (state.moderationSamples || []).filter((item) => item.ownerPhone !== normalizedPhone && !ids.postIds.has(item.targetId) && !ids.commentIds.has(item.targetId));
+
+  Object.entries(state.conversations || {}).forEach(([ownerPhone, conversations]) => {
+    if (!Array.isArray(conversations)) return;
+    state.conversations[ownerPhone] = conversations.filter((item) => item.id !== `c-${normalizedPhone}` && item.ownerId !== `user-${normalizedPhone}`);
+  });
+  Object.entries(state.conversationMessages || {}).forEach(([ownerPhone, map]) => {
+    if (!map || typeof map !== 'object' || Array.isArray(map)) return;
+    delete map[`c-${normalizedPhone}`];
+    if (!Object.keys(map).length) delete state.conversationMessages[ownerPhone];
+  });
+  Object.entries(state.notifications || {}).forEach(([ownerPhone, notifications]) => {
+    if (!Array.isArray(notifications)) return;
+    state.notifications[ownerPhone] = notifications.filter((item) => !notificationBelongsToClearedUser(item, normalizedPhone, ids));
+  });
+
+  const afterSummary = adminUserBusinessDataSummary(normalizedPhone);
+  writeAdminAudit(admin, 'user.clear_business_data', 'user', normalizedPhone, {
+    summary: beforeSummary,
+    user: beforeUser,
+  }, {
+    summary: afterSummary,
+    user: adminUserSummary(user),
+  }, reason);
+  return { after: afterSummary, before: beforeSummary, phone: normalizedPhone };
+}
+
 function adminPetBirthdayInfo(pet) {
   const birthday = String(pet?.birthday || '').trim();
   if (!birthday) return { key: 'unknown', label: '未知' };
@@ -10909,6 +11098,31 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       notifications: normalizeNotificationsFor(phone),
       socialPosts: adminSocialPosts().filter((post) => post.ownerPhone === phone),
     });
+    return true;
+  }
+
+  const adminUserBusinessSummaryMatch = pathname.match(/^\/admin\/users\/([^/]+)\/business-data-summary$/);
+  if (req.method === 'GET' && adminUserBusinessSummaryMatch) {
+    const phone = normalizePhone(decodeURIComponent(adminUserBusinessSummaryMatch[1]));
+    const summary = phone ? adminUserBusinessDataSummary(phone) : null;
+    if (!summary) {
+      fail(res, 404, '用户不存在', false, undefined, 'ADMIN_USER_NOT_FOUND');
+      return true;
+    }
+    ok(res, { phone, summary });
+    return true;
+  }
+
+  const adminUserClearBusinessDataMatch = pathname.match(/^\/admin\/users\/([^/]+)\/clear-business-data$/);
+  if (req.method === 'POST' && adminUserClearBusinessDataMatch) {
+    const phone = normalizePhone(decodeURIComponent(adminUserClearBusinessDataMatch[1]));
+    const result = adminClearUserBusinessData(admin, phone, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_USER_CLEAR_BUSINESS_DATA_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 
