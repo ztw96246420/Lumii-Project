@@ -547,7 +547,8 @@ th {
 
 .moderation-toolbar,
 .ticket-toolbar,
-.pet-calendar-toolbar {
+.pet-calendar-toolbar,
+.relationship-toolbar {
   align-items: flex-end;
   background: rgba(255, 247, 239, 0.5);
   border: 1px solid var(--line);
@@ -559,6 +560,30 @@ th {
 .ticket-list {
   display: grid;
   gap: 12px;
+}
+
+.relationship-pair {
+  display: grid;
+  gap: 7px;
+  min-width: 190px;
+}
+
+.relationship-pair div {
+  background: rgba(255, 247, 239, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+}
+
+.relationship-pair strong {
+  font-size: 13px;
+}
+
+.relationship-pair span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .moderation-card {

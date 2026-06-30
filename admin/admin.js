@@ -14,6 +14,9 @@ const state = {
   petChatDetails: {},
   petChatFlag: 'all',
   petChatQ: '',
+  socialRelationKind: 'all',
+  socialRelationQ: '',
+  socialRelationStatus: 'all',
   route: 'dashboard',
   ticketPriority: 'all',
   ticketQ: '',
@@ -30,6 +33,7 @@ const navItems = [
   { key: 'petChat', label: 'AI 对话' },
   { key: 'moderation', label: '内容安全' },
   { key: 'socialPosts', label: '宠友圈' },
+  { key: 'socialRelations', label: '关系消息' },
   { key: 'reports', label: '举报中心' },
   { key: 'places', label: '地图地点' },
   { key: 'tickets', label: '工单中心' },
@@ -56,6 +60,7 @@ const titles = {
   reports: ['举报中心', '宠友圈举报处理闭环'],
   sanctionAppeals: ['申诉中心', '账号处罚申诉、复核和撤销联动'],
   sanctions: ['用户处罚', '禁言、冻结、封禁与撤销记录'],
+  socialRelations: ['关系消息', '招呼、约遛、会话和通知链路排查'],
   socialPosts: ['宠友圈', '动态与评论内容安全'],
   tickets: ['工单中心', '用户反馈、客服备注和回复闭环'],
   users: ['用户管理', '账号、宠物、设置和风险排查'],
@@ -309,6 +314,22 @@ async function onContentClick(event) {
       state.petCalendarTo = '';
       state.petCalendarQ = '';
       state.cache = { ...state.cache, petCalendar: null };
+      await render(true);
+      return;
+    }
+    if (action === 'social-relations-filter') {
+      state.socialRelationKind = $('socialRelationKind').value;
+      state.socialRelationStatus = $('socialRelationStatus').value;
+      state.socialRelationQ = $('socialRelationQ').value.trim();
+      state.cache = { ...state.cache, socialRelations: null };
+      await render(true);
+      return;
+    }
+    if (action === 'social-relations-clear') {
+      state.socialRelationKind = 'all';
+      state.socialRelationStatus = 'all';
+      state.socialRelationQ = '';
+      state.cache = { ...state.cache, socialRelations: null };
       await render(true);
       return;
     }
@@ -739,6 +760,7 @@ async function render(force = false) {
     reports: renderReports,
     sanctionAppeals: renderSanctionAppeals,
     sanctions: renderSanctions,
+    socialRelations: renderSocialRelations,
     socialPosts: renderSocialPosts,
     tickets: renderTickets,
     users: renderUsers,
@@ -1461,6 +1483,121 @@ async function renderPetCalendar(force) {
           <div><strong>体重修复</strong><span>只处理明显错误值，必须写原因、before/after 和影响范围。</span></div>
           <div><strong>疫苗状态修复</strong><span>后台可分 due / overdue / done，但移动端仍统一简化给用户。</span></div>
           <div><strong>备忘恢复</strong><span>删除、恢复、批量处理应进入高危操作审计。</span></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function socialRelationOption(current, value, label) {
+  return `<option value="${escapeHtml(value)}" ${String(current) === String(value) ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+}
+
+function socialRelationPair(row) {
+  return `
+    <div class="relationship-pair">
+      <div><strong>${escapeHtml(row.fromName || '-')}</strong><span>${shortPhone(row.fromPhone)} · ${escapeHtml(row.fromPetName || '未建档')}</span></div>
+      <div><strong>${escapeHtml(row.targetName || '-')}</strong><span>${shortPhone(row.targetPhone)} · ${escapeHtml(row.targetPetName || '未建档')}</span></div>
+    </div>
+  `;
+}
+
+function socialRelationRisk(row) {
+  const risks = [];
+  if (row.blocked) risks.push(statusPill('已拉黑'));
+  if (row.notificationCount) risks.push(statusPill(`${row.notificationCount} 通知`));
+  if (row.messageCount) risks.push(statusPill(`${row.messageCount} 消息`));
+  if (row.kind === 'conversation') risks.push(statusPill('正文受限'));
+  return risks.join(' ') || '<span class="muted">无明显风险</span>';
+}
+
+async function renderSocialRelations(force) {
+  const query = new URLSearchParams({
+    kind: state.socialRelationKind,
+    q: state.socialRelationQ,
+    status: state.socialRelationStatus,
+  });
+  const data = await load('socialRelations', `/admin/social-relations?${query.toString()}`, force);
+  const rows = data.items || [];
+  const summary = data.summary || {};
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('关系记录', numberText(summary.all), `${numberText(summary.totalRecords)} 条全量`, '当前筛选下的招呼、约遛和会话记录总数。')}
+      ${metric('待处理', numberText(summary.pending), `${numberText(summary.rejected)} 条已拒绝`, 'pending 关系最容易造成用户误解，需要重点排查通知和可回复状态。')}
+      ${metric('已接受', numberText(summary.accepted), '可发消息关系', '已接受招呼或约遛回复后建立的可消息关系。')}
+      ${metric('招呼', numberText(summary.greetings), '发现页 / 宠友圈', '包括普通招呼和从宠友圈小事发起的招呼。')}
+      ${metric('约遛', numberText(summary.walkInvites), '约遛邀请', '用于排查 B 收到 A 约遛后是否可以直接回复。')}
+      ${metric('会话消息', numberText(summary.messageCount), `${numberText(summary.notifications)} 条相关通知`, '会话只展示摘要；完整正文查看需要更高权限与审计。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>关系消息记录</h2>
+          <div class="section-sub">招呼、约遛、会话和通知链路的只读排查视角</div>
+        </div>
+        ${help('默认只展示会话摘要、状态、通知和拉黑信息，不展示完整私信正文。后续若开放正文查看，需要原因、权限和审计。')}
+      </div>
+      <div class="toolbar moderation-toolbar relationship-toolbar">
+        <div class="toolbar-left">
+          <label>类型
+            <select id="socialRelationKind">
+              ${socialRelationOption(state.socialRelationKind, 'all', '全部')}
+              ${socialRelationOption(state.socialRelationKind, 'greeting', '招呼')}
+              ${socialRelationOption(state.socialRelationKind, 'walk_invite', '约遛')}
+              ${socialRelationOption(state.socialRelationKind, 'conversation', '会话')}
+            </select>
+          </label>
+          <label>状态
+            <select id="socialRelationStatus">
+              ${socialRelationOption(state.socialRelationStatus, 'all', '全部')}
+              ${socialRelationOption(state.socialRelationStatus, 'pending', '待处理')}
+              ${socialRelationOption(state.socialRelationStatus, 'accepted', '已接受')}
+              ${socialRelationOption(state.socialRelationStatus, 'rejected', '已拒绝')}
+              ${socialRelationOption(state.socialRelationStatus, 'blocked', '已拉黑')}
+            </select>
+          </label>
+          <label>搜索<input id="socialRelationQ" placeholder="手机号、宠物、地点、动态ID、会话ID" value="${escapeHtml(state.socialRelationQ)}" /></label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="social-relations-filter">筛选</button>
+          <button class="small-button ghost" data-action="social-relations-clear">清空</button>
+        </div>
+      </div>
+      ${tableHtml(rows, [
+        ['类型', (r) => `<div>${statusPill(r.typeLabel)}</div><div class="cell-sub">${escapeHtml(r.sourceLabel || '-')}</div>`],
+        ['双方', (r) => socialRelationPair(r)],
+        ['状态', (r) => `${statusPill(r.statusLabel || r.status)}<div class="cell-sub">${formatTime(r.updatedAt || r.createdAt)}</div>`],
+        ['摘要', (r) => `<div class="cell-title">${escapeHtml(r.summary || '-')}</div><div class="cell-sub clamp">${escapeHtml(r.postId || r.placeId || r.conversationId || r.id)}</div>`],
+        ['通知 / 风险', (r) => socialRelationRisk(r)],
+      ], '暂无关系消息记录')}
+    </div>
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>排查口径</h2>
+            <div class="section-sub">重点看状态、通知和双方是否能发消息</div>
+          </div>
+          ${help('约遛邀请产生 pending 会话时，接收方回复会自动接受关系；这里可以看待处理状态是否还存在。')}
+        </div>
+        <div class="gap-list">
+          <div><strong>招呼</strong><span>pending 表示等待接收方处理；accepted 后双方可查看完整宠友圈并发消息。</span></div>
+          <div><strong>约遛</strong><span>接收方从约遛会话回复时，会把待处理约遛转为 accepted，避免死循环。</span></div>
+          <div><strong>会话</strong><span>默认只显示摘要，不开放完整正文，降低隐私风险。</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>后续动作预留</h2>
+            <div class="section-sub">写操作需要更细权限和审计</div>
+          </div>
+          ${help('需求文档中的修复异常状态、标记骚扰会话、隐藏违规消息属于高风险动作，当前仅做只读排查。')}
+        </div>
+        <div class="gap-list">
+          <div><strong>状态修复</strong><span>后续可对死循环关系做人工修复，但必须记录 before/after。</span></div>
+          <div><strong>正文查看</strong><span>需填写原因，并写入审计日志；默认客服只能看摘要。</span></div>
+          <div><strong>违规处理</strong><span>隐藏消息、封禁、保留证据快照应接内容安全和处罚模块。</span></div>
         </div>
       </div>
     </div>

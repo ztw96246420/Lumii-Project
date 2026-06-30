@@ -667,6 +667,29 @@ function adminExportDataset(type) {
         exportColumn('updatedAt', '更新时间', (row) => exportDateText(row.updatedAt)),
       ],
     },
+    social_relations: {
+      description: '招呼、约遛、会话摘要和关系状态，用于排查互动链路和“不能回复”问题。',
+      label: '关系消息',
+      rows: () => adminSocialRelations({ limit: ADMIN_EXPORT_ROW_LIMIT }).items,
+      columns: [
+        exportColumn('id', '记录ID'),
+        exportColumn('typeLabel', '类型'),
+        exportColumn('statusLabel', '状态'),
+        exportColumn('fromPhone', '发起人手机号'),
+        exportColumn('fromName', '发起人昵称'),
+        exportColumn('fromPetName', '发起宠物'),
+        exportColumn('targetPhone', '接收人手机号'),
+        exportColumn('targetName', '接收人昵称'),
+        exportColumn('targetPetName', '接收宠物'),
+        exportColumn('sourceLabel', '来源'),
+        exportColumn('summary', '摘要'),
+        exportColumn('notificationCount', '相关通知数'),
+        exportColumn('messageCount', '消息数'),
+        exportColumn('blocked', '存在拉黑', (row) => exportBoolText(row.blocked)),
+        exportColumn('createdAt', '创建时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('updatedAt', '更新时间', (row) => exportDateText(row.updatedAt)),
+      ],
+    },
     avatar_jobs: {
       description: 'AI 灵伴生成任务状态、供应商、进度和错误信息，用于排查卡住或失败任务。',
       label: 'AI 灵伴任务',
@@ -862,7 +885,7 @@ function adminExportDataset(type) {
 }
 
 function adminExportCatalog() {
-  return ['users', 'pet_calendar', 'avatar_jobs', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
+  return ['users', 'pet_calendar', 'social_relations', 'avatar_jobs', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
@@ -7575,6 +7598,229 @@ function adminPetCalendarRecords(options = {}) {
   };
 }
 
+function adminRelationUser(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  const user = normalizedPhone ? state.users[normalizedPhone] : null;
+  const pet = user ? activePetFor(user) : null;
+  return {
+    name: user?.ownerName || (normalizedPhone ? `用户${normalizedPhone.slice(-4)}` : '未知用户'),
+    petBreed: pet?.breed || '',
+    petName: pet?.name || '',
+    petSpecies: pet?.species === 'cat' ? 'cat' : pet?.species === 'dog' ? 'dog' : '',
+    phone: normalizedPhone,
+  };
+}
+
+function adminRelationStatusLabel(status) {
+  const value = String(status || 'pending');
+  if (value === 'accepted') return '已接受';
+  if (value === 'rejected') return '已拒绝';
+  if (value === 'blocked') return '已拉黑';
+  if (value === 'done') return '已处理';
+  return '待处理';
+}
+
+function adminRelationSourceLabel(type, value) {
+  const source = String(value || '').trim();
+  if (type === 'conversation') return '会话';
+  if (source === 'pet_circle') return '宠友圈小事';
+  if (source === 'walk_invite') return '约遛自动接受';
+  if (type === 'walk_invite') return '约遛邀请';
+  return '发现页';
+}
+
+function adminMaskMessageSummary(value, maxLength = 90) {
+  return String(value || '')
+    .replace(/\b1\d{10}\b/g, (match) => `${match.slice(0, 3)}****${match.slice(7)}`)
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[邮箱]')
+    .replace(/微信(?:号)?[:：\s]*[A-Za-z0-9_-]{4,}/gi, '微信号[已隐藏]')
+    .replace(/(wxid_[A-Za-z0-9_-]+)/gi, '[微信号]')
+    .slice(0, maxLength);
+}
+
+function adminNotificationsBetween(fromPhone, targetPhone, kinds = []) {
+  const kindSet = new Set(kinds);
+  const ownerIds = new Set([`user-${fromPhone}`, `user-${targetPhone}`]);
+  const phones = [fromPhone, targetPhone].filter(Boolean);
+  return phones.flatMap((phone) =>
+    (state.notifications?.[phone] || []).filter((notification) => {
+      const kind = normalizeNotificationKind(notification?.kind) || inferNotificationKind(notification);
+      if (kindSet.size && !kindSet.has(kind)) return false;
+      if (notification.ownerId && ownerIds.has(notification.ownerId)) return true;
+      const conversationId = notificationConversationId(notification);
+      return conversationId === conversationIdFor(fromPhone) || conversationId === conversationIdFor(targetPhone);
+    }),
+  );
+}
+
+function adminConversationMessageCount(phone, conversationId) {
+  const messages = state.conversationMessages?.[phone]?.[conversationId];
+  return Array.isArray(messages) ? messages.length : 0;
+}
+
+function adminSocialRelations(options = {}) {
+  const kindFilter = String(options.kind || 'all');
+  const statusFilter = String(options.status || 'all');
+  const q = String(options.q || '').trim().toLowerCase();
+  const limit = Math.floor(clampNumber(options.limit, 300, 1, ADMIN_EXPORT_ROW_LIMIT));
+  const items = [];
+
+  (Array.isArray(state.greetings) ? state.greetings : []).forEach((greeting, index) => {
+    const from = adminRelationUser(greeting.fromPhone);
+    const target = adminRelationUser(greeting.targetPhone);
+    if (!from.phone || !target.phone) return;
+    const blocked = Boolean(socialBlockBetween(from.phone, target.phone));
+    const status = blocked ? 'blocked' : String(greeting.status || 'pending');
+    const notifications = adminNotificationsBetween(from.phone, target.phone, ['greeting_request', 'greeting_accepted', 'pet_circle_greeting']);
+    items.push({
+      blocked,
+      conversationId: conversationIdFor(target.phone),
+      createdAt: greeting.at || greeting.createdAt || 0,
+      fromName: from.name,
+      fromPetName: from.petName,
+      fromPhone: from.phone,
+      id: `greeting:${greeting.fromPhone}:${greeting.targetPhone}:${greeting.at || index}`,
+      kind: 'greeting',
+      messageCount: 0,
+      notificationCount: notifications.length,
+      postId: greeting.postId || '',
+      sourceKey: greeting.source || 'discover',
+      sourceLabel: adminRelationSourceLabel('greeting', greeting.source),
+      status,
+      statusLabel: adminRelationStatusLabel(status),
+      summary: adminMaskMessageSummary(greeting.postId ? `来自小事 ${greeting.postId}` : greeting.message || '我想认识你和你的毛孩子'),
+      targetName: target.name,
+      targetPetName: target.petName,
+      targetPhone: target.phone,
+      typeLabel: '招呼',
+      updatedAt: greeting.respondedAt || greeting.at || greeting.createdAt || 0,
+    });
+  });
+
+  (Array.isArray(state.invites) ? state.invites : []).forEach((invite, index) => {
+    const from = adminRelationUser(invite.fromPhone);
+    const target = adminRelationUser(invite.targetPhone);
+    if (!from.phone || !target.phone) return;
+    const blocked = Boolean(socialBlockBetween(from.phone, target.phone));
+    const status = blocked ? 'blocked' : String(invite.status || 'pending');
+    const notifications = adminNotificationsBetween(from.phone, target.phone, ['walk_invite']);
+    const summary = [invite.time || '时间待确认', invite.place || '附近宠物友好地点', invite.placeAddress || ''].filter(Boolean).join(' · ');
+    items.push({
+      blocked,
+      conversationId: conversationIdFor(target.phone),
+      createdAt: invite.at || invite.createdAt || 0,
+      fromName: from.name,
+      fromPetName: from.petName,
+      fromPhone: from.phone,
+      id: invite.inviteId || `walk:${invite.fromPhone}:${invite.targetPhone}:${invite.at || index}`,
+      kind: 'walk_invite',
+      messageCount: adminConversationMessageCount(from.phone, conversationIdFor(target.phone)),
+      notificationCount: notifications.length,
+      placeId: invite.placeId || '',
+      sourceKey: 'walk_invite',
+      sourceLabel: adminRelationSourceLabel('walk_invite', 'walk_invite'),
+      status,
+      statusLabel: adminRelationStatusLabel(status),
+      summary: adminMaskMessageSummary(summary),
+      targetName: target.name,
+      targetPetName: target.petName,
+      targetPhone: target.phone,
+      typeLabel: '约遛',
+      updatedAt: invite.respondedAt || invite.at || invite.createdAt || 0,
+    });
+  });
+
+  const seenConversationPairs = new Set();
+  Object.entries(state.conversations || {}).forEach(([ownerPhone, conversations]) => {
+    if (!Array.isArray(conversations)) return;
+    conversations.forEach((conversation, index) => {
+      const targetPhone = conversationTargetPhone(conversation.id);
+      if (!normalizePhone(ownerPhone) || !normalizePhone(targetPhone) || ownerPhone === targetPhone) return;
+      const pairKey = [ownerPhone, targetPhone].sort().join(':');
+      if (seenConversationPairs.has(pairKey)) return;
+      seenConversationPairs.add(pairKey);
+      const from = adminRelationUser(ownerPhone);
+      const target = adminRelationUser(targetPhone);
+      if (!from.phone || !target.phone) return;
+      const blocked = Boolean(socialBlockBetween(from.phone, target.phone));
+      const canMessage = !blocked && canMessageBetween(from.phone, target.phone);
+      const status = blocked ? 'blocked' : canMessage ? 'accepted' : 'pending';
+      const ownerConversationId = conversationIdFor(target.phone);
+      const targetConversationId = conversationIdFor(from.phone);
+      const ownerMessageCount = adminConversationMessageCount(from.phone, ownerConversationId);
+      const targetMessageCount = adminConversationMessageCount(target.phone, targetConversationId);
+      const notifications = adminNotificationsBetween(from.phone, target.phone, ['conversation_message', 'greeting_accepted', 'walk_invite']);
+      items.push({
+        blocked,
+        conversationId: ownerConversationId,
+        createdAt: conversation.updatedAt || 0,
+        fromName: from.name,
+        fromPetName: from.petName,
+        fromPhone: from.phone,
+        id: `conversation:${pairKey}:${index}`,
+        kind: 'conversation',
+        messageCount: Math.max(ownerMessageCount, targetMessageCount),
+        notificationCount: notifications.length,
+        sourceKey: 'conversation',
+        sourceLabel: adminRelationSourceLabel('conversation'),
+        status,
+        statusLabel: adminRelationStatusLabel(status),
+        summary: adminMaskMessageSummary(conversation.lastMessage || '暂无消息摘要'),
+        targetName: target.name,
+        targetPetName: target.petName,
+        targetPhone: target.phone,
+        typeLabel: '会话',
+        unreadTotal: Number(conversation.unread || 0),
+        updatedAt: conversation.updatedAt || 0,
+      });
+    });
+  });
+
+  const filtered = items
+    .filter((item) => kindFilter === 'all' || item.kind === kindFilter)
+    .filter((item) => statusFilter === 'all' || item.status === statusFilter)
+    .filter((item) => {
+      if (!q) return true;
+      return [
+        item.id,
+        item.fromPhone,
+        item.fromName,
+        item.fromPetName,
+        item.targetPhone,
+        item.targetName,
+        item.targetPetName,
+        item.statusLabel,
+        item.sourceLabel,
+        item.summary,
+        item.postId,
+        item.placeId,
+        item.conversationId,
+      ].some((value) => String(value || '').toLowerCase().includes(q));
+    })
+    .sort((a, b) => analyticsTimeMs(b.updatedAt || b.createdAt) - analyticsTimeMs(a.updatedAt || a.createdAt) || String(a.id).localeCompare(String(b.id)));
+
+  const summarySource = filtered;
+  const summary = {
+    accepted: summarySource.filter((item) => item.status === 'accepted').length,
+    all: summarySource.length,
+    blocked: summarySource.filter((item) => item.blocked).length,
+    conversations: summarySource.filter((item) => item.kind === 'conversation').length,
+    greetings: summarySource.filter((item) => item.kind === 'greeting').length,
+    messageCount: summarySource.reduce((sum, item) => sum + Number(item.messageCount || 0), 0),
+    notifications: summarySource.reduce((sum, item) => sum + Number(item.notificationCount || 0), 0),
+    pending: summarySource.filter((item) => item.status === 'pending').length,
+    rejected: summarySource.filter((item) => item.status === 'rejected').length,
+    totalRecords: items.length,
+    walkInvites: summarySource.filter((item) => item.kind === 'walk_invite').length,
+  };
+
+  return {
+    filters: { kind: kindFilter, q: options.q || '', status: statusFilter },
+    items: filtered.slice(0, limit),
+    summary,
+  };
+}
+
 function adminDashboardSummary() {
   const users = Object.values(state.users || {});
   const avatarJobs = Object.values(state.avatarJobs || {});
@@ -9729,6 +9975,15 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       status: url.searchParams.get('status') || 'all',
       to: url.searchParams.get('to') || '',
       type: url.searchParams.get('type') || 'all',
+    }));
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/social-relations') {
+    ok(res, adminSocialRelations({
+      kind: url.searchParams.get('kind') || 'all',
+      q: url.searchParams.get('q') || '',
+      status: url.searchParams.get('status') || 'all',
     }));
     return true;
   }
