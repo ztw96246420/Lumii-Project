@@ -9429,6 +9429,7 @@ function adminPermissionCatalog() {
     ['audit.view', '查看审计日志', '审计'],
     ['data.export.download', '下载运营 CSV', '导出'],
     ['system.health.view', '查看系统健康', '系统管理'],
+    ['launch.readiness.view', '查看上线台账', '系统管理'],
   ].map(([key, label, group]) => ({ group, key, label, status: 'active' }));
 }
 
@@ -9523,6 +9524,289 @@ function adminAccounts(admin = {}) {
       securityWarnings: checks.filter((check) => check.status !== 'ok').length,
     },
     updatedAt: new Date().toISOString(),
+  };
+}
+
+function adminReadinessStatusMeta(status) {
+  const map = {
+    blocked: { label: '生产阻断', tone: 'bad' },
+    partial: { label: '部分可用', tone: 'warn' },
+    ready: { label: '测试可用', tone: 'ok' },
+    reserved: { label: '已预留', tone: 'reserved' },
+  };
+  return map[status] || { label: status || '未知', tone: 'warn' };
+}
+
+function adminReadinessModules(context) {
+  const { accounts, health, linkageSummary } = context;
+  const hasHealthBad = Number(health?.summary?.bad || 0) > 0;
+  const hasAccountWarnings = Number(accounts?.summary?.securityWarnings || 0) > 0;
+  const hasConfigReserved = Number(linkageSummary?.reserved || 0) > 0;
+  return [
+    {
+      key: 'dashboard',
+      module: '工作台与数据看板',
+      group: '看板',
+      status: 'ready',
+      evidence: '已接入用户、AI、社交、审核、地点、工单、配置、通知和移动端事件摘要。',
+      mobileLinkage: '读取 App 行为事件、配置快照和用户业务数据；不是孤立后台。',
+      nextStep: '生产期补留存 Cohort、漏斗、独立事件表和数据仓库。',
+    },
+    {
+      key: 'users',
+      module: '用户排查',
+      group: '用户',
+      status: 'ready',
+      evidence: '支持手机号定位、用户详情、宠物、AI、社交、地点、工单、通知、处罚和运营标签。',
+      mobileLinkage: '清理业务数据、处罚状态和通知会真实影响 App 下一次刷新。',
+      nextStep: '生产期补更细账号状态、完整 PII 查看审批和客服排查 SOP。',
+    },
+    {
+      key: 'pets',
+      module: '宠物档案与宠物日历',
+      group: '宠物',
+      status: 'ready',
+      evidence: '已覆盖宠物档案、头像/AI 形象/封面清理、生日完整度、体重、疫苗/驱虫、备忘。',
+      mobileLinkage: '媒体清理、日历记录和疫苗状态会影响首页、档案、宠物日历和提醒展示。',
+      nextStep: '高风险编辑/删除日历记录仍需更细权限、审计和审批后开放。',
+    },
+    {
+      key: 'ai_avatar',
+      module: 'AI 灵伴生成',
+      group: 'AI',
+      status: hasHealthBad ? 'blocked' : 'partial',
+      evidence: '后台可看任务状态、卡住任务、供应商、素材、反馈、重试、标失败和返还额度。',
+      mobileLinkage: '额度、功能开关、结果应用和失败状态会联动移动端生成页与首页形象。',
+      nextStep: '生产期补供应商 SLA、失败归因分层、图片安全审核和成本对账。',
+    },
+    {
+      key: 'pet_chat',
+      module: 'AI 对话抽检',
+      group: 'AI',
+      status: 'partial',
+      evidence: '已支持摘要检索、原因审计后查看、医疗风险样本、质量标签和隐藏 AI 回复。',
+      mobileLinkage: '隐藏回复后移动端不再返回，后续上下文也跳过被隐藏回复。',
+      nextStep: '生产期接第三方内容安全、医疗风险更细规则和样本标注闭环。',
+    },
+    {
+      key: 'moderation',
+      module: '内容安全任务池',
+      group: '安全',
+      status: 'partial',
+      evidence: '小事、评论、举报、地点点评和新增地点可进入统一任务池并人工处理。',
+      mobileLinkage: '隐藏、删除、通过、驳回和举报结果通知会影响 App 可见内容和通知中心。',
+      nextStep: '生产期必须接文本/图片内容安全模型、举报后台策略、封禁/隐藏运营闭环。',
+    },
+    {
+      key: 'reports',
+      module: '举报与处罚申诉',
+      group: '安全',
+      status: 'partial',
+      evidence: '举报可处理有效/无效/关闭，处罚可创建/撤销，申诉可通过/驳回并通知用户。',
+      mobileLinkage: '处罚会限制移动端写接口，申诉通过可撤销处罚并通知用户。',
+      nextStep: '永久封禁、批量处罚和高风险处罚建议需要双人审批。',
+    },
+    {
+      key: 'places',
+      module: '地点审核',
+      group: '地点',
+      status: 'partial',
+      evidence: '地点点评和新增地点支持通过/驳回、原因模板、通知和导出。',
+      mobileLinkage: '审核状态会影响地点详情、地点提交和用户通知中心。',
+      nextStep: '补地点合并、地点编辑、贡献者/奖励策略和公开点评列表口径。',
+    },
+    {
+      key: 'support',
+      module: '反馈与工单',
+      group: '客服',
+      status: 'ready',
+      evidence: 'App 反馈自动生成工单，后台支持分配、备注、回复、状态流转、模板和 SLA。',
+      mobileLinkage: '客服回复可写入通知中心，用户可查看、补充、评分和重开。',
+      nextStep: '生产期补客服排班、首响/解决 SLA 拆分和客服质量统计。',
+    },
+    {
+      key: 'notifications',
+      module: '通知运营',
+      group: '触达',
+      status: 'partial',
+      evidence: '支持系统通知、草稿、预约、撤回、模板、设备概览和 actionRoute。',
+      mobileLinkage: '通知会写入 App 通知中心，支持跳首页、发现、地图、我的、安全中心、设置、反馈进度。',
+      nextStep: '生产期补厂商 Push、复杂深链、发送审批、频控和灰度人群包。',
+    },
+    {
+      key: 'config',
+      module: '配置中心',
+      group: '配置',
+      status: hasConfigReserved ? 'partial' : 'ready',
+      evidence: '配置可保存、版本化、回滚和审计，已展示前后端联动体检。',
+      mobileLinkage: '移动端读取 /app/config 后应用功能开关、维护、公告、更新、启动提示、额度和附近策略。',
+      nextStep: '生产期补配置草稿、发布审批、定时发布、灰度人群包和 A/B 实验。',
+    },
+    {
+      key: 'exports_audit',
+      module: '数据导出与审计',
+      group: '治理',
+      status: 'partial',
+      evidence: 'CSV 导出支持筛选、历史、行数摘要和 data.export.download 审计；审计日志支持搜索筛选。',
+      mobileLinkage: '导出覆盖移动端真实业务数据和 App 事件，不导出图片二进制或完整设备 token。',
+      nextStep: '生产期补导出审批、异步导出、文件归档、水印和敏感字段授权。',
+    },
+    {
+      key: 'system',
+      module: '系统健康与账号权限',
+      group: '系统',
+      status: hasAccountWarnings ? 'partial' : 'ready',
+      evidence: '已覆盖系统健康、外部依赖、业务积压、单 admin 账号、权限点、会话和高风险动作。',
+      mobileLinkage: '系统健康观测包含影响 App 的 AI、地图、媒体、客服、通知和配置能力。',
+      nextStep: '生产期补多管理员、MFA、IP 白名单、登录失败锁定、APM 和不可篡改审计。',
+    },
+  ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
+}
+
+function adminReadinessQuestions() {
+  return [
+    ['q-domain', 'P1', '后台正式域名使用 ops.lumiiapp.cn、admin.lumiiapp.cn，还是先沿用 /admin？', '当前可沿用 /admin；生产建议独立后台域名并做访问控制。', '影响后台入口、证书、CDN/网关和运维 SOP。'],
+    ['q-ip', 'P0', '生产后台是否必须白名单 IP？', '当前未强制白名单；生产前建议至少网关层限制。', '影响后台暴露面和账号被撞库风险。'],
+    ['q-mfa', 'P0', '后台账号是否接企业微信、飞书或邮箱 MFA？', '当前单 admin 账号无 MFA。', '影响生产后台登录安全。'],
+    ['q-safety-vendor', 'P0', '内容安全供应商选哪家，文本和图片是否同一供应商？', '当前只有规则和人工任务池，第三方模型未接。', '影响宠友圈、评论、头像、宠物图、地点点评的真实审核能力。'],
+    ['q-image-policy', 'P0', '图片审核失败时，宠友圈发布是阻断、送审，还是先隐藏等待审核？', '当前图片安全策略尚未生产定稿。', '影响用户发布体验和违规内容外露风险。'],
+    ['q-message-view', 'P1', '私信是否允许人工查看全文？如果允许，谁审批、保留多久？', '当前后台默认只做摘要排查。', '影响隐私合规和骚扰治理能力。'],
+    ['q-clear-data', 'P1', '用户业务数据清理是否只保留测试环境？', '当前已实现清理链路，生产是否开放需确认。', '影响误操作风险、用户数据权益和客服 SOP。'],
+    ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '当前后台可人工返还；自动规则未定。', '影响用户权益、成本和客服处理标准。'],
+    ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '当前单 admin 可执行处罚；双人审批未接。', '影响高风险处罚治理。'],
+    ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏，不开放完整手机号导出。', '影响隐私合规和数据泄露风险。'],
+    ['q-place-reward', 'P2', '地点审核通过是否给用户奖励或贡献者标记？', '当前只通知审核结果，不做奖励。', '影响地点生态激励。'],
+    ['q-notification-approval', 'P1', '系统通知是否需要发送审批和频控？', '当前支持草稿/预约/撤回，未接审批和营销频控。', '影响用户打扰、误发和运营风险。'],
+    ['q-config-approval', 'P0', '配置强制更新、维护模式、全功能关闭是否必须审批？', '当前保存即发布并记录版本，可回滚。', '影响事故风险和发布治理。'],
+    ['q-compliance-text', 'P0', 'App 备案、隐私政策、内容审核制度是否已准备生产版文本？', '当前代码层面不可替代法务/合规文本确认。', '影响正式上线合规。'],
+  ].map(([id, priority, question, currentPolicy, impact]) => ({
+    currentPolicy,
+    id,
+    impact,
+    owner: '待业务确认',
+    priority,
+    status: 'open',
+    statusLabel: '待确认',
+    question,
+  }));
+}
+
+function adminReadinessGaps(context) {
+  const { accounts, health } = context;
+  const defaultPasswordRisk = Boolean(accounts?.security?.defaultPasswordRisk);
+  const healthBad = Number(health?.summary?.bad || 0) > 0;
+  return [
+    {
+      key: 'admin_security',
+      area: '后台安全',
+      severity: 'P0',
+      status: defaultPasswordRisk ? 'blocked' : 'partial',
+      issue: defaultPasswordRisk ? '后台密码仍可能使用默认值' : '仍缺 MFA、IP 白名单、登录失败锁定和多管理员账号。',
+      requiredAction: '生产前启用环境变量密码、MFA、IP 白名单和账号禁用/轮换流程。',
+      evidence: '账号权限页 / 系统健康页',
+    },
+    {
+      key: 'state_storage',
+      area: '数据底座',
+      severity: 'P0',
+      status: 'blocked',
+      issue: '当前后端仍是 JSON state 文件态，不能作为生产级数据库。',
+      requiredAction: '迁移数据库、独立审计存储、备份恢复和迁移脚本。',
+      evidence: 'scripts/lumii-backend.cjs statePath',
+    },
+    {
+      key: 'content_model',
+      area: '内容安全',
+      severity: 'P0',
+      status: 'blocked',
+      issue: '文本/图片第三方内容安全模型未接入。',
+      requiredAction: '确定供应商、接入同步/异步审核、失败降级、复审和样本回流。',
+      evidence: '内容安全任务池当前为规则 + 人工处理',
+    },
+    {
+      key: 'image_moderation',
+      area: '图片审核',
+      severity: 'P0',
+      status: 'blocked',
+      issue: '头像、宠物图、宠友圈图片、地点图片缺真实图片审核闭环。',
+      requiredAction: '上传链路增加图片审核状态，移动端按阻断/送审/隐藏策略展示。',
+      evidence: '待确认图片审核失败策略',
+    },
+    {
+      key: 'high_risk_approval',
+      area: '高风险操作',
+      severity: 'P1',
+      status: 'partial',
+      issue: '处罚、配置发布、强制通知、数据清理和敏感导出没有双人审批。',
+      requiredAction: '接操作审批表、审批状态、撤回/驳回、审批审计和超时处理。',
+      evidence: '账号权限页已预留 super_admin / ops_admin / auditor',
+    },
+    {
+      key: 'push_provider',
+      area: '通知触达',
+      severity: 'P1',
+      status: 'partial',
+      issue: '当前以站内通知为主，厂商 Push、送达回执和频控未完成。',
+      requiredAction: '接 Android 厂商 Push、iOS APNs、回执、失败重试和营销频控。',
+      evidence: '通知运营页设备 token 概览',
+    },
+    {
+      key: 'observability',
+      area: '可观测性',
+      severity: healthBad ? 'P0' : 'P1',
+      status: healthBad ? 'blocked' : 'partial',
+      issue: '后台内置健康页不能替代生产日志、APM、告警和值班。',
+      requiredAction: '接入服务日志、错误告警、任务失败告警、队列积压告警和数据库健康检查。',
+      evidence: '系统健康页',
+    },
+    {
+      key: 'exports_governance',
+      area: '数据导出',
+      severity: 'P1',
+      status: 'partial',
+      issue: '导出已有审计，但没有审批、异步任务、归档和水印。',
+      requiredAction: '补导出申请、审批、文件生命周期、下载水印和敏感字段授权。',
+      evidence: '数据导出页 / 审计日志',
+    },
+  ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
+}
+
+function adminLaunchReadiness() {
+  const config = currentOpsConfig();
+  const linkageItems = adminConfigLinkageItems(config);
+  const linkageSummary = adminConfigLinkageSummary(linkageItems);
+  const context = {
+    accounts: adminAccounts(),
+    health: adminSystemHealth(),
+    linkageSummary,
+  };
+  const modules = adminReadinessModules(context);
+  const questions = adminReadinessQuestions();
+  const gaps = adminReadinessGaps(context);
+  const countStatus = (rows, status) => rows.filter((item) => item.status === status).length;
+  const openP0 = questions.filter((item) => item.priority === 'P0').length + gaps.filter((item) => item.severity === 'P0' && item.status !== 'ready').length;
+  return {
+    generatedAt: new Date().toISOString(),
+    gaps,
+    linkage: {
+      attentionItems: linkageItems.filter((item) => item.status !== 'linked').slice(0, 12),
+      summary: linkageSummary,
+    },
+    modules,
+    questions,
+    summary: {
+      blockedGaps: countStatus(gaps, 'blocked'),
+      linkedConfigItems: linkageSummary.linked,
+      openP0,
+      openQuestions: questions.filter((item) => item.status === 'open').length,
+      partialModules: countStatus(modules, 'partial'),
+      readyModules: countStatus(modules, 'ready'),
+      reservedItems: countStatus(gaps, 'reserved') + Number(linkageSummary.reserved || 0),
+      status: openP0 ? 'partial' : 'ready',
+      statusLabel: openP0 ? '测试运营可用，生产前仍需治理' : '可进入生产上线复核',
+      totalConfigItems: linkageSummary.total,
+      totalModules: modules.length,
+    },
   };
 }
 
@@ -12086,6 +12370,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/system/health') {
     ok(res, adminSystemHealth());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/launch/readiness') {
+    ok(res, adminLaunchReadiness());
     return true;
   }
 

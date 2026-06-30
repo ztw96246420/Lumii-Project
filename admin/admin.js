@@ -66,6 +66,7 @@ const navItems = [
   { key: 'notifications', label: '通知运营' },
   { key: 'config', label: '配置中心' },
   { key: 'systemHealth', label: '系统健康' },
+  { key: 'launchReadiness', label: '上线台账' },
   { key: 'adminAccounts', label: '账号权限' },
   { key: 'audit', label: '审计日志' },
   { key: 'sanctions', label: '用户处罚' },
@@ -82,6 +83,7 @@ const titles = {
   dashboard: ['总览', '运营工作台'],
   exports: ['数据导出', '可审计的运营 CSV 下载'],
   feedback: ['反馈收集', 'App 原始反馈、自动工单和客服处理入口'],
+  launchReadiness: ['上线台账', '生产前缺口、待澄清问题和移动端联动复核'],
   moderation: ['内容安全', '举报、动态、评论和地点审核任务池'],
   notifications: ['通知运营', '系统通知、定向触达和移动端通知中心联动'],
   petCalendar: ['宠物日历', '体重、疫苗/驱虫、备忘和自动写入排查'],
@@ -1159,6 +1161,7 @@ async function render(force = false) {
     dashboard: renderDashboard,
     exports: renderExports,
     feedback: renderFeedback,
+    launchReadiness: renderLaunchReadiness,
     moderation: renderModeration,
     notifications: renderNotifications,
     petCalendar: renderPetCalendar,
@@ -1244,6 +1247,134 @@ function configSnapshot(config) {
     <div class="switch-row"><span>App 公告</span>${statusPill(config.app?.announcement?.enabled ? 'active' : 'closed')}</div>
     <div class="switch-row"><span>版本更新</span>${statusPill(config.app?.update?.enabled ? 'active' : 'closed')}</div>
     <div class="switch-row"><span>启动提示</span>${statusPill(config.app?.splash?.enabled ? 'active' : 'closed')}</div>
+  `;
+}
+
+function readinessStatusPill(status, label) {
+  const value = String(status || '');
+  const tone = value === 'ready' ? 'ok' : value === 'blocked' ? 'bad' : value === 'reserved' ? '' : 'warn';
+  const text = label || ({
+    blocked: '生产阻断',
+    partial: '部分可用',
+    ready: '测试可用',
+    reserved: '已预留',
+  }[value] || value || '-');
+  return tonePill(text, tone);
+}
+
+function readinessPriorityPill(priority) {
+  const value = String(priority || '-');
+  const tone = value === 'P0' ? 'bad' : value === 'P1' ? 'warn' : '';
+  return tonePill(value, tone);
+}
+
+async function renderLaunchReadiness(force) {
+  const data = await load('launchReadiness', '/admin/launch/readiness', force);
+  const summary = data.summary || {};
+  const linkageSummary = data.linkage?.summary || {};
+  const modules = data.modules || [];
+  const questions = data.questions || [];
+  const gaps = data.gaps || [];
+  const attentionItems = data.linkage?.attentionItems || [];
+  const productionBlockers = gaps.filter((gap) => gap.status === 'blocked' || gap.severity === 'P0');
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('上线口径', summary.status === 'ready' ? '可复核' : '需治理', `${numberText(summary.readyModules || 0)} 个模块测试可用`, summary.statusLabel || '这里不是宣布生产完成，而是把测试可用、部分可用、生产阻断分开。')}
+      ${metric('P0 待处理', numberText(summary.openP0 || 0), '生产前必须确认', 'P0 包含安全、合规、内容安全、数据底座和高风险配置等事项。')}
+      ${metric('待澄清问题', numberText(summary.openQuestions || 0), '需要业务拍板', '这些问题来自运营后台 PRD 的上线前确认清单，并在这里持续收口。')}
+      ${metric('配置联动', `${numberText(summary.linkedConfigItems || 0)}/${numberText(summary.totalConfigItems || 0)}`, `${numberText(linkageSummary.reserved || 0)} 项预留`, '统计配置中心里真实前后端联动、仅后端、仅移动端和预留项。')}
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>模块上线台账</h2>
+            <div class="section-sub">按“测试可用 / 部分可用 / 生产阻断”拆开，不把预留能力误标完成</div>
+          </div>
+          ${help('测试可用代表当前后台和移动端联动已经能支撑真机测试；生产上线仍要看右侧 P0/P1 缺口。')}
+        </div>
+        ${tableHtml(modules, [
+          ['模块', (row) => `<div class="cell-title">${escapeHtml(row.module)}</div><div class="cell-sub">${escapeHtml(row.group || '-')} · ${escapeHtml(row.key || '-')}</div>`],
+          ['状态', (row) => readinessStatusPill(row.status, row.statusLabel)],
+          ['后台证据', (row) => `<div class="cell-sub clamp">${escapeHtml(row.evidence || '-')}</div>`],
+          ['移动端联动', (row) => `<div class="cell-sub clamp">${escapeHtml(row.mobileLinkage || '-')}</div>`],
+          ['下一步', (row) => `<div class="cell-sub clamp">${escapeHtml(row.nextStep || '-')}</div>`],
+        ], '暂无模块台账')}
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>生产阻断</h2>
+            <div class="section-sub">P0/P1 风险和必须补齐的治理动作</div>
+          </div>
+          ${help('这里优先展示会影响生产上线安全、合规、内容安全、数据和高风险操作的缺口。')}
+        </div>
+        ${tableHtml(productionBlockers, [
+          ['级别', (row) => readinessPriorityPill(row.severity)],
+          ['领域', (row) => `<div class="cell-title">${escapeHtml(row.area)}</div><div class="cell-sub">${escapeHtml(row.key)}</div>`],
+          ['状态', (row) => readinessStatusPill(row.status, row.statusLabel)],
+          ['问题', (row) => `<div class="cell-sub clamp">${escapeHtml(row.issue || '-')}</div>`],
+          ['动作', (row) => `<div class="cell-sub clamp">${escapeHtml(row.requiredAction || '-')}</div>`],
+        ], '暂无生产阻断')}
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>上线前必须确认</h2>
+            <div class="section-sub">持续需要你拍板的问题</div>
+          </div>
+          ${help('这些不是代码 TODO，而是业务、合规或运营策略选择。确认后才能进入对应实现或上线口径。')}
+        </div>
+        ${tableHtml(questions, [
+          ['级别', (row) => readinessPriorityPill(row.priority)],
+          ['问题', (row) => `<div class="cell-title">${escapeHtml(row.question)}</div><div class="cell-sub">${escapeHtml(row.id)}</div>`],
+          ['当前口径', (row) => `<div class="cell-sub clamp">${escapeHtml(row.currentPolicy || '-')}</div>`],
+          ['影响', (row) => `<div class="cell-sub clamp">${escapeHtml(row.impact || '-')}</div>`],
+          ['状态', (row) => `${statusPill(row.statusLabel || row.status)}<div class="cell-sub">${escapeHtml(row.owner || '-')}</div>`],
+        ], '暂无待确认问题')}
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>配置联动关注项</h2>
+            <div class="section-sub">非“前后端联动”的配置项</div>
+          </div>
+          ${help('这里从配置中心联动体检抽取：仅后端、仅移动端、预留或待接入的项目，方便上线前逐项核对。')}
+        </div>
+        ${tableHtml(attentionItems, [
+          ['状态', (item) => configLinkageStatusPill(item.status, item.statusLabel)],
+          ['配置', (item) => `<div class="cell-title">${escapeHtml(item.label)}</div><div class="cell-sub">${escapeHtml(item.key)} · ${escapeHtml(item.group || '-')}</div>`],
+          ['当前值', (item) => `<div class="cell-sub">${escapeHtml(item.currentValue || '-')}</div>`],
+          ['影响', (item) => `<div class="cell-sub clamp">${escapeHtml(item.userImpact || item.operatorNote || '-')}</div>`],
+        ], '暂无需要关注的配置项')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>完整生产风险台账</h2>
+          <div class="section-sub">保留 P1/P2 和长期治理项，避免后续口头遗漏</div>
+        </div>
+        ${help('这个表适合每轮上线前回看：哪些已经处理，哪些仍只是测试阶段可接受。')}
+      </div>
+      ${tableHtml(gaps, [
+        ['级别', (row) => readinessPriorityPill(row.severity)],
+        ['领域', (row) => `<div class="cell-title">${escapeHtml(row.area)}</div><div class="cell-sub">${escapeHtml(row.key)}</div>`],
+        ['状态', (row) => readinessStatusPill(row.status, row.statusLabel)],
+        ['问题', (row) => `<div class="cell-sub clamp">${escapeHtml(row.issue || '-')}</div>`],
+        ['必须动作', (row) => `<div class="cell-sub clamp">${escapeHtml(row.requiredAction || '-')}</div>`],
+        ['证据', (row) => `<div class="cell-sub clamp">${escapeHtml(row.evidence || '-')}</div>`],
+      ], '暂无生产风险')}
+    </div>
+
+    <div class="cell-sub">生成时间：${formatTime(data.generatedAt)}</div>
   `;
 }
 
