@@ -1638,10 +1638,15 @@ type OpsConfig = {
 
 - `GET /admin/tickets`
 - `GET /admin/tickets/{ticketId}`
+- `POST /admin/tickets/batch`
+- `GET /admin/tickets/reply-templates`
+- `POST /admin/tickets/reply-templates`
+- `POST /admin/tickets/reply-templates/{templateId}/delete`
 - `POST /admin/tickets/{ticketId}/assign`
 - `POST /admin/tickets/{ticketId}/reply`
-- `PATCH /admin/tickets/{ticketId}/status`
+- `POST /admin/tickets/{ticketId}/status`
 - `POST /admin/tickets/{ticketId}/notes`
+- `PATCH /admin/tickets/{ticketId}`
 
 ### 8.11 通知与推送
 

@@ -298,10 +298,22 @@ async function onContentClick(event) {
       await render(true);
       return;
     }
+    if (action === 'ticket-batch') {
+      const handled = await handleTicketBatch();
+      if (!handled) return;
+    }
     if (action === 'ticket-assign') await assignTicket(id);
+    if (action === 'ticket-related-save') await saveTicketRelatedObjects(id);
     if (action === 'ticket-status') await saveTicketStatus(id);
     if (action === 'ticket-note') await addTicketNote(id);
     if (action === 'ticket-reply') await replyTicket(id);
+    if (action === 'ticket-reply-template-use') {
+      fillTicketReplyTemplate(button);
+      showToast('已套用回复模板');
+      return;
+    }
+    if (action === 'ticket-reply-template-save') await saveTicketReplyTemplate();
+    if (action === 'ticket-reply-template-delete') await confirmPost(`/admin/tickets/reply-templates/${encodeURIComponent(id)}/delete`, { reason: '删除客服回复模板' }, '确认删除这个客服回复模板？');
     if (action === 'appeal-filter') {
       state.appealStatus = $('appealStatus').value;
       state.appealQ = $('appealQ').value.trim();
@@ -465,7 +477,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['audit', 'feedback', 'moderation', 'notifications', 'petChat', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'tickets', 'users'].forEach((key) => {
+  ['audit', 'feedback', 'moderation', 'notifications', 'petChat', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -477,6 +489,38 @@ function valueOf(id) {
 async function assignTicket(id) {
   const assignee = valueOf(`ticketAssignee-${id}`) || state.admin?.username || 'admin';
   await post(`/admin/tickets/${encodeURIComponent(id)}/assign`, { assignee, reason: '工单分配' });
+}
+
+function parseTicketRelatedObjects(value) {
+  const text = String(value || '').trim();
+  if (!text) return [];
+  if (text.startsWith('[')) {
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed)) throw new Error('关联对象 JSON 必须是数组');
+    return parsed.map((item) => ({ id: String(item.id || '').trim(), type: String(item.type || '').trim() })).filter((item) => item.id && item.type);
+  }
+  return text
+    .split(/[\n,，]+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^([^:\s]+)\s*[:：]\s*(.+)$/) || line.match(/^(\S+)\s+(.+)$/);
+      if (!match) throw new Error(`关联对象格式不正确：${line}`);
+      return { id: match[2].trim(), type: match[1].trim() };
+    })
+    .filter((item) => item.id && item.type);
+}
+
+function formatTicketRelatedObjects(relatedObjects = []) {
+  return (Array.isArray(relatedObjects) ? relatedObjects : []).map((item) => `${item.type}:${item.id}`).join('\n');
+}
+
+async function saveTicketRelatedObjects(id) {
+  const relatedObjects = parseTicketRelatedObjects(valueOf(`ticketRelated-${id}`));
+  await patch(`/admin/tickets/${encodeURIComponent(id)}`, {
+    reason: '更新工单关联对象',
+    relatedObjects,
+  });
 }
 
 async function saveTicketStatus(id) {
@@ -495,7 +539,63 @@ async function replyTicket(id) {
   const content = valueOf(`ticketReply-${id}`);
   if (!content) throw new Error('请先填写客服回复');
   const notifyUser = Boolean($(`ticketNotify-${id}`)?.checked);
-  await post(`/admin/tickets/${encodeURIComponent(id)}/reply`, { content, notifyUser, reason: '客服回复用户' });
+  const nextStatus = valueOf(`ticketReplyStatus-${id}`) || 'waiting_user';
+  await post(`/admin/tickets/${encodeURIComponent(id)}/reply`, { content, nextStatus, notifyUser, reason: '客服回复用户' });
+}
+
+async function handleTicketBatch() {
+  const ticketIds = Array.from(document.querySelectorAll('.ticket-batch-check:checked')).map((item) => item.value).filter(Boolean);
+  if (!ticketIds.length) {
+    showToast('请先勾选要批量处理的工单');
+    return false;
+  }
+  const action = valueOf('ticketBulkAction') || 'assign';
+  const assignee = valueOf('ticketBulkAssignee') || state.admin?.username || 'admin';
+  const status = valueOf('ticketBulkStatus') || undefined;
+  const priority = valueOf('ticketBulkPriority') || undefined;
+  const reason = window.prompt(`批量处理 ${ticketIds.length} 个工单`, `批量 ${action}`);
+  if (reason === null) return false;
+  const result = await post('/admin/tickets/batch', {
+    action,
+    assignee,
+    priority: priority === 'keep' ? undefined : priority,
+    reason: reason.trim() || `批量 ${action}`,
+    status: status === 'keep' ? undefined : status,
+    ticketIds,
+  });
+  showToast(`批量完成：成功 ${result.successCount || 0}，失败 ${result.errorCount || 0}`);
+  return true;
+}
+
+function fillTicketReplyTemplate(button) {
+  const ticketId = button.dataset.ticketId || '';
+  const content = button.dataset.content || '';
+  const nextStatus = button.dataset.nextStatus || 'waiting_user';
+  const notifyUser = button.dataset.notifyUser !== 'false';
+  if (ticketId && $(`ticketReply-${ticketId}`)) {
+    $(`ticketReply-${ticketId}`).value = content;
+    const statusSelect = $(`ticketReplyStatus-${ticketId}`);
+    if (statusSelect) statusSelect.value = nextStatus;
+    const notify = $(`ticketNotify-${ticketId}`);
+    if (notify) notify.checked = notifyUser;
+    return;
+  }
+  if ($('ticketTemplateContent')) $('ticketTemplateContent').value = content;
+  if ($('ticketTemplateStatus')) $('ticketTemplateStatus').value = nextStatus;
+  if ($('ticketTemplateNotify')) $('ticketTemplateNotify').checked = notifyUser;
+}
+
+async function saveTicketReplyTemplate() {
+  const name = valueOf('ticketTemplateName');
+  const content = valueOf('ticketTemplateContent');
+  if (!name) throw new Error('请先填写模板名称');
+  if (!content) throw new Error('请先填写模板内容');
+  await post('/admin/tickets/reply-templates', {
+    content,
+    name,
+    nextStatus: valueOf('ticketTemplateStatus') || 'waiting_user',
+    notifyUser: Boolean($('ticketTemplateNotify')?.checked),
+  });
 }
 
 async function handleSanctionAppealAction(button) {
@@ -1596,6 +1696,7 @@ async function renderTickets(force) {
     status: state.ticketStatus,
   });
   const data = await load('tickets', `/admin/tickets?${query.toString()}`, force);
+  const templates = await load('ticketReplyTemplates', '/admin/tickets/reply-templates', force);
   const tickets = data.tickets || [];
   const summary = data.summary || {};
   $('content').innerHTML = `
@@ -1604,6 +1705,46 @@ async function renderTickets(force) {
       ${metric('高优先级', summary.urgent || 0, 'urgent/high', '安全投诉默认 urgent，bug 默认 high。')}
       ${metric('等待用户', summary.waitingUser || 0, '已发送客服回复', '客服回复后默认进入 waiting_user，可继续备注或关闭。')}
       ${metric('安全投诉', summary.safety || 0, 'safety 分类', '安全投诉建议 2 小时内首次处理。')}
+    </div>
+    <div class="grid two ticket-template-workspace">
+      <div class="card ticket-template-compose">
+        <div class="section-head">
+          <div>
+            <h2>客服回复模板</h2>
+            <div class="section-sub">保存常用回复，套用到任意工单后仍可二次编辑</div>
+          </div>
+          ${help('模板只影响后台填写效率；真正触达用户仍取决于每条工单回复时是否勾选通知用户。')}
+        </div>
+        <div class="notification-form">
+          <label>模板名称<input id="ticketTemplateName" maxlength="32" placeholder="例如：请求补充截图" /></label>
+          <label>模板内容<textarea id="ticketTemplateContent" maxlength="1000" placeholder="写给用户看的客服回复，可说明处理进度、下一步和需要补充的信息。"></textarea></label>
+          <div class="notification-form-row">
+            <label>回复后状态
+              <select id="ticketTemplateStatus">
+                ${ticketStatusOption('waiting_user', 'waiting_user', '等待用户')}
+                ${ticketStatusOption('waiting_user', 'reviewing', '处理中')}
+                ${ticketStatusOption('waiting_user', 'resolved', '已解决')}
+                ${ticketStatusOption('waiting_user', 'closed', '已关闭')}
+              </select>
+            </label>
+            <label class="inline-check notification-check"><input id="ticketTemplateNotify" type="checkbox" checked /> 默认通知用户</label>
+          </div>
+          <div class="notification-action-row">
+            <button class="primary-button" data-action="ticket-reply-template-save">保存模板</button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>可用模板</h2>
+            <div class="section-sub">内置模板不可删除，自定义模板可维护</div>
+          </div>
+        </div>
+        <div class="notification-template-list">
+          ${templates.length ? templates.map((template) => renderTicketReplyTemplate(template)).join('') : '<div class="placeholder mini"><div><strong>暂无模板</strong><div>可先保存一条常用回复。</div></div></div>'}
+        </div>
+      </div>
     </div>
     <div class="card">
       <div class="section-head">
@@ -1644,6 +1785,43 @@ async function renderTickets(force) {
           <button class="small-button" data-action="ticket-clear">重置</button>
         </div>
       </div>
+      <div class="toolbar ticket-toolbar">
+        <div class="toolbar-left">
+          <label>批量动作
+            <select id="ticketBulkAction">
+              <option value="assign">批量分配</option>
+              <option value="reviewing">批量转处理中</option>
+              <option value="waiting_user">批量等待用户</option>
+              <option value="resolved">批量标记已解决</option>
+              <option value="closed">批量关闭</option>
+              <option value="priority">批量改优先级</option>
+            </select>
+          </label>
+          <label>负责人<input id="ticketBulkAssignee" placeholder="默认 admin" value="${escapeHtml(state.admin?.username || 'admin')}" /></label>
+          <label>状态
+            <select id="ticketBulkStatus">
+              <option value="keep">跟随动作</option>
+              <option value="received">新反馈</option>
+              <option value="reviewing">处理中</option>
+              <option value="waiting_user">等待用户</option>
+              <option value="resolved">已解决</option>
+              <option value="closed">已关闭</option>
+            </select>
+          </label>
+          <label>优先级
+            <select id="ticketBulkPriority">
+              <option value="keep">不变</option>
+              <option value="urgent">紧急</option>
+              <option value="high">高</option>
+              <option value="normal">普通</option>
+              <option value="low">低</option>
+            </select>
+          </label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="ticket-batch">处理勾选</button>
+        </div>
+      </div>
       ${tickets.length ? `<div class="ticket-list">${tickets.map(renderTicketCard).join('')}</div>` : '<div class="placeholder"><div><strong>暂无工单</strong><div>当前筛选下没有用户反馈。</div></div></div>'}
     </div>
   `;
@@ -1668,14 +1846,39 @@ function ticketSlaPill(ticket) {
   return `<span class="pill ${tone}">${escapeHtml(label)}</span>`;
 }
 
+function renderTicketReplyTemplate(template, ticketId = '') {
+  return `
+    <article class="notification-template">
+      <div>
+        <div class="cell-title">${escapeHtml(template.name)}</div>
+        <div class="cell-sub">${escapeHtml(template.nextStatus || 'waiting_user')} · ${template.notifyUser === false ? '不默认通知' : '默认通知'}</div>
+      </div>
+      <div class="ticket-content">${escapeHtml(template.content)}</div>
+      <div class="notification-template-actions">
+        <button
+          class="small-button"
+          data-action="ticket-reply-template-use"
+          data-content="${escapeHtml(template.content || '')}"
+          data-next-status="${escapeHtml(template.nextStatus || 'waiting_user')}"
+          data-notify-user="${template.notifyUser === false ? 'false' : 'true'}"
+          data-ticket-id="${escapeHtml(ticketId)}"
+        >套用</button>
+        ${template.builtin ? '<span class="risk-badge">内置</span>' : `<button class="small-button danger" data-action="ticket-reply-template-delete" data-id="${escapeHtml(template.id)}">删除</button>`}
+      </div>
+    </article>
+  `;
+}
+
 function renderTicketCard(ticket) {
   const related = (ticket.relatedObjects || []).map((item) => `<span class="risk-badge">${escapeHtml(item.type)} · ${escapeHtml(item.id)}</span>`).join('');
   const satisfaction = ticket.satisfaction?.rating ? `<span class="risk-badge">满意度 ${ticket.satisfaction.rating}/5</span>` : '';
+  const templates = state.cache.ticketReplyTemplates || [];
   return `
     <article class="ticket-card">
       <div class="ticket-main">
         <div class="ticket-head">
-          <div>
+          <div class="ticket-title-block">
+            <label class="inline-check ticket-batch-line"><input class="ticket-batch-check" type="checkbox" value="${escapeHtml(ticket.id)}" /> 批量</label>
             <div class="cell-title">${escapeHtml(ticket.title)}</div>
             <div class="cell-sub">${escapeHtml(ticket.id)} · ${escapeHtml(ticket.category)} · ${escapeHtml(ticket.source)}</div>
           </div>
@@ -1726,9 +1929,29 @@ function renderTicketCard(ticket) {
           </select>
           <button class="small-button" data-action="ticket-status" data-id="${escapeHtml(ticket.id)}">保存状态</button>
         </div>
+        <textarea id="ticketRelated-${escapeHtml(ticket.id)}" placeholder="关联对象，每行一个：post:xxx、comment:xxx、avatar_job:xxx">${escapeHtml(formatTicketRelatedObjects(ticket.relatedObjects))}</textarea>
+        <button class="small-button" data-action="ticket-related-save" data-id="${escapeHtml(ticket.id)}">保存关联对象</button>
         <textarea id="ticketNote-${escapeHtml(ticket.id)}" placeholder="内部备注：排查过程、关联对象、处理判断"></textarea>
         <button class="small-button" data-action="ticket-note" data-id="${escapeHtml(ticket.id)}">添加备注</button>
+        <div class="ticket-template-chips">
+          ${templates.slice(0, 6).map((template) => `
+            <button
+              class="small-button ghost"
+              data-action="ticket-reply-template-use"
+              data-content="${escapeHtml(template.content || '')}"
+              data-next-status="${escapeHtml(template.nextStatus || 'waiting_user')}"
+              data-notify-user="${template.notifyUser === false ? 'false' : 'true'}"
+              data-ticket-id="${escapeHtml(ticket.id)}"
+            >${escapeHtml(template.name)}</button>
+          `).join('')}
+        </div>
         <textarea id="ticketReply-${escapeHtml(ticket.id)}" placeholder="客服回复：用户会在 App 通知中心收到"></textarea>
+        <select id="ticketReplyStatus-${escapeHtml(ticket.id)}">
+          ${ticketStatusOption('waiting_user', 'waiting_user', '回复后等待用户')}
+          ${ticketStatusOption('waiting_user', 'reviewing', '回复后处理中')}
+          ${ticketStatusOption('waiting_user', 'resolved', '回复后已解决')}
+          ${ticketStatusOption('waiting_user', 'closed', '回复后关闭')}
+        </select>
         <label class="inline-check"><input id="ticketNotify-${escapeHtml(ticket.id)}" type="checkbox" checked /> 通知用户</label>
         <button class="small-button" data-action="ticket-reply" data-id="${escapeHtml(ticket.id)}">发送回复</button>
       </div>

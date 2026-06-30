@@ -343,6 +343,7 @@ function createInitialState() {
     socialReports: [],
     sanctionAppeals: [],
     supportTickets: [],
+    supportTicketReplyTemplates: [],
     systemNotifications: [],
     notificationTemplates: [],
     opsConfigRevisions: [],
@@ -950,6 +951,7 @@ function loadState() {
         ...initialState.smsIpDailyUsage,
         ...(loadedState.smsIpDailyUsage || {}),
       },
+      supportTicketReplyTemplates: Array.isArray(loadedState.supportTicketReplyTemplates) ? loadedState.supportTicketReplyTemplates : [],
       aiUsage: {
         ...initialState.aiUsage,
         ...(loadedState.aiUsage || {}),
@@ -8315,6 +8317,86 @@ function supportTicketsForUser(user) {
   };
 }
 
+function defaultSupportTicketReplyTemplates() {
+  return [
+    {
+      builtin: true,
+      content: '你好，我们已经收到你的反馈，会继续排查。为了更快定位问题，可以补充发生时间、手机型号、App 页面和截图。',
+      id: 'builtin-ticket-need-info',
+      name: '请求补充信息',
+      nextStatus: 'waiting_user',
+      notifyUser: true,
+    },
+    {
+      builtin: true,
+      content: '你好，这个问题我们已经定位并处理。你可以刷新页面或重新打开 App 试一下，如果仍然复现，可以在这条反馈里继续补充。',
+      id: 'builtin-ticket-resolved',
+      name: '已处理请复测',
+      nextStatus: 'resolved',
+      notifyUser: true,
+    },
+    {
+      builtin: true,
+      content: '你好，这条反馈涉及账号或社区安全，我们已经转入人工复核。处理结果会通过通知中心同步给你。',
+      id: 'builtin-ticket-safety',
+      name: '安全复核说明',
+      nextStatus: 'reviewing',
+      notifyUser: true,
+    },
+  ];
+}
+
+function ensureSupportTicketReplyTemplates() {
+  state.supportTicketReplyTemplates = Array.isArray(state.supportTicketReplyTemplates) ? state.supportTicketReplyTemplates : [];
+  return state.supportTicketReplyTemplates;
+}
+
+function normalizeSupportTicketReplyTemplate(item = {}) {
+  return {
+    builtin: Boolean(item.builtin),
+    content: String(item.content || '').trim().slice(0, 1000),
+    createdAt: item.createdAt || '',
+    createdBy: item.createdBy || '',
+    id: String(item.id || `ticket-reply-template-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`),
+    name: String(item.name || '客服回复模板').trim().slice(0, 32),
+    nextStatus: supportTicketStatusFor(item.nextStatus || 'waiting_user'),
+    notifyUser: item.notifyUser !== false,
+  };
+}
+
+function adminSupportTicketReplyTemplates() {
+  const custom = ensureSupportTicketReplyTemplates()
+    .map(normalizeSupportTicketReplyTemplate)
+    .filter((template) => template.name && template.content);
+  return [...defaultSupportTicketReplyTemplates(), ...custom];
+}
+
+function createSupportTicketReplyTemplate(admin, body = {}) {
+  const template = normalizeSupportTicketReplyTemplate({
+    content: body.content,
+    createdAt: new Date().toISOString(),
+    createdBy: admin?.username || 'admin',
+    name: body.name,
+    nextStatus: body.nextStatus,
+    notifyUser: body.notifyUser !== false,
+  });
+  if (!template.name) return { error: '请填写模板名称', statusCode: 400 };
+  if (!template.content) return { error: '请填写模板内容', statusCode: 400 };
+  ensureSupportTicketReplyTemplates().unshift(template);
+  state.supportTicketReplyTemplates = state.supportTicketReplyTemplates.slice(0, 80);
+  writeAdminAudit(admin, 'ticket.reply_template.create', 'support_ticket_reply_template', template.id, null, template, template.name);
+  return { template, templates: adminSupportTicketReplyTemplates() };
+}
+
+function removeSupportTicketReplyTemplate(admin, id) {
+  const before = ensureSupportTicketReplyTemplates();
+  const target = before.find((item) => item.id === id);
+  if (!target) return { error: '回复模板不存在或内置模板不可删除', statusCode: 404 };
+  state.supportTicketReplyTemplates = before.filter((item) => item.id !== id);
+  writeAdminAudit(admin, 'ticket.reply_template.delete', 'support_ticket_reply_template', id, target, null, target.name || id);
+  return { templates: adminSupportTicketReplyTemplates() };
+}
+
 function updateSupportTicket(admin, ticket, patch = {}, reason = '') {
   const before = JSON.parse(JSON.stringify(ticket));
   const nextStatus = patch.status !== undefined ? supportTicketStatusFor(patch.status) : ticket.status;
@@ -8329,6 +8411,49 @@ function updateSupportTicket(admin, ticket, patch = {}, reason = '') {
   syncFeedbackFromTicket(ticket);
   writeAdminAudit(admin, 'ticket.update', 'support_ticket', ticket.id, before, ticket, reason);
   return ticket;
+}
+
+function adminHandleSupportTicketBatch(admin, body = {}) {
+  const ticketIds = Array.from(new Set((Array.isArray(body.ticketIds) ? body.ticketIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)))
+    .slice(0, 100);
+  if (!ticketIds.length) return { error: '请先选择工单', statusCode: 400 };
+  const action = String(body.action || '').trim();
+  const reason = String(body.reason || `批量处理 ${action}`).trim().slice(0, 240);
+  const assignee = String(body.assignee || admin?.username || 'admin').trim().slice(0, 80);
+  const priority = ticketPriorities.has(String(body.priority)) ? String(body.priority) : undefined;
+  const status = ticketStatuses.has(String(body.status)) ? String(body.status) : ticketStatuses.has(action) ? action : undefined;
+  const results = [];
+
+  ticketIds.forEach((ticketId) => {
+    const ticket = findSupportTicket(ticketId);
+    if (!ticket) {
+      results.push({ error: '工单不存在', id: ticketId, ok: false });
+      return;
+    }
+    if (action === 'assign') {
+      updateSupportTicket(admin, ticket, { assignee, status: status || 'reviewing' }, reason || '批量分配工单');
+    } else if (action === 'priority') {
+      if (!priority) {
+        results.push({ error: '优先级无效', id: ticketId, ok: false });
+        return;
+      }
+      updateSupportTicket(admin, ticket, { priority }, reason || '批量更新优先级');
+    } else if (status) {
+      updateSupportTicket(admin, ticket, { priority, status }, reason || '批量更新工单状态');
+    } else {
+      results.push({ error: '不支持的批量动作', id: ticketId, ok: false });
+      return;
+    }
+    results.push({ id: ticketId, ok: true });
+  });
+
+  return {
+    errorCount: results.filter((item) => !item.ok).length,
+    results,
+    successCount: results.filter((item) => item.ok).length,
+  };
 }
 
 function addSupportTicketNote(admin, ticket, content) {
@@ -9232,6 +9357,45 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       q: url.searchParams.get('q') || '',
       status: url.searchParams.get('status') || 'open',
     }));
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/tickets/reply-templates') {
+    ok(res, adminSupportTicketReplyTemplates());
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/tickets/reply-templates') {
+    const result = createSupportTicketReplyTemplate(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_TICKET_TEMPLATE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminTicketReplyTemplateDeleteMatch = pathname.match(/^\/admin\/tickets\/reply-templates\/([^/]+)\/delete$/);
+  if (req.method === 'POST' && adminTicketReplyTemplateDeleteMatch) {
+    const result = removeSupportTicketReplyTemplate(admin, decodeURIComponent(adminTicketReplyTemplateDeleteMatch[1]));
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_TICKET_TEMPLATE_NOT_FOUND');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/tickets/batch') {
+    const result = adminHandleSupportTicketBatch(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_TICKET_BATCH_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

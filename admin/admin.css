@@ -210,6 +210,12 @@ button {
   font-size: 12px;
 }
 
+.small-button.ghost {
+  background: rgba(255, 138, 92, 0.08);
+  border-color: rgba(255, 138, 92, 0.2);
+  color: var(--orange);
+}
+
 .danger {
   color: var(--red);
 }
@@ -751,6 +757,17 @@ th {
   align-items: flex-start;
 }
 
+.ticket-title-block {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ticket-batch-line {
+  color: var(--subtle);
+  font-size: 11px;
+}
+
 .ticket-status-row {
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -805,6 +822,20 @@ th {
 
 .ticket-panel textarea {
   min-height: 70px;
+}
+
+.ticket-template-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.ticket-template-workspace {
+  align-items: start;
+}
+
+.ticket-template-compose {
+  min-height: 100%;
 }
 
 .inline-check {
