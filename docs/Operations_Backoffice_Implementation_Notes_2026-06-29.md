@@ -263,6 +263,9 @@
 ### 3.7 地图地点
 
 - `GET /admin/places`
+- `GET /admin/places/{placeId}`
+- `PATCH /admin/places/{placeId}`
+- `POST /admin/places/{placeId}/merge`
 - `GET /admin/places/reviews`
 - `POST /admin/places/reviews/{reviewId}/approve`
 - `POST /admin/places/reviews/{reviewId}/reject`
@@ -281,6 +284,8 @@
 - `GET /admin/places` 已返回地点目录治理对象，包含质量分、质量证据、重复候选数和重复候选明细。
 - 后台地图地点页新增地点质量治理卡片，展示地点总数、平均质量分、重复候选、待治理地点和明细表。
 - 移动端 `/places/nearby`、`/places/search`、`/places/{id}` 已同步返回 `qualityScore`、`qualityLabel`、`qualityReasons` 和 `duplicateCandidateCount`；移动端排序在距离/评分/点评相同时用质量分兜底。
+- 后台支持地点详情编辑：名称、地址、分类、宠物友好状态、支持宠物、标签、经纬度和封面图 URL，保存时写入 `place.update` 审计。
+- 后台支持人工确认地点合并：源地点会从目录移除，目标地点合并标签/支持宠物/来源 ID，并迁移地点点评、通过后的新增地点提交、收藏、通知和约遛引用，写入 `place.merge` 审计。
 - 地点点评和新增地点审核支持内置原因模板；运营可以套用模板后编辑最终原因。
 - 内容安全任务池处理地点点评/新增地点时，也支持同一套审核原因模板。
 - 审核记录会保存 `reviewTemplateId`、`reviewTemplateLabel` 和最终 `reviewReason`。
@@ -289,10 +294,7 @@
 
 未实现：
 
-- 地点合并。
-- 编辑地点详情。
 - 自定义地点审核模板维护、排序和启停。
-- 人工确认重复候选后的引用迁移和真正合并。
 
 ### 3.8 反馈工单
 

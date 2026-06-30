@@ -5423,6 +5423,186 @@ function adminPlaceCatalog() {
   };
 }
 
+function findPlaceById(placeId) {
+  const id = String(placeId || '').trim();
+  const index = (state.places || []).findIndex((place) => place.id === id);
+  if (index < 0) return null;
+  return { index, place: state.places[index] };
+}
+
+function normalizePlaceTagsForAdmin(value, fallback = []) {
+  const source = Array.isArray(value) ? value : String(value || '').split(/[\n,，、/]+/u);
+  const seen = new Set();
+  const tags = [];
+  for (const raw of source) {
+    const tag = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 18);
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+    if (tags.length >= 12) break;
+  }
+  if (tags.length) return tags;
+  return Array.isArray(fallback) ? fallback.filter(Boolean).slice(0, 12) : [];
+}
+
+function normalizePlaceSupportedSpeciesForAdmin(value, fallback = []) {
+  const source = Array.isArray(value) ? value : String(value || '').split(/[\n,，、/]+/u);
+  const species = source
+    .map((item) => String(item || '').trim().toLowerCase())
+    .map((item) => (item === 'dog' || item === 'cat' ? item : ''))
+    .filter(Boolean);
+  const normalized = [...new Set(species)];
+  if (normalized.length) return normalized;
+  return Array.isArray(fallback) ? [...new Set(fallback.filter((item) => item === 'dog' || item === 'cat'))] : [];
+}
+
+function normalizeAdminPlaceCategory(value, fallback = 'other') {
+  const category = String(value || fallback || 'other').trim();
+  return ['cafe', 'clinic', 'other', 'park', 'shop'].includes(category) ? category : 'other';
+}
+
+function normalizeAdminPlaceFriendlyStatus(value, fallback = 'unknown') {
+  const status = String(value || fallback || 'unknown').trim();
+  return ['candidate', 'rejected', 'unknown', 'verified'].includes(status) ? status : 'unknown';
+}
+
+function normalizeAdminPlaceNumber(value, fallback, min, max) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(max, Math.max(min, numeric));
+}
+
+function buildAdminPlacePatch(current, body = {}) {
+  const patch = {};
+  if (body.name !== undefined) {
+    const name = String(body.name || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!name) return { error: '地点名称不能为空', statusCode: 400 };
+    patch.name = name;
+  }
+  if (body.address !== undefined) {
+    const address = String(body.address || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+    if (!address) return { error: '地点地址不能为空', statusCode: 400 };
+    patch.address = address;
+  }
+  if (body.category !== undefined) patch.category = normalizeAdminPlaceCategory(body.category, current.category);
+  if (body.petFriendlyStatus !== undefined) patch.petFriendlyStatus = normalizeAdminPlaceFriendlyStatus(body.petFriendlyStatus, current.petFriendlyStatus);
+  if (body.supportedSpecies !== undefined) patch.supportedSpecies = normalizePlaceSupportedSpeciesForAdmin(body.supportedSpecies, current.supportedSpecies);
+  if (body.tags !== undefined) patch.tags = normalizePlaceTagsForAdmin(body.tags, current.tags);
+  if (body.rating !== undefined) patch.rating = normalizeAdminPlaceNumber(body.rating, current.rating || 0, 0, 5);
+  if (body.reviewCount !== undefined) patch.reviewCount = Math.floor(normalizeAdminPlaceNumber(body.reviewCount, current.reviewCount || 0, 0, 999999));
+  if (body.latitude !== undefined) patch.latitude = normalizeAdminPlaceNumber(body.latitude, current.latitude, -90, 90);
+  if (body.longitude !== undefined) patch.longitude = normalizeAdminPlaceNumber(body.longitude, current.longitude, -180, 180);
+  if (body.distance !== undefined) patch.distance = String(body.distance || current.distance || '附近').replace(/\s+/g, ' ').trim().slice(0, 32) || '附近';
+  if (body.coverImageUrl !== undefined) patch.coverImageUrl = normalizeHttpUrlText(body.coverImageUrl, 1000) || '';
+  if (body.openingHoursToday !== undefined) patch.openingHoursToday = String(body.openingHoursToday || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (body.phone !== undefined) patch.phone = String(body.phone || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  return { patch };
+}
+
+function updateAdminPlace(admin, placeId, body = {}) {
+  const found = findPlaceById(placeId);
+  if (!found) return { error: '地点不存在', statusCode: 404 };
+  const built = buildAdminPlacePatch(found.place, body);
+  if (built.error) return built;
+  const before = cloneJson(found.place);
+  const next = {
+    ...found.place,
+    ...built.patch,
+    updatedAt: new Date().toISOString(),
+    updatedBy: admin?.username || 'admin',
+  };
+  state.places[found.index] = next;
+  const reason = adminReason(body, '编辑地点资料');
+  writeAdminAudit(admin, 'place.update', 'place', next.id, before, next, reason);
+  return { place: adminPlaceCatalog().places.find((place) => place.id === next.id), reason };
+}
+
+function replacePlaceIdReferences(sourceId, targetId) {
+  const summary = { favorites: 0, invites: 0, notifications: 0, reviews: 0, submissions: 0 };
+  Object.values(state.placeReviews || {}).forEach((reviews) => {
+    if (!Array.isArray(reviews)) return;
+    reviews.forEach((review) => {
+      if (review?.placeId === sourceId) {
+        review.placeId = targetId;
+        summary.reviews += 1;
+      }
+    });
+  });
+  Object.values(state.placeSubmissions || {}).forEach((submissions) => {
+    if (!Array.isArray(submissions)) return;
+    submissions.forEach((submission) => {
+      if (submission?.approvedPlaceId === sourceId) {
+        submission.approvedPlaceId = targetId;
+        summary.submissions += 1;
+      }
+    });
+  });
+  Object.values(state.users || {}).forEach((user) => {
+    if (Array.isArray(user.favoritePlaceIds) && user.favoritePlaceIds.includes(sourceId)) {
+      user.favoritePlaceIds = [...new Set(user.favoritePlaceIds.map((id) => (id === sourceId ? targetId : id)))];
+      summary.favorites += 1;
+    }
+  });
+  Object.values(state.notifications || {}).forEach((notifications) => {
+    if (!Array.isArray(notifications)) return;
+    notifications.forEach((notification) => {
+      if (notification?.placeId === sourceId) {
+        notification.placeId = targetId;
+        summary.notifications += 1;
+      }
+    });
+  });
+  (Array.isArray(state.invites) ? state.invites : []).forEach((invite) => {
+    if (invite?.placeId === sourceId) {
+      invite.placeId = targetId;
+      summary.invites += 1;
+    }
+  });
+  return summary;
+}
+
+function mergeAdminPlace(admin, sourcePlaceId, body = {}) {
+  const sourceFound = findPlaceById(sourcePlaceId);
+  if (!sourceFound) return { error: '源地点不存在', statusCode: 404 };
+  const targetId = String(body.targetPlaceId || body.mergeIntoPlaceId || body.targetId || '').trim();
+  if (!targetId) return { error: '请选择要合并到的目标地点', statusCode: 400 };
+  if (targetId === sourceFound.place.id) return { error: '不能把地点合并到自身', statusCode: 400 };
+  const targetFound = findPlaceById(targetId);
+  if (!targetFound) return { error: '目标地点不存在', statusCode: 404 };
+  const reason = adminReason(body, '合并重复地点');
+  const before = {
+    source: cloneJson(sourceFound.place),
+    target: cloneJson(targetFound.place),
+  };
+  const mergedTags = normalizePlaceTagsForAdmin([...(targetFound.place.tags || []), ...(sourceFound.place.tags || [])], targetFound.place.tags);
+  const mergedSpecies = normalizePlaceSupportedSpeciesForAdmin([...(targetFound.place.supportedSpecies || []), ...(sourceFound.place.supportedSpecies || [])], targetFound.place.supportedSpecies);
+  const sourceReviewCount = Number(sourceFound.place.reviewCount || 0);
+  const targetReviewCount = Number(targetFound.place.reviewCount || 0);
+  targetFound.place.tags = mergedTags;
+  targetFound.place.supportedSpecies = mergedSpecies;
+  targetFound.place.updatedAt = new Date().toISOString();
+  targetFound.place.updatedBy = admin?.username || 'admin';
+  targetFound.place.mergedSourceIds = [...new Set([...(targetFound.place.mergedSourceIds || []), sourceFound.place.id, ...(sourceFound.place.mergedSourceIds || [])])];
+  const referenceSummary = replacePlaceIdReferences(sourceFound.place.id, targetFound.place.id);
+  targetFound.place.reviewCount = Math.max(targetReviewCount + sourceReviewCount, placeReviewCount(targetFound.place.id));
+  state.places = (state.places || []).filter((place) => place.id !== sourceFound.place.id);
+  const after = {
+    referenceSummary,
+    removedPlaceId: sourceFound.place.id,
+    target: cloneJson(targetFound.place),
+  };
+  writeAdminAudit(admin, 'place.merge', 'place', targetFound.place.id, before, after, reason);
+  return {
+    catalog: adminPlaceCatalog(),
+    mergedPlaceId: sourceFound.place.id,
+    referenceSummary,
+    targetPlace: adminPlaceCatalog().places.find((place) => place.id === targetFound.place.id),
+  };
+}
+
 async function createPlaceReview(user, placeId, content) {
   const place = (state.places || []).find((item) => item.id === placeId);
   if (!place) return null;
@@ -11091,9 +11271,9 @@ function adminReadinessModules(context) {
       module: '地点审核',
       group: '地点',
       status: 'partial',
-      evidence: '地点点评和新增地点支持通过/驳回、原因模板、通知和导出。',
+      evidence: '地点点评和新增地点支持通过/驳回、原因模板、通知、导出、地点编辑和人工合并。',
       mobileLinkage: '审核状态会影响地点详情、地点提交和用户通知中心。',
-      nextStep: '补地点合并、地点编辑、贡献者/奖励策略和公开点评列表口径。',
+      nextStep: '补贡献者/奖励策略、地点图片审核、自定义审核模板维护和公开点评列表口径。',
     },
     {
       key: 'support',
@@ -14932,6 +15112,19 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  const adminPlaceMergeMatch = pathname.match(/^\/admin\/places\/([^/]+)\/merge$/);
+  if (req.method === 'POST' && adminPlaceMergeMatch) {
+    const placeId = decodeURIComponent(adminPlaceMergeMatch[1]);
+    const result = mergeAdminPlace(admin, placeId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PLACE_MERGE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
   if (req.method === 'GET' && pathname === '/admin/places/moderation-templates') {
     ok(res, adminPlaceModerationTemplates());
     return true;
@@ -14944,6 +15137,28 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/places/submissions') {
     ok(res, adminPlaceSubmissions());
+    return true;
+  }
+
+  const adminPlaceDetailMatch = pathname.match(/^\/admin\/places\/([^/]+)$/);
+  if ((req.method === 'GET' || req.method === 'PATCH') && adminPlaceDetailMatch) {
+    const placeId = decodeURIComponent(adminPlaceDetailMatch[1]);
+    if (req.method === 'GET') {
+      const place = adminPlaceCatalog().places.find((item) => item.id === placeId);
+      if (!place) {
+        fail(res, 404, '地点不存在', false, undefined, 'ADMIN_PLACE_NOT_FOUND');
+        return true;
+      }
+      ok(res, place);
+      return true;
+    }
+    const result = updateAdminPlace(admin, placeId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PLACE_UPDATE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.place);
     return true;
   }
 

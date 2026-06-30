@@ -674,6 +674,14 @@ async function onContentClick(event) {
       await applyReportSanction(button);
       return;
     }
+    if (action === 'place-edit') {
+      await handlePlaceEdit(button);
+      return;
+    }
+    if (action === 'place-merge') {
+      await handlePlaceMerge(button);
+      return;
+    }
     if (action === 'review-approve' || action === 'review-reject' || action === 'submission-approve' || action === 'submission-reject') {
       await handlePlaceModerationAction(button);
       return;
@@ -858,6 +866,107 @@ async function handlePlaceModerationAction(button) {
     summary: null,
   };
   showToast(`${kindLabel}${actionLabel}已处理`);
+  await render(true);
+  return true;
+}
+
+function cachedAdminPlaces() {
+  const cached = state.cache.places;
+  if (!cached) return [];
+  return Array.isArray(cached) ? cached : cached.places || [];
+}
+
+async function adminPlaceById(placeId) {
+  const id = String(placeId || '');
+  let place = cachedAdminPlaces().find((item) => item.id === id);
+  if (place) return place;
+  const catalog = await load('places', '/admin/places', true);
+  const places = Array.isArray(catalog) ? catalog : catalog.places || [];
+  place = places.find((item) => item.id === id);
+  return place || null;
+}
+
+function clearPlaceAdminCaches() {
+  ['audit', 'exports', 'moderation', 'notifications', 'places', 'placeReviews', 'placeSubmissions', 'socialRelations', 'summary'].forEach((key) => {
+    state.cache[key] = null;
+  });
+}
+
+function placeMergeCandidateText(place) {
+  const candidates = Array.isArray(place?.duplicateCandidates) ? place.duplicateCandidates : [];
+  if (!candidates.length) return '暂无算法候选，可手动输入明确重复的目标地点 ID。';
+  return candidates.slice(0, 6).map((candidate, index) => {
+    const distance = Number.isFinite(Number(candidate.distanceMeters)) ? `，距离 ${numberText(candidate.distanceMeters)}m` : '';
+    const reasons = Array.isArray(candidate.reasons) && candidate.reasons.length ? `，证据：${candidate.reasons.join(' / ')}` : '';
+    return `${index + 1}. ${candidate.name || candidate.id} (${candidate.id})，相似 ${numberText(candidate.score)}${distance}${reasons}`;
+  }).join('\n');
+}
+
+async function handlePlaceEdit(button) {
+  const place = await adminPlaceById(button.dataset.id);
+  if (!place) throw new Error('地点不存在或已被合并');
+  const name = window.prompt('地点名称', place.name || '');
+  if (name === null) return false;
+  const address = window.prompt('地点地址', place.address || '');
+  if (address === null) return false;
+  const category = window.prompt('分类：cafe / clinic / other / park / shop', place.category || 'other');
+  if (category === null) return false;
+  const petFriendlyStatus = window.prompt('宠物友好状态：candidate / rejected / unknown / verified', place.petFriendlyStatus || 'unknown');
+  if (petFriendlyStatus === null) return false;
+  const supportedSpecies = window.prompt('支持宠物：dog,cat', (place.supportedSpecies || []).join(','));
+  if (supportedSpecies === null) return false;
+  const tags = window.prompt('标签，用逗号分隔', (place.tags || []).join(','));
+  if (tags === null) return false;
+  const latitude = window.prompt('纬度，可留空', place.latitude ?? '');
+  if (latitude === null) return false;
+  const longitude = window.prompt('经度，可留空', place.longitude ?? '');
+  if (longitude === null) return false;
+  const coverImageUrl = window.prompt('封面图 URL，可留空', place.coverImageUrl || '');
+  if (coverImageUrl === null) return false;
+  const reason = window.prompt('请输入编辑原因', `编辑地点资料：${place.name}`);
+  if (reason === null) return false;
+  await patch(`/admin/places/${encodeURIComponent(place.id)}`, {
+    address,
+    category,
+    coverImageUrl,
+    latitude,
+    longitude,
+    name,
+    petFriendlyStatus,
+    reason: reason.trim() || `编辑地点资料：${place.name}`,
+    supportedSpecies,
+    tags,
+  });
+  clearPlaceAdminCaches();
+  showToast('地点资料已更新');
+  await render(true);
+  return true;
+}
+
+async function handlePlaceMerge(button) {
+  const source = await adminPlaceById(button.dataset.id);
+  if (!source) throw new Error('源地点不存在或已被合并');
+  const candidates = Array.isArray(source.duplicateCandidates) ? source.duplicateCandidates : [];
+  const defaultTargetId = candidates[0]?.id || '';
+  const targetPlaceId = window.prompt(
+    `把「${source.name}」合并到哪个目标地点？\n\n${placeMergeCandidateText(source)}\n\n请输入目标地点 ID：`,
+    defaultTargetId,
+  );
+  if (targetPlaceId === null) return false;
+  const trimmedTargetId = targetPlaceId.trim();
+  if (!trimmedTargetId) throw new Error('请填写目标地点 ID');
+  if (trimmedTargetId === source.id) throw new Error('不能把地点合并到自身');
+  const target = await adminPlaceById(trimmedTargetId);
+  if (!target) throw new Error('目标地点不存在');
+  if (!window.confirm(`确认把「${source.name}」合并到「${target.name}」？\n\n旧地点会从目录移除，点评、收藏、通知、约溜等引用会迁移到目标地点。`)) return false;
+  const reason = window.prompt('请输入合并原因', `合并重复地点：${source.name} -> ${target.name}`);
+  if (reason === null) return false;
+  await post(`/admin/places/${encodeURIComponent(source.id)}/merge`, {
+    reason: reason.trim() || `合并重复地点：${source.name} -> ${target.name}`,
+    targetPlaceId: trimmedTargetId,
+  });
+  clearPlaceAdminCaches();
+  showToast('地点已合并并迁移引用');
   await render(true);
   return true;
 }
@@ -3523,13 +3632,19 @@ async function renderPlaces(force) {
           <h2>地点质量治理</h2>
           <div class="section-sub">质量分和重复候选会同步进入移动端地点响应，用于排序和后续运营判断；当前不做自动合并</div>
         </div>
-        ${help('质量分是运营信号：高分优先展示和排查更可信；重复候选用于提示人工合并，正式合并/编辑能力仍是预留入口。')}
+        ${help('质量分是运营信号：高分优先展示和排查更可信；重复候选用于提示人工合并，编辑和合并都会写入审计。')}
       </div>
       ${tableHtml(places, [
         ['地点', (row) => `<div class="cell-title">${escapeHtml(row.name)}</div><div class="cell-sub">${escapeHtml(row.address || '-')}</div><div class="cell-sub">${escapeHtml(row.id)}</div>`],
         ['质量', (row) => `${placeQualityPill(row)}${placeQualityEvidence(row)}`],
         ['重复候选', (row) => placeDuplicateSummary(row)],
         ['来源', (row) => `<div>${escapeHtml(row.source || '-')} · ${escapeHtml(row.category || '-')}</div><div class="cell-sub">${escapeHtml(row.petFriendlyStatus || 'unknown')}</div><div class="cell-sub">${escapeHtml((row.tags || []).slice(0, 4).join(' / ') || '-')}</div>`],
+        ['操作', (row) => `
+          <div class="actions">
+            <button class="small-button" data-action="place-edit" data-id="${escapeHtml(row.id)}">编辑</button>
+            <button class="small-button ${row.duplicateCandidateCount ? 'danger' : 'ghost'}" data-action="place-merge" data-id="${escapeHtml(row.id)}">合并</button>
+          </div>
+        `],
       ], '暂无地点目录')}
     </div>
     <div class="card">
