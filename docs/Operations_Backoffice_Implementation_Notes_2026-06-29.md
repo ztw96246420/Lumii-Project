@@ -55,6 +55,8 @@
 
 - `GET /admin/users`
 - `GET /admin/users/{phone}`
+- `POST /admin/users/{phone}/notes`
+- `POST /admin/users/{phone}/risk-tags`
 - `GET /admin/users/{phone}/business-data-summary`
 - `POST /admin/users/{phone}/clear-business-data`
 
@@ -63,16 +65,17 @@
 - 用户列表。
 - 用户详情聚合：宠物、AI 用量、AI 任务、反馈、通知、宠友圈动态。
 - 用户列表快捷禁言 24 小时、冻结 72 小时。
+- 用户列表和用户详情展示后台内部运营备注、备注数量、最近备注和风险标签。
+- 支持给用户添加运营备注，最多保留最近 30 条，写入 `user.note.create` 审计。
+- 支持按白名单更新风险标签，标签包括测试账号、重点用户、需要回访、投诉处理中、违规观察、疑似骚扰、疑似违规和 AI 异常样本，写入 `user.risk_tags.update` 审计。
+- 用户账号 CSV 导出新增运营风险标签、运营备注数和最近运营备注字段。
 - 账号状态和生效处罚会在用户列表展示。
 - 用户列表支持高危操作“清理业务数据”：先拉取清理预览，再要求填写原因和完整手机号确认。
 - 清理范围覆盖宠物档案、宠物日历、AI 素材/任务/额度、宠物 AI 对话、宠友圈、点赞/评论/举报、黑名单、招呼、约遛、会话、地点收藏/点评/提交、通知、推送设备、反馈和工单。
-- 清理后移动端 `/me` 会返回 `activePet=null`，用户重新进入时回到无宠物业务数据状态；账号壳、昵称、头像、简介、设置、权限、短信登录记录、后台审计日志和系统通知批次保留。
+- 清理后移动端 `/me` 会返回 `activePet=null`，用户重新进入时回到无宠物业务数据状态；账号壳、昵称、头像、简介、设置、权限、短信登录记录、后台审计日志、系统通知批次、后台备注和风险标签保留。
 - 清理动作写入 `adminAuditLogs`，action 为 `user.clear_business_data`，审计中只保存清理前后摘要和用户概览，不导出被清理内容原文。
 - 详见 `docs/Operations_Backoffice_User_Data_Clear_2026-06-30.md`。
-
-未实现：
-
-- 用户备注和风险标签。
+- 用户备注与风险标签详见 `docs/Operations_Backoffice_User_Notes_Risk_Tags_2026-06-30.md`。
 
 ### 3.3.1 宠物档案
 

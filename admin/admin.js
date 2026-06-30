@@ -77,6 +77,19 @@ const titles = {
   users: ['用户管理', '账号、宠物、设置和风险排查'],
 };
 
+const userRiskTagOptions = [
+  { key: 'test_account', label: '测试账号' },
+  { key: 'key_user', label: '重点用户' },
+  { key: 'needs_followup', label: '需要回访' },
+  { key: 'complaint', label: '投诉处理中' },
+  { key: 'watch', label: '违规观察' },
+  { key: 'suspected_harassment', label: '疑似骚扰' },
+  { key: 'suspected_abuse', label: '疑似违规' },
+  { key: 'ai_sample', label: 'AI 异常样本' },
+];
+const userRiskTagLabelMap = Object.fromEntries(userRiskTagOptions.map((item) => [item.key, item.label]));
+const userRiskTagKeyMap = Object.fromEntries(userRiskTagOptions.flatMap((item) => [[item.key, item.key], [item.label, item.key]]));
+
 const $ = (id) => document.getElementById(id);
 
 function escapeHtml(value) {
@@ -437,6 +450,14 @@ async function onContentClick(event) {
     if (action === 'sanction-revoke') await confirmPost(`/admin/users/${encodeURIComponent(phone)}/sanctions/${encodeURIComponent(id)}/revoke`, { reason }, '确认撤销这条处罚？');
     if (action === 'quick-mute') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 24, reason: '用户列表快捷禁言', type: 'mute' });
     if (action === 'quick-freeze') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 72, reason: '用户列表快捷冻结', type: 'freeze' });
+    if (action === 'user-note-add') {
+      await addUserAdminNote(phone);
+      return;
+    }
+    if (action === 'user-risk-tags') {
+      await editUserRiskTags(button);
+      return;
+    }
     if (action === 'clear-user-business-data') {
       await clearUserBusinessData(phone);
       return;
@@ -603,6 +624,61 @@ function clearOperationalCaches() {
   ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
+}
+
+function userRiskTagHelpText() {
+  return userRiskTagOptions.map((item) => `${item.key}=${item.label}`).join('，');
+}
+
+function parseUserRiskTagInput(value) {
+  const tags = [];
+  String(value || '')
+    .split(/[\s,，、]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .forEach((token) => {
+      const key = userRiskTagKeyMap[token];
+      if (key && !tags.includes(key)) tags.push(key);
+    });
+  return tags;
+}
+
+async function addUserAdminNote(phone) {
+  if (!phone) return;
+  const content = window.prompt(`给 ${shortPhone(phone)} 添加运营备注`, '');
+  if (content === null) return;
+  const trimmed = content.trim();
+  if (!trimmed) throw new Error('请填写运营备注');
+  await post(`/admin/users/${encodeURIComponent(phone)}/notes`, { content: trimmed });
+  state.cache.users = null;
+  state.cache.audit = null;
+  showToast('运营备注已添加');
+  await render(true);
+}
+
+async function editUserRiskTags(button) {
+  const phone = button.dataset.phone || '';
+  if (!phone) return;
+  const current = button.dataset.tags || '';
+  const input = window.prompt(
+    `更新 ${shortPhone(phone)} 的运营风险标签\n\n可用标签：${userRiskTagHelpText()}\n\n输入多个标签请用逗号或空格分隔；留空表示清空。`,
+    current,
+  );
+  if (input === null) return;
+  const tags = parseUserRiskTagInput(input);
+  const unknown = String(input || '')
+    .split(/[\s,，、]+/)
+    .map((item) => item.trim())
+    .filter((item) => item && !userRiskTagKeyMap[item]);
+  if (unknown.length) throw new Error(`无法识别标签：${unknown.join('、')}`);
+  await post(`/admin/users/${encodeURIComponent(phone)}/risk-tags`, {
+    reason: '更新用户风险标签',
+    tags,
+  });
+  state.cache.users = null;
+  state.cache.audit = null;
+  showToast(tags.length ? '风险标签已更新' : '风险标签已清空');
+  await render(true);
 }
 
 function userBusinessSummaryText(summary = {}) {
@@ -1468,9 +1544,12 @@ async function renderUsers(force) {
       ['设置', (u) => `${statusPill(u.settings.nearbyVisible ? 'nearby on' : 'nearby off')} ${statusPill(u.settings.pushNotifications ? 'push on' : 'push off')}`],
       ['内容', (u) => `<div>${u.socialPostCount} 条小事</div><div class="cell-sub">${u.reportsAgainstCount} 次被举报</div>`],
       ['账号状态', (u) => `${statusPill(u.status)}<div class="cell-sub">${(u.sanctions?.activeTypes || []).map((type) => statusPill(type)).join(' ') || '无生效处罚'}</div>`],
+      ['运营标记', renderUserOpsMark],
       ['最近活跃', (u) => formatTime(u.lastSeenAt)],
       ['操作', (u) => `
         <div class="actions">
+          <button class="small-button" data-action="user-note-add" data-phone="${escapeHtml(u.phone)}">备注</button>
+          <button class="small-button" data-action="user-risk-tags" data-phone="${escapeHtml(u.phone)}" data-tags="${escapeHtml((u.adminRiskTags || []).join(','))}">标签</button>
           <button class="small-button" data-action="quick-mute" data-phone="${escapeHtml(u.phone)}">禁言24h</button>
           <button class="small-button danger" data-action="quick-freeze" data-phone="${escapeHtml(u.phone)}">冻结72h</button>
           <button class="small-button danger" data-action="clear-user-business-data" data-phone="${escapeHtml(u.phone)}">清理业务数据</button>
@@ -1478,6 +1557,18 @@ async function renderUsers(force) {
       `],
     ],
   });
+}
+
+function renderUserOpsMark(user) {
+  const tags = (user.adminRiskTagLabels || (user.adminRiskTags || []).map((tag) => userRiskTagLabelMap[tag] || tag)).filter(Boolean);
+  const tagHtml = tags.length ? `<div class="risk-row compact">${tags.map(riskBadge).join('')}</div>` : '<div class="cell-sub">无风险标签</div>';
+  const noteCount = Number(user.adminNoteCount || 0);
+  const latestNote = user.adminLatestNote ? escapeHtml(user.adminLatestNote) : '';
+  return `
+    ${tagHtml}
+    <div class="cell-sub">${noteCount ? `${noteCount} 条备注${user.adminLatestNoteAt ? ` · ${formatTime(user.adminLatestNoteAt)}` : ''}` : '暂无运营备注'}</div>
+    ${latestNote ? `<div class="cell-sub clamp">最近：${latestNote}</div>` : ''}
+  `;
 }
 
 function petFilterOption(current, value, label) {

@@ -891,6 +891,9 @@ function adminExportDataset(type) {
         exportColumn('socialPostCount', '小事数'),
         exportColumn('reportsAgainstCount', '被举报数'),
         exportColumn('activeSanctions', '生效处罚数', (row) => row.sanctions?.activeCount || 0),
+        exportColumn('adminRiskTags', '运营风险标签', (row) => exportJoin(row.adminRiskTagLabels || row.adminRiskTags || [])),
+        exportColumn('adminNoteCount', '运营备注数'),
+        exportColumn('adminLatestNote', '最近运营备注'),
         exportColumn('createdAt', '注册时间', (row) => exportDateText(row.createdAt)),
         exportColumn('lastSeenAt', '最近活跃', (row) => exportDateText(row.lastSeenAt)),
       ],
@@ -2355,6 +2358,64 @@ function writeAdminAudit(admin, action, targetType, targetId, before, after, rea
   state.adminAuditLogs = state.adminAuditLogs.slice(0, 1000);
 }
 
+const ADMIN_USER_RISK_TAGS = [
+  { key: 'test_account', label: '测试账号' },
+  { key: 'key_user', label: '重点用户' },
+  { key: 'needs_followup', label: '需要回访' },
+  { key: 'complaint', label: '投诉处理中' },
+  { key: 'watch', label: '违规观察' },
+  { key: 'suspected_harassment', label: '疑似骚扰' },
+  { key: 'suspected_abuse', label: '疑似违规' },
+  { key: 'ai_sample', label: 'AI 异常样本' },
+];
+const ADMIN_USER_RISK_TAG_KEY_SET = new Set(ADMIN_USER_RISK_TAGS.map((item) => item.key));
+const ADMIN_USER_RISK_TAG_LABEL_TO_KEY = new Map(ADMIN_USER_RISK_TAGS.map((item) => [item.label, item.key]));
+
+function adminUserRiskTagLabel(key) {
+  return ADMIN_USER_RISK_TAGS.find((item) => item.key === key)?.label || key;
+}
+
+function adminRiskTagTokens(value) {
+  return (Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[\s,，、]+/) : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+}
+
+function unknownAdminRiskTags(value) {
+  return adminRiskTagTokens(value).filter((token) => !ADMIN_USER_RISK_TAG_KEY_SET.has(token) && !ADMIN_USER_RISK_TAG_LABEL_TO_KEY.has(token));
+}
+
+function normalizeAdminRiskTags(value) {
+  const raw = adminRiskTagTokens(value);
+  const tags = [];
+  for (const item of raw) {
+    const key = ADMIN_USER_RISK_TAG_KEY_SET.has(item) ? item : ADMIN_USER_RISK_TAG_LABEL_TO_KEY.get(item);
+    if (!key || tags.includes(key)) continue;
+    tags.push(key);
+    if (tags.length >= 8) break;
+  }
+  return tags;
+}
+
+function normalizeAdminNotes(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((note) => {
+      const content = String(note?.content || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+      if (!content) return null;
+      const createdAt = String(note?.createdAt || new Date().toISOString());
+      return {
+        content,
+        createdAt,
+        createdBy: String(note?.createdBy || 'admin').slice(0, 80),
+        id: String(note?.id || `user-note-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .slice(0, 30);
+}
+
 const SANCTION_TYPES = new Set(['warning', 'mute', 'freeze', 'ban']);
 const SANCTION_TYPE_LABELS = {
   ban: '封禁',
@@ -2870,6 +2931,8 @@ function ensureUser(phone) {
   state.users[phone].permissions = normalizePermissionState(state.users[phone].permissions);
   state.users[phone].settings = normalizeUserSettings(state.users[phone].settings);
   state.users[phone].favoritePlaceIds = normalizeFavoritePlaceIds(state.users[phone].favoritePlaceIds);
+  state.users[phone].adminNotes = normalizeAdminNotes(state.users[phone].adminNotes);
+  state.users[phone].adminRiskTags = normalizeAdminRiskTags(state.users[phone].adminRiskTags);
   state.users[phone].permissionsOnboardingCompleted = Boolean(state.users[phone].permissionsOnboardingCompleted);
   return state.users[phone];
 }
@@ -7773,8 +7836,18 @@ function adminUserSummary(user) {
   const socialPosts = ensureSocialMoments().filter((item) => item.phone === user.phone && item.status !== 'deleted');
   const reportsAgainstUser = ensureSocialReports().filter((report) => report.ownerPhone === user.phone);
   const sanctionSummary = userSanctionSummary(user.phone);
+  const adminNotes = normalizeAdminNotes(user.adminNotes);
+  const adminRiskTags = normalizeAdminRiskTags(user.adminRiskTags);
+  user.adminNotes = adminNotes;
+  user.adminRiskTags = adminRiskTags;
   return {
     activePet,
+    adminLatestNote: adminNotes[0]?.content || '',
+    adminLatestNoteAt: adminNotes[0]?.createdAt || '',
+    adminLatestNoteBy: adminNotes[0]?.createdBy || '',
+    adminNoteCount: adminNotes.length,
+    adminRiskTagLabels: adminRiskTags.map(adminUserRiskTagLabel),
+    adminRiskTags,
     createdAt: user.createdAt,
     lastSeenAt: user.lastSeenAt || 0,
     ownerAvatarUrl: user.ownerAvatarUrl || '',
@@ -7790,6 +7863,41 @@ function adminUserSummary(user) {
     socialPostCount: socialPosts.length,
     status: accountStatusFor(user),
   };
+}
+
+function adminAddUserNote(admin, phone, body = {}) {
+  const normalizedPhone = normalizePhone(phone);
+  const user = normalizedPhone ? state.users[normalizedPhone] : null;
+  if (!user) return { error: '用户不存在', statusCode: 404 };
+  const content = String(body.content || '').replace(/\s+/g, ' ').trim();
+  if (!content) return { error: '请填写运营备注', statusCode: 400 };
+  if (content.length > 500) return { error: '运营备注最多 500 字', statusCode: 400 };
+  const before = adminUserSummary(user);
+  const note = {
+    content,
+    createdAt: new Date().toISOString(),
+    createdBy: admin?.username || 'admin',
+    id: `user-note-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+  };
+  user.adminNotes = [note, ...normalizeAdminNotes(user.adminNotes)].slice(0, 30);
+  const after = adminUserSummary(user);
+  writeAdminAudit(admin, 'user.note.create', 'user', normalizedPhone, before, { ...after, note }, content);
+  return { notes: user.adminNotes, user: after };
+}
+
+function adminUpdateUserRiskTags(admin, phone, body = {}) {
+  const normalizedPhone = normalizePhone(phone);
+  const user = normalizedPhone ? state.users[normalizedPhone] : null;
+  if (!user) return { error: '用户不存在', statusCode: 404 };
+  const before = adminUserSummary(user);
+  const value = body.tags ?? body.tag ?? body.value;
+  const unknownTags = unknownAdminRiskTags(value);
+  if (unknownTags.length) return { error: `无法识别风险标签：${unknownTags.join('、')}`, statusCode: 400 };
+  const tags = normalizeAdminRiskTags(value);
+  user.adminRiskTags = tags;
+  const after = adminUserSummary(user);
+  writeAdminAudit(admin, 'user.risk_tags.update', 'user', normalizedPhone, before, after, adminReason(body, '更新用户风险标签'));
+  return { options: ADMIN_USER_RISK_TAGS, user: after };
 }
 
 function conversationMessageCountForMap(value) {
@@ -11093,11 +11201,39 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     ok(res, {
       ...adminUserSummary(user),
       aiUsage: buildAiUsageSummary(user),
+      adminNotes: normalizeAdminNotes(user.adminNotes),
+      riskTagOptions: ADMIN_USER_RISK_TAGS,
       avatarJobs: adminAvatarJobs().filter((job) => job.ownerPhone === phone),
       feedback: adminFeedbackItems().filter((item) => item.phone === phone),
       notifications: normalizeNotificationsFor(phone),
       socialPosts: adminSocialPosts().filter((post) => post.ownerPhone === phone),
     });
+    return true;
+  }
+
+  const adminUserNoteMatch = pathname.match(/^\/admin\/users\/([^/]+)\/notes$/);
+  if (req.method === 'POST' && adminUserNoteMatch) {
+    const phone = normalizePhone(decodeURIComponent(adminUserNoteMatch[1]));
+    const result = adminAddUserNote(admin, phone, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_USER_NOTE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminUserRiskTagsMatch = pathname.match(/^\/admin\/users\/([^/]+)\/risk-tags$/);
+  if (req.method === 'POST' && adminUserRiskTagsMatch) {
+    const phone = normalizePhone(decodeURIComponent(adminUserRiskTagsMatch[1]));
+    const result = adminUpdateUserRiskTags(admin, phone, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_USER_RISK_TAGS_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 
