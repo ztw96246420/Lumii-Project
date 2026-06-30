@@ -571,6 +571,11 @@ th {
   flex-wrap: wrap;
 }
 
+.config-actions {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
 .toolbar-left {
   display: flex;
   gap: 12px;

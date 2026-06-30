@@ -424,7 +424,12 @@
 配置发布治理已接入：
 
 - `GET /admin/config` 会返回 `linkage.summary` 和 `linkage.items`，用于展示配置联动体检。
+- `POST /admin/config/drafts` 可把当前表单保存为配置草稿，不影响移动端 `/app/config`。
+- `POST /admin/config/drafts/{draftId}/publish` 发布草稿，写入当前配置、生成 `draft_publish` 版本，并影响移动端下次拉取。
+- `POST /admin/config/drafts/{draftId}/discard` 废弃草稿，保留审计记录。
 - 配置中心页面已展示每个配置项是否“前后端联动 / 后端强制 / 移动端联动 / 预留”，并列出后端证据、移动端证据、用户影响和运营备注。
+- 配置中心页面新增“配置发布治理”区，展示待发布草稿、高风险草稿、最近草稿时间和配置版本数。
+- 配置草稿和版本历史会记录变更摘要与风险项，当前高风险项覆盖维护模式、强制更新、核心功能开关、内容安全总开关、腾讯云机审开关和关键词规则。
 - 数据导出新增配置联动体检 CSV。
 - 独立文档：[Operations_Backoffice_Config_Linkage_2026-06-30.md](Operations_Backoffice_Config_Linkage_2026-06-30.md)。
 - 后台配置页展示最近 12 个配置版本，后端最多保留最近 80 个快照。
@@ -432,6 +437,7 @@
 - 支持在后台点“回滚到此版本”，调用 `POST /admin/config/revisions/{revisionId}/rollback`。
 - 回滚会把当前配置恢复到目标版本快照，同时生成一条新的 `rollback` 版本，并记录 `sourceRevisionId`。
 - 回滚动作写入审计日志，action 为 `config.rollback`；普通保存写入 `config.update`。
+- 草稿创建、发布、废弃分别写入 `config.draft.create`、`config.draft.publish`、`config.draft.discard`。
 - 移动端无需改包，下一次读取 `/app/config` 后立即按回滚后的功能开关、维护模式、公告、更新策略、图片上限、附近半径和附近小事展示天数等配置生效。
 
 移动端暂未完整接入：暂无。

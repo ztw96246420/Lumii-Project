@@ -398,6 +398,7 @@ function createInitialState() {
     supportTicketReplyTemplates: [],
     systemNotifications: [],
     notificationTemplates: [],
+    opsConfigDrafts: [],
     opsConfigRevisions: [],
     userSanctions: [],
     aiUsage: {
@@ -671,14 +672,18 @@ function adminOpsConfigRevisions() {
     createdBy: item.createdBy || 'admin',
     id: item.id,
     reason: item.reason || '',
+    changeSummary: Array.isArray(item.changeSummary) ? item.changeSummary : [],
+    riskChanges: Array.isArray(item.riskChanges) ? item.riskChanges : [],
     sourceRevisionId: item.sourceRevisionId || '',
     summary: item.summary || opsConfigSummary(item.config),
   }));
 }
 
-function recordOpsConfigRevision(admin, config, reason = '', action = 'publish', sourceRevisionId = '') {
+function recordOpsConfigRevision(admin, config, reason = '', action = 'publish', sourceRevisionId = '', beforeConfig = null) {
   const snapshot = normalizeOpsConfig(config);
   const createdAt = snapshot.updatedAt || new Date().toISOString();
+  const before = beforeConfig ? normalizeOpsConfig(beforeConfig) : currentOpsConfig();
+  const riskChanges = configRiskChanges(before, snapshot);
   const revision = {
     action,
     config: cloneJson(snapshot),
@@ -686,11 +691,227 @@ function recordOpsConfigRevision(admin, config, reason = '', action = 'publish',
     createdBy: admin?.username || 'admin',
     id: `config-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     reason: String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+    riskChanges,
     sourceRevisionId,
+    changeSummary: configChangeSummary(before, snapshot),
     summary: opsConfigSummary(snapshot),
   };
   state.opsConfigRevisions = [revision, ...ensureOpsConfigRevisions()].slice(0, 80);
   return revision;
+}
+
+function buildOpsConfigPatch(before, body = {}) {
+  return normalizeOpsConfig({
+    ...before,
+    ...body,
+    ai: { ...before.ai, ...(body.ai || {}) },
+    analytics: { ...before.analytics, ...(body.analytics || {}) },
+    app: {
+      ...before.app,
+      ...(body.app || {}),
+      announcement: {
+        ...(before.app?.announcement || {}),
+        ...(body.app?.announcement || {}),
+      },
+      splash: {
+        ...(before.app?.splash || {}),
+        ...(body.app?.splash || {}),
+      },
+      update: {
+        ...(before.app?.update || {}),
+        ...(body.app?.update || {}),
+      },
+    },
+    features: { ...before.features, ...(body.features || {}) },
+    moderation: { ...before.moderation, ...(body.moderation || {}) },
+    social: { ...before.social, ...(body.social || {}) },
+    support: {
+      ...before.support,
+      ...(body.support || {}),
+      slaHours: {
+        ...(before.support?.slaHours || {}),
+        ...(body.support?.slaHours || {}),
+      },
+    },
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+function configValueAt(config, key) {
+  return String(key || '').split('.').reduce((value, part) => (value === undefined || value === null ? undefined : value[part]), config);
+}
+
+function normalizedConfigComparable(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean).sort();
+  if (value && typeof value === 'object') return Object.keys(value).sort().reduce((acc, key) => {
+    acc[key] = normalizedConfigComparable(value[key]);
+    return acc;
+  }, {});
+  return value;
+}
+
+function configValueChanged(before, after, key) {
+  return JSON.stringify(normalizedConfigComparable(configValueAt(before, key))) !== JSON.stringify(normalizedConfigComparable(configValueAt(after, key)));
+}
+
+function configDisplayValue(value) {
+  if (typeof value === 'boolean') return value ? 'on' : 'off';
+  if (Array.isArray(value)) return `${value.length} items`;
+  if (value && typeof value === 'object') return JSON.stringify(value).slice(0, 120);
+  if (value === undefined || value === null || value === '') return '-';
+  return String(value).slice(0, 120);
+}
+
+function configChangeSummary(before, after) {
+  const specs = [
+    ['ai.petAvatarDailyLimit', 'AI avatar daily limit'],
+    ['ai.petChatDailyLimit', 'AI chat daily limit'],
+    ['social.petCircleMaxPhotos', 'Pet circle max photos'],
+    ['social.discoverRadiusKm', 'Discover radius'],
+    ['social.nearbyMomentTtlDays', 'Nearby moment TTL'],
+    ['features.aiAvatar', 'AI avatar feature'],
+    ['features.petChat', 'Pet chat feature'],
+    ['features.petCircle', 'Pet circle feature'],
+    ['features.places', 'Places feature'],
+    ['features.walkInvite', 'Walk invite feature'],
+    ['app.maintenanceEnabled', 'Maintenance mode'],
+    ['app.maintenanceMessage', 'Maintenance message'],
+    ['app.announcement', 'App announcement'],
+    ['app.update', 'App update policy'],
+    ['app.splash', 'Splash notice'],
+    ['analytics.enabled', 'Analytics enabled'],
+    ['analytics.sampleRatePercent', 'Analytics sample rate'],
+    ['analytics.retentionDays', 'Analytics retention days'],
+    ['moderation.enabled', 'Content safety enabled'],
+    ['moderation.textRulesEnabled', 'Text rules enabled'],
+    ['moderation.machineTextEnabled', 'Tencent text moderation'],
+    ['moderation.machineImageEnabled', 'Tencent image moderation'],
+    ['moderation.blockKeywords', 'Block keywords'],
+    ['moderation.highRiskKeywords', 'High-risk keywords'],
+    ['moderation.reviewKeywords', 'Review keywords'],
+    ['support.slaHours', 'Support SLA hours'],
+  ];
+  return specs
+    .filter(([key]) => configValueChanged(before, after, key))
+    .map(([key, label]) => ({
+      after: configDisplayValue(configValueAt(after, key)),
+      before: configDisplayValue(configValueAt(before, key)),
+      key,
+      label,
+    }))
+    .slice(0, 40);
+}
+
+function configRiskChanges(before, after) {
+  const risks = [];
+  const addRisk = (key, label, severity, reason) => {
+    if (!configValueChanged(before, after, key)) return;
+    risks.push({
+      after: configDisplayValue(configValueAt(after, key)),
+      before: configDisplayValue(configValueAt(before, key)),
+      key,
+      label,
+      reason,
+      severity,
+    });
+  };
+  addRisk('app.maintenanceEnabled', 'Maintenance mode', 'P0', 'Can block most write flows and change the mobile app entry experience.');
+  addRisk('app.update.force', 'Force update', 'P0', 'Can prevent users on older APKs from continuing without an update.');
+  addRisk('features.aiAvatar', 'AI avatar feature switch', 'P1', 'Can hide or block a core AI avatar workflow.');
+  addRisk('features.petChat', 'Pet chat feature switch', 'P1', 'Can hide or block AI pet chat.');
+  addRisk('features.petCircle', 'Pet circle feature switch', 'P1', 'Can hide or block pet circle browsing and publishing.');
+  addRisk('features.places', 'Places feature switch', 'P1', 'Can hide or block map and place workflows.');
+  addRisk('features.walkInvite', 'Walk invite feature switch', 'P1', 'Can block user-to-user walk invites.');
+  addRisk('moderation.enabled', 'Content safety master switch', 'P0', 'Can allow or block public UGC safety checks.');
+  addRisk('moderation.machineTextEnabled', 'Tencent text moderation', 'P0', 'Can change machine review coverage for public text.');
+  addRisk('moderation.machineImageEnabled', 'Tencent image moderation', 'P0', 'Can change machine review coverage for public images.');
+  addRisk('moderation.blockKeywords', 'Block keywords', 'P1', 'Can immediately reject user submissions.');
+  addRisk('moderation.highRiskKeywords', 'High-risk keywords', 'P1', 'Can send public content into review.');
+  addRisk('moderation.reviewKeywords', 'Review keywords', 'P1', 'Can send public content into review.');
+  if (Number(configValueAt(after, 'ai.petAvatarDailyLimit')) === 0 && configValueChanged(before, after, 'ai.petAvatarDailyLimit')) {
+    addRisk('ai.petAvatarDailyLimit', 'AI avatar daily limit', 'P1', 'Setting the limit to 0 effectively disables new avatar generation.');
+  }
+  if (Number(configValueAt(after, 'ai.petChatDailyLimit')) === 0 && configValueChanged(before, after, 'ai.petChatDailyLimit')) {
+    addRisk('ai.petChatDailyLimit', 'AI chat daily limit', 'P1', 'Setting the limit to 0 effectively disables new pet chat messages.');
+  }
+  return risks;
+}
+
+function normalizeOpsConfigDraft(item = {}) {
+  if (!item || typeof item !== 'object' || !item.id || !item.config) return null;
+  const config = normalizeOpsConfig(item.config);
+  const status = ['draft', 'published', 'discarded'].includes(String(item.status || '')) ? String(item.status) : 'draft';
+  const baseConfig = item.baseConfig ? normalizeOpsConfig(item.baseConfig) : currentOpsConfig();
+  return {
+    baseSummary: item.baseSummary || opsConfigSummary(baseConfig),
+    changeSummary: Array.isArray(item.changeSummary) ? item.changeSummary : configChangeSummary(baseConfig, config),
+    config,
+    createdAt: item.createdAt || new Date().toISOString(),
+    createdBy: item.createdBy || 'admin',
+    discardedAt: item.discardedAt || '',
+    discardedBy: item.discardedBy || '',
+    id: String(item.id),
+    publishedAt: item.publishedAt || '',
+    publishedBy: item.publishedBy || '',
+    reason: String(item.reason || '').slice(0, 240),
+    revisionId: item.revisionId || '',
+    riskChanges: Array.isArray(item.riskChanges) ? item.riskChanges : configRiskChanges(baseConfig, config),
+    status,
+    summary: item.summary || opsConfigSummary(config),
+    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
+  };
+}
+
+function ensureOpsConfigDrafts() {
+  if (!Array.isArray(state.opsConfigDrafts)) state.opsConfigDrafts = [];
+  state.opsConfigDrafts = state.opsConfigDrafts
+    .map(normalizeOpsConfigDraft)
+    .filter(Boolean)
+    .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))
+    .slice(0, 60);
+  return state.opsConfigDrafts;
+}
+
+function adminOpsConfigDrafts() {
+  return ensureOpsConfigDrafts().map((draft) => ({
+    baseSummary: draft.baseSummary,
+    changeSummary: draft.changeSummary,
+    createdAt: draft.createdAt,
+    createdBy: draft.createdBy,
+    discardedAt: draft.discardedAt,
+    discardedBy: draft.discardedBy,
+    id: draft.id,
+    publishedAt: draft.publishedAt,
+    publishedBy: draft.publishedBy,
+    reason: draft.reason,
+    revisionId: draft.revisionId,
+    riskChanges: draft.riskChanges,
+    status: draft.status,
+    summary: draft.summary,
+    updatedAt: draft.updatedAt,
+  }));
+}
+
+function createOpsConfigDraft(admin, body = {}) {
+  const before = currentOpsConfig();
+  const next = buildOpsConfigPatch(before, body);
+  const now = new Date().toISOString();
+  const draft = normalizeOpsConfigDraft({
+    baseConfig: before,
+    baseSummary: opsConfigSummary(before),
+    changeSummary: configChangeSummary(before, next),
+    config: next,
+    createdAt: now,
+    createdBy: admin?.username || 'admin',
+    id: `config-draft-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    reason: body.reason || 'config draft',
+    riskChanges: configRiskChanges(before, next),
+    status: 'draft',
+    summary: opsConfigSummary(next),
+    updatedAt: now,
+  });
+  state.opsConfigDrafts = [draft, ...ensureOpsConfigDrafts()].slice(0, 60);
+  return draft;
 }
 
 function configLinkageValue(config, key) {
@@ -1032,9 +1253,17 @@ function adminConfigLinkageSummary(items) {
 function adminOpsConfigResponse() {
   const config = currentOpsConfig();
   const linkageItems = adminConfigLinkageItems(config);
+  const drafts = adminOpsConfigDrafts();
+  const activeDrafts = drafts.filter((draft) => draft.status === 'draft');
   return {
     ...config,
     contentSafety: adminContentSafetyStatus(config),
+    drafts,
+    governance: {
+      activeDrafts: activeDrafts.length,
+      highRiskDrafts: activeDrafts.filter((draft) => (draft.riskChanges || []).some((risk) => risk.severity === 'P0')).length,
+      latestDraftAt: drafts[0]?.updatedAt || '',
+    },
     linkage: {
       items: linkageItems,
       summary: adminConfigLinkageSummary(linkageItems),
@@ -1832,6 +2061,7 @@ function loadState() {
         ...initialState.mediaUploads,
         ...(loadedState.mediaUploads || {}),
       },
+      opsConfigDrafts: Array.isArray(loadedState.opsConfigDrafts) ? loadedState.opsConfigDrafts : initialState.opsConfigDrafts,
       opsConfig: normalizeOpsConfig(loadedState.opsConfig || initialState.opsConfig),
       petAvatarDailyUsage: {
         ...initialState.petAvatarDailyUsage,
@@ -10071,6 +10301,7 @@ function adminPermissionCatalog() {
     ['support.ticket.process', '处理客服工单', '客服'],
     ['notification.send', '发送、预约、撤回系统通知', '通知'],
     ['config.update', '修改移动端联动配置', '配置'],
+    ['config.draft', '创建、发布、废弃配置草稿', '配置'],
     ['config.rollback', '回滚配置版本', '配置'],
     ['audit.view', '查看审计日志', '审计'],
     ['data.export.download', '下载运营 CSV', '导出'],
@@ -10303,9 +10534,9 @@ function adminReadinessModules(context) {
       module: '配置中心',
       group: '配置',
       status: hasConfigReserved ? 'partial' : 'ready',
-      evidence: '配置可保存、版本化、回滚和审计，已展示前后端联动体检。',
+      evidence: '配置可保存草稿、立即发布、草稿发布/废弃、版本化、回滚和审计，已展示前后端联动体检与高风险摘要。',
       mobileLinkage: '移动端读取 /app/config 后应用功能开关、维护、公告、更新、启动提示、额度和附近策略。',
-      nextStep: '生产期补配置草稿、发布审批、定时发布、灰度人群包和 A/B 实验。',
+      nextStep: '生产期补双人审批、定时发布、灰度人群包和 A/B 实验。',
     },
     {
       key: 'exports_audit',
@@ -14194,45 +14425,65 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'PATCH' && pathname === '/admin/config') {
     const before = currentOpsConfig();
-    const next = normalizeOpsConfig({
-      ...before,
-      ...body,
-      ai: { ...before.ai, ...(body.ai || {}) },
-      analytics: { ...before.analytics, ...(body.analytics || {}) },
-      app: {
-        ...before.app,
-        ...(body.app || {}),
-        announcement: {
-          ...(before.app?.announcement || {}),
-          ...(body.app?.announcement || {}),
-        },
-        splash: {
-          ...(before.app?.splash || {}),
-          ...(body.app?.splash || {}),
-        },
-        update: {
-          ...(before.app?.update || {}),
-          ...(body.app?.update || {}),
-        },
-      },
-      features: { ...before.features, ...(body.features || {}) },
-      moderation: { ...before.moderation, ...(body.moderation || {}) },
-      social: { ...before.social, ...(body.social || {}) },
-      support: {
-        ...before.support,
-        ...(body.support || {}),
-        slaHours: {
-          ...(before.support?.slaHours || {}),
-          ...(body.support?.slaHours || {}),
-        },
-      },
-      updatedAt: new Date().toISOString(),
-    });
+    const next = buildOpsConfigPatch(before, body);
     state.opsConfig = next;
-    const revision = recordOpsConfigRevision(admin, next, body.reason || '配置中心保存', 'publish');
+    const revision = recordOpsConfigRevision(admin, next, body.reason || '配置中心保存', 'publish', '', before);
     writeAdminAudit(admin, 'config.update', 'ops_config', 'app', before, { ...next, revisionId: revision.id }, body.reason);
     saveState();
     ok(res, adminOpsConfigResponse());
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/config/drafts') {
+    const draft = createOpsConfigDraft(admin, body);
+    writeAdminAudit(admin, 'config.draft.create', 'ops_config_draft', draft.id, null, {
+      changeSummary: draft.changeSummary,
+      reason: draft.reason,
+      riskChanges: draft.riskChanges,
+      summary: draft.summary,
+    }, body.reason);
+    saveState();
+    ok(res, { ...adminOpsConfigResponse(), draft });
+    return true;
+  }
+
+  const adminConfigDraftMatch = pathname.match(/^\/admin\/config\/drafts\/([^/]+)\/(publish|discard)$/);
+  if (req.method === 'POST' && adminConfigDraftMatch) {
+    const draftId = decodeURIComponent(adminConfigDraftMatch[1]);
+    const action = adminConfigDraftMatch[2];
+    const draft = ensureOpsConfigDrafts().find((item) => item.id === draftId);
+    if (!draft) {
+      fail(res, 404, '配置草稿不存在', false, undefined, 'ADMIN_CONFIG_DRAFT_NOT_FOUND');
+      return true;
+    }
+    if (draft.status !== 'draft') {
+      fail(res, 409, '配置草稿已经处理，不能重复操作', false, { status: draft.status }, 'ADMIN_CONFIG_DRAFT_ALREADY_HANDLED');
+      return true;
+    }
+    const beforeDraft = cloneJson(draft);
+    const now = new Date().toISOString();
+    if (action === 'discard') {
+      draft.status = 'discarded';
+      draft.discardedAt = now;
+      draft.discardedBy = admin.username;
+      draft.updatedAt = now;
+      writeAdminAudit(admin, 'config.draft.discard', 'ops_config_draft', draft.id, beforeDraft, draft, body.reason);
+      saveState();
+      ok(res, { ...adminOpsConfigResponse(), draft });
+      return true;
+    }
+    const before = currentOpsConfig();
+    const next = normalizeOpsConfig({ ...cloneJson(draft.config), updatedAt: now });
+    state.opsConfig = next;
+    const revision = recordOpsConfigRevision(admin, next, body.reason || draft.reason || `发布配置草稿 ${draft.id}`, 'draft_publish', draft.id, before);
+    draft.status = 'published';
+    draft.publishedAt = now;
+    draft.publishedBy = admin.username;
+    draft.revisionId = revision.id;
+    draft.updatedAt = now;
+    writeAdminAudit(admin, 'config.draft.publish', 'ops_config_draft', draft.id, beforeDraft, { ...draft, revisionId: revision.id }, body.reason);
+    saveState();
+    ok(res, { ...adminOpsConfigResponse(), draft, revision });
     return true;
   }
 
@@ -14250,7 +14501,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       updatedAt: new Date().toISOString(),
     });
     state.opsConfig = next;
-    const rollbackRevision = recordOpsConfigRevision(admin, next, body.reason || `回滚到 ${revisionId}`, 'rollback', revisionId);
+    const rollbackRevision = recordOpsConfigRevision(admin, next, body.reason || `回滚到 ${revisionId}`, 'rollback', revisionId, before);
     writeAdminAudit(admin, 'config.rollback', 'ops_config', revisionId, before, { ...next, revisionId: rollbackRevision.id, sourceRevisionId: revisionId }, body.reason);
     saveState();
     ok(res, { ...adminOpsConfigResponse(), rolledBackFrom: revisionId });

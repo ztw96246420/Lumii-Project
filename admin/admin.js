@@ -546,7 +546,22 @@ async function onContentClick(event) {
     if (action === 'send-notification') await sendSystemNotification('send');
     if (action === 'save-notification-draft') await sendSystemNotification('draft');
     if (action === 'schedule-notification') await sendSystemNotification('scheduled');
-    if (action === 'save-config') await saveConfig();
+    if (action === 'save-config') {
+      await saveConfig('publish');
+      return;
+    }
+    if (action === 'save-config-draft') {
+      await saveConfig('draft');
+      return;
+    }
+    if (action === 'config-draft-publish') {
+      await publishConfigDraft(id);
+      return;
+    }
+    if (action === 'config-draft-discard') {
+      await discardConfigDraft(id);
+      return;
+    }
     if (action === 'config-rollback') {
       await rollbackConfigRevision(id);
       return;
@@ -3991,6 +4006,65 @@ function renderConfigRevisions(revisions = []) {
   ], '暂无配置版本');
 }
 
+function configRiskPills(risks = []) {
+  if (!Array.isArray(risks) || !risks.length) return '<span class="cell-sub">无高风险项</span>';
+  return risks.slice(0, 4).map((risk) => tonePill(risk.severity || 'P1', risk.severity === 'P0' ? 'bad' : 'warn')).join(' ');
+}
+
+function configRiskSummary(risks = []) {
+  if (!Array.isArray(risks) || !risks.length) return '<div class="cell-sub">没有命中维护模式、强制更新、功能关闭或内容安全规则等高风险项。</div>';
+  return `
+    <div class="gap-list compact">
+      ${risks.slice(0, 6).map((risk) => `
+        <div>
+          <strong>${escapeHtml(risk.label || risk.key || '-')} · ${escapeHtml(risk.severity || 'P1')}</strong>
+          <span>${escapeHtml(risk.before || '-')} -> ${escapeHtml(risk.after || '-')} · ${escapeHtml(risk.reason || '')}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function configChangeSummaryList(changes = []) {
+  if (!Array.isArray(changes) || !changes.length) return '<div class="cell-sub">暂无配置差异</div>';
+  return `<div class="cell-sub clamp">${changes.slice(0, 5).map((item) => `${item.label}: ${item.before} -> ${item.after}`).join('；')}</div>`;
+}
+
+function renderConfigGovernance(config = {}) {
+  const drafts = Array.isArray(config.drafts) ? config.drafts : [];
+  const activeDrafts = drafts.filter((draft) => draft.status === 'draft');
+  const governance = config.governance || {};
+  return `
+    <div class="grid metrics">
+      ${metric('待发布草稿', numberText(governance.activeDrafts ?? activeDrafts.length), '不会影响 /app/config', '草稿只保存在后台，发布后才会生成版本并影响移动端。')}
+      ${metric('高风险草稿', numberText(governance.highRiskDrafts || 0), 'P0 需重点复核', '维护模式、强制更新、内容安全总开关和机审开关属于高风险配置。')}
+      ${metric('最近草稿', governance.latestDraftAt ? formatTime(governance.latestDraftAt) : '-', '配置治理记录', '用于确认是否有人保存了待发布变更。')}
+      ${metric('版本历史', numberText((config.revisions || []).length), '可回滚', '发布和回滚都会生成配置版本快照。')}
+    </div>
+    <div class="config-section">
+      <div class="section-head compact">
+        <div>
+          <h2>配置发布治理</h2>
+          <div class="section-sub">草稿不会影响移动端；发布后下一次 /app/config 拉取生效</div>
+        </div>
+        ${help('建议高风险改动先保存草稿，由运营复核影响摘要后再发布。当前单 admin 版本先落草稿和审计，双人审批后续可接在同一个入口上。')}
+      </div>
+      ${activeDrafts.length ? tableHtml(activeDrafts.slice(0, 8), [
+        ['草稿', (draft) => `<div class="cell-title">${escapeHtml(draft.id)}</div><div class="cell-sub">${formatTime(draft.updatedAt || draft.createdAt)} · ${escapeHtml(draft.createdBy || '-')}</div>`],
+        ['风险', (draft) => `${configRiskPills(draft.riskChanges)}<div class="cell-sub">${escapeHtml(draft.reason || '-')}</div>`],
+        ['变更摘要', (draft) => configChangeSummaryList(draft.changeSummary)],
+        ['风险详情', (draft) => configRiskSummary(draft.riskChanges)],
+        ['操作', (draft) => `
+          <div class="actions">
+            <button class="small-button" data-action="config-draft-publish" data-id="${escapeHtml(draft.id)}">发布草稿</button>
+            <button class="small-button danger" data-action="config-draft-discard" data-id="${escapeHtml(draft.id)}">废弃</button>
+          </div>
+        `],
+      ], '暂无配置草稿') : '<div class="placeholder"><div><strong>暂无待发布草稿</strong><div>可以先保存草稿复核风险，再发布到移动端配置。</div></div></div>'}
+    </div>
+  `;
+}
+
 async function renderNotifications(force) {
   const data = await load('notifications', '/admin/notifications', force);
   const summary = data.summary || {};
@@ -4116,10 +4190,11 @@ async function renderConfig(force) {
       <div class="section-head">
         <div>
           <h2>移动端联动配置</h2>
-          <div class="section-sub">保存后，移动端下次启动会读取 /app/config 并影响对应功能</div>
+          <div class="section-sub">发布后，移动端下次启动会读取 /app/config 并影响对应功能</div>
         </div>
         ${help('当前第一版已接入：图片上限、附近半径、附近小事有效天数、AI 额度、功能开关、事件埋点、维护、公告、版本更新、启动提示和内容安全规则。')}
       </div>
+      ${renderConfigGovernance(config)}
       ${renderConfigLinkage(config)}
       <div class="config-grid">
         <label>宠友圈图片上限<input id="cfgPetCircleMaxPhotos" type="number" min="1" max="9" value="${config.social.petCircleMaxPhotos}" /></label>
@@ -4263,7 +4338,10 @@ async function renderConfig(force) {
           <label class="wide">启动提示正文<textarea id="cfgSplashBody" maxlength="180" placeholder="建议 60 字以内，说明本次运营提示">${escapeHtml(splash.body || '')}</textarea></label>
         </div>
       </div>
-      <button class="primary-button" data-action="save-config">保存配置</button>
+      <div class="actions config-actions">
+        <button class="small-button" data-action="save-config-draft">保存草稿</button>
+        <button class="primary-button" data-action="save-config">立即发布</button>
+      </div>
       <div class="config-section">
         <div class="section-head compact">
           <div>
@@ -4329,7 +4407,7 @@ function renderContentSafetyStatus(contentSafety = {}) {
   `;
 }
 
-async function saveConfig() {
+async function saveConfig(mode = 'publish') {
   const announcementEnabled = $('cfgAnnouncementEnabled').checked;
   if (announcementEnabled && (!$('cfgAnnouncementVersion').value.trim() || !$('cfgAnnouncementTitle').value.trim() || !$('cfgAnnouncementBody').value.trim())) {
     throw new Error('启用公告时，请填写版本、标题和正文');
@@ -4436,7 +4514,7 @@ async function saveConfig() {
       reviewMessage: $('cfgModerationReviewMessage').value,
       textRulesEnabled: $('cfgModerationTextRulesEnabled').checked,
     },
-    reason: '配置中心保存',
+    reason: mode === 'draft' ? '配置草稿保存' : '配置中心发布',
     social: {
       discoverRadiusKm: Number($('cfgDiscoverRadiusKm').value),
       nearbyMomentTtlDays: Number($('cfgNearbyMomentTtlDays').value),
@@ -4446,9 +4524,39 @@ async function saveConfig() {
       slaHours: supportSlaHours,
     },
   };
-  state.cache.config = await patch('/admin/config', payload);
+  const promptLabel = mode === 'draft' ? '请输入草稿说明' : '请输入发布原因';
+  const defaultReason = mode === 'draft' ? '配置草稿保存' : '配置中心发布';
+  const reason = window.prompt(promptLabel, defaultReason);
+  if (reason === null) return;
+  payload.reason = reason.trim() || defaultReason;
+  state.cache.config = mode === 'draft'
+    ? await post('/admin/config/drafts', payload)
+    : await patch('/admin/config', payload);
   state.cache.summary = null;
-  showToast('配置已保存');
+  showToast(mode === 'draft' ? '配置草稿已保存' : '配置已发布');
+  await render(true);
+}
+
+async function publishConfigDraft(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入发布草稿的原因', `发布配置草稿 ${id}`);
+  if (reason === null) return;
+  state.cache.config = await post(`/admin/config/drafts/${encodeURIComponent(id)}/publish`, {
+    reason: reason.trim() || `发布配置草稿 ${id}`,
+  });
+  state.cache.summary = null;
+  showToast('配置草稿已发布');
+  await render(true);
+}
+
+async function discardConfigDraft(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入废弃草稿的原因', `废弃配置草稿 ${id}`);
+  if (reason === null) return;
+  state.cache.config = await post(`/admin/config/drafts/${encodeURIComponent(id)}/discard`, {
+    reason: reason.trim() || `废弃配置草稿 ${id}`,
+  });
+  showToast('配置草稿已废弃');
   await render(true);
 }
 
