@@ -1125,6 +1125,7 @@ function configSnapshot(config) {
     <div class="switch-row"><span>附近默认半径</span><strong>${config.social.discoverRadiusKm}km</strong></div>
     <div class="switch-row"><span>形象生成额度</span><strong>${config.ai.petAvatarDailyLimit}/天</strong></div>
     <div class="switch-row"><span>AI 对话额度</span><strong>${config.ai.petChatDailyLimit}/天</strong></div>
+    <div class="switch-row"><span>工单紧急 SLA</span><strong>${config.support?.slaHours?.urgent || 2}h</strong></div>
     <div class="switch-row"><span>宠友圈开关</span>${statusPill(config.features.petCircle ? 'active' : 'closed')}</div>
     <div class="switch-row"><span>地图地点开关</span>${statusPill(config.features.places ? 'active' : 'closed')}</div>
     <div class="switch-row"><span>App 公告</span>${statusPill(config.app?.announcement?.enabled ? 'active' : 'closed')}</div>
@@ -3159,6 +3160,7 @@ function configRevisionSummaryText(summary = {}) {
     `图片 ${summary.petCircleMaxPhotos || 0}`,
     `半径 ${summary.discoverRadiusKm || 0}km`,
     `TTL ${summary.nearbyMomentTtlDays || 0}天`,
+    `工单 ${summary.supportUrgentSlaHours ?? 2}/${summary.supportHighSlaHours ?? 8}h SLA`,
     ...toggles,
   ].join(' · ');
 }
@@ -3327,6 +3329,8 @@ async function renderConfig(force) {
   const moderation = config.moderation || {};
   const revisions = config.revisions || [];
   const splash = config.app?.splash || {};
+  const support = config.support || {};
+  const supportSlaHours = support.slaHours || {};
   const update = config.app?.update || {};
   $('content').innerHTML = `
     <div class="card">
@@ -3353,6 +3357,21 @@ async function renderConfig(force) {
         ${featureCheckbox('cfgFeaturePetChat', 'AI 宠物对话', config.features.petChat)}
         ${featureCheckbox('cfgFeatureWalkInvite', '约遛邀请', config.features.walkInvite)}
         ${featureCheckbox('cfgMaintenanceEnabled', '维护模式', config.app.maintenanceEnabled)}
+      </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>客服工单 SLA</h2>
+            <div class="section-sub">保存后立即影响工单排序、SLA 标记、工作台统计和移动端预计响应文案</div>
+          </div>
+          ${help('SLA 从工单创建时间开始计算；closed/resolved 视为已完成。紧急通常用于安全投诉，高优先级通常用于 bug。')}
+        </div>
+        <div class="config-grid">
+          <label>紧急工单小时<input id="cfgSupportSlaUrgent" type="number" min="1" max="72" value="${supportSlaHours.urgent || 2}" /></label>
+          <label>高优先级小时<input id="cfgSupportSlaHigh" type="number" min="1" max="168" value="${supportSlaHours.high || 8}" /></label>
+          <label>普通工单小时<input id="cfgSupportSlaNormal" type="number" min="1" max="336" value="${supportSlaHours.normal || 24}" /></label>
+          <label>低优先级小时<input id="cfgSupportSlaLow" type="number" min="1" max="336" value="${supportSlaHours.low || 72}" /></label>
+        </div>
       </div>
       <div class="config-section">
         <div class="section-head compact">
@@ -3500,6 +3519,18 @@ async function saveConfig() {
   if (splashEnabled && (!$('cfgSplashVersion').value.trim() || !$('cfgSplashTitle').value.trim() || !$('cfgSplashBody').value.trim())) {
     throw new Error('启用启动提示时，请填写提示版本、标题和正文');
   }
+  const supportSlaHours = {
+    high: Number($('cfgSupportSlaHigh').value),
+    low: Number($('cfgSupportSlaLow').value),
+    normal: Number($('cfgSupportSlaNormal').value),
+    urgent: Number($('cfgSupportSlaUrgent').value),
+  };
+  if (Object.values(supportSlaHours).some((value) => !Number.isFinite(value) || value < 1)) {
+    throw new Error('工单 SLA 必须填写 1 小时以上的数字');
+  }
+  if (!(supportSlaHours.urgent <= supportSlaHours.high && supportSlaHours.high <= supportSlaHours.normal && supportSlaHours.normal <= supportSlaHours.low)) {
+    throw new Error('工单 SLA 需要保持：紧急 <= 高优先级 <= 普通 <= 低优先级');
+  }
   const payload = {
     ai: {
       petAvatarDailyLimit: Number($('cfgPetAvatarDailyLimit').value),
@@ -3558,6 +3589,9 @@ async function saveConfig() {
       discoverRadiusKm: Number($('cfgDiscoverRadiusKm').value),
       nearbyMomentTtlDays: Number($('cfgNearbyMomentTtlDays').value),
       petCircleMaxPhotos: Number($('cfgPetCircleMaxPhotos').value),
+    },
+    support: {
+      slaHours: supportSlaHours,
     },
   };
   state.cache.config = await patch('/admin/config', payload);

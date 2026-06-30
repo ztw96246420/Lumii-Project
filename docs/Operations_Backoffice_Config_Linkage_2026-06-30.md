@@ -32,6 +32,7 @@
 - `features.places`：后端阻断地图地点接口，移动端隐藏或拦截入口。
 - `features.walkInvite`：后端阻断约遛邀请，移动端隐藏或拦截入口。
 - `app.maintenanceEnabled` / `app.maintenanceMessage`：后端拦截主要写操作，移动端展示维护页。
+- `support.slaHours`：后端按配置计算工单 SLA、排序和统计，移动端在我的反馈展示预计响应时间。
 
 ### 移动端联动
 

@@ -307,6 +307,14 @@ function defaultOpsConfig() {
       reviewMessage: '内容已进入人工审核，通过后会展示给附近用户',
       textRulesEnabled: true,
     },
+    support: {
+      slaHours: {
+        high: 8,
+        low: 72,
+        normal: 24,
+        urgent: 2,
+      },
+    },
     social: {
       discoverRadiusKm: DEFAULT_DISCOVER_RADIUS_KM,
       nearbyMomentTtlDays: 7,
@@ -433,6 +441,20 @@ function normalizeModerationConfig(value, defaults) {
   };
 }
 
+function normalizeSupportConfig(value, defaults) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const defaultSlaHours = defaults?.slaHours || {};
+  const sourceSlaHours = source.slaHours && typeof source.slaHours === 'object' ? source.slaHours : {};
+  return {
+    slaHours: {
+      high: Math.floor(clampNumber(sourceSlaHours.high, defaultSlaHours.high || 8, 1, 168)),
+      low: Math.floor(clampNumber(sourceSlaHours.low, defaultSlaHours.low || 72, 1, 336)),
+      normal: Math.floor(clampNumber(sourceSlaHours.normal, defaultSlaHours.normal || 24, 1, 336)),
+      urgent: Math.floor(clampNumber(sourceSlaHours.urgent, defaultSlaHours.urgent || 2, 1, 72)),
+    },
+  };
+}
+
 function normalizeAppVersionText(value) {
   return String(value || '').trim().replace(/[^0-9A-Za-z.+_-]/g, '').slice(0, 32);
 }
@@ -452,6 +474,7 @@ function normalizeOpsConfig(value) {
   const features = source.features && typeof source.features === 'object' ? source.features : {};
   const moderation = source.moderation && typeof source.moderation === 'object' ? source.moderation : {};
   const social = source.social && typeof source.social === 'object' ? source.social : {};
+  const support = source.support && typeof source.support === 'object' ? source.support : {};
   return {
     ai: {
       petAvatarDailyLimit: Math.floor(clampNumber(ai.petAvatarDailyLimit, defaults.ai.petAvatarDailyLimit, 0, 1000)),
@@ -497,6 +520,7 @@ function normalizeOpsConfig(value) {
       walkInvite: features.walkInvite !== false,
     },
     moderation: normalizeModerationConfig(moderation, defaults.moderation),
+    support: normalizeSupportConfig(support, defaults.support),
     social: {
       discoverRadiusKm: clampNumber(social.discoverRadiusKm, defaults.social.discoverRadiusKm, 1, 20),
       nearbyMomentTtlDays: Math.floor(clampNumber(social.nearbyMomentTtlDays, defaults.social.nearbyMomentTtlDays, 1, 90)),
@@ -527,6 +551,8 @@ function opsConfigSummary(config) {
     petAvatarDailyLimit: Number(config?.ai?.petAvatarDailyLimit || 0),
     petChatDailyLimit: Number(config?.ai?.petChatDailyLimit || 0),
     petCircleMaxPhotos: Number(config?.social?.petCircleMaxPhotos || 0),
+    supportHighSlaHours: Number(config?.support?.slaHours?.high || 0),
+    supportUrgentSlaHours: Number(config?.support?.slaHours?.urgent || 0),
     updateEnabled: Boolean(config?.app?.update?.enabled),
   };
 }
@@ -773,6 +799,46 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileEvidence: '移动端当前不主动消费关键词规则，只展示后端返回的错误/送审结果。',
       operatorNote: '关键词不应下发到移动端；只可下发安全提示文案。',
       userImpact: '控制文本内容是否被关键词规则拦截或送审。',
+    },
+    {
+      backendEvidence: 'supportTicketSlaHours 读取 currentOpsConfig().support.slaHours.urgent，影响工单排序、SLA badge、工作台统计和导出。',
+      backendEnforced: true,
+      group: '客服工单',
+      key: 'support.slaHours.urgent',
+      label: '紧急工单 SLA',
+      mobileApplied: true,
+      mobileEvidence: '移动端我的反馈读取工单返回的 slaHours，未结束工单展示预计响应时间。',
+      userImpact: '影响安全投诉、紧急反馈在后台和用户侧的预计响应口径。',
+    },
+    {
+      backendEvidence: 'supportTicketSlaHours 读取 currentOpsConfig().support.slaHours.high，影响工单排序、SLA badge、工作台统计和导出。',
+      backendEnforced: true,
+      group: '客服工单',
+      key: 'support.slaHours.high',
+      label: '高优先级工单 SLA',
+      mobileApplied: true,
+      mobileEvidence: '移动端我的反馈读取工单返回的 slaHours，未结束工单展示预计响应时间。',
+      userImpact: '影响 Bug 等高优先级反馈的处理时限。',
+    },
+    {
+      backendEvidence: 'supportTicketSlaHours 读取 currentOpsConfig().support.slaHours.normal，影响工单排序、SLA badge、工作台统计和导出。',
+      backendEnforced: true,
+      group: '客服工单',
+      key: 'support.slaHours.normal',
+      label: '普通工单 SLA',
+      mobileApplied: true,
+      mobileEvidence: '移动端我的反馈读取工单返回的 slaHours，未结束工单展示预计响应时间。',
+      userImpact: '影响普通反馈默认处理时限。',
+    },
+    {
+      backendEvidence: 'supportTicketSlaHours 读取 currentOpsConfig().support.slaHours.low，影响工单排序、SLA badge、工作台统计和导出。',
+      backendEnforced: true,
+      group: '客服工单',
+      key: 'support.slaHours.low',
+      label: '低优先级工单 SLA',
+      mobileApplied: true,
+      mobileEvidence: '移动端我的反馈读取工单返回的 slaHours，未结束工单展示预计响应时间。',
+      userImpact: '影响产品建议等低优先级反馈的处理时限。',
     },
     {
       backendEvidence: '配置结构预留，可用于后续活动页、AB 实验或人群包。',
@@ -1205,6 +1271,7 @@ function adminExportDataset(type) {
         exportColumn('status', '状态'),
         exportColumn('priority', '优先级'),
         exportColumn('slaState', 'SLA状态'),
+        exportColumn('slaHours', 'SLA小时'),
         exportColumn('category', '分类'),
         exportColumn('phone', '手机号'),
         exportColumn('ownerName', '主人昵称'),
@@ -1309,6 +1376,7 @@ function publicAppConfig() {
       textRulesEnabled: config.moderation.textRulesEnabled,
     },
     social: config.social,
+    support: config.support,
     updatedAt: config.updatedAt,
   };
 }
@@ -9905,9 +9973,9 @@ function findSupportTicket(ticketId) {
 }
 
 function supportTicketSlaHours(ticket) {
-  if (ticket.priority === 'urgent' || ticket.category === 'safety') return 2;
-  if (ticket.priority === 'high' || ticket.category === 'bug') return 24;
-  return 72;
+  const priority = supportTicketPriorityFor(ticket);
+  const slaHours = currentOpsConfig().support?.slaHours || defaultOpsConfig().support.slaHours;
+  return Math.max(1, Math.floor(Number(slaHours[priority] || slaHours.normal || 24)));
 }
 
 function supportTicketSlaState(ticket) {
@@ -10040,6 +10108,7 @@ function supportTicketPublicItem(ticket) {
     replyCount: replies.length,
     reopenCount: item.reopenCount,
     satisfaction: item.satisfaction,
+    slaHours: item.slaHours,
     status,
     title: item.title,
     updatedAt: item.updatedAt,
@@ -11891,6 +11960,14 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       features: { ...before.features, ...(body.features || {}) },
       moderation: { ...before.moderation, ...(body.moderation || {}) },
       social: { ...before.social, ...(body.social || {}) },
+      support: {
+        ...before.support,
+        ...(body.support || {}),
+        slaHours: {
+          ...(before.support?.slaHours || {}),
+          ...(body.support?.slaHours || {}),
+        },
+      },
       updatedAt: new Date().toISOString(),
     });
     state.opsConfig = next;

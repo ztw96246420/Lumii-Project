@@ -653,6 +653,7 @@ export type SupportTicketItem = {
   replyCount: number;
   reopenCount?: number;
   satisfaction?: null | SupportTicketSatisfaction;
+  slaHours?: number;
   status: SupportTicketStatus;
   title: string;
   updatedAt?: string;
@@ -737,6 +738,9 @@ export type AppRemoteConfig = {
     discoverRadiusKm: number;
     nearbyMomentTtlDays: number;
     petCircleMaxPhotos: number;
+  };
+  support?: {
+    slaHours?: Partial<Record<SupportTicketPriority, number>>;
   };
   updatedAt: string;
 };

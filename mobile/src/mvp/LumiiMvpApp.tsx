@@ -211,6 +211,14 @@ const fallbackRemoteConfig: AppRemoteConfig = {
     nearbyMomentTtlDays: 7,
     petCircleMaxPhotos: 6,
   },
+  support: {
+    slaHours: {
+      high: 8,
+      low: 72,
+      normal: 24,
+      urgent: 2,
+    },
+  },
   updatedAt: '',
 };
 
@@ -14610,6 +14618,15 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function supportTicketSlaText(ticket: SupportTicketItem) {
+    if (ticket.status === 'closed' || ticket.status === 'resolved') return '';
+    const configuredHours = remoteConfig.support?.slaHours?.[ticket.priority];
+    const hours = Number(ticket.slaHours || configuredHours || 0);
+    if (!Number.isFinite(hours) || hours <= 0) return '';
+    if (hours >= 24 && hours % 24 === 0) return `预计 ${Math.round(hours / 24)} 天内响应`;
+    return `预计 ${Math.round(hours)} 小时内响应`;
+  }
+
   function supportTicketAttachmentUrl(attachment: SupportTicketAttachment) {
     const rawUrl = String(attachment.previewUrl || attachment.url || '').trim();
     if (!rawUrl) return '';
@@ -14692,6 +14709,7 @@ export default function LumiiMvpApp() {
     const canSendReply = Boolean(selectedTicket?.canReply && (replyLength > 0 || attachmentDraftCount > 0) && replyLength <= 1000 && !supportTicketReplySending);
     const canSubmitRating = Boolean(selectedTicket?.canRate && !selectedTicket.satisfaction?.rating && supportTicketSatisfactionDraft >= 1 && supportTicketSatisfactionDraft <= 5 && !supportTicketRatingSending);
     const canSubmitReopen = Boolean(selectedTicket?.canReopen && (reopenLength > 0 || attachmentDraftCount > 0) && reopenLength <= 1000 && !supportTicketReopenSending);
+    const selectedTicketSlaText = selectedTicket ? supportTicketSlaText(selectedTicket) : '';
 
     if (selectedSupportTicketId) {
       return (
@@ -14746,7 +14764,7 @@ export default function LumiiMvpApp() {
                     </View>
                     <View style={styles.flex}>
                       <Text style={styles.supportTicketDetailTitleMake}>{supportTicketCategoryLabels[selectedTicket.category] ?? '用户反馈'}</Text>
-                      <Text style={styles.supportTicketDetailSubMake}>提交于 {formatSupportTicketTime(selectedTicket.createdAt)}</Text>
+                      <Text style={styles.supportTicketDetailSubMake}>提交于 {formatSupportTicketTime(selectedTicket.createdAt)}{selectedTicketSlaText ? ` · ${selectedTicketSlaText}` : ''}</Text>
                     </View>
                     {renderSupportTicketStatusPill(selectedTicket.status)}
                   </View>
@@ -14986,6 +15004,7 @@ export default function LumiiMvpApp() {
                     {ticket.attachmentCount ? <Text style={styles.supportTicketMetaTextMake}>· {ticket.attachmentCount} 张附件</Text> : null}
                     {ticket.reopenCount ? <Text style={styles.supportTicketMetaTextMake}>· 重开 {ticket.reopenCount}</Text> : null}
                     {ticket.satisfaction?.rating ? <Text style={styles.supportTicketMetaTextMake}>· 已评价</Text> : null}
+                    {supportTicketSlaText(ticket) ? <Text style={styles.supportTicketMetaTextMake}>· {supportTicketSlaText(ticket)}</Text> : null}
                     <ChevronRight color={palette.muted} size={15} strokeWidth={2.3} />
                   </View>
                 </View>
