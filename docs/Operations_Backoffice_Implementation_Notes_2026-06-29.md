@@ -345,6 +345,10 @@
 
 配置发布治理已接入：
 
+- `GET /admin/config` 会返回 `linkage.summary` 和 `linkage.items`，用于展示配置联动体检。
+- 配置中心页面已展示每个配置项是否“前后端联动 / 后端强制 / 移动端联动 / 预留”，并列出后端证据、移动端证据、用户影响和运营备注。
+- 数据导出新增配置联动体检 CSV。
+- 独立文档：[Operations_Backoffice_Config_Linkage_2026-06-30.md](Operations_Backoffice_Config_Linkage_2026-06-30.md)。
 - 后台配置页展示最近 12 个配置版本，后端最多保留最近 80 个快照。
 - 每次 `PATCH /admin/config` 保存都会生成一条 `publish` 版本，记录版本 ID、发布时间、发布人、发布原因和配置摘要。
 - 支持在后台点“回滚到此版本”，调用 `POST /admin/config/revisions/{revisionId}/rollback`。
@@ -559,7 +563,7 @@
 已支持：
 
 - 后台新增一级菜单：数据导出。
-- 支持 17 类 CSV 数据集：
+- 支持 18 类 CSV 数据集：
   - 用户账号。
   - 宠物档案。
   - 宠物日历。
@@ -568,6 +572,7 @@
   - AI 上传素材。
   - AI 生成反馈。
   - AI 供应商用量。
+  - 配置联动体检。
   - 内容安全任务。
   - 宠友圈小事。
   - 宠友圈评论。

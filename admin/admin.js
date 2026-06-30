@@ -2895,6 +2895,42 @@ function configRevisionSummaryText(summary = {}) {
   ].join(' · ');
 }
 
+function configLinkageStatusPill(status, label) {
+  const tone = status === 'linked' ? 'ok' : status === 'reserved' ? '' : status === 'pending' ? 'bad' : 'warn';
+  return tonePill(label || status || '-', tone);
+}
+
+function renderConfigLinkage(config) {
+  const linkage = config.linkage || {};
+  const items = linkage.items || [];
+  const summary = linkage.summary || {};
+  return `
+    <div class="grid metrics">
+      ${metric('联动配置项', numberText(summary.total), `${numberText(summary.linked)} 项前后端联动`, '统计当前 /admin/config 返回的联动体检项。')}
+      ${metric('后端强制', numberText(summary.backendEnforced), `${numberText(summary.backendOnly)} 项仅后端`, '后端强制表示接口会按配置阻断、限额、过滤或送审。')}
+      ${metric('移动端消费', numberText(summary.mobileApplied), `${numberText(summary.mobileOnly)} 项仅移动端`, '移动端消费表示 App 读取 /app/config 后直接改变入口、弹窗、文案或请求参数。')}
+      ${metric('预留能力', numberText(summary.reserved), '待澄清或待埋点', '预留项不会误标为已上线，方便后续继续补齐。')}
+    </div>
+    <div class="config-section">
+      <div class="section-head compact">
+        <div>
+          <h2>配置联动体检</h2>
+          <div class="section-sub">说明每个配置是否被后端强制、移动端消费，或只是后续预留</div>
+        </div>
+        ${help('这张表是配置中心的验收清单：如果配置保存后用户无感，就需要看它是移动端未消费、后端未强制，还是本来就是预留项。')}
+      </div>
+      ${tableHtml(items, [
+        ['配置项', (item) => `<div class="cell-title">${escapeHtml(item.label)}</div><div class="cell-sub">${escapeHtml(item.key)} · ${escapeHtml(item.group)}</div>`],
+        ['当前值', (item) => `<div class="cell-title">${escapeHtml(item.currentValue || '-')}</div>`],
+        ['状态', (item) => `${configLinkageStatusPill(item.status, item.statusLabel)}<div class="cell-sub">后端：${item.backendEnforced ? '是' : '否'} · 移动端：${item.mobileApplied ? '是' : '否'}</div>`],
+        ['用户影响', (item) => `<div class="cell-sub clamp">${escapeHtml(item.userImpact || '-')}</div>`],
+        ['证据', (item) => `<div class="cell-sub clamp">后端：${escapeHtml(item.backendEvidence || '-')}</div><div class="cell-sub clamp">移动端：${escapeHtml(item.mobileEvidence || '-')}</div>`],
+        ['备注', (item) => `<div class="cell-sub clamp">${escapeHtml(item.operatorNote || '-')}</div>`],
+      ], '暂无配置联动记录')}
+    </div>
+  `;
+}
+
 function renderConfigRevisions(revisions = []) {
   const rows = Array.isArray(revisions) ? revisions.slice(0, 12) : [];
   if (!rows.length) {
@@ -3033,6 +3069,7 @@ async function renderConfig(force) {
         </div>
         ${help('当前第一版已接入：图片上限、附近半径、附近小事有效天数、AI 额度、功能开关、维护、公告、版本更新、启动提示和内容安全规则。')}
       </div>
+      ${renderConfigLinkage(config)}
       <div class="config-grid">
         <label>宠友圈图片上限<input id="cfgPetCircleMaxPhotos" type="number" min="1" max="9" value="${config.social.petCircleMaxPhotos}" /></label>
         <label>附近默认半径 km<input id="cfgDiscoverRadiusKm" type="number" min="1" max="20" value="${config.social.discoverRadiusKm}" /></label>

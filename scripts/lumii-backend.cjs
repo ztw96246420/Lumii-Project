@@ -568,9 +568,258 @@ function recordOpsConfigRevision(admin, config, reason = '', action = 'publish',
   return revision;
 }
 
-function adminOpsConfigResponse() {
+function configLinkageValue(config, key) {
+  const parts = String(key || '').split('.');
+  let value = config;
+  for (const part of parts) {
+    if (!part || value === null || value === undefined) return '';
+    value = value[part];
+  }
+  if (typeof value === 'boolean') return value ? '开启' : '关闭';
+  if (Array.isArray(value)) return `${value.length} 条`;
+  if (value === null || value === undefined || value === '') return '-';
+  return String(value);
+}
+
+function adminConfigLinkageStatus(item) {
+  if (item.reserved) return 'reserved';
+  if (item.backendEnforced && item.mobileApplied) return 'linked';
+  if (item.backendEnforced) return 'backend_only';
+  if (item.mobileApplied) return 'mobile_only';
+  return 'pending';
+}
+
+function adminConfigLinkageStatusLabel(status) {
+  const labels = {
+    backend_only: '后端强制',
+    linked: '前后端联动',
+    mobile_only: '移动端联动',
+    pending: '待接入',
+    reserved: '预留',
+  };
+  return labels[status] || status || '未知';
+}
+
+function adminConfigLinkageItems(config = currentOpsConfig()) {
+  const specs = [
+    {
+      backendEvidence: 'consumePetAvatarQuota / canUsePetAvatarGeneration 读取 currentOpsConfig().ai.petAvatarDailyLimit。',
+      backendEnforced: true,
+      group: 'AI',
+      key: 'ai.petAvatarDailyLimit',
+      label: '灵伴形象每日额度',
+      mobileApplied: true,
+      mobileEvidence: '移动端读取 /ai/usage 和 /app/config，生成页展示 count/limit/remaining。',
+      userImpact: '控制单用户每天可生成 AI 灵伴形象的次数。',
+    },
+    {
+      backendEvidence: 'consumePetChatQuota / canUsePetChat 读取 currentOpsConfig().ai.petChatDailyLimit。',
+      backendEnforced: true,
+      group: 'AI',
+      key: 'ai.petChatDailyLimit',
+      label: 'AI 对话每日额度',
+      mobileApplied: true,
+      mobileEvidence: '移动端读取 /ai/usage 和 /app/config，AI 对话入口展示真实额度。',
+      userImpact: '控制单用户每天可发送 AI 宠物对话的次数。',
+    },
+    {
+      backendEvidence: 'createPetCircleMoment / public card 截断图片数量均读取 effectivePetCircleMaxPhotos()。',
+      backendEnforced: true,
+      group: '宠友圈',
+      key: 'social.petCircleMaxPhotos',
+      label: '宠友圈图片上限',
+      mobileApplied: true,
+      mobileEvidence: '发布小事页面用 remoteConfig.social.petCircleMaxPhotos 控制选择数量和计数。',
+      userImpact: '影响发布今日小事最多可上传多少张图。',
+    },
+    {
+      backendEvidence: '后端接受移动端传入 radiusKm，并在附近伙伴、附近小事、地图 POI 请求中按半径计算。',
+      backendEnforced: true,
+      group: '发现/地图',
+      key: 'social.discoverRadiusKm',
+      label: '附近默认半径',
+      mobileApplied: true,
+      mobileEvidence: '发现和地图请求使用 configuredDiscoverRadiusKm 作为 radiusKm，页面也展示 km 标签。',
+      userImpact: '影响附近伙伴、小事和地图地点的默认搜索半径。',
+    },
+    {
+      backendEvidence: 'listNearbyMomentEntries 使用 effectiveNearbyMomentTtlMs() 过滤附近小事。',
+      backendEnforced: true,
+      group: '宠友圈',
+      key: 'social.nearbyMomentTtlDays',
+      label: '附近小事有效天数',
+      mobileApplied: true,
+      mobileEvidence: '发现页文案和客户端兜底过滤使用 remoteConfig.social.nearbyMomentTtlDays。',
+      userImpact: '影响附近宠友圈保留多少天内的小事。',
+    },
+    {
+      backendEvidence: '上传、生成、重试 AI 形象接口均调用 failIfFeatureDisabled(aiAvatar)。',
+      backendEnforced: true,
+      group: '功能开关',
+      key: 'features.aiAvatar',
+      label: 'AI 灵伴形象开关',
+      mobileApplied: true,
+      mobileEvidence: '移动端隐藏/拦截上传、生成、结果重试等入口，关闭时跳回首页。',
+      userImpact: '可临时关闭 AI 灵伴形象生成链路。',
+    },
+    {
+      backendEvidence: 'AI 对话列表、反馈、发送消息接口均调用 failIfFeatureDisabled(petChat)。',
+      backendEnforced: true,
+      group: '功能开关',
+      key: 'features.petChat',
+      label: 'AI 宠物对话开关',
+      mobileApplied: true,
+      mobileEvidence: '移动端隐藏/拦截 AI 对话入口和消息预加载，关闭时跳回首页。',
+      userImpact: '可临时关闭 AI 宠物对话链路。',
+    },
+    {
+      backendEvidence: '宠友圈列表、发布、评论、点赞、举报、封面接口均调用 failIfFeatureDisabled(petCircle)。',
+      backendEnforced: true,
+      group: '功能开关',
+      key: 'features.petCircle',
+      label: '宠友圈开关',
+      mobileApplied: true,
+      mobileEvidence: '移动端隐藏宠友圈 tab、发布入口、我的小事入口，并拦截相关跳转。',
+      userImpact: '可临时关闭宠友圈浏览和互动。',
+    },
+    {
+      backendEvidence: '地点附近、搜索、详情、收藏、点评、提交接口均调用 failIfFeatureDisabled(places)。',
+      backendEnforced: true,
+      group: '功能开关',
+      key: 'features.places',
+      label: '地图地点开关',
+      mobileApplied: true,
+      mobileEvidence: '移动端隐藏/拦截地图、地点详情、点评和新增地点入口。',
+      userImpact: '可临时关闭地图地点相关能力。',
+    },
+    {
+      backendEvidence: '约遛创建接口调用 failIfFeatureDisabled(walkInvite)。',
+      backendEnforced: true,
+      group: '功能开关',
+      key: 'features.walkInvite',
+      label: '约遛邀请开关',
+      mobileApplied: true,
+      mobileEvidence: '移动端拦截约遛邀请入口和创建动作。',
+      userImpact: '可临时关闭用户之间的约遛邀请。',
+    },
+    {
+      backendEvidence: 'failIfMaintenance 会拦截非白名单写操作，并返回 APP_MAINTENANCE。',
+      backendEnforced: true,
+      group: 'App 策略',
+      key: 'app.maintenanceEnabled',
+      label: '维护模式',
+      mobileApplied: true,
+      mobileEvidence: '移动端展示维护页、隐藏底部导航，并阻断主要业务页面。',
+      userImpact: '用于系统维护或严重故障时临时收口 App。',
+    },
+    {
+      backendEvidence: 'APP_MAINTENANCE 响应使用 currentOpsConfig().app.maintenanceMessage。',
+      backendEnforced: true,
+      group: 'App 策略',
+      key: 'app.maintenanceMessage',
+      label: '维护提示文案',
+      mobileApplied: true,
+      mobileEvidence: '维护页直接展示 remoteConfig.app.maintenanceMessage。',
+      userImpact: '决定维护页和后端错误提示的用户可见文案。',
+    },
+    {
+      backendEvidence: '/app/config 返回公告安全字段，不做写操作拦截。',
+      backendEnforced: false,
+      group: 'App 触达',
+      key: 'app.announcement.enabled',
+      label: 'App 公告',
+      mobileApplied: true,
+      mobileEvidence: '移动端登录后按手机号和公告版本展示一次，并支持跳转指定页面。',
+      userImpact: '用于功能上线、活动或重要提醒。',
+    },
+    {
+      backendEvidence: '/app/config 返回更新策略，不强制后端接口。',
+      backendEnforced: false,
+      group: 'App 策略',
+      key: 'app.update.enabled',
+      label: '版本更新提示',
+      mobileApplied: true,
+      mobileEvidence: '移动端按版本号、force 和 rolloutPercent 展示强制/可选更新弹窗。',
+      userImpact: '用于引导或强制用户升级 APK。',
+    },
+    {
+      backendEvidence: '/app/config 返回启动提示，不强制后端接口。',
+      backendEnforced: false,
+      group: 'App 触达',
+      key: 'app.splash.enabled',
+      label: '启动提示',
+      mobileApplied: true,
+      mobileEvidence: '移动端登录后按手机号和提示版本展示一次，优先级低于版本更新。',
+      userImpact: '用于启动时运营提示或重要说明。',
+    },
+    {
+      backendEvidence: 'socialChatContentViolation 实时读取 moderation 配置，命中后阻断或送审小事、评论、地点内容。',
+      backendEnforced: true,
+      group: '内容安全',
+      key: 'moderation.enabled',
+      label: '内容安全总开关',
+      mobileApplied: false,
+      mobileEvidence: '移动端当前不主动消费该开关；由后端返回具体拦截或送审结果。',
+      operatorNote: '后续可在移动端发布页展示“内容规则已开启”的轻提示。',
+      userImpact: '影响公开内容提交是否进入规则审核。',
+    },
+    {
+      backendEvidence: '关键词规则由后端执行；blockKeywords 不进入 /app/config，避免暴露规则。',
+      backendEnforced: true,
+      group: '内容安全',
+      key: 'moderation.textRulesEnabled',
+      label: '文本关键词规则',
+      mobileApplied: false,
+      mobileEvidence: '移动端当前不主动消费关键词规则，只展示后端返回的错误/送审结果。',
+      operatorNote: '关键词不应下发到移动端；只可下发安全提示文案。',
+      userImpact: '控制文本内容是否被关键词规则拦截或送审。',
+    },
+    {
+      backendEvidence: '配置结构预留，可用于后续活动页、AB 实验或人群包。',
+      backendEnforced: false,
+      group: '预留',
+      key: 'experiments',
+      label: '实验和灰度人群包',
+      mobileApplied: false,
+      mobileEvidence: '移动端尚无实验分流框架。',
+      operatorNote: '需要先确认实验粒度、用户分桶、指标回收和回滚策略。',
+      reserved: true,
+      userImpact: '后续用于精细化灰度和 A/B 测试。',
+    },
+  ];
+
+  return specs.map((item) => {
+    const status = adminConfigLinkageStatus(item);
+    return {
+      ...item,
+      currentValue: item.reserved ? '未配置' : configLinkageValue(config, item.key),
+      status,
+      statusLabel: adminConfigLinkageStatusLabel(status),
+    };
+  });
+}
+
+function adminConfigLinkageSummary(items) {
   return {
-    ...currentOpsConfig(),
+    backendOnly: items.filter((item) => item.status === 'backend_only').length,
+    backendEnforced: items.filter((item) => item.backendEnforced).length,
+    linked: items.filter((item) => item.status === 'linked').length,
+    mobileApplied: items.filter((item) => item.mobileApplied).length,
+    mobileOnly: items.filter((item) => item.status === 'mobile_only').length,
+    reserved: items.filter((item) => item.status === 'reserved').length,
+    total: items.length,
+  };
+}
+
+function adminOpsConfigResponse() {
+  const config = currentOpsConfig();
+  const linkageItems = adminConfigLinkageItems(config);
+  return {
+    ...config,
+    linkage: {
+      items: linkageItems,
+      summary: adminConfigLinkageSummary(linkageItems),
+    },
     revisions: adminOpsConfigRevisions(),
   };
 }
@@ -802,6 +1051,24 @@ function adminExportDataset(type) {
         exportColumn('topErrorCode', 'Top错误码'),
       ],
     },
+    config_linkage: {
+      description: '配置项、当前值、后端强制点、移动端消费点和预留状态，用于验收配置中心是否真正联动 App。',
+      label: '配置联动体检',
+      rows: () => adminConfigLinkageItems(currentOpsConfig()),
+      columns: [
+        exportColumn('group', '分组'),
+        exportColumn('key', '配置键'),
+        exportColumn('label', '配置项'),
+        exportColumn('currentValue', '当前值'),
+        exportColumn('statusLabel', '联动状态'),
+        exportColumn('backendEnforced', '后端强制', (row) => exportBoolText(row.backendEnforced)),
+        exportColumn('mobileApplied', '移动端消费', (row) => exportBoolText(row.mobileApplied)),
+        exportColumn('backendEvidence', '后端证据'),
+        exportColumn('mobileEvidence', '移动端证据'),
+        exportColumn('userImpact', '用户影响'),
+        exportColumn('operatorNote', '运营备注'),
+      ],
+    },
     moderation_tasks: {
       description: '统一内容安全任务池，覆盖举报、被举报内容、地点点评和新增地点。',
       label: '内容安全任务',
@@ -978,7 +1245,7 @@ function adminExportDataset(type) {
 }
 
 function adminExportCatalog() {
-  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
+  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
