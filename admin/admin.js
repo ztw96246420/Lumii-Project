@@ -8,6 +8,9 @@ const state = {
   appealQ: '',
   appealStatus: 'open',
   cache: {},
+  feedbackCategory: 'all',
+  feedbackQ: '',
+  feedbackStatus: 'open',
   moderationQ: '',
   moderationStatus: 'pending',
   petAvatar: 'all',
@@ -46,6 +49,7 @@ const navItems = [
   { key: 'socialRelations', label: '关系消息' },
   { key: 'reports', label: '举报中心' },
   { key: 'places', label: '地图地点' },
+  { key: 'feedback', label: '反馈收集' },
   { key: 'tickets', label: '工单中心' },
   { key: 'notifications', label: '通知运营' },
   { key: 'config', label: '配置中心' },
@@ -62,6 +66,7 @@ const titles = {
   config: ['配置中心', '这些配置会被移动端 /app/config 读取'],
   dashboard: ['总览', '运营工作台'],
   exports: ['数据导出', '可审计的运营 CSV 下载'],
+  feedback: ['反馈收集', 'App 原始反馈、自动工单和客服处理入口'],
   moderation: ['内容安全', '举报、动态、评论和地点审核任务池'],
   notifications: ['通知运营', '系统通知、定向触达和移动端通知中心联动'],
   petCalendar: ['宠物日历', '体重、疫苗/驱虫、备忘和自动写入排查'],
@@ -377,6 +382,26 @@ async function onContentClick(event) {
       state.socialRelationQ = '';
       state.cache = { ...state.cache, socialRelations: null };
       await render(true);
+      return;
+    }
+    if (action === 'feedback-filter') {
+      state.feedbackStatus = $('feedbackStatus').value;
+      state.feedbackCategory = $('feedbackCategory').value;
+      state.feedbackQ = $('feedbackQ').value.trim();
+      state.cache = { ...state.cache, feedback: null };
+      await render(true);
+      return;
+    }
+    if (action === 'feedback-clear') {
+      state.feedbackStatus = 'open';
+      state.feedbackCategory = 'all';
+      state.feedbackQ = '';
+      state.cache = { ...state.cache, feedback: null };
+      await render(true);
+      return;
+    }
+    if (action === 'feedback-status') {
+      await updateFeedbackStatus(button);
       return;
     }
     if (action === 'ticket-filter') {
@@ -1053,6 +1078,7 @@ async function render(force = false) {
     config: renderConfig,
     dashboard: renderDashboard,
     exports: renderExports,
+    feedback: renderFeedback,
     moderation: renderModeration,
     notifications: renderNotifications,
     petCalendar: renderPetCalendar,
@@ -2828,25 +2854,100 @@ async function renderPlaces(force) {
   `;
 }
 
+function feedbackCategoryLabel(category) {
+  return {
+    bug: '问题反馈',
+    other: '其他反馈',
+    safety: '安全投诉',
+    suggestion: '产品建议',
+  }[category] || category || '其他反馈';
+}
+
+function feedbackStatusLabel(status) {
+  return {
+    all: '全部',
+    closed: '已关闭',
+    open: '未关闭',
+    received: '新反馈',
+    reviewing: '处理中',
+  }[status] || status || '未关闭';
+}
+
+async function updateFeedbackStatus(button) {
+  const id = button.dataset.id;
+  const status = button.dataset.status || 'reviewing';
+  const label = status === 'closed' ? '关闭反馈' : '转为处理中';
+  const reason = window.prompt(`请输入${label}的原因`, status === 'closed' ? '反馈已完成处理或已并入工单' : '开始处理用户反馈');
+  if (reason === null) return;
+  const trimmed = reason.trim();
+  if (!trimmed) {
+    showToast('请填写处理原因');
+    return;
+  }
+  await patch(`/admin/feedback/${encodeURIComponent(id)}`, { reason: trimmed, status });
+  state.cache = { ...state.cache, audit: null, feedback: null, summary: null, tickets: null, users: null };
+  showToast(status === 'closed' ? '反馈已关闭' : '反馈已转处理中');
+  await render(true);
+}
+
 async function renderFeedback(force) {
-  const rows = await load('feedback', '/admin/feedback', force);
-  renderTable({
-    empty: '暂无反馈',
-    rows,
-    columns: [
-      ['反馈', (f) => `<div class="cell-title">${escapeHtml(f.category)}</div><div class="cell-sub">${escapeHtml(f.content).slice(0, 120)}</div>`],
-      ['用户', (f) => `<div>${escapeHtml(f.ownerName || '-')}</div><div class="cell-sub">${shortPhone(f.phone)}</div>`],
-      ['联系', (f) => escapeHtml(f.contact || '-')],
-      ['状态', (f) => statusPill(f.status)],
-      ['时间', (f) => formatTime(f.createdAt)],
-      ['操作', (f) => `
-        <div class="actions">
-          <button class="small-button" data-action="feedback-reviewing" data-id="${f.id}">处理中</button>
-          <button class="small-button" data-action="feedback-close" data-id="${f.id}">关闭</button>
-        </div>
-      `],
-    ],
+  const query = new URLSearchParams({
+    category: state.feedbackCategory,
+    q: state.feedbackQ,
+    status: state.feedbackStatus,
   });
+  const data = await load('feedback', `/admin/feedback?${query.toString()}`, force);
+  const rows = Array.isArray(data) ? data : data.items || [];
+  const summary = Array.isArray(data) ? {} : data.summary || {};
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('未关闭反馈', numberText(summary.open || 0), `${numberText(summary.received || 0)} 条新反馈`, '来自 App /feedback 的原始反馈，提交后会自动生成对应客服工单。')}
+      ${metric('处理中', numberText(summary.reviewing || 0), '同步到关联工单', '反馈状态和 source=feedback 的工单状态保持同步，避免两个入口各管各的。')}
+      ${metric('安全投诉', numberText(summary.safety || 0), '默认 urgent', '安全类反馈会生成更高优先级工单，便于客服优先处理。')}
+      ${metric('已关闭', numberText(summary.closed || 0), `${numberText(summary.all || 0)} 条总反馈`, '关闭反馈会同步关闭对应工单；仍会保留审计记录。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>反馈收集</h2>
+          <div class="section-sub">App 原始反馈入口，自动关联工单中心</div>
+        </div>
+        ${help('这页用于快速查看 App 提交的原始反馈。用户提交后后端会自动创建客服工单；在这里改状态会同步到关联工单，正式回复用户仍建议在工单中心完成。')}
+      </div>
+      <div class="toolbar moderation-toolbar">
+        <div class="toolbar-left">
+          <label>状态
+            <select id="feedbackStatus">
+              ${['open', 'received', 'reviewing', 'closed', 'all'].map((status) => `<option value="${status}" ${state.feedbackStatus === status ? 'selected' : ''}>${feedbackStatusLabel(status)}</option>`).join('')}
+            </select>
+          </label>
+          <label>分类
+            <select id="feedbackCategory">
+              ${['all', 'bug', 'safety', 'suggestion', 'other'].map((category) => `<option value="${category}" ${state.feedbackCategory === category ? 'selected' : ''}>${category === 'all' ? '全部分类' : feedbackCategoryLabel(category)}</option>`).join('')}
+            </select>
+          </label>
+          <input id="feedbackQ" value="${escapeHtml(state.feedbackQ)}" placeholder="手机号 / 内容 / 工单 ID" />
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="feedback-filter">筛选</button>
+          <button class="small-button ghost" data-action="feedback-clear">清空</button>
+        </div>
+      </div>
+      ${tableHtml(rows, [
+        ['反馈', (f) => `<div class="cell-title">${escapeHtml(feedbackCategoryLabel(f.category))} ${statusPill(f.priority || 'normal')}</div><div class="cell-sub">${escapeHtml(f.content || '').slice(0, 160)}</div><div class="cell-sub">${escapeHtml(f.id || '-')}</div>`],
+        ['用户', (f) => `<div>${escapeHtml(f.ownerName || '-')}</div><div class="cell-sub">${shortPhone(f.phone)}</div>`],
+        ['联系', (f) => `<div>${escapeHtml(f.contact || '-')}</div><div class="cell-sub">${numberText(f.attachmentCount || 0)} 个附件</div>`],
+        ['工单', (f) => `<div>${escapeHtml(f.supportTicketId || '-')}</div><div class="cell-sub">工单中心继续回复用户</div>`],
+        ['状态', (f) => `${statusPill(f.status)}<div class="cell-sub">${formatTime(f.createdAt)}</div>`],
+        ['操作', (f) => `
+          <div class="actions">
+            ${f.status !== 'reviewing' && f.status !== 'closed' ? `<button class="small-button" data-action="feedback-status" data-status="reviewing" data-id="${escapeHtml(f.id)}">处理中</button>` : ''}
+            ${f.status !== 'closed' ? `<button class="small-button danger" data-action="feedback-status" data-status="closed" data-id="${escapeHtml(f.id)}">关闭</button>` : '<span class="cell-sub">已关闭</span>'}
+          </div>
+        `],
+      ], '暂无反馈')}
+    </div>
+  `;
 }
 
 async function renderTickets(force) {

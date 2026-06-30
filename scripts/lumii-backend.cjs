@@ -10119,8 +10119,11 @@ function applyPlaceModerationReason(target, moderation) {
   }
 }
 
-function adminFeedbackItems() {
+function adminFeedbackItems(options = {}) {
   ensureSupportTickets();
+  const statusFilter = String(options.status || 'all');
+  const categoryFilter = String(options.category || 'all');
+  const q = String(options.q || '').trim().toLowerCase();
   return (Array.isArray(state.feedback) ? state.feedback : [])
     .map((item) => ({
       attachmentCount: normalizeSupportAttachments(item.attachments).length,
@@ -10135,7 +10138,31 @@ function adminFeedbackItems() {
       status: item.status || 'received',
       supportTicketId: item.supportTicketId || `ticket-${item.id}`,
     }))
+    .filter((item) => {
+      if (statusFilter === 'open' && item.status === 'closed') return false;
+      if (statusFilter !== 'all' && statusFilter !== 'open' && item.status !== statusFilter) return false;
+      if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
+      if (q) {
+        const haystack = [item.id, item.phone, item.ownerName, item.contact, item.content, item.supportTicketId].map((value) => String(value || '').toLowerCase()).join(' ');
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    })
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function adminFeedbackSummary() {
+  const items = adminFeedbackItems({ status: 'all' });
+  return {
+    all: items.length,
+    bug: items.filter((item) => item.category === 'bug').length,
+    closed: items.filter((item) => item.status === 'closed').length,
+    open: items.filter((item) => item.status !== 'closed').length,
+    received: items.filter((item) => item.status === 'received').length,
+    reviewing: items.filter((item) => item.status === 'reviewing').length,
+    safety: items.filter((item) => item.category === 'safety').length,
+    suggestion: items.filter((item) => item.category === 'suggestion').length,
+  };
 }
 
 const ticketStatuses = new Set(['closed', 'received', 'resolved', 'reviewing', 'waiting_user']);
@@ -12320,7 +12347,14 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   }
 
   if (req.method === 'GET' && pathname === '/admin/feedback') {
-    ok(res, adminFeedbackItems());
+    ok(res, {
+      items: adminFeedbackItems({
+        category: url.searchParams.get('category') || 'all',
+        q: url.searchParams.get('q') || '',
+        status: url.searchParams.get('status') || 'open',
+      }),
+      summary: adminFeedbackSummary(),
+    });
     return true;
   }
 
