@@ -106,6 +106,7 @@ import type {
   AppTab,
   ApiError,
   ApiResult,
+  AppAnalyticsEventName,
   AppRemoteConfig,
   AiUsageSummary,
   AvatarGenerationFeedbackReason,
@@ -161,6 +162,10 @@ const fallbackRemoteConfig: AppRemoteConfig = {
   ai: {
     petAvatarDailyLimit: fallbackPetAvatarDailyLimit,
     petChatDailyLimit: fallbackPetChatDailyLimit,
+  },
+  analytics: {
+    enabled: true,
+    sampleRatePercent: 100,
   },
   app: {
     announcement: {
@@ -2518,6 +2523,27 @@ export default function LumiiMvpApp() {
   const pendingVaccines = useMemo(() => vaccines.filter((item) => item.status !== 'done'), [vaccines]);
   const urgentVaccines = useMemo(() => pendingVaccines.filter(isVaccineReminderUrgent), [pendingVaccines]);
 
+  function trackAppEvent(name: AppAnalyticsEventName, properties: Record<string, boolean | number | string | undefined> = {}) {
+    if (isHomePreviewMode || !sessionTokenRef.current) return;
+    const analytics = remoteConfigRef.current.analytics || {};
+    if (analytics.enabled === false) return;
+    const sampleRatePercent = Math.max(0, Math.min(100, Math.floor(analytics.sampleRatePercent ?? 100)));
+    if (sampleRatePercent <= 0) return;
+    const identity = session?.phone || phoneValueRef.current || 'guest';
+    if (sampleRatePercent < 100 && hashStringToPercent(`${identity}:${name}`) >= sampleRatePercent) return;
+    void lumiiApi.analytics.trackEvent({
+      appBuild: lumiiAppBuildNumber,
+      appVersion: lumiiAppVersion,
+      name,
+      occurredAt: new Date().toISOString(),
+      petId: activePetIdRef.current || undefined,
+      platform: Platform.OS,
+      properties,
+      route: routeRef.current,
+      source: 'mobile',
+    });
+  }
+
   useEffect(() => {
     let cancelled = false;
     lumiiApi.config.getAppConfig().then((result) => {
@@ -3279,6 +3305,12 @@ export default function LumiiMvpApp() {
     const previousRoute = previousRouteRef.current;
     routeRef.current = route;
     if (previousRoute !== route) exitBackPressedAtRef.current = 0;
+    if (previousRoute !== route && sessionTokenRef.current) {
+      trackAppEvent('app.page_view', { previousRoute, nextRoute: route });
+      if (route === 'discover') trackAppEvent('discover.view', { radiusKm: configuredDiscoverRadiusKm, tab: discoverTab });
+      if (route === 'map') trackAppEvent('map.open', { pickingPlace: walkInvitePickingPlace });
+      if (route === 'supportTickets') trackAppEvent('support.open');
+    }
     if (route === 'home' && previousRoute !== 'home') {
       setHomeHintIndex((index) => (index + 1) % homeChatPrompts.length);
     }
@@ -4533,6 +4565,7 @@ export default function LumiiMvpApp() {
     const cachedPlace = places.find((place) => place.id === placeId);
     if (cachedPlace) {
       setSelectedPlace(cachedPlace);
+      trackAppEvent('map.place_detail_view', { placeId: cachedPlace.id, source: 'notification' });
       go('placeDetail');
       return true;
     }
@@ -4541,6 +4574,7 @@ export default function LumiiMvpApp() {
     if (result.data) {
       setSelectedPlace(result.data);
       setPlaces((items) => (items.some((place) => place.id === result.data!.id) ? items.map((place) => (place.id === result.data!.id ? result.data! : place)) : [result.data!, ...items]));
+      trackAppEvent('map.place_detail_view', { placeId: result.data.id, source: 'notification' });
       go('placeDetail');
       return true;
     }
@@ -4687,6 +4721,7 @@ export default function LumiiMvpApp() {
   async function openNotification(item: NotificationItem) {
     if (!item.read) void markNotificationReadSilently(item.id);
     const kind = notificationKindFor(item);
+    trackAppEvent('notification.open', { kind, route: item.actionRoute || '' });
     const conversationId = conversationIdFromNotification(item);
     const petCircleSourcePostId = petCirclePostIdFromNotification(item);
     if (kind === 'greeting_request' || kind === 'pet_circle_greeting') {
@@ -6537,6 +6572,7 @@ export default function LumiiMvpApp() {
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setFavoritePlaceIds(result.data);
+        trackAppEvent('map.favorite_toggle', { favorite: nextFavorite, placeId: place.id });
         showToast(
           nextFavorite ? '已收藏到「想去」' : `已取消收藏 · ${place.name}`,
           nextFavorite
@@ -6695,6 +6731,7 @@ export default function LumiiMvpApp() {
         const canOpen = await Linking.canOpenURL(nativeUrl);
         if (canOpen) {
           await Linking.openURL(nativeUrl);
+          trackAppEvent('map.navigation_open', { mode: 'native', placeId: place.id });
           return;
         }
       } catch {
@@ -6703,6 +6740,7 @@ export default function LumiiMvpApp() {
     }
     try {
       await Linking.openURL(buildAmapWebPlaceSearchUrl(place));
+      trackAppEvent('map.navigation_open', { mode: 'web', placeId: place.id });
     } catch {
       showToast('未检测到高德地图 App，且无法打开网页版导航');
     }
@@ -7373,6 +7411,14 @@ export default function LumiiMvpApp() {
           placeSortMode,
         );
         setSelectedPlace((current) => visibleNextPlaces.find((place) => place.id === current?.id) ?? visibleNextPlaces[0] ?? nextPlaces[0] ?? null);
+        trackAppEvent('map.poi_search', {
+          filter: nextFilter,
+          hasQuery: Boolean(query),
+          queryLength: query.length,
+          radiusKm: location?.radiusKm ?? configuredDiscoverRadiusKm,
+          resultCount: visibleNextPlaces.length,
+          speciesFilter: nextSpeciesFilter,
+        });
         if (!options.silent) showToast(query ? (visibleNextPlaces.length ? `找到 ${visibleNextPlaces.length} 个地点` : '没有匹配地点') : '已刷新附近地点');
       } else {
         showToast(result.error?.message ?? '搜索失败，请稍后重试');
@@ -7398,7 +7444,14 @@ export default function LumiiMvpApp() {
       if (!location) return null;
       const result = await lumiiApi.social.listNearbyOwners(location ?? undefined);
       if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
-      if (result.data) return result.data;
+      if (result.data) {
+        trackAppEvent('discover.owners_loaded', {
+          count: result.data.length,
+          forceLocation: Boolean(options.forceLocation),
+          radiusKm: location.radiusKm ?? configuredDiscoverRadiusKm,
+        });
+        return result.data;
+      }
       if (!options.silent) showToast(result.error?.message ?? '附近伙伴刷新失败，请稍后重试');
       if (!options.silent) setDiscoverLocationError(result.error?.message ?? '附近伙伴刷新失败，请稍后重试');
       return null;
@@ -7428,6 +7481,11 @@ export default function LumiiMvpApp() {
         setPetCircleNextCursor(result.data.nextCursor);
         setNearbyMomentsError('');
         setHomeMomentIndex(0);
+        trackAppEvent('discover.pet_circle_loaded', {
+          count: sortedItems.length,
+          hasMore: Boolean(result.data.nextCursor),
+          radiusKm: location?.radiusKm ?? configuredDiscoverRadiusKm,
+        });
         return sortedItems;
       }
       const message = result.error?.message ?? '附近小事刷新失败，请稍后重试';
@@ -7458,13 +7516,15 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.social.listPetCirclePosts(location ?? undefined, { cursor, limit: 20 });
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
+        const additions = filterNearbyMomentsByTtl(result.data.items, nearbyMomentTtlDays);
         setNearbyMoments((current) => {
           const currentIds = new Set(current.map((item) => item.id));
-          const additions = filterNearbyMomentsByTtl(result.data!.items, nearbyMomentTtlDays).filter((item) => !currentIds.has(item.id));
-          return additions.length ? sortPetCircleMomentsByRecency([...current, ...additions]) : current;
+          const uniqueAdditions = additions.filter((item) => !currentIds.has(item.id));
+          return uniqueAdditions.length ? sortPetCircleMomentsByRecency([...current, ...uniqueAdditions]) : current;
         });
         setPetCircleNextCursor(result.data.nextCursor);
         setNearbyMomentsError('');
+        trackAppEvent('discover.pet_circle_load_more', { count: additions.length, hasMore: Boolean(result.data.nextCursor) });
         if (!result.data.nextCursor) showToast('附近小事已加载完');
         return;
       }
@@ -7538,6 +7598,7 @@ export default function LumiiMvpApp() {
     if (!guardFeature(petCircleEnabled, '宠友圈')) return;
     const nextOwnerId = ownerId || 'me';
     petCircleProfileOwnerIdRef.current = nextOwnerId;
+    trackAppEvent('pet_circle.profile_view', { owner: nextOwnerId === 'me' ? 'me' : 'other' });
     setPetCircleProfileOwnerId(nextOwnerId);
     setPetCircleProfileActionPostId('');
     setPetCircleCommentPostId('');
@@ -7729,6 +7790,7 @@ export default function LumiiMvpApp() {
         applyNearbyOwners(nextOwners);
         setDiscoverLocationError('');
         setDiscoverLastRefreshedAt(Date.now());
+        trackAppEvent('discover.refresh', { count: nextOwners.length, tab: discoverTab });
         void loadNearbyMoments({ location: lastDiscoverLocationRef.current, silent: true });
         showToast(nextOwners.length ? '已刷新附近伙伴' : `${configuredDiscoverRadiusKm}km 内暂时没有新的伙伴`);
       }
@@ -7765,11 +7827,13 @@ export default function LumiiMvpApp() {
   function openDiscoverSearch() {
     if (discoverRefreshingRef.current) return;
     if (!discoverSearchVisible) {
+      trackAppEvent('discover.search', { mode: 'open', tab: discoverTab });
       setDiscoverSearchVisible(true);
       setTimeout(() => discoverSearchInputRef.current?.focus(), 50);
       return;
     }
     if (discoverQuery.trim()) {
+      trackAppEvent('discover.search', { mode: 'filter', queryLength: discoverQuery.trim().length, tab: discoverTab });
       showToast('已按关键词筛选附近伙伴');
       return;
     }
@@ -7779,6 +7843,7 @@ export default function LumiiMvpApp() {
   function applyDiscoverFilter(filter: DiscoverFilter) {
     setDiscoverFilter(filter);
     const label = discoverFilterOptions.find((item) => item.key === filter)?.label ?? '全部';
+    trackAppEvent('discover.filter', { filter, tab: discoverTab });
     showToast(filter === 'all' ? '已显示全部附近伙伴' : `已筛选：${label}`);
   }
 
@@ -7897,6 +7962,7 @@ export default function LumiiMvpApp() {
         lastDiscoverLocationRef.current = fallbackLocation;
         setMapCenter(defaultMapCenter);
         setMapLocationError('');
+        trackAppEvent('map.locate', { mode: 'fallback', radiusKm: configuredDiscoverRadiusKm });
         void searchPlaces({ location: fallbackLocation, silent: true });
         if (!options.silent) showToast('当前预览环境使用模拟地图，真机将调用高德定位');
         return;
@@ -7925,6 +7991,7 @@ export default function LumiiMvpApp() {
         zoom: accuracy && accuracy > 500 ? 15 : 16,
       });
       setMapLocationError('');
+      trackAppEvent('map.locate', { accuracy: accuracy || 0, mode: 'native', radiusKm: configuredDiscoverRadiusKm });
       void searchPlaces({ location: locationHint, silent: options.silent });
       if (!options.silent) showToast(accuracy ? `已定位，精度约 ${accuracy} 米` : '已定位到当前位置');
     } catch (error) {
@@ -13080,7 +13147,10 @@ export default function LumiiMvpApp() {
     const openOrPickPlace = (place: Place) => {
       setSelectedPlace(place);
       if (walkInvitePickingPlace) finishWalkInvitePlacePick(place);
-      else go('placeDetail');
+      else {
+        trackAppEvent('map.place_detail_view', { placeId: place.id, source: 'map' });
+        go('placeDetail');
+      }
     };
     return (
       <Screen showBack={false} title="">

@@ -32,6 +32,8 @@
 - `features.places`：后端阻断地图地点接口，移动端隐藏或拦截入口。
 - `features.walkInvite`：后端阻断约遛邀请，移动端隐藏或拦截入口。
 - `app.maintenanceEnabled` / `app.maintenanceMessage`：后端拦截主要写操作，移动端展示维护页。
+- `analytics.enabled`：后端控制 `/analytics/events` 是否落库，移动端关闭页面、发现、地图、通知等事件上报。
+- `analytics.sampleRatePercent`：移动端按手机号和事件名稳定采样，后端配置中心统一下发。
 - `support.slaHours`：后端按配置计算工单 SLA、排序和统计，移动端在我的反馈展示预计响应时间。
 
 ### 移动端联动
@@ -43,6 +45,7 @@
 ### 后端强制
 
 - `moderation.enabled` / `moderation.textRulesEnabled`：后端实时执行文本规则，移动端当前只展示后端返回的错误或送审结果。
+- `analytics.retentionDays`：后端按保留天数清理移动端事件，移动端不需要感知。
 
 ### 预留
 
@@ -55,3 +58,4 @@
 3. 后续 A/B 实验是否按手机号稳定分桶，还是按设备 ID / 宠物 ID 分桶。
 4. 灰度人群包是否只支持手机号列表，还是需要地区、活跃度、宠物类型等条件。
 5. 配置发布是否需要草稿、审批、定时发布和回滚审批。
+6. 移动端事件生产化后进入独立事件表、日志服务还是数据仓库。

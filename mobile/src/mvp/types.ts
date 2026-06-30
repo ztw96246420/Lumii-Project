@@ -685,10 +685,46 @@ export type SupportTicketList = {
   tickets: SupportTicketItem[];
 };
 
+export type AppAnalyticsEventName =
+  | 'app.page_view'
+  | 'discover.filter'
+  | 'discover.owners_loaded'
+  | 'discover.pet_circle_load_more'
+  | 'discover.pet_circle_loaded'
+  | 'discover.refresh'
+  | 'discover.search'
+  | 'discover.view'
+  | 'map.favorite_toggle'
+  | 'map.locate'
+  | 'map.navigation_open'
+  | 'map.open'
+  | 'map.place_detail_view'
+  | 'map.poi_search'
+  | 'notification.open'
+  | 'pet_circle.profile_view'
+  | 'support.open';
+
+export type AppAnalyticsEventInput = {
+  appBuild?: number | string;
+  appVersion?: string;
+  deviceId?: string;
+  name: AppAnalyticsEventName;
+  occurredAt?: string;
+  petId?: string;
+  platform?: string;
+  properties?: Record<string, boolean | number | string | undefined>;
+  route?: string;
+  source?: string;
+};
+
 export type AppRemoteConfig = {
   ai: {
     petAvatarDailyLimit: number;
     petChatDailyLimit: number;
+  };
+  analytics?: {
+    enabled?: boolean;
+    sampleRatePercent?: number;
   };
   app: {
     announcement?: {

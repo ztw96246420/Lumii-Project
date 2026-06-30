@@ -3,6 +3,7 @@ import { getLumiiInstallationId } from '../services/installationId';
 import type {
   ApiError,
   ApiResult,
+  AppAnalyticsEventInput,
   AppRemoteConfig,
   AiUsageSummary,
   AvatarGenerationFeedbackReason,
@@ -102,6 +103,13 @@ function createHttpApi(baseUrl: string): LumiiApi {
     config: {
       async getAppConfig(): Promise<ApiResult<AppRemoteConfig>> {
         return request<AppRemoteConfig>('GET', '/app/config');
+      },
+    },
+
+    analytics: {
+      async trackEvent(input: AppAnalyticsEventInput): Promise<ApiResult<{ accepted: boolean; disabled?: boolean; eventId?: string }>> {
+        const deviceId = input.deviceId || await getLumiiInstallationId();
+        return request<{ accepted: boolean; disabled?: boolean; eventId?: string }>('POST', '/analytics/events', { ...input, deviceId });
       },
     },
 

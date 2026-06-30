@@ -3,6 +3,7 @@ import { getLumiiInstallationId } from '../services/installationId';
 import type {
   AccountSnapshot,
   ApiResult,
+  AppAnalyticsEventInput,
   AppRemoteConfig,
   AiUsageSummary,
   AvatarGenerationFeedbackReason,
@@ -84,6 +85,10 @@ const mockAppRemoteConfig: AppRemoteConfig = {
   ai: {
     petAvatarDailyLimit: 10,
     petChatDailyLimit: 80,
+  },
+  analytics: {
+    enabled: true,
+    sampleRatePercent: 100,
   },
   app: {
     maintenanceEnabled: false,
@@ -2068,6 +2073,13 @@ export const mockApi = {
     async getAppConfig(): Promise<ApiResult<AppRemoteConfig>> {
       await wait(80);
       return success(mockAppRemoteConfig);
+    },
+  },
+
+  analytics: {
+    async trackEvent(_input: AppAnalyticsEventInput): Promise<ApiResult<{ accepted: boolean; disabled?: boolean; eventId?: string }>> {
+      await wait(40);
+      return success({ accepted: true, eventId: `mock-event-${Date.now()}` });
     },
   },
 

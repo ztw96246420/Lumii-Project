@@ -259,6 +259,11 @@ function defaultOpsConfig() {
       petAvatarDailyLimit: PET_AVATAR_DAILY_LIMIT,
       petChatDailyLimit: PET_CHAT_DAILY_LIMIT,
     },
+    analytics: {
+      enabled: true,
+      retentionDays: 30,
+      sampleRatePercent: 100,
+    },
     app: {
       announcement: {
         actionLabel: '知道了',
@@ -327,6 +332,7 @@ function defaultOpsConfig() {
 function createInitialState() {
   return {
     adminAuditLogs: [],
+    appEvents: [],
     avatarJobs: {},
     conversations: {},
     conversationMessages: {},
@@ -455,6 +461,15 @@ function normalizeSupportConfig(value, defaults) {
   };
 }
 
+function normalizeAnalyticsConfig(value, defaults) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    enabled: source.enabled !== false,
+    retentionDays: Math.floor(clampNumber(source.retentionDays, defaults.retentionDays || 30, 7, 180)),
+    sampleRatePercent: Math.floor(clampNumber(source.sampleRatePercent, defaults.sampleRatePercent ?? 100, 0, 100)),
+  };
+}
+
 function normalizeAppVersionText(value) {
   return String(value || '').trim().replace(/[^0-9A-Za-z.+_-]/g, '').slice(0, 32);
 }
@@ -470,6 +485,7 @@ function normalizeOpsConfig(value) {
   const defaults = defaultOpsConfig();
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const ai = source.ai && typeof source.ai === 'object' ? source.ai : {};
+  const analytics = source.analytics && typeof source.analytics === 'object' ? source.analytics : {};
   const app = source.app && typeof source.app === 'object' ? source.app : {};
   const features = source.features && typeof source.features === 'object' ? source.features : {};
   const moderation = source.moderation && typeof source.moderation === 'object' ? source.moderation : {};
@@ -480,6 +496,7 @@ function normalizeOpsConfig(value) {
       petAvatarDailyLimit: Math.floor(clampNumber(ai.petAvatarDailyLimit, defaults.ai.petAvatarDailyLimit, 0, 1000)),
       petChatDailyLimit: Math.floor(clampNumber(ai.petChatDailyLimit, defaults.ai.petChatDailyLimit, 0, 1000)),
     },
+    analytics: normalizeAnalyticsConfig(analytics, defaults.analytics),
     app: {
       announcement: {
         actionLabel: String(app.announcement?.actionLabel || defaults.app.announcement.actionLabel).slice(0, 16),
@@ -543,6 +560,8 @@ function opsConfigSummary(config) {
   const features = config?.features || {};
   return {
     announcementEnabled: Boolean(config?.app?.announcement?.enabled),
+    analyticsEnabled: config?.analytics?.enabled !== false,
+    analyticsSampleRatePercent: Number(config?.analytics?.sampleRatePercent ?? 100),
     maintenanceEnabled: Boolean(config?.app?.maintenanceEnabled),
     moderationEnabled: Boolean(config?.moderation?.enabled),
     discoverRadiusKm: Number(config?.social?.discoverRadiusKm || 0),
@@ -777,6 +796,37 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileApplied: true,
       mobileEvidence: '移动端登录后按手机号和提示版本展示一次，优先级低于版本更新。',
       userImpact: '用于启动时运营提示或重要说明。',
+    },
+    {
+      backendEvidence: '/analytics/events 会读取 currentOpsConfig().analytics.enabled，关闭后只返回 accepted=false，不落库。',
+      backendEnforced: true,
+      group: '数据埋点',
+      key: 'analytics.enabled',
+      label: '移动端事件采集',
+      mobileApplied: true,
+      mobileEvidence: '移动端读取 remoteConfig.analytics.enabled，关闭时不再上报页面、发现、地图、地点和通知事件。',
+      userImpact: '影响运营后台是否能看到 App 行为数据和真实看板口径。',
+    },
+    {
+      backendEvidence: '/app/config 下发 sampleRatePercent；后端仍会按服务端配置兜底拒收关闭状态。',
+      backendEnforced: true,
+      group: '数据埋点',
+      key: 'analytics.sampleRatePercent',
+      label: '埋点采样率',
+      mobileApplied: true,
+      mobileEvidence: '移动端按手机号/事件名稳定采样，降低请求量；后台配置保存后下次读取生效。',
+      userImpact: '影响进入运营看板的移动端事件样本规模。',
+    },
+    {
+      backendEvidence: 'pruneAppEvents 使用 currentOpsConfig().analytics.retentionDays 清理旧事件，并限制 JSON state 体积。',
+      backendEnforced: true,
+      group: '数据埋点',
+      key: 'analytics.retentionDays',
+      label: '埋点保留天数',
+      mobileApplied: false,
+      mobileEvidence: '移动端不需要知道保留天数；这是后台数据治理规则。',
+      operatorNote: '测试后端仍是 JSON state，保留期不建议过长；生产期应迁移到事件表或数据仓库。',
+      userImpact: '影响后台可回看多少天的 App 行为事件。',
     },
     {
       backendEvidence: 'socialChatContentViolation 实时读取 moderation 配置，命中后阻断或送审小事、评论、地点内容。',
@@ -1303,6 +1353,28 @@ function adminExportDataset(type) {
         exportColumn('revokeReason', '撤销原因'),
       ],
     },
+    app_events: {
+      description: '移动端页面、发现、地图、地点、通知等行为事件，用于补齐运营看板口径。',
+      label: '移动端事件',
+      rows: () => adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).items,
+      columns: [
+        exportColumn('id', '事件ID'),
+        exportColumn('name', '事件名'),
+        exportColumn('label', '事件标签'),
+        exportColumn('phone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('petName', '宠物名'),
+        exportColumn('route', '页面'),
+        exportColumn('source', '来源'),
+        exportColumn('platform', '平台'),
+        exportColumn('appVersion', 'App版本'),
+        exportColumn('appBuild', 'Build'),
+        exportColumn('deviceIdHash', '设备哈希'),
+        exportColumn('propertySummary', '属性摘要'),
+        exportColumn('occurredAt', '客户端时间', (row) => exportDateText(row.occurredAt)),
+        exportColumn('createdAt', '服务端时间', (row) => exportDateText(row.createdAt)),
+      ],
+    },
     audit_logs: {
       description: '后台写操作审计摘要，不导出 before/after 完整快照。',
       label: '审计日志',
@@ -1323,7 +1395,7 @@ function adminExportDataset(type) {
 }
 
 function adminExportCatalog() {
-  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
+  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
@@ -1368,6 +1440,10 @@ function publicAppConfig() {
   const config = currentOpsConfig();
   return {
     ai: config.ai,
+    analytics: {
+      enabled: config.analytics?.enabled !== false,
+      sampleRatePercent: Math.floor(clampNumber(config.analytics?.sampleRatePercent, 100, 0, 100)),
+    },
     app: config.app,
     features: config.features,
     moderation: {
@@ -1398,7 +1474,7 @@ function maintenanceMessage() {
 function failIfMaintenanceWriteBlocked(req, pathname, res) {
   if (!currentOpsConfig().app.maintenanceEnabled) return false;
   if (req.method === 'GET') return false;
-  if (['/auth/logout', '/auth/token/refresh', '/feedback', '/notifications/read'].includes(pathname) || pathname.startsWith('/support/tickets') || pathname.startsWith('/sanction-appeals')) return false;
+  if (['/analytics/events', '/auth/logout', '/auth/token/refresh', '/feedback', '/notifications/read'].includes(pathname) || pathname.startsWith('/support/tickets') || pathname.startsWith('/sanction-appeals')) return false;
   fail(res, 503, maintenanceMessage(), true, { maintenanceEnabled: true }, 'APP_MAINTENANCE');
   return true;
 }
@@ -1434,6 +1510,7 @@ function loadState() {
         ...initialState.smsIpDailyUsage,
         ...(loadedState.smsIpDailyUsage || {}),
       },
+      appEvents: Array.isArray(loadedState.appEvents) ? loadedState.appEvents : [],
       supportTicketReplyTemplates: Array.isArray(loadedState.supportTicketReplyTemplates) ? loadedState.supportTicketReplyTemplates : [],
       aiUsage: {
         ...initialState.aiUsage,
@@ -3026,7 +3103,7 @@ function mutedRestrictionFor(user) {
 }
 
 function allowRestrictedWrite(pathname) {
-  return pathname === '/auth/token/refresh' || pathname === '/feedback' || pathname === '/notifications/read' || pathname.startsWith('/support/tickets') || pathname.startsWith('/sanction-appeals');
+  return pathname === '/analytics/events' || pathname === '/auth/token/refresh' || pathname === '/feedback' || pathname === '/notifications/read' || pathname.startsWith('/support/tickets') || pathname.startsWith('/sanction-appeals');
 }
 
 function failIfAccountRestricted(user, req, pathname, res) {
@@ -8811,6 +8888,8 @@ function adminDashboardSummary() {
   const stuckAvatarJobs = processingAvatarJobs.filter((job) => Date.now() - Number(job.updatedAt || job.createdAt || 0) > 5 * 60 * 1000);
   const moderation = adminModerationTasks({ status: 'all' }).summary;
   const notifications = adminSystemNotifications().summary;
+  const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
+  const config = currentOpsConfig();
   return {
     ai: {
       avatarFailed: avatarJobs.filter((job) => job.status === 'failed').length,
@@ -8835,6 +8914,13 @@ function adminDashboardSummary() {
       total: tickets.all,
       urgent: tickets.urgent,
     },
+    events: {
+      enabled: config.analytics?.enabled !== false,
+      latestAt: appEvents.latestAt,
+      sampleRatePercent: Number(config.analytics?.sampleRatePercent ?? 100),
+      total: appEvents.total,
+      uniqueUsers: appEvents.uniqueUsers,
+    },
     appeals,
     places: {
       pendingReviews: placeReviews.filter((item) => item.status === 'pending_review').length,
@@ -8850,6 +8936,202 @@ function adminDashboardSummary() {
     moderation,
     notifications,
     updatedAt: new Date().toISOString(),
+  };
+}
+
+const APP_EVENT_MAX_ROWS = 8000;
+const APP_EVENT_ALLOWED_NAMES = new Set([
+  'app.page_view',
+  'discover.filter',
+  'discover.owners_loaded',
+  'discover.pet_circle_load_more',
+  'discover.pet_circle_loaded',
+  'discover.refresh',
+  'discover.search',
+  'discover.view',
+  'map.favorite_toggle',
+  'map.locate',
+  'map.navigation_open',
+  'map.open',
+  'map.place_detail_view',
+  'map.poi_search',
+  'notification.open',
+  'pet_circle.profile_view',
+  'support.open',
+]);
+
+const APP_EVENT_LABELS = {
+  'app.page_view': '页面浏览',
+  'discover.filter': '发现筛选',
+  'discover.owners_loaded': '附近伙伴加载',
+  'discover.pet_circle_load_more': '小事加载更多',
+  'discover.pet_circle_loaded': '附近小事加载',
+  'discover.refresh': '发现刷新',
+  'discover.search': '发现搜索',
+  'discover.view': '发现曝光',
+  'map.favorite_toggle': '地点收藏',
+  'map.locate': '地图定位',
+  'map.navigation_open': '打开导航',
+  'map.open': '地图打开',
+  'map.place_detail_view': '地点详情查看',
+  'map.poi_search': 'POI 搜索',
+  'notification.open': '通知点击',
+  'pet_circle.profile_view': '宠友圈主页查看',
+  'support.open': '反馈进度查看',
+};
+
+const APP_EVENT_SENSITIVE_PROPERTY_KEYS = new Set([
+  'address',
+  'avatarurl',
+  'base64',
+  'body',
+  'content',
+  'imageurl',
+  'keyword',
+  'lat',
+  'latitude',
+  'lng',
+  'longitude',
+  'password',
+  'phone',
+  'query',
+  'secret',
+  'text',
+  'token',
+]);
+
+function normalizeAppEventName(value) {
+  const name = String(value || '').trim();
+  return APP_EVENT_ALLOWED_NAMES.has(name) ? name : '';
+}
+
+function normalizeAppEventText(value, maxLength = 120) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function normalizeAppEventRoute(value) {
+  return normalizeAppEventText(value, 40).replace(/[^0-9A-Za-z_.-]/g, '');
+}
+
+function normalizeAppEventSource(value) {
+  const source = normalizeAppEventText(value, 40).replace(/[^0-9A-Za-z_.-]/g, '');
+  return source || 'mobile';
+}
+
+function normalizeAppEventProperties(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const output = {};
+  for (const [rawKey, rawValue] of Object.entries(value).slice(0, 32)) {
+    const key = String(rawKey || '').trim().replace(/[^0-9A-Za-z_.-]/g, '').slice(0, 48);
+    if (!key) continue;
+    const lowerKey = key.toLowerCase();
+    if (APP_EVENT_SENSITIVE_PROPERTY_KEYS.has(lowerKey) || lowerKey.includes('token') || lowerKey.includes('secret') || lowerKey.includes('password')) continue;
+    if (typeof rawValue === 'boolean') {
+      output[key] = rawValue;
+      continue;
+    }
+    if (typeof rawValue === 'number') {
+      if (Number.isFinite(rawValue)) output[key] = Math.round(rawValue * 1000) / 1000;
+      continue;
+    }
+    if (typeof rawValue === 'string') {
+      const text = normalizeAppEventText(rawValue, 120);
+      if (text) output[key] = text;
+    }
+  }
+  return output;
+}
+
+function appEventTimestamp(value, fallback = Date.now()) {
+  const timestamp = analyticsTimeMs(value);
+  if (!timestamp) return fallback;
+  const now = Date.now();
+  if (timestamp > now + 5 * 60 * 1000) return fallback;
+  if (timestamp < now - 7 * 24 * 60 * 60 * 1000) return fallback;
+  return timestamp;
+}
+
+function appEventDeviceHash(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return crypto.createHash('sha1').update(text).digest('hex').slice(0, 16);
+}
+
+function pruneAppEvents(config = currentOpsConfig()) {
+  const retentionDays = Math.floor(clampNumber(config.analytics?.retentionDays, 30, 7, 180));
+  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  state.appEvents = (Array.isArray(state.appEvents) ? state.appEvents : [])
+    .filter((event) => event && analyticsTimeMs(event.createdAt) >= cutoff)
+    .slice(-APP_EVENT_MAX_ROWS);
+  return state.appEvents;
+}
+
+function recordAppEvent(req, user, body = {}) {
+  const config = currentOpsConfig();
+  if (config.analytics?.enabled === false) {
+    return { accepted: false, disabled: true, reason: 'analytics_disabled' };
+  }
+  const name = normalizeAppEventName(body.name || body.event);
+  if (!name) return { error: '事件名不支持', statusCode: 400 };
+  const now = Date.now();
+  const activePet = selectedPetFor(user);
+  const event = {
+    appBuild: normalizeAppEventText(body.appBuild || body.buildNumber, 24),
+    appVersion: normalizeAppEventText(body.appVersion, 32),
+    createdAt: new Date(now).toISOString(),
+    deviceIdHash: appEventDeviceHash(body.deviceId),
+    id: `app-event-${now}-${Math.random().toString(16).slice(2, 8)}`,
+    name,
+    occurredAt: new Date(appEventTimestamp(body.occurredAt || body.clientAt, now)).toISOString(),
+    ownerName: user.ownerName || '',
+    petId: normalizeAppEventText(body.petId || body.activePetId || activePet?.id, 80),
+    petName: activePet?.name || '',
+    phone: user.phone,
+    platform: normalizeAppEventText(body.platform, 24),
+    properties: normalizeAppEventProperties(body.properties),
+    route: normalizeAppEventRoute(body.route),
+    source: normalizeAppEventSource(body.source),
+  };
+  state.appEvents = [...pruneAppEvents(config), event].slice(-APP_EVENT_MAX_ROWS);
+  user.lastSeenAt = now;
+  return { accepted: true, eventId: event.id };
+}
+
+function adminAppEvents(options = {}) {
+  const limit = Math.floor(clampNumber(options.limit, 300, 1, ADMIN_EXPORT_ROW_LIMIT));
+  const name = normalizeAppEventName(options.name);
+  const q = normalizeAppEventText(options.q, 80).toLowerCase();
+  const items = pruneAppEvents()
+    .map((event) => ({
+      ...event,
+      label: APP_EVENT_LABELS[event.name] || event.name,
+      propertySummary: Object.entries(event.properties || {})
+        .map(([key, value]) => `${key}=${value}`)
+        .join(' | '),
+    }))
+    .filter((event) => (!name || event.name === name))
+    .filter((event) => {
+      if (!q) return true;
+      return [event.name, event.label, event.phone, event.ownerName, event.petName, event.route, event.source, event.propertySummary]
+        .join(' ')
+        .toLowerCase()
+        .includes(q);
+    })
+    .sort((a, b) => analyticsTimeMs(b.createdAt) - analyticsTimeMs(a.createdAt));
+  const uniqueUsers = new Set(items.map((event) => event.phone).filter(Boolean));
+  const byName = items.reduce((acc, event) => {
+    acc[event.name] = (acc[event.name] || 0) + 1;
+    return acc;
+  }, {});
+  return {
+    filters: { name: name || 'all', q: options.q || '' },
+    items: items.slice(0, limit),
+    summary: {
+      byName,
+      latestAt: items[0]?.createdAt || '',
+      total: items.length,
+      uniqueUsers: uniqueUsers.size,
+    },
   };
 }
 
@@ -8890,23 +9172,30 @@ function analyticsWindow(daysInput) {
     buckets.push({
       activeUsers: 0,
       aiActionRecords: 0,
+      appEvents: 0,
       avatarFailed: 0,
       avatarReady: 0,
       avatarStarted: 0,
       conversationMessages: 0,
       date: day,
+      discoverExposures: 0,
       greetings: 0,
       greetingsAccepted: 0,
       healthMemos: 0,
       healthVaccines: 0,
       healthWeights: 0,
       label: day.slice(5).replace('-', '/'),
+      mapOpens: 0,
       medicalRisk: 0,
       moderationTasks: 0,
       newUsers: 0,
+      notificationOpens: 0,
+      pageViews: 0,
       petChatRequests: 0,
+      placeDetailViews: 0,
       placeReviews: 0,
       placeSubmissions: 0,
+      poiSearches: 0,
       reports: 0,
       socialComments: 0,
       socialImages: 0,
@@ -8995,6 +9284,7 @@ function adminAnalytics(options = {}) {
   const moderationTasks = adminModerationTasks({ limit: ADMIN_EXPORT_ROW_LIMIT, status: 'all' }).tasks;
   const sanctions = adminSanctions();
   const aiUsage = state.aiUsage || createInitialState().aiUsage;
+  const appEvents = pruneAppEvents();
 
   users.forEach((user) => {
     incrementAnalyticsBucket(bucketMap, user.createdAt, 'newUsers');
@@ -9029,6 +9319,15 @@ function adminAnalytics(options = {}) {
   placeSubmissions.forEach((submission) => incrementAnalyticsBucket(bucketMap, submission.createdAt, 'placeSubmissions'));
   tickets.forEach((ticket) => incrementAnalyticsBucket(bucketMap, ticket.createdAt, 'tickets'));
   moderationTasks.forEach((task) => incrementAnalyticsBucket(bucketMap, task.createdAt, 'moderationTasks'));
+  appEvents.forEach((event) => {
+    incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'appEvents');
+    if (event.name === 'app.page_view') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'pageViews');
+    if (event.name === 'discover.view' || event.name === 'discover.owners_loaded' || event.name === 'discover.pet_circle_loaded') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'discoverExposures');
+    if (event.name === 'map.open') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'mapOpens');
+    if (event.name === 'map.poi_search') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'poiSearches');
+    if (event.name === 'map.place_detail_view') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'placeDetailViews');
+    if (event.name === 'notification.open') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'notificationOpens');
+  });
 
   const windowAvatarStarted = sumAnalyticsBuckets(buckets, 'avatarStarted');
   const windowAvatarReady = sumAnalyticsBuckets(buckets, 'avatarReady');
@@ -9044,14 +9343,16 @@ function adminAnalytics(options = {}) {
   const reviewedPlaceItems = [...placeReviews, ...placeSubmissions].filter((item) => item.status === 'approved' || item.status === 'rejected');
   const approvedPlaceItems = reviewedPlaceItems.filter((item) => item.status === 'approved');
   const activeTodayCutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const windowAppEvents = appEvents.filter((event) => bucketMap.has(analyticsDateKey(event.createdAt || event.occurredAt)));
+  const appEventUsers = new Set(windowAppEvents.map((event) => event.phone).filter(Boolean));
+  const config = currentOpsConfig();
 
   return {
     buckets,
     dataGaps: [
-      { label: '附近发现曝光人数', reason: '移动端暂未上报曝光事件，当前只能看附近可见用户和小事发布结果。' },
-      { label: '地图打开/POI 搜索/地点详情查看', reason: '当前后端未存行为事件，地点看板先基于点评和新增地点审核数据。' },
-      { label: '严格留存 Cohort', reason: '当前只有用户 createdAt 与 lastSeenAt，没有每日活跃事件流水。' },
+      { label: '严格留存 Cohort', reason: '当前已有页面浏览事件，可做轻量 DAU；严格留存还需要独立事件表、设备去重和长期窗口。' },
       { label: 'Push 真实送达/点击', reason: '当前只记录站内通知与设备 token，未接厂商回执。' },
+      { label: '第三方地图导航完成', reason: '当前只能记录打开导航动作，无法确认用户是否完成高德导航。' },
     ],
     days,
     generatedAt: new Date().toISOString(),
@@ -9079,8 +9380,23 @@ function adminAnalytics(options = {}) {
       places: {
         approvalRate: analyticsPercent(approvedPlaceItems.length, reviewedPlaceItems.length),
         approved: approvedPlaceItems.length,
+        mapOpens: sumAnalyticsBuckets(buckets, 'mapOpens'),
+        placeDetailViews: sumAnalyticsBuckets(buckets, 'placeDetailViews'),
+        poiSearches: sumAnalyticsBuckets(buckets, 'poiSearches'),
         reviews: sumAnalyticsBuckets(buckets, 'placeReviews'),
         submissions: sumAnalyticsBuckets(buckets, 'placeSubmissions'),
+      },
+      events: {
+        discoverExposures: sumAnalyticsBuckets(buckets, 'discoverExposures'),
+        enabled: config.analytics?.enabled !== false,
+        latestAt: windowAppEvents.map((event) => analyticsTimeMs(event.createdAt)).sort((a, b) => b - a)[0] || 0,
+        mapOpens: sumAnalyticsBuckets(buckets, 'mapOpens'),
+        notificationOpens: sumAnalyticsBuckets(buckets, 'notificationOpens'),
+        pageViews: sumAnalyticsBuckets(buckets, 'pageViews'),
+        retentionDays: Number(config.analytics?.retentionDays || 30),
+        sampleRatePercent: Number(config.analytics?.sampleRatePercent ?? 100),
+        total: sumAnalyticsBuckets(buckets, 'appEvents'),
+        uniqueUsers: appEventUsers.size,
       },
       safety: {
         handledModerationTasks,
@@ -11941,6 +12257,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       ...before,
       ...body,
       ai: { ...before.ai, ...(body.ai || {}) },
+      analytics: { ...before.analytics, ...(body.analytics || {}) },
       app: {
         ...before.app,
         ...(body.app || {}),
@@ -12265,6 +12582,17 @@ async function handle(req, res) {
   if (!user) return;
   if (failIfAccountRestricted(user, req, pathname, res)) return;
   if (failIfMaintenanceWriteBlocked(req, pathname, res)) return;
+
+  if (req.method === 'POST' && pathname === '/analytics/events') {
+    const result = recordAppEvent(req, user, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'APP_EVENT_INVALID');
+      return;
+    }
+    if (result.accepted) saveState();
+    ok(res, result);
+    return;
+  }
 
   if (req.method === 'POST' && pathname === '/auth/token/refresh') {
     ok(res, { account: buildAccountSnapshot(user), phone: user.phone, token: createAuthToken(user.phone) });

@@ -1093,6 +1093,7 @@ async function renderDashboard(force) {
       ${metric('审核任务', data.moderation?.pending ?? data.content.pendingReports, `${data.moderation?.escalated || 0} 个升级`, '统一内容安全任务池：举报、被举报动态/评论、地点点评和新增地点。')}
       ${metric('地点待审', data.places.pendingReviews + data.places.pendingSubmissions, `${data.places.total} 个地点`, '地点点评与新增地点提交合计。')}
       ${metric('通知触达', data.notifications?.campaigns || 0, `${data.notifications?.devices || 0} 台设备`, '后台系统通知发送批次和当前注册推送设备数。')}
+      ${metric('移动端事件', numberText(data.events?.total || 0), `${numberText(data.events?.uniqueUsers || 0)} 位用户`, '页面、发现、地图、地点和通知点击等移动端行为事件。')}
     </div>
     <div class="grid two">
       <div class="card">
@@ -1126,6 +1127,7 @@ function configSnapshot(config) {
     <div class="switch-row"><span>形象生成额度</span><strong>${config.ai.petAvatarDailyLimit}/天</strong></div>
     <div class="switch-row"><span>AI 对话额度</span><strong>${config.ai.petChatDailyLimit}/天</strong></div>
     <div class="switch-row"><span>工单紧急 SLA</span><strong>${config.support?.slaHours?.urgent || 2}h</strong></div>
+    <div class="switch-row"><span>事件埋点采样</span><strong>${config.analytics?.enabled === false ? '关闭' : `${config.analytics?.sampleRatePercent ?? 100}%`}</strong></div>
     <div class="switch-row"><span>宠友圈开关</span>${statusPill(config.features.petCircle ? 'active' : 'closed')}</div>
     <div class="switch-row"><span>地图地点开关</span>${statusPill(config.features.places ? 'active' : 'closed')}</div>
     <div class="switch-row"><span>App 公告</span>${statusPill(config.app?.announcement?.enabled ? 'active' : 'closed')}</div>
@@ -1169,6 +1171,7 @@ async function renderAnalytics(force) {
   const social = summary.social || {};
   const places = summary.places || {};
   const safety = summary.safety || {};
+  const events = summary.events || {};
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('新增用户', numberText(users.newUsers), `${numberText(users.activeUsers)} 位窗口内活跃`, '基于用户注册时间和 lastSeenAt 聚合，默认 14 天窗口。')}
@@ -1176,6 +1179,8 @@ async function renderAnalytics(force) {
       ${metric('AI 形象成功率', percentText(ai.avatarSuccessRate), `${numberText(ai.avatarReady)} 成功 / ${numberText(ai.avatarFailed)} 失败`, '按窗口内 ready 与 failed 任务计算；处理中任务不进入分母。')}
       ${metric('AI 平均耗时', secondsText(ai.avatarAverageSeconds), `成本累计 ${moneyText(ai.gptImage2Cost)}`, '使用任务创建到更新时间估算，适合发现卡住和异常耗时。')}
       ${metric('宠友圈小事', numberText(social.posts), `${numberText(social.images)} 张图 · ${numberText(social.comments)} 条评论`, '来自移动端发布、图片、评论和点赞的当前业务数据。')}
+      ${metric('移动端事件', numberText(events.total), `${numberText(events.uniqueUsers)} 位用户 · ${numberText(events.sampleRatePercent)}%采样`, `埋点${events.enabled === false ? '已关闭' : '已开启'}，保留 ${numberText(events.retentionDays || 30)} 天。`)}
+      ${metric('地图行为', numberText(places.mapOpens), `搜索 ${numberText(places.poiSearches)} · 详情 ${numberText(places.placeDetailViews)}`, '来自移动端地图打开、POI 搜索和地点详情查看事件。')}
       ${metric('安全任务', numberText(safety.moderationTasks), `${numberText(safety.handledModerationTasks)} 已处理`, '统一内容安全任务池：举报、被举报内容、地点点评和新增地点。')}
     </div>
     <div class="grid two analytics-grid">
@@ -1212,6 +1217,16 @@ async function renderAnalytics(force) {
       <div class="card">
         <div class="section-head">
           <div>
+            <h2>移动端行为</h2>
+            <div class="section-sub">页面、发现、地图、地点和通知点击</div>
+          </div>
+          ${help('事件只记录计数和非敏感属性；不存搜索词、地址、经纬度、正文、图片 URL。')}
+        </div>
+        <div id="analyticsEventChart" class="analytics-chart"></div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
             <h2>运营处理压力</h2>
             <div class="section-sub">审核任务、地点内容和工单</div>
           </div>
@@ -1236,6 +1251,9 @@ async function renderAnalytics(force) {
           <div><span>宠物日历记录</span><strong>${numberText(calendar.weights + calendar.memos + calendar.vaccines)}</strong></div>
           <div><span>疫苗/驱虫提醒开启</span><strong>${numberText(calendar.reminderEnabled)}</strong></div>
           <div><span>打招呼接受率</span><strong>${percentText(social.greetingAcceptRate)}</strong></div>
+          <div><span>发现曝光事件</span><strong>${numberText(events.discoverExposures)}</strong></div>
+          <div><span>地图打开事件</span><strong>${numberText(events.mapOpens)}</strong></div>
+          <div><span>地点详情事件</span><strong>${numberText(events.placeDetailViews)}</strong></div>
           <div><span>地点审核通过率</span><strong>${percentText(places.approvalRate)}</strong></div>
           <div><span>举报有效率</span><strong>${percentText(safety.reportValidRate)}</strong></div>
         </div>
@@ -1244,9 +1262,9 @@ async function renderAnalytics(force) {
         <div class="section-head">
           <div>
             <h2>数据口径缺口</h2>
-            <div class="section-sub">这些指标需要移动端补事件埋点后才能精确统计</div>
+            <div class="section-sub">移动端基础事件已补齐，剩余是更长期或第三方回执口径</div>
           </div>
-          ${help('这里不是后台缺陷，而是当前业务链路尚未采集的事件。后续补埋点后可直接进入本看板。')}
+          ${help('当前已经能看到页面、发现、地图和通知点击趋势；严格留存和 Push 回执需要独立事件表或厂商回执。')}
         </div>
         <div class="gap-list">
           ${(data.dataGaps || []).map((item) => `<div><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.reason)}</span></div>`).join('')}
@@ -1266,6 +1284,7 @@ async function renderAnalytics(force) {
         ['AI', (row) => `<div>形象 ${escapeHtml(row.avatarStarted)}</div><div class="cell-sub">对话 ${escapeHtml(row.petChatRequests)}</div>`],
         ['宠物日历', (row) => `<div>体重 ${escapeHtml(row.healthWeights)}</div><div class="cell-sub">备忘 ${escapeHtml(row.healthMemos)} · 疫苗 ${escapeHtml(row.healthVaccines)}</div>`],
         ['社交', (row) => `<div>小事 ${escapeHtml(row.socialPosts)} · 评论 ${escapeHtml(row.socialComments)}</div><div class="cell-sub">招呼 ${escapeHtml(row.greetings)} · 约遛 ${escapeHtml(row.walkInvites)}</div>`],
+        ['事件', (row) => `<div>页面 ${escapeHtml(row.pageViews)} · 发现 ${escapeHtml(row.discoverExposures)}</div><div class="cell-sub">地图 ${escapeHtml(row.mapOpens)} · POI ${escapeHtml(row.poiSearches)}</div>`],
         ['运营', (row) => `<div>审核 ${escapeHtml(row.moderationTasks)}</div><div class="cell-sub">举报 ${escapeHtml(row.reports)} · 工单 ${escapeHtml(row.tickets)}</div>`],
       ], '暂无日汇总')}
     </div>
@@ -1276,7 +1295,7 @@ async function renderAnalytics(force) {
 function renderAnalyticsCharts(data) {
   const buckets = data.buckets || [];
   const labels = buckets.map((item) => item.label);
-  const chartIds = ['analyticsGrowthChart', 'analyticsAiChart', 'analyticsSocialChart', 'analyticsOpsChart'];
+  const chartIds = ['analyticsGrowthChart', 'analyticsAiChart', 'analyticsSocialChart', 'analyticsEventChart', 'analyticsOpsChart'];
   if (!window.echarts) {
     chartIds.forEach((id) => {
       const node = $(id);
@@ -1325,6 +1344,16 @@ function renderAnalyticsCharts(data) {
       { name: '评论', smooth: true, type: 'line', data: buckets.map((item) => item.socialComments) },
       { name: '招呼', smooth: true, type: 'line', data: buckets.map((item) => item.greetings) },
       { name: '约遛', smooth: true, type: 'line', data: buckets.map((item) => item.walkInvites) },
+    ],
+  });
+  renderChart('analyticsEventChart', {
+    series: [
+      { name: '页面浏览', smooth: true, type: 'line', data: buckets.map((item) => item.pageViews) },
+      { name: '发现曝光', smooth: true, type: 'line', data: buckets.map((item) => item.discoverExposures) },
+      { name: '地图打开', smooth: true, type: 'line', data: buckets.map((item) => item.mapOpens) },
+      { name: 'POI搜索', smooth: true, type: 'line', data: buckets.map((item) => item.poiSearches) },
+      { name: '地点详情', smooth: true, type: 'line', data: buckets.map((item) => item.placeDetailViews) },
+      { name: '通知点击', smooth: true, type: 'line', data: buckets.map((item) => item.notificationOpens) },
     ],
   });
   renderChart('analyticsOpsChart', {
@@ -3160,6 +3189,7 @@ function configRevisionSummaryText(summary = {}) {
     `图片 ${summary.petCircleMaxPhotos || 0}`,
     `半径 ${summary.discoverRadiusKm || 0}km`,
     `TTL ${summary.nearbyMomentTtlDays || 0}天`,
+    `埋点 ${summary.analyticsEnabled === false ? '关' : `开/${summary.analyticsSampleRatePercent ?? 100}%`}`,
     `工单 ${summary.supportUrgentSlaHours ?? 2}/${summary.supportHighSlaHours ?? 8}h SLA`,
     ...toggles,
   ].join(' · ');
@@ -3331,6 +3361,7 @@ async function renderConfig(force) {
   const splash = config.app?.splash || {};
   const support = config.support || {};
   const supportSlaHours = support.slaHours || {};
+  const analytics = config.analytics || {};
   const update = config.app?.update || {};
   $('content').innerHTML = `
     <div class="card">
@@ -3339,7 +3370,7 @@ async function renderConfig(force) {
           <h2>移动端联动配置</h2>
           <div class="section-sub">保存后，移动端下次启动会读取 /app/config 并影响对应功能</div>
         </div>
-        ${help('当前第一版已接入：图片上限、附近半径、附近小事有效天数、AI 额度、功能开关、维护、公告、版本更新、启动提示和内容安全规则。')}
+        ${help('当前第一版已接入：图片上限、附近半径、附近小事有效天数、AI 额度、功能开关、事件埋点、维护、公告、版本更新、启动提示和内容安全规则。')}
       </div>
       ${renderConfigLinkage(config)}
       <div class="config-grid">
@@ -3357,6 +3388,22 @@ async function renderConfig(force) {
         ${featureCheckbox('cfgFeaturePetChat', 'AI 宠物对话', config.features.petChat)}
         ${featureCheckbox('cfgFeatureWalkInvite', '约遛邀请', config.features.walkInvite)}
         ${featureCheckbox('cfgMaintenanceEnabled', '维护模式', config.app.maintenanceEnabled)}
+      </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>移动端事件埋点</h2>
+            <div class="section-sub">控制页面、发现、地图、地点和通知点击事件；事件不存正文、搜索词、地址、经纬度和图片 URL</div>
+          </div>
+          ${help('采样率由移动端按手机号和事件名稳定采样；后端仍会按“启用/关闭”兜底。当前测试后端使用 JSON state，保留期不建议过长。')}
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgAnalyticsEnabled', '启用移动端事件采集', analytics.enabled !== false)}
+        </div>
+        <div class="config-grid">
+          <label>采样率 %<input id="cfgAnalyticsSampleRatePercent" type="number" min="0" max="100" value="${Number.isFinite(Number(analytics.sampleRatePercent)) ? analytics.sampleRatePercent : 100}" /></label>
+          <label>保留天数<input id="cfgAnalyticsRetentionDays" type="number" min="7" max="180" value="${Number.isFinite(Number(analytics.retentionDays)) ? analytics.retentionDays : 30}" /></label>
+        </div>
       </div>
       <div class="config-section">
         <div class="section-head compact">
@@ -3531,10 +3578,23 @@ async function saveConfig() {
   if (!(supportSlaHours.urgent <= supportSlaHours.high && supportSlaHours.high <= supportSlaHours.normal && supportSlaHours.normal <= supportSlaHours.low)) {
     throw new Error('工单 SLA 需要保持：紧急 <= 高优先级 <= 普通 <= 低优先级');
   }
+  const analyticsSampleRatePercent = Number($('cfgAnalyticsSampleRatePercent').value);
+  const analyticsRetentionDays = Number($('cfgAnalyticsRetentionDays').value);
+  if (!Number.isFinite(analyticsSampleRatePercent) || analyticsSampleRatePercent < 0 || analyticsSampleRatePercent > 100) {
+    throw new Error('事件埋点采样率必须在 0-100 之间');
+  }
+  if (!Number.isFinite(analyticsRetentionDays) || analyticsRetentionDays < 7 || analyticsRetentionDays > 180) {
+    throw new Error('事件保留天数必须在 7-180 之间');
+  }
   const payload = {
     ai: {
       petAvatarDailyLimit: Number($('cfgPetAvatarDailyLimit').value),
       petChatDailyLimit: Number($('cfgPetChatDailyLimit').value),
+    },
+    analytics: {
+      enabled: $('cfgAnalyticsEnabled').checked,
+      retentionDays: analyticsRetentionDays,
+      sampleRatePercent: analyticsSampleRatePercent,
     },
     app: {
       announcement: {
