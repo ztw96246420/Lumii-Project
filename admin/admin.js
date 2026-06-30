@@ -65,6 +65,7 @@ const navItems = [
   { key: 'tickets', label: '工单中心' },
   { key: 'notifications', label: '通知运营' },
   { key: 'config', label: '配置中心' },
+  { key: 'systemHealth', label: '系统健康' },
   { key: 'audit', label: '审计日志' },
   { key: 'sanctions', label: '用户处罚' },
   { key: 'sanctionAppeals', label: '申诉中心' },
@@ -90,6 +91,7 @@ const titles = {
   sanctions: ['用户处罚', '禁言、冻结、封禁与撤销记录'],
   socialRelations: ['关系消息', '招呼、约遛、会话和通知链路排查'],
   socialPosts: ['宠友圈', '动态与评论内容安全'],
+  systemHealth: ['系统健康', '服务、配置、存储和运营积压体检'],
   tickets: ['工单中心', '用户反馈、客服备注和回复闭环'],
   users: ['用户管理', '账号、宠物、设置和风险排查'],
 };
@@ -140,6 +142,25 @@ function secondsText(value) {
   const number = Number(value || 0);
   if (!number) return '-';
   return number >= 60 ? `${Math.round(number / 60)} 分钟` : `${Math.round(number)} 秒`;
+}
+
+function durationText(value) {
+  const seconds = Number(value || 0);
+  if (!seconds) return '-';
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days) return `${days} 天 ${hours} 小时`;
+  if (hours) return `${hours} 小时 ${minutes} 分钟`;
+  return `${Math.max(1, minutes)} 分钟`;
+}
+
+function bytesText(value) {
+  const bytes = Number(value || 0);
+  if (!bytes) return '0 B';
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
 }
 
 function moneyText(value) {
@@ -1146,6 +1167,7 @@ async function render(force = false) {
     sanctions: renderSanctions,
     socialRelations: renderSocialRelations,
     socialPosts: renderSocialPosts,
+    systemHealth: renderSystemHealth,
     tickets: renderTickets,
     users: renderUsers,
   };
@@ -1219,6 +1241,96 @@ function configSnapshot(config) {
     <div class="switch-row"><span>App 公告</span>${statusPill(config.app?.announcement?.enabled ? 'active' : 'closed')}</div>
     <div class="switch-row"><span>版本更新</span>${statusPill(config.app?.update?.enabled ? 'active' : 'closed')}</div>
     <div class="switch-row"><span>启动提示</span>${statusPill(config.app?.splash?.enabled ? 'active' : 'closed')}</div>
+  `;
+}
+
+function healthStatusPill(status) {
+  const value = String(status || 'ok');
+  const label = value === 'bad' ? '异常' : value === 'warn' ? '关注' : value === 'ok' ? '正常' : value;
+  const tone = value === 'bad' ? 'bad' : value === 'warn' ? 'warn' : 'ok';
+  return tonePill(label, tone);
+}
+
+async function renderSystemHealth(force) {
+  const data = await load('systemHealth', '/admin/system/health', force);
+  const summary = data.summary || {};
+  const runtime = data.runtime || {};
+  const stateFile = data.stateFile || {};
+  const memory = data.resources?.memory || {};
+  const heapUsed = Number(memory.heapUsed || 0);
+  const heapTotal = Number(memory.heapTotal || 0);
+  const heapFoot = heapTotal ? `${bytesText(heapUsed)} / ${bytesText(heapTotal)}` : bytesText(heapUsed);
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('整体状态', data.status === 'bad' ? '异常' : data.status === 'warn' ? '需关注' : '正常', `${summary.warn || 0} 关注 · ${summary.bad || 0} 异常`, '系统健康聚合运行、存储、关键外部配置和业务积压。')}
+      ${metric('运行时长', durationText(runtime.uptimeSeconds), `${escapeHtml(runtime.nodeVersion || '-')} · PID ${escapeHtml(runtime.pid || '-')}`, '后端 Node 进程当前持续运行时间。')}
+      ${metric('状态文件', bytesText(stateFile.sizeBytes), stateFile.exists ? `更新 ${formatTime(stateFile.modifiedAt)}` : '不可读', '当前文件态后端的 JSON state 体积和更新时间。')}
+      ${metric('内存堆', heapFoot, `RSS ${bytesText(memory.rss || 0)}`, 'Node.js 进程内存快照，用于排查异常增长。')}
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>健康检查</h2>
+            <div class="section-sub">${numberText(summary.checks || 0)} 个检查项 · ${numberText(summary.users || 0)} 个用户</div>
+          </div>
+          ${help('这里是运营后台内置体检，不替代服务器监控、日志告警或 APM；但能快速发现默认密码、存储、AI、地图和积压问题。')}
+        </div>
+        ${tableHtml(data.checks || [], [
+          ['状态', (row) => healthStatusPill(row.status)],
+          ['检查项', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.key)}</div>`],
+          ['说明', (row) => `<div>${escapeHtml(row.detail || '-')}</div><div class="cell-sub clamp">${escapeHtml(row.evidence || '-')}</div>`],
+        ], '暂无健康检查')}
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>运行环境</h2>
+            <div class="section-sub">${escapeHtml(runtime.env || '-')} · ${escapeHtml(runtime.platform || '-')}</div>
+          </div>
+          ${help('不展示任何密钥值，只展示运行端口、状态文件和 Node 运行信息。')}
+        </div>
+        <div class="switch-row"><span>服务端口</span><strong>${escapeHtml(runtime.port || '-')}</strong></div>
+        <div class="switch-row"><span>Node 版本</span><strong>${escapeHtml(runtime.nodeVersion || '-')}</strong></div>
+        <div class="switch-row"><span>运行平台</span><strong>${escapeHtml(runtime.platform || '-')}</strong></div>
+        <div class="switch-row"><span>状态文件</span><strong>${stateFile.exists ? '可读' : '不可读'}</strong></div>
+        <div class="switch-row"><span>状态路径</span><strong class="cell-sub clamp">${escapeHtml(stateFile.path || '-')}</strong></div>
+        <div class="switch-row"><span>生成时间</span><strong>${formatTime(data.generatedAt)}</strong></div>
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>业务积压</h2>
+            <div class="section-sub">AI、审核、工单、申诉、通知和埋点</div>
+          </div>
+          ${help('这些不是系统故障，但能提示运营优先处理队列。')}
+        </div>
+        ${tableHtml(data.queues || [], [
+          ['状态', (row) => healthStatusPill(row.status)],
+          ['队列', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.detail || '-')}</div>`],
+          ['数量', (row) => `<div class="cell-title">${numberText(row.value || 0)}</div>`],
+        ], '暂无业务积压')}
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>状态集合</h2>
+            <div class="section-sub">JSON state 内关键集合行数</div>
+          </div>
+          ${help('当前后端仍是文件态联调架构，这里用于观察数据膨胀；生产期应迁移到数据库和独立审计存储。')}
+        </div>
+        ${tableHtml(data.collections || [], [
+          ['集合', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.key)}</div>`],
+          ['行数', (row) => `<div class="cell-title">${numberText(row.rows || 0)}</div>`],
+        ], '暂无集合统计')}
+      </div>
+    </div>
   `;
 }
 

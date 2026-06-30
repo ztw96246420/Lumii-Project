@@ -9300,6 +9300,106 @@ function adminDashboardSummary() {
   };
 }
 
+function adminSafeStateFileInfo() {
+  try {
+    const stat = fs.statSync(statePath);
+    return {
+      exists: true,
+      modifiedAt: stat.mtime.toISOString(),
+      path: statePath,
+      sizeBytes: stat.size,
+    };
+  } catch (error) {
+    return {
+      error: error?.message || 'state file missing',
+      exists: false,
+      modifiedAt: '',
+      path: statePath,
+      sizeBytes: 0,
+    };
+  }
+}
+
+function adminCheckStatus(status, key, label, detail, evidence = '') {
+  return { detail, evidence, key, label, status };
+}
+
+function adminSystemHealth() {
+  const now = Date.now();
+  const memory = process.memoryUsage();
+  const stateFile = adminSafeStateFileInfo();
+  const avatarJobs = Object.values(state.avatarJobs || {});
+  const processingAvatarJobs = avatarJobs.filter((job) => job.status === 'processing');
+  const stuckAvatarJobs = processingAvatarJobs.filter((job) => now - analyticsTimeMs(job.updatedAt || job.createdAt) > 5 * 60 * 1000);
+  const moderation = adminModerationTasks({ status: 'all' }).summary;
+  const tickets = adminSupportTickets({ status: 'all' }).summary;
+  const appeals = adminSanctionAppeals({ status: 'all' }).summary;
+  const config = currentOpsConfig();
+  const notifications = adminSystemNotifications().summary;
+  const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
+  const stateSizeWarn = stateFile.sizeBytes > 15 * 1024 * 1024;
+  const checks = [
+    adminCheckStatus(stateFile.exists ? stateSizeWarn ? 'warn' : 'ok' : 'bad', 'state_file', '状态文件', stateFile.exists ? `JSON state ${Math.round(stateFile.sizeBytes / 1024)} KB` : '状态文件不存在或不可读', stateFile.path),
+    adminCheckStatus(process.env.LUMII_ADMIN_USERNAME && process.env.LUMII_ADMIN_PASSWORD ? 'ok' : 'warn', 'admin_credentials', '后台账号环境变量', process.env.LUMII_ADMIN_PASSWORD ? '后台密码由环境变量覆盖' : '仍可能使用默认后台账号密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
+    adminCheckStatus(config.app?.maintenanceEnabled ? 'warn' : 'ok', 'maintenance', '维护模式', config.app?.maintenanceEnabled ? maintenanceMessage() : '未开启维护模式', '/app/config + 写接口维护拦截'),
+    adminCheckStatus(cosEnabled() ? 'ok' : 'warn', 'cos_storage', '腾讯云 COS', cosEnabled() ? '对象存储已配置' : '对象存储未完整配置，媒体可能走本地/代理兼容链路', `bucket=${COS_BUCKET ? 'set' : 'missing'} region=${COS_REGION || '-'}`),
+    adminCheckStatus(AMAP_WEB_SERVICE_KEY ? 'ok' : 'warn', 'amap', '高德 POI', AMAP_WEB_SERVICE_KEY ? 'Web Service Key 已配置' : '未配置高德 Web Service Key，地点搜索会降级', AMAP_WEB_SERVICE_BASE_URL),
+    adminCheckStatus(DEEPSEEK_API_KEY ? 'ok' : 'warn', 'deepseek', 'DeepSeek 对话', DEEPSEEK_API_KEY ? 'AI 对话密钥已配置' : '未配置 DeepSeek 密钥，可能使用回退逻辑', DEEPSEEK_MODEL),
+    adminCheckStatus(PET_AVATAR_PROVIDER === 'mock' ? 'warn' : PET_AVATAR_PROVIDER === 'gpt-image-2' && !GPT_IMAGE2_API_KEY ? 'bad' : 'ok', 'pet_avatar_provider', '灵伴形象生成', PET_AVATAR_PROVIDER === 'mock' ? '当前使用 mock provider' : `当前 provider：${PET_AVATAR_PROVIDER}`, `gpt-image-2 key=${GPT_IMAGE2_API_KEY ? 'set' : 'missing'} resolution=${GPT_IMAGE2_RESOLUTION}`),
+    adminCheckStatus(PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL ? 'ok' : 'warn', 'public_media_base', '媒体公开访问域名', PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL ? '已配置公开访问 base URL' : '未配置公开访问 base URL，部分媒体 URL 依赖请求 Host', 'PET_AVATAR_PUBLIC_BASE_URL / LUMII_PUBLIC_BASE_URL'),
+    adminCheckStatus(stuckAvatarJobs.length ? 'warn' : 'ok', 'avatar_queue', 'AI 任务队列', stuckAvatarJobs.length ? `${stuckAvatarJobs.length} 个生成任务可能卡住` : '暂无卡住的生成任务', `${processingAvatarJobs.length} processing / ${avatarJobs.length} total`),
+    adminCheckStatus(Number(tickets.overdue || 0) ? 'warn' : 'ok', 'support_sla', '客服 SLA', Number(tickets.overdue || 0) ? `${tickets.overdue} 个工单已超时` : '暂无超时工单', `${tickets.open || 0} open / ${tickets.all || 0} all`),
+  ];
+  const bad = checks.filter((item) => item.status === 'bad').length;
+  const warn = checks.filter((item) => item.status === 'warn').length;
+  const countObject = (value) => Object.keys(value || {}).length;
+  const countArray = (value) => Array.isArray(value) ? value.length : 0;
+  const countNotificationRows = Object.values(state.notifications || {}).reduce((sum, rows) => sum + (Array.isArray(rows) ? rows.length : 0), 0);
+  return {
+    checks,
+    collections: [
+      { key: 'users', label: '用户', rows: countObject(state.users) },
+      { key: 'mediaUploads', label: '媒体上传', rows: countObject(state.mediaUploads) },
+      { key: 'avatarJobs', label: 'AI 任务', rows: countObject(state.avatarJobs) },
+      { key: 'adminAuditLogs', label: '审计日志', rows: countArray(state.adminAuditLogs) },
+      { key: 'appEvents', label: '移动端事件', rows: countArray(state.appEvents) },
+      { key: 'notifications', label: '通知记录', rows: countNotificationRows },
+      { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
+      { key: 'reports', label: '举报', rows: ensureSocialReports().length },
+    ],
+    dependencies: checks.filter((item) => ['admin_credentials', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'public_media_base'].includes(item.key)),
+    generatedAt: new Date(now).toISOString(),
+    queues: [
+      { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
+      { detail: `${moderation.pending || 0} 待处理 / ${moderation.escalated || 0} 已升级`, label: '内容安全任务', status: moderation.escalated ? 'warn' : 'ok', value: moderation.pending || 0 },
+      { detail: `${tickets.open || 0} 未关闭 / ${tickets.overdue || 0} 已超时`, label: '客服工单', status: tickets.overdue ? 'warn' : 'ok', value: tickets.open || 0 },
+      { detail: `${appeals.open || 0} 待处理 / ${appeals.pending || 0} 新申诉`, label: '处罚申诉', status: appeals.open ? 'warn' : 'ok', value: appeals.open || 0 },
+      { detail: `${notifications.campaigns || 0} 批次 / ${notifications.devices || 0} 设备`, label: '通知运营', status: 'ok', value: notifications.campaigns || 0 },
+      { detail: `${appEvents.uniqueUsers || 0} 用户 / 最近 ${appEvents.latestAt ? new Date(appEvents.latestAt).toISOString() : '无'}`, label: '移动端事件', status: config.analytics?.enabled === false ? 'warn' : 'ok', value: appEvents.total || 0 },
+    ],
+    runtime: {
+      env: process.env.NODE_ENV || 'development',
+      nodeVersion: process.version,
+      pid: process.pid,
+      platform: process.platform,
+      port,
+      uptimeSeconds: Math.round(process.uptime()),
+    },
+    stateFile,
+    status: bad ? 'bad' : warn ? 'warn' : 'ok',
+    summary: {
+      bad,
+      checks: checks.length,
+      stateSizeBytes: stateFile.sizeBytes,
+      users: countObject(state.users),
+      warn,
+    },
+    resources: {
+      memory,
+    },
+  };
+}
+
 const APP_EVENT_MAX_ROWS = 8000;
 const APP_EVENT_ALLOWED_NAMES = new Set([
   'app.page_view',
@@ -11850,6 +11950,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/analytics') {
     ok(res, adminAnalytics({ days: url.searchParams.get('days') }));
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/system/health') {
+    ok(res, adminSystemHealth());
     return true;
   }
 
