@@ -8364,10 +8364,101 @@ function adminPetCalendarStats(phone, petId) {
 
 function adminPetAvatarStatus(pet, acceptedAvatarJob) {
   const hasAvatar = Boolean(String(pet?.avatarUrl || '').trim());
-  const hasAiAvatar = Boolean(acceptedAvatarJob?.acceptedPetId === pet?.id && acceptedAvatarJob?.status === 'ready');
+  const hasAiAvatar = Boolean(hasAvatar && acceptedAvatarJob?.acceptedPetId === pet?.id && acceptedAvatarJob?.status === 'ready');
   if (hasAiAvatar) return { key: 'ai', label: 'AI 形象已应用' };
   if (hasAvatar) return { key: 'basic', label: '普通头像' };
   return { key: 'missing', label: '缺头像' };
+}
+
+function findAdminPetById(petIdInput) {
+  const petId = String(petIdInput || '').trim();
+  if (!petId) return null;
+  for (const user of Object.values(state.users || {})) {
+    const phone = normalizePhone(user?.phone);
+    if (!phone || !Array.isArray(user.pets)) continue;
+    const petIndex = user.pets.findIndex((item) => item?.id === petId);
+    if (petIndex < 0) continue;
+    return { phone, pet: user.pets[petIndex], petIndex, user };
+  }
+  return null;
+}
+
+function notifyPetMediaModeration(phone, pet, kind, reason) {
+  if (!phone || !pet || !state.users?.[phone]) return false;
+  const kindLabel = kind === 'cover' ? '宠友圈封面' : kind === 'ai-avatar' ? 'AI 灵伴形象' : '宠物头像';
+  const reasonText = String(reason || '').trim();
+  return addNotification(phone, {
+    actionRoute: 'profile',
+    category: 'system',
+    createdAt: new Date().toISOString(),
+    id: `n-pet-media-${pet.id}-${kind}-${Date.now()}`,
+    kind: 'system',
+    petId: pet.id,
+    read: false,
+    text: reasonText
+      ? `${pet.name || '宠物'}的${kindLabel}因平台规则已被处理，原因：${reasonText}。你可以重新上传合适的图片。`
+      : `${pet.name || '宠物'}的${kindLabel}因平台规则已被处理。你可以重新上传合适的图片。`,
+    title: `${kindLabel}已处理`,
+  }, 'system', { force: true });
+}
+
+function adminClearPetMedia(admin, petId, kindInput, body = {}) {
+  const kind = String(kindInput || '').trim();
+  const allowedKinds = new Set(['ai-avatar', 'avatar', 'cover']);
+  if (!allowedKinds.has(kind)) return { error: '不支持的宠物媒体处理类型', statusCode: 400 };
+  const found = findAdminPetById(petId);
+  if (!found) return { error: '宠物档案不存在', statusCode: 404 };
+  const { phone, pet, user } = found;
+  const reason = String(body?.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '请填写处理原因', statusCode: 400 };
+  const before = cloneJson({
+    avatarUrl: pet.avatarUrl || '',
+    pet,
+    petCircleCoverImageUrl: pet.petCircleCoverImageUrl || '',
+  });
+  const now = new Date().toISOString();
+  let changed = false;
+  let clearedAvatarJobCount = 0;
+
+  if (kind === 'cover') {
+    if (!pet.petCircleCoverImageUrl) return { error: '这只宠物暂无宠友圈封面可清空', statusCode: 400 };
+    delete pet.petCircleCoverImageUrl;
+    changed = true;
+  } else {
+    const acceptedJobs = Object.values(state.avatarJobs || {}).filter((job) => job?.ownerPhone === phone && job.acceptedPetId === pet.id);
+    if (!pet.avatarUrl && !acceptedJobs.length) return { error: '这只宠物暂无头像或 AI 形象可清空', statusCode: 400 };
+    if (pet.avatarUrl) {
+      delete pet.avatarUrl;
+      changed = true;
+    }
+    acceptedJobs.forEach((job) => {
+      job.adminClearedAt = now;
+      job.adminClearedReason = reason;
+      job.adminClearedBy = admin?.username || 'admin';
+      job.acceptedPetId = '';
+      job.acceptedAt = '';
+      clearedAvatarJobCount += 1;
+      touchAvatarJob(job);
+    });
+    changed = changed || clearedAvatarJobCount > 0;
+  }
+
+  if (!changed) return { error: '没有可处理的宠物媒体', statusCode: 400 };
+  pet.updatedAt = now;
+  const after = cloneJson({
+    avatarUrl: pet.avatarUrl || '',
+    clearedAvatarJobCount,
+    pet,
+    petCircleCoverImageUrl: pet.petCircleCoverImageUrl || '',
+  });
+  const action = kind === 'cover' ? 'pet.media.clear_cover' : kind === 'ai-avatar' ? 'pet.media.clear_ai_avatar' : 'pet.media.clear_avatar';
+  writeAdminAudit(admin, action, 'pet', pet.id, before, after, reason);
+  notifyPetMediaModeration(phone, pet, kind, reason);
+  return {
+    item: adminPetProfiles({ q: pet.id, limit: 1 }).items.find((row) => row.id === pet.id) || null,
+    phone: user.phone,
+    petId: pet.id,
+  };
 }
 
 function adminPetProfiles(options = {}) {
@@ -11782,6 +11873,20 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       q: url.searchParams.get('q') || '',
       species: url.searchParams.get('species') || 'all',
     }));
+    return true;
+  }
+
+  const adminPetMediaClearMatch = pathname.match(/^\/admin\/pets\/([^/]+)\/media\/([^/]+)\/clear$/);
+  if (req.method === 'POST' && adminPetMediaClearMatch) {
+    const petId = decodeURIComponent(adminPetMediaClearMatch[1]);
+    const kind = decodeURIComponent(adminPetMediaClearMatch[2]);
+    const result = adminClearPetMedia(admin, petId, kind, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PET_MEDIA_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

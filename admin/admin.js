@@ -337,6 +337,10 @@ async function onContentClick(event) {
       await render(true);
       return;
     }
+    if (action === 'pet-media-clear') {
+      await clearPetMedia(button);
+      return;
+    }
     if (action === 'pet-calendar-filter') {
       state.petCalendarType = $('petCalendarType').value;
       state.petCalendarStatus = $('petCalendarStatus').value;
@@ -1743,6 +1747,39 @@ function petAvatarStatus(row) {
   return `${tags.join(' ')}<div class="cell-sub">${row.avatarJobId ? escapeHtml(row.avatarJobId) : '暂无 AI 任务关联'}</div>`;
 }
 
+function renderPetMediaActions(row) {
+  const buttons = [];
+  if (row.avatarStatusKey === 'ai') {
+    buttons.push(`<button class="small-button danger" data-action="pet-media-clear" data-id="${escapeHtml(row.id)}" data-kind="ai-avatar" data-name="${escapeHtml(row.name || '')}">清AI形象</button>`);
+  } else if (row.hasAvatar) {
+    buttons.push(`<button class="small-button danger" data-action="pet-media-clear" data-id="${escapeHtml(row.id)}" data-kind="avatar" data-name="${escapeHtml(row.name || '')}">清头像</button>`);
+  }
+  if (row.hasPetCircleCover) {
+    buttons.push(`<button class="small-button danger" data-action="pet-media-clear" data-id="${escapeHtml(row.id)}" data-kind="cover" data-name="${escapeHtml(row.name || '')}">清封面</button>`);
+  }
+  if (!buttons.length) return '<span class="cell-sub">无可处理媒体</span>';
+  return `<div class="actions">${buttons.join('')}</div>`;
+}
+
+async function clearPetMedia(button) {
+  const petId = button.dataset.id;
+  const kind = button.dataset.kind || '';
+  const petName = button.dataset.name || '这只宠物';
+  const kindLabel = kind === 'cover' ? '宠友圈封面' : kind === 'ai-avatar' ? 'AI 灵伴形象' : '宠物头像';
+  const reason = window.prompt(`请输入清空「${petName}」${kindLabel}的原因`, `${kindLabel}不符合平台规则`);
+  if (reason === null) return;
+  const trimmed = reason.trim();
+  if (!trimmed) {
+    showToast('请填写处理原因');
+    return;
+  }
+  if (!window.confirm(`确认清空「${petName}」的${kindLabel}？该操作会影响移动端展示，并写入审计日志。`)) return;
+  await post(`/admin/pets/${encodeURIComponent(petId)}/media/${encodeURIComponent(kind)}/clear`, { reason: trimmed });
+  state.cache = { ...state.cache, audit: null, pets: null, users: null };
+  showToast(`${kindLabel}已清空`);
+  await render(true);
+}
+
 async function renderPets(force) {
   const query = new URLSearchParams({
     avatar: state.petAvatar,
@@ -1766,9 +1803,9 @@ async function renderPets(force) {
       <div class="section-head">
         <div>
           <h2>宠物档案</h2>
-          <div class="section-sub">全局只读排查：宠物资料、头像、AI 形象、宠友圈和日历关联记录</div>
+          <div class="section-sub">全局排查与媒体治理：宠物资料、头像、AI 形象、宠友圈和日历关联记录</div>
         </div>
-        ${help('这页直接聚合 users.pets 和关联业务数据，不会修改用户宠物档案。头像、AI 形象和封面只展示状态，不导出图片二进制。')}
+        ${help('这页直接聚合 users.pets 和关联业务数据。清空头像、AI 形象或封面会写审计、通知用户，并影响移动端下一次刷新后的展示；不导出图片二进制。')}
       </div>
       <div class="toolbar moderation-toolbar pet-profile-toolbar">
         <div class="toolbar-left">
@@ -1813,6 +1850,7 @@ async function renderPets(force) {
         ['形象', petAvatarStatus],
         ['关联记录', (r) => `<div>${numberText(r.calendarCount)} 条日历</div><div class="cell-sub">${numberText(r.socialPostCount)} 条小事 · ${numberText(r.placeReviewCount)} 条地点点评</div>`],
         ['时间', (r) => `<div>建档：${formatTime(r.createdAt)}</div><div class="cell-sub">最近关联：${formatTime(r.latestActivityAt)}</div>`],
+        ['操作', renderPetMediaActions],
       ], '暂无宠物档案')}
     </div>
     <div class="grid two">
@@ -1833,14 +1871,16 @@ async function renderPets(force) {
       <div class="card">
         <div class="section-head">
           <div>
-            <h2>后续动作预留</h2>
-            <div class="section-sub">资料修复属于高影响操作，先不在单 admin 第一版开放</div>
+            <h2>媒体治理动作</h2>
+            <div class="section-sub">已开放清空违规头像、AI 形象和宠友圈封面</div>
           </div>
-          ${help('需求文档里的修正宠物资料、隐藏违规头像、清空 AI 形象、替换宠友圈封面都需要原因、before/after 审计和更细权限。')}
+          ${help('媒体动作会保留 before/after 审计，并给用户写入站内通知；当前只清空，不做后台替换上传。')}
         </div>
         <div class="gap-list">
-          <div><strong>修正档案</strong><span>只处理明显错误字段，例如物种识别错、生日格式异常、体重离谱。</span></div>
-          <div><strong>媒体处理</strong><span>隐藏头像、清空 AI 形象、换封面都应保留原图和处理记录。</span></div>
+          <div><strong>清空头像</strong><span>用于普通头像违规，移动端会回到现有兜底头像展示。</span></div>
+          <div><strong>清空 AI 形象</strong><span>用于 AI 结果不适合展示，会解除已应用任务关联并清空当前头像。</span></div>
+          <div><strong>清空封面</strong><span>用于宠友圈封面违规，移动端宠友圈主页回退到小事图片或宠物头像。</span></div>
+          <div><strong>仍预留</strong><span>后台直接修正宠物资料、替换封面和合并重复宠物仍需更细权限。</span></div>
           <div><strong>合并重复宠物</strong><span>生产阶段需要迁移日历、AI、宠友圈和会话引用，不能直接删档。</span></div>
         </div>
       </div>
