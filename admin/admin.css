@@ -457,6 +457,15 @@ th {
   font-size: 12px;
 }
 
+.cell-sub.clamp {
+  display: -webkit-box;
+  line-height: 1.55;
+  max-width: 360px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;
@@ -537,7 +546,8 @@ th {
 }
 
 .moderation-toolbar,
-.ticket-toolbar {
+.ticket-toolbar,
+.pet-calendar-toolbar {
   align-items: flex-end;
   background: rgba(255, 247, 239, 0.5);
   border: 1px solid var(--line);

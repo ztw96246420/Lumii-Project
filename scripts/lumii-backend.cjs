@@ -646,6 +646,27 @@ function adminExportDataset(type) {
         exportColumn('lastSeenAt', '最近活跃', (row) => exportDateText(row.lastSeenAt)),
       ],
     },
+    pet_calendar: {
+      description: '宠物日历体重、疫苗/驱虫、备忘及来源，用于客服排查移动端日历记录。',
+      label: '宠物日历',
+      rows: () => adminPetCalendarRecords({ limit: ADMIN_EXPORT_ROW_LIMIT }).records,
+      columns: [
+        exportColumn('id', '记录ID'),
+        exportColumn('typeLabel', '类型'),
+        exportColumn('statusLabel', '状态'),
+        exportColumn('date', '日期'),
+        exportColumn('phone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('petName', '宠物名'),
+        exportColumn('petSpecies', '物种'),
+        exportColumn('petBreed', '品种'),
+        exportColumn('title', '标题'),
+        exportColumn('detail', '内容'),
+        exportColumn('sourceLabel', '来源'),
+        exportColumn('reminderEnabled', '提醒开启', (row) => exportBoolText(row.reminderEnabled)),
+        exportColumn('updatedAt', '更新时间', (row) => exportDateText(row.updatedAt)),
+      ],
+    },
     avatar_jobs: {
       description: 'AI 灵伴生成任务状态、供应商、进度和错误信息，用于排查卡住或失败任务。',
       label: 'AI 灵伴任务',
@@ -841,7 +862,7 @@ function adminExportDataset(type) {
 }
 
 function adminExportCatalog() {
-  return ['users', 'avatar_jobs', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
+  return ['users', 'pet_calendar', 'avatar_jobs', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
@@ -7388,6 +7409,172 @@ function adminUserSummary(user) {
   };
 }
 
+function adminHealthStoreList(storeName, key) {
+  const store = state.health?.[storeName] || {};
+  const rows = store[key];
+  return Array.isArray(rows) ? rows : [];
+}
+
+function adminHealthRecordDate(value, fallback = '') {
+  return calendarDatePart(value) || calendarDatePart(fallback) || isoDateFromTimestampId(fallback) || '';
+}
+
+function adminPetCalendarSource(type, record, aiMemoIds, aiWeightIds) {
+  if (type === 'memo' && record?.source === 'pet_circle') return { key: 'pet_circle', label: '宠友圈同步' };
+  if (type === 'memo' && aiMemoIds.has(record?.id)) return { key: 'ai_chat', label: 'AI 对话' };
+  if (type === 'weight' && aiWeightIds.has(record?.id)) return { key: 'ai_chat', label: 'AI 对话' };
+  if (type === 'memo' && String(record?.title || '').includes('就医提醒')) return { key: 'ai_chat', label: 'AI 医疗门禁' };
+  return { key: 'manual', label: '用户记录' };
+}
+
+function adminPetCalendarRecords(options = {}) {
+  const typeFilter = String(options.type || 'all');
+  const statusFilter = String(options.status || 'all');
+  const sourceFilter = String(options.source || 'all');
+  const q = String(options.q || '').trim().toLowerCase();
+  const from = adminHealthRecordDate(options.from);
+  const to = adminHealthRecordDate(options.to);
+  const limit = Math.floor(clampNumber(options.limit, 300, 1, ADMIN_EXPORT_ROW_LIMIT));
+  const messages = flattenPetChatMessagesForAnalytics();
+  const aiMemoIds = new Set(messages.map((message) => message.createdMemo?.id).filter(Boolean));
+  const aiWeightIds = new Set(messages.map((message) => message.createdWeight?.id).filter(Boolean));
+  const records = [];
+
+  Object.values(state.users || {}).forEach((user) => {
+    const phone = normalizePhone(user?.phone);
+    if (!phone) return;
+    const pets = Array.isArray(user.pets) ? user.pets : [];
+    const ownerName = user.ownerName || `用户${phone.slice(-4)}`;
+    pets.forEach((pet) => {
+      if (!pet?.id) return;
+      const key = `${phone}:${pet.id}`;
+      const base = {
+        ownerName,
+        petBreed: pet.breed || '',
+        petId: pet.id,
+        petName: pet.name || '未命名宠物',
+        petSpecies: pet.species === 'cat' ? 'cat' : 'dog',
+        phone,
+      };
+      const reminderIds = new Set(adminHealthStoreList('vaccineReminders', key));
+
+      adminHealthStoreList('weights', key).forEach((record) => {
+        const date = adminHealthRecordDate(record.recordedAt, record.id);
+        const source = adminPetCalendarSource('weight', record, aiMemoIds, aiWeightIds);
+        records.push({
+          ...base,
+          date,
+          detail: `${Number(record.kg) || 0} kg${record.note ? ` · ${record.note}` : ''}`,
+          id: `weight:${phone}:${pet.id}:${record.id}`,
+          rawStatus: 'recorded',
+          sourceId: record.id,
+          sourceKey: source.key,
+          sourceLabel: source.label,
+          status: 'recorded',
+          statusLabel: '已记录',
+          title: '体重记录',
+          type: 'weight',
+          typeLabel: '体重',
+          updatedAt: date,
+        });
+      });
+
+      adminHealthStoreList('vaccines', key).forEach((record) => {
+        const date = adminHealthRecordDate(record.dueAt, record.id);
+        const days = daysUntilDate(date);
+        const rawStatus = record.status === 'done' ? 'done' : days !== null && days < 0 ? 'overdue' : 'due';
+        const source = adminPetCalendarSource('vaccine', record, aiMemoIds, aiWeightIds);
+        records.push({
+          ...base,
+          date,
+          daysUntil: days,
+          detail: `${record.name || '疫苗/驱虫'} · ${vaccineStatusCopy(rawStatus)}${reminderIds.has(record.id) ? ' · 已开提醒' : ''}`,
+          id: `vaccine:${phone}:${pet.id}:${record.id}`,
+          rawStatus,
+          reminderEnabled: reminderIds.has(record.id),
+          sourceId: record.id,
+          sourceKey: source.key,
+          sourceLabel: source.label,
+          status: rawStatus,
+          statusLabel: vaccineStatusCopy(rawStatus),
+          title: record.name || '疫苗/驱虫',
+          type: 'vaccine',
+          typeLabel: '疫苗/驱虫',
+          updatedAt: record.updatedAt || date,
+        });
+      });
+
+      adminHealthStoreList('memos', key).forEach((record) => {
+        const sourceMomentDate = record?.source === 'pet_circle' && record.sourceId
+          ? ensureSocialMoments().find((item) => item.id === record.sourceId && item.phone === phone)?.createdAt
+          : '';
+        const date = adminHealthRecordDate(sourceMomentDate || record.createdAt, record.id || record.updatedAt);
+        const source = adminPetCalendarSource('memo', record, aiMemoIds, aiWeightIds);
+        records.push({
+          ...base,
+          date,
+          detail: record.content || '',
+          id: `memo:${phone}:${pet.id}:${record.id}`,
+          rawStatus: 'recorded',
+          sourceId: record.id,
+          sourceKey: source.key,
+          sourceLabel: source.label,
+          status: 'recorded',
+          statusLabel: '已记录',
+          title: record.title || '备忘',
+          type: 'memo',
+          typeLabel: '备忘',
+          updatedAt: record.updatedAt || record.createdAt || date,
+        });
+      });
+    });
+  });
+
+  const filteredRecords = records
+    .filter((record) => typeFilter === 'all' || record.type === typeFilter)
+    .filter((record) => statusFilter === 'all' || record.status === statusFilter || record.rawStatus === statusFilter)
+    .filter((record) => sourceFilter === 'all' || record.sourceKey === sourceFilter)
+    .filter((record) => !from || record.date >= from)
+    .filter((record) => !to || record.date <= to)
+    .filter((record) => {
+      if (!q) return true;
+      return [
+        record.id,
+        record.sourceId,
+        record.phone,
+        record.ownerName,
+        record.petId,
+        record.petName,
+        record.petBreed,
+        record.title,
+        record.detail,
+        record.sourceLabel,
+        record.statusLabel,
+      ].some((value) => String(value || '').toLowerCase().includes(q));
+    })
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) || String(a.id).localeCompare(String(b.id)));
+
+  const summarySource = filteredRecords;
+  const summary = {
+    aiWrites: summarySource.filter((record) => record.sourceKey === 'ai_chat').length,
+    all: summarySource.length,
+    memos: summarySource.filter((record) => record.type === 'memo').length,
+    overdueVaccines: summarySource.filter((record) => record.type === 'vaccine' && record.rawStatus === 'overdue').length,
+    petCircleMemos: summarySource.filter((record) => record.sourceKey === 'pet_circle').length,
+    recorded: summarySource.filter((record) => record.status === 'recorded').length,
+    reminderEnabled: summarySource.filter((record) => record.reminderEnabled).length,
+    totalRecords: records.length,
+    vaccines: summarySource.filter((record) => record.type === 'vaccine').length,
+    weights: summarySource.filter((record) => record.type === 'weight').length,
+  };
+
+  return {
+    filters: { from, q: options.q || '', source: sourceFilter, status: statusFilter, to, type: typeFilter },
+    records: filteredRecords.slice(0, limit),
+    summary,
+  };
+}
+
 function adminDashboardSummary() {
   const users = Object.values(state.users || {});
   const avatarJobs = Object.values(state.avatarJobs || {});
@@ -9531,6 +9718,18 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       notifications: normalizeNotificationsFor(phone),
       socialPosts: adminSocialPosts().filter((post) => post.ownerPhone === phone),
     });
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/pet-calendar') {
+    ok(res, adminPetCalendarRecords({
+      from: url.searchParams.get('from') || '',
+      q: url.searchParams.get('q') || '',
+      source: url.searchParams.get('source') || 'all',
+      status: url.searchParams.get('status') || 'all',
+      to: url.searchParams.get('to') || '',
+      type: url.searchParams.get('type') || 'all',
+    }));
     return true;
   }
 

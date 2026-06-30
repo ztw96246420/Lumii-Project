@@ -5,6 +5,12 @@ const state = {
   cache: {},
   moderationQ: '',
   moderationStatus: 'pending',
+  petCalendarFrom: '',
+  petCalendarQ: '',
+  petCalendarSource: 'all',
+  petCalendarStatus: 'all',
+  petCalendarTo: '',
+  petCalendarType: 'all',
   petChatDetails: {},
   petChatFlag: 'all',
   petChatQ: '',
@@ -19,6 +25,7 @@ const navItems = [
   { key: 'dashboard', label: '工作台' },
   { key: 'analytics', label: '数据看板' },
   { key: 'users', label: '用户管理' },
+  { key: 'petCalendar', label: '宠物日历' },
   { key: 'avatarJobs', label: 'AI 灵伴' },
   { key: 'petChat', label: 'AI 对话' },
   { key: 'moderation', label: '内容安全' },
@@ -43,6 +50,7 @@ const titles = {
   exports: ['数据导出', '可审计的运营 CSV 下载'],
   moderation: ['内容安全', '举报、动态、评论和地点审核任务池'],
   notifications: ['通知运营', '系统通知、定向触达和移动端通知中心联动'],
+  petCalendar: ['宠物日历', '体重、疫苗/驱虫、备忘和自动写入排查'],
   petChat: ['AI 对话', '宠物第一人称回复、医疗风险和自动写入排查'],
   places: ['地图地点', '地点点评与新增地点审核'],
   reports: ['举报中心', '宠友圈举报处理闭环'],
@@ -280,6 +288,28 @@ async function onContentClick(event) {
     }
     if (action === 'pet-chat-hide') {
       await hidePetChatMessage(button);
+      return;
+    }
+    if (action === 'pet-calendar-filter') {
+      state.petCalendarType = $('petCalendarType').value;
+      state.petCalendarStatus = $('petCalendarStatus').value;
+      state.petCalendarSource = $('petCalendarSource').value;
+      state.petCalendarFrom = $('petCalendarFrom').value;
+      state.petCalendarTo = $('petCalendarTo').value;
+      state.petCalendarQ = $('petCalendarQ').value.trim();
+      state.cache = { ...state.cache, petCalendar: null };
+      await render(true);
+      return;
+    }
+    if (action === 'pet-calendar-clear') {
+      state.petCalendarType = 'all';
+      state.petCalendarStatus = 'all';
+      state.petCalendarSource = 'all';
+      state.petCalendarFrom = '';
+      state.petCalendarTo = '';
+      state.petCalendarQ = '';
+      state.cache = { ...state.cache, petCalendar: null };
+      await render(true);
       return;
     }
     if (action === 'ticket-filter') {
@@ -703,6 +733,7 @@ async function render(force = false) {
     exports: renderExports,
     moderation: renderModeration,
     notifications: renderNotifications,
+    petCalendar: renderPetCalendar,
     petChat: renderPetChat,
     places: renderPlaces,
     reports: renderReports,
@@ -1318,6 +1349,122 @@ async function renderUsers(force) {
       `],
     ],
   });
+}
+
+function petCalendarOption(current, value, label) {
+  return `<option value="${escapeHtml(value)}" ${String(current) === String(value) ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+}
+
+function petCalendarSourceBadge(record) {
+  const tone = record.sourceKey === 'ai_chat' ? 'warn' : record.sourceKey === 'pet_circle' ? 'ok' : '';
+  return `<span class="pill ${tone}">${escapeHtml(record.sourceLabel || '-')}</span>`;
+}
+
+async function renderPetCalendar(force) {
+  const query = new URLSearchParams({
+    from: state.petCalendarFrom,
+    q: state.petCalendarQ,
+    source: state.petCalendarSource,
+    status: state.petCalendarStatus,
+    to: state.petCalendarTo,
+    type: state.petCalendarType,
+  });
+  const data = await load('petCalendar', `/admin/pet-calendar?${query.toString()}`, force);
+  const records = data.records || [];
+  const summary = data.summary || {};
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('日历记录', numberText(summary.all), `${numberText(summary.totalRecords)} 条全量记录`, '当前筛选下的体重、疫苗/驱虫和备忘总数；全量记录不受筛选影响。')}
+      ${metric('体重记录', numberText(summary.weights), `${numberText(summary.recorded)} 条已记录`, '体重来自移动端手动记录或 AI 对话自动写入。')}
+      ${metric('疫苗/驱虫', numberText(summary.vaccines), `${numberText(summary.overdueVaccines)} 条已逾期`, '后台会区分 due / overdue；移动端统一展示为“计划中”。')}
+      ${metric('备忘', numberText(summary.memos), `${numberText(summary.petCircleMemos)} 条宠友圈同步`, '备忘包括手动新增、宠友圈同步和 AI 对话创建。')}
+      ${metric('提醒开启', numberText(summary.reminderEnabled), '疫苗/驱虫提醒', '这里统计当前筛选结果中已开启提醒的疫苗/驱虫计划。')}
+      ${metric('AI 写入', numberText(summary.aiWrites), '对话自动记录', '来自 AI 对话自动创建的备忘、体重，或医疗门禁创建的就医提醒。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>宠物日历记录</h2>
+          <div class="section-sub">只读排查页：展示移动端真实宠物日历数据，不在后台直接修改用户记录</div>
+        </div>
+        ${help('后台技术字段仍读取 health store，但所有运营文案统一叫“宠物日历”。这页不调用会初始化默认记录的 C 端列表函数，避免打开后台制造假记录。')}
+      </div>
+      <div class="toolbar moderation-toolbar pet-calendar-toolbar">
+        <div class="toolbar-left">
+          <label>类型
+            <select id="petCalendarType">
+              ${petCalendarOption(state.petCalendarType, 'all', '全部')}
+              ${petCalendarOption(state.petCalendarType, 'weight', '体重')}
+              ${petCalendarOption(state.petCalendarType, 'vaccine', '疫苗/驱虫')}
+              ${petCalendarOption(state.petCalendarType, 'memo', '备忘')}
+            </select>
+          </label>
+          <label>状态
+            <select id="petCalendarStatus">
+              ${petCalendarOption(state.petCalendarStatus, 'all', '全部')}
+              ${petCalendarOption(state.petCalendarStatus, 'recorded', '已记录')}
+              ${petCalendarOption(state.petCalendarStatus, 'due', '计划中')}
+              ${petCalendarOption(state.petCalendarStatus, 'overdue', '已逾期')}
+              ${petCalendarOption(state.petCalendarStatus, 'done', '已完成')}
+            </select>
+          </label>
+          <label>来源
+            <select id="petCalendarSource">
+              ${petCalendarOption(state.petCalendarSource, 'all', '全部')}
+              ${petCalendarOption(state.petCalendarSource, 'manual', '用户记录')}
+              ${petCalendarOption(state.petCalendarSource, 'pet_circle', '宠友圈同步')}
+              ${petCalendarOption(state.petCalendarSource, 'ai_chat', 'AI 对话')}
+            </select>
+          </label>
+          <label>开始日期<input id="petCalendarFrom" type="date" value="${escapeHtml(state.petCalendarFrom)}" /></label>
+          <label>结束日期<input id="petCalendarTo" type="date" value="${escapeHtml(state.petCalendarTo)}" /></label>
+          <label>搜索<input id="petCalendarQ" placeholder="手机号、宠物、标题、记录ID" value="${escapeHtml(state.petCalendarQ)}" /></label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="pet-calendar-filter">筛选</button>
+          <button class="small-button ghost" data-action="pet-calendar-clear">清空</button>
+        </div>
+      </div>
+      ${tableHtml(records, [
+        ['用户 / 宠物', (r) => `<div class="cell-title">${escapeHtml(r.ownerName)}</div><div class="cell-sub">${shortPhone(r.phone)} · ${escapeHtml(r.petName)} ${r.petBreed ? `· ${escapeHtml(r.petBreed)}` : ''}</div>`],
+        ['类型', (r) => `<div>${statusPill(r.typeLabel)}</div><div class="cell-sub">${escapeHtml(r.sourceId || '-')}</div>`],
+        ['标题 / 内容', (r) => `<div class="cell-title">${escapeHtml(r.title || '-')}</div><div class="cell-sub clamp">${escapeHtml(r.detail || '-')}</div>`],
+        ['日期', (r) => `<div>${escapeHtml(r.date || '-')}</div><div class="cell-sub">更新：${formatTime(r.updatedAt)}</div>`],
+        ['状态', (r) => `${statusPill(r.statusLabel || r.status)}${r.reminderEnabled ? '<div class="cell-sub">已开提醒</div>' : ''}`],
+        ['来源', (r) => `${petCalendarSourceBadge(r)}<div class="cell-sub">${escapeHtml(r.id)}</div>`],
+      ], '暂无宠物日历记录')}
+    </div>
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>运营口径</h2>
+            <div class="section-sub">后台看的是排查视角，移动端看的是主人理解视角</div>
+          </div>
+          ${help('例如疫苗 due / overdue 在后台分开，方便运营发现逾期提醒；移动端已按你的要求统一显示“计划中”。')}
+        </div>
+        <div class="gap-list">
+          <div><strong>只读优先</strong><span>第一版不在后台编辑/删除日历记录，避免单 admin 误改用户数据。</span></div>
+          <div><strong>来源追踪</strong><span>宠友圈同步、AI 对话写入会被标识出来，方便解释“为什么日历里多了一条”。</span></div>
+          <div><strong>不制造默认记录</strong><span>本页直接读取持久化 state，不触发移动端健康列表的默认初始化逻辑。</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>后续动作预留</h2>
+            <div class="section-sub">需要审批和更细审计后再开放</div>
+          </div>
+          ${help('需求文档里有修复体重、标记疫苗完成、编辑/删除备忘。这里先预留，不直接开放。')}
+        </div>
+        <div class="gap-list">
+          <div><strong>体重修复</strong><span>只处理明显错误值，必须写原因、before/after 和影响范围。</span></div>
+          <div><strong>疫苗状态修复</strong><span>后台可分 due / overdue / done，但移动端仍统一简化给用户。</span></div>
+          <div><strong>备忘恢复</strong><span>删除、恢复、批量处理应进入高危操作审计。</span></div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 async function renderSanctions(force) {
@@ -2209,7 +2356,7 @@ async function renderConfig(force) {
           <h2>移动端联动配置</h2>
           <div class="section-sub">保存后，移动端下次启动会读取 /app/config 并影响对应功能</div>
         </div>
-        ${help('当前第一版已接入：图片上限、附近半径、AI 额度、功能开关。未接入项在文档里标注。')}
+        ${help('当前第一版已接入：图片上限、附近半径、附近小事有效天数、AI 额度、功能开关、维护、公告、版本更新、启动提示和内容安全规则。')}
       </div>
       <div class="config-grid">
         <label>宠友圈图片上限<input id="cfgPetCircleMaxPhotos" type="number" min="1" max="9" value="${config.social.petCircleMaxPhotos}" /></label>
