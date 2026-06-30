@@ -734,6 +734,50 @@ function adminExportDataset(type) {
         exportColumn('updatedAt', '更新时间', (row) => exportDateText(row.updatedAt)),
       ],
     },
+    ai_media: {
+      description: '宠物原图上传质量、来源和关联 AI 任务，用于排查生成前素材问题。',
+      label: 'AI 上传素材',
+      rows: () => adminAiMedia({ limit: ADMIN_EXPORT_ROW_LIMIT }).items,
+      columns: [
+        exportColumn('mediaId', '媒体ID'),
+        exportColumn('quality', '质量状态'),
+        exportColumn('qualityLabel', '质量标签'),
+        exportColumn('qualityScore', '质量分'),
+        exportColumn('analysisCode', '分析码'),
+        exportColumn('analysisTitle', '分析标题'),
+        exportColumn('ownerPhone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('petName', '宠物名'),
+        exportColumn('source', '来源'),
+        exportColumn('mimeType', '文件类型'),
+        exportColumn('sizeKb', '大小KB'),
+        exportColumn('avatarJobCount', '关联任务数'),
+        exportColumn('latestAvatarJobStatus', '最近任务状态'),
+        exportColumn('createdAt', '上传时间', (row) => exportDateText(row.createdAt)),
+      ],
+    },
+    avatar_feedback: {
+      description: '用户对 AI 灵伴结果的不满意原因、内容和处理状态，用于提示词与供应商质量复盘。',
+      label: 'AI 生成反馈',
+      rows: () => adminAvatarFeedback({ limit: ADMIN_EXPORT_ROW_LIMIT }).items,
+      columns: [
+        exportColumn('jobId', '任务ID'),
+        exportColumn('status', '处理状态'),
+        exportColumn('statusLabel', '处理状态标签'),
+        exportColumn('reason', '反馈原因'),
+        exportColumn('reasonLabel', '反馈原因标签'),
+        exportColumn('content', '反馈内容'),
+        exportColumn('ownerPhone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('petName', '宠物名'),
+        exportColumn('provider', '供应商'),
+        exportColumn('jobStatus', '任务状态'),
+        exportColumn('mediaId', '媒体ID'),
+        exportColumn('reviewedBy', '处理人'),
+        exportColumn('reviewedAt', '处理时间', (row) => exportDateText(row.reviewedAt)),
+        exportColumn('createdAt', '反馈时间', (row) => exportDateText(row.createdAt)),
+      ],
+    },
     moderation_tasks: {
       description: '统一内容安全任务池，覆盖举报、被举报内容、地点点评和新增地点。',
       label: '内容安全任务',
@@ -910,7 +954,7 @@ function adminExportDataset(type) {
 }
 
 function adminExportCatalog() {
-  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
+  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
@@ -8375,6 +8419,214 @@ function adminAvatarJobs() {
     .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
 }
 
+function avatarMediaQuality(analysis = {}) {
+  if (analysis.status === 'blocked') return 'blocked';
+  if (analysis.status === 'warning') return 'warning';
+  return 'good';
+}
+
+function avatarMediaQualityLabel(quality) {
+  if (quality === 'blocked') return '不可生成';
+  if (quality === 'warning') return '建议优化';
+  return '可生成';
+}
+
+function avatarMediaSourceLabel(source) {
+  if (source === 'mvp_sample') return '测试样例';
+  if (source === 'pet-source') return '宠物原图';
+  if (source === 'support') return '工单附件';
+  return source || '用户上传';
+}
+
+function avatarFeedbackReasonLabel(reason) {
+  const labels = {
+    color: '毛色/花纹不像',
+    expression: '表情不像',
+    face_shape: '脸型不像',
+    not_same_pet: '不像同一只宠物',
+    other: '其他',
+    style: '风格不喜欢',
+  };
+  return labels[reason] || '其他';
+}
+
+function avatarFeedbackStatusLabel(status) {
+  return status === 'reviewed' ? '已处理' : '待处理';
+}
+
+function adminAiMediaItem(media, req) {
+  const mediaId = media?.mediaId || '';
+  const ownerPhone = normalizePhone(media?.ownerPhone);
+  const owner = ownerPhone ? state.users[ownerPhone] : null;
+  const relatedJobs = Object.values(state.avatarJobs || {}).filter((job) => job.mediaId === mediaId);
+  const latestJob = relatedJobs
+    .slice()
+    .sort((a, b) => analyticsTimeMs(b.updatedAt || b.createdAt) - analyticsTimeMs(a.updatedAt || a.createdAt))[0] || null;
+  const pet = owner?.pets?.find((item) => item.id === latestJob?.petId) || (owner ? selectedPetFor(owner) : null);
+  const analysis = media?.analysis || analyzeUploadedPetMedia({}, media?.dataUrl);
+  const quality = avatarMediaQuality(analysis);
+  const fileUrl = media?.objectUrl || (req && mediaId ? mediaUploadFileUrl(req, mediaId) : '');
+  const previewUrl = media?.objectUrl || media?.previewUrl || fileUrl || '';
+  const sizeKb = Math.round(uploadedMediaBytes(media?.dataUrl) / 1024);
+  return {
+    analysisCode: analysis.code || '',
+    analysisMessage: analysis.message || '',
+    analysisTitle: analysis.title || '',
+    avatarJobCount: relatedJobs.length,
+    canGenerate: analysis.canGenerate !== false,
+    createdAt: media?.createdAt || '',
+    fileName: media?.fileName || '',
+    fileUrl,
+    latestAvatarJobId: latestJob?.id || '',
+    latestAvatarJobStatus: latestJob?.status || '',
+    mediaId,
+    mimeType: media?.mimeType || '',
+    ownerName: owner?.ownerName || (ownerPhone ? `用户${ownerPhone.slice(-4)}` : ''),
+    ownerPhone,
+    petId: pet?.id || latestJob?.petId || '',
+    petName: pet?.name || latestJob?.petName || '',
+    previewUrl,
+    quality,
+    qualityLabel: avatarMediaQualityLabel(quality),
+    qualityScore: Number(analysis.qualityScore || 0),
+    sizeKb,
+    source: media?.source || '',
+    sourceLabel: avatarMediaSourceLabel(media?.source),
+    storageProvider: media?.storageProvider || '',
+    suggestions: Array.isArray(analysis.suggestions) ? analysis.suggestions : [],
+    tags: Array.isArray(analysis.tags) ? analysis.tags : [],
+    updatedAt: media?.updatedAt || media?.createdAt || '',
+  };
+}
+
+function adminAiMedia(options = {}, req = null) {
+  const q = String(options.q || '').trim().toLowerCase();
+  const qualityFilter = String(options.quality || 'all');
+  const limit = Math.floor(clampNumber(options.limit, 300, 1, ADMIN_EXPORT_ROW_LIMIT));
+  const allItems = Object.values(state.mediaUploads || {})
+    .map((media) => adminAiMediaItem(media, req))
+    .sort((a, b) => analyticsTimeMs(b.createdAt || b.updatedAt) - analyticsTimeMs(a.createdAt || a.updatedAt));
+  const filtered = allItems.filter((item) => {
+    if (qualityFilter !== 'all' && item.quality !== qualityFilter) return false;
+    if (!q) return true;
+    const haystack = [
+      item.mediaId,
+      item.ownerPhone,
+      item.ownerName,
+      item.petName,
+      item.petId,
+      item.analysisCode,
+      item.analysisTitle,
+      item.source,
+      item.sourceLabel,
+      item.latestAvatarJobId,
+      item.latestAvatarJobStatus,
+    ].join(' ').toLowerCase();
+    return haystack.includes(q);
+  });
+  return {
+    items: filtered.slice(0, limit),
+    summary: {
+      all: filtered.length,
+      blocked: allItems.filter((item) => item.quality === 'blocked').length,
+      good: allItems.filter((item) => item.quality === 'good').length,
+      linked: allItems.filter((item) => item.avatarJobCount > 0).length,
+      totalMedia: allItems.length,
+      warning: allItems.filter((item) => item.quality === 'warning').length,
+    },
+  };
+}
+
+function adminAvatarFeedbackItem(job, req = null) {
+  const feedback = job?.feedback || {};
+  const owner = job?.ownerPhone ? state.users[job.ownerPhone] : null;
+  const media = job?.mediaId ? state.mediaUploads?.[job.mediaId] : null;
+  const pet = owner?.pets?.find((item) => item.id === job.petId) || (owner ? selectedPetFor(owner) : null);
+  const status = feedback.status === 'reviewed' ? 'reviewed' : 'received';
+  const mediaPreviewUrl = media?.objectUrl || media?.previewUrl || (req && media?.mediaId ? mediaUploadFileUrl(req, media.mediaId) : '');
+  return {
+    content: feedback.content || '',
+    createdAt: feedback.createdAt || job?.updatedAt || job?.createdAt || '',
+    jobId: job?.id || '',
+    jobStatus: job?.status || '',
+    mediaId: job?.mediaId || '',
+    mediaPreviewUrl,
+    ownerName: owner?.ownerName || (job?.ownerPhone ? `用户${String(job.ownerPhone).slice(-4)}` : ''),
+    ownerPhone: job?.ownerPhone || '',
+    petId: pet?.id || job?.petId || '',
+    petName: pet?.name || job?.petName || '',
+    progress: job?.progress || 0,
+    provider: job?.provider || '',
+    reason: feedback.reason || 'other',
+    reasonLabel: avatarFeedbackReasonLabel(feedback.reason || 'other'),
+    resultUrl: job?.resultUrl || '',
+    reviewNote: feedback.reviewNote || '',
+    reviewedAt: feedback.reviewedAt || '',
+    reviewedBy: feedback.reviewedBy || '',
+    status,
+    statusLabel: avatarFeedbackStatusLabel(status),
+    updatedAt: job?.updatedAt || '',
+  };
+}
+
+function adminAvatarFeedback(options = {}, req = null) {
+  const q = String(options.q || '').trim().toLowerCase();
+  const reasonFilter = String(options.reason || 'all');
+  const statusFilter = String(options.status || 'all');
+  const limit = Math.floor(clampNumber(options.limit, 300, 1, ADMIN_EXPORT_ROW_LIMIT));
+  const allItems = Object.values(state.avatarJobs || {})
+    .filter((job) => job?.feedback)
+    .map((job) => adminAvatarFeedbackItem(job, req))
+    .sort((a, b) => analyticsTimeMs(b.createdAt || b.updatedAt) - analyticsTimeMs(a.createdAt || a.updatedAt));
+  const filtered = allItems.filter((item) => {
+    if (statusFilter !== 'all' && item.status !== statusFilter) return false;
+    if (reasonFilter !== 'all' && item.reason !== reasonFilter) return false;
+    if (!q) return true;
+    const haystack = [
+      item.jobId,
+      item.ownerPhone,
+      item.ownerName,
+      item.petName,
+      item.petId,
+      item.mediaId,
+      item.provider,
+      item.reason,
+      item.reasonLabel,
+      item.content,
+    ].join(' ').toLowerCase();
+    return haystack.includes(q);
+  });
+  return {
+    items: filtered.slice(0, limit),
+    summary: {
+      all: filtered.length,
+      hasContent: allItems.filter((item) => item.content).length,
+      received: allItems.filter((item) => item.status !== 'reviewed').length,
+      reviewed: allItems.filter((item) => item.status === 'reviewed').length,
+      style: allItems.filter((item) => item.reason === 'style').length,
+      totalFeedback: allItems.length,
+      unlikePet: allItems.filter((item) => ['color', 'expression', 'face_shape', 'not_same_pet'].includes(item.reason)).length,
+    },
+  };
+}
+
+function reviewAvatarFeedback(admin, jobId, body = {}, req = null) {
+  const job = state.avatarJobs?.[jobId];
+  if (!job?.feedback) return { error: 'AI 生成反馈不存在', statusCode: 404 };
+  const before = cloneJson(job.feedback);
+  const note = String(body.reviewNote || body.note || body.reason || '').trim().slice(0, 240);
+  job.feedback = {
+    ...job.feedback,
+    reviewedAt: new Date().toISOString(),
+    reviewedBy: admin?.username || 'admin',
+    status: 'reviewed',
+    ...(note ? { reviewNote: note } : {}),
+  };
+  touchAvatarJob(job);
+  writeAdminAudit(admin, 'ai.avatar.feedback.review', 'avatar_job', job.id, before, job.feedback, adminReason(body, '标记 AI 生成反馈已处理'));
+  return { item: adminAvatarFeedbackItem(job, req) };
+}
+
 function adminSocialPosts() {
   return ensureSocialMoments()
     .map((moment) => {
@@ -10290,6 +10542,35 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/ai/avatar-jobs') {
     ok(res, adminAvatarJobs());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/ai/media') {
+    ok(res, adminAiMedia({
+      q: url.searchParams.get('q') || '',
+      quality: url.searchParams.get('quality') || 'all',
+    }, req));
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/ai/avatar-feedback') {
+    ok(res, adminAvatarFeedback({
+      q: url.searchParams.get('q') || '',
+      reason: url.searchParams.get('reason') || 'all',
+      status: url.searchParams.get('status') || 'all',
+    }, req));
+    return true;
+  }
+
+  const adminAvatarFeedbackReviewMatch = pathname.match(/^\/admin\/ai\/avatar-feedback\/([^/]+)\/review$/);
+  if (req.method === 'POST' && adminAvatarFeedbackReviewMatch) {
+    const result = reviewAvatarFeedback(admin, decodeURIComponent(adminAvatarFeedbackReviewMatch[1]), body, req);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_AVATAR_FEEDBACK_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.item);
     return true;
   }
 

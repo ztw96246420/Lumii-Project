@@ -1,5 +1,10 @@
 const state = {
   admin: null,
+  aiFeedbackQ: '',
+  aiFeedbackReason: 'all',
+  aiFeedbackStatus: 'all',
+  aiMediaQ: '',
+  aiMediaQuality: 'all',
   appealQ: '',
   appealStatus: 'open',
   cache: {},
@@ -53,7 +58,7 @@ const navItems = [
 const titles = {
   analytics: ['数据看板', '增长、AI、社交和安全趋势'],
   audit: ['系统审计', '后台所有写操作都会沉淀为审计记录'],
-  avatarJobs: ['AI 灵伴', '生成任务、失败排查、额度返还'],
+  avatarJobs: ['AI 灵伴', '生成任务、上传素材、用户反馈和额度处理'],
   config: ['配置中心', '这些配置会被移动端 /app/config 读取'],
   dashboard: ['总览', '运营工作台'],
   exports: ['数据导出', '可审计的运营 CSV 下载'],
@@ -432,6 +437,45 @@ async function onContentClick(event) {
     if (action === 'sanction-revoke') await confirmPost(`/admin/users/${encodeURIComponent(phone)}/sanctions/${encodeURIComponent(id)}/revoke`, { reason }, '确认撤销这条处罚？');
     if (action === 'quick-mute') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 24, reason: '用户列表快捷禁言', type: 'mute' });
     if (action === 'quick-freeze') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 72, reason: '用户列表快捷冻结', type: 'freeze' });
+    if (action === 'avatar-feedback-filter') {
+      state.aiFeedbackStatus = $('aiFeedbackStatus').value;
+      state.aiFeedbackReason = $('aiFeedbackReason').value;
+      state.aiFeedbackQ = $('aiFeedbackQ').value.trim();
+      state.cache = { ...state.cache, avatarFeedback: null };
+      await render(true);
+      return;
+    }
+    if (action === 'avatar-feedback-clear') {
+      state.aiFeedbackStatus = 'all';
+      state.aiFeedbackReason = 'all';
+      state.aiFeedbackQ = '';
+      state.cache = { ...state.cache, avatarFeedback: null };
+      await render(true);
+      return;
+    }
+    if (action === 'ai-media-filter') {
+      state.aiMediaQuality = $('aiMediaQuality').value;
+      state.aiMediaQ = $('aiMediaQ').value.trim();
+      state.cache = { ...state.cache, aiMedia: null };
+      await render(true);
+      return;
+    }
+    if (action === 'ai-media-clear') {
+      state.aiMediaQuality = 'all';
+      state.aiMediaQ = '';
+      state.cache = { ...state.cache, aiMedia: null };
+      await render(true);
+      return;
+    }
+    if (action === 'avatar-feedback-review') {
+      const note = window.prompt('请输入处理备注', button.dataset.defaultNote || '已记录为生成质量反馈');
+      if (note === null) return;
+      await post(`/admin/ai/avatar-feedback/${encodeURIComponent(id)}/review`, { reason: note.trim() || '标记 AI 生成反馈已处理' });
+      state.cache = { ...state.cache, avatarFeedback: null, avatarJobs: null, audit: null };
+      showToast('反馈已标记处理');
+      await render(true);
+      return;
+    }
     if (action === 'avatar-refresh') await post(`/admin/ai/avatar-jobs/${id}/refresh`, { reason });
     if (action === 'avatar-retry') await post(`/admin/ai/avatar-jobs/${id}/retry`, { reason });
     if (action === 'avatar-fail') await post(`/admin/ai/avatar-jobs/${id}/mark-failed`, { reason });
@@ -552,7 +596,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['audit', 'feedback', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -1944,27 +1988,228 @@ function renderSanctionAppealCard(appeal) {
   `;
 }
 
+function tonePill(label, tone = '') {
+  return `<span class="pill ${tone}">${escapeHtml(label)}</span>`;
+}
+
+function avatarQualityPill(row) {
+  const tone = row.quality === 'blocked' ? 'bad' : row.quality === 'warning' ? 'warn' : 'ok';
+  return tonePill(row.qualityLabel || row.quality || '-', tone);
+}
+
+function avatarPreview(url, label = '图') {
+  const safeUrl = String(url || '').trim();
+  return `
+    <div class="ai-media-preview">
+      ${safeUrl ? `<img src="${escapeHtml(safeUrl)}" alt="" loading="lazy" />` : `<span>${escapeHtml(label)}</span>`}
+    </div>
+  `;
+}
+
+function avatarTaskCell(job) {
+  return `
+    <div class="ai-job-cell">
+      ${avatarPreview(job.resultUrl || job.previewUrl, job.status === 'ready' ? 'AI' : '原')}
+      <div>
+        <div class="cell-title">${escapeHtml(job.petName || job.id)}</div>
+        <div class="cell-sub">${escapeHtml(job.id)}</div>
+        <div class="cell-sub">${job.mediaId ? `素材：${escapeHtml(job.mediaId)}` : '无素材ID'}</div>
+      </div>
+    </div>
+  `;
+}
+
+function avatarFeedbackAction(row) {
+  if (row.status === 'reviewed') {
+    return `<div class="cell-sub">已由 ${escapeHtml(row.reviewedBy || '-')} 处理</div>`;
+  }
+  return `<button class="small-button" data-action="avatar-feedback-review" data-id="${escapeHtml(row.jobId)}" data-default-note="记录为${escapeHtml(row.reasonLabel || '生成质量')}反馈">标记处理</button>`;
+}
+
+function avatarMediaCell(row) {
+  return `
+    <div class="ai-job-cell">
+      ${avatarPreview(row.previewUrl || row.fileUrl, '原')}
+      <div>
+        <div class="cell-title">${escapeHtml(row.mediaId || '-')}</div>
+        <div class="cell-sub">${escapeHtml(row.fileName || row.mimeType || '-')}</div>
+        <div class="cell-sub">${row.sizeKb ? `${numberText(row.sizeKb)} KB` : '大小未知'}</div>
+      </div>
+    </div>
+  `;
+}
+
 async function renderAvatarJobs(force) {
-  const rows = await load('avatarJobs', '/admin/ai/avatar-jobs', force);
-  renderTable({
-    empty: '暂无 AI 形象任务',
-    rows,
-    columns: [
-      ['任务', (job) => `<div class="cell-title">${escapeHtml(job.petName || job.id)}</div><div class="cell-sub">${escapeHtml(job.id)}</div>`],
-      ['用户', (job) => `<div>${escapeHtml(job.ownerName || '-')}</div><div class="cell-sub">${shortPhone(job.ownerPhone)}</div>`],
-      ['状态', (job) => `${statusPill(job.status)}<div class="cell-sub">${escapeHtml(job.provider || '-')} · ${job.progress || 0}%</div>`],
-      ['错误', (job) => `<div>${escapeHtml(job.errorCode || '-')}</div><div class="cell-sub">${escapeHtml(job.lastStatusError || job.errorMessage || '')}</div>`],
-      ['更新时间', (job) => formatTime(job.updatedAt || job.createdAt)],
-      ['操作', (job) => `
-        <div class="actions">
-          <button class="small-button" data-action="avatar-refresh" data-id="${job.id}">刷新</button>
-          <button class="small-button" data-action="avatar-retry" data-id="${job.id}">重试</button>
-          <button class="small-button" data-action="avatar-refund" data-id="${job.id}">返还</button>
-          <button class="small-button danger" data-action="avatar-fail" data-id="${job.id}">失败</button>
-        </div>
-      `],
-    ],
+  const feedbackQuery = new URLSearchParams({
+    q: state.aiFeedbackQ,
+    reason: state.aiFeedbackReason,
+    status: state.aiFeedbackStatus,
   });
+  const mediaQuery = new URLSearchParams({
+    q: state.aiMediaQ,
+    quality: state.aiMediaQuality,
+  });
+  const [jobs, feedbackData, mediaData] = await Promise.all([
+    load('avatarJobs', '/admin/ai/avatar-jobs', force),
+    load('avatarFeedback', `/admin/ai/avatar-feedback?${feedbackQuery.toString()}`, force),
+    load('aiMedia', `/admin/ai/media?${mediaQuery.toString()}`, force),
+  ]);
+  const jobRows = Array.isArray(jobs) ? jobs : [];
+  const feedbackRows = feedbackData.items || [];
+  const feedbackSummary = feedbackData.summary || {};
+  const mediaRows = mediaData.items || [];
+  const mediaSummary = mediaData.summary || {};
+  const processing = jobRows.filter((job) => job.status === 'processing');
+  const failed = jobRows.filter((job) => job.status === 'failed');
+  const ready = jobRows.filter((job) => job.status === 'ready');
+  const stuck = processing.filter((job) => Date.now() - new Date(job.updatedAt || job.createdAt || 0).getTime() > 5 * 60 * 1000);
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('生成任务', numberText(jobRows.length), `${numberText(processing.length)} 个处理中`, 'AI 灵伴生成任务全量计数，包含历史供应商任务。')}
+      ${metric('可用结果', numberText(ready.length), `${numberText(failed.length)} 个失败`, 'ready 表示后端已有结果图；是否应用到宠物头像看 acceptedAt。')}
+      ${metric('可能卡住', numberText(stuck.length), '处理中超过 5 分钟未更新', '用于排查进度条停在中间或 provider 状态没有刷新。')}
+      ${metric('待处理反馈', numberText(feedbackSummary.received), `${numberText(feedbackSummary.reviewed)} 条已处理`, '用户在 AI 灵伴结果页提交的不满意反馈。')}
+      ${metric('上传素材', numberText(mediaSummary.totalMedia), `${numberText(mediaSummary.linked)} 张已发起生成`, '移动端上传到 /media/uploads 的宠物原图素材。')}
+      ${metric('素材风险', numberText((mediaSummary.warning || 0) + (mediaSummary.blocked || 0)), `${numberText(mediaSummary.blocked)} 张不可生成`, 'warning/blocked 来自上传时的照片质量分析。')}
+    </div>
+
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>生成任务</h2>
+          <div class="section-sub">任务状态、供应商进度、失败排查和额度返还</div>
+        </div>
+        ${help('刷新只同步上游任务状态；重试会基于原始 mediaId 新建生成任务；返还额度会写入审计。')}
+      </div>
+      ${tableHtml(jobRows, [
+        ['任务', avatarTaskCell],
+        ['用户', (job) => `<div>${escapeHtml(job.ownerName || '-')}</div><div class="cell-sub">${shortPhone(job.ownerPhone)}</div>`],
+        ['状态', (job) => `${statusPill(job.status)}<div class="cell-sub">${escapeHtml(job.provider || '-')} · ${job.progress || 0}%</div><div class="cell-sub">${escapeHtml(job.providerStatus || '-')}</div>`],
+        ['错误', (job) => `<div>${escapeHtml(job.errorCode || '-')}</div><div class="cell-sub clamp">${escapeHtml(job.lastStatusError || job.errorMessage || '')}</div>`],
+        ['时间', (job) => `<div>创建：${formatTime(job.createdAt)}</div><div class="cell-sub">更新：${formatTime(job.updatedAt)}</div>`],
+        ['操作', (job) => `
+          <div class="actions">
+            <button class="small-button" data-action="avatar-refresh" data-id="${escapeHtml(job.id)}">刷新</button>
+            <button class="small-button" data-action="avatar-retry" data-id="${escapeHtml(job.id)}">重试</button>
+            <button class="small-button" data-action="avatar-refund" data-id="${escapeHtml(job.id)}">返还</button>
+            <button class="small-button danger" data-action="avatar-fail" data-id="${escapeHtml(job.id)}">失败</button>
+          </div>
+        `],
+      ], '暂无 AI 形象任务')}
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>生成反馈</h2>
+            <div class="section-sub">用户不满意原因、内容和后台处理状态</div>
+          </div>
+          ${help('反馈来自移动端结果页，不会自动重试；运营标记处理后用于复盘提示词、素材质量或供应商表现。')}
+        </div>
+        <div class="toolbar moderation-toolbar ai-toolbar">
+          <div class="toolbar-left">
+            <label>状态
+              <select id="aiFeedbackStatus">
+                ${option('all', '全部', state.aiFeedbackStatus)}
+                ${option('received', '待处理', state.aiFeedbackStatus)}
+                ${option('reviewed', '已处理', state.aiFeedbackStatus)}
+              </select>
+            </label>
+            <label>原因
+              <select id="aiFeedbackReason">
+                ${option('all', '全部', state.aiFeedbackReason)}
+                ${option('not_same_pet', '不像同一只宠物', state.aiFeedbackReason)}
+                ${option('color', '毛色/花纹不像', state.aiFeedbackReason)}
+                ${option('face_shape', '脸型不像', state.aiFeedbackReason)}
+                ${option('expression', '表情不像', state.aiFeedbackReason)}
+                ${option('style', '风格不喜欢', state.aiFeedbackReason)}
+                ${option('other', '其他', state.aiFeedbackReason)}
+              </select>
+            </label>
+            <label>搜索<input id="aiFeedbackQ" placeholder="手机号、宠物、任务ID、反馈内容" value="${escapeHtml(state.aiFeedbackQ)}" /></label>
+          </div>
+          <div class="actions">
+            <button class="small-button" data-action="avatar-feedback-filter">筛选</button>
+            <button class="small-button ghost" data-action="avatar-feedback-clear">清空</button>
+          </div>
+        </div>
+        ${tableHtml(feedbackRows, [
+          ['反馈', (row) => `<div class="cell-title">${escapeHtml(row.reasonLabel)}</div><div class="cell-sub clamp">${escapeHtml(row.content || '用户未填写补充说明')}</div>`],
+          ['用户', (row) => `<div>${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.ownerPhone)} · ${escapeHtml(row.petName || '-')}</div>`],
+          ['任务', (row) => `<div>${statusPill(row.jobStatus)}</div><div class="cell-sub">${escapeHtml(row.provider || '-')}</div><div class="cell-sub">${escapeHtml(row.jobId)}</div>`],
+          ['处理', (row) => `${tonePill(row.statusLabel, row.status === 'reviewed' ? 'ok' : 'warn')}<div class="cell-sub">${row.reviewedAt ? formatTime(row.reviewedAt) : '等待运营处理'}</div>`],
+          ['反馈时间', (row) => formatTime(row.createdAt)],
+          ['操作', avatarFeedbackAction],
+        ], '暂无生成反馈')}
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>上传素材</h2>
+            <div class="section-sub">生成前原图质量、来源和关联任务</div>
+          </div>
+          ${help('这里不返回 base64 原图，只展示预览地址、质量分析和关联任务，避免后台列表加载过重。')}
+        </div>
+        <div class="toolbar moderation-toolbar ai-toolbar">
+          <div class="toolbar-left">
+            <label>质量
+              <select id="aiMediaQuality">
+                ${option('all', '全部', state.aiMediaQuality)}
+                ${option('good', '可生成', state.aiMediaQuality)}
+                ${option('warning', '建议优化', state.aiMediaQuality)}
+                ${option('blocked', '不可生成', state.aiMediaQuality)}
+              </select>
+            </label>
+            <label>搜索<input id="aiMediaQ" placeholder="手机号、宠物、媒体ID、分析码" value="${escapeHtml(state.aiMediaQ)}" /></label>
+          </div>
+          <div class="actions">
+            <button class="small-button" data-action="ai-media-filter">筛选</button>
+            <button class="small-button ghost" data-action="ai-media-clear">清空</button>
+          </div>
+        </div>
+        ${tableHtml(mediaRows, [
+          ['素材', avatarMediaCell],
+          ['用户 / 宠物', (row) => `<div>${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.ownerPhone)} · ${escapeHtml(row.petName || '-')}</div>`],
+          ['质量', (row) => `${avatarQualityPill(row)}<div class="cell-sub">${numberText(row.qualityScore)} 分 · ${escapeHtml(row.analysisCode || '-')}</div><div class="cell-sub clamp">${escapeHtml(row.analysisTitle || row.analysisMessage || '')}</div>`],
+          ['来源', (row) => `<div>${escapeHtml(row.sourceLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.mimeType || '-')}</div>`],
+          ['关联', (row) => `<div>${numberText(row.avatarJobCount)} 个任务</div><div class="cell-sub">${row.latestAvatarJobId ? `${escapeHtml(row.latestAvatarJobStatus || '-')} · ${escapeHtml(row.latestAvatarJobId)}` : '暂未发起生成'}</div>`],
+          ['上传时间', (row) => formatTime(row.createdAt)],
+        ], '暂无上传素材')}
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>运营口径</h2>
+            <div class="section-sub">从任务、反馈和素材一起判断问题来源</div>
+          </div>
+        </div>
+        <div class="gap-list">
+          <div><strong>卡住优先看任务</strong><span>processing 超过 5 分钟未更新，先刷新 provider 状态，再判断是否重试或标记失败。</span></div>
+          <div><strong>不像宠物优先看反馈</strong><span>毛色、脸型、表情和不像同一只宠物，都会进入生成反馈，后续可沉淀为提示词样本。</span></div>
+          <div><strong>清晰度优先看素材</strong><span>warning 和 blocked 通常来自图片太小、多宠、人物入镜或主体不清晰。</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>下一阶段预留</h2>
+            <div class="section-sub">成本和供应商监控还需要更完整的上游回传</div>
+          </div>
+          ${help('当前已有请求次数、任务状态和错误信息；若要做成本看板，还需要记录每次调用的价格、模型、尺寸和供应商原始状态。')}
+        </div>
+        <div class="gap-list">
+          <div><strong>成本估算</strong><span>按 provider、模型、尺寸和成功率统计每只宠物生成成本。</span></div>
+          <div><strong>供应商 SLA</strong><span>记录提交、轮询、完成、失败和超时节点，用于对比 gpt-image-2 和历史供应商。</span></div>
+          <div><strong>样本集</strong><span>把已处理反馈沉淀成身份不一致、风格不满意、素材质量差等训练/评估样本。</span></div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 async function renderSocialPosts(force) {

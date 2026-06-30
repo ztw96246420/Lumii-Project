@@ -546,6 +546,7 @@ th {
 }
 
 .moderation-toolbar,
+.ai-toolbar,
 .ticket-toolbar,
 .pet-calendar-toolbar,
 .pet-profile-toolbar,
@@ -581,6 +582,35 @@ th {
 }
 
 .pet-avatar-thumb img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.ai-job-cell {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 250px;
+}
+
+.ai-media-preview {
+  align-items: center;
+  background: linear-gradient(135deg, #fff7ef, #fff);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--orange);
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 900;
+  height: 54px;
+  justify-content: center;
+  overflow: hidden;
+  width: 54px;
+}
+
+.ai-media-preview img {
   height: 100%;
   object-fit: cover;
   width: 100%;

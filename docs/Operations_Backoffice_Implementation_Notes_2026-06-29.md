@@ -93,6 +93,9 @@
 ### 3.4 AI 灵伴
 
 - `GET /admin/ai/avatar-jobs`
+- `GET /admin/ai/media`
+- `GET /admin/ai/avatar-feedback`
+- `POST /admin/ai/avatar-feedback/{jobId}/review`
 - `POST /admin/ai/avatar-jobs/{jobId}/refresh`
 - `POST /admin/ai/avatar-jobs/{jobId}/retry`
 - `POST /admin/ai/avatar-jobs/{jobId}/mark-failed`
@@ -100,12 +103,24 @@
 
 已支持：
 
-- 查看任务、用户、宠物、provider、进度、错误。
+- 后台 AI 灵伴页已聚合生成任务、上传素材和生成反馈。
+- 查看任务、用户、宠物、provider、进度、错误、原始 mediaId 和结果预览。
+- 查看上传素材质量：good / warning / blocked、质量分、分析码、分析标题、来源、文件类型、关联任务数。
+- 查看用户生成反馈：原因、补充内容、用户、宠物、任务、provider、反馈时间和处理状态。
+- 支持按反馈状态、反馈原因、关键词筛选生成反馈。
+- 支持按素材质量、关键词筛选上传素材。
+- 支持将用户生成反馈标记为已处理，写入处理人、处理时间、备注和审计日志。
 - 刷新上游任务状态。
 - 重试。
 - 后台标记失败。
 - 返还形象生成额度。
 - 写入审计日志。
+- 数据导出新增 AI 上传素材 CSV 和 AI 生成反馈 CSV；不导出图片二进制或 base64 原图。
+
+当前限制：
+
+- 尚未沉淀供应商原始 request / response、每次调用成本、完整 SLA 时间线。
+- 尚未开放“加入提示词样本集”、“供应商异常样本”或“直接应用结果图到宠物头像”等高权限动作。
 
 ### 3.4.1 AI 对话
 
@@ -540,12 +555,14 @@
 已支持：
 
 - 后台新增一级菜单：数据导出。
-- 支持 14 类 CSV 数据集：
+- 支持 16 类 CSV 数据集：
   - 用户账号。
   - 宠物档案。
   - 宠物日历。
   - 关系消息。
   - AI 灵伴任务。
+  - AI 上传素材。
+  - AI 生成反馈。
   - 内容安全任务。
   - 宠友圈小事。
   - 宠友圈评论。
