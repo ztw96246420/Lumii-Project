@@ -217,7 +217,11 @@ async function api(path, options = {}) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.state === 'error') {
     const message = payload?.error?.message || `请求失败（${response.status}）`;
-    throw new Error(message);
+    const error = new Error(message);
+    error.code = payload?.error?.code || '';
+    error.data = payload?.data || null;
+    error.status = response.status;
+    throw error;
   }
   return payload.data;
 }
@@ -257,7 +261,8 @@ async function login() {
     await render();
     showToast('已进入运营后台');
   } catch (error) {
-    $('loginError').textContent = error.message;
+    const lockText = error.data?.lockedUntil ? `（锁定到 ${formatTime(error.data.lockedUntil)}）` : '';
+    $('loginError').textContent = `${error.message || '登录失败'}${lockText}`;
   }
 }
 
@@ -1382,11 +1387,13 @@ async function renderAdminAccounts(force) {
   const data = await load('adminAccounts', '/admin/accounts', force);
   const summary = data.summary || {};
   const session = data.currentSession || {};
+  const loginSecurity = data.loginSecurity || {};
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('管理员账号', numberText(summary.activeAccounts || 0), '当前仅单 admin', '当前版本只开放一个环境变量后台账号，App 用户账号与后台账号分离。')}
       ${metric('已开放权限', numberText(summary.activePermissions || 0), 'admin 全量权限', '当前没有细角色拦截，页面明确列出实际开放能力和生产期预留角色。')}
-      ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.reservedRoles || 0)} 个预留角色`, 'MFA、IP 白名单、多管理员和密码轮换仍是生产期治理能力。')}
+      ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.reservedRoles || 0)} 个预留角色`, 'MFA、IP 白名单、多管理员和密码轮换仍是生产期治理能力；登录失败锁定已接入。')}
+      ${metric('登录保护', loginSecurity.locked ? '已锁定' : `${numberText(loginSecurity.failedAttempts || 0)}/${numberText(loginSecurity.maxAttempts || 5)}`, loginSecurity.locked ? `到 ${formatTime(loginSecurity.lockedUntil)}` : `${numberText(loginSecurity.lockMinutes || 15)} 分钟锁定`, '连续失败达到阈值后，后台会临时锁定登录，并写入审计日志。')}
       ${metric('当前会话', session.expiresAt ? formatTime(session.expiresAt) : '-', `${escapeHtml(session.ip || 'IP 未记录')}`, '当前后台 token 的到期时间、请求 IP 和 User-Agent 摘要。')}
     </div>
 
@@ -1420,6 +1427,41 @@ async function renderAdminAccounts(force) {
           ['检查项', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.key)}</div>`],
           ['说明', (row) => `<div>${escapeHtml(row.detail || '-')}</div><div class="cell-sub">${escapeHtml(row.evidence || '-')}</div>`],
         ], '暂无安全检查')}
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>登录保护</h2>
+            <div class="section-sub">失败计数、临时锁定和最近失败来源</div>
+          </div>
+          ${help('当前单 admin 账号共用一套失败计数。连续失败达到阈值会临时锁定登录；成功登录后自动清零。')}
+        </div>
+        ${tableHtml([loginSecurity], [
+          ['状态', (row) => row.locked ? tonePill('已锁定', 'bad') : tonePill('正常', 'ok')],
+          ['失败计数', (row) => `<div class="cell-title">${numberText(row.failedAttempts || 0)} / ${numberText(row.maxAttempts || 5)}</div><div class="cell-sub">累计锁定 ${numberText(row.lockCount || 0)} 次</div>`],
+          ['策略', (row) => `<div>连续失败锁定 ${numberText(row.lockMinutes || 15)} 分钟</div><div class="cell-sub">环境变量可调阈值和时长</div>`],
+          ['最近失败', (row) => `<div>${row.lastFailedAt ? formatTime(row.lastFailedAt) : '-'}</div><div class="cell-sub">${escapeHtml(row.lastFailedIp || 'IP 未记录')}</div>`],
+          ['锁定到', (row) => row.locked ? `<div>${formatTime(row.lockedUntil)}</div><div class="cell-sub">剩余约 ${numberText(row.remainingLockMinutes || 0)} 分钟</div>` : '<span class="cell-sub">未锁定</span>'],
+        ], '暂无登录保护状态')}
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>最近失败登录</h2>
+            <div class="section-sub">来自 admin.login.failed / locked 审计日志</div>
+          </div>
+          ${help('失败登录也写审计，方便后续排查撞库、误输密码或异常 IP。')}
+        </div>
+        ${tableHtml(data.recentFailedLogins || [], [
+          ['动作', (row) => `<div class="cell-title">${escapeHtml(row.action || '-')}</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
+          ['账号/IP', (row) => `<div>${escapeHtml(row.adminName || '-')}</div><div class="cell-sub">${escapeHtml(row.ip || 'IP 未记录')}</div>`],
+          ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div>`],
+          ['时间', (row) => `<div>${formatTime(row.createdAt)}</div><div class="cell-sub clamp">${escapeHtml(row.userAgent || 'UA 未记录')}</div>`],
+        ], '暂无失败登录记录')}
       </div>
     </div>
 
