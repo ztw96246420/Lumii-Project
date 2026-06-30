@@ -286,6 +286,7 @@
 
 - `social.petCircleMaxPhotos`：发布今日小事图片上限和 UI 计数。
 - `social.discoverRadiusKm`：附近发现和地图定位请求半径。
+- `social.nearbyMomentTtlDays`：附近宠友圈列表文案和客户端兜底过滤；后端仍是公开可见性的权威过滤。
 - `ai.petAvatarDailyLimit`：AI 形象额度兜底展示。
 - `ai.petChatDailyLimit`：AI 对话额度兜底展示。
 - `features.aiAvatar`：隐藏/拦截 AI 灵伴形象上传、生成、重试入口；后端返回 `FEATURE_DISABLED`。
@@ -307,11 +308,9 @@
 - 支持在后台点“回滚到此版本”，调用 `POST /admin/config/revisions/{revisionId}/rollback`。
 - 回滚会把当前配置恢复到目标版本快照，同时生成一条新的 `rollback` 版本，并记录 `sourceRevisionId`。
 - 回滚动作写入审计日志，action 为 `config.rollback`；普通保存写入 `config.update`。
-- 移动端无需改包，下一次读取 `/app/config` 后立即按回滚后的功能开关、维护模式、公告、更新策略、图片上限等配置生效。
+- 移动端无需改包，下一次读取 `/app/config` 后立即按回滚后的功能开关、维护模式、公告、更新策略、图片上限、附近半径和附近小事展示天数等配置生效。
 
-移动端暂未完整接入：
-
-- `social.nearbyMomentTtlDays` 目前主要由后端可见性使用。
+移动端暂未完整接入：暂无。
 
 ### 3.10 审计日志
 

@@ -991,6 +991,7 @@ const discoverFilterOptions: Array<{ key: DiscoverFilter; label: string }> = [
   { key: 'dog', label: '🐶 汪星人' },
   { key: 'cat', label: '🐱 喵星人' },
 ];
+const nearbyMomentMsPerDay = 24 * 60 * 60 * 1000;
 const dailyPostMaxPhotoCount = 6;
 const petCircleCollapsedTextLength = 96;
 const petCircleCommentMaxLength = 140;
@@ -1184,6 +1185,23 @@ function petCircleCreatedAtMs(item: Pick<NearbyMoment, 'createdAt'>) {
 
 function sortPetCircleMomentsByRecency(items: NearbyMoment[]) {
   return [...items].sort((left, right) => petCircleCreatedAtMs(right) - petCircleCreatedAtMs(left));
+}
+
+function normalizeNearbyMomentTtlDays(value: number | undefined) {
+  return Math.max(1, Math.min(90, Math.floor(Number(value) || 7)));
+}
+
+function filterNearbyMomentsByTtl(items: NearbyMoment[], ttlDays: number, nowMs = Date.now()) {
+  const maxAgeMs = normalizeNearbyMomentTtlDays(ttlDays) * nearbyMomentMsPerDay;
+  let changed = false;
+  const filtered = items.filter((item) => {
+    const createdAtMs = petCircleCreatedAtMs(item);
+    if (!createdAtMs) return true;
+    const keep = nowMs - createdAtMs <= maxAgeMs;
+    if (!keep) changed = true;
+    return keep;
+  });
+  return changed ? filtered : items;
 }
 
 type ConfirmState = {
@@ -2457,7 +2475,8 @@ export default function LumiiMvpApp() {
   }, [route]);
 
   const cooldownRemaining = Math.min(60, Math.max(0, Math.ceil((cooldownUntil - clock) / 1000)));
-  const configuredDiscoverRadiusKm = remoteConfig.social.discoverRadiusKm || defaultDiscoverRadiusKm;
+  const configuredDiscoverRadiusKm = Math.max(1, Math.min(20, Number(remoteConfig.social.discoverRadiusKm) || defaultDiscoverRadiusKm));
+  const nearbyMomentTtlDays = normalizeNearbyMomentTtlDays(remoteConfig.social.nearbyMomentTtlDays);
   const dailyPostPhotoLimit = Math.max(1, Math.min(9, Math.floor(remoteConfig.social.petCircleMaxPhotos || dailyPostMaxPhotoCount)));
   const petAvatarDailyUsage = aiUsage?.daily.petAvatar;
   const petAvatarDailyLimit = petAvatarDailyUsage?.limit ?? remoteConfig.ai.petAvatarDailyLimit ?? fallbackPetAvatarDailyLimit;
@@ -2502,6 +2521,10 @@ export default function LumiiMvpApp() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    setNearbyMoments((items) => filterNearbyMomentsByTtl(items, nearbyMomentTtlDays));
+  }, [nearbyMomentTtlDays]);
 
   useEffect(() => {
     if (!shouldShowAppUpdate || !appUpdate?.enabled || !appUpdateVersionKey) {
@@ -3658,7 +3681,7 @@ export default function LumiiMvpApp() {
       }
     }
     if (momentResult.data) {
-      setNearbyMoments(sortPetCircleMomentsByRecency(momentResult.data.items));
+      setNearbyMoments(sortPetCircleMomentsByRecency(filterNearbyMomentsByTtl(momentResult.data.items, nearbyMomentTtlDays)));
       setPetCircleNextCursor(momentResult.data.nextCursor);
       setNearbyMomentsError('');
     } else if (momentResult.error) {
@@ -7392,7 +7415,7 @@ export default function LumiiMvpApp() {
       const result = await lumiiApi.social.listPetCirclePosts(location ?? undefined);
       if (sessionTokenRef.current !== requestSessionToken) return null;
       if (result.data) {
-        const sortedItems = sortPetCircleMomentsByRecency(result.data.items);
+        const sortedItems = sortPetCircleMomentsByRecency(filterNearbyMomentsByTtl(result.data.items, nearbyMomentTtlDays));
         setNearbyMoments(sortedItems);
         setPetCircleNextCursor(result.data.nextCursor);
         setNearbyMomentsError('');
@@ -7429,7 +7452,7 @@ export default function LumiiMvpApp() {
       if (result.data) {
         setNearbyMoments((current) => {
           const currentIds = new Set(current.map((item) => item.id));
-          const additions = result.data!.items.filter((item) => !currentIds.has(item.id));
+          const additions = filterNearbyMomentsByTtl(result.data!.items, nearbyMomentTtlDays).filter((item) => !currentIds.has(item.id));
           return additions.length ? sortPetCircleMomentsByRecency([...current, ...additions]) : current;
         });
         setPetCircleNextCursor(result.data.nextCursor);
@@ -7699,7 +7722,7 @@ export default function LumiiMvpApp() {
         setDiscoverLocationError('');
         setDiscoverLastRefreshedAt(Date.now());
         void loadNearbyMoments({ location: lastDiscoverLocationRef.current, silent: true });
-        showToast(nextOwners.length ? '已刷新附近伙伴' : '3km 内暂时没有新的伙伴');
+        showToast(nextOwners.length ? '已刷新附近伙伴' : `${configuredDiscoverRadiusKm}km 内暂时没有新的伙伴`);
       }
     } finally {
       discoverRefreshingRef.current = false;
@@ -11962,6 +11985,8 @@ export default function LumiiMvpApp() {
       : visiblePetCirclePostsBase;
     const activeDiscoverCount = discoverTab === 'circle' ? visiblePetCirclePosts.length : visibleOwners.length;
     const activeDiscoverFilterLabel = discoverFilterOptions.find((item) => item.key === discoverFilter)?.label ?? '全部';
+    const discoverRadiusLabel = `${configuredDiscoverRadiusKm}km`;
+    const discoverCountLabel = discoverTab === 'circle' ? `${activeDiscoverCount} 条小事 · 近${nearbyMomentTtlDays}天` : `${activeDiscoverCount} 位伙伴`;
     const previewOwner: NearbyOwner = owners[0] ?? {
       distance: '?km',
       id: 'discover-preview',
@@ -11994,7 +12019,7 @@ export default function LumiiMvpApp() {
           <View style={styles.discoverEmptySummaryMake}>
             <SlidersHorizontal color={palette.orange} size={13} strokeWidth={2.4} />
             <Text numberOfLines={1} style={styles.discoverEmptySummaryTextMake}>
-              {discoverHasLocationError ? '定位失败 · 可重新刷新' : filtered ? `已应用条件 · ${discoverSearchQuery || activeDiscoverFilterLabel} · 3km 内` : '附近 3km 内 · 模糊距离 · 0 位'}
+              {discoverHasLocationError ? '定位失败 · 可重新刷新' : filtered ? `已应用条件 · ${discoverSearchQuery || activeDiscoverFilterLabel} · ${discoverRadiusLabel} 内` : `附近 ${discoverRadiusLabel} 内 · 模糊距离 · 0 位`}
             </Text>
             {filtered ? <Text onPress={clearDiscoverSearchAndFilter} style={styles.discoverEmptyClearMake}>清除</Text> : null}
           </View>
@@ -12576,15 +12601,15 @@ export default function LumiiMvpApp() {
         : filtered
           ? '没有匹配的小事'
           : hasNearbyPartners
-            ? '附近伙伴还没发布小事'
-            : '附近暂时还没有小事';
+            ? `附近伙伴近 ${nearbyMomentTtlDays} 天还没发布小事`
+            : `附近近 ${nearbyMomentTtlDays} 天还没有小事`;
       const desc = hasMomentError
         ? `${nearbyMomentsError}\n可以重新定位后再刷新`
         : filtered
           ? '可以清除搜索或筛选条件，看看更多附近宠友的日常。'
           : hasNearbyPartners
             ? `附近已有 ${owners.length} 位伙伴在线，可以先分享 ${currentPetName} 的今日小事。`
-            : '3km 内暂时没有公开小事，发布后附近宠友就能看到你的模糊距离动态。';
+            : `${discoverRadiusLabel} 内暂时没有公开小事，发布后附近宠友就能看到你的模糊距离动态。`;
       const actionText = hasMomentError ? '重新刷新' : filtered ? '清除条件' : '发布小事';
       const actionIcon = hasMomentError ? <RefreshCw color="#fff" size={14} strokeWidth={2.5} /> : filtered ? <X color="#fff" size={14} strokeWidth={2.5} /> : <Plus color="#fff" size={14} strokeWidth={2.5} />;
       const onAction = () => {
@@ -12906,7 +12931,7 @@ export default function LumiiMvpApp() {
           ) : null}
           <View style={[styles.locationChipMake, (discoverAccessIssue || discoverHasLocationError) && styles.locationChipDeniedMake]}>
             {discoverAccessIssue ? <Shield color={palette.danger} size={14} strokeWidth={2.4} /> : discoverHasLocationError ? <WifiOff color={palette.danger} size={14} strokeWidth={2.4} /> : <MapPin color={palette.orange} size={13} strokeWidth={2.4} />}
-            <Text style={[styles.locationChipText, (discoverAccessIssue || discoverHasLocationError) && styles.locationChipDeniedText]}>{discoverAccessIssue ? discoverIssueCopy.banner : discoverHasLocationError ? `定位失败 · ${discoverLocationError}` : `附近 · 3km 内 · ${discoverSearchQuery ? `搜索“${discoverSearchQuery}”` : activeDiscoverFilterLabel} · ${activeDiscoverCount} ${discoverTab === 'circle' ? '条小事' : '位伙伴'}`}</Text>
+            <Text style={[styles.locationChipText, (discoverAccessIssue || discoverHasLocationError) && styles.locationChipDeniedText]}>{discoverAccessIssue ? discoverIssueCopy.banner : discoverHasLocationError ? `定位失败 · ${discoverLocationError}` : `附近 · ${discoverRadiusLabel} 内 · ${discoverSearchQuery ? `搜索“${discoverSearchQuery}”` : activeDiscoverFilterLabel} · ${discoverCountLabel}`}</Text>
             {!discoverAccessIssue ? <Text style={styles.locationPrivacyPill}>模糊距离</Text> : null}
           </View>
           <ScrollView horizontal contentContainerStyle={styles.filterChipsMake} showsHorizontalScrollIndicator={false}>
