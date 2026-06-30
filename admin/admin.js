@@ -516,10 +516,10 @@ async function onContentClick(event) {
       await applyReportSanction(button);
       return;
     }
-    if (action === 'review-approve') await post(`/admin/places/reviews/${id}/approve`, { reason });
-    if (action === 'review-reject') await post(`/admin/places/reviews/${id}/reject`, { reason });
-    if (action === 'submission-approve') await post(`/admin/places/submissions/${id}/approve`, { reason });
-    if (action === 'submission-reject') await post(`/admin/places/submissions/${id}/reject`, { reason });
+    if (action === 'review-approve' || action === 'review-reject' || action === 'submission-approve' || action === 'submission-reject') {
+      await handlePlaceModerationAction(button);
+      return;
+    }
     if (action !== 'save-config') {
       clearOperationalCaches();
       showToast('处理完成');
@@ -535,12 +535,128 @@ async function handleModerationTaskAction(button) {
   const op = button.dataset.op;
   const label = button.textContent.trim() || op;
   const title = button.dataset.title || '审核任务';
+  const taskKind = String(taskId || '').split(':')[0];
+  if ((taskKind === 'placeReview' || taskKind === 'placeSubmission') && (op === 'approve' || op === 'reject')) {
+    const body = await buildPlaceModerationBody(taskKind === 'placeReview' ? 'review' : 'submission', op);
+    if (!body) return false;
+    await post(`/admin/moderation/tasks/${encodeURIComponent(taskId)}/${encodeURIComponent(op)}`, body);
+    return true;
+  }
   if (button.dataset.confirm === 'true' && !window.confirm(`确认${label}：${title}？`)) return false;
   const reason = window.prompt('请输入处理原因', `${label}：${title}`);
   if (reason === null) return false;
   await post(`/admin/moderation/tasks/${encodeURIComponent(taskId)}/${encodeURIComponent(op)}`, {
     reason: reason.trim() || `${label}：${title}`,
   });
+  return true;
+}
+
+function placeModerationActionLabel(action) {
+  if (action === 'approve') return '通过';
+  if (action === 'reject') return '驳回';
+  return action || '-';
+}
+
+function placeModerationKindLabel(kind) {
+  if (kind === 'review') return '地点点评';
+  if (kind === 'submission') return '新增地点';
+  return '地点内容';
+}
+
+function placeModerationTemplatesFor(templates, kind, action) {
+  return (Array.isArray(templates) ? templates : [])
+    .filter((template) => template.kind === kind && template.action === action);
+}
+
+function placeModerationTemplateBadges(templates) {
+  if (!templates?.length) return '<div class="cell-sub">暂无地点审核模板</div>';
+  return templates.map((template) => `
+    <span class="risk-badge">
+      ${escapeHtml(placeModerationKindLabel(template.kind))} · ${escapeHtml(placeModerationActionLabel(template.action))} · ${escapeHtml(template.title)}
+    </span>
+  `).join('');
+}
+
+function placeModerationTemplateMeta(item) {
+  return item.reviewTemplateLabel ? `<div class="cell-sub">模板：${escapeHtml(item.reviewTemplateLabel)}</div>` : '';
+}
+
+async function buildPlaceModerationBody(kind, action) {
+  const kindLabel = placeModerationKindLabel(kind);
+  const actionLabel = placeModerationActionLabel(action);
+  const templates = await load('placeModerationTemplates', '/admin/places/moderation-templates');
+  const choices = placeModerationTemplatesFor(templates, kind, action);
+  const promptLines = [
+    `选择${kindLabel}${actionLabel}原因模板：`,
+    ...choices.map((template, index) => `${index + 1}. ${template.title} - ${template.reason}`),
+    '',
+    '输入编号使用模板，或直接输入自定义审核原因。',
+  ];
+  const selection = window.prompt(promptLines.join('\n'), choices.length ? '1' : '');
+  if (selection === null) return null;
+  const rawSelection = selection.trim();
+  let template = null;
+  let reason = rawSelection;
+  if (/^\d+$/.test(rawSelection)) {
+    template = choices[Number(rawSelection) - 1] || null;
+    if (!template) throw new Error('审核模板编号不存在');
+    reason = template.reason;
+  } else if (!reason && choices.length) {
+    template = choices[0];
+    reason = template.reason;
+  }
+  const finalReason = window.prompt(`确认${kindLabel}${actionLabel}原因`, reason);
+  if (finalReason === null) return null;
+  const trimmedReason = finalReason.replace(/\s+/g, ' ').trim();
+  if (!trimmedReason) throw new Error('请填写审核原因');
+  return {
+    reason: trimmedReason,
+    ...(template ? { templateId: template.id } : {}),
+  };
+}
+
+async function handlePlaceModerationAction(button) {
+  const id = button.dataset.id;
+  const configMap = {
+    'review-approve': {
+      action: 'approve',
+      endpoint: (value) => `/admin/places/reviews/${encodeURIComponent(value)}/approve`,
+      kind: 'review',
+    },
+    'review-reject': {
+      action: 'reject',
+      endpoint: (value) => `/admin/places/reviews/${encodeURIComponent(value)}/reject`,
+      kind: 'review',
+    },
+    'submission-approve': {
+      action: 'approve',
+      endpoint: (value) => `/admin/places/submissions/${encodeURIComponent(value)}/approve`,
+      kind: 'submission',
+    },
+    'submission-reject': {
+      action: 'reject',
+      endpoint: (value) => `/admin/places/submissions/${encodeURIComponent(value)}/reject`,
+      kind: 'submission',
+    },
+  };
+  const config = configMap[button.dataset.action];
+  if (!id || !config) return false;
+  const kindLabel = placeModerationKindLabel(config.kind);
+  const actionLabel = placeModerationActionLabel(config.action);
+  const body = await buildPlaceModerationBody(config.kind, config.action);
+  if (!body) return false;
+  await post(config.endpoint(id), body);
+  state.cache = {
+    ...state.cache,
+    audit: null,
+    moderation: null,
+    notifications: null,
+    placeReviews: null,
+    placeSubmissions: null,
+    summary: null,
+  };
+  showToast(`${kindLabel}${actionLabel}已处理`);
+  await render(true);
   return true;
 }
 
@@ -2582,11 +2698,22 @@ function renderReportSanctionSuggestion(report) {
 }
 
 async function renderPlaces(force) {
-  const [reviews, submissions] = await Promise.all([
+  const [reviews, submissions, templates] = await Promise.all([
     load('placeReviews', '/admin/places/reviews', force),
     load('placeSubmissions', '/admin/places/submissions', force),
+    load('placeModerationTemplates', '/admin/places/moderation-templates', force),
   ]);
   $('content').innerHTML = `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>审核原因模板</h2>
+          <div class="section-sub">通过或驳回地点点评、新增地点时可套用，最终原因仍可编辑并同步给用户通知</div>
+        </div>
+        ${help('模板用于统一运营口径；真正写入审核记录、通知和审计的是最终提交的审核原因。')}
+      </div>
+      <div class="risk-row compact">${placeModerationTemplateBadges(templates)}</div>
+    </div>
     <div class="card">
       <div class="section-head">
         <div>
@@ -2597,7 +2724,7 @@ async function renderPlaces(force) {
       ${tableHtml(reviews, [
         ['点评', (r) => `<div class="cell-title">${escapeHtml(r.placeName)}</div><div class="cell-sub">${escapeHtml(r.content).slice(0, 90)}</div>`],
         ['用户', (r) => `<div>${escapeHtml(r.ownerName)}</div><div class="cell-sub">${shortPhone(r.ownerPhone)}</div>`],
-        ['状态', (r) => `${statusPill(r.status)}<div class="cell-sub">${r.resultNotifiedAt ? '已通知：' + formatTime(r.resultNotifiedAt) : '未通知用户'}</div>`],
+        ['状态', (r) => `${statusPill(r.status)}<div class="cell-sub">${r.resultNotifiedAt ? '已通知：' + formatTime(r.resultNotifiedAt) : '未通知用户'}</div>${placeModerationTemplateMeta(r)}`],
         ['时间', (r) => formatTime(r.createdAt)],
         ['操作', (r) => `
           <div class="actions">
@@ -2618,7 +2745,7 @@ async function renderPlaces(force) {
         ['地点', (s) => `<div class="cell-title">${escapeHtml(s.name)}</div><div class="cell-sub">${escapeHtml(s.address)}</div>`],
         ['体验', (s) => escapeHtml(s.content).slice(0, 100)],
         ['用户', (s) => `<div>${escapeHtml(s.ownerName)}</div><div class="cell-sub">${shortPhone(s.ownerPhone)}</div>`],
-        ['状态', (s) => `${statusPill(s.status)}<div class="cell-sub">${s.resultNotifiedAt ? '已通知：' + formatTime(s.resultNotifiedAt) : '未通知用户'}</div>`],
+        ['状态', (s) => `${statusPill(s.status)}<div class="cell-sub">${s.resultNotifiedAt ? '已通知：' + formatTime(s.resultNotifiedAt) : '未通知用户'}</div>${placeModerationTemplateMeta(s)}`],
         ['时间', (s) => formatTime(s.createdAt)],
         ['操作', (s) => `
           <div class="actions">

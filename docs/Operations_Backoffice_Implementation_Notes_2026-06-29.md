@@ -213,6 +213,7 @@
 - `GET /admin/places/reviews`
 - `POST /admin/places/reviews/{reviewId}/approve`
 - `POST /admin/places/reviews/{reviewId}/reject`
+- `GET /admin/places/moderation-templates`
 - `GET /admin/places/submissions`
 - `POST /admin/places/submissions/{submissionId}/approve`
 - `POST /admin/places/submissions/{submissionId}/reject`
@@ -224,12 +225,17 @@
 - 新增地点通过后创建 `manual` 来源地点，宠物友好状态为 `candidate`。
 - 点评和新增地点审核通过/驳回后，会向提交人写入 App 通知中心；移动端沿用 `place_review` / `place_submission` 通知入口。
 - 后台地点点评/新增地点审核表会显示结果通知时间。
+- 地点点评和新增地点审核支持内置原因模板；运营可以套用模板后编辑最终原因。
+- 内容安全任务池处理地点点评/新增地点时，也支持同一套审核原因模板。
+- 审核记录会保存 `reviewTemplateId`、`reviewTemplateLabel` 和最终 `reviewReason`。
+- 地点点评/新增地点 CSV 导出新增“审核模板ID”和“审核模板”字段。
+- 独立说明文档：[Operations_Backoffice_Place_Moderation_Templates_2026-06-30.md](Operations_Backoffice_Place_Moderation_Templates_2026-06-30.md)。
 
 未实现：
 
 - 地点合并。
 - 编辑地点详情。
-- 地点审核原因模板。
+- 自定义地点审核模板维护、排序和启停。
 
 ### 3.8 反馈工单
 

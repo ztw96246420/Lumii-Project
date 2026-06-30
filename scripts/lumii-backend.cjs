@@ -1168,6 +1168,8 @@ function adminExportDataset(type) {
         exportColumn('rating', '评分'),
         exportColumn('content', '点评内容'),
         exportColumn('reviewedBy', '审核人'),
+        exportColumn('reviewTemplateId', '审核模板ID'),
+        exportColumn('reviewTemplateLabel', '审核模板'),
         exportColumn('reviewReason', '审核原因'),
         exportColumn('createdAt', '提交时间', (row) => exportDateText(row.createdAt)),
         exportColumn('reviewedAt', '审核时间', (row) => exportDateText(row.reviewedAt)),
@@ -1187,6 +1189,8 @@ function adminExportDataset(type) {
         exportColumn('content', '补充说明'),
         exportColumn('approvedPlaceId', '通过后地点ID'),
         exportColumn('reviewedBy', '审核人'),
+        exportColumn('reviewTemplateId', '审核模板ID'),
+        exportColumn('reviewTemplateLabel', '审核模板'),
         exportColumn('reviewReason', '审核原因'),
         exportColumn('createdAt', '提交时间', (row) => exportDateText(row.createdAt)),
         exportColumn('reviewedAt', '审核时间', (row) => exportDateText(row.reviewedAt)),
@@ -2374,6 +2378,65 @@ const ADMIN_USER_RISK_TAGS = [
 ];
 const ADMIN_USER_RISK_TAG_KEY_SET = new Set(ADMIN_USER_RISK_TAGS.map((item) => item.key));
 const ADMIN_USER_RISK_TAG_LABEL_TO_KEY = new Map(ADMIN_USER_RISK_TAGS.map((item) => [item.label, item.key]));
+
+const PLACE_MODERATION_TEMPLATES = [
+  {
+    action: 'approve',
+    id: 'place_review_approve_relevant',
+    kind: 'review',
+    reason: '感谢分享，点评内容完整且与地点体验相关，已通过审核。',
+    title: '点评内容有效',
+  },
+  {
+    action: 'reject',
+    id: 'place_review_reject_irrelevant',
+    kind: 'review',
+    reason: '点评内容与该地点体验关联不足，请补充更具体的到店体验后再提交。',
+    title: '内容与地点无关',
+  },
+  {
+    action: 'reject',
+    id: 'place_review_reject_unclear',
+    kind: 'review',
+    reason: '点评信息不够清晰，暂无法确认真实体验，请补充宠物友好设施、服务或到店细节后再提交。',
+    title: '体验信息不足',
+  },
+  {
+    action: 'reject',
+    id: 'place_review_reject_unsafe',
+    kind: 'review',
+    reason: '点评内容包含不适合公开展示的信息，请修改后重新提交。',
+    title: '内容不适合公开',
+  },
+  {
+    action: 'approve',
+    id: 'place_submission_approve_complete',
+    kind: 'submission',
+    reason: '感谢补充宠物友好地点，名称、地址和体验描述清晰，已通过审核。',
+    title: '新增地点信息完整',
+  },
+  {
+    action: 'reject',
+    id: 'place_submission_reject_incomplete',
+    kind: 'submission',
+    reason: '地点名称或地址信息不够完整，暂无法确认地点，请补充准确名称和地址后再提交。',
+    title: '地点信息不完整',
+  },
+  {
+    action: 'reject',
+    id: 'place_submission_reject_duplicate',
+    kind: 'submission',
+    reason: '该地点疑似已存在于地图中，暂不重复创建。如信息有误，可在已有地点下补充点评。',
+    title: '疑似重复地点',
+  },
+  {
+    action: 'reject',
+    id: 'place_submission_reject_not_pet_friendly',
+    kind: 'submission',
+    reason: '暂未发现该地点具备明确宠物友好特征，建议补充宠物可进入区域、规则或现场照片后再提交。',
+    title: '宠物友好信息不足',
+  },
+];
 
 function adminUserRiskTagLabel(key) {
   return ADMIN_USER_RISK_TAGS.find((item) => item.key === key)?.label || key;
@@ -9549,6 +9612,38 @@ function findPlaceSubmission(submissionId) {
   return null;
 }
 
+function adminPlaceModerationTemplates() {
+  return PLACE_MODERATION_TEMPLATES.map((template) => ({ ...template }));
+}
+
+function placeModerationTemplateById(templateId) {
+  const id = String(templateId || '').trim();
+  if (!id) return null;
+  return PLACE_MODERATION_TEMPLATES.find((template) => template.id === id) || null;
+}
+
+function placeModerationReason(body = {}, kind, action, fallback = '地点审核处理') {
+  const template = placeModerationTemplateById(body.templateId);
+  if (body.templateId && !template) return { error: '地点审核模板不存在', statusCode: 400 };
+  if (template && (template.kind !== kind || template.action !== action)) {
+    return { error: '地点审核模板不适用于当前操作', statusCode: 400 };
+  }
+  const reason = String(body.reason || template?.reason || fallback).replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '请填写审核原因', statusCode: 400 };
+  return { reason, template };
+}
+
+function applyPlaceModerationReason(target, moderation) {
+  target.reviewReason = moderation.reason;
+  if (moderation.template) {
+    target.reviewTemplateId = moderation.template.id;
+    target.reviewTemplateLabel = moderation.template.title;
+  } else {
+    delete target.reviewTemplateId;
+    delete target.reviewTemplateLabel;
+  }
+}
+
 function adminFeedbackItems() {
   ensureSupportTickets();
   return (Array.isArray(state.feedback) ? state.feedback : [])
@@ -10897,25 +10992,29 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     const found = findPlaceReview(id);
     if (!found) return { error: '地点点评不存在', statusCode: 404 };
     if (action !== 'approve' && action !== 'reject') return { error: '不支持的地点点评处理动作', statusCode: 400 };
+    const moderation = placeModerationReason(body, 'review', action, reason);
+    if (moderation.error) return moderation;
     const before = { ...found.review };
     found.review.status = action === 'approve' ? 'approved' : 'rejected';
     found.review.reviewedAt = now;
     found.review.reviewedBy = admin.username;
-    found.review.reviewReason = reason;
-    markModerationTaskMeta(taskId, admin, action, reason);
-    notifyPlaceReviewModeration(found.phone, found.review, action, reason);
-    writeAdminAudit(admin, `moderation.placeReview.${action}`, 'place_review', id, before, found.review, reason);
+    applyPlaceModerationReason(found.review, moderation);
+    markModerationTaskMeta(taskId, admin, action, moderation.reason);
+    notifyPlaceReviewModeration(found.phone, found.review, action, moderation.reason);
+    writeAdminAudit(admin, `moderation.placeReview.${action}`, 'place_review', id, before, found.review, moderation.reason);
     return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
   }
   if (kind === 'placeSubmission') {
     const found = findPlaceSubmission(id);
     if (!found) return { error: '新增地点提交不存在', statusCode: 404 };
     if (action !== 'approve' && action !== 'reject') return { error: '不支持的新增地点处理动作', statusCode: 400 };
+    const moderation = placeModerationReason(body, 'submission', action, reason);
+    if (moderation.error) return moderation;
     const before = { ...found.submission };
     found.submission.status = action === 'approve' ? 'approved' : 'rejected';
     found.submission.reviewedAt = now;
     found.submission.reviewedBy = admin.username;
-    found.submission.reviewReason = reason;
+    applyPlaceModerationReason(found.submission, moderation);
     if (action === 'approve' && !found.submission.approvedPlaceId) {
       const place = {
         address: found.submission.address,
@@ -10933,9 +11032,9 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
       state.places = [place, ...(state.places || [])];
       found.submission.approvedPlaceId = place.id;
     }
-    markModerationTaskMeta(taskId, admin, action, reason);
-    notifyPlaceSubmissionModeration(found.phone, found.submission, action, reason);
-    writeAdminAudit(admin, `moderation.placeSubmission.${action}`, 'place_submission', id, before, found.submission, reason);
+    markModerationTaskMeta(taskId, admin, action, moderation.reason);
+    notifyPlaceSubmissionModeration(found.phone, found.submission, action, moderation.reason);
+    writeAdminAudit(admin, `moderation.placeSubmission.${action}`, 'place_submission', id, before, found.submission, moderation.reason);
     return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
   }
   return { error: '审核任务不存在', statusCode: 404 };
@@ -11646,6 +11745,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/places/moderation-templates') {
+    ok(res, adminPlaceModerationTemplates());
+    return true;
+  }
+
   if (req.method === 'GET' && pathname === '/admin/places/reviews') {
     ok(res, adminPlaceReviews());
     return true;
@@ -11666,12 +11770,17 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       return true;
     }
     const before = { ...found.review };
+    const moderation = placeModerationReason(body, 'review', action, action === 'approve' ? '地点点评审核通过' : '地点点评审核驳回');
+    if (moderation.error) {
+      fail(res, moderation.statusCode || 400, moderation.error, false, undefined, 'ADMIN_PLACE_REVIEW_REASON_INVALID');
+      return true;
+    }
     found.review.status = action === 'approve' ? 'approved' : 'rejected';
     found.review.reviewedAt = new Date().toISOString();
     found.review.reviewedBy = admin.username;
-    found.review.reviewReason = String(body.reason || '').slice(0, 240);
-    notifyPlaceReviewModeration(found.phone, found.review, action, body.reason);
-    writeAdminAudit(admin, `place.review.${action}`, 'place_review', reviewId, before, found.review, body.reason);
+    applyPlaceModerationReason(found.review, moderation);
+    notifyPlaceReviewModeration(found.phone, found.review, action, moderation.reason);
+    writeAdminAudit(admin, `place.review.${action}`, 'place_review', reviewId, before, found.review, moderation.reason);
     saveState();
     ok(res, adminPlaceReviews().find((item) => item.id === reviewId));
     return true;
@@ -11687,10 +11796,15 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       return true;
     }
     const before = { ...found.submission };
+    const moderation = placeModerationReason(body, 'submission', action, action === 'approve' ? '新增地点审核通过' : '新增地点审核驳回');
+    if (moderation.error) {
+      fail(res, moderation.statusCode || 400, moderation.error, false, undefined, 'ADMIN_PLACE_SUBMISSION_REASON_INVALID');
+      return true;
+    }
     found.submission.status = action === 'approve' ? 'approved' : 'rejected';
     found.submission.reviewedAt = new Date().toISOString();
     found.submission.reviewedBy = admin.username;
-    found.submission.reviewReason = String(body.reason || '').slice(0, 240);
+    applyPlaceModerationReason(found.submission, moderation);
     if (action === 'approve' && !found.submission.approvedPlaceId) {
       const place = {
         address: found.submission.address,
@@ -11708,8 +11822,8 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       state.places = [place, ...(state.places || [])];
       found.submission.approvedPlaceId = place.id;
     }
-    notifyPlaceSubmissionModeration(found.phone, found.submission, action, body.reason);
-    writeAdminAudit(admin, `place.submission.${action}`, 'place_submission', submissionId, before, found.submission, body.reason);
+    notifyPlaceSubmissionModeration(found.phone, found.submission, action, moderation.reason);
+    writeAdminAudit(admin, `place.submission.${action}`, 'place_submission', submissionId, before, found.submission, moderation.reason);
     saveState();
     ok(res, adminPlaceSubmissions().find((item) => item.id === submissionId));
     return true;
