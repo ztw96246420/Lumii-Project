@@ -17,6 +17,7 @@ const state = {
   exportFrom: '',
   exportPhone: '',
   exportQ: '',
+  exportReason: '',
   exportStatus: 'all',
   exportTo: '',
   exportType: 'all',
@@ -578,6 +579,7 @@ async function onContentClick(event) {
       state.exportFrom = $('exportFrom').value;
       state.exportTo = $('exportTo').value;
       state.exportQ = $('exportQ').value.trim();
+      state.exportReason = $('exportReason').value.trim();
       state.cache = { ...state.cache, exports: null };
       await render(true);
       return;
@@ -589,6 +591,7 @@ async function onContentClick(event) {
       state.exportFrom = '';
       state.exportTo = '';
       state.exportQ = '';
+      state.exportReason = '';
       state.cache = { ...state.cache, exports: null };
       await render(true);
       return;
@@ -4660,13 +4663,14 @@ async function rollbackConfigRevision(id) {
   await render(true);
 }
 
-function exportQueryParams() {
+function exportQueryParams(options = {}) {
   const query = new URLSearchParams();
   if (state.exportStatus && state.exportStatus !== 'all') query.set('status', state.exportStatus);
   if (state.exportPhone) query.set('phone', state.exportPhone);
   if (state.exportFrom) query.set('from', state.exportFrom);
   if (state.exportTo) query.set('to', state.exportTo);
   if (state.exportQ) query.set('q', state.exportQ);
+  if (options.includeReason && state.exportReason) query.set('reason', state.exportReason);
   return query;
 }
 
@@ -4739,6 +4743,7 @@ async function renderExports(force) {
       ${metric('可导出数据集', visibleRows.length, `${rows.length} 个总数据集`, '导出接口需要管理员登录，并会写入审计日志。')}
       ${metric('匹配行数', matchedRows, `${originalRows} 条原始行`, '按当前筛选条件命中的业务行数；CSV 仍受单次上限保护。')}
       ${metric('单次上限', rows[0]?.limit || 1000, '每个 CSV 最多行数', '防止误导出过大文件；后续可增加审批和异步导出。')}
+      ${metric('导出治理', '已开启', '原因必填 · CSV水印', '后端强制校验导出原因，CSV 每行追加水印列，审计记录水印 ID、筛选条件、行数和管理员。')}
       ${metric('筛选条件', activeFilterSummary === '未筛选' ? '未开启' : '已开启', activeFilterSummary, '下载 CSV 时会带上这些筛选条件，并写入审计日志。')}
     </div>
     <div class="card">
@@ -4757,6 +4762,7 @@ async function renderExports(force) {
           <label>开始日期<input id="exportFrom" type="date" value="${escapeHtml(state.exportFrom)}" /></label>
           <label>结束日期<input id="exportTo" type="date" value="${escapeHtml(state.exportTo)}" /></label>
           <input id="exportQ" value="${escapeHtml(state.exportQ)}" placeholder="关键词：ID / 昵称 / 内容 / 原因" />
+          <input id="exportReason" value="${escapeHtml(state.exportReason)}" placeholder="导出原因，必填，例如：排查用户反馈" />
         </div>
         <div class="actions">
           <button class="small-button" data-action="export-filter">筛选</button>
@@ -4767,7 +4773,7 @@ async function renderExports(force) {
         ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.type)}</div><div class="cell-sub">${escapeHtml(row.description)}</div>`],
         ['当前行数', (row) => `<div class="cell-title">${escapeHtml(row.rowCount)}</div><div class="cell-sub">原始 ${escapeHtml(row.totalRows ?? row.rowCount)} · 上限 ${escapeHtml(row.limit)}</div>`],
         ['字段', (row) => `<div class="export-fields">${(row.columns || []).slice(0, 8).map((item) => `<span>${escapeHtml(item)}</span>`).join('')}${(row.columns || []).length > 8 ? `<span>+${(row.columns || []).length - 8}</span>` : ''}</div>`],
-        ['操作', (row) => `<button class="small-button" data-action="download-export" data-id="${escapeHtml(row.type)}">下载匹配 CSV</button><div class="cell-sub">${escapeHtml(row.filterSummary || activeFilterSummary)}</div>`],
+        ['操作', (row) => `<button class="small-button" data-action="download-export" data-id="${escapeHtml(row.type)}">下载匹配 CSV</button><div class="cell-sub">${escapeHtml(row.filterSummary || activeFilterSummary)}</div><div class="cell-sub">${escapeHtml(row.governanceLabel || '需原因 · CSV水印')}</div>`],
       ], '暂无可导出数据')}
     </div>
     <div class="card">
@@ -4780,8 +4786,9 @@ async function renderExports(force) {
       </div>
       ${tableHtml(historyRows, [
         ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.datasetLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.datasetType || '-')}</div>`],
-        ['文件', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filename || '-')}</div><div class="cell-sub">字段 ${escapeHtml(row.columnsCount || 0)} 个</div>`],
+        ['文件/水印', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filename || '-')}</div><div class="cell-sub">字段 ${escapeHtml(row.columnsCount || 0)} 个 · 水印 ${escapeHtml(row.watermarkId || '-')}</div>`],
         ['筛选/行数', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filterSummary || '全部数据')}</div><div class="cell-sub">导出 ${escapeHtml(row.rowCount || 0)} / 匹配 ${escapeHtml(row.matchedRows || 0)} / 原始 ${escapeHtml(row.totalRows || 0)}</div>`],
+        ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.exportReason || row.reason || '-')}</div>`],
         ['管理员', (row) => `<div>${escapeHtml(row.adminName || '-')}</div><div class="cell-sub">${escapeHtml(row.ip || 'IP 未记录')}</div>`],
         ['时间', (row) => `<div>${formatTime(row.createdAt)}</div><div class="cell-sub clamp">${escapeHtml(row.userAgent || 'UA 未记录')}</div>`],
       ], '暂无导出记录')}
@@ -4791,7 +4798,12 @@ async function renderExports(force) {
 
 async function downloadExport(type) {
   if (!type) return;
-  const query = exportQueryParams();
+  state.exportReason = $('exportReason')?.value.trim() || state.exportReason;
+  if (state.exportReason.length < 4) {
+    showToast('请先填写导出原因，至少 4 个字');
+    return;
+  }
+  const query = exportQueryParams({ includeReason: true });
   const queryText = query.toString();
   const response = await fetch(`/admin/exports/${encodeURIComponent(type)}.csv${queryText ? `?${queryText}` : ''}`, {
     headers: {

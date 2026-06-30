@@ -1325,6 +1325,7 @@ function adminOpsConfigResponse() {
 }
 
 const ADMIN_EXPORT_ROW_LIMIT = 1000;
+const ADMIN_EXPORT_REASON_MIN_LENGTH = 4;
 const ADMIN_ANALYTICS_DEFAULT_DAYS = 14;
 const ADMIN_ANALYTICS_MAX_DAYS = 90;
 
@@ -1348,6 +1349,16 @@ function exportJoin(value, separator = ' | ') {
 
 function exportColumn(key, label, value) {
   return { key, label, value };
+}
+
+function adminExportWatermarkColumns(watermark = {}) {
+  return [
+    exportColumn('__exportWatermarkId', '导出水印ID', () => watermark.id || ''),
+    exportColumn('__exportedAt', '导出时间', () => watermark.exportedAt || ''),
+    exportColumn('__exportedBy', '导出管理员', () => watermark.adminName || ''),
+    exportColumn('__exportReason', '导出原因', () => watermark.reason || ''),
+    exportColumn('__exportFilter', '导出筛选', () => watermark.filterSummary || ''),
+  ];
 }
 
 function exportCellValue(row, column) {
@@ -1401,6 +1412,27 @@ function adminExportFilterSummary(filters = {}) {
   if (filters.to) parts.push(`结束=${filters.to}`);
   if (filters.q) parts.push(`关键词=${filters.q}`);
   return parts.join('；') || '全部数据';
+}
+
+function normalizeAdminExportReason(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+}
+
+function adminExportReasonFromUrl(url) {
+  return normalizeAdminExportReason(url.searchParams.get('reason'));
+}
+
+function createAdminExportWatermark(admin, result, reason) {
+  const exportedAt = new Date().toISOString();
+  return {
+    adminName: admin?.username || ADMIN_USERNAME,
+    datasetLabel: result.label,
+    datasetType: result.type,
+    exportedAt,
+    filterSummary: result.filterSummary,
+    id: `export-${adminExportTimestamp()}-${crypto.randomBytes(3).toString('hex')}`,
+    reason,
+  };
 }
 
 function adminExportJson(value) {
@@ -1944,25 +1976,26 @@ function adminExportCatalog(filters = {}) {
         columns: dataset.columns.map((column) => column.label),
         description: dataset.description,
         filterSummary: adminExportFilterSummary(normalizedFilters),
+        governanceLabel: '需原因 · CSV水印',
         label: dataset.label,
         limit: ADMIN_EXPORT_ROW_LIMIT,
+        reasonRequired: true,
         rowCount: filteredRows.length,
         totalRows: rows.length,
         type,
+        watermarkEnabled: true,
       };
     });
 }
 
-function buildAdminExportCsv(type, filters = {}) {
+function buildAdminExportCsv(type, filters = {}, options = {}) {
   const dataset = adminExportDataset(type);
   if (!dataset) return null;
   const allRows = dataset.rows();
   const normalizedFilters = normalizeAdminExportFilters(filters);
   const matchedRows = filterAdminExportRows(allRows, normalizedFilters);
   const rows = matchedRows.slice(0, ADMIN_EXPORT_ROW_LIMIT);
-  return {
-    columns: dataset.columns.map((column) => column.label),
-    csv: csvFromRows(rows, dataset.columns),
+  const baseResult = {
     filterSummary: adminExportFilterSummary(normalizedFilters),
     filters: normalizedFilters,
     filename: `lumii-${type}-${adminExportTimestamp()}.csv`,
@@ -1971,6 +2004,17 @@ function buildAdminExportCsv(type, filters = {}) {
     matchedRows: matchedRows.length,
     totalRows: allRows.length,
     type,
+  };
+  const reason = normalizeAdminExportReason(options.reason);
+  const watermark = createAdminExportWatermark(options.admin, baseResult, reason);
+  const columns = [...dataset.columns, ...adminExportWatermarkColumns(watermark)];
+  return {
+    ...baseResult,
+    columns: columns.map((column) => column.label),
+    csv: csvFromRows(rows, columns),
+    exportReason: reason,
+    watermark,
+    watermarkId: watermark.id,
   };
 }
 
@@ -1991,6 +2035,7 @@ function adminExportHistory(options = {}) {
         createdAt: log.createdAt,
         datasetLabel: dataset?.label || datasetType || '未知数据集',
         datasetType,
+        exportReason: after.exportReason || '',
         filename: after.filename || '',
         filterSummary: after.filterSummary || log.reason || '全部数据',
         filters: after.filters || {},
@@ -2002,6 +2047,7 @@ function adminExportHistory(options = {}) {
         rowCount,
         totalRows: Number(after.totalRows || 0),
         userAgent: log.userAgent || '',
+        watermarkId: after.watermarkId || after.watermark?.id || '',
       };
     })
     .filter((item) => {
@@ -2017,6 +2063,8 @@ function adminExportHistory(options = {}) {
         item.ip,
         item.reason,
         item.userAgent,
+        item.watermarkId,
+        item.exportReason,
         adminExportJson(item.filters),
       ].some((value) => String(value || '').toLowerCase().includes(q));
     });
@@ -10834,9 +10882,9 @@ function adminReadinessModules(context) {
       module: '通知运营',
       group: '触达',
       status: 'partial',
-      evidence: '支持系统通知、草稿、预约、撤回、模板、设备概览和 actionRoute。',
+      evidence: '支持系统通知、草稿、预约、撤回、模板、设备概览、actionRoute 和系统通知频控。',
       mobileLinkage: '通知会写入 App 通知中心，支持跳首页、发现、地图、我的、安全中心、设置、反馈进度。',
-      nextStep: '生产期补厂商 Push、复杂深链、发送审批、频控和灰度人群包。',
+      nextStep: '生产期补厂商 Push、复杂深链、发送审批和灰度人群包。',
     },
     {
       key: 'config',
@@ -10852,9 +10900,9 @@ function adminReadinessModules(context) {
       module: '数据导出与审计',
       group: '治理',
       status: 'partial',
-      evidence: 'CSV 导出支持筛选、历史、行数摘要和 data.export.download 审计；审计日志支持搜索筛选。',
+      evidence: 'CSV 导出支持筛选、导出原因、文件水印、历史、行数摘要和 data.export.download 审计；审计日志支持搜索筛选。',
       mobileLinkage: '导出覆盖移动端真实业务数据和 App 事件，不导出图片二进制或完整设备 token。',
-      nextStep: '生产期补导出审批、异步导出、文件归档、水印和敏感字段授权。',
+      nextStep: '生产期补双人导出审批、异步导出、文件归档和敏感字段授权。',
     },
     {
       key: 'system',
@@ -10881,7 +10929,7 @@ function adminReadinessQuestions() {
     ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '当前单 admin 可执行处罚；双人审批未接。', '影响高风险处罚治理。'],
     ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏，不开放完整手机号导出。', '影响隐私合规和数据泄露风险。'],
     ['q-place-reward', 'P2', '地点审核通过是否给用户奖励或贡献者标记？', '当前只通知审核结果，不做奖励。', '影响地点生态激励。'],
-    ['q-notification-approval', 'P1', '系统通知是否需要发送审批和频控？', '当前支持草稿/预约/撤回，未接审批和营销频控。', '影响用户打扰、误发和运营风险。'],
+    ['q-notification-approval', 'P1', '系统通知是否需要发送审批和灰度人群包？', '当前支持草稿/预约/撤回、模板和系统通知频控，未接发送审批。', '影响误发和运营风险。'],
     ['q-config-approval', 'P0', '配置强制更新、维护模式、全功能关闭是否必须审批？', '当前保存即发布并记录版本，可回滚。', '影响事故风险和发布治理。'],
     ['q-compliance-text', 'P0', 'App 备案、隐私政策、内容审核制度是否已准备生产版文本？', '当前代码层面不可替代法务/合规文本确认。', '影响正式上线合规。'],
   ].map(([id, priority, question, currentPolicy, impact]) => ({
@@ -10951,8 +10999,8 @@ function adminReadinessGaps(context) {
       area: '通知触达',
       severity: 'P1',
       status: 'partial',
-      issue: '当前以站内通知为主，厂商 Push、送达回执和频控未完成。',
-      requiredAction: '接 Android 厂商 Push、iOS APNs、回执、失败重试和营销频控。',
+      issue: '当前以站内通知为主，厂商 Push、送达回执、发送审批和灰度人群包未完成。',
+      requiredAction: '接 Android 厂商 Push、iOS APNs、回执、失败重试、发送审批和灰度人群包。',
       evidence: '通知运营页设备 token 概览',
     },
     {
@@ -10969,8 +11017,8 @@ function adminReadinessGaps(context) {
       area: '数据导出',
       severity: 'P1',
       status: 'partial',
-      issue: '导出已有审计，但没有审批、异步任务、归档和水印。',
-      requiredAction: '补导出申请、审批、文件生命周期、下载水印和敏感字段授权。',
+      issue: '导出已有审计、原因必填和 CSV 水印，但没有双人审批、异步任务、归档和过期下载链接。',
+      requiredAction: '补导出申请、双人审批、文件生命周期、对象存储归档和敏感字段授权。',
       evidence: '数据导出页 / 审计日志',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
@@ -13933,13 +13981,19 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   const adminExportMatch = pathname.match(/^\/admin\/exports\/([^/]+)\.csv$/);
   if (req.method === 'GET' && adminExportMatch) {
     const type = decodeURIComponent(adminExportMatch[1]);
-    const result = buildAdminExportCsv(type, adminExportFiltersFromUrl(url));
+    const exportReason = adminExportReasonFromUrl(url);
+    if (exportReason.length < ADMIN_EXPORT_REASON_MIN_LENGTH) {
+      fail(res, 400, `请填写导出原因（至少 ${ADMIN_EXPORT_REASON_MIN_LENGTH} 个字）`, false, undefined, 'ADMIN_EXPORT_REASON_REQUIRED');
+      return true;
+    }
+    const result = buildAdminExportCsv(type, adminExportFiltersFromUrl(url), { admin, reason: exportReason });
     if (!result) {
       fail(res, 404, '导出数据集不存在', false, undefined, 'ADMIN_EXPORT_NOT_FOUND');
       return true;
     }
     writeAdminAudit(admin, 'data.export.download', 'data_export', type, null, {
       columns: result.columns,
+      exportReason: result.exportReason,
       filterSummary: result.filterSummary,
       filters: result.filters,
       filename: result.filename,
@@ -13947,7 +14001,9 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       rowCount: result.rowCount,
       totalRows: result.totalRows,
       type,
-    }, `导出${result.label}：${result.filterSummary}`);
+      watermark: result.watermark,
+      watermarkId: result.watermarkId,
+    }, `导出${result.label}：${exportReason}；${result.filterSummary}`);
     saveState();
     sendCsv(res, result.filename, result.csv);
     return true;
