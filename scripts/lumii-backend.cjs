@@ -349,6 +349,11 @@ function defaultOpsConfig() {
         urgent: 2,
       },
     },
+    notifications: {
+      maxCampaignsPerDay: 5,
+      maxPerUserPerDay: 2,
+      rateLimitEnabled: true,
+    },
     social: {
       discoverRadiusKm: DEFAULT_DISCOVER_RADIUS_KM,
       nearbyMomentTtlDays: 7,
@@ -504,6 +509,15 @@ function normalizeSupportConfig(value, defaults) {
   };
 }
 
+function normalizeNotificationOpsConfig(value, defaults) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    maxCampaignsPerDay: Math.floor(clampNumber(source.maxCampaignsPerDay, defaults.maxCampaignsPerDay || 5, 1, 50)),
+    maxPerUserPerDay: Math.floor(clampNumber(source.maxPerUserPerDay, defaults.maxPerUserPerDay || 2, 1, 20)),
+    rateLimitEnabled: source.rateLimitEnabled !== false,
+  };
+}
+
 function normalizeAnalyticsConfig(value, defaults) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
@@ -532,6 +546,7 @@ function normalizeOpsConfig(value) {
   const app = source.app && typeof source.app === 'object' ? source.app : {};
   const features = source.features && typeof source.features === 'object' ? source.features : {};
   const moderation = source.moderation && typeof source.moderation === 'object' ? source.moderation : {};
+  const notifications = source.notifications && typeof source.notifications === 'object' ? source.notifications : {};
   const social = source.social && typeof source.social === 'object' ? source.social : {};
   const support = source.support && typeof source.support === 'object' ? source.support : {};
   return {
@@ -580,6 +595,7 @@ function normalizeOpsConfig(value) {
       walkInvite: features.walkInvite !== false,
     },
     moderation: normalizeModerationConfig(moderation, defaults.moderation),
+    notifications: normalizeNotificationOpsConfig(notifications, defaults.notifications),
     support: normalizeSupportConfig(support, defaults.support),
     social: {
       discoverRadiusKm: clampNumber(social.discoverRadiusKm, defaults.social.discoverRadiusKm, 1, 20),
@@ -610,6 +626,9 @@ function opsConfigSummary(config) {
     machineTextModerationEnabled: Boolean(config?.moderation?.machineTextEnabled),
     moderationEnabled: Boolean(config?.moderation?.enabled),
     moderationSampleReviewRatePercent: Number(config?.moderation?.sampleReviewRatePercent ?? 0),
+    notificationMaxCampaignsPerDay: Number(config?.notifications?.maxCampaignsPerDay || 0),
+    notificationMaxPerUserPerDay: Number(config?.notifications?.maxPerUserPerDay || 0),
+    notificationRateLimitEnabled: config?.notifications?.rateLimitEnabled !== false,
     discoverRadiusKm: Number(config?.social?.discoverRadiusKm || 0),
     enabledFeatures: Object.values(features).filter((value) => value !== false).length,
     nearbyMomentTtlDays: Number(config?.social?.nearbyMomentTtlDays || 0),
@@ -727,6 +746,7 @@ function buildOpsConfigPatch(before, body = {}) {
     },
     features: { ...before.features, ...(body.features || {}) },
     moderation: { ...before.moderation, ...(body.moderation || {}) },
+    notifications: { ...before.notifications, ...(body.notifications || {}) },
     social: { ...before.social, ...(body.social || {}) },
     support: {
       ...before.support,
@@ -793,6 +813,9 @@ function configChangeSummary(before, after) {
     ['moderation.highRiskKeywords', 'High-risk keywords'],
     ['moderation.reviewKeywords', 'Review keywords'],
     ['moderation.sampleReviewRatePercent', 'Moderation sample review rate'],
+    ['notifications.rateLimitEnabled', 'Notification rate limit enabled'],
+    ['notifications.maxCampaignsPerDay', 'Notification daily campaign cap'],
+    ['notifications.maxPerUserPerDay', 'Notification daily per-user cap'],
     ['support.slaHours', 'Support SLA hours'],
   ];
   return specs
@@ -833,6 +856,9 @@ function configRiskChanges(before, after) {
   addRisk('moderation.highRiskKeywords', 'High-risk keywords', 'P1', 'Can send public content into review.');
   addRisk('moderation.reviewKeywords', 'Review keywords', 'P1', 'Can send public content into review.');
   addRisk('moderation.sampleReviewRatePercent', 'Moderation sample review rate', 'P2', 'Can change how much approved public content enters manual quality sampling.');
+  addRisk('notifications.rateLimitEnabled', 'Notification rate limit', 'P1', 'Can remove the guardrail that prevents repeated system notifications.');
+  addRisk('notifications.maxCampaignsPerDay', 'Notification daily campaign cap', 'P2', 'Can make global notification sending more or less aggressive.');
+  addRisk('notifications.maxPerUserPerDay', 'Notification per-user daily cap', 'P2', 'Can make individual users receive more or fewer system notifications.');
   if (Number(configValueAt(after, 'ai.petAvatarDailyLimit')) === 0 && configValueChanged(before, after, 'ai.petAvatarDailyLimit')) {
     addRisk('ai.petAvatarDailyLimit', 'AI avatar daily limit', 'P1', 'Setting the limit to 0 effectively disables new avatar generation.');
   }
@@ -1102,6 +1128,16 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileApplied: true,
       mobileEvidence: '移动端登录后按手机号和提示版本展示一次，优先级低于版本更新。',
       userImpact: '用于启动时运营提示或重要说明。',
+    },
+    {
+      backendEvidence: 'deliverManagedSystemNotification 读取 notifications.rateLimitEnabled / maxCampaignsPerDay / maxPerUserPerDay，超限批次会失败，超限用户会跳过。',
+      backendEnforced: true,
+      group: '通知运营',
+      key: 'notifications.rateLimitEnabled',
+      label: '系统通知频控',
+      mobileApplied: true,
+      mobileEvidence: '移动端通知中心不读取阈值，但最终只会收到后端频控允许入站的系统通知。',
+      userImpact: '限制运营系统通知对用户的打扰，避免同一天重复触达或误发刷屏。',
     },
     {
       backendEvidence: '/analytics/events 会读取 currentOpsConfig().analytics.enabled，关闭后只返回 accepted=false，不落库。',
@@ -9014,6 +9050,7 @@ function markNotificationsRead(phone, ids) {
 const systemNotificationTargets = new Set(['active_today', 'all', 'phones']);
 const systemNotificationActionRoutes = new Set(['discover', 'home', 'map', 'notifications', 'profile', 'safety', 'settings', 'supportTickets']);
 const systemNotificationModes = new Set(['draft', 'scheduled', 'send']);
+const SYSTEM_NOTIFICATION_RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function ensureSystemNotifications() {
   state.systemNotifications = Array.isArray(state.systemNotifications) ? state.systemNotifications : [];
@@ -9048,6 +9085,62 @@ function normalizeSystemNotificationScheduledAt(value) {
   const date = new Date(text);
   if (Number.isNaN(date.getTime())) return '';
   return date.toISOString();
+}
+
+function systemNotificationTimestampMs(item = {}) {
+  return Date.parse(item.deliveredAt || item.createdAt || item.scheduledAt || '') || 0;
+}
+
+function notificationRateLimitConfig(config = currentOpsConfig()) {
+  const defaults = defaultOpsConfig().notifications;
+  return normalizeNotificationOpsConfig(config.notifications || {}, defaults);
+}
+
+function recentSystemNotificationCampaigns(now = Date.now()) {
+  const cutoff = now - SYSTEM_NOTIFICATION_RATE_WINDOW_MS;
+  return ensureSystemNotifications()
+    .filter((item) => item.status === 'sent')
+    .filter((item) => systemNotificationTimestampMs(item) >= cutoff);
+}
+
+function userSystemNotificationCountInWindow(phone, now = Date.now()) {
+  const cutoff = now - SYSTEM_NOTIFICATION_RATE_WINDOW_MS;
+  return (state.notifications?.[phone] || [])
+    .filter((item) => (normalizeNotificationKind(item.kind) || inferNotificationKind(item)) === 'system')
+    .filter((item) => Date.parse(item.createdAt || '') >= cutoff)
+    .length;
+}
+
+function notificationRateLimitSnapshot(config = currentOpsConfig(), now = Date.now()) {
+  const rateLimit = notificationRateLimitConfig(config);
+  const campaignsLast24h = recentSystemNotificationCampaigns(now).length;
+  return {
+    campaignsLast24h,
+    enabled: rateLimit.rateLimitEnabled,
+    maxCampaignsPerDay: rateLimit.maxCampaignsPerDay,
+    maxPerUserPerDay: rateLimit.maxPerUserPerDay,
+    remainingCampaigns: rateLimit.rateLimitEnabled ? Math.max(0, rateLimit.maxCampaignsPerDay - campaignsLast24h) : rateLimit.maxCampaignsPerDay,
+    windowHours: 24,
+  };
+}
+
+function systemNotificationCampaignRateLimit(now = Date.now(), config = currentOpsConfig()) {
+  const snapshot = notificationRateLimitSnapshot(config, now);
+  if (!snapshot.enabled) return { allowed: true, snapshot };
+  if (snapshot.campaignsLast24h >= snapshot.maxCampaignsPerDay) {
+    return {
+      allowed: false,
+      message: `系统通知频控：24 小时内已发送 ${snapshot.campaignsLast24h}/${snapshot.maxCampaignsPerDay} 批`,
+      snapshot,
+    };
+  }
+  return { allowed: true, snapshot };
+}
+
+function systemNotificationUserRateLimited(phone, now = Date.now(), config = currentOpsConfig()) {
+  const rateLimit = notificationRateLimitConfig(config);
+  if (!rateLimit.rateLimitEnabled) return false;
+  return userSystemNotificationCountInWindow(phone, now) >= rateLimit.maxPerUserPerDay;
 }
 
 function defaultNotificationTemplates() {
@@ -9159,6 +9252,9 @@ function systemNotificationItem(item) {
     id: item.id,
     mode: item.mode || (item.status === 'draft' ? 'draft' : item.status === 'scheduled' ? 'scheduled' : 'send'),
     phonesInput: item.phonesInput || '',
+    rateLimitSnapshot: item.rateLimitSnapshot || null,
+    rateLimitedCount: Number(item.rateLimitedCount || 0),
+    rateLimitedPhones: Array.isArray(item.rateLimitedPhones) ? item.rateLimitedPhones.slice(0, 20) : [],
     respectUserSettings: item.respectUserSettings !== false,
     revokedCount: Number(item.revokedCount || 0),
     scheduledAt: item.scheduledAt || '',
@@ -9181,6 +9277,7 @@ function adminSystemNotifications() {
   return {
     campaigns,
     devices: devices.slice(0, 200),
+    rateLimit: notificationRateLimitSnapshot(),
     summary: {
       activeToday: users.filter((user) => Date.now() - Number(user.lastSeenAt || 0) < 24 * 60 * 60 * 1000).length,
       campaigns: campaigns.length,
@@ -9247,11 +9344,16 @@ function createSystemNotification(admin, body = {}) {
 
 function deliverManagedSystemNotification(notification, admin, reason = '发送系统通知') {
   const now = new Date().toISOString();
+  const nowMs = Date.parse(now);
   const targetPhones = systemNotificationTargetPhones(notification.target, notification.phonesInput || notification.targetPhones);
+  const campaignRate = systemNotificationCampaignRateLimit(nowMs);
   notification.audienceCount = targetPhones.length;
   notification.deliveredAt = now;
   notification.deliveredCount = 0;
   notification.failedPhones = [];
+  notification.rateLimitSnapshot = campaignRate.snapshot;
+  notification.rateLimitedCount = 0;
+  notification.rateLimitedPhones = [];
   notification.skippedCount = 0;
   notification.targetPhones = targetPhones;
   notification.updatedAt = now;
@@ -9261,7 +9363,20 @@ function deliverManagedSystemNotification(notification, admin, reason = '发送�
     writeAdminAudit(admin, 'notification.system.failed', 'system_notification', notification.id, null, systemNotificationItem(notification), reason);
     return false;
   }
+  if (!campaignRate.allowed) {
+    notification.failedReason = campaignRate.message;
+    notification.status = 'failed';
+    writeAdminAudit(admin, 'notification.system.failed', 'system_notification', notification.id, null, systemNotificationItem(notification), campaignRate.message);
+    return false;
+  }
   for (const phone of targetPhones) {
+    if (systemNotificationUserRateLimited(phone, nowMs)) {
+      notification.skippedCount += 1;
+      notification.rateLimitedCount += 1;
+      if (notification.rateLimitedPhones.length < 50) notification.rateLimitedPhones.push(phone);
+      notification.failedPhones.push(phone);
+      continue;
+    }
     const added = addNotification(phone, {
       actionRoute: notification.actionRoute || undefined,
       campaignId: notification.id,

@@ -3965,10 +3965,12 @@ function renderNotificationCampaign(campaign) {
           ${campaign.scheduledAt ? `<span>预约：${formatTime(campaign.scheduledAt)}</span>` : ''}
           ${campaign.deliveredAt ? `<span>发送：${formatTime(campaign.deliveredAt)}</span>` : ''}
           ${campaign.canceledAt ? `<span>撤回：${formatTime(campaign.canceledAt)}</span>` : ''}
+          ${campaign.rateLimitSnapshot ? `<span>频控：${campaign.rateLimitSnapshot.campaignsLast24h || 0}/${campaign.rateLimitSnapshot.maxCampaignsPerDay || 0} 批</span>` : ''}
           <span>${campaign.respectUserSettings ? '尊重用户通知开关' : '重要通知强制入站'}</span>
         </div>
         <div class="risk-row">
           <span class="risk-badge">跳过 ${campaign.skippedCount || 0}</span>
+          ${campaign.rateLimitedCount ? `<span class="risk-badge">频控 ${campaign.rateLimitedCount}</span>` : ''}
           ${phones ? `<span class="risk-badge">样本 ${escapeHtml(phones)}</span>` : ''}
           ${failed ? `<span class="risk-badge">未入站 ${escapeHtml(failed)}</span>` : ''}
           ${campaign.failedReason ? `<span class="risk-badge">失败：${escapeHtml(campaign.failedReason)}</span>` : ''}
@@ -4006,6 +4008,7 @@ function configRevisionSummaryText(summary = {}) {
     `TTL ${summary.nearbyMomentTtlDays || 0}天`,
     `埋点 ${summary.analyticsEnabled === false ? '关' : `开/${summary.analyticsSampleRatePercent ?? 100}%`}`,
     `工单 ${summary.supportUrgentSlaHours ?? 2}/${summary.supportHighSlaHours ?? 8}h SLA`,
+    `通知频控 ${summary.notificationRateLimitEnabled === false ? '关' : `${summary.notificationMaxCampaignsPerDay || 0}批/${summary.notificationMaxPerUserPerDay || 0}人次`}`,
     ...toggles,
   ].join(' · ');
 }
@@ -4123,6 +4126,7 @@ async function renderNotifications(force) {
   const summary = data.summary || {};
   const campaigns = data.campaigns || [];
   const devices = data.devices || [];
+  const rateLimit = data.rateLimit || {};
   const templates = data.templates || [];
   $('content').innerHTML = `
     <div class="grid metrics">
@@ -4130,6 +4134,8 @@ async function renderNotifications(force) {
       ${metric('用户总数', summary.users || 0, `${summary.activeToday || 0} 今日活跃`, '“今日活跃用户”目标按 lastSeenAt 近 24 小时计算。')}
       ${metric('推送设备', summary.devices || 0, '已登记 token', '当前只是设备登记和站内通知记录；真实厂商推送服务后续可接入。')}
       ${metric('待处理', (summary.drafts || 0) + (summary.scheduled || 0), `${summary.drafts || 0} 草稿 · ${summary.scheduled || 0} 预约`, '草稿不会触达用户；预约通知到点后由服务自动写入 App 通知中心。')}
+      ${metric('频控余量', rateLimit.enabled === false ? '未开启' : numberText(rateLimit.remainingCampaigns || 0), `24h ${numberText(rateLimit.campaignsLast24h || 0)}/${numberText(rateLimit.maxCampaignsPerDay || 0)} 批`, '系统通知发送前会检查 24 小时滚动窗口，超过批次上限会被后端拒绝入站。')}
+      ${metric('单用户频控', rateLimit.enabled === false ? '未开启' : `${numberText(rateLimit.maxPerUserPerDay || 0)}/24h`, '超限用户会被跳过', '避免同一用户在一天内被运营系统通知反复打扰；审核、工单、处罚等业务通知不计入这个营销频控。')}
     </div>
 
     <div class="grid two notification-workspace">
@@ -4195,6 +4201,7 @@ async function renderNotifications(force) {
           <div><strong>指定手机号</strong><span>适合客服、灰度验证、单用户补偿通知。</span></div>
           <div><strong>强制入站</strong><span>仅用于安全、封禁、维护等必须告知的信息。</span></div>
           <div><strong>草稿/预约</strong><span>草稿只保留在后台；预约到点后自动写入目标用户通知中心。</span></div>
+          <div><strong>频控保护</strong><span>配置中心可限制 24 小时批次数和单用户入站次数，超限会跳过或失败。</span></div>
         </div>
       </div>
     </div>
@@ -4232,6 +4239,7 @@ async function renderConfig(force) {
   const announcement = config.app?.announcement || {};
   const contentSafety = config.contentSafety || {};
   const moderation = config.moderation || {};
+  const notifications = config.notifications || {};
   const revisions = config.revisions || [];
   const splash = config.app?.splash || {};
   const support = config.support || {};
@@ -4294,6 +4302,22 @@ async function renderConfig(force) {
           <label>高优先级小时<input id="cfgSupportSlaHigh" type="number" min="1" max="168" value="${supportSlaHours.high || 8}" /></label>
           <label>普通工单小时<input id="cfgSupportSlaNormal" type="number" min="1" max="336" value="${supportSlaHours.normal || 24}" /></label>
           <label>低优先级小时<input id="cfgSupportSlaLow" type="number" min="1" max="336" value="${supportSlaHours.low || 72}" /></label>
+        </div>
+      </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>系统通知频控</h2>
+            <div class="section-sub">保存后立即影响通知运营页的立即发送和预约到点发送，避免运营通知刷屏</div>
+          </div>
+          ${help('这里只限制后台系统通知，不限制审核结果、工单回复、处罚申诉、疫苗提醒等业务通知。批次上限超出时整批失败；单用户上限超出时该用户被跳过。')}
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgNotificationRateLimitEnabled', '启用系统通知频控', notifications.rateLimitEnabled !== false)}
+        </div>
+        <div class="config-grid">
+          <label>24 小时批次上限<input id="cfgNotificationMaxCampaignsPerDay" type="number" min="1" max="50" value="${Number.isFinite(Number(notifications.maxCampaignsPerDay)) ? notifications.maxCampaignsPerDay : 5}" /></label>
+          <label>单用户 24 小时上限<input id="cfgNotificationMaxPerUserPerDay" type="number" min="1" max="20" value="${Number.isFinite(Number(notifications.maxPerUserPerDay)) ? notifications.maxPerUserPerDay : 2}" /></label>
         </div>
       </div>
       <div class="config-section">
@@ -4572,6 +4596,11 @@ async function saveConfig(mode = 'publish') {
       reviewMessage: $('cfgModerationReviewMessage').value,
       sampleReviewRatePercent: moderationSampleReviewRatePercent,
       textRulesEnabled: $('cfgModerationTextRulesEnabled').checked,
+    },
+    notifications: {
+      maxCampaignsPerDay: Number($('cfgNotificationMaxCampaignsPerDay').value),
+      maxPerUserPerDay: Number($('cfgNotificationMaxPerUserPerDay').value),
+      rateLimitEnabled: $('cfgNotificationRateLimitEnabled').checked,
     },
     reason: mode === 'draft' ? '配置草稿保存' : '配置中心发布',
     social: {
