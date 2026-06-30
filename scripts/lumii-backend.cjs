@@ -989,6 +989,134 @@ function adminExportTimestamp() {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
 }
 
+function adminExportFiltersFromUrl(url) {
+  return normalizeAdminExportFilters({
+    from: url.searchParams.get('from'),
+    phone: url.searchParams.get('phone'),
+    q: url.searchParams.get('q'),
+    status: url.searchParams.get('status'),
+    to: url.searchParams.get('to'),
+  });
+}
+
+function normalizeAdminExportFilters(options = {}) {
+  return {
+    from: String(options.from || '').trim(),
+    phone: String(options.phone || '').trim(),
+    q: String(options.q || '').trim(),
+    status: String(options.status || 'all').trim() || 'all',
+    to: String(options.to || '').trim(),
+  };
+}
+
+function adminExportFilterSummary(filters = {}) {
+  const parts = [];
+  if (filters.status && filters.status !== 'all') parts.push(`状态=${filters.status}`);
+  if (filters.phone) parts.push(`手机号=${filters.phone}`);
+  if (filters.from) parts.push(`开始=${filters.from}`);
+  if (filters.to) parts.push(`结束=${filters.to}`);
+  if (filters.q) parts.push(`关键词=${filters.q}`);
+  return parts.join('；') || '全部数据';
+}
+
+function adminExportJson(value) {
+  try {
+    return JSON.stringify(value || {});
+  } catch {
+    return '';
+  }
+}
+
+function adminExportDateMs(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const text = String(value || '').trim();
+  if (!text) return null;
+  if (/^\d{10,13}$/u.test(text)) {
+    const numeric = Number(text);
+    if (Number.isFinite(numeric)) return text.length <= 10 ? numeric * 1000 : numeric;
+  }
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function adminExportRowDateMs(row) {
+  const keys = [
+    'createdAt',
+    'updatedAt',
+    'occurredAt',
+    'reviewedAt',
+    'submittedAt',
+    'lastSeenAt',
+    'latestActivityAt',
+    'date',
+    'expiresAt',
+    'revokedAt',
+  ];
+  for (const key of keys) {
+    const value = row?.[key];
+    if (!value) continue;
+    const parsed = adminExportDateMs(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function adminExportRowStatusCandidates(row) {
+  const keys = [
+    'status',
+    'statusLabel',
+    'quality',
+    'qualityLabel',
+    'providerStatus',
+    'jobStatus',
+    'slaState',
+    'type',
+    'typeLabel',
+    'visibility',
+  ];
+  return keys.map((key) => row?.[key]).filter((value) => value !== null && value !== undefined && String(value).trim());
+}
+
+function adminExportRowPhoneHaystack(row) {
+  const values = [];
+  const visit = (value, key = '') => {
+    if (value === null || value === undefined) return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, key));
+      return;
+    }
+    if (typeof value === 'object') {
+      Object.entries(value).forEach(([childKey, childValue]) => visit(childValue, childKey));
+      return;
+    }
+    if (String(key || '').toLowerCase().includes('phone')) values.push(String(value));
+  };
+  visit(row);
+  return values.join(' ').toLowerCase();
+}
+
+function filterAdminExportRows(rows, rawFilters = {}) {
+  const filters = normalizeAdminExportFilters(rawFilters);
+  const status = String(filters.status || 'all').toLowerCase();
+  const phone = String(filters.phone || '').toLowerCase();
+  const q = String(filters.q || '').toLowerCase();
+  const fromMs = auditDateStartMs(filters.from);
+  const toMs = auditDateEndMs(filters.to);
+  return rows.filter((row) => {
+    if (status !== 'all') {
+      const matchesStatus = adminExportRowStatusCandidates(row)
+        .some((value) => String(value || '').toLowerCase() === status);
+      if (!matchesStatus) return false;
+    }
+    if (phone && !adminExportRowPhoneHaystack(row).includes(phone)) return false;
+    const rowDateMs = adminExportRowDateMs(row);
+    if (fromMs !== null && (!Number.isFinite(rowDateMs) || rowDateMs < fromMs)) return false;
+    if (toMs !== null && (!Number.isFinite(rowDateMs) || rowDateMs > toMs)) return false;
+    if (q && !adminExportJson(row).toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
 function adminExportDataset(type) {
   const users = () => Object.values(state.users || {}).map(adminUserSummary)
     .sort((a, b) => Number(b.lastSeenAt || b.createdAt || 0) - Number(a.lastSeenAt || a.createdAt || 0));
@@ -1394,33 +1522,42 @@ function adminExportDataset(type) {
   return specs[type] || null;
 }
 
-function adminExportCatalog() {
+function adminExportCatalog(filters = {}) {
+  const normalizedFilters = normalizeAdminExportFilters(filters);
   return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
+      const filteredRows = filterAdminExportRows(rows, normalizedFilters);
       return {
         columns: dataset.columns.map((column) => column.label),
         description: dataset.description,
+        filterSummary: adminExportFilterSummary(normalizedFilters),
         label: dataset.label,
         limit: ADMIN_EXPORT_ROW_LIMIT,
-        rowCount: rows.length,
+        rowCount: filteredRows.length,
+        totalRows: rows.length,
         type,
       };
     });
 }
 
-function buildAdminExportCsv(type) {
+function buildAdminExportCsv(type, filters = {}) {
   const dataset = adminExportDataset(type);
   if (!dataset) return null;
   const allRows = dataset.rows();
-  const rows = allRows.slice(0, ADMIN_EXPORT_ROW_LIMIT);
+  const normalizedFilters = normalizeAdminExportFilters(filters);
+  const matchedRows = filterAdminExportRows(allRows, normalizedFilters);
+  const rows = matchedRows.slice(0, ADMIN_EXPORT_ROW_LIMIT);
   return {
     columns: dataset.columns.map((column) => column.label),
     csv: csvFromRows(rows, dataset.columns),
+    filterSummary: adminExportFilterSummary(normalizedFilters),
+    filters: normalizedFilters,
     filename: `lumii-${type}-${adminExportTimestamp()}.csv`,
     label: dataset.label,
     rowCount: rows.length,
+    matchedRows: matchedRows.length,
     totalRows: allRows.length,
     type,
   };
@@ -11659,25 +11796,28 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   }
 
   if (req.method === 'GET' && pathname === '/admin/exports') {
-    ok(res, adminExportCatalog());
+    ok(res, adminExportCatalog(adminExportFiltersFromUrl(url)));
     return true;
   }
 
   const adminExportMatch = pathname.match(/^\/admin\/exports\/([^/]+)\.csv$/);
   if (req.method === 'GET' && adminExportMatch) {
     const type = decodeURIComponent(adminExportMatch[1]);
-    const result = buildAdminExportCsv(type);
+    const result = buildAdminExportCsv(type, adminExportFiltersFromUrl(url));
     if (!result) {
       fail(res, 404, '导出数据集不存在', false, undefined, 'ADMIN_EXPORT_NOT_FOUND');
       return true;
     }
     writeAdminAudit(admin, 'data.export.download', 'data_export', type, null, {
       columns: result.columns,
+      filterSummary: result.filterSummary,
+      filters: result.filters,
       filename: result.filename,
+      matchedRows: result.matchedRows,
       rowCount: result.rowCount,
       totalRows: result.totalRows,
       type,
-    }, `导出${result.label}`);
+    }, `导出${result.label}：${result.filterSummary}`);
     saveState();
     sendCsv(res, result.filename, result.csv);
     return true;

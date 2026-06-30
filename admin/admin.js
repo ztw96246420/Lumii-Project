@@ -14,6 +14,12 @@ const state = {
   appealQ: '',
   appealStatus: 'open',
   cache: {},
+  exportFrom: '',
+  exportPhone: '',
+  exportQ: '',
+  exportStatus: 'all',
+  exportTo: '',
+  exportType: 'all',
   feedbackCategory: 'all',
   feedbackQ: '',
   feedbackStatus: 'open',
@@ -493,6 +499,28 @@ async function onContentClick(event) {
     if (action === 'save-config') await saveConfig();
     if (action === 'config-rollback') {
       await rollbackConfigRevision(id);
+      return;
+    }
+    if (action === 'export-filter') {
+      state.exportType = $('exportType').value;
+      state.exportStatus = $('exportStatus').value;
+      state.exportPhone = $('exportPhone').value.trim();
+      state.exportFrom = $('exportFrom').value;
+      state.exportTo = $('exportTo').value;
+      state.exportQ = $('exportQ').value.trim();
+      state.cache = { ...state.cache, exports: null };
+      await render(true);
+      return;
+    }
+    if (action === 'export-clear') {
+      state.exportType = 'all';
+      state.exportStatus = 'all';
+      state.exportPhone = '';
+      state.exportFrom = '';
+      state.exportTo = '';
+      state.exportQ = '';
+      state.cache = { ...state.cache, exports: null };
+      await render(true);
       return;
     }
     if (action === 'download-export') {
@@ -3841,14 +3869,77 @@ async function rollbackConfigRevision(id) {
   await render(true);
 }
 
+function exportQueryParams() {
+  const query = new URLSearchParams();
+  if (state.exportStatus && state.exportStatus !== 'all') query.set('status', state.exportStatus);
+  if (state.exportPhone) query.set('phone', state.exportPhone);
+  if (state.exportFrom) query.set('from', state.exportFrom);
+  if (state.exportTo) query.set('to', state.exportTo);
+  if (state.exportQ) query.set('q', state.exportQ);
+  return query;
+}
+
+function exportFilterSummary(rows = []) {
+  const dataset = rows.find((row) => row.type === state.exportType);
+  const parts = [];
+  if (state.exportType !== 'all') parts.push(`数据集=${dataset?.label || state.exportType}`);
+  if (state.exportStatus !== 'all') parts.push(`状态=${state.exportStatus}`);
+  if (state.exportPhone) parts.push(`手机号=${state.exportPhone}`);
+  if (state.exportFrom) parts.push(`开始=${state.exportFrom}`);
+  if (state.exportTo) parts.push(`结束=${state.exportTo}`);
+  if (state.exportQ) parts.push(`关键词=${state.exportQ}`);
+  return parts.join('；') || '未筛选';
+}
+
+function exportStatusOptions() {
+  const options = [
+    ['all', '全部状态'],
+    ['active', 'active'],
+    ['open', 'open'],
+    ['pending', 'pending'],
+    ['reviewing', 'reviewing'],
+    ['escalated', 'escalated'],
+    ['approved', 'approved'],
+    ['rejected', 'rejected'],
+    ['resolved', 'resolved'],
+    ['closed', 'closed'],
+    ['ready', 'ready'],
+    ['processing', 'processing'],
+    ['done', 'done'],
+    ['failed', 'failed'],
+    ['stuck', 'stuck'],
+    ['hidden', 'hidden'],
+    ['deleted', 'deleted'],
+    ['pending_review', 'pending_review'],
+    ['revoked', 'revoked'],
+    ['expired', 'expired'],
+  ];
+  return options
+    .map(([value, label]) => `<option value="${escapeHtml(value)}" ${state.exportStatus === value ? 'selected' : ''}>${escapeHtml(label)}</option>`)
+    .join('');
+}
+
+function exportDatasetOptions(rows = []) {
+  return [
+    `<option value="all" ${state.exportType === 'all' ? 'selected' : ''}>全部数据集</option>`,
+    ...rows.map((row) => `<option value="${escapeHtml(row.type)}" ${state.exportType === row.type ? 'selected' : ''}>${escapeHtml(row.label)}</option>`),
+  ].join('');
+}
+
 async function renderExports(force) {
-  const rows = await load('exports', '/admin/exports', force);
-  const totalRows = rows.reduce((sum, item) => sum + Number(item.rowCount || 0), 0);
+  const query = exportQueryParams();
+  const exportUrl = query.toString() ? `/admin/exports?${query.toString()}` : '/admin/exports';
+  const rows = await load('exports', exportUrl, force);
+  const visibleRows = state.exportType === 'all' ? rows : rows.filter((row) => row.type === state.exportType);
+  const matchedRows = visibleRows.reduce((sum, item) => sum + Number(item.rowCount || 0), 0);
+  const originalRows = visibleRows.reduce((sum, item) => sum + Number(item.totalRows ?? item.rowCount ?? 0), 0);
+  const activeFilterSummary = exportFilterSummary(rows);
   $('content').innerHTML = `
     <div class="grid metrics">
-      ${metric('可导出数据集', rows.length, 'CSV 下载', '导出接口需要管理员登录，并会写入审计日志。')}
-      ${metric('当前总行数', totalRows, '按数据集独立统计', '页面展示的是当前后端状态里可导出的业务行数。')}
+      ${metric('可导出数据集', visibleRows.length, `${rows.length} 个总数据集`, '导出接口需要管理员登录，并会写入审计日志。')}
+      ${metric('匹配行数', matchedRows, `${originalRows} 条原始行`, '按当前筛选条件命中的业务行数；CSV 仍受单次上限保护。')}
       ${metric('单次上限', rows[0]?.limit || 1000, '每个 CSV 最多行数', '防止误导出过大文件；后续可增加审批和异步导出。')}
+      ${metric('筛选条件', activeFilterSummary === '未筛选' ? '未开启' : '已开启', activeFilterSummary, '下载 CSV 时会带上这些筛选条件，并写入审计日志。')}
     </div>
     <div class="card">
       <div class="section-head">
@@ -3858,11 +3949,25 @@ async function renderExports(force) {
         </div>
         ${help('当前不导出图片二进制、设备 token、完整审计 before/after 快照等大字段或敏感字段。')}
       </div>
-      ${tableHtml(rows, [
+      <div class="toolbar moderation-toolbar">
+        <div class="toolbar-left">
+          <label>数据集<select id="exportType">${exportDatasetOptions(rows)}</select></label>
+          <label>状态<select id="exportStatus">${exportStatusOptions()}</select></label>
+          <label>手机号<input id="exportPhone" value="${escapeHtml(state.exportPhone)}" placeholder="支持部分手机号" /></label>
+          <label>开始日期<input id="exportFrom" type="date" value="${escapeHtml(state.exportFrom)}" /></label>
+          <label>结束日期<input id="exportTo" type="date" value="${escapeHtml(state.exportTo)}" /></label>
+          <input id="exportQ" value="${escapeHtml(state.exportQ)}" placeholder="关键词：ID / 昵称 / 内容 / 原因" />
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="export-filter">筛选</button>
+          <button class="small-button ghost" data-action="export-clear">清空</button>
+        </div>
+      </div>
+      ${tableHtml(visibleRows, [
         ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.type)}</div><div class="cell-sub">${escapeHtml(row.description)}</div>`],
-        ['当前行数', (row) => `<div class="cell-title">${escapeHtml(row.rowCount)}</div><div class="cell-sub">上限 ${escapeHtml(row.limit)}</div>`],
+        ['当前行数', (row) => `<div class="cell-title">${escapeHtml(row.rowCount)}</div><div class="cell-sub">原始 ${escapeHtml(row.totalRows ?? row.rowCount)} · 上限 ${escapeHtml(row.limit)}</div>`],
         ['字段', (row) => `<div class="export-fields">${(row.columns || []).slice(0, 8).map((item) => `<span>${escapeHtml(item)}</span>`).join('')}${(row.columns || []).length > 8 ? `<span>+${(row.columns || []).length - 8}</span>` : ''}</div>`],
-        ['操作', (row) => `<button class="small-button" data-action="download-export" data-id="${escapeHtml(row.type)}">下载 CSV</button>`],
+        ['操作', (row) => `<button class="small-button" data-action="download-export" data-id="${escapeHtml(row.type)}">下载匹配 CSV</button><div class="cell-sub">${escapeHtml(row.filterSummary || activeFilterSummary)}</div>`],
       ], '暂无可导出数据')}
     </div>
   `;
@@ -3870,7 +3975,9 @@ async function renderExports(force) {
 
 async function downloadExport(type) {
   if (!type) return;
-  const response = await fetch(`/admin/exports/${encodeURIComponent(type)}.csv`, {
+  const query = exportQueryParams();
+  const queryText = query.toString();
+  const response = await fetch(`/admin/exports/${encodeURIComponent(type)}.csv${queryText ? `?${queryText}` : ''}`, {
     headers: {
       Accept: 'text/csv',
       ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
