@@ -2672,6 +2672,9 @@ function adminFromRequest(req) {
     if (payload?.version !== 1 || payload?.role !== 'admin') return null;
     if (Number(payload.exp || 0) < Date.now()) return null;
     return {
+      expiresAt: Number(payload.exp || 0),
+      issuedAt: Number(payload.iat || 0),
+      jti: String(payload.jti || ''),
       role: 'admin',
       username: String(payload.username || ADMIN_USERNAME),
     };
@@ -9400,6 +9403,129 @@ function adminSystemHealth() {
   };
 }
 
+function adminPermissionCatalog() {
+  return [
+    ['admin.login', '登录后台', '系统管理'],
+    ['dashboard.view', '查看工作台', '看板'],
+    ['analytics.view', '查看数据看板', '看板'],
+    ['user.view', '查看用户列表和详情', '用户'],
+    ['user.note', '添加用户备注', '用户'],
+    ['user.tag', '标记用户风险标签', '用户'],
+    ['user.clear_data', '清理用户业务数据', '用户'],
+    ['pet.view', '查看宠物档案', '宠物'],
+    ['pet.media_moderate', '清理头像、AI 形象、宠友圈封面', '宠物'],
+    ['ai.avatar.view', '查看 AI 灵伴任务、素材和反馈', 'AI'],
+    ['ai.chat.view_summary', '查看 AI 对话摘要和风险标签', 'AI'],
+    ['moderation.view', '查看内容安全任务池', '内容安全'],
+    ['moderation.process', '处理内容安全任务', '内容安全'],
+    ['social.report.process', '处理举报', '社区安全'],
+    ['user.sanction', '创建或撤销处罚', '社区安全'],
+    ['sanction.appeal.process', '处理处罚申诉', '社区安全'],
+    ['place.moderate', '审核地点点评和新增地点', '地点'],
+    ['support.ticket.process', '处理客服工单', '客服'],
+    ['notification.send', '发送、预约、撤回系统通知', '通知'],
+    ['config.update', '修改移动端联动配置', '配置'],
+    ['config.rollback', '回滚配置版本', '配置'],
+    ['audit.view', '查看审计日志', '审计'],
+    ['data.export.download', '下载运营 CSV', '导出'],
+    ['system.health.view', '查看系统健康', '系统管理'],
+  ].map(([key, label, group]) => ({ group, key, label, status: 'active' }));
+}
+
+function adminRoleCatalog() {
+  return [
+    { key: 'admin', label: '单管理员', note: '当前版本唯一实际角色，拥有后台全部已开放能力。', status: 'active' },
+    { key: 'super_admin', label: '超级管理员', note: '生产期用于账号权限、双人审批最终确认和危险配置。', status: 'reserved' },
+    { key: 'ops_admin', label: '运营管理员', note: '生产期用于日常运营、配置、通知和工单。', status: 'reserved' },
+    { key: 'content_moderator', label: '内容审核员', note: '生产期用于动态、评论、图片和地点内容审核。', status: 'reserved' },
+    { key: 'support', label: '客服', note: '生产期用于工单、低风险用户排查和通知补发。', status: 'reserved' },
+    { key: 'auditor', label: '审计员', note: '生产期用于只读审计和操作复核。', status: 'reserved' },
+  ];
+}
+
+function adminAccountHighRiskPattern() {
+  return /(ban|clear|config|delete|export|freeze|hide|revoke|rollback|sanction|send|submission|update)/i;
+}
+
+function adminAccounts(admin = {}) {
+  const logs = Array.isArray(state.adminAuditLogs) ? state.adminAuditLogs : [];
+  const loginLogs = logs
+    .filter((log) => log?.action === 'admin.login')
+    .slice(0, 20)
+    .map((log) => ({
+      adminName: log.adminName || '',
+      createdAt: log.createdAt,
+      id: log.id,
+      ip: log.ip || '',
+      userAgent: log.userAgent || '',
+    }));
+  const highRiskPattern = adminAccountHighRiskPattern();
+  const highRiskActions = logs
+    .filter((log) => highRiskPattern.test(String(log?.action || '')))
+    .slice(0, 20)
+    .map((log) => ({
+      action: log.action,
+      adminName: log.adminName || '',
+      createdAt: log.createdAt,
+      id: log.id,
+      reason: log.reason || '',
+      targetId: log.targetId || '',
+      targetType: log.targetType || '',
+    }));
+  const passwordFromEnv = Boolean(process.env.LUMII_ADMIN_PASSWORD);
+  const usernameFromEnv = Boolean(process.env.LUMII_ADMIN_USERNAME);
+  const checks = [
+    adminCheckStatus(usernameFromEnv && passwordFromEnv ? 'ok' : 'warn', 'credential_env', '后台账号环境变量', passwordFromEnv ? '后台密码由环境变量覆盖' : '仍可能使用默认后台密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
+    adminCheckStatus('warn', 'mfa', 'MFA', '当前单 admin 版本未接 MFA，生产期必须补齐。', '预留'),
+    adminCheckStatus('warn', 'ip_allowlist', 'IP 白名单', '当前未强制后台 IP 白名单，生产期应在网关或后端启用。', '预留'),
+    adminCheckStatus('warn', 'multi_accounts', '多管理员账号', '当前只有一个环境变量 admin 账号，未开放新增、禁用、重置密码。', '预留'),
+  ];
+  const lastLogin = loginLogs[0] || null;
+  return {
+    accounts: [
+      {
+        createdAt: '',
+        displayName: ADMIN_USERNAME,
+        id: 'admin-env',
+        lastLoginAt: lastLogin?.createdAt || '',
+        lastLoginIp: lastLogin?.ip || '',
+        mfaEnabled: false,
+        roleIds: ['admin'],
+        status: 'active',
+        updatedAt: '',
+        username: ADMIN_USERNAME,
+      },
+    ],
+    currentSession: {
+      expiresAt: admin.expiresAt ? new Date(admin.expiresAt).toISOString() : '',
+      issuedAt: admin.issuedAt ? new Date(admin.issuedAt).toISOString() : '',
+      ip: admin.ip || '',
+      role: admin.role || 'admin',
+      tokenId: admin.jti ? `${String(admin.jti).slice(0, 6)}...${String(admin.jti).slice(-4)}` : '',
+      userAgent: admin.userAgent || '',
+      username: admin.username || ADMIN_USERNAME,
+    },
+    permissions: adminPermissionCatalog(),
+    recentHighRiskActions: highRiskActions,
+    recentLogins: loginLogs,
+    roles: adminRoleCatalog(),
+    security: {
+      checks,
+      defaultPasswordRisk: !passwordFromEnv,
+      mfaRequired: false,
+      passwordFromEnv,
+      usernameFromEnv,
+    },
+    summary: {
+      activeAccounts: 1,
+      activePermissions: adminPermissionCatalog().length,
+      reservedRoles: adminRoleCatalog().filter((role) => role.status === 'reserved').length,
+      securityWarnings: checks.filter((check) => check.status !== 'ok').length,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 const APP_EVENT_MAX_ROWS = 8000;
 const APP_EVENT_ALLOWED_NAMES = new Set([
   'app.page_view',
@@ -11940,6 +12066,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/me') {
     ok(res, admin);
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/accounts') {
+    ok(res, adminAccounts(admin));
     return true;
   }
 

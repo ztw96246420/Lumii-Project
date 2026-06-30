@@ -66,6 +66,7 @@ const navItems = [
   { key: 'notifications', label: '通知运营' },
   { key: 'config', label: '配置中心' },
   { key: 'systemHealth', label: '系统健康' },
+  { key: 'adminAccounts', label: '账号权限' },
   { key: 'audit', label: '审计日志' },
   { key: 'sanctions', label: '用户处罚' },
   { key: 'sanctionAppeals', label: '申诉中心' },
@@ -74,6 +75,7 @@ const navItems = [
 
 const titles = {
   analytics: ['数据看板', '增长、AI、社交和安全趋势'],
+  adminAccounts: ['账号权限', '当前管理员、权限边界和安全预留'],
   audit: ['系统审计', '后台所有写操作都会沉淀为审计记录'],
   avatarJobs: ['AI 灵伴', '生成任务、上传素材、用户反馈和额度处理'],
   config: ['配置中心', '这些配置会被移动端 /app/config 读取'],
@@ -1149,6 +1151,7 @@ async function render(force = false) {
     return;
   }
   const renderers = {
+    adminAccounts: renderAdminAccounts,
     analytics: renderAnalytics,
     audit: renderAudit,
     avatarJobs: renderAvatarJobs,
@@ -1241,6 +1244,117 @@ function configSnapshot(config) {
     <div class="switch-row"><span>App 公告</span>${statusPill(config.app?.announcement?.enabled ? 'active' : 'closed')}</div>
     <div class="switch-row"><span>版本更新</span>${statusPill(config.app?.update?.enabled ? 'active' : 'closed')}</div>
     <div class="switch-row"><span>启动提示</span>${statusPill(config.app?.splash?.enabled ? 'active' : 'closed')}</div>
+  `;
+}
+
+async function renderAdminAccounts(force) {
+  const data = await load('adminAccounts', '/admin/accounts', force);
+  const summary = data.summary || {};
+  const session = data.currentSession || {};
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('管理员账号', numberText(summary.activeAccounts || 0), '当前仅单 admin', '当前版本只开放一个环境变量后台账号，App 用户账号与后台账号分离。')}
+      ${metric('已开放权限', numberText(summary.activePermissions || 0), 'admin 全量权限', '当前没有细角色拦截，页面明确列出实际开放能力和生产期预留角色。')}
+      ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.reservedRoles || 0)} 个预留角色`, 'MFA、IP 白名单、多管理员和密码轮换仍是生产期治理能力。')}
+      ${metric('当前会话', session.expiresAt ? formatTime(session.expiresAt) : '-', `${escapeHtml(session.ip || 'IP 未记录')}`, '当前后台 token 的到期时间、请求 IP 和 User-Agent 摘要。')}
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>当前后台账号</h2>
+            <div class="section-sub">环境变量账号 · 单 admin 权限</div>
+          </div>
+          ${help('这里不展示密码或任何密钥值，只展示后台账号来源、状态、MFA 状态和最近登录证据。')}
+        </div>
+        ${tableHtml(data.accounts || [], [
+          ['账号', (row) => `<div class="cell-title">${escapeHtml(row.displayName || row.username)}</div><div class="cell-sub">${escapeHtml(row.id)} · ${escapeHtml(row.username)}</div>`],
+          ['角色', (row) => `<div>${(row.roleIds || []).map((role) => statusPill(role)).join(' ')}</div><div class="cell-sub">${row.mfaEnabled ? 'MFA 已启用' : 'MFA 未启用'}</div>`],
+          ['状态', (row) => `${statusPill(row.status)}<div class="cell-sub">${row.lastLoginAt ? `最近登录 ${formatTime(row.lastLoginAt)}` : '暂无登录记录'}</div>`],
+          ['最近 IP', (row) => `<div class="cell-sub">${escapeHtml(row.lastLoginIp || 'IP 未记录')}</div>`],
+        ], '暂无后台账号')}
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>安全检查</h2>
+            <div class="section-sub">密码来源、MFA、IP 白名单和多账号状态</div>
+          </div>
+          ${help('当前只做单 admin 能力展示；生产期要接入 MFA、IP 白名单、登录失败锁定和账号禁用。')}
+        </div>
+        ${tableHtml(data.security?.checks || [], [
+          ['状态', (row) => healthStatusPill(row.status)],
+          ['检查项', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.key)}</div>`],
+          ['说明', (row) => `<div>${escapeHtml(row.detail || '-')}</div><div class="cell-sub">${escapeHtml(row.evidence || '-')}</div>`],
+        ], '暂无安全检查')}
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>角色边界</h2>
+            <div class="section-sub">实际 admin 与生产期预留角色</div>
+          </div>
+          ${help('预留角色不会影响当前权限判断，只用于标记后续生产治理方向。')}
+        </div>
+        ${tableHtml(data.roles || [], [
+          ['状态', (row) => row.status === 'active' ? tonePill('已启用', 'ok') : tonePill('预留', 'warn')],
+          ['角色', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.key)}</div>`],
+          ['说明', (row) => `<div class="cell-sub clamp">${escapeHtml(row.note || '-')}</div>`],
+        ], '暂无角色')}
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>权限点</h2>
+            <div class="section-sub">当前 admin 已开放能力清单</div>
+          </div>
+          ${help('这一版所有开放的后台功能都由 admin 访问；后续细角色会按这里的权限点拆分。')}
+        </div>
+        ${tableHtml(data.permissions || [], [
+          ['分组', (row) => statusPill(row.group || '-')],
+          ['权限点', (row) => `<div class="cell-title">${escapeHtml(row.key)}</div><div class="cell-sub">${escapeHtml(row.label)}</div>`],
+          ['状态', (row) => statusPill(row.status || 'active')],
+        ], '暂无权限点')}
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>最近登录</h2>
+            <div class="section-sub">来自 admin.login 审计日志</div>
+          </div>
+          ${help('登录记录来自审计日志；历史记录若没有 IP 或 UA，说明当时版本尚未记录这些字段。')}
+        </div>
+        ${tableHtml(data.recentLogins || [], [
+          ['管理员', (row) => `<div class="cell-title">${escapeHtml(row.adminName || '-')}</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
+          ['IP', (row) => `<div class="cell-sub">${escapeHtml(row.ip || 'IP 未记录')}</div>`],
+          ['时间', (row) => `<div>${formatTime(row.createdAt)}</div><div class="cell-sub clamp">${escapeHtml(row.userAgent || 'UA 未记录')}</div>`],
+        ], '暂无登录记录')}
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>最近高风险动作</h2>
+            <div class="section-sub">删除、配置、导出、处罚等动作</div>
+          </div>
+          ${help('高风险动作来自审计 action 关键词匹配，用于快速复核最近敏感操作，不替代完整审计日志。')}
+        </div>
+        ${tableHtml(data.recentHighRiskActions || [], [
+          ['动作', (row) => `<div class="cell-title">${escapeHtml(row.action || '-')}</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
+          ['目标', (row) => `<div>${statusPill(row.targetType || '-')}</div><div class="cell-sub">${escapeHtml(row.targetId || '-')}</div>`],
+          ['原因/时间', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '未填写')}</div><div>${formatTime(row.createdAt)}</div>`],
+        ], '暂无高风险动作')}
+      </div>
+    </div>
   `;
 }
 
