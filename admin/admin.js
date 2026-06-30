@@ -1750,6 +1750,7 @@ async function renderAnalytics(force) {
       ${metric('移动端事件', numberText(events.total), `${numberText(events.uniqueUsers)} 位用户 · ${numberText(events.sampleRatePercent)}%采样`, `埋点${events.enabled === false ? '已关闭' : '已开启'}，保留 ${numberText(events.retentionDays || 30)} 天。`)}
       ${metric('地图行为', numberText(places.mapOpens), `搜索 ${numberText(places.poiSearches)} · 详情 ${numberText(places.placeDetailViews)}`, '来自移动端地图打开、POI 搜索和地点详情查看事件。')}
       ${metric('安全任务', numberText(safety.moderationTasks), `${numberText(safety.handledModerationTasks)} 已处理`, '统一内容安全任务池：举报、被举报内容、地点点评和新增地点。')}
+      ${metric('安全样本复审', numberText(safety.sampleUnreviewed || 0), `复审率 ${percentText(safety.sampleReviewRate)} · 误杀/漏杀 ${numberText(safety.falsePositive || 0)}/${numberText(safety.falseNegative || 0)}`, '风险命中和抽样复审沉淀到样本池；待复审越高，说明规则质量需要运营回看。')}
     </div>
     <div class="grid two analytics-grid">
       <div class="card">
@@ -1796,9 +1797,9 @@ async function renderAnalytics(force) {
         <div class="section-head">
           <div>
             <h2>运营处理压力</h2>
-            <div class="section-sub">审核任务、地点内容和工单</div>
+            <div class="section-sub">审核任务、样本复审、地点内容和工单</div>
           </div>
-          ${help('地点审核通过率基于已审核的点评和新增地点提交，不含待审核项。')}
+          ${help('内容安全样本用于回收误杀、漏杀和抽样质检；地点审核通过率基于已审核的点评和新增地点提交，不含待审核项。')}
         </div>
         <div id="analyticsOpsChart" class="analytics-chart"></div>
       </div>
@@ -1824,6 +1825,9 @@ async function renderAnalytics(force) {
           <div><span>地点详情事件</span><strong>${numberText(events.placeDetailViews)}</strong></div>
           <div><span>地点审核通过率</span><strong>${percentText(places.approvalRate)}</strong></div>
           <div><span>举报有效率</span><strong>${percentText(safety.reportValidRate)}</strong></div>
+          <div><span>安全样本复审率</span><strong>${percentText(safety.sampleReviewRate)}</strong></div>
+          <div><span>待复审安全样本</span><strong>${numberText(safety.sampleUnreviewed || 0)}</strong></div>
+          <div><span>误杀 / 漏杀样本</span><strong>${numberText(safety.falsePositive || 0)} / ${numberText(safety.falseNegative || 0)}</strong></div>
         </div>
       </div>
       <div class="card">
@@ -1853,7 +1857,7 @@ async function renderAnalytics(force) {
         ['宠物日历', (row) => `<div>体重 ${escapeHtml(row.healthWeights)}</div><div class="cell-sub">备忘 ${escapeHtml(row.healthMemos)} · 疫苗 ${escapeHtml(row.healthVaccines)}</div>`],
         ['社交', (row) => `<div>小事 ${escapeHtml(row.socialPosts)} · 评论 ${escapeHtml(row.socialComments)}</div><div class="cell-sub">招呼 ${escapeHtml(row.greetings)} · 约遛 ${escapeHtml(row.walkInvites)}</div>`],
         ['事件', (row) => `<div>页面 ${escapeHtml(row.pageViews)} · 发现 ${escapeHtml(row.discoverExposures)}</div><div class="cell-sub">地图 ${escapeHtml(row.mapOpens)} · POI ${escapeHtml(row.poiSearches)}</div>`],
-        ['运营', (row) => `<div>审核 ${escapeHtml(row.moderationTasks)}</div><div class="cell-sub">举报 ${escapeHtml(row.reports)} · 工单 ${escapeHtml(row.tickets)}</div>`],
+        ['运营', (row) => `<div>审核 ${escapeHtml(row.moderationTasks)} · 样本 ${escapeHtml(row.moderationSamples || 0)}</div><div class="cell-sub">复审 ${escapeHtml(row.moderationSampleReviews || 0)} · 工单 ${escapeHtml(row.tickets)}</div>`],
       ], '暂无日汇总')}
     </div>
   `;
@@ -1927,8 +1931,11 @@ function renderAnalyticsCharts(data) {
   renderChart('analyticsOpsChart', {
     series: [
       { barMaxWidth: 20, name: '审核任务', type: 'bar', data: buckets.map((item) => item.moderationTasks) },
+      { barMaxWidth: 20, name: '样本复审', type: 'bar', data: buckets.map((item) => item.moderationSampleReviews || 0) },
       { barMaxWidth: 20, name: '地点点评', type: 'bar', data: buckets.map((item) => item.placeReviews) },
       { barMaxWidth: 20, name: '新增地点', type: 'bar', data: buckets.map((item) => item.placeSubmissions) },
+      { name: '误杀', smooth: true, type: 'line', data: buckets.map((item) => item.moderationFalsePositive || 0) },
+      { name: '漏杀', smooth: true, type: 'line', data: buckets.map((item) => item.moderationFalseNegative || 0) },
       { name: '工单', smooth: true, type: 'line', data: buckets.map((item) => item.tickets) },
     ],
   });

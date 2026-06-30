@@ -1687,6 +1687,33 @@ function adminExportDataset(type) {
         exportColumn('updatedAt', '更新时间', (row) => exportDateText(row.updatedAt)),
       ],
     },
+    moderation_samples: {
+      description: '内容安全风险命中和抽样复审样本，覆盖机审动作、复审结论、Biztype 和 RequestId。',
+      label: '内容安全样本',
+      rows: () => adminModerationSamples().slice(0, ADMIN_EXPORT_ROW_LIMIT),
+      columns: [
+        exportColumn('id', '样本ID'),
+        exportColumn('sampleKindLabel', '样本类型'),
+        exportColumn('action', '机审动作'),
+        exportColumn('reviewStatusLabel', '复审结论'),
+        exportColumn('scope', '业务场景'),
+        exportColumn('sourceLabel', '来源'),
+        exportColumn('riskScore', '风险分'),
+        exportColumn('riskTypes', '风险标签', (row) => exportJoin(row.riskTypes)),
+        exportColumn('matchedKeywords', '命中关键词', (row) => exportJoin(row.matchedKeywords)),
+        exportColumn('bizType', 'Biztype'),
+        exportColumn('requestId', 'RequestId'),
+        exportColumn('provider', '供应商'),
+        exportColumn('providerRawSuggestion', '供应商建议'),
+        exportColumn('ownerPhone', '手机号'),
+        exportColumn('targetId', '对象ID'),
+        exportColumn('contentText', '内容摘要'),
+        exportColumn('reviewedBy', '复审人'),
+        exportColumn('reviewReason', '复审说明'),
+        exportColumn('createdAt', '创建时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('reviewedAt', '复审时间', (row) => exportDateText(row.reviewedAt)),
+      ],
+    },
     social_posts: {
       description: '宠友圈小事内容状态、互动和举报计数，用于内容复盘。',
       label: '宠友圈小事',
@@ -1872,7 +1899,7 @@ function adminExportDataset(type) {
 
 function adminExportCatalog(filters = {}) {
   const normalizedFilters = normalizeAdminExportFilters(filters);
-  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
+  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
@@ -11121,6 +11148,12 @@ function analyticsWindow(daysInput) {
       label: day.slice(5).replace('-', '/'),
       mapOpens: 0,
       medicalRisk: 0,
+      moderationFalseNegative: 0,
+      moderationFalsePositive: 0,
+      moderationQualitySamples: 0,
+      moderationRiskHits: 0,
+      moderationSampleReviews: 0,
+      moderationSamples: 0,
       moderationTasks: 0,
       newUsers: 0,
       notificationOpens: 0,
@@ -11216,6 +11249,7 @@ function adminAnalytics(options = {}) {
   const placeSubmissions = adminPlaceSubmissions();
   const tickets = adminSupportTickets({ limit: ADMIN_EXPORT_ROW_LIMIT, priority: 'all', status: 'all' }).tickets;
   const moderationTasks = adminModerationTasks({ limit: ADMIN_EXPORT_ROW_LIMIT, status: 'all' }).tasks;
+  const moderationSamples = adminModerationSamples();
   const sanctions = adminSanctions();
   const aiUsage = state.aiUsage || createInitialState().aiUsage;
   const appEvents = pruneAppEvents();
@@ -11253,6 +11287,15 @@ function adminAnalytics(options = {}) {
   placeSubmissions.forEach((submission) => incrementAnalyticsBucket(bucketMap, submission.createdAt, 'placeSubmissions'));
   tickets.forEach((ticket) => incrementAnalyticsBucket(bucketMap, ticket.createdAt, 'tickets'));
   moderationTasks.forEach((task) => incrementAnalyticsBucket(bucketMap, task.createdAt, 'moderationTasks'));
+  moderationSamples.forEach((sample) => {
+    incrementAnalyticsBucket(bucketMap, sample.createdAt, 'moderationSamples');
+    incrementAnalyticsBucket(bucketMap, sample.createdAt, sample.sampleKind === 'quality_sample' ? 'moderationQualitySamples' : 'moderationRiskHits');
+    if (sample.reviewedAt) {
+      incrementAnalyticsBucket(bucketMap, sample.reviewedAt, 'moderationSampleReviews');
+      if (sample.reviewStatus === 'false_positive') incrementAnalyticsBucket(bucketMap, sample.reviewedAt, 'moderationFalsePositive');
+      if (sample.reviewStatus === 'false_negative') incrementAnalyticsBucket(bucketMap, sample.reviewedAt, 'moderationFalseNegative');
+    }
+  });
   appEvents.forEach((event) => {
     incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'appEvents');
     if (event.name === 'app.page_view') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'pageViews');
@@ -11273,6 +11316,8 @@ function adminAnalytics(options = {}) {
   const usersWithReadyAvatar = new Set(avatarJobs.filter((job) => job.status === 'ready' && job.ownerPhone).map((job) => job.ownerPhone));
   const acceptedGreetings = greetings.filter((greeting) => greeting.status === 'accepted').length;
   const handledModerationTasks = moderationTasks.filter((task) => !['pending', 'reviewing', 'escalated'].includes(task.status)).length;
+  const moderationSamplesSummary = moderationSampleSummary(moderationSamples);
+  const reviewedModerationSamples = moderationSamplesSummary.total - moderationSamplesSummary.unreviewed;
   const validReports = socialReports.filter((report) => report.status === 'valid').length;
   const reviewedPlaceItems = [...placeReviews, ...placeSubmissions].filter((item) => item.status === 'approved' || item.status === 'rejected');
   const approvedPlaceItems = reviewedPlaceItems.filter((item) => item.status === 'approved');
@@ -11333,11 +11378,19 @@ function adminAnalytics(options = {}) {
         uniqueUsers: appEventUsers.size,
       },
       safety: {
+        falseNegative: moderationSamplesSummary.falseNegative,
+        falsePositive: moderationSamplesSummary.falsePositive,
         handledModerationTasks,
         moderationTasks: sumAnalyticsBuckets(buckets, 'moderationTasks'),
+        qualitySamples: moderationSamplesSummary.qualitySamples,
         reportValidRate: analyticsPercent(validReports, socialReports.filter((report) => report.status !== 'pending').length),
         reports: sumAnalyticsBuckets(buckets, 'reports'),
-        ruleHits: (state.moderationSamples || []).filter((sample) => normalizeModerationSample(sample)?.sampleKind !== 'quality_sample').length,
+        ruleHits: moderationSamplesSummary.riskHits,
+        sampleReviewRate: analyticsPercent(reviewedModerationSamples, moderationSamplesSummary.total),
+        sampleReviews: sumAnalyticsBuckets(buckets, 'moderationSampleReviews'),
+        sampleRiskHits: sumAnalyticsBuckets(buckets, 'moderationRiskHits'),
+        sampleTotal: moderationSamplesSummary.total,
+        sampleUnreviewed: moderationSamplesSummary.unreviewed,
         sanctions: sanctions.filter((item) => item.status === 'active').length,
       },
       social: {
