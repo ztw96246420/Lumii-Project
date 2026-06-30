@@ -338,6 +338,7 @@ function defaultOpsConfig() {
       machineTextEnabled: false,
       reviewKeywords: [],
       reviewMessage: '内容已进入人工审核，通过后会展示给附近用户',
+      sampleReviewRatePercent: 0,
       textRulesEnabled: true,
     },
     support: {
@@ -484,6 +485,7 @@ function normalizeModerationConfig(value, defaults) {
     machineTextEnabled: Boolean(source.machineTextEnabled),
     reviewKeywords: normalizeKeywordList(source.reviewKeywords, defaults.reviewKeywords),
     reviewMessage: String(source.reviewMessage || defaults.reviewMessage).slice(0, 80),
+    sampleReviewRatePercent: Math.floor(clampNumber(source.sampleReviewRatePercent, defaults.sampleReviewRatePercent ?? 0, 0, 100)),
     textRulesEnabled: source.textRulesEnabled !== false,
   };
 }
@@ -607,6 +609,7 @@ function opsConfigSummary(config) {
     machineImageModerationEnabled: Boolean(config?.moderation?.machineImageEnabled),
     machineTextModerationEnabled: Boolean(config?.moderation?.machineTextEnabled),
     moderationEnabled: Boolean(config?.moderation?.enabled),
+    moderationSampleReviewRatePercent: Number(config?.moderation?.sampleReviewRatePercent ?? 0),
     discoverRadiusKm: Number(config?.social?.discoverRadiusKm || 0),
     enabledFeatures: Object.values(features).filter((value) => value !== false).length,
     nearbyMomentTtlDays: Number(config?.social?.nearbyMomentTtlDays || 0),
@@ -789,6 +792,7 @@ function configChangeSummary(before, after) {
     ['moderation.blockKeywords', 'Block keywords'],
     ['moderation.highRiskKeywords', 'High-risk keywords'],
     ['moderation.reviewKeywords', 'Review keywords'],
+    ['moderation.sampleReviewRatePercent', 'Moderation sample review rate'],
     ['support.slaHours', 'Support SLA hours'],
   ];
   return specs
@@ -828,6 +832,7 @@ function configRiskChanges(before, after) {
   addRisk('moderation.blockKeywords', 'Block keywords', 'P1', 'Can immediately reject user submissions.');
   addRisk('moderation.highRiskKeywords', 'High-risk keywords', 'P1', 'Can send public content into review.');
   addRisk('moderation.reviewKeywords', 'Review keywords', 'P1', 'Can send public content into review.');
+  addRisk('moderation.sampleReviewRatePercent', 'Moderation sample review rate', 'P2', 'Can change how much approved public content enters manual quality sampling.');
   if (Number(configValueAt(after, 'ai.petAvatarDailyLimit')) === 0 && configValueChanged(before, after, 'ai.petAvatarDailyLimit')) {
     addRisk('ai.petAvatarDailyLimit', 'AI avatar daily limit', 'P1', 'Setting the limit to 0 effectively disables new avatar generation.');
   }
@@ -1172,6 +1177,17 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileEvidence: '移动端不消费图片策略，只按后端返回结果继续上传、提示等待审核或提示换图。',
       operatorNote: '需要服务器环境变量 TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY；Biztype 默认按图片业务场景选择。',
       userImpact: '影响宠物头像、灵伴原图、宠友圈图片、封面和工单附件是否由腾讯云机审。',
+    },
+    {
+      backendEvidence: 'maybeRecordModerationQualitySample 按 sampleReviewRatePercent 稳定抽样已通过的公开内容，进入内容安全样本复盘；不改变用户侧发布结果。',
+      backendEnforced: true,
+      group: '内容安全',
+      key: 'moderation.sampleReviewRatePercent',
+      label: '内容安全抽样复审率',
+      mobileApplied: false,
+      mobileEvidence: '移动端不读取抽样率；这是后台质检和误杀/漏杀复盘配置。',
+      operatorNote: '建议生产初期从 1%-5% 起步；抽样样本只用于后台复审，不直接隐藏内容。',
+      userImpact: '不直接影响用户体验，但影响运营是否能发现模型漏杀或规则过严。',
     },
     {
       backendEvidence: 'supportTicketSlaHours 读取 currentOpsConfig().support.slaHours.urgent，影响工单排序、SLA badge、工作台统计和导出。',
@@ -4752,7 +4768,57 @@ async function evaluateTencentImageModeration(media, options = {}) {
 
 function ensureModerationSamples() {
   if (!Array.isArray(state.moderationSamples)) state.moderationSamples = [];
+  state.moderationSamples = state.moderationSamples
+    .map(normalizeModerationSample)
+    .filter(Boolean)
+    .slice(0, 500);
   return state.moderationSamples;
+}
+
+function normalizeModerationSample(item = {}) {
+  if (!item || typeof item !== 'object') return null;
+  const action = ['allow', 'review', 'block'].includes(String(item.action || '')) ? String(item.action) : 'review';
+  const reviewStatus = ['unreviewed', 'confirmed', 'false_positive', 'false_negative', 'ignored'].includes(String(item.reviewStatus || ''))
+    ? String(item.reviewStatus)
+    : 'unreviewed';
+  const sampleKind = ['risk_hit', 'quality_sample'].includes(String(item.sampleKind || ''))
+    ? String(item.sampleKind)
+    : (action === 'allow' || item.source === 'sample_review' ? 'quality_sample' : 'risk_hit');
+  return {
+    action,
+    bizType: String(item.bizType || ''),
+    contentText: String(item.contentText || '').slice(0, 500),
+    createdAt: item.createdAt || new Date().toISOString(),
+    id: String(item.id || `sample-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`),
+    matchedKeywords: Array.isArray(item.matchedKeywords) ? item.matchedKeywords.slice(0, 8) : [],
+    ownerPhone: item.ownerPhone || '',
+    provider: item.provider || '',
+    providerRawSuggestion: item.providerRawSuggestion || '',
+    requestId: item.requestId || '',
+    reviewReason: String(item.reviewReason || '').slice(0, 240),
+    reviewStatus,
+    reviewedAt: item.reviewedAt || '',
+    reviewedBy: item.reviewedBy || '',
+    riskScore: Math.max(0, Math.min(100, Number(item.riskScore || 0))),
+    riskTypes: Array.isArray(item.riskTypes) ? item.riskTypes.slice(0, 6) : [],
+    sampleKind,
+    scope: item.scope || 'text',
+    source: item.source || (sampleKind === 'quality_sample' ? 'sample_review' : 'rule'),
+    sourceLabel: item.sourceLabel || (sampleKind === 'quality_sample' ? '抽样复审' : '规则命中'),
+    targetId: item.targetId || '',
+  };
+}
+
+function moderationSampleReviewStatusLabel(status) {
+  if (status === 'confirmed') return '确认风险';
+  if (status === 'false_positive') return '误杀';
+  if (status === 'false_negative') return '漏杀';
+  if (status === 'ignored') return '忽略';
+  return '待复审';
+}
+
+function moderationSampleKindLabel(kind) {
+  return kind === 'quality_sample' ? '抽样复审' : '风险命中';
 }
 
 function matchedModerationKeywords(text, keywords = []) {
@@ -4828,7 +4894,10 @@ async function moderatePetProfileTextForPublicUse(patch, user, targetId = '') {
     scope: 'pet_profile',
     targetId,
   });
-  if (moderation.action === 'allow') return moderation;
+  if (moderation.action === 'allow') {
+    maybeRecordModerationQualitySample({ contentText, ownerPhone: user.phone, scope: 'pet_profile', targetId });
+    return moderation;
+  }
   recordModerationSample({ ...moderation, contentText, ownerPhone: user.phone, scope: 'pet_profile', targetId });
   return {
     ...moderation,
@@ -4857,7 +4926,7 @@ function moderationMetadataFromEvaluation(evaluation, scope) {
 
 function recordModerationSample(input = {}) {
   const now = new Date().toISOString();
-  const sample = {
+  const sample = normalizeModerationSample({
     action: input.action || 'review',
     contentText: String(input.contentText || '').slice(0, 500),
     createdAt: now,
@@ -4868,23 +4937,112 @@ function recordModerationSample(input = {}) {
     provider: input.provider || '',
     providerRawSuggestion: input.providerRawSuggestion || '',
     requestId: input.requestId || '',
+    reviewReason: '',
+    reviewStatus: 'unreviewed',
+    reviewedAt: '',
+    reviewedBy: '',
     riskScore: Math.max(0, Math.min(100, Number(input.riskScore || 0))),
     riskTypes: Array.isArray(input.riskTypes) ? input.riskTypes.slice(0, 6) : [],
+    sampleKind: input.sampleKind || (input.action === 'allow' ? 'quality_sample' : 'risk_hit'),
     scope: input.scope || 'text',
     source: input.source || 'rule',
     sourceLabel: input.sourceLabel || '规则命中',
     targetId: input.targetId || '',
-  };
+  });
   const samples = ensureModerationSamples();
   samples.unshift(sample);
   state.moderationSamples = samples.slice(0, 500);
   return sample;
 }
 
+function stablePercentBucket(value) {
+  const text = String(value || '');
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash) % 100;
+}
+
+function shouldRecordModerationQualitySample(scope, targetId, contentText) {
+  const config = currentOpsConfig().moderation || {};
+  if (!config.enabled) return false;
+  const rate = Math.floor(clampNumber(config.sampleReviewRatePercent, 0, 0, 100));
+  if (rate <= 0) return false;
+  if (rate >= 100) return true;
+  return stablePercentBucket(`${scope}|${targetId}|${contentText}`) < rate;
+}
+
+function maybeRecordModerationQualitySample(input = {}) {
+  const contentText = String(input.contentText || '').slice(0, 500);
+  const scope = input.scope || 'text';
+  const targetId = input.targetId || '';
+  if (!contentText || !shouldRecordModerationQualitySample(scope, targetId, contentText)) return null;
+  return recordModerationSample({
+    action: 'allow',
+    contentText,
+    ownerPhone: input.ownerPhone || '',
+    riskScore: 0,
+    riskTypes: ['抽样复审'],
+    sampleKind: 'quality_sample',
+    scope,
+    source: 'sample_review',
+    sourceLabel: '抽样复审',
+    targetId,
+  });
+}
+
 function adminModerationSamples() {
   return ensureModerationSamples()
     .slice()
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    .sort((a, b) => {
+      if (a.reviewStatus === 'unreviewed' && b.reviewStatus !== 'unreviewed') return -1;
+      if (a.reviewStatus !== 'unreviewed' && b.reviewStatus === 'unreviewed') return 1;
+      return String(b.createdAt).localeCompare(String(a.createdAt));
+    })
+    .map((sample) => ({
+      ...sample,
+      reviewStatusLabel: moderationSampleReviewStatusLabel(sample.reviewStatus),
+      sampleKindLabel: moderationSampleKindLabel(sample.sampleKind),
+    }));
+}
+
+function moderationSampleSummary(samples = adminModerationSamples()) {
+  return {
+    confirmed: samples.filter((item) => item.reviewStatus === 'confirmed').length,
+    falseNegative: samples.filter((item) => item.reviewStatus === 'false_negative').length,
+    falsePositive: samples.filter((item) => item.reviewStatus === 'false_positive').length,
+    ignored: samples.filter((item) => item.reviewStatus === 'ignored').length,
+    qualitySamples: samples.filter((item) => item.sampleKind === 'quality_sample').length,
+    riskHits: samples.filter((item) => item.sampleKind !== 'quality_sample').length,
+    total: samples.length,
+    unreviewed: samples.filter((item) => item.reviewStatus === 'unreviewed').length,
+  };
+}
+
+function adminReviewModerationSample(admin, sampleId, body = {}) {
+  const samples = ensureModerationSamples();
+  const sample = samples.find((item) => item.id === sampleId);
+  if (!sample) return { error: '内容安全样本不存在', statusCode: 404 };
+  const reviewStatus = String(body.reviewStatus || body.status || '').trim();
+  if (!['confirmed', 'false_positive', 'false_negative', 'ignored'].includes(reviewStatus)) {
+    return { error: '不支持的样本复审结论', statusCode: 400 };
+  }
+  const reason = adminReason(body, moderationSampleReviewStatusLabel(reviewStatus));
+  const before = { ...sample };
+  sample.reviewStatus = reviewStatus;
+  sample.reviewReason = reason;
+  sample.reviewedAt = new Date().toISOString();
+  sample.reviewedBy = admin?.username || 'admin';
+  writeAdminAudit(admin, 'moderation.sample.review', 'moderation_sample', sample.id, before, sample, reason);
+  return {
+    sample: {
+      ...sample,
+      reviewStatusLabel: moderationSampleReviewStatusLabel(sample.reviewStatus),
+      sampleKindLabel: moderationSampleKindLabel(sample.sampleKind),
+    },
+  };
 }
 
 function placeReviewsFor(user) {
@@ -4949,6 +5107,7 @@ async function createPlaceReview(user, placeId, content) {
     status: 'pending_review',
   };
   if (review.moderation) recordModerationSample({ ...moderation, contentText: trimmedContent, ownerPhone: user.phone, scope: 'place_review', targetId: review.id });
+  else maybeRecordModerationQualitySample({ contentText: trimmedContent, ownerPhone: user.phone, scope: 'place_review', targetId: review.id });
   state.placeReviews[user.phone] = [review, ...placeReviewsFor(user).filter((item) => item.placeId !== placeId)];
   if (!hadReviewForPlace) place.reviewCount = placeReviewCount(placeId) + 1;
   addNotification(user.phone, {
@@ -5045,6 +5204,7 @@ async function createPlaceSubmission(user, body) {
     status: 'pending_review',
   };
   if (submission.moderation) recordModerationSample({ ...moderation, contentText: [name, address, content].join(' · '), ownerPhone: user.phone, scope: 'place_submission', targetId: submission.id });
+  else maybeRecordModerationQualitySample({ contentText: [name, address, content].join(' · '), ownerPhone: user.phone, scope: 'place_submission', targetId: submission.id });
   state.placeSubmissions[user.phone] = [submission, ...placeSubmissionsFor(user)];
   addNotification(user.phone, {
     id: `notification-${submission.id}`,
@@ -5192,6 +5352,9 @@ async function moderateImageFileContentForPublicUse(fileContent, ownerPhone, sco
   if (result.action === 'review') {
     recordModerationSample({ ...result, contentText: targetId || scope, ownerPhone, scope, targetId });
     return { action: 'review', error: result.message || '图片已进入人工审核，请稍后再试', result };
+  }
+  if (result.action === 'allow') {
+    maybeRecordModerationQualitySample({ contentText: targetId || scope, ownerPhone, scope, targetId });
   }
   return { action: 'allow', result };
 }
@@ -7960,6 +8123,7 @@ async function createSocialMoment(user, body = {}) {
     visibility,
   };
   if (moment.moderation) recordModerationSample({ ...moderation, contentText: content, ownerPhone: user.phone, scope: 'pet_circle_post', targetId: moment.id });
+  else maybeRecordModerationQualitySample({ contentText: content, ownerPhone: user.phone, scope: 'pet_circle_post', targetId: moment.id });
   const moments = ensureSocialMoments();
   moments.unshift(moment);
   state.socialMoments = moments.slice(0, 500);
@@ -8296,6 +8460,7 @@ async function createPetCircleComment(postId, user, body = {}) {
   };
   ensureSocialComments().push(comment);
   if (comment.moderation) recordModerationSample({ ...moderation, contentText: content, ownerPhone: user.phone, scope: 'pet_circle_comment', targetId: comment.id });
+  else maybeRecordModerationQualitySample({ contentText: content, ownerPhone: user.phone, scope: 'pet_circle_comment', targetId: comment.id });
   if (comment.status === 'published' && moment.phone !== user.phone) {
     addNotification(moment.phone, {
       category: 'interaction',
@@ -10251,6 +10416,7 @@ function adminSystemHealth() {
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
       { detail: `${moderation.pending || 0} 待处理 / ${moderation.escalated || 0} 已升级`, label: '内容安全任务', status: moderation.escalated ? 'warn' : 'ok', value: moderation.pending || 0 },
+      { detail: `${moderation.sampleUnreviewed || 0} 待复审 / ${moderation.qualitySamples || 0} 抽样`, label: '内容安全样本', status: moderation.sampleUnreviewed ? 'warn' : 'ok', value: moderation.sampleUnreviewed || 0 },
       { detail: `${tickets.open || 0} 未关闭 / ${tickets.overdue || 0} 已超时`, label: '客服工单', status: tickets.overdue ? 'warn' : 'ok', value: tickets.open || 0 },
       { detail: `${appeals.open || 0} 待处理 / ${appeals.pending || 0} 新申诉`, label: '处罚申诉', status: appeals.open ? 'warn' : 'ok', value: appeals.open || 0 },
       { detail: `${notifications.campaigns || 0} 批次 / ${notifications.devices || 0} 设备`, label: '通知运营', status: 'ok', value: notifications.campaigns || 0 },
@@ -10294,6 +10460,7 @@ function adminPermissionCatalog() {
     ['ai.chat.view_summary', '查看 AI 对话摘要和风险标签', 'AI'],
     ['moderation.view', '查看内容安全任务池', '内容安全'],
     ['moderation.process', '处理内容安全任务', '内容安全'],
+    ['moderation.sample_review', '复审内容安全命中与抽样样本', '内容安全'],
     ['social.report.process', '处理举报', '社区安全'],
     ['user.sanction', '创建或撤销处罚', '社区安全'],
     ['sanction.appeal.process', '处理处罚申诉', '社区安全'],
@@ -11170,7 +11337,7 @@ function adminAnalytics(options = {}) {
         moderationTasks: sumAnalyticsBuckets(buckets, 'moderationTasks'),
         reportValidRate: analyticsPercent(validReports, socialReports.filter((report) => report.status !== 'pending').length),
         reports: sumAnalyticsBuckets(buckets, 'reports'),
-        ruleHits: (state.moderationSamples || []).length,
+        ruleHits: (state.moderationSamples || []).filter((sample) => normalizeModerationSample(sample)?.sampleKind !== 'quality_sample').length,
         sanctions: sanctions.filter((item) => item.status === 'active').length,
       },
       social: {
@@ -13272,8 +13439,10 @@ function adminModerationTasks(options = {}) {
     .sort((a, b) => b.priority - a.priority || String(b.createdAt).localeCompare(String(a.createdAt)));
   const allTasks = [...reportTasks, ...postTasks, ...commentTasks, ...reviewTasks, ...submissionTasks, ...mediaTasks];
   const samples = adminModerationSamples();
+  const sampleSummary = moderationSampleSummary(samples);
   return {
-    samples: samples.slice(0, 12),
+    sampleSummary,
+    samples: samples.slice(0, 24),
     summary: {
       all: allTasks.length,
       assigned: allTasks.filter((task) => task.assignee).length,
@@ -13284,7 +13453,11 @@ function adminModerationTasks(options = {}) {
       pending: allTasks.filter((task) => ['pending', 'reviewing', 'escalated'].includes(task.status)).length,
       places: allTasks.filter((task) => task.kind === 'place_review' || task.kind === 'place_submission').length,
       reports: allTasks.filter((task) => task.kind === 'report').length,
-      ruleHits: samples.length,
+      ruleHits: sampleSummary.riskHits,
+      sampleFalseNegative: sampleSummary.falseNegative,
+      sampleFalsePositive: sampleSummary.falsePositive,
+      sampleUnreviewed: sampleSummary.unreviewed,
+      qualitySamples: sampleSummary.qualitySamples,
       social: allTasks.filter((task) => task.kind === 'pet_circle_post' || task.kind === 'pet_circle_comment').length,
     },
     tasks: tasks.slice(0, limit),
@@ -13820,6 +13993,19 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     }
     saveState();
     ok(res, result.task || null);
+    return true;
+  }
+
+  const adminModerationSampleReviewMatch = pathname.match(/^\/admin\/moderation\/samples\/([^/]+)\/review$/);
+  if (req.method === 'POST' && adminModerationSampleReviewMatch) {
+    const sampleId = decodeURIComponent(adminModerationSampleReviewMatch[1]);
+    const result = adminReviewModerationSample(admin, sampleId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_MODERATION_SAMPLE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.sample || null);
     return true;
   }
 
@@ -15278,6 +15464,8 @@ async function handle(req, res) {
       uploadMedia.moderatedAt = new Date().toISOString();
       uploadMedia.moderatedBy = imageModeration.sourceLabel || 'machine';
       recordModerationSample({ ...imageModeration, contentText: String(body.fileName || mediaId), ownerPhone: user.phone, scope: imageModerationScope, targetId: mediaId });
+    } else if (imageModeration?.action === 'allow') {
+      maybeRecordModerationQualitySample({ contentText: String(body.fileName || mediaId), ownerPhone: user.phone, scope: imageModerationScope, targetId: mediaId });
     }
     state.mediaUploads[mediaId] = uploadMedia;
     saveState();

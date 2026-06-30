@@ -360,6 +360,11 @@ async function onContentClick(event) {
       const handled = await handleModerationBatch();
       if (!handled) return;
     }
+    if (action === 'moderation-sample-review') {
+      const handled = await reviewModerationSample(button);
+      if (!handled) return;
+      return;
+    }
     if (action === 'pet-chat-filter') {
       state.petChatFlag = $('petChatFlag').value;
       state.petChatQ = $('petChatQ').value.trim();
@@ -698,6 +703,24 @@ async function handleModerationTaskAction(button) {
   await post(`/admin/moderation/tasks/${encodeURIComponent(taskId)}/${encodeURIComponent(op)}`, {
     reason: reason.trim() || `${label}：${title}`,
   });
+  return true;
+}
+
+async function reviewModerationSample(button) {
+  const sampleId = button.dataset.id || '';
+  const reviewStatus = button.dataset.status || '';
+  const label = button.textContent.trim() || reviewStatus;
+  const title = button.dataset.title || '内容安全样本';
+  if (!sampleId || !reviewStatus) return false;
+  const reason = window.prompt('请输入样本复审说明', `${label}：${title}`);
+  if (reason === null) return false;
+  await post(`/admin/moderation/samples/${encodeURIComponent(sampleId)}/review`, {
+    reason: reason.trim() || `${label}：${title}`,
+    reviewStatus,
+  });
+  state.cache = { ...state.cache, audit: null, moderation: null };
+  showToast('样本复审已记录');
+  await render(true);
   return true;
 }
 
@@ -1927,6 +1950,7 @@ async function renderModeration(force) {
   const tasks = data.tasks || [];
   const samples = data.samples || [];
   const summary = data.summary || {};
+  const sampleSummary = data.sampleSummary || {};
   const mediaRows = mediaData.items || [];
   const mediaSummary = mediaData.summary || {};
   $('content').innerHTML = `
@@ -1936,7 +1960,9 @@ async function renderModeration(force) {
       ${metric('社交内容', summary.social || 0, '动态/评论聚合', '被举报内容会聚合为内容级任务，便于一次隐藏或删除。')}
       ${metric('图片待审', mediaSummary.pending || 0, `${mediaSummary.hidden || 0} 隐藏 / ${mediaSummary.rejected || 0} 驳回`, '上传图片会进入独立审核视角；隐藏或驳回后 App 列表不再展示该图。')}
       ${metric('地点审核', summary.places || 0, '点评/新增地点', '地点点评和新增地点共用这套审核视角。')}
-      ${metric('规则命中', summary.ruleHits || 0, '关键词样本', '来自配置中心内容安全规则的命中样本，用于后续调规则和接模型。')}
+      ${metric('风险命中', summary.ruleHits || 0, '规则/机审样本', '来自关键词规则和腾讯云机审的命中样本，用于后续调规则和接模型。')}
+      ${metric('待复审样本', summary.sampleUnreviewed || 0, `${summary.qualitySamples || 0} 条抽样`, '抽样复审不会直接影响用户内容可见性，用于发现误杀、漏杀和策略偏差。')}
+      ${metric('误杀/漏杀', (summary.sampleFalsePositive || 0) + (summary.sampleFalseNegative || 0), `${summary.sampleFalsePositive || 0} 误杀 / ${summary.sampleFalseNegative || 0} 漏杀`, '人工复审样本后沉淀的模型和规则质量信号。')}
       ${metric('SLA 超时', summary.overdue || 0, `${summary.assigned || 0} 已认领`, 'SLA 由任务类型和风险分自动计算，高风险任务会更短。')}
     </div>
     <div class="card">
@@ -2019,12 +2045,12 @@ async function renderModeration(force) {
     <div class="card">
       <div class="section-head">
         <div>
-          <h2>规则命中样本</h2>
-          <div class="section-sub">最近 12 条命中，用来回看规则质量；关键词只在后台展示</div>
+          <h2>内容安全样本复盘</h2>
+          <div class="section-sub">${numberText(sampleSummary.unreviewed || 0)} 条待复审 · ${numberText(sampleSummary.riskHits || 0)} 条风险命中 · ${numberText(sampleSummary.qualitySamples || 0)} 条抽样复审</div>
         </div>
-        ${help('命中样本来自小事、评论、地点内容、资料文本和图片机审。腾讯云返回的 Biztype、RequestId 和风险标签会一起沉淀，便于复核误杀。')}
+        ${help('风险命中样本来自小事、评论、地点内容、资料文本和图片机审；抽样复审样本来自已通过内容的后台抽样。复审结论用于误杀/漏杀回收，不会自动改变用户内容状态。')}
       </div>
-      ${samples.length ? `<div class="moderation-list compact">${samples.map(renderModerationSample).join('')}</div>` : '<div class="placeholder"><div><strong>暂无规则命中</strong><div>开启规则并命中后，这里会沉淀样本。</div></div></div>'}
+      ${samples.length ? `<div class="moderation-list compact">${samples.map(renderModerationSample).join('')}</div>` : '<div class="placeholder"><div><strong>暂无内容安全样本</strong><div>开启规则、机审或抽样复审后，这里会沉淀样本。</div></div></div>'}
     </div>
   `;
 }
@@ -2169,17 +2195,34 @@ function renderModerationTaskCard(task) {
 }
 
 function renderModerationSample(sample) {
-  const riskTypes = (sample.riskTypes || []).map(riskBadge).join('') || riskBadge('规则命中');
+  const riskTypes = (sample.riskTypes || []).map(riskBadge).join('') || riskBadge(sample.sampleKindLabel || '规则命中');
   const keywords = (sample.matchedKeywords || []).slice(0, 4).map((item) => riskBadge(`命中：${item}`)).join('');
+  const reviewButtons = [
+    ['confirmed', '确认风险'],
+    ['false_positive', '误杀'],
+    ['false_negative', '漏杀'],
+    ['ignored', '忽略'],
+  ].map(([status, label]) => `
+    <button
+      class="small-button ${status === 'false_positive' || status === 'false_negative' ? 'danger' : ''}"
+      data-action="moderation-sample-review"
+      data-id="${escapeHtml(sample.id)}"
+      data-status="${escapeHtml(status)}"
+      data-title="${escapeHtml(sample.scope || sample.targetId || '内容安全样本')}"
+    >${label}</button>
+  `).join('');
   return `
     <article class="moderation-card">
       <div class="moderation-card-main">
         <div class="moderation-title-row">
           <div>
             <div class="cell-title">${escapeHtml(sample.scope || '内容样本')}</div>
-            <div class="cell-sub">${escapeHtml(sample.id)} · ${escapeHtml(sample.sourceLabel || sample.source || '规则命中')} · ${formatTime(sample.createdAt)}</div>
+            <div class="cell-sub">${escapeHtml(sample.id)} · ${escapeHtml(sample.sampleKindLabel || sample.sourceLabel || sample.source || '规则命中')} · ${formatTime(sample.createdAt)}</div>
           </div>
-          <div class="moderation-status">${statusPill(sample.action || 'review')}</div>
+          <div class="moderation-status">
+            ${statusPill(sample.reviewStatusLabel || sample.reviewStatus || '待复审')}
+            <div class="cell-sub">${escapeHtml(sample.action || 'review')}</div>
+          </div>
         </div>
         <div class="moderation-text">${escapeHtml(sample.contentText || '无正文内容')}</div>
         <div class="moderation-meta">
@@ -2187,13 +2230,16 @@ function renderModerationSample(sample) {
           <span>对象：${escapeHtml(sample.targetId || '-')}</span>
           ${sample.bizType ? `<span>Biztype：${escapeHtml(sample.bizType)}</span>` : ''}
           ${sample.requestId ? `<span>RequestId：${escapeHtml(sample.requestId)}</span>` : ''}
+          ${sample.reviewedAt ? `<span>复审：${escapeHtml(sample.reviewedBy || '-')} · ${formatTime(sample.reviewedAt)}</span>` : ''}
         </div>
         <div class="risk-row">
           <span class="risk-score">风险 ${sample.riskScore || 0}</span>
           ${riskTypes}
           ${keywords}
         </div>
+        ${sample.reviewReason ? `<div class="cell-sub clamp">复审说明：${escapeHtml(sample.reviewReason)}</div>` : ''}
       </div>
+      <div class="moderation-actions">${reviewButtons}</div>
     </article>
   `;
 }
@@ -4264,6 +4310,7 @@ async function renderConfig(force) {
           <label class="wide">复审关键词<textarea id="cfgModerationReviewKeywords" maxlength="1200" placeholder="一行一个，命中后进入人工审核">${escapeHtml(keywordTextareaValue(moderation.reviewKeywords))}</textarea></label>
           <label>阻断提示<input id="cfgModerationBlockMessage" maxlength="80" value="${escapeHtml(moderation.blockMessage || '')}" /></label>
           <label>复审提示<input id="cfgModerationReviewMessage" maxlength="80" value="${escapeHtml(moderation.reviewMessage || '')}" /></label>
+          <label>抽样复审率 %<input id="cfgModerationSampleReviewRatePercent" type="number" min="0" max="100" value="${Number.isFinite(Number(moderation.sampleReviewRatePercent)) ? moderation.sampleReviewRatePercent : 0}" /></label>
         </div>
       </div>
       <div class="config-section">
@@ -4454,6 +4501,10 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isFinite(analyticsRetentionDays) || analyticsRetentionDays < 7 || analyticsRetentionDays > 180) {
     throw new Error('事件保留天数必须在 7-180 之间');
   }
+  const moderationSampleReviewRatePercent = Number($('cfgModerationSampleReviewRatePercent').value);
+  if (!Number.isFinite(moderationSampleReviewRatePercent) || moderationSampleReviewRatePercent < 0 || moderationSampleReviewRatePercent > 100) {
+    throw new Error('内容安全抽样复审率必须在 0-100 之间');
+  }
   const payload = {
     ai: {
       petAvatarDailyLimit: Number($('cfgPetAvatarDailyLimit').value),
@@ -4512,6 +4563,7 @@ async function saveConfig(mode = 'publish') {
       machineTextEnabled: $('cfgModerationMachineTextEnabled').checked,
       reviewKeywords: $('cfgModerationReviewKeywords').value,
       reviewMessage: $('cfgModerationReviewMessage').value,
+      sampleReviewRatePercent: moderationSampleReviewRatePercent,
       textRulesEnabled: $('cfgModerationTextRulesEnabled').checked,
     },
     reason: mode === 'draft' ? '配置草稿保存' : '配置中心发布',
