@@ -18,6 +18,7 @@ const state = {
   exportFrom: '',
   exportPhone: '',
   exportQ: '',
+  exportApprovalStatus: 'open',
   exportReason: '',
   exportStatus: 'all',
   exportTo: '',
@@ -619,6 +620,12 @@ async function onContentClick(event) {
       await render(true);
       return;
     }
+    if (action === 'export-approval-filter') {
+      state.exportApprovalStatus = $('exportApprovalStatus').value;
+      state.cache = { ...state.cache, exports: null };
+      await render(true);
+      return;
+    }
     if (action === 'export-clear') {
       state.exportType = 'all';
       state.exportStatus = 'all';
@@ -626,9 +633,37 @@ async function onContentClick(event) {
       state.exportFrom = '';
       state.exportTo = '';
       state.exportQ = '';
+      state.exportApprovalStatus = 'open';
       state.exportReason = '';
       state.cache = { ...state.cache, exports: null };
       await render(true);
+      return;
+    }
+    if (action === 'request-export-approval') {
+      await requestExportApproval(id);
+      return;
+    }
+    if (action === 'approve-export-approval') {
+      await approveExportApproval(id);
+      return;
+    }
+    if (action === 'cancel-export-approval') {
+      await cancelExportApproval(id);
+      return;
+    }
+    if (action === 'download-approved-export') {
+      state.exportReason = button.dataset.exportReason || state.exportReason;
+      try {
+        const filters = JSON.parse(button.dataset.filters || '{}');
+        state.exportStatus = filters.status || 'all';
+        state.exportPhone = filters.phone || '';
+        state.exportFrom = filters.from || '';
+        state.exportTo = filters.to || '';
+        state.exportQ = filters.q || '';
+      } catch {
+        // Keep current filters if legacy approval rows do not expose filter data.
+      }
+      await downloadExport(button.dataset.exportType, id);
       return;
     }
     if (action === 'download-export') {
@@ -5182,6 +5217,7 @@ function configRevisionSummaryText(summary = {}) {
     `半径 ${summary.discoverRadiusKm || 0}km`,
     `TTL ${summary.nearbyMomentTtlDays || 0}天`,
     `埋点 ${summary.analyticsEnabled === false ? '关' : `开/${summary.analyticsSampleRatePercent ?? 100}%`}`,
+    `导出审批 ${summary.exportRequireApproval ? `开/${summary.exportApprovalExpiresHours || 24}h` : '关'}`,
     `工单首响 ${summary.supportFirstResponseUrgentSlaHours ?? 1}/${summary.supportFirstResponseHighSlaHours ?? 4}h`,
     `工单解决 ${summary.supportUrgentSlaHours ?? 8}/${summary.supportHighSlaHours ?? 24}h`,
     `客服 ${summary.supportAssigneeCount ?? 0} 人`,
@@ -5471,6 +5507,7 @@ async function renderConfig(force) {
   const config = await load('config', '/admin/config', force);
   const announcement = config.app?.announcement || {};
   const contentSafety = config.contentSafety || {};
+  const exportsConfig = config.exports || {};
   const moderation = config.moderation || {};
   const notifications = config.notifications || {};
   const revisions = config.revisions || [];
@@ -5526,6 +5563,21 @@ async function renderConfig(force) {
         <div class="config-grid">
           <label>采样率 %<input id="cfgAnalyticsSampleRatePercent" type="number" min="0" max="100" value="${Number.isFinite(Number(analytics.sampleRatePercent)) ? analytics.sampleRatePercent : 100}" /></label>
           <label>保留天数<input id="cfgAnalyticsRetentionDays" type="number" min="7" max="180" value="${Number.isFinite(Number(analytics.retentionDays)) ? analytics.retentionDays : 30}" /></label>
+        </div>
+      </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>数据导出治理</h2>
+            <div class="section-sub">控制 CSV 下载是否必须先走导出审批，审批只影响后台，不下发移动端</div>
+          </div>
+          ${help('开启强制审批后，导出页直接下载会被后端拦截，必须先提交导出审批并审批通过；审批绑定数据集、筛选条件、原因和有效期。当前单 admin 可自审批，生产多管理员后可升级双人审批。')}
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgExportRequireApproval', '强制导出审批', Boolean(exportsConfig.requireApproval))}
+        </div>
+        <div class="config-grid">
+          <label>审批有效期小时<input id="cfgExportApprovalExpiresHours" type="number" min="1" max="168" value="${Number.isFinite(Number(exportsConfig.approvalExpiresHours)) ? exportsConfig.approvalExpiresHours : 24}" /></label>
         </div>
       </div>
       <div class="config-section">
@@ -5941,6 +5993,10 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isFinite(analyticsRetentionDays) || analyticsRetentionDays < 7 || analyticsRetentionDays > 180) {
     throw new Error('事件保留天数必须在 7-180 之间');
   }
+  const exportApprovalExpiresHours = Number($('cfgExportApprovalExpiresHours').value);
+  if (!Number.isFinite(exportApprovalExpiresHours) || exportApprovalExpiresHours < 1 || exportApprovalExpiresHours > 168) {
+    throw new Error('导出审批有效期必须在 1-168 小时之间');
+  }
   const moderationSampleReviewRatePercent = Number($('cfgModerationSampleReviewRatePercent').value);
   if (!Number.isFinite(moderationSampleReviewRatePercent) || moderationSampleReviewRatePercent < 0 || moderationSampleReviewRatePercent > 100) {
     throw new Error('内容安全抽样复审率必须在 0-100 之间');
@@ -5993,6 +6049,10 @@ async function saveConfig(mode = 'publish') {
       petCircle: $('cfgFeaturePetCircle').checked,
       places: $('cfgFeaturePlaces').checked,
       walkInvite: $('cfgFeatureWalkInvite').checked,
+    },
+    exports: {
+      approvalExpiresHours: exportApprovalExpiresHours,
+      requireApproval: $('cfgExportRequireApproval').checked,
     },
     moderation: {
       blockKeywords: $('cfgModerationBlockKeywords').value,
@@ -6136,6 +6196,22 @@ function exportHistoryUrl() {
   return `/admin/exports/history?${query.toString()}`;
 }
 
+function exportApprovalsUrl() {
+  const query = new URLSearchParams({ limit: '20', status: state.exportApprovalStatus || 'open' });
+  if (state.exportType !== 'all') query.set('type', state.exportType);
+  return `/admin/exports/approvals?${query.toString()}`;
+}
+
+function exportFiltersPayload() {
+  return {
+    from: state.exportFrom,
+    phone: state.exportPhone,
+    q: state.exportQ,
+    status: state.exportStatus,
+    to: state.exportTo,
+  };
+}
+
 function exportFilterSummary(rows = []) {
   const dataset = rows.find((row) => row.type === state.exportType);
   const parts = [];
@@ -6183,11 +6259,74 @@ function exportDatasetOptions(rows = []) {
   ].join('');
 }
 
+function exportApprovalStatusLabel(status) {
+  return {
+    all: '全部审批',
+    approved: '已审批',
+    canceled: '已取消',
+    expired: '已过期',
+    open: '待处理/可下载',
+    pending_approval: '待审批',
+  }[status] || status || '-';
+}
+
+function exportApprovalStatusOptions() {
+  return ['open', 'pending_approval', 'approved', 'expired', 'canceled', 'all']
+    .map((status) => `<option value="${status}" ${state.exportApprovalStatus === status ? 'selected' : ''}>${escapeHtml(exportApprovalStatusLabel(status))}</option>`)
+    .join('');
+}
+
+function exportApprovalTone(status) {
+  return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'expired' || status === 'canceled' ? 'bad' : '';
+}
+
+function renderExportApprovals(approvals = {}) {
+  const items = approvals.items || [];
+  const summary = approvals.summary || {};
+  const policy = approvals.policy || {};
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>导出审批</h2>
+          <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${numberText(summary.approved || 0)} 条已审批 · 有效期 ${numberText(policy.approvalExpiresHours || 24)} 小时</div>
+        </div>
+        ${help('开启强制审批后，CSV 下载必须使用已审批且未过期的 approvalId；审批会绑定数据集、筛选条件和导出原因，避免审批一个范围却下载另一个范围。当前仍是单 admin 版本，生产多管理员后可升级为双人审批。')}
+      </div>
+      <div class="toolbar moderation-toolbar">
+        <div class="toolbar-left">
+          <label>审批状态<select id="exportApprovalStatus">${exportApprovalStatusOptions()}</select></label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="export-approval-filter">筛选审批</button>
+        </div>
+      </div>
+      ${items.length ? tableHtml(items, [
+        ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.datasetLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.datasetType || '-')}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, exportApprovalTone(row.status))}<div class="cell-sub">${row.expiresAt ? `有效至 ${formatTime(row.expiresAt)}` : '待审批后生成有效期'}</div>`],
+        ['筛选/行数', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filterSummary || '全部数据')}</div><div class="cell-sub">导出 ${numberText(row.rowCount || 0)} / 匹配 ${numberText(row.matchedRows || 0)} / 原始 ${numberText(row.totalRows || 0)}</div>`],
+        ['敏感字段', (row) => `<div class="export-fields">${(row.sensitiveColumns || []).slice(0, 6).map((item) => `<span>${escapeHtml(item)}</span>`).join('') || '<span>无明显敏感列</span>'}${(row.sensitiveColumns || []).length > 6 ? `<span>+${(row.sensitiveColumns || []).length - 6}</span>` : ''}</div>`],
+        ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.exportReason || '-')}</div><div class="cell-sub">${escapeHtml(row.createdBy || '-')} · ${formatTime(row.createdAt)}</div>`],
+        ['操作', (row) => `
+          <div class="actions">
+            ${row.status === 'pending_approval' ? `<button class="small-button" data-action="approve-export-approval" data-id="${escapeHtml(row.id)}">审批通过</button>` : ''}
+            ${row.status === 'approved' ? `<button class="small-button" data-action="download-approved-export" data-id="${escapeHtml(row.id)}" data-export-type="${escapeHtml(row.datasetType)}" data-export-reason="${escapeHtml(row.exportReason || '')}" data-filters="${escapeHtml(JSON.stringify(row.filters || {}))}">下载 CSV</button>` : ''}
+            ${row.status === 'pending_approval' || row.status === 'approved' ? `<button class="small-button danger" data-action="cancel-export-approval" data-id="${escapeHtml(row.id)}">取消</button>` : ''}
+          </div>
+          <div class="cell-sub">${row.downloadCount ? `已下载 ${numberText(row.downloadCount)} 次 · ${formatTime(row.lastDownloadedAt)}` : escapeHtml(row.id || '-')}</div>
+        `],
+      ], '暂无导出审批') : '<div class="placeholder mini"><div><strong>暂无导出审批</strong><div>在数据集列表点击“提交审批”后，会在这里等待审批。</div></div></div>'}
+    </div>
+  `;
+}
+
 async function renderExports(force) {
   const query = exportQueryParams();
   const exportUrl = query.toString() ? `/admin/exports?${query.toString()}` : '/admin/exports';
   const rows = await load('exports', exportUrl, force);
   const history = await api(exportHistoryUrl());
+  const approvals = await api(exportApprovalsUrl());
+  const approvalPolicy = approvals.policy || {};
   const visibleRows = state.exportType === 'all' ? rows : rows.filter((row) => row.type === state.exportType);
   const matchedRows = visibleRows.reduce((sum, item) => sum + Number(item.rowCount || 0), 0);
   const originalRows = visibleRows.reduce((sum, item) => sum + Number(item.totalRows ?? item.rowCount ?? 0), 0);
@@ -6199,7 +6338,7 @@ async function renderExports(force) {
       ${metric('可导出数据集', visibleRows.length, `${rows.length} 个总数据集`, '导出接口需要管理员登录，并会写入审计日志。')}
       ${metric('匹配行数', matchedRows, `${originalRows} 条原始行`, '按当前筛选条件命中的业务行数；CSV 仍受单次上限保护。')}
       ${metric('单次上限', rows[0]?.limit || 1000, '每个 CSV 最多行数', '防止误导出过大文件；后续可增加审批和异步导出。')}
-      ${metric('导出治理', '已开启', '原因必填 · CSV水印', '后端强制校验导出原因，CSV 每行追加水印列，审计记录水印 ID、筛选条件、行数和管理员。')}
+      ${metric('导出审批', approvalPolicy.requireApproval ? '强制' : '可选', `${numberText(approvals.summary?.pending || 0)} 条待审批`, '开启强制审批后，CSV 下载必须绑定已审批的审批单；审批单会校验数据集、筛选条件、原因和有效期。')}
       ${metric('筛选条件', activeFilterSummary === '未筛选' ? '未开启' : '已开启', activeFilterSummary, '下载 CSV 时会带上这些筛选条件，并写入审计日志。')}
     </div>
     <div class="card">
@@ -6208,7 +6347,7 @@ async function renderExports(force) {
           <h2>导出数据</h2>
           <div class="section-sub">下载会生成 CSV 文件，并记录到系统审计</div>
         </div>
-        ${help('当前不导出图片二进制、设备 token、完整审计 before/after 快照等大字段或敏感字段。')}
+        ${help('当前不导出图片二进制、设备 token、完整审计 before/after 快照等大字段。手机号、内容、地址、经纬度、IP 等列会在审批卡片中提示。')}
       </div>
       <div class="toolbar moderation-toolbar">
         <div class="toolbar-left">
@@ -6228,10 +6367,18 @@ async function renderExports(force) {
       ${tableHtml(visibleRows, [
         ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.type)}</div><div class="cell-sub">${escapeHtml(row.description)}</div>`],
         ['当前行数', (row) => `<div class="cell-title">${escapeHtml(row.rowCount)}</div><div class="cell-sub">原始 ${escapeHtml(row.totalRows ?? row.rowCount)} · 上限 ${escapeHtml(row.limit)}</div>`],
-        ['字段', (row) => `<div class="export-fields">${(row.columns || []).slice(0, 8).map((item) => `<span>${escapeHtml(item)}</span>`).join('')}${(row.columns || []).length > 8 ? `<span>+${(row.columns || []).length - 8}</span>` : ''}</div>`],
-        ['操作', (row) => `<button class="small-button" data-action="download-export" data-id="${escapeHtml(row.type)}">下载匹配 CSV</button><div class="cell-sub">${escapeHtml(row.filterSummary || activeFilterSummary)}</div><div class="cell-sub">${escapeHtml(row.governanceLabel || '需原因 · CSV水印')}</div>`],
+        ['字段', (row) => `<div class="export-fields">${(row.columns || []).slice(0, 8).map((item) => `<span>${escapeHtml(item)}</span>`).join('')}${(row.columns || []).length > 8 ? `<span>+${(row.columns || []).length - 8}</span>` : ''}</div><div class="cell-sub">敏感列 ${numberText(row.sensitiveColumnCount || 0)} 个</div>`],
+        ['操作', (row) => `
+          <div class="actions">
+            <button class="small-button" data-action="request-export-approval" data-id="${escapeHtml(row.type)}">提交审批</button>
+            ${approvalPolicy.requireApproval ? '' : `<button class="small-button" data-action="download-export" data-id="${escapeHtml(row.type)}">直接下载</button>`}
+          </div>
+          <div class="cell-sub">${escapeHtml(row.filterSummary || activeFilterSummary)}</div>
+          <div class="cell-sub">${escapeHtml(row.governanceLabel || '需原因 · CSV水印')}</div>
+        `],
       ], '暂无可导出数据')}
     </div>
+    ${renderExportApprovals(approvals)}
     <div class="card">
       <div class="section-head">
         <div>
@@ -6242,7 +6389,7 @@ async function renderExports(force) {
       </div>
       ${tableHtml(historyRows, [
         ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.datasetLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.datasetType || '-')}</div>`],
-        ['文件/水印', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filename || '-')}</div><div class="cell-sub">字段 ${escapeHtml(row.columnsCount || 0)} 个 · 水印 ${escapeHtml(row.watermarkId || '-')}</div>`],
+        ['文件/水印', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filename || '-')}</div><div class="cell-sub">字段 ${escapeHtml(row.columnsCount || 0)} 个 · 水印 ${escapeHtml(row.watermarkId || '-')}</div><div class="cell-sub">审批 ${escapeHtml(row.approvalId || '直接下载')}</div>`],
         ['筛选/行数', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filterSummary || '全部数据')}</div><div class="cell-sub">导出 ${escapeHtml(row.rowCount || 0)} / 匹配 ${escapeHtml(row.matchedRows || 0)} / 原始 ${escapeHtml(row.totalRows || 0)}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.exportReason || row.reason || '-')}</div>`],
         ['管理员', (row) => `<div>${escapeHtml(row.adminName || '-')}</div><div class="cell-sub">${escapeHtml(row.ip || 'IP 未记录')}</div>`],
@@ -6252,14 +6399,59 @@ async function renderExports(force) {
   `;
 }
 
-async function downloadExport(type) {
+async function requestExportApproval(type) {
   if (!type) return;
   state.exportReason = $('exportReason')?.value.trim() || state.exportReason;
   if (state.exportReason.length < 4) {
     showToast('请先填写导出原因，至少 4 个字');
     return;
   }
+  const result = await post('/admin/exports/approvals', {
+    filters: exportFiltersPayload(),
+    reason: state.exportReason,
+    type,
+  });
+  state.cache.audit = null;
+  state.cache.exports = null;
+  showToast(`导出审批已提交：${result.approval?.datasetLabel || type}`);
+  if (state.route === 'exports') await render(true);
+}
+
+async function approveExportApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入审批说明', '审批通过导出申请');
+  if (reason === null) return;
+  await post(`/admin/exports/approvals/${encodeURIComponent(id)}/approve`, {
+    reason: reason.trim() || '审批通过导出申请',
+  });
+  state.cache.audit = null;
+  state.cache.exports = null;
+  showToast('导出审批已通过');
+  if (state.route === 'exports') await render(true);
+}
+
+async function cancelExportApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入取消原因', '取消导出审批');
+  if (reason === null) return;
+  await post(`/admin/exports/approvals/${encodeURIComponent(id)}/cancel`, {
+    reason: reason.trim() || '取消导出审批',
+  });
+  state.cache.audit = null;
+  state.cache.exports = null;
+  showToast('导出审批已取消');
+  if (state.route === 'exports') await render(true);
+}
+
+async function downloadExport(type, approvalId = '') {
+  if (!type) return;
+  if (!approvalId) state.exportReason = $('exportReason')?.value.trim() || state.exportReason;
+  if (state.exportReason.length < 4) {
+    showToast('请先填写导出原因，至少 4 个字');
+    return;
+  }
   const query = exportQueryParams({ includeReason: true });
+  if (approvalId) query.set('approvalId', approvalId);
   const queryText = query.toString();
   const response = await fetch(`/admin/exports/${encodeURIComponent(type)}.csv${queryText ? `?${queryText}` : ''}`, {
     headers: {

@@ -332,6 +332,10 @@ function defaultOpsConfig() {
       places: true,
       walkInvite: true,
     },
+    exports: {
+      approvalExpiresHours: 24,
+      requireApproval: false,
+    },
     moderation: {
       blockKeywords: [],
       blockMessage: '内容包含平台暂不支持公开展示的信息，请修改后再提交',
@@ -423,6 +427,7 @@ function defaultOpsConfig() {
 function createInitialState() {
   return {
     adminAuditLogs: [],
+    adminExportApprovals: [],
     adminLoginSecurity: {
       failedAttempts: 0,
       firstFailedAt: '',
@@ -706,6 +711,14 @@ function normalizeNotificationOpsConfig(value, defaults) {
   };
 }
 
+function normalizeExportOpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    approvalExpiresHours: Math.floor(clampNumber(source.approvalExpiresHours, defaults.approvalExpiresHours || 24, 1, 168)),
+    requireApproval: Boolean(source.requireApproval),
+  };
+}
+
 function normalizeAnalyticsConfig(value, defaults) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
@@ -732,6 +745,7 @@ function normalizeOpsConfig(value) {
   const ai = source.ai && typeof source.ai === 'object' ? source.ai : {};
   const analytics = source.analytics && typeof source.analytics === 'object' ? source.analytics : {};
   const app = source.app && typeof source.app === 'object' ? source.app : {};
+  const exportsConfig = source.exports && typeof source.exports === 'object' ? source.exports : {};
   const features = source.features && typeof source.features === 'object' ? source.features : {};
   const moderation = source.moderation && typeof source.moderation === 'object' ? source.moderation : {};
   const notifications = source.notifications && typeof source.notifications === 'object' ? source.notifications : {};
@@ -775,6 +789,7 @@ function normalizeOpsConfig(value) {
         title: String(app.update?.title || defaults.app.update.title).slice(0, 40),
       },
     },
+    exports: normalizeExportOpsConfig(exportsConfig, defaults.exports),
     features: {
       aiAvatar: features.aiAvatar !== false,
       petChat: features.petChat !== false,
@@ -809,6 +824,8 @@ function opsConfigSummary(config) {
     announcementEnabled: Boolean(config?.app?.announcement?.enabled),
     analyticsEnabled: config?.analytics?.enabled !== false,
     analyticsSampleRatePercent: Number(config?.analytics?.sampleRatePercent ?? 100),
+    exportApprovalExpiresHours: Number(config?.exports?.approvalExpiresHours || 0),
+    exportRequireApproval: Boolean(config?.exports?.requireApproval),
     maintenanceEnabled: Boolean(config?.app?.maintenanceEnabled),
     machineImageModerationEnabled: Boolean(config?.moderation?.machineImageEnabled),
     machineTextModerationEnabled: Boolean(config?.moderation?.machineTextEnabled),
@@ -945,6 +962,7 @@ function buildOpsConfigPatch(before, body = {}) {
         ...(body.app?.update || {}),
       },
     },
+    exports: { ...before.exports, ...(body.exports || {}) },
     features: { ...before.features, ...(body.features || {}) },
     moderation: { ...before.moderation, ...(body.moderation || {}) },
     notifications: { ...before.notifications, ...(body.notifications || {}) },
@@ -1550,6 +1568,17 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileEvidence: '移动端不读取结算规则；用户只产生评分、重开和工单状态等原始业务数据。',
       operatorNote: '当前为运营预览口径，不代表真实付款凭证；生产期仍需确认自然月/外包周期、税费和审批流。',
       userImpact: '不直接改变 App 展示，但会影响后台对客服/外包服务质量和预计费用的复盘。',
+    },
+    {
+      backendEvidence: 'CSV 下载接口读取 currentOpsConfig().exports.requireApproval；开启后必须先创建并审批 data_export_approval，审批有效期由 exports.approvalExpiresHours 控制。',
+      backendEnforced: true,
+      group: '数据导出',
+      key: 'exports.requireApproval',
+      label: '数据导出审批',
+      mobileApplied: false,
+      mobileEvidence: '移动端不读取导出治理配置；后台导出覆盖移动端真实业务数据和 App 事件，因此只在后台拦截。',
+      operatorNote: '当前为单 admin 审批闭环；生产期多管理员上线后可升级为双人审批和敏感字段授权。',
+      userImpact: '不影响用户 App 使用，但降低后台误导出和敏感数据泄露风险。',
     },
     {
       backendEvidence: 'supportTicketSlaHours 读取 currentOpsConfig().support.slaHours.urgent，影响工单排序、SLA badge、工作台统计和导出。',
@@ -2351,22 +2380,37 @@ function adminExportDataset(type) {
   return specs[type] || null;
 }
 
+function adminExportSensitiveColumns(columns = []) {
+  const pattern = /(手机号|电话|联系方式|昵称|姓名|内容|正文|地址|经度|纬度|IP|User-Agent|UA|设备|Token|原因|备注|摘要)/i;
+  return (Array.isArray(columns) ? columns : [])
+    .map((column) => String(column?.label || column?.key || '').trim())
+    .filter((label) => pattern.test(label))
+    .slice(0, 20);
+}
+
 function adminExportCatalog(filters = {}) {
   const normalizedFilters = normalizeAdminExportFilters(filters);
+  const exportPolicy = normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports);
   return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'places', 'place_reviews', 'place_submissions', 'place_contributions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
       const filteredRows = filterAdminExportRows(rows, normalizedFilters);
+      const columns = dataset.columns.map((column) => column.label);
+      const sensitiveColumns = adminExportSensitiveColumns(dataset.columns);
       return {
-        columns: dataset.columns.map((column) => column.label),
+        approvalExpiresHours: exportPolicy.approvalExpiresHours,
+        approvalRequired: exportPolicy.requireApproval,
+        columns,
         description: dataset.description,
         filterSummary: adminExportFilterSummary(normalizedFilters),
-        governanceLabel: '需原因 · CSV水印',
+        governanceLabel: exportPolicy.requireApproval ? '需审批 · 原因 · CSV水印' : '需原因 · CSV水印',
         label: dataset.label,
         limit: ADMIN_EXPORT_ROW_LIMIT,
         reasonRequired: true,
         rowCount: filteredRows.length,
+        sensitiveColumns,
+        sensitiveColumnCount: sensitiveColumns.length,
         totalRows: rows.length,
         type,
         watermarkEnabled: true,
@@ -2374,22 +2418,34 @@ function adminExportCatalog(filters = {}) {
     });
 }
 
-function buildAdminExportCsv(type, filters = {}, options = {}) {
+function buildAdminExportPreview(type, filters = {}) {
   const dataset = adminExportDataset(type);
   if (!dataset) return null;
   const allRows = dataset.rows();
   const normalizedFilters = normalizeAdminExportFilters(filters);
   const matchedRows = filterAdminExportRows(allRows, normalizedFilters);
   const rows = matchedRows.slice(0, ADMIN_EXPORT_ROW_LIMIT);
-  const baseResult = {
+  return {
+    columns: dataset.columns.map((column) => column.label),
     filterSummary: adminExportFilterSummary(normalizedFilters),
     filters: normalizedFilters,
-    filename: `lumii-${type}-${adminExportTimestamp()}.csv`,
     label: dataset.label,
     rowCount: rows.length,
     matchedRows: matchedRows.length,
     totalRows: allRows.length,
     type,
+  };
+}
+
+function buildAdminExportCsv(type, filters = {}, options = {}) {
+  const dataset = adminExportDataset(type);
+  const preview = buildAdminExportPreview(type, filters);
+  if (!dataset || !preview) return null;
+  const matchedRows = filterAdminExportRows(dataset.rows(), preview.filters);
+  const rows = matchedRows.slice(0, ADMIN_EXPORT_ROW_LIMIT);
+  const baseResult = {
+    ...preview,
+    filename: `lumii-${type}-${adminExportTimestamp()}.csv`,
   };
   const reason = normalizeAdminExportReason(options.reason);
   const watermark = createAdminExportWatermark(options.admin, baseResult, reason);
@@ -2402,6 +2458,183 @@ function buildAdminExportCsv(type, filters = {}, options = {}) {
     watermark,
     watermarkId: watermark.id,
   };
+}
+
+function ensureAdminExportApprovals() {
+  state.adminExportApprovals = Array.isArray(state.adminExportApprovals) ? state.adminExportApprovals : [];
+  return state.adminExportApprovals;
+}
+
+function adminExportApprovalCurrentStatus(approval = {}) {
+  const status = String(approval.status || 'pending_approval');
+  if (status === 'approved') {
+    const expiresMs = adminExportDateMs(approval.expiresAt);
+    if (expiresMs !== null && expiresMs < Date.now()) return 'expired';
+  }
+  return status;
+}
+
+function adminExportApprovalStatusLabel(status) {
+  return {
+    approved: '已审批',
+    canceled: '已取消',
+    expired: '已过期',
+    pending_approval: '待审批',
+    rejected: '已驳回',
+  }[status] || status || '-';
+}
+
+function adminExportApprovalItem(approval = {}) {
+  const dataset = adminExportDataset(approval.datasetType);
+  const status = adminExportApprovalCurrentStatus(approval);
+  return {
+    approvalReason: approval.approvalReason || '',
+    approvedAt: approval.approvedAt || '',
+    approvedBy: approval.approvedBy || '',
+    canceledAt: approval.canceledAt || '',
+    canceledBy: approval.canceledBy || '',
+    columnsCount: Math.max(0, Math.floor(Number(approval.columnsCount || 0))),
+    createdAt: approval.createdAt || '',
+    createdBy: approval.createdBy || '',
+    datasetLabel: dataset?.label || approval.datasetLabel || approval.datasetType || '',
+    datasetType: approval.datasetType || '',
+    downloadCount: Math.max(0, Math.floor(Number(approval.downloadCount || 0))),
+    expiresAt: approval.expiresAt || '',
+    exportReason: approval.exportReason || '',
+    filterSummary: approval.filterSummary || adminExportFilterSummary(approval.filters || {}),
+    filters: normalizeAdminExportFilters(approval.filters || {}),
+    id: approval.id || '',
+    lastDownloadedAt: approval.lastDownloadedAt || '',
+    matchedRows: Math.max(0, Math.floor(Number(approval.matchedRows || 0))),
+    rejectReason: approval.rejectReason || '',
+    rowCount: Math.max(0, Math.floor(Number(approval.rowCount || 0))),
+    sensitiveColumns: Array.isArray(approval.sensitiveColumns) ? approval.sensitiveColumns : [],
+    sensitiveColumnCount: Math.max(0, Math.floor(Number(approval.sensitiveColumnCount || 0))),
+    status,
+    statusLabel: adminExportApprovalStatusLabel(status),
+    totalRows: Math.max(0, Math.floor(Number(approval.totalRows || 0))),
+  };
+}
+
+function adminExportApprovals(options = {}) {
+  const type = String(options.type || 'all').trim() || 'all';
+  const status = String(options.status || 'open').trim() || 'open';
+  const limit = Math.min(80, Math.max(10, Number(options.limit || 20) || 20));
+  const items = ensureAdminExportApprovals()
+    .map(adminExportApprovalItem)
+    .filter((item) => type === 'all' || item.datasetType === type)
+    .filter((item) => {
+      if (status === 'all') return true;
+      if (status === 'open') return item.status === 'pending_approval' || item.status === 'approved';
+      return item.status === status;
+    })
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .slice(0, limit);
+  const all = ensureAdminExportApprovals().map(adminExportApprovalItem);
+  return {
+    items,
+    policy: normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports),
+    summary: {
+      approved: all.filter((item) => item.status === 'approved').length,
+      expired: all.filter((item) => item.status === 'expired').length,
+      matched: items.length,
+      pending: all.filter((item) => item.status === 'pending_approval').length,
+      total: all.length,
+    },
+  };
+}
+
+function createAdminExportApproval(admin, body = {}) {
+  const datasetType = String(body.type || body.datasetType || '').trim();
+  const exportReason = normalizeAdminExportReason(body.reason || body.exportReason);
+  if (exportReason.length < ADMIN_EXPORT_REASON_MIN_LENGTH) {
+    return { error: `请填写导出原因（至少 ${ADMIN_EXPORT_REASON_MIN_LENGTH} 个字）`, statusCode: 400 };
+  }
+  const result = buildAdminExportPreview(datasetType, normalizeAdminExportFilters(body.filters || {}));
+  if (!result) return { error: '导出数据集不存在', statusCode: 404 };
+  const sensitiveColumns = adminExportSensitiveColumns((adminExportDataset(datasetType)?.columns || []));
+  const approval = {
+    columnsCount: result.columns.length,
+    createdAt: new Date().toISOString(),
+    createdBy: admin?.username || ADMIN_USERNAME,
+    datasetLabel: result.label,
+    datasetType,
+    downloadCount: 0,
+    exportReason,
+    filterSummary: result.filterSummary,
+    filters: result.filters,
+    id: `export-approval-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    matchedRows: result.matchedRows,
+    rowCount: result.rowCount,
+    sensitiveColumns,
+    sensitiveColumnCount: sensitiveColumns.length,
+    status: 'pending_approval',
+    totalRows: result.totalRows,
+  };
+  ensureAdminExportApprovals().unshift(approval);
+  state.adminExportApprovals = state.adminExportApprovals.slice(0, 200);
+  writeAdminAudit(admin, 'data.export.approval.create', 'data_export_approval', approval.id, null, approval, `提交导出审批：${result.label}；${exportReason}；${result.filterSummary}`);
+  saveState();
+  return {
+    approval: adminExportApprovalItem(approval),
+    approvals: adminExportApprovals({ type: datasetType }),
+  };
+}
+
+function approveAdminExportApproval(admin, approvalId, body = {}) {
+  const approval = ensureAdminExportApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '导出审批不存在', statusCode: 404 };
+  const currentStatus = adminExportApprovalCurrentStatus(approval);
+  if (currentStatus !== 'pending_approval') return { error: '只有待审批导出申请可以审批', statusCode: 409 };
+  const before = cloneJson(approval);
+  const policy = normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports);
+  const now = new Date();
+  approval.approvalReason = adminReason(body, '审批通过导出申请');
+  approval.approvedAt = now.toISOString();
+  approval.approvedBy = admin?.username || ADMIN_USERNAME;
+  approval.expiresAt = new Date(now.getTime() + policy.approvalExpiresHours * 36e5).toISOString();
+  approval.status = 'approved';
+  writeAdminAudit(admin, 'data.export.approval.approve', 'data_export_approval', approval.id, before, approval, approval.approvalReason);
+  saveState();
+  return {
+    approval: adminExportApprovalItem(approval),
+    approvals: adminExportApprovals({ type: approval.datasetType }),
+  };
+}
+
+function cancelAdminExportApproval(admin, approvalId, body = {}) {
+  const approval = ensureAdminExportApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '导出审批不存在', statusCode: 404 };
+  const currentStatus = adminExportApprovalCurrentStatus(approval);
+  if (currentStatus !== 'pending_approval' && currentStatus !== 'approved') return { error: '当前导出审批不能取消', statusCode: 409 };
+  const before = cloneJson(approval);
+  approval.canceledAt = new Date().toISOString();
+  approval.canceledBy = admin?.username || ADMIN_USERNAME;
+  approval.rejectReason = adminReason(body, '取消导出审批');
+  approval.status = 'canceled';
+  writeAdminAudit(admin, 'data.export.approval.cancel', 'data_export_approval', approval.id, before, approval, approval.rejectReason);
+  saveState();
+  return {
+    approval: adminExportApprovalItem(approval),
+    approvals: adminExportApprovals({ type: approval.datasetType }),
+  };
+}
+
+function validateAdminExportApprovalForDownload(approvalId, type, filters = {}, exportReason = '') {
+  const policy = normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports);
+  if (!policy.requireApproval && !approvalId) return { ok: true, policy };
+  const approval = ensureAdminExportApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '当前配置要求先提交并审批导出申请', statusCode: 409, code: 'ADMIN_EXPORT_APPROVAL_REQUIRED', policy };
+  const item = adminExportApprovalItem(approval);
+  if (item.status !== 'approved') return { error: `导出审批${item.statusLabel}，不能下载`, statusCode: 409, code: 'ADMIN_EXPORT_APPROVAL_INVALID', policy };
+  const normalizedFilters = normalizeAdminExportFilters(filters);
+  if (item.datasetType !== type || JSON.stringify(normalizedConfigComparable(item.filters)) !== JSON.stringify(normalizedConfigComparable(normalizedFilters))) {
+    return { error: '导出审批与当前数据集或筛选条件不一致，请重新提交审批', statusCode: 409, code: 'ADMIN_EXPORT_APPROVAL_MISMATCH', policy };
+  }
+  if (normalizeAdminExportReason(item.exportReason) !== normalizeAdminExportReason(exportReason)) {
+    return { error: '导出审批与当前导出原因不一致，请使用审批时的导出原因', statusCode: 409, code: 'ADMIN_EXPORT_APPROVAL_MISMATCH', policy };
+  }
+  return { approval, item, ok: true, policy };
 }
 
 function adminExportHistory(options = {}) {
@@ -2417,6 +2650,7 @@ function adminExportHistory(options = {}) {
       const rowCount = Number(after.rowCount || 0);
       return {
         adminName: log.adminName || '',
+        approvalId: after.approvalId || '',
         columnsCount: Array.isArray(after.columns) ? after.columns.length : 0,
         createdAt: log.createdAt,
         datasetLabel: dataset?.label || datasetType || '未知数据集',
@@ -2603,6 +2837,7 @@ function loadState() {
         ...(loadedState.adminLoginSecurity || {}),
       },
       adminAuditLogs: Array.isArray(loadedState.adminAuditLogs) ? loadedState.adminAuditLogs : initialState.adminAuditLogs,
+      adminExportApprovals: Array.isArray(loadedState.adminExportApprovals) ? loadedState.adminExportApprovals : initialState.adminExportApprovals,
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
       socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
@@ -12983,6 +13218,7 @@ function adminPermissionCatalog() {
     ['config.rollback', '回滚配置版本', '配置'],
     ['audit.view', '查看审计日志', '审计'],
     ['data.export.download', '下载运营 CSV', '导出'],
+    ['data.export.approve', '提交和审批数据导出', '导出'],
     ['system.health.view', '查看系统健康', '系统管理'],
     ['launch.readiness.view', '查看上线台账', '系统管理'],
   ].map(([key, label, group]) => ({ group, key, label, status: 'active' }));
@@ -13246,9 +13482,9 @@ function adminReadinessModules(context) {
       module: '数据导出与审计',
       group: '治理',
       status: 'partial',
-      evidence: 'CSV 导出支持筛选、导出原因、文件水印、历史、行数摘要和 data.export.download 审计；审计日志支持搜索筛选。',
-      mobileLinkage: '导出覆盖移动端真实业务数据和 App 事件，不导出图片二进制或完整设备 token。',
-      nextStep: '生产期补双人导出审批、异步导出、文件归档和敏感字段授权。',
+      evidence: 'CSV 导出支持筛选、导出原因、文件水印、审批申请、审批通过、审批下载、历史、行数摘要和 data.export.* 审计；审计日志支持搜索筛选。',
+      mobileLinkage: '导出覆盖移动端真实业务数据和 App 事件，不导出图片二进制或完整设备 token；强制审批开启后需按审批单下载。',
+      nextStep: '生产期补多管理员双人导出审批、异步导出、文件归档和敏感字段授权。',
     },
     {
       key: 'system',
@@ -13375,8 +13611,8 @@ function adminReadinessGaps(context) {
       area: '数据导出',
       severity: 'P1',
       status: 'partial',
-      issue: '导出已有审计、原因必填和 CSV 水印，但没有双人审批、异步任务、归档和过期下载链接。',
-      requiredAction: '补导出申请、双人审批、文件生命周期、对象存储归档和敏感字段授权。',
+      issue: '导出已有审计、原因必填、CSV 水印和单 admin 审批，但没有多管理员双人审批、异步任务、归档和过期下载链接。',
+      requiredAction: '补审批人/申请人分离、双人审批、文件生命周期、对象存储归档和敏感字段授权。',
       evidence: '数据导出页 / 审计日志',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
@@ -17568,6 +17804,40 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/exports/approvals') {
+    ok(res, adminExportApprovals({
+      limit: url.searchParams.get('limit') || 20,
+      status: url.searchParams.get('status') || 'open',
+      type: url.searchParams.get('type') || 'all',
+    }));
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/exports/approvals') {
+    const result = createAdminExportApproval(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_EXPORT_APPROVAL_INVALID');
+      return true;
+    }
+    ok(res, result);
+    return true;
+  }
+
+  const adminExportApprovalActionMatch = pathname.match(/^\/admin\/exports\/approvals\/([^/]+)\/(approve|cancel)$/);
+  if (req.method === 'POST' && adminExportApprovalActionMatch) {
+    const approvalId = decodeURIComponent(adminExportApprovalActionMatch[1]);
+    const action = adminExportApprovalActionMatch[2];
+    const result = action === 'approve'
+      ? approveAdminExportApproval(admin, approvalId, body)
+      : cancelAdminExportApproval(admin, approvalId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_EXPORT_APPROVAL_ACTION_INVALID');
+      return true;
+    }
+    ok(res, result);
+    return true;
+  }
+
   const adminExportMatch = pathname.match(/^\/admin\/exports\/([^/]+)\.csv$/);
   if (req.method === 'GET' && adminExportMatch) {
     const type = decodeURIComponent(adminExportMatch[1]);
@@ -17576,12 +17846,30 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       fail(res, 400, `请填写导出原因（至少 ${ADMIN_EXPORT_REASON_MIN_LENGTH} 个字）`, false, undefined, 'ADMIN_EXPORT_REASON_REQUIRED');
       return true;
     }
-    const result = buildAdminExportCsv(type, adminExportFiltersFromUrl(url), { admin, reason: exportReason });
+    const filters = adminExportFiltersFromUrl(url);
+    if (!adminExportDataset(type)) {
+      fail(res, 404, '导出数据集不存在', false, undefined, 'ADMIN_EXPORT_NOT_FOUND');
+      return true;
+    }
+    const approvalResult = validateAdminExportApprovalForDownload(url.searchParams.get('approvalId') || '', type, filters, exportReason);
+    if (approvalResult.error) {
+      fail(res, approvalResult.statusCode || 409, approvalResult.error, false, {
+        approvalRequired: approvalResult.policy?.requireApproval !== false,
+        approvalExpiresHours: approvalResult.policy?.approvalExpiresHours || 24,
+      }, approvalResult.code || 'ADMIN_EXPORT_APPROVAL_REQUIRED');
+      return true;
+    }
+    const result = buildAdminExportCsv(type, filters, { admin, reason: exportReason });
     if (!result) {
       fail(res, 404, '导出数据集不存在', false, undefined, 'ADMIN_EXPORT_NOT_FOUND');
       return true;
     }
+    if (approvalResult.approval) {
+      approvalResult.approval.downloadCount = Math.max(0, Math.floor(Number(approvalResult.approval.downloadCount || 0))) + 1;
+      approvalResult.approval.lastDownloadedAt = new Date().toISOString();
+    }
     writeAdminAudit(admin, 'data.export.download', 'data_export', type, null, {
+      approvalId: approvalResult.item?.id || '',
       columns: result.columns,
       exportReason: result.exportReason,
       filterSummary: result.filterSummary,
@@ -17593,7 +17881,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       type,
       watermark: result.watermark,
       watermarkId: result.watermarkId,
-    }, `导出${result.label}：${exportReason}；${result.filterSummary}`);
+    }, `导出${result.label}：${exportReason}；${result.filterSummary}${approvalResult.item?.id ? `；审批 ${approvalResult.item.id}` : ''}`);
     saveState();
     sendCsv(res, result.filename, result.csv);
     return true;
