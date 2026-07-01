@@ -2001,12 +2001,14 @@ async function renderAdminAccounts(force) {
   const summary = data.summary || {};
   const session = data.currentSession || {};
   const loginSecurity = data.loginSecurity || {};
+  const ipAllowlist = data.security?.ipAllowlist || {};
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('管理员账号', numberText(summary.activeAccounts || 0), '当前仅单 admin', '当前版本只开放一个环境变量后台账号，App 用户账号与后台账号分离。')}
       ${metric('已开放权限', numberText(summary.activePermissions || 0), 'admin 全量权限', '当前没有细角色拦截，页面明确列出实际开放能力和生产期预留角色。')}
-      ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.reservedRoles || 0)} 个预留角色`, 'MFA、IP 白名单、多管理员和密码轮换仍是生产期治理能力；登录失败锁定已接入。')}
+      ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.reservedRoles || 0)} 个预留角色`, 'MFA、多管理员和密码轮换仍是生产期治理能力；登录失败锁定与后端 IP 白名单能力已接入。')}
       ${metric('登录保护', loginSecurity.locked ? '已锁定' : `${numberText(loginSecurity.failedAttempts || 0)}/${numberText(loginSecurity.maxAttempts || 5)}`, loginSecurity.locked ? `到 ${formatTime(loginSecurity.lockedUntil)}` : `${numberText(loginSecurity.lockMinutes || 15)} 分钟锁定`, '连续失败达到阈值后，后台会临时锁定登录，并写入审计日志。')}
+      ${metric('IP 白名单', ipAllowlist.configured ? '已启用' : '未启用', ipAllowlist.configured ? `${numberText(ipAllowlist.entryCount || 0)} 条规则 · 当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '配置环境变量后生效', '配置 LUMII_ADMIN_IP_ALLOWLIST 后，/admin 页面和 /admin/* API 都会拦截非白名单 IP。')}
       ${metric('当前会话', session.expiresAt ? formatTime(session.expiresAt) : '-', `${escapeHtml(session.ip || 'IP 未记录')}`, '当前后台 token 的到期时间、请求 IP 和 User-Agent 摘要。')}
     </div>
 
@@ -2033,7 +2035,7 @@ async function renderAdminAccounts(force) {
             <h2>安全检查</h2>
             <div class="section-sub">密码来源、MFA、IP 白名单和多账号状态</div>
           </div>
-          ${help('当前只做单 admin 能力展示；生产期要接入 MFA、IP 白名单、登录失败锁定和账号禁用。')}
+          ${help('当前已支持单 admin、登录失败锁定和后端 IP 白名单；生产期还要接入 MFA、多管理员和账号禁用/轮换。')}
         </div>
         ${tableHtml(data.security?.checks || [], [
           ['状态', (row) => healthStatusPill(row.status)],

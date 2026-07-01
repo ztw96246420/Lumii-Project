@@ -104,6 +104,7 @@ const ADMIN_PASSWORD = process.env.LUMII_ADMIN_PASSWORD || 'LumiiAdmin@2026';
 const ADMIN_TOKEN_TTL_MS = Number(process.env.LUMII_ADMIN_TOKEN_TTL_MS || 12 * 60 * 60 * 1000);
 const ADMIN_LOGIN_MAX_ATTEMPTS = Math.max(1, Number(process.env.LUMII_ADMIN_LOGIN_MAX_ATTEMPTS || '5') || 5);
 const ADMIN_LOGIN_LOCK_MS = Math.max(60 * 1000, Number(process.env.LUMII_ADMIN_LOGIN_LOCK_MS || 15 * 60 * 1000) || 15 * 60 * 1000);
+const ADMIN_IP_ALLOWLIST_RAW = process.env.LUMII_ADMIN_IP_ALLOWLIST || process.env.LUMII_ADMIN_IP_WHITELIST || '';
 
 const seedOwners = [
   {
@@ -4625,6 +4626,60 @@ function clientIpFromRequest(req) {
   const realIp = String(req.headers['x-real-ip'] || '').trim();
   const remoteAddress = String(req.socket?.remoteAddress || '').trim();
   return (forwardedFor || realIp || remoteAddress || 'unknown').replace(/^::ffff:/, '');
+}
+
+function normalizeAdminIpText(value) {
+  return String(value || '').trim().replace(/^::ffff:/, '').replace(/^\[|\]$/g, '');
+}
+
+function adminIpAllowlistEntries() {
+  return ADMIN_IP_ALLOWLIST_RAW
+    .split(/[,\s]+/u)
+    .map(normalizeAdminIpText)
+    .filter(Boolean);
+}
+
+function ipv4ToInteger(value) {
+  const parts = normalizeAdminIpText(value).split('.');
+  if (parts.length !== 4) return null;
+  const numbers = parts.map((part) => Number(part));
+  if (numbers.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
+  return numbers.reduce((sum, part) => (sum << 8) + part, 0) >>> 0;
+}
+
+function adminIpMatchesEntry(ip, entry) {
+  const normalizedIp = normalizeAdminIpText(ip);
+  const normalizedEntry = normalizeAdminIpText(entry);
+  if (!normalizedEntry) return false;
+  if (normalizedEntry === '*' || normalizedEntry.toLowerCase() === 'all') return true;
+  if (normalizedEntry.includes('/')) {
+    const [baseIp, prefixText] = normalizedEntry.split('/');
+    const prefix = Number(prefixText);
+    const ipValue = ipv4ToInteger(normalizedIp);
+    const baseValue = ipv4ToInteger(baseIp);
+    if (ipValue === null || baseValue === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) return false;
+    if (prefix === 0) return true;
+    const mask = (0xffffffff << (32 - prefix)) >>> 0;
+    return ((ipValue & mask) >>> 0) === ((baseValue & mask) >>> 0);
+  }
+  return normalizedIp === normalizedEntry;
+}
+
+function adminIpAllowlistStatus(ip) {
+  const entries = adminIpAllowlistEntries();
+  const normalizedIp = normalizeAdminIpText(ip);
+  const configured = entries.length > 0;
+  return {
+    allowed: !configured || entries.some((entry) => adminIpMatchesEntry(normalizedIp, entry)),
+    configured,
+    currentIp: normalizedIp || 'unknown',
+    entryCount: entries.length,
+    sample: entries.slice(0, 4).map((entry) => entry.includes('/') ? entry : entry.replace(/^(.{2}).*(.{2})$/u, '$1***$2')),
+  };
+}
+
+function adminPathRequiresIpAllowlist(pathname) {
+  return pathname === '/admin' || pathname.startsWith('/admin/');
 }
 
 function numberFromQuery(value) {
@@ -14195,9 +14250,11 @@ function adminSystemHealth() {
   const notifications = adminSystemNotifications().summary;
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
   const stateSizeWarn = stateFile.sizeBytes > 15 * 1024 * 1024;
+  const ipAllowlist = adminIpAllowlistStatus('');
   const checks = [
     adminCheckStatus(stateFile.exists ? stateSizeWarn ? 'warn' : 'ok' : 'bad', 'state_file', '状态文件', stateFile.exists ? `JSON state ${Math.round(stateFile.sizeBytes / 1024)} KB` : '状态文件不存在或不可读', stateFile.path),
     adminCheckStatus(process.env.LUMII_ADMIN_USERNAME && process.env.LUMII_ADMIN_PASSWORD ? 'ok' : 'warn', 'admin_credentials', '后台账号环境变量', process.env.LUMII_ADMIN_PASSWORD ? '后台密码由环境变量覆盖' : '仍可能使用默认后台账号密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
+    adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'admin_ip_allowlist', '后台 IP 白名单', ipAllowlist.configured ? `已配置 ${ipAllowlist.entryCount} 条后端白名单规则` : '未配置后台 IP 白名单，/admin 仍可被公网访问', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
     adminCheckStatus(config.app?.maintenanceEnabled ? 'warn' : 'ok', 'maintenance', '维护模式', config.app?.maintenanceEnabled ? maintenanceMessage() : '未开启维护模式', '/app/config + 写接口维护拦截'),
     adminCheckStatus(cosEnabled() ? 'ok' : 'warn', 'cos_storage', '腾讯云 COS', cosEnabled() ? '对象存储已配置' : '对象存储未完整配置，媒体可能走本地/代理兼容链路', `bucket=${COS_BUCKET ? 'set' : 'missing'} region=${COS_REGION || '-'}`),
     adminCheckStatus(AMAP_WEB_SERVICE_KEY ? 'ok' : 'warn', 'amap', '高德 POI', AMAP_WEB_SERVICE_KEY ? 'Web Service Key 已配置' : '未配置高德 Web Service Key，地点搜索会降级', AMAP_WEB_SERVICE_BASE_URL),
@@ -14224,7 +14281,7 @@ function adminSystemHealth() {
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'public_media_base'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'public_media_base'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
@@ -14348,11 +14405,12 @@ function adminAccounts(admin = {}) {
   const passwordFromEnv = Boolean(process.env.LUMII_ADMIN_PASSWORD);
   const usernameFromEnv = Boolean(process.env.LUMII_ADMIN_USERNAME);
   const loginSecurity = adminLoginSecurityStatus();
+  const ipAllowlist = adminIpAllowlistStatus(admin.ip || '');
   const checks = [
     adminCheckStatus(usernameFromEnv && passwordFromEnv ? 'ok' : 'warn', 'credential_env', '后台账号环境变量', passwordFromEnv ? '后台密码由环境变量覆盖' : '仍可能使用默认后台密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus(loginSecurity.locked ? 'warn' : 'ok', 'login_lockout', '登录失败锁定', loginSecurity.locked ? `当前已锁定到 ${loginSecurity.lockedUntil}` : `连续 ${loginSecurity.maxAttempts} 次失败会锁定 ${loginSecurity.lockMinutes} 分钟`, 'LUMII_ADMIN_LOGIN_MAX_ATTEMPTS / LUMII_ADMIN_LOGIN_LOCK_MS'),
     adminCheckStatus('warn', 'mfa', 'MFA', '当前单 admin 版本未接 MFA，生产期必须补齐。', '预留'),
-    adminCheckStatus('warn', 'ip_allowlist', 'IP 白名单', '当前未强制后台 IP 白名单，生产期应在网关或后端启用。', '预留'),
+    adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'ip_allowlist', 'IP 白名单', ipAllowlist.configured ? `已启用后端白名单，当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '当前未强制后台 IP 白名单，生产期应在网关或后端启用。', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
     adminCheckStatus('warn', 'multi_accounts', '多管理员账号', '当前只有一个环境变量 admin 账号，未开放新增、禁用、重置密码。', '预留'),
   ];
   const lastLogin = loginLogs[0] || null;
@@ -14388,6 +14446,7 @@ function adminAccounts(admin = {}) {
     security: {
       checks,
       defaultPasswordRisk: !passwordFromEnv,
+      ipAllowlist,
       mfaRequired: false,
       passwordFromEnv,
       usernameFromEnv,
@@ -14571,9 +14630,10 @@ function adminReadinessQuestions(context = {}) {
   const contentSafetyReadiness = adminContentSafetyReadiness(context.contentSafety);
   const safetyVendorReady = contentSafetyReadiness.textReady && contentSafetyReadiness.imageReady;
   const imagePolicyReady = contentSafetyReadiness.imageReady;
+  const ipAllowlistReady = Boolean(context.accounts?.security?.ipAllowlist?.configured);
   return [
     ['q-domain', 'P1', '后台正式域名使用 ops.lumiiapp.cn、admin.lumiiapp.cn，还是先沿用 /admin？', '当前可沿用 /admin；生产建议独立后台域名并做访问控制。', '影响后台入口、证书、CDN/网关和运维 SOP。'],
-    ['q-ip', 'P0', '生产后台是否必须白名单 IP？', '当前未强制白名单；生产前建议至少网关层限制。', '影响后台暴露面和账号被撞库风险。'],
+    ['q-ip', 'P0', '生产后台是否必须白名单 IP？', ipAllowlistReady ? '已接入后端 IP 白名单：/admin 页面和 /admin/* API 都会拦截非白名单 IP。' : '当前未强制白名单；生产前建议至少网关层限制。', '影响后台暴露面和账号被撞库风险。', ipAllowlistReady ? 'ready' : 'open', ipAllowlistReady ? '已接入' : '待确认'],
     ['q-mfa', 'P0', '后台账号是否接企业微信、飞书或邮箱 MFA？', '当前单 admin 账号无 MFA。', '影响生产后台登录安全。'],
     ['q-safety-vendor', 'P0', '内容安全供应商选哪家，文本和图片是否同一供应商？', safetyVendorReady ? '已选腾讯云天御：文本和图片机审均通过配置中心开关联动，Biztype 可由环境变量覆盖。' : `腾讯云内容安全基座未完全就绪，仍缺：${contentSafetyReadiness.missing.join('、') || '配置复核'}。`, '影响宠友圈、评论、头像、宠物图、地点点评的真实审核能力。', safetyVendorReady ? 'ready' : 'open', safetyVendorReady ? '已确认' : '待业务确认'],
     ['q-image-policy', 'P0', '图片审核失败时，宠友圈发布是阻断、送审，还是先隐藏等待审核？', imagePolicyReady ? '已实现：Block 拒绝，Review 进入 pending_review；宠友圈、地点内容会阻止发布/提交含待审或驳回图片，审核通过后才可继续。' : '图片机审未完全就绪，当前仍需人工任务池和配置复核兜底。', '影响用户发布体验和违规内容外露风险。', imagePolicyReady ? 'ready' : 'open', imagePolicyReady ? '已确认' : '待业务确认'],
@@ -14601,6 +14661,7 @@ function adminReadinessQuestions(context = {}) {
 function adminReadinessGaps(context) {
   const { accounts, contentSafety, health } = context;
   const defaultPasswordRisk = Boolean(accounts?.security?.defaultPasswordRisk);
+  const ipAllowlistReady = Boolean(accounts?.security?.ipAllowlist?.configured);
   const healthBad = Number(health?.summary?.bad || 0) > 0;
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
   return [
@@ -14609,8 +14670,14 @@ function adminReadinessGaps(context) {
       area: '后台安全',
       severity: 'P0',
       status: defaultPasswordRisk ? 'blocked' : 'partial',
-      issue: defaultPasswordRisk ? '后台密码仍可能使用默认值' : '已接登录失败锁定，仍缺 MFA、IP 白名单和多管理员账号。',
-      requiredAction: '生产前启用环境变量密码、MFA、IP 白名单和账号禁用/轮换流程。',
+      issue: defaultPasswordRisk
+        ? '后台密码仍可能使用默认值'
+        : ipAllowlistReady
+          ? '已接登录失败锁定和后端 IP 白名单，仍缺 MFA、多管理员账号和账号禁用/轮换流程。'
+          : '已接登录失败锁定，仍缺 IP 白名单、MFA 和多管理员账号。',
+      requiredAction: ipAllowlistReady
+        ? '生产前继续启用 MFA、多管理员账号、账号禁用/轮换流程，并确认后台密码由环境变量覆盖。'
+        : '生产前启用环境变量密码、IP 白名单、MFA、账号禁用/轮换流程。',
       evidence: '账号权限页 / 系统健康页',
     },
     {
@@ -20443,7 +20510,6 @@ async function handle(req, res) {
 
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
-  const body = req.method === 'GET' ? {} : await parseBody(req);
 
   if (req.method === 'GET' && pathname === '/health') {
     ok(res, { now: Date.now(), users: Object.keys(state.users).length });
@@ -20470,9 +20536,36 @@ async function handle(req, res) {
     return;
   }
 
+  if (adminPathRequiresIpAllowlist(pathname)) {
+    const ipStatus = adminIpAllowlistStatus(clientIpFromRequest(req));
+    if (!ipStatus.allowed) {
+      if (pathname === '/admin/auth/login' || req.method !== 'GET') {
+        writeAdminAudit({
+          ip: ipStatus.currentIp,
+          role: 'admin',
+          userAgent: String(req.headers['user-agent'] || '').slice(0, 180),
+          username: 'anonymous',
+        }, 'admin.ip_allowlist.blocked', 'admin_access', pathname, null, {
+          configured: ipStatus.configured,
+          currentIp: ipStatus.currentIp,
+          entryCount: ipStatus.entryCount,
+          pathname,
+        }, '后台访问 IP 不在白名单');
+        saveState();
+      }
+      fail(res, 403, '当前网络不在运营后台 IP 白名单内', false, {
+        configured: ipStatus.configured,
+        currentIp: ipStatus.currentIp,
+      }, 'ADMIN_IP_NOT_ALLOWED');
+      return;
+    }
+  }
+
   if (serveAdminStatic(req, res, pathname)) {
     return;
   }
+
+  const body = req.method === 'GET' ? {} : await parseBody(req);
 
   if (pathname.startsWith('/admin/')) {
     await handleAdminRequest(req, res, pathname, url, body);
