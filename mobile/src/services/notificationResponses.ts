@@ -15,6 +15,7 @@ const notificationKinds: NotificationKind[] = [
   'pet_circle_like',
   'place_review',
   'place_submission',
+  'support_reply',
   'system',
   'vaccine_done',
   'vaccine_reminder',
@@ -63,7 +64,9 @@ export function notificationItemFromResponseData(value: unknown): NotificationIt
   const title = firstString(data.title) || 'Lumii notification';
   const text = firstString(data.text, data.body, data.message);
 
+  const actionRoute = notificationActionRouteFromResponseData(data);
   return {
+    ...(actionRoute ? { actionRoute } : {}),
     category,
     commentId: firstString(data.commentId),
     conversationId: firstString(data.conversationId),
@@ -76,10 +79,17 @@ export function notificationItemFromResponseData(value: unknown): NotificationIt
     postId: firstString(data.postId),
     read: !serverNotificationId,
     submissionId: firstString(data.submissionId),
+    ticketId: firstString(data.ticketId),
     text,
     title,
     vaccineId: firstString(data.vaccineId),
   };
+}
+
+function notificationActionRouteFromResponseData(data: Record<string, unknown>): NotificationItem['actionRoute'] | '' {
+  const route = firstString(data.actionRoute, data.action_route);
+  if (route === 'discover' || route === 'home' || route === 'map' || route === 'notifications' || route === 'profile' || route === 'safety' || route === 'settings' || route === 'supportTickets') return route;
+  return '';
 }
 
 function isLumiiNotificationData(data: Record<string, unknown>) {
@@ -92,7 +102,7 @@ function isLumiiNotificationData(data: Record<string, unknown>) {
     isNotificationKind(explicitKind) ||
       isNotificationCategory(category) ||
       isKnownNotificationType(type) ||
-      firstString(data.notificationId, data.conversationId, data.ownerId, data.postId, data.placeId, data.submissionId, data.memoId, data.vaccineId),
+      firstString(data.notificationId, data.conversationId, data.ownerId, data.postId, data.placeId, data.submissionId, data.ticketId, data.memoId, data.vaccineId, data.actionRoute, data.action_route),
   );
 }
 
@@ -107,6 +117,7 @@ function notificationKindFromResponseData(data: Record<string, unknown>): Notifi
   if (type === 'medical' || type === 'medical_alert') return 'medical_alert';
   if (type === 'pet_circle' && firstString(data.postId)) return firstString(data.commentId) ? 'pet_circle_comment' : 'pet_circle_like';
   if (type === 'conversation' || type === 'chat' || firstString(data.conversationId)) return 'conversation_message';
+  if (type === 'support' || type === 'ticket' || type === 'support_reply' || firstString(data.ticketId)) return 'support_reply';
   if (type === 'walk' || type === 'walk_invite') return 'walk_invite';
   if (type === 'place' || type === 'place_review') return firstString(data.submissionId) ? 'place_submission' : 'place_review';
   if (firstString(data.memoId)) return 'medical_alert';
@@ -119,7 +130,7 @@ function notificationCategoryFromResponseData(data: Record<string, unknown>, kin
   if (isNotificationCategory(category)) return category;
   if (kind === 'vaccine_done' || kind === 'vaccine_reminder' || kind === 'health_reminder' || kind === 'medical_alert') return 'health';
   if (kind === 'walk_invite') return 'walk';
-  if (kind === 'place_review' || kind === 'place_submission' || kind === 'system') return 'system';
+  if (kind === 'place_review' || kind === 'place_submission' || kind === 'support_reply' || kind === 'system') return 'system';
   return 'interaction';
 }
 
@@ -127,7 +138,7 @@ function syntheticNotificationId(kind: NotificationKind, data: Record<string, un
   return [
     'external',
     kind,
-    firstString(data.conversationId, data.ownerId, data.postId, data.placeId, data.submissionId, data.memoId, data.vaccineId) || Date.now(),
+    firstString(data.conversationId, data.ownerId, data.postId, data.placeId, data.submissionId, data.ticketId, data.memoId, data.vaccineId, data.actionRoute, data.action_route) || Date.now(),
   ].join('-');
 }
 

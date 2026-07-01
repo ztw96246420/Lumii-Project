@@ -10012,6 +10012,16 @@ function markNotificationsRead(phone, ids) {
 const systemNotificationTargets = new Set(['active_today', 'all', 'audience_package', 'phones']);
 const systemNotificationActionRoutes = new Set(['discover', 'home', 'map', 'notifications', 'profile', 'safety', 'settings', 'supportTickets']);
 const systemNotificationModes = new Set(['draft', 'scheduled', 'send']);
+const systemNotificationDeepLinkFields = ['conversationId', 'memoId', 'placeId', 'postId', 'submissionId', 'ticketId', 'vaccineId'];
+const systemNotificationDeepLinkTypeFields = {
+  conversation: 'conversationId',
+  memo: 'memoId',
+  place: 'placeId',
+  post: 'postId',
+  submission: 'submissionId',
+  ticket: 'ticketId',
+  vaccine: 'vaccineId',
+};
 const SYSTEM_NOTIFICATION_RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function ensureSystemNotifications() {
@@ -10027,6 +10037,81 @@ function ensureNotificationTemplates() {
 function parseNotificationPhones(value) {
   const source = Array.isArray(value) ? value.join('\n') : String(value || '');
   return Array.from(new Set(source.split(/[\s,，;；]+/).map(normalizePhone).filter(Boolean)));
+}
+
+function findHealthRecordById(storeName, id) {
+  const targetId = String(id || '').trim();
+  if (!targetId) return null;
+  for (const [key, records] of Object.entries(state.health?.[storeName] || {})) {
+    if (!Array.isArray(records)) continue;
+    const record = records.find((item) => item?.id === targetId);
+    if (record) return { key, record };
+  }
+  return null;
+}
+
+function findConversationById(conversationId) {
+  const targetId = String(conversationId || '').trim();
+  if (!targetId) return null;
+  for (const [phone, conversations] of Object.entries(state.conversations || {})) {
+    if (!Array.isArray(conversations)) continue;
+    const conversation = conversations.find((item) => item?.id === targetId);
+    if (conversation) return { phone, conversation };
+  }
+  return null;
+}
+
+function notificationDeepLinkFieldType(field) {
+  return Object.entries(systemNotificationDeepLinkTypeFields).find(([, value]) => value === field)?.[0] || '';
+}
+
+function notificationDeepLinkPayload(item = {}) {
+  return systemNotificationDeepLinkFields.reduce((payload, field) => {
+    const value = String(item[field] || '').trim();
+    if (value) payload[field] = value;
+    return payload;
+  }, {});
+}
+
+function normalizeSystemNotificationDeepLink(body = {}) {
+  let deepLinkType = String(body.deepLinkType || '').trim();
+  let deepLinkId = String(body.deepLinkId || '').trim();
+  if (deepLinkType && !Object.prototype.hasOwnProperty.call(systemNotificationDeepLinkTypeFields, deepLinkType)) {
+    return { error: '通知深链类型不支持', statusCode: 400 };
+  }
+  if (!deepLinkType) {
+    const inferredField = systemNotificationDeepLinkFields.find((field) => String(body[field] || '').trim());
+    if (inferredField) {
+      deepLinkType = notificationDeepLinkFieldType(inferredField);
+      deepLinkId = String(body[inferredField] || '').trim();
+    }
+  }
+  if (!deepLinkType) return { deepLinkContext: {}, deepLinkId: '', deepLinkType: '' };
+  const field = systemNotificationDeepLinkTypeFields[deepLinkType];
+  const rawId = deepLinkId || String(body[field] || '').trim();
+  const id = rawId.replace(/\s+/g, ' ').trim().slice(0, 96);
+  if (!id) return { error: '请填写通知深链对象 ID', statusCode: 400 };
+  const validation = validateSystemNotificationDeepLink(deepLinkType, id);
+  if (validation.error) return validation;
+  return {
+    deepLinkContext: { [field]: id },
+    deepLinkId: id,
+    deepLinkType,
+  };
+}
+
+function validateSystemNotificationDeepLink(type, id) {
+  if (type === 'post') {
+    const moment = findSocialMomentById(id);
+    if (!moment || moment.status !== 'published') return { error: '宠友圈小事不存在或不可见', statusCode: 400 };
+  }
+  if (type === 'place' && !findPlaceById(id)) return { error: '地图地点不存在', statusCode: 400 };
+  if (type === 'submission' && !findPlaceSubmission(id)) return { error: '地点提交记录不存在', statusCode: 400 };
+  if (type === 'ticket' && !findSupportTicket(id)) return { error: '客服工单不存在', statusCode: 400 };
+  if (type === 'conversation' && !findConversationById(id)) return { error: '会话不存在', statusCode: 400 };
+  if (type === 'memo' && !findHealthRecordById('memos', id)) return { error: '宠物日历备忘不存在', statusCode: 400 };
+  if (type === 'vaccine' && !findHealthRecordById('vaccines', id)) return { error: '疫苗/驱虫计划不存在', statusCode: 400 };
+  return {};
 }
 
 function normalizeNotificationAudiencePackage(item = {}) {
@@ -10363,6 +10448,7 @@ function systemNotificationItem(item) {
   const targetPhones = Array.isArray(item.targetPhones) ? item.targetPhones : [];
   const deliveredCount = Number(item.deliveredCount || 0);
   const effectStats = systemNotificationCampaignStats(item.id, deliveredCount || targetPhones.length || Number(item.audienceCount || 0));
+  const deepLinkPayload = notificationDeepLinkPayload(item);
   return {
     actionRoute: item.actionRoute || '',
     audiencePackageId: item.audiencePackageId || '',
@@ -10374,6 +10460,8 @@ function systemNotificationItem(item) {
     createdBy: item.createdBy || 'admin',
     deliveredAt: item.deliveredAt || '',
     deliveredCount,
+    deepLinkId: item.deepLinkId || '',
+    deepLinkType: item.deepLinkType || '',
     failedPhones: Array.isArray(item.failedPhones) ? item.failedPhones.slice(0, 20) : [],
     failedReason: item.failedReason || '',
     id: item.id,
@@ -10399,6 +10487,7 @@ function systemNotificationItem(item) {
     title: item.title || '',
     uniqueOpenCount: effectStats.uniqueOpenCount,
     unreadCount: effectStats.unreadCount,
+    ...deepLinkPayload,
   };
 }
 
@@ -10446,6 +10535,8 @@ function createSystemNotification(admin, body = {}) {
   const target = systemNotificationTargets.has(targetInput) ? targetInput : 'phones';
   const actionRouteInput = String(body.actionRoute || '').trim();
   const actionRoute = systemNotificationActionRoutes.has(actionRouteInput) ? actionRouteInput : '';
+  const deepLink = normalizeSystemNotificationDeepLink(body);
+  if (deepLink.error) return deepLink;
   const targetPhones = systemNotificationTargetPhones(target, body.phones || body.targetPhones);
   if (!targetPhones.length) return { error: '没有可触达的目标用户', statusCode: 400 };
   const now = new Date().toISOString();
@@ -10455,6 +10546,8 @@ function createSystemNotification(admin, body = {}) {
     createdAt: now,
     createdBy: admin?.username || 'admin',
     deliveredCount: 0,
+    deepLinkId: deepLink.deepLinkId,
+    deepLinkType: deepLink.deepLinkType,
     failedPhones: [],
     id: `system-notification-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     respectUserSettings: body.respectUserSettings !== false,
@@ -10464,6 +10557,7 @@ function createSystemNotification(admin, body = {}) {
     targetPhones,
     text,
     title,
+    ...deepLink.deepLinkContext,
   };
   for (const phone of targetPhones) {
     const added = addNotification(phone, {
@@ -10476,6 +10570,7 @@ function createSystemNotification(admin, body = {}) {
       read: false,
       text,
       title,
+      ...deepLink.deepLinkContext,
     }, 'system', { force: !notification.respectUserSettings });
     if (added) notification.deliveredCount += 1;
     else {
@@ -10494,6 +10589,7 @@ function deliverManagedSystemNotification(notification, admin, reason = '发送�
   const nowMs = Date.parse(now);
   const targetPhones = systemNotificationTargetPhones(notification.target, notification.phonesInput || notification.targetPhones, notification.audiencePackageId);
   const audiencePackage = notification.target === 'audience_package' ? findNotificationAudiencePackage(notification.audiencePackageId) : null;
+  const deepLinkContext = notificationDeepLinkPayload(notification);
   const campaignRate = systemNotificationCampaignRateLimit(nowMs);
   notification.audienceCount = targetPhones.length;
   notification.audiencePackageName = audiencePackage?.name || notification.audiencePackageName || '';
@@ -10536,6 +10632,7 @@ function deliverManagedSystemNotification(notification, admin, reason = '发送�
       read: false,
       text: notification.text,
       title: notification.title,
+      ...deepLinkContext,
     }, 'system', { force: !notification.respectUserSettings });
     if (added) notification.deliveredCount += 1;
     else {
@@ -10563,6 +10660,8 @@ function createManagedSystemNotification(admin, body = {}) {
   const target = systemNotificationTargets.has(targetInput) ? targetInput : 'phones';
   const actionRouteInput = String(body.actionRoute || '').trim();
   const actionRoute = systemNotificationActionRoutes.has(actionRouteInput) ? actionRouteInput : '';
+  const deepLink = normalizeSystemNotificationDeepLink(body);
+  if (deepLink.error) return deepLink;
   const phonesInput = Array.isArray(body.phones || body.targetPhones) ? (body.phones || body.targetPhones).join('\n') : String(body.phones || body.targetPhones || '');
   const audiencePackageId = target === 'audience_package' ? String(body.audiencePackageId || '').trim() : '';
   const audiencePackage = audiencePackageId ? findNotificationAudiencePackage(audiencePackageId) : null;
@@ -10584,6 +10683,8 @@ function createManagedSystemNotification(admin, body = {}) {
     createdAt: now,
     createdBy: admin?.username || 'admin',
     deliveredCount: 0,
+    deepLinkId: deepLink.deepLinkId,
+    deepLinkType: deepLink.deepLinkType,
     failedPhones: [],
     id: `system-notification-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     mode,
@@ -10596,6 +10697,7 @@ function createManagedSystemNotification(admin, body = {}) {
     targetPhones: mode === 'draft' || mode === 'scheduled' ? [] : targetPhones,
     text,
     title,
+    ...deepLink.deepLinkContext,
   };
   if (mode === 'send') deliverManagedSystemNotification(notification, admin, body.reason || '发送系统通知');
   else writeAdminAudit(admin, mode === 'draft' ? 'notification.system.draft' : 'notification.system.schedule', 'system_notification', notification.id, null, systemNotificationItem(notification), title);
@@ -12017,9 +12119,9 @@ function adminReadinessModules(context) {
       module: '通知运营',
       group: '触达',
       status: 'partial',
-      evidence: '支持系统通知、草稿、预约、撤回、模板、通知人群包、设备概览、actionRoute、频控和批次效果统计。',
+      evidence: '支持系统通知、草稿、预约、撤回、模板、通知人群包、设备概览、actionRoute、对象深链、频控和批次效果统计。',
       mobileLinkage: '通知会写入 App 通知中心，支持跳首页、发现、地图、我的、安全中心、设置、反馈进度。',
-      nextStep: '生产期补厂商 Push、复杂深链和发送审批。',
+      nextStep: '生产期补厂商 Push、送达回执和发送审批。',
     },
     {
       key: 'config',
@@ -12146,8 +12248,8 @@ function adminReadinessGaps(context) {
       area: '通知触达',
       severity: 'P1',
       status: 'partial',
-      issue: '当前以站内通知为主，厂商 Push、送达回执、发送审批和复杂深链未完成。',
-      requiredAction: '接 Android 厂商 Push、iOS APNs、回执、失败重试、发送审批和复杂深链参数。',
+      issue: '当前以站内通知为主，厂商 Push、送达回执和发送审批未完成。',
+      requiredAction: '接 Android 厂商 Push、iOS APNs、回执、失败重试和发送审批。',
       evidence: '通知运营页设备 token 概览',
     },
     {

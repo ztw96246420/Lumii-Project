@@ -1449,6 +1449,8 @@ function fillNotificationFormFromDataset(button) {
     ['notifyTarget', 'target'],
     ['notifyPhones', 'phones'],
     ['notifyAudiencePackageId', 'audiencePackageId'],
+    ['notifyDeepLinkType', 'deepLinkType'],
+    ['notifyDeepLinkId', 'deepLinkId'],
   ];
   fields.forEach(([inputId, dataKey]) => {
     const element = $(inputId);
@@ -1512,6 +1514,8 @@ async function sendSystemNotification(mode = 'send') {
   await post('/admin/notifications/system', {
     actionRoute: valueOf('notifyActionRoute'),
     audiencePackageId,
+    deepLinkId: valueOf('notifyDeepLinkId'),
+    deepLinkType: valueOf('notifyDeepLinkType'),
     mode,
     phones,
     reason: mode === 'scheduled' ? '预约发送系统通知' : mode === 'draft' ? '保存系统通知草稿' : '发送系统通知',
@@ -4437,6 +4441,25 @@ function notificationActionLabel(value) {
   }[value] || '无跳转';
 }
 
+function notificationDeepLinkTypeLabel(value) {
+  return {
+    conversation: '会话',
+    memo: '备忘',
+    place: '地图地点',
+    post: '宠友圈小事',
+    submission: '地点提交',
+    ticket: '客服工单',
+    vaccine: '疫苗/驱虫计划',
+  }[value] || '';
+}
+
+function notificationDeepLinkLabel(item = {}) {
+  const type = item.deepLinkType || (item.postId ? 'post' : item.placeId ? 'place' : item.submissionId ? 'submission' : item.ticketId ? 'ticket' : item.conversationId ? 'conversation' : item.memoId ? 'memo' : item.vaccineId ? 'vaccine' : '');
+  if (!type) return '';
+  const id = item.deepLinkId || item.postId || item.placeId || item.submissionId || item.ticketId || item.conversationId || item.memoId || item.vaccineId || '';
+  return `${notificationDeepLinkTypeLabel(type) || '深链'}${id ? ` · ${id}` : ''}`;
+}
+
 function renderNotificationTemplate(template) {
   return `
     <article class="notification-template">
@@ -4491,6 +4514,8 @@ function renderNotificationCampaign(campaign) {
   const phones = (campaign.targetPhones || []).length ? (campaign.targetPhones || []).slice(0, 6).map(shortPhone).join('、') : String(campaign.phonesInput || '').split(/[\s,，;；]+/).filter(Boolean).slice(0, 6).map(shortPhone).join('、');
   const canCancel = ['draft', 'scheduled', 'sent'].includes(campaign.status);
   const cancelLabel = campaign.status === 'sent' ? '撤回' : campaign.status === 'scheduled' ? '取消预约' : '作废草稿';
+  const deepLinkType = campaign.deepLinkType || (campaign.postId ? 'post' : campaign.placeId ? 'place' : campaign.submissionId ? 'submission' : campaign.ticketId ? 'ticket' : campaign.conversationId ? 'conversation' : campaign.memoId ? 'memo' : campaign.vaccineId ? 'vaccine' : '');
+  const deepLinkLabel = notificationDeepLinkLabel(campaign);
   return `
     <article class="notification-campaign">
       <div class="notification-campaign-main">
@@ -4514,6 +4539,7 @@ function renderNotificationCampaign(campaign) {
           <span>点击：${numberText(campaign.uniqueOpenCount || 0)} 人 · ${numberText(campaign.openCount || 0)} 次</span>
           <span>打开率：${percentText(campaign.openRate || 0)}</span>
           <span>跳转：${escapeHtml(notificationActionLabel(campaign.actionRoute))}</span>
+          ${deepLinkLabel ? `<span>深链：${escapeHtml(deepLinkLabel)}</span>` : ''}
           ${campaign.scheduledAt ? `<span>预约：${formatTime(campaign.scheduledAt)}</span>` : ''}
           ${campaign.deliveredAt ? `<span>发送：${formatTime(campaign.deliveredAt)}</span>` : ''}
           ${campaign.latestOpenAt ? `<span>最近点击：${formatTime(campaign.latestOpenAt)}</span>` : ''}
@@ -4525,6 +4551,7 @@ function renderNotificationCampaign(campaign) {
           <span class="risk-badge">跳过 ${campaign.skippedCount || 0}</span>
           ${campaign.rateLimitedCount ? `<span class="risk-badge">频控 ${campaign.rateLimitedCount}</span>` : ''}
           ${campaign.audiencePackageName ? `<span class="risk-badge">人群包 ${escapeHtml(campaign.audiencePackageName)}</span>` : ''}
+          ${deepLinkLabel ? `<span class="risk-badge">深链 ${escapeHtml(deepLinkLabel)}</span>` : ''}
           ${phones ? `<span class="risk-badge">样本 ${escapeHtml(phones)}</span>` : ''}
           ${failed ? `<span class="risk-badge">未入站 ${escapeHtml(failed)}</span>` : ''}
           ${campaign.failedReason ? `<span class="risk-badge">失败：${escapeHtml(campaign.failedReason)}</span>` : ''}
@@ -4536,6 +4563,8 @@ function renderNotificationCampaign(campaign) {
             data-action="notification-campaign-use"
             data-action-route="${escapeHtml(campaign.actionRoute || '')}"
             data-audience-package-id="${escapeHtml(campaign.audiencePackageId || '')}"
+            data-deep-link-id="${escapeHtml(campaign.deepLinkId || campaign.postId || campaign.placeId || campaign.submissionId || campaign.ticketId || campaign.conversationId || campaign.memoId || campaign.vaccineId || '')}"
+            data-deep-link-type="${escapeHtml(deepLinkType)}"
             data-phones="${escapeHtml(campaign.phonesInput || (campaign.targetPhones || []).join('\n'))}"
             data-respect-user-settings="${campaign.respectUserSettings !== false ? 'true' : 'false'}"
             data-target="${escapeHtml(campaign.target || 'phones')}"
@@ -4734,6 +4763,21 @@ async function renderNotifications(force) {
               </select>
             </label>
           </div>
+          <div class="notification-form-row">
+            <label>深链类型
+              <select id="notifyDeepLinkType">
+                <option value="">不指定对象</option>
+                <option value="post">宠友圈小事</option>
+                <option value="place">地图地点</option>
+                <option value="submission">地点提交</option>
+                <option value="ticket">客服工单</option>
+                <option value="conversation">会话</option>
+                <option value="memo">备忘</option>
+                <option value="vaccine">疫苗/驱虫计划</option>
+              </select>
+            </label>
+            <label>对象 ID<input id="notifyDeepLinkId" maxlength="96" placeholder="例如 moment-xxx、place-001、ticket-xxx" /></label>
+          </div>
           <label>通知人群包
             <select id="notifyAudiencePackageId">
               <option value="">请选择已保存的人群包</option>
@@ -4786,6 +4830,7 @@ async function renderNotifications(force) {
           <div><strong>今日活跃</strong><span>适合短时运营提醒，减少打扰沉默用户。</span></div>
           <div><strong>通知人群包</strong><span>适合灰度测试、补偿和定向回访，发送时只触达已注册手机号。</span></div>
           <div><strong>指定手机号</strong><span>适合客服、灰度验证、单用户补偿通知。</span></div>
+          <div><strong>深链对象</strong><span>可指定小事、地点、工单、备忘等对象 ID；后端会校验对象存在，移动端优先打开具体对象。</span></div>
           <div><strong>强制入站</strong><span>仅用于安全、封禁、维护等必须告知的信息。</span></div>
           <div><strong>草稿/预约</strong><span>草稿只保留在后台；预约到点后自动写入目标用户通知中心。</span></div>
           <div><strong>频控保护</strong><span>配置中心可限制 24 小时批次数和单用户入站次数，超限会跳过或失败。</span></div>

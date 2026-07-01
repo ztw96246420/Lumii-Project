@@ -4955,6 +4955,39 @@ export default function LumiiMvpApp() {
       return;
     }
     if (kind === 'system') {
+      if (petCircleSourcePostId) {
+        setPetCircleFocusedPostId(petCircleSourcePostId);
+        setDiscoverTab('circle');
+        setDiscoverFilter('all');
+        setDiscoverQuery('');
+        go('discover');
+        void refreshPetCirclePostFromNotification(petCircleSourcePostId);
+        return;
+      }
+      if (item.placeId) {
+        await openPlaceFromNotification(item.placeId);
+        return;
+      }
+      if (item.submissionId) {
+        await openPlaceSubmissionFromNotification(item.submissionId);
+        return;
+      }
+      if (item.ticketId) {
+        openSupportTickets(item.ticketId);
+        return;
+      }
+      if (item.conversationId) {
+        await openConversationFromNotification(item.conversationId, item);
+        return;
+      }
+      if (item.memoId) {
+        await openHealthNotification(item, 'medical_alert');
+        return;
+      }
+      if (item.vaccineId) {
+        await openHealthNotification(item, 'vaccine_reminder');
+        return;
+      }
       const actionRoute = normalizeNotificationActionRoute(item.actionRoute);
       if (actionRoute) {
         go(actionRoute);
