@@ -9874,6 +9874,8 @@ function notifySocialReportResolution(report, actionOrStatus, reason = '') {
       kind: 'system',
       read: false,
       reportId: report.id,
+      targetId: report.targetId,
+      targetType: report.targetType,
       text,
       title,
     }, 'system', { force: true }) || changed;
@@ -9891,6 +9893,8 @@ function notifySocialReportResolution(report, actionOrStatus, reason = '') {
         kind: 'system',
         read: false,
         reportId: report.id,
+        targetId: report.targetId,
+        targetType: report.targetType,
         text: reasonText
           ? `你发布的${targetLabel}因用户举报已被平台${actionText}，原因：${reasonText}。如有疑问可在安全中心查看或申诉。`
           : `你发布的${targetLabel}因用户举报已被平台${actionText}。如有疑问可在安全中心查看或申诉。`,
@@ -12159,8 +12163,8 @@ function adminReadinessModules(context) {
       module: '举报与处罚申诉',
       group: '安全',
       status: 'partial',
-      evidence: '举报可处理有效/无效/关闭，处罚可创建/撤销，申诉可通过/驳回并通知用户。',
-      mobileLinkage: '处罚会限制移动端写接口，申诉通过可撤销处罚并通知用户。',
+      evidence: '举报可处理有效/无效/关闭，证据快照、处罚建议、一键处罚、处罚撤销和申诉处理已接入。',
+      mobileLinkage: '有效举报和处罚会通知作者；处罚会限制移动端写接口，用户可在安全中心提交申诉。',
       nextStep: '永久封禁、批量处罚和高风险处罚建议需要双人审批。',
     },
     {
