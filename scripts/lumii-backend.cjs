@@ -14183,8 +14183,12 @@ function recordAppEvent(req, user, body = {}) {
 function adminAppEvents(options = {}) {
   const limit = Math.floor(clampNumber(options.limit, 300, 1, ADMIN_EXPORT_ROW_LIMIT));
   const name = normalizeAppEventName(options.name);
+  const days = options.days ? Math.floor(clampNumber(options.days, ADMIN_ANALYTICS_DEFAULT_DAYS, 7, ADMIN_ANALYTICS_MAX_DAYS)) : 0;
+  const platform = normalizeAppEventFilterValue(options.platform);
   const q = normalizeAppEventText(options.q, 80).toLowerCase();
-  const items = pruneAppEvents()
+  const route = normalizeAppEventRoute(options.route === 'all' ? '' : options.route);
+  const source = normalizeAppEventFilterValue(options.source);
+  const rawItems = pruneAppEvents()
     .map((event) => ({
       ...event,
       label: APP_EVENT_LABELS[event.name] || event.name,
@@ -14192,7 +14196,12 @@ function adminAppEvents(options = {}) {
         .map(([key, value]) => `${key}=${value}`)
         .join(' | '),
     }))
+    .filter((event) => !days || analyticsTimeMs(event.createdAt || event.occurredAt) >= analyticsWindowStartMs(days));
+  const items = rawItems
     .filter((event) => (!name || event.name === name))
+    .filter((event) => (!platform || event.platform === platform))
+    .filter((event) => (!route || event.route === route))
+    .filter((event) => (!source || event.source === source))
     .filter((event) => {
       if (!q) return true;
       return [event.name, event.label, event.phone, event.ownerName, event.petName, event.route, event.source, event.propertySummary]
@@ -14207,14 +14216,49 @@ function adminAppEvents(options = {}) {
     return acc;
   }, {});
   return {
-    filters: { name: name || 'all', q: options.q || '' },
+    filters: {
+      days: days || 'all',
+      name: name || 'all',
+      platform: platform || 'all',
+      q: options.q || '',
+      route: route || 'all',
+      source: source || 'all',
+    },
     items: items.slice(0, limit),
+    options: adminAppEventFilterOptions(rawItems),
     summary: {
       byName,
       latestAt: items[0]?.createdAt || '',
+      matched: items.length,
+      totalInWindow: rawItems.length,
       total: items.length,
       uniqueUsers: uniqueUsers.size,
     },
+  };
+}
+
+function normalizeAppEventFilterValue(value) {
+  const text = normalizeAppEventText(value, 80);
+  if (!text || text === 'all') return '';
+  return text.replace(/[^0-9A-Za-z_.-]/g, '');
+}
+
+function analyticsUniqueOptions(items, key, limit = 80) {
+  return Array.from(new Set(items.map((item) => item[key]).filter(Boolean)))
+    .sort((left, right) => String(left).localeCompare(String(right)))
+    .slice(0, limit);
+}
+
+function adminAppEventFilterOptions(items) {
+  const names = analyticsUniqueOptions(items, 'name', 120).map((eventName) => ({
+    label: APP_EVENT_LABELS[eventName] || eventName,
+    value: eventName,
+  }));
+  return {
+    names,
+    platforms: analyticsUniqueOptions(items, 'platform'),
+    routes: analyticsUniqueOptions(items, 'route'),
+    sources: analyticsUniqueOptions(items, 'source'),
   };
 }
 
@@ -14319,6 +14363,14 @@ function analyticsWindow(daysInput) {
   };
 }
 
+function analyticsWindowStartMs(daysInput) {
+  const days = Math.floor(clampNumber(daysInput, ADMIN_ANALYTICS_DEFAULT_DAYS, 7, ADMIN_ANALYTICS_MAX_DAYS));
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - days + 1);
+  return date.getTime();
+}
+
 function incrementAnalyticsBucket(bucketMap, value, key, amount = 1) {
   const day = analyticsDateKey(value);
   const bucket = bucketMap.get(day);
@@ -14354,6 +14406,183 @@ function flattenConversationMessagesForAnalytics() {
 
 function flattenPetChatMessagesForAnalytics() {
   return Object.values(state.petChatMessages || {}).flatMap((messages) => (Array.isArray(messages) ? messages : []));
+}
+
+function analyticsAddDays(day, offset) {
+  const timestamp = analyticsTimeMs(day);
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  date.setDate(date.getDate() + offset);
+  return analyticsDateKeyFromDate(date);
+}
+
+function analyticsCohortCell(count, total, eligible = true) {
+  return {
+    count: eligible ? count : 0,
+    eligible,
+    rate: eligible ? analyticsPercent(count, total) : null,
+  };
+}
+
+function buildAnalyticsRetentionCohorts(users, appEvents, bucketMap) {
+  const offsets = [0, 1, 3, 7];
+  const todayKey = analyticsDateKeyFromDate(new Date());
+  const eventsByUserDay = new Map();
+  appEvents.forEach((event) => {
+    if (!event.phone) return;
+    const day = analyticsDateKey(event.createdAt || event.occurredAt);
+    if (!day) return;
+    if (!eventsByUserDay.has(event.phone)) eventsByUserDay.set(event.phone, new Set());
+    eventsByUserDay.get(event.phone).add(day);
+  });
+
+  const cohorts = new Map();
+  users.forEach((user) => {
+    const cohortDate = analyticsDateKey(user.createdAt);
+    if (!cohortDate || !bucketMap.has(cohortDate)) return;
+    if (!cohorts.has(cohortDate)) cohorts.set(cohortDate, []);
+    cohorts.get(cohortDate).push(user.phone);
+  });
+
+  const totals = Object.fromEntries(offsets.map((offset) => [offset, { active: 0, users: 0 }]));
+  const rows = Array.from(cohorts.entries())
+    .sort(([left], [right]) => right.localeCompare(left))
+    .map(([cohortDate, phones]) => {
+      const uniquePhones = Array.from(new Set(phones.filter(Boolean)));
+      const total = uniquePhones.length;
+      const cells = {};
+      offsets.forEach((offset) => {
+        const targetDay = analyticsAddDays(cohortDate, offset);
+        const eligible = Boolean(targetDay) && targetDay <= todayKey;
+        const count = offset === 0
+          ? total
+          : uniquePhones.filter((phone) => eventsByUserDay.get(phone)?.has(targetDay)).length;
+        cells[`d${offset}`] = analyticsCohortCell(count, total, eligible);
+        if (eligible) {
+          totals[offset].active += count;
+          totals[offset].users += total;
+        }
+      });
+      const activeInWindow = uniquePhones.filter((phone) => {
+        const days = eventsByUserDay.get(phone);
+        return days && Array.from(days).some((day) => bucketMap.has(day));
+      }).length;
+      return {
+        activeInWindow,
+        cohortDate,
+        label: cohortDate.slice(5).replace('-', '/'),
+        total,
+        ...cells,
+      };
+    });
+
+  return {
+    rows: rows.slice(0, 30),
+    summary: {
+      cohorts: rows.length,
+      d1Rate: analyticsPercent(totals[1].active, totals[1].users),
+      d3Rate: analyticsPercent(totals[3].active, totals[3].users),
+      d7Rate: analyticsPercent(totals[7].active, totals[7].users),
+      users: rows.reduce((sum, row) => sum + row.total, 0),
+    },
+  };
+}
+
+const ANALYTICS_FUNNEL_DEFINITIONS = [
+  {
+    key: 'aiAvatar',
+    label: 'AI 灵伴生成',
+    note: '入口点击、开始生成、生成成功的顺序转化；失败事件仍在 AI 指标里单独展示。',
+    steps: [
+      { key: 'entry', label: '入口点击', names: ['ai_avatar.entry_click'] },
+      { key: 'start', label: '开始生成', names: ['ai_avatar.start'] },
+      { key: 'success', label: '生成成功', names: ['ai_avatar.success'] },
+    ],
+  },
+  {
+    key: 'petCircle',
+    label: '宠友圈浏览互动',
+    note: '从进入发现到小事加载、卡片曝光和点赞/评论/招呼/约遛点击。',
+    steps: [
+      { key: 'discover', label: '进入发现', names: ['discover.view'] },
+      { key: 'loaded', label: '小事加载', names: ['discover.pet_circle_loaded'] },
+      { key: 'exposure', label: '卡片曝光', names: ['pet_circle.card_exposure'] },
+      { key: 'interaction', label: '产生互动', names: ['pet_circle.like_click', 'pet_circle.comment_click', 'pet_circle.greeting_click', 'pet_circle.walk_invite_click'] },
+    ],
+  },
+  {
+    key: 'mapPlace',
+    label: '地图地点行为',
+    note: '地图打开、POI 搜索、地点详情、外部导航的顺序转化。',
+    steps: [
+      { key: 'open', label: '打开地图', names: ['map.open'] },
+      { key: 'search', label: '搜索 POI', names: ['map.poi_search'] },
+      { key: 'detail', label: '查看详情', names: ['map.place_detail_view'] },
+      { key: 'navigation', label: '打开导航', names: ['map.navigation_open'] },
+    ],
+  },
+  {
+    key: 'configPrompt',
+    label: '配置触达点击',
+    note: '公告、启动提示、版本更新弹窗的展示到主按钮点击。',
+    steps: [
+      { key: 'impression', label: '展示', names: ['config.announcement_impression', 'config.splash_impression', 'config.update_impression'] },
+      { key: 'action', label: '点击', names: ['config.announcement_action', 'config.splash_action', 'config.update_action'] },
+    ],
+  },
+];
+
+function analyticsEventsForStep(events, step) {
+  const names = new Set(step.names || []);
+  return events.filter((event) => names.has(event.name));
+}
+
+function buildAnalyticsFunnel(definition, appEvents) {
+  const eventsByUser = new Map();
+  appEvents.forEach((event) => {
+    if (!event.phone) return;
+    if (!eventsByUser.has(event.phone)) eventsByUser.set(event.phone, []);
+    eventsByUser.get(event.phone).push(event);
+  });
+  eventsByUser.forEach((items) => items.sort((left, right) => analyticsTimeMs(left.createdAt || left.occurredAt) - analyticsTimeMs(right.createdAt || right.occurredAt)));
+
+  const stepUsers = definition.steps.map(() => new Set());
+  const stepEventCounts = definition.steps.map((step) => analyticsEventsForStep(appEvents, step).length);
+  eventsByUser.forEach((items, phone) => {
+    let cursorTime = 0;
+    for (let index = 0; index < definition.steps.length; index += 1) {
+      const names = new Set(definition.steps[index].names || []);
+      const match = items.find((event) => names.has(event.name) && analyticsTimeMs(event.createdAt || event.occurredAt) >= cursorTime);
+      if (!match) break;
+      stepUsers[index].add(phone);
+      cursorTime = analyticsTimeMs(match.createdAt || match.occurredAt);
+    }
+  });
+
+  const firstCount = stepUsers[0]?.size || 0;
+  const steps = definition.steps.map((step, index) => {
+    const users = stepUsers[index].size;
+    const previousUsers = index > 0 ? stepUsers[index - 1].size : users;
+    return {
+      eventCount: stepEventCounts[index],
+      key: step.key,
+      label: step.label,
+      names: step.names,
+      previousRate: index === 0 ? (users ? 100 : 0) : analyticsPercent(users, previousUsers),
+      totalRate: firstCount ? (index === 0 ? 100 : analyticsPercent(users, firstCount)) : 0,
+      users,
+    };
+  });
+  return {
+    key: definition.key,
+    label: definition.label,
+    note: definition.note,
+    steps,
+  };
+}
+
+function buildAnalyticsFunnels(appEvents) {
+  return ANALYTICS_FUNNEL_DEFINITIONS.map((definition) => buildAnalyticsFunnel(definition, appEvents));
 }
 
 function analyticsAvatarDurationSeconds(job) {
@@ -14492,15 +14721,36 @@ function adminAnalytics(options = {}) {
   const configUpdateActions = sumAnalyticsBuckets(buckets, 'configUpdateActions');
   const configPromptImpressions = configAnnouncementImpressions + configSplashImpressions + configUpdateImpressions;
   const configPromptActions = configAnnouncementActions + configSplashActions + configUpdateActions;
+  const eventDetail = adminAppEvents({
+    days,
+    limit: options.limit || 120,
+    name: options.name || options.eventName,
+    platform: options.platform,
+    q: options.q,
+    route: options.route,
+    source: options.source,
+  });
+  const retentionCohorts = buildAnalyticsRetentionCohorts(users, appEvents, bucketMap);
 
   return {
     buckets,
+    cohorts: retentionCohorts,
     dataGaps: [
-      { label: '严格留存 Cohort', reason: '当前已有页面浏览事件，可做轻量 DAU；严格留存还需要独立事件表、设备去重和长期窗口。' },
+      { label: '生产级留存 Cohort', reason: '当前已提供测试期轻量 Cohort，基于 JSON state 内的用户注册日和移动端事件去重；生产级仍需要独立事件表、设备去重和长期窗口。' },
       { label: 'Push 厂商回执', reason: '当前已记录站内通知已读和点击，仍未接厂商 Push 的真实下发、展示和点击回执。' },
       { label: '第三方地图导航完成', reason: '当前只能记录打开导航动作，无法确认用户是否完成高德导航。' },
     ],
     days,
+    eventDetail,
+    filters: {
+      days,
+      eventName: eventDetail.filters.name,
+      platform: eventDetail.filters.platform,
+      q: eventDetail.filters.q,
+      route: eventDetail.filters.route,
+      source: eventDetail.filters.source,
+    },
+    funnels: buildAnalyticsFunnels(windowAppEvents),
     generatedAt: new Date().toISOString(),
     summary: {
       ai: {
@@ -18108,7 +18358,14 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   }
 
   if (req.method === 'GET' && pathname === '/admin/analytics') {
-    ok(res, adminAnalytics({ days: url.searchParams.get('days') }));
+    ok(res, adminAnalytics({
+      days: url.searchParams.get('days'),
+      eventName: url.searchParams.get('eventName') || url.searchParams.get('name'),
+      platform: url.searchParams.get('platform'),
+      q: url.searchParams.get('q'),
+      route: url.searchParams.get('route'),
+      source: url.searchParams.get('source'),
+    }));
     return true;
   }
 

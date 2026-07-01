@@ -178,6 +178,8 @@ async function main() {
     await track(userToken, 'ai_avatar.start', { retry: false, source: 'start_button' });
     await track(userToken, 'ai_avatar.success', { candidateCount: 1, source: 'result_ready' });
     await track(userToken, 'ai_avatar.failure', { errorCode: 'smoke_failed', source: 'retry' });
+    await track(userToken, 'discover.view', { source: 'tab_click' });
+    await track(userToken, 'discover.pet_circle_loaded', { count: 4, source: 'list_loaded' });
     await track(userToken, 'pet_circle.card_exposure', { count: 4, source: 'discover_load' });
     await track(userToken, 'pet_circle.like_click', { nextLiked: true, source: 'discover_card' });
     await track(userToken, 'pet_circle.comment_click', { source: 'discover_card' });
@@ -220,9 +222,29 @@ async function main() {
     assert.equal(summary.configPrompts.totalImpressions, 3);
     assert.equal(summary.configPrompts.totalActions, 3);
     assert.equal(summary.configPrompts.totalActionRate, 100);
+    assert.ok(Array.isArray(analytics.data.funnels), 'funnels should be returned');
+    const aiFunnel = analytics.data.funnels.find((item) => item.key === 'aiAvatar');
+    assert.ok(aiFunnel, 'AI funnel should exist');
+    assert.equal(aiFunnel.steps[0].users, 1);
+    assert.equal(aiFunnel.steps[1].users, 1);
+    assert.equal(aiFunnel.steps[2].users, 1);
+    const petCircleFunnel = analytics.data.funnels.find((item) => item.key === 'petCircle');
+    assert.ok(petCircleFunnel, 'pet circle funnel should exist');
+    assert.equal(petCircleFunnel.steps[0].users, 1);
+    assert.equal(petCircleFunnel.steps[1].users, 1);
+    assert.equal(petCircleFunnel.steps[2].users, 1);
+    assert.equal(petCircleFunnel.steps[3].users, 1);
+    assert.ok(analytics.data.cohorts?.rows?.length, 'cohort rows should be returned');
+    assert.equal(analytics.data.cohorts.rows[0].d0.rate, 100);
+    assert.ok(analytics.data.eventDetail?.items?.length >= 1, 'event details should be returned');
     assert.ok(analytics.data.buckets.some((bucket) => bucket.homeModuleExposures === 5), 'bucket should include home exposure count');
     assert.ok(analytics.data.buckets.some((bucket) => bucket.petCircleCardExposures === 4), 'bucket should include pet circle card exposure count');
     assert.ok(analytics.data.buckets.some((bucket) => bucket.configAnnouncementImpressions === 1 && bucket.configUpdateActions === 1), 'bucket should include config prompt events');
+
+    const filtered = await request('/admin/analytics?days=7&eventName=pet_circle.card_exposure&source=smoke&q=discover_load', { token: adminToken });
+    assert.equal(filtered.data.eventDetail.summary.matched, 1);
+    assert.equal(filtered.data.eventDetail.items[0].name, 'pet_circle.card_exposure');
+    assert.equal(filtered.data.eventDetail.items[0].source, 'smoke');
 
     console.log('analytics events smoke passed');
   } finally {

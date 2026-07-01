@@ -383,6 +383,130 @@ textarea {
   min-height: 386px;
 }
 
+.analytics-filter-card {
+  padding-bottom: 14px;
+}
+
+.analytics-funnel-list {
+  display: grid;
+  gap: 12px;
+}
+
+.analytics-funnel {
+  background: rgba(255, 247, 239, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.analytics-funnel-head {
+  display: grid;
+  gap: 4px;
+}
+
+.analytics-funnel-head strong {
+  font-size: 14px;
+}
+
+.analytics-funnel-head span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.analytics-funnel-steps {
+  display: grid;
+  gap: 8px;
+}
+
+.analytics-funnel-step {
+  align-items: center;
+  background: #fff;
+  border: 1px solid rgba(233, 220, 207, 0.88);
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(80px, 1fr) minmax(0, 2fr) auto;
+  min-height: 54px;
+  overflow: hidden;
+  padding: 9px 11px;
+  position: relative;
+}
+
+.analytics-funnel-bar {
+  align-self: stretch;
+  background: linear-gradient(90deg, rgba(255, 127, 79, 0.28), rgba(72, 182, 168, 0.2));
+  border-radius: 10px;
+  min-width: 0;
+  width: var(--w);
+}
+
+.analytics-funnel-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.analytics-funnel-main strong {
+  font-size: 13px;
+}
+
+.analytics-funnel-main span,
+.analytics-funnel-step em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.analytics-funnel-step em {
+  color: var(--orange);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.analytics-cohort-cell {
+  align-items: center;
+  background: rgba(255, 247, 239, 0.82);
+  border: 1px solid rgba(233, 220, 207, 0.88);
+  border-radius: 10px;
+  display: inline-grid;
+  gap: 2px;
+  justify-items: center;
+  min-width: 74px;
+  padding: 8px 10px;
+}
+
+.analytics-cohort-cell strong {
+  font-size: 13px;
+}
+
+.analytics-cohort-cell em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.analytics-cohort-cell.cool {
+  background: rgba(72, 182, 168, 0.13);
+  border-color: rgba(72, 182, 168, 0.28);
+}
+
+.analytics-cohort-cell.warm {
+  background: rgba(201, 150, 55, 0.16);
+  border-color: rgba(201, 150, 55, 0.32);
+}
+
+.analytics-cohort-cell.hot {
+  background: rgba(255, 127, 79, 0.18);
+  border-color: rgba(255, 127, 79, 0.36);
+}
+
+.analytics-cohort-cell.empty {
+  color: var(--muted);
+}
+
 .insight-list,
 .gap-list {
   display: grid;
@@ -1376,6 +1500,7 @@ th {
   .announcement-grid,
   .moderation-card,
   .notification-form-row,
+  .analytics-funnel-step,
   .ticket-card {
     grid-template-columns: 1fr;
   }

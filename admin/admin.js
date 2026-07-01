@@ -14,6 +14,12 @@ const state = {
   appealQ: '',
   appealStatus: 'open',
   appealType: 'all',
+  analyticsDays: '14',
+  analyticsEventName: 'all',
+  analyticsPlatform: 'all',
+  analyticsQ: '',
+  analyticsRoute: 'all',
+  analyticsSource: 'all',
   cache: {},
   exportFrom: '',
   exportPhone: '',
@@ -330,6 +336,28 @@ async function onContentClick(event) {
   const phone = button.dataset.phone || '';
   const reason = button.dataset.reason || '运营后台处理';
   try {
+    if (action === 'analytics-filter') {
+      state.analyticsDays = $('analyticsDays').value;
+      state.analyticsEventName = $('analyticsEventName').value;
+      state.analyticsPlatform = $('analyticsPlatform').value;
+      state.analyticsRoute = $('analyticsRoute').value;
+      state.analyticsSource = $('analyticsSource').value;
+      state.analyticsQ = $('analyticsQ').value.trim();
+      clearCachePrefix('analytics');
+      await render(true);
+      return;
+    }
+    if (action === 'analytics-clear') {
+      state.analyticsDays = '14';
+      state.analyticsEventName = 'all';
+      state.analyticsPlatform = 'all';
+      state.analyticsRoute = 'all';
+      state.analyticsSource = 'all';
+      state.analyticsQ = '';
+      clearCachePrefix('analytics');
+      await render(true);
+      return;
+    }
     if (action === 'moderation-filter') {
       state.moderationStatus = $('moderationStatus').value;
       state.moderationQ = $('moderationQ').value.trim();
@@ -1754,6 +1782,12 @@ async function load(key, path, force = false) {
   return state.cache[key];
 }
 
+function clearCachePrefix(prefix) {
+  Object.keys(state.cache).forEach((key) => {
+    if (key.startsWith(prefix)) state.cache[key] = null;
+  });
+}
+
 function metric(label, value, foot, tip) {
   return `
     <div class="card metric">
@@ -2211,7 +2245,15 @@ function renderOpsChart(data) {
 }
 
 async function renderAnalytics(force) {
-  const data = await load('analytics', '/admin/analytics?days=14', force);
+  const query = new URLSearchParams({
+    days: state.analyticsDays,
+    eventName: state.analyticsEventName,
+    platform: state.analyticsPlatform,
+    q: state.analyticsQ,
+    route: state.analyticsRoute,
+    source: state.analyticsSource,
+  });
+  const data = await load(`analytics:${query.toString()}`, `/admin/analytics?${query.toString()}`, force);
   const summary = data.summary || {};
   const users = summary.users || {};
   const ai = summary.ai || {};
@@ -2221,11 +2263,68 @@ async function renderAnalytics(force) {
   const safety = summary.safety || {};
   const events = summary.events || {};
   const configPrompts = summary.configPrompts || {};
+  const eventDetail = data.eventDetail || {};
+  const filterOptions = eventDetail.options || {};
+  const cohorts = data.cohorts || {};
+  const funnels = data.funnels || [];
   const aiFrontendStarts = ai.avatarFrontendStarts ?? 0;
   const aiFrontendSuccesses = ai.avatarFrontendSuccesses ?? 0;
   const aiFrontendFailures = ai.avatarFrontendFailures ?? 0;
   const petCircleFrontendClicks = (social.likeClicks || 0) + (social.commentClicks || 0) + (social.greetingClicks || 0) + (social.walkInviteClicks || 0);
   $('content').innerHTML = `
+    <div class="card analytics-filter-card">
+      <div class="section-head">
+        <div>
+          <h2>数据窗口与事件筛选</h2>
+          <div class="section-sub">趋势、漏斗和 Cohort 使用同一时间窗口；事件明细额外支持事件名、来源和关键词筛选</div>
+        </div>
+        ${help('当前仍是 JSON state 测试期口径，适合排查功能链路和埋点是否正常；生产级长期留存建议迁移到独立事件表或数仓。')}
+      </div>
+      <div class="toolbar moderation-toolbar analytics-toolbar">
+        <div class="toolbar-left">
+          <label>时间窗口
+            <select id="analyticsDays">
+              ${option('7', '近 7 天', state.analyticsDays)}
+              ${option('14', '近 14 天', state.analyticsDays)}
+              ${option('30', '近 30 天', state.analyticsDays)}
+              ${option('60', '近 60 天', state.analyticsDays)}
+              ${option('90', '近 90 天', state.analyticsDays)}
+            </select>
+          </label>
+          <label>事件名
+            <select id="analyticsEventName">
+              ${option('all', '全部事件', state.analyticsEventName)}
+              ${(filterOptions.names || []).map((item) => option(item.value, item.label, state.analyticsEventName)).join('')}
+            </select>
+          </label>
+          <label>页面
+            <select id="analyticsRoute">
+              ${option('all', '全部页面', state.analyticsRoute)}
+              ${(filterOptions.routes || []).map((item) => option(item, item, state.analyticsRoute)).join('')}
+            </select>
+          </label>
+          <label>来源
+            <select id="analyticsSource">
+              ${option('all', '全部来源', state.analyticsSource)}
+              ${(filterOptions.sources || []).map((item) => option(item, item, state.analyticsSource)).join('')}
+            </select>
+          </label>
+          <label>平台
+            <select id="analyticsPlatform">
+              ${option('all', '全部平台', state.analyticsPlatform)}
+              ${(filterOptions.platforms || []).map((item) => option(item, item, state.analyticsPlatform)).join('')}
+            </select>
+          </label>
+          <label>关键词
+            <input id="analyticsQ" placeholder="手机号、宠物名、事件属性" value="${escapeHtml(state.analyticsQ)}" />
+          </label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="analytics-filter">筛选</button>
+          <button class="small-button ghost" data-action="analytics-clear">清空</button>
+        </div>
+      </div>
+    </div>
     <div class="grid metrics">
       ${metric('AI 前端漏斗', `${numberText(ai.avatarEntryClicks || 0)} / ${numberText(aiFrontendStarts)}`, `${numberText(aiFrontendSuccesses)} 成功 · ${numberText(aiFrontendFailures)} 失败`, '来自移动端入口点击、开始生成、结果成功和结果失败事件；用于排查用户是否卡在前端流程，而不是只看后端任务结果。')}
       ${metric('新增用户', numberText(users.newUsers), `${numberText(users.activeUsers)} 位窗口内活跃`, '基于用户注册时间和 lastSeenAt 聚合，默认 14 天窗口。')}
@@ -2296,6 +2395,38 @@ async function renderAnalytics(force) {
       <div class="card">
         <div class="section-head">
           <div>
+            <h2>核心漏斗</h2>
+            <div class="section-sub">按手机号去重并校验事件顺序，帮助定位用户卡在哪一步</div>
+          </div>
+          ${help('这里统计的是窗口内同一用户按时间顺序完成的步骤，不是简单事件次数；事件次数会在每个步骤下方展示。')}
+        </div>
+        ${renderAnalyticsFunnels(funnels)}
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>轻量留存 Cohort</h2>
+            <div class="section-sub">${numberText(cohorts.summary?.cohorts || 0)} 个注册日队列 · D1 ${percentText(cohorts.summary?.d1Rate || 0)} · D3 ${percentText(cohorts.summary?.d3Rate || 0)} · D7 ${percentText(cohorts.summary?.d7Rate || 0)}</div>
+          </div>
+          ${help('D0 为注册日用户数；D1/D3/D7 基于移动端事件判断是否回访。当前只适合测试期观察趋势，生产级需要独立事件表。')}
+        </div>
+        ${renderAnalyticsCohorts(cohorts.rows || [])}
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>事件明细</h2>
+          <div class="section-sub">匹配 ${numberText(eventDetail.summary?.matched || 0)} / 窗口 ${numberText(eventDetail.summary?.totalInWindow || 0)} 条 · 最近 ${formatTime(eventDetail.summary?.latestAt)}</div>
+        </div>
+        ${help('事件明细已过滤敏感属性，不保存搜索词、地址、经纬度、正文、图片 URL、token 或密码。')}
+      </div>
+      ${renderAnalyticsEventDetail(eventDetail.items || [])}
+    </div>
+    <div class="grid two">
+      <div class="card">
+        <div class="section-head">
+          <div>
             <h2>业务健康快照</h2>
             <div class="section-sub">当前可从后端状态直接证明的核心比例</div>
           </div>
@@ -2351,6 +2482,65 @@ async function renderAnalytics(force) {
     </div>
   `;
   renderAnalyticsCharts(data);
+}
+
+function renderAnalyticsFunnels(funnels) {
+  if (!funnels.length) return '<div class="placeholder"><div><strong>暂无漏斗数据</strong><div>窗口内还没有可计算的移动端事件。</div></div></div>';
+  return `<div class="analytics-funnel-list">${funnels.map((funnel) => `
+    <div class="analytics-funnel">
+      <div class="analytics-funnel-head">
+        <strong>${escapeHtml(funnel.label)}</strong>
+        <span>${escapeHtml(funnel.note || '')}</span>
+      </div>
+      <div class="analytics-funnel-steps">
+        ${(funnel.steps || []).map((step, index) => `
+          <div class="analytics-funnel-step">
+            <div class="analytics-funnel-bar" style="--w:${Number(step.totalRate || 0) ? Math.max(6, Math.min(100, Number(step.totalRate || 0))) : 0}%"></div>
+            <div class="analytics-funnel-main">
+              <strong>${escapeHtml(step.label)}</strong>
+              <span>${numberText(step.users || 0)} 人 · ${index === 0 ? '起点' : `上步 ${percentText(step.previousRate || 0)}`} · 事件 ${numberText(step.eventCount || 0)}</span>
+            </div>
+            <em>${percentText(step.totalRate || 0)}</em>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `).join('')}</div>`;
+}
+
+function analyticsCohortClass(cell) {
+  if (!cell?.eligible) return 'empty';
+  const rate = Number(cell.rate || 0);
+  if (rate >= 60) return 'hot';
+  if (rate >= 30) return 'warm';
+  if (rate > 0) return 'cool';
+  return 'empty';
+}
+
+function analyticsCohortCell(cell) {
+  if (!cell?.eligible) return '<span class="analytics-cohort-cell empty">未到期</span>';
+  return `<span class="analytics-cohort-cell ${analyticsCohortClass(cell)}"><strong>${percentText(cell.rate || 0)}</strong><em>${numberText(cell.count || 0)} 人</em></span>`;
+}
+
+function renderAnalyticsCohorts(rows) {
+  return tableHtml(rows, [
+    ['注册日', (row) => `<div class="cell-title">${escapeHtml(row.cohortDate)}</div><div class="cell-sub">${escapeHtml(row.label || '')}</div>`],
+    ['注册用户', (row) => `<div class="cell-title">${numberText(row.total || 0)}</div><div class="cell-sub">窗口活跃 ${numberText(row.activeInWindow || 0)}</div>`],
+    ['D0', (row) => analyticsCohortCell(row.d0)],
+    ['D1', (row) => analyticsCohortCell(row.d1)],
+    ['D3', (row) => analyticsCohortCell(row.d3)],
+    ['D7', (row) => analyticsCohortCell(row.d7)],
+  ], '暂无 Cohort 数据');
+}
+
+function renderAnalyticsEventDetail(rows) {
+  return tableHtml(rows, [
+    ['时间', (row) => `<div class="cell-title">${formatTime(row.createdAt)}</div><div class="cell-sub">客户端 ${formatTime(row.occurredAt)}</div>`],
+    ['事件', (row) => `<div class="cell-title">${escapeHtml(row.label || row.name)}</div><div class="cell-sub">${escapeHtml(row.name || '-')}</div>`],
+    ['用户 / 宠物', (row) => `<div>${shortPhone(row.phone)}</div><div class="cell-sub">${escapeHtml(row.ownerName || '-')} · ${escapeHtml(row.petName || '-')}</div>`],
+    ['上下文', (row) => `<div>${escapeHtml(row.route || '-')} · ${escapeHtml(row.source || '-')}</div><div class="cell-sub">${escapeHtml(row.platform || '-')} · ${escapeHtml(row.appVersion || '-')}</div>`],
+    ['属性', (row) => `<div class="cell-sub clamp">${escapeHtml(row.propertySummary || '-')}</div>`],
+  ], '暂无事件明细');
 }
 
 function renderAnalyticsCharts(data) {
