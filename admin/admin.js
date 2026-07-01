@@ -620,6 +620,10 @@ async function onContentClick(event) {
       await saveConfig('publish');
       return;
     }
+    if (action === 'schedule-config') {
+      await saveConfig('schedule');
+      return;
+    }
     if (action === 'submit-config-approval') {
       await saveConfig('approval');
       return;
@@ -630,6 +634,10 @@ async function onContentClick(event) {
     }
     if (action === 'config-draft-publish') {
       await publishConfigDraft(id);
+      return;
+    }
+    if (action === 'config-draft-schedule') {
+      await scheduleConfigDraft(id);
       return;
     }
     if (action === 'config-draft-approval') {
@@ -644,6 +652,10 @@ async function onContentClick(event) {
       await rollbackConfigRevision(id);
       return;
     }
+    if (action === 'config-rollback-schedule') {
+      await scheduleConfigRollback(id);
+      return;
+    }
     if (action === 'config-rollback-approval') {
       await requestConfigApprovalForRollback(id);
       return;
@@ -654,6 +666,10 @@ async function onContentClick(event) {
     }
     if (action === 'config-approval-cancel') {
       await cancelConfigApproval(id);
+      return;
+    }
+    if (action === 'config-schedule-cancel') {
+      await cancelConfigSchedule(id);
       return;
     }
     if (action === 'export-filter') {
@@ -5488,7 +5504,7 @@ function renderConfigRevisions(revisions = [], approvalRequired = false) {
     ['摘要', (item) => `<div class="cell-sub">${escapeHtml(configRevisionSummaryText(item.summary || {}))}</div><div>${escapeHtml(item.reason || '-')}</div>`],
     ['操作', (item) => approvalRequired
       ? `<button class="small-button" data-action="config-rollback-approval" data-id="${escapeHtml(item.id)}">提交回滚审批</button>`
-      : `<div class="actions"><button class="small-button" data-action="config-rollback-approval" data-id="${escapeHtml(item.id)}">提交审批</button><button class="small-button danger" data-action="config-rollback" data-id="${escapeHtml(item.id)}">回滚到此版本</button></div>`],
+      : `<div class="actions"><button class="small-button" data-action="config-rollback-approval" data-id="${escapeHtml(item.id)}">提交审批</button><button class="small-button" data-action="config-rollback-schedule" data-id="${escapeHtml(item.id)}">预约回滚</button><button class="small-button danger" data-action="config-rollback" data-id="${escapeHtml(item.id)}">回滚到此版本</button></div>`],
   ], '暂无配置版本');
 }
 
@@ -5546,11 +5562,38 @@ function renderConfigApprovals(approvals = {}) {
   `;
 }
 
+function renderConfigSchedules(schedules = {}) {
+  const items = Array.isArray(schedules.items) ? schedules.items : [];
+  const summary = schedules.summary || {};
+  return `
+    <div class="config-section">
+      <div class="section-head compact">
+        <div>
+          <h2>配置预约发布</h2>
+          <div class="section-sub">${numberText(summary.scheduled || 0)} 条待发布 · 下一个：${summary.nextScheduledAt ? formatTime(summary.nextScheduledAt) : '-'}</div>
+        </div>
+        ${help('预约发布会锁定创建预约时的配置基线。到点前如果当前配置已经变化，后端会把预约标记为发布失败，避免旧配置覆盖新配置。')}
+      </div>
+      ${items.length ? tableHtml(items, [
+        ['预约', (item) => `<div class="cell-title">${escapeHtml(item.actionLabel || item.action || '-')}</div><div class="cell-sub">${formatTime(item.scheduledAt)} · ${escapeHtml(item.createdBy || '-')}</div><div class="cell-sub">${escapeHtml(item.sourceDraftId || item.sourceRevisionId || item.id)}</div>`],
+        ['状态', (item) => `${statusPill(item.statusLabel || item.status)}<div class="cell-sub">${item.publishedAt ? `发布：${formatTime(item.publishedAt)}` : item.failureReason || item.cancelReason || '-'}</div>`],
+        ['风险', (item) => `${configRiskPills(item.riskChanges)}<div class="cell-sub clamp">${escapeHtml(item.reason || '-')}</div>`],
+        ['变更摘要', (item) => configChangeSummaryList(item.changeSummary)],
+        ['风险详情', (item) => configRiskSummary(item.riskChanges)],
+        ['操作', (item) => item.status === 'scheduled'
+          ? `<button class="small-button danger" data-action="config-schedule-cancel" data-id="${escapeHtml(item.id)}">取消预约</button>`
+          : `<div class="cell-sub">${escapeHtml(item.revisionId || item.failureReason || item.cancelReason || '-')}</div>`],
+      ], '暂无配置预约') : '<div class="placeholder mini"><div><strong>暂无配置预约</strong><div>选择预约发布时间后，可以把当前配置、草稿或回滚版本安排到未来生效。</div></div></div>'}
+    </div>
+  `;
+}
+
 function renderConfigGovernance(config = {}) {
   const drafts = Array.isArray(config.drafts) ? config.drafts : [];
   const activeDrafts = drafts.filter((draft) => draft.status === 'draft');
   const governance = config.governance || {};
   const approvals = config.approvals || {};
+  const schedules = config.schedules || {};
   const approvalRequired = Boolean(config.configApproval?.requireApproval || governance.approvalRequired);
   return `
     <div class="grid metrics">
@@ -5558,6 +5601,7 @@ function renderConfigGovernance(config = {}) {
       ${metric('高风险草稿', numberText(governance.highRiskDrafts || 0), 'P0 需重点复核', '维护模式、强制更新、内容安全总开关和机审开关属于高风险配置。')}
       ${metric('发布保护', '已启用', 'P0/P1 需确认文案', `命中高风险配置时，需要输入“${escapeHtml(governance.highRiskConfirmText || CONFIG_HIGH_RISK_CONFIRM_TEXT)}”才能发布。`)}
       ${metric('发布审批', approvalRequired ? '强制' : '可选', `${numberText(approvals.summary?.pending || governance.pendingApprovals || 0)} 条待审批`, '强制开启后，立即发布、发布草稿和回滚版本都会先进入审批单，审批通过后才更新 /app/config。')}
+      ${metric('预约发布', numberText(schedules.summary?.scheduled || governance.scheduledPublishes || 0), governance.nextScheduledAt ? formatTime(governance.nextScheduledAt) : '暂无预约', '预约发布会在到点后更新 /app/config；如果当前配置已变化，预约会失败并要求重新创建。')}
       ${metric('最近草稿', governance.latestDraftAt ? formatTime(governance.latestDraftAt) : '-', '配置治理记录', '用于确认是否有人保存了待发布变更。')}
       ${metric('版本历史', numberText((config.revisions || []).length), '可回滚', '发布和回滚都会生成配置版本快照。')}
     </div>
@@ -5577,11 +5621,13 @@ function renderConfigGovernance(config = {}) {
         ['操作', (draft) => `
           <div class="actions">
             ${approvalRequired ? `<button class="small-button" data-action="config-draft-approval" data-id="${escapeHtml(draft.id)}">提交审批</button>` : `<button class="small-button" data-action="config-draft-approval" data-id="${escapeHtml(draft.id)}">提交审批</button><button class="small-button" data-action="config-draft-publish" data-id="${escapeHtml(draft.id)}">发布草稿</button>`}
+            ${approvalRequired ? '' : `<button class="small-button" data-action="config-draft-schedule" data-id="${escapeHtml(draft.id)}">预约发布</button>`}
             <button class="small-button danger" data-action="config-draft-discard" data-id="${escapeHtml(draft.id)}">废弃</button>
           </div>
         `],
       ], '暂无配置草稿') : '<div class="placeholder"><div><strong>暂无待发布草稿</strong><div>可以先保存草稿复核风险，再发布到移动端配置。</div></div></div>'}
     </div>
+    ${renderConfigSchedules(schedules)}
     ${renderConfigApprovals(approvals)}
   `;
 }
@@ -6089,6 +6135,12 @@ async function renderConfig(force) {
           ? '<button class="primary-button" data-action="submit-config-approval">提交发布审批</button>'
           : '<button class="small-button" data-action="submit-config-approval">提交审批</button><button class="primary-button" data-action="save-config">立即发布</button>'}
       </div>
+      ${configApproval.requireApproval ? '' : `
+        <div class="notification-form-row config-schedule-row">
+          <label>预约发布时间<input id="cfgPublishScheduledAt" type="datetime-local" /></label>
+          <button class="small-button" data-action="schedule-config">预约发布</button>
+        </div>
+      `}
       <div class="config-section">
         <div class="section-head compact">
           <div>
@@ -6228,6 +6280,25 @@ async function submitConfigMutationWithRiskConfirmation(send, payload, actionLab
     if (!confirmation) return null;
     return send({ ...payload, ...confirmation });
   }
+}
+
+function scheduledAtFromLocalInput(value) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) throw new Error('请选择预约发布时间');
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) throw new Error('预约发布时间无效');
+  if (date.getTime() <= Date.now() + 1000) throw new Error('预约发布时间必须晚于当前时间');
+  return date.toISOString();
+}
+
+function promptConfigScheduledAt(defaultMinutes = 30) {
+  const defaultDate = new Date(Date.now() + defaultMinutes * 60 * 1000);
+  const pad = (value) => String(value).padStart(2, '0');
+  const defaultText = `${defaultDate.getFullYear()}-${pad(defaultDate.getMonth() + 1)}-${pad(defaultDate.getDate())} ${pad(defaultDate.getHours())}:${pad(defaultDate.getMinutes())}`;
+  const value = window.prompt('请输入预约发布时间（YYYY-MM-DD HH:mm）', defaultText);
+  if (value === null) return '';
+  const normalized = value.trim().replace(' ', 'T');
+  return scheduledAtFromLocalInput(normalized);
 }
 
 function formatSupportAssigneeConfig(assignees = []) {
@@ -6547,8 +6618,8 @@ async function saveConfig(mode = 'publish') {
       slaHours: supportSlaHours,
     },
   };
-  const promptLabel = mode === 'draft' ? '请输入草稿说明' : mode === 'approval' ? '请输入审批申请原因' : '请输入发布原因';
-  const defaultReason = mode === 'draft' ? '配置草稿保存' : mode === 'approval' ? '提交配置发布审批' : '配置中心发布';
+  const promptLabel = mode === 'draft' ? '请输入草稿说明' : mode === 'approval' ? '请输入审批申请原因' : mode === 'schedule' ? '请输入预约发布原因' : '请输入发布原因';
+  const defaultReason = mode === 'draft' ? '配置草稿保存' : mode === 'approval' ? '提交配置发布审批' : mode === 'schedule' ? '预约发布配置' : '配置中心发布';
   const reason = window.prompt(promptLabel, defaultReason);
   if (reason === null) return;
   payload.reason = reason.trim() || defaultReason;
@@ -6561,13 +6632,21 @@ async function saveConfig(mode = 'publish') {
       payload,
       '提交配置发布审批',
     );
+  } else if (mode === 'schedule') {
+    payload.action = 'publish';
+    payload.scheduledAt = scheduledAtFromLocalInput($('cfgPublishScheduledAt')?.value);
+    nextConfig = await submitConfigMutationWithRiskConfirmation(
+      (nextPayload) => post('/admin/config/schedules', nextPayload),
+      payload,
+      '预约发布配置',
+    );
   } else {
     nextConfig = await submitConfigMutationWithRiskConfirmation((nextPayload) => patch('/admin/config', nextPayload), payload, '立即发布配置');
   }
   if (!nextConfig) return;
   state.cache.config = nextConfig;
   state.cache.summary = null;
-  showToast(mode === 'draft' ? '配置草稿已保存' : mode === 'approval' ? '配置发布审批已提交' : '配置已发布');
+  showToast(mode === 'draft' ? '配置草稿已保存' : mode === 'approval' ? '配置发布审批已提交' : mode === 'schedule' ? '配置预约发布已创建' : '配置已发布');
   await render(true);
 }
 
@@ -6587,6 +6666,36 @@ async function publishConfigDraft(id) {
   state.cache.config = nextConfig;
   state.cache.summary = null;
   showToast('配置草稿已发布');
+  await render(true);
+}
+
+async function scheduleConfigDraft(id) {
+  if (!id) return;
+  let scheduledAt = '';
+  try {
+    scheduledAt = promptConfigScheduledAt();
+  } catch (error) {
+    showToast(error.message || '预约发布时间无效');
+    return;
+  }
+  if (!scheduledAt) return;
+  const reason = window.prompt('请输入预约发布草稿的原因', `预约发布配置草稿 ${id}`);
+  if (reason === null) return;
+  const payload = {
+    action: 'draft_publish',
+    draftId: id,
+    reason: reason.trim() || `预约发布配置草稿 ${id}`,
+    scheduledAt,
+  };
+  const nextConfig = await submitConfigMutationWithRiskConfirmation(
+    (nextPayload) => post('/admin/config/schedules', nextPayload),
+    payload,
+    '预约发布配置草稿',
+  );
+  if (!nextConfig) return;
+  state.cache.config = nextConfig;
+  state.cache.summary = null;
+  showToast('配置草稿预约发布已创建');
   await render(true);
 }
 
@@ -6641,6 +6750,36 @@ async function rollbackConfigRevision(id) {
   await render(true);
 }
 
+async function scheduleConfigRollback(id) {
+  if (!id) return;
+  let scheduledAt = '';
+  try {
+    scheduledAt = promptConfigScheduledAt();
+  } catch (error) {
+    showToast(error.message || '预约发布时间无效');
+    return;
+  }
+  if (!scheduledAt) return;
+  const reason = window.prompt('请输入预约回滚原因', `预约回滚到配置版本 ${id}`);
+  if (reason === null) return;
+  const payload = {
+    action: 'rollback',
+    reason: reason.trim() || `预约回滚到配置版本 ${id}`,
+    revisionId: id,
+    scheduledAt,
+  };
+  const nextConfig = await submitConfigMutationWithRiskConfirmation(
+    (nextPayload) => post('/admin/config/schedules', nextPayload),
+    payload,
+    '预约回滚配置版本',
+  );
+  if (!nextConfig) return;
+  state.cache.config = nextConfig;
+  state.cache.summary = null;
+  showToast('配置回滚预约已创建');
+  await render(true);
+}
+
 async function requestConfigApprovalForRollback(id) {
   if (!id) return;
   const reason = window.prompt('请输入审批申请原因', `提交回滚到配置版本 ${id}`);
@@ -6682,6 +6821,18 @@ async function cancelConfigApproval(id) {
     reason: reason.trim() || '取消配置审批',
   });
   showToast('配置审批已取消');
+  await render(true);
+}
+
+async function cancelConfigSchedule(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入取消预约原因', '取消配置预约发布');
+  if (reason === null) return;
+  state.cache.config = await post(`/admin/config/schedules/${encodeURIComponent(id)}/cancel`, {
+    reason: reason.trim() || '取消配置预约发布',
+  });
+  state.cache.summary = null;
+  showToast('配置预约已取消');
   await render(true);
 }
 

@@ -52,6 +52,8 @@
 - `action=draft_publish`：提交草稿发布审批，需要 `draftId`。
 - `action=rollback`：提交版本回滚审批，需要 `revisionId`。
 
+配置预约发布已作为独立治理能力接入，详见 [Operations_Backoffice_Config_Scheduled_Publish_2026-07-01.md](Operations_Backoffice_Config_Scheduled_Publish_2026-07-01.md)。当前版本在 `configApproval.requireApproval=true` 时不允许绕过审批直接创建预约；后续可以扩展为“先审批，审批通过后按预约时间生效”。
+
 ## 5. 校验规则
 
 - 草稿保存不影响移动端，不需要审批。
@@ -94,6 +96,6 @@ node scripts/smoke-config-approval.cjs
 
 - 多管理员后补审批人/申请人分离。
 - P0 配置强制双人审批。
-- 定时发布。
+- 配置预约发布已接入；后续可补审批通过后的预约生效和预约通知。
 - 灰度配置和 A/B 实验分流。
 - 配置审批通知和审批超时提醒。

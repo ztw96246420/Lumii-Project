@@ -771,6 +771,15 @@ th {
   margin-top: 16px;
 }
 
+.config-schedule-row {
+  align-items: end;
+  margin-top: 10px;
+}
+
+.config-schedule-row button {
+  min-height: 42px;
+}
+
 .toolbar-left {
   display: flex;
   gap: 12px;

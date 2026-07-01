@@ -58,6 +58,17 @@
 | [MVP_Implementation_Status_2026-05-30.md](./MVP_Implementation_Status_2026-05-30.md) | 历史参考 | 早期原生化实现状态 |
 | [SMS_Integration_Testing_v0.md](./SMS_Integration_Testing_v0.md) | 历史测试记录 | Spug 短信通道测试和后端代理策略 |
 
+## 运营后台
+
+| 文档 | 状态 | 用途 |
+| --- | --- | --- |
+| [Operations_Backoffice_PRD_Complete_2026-06-30.md](./Operations_Backoffice_PRD_Complete_2026-06-30.md) | 当前主文档 | 运营后台完整需求、权限、模块和分期 |
+| [Operations_Backoffice_Implementation_Notes_2026-06-29.md](./Operations_Backoffice_Implementation_Notes_2026-06-29.md) | 当前实现记录 | 已落地后台能力、缺口和下一批建议 |
+| [Operations_Backoffice_AI_Ops_Config_2026-07-01.md](./Operations_Backoffice_AI_Ops_Config_2026-07-01.md) | 当前专项 | AI provider、模型参数、prompt 和 DeepSeek system prompt 配置 |
+| [Operations_Backoffice_Config_Approval_2026-07-01.md](./Operations_Backoffice_Config_Approval_2026-07-01.md) | 当前专项 | 配置发布审批、高风险确认和版本回滚 |
+| [Operations_Backoffice_Config_Scheduled_Publish_2026-07-01.md](./Operations_Backoffice_Config_Scheduled_Publish_2026-07-01.md) | 当前专项 | 配置预约发布、到点生效、防覆盖和验收脚本 |
+| [Operations_Backoffice_Config_Linkage_2026-06-30.md](./Operations_Backoffice_Config_Linkage_2026-06-30.md) | 当前专项 | 配置项前后端联动清单 |
+
 ## 测试与部署
 
 | 文档/目录 | 状态 | 用途 |

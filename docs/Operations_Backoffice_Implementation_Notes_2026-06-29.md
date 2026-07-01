@@ -505,6 +505,10 @@
 - 审批通过时会校验当前配置是否仍等于提交审批时的基线配置；如果期间配置已变化，会返回 `ADMIN_CONFIG_APPROVAL_STALE`，要求重新提交审批。
 - 配置审批创建、审批通过、取消分别写入 `config.approval.create`、`config.approval.approve`、`config.approval.cancel`。
 - 独立文档：[Operations_Backoffice_Config_Approval_2026-07-01.md](Operations_Backoffice_Config_Approval_2026-07-01.md)。
+- 配置预约发布已接入：`POST /admin/config/schedules` 支持当前表单发布、草稿发布和版本回滚的预约；`GET /admin/config/schedules` 查看预约；`POST /admin/config/schedules/{scheduleId}/cancel` 取消预约。
+- 预约发布会保存创建时的 `baseConfig`。到点前如果当前配置已经变化，预约任务会标记 `failed`，不会覆盖新配置；成功发布会生成 `scheduled_publish` / `scheduled_draft_publish` / `scheduled_rollback` 版本。
+- 配置预约创建、到点发布、取消和失败分别写入 `config.schedule.create`、`config.schedule.publish`、`config.schedule.cancel`、`config.schedule.fail`。
+- 独立文档：[Operations_Backoffice_Config_Scheduled_Publish_2026-07-01.md](Operations_Backoffice_Config_Scheduled_Publish_2026-07-01.md)。
 - 数据导出新增配置联动体检 CSV。
 - 独立文档：[Operations_Backoffice_Config_Linkage_2026-06-30.md](Operations_Backoffice_Config_Linkage_2026-06-30.md)。
 - 后台配置页展示最近 12 个配置版本，后端最多保留最近 80 个快照。
@@ -910,5 +914,5 @@
 2. 内容安全模型接入：第三方文本/图片审核、规则命中回标、模型样本沉淀和误杀回收。
 3. 客服工单进阶：客服质检制度、抽检申诉规则、周/月 KPI 锁账、外包真实付款审批/导出/税费、批量回复双人审批和撤回策略。
 4. 通知运营进阶：厂商 Push、厂商回执和多管理员双人审批。
-5. 配置发布治理进阶：多管理员双人审批、定时发布、灰度和 A/B 策略实验。
+5. 配置发布治理进阶：多管理员双人审批、审批后预约生效通知、灰度和 A/B 策略实验。
 6. 后台静态资源和 API 增加更细权限与更完整审计字段。

@@ -69,7 +69,7 @@
 - API 密钥只读取服务器环境变量：`GPT_IMAGE2_API_KEY`、`TTAPI_API_KEY`、`DEEPSEEK_API_KEY`。
 - 切换 AI provider 属于 P1 高风险配置，需要输入 `确认发布高风险配置`。
 - 修改 gpt-image2 prompt 或 DeepSeek system prompt 属于 P2 风险，会进入版本历史和审计。
-- 配置支持保存草稿、发布草稿、提交审批、版本历史和回滚。
+- 配置支持保存草稿、发布草稿、提交审批、预约发布、版本历史和回滚。
 
 ## 验收
 
@@ -78,7 +78,7 @@
 - 后台切换 `ai.avatar.provider` 后，新建形象任务进入对应 provider 分支。
 - 后台修改 DeepSeek base system prompt 后，新对话请求使用新 system prompt。
 - `/app/config` 不暴露 prompt/provider/model 详情。
-- 配置发布、草稿、审批、回滚、审计均可复用配置中心既有链路。
+- 配置发布、草稿、审批、预约发布、回滚、审计均可复用配置中心既有链路。
 
 ## 回归脚本
 

@@ -595,6 +595,7 @@ function createInitialState() {
     notificationAudiencePackages: [],
     opsConfigDrafts: [],
     opsConfigRevisions: [],
+    opsConfigSchedules: [],
     userSanctions: [],
     aiUsage: {
       deepseek: {
@@ -1774,6 +1775,333 @@ function cancelOpsConfigApproval(admin, approvalId, body = {}) {
   };
 }
 
+function normalizeOpsConfigScheduledAt(value) {
+  const scheduledAt = new Date(String(value || ''));
+  const scheduledMs = scheduledAt.getTime();
+  if (!Number.isFinite(scheduledMs)) {
+    return { error: '请选择有效的预约发布时间', statusCode: 400, code: 'ADMIN_CONFIG_SCHEDULED_AT_INVALID' };
+  }
+  const now = Date.now();
+  if (scheduledMs <= now + 1000) {
+    return { error: '预约发布时间必须晚于当前时间', statusCode: 400, code: 'ADMIN_CONFIG_SCHEDULED_AT_PAST' };
+  }
+  if (scheduledMs > now + 180 * 24 * 60 * 60 * 1000) {
+    return { error: '预约发布时间不能超过 180 天', statusCode: 400, code: 'ADMIN_CONFIG_SCHEDULED_AT_TOO_FAR' };
+  }
+  return { scheduledAt: scheduledAt.toISOString() };
+}
+
+function normalizeOpsConfigSchedule(item = {}) {
+  if (!item || typeof item !== 'object' || !item.id || !item.config || !item.baseConfig) return null;
+  const action = ['draft_publish', 'publish', 'rollback'].includes(String(item.action || '')) ? String(item.action) : 'publish';
+  const status = ['canceled', 'failed', 'published', 'scheduled'].includes(String(item.status || '')) ? String(item.status) : 'scheduled';
+  const baseConfig = normalizeOpsConfig(item.baseConfig);
+  const config = normalizeOpsConfig(item.config);
+  return {
+    action,
+    baseConfig,
+    baseSummary: item.baseSummary || opsConfigSummary(baseConfig),
+    canceledAt: item.canceledAt || '',
+    canceledBy: item.canceledBy || '',
+    cancelReason: String(item.cancelReason || '').slice(0, 240),
+    changeSummary: Array.isArray(item.changeSummary) ? item.changeSummary : configChangeSummary(baseConfig, config),
+    config,
+    createdAt: item.createdAt || new Date().toISOString(),
+    createdBy: item.createdBy || 'admin',
+    failureReason: String(item.failureReason || '').slice(0, 240),
+    id: String(item.id),
+    publishedAt: item.publishedAt || '',
+    publishedBy: item.publishedBy || '',
+    reason: String(item.reason || '').slice(0, 240),
+    revisionId: item.revisionId || '',
+    riskChanges: Array.isArray(item.riskChanges) ? item.riskChanges : configRiskChanges(baseConfig, config),
+    scheduledAt: item.scheduledAt || item.createdAt || new Date().toISOString(),
+    sourceDraftId: item.sourceDraftId || '',
+    sourceRevisionId: item.sourceRevisionId || '',
+    status,
+    summary: item.summary || opsConfigSummary(config),
+    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
+  };
+}
+
+function ensureOpsConfigSchedules() {
+  if (!Array.isArray(state.opsConfigSchedules)) state.opsConfigSchedules = [];
+  state.opsConfigSchedules = state.opsConfigSchedules
+    .map(normalizeOpsConfigSchedule)
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.status === 'scheduled' && b.status === 'scheduled') return String(a.scheduledAt).localeCompare(String(b.scheduledAt));
+      if (a.status === 'scheduled') return -1;
+      if (b.status === 'scheduled') return 1;
+      return String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt));
+    })
+    .slice(0, 100);
+  return state.opsConfigSchedules;
+}
+
+function opsConfigScheduleCurrentStatus(schedule = {}) {
+  return ['canceled', 'failed', 'published', 'scheduled'].includes(String(schedule.status || '')) ? String(schedule.status) : 'scheduled';
+}
+
+function opsConfigScheduleStatusLabel(status) {
+  return {
+    canceled: '已取消',
+    failed: '发布失败',
+    published: '已发布',
+    scheduled: '待发布',
+  }[status] || status || '-';
+}
+
+function opsConfigScheduleActionLabel(action) {
+  return {
+    draft_publish: '发布草稿',
+    publish: '发布配置',
+    rollback: '回滚版本',
+  }[action] || action || '-';
+}
+
+function opsConfigScheduleItem(schedule = {}) {
+  const item = normalizeOpsConfigSchedule(schedule);
+  if (!item) return null;
+  const status = opsConfigScheduleCurrentStatus(item);
+  return {
+    action: item.action,
+    actionLabel: opsConfigScheduleActionLabel(item.action),
+    baseSummary: item.baseSummary,
+    canceledAt: item.canceledAt,
+    canceledBy: item.canceledBy,
+    cancelReason: item.cancelReason,
+    changeSummary: item.changeSummary,
+    createdAt: item.createdAt,
+    createdBy: item.createdBy,
+    failureReason: item.failureReason,
+    id: item.id,
+    publishedAt: item.publishedAt,
+    publishedBy: item.publishedBy,
+    reason: item.reason,
+    revisionId: item.revisionId,
+    riskChanges: item.riskChanges,
+    scheduledAt: item.scheduledAt,
+    sourceDraftId: item.sourceDraftId,
+    sourceRevisionId: item.sourceRevisionId,
+    status,
+    statusLabel: opsConfigScheduleStatusLabel(status),
+    summary: item.summary,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function adminOpsConfigSchedules(options = {}) {
+  const status = String(options.status || 'open').trim() || 'open';
+  const limit = Math.min(100, Math.max(10, Number(options.limit || 20) || 20));
+  const all = ensureOpsConfigSchedules().map(opsConfigScheduleItem).filter(Boolean);
+  const items = all
+    .filter((item) => {
+      if (status === 'all') return true;
+      if (status === 'open') return item.status === 'scheduled';
+      return item.status === status;
+    })
+    .slice(0, limit);
+  const scheduled = all.filter((item) => item.status === 'scheduled');
+  return {
+    items,
+    summary: {
+      canceled: all.filter((item) => item.status === 'canceled').length,
+      failed: all.filter((item) => item.status === 'failed').length,
+      matched: items.length,
+      nextScheduledAt: scheduled[0]?.scheduledAt || '',
+      published: all.filter((item) => item.status === 'published').length,
+      scheduled: scheduled.length,
+      total: all.length,
+    },
+  };
+}
+
+function buildOpsConfigScheduleCandidate(action, body = {}) {
+  const before = currentOpsConfig();
+  let next = null;
+  let sourceDraftId = '';
+  let sourceRevisionId = '';
+  if (action === 'draft_publish') {
+    sourceDraftId = String(body.draftId || body.sourceDraftId || '').trim();
+    const draft = ensureOpsConfigDrafts().find((item) => item.id === sourceDraftId);
+    if (!draft) return { error: '配置草稿不存在', statusCode: 404, code: 'ADMIN_CONFIG_DRAFT_NOT_FOUND' };
+    if (draft.status !== 'draft') return { error: '配置草稿已经处理，不能预约发布', statusCode: 409, code: 'ADMIN_CONFIG_DRAFT_ALREADY_HANDLED' };
+    next = normalizeOpsConfig(cloneJson(draft.config));
+  } else if (action === 'rollback') {
+    sourceRevisionId = String(body.revisionId || body.sourceRevisionId || '').trim();
+    const revision = ensureOpsConfigRevisions().find((item) => item.id === sourceRevisionId);
+    if (!revision) return { error: '配置版本不存在', statusCode: 404, code: 'ADMIN_CONFIG_REVISION_NOT_FOUND' };
+    next = normalizeOpsConfig(cloneJson(revision.config));
+  } else {
+    next = buildOpsConfigPatch(before, body);
+  }
+  return { before, next, sourceDraftId, sourceRevisionId };
+}
+
+function createOpsConfigSchedule(admin, body = {}) {
+  if (configPublishApprovalRequired()) {
+    return {
+      data: configPublishApprovalRequiredResult('schedule'),
+      error: '当前配置要求先提交并审批配置发布申请，暂不能直接预约发布',
+      statusCode: 409,
+      code: 'ADMIN_CONFIG_APPROVAL_REQUIRED',
+    };
+  }
+  const action = ['draft_publish', 'publish', 'rollback'].includes(String(body.action || '')) ? String(body.action) : 'publish';
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (reason.length < ADMIN_EXPORT_REASON_MIN_LENGTH) {
+    return { error: `请填写预约原因（至少 ${ADMIN_EXPORT_REASON_MIN_LENGTH} 个字）`, statusCode: 400, code: 'ADMIN_CONFIG_SCHEDULE_REASON_REQUIRED' };
+  }
+  const scheduledAtResult = normalizeOpsConfigScheduledAt(body.scheduledAt);
+  if (scheduledAtResult.error) return scheduledAtResult;
+  const candidate = buildOpsConfigScheduleCandidate(action, body);
+  if (candidate.error) return candidate;
+  const riskConfirmation = configRiskConfirmationResult(candidate.before, candidate.next, body, `schedule_${action}`);
+  if (!riskConfirmation.confirmed) {
+    return {
+      data: riskConfirmation,
+      error: `高风险配置预约发布需要输入“${CONFIG_HIGH_RISK_CONFIRM_TEXT}”后才能保存`,
+      statusCode: 409,
+      code: 'ADMIN_CONFIG_RISK_CONFIRM_REQUIRED',
+    };
+  }
+  const now = new Date().toISOString();
+  const schedule = normalizeOpsConfigSchedule({
+    action,
+    baseConfig: candidate.before,
+    baseSummary: opsConfigSummary(candidate.before),
+    changeSummary: configChangeSummary(candidate.before, candidate.next),
+    config: candidate.next,
+    createdAt: now,
+    createdBy: admin?.username || 'admin',
+    id: `config-schedule-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    reason,
+    riskChanges: configRiskChanges(candidate.before, candidate.next),
+    scheduledAt: scheduledAtResult.scheduledAt,
+    sourceDraftId: candidate.sourceDraftId,
+    sourceRevisionId: candidate.sourceRevisionId,
+    status: 'scheduled',
+    summary: opsConfigSummary(candidate.next),
+    updatedAt: now,
+  });
+  state.opsConfigSchedules = [schedule, ...ensureOpsConfigSchedules()].slice(0, 100);
+  writeAdminAudit(admin, 'config.schedule.create', 'ops_config_schedule', schedule.id, null, {
+    action,
+    changeSummary: schedule.changeSummary,
+    reason,
+    riskChanges: schedule.riskChanges,
+    scheduledAt: schedule.scheduledAt,
+    sourceDraftId: schedule.sourceDraftId,
+    sourceRevisionId: schedule.sourceRevisionId,
+    summary: schedule.summary,
+  }, reason);
+  saveState();
+  return {
+    config: adminOpsConfigResponse(),
+    schedule: opsConfigScheduleItem(schedule),
+  };
+}
+
+function failOpsConfigSchedule(schedule, reason, admin = { username: 'system:scheduler' }) {
+  const before = cloneJson(schedule);
+  const now = new Date().toISOString();
+  schedule.failureReason = String(reason || '预约发布失败').slice(0, 240);
+  schedule.status = 'failed';
+  schedule.updatedAt = now;
+  writeAdminAudit(admin, 'config.schedule.fail', 'ops_config_schedule', schedule.id, before, opsConfigScheduleItem(schedule), schedule.failureReason);
+  saveState();
+  return schedule;
+}
+
+function publishOpsConfigSchedule(schedule, admin = { username: 'system:scheduler' }) {
+  const currentStatus = opsConfigScheduleCurrentStatus(schedule);
+  if (currentStatus !== 'scheduled') return { skipped: true, reason: currentStatus };
+  const scheduledMs = new Date(schedule.scheduledAt).getTime();
+  if (Number.isFinite(scheduledMs) && scheduledMs > Date.now()) return { skipped: true, reason: 'not_due' };
+  if (JSON.stringify(configApprovalComparable(currentOpsConfig())) !== JSON.stringify(configApprovalComparable(schedule.baseConfig))) {
+    failOpsConfigSchedule(schedule, '当前配置已变化，请重新创建预约发布', admin);
+    return { failed: true, reason: 'stale_config' };
+  }
+  if (schedule.sourceDraftId) {
+    const draft = ensureOpsConfigDrafts().find((item) => item.id === schedule.sourceDraftId);
+    if (!draft) {
+      failOpsConfigSchedule(schedule, '配置草稿不存在，预约发布已中止', admin);
+      return { failed: true, reason: 'draft_missing' };
+    }
+    if (draft.status !== 'draft') {
+      failOpsConfigSchedule(schedule, '配置草稿已被处理，预约发布已中止', admin);
+      return { failed: true, reason: 'draft_handled' };
+    }
+  }
+  const beforeSchedule = cloneJson(schedule);
+  const before = currentOpsConfig();
+  const now = new Date().toISOString();
+  const next = normalizeOpsConfig({ ...cloneJson(schedule.config), updatedAt: now });
+  state.opsConfig = next;
+  const revisionAction = `scheduled_${schedule.action}`;
+  const revision = recordOpsConfigRevision(admin, next, schedule.reason || opsConfigScheduleActionLabel(schedule.action), revisionAction, schedule.sourceDraftId || schedule.sourceRevisionId || schedule.id, before);
+  schedule.status = 'published';
+  schedule.publishedAt = now;
+  schedule.publishedBy = admin?.username || 'system:scheduler';
+  schedule.revisionId = revision.id;
+  schedule.updatedAt = now;
+  if (schedule.sourceDraftId) {
+    const draft = ensureOpsConfigDrafts().find((item) => item.id === schedule.sourceDraftId);
+    if (draft) {
+      draft.status = 'published';
+      draft.publishedAt = now;
+      draft.publishedBy = schedule.publishedBy;
+      draft.revisionId = revision.id;
+      draft.updatedAt = now;
+    }
+  }
+  writeAdminAudit(admin, 'config.schedule.publish', 'ops_config_schedule', schedule.id, beforeSchedule, {
+    ...opsConfigScheduleItem(schedule),
+    revisionId: revision.id,
+  }, schedule.reason);
+  saveState();
+  return { revision, schedule };
+}
+
+function processDueOpsConfigSchedules() {
+  let changed = false;
+  const systemAdmin = { role: 'system', username: 'system:scheduler' };
+  for (const schedule of ensureOpsConfigSchedules()) {
+    if (schedule.status !== 'scheduled') continue;
+    const scheduledMs = new Date(schedule.scheduledAt).getTime();
+    if (!Number.isFinite(scheduledMs) || scheduledMs > Date.now()) continue;
+    try {
+      const result = publishOpsConfigSchedule(schedule, systemAdmin);
+      if (result && !result.skipped) changed = true;
+    } catch (error) {
+      failOpsConfigSchedule(schedule, error?.message || '预约发布执行异常', systemAdmin);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function cancelOpsConfigSchedule(admin, scheduleId, body = {}) {
+  const schedule = ensureOpsConfigSchedules().find((item) => item.id === scheduleId);
+  if (!schedule) return { error: '配置预约不存在', statusCode: 404, code: 'ADMIN_CONFIG_SCHEDULE_NOT_FOUND' };
+  const currentStatus = opsConfigScheduleCurrentStatus(schedule);
+  if (currentStatus !== 'scheduled') return { error: `配置预约${opsConfigScheduleStatusLabel(currentStatus)}，不能取消`, statusCode: 409, code: 'ADMIN_CONFIG_SCHEDULE_INVALID' };
+  const before = cloneJson(schedule);
+  const now = new Date().toISOString();
+  schedule.status = 'canceled';
+  schedule.canceledAt = now;
+  schedule.canceledBy = admin?.username || 'admin';
+  schedule.cancelReason = adminReason(body, '取消配置预约发布');
+  schedule.updatedAt = now;
+  writeAdminAudit(admin, 'config.schedule.cancel', 'ops_config_schedule', schedule.id, before, opsConfigScheduleItem(schedule), schedule.cancelReason);
+  saveState();
+  return {
+    config: adminOpsConfigResponse(),
+    schedule: opsConfigScheduleItem(schedule),
+  };
+}
+
 function configLinkageValue(config, key) {
   const parts = String(key || '').split('.');
   let value = config;
@@ -2335,11 +2663,13 @@ function adminAiRuntimeStatus(config = currentOpsConfig()) {
 }
 
 function adminOpsConfigResponse() {
+  processDueOpsConfigSchedules();
   const config = currentOpsConfig();
   const linkageItems = adminConfigLinkageItems(config);
   const drafts = adminOpsConfigDrafts();
   const activeDrafts = drafts.filter((draft) => draft.status === 'draft');
   const approvals = adminOpsConfigApprovals();
+  const schedules = adminOpsConfigSchedules({ status: 'all', limit: 20 });
   return {
     ...config,
     approvals,
@@ -2353,13 +2683,16 @@ function adminOpsConfigResponse() {
       highRiskConfirmText: CONFIG_HIGH_RISK_CONFIRM_TEXT,
       highRiskDrafts: activeDrafts.filter((draft) => (draft.riskChanges || []).some((risk) => risk.severity === 'P0')).length,
       latestDraftAt: drafts[0]?.updatedAt || '',
+      nextScheduledAt: schedules.summary.nextScheduledAt,
       pendingApprovals: approvals.summary.pending,
+      scheduledPublishes: schedules.summary.scheduled,
     },
     linkage: {
       items: linkageItems,
       summary: adminConfigLinkageSummary(linkageItems),
     },
     revisions: adminOpsConfigRevisions(),
+    schedules,
   };
 }
 
@@ -3394,6 +3727,7 @@ function sendCsv(res, filename, csv) {
 }
 
 function publicAppConfig() {
+  processDueOpsConfigSchedules();
   const config = currentOpsConfig();
   return {
     ai: {
@@ -3500,6 +3834,7 @@ function loadState() {
       },
       opsConfigApprovals: Array.isArray(loadedState.opsConfigApprovals) ? loadedState.opsConfigApprovals : initialState.opsConfigApprovals,
       opsConfigDrafts: Array.isArray(loadedState.opsConfigDrafts) ? loadedState.opsConfigDrafts : initialState.opsConfigDrafts,
+      opsConfigSchedules: Array.isArray(loadedState.opsConfigSchedules) ? loadedState.opsConfigSchedules : initialState.opsConfigSchedules,
       opsConfig: normalizeOpsConfig(loadedState.opsConfig || initialState.opsConfig),
       placeModerationTemplates: Array.isArray(loadedState.placeModerationTemplates) ? loadedState.placeModerationTemplates : initialState.placeModerationTemplates,
       placeContributions: Array.isArray(loadedState.placeContributions) ? loadedState.placeContributions : initialState.placeContributions,
@@ -14133,9 +14468,9 @@ function adminReadinessModules(context) {
       module: '配置中心',
       group: '配置',
       status: hasConfigReserved ? 'partial' : 'ready',
-      evidence: '配置可保存草稿、提交发布审批、审批发布、立即发布、草稿发布/废弃、版本化、回滚和审计，已展示前后端联动体检与高风险摘要。',
+      evidence: '配置可保存草稿、提交发布审批、审批发布、预约发布、立即发布、草稿发布/废弃、版本化、回滚和审计，已展示前后端联动体检与高风险摘要。',
       mobileLinkage: '移动端读取 /app/config 后应用功能开关、维护、公告、更新、启动提示、额度和附近策略。',
-      nextStep: '生产期补多管理员双人审批、定时发布和 A/B 实验分流。',
+      nextStep: '生产期补多管理员双人审批、灰度配置和 A/B 实验分流。',
     },
     {
       key: 'exports_audit',
@@ -19837,6 +20172,15 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/config/schedules') {
+    processDueOpsConfigSchedules();
+    ok(res, adminOpsConfigSchedules({
+      limit: url.searchParams.get('limit') || 20,
+      status: url.searchParams.get('status') || 'open',
+    }));
+    return true;
+  }
+
   if (req.method === 'POST' && pathname === '/admin/config/approvals') {
     const result = createOpsConfigApproval(admin, body);
     if (result.error) {
@@ -19859,6 +20203,28 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       return true;
     }
     ok(res, { ...result.config, approval: result.approval, revision: result.revision });
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/config/schedules') {
+    const result = createOpsConfigSchedule(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, result.data, result.code || 'ADMIN_CONFIG_SCHEDULE_INVALID');
+      return true;
+    }
+    ok(res, { ...result.config, schedule: result.schedule });
+    return true;
+  }
+
+  const adminConfigScheduleActionMatch = pathname.match(/^\/admin\/config\/schedules\/([^/]+)\/cancel$/);
+  if (req.method === 'POST' && adminConfigScheduleActionMatch) {
+    const scheduleId = decodeURIComponent(adminConfigScheduleActionMatch[1]);
+    const result = cancelOpsConfigSchedule(admin, scheduleId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_CONFIG_SCHEDULE_ACTION_INVALID');
+      return true;
+    }
+    ok(res, { ...result.config, schedule: result.schedule });
     return true;
   }
 
@@ -21999,8 +22365,9 @@ server.listen(port, '0.0.0.0', () => {
 const notificationScheduler = setInterval(() => {
   try {
     processDueSystemNotifications();
+    processDueOpsConfigSchedules();
   } catch (error) {
-    console.error('Failed to process scheduled notifications', error);
+    console.error('Failed to process scheduled operations', error);
   }
 }, 60 * 1000);
 if (typeof notificationScheduler.unref === 'function') notificationScheduler.unref();
