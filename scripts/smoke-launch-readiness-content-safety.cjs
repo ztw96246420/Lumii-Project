@@ -155,6 +155,9 @@ async function main() {
     assert.equal(rowByKey(readiness.data.questions, 'q-safety-vendor')?.status, 'ready');
     assert.equal(rowByKey(readiness.data.questions, 'q-image-policy')?.status, 'ready');
     assert.ok(!readiness.data.gaps.filter((gap) => gap.status !== 'ready' && gap.severity === 'P0').some((gap) => gap.key === 'content_model' || gap.key === 'image_moderation'));
+    const notifications = rowByKey(readiness.data.modules, 'notifications');
+    assert.ok(notifications?.evidence.includes('通知人群包'), 'notification readiness evidence should mention audience packages');
+    assert.ok(!/灰度人群包未完成|发送审批和灰度人群包/.test(JSON.stringify(readiness.data)), 'readiness should not list notification audience packages as unfinished');
 
     console.log('launch readiness content safety smoke passed');
   } finally {
