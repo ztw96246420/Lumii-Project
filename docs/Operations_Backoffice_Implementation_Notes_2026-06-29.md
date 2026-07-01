@@ -611,6 +611,8 @@
 - `POST /admin/notifications/{id}/cancel`
 - `POST /admin/notifications/templates`
 - `POST /admin/notifications/templates/{id}/delete`
+- `POST /admin/notifications/audience-packages`
+- `POST /admin/notifications/audience-packages/{id}/delete`
 
 已支持：
 
@@ -619,6 +621,7 @@
 - 目标范围：
   - 全部用户。
   - 今日活跃用户，按 `lastSeenAt` 近 24 小时计算。
+  - 通知人群包，保存常用手机号集合，发送时只触达当前已注册用户。
   - 指定手机号，支持换行、逗号、空格分隔。
 - 发送后生成 `systemNotifications` 批次记录，记录发送人、目标数、送达数、跳过数、目标样本、创建时间。
 - 发送动作写入 `adminAuditLogs`，action 为 `notification.system.send`。
@@ -635,14 +638,15 @@
 - 配置中心新增系统通知频控：可配置 24 小时批次上限、单用户 24 小时入站上限和开关；立即发送和预约到点发送都由后端执行。
 - 通知运营页顶部展示频控余量和单用户上限；批次超限会整批失败，单用户超限会跳过该用户并在通知历史显示频控跳过数。
 - 通知批次效果统计已接入：移动端打开通知上报 `campaignId`，后端按站内通知 `read/readAt` 和 `notification.open` 事件回算已读、点击、打开率、最近点击时间；通知运营页和数据看板同步展示。
+- 通知运营页新增灰度人群包：可保存人群包名称、备注和手机号清单；后台展示手机号总数、可触达数、未注册数、样本和上次送达数；立即发送和预约发送都会按人群包当前手机号重新计算目标。
 - 配置触达效果统计已接入：App 公告、启动提示、版本更新弹窗分别上报展示和主按钮点击，后端在 `summary.configPrompts` 聚合展示量、点击量和点击率；数据看板增加“配置触达”和配置展示/点击趋势。
-- 详细口径见 `docs/Operations_Backoffice_Notification_Campaign_Stats_2026-07-01.md`。
+- 详细口径见 `docs/Operations_Backoffice_Notification_Campaign_Stats_2026-07-01.md` 和 `docs/Operations_Backoffice_Notification_Audience_Packages_2026-07-01.md`。
 
 未实现：
 
 - 真实厂商 Push 下发，例如 FCM、APNs、华为/小米/OPPO/VIVO 推送。
 - 厂商 Push 真实送达、展示、点击回执和 token 失效原因统计。
-- 发送审批和灰度人群包。
+- 发送审批。
 - 通知点击后的复杂深链参数，例如指定帖子、地点详情；工单详情第一版已支持 `ticketId`。
 
 ### 3.14 宠物日历

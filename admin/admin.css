@@ -1100,6 +1100,12 @@ th {
   min-height: 100%;
 }
 
+.notification-guide {
+  align-content: start;
+  display: grid;
+  gap: 16px;
+}
+
 .notification-form,
 .notification-rules,
 .notification-history,

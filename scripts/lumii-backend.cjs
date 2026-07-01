@@ -407,6 +407,7 @@ function createInitialState() {
     supportTicketReplyTemplates: [],
     systemNotifications: [],
     notificationTemplates: [],
+    notificationAudiencePackages: [],
     opsConfigDrafts: [],
     opsConfigRevisions: [],
     userSanctions: [],
@@ -2306,6 +2307,7 @@ function loadState() {
       supportTickets: Array.isArray(loadedState.supportTickets) ? loadedState.supportTickets : initialState.supportTickets,
       systemNotifications: Array.isArray(loadedState.systemNotifications) ? loadedState.systemNotifications : initialState.systemNotifications,
       notificationTemplates: Array.isArray(loadedState.notificationTemplates) ? loadedState.notificationTemplates : initialState.notificationTemplates,
+      notificationAudiencePackages: Array.isArray(loadedState.notificationAudiencePackages) ? loadedState.notificationAudiencePackages : initialState.notificationAudiencePackages,
       userSanctions: Array.isArray(loadedState.userSanctions) ? loadedState.userSanctions : initialState.userSanctions,
     };
   } catch {
@@ -10007,7 +10009,7 @@ function markNotificationsRead(phone, ids) {
   return state.notifications[phone];
 }
 
-const systemNotificationTargets = new Set(['active_today', 'all', 'phones']);
+const systemNotificationTargets = new Set(['active_today', 'all', 'audience_package', 'phones']);
 const systemNotificationActionRoutes = new Set(['discover', 'home', 'map', 'notifications', 'profile', 'safety', 'settings', 'supportTickets']);
 const systemNotificationModes = new Set(['draft', 'scheduled', 'send']);
 const SYSTEM_NOTIFICATION_RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -10027,7 +10029,57 @@ function parseNotificationPhones(value) {
   return Array.from(new Set(source.split(/[\s,，;；]+/).map(normalizePhone).filter(Boolean)));
 }
 
-function systemNotificationTargetPhones(target, phones) {
+function normalizeNotificationAudiencePackage(item = {}) {
+  const now = new Date().toISOString();
+  return {
+    createdAt: item.createdAt || now,
+    createdBy: item.createdBy || 'admin',
+    description: String(item.description || '').trim().slice(0, 120),
+    id: String(item.id || `notification-audience-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`),
+    lastUsedAt: item.lastUsedAt || '',
+    lastUsedCount: Number(item.lastUsedCount || 0),
+    name: String(item.name || '通知人群包').trim().slice(0, 32),
+    phones: parseNotificationPhones(item.phones || item.phonesInput || item.phoneInput),
+    updatedAt: item.updatedAt || item.createdAt || now,
+    updatedBy: item.updatedBy || item.createdBy || 'admin',
+  };
+}
+
+function ensureNotificationAudiencePackages() {
+  const packages = Array.isArray(state.notificationAudiencePackages) ? state.notificationAudiencePackages : [];
+  state.notificationAudiencePackages = packages
+    .map((item) => normalizeNotificationAudiencePackage(item))
+    .filter((item) => item.name && item.phones.length)
+    .slice(0, 120);
+  return state.notificationAudiencePackages;
+}
+
+function findNotificationAudiencePackage(id) {
+  const targetId = String(id || '').trim();
+  if (!targetId) return null;
+  return ensureNotificationAudiencePackages().find((item) => item.id === targetId) || null;
+}
+
+function notificationAudiencePackageItem(item = {}) {
+  const normalized = normalizeNotificationAudiencePackage(item);
+  const reachablePhones = normalized.phones.filter((phone) => Boolean(state.users?.[phone]));
+  return {
+    ...normalized,
+    missingCount: Math.max(0, normalized.phones.length - reachablePhones.length),
+    phoneCount: normalized.phones.length,
+    phones: normalized.phones.slice(0, 200),
+    reachableCount: reachablePhones.length,
+    samplePhones: normalized.phones.slice(0, 8),
+  };
+}
+
+function adminNotificationAudiencePackages() {
+  return ensureNotificationAudiencePackages()
+    .map(notificationAudiencePackageItem)
+    .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
+}
+
+function systemNotificationTargetPhones(target, phones, audiencePackageId = '') {
   const users = Object.values(state.users || {});
   if (target === 'all') return users.map((user) => user.phone).filter(Boolean);
   if (target === 'active_today') {
@@ -10035,6 +10087,11 @@ function systemNotificationTargetPhones(target, phones) {
       .filter((user) => Date.now() - Number(user.lastSeenAt || 0) < 24 * 60 * 60 * 1000)
       .map((user) => user.phone)
       .filter(Boolean);
+  }
+  if (target === 'audience_package') {
+    const audiencePackage = findNotificationAudiencePackage(audiencePackageId || phones);
+    if (!audiencePackage) return [];
+    return audiencePackage.phones.filter((phone) => Boolean(state.users?.[phone]));
   }
   return parseNotificationPhones(phones).filter((phone) => Boolean(state.users?.[phone]));
 }
@@ -10182,6 +10239,58 @@ function removeNotificationTemplate(admin, id) {
   return { templates: adminNotificationTemplates() };
 }
 
+function upsertNotificationAudiencePackage(admin, body = {}) {
+  const now = new Date().toISOString();
+  const idInput = String(body.id || '').trim();
+  const packages = ensureNotificationAudiencePackages();
+  const existing = idInput ? packages.find((item) => item.id === idInput) : null;
+  const name = String(body.name || '').trim().slice(0, 32);
+  const description = String(body.description || '').trim().slice(0, 120);
+  const phones = parseNotificationPhones(body.phones || body.phonesInput || body.phoneInput);
+  if (!name) return { error: '请填写人群包名称', statusCode: 400 };
+  if (!phones.length) return { error: '请至少填写一个有效手机号', statusCode: 400 };
+  const item = normalizeNotificationAudiencePackage({
+    ...(existing || {}),
+    createdAt: existing?.createdAt || now,
+    createdBy: existing?.createdBy || admin?.username || 'admin',
+    description,
+    id: existing?.id || `notification-audience-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    name,
+    phones,
+    updatedAt: now,
+    updatedBy: admin?.username || 'admin',
+  });
+  const before = existing ? notificationAudiencePackageItem(existing) : null;
+  if (existing) {
+    state.notificationAudiencePackages = packages.map((current) => (current.id === existing.id ? item : current));
+  } else {
+    state.notificationAudiencePackages = [item, ...packages].slice(0, 120);
+  }
+  const after = notificationAudiencePackageItem(item);
+  writeAdminAudit(admin, existing ? 'notification.audience_package.update' : 'notification.audience_package.create', 'notification_audience_package', item.id, before, after, item.name);
+  return { audiencePackage: after, audiencePackages: adminNotificationAudiencePackages() };
+}
+
+function removeNotificationAudiencePackage(admin, id) {
+  const packages = ensureNotificationAudiencePackages();
+  const target = packages.find((item) => item.id === id);
+  if (!target) return { error: '通知人群包不存在', statusCode: 404 };
+  state.notificationAudiencePackages = packages.filter((item) => item.id !== id);
+  writeAdminAudit(admin, 'notification.audience_package.delete', 'notification_audience_package', id, notificationAudiencePackageItem(target), null, target.name || id);
+  return { audiencePackages: adminNotificationAudiencePackages() };
+}
+
+function touchNotificationAudiencePackage(id, deliveredCount, admin, usedAt = new Date().toISOString()) {
+  const packages = ensureNotificationAudiencePackages();
+  const target = packages.find((item) => item.id === id);
+  if (!target) return null;
+  target.lastUsedAt = usedAt;
+  target.lastUsedCount = Number(deliveredCount || 0);
+  target.updatedAt = usedAt;
+  target.updatedBy = admin?.username || 'system';
+  return target;
+}
+
 function adminPushDevices() {
   return Object.entries(state.pushDevices || {}).flatMap(([phone, devices]) => {
     const user = state.users?.[phone];
@@ -10256,6 +10365,8 @@ function systemNotificationItem(item) {
   const effectStats = systemNotificationCampaignStats(item.id, deliveredCount || targetPhones.length || Number(item.audienceCount || 0));
   return {
     actionRoute: item.actionRoute || '',
+    audiencePackageId: item.audiencePackageId || '',
+    audiencePackageName: item.audiencePackageName || '',
     audienceCount: Number(item.audienceCount || targetPhones.length || 0),
     canceledAt: item.canceledAt || '',
     canceledBy: item.canceledBy || '',
@@ -10296,6 +10407,7 @@ function adminSystemNotifications() {
   const campaigns = ensureSystemNotifications().map(systemNotificationItem)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
     .slice(0, 200);
+  const audiencePackages = adminNotificationAudiencePackages();
   const devices = adminPushDevices();
   const users = Object.values(state.users || {});
   const sentCampaigns = campaigns.filter((item) => item.status === 'sent');
@@ -10304,10 +10416,12 @@ function adminSystemNotifications() {
   const readCount = sentCampaigns.reduce((sum, item) => sum + Number(item.readCount || 0), 0);
   return {
     campaigns,
+    audiencePackages,
     devices: devices.slice(0, 200),
     rateLimit: notificationRateLimitSnapshot(),
     summary: {
       activeToday: users.filter((user) => Date.now() - Number(user.lastSeenAt || 0) < 24 * 60 * 60 * 1000).length,
+      audiencePackages: audiencePackages.length,
       campaigns: campaigns.length,
       delivered: deliveredCount,
       devices: devices.length,
@@ -10378,9 +10492,11 @@ function createSystemNotification(admin, body = {}) {
 function deliverManagedSystemNotification(notification, admin, reason = '发送系统通知') {
   const now = new Date().toISOString();
   const nowMs = Date.parse(now);
-  const targetPhones = systemNotificationTargetPhones(notification.target, notification.phonesInput || notification.targetPhones);
+  const targetPhones = systemNotificationTargetPhones(notification.target, notification.phonesInput || notification.targetPhones, notification.audiencePackageId);
+  const audiencePackage = notification.target === 'audience_package' ? findNotificationAudiencePackage(notification.audiencePackageId) : null;
   const campaignRate = systemNotificationCampaignRateLimit(nowMs);
   notification.audienceCount = targetPhones.length;
+  notification.audiencePackageName = audiencePackage?.name || notification.audiencePackageName || '';
   notification.deliveredAt = now;
   notification.deliveredCount = 0;
   notification.failedPhones = [];
@@ -10429,6 +10545,9 @@ function deliverManagedSystemNotification(notification, admin, reason = '发送�
   }
   notification.failedReason = '';
   notification.status = 'sent';
+  if (notification.target === 'audience_package' && notification.audiencePackageId) {
+    touchNotificationAudiencePackage(notification.audiencePackageId, notification.deliveredCount, admin, now);
+  }
   writeAdminAudit(admin, 'notification.system.send', 'system_notification', notification.id, null, systemNotificationItem(notification), reason);
   return true;
 }
@@ -10445,7 +10564,11 @@ function createManagedSystemNotification(admin, body = {}) {
   const actionRouteInput = String(body.actionRoute || '').trim();
   const actionRoute = systemNotificationActionRoutes.has(actionRouteInput) ? actionRouteInput : '';
   const phonesInput = Array.isArray(body.phones || body.targetPhones) ? (body.phones || body.targetPhones).join('\n') : String(body.phones || body.targetPhones || '');
-  const targetPhones = systemNotificationTargetPhones(target, phonesInput);
+  const audiencePackageId = target === 'audience_package' ? String(body.audiencePackageId || '').trim() : '';
+  const audiencePackage = audiencePackageId ? findNotificationAudiencePackage(audiencePackageId) : null;
+  if (target === 'audience_package' && mode !== 'draft' && !audiencePackageId) return { error: '请选择通知人群包', statusCode: 400 };
+  if (target === 'audience_package' && mode !== 'draft' && !audiencePackage) return { error: '通知人群包不存在', statusCode: 404 };
+  const targetPhones = systemNotificationTargetPhones(target, phonesInput, audiencePackageId);
   if (mode !== 'draft' && !targetPhones.length) return { error: '没有可触达的目标用户', statusCode: 400 };
   const scheduledAt = mode === 'scheduled' ? normalizeSystemNotificationScheduledAt(body.scheduledAt) : '';
   if (mode === 'scheduled') {
@@ -10455,6 +10578,8 @@ function createManagedSystemNotification(admin, body = {}) {
   const now = new Date().toISOString();
   const notification = {
     actionRoute,
+    audiencePackageId,
+    audiencePackageName: audiencePackage?.name || '',
     audienceCount: mode === 'draft' ? 0 : targetPhones.length,
     createdAt: now,
     createdBy: admin?.username || 'admin',
@@ -15468,6 +15593,29 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     const result = removeNotificationTemplate(admin, decodeURIComponent(adminNotificationTemplateDeleteMatch[1]));
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_NOTIFICATION_TEMPLATE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/notifications/audience-packages') {
+    const result = upsertNotificationAudiencePackage(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_NOTIFICATION_AUDIENCE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminNotificationAudienceDeleteMatch = pathname.match(/^\/admin\/notifications\/audience-packages\/([^/]+)\/delete$/);
+  if (req.method === 'POST' && adminNotificationAudienceDeleteMatch) {
+    const result = removeNotificationAudiencePackage(admin, decodeURIComponent(adminNotificationAudienceDeleteMatch[1]));
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_NOTIFICATION_AUDIENCE_INVALID');
       return true;
     }
     saveState();

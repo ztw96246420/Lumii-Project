@@ -543,13 +543,15 @@ async function onContentClick(event) {
       return;
     }
     if (action === 'appeal-review' || action === 'appeal-approve' || action === 'appeal-reject') await handleSanctionAppealAction(button);
-    if (action === 'notification-template-use' || action === 'notification-campaign-use') {
+    if (action === 'notification-template-use' || action === 'notification-campaign-use' || action === 'notification-audience-use') {
       fillNotificationFormFromDataset(button);
       showToast('已套用到发送表单');
       return;
     }
     if (action === 'notification-template-save') await saveNotificationTemplate();
     if (action === 'notification-template-delete') await confirmPost(`/admin/notifications/templates/${encodeURIComponent(id)}/delete`, { reason: '删除通知模板' }, '确认删除这个通知模板？');
+    if (action === 'notification-audience-save') await saveNotificationAudiencePackage();
+    if (action === 'notification-audience-delete') await confirmPost(`/admin/notifications/audience-packages/${encodeURIComponent(id)}/delete`, { reason: '删除通知人群包' }, '确认删除这个通知人群包？');
     if (action === 'notification-cancel') await cancelNotificationCampaign(id, button.dataset.status);
     if (action === 'send-notification') await sendSystemNotification('send');
     if (action === 'save-notification-draft') await sendSystemNotification('draft');
@@ -1446,6 +1448,7 @@ function fillNotificationFormFromDataset(button) {
     ['notifyActionRoute', 'actionRoute'],
     ['notifyTarget', 'target'],
     ['notifyPhones', 'phones'],
+    ['notifyAudiencePackageId', 'audiencePackageId'],
   ];
   fields.forEach(([inputId, dataKey]) => {
     const element = $(inputId);
@@ -1473,6 +1476,19 @@ async function saveNotificationTemplate() {
   state.cache.notifications = null;
 }
 
+async function saveNotificationAudiencePackage() {
+  const name = valueOf('notifyAudienceName');
+  const phones = valueOf('notifyAudiencePhones');
+  if (!name) throw new Error('请填写人群包名称');
+  if (!phones) throw new Error('请填写人群包手机号');
+  await post('/admin/notifications/audience-packages', {
+    description: valueOf('notifyAudienceDescription'),
+    name,
+    phones,
+  });
+  state.cache.notifications = null;
+}
+
 async function cancelNotificationCampaign(id, status) {
   const label = status === 'sent' ? '撤回已发送通知' : status === 'scheduled' ? '取消预约通知' : '作废通知草稿';
   const reason = window.prompt('请输入处理原因', label);
@@ -1488,11 +1504,14 @@ async function sendSystemNotification(mode = 'send') {
   if (!text) throw new Error('请填写通知内容');
   const target = valueOf('notifyTarget') || 'phones';
   const phones = valueOf('notifyPhones');
+  const audiencePackageId = valueOf('notifyAudiencePackageId');
   if (mode !== 'draft' && target === 'phones' && !phones) throw new Error('请填写目标手机号');
+  if (mode !== 'draft' && target === 'audience_package' && !audiencePackageId) throw new Error('请选择通知人群包');
   const scheduledAt = valueOf('notifyScheduledAt');
   if (mode === 'scheduled' && !scheduledAt) throw new Error('请选择预约发送时间');
   await post('/admin/notifications/system', {
     actionRoute: valueOf('notifyActionRoute'),
+    audiencePackageId,
     mode,
     phones,
     reason: mode === 'scheduled' ? '预约发送系统通知' : mode === 'draft' ? '保存系统通知草稿' : '发送系统通知',
@@ -4400,6 +4419,7 @@ function notificationTargetLabel(value) {
   return {
     active_today: '今日活跃用户',
     all: '全部用户',
+    audience_package: '通知人群包',
     phones: '指定手机号',
   }[value] || value || '-';
 }
@@ -4440,6 +4460,32 @@ function renderNotificationTemplate(template) {
   `;
 }
 
+function renderNotificationAudiencePackage(item) {
+  const samples = (item.samplePhones || item.phones || []).slice(0, 6).map(shortPhone).join('、');
+  return `
+    <article class="notification-template">
+      <div>
+        <div class="cell-title">${escapeHtml(item.name)}</div>
+        <div class="cell-sub">${numberText(item.reachableCount || 0)} 可触达 / ${numberText(item.phoneCount || 0)} 手机号${item.missingCount ? ` · ${numberText(item.missingCount)} 未注册` : ''}</div>
+      </div>
+      ${item.description ? `<div class="ticket-content">${escapeHtml(item.description)}</div>` : ''}
+      <div class="risk-row">
+        ${samples ? `<span class="risk-badge">样本 ${escapeHtml(samples)}</span>` : ''}
+        ${item.lastUsedAt ? `<span class="risk-badge">上次送达 ${numberText(item.lastUsedCount || 0)} · ${formatTime(item.lastUsedAt)}</span>` : '<span class="risk-badge">未发送</span>'}
+      </div>
+      <div class="notification-template-actions">
+        <button
+          class="small-button"
+          data-action="notification-audience-use"
+          data-audience-package-id="${escapeHtml(item.id)}"
+          data-target="audience_package"
+        >套用</button>
+        <button class="small-button danger" data-action="notification-audience-delete" data-id="${escapeHtml(item.id)}">删除</button>
+      </div>
+    </article>
+  `;
+}
+
 function renderNotificationCampaign(campaign) {
   const failed = (campaign.failedPhones || []).slice(0, 5).map(shortPhone).join('、');
   const phones = (campaign.targetPhones || []).length ? (campaign.targetPhones || []).slice(0, 6).map(shortPhone).join('、') : String(campaign.phonesInput || '').split(/[\s,，;；]+/).filter(Boolean).slice(0, 6).map(shortPhone).join('、');
@@ -4461,6 +4507,7 @@ function renderNotificationCampaign(campaign) {
         <div class="ticket-content">${escapeHtml(campaign.text)}</div>
         <div class="moderation-meta">
           <span>发送人：${escapeHtml(campaign.createdBy || '-')}</span>
+          ${campaign.audiencePackageName ? `<span>人群包：${escapeHtml(campaign.audiencePackageName)}</span>` : ''}
           <span>目标：${campaign.audienceCount || 0}</span>
           <span>送达：${campaign.deliveredCount || 0}</span>
           <span>已读：${numberText(campaign.readCount || 0)} / ${percentText(campaign.readRate || 0)}</span>
@@ -4477,6 +4524,7 @@ function renderNotificationCampaign(campaign) {
         <div class="risk-row">
           <span class="risk-badge">跳过 ${campaign.skippedCount || 0}</span>
           ${campaign.rateLimitedCount ? `<span class="risk-badge">频控 ${campaign.rateLimitedCount}</span>` : ''}
+          ${campaign.audiencePackageName ? `<span class="risk-badge">人群包 ${escapeHtml(campaign.audiencePackageName)}</span>` : ''}
           ${phones ? `<span class="risk-badge">样本 ${escapeHtml(phones)}</span>` : ''}
           ${failed ? `<span class="risk-badge">未入站 ${escapeHtml(failed)}</span>` : ''}
           ${campaign.failedReason ? `<span class="risk-badge">失败：${escapeHtml(campaign.failedReason)}</span>` : ''}
@@ -4487,6 +4535,7 @@ function renderNotificationCampaign(campaign) {
             class="small-button"
             data-action="notification-campaign-use"
             data-action-route="${escapeHtml(campaign.actionRoute || '')}"
+            data-audience-package-id="${escapeHtml(campaign.audiencePackageId || '')}"
             data-phones="${escapeHtml(campaign.phonesInput || (campaign.targetPhones || []).join('\n'))}"
             data-respect-user-settings="${campaign.respectUserSettings !== false ? 'true' : 'false'}"
             data-target="${escapeHtml(campaign.target || 'phones')}"
@@ -4631,6 +4680,7 @@ function renderConfigGovernance(config = {}) {
 async function renderNotifications(force) {
   const data = await load('notifications', '/admin/notifications', force);
   const summary = data.summary || {};
+  const audiencePackages = data.audiencePackages || [];
   const campaigns = data.campaigns || [];
   const devices = data.devices || [];
   const rateLimit = data.rateLimit || {};
@@ -4642,6 +4692,7 @@ async function renderNotifications(force) {
       ${metric('通知点击', numberText(summary.opens || 0), `${percentText(summary.openRate || 0)} 打开率`, '来自移动端 notification.open 事件；点击率按系统通知批次的去重点击人数 / 送达数计算。')}
       ${metric('用户总数', summary.users || 0, `${summary.activeToday || 0} 今日活跃`, '“今日活跃用户”目标按 lastSeenAt 近 24 小时计算。')}
       ${metric('推送设备', summary.devices || 0, '已登记 token', '当前只是设备登记和站内通知记录；真实厂商推送服务后续可接入。')}
+      ${metric('人群包', summary.audiencePackages || audiencePackages.length, '灰度触达', '保存测试手机号、灰度用户和补偿用户，发送时按当前注册用户重新计算可触达范围。')}
       ${metric('待处理', (summary.drafts || 0) + (summary.scheduled || 0), `${summary.drafts || 0} 草稿 · ${summary.scheduled || 0} 预约`, '草稿不会触达用户；预约通知到点后由服务自动写入 App 通知中心。')}
       ${metric('频控余量', rateLimit.enabled === false ? '未开启' : numberText(rateLimit.remainingCampaigns || 0), `24h ${numberText(rateLimit.campaignsLast24h || 0)}/${numberText(rateLimit.maxCampaignsPerDay || 0)} 批`, '系统通知发送前会检查 24 小时滚动窗口，超过批次上限会被后端拒绝入站。')}
       ${metric('单用户频控', rateLimit.enabled === false ? '未开启' : `${numberText(rateLimit.maxPerUserPerDay || 0)}/24h`, '超限用户会被跳过', '避免同一用户在一天内被运营系统通知反复打扰；审核、工单、处罚等业务通知不计入这个营销频控。')}
@@ -4665,6 +4716,7 @@ async function renderNotifications(force) {
               <select id="notifyTarget">
                 <option value="all">全部用户</option>
                 <option value="active_today">今日活跃用户</option>
+                <option value="audience_package">通知人群包</option>
                 <option value="phones">指定手机号</option>
               </select>
             </label>
@@ -4682,6 +4734,12 @@ async function renderNotifications(force) {
               </select>
             </label>
           </div>
+          <label>通知人群包
+            <select id="notifyAudiencePackageId">
+              <option value="">请选择已保存的人群包</option>
+              ${audiencePackages.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)} · ${numberText(item.reachableCount || 0)} 可触达</option>`).join('')}
+            </select>
+          </label>
           <label>指定手机号<textarea id="notifyPhones" placeholder="多个手机号可用换行、逗号或空格分隔；目标范围不是“指定手机号”时可留空。"></textarea></label>
           <label>预约发送时间<input id="notifyScheduledAt" type="datetime-local" /></label>
           <label class="inline-check notification-check"><input id="notifyRespectSettings" type="checkbox" checked /> 尊重用户通知开关</label>
@@ -4704,9 +4762,29 @@ async function renderNotifications(force) {
         <div class="notification-template-list">
           ${templates.length ? templates.map(renderNotificationTemplate).join('') : '<div class="placeholder mini"><div><strong>暂无模板</strong><div>可把常用标题和正文保存为模板。</div></div></div>'}
         </div>
+        <div class="section-head compact">
+          <div>
+            <h2>灰度人群包</h2>
+            <div class="section-sub">保存常用手机号集合，适合灰度、补偿、定向回访</div>
+          </div>
+        </div>
+        <div class="notification-form">
+          <div class="notification-form-row">
+            <label>人群包名称<input id="notifyAudienceName" maxlength="32" placeholder="例如：安卓灰度测试用户" /></label>
+            <label>备注<input id="notifyAudienceDescription" maxlength="120" placeholder="例如：7 月第一批体验用户" /></label>
+          </div>
+          <label>手机号清单<textarea id="notifyAudiencePhones" placeholder="多个手机号可用换行、逗号或空格分隔。"></textarea></label>
+          <div class="notification-action-row">
+            <button class="small-button" data-action="notification-audience-save">保存人群包</button>
+          </div>
+        </div>
+        <div class="notification-template-list">
+          ${audiencePackages.length ? audiencePackages.map(renderNotificationAudiencePackage).join('') : '<div class="placeholder mini"><div><strong>暂无人群包</strong><div>保存后可在发送表单中选择“通知人群包”。</div></div></div>'}
+        </div>
         <div class="notification-rules">
           <div><strong>全部用户</strong><span>适合维护、停服、重要版本提醒。</span></div>
           <div><strong>今日活跃</strong><span>适合短时运营提醒，减少打扰沉默用户。</span></div>
+          <div><strong>通知人群包</strong><span>适合灰度测试、补偿和定向回访，发送时只触达已注册手机号。</span></div>
           <div><strong>指定手机号</strong><span>适合客服、灰度验证、单用户补偿通知。</span></div>
           <div><strong>强制入站</strong><span>仅用于安全、封禁、维护等必须告知的信息。</span></div>
           <div><strong>草稿/预约</strong><span>草稿只保留在后台；预约到点后自动写入目标用户通知中心。</span></div>
