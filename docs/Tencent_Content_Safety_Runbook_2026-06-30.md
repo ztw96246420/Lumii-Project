@@ -42,6 +42,8 @@ Image content safety:
 | `pet_avatar` | `lumii_i_pet_avatar` | Pet avatar and AI source photo |
 | `pet_circle_photo` | `lumii_i_social_photo` | Pet circle post image |
 | `pet_circle_cover` | `lumii_i_cover` | Pet circle cover image |
+| `place_review` | `lumii_i_place` | Place review image |
+| `place_submission` | `lumii_i_place` | User submitted place image |
 | `support` | `lumii_i_support` | Support ticket attachment |
 
 If Tencent Cloud Biztype names change, override them with these environment variables instead of changing code:
@@ -54,7 +56,12 @@ If Tencent Cloud Biztype names change, override them with these environment vari
 - `TENCENT_CMS_IMAGE_BIZ_PET_AVATAR`
 - `TENCENT_CMS_IMAGE_BIZ_SOCIAL_PHOTO`
 - `TENCENT_CMS_IMAGE_BIZ_COVER`
+- `TENCENT_CMS_IMAGE_BIZ_PLACE`
+- `TENCENT_CMS_IMAGE_BIZ_PLACE_REVIEW`
+- `TENCENT_CMS_IMAGE_BIZ_PLACE_SUBMISSION`
 - `TENCENT_CMS_IMAGE_BIZ_SUPPORT`
+
+The admin launch-readiness ledger now derives the content-safety P0 state from `adminContentSafetyStatus()`: Tencent credentials plus both text and image machine switches must be enabled before the content-safety vendor and image-review items are marked as ready.
 
 ## Runtime Policy
 

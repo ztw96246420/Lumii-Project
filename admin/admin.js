@@ -1648,7 +1648,7 @@ async function renderLaunchReadiness(force) {
   const questions = data.questions || [];
   const gaps = data.gaps || [];
   const attentionItems = data.linkage?.attentionItems || [];
-  const productionBlockers = gaps.filter((gap) => gap.status === 'blocked' || gap.severity === 'P0');
+  const productionBlockers = gaps.filter((gap) => gap.status !== 'ready' && (gap.status === 'blocked' || gap.severity === 'P0'));
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('上线口径', summary.status === 'ready' ? '可复核' : '需治理', `${numberText(summary.readyModules || 0)} 个模块测试可用`, summary.statusLabel || '这里不是宣布生产完成，而是把测试可用、部分可用、生产阻断分开。')}

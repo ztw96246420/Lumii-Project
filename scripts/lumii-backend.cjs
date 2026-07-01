@@ -89,6 +89,8 @@ const TENCENT_CMS_IMAGE_BIZ_TYPES = {
   pet_avatar: process.env.TENCENT_CMS_IMAGE_BIZ_PET_AVATAR || 'lumii_i_pet_avatar',
   pet_circle_cover: process.env.TENCENT_CMS_IMAGE_BIZ_COVER || 'lumii_i_cover',
   pet_circle_photo: process.env.TENCENT_CMS_IMAGE_BIZ_SOCIAL_PHOTO || 'lumii_i_social_photo',
+  place_review: process.env.TENCENT_CMS_IMAGE_BIZ_PLACE || process.env.TENCENT_CMS_IMAGE_BIZ_PLACE_REVIEW || 'lumii_i_place',
+  place_submission: process.env.TENCENT_CMS_IMAGE_BIZ_PLACE || process.env.TENCENT_CMS_IMAGE_BIZ_PLACE_SUBMISSION || 'lumii_i_place',
   support: process.env.TENCENT_CMS_IMAGE_BIZ_SUPPORT || 'lumii_i_support',
 };
 const TENCENT_CMS_TIMEOUT_MS = Number(process.env.TENCENT_CMS_TIMEOUT_MS || '12000');
@@ -658,6 +660,8 @@ function adminContentSafetyStatus(config = currentOpsConfig()) {
     ['pet_avatar', '宠物头像与灵伴原图'],
     ['pet_circle_photo', '宠友圈小事图片'],
     ['pet_circle_cover', '宠友圈封面图片'],
+    ['place_review', '地点点评图片'],
+    ['place_submission', '新增地点图片'],
     ['support', '反馈/工单附件图片'],
   ];
   return {
@@ -11761,6 +11765,26 @@ function adminAccounts(admin = {}) {
   };
 }
 
+function adminContentSafetyReadiness(contentSafety = adminContentSafetyStatus()) {
+  const credentialsConfigured = Boolean(contentSafety.credentialsConfigured);
+  const textReady = Boolean(credentialsConfigured && contentSafety.text?.enabled);
+  const imageReady = Boolean(credentialsConfigured && contentSafety.image?.enabled);
+  const textConfigured = Boolean(contentSafety.text?.enabled);
+  const imageConfigured = Boolean(contentSafety.image?.enabled);
+  const status = textReady && imageReady ? 'ready' : credentialsConfigured && (textConfigured || imageConfigured) ? 'partial' : 'blocked';
+  const missing = [];
+  if (!credentialsConfigured) missing.push('腾讯云密钥');
+  if (!textConfigured) missing.push('文本机审开关');
+  if (!imageConfigured) missing.push('图片机审开关');
+  return {
+    credentialsConfigured,
+    imageReady,
+    missing,
+    status,
+    textReady,
+  };
+}
+
 function adminReadinessStatusMeta(status) {
   const map = {
     blocked: { label: '生产阻断', tone: 'bad' },
@@ -11772,10 +11796,11 @@ function adminReadinessStatusMeta(status) {
 }
 
 function adminReadinessModules(context) {
-  const { accounts, health, linkageSummary } = context;
+  const { accounts, contentSafety, health, linkageSummary } = context;
   const hasHealthBad = Number(health?.summary?.bad || 0) > 0;
   const hasAccountWarnings = Number(accounts?.summary?.securityWarnings || 0) > 0;
   const hasConfigReserved = Number(linkageSummary?.reserved || 0) > 0;
+  const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
   return [
     {
       key: 'dashboard',
@@ -11826,10 +11851,14 @@ function adminReadinessModules(context) {
       key: 'moderation',
       module: '内容安全任务池',
       group: '安全',
-      status: 'partial',
-      evidence: '小事、评论、举报、地点点评和新增地点可进入统一任务池并人工处理。',
+      status: contentSafetyReadiness.status,
+      evidence: contentSafetyReadiness.status === 'ready'
+        ? '腾讯云文本/图片机审、关键词规则、抽样复审和统一人工任务池已接入；覆盖小事、评论、私信、宠物资料、地点内容和公开图片。'
+        : `统一人工任务池已接入；内容安全基座仍缺：${contentSafetyReadiness.missing.join('、') || '配置复核'}`,
       mobileLinkage: '隐藏、删除、通过、驳回和举报结果通知会影响 App 可见内容和通知中心。',
-      nextStep: '生产期必须接文本/图片内容安全模型、举报后台策略、封禁/隐藏运营闭环。',
+      nextStep: contentSafetyReadiness.status === 'ready'
+        ? '继续用样本复审观察误杀/漏杀，沉淀举报处理策略和封禁/隐藏运营规则。'
+        : '补齐腾讯云密钥和配置中心机审开关，再回归小事、评论、图片、地点和私信链路。',
     },
     {
       key: 'reports',
@@ -11897,13 +11926,16 @@ function adminReadinessModules(context) {
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }
 
-function adminReadinessQuestions() {
+function adminReadinessQuestions(context = {}) {
+  const contentSafetyReadiness = adminContentSafetyReadiness(context.contentSafety);
+  const safetyVendorReady = contentSafetyReadiness.textReady && contentSafetyReadiness.imageReady;
+  const imagePolicyReady = contentSafetyReadiness.imageReady;
   return [
     ['q-domain', 'P1', '后台正式域名使用 ops.lumiiapp.cn、admin.lumiiapp.cn，还是先沿用 /admin？', '当前可沿用 /admin；生产建议独立后台域名并做访问控制。', '影响后台入口、证书、CDN/网关和运维 SOP。'],
     ['q-ip', 'P0', '生产后台是否必须白名单 IP？', '当前未强制白名单；生产前建议至少网关层限制。', '影响后台暴露面和账号被撞库风险。'],
     ['q-mfa', 'P0', '后台账号是否接企业微信、飞书或邮箱 MFA？', '当前单 admin 账号无 MFA。', '影响生产后台登录安全。'],
-    ['q-safety-vendor', 'P0', '内容安全供应商选哪家，文本和图片是否同一供应商？', '当前只有规则和人工任务池，第三方模型未接。', '影响宠友圈、评论、头像、宠物图、地点点评的真实审核能力。'],
-    ['q-image-policy', 'P0', '图片审核失败时，宠友圈发布是阻断、送审，还是先隐藏等待审核？', '当前图片安全策略尚未生产定稿。', '影响用户发布体验和违规内容外露风险。'],
+    ['q-safety-vendor', 'P0', '内容安全供应商选哪家，文本和图片是否同一供应商？', safetyVendorReady ? '已选腾讯云天御：文本和图片机审均通过配置中心开关联动，Biztype 可由环境变量覆盖。' : `腾讯云内容安全基座未完全就绪，仍缺：${contentSafetyReadiness.missing.join('、') || '配置复核'}。`, '影响宠友圈、评论、头像、宠物图、地点点评的真实审核能力。', safetyVendorReady ? 'ready' : 'open', safetyVendorReady ? '已确认' : '待业务确认'],
+    ['q-image-policy', 'P0', '图片审核失败时，宠友圈发布是阻断、送审，还是先隐藏等待审核？', imagePolicyReady ? '已实现：Block 拒绝，Review 进入 pending_review；宠友圈、地点内容会阻止发布/提交含待审或驳回图片，审核通过后才可继续。' : '图片机审未完全就绪，当前仍需人工任务池和配置复核兜底。', '影响用户发布体验和违规内容外露风险。', imagePolicyReady ? 'ready' : 'open', imagePolicyReady ? '已确认' : '待业务确认'],
     ['q-message-view', 'P1', '私信是否允许人工查看全文？如果允许，谁审批、保留多久？', '当前后台默认只做摘要排查。', '影响隐私合规和骚扰治理能力。'],
     ['q-clear-data', 'P1', '用户业务数据清理是否只保留测试环境？', '当前已实现清理链路，生产是否开放需确认。', '影响误操作风险、用户数据权益和客服 SOP。'],
     ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '当前后台可人工返还；自动规则未定。', '影响用户权益、成本和客服处理标准。'],
@@ -11913,22 +11945,23 @@ function adminReadinessQuestions() {
     ['q-notification-approval', 'P1', '系统通知是否需要发送审批和灰度人群包？', '当前支持草稿/预约/撤回、模板和系统通知频控，未接发送审批。', '影响误发和运营风险。'],
     ['q-config-approval', 'P0', '配置强制更新、维护模式、全功能关闭是否必须审批？', '当前保存即发布并记录版本，可回滚。', '影响事故风险和发布治理。'],
     ['q-compliance-text', 'P0', 'App 备案、隐私政策、内容审核制度是否已准备生产版文本？', '当前代码层面不可替代法务/合规文本确认。', '影响正式上线合规。'],
-  ].map(([id, priority, question, currentPolicy, impact]) => ({
+  ].map(([id, priority, question, currentPolicy, impact, status = 'open', statusLabel = '待确认']) => ({
     currentPolicy,
     id,
     impact,
-    owner: '待业务确认',
+    owner: status === 'ready' ? '代码与配置已验证' : '待业务确认',
     priority,
-    status: 'open',
-    statusLabel: '待确认',
+    status,
+    statusLabel,
     question,
   }));
 }
 
 function adminReadinessGaps(context) {
-  const { accounts, health } = context;
+  const { accounts, contentSafety, health } = context;
   const defaultPasswordRisk = Boolean(accounts?.security?.defaultPasswordRisk);
   const healthBad = Number(health?.summary?.bad || 0) > 0;
+  const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
   return [
     {
       key: 'admin_security',
@@ -11952,19 +11985,27 @@ function adminReadinessGaps(context) {
       key: 'content_model',
       area: '内容安全',
       severity: 'P0',
-      status: 'blocked',
-      issue: '文本/图片第三方内容安全模型未接入。',
-      requiredAction: '确定供应商、接入同步/异步审核、失败降级、复审和样本回流。',
-      evidence: '内容安全任务池当前为规则 + 人工处理',
+      status: contentSafetyReadiness.textReady && contentSafetyReadiness.imageReady ? 'ready' : contentSafetyReadiness.credentialsConfigured ? 'partial' : 'blocked',
+      issue: contentSafetyReadiness.textReady && contentSafetyReadiness.imageReady
+        ? '腾讯云文本/图片内容安全已接入，当前不再是生产阻断项。'
+        : `腾讯云内容安全未完全就绪，仍缺：${contentSafetyReadiness.missing.join('、') || '配置复核'}。`,
+      requiredAction: contentSafetyReadiness.textReady && contentSafetyReadiness.imageReady
+        ? '持续复盘样本误杀/漏杀，必要时调整 Biztype 策略和关键词规则。'
+        : '补齐腾讯云密钥、配置中心机审开关、失败降级、复审和样本回流。',
+      evidence: 'adminContentSafetyStatus / evaluateContentTextModeration / evaluateTencentImageModeration',
     },
     {
       key: 'image_moderation',
       area: '图片审核',
       severity: 'P0',
-      status: 'blocked',
-      issue: '头像、宠物图、宠友圈图片、地点图片缺真实图片审核闭环。',
-      requiredAction: '上传链路增加图片审核状态，移动端按阻断/送审/隐藏策略展示。',
-      evidence: '待确认图片审核失败策略',
+      status: contentSafetyReadiness.imageReady ? 'ready' : contentSafetyReadiness.credentialsConfigured ? 'partial' : 'blocked',
+      issue: contentSafetyReadiness.imageReady
+        ? '宠物头像、AI 原图、宠友圈图片/封面、地点图片和工单附件已接入图片机审状态。'
+        : `图片机审未完全就绪，仍缺：${contentSafetyReadiness.missing.join('、') || '配置复核'}。`,
+      requiredAction: contentSafetyReadiness.imageReady
+        ? '继续观察 pending_review、rejected 和人工样本复审，沉淀图片违规处理 SOP。'
+        : '开启图片机审并回归上传、发布、地点和工单附件链路。',
+      evidence: 'mediaUploads.moderationStatus / publicUploadedMedia / socialMomentImageModerationError / placeImageModerationError',
     },
     {
       key: 'high_risk_approval',
@@ -12011,14 +12052,15 @@ function adminLaunchReadiness() {
   const linkageSummary = adminConfigLinkageSummary(linkageItems);
   const context = {
     accounts: adminAccounts(),
+    contentSafety: adminContentSafetyStatus(config),
     health: adminSystemHealth(),
     linkageSummary,
   };
   const modules = adminReadinessModules(context);
-  const questions = adminReadinessQuestions();
+  const questions = adminReadinessQuestions(context);
   const gaps = adminReadinessGaps(context);
   const countStatus = (rows, status) => rows.filter((item) => item.status === status).length;
-  const openP0 = questions.filter((item) => item.priority === 'P0').length + gaps.filter((item) => item.severity === 'P0' && item.status !== 'ready').length;
+  const openP0 = questions.filter((item) => item.priority === 'P0' && item.status !== 'ready').length + gaps.filter((item) => item.severity === 'P0' && item.status !== 'ready').length;
   return {
     generatedAt: new Date().toISOString(),
     gaps,
@@ -12032,7 +12074,7 @@ function adminLaunchReadiness() {
       blockedGaps: countStatus(gaps, 'blocked'),
       linkedConfigItems: linkageSummary.linked,
       openP0,
-      openQuestions: questions.filter((item) => item.status === 'open').length,
+      openQuestions: questions.filter((item) => item.status !== 'ready').length,
       partialModules: countStatus(modules, 'partial'),
       readyModules: countStatus(modules, 'ready'),
       reservedItems: countStatus(gaps, 'reserved') + Number(linkageSummary.reserved || 0),
