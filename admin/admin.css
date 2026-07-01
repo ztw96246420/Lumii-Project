@@ -664,6 +664,31 @@ th {
   padding: 12px;
 }
 
+.user-timeline-card {
+  align-content: start;
+}
+
+.timeline-summary-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.timeline-summary-strip span {
+  background: rgba(255, 247, 239, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 10px;
+}
+
+.user-timeline-toolbar {
+  margin-bottom: 14px;
+}
+
 .pet-profile-cell {
   align-items: center;
   display: flex;

@@ -104,6 +104,7 @@
 
 - `GET /admin/users`
 - `GET /admin/users/{phone}`
+- `GET /admin/users/{phone}/timeline`
 - `POST /admin/users/{phone}/notes`
 - `POST /admin/users/{phone}/risk-tags`
 - `GET /admin/users/{phone}/business-data-summary`
@@ -113,6 +114,8 @@
 
 - 用户列表。
 - 用户详情聚合：宠物、AI 用量、AI 任务、反馈、通知、宠友圈动态。
+- 用户列表可打开完整用户时间线，聚合账号、宠物、宠物日历、宠友圈内容、招呼/约遛/会话关系、地点、AI、举报处罚、申诉、反馈工单、站内通知和移动端埋点。
+- 时间线支持按类型筛选，默认按事件时间倒序；会话类只展示关系、状态、消息数和通知数，不展示私信正文。
 - 用户列表快捷禁言 24 小时、冻结 72 小时。
 - 用户列表和用户详情展示后台内部运营备注、备注数量、最近备注和风险标签。
 - 支持给用户添加运营备注，最多保留最近 30 条，写入 `user.note.create` 审计。
@@ -125,6 +128,7 @@
 - 清理动作写入 `adminAuditLogs`，action 为 `user.clear_business_data`，审计中只保存清理前后摘要和用户概览，不导出被清理内容原文。
 - 详见 `docs/Operations_Backoffice_User_Data_Clear_2026-06-30.md`。
 - 用户备注与风险标签详见 `docs/Operations_Backoffice_User_Notes_Risk_Tags_2026-06-30.md`。
+- 用户时间线详见 `docs/Operations_Backoffice_User_Timeline_2026-07-01.md`。
 
 ### 3.3.1 宠物档案
 

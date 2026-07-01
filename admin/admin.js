@@ -50,6 +50,8 @@ const state = {
   ticketQ: '',
   ticketStatus: 'open',
   token: localStorage.getItem('lumii-admin-token') || '',
+  userTimeline: null,
+  userTimelineKind: 'all',
 };
 
 const navItems = [
@@ -625,6 +627,20 @@ async function onContentClick(event) {
     }
     if (action === 'clear-user-business-data') {
       await clearUserBusinessData(phone);
+      return;
+    }
+    if (action === 'user-timeline-load') {
+      await loadUserTimeline(phone);
+      return;
+    }
+    if (action === 'user-timeline-close') {
+      state.userTimeline = null;
+      await render();
+      return;
+    }
+    if (action === 'user-timeline-filter') {
+      state.userTimelineKind = $('userTimelineKind')?.value || 'all';
+      await loadUserTimeline(phone || state.userTimeline?.user?.phone || '');
       return;
     }
     if (action === 'avatar-feedback-filter') {
@@ -1313,6 +1329,7 @@ async function clearUserBusinessData(phone) {
     reason: reason.trim() || '测试重置用户业务数据',
   });
   clearOperationalCaches();
+  if (state.userTimeline?.user?.phone === phone) state.userTimeline = null;
   showToast(`已清理：${userBusinessSummaryText(result.before || {})}`);
   await render(true);
 }
@@ -2727,30 +2744,133 @@ function renderPetChatDetail(detail) {
   `;
 }
 
+async function loadUserTimeline(phone) {
+  if (!phone) return;
+  const query = new URLSearchParams({
+    kind: state.userTimelineKind || 'all',
+    limit: '160',
+  });
+  state.userTimeline = await api(`/admin/users/${encodeURIComponent(phone)}/timeline?${query.toString()}`);
+  showToast('用户时间线已加载');
+  await render(false);
+}
+
+function userTimelineTone(item) {
+  const tone = String(item?.tone || '');
+  if (['ok', 'warn', 'bad'].includes(tone)) return tone;
+  const status = String(item?.status || '').toLowerCase();
+  if (/failed|rejected|hidden|deleted|overdue|muted|frozen|banned|valid|medical/.test(status)) return 'bad';
+  if (/pending|review|processing|unread|未读|待/.test(status)) return 'warn';
+  return 'ok';
+}
+
+function renderUserTimelinePanel(data) {
+  if (!data) {
+    return `
+      <div class="card user-timeline-card">
+        <div class="section-head">
+          <div>
+            <h2>用户时间线</h2>
+            <div class="section-sub">从用户列表点击“时间线”，聚合账号、宠物、内容、安全、客服、通知和移动端事件</div>
+          </div>
+          ${help('时间线用于运营排查单个用户的完整业务链路；不展示私信正文，只展示关系、计数、状态和关联对象。')}
+        </div>
+        <div class="placeholder"><div><strong>未选择用户</strong><div>先在用户列表里点时间线。</div></div></div>
+      </div>
+    `;
+  }
+  const summary = data.summary || {};
+  const filters = data.filters || {};
+  const user = data.user || {};
+  const options = (filters.kindOptions || [])
+    .map((item) => option(item.key, `${item.label}${item.key !== 'all' && summary[item.key] !== undefined ? `（${summary[item.key]}）` : ''}`, filters.kind || state.userTimelineKind))
+    .join('');
+  const items = data.items || [];
+  return `
+    <div class="card user-timeline-card">
+      <div class="section-head">
+        <div>
+          <h2>用户时间线 · ${escapeHtml(user.ownerName || '-')}</h2>
+          <div class="section-sub">${shortPhone(user.phone)} · ${escapeHtml(user.status || '-')} · 最新 ${numberText(summary.shown || 0)} / 全部 ${numberText(summary.total || 0)} 条</div>
+        </div>
+        ${help('时间线按事件时间倒序。内容、备忘和反馈只展示短摘要；会话类记录不展示私信正文，避免后台排查时过度暴露隐私。')}
+      </div>
+      <div class="timeline-summary-strip">
+        <span>内容 ${numberText(summary.content || 0)}</span>
+        <span>安全 ${numberText(summary.safety || 0)}</span>
+        <span>客服 ${numberText(summary.support || 0)}</span>
+        <span>AI ${numberText(summary.ai || 0)}</span>
+        <span>通知 ${numberText(summary.notification || 0)}</span>
+        <span>事件 ${numberText(summary.event || 0)}</span>
+      </div>
+      <div class="toolbar moderation-toolbar user-timeline-toolbar">
+        <div class="toolbar-left">
+          <label>类型
+            <select id="userTimelineKind">${options}</select>
+          </label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="user-timeline-filter" data-phone="${escapeHtml(user.phone || '')}">筛选</button>
+          <button class="small-button ghost" data-action="user-timeline-load" data-phone="${escapeHtml(user.phone || '')}">刷新</button>
+          <button class="small-button ghost" data-action="user-timeline-close">收起</button>
+        </div>
+      </div>
+      ${tableHtml(items, [
+        ['时间', (item) => `<div>${formatTime(item.createdAt)}</div><div class="cell-sub">${escapeHtml(item.id || '-')}</div>`],
+        ['类型', (item) => `${tonePill(item.kindLabel || item.kind || '-', userTimelineTone(item))}${item.status ? `<div class="cell-sub">${statusPill(item.status)}</div>` : ''}`],
+        ['事件', (item) => `<div class="cell-title">${escapeHtml(item.title || '-')}</div><div class="cell-sub clamp">${escapeHtml(item.detail || '-')}</div>${item.actor ? `<div class="cell-sub">操作者：${escapeHtml(item.actor)}</div>` : ''}`],
+        ['对象', (item) => `<div>${escapeHtml(item.targetLabel || item.targetId || '-')}</div><div class="cell-sub">${escapeHtml(item.targetType || '-')} · ${escapeHtml(item.targetId || '-')}</div>`],
+      ], '暂无时间线记录')}
+    </div>
+  `;
+}
+
 async function renderUsers(force) {
   const users = await load('users', '/admin/users', force);
-  renderTable({
-    empty: '暂无用户',
-    rows: users,
-    columns: [
-      ['用户', (u) => `<div class="cell-title">${escapeHtml(u.ownerName)}</div><div class="cell-sub">${shortPhone(u.phone)}</div>`],
-      ['宠物', (u) => `${u.activePet ? `<div class="cell-title">${escapeHtml(u.activePet.name)}</div><div class="cell-sub">${escapeHtml(u.activePet.species)} · ${escapeHtml(u.activePet.breed || '-')}</div>` : '-'}`],
-      ['设置', (u) => `${statusPill(u.settings.nearbyVisible ? 'nearby on' : 'nearby off')} ${statusPill(u.settings.pushNotifications ? 'push on' : 'push off')}`],
-      ['内容', (u) => `<div>${u.socialPostCount} 条小事</div><div class="cell-sub">${u.reportsAgainstCount} 次被举报</div>`],
-      ['账号状态', (u) => `${statusPill(u.status)}<div class="cell-sub">${(u.sanctions?.activeTypes || []).map((type) => statusPill(type)).join(' ') || '无生效处罚'}</div>`],
-      ['运营标记', renderUserOpsMark],
-      ['最近活跃', (u) => formatTime(u.lastSeenAt)],
-      ['操作', (u) => `
-        <div class="actions">
-          <button class="small-button" data-action="user-note-add" data-phone="${escapeHtml(u.phone)}">备注</button>
-          <button class="small-button" data-action="user-risk-tags" data-phone="${escapeHtml(u.phone)}" data-tags="${escapeHtml((u.adminRiskTags || []).join(','))}">标签</button>
-          <button class="small-button" data-action="quick-mute" data-phone="${escapeHtml(u.phone)}">禁言24h</button>
-          <button class="small-button danger" data-action="quick-freeze" data-phone="${escapeHtml(u.phone)}">冻结72h</button>
-          <button class="small-button danger" data-action="clear-user-business-data" data-phone="${escapeHtml(u.phone)}">清理业务数据</button>
+  const activeSanctions = users.reduce((sum, user) => sum + Number(user.sanctions?.activeCount || 0), 0);
+  const withTags = users.filter((user) => (user.adminRiskTags || []).length).length;
+  const withNotes = users.filter((user) => Number(user.adminNoteCount || 0) > 0).length;
+  const activeToday = users.filter((user) => {
+    const time = new Date(user.lastSeenAt || user.createdAt || 0).getTime();
+    return Number.isFinite(time) && Date.now() - time <= 24 * 60 * 60 * 1000;
+  }).length;
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('用户账号', numberText(users.length), `${numberText(users.filter((user) => user.petCount).length)} 位已建档`, '当前后台最多展示最近 200 位用户。')}
+      ${metric('24h 活跃', numberText(activeToday), '按最近活跃时间估算', 'lastSeenAt 来自登录、发现刷新、埋点等移动端行为。')}
+      ${metric('生效处罚', numberText(activeSanctions), '禁言 / 冻结 / 封禁 / 警告', '统计当前仍处于 active 的处罚记录，方便从用户列表快速发现风险。')}
+      ${metric('运营标记', `${numberText(withTags)} / ${numberText(withNotes)}`, '风险标签 / 备注', '运营内部标签和备注只在后台展示，并写审计。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>用户列表</h2>
+          <div class="section-sub">账号、宠物、内容、处罚和运营标记；点“时间线”可查看单用户完整业务轨迹</div>
         </div>
-      `],
-    ],
-  });
+        ${help('时间线聚合账号、宠物、宠物日历、宠友圈、关系、地点、AI、安全、客服、通知和移动端事件，适合客服排查和举报复核。')}
+      </div>
+      ${tableHtml(users, [
+        ['用户', (u) => `<div class="cell-title">${escapeHtml(u.ownerName)}</div><div class="cell-sub">${shortPhone(u.phone)}</div>`],
+        ['宠物', (u) => `${u.activePet ? `<div class="cell-title">${escapeHtml(u.activePet.name)}</div><div class="cell-sub">${escapeHtml(u.activePet.species)} · ${escapeHtml(u.activePet.breed || '-')}</div>` : '-'}`],
+        ['设置', (u) => `${statusPill(u.settings.nearbyVisible ? 'nearby on' : 'nearby off')} ${statusPill(u.settings.pushNotifications ? 'push on' : 'push off')}`],
+        ['内容', (u) => `<div>${u.socialPostCount} 条小事</div><div class="cell-sub">${u.reportsAgainstCount} 次被举报</div>`],
+        ['账号状态', (u) => `${statusPill(u.status)}<div class="cell-sub">${(u.sanctions?.activeTypes || []).map((type) => statusPill(type)).join(' ') || '无生效处罚'}</div>`],
+        ['运营标记', renderUserOpsMark],
+        ['最近活跃', (u) => formatTime(u.lastSeenAt)],
+        ['操作', (u) => `
+          <div class="actions">
+            <button class="small-button" data-action="user-timeline-load" data-phone="${escapeHtml(u.phone)}">时间线</button>
+            <button class="small-button" data-action="user-note-add" data-phone="${escapeHtml(u.phone)}">备注</button>
+            <button class="small-button" data-action="user-risk-tags" data-phone="${escapeHtml(u.phone)}" data-tags="${escapeHtml((u.adminRiskTags || []).join(','))}">标签</button>
+            <button class="small-button" data-action="quick-mute" data-phone="${escapeHtml(u.phone)}">禁言24h</button>
+            <button class="small-button danger" data-action="quick-freeze" data-phone="${escapeHtml(u.phone)}">冻结72h</button>
+            <button class="small-button danger" data-action="clear-user-business-data" data-phone="${escapeHtml(u.phone)}">清理业务数据</button>
+          </div>
+        `],
+      ], '暂无用户')}
+    </div>
+    ${renderUserTimelinePanel(state.userTimeline)}
+  `;
 }
 
 function renderUserOpsMark(user) {

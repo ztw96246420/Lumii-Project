@@ -10866,6 +10866,423 @@ function adminUserSummary(user) {
   };
 }
 
+const ADMIN_USER_TIMELINE_KINDS = [
+  { key: 'all', label: '全部' },
+  { key: 'account', label: '账号' },
+  { key: 'pet', label: '宠物' },
+  { key: 'health', label: '宠物日历' },
+  { key: 'content', label: '内容' },
+  { key: 'social', label: '关系' },
+  { key: 'place', label: '地点' },
+  { key: 'ai', label: 'AI' },
+  { key: 'safety', label: '安全' },
+  { key: 'support', label: '客服' },
+  { key: 'notification', label: '通知' },
+  { key: 'event', label: '移动端事件' },
+];
+const ADMIN_USER_TIMELINE_KIND_SET = new Set(ADMIN_USER_TIMELINE_KINDS.map((item) => item.key));
+const ADMIN_USER_TIMELINE_KIND_LABELS = Object.fromEntries(ADMIN_USER_TIMELINE_KINDS.map((item) => [item.key, item.label]));
+
+function adminTimelineSnippet(value, maxLength = 140) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
+}
+
+function adminTimelineAdd(items, item = {}) {
+  const kind = ADMIN_USER_TIMELINE_KIND_SET.has(item.kind) && item.kind !== 'all' ? item.kind : 'event';
+  const createdAt = item.createdAt || item.updatedAt || 0;
+  const timestamp = analyticsTimeMs(createdAt);
+  items.push({
+    actor: adminTimelineSnippet(item.actor, 80),
+    createdAt,
+    detail: adminTimelineSnippet(item.detail, 220),
+    id: String(item.id || `${kind}-${items.length + 1}`),
+    kind,
+    kindLabel: ADMIN_USER_TIMELINE_KIND_LABELS[kind] || kind,
+    status: String(item.status || ''),
+    targetId: String(item.targetId || ''),
+    targetLabel: adminTimelineSnippet(item.targetLabel || item.targetId || '', 90),
+    targetType: String(item.targetType || ''),
+    timestamp,
+    title: adminTimelineSnippet(item.title || ADMIN_USER_TIMELINE_KIND_LABELS[kind] || '记录', 90),
+    tone: String(item.tone || ''),
+  });
+}
+
+function adminTimelinePetName(user, petId) {
+  const pets = Array.isArray(user?.pets) ? user.pets : [];
+  return pets.find((pet) => pet?.id === petId)?.name || '';
+}
+
+function adminUserTimeline(phone, options = {}) {
+  const normalizedPhone = normalizePhone(phone);
+  const user = normalizedPhone ? state.users[normalizedPhone] : null;
+  if (!user) return null;
+
+  const selectedKind = ADMIN_USER_TIMELINE_KIND_SET.has(String(options.kind || 'all')) ? String(options.kind || 'all') : 'all';
+  const limit = Math.floor(clampNumber(options.limit, 120, 20, 300));
+  const summary = adminUserSummary(user);
+  const items = [];
+  const pets = Array.isArray(user.pets) ? user.pets : [];
+
+  adminTimelineAdd(items, {
+    createdAt: user.createdAt || 0,
+    detail: `${summary.ownerName} 注册账号；当前状态 ${summary.status}`,
+    id: `account:${normalizedPhone}:created`,
+    kind: 'account',
+    status: summary.status,
+    targetId: normalizedPhone,
+    targetType: 'user',
+    title: '账号创建',
+    tone: summary.status === 'active' ? 'ok' : 'warn',
+  });
+
+  normalizeAdminNotes(user.adminNotes).forEach((note) => {
+    adminTimelineAdd(items, {
+      actor: note.createdBy || 'admin',
+      createdAt: note.createdAt,
+      detail: note.content,
+      id: `account:${normalizedPhone}:note:${note.id}`,
+      kind: 'account',
+      status: '运营备注',
+      targetId: normalizedPhone,
+      targetType: 'user_note',
+      title: '新增运营备注',
+      tone: 'warn',
+    });
+  });
+
+  pets.forEach((pet, index) => {
+    adminTimelineAdd(items, {
+      createdAt: pet.createdAt || user.createdAt || 0,
+      detail: `${pet.species || '-'} · ${pet.breed || '品种待完善'}${pet.birthday ? ` · 生日 ${pet.birthday}` : ''}`,
+      id: `pet:${normalizedPhone}:${pet.id || index}`,
+      kind: 'pet',
+      status: user.activePetId === pet.id || (!user.activePetId && index === 0) ? '默认宠物' : '宠物档案',
+      targetId: pet.id || '',
+      targetLabel: pet.name || '未命名宠物',
+      targetType: 'pet',
+      title: `宠物建档 · ${pet.name || '未命名宠物'}`,
+      tone: 'ok',
+    });
+  });
+
+  adminPetCalendarRecords({ limit: ADMIN_EXPORT_ROW_LIMIT })
+    .records
+    .filter((record) => record.phone === normalizedPhone)
+    .forEach((record) => {
+      adminTimelineAdd(items, {
+        createdAt: record.updatedAt || record.date,
+        detail: `${record.petName || '-'} · ${record.detail || record.title || ''}`,
+        id: `health:${record.id}`,
+        kind: 'health',
+        status: record.statusLabel || record.status,
+        targetId: record.sourceId || record.id,
+        targetLabel: record.title || record.typeLabel,
+        targetType: record.type,
+        title: `${record.typeLabel || '宠物日历'} · ${record.title || '-'}`,
+        tone: record.status === 'overdue' ? 'bad' : 'ok',
+      });
+    });
+
+  adminSocialPosts()
+    .filter((post) => post.ownerPhone === normalizedPhone)
+    .forEach((post) => {
+      adminTimelineAdd(items, {
+        createdAt: post.createdAt,
+        detail: `${post.content || '无正文'} · ${post.imageUrls.length} 张图 · ${post.likeCount} 赞 / ${post.commentCount} 评论 / ${post.reportCount} 举报`,
+        id: `content:post:${post.id}`,
+        kind: 'content',
+        status: post.status,
+        targetId: post.id,
+        targetLabel: post.petName || post.id,
+        targetType: 'post',
+        title: '发布宠友圈小事',
+        tone: post.status === 'published' ? 'ok' : post.status === 'deleted' || post.status === 'hidden' ? 'bad' : 'warn',
+      });
+    });
+
+  adminSocialComments()
+    .filter((comment) => comment.ownerPhone === normalizedPhone)
+    .forEach((comment) => {
+      adminTimelineAdd(items, {
+        createdAt: comment.createdAt,
+        detail: comment.content || `评论小事 ${comment.postId}`,
+        id: `content:comment:${comment.id}`,
+        kind: 'content',
+        status: comment.status,
+        targetId: comment.postId,
+        targetLabel: comment.postId,
+        targetType: 'comment',
+        title: '发表宠友圈评论',
+        tone: comment.status === 'published' ? 'ok' : 'warn',
+      });
+    });
+
+  ensureSocialLikes()
+    .filter((like) => like.phone === normalizedPhone)
+    .forEach((like, index) => {
+      adminTimelineAdd(items, {
+        createdAt: like.createdAt || like.at || 0,
+        detail: `点赞小事 ${like.postId || '-'}`,
+        id: `content:like:${like.postId || index}:${like.createdAt || like.at || index}`,
+        kind: 'content',
+        status: 'liked',
+        targetId: like.postId || '',
+        targetType: 'like',
+        title: '点赞宠友圈小事',
+        tone: 'ok',
+      });
+    });
+
+  adminSocialRelations({ kind: 'all', q: normalizedPhone, status: 'all', limit: ADMIN_EXPORT_ROW_LIMIT })
+    .items
+    .filter((item) => item.fromPhone === normalizedPhone || item.targetPhone === normalizedPhone)
+    .forEach((item) => {
+      const direction = item.fromPhone === normalizedPhone ? `向 ${item.targetName}` : `来自 ${item.fromName}`;
+      adminTimelineAdd(items, {
+        createdAt: item.updatedAt || item.createdAt,
+        detail: `${direction} · ${item.summary || ''} · 消息 ${item.messageCount || 0} / 通知 ${item.notificationCount || 0}`,
+        id: `social:${item.id}`,
+        kind: 'social',
+        status: item.statusLabel || item.status,
+        targetId: item.conversationId || item.postId || item.placeId || item.id,
+        targetLabel: item.targetPhone === normalizedPhone ? item.fromName : item.targetName,
+        targetType: item.kind,
+        title: `${item.typeLabel || '关系'} · ${item.sourceLabel || '-'}`,
+        tone: item.blocked ? 'bad' : item.status === 'accepted' ? 'ok' : 'warn',
+      });
+    });
+
+  adminPlaceReviews()
+    .filter((review) => review.ownerPhone === normalizedPhone)
+    .forEach((review) => {
+      adminTimelineAdd(items, {
+        createdAt: review.createdAt || review.updatedAt,
+        detail: `${review.placeName || review.placeId} · ${review.rating || '-'} 星 · ${review.content || ''}`,
+        id: `place:review:${review.id}`,
+        kind: 'place',
+        status: review.status || 'published',
+        targetId: review.placeId || review.id,
+        targetLabel: review.placeName || review.placeId,
+        targetType: 'place_review',
+        title: '发布地点点评',
+        tone: review.status === 'rejected' || review.status === 'hidden' ? 'bad' : 'ok',
+      });
+    });
+
+  adminPlaceSubmissions()
+    .filter((submission) => submission.ownerPhone === normalizedPhone)
+    .forEach((submission) => {
+      adminTimelineAdd(items, {
+        createdAt: submission.createdAt || submission.reviewedAt,
+        detail: `${submission.name || '新增地点'} · ${submission.address || ''}`,
+        id: `place:submission:${submission.id}`,
+        kind: 'place',
+        status: submission.status || 'pending',
+        targetId: submission.id,
+        targetLabel: submission.name || submission.id,
+        targetType: 'place_submission',
+        title: '提交新增地点',
+        tone: submission.status === 'approved' ? 'ok' : submission.status === 'rejected' ? 'bad' : 'warn',
+      });
+    });
+
+  Object.values(state.mediaUploads || {})
+    .filter((media) => media?.ownerPhone === normalizedPhone)
+    .forEach((media) => {
+      adminTimelineAdd(items, {
+        createdAt: media.createdAt || media.updatedAt,
+        detail: `${media.scope || media.source || '图片素材'} · ${media.mimeType || ''} · ${media.moderationStatus || '未审核'}`,
+        id: `ai:media:${media.mediaId}`,
+        kind: 'ai',
+        status: media.moderationStatus || 'uploaded',
+        targetId: media.mediaId || '',
+        targetType: 'media_upload',
+        title: '上传图片素材',
+        tone: media.moderationStatus === 'approved' || media.moderationStatus === 'pass' ? 'ok' : media.moderationStatus === 'rejected' || media.moderationStatus === 'hidden' ? 'bad' : 'warn',
+      });
+    });
+
+  adminAvatarJobs()
+    .filter((job) => job.ownerPhone === normalizedPhone)
+    .forEach((job) => {
+      adminTimelineAdd(items, {
+        createdAt: job.updatedAt || job.createdAt,
+        detail: `${job.petName || adminTimelinePetName(user, job.petId) || '-'} · ${job.provider || 'mock'} · 进度 ${job.progress || 0}%${job.errorMessage ? ` · ${job.errorMessage}` : ''}`,
+        id: `ai:avatar:${job.id}`,
+        kind: 'ai',
+        status: job.status,
+        targetId: job.id,
+        targetLabel: job.petName || job.petId || job.id,
+        targetType: 'avatar_job',
+        title: 'AI 灵伴生成任务',
+        tone: job.status === 'ready' ? 'ok' : job.status === 'failed' ? 'bad' : 'warn',
+      });
+    });
+
+  adminPetChatMessages({ flag: 'all', q: normalizedPhone })
+    .filter((message) => message.ownerPhone === normalizedPhone)
+    .forEach((message) => {
+      const labels = message.actionLabels?.length ? message.actionLabels.join('、') : '普通回复';
+      adminTimelineAdd(items, {
+        createdAt: message.time,
+        detail: `${message.petName || '-'} · ${labels}${message.feedback ? ` · 用户反馈 ${message.feedback}` : ''}`,
+        id: `ai:pet-chat:${message.id}`,
+        kind: 'ai',
+        status: message.adminHiddenAt ? 'hidden' : message.hasMedicalAlert ? 'medical' : message.hasCalendarWrite ? 'write' : 'reply',
+        targetId: message.id,
+        targetLabel: message.petName || message.petId,
+        targetType: 'pet_chat_message',
+        title: '宠物 AI 对话回复',
+        tone: message.adminHiddenAt || message.hasMedicalAlert ? 'bad' : message.hasCalendarWrite ? 'warn' : 'ok',
+      });
+    });
+
+  adminSocialReports()
+    .filter((report) => report.reporterPhone === normalizedPhone || report.ownerPhone === normalizedPhone)
+    .forEach((report) => {
+      const role = report.reporterPhone === normalizedPhone ? '用户发起举报' : '用户被举报';
+      adminTimelineAdd(items, {
+        createdAt: report.reviewedAt || report.createdAt,
+        detail: `${role} · ${report.content || ''}${report.sanctionId ? ` · 已关联处罚 ${report.sanctionId}` : ''}`,
+        id: `safety:report:${report.id}:${role}`,
+        kind: 'safety',
+        status: report.status,
+        targetId: report.targetId || report.id,
+        targetLabel: report.targetType || report.id,
+        targetType: `report_${report.targetType || 'content'}`,
+        title: role,
+        tone: report.status === 'valid' ? 'bad' : report.status === 'invalid' ? 'ok' : 'warn',
+      });
+    });
+
+  userSanctionsFor(normalizedPhone).forEach((sanction) => {
+    const item = adminSanctionItem(sanction);
+    adminTimelineAdd(items, {
+      actor: item.createdBy || 'admin',
+      createdAt: item.revokedAt || item.createdAt,
+      detail: `${item.reason || '-'}${item.revokedAt ? ` · 已撤销：${item.revokeReason || '-'}` : ''}`,
+      id: `safety:sanction:${item.id}`,
+      kind: 'safety',
+      status: item.status,
+      targetId: item.id,
+      targetLabel: item.typeLabel,
+      targetType: 'sanction',
+      title: `账号处罚 · ${item.typeLabel}`,
+      tone: item.status === 'active' ? 'bad' : 'warn',
+    });
+  });
+
+  ensureSanctionAppeals()
+    .filter((appeal) => appeal.phone === normalizedPhone)
+    .forEach((appeal) => {
+      adminTimelineAdd(items, {
+        createdAt: appeal.reviewedAt || appeal.updatedAt || appeal.createdAt,
+        detail: appeal.content || appeal.reviewReason || '',
+        id: `safety:appeal:${appeal.id}`,
+        kind: 'safety',
+        status: appeal.status,
+        targetId: appeal.sanctionId || appeal.id,
+        targetLabel: appeal.sanctionId || appeal.id,
+        targetType: 'sanction_appeal',
+        title: '账号处罚申诉',
+        tone: appeal.status === 'approved' ? 'ok' : appeal.status === 'rejected' ? 'bad' : 'warn',
+      });
+    });
+
+  adminFeedbackItems({ status: 'all' })
+    .filter((feedback) => feedback.phone === normalizedPhone)
+    .forEach((feedback) => {
+      adminTimelineAdd(items, {
+        createdAt: feedback.createdAt,
+        detail: `${feedback.category || 'other'} · ${feedback.content || ''}`,
+        id: `support:feedback:${feedback.id}`,
+        kind: 'support',
+        status: feedback.status,
+        targetId: feedback.supportTicketId || feedback.id,
+        targetLabel: feedback.supportTicketId || feedback.id,
+        targetType: 'feedback',
+        title: '提交 App 反馈',
+        tone: feedback.status === 'closed' ? 'ok' : 'warn',
+      });
+    });
+
+  adminSupportTickets({ status: 'all', limit: ADMIN_EXPORT_ROW_LIMIT })
+    .tickets
+    .filter((ticket) => ticket.phone === normalizedPhone)
+    .forEach((ticket) => {
+      adminTimelineAdd(items, {
+        createdAt: ticket.updatedAt || ticket.createdAt,
+        detail: `${ticket.title || '-'} · ${ticket.latestReply || ticket.latestNote || ticket.content || ''}`,
+        id: `support:ticket:${ticket.id}`,
+        kind: 'support',
+        status: ticket.status,
+        targetId: ticket.id,
+        targetLabel: ticket.title || ticket.id,
+        targetType: 'support_ticket',
+        title: '客服工单更新',
+        tone: ticket.status === 'closed' || ticket.status === 'resolved' ? 'ok' : ticket.slaState === 'overdue' ? 'bad' : 'warn',
+      });
+    });
+
+  normalizeNotificationsFor(normalizedPhone).forEach((notification) => {
+    adminTimelineAdd(items, {
+      createdAt: notification.createdAt || notification.at || notification.time,
+      detail: `${notification.title || ''} · ${notification.text || ''}`,
+      id: `notification:${notification.id}`,
+      kind: 'notification',
+      status: notification.read ? '已读' : '未读',
+      targetId: notification.targetId || notification.postId || notification.commentId || notification.sanctionId || notification.conversationId || notification.id,
+      targetLabel: notification.actionRoute || notification.kind || notification.id,
+      targetType: notification.kind || 'notification',
+      title: '站内通知入站',
+      tone: notification.read ? 'ok' : 'warn',
+    });
+  });
+
+  adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT })
+    .items
+    .filter((event) => event.phone === normalizedPhone)
+    .forEach((event) => {
+      adminTimelineAdd(items, {
+        createdAt: event.createdAt || event.occurredAt,
+        detail: `${event.route || event.source || 'mobile'}${event.propertySummary ? ` · ${event.propertySummary}` : ''}`,
+        id: `event:${event.id}`,
+        kind: 'event',
+        status: event.platform || event.source || 'mobile',
+        targetId: event.id,
+        targetLabel: event.label || event.name,
+        targetType: 'app_event',
+        title: event.label || event.name,
+        tone: 'ok',
+      });
+    });
+
+  const sortedItems = items
+    .filter((item) => selectedKind === 'all' || item.kind === selectedKind)
+    .sort((a, b) => b.timestamp - a.timestamp || String(b.createdAt || '').localeCompare(String(a.createdAt || '')) || String(a.id).localeCompare(String(b.id)));
+  const counters = Object.fromEntries(ADMIN_USER_TIMELINE_KINDS.filter((item) => item.key !== 'all').map((item) => [item.key, 0]));
+  items.forEach((item) => {
+    counters[item.kind] = Number(counters[item.kind] || 0) + 1;
+  });
+  return {
+    filters: {
+      kind: selectedKind,
+      kindOptions: ADMIN_USER_TIMELINE_KINDS,
+      limit,
+    },
+    items: sortedItems.slice(0, limit),
+    summary: {
+      ...counters,
+      shown: Math.min(sortedItems.length, limit),
+      total: items.length,
+    },
+    user: summary,
+  };
+}
+
 function adminAddUserNote(admin, phone, body = {}) {
   const normalizedPhone = normalizePhone(phone);
   const user = normalizedPhone ? state.users[normalizedPhone] : null;
@@ -16004,6 +16421,21 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       .filter((user) => !q || user.phone.includes(q) || user.ownerName.includes(q) || user.pets.some((pet) => String(pet.name || '').includes(q)))
       .sort((a, b) => Number(b.lastSeenAt || b.createdAt || 0) - Number(a.lastSeenAt || a.createdAt || 0));
     ok(res, users.slice(0, 200));
+    return true;
+  }
+
+  const adminUserTimelineMatch = pathname.match(/^\/admin\/users\/([^/]+)\/timeline$/);
+  if (req.method === 'GET' && adminUserTimelineMatch) {
+    const phone = normalizePhone(decodeURIComponent(adminUserTimelineMatch[1]));
+    const timeline = adminUserTimeline(phone, {
+      kind: url.searchParams.get('kind') || 'all',
+      limit: url.searchParams.get('limit') || 120,
+    });
+    if (!timeline) {
+      fail(res, 404, '用户不存在', false, undefined, 'ADMIN_USER_NOT_FOUND');
+      return true;
+    }
+    ok(res, timeline);
     return true;
   }
 
