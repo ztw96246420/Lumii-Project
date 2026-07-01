@@ -6,6 +6,7 @@ import type {
   AppAnalyticsEventInput,
   AppRemoteConfig,
   AiUsageSummary,
+  AvatarAnimationJob,
   AvatarGenerationFeedbackReason,
   AuthSession,
   AvatarJob,
@@ -156,6 +157,7 @@ let mockOwnerAvatarUrl = '';
 let pets: PetProfile[] = [];
 let activePetId = '';
 let generationProgressById: Record<string, number> = {};
+let animationProgressById: Record<string, number> = {};
 let mockPermissions: PermissionStateMap = {
   location: 'unknown',
   media: 'unknown',
@@ -1470,10 +1472,34 @@ let reportAppealTargets: ReportAppealTarget[] = [
 let supportTickets: SupportTicketDetail[] = [];
 let uploadedMediaById: Record<string, UploadedPetMedia> = {};
 let avatarJobsById: Record<string, AvatarJob> = {};
+let avatarAnimationJobsById: Record<string, AvatarAnimationJob> = {};
 let mockPetChatDailyCount = 0;
 let mockPetAvatarDailyCount = 0;
 const mockPetAvatarDailyLimit = 10;
 const mockSocialMessageMaxChars = 600;
+
+function createMockAvatarAnimationJob(pet: PetProfile, sourceAvatarUrl?: string): AvatarAnimationJob {
+  const id = `anim-${pet.id}-${Date.now()}`;
+  animationProgressById[id] = 18;
+  const job: AvatarAnimationJob = {
+    aspectRatio: '1:1',
+    createdAt: Date.now(),
+    duration: 4,
+    id,
+    model: 'doubao-seedance-1-5-pro',
+    petId: pet.id,
+    petName: pet.name,
+    progress: 18,
+    provider: 'mock',
+    providerStatus: 'queued',
+    resolution: '480p',
+    sourceAvatarUrl: sourceAvatarUrl || pet.avatarUrl || '',
+    status: 'processing',
+    updatedAt: Date.now(),
+  };
+  avatarAnimationJobsById = { ...avatarAnimationJobsById, [id]: job };
+  return job;
+}
 
 const places: Place[] = [
   { id: 'p1', name: '云杉宠物友好公园', address: '滨江路 88 号', category: 'park', distance: '900m', rating: 4.8, reviewCount: 36, supportedSpecies: ['dog'], tags: ['可遛狗', '草坪', '饮水点'] },
@@ -2650,6 +2676,51 @@ export const mockApi = {
       return success(job);
     },
 
+    async getLatestAnimation(petId?: string): Promise<ApiResult<AvatarAnimationJob | null>> {
+      await wait(160);
+      const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const job = Object.values(avatarAnimationJobsById)
+        .filter((item) => !petId || !item.petId || item.petId === petId)
+        .filter((item) => Number(item.updatedAt || item.createdAt || 0) >= cutoff)
+        .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))[0] ?? null;
+      if (!job) return success(null);
+      if (job.status === 'processing') {
+        const progress = Math.min(92, (animationProgressById[job.id] ?? job.progress ?? 18) + 14);
+        animationProgressById[job.id] = progress;
+        const updatedJob: AvatarAnimationJob = { ...job, progress, providerStatus: 'processing', updatedAt: Date.now() };
+        avatarAnimationJobsById = { ...avatarAnimationJobsById, [job.id]: updatedJob };
+        return success(updatedJob);
+      }
+      return success(job);
+    },
+
+    async getAnimationStatus(id: string): Promise<ApiResult<AvatarAnimationJob>> {
+      await wait(220);
+      const job = avatarAnimationJobsById[id];
+      if (!job) return error('动效生成任务不存在', true);
+      if (job.status === 'processing') {
+        const progress = Math.min(92, (animationProgressById[id] ?? job.progress ?? 18) + 18);
+        animationProgressById[id] = progress;
+        const updatedJob: AvatarAnimationJob = { ...job, progress, providerStatus: 'processing', updatedAt: Date.now() };
+        avatarAnimationJobsById = { ...avatarAnimationJobsById, [id]: updatedJob };
+        return success(updatedJob);
+      }
+      return success(job);
+    },
+
+    async startAnimation(petId?: string): Promise<ApiResult<AvatarAnimationJob | null>> {
+      await wait(180);
+      const pet = pets.find((item) => item.id === (petId || activePetId)) ?? pets[0];
+      if (!pet?.avatarUrl) return error('请先生成并保存静态灵伴形象', true);
+      const existing = Object.values(avatarAnimationJobsById)
+        .filter((item) => item.petId === pet.id)
+        .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))[0];
+      if (existing && existing.status === 'processing') return success(existing);
+      const job = createMockAvatarAnimationJob(pet, pet.avatarUrl);
+      pets = pets.map((item) => (item.id === pet.id ? { ...item, avatarAnimationJobId: job.id, avatarAnimationStatus: job.status } : item));
+      return success(job);
+    },
+
     async retryGeneration(jobId: string): Promise<ApiResult<AvatarJob>> {
       await wait();
       const previous = avatarJobsById[jobId];
@@ -2672,7 +2743,8 @@ export const mockApi = {
       if (job.status !== 'ready' || !job.resultUrl) return error('形象还没生成完成，请稍后再试', true);
       const pet = pets.find((item) => item.id === activePetId) ?? pets[0];
       if (!pet) return error('请先添加宠物档案', false);
-      const updatedPet = { ...pet, avatarUrl: job.resultUrl };
+      const animationJob = createMockAvatarAnimationJob(pet, job.resultUrl);
+      const updatedPet = { ...pet, avatarAnimationJobId: animationJob.id, avatarAnimationStatus: animationJob.status, avatarUrl: job.resultUrl };
       pets = pets.map((item) => (item.id === updatedPet.id ? updatedPet : item));
       activePetId = updatedPet.id;
       avatarJobsById = { ...avatarJobsById, [jobId]: { ...job, acceptedAt: new Date().toISOString(), acceptedPetId: updatedPet.id, updatedAt: Date.now() } };
@@ -2697,6 +2769,11 @@ export const mockApi = {
     },
 
     async saveAvatar(petId: string, avatarUrl: string): Promise<ApiResult<PetProfile>> {
+      const pet = pets.find((item) => item.id === petId);
+      if (pet) {
+        const animationJob = createMockAvatarAnimationJob(pet, avatarUrl);
+        return mockApi.pets.updatePet(petId, { avatarAnimationJobId: animationJob.id, avatarAnimationStatus: animationJob.status, avatarUrl });
+      }
       return mockApi.pets.updatePet(petId, { avatarUrl });
     },
   },

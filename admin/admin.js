@@ -5801,6 +5801,8 @@ async function renderNotifications(force) {
 async function renderConfig(force) {
   const config = await load('config', '/admin/config', force);
   const ai = config.ai || {};
+  const aiAvatarAnimation = ai.avatarAnimation || {};
+  const aiAvatarAnimationSeedance = aiAvatarAnimation.seedance || {};
   const aiAvatar = ai.avatar || {};
   const aiAvatarGptImage2 = aiAvatar.gptImage2 || {};
   const aiAvatarFlux = aiAvatar.ttapiFlux || {};
@@ -5922,6 +5924,17 @@ async function renderConfig(force) {
           </label>
           <label>TTAPI Midjourney timeout 秒<input id="cfgTtapiMjTimeout" type="number" min="60" max="1800" value="${Number.isFinite(Number(aiAvatarMidjourney.timeout)) ? aiAvatarMidjourney.timeout : 600}" /></label>
           ${featureCheckbox('cfgTtapiMjAutoUpsample', 'Midjourney 自动 upsample', Boolean(aiAvatarMidjourney.autoUpsample))}
+          <label>灵伴动效 provider
+            <select id="cfgAiAvatarAnimationProvider">
+              ${configProviderOption(aiAvatarAnimation.provider, 'doubao-seedance-1-5-pro', 'Doubao Seedance 1.5 Pro')}
+              ${configProviderOption(aiAvatarAnimation.provider, 'mock', 'Mock 兜底')}
+              ${configProviderOption(aiAvatarAnimation.provider, 'disabled', '关闭')}
+            </select>
+          </label>
+          ${featureCheckbox('cfgAiAvatarAnimationEnabled', '启用灵伴动效异步生成', aiAvatarAnimation.enabled !== false)}
+          <label>Seedance model<input id="cfgSeedanceModel" maxlength="80" value="${escapeHtml(aiAvatarAnimationSeedance.model || 'doubao-seedance-1-5-pro')}" /></label>
+          <label>Seedance 固定参数<input disabled value="4s · 1:1 · 480p" /></label>
+          ${featureCheckbox('cfgSeedanceCameraFixed', 'Seedance 锁定镜头 camerafixed', aiAvatarAnimationSeedance.cameraFixed !== false)}
           <label>宠物 AI 对话 provider
             <select id="cfgPetChatProvider">
               ${configProviderOption(aiPetChat.provider, 'deepseek', 'DeepSeek')}
@@ -5938,6 +5951,10 @@ async function renderConfig(force) {
           <label>DeepSeek max_tokens<input id="cfgDeepSeekMaxTokens" type="number" min="80" max="2000" value="${Number.isFinite(Number(aiPetChatDeepSeek.maxTokens)) ? aiPetChatDeepSeek.maxTokens : 420}" /></label>
           <label>DeepSeek temperature<input id="cfgDeepSeekTemperature" type="number" min="0" max="2" step="0.01" value="${Number.isFinite(Number(aiPetChatDeepSeek.temperature)) ? aiPetChatDeepSeek.temperature : 0.7}" /></label>
           <label class="wide">GPT Image 2 灵伴形象 prompt 模板<textarea id="cfgGptImage2PromptTemplate" maxlength="12000" placeholder="支持 {species}、{breed}、{petName}、{speciesLabel}">${escapeHtml(aiAvatarGptImage2.promptTemplate || '')}</textarea></label>
+          <label class="wide">灵伴动效狗狗 prompt 模板<textarea id="cfgSeedanceDogPromptTemplate" maxlength="12000" placeholder="支持 {species}、{breed}、{petName}、{speciesLabel}">${escapeHtml(aiAvatarAnimationSeedance.dogPromptTemplate || '')}</textarea></label>
+          <label class="wide">灵伴动效猫咪 prompt 模板<textarea id="cfgSeedanceCatPromptTemplate" maxlength="12000" placeholder="支持 {species}、{breed}、{petName}、{speciesLabel}">${escapeHtml(aiAvatarAnimationSeedance.catPromptTemplate || '')}</textarea></label>
+          <label class="wide">灵伴动效默认 prompt 模板<textarea id="cfgSeedanceDefaultPromptTemplate" maxlength="12000" placeholder="非猫狗或兜底物种会使用这个模板">${escapeHtml(aiAvatarAnimationSeedance.defaultPromptTemplate || '')}</textarea></label>
+          <label class="wide">灵伴动效 negative constraints<textarea id="cfgSeedanceNegativePromptTemplate" maxlength="12000" placeholder="当前会合并进主 prompt 的 Avoid 段">${escapeHtml(aiAvatarAnimationSeedance.negativePromptTemplate || '')}</textarea></label>
           <label class="wide">TTAPI Flux prompt 模板<textarea id="cfgTtapiFluxPromptTemplate" maxlength="12000" placeholder="历史备用 provider 的 prompt 模板">${escapeHtml(aiAvatarFlux.promptTemplate || '')}</textarea></label>
           <label class="wide">TTAPI Midjourney prompt 模板<textarea id="cfgTtapiMjPromptTemplate" maxlength="12000" placeholder="支持 {mediaUrl}、{species}、{breed}">${escapeHtml(aiAvatarMidjourney.promptTemplate || '')}</textarea></label>
           <label class="wide">DeepSeek base system prompt<textarea id="cfgDeepSeekBaseSystemPrompt" maxlength="12000" placeholder="宠物 AI 对话的第一条 system prompt">${escapeHtml(aiPetChatDeepSeek.baseSystemPrompt || '')}</textarea></label>
@@ -6194,12 +6211,14 @@ function configProviderOption(current, value, label) {
 }
 
 function renderAiRuntimeConfig(runtime = {}) {
+  const animation = runtime.petAvatarAnimation || {};
   const avatar = runtime.petAvatar || {};
   const chat = runtime.petChat || {};
   const credentials = runtime.credentials || {};
   const notes = Array.isArray(runtime.notes) ? runtime.notes : [];
   const rows = [
     ...(avatar.providers || []).map((row) => ({ ...row, group: '灵伴形象' })),
+    ...(animation.providers || []).map((row) => ({ ...row, group: '灵伴动效' })),
     ...(chat.providers || []).map((row) => ({ ...row, group: 'AI 对话' })),
   ];
   const contextRows = (chat.contextPromptStructure || []).map((text, index) => ({ index: index + 1, text }));
@@ -6207,9 +6226,11 @@ function renderAiRuntimeConfig(runtime = {}) {
     <div class="ai-runtime-panel">
       <div class="content-safety-status">
         <div><span>GPT Image 2 Key</span>${statusPill(credentials.gptImage2 ? '已配置' : '未配置')}</div>
+        <div><span>APIMart Key</span>${statusPill(credentials.apimart ? '已配置' : '未配置')}</div>
         <div><span>TTAPI Key</span>${statusPill(credentials.ttapi ? '已配置' : '未配置')}</div>
         <div><span>DeepSeek Key</span>${statusPill(credentials.deepseek ? '已配置' : '未配置')}</div>
         <div><span>当前形象</span><strong>${escapeHtml(avatar.provider || '-')}</strong></div>
+        <div><span>当前动效</span><strong>${escapeHtml(animation.provider || '-')}</strong></div>
         <div><span>当前对话</span><strong>${escapeHtml(chat.provider || '-')}</strong></div>
       </div>
       <div class="ai-runtime-note">
@@ -6508,6 +6529,21 @@ async function saveConfig(mode = 'publish') {
   }
   const payload = {
     ai: {
+      avatarAnimation: {
+        enabled: $('cfgAiAvatarAnimationEnabled').checked,
+        provider: $('cfgAiAvatarAnimationProvider').value,
+        seedance: {
+          aspectRatio: '1:1',
+          cameraFixed: $('cfgSeedanceCameraFixed').checked,
+          catPromptTemplate: $('cfgSeedanceCatPromptTemplate').value,
+          defaultPromptTemplate: $('cfgSeedanceDefaultPromptTemplate').value,
+          dogPromptTemplate: $('cfgSeedanceDogPromptTemplate').value,
+          duration: 4,
+          model: $('cfgSeedanceModel').value,
+          negativePromptTemplate: $('cfgSeedanceNegativePromptTemplate').value,
+          resolution: '480p',
+        },
+      },
       avatar: {
         gptImage2: {
           model: $('cfgGptImage2Model').value,

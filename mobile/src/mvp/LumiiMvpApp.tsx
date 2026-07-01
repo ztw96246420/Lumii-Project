@@ -1,5 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactElement, type ReactNode } from 'react';
 import {
   ActivityIndicator,
@@ -109,6 +110,7 @@ import type {
   AppAnalyticsEventName,
   AppRemoteConfig,
   AiUsageSummary,
+  AvatarAnimationJob,
   AvatarGenerationFeedbackReason,
   AuthSession,
   AvatarJob,
@@ -2283,6 +2285,11 @@ export default function LumiiMvpApp() {
   const [permissions, setPermissions] = useState<PermissionStateMap>(isHomePreviewMode ? webPreviewPermissions : initialPermissions);
   const [activePet, setActivePet] = useState<PetProfile | null>(isHomePreviewMode ? initialPreviewPets[0] ?? webPreviewPet : null);
   const [pets, setPets] = useState<PetProfile[]>(isHomePreviewMode ? initialPreviewPets : []);
+  const [avatarAnimationJob, setAvatarAnimationJob] = useState<AvatarAnimationJob | null>(null);
+  const [avatarDisplayMode, setAvatarDisplayMode] = useState<'dynamic' | 'static'>('dynamic');
+  const avatarAnimationPollingRef = useRef(false);
+  const avatarAnimationAutoStartedPetIdsRef = useRef<Set<string>>(new Set());
+  const avatarAnimationUserModeRef = useRef<'dynamic' | 'static' | null>(null);
   const [petSwitchingId, setPetSwitchingId] = useState('');
   const petSwitchingIdRef = useRef('');
   const [petDeletingId, setPetDeletingId] = useState('');
@@ -2916,6 +2923,73 @@ export default function LumiiMvpApp() {
     return activePet ?? getActivePetFallback();
   }
 
+  function isPlayableAvatarVideoUri(uri?: null | string) {
+    const value = String(uri || '').trim();
+    if (!/^https?:\/\//i.test(value)) return false;
+    if (/\.(jpe?g|png|webp|gif|heic|heif)(?:[?#].*)?$/i.test(value)) return false;
+    return true;
+  }
+
+  function applyAvatarAnimationJob(job: AvatarAnimationJob | null) {
+    setAvatarAnimationJob(job);
+    if (!job?.petId) return;
+    setActivePet((pet) => {
+      if (!pet || pet.id !== job.petId) return pet;
+      const videoUrl = job.videoUrl || pet.avatarAnimationUrl;
+      return {
+        ...pet,
+        avatarAnimationJobId: job.id,
+        avatarAnimationStatus: job.status,
+        avatarAnimationUrl: job.status === 'ready' && videoUrl ? videoUrl : pet.avatarAnimationUrl,
+      };
+    });
+    setPets((items) => items.map((pet) => {
+      if (pet.id !== job.petId) return pet;
+      const videoUrl = job.videoUrl || pet.avatarAnimationUrl;
+      return {
+        ...pet,
+        avatarAnimationJobId: job.id,
+        avatarAnimationStatus: job.status,
+        avatarAnimationUrl: job.status === 'ready' && videoUrl ? videoUrl : pet.avatarAnimationUrl,
+      };
+    }));
+    if (job.status === 'ready' && isPlayableAvatarVideoUri(job.videoUrl) && avatarAnimationUserModeRef.current === null) {
+      setAvatarDisplayMode('dynamic');
+    }
+  }
+
+  async function syncAvatarAnimation(options: { pet?: null | PetProfile; silent?: boolean; startIfMissing?: boolean } = {}) {
+    const pet = options.pet ?? getCurrentPet();
+    if (!pet?.id || !pet.avatarUrl || isGeneratedAvatarUri(pet.avatarUrl)) {
+      setAvatarAnimationJob(null);
+      return false;
+    }
+    if (avatarAnimationPollingRef.current) return false;
+    avatarAnimationPollingRef.current = true;
+    const requestSessionToken = sessionTokenRef.current;
+    const requestPetId = pet.id;
+    try {
+      let result = await lumiiApi.avatar.getLatestAnimation(pet.id);
+      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return false;
+      if (!result.data && options.startIfMissing) {
+        avatarAnimationAutoStartedPetIdsRef.current.add(pet.id);
+        result = await lumiiApi.avatar.startAnimation(pet.id);
+        if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return false;
+      }
+      if (result.data) {
+        applyAvatarAnimationJob(result.data);
+        return true;
+      }
+      setAvatarAnimationJob(null);
+      return false;
+    } catch {
+      if (!options.silent) showToast('动效进度同步失败，稍后会自动重试', { tone: 'warning', variant: 'surface' });
+      return false;
+    } finally {
+      avatarAnimationPollingRef.current = false;
+    }
+  }
+
   function isCurrentPetRequest(requestSessionToken: string, requestPetId: null | string) {
     return Boolean(requestSessionToken && requestPetId && sessionTokenRef.current === requestSessionToken && activePetIdRef.current === requestPetId);
   }
@@ -3533,6 +3607,38 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     activePetIdRef.current = activePet?.id ?? null;
   }, [activePet?.id]);
+
+  useEffect(() => {
+    avatarAnimationUserModeRef.current = null;
+    setAvatarDisplayMode('dynamic');
+    if (!sessionTokenRef.current || !activePet?.id || !activePet.avatarUrl || isGeneratedAvatarUri(activePet.avatarUrl)) {
+      setAvatarAnimationJob(null);
+      return;
+    }
+    const hasStoredAnimation = Boolean(activePet.avatarAnimationUrl);
+    if (hasStoredAnimation) {
+      setAvatarAnimationJob({
+        id: activePet.avatarAnimationJobId || `pet-animation-${activePet.id}`,
+        petId: activePet.id,
+        petName: activePet.name,
+        progress: 100,
+        provider: 'stored',
+        providerStatus: 'ready',
+        status: 'ready',
+        videoUrl: activePet.avatarAnimationUrl,
+      });
+    }
+    const shouldStart = !hasStoredAnimation && !avatarAnimationAutoStartedPetIdsRef.current.has(activePet.id);
+    void syncAvatarAnimation({ pet: activePet, silent: true, startIfMissing: shouldStart });
+  }, [activePet?.avatarAnimationUrl, activePet?.avatarUrl, activePet?.id]);
+
+  useEffect(() => {
+    if (!avatarAnimationJob || avatarAnimationJob.status !== 'processing' || !activePet?.id || avatarAnimationJob.petId !== activePet.id) return;
+    const timer = setInterval(() => {
+      void syncAvatarAnimation({ pet: activePet, silent: true });
+    }, 4500);
+    return () => clearInterval(timer);
+  }, [activePet?.id, avatarAnimationJob?.id, avatarAnimationJob?.status]);
 
   useEffect(() => {
     if (!session?.phone || !activePet?.id || isHomePreviewMode) return;
@@ -10414,6 +10520,13 @@ export default function LumiiMvpApp() {
     const homeAiEntryHeadline = homeAiEntryExperiment ? `${homeAiEntryExperiment.title} · ${homeAiEntryExperiment.subtitle}` : `灵伴聊天 · ${homeChatHint}`;
     const homeAiEntryMiniTitle = homeAiEntryExperiment?.title || '轻松互动';
     const homeAiEntryMiniSubtitle = homeAiEntryExperiment?.subtitle || '已准备好';
+    const activeAnimationJob = avatarAnimationJob?.petId === pet.id ? avatarAnimationJob : null;
+    const avatarAnimationVideoUri = activeAnimationJob?.videoUrl || pet.avatarAnimationUrl || '';
+    const canPlayAvatarAnimation = (activeAnimationJob?.status === 'ready' || pet.avatarAnimationStatus === 'ready') && isPlayableAvatarVideoUri(avatarAnimationVideoUri);
+    const showDynamicAvatar = avatarDisplayMode === 'dynamic' && canPlayAvatarAnimation;
+    const avatarAnimationProcessing = activeAnimationJob?.status === 'processing';
+    const avatarAnimationProgress = Math.max(8, Math.min(98, Number(activeAnimationJob?.progress || 8)));
+    const avatarModeButtonLabel = showDynamicAvatar ? '静态灵伴' : '动态灵伴';
     const todayWeightRecorded = weights.some((item) => item.recordedAt === todayIsoDate());
     const visibleNearbyMoments = nearbyMoments.filter((moment) => !moment.ownedByMe).slice(0, 5);
     const activeNearbyMoment = visibleNearbyMoments.length ? visibleNearbyMoments[homeMomentIndex % visibleNearbyMoments.length] : null;
@@ -10566,17 +10679,45 @@ export default function LumiiMvpApp() {
                 <View style={styles.homeOnlineDot} />
                 <Text style={styles.homeOnlineText}>灵伴在线</Text>
               </View>
-              <Pressable onPress={() => handleHomeAiChatPress('home_hero')} style={[styles.homeHeroMiniCard, webPressableReset]}>
-                <Heart color={palette.orange} fill={palette.orange} size={14} strokeWidth={2.4} />
-                <Text style={styles.homeHeroMiniText}>{homeAiEntryMiniTitle}{'\n'}{homeAiEntryMiniSubtitle}</Text>
-              </Pressable>
+              {avatarAnimationProcessing ? (
+                <View style={[styles.homeHeroMiniCard, styles.homeAvatarAnimationProgressCard]}>
+                  <Sparkles color={palette.orange} size={14} strokeWidth={2.4} />
+                  <View style={styles.homeAvatarAnimationProgressCopy}>
+                    <Text numberOfLines={1} style={styles.homeAvatarAnimationProgressText}>宠物动效生成中</Text>
+                    <View style={styles.homeAvatarAnimationTrack}>
+                      <View style={[styles.homeAvatarAnimationFill, { width: `${avatarAnimationProgress}%` }]} />
+                    </View>
+                  </View>
+                </View>
+              ) : canPlayAvatarAnimation ? (
+                <Pressable
+                  onPress={() => {
+                    const nextMode = showDynamicAvatar ? 'static' : 'dynamic';
+                    avatarAnimationUserModeRef.current = nextMode;
+                    setAvatarDisplayMode(nextMode);
+                  }}
+                  style={[styles.homeHeroMiniCard, styles.homeAvatarModeCard, webPressableReset]}
+                >
+                  <Sparkles color={showDynamicAvatar ? palette.teal : palette.orange} size={14} strokeWidth={2.4} />
+                  <Text style={styles.homeHeroMiniText}>{avatarModeButtonLabel}</Text>
+                </Pressable>
+              ) : (
+                <Pressable onPress={() => handleHomeAiChatPress('home_hero')} style={[styles.homeHeroMiniCard, webPressableReset]}>
+                  <Heart color={palette.orange} fill={palette.orange} size={14} strokeWidth={2.4} />
+                  <Text style={styles.homeHeroMiniText}>{homeAiEntryMiniTitle}{'\n'}{homeAiEntryMiniSubtitle}</Text>
+                </Pressable>
+              )}
               <Pressable onPress={() => { if (guardFeature(petCircleEnabled, '宠友圈')) go('dailyPost'); }} style={[styles.homeHeroMiniCard, styles.homeHeroMiniCardWide, webPressableReset]}>
                 <MessageCircle color={palette.teal} size={14} strokeWidth={2.4} />
                 <Text style={styles.homeHeroMiniText}>要不要记录一件{'\n'}开心小事？</Text>
               </Pressable>
             </View>
             <View style={styles.homePetHeroMedia}>
-              <Image resizeMode="contain" source={petImageSource} style={styles.homePetHeroImage} />
+              {showDynamicAvatar ? (
+                <PetCompanionVideo uri={avatarAnimationVideoUri} />
+              ) : (
+                <Image resizeMode="contain" source={petImageSource} style={styles.homePetHeroImage} />
+              )}
             </View>
           </View>
 
@@ -17449,6 +17590,30 @@ function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
   );
 }
 
+function PetCompanionVideo({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (videoPlayer) => {
+    videoPlayer.loop = true;
+    videoPlayer.muted = true;
+    videoPlayer.play();
+  });
+
+  useEffect(() => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  }, [player, uri]);
+
+  return (
+    <VideoView
+      contentFit="contain"
+      nativeControls={false}
+      player={player}
+      playsInline
+      style={styles.homePetHeroVideo}
+    />
+  );
+}
+
 function MetricCard({
   Icon,
   iconTone,
@@ -18684,6 +18849,12 @@ const styles = StyleSheet.create({
   homeMakeHeadline: { color: palette.ink, flex: 1, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '700', letterSpacing: 0, lineHeight: 17, minWidth: 0 },
   homeMakeKicker: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
   homeMakePage: { gap: 0, paddingBottom: 6, position: 'relative' },
+  homeAvatarAnimationFill: { backgroundColor: palette.orange, borderRadius: 999, height: '100%' },
+  homeAvatarAnimationProgressCard: { gap: 8, minHeight: 42, paddingHorizontal: 10, paddingVertical: 8, width: 132 },
+  homeAvatarAnimationProgressCopy: { flex: 1, gap: 5, minWidth: 0 },
+  homeAvatarAnimationProgressText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', lineHeight: 14 },
+  homeAvatarAnimationTrack: { backgroundColor: 'rgba(255,138,92,0.16)', borderRadius: 999, height: 5, overflow: 'hidden', width: '100%' },
+  homeAvatarModeCard: { minHeight: 40, paddingHorizontal: 12, paddingVertical: 8 },
   homeHeroMiniCard: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.94)', borderColor: 'rgba(236,231,222,0.72)', borderRadius: 15, borderWidth: 1, flexDirection: 'row', gap: 7, marginTop: 10, minHeight: 44, paddingHorizontal: 11, paddingVertical: 7, shadowColor: '#50371e', shadowOffset: { height: 9, width: 0 }, shadowOpacity: 0.07, shadowRadius: 18 },
   homeHeroMiniCardWide: { marginTop: 8, minHeight: 50, paddingRight: 13 },
   homeHeroMiniText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
@@ -18707,6 +18878,7 @@ const styles = StyleSheet.create({
   homePetHeroCopy: { flexShrink: 0, paddingTop: 16, width: 138, zIndex: 2 },
   homePetHeroImage: { backgroundColor: 'transparent', height: 286, resizeMode: 'contain', width: 264 },
   homePetHeroMedia: { alignItems: 'center', backgroundColor: 'transparent', bottom: 0, justifyContent: 'flex-end', left: 116, paddingBottom: 0, paddingTop: 4, position: 'absolute', right: -24, top: 0, zIndex: 1 },
+  homePetHeroVideo: { backgroundColor: 'transparent', height: 286, width: 264 },
   homePetHeroMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', marginTop: 5 },
   homePetHeroName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 27 },
   homePetAvatarShell: { alignItems: 'center', backgroundColor: '#FFEDD9', borderColor: '#fff', borderRadius: 112, borderWidth: 4, height: 224, justifyContent: 'center', overflow: 'hidden', shadowColor: '#b46e3c', shadowOffset: { height: 28, width: 0 }, shadowOpacity: 0.26, shadowRadius: 56, width: 224, zIndex: 2 },

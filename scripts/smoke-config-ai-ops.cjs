@@ -126,14 +126,26 @@ async function main() {
     const initial = await request('/admin/config', { token: adminToken });
     assert.equal(initial.data.ai.avatar.provider, 'gpt-image-2');
     assert.equal(initial.data.aiRuntime.credentials.gptImage2, true);
+    assert.equal(initial.data.aiRuntime.credentials.apimart, true);
     assert.ok(initial.data.aiRuntime.petAvatar.providers.some((item) => item.provider === 'gpt-image-2' && item.promptPreview.includes('dog')));
+    assert.ok(initial.data.aiRuntime.petAvatarAnimation.providers.some((item) => item.provider === 'doubao-seedance-1-5-pro' && item.promptPreview.includes('Avoid')));
     assert.ok(initial.data.aiRuntime.petChat.providers.some((item) => item.provider === 'deepseek' && item.promptPreview.includes('当前宠物本人')));
 
     const promptTemplate = 'Smoke prompt: exact same {species}; breed hint {breed}; pet {petName}; no generic breed.';
+    const animationDogPrompt = 'Smoke animation dog prompt: {petName} the {species} waves softly; breed hint {breed}.';
+    const animationNegativePrompt = 'Smoke animation negative: no morphing, no watermark.';
     const baseSystemPrompt = 'Smoke system prompt: you are the current pet itself, reply in first person.';
     const published = await request('/admin/config', {
       body: {
         ai: {
+          avatarAnimation: {
+            enabled: true,
+            provider: 'mock',
+            seedance: {
+              dogPromptTemplate: animationDogPrompt,
+              negativePromptTemplate: animationNegativePrompt,
+            },
+          },
           avatar: {
             gptImage2: {
               model: 'gpt-image-2-smoke',
@@ -162,17 +174,23 @@ async function main() {
       token: adminToken,
     });
     assert.equal(published.data.ai.avatar.provider, 'mock');
+    assert.equal(published.data.ai.avatarAnimation.provider, 'mock');
+    assert.equal(published.data.ai.avatarAnimation.seedance.dogPromptTemplate, animationDogPrompt);
+    assert.equal(published.data.ai.avatarAnimation.seedance.negativePromptTemplate, animationNegativePrompt);
     assert.equal(published.data.ai.avatar.gptImage2.model, 'gpt-image-2-smoke');
     assert.equal(published.data.ai.avatar.gptImage2.promptTemplate, promptTemplate);
     assert.equal(published.data.ai.petChat.provider, 'fallback');
     assert.equal(published.data.ai.petChat.deepseek.baseSystemPrompt, baseSystemPrompt);
     assert.ok(published.data.revisions[0].changeSummary.some((item) => item.key === 'ai.avatar.provider'));
+    assert.ok(published.data.revisions[0].changeSummary.some((item) => item.key === 'ai.avatarAnimation.provider'));
     assert.ok(published.data.aiRuntime.petAvatar.providers.some((item) => item.provider === 'gpt-image-2' && item.promptPreview.includes('breed hint dog')));
+    assert.ok(published.data.aiRuntime.petAvatarAnimation.providers.some((item) => item.provider === 'doubao-seedance-1-5-pro' && item.promptPreview.includes('Smoke animation dog prompt')));
 
     const appConfig = await request('/app/config');
     assert.equal(appConfig.data.ai.petAvatarDailyLimit, published.data.ai.petAvatarDailyLimit);
     assert.equal(appConfig.data.ai.petChatDailyLimit, published.data.ai.petChatDailyLimit);
     assert.equal(appConfig.data.ai.avatar, undefined, 'public app config must not expose AI prompt/provider internals');
+    assert.equal(appConfig.data.ai.avatarAnimation, undefined, 'public app config must not expose animation prompt/provider internals');
     assert.equal(appConfig.data.ai.petChat, undefined, 'public app config must not expose DeepSeek prompt internals');
   } finally {
     await stopBackend();

@@ -78,6 +78,10 @@ export type UserSettings = {
 export type PetSpecies = 'bird' | 'cat' | 'dog' | 'hamster' | 'rabbit' | 'reptile' | 'other';
 
 export type PetProfile = {
+  avatarAnimationJobId?: string;
+  avatarAnimationStatus?: AvatarAnimationJob['status'] | string;
+  avatarAnimationUpdatedAt?: string;
+  avatarAnimationUrl?: string;
   avatarUrl?: string;
   birthday?: string;
   breed: string;
@@ -142,6 +146,27 @@ export type AvatarJob = {
   resultUrl?: string;
   status: 'failed' | 'processing' | 'ready';
   updatedAt?: number;
+};
+
+export type AvatarAnimationJob = {
+  aspectRatio?: '1:1' | string;
+  avatarJobId?: string;
+  createdAt?: number;
+  duration?: number;
+  errorCode?: string;
+  errorMessage?: string;
+  id: string;
+  model?: string;
+  petId?: string;
+  petName?: string;
+  progress: number;
+  provider?: 'disabled' | 'doubao-seedance-1-5-pro' | 'mock' | 'stored' | string;
+  providerStatus?: string;
+  resolution?: '480p' | string;
+  sourceAvatarUrl?: string;
+  status: 'failed' | 'processing' | 'ready';
+  updatedAt?: number;
+  videoUrl?: string;
 };
 
 export type AvatarGenerationFeedbackReason = 'color' | 'expression' | 'face_shape' | 'not_same_pet' | 'other' | 'style';

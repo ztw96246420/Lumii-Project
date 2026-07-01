@@ -58,6 +58,12 @@ const GPT_IMAGE2_OFFICIAL_FALLBACK = process.env.GPT_IMAGE2_OFFICIAL_FALLBACK ==
 const GPT_IMAGE2_STUCK_TASK_MIN_TIMEOUT_MS = Number(process.env.GPT_IMAGE2_STUCK_TASK_MIN_TIMEOUT_MS || 5 * 60 * 1000);
 const GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER = Number(process.env.GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER || '4');
 const PET_AVATAR_PROVIDER = (process.env.PET_AVATAR_PROVIDER || (GPT_IMAGE2_API_KEY ? 'gpt-image-2' : TTAPI_API_KEY ? 'ttapi-flux-edits' : 'mock')).toLowerCase();
+const APIMART_API_KEY = process.env.APIMART_API_KEY || GPT_IMAGE2_API_KEY || '';
+const APIMART_BASE_URL = (process.env.APIMART_BASE_URL || GPT_IMAGE2_BASE_URL || 'https://api.apimart.ai').replace(/\/+$/, '');
+const PET_AVATAR_ANIMATION_PROVIDER = (process.env.PET_AVATAR_ANIMATION_PROVIDER || (APIMART_API_KEY ? 'doubao-seedance-1-5-pro' : 'disabled')).toLowerCase();
+const PET_AVATAR_ANIMATION_MODEL = process.env.PET_AVATAR_ANIMATION_MODEL || 'doubao-seedance-1-5-pro';
+const PET_AVATAR_ANIMATION_ENABLED = process.env.PET_AVATAR_ANIMATION_ENABLED === 'false' ? false : true;
+const PET_AVATAR_ANIMATION_MAX_BYTES = Number(process.env.PET_AVATAR_ANIMATION_MAX_BYTES || 35 * 1024 * 1024);
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
@@ -372,9 +378,62 @@ function defaultPetChatBaseSystemPrompt() {
   ].join('\n');
 }
 
+function defaultDogAvatarAnimationPromptTemplate() {
+  return [
+    'The dog companion in the reference image comes to life from the exact original pose and first frame.',
+    'It greets the viewer warmly with subtle happy tail wagging, natural ear movement, bright friendly eye contact, and a soft open-mouth smile or gentle pant.',
+    'A small head tilt or brief paw lift is allowed only if it fits the original pose and does not change the silhouette.',
+    'Keep this exact individual pet recognizable: same breed/profile hint ({breed}), fur color, markings, eye shape, eye-color impression, nose shape, muzzle length, ear shape, body proportions, expression, accessory if present, and premium 3D collectible-character style.',
+    'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve the reference background or clean app-avatar compositing as much as possible; do not introduce a new scene.',
+    'One pet only, centered square composition, 1:1 framing, 4 seconds.',
+  ].join('\n');
+}
+
+function defaultCatAvatarAnimationPromptTemplate() {
+  return [
+    'The cat companion in the reference image comes to life from the exact original pose and first frame.',
+    'It greets the viewer softly with calm eye contact, a slow affectionate blink, gentle ear swivels, and a tiny silent meow or slight mouth movement only if natural.',
+    'The tail tip may sway gracefully or lift in a friendly curl only if the reference pose supports it.',
+    'Keep this exact individual pet recognizable: same breed/profile hint ({breed}), fur color, markings, eye shape, eye-color impression, nose shape, muzzle length, ear shape, body proportions, expression, accessory if present, and premium 3D collectible-character style.',
+    'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve the reference background or clean app-avatar compositing as much as possible; do not introduce a new scene.',
+    'One pet only, centered square composition, 1:1 framing, 4 seconds.',
+  ].join('\n');
+}
+
+function defaultPetAvatarAnimationPromptTemplate() {
+  return [
+    'The pet companion in the reference image comes to life from the exact original pose and first frame.',
+    'It greets the viewer gently with warm eye contact, subtle head movement, natural ear or body motion, and a friendly expression that fits the animal.',
+    'Keep this exact individual {species} recognizable: same breed/profile hint ({breed}), fur color, markings, eye shape, eye-color impression, nose shape, muzzle length, ear shape, body proportions, expression, accessory if present, and premium 3D collectible-character style.',
+    'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve the reference background or clean app-avatar compositing as much as possible; do not introduce a new scene.',
+    'One pet only, centered square composition, 1:1 framing, 4 seconds.',
+  ].join('\n');
+}
+
+function defaultPetAvatarAnimationNegativePromptTemplate() {
+  return [
+    'distorted face, identity drift, morphing, changed breed, changed fur color, changed markings, changed age, bad anatomy, extra limbs, missing tail, duplicate pet, multiple pets, blurry, jitter, frozen body, unnatural movement, aggressive barking, aggressive hissing, arched back, background changes, camera zoom, camera pan, camera shake, dramatic action pose, text, logo, watermark',
+  ].join('\n');
+}
+
 function defaultOpsConfig() {
   return {
     ai: {
+      avatarAnimation: {
+        enabled: PET_AVATAR_ANIMATION_ENABLED,
+        provider: PET_AVATAR_ANIMATION_PROVIDER,
+        seedance: {
+          aspectRatio: '1:1',
+          cameraFixed: true,
+          catPromptTemplate: defaultCatAvatarAnimationPromptTemplate(),
+          defaultPromptTemplate: defaultPetAvatarAnimationPromptTemplate(),
+          dogPromptTemplate: defaultDogAvatarAnimationPromptTemplate(),
+          duration: 4,
+          model: PET_AVATAR_ANIMATION_MODEL,
+          negativePromptTemplate: defaultPetAvatarAnimationNegativePromptTemplate(),
+          resolution: '480p',
+        },
+      },
       avatar: {
         gptImage2: {
           model: GPT_IMAGE2_MODEL,
@@ -577,6 +636,7 @@ function createInitialState() {
       lockCount: 0,
     },
     appEvents: [],
+    avatarAnimationJobs: {},
     avatarJobs: {},
     conversations: {},
     conversationMessages: {},
@@ -635,6 +695,11 @@ function createInitialState() {
       gptImage2: {
         cost: 0,
         creditsCost: 0,
+        failed: 0,
+        requests: 0,
+        succeeded: 0,
+      },
+      avatarAnimation: {
         failed: 0,
         requests: 0,
         succeeded: 0,
@@ -958,6 +1023,30 @@ function normalizeTtapiMidjourneyOpsConfig(value, defaults = {}) {
   };
 }
 
+function normalizeSeedanceAnimationOpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    aspectRatio: '1:1',
+    cameraFixed: source.cameraFixed === undefined ? (defaults.cameraFixed === undefined ? true : Boolean(defaults.cameraFixed)) : Boolean(source.cameraFixed),
+    catPromptTemplate: normalizeAiPromptTemplate(source.catPromptTemplate, defaults.catPromptTemplate || defaultCatAvatarAnimationPromptTemplate()),
+    defaultPromptTemplate: normalizeAiPromptTemplate(source.defaultPromptTemplate, defaults.defaultPromptTemplate || defaultPetAvatarAnimationPromptTemplate()),
+    dogPromptTemplate: normalizeAiPromptTemplate(source.dogPromptTemplate, defaults.dogPromptTemplate || defaultDogAvatarAnimationPromptTemplate()),
+    duration: 4,
+    model: normalizeAiModelText(source.model, defaults.model || PET_AVATAR_ANIMATION_MODEL, 80),
+    negativePromptTemplate: normalizeAiPromptTemplate(source.negativePromptTemplate, defaults.negativePromptTemplate || defaultPetAvatarAnimationNegativePromptTemplate()),
+    resolution: '480p',
+  };
+}
+
+function normalizeAvatarAnimationOpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    enabled: source.enabled === undefined ? (defaults.enabled === undefined ? PET_AVATAR_ANIMATION_ENABLED : Boolean(defaults.enabled)) : Boolean(source.enabled),
+    provider: normalizeAiProvider(source.provider, ['doubao-seedance-1-5-pro', 'mock', 'disabled'], defaults.provider || PET_AVATAR_ANIMATION_PROVIDER),
+    seedance: normalizeSeedanceAnimationOpsConfig(source.seedance, defaults.seedance),
+  };
+}
+
 function normalizeDeepSeekOpsConfig(value, defaults = {}) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
@@ -974,6 +1063,7 @@ function normalizeAiOpsConfig(value, defaults = {}) {
   const avatar = source.avatar && typeof source.avatar === 'object' && !Array.isArray(source.avatar) ? source.avatar : {};
   const petChat = source.petChat && typeof source.petChat === 'object' && !Array.isArray(source.petChat) ? source.petChat : {};
   return {
+    avatarAnimation: normalizeAvatarAnimationOpsConfig(source.avatarAnimation, defaults.avatarAnimation),
     avatar: {
       gptImage2: normalizeGptImage2OpsConfig(avatar.gptImage2, defaults.avatar?.gptImage2),
       provider: normalizeAiProvider(avatar.provider || source.petAvatarProvider, ['gpt-image-2', 'ttapi-flux-edits', 'ttapi-midjourney', 'mock'], defaults.avatar?.provider || PET_AVATAR_PROVIDER),
@@ -1220,6 +1310,14 @@ function buildOpsConfigPatch(before, body = {}) {
     ai: {
       ...before.ai,
       ...bodyAi,
+      avatarAnimation: {
+        ...(before.ai?.avatarAnimation || {}),
+        ...(bodyAi.avatarAnimation || {}),
+        seedance: {
+          ...(before.ai?.avatarAnimation?.seedance || {}),
+          ...(bodyAi.avatarAnimation?.seedance || {}),
+        },
+      },
       avatar: {
         ...(before.ai?.avatar || {}),
         ...(bodyAi.avatar || {}),
@@ -1351,6 +1449,13 @@ function configChangeSummary(before, after) {
     ['ai.avatar.ttapiFlux.promptTemplate', 'TTAPI Flux prompt template'],
     ['ai.avatar.ttapiMidjourney.mode', 'TTAPI Midjourney mode'],
     ['ai.avatar.ttapiMidjourney.promptTemplate', 'TTAPI Midjourney prompt template'],
+    ['ai.avatarAnimation.enabled', 'Avatar animation enabled'],
+    ['ai.avatarAnimation.provider', 'Avatar animation provider'],
+    ['ai.avatarAnimation.seedance.model', 'Seedance model'],
+    ['ai.avatarAnimation.seedance.dogPromptTemplate', 'Seedance dog prompt template'],
+    ['ai.avatarAnimation.seedance.catPromptTemplate', 'Seedance cat prompt template'],
+    ['ai.avatarAnimation.seedance.defaultPromptTemplate', 'Seedance default prompt template'],
+    ['ai.avatarAnimation.seedance.negativePromptTemplate', 'Seedance negative prompt template'],
     ['ai.petChat.provider', 'AI pet chat provider'],
     ['ai.petChat.deepseek.model', 'DeepSeek model'],
     ['ai.petChat.deepseek.baseSystemPrompt', 'DeepSeek base system prompt'],
@@ -1435,8 +1540,14 @@ function configRiskChanges(before, after) {
   addRisk('notifications.requireApproval', 'Notification approval guard', 'P1', 'Can require or bypass manual approval before system notifications reach users.');
   addRisk('configApproval.requireApproval', 'Config publish approval guard', 'P1', 'Can require or bypass approval before mobile-impacting configuration reaches /app/config.');
   addRisk('ai.avatar.provider', 'AI avatar provider', 'P1', 'Can route new image generation jobs to another external provider or mock fallback.');
+  addRisk('ai.avatarAnimation.enabled', 'Avatar animation switch', 'P1', 'Can start or stop new companion animation tasks after image generation.');
+  addRisk('ai.avatarAnimation.provider', 'Avatar animation provider', 'P1', 'Can route new companion animation jobs to another external video provider, mock fallback, or disabled mode.');
   addRisk('ai.petChat.provider', 'AI pet chat provider', 'P1', 'Can route pet chat away from the external model or into fallback replies.');
   addRisk('ai.avatar.gptImage2.promptTemplate', 'GPT Image 2 prompt template', 'P2', 'Can materially change generated pet identity, style, and compositing behavior.');
+  addRisk('ai.avatarAnimation.seedance.dogPromptTemplate', 'Seedance dog animation prompt', 'P2', 'Can materially change generated dog motion, identity stability, and compositing behavior.');
+  addRisk('ai.avatarAnimation.seedance.catPromptTemplate', 'Seedance cat animation prompt', 'P2', 'Can materially change generated cat motion, identity stability, and compositing behavior.');
+  addRisk('ai.avatarAnimation.seedance.defaultPromptTemplate', 'Seedance default animation prompt', 'P2', 'Can materially change generated pet motion, identity stability, and compositing behavior.');
+  addRisk('ai.avatarAnimation.seedance.negativePromptTemplate', 'Seedance negative animation constraints', 'P2', 'Can materially change generated animation safety and artifact avoidance behavior.');
   addRisk('ai.petChat.deepseek.baseSystemPrompt', 'DeepSeek base system prompt', 'P2', 'Can materially change pet persona, safety boundaries, and reply style.');
   addRisk('experiments.homeAiEntry.enabled', 'Home AI entry experiment', 'P2', 'Can change the home AI chat entry copy for a rollout cohort.');
   addRisk('experiments.homeAiEntry.rolloutPercent', 'Home AI entry experiment rollout', 'P2', 'Can expose more or fewer users to the AI chat entry experiment.');
@@ -2626,6 +2737,7 @@ function adminConfigLinkageSummary(items) {
 
 function aiProviderCredentialStatus(provider) {
   if (provider === 'gpt-image-2') return Boolean(GPT_IMAGE2_API_KEY);
+  if (provider === 'doubao-seedance-1-5-pro') return Boolean(APIMART_API_KEY);
   if (provider === 'ttapi-flux-edits' || provider === 'ttapi-midjourney') return Boolean(TTAPI_API_KEY);
   if (provider === 'deepseek') return Boolean(DEEPSEEK_API_KEY);
   return true;
@@ -2634,6 +2746,7 @@ function aiProviderCredentialStatus(provider) {
 function adminAiRuntimeStatus(config = currentOpsConfig()) {
   const ai = config.ai || {};
   const avatar = ai.avatar || {};
+  const avatarAnimation = ai.avatarAnimation || {};
   const petChat = ai.petChat || {};
   const sampleVariables = {
     breed: 'dog',
@@ -2643,13 +2756,16 @@ function adminAiRuntimeStatus(config = currentOpsConfig()) {
     speciesLabel: '狗狗',
   };
   const avatarProvider = avatar.provider || effectivePetAvatarProvider();
+  const avatarAnimationProvider = avatarAnimation.enabled === false ? 'disabled' : (avatarAnimation.provider || effectivePetAvatarAnimationProvider());
   const chatProvider = petChat.provider || effectivePetChatProvider();
+  const seedance = avatarAnimation.seedance || effectiveSeedanceAvatarAnimationConfig();
   const gptImage2 = avatar.gptImage2 || effectiveGptImage2AvatarConfig();
   const ttapiFlux = avatar.ttapiFlux || effectiveTtapiFluxAvatarConfig();
   const ttapiMidjourney = avatar.ttapiMidjourney || effectiveTtapiMidjourneyAvatarConfig();
   const deepseek = petChat.deepseek || effectiveDeepSeekChatConfig();
   return {
     credentials: {
+      apimart: Boolean(APIMART_API_KEY),
       deepseek: Boolean(DEEPSEEK_API_KEY),
       gptImage2: Boolean(GPT_IMAGE2_API_KEY),
       ttapi: Boolean(TTAPI_API_KEY),
@@ -2657,8 +2773,45 @@ function adminAiRuntimeStatus(config = currentOpsConfig()) {
     notes: [
       'API 密钥只读取服务器环境变量，不进入后台表单、不下发移动端。',
       'prompt 模板支持 {species}、{breed}、{petName}、{speciesLabel}，Midjourney 额外支持 {mediaUrl}。',
+      '灵伴动效的 negative prompt 当前会合并进主 prompt 的 Avoid 段，避免视频接口不支持独立字段。',
       '宠物 AI 对话会在 base system prompt 后追加服务端动态上下文：宠物档案、近期体重、备忘、疫苗/驱虫和用户反馈样本。',
     ],
+    petAvatarAnimation: {
+      provider: avatarAnimationProvider,
+      providerReady: avatarAnimationProvider === 'disabled' || aiProviderCredentialStatus(avatarAnimationProvider),
+      providers: [
+        {
+          current: avatarAnimationProvider === 'doubao-seedance-1-5-pro',
+          credentialsConfigured: aiProviderCredentialStatus('doubao-seedance-1-5-pro'),
+          detail: `${seedance.model} · ${seedance.duration}s · ${seedance.aspectRatio} · ${seedance.resolution} · cameraFixed=${seedance.cameraFixed ? 'on' : 'off'}`,
+          label: 'Doubao Seedance 1.5 Pro',
+          promptPreview: [
+            renderAiPromptTemplate(seedance.dogPromptTemplate, sampleVariables),
+            seedance.negativePromptTemplate ? `Avoid:\n${renderAiPromptTemplate(seedance.negativePromptTemplate, sampleVariables)}` : '',
+          ].filter(Boolean).join('\n\n'),
+          promptTemplate: seedance.dogPromptTemplate,
+          provider: 'doubao-seedance-1-5-pro',
+        },
+        {
+          current: avatarAnimationProvider === 'mock',
+          credentialsConfigured: true,
+          detail: '本地测试兜底，不调用外部视频接口',
+          label: 'Mock',
+          promptPreview: '',
+          promptTemplate: '',
+          provider: 'mock',
+        },
+        {
+          current: avatarAnimationProvider === 'disabled',
+          credentialsConfigured: true,
+          detail: '关闭动效异步生成',
+          label: 'Disabled',
+          promptPreview: '',
+          promptTemplate: '',
+          provider: 'disabled',
+        },
+      ],
+    },
     petAvatar: {
       provider: avatarProvider,
       providerReady: aiProviderCredentialStatus(avatarProvider),
@@ -3902,6 +4055,18 @@ function loadState() {
           ...initialState.aiUsage.ttapiFlux,
           ...(loadedState.aiUsage?.ttapiFlux || {}),
         },
+        gptImage2: {
+          ...initialState.aiUsage.gptImage2,
+          ...(loadedState.aiUsage?.gptImage2 || {}),
+        },
+        avatarAnimation: {
+          ...initialState.aiUsage.avatarAnimation,
+          ...(loadedState.aiUsage?.avatarAnimation || {}),
+        },
+      },
+      avatarAnimationJobs: {
+        ...initialState.avatarAnimationJobs,
+        ...(loadedState.avatarAnimationJobs || {}),
       },
       mediaUploads: {
         ...initialState.mediaUploads,
@@ -4049,7 +4214,19 @@ function mimeExtension(mimeType, fallback = 'jpg') {
   if (normalized === 'image/heic') return 'heic';
   if (normalized === 'image/heif') return 'heif';
   if (normalized === 'image/jpeg') return 'jpg';
+  const raw = String(mimeType || '').toLowerCase();
+  if (raw.includes('mp4')) return 'mp4';
+  if (raw.includes('webm')) return 'webm';
+  if (raw.includes('quicktime')) return 'mov';
   return fallback;
+}
+
+function normalizeStoredMimeType(mimeType) {
+  const imageMimeType = normalizeImageMimeType(mimeType);
+  if (imageMimeType) return imageMimeType;
+  const raw = String(mimeType || '').trim().toLowerCase();
+  if (['video/mp4', 'video/webm', 'video/quicktime'].includes(raw)) return raw;
+  return 'application/octet-stream';
 }
 
 function ownerStorageId(user) {
@@ -4402,7 +4579,7 @@ function cosObjectKeyFor(user, scope, fileName, petId = '') {
 
 async function uploadBufferToCos(req, user, { buffer, fileName, mimeType, petId = '', scope }) {
   if (!cosEnabled() || !Buffer.isBuffer(buffer) || buffer.length <= 0) return null;
-  const finalMimeType = normalizeImageMimeType(mimeType) || 'application/octet-stream';
+  const finalMimeType = normalizeStoredMimeType(mimeType);
   const objectKey = cosObjectKeyFor(user, scope, fileName, petId);
   await cosRequest('PUT', objectKey, {
     body: buffer,
@@ -4442,6 +4619,32 @@ async function downloadImageBuffer(urlInput, maxBytes = MEDIA_UPLOAD_MAX_BYTES) 
   }
 }
 
+async function downloadRemoteFileBuffer(urlInput, { allowedMimePrefixes = [], maxBytes = MEDIA_UPLOAD_MAX_BYTES, timeoutMs = 30000 } = {}) {
+  const url = String(urlInput || '').trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`File download failed: ${response.status}`);
+    const contentType = String(response.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    if (!buffer.length || buffer.length > maxBytes) throw new Error('File is empty or too large');
+    const accepted = !allowedMimePrefixes.length || allowedMimePrefixes.some((prefix) => contentType.startsWith(prefix));
+    const looksLikeMp4 = buffer.length > 12 && buffer.toString('ascii', 4, 8) === 'ftyp';
+    if (!accepted && !(allowedMimePrefixes.includes('video/') && looksLikeMp4)) {
+      throw new Error(`Downloaded file type is not supported: ${contentType || 'unknown'}`);
+    }
+    return {
+      buffer,
+      mimeType: looksLikeMp4 && !contentType.startsWith('video/') ? 'video/mp4' : contentType,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function base64UploadBuffer(parsedUpload) {
   const match = String(parsedUpload?.dataUrl || '').match(/^data:([^;]+);base64,(.+)$/);
   if (!match) return null;
@@ -4472,6 +4675,26 @@ async function storeAvatarUrlToCos(req, user, avatarUrl, { petId = '', scope = '
     mimeType: prepared.mimeType,
     petId,
     scope,
+  });
+  return stored?.url || value;
+}
+
+async function storeAvatarAnimationUrlToCos(req, user, videoUrl, { petId = '' } = {}) {
+  const value = String(videoUrl || '').trim();
+  if (!value || value.startsWith('lumii://') || value.includes('/storage/objects/')) return value;
+  const downloaded = await downloadRemoteFileBuffer(value, {
+    allowedMimePrefixes: ['video/'],
+    maxBytes: PET_AVATAR_ANIMATION_MAX_BYTES,
+    timeoutMs: 45000,
+  });
+  if (!downloaded?.buffer?.length) return value;
+  const extension = mimeExtension(downloaded.mimeType, 'mp4');
+  const stored = await uploadBufferToCos(req, user, {
+    buffer: downloaded.buffer,
+    fileName: `avatar-animation-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${extension}`,
+    mimeType: downloaded.mimeType,
+    petId,
+    scope: 'pet-avatar-animation',
   });
   return stored?.url || value;
 }
@@ -9011,6 +9234,20 @@ function effectivePetAvatarProvider() {
   return currentOpsConfig().ai.avatar?.provider || PET_AVATAR_PROVIDER;
 }
 
+function effectivePetAvatarAnimationConfig() {
+  return currentOpsConfig().ai.avatarAnimation || defaultOpsConfig().ai.avatarAnimation;
+}
+
+function effectivePetAvatarAnimationProvider() {
+  const config = effectivePetAvatarAnimationConfig();
+  if (!config.enabled) return 'disabled';
+  return config.provider || PET_AVATAR_ANIMATION_PROVIDER;
+}
+
+function effectiveSeedanceAvatarAnimationConfig() {
+  return effectivePetAvatarAnimationConfig().seedance || defaultOpsConfig().ai.avatarAnimation.seedance;
+}
+
 function effectiveGptImage2AvatarConfig() {
   return currentOpsConfig().ai.avatar?.gptImage2 || defaultOpsConfig().ai.avatar.gptImage2;
 }
@@ -9411,6 +9648,11 @@ function mediaUploadFileUrl(req, mediaId) {
   return `${proto}://${host}/media/uploads/${encodeURIComponent(mediaId)}/file`;
 }
 
+function isGeneratedAvatarServerUri(uri) {
+  const value = String(uri || '').trim();
+  return !value || value.startsWith('lumii://');
+}
+
 function petPromptVariables(user, extra = {}) {
   const pet = selectedPetFor(user) || activePetFor(user);
   const species = pet?.species === 'cat' ? 'cat' : 'dog';
@@ -9555,6 +9797,61 @@ function gptImage2ResultUrlFrom(payload) {
     if (typeof image === 'string' && image) return image;
   }
   return data?.imageUrl || data?.image_url || payload?.imageUrl || payload?.image_url || '';
+}
+
+function seedanceVideoUrlFrom(payload) {
+  const data = payload?.data || payload || {};
+  const result = data?.result || payload?.result || {};
+  const videos = result?.videos || data?.videos || payload?.videos || [];
+  for (const video of Array.isArray(videos) ? videos : []) {
+    if (Array.isArray(video?.url) && video.url[0]) return video.url[0];
+    if (typeof video?.url === 'string' && video.url) return video.url;
+    if (typeof video?.video_url === 'string' && video.video_url) return video.video_url;
+    if (typeof video?.videoUrl === 'string' && video.videoUrl) return video.videoUrl;
+    if (typeof video?.download_url === 'string' && video.download_url) return video.download_url;
+    if (typeof video === 'string' && video) return video;
+  }
+  return result?.videoUrl || result?.video_url || data?.videoUrl || data?.video_url || payload?.videoUrl || payload?.video_url || '';
+}
+
+function apimartVideoNetworkError(error) {
+  if (error?.name === 'AbortError') return 'APIMart video request timed out';
+  const cause = error?.cause || {};
+  const code = cause.code || error?.code || '';
+  if (code) return `APIMart video upstream network error: ${code}`;
+  return `APIMart video upstream network error: ${error?.message || 'request failed'}`;
+}
+
+async function apimartVideoRequest(pathname, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(options.timeoutMs || 90000));
+  let response;
+  try {
+    response = await fetch(`${APIMART_BASE_URL}${pathname}`, {
+      method: options.method || 'GET',
+      headers: {
+        Authorization: `Bearer ${APIMART_API_KEY}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const wrapped = new Error(apimartVideoNetworkError(error));
+    wrapped.cause = error;
+    throw wrapped;
+  } finally {
+    clearTimeout(timeout);
+  }
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || (payload.code && Number(payload.code) !== 200)) {
+    const message = payload?.error?.message || payload?.message || `APIMart video request failed: ${response.status}`;
+    const error = new Error(message);
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
 }
 
 function nextProcessingProgress(current, remoteProgress) {
@@ -9753,6 +10050,323 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
 function avatarJobForUser(user, jobId) {
   const job = state.avatarJobs[jobId];
   return job && job.ownerPhone === user.phone ? job : null;
+}
+
+const AVATAR_ANIMATION_JOB_START_TIMEOUT_MS = 2 * 60 * 1000;
+const AVATAR_ANIMATION_JOB_STATUS_TIMEOUT_MS = 20 * 60 * 1000;
+const AVATAR_ANIMATION_JOB_RECOVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function touchAvatarAnimationJob(job) {
+  if (job) job.updatedAt = Date.now();
+  return job;
+}
+
+function petAvatarAnimationPromptVariables(user, pet, extra = {}) {
+  const species = pet?.species === 'cat' ? 'cat' : pet?.species === 'dog' ? 'dog' : String(pet?.species || 'pet');
+  const breedText = String(pet?.breed || '').trim();
+  const breed = breedText || species;
+  return {
+    breed,
+    petName: pet?.name || '',
+    sourceAvatarUrl: extra.sourceAvatarUrl || '',
+    species,
+    speciesLabel: petSpeciesLabel(species),
+  };
+}
+
+function buildAvatarAnimationPrompt(user, pet, sourceAvatarUrl) {
+  const config = effectiveSeedanceAvatarAnimationConfig();
+  const variables = petAvatarAnimationPromptVariables(user, pet, { sourceAvatarUrl });
+  const template = variables.species === 'dog'
+    ? config.dogPromptTemplate
+    : variables.species === 'cat'
+      ? config.catPromptTemplate
+      : config.defaultPromptTemplate;
+  const prompt = renderAiPromptTemplate(template, variables);
+  const negativePrompt = renderAiPromptTemplate(config.negativePromptTemplate, variables);
+  return [prompt, negativePrompt ? `Avoid:\n${negativePrompt}` : ''].filter(Boolean).join('\n\n');
+}
+
+function createAvatarAnimationJob({ avatarJob, pet, sourceAvatarUrl, user }) {
+  const id = `anim-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const provider = effectivePetAvatarAnimationProvider();
+  const seedance = effectiveSeedanceAvatarAnimationConfig();
+  const job = {
+    aspectRatio: '1:1',
+    avatarJobId: avatarJob?.id || '',
+    createdAt: Date.now(),
+    duration: 4,
+    id,
+    model: seedance.model,
+    ownerPhone: user.phone,
+    petId: pet?.id || '',
+    petName: pet?.name || '',
+    progress: provider === 'mock' ? 100 : 2,
+    provider,
+    providerStatus: provider === 'mock' ? 'mock_ready' : 'queued',
+    resolution: '480p',
+    sourceAvatarUrl,
+    status: provider === 'mock' ? 'ready' : 'processing',
+    updatedAt: Date.now(),
+  };
+  if (provider === 'mock') {
+    job.videoUrl = sourceAvatarUrl;
+    job.resultUrl = sourceAvatarUrl;
+    job.readyAt = new Date().toISOString();
+  }
+  state.avatarAnimationJobs = state.avatarAnimationJobs || {};
+  state.avatarAnimationJobs[id] = job;
+  return job;
+}
+
+function publicAvatarAnimationJob(job) {
+  if (!job) return null;
+  return {
+    aspectRatio: job.aspectRatio || '1:1',
+    avatarJobId: job.avatarJobId || '',
+    createdAt: job.createdAt,
+    duration: Number(job.duration || 4),
+    errorCode: job.errorCode || '',
+    errorMessage: job.errorMessage || '',
+    id: job.id,
+    model: job.model || '',
+    petId: job.petId || '',
+    petName: job.petName || '',
+    progress: Math.max(0, Math.min(100, Number(job.progress || 0))),
+    provider: job.provider || '',
+    providerStatus: job.providerStatus || '',
+    resolution: job.resolution || '480p',
+    sourceAvatarUrl: job.sourceAvatarUrl || '',
+    status: job.status || 'processing',
+    updatedAt: job.updatedAt,
+    videoUrl: job.videoUrl || job.resultUrl || '',
+  };
+}
+
+function latestAvatarAnimationJobForUser(user, petIdInput) {
+  const petId = String(petIdInput || '').trim();
+  const cutoff = Date.now() - AVATAR_ANIMATION_JOB_RECOVERY_TTL_MS;
+  return Object.values(state.avatarAnimationJobs || {})
+    .filter((job) => job && job.ownerPhone === user.phone)
+    .filter((job) => !petId || job.petId === petId)
+    .filter((job) => Number(job.updatedAt || job.createdAt || 0) >= cutoff)
+    .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))[0] || null;
+}
+
+function avatarAnimationJobForUser(user, jobId) {
+  const job = state.avatarAnimationJobs?.[jobId];
+  return job && job.ownerPhone === user.phone ? job : null;
+}
+
+function seedanceAvatarAnimationTaskIdFrom(payload) {
+  return gptImage2TaskIdFrom(payload);
+}
+
+function markAvatarAnimationFailure(job, code, message, providerStatus = 'failed') {
+  job.errorCode = code;
+  job.errorMessage = message || '灵伴动效生成失败，请稍后重试。';
+  job.progress = Math.max(2, Number(job.progress || 2));
+  job.providerStatus = providerStatus;
+  job.status = 'failed';
+  touchAvatarAnimationJob(job);
+  state.aiUsage = state.aiUsage || createInitialState().aiUsage;
+  state.aiUsage.avatarAnimation = state.aiUsage.avatarAnimation || createInitialState().aiUsage.avatarAnimation;
+  state.aiUsage.avatarAnimation.failed += 1;
+  return job;
+}
+
+async function startSeedanceAvatarAnimationJob(user, job) {
+  if (!APIMART_API_KEY) throw new Error('APIMart video key is not configured');
+  if (!/^https?:\/\//i.test(job.sourceAvatarUrl || '')) throw new Error('Public source avatar URL is not available for video generation');
+  const pet = user.pets?.find((item) => item.id === job.petId) || selectedPetFor(user);
+  const providerConfig = effectiveSeedanceAvatarAnimationConfig();
+  const prompt = buildAvatarAnimationPrompt(user, pet, job.sourceAvatarUrl);
+  Object.assign(job, {
+    model: providerConfig.model,
+    progress: 2,
+    provider: 'doubao-seedance-1-5-pro',
+    providerStatus: 'submitting',
+    promptVersion: 'ops-config-seedance-avatar-animation',
+    status: 'processing',
+  });
+  touchAvatarAnimationJob(job);
+  const payload = await apimartVideoRequest('/v1/videos/generations', {
+    method: 'POST',
+    body: {
+      aspect_ratio: '1:1',
+      audio: false,
+      camerafixed: providerConfig.cameraFixed !== false,
+      duration: 4,
+      image_urls: [job.sourceAvatarUrl],
+      model: providerConfig.model,
+      prompt,
+      resolution: '480p',
+    },
+  });
+  const providerJobId = seedanceAvatarAnimationTaskIdFrom(payload);
+  if (!providerJobId) throw new Error('Seedance did not return a task id');
+  state.aiUsage = state.aiUsage || createInitialState().aiUsage;
+  state.aiUsage.avatarAnimation = state.aiUsage.avatarAnimation || createInitialState().aiUsage.avatarAnimation;
+  state.aiUsage.avatarAnimation.requests += 1;
+  Object.assign(job, {
+    progress: 10,
+    providerJobId,
+    providerStatus: payload?.data?.[0]?.status || payload?.data?.status || payload.status || 'submitted',
+    status: 'processing',
+  });
+  touchAvatarAnimationJob(job);
+}
+
+async function startAvatarAnimationJobInBackground(reqSnapshot, user, job) {
+  try {
+    const provider = effectivePetAvatarAnimationProvider();
+    if (provider === 'disabled') {
+      markAvatarAnimationFailure(job, 'AVATAR_ANIMATION_DISABLED', '灵伴动效生成未启用。', 'disabled');
+    } else if (provider === 'mock') {
+      job.progress = 100;
+      job.provider = 'mock';
+      job.providerStatus = 'mock_ready';
+      job.readyAt = new Date().toISOString();
+      job.status = 'ready';
+      job.videoUrl = job.sourceAvatarUrl;
+      touchAvatarAnimationJob(job);
+    } else if (provider === 'doubao-seedance-1-5-pro') {
+      await startSeedanceAvatarAnimationJob(user, job);
+    } else {
+      markAvatarAnimationFailure(job, 'AVATAR_ANIMATION_PROVIDER_UNAVAILABLE', '灵伴动效生成服务暂不可用，请稍后重试。', provider || 'unavailable');
+    }
+    job.submittedAt = Date.now();
+    touchAvatarAnimationJob(job);
+  } catch (error) {
+    markAvatarAnimationFailure(job, 'AVATAR_ANIMATION_PROVIDER_START_FAILED', avatarStartFailureMessage(error).replace('AI 灵伴生成', '灵伴动效生成').replace('AI 图像服务', 'AI 视频服务'), 'submit_failed');
+    console.warn('[avatar-animation] background start failed', {
+      jobId: job.id,
+      message: job.errorMessage,
+      provider: job.provider,
+    });
+  } finally {
+    saveState();
+  }
+}
+
+function queueAvatarAnimationStart(req, user, job) {
+  const reqSnapshot = requestSnapshotForAvatarJob(req);
+  setTimeout(() => {
+    void startAvatarAnimationJobInBackground(reqSnapshot, user, job);
+  }, 0);
+}
+
+function ensureAvatarAnimationJob(req, user, pet, avatarJob, sourceAvatarUrl) {
+  if (effectivePetAvatarAnimationProvider() === 'disabled') return null;
+  const value = String(sourceAvatarUrl || '').trim();
+  if (!pet?.id || !/^https?:\/\//i.test(value)) return null;
+  const existing = latestAvatarAnimationJobForUser(user, pet.id);
+  if (existing && existing.sourceAvatarUrl === value && ['processing', 'ready'].includes(existing.status)) return existing;
+  const job = createAvatarAnimationJob({ avatarJob, pet, sourceAvatarUrl: value, user });
+  pet.avatarAnimationJobId = job.id;
+  pet.avatarAnimationStatus = job.status;
+  pet.avatarAnimationUrl = job.videoUrl || pet.avatarAnimationUrl || '';
+  if (job.status === 'processing') queueAvatarAnimationStart(req, user, job);
+  return job;
+}
+
+async function refreshSeedanceAvatarAnimationJob(req, user, job) {
+  if (!job.providerJobId) {
+    const ageMs = Date.now() - Number(job.createdAt || Date.now());
+    if (ageMs >= AVATAR_ANIMATION_JOB_START_TIMEOUT_MS) {
+      return markAvatarAnimationFailure(job, 'AVATAR_ANIMATION_PROVIDER_START_TIMEOUT', '灵伴动效生成任务提交超时，请重新生成。', 'submit_timeout');
+    }
+    job.progress = Math.min(12, Math.max(2, Number(job.progress || 2) + 2));
+    job.providerStatus = job.providerStatus || 'queued';
+    job.status = 'processing';
+    touchAvatarAnimationJob(job);
+    return job;
+  }
+  const payload = await apimartVideoRequest(`/v1/tasks/${encodeURIComponent(job.providerJobId)}?language=zh`, {
+    method: 'GET',
+  });
+  const data = payload?.data || {};
+  const status = String(data.status || payload.status || '').toLowerCase();
+  job.providerStatus = status || job.providerStatus;
+  job.lastStatusCheckedAt = Date.now();
+  job.lastStatusError = '';
+  job.statusErrorCount = 0;
+
+  if (status === 'completed' || status === 'succeeded' || status === 'success') {
+    const resultUrl = seedanceVideoUrlFrom(payload);
+    if (!resultUrl) throw new Error('Seedance result does not include a video URL');
+    let finalResultUrl = resultUrl;
+    try {
+      finalResultUrl = await storeAvatarAnimationUrlToCos(req, user, resultUrl, { petId: job.petId || '' });
+      if (finalResultUrl && finalResultUrl !== resultUrl) job.sourceResultUrl = resultUrl;
+    } catch (error) {
+      console.warn('[avatar-animation:seedance] result storage skipped', {
+        jobId: job.id,
+        message: error.message || String(error),
+      });
+      finalResultUrl = resultUrl;
+    }
+    job.progress = 100;
+    job.resultUrl = finalResultUrl;
+    job.status = 'ready';
+    job.videoUrl = finalResultUrl;
+    job.readyAt = new Date().toISOString();
+    const pet = user.pets?.find((item) => item.id === job.petId);
+    if (pet) {
+      pet.avatarAnimationJobId = job.id;
+      pet.avatarAnimationStatus = 'ready';
+      pet.avatarAnimationUpdatedAt = job.readyAt;
+      pet.avatarAnimationUrl = finalResultUrl;
+    }
+    touchAvatarAnimationJob(job);
+    state.aiUsage = state.aiUsage || createInitialState().aiUsage;
+    state.aiUsage.avatarAnimation = state.aiUsage.avatarAnimation || createInitialState().aiUsage.avatarAnimation;
+    if (!job.usageRecorded) {
+      state.aiUsage.avatarAnimation.succeeded += 1;
+      job.usageRecorded = true;
+    }
+    return job;
+  }
+
+  if (status === 'failed' || status === 'error' || status === 'cancelled' || status === 'canceled') {
+    return markAvatarAnimationFailure(job, 'AVATAR_ANIMATION_PROVIDER_FAILED', data?.error?.message || payload?.error?.message || payload?.message || 'Seedance generation failed', status || 'failed');
+  }
+
+  const ageMs = Date.now() - Number(job.createdAt || Date.now());
+  if (ageMs >= AVATAR_ANIMATION_JOB_STATUS_TIMEOUT_MS) {
+    return markAvatarAnimationFailure(job, 'AVATAR_ANIMATION_PROVIDER_TIMEOUT', '灵伴动效生成超时，上游视频任务长时间未返回结果，请稍后重新生成。', status || 'processing_timeout');
+  }
+
+  job.progress = nextProcessingProgress(job.progress, data.progress);
+  job.status = 'processing';
+  touchAvatarAnimationJob(job);
+  return job;
+}
+
+async function refreshAvatarAnimationJob(req, user, job) {
+  if (!job || job.status !== 'processing') return job;
+  try {
+    if (job.provider === 'doubao-seedance-1-5-pro') {
+      await refreshSeedanceAvatarAnimationJob(req, user, job);
+    } else if (job.provider === 'mock') {
+      job.progress = 100;
+      job.status = 'ready';
+      job.videoUrl = job.videoUrl || job.sourceAvatarUrl;
+      touchAvatarAnimationJob(job);
+    }
+  } catch (error) {
+    job.lastStatusError = avatarRefreshFailureMessage(error).replace('AI 图像服务', 'AI 视频服务');
+    job.lastStatusCheckedAt = Date.now();
+    job.statusErrorCount = Number(job.statusErrorCount || 0) + 1;
+    const ageMs = Date.now() - Number(job.createdAt || Date.now());
+    if (ageMs >= AVATAR_ANIMATION_JOB_STATUS_TIMEOUT_MS) {
+      markAvatarAnimationFailure(job, 'AVATAR_ANIMATION_PROVIDER_STATUS_TIMEOUT', '灵伴动效生成超时，上游视频任务长时间未返回结果，请稍后重新生成。', 'status_timeout');
+      return job;
+    }
+    job.progress = Math.min(98, Math.max(10, Number(job.progress || 10) + 3));
+    touchAvatarAnimationJob(job);
+  }
+  return job;
 }
 
 const avatarFeedbackReasons = new Set(['color', 'expression', 'face_shape', 'not_same_pet', 'other', 'style']);
@@ -13334,6 +13948,7 @@ function adminUserBusinessDataSummary(phone) {
     }, 0);
   const mediaIds = new Set(Object.values(state.mediaUploads || {}).filter((item) => item?.ownerPhone === normalizedPhone).map((item) => item.mediaId).filter(Boolean));
   const avatarJobs = Object.values(state.avatarJobs || {}).filter((job) => job?.ownerPhone === normalizedPhone || mediaIds.has(job?.mediaId));
+  const avatarAnimationJobs = Object.values(state.avatarAnimationJobs || {}).filter((job) => job?.ownerPhone === normalizedPhone || mediaIds.has(job?.mediaId));
   const healthStoreCount = ['weights', 'vaccines', 'memos', 'vaccineReminders'].reduce((sum, key) => (
     sum + Object.keys(state.health?.[key] || {}).filter((itemKey) => itemKey.startsWith(healthPrefix)).length
   ), 0);
@@ -13341,6 +13956,7 @@ function adminUserBusinessDataSummary(phone) {
   const supportTicketCount = (state.supportTickets || []).filter((item) => item.phone === normalizedPhone || feedbackIds.has(item.sourceId)).length;
   return {
     aiAvatarDailyUsage: state.petAvatarDailyUsage?.[normalizedPhone] ? 1 : 0,
+    avatarAnimationJobs: avatarAnimationJobs.length,
     avatarJobs: avatarJobs.length,
     conversations: conversationCount,
     conversationMessages: conversationMessageCount,
@@ -13393,6 +14009,7 @@ function adminClearUserBusinessData(admin, phone, body = {}) {
   });
   deleteObjectKeysByPredicate(state.petChatMessages, (key) => key.startsWith(healthPrefix));
   deleteObjectKeysByPredicate(state.mediaUploads, (_key, item) => item?.ownerPhone === normalizedPhone);
+  deleteObjectKeysByPredicate(state.avatarAnimationJobs, (_key, job) => job?.ownerPhone === normalizedPhone || mediaIds.has(job?.mediaId));
   deleteObjectKeysByPredicate(state.avatarJobs, (_key, job) => job?.ownerPhone === normalizedPhone || mediaIds.has(job?.mediaId));
   deleteObjectKeysByPredicate(state.moderationTaskMeta, (taskId) => moderationTaskMetaBelongsToClearedUser(taskId, ids));
   if (state.petAvatarDailyUsage) delete state.petAvatarDailyUsage[normalizedPhone];
@@ -14243,6 +14860,9 @@ function adminSystemHealth() {
   const avatarJobs = Object.values(state.avatarJobs || {});
   const processingAvatarJobs = avatarJobs.filter((job) => job.status === 'processing');
   const stuckAvatarJobs = processingAvatarJobs.filter((job) => now - analyticsTimeMs(job.updatedAt || job.createdAt) > 5 * 60 * 1000);
+  const avatarAnimationJobs = Object.values(state.avatarAnimationJobs || {});
+  const processingAvatarAnimationJobs = avatarAnimationJobs.filter((job) => job.status === 'processing');
+  const stuckAvatarAnimationJobs = processingAvatarAnimationJobs.filter((job) => now - analyticsTimeMs(job.updatedAt || job.createdAt) > 10 * 60 * 1000);
   const moderation = adminModerationTasks({ status: 'all' }).summary;
   const tickets = adminSupportTickets({ status: 'all' }).summary;
   const appeals = adminSanctionAppeals({ status: 'all' }).summary;
@@ -14260,8 +14880,10 @@ function adminSystemHealth() {
     adminCheckStatus(AMAP_WEB_SERVICE_KEY ? 'ok' : 'warn', 'amap', '高德 POI', AMAP_WEB_SERVICE_KEY ? 'Web Service Key 已配置' : '未配置高德 Web Service Key，地点搜索会降级', AMAP_WEB_SERVICE_BASE_URL),
     adminCheckStatus(DEEPSEEK_API_KEY ? 'ok' : 'warn', 'deepseek', 'DeepSeek 对话', DEEPSEEK_API_KEY ? 'AI 对话密钥已配置' : '未配置 DeepSeek 密钥，可能使用回退逻辑', effectiveDeepSeekChatConfig().model),
     adminCheckStatus(effectivePetAvatarProvider() === 'mock' ? 'warn' : effectivePetAvatarProvider() === 'gpt-image-2' && !GPT_IMAGE2_API_KEY ? 'bad' : 'ok', 'pet_avatar_provider', '灵伴形象生成', effectivePetAvatarProvider() === 'mock' ? '当前使用 mock provider' : `当前 provider：${effectivePetAvatarProvider()}`, `gpt-image-2 key=${GPT_IMAGE2_API_KEY ? 'set' : 'missing'} resolution=${effectiveGptImage2AvatarConfig().resolution}`),
+    adminCheckStatus(effectivePetAvatarAnimationProvider() === 'disabled' ? 'warn' : effectivePetAvatarAnimationProvider() === 'doubao-seedance-1-5-pro' && !APIMART_API_KEY ? 'bad' : 'ok', 'pet_avatar_animation_provider', '灵伴动效生成', effectivePetAvatarAnimationProvider() === 'disabled' ? '当前已关闭动效生成' : `当前 provider：${effectivePetAvatarAnimationProvider()}`, `apimart key=${APIMART_API_KEY ? 'set' : 'missing'} ${effectiveSeedanceAvatarAnimationConfig().duration}s/${effectiveSeedanceAvatarAnimationConfig().aspectRatio}/${effectiveSeedanceAvatarAnimationConfig().resolution}`),
     adminCheckStatus(PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL ? 'ok' : 'warn', 'public_media_base', '媒体公开访问域名', PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL ? '已配置公开访问 base URL' : '未配置公开访问 base URL，部分媒体 URL 依赖请求 Host', 'PET_AVATAR_PUBLIC_BASE_URL / LUMII_PUBLIC_BASE_URL'),
     adminCheckStatus(stuckAvatarJobs.length ? 'warn' : 'ok', 'avatar_queue', 'AI 任务队列', stuckAvatarJobs.length ? `${stuckAvatarJobs.length} 个生成任务可能卡住` : '暂无卡住的生成任务', `${processingAvatarJobs.length} processing / ${avatarJobs.length} total`),
+    adminCheckStatus(stuckAvatarAnimationJobs.length ? 'warn' : 'ok', 'avatar_animation_queue', '动效任务队列', stuckAvatarAnimationJobs.length ? `${stuckAvatarAnimationJobs.length} 个动效任务可能卡住` : '暂无卡住的动效任务', `${processingAvatarAnimationJobs.length} processing / ${avatarAnimationJobs.length} total`),
     adminCheckStatus(Number(tickets.overdue || 0) ? 'warn' : 'ok', 'support_sla', '客服 SLA', Number(tickets.overdue || 0) ? `${tickets.overdue} 个工单已超时` : '暂无超时工单', `${tickets.open || 0} open / ${tickets.all || 0} all`),
   ];
   const bad = checks.filter((item) => item.status === 'bad').length;
@@ -14275,16 +14897,18 @@ function adminSystemHealth() {
       { key: 'users', label: '用户', rows: countObject(state.users) },
       { key: 'mediaUploads', label: '媒体上传', rows: countObject(state.mediaUploads) },
       { key: 'avatarJobs', label: 'AI 任务', rows: countObject(state.avatarJobs) },
+      { key: 'avatarAnimationJobs', label: '动效任务', rows: countObject(state.avatarAnimationJobs) },
       { key: 'adminAuditLogs', label: '审计日志', rows: countArray(state.adminAuditLogs) },
       { key: 'appEvents', label: '移动端事件', rows: countArray(state.appEvents) },
       { key: 'notifications', label: '通知记录', rows: countNotificationRows },
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'public_media_base'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_media_base'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
+      { detail: `${processingAvatarAnimationJobs.length} 处理中 / ${avatarAnimationJobs.length} 总任务`, label: '灵伴动效生成', status: stuckAvatarAnimationJobs.length ? 'warn' : 'ok', value: stuckAvatarAnimationJobs.length },
       { detail: `${moderation.pending || 0} 待处理 / ${moderation.escalated || 0} 已升级`, label: '内容安全任务', status: moderation.escalated ? 'warn' : 'ok', value: moderation.pending || 0 },
       { detail: `${moderation.sampleUnreviewed || 0} 待复审 / ${moderation.qualitySamples || 0} 抽样`, label: '内容安全样本', status: moderation.sampleUnreviewed ? 'warn' : 'ok', value: moderation.sampleUnreviewed || 0 },
       { detail: `${tickets.open || 0} 未关闭 / ${tickets.overdue || 0} 已超时`, label: '客服工单', status: tickets.overdue ? 'warn' : 'ok', value: tickets.open || 0 },
@@ -21229,6 +21853,7 @@ async function handle(req, res) {
     } catch {
       pet.avatarUrl = incomingAvatarUrl;
     }
+    ensureAvatarAnimationJob(req, user, pet, null, pet.avatarUrl);
     saveState();
     ok(res, pet);
     return;
@@ -21340,6 +21965,68 @@ async function handle(req, res) {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/ai/pet-avatar/animation/latest') {
+    const petId = url.searchParams.get('petId') || selectedPetFor(user)?.id || '';
+    const job = latestAvatarAnimationJobForUser(user, petId);
+    if (!job) {
+      const pet = user.pets?.find((item) => item.id === petId) || selectedPetFor(user);
+      if (pet?.avatarAnimationUrl) {
+        ok(res, {
+          aspectRatio: '1:1',
+          duration: 4,
+          id: pet.avatarAnimationJobId || `pet-animation-${pet.id}`,
+          petId: pet.id,
+          petName: pet.name,
+          progress: 100,
+          provider: 'stored',
+          providerStatus: 'ready',
+          resolution: '480p',
+          status: 'ready',
+          videoUrl: pet.avatarAnimationUrl,
+        });
+        return;
+      }
+      ok(res, null);
+      return;
+    }
+    await refreshAvatarAnimationJob(req, user, job);
+    saveState();
+    ok(res, publicAvatarAnimationJob(job));
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/ai/pet-avatar/animation') {
+    if (failIfFeatureDisabled(res, 'aiAvatar', 'AI 灵伴形象')) return;
+    const petId = String(body.petId || selectedPetFor(user)?.id || '').trim();
+    const pet = user.pets?.find((item) => item.id === petId) || selectedPetFor(user);
+    if (!pet) {
+      fail(res, 400, '请先添加宠物档案', false);
+      return;
+    }
+    if (!pet.avatarUrl || isGeneratedAvatarServerUri(pet.avatarUrl)) {
+      fail(res, 400, '请先生成并保存静态灵伴形象', true);
+      return;
+    }
+    const job = ensureAvatarAnimationJob(req, user, pet, null, pet.avatarUrl);
+    saveState();
+    ok(res, publicAvatarAnimationJob(job));
+    return;
+  }
+
+  const avatarAnimationJobMatch = pathname.match(/^\/ai\/pet-avatar\/animation\/([^/]+)$/);
+  if (req.method === 'GET' && avatarAnimationJobMatch) {
+    const id = decodeURIComponent(avatarAnimationJobMatch[1]);
+    const job = avatarAnimationJobForUser(user, id);
+    if (!job) {
+      fail(res, 404, '动效生成任务不存在', true);
+      return;
+    }
+    await refreshAvatarAnimationJob(req, user, job);
+    saveState();
+    ok(res, publicAvatarAnimationJob(job));
+    return;
+  }
+
   const avatarJobMatch = pathname.match(/^\/ai\/pet-avatar\/jobs\/([^/]+)$/);
   if (req.method === 'GET' && avatarJobMatch) {
     const id = decodeURIComponent(avatarJobMatch[1]);
@@ -21420,8 +22107,10 @@ async function handle(req, res) {
       } catch {
         pet.avatarUrl = job.resultUrl;
       }
+      const animationJob = ensureAvatarAnimationJob(req, user, pet, job, pet.avatarUrl);
       job.acceptedAt = new Date().toISOString();
       job.acceptedPetId = pet.id;
+      if (animationJob) job.avatarAnimationJobId = animationJob.id;
       touchAvatarJob(job);
       user.activePetId = pet.id;
       saveState();

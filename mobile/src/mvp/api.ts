@@ -7,6 +7,7 @@ import type {
   AppRemoteConfig,
   AiUsageSummary,
   AvatarGenerationFeedbackReason,
+  AvatarAnimationJob,
   AuthSession,
   AvatarJob,
   ChatMessage,
@@ -295,6 +296,19 @@ function createHttpApi(baseUrl: string): LumiiApi {
       async getLatestGeneration(petId?: string): Promise<ApiResult<AvatarJob | null>> {
         const query = petId ? `?petId=${encodeURIComponent(petId)}` : '';
         return request<AvatarJob | null>('GET', `/ai/pet-avatar/jobs/latest${query}`, undefined, { timeoutMs: avatarStatusRequestTimeoutMs });
+      },
+
+      async getLatestAnimation(petId?: string): Promise<ApiResult<AvatarAnimationJob | null>> {
+        const query = petId ? `?petId=${encodeURIComponent(petId)}` : '';
+        return request<AvatarAnimationJob | null>('GET', `/ai/pet-avatar/animation/latest${query}`, undefined, { timeoutMs: avatarStatusRequestTimeoutMs });
+      },
+
+      async getAnimationStatus(id: string): Promise<ApiResult<AvatarAnimationJob>> {
+        return request<AvatarAnimationJob>('GET', `/ai/pet-avatar/animation/${encodeURIComponent(id)}`, undefined, { timeoutMs: avatarStatusRequestTimeoutMs });
+      },
+
+      async startAnimation(petId?: string): Promise<ApiResult<AvatarAnimationJob | null>> {
+        return request<AvatarAnimationJob | null>('POST', '/ai/pet-avatar/animation', petId ? { petId } : undefined, { timeoutMs: avatarStartRequestTimeoutMs });
       },
 
       async retryGeneration(jobId: string): Promise<ApiResult<AvatarJob>> {
