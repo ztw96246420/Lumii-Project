@@ -552,8 +552,11 @@ async function onContentClick(event) {
     if (action === 'notification-template-delete') await confirmPost(`/admin/notifications/templates/${encodeURIComponent(id)}/delete`, { reason: '删除通知模板' }, '确认删除这个通知模板？');
     if (action === 'notification-audience-save') await saveNotificationAudiencePackage();
     if (action === 'notification-audience-delete') await confirmPost(`/admin/notifications/audience-packages/${encodeURIComponent(id)}/delete`, { reason: '删除通知人群包' }, '确认删除这个通知人群包？');
+    if (action === 'notification-approve') await approveNotificationCampaign(id);
     if (action === 'notification-cancel') await cancelNotificationCampaign(id, button.dataset.status);
     if (action === 'send-notification') await sendSystemNotification('send');
+    if (action === 'submit-notification-approval') await sendSystemNotification('approval');
+    if (action === 'submit-notification-schedule-approval') await sendSystemNotification('approval_scheduled');
     if (action === 'save-notification-draft') await sendSystemNotification('draft');
     if (action === 'schedule-notification') await sendSystemNotification('scheduled');
     if (action === 'save-config') {
@@ -1492,10 +1495,17 @@ async function saveNotificationAudiencePackage() {
 }
 
 async function cancelNotificationCampaign(id, status) {
-  const label = status === 'sent' ? '撤回已发送通知' : status === 'scheduled' ? '取消预约通知' : '作废通知草稿';
+  const label = status === 'sent' ? '撤回已发送通知' : status === 'scheduled' ? '取消预约通知' : status === 'pending_approval' ? '作废待审批通知' : '作废通知草稿';
   const reason = window.prompt('请输入处理原因', label);
   if (reason === null) return;
   await post(`/admin/notifications/${encodeURIComponent(id)}/cancel`, { reason: reason.trim() || label });
+  state.cache.notifications = null;
+}
+
+async function approveNotificationCampaign(id) {
+  const reason = window.prompt('请输入审批说明', '审批通过系统通知');
+  if (reason === null) return;
+  await post(`/admin/notifications/${encodeURIComponent(id)}/approve`, { reason: reason.trim() || '审批通过系统通知' });
   state.cache.notifications = null;
 }
 
@@ -1510,15 +1520,18 @@ async function sendSystemNotification(mode = 'send') {
   if (mode !== 'draft' && target === 'phones' && !phones) throw new Error('请填写目标手机号');
   if (mode !== 'draft' && target === 'audience_package' && !audiencePackageId) throw new Error('请选择通知人群包');
   const scheduledAt = valueOf('notifyScheduledAt');
-  if (mode === 'scheduled' && !scheduledAt) throw new Error('请选择预约发送时间');
+  if ((mode === 'scheduled' || mode === 'approval_scheduled') && !scheduledAt) throw new Error('请选择预约发送时间');
+  const postMode = mode === 'approval_scheduled' ? 'approval' : mode;
+  const intendedMode = mode === 'approval_scheduled' ? 'scheduled' : mode === 'approval' ? 'send' : '';
   await post('/admin/notifications/system', {
     actionRoute: valueOf('notifyActionRoute'),
     audiencePackageId,
     deepLinkId: valueOf('notifyDeepLinkId'),
     deepLinkType: valueOf('notifyDeepLinkType'),
-    mode,
+    intendedMode,
+    mode: postMode,
     phones,
-    reason: mode === 'scheduled' ? '预约发送系统通知' : mode === 'draft' ? '保存系统通知草稿' : '发送系统通知',
+    reason: mode === 'approval_scheduled' ? '提交预约系统通知审批' : mode === 'approval' ? '提交系统通知审批' : mode === 'scheduled' ? '预约发送系统通知' : mode === 'draft' ? '保存系统通知草稿' : '发送系统通知',
     respectUserSettings: Boolean($('notifyRespectSettings')?.checked),
     scheduledAt,
     target,
@@ -4460,6 +4473,17 @@ function notificationDeepLinkLabel(item = {}) {
   return `${notificationDeepLinkTypeLabel(type) || '深链'}${id ? ` · ${id}` : ''}`;
 }
 
+function notificationCampaignStatusLabel(status) {
+  return {
+    canceled: '已作废',
+    draft: '草稿',
+    failed: '失败',
+    pending_approval: '待审批',
+    scheduled: '已预约',
+    sent: '已发送',
+  }[status] || status || '-';
+}
+
 function renderNotificationTemplate(template) {
   return `
     <article class="notification-template">
@@ -4512,8 +4536,9 @@ function renderNotificationAudiencePackage(item) {
 function renderNotificationCampaign(campaign) {
   const failed = (campaign.failedPhones || []).slice(0, 5).map(shortPhone).join('、');
   const phones = (campaign.targetPhones || []).length ? (campaign.targetPhones || []).slice(0, 6).map(shortPhone).join('、') : String(campaign.phonesInput || '').split(/[\s,，;；]+/).filter(Boolean).slice(0, 6).map(shortPhone).join('、');
-  const canCancel = ['draft', 'scheduled', 'sent'].includes(campaign.status);
-  const cancelLabel = campaign.status === 'sent' ? '撤回' : campaign.status === 'scheduled' ? '取消预约' : '作废草稿';
+  const canApprove = campaign.status === 'pending_approval';
+  const canCancel = ['draft', 'pending_approval', 'scheduled', 'sent'].includes(campaign.status);
+  const cancelLabel = campaign.status === 'sent' ? '撤回' : campaign.status === 'scheduled' ? '取消预约' : campaign.status === 'pending_approval' ? '作废审批' : '作废草稿';
   const deepLinkType = campaign.deepLinkType || (campaign.postId ? 'post' : campaign.placeId ? 'place' : campaign.submissionId ? 'submission' : campaign.ticketId ? 'ticket' : campaign.conversationId ? 'conversation' : campaign.memoId ? 'memo' : campaign.vaccineId ? 'vaccine' : '');
   const deepLinkLabel = notificationDeepLinkLabel(campaign);
   return `
@@ -4525,13 +4550,15 @@ function renderNotificationCampaign(campaign) {
             <div class="cell-sub">${escapeHtml(campaign.id)} · ${formatTime(campaign.createdAt)}</div>
           </div>
           <div class="ticket-status-row">
-            ${statusPill(campaign.status)}
+            ${statusPill(notificationCampaignStatusLabel(campaign.status))}
             ${statusPill(notificationTargetLabel(campaign.target))}
           </div>
         </div>
         <div class="ticket-content">${escapeHtml(campaign.text)}</div>
         <div class="moderation-meta">
           <span>发送人：${escapeHtml(campaign.createdBy || '-')}</span>
+          ${campaign.approvalRequestedAt ? `<span>提交审批：${formatTime(campaign.approvalRequestedAt)} · ${escapeHtml(campaign.approvalRequestedBy || '-')}</span>` : ''}
+          ${campaign.approvedAt ? `<span>审批：${formatTime(campaign.approvedAt)} · ${escapeHtml(campaign.approvedBy || '-')}</span>` : ''}
           ${campaign.audiencePackageName ? `<span>人群包：${escapeHtml(campaign.audiencePackageName)}</span>` : ''}
           <span>目标：${campaign.audienceCount || 0}</span>
           <span>送达：${campaign.deliveredCount || 0}</span>
@@ -4555,6 +4582,7 @@ function renderNotificationCampaign(campaign) {
           ${phones ? `<span class="risk-badge">样本 ${escapeHtml(phones)}</span>` : ''}
           ${failed ? `<span class="risk-badge">未入站 ${escapeHtml(failed)}</span>` : ''}
           ${campaign.failedReason ? `<span class="risk-badge">失败：${escapeHtml(campaign.failedReason)}</span>` : ''}
+          ${campaign.approvalReason ? `<span class="risk-badge">审批说明 ${escapeHtml(campaign.approvalReason)}</span>` : ''}
           ${campaign.revokedCount ? `<span class="risk-badge">已撤回 ${campaign.revokedCount}</span>` : ''}
         </div>
         <div class="notification-campaign-actions">
@@ -4571,6 +4599,7 @@ function renderNotificationCampaign(campaign) {
             data-text="${escapeHtml(campaign.text || '')}"
             data-title="${escapeHtml(campaign.title || '')}"
           >套用</button>
+          ${canApprove ? `<button class="small-button" data-action="notification-approve" data-id="${escapeHtml(campaign.id)}">审批发送</button>` : ''}
           ${canCancel ? `<button class="small-button danger" data-action="notification-cancel" data-id="${escapeHtml(campaign.id)}" data-status="${escapeHtml(campaign.status)}">${cancelLabel}</button>` : ''}
         </div>
       </div>
@@ -4593,6 +4622,7 @@ function configRevisionSummaryText(summary = {}) {
     `埋点 ${summary.analyticsEnabled === false ? '关' : `开/${summary.analyticsSampleRatePercent ?? 100}%`}`,
     `工单 ${summary.supportUrgentSlaHours ?? 2}/${summary.supportHighSlaHours ?? 8}h SLA`,
     `通知频控 ${summary.notificationRateLimitEnabled === false ? '关' : `${summary.notificationMaxCampaignsPerDay || 0}批/${summary.notificationMaxPerUserPerDay || 0}人次`}`,
+    `通知审批 ${summary.notificationRequireApproval ? '开' : '关'}`,
     ...toggles,
   ].join(' · ');
 }
@@ -4714,6 +4744,7 @@ async function renderNotifications(force) {
   const devices = data.devices || [];
   const rateLimit = data.rateLimit || {};
   const templates = data.templates || [];
+  const approvalRequired = Boolean(summary.approvalRequired);
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('发送批次', summary.campaigns || 0, '系统通知历史', '每次后台发送系统通知都会形成一条发送记录，并写入审计日志。')}
@@ -4722,7 +4753,8 @@ async function renderNotifications(force) {
       ${metric('用户总数', summary.users || 0, `${summary.activeToday || 0} 今日活跃`, '“今日活跃用户”目标按 lastSeenAt 近 24 小时计算。')}
       ${metric('推送设备', summary.devices || 0, '已登记 token', '当前只是设备登记和站内通知记录；真实厂商推送服务后续可接入。')}
       ${metric('人群包', summary.audiencePackages || audiencePackages.length, '灰度触达', '保存测试手机号、灰度用户和补偿用户，发送时按当前注册用户重新计算可触达范围。')}
-      ${metric('待处理', (summary.drafts || 0) + (summary.scheduled || 0), `${summary.drafts || 0} 草稿 · ${summary.scheduled || 0} 预约`, '草稿不会触达用户；预约通知到点后由服务自动写入 App 通知中心。')}
+      ${metric('待处理', (summary.drafts || 0) + (summary.scheduled || 0) + (summary.pendingApprovals || 0), `${summary.drafts || 0} 草稿 · ${summary.pendingApprovals || 0} 审批 · ${summary.scheduled || 0} 预约`, '草稿和待审批通知不会触达用户；审批通过后才会写入 App 通知中心或转为预约。')}
+      ${metric('审批保护', approvalRequired ? '已开启' : '未开启', approvalRequired ? '直接发送会被拦截' : '可直接发送', '开启后，立即发送和预约发送必须先提交审批，审批通过才触达移动端。')}
       ${metric('频控余量', rateLimit.enabled === false ? '未开启' : numberText(rateLimit.remainingCampaigns || 0), `24h ${numberText(rateLimit.campaignsLast24h || 0)}/${numberText(rateLimit.maxCampaignsPerDay || 0)} 批`, '系统通知发送前会检查 24 小时滚动窗口，超过批次上限会被后端拒绝入站。')}
       ${metric('单用户频控', rateLimit.enabled === false ? '未开启' : `${numberText(rateLimit.maxPerUserPerDay || 0)}/24h`, '超限用户会被跳过', '避免同一用户在一天内被运营系统通知反复打扰；审核、工单、处罚等业务通知不计入这个营销频控。')}
     </div>
@@ -4788,8 +4820,9 @@ async function renderNotifications(force) {
           <label>预约发送时间<input id="notifyScheduledAt" type="datetime-local" /></label>
           <label class="inline-check notification-check"><input id="notifyRespectSettings" type="checkbox" checked /> 尊重用户通知开关</label>
           <div class="notification-action-row">
-            <button class="primary-button" data-action="send-notification">立即发送</button>
-            <button class="small-button" data-action="schedule-notification">预约发送</button>
+            <button class="primary-button" data-action="${approvalRequired ? 'submit-notification-approval' : 'send-notification'}">${approvalRequired ? '提交审批' : '立即发送'}</button>
+            ${approvalRequired ? '' : '<button class="small-button" data-action="submit-notification-approval">提交审批</button>'}
+            <button class="small-button" data-action="${approvalRequired ? 'submit-notification-schedule-approval' : 'schedule-notification'}">${approvalRequired ? '预约审批' : '预约发送'}</button>
             <button class="small-button" data-action="save-notification-draft">保存草稿</button>
             <button class="small-button" data-action="notification-template-save">保存模板</button>
           </div>
@@ -4833,6 +4866,7 @@ async function renderNotifications(force) {
           <div><strong>深链对象</strong><span>可指定小事、地点、工单、备忘等对象 ID；后端会校验对象存在，移动端优先打开具体对象。</span></div>
           <div><strong>强制入站</strong><span>仅用于安全、封禁、维护等必须告知的信息。</span></div>
           <div><strong>草稿/预约</strong><span>草稿只保留在后台；预约到点后自动写入目标用户通知中心。</span></div>
+          <div><strong>发送审批</strong><span>提交审批不会触达用户；审批通过后才会立即发送或转为预约。</span></div>
           <div><strong>频控保护</strong><span>配置中心可限制 24 小时批次数和单用户入站次数，超限会跳过或失败。</span></div>
         </div>
       </div>
@@ -4939,13 +4973,14 @@ async function renderConfig(force) {
       <div class="config-section">
         <div class="section-head compact">
           <div>
-            <h2>系统通知频控</h2>
-            <div class="section-sub">保存后立即影响通知运营页的立即发送和预约到点发送，避免运营通知刷屏</div>
+            <h2>系统通知治理</h2>
+            <div class="section-sub">保存后立即影响通知运营页的发送、预约、审批和频控，避免误发或刷屏</div>
           </div>
-          ${help('这里只限制后台系统通知，不限制审核结果、工单回复、处罚申诉、疫苗提醒等业务通知。批次上限超出时整批失败；单用户上限超出时该用户被跳过。')}
+          ${help('这里只限制后台系统通知，不限制审核结果、工单回复、处罚申诉、疫苗提醒等业务通知。开启发送审批后，直接发送和预约发送会被后端拦截，需先提交审批。')}
         </div>
         <div class="switch-panel">
           ${featureCheckbox('cfgNotificationRateLimitEnabled', '启用系统通知频控', notifications.rateLimitEnabled !== false)}
+          ${featureCheckbox('cfgNotificationRequireApproval', '强制系统通知发送审批', Boolean(notifications.requireApproval))}
         </div>
         <div class="config-grid">
           <label>24 小时批次上限<input id="cfgNotificationMaxCampaignsPerDay" type="number" min="1" max="50" value="${Number.isFinite(Number(notifications.maxCampaignsPerDay)) ? notifications.maxCampaignsPerDay : 5}" /></label>
@@ -5266,6 +5301,7 @@ async function saveConfig(mode = 'publish') {
       maxCampaignsPerDay: Number($('cfgNotificationMaxCampaignsPerDay').value),
       maxPerUserPerDay: Number($('cfgNotificationMaxPerUserPerDay').value),
       rateLimitEnabled: $('cfgNotificationRateLimitEnabled').checked,
+      requireApproval: $('cfgNotificationRequireApproval').checked,
     },
     reason: mode === 'draft' ? '配置草稿保存' : '配置中心发布',
     social: {

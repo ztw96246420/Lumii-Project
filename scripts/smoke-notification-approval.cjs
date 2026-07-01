@@ -7,11 +7,12 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
+const TEST_CODE = '962464';
+const confirmText = '确认发布高风险配置';
 const rootDir = path.join(__dirname, '..');
 const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-readiness-safety-'));
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-notification-approval-'));
 const statePath = path.join(tmpDir, 'state.json');
-const confirmText = '确认发布高风险配置';
 let backendProcess = null;
 let baseUrl = '';
 
@@ -77,8 +78,10 @@ async function startBackend(port) {
       SMS_DAILY_LIMIT: '1000',
       SMS_DEVICE_DAILY_LIMIT: '1000',
       SMS_IP_DAILY_LIMIT: '1000',
-      TENCENTCLOUD_SECRET_ID: 'AKID_SMOKE_CONTENT_SAFETY',
-      TENCENTCLOUD_SECRET_KEY: 'SMOKE_CONTENT_SAFETY_SECRET',
+      TENCENTCLOUD_SECRET_ID: '',
+      TENCENTCLOUD_SECRET_KEY: '',
+      TENCENT_CLOUD_SECRET_ID: '',
+      TENCENT_CLOUD_SECRET_KEY: '',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -106,6 +109,19 @@ async function stopBackend() {
   });
 }
 
+async function loginUser(phone) {
+  await request('/auth/sms/send', {
+    body: { deviceId: `notification-approval-smoke-${phone}`, phone },
+    method: 'POST',
+  });
+  const payload = await request('/auth/sms/verify', {
+    body: { code: TEST_CODE, expiresAt: Date.now() + 5 * 60 * 1000, phone },
+    method: 'POST',
+  });
+  assert.ok(payload.data?.token, `missing token for ${phone}`);
+  return payload.data.token;
+}
+
 async function loginAdmin() {
   const payload = await request('/admin/auth/login', {
     body: { password: 'LumiiAdmin@2026', username: 'admin' },
@@ -115,55 +131,80 @@ async function loginAdmin() {
   return payload.data.token;
 }
 
-function rowByKey(rows, key) {
-  return (rows || []).find((row) => row.key === key || row.id === key);
-}
-
 async function main() {
   const port = await getFreePort();
   await startBackend(port);
   try {
+    const phone = '19900006301';
+    const userToken = await loginUser(phone);
     const adminToken = await loginAdmin();
-    const initial = await request('/admin/launch/readiness', { token: adminToken });
-    assert.notEqual(rowByKey(initial.data.gaps, 'content_model')?.status, 'ready', 'content model should not be ready before moderation switches are enabled');
 
-    const configPayload = await request('/admin/config', {
+    const approvalPayload = await request('/admin/notifications/system', {
       body: {
-        moderation: {
-          enabled: true,
-          machineImageEnabled: true,
-          machineTextEnabled: true,
+        mode: 'approval',
+        phones: phone,
+        reason: 'notification approval smoke',
+        respectUserSettings: false,
+        target: 'phones',
+        text: '这条系统通知必须审批后才会入站。',
+        title: '审批通知测试',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    const pending = approvalPayload.data?.notification;
+    assert.equal(pending?.status, 'pending_approval');
+    assert.equal(pending?.approvalRequestedBy, 'admin');
+    assert.equal(approvalPayload.data?.summary?.pendingApprovals, 1);
+
+    const beforeApproval = await request('/notifications', { token: userToken });
+    assert.ok(!beforeApproval.data.some((item) => item.campaignId === pending.id), 'pending approval should not reach user inbox');
+
+    const approvedPayload = await request(`/admin/notifications/${encodeURIComponent(pending.id)}/approve`, {
+      body: { reason: '审批通过 smoke' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(approvedPayload.data?.notification?.status, 'sent');
+    assert.equal(approvedPayload.data?.notification?.approvedBy, 'admin');
+    assert.equal(approvedPayload.data?.notification?.deliveredCount, 1);
+
+    const afterApproval = await request('/notifications', { token: userToken });
+    assert.ok(afterApproval.data.some((item) => item.campaignId === pending.id), 'approved notification should reach user inbox');
+
+    await request('/admin/config', {
+      body: {
+        notifications: {
+          requireApproval: true,
         },
-        reason: 'enable content safety readiness smoke',
+        reason: 'enable notification approval smoke',
         riskAcknowledged: true,
         riskConfirmText: confirmText,
       },
       method: 'PATCH',
       token: adminToken,
     });
-    assert.equal(configPayload.data.contentSafety.credentialsConfigured, true);
-    assert.equal(configPayload.data.contentSafety.text.enabled, true);
-    assert.equal(configPayload.data.contentSafety.image.enabled, true);
-    assert.ok(configPayload.data.contentSafety.image.bizTypes.some((item) => item.scope === 'place_review' && item.bizType), 'place review image Biztype should be listed');
-    assert.ok(configPayload.data.contentSafety.image.bizTypes.some((item) => item.scope === 'place_submission' && item.bizType), 'place submission image Biztype should be listed');
+
+    await request('/admin/notifications/system', {
+      body: {
+        mode: 'send',
+        phones: phone,
+        respectUserSettings: false,
+        target: 'phones',
+        text: '这条直接发送应该被审批保护拦截。',
+        title: '直接发送拦截测试',
+      },
+      expectedStatus: 409,
+      method: 'POST',
+      token: adminToken,
+    });
 
     const readiness = await request('/admin/launch/readiness', { token: adminToken });
-    const contentModel = rowByKey(readiness.data.gaps, 'content_model');
-    const imageModeration = rowByKey(readiness.data.gaps, 'image_moderation');
-    assert.equal(contentModel.status, 'ready');
-    assert.equal(imageModeration.status, 'ready');
-    assert.equal(rowByKey(readiness.data.questions, 'q-safety-vendor')?.status, 'ready');
-    assert.equal(rowByKey(readiness.data.questions, 'q-image-policy')?.status, 'ready');
-    assert.ok(!readiness.data.gaps.filter((gap) => gap.status !== 'ready' && gap.severity === 'P0').some((gap) => gap.key === 'content_model' || gap.key === 'image_moderation'));
-    const notifications = rowByKey(readiness.data.modules, 'notifications');
-    assert.ok(notifications?.evidence.includes('通知人群包'), 'notification readiness evidence should mention audience packages');
-    assert.ok(notifications?.evidence.includes('对象深链'), 'notification readiness evidence should mention object deep links');
-    assert.ok(notifications?.evidence.includes('发送审批'), 'notification readiness evidence should mention send approval');
-    assert.ok(!/灰度人群包未完成|发送审批和灰度人群包/.test(JSON.stringify(readiness.data)), 'readiness should not list notification audience packages as unfinished');
-    assert.ok(!/复杂深链未完成|复杂深链参数/.test(JSON.stringify(readiness.data)), 'readiness should not list notification deep links as unfinished');
+    const notifications = readiness.data.modules.find((item) => item.key === 'notifications');
+    assert.ok(notifications?.evidence.includes('发送审批'), 'readiness should mention notification approval');
     assert.ok(!/发送审批未完成/.test(JSON.stringify(readiness.data)), 'readiness should not list notification approval as unfinished');
 
-    console.log('launch readiness content safety smoke passed');
+    console.log('notification approval smoke passed');
   } finally {
     await stopBackend();
     fs.rmSync(tmpDir, { force: true, recursive: true });

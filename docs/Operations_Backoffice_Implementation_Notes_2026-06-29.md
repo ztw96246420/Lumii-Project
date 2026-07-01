@@ -640,14 +640,16 @@
 - 通知批次效果统计已接入：移动端打开通知上报 `campaignId`，后端按站内通知 `read/readAt` 和 `notification.open` 事件回算已读、点击、打开率、最近点击时间；通知运营页和数据看板同步展示。
 - 通知运营页新增灰度人群包：可保存人群包名称、备注和手机号清单；后台展示手机号总数、可触达数、未注册数、样本和上次送达数；立即发送和预约发送都会按人群包当前手机号重新计算目标。
 - 系统通知对象深链已接入：后台可指定宠友圈小事、地图地点、地点提交、客服工单、会话、备忘、疫苗/驱虫计划的对象 ID；后端发送前校验对象存在，移动端点击系统通知时优先打开具体对象。
+- 系统通知发送审批已接入：通知可提交为 `pending_approval`，待审批时不会写入用户 App 通知中心；审批通过后才会立即发送或转为预约发送。
+- 配置中心新增“强制系统通知发送审批”开关：开启后后端会拒绝直接发送和直接预约，要求先提交审批；该开关进入配置联动体检和高风险配置确认。
 - 配置触达效果统计已接入：App 公告、启动提示、版本更新弹窗分别上报展示和主按钮点击，后端在 `summary.configPrompts` 聚合展示量、点击量和点击率；数据看板增加“配置触达”和配置展示/点击趋势。
-- 详细口径见 `docs/Operations_Backoffice_Notification_Campaign_Stats_2026-07-01.md`、`docs/Operations_Backoffice_Notification_Audience_Packages_2026-07-01.md` 和 `docs/Operations_Backoffice_Notification_Deep_Links_2026-07-01.md`。
+- 详细口径见 `docs/Operations_Backoffice_Notification_Campaign_Stats_2026-07-01.md`、`docs/Operations_Backoffice_Notification_Audience_Packages_2026-07-01.md`、`docs/Operations_Backoffice_Notification_Deep_Links_2026-07-01.md` 和 `docs/Operations_Backoffice_Notification_Approval_2026-07-01.md`。
 
 未实现：
 
 - 真实厂商 Push 下发，例如 FCM、APNs、华为/小米/OPPO/VIVO 推送。
 - 厂商 Push 真实送达、展示、点击回执和 token 失效原因统计。
-- 发送审批。
+- 多管理员双人审批；当前单 admin 版本已接入发送审批保护。
 
 ### 3.14 宠物日历
 
@@ -819,6 +821,6 @@
 1. 处罚策略进阶：多管理员复核、双人审批、批量处罚审批和处罚建议的命中率复盘。
 2. 内容安全模型接入：第三方文本/图片审核、规则命中回标、模型样本沉淀和误杀回收。
 3. 客服工单进阶：负责人枚举、SLA 配置化、批量处理复盘和客服质量统计。
-4. 通知运营进阶：厂商 Push、发送审批和厂商回执。
+4. 通知运营进阶：厂商 Push、厂商回执和多管理员双人审批。
 5. 配置发布治理进阶：配置草稿、发布审批和 A/B 策略实验。
 6. 后台静态资源和 API 增加更细权限与更完整审计字段。

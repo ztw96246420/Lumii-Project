@@ -356,6 +356,7 @@ function defaultOpsConfig() {
       maxCampaignsPerDay: 5,
       maxPerUserPerDay: 2,
       rateLimitEnabled: true,
+      requireApproval: false,
     },
     social: {
       discoverRadiusKm: DEFAULT_DISCOVER_RADIUS_KM,
@@ -521,6 +522,7 @@ function normalizeNotificationOpsConfig(value, defaults) {
     maxCampaignsPerDay: Math.floor(clampNumber(source.maxCampaignsPerDay, defaults.maxCampaignsPerDay || 5, 1, 50)),
     maxPerUserPerDay: Math.floor(clampNumber(source.maxPerUserPerDay, defaults.maxPerUserPerDay || 2, 1, 20)),
     rateLimitEnabled: source.rateLimitEnabled !== false,
+    requireApproval: Boolean(source.requireApproval),
   };
 }
 
@@ -635,6 +637,7 @@ function opsConfigSummary(config) {
     notificationMaxCampaignsPerDay: Number(config?.notifications?.maxCampaignsPerDay || 0),
     notificationMaxPerUserPerDay: Number(config?.notifications?.maxPerUserPerDay || 0),
     notificationRateLimitEnabled: config?.notifications?.rateLimitEnabled !== false,
+    notificationRequireApproval: Boolean(config?.notifications?.requireApproval),
     discoverRadiusKm: Number(config?.social?.discoverRadiusKm || 0),
     enabledFeatures: Object.values(features).filter((value) => value !== false).length,
     nearbyMomentTtlDays: Number(config?.social?.nearbyMomentTtlDays || 0),
@@ -823,6 +826,7 @@ function configChangeSummary(before, after) {
     ['moderation.reviewKeywords', 'Review keywords'],
     ['moderation.sampleReviewRatePercent', 'Moderation sample review rate'],
     ['notifications.rateLimitEnabled', 'Notification rate limit enabled'],
+    ['notifications.requireApproval', 'Notification send approval required'],
     ['notifications.maxCampaignsPerDay', 'Notification daily campaign cap'],
     ['notifications.maxPerUserPerDay', 'Notification daily per-user cap'],
     ['support.slaHours', 'Support SLA hours'],
@@ -866,6 +870,7 @@ function configRiskChanges(before, after) {
   addRisk('moderation.reviewKeywords', 'Review keywords', 'P1', 'Can send public content into review.');
   addRisk('moderation.sampleReviewRatePercent', 'Moderation sample review rate', 'P2', 'Can change how much approved public content enters manual quality sampling.');
   addRisk('notifications.rateLimitEnabled', 'Notification rate limit', 'P1', 'Can remove the guardrail that prevents repeated system notifications.');
+  addRisk('notifications.requireApproval', 'Notification approval guard', 'P1', 'Can require or bypass manual approval before system notifications reach users.');
   addRisk('notifications.maxCampaignsPerDay', 'Notification daily campaign cap', 'P2', 'Can make global notification sending more or less aggressive.');
   addRisk('notifications.maxPerUserPerDay', 'Notification per-user daily cap', 'P2', 'Can make individual users receive more or fewer system notifications.');
   if (Number(configValueAt(after, 'ai.petAvatarDailyLimit')) === 0 && configValueChanged(before, after, 'ai.petAvatarDailyLimit')) {
@@ -1174,6 +1179,16 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileApplied: true,
       mobileEvidence: '移动端通知中心不读取阈值，但最终只会收到后端频控允许入站的系统通知。',
       userImpact: '限制运营系统通知对用户的打扰，避免同一天重复触达或误发刷屏。',
+    },
+    {
+      backendEvidence: 'createManagedSystemNotification 读取 notifications.requireApproval，开启后会拒绝直接发送/预约，要求先提交审批。',
+      backendEnforced: true,
+      group: '通知运营',
+      key: 'notifications.requireApproval',
+      label: '系统通知发送审批',
+      mobileApplied: true,
+      mobileEvidence: '移动端不读取审批开关，但只有审批通过的系统通知才会进入 App 通知中心。',
+      userImpact: '降低运营误发风险，确保系统通知触达用户前经过后台确认。',
     },
     {
       backendEvidence: '/analytics/events 会读取 currentOpsConfig().analytics.enabled，关闭后只返回 accepted=false，不落库。',
@@ -10011,7 +10026,7 @@ function markNotificationsRead(phone, ids) {
 
 const systemNotificationTargets = new Set(['active_today', 'all', 'audience_package', 'phones']);
 const systemNotificationActionRoutes = new Set(['discover', 'home', 'map', 'notifications', 'profile', 'safety', 'settings', 'supportTickets']);
-const systemNotificationModes = new Set(['draft', 'scheduled', 'send']);
+const systemNotificationModes = new Set(['approval', 'draft', 'scheduled', 'send']);
 const systemNotificationDeepLinkFields = ['conversationId', 'memoId', 'placeId', 'postId', 'submissionId', 'ticketId', 'vaccineId'];
 const systemNotificationDeepLinkTypeFields = {
   conversation: 'conversationId',
@@ -10196,6 +10211,10 @@ function systemNotificationTimestampMs(item = {}) {
 function notificationRateLimitConfig(config = currentOpsConfig()) {
   const defaults = defaultOpsConfig().notifications;
   return normalizeNotificationOpsConfig(config.notifications || {}, defaults);
+}
+
+function notificationApprovalRequired(config = currentOpsConfig()) {
+  return Boolean(notificationRateLimitConfig(config).requireApproval);
 }
 
 function recentSystemNotificationCampaigns(now = Date.now()) {
@@ -10451,6 +10470,12 @@ function systemNotificationItem(item) {
   const deepLinkPayload = notificationDeepLinkPayload(item);
   return {
     actionRoute: item.actionRoute || '',
+    approvalReason: item.approvalReason || '',
+    approvalIntendedMode: item.approvalIntendedMode || '',
+    approvalRequestedAt: item.approvalRequestedAt || '',
+    approvalRequestedBy: item.approvalRequestedBy || '',
+    approvedAt: item.approvedAt || '',
+    approvedBy: item.approvedBy || '',
     audiencePackageId: item.audiencePackageId || '',
     audiencePackageName: item.audiencePackageName || '',
     audienceCount: Number(item.audienceCount || targetPhones.length || 0),
@@ -10467,7 +10492,7 @@ function systemNotificationItem(item) {
     id: item.id,
     latestOpenAt: effectStats.latestOpenAt,
     latestReadAt: effectStats.latestReadAt,
-    mode: item.mode || (item.status === 'draft' ? 'draft' : item.status === 'scheduled' ? 'scheduled' : 'send'),
+    mode: item.mode || (item.status === 'draft' ? 'draft' : item.status === 'scheduled' ? 'scheduled' : item.status === 'pending_approval' ? 'approval' : 'send'),
     openCount: effectStats.openCount,
     openRate: effectStats.openRate,
     phonesInput: item.phonesInput || '',
@@ -10510,6 +10535,7 @@ function adminSystemNotifications() {
     rateLimit: notificationRateLimitSnapshot(),
     summary: {
       activeToday: users.filter((user) => Date.now() - Number(user.lastSeenAt || 0) < 24 * 60 * 60 * 1000).length,
+      approvalRequired: notificationApprovalRequired(),
       audiencePackages: audiencePackages.length,
       campaigns: campaigns.length,
       delivered: deliveredCount,
@@ -10519,6 +10545,7 @@ function adminSystemNotifications() {
       opens: openCount,
       readRate: analyticsPercent(readCount, deliveredCount),
       reads: readCount,
+      pendingApprovals: campaigns.filter((item) => item.status === 'pending_approval').length,
       scheduled: campaigns.filter((item) => item.status === 'scheduled').length,
       users: users.length,
     },
@@ -10656,6 +10683,10 @@ function createManagedSystemNotification(admin, body = {}) {
   if (!text) return { error: '请填写通知内容', statusCode: 400 };
   const modeInput = String(body.mode || 'send').trim();
   const mode = systemNotificationModes.has(modeInput) ? modeInput : 'send';
+  if (notificationApprovalRequired() && (mode === 'send' || mode === 'scheduled')) {
+    return { error: '当前已开启系统通知发送审批，请先提交审批', statusCode: 409 };
+  }
+  const approvalIntendedMode = mode === 'approval' && String(body.intendedMode || '').trim() === 'scheduled' ? 'scheduled' : mode === 'approval' ? 'send' : '';
   const targetInput = String(body.target || 'phones').trim();
   const target = systemNotificationTargets.has(targetInput) ? targetInput : 'phones';
   const actionRouteInput = String(body.actionRoute || '').trim();
@@ -10669,14 +10700,22 @@ function createManagedSystemNotification(admin, body = {}) {
   if (target === 'audience_package' && mode !== 'draft' && !audiencePackage) return { error: '通知人群包不存在', statusCode: 404 };
   const targetPhones = systemNotificationTargetPhones(target, phonesInput, audiencePackageId);
   if (mode !== 'draft' && !targetPhones.length) return { error: '没有可触达的目标用户', statusCode: 400 };
-  const scheduledAt = mode === 'scheduled' ? normalizeSystemNotificationScheduledAt(body.scheduledAt) : '';
-  if (mode === 'scheduled') {
+  const needsScheduledAt = mode === 'scheduled' || approvalIntendedMode === 'scheduled';
+  const scheduledAt = needsScheduledAt ? normalizeSystemNotificationScheduledAt(body.scheduledAt) : '';
+  if (needsScheduledAt) {
     if (!scheduledAt) return { error: '请填写正确的定时发送时间', statusCode: 400 };
     if (new Date(scheduledAt).getTime() <= Date.now() + 30 * 1000) return { error: '定时发送时间需要晚于当前时间至少 30 秒', statusCode: 400 };
   }
   const now = new Date().toISOString();
+  const pendingApproval = mode === 'approval';
   const notification = {
     actionRoute,
+    approvalIntendedMode,
+    approvalReason: '',
+    approvalRequestedAt: pendingApproval ? now : '',
+    approvalRequestedBy: pendingApproval ? admin?.username || 'admin' : '',
+    approvedAt: '',
+    approvedBy: '',
     audiencePackageId,
     audiencePackageName: audiencePackage?.name || '',
     audienceCount: mode === 'draft' ? 0 : targetPhones.length,
@@ -10692,17 +10731,44 @@ function createManagedSystemNotification(admin, body = {}) {
     respectUserSettings: body.respectUserSettings !== false,
     scheduledAt,
     skippedCount: 0,
-    status: mode === 'draft' ? 'draft' : mode === 'scheduled' ? 'scheduled' : 'sent',
+    status: mode === 'draft' ? 'draft' : pendingApproval ? 'pending_approval' : mode === 'scheduled' ? 'scheduled' : 'sent',
     target,
-    targetPhones: mode === 'draft' || mode === 'scheduled' ? [] : targetPhones,
+    targetPhones: mode === 'draft' || mode === 'scheduled' || pendingApproval ? [] : targetPhones,
     text,
     title,
     ...deepLink.deepLinkContext,
   };
   if (mode === 'send') deliverManagedSystemNotification(notification, admin, body.reason || '发送系统通知');
-  else writeAdminAudit(admin, mode === 'draft' ? 'notification.system.draft' : 'notification.system.schedule', 'system_notification', notification.id, null, systemNotificationItem(notification), title);
+  else {
+    const action = mode === 'draft' ? 'notification.system.draft' : mode === 'approval' ? 'notification.system.approval.request' : 'notification.system.schedule';
+    writeAdminAudit(admin, action, 'system_notification', notification.id, null, systemNotificationItem(notification), body.reason || title);
+  }
   ensureSystemNotifications().unshift(notification);
   state.systemNotifications = state.systemNotifications.slice(0, 300);
+  return { notification: systemNotificationItem(notification), summary: adminSystemNotifications().summary };
+}
+
+function approveSystemNotification(admin, id, body = {}) {
+  const notification = ensureSystemNotifications().find((item) => item.id === id);
+  if (!notification) return { error: '系统通知不存在', statusCode: 404 };
+  if (notification.status !== 'pending_approval') return { error: '只有待审批通知可以审批发送', statusCode: 409 };
+  const before = systemNotificationItem(notification);
+  const now = new Date().toISOString();
+  const reason = String(body.reason || '审批通过系统通知').replace(/\s+/g, ' ').trim().slice(0, 240) || '审批通过系统通知';
+  notification.approvalReason = reason;
+  notification.approvedAt = now;
+  notification.approvedBy = admin?.username || 'admin';
+  notification.updatedAt = now;
+  if (notification.approvalIntendedMode === 'scheduled' && notification.scheduledAt && new Date(notification.scheduledAt).getTime() > Date.now() + 30 * 1000) {
+    notification.mode = 'scheduled';
+    notification.status = 'scheduled';
+    writeAdminAudit(admin, 'notification.system.approve_schedule', 'system_notification', id, before, systemNotificationItem(notification), reason);
+    return { notification: systemNotificationItem(notification), summary: adminSystemNotifications().summary };
+  }
+  notification.mode = 'send';
+  notification.scheduledAt = '';
+  deliverManagedSystemNotification(notification, admin, reason);
+  writeAdminAudit(admin, notification.status === 'sent' ? 'notification.system.approve_send' : 'notification.system.approve_failed', 'system_notification', id, before, systemNotificationItem(notification), reason);
   return { notification: systemNotificationItem(notification), summary: adminSystemNotifications().summary };
 }
 
@@ -11869,6 +11935,7 @@ function adminPermissionCatalog() {
     ['place.moderate', '审核地点点评和新增地点', '地点'],
     ['support.ticket.process', '处理客服工单', '客服'],
     ['notification.send', '发送、预约、撤回系统通知', '通知'],
+    ['notification.approve', '提交和审批系统通知', '通知'],
     ['config.update', '修改移动端联动配置', '配置'],
     ['config.draft', '创建、发布、废弃配置草稿', '配置'],
     ['config.rollback', '回滚配置版本', '配置'],
@@ -12119,9 +12186,9 @@ function adminReadinessModules(context) {
       module: '通知运营',
       group: '触达',
       status: 'partial',
-      evidence: '支持系统通知、草稿、预约、撤回、模板、通知人群包、设备概览、actionRoute、对象深链、频控和批次效果统计。',
+      evidence: '支持系统通知、草稿、待审批、预约、撤回、模板、通知人群包、设备概览、actionRoute、对象深链、发送审批、频控和批次效果统计。',
       mobileLinkage: '通知会写入 App 通知中心，支持跳首页、发现、地图、我的、安全中心、设置、反馈进度。',
-      nextStep: '生产期补厂商 Push、送达回执和发送审批。',
+      nextStep: '生产期补厂商 Push、送达回执和多管理员双人审批。',
     },
     {
       key: 'config',
@@ -12169,7 +12236,7 @@ function adminReadinessQuestions(context = {}) {
     ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '当前单 admin 可执行处罚；双人审批未接。', '影响高风险处罚治理。'],
     ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏，不开放完整手机号导出。', '影响隐私合规和数据泄露风险。'],
     ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '当前已记录基础贡献积分并通知提交人，但不做用户端公开展示或奖励兑换。', '影响地点生态激励。'],
-    ['q-notification-approval', 'P1', '系统通知是否需要发送审批？', '当前支持草稿/预约/撤回、模板、人群包、系统通知频控和批次效果统计，未接发送审批。', '影响误发和运营风险。'],
+    ['q-notification-approval', 'P1', '系统通知是否需要发送审批？', '已接入单 admin 发送审批流和“强制审批”配置开关；生产期若需要双人审批，可在此基础上接多管理员复核。', '影响误发和运营风险。', 'ready', '已接入'],
     ['q-config-approval', 'P0', '配置强制更新、维护模式、全功能关闭是否必须审批？', '当前保存即发布并记录版本，可回滚。', '影响事故风险和发布治理。'],
     ['q-compliance-text', 'P0', 'App 备案、隐私政策、内容审核制度是否已准备生产版文本？', '当前代码层面不可替代法务/合规文本确认。', '影响正式上线合规。'],
   ].map(([id, priority, question, currentPolicy, impact, status = 'open', statusLabel = '待确认']) => ({
@@ -12248,8 +12315,8 @@ function adminReadinessGaps(context) {
       area: '通知触达',
       severity: 'P1',
       status: 'partial',
-      issue: '当前以站内通知为主，厂商 Push、送达回执和发送审批未完成。',
-      requiredAction: '接 Android 厂商 Push、iOS APNs、回执、失败重试和发送审批。',
+      issue: '当前以站内通知为主，厂商 Push、送达回执和多管理员双人审批未完成。',
+      requiredAction: '接 Android 厂商 Push、iOS APNs、回执、失败重试；生产期如启用多人后台，再补双人审批。',
       evidence: '通知运营页设备 token 概览',
     },
     {
@@ -15658,6 +15725,18 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'POST' && pathname === '/admin/notifications/system') {
     const result = createManagedSystemNotification(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_NOTIFICATION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminNotificationApproveMatch = pathname.match(/^\/admin\/notifications\/([^/]+)\/approve$/);
+  if (req.method === 'POST' && adminNotificationApproveMatch) {
+    const result = approveSystemNotification(admin, decodeURIComponent(adminNotificationApproveMatch[1]), body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_NOTIFICATION_INVALID');
       return true;

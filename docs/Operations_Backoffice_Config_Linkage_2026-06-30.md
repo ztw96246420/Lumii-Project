@@ -49,6 +49,7 @@
 - `moderation.machineImageEnabled`：后端调用腾讯云图片内容安全，覆盖宠物头像、AI 原图、宠友圈图片、封面和工单附件；移动端只看到审核结果和错误提示。
 - `moderation.sampleReviewRatePercent`：后端按比例稳定抽样已通过的公开内容进入样本复盘；移动端不读取该比例，用户侧发布结果不受影响。
 - `notifications.rateLimitEnabled` / `notifications.maxCampaignsPerDay` / `notifications.maxPerUserPerDay`：后端限制后台系统通知的 24 小时批次上限和单用户入站上限；移动端不读取阈值，但用户只会收到频控允许入站的系统通知。
+- `notifications.requireApproval`：后端限制后台系统通知直接发送和直接预约；开启后必须先提交审批，审批通过后移动端才会收到系统通知或等待预约到点。
 - `analytics.retentionDays`：后端按保留天数清理移动端事件，移动端不需要感知。
 
 ### 预留

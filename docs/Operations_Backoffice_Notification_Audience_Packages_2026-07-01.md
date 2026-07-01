@@ -70,13 +70,17 @@
 - `notification.system.send`
 - `notification.system.schedule`
 - `notification.system.draft`
+- `notification.system.approval.request`
+- `notification.system.approve_send`
+- `notification.system.approve_schedule`
+- `notification.system.approve_failed`
 - `notification.system.failed`
 - `notification.system.cancel`
 - `notification.system.revoke`
 
 ## 6. 尚未覆盖
 
-- 发送审批。
+- 多管理员双人审批；当前单 admin 发送审批已接入。
 - 人群包导入导出。
 - 按行为标签、活跃度、宠物类型自动圈选动态人群。
 - 厂商 Push 真实下发和回执。

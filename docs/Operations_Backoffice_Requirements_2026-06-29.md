@@ -1662,6 +1662,7 @@ type OpsConfig = {
 - `GET /admin/push-devices`
 - `DELETE /admin/push-devices/{deviceId}`
 - `POST /admin/notifications/system`
+- `POST /admin/notifications/{notificationId}/approve`
 
 ### 8.12 配置与审计
 
