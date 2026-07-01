@@ -441,6 +441,7 @@ function createInitialState() {
     petChatDailyUsage: {},
     petChatMessages: {},
     opsConfig: defaultOpsConfig(),
+    placeModerationTemplates: [],
     placeReviews: {},
     placeSubmissions: {},
     places: defaultPlaces,
@@ -2216,6 +2217,7 @@ function loadState() {
       },
       opsConfigDrafts: Array.isArray(loadedState.opsConfigDrafts) ? loadedState.opsConfigDrafts : initialState.opsConfigDrafts,
       opsConfig: normalizeOpsConfig(loadedState.opsConfig || initialState.opsConfig),
+      placeModerationTemplates: Array.isArray(loadedState.placeModerationTemplates) ? loadedState.placeModerationTemplates : initialState.placeModerationTemplates,
       petAvatarDailyUsage: {
         ...initialState.petAvatarDailyUsage,
         ...(loadedState.petAvatarDailyUsage || {}),
@@ -12834,19 +12836,198 @@ function findPlaceSubmission(submissionId) {
   return null;
 }
 
-function adminPlaceModerationTemplates() {
-  return PLACE_MODERATION_TEMPLATES.map((template) => ({ ...template }));
+const PLACE_MODERATION_TEMPLATE_KIND_SET = new Set(['review', 'submission']);
+const PLACE_MODERATION_TEMPLATE_ACTION_SET = new Set(['approve', 'reject']);
+
+function normalizePlaceModerationTemplateKind(value) {
+  const kind = String(value || '').trim();
+  return PLACE_MODERATION_TEMPLATE_KIND_SET.has(kind) ? kind : 'review';
+}
+
+function normalizePlaceModerationTemplateAction(value) {
+  const action = String(value || '').trim();
+  return PLACE_MODERATION_TEMPLATE_ACTION_SET.has(action) ? action : 'reject';
+}
+
+function normalizePlaceModerationTemplateEnabled(value, fallback = true) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  const text = String(value).trim().toLowerCase();
+  if (['0', 'false', 'no', 'off', 'disabled'].includes(text)) return false;
+  if (['1', 'true', 'yes', 'on', 'enabled'].includes(text)) return true;
+  return fallback;
+}
+
+function normalizePlaceModerationTemplateSortOrder(value, fallback = 100) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(0, Math.min(9999, Math.round(numeric)));
+}
+
+function normalizePlaceModerationTemplate(item = {}, fallback = {}) {
+  const builtin = Boolean(fallback.builtin || item.builtin);
+  return {
+    action: normalizePlaceModerationTemplateAction(item.action || fallback.action),
+    builtin,
+    createdAt: item.createdAt || fallback.createdAt || '',
+    createdBy: item.createdBy || fallback.createdBy || '',
+    enabled: builtin ? true : normalizePlaceModerationTemplateEnabled(item.enabled, fallback.enabled !== false),
+    id: String(item.id || fallback.id || `place-moderation-template-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`).trim().slice(0, 120),
+    kind: normalizePlaceModerationTemplateKind(item.kind || fallback.kind),
+    reason: String(item.reason || fallback.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+    sortOrder: normalizePlaceModerationTemplateSortOrder(item.sortOrder, fallback.sortOrder),
+    title: String(item.title || fallback.title || '').replace(/\s+/g, ' ').trim().slice(0, 48),
+    updatedAt: item.updatedAt || fallback.updatedAt || '',
+    updatedBy: item.updatedBy || fallback.updatedBy || '',
+  };
+}
+
+function validatePlaceModerationTemplate(template) {
+  if (!template.title) return { error: '请填写地点审核模板标题', statusCode: 400 };
+  if (!template.reason) return { error: '请填写地点审核模板原因', statusCode: 400 };
+  if (!PLACE_MODERATION_TEMPLATE_KIND_SET.has(template.kind)) return { error: '地点审核模板类型无效', statusCode: 400 };
+  if (!PLACE_MODERATION_TEMPLATE_ACTION_SET.has(template.action)) return { error: '地点审核模板动作无效', statusCode: 400 };
+  return null;
+}
+
+function validatePlaceModerationTemplateInput(body = {}, options = {}) {
+  const partial = Boolean(options.partial);
+  if ((!partial || Object.prototype.hasOwnProperty.call(body, 'kind')) && body.kind !== undefined) {
+    const kind = String(body.kind || '').trim();
+    if (kind && !PLACE_MODERATION_TEMPLATE_KIND_SET.has(kind)) return { error: '地点审核模板类型无效', statusCode: 400 };
+  }
+  if ((!partial || Object.prototype.hasOwnProperty.call(body, 'action')) && body.action !== undefined) {
+    const action = String(body.action || '').trim();
+    if (action && !PLACE_MODERATION_TEMPLATE_ACTION_SET.has(action)) return { error: '地点审核模板动作无效', statusCode: 400 };
+  }
+  return null;
+}
+
+function ensurePlaceModerationTemplates() {
+  state.placeModerationTemplates = Array.isArray(state.placeModerationTemplates)
+    ? state.placeModerationTemplates.map((item) => normalizePlaceModerationTemplate(item, { builtin: false })).filter((item) => item.title && item.reason)
+    : [];
+  return state.placeModerationTemplates;
+}
+
+function builtinPlaceModerationTemplates() {
+  return PLACE_MODERATION_TEMPLATES.map((template, index) => normalizePlaceModerationTemplate(template, {
+    builtin: true,
+    enabled: true,
+    sortOrder: (index + 1) * 10,
+  }));
+}
+
+function placeModerationTemplateUsageStats() {
+  const stats = new Map();
+  const collect = (item) => {
+    const id = String(item?.reviewTemplateId || '').trim();
+    if (!id) return;
+    const current = stats.get(id) || { lastUsedAt: '', usageCount: 0 };
+    current.usageCount += 1;
+    const usedAt = item.reviewedAt || item.updatedAt || item.createdAt || '';
+    if (String(usedAt).localeCompare(current.lastUsedAt || '') > 0) current.lastUsedAt = usedAt;
+    stats.set(id, current);
+  };
+  adminPlaceReviews().forEach(collect);
+  adminPlaceSubmissions().forEach(collect);
+  return stats;
+}
+
+function adminPlaceModerationTemplates(options = {}) {
+  const includeDisabled = options.includeDisabled !== false;
+  const usageStats = placeModerationTemplateUsageStats();
+  return [...builtinPlaceModerationTemplates(), ...ensurePlaceModerationTemplates()]
+    .filter((template) => includeDisabled || template.enabled !== false)
+    .map((template) => ({
+      ...template,
+      ...(usageStats.get(template.id) || { lastUsedAt: '', usageCount: 0 }),
+    }))
+    .sort((a, b) =>
+      String(a.kind).localeCompare(String(b.kind))
+      || String(a.action).localeCompare(String(b.action))
+      || Number(a.sortOrder || 0) - Number(b.sortOrder || 0)
+      || String(a.title).localeCompare(String(b.title)),
+    );
 }
 
 function placeModerationTemplateById(templateId) {
   const id = String(templateId || '').trim();
   if (!id) return null;
-  return PLACE_MODERATION_TEMPLATES.find((template) => template.id === id) || null;
+  return adminPlaceModerationTemplates({ includeDisabled: true }).find((template) => template.id === id) || null;
+}
+
+function createPlaceModerationTemplate(admin, body = {}) {
+  const now = new Date().toISOString();
+  const inputValidation = validatePlaceModerationTemplateInput(body);
+  if (inputValidation) return inputValidation;
+  const template = normalizePlaceModerationTemplate({
+    action: body.action,
+    createdAt: now,
+    createdBy: admin?.username || 'admin',
+    enabled: body.enabled,
+    kind: body.kind,
+    reason: body.reason,
+    sortOrder: body.sortOrder,
+    title: body.title,
+  }, { enabled: true, sortOrder: 100 });
+  const validation = validatePlaceModerationTemplate(template);
+  if (validation) return validation;
+  ensurePlaceModerationTemplates().unshift(template);
+  state.placeModerationTemplates = ensurePlaceModerationTemplates().slice(0, 120);
+  writeAdminAudit(admin, 'place.template.create', 'place_moderation_template', template.id, null, template, template.title);
+  return {
+    template: adminPlaceModerationTemplates({ includeDisabled: true }).find((item) => item.id === template.id),
+    templates: adminPlaceModerationTemplates({ includeDisabled: true }),
+  };
+}
+
+function updatePlaceModerationTemplate(admin, templateId, body = {}) {
+  const id = String(templateId || '').trim();
+  const templates = ensurePlaceModerationTemplates();
+  const index = templates.findIndex((item) => item.id === id);
+  if (index < 0) return { error: '地点审核模板不存在或内置模板不可编辑', statusCode: 404 };
+  const inputValidation = validatePlaceModerationTemplateInput(body, { partial: true });
+  if (inputValidation) return inputValidation;
+  const before = { ...templates[index] };
+  const now = new Date().toISOString();
+  const next = normalizePlaceModerationTemplate({
+    ...before,
+    action: Object.prototype.hasOwnProperty.call(body, 'action') ? body.action : before.action,
+    enabled: Object.prototype.hasOwnProperty.call(body, 'enabled') ? body.enabled : before.enabled,
+    kind: Object.prototype.hasOwnProperty.call(body, 'kind') ? body.kind : before.kind,
+    reason: Object.prototype.hasOwnProperty.call(body, 'reason') ? body.reason : before.reason,
+    sortOrder: Object.prototype.hasOwnProperty.call(body, 'sortOrder') ? body.sortOrder : before.sortOrder,
+    title: Object.prototype.hasOwnProperty.call(body, 'title') ? body.title : before.title,
+    updatedAt: now,
+    updatedBy: admin?.username || 'admin',
+  }, before);
+  const validation = validatePlaceModerationTemplate(next);
+  if (validation) return validation;
+  templates[index] = next;
+  state.placeModerationTemplates = templates;
+  writeAdminAudit(admin, 'place.template.update', 'place_moderation_template', id, before, next, next.title);
+  return {
+    template: adminPlaceModerationTemplates({ includeDisabled: true }).find((item) => item.id === id),
+    templates: adminPlaceModerationTemplates({ includeDisabled: true }),
+  };
+}
+
+function removePlaceModerationTemplate(admin, templateId) {
+  const id = String(templateId || '').trim();
+  const templates = ensurePlaceModerationTemplates();
+  const target = templates.find((item) => item.id === id);
+  if (!target) return { error: '地点审核模板不存在或内置模板不可删除', statusCode: 404 };
+  state.placeModerationTemplates = templates.filter((item) => item.id !== id);
+  writeAdminAudit(admin, 'place.template.delete', 'place_moderation_template', id, target, null, target.title || id);
+  return { templates: adminPlaceModerationTemplates({ includeDisabled: true }) };
 }
 
 function placeModerationReason(body = {}, kind, action, fallback = '地点审核处理') {
   const template = placeModerationTemplateById(body.templateId);
   if (body.templateId && !template) return { error: '地点审核模板不存在', statusCode: 400 };
+  if (template && template.enabled === false) return { error: '地点审核模板已停用', statusCode: 400 };
   if (template && (template.kind !== kind || template.action !== action)) {
     return { error: '地点审核模板不适用于当前操作', statusCode: 400 };
   }
@@ -15207,6 +15388,43 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/places/moderation-templates') {
     ok(res, adminPlaceModerationTemplates());
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/places/moderation-templates') {
+    const result = createPlaceModerationTemplate(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PLACE_TEMPLATE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminPlaceTemplateDeleteMatch = pathname.match(/^\/admin\/places\/moderation-templates\/([^/]+)\/delete$/);
+  if (req.method === 'POST' && adminPlaceTemplateDeleteMatch) {
+    const templateId = decodeURIComponent(adminPlaceTemplateDeleteMatch[1]);
+    const result = removePlaceModerationTemplate(admin, templateId);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PLACE_TEMPLATE_DELETE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminPlaceTemplatePatchMatch = pathname.match(/^\/admin\/places\/moderation-templates\/([^/]+)$/);
+  if (req.method === 'PATCH' && adminPlaceTemplatePatchMatch) {
+    const templateId = decodeURIComponent(adminPlaceTemplatePatchMatch[1]);
+    const result = updatePlaceModerationTemplate(admin, templateId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PLACE_TEMPLATE_UPDATE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

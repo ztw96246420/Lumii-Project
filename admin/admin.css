@@ -867,6 +867,20 @@ th {
   background: rgba(201, 150, 55, 0.1);
 }
 
+.template-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.template-reason {
+  color: var(--ink);
+  line-height: 1.65;
+  max-width: 520px;
+  white-space: normal;
+}
+
 .sla-badge.overdue {
   color: var(--red);
   background: rgba(220, 96, 78, 0.12);

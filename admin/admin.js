@@ -682,6 +682,22 @@ async function onContentClick(event) {
       await handlePlaceMerge(button);
       return;
     }
+    if (action === 'place-template-create') {
+      await handlePlaceTemplateCreate();
+      return;
+    }
+    if (action === 'place-template-edit') {
+      await handlePlaceTemplateEdit(button);
+      return;
+    }
+    if (action === 'place-template-toggle') {
+      await handlePlaceTemplateToggle(button);
+      return;
+    }
+    if (action === 'place-template-delete') {
+      await handlePlaceTemplateDelete(button);
+      return;
+    }
     if (action === 'review-approve' || action === 'review-reject' || action === 'submission-approve' || action === 'submission-reject') {
       await handlePlaceModerationAction(button);
       return;
@@ -774,7 +790,7 @@ function placeModerationKindLabel(kind) {
 
 function placeModerationTemplatesFor(templates, kind, action) {
   return (Array.isArray(templates) ? templates : [])
-    .filter((template) => template.kind === kind && template.action === action);
+    .filter((template) => template.enabled !== false && template.kind === kind && template.action === action);
 }
 
 function placeModerationTemplateBadges(templates) {
@@ -788,6 +804,124 @@ function placeModerationTemplateBadges(templates) {
 
 function placeModerationTemplateMeta(item) {
   return item.reviewTemplateLabel ? `<div class="cell-sub">模板：${escapeHtml(item.reviewTemplateLabel)}</div>` : '';
+}
+
+function placeModerationTemplateScene(template) {
+  return `${placeModerationKindLabel(template.kind)} · ${placeModerationActionLabel(template.action)}`;
+}
+
+function placeModerationTemplateSource(template) {
+  return template.builtin ? '内置' : '自定义';
+}
+
+function renderPlaceModerationTemplates(templates) {
+  return tableHtml(templates, [
+    ['模板', (template) => `
+      <div class="cell-title">${escapeHtml(template.title)}</div>
+      <div class="cell-sub">${escapeHtml(placeModerationTemplateScene(template))} · ${escapeHtml(placeModerationTemplateSource(template))}</div>
+      <div class="cell-sub">${escapeHtml(template.id)}</div>
+    `],
+    ['状态', (template) => `
+      <div>${statusPill(template.enabled === false ? '停用' : '启用')} ${template.builtin ? '<span class="risk-badge">内置</span>' : '<span class="risk-badge">自定义</span>'}</div>
+      <div class="cell-sub">排序 ${numberText(template.sortOrder || 0)} · 使用 ${numberText(template.usageCount || 0)} 次</div>
+      <div class="cell-sub">${template.lastUsedAt ? `最近使用 ${formatTime(template.lastUsedAt)}` : '暂未使用'}</div>
+    `],
+    ['默认原因', (template) => `<div class="template-reason">${escapeHtml(template.reason)}</div>`],
+    ['操作', (template) => template.builtin ? '<span class="cell-sub">内置模板不可改</span>' : `
+      <div class="actions">
+        <button
+          class="small-button"
+          data-action="place-template-edit"
+          data-action-value="${escapeHtml(template.action)}"
+          data-enabled="${template.enabled === false ? 'false' : 'true'}"
+          data-id="${escapeHtml(template.id)}"
+          data-kind="${escapeHtml(template.kind)}"
+          data-reason="${escapeHtml(template.reason)}"
+          data-sort-order="${escapeHtml(template.sortOrder || 0)}"
+          data-title="${escapeHtml(template.title)}"
+        >编辑</button>
+        <button
+          class="small-button ${template.enabled === false ? '' : 'ghost'}"
+          data-action="place-template-toggle"
+          data-enabled="${template.enabled === false ? 'false' : 'true'}"
+          data-id="${escapeHtml(template.id)}"
+          data-title="${escapeHtml(template.title)}"
+        >${template.enabled === false ? '启用' : '停用'}</button>
+        <button class="small-button danger" data-action="place-template-delete" data-id="${escapeHtml(template.id)}" data-title="${escapeHtml(template.title)}">删除</button>
+      </div>
+    `],
+  ], '暂无地点审核模板');
+}
+
+function promptPlaceTemplatePayload(existing = {}) {
+  const title = window.prompt('模板标题', existing.title || '');
+  if (title === null) return null;
+  const kind = window.prompt('适用对象：review / submission', existing.kind || 'review');
+  if (kind === null) return null;
+  const action = window.prompt('审核动作：approve / reject', existing.action || 'reject');
+  if (action === null) return null;
+  const reason = window.prompt('默认审核原因', existing.reason || '');
+  if (reason === null) return null;
+  const sortOrder = window.prompt('排序值：数字越小越靠前', existing.sortOrder || '100');
+  if (sortOrder === null) return null;
+  const trimmedTitle = title.replace(/\s+/g, ' ').trim();
+  const trimmedReason = reason.replace(/\s+/g, ' ').trim();
+  const numericSortOrder = Number(sortOrder);
+  if (!trimmedTitle) throw new Error('请填写模板标题');
+  if (!trimmedReason) throw new Error('请填写默认审核原因');
+  return {
+    action: action.trim(),
+    kind: kind.trim(),
+    reason: trimmedReason,
+    sortOrder: Number.isFinite(numericSortOrder) ? numericSortOrder : Number(existing.sortOrder || 100),
+    title: trimmedTitle,
+  };
+}
+
+async function handlePlaceTemplateCreate() {
+  const payload = promptPlaceTemplatePayload({ action: 'reject', kind: 'review', sortOrder: 100 });
+  if (!payload) return;
+  await post('/admin/places/moderation-templates', { ...payload, enabled: true });
+  clearPlaceAdminCaches();
+  showToast('地点审核模板已新增');
+  await render(true);
+}
+
+async function handlePlaceTemplateEdit(button) {
+  const payload = promptPlaceTemplatePayload({
+    action: button.dataset.actionValue || 'reject',
+    kind: button.dataset.kind || 'review',
+    reason: button.dataset.reason || '',
+    sortOrder: button.dataset.sortOrder || '100',
+    title: button.dataset.title || '',
+  });
+  if (!payload) return;
+  await patch(`/admin/places/moderation-templates/${encodeURIComponent(button.dataset.id || '')}`, payload);
+  clearPlaceAdminCaches();
+  showToast('地点审核模板已更新');
+  await render(true);
+}
+
+async function handlePlaceTemplateToggle(button) {
+  const id = button.dataset.id || '';
+  const currentlyEnabled = button.dataset.enabled !== 'false';
+  const nextEnabled = !currentlyEnabled;
+  const title = button.dataset.title || '地点审核模板';
+  if (!window.confirm(`确认${nextEnabled ? '启用' : '停用'}「${title}」？`)) return;
+  await patch(`/admin/places/moderation-templates/${encodeURIComponent(id)}`, { enabled: nextEnabled });
+  clearPlaceAdminCaches();
+  showToast(nextEnabled ? '地点审核模板已启用' : '地点审核模板已停用');
+  await render(true);
+}
+
+async function handlePlaceTemplateDelete(button) {
+  const id = button.dataset.id || '';
+  const title = button.dataset.title || '地点审核模板';
+  if (!window.confirm(`确认删除「${title}」？已使用过的审核记录会保留当时写入的模板标题。`)) return;
+  await post(`/admin/places/moderation-templates/${encodeURIComponent(id)}/delete`, { reason: `删除地点审核模板：${title}` });
+  clearPlaceAdminCaches();
+  showToast('地点审核模板已删除');
+  await render(true);
 }
 
 async function buildPlaceModerationBody(kind, action) {
@@ -887,7 +1021,7 @@ async function adminPlaceById(placeId) {
 }
 
 function clearPlaceAdminCaches() {
-  ['audit', 'exports', 'moderation', 'notifications', 'places', 'placeReviews', 'placeSubmissions', 'socialRelations', 'summary'].forEach((key) => {
+  ['audit', 'exports', 'moderation', 'notifications', 'places', 'placeModerationTemplates', 'placeReviews', 'placeSubmissions', 'socialRelations', 'summary'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -3671,9 +3805,17 @@ async function renderPlaces(force) {
           <h2>审核原因模板</h2>
           <div class="section-sub">通过或驳回地点点评、新增地点时可套用，最终原因仍可编辑并同步给用户通知</div>
         </div>
+        <div class="actions">
+          <button class="small-button" data-action="place-template-create">新增模板</button>
+        </div>
         ${help('模板用于统一运营口径；真正写入审核记录、通知和审计的是最终提交的审核原因。')}
       </div>
-      <div class="risk-row compact">${placeModerationTemplateBadges(templates)}</div>
+      <div class="template-summary-row">
+        <span class="risk-badge">启用 ${numberText(templates.filter((item) => item.enabled !== false).length)}</span>
+        <span class="risk-badge">自定义 ${numberText(templates.filter((item) => !item.builtin).length)}</span>
+        <span class="risk-badge">内置 ${numberText(templates.filter((item) => item.builtin).length)}</span>
+      </div>
+      ${renderPlaceModerationTemplates(templates)}
     </div>
     <div class="card">
       <div class="section-head">

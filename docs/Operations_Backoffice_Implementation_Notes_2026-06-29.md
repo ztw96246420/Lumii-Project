@@ -270,6 +270,9 @@
 - `POST /admin/places/reviews/{reviewId}/approve`
 - `POST /admin/places/reviews/{reviewId}/reject`
 - `GET /admin/places/moderation-templates`
+- `POST /admin/places/moderation-templates`
+- `PATCH /admin/places/moderation-templates/{templateId}`
+- `POST /admin/places/moderation-templates/{templateId}/delete`
 - `GET /admin/places/submissions`
 - `POST /admin/places/submissions/{submissionId}/approve`
 - `POST /admin/places/submissions/{submissionId}/reject`
@@ -293,11 +296,13 @@
 - 内容安全任务池处理地点点评/新增地点时，也支持同一套审核原因模板。
 - 审核记录会保存 `reviewTemplateId`、`reviewTemplateLabel` 和最终 `reviewReason`。
 - 地点点评/新增地点 CSV 导出新增“审核模板ID”和“审核模板”字段。
+- 后台地点页支持自定义地点审核模板维护：新增、编辑、启用/停用、排序、删除；内置模板只读。
+- 模板变更会写入审计日志：`place.template.create`、`place.template.update`、`place.template.delete`。
 - 独立说明文档：[Operations_Backoffice_Place_Moderation_Templates_2026-06-30.md](Operations_Backoffice_Place_Moderation_Templates_2026-06-30.md)。
 
 未实现：
 
-- 自定义地点审核模板维护、排序和启停。
+- 地点审核通过后的贡献者标记、积分或奖励机制。
 
 ### 3.8 反馈工单
 
