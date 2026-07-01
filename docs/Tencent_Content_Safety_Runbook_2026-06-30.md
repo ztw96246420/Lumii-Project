@@ -28,6 +28,7 @@ Text content safety:
 
 | Backend scope | Default Biztype | Scene |
 | --- | --- | --- |
+| `conversation_message` | `lumii_t_conversation` | Private conversation text |
 | `pet_circle_post` | `lumii_t_social_post` | Pet circle moment text |
 | `pet_circle_comment` | `lumii_t_social_comment` | Pet circle comment text |
 | `place_review` | `lumii_t_place` | Place review text |
@@ -47,6 +48,7 @@ If Tencent Cloud Biztype names change, override them with these environment vari
 
 - `TENCENT_CMS_TEXT_BIZ_SOCIAL_POST`
 - `TENCENT_CMS_TEXT_BIZ_SOCIAL_COMMENT`
+- `TENCENT_CMS_TEXT_BIZ_CONVERSATION` or `TENCENT_CMS_TEXT_BIZ_CHAT`
 - `TENCENT_CMS_TEXT_BIZ_PLACE`
 - `TENCENT_CMS_TEXT_BIZ_PROFILE`
 - `TENCENT_CMS_IMAGE_BIZ_PET_AVATAR`
@@ -59,9 +61,10 @@ If Tencent Cloud Biztype names change, override them with these environment vari
 - Local keyword rules run first.
 - Tencent Cloud machine moderation runs only when `moderation.enabled` and the relevant machine switch are both enabled.
 - `Pass`: content is allowed.
-- `Review`: public content is held from public display and enters the admin review pool when that content type has one.
+- `Review`: public content is held from public display and enters the admin review pool when that content type has one. Private conversation messages use review-as-block and are not sent to either side.
 - `Block`: public content is rejected or hidden.
 - Tencent Cloud call failures are treated as `Review` for public content, so production fails closed rather than publishing unchecked content.
+- Tencent Cloud call failures for private conversation messages are recorded as moderation samples but do not block sending, to avoid breaking live IM during upstream incidents.
 
 ## Admin and App Linkage
 

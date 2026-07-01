@@ -6196,6 +6196,20 @@ export default function LumiiMvpApp() {
     setConversationMessages((items) => items.filter((item) => item.id !== messageId));
   }
 
+  async function reportConversationMessage(message: ConversationMessage) {
+    const conversation = selectedConversation;
+    if (!conversation?.id || message.author !== 'other') return;
+    const confirmed = await confirmAction('举报这条消息？', '我们会把这条消息和会话对象提交给安全审核。举报后这条消息将不再展示给你。', '提交举报', true);
+    if (!confirmed) return;
+    const result = await lumiiApi.messages.reportConversationMessage(conversation.id, message.id, '私信消息举报');
+    if (result.data) {
+      setConversationMessages((items) => items.filter((item) => item.id !== message.id));
+      showToast('举报已提交，消息已从当前会话隐藏');
+    } else {
+      showToast(result.error?.message ?? '举报失败，请稍后再试');
+    }
+  }
+
   async function recordWeight() {
     if (weightSavingRef.current) return;
     const requestSessionToken = sessionTokenRef.current;
@@ -10630,6 +10644,12 @@ export default function LumiiMvpApp() {
                         </View>
                       ) : null}
                     </View>
+                    {message.author === 'other' ? (
+                      <Pressable onPress={() => void reportConversationMessage(message)} style={[styles.conversationReportAction, webPressableReset]}>
+                        <Flag color={palette.muted} size={10} strokeWidth={2.4} />
+                        <Text style={styles.conversationReportActionText}>举报</Text>
+                      </Pressable>
+                    ) : null}
                     {message.author === 'me' && message.status === 'failed' ? (
                       <View style={[styles.messageRetryCard, styles.messageRetryCardMe]}>
                         <View style={styles.messageRetryIcon}>
@@ -17560,6 +17580,8 @@ const styles = StyleSheet.create({
   chatMakeName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '600', lineHeight: 20 },
   chatMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, lineHeight: 22 },
   chatMessageGroup: { gap: 8 },
+  conversationReportAction: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.72)', borderColor: 'rgba(180,168,154,0.28)', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 4, marginLeft: 34, marginTop: -2, paddingHorizontal: 8, paddingVertical: 4 },
+  conversationReportActionText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', lineHeight: 14 },
   chatOfflineDotMake: { backgroundColor: palette.muted },
   chatOfflineMiniDot: { backgroundColor: palette.muted, borderRadius: 3, height: 6, width: 6 },
   chatOnlineTextMutedMake: { color: palette.muted },

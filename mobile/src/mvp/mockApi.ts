@@ -1396,6 +1396,7 @@ let conversationMessagesById: Record<string, ConversationMessage[]> = {
   c1: [{ author: 'other', id: 'c1-welcome', text: '今晚 7 点公园见？', time: new Date().toISOString() }],
   c2: [{ author: 'system', id: 'c2-system', text: '你提交的地点已进入审核。', time: new Date().toISOString() }],
 };
+let conversationReportedMessageIds: string[] = [];
 let petChatMessages: ChatMessage[] = [];
 
 let notifications: NotificationItem[] = [
@@ -3190,7 +3191,7 @@ export const mockApi = {
       await wait(160);
       const conversation = conversations.find((item) => item.id === conversationId);
       if (conversation?.ownerId && isMockOwnerBlocked(conversation.ownerId)) return error<ConversationMessage[]>('会话不存在，请返回消息列表刷新', true, undefined, 'SOCIAL_TARGET_GONE');
-      return success(conversationMessagesById[conversationId] ?? []);
+      return success((conversationMessagesById[conversationId] ?? []).filter((message) => !conversationReportedMessageIds.includes(message.id) && message.status !== 'hidden' && message.status !== 'deleted'));
     },
 
     async sendMessage(text: string): Promise<ApiResult<ChatMessage>> {
@@ -3259,6 +3260,16 @@ export const mockApi = {
       conversation.updatedAt = new Date().toISOString();
       conversationMessagesById[conversationId] = [...(conversationMessagesById[conversationId] ?? []), message];
       return success(message);
+    },
+
+    async reportConversationMessage(conversationId: string, messageId: string, _content?: string): Promise<ApiResult<PetCircleReportResult>> {
+      await wait(120);
+      const message = (conversationMessagesById[conversationId] ?? []).find((item) => item.id === messageId);
+      if (!message || message.status === 'hidden' || message.status === 'deleted') return error<PetCircleReportResult>('这条消息已不可见', false, undefined, 'CONVERSATION_MESSAGE_GONE');
+      if (message.author === 'system') return error<PetCircleReportResult>('系统消息不支持举报', false, undefined, 'CONVERSATION_MESSAGE_REPORT_INVALID');
+      if (message.author === 'me') return error<PetCircleReportResult>('不能举报自己发送的消息', false, undefined, 'CONVERSATION_MESSAGE_REPORT_INVALID');
+      if (!conversationReportedMessageIds.includes(messageId)) conversationReportedMessageIds = [...conversationReportedMessageIds, messageId];
+      return success({ id: `mock-report-message-${messageId}`, reported: true, targetId: messageId, targetType: 'message' });
     },
 
     async markConversationRead(conversationId: string): Promise<ApiResult<true>> {

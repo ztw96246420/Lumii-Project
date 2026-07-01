@@ -407,7 +407,7 @@ export type PetCircleReportResult = {
   id: string;
   reported: true;
   targetId: string;
-  targetType: 'comment' | 'place_review' | 'post';
+  targetType: 'comment' | 'message' | 'place_review' | 'post';
 };
 
 export type SocialBlockResult = {
@@ -449,9 +449,11 @@ export type Conversation = {
 
 export type ConversationMessage = {
   author: 'me' | 'other' | 'system';
+  reportedByMe?: boolean;
   id: string;
-  status?: 'failed' | 'sending' | 'sent';
+  status?: 'deleted' | 'failed' | 'hidden' | 'sending' | 'sent';
   text: string;
+  threadMessageId?: string;
   time: string;
 };
 

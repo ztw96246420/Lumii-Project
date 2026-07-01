@@ -74,6 +74,7 @@ const TENCENT_CMS_TEXT_ENDPOINT = process.env.TENCENT_CMS_TEXT_ENDPOINT || 'tms.
 const TENCENT_CMS_TEXT_VERSION = process.env.TENCENT_CMS_TEXT_VERSION || '2020-12-29';
 const TENCENT_CMS_TEXT_BIZ_TYPE = process.env.TENCENT_CMS_TEXT_BIZ_TYPE || '';
 const TENCENT_CMS_TEXT_BIZ_TYPES = {
+  conversation_message: process.env.TENCENT_CMS_TEXT_BIZ_CONVERSATION || process.env.TENCENT_CMS_TEXT_BIZ_CHAT || 'lumii_t_conversation',
   pet_circle_comment: process.env.TENCENT_CMS_TEXT_BIZ_SOCIAL_COMMENT || process.env.TENCENT_CMS_TEXT_BIZ_COMMENT || 'lumii_t_social_comment',
   pet_circle_post: process.env.TENCENT_CMS_TEXT_BIZ_SOCIAL_POST || process.env.TENCENT_CMS_TEXT_BIZ_POST || 'lumii_t_social_post',
   pet_profile: process.env.TENCENT_CMS_TEXT_BIZ_PROFILE || 'lumii_t_profile',
@@ -646,6 +647,7 @@ function opsConfigSummary(config) {
 function adminContentSafetyStatus(config = currentOpsConfig()) {
   const moderation = config.moderation || {};
   const textScopes = [
+    ['conversation_message', '私信聊天文本'],
     ['pet_circle_post', '宠友圈小事文本'],
     ['pet_circle_comment', '宠友圈评论文本'],
     ['place_review', '地点点评文本'],
@@ -9416,6 +9418,119 @@ function appendConversationMessage(phone, conversationId, message) {
   state.conversationMessages[phone][conversationId] = [...(state.conversationMessages[phone][conversationId] || []), message];
 }
 
+function conversationMessageModerationStatus(message = {}) {
+  if (message.deletedAt || message.status === 'deleted') return 'deleted';
+  if (message.adminHiddenAt || message.status === 'hidden') return 'hidden';
+  return message.status || 'sent';
+}
+
+function isConversationMessageVisibleFor(user, message = {}) {
+  if (!message || message.author === 'system') return Boolean(message);
+  if (message.deletedAt || message.adminHiddenAt || message.status === 'deleted' || message.status === 'hidden') return false;
+  return !socialReportFor(user, 'message', message.id);
+}
+
+function visibleConversationMessagesFor(user, conversationId) {
+  return getConversationMessages(user.phone, conversationId).filter((message) => isConversationMessageVisibleFor(user, message));
+}
+
+function findConversationMessageRecord(phone, conversationId, messageId) {
+  const id = String(messageId || '');
+  if (!id) return null;
+  const map = state.conversationMessages?.[phone] || {};
+  const conversationIds = conversationId && map[conversationId] ? [conversationId] : Object.keys(map);
+  for (const currentConversationId of conversationIds) {
+    const list = Array.isArray(map[currentConversationId]) ? map[currentConversationId] : [];
+    const index = list.findIndex((message) => message?.id === id);
+    if (index >= 0) return { conversationId: currentConversationId, index, list, message: list[index], phone };
+  }
+  return null;
+}
+
+function findConversationMessageMirror(record, otherPhone) {
+  if (!record?.message || !otherPhone) return null;
+  const mirrorConversationId = conversationIdFor(record.phone);
+  const list = state.conversationMessages?.[otherPhone]?.[mirrorConversationId];
+  if (!Array.isArray(list)) return null;
+  const threadMessageId = record.message.threadMessageId || '';
+  let index = threadMessageId ? list.findIndex((message) => message?.threadMessageId === threadMessageId) : -1;
+  if (index < 0) {
+    index = list.findIndex(
+      (message) =>
+        message?.author === 'me' &&
+        message?.text === record.message.text &&
+        String(message?.time || '') === String(record.message.time || ''),
+    );
+  }
+  return index >= 0 ? { conversationId: mirrorConversationId, index, list, message: list[index], phone: otherPhone } : null;
+}
+
+function findConversationMessageReportTarget(report = {}) {
+  const reporterPhone = normalizePhone(report.phone || report.reporterPhone || '');
+  const ownerPhone = normalizePhone(report.ownerPhone || '');
+  const reporterConversationId = String(report.conversationId || (ownerPhone ? conversationIdFor(ownerPhone) : '') || '');
+  const record = findConversationMessageRecord(reporterPhone, reporterConversationId, report.targetId);
+  const ownerRecord = record ? findConversationMessageMirror(record, ownerPhone) : null;
+  return {
+    conversationId: record?.conversationId || reporterConversationId,
+    message: record?.message || null,
+    ownerPhone,
+    ownerRecord,
+    record,
+    reporterPhone,
+  };
+}
+
+function reportConversationMessage(conversationId, messageId, user, body = {}) {
+  const targetPhone = conversationTargetPhone(conversationId);
+  if (!targetPhone || targetPhone === user.phone || !state.users[targetPhone] || socialBlockBetween(user.phone, targetPhone)) {
+    return { error: '会话不存在，请返回消息列表刷新', statusCode: 404 };
+  }
+  const record = findConversationMessageRecord(user.phone, conversationId, messageId);
+  const message = record?.message;
+  if (!message || !isConversationMessageVisibleFor(user, message)) return { error: '这条消息已不可见', statusCode: 404 };
+  if (message.author === 'system') return { error: '系统消息不支持举报', statusCode: 400 };
+  if (message.author === 'me') return { error: '不能举报自己发送的消息', statusCode: 400 };
+  const existing = socialReportFor(user, 'message', message.id);
+  if (existing) return { report: existing, message };
+  const report = createSocialReport(user, 'message', message.id, targetPhone, body);
+  report.conversationId = conversationId;
+  report.messageText = String(message.text || '').slice(0, 600);
+  report.messageTime = message.time || '';
+  report.ownerConversationId = conversationIdFor(user.phone);
+  report.threadMessageId = message.threadMessageId || '';
+  report.evidenceSnapshot = buildSocialReportEvidenceSnapshot(report);
+  return { report, message };
+}
+
+function moderateReportedConversationMessage(admin, report, action, reason, now = new Date().toISOString()) {
+  const found = findConversationMessageReportTarget(report);
+  if (!found.record?.message) return { error: '被举报私信不存在', statusCode: 404 };
+  const records = [found.record, found.ownerRecord].filter(Boolean);
+  const before = records.map((record) => ({
+    conversationId: record.conversationId,
+    message: { ...record.message },
+    phone: record.phone,
+  }));
+  records.forEach((record) => {
+    record.message.adminHiddenAt = now;
+    record.message.adminHiddenBy = admin?.username || 'admin';
+    record.message.adminModerationReason = reason;
+    if (action === 'delete') {
+      record.message.deletedAt = now;
+      record.message.status = 'deleted';
+    } else {
+      record.message.status = 'hidden';
+    }
+  });
+  writeAdminAudit(admin, `moderation.message.${action}`, 'conversation_message', report.targetId, before, records.map((record) => ({
+    conversationId: record.conversationId,
+    message: record.message,
+    phone: record.phone,
+  })), reason);
+  return { message: found.record.message };
+}
+
 function buildConversationFor(user, otherUser, lastMessage, unread = 0) {
   const otherPet = activePetFor(otherUser);
   if (!otherPet) return null;
@@ -9572,6 +9687,7 @@ function markResultNotification(record, status, statusKey = 'resultNotifiedStatu
 }
 
 function socialReportTargetLabel(targetType) {
+  if (targetType === 'message') return '私信消息';
   if (targetType === 'post') return '小事';
   if (targetType === 'comment') return '评论';
   if (targetType === 'place_review') return '地点点评';
@@ -14155,7 +14271,7 @@ function moderationTaskActions(task) {
       { action: 'invalid', label: '无效关闭' },
       { action: 'escalate', label: '升级' },
     ];
-    if (task.targetType === 'post' || task.targetType === 'comment' || task.targetType === 'place_review') {
+    if (task.targetType === 'post' || task.targetType === 'comment' || task.targetType === 'place_review' || task.targetType === 'message') {
       actions.splice(1, 0, { action: 'hide', label: '有效并隐藏', tone: 'danger' });
       actions.splice(2, 0, { action: 'delete', label: '有效并删除', tone: 'danger', confirm: true });
     } else {
@@ -14245,6 +14361,27 @@ function socialReportTargetSnapshot(report) {
       ownerPhone: review.ownerPhone,
       targetLabel: review.placeName ? `${review.placeName} 的点评` : '地点点评',
       targetStatus: review.status,
+    };
+  }
+  if (report.targetType === 'message') {
+    const found = findConversationMessageReportTarget(report);
+    const owner = state.users[found.ownerPhone || report.ownerPhone];
+    const message = found.message;
+    if (!message) {
+      return {
+        contentText: report.messageText || '',
+        ownerName: owner?.ownerName || `用户${String(report.ownerPhone || '').slice(-4)}`,
+        ownerPhone: report.ownerPhone,
+        targetLabel: '私信消息不存在',
+        targetStatus: 'missing',
+      };
+    }
+    return {
+      contentText: message.text || report.messageText || '',
+      ownerName: owner?.ownerName || `用户${String(found.ownerPhone || report.ownerPhone || '').slice(-4)}`,
+      ownerPhone: found.ownerPhone || report.ownerPhone,
+      targetLabel: '私信消息',
+      targetStatus: conversationMessageModerationStatus(message),
     };
   }
   return { contentText: report.content || '', targetLabel: report.targetType, targetStatus: 'unknown' };
@@ -14696,6 +14833,9 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
         found.review.reviewedBy = admin.username;
         if (action === 'delete') found.review.deletedAt = now;
         writeAdminAudit(admin, `moderation.placeReview.${action}`, 'place_review', found.review.id, beforeReview, found.review, reason);
+      } else if (report.targetType === 'message') {
+        const result = moderateReportedConversationMessage(admin, report, action, reason, now);
+        if (result.error) return result;
       } else {
         return { error: '该举报对象暂不支持这个动作', statusCode: 400 };
       }
@@ -17545,7 +17685,24 @@ async function handle(req, res) {
       fail(res, 404, '会话不存在，请返回消息列表刷新', true);
       return;
     }
-    ok(res, getConversationMessages(user.phone, conversationId));
+    ok(res, visibleConversationMessagesFor(user, conversationId));
+    return;
+  }
+
+  const conversationMessageReportMatch = pathname.match(/^\/conversations\/([^/]+)\/messages\/([^/]+)\/report$/);
+  if (req.method === 'POST' && conversationMessageReportMatch) {
+    const result = reportConversationMessage(
+      decodeURIComponent(conversationMessageReportMatch[1]),
+      decodeURIComponent(conversationMessageReportMatch[2]),
+      user,
+      body,
+    );
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false);
+      return;
+    }
+    saveState();
+    ok(res, { id: result.report.id, reported: true, targetId: result.report.targetId, targetType: result.report.targetType });
     return;
   }
 
@@ -17585,14 +17742,33 @@ async function handle(req, res) {
       return;
     }
     if (!alreadyAccepted) acceptPendingWalkInviteForReply(user.phone, targetPhone);
+    const moderation = await evaluateContentTextModeration('聊天内容', text, {
+      ownerPhone: user.phone,
+      reviewAsBlock: true,
+      scope: 'conversation_message',
+    });
+    if (moderation.action !== 'allow' && moderation.source !== 'tencent_cms_error') {
+      recordModerationSample({ ...moderation, contentText: text, ownerPhone: user.phone, scope: 'conversation_message' });
+      fail(res, moderation.action === 'block' ? 400 : 409, moderation.message || '聊天内容需要修改后再发送', false);
+      return;
+    }
+    if (moderation.action !== 'allow') {
+      recordModerationSample({ ...moderation, contentText: text, ownerPhone: user.phone, scope: 'conversation_message' });
+    }
+    const sentAt = new Date().toISOString();
+    const threadMessageId = messageId();
     const myMessage = {
       author: 'me',
       id: messageId(),
       status: 'sent',
       text,
-      time: new Date().toISOString(),
+      threadMessageId,
+      time: sentAt,
     };
     appendConversationMessage(user.phone, conversationId, myMessage);
+    if (moderation.action === 'allow') {
+      maybeRecordModerationQualitySample({ ...moderation, contentText: text, ownerPhone: user.phone, scope: 'conversation_message', targetId: threadMessageId });
+    }
 
     const targetUser = ensureUser(targetPhone);
     const targetConversationId = conversationIdFor(user.phone);
@@ -17601,7 +17777,8 @@ async function handle(req, res) {
       id: messageId(),
       status: 'sent',
       text,
-      time: new Date().toISOString(),
+      threadMessageId,
+      time: sentAt,
     });
     upsertConversation(user.phone, buildConversationFor(user, targetUser, text, 0));
     upsertConversation(targetPhone, buildConversationFor(targetUser, user, text, 1));

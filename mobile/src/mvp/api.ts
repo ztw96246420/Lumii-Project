@@ -533,6 +533,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<ConversationMessage>('POST', `/conversations/${encodeURIComponent(conversationId)}/messages`, { text });
       },
 
+      async reportConversationMessage(conversationId: string, messageId: string, content?: string): Promise<ApiResult<PetCircleReportResult>> {
+        return request<PetCircleReportResult>('POST', `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/report`, { content });
+      },
+
       async markConversationRead(conversationId: string): Promise<ApiResult<true>> {
         return request<true>('POST', `/conversations/${encodeURIComponent(conversationId)}/read`);
       },
