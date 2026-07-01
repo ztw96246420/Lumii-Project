@@ -454,6 +454,8 @@
 - 配置中心页面已展示每个配置项是否“前后端联动 / 后端强制 / 移动端联动 / 预留”，并列出后端证据、移动端证据、用户影响和运营备注。
 - 配置中心页面新增“配置发布治理”区，展示待发布草稿、高风险草稿、最近草稿时间和配置版本数。
 - 配置草稿和版本历史会记录变更摘要与风险项，当前高风险项覆盖维护模式、强制更新、核心功能开关、内容安全总开关、腾讯云机审开关和关键词规则。
+- 高风险配置发布确认已接入：`PATCH /admin/config`、发布草稿、回滚版本命中 P0/P1 风险时，后端返回 `ADMIN_CONFIG_RISK_CONFIRM_REQUIRED`；后台展示风险摘要，要求输入 `确认发布高风险配置` 后才会重试发布。
+- 独立文档：[Operations_Backoffice_Config_Risk_Confirmation_2026-07-01.md](Operations_Backoffice_Config_Risk_Confirmation_2026-07-01.md)。
 - 数据导出新增配置联动体检 CSV。
 - 独立文档：[Operations_Backoffice_Config_Linkage_2026-06-30.md](Operations_Backoffice_Config_Linkage_2026-06-30.md)。
 - 后台配置页展示最近 12 个配置版本，后端最多保留最近 80 个快照。

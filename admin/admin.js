@@ -116,6 +116,7 @@ const userRiskTagOptions = [
 ];
 const userRiskTagLabelMap = Object.fromEntries(userRiskTagOptions.map((item) => [item.key, item.label]));
 const userRiskTagKeyMap = Object.fromEntries(userRiskTagOptions.flatMap((item) => [[item.key, item.key], [item.label, item.key]]));
+const CONFIG_HIGH_RISK_CONFIRM_TEXT = '确认发布高风险配置';
 
 const $ = (id) => document.getElementById(id);
 
@@ -4594,6 +4595,7 @@ function renderConfigGovernance(config = {}) {
     <div class="grid metrics">
       ${metric('待发布草稿', numberText(governance.activeDrafts ?? activeDrafts.length), '不会影响 /app/config', '草稿只保存在后台，发布后才会生成版本并影响移动端。')}
       ${metric('高风险草稿', numberText(governance.highRiskDrafts || 0), 'P0 需重点复核', '维护模式、强制更新、内容安全总开关和机审开关属于高风险配置。')}
+      ${metric('发布保护', '已启用', 'P0/P1 需确认文案', `命中高风险配置时，需要输入“${escapeHtml(governance.highRiskConfirmText || CONFIG_HIGH_RISK_CONFIRM_TEXT)}”才能发布。`)}
       ${metric('最近草稿', governance.latestDraftAt ? formatTime(governance.latestDraftAt) : '-', '配置治理记录', '用于确认是否有人保存了待发布变更。')}
       ${metric('版本历史', numberText((config.revisions || []).length), '可回滚', '发布和回滚都会生成配置版本快照。')}
     </div>
@@ -4603,7 +4605,7 @@ function renderConfigGovernance(config = {}) {
           <h2>配置发布治理</h2>
           <div class="section-sub">草稿不会影响移动端；发布后下一次 /app/config 拉取生效</div>
         </div>
-        ${help('建议高风险改动先保存草稿，由运营复核影响摘要后再发布。当前单 admin 版本先落草稿和审计，双人审批后续可接在同一个入口上。')}
+        ${help('建议高风险改动先保存草稿，由运营复核影响摘要后再发布。当前单 admin 版本会强制输入确认文案并写审计，双人审批后续可接在同一个入口上。')}
       </div>
       ${activeDrafts.length ? tableHtml(activeDrafts.slice(0, 8), [
         ['草稿', (draft) => `<div class="cell-title">${escapeHtml(draft.id)}</div><div class="cell-sub">${formatTime(draft.updatedAt || draft.createdAt)} · ${escapeHtml(draft.createdBy || '-')}</div>`],
@@ -4987,6 +4989,39 @@ function renderContentSafetyStatus(contentSafety = {}) {
   `;
 }
 
+function configRiskConfirmationFromError(error, actionLabel) {
+  if (error?.code !== 'ADMIN_CONFIG_RISK_CONFIRM_REQUIRED') throw error;
+  const data = error.data || {};
+  const confirmText = data.confirmText || CONFIG_HIGH_RISK_CONFIRM_TEXT;
+  const risks = Array.isArray(data.blockingRisks) ? data.blockingRisks : [];
+  const riskSummary = risks.length
+    ? risks.slice(0, 6).map((risk) => `${risk.severity || '-'} ${risk.label || risk.key}: ${risk.before} -> ${risk.after}`).join('\n')
+    : '命中高风险配置变更。';
+  const input = window.prompt(
+    `${actionLabel}包含高风险配置，会直接影响移动端用户。\n\n${riskSummary}\n\n如确认继续，请输入：${confirmText}`,
+    '',
+  );
+  if (input === null) return null;
+  if (input.trim() !== confirmText) {
+    showToast('确认文案不匹配，已取消发布');
+    return null;
+  }
+  return {
+    riskAcknowledged: true,
+    riskConfirmText: confirmText,
+  };
+}
+
+async function submitConfigMutationWithRiskConfirmation(send, payload, actionLabel) {
+  try {
+    return await send(payload);
+  } catch (error) {
+    const confirmation = configRiskConfirmationFromError(error, actionLabel);
+    if (!confirmation) return null;
+    return send({ ...payload, ...confirmation });
+  }
+}
+
 async function saveConfig(mode = 'publish') {
   const announcementEnabled = $('cfgAnnouncementEnabled').checked;
   if (announcementEnabled && (!$('cfgAnnouncementVersion').value.trim() || !$('cfgAnnouncementTitle').value.trim() || !$('cfgAnnouncementBody').value.trim())) {
@@ -5119,9 +5154,11 @@ async function saveConfig(mode = 'publish') {
   const reason = window.prompt(promptLabel, defaultReason);
   if (reason === null) return;
   payload.reason = reason.trim() || defaultReason;
-  state.cache.config = mode === 'draft'
+  const nextConfig = mode === 'draft'
     ? await post('/admin/config/drafts', payload)
-    : await patch('/admin/config', payload);
+    : await submitConfigMutationWithRiskConfirmation((nextPayload) => patch('/admin/config', nextPayload), payload, '立即发布配置');
+  if (!nextConfig) return;
+  state.cache.config = nextConfig;
   state.cache.summary = null;
   showToast(mode === 'draft' ? '配置草稿已保存' : '配置已发布');
   await render(true);
@@ -5131,9 +5168,16 @@ async function publishConfigDraft(id) {
   if (!id) return;
   const reason = window.prompt('请输入发布草稿的原因', `发布配置草稿 ${id}`);
   if (reason === null) return;
-  state.cache.config = await post(`/admin/config/drafts/${encodeURIComponent(id)}/publish`, {
+  const payload = {
     reason: reason.trim() || `发布配置草稿 ${id}`,
-  });
+  };
+  const nextConfig = await submitConfigMutationWithRiskConfirmation(
+    (nextPayload) => post(`/admin/config/drafts/${encodeURIComponent(id)}/publish`, nextPayload),
+    payload,
+    '发布配置草稿',
+  );
+  if (!nextConfig) return;
+  state.cache.config = nextConfig;
   state.cache.summary = null;
   showToast('配置草稿已发布');
   await render(true);
@@ -5154,9 +5198,16 @@ async function rollbackConfigRevision(id) {
   if (!id) return;
   const reason = window.prompt('请输入回滚原因', `回滚到配置版本 ${id}`);
   if (reason === null) return;
-  state.cache.config = await post(`/admin/config/revisions/${encodeURIComponent(id)}/rollback`, {
+  const payload = {
     reason: reason.trim() || `回滚到配置版本 ${id}`,
-  });
+  };
+  const nextConfig = await submitConfigMutationWithRiskConfirmation(
+    (nextPayload) => post(`/admin/config/revisions/${encodeURIComponent(id)}/rollback`, nextPayload),
+    payload,
+    '回滚配置版本',
+  );
+  if (!nextConfig) return;
+  state.cache.config = nextConfig;
   state.cache.summary = null;
   showToast('配置已回滚');
   await render(true);

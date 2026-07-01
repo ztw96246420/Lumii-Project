@@ -872,6 +872,33 @@ function configRiskChanges(before, after) {
   return risks;
 }
 
+const CONFIG_HIGH_RISK_CONFIRM_TEXT = '确认发布高风险配置';
+const CONFIG_BLOCKING_RISK_SEVERITIES = new Set(['P0', 'P1']);
+
+function blockingConfigRiskChanges(riskChanges = []) {
+  return (Array.isArray(riskChanges) ? riskChanges : []).filter((risk) => CONFIG_BLOCKING_RISK_SEVERITIES.has(String(risk.severity || '')));
+}
+
+function configRiskConfirmationResult(before, after, body = {}, action = 'publish') {
+  const riskChanges = configRiskChanges(before, after);
+  const blockingRisks = blockingConfigRiskChanges(riskChanges);
+  if (!blockingRisks.length) return { confirmed: true, riskChanges, blockingRisks };
+  const reason = String(body.reason || '').trim();
+  const riskAcknowledged = body.riskAcknowledged === true;
+  const confirmText = String(body.riskConfirmText || '').trim();
+  if (riskAcknowledged && confirmText === CONFIG_HIGH_RISK_CONFIRM_TEXT && reason.length >= ADMIN_EXPORT_REASON_MIN_LENGTH) {
+    return { confirmed: true, riskChanges, blockingRisks };
+  }
+  return {
+    action,
+    blockingRisks,
+    confirmText: CONFIG_HIGH_RISK_CONFIRM_TEXT,
+    confirmed: false,
+    reasonMinLength: ADMIN_EXPORT_REASON_MIN_LENGTH,
+    riskChanges,
+  };
+}
+
 function normalizeOpsConfigDraft(item = {}) {
   if (!item || typeof item !== 'object' || !item.id || !item.config) return null;
   const config = normalizeOpsConfig(item.config);
@@ -1317,6 +1344,7 @@ function adminOpsConfigResponse() {
     drafts,
     governance: {
       activeDrafts: activeDrafts.length,
+      highRiskConfirmText: CONFIG_HIGH_RISK_CONFIRM_TEXT,
       highRiskDrafts: activeDrafts.filter((draft) => (draft.riskChanges || []).some((risk) => risk.severity === 'P0')).length,
       latestDraftAt: drafts[0]?.updatedAt || '',
     },
@@ -16235,9 +16263,14 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   if (req.method === 'PATCH' && pathname === '/admin/config') {
     const before = currentOpsConfig();
     const next = buildOpsConfigPatch(before, body);
+    const riskConfirmation = configRiskConfirmationResult(before, next, body, 'publish');
+    if (!riskConfirmation.confirmed) {
+      fail(res, 409, `高风险配置需要输入「${CONFIG_HIGH_RISK_CONFIRM_TEXT}」后才能发布`, false, riskConfirmation, 'ADMIN_CONFIG_RISK_CONFIRM_REQUIRED');
+      return true;
+    }
     state.opsConfig = next;
     const revision = recordOpsConfigRevision(admin, next, body.reason || '配置中心保存', 'publish', '', before);
-    writeAdminAudit(admin, 'config.update', 'ops_config', 'app', before, { ...next, revisionId: revision.id }, body.reason);
+    writeAdminAudit(admin, 'config.update', 'ops_config', 'app', before, { ...next, revisionId: revision.id, riskAcknowledged: riskConfirmation.blockingRisks.length > 0 }, body.reason);
     saveState();
     ok(res, adminOpsConfigResponse());
     return true;
@@ -16283,6 +16316,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     }
     const before = currentOpsConfig();
     const next = normalizeOpsConfig({ ...cloneJson(draft.config), updatedAt: now });
+    const riskConfirmation = configRiskConfirmationResult(before, next, body, 'draft_publish');
+    if (!riskConfirmation.confirmed) {
+      fail(res, 409, `高风险配置草稿需要输入「${CONFIG_HIGH_RISK_CONFIRM_TEXT}」后才能发布`, false, riskConfirmation, 'ADMIN_CONFIG_RISK_CONFIRM_REQUIRED');
+      return true;
+    }
     state.opsConfig = next;
     const revision = recordOpsConfigRevision(admin, next, body.reason || draft.reason || `发布配置草稿 ${draft.id}`, 'draft_publish', draft.id, before);
     draft.status = 'published';
@@ -16290,7 +16328,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     draft.publishedBy = admin.username;
     draft.revisionId = revision.id;
     draft.updatedAt = now;
-    writeAdminAudit(admin, 'config.draft.publish', 'ops_config_draft', draft.id, beforeDraft, { ...draft, revisionId: revision.id }, body.reason);
+    writeAdminAudit(admin, 'config.draft.publish', 'ops_config_draft', draft.id, beforeDraft, { ...draft, revisionId: revision.id, riskAcknowledged: riskConfirmation.blockingRisks.length > 0 }, body.reason);
     saveState();
     ok(res, { ...adminOpsConfigResponse(), draft, revision });
     return true;
@@ -16309,9 +16347,14 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       ...cloneJson(revision.config),
       updatedAt: new Date().toISOString(),
     });
+    const riskConfirmation = configRiskConfirmationResult(before, next, body, 'rollback');
+    if (!riskConfirmation.confirmed) {
+      fail(res, 409, `高风险配置回滚需要输入「${CONFIG_HIGH_RISK_CONFIRM_TEXT}」后才能发布`, false, riskConfirmation, 'ADMIN_CONFIG_RISK_CONFIRM_REQUIRED');
+      return true;
+    }
     state.opsConfig = next;
     const rollbackRevision = recordOpsConfigRevision(admin, next, body.reason || `回滚到 ${revisionId}`, 'rollback', revisionId, before);
-    writeAdminAudit(admin, 'config.rollback', 'ops_config', revisionId, before, { ...next, revisionId: rollbackRevision.id, sourceRevisionId: revisionId }, body.reason);
+    writeAdminAudit(admin, 'config.rollback', 'ops_config', revisionId, before, { ...next, revisionId: rollbackRevision.id, riskAcknowledged: riskConfirmation.blockingRisks.length > 0, sourceRevisionId: revisionId }, body.reason);
     saveState();
     ok(res, { ...adminOpsConfigResponse(), rolledBackFrom: revisionId });
     return true;
