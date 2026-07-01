@@ -274,15 +274,19 @@
 - `PATCH /admin/places/moderation-templates/{templateId}`
 - `POST /admin/places/moderation-templates/{templateId}/delete`
 - `GET /admin/places/submissions`
+- `GET /admin/places/contributions`
 - `POST /admin/places/submissions/{submissionId}/approve`
 - `POST /admin/places/submissions/{submissionId}/reject`
+- `POST /admin/places/submissions/{submissionId}/link-existing`
 
 已支持：
 
 - 点评审核通过/驳回。
 - 新增地点审核通过/驳回。
 - 新增地点通过后创建 `manual` 来源地点，宠物友好状态为 `candidate`。
-- 点评和新增地点审核通过/驳回后，会向提交人写入 App 通知中心；移动端沿用 `place_review` / `place_submission` 通知入口。
+- 新增地点可由后台关联到已有地点，视为审核通过并把提交图片补充进目标地点 `photoUrls`。
+- 新增地点审核通过会记录地点贡献者账本：发现新地点 `+10` 贡献分，补充已有地点 `+5` 贡献分；地点目录展示贡献者数量，后台新增贡献者卡片。
+- 点评和新增地点审核通过/驳回后，会向提交人写入 App 通知中心；移动端沿用 `place_review` / `place_submission` 通知入口，并在新增地点结果页展示审核状态、原因和贡献分。
 - 后台地点点评/新增地点审核表会显示结果通知时间。
 - `GET /admin/places` 已返回地点目录治理对象，包含质量分、质量证据、重复候选数和重复候选明细。
 - 后台地图地点页新增地点质量治理卡片，展示地点总数、平均质量分、重复候选、待治理地点和明细表。
@@ -295,14 +299,14 @@
 - 地点点评和新增地点审核支持内置原因模板；运营可以套用模板后编辑最终原因。
 - 内容安全任务池处理地点点评/新增地点时，也支持同一套审核原因模板。
 - 审核记录会保存 `reviewTemplateId`、`reviewTemplateLabel` 和最终 `reviewReason`。
-- 地点点评/新增地点 CSV 导出新增“审核模板ID”和“审核模板”字段。
+- 地点点评/新增地点 CSV 导出新增“审核模板ID”和“审核模板”字段；新增 `place_contributions` CSV 导出贡献记录。
 - 后台地点页支持自定义地点审核模板维护：新增、编辑、启用/停用、排序、删除；内置模板只读。
 - 模板变更会写入审计日志：`place.template.create`、`place.template.update`、`place.template.delete`。
 - 独立说明文档：[Operations_Backoffice_Place_Moderation_Templates_2026-06-30.md](Operations_Backoffice_Place_Moderation_Templates_2026-06-30.md)。
 
-未实现：
+当前限制：
 
-- 地点审核通过后的贡献者标记、积分或奖励机制。
+- 贡献分当前只是后台运营账本和用户通知提示，尚未做用户端公开徽章、贡献等级、活动奖励或兑换规则。
 
 ### 3.8 反馈工单
 
@@ -781,7 +785,7 @@
 3. 用户禁言的业务范围第一版已明确：发布小事、评论、点赞、打招呼、约遛、私信、宠友圈封面、地点投稿、地点点评都会被禁；是否还要限制头像/资料修改待确认。
 4. 运营删除宠友圈动态后，作者端是否展示“已被运营处理”的占位提示？
 5. 举报处理结果第一版已通知举报人；有效举报会通知被举报内容作者。后续是否需要更细的通知文案模板、申诉入口或处罚联动待确认。
-6. 新增地点审核通过/驳回第一版已通知提交人。后续是否需要奖励、积分或“贡献者”展示待确认。
+6. 新增地点审核通过/驳回已通知提交人，基础贡献积分账本已落地。后续是否要公开展示贡献者、贡献等级或活动奖励待确认。
 7. 地点点评审核通过后，App 地点详情是否要公开展示所有 approved 点评？当前 C 端还没有完整公开点评列表。
 8. 维护模式开启时，App 是阻断登录，还是只显示顶部提示？
 9. AI 形象任务返还额度的规则：所有失败都可返还，还是仅 provider 失败返还？

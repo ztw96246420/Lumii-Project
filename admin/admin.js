@@ -702,6 +702,10 @@ async function onContentClick(event) {
       await handlePlaceModerationAction(button);
       return;
     }
+    if (action === 'submission-link-existing') {
+      await handlePlaceSubmissionLinkExisting(button);
+      return;
+    }
     if (action !== 'save-config') {
       clearOperationalCaches();
       showToast('处理完成');
@@ -1021,7 +1025,7 @@ async function adminPlaceById(placeId) {
 }
 
 function clearPlaceAdminCaches() {
-  ['audit', 'exports', 'moderation', 'notifications', 'places', 'placeModerationTemplates', 'placeReviews', 'placeSubmissions', 'socialRelations', 'summary'].forEach((key) => {
+  ['audit', 'exports', 'moderation', 'notifications', 'places', 'placeContributions', 'placeModerationTemplates', 'placeReviews', 'placeSubmissions', 'socialRelations', 'summary'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -1105,6 +1109,29 @@ async function handlePlaceMerge(button) {
   return true;
 }
 
+async function handlePlaceSubmissionLinkExisting(button) {
+  const submissionId = button.dataset.id || '';
+  const submissionName = button.dataset.name || '新增地点';
+  const defaultTargetId = button.dataset.defaultTargetId || '';
+  const targetPlaceId = window.prompt(`把「${submissionName}」关联到哪个已有地点？\n\n请输入目标地点 ID：`, defaultTargetId);
+  if (targetPlaceId === null) return false;
+  const trimmedTargetId = targetPlaceId.trim();
+  if (!trimmedTargetId) throw new Error('请填写目标地点 ID');
+  const target = await adminPlaceById(trimmedTargetId);
+  if (!target) throw new Error('目标地点不存在');
+  if (!window.confirm(`确认把「${submissionName}」关联到「${target.name}」？\n\n这会把提交审核视为通过，并给提交人记录地点贡献。`)) return false;
+  const body = await buildPlaceModerationBody('submission', 'approve');
+  if (!body) return false;
+  await post(`/admin/places/submissions/${encodeURIComponent(submissionId)}/link-existing`, {
+    ...body,
+    placeId: trimmedTargetId,
+  });
+  clearPlaceAdminCaches();
+  showToast('新增地点已关联到已有地点，并已记录贡献');
+  await render(true);
+  return true;
+}
+
 async function assignModerationTask(button) {
   const taskId = button.dataset.id;
   const title = button.dataset.title || '审核任务';
@@ -1182,7 +1209,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'places', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -3743,6 +3770,31 @@ function placeDuplicateSummary(place) {
   }).join('');
 }
 
+function placeSubmissionDuplicateSummary(submission) {
+  const candidates = Array.isArray(submission.duplicateCandidates) ? submission.duplicateCandidates : [];
+  if (!candidates.length) return '<div class="cell-sub">暂无相似地点</div>';
+  return candidates.slice(0, 3).map((candidate) => {
+    const distance = Number.isFinite(Number(candidate.distanceMeters)) ? ` · ${numberText(candidate.distanceMeters)}m` : '';
+    return `
+      <div class="cell-sub">
+        <strong>${escapeHtml(candidate.name || candidate.id)}</strong>
+        · 相似 ${numberText(candidate.score)}${distance}
+      </div>
+      <div class="cell-sub">${escapeHtml(candidate.id || '-')}</div>
+    `;
+  }).join('');
+}
+
+function renderPlaceContributions(contributions) {
+  const rows = Array.isArray(contributions) ? contributions.slice(0, 8) : [];
+  return tableHtml(rows, [
+    ['贡献', (row) => `<div class="cell-title">${escapeHtml(row.actionLabel || row.action || '-')} · +${numberText(row.points || 0)}</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
+    ['用户', (row) => `<div>${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.phone)}</div>`],
+    ['地点', (row) => `<div>${escapeHtml(row.placeName || row.placeId || '-')}</div><div class="cell-sub">${escapeHtml(row.placeId || '-')}</div>`],
+    ['来源', (row) => `<div>${escapeHtml(row.submissionId || '-')}</div><div class="cell-sub">${formatTime(row.createdAt)}</div>`],
+  ], '暂无地点贡献记录');
+}
+
 function placeQualityEvidence(place) {
   const reasons = Array.isArray(place.qualityReasons) ? place.qualityReasons : [];
   return [
@@ -3763,20 +3815,24 @@ function placeImageThumbs(item) {
 }
 
 async function renderPlaces(force) {
-  const [catalog, reviews, submissions, templates] = await Promise.all([
+  const [catalog, reviews, submissions, templates, contributionData] = await Promise.all([
     load('places', '/admin/places', force),
     load('placeReviews', '/admin/places/reviews', force),
     load('placeSubmissions', '/admin/places/submissions', force),
     load('placeModerationTemplates', '/admin/places/moderation-templates', force),
+    load('placeContributions', '/admin/places/contributions', force),
   ]);
   const places = Array.isArray(catalog) ? catalog : catalog.places || [];
   const placeSummary = Array.isArray(catalog) ? {} : catalog.summary || {};
+  const contributions = contributionData?.contributions || [];
+  const contributionSummary = contributionData?.summary || {};
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('地点总数', numberText(placeSummary.total || places.length), `${numberText(placeSummary.highQuality || 0)} 个高质量`, '来自 seed、高德回流和用户审核入库的地点目录总数。')}
       ${metric('平均质量分', numberText(placeSummary.averageQualityScore || 0), '实时计算', '质量分由地址、坐标、分类、标签、评分、点评、收藏和宠物友好状态综合计算，不会自动改写地点。')}
       ${metric('重复候选', numberText(placeSummary.duplicatePlaceCount || 0), '需人工确认', '重复候选只给运营证据，不自动合并或隐藏，避免误伤真实不同地点。')}
       ${metric('待治理', numberText(placeSummary.needsReview || 0), '低分/重复/candidate', '质量分低于 60、有重复候选或宠物友好状态仍为 candidate 的地点会进入待治理口径。')}
+      ${metric('地点贡献', numberText(contributionSummary.total || placeSummary.contributionRecords || 0), `+${numberText(contributionSummary.points || placeSummary.contributionPoints || 0)} 分`, '新增地点审核通过或关联已有地点后，会给提交人记录地点贡献；当前只是运营积分账本，不等同现金或余额。')}
     </div>
     <div class="card">
       <div class="section-head">
@@ -3790,7 +3846,7 @@ async function renderPlaces(force) {
         ['地点', (row) => `<div class="cell-title">${escapeHtml(row.name)}</div><div class="cell-sub">${escapeHtml(row.address || '-')}</div><div class="cell-sub">${escapeHtml(row.id)}</div>`],
         ['质量', (row) => `${placeQualityPill(row)}${placeQualityEvidence(row)}`],
         ['重复候选', (row) => placeDuplicateSummary(row)],
-        ['来源', (row) => `<div>${escapeHtml(row.source || '-')} · ${escapeHtml(row.category || '-')}</div><div class="cell-sub">${escapeHtml(row.petFriendlyStatus || 'unknown')}</div><div class="cell-sub">${escapeHtml((row.tags || []).slice(0, 4).join(' / ') || '-')}</div>`],
+        ['来源', (row) => `<div>${escapeHtml(row.source || '-')} · ${escapeHtml(row.category || '-')}</div><div class="cell-sub">${escapeHtml(row.petFriendlyStatus || 'unknown')} · 贡献者 ${numberText(row.contributorCount || 0)}</div><div class="cell-sub">${escapeHtml((row.tags || []).slice(0, 4).join(' / ') || '-')}</div>`],
         ['操作', (row) => `
           <div class="actions">
             <button class="small-button" data-action="place-edit" data-id="${escapeHtml(row.id)}">编辑</button>
@@ -3816,6 +3872,22 @@ async function renderPlaces(force) {
         <span class="risk-badge">内置 ${numberText(templates.filter((item) => item.builtin).length)}</span>
       </div>
       ${renderPlaceModerationTemplates(templates)}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>地点贡献者</h2>
+          <div class="section-sub">新增地点通过或关联已有地点后自动记录，移动端会通过通知中心告知用户贡献结果</div>
+        </div>
+        ${help('当前贡献分是运营积分账本，用于后续贡献者标记、活动激励或地点生态复盘；暂不等同现金、余额或可提现资产。')}
+      </div>
+      <div class="template-summary-row">
+        <span class="risk-badge">贡献 ${numberText(contributionSummary.total || 0)}</span>
+        <span class="risk-badge">用户 ${numberText(contributionSummary.users || 0)}</span>
+        <span class="risk-badge">积分 +${numberText(contributionSummary.points || 0)}</span>
+        <span class="risk-badge">关联已有 ${numberText(contributionSummary.linkedExisting || 0)}</span>
+      </div>
+      ${renderPlaceContributions(contributions)}
     </div>
     <div class="card">
       <div class="section-head">
@@ -3848,13 +3920,15 @@ async function renderPlaces(force) {
       ${tableHtml(submissions, [
         ['地点', (s) => `<div class="cell-title">${escapeHtml(s.name)}</div><div class="cell-sub">${escapeHtml(s.address)}</div>`],
         ['体验', (s) => escapeHtml(s.content).slice(0, 100)],
+        ['相似地点', placeSubmissionDuplicateSummary],
         ['图片', placeImageThumbs],
         ['用户', (s) => `<div>${escapeHtml(s.ownerName)}</div><div class="cell-sub">${shortPhone(s.ownerPhone)}</div>`],
-        ['状态', (s) => `${statusPill(s.status)}<div class="cell-sub">${s.resultNotifiedAt ? '已通知：' + formatTime(s.resultNotifiedAt) : '未通知用户'}</div>${placeModerationTemplateMeta(s)}`],
+        ['状态', (s) => `${statusPill(s.status)}<div class="cell-sub">${s.resultNotifiedAt ? '已通知：' + formatTime(s.resultNotifiedAt) : '未通知用户'}</div>${s.contributionId ? `<div class="cell-sub">贡献：${escapeHtml(s.contributionActionLabel || '-')} +${numberText(s.contributionPoints || 0)}</div>` : ''}${placeModerationTemplateMeta(s)}`],
         ['时间', (s) => formatTime(s.createdAt)],
         ['操作', (s) => `
           <div class="actions">
             <button class="small-button" data-action="submission-approve" data-id="${s.id}">通过</button>
+            <button class="small-button ghost" data-action="submission-link-existing" data-id="${escapeHtml(s.id)}" data-name="${escapeHtml(s.name || '')}" data-default-target-id="${escapeHtml((s.duplicateCandidates || [])[0]?.id || '')}">关联已有</button>
             <button class="small-button danger" data-action="submission-reject" data-id="${s.id}">驳回</button>
           </div>
         `],

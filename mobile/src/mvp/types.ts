@@ -558,12 +558,21 @@ export type PlaceReview = {
 
 export type PlaceSubmission = {
   address: string;
+  approvedPlaceId?: string;
+  contributionAction?: 'created' | 'linked_existing';
+  contributionActionLabel?: string;
+  contributionId?: string;
+  contributionPoints?: number;
+  contributionRewardedAt?: string;
   content: string;
   createdAt: string;
   id: string;
   imageUrls?: string[];
+  linkedExistingPlaceId?: string;
   name: string;
   photoCount?: number;
+  reviewReason?: string;
+  reviewedAt?: string;
   status: 'approved' | 'pending_review' | 'rejected';
 };
 

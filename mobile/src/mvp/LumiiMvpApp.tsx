@@ -134,6 +134,7 @@ import type {
   PetSpecies,
   Place,
   PlaceReview,
+  PlaceSubmission,
   SanctionAppealItem,
   SocialBlockListItem,
   SmsCodeTicket,
@@ -1245,10 +1246,16 @@ type ConfirmState = {
 };
 
 type PlaceSubmitResult = {
+  approvedPlaceId?: string;
+  contributionActionLabel?: string;
+  contributionPoints?: number;
   draft: string;
   kind: 'place' | 'review';
   placeMeta: string;
   placeName: string;
+  reviewedAt?: string;
+  reviewReason?: string;
+  reviewStatus?: PlaceSubmission['status'];
   status: 'error' | 'success';
   submittedAt: string;
 };
@@ -4616,10 +4623,16 @@ export default function LumiiMvpApp() {
     const submission = result.data?.find((item) => item.id === submissionId);
     if (submission) {
       setPlaceSubmitResult({
+        approvedPlaceId: submission.approvedPlaceId || submission.linkedExistingPlaceId,
+        contributionActionLabel: submission.contributionActionLabel,
+        contributionPoints: submission.contributionPoints,
         draft: submission.content,
         kind: 'place',
         placeMeta: submission.address,
         placeName: submission.name,
+        reviewedAt: submission.reviewedAt ? formatTimestampDisplay(submission.reviewedAt) : undefined,
+        reviewReason: submission.reviewReason,
+        reviewStatus: submission.status,
         status: 'success',
         submittedAt: formatTimestampDisplay(submission.createdAt),
       });
@@ -8446,10 +8459,15 @@ export default function LumiiMvpApp() {
         void loadInboxData();
         if (stillEditingSubmission) {
           setPlaceSubmitResult({
+            approvedPlaceId: result.data.approvedPlaceId || result.data.linkedExistingPlaceId,
+            contributionActionLabel: result.data.contributionActionLabel,
+            contributionPoints: result.data.contributionPoints,
             draft: requestExperience,
             kind: 'place',
             placeMeta: requestAddress,
             placeName: requestName,
+            reviewReason: result.data.reviewReason,
+            reviewStatus: result.data.status,
             status: 'success',
             submittedAt: formatTimestampDisplay(result.data.createdAt, submittedAt),
           });
@@ -13827,13 +13845,44 @@ export default function LumiiMvpApp() {
     const success = result.status === 'success';
     const isReview = result.kind === 'review';
     const submittedAt = result.submittedAt || formatClockTime();
-    const pageTitle = success ? '提交成功' : '提交失败';
-    const headline = success ? (isReview ? '点评已提交' : '地点已提交') : '提交失败，请稍后再试';
+    const reviewStatus = success ? result.reviewStatus : undefined;
+    const isApprovedResult = reviewStatus === 'approved';
+    const isRejectedResult = reviewStatus === 'rejected';
+    const reviewReason = result.reviewReason?.trim();
+    const rawContributionPoints = Number(result.contributionPoints ?? 0);
+    const contributionPoints = Number.isFinite(rawContributionPoints) ? rawContributionPoints : 0;
+    const contributionText = isApprovedResult && contributionPoints > 0
+      ? `\n已记录${result.contributionActionLabel || '地点贡献'}，+${contributionPoints} 贡献分。`
+      : '';
+    const pageTitle = success
+      ? isRejectedResult
+        ? '审核未通过'
+        : isApprovedResult
+          ? '审核已通过'
+          : '提交成功'
+      : '提交失败';
+    const headline = success
+      ? isRejectedResult
+        ? (isReview ? '点评未通过审核' : '地点未通过审核')
+        : isApprovedResult
+          ? (isReview ? '点评已通过审核' : '地点已通过审核')
+          : (isReview ? '点评已提交' : '地点已提交')
+      : '提交失败，请稍后再试';
     const body = success
-      ? isReview
-        ? '为保证社区真实可信，我们需要 24 小时内\n人工审核你的点评，通过后会通知你'
-        : '为保证地点真实可信，我们需要 24 小时内\n人工审核你的提交，通过后会通知你'
+      ? isRejectedResult
+        ? `${reviewReason ? `原因：${reviewReason}` : '这次提交暂未通过审核'}\n你可以调整内容后重新提交`
+        : isApprovedResult
+          ? isReview
+            ? '你的点评已发布到地点详情。'
+            : `你的地点提交已审核通过，${result.approvedPlaceId ? '现在会展示给附近用户' : '后续会展示给附近用户'}。${contributionText}`
+          : isReview
+            ? '为保证社区真实可信，我们需要 24 小时内\n人工审核你的点评，通过后会通知你'
+            : '为保证地点真实可信，我们需要 24 小时内\n人工审核你的提交，通过后会通知你'
       : '可能原因：网络不稳定 / 服务暂时繁忙\n草稿仍保留在当前页面，可保存后稍后继续编辑';
+    const reviewStepText = isRejectedResult ? '审核未通过' : isApprovedResult ? '审核已通过' : '人工审核中';
+    const reviewStepTime = isRejectedResult || isApprovedResult ? result.reviewedAt || '已通知你' : '预计 24 小时内';
+    const finalStepText = isRejectedResult ? '调整后可重新提交' : isReview ? '通过后发布到地点' : '通过后展示给附近用户';
+    const finalStepTime = isRejectedResult ? '草稿可继续编辑' : isApprovedResult ? (isReview ? '已发布' : '已展示') : '将通知你';
 
     return (
       <Screen showBack={false} title="">
@@ -13869,14 +13918,14 @@ export default function LumiiMvpApp() {
             <Text style={styles.placeSubmitHeadlineMake}>{headline}</Text>
             <Text style={styles.placeSubmitBodyMake}>{body}</Text>
 
-            {success ? (
+            {success && !isRejectedResult ? (
               <>
               <View style={styles.placeSubmitStepperMake}>
                 <PlaceSubmitStep done text={isReview ? '已提交点评' : '已提交地点'} time={submittedAt} />
                 <View style={[styles.placeSubmitStepLineMake, styles.placeSubmitStepLineActiveMake]} />
-                <PlaceSubmitStep active text="人工审核中" time="预计 24 小时内" />
-                <View style={styles.placeSubmitStepLineMake} />
-                <PlaceSubmitStep text={isReview ? '通过后发布到地点' : '通过后展示给附近用户'} time="将通知你" />
+                <PlaceSubmitStep active={!isApprovedResult} done={isApprovedResult} text={reviewStepText} time={reviewStepTime} />
+                <View style={[styles.placeSubmitStepLineMake, isApprovedResult && styles.placeSubmitStepLineActiveMake]} />
+                <PlaceSubmitStep done={isApprovedResult} text={finalStepText} time={finalStepTime} />
               </View>
               <View style={styles.placeSubmitDraftCardMake}>
                 <View style={styles.rowBetween}>
@@ -13927,7 +13976,7 @@ export default function LumiiMvpApp() {
                   </Pressable>
                   <Pressable onPress={continueAfterPlaceSubmitSuccess} style={[styles.placeSubmitPrimaryButtonMake, webPressableReset]}>
                     <NotebookPen color="#fff" size={14} strokeWidth={2.4} />
-                    <Text style={styles.placeSubmitPrimaryTextMake}>{isReview ? '再写一条' : '继续提交'}</Text>
+                    <Text style={styles.placeSubmitPrimaryTextMake}>{isRejectedResult ? '重新提交' : isReview ? '再写一条' : '继续提交'}</Text>
                   </Pressable>
                 </>
               ) : (

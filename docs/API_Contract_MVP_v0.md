@@ -1203,7 +1203,7 @@ type PushDevice = {
 读取通知中心列表。当前测试后端会在读取前检查已开启的健康提醒，临近或逾期的疫苗计划会生成去重后的“健康提醒”通知；已经关闭提醒或已标记完成的计划会清理旧健康提醒通知。
 
 说明：
-- 地点点评提交、用户新增地点提交也会写入通知中心，App 成功提交后会重新拉取该列表，不再只依赖前端临时通知。
+- 地点点评提交、用户新增地点提交也会写入通知中心，App 成功提交后会重新拉取该列表，不再只依赖前端临时通知；新增地点审核通过/驳回后，点击通知会读取 `/places/submissions/my` 展示真实审核状态、原因和贡献分。
 - 通知项会返回 `category` 与 `createdAt`，App 以这两个字段驱动筛选、分组和时间显示；旧通知缺字段时，测试后端会在读取时补齐。
 - `category` 当前取值为 `health`、`interaction`、`walk`、`system`。普通聊天和招呼归入 `interaction`，约遛邀请归入 `walk`；互动和约遛通知是否生成受 `pushNotifications` 与 `interactionMessages` 控制。
 - 通知项会返回可选 `kind`、`conversationId`、`ownerId`、`postId`、`commentId`、`placeId`、`submissionId`、`memoId`、`vaccineId`，用于区分落页：`greeting_request` / `pet_circle_greeting` 进入招呼请求，并优先定位对应 `ownerId`；`conversation_message`、`greeting_accepted`、`walk_invite` 优先使用 `conversationId` 打开对话框；`pet_circle_like` / `pet_circle_comment` 使用 `postId` 进入宠友圈并高亮对应动态；`place_review` 使用 `placeId` 进入地点详情；`place_submission` 使用 `submissionId` 优先打开对应新增地点审核进度，找不到记录时回到地图页；`vaccine_reminder` / `vaccine_done` 使用 `vaccineId` 进入疫苗计划，并优先定位对应计划；`medical_alert` 使用 `memoId` 进入健康备忘；`health_reminder` 进入健康页；`system` 进入设置或对应系统页。
@@ -1444,7 +1444,7 @@ Response data:
 提交新的宠物友好地点和体验内容。MVP 测试后端只进入审核中，不会立刻加入附近地点列表。
 
 副作用：
-- 成功后会为当前用户生成一条“地点提交待审核”通知，可通过 `GET /notifications` 读回；通知 `kind=place_submission`，并携带 `submissionId`，App 点击后优先打开对应新增地点审核进度，找不到记录时回到地图页。
+- 成功后会为当前用户生成一条“地点提交待审核”通知，可通过 `GET /notifications` 读回；通知 `kind=place_submission`，并携带 `submissionId`，App 点击后优先打开对应新增地点审核进度，找不到记录时回到地图页。后台审核通过或关联已有地点后，会再次写入审核结果通知。
 
 重复校验：
 - 如果名称和地址都与已存在地点高度相似，返回 `409`，中文错误提示用户先查看已有地点或修改名称/地址。
@@ -1496,6 +1496,7 @@ PlaceSubmission[]
 
 说明：
 - MVP 测试后端、HTTP API 门面和 mock API 均已支持。
+- 审核后会返回 `reviewedAt`、`reviewReason`、`approvedPlaceId`、`linkedExistingPlaceId`、`contributionActionLabel`、`contributionPoints` 和 `contributionRewardedAt` 等可选字段；App 通知入口用这些字段展示“审核已通过 / 审核未通过 / 地点贡献 +X 分”。
 - 这不是新页面要求；“我的提交”列表若要正式展示，仍需要先补 Figma Make 设计。
 
 ## 9. 设置、安全与反馈

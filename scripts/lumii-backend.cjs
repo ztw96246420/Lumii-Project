@@ -442,6 +442,7 @@ function createInitialState() {
     petChatMessages: {},
     opsConfig: defaultOpsConfig(),
     placeModerationTemplates: [],
+    placeContributions: [],
     placeReviews: {},
     placeSubmissions: {},
     places: defaultPlaces,
@@ -1862,6 +1863,7 @@ function adminExportDataset(type) {
         exportColumn('reviewCount', '点评数'),
         exportColumn('approvedReviewCount', '已审点评数'),
         exportColumn('favoriteCount', '收藏数'),
+        exportColumn('contributorCount', '贡献者数'),
         exportColumn('supportedSpecies', '支持物种', (row) => exportJoin(row.supportedSpecies || [])),
         exportColumn('tags', '标签', (row) => exportJoin(row.tags || [])),
         exportColumn('latitude', '纬度'),
@@ -1902,12 +1904,34 @@ function adminExportDataset(type) {
         exportColumn('ownerName', '主人昵称'),
         exportColumn('content', '补充说明'),
         exportColumn('approvedPlaceId', '通过后地点ID'),
+        exportColumn('linkedExistingPlaceId', '关联已有地点ID'),
+        exportColumn('contributionId', '贡献记录ID'),
+        exportColumn('contributionPoints', '贡献积分'),
+        exportColumn('contributionActionLabel', '贡献类型'),
         exportColumn('reviewedBy', '审核人'),
         exportColumn('reviewTemplateId', '审核模板ID'),
         exportColumn('reviewTemplateLabel', '审核模板'),
         exportColumn('reviewReason', '审核原因'),
         exportColumn('createdAt', '提交时间', (row) => exportDateText(row.createdAt)),
         exportColumn('reviewedAt', '审核时间', (row) => exportDateText(row.reviewedAt)),
+      ],
+    },
+    place_contributions: {
+      description: '地点贡献者账本，记录新增地点审核通过或关联已有地点后给提交人的运营积分与来源。',
+      label: '地点贡献者',
+      rows: adminPlaceContributions,
+      columns: [
+        exportColumn('id', '贡献记录ID'),
+        exportColumn('actionLabel', '贡献类型'),
+        exportColumn('points', '积分'),
+        exportColumn('phone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('submissionId', '提交ID'),
+        exportColumn('placeId', '地点ID'),
+        exportColumn('placeName', '地点名称'),
+        exportColumn('createdBy', '记录人'),
+        exportColumn('reason', '原因'),
+        exportColumn('createdAt', '记录时间', (row) => exportDateText(row.createdAt)),
       ],
     },
     tickets: {
@@ -1994,7 +2018,7 @@ function adminExportDataset(type) {
 
 function adminExportCatalog(filters = {}) {
   const normalizedFilters = normalizeAdminExportFilters(filters);
-  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'places', 'place_reviews', 'place_submissions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
+  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'places', 'place_reviews', 'place_submissions', 'place_contributions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
@@ -2218,6 +2242,7 @@ function loadState() {
       opsConfigDrafts: Array.isArray(loadedState.opsConfigDrafts) ? loadedState.opsConfigDrafts : initialState.opsConfigDrafts,
       opsConfig: normalizeOpsConfig(loadedState.opsConfig || initialState.opsConfig),
       placeModerationTemplates: Array.isArray(loadedState.placeModerationTemplates) ? loadedState.placeModerationTemplates : initialState.placeModerationTemplates,
+      placeContributions: Array.isArray(loadedState.placeContributions) ? loadedState.placeContributions : initialState.placeContributions,
       petAvatarDailyUsage: {
         ...initialState.petAvatarDailyUsage,
         ...(loadedState.petAvatarDailyUsage || {}),
@@ -5221,6 +5246,141 @@ function approvedPlaceSubmissionCount(placeId) {
   return allPlaceSubmissions().filter((submission) => submission.status === 'approved' && submission.approvedPlaceId === placeId).length;
 }
 
+const PLACE_CONTRIBUTION_POINTS = {
+  created: 10,
+  linked_existing: 5,
+};
+
+function normalizePlaceContributionAction(value) {
+  const action = String(value || '').trim();
+  return Object.prototype.hasOwnProperty.call(PLACE_CONTRIBUTION_POINTS, action) ? action : 'created';
+}
+
+function placeContributionActionLabel(action) {
+  if (action === 'linked_existing') return '补充已有地点';
+  if (action === 'created') return '发现新地点';
+  return action || '-';
+}
+
+function ensurePlaceContributions() {
+  state.placeContributions = Array.isArray(state.placeContributions) ? state.placeContributions : [];
+  return state.placeContributions;
+}
+
+function placeContributionForSubmission(submissionId) {
+  const id = String(submissionId || '').trim();
+  if (!id) return null;
+  return ensurePlaceContributions().find((item) => item.submissionId === id) || null;
+}
+
+function placeContributionSummary(contributions = ensurePlaceContributions()) {
+  const visible = Array.isArray(contributions) ? contributions : [];
+  return {
+    created: visible.filter((item) => item.action === 'created').length,
+    linkedExisting: visible.filter((item) => item.action === 'linked_existing').length,
+    points: visible.reduce((sum, item) => sum + Number(item.points || 0), 0),
+    total: visible.length,
+    users: new Set(visible.map((item) => item.phone).filter(Boolean)).size,
+  };
+}
+
+function adminPlaceContributions() {
+  return ensurePlaceContributions()
+    .map((item) => {
+      const owner = state.users?.[item.phone];
+      const place = (state.places || []).find((entry) => entry.id === item.placeId);
+      return {
+        ...item,
+        actionLabel: placeContributionActionLabel(item.action),
+        ownerName: owner?.ownerName || `用户${String(item.phone || '').slice(-4)}`,
+        placeName: place?.name || item.placeName || item.placeId,
+      };
+    })
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+}
+
+function appendPlaceContributor(place, phone) {
+  if (!place || !phone) return;
+  const current = Array.isArray(place.contributorPhones) ? place.contributorPhones.map(String) : [];
+  if (!current.includes(phone)) place.contributorPhones = [...current, phone];
+}
+
+function mergeSubmissionImagesIntoPlace(place, submission) {
+  if (!place || !submission) return;
+  const imageUrls = visibleImageUrls(submission.imageUrls).slice(0, 3);
+  if (!imageUrls.length) return;
+  const current = Array.isArray(place.photoUrls) ? place.photoUrls : [];
+  const next = [...current];
+  imageUrls.forEach((url) => {
+    if (url && !next.includes(url)) next.push(url);
+  });
+  place.photoUrls = next.slice(0, 6);
+  if (!place.coverImageUrl) place.coverImageUrl = place.photoUrls[0] || '';
+}
+
+function ensureManualPlaceForSubmission(submission, phone = '') {
+  if (!submission) return null;
+  if (submission.approvedPlaceId) {
+    const found = findPlaceById(submission.approvedPlaceId);
+    if (found?.place) {
+      appendPlaceContributor(found.place, phone);
+      mergeSubmissionImagesIntoPlace(found.place, submission);
+      return found.place;
+    }
+  }
+  const imageUrls = visibleImageUrls(submission.imageUrls).slice(0, 3);
+  const place = {
+    address: submission.address,
+    category: 'other',
+    contributorPhones: phone ? [phone] : [],
+    coverImageUrl: imageUrls[0] || '',
+    distance: '附近',
+    id: `manual-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    name: submission.name,
+    petFriendlyStatus: 'candidate',
+    photoUrls: imageUrls,
+    rating: 0,
+    reviewCount: 0,
+    source: 'manual',
+    supportedSpecies: ['cat', 'dog'],
+    tags: ['用户提交', '待完善'],
+  };
+  state.places = [place, ...(state.places || [])];
+  submission.approvedPlaceId = place.id;
+  return place;
+}
+
+function recordPlaceContribution(admin, phone, submission, place, actionValue, reason = '') {
+  if (!phone || !submission?.id || !place?.id) return null;
+  const existing = placeContributionForSubmission(submission.id);
+  if (existing) return existing;
+  const action = normalizePlaceContributionAction(actionValue);
+  const now = new Date().toISOString();
+  const points = PLACE_CONTRIBUTION_POINTS[action] || 0;
+  const contribution = {
+    action,
+    actionLabel: placeContributionActionLabel(action),
+    createdAt: now,
+    createdBy: admin?.username || 'admin',
+    id: `place-contribution-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    phone,
+    placeId: place.id,
+    placeName: place.name || submission.name || '',
+    points,
+    reason: String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+    submissionId: submission.id,
+  };
+  ensurePlaceContributions().unshift(contribution);
+  appendPlaceContributor(place, phone);
+  submission.contributionAction = action;
+  submission.contributionActionLabel = contribution.actionLabel;
+  submission.contributionId = contribution.id;
+  submission.contributionPoints = points;
+  submission.contributionRewardedAt = now;
+  writeAdminAudit(admin, 'place.contribution.create', 'place_contribution', contribution.id, null, contribution, contribution.reason || contribution.actionLabel);
+  return contribution;
+}
+
 function normalizePlaceCategoryForResponse(place) {
   const category = String(place?.category || 'other');
   if (['cafe', 'clinic', 'park', 'shop'].includes(category)) return category;
@@ -5379,6 +5539,7 @@ function placeForResponse(place) {
   return {
     ...place,
     category: quality.category,
+    contributorCount: Array.isArray(place.contributorPhones) ? place.contributorPhones.length : 0,
     duplicateCandidateCount,
     qualityLabel: quality.label,
     qualityReasons: quality.reasons,
@@ -5415,10 +5576,14 @@ function adminPlaceCatalog() {
   const averageQualityScore = total
     ? Math.round(places.reduce((sum, place) => sum + Number(place.qualityScore || 0), 0) / total)
     : 0;
+  const contributionSummary = placeContributionSummary();
   return {
     places,
     summary: {
       averageQualityScore,
+      contributionPoints: contributionSummary.points,
+      contributionRecords: contributionSummary.total,
+      contributors: contributionSummary.users,
       duplicatePlaceCount,
       highQuality: places.filter((place) => Number(place.qualityScore || 0) >= 80).length,
       needsReview,
@@ -9465,6 +9630,10 @@ function notifyPlaceSubmissionModeration(phone, submission, actionOrStatus, reas
   const notifiedAt = markResultNotification(submission, status);
   if (!notifiedAt) return false;
   const reasonText = String(reason || submission.reviewReason || '').trim();
+  const points = Number(submission.contributionPoints || 0);
+  const contributionText = status === 'approved' && points > 0
+    ? `已记录${submission.contributionActionLabel || '地点贡献'}，+${points}贡献分。`
+    : '';
   return addNotification(phone, {
     category: 'system',
     createdAt: notifiedAt,
@@ -9475,7 +9644,7 @@ function notifyPlaceSubmissionModeration(phone, submission, actionOrStatus, reas
     submissionId: submission.id,
     text:
       status === 'approved'
-        ? `${submission.name || '新增地点'}已通过审核，后续会展示给附近用户。`
+        ? `${submission.name || '新增地点'}已通过审核，后续会展示给附近用户。${contributionText}`
         : `${submission.name || '新增地点'}未通过审核${reasonText ? `：${reasonText}。` : '。'}`,
     title: status === 'approved' ? '新增地点已通过' : '新增地点未通过',
   }, 'system', { force: true });
@@ -11320,9 +11489,9 @@ function adminReadinessModules(context) {
       module: '地点审核',
       group: '地点',
       status: 'partial',
-      evidence: '地点点评和新增地点支持通过/驳回、原因模板、通知、导出、地点编辑和人工合并。',
+      evidence: '地点点评和新增地点支持通过/驳回、关联已有地点、原因模板、通知、导出、地点编辑、人工合并和基础贡献账本。',
       mobileLinkage: '审核状态会影响地点详情、地点提交和用户通知中心。',
-      nextStep: '补贡献者/奖励策略、地点图片审核、自定义审核模板维护和公开点评列表口径。',
+      nextStep: '补用户端公开贡献身份、贡献等级/奖励策略、多角色权限和公开点评列表口径。',
     },
     {
       key: 'support',
@@ -11384,7 +11553,7 @@ function adminReadinessQuestions() {
     ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '当前后台可人工返还；自动规则未定。', '影响用户权益、成本和客服处理标准。'],
     ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '当前单 admin 可执行处罚；双人审批未接。', '影响高风险处罚治理。'],
     ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏，不开放完整手机号导出。', '影响隐私合规和数据泄露风险。'],
-    ['q-place-reward', 'P2', '地点审核通过是否给用户奖励或贡献者标记？', '当前只通知审核结果，不做奖励。', '影响地点生态激励。'],
+    ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '当前已记录基础贡献积分并通知提交人，但不做用户端公开展示或奖励兑换。', '影响地点生态激励。'],
     ['q-notification-approval', 'P1', '系统通知是否需要发送审批和灰度人群包？', '当前支持草稿/预约/撤回、模板和系统通知频控，未接发送审批。', '影响误发和运营风险。'],
     ['q-config-approval', 'P0', '配置强制更新、维护模式、全功能关闭是否必须审批？', '当前保存即发布并记录版本，可回滚。', '影响事故风险和发布治理。'],
     ['q-compliance-text', 'P0', 'App 备案、隐私政策、内容审核制度是否已准备生产版文本？', '当前代码层面不可替代法务/合规文本确认。', '影响正式上线合规。'],
@@ -12811,8 +12980,17 @@ function adminPlaceSubmissions() {
   return Object.entries(state.placeSubmissions).flatMap(([phone, submissions]) =>
     (Array.isArray(submissions) ? submissions : []).map((submission) => {
       const owner = state.users[phone];
+      const duplicateCandidates = placeDuplicateCandidates({
+        address: submission.address,
+        category: 'other',
+        id: submission.id,
+        name: submission.name,
+        source: 'submission',
+      }, state.places || [], 5);
       return {
         ...submission,
+        duplicateCandidates,
+        duplicateCandidateCount: duplicateCandidates.length,
         ownerName: owner?.ownerName || `用户${phone.slice(-4)}`,
         ownerPhone: phone,
       };
@@ -13022,6 +13200,38 @@ function removePlaceModerationTemplate(admin, templateId) {
   state.placeModerationTemplates = templates.filter((item) => item.id !== id);
   writeAdminAudit(admin, 'place.template.delete', 'place_moderation_template', id, target, null, target.title || id);
   return { templates: adminPlaceModerationTemplates({ includeDisabled: true }) };
+}
+
+function linkPlaceSubmissionToExisting(admin, submissionId, body = {}) {
+  const found = findPlaceSubmission(submissionId);
+  if (!found) return { error: '新增地点提交不存在', statusCode: 404 };
+  const targetPlaceId = String(body.placeId || body.targetPlaceId || body.approvedPlaceId || '').trim();
+  if (!targetPlaceId) return { error: '请填写要关联的已有地点 ID', statusCode: 400 };
+  const targetFound = findPlaceById(targetPlaceId);
+  if (!targetFound?.place) return { error: '目标地点不存在', statusCode: 404 };
+  if (found.submission.status === 'approved' && found.submission.approvedPlaceId && found.submission.approvedPlaceId !== targetFound.place.id) {
+    return { error: '这条新增地点已审核到其他地点，请先复核记录', statusCode: 409 };
+  }
+  const moderation = placeModerationReason(body, 'submission', 'approve', '新增地点关联已有地点');
+  if (moderation.error) return moderation;
+  const before = { ...found.submission };
+  found.submission.status = 'approved';
+  found.submission.reviewedAt = new Date().toISOString();
+  found.submission.reviewedBy = admin.username;
+  found.submission.approvedPlaceId = targetFound.place.id;
+  found.submission.linkedExistingAt = found.submission.reviewedAt;
+  found.submission.linkedExistingBy = admin.username;
+  found.submission.linkedExistingPlaceId = targetFound.place.id;
+  applyPlaceModerationReason(found.submission, moderation);
+  mergeSubmissionImagesIntoPlace(targetFound.place, found.submission);
+  const contribution = recordPlaceContribution(admin, found.phone, found.submission, targetFound.place, 'linked_existing', moderation.reason);
+  notifyPlaceSubmissionModeration(found.phone, found.submission, 'approve', moderation.reason);
+  writeAdminAudit(admin, 'place.submission.link_existing', 'place_submission', submissionId, before, found.submission, moderation.reason);
+  return {
+    contribution,
+    place: adminPlaceCatalog().places.find((place) => place.id === targetFound.place.id),
+    submission: adminPlaceSubmissions().find((item) => item.id === submissionId),
+  };
 }
 
 function placeModerationReason(body = {}, kind, action, fallback = '地点审核处理') {
@@ -14536,24 +14746,8 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     found.submission.reviewedBy = admin.username;
     applyPlaceModerationReason(found.submission, moderation);
     if (action === 'approve' && !found.submission.approvedPlaceId) {
-      const imageUrls = visibleImageUrls(found.submission.imageUrls).slice(0, 3);
-      const place = {
-        address: found.submission.address,
-        category: 'other',
-        coverImageUrl: imageUrls[0] || '',
-        distance: '附近',
-        id: `manual-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
-        name: found.submission.name,
-        petFriendlyStatus: 'candidate',
-        photoUrls: imageUrls,
-        rating: 0,
-        reviewCount: 0,
-        source: 'manual',
-        supportedSpecies: ['cat', 'dog'],
-        tags: ['用户提交', '待完善'],
-      };
-      state.places = [place, ...(state.places || [])];
-      found.submission.approvedPlaceId = place.id;
+      const place = ensureManualPlaceForSubmission(found.submission, found.phone);
+      if (place) recordPlaceContribution(admin, found.phone, found.submission, place, 'created', moderation.reason);
     }
     markModerationTaskMeta(taskId, admin, action, moderation.reason);
     notifyPlaceSubmissionModeration(found.phone, found.submission, action, moderation.reason);
@@ -15438,6 +15632,15 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/places/contributions') {
+    const contributions = adminPlaceContributions();
+    ok(res, {
+      contributions,
+      summary: placeContributionSummary(contributions),
+    });
+    return true;
+  }
+
   const adminPlaceDetailMatch = pathname.match(/^\/admin\/places\/([^/]+)$/);
   if ((req.method === 'GET' || req.method === 'PATCH') && adminPlaceDetailMatch) {
     const placeId = decodeURIComponent(adminPlaceDetailMatch[1]);
@@ -15506,29 +15709,26 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     found.submission.reviewedBy = admin.username;
     applyPlaceModerationReason(found.submission, moderation);
     if (action === 'approve' && !found.submission.approvedPlaceId) {
-      const imageUrls = visibleImageUrls(found.submission.imageUrls).slice(0, 3);
-      const place = {
-        address: found.submission.address,
-        category: 'other',
-        coverImageUrl: imageUrls[0] || '',
-        distance: '附近',
-        id: `manual-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
-        name: found.submission.name,
-        petFriendlyStatus: 'candidate',
-        photoUrls: imageUrls,
-        rating: 0,
-        reviewCount: 0,
-        source: 'manual',
-        supportedSpecies: ['cat', 'dog'],
-        tags: ['用户提交', '待完善'],
-      };
-      state.places = [place, ...(state.places || [])];
-      found.submission.approvedPlaceId = place.id;
+      const place = ensureManualPlaceForSubmission(found.submission, found.phone);
+      if (place) recordPlaceContribution(admin, found.phone, found.submission, place, 'created', moderation.reason);
     }
     notifyPlaceSubmissionModeration(found.phone, found.submission, action, moderation.reason);
     writeAdminAudit(admin, `place.submission.${action}`, 'place_submission', submissionId, before, found.submission, moderation.reason);
     saveState();
     ok(res, adminPlaceSubmissions().find((item) => item.id === submissionId));
+    return true;
+  }
+
+  const adminPlaceSubmissionLinkMatch = pathname.match(/^\/admin\/places\/submissions\/([^/]+)\/link-existing$/);
+  if (req.method === 'POST' && adminPlaceSubmissionLinkMatch) {
+    const submissionId = decodeURIComponent(adminPlaceSubmissionLinkMatch[1]);
+    const result = linkPlaceSubmissionToExisting(admin, submissionId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PLACE_SUBMISSION_LINK_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 
