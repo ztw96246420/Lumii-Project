@@ -178,6 +178,9 @@ async function main() {
     assert.equal(adminTicketsBefore.data.assignees.length, 2);
     assert.equal(adminTicketsBefore.data.slaPolicy.firstResponseSlaHours.urgent, 1);
     assert.equal(adminTicketsBefore.data.slaPolicy.resolutionSlaHours.urgent, 6);
+    assert.ok(adminTicketsBefore.data.rosterConflicts.length >= 1, 'overlapping support shifts should be flagged');
+    assert.equal(adminTicketsBefore.data.quality.firstResponseRate, 0);
+    assert.equal(adminTicketsBefore.data.quality.noReplyOpen, 1);
     const adminTicketBefore = adminTicketsBefore.data.tickets.find((ticket) => ticket.id === ticketId);
     assert.equal(adminTicketBefore.firstResponseSlaState, 'healthy');
     assert.equal(adminTicketBefore.slaType, 'first_response');
@@ -202,6 +205,11 @@ async function main() {
     assert.equal(assigned.data.slaHours, 1);
     assert.equal(assigned.data.resolutionSlaHours, 6);
 
+    const adminTicketsAssigned = await request('/admin/tickets?status=all', { token: adminToken });
+    const agentBeforeReply = adminTicketsAssigned.data.quality.byAssignee.find((item) => item.assigneeId === 'agent_b');
+    assert.equal(agentBeforeReply.open, 1);
+    assert.equal(agentBeforeReply.firstResponseRate, 0);
+
     const replied = await request(`/admin/tickets/${encodeURIComponent(ticketId)}/reply`, {
       body: { content: '你好，我们已经接手这条安全反馈，会继续核对相关互动记录。', nextStatus: 'resolved', notifyUser: true },
       method: 'POST',
@@ -216,10 +224,36 @@ async function main() {
     assert.equal(detail.data.slaState, 'done');
     assert.ok(detail.data.messages.some((message) => message.author === 'support'));
 
+    const rated = await request(`/support/tickets/${encodeURIComponent(ticketId)}/rate`, {
+      body: { comment: '处理清楚', rating: 5 },
+      method: 'POST',
+      token: userToken,
+    });
+    assert.equal(rated.data.satisfaction.rating, 5);
+
+    await request('/admin/tickets/batch', {
+      body: { action: 'priority', priority: 'high', reason: 'ticket quality smoke batch review', ticketIds: [ticketId] },
+      method: 'POST',
+      token: adminToken,
+    });
+
+    const adminTicketsAfter = await request('/admin/tickets?status=all', { token: adminToken });
+    assert.equal(adminTicketsAfter.data.quality.firstResponseRate, 100);
+    assert.equal(adminTicketsAfter.data.quality.firstResponseSlaRate, 100);
+    assert.equal(adminTicketsAfter.data.quality.resolutionSlaRate, 100);
+    assert.equal(adminTicketsAfter.data.quality.avgRating, 5);
+    const agentAfterReply = adminTicketsAfter.data.quality.byAssignee.find((item) => item.assigneeId === 'agent_b');
+    assert.equal(agentAfterReply.closed, 1);
+    assert.equal(agentAfterReply.firstResponseRate, 100);
+    assert.equal(agentAfterReply.resolutionSlaRate, 100);
+    assert.equal(agentAfterReply.avgRating, 5);
+    assert.ok(adminTicketsAfter.data.batchReview.items.some((item) => item.action === 'priority' && item.successCount === 1), 'batch review should include priority update');
+
     const audit = await request('/admin/audit-logs?limit=100', { token: adminToken });
     assert.ok(audit.data.items.some((item) => item.action === 'config.update'), 'config update should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'ticket.update' && item.targetId === ticketId), 'ticket assignment should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'ticket.reply.create' && item.targetId === ticketId), 'ticket reply should be audited');
+    assert.ok(audit.data.items.some((item) => item.action === 'ticket.batch.update'), 'ticket batch review should be audited');
 
     console.log('ticket SLA roster smoke passed');
   } finally {

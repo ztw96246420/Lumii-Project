@@ -15367,6 +15367,85 @@ function supportAssigneeFor(id) {
   return supportAssigneesForAdmin().find((assignee) => assignee.id === normalized) || null;
 }
 
+function supportDateMs(value) {
+  const ms = new Date(value || '').getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function supportDurationMinutes(start, end) {
+  const startMs = supportDateMs(start);
+  const endMs = supportDateMs(end);
+  if (startMs === null || endMs === null || endMs < startMs) return null;
+  return Math.round((endMs - startMs) / 60000);
+}
+
+function supportPercent(part, total) {
+  const numerator = Number(part || 0);
+  const denominator = Number(total || 0);
+  if (!denominator) return 0;
+  return Math.round((numerator / denominator) * 1000) / 10;
+}
+
+function supportAverage(values, digits = 0) {
+  const rows = values.filter((value) => Number.isFinite(Number(value)));
+  if (!rows.length) return 0;
+  const raw = rows.reduce((sum, value) => sum + Number(value), 0) / rows.length;
+  const factor = 10 ** digits;
+  return Math.round(raw * factor) / factor;
+}
+
+function supportSlaDoneWithin(info = {}) {
+  const doneMs = supportDateMs(info.doneAt);
+  const dueMs = supportDateMs(info.dueAt);
+  return doneMs !== null && dueMs !== null && doneMs <= dueMs;
+}
+
+function supportShiftSegments(assignee = {}) {
+  const start = supportTimeToMinutes(assignee.startTime || '09:00');
+  const end = supportTimeToMinutes(assignee.endTime || '18:00');
+  const weekdays = normalizeSupportWeekdays(assignee.weekdays);
+  return weekdays.flatMap((day) => {
+    if (start < end) return [{ day, end, start }];
+    if (start > end) {
+      return [
+        { day, end: 1440, start },
+        { day: (day + 1) % 7, end, start: 0 },
+      ];
+    }
+    return [{ day, end: 1440, start: 0 }];
+  });
+}
+
+function supportRosterConflicts(assignees = []) {
+  const rows = assignees.filter((item) => item.active !== false);
+  const conflicts = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    for (let j = i + 1; j < rows.length; j += 1) {
+      const left = rows[i];
+      const right = rows[j];
+      for (const leftSegment of supportShiftSegments(left)) {
+        for (const rightSegment of supportShiftSegments(right)) {
+          if (leftSegment.day !== rightSegment.day) continue;
+          const start = Math.max(leftSegment.start, rightSegment.start);
+          const end = Math.min(leftSegment.end, rightSegment.end);
+          if (start >= end) continue;
+          conflicts.push({
+            assigneeIds: [left.id, right.id],
+            assigneeNames: [left.name || left.id, right.name || right.id],
+            day: leftSegment.day,
+            dayLabel: supportWeekdayLabel(leftSegment.day),
+            endTime: `${String(Math.floor(end / 60)).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`,
+            id: `${left.id}-${right.id}-${leftSegment.day}-${start}-${end}`,
+            minutes: end - start,
+            startTime: `${String(Math.floor(start / 60)).padStart(2, '0')}:${String(start % 60).padStart(2, '0')}`,
+          });
+        }
+      }
+    }
+  }
+  return conflicts.slice(0, 40);
+}
+
 function normalizeTicketAssigneeValue(value, { allowEmpty = true } = {}) {
   const normalized = normalizeSupportAssigneeId(value);
   if (!normalized) return allowEmpty ? { assignee: '' } : { error: '请选择负责人', statusCode: 400 };
@@ -15443,6 +15522,157 @@ function supportTicketItem(ticket) {
   };
 }
 
+function supportTicketQualitySummary(rawTickets = [], assignees = []) {
+  const assigneeMap = new Map(assignees.map((item) => [item.id, item]));
+  const rows = rawTickets.map((ticket) => {
+    const item = supportTicketItem(ticket);
+    const first = supportTicketSlaInfo(ticket, 'first_response');
+    const resolution = supportTicketSlaInfo(ticket, 'resolution');
+    const firstResponseMinutes = first.doneAt ? supportDurationMinutes(ticket.createdAt, first.doneAt) : null;
+    const resolutionMinutes = resolution.doneAt ? supportDurationMinutes(ticket.createdAt, resolution.doneAt) : null;
+    const rating = Number(ticket.satisfaction?.rating || 0);
+    return {
+      ...item,
+      firstResponseMet: first.doneAt ? supportSlaDoneWithin(first) : false,
+      firstResponseMinutes,
+      hasFirstResponse: Boolean(first.doneAt),
+      isClosed: item.status === 'closed' || item.status === 'resolved',
+      lowRating: Number.isFinite(rating) && rating > 0 && rating <= 2,
+      rating: Number.isFinite(rating) && rating > 0 ? rating : 0,
+      resolutionMet: resolution.doneAt ? supportSlaDoneWithin(resolution) : false,
+      resolutionMinutes,
+    };
+  });
+  const closed = rows.filter((ticket) => ticket.status === 'closed' || ticket.status === 'resolved');
+  const open = rows.filter((ticket) => ticket.status !== 'closed' && ticket.status !== 'resolved');
+  const firstResponded = rows.filter((ticket) => ticket.hasFirstResponse);
+  const rated = rows.filter((ticket) => ticket.rating > 0);
+  const closedWithResolution = closed.filter((ticket) => Number.isFinite(Number(ticket.resolutionMinutes)));
+  const byAssigneeMap = new Map();
+
+  function bucketFor(ticket) {
+    const id = ticket.assignee || '';
+    if (!byAssigneeMap.has(id)) {
+      const assignee = assigneeMap.get(id) || {};
+      byAssigneeMap.set(id, {
+        assigneeId: id,
+        assigneeName: assignee.name || ticket.assigneeName || (id ? id : '未分配'),
+        closed: 0,
+        firstResponseBreached: 0,
+        firstResponseMet: 0,
+        firstResponseMinutesRows: [],
+        lowRating: 0,
+        onDuty: assignee.onDuty || false,
+        open: 0,
+        ratingRows: [],
+        replied: 0,
+        reopen: 0,
+        resolutionBreached: 0,
+        resolutionMet: 0,
+        resolutionMinutesRows: [],
+        scheduleLabel: assignee.scheduleLabel || '',
+        tickets: 0,
+        waitingUser: 0,
+      });
+    }
+    return byAssigneeMap.get(id);
+  }
+
+  rows.forEach((ticket) => {
+    const bucket = bucketFor(ticket);
+    bucket.tickets += 1;
+    if (ticket.status === 'closed' || ticket.status === 'resolved') bucket.closed += 1;
+    else bucket.open += 1;
+    if (ticket.status === 'waiting_user') bucket.waitingUser += 1;
+    if (ticket.hasFirstResponse) {
+      bucket.replied += 1;
+      if (ticket.firstResponseMet) bucket.firstResponseMet += 1;
+      else bucket.firstResponseBreached += 1;
+      if (Number.isFinite(Number(ticket.firstResponseMinutes))) bucket.firstResponseMinutesRows.push(ticket.firstResponseMinutes);
+    } else if (ticket.firstResponseSlaState === 'overdue' || ticket.isClosed) {
+      bucket.firstResponseBreached += 1;
+    }
+    if (ticket.status === 'closed' || ticket.status === 'resolved') {
+      if (ticket.resolutionMet) bucket.resolutionMet += 1;
+      else bucket.resolutionBreached += 1;
+      if (Number.isFinite(Number(ticket.resolutionMinutes))) bucket.resolutionMinutesRows.push(ticket.resolutionMinutes);
+    } else if (ticket.resolutionSlaState === 'overdue') {
+      bucket.resolutionBreached += 1;
+    }
+    if (ticket.reopenCount) bucket.reopen += 1;
+    if (ticket.lowRating) bucket.lowRating += 1;
+    if (ticket.rating) bucket.ratingRows.push(ticket.rating);
+  });
+
+  const byAssignee = Array.from(byAssigneeMap.values())
+    .map((bucket) => ({
+      assigneeId: bucket.assigneeId,
+      assigneeName: bucket.assigneeName,
+      avgFirstResponseMinutes: supportAverage(bucket.firstResponseMinutesRows),
+      avgRating: supportAverage(bucket.ratingRows, 1),
+      avgResolutionHours: supportAverage(bucket.resolutionMinutesRows.map((value) => value / 60), 1),
+      closed: bucket.closed,
+      firstResponseBreached: bucket.firstResponseBreached,
+      firstResponseRate: supportPercent(bucket.replied, bucket.tickets),
+      firstResponseSlaRate: supportPercent(bucket.firstResponseMet, bucket.firstResponseMet + bucket.firstResponseBreached),
+      lowRating: bucket.lowRating,
+      onDuty: bucket.onDuty,
+      open: bucket.open,
+      ratingCount: bucket.ratingRows.length,
+      replied: bucket.replied,
+      reopen: bucket.reopen,
+      resolutionBreached: bucket.resolutionBreached,
+      resolutionSlaRate: supportPercent(bucket.resolutionMet, bucket.resolutionMet + bucket.resolutionBreached),
+      scheduleLabel: bucket.scheduleLabel,
+      tickets: bucket.tickets,
+      waitingUser: bucket.waitingUser,
+    }))
+    .sort((a, b) => b.open - a.open || b.tickets - a.tickets || String(a.assigneeName).localeCompare(String(b.assigneeName), 'zh-CN'));
+
+  return {
+    avgFirstResponseMinutes: supportAverage(firstResponded.map((ticket) => ticket.firstResponseMinutes)),
+    avgRating: supportAverage(rated.map((ticket) => ticket.rating), 1),
+    avgResolutionHours: supportAverage(closedWithResolution.map((ticket) => ticket.resolutionMinutes / 60), 1),
+    byAssignee,
+    closed: closed.length,
+    firstResponseBreached: rows.filter((ticket) => (ticket.hasFirstResponse && !ticket.firstResponseMet) || (!ticket.hasFirstResponse && (ticket.firstResponseSlaState === 'overdue' || ticket.isClosed))).length,
+    firstResponseRate: supportPercent(firstResponded.length, rows.length),
+    firstResponseSlaRate: supportPercent(rows.filter((ticket) => ticket.hasFirstResponse && ticket.firstResponseMet).length, rows.filter((ticket) => ticket.hasFirstResponse || ticket.firstResponseSlaState === 'overdue' || ticket.isClosed).length),
+    lowRating: rows.filter((ticket) => ticket.lowRating).length,
+    noReplyOpen: open.filter((ticket) => !ticket.hasFirstResponse).length,
+    open: open.length,
+    rated: rated.length,
+    reopen: rows.filter((ticket) => ticket.reopenCount).length,
+    reopenRate: supportPercent(rows.filter((ticket) => ticket.reopenCount).length, rows.length),
+    resolutionBreached: rows.filter((ticket) => ((ticket.status === 'closed' || ticket.status === 'resolved') && !ticket.resolutionMet) || (!(ticket.status === 'closed' || ticket.status === 'resolved') && ticket.resolutionSlaState === 'overdue')).length,
+    resolutionSlaRate: supportPercent(closed.filter((ticket) => ticket.resolutionMet).length, closed.length),
+    tickets: rows.length,
+    waitingUser: rows.filter((ticket) => ticket.status === 'waiting_user').length,
+  };
+}
+
+function supportTicketBatchReview(limit = 6) {
+  const logs = Array.isArray(state.adminAuditLogs) ? state.adminAuditLogs : [];
+  const items = logs
+    .filter((log) => log?.action === 'ticket.batch.update')
+    .slice(0, limit)
+    .map((log) => ({
+      action: log.after?.action || '',
+      admin: log.admin || '',
+      createdAt: log.createdAt || '',
+      errorCount: Math.max(0, Math.floor(Number(log.after?.errorCount || 0))),
+      id: log.targetId || log.id || '',
+      reason: log.reason || '',
+      successCount: Math.max(0, Math.floor(Number(log.after?.successCount || 0))),
+      ticketCount: Math.max(0, Math.floor(Number(log.after?.ticketCount || 0))),
+    }));
+  return {
+    items,
+    latestAt: items[0]?.createdAt || '',
+    total: logs.filter((log) => log?.action === 'ticket.batch.update').length,
+  };
+}
+
 function adminSupportTickets(options = {}) {
   const q = String(options.q || '').trim().toLowerCase();
   const status = String(options.status || 'open');
@@ -15465,11 +15695,15 @@ function adminSupportTickets(options = {}) {
       const statusRank = (ticket) => (ticket.slaState === 'overdue' ? 10 : ticket.slaState === 'due_soon' ? 8 : ticket.status === 'received' ? 5 : 0);
       return statusRank(b) - statusRank(a) || (priorityRank[b.priority] || 0) - (priorityRank[a.priority] || 0) || String(b.updatedAt).localeCompare(String(a.updatedAt));
     });
-  const all = ensureSupportTickets().map(supportTicketItem);
+  const rawTickets = ensureSupportTickets();
+  const all = rawTickets.map(supportTicketItem);
   const assignees = supportAssigneesForAdmin();
   const support = currentOpsConfig().support || defaultOpsConfig().support;
   return {
     assignees,
+    batchReview: supportTicketBatchReview(),
+    quality: supportTicketQualitySummary(rawTickets, assignees),
+    rosterConflicts: supportRosterConflicts(assignees),
     slaPolicy: {
       firstResponseSlaHours: support.firstResponseSlaHours || {},
       resolutionSlaHours: support.resolutionSlaHours || support.slaHours || {},
@@ -15718,10 +15952,20 @@ function adminHandleSupportTicketBatch(admin, body = {}) {
     results.push({ id: ticketId, ok: true });
   });
 
-  return {
+  const summary = {
+    action,
     errorCount: results.filter((item) => !item.ok).length,
-    results,
+    priority: priority || '',
+    status: status || '',
     successCount: results.filter((item) => item.ok).length,
+    ticketCount: ticketIds.length,
+    ticketIds,
+  };
+  writeAdminAudit(admin, 'ticket.batch.update', 'support_ticket_batch', `ticket-batch-${Date.now()}`, null, summary, reason);
+  return {
+    errorCount: summary.errorCount,
+    results,
+    successCount: summary.successCount,
   };
 }
 

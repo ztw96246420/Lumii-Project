@@ -4318,15 +4318,19 @@ async function renderTickets(force) {
   const summary = data.summary || {};
   const assignees = data.assignees || [];
   const slaPolicy = data.slaPolicy || {};
+  const quality = data.quality || {};
+  const rosterConflicts = data.rosterConflicts || [];
+  const batchReview = data.batchReview || {};
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('未关闭工单', summary.open || 0, `${summary.overdue || 0} 个已超 SLA`, '状态不是 closed/resolved 的工单都计入未关闭。')}
-      ${metric('首响超时', summary.firstResponseOverdue || 0, `${summary.unassigned || 0} 个未分配`, '首响 SLA 从工单创建时间算到首次接手或客服回复。')}
+      ${metric('首响超时', summary.firstResponseOverdue || 0, `${summary.unassigned || 0} 个未分配`, '首响 SLA 从工单创建时间算到第一条真实客服回复，分配/接单不算首响。')}
       ${metric('解决超时', summary.resolutionOverdue || 0, `${summary.offDutyAssigned || 0} 个负责人离班`, '解决 SLA 从工单创建时间算到 resolved/closed。')}
       ${metric('等待用户', summary.waitingUser || 0, '已发送客服回复', '客服回复后默认进入 waiting_user，可继续备注或关闭。')}
       ${metric('安全投诉', summary.safety || 0, 'safety 分类', '安全投诉建议 2 小时内首次处理。')}
     </div>
-    ${renderTicketOpsPanel(assignees, slaPolicy)}
+    ${renderTicketOpsPanel(assignees, slaPolicy, rosterConflicts)}
+    ${renderTicketQualityPanel(quality, batchReview)}
     <div class="grid two ticket-template-workspace">
       <div class="card ticket-template-compose">
         <div class="section-head">
@@ -4484,7 +4488,7 @@ function ticketSlaConfigLine(label, rows = {}) {
     .join(' · ');
 }
 
-function renderTicketOpsPanel(assignees = [], slaPolicy = {}) {
+function renderTicketOpsPanel(assignees = [], slaPolicy = {}, rosterConflicts = []) {
   const active = assignees.filter((item) => item.active !== false);
   const onDuty = active.filter((item) => item.onDuty);
   return `
@@ -4494,19 +4498,91 @@ function renderTicketOpsPanel(assignees = [], slaPolicy = {}) {
           <h2>客服值班与 SLA</h2>
           <div class="section-sub">负责人枚举、排班和值班状态来自配置中心，分配工单时会强制校验</div>
         </div>
-        ${help('首响 SLA 看首次接手或客服回复；解决 SLA 看工单是否 resolved/closed。移动端只展示用户可理解的下一步预计时间。')}
+        ${help('首响 SLA 只看第一条真实客服回复，分配/接单不算首响；解决 SLA 看工单是否 resolved/closed。移动端只展示用户可理解的下一步预计时间。')}
       </div>
       <div class="risk-row">
         <span class="risk-badge">负责人 ${numberText(active.length)}</span>
         <span class="risk-badge">值班中 ${numberText(onDuty.length)}</span>
+        <span class="risk-badge">排班冲突 ${numberText(rosterConflicts.length)}</span>
         <span class="risk-badge">${escapeHtml(ticketSlaConfigLine('首响', slaPolicy.firstResponseSlaHours || {}))}</span>
         <span class="risk-badge">${escapeHtml(ticketSlaConfigLine('解决', slaPolicy.resolutionSlaHours || {}))}</span>
       </div>
+      ${rosterConflicts.length ? `
+        <div class="risk-row">
+          ${rosterConflicts.slice(0, 6).map((item) => `<span class="risk-badge">${escapeHtml((item.assigneeNames || []).join(' / '))} · ${escapeHtml(item.dayLabel || '')} ${escapeHtml(item.startTime || '')}-${escapeHtml(item.endTime || '')}</span>`).join('')}
+        </div>
+      ` : ''}
       ${assignees.length ? tableHtml(assignees, [
         ['负责人', (item) => `<div class="cell-title">${escapeHtml(item.name || item.id)}</div><div class="cell-sub">${escapeHtml(item.id)} · ${escapeHtml(item.role || '客服')}</div>`],
         ['状态', (item) => `${tonePill(item.active === false ? '停用' : item.onDuty ? '值班中' : '离班', item.active === false ? 'bad' : item.onDuty ? 'ok' : 'warn')}`],
         ['排班', (item) => `<div class="cell-sub">${escapeHtml(item.scheduleLabel || '-')}</div>`],
       ], '暂无客服负责人') : '<div class="placeholder mini"><div><strong>暂无客服负责人</strong><div>请先在配置中心维护负责人枚举。</div></div></div>'}
+    </div>
+  `;
+}
+
+function minutesText(value) {
+  const minutes = Number(value || 0);
+  if (!Number.isFinite(minutes)) return '-';
+  if (minutes <= 0) return '<1 分钟';
+  if (minutes < 60) return `${Math.round(minutes)} 分钟`;
+  if (minutes < 24 * 60) return `${numberText(minutes / 60, 1)} 小时`;
+  return `${numberText(minutes / 1440, 1)} 天`;
+}
+
+function ticketBatchActionLabel(action) {
+  return {
+    assign: '批量分配',
+    closed: '批量关闭',
+    priority: '批量改优先级',
+    resolved: '批量标记已解决',
+    reviewing: '批量转处理中',
+    waiting_user: '批量等待用户',
+  }[action] || action || '-';
+}
+
+function renderTicketQualityPanel(quality = {}, batchReview = {}) {
+  const byAssignee = quality.byAssignee || [];
+  const batches = batchReview.items || [];
+  return `
+    <div class="grid two ticket-ops-insights">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>客服质量统计</h2>
+            <div class="section-sub">从移动端反馈、评分、重开和后台回复实时回算，不单独维护一套数据</div>
+          </div>
+          ${help('首响率=已有真实客服回复的工单占比；首响达标率把已回复、已超时、已关闭但未回复的工单计入分母。满意度来自移动端工单评分。')}
+        </div>
+        <div class="grid metrics compact-metrics">
+          ${metric('首响率', percentText(quality.firstResponseRate || 0), `平均 ${minutesText(quality.avgFirstResponseMinutes)}`, '客服真实回复才算首响。')}
+          ${metric('首响达标', percentText(quality.firstResponseSlaRate || 0), `${numberText(quality.firstResponseBreached || 0)} 条未达标`, '按配置中心首响 SLA 判断。')}
+          ${metric('解决达标', percentText(quality.resolutionSlaRate || 0), `${numberText(quality.resolutionBreached || 0)} 条未达标`, '仅 resolved/closed 工单进入已解决达标分母，未关闭超时会单独计入未达标风险。')}
+          ${metric('满意度', quality.avgRating ? `${numberText(quality.avgRating, 1)}/5` : '-', `${numberText(quality.rated || 0)} 条评分`, '用户在移动端工单结束后评分。')}
+          ${metric('重开率', percentText(quality.reopenRate || 0), `${numberText(quality.reopen || 0)} 条重开`, '用户重开代表处理结果仍需复核。')}
+          ${metric('未首响开放', numberText(quality.noReplyOpen || 0), `${numberText(quality.open || 0)} 条未关闭`, '开放工单中尚未产生客服回复的数量。')}
+        </div>
+        ${byAssignee.length ? tableHtml(byAssignee.slice(0, 8), [
+          ['负责人', (row) => `<div class="cell-title">${escapeHtml(row.assigneeName || '-')}</div><div class="cell-sub">${escapeHtml(row.assigneeId || '未分配')}</div>`],
+          ['工单/评分', (row) => `<div>${numberText(row.tickets)} 条 · ${row.avgRating ? `${numberText(row.avgRating, 1)}/5` : '-'}</div><div class="cell-sub">${numberText(row.open)} 未关闭 · ${numberText(row.closed)} 已结束 · 低分 ${numberText(row.lowRating || 0)}</div>`],
+          ['SLA', (row) => `<div>首响 ${percentText(row.firstResponseSlaRate || 0)} · 解决 ${percentText(row.resolutionSlaRate || 0)}</div><div class="cell-sub">平均 ${minutesText(row.avgFirstResponseMinutes)} · ${row.onDuty ? '值班中' : row.assigneeId ? '离班' : '未分配'} · 重开 ${numberText(row.reopen || 0)}</div>`],
+        ], '暂无负责人统计') : '<div class="placeholder mini"><div><strong>暂无客服统计</strong><div>产生工单、回复和评分后会自动沉淀。</div></div></div>'}
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>批量处理复盘</h2>
+            <div class="section-sub">展示最近批量动作，方便检查是否误批量分配、关闭或改优先级</div>
+          </div>
+          ${help('批量动作会额外写一条汇总审计；单个工单仍保留自己的 before/after 审计。当前不开放批量回复，避免误触达用户。')}
+        </div>
+        ${batches.length ? tableHtml(batches, [
+          ['动作', (row) => `<div class="cell-title">${escapeHtml(ticketBatchActionLabel(row.action))}</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
+          ['结果', (row) => `<div>${numberText(row.successCount || 0)} 成功 / ${numberText(row.errorCount || 0)} 失败</div><div class="cell-sub">${numberText(row.ticketCount || 0)} 条工单</div>`],
+          ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div>`],
+          ['时间', (row) => `<div>${formatTime(row.createdAt)}</div><div class="cell-sub">${escapeHtml(row.admin || '-')}</div>`],
+        ], '暂无批量动作') : '<div class="placeholder mini"><div><strong>暂无批量动作</strong><div>使用批量处理后会在这里形成复盘记录。</div></div></div>'}
+      </div>
     </div>
   `;
 }

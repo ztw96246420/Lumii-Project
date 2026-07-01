@@ -14,6 +14,8 @@
 - 后台分配强制使用负责人枚举。
 - 移动端只展示预计响应/处理时间，不暴露客服排班。
 
+客服质量统计、排班冲突检测和批量处理复盘见：[Operations_Backoffice_Ticket_Quality_Review_2026-07-01.md](Operations_Backoffice_Ticket_Quality_Review_2026-07-01.md)。
+
 ## 配置入口
 
 后台：配置中心 -> 客服工单 SLA 与排班。
