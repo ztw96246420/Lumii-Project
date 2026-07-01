@@ -1464,7 +1464,17 @@ Array<{
 说明：
 - 仅返回 `status=approved` 的点评，按 `reviewedAt` / `createdAt` 倒序排列。
 - `imageUrls` 仅包含已通过图片审核的公开图片，最多 3 张。
+- 当前用户已举报的地点点评不再返回；后台处理为隐藏或删除后，该点评对所有用户不再公开。
 - 如果地点不存在，返回 404 和中文错误 `地点不存在`。
+
+### POST `/places/reviews/{reviewId}/report`
+
+举报一条已公开的地点点评。成功后返回 `{ reported: true, targetType: 'place_review' }`，该点评会立即从举报者自己的地点公开点评列表隐藏；不能举报自己的地点点评。
+
+后台联动：
+- 创建 `socialReports[]` 举报记录，`targetType=place_review`。
+- 生成举报证据快照，包含点评正文、图片、地点名称、作者和举报人。
+- 在内容安全任务池中可处理为有效/无效/升级；有效并隐藏或删除后，公开点评列表不再返回该点评。
 
 ### POST `/places/submissions`
 

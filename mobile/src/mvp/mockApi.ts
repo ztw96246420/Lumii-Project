@@ -1451,6 +1451,7 @@ const places: Place[] = [
 ];
 let favoritePlaceIds: string[] = [];
 let placeReviews: PlaceReview[] = [];
+let placeReviewReportedIds: string[] = [];
 let placeSubmissions: PlaceSubmission[] = [];
 
 function buildMockSanctionAppealList(): SanctionAppealList {
@@ -3320,7 +3321,11 @@ export const mockApi = {
 
     async listPlaceReviews(placeId: string): Promise<ApiResult<PlaceReview[]>> {
       await wait(120);
-      return success(placeReviews.filter((review) => review.placeId === placeId && review.status === 'approved'));
+      return success(placeReviews.filter((review) => (
+        review.placeId === placeId &&
+        review.status === 'approved' &&
+        !placeReviewReportedIds.includes(review.id)
+      )));
     },
 
     async listMySubmissions(): Promise<ApiResult<PlaceSubmission[]>> {
@@ -3357,6 +3362,15 @@ export const mockApi = {
         title: '地点点评待审核',
       });
       return success(review);
+    },
+
+    async reportReview(reviewId: string, _content?: string): Promise<ApiResult<PetCircleReportResult>> {
+      await wait(140);
+      const review = placeReviews.find((item) => item.id === reviewId);
+      if (placeReviewReportedIds.includes(reviewId)) return success({ id: `mock-report-place-review-${reviewId}`, reported: true, targetId: reviewId, targetType: 'place_review' });
+      if (!review || review.status !== 'approved') return error<PetCircleReportResult>('地点点评不存在或已不可见', false, undefined, 'PLACE_REVIEW_REPORT_INVALID');
+      placeReviewReportedIds = [reviewId, ...placeReviewReportedIds];
+      return success({ id: `mock-report-${Date.now()}`, reported: true, targetId: reviewId, targetType: 'place_review' });
     },
 
     async createSubmission(name: string, address: string, content: string, imageUrls: string[] = []): Promise<ApiResult<PlaceSubmission>> {

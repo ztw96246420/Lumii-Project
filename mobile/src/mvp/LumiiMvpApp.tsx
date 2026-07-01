@@ -2467,6 +2467,7 @@ export default function LumiiMvpApp() {
   const [placeReviewsByPlaceId, setPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview>>({});
   const [publicPlaceReviewsByPlaceId, setPublicPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview[]>>({});
   const [publicPlaceReviewsLoadingId, setPublicPlaceReviewsLoadingId] = useState('');
+  const [placeReviewReportingIds, setPlaceReviewReportingIds] = useState<string[]>([]);
   const [locatingMap, setLocatingMap] = useState(false);
   const locatingMapRef = useRef(false);
   const locatingMapRequestRef = useRef(0);
@@ -4630,6 +4631,38 @@ export default function LumiiMvpApp() {
       setPublicPlaceReviewsByPlaceId((items) => ({ ...items, [placeId]: result.data! }));
     }
     setPublicPlaceReviewsLoadingId((current) => (current === placeId ? '' : current));
+  }
+
+  async function reportPlaceReview(review: PlaceReview, place?: Place | null) {
+    if (!placesEnabled || !review.id || placeReviewReportingIds.includes(review.id)) return;
+    const confirmed = await confirmAction('举报这条地点点评？', '我们会把这条点评和地点信息提交给安全审核。', '提交举报', true);
+    if (!confirmed) return;
+    setPlaceReviewReportingIds((ids) => [...ids, review.id]);
+    try {
+      const feedbackContent = [
+        '地点点评举报',
+        `点评ID：${review.id}`,
+        `地点：${place?.name || review.placeName || review.placeId}`,
+        `点评者：${review.ownerName || '宠友'}`,
+        `点评内容：${review.content}`,
+        '来源：地点详情公开点评',
+      ].filter(Boolean).join('\n');
+      const result = await lumiiApi.places.reportReview(review.id, feedbackContent);
+      if (result.data) {
+        setPublicPlaceReviewsByPlaceId((items) => {
+          const nextItems = { ...items };
+          Object.entries(nextItems).forEach(([placeId, reviews]) => {
+            nextItems[placeId] = reviews.filter((item) => item.id !== review.id);
+          });
+          return nextItems;
+        });
+        showToast('举报已提交', { subtitle: '已从你的公开点评列表隐藏这条点评', tone: 'success', variant: 'surface' });
+        return;
+      }
+      showToast(result.error?.message ?? '举报提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
+    } finally {
+      setPlaceReviewReportingIds((ids) => ids.filter((id) => id !== review.id));
+    }
   }
 
   async function openPlaceSubmissionFromNotification(submissionId?: string) {
@@ -8705,6 +8738,7 @@ export default function LumiiMvpApp() {
     setPlaceReviewsByPlaceId({});
     setPublicPlaceReviewsByPlaceId({});
     setPublicPlaceReviewsLoadingId('');
+    setPlaceReviewReportingIds([]);
     setCustomPlaceFeatureDraft('');
     setCustomPlaceFeatureVisible(false);
     locatingMapRef.current = false;
@@ -13713,34 +13747,47 @@ export default function LumiiMvpApp() {
                   </View>
                 ) : visiblePublicPlaceReviews.length ? (
                   <View style={styles.placePublicReviewListMake}>
-                    {visiblePublicPlaceReviews.map((review) => (
-                      <View key={review.id} style={styles.placePublicReviewItemMake}>
-                        <View style={styles.placeReviewHeaderMake}>
-                          {review.ownerAvatarUrl ? (
-                            <PetAvatar uri={review.ownerAvatarUrl} size={26} />
-                          ) : (
-                            <View style={styles.placePublicReviewAvatarFallbackMake}>
-                              <User color={palette.muted} size={14} strokeWidth={2.4} />
+                    {visiblePublicPlaceReviews.map((review) => {
+                      const reportingReview = placeReviewReportingIds.includes(review.id);
+                      return (
+                        <View key={review.id} style={styles.placePublicReviewItemMake}>
+                          <View style={styles.placeReviewHeaderMake}>
+                            {review.ownerAvatarUrl ? (
+                              <PetAvatar uri={review.ownerAvatarUrl} size={26} />
+                            ) : (
+                              <View style={styles.placePublicReviewAvatarFallbackMake}>
+                                <User color={palette.muted} size={14} strokeWidth={2.4} />
+                              </View>
+                            )}
+                            <View style={styles.flex}>
+                              <View style={styles.placeReviewAuthorRowMake}>
+                                <Text numberOfLines={1} style={styles.placeReviewAuthorMake}>{review.ownerName || '宠友'}</Text>
+                                <Text style={styles.placePublicReviewStatusMake}>已公开</Text>
+                              </View>
+                              <Text style={styles.placeReviewTimeMake}>{formatTimestampDisplay(review.reviewedAt || review.createdAt)}</Text>
                             </View>
-                          )}
-                          <View style={styles.flex}>
-                            <View style={styles.placeReviewAuthorRowMake}>
-                              <Text numberOfLines={1} style={styles.placeReviewAuthorMake}>{review.ownerName || '宠友'}</Text>
-                              <Text style={styles.placePublicReviewStatusMake}>已公开</Text>
-                            </View>
-                            <Text style={styles.placeReviewTimeMake}>{formatTimestampDisplay(review.reviewedAt || review.createdAt)}</Text>
+                            <Pressable
+                              accessibilityLabel="举报地点点评"
+                              accessibilityRole="button"
+                              disabled={reportingReview}
+                              onPress={() => void reportPlaceReview(review, place)}
+                              style={[styles.placePublicReviewReportMake, reportingReview && styles.mapSearchActionDisabled, webPressableReset]}
+                            >
+                              {reportingReview ? <ActivityIndicator color={palette.warning} size="small" /> : <Flag color={palette.warning} size={12} strokeWidth={2.4} />}
+                              <Text style={styles.placePublicReviewReportTextMake}>{reportingReview ? '提交中' : '举报'}</Text>
+                            </Pressable>
                           </View>
+                          <Text numberOfLines={3} style={styles.placeReviewBodyMake}>{review.content}</Text>
+                          {review.imageUrls?.length ? (
+                            <View style={styles.placePublicReviewPhotoRowMake}>
+                              {review.imageUrls.slice(0, 3).map((uri, index) => (
+                                <Image key={`${review.id}-photo-${index}`} resizeMode="cover" source={{ uri }} style={styles.placePublicReviewPhotoMake} />
+                              ))}
+                            </View>
+                          ) : null}
                         </View>
-                        <Text numberOfLines={3} style={styles.placeReviewBodyMake}>{review.content}</Text>
-                        {review.imageUrls?.length ? (
-                          <View style={styles.placePublicReviewPhotoRowMake}>
-                            {review.imageUrls.slice(0, 3).map((uri, index) => (
-                              <Image key={`${review.id}-photo-${index}`} resizeMode="cover" source={{ uri }} style={styles.placePublicReviewPhotoMake} />
-                            ))}
-                          </View>
-                        ) : null}
-                      </View>
-                    ))}
+                      );
+                    })}
                   </View>
                 ) : (
                   <View style={styles.placePublicReviewEmptyMake}>
@@ -19082,6 +19129,8 @@ const styles = StyleSheet.create({
   placePublicReviewListMake: { gap: 12, marginTop: 12 },
   placePublicReviewPhotoMake: { backgroundColor: palette.pale, borderRadius: 10, height: 58, width: 58 },
   placePublicReviewPhotoRowMake: { flexDirection: 'row', gap: 7, marginTop: 10 },
+  placePublicReviewReportMake: { alignItems: 'center', backgroundColor: 'rgba(255, 185, 75, 0.13)', borderRadius: 999, flexDirection: 'row', gap: 4, minHeight: 28, paddingHorizontal: 9, paddingVertical: 5 },
+  placePublicReviewReportTextMake: { color: palette.warning, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', lineHeight: 14 },
   placePublicReviewStatusMake: { backgroundColor: 'rgba(87, 183, 167, 0.14)', borderRadius: 999, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', lineHeight: 14, overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 2 },
   placePublicReviewsMake: { alignItems: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginTop: 12, paddingHorizontal: 14, paddingVertical: 12, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
   placePublicReviewsMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 16 },

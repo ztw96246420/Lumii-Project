@@ -135,21 +135,23 @@ async function main() {
   const port = await getFreePort();
   await startBackend(port);
   try {
-    const userToken = await loginUser('19900004001');
+    const reviewerToken = await loginUser('19900004001');
+    const reporterToken = await loginUser('19900004002');
+    const observerToken = await loginUser('19900004003');
     const adminToken = await loginAdmin();
 
-    const nearby = await request('/places/nearby', { token: userToken });
+    const nearby = await request('/places/nearby', { token: reviewerToken });
     const place = nearby.data?.find((item) => item?.id);
     assert.ok(place?.id, 'expected at least one place');
 
     const submitted = await request(`/places/${encodeURIComponent(place.id)}/reviews`, {
       body: { content: 'Smoke public review: clean grass, friendly staff, clear leash area.' },
       method: 'POST',
-      token: userToken,
+      token: reviewerToken,
     });
     assert.equal(submitted.data.status, 'pending_review');
 
-    const hiddenBeforeApprove = await request(`/places/${encodeURIComponent(place.id)}/reviews`, { token: userToken });
+    const hiddenBeforeApprove = await request(`/places/${encodeURIComponent(place.id)}/reviews`, { token: reporterToken });
     assert.equal(hiddenBeforeApprove.data.some((item) => item.id === submitted.data.id), false);
 
     const approved = await request(`/admin/places/reviews/${encodeURIComponent(submitted.data.id)}/approve`, {
@@ -159,13 +161,46 @@ async function main() {
     });
     assert.equal(approved.data.status, 'approved');
 
-    const publicReviews = await request(`/places/${encodeURIComponent(place.id)}/reviews`, { token: userToken });
+    const publicReviews = await request(`/places/${encodeURIComponent(place.id)}/reviews`, { token: reporterToken });
     const visibleReview = publicReviews.data.find((item) => item.id === submitted.data.id);
     assert.ok(visibleReview, 'approved review should appear in public place reviews');
     assert.equal(visibleReview.status, 'approved');
     assert.equal(visibleReview.content, submitted.data.content);
     assert.ok(visibleReview.ownerName, 'public review should include a display owner name');
     assert.equal(Object.hasOwn(visibleReview, 'ownerPhone'), false, 'public review must not expose ownerPhone');
+
+    const report = await request(`/places/reviews/${encodeURIComponent(submitted.data.id)}/report`, {
+      body: { content: 'Smoke report place review' },
+      method: 'POST',
+      token: reporterToken,
+    });
+    assert.equal(report.data.reported, true);
+    assert.equal(report.data.targetType, 'place_review');
+
+    const hiddenForReporter = await request(`/places/${encodeURIComponent(place.id)}/reviews`, { token: reporterToken });
+    assert.equal(hiddenForReporter.data.some((item) => item.id === submitted.data.id), false, 'reported review should be hidden for reporter');
+
+    const reports = await request('/admin/social/reports', { token: adminToken });
+    const adminReport = reports.data.find((item) => item.id === report.data.id);
+    assert.equal(adminReport?.targetType, 'place_review');
+    assert.equal(adminReport?.evidenceSnapshot?.targetType, 'place_review');
+    assert.equal(adminReport?.evidenceSnapshot?.contentText, submitted.data.content);
+
+    const taskId = `report:${report.data.id}`;
+    const tasks = await request('/admin/moderation/tasks?status=all', { token: adminToken });
+    const task = tasks.data.tasks.find((item) => item.id === taskId);
+    assert.ok(task, 'place review report should enter moderation tasks');
+    assert.ok(task.actions.some((item) => item.action === 'hide'), 'place review report task should allow hide action');
+
+    const hiddenTask = await request(`/admin/moderation/tasks/${encodeURIComponent(taskId)}/hide`, {
+      body: { reason: 'Smoke hide reported place review' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(hiddenTask.data.status, 'approved');
+
+    const hiddenForObserver = await request(`/places/${encodeURIComponent(place.id)}/reviews`, { token: observerToken });
+    assert.equal(hiddenForObserver.data.some((item) => item.id === submitted.data.id), false, 'admin hidden review should be removed globally');
 
     console.log('place public review smoke passed');
   } finally {

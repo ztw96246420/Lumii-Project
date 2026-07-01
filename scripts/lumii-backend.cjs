@@ -5236,7 +5236,7 @@ function approvedPlaceReviewCount(placeId) {
   }, 0);
 }
 
-function publicPlaceReviewsForPlace(placeId, limit = 20) {
+function publicPlaceReviewsForPlace(placeId, viewer = null, limit = 20) {
   const targetPlaceId = String(placeId || '').trim();
   if (!targetPlaceId) return [];
   const rows = [];
@@ -5245,6 +5245,7 @@ function publicPlaceReviewsForPlace(placeId, limit = 20) {
     const owner = state.users?.[phone];
     reviews.forEach((review) => {
       if (review?.placeId !== targetPlaceId || review.status !== 'approved') return;
+      if (viewer && socialReportFor(viewer, 'place_review', review.id)) return;
       rows.push({
         ...review,
         imageUrls: visibleImageUrls(review.imageUrls).slice(0, 3),
@@ -9263,6 +9264,15 @@ function reportPetCircleComment(commentId, user, body = {}) {
   return { report: createSocialReport(user, 'comment', commentId, comment.phone, body), comment };
 }
 
+function reportPlaceReview(reviewId, user, body = {}) {
+  const existing = socialReportFor(user, 'place_review', reviewId);
+  if (existing) return { report: existing };
+  const found = findPlaceReview(reviewId);
+  if (!found || found.review.status !== 'approved') return { error: '地点点评不存在或已不可见', statusCode: 404 };
+  if (found.phone === user.phone) return { error: '不能举报自己的地点点评', statusCode: 400 };
+  return { report: createSocialReport(user, 'place_review', reviewId, found.phone, body), review: found.review };
+}
+
 function deleteSocialMoment(postId, user) {
   const moment = findSocialMomentById(postId);
   if (!moment || moment.status === 'deleted') return { error: '这条小事已不可见', statusCode: 404 };
@@ -9564,6 +9574,7 @@ function markResultNotification(record, status, statusKey = 'resultNotifiedStatu
 function socialReportTargetLabel(targetType) {
   if (targetType === 'post') return '小事';
   if (targetType === 'comment') return '评论';
+  if (targetType === 'place_review') return '地点点评';
   return '内容';
 }
 
@@ -11513,7 +11524,7 @@ function adminReadinessModules(context) {
       status: 'partial',
       evidence: '地点点评和新增地点支持通过/驳回、关联已有地点、原因模板、通知、导出、地点编辑、人工合并和基础贡献账本。',
       mobileLinkage: '审核状态会影响地点详情、地点提交和用户通知中心。',
-      nextStep: '补用户端公开贡献身份、贡献等级/奖励策略、多角色权限、点评分页/举报和排序口径。',
+      nextStep: '补用户端公开贡献身份、贡献等级/奖励策略、多角色权限、点评分页和排序口径。',
     },
     {
       key: 'support',
@@ -14144,7 +14155,7 @@ function moderationTaskActions(task) {
       { action: 'invalid', label: '无效关闭' },
       { action: 'escalate', label: '升级' },
     ];
-    if (task.targetType === 'post' || task.targetType === 'comment') {
+    if (task.targetType === 'post' || task.targetType === 'comment' || task.targetType === 'place_review') {
       actions.splice(1, 0, { action: 'hide', label: '有效并隐藏', tone: 'danger' });
       actions.splice(2, 0, { action: 'delete', label: '有效并删除', tone: 'danger', confirm: true });
     } else {
@@ -14222,6 +14233,18 @@ function socialReportTargetSnapshot(report) {
       ownerPhone: comment.ownerPhone,
       targetLabel: '宠友圈评论',
       targetStatus: comment.status,
+    };
+  }
+  if (report.targetType === 'place_review') {
+    const review = adminPlaceReviews().find((item) => item.id === report.targetId);
+    if (!review) return { contentText: '', targetLabel: '地点点评不存在', targetStatus: 'missing' };
+    return {
+      contentText: review.content,
+      mediaUrls: visibleImageUrls(review.imageUrls),
+      ownerName: review.ownerName,
+      ownerPhone: review.ownerPhone,
+      targetLabel: review.placeName ? `${review.placeName} 的点评` : '地点点评',
+      targetStatus: review.status,
     };
   }
   return { contentText: report.content || '', targetLabel: report.targetType, targetStatus: 'unknown' };
@@ -14663,6 +14686,16 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
         comment.adminModerationReason = reason;
         if (action === 'delete') comment.deletedAt = now;
         writeAdminAudit(admin, `moderation.comment.${action}`, 'pet_circle_comment', comment.id, beforeComment, comment, reason);
+      } else if (report.targetType === 'place_review') {
+        const found = findPlaceReview(report.targetId);
+        if (!found) return { error: '被举报地点点评不存在', statusCode: 404 };
+        const beforeReview = { ...found.review };
+        found.review.status = action === 'hide' ? 'hidden' : 'deleted';
+        found.review.adminModerationReason = reason;
+        found.review.reviewedAt = now;
+        found.review.reviewedBy = admin.username;
+        if (action === 'delete') found.review.deletedAt = now;
+        writeAdminAudit(admin, `moderation.placeReview.${action}`, 'place_review', found.review.id, beforeReview, found.review, reason);
       } else {
         return { error: '该举报对象暂不支持这个动作', statusCode: 400 };
       }
@@ -17770,7 +17803,20 @@ async function handle(req, res) {
       fail(res, 404, '地点不存在', false);
       return;
     }
-    ok(res, publicPlaceReviewsForPlace(placeId));
+    ok(res, publicPlaceReviewsForPlace(placeId, user));
+    return;
+  }
+
+  const placeReviewReportMatch = pathname.match(/^\/places\/reviews\/([^/]+)\/report$/);
+  if (req.method === 'POST' && placeReviewReportMatch) {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
+    const result = reportPlaceReview(decodeURIComponent(placeReviewReportMatch[1]), user, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'PLACE_REVIEW_REPORT_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, { id: result.report.id, reported: true, targetId: result.report.targetId, targetType: result.report.targetType });
     return;
   }
 

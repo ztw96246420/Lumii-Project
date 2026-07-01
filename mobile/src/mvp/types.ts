@@ -407,7 +407,7 @@ export type PetCircleReportResult = {
   id: string;
   reported: true;
   targetId: string;
-  targetType: 'comment' | 'post';
+  targetType: 'comment' | 'place_review' | 'post';
 };
 
 export type SocialBlockResult = {
@@ -558,7 +558,7 @@ export type PlaceReview = {
   photoCount?: number;
   reviewReason?: string;
   reviewedAt?: string;
-  status: 'approved' | 'pending_review' | 'rejected';
+  status: 'approved' | 'deleted' | 'hidden' | 'pending_review' | 'rejected';
 };
 
 export type PlaceSubmission = {
