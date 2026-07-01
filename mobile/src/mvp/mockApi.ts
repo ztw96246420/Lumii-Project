@@ -92,6 +92,19 @@ const mockAppRemoteConfig: AppRemoteConfig = {
     enabled: true,
     sampleRatePercent: 100,
   },
+  experiments: {
+    homeAiEntry: {
+      controlSubtitle: '今天想和{petName}聊点什么？',
+      controlTitle: '灵伴聊天',
+      enabled: false,
+      id: 'home_ai_entry_copy_v1',
+      name: '首页 AI 对话入口文案',
+      rolloutPercent: 100,
+      treatmentSubtitle: '{petName}好像有话想和你说',
+      treatmentTitle: '问问我的小心情',
+      variantBPercent: 50,
+    },
+  },
   app: {
     maintenanceEnabled: false,
     maintenanceMessage: '',

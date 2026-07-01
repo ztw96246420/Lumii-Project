@@ -169,6 +169,19 @@ const fallbackRemoteConfig: AppRemoteConfig = {
     enabled: true,
     sampleRatePercent: 100,
   },
+  experiments: {
+    homeAiEntry: {
+      controlSubtitle: '今天想和{petName}聊点什么？',
+      controlTitle: '灵伴聊天',
+      enabled: false,
+      id: 'home_ai_entry_copy_v1',
+      name: '首页 AI 对话入口文案',
+      rolloutPercent: 100,
+      treatmentSubtitle: '{petName}好像有话想和你说',
+      treatmentTitle: '问问我的小心情',
+      variantBPercent: 50,
+    },
+  },
   app: {
     announcement: {
       actionLabel: '知道了',
@@ -885,6 +898,43 @@ function hashStringToPercent(value: string) {
     hash = Math.imul(hash, 16777619);
   }
   return Math.abs(hash) % 100;
+}
+
+type HomeAiEntryExperimentAssignment = {
+  experimentId: string;
+  experimentName: string;
+  rolloutPercent: number;
+  subtitle: string;
+  title: string;
+  variant: 'control' | 'treatment';
+  variantBPercent: number;
+};
+
+function formatExperimentCopy(text: string | undefined, petName: string) {
+  return String(text || '').replace(/\{petName\}/g, petName).trim();
+}
+
+function resolveHomeAiEntryExperiment(config: AppRemoteConfig['experiments'] | undefined, identity: string, petName: string): HomeAiEntryExperimentAssignment | null {
+  const experiment = config?.homeAiEntry;
+  if (!experiment?.enabled) return null;
+  const experimentId = String(experiment.id || 'home_ai_entry_copy_v1').trim() || 'home_ai_entry_copy_v1';
+  const rolloutPercent = Math.max(0, Math.min(100, Math.floor(experiment.rolloutPercent ?? 100)));
+  if (rolloutPercent <= 0) return null;
+  const stableIdentity = identity || 'guest';
+  if (rolloutPercent < 100 && hashStringToPercent(`${experimentId}:rollout:${stableIdentity}`) >= rolloutPercent) return null;
+  const variantBPercent = Math.max(0, Math.min(100, Math.floor(experiment.variantBPercent ?? 50)));
+  const variant = hashStringToPercent(`${experimentId}:variant:${stableIdentity}`) < variantBPercent ? 'treatment' : 'control';
+  const title = variant === 'treatment' ? experiment.treatmentTitle : experiment.controlTitle;
+  const subtitle = variant === 'treatment' ? experiment.treatmentSubtitle : experiment.controlSubtitle;
+  return {
+    experimentId,
+    experimentName: String(experiment.name || '首页 AI 对话入口文案').trim() || '首页 AI 对话入口文案',
+    rolloutPercent,
+    subtitle: formatExperimentCopy(subtitle, petName) || '今天想聊点什么？',
+    title: formatExperimentCopy(title, petName) || '灵伴聊天',
+    variant,
+    variantBPercent,
+  };
 }
 
 function getAppUpdateTargetUrl(update?: AppRemoteConfig['app']['update']) {
@@ -2199,6 +2249,7 @@ export default function LumiiMvpApp() {
   const [appUpdateVisible, setAppUpdateVisible] = useState(false);
   const remoteConfigRef = useRef<AppRemoteConfig>(fallbackRemoteConfig);
   const appConfigPromptImpressionKeysRef = useRef<Set<string>>(new Set());
+  const experimentExposureKeysRef = useRef<Set<string>>(new Set());
   const activePetIdRef = useRef<string | null>(null);
   const phoneInputRef = useRef<TextInput>(null);
   const phoneValueRef = useRef('');
@@ -2614,6 +2665,42 @@ export default function LumiiMvpApp() {
       prompt,
       version: String(version || 'unversioned').slice(0, 60),
     });
+  }
+
+  function trackHomeAiEntryExperimentExposure(assignment: HomeAiEntryExperimentAssignment, source = 'home_ai_entry') {
+    const eventKey = `${assignment.experimentId}:${assignment.variant}:${source}`;
+    if (experimentExposureKeysRef.current.has(eventKey)) return;
+    experimentExposureKeysRef.current.add(eventKey);
+    trackAppEvent('config.experiment_exposure', {
+      experimentId: assignment.experimentId,
+      experimentName: assignment.experimentName,
+      rolloutPercent: assignment.rolloutPercent,
+      source,
+      variant: assignment.variant,
+      variantBPercent: assignment.variantBPercent,
+    });
+  }
+
+  function resolveCurrentHomeAiEntryExperiment() {
+    const pet = getCurrentPet();
+    if (!pet) return null;
+    return resolveHomeAiEntryExperiment(remoteConfigRef.current.experiments, session?.phone || phoneValueRef.current || 'guest', pet.name);
+  }
+
+  function handleHomeAiChatPress(source: 'home_header' | 'home_hero') {
+    if (!guardFeature(petChatEnabled, 'AI 宠物对话')) return;
+    const assignment = resolveCurrentHomeAiEntryExperiment();
+    if (assignment) {
+      trackHomeAiEntryExperimentExposure(assignment);
+      trackAppEvent('pet_chat.entry_click', {
+        experimentId: assignment.experimentId,
+        source,
+        variant: assignment.variant,
+      });
+    } else {
+      trackAppEvent('pet_chat.entry_click', { source, variant: 'none' });
+    }
+    go('chat');
   }
 
   function trackHomeModuleExposures(source = 'route') {
@@ -3469,7 +3556,11 @@ export default function LumiiMvpApp() {
     if (previousRoute !== route) exitBackPressedAtRef.current = 0;
     if (previousRoute !== route && sessionTokenRef.current) {
       trackAppEvent('app.page_view', { previousRoute, nextRoute: route });
-      if (route === 'home') trackHomeModuleExposures('route');
+      if (route === 'home') {
+        trackHomeModuleExposures('route');
+        const assignment = resolveCurrentHomeAiEntryExperiment();
+        if (assignment) trackHomeAiEntryExperimentExposure(assignment);
+      }
       if (route === 'discover') trackAppEvent('discover.view', { radiusKm: configuredDiscoverRadiusKm, tab: discoverTab });
       if (route === 'map') trackAppEvent('map.open', { pickingPlace: walkInvitePickingPlace });
       if (route === 'supportTickets') trackAppEvent('support.open');
@@ -3479,6 +3570,12 @@ export default function LumiiMvpApp() {
     }
     previousRouteRef.current = route;
   }, [route]);
+
+  useEffect(() => {
+    if (route !== 'home' || !petChatEnabled || !sessionTokenRef.current) return;
+    const assignment = resolveCurrentHomeAiEntryExperiment();
+    if (assignment) trackHomeAiEntryExperimentExposure(assignment);
+  }, [activePet?.id, activePet?.name, petChatEnabled, remoteConfig.experiments, route, session?.phone]);
 
   useEffect(() => {
     if (maintenanceEnabled) return;
@@ -10313,6 +10410,10 @@ export default function LumiiMvpApp() {
     const petImageSource = pet.avatarUrl && !isGeneratedAvatarUri(pet.avatarUrl) ? { uri: pet.avatarUrl } : generatedGoldenAvatarSource;
     const vaccineDueLabel = formatDueLabel(nextVaccine?.dueAt);
     const homeChatHint = homeChatPrompts[homeHintIndex].replace(/\{petName\}/g, pet.name);
+    const homeAiEntryExperiment = resolveHomeAiEntryExperiment(remoteConfig.experiments, session?.phone || phoneValueRef.current || 'guest', pet.name);
+    const homeAiEntryHeadline = homeAiEntryExperiment ? `${homeAiEntryExperiment.title} · ${homeAiEntryExperiment.subtitle}` : `灵伴聊天 · ${homeChatHint}`;
+    const homeAiEntryMiniTitle = homeAiEntryExperiment?.title || '轻松互动';
+    const homeAiEntryMiniSubtitle = homeAiEntryExperiment?.subtitle || '已准备好';
     const todayWeightRecorded = weights.some((item) => item.recordedAt === todayIsoDate());
     const visibleNearbyMoments = nearbyMoments.filter((moment) => !moment.ownedByMe).slice(0, 5);
     const activeNearbyMoment = visibleNearbyMoments.length ? visibleNearbyMoments[homeMomentIndex % visibleNearbyMoments.length] : null;
@@ -10446,8 +10547,8 @@ export default function LumiiMvpApp() {
               <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={42} />
               <View style={styles.flex}>
                 <Text style={styles.homeMakeKicker}>早安，{pet.name}！</Text>
-                <Pressable onPress={() => { if (guardFeature(petChatEnabled, 'AI 宠物对话')) go('chat'); }} style={[styles.homeMakeChatEntry, webPressableReset]}>
-                  <Text adjustsFontSizeToFit minimumFontScale={0.76} numberOfLines={1} style={styles.homeMakeHeadline}>灵伴聊天 · {homeChatHint}</Text>
+                <Pressable onPress={() => handleHomeAiChatPress('home_header')} style={[styles.homeMakeChatEntry, webPressableReset]}>
+                  <Text adjustsFontSizeToFit minimumFontScale={0.76} numberOfLines={1} style={styles.homeMakeHeadline}>{homeAiEntryHeadline}</Text>
                 </Pressable>
               </View>
             </View>
@@ -10465,9 +10566,9 @@ export default function LumiiMvpApp() {
                 <View style={styles.homeOnlineDot} />
                 <Text style={styles.homeOnlineText}>灵伴在线</Text>
               </View>
-              <Pressable onPress={() => { if (guardFeature(petChatEnabled, 'AI 宠物对话')) go('chat'); }} style={[styles.homeHeroMiniCard, webPressableReset]}>
+              <Pressable onPress={() => handleHomeAiChatPress('home_hero')} style={[styles.homeHeroMiniCard, webPressableReset]}>
                 <Heart color={palette.orange} fill={palette.orange} size={14} strokeWidth={2.4} />
-                <Text style={styles.homeHeroMiniText}>轻松互动{'\n'}已准备好</Text>
+                <Text style={styles.homeHeroMiniText}>{homeAiEntryMiniTitle}{'\n'}{homeAiEntryMiniSubtitle}</Text>
               </Pressable>
               <Pressable onPress={() => { if (guardFeature(petCircleEnabled, '宠友圈')) go('dailyPost'); }} style={[styles.homeHeroMiniCard, styles.homeHeroMiniCardWide, webPressableReset]}>
                 <MessageCircle color={palette.teal} size={14} strokeWidth={2.4} />

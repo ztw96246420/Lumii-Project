@@ -5822,6 +5822,8 @@ async function renderConfig(force) {
   const supportQualityTargets = support.qualityTargets || {};
   const supportSettlement = support.settlement || {};
   const analytics = config.analytics || {};
+  const experiments = config.experiments || {};
+  const homeAiEntryExperiment = experiments.homeAiEntry || {};
   const update = config.app?.update || {};
   $('content').innerHTML = `
     <div class="card">
@@ -5849,6 +5851,28 @@ async function renderConfig(force) {
         ${featureCheckbox('cfgFeaturePetChat', 'AI 宠物对话', config.features.petChat)}
         ${featureCheckbox('cfgFeatureWalkInvite', '约遛邀请', config.features.walkInvite)}
         ${featureCheckbox('cfgMaintenanceEnabled', '维护模式', config.app.maintenanceEnabled)}
+      </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>实验和灰度分流</h2>
+            <div class="section-sub">控制首页 AI 对话入口文案实验，移动端按手机号稳定分桶并回收曝光事件</div>
+          </div>
+          ${help('当前先落一条真实联动实验：/app/config 下发 experiments.homeAiEntry，App 端按实验 ID + 手机号稳定分桶，命中后改变首页两个 AI 对话入口文案，并上报 config.experiment_exposure。')}
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgExperimentHomeAiEntryEnabled', '启用首页 AI 入口实验', Boolean(homeAiEntryExperiment.enabled))}
+        </div>
+        <div class="config-grid">
+          <label>实验 ID<input id="cfgExperimentHomeAiEntryId" maxlength="80" value="${escapeHtml(homeAiEntryExperiment.id || 'home_ai_entry_copy_v1')}" /></label>
+          <label>实验名称<input id="cfgExperimentHomeAiEntryName" maxlength="40" value="${escapeHtml(homeAiEntryExperiment.name || '首页 AI 对话入口文案')}" /></label>
+          <label>参与流量 %<input id="cfgExperimentHomeAiEntryRollout" type="number" min="0" max="100" value="${Number.isFinite(Number(homeAiEntryExperiment.rolloutPercent)) ? homeAiEntryExperiment.rolloutPercent : 100}" /></label>
+          <label>B 组比例 %<input id="cfgExperimentHomeAiEntryVariantB" type="number" min="0" max="100" value="${Number.isFinite(Number(homeAiEntryExperiment.variantBPercent)) ? homeAiEntryExperiment.variantBPercent : 50}" /></label>
+          <label>A 组标题<input id="cfgExperimentHomeAiEntryControlTitle" maxlength="32" value="${escapeHtml(homeAiEntryExperiment.controlTitle || '灵伴聊天')}" /></label>
+          <label>A 组副文案<input id="cfgExperimentHomeAiEntryControlSubtitle" maxlength="80" value="${escapeHtml(homeAiEntryExperiment.controlSubtitle || '今天想和{petName}聊点什么？')}" /></label>
+          <label>B 组标题<input id="cfgExperimentHomeAiEntryTreatmentTitle" maxlength="32" value="${escapeHtml(homeAiEntryExperiment.treatmentTitle || '问问我的小心情')}" /></label>
+          <label>B 组副文案<input id="cfgExperimentHomeAiEntryTreatmentSubtitle" maxlength="80" value="${escapeHtml(homeAiEntryExperiment.treatmentSubtitle || '{petName}好像有话想和你说')}" /></label>
+        </div>
       </div>
       <div class="config-section">
         <div class="section-head compact">
@@ -6470,6 +6494,16 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isFinite(deepSeekTemperature) || deepSeekTemperature < 0 || deepSeekTemperature > 2) {
     throw new Error('DeepSeek temperature 必须在 0-2 之间');
   }
+  const homeAiEntryExperimentId = $('cfgExperimentHomeAiEntryId').value.trim();
+  if (!homeAiEntryExperimentId) throw new Error('首页 AI 入口实验 ID 不能为空');
+  const homeAiEntryRolloutPercent = Number($('cfgExperimentHomeAiEntryRollout').value);
+  if (!Number.isFinite(homeAiEntryRolloutPercent) || homeAiEntryRolloutPercent < 0 || homeAiEntryRolloutPercent > 100) {
+    throw new Error('首页 AI 入口实验参与流量必须在 0-100 之间');
+  }
+  const homeAiEntryVariantBPercent = Number($('cfgExperimentHomeAiEntryVariantB').value);
+  if (!Number.isFinite(homeAiEntryVariantBPercent) || homeAiEntryVariantBPercent < 0 || homeAiEntryVariantBPercent > 100) {
+    throw new Error('首页 AI 入口实验 B 组比例必须在 0-100 之间');
+  }
   const payload = {
     ai: {
       avatar: {
@@ -6513,6 +6547,19 @@ async function saveConfig(mode = 'publish') {
     configApproval: {
       approvalExpiresHours: configApprovalExpiresHours,
       requireApproval: $('cfgConfigApprovalRequireApproval').checked,
+    },
+    experiments: {
+      homeAiEntry: {
+        controlSubtitle: $('cfgExperimentHomeAiEntryControlSubtitle').value,
+        controlTitle: $('cfgExperimentHomeAiEntryControlTitle').value,
+        enabled: $('cfgExperimentHomeAiEntryEnabled').checked,
+        id: homeAiEntryExperimentId,
+        name: $('cfgExperimentHomeAiEntryName').value,
+        rolloutPercent: homeAiEntryRolloutPercent,
+        treatmentSubtitle: $('cfgExperimentHomeAiEntryTreatmentSubtitle').value,
+        treatmentTitle: $('cfgExperimentHomeAiEntryTreatmentTitle').value,
+        variantBPercent: homeAiEntryVariantBPercent,
+      },
     },
     app: {
       announcement: {

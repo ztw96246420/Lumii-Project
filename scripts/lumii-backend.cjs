@@ -459,6 +459,19 @@ function defaultOpsConfig() {
       approvalExpiresHours: 24,
       requireApproval: false,
     },
+    experiments: {
+      homeAiEntry: {
+        controlSubtitle: '今天想和{petName}聊点什么？',
+        controlTitle: '灵伴聊天',
+        enabled: false,
+        id: 'home_ai_entry_copy_v1',
+        name: '首页 AI 对话入口文案',
+        rolloutPercent: 100,
+        treatmentSubtitle: '{petName}好像有话想和你说',
+        treatmentTitle: '问问我的小心情',
+        variantBPercent: 50,
+      },
+    },
     moderation: {
       blockKeywords: [],
       blockMessage: '内容包含平台暂不支持公开展示的信息，请修改后再提交',
@@ -861,6 +874,43 @@ function normalizeAnalyticsConfig(value, defaults) {
   };
 }
 
+function normalizeExperimentIdText(value, fallback) {
+  const text = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^0-9a-z._:-]/g, '')
+    .slice(0, 80);
+  return text || fallback;
+}
+
+function normalizeExperimentCopyText(value, fallback, maxLength = 60) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+  return text || fallback;
+}
+
+function normalizeHomeAiEntryExperimentConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    controlSubtitle: normalizeExperimentCopyText(source.controlSubtitle, defaults.controlSubtitle || '今天想和{petName}聊点什么？', 80),
+    controlTitle: normalizeExperimentCopyText(source.controlTitle, defaults.controlTitle || '灵伴聊天', 32),
+    enabled: Boolean(source.enabled),
+    id: normalizeExperimentIdText(source.id, defaults.id || 'home_ai_entry_copy_v1'),
+    name: normalizeExperimentCopyText(source.name, defaults.name || '首页 AI 对话入口文案', 40),
+    rolloutPercent: Math.floor(clampNumber(source.rolloutPercent, defaults.rolloutPercent ?? 100, 0, 100)),
+    treatmentSubtitle: normalizeExperimentCopyText(source.treatmentSubtitle, defaults.treatmentSubtitle || '{petName}好像有话想和你说', 80),
+    treatmentTitle: normalizeExperimentCopyText(source.treatmentTitle, defaults.treatmentTitle || '问问我的小心情', 32),
+    variantBPercent: Math.floor(clampNumber(source.variantBPercent, defaults.variantBPercent ?? 50, 0, 100)),
+  };
+}
+
+function normalizeExperimentsOpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    homeAiEntry: normalizeHomeAiEntryExperimentConfig(source.homeAiEntry, defaults.homeAiEntry || defaultOpsConfig().experiments.homeAiEntry),
+  };
+}
+
 const AI_PROMPT_TEMPLATE_MAX_CHARS = 12000;
 
 function normalizeAiProvider(value, allowed, fallback) {
@@ -956,6 +1006,7 @@ function normalizeOpsConfig(value) {
   const analytics = source.analytics && typeof source.analytics === 'object' ? source.analytics : {};
   const app = source.app && typeof source.app === 'object' ? source.app : {};
   const configApproval = source.configApproval && typeof source.configApproval === 'object' ? source.configApproval : {};
+  const experiments = source.experiments && typeof source.experiments === 'object' ? source.experiments : {};
   const exportsConfig = source.exports && typeof source.exports === 'object' ? source.exports : {};
   const features = source.features && typeof source.features === 'object' ? source.features : {};
   const moderation = source.moderation && typeof source.moderation === 'object' ? source.moderation : {};
@@ -999,6 +1050,7 @@ function normalizeOpsConfig(value) {
       },
     },
     exports: normalizeExportOpsConfig(exportsConfig, defaults.exports),
+    experiments: normalizeExperimentsOpsConfig(experiments, defaults.experiments),
     features: {
       aiAvatar: features.aiAvatar !== false,
       petChat: features.petChat !== false,
@@ -1037,6 +1089,9 @@ function opsConfigSummary(config) {
     configApprovalRequireApproval: Boolean(config?.configApproval?.requireApproval),
     exportApprovalExpiresHours: Number(config?.exports?.approvalExpiresHours || 0),
     exportRequireApproval: Boolean(config?.exports?.requireApproval),
+    homeAiEntryExperimentEnabled: Boolean(config?.experiments?.homeAiEntry?.enabled),
+    homeAiEntryRolloutPercent: Number(config?.experiments?.homeAiEntry?.rolloutPercent ?? 0),
+    homeAiEntryVariantBPercent: Number(config?.experiments?.homeAiEntry?.variantBPercent ?? 0),
     maintenanceEnabled: Boolean(config?.app?.maintenanceEnabled),
     machineImageModerationEnabled: Boolean(config?.moderation?.machineImageEnabled),
     machineTextModerationEnabled: Boolean(config?.moderation?.machineTextEnabled),
@@ -1208,6 +1263,14 @@ function buildOpsConfigPatch(before, body = {}) {
     },
     configApproval: { ...before.configApproval, ...(body.configApproval || {}) },
     exports: { ...before.exports, ...(body.exports || {}) },
+    experiments: {
+      ...before.experiments,
+      ...(body.experiments || {}),
+      homeAiEntry: {
+        ...(before.experiments?.homeAiEntry || {}),
+        ...(body.experiments?.homeAiEntry || {}),
+      },
+    },
     features: { ...before.features, ...(body.features || {}) },
     moderation: { ...before.moderation, ...(body.moderation || {}) },
     notifications: { ...before.notifications, ...(body.notifications || {}) },
@@ -1308,6 +1371,13 @@ function configChangeSummary(before, after) {
     ['analytics.retentionDays', 'Analytics retention days'],
     ['configApproval.requireApproval', 'Config publish approval required'],
     ['configApproval.approvalExpiresHours', 'Config approval expiry hours'],
+    ['experiments.homeAiEntry.enabled', 'Home AI entry experiment enabled'],
+    ['experiments.homeAiEntry.rolloutPercent', 'Home AI entry experiment rollout'],
+    ['experiments.homeAiEntry.variantBPercent', 'Home AI entry experiment B split'],
+    ['experiments.homeAiEntry.controlTitle', 'Home AI entry control title'],
+    ['experiments.homeAiEntry.controlSubtitle', 'Home AI entry control subtitle'],
+    ['experiments.homeAiEntry.treatmentTitle', 'Home AI entry treatment title'],
+    ['experiments.homeAiEntry.treatmentSubtitle', 'Home AI entry treatment subtitle'],
     ['moderation.enabled', 'Content safety enabled'],
     ['moderation.textRulesEnabled', 'Text rules enabled'],
     ['moderation.machineTextEnabled', 'Tencent text moderation'],
@@ -1367,6 +1437,8 @@ function configRiskChanges(before, after) {
   addRisk('ai.petChat.provider', 'AI pet chat provider', 'P1', 'Can route pet chat away from the external model or into fallback replies.');
   addRisk('ai.avatar.gptImage2.promptTemplate', 'GPT Image 2 prompt template', 'P2', 'Can materially change generated pet identity, style, and compositing behavior.');
   addRisk('ai.petChat.deepseek.baseSystemPrompt', 'DeepSeek base system prompt', 'P2', 'Can materially change pet persona, safety boundaries, and reply style.');
+  addRisk('experiments.homeAiEntry.enabled', 'Home AI entry experiment', 'P2', 'Can change the home AI chat entry copy for a rollout cohort.');
+  addRisk('experiments.homeAiEntry.rolloutPercent', 'Home AI entry experiment rollout', 'P2', 'Can expose more or fewer users to the AI chat entry experiment.');
   addRisk('notifications.maxCampaignsPerDay', 'Notification daily campaign cap', 'P2', 'Can make global notification sending more or less aggressive.');
   addRisk('notifications.maxPerUserPerDay', 'Notification per-user daily cap', 'P2', 'Can make individual users receive more or fewer system notifications.');
   if (Number(configValueAt(after, 'ai.petAvatarDailyLimit')) === 0 && configValueChanged(before, after, 'ai.petAvatarDailyLimit')) {
@@ -2516,16 +2588,15 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       userImpact: '影响产品建议等低优先级反馈的处理时限。',
     },
     {
-      backendEvidence: '配置结构预留，可用于后续活动页、A/B 实验或实验分流。',
+      backendEvidence: '/app/config 返回 experiments.homeAiEntry；配置中心可控制启用、rollout、B 组比例和 A/B 文案。',
       backendEnforced: false,
-      group: '预留',
-      key: 'experiments',
-      label: '实验和 A/B 分流',
-      mobileApplied: false,
-      mobileEvidence: '移动端尚无实验分流框架。',
-      operatorNote: '需要先确认实验粒度、用户分桶、指标回收和回滚策略。',
-      reserved: true,
-      userImpact: '后续用于精细化灰度和 A/B 测试。',
+      group: 'App 策略',
+      key: 'experiments.homeAiEntry.enabled',
+      label: '首页 AI 入口 A/B 实验',
+      mobileApplied: true,
+      mobileEvidence: '移动端按手机号稳定分桶，改变首页 AI 对话入口标题/副文案，并上报 config.experiment_exposure。',
+      operatorNote: '当前先落一条首页 AI 入口文案实验基座；后续可扩展为多实验指标面板和自动回滚。',
+      userImpact: '用于灰度验证首页 AI 对话入口文案是否提升点击和后续 AI 对话使用。',
     },
   ];
 
@@ -3739,6 +3810,9 @@ function publicAppConfig() {
       sampleRatePercent: Math.floor(clampNumber(config.analytics?.sampleRatePercent, 100, 0, 100)),
     },
     app: config.app,
+    experiments: {
+      homeAiEntry: config.experiments?.homeAiEntry || defaultOpsConfig().experiments.homeAiEntry,
+    },
     features: config.features,
     moderation: {
       enabled: config.moderation.enabled,
@@ -14662,6 +14736,7 @@ const APP_EVENT_ALLOWED_NAMES = new Set([
   'app.page_view',
   'config.announcement_action',
   'config.announcement_impression',
+  'config.experiment_exposure',
   'config.splash_action',
   'config.splash_impression',
   'config.update_action',
@@ -14681,6 +14756,7 @@ const APP_EVENT_ALLOWED_NAMES = new Set([
   'map.place_detail_view',
   'map.poi_search',
   'notification.open',
+  'pet_chat.entry_click',
   'pet_circle.card_exposure',
   'pet_circle.comment_click',
   'pet_circle.greeting_click',
@@ -14698,6 +14774,7 @@ const APP_EVENT_LABELS = {
   'app.page_view': '页面浏览',
   'config.announcement_action': '公告主按钮点击',
   'config.announcement_impression': '公告展示',
+  'config.experiment_exposure': '配置实验曝光',
   'config.splash_action': '启动提示主按钮点击',
   'config.splash_impression': '启动提示展示',
   'config.update_action': '更新提示主按钮点击',
@@ -14717,6 +14794,7 @@ const APP_EVENT_LABELS = {
   'map.place_detail_view': '地点详情查看',
   'map.poi_search': 'POI 搜索',
   'notification.open': '通知点击',
+  'pet_chat.entry_click': 'AI 对话入口点击',
   'pet_circle.card_exposure': '小事卡片曝光',
   'pet_circle.comment_click': '小事评论点击',
   'pet_circle.greeting_click': '小事招呼点击',

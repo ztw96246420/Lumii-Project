@@ -509,6 +509,8 @@
 - 预约发布会保存创建时的 `baseConfig`。到点前如果当前配置已经变化，预约任务会标记 `failed`，不会覆盖新配置；成功发布会生成 `scheduled_publish` / `scheduled_draft_publish` / `scheduled_rollback` 版本。
 - 配置预约创建、到点发布、取消和失败分别写入 `config.schedule.create`、`config.schedule.publish`、`config.schedule.cancel`、`config.schedule.fail`。
 - 独立文档：[Operations_Backoffice_Config_Scheduled_Publish_2026-07-01.md](Operations_Backoffice_Config_Scheduled_Publish_2026-07-01.md)。
+- 实验和 A/B 分流基座已接入：配置中心新增 `experiments.homeAiEntry`，移动端首页 AI 对话入口按手机号稳定分桶展示 A/B 文案，并上报 `config.experiment_exposure` 和 `pet_chat.entry_click`。
+- 独立文档：[Operations_Backoffice_Config_Experiments_2026-07-01.md](Operations_Backoffice_Config_Experiments_2026-07-01.md)。
 - 数据导出新增配置联动体检 CSV。
 - 独立文档：[Operations_Backoffice_Config_Linkage_2026-06-30.md](Operations_Backoffice_Config_Linkage_2026-06-30.md)。
 - 后台配置页展示最近 12 个配置版本，后端最多保留最近 80 个快照。
@@ -518,6 +520,7 @@
 - 回滚动作写入审计日志，action 为 `config.rollback`；普通保存写入 `config.update`。
 - 草稿创建、发布、废弃分别写入 `config.draft.create`、`config.draft.publish`、`config.draft.discard`。
 - 新增回归脚本：`node scripts/smoke-config-approval.cjs`，覆盖强制审批、直接发布拦截、审批后 `/app/config` 生效、草稿审批、回滚审批和审计日志。
+- 新增回归脚本：`node scripts/smoke-config-experiments.cjs`，覆盖首页 AI 入口实验配置、`/app/config` 下发、联动体检和曝光/点击事件上报。
 - 移动端无需改包，下一次读取 `/app/config` 后立即按回滚后的功能开关、维护模式、公告、更新策略、图片上限、附近半径和附近小事展示天数等配置生效。
 
 移动端暂未完整接入：暂无。

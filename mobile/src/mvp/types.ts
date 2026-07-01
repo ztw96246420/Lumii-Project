@@ -768,6 +768,7 @@ export type AppAnalyticsEventName =
   | 'app.page_view'
   | 'config.announcement_action'
   | 'config.announcement_impression'
+  | 'config.experiment_exposure'
   | 'config.splash_action'
   | 'config.splash_impression'
   | 'config.update_action'
@@ -787,6 +788,7 @@ export type AppAnalyticsEventName =
   | 'map.place_detail_view'
   | 'map.poi_search'
   | 'notification.open'
+  | 'pet_chat.entry_click'
   | 'pet_circle.card_exposure'
   | 'pet_circle.comment_click'
   | 'pet_circle.greeting_click'
@@ -816,6 +818,19 @@ export type AppRemoteConfig = {
   analytics?: {
     enabled?: boolean;
     sampleRatePercent?: number;
+  };
+  experiments?: {
+    homeAiEntry?: {
+      controlSubtitle?: string;
+      controlTitle?: string;
+      enabled?: boolean;
+      id?: string;
+      name?: string;
+      rolloutPercent?: number;
+      treatmentSubtitle?: string;
+      treatmentTitle?: string;
+      variantBPercent?: number;
+    };
   };
   app: {
     announcement?: {
