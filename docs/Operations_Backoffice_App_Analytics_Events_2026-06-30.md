@@ -18,7 +18,7 @@
 - 事件写入 `state.appEvents`，按 `opsConfig.analytics.retentionDays` 清理，最多保留 8000 条。
 - 事件写入时会更新用户 `lastSeenAt`，用于轻量活跃口径。
 - 新增 `app_events.csv` 数据导出。
-- `/admin/analytics` 聚合页面浏览、发现曝光、地图打开、POI 搜索、地点详情和通知点击。
+- `/admin/analytics` 聚合页面浏览、首页模块曝光、AI 形象前端漏斗、发现曝光、宠友圈卡片曝光与互动、地图打开、POI 搜索、地点详情和通知点击。
 - `/admin/dashboard/summary` 增加移动端事件总量、事件用户数和最新事件时间。
 
 ### 后台
@@ -33,6 +33,8 @@
   - `analytics.retentionDays`
 - 数据看板新增：
   - 移动端事件 KPI。
+  - AI 前端漏斗 KPI。
+  - 宠友圈前端互动 KPI。
   - 地图行为 KPI。
   - 移动端行为趋势图。
   - 最近 7 天事件明细列。
@@ -52,6 +54,11 @@
 | 事件名 | 含义 | 主要来源 |
 | --- | --- | --- |
 | `app.page_view` | 页面切换 | 全局 route 变化 |
+| `home.module_exposure` | 首页模块曝光 | 进入首页后记录宠物主视觉、AI 对话入口、宠物日历、附近小事、快捷入口 |
+| `ai_avatar.entry_click` | AI 形象入口点击 | 宠物详情重新生成入口 |
+| `ai_avatar.start` | AI 形象开始生成 | 首次生成或重新生成成功创建任务 |
+| `ai_avatar.success` | AI 形象生成成功 | 生成任务返回可确认结果 |
+| `ai_avatar.failure` | AI 形象生成失败 | 额度不足、启动失败、重试失败或轮询到失败状态 |
 | `discover.view` | 进入发现页 | 发现页 route |
 | `discover.filter` | 切换发现筛选 | 发现筛选 |
 | `discover.search` | 打开发现搜索或按关键词筛选 | 发现搜索入口 |
@@ -59,7 +66,12 @@
 | `discover.owners_loaded` | 附近伙伴加载成功 | 附近人接口 |
 | `discover.pet_circle_loaded` | 附近小事加载成功 | 宠友圈列表接口 |
 | `discover.pet_circle_load_more` | 附近小事加载更多 | 宠友圈分页 |
+| `pet_circle.card_exposure` | 宠友圈卡片曝光 | 附近小事列表、通知跳转、我的/他人宠友圈主页 |
+| `pet_circle.like_click` | 宠友圈点赞点击 | 小事卡片操作区 |
+| `pet_circle.comment_click` | 宠友圈评论点击 | 小事卡片和宠友圈主页评论入口 |
+| `pet_circle.greeting_click` | 宠友圈招呼点击 | 小事卡片和资料卡 |
 | `pet_circle.profile_view` | 查看宠友圈主页 | 我的/他人宠友圈主页 |
+| `pet_circle.walk_invite_click` | 宠友圈约遛点击 | 宠友圈资料卡约遛入口 |
 | `map.open` | 进入地图页 | 地图 route |
 | `map.locate` | 地图定位成功 | 高德定位/预览兜底定位 |
 | `map.poi_search` | 地图 POI 搜索或附近地点刷新 | 地图搜索/筛选 |

@@ -2249,6 +2249,8 @@ export default function LumiiMvpApp() {
   const avatarRetryingRef = useRef(false);
   const avatarResultRouteJobIdRef = useRef('');
   const avatarTransitioningJobIdRef = useRef<string | null>(null);
+  const avatarFailureTrackedJobIdRef = useRef('');
+  const avatarSuccessTrackedJobIdRef = useRef('');
   const [selectedAvatarCandidateIndex, setSelectedAvatarCandidateIndex] = useState(0);
   const [avatarFeedbackSheetVisible, setAvatarFeedbackSheetVisible] = useState(false);
   const [avatarFeedbackChipIds, setAvatarFeedbackChipIds] = useState<AvatarFeedbackChipId[]>(defaultAvatarFeedbackChipIds);
@@ -2572,6 +2574,59 @@ export default function LumiiMvpApp() {
       properties,
       route: routeRef.current,
       source: 'mobile',
+    });
+  }
+
+  function trackHomeModuleExposures(source = 'route') {
+    const pet = getCurrentPet();
+    if (!pet) return;
+    const modules = [
+      { key: 'pet_hero', visible: true },
+      { key: 'ai_chat_entry', visible: petChatEnabled },
+      { key: 'pet_calendar', visible: true },
+      { key: 'nearby_moments', visible: petCircleEnabled },
+      { key: 'quick_actions', visible: true },
+    ];
+    modules.filter((module) => module.visible).forEach((module, index) => {
+      trackAppEvent('home.module_exposure', {
+        module: module.key,
+        moduleIndex: index,
+        nearbyMomentCount: nearbyMoments.filter((moment) => !moment.ownedByMe).length,
+        source,
+      });
+    });
+  }
+
+  function trackAvatarGenerationSuccess(job: AvatarJob, source = 'poll') {
+    if (!job.id || avatarSuccessTrackedJobIdRef.current === job.id) return;
+    avatarSuccessTrackedJobIdRef.current = job.id;
+    trackAppEvent('ai_avatar.success', {
+      candidateCount: getAvatarCandidateUrls(job).length || (job.resultUrl ? 1 : 0),
+      providerStatus: job.providerStatus || '',
+      retry: Boolean(job.originalJobId),
+      source,
+    });
+  }
+
+  function trackAvatarGenerationFailure(job: AvatarJob | null | undefined, source = 'poll', errorCode = '') {
+    const jobId = job?.id || `no-job:${source}:${errorCode}`;
+    if (jobId && avatarFailureTrackedJobIdRef.current === jobId) return;
+    avatarFailureTrackedJobIdRef.current = jobId;
+    trackAppEvent('ai_avatar.failure', {
+      errorCode: errorCode || job?.errorCode || '',
+      providerStatus: job?.providerStatus || '',
+      retry: Boolean(job?.originalJobId),
+      source,
+    });
+  }
+
+  function trackPetCircleCardExposure(count: number, source = 'list') {
+    const safeCount = Math.max(0, Math.floor(Number(count || 0)));
+    if (!safeCount) return;
+    trackAppEvent('pet_circle.card_exposure', {
+      count: Math.min(safeCount, 30),
+      source,
+      tab: discoverTab,
     });
   }
 
@@ -3344,6 +3399,7 @@ export default function LumiiMvpApp() {
     if (previousRoute !== route) exitBackPressedAtRef.current = 0;
     if (previousRoute !== route && sessionTokenRef.current) {
       trackAppEvent('app.page_view', { previousRoute, nextRoute: route });
+      if (route === 'home') trackHomeModuleExposures('route');
       if (route === 'discover') trackAppEvent('discover.view', { radiusKm: configuredDiscoverRadiusKm, tab: discoverTab });
       if (route === 'map') trackAppEvent('map.open', { pickingPlace: walkInvitePickingPlace });
       if (route === 'supportTickets') trackAppEvent('support.open');
@@ -4788,6 +4844,7 @@ export default function LumiiMvpApp() {
 
     upsertPetCirclePost(postResult.data);
     setNearbyMomentsError('');
+    trackPetCircleCardExposure(1, options.preloadComments ? 'notification_comment' : 'notification');
 
     if (!options.preloadComments) return true;
     setPetCircleCommentLoadingId(postId);
@@ -5465,6 +5522,8 @@ export default function LumiiMvpApp() {
     avatarAcceptingRef.current = false;
     avatarRetryingRef.current = false;
     avatarTransitioningJobIdRef.current = null;
+    avatarFailureTrackedJobIdRef.current = '';
+    avatarSuccessTrackedJobIdRef.current = '';
     setMedia(null);
     setAvatarJob(null);
     setAvatarStarting(false);
@@ -5574,6 +5633,10 @@ export default function LumiiMvpApp() {
       showToast('请先添加宠物档案');
       return;
     }
+    trackAppEvent('ai_avatar.entry_click', {
+      remaining: petAvatarDailyRemaining,
+      source: 'pet_detail',
+    });
     resetAvatarDraft();
     go('upload');
   }
@@ -5676,7 +5739,10 @@ export default function LumiiMvpApp() {
     setAvatarStarting(true);
     try {
       const hasQuota = await ensurePetAvatarQuota();
-      if (!hasQuota) return;
+      if (!hasQuota) {
+        trackAvatarGenerationFailure(null, 'quota', 'quota_exhausted');
+        return;
+      }
       const requestSessionToken = sessionTokenRef.current;
       const mediaId = media.mediaId;
       const result = await lumiiApi.avatar.startGeneration(mediaId);
@@ -5690,9 +5756,15 @@ export default function LumiiMvpApp() {
         setAvatarJob(result.data);
         avatarPollFailureCountRef.current = 0;
         setAvatarPollingError('');
+        trackAppEvent('ai_avatar.start', {
+          providerStatus: result.data.providerStatus || '',
+          retry: false,
+          source: 'start_button',
+        });
         void persistAvatarGenerationSnapshot(result.data, media, 'generating');
         go('generating');
       } else {
+        trackAvatarGenerationFailure(null, 'start', result.error?.code || 'start_failed');
         showToast(result.error?.message ?? '启动生成失败，请重新选择照片', { subtitle: '照片已保留，可稍后重新生成', tone: 'error', variant: 'surface' });
         void recoverLatestAvatarGeneration({ silent: true });
       }
@@ -5710,6 +5782,7 @@ export default function LumiiMvpApp() {
     avatarResultRouteJobIdRef.current = job.id;
     avatarTransitioningJobIdRef.current = job.id;
     setAvatarResultPrefetching(true);
+    trackAvatarGenerationSuccess(job, 'result_ready');
     const resultUrl = job.resultUrl;
     if (resultUrl && !isGeneratedAvatarUri(resultUrl)) {
       try {
@@ -5746,6 +5819,7 @@ export default function LumiiMvpApp() {
         setAvatarJob(result.data);
         void persistAvatarGenerationSnapshot(result.data, media, result.data.status === 'ready' ? 'aiResult' : 'generating');
         if (result.data.status === 'ready') void transitionToAvatarResult(result.data);
+        if (result.data.status === 'failed') trackAvatarGenerationFailure(result.data, 'poll');
       } else if (result.error) {
         avatarPollFailureCountRef.current += 1;
         setAvatarPollingError(
@@ -5811,7 +5885,10 @@ export default function LumiiMvpApp() {
     setAvatarRetrying(true);
     try {
       const hasQuota = await ensurePetAvatarQuota();
-      if (!hasQuota) return;
+      if (!hasQuota) {
+        trackAvatarGenerationFailure(avatarJob, 'retry_quota', 'quota_exhausted');
+        return;
+      }
       const requestSessionToken = sessionTokenRef.current;
       const requestedJobId = avatarJob.id;
       const result = await lumiiApi.avatar.retryGeneration(requestedJobId);
@@ -5828,9 +5905,15 @@ export default function LumiiMvpApp() {
         setAvatarJob(result.data);
         avatarPollFailureCountRef.current = 0;
         setAvatarPollingError('');
+        trackAppEvent('ai_avatar.start', {
+          providerStatus: result.data.providerStatus || '',
+          retry: true,
+          source: 'retry',
+        });
         void persistAvatarGenerationSnapshot(result.data, media, 'generating');
         replace('generating');
       } else {
+        trackAvatarGenerationFailure(avatarJob, 'retry', result.error?.code || 'retry_failed');
         showToast(result.error?.message ?? '重新生成失败，请稍后重试', { subtitle: '当前形象仍会保留在确认页', tone: 'error', variant: 'surface' });
       }
       void loadAiUsage();
@@ -7588,6 +7671,7 @@ export default function LumiiMvpApp() {
           hasMore: Boolean(result.data.nextCursor),
           radiusKm: location?.radiusKm ?? configuredDiscoverRadiusKm,
         });
+        trackPetCircleCardExposure(sortedItems.length, 'discover_load');
         return sortedItems;
       }
       const message = result.error?.message ?? '附近小事刷新失败，请稍后重试';
@@ -7627,6 +7711,7 @@ export default function LumiiMvpApp() {
         setPetCircleNextCursor(result.data.nextCursor);
         setNearbyMomentsError('');
         trackAppEvent('discover.pet_circle_load_more', { count: additions.length, hasMore: Boolean(result.data.nextCursor) });
+        trackPetCircleCardExposure(additions.length, 'discover_load_more');
         if (!result.data.nextCursor) showToast('附近小事已加载完');
         return;
       }
@@ -7675,6 +7760,7 @@ export default function LumiiMvpApp() {
       if (ownerId !== petCircleProfileOwnerIdRef.current && !(ownerId === 'me' && petCircleProfileOwnerIdRef.current === '')) return null;
       if (result.data) {
         applyPetCircleProfilePage(result.data, { append: options.append });
+        trackPetCircleCardExposure(result.data.items.length, options.append ? 'profile_load_more' : 'profile');
         return result.data;
       }
       const message = result.error?.message ?? '宠友圈加载失败，请稍后重试';
@@ -7800,6 +7886,10 @@ export default function LumiiMvpApp() {
     setPetCircleProfileActionPostId('');
     setPetCircleCommentPostId(post.id);
     setPetCircleCommentDraft('');
+    trackAppEvent('pet_circle.comment_click', {
+      ownedByMe: Boolean(post.ownedByMe),
+      source: 'profile',
+    });
     if (!petCircleCommentsByPostId[post.id]) void loadPetCircleProfileComments(post.id, { silent: true });
   }
 
@@ -12350,6 +12440,10 @@ export default function LumiiMvpApp() {
       );
     };
     const openPetCircleGreeting = (post: PetCirclePostView) => {
+      trackAppEvent('pet_circle.greeting_click', {
+        ownedByMe: Boolean(post.ownedByMe),
+        source: 'discover_card',
+      });
       const owner = owners.find((item) => item.id === post.ownerId || (item.petName === post.petName && item.ownerName === post.ownerName));
       if (owner) {
         openGreetingSheet(owner, post.id);
@@ -12436,6 +12530,10 @@ export default function LumiiMvpApp() {
         return;
       }
       if (petCircleLikeSavingIds.includes(post.id)) return;
+      trackAppEvent('pet_circle.like_click', {
+        nextLiked: !post.likedByMe,
+        source: 'discover_card',
+      });
       setPetCircleLikeSavingIds((ids) => [...ids, post.id]);
       const wasLiked = post.likedByMe;
       patchPetCirclePost(post.id, {
@@ -12476,6 +12574,10 @@ export default function LumiiMvpApp() {
     };
     const openPetCircleComments = (post: PetCirclePostView) => {
       setPetCircleCommentPostId(post.id);
+      trackAppEvent('pet_circle.comment_click', {
+        ownedByMe: Boolean(post.ownedByMe),
+        source: 'discover_card',
+      });
       if (!petCircleCommentsByPostId[post.id]) void loadPetCircleComments(post.id, { silent: true });
     };
     const submitPetCircleComment = async (post: PetCirclePostView) => {
@@ -13060,6 +13162,9 @@ export default function LumiiMvpApp() {
                     disabled={savingGreeting}
                     onPress={() => {
                       setPetCircleOwnerSheetOwner(null);
+                      trackAppEvent('pet_circle.greeting_click', {
+                        source: 'owner_sheet',
+                      });
                       openGreetingSheet(owner);
                     }}
                     style={[styles.ownerGhostButtonMake, savingGreeting && styles.mapSearchActionDisabled, webPressableReset]}
@@ -13085,6 +13190,9 @@ export default function LumiiMvpApp() {
                   accessibilityLabel="约遛资料卡宠友"
                   onPress={() => {
                     setPetCircleOwnerSheetOwner(null);
+                    trackAppEvent('pet_circle.walk_invite_click', {
+                      source: 'owner_sheet',
+                    });
                     void openWalkInvite(owner);
                   }}
                   style={[styles.ownerPrimaryButtonMake, webPressableReset]}

@@ -2023,13 +2023,19 @@ async function renderAnalytics(force) {
   const places = summary.places || {};
   const safety = summary.safety || {};
   const events = summary.events || {};
+  const aiFrontendStarts = ai.avatarFrontendStarts ?? 0;
+  const aiFrontendSuccesses = ai.avatarFrontendSuccesses ?? 0;
+  const aiFrontendFailures = ai.avatarFrontendFailures ?? 0;
+  const petCircleFrontendClicks = (social.likeClicks || 0) + (social.commentClicks || 0) + (social.greetingClicks || 0) + (social.walkInviteClicks || 0);
   $('content').innerHTML = `
     <div class="grid metrics">
+      ${metric('AI 前端漏斗', `${numberText(ai.avatarEntryClicks || 0)} / ${numberText(aiFrontendStarts)}`, `${numberText(aiFrontendSuccesses)} 成功 · ${numberText(aiFrontendFailures)} 失败`, '来自移动端入口点击、开始生成、结果成功和结果失败事件；用于排查用户是否卡在前端流程，而不是只看后端任务结果。')}
       ${metric('新增用户', numberText(users.newUsers), `${numberText(users.activeUsers)} 位窗口内活跃`, '基于用户注册时间和 lastSeenAt 聚合，默认 14 天窗口。')}
       ${metric('建档率', percentText(users.withPetRate), `${numberText(users.total)} 个账号`, '当前用户中至少有一只宠物档案的比例。')}
       ${metric('AI 形象成功率', percentText(ai.avatarSuccessRate), `${numberText(ai.avatarReady)} 成功 / ${numberText(ai.avatarFailed)} 失败`, '按窗口内 ready 与 failed 任务计算；处理中任务不进入分母。')}
       ${metric('AI 平均耗时', secondsText(ai.avatarAverageSeconds), `成本累计 ${moneyText(ai.gptImage2Cost)}`, '使用任务创建到更新时间估算，适合发现卡住和异常耗时。')}
       ${metric('宠友圈小事', numberText(social.posts), `${numberText(social.images)} 张图 · ${numberText(social.comments)} 条评论`, '来自移动端发布、图片、评论和点赞的当前业务数据。')}
+      ${metric('小事前端互动', numberText(petCircleFrontendClicks), `${numberText(social.cardExposures || events.petCircleCardExposures || 0)} 次卡片曝光`, '来自移动端小事卡片曝光、点赞、评论、招呼和约遛点击事件；用于衡量列表浏览到互动的转化。')}
       ${metric('移动端事件', numberText(events.total), `${numberText(events.uniqueUsers)} 位用户 · ${numberText(events.sampleRatePercent)}%采样`, `埋点${events.enabled === false ? '已关闭' : '已开启'}，保留 ${numberText(events.retentionDays || 30)} 天。`)}
       ${metric('地图行为', numberText(places.mapOpens), `搜索 ${numberText(places.poiSearches)} · 详情 ${numberText(places.placeDetailViews)}`, '来自移动端地图打开、POI 搜索和地点详情查看事件。')}
       ${metric('安全任务', numberText(safety.moderationTasks), `${numberText(safety.handledModerationTasks)} 已处理`, '统一内容安全任务池：举报、被举报内容、地点点评和新增地点。')}
@@ -2186,6 +2192,7 @@ function renderAnalyticsCharts(data) {
   });
   renderChart('analyticsAiChart', {
     series: [
+      { name: '前端开始', smooth: true, type: 'line', data: buckets.map((item) => item.aiAvatarStarts || 0) },
       { barMaxWidth: 20, name: '形象启动', stack: 'avatar', type: 'bar', data: buckets.map((item) => item.avatarStarted) },
       { barMaxWidth: 20, name: '形象成功', stack: 'result', type: 'bar', data: buckets.map((item) => item.avatarReady) },
       { barMaxWidth: 20, name: '形象失败', stack: 'result', type: 'bar', data: buckets.map((item) => item.avatarFailed) },
@@ -2197,6 +2204,8 @@ function renderAnalyticsCharts(data) {
       { name: '小事', smooth: true, type: 'line', data: buckets.map((item) => item.socialPosts) },
       { name: '点赞', smooth: true, type: 'line', data: buckets.map((item) => item.socialLikes) },
       { name: '评论', smooth: true, type: 'line', data: buckets.map((item) => item.socialComments) },
+      { name: '小事卡片', smooth: true, type: 'line', data: buckets.map((item) => item.petCircleCardExposures || 0) },
+      { name: '小事点击', smooth: true, type: 'line', data: buckets.map((item) => (item.petCircleLikeClicks || 0) + (item.petCircleCommentClicks || 0) + (item.petCircleGreetingClicks || 0) + (item.petCircleWalkInviteClicks || 0)) },
       { name: '招呼', smooth: true, type: 'line', data: buckets.map((item) => item.greetings) },
       { name: '约遛', smooth: true, type: 'line', data: buckets.map((item) => item.walkInvites) },
     ],
@@ -2204,7 +2213,9 @@ function renderAnalyticsCharts(data) {
   renderChart('analyticsEventChart', {
     series: [
       { name: '页面浏览', smooth: true, type: 'line', data: buckets.map((item) => item.pageViews) },
+      { name: '首页模块', smooth: true, type: 'line', data: buckets.map((item) => item.homeModuleExposures || 0) },
       { name: '发现曝光', smooth: true, type: 'line', data: buckets.map((item) => item.discoverExposures) },
+      { name: '小事卡片', smooth: true, type: 'line', data: buckets.map((item) => item.petCircleCardExposures || 0) },
       { name: '地图打开', smooth: true, type: 'line', data: buckets.map((item) => item.mapOpens) },
       { name: 'POI搜索', smooth: true, type: 'line', data: buckets.map((item) => item.poiSearches) },
       { name: '地点详情', smooth: true, type: 'line', data: buckets.map((item) => item.placeDetailViews) },

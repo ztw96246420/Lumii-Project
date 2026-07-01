@@ -11941,6 +11941,10 @@ function adminLaunchReadiness() {
 
 const APP_EVENT_MAX_ROWS = 8000;
 const APP_EVENT_ALLOWED_NAMES = new Set([
+  'ai_avatar.entry_click',
+  'ai_avatar.failure',
+  'ai_avatar.start',
+  'ai_avatar.success',
   'app.page_view',
   'discover.filter',
   'discover.owners_loaded',
@@ -11949,6 +11953,7 @@ const APP_EVENT_ALLOWED_NAMES = new Set([
   'discover.refresh',
   'discover.search',
   'discover.view',
+  'home.module_exposure',
   'map.favorite_toggle',
   'map.locate',
   'map.navigation_open',
@@ -11956,11 +11961,20 @@ const APP_EVENT_ALLOWED_NAMES = new Set([
   'map.place_detail_view',
   'map.poi_search',
   'notification.open',
+  'pet_circle.card_exposure',
+  'pet_circle.comment_click',
+  'pet_circle.greeting_click',
+  'pet_circle.like_click',
   'pet_circle.profile_view',
+  'pet_circle.walk_invite_click',
   'support.open',
 ]);
 
 const APP_EVENT_LABELS = {
+  'ai_avatar.entry_click': 'AI 形象入口点击',
+  'ai_avatar.failure': 'AI 形象生成失败',
+  'ai_avatar.start': 'AI 形象开始生成',
+  'ai_avatar.success': 'AI 形象生成成功',
   'app.page_view': '页面浏览',
   'discover.filter': '发现筛选',
   'discover.owners_loaded': '附近伙伴加载',
@@ -11969,6 +11983,7 @@ const APP_EVENT_LABELS = {
   'discover.refresh': '发现刷新',
   'discover.search': '发现搜索',
   'discover.view': '发现曝光',
+  'home.module_exposure': '首页模块曝光',
   'map.favorite_toggle': '地点收藏',
   'map.locate': '地图定位',
   'map.navigation_open': '打开导航',
@@ -11976,7 +11991,12 @@ const APP_EVENT_LABELS = {
   'map.place_detail_view': '地点详情查看',
   'map.poi_search': 'POI 搜索',
   'notification.open': '通知点击',
+  'pet_circle.card_exposure': '小事卡片曝光',
+  'pet_circle.comment_click': '小事评论点击',
+  'pet_circle.greeting_click': '小事招呼点击',
+  'pet_circle.like_click': '小事点赞点击',
   'pet_circle.profile_view': '宠友圈主页查看',
+  'pet_circle.walk_invite_click': '小事约遛点击',
   'support.open': '反馈进度查看',
 };
 
@@ -12172,6 +12192,10 @@ function analyticsWindow(daysInput) {
     buckets.push({
       activeUsers: 0,
       aiActionRecords: 0,
+      aiAvatarEntryClicks: 0,
+      aiAvatarFailures: 0,
+      aiAvatarStarts: 0,
+      aiAvatarSuccesses: 0,
       appEvents: 0,
       avatarFailed: 0,
       avatarReady: 0,
@@ -12184,6 +12208,7 @@ function analyticsWindow(daysInput) {
       healthMemos: 0,
       healthVaccines: 0,
       healthWeights: 0,
+      homeModuleExposures: 0,
       label: day.slice(5).replace('-', '/'),
       mapOpens: 0,
       medicalRisk: 0,
@@ -12198,6 +12223,11 @@ function analyticsWindow(daysInput) {
       notificationOpens: 0,
       pageViews: 0,
       petChatRequests: 0,
+      petCircleCardExposures: 0,
+      petCircleCommentClicks: 0,
+      petCircleGreetingClicks: 0,
+      petCircleLikeClicks: 0,
+      petCircleWalkInviteClicks: 0,
       placeDetailViews: 0,
       placeReviews: 0,
       placeSubmissions: 0,
@@ -12336,13 +12366,24 @@ function adminAnalytics(options = {}) {
     }
   });
   appEvents.forEach((event) => {
+    const eventAmount = Math.max(1, Math.floor(Number(event.properties?.count || 1)));
     incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'appEvents');
+    if (event.name === 'ai_avatar.entry_click') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'aiAvatarEntryClicks');
+    if (event.name === 'ai_avatar.start') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'aiAvatarStarts');
+    if (event.name === 'ai_avatar.success') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'aiAvatarSuccesses');
+    if (event.name === 'ai_avatar.failure') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'aiAvatarFailures');
     if (event.name === 'app.page_view') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'pageViews');
     if (event.name === 'discover.view' || event.name === 'discover.owners_loaded' || event.name === 'discover.pet_circle_loaded') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'discoverExposures');
+    if (event.name === 'home.module_exposure') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'homeModuleExposures', eventAmount);
     if (event.name === 'map.open') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'mapOpens');
     if (event.name === 'map.poi_search') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'poiSearches');
     if (event.name === 'map.place_detail_view') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'placeDetailViews');
     if (event.name === 'notification.open') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'notificationOpens');
+    if (event.name === 'pet_circle.card_exposure') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'petCircleCardExposures', eventAmount);
+    if (event.name === 'pet_circle.comment_click') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'petCircleCommentClicks');
+    if (event.name === 'pet_circle.greeting_click') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'petCircleGreetingClicks');
+    if (event.name === 'pet_circle.like_click') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'petCircleLikeClicks');
+    if (event.name === 'pet_circle.walk_invite_click') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'petCircleWalkInviteClicks');
   });
 
   const windowAvatarStarted = sumAnalyticsBuckets(buckets, 'avatarStarted');
@@ -12377,7 +12418,11 @@ function adminAnalytics(options = {}) {
     summary: {
       ai: {
         avatarAverageSeconds: analyticsAverage(avatarDurations),
+        avatarEntryClicks: sumAnalyticsBuckets(buckets, 'aiAvatarEntryClicks'),
         avatarFailed: windowAvatarFailed,
+        avatarFrontendFailures: sumAnalyticsBuckets(buckets, 'aiAvatarFailures'),
+        avatarFrontendStarts: sumAnalyticsBuckets(buckets, 'aiAvatarStarts'),
+        avatarFrontendSuccesses: sumAnalyticsBuckets(buckets, 'aiAvatarSuccesses'),
         avatarReady: windowAvatarReady,
         avatarStarted: windowAvatarStarted,
         avatarSuccessRate: analyticsPercent(windowAvatarReady, windowAvatarReady + windowAvatarFailed),
@@ -12407,10 +12452,12 @@ function adminAnalytics(options = {}) {
       events: {
         discoverExposures: sumAnalyticsBuckets(buckets, 'discoverExposures'),
         enabled: config.analytics?.enabled !== false,
+        homeModuleExposures: sumAnalyticsBuckets(buckets, 'homeModuleExposures'),
         latestAt: windowAppEvents.map((event) => analyticsTimeMs(event.createdAt)).sort((a, b) => b - a)[0] || 0,
         mapOpens: sumAnalyticsBuckets(buckets, 'mapOpens'),
         notificationOpens: sumAnalyticsBuckets(buckets, 'notificationOpens'),
         pageViews: sumAnalyticsBuckets(buckets, 'pageViews'),
+        petCircleCardExposures: sumAnalyticsBuckets(buckets, 'petCircleCardExposures'),
         retentionDays: Number(config.analytics?.retentionDays || 30),
         sampleRatePercent: Number(config.analytics?.sampleRatePercent ?? 100),
         total: sumAnalyticsBuckets(buckets, 'appEvents'),
@@ -12434,14 +12481,19 @@ function adminAnalytics(options = {}) {
       },
       social: {
         blockCount: socialBlocks.length,
+        cardExposures: sumAnalyticsBuckets(buckets, 'petCircleCardExposures'),
         comments: sumAnalyticsBuckets(buckets, 'socialComments'),
+        commentClicks: sumAnalyticsBuckets(buckets, 'petCircleCommentClicks'),
         conversationMessages: sumAnalyticsBuckets(buckets, 'conversationMessages'),
         greetingAcceptRate: analyticsPercent(acceptedGreetings, greetings.length),
+        greetingClicks: sumAnalyticsBuckets(buckets, 'petCircleGreetingClicks'),
         greetings: sumAnalyticsBuckets(buckets, 'greetings'),
         images: sumAnalyticsBuckets(buckets, 'socialImages'),
+        likeClicks: sumAnalyticsBuckets(buckets, 'petCircleLikeClicks'),
         likes: sumAnalyticsBuckets(buckets, 'socialLikes'),
         posts: sumAnalyticsBuckets(buckets, 'socialPosts'),
         reports: sumAnalyticsBuckets(buckets, 'reports'),
+        walkInviteClicks: sumAnalyticsBuckets(buckets, 'petCircleWalkInviteClicks'),
         walkInvites: sumAnalyticsBuckets(buckets, 'walkInvites'),
       },
       users: {

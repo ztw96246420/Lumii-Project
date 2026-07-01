@@ -713,6 +713,10 @@ export type SupportTicketList = {
 };
 
 export type AppAnalyticsEventName =
+  | 'ai_avatar.entry_click'
+  | 'ai_avatar.failure'
+  | 'ai_avatar.start'
+  | 'ai_avatar.success'
   | 'app.page_view'
   | 'discover.filter'
   | 'discover.owners_loaded'
@@ -721,6 +725,7 @@ export type AppAnalyticsEventName =
   | 'discover.refresh'
   | 'discover.search'
   | 'discover.view'
+  | 'home.module_exposure'
   | 'map.favorite_toggle'
   | 'map.locate'
   | 'map.navigation_open'
@@ -728,7 +733,12 @@ export type AppAnalyticsEventName =
   | 'map.place_detail_view'
   | 'map.poi_search'
   | 'notification.open'
+  | 'pet_circle.card_exposure'
+  | 'pet_circle.comment_click'
+  | 'pet_circle.greeting_click'
+  | 'pet_circle.like_click'
   | 'pet_circle.profile_view'
+  | 'pet_circle.walk_invite_click'
   | 'support.open';
 
 export type AppAnalyticsEventInput = {
