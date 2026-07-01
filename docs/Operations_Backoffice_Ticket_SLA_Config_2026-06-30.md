@@ -124,6 +124,9 @@
 
 暂未落地：
 
-- 批量回复审批。
-- 客服质量统计。
 - SLA 变更影响历史工单的版本快照。
+
+已在后续文档落地：
+
+- 客服质量统计：[Operations_Backoffice_Ticket_Quality_Review_2026-07-01.md](Operations_Backoffice_Ticket_Quality_Review_2026-07-01.md)。
+- 批量回复审批：[Operations_Backoffice_Ticket_Batch_Reply_Approval_2026-07-01.md](Operations_Backoffice_Ticket_Batch_Reply_Approval_2026-07-01.md)。

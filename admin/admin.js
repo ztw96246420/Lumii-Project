@@ -520,6 +520,22 @@ async function onContentClick(event) {
       const handled = await handleTicketBatch();
       if (!handled) return;
     }
+    if (action === 'ticket-batch-reply') {
+      const handled = await submitTicketBatchReply();
+      if (!handled) return;
+    }
+    if (action === 'ticket-batch-reply-approve') {
+      await approveTicketBatchReply(id);
+      return;
+    }
+    if (action === 'ticket-batch-reply-cancel') {
+      await cancelTicketBatchReply(id);
+      return;
+    }
+    if (action === 'ticket-quality-review') {
+      await reviewTicketQuality(button);
+      return;
+    }
     if (action === 'ticket-assign') await assignTicket(id);
     if (action === 'ticket-related-save') await saveTicketRelatedObjects(id);
     if (action === 'ticket-status') await saveTicketStatus(id);
@@ -1421,6 +1437,68 @@ async function handleTicketBatch() {
   });
   showToast(`批量完成：成功 ${result.successCount || 0}，失败 ${result.errorCount || 0}`);
   return true;
+}
+
+async function submitTicketBatchReply() {
+  const ticketIds = Array.from(document.querySelectorAll('.ticket-batch-check:checked')).map((item) => item.value).filter(Boolean);
+  if (!ticketIds.length) {
+    showToast('请先在工单队列勾选要回复的工单');
+    return false;
+  }
+  const content = valueOf('ticketBatchReplyContent');
+  if (!content) throw new Error('请先填写批量回复内容');
+  const nextStatus = valueOf('ticketBatchReplyStatus') || 'waiting_user';
+  const notifyUser = Boolean($('ticketBatchReplyNotify')?.checked);
+  const reason = window.prompt(`提交 ${ticketIds.length} 个工单的批量回复审批`, '提交批量客服回复审批');
+  if (reason === null) return false;
+  const result = await post('/admin/tickets/batch-replies', {
+    content,
+    nextStatus,
+    notifyUser,
+    reason: reason.trim() || '提交批量客服回复审批',
+    ticketIds,
+  });
+  showToast(result.successCount ? `批量回复已发送：${result.successCount} 成功` : '批量回复已提交审批');
+  state.cache = { ...state.cache, tickets: null, audit: null, summary: null };
+  await render(true);
+  return true;
+}
+
+async function approveTicketBatchReply(id) {
+  const reason = window.prompt('请输入审批说明', '审批发送批量客服回复');
+  if (reason === null) return;
+  const result = await post(`/admin/tickets/batch-replies/${encodeURIComponent(id)}/approve`, {
+    reason: reason.trim() || '审批发送批量客服回复',
+  });
+  showToast(`批量回复发送完成：成功 ${result.successCount || 0}，失败 ${result.errorCount || 0}`);
+  state.cache = { ...state.cache, tickets: null, audit: null, notifications: null, summary: null };
+  await render(true);
+}
+
+async function cancelTicketBatchReply(id) {
+  const reason = window.prompt('请输入取消原因', '取消批量客服回复');
+  if (reason === null) return;
+  await post(`/admin/tickets/batch-replies/${encodeURIComponent(id)}/cancel`, {
+    reason: reason.trim() || '取消批量客服回复',
+  });
+  showToast('批量回复申请已取消');
+  state.cache = { ...state.cache, tickets: null, audit: null, summary: null };
+  await render(true);
+}
+
+async function reviewTicketQuality(button) {
+  const ticketId = button.dataset.ticketId || '';
+  const status = button.dataset.status || 'reviewed';
+  const defaultNote = status === 'needs_followup' ? '需要继续跟进用户问题' : status === 'waived' ? '业务判断可豁免' : '质检已复核';
+  const note = window.prompt('请输入质检说明', defaultNote);
+  if (note === null) return;
+  await post(`/admin/tickets/quality-reviews/${encodeURIComponent(ticketId)}`, {
+    note: note.trim() || defaultNote,
+    status,
+  });
+  showToast('质检状态已更新');
+  state.cache = { ...state.cache, tickets: null, audit: null };
+  await render(true);
 }
 
 function fillTicketReplyTemplate(button) {
@@ -4319,8 +4397,12 @@ async function renderTickets(force) {
   const assignees = data.assignees || [];
   const slaPolicy = data.slaPolicy || {};
   const quality = data.quality || {};
+  const qualityKpi = data.qualityKpi || {};
+  const qualityPolicy = data.qualityPolicy || {};
+  const qualityReview = data.qualityReview || {};
   const rosterConflicts = data.rosterConflicts || [];
   const batchReview = data.batchReview || {};
+  const batchReplyApprovals = data.batchReplyApprovals || {};
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('未关闭工单', summary.open || 0, `${summary.overdue || 0} 个已超 SLA`, '状态不是 closed/resolved 的工单都计入未关闭。')}
@@ -4330,7 +4412,7 @@ async function renderTickets(force) {
       ${metric('安全投诉', summary.safety || 0, 'safety 分类', '安全投诉建议 2 小时内首次处理。')}
     </div>
     ${renderTicketOpsPanel(assignees, slaPolicy, rosterConflicts)}
-    ${renderTicketQualityPanel(quality, batchReview)}
+    ${renderTicketQualityPanel(quality, batchReview, qualityKpi, qualityReview, batchReplyApprovals, qualityPolicy)}
     <div class="grid two ticket-template-workspace">
       <div class="card ticket-template-compose">
         <div class="section-head">
@@ -4533,6 +4615,7 @@ function minutesText(value) {
 function ticketBatchActionLabel(action) {
   return {
     assign: '批量分配',
+    batch_reply: '批量回复',
     closed: '批量关闭',
     priority: '批量改优先级',
     resolved: '批量标记已解决',
@@ -4541,9 +4624,117 @@ function ticketBatchActionLabel(action) {
   }[action] || action || '-';
 }
 
-function renderTicketQualityPanel(quality = {}, batchReview = {}) {
+function ticketKpiTone(status) {
+  return status === 'bad' ? 'bad' : status === 'warn' ? 'warn' : status === 'empty' ? '' : 'ok';
+}
+
+function renderTicketKpiPeriods(kpi = {}) {
+  const periods = Array.isArray(kpi.periods) ? kpi.periods : [];
+  if (!periods.length) return '';
+  return `
+    <div class="risk-row">
+      ${periods.map((period) => {
+        const summary = period.summary || {};
+        const tone = ticketKpiTone(period.status);
+        return `
+          <span class="risk-badge ${tone ? `pill ${tone}` : ''}">
+            ${escapeHtml(period.label || '-')} · 首响 ${percentText(summary.firstResponseSlaRate || 0)} · 解决 ${percentText(summary.resolutionSlaRate || 0)} · ${summary.avgRating ? `${numberText(summary.avgRating, 1)}/5` : '未评分'}
+          </span>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function ticketQualityReviewStatusLabel(status) {
+  return {
+    needs_followup: '需跟进',
+    pending: '待质检',
+    reviewed: '已复核',
+    waived: '已豁免',
+  }[status] || status || '-';
+}
+
+function renderTicketQualityReviewQueue(qualityReview = {}) {
+  const items = qualityReview.items || [];
+  if (qualityReview.enabled === false) {
+    return '<div class="placeholder mini"><div><strong>质检队列未开启</strong><div>可在配置中心开启客服质检队列。</div></div></div>';
+  }
+  if (!items.length) {
+    return '<div class="placeholder mini"><div><strong>暂无质检项</strong><div>低分、重开、SLA 未达标等工单会自动进入这里。</div></div></div>';
+  }
+  return tableHtml(items.slice(0, 8), [
+    ['工单', (row) => `<div class="cell-title">${escapeHtml(row.title || row.ticketId)}</div><div class="cell-sub">${escapeHtml(row.ticketId || '-')} · ${escapeHtml(row.assigneeName || '未分配')}</div>`],
+    ['原因', (row) => `<div class="cell-sub clamp">${(row.reasons || []).map((item) => escapeHtml(item.label || item.key)).join(' · ')}</div><div class="cell-sub">${escapeHtml(ticketQualityReviewStatusLabel(row.status))}${row.reviewedBy ? ` · ${escapeHtml(row.reviewedBy)}` : ''}</div>`],
+    ['操作', (row) => `
+      <div class="actions">
+        <button class="small-button" data-action="ticket-quality-review" data-ticket-id="${escapeHtml(row.ticketId)}" data-status="reviewed">已复核</button>
+        <button class="small-button" data-action="ticket-quality-review" data-ticket-id="${escapeHtml(row.ticketId)}" data-status="needs_followup">需跟进</button>
+        <button class="small-button ghost" data-action="ticket-quality-review" data-ticket-id="${escapeHtml(row.ticketId)}" data-status="waived">豁免</button>
+      </div>
+    `],
+  ], '暂无质检项');
+}
+
+function ticketBatchReplyStatusLabel(status) {
+  return {
+    canceled: '已取消',
+    pending_approval: '待审批',
+    sent: '已发送',
+    sent_with_errors: '部分失败',
+  }[status] || status || '-';
+}
+
+function renderTicketBatchReplyApprovals(batchReplyApprovals = {}, qualityPolicy = {}) {
+  const policy = qualityPolicy.batchReply || {};
+  const items = batchReplyApprovals.items || [];
+  return `
+    <div class="notification-form">
+      <label>批量回复内容<textarea id="ticketBatchReplyContent" maxlength="1000" placeholder="勾选下方工单后，在这里写批量回复内容；提交后先进入审批，不会立刻触达用户。"></textarea></label>
+      <div class="notification-form-row">
+        <label>回复后状态
+          <select id="ticketBatchReplyStatus">
+            ${ticketStatusOption('waiting_user', 'waiting_user', '等待用户')}
+            ${ticketStatusOption('waiting_user', 'reviewing', '处理中')}
+            ${ticketStatusOption('waiting_user', 'resolved', '已解决')}
+            ${ticketStatusOption('waiting_user', 'closed', '已关闭')}
+          </select>
+        </label>
+        <label class="inline-check notification-check"><input id="ticketBatchReplyNotify" type="checkbox" checked /> 通知用户</label>
+      </div>
+      <div class="notification-action-row">
+        <button class="primary-button" data-action="ticket-batch-reply">${policy.requireApproval === false ? '发送批量回复' : '提交批量回复审批'}</button>
+        <span class="cell-sub">单次最多 ${numberText(policy.maxTickets || 20)} 个工单</span>
+      </div>
+    </div>
+    ${items.length ? `
+      <div class="notification-template-list">
+        ${items.map((row) => `
+          <article class="notification-template">
+            <div>
+              <div class="cell-title">${escapeHtml(ticketBatchReplyStatusLabel(row.status))}</div>
+              <div class="cell-sub">${escapeHtml(row.id || '-')}</div>
+              <div class="cell-sub">${formatTime(row.createdAt)} · ${escapeHtml(row.createdBy || '-')}</div>
+            </div>
+            <div class="ticket-content">${escapeHtml(row.content || '-')}</div>
+            <div class="cell-sub">${numberText(row.ticketCount || 0)} 个工单 · ${row.notifyUser === false ? '不通知' : '通知用户'} · ${numberText(row.successCount || 0)} 成功 / ${numberText(row.errorCount || 0)} 失败${row.approvedAt ? ` · ${formatTime(row.approvedAt)}` : ''}</div>
+            <div class="notification-template-actions">
+              ${row.status === 'pending_approval' ? `
+                <button class="small-button" data-action="ticket-batch-reply-approve" data-id="${escapeHtml(row.id)}">审批发送</button>
+                <button class="small-button danger" data-action="ticket-batch-reply-cancel" data-id="${escapeHtml(row.id)}">取消</button>
+              ` : `<span class="risk-badge">${escapeHtml(ticketBatchReplyStatusLabel(row.status))}</span>`}
+            </div>
+          </article>
+        `).join('')}
+      </div>
+    ` : '<div class="placeholder mini"><div><strong>暂无批量回复申请</strong><div>勾选工单并提交后，会在这里等待审批。</div></div></div>'}
+  `;
+}
+
+function renderTicketQualityPanel(quality = {}, batchReview = {}, qualityKpi = {}, qualityReview = {}, batchReplyApprovals = {}, qualityPolicy = {}) {
   const byAssignee = quality.byAssignee || [];
   const batches = batchReview.items || [];
+  const targets = qualityPolicy.qualityTargets || {};
   return `
     <div class="grid two ticket-ops-insights">
       <div class="card">
@@ -4552,8 +4743,15 @@ function renderTicketQualityPanel(quality = {}, batchReview = {}) {
             <h2>客服质量统计</h2>
             <div class="section-sub">从移动端反馈、评分、重开和后台回复实时回算，不单独维护一套数据</div>
           </div>
-          ${help('首响率=已有真实客服回复的工单占比；首响达标率把已回复、已超时、已关闭但未回复的工单计入分母。满意度来自移动端工单评分。')}
+          ${help('首响率=已有真实客服回复的工单占比；首响达标率把已回复、已超时、已关闭但未回复的工单计入分母。KPI 目标来自配置中心。')}
         </div>
+        <div class="risk-row">
+          <span class="risk-badge">首响目标 ${percentText(targets.firstResponseSlaRate || 0)}</span>
+          <span class="risk-badge">解决目标 ${percentText(targets.resolutionSlaRate || 0)}</span>
+          <span class="risk-badge">满意度目标 ${targets.avgRating ? `${numberText(targets.avgRating, 1)}/5` : '-'}</span>
+          <span class="risk-badge">重开红线 ${percentText(targets.reopenRateMax || 0)}</span>
+        </div>
+        ${renderTicketKpiPeriods(qualityKpi)}
         <div class="grid metrics compact-metrics">
           ${metric('首响率', percentText(quality.firstResponseRate || 0), `平均 ${minutesText(quality.avgFirstResponseMinutes)}`, '客服真实回复才算首响。')}
           ${metric('首响达标', percentText(quality.firstResponseSlaRate || 0), `${numberText(quality.firstResponseBreached || 0)} 条未达标`, '按配置中心首响 SLA 判断。')}
@@ -4571,11 +4769,16 @@ function renderTicketQualityPanel(quality = {}, batchReview = {}) {
       <div class="card">
         <div class="section-head">
           <div>
-            <h2>批量处理复盘</h2>
-            <div class="section-sub">展示最近批量动作，方便检查是否误批量分配、关闭或改优先级</div>
+            <h2>质检与批量触达</h2>
+            <div class="section-sub">${numberText(qualityReview.pending || 0)} 条待质检 · ${numberText(batchReplyApprovals.pending || 0)} 条批量回复待审批</div>
           </div>
-          ${help('批量动作会额外写一条汇总审计；单个工单仍保留自己的 before/after 审计。当前不开放批量回复，避免误触达用户。')}
+          ${help('质检队列由低分、重开、SLA 未达标等规则自动生成；批量回复必须先形成申请，审批发送后才会逐条写入客服回复并触达 App 通知中心。')}
         </div>
+        <h3 class="subsection-title">质检待看</h3>
+        ${renderTicketQualityReviewQueue(qualityReview)}
+        <h3 class="subsection-title">批量回复审批</h3>
+        ${renderTicketBatchReplyApprovals(batchReplyApprovals, qualityPolicy)}
+        <h3 class="subsection-title">批量处理复盘</h3>
         ${batches.length ? tableHtml(batches, [
           ['动作', (row) => `<div class="cell-title">${escapeHtml(ticketBatchActionLabel(row.action))}</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
           ['结果', (row) => `<div>${numberText(row.successCount || 0)} 成功 / ${numberText(row.errorCount || 0)} 失败</div><div class="cell-sub">${numberText(row.ticketCount || 0)} 条工单</div>`],
@@ -4911,6 +5114,8 @@ function configRevisionSummaryText(summary = {}) {
     `工单首响 ${summary.supportFirstResponseUrgentSlaHours ?? 1}/${summary.supportFirstResponseHighSlaHours ?? 4}h`,
     `工单解决 ${summary.supportUrgentSlaHours ?? 8}/${summary.supportHighSlaHours ?? 24}h`,
     `客服 ${summary.supportAssigneeCount ?? 0} 人`,
+    `批量回复 ${summary.supportBatchReplyRequireApproval === false ? '免审批' : '审批'} / ${summary.supportBatchReplyMaxTickets ?? 20}条`,
+    `客服KPI ${summary.supportQualityFirstResponseTarget ?? 90}%/${summary.supportQualityResolutionTarget ?? 85}%`,
     `通知频控 ${summary.notificationRateLimitEnabled === false ? '关' : `${summary.notificationMaxCampaignsPerDay || 0}批/${summary.notificationMaxPerUserPerDay || 0}人次`}`,
     `通知审批 ${summary.notificationRequireApproval ? '开' : '关'}`,
     ...toggles,
@@ -5202,6 +5407,9 @@ async function renderConfig(force) {
   const supportFirstResponseSlaHours = support.firstResponseSlaHours || {};
   const supportSlaHours = support.resolutionSlaHours || support.slaHours || {};
   const supportAssignees = support.assignees || [];
+  const supportBatchReply = support.batchReply || {};
+  const supportQualityReview = support.qualityReview || {};
+  const supportQualityTargets = support.qualityTargets || {};
   const analytics = config.analytics || {};
   const update = config.app?.update || {};
   $('content').innerHTML = `
@@ -5265,6 +5473,21 @@ async function renderConfig(force) {
           <label>解决-普通小时<input id="cfgSupportSlaNormal" type="number" min="1" max="720" value="${supportSlaHours.normal || 72}" /></label>
           <label>解决-低优先级小时<input id="cfgSupportSlaLow" type="number" min="1" max="720" value="${supportSlaHours.low || 168}" /></label>
           <label class="wide">客服负责人枚举<textarea id="cfgSupportAssignees" maxlength="4000" placeholder="每行：账号|姓名|角色|周几|开始时间|结束时间|启用&#10;admin|Admin|客服|1,2,3,4,5,6,0|09:00|22:00|true">${escapeHtml(formatSupportAssigneeConfig(supportAssignees))}</textarea></label>
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgSupportBatchReplyEnabled', '允许批量回复申请', supportBatchReply.enabled !== false)}
+          ${featureCheckbox('cfgSupportBatchReplyRequireApproval', '批量回复必须审批', supportBatchReply.requireApproval !== false)}
+          ${featureCheckbox('cfgSupportQualityReviewEnabled', '启用客服质检队列', supportQualityReview.enabled !== false)}
+        </div>
+        <div class="config-grid">
+          <label>批量回复单次上限<input id="cfgSupportBatchReplyMaxTickets" type="number" min="1" max="100" value="${Number.isFinite(Number(supportBatchReply.maxTickets)) ? supportBatchReply.maxTickets : 20}" /></label>
+          <label>首响达标目标 %<input id="cfgSupportTargetFirstResponse" type="number" min="0" max="100" step="0.1" value="${Number.isFinite(Number(supportQualityTargets.firstResponseSlaRate)) ? supportQualityTargets.firstResponseSlaRate : 90}" /></label>
+          <label>解决达标目标 %<input id="cfgSupportTargetResolution" type="number" min="0" max="100" step="0.1" value="${Number.isFinite(Number(supportQualityTargets.resolutionSlaRate)) ? supportQualityTargets.resolutionSlaRate : 85}" /></label>
+          <label>满意度目标<input id="cfgSupportTargetRating" type="number" min="1" max="5" step="0.1" value="${Number.isFinite(Number(supportQualityTargets.avgRating)) ? supportQualityTargets.avgRating : 4}" /></label>
+          <label>重开率红线 %<input id="cfgSupportTargetReopenRate" type="number" min="0" max="100" step="0.1" value="${Number.isFinite(Number(supportQualityTargets.reopenRateMax)) ? supportQualityTargets.reopenRateMax : 10}" /></label>
+          <label>低分数量红线<input id="cfgSupportTargetLowRating" type="number" min="0" max="1000" value="${Number.isFinite(Number(supportQualityTargets.lowRatingMax)) ? supportQualityTargets.lowRatingMax : 3}" /></label>
+          <label>低分质检阈值<input id="cfgSupportReviewLowRating" type="number" min="1" max="5" value="${Number.isFinite(Number(supportQualityReview.lowRatingThreshold)) ? supportQualityReview.lowRatingThreshold : 2}" /></label>
+          <label>重开触发次数<input id="cfgSupportReviewReopenThreshold" type="number" min="1" max="20" value="${Number.isFinite(Number(supportQualityReview.reopenThreshold)) ? supportQualityReview.reopenThreshold : 1}" /></label>
         </div>
       </div>
       <div class="config-section">
@@ -5575,6 +5798,32 @@ async function saveConfig(mode = 'publish') {
     throw new Error('首响 SLA 不能大于同优先级的解决 SLA');
   }
   const supportAssignees = parseSupportAssigneeConfig($('cfgSupportAssignees').value);
+  const supportBatchReplyMaxTickets = Number($('cfgSupportBatchReplyMaxTickets').value);
+  const supportTargetFirstResponse = Number($('cfgSupportTargetFirstResponse').value);
+  const supportTargetResolution = Number($('cfgSupportTargetResolution').value);
+  const supportTargetRating = Number($('cfgSupportTargetRating').value);
+  const supportTargetReopenRate = Number($('cfgSupportTargetReopenRate').value);
+  const supportTargetLowRating = Number($('cfgSupportTargetLowRating').value);
+  const supportReviewLowRating = Number($('cfgSupportReviewLowRating').value);
+  const supportReviewReopenThreshold = Number($('cfgSupportReviewReopenThreshold').value);
+  if (!Number.isFinite(supportBatchReplyMaxTickets) || supportBatchReplyMaxTickets < 1 || supportBatchReplyMaxTickets > 100) {
+    throw new Error('批量回复单次上限必须在 1-100 之间');
+  }
+  if ([supportTargetFirstResponse, supportTargetResolution, supportTargetReopenRate].some((value) => !Number.isFinite(value) || value < 0 || value > 100)) {
+    throw new Error('客服 KPI 百分比目标必须在 0-100 之间');
+  }
+  if (!Number.isFinite(supportTargetRating) || supportTargetRating < 1 || supportTargetRating > 5) {
+    throw new Error('满意度目标必须在 1-5 之间');
+  }
+  if (!Number.isFinite(supportTargetLowRating) || supportTargetLowRating < 0 || supportTargetLowRating > 1000) {
+    throw new Error('低分数量红线必须在 0-1000 之间');
+  }
+  if (!Number.isFinite(supportReviewLowRating) || supportReviewLowRating < 1 || supportReviewLowRating > 5) {
+    throw new Error('低分质检阈值必须在 1-5 之间');
+  }
+  if (!Number.isFinite(supportReviewReopenThreshold) || supportReviewReopenThreshold < 1 || supportReviewReopenThreshold > 20) {
+    throw new Error('重开触发次数必须在 1-20 之间');
+  }
   const analyticsSampleRatePercent = Number($('cfgAnalyticsSampleRatePercent').value);
   const analyticsRetentionDays = Number($('cfgAnalyticsRetentionDays').value);
   if (!Number.isFinite(analyticsSampleRatePercent) || analyticsSampleRatePercent < 0 || analyticsSampleRatePercent > 100) {
@@ -5662,7 +5911,27 @@ async function saveConfig(mode = 'publish') {
     },
     support: {
       assignees: supportAssignees,
+      batchReply: {
+        enabled: $('cfgSupportBatchReplyEnabled').checked,
+        maxTickets: supportBatchReplyMaxTickets,
+        requireApproval: $('cfgSupportBatchReplyRequireApproval').checked,
+      },
       firstResponseSlaHours: supportFirstResponseSlaHours,
+      qualityReview: {
+        closedWithoutReply: true,
+        enabled: $('cfgSupportQualityReviewEnabled').checked,
+        firstResponseBreach: true,
+        lowRatingThreshold: supportReviewLowRating,
+        reopenThreshold: supportReviewReopenThreshold,
+        resolutionBreach: true,
+      },
+      qualityTargets: {
+        avgRating: supportTargetRating,
+        firstResponseSlaRate: supportTargetFirstResponse,
+        lowRatingMax: supportTargetLowRating,
+        reopenRateMax: supportTargetReopenRate,
+        resolutionSlaRate: supportTargetResolution,
+      },
       resolutionSlaHours: supportSlaHours,
       slaHours: supportSlaHours,
     },

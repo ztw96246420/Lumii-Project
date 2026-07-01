@@ -575,6 +575,14 @@ th {
   flex-wrap: wrap;
 }
 
+.subsection-title {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0;
+  margin: 18px 0 8px;
+}
+
 .report-message-placeholder {
   background: rgba(255, 247, 239, 0.74);
   border: 1px dashed rgba(212, 134, 82, 0.32);

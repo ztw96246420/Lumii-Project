@@ -356,11 +356,31 @@ function defaultOpsConfig() {
           weekdays: [1, 2, 3, 4, 5, 6, 0],
         },
       ],
+      batchReply: {
+        enabled: true,
+        maxTickets: 20,
+        requireApproval: true,
+      },
       firstResponseSlaHours: {
         high: 4,
         low: 24,
         normal: 12,
         urgent: 1,
+      },
+      qualityReview: {
+        closedWithoutReply: true,
+        enabled: true,
+        firstResponseBreach: true,
+        lowRatingThreshold: 2,
+        reopenThreshold: 1,
+        resolutionBreach: true,
+      },
+      qualityTargets: {
+        avgRating: 4,
+        firstResponseSlaRate: 90,
+        lowRatingMax: 3,
+        reopenRateMax: 10,
+        resolutionSlaRate: 85,
       },
       resolutionSlaHours: {
         high: 24,
@@ -427,6 +447,8 @@ function createInitialState() {
     moderationSamples: [],
     socialReports: [],
     sanctionAppeals: [],
+    supportTicketBatchReplyApprovals: [],
+    supportTicketQualityReviews: {},
     supportTickets: [],
     supportTicketReplyTemplates: [],
     systemNotifications: [],
@@ -590,6 +612,38 @@ function normalizeSupportAssignees(input, defaults = []) {
   return unique.length ? unique : normalizeSupportAssignees(defaultOpsConfig().support.assignees, []);
 }
 
+function normalizeSupportBatchReplyConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    enabled: source.enabled !== false,
+    maxTickets: Math.floor(clampNumber(source.maxTickets, defaults.maxTickets || 20, 1, 100)),
+    requireApproval: source.requireApproval !== false,
+  };
+}
+
+function normalizeSupportQualityReviewConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    closedWithoutReply: source.closedWithoutReply !== false,
+    enabled: source.enabled !== false,
+    firstResponseBreach: source.firstResponseBreach !== false,
+    lowRatingThreshold: Math.floor(clampNumber(source.lowRatingThreshold, defaults.lowRatingThreshold || 2, 1, 5)),
+    reopenThreshold: Math.floor(clampNumber(source.reopenThreshold, defaults.reopenThreshold || 1, 1, 20)),
+    resolutionBreach: source.resolutionBreach !== false,
+  };
+}
+
+function normalizeSupportQualityTargets(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    avgRating: Math.round(clampNumber(source.avgRating, defaults.avgRating || 4, 1, 5) * 10) / 10,
+    firstResponseSlaRate: Math.round(clampNumber(source.firstResponseSlaRate, defaults.firstResponseSlaRate || 90, 0, 100) * 10) / 10,
+    lowRatingMax: Math.floor(clampNumber(source.lowRatingMax, defaults.lowRatingMax || 3, 0, 1000)),
+    reopenRateMax: Math.round(clampNumber(source.reopenRateMax, defaults.reopenRateMax || 10, 0, 100) * 10) / 10,
+    resolutionSlaRate: Math.round(clampNumber(source.resolutionSlaRate, defaults.resolutionSlaRate || 85, 0, 100) * 10) / 10,
+  };
+}
+
 function normalizeSupportConfig(value, defaults) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const defaultSlaHours = defaults?.slaHours || {};
@@ -604,7 +658,10 @@ function normalizeSupportConfig(value, defaults) {
   }
   return {
     assignees: normalizeSupportAssignees(source.assignees, defaults?.assignees),
+    batchReply: normalizeSupportBatchReplyConfig(source.batchReply, defaults?.batchReply),
     firstResponseSlaHours,
+    qualityReview: normalizeSupportQualityReviewConfig(source.qualityReview, defaults?.qualityReview),
+    qualityTargets: normalizeSupportQualityTargets(source.qualityTargets, defaults?.qualityTargets),
     resolutionSlaHours,
     slaHours: {
       ...resolutionSlaHours,
@@ -741,9 +798,13 @@ function opsConfigSummary(config) {
     petChatDailyLimit: Number(config?.ai?.petChatDailyLimit || 0),
     petCircleMaxPhotos: Number(config?.social?.petCircleMaxPhotos || 0),
     supportAssigneeCount: Array.isArray(config?.support?.assignees) ? config.support.assignees.length : 0,
+    supportBatchReplyMaxTickets: Number(config?.support?.batchReply?.maxTickets || 0),
+    supportBatchReplyRequireApproval: config?.support?.batchReply?.requireApproval !== false,
     supportHighSlaHours: Number(config?.support?.resolutionSlaHours?.high || config?.support?.slaHours?.high || 0),
     supportFirstResponseHighSlaHours: Number(config?.support?.firstResponseSlaHours?.high || 0),
     supportFirstResponseUrgentSlaHours: Number(config?.support?.firstResponseSlaHours?.urgent || 0),
+    supportQualityFirstResponseTarget: Number(config?.support?.qualityTargets?.firstResponseSlaRate || 0),
+    supportQualityResolutionTarget: Number(config?.support?.qualityTargets?.resolutionSlaRate || 0),
     supportUrgentSlaHours: Number(config?.support?.resolutionSlaHours?.urgent || config?.support?.slaHours?.urgent || 0),
     updateEnabled: Boolean(config?.app?.update?.enabled),
   };
@@ -863,9 +924,21 @@ function buildOpsConfigPatch(before, body = {}) {
       ...before.support,
       ...(body.support || {}),
       assignees: Array.isArray(body.support?.assignees) ? body.support.assignees : before.support?.assignees,
+      batchReply: {
+        ...(before.support?.batchReply || {}),
+        ...(body.support?.batchReply || {}),
+      },
       firstResponseSlaHours: {
         ...(before.support?.firstResponseSlaHours || {}),
         ...(body.support?.firstResponseSlaHours || {}),
+      },
+      qualityReview: {
+        ...(before.support?.qualityReview || {}),
+        ...(body.support?.qualityReview || {}),
+      },
+      qualityTargets: {
+        ...(before.support?.qualityTargets || {}),
+        ...(body.support?.qualityTargets || {}),
       },
       resolutionSlaHours: {
         ...(before.support?.resolutionSlaHours || before.support?.slaHours || {}),
@@ -1413,6 +1486,26 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileApplied: false,
       mobileEvidence: '移动端不展示客服姓名或排班；只展示工单处理状态和预计时间。',
       userImpact: '不直接暴露给用户，但会影响后台分配、未分配统计和离班负责人风险提示。',
+    },
+    {
+      backendEvidence: 'createSupportTicketBatchReplyApproval 读取 currentOpsConfig().support.batchReply，控制批量回复是否开放、单次上限和是否必须审批。',
+      backendEnforced: true,
+      group: '客服工单',
+      key: 'support.batchReply',
+      label: '批量回复审批',
+      mobileApplied: true,
+      mobileEvidence: '移动端不读取审批配置；只有审批通过后，后端才会逐条写入客服回复并生成 support_reply 通知。',
+      userImpact: '影响用户是否会收到批量客服回复，以及批量触达前是否有审批闸门。',
+    },
+    {
+      backendEvidence: 'supportTicketKpiSummary 和 supportTicketQualityReviewQueue 读取 currentOpsConfig().support.qualityTargets / qualityReview，计算 KPI 状态和质检待看队列。',
+      backendEnforced: true,
+      group: '客服工单',
+      key: 'support.qualityTargets',
+      label: '客服 KPI 和质检规则',
+      mobileApplied: false,
+      mobileEvidence: '移动端不读取 KPI 目标；评分、重开和工单回复会反向沉淀为后台质检数据。',
+      userImpact: '不直接改变 App 展示，但影响运营是否追踪低分、重开和 SLA 未达标工单。',
     },
     {
       backendEvidence: 'supportTicketSlaHours 读取 currentOpsConfig().support.slaHours.urgent，影响工单排序、SLA badge、工作台统计和导出。',
@@ -2471,6 +2564,8 @@ function loadState() {
       socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
       moderationSamples: Array.isArray(loadedState.moderationSamples) ? loadedState.moderationSamples : initialState.moderationSamples,
       sanctionAppeals: Array.isArray(loadedState.sanctionAppeals) ? loadedState.sanctionAppeals : initialState.sanctionAppeals,
+      supportTicketBatchReplyApprovals: Array.isArray(loadedState.supportTicketBatchReplyApprovals) ? loadedState.supportTicketBatchReplyApprovals : initialState.supportTicketBatchReplyApprovals,
+      supportTicketQualityReviews: loadedState.supportTicketQualityReviews && typeof loadedState.supportTicketQualityReviews === 'object' && !Array.isArray(loadedState.supportTicketQualityReviews) ? loadedState.supportTicketQualityReviews : initialState.supportTicketQualityReviews,
       supportTickets: Array.isArray(loadedState.supportTickets) ? loadedState.supportTickets : initialState.supportTickets,
       systemNotifications: Array.isArray(loadedState.systemNotifications) ? loadedState.systemNotifications : initialState.systemNotifications,
       notificationTemplates: Array.isArray(loadedState.notificationTemplates) ? loadedState.notificationTemplates : initialState.notificationTemplates,
@@ -15673,6 +15768,326 @@ function supportTicketBatchReview(limit = 6) {
   };
 }
 
+function supportTicketQualityPolicy(support = currentOpsConfig().support || defaultOpsConfig().support) {
+  return {
+    batchReply: normalizeSupportBatchReplyConfig(support.batchReply, defaultOpsConfig().support.batchReply),
+    qualityReview: normalizeSupportQualityReviewConfig(support.qualityReview, defaultOpsConfig().support.qualityReview),
+    qualityTargets: normalizeSupportQualityTargets(support.qualityTargets, defaultOpsConfig().support.qualityTargets),
+  };
+}
+
+function supportTicketKpiStatus(summary = {}, targets = {}) {
+  if (!summary.tickets) return 'empty';
+  let misses = 0;
+  if ((summary.firstResponseSlaRate || 0) < (targets.firstResponseSlaRate || 0)) misses += 1;
+  if ((summary.resolutionSlaRate || 0) < (targets.resolutionSlaRate || 0)) misses += 1;
+  if (summary.rated && (summary.avgRating || 0) < (targets.avgRating || 0)) misses += 1;
+  if ((summary.reopenRate || 0) > (targets.reopenRateMax || 0)) misses += 1;
+  if ((summary.lowRating || 0) > (targets.lowRatingMax || 0)) misses += 1;
+  if (misses >= 3) return 'bad';
+  if (misses > 0) return 'warn';
+  return 'ok';
+}
+
+function supportTicketsInRecentDays(rawTickets = [], days = 30) {
+  const cutoff = Date.now() - Math.max(1, Number(days || 30)) * 864e5;
+  return rawTickets.filter((ticket) => {
+    const ms = supportDateMs(ticket.createdAt || ticket.updatedAt);
+    return ms !== null && ms >= cutoff;
+  });
+}
+
+function supportTicketKpiSummary(rawTickets = [], assignees = [], targets = {}) {
+  const periods = [
+    { days: 7, key: 'week', label: '近 7 天' },
+    { days: 30, key: 'month', label: '近 30 天' },
+  ].map((period) => {
+    const summary = supportTicketQualitySummary(supportTicketsInRecentDays(rawTickets, period.days), assignees);
+    return {
+      ...period,
+      avgRatingTarget: targets.avgRating || 0,
+      firstResponseSlaTarget: targets.firstResponseSlaRate || 0,
+      lowRatingMax: targets.lowRatingMax || 0,
+      reopenRateMax: targets.reopenRateMax || 0,
+      resolutionSlaTarget: targets.resolutionSlaRate || 0,
+      status: supportTicketKpiStatus(summary, targets),
+      summary,
+    };
+  });
+  return {
+    periods,
+    targets,
+  };
+}
+
+function ensureSupportTicketQualityReviews() {
+  if (!state.supportTicketQualityReviews || typeof state.supportTicketQualityReviews !== 'object' || Array.isArray(state.supportTicketQualityReviews)) {
+    state.supportTicketQualityReviews = {};
+  }
+  return state.supportTicketQualityReviews;
+}
+
+function supportTicketQualityReviewReasons(ticket, policy = {}) {
+  const item = supportTicketItem(ticket);
+  const first = supportTicketSlaInfo(ticket, 'first_response');
+  const resolution = supportTicketSlaInfo(ticket, 'resolution');
+  const rating = Number(ticket.satisfaction?.rating || 0);
+  const reasons = [];
+  if (policy.closedWithoutReply !== false && (item.status === 'closed' || item.status === 'resolved') && !first.doneAt) {
+    reasons.push({ key: 'closed_without_reply', label: '已结束但无客服首响' });
+  }
+  if (policy.firstResponseBreach !== false && ((first.doneAt && !supportSlaDoneWithin(first)) || (!first.doneAt && first.state === 'overdue'))) {
+    reasons.push({ key: 'first_response_breach', label: '首响 SLA 未达标' });
+  }
+  if (policy.resolutionBreach !== false && ((resolution.doneAt && !supportSlaDoneWithin(resolution)) || (!resolution.doneAt && resolution.state === 'overdue'))) {
+    reasons.push({ key: 'resolution_breach', label: '解决 SLA 未达标' });
+  }
+  if (rating > 0 && rating <= (policy.lowRatingThreshold || 2)) {
+    reasons.push({ key: 'low_rating', label: `低分评价 ${rating}/5` });
+  }
+  if (item.reopenCount >= (policy.reopenThreshold || 1)) {
+    reasons.push({ key: 'reopened', label: `用户重开 ${item.reopenCount} 次` });
+  }
+  return reasons;
+}
+
+function supportTicketQualityReviewQueue(rawTickets = [], assignees = [], limit = 12) {
+  const policy = supportTicketQualityPolicy().qualityReview;
+  const store = ensureSupportTicketQualityReviews();
+  if (policy.enabled === false) {
+    return {
+      enabled: false,
+      items: [],
+      pending: 0,
+      reviewed: 0,
+      total: 0,
+    };
+  }
+  const items = rawTickets
+    .map((ticket) => {
+      const reasons = supportTicketQualityReviewReasons(ticket, policy);
+      if (!reasons.length) return null;
+      const item = supportTicketItem(ticket);
+      const saved = store[ticket.id] || {};
+      const assignee = assignees.find((row) => row.id === item.assignee) || {};
+      return {
+        assigneeId: item.assignee || '',
+        assigneeName: assignee.name || item.assigneeName || item.assignee || '未分配',
+        createdAt: item.createdAt,
+        id: `quality-${ticket.id}`,
+        note: String(saved.note || '').slice(0, 500),
+        reasons,
+        reviewedAt: saved.reviewedAt || '',
+        reviewedBy: saved.reviewedBy || '',
+        status: saved.status || 'pending',
+        ticketId: ticket.id,
+        ticketStatus: item.status,
+        title: item.title,
+        updatedAt: item.updatedAt,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.status === 'pending' ? 1 : 0) < (b.status === 'pending' ? 1 : 0) ? 1 : (a.status === 'pending' ? 1 : 0) > (b.status === 'pending' ? 1 : 0) ? -1 : String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
+  return {
+    enabled: true,
+    items: items.slice(0, limit),
+    pending: items.filter((item) => item.status === 'pending' || item.status === 'needs_followup').length,
+    reviewed: items.filter((item) => item.status === 'reviewed' || item.status === 'waived').length,
+    total: items.length,
+  };
+}
+
+const supportTicketQualityReviewStatuses = new Set(['pending', 'reviewed', 'needs_followup', 'waived']);
+
+function adminReviewSupportTicketQuality(admin, ticketId, body = {}) {
+  const ticket = findSupportTicket(ticketId);
+  if (!ticket) return { error: '工单不存在', statusCode: 404 };
+  const status = supportTicketQualityReviewStatuses.has(String(body.status)) ? String(body.status) : 'reviewed';
+  const note = String(body.note || body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  const before = ensureSupportTicketQualityReviews()[ticket.id] || null;
+  const review = {
+    note,
+    reviewedAt: new Date().toISOString(),
+    reviewedBy: admin?.username || 'admin',
+    status,
+    ticketId: ticket.id,
+  };
+  ensureSupportTicketQualityReviews()[ticket.id] = review;
+  if (status === 'needs_followup' && note) {
+    addSupportTicketNote(admin, ticket, `质检跟进：${note}`);
+  }
+  writeAdminAudit(admin, 'ticket.quality_review.update', 'support_ticket', ticket.id, before, review, note || '客服质检处理');
+  return {
+    qualityReview: supportTicketQualityReviewQueue(ensureSupportTickets(), supportAssigneesForAdmin()),
+    review,
+    ticket: supportTicketDetail(ticket),
+  };
+}
+
+function ensureSupportTicketBatchReplyApprovals() {
+  state.supportTicketBatchReplyApprovals = Array.isArray(state.supportTicketBatchReplyApprovals) ? state.supportTicketBatchReplyApprovals : [];
+  return state.supportTicketBatchReplyApprovals;
+}
+
+function supportTicketBatchReplyApprovalItem(approval = {}) {
+  const tickets = (Array.isArray(approval.ticketIds) ? approval.ticketIds : [])
+    .map((ticketId) => findSupportTicket(ticketId))
+    .filter(Boolean)
+    .map((ticket) => {
+      const item = supportTicketItem(ticket);
+      return {
+        id: item.id,
+        ownerName: item.ownerName,
+        phone: item.phone,
+        status: item.status,
+        title: item.title,
+      };
+    });
+  return {
+    approvedAt: approval.approvedAt || '',
+    approvedBy: approval.approvedBy || '',
+    canceledAt: approval.canceledAt || '',
+    canceledBy: approval.canceledBy || '',
+    content: String(approval.content || '').slice(0, 1000),
+    createdAt: approval.createdAt || '',
+    createdBy: approval.createdBy || '',
+    errorCount: Math.max(0, Math.floor(Number(approval.errorCount || 0))),
+    id: approval.id || '',
+    nextStatus: supportTicketStatusFor(approval.nextStatus || 'waiting_user'),
+    notifyUser: approval.notifyUser !== false,
+    reason: approval.reason || '',
+    results: Array.isArray(approval.results) ? approval.results.slice(0, 20) : [],
+    status: approval.status || 'pending_approval',
+    successCount: Math.max(0, Math.floor(Number(approval.successCount || 0))),
+    ticketCount: (Array.isArray(approval.ticketIds) ? approval.ticketIds : []).length,
+    ticketIds: Array.isArray(approval.ticketIds) ? approval.ticketIds : [],
+    tickets,
+  };
+}
+
+function supportTicketBatchReplyApprovalList(limit = 8) {
+  const items = ensureSupportTicketBatchReplyApprovals()
+    .map(supportTicketBatchReplyApprovalItem)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .slice(0, limit);
+  return {
+    items,
+    pending: items.filter((item) => item.status === 'pending_approval').length,
+    sent: ensureSupportTicketBatchReplyApprovals().filter((item) => item.status === 'sent' || item.status === 'sent_with_errors').length,
+    total: ensureSupportTicketBatchReplyApprovals().length,
+  };
+}
+
+function createSupportTicketBatchReplyApproval(admin, body = {}) {
+  const policy = supportTicketQualityPolicy().batchReply;
+  if (policy.enabled === false) return { error: '批量回复未开启，请先到配置中心开启', statusCode: 409 };
+  const ticketIds = Array.from(new Set((Array.isArray(body.ticketIds) ? body.ticketIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)))
+    .slice(0, policy.maxTickets || 20);
+  if (!ticketIds.length) return { error: '请先选择需要批量回复的工单', statusCode: 400 };
+  if (Array.isArray(body.ticketIds) && body.ticketIds.length > (policy.maxTickets || 20)) {
+    return { error: `批量回复单次最多 ${policy.maxTickets || 20} 个工单`, statusCode: 400 };
+  }
+  const content = String(body.content || '').trim();
+  if (!content) return { error: '请填写批量回复内容', statusCode: 400 };
+  if (content.length > 1000) return { error: '批量回复内容最多 1000 字', statusCode: 400 };
+  const nextStatus = supportTicketStatusFor(body.nextStatus || 'waiting_user');
+  const invalid = [];
+  ticketIds.forEach((ticketId) => {
+    const ticket = findSupportTicket(ticketId);
+    if (!ticket) invalid.push(`${ticketId}:工单不存在`);
+    else if (ticket.status === 'closed' || ticket.status === 'resolved') invalid.push(`${ticketId}:工单已结束`);
+  });
+  if (invalid.length) return { error: `批量回复仅支持未结束工单：${invalid.slice(0, 5).join('；')}`, statusCode: 400 };
+  const approval = {
+    content: content.slice(0, 1000),
+    createdAt: new Date().toISOString(),
+    createdBy: admin?.username || 'admin',
+    id: `ticket-batch-reply-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    nextStatus,
+    notifyUser: body.notifyUser !== false,
+    reason: adminReason(body, '提交批量客服回复审批'),
+    status: 'pending_approval',
+    ticketIds,
+  };
+  ensureSupportTicketBatchReplyApprovals().unshift(approval);
+  state.supportTicketBatchReplyApprovals = state.supportTicketBatchReplyApprovals.slice(0, 200);
+  writeAdminAudit(admin, 'ticket.batch_reply.create', 'support_ticket_batch_reply', approval.id, null, approval, approval.reason);
+  if (policy.requireApproval === false) {
+    return sendSupportTicketBatchReplyApproval(admin, approval.id, { reason: '批量回复免审批发送' });
+  }
+  return {
+    approval: supportTicketBatchReplyApprovalItem(approval),
+    approvals: supportTicketBatchReplyApprovalList(),
+  };
+}
+
+function sendSupportTicketBatchReplyApproval(admin, approvalId, body = {}) {
+  const approval = ensureSupportTicketBatchReplyApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '批量回复申请不存在', statusCode: 404 };
+  if (approval.status !== 'pending_approval') return { error: '只有待审批批量回复可以发送', statusCode: 409 };
+  const before = JSON.parse(JSON.stringify(approval));
+  const reason = adminReason(body, '审批发送批量客服回复');
+  const results = [];
+  for (const ticketId of approval.ticketIds || []) {
+    const ticket = findSupportTicket(ticketId);
+    if (!ticket) {
+      results.push({ error: '工单不存在', id: ticketId, ok: false });
+      continue;
+    }
+    if (ticket.status === 'closed' || ticket.status === 'resolved') {
+      results.push({ error: '工单已结束', id: ticketId, ok: false });
+      continue;
+    }
+    const result = replySupportTicket(admin, ticket, {
+      content: approval.content,
+      nextStatus: approval.nextStatus || 'waiting_user',
+      notifyUser: approval.notifyUser !== false,
+      reason,
+    });
+    if (result.error) results.push({ error: result.error, id: ticketId, ok: false });
+    else results.push({ id: ticketId, ok: true });
+  }
+  approval.approvedAt = new Date().toISOString();
+  approval.approvedBy = admin?.username || 'admin';
+  approval.errorCount = results.filter((item) => !item.ok).length;
+  approval.results = results;
+  approval.status = approval.errorCount ? 'sent_with_errors' : 'sent';
+  approval.successCount = results.filter((item) => item.ok).length;
+  writeAdminAudit(admin, 'ticket.batch_reply.approve', 'support_ticket_batch_reply', approval.id, before, approval, reason);
+  writeAdminAudit(admin, 'ticket.batch.update', 'support_ticket_batch', approval.id, null, {
+    action: 'batch_reply',
+    errorCount: approval.errorCount,
+    successCount: approval.successCount,
+    ticketCount: approval.ticketIds.length,
+    ticketIds: approval.ticketIds,
+  }, reason);
+  return {
+    approval: supportTicketBatchReplyApprovalItem(approval),
+    approvals: supportTicketBatchReplyApprovalList(),
+    errorCount: approval.errorCount,
+    results,
+    successCount: approval.successCount,
+  };
+}
+
+function cancelSupportTicketBatchReplyApproval(admin, approvalId, body = {}) {
+  const approval = ensureSupportTicketBatchReplyApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '批量回复申请不存在', statusCode: 404 };
+  if (approval.status !== 'pending_approval') return { error: '只有待审批批量回复可以取消', statusCode: 409 };
+  const before = JSON.parse(JSON.stringify(approval));
+  approval.canceledAt = new Date().toISOString();
+  approval.canceledBy = admin?.username || 'admin';
+  approval.cancelReason = adminReason(body, '取消批量客服回复');
+  approval.status = 'canceled';
+  writeAdminAudit(admin, 'ticket.batch_reply.cancel', 'support_ticket_batch_reply', approval.id, before, approval, approval.cancelReason);
+  return {
+    approval: supportTicketBatchReplyApprovalItem(approval),
+    approvals: supportTicketBatchReplyApprovalList(),
+  };
+}
+
 function adminSupportTickets(options = {}) {
   const q = String(options.q || '').trim().toLowerCase();
   const status = String(options.status || 'open');
@@ -15699,9 +16114,14 @@ function adminSupportTickets(options = {}) {
   const all = rawTickets.map(supportTicketItem);
   const assignees = supportAssigneesForAdmin();
   const support = currentOpsConfig().support || defaultOpsConfig().support;
+  const qualityPolicy = supportTicketQualityPolicy(support);
   return {
     assignees,
+    batchReplyApprovals: supportTicketBatchReplyApprovalList(),
     batchReview: supportTicketBatchReview(),
+    qualityKpi: supportTicketKpiSummary(rawTickets, assignees, qualityPolicy.qualityTargets),
+    qualityPolicy,
+    qualityReview: supportTicketQualityReviewQueue(rawTickets, assignees),
     quality: supportTicketQualitySummary(rawTickets, assignees),
     rosterConflicts: supportRosterConflicts(assignees),
     slaPolicy: {
@@ -17128,6 +17548,46 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     const result = adminHandleSupportTicketBatch(admin, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_TICKET_BATCH_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/tickets/batch-replies') {
+    const result = createSupportTicketBatchReplyApproval(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_TICKET_BATCH_REPLY_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminTicketBatchReplyMatch = pathname.match(/^\/admin\/tickets\/batch-replies\/([^/]+)\/(approve|cancel)$/);
+  if (req.method === 'POST' && adminTicketBatchReplyMatch) {
+    const approvalId = decodeURIComponent(adminTicketBatchReplyMatch[1]);
+    const action = adminTicketBatchReplyMatch[2];
+    const result = action === 'approve'
+      ? sendSupportTicketBatchReplyApproval(admin, approvalId, body)
+      : cancelSupportTicketBatchReplyApproval(admin, approvalId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_TICKET_BATCH_REPLY_ACTION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminTicketQualityReviewMatch = pathname.match(/^\/admin\/tickets\/quality-reviews\/([^/]+)$/);
+  if (req.method === 'POST' && adminTicketQualityReviewMatch) {
+    const ticketId = decodeURIComponent(adminTicketQualityReviewMatch[1]);
+    const result = adminReviewSupportTicketQuality(admin, ticketId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_TICKET_QUALITY_REVIEW_INVALID');
       return true;
     }
     saveState();

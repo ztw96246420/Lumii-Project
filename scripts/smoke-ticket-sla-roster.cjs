@@ -148,6 +148,9 @@ async function main() {
             { active: true, endTime: '23:59', id: 'agent_b', name: '小灵客服', role: '安全客服', startTime: '00:00', weekdays: [0, 1, 2, 3, 4, 5, 6] },
           ],
           firstResponseSlaHours: { high: 3, low: 24, normal: 8, urgent: 1 },
+          batchReply: { enabled: true, maxTickets: 5, requireApproval: true },
+          qualityReview: { enabled: true, lowRatingThreshold: 2, reopenThreshold: 1 },
+          qualityTargets: { avgRating: 4, firstResponseSlaRate: 90, lowRatingMax: 3, reopenRateMax: 10, resolutionSlaRate: 85 },
           resolutionSlaHours: { high: 18, low: 120, normal: 48, urgent: 6 },
           slaHours: { high: 18, low: 120, normal: 48, urgent: 6 },
         },
@@ -179,6 +182,9 @@ async function main() {
     assert.equal(adminTicketsBefore.data.slaPolicy.firstResponseSlaHours.urgent, 1);
     assert.equal(adminTicketsBefore.data.slaPolicy.resolutionSlaHours.urgent, 6);
     assert.ok(adminTicketsBefore.data.rosterConflicts.length >= 1, 'overlapping support shifts should be flagged');
+    assert.equal(adminTicketsBefore.data.qualityPolicy.batchReply.requireApproval, true);
+    assert.equal(adminTicketsBefore.data.qualityPolicy.batchReply.maxTickets, 5);
+    assert.equal(adminTicketsBefore.data.qualityKpi.targets.firstResponseSlaRate, 90);
     assert.equal(adminTicketsBefore.data.quality.firstResponseRate, 0);
     assert.equal(adminTicketsBefore.data.quality.noReplyOpen, 1);
     const adminTicketBefore = adminTicketsBefore.data.tickets.find((ticket) => ticket.id === ticketId);
@@ -237,6 +243,41 @@ async function main() {
       token: adminToken,
     });
 
+    const batchPhone = '19900007301';
+    const batchUserToken = await loginUser(batchPhone);
+    const batchFeedback = await request('/feedback', {
+      body: { category: 'bug', contact: 'batch-reply@example.com', content: '我的通知页点开反馈后没有及时刷新，请帮我看一下。' },
+      method: 'POST',
+      token: batchUserToken,
+    });
+    const batchTicketId = batchFeedback.data.supportTicketId;
+    const batchReplyDraft = await request('/admin/tickets/batch-replies', {
+      body: {
+        content: '你好，这条反馈我们已经收到，会继续排查并同步处理进度。',
+        nextStatus: 'waiting_user',
+        notifyUser: true,
+        reason: 'ticket batch reply smoke approval',
+        ticketIds: [batchTicketId],
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(batchReplyDraft.data.approval.status, 'pending_approval');
+    assert.equal(batchReplyDraft.data.approval.ticketCount, 1);
+
+    const batchReplyApproved = await request(`/admin/tickets/batch-replies/${encodeURIComponent(batchReplyDraft.data.approval.id)}/approve`, {
+      body: { reason: 'ticket batch reply smoke approved' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(batchReplyApproved.data.successCount, 1);
+
+    const batchDetail = await request(`/support/tickets/${encodeURIComponent(batchTicketId)}`, { token: batchUserToken });
+    assert.equal(batchDetail.data.status, 'waiting_user');
+    assert.ok(batchDetail.data.messages.some((message) => message.author === 'support' && message.content.includes('已经收到')));
+    const batchNotifications = await request('/notifications', { token: batchUserToken });
+    assert.ok(batchNotifications.data.some((item) => item.kind === 'support_reply' && item.ticketId === batchTicketId), 'batch reply should create mobile support notification');
+
     const adminTicketsAfter = await request('/admin/tickets?status=all', { token: adminToken });
     assert.equal(adminTicketsAfter.data.quality.firstResponseRate, 100);
     assert.equal(adminTicketsAfter.data.quality.firstResponseSlaRate, 100);
@@ -248,12 +289,15 @@ async function main() {
     assert.equal(agentAfterReply.resolutionSlaRate, 100);
     assert.equal(agentAfterReply.avgRating, 5);
     assert.ok(adminTicketsAfter.data.batchReview.items.some((item) => item.action === 'priority' && item.successCount === 1), 'batch review should include priority update');
+    assert.ok(adminTicketsAfter.data.batchReplyApprovals.items.some((item) => item.status === 'sent' && item.successCount === 1), 'batch reply approval should be visible after send');
 
     const audit = await request('/admin/audit-logs?limit=100', { token: adminToken });
     assert.ok(audit.data.items.some((item) => item.action === 'config.update'), 'config update should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'ticket.update' && item.targetId === ticketId), 'ticket assignment should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'ticket.reply.create' && item.targetId === ticketId), 'ticket reply should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'ticket.batch.update'), 'ticket batch review should be audited');
+    assert.ok(audit.data.items.some((item) => item.action === 'ticket.batch_reply.create'), 'batch reply creation should be audited');
+    assert.ok(audit.data.items.some((item) => item.action === 'ticket.batch_reply.approve'), 'batch reply approval should be audited');
 
     console.log('ticket SLA roster smoke passed');
   } finally {
