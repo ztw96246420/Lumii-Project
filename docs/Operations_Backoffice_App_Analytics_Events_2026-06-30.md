@@ -18,7 +18,7 @@
 - 事件写入 `state.appEvents`，按 `opsConfig.analytics.retentionDays` 清理，最多保留 8000 条。
 - 事件写入时会更新用户 `lastSeenAt`，用于轻量活跃口径。
 - 新增 `app_events.csv` 数据导出。
-- `/admin/analytics` 聚合页面浏览、首页模块曝光、AI 形象前端漏斗、发现曝光、宠友圈卡片曝光与互动、地图打开、POI 搜索、地点详情和通知点击。
+- `/admin/analytics` 聚合页面浏览、首页模块曝光、AI 形象前端漏斗、发现曝光、宠友圈卡片曝光与互动、地图打开、POI 搜索、地点详情、通知点击和系统通知批次点击。
 - `/admin/dashboard/summary` 增加移动端事件总量、事件用户数和最新事件时间。
 
 ### 后台
@@ -78,7 +78,7 @@
 | `map.place_detail_view` | 进入地点详情 | 地图列表或通知跳转 |
 | `map.favorite_toggle` | 收藏/取消收藏地点 | 地点详情 |
 | `map.navigation_open` | 打开高德导航 | 地点详情导航 |
-| `notification.open` | 点击通知 | 通知中心 |
+| `notification.open` | 点击通知；系统通知会携带 `campaignId` / `notificationId` 用于批次点击率 | 通知中心 |
 | `support.open` | 进入反馈进度 | 工单/反馈入口 |
 
 ## 隐私与数据最小化

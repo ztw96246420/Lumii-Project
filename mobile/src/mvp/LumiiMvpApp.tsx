@@ -4866,7 +4866,13 @@ export default function LumiiMvpApp() {
   async function openNotification(item: NotificationItem) {
     if (!item.read) void markNotificationReadSilently(item.id);
     const kind = notificationKindFor(item);
-    trackAppEvent('notification.open', { kind, route: item.actionRoute || '' });
+    trackAppEvent('notification.open', {
+      campaignId: item.campaignId || '',
+      category: item.category || '',
+      kind,
+      notificationId: item.id,
+      route: item.actionRoute || '',
+    });
     const conversationId = conversationIdFromNotification(item);
     const petCircleSourcePostId = petCirclePostIdFromNotification(item);
     if (kind === 'greeting_request' || kind === 'pet_circle_greeting') {

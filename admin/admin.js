@@ -2220,6 +2220,7 @@ function renderAnalyticsCharts(data) {
       { name: 'POI搜索', smooth: true, type: 'line', data: buckets.map((item) => item.poiSearches) },
       { name: '地点详情', smooth: true, type: 'line', data: buckets.map((item) => item.placeDetailViews) },
       { name: '通知点击', smooth: true, type: 'line', data: buckets.map((item) => item.notificationOpens) },
+      { name: '系统通知点击', smooth: true, type: 'line', data: buckets.map((item) => item.systemNotificationOpens || 0) },
     ],
   });
   renderChart('analyticsOpsChart', {
@@ -4456,9 +4457,13 @@ function renderNotificationCampaign(campaign) {
           <span>发送人：${escapeHtml(campaign.createdBy || '-')}</span>
           <span>目标：${campaign.audienceCount || 0}</span>
           <span>送达：${campaign.deliveredCount || 0}</span>
+          <span>已读：${numberText(campaign.readCount || 0)} / ${percentText(campaign.readRate || 0)}</span>
+          <span>点击：${numberText(campaign.uniqueOpenCount || 0)} 人 · ${numberText(campaign.openCount || 0)} 次</span>
+          <span>打开率：${percentText(campaign.openRate || 0)}</span>
           <span>跳转：${escapeHtml(notificationActionLabel(campaign.actionRoute))}</span>
           ${campaign.scheduledAt ? `<span>预约：${formatTime(campaign.scheduledAt)}</span>` : ''}
           ${campaign.deliveredAt ? `<span>发送：${formatTime(campaign.deliveredAt)}</span>` : ''}
+          ${campaign.latestOpenAt ? `<span>最近点击：${formatTime(campaign.latestOpenAt)}</span>` : ''}
           ${campaign.canceledAt ? `<span>撤回：${formatTime(campaign.canceledAt)}</span>` : ''}
           ${campaign.rateLimitSnapshot ? `<span>频控：${campaign.rateLimitSnapshot.campaignsLast24h || 0}/${campaign.rateLimitSnapshot.maxCampaignsPerDay || 0} 批</span>` : ''}
           <span>${campaign.respectUserSettings ? '尊重用户通知开关' : '重要通知强制入站'}</span>
@@ -4626,6 +4631,8 @@ async function renderNotifications(force) {
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('发送批次', summary.campaigns || 0, '系统通知历史', '每次后台发送系统通知都会形成一条发送记录，并写入审计日志。')}
+      ${metric('通知已读', numberText(summary.reads || 0), `${percentText(summary.readRate || 0)} 已读率`, '按系统通知批次写入 App 通知中心后的 read 状态回算，撤回后当前站内通知会减少。')}
+      ${metric('通知点击', numberText(summary.opens || 0), `${percentText(summary.openRate || 0)} 打开率`, '来自移动端 notification.open 事件；点击率按系统通知批次的去重点击人数 / 送达数计算。')}
       ${metric('用户总数', summary.users || 0, `${summary.activeToday || 0} 今日活跃`, '“今日活跃用户”目标按 lastSeenAt 近 24 小时计算。')}
       ${metric('推送设备', summary.devices || 0, '已登记 token', '当前只是设备登记和站内通知记录；真实厂商推送服务后续可接入。')}
       ${metric('待处理', (summary.drafts || 0) + (summary.scheduled || 0), `${summary.drafts || 0} 草稿 · ${summary.scheduled || 0} 预约`, '草稿不会触达用户；预约通知到点后由服务自动写入 App 通知中心。')}

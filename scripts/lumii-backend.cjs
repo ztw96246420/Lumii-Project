@@ -9677,9 +9677,10 @@ function markConversationRead(phone, conversationId) {
   const conversations = state.conversations[phone] || [];
   const conversation = conversations.find((item) => item.id === conversationId);
   if (conversation) conversation.unread = 0;
+  const now = new Date().toISOString();
   state.notifications[phone] = (state.notifications[phone] || []).map((notification) => {
     if (notification.read || !notificationBelongsToConversation(notification, conversationId)) return notification;
-    return { ...notification, read: true };
+    return { ...notification, read: true, readAt: notification.readAt || now };
   });
 }
 
@@ -9746,11 +9747,13 @@ function inferNotificationKind(notification) {
 function normalizeNotificationItem(notification, fallbackCategory) {
   const category = normalizeNotificationCategory(notification?.category || fallbackCategory || inferNotificationCategory(notification));
   const kind = normalizeNotificationKind(notification?.kind) || inferNotificationKind({ ...notification, category });
+  const createdAt = notification?.createdAt || new Date().toISOString();
   return {
     ...notification,
     category,
-    createdAt: notification?.createdAt || new Date().toISOString(),
+    createdAt,
     kind,
+    readAt: notification?.readAt || (notification?.read ? createdAt : ''),
   };
 }
 
@@ -9967,7 +9970,8 @@ function removeSocialNotificationsBetween(phoneA, phoneB) {
 function markNotificationsRead(phone, ids) {
   const idSet = Array.isArray(ids) && ids.length ? new Set(ids.map(String)) : null;
   normalizeNotificationsFor(phone);
-  state.notifications[phone] = (state.notifications[phone] || []).map((item) => (idSet && !idSet.has(item.id) ? item : { ...item, read: true }));
+  const now = new Date().toISOString();
+  state.notifications[phone] = (state.notifications[phone] || []).map((item) => (idSet && !idSet.has(item.id) ? item : { ...item, read: true, readAt: item.readAt || now }));
   return state.notifications[phone];
 }
 
@@ -10160,8 +10164,64 @@ function adminPushDevices() {
   }).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
 }
 
+function systemNotificationCampaignStats(campaignId, deliveredCount = 0) {
+  const id = String(campaignId || '');
+  if (!id) {
+    return {
+      currentInboxCount: 0,
+      latestOpenAt: '',
+      latestReadAt: '',
+      openCount: 0,
+      openRate: 0,
+      readCount: 0,
+      readRate: 0,
+      uniqueOpenCount: 0,
+      unreadCount: 0,
+    };
+  }
+  const notifications = [];
+  Object.entries(state.notifications || {}).forEach(([phone, items]) => {
+    if (!Array.isArray(items)) return;
+    items.forEach((item) => {
+      if (String(item?.campaignId || '') !== id) return;
+      notifications.push({ ...item, phone });
+    });
+  });
+  const readItems = notifications.filter((item) => item.read);
+  const openEvents = (Array.isArray(state.appEvents) ? state.appEvents : [])
+    .filter((event) => event?.name === 'notification.open')
+    .filter((event) => String(event.properties?.campaignId || '') === id);
+  const uniqueOpenKeys = new Set();
+  openEvents.forEach((event) => {
+    const notificationId = String(event.properties?.notificationId || '');
+    uniqueOpenKeys.add(notificationId || event.phone || event.deviceIdHash || event.id);
+  });
+  const denominator = Number(deliveredCount || notifications.length || 0);
+  const latestOpenAt = openEvents
+    .map((event) => event.createdAt || event.occurredAt || '')
+    .filter(Boolean)
+    .sort((a, b) => String(b).localeCompare(String(a)))[0] || '';
+  const latestReadAt = readItems
+    .map((item) => item.readAt || item.createdAt || '')
+    .filter(Boolean)
+    .sort((a, b) => String(b).localeCompare(String(a)))[0] || '';
+  return {
+    currentInboxCount: notifications.length,
+    latestOpenAt,
+    latestReadAt,
+    openCount: openEvents.length,
+    openRate: analyticsPercent(uniqueOpenKeys.size, denominator),
+    readCount: readItems.length,
+    readRate: analyticsPercent(readItems.length, denominator),
+    uniqueOpenCount: uniqueOpenKeys.size,
+    unreadCount: notifications.filter((item) => !item.read).length,
+  };
+}
+
 function systemNotificationItem(item) {
   const targetPhones = Array.isArray(item.targetPhones) ? item.targetPhones : [];
+  const deliveredCount = Number(item.deliveredCount || 0);
+  const effectStats = systemNotificationCampaignStats(item.id, deliveredCount || targetPhones.length || Number(item.audienceCount || 0));
   return {
     actionRoute: item.actionRoute || '',
     audienceCount: Number(item.audienceCount || targetPhones.length || 0),
@@ -10170,13 +10230,19 @@ function systemNotificationItem(item) {
     createdAt: item.createdAt,
     createdBy: item.createdBy || 'admin',
     deliveredAt: item.deliveredAt || '',
-    deliveredCount: Number(item.deliveredCount || 0),
+    deliveredCount,
     failedPhones: Array.isArray(item.failedPhones) ? item.failedPhones.slice(0, 20) : [],
     failedReason: item.failedReason || '',
     id: item.id,
+    latestOpenAt: effectStats.latestOpenAt,
+    latestReadAt: effectStats.latestReadAt,
     mode: item.mode || (item.status === 'draft' ? 'draft' : item.status === 'scheduled' ? 'scheduled' : 'send'),
+    openCount: effectStats.openCount,
+    openRate: effectStats.openRate,
     phonesInput: item.phonesInput || '',
     rateLimitSnapshot: item.rateLimitSnapshot || null,
+    readCount: effectStats.readCount,
+    readRate: effectStats.readRate,
     rateLimitedCount: Number(item.rateLimitedCount || 0),
     rateLimitedPhones: Array.isArray(item.rateLimitedPhones) ? item.rateLimitedPhones.slice(0, 20) : [],
     respectUserSettings: item.respectUserSettings !== false,
@@ -10188,6 +10254,8 @@ function systemNotificationItem(item) {
     targetPhones: targetPhones.slice(0, 30),
     text: item.text || '',
     title: item.title || '',
+    uniqueOpenCount: effectStats.uniqueOpenCount,
+    unreadCount: effectStats.unreadCount,
   };
 }
 
@@ -10198,6 +10266,10 @@ function adminSystemNotifications() {
     .slice(0, 200);
   const devices = adminPushDevices();
   const users = Object.values(state.users || {});
+  const sentCampaigns = campaigns.filter((item) => item.status === 'sent');
+  const deliveredCount = sentCampaigns.reduce((sum, item) => sum + Number(item.deliveredCount || 0), 0);
+  const openCount = sentCampaigns.reduce((sum, item) => sum + Number(item.uniqueOpenCount || 0), 0);
+  const readCount = sentCampaigns.reduce((sum, item) => sum + Number(item.readCount || 0), 0);
   return {
     campaigns,
     devices: devices.slice(0, 200),
@@ -10205,8 +10277,13 @@ function adminSystemNotifications() {
     summary: {
       activeToday: users.filter((user) => Date.now() - Number(user.lastSeenAt || 0) < 24 * 60 * 60 * 1000).length,
       campaigns: campaigns.length,
+      delivered: deliveredCount,
       devices: devices.length,
       drafts: campaigns.filter((item) => item.status === 'draft').length,
+      openRate: analyticsPercent(openCount, deliveredCount),
+      opens: openCount,
+      readRate: analyticsPercent(readCount, deliveredCount),
+      reads: readCount,
       scheduled: campaigns.filter((item) => item.status === 'scheduled').length,
       users: users.length,
     },
@@ -12237,6 +12314,7 @@ function analyticsWindow(daysInput) {
       socialImages: 0,
       socialLikes: 0,
       socialPosts: 0,
+      systemNotificationOpens: 0,
       tickets: 0,
       walkInvites: 0,
     });
@@ -12379,6 +12457,7 @@ function adminAnalytics(options = {}) {
     if (event.name === 'map.poi_search') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'poiSearches');
     if (event.name === 'map.place_detail_view') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'placeDetailViews');
     if (event.name === 'notification.open') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'notificationOpens');
+    if (event.name === 'notification.open' && event.properties?.campaignId) incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'systemNotificationOpens');
     if (event.name === 'pet_circle.card_exposure') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'petCircleCardExposures', eventAmount);
     if (event.name === 'pet_circle.comment_click') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'petCircleCommentClicks');
     if (event.name === 'pet_circle.greeting_click') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'petCircleGreetingClicks');
@@ -12410,7 +12489,7 @@ function adminAnalytics(options = {}) {
     buckets,
     dataGaps: [
       { label: '严格留存 Cohort', reason: '当前已有页面浏览事件，可做轻量 DAU；严格留存还需要独立事件表、设备去重和长期窗口。' },
-      { label: 'Push 真实送达/点击', reason: '当前只记录站内通知与设备 token，未接厂商回执。' },
+      { label: 'Push 厂商回执', reason: '当前已记录站内通知已读和点击，仍未接厂商 Push 的真实下发、展示和点击回执。' },
       { label: '第三方地图导航完成', reason: '当前只能记录打开导航动作，无法确认用户是否完成高德导航。' },
     ],
     days,
@@ -12460,6 +12539,7 @@ function adminAnalytics(options = {}) {
         petCircleCardExposures: sumAnalyticsBuckets(buckets, 'petCircleCardExposures'),
         retentionDays: Number(config.analytics?.retentionDays || 30),
         sampleRatePercent: Number(config.analytics?.sampleRatePercent ?? 100),
+        systemNotificationOpens: sumAnalyticsBuckets(buckets, 'systemNotificationOpens'),
         total: sumAnalyticsBuckets(buckets, 'appEvents'),
         uniqueUsers: appEventUsers.size,
       },

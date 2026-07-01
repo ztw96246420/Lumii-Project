@@ -503,6 +503,7 @@ export type NotificationItem = {
   placeId?: string;
   postId?: string;
   read: boolean;
+  readAt?: string;
   submissionId?: string;
   ticketId?: string;
   text: string;
