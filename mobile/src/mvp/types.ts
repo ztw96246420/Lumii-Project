@@ -516,6 +516,8 @@ export type NotificationItem = {
   postId?: string;
   read: boolean;
   readAt?: string;
+  reportAppealId?: string;
+  reportId?: string;
   submissionId?: string;
   ticketId?: string;
   text: string;
@@ -624,26 +626,55 @@ export type FeedbackSubmission = {
 export type SanctionAppealStatus = 'approved' | 'closed' | 'pending' | 'rejected' | 'reviewing';
 
 export type SanctionAppealItem = {
+  appealType?: 'report' | 'sanction';
   content: string;
   createdAt: string;
   duplicate?: boolean;
   id: string;
+  reportId?: string;
+  reportReason?: string;
+  reportRole?: 'owner' | 'reporter';
+  reportRoleLabel?: string;
+  reportStatus?: string;
+  reportStatusLabel?: string;
   reviewReason?: string;
   reviewedAt?: string;
-  sanctionId: string;
+  sanctionId?: string;
   sanctionReason?: string;
   sanctionStatus?: string;
-  sanctionType: string;
+  sanctionType?: string;
   sanctionTypeLabel: string;
   status: SanctionAppealStatus;
+  subjectLabel?: string;
+  targetId?: string;
+  targetLabel?: string;
+  targetType?: string;
+  title?: string;
+  updatedAt?: string;
+};
+
+export type ReportAppealTarget = {
+  createdAt?: string;
+  reportId: string;
+  reportRole?: 'owner' | 'reporter';
+  reportRoleLabel?: string;
+  reportStatus?: string;
+  reportStatusLabel?: string;
+  reviewReason?: string;
+  targetId?: string;
+  targetLabel?: string;
+  targetType?: string;
+  title?: string;
   updatedAt?: string;
 };
 
 export type SanctionAppealList = {
   appeals: SanctionAppealItem[];
+  reportAppealTargets?: ReportAppealTarget[];
   summary: {
     all: number;
     open: number;
+    reportTargets?: number;
   };
 };
 

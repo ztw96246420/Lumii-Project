@@ -2233,7 +2233,7 @@ function maintenanceMessage() {
 function failIfMaintenanceWriteBlocked(req, pathname, res) {
   if (!currentOpsConfig().app.maintenanceEnabled) return false;
   if (req.method === 'GET') return false;
-  if (['/analytics/events', '/auth/logout', '/auth/token/refresh', '/feedback', '/notifications/read'].includes(pathname) || pathname.startsWith('/support/tickets') || pathname.startsWith('/sanction-appeals')) return false;
+  if (['/analytics/events', '/auth/logout', '/auth/token/refresh', '/feedback', '/notifications/read'].includes(pathname) || pathname.startsWith('/support/tickets') || pathname.startsWith('/sanction-appeals') || pathname.startsWith('/report-appeals')) return false;
   fail(res, 503, maintenanceMessage(), true, { maintenanceEnabled: true }, 'APP_MAINTENANCE');
   return true;
 }
@@ -3854,10 +3854,113 @@ function appealableSanctionFor(user, sanctionId = '') {
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] || null;
 }
 
+function appealTypeFor(appeal) {
+  return appeal?.appealType === 'report' || appeal?.reportId ? 'report' : 'sanction';
+}
+
+function normalizeAppealContent(body = {}) {
+  const content = String(body.content || '').replace(/\s+/g, ' ').trim();
+  if (!content) return { error: '请填写申诉说明', statusCode: 400 };
+  if (content.length < 8) return { error: '申诉说明至少 8 个字', statusCode: 400 };
+  if (content.length > 1000) return { error: '申诉说明最多 1000 个字', statusCode: 400 };
+  return { content };
+}
+
+function reportStatusLabel(status) {
+  const value = String(status || 'pending');
+  if (value === 'valid') return '举报有效';
+  if (value === 'invalid') return '举报无效';
+  if (value === 'closed') return '已关闭';
+  if (value === 'escalated') return '已升级';
+  if (value === 'reviewing') return '处理中';
+  return '待处理';
+}
+
+function reportAppealRoleLabel(role) {
+  return role === 'owner' ? '被举报方' : '举报人';
+}
+
+function appealableReportsForUser(user) {
+  if (!user?.phone) return [];
+  const openAppeals = new Set(ensureSanctionAppeals()
+    .filter((appeal) => appealTypeFor(appeal) === 'report' && appeal.phone === user.phone && (appeal.status === 'pending' || appeal.status === 'reviewing'))
+    .map((appeal) => appeal.reportId)
+    .filter(Boolean));
+  return ensureSocialReports()
+    .filter((report) => report.phone === user.phone || report.ownerPhone === user.phone)
+    .filter((report) => ['valid', 'invalid', 'closed'].includes(String(report.status || 'pending')))
+    .filter((report) => !openAppeals.has(report.id))
+    .map((report) => {
+      const role = report.ownerPhone === user.phone ? 'owner' : 'reporter';
+      const targetLabel = socialReportTargetLabel(report.targetType);
+      return {
+        createdAt: report.createdAt,
+        reportId: report.id,
+        reportRole: role,
+        reportRoleLabel: reportAppealRoleLabel(role),
+        reportStatus: report.status || 'pending',
+        reportStatusLabel: reportStatusLabel(report.status),
+        reviewReason: report.reviewReason || '',
+        targetId: report.targetId,
+        targetLabel,
+        targetType: report.targetType,
+        title: `${targetLabel} · ${reportStatusLabel(report.status)}`,
+        updatedAt: report.reviewedAt || report.createdAt,
+      };
+    })
+    .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))
+    .slice(0, 20);
+}
+
+function appealableReportFor(user, reportId = '') {
+  const id = String(reportId || '').trim();
+  if (!id || !user?.phone) return null;
+  const report = ensureSocialReports().find((item) => item.id === id);
+  if (!report) return null;
+  if (report.phone !== user.phone && report.ownerPhone !== user.phone) return null;
+  if (!['valid', 'invalid', 'closed'].includes(String(report.status || 'pending'))) return null;
+  return report;
+}
+
 function publicSanctionAppealItem(appeal) {
+  const appealType = appealTypeFor(appeal);
+  if (appealType === 'report') {
+    const report = ensureSocialReports().find((item) => item.id === appeal.reportId);
+    const status = sanctionAppealStatusFor(appeal.status);
+    const targetType = appeal.reportTargetType || report?.targetType || '';
+    const targetLabel = appeal.reportTargetLabel || socialReportTargetLabel(targetType);
+    const reportStatus = appeal.reportStatus || report?.status || '';
+    return {
+      appealType: 'report',
+      content: appeal.content || '',
+      createdAt: appeal.createdAt,
+      id: appeal.id,
+      reportId: appeal.reportId || '',
+      reportReason: appeal.reportReason || report?.reviewReason || '',
+      reportRole: appeal.reportRole || (report?.ownerPhone === appeal.phone ? 'owner' : 'reporter'),
+      reportRoleLabel: reportAppealRoleLabel(appeal.reportRole || (report?.ownerPhone === appeal.phone ? 'owner' : 'reporter')),
+      reportStatus,
+      reportStatusLabel: reportStatusLabel(reportStatus),
+      reviewReason: appeal.reviewReason || '',
+      reviewedAt: appeal.reviewedAt || '',
+      sanctionId: '',
+      sanctionReason: '',
+      sanctionStatus: '',
+      sanctionType: '',
+      sanctionTypeLabel: targetLabel,
+      status,
+      subjectLabel: `${targetLabel}举报处理`,
+      targetId: appeal.reportTargetId || report?.targetId || '',
+      targetLabel,
+      targetType,
+      title: `${targetLabel}举报处理申诉`,
+      updatedAt: appeal.updatedAt || appeal.createdAt,
+    };
+  }
   const sanction = findUserSanction(appeal.phone, appeal.sanctionId);
   const status = sanctionAppealStatusFor(appeal.status);
   return {
+    appealType: 'sanction',
     content: appeal.content || '',
     createdAt: appeal.createdAt,
     id: appeal.id,
@@ -3869,6 +3972,8 @@ function publicSanctionAppealItem(appeal) {
     sanctionType: appeal.sanctionType || sanction?.type || '',
     sanctionTypeLabel: SANCTION_TYPE_LABELS[appeal.sanctionType || sanction?.type] || appeal.sanctionType || sanction?.type || '账号限制',
     status,
+    subjectLabel: '账号限制申诉',
+    title: '账号限制申诉',
     updatedAt: appeal.updatedAt || appeal.createdAt,
   };
 }
@@ -3877,13 +3982,15 @@ function adminSanctionAppealItem(appeal) {
   const user = state.users?.[appeal.phone];
   const sanction = findUserSanction(appeal.phone, appeal.sanctionId);
   const pet = user ? selectedPetFor(user) : null;
+  const publicItem = publicSanctionAppealItem(appeal);
   return {
-    ...publicSanctionAppealItem(appeal),
+    ...publicItem,
     handledBy: appeal.handledBy || '',
     ownerName: user?.ownerName || appeal.ownerName || `用户${String(appeal.phone || '').slice(-4)}`,
     petName: pet?.name || '',
     phone: appeal.phone,
-    revokeSanction: appeal.revokeSanction !== false,
+    report: publicItem.appealType === 'report' ? adminSocialReports().find((item) => item.id === publicItem.reportId) || null : null,
+    revokeSanction: publicItem.appealType === 'sanction' && appeal.revokeSanction !== false,
     sanction: sanction ? adminSanctionItem(sanction) : null,
   };
 }
@@ -3893,20 +4000,25 @@ function sanctionAppealsForUser(user) {
     .filter((appeal) => appeal.phone === user.phone)
     .map(publicSanctionAppealItem)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const reportAppealTargets = appealableReportsForUser(user);
   return {
     appeals,
+    reportAppealTargets,
     summary: {
       all: appeals.length,
       open: appeals.filter((appeal) => appeal.status === 'pending' || appeal.status === 'reviewing').length,
+      reportTargets: reportAppealTargets.length,
     },
   };
 }
 
 function adminSanctionAppeals(options = {}) {
   const status = String(options.status || 'open');
+  const type = String(options.type || 'all');
   const q = String(options.q || '').trim().toLowerCase();
   const all = ensureSanctionAppeals().map(adminSanctionAppealItem);
   const appeals = all
+    .filter((appeal) => type === 'all' || appeal.appealType === type)
     .filter((appeal) => {
       if (status === 'all') return true;
       if (status === 'open') return appeal.status === 'pending' || appeal.status === 'reviewing';
@@ -3914,7 +4026,7 @@ function adminSanctionAppeals(options = {}) {
     })
     .filter((appeal) => {
       if (!q) return true;
-      return [appeal.id, appeal.phone, appeal.ownerName, appeal.petName, appeal.content, appeal.reviewReason, appeal.sanctionReason, appeal.sanctionTypeLabel]
+      return [appeal.id, appeal.phone, appeal.ownerName, appeal.petName, appeal.content, appeal.reviewReason, appeal.sanctionReason, appeal.sanctionTypeLabel, appeal.reportId, appeal.reportReason, appeal.reportStatusLabel, appeal.reportRoleLabel, appeal.targetId, appeal.targetLabel]
         .some((value) => String(value || '').toLowerCase().includes(q));
     })
     .sort((a, b) => {
@@ -3929,6 +4041,8 @@ function adminSanctionAppeals(options = {}) {
       open: all.filter((appeal) => appeal.status === 'pending' || appeal.status === 'reviewing').length,
       pending: all.filter((appeal) => appeal.status === 'pending').length,
       rejected: all.filter((appeal) => appeal.status === 'rejected').length,
+      report: all.filter((appeal) => appeal.appealType === 'report').length,
+      sanction: all.filter((appeal) => appeal.appealType === 'sanction').length,
       reviewing: all.filter((appeal) => appeal.status === 'reviewing').length,
     },
   };
@@ -3938,18 +4052,18 @@ function createSanctionAppeal(user, body = {}) {
   const sanction = appealableSanctionFor(user, String(body.sanctionId || '').trim());
   if (!sanction) return { error: '当前没有可申诉的生效账号限制', statusCode: 400 };
   const duplicate = ensureSanctionAppeals().find((appeal) =>
+    appealTypeFor(appeal) === 'sanction' &&
     appeal.phone === user.phone &&
     appeal.sanctionId === sanction.id &&
     (appeal.status === 'pending' || appeal.status === 'reviewing')
   );
   if (duplicate) return { appeal: duplicate, duplicate: true };
-  const content = String(body.content || '').replace(/\s+/g, ' ').trim();
-  if (!content) return { error: '请填写申诉说明', statusCode: 400 };
-  if (content.length < 8) return { error: '申诉说明至少 8 个字', statusCode: 400 };
-  if (content.length > 1000) return { error: '申诉说明最多 1000 个字', statusCode: 400 };
+  const normalized = normalizeAppealContent(body);
+  if (normalized.error) return normalized;
   const now = new Date().toISOString();
   const appeal = {
-    content,
+    appealType: 'sanction',
+    content: normalized.content,
     createdAt: now,
     id: `appeal-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     ownerName: user.ownerName || '',
@@ -3964,21 +4078,90 @@ function createSanctionAppeal(user, body = {}) {
   return { appeal };
 }
 
+function createReportAppeal(user, body = {}) {
+  const report = appealableReportFor(user, String(body.reportId || '').trim());
+  if (!report) return { error: '当前没有可申诉的举报处理结果', statusCode: 400 };
+  const duplicate = ensureSanctionAppeals().find((appeal) =>
+    appealTypeFor(appeal) === 'report' &&
+    appeal.phone === user.phone &&
+    appeal.reportId === report.id &&
+    (appeal.status === 'pending' || appeal.status === 'reviewing')
+  );
+  if (duplicate) return { appeal: duplicate, duplicate: true };
+  const normalized = normalizeAppealContent(body);
+  if (normalized.error) return normalized;
+  const now = new Date().toISOString();
+  const role = report.ownerPhone === user.phone ? 'owner' : 'reporter';
+  const appeal = {
+    appealType: 'report',
+    content: normalized.content,
+    createdAt: now,
+    id: `report-appeal-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    ownerName: user.ownerName || '',
+    phone: user.phone,
+    reportId: report.id,
+    reportReason: report.reviewReason || '',
+    reportRole: role,
+    reportStatus: report.status || 'pending',
+    reportTargetId: report.targetId || '',
+    reportTargetLabel: socialReportTargetLabel(report.targetType),
+    reportTargetType: report.targetType || '',
+    status: 'pending',
+    updatedAt: now,
+  };
+  ensureSanctionAppeals().unshift(appeal);
+  report.lastAppealedAt = now;
+  report.appealCount = Number(report.appealCount || 0) + 1;
+  return { appeal };
+}
+
+function notifyReportAppealEvent(appeal, title, text, suffix) {
+  if (!appeal?.phone || !state.users?.[appeal.phone]) return false;
+  return addNotification(appeal.phone, {
+    actionRoute: 'safety',
+    category: 'system',
+    createdAt: new Date().toISOString(),
+    id: `n-report-appeal-${appeal.id}-${suffix}`,
+    kind: 'system',
+    read: false,
+    reportAppealId: appeal.id,
+    reportId: appeal.reportId || '',
+    text,
+    title,
+  }, 'system', { force: true });
+}
+
 function handleSanctionAppeal(admin, appeal, action, body = {}) {
   const before = JSON.parse(JSON.stringify(appeal));
   const now = new Date().toISOString();
   const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  const appealType = appealTypeFor(appeal);
   if (action === 'review') {
     appeal.status = 'reviewing';
     appeal.handledBy = admin?.username || 'admin';
     appeal.updatedAt = now;
-    writeAdminAudit(admin, 'sanction.appeal.review', 'sanction_appeal', appeal.id, before, appeal, reason || '申诉接手处理');
+    writeAdminAudit(admin, appealType === 'report' ? 'report.appeal.review' : 'sanction.appeal.review', appealType === 'report' ? 'report_appeal' : 'sanction_appeal', appeal.id, before, appeal, reason || '申诉接手处理');
     return { appeal };
   }
   if ((action === 'approve' || action === 'reject') && !reason) {
     return { error: '请填写处理说明', statusCode: 400 };
   }
   if (action === 'approve') {
+    if (appealType === 'report') {
+      appeal.status = 'approved';
+      appeal.reviewReason = reason;
+      appeal.reviewedAt = now;
+      appeal.handledBy = admin?.username || 'admin';
+      appeal.updatedAt = now;
+      const report = ensureSocialReports().find((item) => item.id === appeal.reportId);
+      if (report) {
+        report.lastAppealStatus = 'approved';
+        report.lastAppealReviewedAt = now;
+      }
+      notifyReportAppealEvent(appeal, '举报申诉已通过', `你对举报处理结果的申诉已通过。处理说明：${reason}`, `approved-${now}`);
+      writeAdminAudit(admin, 'report.appeal.approve', 'report_appeal', appeal.id, before, appeal, reason);
+      return { appeal };
+    }
     const sanction = findUserSanction(appeal.phone, appeal.sanctionId);
     appeal.status = 'approved';
     appeal.reviewReason = reason;
@@ -4000,6 +4183,21 @@ function handleSanctionAppeal(admin, appeal, action, body = {}) {
     return { appeal };
   }
   if (action === 'reject') {
+    if (appealType === 'report') {
+      appeal.status = 'rejected';
+      appeal.reviewReason = reason;
+      appeal.reviewedAt = now;
+      appeal.handledBy = admin?.username || 'admin';
+      appeal.updatedAt = now;
+      const report = ensureSocialReports().find((item) => item.id === appeal.reportId);
+      if (report) {
+        report.lastAppealStatus = 'rejected';
+        report.lastAppealReviewedAt = now;
+      }
+      notifyReportAppealEvent(appeal, '举报申诉已处理', `你对举报处理结果的申诉未通过。处理说明：${reason}`, `rejected-${now}`);
+      writeAdminAudit(admin, 'report.appeal.reject', 'report_appeal', appeal.id, before, appeal, reason);
+      return { appeal };
+    }
     appeal.status = 'rejected';
     appeal.reviewReason = reason;
     appeal.reviewedAt = now;
@@ -4029,7 +4227,7 @@ function mutedRestrictionFor(user) {
 }
 
 function allowRestrictedWrite(pathname) {
-  return pathname === '/analytics/events' || pathname === '/auth/token/refresh' || pathname === '/feedback' || pathname === '/notifications/read' || pathname.startsWith('/support/tickets') || pathname.startsWith('/sanction-appeals');
+  return pathname === '/analytics/events' || pathname === '/auth/token/refresh' || pathname === '/feedback' || pathname === '/notifications/read' || pathname.startsWith('/support/tickets') || pathname.startsWith('/sanction-appeals') || pathname.startsWith('/report-appeals');
 }
 
 function failIfAccountRestricted(user, req, pathname, res) {
@@ -11265,16 +11463,17 @@ function adminUserTimeline(phone, options = {}) {
   ensureSanctionAppeals()
     .filter((appeal) => appeal.phone === normalizedPhone)
     .forEach((appeal) => {
+      const isReportAppeal = appealTypeFor(appeal) === 'report';
       adminTimelineAdd(items, {
         createdAt: appeal.reviewedAt || appeal.updatedAt || appeal.createdAt,
         detail: appeal.content || appeal.reviewReason || '',
         id: `safety:appeal:${appeal.id}`,
         kind: 'safety',
         status: appeal.status,
-        targetId: appeal.sanctionId || appeal.id,
-        targetLabel: appeal.sanctionId || appeal.id,
-        targetType: 'sanction_appeal',
-        title: '账号处罚申诉',
+        targetId: isReportAppeal ? appeal.reportId || appeal.id : appeal.sanctionId || appeal.id,
+        targetLabel: isReportAppeal ? socialReportTargetLabel(appeal.reportTargetType) : appeal.sanctionId || appeal.id,
+        targetType: isReportAppeal ? 'report_appeal' : 'sanction_appeal',
+        title: isReportAppeal ? '举报处理申诉' : '账号处罚申诉',
         tone: appeal.status === 'approved' ? 'ok' : appeal.status === 'rejected' ? 'bad' : 'warn',
       });
     });
@@ -12440,7 +12639,7 @@ function adminSystemHealth() {
       { detail: `${moderation.pending || 0} 待处理 / ${moderation.escalated || 0} 已升级`, label: '内容安全任务', status: moderation.escalated ? 'warn' : 'ok', value: moderation.pending || 0 },
       { detail: `${moderation.sampleUnreviewed || 0} 待复审 / ${moderation.qualitySamples || 0} 抽样`, label: '内容安全样本', status: moderation.sampleUnreviewed ? 'warn' : 'ok', value: moderation.sampleUnreviewed || 0 },
       { detail: `${tickets.open || 0} 未关闭 / ${tickets.overdue || 0} 已超时`, label: '客服工单', status: tickets.overdue ? 'warn' : 'ok', value: tickets.open || 0 },
-      { detail: `${appeals.open || 0} 待处理 / ${appeals.pending || 0} 新申诉`, label: '处罚申诉', status: appeals.open ? 'warn' : 'ok', value: appeals.open || 0 },
+      { detail: `${appeals.open || 0} 待处理 / ${appeals.pending || 0} 新申诉`, label: '申诉处理', status: appeals.open ? 'warn' : 'ok', value: appeals.open || 0 },
       { detail: `${notifications.campaigns || 0} 批次 / ${notifications.devices || 0} 设备`, label: '通知运营', status: 'ok', value: notifications.campaigns || 0 },
       { detail: `${appEvents.uniqueUsers || 0} 用户 / 最近 ${appEvents.latestAt ? new Date(appEvents.latestAt).toISOString() : '无'}`, label: '移动端事件', status: config.analytics?.enabled === false ? 'warn' : 'ok', value: appEvents.total || 0 },
     ],
@@ -12485,7 +12684,7 @@ function adminPermissionCatalog() {
     ['moderation.sample_review', '复审内容安全命中与抽样样本', '内容安全'],
     ['social.report.process', '处理举报', '社区安全'],
     ['user.sanction', '创建或撤销处罚', '社区安全'],
-    ['sanction.appeal.process', '处理处罚申诉', '社区安全'],
+    ['sanction.appeal.process', '处理账号/举报申诉', '社区安全'],
     ['place.moderate', '审核地点点评和新增地点', '地点'],
     ['support.ticket.process', '处理客服工单', '客服'],
     ['notification.send', '发送、预约、撤回系统通知', '通知'],
@@ -12710,11 +12909,11 @@ function adminReadinessModules(context) {
     },
     {
       key: 'reports',
-      module: '举报与处罚申诉',
+      module: '举报与申诉',
       group: '安全',
       status: 'partial',
-      evidence: '举报可处理有效/无效/关闭，证据快照、处罚建议、一键处罚、处罚撤销和申诉处理已接入。',
-      mobileLinkage: '有效举报和处罚会通知作者；处罚会限制移动端写接口，用户可在安全中心提交申诉。',
+      evidence: '举报可处理有效/无效/关闭，证据快照、处罚建议、一键处罚、处罚撤销、账号申诉和举报处理申诉已接入。',
+      mobileLinkage: '有效举报和处罚会通知作者；处罚会限制移动端写接口，用户可在安全中心提交账号限制申诉或举报处理申诉。',
       nextStep: '永久封禁、批量处罚和高风险处罚建议需要双人审批。',
     },
     {
@@ -16754,6 +16953,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     ok(res, adminSanctionAppeals({
       q: url.searchParams.get('q') || '',
       status: url.searchParams.get('status') || 'open',
+      type: url.searchParams.get('type') || 'all',
     }));
     return true;
   }
@@ -17761,6 +17961,20 @@ async function handle(req, res) {
     const result = createSanctionAppeal(user, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'SANCTION_APPEAL_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, {
+      ...publicSanctionAppealItem(result.appeal),
+      duplicate: Boolean(result.duplicate),
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/report-appeals') {
+    const result = createReportAppeal(user, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'REPORT_APPEAL_INVALID');
       return;
     }
     saveState();

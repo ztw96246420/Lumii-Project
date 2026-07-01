@@ -13,6 +13,7 @@ const state = {
   auditTo: '',
   appealQ: '',
   appealStatus: 'open',
+  appealType: 'all',
   cache: {},
   exportFrom: '',
   exportPhone: '',
@@ -97,7 +98,7 @@ const titles = {
   pets: ['宠物档案', '宠物资料、头像、AI 形象和关联记录排查'],
   places: ['地图地点', '地点点评与新增地点审核'],
   reports: ['举报中心', '宠友圈举报处理闭环'],
-  sanctionAppeals: ['申诉中心', '账号处罚申诉、复核和撤销联动'],
+  sanctionAppeals: ['申诉中心', '账号处罚申诉、举报处理申诉和复核通知'],
   sanctions: ['用户处罚', '禁言、冻结、封禁与撤销记录'],
   socialRelations: ['关系消息', '招呼、约遛、会话和通知链路排查'],
   socialPosts: ['宠友圈', '动态与评论内容安全'],
@@ -533,6 +534,7 @@ async function onContentClick(event) {
     if (action === 'ticket-reply-template-delete') await confirmPost(`/admin/tickets/reply-templates/${encodeURIComponent(id)}/delete`, { reason: '删除客服回复模板' }, '确认删除这个客服回复模板？');
     if (action === 'appeal-filter') {
       state.appealStatus = $('appealStatus').value;
+      state.appealType = $('appealType').value;
       state.appealQ = $('appealQ').value.trim();
       state.cache = { ...state.cache, sanctionAppeals: null };
       await render(true);
@@ -540,6 +542,7 @@ async function onContentClick(event) {
     }
     if (action === 'appeal-clear') {
       state.appealStatus = 'open';
+      state.appealType = 'all';
       state.appealQ = '';
       state.cache = { ...state.cache, sanctionAppeals: null };
       await render(true);
@@ -3436,6 +3439,7 @@ async function renderSanctionAppeals(force) {
   const query = new URLSearchParams({
     q: state.appealQ,
     status: state.appealStatus,
+    type: state.appealType,
   });
   const data = await load('sanctionAppeals', `/admin/sanction-appeals?${query}`, force);
   const appeals = data.appeals || [];
@@ -3446,16 +3450,22 @@ async function renderSanctionAppeals(force) {
       ${metric('处理中', summary.reviewing || 0, '已接手', '接手后代表有运营正在复核。')}
       ${metric('已通过', summary.approved || 0, '可联动撤销处罚', '通过时可选择同时撤销原处罚。')}
       ${metric('未通过', summary.rejected || 0, '保留处罚', '驳回后会把处理说明同步给用户。')}
+      ${metric('举报申诉', summary.report || 0, `${summary.sanction || 0} 条账号申诉`, '举报处理申诉只复核处理结果，不自动恢复内容或撤销处罚。')}
     </div>
     <div class="card">
       <div class="section-head">
         <div>
-          <h2>账号申诉队列</h2>
-          <div class="section-sub">用户对禁言、冻结、封禁发起申诉；处理结果会进入 App 通知中心</div>
+          <h2>申诉队列</h2>
+          <div class="section-sub">账号限制申诉与举报处理申诉；处理结果会进入 App 通知中心</div>
         </div>
-        ${help('通过申诉时默认撤销对应处罚；如果只认可申诉但不撤销，可取消卡片内的复选框。')}
+        ${help('账号限制申诉通过时默认撤销对应处罚；举报处理申诉通过只代表运营认可用户异议，需要再按具体内容去恢复、撤销处罚或补充说明。')}
       </div>
       <div class="toolbar">
+        <select id="appealType">
+          ${option('all', '全部类型', state.appealType)}
+          ${option('sanction', '账号限制', state.appealType)}
+          ${option('report', '举报处理', state.appealType)}
+        </select>
         <select id="appealStatus">
           ${option('open', '未关闭', state.appealStatus)}
           ${option('pending', '待处理', state.appealStatus)}
@@ -3464,19 +3474,22 @@ async function renderSanctionAppeals(force) {
           ${option('rejected', '未通过', state.appealStatus)}
           ${option('all', '全部', state.appealStatus)}
         </select>
-        <input id="appealQ" placeholder="手机号、内容、处罚原因" value="${escapeHtml(state.appealQ)}" />
+        <input id="appealQ" placeholder="手机号、内容、处罚/举报原因" value="${escapeHtml(state.appealQ)}" />
         <button class="small-button" data-action="appeal-filter">筛选</button>
         <button class="small-button" data-action="appeal-clear">清空</button>
       </div>
-      ${appeals.length ? `<div class="ticket-list">${appeals.map(renderSanctionAppealCard).join('')}</div>` : '<div class="placeholder"><div><strong>暂无申诉</strong><div>当前筛选下没有账号申诉。</div></div></div>'}
+      ${appeals.length ? `<div class="ticket-list">${appeals.map(renderSanctionAppealCard).join('')}</div>` : '<div class="placeholder"><div><strong>暂无申诉</strong><div>当前筛选下没有申诉记录。</div></div></div>'}
     </div>
   `;
 }
 
 function renderSanctionAppealCard(appeal) {
   const active = appeal.status === 'pending' || appeal.status === 'reviewing';
+  const isReportAppeal = appeal.appealType === 'report';
   const sanctionLabel = appeal.sanctionTypeLabel || appeal.sanctionType || '账号限制';
-  const title = `${appeal.ownerName || appeal.phone} · ${sanctionLabel}`;
+  const title = isReportAppeal
+    ? `${appeal.ownerName || appeal.phone} · ${appeal.targetLabel || '举报处理'}申诉`
+    : `${appeal.ownerName || appeal.phone} · ${sanctionLabel}`;
   return `
     <div class="ticket-card">
       <div class="ticket-main">
@@ -3485,13 +3498,16 @@ function renderSanctionAppealCard(appeal) {
             <div class="cell-title">${escapeHtml(title)}</div>
             <div class="cell-sub">${shortPhone(appeal.phone)} ${appeal.petName ? `· ${escapeHtml(appeal.petName)}` : ''} · ${formatTime(appeal.createdAt)}</div>
           </div>
-          <div>${statusPill(appeal.status)} ${statusPill(sanctionLabel)}</div>
+          <div>${statusPill(appeal.status)} ${statusPill(isReportAppeal ? '举报处理' : sanctionLabel)} ${isReportAppeal ? statusPill(appeal.reportRoleLabel || '-') : ''}</div>
         </div>
         <p>${escapeHtml(appeal.content)}</p>
-        <div class="cell-sub">处罚原因：${escapeHtml(appeal.sanctionReason || appeal.sanction?.reason || '-')}</div>
+        ${isReportAppeal ? `
+          <div class="cell-sub">举报对象：${escapeHtml(appeal.targetLabel || '-')} · ${escapeHtml(appeal.targetId || '-')}</div>
+          <div class="cell-sub">原处理结果：${escapeHtml(appeal.reportStatusLabel || appeal.reportStatus || '-')} · ${escapeHtml(appeal.reportReason || '-')}</div>
+        ` : `<div class="cell-sub">处罚原因：${escapeHtml(appeal.sanctionReason || appeal.sanction?.reason || '-')}</div>`}
         ${appeal.reviewReason ? `<div class="note-line"><strong>处理说明：</strong>${escapeHtml(appeal.reviewReason)}</div>` : ''}
         <div class="ticket-meta">
-          <span>处罚状态：${escapeHtml(appeal.sanctionStatus || appeal.sanction?.status || '-')}</span>
+          <span>${isReportAppeal ? `举报ID：${escapeHtml(appeal.reportId || '-')}` : `处罚状态：${escapeHtml(appeal.sanctionStatus || appeal.sanction?.status || '-')}`}</span>
           <span>处理人：${escapeHtml(appeal.handledBy || '-')}</span>
           <span>更新时间：${formatTime(appeal.updatedAt || appeal.createdAt)}</span>
         </div>
@@ -3499,7 +3515,7 @@ function renderSanctionAppealCard(appeal) {
       <div class="ticket-side">
         ${active ? `
           <button class="small-button" data-action="appeal-review" data-id="${escapeHtml(appeal.id)}" data-title="${escapeHtml(title)}">接手</button>
-          <label class="inline-check"><input id="appealRevoke-${escapeHtml(appeal.id)}" type="checkbox" checked /> 通过时撤销处罚</label>
+          ${isReportAppeal ? '<span class="cell-sub">通过后需按对象手动恢复/补充处理</span>' : `<label class="inline-check"><input id="appealRevoke-${escapeHtml(appeal.id)}" type="checkbox" checked /> 通过时撤销处罚</label>`}
           <button class="small-button" data-action="appeal-approve" data-id="${escapeHtml(appeal.id)}" data-title="${escapeHtml(title)}">通过</button>
           <button class="small-button danger" data-action="appeal-reject" data-id="${escapeHtml(appeal.id)}" data-title="${escapeHtml(title)}">驳回</button>
         ` : '<span class="cell-sub">已处理</span>'}
@@ -5104,7 +5120,7 @@ async function renderConfig(force) {
             <h2>系统通知治理</h2>
             <div class="section-sub">保存后立即影响通知运营页的发送、预约、审批和频控，避免误发或刷屏</div>
           </div>
-          ${help('这里只限制后台系统通知，不限制审核结果、工单回复、处罚申诉、疫苗提醒等业务通知。开启发送审批后，直接发送和预约发送会被后端拦截，需先提交审批。')}
+          ${help('这里只限制后台系统通知，不限制审核结果、工单回复、申诉处理、疫苗提醒等业务通知。开启发送审批后，直接发送和预约发送会被后端拦截，需先提交审批。')}
         </div>
         <div class="switch-panel">
           ${featureCheckbox('cfgNotificationRateLimitEnabled', '启用系统通知频控', notifications.rateLimitEnabled !== false)}

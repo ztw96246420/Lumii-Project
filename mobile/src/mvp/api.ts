@@ -149,6 +149,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<SanctionAppealItem>('POST', '/sanction-appeals', { content, sanctionId });
       },
 
+      async submitReportAppeal(reportId: string, content: string): Promise<ApiResult<SanctionAppealItem>> {
+        return request<SanctionAppealItem>('POST', '/report-appeals', { content, reportId });
+      },
+
       async submitFeedback(content: string, category: FeedbackCategory = 'other', contact?: string): Promise<ApiResult<FeedbackSubmission>> {
         return request<FeedbackSubmission>('POST', '/feedback', { category, contact, content });
       },

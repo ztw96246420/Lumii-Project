@@ -135,6 +135,7 @@ import type {
   Place,
   PlaceReview,
   PlaceSubmission,
+  ReportAppealTarget,
   SanctionAppealItem,
   SocialBlockListItem,
   SmsCodeTicket,
@@ -2435,6 +2436,10 @@ export default function LumiiMvpApp() {
   const [sanctionAppealsError, setSanctionAppealsError] = useState('');
   const [sanctionAppealDraft, setSanctionAppealDraft] = useState('');
   const [sanctionAppealSubmitting, setSanctionAppealSubmitting] = useState(false);
+  const [reportAppealTargets, setReportAppealTargets] = useState<ReportAppealTarget[]>([]);
+  const [selectedReportAppealId, setSelectedReportAppealId] = useState('');
+  const [reportAppealDraft, setReportAppealDraft] = useState('');
+  const [reportAppealSubmitting, setReportAppealSubmitting] = useState(false);
   const [supportTickets, setSupportTickets] = useState<SupportTicketItem[]>([]);
   const [supportTicketSummary, setSupportTicketSummary] = useState<SupportTicketSummary | null>(null);
   const [supportTicketsLoading, setSupportTicketsLoading] = useState(false);
@@ -4319,6 +4324,13 @@ export default function LumiiMvpApp() {
       if (sessionTokenRef.current !== requestSessionToken) return false;
       if (result.data) {
         setSanctionAppeals(result.data.appeals);
+        const nextReportTargets = result.data.reportAppealTargets ?? [];
+        setReportAppealTargets(nextReportTargets);
+        setSelectedReportAppealId((current) => (
+          current && nextReportTargets.some((item) => item.reportId === current)
+            ? current
+            : nextReportTargets[0]?.reportId ?? ''
+        ));
         return true;
       }
       const message = result.error?.message ?? '申诉记录加载失败';
@@ -4360,6 +4372,41 @@ export default function LumiiMvpApp() {
       }
     } finally {
       setSanctionAppealSubmitting(false);
+    }
+  }
+
+  async function submitReportAppeal() {
+    const content = reportAppealDraft.trim();
+    const reportId = selectedReportAppealId || reportAppealTargets[0]?.reportId || '';
+    if (reportAppealSubmitting) return;
+    if (!reportId) {
+      showToast('当前没有可申诉的举报处理结果', { tone: 'warning', variant: 'surface' });
+      return;
+    }
+    if (!content) {
+      showToast('请先填写申诉说明', { tone: 'warning', variant: 'surface' });
+      return;
+    }
+    const requestSessionToken = sessionTokenRef.current;
+    setReportAppealSubmitting(true);
+    try {
+      const result = await lumiiApi.support.submitReportAppeal(reportId, content);
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (result.data) {
+        setReportAppealDraft('');
+        setSanctionAppeals((items) => {
+          const next = result.data!;
+          return items.some((item) => item.id === next.id) ? items.map((item) => (item.id === next.id ? next : item)) : [next, ...items];
+        });
+        setReportAppealTargets((items) => items.filter((item) => item.reportId !== reportId));
+        setSelectedReportAppealId((current) => (current === reportId ? '' : current));
+        showToast(result.data.duplicate ? '已有举报申诉在处理中' : '举报申诉已提交', { subtitle: '运营会复核处理结果，并通过通知中心同步结果', tone: 'success', variant: 'surface' });
+        void loadSanctionAppeals({ silent: true });
+      } else {
+        showToast(result.error?.message ?? '举报申诉提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
+      }
+    } finally {
+      setReportAppealSubmitting(false);
     }
   }
 
@@ -4955,6 +5002,12 @@ export default function LumiiMvpApp() {
       return;
     }
     if (kind === 'system') {
+      if (item.reportId) {
+        setSelectedReportAppealId(item.reportId);
+        go('safety');
+        void loadSanctionAppeals({ silent: true });
+        return;
+      }
       if (petCircleSourcePostId) {
         setPetCircleFocusedPostId(petCircleSourcePostId);
         setDiscoverTab('circle');
@@ -16162,6 +16215,9 @@ export default function LumiiMvpApp() {
     const latestAppeals = sanctionAppeals.slice(0, 3);
     const appealDraftLength = sanctionAppealDraft.trim().length;
     const appealSubmitDisabled = !hasActiveRestriction || sanctionAppealSubmitting || appealDraftLength < 8 || appealDraftLength > 1000;
+    const selectedReportAppeal = reportAppealTargets.find((item) => item.reportId === selectedReportAppealId) ?? reportAppealTargets[0];
+    const reportAppealDraftLength = reportAppealDraft.trim().length;
+    const reportAppealSubmitDisabled = !selectedReportAppeal || reportAppealSubmitting || reportAppealDraftLength < 8 || reportAppealDraftLength > 1000;
     const safetyActions = [
       {
         Icon: Flag,
@@ -16277,6 +16333,67 @@ export default function LumiiMvpApp() {
               </>
             ) : null}
 
+            <View style={styles.reportAppealCardMake}>
+              <View style={styles.sanctionAppealHeadMake}>
+                <View style={[styles.safetyActionIconMake, { backgroundColor: reportAppealTargets.length ? '#FFE6D6' : '#E8F5F3' }]}>
+                  <Flag color={reportAppealTargets.length ? palette.orange : palette.teal} size={18} strokeWidth={2.4} />
+                </View>
+                <View style={styles.flex}>
+                  <Text style={styles.safetyBlockTitleMake}>举报处理申诉</Text>
+                  <Text style={styles.safetyBlockSubMake}>
+                    {selectedReportAppeal
+                      ? `${selectedReportAppeal.title || selectedReportAppeal.targetLabel || '举报处理'} · ${selectedReportAppeal.reportRoleLabel || '相关用户'}`
+                      : '暂无可申诉的举报处理结果'}
+                  </Text>
+                </View>
+                <Text style={styles.safetyActionStatusMake}>{reportAppealTargets.length ? `${reportAppealTargets.length} 条可申诉` : '无待申诉'}</Text>
+              </View>
+
+              {reportAppealTargets.length ? (
+                <>
+                  <View style={styles.reportAppealTargetListMake}>
+                    {reportAppealTargets.slice(0, 3).map((target) => {
+                      const activeTarget = target.reportId === (selectedReportAppeal?.reportId || selectedReportAppealId);
+                      return (
+                        <Pressable
+                          accessibilityLabel={`select-report-appeal-${target.reportId}`}
+                          accessibilityRole="button"
+                          key={target.reportId}
+                          onPress={() => setSelectedReportAppealId(target.reportId)}
+                          style={[styles.reportAppealTargetChipMake, activeTarget && styles.reportAppealTargetChipActiveMake, webPressableReset]}
+                        >
+                          <Text numberOfLines={1} style={[styles.reportAppealTargetTitleMake, activeTarget && styles.reportAppealTargetTitleActiveMake]}>{target.title || target.targetLabel || '举报处理'}</Text>
+                          <Text numberOfLines={1} style={[styles.reportAppealTargetSubMake, activeTarget && styles.reportAppealTargetSubActiveMake]}>{target.reportStatusLabel || target.reportStatus || '已处理'}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  {selectedReportAppeal?.reviewReason ? <Text style={styles.sanctionAppealRowSubMake}>原处理说明：{selectedReportAppeal.reviewReason}</Text> : null}
+                  <TextInput
+                    multiline
+                    onChangeText={setReportAppealDraft}
+                    placeholder="说明你为什么对处理结果有异议，比如遗漏证据、误判原因或希望补充的信息"
+                    placeholderTextColor="#B8B3A8"
+                    style={[styles.sanctionAppealInputMake, reportAppealDraftLength > 1000 && styles.makeTextInputError, webTextInputReset]}
+                    textAlignVertical="top"
+                    value={reportAppealDraft}
+                  />
+                  <View style={styles.supportTicketComposerFooterMake}>
+                    <Text style={[styles.supportTicketComposerCounterMake, (reportAppealDraftLength > 1000 || (reportAppealDraftLength > 0 && reportAppealDraftLength < 8)) && styles.fieldHintError]}>{reportAppealDraftLength}/1000</Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={reportAppealSubmitDisabled}
+                      onPress={() => void submitReportAppeal()}
+                      style={[styles.supportTicketComposerButtonMake, reportAppealSubmitDisabled && styles.supportTicketComposerButtonDisabledMake, webPressableReset]}
+                    >
+                      {reportAppealSubmitting ? <ActivityIndicator color="#fff" size="small" /> : <Send color="#fff" size={14} strokeWidth={2.5} />}
+                      <Text style={styles.supportTicketComposerButtonTextMake}>提交申诉</Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : null}
+            </View>
+
             {sanctionAppealsError ? (
               <Text style={styles.sanctionAppealErrorTextMake}>{sanctionAppealsError}</Text>
             ) : null}
@@ -16285,7 +16402,7 @@ export default function LumiiMvpApp() {
                 {latestAppeals.map((appeal) => (
                   <View key={appeal.id} style={styles.sanctionAppealRowMake}>
                     <View style={styles.flex}>
-                      <Text numberOfLines={1} style={styles.sanctionAppealRowTitleMake}>{appeal.sanctionTypeLabel || '账号限制'} · {sanctionAppealStatusLabels[appeal.status]}</Text>
+                      <Text numberOfLines={1} style={styles.sanctionAppealRowTitleMake}>{appeal.appealType === 'report' ? (appeal.subjectLabel || appeal.title || '举报处理申诉') : (appeal.sanctionTypeLabel || '账号限制')} · {sanctionAppealStatusLabels[appeal.status]}</Text>
                       <Text numberOfLines={2} style={styles.sanctionAppealRowSubMake}>{appeal.reviewReason || appeal.content}</Text>
                     </View>
                     <Text style={styles.supportTicketMetaTextMake}>{formatTimestampDisplay(appeal.updatedAt || appeal.createdAt)}</Text>
@@ -19455,6 +19572,14 @@ const styles = StyleSheet.create({
   sanctionAppealRowMake: { alignItems: 'flex-start', backgroundColor: 'rgba(250,246,239,0.72)', borderColor: palette.border, borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 10, paddingHorizontal: 11, paddingVertical: 9 },
   sanctionAppealRowSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 17, marginTop: 2 },
   sanctionAppealRowTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '800', lineHeight: 17 },
+  reportAppealCardMake: { backgroundColor: 'rgba(250,246,239,0.68)', borderColor: palette.border, borderRadius: 14, borderWidth: 1, gap: 10, padding: 12 },
+  reportAppealTargetChipActiveMake: { backgroundColor: palette.ink, borderColor: palette.ink },
+  reportAppealTargetChipMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, flex: 1, minHeight: 54, minWidth: 0, paddingHorizontal: 10, paddingVertical: 8 },
+  reportAppealTargetListMake: { flexDirection: 'row', gap: 8 },
+  reportAppealTargetSubActiveMake: { color: 'rgba(255,255,255,0.72)' },
+  reportAppealTargetSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', lineHeight: 15, marginTop: 2 },
+  reportAppealTargetTitleActiveMake: { color: '#fff' },
+  reportAppealTargetTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800', lineHeight: 16 },
   safetyAuditNoteMake: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 4, padding: 12 },
   safetyAuditNoteTextMake: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', lineHeight: 20 },
   safetyBlockEmptyMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, gap: 6, paddingHorizontal: 18, paddingVertical: 20 },

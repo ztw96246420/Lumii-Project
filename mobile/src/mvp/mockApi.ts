@@ -43,6 +43,7 @@ import type {
   PlaceSubmission,
   PermissionStateMap,
   PushDevice,
+  ReportAppealTarget,
   SanctionAppealItem,
   SanctionAppealList,
   SocialBlockListItem,
@@ -1437,6 +1438,22 @@ let notifications: NotificationItem[] = [
 let pushDevices: PushDevice[] = [];
 let feedbackSubmissions: FeedbackSubmission[] = [];
 let sanctionAppeals: SanctionAppealItem[] = [];
+let reportAppealTargets: ReportAppealTarget[] = [
+  {
+    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    reportId: 'mock-report-result-1',
+    reportRole: 'owner',
+    reportRoleLabel: '被举报方',
+    reportStatus: 'valid',
+    reportStatusLabel: '举报有效',
+    reviewReason: '模拟举报处理结果，可在真机后端场景中由后台复核',
+    targetId: 'mock-post-1',
+    targetLabel: '小事',
+    targetType: 'post',
+    title: '小事 · 举报有效',
+    updatedAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+  },
+];
 let supportTickets: SupportTicketDetail[] = [];
 let uploadedMediaById: Record<string, UploadedPetMedia> = {};
 let avatarJobsById: Record<string, AvatarJob> = {};
@@ -1460,9 +1477,11 @@ function buildMockSanctionAppealList(): SanctionAppealList {
   const appeals = sanctionAppeals.slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   return {
     appeals,
+    reportAppealTargets,
     summary: {
       all: appeals.length,
       open: appeals.filter((appeal) => appeal.status === 'pending' || appeal.status === 'reviewing').length,
+      reportTargets: reportAppealTargets.length,
     },
   };
 }
@@ -2231,10 +2250,11 @@ export const mockApi = {
       if (!cleanContent) return error('请填写申诉说明', false);
       if (cleanContent.length < 8) return error('申诉说明至少 8 个字', false);
       if (cleanContent.length > 1000) return error('申诉说明最多 1000 个字', false);
-      const duplicate = sanctionAppeals.find((appeal) => appeal.status === 'pending' || appeal.status === 'reviewing');
+      const duplicate = sanctionAppeals.find((appeal) => (appeal.appealType || 'sanction') === 'sanction' && (appeal.status === 'pending' || appeal.status === 'reviewing'));
       if (duplicate) return success({ ...duplicate, duplicate: true });
       const now = new Date().toISOString();
       const appeal: SanctionAppealItem = {
+        appealType: 'sanction',
         content: cleanContent,
         createdAt: now,
         id: `appeal-${Date.now()}`,
@@ -2247,6 +2267,43 @@ export const mockApi = {
         updatedAt: now,
       };
       sanctionAppeals = [appeal, ...sanctionAppeals];
+      return success(appeal);
+    },
+
+    async submitReportAppeal(reportId: string, content: string): Promise<ApiResult<SanctionAppealItem>> {
+      await wait(140);
+      const cleanContent = content.trim();
+      if (!reportId) return error('请选择要申诉的举报处理结果', false);
+      if (!cleanContent) return error('请填写申诉说明', false);
+      if (cleanContent.length < 8) return error('申诉说明至少 8 个字', false);
+      if (cleanContent.length > 1000) return error('申诉说明最多 1000 个字', false);
+      const target = reportAppealTargets.find((item) => item.reportId === reportId);
+      if (!target) return error('当前没有可申诉的举报处理结果', false);
+      const duplicate = sanctionAppeals.find((appeal) => appeal.appealType === 'report' && appeal.reportId === reportId && (appeal.status === 'pending' || appeal.status === 'reviewing'));
+      if (duplicate) return success({ ...duplicate, duplicate: true });
+      const now = new Date().toISOString();
+      const appeal: SanctionAppealItem = {
+        appealType: 'report',
+        content: cleanContent,
+        createdAt: now,
+        id: `report-appeal-${Date.now()}`,
+        reportId,
+        reportReason: target.reviewReason,
+        reportRole: target.reportRole,
+        reportRoleLabel: target.reportRoleLabel,
+        reportStatus: target.reportStatus,
+        reportStatusLabel: target.reportStatusLabel,
+        sanctionTypeLabel: target.targetLabel || '举报处理',
+        status: 'pending',
+        subjectLabel: '举报处理申诉',
+        targetId: target.targetId,
+        targetLabel: target.targetLabel,
+        targetType: target.targetType,
+        title: `${target.targetLabel || '内容'}举报处理申诉`,
+        updatedAt: now,
+      };
+      sanctionAppeals = [appeal, ...sanctionAppeals];
+      reportAppealTargets = reportAppealTargets.filter((item) => item.reportId !== reportId);
       return success(appeal);
     },
 
