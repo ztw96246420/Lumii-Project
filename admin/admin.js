@@ -182,6 +182,12 @@ function moneyText(value) {
   return `$${number.toFixed(number < 1 ? 4 : 2)}`;
 }
 
+function centsMoneyText(value, currency = 'CNY') {
+  const number = Number(value || 0) / 100;
+  const prefix = currency === 'CNY' ? '¥' : `${currency} `;
+  return `${prefix}${number.toLocaleString('zh-CN', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
+}
+
 function shortPhone(value) {
   const text = String(value || '');
   return text.length === 11 ? `${text.slice(0, 3)}****${text.slice(7)}` : text || '-';
@@ -4403,6 +4409,7 @@ async function renderTickets(force) {
   const rosterConflicts = data.rosterConflicts || [];
   const batchReview = data.batchReview || {};
   const batchReplyApprovals = data.batchReplyApprovals || {};
+  const serviceReport = data.serviceReport || {};
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('未关闭工单', summary.open || 0, `${summary.overdue || 0} 个已超 SLA`, '状态不是 closed/resolved 的工单都计入未关闭。')}
@@ -4412,7 +4419,7 @@ async function renderTickets(force) {
       ${metric('安全投诉', summary.safety || 0, 'safety 分类', '安全投诉建议 2 小时内首次处理。')}
     </div>
     ${renderTicketOpsPanel(assignees, slaPolicy, rosterConflicts)}
-    ${renderTicketQualityPanel(quality, batchReview, qualityKpi, qualityReview, batchReplyApprovals, qualityPolicy)}
+    ${renderTicketQualityPanel(quality, batchReview, qualityKpi, qualityReview, batchReplyApprovals, qualityPolicy, serviceReport)}
     <div class="grid two ticket-template-workspace">
       <div class="card ticket-template-compose">
         <div class="section-head">
@@ -4731,7 +4738,70 @@ function renderTicketBatchReplyApprovals(batchReplyApprovals = {}, qualityPolicy
   `;
 }
 
-function renderTicketQualityPanel(quality = {}, batchReview = {}, qualityKpi = {}, qualityReview = {}, batchReplyApprovals = {}, qualityPolicy = {}) {
+function renderTicketSettlementPreview(period = {}, settlementPolicy = {}) {
+  const settlement = period.settlement || {};
+  const rows = Array.isArray(settlement.rows) ? settlement.rows : [];
+  const currency = settlement.currency || settlementPolicy.currency || 'CNY';
+  const totals = settlement.totals || {};
+  if (settlement.previewEnabled === false || settlementPolicy.previewEnabled === false) {
+    return '<div class="placeholder mini"><div><strong>结算预览已关闭</strong><div>可在配置中心开启后查看按负责人聚合的预估金额。</div></div></div>';
+  }
+  if (!rows.length) {
+    return '<div class="placeholder mini"><div><strong>暂无结算预览</strong><div>工单解决、评分或重开后会自动回算。</div></div></div>';
+  }
+  return `
+    <div class="risk-row">
+      <span class="risk-badge">工单 ${numberText(totals.tickets || 0)}</span>
+      <span class="risk-badge">已解决 ${numberText(totals.resolved || 0)}</span>
+      <span class="risk-badge">基础 ${centsMoneyText(totals.baseCents || 0, currency)}</span>
+      <span class="risk-badge">奖励 ${centsMoneyText(totals.bonusCents || 0, currency)}</span>
+      <span class="risk-badge">扣减 ${centsMoneyText(totals.penaltyCents || 0, currency)}</span>
+      <span class="risk-badge pill ok">预估 ${centsMoneyText(totals.estimatedCents || 0, currency)}</span>
+    </div>
+    ${tableHtml(rows.slice(0, 8), [
+      ['负责人', (row) => `<div class="cell-title">${escapeHtml(row.assigneeName || '-')}</div><div class="cell-sub">${escapeHtml(row.assigneeId || '未分配')}</div>`],
+      ['服务量', (row) => `<div>${numberText(row.tickets || 0)} 条 · 已解决 ${numberText(row.resolved || 0)}</div><div class="cell-sub">首响达标 ${numberText(row.firstResponseMet || 0)} · 好评 ${numberText(row.positiveRating || 0)} · 质检跟进 ${numberText(row.reviewNeedsFollowup || 0)}</div>`],
+      ['风险', (row) => `<div>低分 ${numberText(row.lowRating || 0)} · 重开 ${numberText(row.reopen || 0)}</div><div class="cell-sub">SLA 扣减项 ${numberText(row.breachCount || 0)} · 已质检 ${numberText(row.reviewed || 0)}</div>`],
+      ['预估', (row) => `<div class="cell-title">${centsMoneyText(row.estimatedCents || 0, currency)}</div><div class="cell-sub">基础 ${centsMoneyText(row.baseCents || 0, currency)} · 奖励 ${centsMoneyText(row.bonusCents || 0, currency)} · 扣减 ${centsMoneyText(row.penaltyCents || 0, currency)}</div>`],
+    ], '暂无结算预览')}
+  `;
+}
+
+function renderTicketServiceReport(serviceReport = {}) {
+  const periods = Array.isArray(serviceReport.periods) ? serviceReport.periods : [];
+  const settlementPolicy = serviceReport.settlementPolicy || {};
+  if (!periods.length) return '';
+  const week = periods.find((period) => period.key === 'week') || periods[0];
+  const month = periods.find((period) => period.key === 'month') || periods[periods.length - 1];
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>周/月服务复盘</h2>
+          <div class="section-sub">按工单最近活动时间回算，结算预览不直接生成付款凭证</div>
+        </div>
+        ${help('近 7 天/近 30 天口径与当前 KPI 对齐；外包结算预览来自已解决工单、首响达标、好评奖励、低分、重开和 SLA 未达标扣减。生产期可再切换成自然周、自然月或外包账期。')}
+      </div>
+      <div class="risk-row">
+        ${periods.map((period) => {
+          const summary = period.quality || {};
+          return `
+            <span class="risk-badge">
+              ${escapeHtml(period.label || '-')} · 工单 ${numberText(summary.tickets || 0)} · 首响 ${percentText(summary.firstResponseSlaRate || 0)} · 解决 ${percentText(summary.resolutionSlaRate || 0)} · 重开 ${percentText(summary.reopenRate || 0)}
+            </span>
+          `;
+        }).join('')}
+        <span class="risk-badge">${settlementPolicy.previewEnabled === false ? '结算预览关闭' : '结算预览开启'}</span>
+      </div>
+      <h3 class="subsection-title">${escapeHtml(week.label || '近 7 天')}结算预览</h3>
+      ${renderTicketSettlementPreview(week, settlementPolicy)}
+      <h3 class="subsection-title">${escapeHtml(month.label || '近 30 天')}结算预览</h3>
+      ${renderTicketSettlementPreview(month, settlementPolicy)}
+    </div>
+  `;
+}
+
+function renderTicketQualityPanel(quality = {}, batchReview = {}, qualityKpi = {}, qualityReview = {}, batchReplyApprovals = {}, qualityPolicy = {}, serviceReport = {}) {
   const byAssignee = quality.byAssignee || [];
   const batches = batchReview.items || [];
   const targets = qualityPolicy.qualityTargets || {};
@@ -4787,6 +4857,7 @@ function renderTicketQualityPanel(quality = {}, batchReview = {}, qualityKpi = {
         ], '暂无批量动作') : '<div class="placeholder mini"><div><strong>暂无批量动作</strong><div>使用批量处理后会在这里形成复盘记录。</div></div></div>'}
       </div>
     </div>
+    ${renderTicketServiceReport(serviceReport)}
   `;
 }
 
@@ -5116,6 +5187,7 @@ function configRevisionSummaryText(summary = {}) {
     `客服 ${summary.supportAssigneeCount ?? 0} 人`,
     `批量回复 ${summary.supportBatchReplyRequireApproval === false ? '免审批' : '审批'} / ${summary.supportBatchReplyMaxTickets ?? 20}条`,
     `客服KPI ${summary.supportQualityFirstResponseTarget ?? 90}%/${summary.supportQualityResolutionTarget ?? 85}%`,
+    `结算预览 ${summary.supportSettlementPreviewEnabled === false ? '关' : centsMoneyText(summary.supportSettlementResolvedTicketCents ?? 200, 'CNY')}/已解决`,
     `通知频控 ${summary.notificationRateLimitEnabled === false ? '关' : `${summary.notificationMaxCampaignsPerDay || 0}批/${summary.notificationMaxPerUserPerDay || 0}人次`}`,
     `通知审批 ${summary.notificationRequireApproval ? '开' : '关'}`,
     ...toggles,
@@ -5410,6 +5482,7 @@ async function renderConfig(force) {
   const supportBatchReply = support.batchReply || {};
   const supportQualityReview = support.qualityReview || {};
   const supportQualityTargets = support.qualityTargets || {};
+  const supportSettlement = support.settlement || {};
   const analytics = config.analytics || {};
   const update = config.app?.update || {};
   $('content').innerHTML = `
@@ -5488,6 +5561,24 @@ async function renderConfig(force) {
           <label>低分数量红线<input id="cfgSupportTargetLowRating" type="number" min="0" max="1000" value="${Number.isFinite(Number(supportQualityTargets.lowRatingMax)) ? supportQualityTargets.lowRatingMax : 3}" /></label>
           <label>低分质检阈值<input id="cfgSupportReviewLowRating" type="number" min="1" max="5" value="${Number.isFinite(Number(supportQualityReview.lowRatingThreshold)) ? supportQualityReview.lowRatingThreshold : 2}" /></label>
           <label>重开触发次数<input id="cfgSupportReviewReopenThreshold" type="number" min="1" max="20" value="${Number.isFinite(Number(supportQualityReview.reopenThreshold)) ? supportQualityReview.reopenThreshold : 1}" /></label>
+        </div>
+        <div class="section-head compact">
+          <div>
+            <h2>客服结算预览规则</h2>
+            <div class="section-sub">只用于后台周/月复盘，不会生成真实付款单</div>
+          </div>
+          ${help('结算预览按已解决工单给基础金额；首响达标和 4-5 分评价给奖励；低分、重开和 SLA 未达标给扣减。金额单位为人民币元，后端以分存储。')}
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgSupportSettlementPreviewEnabled', '启用结算预览', supportSettlement.previewEnabled !== false)}
+        </div>
+        <div class="config-grid">
+          <label>已解决工单基础金额<input id="cfgSupportSettlementResolvedTicket" type="number" min="0" max="10000" step="0.01" value="${(((supportSettlement.resolvedTicketCents ?? 200) / 100)).toFixed(2)}" /></label>
+          <label>首响达标奖励<input id="cfgSupportSettlementFirstBonus" type="number" min="0" max="1000" step="0.01" value="${(((supportSettlement.firstResponseBonusCents ?? 50) / 100)).toFixed(2)}" /></label>
+          <label>好评奖励<input id="cfgSupportSettlementSatisfactionBonus" type="number" min="0" max="1000" step="0.01" value="${(((supportSettlement.satisfactionBonusCents ?? 50) / 100)).toFixed(2)}" /></label>
+          <label>低分扣减<input id="cfgSupportSettlementLowRatingPenalty" type="number" min="0" max="1000" step="0.01" value="${(((supportSettlement.lowRatingPenaltyCents ?? 100) / 100)).toFixed(2)}" /></label>
+          <label>重开扣减<input id="cfgSupportSettlementReopenPenalty" type="number" min="0" max="1000" step="0.01" value="${(((supportSettlement.reopenPenaltyCents ?? 100) / 100)).toFixed(2)}" /></label>
+          <label>SLA 未达标扣减<input id="cfgSupportSettlementBreachPenalty" type="number" min="0" max="1000" step="0.01" value="${(((supportSettlement.breachPenaltyCents ?? 80) / 100)).toFixed(2)}" /></label>
         </div>
       </div>
       <div class="config-section">
@@ -5806,6 +5897,12 @@ async function saveConfig(mode = 'publish') {
   const supportTargetLowRating = Number($('cfgSupportTargetLowRating').value);
   const supportReviewLowRating = Number($('cfgSupportReviewLowRating').value);
   const supportReviewReopenThreshold = Number($('cfgSupportReviewReopenThreshold').value);
+  const supportSettlementResolvedTicket = Number($('cfgSupportSettlementResolvedTicket').value);
+  const supportSettlementFirstBonus = Number($('cfgSupportSettlementFirstBonus').value);
+  const supportSettlementSatisfactionBonus = Number($('cfgSupportSettlementSatisfactionBonus').value);
+  const supportSettlementLowRatingPenalty = Number($('cfgSupportSettlementLowRatingPenalty').value);
+  const supportSettlementReopenPenalty = Number($('cfgSupportSettlementReopenPenalty').value);
+  const supportSettlementBreachPenalty = Number($('cfgSupportSettlementBreachPenalty').value);
   if (!Number.isFinite(supportBatchReplyMaxTickets) || supportBatchReplyMaxTickets < 1 || supportBatchReplyMaxTickets > 100) {
     throw new Error('批量回复单次上限必须在 1-100 之间');
   }
@@ -5824,6 +5921,18 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isFinite(supportReviewReopenThreshold) || supportReviewReopenThreshold < 1 || supportReviewReopenThreshold > 20) {
     throw new Error('重开触发次数必须在 1-20 之间');
   }
+  const supportSettlementValues = [
+    supportSettlementResolvedTicket,
+    supportSettlementFirstBonus,
+    supportSettlementSatisfactionBonus,
+    supportSettlementLowRatingPenalty,
+    supportSettlementReopenPenalty,
+    supportSettlementBreachPenalty,
+  ];
+  if (supportSettlementValues.some((value) => !Number.isFinite(value) || value < 0 || value > 10000)) {
+    throw new Error('客服结算预览金额必须在 0-10000 元之间');
+  }
+  const yuanToCents = (value) => Math.round(Number(value || 0) * 100);
   const analyticsSampleRatePercent = Number($('cfgAnalyticsSampleRatePercent').value);
   const analyticsRetentionDays = Number($('cfgAnalyticsRetentionDays').value);
   if (!Number.isFinite(analyticsSampleRatePercent) || analyticsSampleRatePercent < 0 || analyticsSampleRatePercent > 100) {
@@ -5931,6 +6040,16 @@ async function saveConfig(mode = 'publish') {
         lowRatingMax: supportTargetLowRating,
         reopenRateMax: supportTargetReopenRate,
         resolutionSlaRate: supportTargetResolution,
+      },
+      settlement: {
+        breachPenaltyCents: yuanToCents(supportSettlementBreachPenalty),
+        currency: 'CNY',
+        firstResponseBonusCents: yuanToCents(supportSettlementFirstBonus),
+        lowRatingPenaltyCents: yuanToCents(supportSettlementLowRatingPenalty),
+        previewEnabled: $('cfgSupportSettlementPreviewEnabled').checked,
+        reopenPenaltyCents: yuanToCents(supportSettlementReopenPenalty),
+        resolvedTicketCents: yuanToCents(supportSettlementResolvedTicket),
+        satisfactionBonusCents: yuanToCents(supportSettlementSatisfactionBonus),
       },
       resolutionSlaHours: supportSlaHours,
       slaHours: supportSlaHours,

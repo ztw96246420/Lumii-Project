@@ -151,6 +151,16 @@ async function main() {
           batchReply: { enabled: true, maxTickets: 5, requireApproval: true },
           qualityReview: { enabled: true, lowRatingThreshold: 2, reopenThreshold: 1 },
           qualityTargets: { avgRating: 4, firstResponseSlaRate: 90, lowRatingMax: 3, reopenRateMax: 10, resolutionSlaRate: 85 },
+          settlement: {
+            breachPenaltyCents: 80,
+            currency: 'CNY',
+            firstResponseBonusCents: 50,
+            lowRatingPenaltyCents: 100,
+            previewEnabled: true,
+            reopenPenaltyCents: 100,
+            resolvedTicketCents: 200,
+            satisfactionBonusCents: 50,
+          },
           resolutionSlaHours: { high: 18, low: 120, normal: 48, urgent: 6 },
           slaHours: { high: 18, low: 120, normal: 48, urgent: 6 },
         },
@@ -283,6 +293,14 @@ async function main() {
     assert.equal(adminTicketsAfter.data.quality.firstResponseSlaRate, 100);
     assert.equal(adminTicketsAfter.data.quality.resolutionSlaRate, 100);
     assert.equal(adminTicketsAfter.data.quality.avgRating, 5);
+    assert.equal(adminTicketsAfter.data.qualityPolicy.settlement.previewEnabled, true);
+    assert.equal(adminTicketsAfter.data.qualityPolicy.settlement.resolvedTicketCents, 200);
+    const serviceWeek = adminTicketsAfter.data.serviceReport.periods.find((period) => period.key === 'week');
+    assert.ok(serviceWeek, 'service report should include week period');
+    const settlementAgent = serviceWeek.settlement.rows.find((item) => item.assigneeId === 'agent_b');
+    assert.ok(settlementAgent, 'settlement preview should include assigned agent');
+    assert.equal(settlementAgent.resolved, 1);
+    assert.ok(settlementAgent.estimatedCents > 0, 'resolved rated ticket should produce positive settlement preview');
     const agentAfterReply = adminTicketsAfter.data.quality.byAssignee.find((item) => item.assigneeId === 'agent_b');
     assert.equal(agentAfterReply.closed, 1);
     assert.equal(agentAfterReply.firstResponseRate, 100);

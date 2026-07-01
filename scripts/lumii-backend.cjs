@@ -382,6 +382,16 @@ function defaultOpsConfig() {
         reopenRateMax: 10,
         resolutionSlaRate: 85,
       },
+      settlement: {
+        breachPenaltyCents: 80,
+        currency: 'CNY',
+        firstResponseBonusCents: 50,
+        lowRatingPenaltyCents: 100,
+        previewEnabled: true,
+        reopenPenaltyCents: 100,
+        resolvedTicketCents: 200,
+        satisfactionBonusCents: 50,
+      },
       resolutionSlaHours: {
         high: 24,
         low: 168,
@@ -644,6 +654,22 @@ function normalizeSupportQualityTargets(value, defaults = {}) {
   };
 }
 
+function normalizeSupportSettlementConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const cents = (key, fallback, max = 100000) => Math.floor(clampNumber(source[key], fallback || 0, 0, max));
+  const rawCurrency = String(source.currency || defaults.currency || 'CNY').trim().toUpperCase();
+  return {
+    breachPenaltyCents: cents('breachPenaltyCents', defaults.breachPenaltyCents, 100000),
+    currency: /^[A-Z]{3}$/.test(rawCurrency) ? rawCurrency : 'CNY',
+    firstResponseBonusCents: cents('firstResponseBonusCents', defaults.firstResponseBonusCents, 100000),
+    lowRatingPenaltyCents: cents('lowRatingPenaltyCents', defaults.lowRatingPenaltyCents, 100000),
+    previewEnabled: source.previewEnabled !== false,
+    reopenPenaltyCents: cents('reopenPenaltyCents', defaults.reopenPenaltyCents, 100000),
+    resolvedTicketCents: cents('resolvedTicketCents', defaults.resolvedTicketCents, 1000000),
+    satisfactionBonusCents: cents('satisfactionBonusCents', defaults.satisfactionBonusCents, 100000),
+  };
+}
+
 function normalizeSupportConfig(value, defaults) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const defaultSlaHours = defaults?.slaHours || {};
@@ -662,6 +688,7 @@ function normalizeSupportConfig(value, defaults) {
     firstResponseSlaHours,
     qualityReview: normalizeSupportQualityReviewConfig(source.qualityReview, defaults?.qualityReview),
     qualityTargets: normalizeSupportQualityTargets(source.qualityTargets, defaults?.qualityTargets),
+    settlement: normalizeSupportSettlementConfig(source.settlement, defaults?.settlement),
     resolutionSlaHours,
     slaHours: {
       ...resolutionSlaHours,
@@ -805,6 +832,8 @@ function opsConfigSummary(config) {
     supportFirstResponseUrgentSlaHours: Number(config?.support?.firstResponseSlaHours?.urgent || 0),
     supportQualityFirstResponseTarget: Number(config?.support?.qualityTargets?.firstResponseSlaRate || 0),
     supportQualityResolutionTarget: Number(config?.support?.qualityTargets?.resolutionSlaRate || 0),
+    supportSettlementPreviewEnabled: config?.support?.settlement?.previewEnabled !== false,
+    supportSettlementResolvedTicketCents: Number(config?.support?.settlement?.resolvedTicketCents || 0),
     supportUrgentSlaHours: Number(config?.support?.resolutionSlaHours?.urgent || config?.support?.slaHours?.urgent || 0),
     updateEnabled: Boolean(config?.app?.update?.enabled),
   };
@@ -939,6 +968,10 @@ function buildOpsConfigPatch(before, body = {}) {
       qualityTargets: {
         ...(before.support?.qualityTargets || {}),
         ...(body.support?.qualityTargets || {}),
+      },
+      settlement: {
+        ...(before.support?.settlement || {}),
+        ...(body.support?.settlement || {}),
       },
       resolutionSlaHours: {
         ...(before.support?.resolutionSlaHours || before.support?.slaHours || {}),
@@ -1506,6 +1539,17 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileApplied: false,
       mobileEvidence: '移动端不读取 KPI 目标；评分、重开和工单回复会反向沉淀为后台质检数据。',
       userImpact: '不直接改变 App 展示，但影响运营是否追踪低分、重开和 SLA 未达标工单。',
+    },
+    {
+      backendEvidence: 'supportTicketServiceReport 读取 currentOpsConfig().support.settlement，并结合工单解决、首响达标、评分、重开和 SLA 未达标实时计算外包结算预览。',
+      backendEnforced: true,
+      group: '客服工单',
+      key: 'support.settlement',
+      label: '客服结算预览',
+      mobileApplied: false,
+      mobileEvidence: '移动端不读取结算规则；用户只产生评分、重开和工单状态等原始业务数据。',
+      operatorNote: '当前为运营预览口径，不代表真实付款凭证；生产期仍需确认自然月/外包周期、税费和审批流。',
+      userImpact: '不直接改变 App 展示，但会影响后台对客服/外包服务质量和预计费用的复盘。',
     },
     {
       backendEvidence: 'supportTicketSlaHours 读取 currentOpsConfig().support.slaHours.urgent，影响工单排序、SLA badge、工作台统计和导出。',
@@ -15773,6 +15817,7 @@ function supportTicketQualityPolicy(support = currentOpsConfig().support || defa
     batchReply: normalizeSupportBatchReplyConfig(support.batchReply, defaultOpsConfig().support.batchReply),
     qualityReview: normalizeSupportQualityReviewConfig(support.qualityReview, defaultOpsConfig().support.qualityReview),
     qualityTargets: normalizeSupportQualityTargets(support.qualityTargets, defaultOpsConfig().support.qualityTargets),
+    settlement: normalizeSupportSettlementConfig(support.settlement, defaultOpsConfig().support.settlement),
   };
 }
 
@@ -15817,6 +15862,143 @@ function supportTicketKpiSummary(rawTickets = [], assignees = [], targets = {}) 
   return {
     periods,
     targets,
+  };
+}
+
+function supportTicketActivityMs(ticket = {}) {
+  const dates = [
+    ticket.createdAt,
+    ticket.updatedAt,
+    ticket.closedAt,
+    ticket.lastClosedAt,
+    ticket.satisfaction?.updatedAt,
+    ticket.satisfaction?.createdAt,
+    ...(Array.isArray(ticket.replies) ? ticket.replies.map((reply) => reply?.createdAt) : []),
+  ]
+    .map(supportDateMs)
+    .filter((value) => value !== null);
+  if (!dates.length) return null;
+  return Math.max(...dates);
+}
+
+function supportTicketsInActivityPeriod(rawTickets = [], days = 30) {
+  const cutoff = Date.now() - Math.max(1, Number(days || 30)) * 864e5;
+  return rawTickets.filter((ticket) => {
+    const ms = supportTicketActivityMs(ticket);
+    return ms !== null && ms >= cutoff;
+  });
+}
+
+function supportTicketPeriodDefinitions() {
+  return [
+    { days: 7, key: 'week', label: '近 7 天' },
+    { days: 30, key: 'month', label: '近 30 天' },
+  ];
+}
+
+function supportTicketReviewState(ticketId) {
+  const saved = ensureSupportTicketQualityReviews()[ticketId] || {};
+  return String(saved.status || '').trim() || 'unreviewed';
+}
+
+function supportTicketSettlementSummary(rawTickets = [], assignees = [], settlement = {}) {
+  const policy = normalizeSupportSettlementConfig(settlement, defaultOpsConfig().support.settlement);
+  const assigneeMap = new Map(assignees.map((item) => [item.id, item]));
+  const buckets = new Map();
+
+  function bucketFor(item) {
+    const id = item.assignee || '';
+    if (!buckets.has(id)) {
+      const assignee = assigneeMap.get(id) || {};
+      buckets.set(id, {
+        assigneeId: id,
+        assigneeName: assignee.name || item.assigneeName || id || '未分配',
+        breachCount: 0,
+        firstResponseMet: 0,
+        lowRating: 0,
+        positiveRating: 0,
+        rated: 0,
+        reopen: 0,
+        resolved: 0,
+        reviewNeedsFollowup: 0,
+        reviewed: 0,
+        tickets: 0,
+      });
+    }
+    return buckets.get(id);
+  }
+
+  rawTickets.forEach((ticket) => {
+    const item = supportTicketItem(ticket);
+    const first = supportTicketSlaInfo(ticket, 'first_response');
+    const resolution = supportTicketSlaInfo(ticket, 'resolution');
+    const rating = Number(ticket.satisfaction?.rating || 0);
+    const bucket = bucketFor(item);
+    bucket.tickets += 1;
+    if (first.doneAt && supportSlaDoneWithin(first)) bucket.firstResponseMet += 1;
+    const firstBreached = (first.doneAt && !supportSlaDoneWithin(first)) || (!first.doneAt && first.state === 'overdue') || (!first.doneAt && (item.status === 'closed' || item.status === 'resolved'));
+    const resolutionBreached = (resolution.doneAt && !supportSlaDoneWithin(resolution)) || (!resolution.doneAt && resolution.state === 'overdue');
+    if (firstBreached) bucket.breachCount += 1;
+    if (resolutionBreached) bucket.breachCount += 1;
+    if (item.status === 'closed' || item.status === 'resolved') bucket.resolved += 1;
+    if (rating > 0) {
+      bucket.rated += 1;
+      if (rating >= 4) bucket.positiveRating += 1;
+      if (rating <= 2) bucket.lowRating += 1;
+    }
+    if (item.reopenCount) bucket.reopen += item.reopenCount;
+    const reviewState = supportTicketReviewState(ticket.id);
+    if (reviewState === 'reviewed' || reviewState === 'waived' || reviewState === 'needs_followup') bucket.reviewed += 1;
+    if (reviewState === 'needs_followup') bucket.reviewNeedsFollowup += 1;
+  });
+
+  const rows = Array.from(buckets.values())
+    .map((bucket) => {
+      const baseCents = bucket.resolved * policy.resolvedTicketCents;
+      const bonusCents = bucket.firstResponseMet * policy.firstResponseBonusCents + bucket.positiveRating * policy.satisfactionBonusCents;
+      const penaltyCents = bucket.lowRating * policy.lowRatingPenaltyCents + bucket.reopen * policy.reopenPenaltyCents + bucket.breachCount * policy.breachPenaltyCents;
+      const estimatedCents = Math.max(0, baseCents + bonusCents - penaltyCents);
+      return {
+        ...bucket,
+        baseCents,
+        bonusCents,
+        currency: policy.currency,
+        estimatedCents,
+        penaltyCents,
+      };
+    })
+    .sort((a, b) => b.estimatedCents - a.estimatedCents || b.resolved - a.resolved || String(a.assigneeName).localeCompare(String(b.assigneeName), 'zh-CN'));
+
+  return {
+    currency: policy.currency,
+    previewEnabled: policy.previewEnabled !== false,
+    rows,
+    totals: rows.reduce((acc, row) => {
+      acc.baseCents += row.baseCents;
+      acc.bonusCents += row.bonusCents;
+      acc.estimatedCents += row.estimatedCents;
+      acc.penaltyCents += row.penaltyCents;
+      acc.resolved += row.resolved;
+      acc.tickets += row.tickets;
+      return acc;
+    }, { baseCents: 0, bonusCents: 0, estimatedCents: 0, penaltyCents: 0, resolved: 0, tickets: 0 }),
+  };
+}
+
+function supportTicketServiceReport(rawTickets = [], assignees = [], qualityPolicy = supportTicketQualityPolicy()) {
+  const settlement = qualityPolicy.settlement || defaultOpsConfig().support.settlement;
+  const periods = supportTicketPeriodDefinitions().map((period) => {
+    const periodTickets = supportTicketsInActivityPeriod(rawTickets, period.days);
+    return {
+      ...period,
+      generatedAt: new Date().toISOString(),
+      quality: supportTicketQualitySummary(periodTickets, assignees),
+      settlement: supportTicketSettlementSummary(periodTickets, assignees, settlement),
+    };
+  });
+  return {
+    periods,
+    settlementPolicy: normalizeSupportSettlementConfig(settlement, defaultOpsConfig().support.settlement),
   };
 }
 
@@ -16124,6 +16306,7 @@ function adminSupportTickets(options = {}) {
     qualityReview: supportTicketQualityReviewQueue(rawTickets, assignees),
     quality: supportTicketQualitySummary(rawTickets, assignees),
     rosterConflicts: supportRosterConflicts(assignees),
+    serviceReport: supportTicketServiceReport(rawTickets, assignees, qualityPolicy),
     slaPolicy: {
       firstResponseSlaHours: support.firstResponseSlaHours || {},
       resolutionSlaHours: support.resolutionSlaHours || support.slaHours || {},

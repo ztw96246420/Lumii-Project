@@ -13,6 +13,7 @@
 - 批量回复取消。
 - 客服 KPI 目标配置。
 - 质检待看队列。
+- 周/月服务复盘与结算预览。
 
 ## 后台入口
 
@@ -33,7 +34,7 @@
 - `POST /admin/tickets/batch-replies/{approvalId}/approve`：审批并发送批量回复。
 - `POST /admin/tickets/batch-replies/{approvalId}/cancel`：取消待审批批量回复。
 - `POST /admin/tickets/quality-reviews/{ticketId}`：标记质检结果。
-- `GET /admin/tickets`：返回 `qualityPolicy`、`qualityKpi`、`qualityReview`、`batchReplyApprovals`。
+- `GET /admin/tickets`：返回 `qualityPolicy`、`qualityKpi`、`qualityReview`、`batchReplyApprovals`、`serviceReport`。
 
 ## 配置项
 
@@ -57,6 +58,16 @@
 - `lowRatingThreshold`：低分进入质检的评分阈值。
 - `reopenThreshold`：重开进入质检的次数阈值。
 - 首响 SLA 未达标、解决 SLA 未达标、已结束但无客服首响默认进入质检。
+
+`support.settlement`：
+
+- `previewEnabled`：是否启用结算预览。
+- `resolvedTicketCents`：每个已解决工单基础金额。
+- `firstResponseBonusCents`：首响达标奖励。
+- `satisfactionBonusCents`：4-5 分评价奖励。
+- `lowRatingPenaltyCents`：低分扣减。
+- `reopenPenaltyCents`：用户重开扣减。
+- `breachPenaltyCents`：首响或解决 SLA 未达标扣减。
 
 ## 触达规则
 
@@ -87,8 +98,8 @@
 - 生产期是否允许同一个 admin 提交并审批，还是必须双人审批。
 - 批量回复是否需要发送前预览用户名单和脱敏信息。
 - 批量回复发送后是否需要撤回能力。
-- 周/月 KPI 是否按自然周期、排班周期，还是外包结算周期。
-- 外包客服是否按已解决工单、满意度、低分处罚和重开处罚计算费用。
+- 周/月 KPI 生产期是否按自然周期、排班周期，还是外包结算周期。
+- 外包客服真实付款是否需要锁账、审批、导出、税费和调整项。
 
 ## 验证
 
@@ -103,3 +114,4 @@ node scripts/smoke-ticket-sla-roster.cjs
 - 审批通过后移动端工单详情出现客服回复。
 - 审批通过后移动端通知中心出现 `support_reply`。
 - 批量回复创建和审批写入审计日志。
+- 服务复盘返回周/月 KPI 和结算预览。
