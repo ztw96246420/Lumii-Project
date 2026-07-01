@@ -1439,6 +1439,33 @@ Response data:
 
 读取当前用户提交过的地点点评列表。App 会用它在地点详情中回显自己的审核中点评。
 
+### GET `/places/{placeId}/reviews`
+
+读取某个地点已审核通过的公开点评列表。App 地点详情会展示最近公开点评，审核中和驳回点评不会出现在公开列表。
+
+Response data:
+
+```ts
+Array<{
+  id: string;
+  placeId: string;
+  content: string;
+  imageUrls?: string[];
+  photoCount?: number;
+  status: 'approved';
+  createdAt: string;
+  reviewedAt?: string;
+  reviewReason?: string;
+  ownerName: string;
+  ownerAvatarUrl?: string;
+}>
+```
+
+说明：
+- 仅返回 `status=approved` 的点评，按 `reviewedAt` / `createdAt` 倒序排列。
+- `imageUrls` 仅包含已通过图片审核的公开图片，最多 3 张。
+- 如果地点不存在，返回 404 和中文错误 `地点不存在`。
+
 ### POST `/places/submissions`
 
 提交新的宠物友好地点和体验内容。MVP 测试后端只进入审核中，不会立刻加入附近地点列表。

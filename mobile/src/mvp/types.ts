@@ -551,8 +551,13 @@ export type PlaceReview = {
   createdAt: string;
   id: string;
   imageUrls?: string[];
+  ownerAvatarUrl?: string;
+  ownerName?: string;
   placeId: string;
+  placeName?: string;
   photoCount?: number;
+  reviewReason?: string;
+  reviewedAt?: string;
   status: 'approved' | 'pending_review' | 'rejected';
 };
 

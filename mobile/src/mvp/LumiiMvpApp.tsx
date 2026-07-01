@@ -2465,6 +2465,8 @@ export default function LumiiMvpApp() {
   const [favoritePlaceSavingIds, setFavoritePlaceSavingIds] = useState<string[]>([]);
   const favoritePlaceSavingIdsRef = useRef<Set<string>>(new Set());
   const [placeReviewsByPlaceId, setPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview>>({});
+  const [publicPlaceReviewsByPlaceId, setPublicPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview[]>>({});
+  const [publicPlaceReviewsLoadingId, setPublicPlaceReviewsLoadingId] = useState('');
   const [locatingMap, setLocatingMap] = useState(false);
   const locatingMapRef = useRef(false);
   const locatingMapRequestRef = useRef(0);
@@ -3195,6 +3197,12 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     selectedPlaceIdRef.current = selectedPlace?.id ?? null;
   }, [selectedPlace?.id]);
+
+  useEffect(() => {
+    if (route === 'placeDetail' && placesEnabled && selectedPlace?.id) {
+      void loadPublicPlaceReviews(selectedPlace.id);
+    }
+  }, [placesEnabled, route, selectedPlace?.id]);
 
   useEffect(() => {
     if (walkInvitePickingPlace && route !== 'map' && route !== 'placeDetail') setWalkInvitePickingPlace(false);
@@ -4609,6 +4617,19 @@ export default function LumiiMvpApp() {
     if (guardFeature(placesEnabled, '地图地点')) go('map');
     showToast(result.error?.message ?? '地点已更新，请在地图里重新查看', { tone: 'warning', variant: 'surface' });
     return false;
+  }
+
+  async function loadPublicPlaceReviews(placeId: string) {
+    if (!placesEnabled || !placeId) return;
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return;
+    setPublicPlaceReviewsLoadingId(placeId);
+    const result = await lumiiApi.places.listPlaceReviews(placeId);
+    if (sessionTokenRef.current !== requestSessionToken) return;
+    if (result.data) {
+      setPublicPlaceReviewsByPlaceId((items) => ({ ...items, [placeId]: result.data! }));
+    }
+    setPublicPlaceReviewsLoadingId((current) => (current === placeId ? '' : current));
   }
 
   async function openPlaceSubmissionFromNotification(submissionId?: string) {
@@ -8682,6 +8703,8 @@ export default function LumiiMvpApp() {
     favoritePlaceSavingIdsRef.current.clear();
     setFavoritePlaceSavingIds([]);
     setPlaceReviewsByPlaceId({});
+    setPublicPlaceReviewsByPlaceId({});
+    setPublicPlaceReviewsLoadingId('');
     setCustomPlaceFeatureDraft('');
     setCustomPlaceFeatureVisible(false);
     locatingMapRef.current = false;
@@ -13557,6 +13580,9 @@ export default function LumiiMvpApp() {
     const isFavoriteSaving = place ? favoritePlaceSavingIds.includes(place.id) : false;
     const myPlaceReview = place ? placeReviewsByPlaceId[place.id] : undefined;
     const hasPendingPlaceReview = myPlaceReview?.status === 'pending_review';
+    const publicPlaceReviews = place ? publicPlaceReviewsByPlaceId[place.id] ?? [] : [];
+    const visiblePublicPlaceReviews = publicPlaceReviews.slice(0, 3);
+    const publicPlaceReviewsLoading = Boolean(place && publicPlaceReviewsLoadingId === place.id);
     const pet = getCurrentPet();
     const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
     const placeReviewSummary = place?.reviewCount ? `· 社区点评 ${place.reviewCount} 条` : '· 待社区点评';
@@ -13674,6 +13700,54 @@ export default function LumiiMvpApp() {
                   </View>
                 </View>
                 <Text style={styles.placeReviewBodyMake}>{placeReviewBody}</Text>
+              </View>
+              <View style={styles.placePublicReviewsMake}>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.placePublicReviewsTitleMake}>社区点评</Text>
+                  <Text style={styles.placePublicReviewsMetaMake}>{publicPlaceReviewsLoading ? '读取中' : `${publicPlaceReviews.length} 条已公开`}</Text>
+                </View>
+                {publicPlaceReviewsLoading && !visiblePublicPlaceReviews.length ? (
+                  <View style={styles.placePublicReviewEmptyMake}>
+                    <ActivityIndicator color={palette.orange} size="small" />
+                    <Text style={styles.placePublicReviewEmptyTextMake}>正在读取最新公开点评</Text>
+                  </View>
+                ) : visiblePublicPlaceReviews.length ? (
+                  <View style={styles.placePublicReviewListMake}>
+                    {visiblePublicPlaceReviews.map((review) => (
+                      <View key={review.id} style={styles.placePublicReviewItemMake}>
+                        <View style={styles.placeReviewHeaderMake}>
+                          {review.ownerAvatarUrl ? (
+                            <PetAvatar uri={review.ownerAvatarUrl} size={26} />
+                          ) : (
+                            <View style={styles.placePublicReviewAvatarFallbackMake}>
+                              <User color={palette.muted} size={14} strokeWidth={2.4} />
+                            </View>
+                          )}
+                          <View style={styles.flex}>
+                            <View style={styles.placeReviewAuthorRowMake}>
+                              <Text numberOfLines={1} style={styles.placeReviewAuthorMake}>{review.ownerName || '宠友'}</Text>
+                              <Text style={styles.placePublicReviewStatusMake}>已公开</Text>
+                            </View>
+                            <Text style={styles.placeReviewTimeMake}>{formatTimestampDisplay(review.reviewedAt || review.createdAt)}</Text>
+                          </View>
+                        </View>
+                        <Text numberOfLines={3} style={styles.placeReviewBodyMake}>{review.content}</Text>
+                        {review.imageUrls?.length ? (
+                          <View style={styles.placePublicReviewPhotoRowMake}>
+                            {review.imageUrls.slice(0, 3).map((uri, index) => (
+                              <Image key={`${review.id}-photo-${index}`} resizeMode="cover" source={{ uri }} style={styles.placePublicReviewPhotoMake} />
+                            ))}
+                          </View>
+                        ) : null}
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={styles.placePublicReviewEmptyMake}>
+                    <MessageCircle color={palette.muted} size={15} strokeWidth={2.4} />
+                    <Text style={styles.placePublicReviewEmptyTextMake}>还没有公开点评，写一条真实体验帮附近宠友判断。</Text>
+                  </View>
+                )}
               </View>
               <View style={styles.placeDetailBottomCtaMake}>
                 {walkInvitePickingPlace ? (
@@ -19001,6 +19075,17 @@ const styles = StyleSheet.create({
   placeRatingRowMake: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 7 },
   placeRatingMissingMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 16 },
   placeRatingValueMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700', lineHeight: 17 },
+  placePublicReviewAvatarFallbackMake: { alignItems: 'center', backgroundColor: palette.pale, borderColor: palette.border, borderRadius: 13, borderWidth: 1, height: 26, justifyContent: 'center', width: 26 },
+  placePublicReviewEmptyMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 14, flexDirection: 'row', gap: 8, marginTop: 10, minHeight: 44, paddingHorizontal: 12, paddingVertical: 10 },
+  placePublicReviewEmptyTextMake: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18 },
+  placePublicReviewItemMake: { borderColor: 'rgba(234,223,210,0.86)', borderTopWidth: 1, paddingTop: 12 },
+  placePublicReviewListMake: { gap: 12, marginTop: 12 },
+  placePublicReviewPhotoMake: { backgroundColor: palette.pale, borderRadius: 10, height: 58, width: 58 },
+  placePublicReviewPhotoRowMake: { flexDirection: 'row', gap: 7, marginTop: 10 },
+  placePublicReviewStatusMake: { backgroundColor: 'rgba(87, 183, 167, 0.14)', borderRadius: 999, color: palette.teal, fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', lineHeight: 14, overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 2 },
+  placePublicReviewsMake: { alignItems: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginTop: 12, paddingHorizontal: 14, paddingVertical: 12, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
+  placePublicReviewsMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 16 },
+  placePublicReviewsTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 19 },
   placeReviewAuthorMake: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 17 },
   placeReviewAuthorRowMake: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   placeReviewBodyMake: { color: 'rgba(27,28,25,0.85)', fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 20, marginTop: 8 },

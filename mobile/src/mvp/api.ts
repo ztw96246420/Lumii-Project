@@ -574,6 +574,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<PlaceReview[]>('GET', '/places/reviews/my');
       },
 
+      async listPlaceReviews(placeId: string): Promise<ApiResult<PlaceReview[]>> {
+        return request<PlaceReview[]>('GET', `/places/${encodeURIComponent(placeId)}/reviews`);
+      },
+
       async listMySubmissions(): Promise<ApiResult<PlaceSubmission[]>> {
         return request<PlaceSubmission[]>('GET', '/places/submissions/my');
       },

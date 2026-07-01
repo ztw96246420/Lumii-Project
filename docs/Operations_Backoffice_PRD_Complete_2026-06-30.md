@@ -2163,6 +2163,7 @@ AI：
 - `GET /admin/places/reviews`
 - `POST /admin/places/reviews/{reviewId}/approve`
 - `POST /admin/places/reviews/{reviewId}/reject`
+- `GET /places/{placeId}/reviews`
 - `GET /admin/places/submissions`
 - `GET /admin/places/contributions`
 - `POST /admin/places/submissions/{submissionId}/approve`
@@ -2399,7 +2400,7 @@ type Sanction = {
 - 用户举报能在后台处理，并通知举报人和被举报作者。
 - 内容被隐藏或删除后，移动端不再展示。
 - AI 任务失败或卡住能在后台定位、重试、标记失败或返还额度。
-- 地点点评和新增地点能审核，并通知提交人。
+- 地点点评和新增地点能审核，并通知提交人；审核通过的地点点评会在 App 地点详情公开展示。
 - 工单能回复用户，用户能在 App 查看、补充、评分、重开。
 - 配置改动能版本化、可回滚、可审计，并真实影响移动端。
 - 处罚能真实限制移动端写接口，申诉能撤销处罚。

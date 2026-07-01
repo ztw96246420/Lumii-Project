@@ -3318,6 +3318,11 @@ export const mockApi = {
       return success(placeReviews);
     },
 
+    async listPlaceReviews(placeId: string): Promise<ApiResult<PlaceReview[]>> {
+      await wait(120);
+      return success(placeReviews.filter((review) => review.placeId === placeId && review.status === 'approved'));
+    },
+
     async listMySubmissions(): Promise<ApiResult<PlaceSubmission[]>> {
       await wait(120);
       return success(placeSubmissions);

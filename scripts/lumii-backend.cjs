@@ -5236,6 +5236,28 @@ function approvedPlaceReviewCount(placeId) {
   }, 0);
 }
 
+function publicPlaceReviewsForPlace(placeId, limit = 20) {
+  const targetPlaceId = String(placeId || '').trim();
+  if (!targetPlaceId) return [];
+  const rows = [];
+  Object.entries(state.placeReviews || {}).forEach(([phone, reviews]) => {
+    if (!Array.isArray(reviews)) return;
+    const owner = state.users?.[phone];
+    reviews.forEach((review) => {
+      if (review?.placeId !== targetPlaceId || review.status !== 'approved') return;
+      rows.push({
+        ...review,
+        imageUrls: visibleImageUrls(review.imageUrls).slice(0, 3),
+        ownerAvatarUrl: owner?.ownerAvatarUrl || '',
+        ownerName: owner?.ownerName || `用户${String(phone || '').slice(-4)}`,
+      });
+    });
+  });
+  return rows
+    .sort((a, b) => String(b.reviewedAt || b.createdAt || '').localeCompare(String(a.reviewedAt || a.createdAt || '')))
+    .slice(0, Math.max(1, Math.min(50, Number(limit) || 20)));
+}
+
 function placeFavoriteCount(placeId) {
   return Object.values(state.users || {}).reduce((sum, user) => (
     Array.isArray(user?.favoritePlaceIds) && user.favoritePlaceIds.includes(placeId) ? sum + 1 : sum
@@ -11491,7 +11513,7 @@ function adminReadinessModules(context) {
       status: 'partial',
       evidence: '地点点评和新增地点支持通过/驳回、关联已有地点、原因模板、通知、导出、地点编辑、人工合并和基础贡献账本。',
       mobileLinkage: '审核状态会影响地点详情、地点提交和用户通知中心。',
-      nextStep: '补用户端公开贡献身份、贡献等级/奖励策略、多角色权限和公开点评列表口径。',
+      nextStep: '补用户端公开贡献身份、贡献等级/奖励策略、多角色权限、点评分页/举报和排序口径。',
     },
     {
       key: 'support',
@@ -17736,6 +17758,19 @@ async function handle(req, res) {
   if (req.method === 'GET' && pathname === '/places/reviews/my') {
     if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     ok(res, placeReviewsFor(user));
+    return;
+  }
+
+  const placePublicReviewsMatch = pathname.match(/^\/places\/([^/]+)\/reviews$/);
+  if (req.method === 'GET' && placePublicReviewsMatch) {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
+    const placeId = decodeURIComponent(placePublicReviewsMatch[1]);
+    const place = (state.places || []).find((item) => item.id === placeId);
+    if (!place) {
+      fail(res, 404, '地点不存在', false);
+      return;
+    }
+    ok(res, publicPlaceReviewsForPlace(placeId));
     return;
   }
 
