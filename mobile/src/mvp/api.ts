@@ -578,17 +578,19 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<PlaceSubmission[]>('GET', '/places/submissions/my');
       },
 
-      async createReview(placeId: string, content: string): Promise<ApiResult<PlaceReview>> {
+      async createReview(placeId: string, content: string, imageUrls: string[] = []): Promise<ApiResult<PlaceReview>> {
         return request<PlaceReview>('POST', `/places/${encodeURIComponent(placeId)}/reviews`, {
           content,
+          imageUrls,
           source: 'mvp',
         });
       },
 
-      async createSubmission(name: string, address: string, content: string): Promise<ApiResult<PlaceSubmission>> {
+      async createSubmission(name: string, address: string, content: string, imageUrls: string[] = []): Promise<ApiResult<PlaceSubmission>> {
         return request<PlaceSubmission>('POST', '/places/submissions', {
           address,
           content,
+          imageUrls,
           name,
           source: 'mvp',
         });

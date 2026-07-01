@@ -678,6 +678,17 @@ th {
   width: 64px;
 }
 
+.moderation-media-strip.compact {
+  gap: 6px;
+  margin-top: 0;
+}
+
+.moderation-media-strip.compact img {
+  border-radius: 10px;
+  height: 42px;
+  width: 42px;
+}
+
 .moderation-list,
 .ticket-list {
   display: grid;

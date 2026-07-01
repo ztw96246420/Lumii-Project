@@ -201,6 +201,9 @@ export type UploadedPetMedia = {
   analysis: PetMediaAnalysis;
   fileUrl?: string;
   mediaId: string;
+  moderationReason?: string;
+  moderationStatus?: 'approved' | 'hidden' | 'pending_review' | 'rejected';
+  moderationStatusLabel?: string;
   previewUrl: string;
   quality: 'blocked' | 'good' | 'warning';
 };
@@ -237,7 +240,7 @@ export type UploadPetMediaInput = {
   fileName?: string;
   mimeType?: string;
   previewUrl?: string;
-  source: 'camera' | 'library' | 'mvp_sample';
+  source: 'camera' | 'library' | 'mvp_sample' | 'pet_circle_photo' | 'place_review' | 'place_submission';
 };
 
 export type PetChatFeedbackRating = 'good' | 'off';
@@ -547,7 +550,9 @@ export type PlaceReview = {
   content: string;
   createdAt: string;
   id: string;
+  imageUrls?: string[];
   placeId: string;
+  photoCount?: number;
   status: 'approved' | 'pending_review' | 'rejected';
 };
 
@@ -556,7 +561,9 @@ export type PlaceSubmission = {
   content: string;
   createdAt: string;
   id: string;
+  imageUrls?: string[];
   name: string;
+  photoCount?: number;
   status: 'approved' | 'pending_review' | 'rejected';
 };
 

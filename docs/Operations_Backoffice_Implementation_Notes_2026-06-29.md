@@ -286,6 +286,9 @@
 - 移动端 `/places/nearby`、`/places/search`、`/places/{id}` 已同步返回 `qualityScore`、`qualityLabel`、`qualityReasons` 和 `duplicateCandidateCount`；移动端排序在距离/评分/点评相同时用质量分兜底。
 - 后台支持地点详情编辑：名称、地址、分类、宠物友好状态、支持宠物、标签、经纬度和封面图 URL，保存时写入 `place.update` 审计。
 - 后台支持人工确认地点合并：源地点会从目录移除，目标地点合并标签/支持宠物/来源 ID，并迁移地点点评、通过后的新增地点提交、收藏、通知和约遛引用，写入 `place.merge` 审计。
+- 地点点评/新增地点已支持图片上传：移动端先上传到统一 `/media/uploads`，按 `place_review` / `place_submission` 走图片内容安全；通过后的图片 URL 随点评/提交入库，后台地点审核页展示缩略图。
+- 新增地点审核通过后，会把提交图片中的第一张可见图写为 `manual` 地点封面，并保留到 `photoUrls`。
+- 统一图片审核池已识别地点点评/新增地点图片引用，隐藏/驳回后公共图片 URL 不再可见，相关图片处理写入 `media.moderation.*` 审计。
 - 地点点评和新增地点审核支持内置原因模板；运营可以套用模板后编辑最终原因。
 - 内容安全任务池处理地点点评/新增地点时，也支持同一套审核原因模板。
 - 审核记录会保存 `reviewTemplateId`、`reviewTemplateLabel` 和最终 `reviewReason`。
@@ -535,7 +538,7 @@
   - 复审关键词：命中后进入人工审核。
 - 配置中心已支持腾讯云机审开关：
   - `moderation.machineTextEnabled`：启用后，宠友圈小事、评论、地点点评、新增地点、宠物资料文本会调用腾讯云文本内容安全。
-  - `moderation.machineImageEnabled`：启用后，宠物头像、AI 原图、宠友圈图片、宠友圈封面、工单附件会调用腾讯云图片内容安全。
+  - `moderation.machineImageEnabled`：启用后，宠物头像、AI 原图、宠友圈图片、宠友圈封面、地点点评图片、新增地点图片、工单附件会调用腾讯云图片内容安全。
   - 腾讯云凭据只从服务器环境变量读取，后台只显示“已配置/未配置”和 Biztype 映射，不展示密钥。
 - 规则接入范围：
   - 宠友圈小事：命中复审/高风险后状态为 `pending_review`，不进入附近公开列表，内容安全池可通过、隐藏、删除。

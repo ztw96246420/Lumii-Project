@@ -958,6 +958,24 @@ function buildDailyPostPhotoDraft(asset: ImagePicker.ImagePickerAsset | undefine
   };
 }
 
+function buildPlacePhotoDraft(asset: ImagePicker.ImagePickerAsset | undefined): { draft?: LocalImageUploadDraft; error?: string } {
+  if (!asset?.uri) return { error: '没有读取到地点照片，请重新选择' };
+  const mimeType = normalizeLocalImageMimeType(asset.mimeType, asset.uri, asset.fileName);
+  if (!mimeType || !supportedAvatarMimeTypes.has(mimeType)) return { error: '地点照片仅支持 JPG、PNG、WebP、HEIC 图片' };
+  if (!asset.base64) return { error: '地点照片没有读取到可上传内容，请重新选择' };
+  const bytes = Number(asset.fileSize) || estimateBase64Bytes(asset.base64);
+  if (bytes > avatarUploadMaxBytes) return { error: `地点照片文件过大，请选择 ${Math.round(avatarUploadMaxBytes / 1024 / 1024)}MB 以内的图片` };
+  return {
+    draft: {
+      base64: asset.base64,
+      fileName: asset.fileName || `place-photo-${Date.now()}.${avatarExtensionForMimeType(mimeType)}`,
+      mimeType,
+      source: 'library',
+      uri: asset.uri,
+    },
+  };
+}
+
 function confirmAction(title: string, message: string, confirmText = '确认', destructive = false) {
   if (Platform.OS === 'web') {
     const confirm = (globalThis as typeof globalThis & { confirm?: (message?: string) => boolean }).confirm;
@@ -2459,6 +2477,7 @@ export default function LumiiMvpApp() {
   const [customPlaceFeatureVisible, setCustomPlaceFeatureVisible] = useState(false);
   const customPlaceFeatureInputRef = useRef<TextInput>(null);
   const [placePhotoUris, setPlacePhotoUris] = useState<string[]>([]);
+  const [placePhotoDrafts, setPlacePhotoDrafts] = useState<LocalImageUploadDraft[]>([]);
   const [placePhotoPicking, setPlacePhotoPicking] = useState(false);
   const placePhotoPickingRef = useRef(false);
   const [placeReviewSaving, setPlaceReviewSaving] = useState(false);
@@ -7005,7 +7024,7 @@ export default function LumiiMvpApp() {
         fileName: draft.fileName,
         mimeType: draft.mimeType,
         previewUrl: draft.uri,
-        source: draft.source ?? 'library',
+        source: 'pet_circle_photo',
       });
       if (!result.data) return { error: result.error?.message ?? '照片上传失败，请稍后重试', urls };
       if (result.data.quality === 'blocked') return { error: result.data.analysis.message || '这张照片暂不适合公开发布，请换一张', urls };
@@ -8025,14 +8044,25 @@ export default function LumiiMvpApp() {
     const reviewFeatureTags = [...selectedPlaceFeatureTags];
     const reviewContent = placeReviewDraft.trim();
     const reviewDraft = `${buildPlaceSubmissionExperience(reviewFeatureTags, reviewContent)}${buildPlacePhotoSummary()}`;
+    const requestPhotoUris = placePhotoUris.slice(0, 3);
+    const requestPhotoDrafts = placePhotoDrafts.slice(0, 3);
     const submittedAt = formatClockTime();
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
+    if (requestPhotoUris.length && requestPhotoDrafts.length !== requestPhotoUris.length) {
+      showToast('照片草稿已失效，请重新选择地点照片', { tone: 'warning', variant: 'surface' });
+      return;
+    }
     placeReviewSavingRef.current = true;
     setPlaceSubmitResult(null);
     setPlaceReviewSaving(true);
     try {
-      const result = await lumiiApi.places.createReview(place.id, reviewDraft);
+      const uploadedImages = requestPhotoDrafts.length ? await uploadPlaceImages(requestPhotoDrafts, 'place_review') : { urls: [] };
+      if (uploadedImages.error) {
+        showToast(uploadedImages.error, { tone: 'warning', variant: 'surface' });
+        return;
+      }
+      const result = await lumiiApi.places.createReview(place.id, reviewDraft, uploadedImages.urls);
       const stillReviewingSamePlace =
         sessionTokenRef.current === requestSessionToken &&
         selectedPlaceIdRef.current === place.id &&
@@ -8047,6 +8077,7 @@ export default function LumiiMvpApp() {
         }
         if (stillReviewingSamePlace) setPlaceReviewDraft('');
         if (stillReviewingSamePlace) setPlacePhotoUris([]);
+        if (stillReviewingSamePlace) setPlacePhotoDrafts([]);
         if (stillReviewingSamePlace) setSelectedPlaceFeatureTags([]);
         if (stillReviewingSamePlace) setCustomPlaceFeatureDraft('');
         if (stillReviewingSamePlace) setCustomPlaceFeatureVisible(false);
@@ -8112,6 +8143,27 @@ export default function LumiiMvpApp() {
 
   function buildPlacePhotoSummary(count = placePhotoUris.length) {
     return count ? `\n附照片 ${count} 张（本次提交预览）` : '';
+  }
+
+  async function uploadPlaceImages(drafts: LocalImageUploadDraft[], source: 'place_review' | 'place_submission') {
+    const urls: string[] = [];
+    for (const draft of drafts.slice(0, 3)) {
+      const result = await lumiiApi.avatar.uploadPetMedia({
+        base64: draft.base64,
+        fileName: draft.fileName,
+        mimeType: draft.mimeType,
+        previewUrl: draft.uri,
+        source,
+      });
+      if (!result.data) return { error: result.error?.message ?? '地点照片上传失败，请稍后重试', urls };
+      if (result.data.quality === 'blocked') return { error: result.data.analysis.message || '这张地点照片暂不适合公开提交，请换一张', urls };
+      if (result.data.moderationStatus === 'pending_review') return { error: '有地点照片正在安全审核中，通过后才能提交', urls };
+      if (result.data.moderationStatus === 'hidden' || result.data.moderationStatus === 'rejected') return { error: result.data.moderationReason || '有地点照片未通过平台安全审核，请重新选择图片', urls };
+      const publicUrl = result.data.fileUrl || result.data.previewUrl;
+      if (!publicUrl) return { error: '地点照片上传后没有生成可访问地址，请稍后重试', urls };
+      urls.push(publicUrl);
+    }
+    return { urls };
   }
 
   function normalizePlaceDraftTextArray(value: unknown, maxCount = 8) {
@@ -8215,6 +8267,7 @@ export default function LumiiMvpApp() {
 
   function applyPlaceComposerDraft(draft: PlaceComposerDraft) {
     setPlacePhotoUris(draft.photoUris);
+    setPlacePhotoDrafts([]);
     setSelectedPlaceFeatureTags(draft.featureTags);
     setCustomPlaceFeatureDraft(draft.customFeatureDraft);
     setCustomPlaceFeatureVisible(draft.customFeatureVisible);
@@ -8248,6 +8301,7 @@ export default function LumiiMvpApp() {
       }
       const pickerResult = await ImagePicker.launchImageLibraryAsync({
         allowsMultipleSelection: true,
+        base64: true,
         mediaTypes: ['images'],
         quality: 0.78,
         selectionLimit: Math.max(1, 3 - placePhotoUris.length),
@@ -8256,12 +8310,15 @@ export default function LumiiMvpApp() {
         showToast('已取消选择照片');
         return;
       }
-      const nextUris = pickerResult.assets.map((asset) => asset.uri).filter(Boolean);
-      if (!nextUris.length) {
-        showToast('没有读取到可用照片，请重新选择');
+      const parsedDrafts = pickerResult.assets.map((asset) => buildPlacePhotoDraft(asset));
+      const nextDrafts = parsedDrafts.map((item) => item.draft).filter(Boolean) as LocalImageUploadDraft[];
+      if (!nextDrafts.length) {
+        showToast(parsedDrafts.find((item) => item.error)?.error ?? '没有读取到可用照片，请重新选择', { tone: 'warning', variant: 'surface' });
         return;
       }
+      const nextUris = nextDrafts.map((draft) => draft.uri);
       setPlacePhotoUris((items) => [...items, ...nextUris].slice(0, 3));
+      setPlacePhotoDrafts((items) => [...items, ...nextDrafts].slice(0, 3));
       showToast(`已添加 ${nextUris.length} 张地点照片`, { tone: 'success', variant: 'surface' });
     } finally {
       placePhotoPickingRef.current = false;
@@ -8286,6 +8343,7 @@ export default function LumiiMvpApp() {
       applyPlaceComposerDraft(draft);
     } else {
       setPlacePhotoUris([]);
+      setPlacePhotoDrafts([]);
       setSelectedPlaceFeatureTags([]);
       setCustomPlaceFeatureDraft('');
       setCustomPlaceFeatureVisible(false);
@@ -8320,6 +8378,7 @@ export default function LumiiMvpApp() {
       applyPlaceComposerDraft(draft);
     } else {
       setPlacePhotoUris([]);
+      setPlacePhotoDrafts([]);
       setSelectedPlaceFeatureTags(place.tags.slice(0, 3));
       setCustomPlaceFeatureDraft('');
       setCustomPlaceFeatureVisible(false);
@@ -8351,12 +8410,23 @@ export default function LumiiMvpApp() {
     const requestAddress = placeDraftAddress.trim();
     const requestFeatureTags = [...selectedPlaceFeatureTags];
     const requestExperience = `${buildPlaceSubmissionExperience(requestFeatureTags, placeSubmissionExperience)}${buildPlacePhotoSummary()}`;
+    const requestPhotoUris = placePhotoUris.slice(0, 3);
+    const requestPhotoDrafts = placePhotoDrafts.slice(0, 3);
     const submittedAt = formatClockTime();
+    if (requestPhotoUris.length && requestPhotoDrafts.length !== requestPhotoUris.length) {
+      showToast('照片草稿已失效，请重新选择地点照片', { tone: 'warning', variant: 'surface' });
+      return;
+    }
     placeSubmissionSavingRef.current = true;
     setPlaceSubmitResult(null);
     setPlaceSubmissionSaving(true);
     try {
-      const result = await lumiiApi.places.createSubmission(requestName, requestAddress, requestExperience);
+      const uploadedImages = requestPhotoDrafts.length ? await uploadPlaceImages(requestPhotoDrafts, 'place_submission') : { urls: [] };
+      if (uploadedImages.error) {
+        showToast(uploadedImages.error, { tone: 'warning', variant: 'surface' });
+        return;
+      }
+      const result = await lumiiApi.places.createSubmission(requestName, requestAddress, requestExperience, uploadedImages.urls);
       const stillEditingSubmission = sessionTokenRef.current === requestSessionToken && routeRef.current === 'addPlaceReview';
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
@@ -8366,6 +8436,7 @@ export default function LumiiMvpApp() {
           setPlaceDraftName('');
           setPlaceDraftAddress('');
           setPlacePhotoUris([]);
+          setPlacePhotoDrafts([]);
           setSelectedPlaceFeatureTags([]);
           setCustomPlaceFeatureDraft('');
           setCustomPlaceFeatureVisible(false);
@@ -8614,6 +8685,7 @@ export default function LumiiMvpApp() {
     placePhotoPickingRef.current = false;
     setPlacePhotoPicking(false);
     setPlacePhotoUris([]);
+    setPlacePhotoDrafts([]);
     setSelectedPlaceFeatureTags([]);
     placeReviewSavingRef.current = false;
     setPlaceReviewSaving(false);
@@ -15596,6 +15668,7 @@ export default function LumiiMvpApp() {
                 key={`${uri}-${index}`}
                 onPress={() => {
                   setPlacePhotoUris((items) => items.filter((_, itemIndex) => itemIndex !== index));
+                  setPlacePhotoDrafts((items) => items.filter((_, itemIndex) => itemIndex !== index));
                   showToast('已移除这张地点照片');
                 }}
                 style={[styles.addPlacePhotoSquareMake, webPressableReset]}

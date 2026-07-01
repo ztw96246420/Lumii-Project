@@ -3323,7 +3323,7 @@ export const mockApi = {
       return success(placeSubmissions);
     },
 
-    async createReview(placeId: string, content: string): Promise<ApiResult<PlaceReview>> {
+    async createReview(placeId: string, content: string, imageUrls: string[] = []): Promise<ApiResult<PlaceReview>> {
       await wait();
       const place = places.find((item) => item.id === placeId);
       if (!place) return error('地点不存在', false);
@@ -3336,7 +3336,9 @@ export const mockApi = {
         content: trimmedContent,
         createdAt: new Date().toISOString(),
         id: `review-${Date.now()}`,
+        imageUrls: imageUrls.slice(0, 3),
         placeId,
+        photoCount: imageUrls.slice(0, 3).length,
         status: 'pending_review',
       };
       placeReviews = [review, ...placeReviews.filter((item) => item.placeId !== placeId)];
@@ -3352,7 +3354,7 @@ export const mockApi = {
       return success(review);
     },
 
-    async createSubmission(name: string, address: string, content: string): Promise<ApiResult<PlaceSubmission>> {
+    async createSubmission(name: string, address: string, content: string, imageUrls: string[] = []): Promise<ApiResult<PlaceSubmission>> {
       await wait();
       const trimmedName = name.trim();
       const trimmedAddress = address.trim();
@@ -3380,7 +3382,9 @@ export const mockApi = {
         content: trimmedContent,
         createdAt: new Date().toISOString(),
         id: `place-submission-${Date.now()}`,
+        imageUrls: imageUrls.slice(0, 3),
         name: trimmedName,
+        photoCount: imageUrls.slice(0, 3).length,
         status: 'pending_review',
       };
       placeSubmissions = [submission, ...placeSubmissions];

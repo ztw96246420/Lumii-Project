@@ -2079,6 +2079,7 @@ async function renderModeration(force) {
       ${metric('举报任务', summary.reports || 0, '来自用户举报', '用户举报会自动关联被举报动态或评论。')}
       ${metric('社交内容', summary.social || 0, '动态/评论聚合', '被举报内容会聚合为内容级任务，便于一次隐藏或删除。')}
       ${metric('图片待审', mediaSummary.pending || 0, `${mediaSummary.hidden || 0} 隐藏 / ${mediaSummary.rejected || 0} 驳回`, '上传图片会进入独立审核视角；隐藏或驳回后 App 列表不再展示该图。')}
+      ${metric('地点图片', mediaSummary.referencedByPlaces || 0, '点评/新增地点', '地点点评和新增地点上传的图片复用统一图片审核池，处理结果会影响提交与后续展示。')}
       ${metric('地点审核', summary.places || 0, '点评/新增地点', '地点点评和新增地点共用这套审核视角。')}
       ${metric('风险命中', summary.ruleHits || 0, '规则/机审样本', '来自关键词规则和腾讯云机审的命中样本，用于后续调规则和接模型。')}
       ${metric('待复审样本', summary.sampleUnreviewed || 0, `${summary.qualitySamples || 0} 条抽样`, '抽样复审不会直接影响用户内容可见性，用于发现误杀、漏杀和策略偏差。')}
@@ -2198,11 +2199,17 @@ function mediaReferenceCell(row) {
   const refs = row.references || {};
   const parts = [
     refs.postCount ? `小事 ${refs.postCount}` : '',
+    refs.placeReviewCount ? `地点点评 ${refs.placeReviewCount}` : '',
+    refs.placeSubmissionCount ? `新增地点 ${refs.placeSubmissionCount}` : '',
     refs.avatarJobCount ? `AI任务 ${refs.avatarJobCount}` : '',
     refs.coverPetCount ? `封面 ${refs.coverPetCount}` : '',
     refs.avatarPetCount ? `头像 ${refs.avatarPetCount}` : '',
   ].filter(Boolean);
-  const postIds = (refs.posts || []).slice(0, 2).map((post) => post.id).join(' / ');
+  const postIds = [
+    ...(refs.posts || []).slice(0, 2).map((post) => `小事 ${post.id}`),
+    ...(refs.placeReviews || []).slice(0, 2).map((review) => `点评 ${review.id}`),
+    ...(refs.placeSubmissions || []).slice(0, 2).map((submission) => `新增 ${submission.id}`),
+  ].join(' / ');
   return `
     <div>${escapeHtml(parts.join(' · ') || '暂无业务引用')}</div>
     <div class="cell-sub">${escapeHtml(postIds || row.sourceLabel || '-')}</div>
@@ -3610,6 +3617,17 @@ function placeQualityEvidence(place) {
   ].map((line) => `<div class="cell-sub">${escapeHtml(line)}</div>`).join('');
 }
 
+function placeImageThumbs(item) {
+  const imageUrls = Array.isArray(item.imageUrls) ? item.imageUrls : [];
+  if (!imageUrls.length) return '<div class="cell-sub">未上传图片</div>';
+  return `
+    <div class="moderation-media-strip compact">
+      ${imageUrls.slice(0, 3).map((url) => `<img src="${escapeHtml(url)}" alt="" loading="lazy" />`).join('')}
+    </div>
+    <div class="cell-sub">${numberText(imageUrls.length)} 张图</div>
+  `;
+}
+
 async function renderPlaces(force) {
   const [catalog, reviews, submissions, templates] = await Promise.all([
     load('places', '/admin/places', force),
@@ -3666,6 +3684,7 @@ async function renderPlaces(force) {
       </div>
       ${tableHtml(reviews, [
         ['点评', (r) => `<div class="cell-title">${escapeHtml(r.placeName)}</div><div class="cell-sub">${escapeHtml(r.content).slice(0, 90)}</div>`],
+        ['图片', placeImageThumbs],
         ['用户', (r) => `<div>${escapeHtml(r.ownerName)}</div><div class="cell-sub">${shortPhone(r.ownerPhone)}</div>`],
         ['状态', (r) => `${statusPill(r.status)}<div class="cell-sub">${r.resultNotifiedAt ? '已通知：' + formatTime(r.resultNotifiedAt) : '未通知用户'}</div>${placeModerationTemplateMeta(r)}`],
         ['时间', (r) => formatTime(r.createdAt)],
@@ -3687,6 +3706,7 @@ async function renderPlaces(force) {
       ${tableHtml(submissions, [
         ['地点', (s) => `<div class="cell-title">${escapeHtml(s.name)}</div><div class="cell-sub">${escapeHtml(s.address)}</div>`],
         ['体验', (s) => escapeHtml(s.content).slice(0, 100)],
+        ['图片', placeImageThumbs],
         ['用户', (s) => `<div>${escapeHtml(s.ownerName)}</div><div class="cell-sub">${shortPhone(s.ownerPhone)}</div>`],
         ['状态', (s) => `${statusPill(s.status)}<div class="cell-sub">${s.resultNotifiedAt ? '已通知：' + formatTime(s.resultNotifiedAt) : '未通知用户'}</div>${placeModerationTemplateMeta(s)}`],
         ['时间', (s) => formatTime(s.createdAt)],

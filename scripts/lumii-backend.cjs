@@ -4744,6 +4744,8 @@ function tencentImageBizTypeForScope(scope) {
 function imageModerationScopeForUploadSource(source) {
   const value = String(source || '').trim();
   if (/pet[-_]?circle|social|moment|post/i.test(value)) return 'pet_circle_photo';
+  if (/place[-_]?review|place_review/i.test(value)) return 'place_review';
+  if (/place[-_]?submission|place_submission|place[-_]?draft/i.test(value)) return 'place_submission';
   if (/cover/i.test(value)) return 'pet_circle_cover';
   if (/support|feedback|ticket/i.test(value)) return 'support';
   return 'pet_avatar';
@@ -5603,13 +5605,18 @@ function mergeAdminPlace(admin, sourcePlaceId, body = {}) {
   };
 }
 
-async function createPlaceReview(user, placeId, content) {
+async function createPlaceReview(user, placeId, bodyOrContent) {
   const place = (state.places || []).find((item) => item.id === placeId);
   if (!place) return null;
+  const body = bodyOrContent && typeof bodyOrContent === 'object' ? bodyOrContent : { content: bodyOrContent };
+  const content = body.content;
   const trimmedContent = String(content || '').trim();
   if (!trimmedContent) return false;
   const violation = publicPlaceContentViolation('点评内容', trimmedContent, 500);
   if (violation) return { error: violation, statusCode: 400 };
+  const imageModerationError = placeImageModerationError(body);
+  if (imageModerationError) return { error: imageModerationError, statusCode: 400 };
+  const imageUrls = normalizePlaceImageUrls(body);
   const moderation = await evaluateContentTextModeration('点评内容', trimmedContent, { ownerPhone: user.phone, scope: 'place_review' });
   if (moderation.action === 'block') {
     recordModerationSample({ ...moderation, contentText: trimmedContent, ownerPhone: user.phone, scope: 'place_review' });
@@ -5620,7 +5627,9 @@ async function createPlaceReview(user, placeId, content) {
     content: trimmedContent,
     createdAt: new Date().toISOString(),
     id: `review-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    imageUrls,
     moderation: moderationMetadataFromEvaluation(moderation, 'place_review'),
+    photoCount: imageUrls.length,
     placeId,
     status: 'pending_review',
   };
@@ -5705,6 +5714,9 @@ async function createPlaceSubmission(user, body) {
     publicPlaceContentViolation('地点地址', address, 120) ||
     publicPlaceContentViolation('宠物友好体验', content, 500);
   if (violation) return { error: violation, statusCode: 400 };
+  const imageModerationError = placeImageModerationError(body);
+  if (imageModerationError) return { error: imageModerationError, statusCode: 400 };
+  const imageUrls = normalizePlaceImageUrls(body);
   const moderation = await evaluateContentTextModeration('新增地点内容', [name, address, content].join(' '), { ownerPhone: user.phone, scope: 'place_submission' });
   if (moderation.action === 'block') {
     recordModerationSample({ ...moderation, contentText: [name, address, content].join(' · '), ownerPhone: user.phone, scope: 'place_submission' });
@@ -5717,8 +5729,10 @@ async function createPlaceSubmission(user, body) {
     content,
     createdAt: new Date().toISOString(),
     id: `place-submission-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    imageUrls,
     moderation: moderationMetadataFromEvaluation(moderation, 'place_submission'),
     name,
+    photoCount: imageUrls.length,
     status: 'pending_review',
   };
   if (submission.moderation) recordModerationSample({ ...moderation, contentText: [name, address, content].join(' · '), ownerPhone: user.phone, scope: 'place_submission', targetId: submission.id });
@@ -5805,6 +5819,39 @@ function visibleImageUrls(imageUrls) {
     if (urls.length >= effectivePetCircleMaxPhotos()) break;
   }
   return urls;
+}
+
+function normalizePlaceImageUrls(body = {}) {
+  const rawUrls = Array.isArray(body.imageUrls) ? body.imageUrls : Array.isArray(body.photoUrls) ? body.photoUrls : [];
+  const urls = [];
+  const seen = new Set();
+  for (const item of rawUrls) {
+    const url = String(item || '').trim();
+    if (!url || url.length > 2000 || seen.has(url)) continue;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+      if (!isImageUrlPubliclyVisible(url)) continue;
+      seen.add(url);
+      urls.push(url);
+    } catch {
+      // Invalid image URLs are ignored; place content should submit media upload URLs.
+    }
+    if (urls.length >= 3) break;
+  }
+  return urls;
+}
+
+function placeImageModerationError(body = {}) {
+  const rawUrls = Array.isArray(body.imageUrls) ? body.imageUrls : Array.isArray(body.photoUrls) ? body.photoUrls : [];
+  for (const item of rawUrls) {
+    const media = mediaUploadForImageUrl(item);
+    if (!media) continue;
+    const status = normalizeMediaModerationStatus(media.moderationStatus, media);
+    if (status === 'pending_review') return '有地点图片正在安全审核中，通过后才能提交';
+    if (status === 'hidden' || status === 'rejected') return '有地点图片未通过平台安全审核，请重新选择图片';
+  }
+  return '';
 }
 
 function publicUploadedMedia(media, req) {
@@ -12033,7 +12080,10 @@ function avatarMediaQualityLabel(quality) {
 
 function avatarMediaSourceLabel(source) {
   if (source === 'mvp_sample') return '测试样例';
+  if (source === 'pet_circle_photo') return '宠友圈图片';
   if (source === 'pet-source') return '宠物原图';
+  if (source === 'place_review') return '地点点评';
+  if (source === 'place_submission') return '新增地点';
   if (source === 'support') return '工单附件';
   return source || '用户上传';
 }
@@ -12096,6 +12146,26 @@ function adminMediaUsage(media, req = null) {
       ownerPhone: moment.phone,
       status: moment.status || 'published',
     }));
+  const placeReviews = Object.entries(state.placeReviews || {}).flatMap(([phone, reviews]) =>
+    (Array.isArray(reviews) ? reviews : [])
+      .filter((review) => (review.imageUrls || []).some((url) => imageUrlMatchesMedia(url, media, req)))
+      .map((review) => ({
+        id: review.id,
+        ownerPhone: phone,
+        placeId: review.placeId || '',
+        status: review.status || 'pending_review',
+      })),
+  );
+  const placeSubmissions = Object.entries(state.placeSubmissions || {}).flatMap(([phone, submissions]) =>
+    (Array.isArray(submissions) ? submissions : [])
+      .filter((submission) => (submission.imageUrls || []).some((url) => imageUrlMatchesMedia(url, media, req)))
+      .map((submission) => ({
+        id: submission.id,
+        name: submission.name || '',
+        ownerPhone: phone,
+        status: submission.status || 'pending_review',
+      })),
+  );
   const coverPets = [];
   const avatarPets = [];
   for (const user of Object.values(state.users || {})) {
@@ -12114,6 +12184,10 @@ function adminMediaUsage(media, req = null) {
     avatarPets,
     coverPetCount: coverPets.length,
     coverPets,
+    placeReviewCount: placeReviews.length,
+    placeReviews,
+    placeSubmissionCount: placeSubmissions.length,
+    placeSubmissions,
     postCount: posts.length,
     posts,
   };
@@ -12175,6 +12249,8 @@ function adminMediaModeration(options = {}, req = null) {
       item.latestAvatarJobId,
       item.latestAvatarJobStatus,
       ...(item.references?.posts || []).map((post) => post.id),
+      ...(item.references?.placeReviews || []).map((review) => review.id),
+      ...(item.references?.placeSubmissions || []).map((submission) => submission.id),
     ].join(' ').toLowerCase();
     return haystack.includes(q);
   });
@@ -12185,6 +12261,7 @@ function adminMediaModeration(options = {}, req = null) {
       approved: allItems.filter((item) => item.status === 'approved').length,
       hidden: allItems.filter((item) => item.status === 'hidden').length,
       pending: allItems.filter((item) => item.status === 'pending_review').length,
+      referencedByPlaces: allItems.filter((item) => (item.references?.placeReviewCount || 0) + (item.references?.placeSubmissionCount || 0) > 0).length,
       referencedByPosts: allItems.filter((item) => item.references?.postCount > 0).length,
       rejected: allItems.filter((item) => item.status === 'rejected').length,
       totalMedia: allItems.length,
@@ -14278,13 +14355,16 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     found.submission.reviewedBy = admin.username;
     applyPlaceModerationReason(found.submission, moderation);
     if (action === 'approve' && !found.submission.approvedPlaceId) {
+      const imageUrls = visibleImageUrls(found.submission.imageUrls).slice(0, 3);
       const place = {
         address: found.submission.address,
         category: 'other',
+        coverImageUrl: imageUrls[0] || '',
         distance: '附近',
         id: `manual-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
         name: found.submission.name,
         petFriendlyStatus: 'candidate',
+        photoUrls: imageUrls,
         rating: 0,
         reviewCount: 0,
         source: 'manual',
@@ -15208,13 +15288,16 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     found.submission.reviewedBy = admin.username;
     applyPlaceModerationReason(found.submission, moderation);
     if (action === 'approve' && !found.submission.approvedPlaceId) {
+      const imageUrls = visibleImageUrls(found.submission.imageUrls).slice(0, 3);
       const place = {
         address: found.submission.address,
         category: 'other',
+        coverImageUrl: imageUrls[0] || '',
         distance: '附近',
         id: `manual-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
         name: found.submission.name,
         petFriendlyStatus: 'candidate',
+        photoUrls: imageUrls,
         rating: 0,
         reviewCount: 0,
         source: 'manual',
@@ -16070,7 +16153,11 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/media/uploads') {
-    if (failIfFeatureDisabled(res, 'aiAvatar', 'AI 灵伴形象')) return;
+    const uploadSource = body.source || 'mvp_sample';
+    const uploadScope = imageModerationScopeForUploadSource(uploadSource);
+    if (uploadScope === 'pet_circle_photo' && failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
+    else if ((uploadScope === 'place_review' || uploadScope === 'place_submission') && failIfFeatureDisabled(res, 'places', '地图地点')) return;
+    else if (uploadScope === 'pet_avatar' && failIfFeatureDisabled(res, 'aiAvatar', 'AI 灵伴形象')) return;
     const mediaId = `media-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const parsedUpload = parseBase64Upload(body.base64, body.mimeType);
     const dataUrl = parsedUpload.dataUrl;
@@ -16096,7 +16183,6 @@ async function handle(req, res) {
       }
     }
     state.mediaUploads = state.mediaUploads || {};
-    const uploadSource = body.source || 'mvp_sample';
     const uploadMedia = {
       analysis,
       createdAt: Date.now(),
@@ -16116,10 +16202,9 @@ async function handle(req, res) {
       source: uploadSource,
     };
     const uploadFileContent = String(dataUrl || '').match(/^data:[^;]+;base64,(.+)$/)?.[1] || '';
-    const imageModerationScope = imageModerationScopeForUploadSource(uploadSource);
     const imageModeration = await evaluateTencentImageModeration(uploadMedia, {
       fileContent: uploadFileContent,
-      scope: imageModerationScope,
+      scope: uploadScope,
       targetId: mediaId,
     });
     const moderationStatus = mediaModerationStatusFromEvaluation(imageModeration);
@@ -16129,9 +16214,9 @@ async function handle(req, res) {
     if (imageModeration?.action && imageModeration.action !== 'allow') {
       uploadMedia.moderatedAt = new Date().toISOString();
       uploadMedia.moderatedBy = imageModeration.sourceLabel || 'machine';
-      recordModerationSample({ ...imageModeration, contentText: String(body.fileName || mediaId), ownerPhone: user.phone, scope: imageModerationScope, targetId: mediaId });
+      recordModerationSample({ ...imageModeration, contentText: String(body.fileName || mediaId), ownerPhone: user.phone, scope: uploadScope, targetId: mediaId });
     } else if (imageModeration?.action === 'allow') {
-      maybeRecordModerationQualitySample({ contentText: String(body.fileName || mediaId), ownerPhone: user.phone, scope: imageModerationScope, targetId: mediaId });
+      maybeRecordModerationQualitySample({ contentText: String(body.fileName || mediaId), ownerPhone: user.phone, scope: uploadScope, targetId: mediaId });
     }
     state.mediaUploads[mediaId] = uploadMedia;
     saveState();
@@ -17261,7 +17346,7 @@ async function handle(req, res) {
     if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     if (failIfMuted(user, res, '发布地点点评')) return;
     const placeId = decodeURIComponent(reviewMatch[1]);
-    const review = await createPlaceReview(user, placeId, body.content);
+    const review = await createPlaceReview(user, placeId, body);
     if (review === null) {
       fail(res, 404, '地点不存在', false);
       return;

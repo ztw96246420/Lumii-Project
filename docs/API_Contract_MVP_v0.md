@@ -1413,10 +1413,13 @@ Request:
 Request:
 
 ```json
-{ "content": "草坪很大，有饮水点，牵引绳友好。\n附照片 2 张（本次提交预览）" }
+{
+  "content": "草坪很大，有饮水点，牵引绳友好。\n附照片 2 张（本次提交预览）",
+  "imageUrls": ["https://.../media/uploads/media-001/file"]
+}
 ```
 
-MVP 说明：当前 App 端的地点点评/新增地点表单已支持本地照片选择和预览；在生产级媒体上传接口补齐前，提交内容会先携带照片数量摘要。后续替换为 `mediaIds` / 图片审核结果时，应保留现有文本字段兼容。
+说明：地点点评图片需要先通过 `/media/uploads` 上传，上传来源为 `place_review`。后端只保存已通过图片审核的公开 `fileUrl`，最多 3 张；仍保留正文里的照片数量摘要，兼容旧版本展示。
 
 Response data:
 
@@ -1425,6 +1428,8 @@ Response data:
   "id": "review-001",
   "placeId": "place-001",
   "content": "草坪很大，有饮水点，牵引绳友好。\n附照片 2 张（本次提交预览）",
+  "imageUrls": ["https://.../media/uploads/media-001/file"],
+  "photoCount": 1,
   "status": "pending_review",
   "createdAt": "2026-06-16T09:30:00.000+08:00"
 }
@@ -1457,11 +1462,12 @@ Request:
 {
   "name": "阳光宠物公园",
   "address": "滨江路 188 号",
-  "content": "草坪很大，有饮水点，牵引绳友好。\n附照片 2 张（本次提交预览）"
+  "content": "草坪很大，有饮水点，牵引绳友好。\n附照片 2 张（本次提交预览）",
+  "imageUrls": ["https://.../media/uploads/media-002/file"]
 }
 ```
 
-MVP 说明：当前 App 端的新增地点表单已支持本地照片选择和预览；在生产级媒体上传接口补齐前，提交内容会先携带照片数量摘要。后续替换为 `mediaIds` / 图片审核结果时，应保留现有文本字段兼容。
+说明：新增地点图片需要先通过 `/media/uploads` 上传，上传来源为 `place_submission`。后端只保存已通过图片审核的公开 `fileUrl`，最多 3 张；审核通过后第一张可见图会成为 manual 地点封面。
 
 Response data:
 
@@ -1471,6 +1477,8 @@ Response data:
   "name": "阳光宠物公园",
   "address": "滨江路 188 号",
   "content": "草坪很大，有饮水点，牵引绳友好。\n附照片 2 张（本次提交预览）",
+  "imageUrls": ["https://.../media/uploads/media-002/file"],
+  "photoCount": 1,
   "status": "pending_review",
   "createdAt": "2026-06-16T09:30:00.000+08:00"
 }
