@@ -4316,13 +4316,17 @@ async function renderTickets(force) {
   const templates = await load('ticketReplyTemplates', '/admin/tickets/reply-templates', force);
   const tickets = data.tickets || [];
   const summary = data.summary || {};
+  const assignees = data.assignees || [];
+  const slaPolicy = data.slaPolicy || {};
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('未关闭工单', summary.open || 0, `${summary.overdue || 0} 个已超 SLA`, '状态不是 closed/resolved 的工单都计入未关闭。')}
-      ${metric('高优先级', summary.urgent || 0, 'urgent/high', '安全投诉默认 urgent，bug 默认 high。')}
+      ${metric('首响超时', summary.firstResponseOverdue || 0, `${summary.unassigned || 0} 个未分配`, '首响 SLA 从工单创建时间算到首次接手或客服回复。')}
+      ${metric('解决超时', summary.resolutionOverdue || 0, `${summary.offDutyAssigned || 0} 个负责人离班`, '解决 SLA 从工单创建时间算到 resolved/closed。')}
       ${metric('等待用户', summary.waitingUser || 0, '已发送客服回复', '客服回复后默认进入 waiting_user，可继续备注或关闭。')}
       ${metric('安全投诉', summary.safety || 0, 'safety 分类', '安全投诉建议 2 小时内首次处理。')}
     </div>
+    ${renderTicketOpsPanel(assignees, slaPolicy)}
     <div class="grid two ticket-template-workspace">
       <div class="card ticket-template-compose">
         <div class="section-head">
@@ -4414,7 +4418,11 @@ async function renderTickets(force) {
               <option value="priority">批量改优先级</option>
             </select>
           </label>
-          <label>负责人<input id="ticketBulkAssignee" placeholder="默认 admin" value="${escapeHtml(state.admin?.username || 'admin')}" /></label>
+          <label>负责人
+            <select id="ticketBulkAssignee">
+              ${ticketAssigneeOptions(assignees, state.admin?.username || 'admin')}
+            </select>
+          </label>
           <label>状态
             <select id="ticketBulkStatus">
               <option value="keep">跟随动作</option>
@@ -4439,7 +4447,7 @@ async function renderTickets(force) {
           <button class="small-button" data-action="ticket-batch">处理勾选</button>
         </div>
       </div>
-      ${tickets.length ? `<div class="ticket-list">${tickets.map(renderTicketCard).join('')}</div>` : '<div class="placeholder"><div><strong>暂无工单</strong><div>当前筛选下没有用户反馈。</div></div></div>'}
+      ${tickets.length ? `<div class="ticket-list">${tickets.map((ticket) => renderTicketCard(ticket, assignees)).join('')}</div>` : '<div class="placeholder"><div><strong>暂无工单</strong><div>当前筛选下没有用户反馈。</div></div></div>'}
     </div>
   `;
 }
@@ -4457,10 +4465,65 @@ function ticketPriorityOption(current, value, label) {
   return `<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`;
 }
 
+function ticketAssigneeOptions(assignees = [], current = '') {
+  const rows = Array.isArray(assignees) && assignees.length
+    ? assignees
+    : [{ active: true, id: state.admin?.username || 'admin', name: state.admin?.username || 'admin', onDuty: true, scheduleLabel: '默认负责人' }];
+  const currentValue = String(current || '').trim();
+  const hasCurrent = rows.some((item) => item.id === currentValue);
+  return [
+    '<option value="">未分配</option>',
+    ...(!hasCurrent && currentValue ? [`<option value="${escapeHtml(currentValue)}" selected>${escapeHtml(currentValue)}（历史负责人）</option>`] : []),
+    ...rows.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === currentValue ? 'selected' : ''} ${item.active === false ? 'disabled' : ''}>${escapeHtml(item.name || item.id)}${item.onDuty ? ' · 值班中' : ' · 离班'}${item.active === false ? ' · 停用' : ''}</option>`),
+  ].join('');
+}
+
+function ticketSlaConfigLine(label, rows = {}) {
+  return ['urgent', 'high', 'normal', 'low']
+    .map((priority) => `${label}${{ urgent: '紧急', high: '高', normal: '普通', low: '低' }[priority]} ${numberText(rows[priority] || 0)}h`)
+    .join(' · ');
+}
+
+function renderTicketOpsPanel(assignees = [], slaPolicy = {}) {
+  const active = assignees.filter((item) => item.active !== false);
+  const onDuty = active.filter((item) => item.onDuty);
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>客服值班与 SLA</h2>
+          <div class="section-sub">负责人枚举、排班和值班状态来自配置中心，分配工单时会强制校验</div>
+        </div>
+        ${help('首响 SLA 看首次接手或客服回复；解决 SLA 看工单是否 resolved/closed。移动端只展示用户可理解的下一步预计时间。')}
+      </div>
+      <div class="risk-row">
+        <span class="risk-badge">负责人 ${numberText(active.length)}</span>
+        <span class="risk-badge">值班中 ${numberText(onDuty.length)}</span>
+        <span class="risk-badge">${escapeHtml(ticketSlaConfigLine('首响', slaPolicy.firstResponseSlaHours || {}))}</span>
+        <span class="risk-badge">${escapeHtml(ticketSlaConfigLine('解决', slaPolicy.resolutionSlaHours || {}))}</span>
+      </div>
+      ${assignees.length ? tableHtml(assignees, [
+        ['负责人', (item) => `<div class="cell-title">${escapeHtml(item.name || item.id)}</div><div class="cell-sub">${escapeHtml(item.id)} · ${escapeHtml(item.role || '客服')}</div>`],
+        ['状态', (item) => `${tonePill(item.active === false ? '停用' : item.onDuty ? '值班中' : '离班', item.active === false ? 'bad' : item.onDuty ? 'ok' : 'warn')}`],
+        ['排班', (item) => `<div class="cell-sub">${escapeHtml(item.scheduleLabel || '-')}</div>`],
+      ], '暂无客服负责人') : '<div class="placeholder mini"><div><strong>暂无客服负责人</strong><div>请先在配置中心维护负责人枚举。</div></div></div>'}
+    </div>
+  `;
+}
+
 function ticketSlaPill(ticket) {
-  const label = ticket.slaState === 'overdue' ? 'SLA 超时' : ticket.slaState === 'due_soon' ? 'SLA 临近' : ticket.slaState === 'done' ? 'SLA 完成' : `${ticket.slaHours || 72}h SLA`;
+  const label = ticket.slaState === 'overdue' ? `${ticket.slaLabel || 'SLA'}超时` : ticket.slaState === 'due_soon' ? `${ticket.slaLabel || 'SLA'}临近` : ticket.slaState === 'done' ? 'SLA 完成' : `${ticket.slaLabel || 'SLA'} ${ticket.slaHours || 72}h`;
   const tone = ticket.slaState === 'overdue' ? 'bad' : ticket.slaState === 'due_soon' ? 'warn' : 'ok';
   return `<span class="pill ${tone}">${escapeHtml(label)}</span>`;
+}
+
+function ticketDetailedSlaPills(ticket) {
+  const firstTone = ticket.firstResponseSlaState === 'overdue' ? 'bad' : ticket.firstResponseSlaState === 'due_soon' ? 'warn' : ticket.firstResponseSlaState === 'done' ? 'ok' : '';
+  const resolveTone = ticket.resolutionSlaState === 'overdue' ? 'bad' : ticket.resolutionSlaState === 'due_soon' ? 'warn' : ticket.resolutionSlaState === 'done' ? 'ok' : '';
+  return [
+    tonePill(`首响 ${ticket.firstResponseSlaHours || '-'}h`, firstTone),
+    tonePill(`解决 ${ticket.resolutionSlaHours || '-'}h`, resolveTone),
+  ].join(' ');
 }
 
 function renderTicketReplyTemplate(template, ticketId = '') {
@@ -4486,7 +4549,7 @@ function renderTicketReplyTemplate(template, ticketId = '') {
   `;
 }
 
-function renderTicketCard(ticket) {
+function renderTicketCard(ticket, assignees = []) {
   const related = (ticket.relatedObjects || []).map((item) => `<span class="risk-badge">${escapeHtml(item.type)} · ${escapeHtml(item.id)}</span>`).join('');
   const satisfaction = ticket.satisfaction?.rating ? `<span class="risk-badge">满意度 ${ticket.satisfaction.rating}/5</span>` : '';
   const templates = state.cache.ticketReplyTemplates || [];
@@ -4509,15 +4572,18 @@ function renderTicketCard(ticket) {
         <div class="moderation-meta">
           <span>用户：${escapeHtml(ticket.ownerName || '-')} ${shortPhone(ticket.phone)}</span>
           <span>联系：${escapeHtml(ticket.contact || '-')}</span>
-          <span>负责人：${escapeHtml(ticket.assignee || '未分配')}</span>
+          <span>负责人：${escapeHtml(ticket.assigneeName || ticket.assignee || '未分配')}${ticket.assigneeScheduleLabel ? ` · ${escapeHtml(ticket.assigneeScheduleLabel)}` : ''}</span>
           <span>创建：${formatTime(ticket.createdAt)}</span>
           <span>更新：${formatTime(ticket.updatedAt)}</span>
+          ${ticket.slaDueAt ? `<span>${escapeHtml(ticket.slaLabel || 'SLA')}：${formatTime(ticket.slaDueAt)}</span>` : ''}
         </div>
         <div class="risk-row">
           ${related || '<span class="risk-badge">暂未关联对象</span>'}
+          ${ticketDetailedSlaPills(ticket)}
           <span class="risk-badge">${ticket.noteCount || 0} 条备注</span>
           <span class="risk-badge">${ticket.replyCount || 0} 次回复</span>
           <span class="risk-badge">${ticket.attachmentCount || 0} 个附件</span>
+          ${ticket.assignee && !ticket.assigneeOnDuty ? '<span class="risk-badge">负责人离班</span>' : ''}
           ${ticket.reopenCount ? `<span class="risk-badge">用户重开 ${ticket.reopenCount} 次</span>` : ''}
           ${satisfaction}
         </div>
@@ -4527,7 +4593,9 @@ function renderTicketCard(ticket) {
       </div>
       <div class="ticket-panel">
         <div class="ticket-form-row">
-          <input id="ticketAssignee-${escapeHtml(ticket.id)}" placeholder="负责人" value="${escapeHtml(ticket.assignee || '')}" />
+          <select id="ticketAssignee-${escapeHtml(ticket.id)}">
+            ${ticketAssigneeOptions(assignees, ticket.assignee || '')}
+          </select>
           <button class="small-button" data-action="ticket-assign" data-id="${escapeHtml(ticket.id)}">分配</button>
         </div>
         <div class="ticket-form-row two">
@@ -4764,7 +4832,9 @@ function configRevisionSummaryText(summary = {}) {
     `半径 ${summary.discoverRadiusKm || 0}km`,
     `TTL ${summary.nearbyMomentTtlDays || 0}天`,
     `埋点 ${summary.analyticsEnabled === false ? '关' : `开/${summary.analyticsSampleRatePercent ?? 100}%`}`,
-    `工单 ${summary.supportUrgentSlaHours ?? 2}/${summary.supportHighSlaHours ?? 8}h SLA`,
+    `工单首响 ${summary.supportFirstResponseUrgentSlaHours ?? 1}/${summary.supportFirstResponseHighSlaHours ?? 4}h`,
+    `工单解决 ${summary.supportUrgentSlaHours ?? 8}/${summary.supportHighSlaHours ?? 24}h`,
+    `客服 ${summary.supportAssigneeCount ?? 0} 人`,
     `通知频控 ${summary.notificationRateLimitEnabled === false ? '关' : `${summary.notificationMaxCampaignsPerDay || 0}批/${summary.notificationMaxPerUserPerDay || 0}人次`}`,
     `通知审批 ${summary.notificationRequireApproval ? '开' : '关'}`,
     ...toggles,
@@ -5053,7 +5123,9 @@ async function renderConfig(force) {
   const revisions = config.revisions || [];
   const splash = config.app?.splash || {};
   const support = config.support || {};
-  const supportSlaHours = support.slaHours || {};
+  const supportFirstResponseSlaHours = support.firstResponseSlaHours || {};
+  const supportSlaHours = support.resolutionSlaHours || support.slaHours || {};
+  const supportAssignees = support.assignees || [];
   const analytics = config.analytics || {};
   const update = config.app?.update || {};
   $('content').innerHTML = `
@@ -5102,16 +5174,21 @@ async function renderConfig(force) {
       <div class="config-section">
         <div class="section-head compact">
           <div>
-            <h2>客服工单 SLA</h2>
-            <div class="section-sub">保存后立即影响工单排序、SLA 标记、工作台统计和移动端预计响应文案</div>
+            <h2>客服工单 SLA 与排班</h2>
+            <div class="section-sub">保存后立即影响工单排序、SLA 标记、负责人分配和值班风险提示</div>
           </div>
-          ${help('SLA 从工单创建时间开始计算；closed/resolved 视为已完成。紧急通常用于安全投诉，高优先级通常用于 bug。')}
+          ${help('首响 SLA 从创建到首次接手/客服回复；解决 SLA 从创建到 resolved/closed。负责人枚举会限制工单分配，排班用于提示是否值班。')}
         </div>
         <div class="config-grid">
-          <label>紧急工单小时<input id="cfgSupportSlaUrgent" type="number" min="1" max="72" value="${supportSlaHours.urgent || 2}" /></label>
-          <label>高优先级小时<input id="cfgSupportSlaHigh" type="number" min="1" max="168" value="${supportSlaHours.high || 8}" /></label>
-          <label>普通工单小时<input id="cfgSupportSlaNormal" type="number" min="1" max="336" value="${supportSlaHours.normal || 24}" /></label>
-          <label>低优先级小时<input id="cfgSupportSlaLow" type="number" min="1" max="336" value="${supportSlaHours.low || 72}" /></label>
+          <label>首响-紧急小时<input id="cfgSupportFirstSlaUrgent" type="number" min="1" max="72" value="${supportFirstResponseSlaHours.urgent || 1}" /></label>
+          <label>首响-高优先级小时<input id="cfgSupportFirstSlaHigh" type="number" min="1" max="168" value="${supportFirstResponseSlaHours.high || 4}" /></label>
+          <label>首响-普通小时<input id="cfgSupportFirstSlaNormal" type="number" min="1" max="336" value="${supportFirstResponseSlaHours.normal || 12}" /></label>
+          <label>首响-低优先级小时<input id="cfgSupportFirstSlaLow" type="number" min="1" max="336" value="${supportFirstResponseSlaHours.low || 24}" /></label>
+          <label>解决-紧急小时<input id="cfgSupportSlaUrgent" type="number" min="1" max="168" value="${supportSlaHours.urgent || 8}" /></label>
+          <label>解决-高优先级小时<input id="cfgSupportSlaHigh" type="number" min="1" max="336" value="${supportSlaHours.high || 24}" /></label>
+          <label>解决-普通小时<input id="cfgSupportSlaNormal" type="number" min="1" max="720" value="${supportSlaHours.normal || 72}" /></label>
+          <label>解决-低优先级小时<input id="cfgSupportSlaLow" type="number" min="1" max="720" value="${supportSlaHours.low || 168}" /></label>
+          <label class="wide">客服负责人枚举<textarea id="cfgSupportAssignees" maxlength="4000" placeholder="每行：账号|姓名|角色|周几|开始时间|结束时间|启用&#10;admin|Admin|客服|1,2,3,4,5,6,0|09:00|22:00|true">${escapeHtml(formatSupportAssigneeConfig(supportAssignees))}</textarea></label>
         </div>
       </div>
       <div class="config-section">
@@ -5329,6 +5406,47 @@ async function submitConfigMutationWithRiskConfirmation(send, payload, actionLab
   }
 }
 
+function formatSupportAssigneeConfig(assignees = []) {
+  return (Array.isArray(assignees) ? assignees : [])
+    .map((item) => [
+      item.id || '',
+      item.name || item.id || '',
+      item.role || '客服',
+      (item.weekdays || [1, 2, 3, 4, 5]).join(','),
+      item.startTime || '09:00',
+      item.endTime || '18:00',
+      item.active === false ? 'false' : 'true',
+    ].join('|'))
+    .join('\n');
+}
+
+function parseSupportAssigneeConfig(value) {
+  const rows = String(value || '').split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const assignees = rows.map((line, index) => {
+    const [idRaw, nameRaw, roleRaw, weekdaysRaw, startRaw, endRaw, activeRaw] = line.split('|').map((part) => String(part || '').trim());
+    const id = idRaw.replace(/\s+/g, '_').replace(/[^0-9A-Za-z._-]/g, '').slice(0, 40);
+    if (!id) throw new Error(`第 ${index + 1} 行负责人账号无效`);
+    const weekdays = weekdaysRaw.split(/[,，\s]+/).map((item) => Number(item)).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+    const startTime = startRaw || '09:00';
+    const endTime = endRaw || '18:00';
+    if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(startTime) || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(endTime)) {
+      throw new Error(`第 ${index + 1} 行排班时间应为 HH:mm`);
+    }
+    return {
+      active: !['false', '0', '停用', 'off'].includes(activeRaw.toLowerCase()),
+      endTime,
+      id,
+      name: (nameRaw || id).slice(0, 40),
+      role: (roleRaw || '客服').slice(0, 24),
+      startTime,
+      weekdays: weekdays.length ? weekdays : [1, 2, 3, 4, 5],
+    };
+  });
+  if (!assignees.length) throw new Error('请至少配置一个客服负责人');
+  if (new Set(assignees.map((item) => item.id)).size !== assignees.length) throw new Error('客服负责人账号不能重复');
+  return assignees;
+}
+
 async function saveConfig(mode = 'publish') {
   const announcementEnabled = $('cfgAnnouncementEnabled').checked;
   if (announcementEnabled && (!$('cfgAnnouncementVersion').value.trim() || !$('cfgAnnouncementTitle').value.trim() || !$('cfgAnnouncementBody').value.trim())) {
@@ -5356,18 +5474,31 @@ async function saveConfig(mode = 'publish') {
   if (splashEnabled && (!$('cfgSplashVersion').value.trim() || !$('cfgSplashTitle').value.trim() || !$('cfgSplashBody').value.trim())) {
     throw new Error('启用启动提示时，请填写提示版本、标题和正文');
   }
+  const supportFirstResponseSlaHours = {
+    high: Number($('cfgSupportFirstSlaHigh').value),
+    low: Number($('cfgSupportFirstSlaLow').value),
+    normal: Number($('cfgSupportFirstSlaNormal').value),
+    urgent: Number($('cfgSupportFirstSlaUrgent').value),
+  };
   const supportSlaHours = {
     high: Number($('cfgSupportSlaHigh').value),
     low: Number($('cfgSupportSlaLow').value),
     normal: Number($('cfgSupportSlaNormal').value),
     urgent: Number($('cfgSupportSlaUrgent').value),
   };
-  if (Object.values(supportSlaHours).some((value) => !Number.isFinite(value) || value < 1)) {
+  if ([...Object.values(supportFirstResponseSlaHours), ...Object.values(supportSlaHours)].some((value) => !Number.isFinite(value) || value < 1)) {
     throw new Error('工单 SLA 必须填写 1 小时以上的数字');
+  }
+  if (!(supportFirstResponseSlaHours.urgent <= supportFirstResponseSlaHours.high && supportFirstResponseSlaHours.high <= supportFirstResponseSlaHours.normal && supportFirstResponseSlaHours.normal <= supportFirstResponseSlaHours.low)) {
+    throw new Error('首响 SLA 需要保持：紧急 <= 高优先级 <= 普通 <= 低优先级');
   }
   if (!(supportSlaHours.urgent <= supportSlaHours.high && supportSlaHours.high <= supportSlaHours.normal && supportSlaHours.normal <= supportSlaHours.low)) {
     throw new Error('工单 SLA 需要保持：紧急 <= 高优先级 <= 普通 <= 低优先级');
   }
+  if (['urgent', 'high', 'normal', 'low'].some((priority) => supportFirstResponseSlaHours[priority] > supportSlaHours[priority])) {
+    throw new Error('首响 SLA 不能大于同优先级的解决 SLA');
+  }
+  const supportAssignees = parseSupportAssigneeConfig($('cfgSupportAssignees').value);
   const analyticsSampleRatePercent = Number($('cfgAnalyticsSampleRatePercent').value);
   const analyticsRetentionDays = Number($('cfgAnalyticsRetentionDays').value);
   if (!Number.isFinite(analyticsSampleRatePercent) || analyticsSampleRatePercent < 0 || analyticsSampleRatePercent > 100) {
@@ -5454,6 +5585,9 @@ async function saveConfig(mode = 'publish') {
       petCircleMaxPhotos: Number($('cfgPetCircleMaxPhotos').value),
     },
     support: {
+      assignees: supportAssignees,
+      firstResponseSlaHours: supportFirstResponseSlaHours,
+      resolutionSlaHours: supportSlaHours,
       slaHours: supportSlaHours,
     },
   };

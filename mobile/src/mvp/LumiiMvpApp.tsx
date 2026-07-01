@@ -219,11 +219,23 @@ const fallbackRemoteConfig: AppRemoteConfig = {
     petCircleMaxPhotos: 6,
   },
   support: {
+    firstResponseSlaHours: {
+      high: 4,
+      low: 24,
+      normal: 12,
+      urgent: 1,
+    },
+    resolutionSlaHours: {
+      high: 24,
+      low: 168,
+      normal: 72,
+      urgent: 8,
+    },
     slaHours: {
-      high: 8,
-      low: 72,
-      normal: 24,
-      urgent: 2,
+      high: 24,
+      low: 168,
+      normal: 72,
+      urgent: 8,
     },
   },
   updatedAt: '',
@@ -15228,11 +15240,16 @@ export default function LumiiMvpApp() {
 
   function supportTicketSlaText(ticket: SupportTicketItem) {
     if (ticket.status === 'closed' || ticket.status === 'resolved') return '';
-    const configuredHours = remoteConfig.support?.slaHours?.[ticket.priority];
+    if (ticket.status === 'waiting_user' && ticket.slaType !== 'resolution') return '';
+    const configuredHours =
+      ticket.slaType === 'first_response'
+        ? remoteConfig.support?.firstResponseSlaHours?.[ticket.priority]
+        : remoteConfig.support?.resolutionSlaHours?.[ticket.priority] ?? remoteConfig.support?.slaHours?.[ticket.priority];
     const hours = Number(ticket.slaHours || configuredHours || 0);
     if (!Number.isFinite(hours) || hours <= 0) return '';
-    if (hours >= 24 && hours % 24 === 0) return `预计 ${Math.round(hours / 24)} 天内响应`;
-    return `预计 ${Math.round(hours)} 小时内响应`;
+    const unitText = hours >= 24 && hours % 24 === 0 ? `${Math.round(hours / 24)} 天` : `${Math.round(hours)} 小时`;
+    if (ticket.slaType === 'resolution') return `预计 ${unitText}内处理完成`;
+    return `预计 ${unitText}内响应`;
   }
 
   function supportTicketAttachmentUrl(attachment: SupportTicketAttachment) {

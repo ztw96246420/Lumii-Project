@@ -1520,6 +1520,11 @@ function mockSupportTicketAttachments(attachments: SupportTicketAttachmentDraft[
 function publicSupportTicketItem(ticket: SupportTicketDetail): SupportTicketItem {
   const latestSupportMessage = [...ticket.messages].reverse().find((message) => message.author === 'support');
   const attachmentCount = ticket.messages.reduce((total, message) => total + (message.attachments?.length ?? 0), 0);
+  const firstResponseDone = Boolean(latestSupportMessage);
+  const slaType = firstResponseDone ? 'resolution' : 'first_response';
+  const slaHours = slaType === 'first_response'
+    ? ({ urgent: 1, high: 4, normal: 12, low: 24 } as const)[ticket.priority]
+    : ({ urgent: 8, high: 24, normal: 72, low: 168 } as const)[ticket.priority];
   return {
     attachmentCount,
     canRate: ticket.status === 'closed' || ticket.status === 'resolved',
@@ -1536,6 +1541,10 @@ function publicSupportTicketItem(ticket: SupportTicketDetail): SupportTicketItem
     replyCount: ticket.messages.length > 0 ? ticket.messages.length - 1 : 0,
     reopenCount: ticket.reopenCount ?? ticket.messages.filter((message) => message.type === 'reopen').length,
     satisfaction: ticket.satisfaction ?? null,
+    slaHours,
+    slaLabel: slaType === 'first_response' ? '首响 SLA' : '解决 SLA',
+    slaState: ticket.status === 'closed' || ticket.status === 'resolved' ? 'done' : 'healthy',
+    slaType,
     status: ticket.status,
     title: ticket.title,
     updatedAt: ticket.updatedAt,

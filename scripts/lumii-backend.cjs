@@ -345,11 +345,34 @@ function defaultOpsConfig() {
       textRulesEnabled: true,
     },
     support: {
+      assignees: [
+        {
+          active: true,
+          endTime: '22:00',
+          id: 'admin',
+          name: 'Admin',
+          role: '客服',
+          startTime: '09:00',
+          weekdays: [1, 2, 3, 4, 5, 6, 0],
+        },
+      ],
+      firstResponseSlaHours: {
+        high: 4,
+        low: 24,
+        normal: 12,
+        urgent: 1,
+      },
+      resolutionSlaHours: {
+        high: 24,
+        low: 168,
+        normal: 72,
+        urgent: 8,
+      },
       slaHours: {
-        high: 8,
-        low: 72,
-        normal: 24,
-        urgent: 2,
+        high: 24,
+        low: 168,
+        normal: 72,
+        urgent: 8,
       },
     },
     notifications: {
@@ -502,16 +525,89 @@ function normalizeModerationConfig(value, defaults) {
   };
 }
 
+const supportPriorityOrder = ['urgent', 'high', 'normal', 'low'];
+
+function normalizeSupportSlaHours(value, defaults, maxHoursByPriority = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const fallback = defaults && typeof defaults === 'object' && !Array.isArray(defaults) ? defaults : {};
+  return supportPriorityOrder.reduce((acc, priority) => {
+    const maxHours = maxHoursByPriority[priority] || (priority === 'urgent' ? 72 : priority === 'high' ? 168 : 336);
+    acc[priority] = Math.floor(clampNumber(source[priority], fallback[priority] || 24, 1, maxHours));
+    return acc;
+  }, {});
+}
+
+function normalizeSupportTime(value, fallback) {
+  const raw = String(value || fallback || '').trim();
+  const match = raw.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (!match) return fallback;
+  return `${match[1].padStart(2, '0')}:${match[2]}`;
+}
+
+function normalizeSupportWeekdays(input) {
+  const source = Array.isArray(input) ? input : String(input || '').split(/[,，\s]+/);
+  const days = Array.from(new Set(source
+    .map((item) => Math.floor(Number(item)))
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)));
+  return days.length ? days : [1, 2, 3, 4, 5];
+}
+
+function normalizeSupportAssigneeId(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, '_')
+    .replace(/[^0-9A-Za-z._-]/g, '')
+    .slice(0, 40);
+}
+
+function normalizeSupportAssignees(input, defaults = []) {
+  const source = Array.isArray(input) ? input : [];
+  const fallback = Array.isArray(defaults) ? defaults : [];
+  const rows = (source.length ? source : fallback)
+    .map((item) => {
+      const id = normalizeSupportAssigneeId(item?.id || item?.username || item?.name);
+      const name = String(item?.name || item?.label || id || '客服').replace(/\s+/g, ' ').trim().slice(0, 40);
+      if (!id || !name) return null;
+      return {
+        active: item?.active !== false,
+        endTime: normalizeSupportTime(item?.endTime || item?.shiftEnd, '18:00'),
+        id,
+        name,
+        role: String(item?.role || '客服').replace(/\s+/g, ' ').trim().slice(0, 24) || '客服',
+        startTime: normalizeSupportTime(item?.startTime || item?.shiftStart, '09:00'),
+        weekdays: normalizeSupportWeekdays(item?.weekdays),
+      };
+    })
+    .filter(Boolean);
+  const seen = new Set();
+  const unique = [];
+  for (const item of rows) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    unique.push(item);
+    if (unique.length >= 30) break;
+  }
+  return unique.length ? unique : normalizeSupportAssignees(defaultOpsConfig().support.assignees, []);
+}
+
 function normalizeSupportConfig(value, defaults) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const defaultSlaHours = defaults?.slaHours || {};
   const sourceSlaHours = source.slaHours && typeof source.slaHours === 'object' ? source.slaHours : {};
+  const defaultFirstResponse = defaults?.firstResponseSlaHours || {};
+  const defaultResolution = defaults?.resolutionSlaHours || defaultSlaHours;
+  const firstResponseSlaHours = normalizeSupportSlaHours(source.firstResponseSlaHours, defaultFirstResponse, { high: 168, low: 336, normal: 336, urgent: 72 });
+  const resolutionSource = source.resolutionSlaHours && typeof source.resolutionSlaHours === 'object' ? source.resolutionSlaHours : sourceSlaHours;
+  const resolutionSlaHours = normalizeSupportSlaHours(resolutionSource, defaultResolution, { high: 336, low: 720, normal: 720, urgent: 168 });
+  for (const priority of supportPriorityOrder) {
+    if (firstResponseSlaHours[priority] > resolutionSlaHours[priority]) firstResponseSlaHours[priority] = resolutionSlaHours[priority];
+  }
   return {
+    assignees: normalizeSupportAssignees(source.assignees, defaults?.assignees),
+    firstResponseSlaHours,
+    resolutionSlaHours,
     slaHours: {
-      high: Math.floor(clampNumber(sourceSlaHours.high, defaultSlaHours.high || 8, 1, 168)),
-      low: Math.floor(clampNumber(sourceSlaHours.low, defaultSlaHours.low || 72, 1, 336)),
-      normal: Math.floor(clampNumber(sourceSlaHours.normal, defaultSlaHours.normal || 24, 1, 336)),
-      urgent: Math.floor(clampNumber(sourceSlaHours.urgent, defaultSlaHours.urgent || 2, 1, 72)),
+      ...resolutionSlaHours,
     },
   };
 }
@@ -644,8 +740,11 @@ function opsConfigSummary(config) {
     petAvatarDailyLimit: Number(config?.ai?.petAvatarDailyLimit || 0),
     petChatDailyLimit: Number(config?.ai?.petChatDailyLimit || 0),
     petCircleMaxPhotos: Number(config?.social?.petCircleMaxPhotos || 0),
-    supportHighSlaHours: Number(config?.support?.slaHours?.high || 0),
-    supportUrgentSlaHours: Number(config?.support?.slaHours?.urgent || 0),
+    supportAssigneeCount: Array.isArray(config?.support?.assignees) ? config.support.assignees.length : 0,
+    supportHighSlaHours: Number(config?.support?.resolutionSlaHours?.high || config?.support?.slaHours?.high || 0),
+    supportFirstResponseHighSlaHours: Number(config?.support?.firstResponseSlaHours?.high || 0),
+    supportFirstResponseUrgentSlaHours: Number(config?.support?.firstResponseSlaHours?.urgent || 0),
+    supportUrgentSlaHours: Number(config?.support?.resolutionSlaHours?.urgent || config?.support?.slaHours?.urgent || 0),
     updateEnabled: Boolean(config?.app?.update?.enabled),
   };
 }
@@ -763,6 +862,15 @@ function buildOpsConfigPatch(before, body = {}) {
     support: {
       ...before.support,
       ...(body.support || {}),
+      assignees: Array.isArray(body.support?.assignees) ? body.support.assignees : before.support?.assignees,
+      firstResponseSlaHours: {
+        ...(before.support?.firstResponseSlaHours || {}),
+        ...(body.support?.firstResponseSlaHours || {}),
+      },
+      resolutionSlaHours: {
+        ...(before.support?.resolutionSlaHours || before.support?.slaHours || {}),
+        ...(body.support?.resolutionSlaHours || {}),
+      },
       slaHours: {
         ...(before.support?.slaHours || {}),
         ...(body.support?.slaHours || {}),
@@ -1275,6 +1383,36 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileEvidence: '移动端不读取抽样率；这是后台质检和误杀/漏杀复盘配置。',
       operatorNote: '建议生产初期从 1%-5% 起步；抽样样本只用于后台复审，不直接隐藏内容。',
       userImpact: '不直接影响用户体验，但影响运营是否能发现模型漏杀或规则过严。',
+    },
+    {
+      backendEvidence: 'supportTicketSlaInfo 读取 currentOpsConfig().support.firstResponseSlaHours，影响工单首响 badge、排序、统计、导出和移动端预计响应文案。',
+      backendEnforced: true,
+      group: '客服工单',
+      key: 'support.firstResponseSlaHours',
+      label: '工单首响 SLA',
+      mobileApplied: true,
+      mobileEvidence: '移动端我的反馈读取工单返回的 slaType/slaHours；首响未完成时展示预计响应时间。',
+      userImpact: '影响用户提交反馈后，多久能看到客服首次处理的预期口径。',
+    },
+    {
+      backendEvidence: 'supportTicketSlaInfo 读取 currentOpsConfig().support.resolutionSlaHours，影响工单解决 SLA badge、排序、统计和导出。',
+      backendEnforced: true,
+      group: '客服工单',
+      key: 'support.resolutionSlaHours',
+      label: '工单解决 SLA',
+      mobileApplied: true,
+      mobileEvidence: '移动端我的反馈在首响完成后可读取解决 SLA 作为预计处理完成文案。',
+      userImpact: '影响客服对反馈最终处理完成时间的运营口径。',
+    },
+    {
+      backendEvidence: 'supportAssigneesForAdmin 读取 currentOpsConfig().support.assignees，限制工单分配负责人并计算是否值班。',
+      backendEnforced: true,
+      group: '客服工单',
+      key: 'support.assignees',
+      label: '客服负责人和排班',
+      mobileApplied: false,
+      mobileEvidence: '移动端不展示客服姓名或排班；只展示工单处理状态和预计时间。',
+      userImpact: '不直接暴露给用户，但会影响后台分配、未分配统计和离班负责人风险提示。',
     },
     {
       backendEvidence: 'supportTicketSlaHours 读取 currentOpsConfig().support.slaHours.urgent，影响工单排序、SLA badge、工作台统计和导出。',
@@ -1995,13 +2133,21 @@ function adminExportDataset(type) {
         exportColumn('status', '状态'),
         exportColumn('priority', '优先级'),
         exportColumn('slaState', 'SLA状态'),
+        exportColumn('slaType', '当前SLA类型'),
         exportColumn('slaHours', 'SLA小时'),
+        exportColumn('firstResponseSlaState', '首响SLA状态'),
+        exportColumn('firstResponseSlaHours', '首响SLA小时'),
+        exportColumn('firstResponseAt', '首响时间', (row) => exportDateText(row.firstResponseAt)),
+        exportColumn('resolutionSlaState', '解决SLA状态'),
+        exportColumn('resolutionSlaHours', '解决SLA小时'),
         exportColumn('category', '分类'),
         exportColumn('phone', '手机号'),
         exportColumn('ownerName', '主人昵称'),
         exportColumn('title', '标题'),
         exportColumn('content', '内容'),
         exportColumn('assignee', '负责人'),
+        exportColumn('assigneeName', '负责人名称'),
+        exportColumn('assigneeScheduleLabel', '负责人排班'),
         exportColumn('replyCount', '回复数'),
         exportColumn('createdAt', '创建时间', (row) => exportDateText(row.createdAt)),
         exportColumn('updatedAt', '更新时间', (row) => exportDateText(row.updatedAt)),
@@ -2211,7 +2357,11 @@ function publicAppConfig() {
       textRulesEnabled: config.moderation.textRulesEnabled,
     },
     social: config.social,
-    support: config.support,
+    support: {
+      firstResponseSlaHours: config.support?.firstResponseSlaHours || {},
+      resolutionSlaHours: config.support?.resolutionSlaHours || config.support?.slaHours || {},
+      slaHours: config.support?.slaHours || config.support?.resolutionSlaHours || {},
+    },
     updatedAt: config.updatedAt,
   };
 }
@@ -15113,21 +15263,117 @@ function findSupportTicket(ticketId) {
   return ensureSupportTickets().find((ticket) => ticket.id === ticketId);
 }
 
-function supportTicketSlaHours(ticket) {
+function supportTicketPriorityConfig(ticket, key, fallbackKey = 'slaHours') {
   const priority = supportTicketPriorityFor(ticket);
-  const slaHours = currentOpsConfig().support?.slaHours || defaultOpsConfig().support.slaHours;
-  return Math.max(1, Math.floor(Number(slaHours[priority] || slaHours.normal || 24)));
+  const support = currentOpsConfig().support || defaultOpsConfig().support;
+  const map = support[key] || support[fallbackKey] || defaultOpsConfig().support[key] || defaultOpsConfig().support.slaHours;
+  return Math.max(1, Math.floor(Number(map[priority] || map.normal || 24)));
+}
+
+function supportTicketSlaHours(ticket) {
+  return supportTicketPriorityConfig(ticket, 'resolutionSlaHours');
+}
+
+function supportTicketFirstResponseSlaHours(ticket) {
+  return supportTicketPriorityConfig(ticket, 'firstResponseSlaHours');
+}
+
+function supportTicketResolutionSlaHours(ticket) {
+  return supportTicketPriorityConfig(ticket, 'resolutionSlaHours');
+}
+
+function supportTicketFirstResponseAt(ticket) {
+  const replies = Array.isArray(ticket.replies) ? ticket.replies : [];
+  const firstSupportReply = replies
+    .filter((reply) => reply?.author !== 'user' && reply?.createdAt)
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))[0];
+  return ticket.firstResponseAt || ticket.firstReplyAt || firstSupportReply?.createdAt || '';
+}
+
+function supportTicketDueAt(ticket, type = 'resolution') {
+  const baseMs = new Date(ticket.createdAt).getTime();
+  if (!Number.isFinite(baseMs)) return '';
+  const hours = type === 'first_response' ? supportTicketFirstResponseSlaHours(ticket) : supportTicketResolutionSlaHours(ticket);
+  return new Date(baseMs + hours * 36e5).toISOString();
+}
+
+function supportTicketSlaInfo(ticket, type = 'resolution') {
+  const status = supportTicketStatusFor(ticket.status);
+  const hours = type === 'first_response' ? supportTicketFirstResponseSlaHours(ticket) : supportTicketResolutionSlaHours(ticket);
+  const doneAt = type === 'first_response' ? supportTicketFirstResponseAt(ticket) : (status === 'closed' || status === 'resolved' ? ticket.closedAt || ticket.updatedAt || '' : '');
+  const dueAt = supportTicketDueAt(ticket, type);
+  if (doneAt) return { doneAt, dueAt, hours, state: 'done', type };
+  if (!dueAt) return { doneAt: '', dueAt: '', hours, state: 'unknown', type };
+  const dueMs = new Date(dueAt).getTime();
+  if (!Number.isFinite(dueMs)) return { doneAt: '', dueAt, hours, state: 'unknown', type };
+  const remainingMs = dueMs - Date.now();
+  const remainingMinutes = Math.ceil(remainingMs / 60000);
+  if (remainingMs <= 0) return { doneAt: '', dueAt, hours, remainingMinutes, state: 'overdue', type };
+  if (remainingMs <= hours * 36e5 * 0.25) return { doneAt: '', dueAt, hours, remainingMinutes, state: 'due_soon', type };
+  return { doneAt: '', dueAt, hours, remainingMinutes, state: 'healthy', type };
+}
+
+function supportTicketNextSlaInfo(ticket) {
+  const status = supportTicketStatusFor(ticket.status);
+  if (status === 'closed' || status === 'resolved') return supportTicketSlaInfo(ticket, 'resolution');
+  const first = supportTicketSlaInfo(ticket, 'first_response');
+  if (first.state !== 'done') return first;
+  const resolution = supportTicketSlaInfo(ticket, 'resolution');
+  return resolution;
 }
 
 function supportTicketSlaState(ticket) {
   if (ticket.status === 'closed' || ticket.status === 'resolved') return 'done';
-  const createdAtMs = new Date(ticket.createdAt).getTime();
-  if (!Number.isFinite(createdAtMs)) return 'unknown';
-  const elapsedHours = (Date.now() - createdAtMs) / 36e5;
-  const limit = supportTicketSlaHours(ticket);
-  if (elapsedHours >= limit) return 'overdue';
-  if (elapsedHours >= limit * 0.75) return 'due_soon';
-  return 'healthy';
+  return supportTicketNextSlaInfo(ticket).state;
+}
+
+function supportWeekdayLabel(day) {
+  return ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][Number(day)] || '';
+}
+
+function supportAssigneeScheduleLabel(assignee = {}) {
+  const days = normalizeSupportWeekdays(assignee.weekdays).map(supportWeekdayLabel).filter(Boolean);
+  const compactDays = days.length === 7 ? '每天' : days.join('、');
+  return `${compactDays} ${assignee.startTime || '09:00'}-${assignee.endTime || '18:00'}`;
+}
+
+function supportTimeToMinutes(value) {
+  const [hour, minute] = String(value || '00:00').split(':').map((item) => Number(item));
+  return Math.max(0, Math.min(1439, (Number.isFinite(hour) ? hour : 0) * 60 + (Number.isFinite(minute) ? minute : 0)));
+}
+
+function supportAssigneeOnDuty(assignee = {}, now = new Date()) {
+  if (assignee.active === false) return false;
+  const weekdays = normalizeSupportWeekdays(assignee.weekdays);
+  if (!weekdays.includes(now.getDay())) return false;
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const start = supportTimeToMinutes(assignee.startTime || '09:00');
+  const end = supportTimeToMinutes(assignee.endTime || '18:00');
+  if (start <= end) return minutes >= start && minutes <= end;
+  return minutes >= start || minutes <= end;
+}
+
+function supportAssigneesForAdmin() {
+  const assignees = normalizeSupportAssignees(currentOpsConfig().support?.assignees, defaultOpsConfig().support.assignees);
+  return assignees.map((assignee) => ({
+    ...assignee,
+    onDuty: supportAssigneeOnDuty(assignee),
+    scheduleLabel: supportAssigneeScheduleLabel(assignee),
+  }));
+}
+
+function supportAssigneeFor(id) {
+  const normalized = normalizeSupportAssigneeId(id);
+  return supportAssigneesForAdmin().find((assignee) => assignee.id === normalized) || null;
+}
+
+function normalizeTicketAssigneeValue(value, { allowEmpty = true } = {}) {
+  const normalized = normalizeSupportAssigneeId(value);
+  if (!normalized) return allowEmpty ? { assignee: '' } : { error: '请选择负责人', statusCode: 400 };
+  const target = supportAssigneeFor(normalized);
+  if (!target) return { error: '负责人不在配置枚举中，请先到配置中心维护客服负责人', statusCode: 400 };
+  if (target.active === false) return { error: '负责人已停用', statusCode: 400 };
+  return { assignee: target.id };
 }
 
 function normalizeRelatedObjects(input) {
@@ -15149,14 +15395,25 @@ function supportTicketItem(ticket) {
   const notes = Array.isArray(ticket.notes) ? ticket.notes : [];
   const relatedObjects = normalizeRelatedObjects(ticket.relatedObjects);
   const latestReply = replies.find((reply) => supportTicketReplySummary(reply));
+  const firstResponse = supportTicketSlaInfo(ticket, 'first_response');
+  const resolution = supportTicketSlaInfo(ticket, 'resolution');
+  const nextSla = supportTicketNextSlaInfo(ticket);
+  const assignee = supportAssigneeFor(ticket.assignee);
   return {
     assignee: ticket.assignee || '',
+    assigneeName: assignee?.name || ticket.assignee || '',
+    assigneeOnDuty: assignee ? assignee.onDuty : false,
+    assigneeScheduleLabel: assignee?.scheduleLabel || '',
     attachmentCount: supportTicketAttachmentCount(ticket),
     category: ticket.category || 'other',
     contact: ticket.contact || '',
     content: ticket.content || '',
     createdAt: ticket.createdAt,
-    firstReplyAt: replies[0]?.createdAt || '',
+    firstResponseAt: firstResponse.doneAt || '',
+    firstResponseDueAt: firstResponse.dueAt || '',
+    firstResponseSlaHours: firstResponse.hours,
+    firstResponseSlaState: firstResponse.state,
+    firstReplyAt: firstResponse.doneAt || '',
     id: ticket.id,
     lastActivityAt: ticket.updatedAt || ticket.createdAt,
     latestNote: notes[0]?.content || '',
@@ -15168,9 +15425,16 @@ function supportTicketItem(ticket) {
     relatedObjects,
     replyCount: replies.length,
     reopenCount: Math.max(0, Math.floor(Number(ticket.reopenCount || 0))),
+    resolutionDueAt: resolution.dueAt || '',
+    resolutionSlaHours: resolution.hours,
+    resolutionSlaState: resolution.state,
     satisfaction: ticket.satisfaction || null,
-    slaHours: supportTicketSlaHours(ticket),
+    slaDueAt: nextSla.dueAt || '',
+    slaHours: nextSla.hours || supportTicketSlaHours(ticket),
+    slaLabel: nextSla.type === 'first_response' ? '首响 SLA' : '解决 SLA',
+    slaRemainingMinutes: nextSla.remainingMinutes,
     slaState: supportTicketSlaState(ticket),
+    slaType: nextSla.type === 'first_response' ? 'first_response' : 'resolution',
     source: ticket.source || 'manual',
     sourceId: ticket.sourceId || '',
     status: supportTicketStatusFor(ticket.status),
@@ -15202,14 +15466,26 @@ function adminSupportTickets(options = {}) {
       return statusRank(b) - statusRank(a) || (priorityRank[b.priority] || 0) - (priorityRank[a.priority] || 0) || String(b.updatedAt).localeCompare(String(a.updatedAt));
     });
   const all = ensureSupportTickets().map(supportTicketItem);
+  const assignees = supportAssigneesForAdmin();
+  const support = currentOpsConfig().support || defaultOpsConfig().support;
   return {
+    assignees,
+    slaPolicy: {
+      firstResponseSlaHours: support.firstResponseSlaHours || {},
+      resolutionSlaHours: support.resolutionSlaHours || support.slaHours || {},
+    },
     summary: {
       all: all.length,
+      assigned: all.filter((ticket) => ticket.assignee).length,
       closed: all.filter((ticket) => ticket.status === 'closed' || ticket.status === 'resolved').length,
+      firstResponseOverdue: all.filter((ticket) => ticket.firstResponseSlaState === 'overdue').length,
+      offDutyAssigned: all.filter((ticket) => ticket.assignee && ticket.assigneeOnDuty === false && ticket.status !== 'closed' && ticket.status !== 'resolved').length,
       open: all.filter((ticket) => ticket.status !== 'closed' && ticket.status !== 'resolved').length,
       overdue: all.filter((ticket) => ticket.slaState === 'overdue').length,
+      resolutionOverdue: all.filter((ticket) => ticket.resolutionSlaState === 'overdue').length,
       safety: all.filter((ticket) => ticket.category === 'safety').length,
       urgent: all.filter((ticket) => ticket.priority === 'urgent' || ticket.priority === 'high').length,
+      unassigned: all.filter((ticket) => !ticket.assignee && ticket.status !== 'closed' && ticket.status !== 'resolved').length,
       waitingUser: all.filter((ticket) => ticket.status === 'waiting_user').length,
     },
     tickets: rows.slice(0, limit),
@@ -15249,7 +15525,11 @@ function supportTicketPublicItem(ticket) {
     replyCount: replies.length,
     reopenCount: item.reopenCount,
     satisfaction: item.satisfaction,
+    slaDueAt: item.slaDueAt,
     slaHours: item.slaHours,
+    slaLabel: item.slaLabel,
+    slaState: item.slaState,
+    slaType: item.slaType,
     status,
     title: item.title,
     updatedAt: item.updatedAt,
@@ -15408,7 +15688,9 @@ function adminHandleSupportTicketBatch(admin, body = {}) {
   if (!ticketIds.length) return { error: '请先选择工单', statusCode: 400 };
   const action = String(body.action || '').trim();
   const reason = String(body.reason || `批量处理 ${action}`).trim().slice(0, 240);
-  const assignee = String(body.assignee || admin?.username || 'admin').trim().slice(0, 80);
+  const assigneeResult = normalizeTicketAssigneeValue(body.assignee || admin?.username || 'admin', { allowEmpty: false });
+  if (action === 'assign' && assigneeResult.error) return assigneeResult;
+  const assignee = assigneeResult.assignee || '';
   const priority = ticketPriorities.has(String(body.priority)) ? String(body.priority) : undefined;
   const status = ticketStatuses.has(String(body.status)) ? String(body.status) : ticketStatuses.has(action) ? action : undefined;
   const results = [];
@@ -15477,6 +15759,7 @@ function replySupportTicket(admin, ticket, body = {}) {
   ticket.status = supportTicketStatusFor(body.nextStatus || 'waiting_user');
   ticket.updatedAt = reply.createdAt;
   ticket.lastReplyAt = reply.createdAt;
+  if (!ticket.firstResponseAt) ticket.firstResponseAt = reply.createdAt;
   if (!ticket.firstHandledAt) ticket.firstHandledAt = reply.createdAt;
   if (reply.notifyUser && ticket.phone) {
     addNotification(ticket.phone, {
@@ -16647,7 +16930,12 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       return true;
     }
     if (action === 'assign') {
-      updateSupportTicket(admin, ticket, { assignee: body.assignee || admin.username, status: body.status || 'reviewing' }, body.reason || '工单分配');
+      const assigneeResult = normalizeTicketAssigneeValue(body.assignee || admin.username, { allowEmpty: false });
+      if (assigneeResult.error) {
+        fail(res, assigneeResult.statusCode || 400, assigneeResult.error, false, undefined, 'ADMIN_TICKET_ASSIGNEE_INVALID');
+        return true;
+      }
+      updateSupportTicket(admin, ticket, { assignee: assigneeResult.assignee, status: body.status || 'reviewing' }, body.reason || '工单分配');
     } else if (action === 'notes') {
       const result = addSupportTicketNote(admin, ticket, body.content);
       if (result.error) {

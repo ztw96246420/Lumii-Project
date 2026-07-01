@@ -724,7 +724,11 @@ export type SupportTicketItem = {
   replyCount: number;
   reopenCount?: number;
   satisfaction?: null | SupportTicketSatisfaction;
+  slaDueAt?: string;
   slaHours?: number;
+  slaLabel?: string;
+  slaState?: 'done' | 'due_soon' | 'healthy' | 'overdue' | 'unknown';
+  slaType?: 'first_response' | 'resolution';
   status: SupportTicketStatus;
   title: string;
   updatedAt?: string;
@@ -863,6 +867,8 @@ export type AppRemoteConfig = {
     petCircleMaxPhotos: number;
   };
   support?: {
+    firstResponseSlaHours?: Partial<Record<SupportTicketPriority, number>>;
+    resolutionSlaHours?: Partial<Record<SupportTicketPriority, number>>;
     slaHours?: Partial<Record<SupportTicketPriority, number>>;
   };
   updatedAt: string;
