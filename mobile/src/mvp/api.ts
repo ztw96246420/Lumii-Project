@@ -44,6 +44,7 @@ import type {
   SanctionAppealItem,
   SanctionAppealList,
   SocialBlockListItem,
+  SocialBlockOptions,
   SocialBlockResult,
   SmsCodeTicket,
   SupportTicketDetail,
@@ -462,8 +463,8 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<PetCircleReportResult>('POST', `/social/pet-circle/comments/${encodeURIComponent(commentId)}/report`, { content });
       },
 
-      async blockOwner(ownerId: string): Promise<ApiResult<SocialBlockResult>> {
-        return request<SocialBlockResult>('POST', '/social/blocks', { ownerId });
+      async blockOwner(ownerId: string, options: SocialBlockOptions = {}): Promise<ApiResult<SocialBlockResult>> {
+        return request<SocialBlockResult>('POST', '/social/blocks', { ownerId, ...options });
       },
 
       async listBlocks(): Promise<ApiResult<SocialBlockListItem[]>> {

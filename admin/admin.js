@@ -114,6 +114,7 @@ const userRiskTagOptions = [
   { key: 'watch', label: '违规观察' },
   { key: 'suspected_harassment', label: '疑似骚扰' },
   { key: 'suspected_abuse', label: '疑似违规' },
+  { key: 'frequently_blocked', label: '被频繁拉黑' },
   { key: 'ai_sample', label: 'AI 异常样本' },
 ];
 const userRiskTagLabelMap = Object.fromEntries(userRiskTagOptions.map((item) => [item.key, item.label]));
@@ -2878,8 +2879,13 @@ function renderUserOpsMark(user) {
   const tagHtml = tags.length ? `<div class="risk-row compact">${tags.map(riskBadge).join('')}</div>` : '<div class="cell-sub">无风险标签</div>';
   const noteCount = Number(user.adminNoteCount || 0);
   const latestNote = user.adminLatestNote ? escapeHtml(user.adminLatestNote) : '';
+  const blockStats = user.socialBlockStats || {};
+  const blockLine = Number(blockStats.blockedByCount || 0)
+    ? `<div class="cell-sub">被拉黑 ${numberText(blockStats.blockedByCount)} 次 / ${numberText(blockStats.uniqueBlockerCount || 0)} 人${blockStats.topReasonLabel ? ` · ${escapeHtml(blockStats.topReasonLabel)}` : ''}</div>`
+    : '';
   return `
     ${tagHtml}
+    ${blockLine}
     <div class="cell-sub">${noteCount ? `${noteCount} 条备注${user.adminLatestNoteAt ? ` · ${formatTime(user.adminLatestNoteAt)}` : ''}` : '暂无运营备注'}</div>
     ${latestNote ? `<div class="cell-sub clamp">最近：${latestNote}</div>` : ''}
   `;
@@ -3187,7 +3193,8 @@ function socialRelationRisk(row) {
   if (row.notificationCount) risks.push(statusPill(`${row.notificationCount} 通知`));
   if (row.messageCount) risks.push(statusPill(`${row.messageCount} 消息`));
   if (row.kind === 'conversation') risks.push(statusPill('正文受限'));
-  return risks.join(' ') || '<span class="muted">无明显风险</span>';
+  const reason = row.blockReasonLabel ? `<div class="cell-sub">原因：${escapeHtml(row.blockReasonLabel)}${row.blockReasonDetail ? ` · ${escapeHtml(row.blockReasonDetail)}` : ''}</div>` : '';
+  return `${risks.join(' ') || '<span class="muted">无明显风险</span>'}${reason}`;
 }
 
 async function renderSocialRelations(force) {
@@ -3201,18 +3208,19 @@ async function renderSocialRelations(force) {
   const summary = data.summary || {};
   $('content').innerHTML = `
     <div class="grid metrics">
-      ${metric('关系记录', numberText(summary.all), `${numberText(summary.totalRecords)} 条全量`, '当前筛选下的招呼、约遛和会话记录总数。')}
+      ${metric('关系记录', numberText(summary.all), `${numberText(summary.totalRecords)} 条全量`, '当前筛选下的招呼、约遛、会话和拉黑记录总数。')}
       ${metric('待处理', numberText(summary.pending), `${numberText(summary.rejected)} 条已拒绝`, 'pending 关系最容易造成用户误解，需要重点排查通知和可回复状态。')}
       ${metric('已接受', numberText(summary.accepted), '可发消息关系', '已接受招呼或约遛回复后建立的可消息关系。')}
       ${metric('招呼', numberText(summary.greetings), '发现页 / 宠友圈', '包括普通招呼和从宠友圈小事发起的招呼。')}
       ${metric('约遛', numberText(summary.walkInvites), '约遛邀请', '用于排查 B 收到 A 约遛后是否可以直接回复。')}
+      ${metric('拉黑', numberText(summary.blocks || 0), `${numberText(summary.blockedTargetUsers || 0)} 位被拉黑`, '统计移动端拉黑行为及原因，用于发现疑似骚扰、广告或不安全互动账号。')}
       ${metric('会话消息', numberText(summary.messageCount), `${numberText(summary.notifications)} 条相关通知`, '会话只展示摘要；完整正文查看需要更高权限与审计。')}
     </div>
     <div class="card">
       <div class="section-head">
         <div>
           <h2>关系消息记录</h2>
-          <div class="section-sub">招呼、约遛、会话和通知链路的只读排查视角</div>
+          <div class="section-sub">招呼、约遛、会话、拉黑和通知链路的只读排查视角</div>
         </div>
         ${help('默认只展示会话摘要、状态、通知和拉黑信息，不展示完整私信正文。后续若开放正文查看，需要原因、权限和审计。')}
       </div>
@@ -3224,6 +3232,7 @@ async function renderSocialRelations(force) {
               ${socialRelationOption(state.socialRelationKind, 'greeting', '招呼')}
               ${socialRelationOption(state.socialRelationKind, 'walk_invite', '约遛')}
               ${socialRelationOption(state.socialRelationKind, 'conversation', '会话')}
+              ${socialRelationOption(state.socialRelationKind, 'block', '拉黑')}
             </select>
           </label>
           <label>状态
@@ -3268,16 +3277,15 @@ async function renderSocialRelations(force) {
       <div class="card">
         <div class="section-head">
           <div>
-            <h2>后续动作预留</h2>
-            <div class="section-sub">写操作需要更细权限和审计</div>
+            <h2>拉黑原因统计</h2>
+            <div class="section-sub">用于识别疑似骚扰、广告或不安全互动账号</div>
           </div>
-          ${help('需求文档中的修复异常状态、标记骚扰会话、隐藏违规消息属于高风险动作，当前仅做只读排查。')}
+          ${help('当一个账号被 3 个不同用户拉黑时，后端会自动打上“被频繁拉黑”运营风险标签；该标签只用于后台排查，不自动处罚。')}
         </div>
-        <div class="gap-list">
-          <div><strong>状态修复</strong><span>后续可对死循环关系做人工修复，但必须记录 before/after。</span></div>
-          <div><strong>正文查看</strong><span>需填写原因，并写入审计日志；默认客服只能看摘要。</span></div>
-          <div><strong>违规处理</strong><span>隐藏消息、封禁、保留证据快照应接内容安全和处罚模块。</span></div>
-        </div>
+        ${tableHtml(summary.blockReasonRows || [], [
+          ['原因', (row) => `<div class="cell-title">${escapeHtml(row.label || '-')}</div><div class="cell-sub">${escapeHtml(row.key || '-')}</div>`],
+          ['次数', (row) => `<div class="cell-title">${numberText(row.count || 0)}</div>`],
+        ], '暂无拉黑原因统计')}
       </div>
     </div>
   `;

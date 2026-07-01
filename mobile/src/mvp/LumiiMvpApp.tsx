@@ -12850,7 +12850,10 @@ export default function LumiiMvpApp() {
       if (!confirmed) return;
       setPetCircleBlockingOwnerIds((ids) => [...ids, post.ownerId]);
       try {
-        const result = await lumiiApi.social.blockOwner(post.ownerId);
+        const result = await lumiiApi.social.blockOwner(post.ownerId, {
+          reason: '用户在宠友圈卡片主动拉黑',
+          reasonCode: 'no_interest',
+        });
         if (result.data) {
           removeBlockedOwnerFromLocalSocial(post.ownerId);
           showToast('已拉黑该用户', { subtitle: '对方的小事、评论和附近入口已从你的列表移除', tone: 'success', variant: 'surface' });
@@ -16334,7 +16337,7 @@ export default function LumiiMvpApp() {
                       <View style={styles.flex}>
                         <Text numberOfLines={1} style={styles.safetyBlockOwnerMake}>{block.ownerName}</Text>
                         <Text numberOfLines={1} style={styles.safetyBlockMetaMake}>
-                          {block.petName ? `${block.petName} · ` : ''}{formatTimestampDisplay(block.blockedAt)}
+                          {block.petName ? `${block.petName} · ` : ''}{block.reasonLabel ? `${block.reasonLabel} · ` : ''}{formatTimestampDisplay(block.blockedAt)}
                         </Text>
                       </View>
                       <Pressable disabled={removing} onPress={() => void unblockSocialOwner(block)} style={[styles.safetyBlockUnblockMake, removing && styles.mapSearchActionDisabled, webPressableReset]}>

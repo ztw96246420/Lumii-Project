@@ -414,6 +414,10 @@ export type SocialBlockResult = {
   blocked: true;
   id: string;
   ownerId: string;
+  reasonCode?: string;
+  reasonDetail?: string;
+  reasonLabel?: string;
+  riskTagApplied?: boolean;
 };
 
 export type SocialBlockListItem = {
@@ -423,7 +427,15 @@ export type SocialBlockListItem = {
   ownerId: string;
   ownerName: string;
   petName?: string;
+  reasonCode?: string;
+  reasonDetail?: string;
+  reasonLabel?: string;
   species?: Extract<PetSpecies, 'cat' | 'dog'>;
+};
+
+export type SocialBlockOptions = {
+  reason?: string;
+  reasonCode?: string;
 };
 
 export type NearbyLocationHint = {

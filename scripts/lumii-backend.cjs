@@ -1672,6 +1672,8 @@ function adminExportDataset(type) {
         exportColumn('targetPetName', '接收宠物'),
         exportColumn('sourceLabel', '来源'),
         exportColumn('summary', '摘要'),
+        exportColumn('blockReasonLabel', '拉黑原因'),
+        exportColumn('blockReasonDetail', '拉黑原因补充'),
         exportColumn('notificationCount', '相关通知数'),
         exportColumn('messageCount', '消息数'),
         exportColumn('blocked', '存在拉黑', (row) => exportBoolText(row.blocked)),
@@ -3442,6 +3444,7 @@ const ADMIN_USER_RISK_TAGS = [
   { key: 'watch', label: '违规观察' },
   { key: 'suspected_harassment', label: '疑似骚扰' },
   { key: 'suspected_abuse', label: '疑似违规' },
+  { key: 'frequently_blocked', label: '被频繁拉黑' },
   { key: 'ai_sample', label: 'AI 异常样本' },
 ];
 const ADMIN_USER_RISK_TAG_KEY_SET = new Set(ADMIN_USER_RISK_TAGS.map((item) => item.key));
@@ -8731,23 +8734,102 @@ function socialBlockBetween(phoneA, phoneB) {
   );
 }
 
-function createSocialBlock(user, ownerId) {
+const SOCIAL_BLOCK_RISK_THRESHOLD = 3;
+const SOCIAL_BLOCK_REASON_OPTIONS = [
+  { key: 'unspecified', label: '未填写原因' },
+  { key: 'harassment', label: '骚扰或不适互动' },
+  { key: 'spam', label: '广告或刷屏' },
+  { key: 'unsafe', label: '不安全或疑似违规' },
+  { key: 'inappropriate', label: '内容不适合' },
+  { key: 'no_interest', label: '不想再遇见' },
+  { key: 'other', label: '其他原因' },
+];
+const SOCIAL_BLOCK_REASON_MAP = new Map(SOCIAL_BLOCK_REASON_OPTIONS.map((item) => [item.key, item]));
+
+function normalizeSocialBlockReason(body = {}) {
+  const inputKey = String(body.reasonCode || body.reasonKey || body.category || '').trim();
+  const key = SOCIAL_BLOCK_REASON_MAP.has(inputKey) ? inputKey : 'unspecified';
+  const detail = String(body.reason || body.detail || body.content || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const reason = SOCIAL_BLOCK_REASON_MAP.get(key) || SOCIAL_BLOCK_REASON_MAP.get('unspecified');
+  return {
+    reasonCode: reason.key,
+    reasonDetail: detail,
+    reasonLabel: reason.label,
+  };
+}
+
+function socialBlockStatsFor(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  const blocks = ensureSocialBlocks();
+  const blockedBy = blocks.filter((block) => block.blockedPhone === normalizedPhone);
+  const blocking = blocks.filter((block) => block.blockerPhone === normalizedPhone);
+  const uniqueBlockers = new Set(blockedBy.map((block) => block.blockerPhone).filter(Boolean));
+  const reasonCounts = new Map();
+  blockedBy.forEach((block) => {
+    const reason = SOCIAL_BLOCK_REASON_MAP.get(block.reasonCode) || SOCIAL_BLOCK_REASON_MAP.get('unspecified');
+    const current = reasonCounts.get(reason.key) || { count: 0, key: reason.key, label: reason.label };
+    current.count += 1;
+    reasonCounts.set(reason.key, current);
+  });
+  const reasonRows = [...reasonCounts.values()].sort((a, b) => b.count - a.count || String(a.label).localeCompare(String(b.label)));
+  return {
+    blockedByCount: blockedBy.length,
+    blockingCount: blocking.length,
+    latestBlockedAt: blockedBy.map((block) => block.createdAt).sort((a, b) => String(b).localeCompare(String(a)))[0] || '',
+    reasonRows,
+    riskThreshold: SOCIAL_BLOCK_RISK_THRESHOLD,
+    topReasonLabel: reasonRows[0]?.label || '',
+    uniqueBlockerCount: uniqueBlockers.size,
+  };
+}
+
+function applySocialBlockRiskTagIfNeeded(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  const user = normalizedPhone ? state.users?.[normalizedPhone] : null;
+  if (!user) return { applied: false, stats: null };
+  const stats = socialBlockStatsFor(normalizedPhone);
+  if (stats.uniqueBlockerCount < SOCIAL_BLOCK_RISK_THRESHOLD) return { applied: false, stats };
+  const beforeTags = normalizeAdminRiskTags(user.adminRiskTags);
+  if (beforeTags.includes('frequently_blocked')) return { applied: false, stats };
+  user.adminRiskTags = normalizeAdminRiskTags([...beforeTags, 'frequently_blocked']);
+  writeAdminAudit(
+    { role: 'system', username: 'system' },
+    'user.risk_tags.auto_blocked',
+    'user',
+    normalizedPhone,
+    { adminRiskTags: beforeTags, socialBlockStats: stats },
+    { adminRiskTags: user.adminRiskTags, socialBlockStats: stats },
+    `被 ${stats.uniqueBlockerCount} 个用户拉黑，自动标记被频繁拉黑`,
+  );
+  return { applied: true, stats };
+}
+
+function createSocialBlock(user, ownerId, body = {}) {
   const targetPhone = resolveOwnerId(String(ownerId || ''));
   const targetUser = targetPhone ? state.users[targetPhone] : null;
   if (!targetUser) return { error: '用户不存在或已不可见', statusCode: 404 };
   if (targetPhone === user.phone) return { error: '不能拉黑自己', statusCode: 400 };
   const existing = ensureSocialBlocks().find((block) => block.blockerPhone === user.phone && block.blockedPhone === targetPhone);
   if (existing) {
+    const reason = normalizeSocialBlockReason(body);
+    if (!existing.reasonCode || body.reason || body.reasonCode || body.reasonKey || body.category || body.detail || body.content) {
+      existing.reasonCode = reason.reasonCode;
+      existing.reasonLabel = reason.reasonLabel;
+      existing.reasonDetail = reason.reasonDetail;
+      existing.updatedAt = new Date().toISOString();
+    }
     removeSocialNotificationsBetween(user.phone, targetPhone);
-    return { block: existing, targetPhone };
+    return { block: existing, risk: applySocialBlockRiskTagIfNeeded(targetPhone), targetPhone };
   }
   const visibleTarget = resolveVisibleSocialTarget(user, ownerId);
   if (!visibleTarget) return { error: '用户不存在或已不可见', statusCode: 404 };
+  const reason = normalizeSocialBlockReason(body);
   const block = {
     blockedPhone: targetPhone,
     blockerPhone: user.phone,
     createdAt: new Date().toISOString(),
     id: `block-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    ...reason,
   };
   ensureSocialBlocks().unshift(block);
   state.greetings = state.greetings.map((greeting) =>
@@ -8757,7 +8839,7 @@ function createSocialBlock(user, ownerId) {
       : greeting,
   );
   removeSocialNotificationsBetween(user.phone, targetPhone);
-  return { block, targetPhone };
+  return { block, risk: applySocialBlockRiskTagIfNeeded(targetPhone), targetPhone };
 }
 
 function buildSocialBlockListItem(block) {
@@ -8771,6 +8853,9 @@ function buildSocialBlockListItem(block) {
     ownerId: `user-${block.blockedPhone}`,
     ownerName: targetUser?.ownerName || `用户${suffix}`,
     petName: pet?.name,
+    reasonCode: block.reasonCode || 'unspecified',
+    reasonDetail: block.reasonDetail || '',
+    reasonLabel: block.reasonLabel || SOCIAL_BLOCK_REASON_MAP.get(block.reasonCode)?.label || '未填写原因',
     species: pet?.species === 'cat' ? 'cat' : pet?.species === 'dog' ? 'dog' : undefined,
   };
 }
@@ -10839,6 +10924,7 @@ function adminUserSummary(user) {
   const sanctionSummary = userSanctionSummary(user.phone);
   const adminNotes = normalizeAdminNotes(user.adminNotes);
   const adminRiskTags = normalizeAdminRiskTags(user.adminRiskTags);
+  const socialBlockStats = socialBlockStatsFor(user.phone);
   user.adminNotes = adminNotes;
   user.adminRiskTags = adminRiskTags;
   return {
@@ -10861,6 +10947,7 @@ function adminUserSummary(user) {
     reportsAgainstCount: reportsAgainstUser.length,
     sanctions: sanctionSummary,
     settings: normalizeUserSettings(user.settings),
+    socialBlockStats,
     socialPostCount: socialPosts.length,
     status: accountStatusFor(user),
   };
@@ -12076,6 +12163,40 @@ function adminSocialRelations(options = {}) {
     });
   });
 
+  ensureSocialBlocks().forEach((block) => {
+    const from = adminRelationUser(block.blockerPhone);
+    const target = adminRelationUser(block.blockedPhone);
+    if (!from.phone || !target.phone) return;
+    const reason = SOCIAL_BLOCK_REASON_MAP.get(block.reasonCode) || SOCIAL_BLOCK_REASON_MAP.get('unspecified');
+    const summary = [reason.label, block.reasonDetail].filter(Boolean).join(' · ');
+    const notifications = adminNotificationsBetween(from.phone, target.phone, []);
+    items.push({
+      blocked: true,
+      blockReasonCode: reason.key,
+      blockReasonDetail: block.reasonDetail || '',
+      blockReasonLabel: reason.label,
+      conversationId: conversationIdFor(target.phone),
+      createdAt: block.createdAt || 0,
+      fromName: from.name,
+      fromPetName: from.petName,
+      fromPhone: from.phone,
+      id: `block:${block.id}`,
+      kind: 'block',
+      messageCount: adminConversationMessageCount(from.phone, conversationIdFor(target.phone)),
+      notificationCount: notifications.length,
+      sourceKey: 'block',
+      sourceLabel: '安全中心/宠友圈',
+      status: 'blocked',
+      statusLabel: '已拉黑',
+      summary: adminMaskMessageSummary(summary || '未填写原因'),
+      targetName: target.name,
+      targetPetName: target.petName,
+      targetPhone: target.phone,
+      typeLabel: '拉黑',
+      updatedAt: block.updatedAt || block.createdAt || 0,
+    });
+  });
+
   const seenConversationPairs = new Set();
   Object.entries(state.conversations || {}).forEach(([ownerPhone, conversations]) => {
     if (!Array.isArray(conversations)) return;
@@ -12138,6 +12259,8 @@ function adminSocialRelations(options = {}) {
         item.statusLabel,
         item.sourceLabel,
         item.summary,
+        item.blockReasonLabel,
+        item.blockReasonDetail,
         item.postId,
         item.placeId,
         item.conversationId,
@@ -12146,10 +12269,20 @@ function adminSocialRelations(options = {}) {
     .sort((a, b) => analyticsTimeMs(b.updatedAt || b.createdAt) - analyticsTimeMs(a.updatedAt || a.createdAt) || String(a.id).localeCompare(String(b.id)));
 
   const summarySource = filtered;
+  const blockReasonMap = new Map();
+  summarySource.filter((item) => item.kind === 'block').forEach((item) => {
+    const key = item.blockReasonCode || 'unspecified';
+    const current = blockReasonMap.get(key) || { count: 0, key, label: item.blockReasonLabel || '未填写原因' };
+    current.count += 1;
+    blockReasonMap.set(key, current);
+  });
   const summary = {
     accepted: summarySource.filter((item) => item.status === 'accepted').length,
     all: summarySource.length,
     blocked: summarySource.filter((item) => item.blocked).length,
+    blockReasonRows: [...blockReasonMap.values()].sort((a, b) => b.count - a.count || String(a.label).localeCompare(String(b.label))),
+    blocks: summarySource.filter((item) => item.kind === 'block').length,
+    blockedTargetUsers: new Set(summarySource.filter((item) => item.kind === 'block').map((item) => item.targetPhone).filter(Boolean)).size,
     conversations: summarySource.filter((item) => item.kind === 'conversation').length,
     greetings: summarySource.filter((item) => item.kind === 'greeting').length,
     messageCount: summarySource.reduce((sum, item) => sum + Number(item.messageCount || 0), 0),
@@ -13113,6 +13246,7 @@ function analyticsWindow(daysInput) {
       placeSubmissions: 0,
       poiSearches: 0,
       reports: 0,
+      socialBlocks: 0,
       socialComments: 0,
       socialImages: 0,
       socialLikes: 0,
@@ -13227,6 +13361,7 @@ function adminAnalytics(options = {}) {
   socialLikes.forEach((like) => incrementAnalyticsBucket(bucketMap, like.createdAt, 'socialLikes'));
   socialComments.forEach((comment) => incrementAnalyticsBucket(bucketMap, comment.createdAt, 'socialComments'));
   socialReports.forEach((report) => incrementAnalyticsBucket(bucketMap, report.createdAt, 'reports'));
+  socialBlocks.forEach((block) => incrementAnalyticsBucket(bucketMap, block.createdAt, 'socialBlocks'));
   greetings.forEach((greeting) => {
     incrementAnalyticsBucket(bucketMap, greeting.at || greeting.createdAt, 'greetings');
     if (greeting.status === 'accepted') incrementAnalyticsBucket(bucketMap, greeting.respondedAt || greeting.at, 'greetingsAccepted');
@@ -13391,6 +13526,7 @@ function adminAnalytics(options = {}) {
         sanctions: sanctions.filter((item) => item.status === 'active').length,
       },
       social: {
+        blocks: sumAnalyticsBuckets(buckets, 'socialBlocks'),
         blockCount: socialBlocks.length,
         cardExposures: sumAnalyticsBuckets(buckets, 'petCircleCardExposures'),
         comments: sumAnalyticsBuckets(buckets, 'socialComments'),
@@ -18584,13 +18720,21 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/social/blocks') {
-    const result = createSocialBlock(user, body.ownerId);
+    const result = createSocialBlock(user, body.ownerId, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'SOCIAL_BLOCK_INVALID');
       return;
     }
     saveState();
-    ok(res, { blocked: true, id: result.block.id, ownerId: `user-${result.targetPhone}` });
+    ok(res, {
+      blocked: true,
+      id: result.block.id,
+      ownerId: `user-${result.targetPhone}`,
+      reasonCode: result.block.reasonCode || 'unspecified',
+      reasonDetail: result.block.reasonDetail || '',
+      reasonLabel: result.block.reasonLabel || SOCIAL_BLOCK_REASON_MAP.get(result.block.reasonCode)?.label || '未填写原因',
+      riskTagApplied: Boolean(result.risk?.applied),
+    });
     return;
   }
 

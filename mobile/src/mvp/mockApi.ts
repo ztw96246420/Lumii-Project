@@ -46,6 +46,7 @@ import type {
   SanctionAppealItem,
   SanctionAppealList,
   SocialBlockListItem,
+  SocialBlockOptions,
   SocialBlockResult,
   SmsCodeTicket,
   SupportTicketAttachmentDraft,
@@ -706,7 +707,7 @@ let memos: HealthMemo[] = [
 let nearbyMoments: NearbyMoment[] = [];
 let petCircleComments: PetCircleComment[] = [];
 let petCircleLikedIds: string[] = [];
-let socialBlocks: Array<{ blockedAt: string; id: string; ownerId: string }> = [];
+let socialBlocks: Array<{ blockedAt: string; id: string; ownerId: string; reasonCode?: string; reasonDetail?: string; reasonLabel?: string }> = [];
 
 function isMockOwnerBlocked(ownerId?: string) {
   return Boolean(ownerId && socialBlocks.some((block) => block.ownerId === ownerId));
@@ -3040,16 +3041,27 @@ export const mockApi = {
       return success({ id: `mock-report-${Date.now()}`, reported: true, targetId: commentId, targetType: 'comment' });
     },
 
-    async blockOwner(ownerId: string): Promise<ApiResult<SocialBlockResult>> {
+    async blockOwner(ownerId: string, options: SocialBlockOptions = {}): Promise<ApiResult<SocialBlockResult>> {
       await wait(140);
       ensureMockPetCircleInteractionFixtures();
       const owner = owners.find((item) => item.id === ownerId) ?? nearbyMoments.find((item) => item.ownerId === ownerId);
       if (!owner) return error<SocialBlockResult>('用户不存在或已不可见', false, undefined, 'SOCIAL_BLOCK_INVALID');
       if (ownerId === `mock-${currentMockPhone}`) return error<SocialBlockResult>('不能拉黑自己', false, undefined, 'SOCIAL_BLOCK_INVALID');
-      if (!isMockOwnerBlocked(ownerId)) socialBlocks = [{ blockedAt: new Date().toISOString(), id: `mock-block-${ownerId}`, ownerId }, ...socialBlocks];
+      const reasonCode = options.reasonCode || 'no_interest';
+      const reasonLabel = reasonCode === 'harassment' ? '骚扰或不适互动' : reasonCode === 'spam' ? '广告或刷屏' : reasonCode === 'unsafe' ? '不安全或疑似违规' : reasonCode === 'inappropriate' ? '内容不适合' : reasonCode === 'other' ? '其他原因' : '不想再遇见';
+      if (!isMockOwnerBlocked(ownerId)) {
+        socialBlocks = [{
+          blockedAt: new Date().toISOString(),
+          id: `mock-block-${ownerId}`,
+          ownerId,
+          reasonCode,
+          reasonDetail: options.reason ?? '',
+          reasonLabel,
+        }, ...socialBlocks];
+      }
       greetingRequests = greetingRequests.filter((item) => item.id !== ownerId);
       removeMockSocialNotificationsForBlockedOwner(ownerId);
-      return success({ blocked: true, id: `mock-block-${ownerId}`, ownerId });
+      return success({ blocked: true, id: `mock-block-${ownerId}`, ownerId, reasonCode, reasonDetail: options.reason ?? '', reasonLabel });
     },
 
     async listBlocks(): Promise<ApiResult<SocialBlockListItem[]>> {
@@ -3064,6 +3076,9 @@ export const mockApi = {
           ownerId: block.ownerId,
           ownerName: owner?.ownerName ?? moment?.ownerName ?? '附近主人',
           petName: owner?.petName ?? moment?.petName,
+          reasonCode: block.reasonCode,
+          reasonDetail: block.reasonDetail,
+          reasonLabel: block.reasonLabel,
           species: owner?.species ?? moment?.species,
         };
       }));
