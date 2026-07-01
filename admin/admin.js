@@ -5752,6 +5752,13 @@ async function renderNotifications(force) {
 
 async function renderConfig(force) {
   const config = await load('config', '/admin/config', force);
+  const ai = config.ai || {};
+  const aiAvatar = ai.avatar || {};
+  const aiAvatarGptImage2 = aiAvatar.gptImage2 || {};
+  const aiAvatarFlux = aiAvatar.ttapiFlux || {};
+  const aiAvatarMidjourney = aiAvatar.ttapiMidjourney || {};
+  const aiPetChat = ai.petChat || {};
+  const aiPetChatDeepSeek = aiPetChat.deepseek || {};
   const announcement = config.app?.announcement || {};
   const configApproval = config.configApproval || {};
   const contentSafety = config.contentSafety || {};
@@ -5796,6 +5803,73 @@ async function renderConfig(force) {
         ${featureCheckbox('cfgFeaturePetChat', 'AI 宠物对话', config.features.petChat)}
         ${featureCheckbox('cfgFeatureWalkInvite', '约遛邀请', config.features.walkInvite)}
         ${featureCheckbox('cfgMaintenanceEnabled', '维护模式', config.app.maintenanceEnabled)}
+      </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>AI 外围系统配置</h2>
+            <div class="section-sub">控制灵伴形象生成、宠物 AI 对话的 provider、模型参数和实际提示词</div>
+          </div>
+          ${help('这里不保存 API 密钥。密钥仍由服务器环境变量提供；后台只配置 provider、模型、尺寸、prompt 和对话 system prompt。发布后会影响新的 AI 请求，历史任务保留原 provider。')}
+        </div>
+        ${renderAiRuntimeConfig(config.aiRuntime || {})}
+        <div class="config-grid ai-prompt-grid">
+          <label>形象生成 provider
+            <select id="cfgAiAvatarProvider">
+              ${configProviderOption(aiAvatar.provider, 'gpt-image-2', 'GPT Image 2')}
+              ${configProviderOption(aiAvatar.provider, 'ttapi-flux-edits', 'TTAPI Flux Edits')}
+              ${configProviderOption(aiAvatar.provider, 'ttapi-midjourney', 'TTAPI Midjourney')}
+              ${configProviderOption(aiAvatar.provider, 'mock', 'Mock 兜底')}
+            </select>
+          </label>
+          <label>GPT Image 2 model<input id="cfgGptImage2Model" maxlength="80" value="${escapeHtml(aiAvatarGptImage2.model || 'gpt-image-2')}" /></label>
+          <label>GPT Image 2 分辨率
+            <select id="cfgGptImage2Resolution">
+              ${configProviderOption(aiAvatarGptImage2.resolution, '1k', '1k')}
+              ${configProviderOption(aiAvatarGptImage2.resolution, '2k', '2k')}
+              ${configProviderOption(aiAvatarGptImage2.resolution, '4k', '4k')}
+            </select>
+          </label>
+          <label>GPT Image 2 尺寸
+            <select id="cfgGptImage2Size">
+              ${configProviderOption(aiAvatarGptImage2.size, '1:1', '1:1')}
+              ${configProviderOption(aiAvatarGptImage2.size, '16:9', '16:9')}
+              ${configProviderOption(aiAvatarGptImage2.size, '9:16', '9:16')}
+              ${configProviderOption(aiAvatarGptImage2.size, '4:3', '4:3')}
+              ${configProviderOption(aiAvatarGptImage2.size, '3:4', '3:4')}
+            </select>
+          </label>
+          ${featureCheckbox('cfgGptImage2OfficialFallback', 'GPT Image 2 official_fallback', Boolean(aiAvatarGptImage2.officialFallback))}
+          <label>TTAPI Flux mode<input id="cfgTtapiFluxMode" maxlength="60" value="${escapeHtml(aiAvatarFlux.mode || 'flux-2-max')}" /></label>
+          <label>TTAPI Midjourney mode
+            <select id="cfgTtapiMjMode">
+              ${configProviderOption(aiAvatarMidjourney.mode, 'fast', 'fast')}
+              ${configProviderOption(aiAvatarMidjourney.mode, 'turbo', 'turbo')}
+              ${configProviderOption(aiAvatarMidjourney.mode, 'relax', 'relax')}
+            </select>
+          </label>
+          <label>TTAPI Midjourney timeout 秒<input id="cfgTtapiMjTimeout" type="number" min="60" max="1800" value="${Number.isFinite(Number(aiAvatarMidjourney.timeout)) ? aiAvatarMidjourney.timeout : 600}" /></label>
+          ${featureCheckbox('cfgTtapiMjAutoUpsample', 'Midjourney 自动 upsample', Boolean(aiAvatarMidjourney.autoUpsample))}
+          <label>宠物 AI 对话 provider
+            <select id="cfgPetChatProvider">
+              ${configProviderOption(aiPetChat.provider, 'deepseek', 'DeepSeek')}
+              ${configProviderOption(aiPetChat.provider, 'fallback', 'Fallback 兜底')}
+            </select>
+          </label>
+          <label>DeepSeek model<input id="cfgDeepSeekModel" maxlength="80" value="${escapeHtml(aiPetChatDeepSeek.model || 'deepseek-v4-flash')}" /></label>
+          <label>DeepSeek thinking
+            <select id="cfgDeepSeekThinking">
+              ${configProviderOption(aiPetChatDeepSeek.thinking, 'disabled', 'disabled')}
+              ${configProviderOption(aiPetChatDeepSeek.thinking, 'enabled', 'enabled')}
+            </select>
+          </label>
+          <label>DeepSeek max_tokens<input id="cfgDeepSeekMaxTokens" type="number" min="80" max="2000" value="${Number.isFinite(Number(aiPetChatDeepSeek.maxTokens)) ? aiPetChatDeepSeek.maxTokens : 420}" /></label>
+          <label>DeepSeek temperature<input id="cfgDeepSeekTemperature" type="number" min="0" max="2" step="0.01" value="${Number.isFinite(Number(aiPetChatDeepSeek.temperature)) ? aiPetChatDeepSeek.temperature : 0.7}" /></label>
+          <label class="wide">GPT Image 2 灵伴形象 prompt 模板<textarea id="cfgGptImage2PromptTemplate" maxlength="12000" placeholder="支持 {species}、{breed}、{petName}、{speciesLabel}">${escapeHtml(aiAvatarGptImage2.promptTemplate || '')}</textarea></label>
+          <label class="wide">TTAPI Flux prompt 模板<textarea id="cfgTtapiFluxPromptTemplate" maxlength="12000" placeholder="历史备用 provider 的 prompt 模板">${escapeHtml(aiAvatarFlux.promptTemplate || '')}</textarea></label>
+          <label class="wide">TTAPI Midjourney prompt 模板<textarea id="cfgTtapiMjPromptTemplate" maxlength="12000" placeholder="支持 {mediaUrl}、{species}、{breed}">${escapeHtml(aiAvatarMidjourney.promptTemplate || '')}</textarea></label>
+          <label class="wide">DeepSeek base system prompt<textarea id="cfgDeepSeekBaseSystemPrompt" maxlength="12000" placeholder="宠物 AI 对话的第一条 system prompt">${escapeHtml(aiPetChatDeepSeek.baseSystemPrompt || '')}</textarea></label>
+        </div>
       </div>
       <div class="config-section">
         <div class="section-head compact">
@@ -6037,6 +6111,49 @@ function configRouteOption(current, value, label) {
   return `<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`;
 }
 
+function configProviderOption(current, value, label) {
+  return `<option value="${escapeHtml(value)}" ${String(current || '') === value ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+}
+
+function renderAiRuntimeConfig(runtime = {}) {
+  const avatar = runtime.petAvatar || {};
+  const chat = runtime.petChat || {};
+  const credentials = runtime.credentials || {};
+  const notes = Array.isArray(runtime.notes) ? runtime.notes : [];
+  const rows = [
+    ...(avatar.providers || []).map((row) => ({ ...row, group: '灵伴形象' })),
+    ...(chat.providers || []).map((row) => ({ ...row, group: 'AI 对话' })),
+  ];
+  const contextRows = (chat.contextPromptStructure || []).map((text, index) => ({ index: index + 1, text }));
+  return `
+    <div class="ai-runtime-panel">
+      <div class="content-safety-status">
+        <div><span>GPT Image 2 Key</span>${statusPill(credentials.gptImage2 ? '已配置' : '未配置')}</div>
+        <div><span>TTAPI Key</span>${statusPill(credentials.ttapi ? '已配置' : '未配置')}</div>
+        <div><span>DeepSeek Key</span>${statusPill(credentials.deepseek ? '已配置' : '未配置')}</div>
+        <div><span>当前形象</span><strong>${escapeHtml(avatar.provider || '-')}</strong></div>
+        <div><span>当前对话</span><strong>${escapeHtml(chat.provider || '-')}</strong></div>
+      </div>
+      <div class="ai-runtime-note">
+        ${notes.map((note) => `<span>${escapeHtml(note)}</span>`).join('')}
+      </div>
+      ${tableHtml(rows, [
+        ['模块', (row) => `<div>${escapeHtml(row.group)}</div><div class="cell-sub">${escapeHtml(row.provider)}</div>`],
+        ['当前/密钥', (row) => `${statusPill(row.current ? '当前启用' : '备用')} ${statusPill(row.credentialsConfigured ? '可调用' : '缺密钥')}`],
+        ['参数', (row) => `<div class="cell-sub">${escapeHtml(row.detail || '-')}</div>`],
+        ['Prompt 预览', (row) => row.promptPreview ? `<pre class="prompt-preview">${escapeHtml(row.promptPreview)}</pre>` : '<div class="cell-sub">不使用 prompt</div>'],
+      ], '暂无 AI provider 配置')}
+      ${contextRows.length ? `
+        <div class="mini-section-title">AI 对话动态上下文</div>
+        ${tableHtml(contextRows, [
+          ['顺序', (row) => numberText(row.index)],
+          ['服务端追加内容', (row) => `<div>${escapeHtml(row.text)}</div>`],
+        ], '暂无动态上下文说明')}
+      ` : ''}
+    </div>
+  `;
+}
+
 function keywordTextareaValue(value) {
   return (Array.isArray(value) ? value : []).join('\n');
 }
@@ -6270,8 +6387,50 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isFinite(moderationSampleReviewRatePercent) || moderationSampleReviewRatePercent < 0 || moderationSampleReviewRatePercent > 100) {
     throw new Error('内容安全抽样复审率必须在 0-100 之间');
   }
+  const ttapiMjTimeout = Number($('cfgTtapiMjTimeout').value);
+  if (!Number.isFinite(ttapiMjTimeout) || ttapiMjTimeout < 60 || ttapiMjTimeout > 1800) {
+    throw new Error('TTAPI Midjourney timeout 必须在 60-1800 秒之间');
+  }
+  const deepSeekMaxTokens = Number($('cfgDeepSeekMaxTokens').value);
+  if (!Number.isFinite(deepSeekMaxTokens) || deepSeekMaxTokens < 80 || deepSeekMaxTokens > 2000) {
+    throw new Error('DeepSeek max_tokens 必须在 80-2000 之间');
+  }
+  const deepSeekTemperature = Number($('cfgDeepSeekTemperature').value);
+  if (!Number.isFinite(deepSeekTemperature) || deepSeekTemperature < 0 || deepSeekTemperature > 2) {
+    throw new Error('DeepSeek temperature 必须在 0-2 之间');
+  }
   const payload = {
     ai: {
+      avatar: {
+        gptImage2: {
+          model: $('cfgGptImage2Model').value,
+          officialFallback: $('cfgGptImage2OfficialFallback').checked,
+          promptTemplate: $('cfgGptImage2PromptTemplate').value,
+          resolution: $('cfgGptImage2Resolution').value,
+          size: $('cfgGptImage2Size').value,
+        },
+        provider: $('cfgAiAvatarProvider').value,
+        ttapiFlux: {
+          mode: $('cfgTtapiFluxMode').value,
+          promptTemplate: $('cfgTtapiFluxPromptTemplate').value,
+        },
+        ttapiMidjourney: {
+          autoUpsample: $('cfgTtapiMjAutoUpsample').checked,
+          mode: $('cfgTtapiMjMode').value,
+          promptTemplate: $('cfgTtapiMjPromptTemplate').value,
+          timeout: ttapiMjTimeout,
+        },
+      },
+      petChat: {
+        deepseek: {
+          baseSystemPrompt: $('cfgDeepSeekBaseSystemPrompt').value,
+          maxTokens: deepSeekMaxTokens,
+          model: $('cfgDeepSeekModel').value,
+          temperature: deepSeekTemperature,
+          thinking: $('cfgDeepSeekThinking').value,
+        },
+        provider: $('cfgPetChatProvider').value,
+      },
       petAvatarDailyLimit: Number($('cfgPetAvatarDailyLimit').value),
       petChatDailyLimit: Number($('cfgPetChatDailyLimit').value),
     },

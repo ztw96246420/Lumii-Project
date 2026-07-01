@@ -181,6 +181,8 @@
 - 查看 AI 用量成本：今日灵伴形象消耗、今日 AI 对话消耗、额度触顶用户、DeepSeek 请求和 token、平均回复字数、gpt-image2 累计成本和 credits。
 - 查看供应商监控：当前启用 provider、历史/备用 provider、请求数、成功失败、任务 ready/processing/stuck、平均耗时、成功率和 Top 错误码。
 - AI 灵伴页使用 ECharts 展示 provider ready / failed / stuck 对比。
+- 配置中心已支持 AI 外围系统配置：查看并配置灵伴形象 provider、gpt-image2 model/resolution/size/prompt、TTAPI 备用 provider prompt、宠物 AI 对话 provider、DeepSeek model/thinking/temperature/max_tokens/system prompt。
+- 后台 `GET /admin/config` 返回 AI runtime 解释数据：密钥状态、当前 provider、参数摘要、prompt 模板和示例渲染后的 prompt 预览。
 - 刷新上游任务状态。
 - 重试。
 - 后台标记失败。
@@ -192,6 +194,7 @@
 
 - 尚未沉淀供应商原始 request / response、逐次调用成本快照、完整 SLA 时间线。
 - 尚未开放“加入提示词样本集”、“供应商异常样本”或“直接应用结果图到宠物头像”等高权限动作。
+- AI prompt 当前支持单一线上版本，尚未做多版本实验、按人群灰度或自动回滚。
 
 ### 3.4.1 AI 对话
 
@@ -403,6 +406,24 @@
 
 - `ai.petAvatarDailyLimit`
 - `ai.petChatDailyLimit`
+- `ai.avatar.provider`
+- `ai.avatar.gptImage2.model`
+- `ai.avatar.gptImage2.resolution`
+- `ai.avatar.gptImage2.size`
+- `ai.avatar.gptImage2.officialFallback`
+- `ai.avatar.gptImage2.promptTemplate`
+- `ai.avatar.ttapiFlux.mode`
+- `ai.avatar.ttapiFlux.promptTemplate`
+- `ai.avatar.ttapiMidjourney.mode`
+- `ai.avatar.ttapiMidjourney.timeout`
+- `ai.avatar.ttapiMidjourney.autoUpsample`
+- `ai.avatar.ttapiMidjourney.promptTemplate`
+- `ai.petChat.provider`
+- `ai.petChat.deepseek.model`
+- `ai.petChat.deepseek.thinking`
+- `ai.petChat.deepseek.temperature`
+- `ai.petChat.deepseek.maxTokens`
+- `ai.petChat.deepseek.baseSystemPrompt`
 - `configApproval.requireApproval`
 - `configApproval.approvalExpiresHours`
 - `social.petCircleMaxPhotos`
@@ -452,6 +473,7 @@
 - `social.nearbyMomentTtlDays`：附近宠友圈列表文案和客户端兜底过滤；后端仍是公开可见性的权威过滤。
 - `ai.petAvatarDailyLimit`：AI 形象额度兜底展示。
 - `ai.petChatDailyLimit`：AI 对话额度兜底展示。
+- `ai.avatar.*` / `ai.petChat.*`：仅后台和服务端使用，控制外部 AI provider、模型参数和 prompt；移动端 `/app/config` 不暴露这些字段。
 - `features.aiAvatar`：隐藏/拦截 AI 灵伴形象上传、生成、重试入口；后端返回 `FEATURE_DISABLED`。
 - `features.petChat`：隐藏/拦截 AI 宠物对话入口和消息预加载；后端返回 `FEATURE_DISABLED`。
 - `features.petCircle`：隐藏/拦截宠友圈、发布小事、我的小事、评论/点赞/举报/封面入口；后端返回 `FEATURE_DISABLED`。
@@ -475,9 +497,10 @@
 - `POST /admin/config/approvals/{approvalId}/cancel` 可取消待审批配置申请。
 - 配置中心页面已展示每个配置项是否“前后端联动 / 后端强制 / 移动端联动 / 预留”，并列出后端证据、移动端证据、用户影响和运营备注。
 - 配置中心页面新增“配置发布治理”区，展示待发布草稿、高风险草稿、待审批配置、最近草稿时间和配置版本数。
-- 配置草稿和版本历史会记录变更摘要与风险项，当前高风险项覆盖维护模式、强制更新、核心功能开关、内容安全总开关、腾讯云机审开关和关键词规则。
+- 配置草稿和版本历史会记录变更摘要与风险项，当前高风险项覆盖维护模式、强制更新、核心功能开关、内容安全总开关、腾讯云机审开关、关键词规则和 AI provider 切换。
 - 高风险配置发布确认已接入：`PATCH /admin/config`、发布草稿、回滚版本命中 P0/P1 风险时，后端返回 `ADMIN_CONFIG_RISK_CONFIRM_REQUIRED`；后台展示风险摘要，要求输入 `确认发布高风险配置` 后才会重试发布。
 - 独立文档：[Operations_Backoffice_Config_Risk_Confirmation_2026-07-01.md](Operations_Backoffice_Config_Risk_Confirmation_2026-07-01.md)。
+- AI 外围系统配置已接入：配置中心新增“AI 外围系统配置”区，支持查看当前如何告知 AI、切换 provider、编辑 gpt-image2/TTAPI prompt 和 DeepSeek system prompt。独立文档：[Operations_Backoffice_AI_Ops_Config_2026-07-01.md](Operations_Backoffice_AI_Ops_Config_2026-07-01.md)。
 - 配置发布审批已接入：配置中心新增 `configApproval.requireApproval` 和 `configApproval.approvalExpiresHours`；开启强制审批后，直接发布、发布草稿和回滚版本会返回 `ADMIN_CONFIG_APPROVAL_REQUIRED`，必须先提交审批。
 - 审批通过时会校验当前配置是否仍等于提交审批时的基线配置；如果期间配置已变化，会返回 `ADMIN_CONFIG_APPROVAL_STALE`，要求重新提交审批。
 - 配置审批创建、审批通过、取消分别写入 `config.approval.create`、`config.approval.approve`、`config.approval.cancel`。

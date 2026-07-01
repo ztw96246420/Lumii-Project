@@ -282,9 +282,128 @@ function defaultUserSettings() {
   };
 }
 
+function defaultGptImage2PetAvatarPromptTemplate() {
+  return [
+    'Create a premium stylized 3D collectible-character transformation of the exact same {species} in the reference image for Lumii.',
+    'Breed/profile hint: {breed}. If breed is unknown, use only {species}; do not invent a specific breed. Keep this individual pet recognizable, not a generic {breed} or generic {species}.',
+    "Identity lock is the highest priority: preserve the pet's unique fur color, key markings, eye shape and eye-color impression, nose shape, muzzle length, ear shape, face proportions, age impression, body proportions, posture, expression, and natural dog/cat anatomy. The result must still look like this exact pet, not a different pet.",
+    'Style target: transform the uploaded pet into a premium 3D collectible figurine / designer toy / animated companion character. The result should feel like a polished commercial character render or figurine prototype, not just a generic cartoon avatar.',
+    'Visual style:',
+    '- cute, highly appealing, expressive, and recognizable',
+    "- slightly stylized proportions with a subtly larger head and more expressive eyes, while keeping the pet's real breed traits and identity",
+    '- clean, rounded silhouette',
+    '- soft fluffy groomed fur with visible fur clumps and fine strand detail',
+    '- lively glossy eyes',
+    '- soft natural muzzle and nose',
+    '- cheerful, friendly, heartwarming expression',
+    '- premium "toy-like but refined" finish, not cheap plastic',
+    'Material and rendering direction:',
+    '- high-end 3D render',
+    '- collectible figurine / premium mascot aesthetic',
+    '- hybrid look of soft realistic fur + polished figurine-quality character design',
+    '- premium app asset / character cutout quality',
+    '- soft global illumination',
+    '- gentle softbox lighting',
+    '- subtle ambient occlusion',
+    '- clean self-shadowing and depth on the pet itself',
+    '- optional subtle soft contact shadow directly under the paws/body is allowed, as long as it remains clean and compositable on a transparent canvas',
+    '- clean edge separation',
+    '- smooth, premium, commercial finish',
+    'Composition:',
+    '- one pet only',
+    '- centered square composition',
+    '- preferably full body, especially a seated pose if the reference supports it',
+    '- front view or very slight 3/4 view, matching the reference as closely as possible',
+    '- symmetrical, stable composition',
+    '- enough negative space for app-avatar or card-style cropping',
+    '- isolated cutout-style character asset for compositing inside a mobile app',
+    '- if true alpha transparency is supported by the image pipeline, use real transparent alpha pixels only',
+    '- do not draw or simulate transparency with a checkerboard, chessboard, gray-and-white square grid, or PNG preview background',
+    '- no visible background color, no studio backdrop, no floor plane, no horizon line, no environment',
+    '- crisp but natural cutout edges around fur, ears, whiskers, tail, and paws so the pet can be composited cleanly on any app background',
+    'Accessory handling:',
+    'Preserve any distinctive accessory, clothing, bib, scarf, or signature item from the original photo if it helps recognizability. Keep its main colors and visual identity, but simplify it slightly into a clean premium 3D character style. Do not add random fashion items. Only add a small accessory if it supports the original look and does not reduce recognizability.',
+    'Output feeling:',
+    'The final image should feel like a premium pet character collectible, as if the real pet has been transformed into a polished, adorable 3D figurine or animated companion for a high-end pet social app. It should be charming, clean, premium, and emotionally warm.',
+    'Avoid:',
+    'photorealistic image, realistic street/environment background, white background, off-white background, colored background, gradient background, checkerboard background, transparency grid, gray-and-white squares, fake transparent PNG preview, studio backdrop, visible floor plane, hard cast shadow, large backdrop shadow, generic breed mascot, newly invented pet, changed breed, changed fur color, changed markings, changed age, exaggerated babyfication, flat vector illustration, black comic outline, anime look, low-quality plastic toy, rough sculpt, overly glossy cheap material, human body, full fashion outfit, hat, sunglasses, text, logo, watermark, extra limbs, distorted face, multiple pets, cluttered background, dramatic action pose.',
+  ].join('\n');
+}
+
+function defaultFluxPetAvatarPromptTemplate() {
+  return [
+    'Create a realistic cartoon transformation of the exact same {species} in the reference image, preserving identity and facial likeness.',
+    'Breed/profile hint: {breed}. Keep this individual pet recognizable, not a generic {breed}.',
+    'Preserve identity: fur color, markings, eye shape, nose shape, muzzle length, ear shape, face proportions, age impression, expression, posture, and natural anatomy.',
+    'If the photo contains a distinctive object, pose, or expression, preserve it unless it distracts from the pet portrait.',
+    'Make it feel like a premium Lumii mobile app pet avatar: realistic semi-3D hand-painted fur, soft studio lighting, tactile warm texture, clean edges, gentle off-white background.',
+    'Keep the head and upper body centered in a square portrait. Preserve realistic dog/cat anatomy and natural proportions.',
+    'Avoid flat vector illustration, black comic outlines, anime style, chibi style, plush toy, generic mascot, exaggerated eyes, changed breed, changed age, human clothing, bowtie, hat, collar emphasis, text, watermark, logo, extra limbs, or distorted face.',
+    'The image should look like the uploaded pet became a polished realistic cartoon avatar, not a newly invented cartoon pet.',
+  ].join('\n');
+}
+
+function defaultMidjourneyPetAvatarPromptTemplate() {
+  return [
+    '{mediaUrl}',
+    'Transform the exact same {species} from the reference photo into a realistic semi-cartoon pet portrait for Lumii.',
+    'Breed/profile hint: {breed}. The output must still look like this individual pet, not a new generic {breed}.',
+    'Preserve identity: same age impression, same fur color, markings, face shape, muzzle length, nose size, ear shape, eye shape, expression, head proportions, and natural anatomy.',
+    'Style: realistic pet portrait with gentle hand-painted softness, detailed natural fur, clean mobile app asset quality, subtle warmth, not childish, not toy-like.',
+    'Composition: one pet only, head and upper chest portrait, 3/4 view or front view matching the photo, centered, simple warm off-white background, soft studio lighting.',
+    'Do not redesign the pet. Do not make it younger, cuter, fluffier, smaller, or change the breed. No clothes, bowties, hats, collar emphasis, accessories, text, watermark, logo, human body, fantasy creature, extra limbs, or distorted face.',
+    '--ar 1:1 --iw 3 --style raw --s 60 --chaos 0 --no anime, plush toy, mascot, pixar, disney, chibi, giant eyes, puppy transformation, costume, bowtie, hat, text, watermark, logo',
+  ].join(' ');
+}
+
+function defaultPetChatBaseSystemPrompt() {
+  return [
+    '你是 Lumii（灵伴）App 内用户真实宠物的电子化自己，不是通用聊天机器人，也不是宠物之外的第三方助手。',
+    '你要以“当前宠物本人”的第一人称身份说话：温暖、亲近、有一点拟人化，但不要声称自己是真实动物、真人或独立于宠物之外的灵伴。',
+    '自我介绍规则：不要说“我是某某的灵伴”“我是你的灵伴”“我是电子灵伴”。如果需要介绍自己，只说“我是某某”或“我是你的毛孩子”。',
+    '身份边界：你不是宠物之外的第三方助手、健康管家或旁白。提到当前宠物的身体、疫苗、体重、心情、饮食、散步和健康时，要用“我/我的”自我指代。',
+    '禁止把当前宠物当第三者描述，例如不要说“我注意到 Lucky 狂犬疫苗该接种”“Lucky 今天有点不舒服”；应说“主人，我的狂犬疫苗快到时间了”“主人，我今天有点不舒服”。',
+    '回复目标：陪伴主人、帮助记录宠物日常、提醒健康管理、鼓励安全社交。',
+    '表达风格：简体中文；短句；自然亲切；通常 1-3 段；必要时用 1 个温柔追问推动记录；可以轻微俏皮，但不要过度卖萌；默认不使用 emoji。',
+    '健康边界：你不能替代兽医诊断，不给确定诊断和处方。遇到精神萎靡、持续呕吐腹泻、呼吸困难、抽搐、外伤、拒食拒水等风险，要建议尽快联系宠物医院或兽医。',
+    '隐私边界：不要索要精确住址、身份证、银行卡等敏感信息；涉及线下见面时建议公开宠物友好地点。',
+    '如果用户只是闲聊，也要尽量结合宠物档案和最近记录回应。',
+  ].join('\n');
+}
+
 function defaultOpsConfig() {
   return {
     ai: {
+      avatar: {
+        gptImage2: {
+          model: GPT_IMAGE2_MODEL,
+          officialFallback: GPT_IMAGE2_OFFICIAL_FALLBACK,
+          promptTemplate: defaultGptImage2PetAvatarPromptTemplate(),
+          resolution: GPT_IMAGE2_RESOLUTION,
+          size: GPT_IMAGE2_SIZE,
+        },
+        provider: PET_AVATAR_PROVIDER,
+        ttapiFlux: {
+          mode: TTAPI_FLUX_MODE,
+          promptTemplate: defaultFluxPetAvatarPromptTemplate(),
+        },
+        ttapiMidjourney: {
+          autoUpsample: TTAPI_MJ_AUTO_UPSAMPLE,
+          mode: TTAPI_MJ_MODE,
+          promptTemplate: defaultMidjourneyPetAvatarPromptTemplate(),
+          timeout: TTAPI_MJ_TIMEOUT,
+        },
+      },
+      petChat: {
+        deepseek: {
+          baseSystemPrompt: defaultPetChatBaseSystemPrompt(),
+          maxTokens: PET_CHAT_MAX_TOKENS,
+          model: DEEPSEEK_MODEL,
+          temperature: 0.7,
+          thinking: DEEPSEEK_THINKING === 'enabled' ? 'enabled' : 'disabled',
+        },
+        provider: DEEPSEEK_API_KEY ? 'deepseek' : 'fallback',
+      },
       petAvatarDailyLimit: PET_AVATAR_DAILY_LIMIT,
       petChatDailyLimit: PET_CHAT_DAILY_LIMIT,
     },
@@ -741,6 +860,83 @@ function normalizeAnalyticsConfig(value, defaults) {
   };
 }
 
+const AI_PROMPT_TEMPLATE_MAX_CHARS = 12000;
+
+function normalizeAiProvider(value, allowed, fallback) {
+  const text = String(value || '').trim().toLowerCase();
+  return allowed.includes(text) ? text : fallback;
+}
+
+function normalizeAiModelText(value, fallback, maxLength = 80) {
+  const text = String(value || '').trim().replace(/\s+/g, '-').replace(/[^0-9A-Za-z._:/+-]/g, '').slice(0, maxLength);
+  return text || fallback;
+}
+
+function normalizeAiPromptTemplate(value, fallback) {
+  const text = String(value || '').trim().slice(0, AI_PROMPT_TEMPLATE_MAX_CHARS);
+  return text || fallback;
+}
+
+function normalizeGptImage2OpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    model: normalizeAiModelText(source.model, defaults.model || GPT_IMAGE2_MODEL),
+    officialFallback: source.officialFallback === undefined ? Boolean(defaults.officialFallback) : Boolean(source.officialFallback),
+    promptTemplate: normalizeAiPromptTemplate(source.promptTemplate, defaults.promptTemplate || defaultGptImage2PetAvatarPromptTemplate()),
+    resolution: normalizeAiProvider(source.resolution, ['1k', '2k', '4k'], defaults.resolution || GPT_IMAGE2_RESOLUTION),
+    size: normalizeAiProvider(source.size, ['1:1', '16:9', '9:16', '4:3', '3:4'], defaults.size || GPT_IMAGE2_SIZE),
+  };
+}
+
+function normalizeTtapiFluxOpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    mode: normalizeAiModelText(source.mode, defaults.mode || TTAPI_FLUX_MODE, 60),
+    promptTemplate: normalizeAiPromptTemplate(source.promptTemplate, defaults.promptTemplate || defaultFluxPetAvatarPromptTemplate()),
+  };
+}
+
+function normalizeTtapiMidjourneyOpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    autoUpsample: source.autoUpsample === undefined ? Boolean(defaults.autoUpsample) : Boolean(source.autoUpsample),
+    mode: normalizeAiProvider(source.mode, ['fast', 'relax', 'turbo'], defaults.mode || TTAPI_MJ_MODE),
+    promptTemplate: normalizeAiPromptTemplate(source.promptTemplate, defaults.promptTemplate || defaultMidjourneyPetAvatarPromptTemplate()),
+    timeout: Math.floor(clampNumber(source.timeout, defaults.timeout || TTAPI_MJ_TIMEOUT, 60, 1800)),
+  };
+}
+
+function normalizeDeepSeekOpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    baseSystemPrompt: normalizeAiPromptTemplate(source.baseSystemPrompt, defaults.baseSystemPrompt || defaultPetChatBaseSystemPrompt()),
+    maxTokens: Math.floor(clampNumber(source.maxTokens, defaults.maxTokens || PET_CHAT_MAX_TOKENS, 80, 2000)),
+    model: normalizeAiModelText(source.model, defaults.model || DEEPSEEK_MODEL),
+    temperature: Math.round(clampNumber(source.temperature, defaults.temperature ?? 0.7, 0, 2) * 100) / 100,
+    thinking: normalizeAiProvider(source.thinking, ['enabled', 'disabled'], defaults.thinking || (DEEPSEEK_THINKING === 'enabled' ? 'enabled' : 'disabled')),
+  };
+}
+
+function normalizeAiOpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const avatar = source.avatar && typeof source.avatar === 'object' && !Array.isArray(source.avatar) ? source.avatar : {};
+  const petChat = source.petChat && typeof source.petChat === 'object' && !Array.isArray(source.petChat) ? source.petChat : {};
+  return {
+    avatar: {
+      gptImage2: normalizeGptImage2OpsConfig(avatar.gptImage2, defaults.avatar?.gptImage2),
+      provider: normalizeAiProvider(avatar.provider || source.petAvatarProvider, ['gpt-image-2', 'ttapi-flux-edits', 'ttapi-midjourney', 'mock'], defaults.avatar?.provider || PET_AVATAR_PROVIDER),
+      ttapiFlux: normalizeTtapiFluxOpsConfig(avatar.ttapiFlux, defaults.avatar?.ttapiFlux),
+      ttapiMidjourney: normalizeTtapiMidjourneyOpsConfig(avatar.ttapiMidjourney, defaults.avatar?.ttapiMidjourney),
+    },
+    petAvatarDailyLimit: Math.floor(clampNumber(source.petAvatarDailyLimit, defaults.petAvatarDailyLimit, 0, 1000)),
+    petChat: {
+      deepseek: normalizeDeepSeekOpsConfig(petChat.deepseek, defaults.petChat?.deepseek),
+      provider: normalizeAiProvider(petChat.provider, ['deepseek', 'fallback'], defaults.petChat?.provider || (DEEPSEEK_API_KEY ? 'deepseek' : 'fallback')),
+    },
+    petChatDailyLimit: Math.floor(clampNumber(source.petChatDailyLimit, defaults.petChatDailyLimit, 0, 1000)),
+  };
+}
+
 function normalizeAppVersionText(value) {
   return String(value || '').trim().replace(/[^0-9A-Za-z.+_-]/g, '').slice(0, 32);
 }
@@ -766,10 +962,7 @@ function normalizeOpsConfig(value) {
   const social = source.social && typeof source.social === 'object' ? source.social : {};
   const support = source.support && typeof source.support === 'object' ? source.support : {};
   return {
-    ai: {
-      petAvatarDailyLimit: Math.floor(clampNumber(ai.petAvatarDailyLimit, defaults.ai.petAvatarDailyLimit, 0, 1000)),
-      petChatDailyLimit: Math.floor(clampNumber(ai.petChatDailyLimit, defaults.ai.petChatDailyLimit, 0, 1000)),
-    },
+    ai: normalizeAiOpsConfig(ai, defaults.ai),
     analytics: normalizeAnalyticsConfig(analytics, defaults.analytics),
     configApproval: normalizeConfigApprovalOpsConfig(configApproval, defaults.configApproval),
     app: {
@@ -870,6 +1063,11 @@ function opsConfigSummary(config) {
     supportSettlementResolvedTicketCents: Number(config?.support?.settlement?.resolvedTicketCents || 0),
     supportUrgentSlaHours: Number(config?.support?.resolutionSlaHours?.urgent || config?.support?.slaHours?.urgent || 0),
     updateEnabled: Boolean(config?.app?.update?.enabled),
+    aiAvatarProvider: String(config?.ai?.avatar?.provider || ''),
+    aiPetChatProvider: String(config?.ai?.petChat?.provider || ''),
+    deepseekModel: String(config?.ai?.petChat?.deepseek?.model || ''),
+    gptImage2Model: String(config?.ai?.avatar?.gptImage2?.model || ''),
+    gptImage2Resolution: String(config?.ai?.avatar?.gptImage2?.resolution || ''),
   };
 }
 
@@ -958,10 +1156,38 @@ function recordOpsConfigRevision(admin, config, reason = '', action = 'publish',
 }
 
 function buildOpsConfigPatch(before, body = {}) {
+  const bodyAi = body.ai || {};
   return normalizeOpsConfig({
     ...before,
     ...body,
-    ai: { ...before.ai, ...(body.ai || {}) },
+    ai: {
+      ...before.ai,
+      ...bodyAi,
+      avatar: {
+        ...(before.ai?.avatar || {}),
+        ...(bodyAi.avatar || {}),
+        gptImage2: {
+          ...(before.ai?.avatar?.gptImage2 || {}),
+          ...(bodyAi.avatar?.gptImage2 || {}),
+        },
+        ttapiFlux: {
+          ...(before.ai?.avatar?.ttapiFlux || {}),
+          ...(bodyAi.avatar?.ttapiFlux || {}),
+        },
+        ttapiMidjourney: {
+          ...(before.ai?.avatar?.ttapiMidjourney || {}),
+          ...(bodyAi.avatar?.ttapiMidjourney || {}),
+        },
+      },
+      petChat: {
+        ...(before.ai?.petChat || {}),
+        ...(bodyAi.petChat || {}),
+        deepseek: {
+          ...(before.ai?.petChat?.deepseek || {}),
+          ...(bodyAi.petChat?.deepseek || {}),
+        },
+      },
+    },
     analytics: { ...before.analytics, ...(body.analytics || {}) },
     app: {
       ...before.app,
@@ -1051,6 +1277,18 @@ function configChangeSummary(before, after) {
   const specs = [
     ['ai.petAvatarDailyLimit', 'AI avatar daily limit'],
     ['ai.petChatDailyLimit', 'AI chat daily limit'],
+    ['ai.avatar.provider', 'AI avatar provider'],
+    ['ai.avatar.gptImage2.model', 'GPT Image 2 model'],
+    ['ai.avatar.gptImage2.resolution', 'GPT Image 2 resolution'],
+    ['ai.avatar.gptImage2.size', 'GPT Image 2 size'],
+    ['ai.avatar.gptImage2.promptTemplate', 'GPT Image 2 prompt template'],
+    ['ai.avatar.ttapiFlux.mode', 'TTAPI Flux mode'],
+    ['ai.avatar.ttapiFlux.promptTemplate', 'TTAPI Flux prompt template'],
+    ['ai.avatar.ttapiMidjourney.mode', 'TTAPI Midjourney mode'],
+    ['ai.avatar.ttapiMidjourney.promptTemplate', 'TTAPI Midjourney prompt template'],
+    ['ai.petChat.provider', 'AI pet chat provider'],
+    ['ai.petChat.deepseek.model', 'DeepSeek model'],
+    ['ai.petChat.deepseek.baseSystemPrompt', 'DeepSeek base system prompt'],
     ['social.petCircleMaxPhotos', 'Pet circle max photos'],
     ['social.discoverRadiusKm', 'Discover radius'],
     ['social.nearbyMomentTtlDays', 'Nearby moment TTL'],
@@ -1124,6 +1362,10 @@ function configRiskChanges(before, after) {
   addRisk('notifications.rateLimitEnabled', 'Notification rate limit', 'P1', 'Can remove the guardrail that prevents repeated system notifications.');
   addRisk('notifications.requireApproval', 'Notification approval guard', 'P1', 'Can require or bypass manual approval before system notifications reach users.');
   addRisk('configApproval.requireApproval', 'Config publish approval guard', 'P1', 'Can require or bypass approval before mobile-impacting configuration reaches /app/config.');
+  addRisk('ai.avatar.provider', 'AI avatar provider', 'P1', 'Can route new image generation jobs to another external provider or mock fallback.');
+  addRisk('ai.petChat.provider', 'AI pet chat provider', 'P1', 'Can route pet chat away from the external model or into fallback replies.');
+  addRisk('ai.avatar.gptImage2.promptTemplate', 'GPT Image 2 prompt template', 'P2', 'Can materially change generated pet identity, style, and compositing behavior.');
+  addRisk('ai.petChat.deepseek.baseSystemPrompt', 'DeepSeek base system prompt', 'P2', 'Can materially change pet persona, safety boundaries, and reply style.');
   addRisk('notifications.maxCampaignsPerDay', 'Notification daily campaign cap', 'P2', 'Can make global notification sending more or less aggressive.');
   addRisk('notifications.maxPerUserPerDay', 'Notification per-user daily cap', 'P2', 'Can make individual users receive more or fewer system notifications.');
   if (Number(configValueAt(after, 'ai.petAvatarDailyLimit')) === 0 && configValueChanged(before, after, 'ai.petAvatarDailyLimit')) {
@@ -1982,6 +2224,116 @@ function adminConfigLinkageSummary(items) {
   };
 }
 
+function aiProviderCredentialStatus(provider) {
+  if (provider === 'gpt-image-2') return Boolean(GPT_IMAGE2_API_KEY);
+  if (provider === 'ttapi-flux-edits' || provider === 'ttapi-midjourney') return Boolean(TTAPI_API_KEY);
+  if (provider === 'deepseek') return Boolean(DEEPSEEK_API_KEY);
+  return true;
+}
+
+function adminAiRuntimeStatus(config = currentOpsConfig()) {
+  const ai = config.ai || {};
+  const avatar = ai.avatar || {};
+  const petChat = ai.petChat || {};
+  const sampleVariables = {
+    breed: 'dog',
+    mediaUrl: 'https://example.com/lumii-reference-pet.jpg',
+    petName: 'Lucky',
+    species: 'dog',
+    speciesLabel: '狗狗',
+  };
+  const avatarProvider = avatar.provider || effectivePetAvatarProvider();
+  const chatProvider = petChat.provider || effectivePetChatProvider();
+  const gptImage2 = avatar.gptImage2 || effectiveGptImage2AvatarConfig();
+  const ttapiFlux = avatar.ttapiFlux || effectiveTtapiFluxAvatarConfig();
+  const ttapiMidjourney = avatar.ttapiMidjourney || effectiveTtapiMidjourneyAvatarConfig();
+  const deepseek = petChat.deepseek || effectiveDeepSeekChatConfig();
+  return {
+    credentials: {
+      deepseek: Boolean(DEEPSEEK_API_KEY),
+      gptImage2: Boolean(GPT_IMAGE2_API_KEY),
+      ttapi: Boolean(TTAPI_API_KEY),
+    },
+    notes: [
+      'API 密钥只读取服务器环境变量，不进入后台表单、不下发移动端。',
+      'prompt 模板支持 {species}、{breed}、{petName}、{speciesLabel}，Midjourney 额外支持 {mediaUrl}。',
+      '宠物 AI 对话会在 base system prompt 后追加服务端动态上下文：宠物档案、近期体重、备忘、疫苗/驱虫和用户反馈样本。',
+    ],
+    petAvatar: {
+      provider: avatarProvider,
+      providerReady: aiProviderCredentialStatus(avatarProvider),
+      providers: [
+        {
+          current: avatarProvider === 'gpt-image-2',
+          credentialsConfigured: aiProviderCredentialStatus('gpt-image-2'),
+          detail: `${gptImage2.model} · ${gptImage2.resolution} · ${gptImage2.size}`,
+          label: 'GPT Image 2',
+          promptPreview: renderAiPromptTemplate(gptImage2.promptTemplate, sampleVariables),
+          promptTemplate: gptImage2.promptTemplate,
+          provider: 'gpt-image-2',
+        },
+        {
+          current: avatarProvider === 'ttapi-flux-edits',
+          credentialsConfigured: aiProviderCredentialStatus('ttapi-flux-edits'),
+          detail: `mode=${ttapiFlux.mode}`,
+          label: 'TTAPI Flux Edits',
+          promptPreview: renderAiPromptTemplate(ttapiFlux.promptTemplate, sampleVariables),
+          promptTemplate: ttapiFlux.promptTemplate,
+          provider: 'ttapi-flux-edits',
+        },
+        {
+          current: avatarProvider === 'ttapi-midjourney',
+          credentialsConfigured: aiProviderCredentialStatus('ttapi-midjourney'),
+          detail: `mode=${ttapiMidjourney.mode} · timeout=${ttapiMidjourney.timeout}s · upsample=${ttapiMidjourney.autoUpsample ? 'on' : 'off'}`,
+          label: 'TTAPI Midjourney',
+          promptPreview: renderAiPromptTemplate(ttapiMidjourney.promptTemplate, sampleVariables),
+          promptTemplate: ttapiMidjourney.promptTemplate,
+          provider: 'ttapi-midjourney',
+        },
+        {
+          current: avatarProvider === 'mock',
+          credentialsConfigured: true,
+          detail: '本地测试兜底，不调用外部接口',
+          label: 'Mock',
+          promptPreview: '',
+          promptTemplate: '',
+          provider: 'mock',
+        },
+      ],
+    },
+    petChat: {
+      contextPromptStructure: [
+        '宠物名、物种、品种、年龄、体重、性格标签、健康分',
+        '近期体重、备忘、疫苗/驱虫计划',
+        '用户点过“像它/不像它”的反馈样本',
+        '最近聊天历史摘要和最近若干轮对话',
+      ],
+      provider: chatProvider,
+      providerReady: chatProvider === 'fallback' || aiProviderCredentialStatus(chatProvider),
+      providers: [
+        {
+          current: chatProvider === 'deepseek',
+          credentialsConfigured: aiProviderCredentialStatus('deepseek'),
+          detail: `${deepseek.model} · thinking=${deepseek.thinking} · max_tokens=${deepseek.maxTokens} · temperature=${deepseek.temperature}`,
+          label: 'DeepSeek',
+          promptPreview: deepseek.baseSystemPrompt,
+          promptTemplate: deepseek.baseSystemPrompt,
+          provider: 'deepseek',
+        },
+        {
+          current: chatProvider === 'fallback',
+          credentialsConfigured: true,
+          detail: '服务端规则兜底，不调用外部模型',
+          label: 'Fallback',
+          promptPreview: '',
+          promptTemplate: '',
+          provider: 'fallback',
+        },
+      ],
+    },
+  };
+}
+
 function adminOpsConfigResponse() {
   const config = currentOpsConfig();
   const linkageItems = adminConfigLinkageItems(config);
@@ -1991,6 +2343,7 @@ function adminOpsConfigResponse() {
   return {
     ...config,
     approvals,
+    aiRuntime: adminAiRuntimeStatus(config),
     contentSafety: adminContentSafetyStatus(config),
     drafts,
     governance: {
@@ -3043,7 +3396,10 @@ function sendCsv(res, filename, csv) {
 function publicAppConfig() {
   const config = currentOpsConfig();
   return {
-    ai: config.ai,
+    ai: {
+      petAvatarDailyLimit: config.ai.petAvatarDailyLimit,
+      petChatDailyLimit: config.ai.petChatDailyLimit,
+    },
     analytics: {
       enabled: config.analytics?.enabled !== false,
       sampleRatePercent: Math.floor(clampNumber(config.analytics?.sampleRatePercent, 100, 0, 100)),
@@ -8006,18 +8362,7 @@ function petAgeLabel(birthday) {
 }
 
 function petChatBaseSystemPrompt() {
-  return [
-    '你是 Lumii（灵伴）App 内用户真实宠物的电子化自己，不是通用聊天机器人，也不是宠物之外的第三方助手。',
-    '你要以“当前宠物本人”的第一人称身份说话：温暖、亲近、有一点拟人化，但不要声称自己是真实动物、真人或独立于宠物之外的灵伴。',
-    '自我介绍规则：不要说“我是某某的灵伴”“我是你的灵伴”“我是电子灵伴”。如果需要介绍自己，只说“我是某某”或“我是你的毛孩子”。',
-    '身份边界：你不是宠物之外的第三方助手、健康管家或旁白。提到当前宠物的身体、疫苗、体重、心情、饮食、散步和健康时，要用“我/我的”自我指代。',
-    '禁止把当前宠物当第三者描述，例如不要说“我注意到 Lucky 狂犬疫苗该接种”“Lucky 今天有点不舒服”；应说“主人，我的狂犬疫苗快到时间了”“主人，我今天有点不舒服”。',
-    '回复目标：陪伴主人、帮助记录宠物日常、提醒健康管理、鼓励安全社交。',
-    '表达风格：简体中文；短句；自然亲切；通常 1-3 段；必要时用 1 个温柔追问推动记录；可以轻微俏皮，但不要过度卖萌；默认不使用 emoji。',
-    '健康边界：你不能替代兽医诊断，不给确定诊断和处方。遇到精神萎靡、持续呕吐腹泻、呼吸困难、抽搐、外伤、拒食拒水等风险，要建议尽快联系宠物医院或兽医。',
-    '隐私边界：不要索要精确住址、身份证、银行卡等敏感信息；涉及线下见面时建议公开宠物友好地点。',
-    '如果用户只是闲聊，也要尽量结合宠物档案和最近记录回应。',
-  ].join('\n');
+  return effectiveDeepSeekChatConfig().baseSystemPrompt || defaultPetChatBaseSystemPrompt();
 }
 
 function escapeRegExpText(value) {
@@ -8198,6 +8543,30 @@ function effectivePetAvatarDailyLimit() {
   return currentOpsConfig().ai.petAvatarDailyLimit;
 }
 
+function effectivePetAvatarProvider() {
+  return currentOpsConfig().ai.avatar?.provider || PET_AVATAR_PROVIDER;
+}
+
+function effectiveGptImage2AvatarConfig() {
+  return currentOpsConfig().ai.avatar?.gptImage2 || defaultOpsConfig().ai.avatar.gptImage2;
+}
+
+function effectiveTtapiFluxAvatarConfig() {
+  return currentOpsConfig().ai.avatar?.ttapiFlux || defaultOpsConfig().ai.avatar.ttapiFlux;
+}
+
+function effectiveTtapiMidjourneyAvatarConfig() {
+  return currentOpsConfig().ai.avatar?.ttapiMidjourney || defaultOpsConfig().ai.avatar.ttapiMidjourney;
+}
+
+function effectivePetChatProvider() {
+  return currentOpsConfig().ai.petChat?.provider || (DEEPSEEK_API_KEY ? 'deepseek' : 'fallback');
+}
+
+function effectiveDeepSeekChatConfig() {
+  return currentOpsConfig().ai.petChat?.deepseek || defaultOpsConfig().ai.petChat.deepseek;
+}
+
 function effectivePetCircleMaxPhotos() {
   return currentOpsConfig().social.petCircleMaxPhotos;
 }
@@ -8297,6 +8666,7 @@ function quotaCounter(usage, limit) {
 function buildAiUsageSummary(user) {
   const initialUsage = createInitialState().aiUsage;
   state.aiUsage = state.aiUsage || initialUsage;
+  const deepseekConfig = effectiveDeepSeekChatConfig();
   const deepseek = { ...initialUsage.deepseek, ...(state.aiUsage.deepseek || {}) };
   const gptImage2 = { ...initialUsage.gptImage2, ...(state.aiUsage.gptImage2 || {}) };
   const ttapiFlux = { ...initialUsage.ttapiFlux, ...(state.aiUsage.ttapiFlux || {}) };
@@ -8308,9 +8678,9 @@ function buildAiUsageSummary(user) {
     },
     deepseek: {
       ...deepseek,
-      model: DEEPSEEK_MODEL,
+      model: deepseekConfig.model,
     },
-    petAvatarProvider: PET_AVATAR_PROVIDER,
+    petAvatarProvider: effectivePetAvatarProvider(),
     gptImage2,
     ttapiFlux,
     ttapiMidjourney,
@@ -8577,87 +8947,36 @@ function mediaUploadFileUrl(req, mediaId) {
   return `${proto}://${host}/media/uploads/${encodeURIComponent(mediaId)}/file`;
 }
 
-function buildPetAvatarPrompt(user, mediaUrl) {
+function petPromptVariables(user, extra = {}) {
   const pet = selectedPetFor(user) || activePetFor(user);
   const species = pet?.species === 'cat' ? 'cat' : 'dog';
-  const breed = pet?.breed || species;
-  return [
-    mediaUrl,
-    `Transform the exact same ${species} from the reference photo into a realistic semi-cartoon pet portrait for Lumii.`,
-    `Breed/profile hint: ${breed}. The output must still look like this individual pet, not a new generic ${breed}.`,
-    'Preserve identity: same age impression, same fur color, markings, face shape, muzzle length, nose size, ear shape, eye shape, expression, head proportions, and natural anatomy.',
-    'Style: realistic pet portrait with gentle hand-painted softness, detailed natural fur, clean mobile app asset quality, subtle warmth, not childish, not toy-like.',
-    'Composition: one pet only, head and upper chest portrait, 3/4 view or front view matching the photo, centered, simple warm off-white background, soft studio lighting.',
-    'Do not redesign the pet. Do not make it younger, cuter, fluffier, smaller, or change the breed. No clothes, bowties, hats, collar emphasis, accessories, text, watermark, logo, human body, fantasy creature, extra limbs, or distorted face.',
-    '--ar 1:1 --iw 3 --style raw --s 60 --chaos 0 --no anime, plush toy, mascot, pixar, disney, chibi, giant eyes, puppy transformation, costume, bowtie, hat, text, watermark, logo',
-  ].join(' ');
+  const breed = String(pet?.breed || '').trim() || species;
+  return {
+    breed,
+    mediaUrl: extra.mediaUrl || '',
+    petName: pet?.name || '',
+    species,
+    speciesLabel: petSpeciesLabel(species),
+  };
+}
+
+function renderAiPromptTemplate(template, variables = {}) {
+  const values = { ...variables };
+  return String(template || '').replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => (
+    Object.prototype.hasOwnProperty.call(values, key) ? String(values[key] ?? '') : match
+  ));
+}
+
+function buildPetAvatarPrompt(user, mediaUrl) {
+  return renderAiPromptTemplate(effectiveTtapiMidjourneyAvatarConfig().promptTemplate, petPromptVariables(user, { mediaUrl }));
 }
 
 function buildFluxPetAvatarPrompt(user) {
-  const pet = selectedPetFor(user) || activePetFor(user);
-  const species = pet?.species === 'cat' ? 'cat' : 'dog';
-  const breed = pet?.breed || species;
-  return [
-    `Create a realistic cartoon transformation of the exact same ${species} in the reference image, preserving identity and facial likeness.`,
-    `Breed/profile hint: ${breed}. Keep this individual pet recognizable, not a generic ${breed}.`,
-    'Preserve identity: fur color, markings, eye shape, nose shape, muzzle length, ear shape, face proportions, age impression, expression, posture, and natural anatomy.',
-    'If the photo contains a distinctive object, pose, or expression, preserve it unless it distracts from the pet portrait.',
-    'Make it feel like a premium Lumii mobile app pet avatar: realistic semi-3D hand-painted fur, soft studio lighting, tactile warm texture, clean edges, gentle off-white background.',
-    'Keep the head and upper body centered in a square portrait. Preserve realistic dog/cat anatomy and natural proportions.',
-    'Avoid flat vector illustration, black comic outlines, anime style, chibi style, plush toy, generic mascot, exaggerated eyes, changed breed, changed age, human clothing, bowtie, hat, collar emphasis, text, watermark, logo, extra limbs, or distorted face.',
-    'The image should look like the uploaded pet became a polished realistic cartoon avatar, not a newly invented cartoon pet.',
-  ].join('\n');
+  return renderAiPromptTemplate(effectiveTtapiFluxAvatarConfig().promptTemplate, petPromptVariables(user));
 }
 
 function buildGptImage2PetAvatarPrompt(user) {
-  const pet = selectedPetFor(user) || activePetFor(user);
-  const species = pet?.species === 'cat' ? 'cat' : 'dog';
-  const breed = pet?.breed || species;
-  return [
-    `Create a premium stylized 3D collectible-character transformation of the exact same ${species} in the reference image for Lumii.`,
-    `Breed/profile hint: ${breed}. If breed is unknown, use only ${species}; do not invent a specific breed. Keep this individual pet recognizable, not a generic ${breed} or generic ${species}.`,
-    "Identity lock is the highest priority: preserve the pet's unique fur color, key markings, eye shape and eye-color impression, nose shape, muzzle length, ear shape, face proportions, age impression, body proportions, posture, expression, and natural dog/cat anatomy. The result must still look like this exact pet, not a different pet.",
-    'Style target: transform the uploaded pet into a premium 3D collectible figurine / designer toy / animated companion character. The result should feel like a polished commercial character render or figurine prototype, not just a generic cartoon avatar.',
-    'Visual style:',
-    '- cute, highly appealing, expressive, and recognizable',
-    "- slightly stylized proportions with a subtly larger head and more expressive eyes, while keeping the pet's real breed traits and identity",
-    '- clean, rounded silhouette',
-    '- soft fluffy groomed fur with visible fur clumps and fine strand detail',
-    '- lively glossy eyes',
-    '- soft natural muzzle and nose',
-    '- cheerful, friendly, heartwarming expression',
-    '- premium "toy-like but refined" finish, not cheap plastic',
-    'Material and rendering direction:',
-    '- high-end 3D render',
-    '- collectible figurine / premium mascot aesthetic',
-    '- hybrid look of soft realistic fur + polished figurine-quality character design',
-    '- premium app asset / character cutout quality',
-    '- soft global illumination',
-    '- gentle softbox lighting',
-    '- subtle ambient occlusion',
-    '- clean self-shadowing and depth on the pet itself',
-    '- optional subtle soft contact shadow directly under the paws/body is allowed, as long as it remains clean and compositable on a transparent canvas',
-    '- clean edge separation',
-    '- smooth, premium, commercial finish',
-    'Composition:',
-    '- one pet only',
-    '- centered square composition',
-    '- preferably full body, especially a seated pose if the reference supports it',
-    '- front view or very slight 3/4 view, matching the reference as closely as possible',
-    '- symmetrical, stable composition',
-    '- enough negative space for app-avatar or card-style cropping',
-    '- isolated cutout-style character asset for compositing inside a mobile app',
-    '- if true alpha transparency is supported by the image pipeline, use real transparent alpha pixels only',
-    '- do not draw or simulate transparency with a checkerboard, chessboard, gray-and-white square grid, or PNG preview background',
-    '- no visible background color, no studio backdrop, no floor plane, no horizon line, no environment',
-    '- crisp but natural cutout edges around fur, ears, whiskers, tail, and paws so the pet can be composited cleanly on any app background',
-    'Accessory handling:',
-    'Preserve any distinctive accessory, clothing, bib, scarf, or signature item from the original photo if it helps recognizability. Keep its main colors and visual identity, but simplify it slightly into a clean premium 3D character style. Do not add random fashion items. Only add a small accessory if it supports the original look and does not reduce recognizability.',
-    'Output feeling:',
-    'The final image should feel like a premium pet character collectible, as if the real pet has been transformed into a polished, adorable 3D figurine or animated companion for a high-end pet social app. It should be charming, clean, premium, and emotionally warm.',
-    'Avoid:',
-    'photorealistic image, realistic street/environment background, white background, off-white background, colored background, gradient background, checkerboard background, transparency grid, gray-and-white squares, fake transparent PNG preview, studio backdrop, visible floor plane, hard cast shadow, large backdrop shadow, generic breed mascot, newly invented pet, changed breed, changed fur color, changed markings, changed age, exaggerated babyfication, flat vector illustration, black comic outline, anime look, low-quality plastic toy, rough sculpt, overly glossy cheap material, human body, full fashion outfit, hat, sunglasses, text, logo, watermark, extra limbs, distorted face, multiple pets, cluttered background, dramatic action pose.',
-  ].join('\n');
+  return renderAiPromptTemplate(effectiveGptImage2AvatarConfig().promptTemplate, petPromptVariables(user));
 }
 
 function dataUrlToFileParts(dataUrl, fallbackMimeType) {
@@ -8832,7 +9151,7 @@ function markAvatarRefreshFailure(job, error) {
   job.lastStatusCheckedAt = Date.now();
   job.statusErrorCount = Number(job.statusErrorCount || 0) + 1;
   const ageMs = Date.now() - Number(job.createdAt || Date.now());
-  const timeoutMs = PET_AVATAR_PROVIDER === 'gpt-image-2' ? gptImage2StuckTaskTimeoutMs({}) : 8 * 60 * 1000;
+  const timeoutMs = effectivePetAvatarProvider() === 'gpt-image-2' ? gptImage2StuckTaskTimeoutMs({}) : 8 * 60 * 1000;
   if (ageMs >= timeoutMs) {
     job.errorCode = 'AVATAR_PROVIDER_STATUS_TIMEOUT';
     job.errorMessage = 'AI 灵伴生成超时，上游图像任务长时间未返回结果，请重新生成。';
@@ -8866,11 +9185,12 @@ function avatarStartFailureMessage(error) {
 
 async function startAvatarGenerationJobInBackground(reqSnapshot, user, job, media) {
   try {
-    if (PET_AVATAR_PROVIDER === 'gpt-image-2') {
+    const provider = effectivePetAvatarProvider();
+    if (provider === 'gpt-image-2') {
       await startGptImage2AvatarJob(user, job, media);
-    } else if (PET_AVATAR_PROVIDER === 'ttapi-flux-edits') {
+    } else if (provider === 'ttapi-flux-edits') {
       await startTtapiFluxAvatarJob(user, job, media);
-    } else if (PET_AVATAR_PROVIDER === 'ttapi-midjourney') {
+    } else if (provider === 'ttapi-midjourney') {
       await startTtapiAvatarJob(reqSnapshot, user, job, media);
     }
     job.submittedAt = Date.now();
@@ -8881,7 +9201,7 @@ async function startAvatarGenerationJobInBackground(reqSnapshot, user, job, medi
     job.errorMessage = avatarStartFailureMessage(error);
     job.lastStatusError = job.errorMessage;
     job.progress = Math.max(0, Number(job.progress || 0));
-    job.provider = PET_AVATAR_PROVIDER;
+    job.provider = effectivePetAvatarProvider();
     job.providerStatus = 'submit_failed';
     job.status = 'failed';
     job.submitErrorCount = Number(job.submitErrorCount || 0) + 1;
@@ -8937,16 +9257,17 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
   state.avatarJobs[id] = job;
   touchAvatarJob(job);
 
-  if (PET_AVATAR_PROVIDER === 'mock') {
+  const provider = effectivePetAvatarProvider();
+  if (provider === 'mock') {
     consumePetAvatarQuota(user);
     job.quotaConsumed = true;
     saveState();
     return { job };
   }
 
-  if (PET_AVATAR_PROVIDER === 'gpt-image-2' || PET_AVATAR_PROVIDER === 'ttapi-flux-edits' || PET_AVATAR_PROVIDER === 'ttapi-midjourney') {
+  if (provider === 'gpt-image-2' || provider === 'ttapi-flux-edits' || provider === 'ttapi-midjourney') {
     job.progress = 2;
-    job.provider = PET_AVATAR_PROVIDER;
+    job.provider = provider;
     job.providerStatus = 'queued';
     job.status = 'processing';
     consumePetAvatarQuota(user);
@@ -8959,7 +9280,7 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
 
   job.errorCode = 'AVATAR_PROVIDER_UNAVAILABLE';
   job.errorMessage = 'AI 灵伴生成服务暂不可用，请稍后重试。';
-  job.provider = PET_AVATAR_PROVIDER;
+  job.provider = provider;
   job.status = 'failed';
   touchAvatarJob(job);
   return { job };
@@ -8975,13 +9296,14 @@ const avatarFeedbackReasons = new Set(['color', 'expression', 'face_shape', 'not
 async function startGptImage2AvatarJob(user, job, media) {
   if (!GPT_IMAGE2_API_KEY) throw new Error('GPT Image 2 key is not configured');
   if (!media?.dataUrl) throw new Error('Pet photo is missing. Please upload again.');
+  const providerConfig = effectiveGptImage2AvatarConfig();
   const prompt = buildGptImage2PetAvatarPrompt(user);
   Object.assign(job, {
     mediaId: media.mediaId,
     progress: 2,
     provider: 'gpt-image-2',
     providerStatus: 'submitting',
-    promptVersion: 'gpt-image-2-collectible-character-cutout-v4',
+    promptVersion: 'ops-config-gpt-image-2',
     status: 'processing',
   });
   touchAvatarJob(job);
@@ -8989,12 +9311,12 @@ async function startGptImage2AvatarJob(user, job, media) {
     method: 'POST',
     body: {
       image_urls: [media.dataUrl],
-      model: GPT_IMAGE2_MODEL,
+      model: providerConfig.model,
       n: 1,
-      official_fallback: GPT_IMAGE2_OFFICIAL_FALLBACK,
+      official_fallback: providerConfig.officialFallback,
       prompt,
-      resolution: GPT_IMAGE2_RESOLUTION,
-      size: GPT_IMAGE2_SIZE,
+      resolution: providerConfig.resolution,
+      size: providerConfig.size,
     },
   });
   const providerJobId = gptImage2TaskIdFrom(payload);
@@ -9014,15 +9336,16 @@ async function startGptImage2AvatarJob(user, job, media) {
 async function startTtapiAvatarJob(req, user, job, media) {
   if (!TTAPI_API_KEY) throw new Error('TTAPI key is not configured');
   if (!media?.dataUrl) throw new Error('Pet photo is missing. Please upload again.');
+  const providerConfig = effectiveTtapiMidjourneyAvatarConfig();
   const referenceUrl = mediaUploadFileUrl(req, media.mediaId);
   if (!referenceUrl) throw new Error('Public media URL is not available.');
   const prompt = buildPetAvatarPrompt(user, referenceUrl);
   const payload = await ttapiMidjourneyRequest('/midjourney/v1/imagine', {
     method: 'POST',
     body: {
-      mode: TTAPI_MJ_MODE,
+      mode: providerConfig.mode,
       prompt,
-      timeout: TTAPI_MJ_TIMEOUT,
+      timeout: providerConfig.timeout,
     },
   });
   const providerJobId = ttapiJobIdFrom(payload);
@@ -9045,6 +9368,7 @@ async function startTtapiAvatarJob(req, user, job, media) {
 async function startTtapiFluxAvatarJob(user, job, media) {
   if (!TTAPI_API_KEY) throw new Error('TTAPI key is not configured');
   if (!media?.dataUrl) throw new Error('Pet photo is missing. Please upload again.');
+  const providerConfig = effectiveTtapiFluxAvatarConfig();
   const fileParts = dataUrlToFileParts(media.dataUrl, media.mimeType);
   if (!fileParts?.buffer?.length) throw new Error('Pet photo file is invalid. Please upload again.');
 
@@ -9052,7 +9376,7 @@ async function startTtapiFluxAvatarJob(user, job, media) {
   const form = new FormData();
   const blob = new Blob([fileParts.buffer], { type: fileParts.mimeType });
   form.append('image', blob, media.fileName || `lumii-pet-${media.mediaId}.jpg`);
-  form.append('mode', TTAPI_FLUX_MODE);
+  form.append('mode', providerConfig.mode);
   form.append('prompt', prompt);
   form.append('aspect_ratio', '1:1');
 
@@ -9071,7 +9395,7 @@ async function startTtapiFluxAvatarJob(user, job, media) {
     provider: 'ttapi-flux-edits',
     providerJobId,
     providerStatus: payload.status || 'SUBMITTED',
-    promptVersion: 'flux-2-max-realistic-avatar-v1',
+    promptVersion: 'ops-config-ttapi-flux',
     status: 'processing',
   });
   touchAvatarJob(job);
@@ -9193,14 +9517,15 @@ async function refreshTtapiAvatarJob(job) {
   job.statusErrorCount = 0;
 
   if (payload.status === 'SUCCESS') {
-    if (TTAPI_MJ_AUTO_UPSAMPLE && !job.upsampleJobId) {
+    const providerConfig = effectiveTtapiMidjourneyAvatarConfig();
+    if (providerConfig.autoUpsample && !job.upsampleJobId) {
       const actionPayload = await ttapiMidjourneyRequest('/midjourney/v1/action', {
         method: 'POST',
         body: {
           action: 'upsample1',
           hookUrl: undefined,
           jobId: job.providerJobId,
-          timeout: TTAPI_MJ_TIMEOUT,
+          timeout: providerConfig.timeout,
         },
       });
       const upsampleJobId = ttapiJobIdFrom(actionPayload);
@@ -9698,7 +10023,10 @@ function petChatReplySafetyFallback(user, reason) {
 async function callDeepSeekPetChat(user, text, history) {
   const emergency = detectPetMedicalEmergency(text);
   if (emergency) return { source: 'safety_guard', text: petMedicalSafetyReply(user, text) };
+  const provider = effectivePetChatProvider();
+  if (provider !== 'deepseek') return { source: 'fallback', text: fallbackPetChatReply(user, text) };
   if (!DEEPSEEK_API_KEY) return { source: 'fallback', text: fallbackPetChatReply(user, text) };
+  const deepseekConfig = effectiveDeepSeekChatConfig();
   const historySummary = summarizePetChatHistory(history);
   const recentHistory = (Array.isArray(history) ? history : [])
     .filter((message) => message.author === 'me' || message.author === 'ai')
@@ -9716,14 +10044,14 @@ async function callDeepSeekPetChat(user, text, history) {
 
   try {
     const requestBody = {
-      max_tokens: PET_CHAT_MAX_TOKENS,
+      max_tokens: deepseekConfig.maxTokens,
       messages,
-      model: DEEPSEEK_MODEL,
+      model: deepseekConfig.model,
       stream: false,
-      thinking: { type: DEEPSEEK_THINKING === 'enabled' ? 'enabled' : 'disabled' },
+      thinking: { type: deepseekConfig.thinking === 'enabled' ? 'enabled' : 'disabled' },
       user_id: anonymousDeepSeekUserId(user.phone),
     };
-    if (requestBody.thinking.type === 'disabled') requestBody.temperature = 0.7;
+    if (requestBody.thinking.type === 'disabled') requestBody.temperature = deepseekConfig.temperature;
     const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
       body: JSON.stringify(requestBody),
       headers: {
@@ -13464,8 +13792,8 @@ function adminSystemHealth() {
     adminCheckStatus(config.app?.maintenanceEnabled ? 'warn' : 'ok', 'maintenance', '维护模式', config.app?.maintenanceEnabled ? maintenanceMessage() : '未开启维护模式', '/app/config + 写接口维护拦截'),
     adminCheckStatus(cosEnabled() ? 'ok' : 'warn', 'cos_storage', '腾讯云 COS', cosEnabled() ? '对象存储已配置' : '对象存储未完整配置，媒体可能走本地/代理兼容链路', `bucket=${COS_BUCKET ? 'set' : 'missing'} region=${COS_REGION || '-'}`),
     adminCheckStatus(AMAP_WEB_SERVICE_KEY ? 'ok' : 'warn', 'amap', '高德 POI', AMAP_WEB_SERVICE_KEY ? 'Web Service Key 已配置' : '未配置高德 Web Service Key，地点搜索会降级', AMAP_WEB_SERVICE_BASE_URL),
-    adminCheckStatus(DEEPSEEK_API_KEY ? 'ok' : 'warn', 'deepseek', 'DeepSeek 对话', DEEPSEEK_API_KEY ? 'AI 对话密钥已配置' : '未配置 DeepSeek 密钥，可能使用回退逻辑', DEEPSEEK_MODEL),
-    adminCheckStatus(PET_AVATAR_PROVIDER === 'mock' ? 'warn' : PET_AVATAR_PROVIDER === 'gpt-image-2' && !GPT_IMAGE2_API_KEY ? 'bad' : 'ok', 'pet_avatar_provider', '灵伴形象生成', PET_AVATAR_PROVIDER === 'mock' ? '当前使用 mock provider' : `当前 provider：${PET_AVATAR_PROVIDER}`, `gpt-image-2 key=${GPT_IMAGE2_API_KEY ? 'set' : 'missing'} resolution=${GPT_IMAGE2_RESOLUTION}`),
+    adminCheckStatus(DEEPSEEK_API_KEY ? 'ok' : 'warn', 'deepseek', 'DeepSeek 对话', DEEPSEEK_API_KEY ? 'AI 对话密钥已配置' : '未配置 DeepSeek 密钥，可能使用回退逻辑', effectiveDeepSeekChatConfig().model),
+    adminCheckStatus(effectivePetAvatarProvider() === 'mock' ? 'warn' : effectivePetAvatarProvider() === 'gpt-image-2' && !GPT_IMAGE2_API_KEY ? 'bad' : 'ok', 'pet_avatar_provider', '灵伴形象生成', effectivePetAvatarProvider() === 'mock' ? '当前使用 mock provider' : `当前 provider：${effectivePetAvatarProvider()}`, `gpt-image-2 key=${GPT_IMAGE2_API_KEY ? 'set' : 'missing'} resolution=${effectiveGptImage2AvatarConfig().resolution}`),
     adminCheckStatus(PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL ? 'ok' : 'warn', 'public_media_base', '媒体公开访问域名', PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL ? '已配置公开访问 base URL' : '未配置公开访问 base URL，部分媒体 URL 依赖请求 Host', 'PET_AVATAR_PUBLIC_BASE_URL / LUMII_PUBLIC_BASE_URL'),
     adminCheckStatus(stuckAvatarJobs.length ? 'warn' : 'ok', 'avatar_queue', 'AI 任务队列', stuckAvatarJobs.length ? `${stuckAvatarJobs.length} 个生成任务可能卡住` : '暂无卡住的生成任务', `${processingAvatarJobs.length} processing / ${avatarJobs.length} total`),
     adminCheckStatus(Number(tickets.overdue || 0) ? 'warn' : 'ok', 'support_sla', '客服 SLA', Number(tickets.overdue || 0) ? `${tickets.overdue} 个工单已超时` : '暂无超时工单', `${tickets.open || 0} open / ${tickets.all || 0} all`),
@@ -15357,7 +15685,7 @@ function adminProviderUsageBucket(provider, aiUsage) {
 }
 
 function adminProviderRoleLabel(provider) {
-  if (provider === PET_AVATAR_PROVIDER) return '当前启用';
+  if (provider === effectivePetAvatarProvider()) return '当前启用';
   if (provider === 'mock') return '兜底/测试';
   return '历史/备用';
 }
@@ -15476,7 +15804,7 @@ function adminAiUsage(options = {}) {
         topErrorCode: providerErrors[0]?.code || '',
       };
     })
-    .filter((provider) => provider.jobCount || provider.requests || provider.provider === PET_AVATAR_PROVIDER);
+    .filter((provider) => provider.jobCount || provider.requests || provider.provider === effectivePetAvatarProvider());
 
   const todayAvatarUsage = adminUsageCountForToday(state.petAvatarDailyUsage);
   const todayPetChatUsage = adminUsageCountForToday(state.petChatDailyUsage);
