@@ -9531,6 +9531,108 @@ function moderateReportedConversationMessage(admin, report, action, reason, now 
   return { message: found.record.message };
 }
 
+function adminConversationMessageContext(admin, reportId, body = {}) {
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '查看私信上下文必须填写原因', statusCode: 400 };
+  const report = ensureSocialReports().find((item) => item.id === reportId);
+  if (!report) return { error: '举报不存在', statusCode: 404 };
+  if (report.targetType !== 'message') return { error: '只有私信消息举报支持查看上下文', statusCode: 400 };
+  const found = findConversationMessageReportTarget(report);
+  const reporter = state.users?.[found.reporterPhone];
+  const owner = state.users?.[found.ownerPhone];
+  const target = found.record?.message;
+  const contextSource = target ? 'conversation' : 'snapshot';
+  let messages = [];
+  if (target && found.record?.list) {
+    const start = Math.max(0, found.record.index - 4);
+    const end = Math.min(found.record.list.length, found.record.index + 5);
+    messages = found.record.list.slice(start, end).map((message) => {
+      const authorRole = message.author === 'system' ? 'system' : message.author === 'me' ? 'reporter' : 'reported_user';
+      const authorPhone = authorRole === 'reporter' ? found.reporterPhone : authorRole === 'reported_user' ? found.ownerPhone : '';
+      const authorUser = authorPhone ? state.users?.[authorPhone] : null;
+      return {
+        adminHiddenAt: message.adminHiddenAt || '',
+        author: message.author,
+        authorLabel: authorRole === 'system' ? '系统' : authorRole === 'reporter' ? '举报人' : '被举报人',
+        authorName: authorRole === 'system' ? '系统' : authorUser?.ownerName || (authorPhone ? `用户${authorPhone.slice(-4)}` : '-'),
+        authorPhone,
+        deletedAt: message.deletedAt || '',
+        id: message.id,
+        isTarget: message.id === report.targetId || (report.threadMessageId && message.threadMessageId === report.threadMessageId),
+        status: conversationMessageModerationStatus(message),
+        text: message.text || '',
+        threadMessageId: message.threadMessageId || '',
+        time: message.time || message.createdAt || '',
+      };
+    });
+  } else {
+    const snapshot = socialReportEvidenceSnapshot(report);
+    messages = [{
+      author: 'other',
+      authorLabel: '被举报人',
+      authorName: owner?.ownerName || `用户${String(report.ownerPhone || '').slice(-4)}`,
+      authorPhone: report.ownerPhone || '',
+      id: report.targetId,
+      isTarget: true,
+      status: snapshot.targetStatus || 'snapshot',
+      text: snapshot.contentText || report.messageText || '',
+      threadMessageId: report.threadMessageId || '',
+      time: report.messageTime || report.createdAt || '',
+    }];
+  }
+  const context = {
+    contextSource,
+    conversationId: found.conversationId || report.conversationId || '',
+    messageCount: messages.length,
+    ownerName: owner?.ownerName || `用户${String(found.ownerPhone || report.ownerPhone || '').slice(-4)}`,
+    ownerPhone: found.ownerPhone || report.ownerPhone || '',
+    reason,
+    reportId: report.id,
+    reporterName: reporter?.ownerName || `用户${String(found.reporterPhone || report.phone || '').slice(-4)}`,
+    reporterPhone: found.reporterPhone || report.phone || '',
+    targetMessageId: report.targetId,
+    viewedAt: new Date().toISOString(),
+    messages,
+  };
+  writeAdminAudit(admin, 'social.report.message_context.view', 'conversation_message', report.targetId, null, {
+    contextSource,
+    conversationId: context.conversationId,
+    messageCount: messages.length,
+    ownerPhone: context.ownerPhone,
+    reason,
+    reportId: report.id,
+    reporterPhone: context.reporterPhone,
+  }, reason);
+  return { context };
+}
+
+function flagConversationReportHarassment(admin, reportId, body = {}) {
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '标记骚扰会话必须填写原因', statusCode: 400 };
+  const report = ensureSocialReports().find((item) => item.id === reportId);
+  if (!report) return { error: '举报不存在', statusCode: 404 };
+  if (report.targetType !== 'message') return { error: '只有私信消息举报支持标记骚扰会话', statusCode: 400 };
+  const owner = state.users?.[report.ownerPhone];
+  if (!owner) return { error: '被举报用户不存在', statusCode: 404 };
+  const before = {
+    adminRiskTags: normalizeAdminRiskTags(owner.adminRiskTags),
+    harassmentFlaggedAt: report.harassmentFlaggedAt || '',
+    harassmentFlaggedReason: report.harassmentFlaggedReason || '',
+  };
+  owner.adminRiskTags = normalizeAdminRiskTags([...before.adminRiskTags, 'suspected_harassment']);
+  report.harassmentFlaggedAt = new Date().toISOString();
+  report.harassmentFlaggedBy = admin?.username || 'admin';
+  report.harassmentFlaggedReason = reason;
+  report.evidenceSnapshot = report.evidenceSnapshot || buildSocialReportEvidenceSnapshot(report);
+  writeAdminAudit(admin, 'social.report.message.harassment_flag', 'social_report', report.id, before, {
+    adminRiskTags: owner.adminRiskTags,
+    harassmentFlaggedAt: report.harassmentFlaggedAt,
+    ownerPhone: report.ownerPhone,
+    reason,
+  }, reason);
+  return { report: adminSocialReports().find((item) => item.id === report.id), user: adminUserSummary(owner) };
+}
+
 function buildConversationFor(user, otherUser, lastMessage, unread = 0) {
   const otherPet = activePetFor(otherUser);
   if (!otherPet) return null;
@@ -13086,6 +13188,9 @@ function adminSocialReports() {
         content: report.content,
         createdAt: report.createdAt,
         evidenceSnapshot,
+        harassmentFlaggedAt: report.harassmentFlaggedAt || '',
+        harassmentFlaggedBy: report.harassmentFlaggedBy || '',
+        harassmentFlaggedReason: report.harassmentFlaggedReason || '',
         id: report.id,
         ownerName: owner?.ownerName || `用户${String(report.ownerPhone || '').slice(-4)}`,
         ownerPhone: report.ownerPhone,
@@ -15664,6 +15769,30 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/social/reports') {
     ok(res, adminSocialReports());
+    return true;
+  }
+
+  const adminReportMessageContextMatch = pathname.match(/^\/admin\/social\/reports\/([^/]+)\/message-context$/);
+  if (req.method === 'POST' && adminReportMessageContextMatch) {
+    const result = adminConversationMessageContext(admin, decodeURIComponent(adminReportMessageContextMatch[1]), body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_MESSAGE_CONTEXT_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.context);
+    return true;
+  }
+
+  const adminReportHarassmentMatch = pathname.match(/^\/admin\/social\/reports\/([^/]+)\/flag-harassment$/);
+  if (req.method === 'POST' && adminReportHarassmentMatch) {
+    const result = flagConversationReportHarassment(admin, decodeURIComponent(adminReportHarassmentMatch[1]), body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_MESSAGE_HARASSMENT_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

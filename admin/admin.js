@@ -41,6 +41,7 @@ const state = {
   petChatQ: '',
   petQ: '',
   petSpecies: 'all',
+  reportMessageContexts: {},
   socialRelationKind: 'all',
   socialRelationQ: '',
   socialRelationStatus: 'all',
@@ -670,6 +671,14 @@ async function onContentClick(event) {
     if (action === 'comment-restore') await post(`/admin/social/comments/${id}/restore`, { reason });
     if (action === 'report-valid') await post(`/admin/social/reports/${id}/resolve`, { reason, status: 'valid' });
     if (action === 'report-invalid') await post(`/admin/social/reports/${id}/resolve`, { reason, status: 'invalid' });
+    if (action === 'report-message-context') {
+      await loadReportMessageContext(button);
+      return;
+    }
+    if (action === 'report-mark-harassment') {
+      await markReportMessageHarassment(button);
+      return;
+    }
     if (action === 'report-sanction') {
       await applyReportSanction(button);
       return;
@@ -3208,6 +3217,39 @@ async function applyReportSanction(button) {
   await render(true);
 }
 
+async function loadReportMessageContext(button) {
+  const id = button.dataset.id;
+  const reason = window.prompt('查看私信上下文需要填写原因，此操作会写入审计日志。', '处理私信举报，核对上下文');
+  if (reason === null) return;
+  const cleanReason = reason.trim();
+  if (!cleanReason) {
+    showToast('请填写查看原因');
+    return;
+  }
+  const context = await post(`/admin/social/reports/${encodeURIComponent(id)}/message-context`, { reason: cleanReason });
+  state.reportMessageContexts = { ...state.reportMessageContexts, [id]: context };
+  state.cache.audit = null;
+  showToast('已加载私信上下文');
+  await render(false);
+}
+
+async function markReportMessageHarassment(button) {
+  const id = button.dataset.id;
+  const reason = window.prompt('确认标记为疑似骚扰会话？会给被举报用户增加风险标签，并写入审计。', '私信举报核实，标记疑似骚扰');
+  if (reason === null) return;
+  const cleanReason = reason.trim();
+  if (!cleanReason) {
+    showToast('请填写标记原因');
+    return;
+  }
+  await post(`/admin/social/reports/${encodeURIComponent(id)}/flag-harassment`, { reason: cleanReason });
+  state.cache.reports = null;
+  state.cache.users = null;
+  state.cache.audit = null;
+  showToast('已标记疑似骚扰');
+  await render(true);
+}
+
 async function renderSanctionAppeals(force) {
   const query = new URLSearchParams({
     q: state.appealQ,
@@ -3713,8 +3755,10 @@ async function renderReports(force) {
       ['时间', (r) => formatTime(r.createdAt)],
       ['操作', (r) => `
         <div class="actions">
-          <button class="small-button" data-action="report-valid" data-id="${r.id}">有效</button>
-          <button class="small-button" data-action="report-invalid" data-id="${r.id}">无效</button>
+          ${r.targetType === 'message' ? `<button class="small-button" data-action="report-message-context" data-id="${escapeHtml(r.id)}">上下文</button>` : ''}
+          ${r.targetType === 'message' ? `<button class="small-button" data-action="report-mark-harassment" data-id="${escapeHtml(r.id)}">标记骚扰</button>` : ''}
+          <button class="small-button" data-action="report-valid" data-id="${escapeHtml(r.id)}">有效</button>
+          <button class="small-button" data-action="report-invalid" data-id="${escapeHtml(r.id)}">无效</button>
         </div>
       `],
     ],
@@ -3730,6 +3774,37 @@ function renderReportEvidenceSnapshot(report) {
     <div class="cell-sub">${frozen ? `已固化：${formatTime(snapshot.snapshotAt)}` : '动态预览，旧举报待处理时会固化'}</div>
     <div class="cell-sub">状态：${escapeHtml(snapshot.targetStatus || '-')} ${snapshot.mediaUrls?.length ? `· ${snapshot.mediaUrls.length} 张图` : ''}</div>
     <div class="cell-sub">${content}</div>
+    ${renderReportMessageContext(report)}
+  `;
+}
+
+function renderReportMessageContext(report) {
+  const context = state.reportMessageContexts?.[report.id];
+  if (!context) {
+    return report.targetType === 'message'
+      ? `<div class="report-message-placeholder">私信上下文需填写原因后查看</div>${report.harassmentFlaggedAt ? `<div class="cell-sub">已标记疑似骚扰：${formatTime(report.harassmentFlaggedAt)}</div>` : ''}`
+      : '';
+  }
+  const rows = (context.messages || []).map((message) => `
+    <div class="report-message-row ${message.isTarget ? 'target' : ''}">
+      <div class="report-message-meta">
+        <strong>${escapeHtml(message.authorLabel || message.author || '-')}</strong>
+        <span>${escapeHtml(message.authorName || '-')} ${message.authorPhone ? shortPhone(message.authorPhone) : ''}</span>
+        <span>${formatTime(message.time)}</span>
+        ${message.status ? statusPill(message.status) : ''}
+      </div>
+      <div class="report-message-text">${escapeHtml(message.text || '无正文内容')}</div>
+    </div>
+  `).join('');
+  return `
+    <div class="report-message-context">
+      <div class="report-message-context-head">
+        <strong>私信上下文</strong>
+        <span>${escapeHtml(context.contextSource || 'conversation')} · ${numberText(context.messageCount || 0)} 条 · ${formatTime(context.viewedAt)}</span>
+      </div>
+      <div class="cell-sub">查看原因：${escapeHtml(context.reason || '-')}</div>
+      ${rows || '<div class="cell-sub">暂无上下文消息</div>'}
+    </div>
   `;
 }
 

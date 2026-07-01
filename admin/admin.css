@@ -575,6 +575,65 @@ th {
   flex-wrap: wrap;
 }
 
+.report-message-placeholder {
+  background: rgba(255, 247, 239, 0.74);
+  border: 1px dashed rgba(212, 134, 82, 0.32);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 8px;
+  padding: 8px 10px;
+}
+
+.report-message-context {
+  background: rgba(255, 247, 239, 0.62);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+  max-width: 420px;
+  padding: 10px;
+}
+
+.report-message-context-head,
+.report-message-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.report-message-context-head {
+  justify-content: space-between;
+}
+
+.report-message-context-head span,
+.report-message-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.report-message-row {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(233, 220, 207, 0.86);
+  border-radius: 10px;
+  padding: 8px;
+}
+
+.report-message-row.target {
+  background: rgba(255, 138, 92, 0.1);
+  border-color: rgba(255, 138, 92, 0.42);
+}
+
+.report-message-text {
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.55;
+  margin-top: 5px;
+  white-space: pre-wrap;
+}
+
 .config-actions {
   justify-content: flex-end;
   margin-top: 16px;

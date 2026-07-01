@@ -217,6 +217,41 @@ async function main() {
     assert.equal(adminReport?.evidenceSnapshot?.targetType, 'message');
     assert.equal(adminReport?.evidenceSnapshot?.contentText, text);
 
+    const contextWithoutReason = await request(`/admin/social/reports/${encodeURIComponent(report.data.id)}/message-context`, {
+      body: { reason: '' },
+      expectedStatus: 400,
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(contextWithoutReason.state, 'error');
+
+    const context = await request(`/admin/social/reports/${encodeURIComponent(report.data.id)}/message-context`, {
+      body: { reason: 'Smoke review private message context' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(context.data.reportId, report.data.id);
+    assert.equal(context.data.ownerPhone, senderPhone);
+    assert.equal(context.data.reporterPhone, reporterPhone);
+    assert.ok(context.data.messages.some((message) => message.isTarget && message.text === text && message.authorLabel === '被举报人'));
+
+    const auditAfterContext = await request('/admin/audit-logs?limit=50', { token: adminToken });
+    assert.ok(
+      auditAfterContext.data.items.some((item) => item.action === 'social.report.message_context.view' && item.targetId === incoming.id),
+      'message context view should write audit log',
+    );
+
+    const flagged = await request(`/admin/social/reports/${encodeURIComponent(report.data.id)}/flag-harassment`, {
+      body: { reason: 'Smoke flag conversation harassment' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.ok(flagged.data.report.harassmentFlaggedAt, 'flagged report should include harassment timestamp');
+
+    const adminUsers = await request(`/admin/users?q=${encodeURIComponent(senderPhone)}`, { token: adminToken });
+    const flaggedUser = adminUsers.data.find((item) => item.phone === senderPhone);
+    assert.ok(flaggedUser?.adminRiskTags?.includes('suspected_harassment'), 'reported user should receive harassment risk tag');
+
     const taskId = `report:${report.data.id}`;
     const tasks = await request('/admin/moderation/tasks?status=all', { token: adminToken });
     const task = tasks.data.tasks.find((item) => item.id === taskId);
