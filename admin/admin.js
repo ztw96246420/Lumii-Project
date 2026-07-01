@@ -592,6 +592,10 @@ async function onContentClick(event) {
       await saveConfig('publish');
       return;
     }
+    if (action === 'submit-config-approval') {
+      await saveConfig('approval');
+      return;
+    }
     if (action === 'save-config-draft') {
       await saveConfig('draft');
       return;
@@ -600,12 +604,28 @@ async function onContentClick(event) {
       await publishConfigDraft(id);
       return;
     }
+    if (action === 'config-draft-approval') {
+      await requestConfigApprovalForDraft(id);
+      return;
+    }
     if (action === 'config-draft-discard') {
       await discardConfigDraft(id);
       return;
     }
     if (action === 'config-rollback') {
       await rollbackConfigRevision(id);
+      return;
+    }
+    if (action === 'config-rollback-approval') {
+      await requestConfigApprovalForRollback(id);
+      return;
+    }
+    if (action === 'config-approval-approve') {
+      await approveConfigApproval(id);
+      return;
+    }
+    if (action === 'config-approval-cancel') {
+      await cancelConfigApproval(id);
       return;
     }
     if (action === 'export-filter') {
@@ -5217,6 +5237,7 @@ function configRevisionSummaryText(summary = {}) {
     `半径 ${summary.discoverRadiusKm || 0}km`,
     `TTL ${summary.nearbyMomentTtlDays || 0}天`,
     `埋点 ${summary.analyticsEnabled === false ? '关' : `开/${summary.analyticsSampleRatePercent ?? 100}%`}`,
+    `配置审批 ${summary.configApprovalRequireApproval ? `开/${summary.configApprovalExpiresHours || 24}h` : '关'}`,
     `导出审批 ${summary.exportRequireApproval ? `开/${summary.exportApprovalExpiresHours || 24}h` : '关'}`,
     `工单首响 ${summary.supportFirstResponseUrgentSlaHours ?? 1}/${summary.supportFirstResponseHighSlaHours ?? 4}h`,
     `工单解决 ${summary.supportUrgentSlaHours ?? 8}/${summary.supportHighSlaHours ?? 24}h`,
@@ -5266,7 +5287,7 @@ function renderConfigLinkage(config) {
   `;
 }
 
-function renderConfigRevisions(revisions = []) {
+function renderConfigRevisions(revisions = [], approvalRequired = false) {
   const rows = Array.isArray(revisions) ? revisions.slice(0, 12) : [];
   if (!rows.length) {
     return '<div class="placeholder"><div><strong>暂无配置版本</strong><div>保存配置后会自动生成版本快照，可用于回滚。</div></div></div>';
@@ -5275,7 +5296,9 @@ function renderConfigRevisions(revisions = []) {
     ['版本', (item) => `<div class="cell-title">${escapeHtml(item.id)}</div><div class="cell-sub">${formatTime(item.createdAt)} · ${escapeHtml(item.createdBy || '-')}</div>`],
     ['类型', (item) => statusPill(item.action || 'publish')],
     ['摘要', (item) => `<div class="cell-sub">${escapeHtml(configRevisionSummaryText(item.summary || {}))}</div><div>${escapeHtml(item.reason || '-')}</div>`],
-    ['操作', (item) => `<button class="small-button danger" data-action="config-rollback" data-id="${escapeHtml(item.id)}">回滚到此版本</button>`],
+    ['操作', (item) => approvalRequired
+      ? `<button class="small-button" data-action="config-rollback-approval" data-id="${escapeHtml(item.id)}">提交回滚审批</button>`
+      : `<div class="actions"><button class="small-button" data-action="config-rollback-approval" data-id="${escapeHtml(item.id)}">提交审批</button><button class="small-button danger" data-action="config-rollback" data-id="${escapeHtml(item.id)}">回滚到此版本</button></div>`],
   ], '暂无配置版本');
 }
 
@@ -5303,15 +5326,48 @@ function configChangeSummaryList(changes = []) {
   return `<div class="cell-sub clamp">${changes.slice(0, 5).map((item) => `${item.label}: ${item.before} -> ${item.after}`).join('；')}</div>`;
 }
 
+function renderConfigApprovals(approvals = {}) {
+  const items = Array.isArray(approvals.items) ? approvals.items : [];
+  const summary = approvals.summary || {};
+  const policy = approvals.policy || {};
+  return `
+    <div class="config-section">
+      <div class="section-head compact">
+        <div>
+          <h2>配置发布审批</h2>
+          <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${policy.requireApproval ? '强制审批' : '可选审批'} · 有效期 ${numberText(policy.approvalExpiresHours || 24)} 小时</div>
+        </div>
+        ${help('配置审批单绑定配置快照和申请时的基线配置。审批通过前不会影响移动端；如果期间配置已经变化，审批会被后端拦截，要求重新提交。')}
+      </div>
+      ${items.length ? tableHtml(items, [
+        ['申请', (item) => `<div class="cell-title">${escapeHtml(item.actionLabel || item.action || '-')}</div><div class="cell-sub">${formatTime(item.createdAt)} · ${escapeHtml(item.createdBy || '-')}</div><div class="cell-sub">${escapeHtml(item.sourceDraftId || item.sourceRevisionId || item.id)}</div>`],
+        ['状态', (item) => `${statusPill(item.statusLabel || item.status)}<div class="cell-sub">${item.expiresAt ? `有效至 ${formatTime(item.expiresAt)}` : '-'}</div>`],
+        ['风险', (item) => `${configRiskPills(item.riskChanges)}<div class="cell-sub clamp">${escapeHtml(item.reason || '-')}</div>`],
+        ['变更摘要', (item) => configChangeSummaryList(item.changeSummary)],
+        ['风险详情', (item) => configRiskSummary(item.riskChanges)],
+        ['操作', (item) => item.status === 'pending_approval' ? `
+          <div class="actions">
+            <button class="small-button" data-action="config-approval-approve" data-id="${escapeHtml(item.id)}">审批并发布</button>
+            <button class="small-button danger" data-action="config-approval-cancel" data-id="${escapeHtml(item.id)}">取消</button>
+          </div>
+        ` : `<div class="cell-sub">${escapeHtml(item.revisionId || item.approvalReason || '-')}</div>`],
+      ], '暂无配置审批') : '<div class="placeholder mini"><div><strong>暂无配置审批</strong><div>提交发布、草稿发布或回滚审批后，会在这里等待处理。</div></div></div>'}
+    </div>
+  `;
+}
+
 function renderConfigGovernance(config = {}) {
   const drafts = Array.isArray(config.drafts) ? config.drafts : [];
   const activeDrafts = drafts.filter((draft) => draft.status === 'draft');
   const governance = config.governance || {};
+  const approvals = config.approvals || {};
+  const approvalRequired = Boolean(config.configApproval?.requireApproval || governance.approvalRequired);
   return `
     <div class="grid metrics">
       ${metric('待发布草稿', numberText(governance.activeDrafts ?? activeDrafts.length), '不会影响 /app/config', '草稿只保存在后台，发布后才会生成版本并影响移动端。')}
       ${metric('高风险草稿', numberText(governance.highRiskDrafts || 0), 'P0 需重点复核', '维护模式、强制更新、内容安全总开关和机审开关属于高风险配置。')}
       ${metric('发布保护', '已启用', 'P0/P1 需确认文案', `命中高风险配置时，需要输入“${escapeHtml(governance.highRiskConfirmText || CONFIG_HIGH_RISK_CONFIRM_TEXT)}”才能发布。`)}
+      ${metric('发布审批', approvalRequired ? '强制' : '可选', `${numberText(approvals.summary?.pending || governance.pendingApprovals || 0)} 条待审批`, '强制开启后，立即发布、发布草稿和回滚版本都会先进入审批单，审批通过后才更新 /app/config。')}
       ${metric('最近草稿', governance.latestDraftAt ? formatTime(governance.latestDraftAt) : '-', '配置治理记录', '用于确认是否有人保存了待发布变更。')}
       ${metric('版本历史', numberText((config.revisions || []).length), '可回滚', '发布和回滚都会生成配置版本快照。')}
     </div>
@@ -5330,12 +5386,13 @@ function renderConfigGovernance(config = {}) {
         ['风险详情', (draft) => configRiskSummary(draft.riskChanges)],
         ['操作', (draft) => `
           <div class="actions">
-            <button class="small-button" data-action="config-draft-publish" data-id="${escapeHtml(draft.id)}">发布草稿</button>
+            ${approvalRequired ? `<button class="small-button" data-action="config-draft-approval" data-id="${escapeHtml(draft.id)}">提交审批</button>` : `<button class="small-button" data-action="config-draft-approval" data-id="${escapeHtml(draft.id)}">提交审批</button><button class="small-button" data-action="config-draft-publish" data-id="${escapeHtml(draft.id)}">发布草稿</button>`}
             <button class="small-button danger" data-action="config-draft-discard" data-id="${escapeHtml(draft.id)}">废弃</button>
           </div>
         `],
       ], '暂无配置草稿') : '<div class="placeholder"><div><strong>暂无待发布草稿</strong><div>可以先保存草稿复核风险，再发布到移动端配置。</div></div></div>'}
     </div>
+    ${renderConfigApprovals(approvals)}
   `;
 }
 
@@ -5506,6 +5563,7 @@ async function renderNotifications(force) {
 async function renderConfig(force) {
   const config = await load('config', '/admin/config', force);
   const announcement = config.app?.announcement || {};
+  const configApproval = config.configApproval || {};
   const contentSafety = config.contentSafety || {};
   const exportsConfig = config.exports || {};
   const moderation = config.moderation || {};
@@ -5563,6 +5621,21 @@ async function renderConfig(force) {
         <div class="config-grid">
           <label>采样率 %<input id="cfgAnalyticsSampleRatePercent" type="number" min="0" max="100" value="${Number.isFinite(Number(analytics.sampleRatePercent)) ? analytics.sampleRatePercent : 100}" /></label>
           <label>保留天数<input id="cfgAnalyticsRetentionDays" type="number" min="7" max="180" value="${Number.isFinite(Number(analytics.retentionDays)) ? analytics.retentionDays : 30}" /></label>
+        </div>
+      </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>配置发布审批</h2>
+            <div class="section-sub">控制会影响 /app/config 的发布、草稿发布和回滚是否必须先审批</div>
+          </div>
+          ${help('草稿保存不影响移动端，因此不需要审批；真正发布到 /app/config 的动作会被这里控制。当前单 admin 可自审批，生产多管理员后可升级为双人审批。')}
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgConfigApprovalRequireApproval', '强制配置发布审批', Boolean(configApproval.requireApproval))}
+        </div>
+        <div class="config-grid">
+          <label>审批有效期小时<input id="cfgConfigApprovalExpiresHours" type="number" min="1" max="168" value="${Number.isFinite(Number(configApproval.approvalExpiresHours)) ? configApproval.approvalExpiresHours : 24}" /></label>
         </div>
       </div>
       <div class="config-section">
@@ -5748,7 +5821,9 @@ async function renderConfig(force) {
       </div>
       <div class="actions config-actions">
         <button class="small-button" data-action="save-config-draft">保存草稿</button>
-        <button class="primary-button" data-action="save-config">立即发布</button>
+        ${configApproval.requireApproval
+          ? '<button class="primary-button" data-action="submit-config-approval">提交发布审批</button>'
+          : '<button class="small-button" data-action="submit-config-approval">提交审批</button><button class="primary-button" data-action="save-config">立即发布</button>'}
       </div>
       <div class="config-section">
         <div class="section-head compact">
@@ -5758,7 +5833,7 @@ async function renderConfig(force) {
           </div>
           ${help('回滚也是一次新的配置发布，会写审计日志，并生成新的 rollback 版本，方便继续追踪。')}
         </div>
-        ${renderConfigRevisions(revisions)}
+        ${renderConfigRevisions(revisions, Boolean(configApproval.requireApproval))}
       </div>
     </div>
   `;
@@ -5993,6 +6068,10 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isFinite(analyticsRetentionDays) || analyticsRetentionDays < 7 || analyticsRetentionDays > 180) {
     throw new Error('事件保留天数必须在 7-180 之间');
   }
+  const configApprovalExpiresHours = Number($('cfgConfigApprovalExpiresHours').value);
+  if (!Number.isFinite(configApprovalExpiresHours) || configApprovalExpiresHours < 1 || configApprovalExpiresHours > 168) {
+    throw new Error('配置发布审批有效期必须在 1-168 小时之间');
+  }
   const exportApprovalExpiresHours = Number($('cfgExportApprovalExpiresHours').value);
   if (!Number.isFinite(exportApprovalExpiresHours) || exportApprovalExpiresHours < 1 || exportApprovalExpiresHours > 168) {
     throw new Error('导出审批有效期必须在 1-168 小时之间');
@@ -6010,6 +6089,10 @@ async function saveConfig(mode = 'publish') {
       enabled: $('cfgAnalyticsEnabled').checked,
       retentionDays: analyticsRetentionDays,
       sampleRatePercent: analyticsSampleRatePercent,
+    },
+    configApproval: {
+      approvalExpiresHours: configApprovalExpiresHours,
+      requireApproval: $('cfgConfigApprovalRequireApproval').checked,
     },
     app: {
       announcement: {
@@ -6115,18 +6198,27 @@ async function saveConfig(mode = 'publish') {
       slaHours: supportSlaHours,
     },
   };
-  const promptLabel = mode === 'draft' ? '请输入草稿说明' : '请输入发布原因';
-  const defaultReason = mode === 'draft' ? '配置草稿保存' : '配置中心发布';
+  const promptLabel = mode === 'draft' ? '请输入草稿说明' : mode === 'approval' ? '请输入审批申请原因' : '请输入发布原因';
+  const defaultReason = mode === 'draft' ? '配置草稿保存' : mode === 'approval' ? '提交配置发布审批' : '配置中心发布';
   const reason = window.prompt(promptLabel, defaultReason);
   if (reason === null) return;
   payload.reason = reason.trim() || defaultReason;
-  const nextConfig = mode === 'draft'
-    ? await post('/admin/config/drafts', payload)
-    : await submitConfigMutationWithRiskConfirmation((nextPayload) => patch('/admin/config', nextPayload), payload, '立即发布配置');
+  let nextConfig = null;
+  if (mode === 'draft') {
+    nextConfig = await post('/admin/config/drafts', payload);
+  } else if (mode === 'approval') {
+    nextConfig = await submitConfigMutationWithRiskConfirmation(
+      (nextPayload) => post('/admin/config/approvals', { ...nextPayload, action: 'publish' }),
+      payload,
+      '提交配置发布审批',
+    );
+  } else {
+    nextConfig = await submitConfigMutationWithRiskConfirmation((nextPayload) => patch('/admin/config', nextPayload), payload, '立即发布配置');
+  }
   if (!nextConfig) return;
   state.cache.config = nextConfig;
   state.cache.summary = null;
-  showToast(mode === 'draft' ? '配置草稿已保存' : '配置已发布');
+  showToast(mode === 'draft' ? '配置草稿已保存' : mode === 'approval' ? '配置发布审批已提交' : '配置已发布');
   await render(true);
 }
 
@@ -6146,6 +6238,27 @@ async function publishConfigDraft(id) {
   state.cache.config = nextConfig;
   state.cache.summary = null;
   showToast('配置草稿已发布');
+  await render(true);
+}
+
+async function requestConfigApprovalForDraft(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入审批申请原因', `提交发布配置草稿 ${id}`);
+  if (reason === null) return;
+  const payload = {
+    action: 'draft_publish',
+    draftId: id,
+    reason: reason.trim() || `提交发布配置草稿 ${id}`,
+  };
+  const nextConfig = await submitConfigMutationWithRiskConfirmation(
+    (nextPayload) => post('/admin/config/approvals', nextPayload),
+    payload,
+    '提交配置草稿发布审批',
+  );
+  if (!nextConfig) return;
+  state.cache.config = nextConfig;
+  state.cache.summary = null;
+  showToast('配置草稿发布审批已提交');
   await render(true);
 }
 
@@ -6176,6 +6289,50 @@ async function rollbackConfigRevision(id) {
   state.cache.config = nextConfig;
   state.cache.summary = null;
   showToast('配置已回滚');
+  await render(true);
+}
+
+async function requestConfigApprovalForRollback(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入审批申请原因', `提交回滚到配置版本 ${id}`);
+  if (reason === null) return;
+  const payload = {
+    action: 'rollback',
+    reason: reason.trim() || `提交回滚到配置版本 ${id}`,
+    revisionId: id,
+  };
+  const nextConfig = await submitConfigMutationWithRiskConfirmation(
+    (nextPayload) => post('/admin/config/approvals', nextPayload),
+    payload,
+    '提交配置回滚审批',
+  );
+  if (!nextConfig) return;
+  state.cache.config = nextConfig;
+  state.cache.summary = null;
+  showToast('配置回滚审批已提交');
+  await render(true);
+}
+
+async function approveConfigApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入审批说明', '审批通过配置发布');
+  if (reason === null) return;
+  state.cache.config = await post(`/admin/config/approvals/${encodeURIComponent(id)}/approve`, {
+    reason: reason.trim() || '审批通过配置发布',
+  });
+  state.cache.summary = null;
+  showToast('配置审批已发布');
+  await render(true);
+}
+
+async function cancelConfigApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入取消原因', '取消配置审批');
+  if (reason === null) return;
+  state.cache.config = await post(`/admin/config/approvals/${encodeURIComponent(id)}/cancel`, {
+    reason: reason.trim() || '取消配置审批',
+  });
+  showToast('配置审批已取消');
   await render(true);
 }
 

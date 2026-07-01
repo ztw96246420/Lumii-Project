@@ -293,6 +293,10 @@ function defaultOpsConfig() {
       retentionDays: 30,
       sampleRatePercent: 100,
     },
+    configApproval: {
+      approvalExpiresHours: 24,
+      requireApproval: false,
+    },
     app: {
       announcement: {
         actionLabel: '知道了',
@@ -428,6 +432,7 @@ function createInitialState() {
   return {
     adminAuditLogs: [],
     adminExportApprovals: [],
+    opsConfigApprovals: [],
     adminLoginSecurity: {
       failedAttempts: 0,
       firstFailedAt: '',
@@ -719,6 +724,14 @@ function normalizeExportOpsConfig(value, defaults = {}) {
   };
 }
 
+function normalizeConfigApprovalOpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    approvalExpiresHours: Math.floor(clampNumber(source.approvalExpiresHours, defaults.approvalExpiresHours || 24, 1, 168)),
+    requireApproval: Boolean(source.requireApproval),
+  };
+}
+
 function normalizeAnalyticsConfig(value, defaults) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
@@ -745,6 +758,7 @@ function normalizeOpsConfig(value) {
   const ai = source.ai && typeof source.ai === 'object' ? source.ai : {};
   const analytics = source.analytics && typeof source.analytics === 'object' ? source.analytics : {};
   const app = source.app && typeof source.app === 'object' ? source.app : {};
+  const configApproval = source.configApproval && typeof source.configApproval === 'object' ? source.configApproval : {};
   const exportsConfig = source.exports && typeof source.exports === 'object' ? source.exports : {};
   const features = source.features && typeof source.features === 'object' ? source.features : {};
   const moderation = source.moderation && typeof source.moderation === 'object' ? source.moderation : {};
@@ -757,6 +771,7 @@ function normalizeOpsConfig(value) {
       petChatDailyLimit: Math.floor(clampNumber(ai.petChatDailyLimit, defaults.ai.petChatDailyLimit, 0, 1000)),
     },
     analytics: normalizeAnalyticsConfig(analytics, defaults.analytics),
+    configApproval: normalizeConfigApprovalOpsConfig(configApproval, defaults.configApproval),
     app: {
       announcement: {
         actionLabel: String(app.announcement?.actionLabel || defaults.app.announcement.actionLabel).slice(0, 16),
@@ -824,6 +839,8 @@ function opsConfigSummary(config) {
     announcementEnabled: Boolean(config?.app?.announcement?.enabled),
     analyticsEnabled: config?.analytics?.enabled !== false,
     analyticsSampleRatePercent: Number(config?.analytics?.sampleRatePercent ?? 100),
+    configApprovalExpiresHours: Number(config?.configApproval?.approvalExpiresHours || 0),
+    configApprovalRequireApproval: Boolean(config?.configApproval?.requireApproval),
     exportApprovalExpiresHours: Number(config?.exports?.approvalExpiresHours || 0),
     exportRequireApproval: Boolean(config?.exports?.requireApproval),
     maintenanceEnabled: Boolean(config?.app?.maintenanceEnabled),
@@ -962,6 +979,7 @@ function buildOpsConfigPatch(before, body = {}) {
         ...(body.app?.update || {}),
       },
     },
+    configApproval: { ...before.configApproval, ...(body.configApproval || {}) },
     exports: { ...before.exports, ...(body.exports || {}) },
     features: { ...before.features, ...(body.features || {}) },
     moderation: { ...before.moderation, ...(body.moderation || {}) },
@@ -1049,6 +1067,8 @@ function configChangeSummary(before, after) {
     ['analytics.enabled', 'Analytics enabled'],
     ['analytics.sampleRatePercent', 'Analytics sample rate'],
     ['analytics.retentionDays', 'Analytics retention days'],
+    ['configApproval.requireApproval', 'Config publish approval required'],
+    ['configApproval.approvalExpiresHours', 'Config approval expiry hours'],
     ['moderation.enabled', 'Content safety enabled'],
     ['moderation.textRulesEnabled', 'Text rules enabled'],
     ['moderation.machineTextEnabled', 'Tencent text moderation'],
@@ -1103,6 +1123,7 @@ function configRiskChanges(before, after) {
   addRisk('moderation.sampleReviewRatePercent', 'Moderation sample review rate', 'P2', 'Can change how much approved public content enters manual quality sampling.');
   addRisk('notifications.rateLimitEnabled', 'Notification rate limit', 'P1', 'Can remove the guardrail that prevents repeated system notifications.');
   addRisk('notifications.requireApproval', 'Notification approval guard', 'P1', 'Can require or bypass manual approval before system notifications reach users.');
+  addRisk('configApproval.requireApproval', 'Config publish approval guard', 'P1', 'Can require or bypass approval before mobile-impacting configuration reaches /app/config.');
   addRisk('notifications.maxCampaignsPerDay', 'Notification daily campaign cap', 'P2', 'Can make global notification sending more or less aggressive.');
   addRisk('notifications.maxPerUserPerDay', 'Notification per-user daily cap', 'P2', 'Can make individual users receive more or fewer system notifications.');
   if (Number(configValueAt(after, 'ai.petAvatarDailyLimit')) === 0 && configValueChanged(before, after, 'ai.petAvatarDailyLimit')) {
@@ -1216,6 +1237,299 @@ function createOpsConfigDraft(admin, body = {}) {
   });
   state.opsConfigDrafts = [draft, ...ensureOpsConfigDrafts()].slice(0, 60);
   return draft;
+}
+
+function configApprovalPolicy(config = currentOpsConfig()) {
+  return normalizeConfigApprovalOpsConfig(config.configApproval, defaultOpsConfig().configApproval);
+}
+
+function configPublishApprovalRequired() {
+  return Boolean(configApprovalPolicy().requireApproval);
+}
+
+function configPublishApprovalRequiredResult(action = 'publish') {
+  const policy = configApprovalPolicy();
+  return {
+    action,
+    approvalExpiresHours: policy.approvalExpiresHours,
+    approvalRequired: true,
+    reasonMinLength: ADMIN_EXPORT_REASON_MIN_LENGTH,
+  };
+}
+
+function configApprovalComparable(config) {
+  const comparable = normalizedConfigComparable(normalizeOpsConfig(config));
+  if (comparable && typeof comparable === 'object') delete comparable.updatedAt;
+  return comparable;
+}
+
+function normalizeOpsConfigApproval(item = {}) {
+  if (!item || typeof item !== 'object' || !item.id || !item.config || !item.baseConfig) return null;
+  const config = normalizeOpsConfig(item.config);
+  const baseConfig = normalizeOpsConfig(item.baseConfig);
+  const action = ['draft_publish', 'publish', 'rollback'].includes(String(item.action || '')) ? String(item.action) : 'publish';
+  const status = ['approved', 'canceled', 'pending_approval', 'rejected'].includes(String(item.status || '')) ? String(item.status) : 'pending_approval';
+  return {
+    action,
+    approvalReason: String(item.approvalReason || '').slice(0, 240),
+    approvedAt: item.approvedAt || '',
+    approvedBy: item.approvedBy || '',
+    baseConfig,
+    baseSummary: item.baseSummary || opsConfigSummary(baseConfig),
+    canceledAt: item.canceledAt || '',
+    canceledBy: item.canceledBy || '',
+    cancelReason: String(item.cancelReason || '').slice(0, 240),
+    changeSummary: Array.isArray(item.changeSummary) ? item.changeSummary : configChangeSummary(baseConfig, config),
+    config,
+    createdAt: item.createdAt || new Date().toISOString(),
+    createdBy: item.createdBy || 'admin',
+    expiresAt: item.expiresAt || '',
+    id: String(item.id),
+    reason: String(item.reason || '').slice(0, 240),
+    revisionId: item.revisionId || '',
+    riskChanges: Array.isArray(item.riskChanges) ? item.riskChanges : configRiskChanges(baseConfig, config),
+    sourceDraftId: item.sourceDraftId || '',
+    sourceRevisionId: item.sourceRevisionId || '',
+    status,
+    summary: item.summary || opsConfigSummary(config),
+    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
+  };
+}
+
+function ensureOpsConfigApprovals() {
+  if (!Array.isArray(state.opsConfigApprovals)) state.opsConfigApprovals = [];
+  state.opsConfigApprovals = state.opsConfigApprovals
+    .map(normalizeOpsConfigApproval)
+    .filter(Boolean)
+    .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))
+    .slice(0, 80);
+  return state.opsConfigApprovals;
+}
+
+function opsConfigApprovalCurrentStatus(approval = {}) {
+  const status = String(approval.status || 'pending_approval');
+  if (status === 'pending_approval') {
+    const expiresMs = Date.parse(String(approval.expiresAt || ''));
+    if (Number.isFinite(expiresMs) && expiresMs < Date.now()) return 'expired';
+  }
+  return status;
+}
+
+function opsConfigApprovalStatusLabel(status) {
+  return {
+    approved: '已发布',
+    canceled: '已取消',
+    expired: '已过期',
+    pending_approval: '待审批',
+    rejected: '已驳回',
+  }[status] || status || '-';
+}
+
+function opsConfigApprovalActionLabel(action) {
+  return {
+    draft_publish: '发布草稿',
+    publish: '立即发布',
+    rollback: '回滚版本',
+  }[action] || action || '-';
+}
+
+function opsConfigApprovalItem(approval = {}) {
+  const item = normalizeOpsConfigApproval(approval);
+  if (!item) return null;
+  const status = opsConfigApprovalCurrentStatus(item);
+  return {
+    action: item.action,
+    actionLabel: opsConfigApprovalActionLabel(item.action),
+    approvalReason: item.approvalReason,
+    approvedAt: item.approvedAt,
+    approvedBy: item.approvedBy,
+    baseSummary: item.baseSummary,
+    canceledAt: item.canceledAt,
+    canceledBy: item.canceledBy,
+    cancelReason: item.cancelReason,
+    changeSummary: item.changeSummary,
+    createdAt: item.createdAt,
+    createdBy: item.createdBy,
+    expiresAt: item.expiresAt,
+    id: item.id,
+    reason: item.reason,
+    revisionId: item.revisionId,
+    riskChanges: item.riskChanges,
+    sourceDraftId: item.sourceDraftId,
+    sourceRevisionId: item.sourceRevisionId,
+    status,
+    statusLabel: opsConfigApprovalStatusLabel(status),
+    summary: item.summary,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function adminOpsConfigApprovals(options = {}) {
+  const status = String(options.status || 'open').trim() || 'open';
+  const limit = Math.min(80, Math.max(10, Number(options.limit || 20) || 20));
+  const all = ensureOpsConfigApprovals().map(opsConfigApprovalItem).filter(Boolean);
+  const items = all
+    .filter((item) => {
+      if (status === 'all') return true;
+      if (status === 'open') return item.status === 'pending_approval';
+      return item.status === status;
+    })
+    .slice(0, limit);
+  return {
+    items,
+    policy: configApprovalPolicy(),
+    summary: {
+      approved: all.filter((item) => item.status === 'approved').length,
+      canceled: all.filter((item) => item.status === 'canceled').length,
+      expired: all.filter((item) => item.status === 'expired').length,
+      matched: items.length,
+      pending: all.filter((item) => item.status === 'pending_approval').length,
+      total: all.length,
+    },
+  };
+}
+
+function createOpsConfigApproval(admin, body = {}) {
+  const action = ['draft_publish', 'publish', 'rollback'].includes(String(body.action || '')) ? String(body.action) : 'publish';
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (reason.length < ADMIN_EXPORT_REASON_MIN_LENGTH) {
+    return { error: `请填写审批原因（至少 ${ADMIN_EXPORT_REASON_MIN_LENGTH} 个字）`, statusCode: 400 };
+  }
+  const before = currentOpsConfig();
+  let next = null;
+  let sourceDraftId = '';
+  let sourceRevisionId = '';
+  let actionLabel = '配置发布审批';
+  if (action === 'draft_publish') {
+    sourceDraftId = String(body.draftId || body.sourceDraftId || '').trim();
+    const draft = ensureOpsConfigDrafts().find((item) => item.id === sourceDraftId);
+    if (!draft) return { error: '配置草稿不存在', statusCode: 404, code: 'ADMIN_CONFIG_DRAFT_NOT_FOUND' };
+    if (draft.status !== 'draft') return { error: '配置草稿已经处理，不能提交审批', statusCode: 409, code: 'ADMIN_CONFIG_DRAFT_ALREADY_HANDLED' };
+    next = normalizeOpsConfig({ ...cloneJson(draft.config), updatedAt: new Date().toISOString() });
+    actionLabel = `发布配置草稿 ${sourceDraftId}`;
+  } else if (action === 'rollback') {
+    sourceRevisionId = String(body.revisionId || body.sourceRevisionId || '').trim();
+    const revision = ensureOpsConfigRevisions().find((item) => item.id === sourceRevisionId);
+    if (!revision) return { error: '配置版本不存在', statusCode: 404, code: 'ADMIN_CONFIG_REVISION_NOT_FOUND' };
+    next = normalizeOpsConfig({ ...cloneJson(revision.config), updatedAt: new Date().toISOString() });
+    actionLabel = `回滚配置版本 ${sourceRevisionId}`;
+  } else {
+    next = buildOpsConfigPatch(before, body);
+    actionLabel = '立即发布配置';
+  }
+  const riskConfirmation = configRiskConfirmationResult(before, next, body, `approval_${action}`);
+  if (!riskConfirmation.confirmed) {
+    return {
+      data: riskConfirmation,
+      error: `高风险配置需要输入「${CONFIG_HIGH_RISK_CONFIRM_TEXT}」后才能提交审批`,
+      statusCode: 409,
+      code: 'ADMIN_CONFIG_RISK_CONFIRM_REQUIRED',
+    };
+  }
+  const policy = configApprovalPolicy();
+  const now = new Date();
+  const approval = normalizeOpsConfigApproval({
+    action,
+    baseConfig: before,
+    baseSummary: opsConfigSummary(before),
+    changeSummary: configChangeSummary(before, next),
+    config: next,
+    createdAt: now.toISOString(),
+    createdBy: admin?.username || 'admin',
+    expiresAt: new Date(now.getTime() + policy.approvalExpiresHours * 36e5).toISOString(),
+    id: `config-approval-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    reason,
+    riskChanges: configRiskChanges(before, next),
+    sourceDraftId,
+    sourceRevisionId,
+    status: 'pending_approval',
+    summary: opsConfigSummary(next),
+    updatedAt: now.toISOString(),
+  });
+  state.opsConfigApprovals = [approval, ...ensureOpsConfigApprovals()].slice(0, 80);
+  writeAdminAudit(admin, 'config.approval.create', 'ops_config_approval', approval.id, null, {
+    action,
+    actionLabel,
+    changeSummary: approval.changeSummary,
+    expiresAt: approval.expiresAt,
+    reason,
+    riskChanges: approval.riskChanges,
+    sourceDraftId,
+    sourceRevisionId,
+    summary: approval.summary,
+  }, reason);
+  saveState();
+  return {
+    approval: opsConfigApprovalItem(approval),
+    config: adminOpsConfigResponse(),
+  };
+}
+
+function approveOpsConfigApproval(admin, approvalId, body = {}) {
+  const approval = ensureOpsConfigApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '配置审批不存在', statusCode: 404, code: 'ADMIN_CONFIG_APPROVAL_NOT_FOUND' };
+  const currentStatus = opsConfigApprovalCurrentStatus(approval);
+  if (currentStatus !== 'pending_approval') return { error: `配置审批${opsConfigApprovalStatusLabel(currentStatus)}，不能发布`, statusCode: 409, code: 'ADMIN_CONFIG_APPROVAL_INVALID' };
+  if (JSON.stringify(configApprovalComparable(currentOpsConfig())) !== JSON.stringify(configApprovalComparable(approval.baseConfig))) {
+    return { error: '当前配置已经变化，请重新提交配置审批', statusCode: 409, code: 'ADMIN_CONFIG_APPROVAL_STALE' };
+  }
+  const beforeApproval = cloneJson(approval);
+  const before = currentOpsConfig();
+  const now = new Date().toISOString();
+  if (approval.sourceDraftId) {
+    const draft = ensureOpsConfigDrafts().find((item) => item.id === approval.sourceDraftId);
+    if (!draft) return { error: '配置草稿不存在，不能发布审批', statusCode: 404, code: 'ADMIN_CONFIG_DRAFT_NOT_FOUND' };
+    if (draft.status !== 'draft') return { error: '配置草稿已经处理，不能发布审批', statusCode: 409, code: 'ADMIN_CONFIG_DRAFT_ALREADY_HANDLED' };
+  }
+  const next = normalizeOpsConfig({ ...cloneJson(approval.config), updatedAt: now });
+  state.opsConfig = next;
+  const revisionAction = `approval_${approval.action}`;
+  const revision = recordOpsConfigRevision(admin, next, body.reason || approval.reason || opsConfigApprovalActionLabel(approval.action), revisionAction, approval.sourceDraftId || approval.sourceRevisionId || approval.id, before);
+  approval.status = 'approved';
+  approval.approvalReason = adminReason(body, '审批通过配置发布');
+  approval.approvedAt = now;
+  approval.approvedBy = admin?.username || 'admin';
+  approval.revisionId = revision.id;
+  approval.updatedAt = now;
+  if (approval.sourceDraftId) {
+    const draft = ensureOpsConfigDrafts().find((item) => item.id === approval.sourceDraftId);
+    if (draft) {
+      draft.status = 'published';
+      draft.publishedAt = now;
+      draft.publishedBy = admin?.username || 'admin';
+      draft.revisionId = revision.id;
+      draft.updatedAt = now;
+    }
+  }
+  writeAdminAudit(admin, 'config.approval.approve', 'ops_config_approval', approval.id, beforeApproval, {
+    ...approval,
+    revisionId: revision.id,
+  }, approval.approvalReason);
+  saveState();
+  return {
+    approval: opsConfigApprovalItem(approval),
+    config: adminOpsConfigResponse(),
+    revision,
+  };
+}
+
+function cancelOpsConfigApproval(admin, approvalId, body = {}) {
+  const approval = ensureOpsConfigApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '配置审批不存在', statusCode: 404, code: 'ADMIN_CONFIG_APPROVAL_NOT_FOUND' };
+  const currentStatus = opsConfigApprovalCurrentStatus(approval);
+  if (currentStatus !== 'pending_approval') return { error: `配置审批${opsConfigApprovalStatusLabel(currentStatus)}，不能取消`, statusCode: 409, code: 'ADMIN_CONFIG_APPROVAL_INVALID' };
+  const before = cloneJson(approval);
+  approval.status = 'canceled';
+  approval.canceledAt = new Date().toISOString();
+  approval.canceledBy = admin?.username || 'admin';
+  approval.cancelReason = adminReason(body, '取消配置审批');
+  approval.updatedAt = approval.canceledAt;
+  writeAdminAudit(admin, 'config.approval.cancel', 'ops_config_approval', approval.id, before, approval, approval.cancelReason);
+  saveState();
+  return {
+    approval: opsConfigApprovalItem(approval),
+    config: adminOpsConfigResponse(),
+  };
 }
 
 function configLinkageValue(config, key) {
@@ -1454,6 +1768,17 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       userImpact: '影响后台可回看多少天的 App 行为事件。',
     },
     {
+      backendEvidence: 'PATCH /admin/config、发布草稿和回滚版本会读取 currentOpsConfig().configApproval.requireApproval；开启后必须先创建并审批配置发布申请。',
+      backendEnforced: true,
+      group: '配置治理',
+      key: 'configApproval.requireApproval',
+      label: '配置发布审批',
+      mobileApplied: false,
+      mobileEvidence: '移动端不读取配置发布审批本身；审批通过后才会更新 /app/config，从而影响移动端功能开关、公告、维护和额度。',
+      operatorNote: '当前为单 admin 审批闭环；生产多管理员上线后可升级为审批人/申请人分离和双人审批。',
+      userImpact: '不直接改变 App 展示，但会降低误发布维护、强更、关闭功能等高风险配置的概率。',
+    },
+    {
       backendEvidence: 'socialChatContentViolation 实时读取 moderation 配置，命中后阻断或送审小事、评论、地点内容。',
       backendEnforced: true,
       group: '内容安全',
@@ -1662,15 +1987,20 @@ function adminOpsConfigResponse() {
   const linkageItems = adminConfigLinkageItems(config);
   const drafts = adminOpsConfigDrafts();
   const activeDrafts = drafts.filter((draft) => draft.status === 'draft');
+  const approvals = adminOpsConfigApprovals();
   return {
     ...config,
+    approvals,
     contentSafety: adminContentSafetyStatus(config),
     drafts,
     governance: {
       activeDrafts: activeDrafts.length,
+      approvalRequired: approvals.policy.requireApproval,
+      approvalExpiresHours: approvals.policy.approvalExpiresHours,
       highRiskConfirmText: CONFIG_HIGH_RISK_CONFIRM_TEXT,
       highRiskDrafts: activeDrafts.filter((draft) => (draft.riskChanges || []).some((risk) => risk.severity === 'P0')).length,
       latestDraftAt: drafts[0]?.updatedAt || '',
+      pendingApprovals: approvals.summary.pending,
     },
     linkage: {
       items: linkageItems,
@@ -2812,6 +3142,7 @@ function loadState() {
         ...initialState.mediaUploads,
         ...(loadedState.mediaUploads || {}),
       },
+      opsConfigApprovals: Array.isArray(loadedState.opsConfigApprovals) ? loadedState.opsConfigApprovals : initialState.opsConfigApprovals,
       opsConfigDrafts: Array.isArray(loadedState.opsConfigDrafts) ? loadedState.opsConfigDrafts : initialState.opsConfigDrafts,
       opsConfig: normalizeOpsConfig(loadedState.opsConfig || initialState.opsConfig),
       placeModerationTemplates: Array.isArray(loadedState.placeModerationTemplates) ? loadedState.placeModerationTemplates : initialState.placeModerationTemplates,
@@ -13214,6 +13545,7 @@ function adminPermissionCatalog() {
     ['notification.send', '发送、预约、撤回系统通知', '通知'],
     ['notification.approve', '提交和审批系统通知', '通知'],
     ['config.update', '修改移动端联动配置', '配置'],
+    ['config.approve', '提交和审批配置发布', '配置'],
     ['config.draft', '创建、发布、废弃配置草稿', '配置'],
     ['config.rollback', '回滚配置版本', '配置'],
     ['audit.view', '查看审计日志', '审计'],
@@ -13473,9 +13805,9 @@ function adminReadinessModules(context) {
       module: '配置中心',
       group: '配置',
       status: hasConfigReserved ? 'partial' : 'ready',
-      evidence: '配置可保存草稿、立即发布、草稿发布/废弃、版本化、回滚和审计，已展示前后端联动体检与高风险摘要。',
+      evidence: '配置可保存草稿、提交发布审批、审批发布、立即发布、草稿发布/废弃、版本化、回滚和审计，已展示前后端联动体检与高风险摘要。',
       mobileLinkage: '移动端读取 /app/config 后应用功能开关、维护、公告、更新、启动提示、额度和附近策略。',
-      nextStep: '生产期补双人审批、定时发布和 A/B 实验分流。',
+      nextStep: '生产期补多管理员双人审批、定时发布和 A/B 实验分流。',
     },
     {
       key: 'exports_audit',
@@ -13515,7 +13847,7 @@ function adminReadinessQuestions(context = {}) {
     ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏，不开放完整手机号导出。', '影响隐私合规和数据泄露风险。'],
     ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '当前已记录基础贡献积分并通知提交人，但不做用户端公开展示或奖励兑换。', '影响地点生态激励。'],
     ['q-notification-approval', 'P1', '系统通知是否需要发送审批？', '已接入单 admin 发送审批流和“强制审批”配置开关；生产期若需要双人审批，可在此基础上接多管理员复核。', '影响误发和运营风险。', 'ready', '已接入'],
-    ['q-config-approval', 'P0', '配置强制更新、维护模式、全功能关闭是否必须审批？', '当前保存即发布并记录版本，可回滚。', '影响事故风险和发布治理。'],
+    ['q-config-approval', 'P0', '配置强制更新、维护模式、全功能关闭是否必须审批？', '已接入单 admin 配置发布审批流和“强制配置发布审批”开关；生产期若需要双人审批，可在此基础上接多管理员复核。', '影响事故风险和发布治理。', 'ready', '已接入'],
     ['q-compliance-text', 'P0', 'App 备案、隐私政策、内容审核制度是否已准备生产版文本？', '当前代码层面不可替代法务/合规文本确认。', '影响正式上线合规。'],
   ].map(([id, priority, question, currentPolicy, impact, status = 'open', statusLabel = '待确认']) => ({
     currentPolicy,
@@ -13584,8 +13916,8 @@ function adminReadinessGaps(context) {
       area: '高风险操作',
       severity: 'P1',
       status: 'partial',
-      issue: '处罚、配置发布、强制通知、数据清理和敏感导出没有双人审批。',
-      requiredAction: '接操作审批表、审批状态、撤回/驳回、审批审计和超时处理。',
+      issue: '配置发布、强制通知和敏感导出已有单 admin 审批；处罚、数据清理仍缺审批，所有高风险动作仍缺多管理员双人审批。',
+      requiredAction: '补审批人/申请人分离、双人审批、撤回/驳回、审批通知和超时处理。',
       evidence: '账号权限页已预留 super_admin / ops_admin / auditor',
     },
     {
@@ -18912,7 +19244,44 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/config/approvals') {
+    ok(res, adminOpsConfigApprovals({
+      limit: url.searchParams.get('limit') || 20,
+      status: url.searchParams.get('status') || 'open',
+    }));
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/config/approvals') {
+    const result = createOpsConfigApproval(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, result.data, result.code || 'ADMIN_CONFIG_APPROVAL_INVALID');
+      return true;
+    }
+    ok(res, { ...result.config, approval: result.approval });
+    return true;
+  }
+
+  const adminConfigApprovalActionMatch = pathname.match(/^\/admin\/config\/approvals\/([^/]+)\/(approve|cancel)$/);
+  if (req.method === 'POST' && adminConfigApprovalActionMatch) {
+    const approvalId = decodeURIComponent(adminConfigApprovalActionMatch[1]);
+    const action = adminConfigApprovalActionMatch[2];
+    const result = action === 'approve'
+      ? approveOpsConfigApproval(admin, approvalId, body)
+      : cancelOpsConfigApproval(admin, approvalId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_CONFIG_APPROVAL_ACTION_INVALID');
+      return true;
+    }
+    ok(res, { ...result.config, approval: result.approval, revision: result.revision });
+    return true;
+  }
+
   if (req.method === 'PATCH' && pathname === '/admin/config') {
+    if (configPublishApprovalRequired()) {
+      fail(res, 409, '当前配置要求先提交并审批配置发布申请', false, configPublishApprovalRequiredResult('publish'), 'ADMIN_CONFIG_APPROVAL_REQUIRED');
+      return true;
+    }
     const before = currentOpsConfig();
     const next = buildOpsConfigPatch(before, body);
     const riskConfirmation = configRiskConfirmationResult(before, next, body, 'publish');
@@ -18966,6 +19335,10 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       ok(res, { ...adminOpsConfigResponse(), draft });
       return true;
     }
+    if (configPublishApprovalRequired()) {
+      fail(res, 409, '当前配置要求先提交并审批配置发布申请', false, configPublishApprovalRequiredResult('draft_publish'), 'ADMIN_CONFIG_APPROVAL_REQUIRED');
+      return true;
+    }
     const before = currentOpsConfig();
     const next = normalizeOpsConfig({ ...cloneJson(draft.config), updatedAt: now });
     const riskConfirmation = configRiskConfirmationResult(before, next, body, 'draft_publish');
@@ -18992,6 +19365,10 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     const revision = ensureOpsConfigRevisions().find((item) => item.id === revisionId);
     if (!revision) {
       fail(res, 404, '配置版本不存在', false, undefined, 'ADMIN_CONFIG_REVISION_NOT_FOUND');
+      return true;
+    }
+    if (configPublishApprovalRequired()) {
+      fail(res, 409, '当前配置要求先提交并审批配置回滚申请', false, configPublishApprovalRequiredResult('rollback'), 'ADMIN_CONFIG_APPROVAL_REQUIRED');
       return true;
     }
     const before = currentOpsConfig();

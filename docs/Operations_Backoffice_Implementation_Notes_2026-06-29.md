@@ -9,7 +9,7 @@
 - 后台 API：`/admin/*`
 - 移动端公开配置：`/app/config`
 - 移动端已经开始读取后台配置，避免后台和 App 割裂。
-- 第一版仅支持单一 `admin` 权限管理员；细角色和双人审批先预留。数据导出已接入单 admin 审批流，可在配置中心强制开启。
+- 第一版仅支持单一 `admin` 权限管理员；细角色和双人审批先预留。配置发布、系统通知和数据导出已接入单 admin 审批流，可在配置中心强制开启。
 
 ## 2. Product Design 设计 brief
 
@@ -392,6 +392,10 @@
 
 - `GET /admin/config`
 - `PATCH /admin/config`
+- `GET /admin/config/approvals`
+- `POST /admin/config/approvals`
+- `POST /admin/config/approvals/{approvalId}/approve`
+- `POST /admin/config/approvals/{approvalId}/cancel`
 - `POST /admin/config/revisions/{revisionId}/rollback`
 - `GET /app/config`
 
@@ -399,6 +403,8 @@
 
 - `ai.petAvatarDailyLimit`
 - `ai.petChatDailyLimit`
+- `configApproval.requireApproval`
+- `configApproval.approvalExpiresHours`
 - `social.petCircleMaxPhotos`
 - `social.discoverRadiusKm`
 - `social.nearbyMomentTtlDays`
@@ -464,11 +470,18 @@
 - `POST /admin/config/drafts` 可把当前表单保存为配置草稿，不影响移动端 `/app/config`。
 - `POST /admin/config/drafts/{draftId}/publish` 发布草稿，写入当前配置、生成 `draft_publish` 版本，并影响移动端下次拉取。
 - `POST /admin/config/drafts/{draftId}/discard` 废弃草稿，保留审计记录。
+- `POST /admin/config/approvals` 可提交立即发布、草稿发布或回滚版本的审批申请，不影响移动端 `/app/config`。
+- `POST /admin/config/approvals/{approvalId}/approve` 审批通过后才会写入当前配置、生成 `approval_publish` / `approval_draft_publish` / `approval_rollback` 版本，并影响移动端下次拉取。
+- `POST /admin/config/approvals/{approvalId}/cancel` 可取消待审批配置申请。
 - 配置中心页面已展示每个配置项是否“前后端联动 / 后端强制 / 移动端联动 / 预留”，并列出后端证据、移动端证据、用户影响和运营备注。
-- 配置中心页面新增“配置发布治理”区，展示待发布草稿、高风险草稿、最近草稿时间和配置版本数。
+- 配置中心页面新增“配置发布治理”区，展示待发布草稿、高风险草稿、待审批配置、最近草稿时间和配置版本数。
 - 配置草稿和版本历史会记录变更摘要与风险项，当前高风险项覆盖维护模式、强制更新、核心功能开关、内容安全总开关、腾讯云机审开关和关键词规则。
 - 高风险配置发布确认已接入：`PATCH /admin/config`、发布草稿、回滚版本命中 P0/P1 风险时，后端返回 `ADMIN_CONFIG_RISK_CONFIRM_REQUIRED`；后台展示风险摘要，要求输入 `确认发布高风险配置` 后才会重试发布。
 - 独立文档：[Operations_Backoffice_Config_Risk_Confirmation_2026-07-01.md](Operations_Backoffice_Config_Risk_Confirmation_2026-07-01.md)。
+- 配置发布审批已接入：配置中心新增 `configApproval.requireApproval` 和 `configApproval.approvalExpiresHours`；开启强制审批后，直接发布、发布草稿和回滚版本会返回 `ADMIN_CONFIG_APPROVAL_REQUIRED`，必须先提交审批。
+- 审批通过时会校验当前配置是否仍等于提交审批时的基线配置；如果期间配置已变化，会返回 `ADMIN_CONFIG_APPROVAL_STALE`，要求重新提交审批。
+- 配置审批创建、审批通过、取消分别写入 `config.approval.create`、`config.approval.approve`、`config.approval.cancel`。
+- 独立文档：[Operations_Backoffice_Config_Approval_2026-07-01.md](Operations_Backoffice_Config_Approval_2026-07-01.md)。
 - 数据导出新增配置联动体检 CSV。
 - 独立文档：[Operations_Backoffice_Config_Linkage_2026-06-30.md](Operations_Backoffice_Config_Linkage_2026-06-30.md)。
 - 后台配置页展示最近 12 个配置版本，后端最多保留最近 80 个快照。
@@ -477,6 +490,7 @@
 - 回滚会把当前配置恢复到目标版本快照，同时生成一条新的 `rollback` 版本，并记录 `sourceRevisionId`。
 - 回滚动作写入审计日志，action 为 `config.rollback`；普通保存写入 `config.update`。
 - 草稿创建、发布、废弃分别写入 `config.draft.create`、`config.draft.publish`、`config.draft.discard`。
+- 新增回归脚本：`node scripts/smoke-config-approval.cjs`，覆盖强制审批、直接发布拦截、审批后 `/app/config` 生效、草稿审批、回滚审批和审计日志。
 - 移动端无需改包，下一次读取 `/app/config` 后立即按回滚后的功能开关、维护模式、公告、更新策略、图片上限、附近半径和附近小事展示天数等配置生效。
 
 移动端暂未完整接入：暂无。
@@ -854,5 +868,5 @@
 2. 内容安全模型接入：第三方文本/图片审核、规则命中回标、模型样本沉淀和误杀回收。
 3. 客服工单进阶：客服质检制度、抽检申诉规则、周/月 KPI 锁账、外包真实付款审批/导出/税费、批量回复双人审批和撤回策略。
 4. 通知运营进阶：厂商 Push、厂商回执和多管理员双人审批。
-5. 配置发布治理进阶：配置草稿、发布审批和 A/B 策略实验。
+5. 配置发布治理进阶：多管理员双人审批、定时发布、灰度和 A/B 策略实验。
 6. 后台静态资源和 API 增加更细权限与更完整审计字段。
