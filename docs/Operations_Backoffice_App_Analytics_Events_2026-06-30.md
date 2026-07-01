@@ -55,6 +55,12 @@
 | --- | --- | --- |
 | `app.page_view` | 页面切换 | 全局 route 变化 |
 | `home.module_exposure` | 首页模块曝光 | 进入首页后记录宠物主视觉、AI 对话入口、宠物日历、附近小事、快捷入口 |
+| `config.announcement_impression` | App 公告展示 | `/app/config` 下发公告弹窗且弹窗真实展示 |
+| `config.announcement_action` | App 公告主按钮点击 | 公告弹窗主按钮，包含“知道了”和有跳转的按钮 |
+| `config.splash_impression` | 启动提示展示 | `/app/config` 下发启动提示且弹窗真实展示 |
+| `config.splash_action` | 启动提示主按钮点击 | 启动提示主按钮，包含“知道了”和有跳转的按钮 |
+| `config.update_impression` | 更新提示展示 | 版本策略命中后展示强更或普通更新弹窗 |
+| `config.update_action` | 更新提示主按钮点击 | 更新弹窗“立即更新”点击；属性只记录是否强更、版本和是否配置下载地址 |
 | `ai_avatar.entry_click` | AI 形象入口点击 | 宠物详情重新生成入口 |
 | `ai_avatar.start` | AI 形象开始生成 | 首次生成或重新生成成功创建任务 |
 | `ai_avatar.success` | AI 形象生成成功 | 生成任务返回可确认结果 |
@@ -80,6 +86,12 @@
 | `map.navigation_open` | 打开高德导航 | 地点详情导航 |
 | `notification.open` | 点击通知；系统通知会携带 `campaignId` / `notificationId` 用于批次点击率 | 通知中心 |
 | `support.open` | 进入反馈进度 | 工单/反馈入口 |
+
+## 配置触达口径
+
+公告、启动提示和更新提示复用 `/analytics/events`，后台 `GET /admin/analytics` 会在 `summary.configPrompts` 返回展示、主按钮点击和点击率；数据看板同步展示“配置触达”和“配置展示/点击”趋势。
+
+移动端同一会话内对同一配置版本的曝光只上报一次，避免因为 React state 刷新或页面切换造成重复曝光。主按钮点击不去重，用于观察用户是否真正点了“知道了/跳转/立即更新”。
 
 ## 隐私与数据最小化
 

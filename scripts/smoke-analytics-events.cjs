@@ -183,6 +183,12 @@ async function main() {
     await track(userToken, 'pet_circle.comment_click', { source: 'discover_card' });
     await track(userToken, 'pet_circle.greeting_click', { source: 'discover_card' });
     await track(userToken, 'pet_circle.walk_invite_click', { source: 'owner_sheet' });
+    await track(userToken, 'config.announcement_impression', { actionRoute: 'discover', hasActionRoute: true, version: 'smoke-announcement' });
+    await track(userToken, 'config.announcement_action', { action: 'primary', actionRoute: 'discover', hasActionRoute: true, version: 'smoke-announcement' });
+    await track(userToken, 'config.splash_impression', { actionRoute: 'home', hasActionRoute: true, version: 'smoke-splash' });
+    await track(userToken, 'config.splash_action', { action: 'primary', actionRoute: 'home', hasActionRoute: true, version: 'smoke-splash' });
+    await track(userToken, 'config.update_impression', { force: false, latestVersion: '9.9.9', minVersion: '1.0.0', version: '9.9.9' });
+    await track(userToken, 'config.update_action', { action: 'primary', force: false, latestVersion: '9.9.9', minVersion: '1.0.0', urlConfigured: true, version: '9.9.9' });
 
     const invalid = await request('/analytics/events', {
       body: { name: 'unknown.event' },
@@ -205,8 +211,18 @@ async function main() {
     assert.equal(summary.social.commentClicks, 1);
     assert.equal(summary.social.greetingClicks, 1);
     assert.equal(summary.social.walkInviteClicks, 1);
+    assert.equal(summary.configPrompts.announcementImpressions, 1);
+    assert.equal(summary.configPrompts.announcementActions, 1);
+    assert.equal(summary.configPrompts.splashImpressions, 1);
+    assert.equal(summary.configPrompts.splashActions, 1);
+    assert.equal(summary.configPrompts.updateImpressions, 1);
+    assert.equal(summary.configPrompts.updateActions, 1);
+    assert.equal(summary.configPrompts.totalImpressions, 3);
+    assert.equal(summary.configPrompts.totalActions, 3);
+    assert.equal(summary.configPrompts.totalActionRate, 100);
     assert.ok(analytics.data.buckets.some((bucket) => bucket.homeModuleExposures === 5), 'bucket should include home exposure count');
     assert.ok(analytics.data.buckets.some((bucket) => bucket.petCircleCardExposures === 4), 'bucket should include pet circle card exposure count');
+    assert.ok(analytics.data.buckets.some((bucket) => bucket.configAnnouncementImpressions === 1 && bucket.configUpdateActions === 1), 'bucket should include config prompt events');
 
     console.log('analytics events smoke passed');
   } finally {

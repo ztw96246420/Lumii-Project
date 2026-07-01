@@ -2024,6 +2024,7 @@ async function renderAnalytics(force) {
   const places = summary.places || {};
   const safety = summary.safety || {};
   const events = summary.events || {};
+  const configPrompts = summary.configPrompts || {};
   const aiFrontendStarts = ai.avatarFrontendStarts ?? 0;
   const aiFrontendSuccesses = ai.avatarFrontendSuccesses ?? 0;
   const aiFrontendFailures = ai.avatarFrontendFailures ?? 0;
@@ -2038,6 +2039,7 @@ async function renderAnalytics(force) {
       ${metric('宠友圈小事', numberText(social.posts), `${numberText(social.images)} 张图 · ${numberText(social.comments)} 条评论`, '来自移动端发布、图片、评论和点赞的当前业务数据。')}
       ${metric('小事前端互动', numberText(petCircleFrontendClicks), `${numberText(social.cardExposures || events.petCircleCardExposures || 0)} 次卡片曝光`, '来自移动端小事卡片曝光、点赞、评论、招呼和约遛点击事件；用于衡量列表浏览到互动的转化。')}
       ${metric('移动端事件', numberText(events.total), `${numberText(events.uniqueUsers)} 位用户 · ${numberText(events.sampleRatePercent)}%采样`, `埋点${events.enabled === false ? '已关闭' : '已开启'}，保留 ${numberText(events.retentionDays || 30)} 天。`)}
+      ${metric('配置触达', numberText(configPrompts.totalImpressions || 0), `${numberText(configPrompts.totalActions || 0)} 次点击 · ${percentText(configPrompts.totalActionRate || 0)}`, '来自公告、启动提示和版本更新弹窗的展示与主按钮点击事件；用于判断后台配置是否真的触达用户。')}
       ${metric('地图行为', numberText(places.mapOpens), `搜索 ${numberText(places.poiSearches)} · 详情 ${numberText(places.placeDetailViews)}`, '来自移动端地图打开、POI 搜索和地点详情查看事件。')}
       ${metric('安全任务', numberText(safety.moderationTasks), `${numberText(safety.handledModerationTasks)} 已处理`, '统一内容安全任务池：举报、被举报内容、地点点评和新增地点。')}
       ${metric('安全样本复审', numberText(safety.sampleUnreviewed || 0), `复审率 ${percentText(safety.sampleReviewRate)} · 误杀/漏杀 ${numberText(safety.falsePositive || 0)}/${numberText(safety.falseNegative || 0)}`, '风险命中和抽样复审沉淀到样本池；待复审越高，说明规则质量需要运营回看。')}
@@ -2077,7 +2079,7 @@ async function renderAnalytics(force) {
         <div class="section-head">
           <div>
             <h2>移动端行为</h2>
-            <div class="section-sub">页面、发现、地图、地点和通知点击</div>
+            <div class="section-sub">页面、发现、地图、通知和配置触达</div>
           </div>
           ${help('事件只记录计数和非敏感属性；不存搜索词、地址、经纬度、正文、图片 URL。')}
         </div>
@@ -2113,6 +2115,7 @@ async function renderAnalytics(force) {
           <div><span>发现曝光事件</span><strong>${numberText(events.discoverExposures)}</strong></div>
           <div><span>地图打开事件</span><strong>${numberText(events.mapOpens)}</strong></div>
           <div><span>地点详情事件</span><strong>${numberText(events.placeDetailViews)}</strong></div>
+          <div><span>配置触达点击率</span><strong>${percentText(configPrompts.totalActionRate || 0)}</strong></div>
           <div><span>地点审核通过率</span><strong>${percentText(places.approvalRate)}</strong></div>
           <div><span>举报有效率</span><strong>${percentText(safety.reportValidRate)}</strong></div>
           <div><span>安全样本复审率</span><strong>${percentText(safety.sampleReviewRate)}</strong></div>
@@ -2146,7 +2149,7 @@ async function renderAnalytics(force) {
         ['AI', (row) => `<div>形象 ${escapeHtml(row.avatarStarted)}</div><div class="cell-sub">对话 ${escapeHtml(row.petChatRequests)}</div>`],
         ['宠物日历', (row) => `<div>体重 ${escapeHtml(row.healthWeights)}</div><div class="cell-sub">备忘 ${escapeHtml(row.healthMemos)} · 疫苗 ${escapeHtml(row.healthVaccines)}</div>`],
         ['社交', (row) => `<div>小事 ${escapeHtml(row.socialPosts)} · 评论 ${escapeHtml(row.socialComments)}</div><div class="cell-sub">招呼 ${escapeHtml(row.greetings)} · 约遛 ${escapeHtml(row.walkInvites)}</div>`],
-        ['事件', (row) => `<div>页面 ${escapeHtml(row.pageViews)} · 发现 ${escapeHtml(row.discoverExposures)}</div><div class="cell-sub">地图 ${escapeHtml(row.mapOpens)} · POI ${escapeHtml(row.poiSearches)}</div>`],
+        ['事件', (row) => `<div>页面 ${escapeHtml(row.pageViews)} · 发现 ${escapeHtml(row.discoverExposures)}</div><div class="cell-sub">地图 ${escapeHtml(row.mapOpens)} · 配置 ${escapeHtml((row.configAnnouncementImpressions || 0) + (row.configSplashImpressions || 0) + (row.configUpdateImpressions || 0))}/${escapeHtml((row.configAnnouncementActions || 0) + (row.configSplashActions || 0) + (row.configUpdateActions || 0))}</div>`],
         ['运营', (row) => `<div>审核 ${escapeHtml(row.moderationTasks)} · 样本 ${escapeHtml(row.moderationSamples || 0)}</div><div class="cell-sub">复审 ${escapeHtml(row.moderationSampleReviews || 0)} · 工单 ${escapeHtml(row.tickets)}</div>`],
       ], '暂无日汇总')}
     </div>
@@ -2222,6 +2225,8 @@ function renderAnalyticsCharts(data) {
       { name: '地点详情', smooth: true, type: 'line', data: buckets.map((item) => item.placeDetailViews) },
       { name: '通知点击', smooth: true, type: 'line', data: buckets.map((item) => item.notificationOpens) },
       { name: '系统通知点击', smooth: true, type: 'line', data: buckets.map((item) => item.systemNotificationOpens || 0) },
+      { name: '配置展示', smooth: true, type: 'line', data: buckets.map((item) => (item.configAnnouncementImpressions || 0) + (item.configSplashImpressions || 0) + (item.configUpdateImpressions || 0)) },
+      { name: '配置点击', smooth: true, type: 'line', data: buckets.map((item) => (item.configAnnouncementActions || 0) + (item.configSplashActions || 0) + (item.configUpdateActions || 0)) },
     ],
   });
   renderChart('analyticsOpsChart', {

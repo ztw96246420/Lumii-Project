@@ -2185,6 +2185,7 @@ export default function LumiiMvpApp() {
   const [appSplashVisible, setAppSplashVisible] = useState(false);
   const [appUpdateVisible, setAppUpdateVisible] = useState(false);
   const remoteConfigRef = useRef<AppRemoteConfig>(fallbackRemoteConfig);
+  const appConfigPromptImpressionKeysRef = useRef<Set<string>>(new Set());
   const activePetIdRef = useRef<string | null>(null);
   const phoneInputRef = useRef<TextInput>(null);
   const phoneValueRef = useRef('');
@@ -2577,6 +2578,27 @@ export default function LumiiMvpApp() {
     });
   }
 
+  function trackAppConfigPromptImpression(name: AppAnalyticsEventName, prompt: 'announcement' | 'splash' | 'update', version: string, properties: Record<string, boolean | number | string | undefined> = {}) {
+    const safeVersion = String(version || 'unversioned').slice(0, 60);
+    const eventKey = `${name}:${prompt}:${safeVersion}`;
+    if (appConfigPromptImpressionKeysRef.current.has(eventKey)) return;
+    appConfigPromptImpressionKeysRef.current.add(eventKey);
+    trackAppEvent(name, {
+      ...properties,
+      prompt,
+      version: safeVersion,
+    });
+  }
+
+  function trackAppConfigPromptAction(name: AppAnalyticsEventName, prompt: 'announcement' | 'splash' | 'update', version: string, properties: Record<string, boolean | number | string | undefined> = {}) {
+    trackAppEvent(name, {
+      ...properties,
+      action: 'primary',
+      prompt,
+      version: String(version || 'unversioned').slice(0, 60),
+    });
+  }
+
   function trackHomeModuleExposures(source = 'route') {
     const pet = getCurrentPet();
     if (!pet) return;
@@ -2700,6 +2722,37 @@ export default function LumiiMvpApp() {
       cancelled = true;
     };
   }, [appAnnouncement?.body, appAnnouncement?.enabled, appAnnouncement?.title, appAnnouncementSeenKey, appSplashVisible, appUpdateRequired, isHomePreviewMode, maintenanceEnabled, session?.phone]);
+
+  useEffect(() => {
+    if (!appUpdateVisible || !appUpdate?.enabled || !appUpdateVersionKey) return;
+    trackAppConfigPromptImpression('config.update_impression', 'update', appUpdateVersionKey, {
+      force: appUpdateRequired,
+      latestVersion: appUpdateLatestVersion,
+      minVersion: appUpdateMinVersion,
+      rolloutPercent: appUpdateRolloutPercent,
+      source: appUpdateRequired ? 'force_update_modal' : 'update_modal',
+    });
+  }, [appUpdate?.enabled, appUpdateLatestVersion, appUpdateMinVersion, appUpdateRequired, appUpdateRolloutPercent, appUpdateVersionKey, appUpdateVisible]);
+
+  useEffect(() => {
+    if (!appSplashVisible || !appSplash?.enabled || !appSplashVersion) return;
+    const actionRoute = normalizeNotificationActionRoute(appSplash.actionRoute || '');
+    trackAppConfigPromptImpression('config.splash_impression', 'splash', appSplashVersion, {
+      actionRoute: actionRoute || '',
+      hasActionRoute: Boolean(actionRoute),
+      source: 'splash_modal',
+    });
+  }, [appSplash?.actionRoute, appSplash?.enabled, appSplashVersion, appSplashVisible]);
+
+  useEffect(() => {
+    if (!appAnnouncementVisible || !appAnnouncement?.enabled || !appAnnouncementVersion) return;
+    const actionRoute = normalizeNotificationActionRoute(appAnnouncement.actionRoute || '');
+    trackAppConfigPromptImpression('config.announcement_impression', 'announcement', appAnnouncementVersion, {
+      actionRoute: actionRoute || '',
+      hasActionRoute: Boolean(actionRoute),
+      source: 'announcement_modal',
+    });
+  }, [appAnnouncement?.actionRoute, appAnnouncement?.enabled, appAnnouncementVersion, appAnnouncementVisible]);
 
   useEffect(() => {
     if (!memoReminderPickerKind) return;
@@ -4955,18 +5008,36 @@ export default function LumiiMvpApp() {
 
   async function openAppAnnouncementAction() {
     const actionRoute = normalizeNotificationActionRoute(appAnnouncement?.actionRoute || '');
+    trackAppConfigPromptAction('config.announcement_action', 'announcement', appAnnouncementVersion, {
+      actionRoute: actionRoute || '',
+      hasActionRoute: Boolean(actionRoute),
+      source: 'announcement_modal',
+    });
     await dismissAppAnnouncement();
     if (actionRoute) go(actionRoute);
   }
 
   async function openAppSplashAction() {
     const actionRoute = normalizeNotificationActionRoute(appSplash?.actionRoute || '');
+    trackAppConfigPromptAction('config.splash_action', 'splash', appSplashVersion, {
+      actionRoute: actionRoute || '',
+      hasActionRoute: Boolean(actionRoute),
+      source: 'splash_modal',
+    });
     await dismissAppSplash();
     if (actionRoute) go(actionRoute);
   }
 
   async function openAppUpdateAction() {
     const targetUrl = getAppUpdateTargetUrl(appUpdate);
+    trackAppConfigPromptAction('config.update_action', 'update', appUpdateVersionKey, {
+      force: appUpdateRequired,
+      latestVersion: appUpdateLatestVersion,
+      minVersion: appUpdateMinVersion,
+      rolloutPercent: appUpdateRolloutPercent,
+      source: appUpdateRequired ? 'force_update_modal' : 'update_modal',
+      urlConfigured: Boolean(targetUrl),
+    });
     if (!targetUrl) {
       showToast('更新下载地址未配置', { tone: 'warning', variant: 'surface' });
       return;

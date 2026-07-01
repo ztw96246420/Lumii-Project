@@ -12051,6 +12051,12 @@ const APP_EVENT_ALLOWED_NAMES = new Set([
   'ai_avatar.start',
   'ai_avatar.success',
   'app.page_view',
+  'config.announcement_action',
+  'config.announcement_impression',
+  'config.splash_action',
+  'config.splash_impression',
+  'config.update_action',
+  'config.update_impression',
   'discover.filter',
   'discover.owners_loaded',
   'discover.pet_circle_load_more',
@@ -12081,6 +12087,12 @@ const APP_EVENT_LABELS = {
   'ai_avatar.start': 'AI 形象开始生成',
   'ai_avatar.success': 'AI 形象生成成功',
   'app.page_view': '页面浏览',
+  'config.announcement_action': '公告主按钮点击',
+  'config.announcement_impression': '公告展示',
+  'config.splash_action': '启动提示主按钮点击',
+  'config.splash_impression': '启动提示展示',
+  'config.update_action': '更新提示主按钮点击',
+  'config.update_impression': '更新提示展示',
   'discover.filter': '发现筛选',
   'discover.owners_loaded': '附近伙伴加载',
   'discover.pet_circle_load_more': '小事加载更多',
@@ -12305,6 +12317,12 @@ function analyticsWindow(daysInput) {
       avatarFailed: 0,
       avatarReady: 0,
       avatarStarted: 0,
+      configAnnouncementActions: 0,
+      configAnnouncementImpressions: 0,
+      configSplashActions: 0,
+      configSplashImpressions: 0,
+      configUpdateActions: 0,
+      configUpdateImpressions: 0,
       conversationMessages: 0,
       date: day,
       discoverExposures: 0,
@@ -12479,6 +12497,12 @@ function adminAnalytics(options = {}) {
     if (event.name === 'ai_avatar.success') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'aiAvatarSuccesses');
     if (event.name === 'ai_avatar.failure') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'aiAvatarFailures');
     if (event.name === 'app.page_view') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'pageViews');
+    if (event.name === 'config.announcement_impression') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'configAnnouncementImpressions');
+    if (event.name === 'config.announcement_action') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'configAnnouncementActions');
+    if (event.name === 'config.splash_impression') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'configSplashImpressions');
+    if (event.name === 'config.splash_action') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'configSplashActions');
+    if (event.name === 'config.update_impression') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'configUpdateImpressions');
+    if (event.name === 'config.update_action') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'configUpdateActions');
     if (event.name === 'discover.view' || event.name === 'discover.owners_loaded' || event.name === 'discover.pet_circle_loaded') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'discoverExposures');
     if (event.name === 'home.module_exposure') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'homeModuleExposures', eventAmount);
     if (event.name === 'map.open') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'mapOpens');
@@ -12512,6 +12536,14 @@ function adminAnalytics(options = {}) {
   const windowAppEvents = appEvents.filter((event) => bucketMap.has(analyticsDateKey(event.createdAt || event.occurredAt)));
   const appEventUsers = new Set(windowAppEvents.map((event) => event.phone).filter(Boolean));
   const config = currentOpsConfig();
+  const configAnnouncementImpressions = sumAnalyticsBuckets(buckets, 'configAnnouncementImpressions');
+  const configAnnouncementActions = sumAnalyticsBuckets(buckets, 'configAnnouncementActions');
+  const configSplashImpressions = sumAnalyticsBuckets(buckets, 'configSplashImpressions');
+  const configSplashActions = sumAnalyticsBuckets(buckets, 'configSplashActions');
+  const configUpdateImpressions = sumAnalyticsBuckets(buckets, 'configUpdateImpressions');
+  const configUpdateActions = sumAnalyticsBuckets(buckets, 'configUpdateActions');
+  const configPromptImpressions = configAnnouncementImpressions + configSplashImpressions + configUpdateImpressions;
+  const configPromptActions = configAnnouncementActions + configSplashActions + configUpdateActions;
 
   return {
     buckets,
@@ -12546,6 +12578,20 @@ function adminAnalytics(options = {}) {
         reminderEnabled: vaccineReminderIds.length,
         vaccines: sumAnalyticsBuckets(buckets, 'healthVaccines'),
         weights: sumAnalyticsBuckets(buckets, 'healthWeights'),
+      },
+      configPrompts: {
+        announcementActionRate: analyticsPercent(configAnnouncementActions, configAnnouncementImpressions),
+        announcementActions: configAnnouncementActions,
+        announcementImpressions: configAnnouncementImpressions,
+        splashActionRate: analyticsPercent(configSplashActions, configSplashImpressions),
+        splashActions: configSplashActions,
+        splashImpressions: configSplashImpressions,
+        totalActionRate: analyticsPercent(configPromptActions, configPromptImpressions),
+        totalActions: configPromptActions,
+        totalImpressions: configPromptImpressions,
+        updateActionRate: analyticsPercent(configUpdateActions, configUpdateImpressions),
+        updateActions: configUpdateActions,
+        updateImpressions: configUpdateImpressions,
       },
       places: {
         approvalRate: analyticsPercent(approvedPlaceItems.length, reviewedPlaceItems.length),
