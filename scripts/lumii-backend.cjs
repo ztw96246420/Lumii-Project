@@ -20029,6 +20029,102 @@ function applyReportSanctionSuggestion(admin, reportId, body = {}) {
   };
 }
 
+function socialContentSanctionTarget(targetType, targetId) {
+  const type = String(targetType || '').trim();
+  const id = String(targetId || '').trim();
+  if (type === 'post') {
+    const post = adminSocialPosts().find((item) => item.id === id);
+    if (!post) return { error: '动态不存在', statusCode: 404 };
+    if (!post.ownerPhone || !state.users?.[post.ownerPhone]) return { error: '作者用户不存在', statusCode: 404 };
+    return {
+      evidenceSnapshot: normalizeSanctionEvidenceSnapshot({
+        contentText: post.content,
+        createdAt: post.createdAt,
+        mediaUrls: post.imageUrls,
+        ownerName: post.ownerName,
+        ownerPhone: post.ownerPhone,
+        snapshotAt: new Date().toISOString(),
+        snapshotId: `evidence-direct-post-${post.id}-${Date.now()}`,
+        targetId: post.id,
+        targetLabel: post.petName ? `${post.petName} 的小事` : '宠友圈动态',
+        targetStatus: post.status,
+        targetType: 'post',
+      }),
+      item: post,
+      ownerPhone: post.ownerPhone,
+      source: 'pet_circle_post',
+      targetLabel: post.petName ? `${post.petName} 的小事` : '宠友圈动态',
+    };
+  }
+  if (type === 'comment') {
+    const comment = adminSocialComments().find((item) => item.id === id);
+    if (!comment) return { error: '评论不存在', statusCode: 404 };
+    if (!comment.ownerPhone || !state.users?.[comment.ownerPhone]) return { error: '作者用户不存在', statusCode: 404 };
+    return {
+      evidenceSnapshot: normalizeSanctionEvidenceSnapshot({
+        contentText: comment.content,
+        createdAt: comment.createdAt,
+        ownerName: comment.ownerName,
+        ownerPhone: comment.ownerPhone,
+        snapshotAt: new Date().toISOString(),
+        snapshotId: `evidence-direct-comment-${comment.id}-${Date.now()}`,
+        targetId: comment.id,
+        targetLabel: '宠友圈评论',
+        targetStatus: comment.status,
+        targetType: 'comment',
+      }),
+      item: comment,
+      ownerPhone: comment.ownerPhone,
+      source: 'pet_circle_comment',
+      targetLabel: '宠友圈评论',
+    };
+  }
+  return { error: '处罚对象类型不正确', statusCode: 400 };
+}
+
+function createSocialContentAuthorSanction(admin, targetType, targetId, body = {}) {
+  const target = socialContentSanctionTarget(targetType, targetId);
+  if (target.error) return target;
+  const template = sanctionTemplateById(String(body.templateId || ''));
+  const activeRestrictive = activeUserSanctionsFor(target.ownerPhone).filter((sanction) => sanction.type !== 'warning');
+  const fallbackTemplate = activeRestrictive.length ? sanctionTemplateById('repeat_violation_freeze_72h') : sanctionTemplateById('report_valid_mute_24h');
+  const type = normalizeSanctionType(body.type) || template?.type || fallbackTemplate?.type || 'mute';
+  const durationHours = parseSanctionDurationHours(type, body.durationHours ?? template?.durationHours ?? fallbackTemplate?.durationHours ?? 24);
+  if (!type || durationHours === null) return { error: '处罚类型或时长不正确', statusCode: 400 };
+  const reason = String(body.reason || template?.reason || fallbackTemplate?.reason || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240);
+  if (!reason) return { error: '请填写处罚原因', statusCode: 400 };
+  const before = adminUserSummary(state.users[target.ownerPhone]);
+  const result = createUserSanction(admin, target.ownerPhone, {
+    durationHours,
+    evidenceSnapshot: target.evidenceSnapshot,
+    reason,
+    source: target.source,
+    sourceTargetId: target.item.id,
+    sourceTargetType: targetType,
+    templateId: template?.id || '',
+    type,
+  });
+  if (result.error) return result;
+  const after = adminUserSummary(state.users[target.ownerPhone]);
+  writeAdminAudit(admin, `social.${targetType}.sanction`, target.source, target.item.id, {
+    item: target.item,
+    user: before,
+  }, {
+    item: target.item,
+    sanction: adminSanctionItem(result.sanction),
+    user: after,
+  }, reason);
+  return {
+    item: targetType === 'post'
+      ? adminSocialPosts().find((item) => item.id === target.item.id)
+      : adminSocialComments().find((item) => item.id === target.item.id),
+    sanction: adminSanctionItem(result.sanction),
+  };
+}
+
 function buildModerationTask(input) {
   const status = moderationTaskStatus(input.status);
   const riskScore = Math.max(0, Math.min(100, Number(input.riskScore || 0)));
@@ -21393,6 +21489,18 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  const adminPostSanctionMatch = pathname.match(/^\/admin\/social\/posts\/([^/]+)\/sanction$/);
+  if (req.method === 'POST' && adminPostSanctionMatch) {
+    const result = createSocialContentAuthorSanction(admin, 'post', decodeURIComponent(adminPostSanctionMatch[1]), body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SOCIAL_AUTHOR_SANCTION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
   const adminCommentActionMatch = pathname.match(/^\/admin\/social\/comments\/([^/]+)\/(hide|restore|delete)$/);
   if (req.method === 'POST' && adminCommentActionMatch) {
     const commentId = decodeURIComponent(adminCommentActionMatch[1]);
@@ -21413,6 +21521,18 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     writeAdminAudit(admin, `social.comment.${action}`, 'pet_circle_comment', commentId, before, comment, body.reason);
     saveState();
     ok(res, adminSocialComments().find((item) => item.id === commentId));
+    return true;
+  }
+
+  const adminCommentSanctionMatch = pathname.match(/^\/admin\/social\/comments\/([^/]+)\/sanction$/);
+  if (req.method === 'POST' && adminCommentSanctionMatch) {
+    const result = createSocialContentAuthorSanction(admin, 'comment', decodeURIComponent(adminCommentSanctionMatch[1]), body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SOCIAL_AUTHOR_SANCTION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

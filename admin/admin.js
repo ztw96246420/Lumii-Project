@@ -816,6 +816,10 @@ async function onContentClick(event) {
     if (action === 'post-delete') await confirmPost(`/admin/social/posts/${id}/delete`, { reason }, '确认删除这条动态？');
     if (action === 'comment-hide') await post(`/admin/social/comments/${id}/hide`, { reason });
     if (action === 'comment-restore') await post(`/admin/social/comments/${id}/restore`, { reason });
+    if (action === 'social-author-sanction') {
+      await applySocialAuthorSanction(button);
+      return;
+    }
     if (action === 'report-valid') await post(`/admin/social/reports/${id}/resolve`, { reason, status: 'valid' });
     if (action === 'report-invalid') await post(`/admin/social/reports/${id}/resolve`, { reason, status: 'invalid' });
     if (action === 'report-message-context') {
@@ -4301,6 +4305,7 @@ async function renderSocialPosts(force) {
             <button class="small-button" data-action="post-hide" data-id="${p.id}">隐藏</button>
             <button class="small-button" data-action="post-restore" data-id="${p.id}">恢复</button>
             <button class="small-button danger" data-action="post-delete" data-id="${p.id}">删除</button>
+            ${socialAuthorSanctionButtons('post', p)}
           </div>
         `],
       ])}
@@ -4322,11 +4327,59 @@ async function renderSocialPosts(force) {
           <div class="actions">
             <button class="small-button" data-action="comment-hide" data-id="${c.id}">隐藏</button>
             <button class="small-button" data-action="comment-restore" data-id="${c.id}">恢复</button>
+            ${socialAuthorSanctionButtons('comment', c)}
           </div>
         `],
       ])}
     </div>
   `;
+}
+
+function socialAuthorSanctionButtons(targetType, row) {
+  const label = targetType === 'post' ? '小事' : '评论';
+  const targetLabel = targetType === 'post' ? `${row.petName || row.ownerName || '宠物'} 的小事` : '宠友圈评论';
+  const content = String(row.content || '').slice(0, 40);
+  const encodedTargetLabel = escapeHtml(targetLabel);
+  const encodedContent = escapeHtml(content);
+  return `
+    <button class="small-button" data-action="social-author-sanction" data-target-type="${targetType}" data-id="${escapeHtml(row.id)}" data-type="warning" data-duration="0" data-target-label="${encodedTargetLabel}" data-content="${encodedContent}">警告</button>
+    <button class="small-button danger" data-action="social-author-sanction" data-target-type="${targetType}" data-id="${escapeHtml(row.id)}" data-type="mute" data-duration="24" data-target-label="${encodedTargetLabel}" data-content="${encodedContent}">禁言24h</button>
+    <button class="small-button danger" data-action="social-author-sanction" data-target-type="${targetType}" data-id="${escapeHtml(row.id)}" data-type="freeze" data-duration="72" data-target-label="${encodedTargetLabel}" data-content="${encodedContent}">冻结72h</button>
+    <span class="cell-sub">${label}作者处罚</span>
+  `;
+}
+
+async function applySocialAuthorSanction(button) {
+  const targetType = button.dataset.targetType === 'comment' ? 'comment' : 'post';
+  const id = button.dataset.id || '';
+  const type = button.dataset.type || 'mute';
+  const durationHours = Number(button.dataset.duration || 24);
+  const targetLabel = button.dataset.targetLabel || (targetType === 'post' ? '宠友圈动态' : '宠友圈评论');
+  const content = button.dataset.content || '';
+  const typeLabel = type === 'warning' ? '警告' : type === 'freeze' ? '冻结' : type === 'ban' ? '封禁' : '禁言';
+  const defaultReason = `${targetLabel}违规处理：${content || id}`;
+  const reason = window.prompt(`确认对作者执行${typeLabel}${durationHours > 0 ? `${durationHours}小时` : ''}？请填写处罚原因`, defaultReason);
+  if (reason === null) return;
+  const endpoint = targetType === 'post'
+    ? `/admin/social/posts/${encodeURIComponent(id)}/sanction`
+    : `/admin/social/comments/${encodeURIComponent(id)}/sanction`;
+  await post(endpoint, {
+    durationHours,
+    reason: reason.trim() || defaultReason,
+    type,
+  });
+  state.cache = {
+    ...state.cache,
+    audit: null,
+    reports: null,
+    sanctions: null,
+    socialComments: null,
+    socialPosts: null,
+    summary: null,
+    users: null,
+  };
+  showToast('作者处罚已创建');
+  await render(true);
 }
 
 async function renderReports(force) {

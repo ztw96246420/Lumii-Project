@@ -66,6 +66,7 @@
 | [Operations_Backoffice_Implementation_Notes_2026-06-29.md](./Operations_Backoffice_Implementation_Notes_2026-06-29.md) | 当前实现记录 | 已落地后台能力、缺口和下一批建议 |
 | [Operations_Backoffice_Admin_Security_2026-07-02.md](./Operations_Backoffice_Admin_Security_2026-07-02.md) | 当前专项 | 单 admin 账号、登录失败锁定和后台 IP 白名单 |
 | [Operations_Backoffice_Media_CDN_Probe_2026-07-02.md](./Operations_Backoffice_Media_CDN_Probe_2026-07-02.md) | 当前专项 | 媒体 CDN 真实 GET 探测、webblock 识别和系统健康联动 |
+| [Operations_Backoffice_Social_Author_Sanction_2026-07-02.md](./Operations_Backoffice_Social_Author_Sanction_2026-07-02.md) | 当前专项 | 宠友圈动态/评论作者快捷处罚、证据快照、移动端限制联动 |
 | [Operations_Backoffice_AI_Ops_Config_2026-07-01.md](./Operations_Backoffice_AI_Ops_Config_2026-07-01.md) | 当前专项 | AI provider、模型参数、prompt 和 DeepSeek system prompt 配置 |
 | [Operations_Backoffice_Config_Approval_2026-07-01.md](./Operations_Backoffice_Config_Approval_2026-07-01.md) | 当前专项 | 配置发布审批、高风险确认和版本回滚 |
 | [Operations_Backoffice_Config_Experiments_2026-07-01.md](./Operations_Backoffice_Config_Experiments_2026-07-01.md) | 当前专项 | 配置实验与首页 AI 入口 A/B 分流基座 |
