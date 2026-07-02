@@ -67,6 +67,7 @@ const PET_AVATAR_ANIMATION_ENABLED = process.env.PET_AVATAR_ANIMATION_ENABLED ==
 const PET_AVATAR_ANIMATION_MAX_BYTES = Number(process.env.PET_AVATAR_ANIMATION_MAX_BYTES || 35 * 1024 * 1024);
 const PET_AVATAR_ANIMATION_DOWNLOAD_TIMEOUT_MS = Number(process.env.PET_AVATAR_ANIMATION_DOWNLOAD_TIMEOUT_MS || 5 * 60 * 1000);
 const PET_AVATAR_ANIMATION_STAGE_BACKGROUND = PET_AVATAR_STAGE_BACKGROUND;
+const PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION = 'opaque-stage-matte-v2';
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
@@ -389,7 +390,7 @@ function defaultDogAvatarAnimationPromptTemplate() {
     'It greets the viewer warmly with subtle happy tail wagging, natural ear movement, bright friendly eye contact, and a soft open-mouth smile or gentle pant.',
     'A small head tilt or brief paw lift is allowed only if it fits the original pose and does not change the silhouette.',
     'Keep this exact individual pet recognizable: same breed/profile hint ({breed}), fur color, markings, eye shape, eye-color impression, nose shape, muzzle length, ear shape, body proportions, expression, accessory if present, and premium 3D collectible-character style.',
-    `Use a clean solid warm off-white Lumii avatar-stage background matching the app companion display frame color (${PET_AVATAR_ANIMATION_STAGE_BACKGROUND}). Keep the background perfectly consistent for the full 4 seconds; do not use pure white, gray, checkerboard transparency pattern, gradient, room, outdoor scene, floor line, horizon line, or environment background. Keep only a very soft contact shadow under the pet.`,
+    `Use one opaque, flat, edge-to-edge Lumii companion-card matte background in exactly ${PET_AVATAR_ANIMATION_STAGE_BACKGROUND}. This is the color of the pet display panel behind the name / breed / "companion online" area, not the app root page background. Every background pixel of the whole 1:1 video frame must stay this same matte color for the full 4 seconds. Do not create a separate card, border, rounded rectangle, floor, horizon, white studio sweep, gray backdrop, gradient, vignette, checkerboard transparency pattern, room, outdoor scene, or environment. Keep only a very soft contact shadow directly under the pet.`,
     'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve clean app-avatar compositing; do not introduce a new scene.',
     'One pet only, centered square composition, 1:1 framing, 4 seconds.',
   ].join('\n');
@@ -401,7 +402,7 @@ function defaultCatAvatarAnimationPromptTemplate() {
     'It greets the viewer softly with calm eye contact, a slow affectionate blink, gentle ear swivels, and a tiny silent meow or slight mouth movement only if natural.',
     'The tail tip may sway gracefully or lift in a friendly curl only if the reference pose supports it.',
     'Keep this exact individual pet recognizable: same breed/profile hint ({breed}), fur color, markings, eye shape, eye-color impression, nose shape, muzzle length, ear shape, body proportions, expression, accessory if present, and premium 3D collectible-character style.',
-    `Use a clean solid warm off-white Lumii avatar-stage background matching the app companion display frame color (${PET_AVATAR_ANIMATION_STAGE_BACKGROUND}). Keep the background perfectly consistent for the full 4 seconds; do not use pure white, gray, checkerboard transparency pattern, gradient, room, outdoor scene, floor line, horizon line, or environment background. Keep only a very soft contact shadow under the pet.`,
+    `Use one opaque, flat, edge-to-edge Lumii companion-card matte background in exactly ${PET_AVATAR_ANIMATION_STAGE_BACKGROUND}. This is the color of the pet display panel behind the name / breed / "companion online" area, not the app root page background. Every background pixel of the whole 1:1 video frame must stay this same matte color for the full 4 seconds. Do not create a separate card, border, rounded rectangle, floor, horizon, white studio sweep, gray backdrop, gradient, vignette, checkerboard transparency pattern, room, outdoor scene, or environment. Keep only a very soft contact shadow directly under the pet.`,
     'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve clean app-avatar compositing; do not introduce a new scene.',
     'One pet only, centered square composition, 1:1 framing, 4 seconds.',
   ].join('\n');
@@ -412,7 +413,7 @@ function defaultPetAvatarAnimationPromptTemplate() {
     'The pet companion in the reference image comes to life from the exact original pose and first frame.',
     'It greets the viewer gently with warm eye contact, subtle head movement, natural ear or body motion, and a friendly expression that fits the animal.',
     'Keep this exact individual {species} recognizable: same breed/profile hint ({breed}), fur color, markings, eye shape, eye-color impression, nose shape, muzzle length, ear shape, body proportions, expression, accessory if present, and premium 3D collectible-character style.',
-    `Use a clean solid warm off-white Lumii avatar-stage background matching the app companion display frame color (${PET_AVATAR_ANIMATION_STAGE_BACKGROUND}). Keep the background perfectly consistent for the full 4 seconds; do not use pure white, gray, checkerboard transparency pattern, gradient, room, outdoor scene, floor line, horizon line, or environment background. Keep only a very soft contact shadow under the pet.`,
+    `Use one opaque, flat, edge-to-edge Lumii companion-card matte background in exactly ${PET_AVATAR_ANIMATION_STAGE_BACKGROUND}. This is the color of the pet display panel behind the name / breed / "companion online" area, not the app root page background. Every background pixel of the whole 1:1 video frame must stay this same matte color for the full 4 seconds. Do not create a separate card, border, rounded rectangle, floor, horizon, white studio sweep, gray backdrop, gradient, vignette, checkerboard transparency pattern, room, outdoor scene, or environment. Keep only a very soft contact shadow directly under the pet.`,
     'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve clean app-avatar compositing; do not introduce a new scene.',
     'One pet only, centered square composition, 1:1 framing, 4 seconds.',
   ].join('\n');
@@ -420,7 +421,7 @@ function defaultPetAvatarAnimationPromptTemplate() {
 
 function defaultPetAvatarAnimationNegativePromptTemplate() {
   return [
-    'distorted face, identity drift, morphing, changed breed, changed fur color, changed markings, changed age, bad anatomy, extra limbs, missing tail, duplicate pet, multiple pets, blurry, jitter, frozen body, unnatural movement, aggressive barking, aggressive hissing, arched back, background changes, mismatched background color, pure white background, gray background, checkerboard transparency pattern, gradient background, room background, outdoor background, floor line, horizon line, camera zoom, camera pan, camera shake, dramatic action pose, text, logo, watermark',
+    'distorted face, identity drift, morphing, changed breed, changed fur color, changed markings, changed age, bad anatomy, extra limbs, missing tail, duplicate pet, multiple pets, blurry, jitter, frozen body, unnatural movement, aggressive barking, aggressive hissing, arched back, background changes, mismatched background color, app root page background, pure white background, gray background, separate card, border, rounded rectangle frame, checkerboard transparency pattern, gradient background, vignette, room background, outdoor background, floor line, horizon line, camera zoom, camera pan, camera shake, dramatic action pose, text, logo, watermark',
   ].join('\n');
 }
 
@@ -4436,6 +4437,40 @@ function encodeRgbaPng(width, height, rgba) {
   ]);
 }
 
+function rgbFromHexColor(value, fallback = '#FFFDFC') {
+  const normalized = String(value || fallback).trim().replace(/^#/, '');
+  const hex = /^[0-9a-f]{6}$/i.test(normalized) ? normalized : String(fallback).replace(/^#/, '');
+  return [
+    Number.parseInt(hex.slice(0, 2), 16),
+    Number.parseInt(hex.slice(2, 4), 16),
+    Number.parseInt(hex.slice(4, 6), 16),
+  ];
+}
+
+function flattenDecodedPngToBackground(decoded, backgroundHex = PET_AVATAR_ANIMATION_STAGE_BACKGROUND) {
+  if (!decoded?.rgba || !decoded.width || !decoded.height) return null;
+  const [backgroundR, backgroundG, backgroundB] = rgbFromHexColor(backgroundHex);
+  const rgba = Buffer.alloc(decoded.width * decoded.height * 4);
+  let alphaPixels = 0;
+
+  for (let offset = 0; offset < decoded.rgba.length; offset += 4) {
+    const alpha = decoded.rgba[offset + 3];
+    if (alpha < 255) alphaPixels += 1;
+    const inverseAlpha = 255 - alpha;
+    rgba[offset] = Math.round((decoded.rgba[offset] * alpha + backgroundR * inverseAlpha) / 255);
+    rgba[offset + 1] = Math.round((decoded.rgba[offset + 1] * alpha + backgroundG * inverseAlpha) / 255);
+    rgba[offset + 2] = Math.round((decoded.rgba[offset + 2] * alpha + backgroundB * inverseAlpha) / 255);
+    rgba[offset + 3] = 255;
+  }
+
+  if (!alphaPixels) return null;
+  return {
+    buffer: encodeRgbaPng(decoded.width, decoded.height, rgba),
+    flattenedAlphaPixels: alphaPixels,
+    mimeType: 'image/png',
+  };
+}
+
 function isLightNeutralPixel(r, g, b) {
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
@@ -4735,6 +4770,57 @@ async function storeAvatarUrlToCos(req, user, avatarUrl, { petId = '', scope = '
     scope,
   });
   return stored?.url || value;
+}
+
+async function prepareAvatarAnimationSourceUrl(req, user, avatarUrl, { petId = '' } = {}) {
+  const value = String(avatarUrl || '').trim();
+  if (!value || value.startsWith('lumii://') || !/^https?:\/\//i.test(value)) return value;
+  let downloaded = null;
+  try {
+    downloaded = await downloadImageBuffer(value);
+  } catch (error) {
+    console.warn('[avatar-animation] source image download skipped', {
+      message: error.message || String(error),
+      petId,
+    });
+    return value;
+  }
+  if (!downloaded?.buffer?.length) return value;
+
+  let prepared = downloaded;
+  if (isPngBuffer(downloaded.buffer)) {
+    const cleaned = cleanPetAvatarImage(downloaded, 'pet-avatar');
+    const decoded = decodePngToRgba(cleaned.buffer);
+    const flattened = decoded ? flattenDecodedPngToBackground(decoded, PET_AVATAR_ANIMATION_STAGE_BACKGROUND) : null;
+    if (flattened?.buffer?.length) {
+      prepared = flattened;
+      console.log('[avatar-animation] flattened transparent source onto stage background', {
+        background: PET_AVATAR_ANIMATION_STAGE_BACKGROUND,
+        flattenedAlphaPixels: flattened.flattenedAlphaPixels,
+        petId,
+      });
+    } else if (cleaned?.buffer && cleaned.buffer !== downloaded.buffer) {
+      prepared = cleaned;
+    }
+  }
+
+  const extension = mimeExtension(prepared.mimeType, 'png');
+  try {
+    const stored = await uploadBufferToCos(req, user, {
+      buffer: prepared.buffer,
+      fileName: `avatar-animation-source-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${extension}`,
+      mimeType: prepared.mimeType,
+      petId,
+      scope: 'pet-avatar-animation-source',
+    });
+    return stored?.url || value;
+  } catch (error) {
+    console.warn('[avatar-animation] prepared source upload skipped', {
+      message: error.message || String(error),
+      petId,
+    });
+    return value;
+  }
 }
 
 async function storeAvatarAnimationUrlToCos(req, user, videoUrl, { petId = '' } = {}) {
@@ -10228,6 +10314,35 @@ function buildAvatarAnimationPrompt(user, pet, sourceAvatarUrl) {
   return [prompt, negativePrompt ? `Avoid:\n${negativePrompt}` : ''].filter(Boolean).join('\n\n');
 }
 
+function avatarAnimationRequestSignature(user, pet, sourceAvatarUrl) {
+  const provider = effectivePetAvatarAnimationProvider();
+  const seedance = effectiveSeedanceAvatarAnimationConfig();
+  const prompt = provider === 'doubao-seedance-1-5-pro'
+    ? buildAvatarAnimationPrompt(user, pet, sourceAvatarUrl)
+    : '';
+  return crypto.createHash('sha256').update(JSON.stringify({
+    aspectRatio: '1:1',
+    cameraFixed: seedance.cameraFixed !== false,
+    duration: 4,
+    model: seedance.model,
+    prompt,
+    provider,
+    resolution: '480p',
+    sourcePrepVersion: PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION,
+    stageBackground: PET_AVATAR_ANIMATION_STAGE_BACKGROUND,
+  })).digest('hex').slice(0, 20);
+}
+
+function avatarAnimationJobMatchesCurrentPolicy(user, pet, sourceAvatarUrl, job) {
+  if (!job || !pet?.id) return false;
+  const value = String(sourceAvatarUrl || '').trim();
+  if (!value || job.sourceAvatarUrl !== value) return false;
+  if (job.provider !== effectivePetAvatarAnimationProvider()) return false;
+  if (job.stageBackground !== PET_AVATAR_ANIMATION_STAGE_BACKGROUND) return false;
+  if (job.sourcePrepVersion !== PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION) return false;
+  return job.requestSignature === avatarAnimationRequestSignature(user, pet, value);
+}
+
 function createAvatarAnimationJob({ avatarJob, pet, sourceAvatarUrl, user }) {
   const id = `anim-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const provider = effectivePetAvatarAnimationProvider();
@@ -10245,8 +10360,11 @@ function createAvatarAnimationJob({ avatarJob, pet, sourceAvatarUrl, user }) {
     progress: provider === 'mock' ? 100 : 2,
     provider,
     providerStatus: provider === 'mock' ? 'mock_ready' : 'queued',
+    requestSignature: avatarAnimationRequestSignature(user, pet, sourceAvatarUrl),
     resolution: '480p',
+    sourcePrepVersion: PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION,
     sourceAvatarUrl,
+    stageBackground: PET_AVATAR_ANIMATION_STAGE_BACKGROUND,
     status: provider === 'mock' ? 'ready' : 'processing',
     updatedAt: Date.now(),
   };
@@ -10316,18 +10434,20 @@ function markAvatarAnimationFailure(job, code, message, providerStatus = 'failed
   return job;
 }
 
-async function startSeedanceAvatarAnimationJob(user, job) {
+async function startSeedanceAvatarAnimationJob(req, user, job) {
   if (!APIMART_API_KEY) throw new Error('APIMart video key is not configured');
   if (!/^https?:\/\//i.test(job.sourceAvatarUrl || '')) throw new Error('Public source avatar URL is not available for video generation');
   const pet = user.pets?.find((item) => item.id === job.petId) || selectedPetFor(user);
   const providerConfig = effectiveSeedanceAvatarAnimationConfig();
   const prompt = buildAvatarAnimationPrompt(user, pet, job.sourceAvatarUrl);
+  const preparedSourceAvatarUrl = await prepareAvatarAnimationSourceUrl(req, user, job.sourceAvatarUrl, { petId: job.petId || '' });
   Object.assign(job, {
     model: providerConfig.model,
     progress: 2,
     provider: 'doubao-seedance-1-5-pro',
     providerStatus: 'submitting',
-    promptVersion: 'ops-config-seedance-avatar-animation',
+    promptVersion: `ops-config-seedance-avatar-animation-${PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION}`,
+    preparedSourceAvatarUrl,
     status: 'processing',
   });
   touchAvatarAnimationJob(job);
@@ -10338,7 +10458,7 @@ async function startSeedanceAvatarAnimationJob(user, job) {
       audio: false,
       camerafixed: providerConfig.cameraFixed !== false,
       duration: 4,
-      image_urls: [job.sourceAvatarUrl],
+      image_urls: [preparedSourceAvatarUrl],
       model: providerConfig.model,
       prompt,
       resolution: '480p',
@@ -10372,7 +10492,7 @@ async function startAvatarAnimationJobInBackground(reqSnapshot, user, job) {
       job.videoUrl = job.sourceAvatarUrl;
       touchAvatarAnimationJob(job);
     } else if (provider === 'doubao-seedance-1-5-pro') {
-      await startSeedanceAvatarAnimationJob(user, job);
+      await startSeedanceAvatarAnimationJob(reqSnapshot, user, job);
     } else {
       markAvatarAnimationFailure(job, 'AVATAR_ANIMATION_PROVIDER_UNAVAILABLE', '灵伴动效生成服务暂不可用，请稍后重试。', provider || 'unavailable');
     }
@@ -10402,7 +10522,7 @@ function ensureAvatarAnimationJob(req, user, pet, avatarJob, sourceAvatarUrl) {
   const value = String(sourceAvatarUrl || '').trim();
   if (!pet?.id || !/^https?:\/\//i.test(value)) return null;
   const existing = latestAvatarAnimationJobForUser(user, pet.id);
-  if (existing && existing.sourceAvatarUrl === value && ['processing', 'ready'].includes(existing.status)) return existing;
+  if (existing && ['processing', 'ready'].includes(existing.status) && avatarAnimationJobMatchesCurrentPolicy(user, pet, value, existing)) return existing;
   const job = createAvatarAnimationJob({ avatarJob, pet, sourceAvatarUrl: value, user });
   pet.avatarAnimationJobId = job.id;
   pet.avatarAnimationStatus = job.status;
