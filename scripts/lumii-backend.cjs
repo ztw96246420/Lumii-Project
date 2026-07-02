@@ -2,9 +2,18 @@ const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const zlib = require('zlib');
+const { spawn } = require('child_process');
 const { URL } = require('url');
+
+function normalizeHexColor(value, fallback = '#FFFDFC') {
+  const fallbackHex = String(fallback || '#FFFDFC').trim().replace(/^#/, '');
+  const normalizedFallback = /^[0-9a-f]{6}$/i.test(fallbackHex) ? fallbackHex.toUpperCase() : 'FFFDFC';
+  const hex = String(value || '').trim().replace(/^#/, '');
+  return `#${(/^[0-9a-f]{6}$/i.test(hex) ? hex : normalizedFallback).toUpperCase()}`;
+}
 
 const TEST_CODE = '962464';
 const SMS_COOLDOWN_MS = Number(process.env.SMS_COOLDOWN_MS || 60 * 1000);
@@ -66,8 +75,16 @@ const PET_AVATAR_ANIMATION_MODEL = process.env.PET_AVATAR_ANIMATION_MODEL || 'do
 const PET_AVATAR_ANIMATION_ENABLED = process.env.PET_AVATAR_ANIMATION_ENABLED === 'false' ? false : true;
 const PET_AVATAR_ANIMATION_MAX_BYTES = Number(process.env.PET_AVATAR_ANIMATION_MAX_BYTES || 35 * 1024 * 1024);
 const PET_AVATAR_ANIMATION_DOWNLOAD_TIMEOUT_MS = Number(process.env.PET_AVATAR_ANIMATION_DOWNLOAD_TIMEOUT_MS || 5 * 60 * 1000);
-const PET_AVATAR_ANIMATION_STAGE_BACKGROUND = PET_AVATAR_STAGE_BACKGROUND;
-const PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION = 'opaque-stage-matte-v2';
+const PET_AVATAR_ANIMATION_STAGE_BACKGROUND = normalizeHexColor(PET_AVATAR_STAGE_BACKGROUND, '#FFFDFC');
+const PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR = normalizeHexColor(process.env.PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR || '#00FF00', '#00FF00');
+const PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND = normalizeHexColor(process.env.PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND || PET_AVATAR_ANIMATION_STAGE_BACKGROUND, '#FFFDFC');
+const PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION = 'chroma-key-composite-v3';
+const PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED = process.env.PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED === 'false' ? false : true;
+const PET_AVATAR_ANIMATION_FFMPEG_BIN = process.env.PET_AVATAR_ANIMATION_FFMPEG_BIN || 'ffmpeg';
+const PET_AVATAR_ANIMATION_FFMPEG_TIMEOUT_MS = Number(process.env.PET_AVATAR_ANIMATION_FFMPEG_TIMEOUT_MS || 90 * 1000);
+const PET_AVATAR_ANIMATION_FFMPEG_CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.PET_AVATAR_ANIMATION_FFMPEG_CONCURRENCY || '1') || 1));
+const PET_AVATAR_ANIMATION_CHROMA_SIMILARITY = Math.max(0.01, Math.min(1, Number(process.env.PET_AVATAR_ANIMATION_CHROMA_SIMILARITY || '0.18') || 0.18));
+const PET_AVATAR_ANIMATION_CHROMA_BLEND = Math.max(0, Math.min(1, Number(process.env.PET_AVATAR_ANIMATION_CHROMA_BLEND || '0.08') || 0.08));
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
@@ -385,13 +402,17 @@ function defaultPetChatBaseSystemPrompt() {
   ].join('\n');
 }
 
+function avatarAnimationChromaBackgroundPromptLine() {
+  return `Use a pure chroma key green matte background in exactly ${PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR}, edge-to-edge across the whole 1:1 frame. This green is an internal post-production key that will be removed by Lumii after generation and composited onto the app companion-card matte ${PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND}. Keep the green perfectly flat, evenly lit, and unchanged for the full 4 seconds. Do not create a separate card, border, rounded rectangle, floor, horizon, white studio sweep, gray backdrop, gradient, vignette, checkerboard transparency pattern, room, outdoor scene, or environment. Avoid green spill, green reflection, or green halos on fur. Keep only a very soft, neutral contact shadow directly under the pet if it looks natural.`;
+}
+
 function defaultDogAvatarAnimationPromptTemplate() {
   return [
     'The dog companion in the reference image comes to life from the exact original pose and first frame.',
     'It greets the viewer warmly with subtle happy tail wagging, natural ear movement, bright friendly eye contact, and a soft open-mouth smile or gentle pant.',
     'A small head tilt or brief paw lift is allowed only if it fits the original pose and does not change the silhouette.',
     'Keep this exact individual pet recognizable: same breed/profile hint ({breed}), fur color, markings, eye shape, eye-color impression, nose shape, muzzle length, ear shape, body proportions, expression, accessory if present, and premium 3D collectible-character style.',
-    `Use one opaque, flat, edge-to-edge Lumii companion-card matte background in exactly ${PET_AVATAR_ANIMATION_STAGE_BACKGROUND}. This is the color of the pet display panel behind the name / breed / "companion online" area, not the app root page background. Every background pixel of the whole 1:1 video frame must stay this same matte color for the full 4 seconds. Do not create a separate card, border, rounded rectangle, floor, horizon, white studio sweep, gray backdrop, gradient, vignette, checkerboard transparency pattern, room, outdoor scene, or environment. Keep only a very soft contact shadow directly under the pet.`,
+    avatarAnimationChromaBackgroundPromptLine(),
     'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve clean app-avatar compositing; do not introduce a new scene.',
     'One pet only, centered square composition, 1:1 framing, 4 seconds.',
   ].join('\n');
@@ -403,7 +424,7 @@ function defaultCatAvatarAnimationPromptTemplate() {
     'It greets the viewer softly with calm eye contact, a slow affectionate blink, gentle ear swivels, and a tiny silent meow or slight mouth movement only if natural.',
     'The tail tip may sway gracefully or lift in a friendly curl only if the reference pose supports it.',
     'Keep this exact individual pet recognizable: same breed/profile hint ({breed}), fur color, markings, eye shape, eye-color impression, nose shape, muzzle length, ear shape, body proportions, expression, accessory if present, and premium 3D collectible-character style.',
-    `Use one opaque, flat, edge-to-edge Lumii companion-card matte background in exactly ${PET_AVATAR_ANIMATION_STAGE_BACKGROUND}. This is the color of the pet display panel behind the name / breed / "companion online" area, not the app root page background. Every background pixel of the whole 1:1 video frame must stay this same matte color for the full 4 seconds. Do not create a separate card, border, rounded rectangle, floor, horizon, white studio sweep, gray backdrop, gradient, vignette, checkerboard transparency pattern, room, outdoor scene, or environment. Keep only a very soft contact shadow directly under the pet.`,
+    avatarAnimationChromaBackgroundPromptLine(),
     'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve clean app-avatar compositing; do not introduce a new scene.',
     'One pet only, centered square composition, 1:1 framing, 4 seconds.',
   ].join('\n');
@@ -414,7 +435,7 @@ function defaultPetAvatarAnimationPromptTemplate() {
     'The pet companion in the reference image comes to life from the exact original pose and first frame.',
     'It greets the viewer gently with warm eye contact, subtle head movement, natural ear or body motion, and a friendly expression that fits the animal.',
     'Keep this exact individual {species} recognizable: same breed/profile hint ({breed}), fur color, markings, eye shape, eye-color impression, nose shape, muzzle length, ear shape, body proportions, expression, accessory if present, and premium 3D collectible-character style.',
-    `Use one opaque, flat, edge-to-edge Lumii companion-card matte background in exactly ${PET_AVATAR_ANIMATION_STAGE_BACKGROUND}. This is the color of the pet display panel behind the name / breed / "companion online" area, not the app root page background. Every background pixel of the whole 1:1 video frame must stay this same matte color for the full 4 seconds. Do not create a separate card, border, rounded rectangle, floor, horizon, white studio sweep, gray backdrop, gradient, vignette, checkerboard transparency pattern, room, outdoor scene, or environment. Keep only a very soft contact shadow directly under the pet.`,
+    avatarAnimationChromaBackgroundPromptLine(),
     'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve clean app-avatar compositing; do not introduce a new scene.',
     'One pet only, centered square composition, 1:1 framing, 4 seconds.',
   ].join('\n');
@@ -422,7 +443,7 @@ function defaultPetAvatarAnimationPromptTemplate() {
 
 function defaultPetAvatarAnimationNegativePromptTemplate() {
   return [
-    'distorted face, identity drift, morphing, changed breed, changed fur color, changed markings, changed age, bad anatomy, extra limbs, missing tail, duplicate pet, multiple pets, blurry, jitter, frozen body, unnatural movement, aggressive barking, aggressive hissing, arched back, background changes, mismatched background color, app root page background, pure white background, gray background, separate card, border, rounded rectangle frame, checkerboard transparency pattern, gradient background, vignette, room background, outdoor background, floor line, horizon line, camera zoom, camera pan, camera shake, dramatic action pose, text, logo, watermark',
+    'distorted face, identity drift, morphing, changed breed, changed fur color, changed markings, changed age, bad anatomy, extra limbs, missing tail, duplicate pet, multiple pets, blurry, jitter, frozen body, unnatural movement, aggressive barking, aggressive hissing, arched back, background changes, non-green background, uneven green background, green spill on fur, green reflection, green halo, mismatched background color, app root page background, pure white background, gray background, separate card, border, rounded rectangle frame, checkerboard transparency pattern, gradient background, vignette, room background, outdoor background, floor line, horizon line, camera zoom, camera pan, camera shake, dramatic action pose, text, logo, watermark',
   ].join('\n');
 }
 
@@ -4439,13 +4460,82 @@ function encodeRgbaPng(width, height, rgba) {
 }
 
 function rgbFromHexColor(value, fallback = '#FFFDFC') {
-  const normalized = String(value || fallback).trim().replace(/^#/, '');
-  const hex = /^[0-9a-f]{6}$/i.test(normalized) ? normalized : String(fallback).replace(/^#/, '');
+  const hex = normalizeHexColor(value, fallback).replace(/^#/, '');
   return [
     Number.parseInt(hex.slice(0, 2), 16),
     Number.parseInt(hex.slice(2, 4), 16),
     Number.parseInt(hex.slice(4, 6), 16),
   ];
+}
+
+function ffmpegColorFromHex(value, fallback = '#FFFDFC') {
+  return `0x${normalizeHexColor(value, fallback).replace(/^#/, '')}`;
+}
+
+function runProcess(command, args, { timeoutMs = 30000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (error) reject(error);
+      else resolve(result);
+    };
+    const timeout = setTimeout(() => {
+      const error = new Error(`Process timed out after ${timeoutMs}ms`);
+      error.code = 'PROCESS_TIMEOUT';
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+      finish(error);
+    }, timeoutMs);
+    child.stdout.on('data', (chunk) => {
+      stdout = (stdout + chunk.toString()).slice(-12000);
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr = (stderr + chunk.toString()).slice(-12000);
+    });
+    child.once('error', (error) => finish(error));
+    child.once('close', (code) => {
+      if (code === 0) {
+        finish(null, { code, stderr, stdout });
+        return;
+      }
+      const error = new Error(`${command} exited with code ${code}${stderr ? `: ${stderr}` : ''}`);
+      error.code = code;
+      error.stderr = stderr;
+      error.stdout = stdout;
+      finish(error);
+    });
+  });
+}
+
+const avatarAnimationFfmpegQueue = [];
+let activeAvatarAnimationFfmpegJobs = 0;
+
+function drainAvatarAnimationFfmpegQueue() {
+  while (activeAvatarAnimationFfmpegJobs < PET_AVATAR_ANIMATION_FFMPEG_CONCURRENCY && avatarAnimationFfmpegQueue.length) {
+    const item = avatarAnimationFfmpegQueue.shift();
+    activeAvatarAnimationFfmpegJobs += 1;
+    Promise.resolve()
+      .then(item.task)
+      .then(item.resolve, item.reject)
+      .finally(() => {
+        activeAvatarAnimationFfmpegJobs = Math.max(0, activeAvatarAnimationFfmpegJobs - 1);
+        drainAvatarAnimationFfmpegQueue();
+      });
+  }
+}
+
+function runAvatarAnimationFfmpegQueued(task) {
+  return new Promise((resolve, reject) => {
+    avatarAnimationFfmpegQueue.push({ reject, resolve, task });
+    drainAvatarAnimationFfmpegQueue();
+  });
 }
 
 function flattenDecodedPngToBackground(decoded, backgroundHex = PET_AVATAR_ANIMATION_STAGE_BACKGROUND) {
@@ -4902,11 +4992,11 @@ async function prepareAvatarAnimationSourceUrl(req, user, avatarUrl, { petId = '
   if (isPngBuffer(downloaded.buffer)) {
     const cleaned = cleanPetAvatarImage(downloaded, 'pet-avatar');
     const decoded = decodePngToRgba(cleaned.buffer);
-    const flattened = decoded ? flattenDecodedPngToBackground(decoded, PET_AVATAR_ANIMATION_STAGE_BACKGROUND) : null;
+    const flattened = decoded ? flattenDecodedPngToBackground(decoded, PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR) : null;
     if (flattened?.buffer?.length) {
       prepared = flattened;
-      console.log('[avatar-animation] flattened transparent source onto stage background', {
-        background: PET_AVATAR_ANIMATION_STAGE_BACKGROUND,
+      console.log('[avatar-animation] flattened transparent source onto chroma key background', {
+        background: PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR,
         flattenedAlphaPixels: flattened.flattenedAlphaPixels,
         petId,
       });
@@ -4934,6 +5024,85 @@ async function prepareAvatarAnimationSourceUrl(req, user, avatarUrl, { petId = '
   }
 }
 
+async function removeTempPath(tempPath) {
+  try {
+    await fs.promises.rm(tempPath, { force: true, recursive: true });
+  } catch {}
+}
+
+async function postprocessAvatarAnimationVideo(downloaded, { petId = '' } = {}) {
+  if (!PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED) return downloaded;
+  if (!downloaded?.buffer?.length || !String(downloaded.mimeType || '').startsWith('video/')) return downloaded;
+
+  try {
+    return await runAvatarAnimationFfmpegQueued(async () => {
+      const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'lumii-avatar-animation-'));
+      const inputPath = path.join(tempDir, 'input.mp4');
+      const outputPath = path.join(tempDir, 'output.mp4');
+      try {
+        await fs.promises.writeFile(inputPath, downloaded.buffer);
+        const chroma = ffmpegColorFromHex(PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR, '#00FF00');
+        const matte = ffmpegColorFromHex(PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND, '#FFFDFC');
+        const filter = [
+          `[0:v]scale=480:480:force_original_aspect_ratio=decrease,pad=480:480:(ow-iw)/2:(oh-ih)/2:${chroma},format=rgba,chromakey=${chroma}:${PET_AVATAR_ANIMATION_CHROMA_SIMILARITY}:${PET_AVATAR_ANIMATION_CHROMA_BLEND}[fg]`,
+          `color=c=${matte}:s=480x480:r=24:d=4,format=rgba[bg]`,
+          '[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1:format=auto,format=yuv420p',
+        ].join(';');
+        await runProcess(PET_AVATAR_ANIMATION_FFMPEG_BIN, [
+          '-y',
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-i',
+          inputPath,
+          '-filter_complex',
+          filter,
+          '-an',
+          '-t',
+          '4',
+          '-c:v',
+          'libx264',
+          '-preset',
+          'veryfast',
+          '-crf',
+          '18',
+          '-pix_fmt',
+          'yuv420p',
+          '-movflags',
+          '+faststart',
+          outputPath,
+        ], { timeoutMs: PET_AVATAR_ANIMATION_FFMPEG_TIMEOUT_MS });
+        const stat = await fs.promises.stat(outputPath);
+        if (!stat.size || stat.size > PET_AVATAR_ANIMATION_MAX_BYTES) throw new Error('Postprocessed video is empty or too large');
+        const buffer = await fs.promises.readFile(outputPath);
+        console.log('[avatar-animation] chroma key composited video', {
+          bytesAfter: buffer.length,
+          bytesBefore: downloaded.buffer.length,
+          chromaKey: PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR,
+          compositeBackground: PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND,
+          concurrency: PET_AVATAR_ANIMATION_FFMPEG_CONCURRENCY,
+          petId,
+        });
+        return {
+          buffer,
+          mimeType: 'video/mp4',
+          postprocessed: true,
+        };
+      } finally {
+        await removeTempPath(tempDir);
+      }
+    });
+  } catch (error) {
+    console.warn('[avatar-animation] chroma key postprocess skipped', {
+      chromaKey: PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR,
+      compositeBackground: PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND,
+      message: error.message || String(error),
+      petId,
+    });
+    return downloaded;
+  }
+}
+
 async function storeAvatarAnimationUrlToCos(req, user, videoUrl, { petId = '' } = {}) {
   const value = String(videoUrl || '').trim();
   if (!value || value.startsWith('lumii://') || value.includes('/storage/objects/')) return value;
@@ -4943,11 +5112,12 @@ async function storeAvatarAnimationUrlToCos(req, user, videoUrl, { petId = '' } 
     timeoutMs: PET_AVATAR_ANIMATION_DOWNLOAD_TIMEOUT_MS,
   });
   if (!downloaded?.buffer?.length) return value;
-  const extension = mimeExtension(downloaded.mimeType, 'mp4');
+  const prepared = await postprocessAvatarAnimationVideo(downloaded, { petId });
+  const extension = mimeExtension(prepared.mimeType, 'mp4');
   const stored = await uploadBufferToCos(req, user, {
-    buffer: downloaded.buffer,
+    buffer: prepared.buffer,
     fileName: `avatar-animation-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${extension}`,
-    mimeType: downloaded.mimeType,
+    mimeType: prepared.mimeType,
     petId,
     scope: 'pet-avatar-animation',
   });
@@ -10437,6 +10607,9 @@ function avatarAnimationRequestSignature(user, pet, sourceAvatarUrl) {
     duration: 4,
     model: seedance.model,
     prompt,
+    chromaKeyColor: PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR,
+    compositeBackground: PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND,
+    postprocessEnabled: PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED,
     provider,
     resolution: '480p',
     sourcePrepVersion: PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION,
@@ -10450,6 +10623,9 @@ function avatarAnimationJobMatchesCurrentPolicy(user, pet, sourceAvatarUrl, job)
   if (!value || job.sourceAvatarUrl !== value) return false;
   if (job.provider !== effectivePetAvatarAnimationProvider()) return false;
   if (job.stageBackground !== PET_AVATAR_ANIMATION_STAGE_BACKGROUND) return false;
+  if (job.chromaKeyColor !== PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR) return false;
+  if (job.compositeBackground !== PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND) return false;
+  if (Boolean(job.postprocessEnabled) !== PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED) return false;
   if (job.sourcePrepVersion !== PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION) return false;
   return job.requestSignature === avatarAnimationRequestSignature(user, pet, value);
 }
@@ -10461,6 +10637,8 @@ function createAvatarAnimationJob({ avatarJob, pet, sourceAvatarUrl, user }) {
   const job = {
     aspectRatio: '1:1',
     avatarJobId: avatarJob?.id || '',
+    chromaKeyColor: PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR,
+    compositeBackground: PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND,
     createdAt: Date.now(),
     duration: 4,
     id,
@@ -10471,6 +10649,7 @@ function createAvatarAnimationJob({ avatarJob, pet, sourceAvatarUrl, user }) {
     progress: provider === 'mock' ? 100 : 2,
     provider,
     providerStatus: provider === 'mock' ? 'mock_ready' : 'queued',
+    postprocessEnabled: PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED,
     requestSignature: avatarAnimationRequestSignature(user, pet, sourceAvatarUrl),
     resolution: '480p',
     sourcePrepVersion: PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION,
@@ -10553,7 +10732,10 @@ async function startSeedanceAvatarAnimationJob(req, user, job) {
   const prompt = buildAvatarAnimationPrompt(user, pet, job.sourceAvatarUrl);
   const preparedSourceAvatarUrl = await prepareAvatarAnimationSourceUrl(req, user, job.sourceAvatarUrl, { petId: job.petId || '' });
   Object.assign(job, {
+    chromaKeyColor: PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR,
+    compositeBackground: PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND,
     model: providerConfig.model,
+    postprocessEnabled: PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED,
     progress: 2,
     provider: 'doubao-seedance-1-5-pro',
     providerStatus: 'submitting',
