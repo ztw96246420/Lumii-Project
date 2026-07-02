@@ -57,7 +57,7 @@ const GPT_IMAGE2_RESOLUTION = process.env.GPT_IMAGE2_RESOLUTION || '2k';
 const GPT_IMAGE2_OFFICIAL_FALLBACK = process.env.GPT_IMAGE2_OFFICIAL_FALLBACK === 'true';
 const GPT_IMAGE2_STUCK_TASK_MIN_TIMEOUT_MS = Number(process.env.GPT_IMAGE2_STUCK_TASK_MIN_TIMEOUT_MS || 5 * 60 * 1000);
 const GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER = Number(process.env.GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER || '4');
-const PET_AVATAR_STAGE_BACKGROUND = process.env.PET_AVATAR_STAGE_BACKGROUND || process.env.PET_AVATAR_ANIMATION_STAGE_BACKGROUND || '#FBF7F1';
+const PET_AVATAR_STAGE_BACKGROUND = process.env.PET_AVATAR_STAGE_BACKGROUND || process.env.PET_AVATAR_ANIMATION_STAGE_BACKGROUND || '#FFFDFC';
 const PET_AVATAR_PROVIDER = (process.env.PET_AVATAR_PROVIDER || (GPT_IMAGE2_API_KEY ? 'gpt-image-2' : TTAPI_API_KEY ? 'ttapi-flux-edits' : 'mock')).toLowerCase();
 const APIMART_API_KEY = process.env.APIMART_API_KEY || GPT_IMAGE2_API_KEY || '';
 const APIMART_BASE_URL = (process.env.APIMART_BASE_URL || GPT_IMAGE2_BASE_URL || 'https://api.apimart.ai').replace(/\/+$/, '');
@@ -65,6 +65,7 @@ const PET_AVATAR_ANIMATION_PROVIDER = (process.env.PET_AVATAR_ANIMATION_PROVIDER
 const PET_AVATAR_ANIMATION_MODEL = process.env.PET_AVATAR_ANIMATION_MODEL || 'doubao-seedance-1-5-pro';
 const PET_AVATAR_ANIMATION_ENABLED = process.env.PET_AVATAR_ANIMATION_ENABLED === 'false' ? false : true;
 const PET_AVATAR_ANIMATION_MAX_BYTES = Number(process.env.PET_AVATAR_ANIMATION_MAX_BYTES || 35 * 1024 * 1024);
+const PET_AVATAR_ANIMATION_DOWNLOAD_TIMEOUT_MS = Number(process.env.PET_AVATAR_ANIMATION_DOWNLOAD_TIMEOUT_MS || 5 * 60 * 1000);
 const PET_AVATAR_ANIMATION_STAGE_BACKGROUND = PET_AVATAR_STAGE_BACKGROUND;
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
@@ -4626,30 +4627,80 @@ async function downloadImageBuffer(urlInput, maxBytes = MEDIA_UPLOAD_MAX_BYTES) 
   }
 }
 
-async function downloadRemoteFileBuffer(urlInput, { allowedMimePrefixes = [], maxBytes = MEDIA_UPLOAD_MAX_BYTES, timeoutMs = 30000 } = {}) {
-  const url = String(urlInput || '').trim();
-  if (!/^https?:\/\//i.test(url)) return null;
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) throw new Error(`File download failed: ${response.status}`);
-    const contentType = String(response.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim().toLowerCase();
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    if (!buffer.length || buffer.length > maxBytes) throw new Error('File is empty or too large');
-    const accepted = !allowedMimePrefixes.length || allowedMimePrefixes.some((prefix) => contentType.startsWith(prefix));
-    const looksLikeMp4 = buffer.length > 12 && buffer.toString('ascii', 4, 8) === 'ftyp';
-    if (!accepted && !(allowedMimePrefixes.includes('video/') && looksLikeMp4)) {
-      throw new Error(`Downloaded file type is not supported: ${contentType || 'unknown'}`);
-    }
-    return {
-      buffer,
-      mimeType: looksLikeMp4 && !contentType.startsWith('video/') ? 'video/mp4' : contentType,
-    };
+    return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function downloadRemoteFileBufferByRanges(url, { contentLength, contentType, maxBytes, timeoutMs }) {
+  const totalBytes = Number(contentLength || 0);
+  if (!totalBytes || totalBytes > maxBytes) throw new Error('File is empty or too large');
+  const chunkBytes = 256 * 1024;
+  const chunks = [];
+  let downloadedBytes = 0;
+  for (let start = 0; start < totalBytes; start += chunkBytes) {
+    const end = Math.min(totalBytes - 1, start + chunkBytes - 1);
+    const response = await fetchWithTimeout(url, {
+      headers: { Range: `bytes=${start}-${end}` },
+    }, Math.min(Math.max(30000, timeoutMs), 90000));
+    if (![200, 206].includes(response.status)) throw new Error(`Range download failed: ${response.status}`);
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    if (!buffer.length) throw new Error('Range download returned empty chunk');
+    chunks.push(buffer);
+    downloadedBytes += buffer.length;
+    if (downloadedBytes > maxBytes) throw new Error('File is too large');
+    if (response.status === 200) break;
+  }
+  const buffer = Buffer.concat(chunks);
+  if (!buffer.length || buffer.length > maxBytes) throw new Error('File is empty or too large');
+  const looksLikeMp4 = buffer.length > 12 && buffer.toString('ascii', 4, 8) === 'ftyp';
+  return {
+    buffer,
+    mimeType: looksLikeMp4 && !String(contentType || '').startsWith('video/') ? 'video/mp4' : (contentType || 'application/octet-stream'),
+  };
+}
+
+async function downloadRemoteFileBuffer(urlInput, { allowedMimePrefixes = [], maxBytes = MEDIA_UPLOAD_MAX_BYTES, timeoutMs = 30000 } = {}) {
+  const url = String(urlInput || '').trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+  let headResponse = null;
+  try {
+    headResponse = await fetchWithTimeout(url, { method: 'HEAD' }, Math.min(timeoutMs, 30000));
+  } catch {}
+  const headContentType = String(headResponse?.headers?.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  const headLength = Number(headResponse?.headers?.get('content-length') || 0);
+  const acceptsRanges = /\bbytes\b/i.test(String(headResponse?.headers?.get('accept-ranges') || ''));
+  const acceptedHead = !allowedMimePrefixes.length || allowedMimePrefixes.some((prefix) => headContentType.startsWith(prefix));
+  if (allowedMimePrefixes.includes('video/') && headResponse?.ok && acceptsRanges && headLength > 0 && headLength <= maxBytes && acceptedHead) {
+    return downloadRemoteFileBufferByRanges(url, {
+      contentLength: headLength,
+      contentType: headContentType,
+      maxBytes,
+      timeoutMs,
+    });
+  }
+
+  const response = await fetchWithTimeout(url, {}, timeoutMs);
+  if (!response.ok) throw new Error(`File download failed: ${response.status}`);
+  const contentType = String(response.headers.get('content-type') || headContentType || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  if (!buffer.length || buffer.length > maxBytes) throw new Error('File is empty or too large');
+  const accepted = !allowedMimePrefixes.length || allowedMimePrefixes.some((prefix) => contentType.startsWith(prefix));
+  const looksLikeMp4 = buffer.length > 12 && buffer.toString('ascii', 4, 8) === 'ftyp';
+  if (!accepted && !(allowedMimePrefixes.includes('video/') && looksLikeMp4)) {
+    throw new Error(`Downloaded file type is not supported: ${contentType || 'unknown'}`);
+  }
+  return {
+    buffer,
+    mimeType: looksLikeMp4 && !contentType.startsWith('video/') ? 'video/mp4' : contentType,
+  };
 }
 
 function base64UploadBuffer(parsedUpload) {
@@ -4692,7 +4743,7 @@ async function storeAvatarAnimationUrlToCos(req, user, videoUrl, { petId = '' } 
   const downloaded = await downloadRemoteFileBuffer(value, {
     allowedMimePrefixes: ['video/'],
     maxBytes: PET_AVATAR_ANIMATION_MAX_BYTES,
-    timeoutMs: 45000,
+    timeoutMs: PET_AVATAR_ANIMATION_DOWNLOAD_TIMEOUT_MS,
   });
   if (!downloaded?.buffer?.length) return value;
   const extension = mimeExtension(downloaded.mimeType, 'mp4');
@@ -4704,6 +4755,39 @@ async function storeAvatarAnimationUrlToCos(req, user, videoUrl, { petId = '' } 
     scope: 'pet-avatar-animation',
   });
   return stored?.url || value;
+}
+
+async function mirrorReadyAvatarAnimationIfNeeded(req, user, job) {
+  if (!job || job.status !== 'ready') return job;
+  if (job.provider !== 'doubao-seedance-1-5-pro') return job;
+  const currentUrl = String(job.videoUrl || job.resultUrl || '').trim();
+  if (!/^https?:\/\//i.test(currentUrl) || currentUrl.includes('/storage/objects/')) return job;
+  try {
+    const mirroredUrl = await storeAvatarAnimationUrlToCos(req, user, currentUrl, { petId: job.petId || '' });
+    if (mirroredUrl && mirroredUrl !== currentUrl && mirroredUrl.includes('/storage/objects/')) {
+      job.sourceResultUrl = job.sourceResultUrl || currentUrl;
+      job.resultUrl = mirroredUrl;
+      job.videoUrl = mirroredUrl;
+      job.providerStatus = 'ready_mirrored';
+      job.lastStatusError = '';
+      const pet = user.pets?.find((item) => item.id === job.petId);
+      if (pet) {
+        pet.avatarAnimationJobId = job.id;
+        pet.avatarAnimationStatus = 'ready';
+        pet.avatarAnimationUpdatedAt = new Date().toISOString();
+        pet.avatarAnimationUrl = mirroredUrl;
+      }
+      touchAvatarAnimationJob(job);
+    }
+  } catch (error) {
+    job.lastStatusError = `Animation video mirror skipped: ${error.message || String(error)}`;
+    touchAvatarAnimationJob(job);
+    console.warn('[avatar-animation] ready video mirror skipped', {
+      jobId: job.id,
+      message: error.message || String(error),
+    });
+  }
+  return job;
 }
 
 async function storeBase64ImageToCos(req, user, body, { base64Key, fileNamePrefix, mimeTypeKey, nameKey, petId = '', scope }) {
@@ -21997,6 +22081,7 @@ async function handle(req, res) {
       return;
     }
     await refreshAvatarAnimationJob(req, user, job);
+    await mirrorReadyAvatarAnimationIfNeeded(req, user, job);
     saveState();
     ok(res, publicAvatarAnimationJob(job));
     return;
@@ -22029,6 +22114,7 @@ async function handle(req, res) {
       return;
     }
     await refreshAvatarAnimationJob(req, user, job);
+    await mirrorReadyAvatarAnimationIfNeeded(req, user, job);
     saveState();
     ok(res, publicAvatarAnimationJob(job));
     return;

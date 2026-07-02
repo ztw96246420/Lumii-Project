@@ -161,7 +161,7 @@ const lumiiAppVersion = '1.0.0';
 const lumiiAppBuildNumber = 1;
 const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
-const lumiiAvatarStageBackground = '#FBF7F1';
+const lumiiCompanionPanelBackground = '#FFFDFC';
 
 const fallbackRemoteConfig: AppRemoteConfig = {
   ai: {
@@ -3642,6 +3642,18 @@ export default function LumiiMvpApp() {
   }, [activePet?.id, avatarAnimationJob?.id, avatarAnimationJob?.status]);
 
   useEffect(() => {
+    if (!sessionTokenRef.current || !activePet?.id || !activePet.avatarUrl || isGeneratedAvatarUri(activePet.avatarUrl)) return undefined;
+    const activeJob = avatarAnimationJob?.petId === activePet.id ? avatarAnimationJob : null;
+    const videoUrl = activeJob?.videoUrl || activePet.avatarAnimationUrl || '';
+    const hasPlayableAnimation = (activeJob?.status === 'ready' || activePet.avatarAnimationStatus === 'ready') && isPlayableAvatarVideoUri(videoUrl);
+    if (hasPlayableAnimation || activeJob?.status === 'processing') return undefined;
+    const timer = setInterval(() => {
+      void syncAvatarAnimation({ pet: activePet, silent: true });
+    }, 9000);
+    return () => clearInterval(timer);
+  }, [activePet?.avatarAnimationStatus, activePet?.avatarAnimationUrl, activePet?.avatarUrl, activePet?.id, avatarAnimationJob?.id, avatarAnimationJob?.petId, avatarAnimationJob?.status, avatarAnimationJob?.videoUrl]);
+
+  useEffect(() => {
     if (!session?.phone || !activePet?.id || isHomePreviewMode) return;
     const attemptKey = `${session.phone}:${activePet.id}`;
     if (avatarRecoveryAttemptKeyRef.current === attemptKey) return;
@@ -3933,9 +3945,12 @@ export default function LumiiMvpApp() {
       if (avatarJobIdRef.current && avatarJob?.status === 'processing') {
         void pollAvatarJob();
       }
+      if (activePet?.id && activePet.avatarUrl && !isGeneratedAvatarUri(activePet.avatarUrl)) {
+        void syncAvatarAnimation({ pet: activePet, silent: true });
+      }
     });
     return () => subscription.remove();
-  }, [avatarJob?.status, route, session]);
+  }, [activePet, avatarJob?.status, route, session]);
 
   useEffect(() => {
     if (!session || route !== 'chat') return;
@@ -18889,10 +18904,10 @@ const styles = StyleSheet.create({
   homePetHeroCopy: { flexShrink: 0, paddingTop: 16, width: 138, zIndex: 2 },
   homePetHeroImage: { backgroundColor: 'transparent', height: 286, resizeMode: 'contain', width: 264 },
   homePetHeroMedia: { alignItems: 'center', backgroundColor: 'transparent', bottom: 0, justifyContent: 'flex-end', left: 116, paddingBottom: 0, paddingTop: 4, position: 'absolute', right: -24, top: 0, zIndex: 1 },
-  homePetHeroVideo: { backgroundColor: lumiiAvatarStageBackground, bottom: 0, height: '100%', left: 0, position: 'absolute', right: 0, top: 0, width: '100%' },
-  homePetHeroVideoFallback: { backgroundColor: lumiiAvatarStageBackground, bottom: 0, height: '100%', left: 0, position: 'absolute', resizeMode: 'contain', right: 0, top: 0, width: '100%' },
+  homePetHeroVideo: { backgroundColor: lumiiCompanionPanelBackground, bottom: 0, height: '100%', left: 0, position: 'absolute', right: 0, top: 0, width: '100%' },
+  homePetHeroVideoFallback: { backgroundColor: lumiiCompanionPanelBackground, bottom: 0, height: '100%', left: 0, position: 'absolute', resizeMode: 'contain', right: 0, top: 0, width: '100%' },
   homePetHeroVideoHidden: { opacity: 0 },
-  homePetHeroVideoStage: { alignItems: 'center', backgroundColor: lumiiAvatarStageBackground, borderColor: 'rgba(255,255,255,0.84)', borderRadius: 30, borderWidth: 1, height: 264, justifyContent: 'center', overflow: 'hidden', position: 'relative', shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24, width: 264 },
+  homePetHeroVideoStage: { alignItems: 'center', backgroundColor: lumiiCompanionPanelBackground, borderColor: 'rgba(255,255,255,0.84)', borderRadius: 30, borderWidth: 1, height: 264, justifyContent: 'center', overflow: 'hidden', position: 'relative', shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24, width: 264 },
   homePetHeroMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', marginTop: 5 },
   homePetHeroName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 27 },
   homePetAvatarShell: { alignItems: 'center', backgroundColor: '#FFEDD9', borderColor: '#fff', borderRadius: 112, borderWidth: 4, height: 224, justifyContent: 'center', overflow: 'hidden', shadowColor: '#b46e3c', shadowOffset: { height: 28, width: 0 }, shadowOpacity: 0.26, shadowRadius: 56, width: 224, zIndex: 2 },
