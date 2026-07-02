@@ -75,3 +75,9 @@
 ## 清数据
 
 后台“清理用户业务数据”会同时删除该用户的 `avatarAnimationJobs`，避免测试号重跑时残留旧动效任务。
+
+## Avatar-stage background
+
+- `PET_AVATAR_ANIMATION_STAGE_BACKGROUND`: default `#FBF7F1`.
+- The Seedance prompt uses this value as the solid warm off-white Lumii avatar-stage background, so generated MP4 pixels blend with the app companion display frame.
+- Keep only a soft contact shadow under the pet; avoid pure white, gray, checkerboard, gradients, room/outdoor scenes, floor lines, and horizon lines.

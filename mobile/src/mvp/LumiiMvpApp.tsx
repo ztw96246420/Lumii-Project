@@ -161,6 +161,7 @@ const lumiiAppVersion = '1.0.0';
 const lumiiAppBuildNumber = 1;
 const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
+const lumiiAvatarStageBackground = '#FBF7F1';
 
 const fallbackRemoteConfig: AppRemoteConfig = {
   ai: {
@@ -18878,7 +18879,7 @@ const styles = StyleSheet.create({
   homePetHeroCopy: { flexShrink: 0, paddingTop: 16, width: 138, zIndex: 2 },
   homePetHeroImage: { backgroundColor: 'transparent', height: 286, resizeMode: 'contain', width: 264 },
   homePetHeroMedia: { alignItems: 'center', backgroundColor: 'transparent', bottom: 0, justifyContent: 'flex-end', left: 116, paddingBottom: 0, paddingTop: 4, position: 'absolute', right: -24, top: 0, zIndex: 1 },
-  homePetHeroVideo: { backgroundColor: 'transparent', height: 286, width: 264 },
+  homePetHeroVideo: { backgroundColor: lumiiAvatarStageBackground, height: 286, width: 264 },
   homePetHeroMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', marginTop: 5 },
   homePetHeroName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 27 },
   homePetAvatarShell: { alignItems: 'center', backgroundColor: '#FFEDD9', borderColor: '#fff', borderRadius: 112, borderWidth: 4, height: 224, justifyContent: 'center', overflow: 'hidden', shadowColor: '#b46e3c', shadowOffset: { height: 28, width: 0 }, shadowOpacity: 0.26, shadowRadius: 56, width: 224, zIndex: 2 },

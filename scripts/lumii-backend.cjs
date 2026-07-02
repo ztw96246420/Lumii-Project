@@ -64,6 +64,7 @@ const PET_AVATAR_ANIMATION_PROVIDER = (process.env.PET_AVATAR_ANIMATION_PROVIDER
 const PET_AVATAR_ANIMATION_MODEL = process.env.PET_AVATAR_ANIMATION_MODEL || 'doubao-seedance-1-5-pro';
 const PET_AVATAR_ANIMATION_ENABLED = process.env.PET_AVATAR_ANIMATION_ENABLED === 'false' ? false : true;
 const PET_AVATAR_ANIMATION_MAX_BYTES = Number(process.env.PET_AVATAR_ANIMATION_MAX_BYTES || 35 * 1024 * 1024);
+const PET_AVATAR_ANIMATION_STAGE_BACKGROUND = process.env.PET_AVATAR_ANIMATION_STAGE_BACKGROUND || '#FBF7F1';
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
@@ -384,7 +385,8 @@ function defaultDogAvatarAnimationPromptTemplate() {
     'It greets the viewer warmly with subtle happy tail wagging, natural ear movement, bright friendly eye contact, and a soft open-mouth smile or gentle pant.',
     'A small head tilt or brief paw lift is allowed only if it fits the original pose and does not change the silhouette.',
     'Keep this exact individual pet recognizable: same breed/profile hint ({breed}), fur color, markings, eye shape, eye-color impression, nose shape, muzzle length, ear shape, body proportions, expression, accessory if present, and premium 3D collectible-character style.',
-    'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve the reference background or clean app-avatar compositing as much as possible; do not introduce a new scene.',
+    `Use a clean solid warm off-white Lumii avatar-stage background matching the app companion display frame color (${PET_AVATAR_ANIMATION_STAGE_BACKGROUND}). Keep the background perfectly consistent for the full 4 seconds; do not use pure white, gray, checkerboard transparency pattern, gradient, room, outdoor scene, floor line, horizon line, or environment background. Keep only a very soft contact shadow under the pet.`,
+    'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve clean app-avatar compositing; do not introduce a new scene.',
     'One pet only, centered square composition, 1:1 framing, 4 seconds.',
   ].join('\n');
 }
@@ -395,7 +397,8 @@ function defaultCatAvatarAnimationPromptTemplate() {
     'It greets the viewer softly with calm eye contact, a slow affectionate blink, gentle ear swivels, and a tiny silent meow or slight mouth movement only if natural.',
     'The tail tip may sway gracefully or lift in a friendly curl only if the reference pose supports it.',
     'Keep this exact individual pet recognizable: same breed/profile hint ({breed}), fur color, markings, eye shape, eye-color impression, nose shape, muzzle length, ear shape, body proportions, expression, accessory if present, and premium 3D collectible-character style.',
-    'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve the reference background or clean app-avatar compositing as much as possible; do not introduce a new scene.',
+    `Use a clean solid warm off-white Lumii avatar-stage background matching the app companion display frame color (${PET_AVATAR_ANIMATION_STAGE_BACKGROUND}). Keep the background perfectly consistent for the full 4 seconds; do not use pure white, gray, checkerboard transparency pattern, gradient, room, outdoor scene, floor line, horizon line, or environment background. Keep only a very soft contact shadow under the pet.`,
+    'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve clean app-avatar compositing; do not introduce a new scene.',
     'One pet only, centered square composition, 1:1 framing, 4 seconds.',
   ].join('\n');
 }
@@ -405,14 +408,15 @@ function defaultPetAvatarAnimationPromptTemplate() {
     'The pet companion in the reference image comes to life from the exact original pose and first frame.',
     'It greets the viewer gently with warm eye contact, subtle head movement, natural ear or body motion, and a friendly expression that fits the animal.',
     'Keep this exact individual {species} recognizable: same breed/profile hint ({breed}), fur color, markings, eye shape, eye-color impression, nose shape, muzzle length, ear shape, body proportions, expression, accessory if present, and premium 3D collectible-character style.',
-    'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve the reference background or clean app-avatar compositing as much as possible; do not introduce a new scene.',
+    `Use a clean solid warm off-white Lumii avatar-stage background matching the app companion display frame color (${PET_AVATAR_ANIMATION_STAGE_BACKGROUND}). Keep the background perfectly consistent for the full 4 seconds; do not use pure white, gray, checkerboard transparency pattern, gradient, room, outdoor scene, floor line, horizon line, or environment background. Keep only a very soft contact shadow under the pet.`,
+    'Motion must be smooth, small, loop-friendly, stable, natural, and camera-locked. Preserve clean app-avatar compositing; do not introduce a new scene.',
     'One pet only, centered square composition, 1:1 framing, 4 seconds.',
   ].join('\n');
 }
 
 function defaultPetAvatarAnimationNegativePromptTemplate() {
   return [
-    'distorted face, identity drift, morphing, changed breed, changed fur color, changed markings, changed age, bad anatomy, extra limbs, missing tail, duplicate pet, multiple pets, blurry, jitter, frozen body, unnatural movement, aggressive barking, aggressive hissing, arched back, background changes, camera zoom, camera pan, camera shake, dramatic action pose, text, logo, watermark',
+    'distorted face, identity drift, morphing, changed breed, changed fur color, changed markings, changed age, bad anatomy, extra limbs, missing tail, duplicate pet, multiple pets, blurry, jitter, frozen body, unnatural movement, aggressive barking, aggressive hissing, arched back, background changes, mismatched background color, pure white background, gray background, checkerboard transparency pattern, gradient background, room background, outdoor background, floor line, horizon line, camera zoom, camera pan, camera shake, dramatic action pose, text, logo, watermark',
   ].join('\n');
 }
 
