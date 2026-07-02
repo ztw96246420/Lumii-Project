@@ -6154,6 +6154,204 @@ function adminSanctions() {
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
+function sanctionPolicyRowStatus(row) {
+  if (!row.total) return '观察';
+  if (row.overturnRate >= 35 && row.approvedAppeals >= 2) return '需复核';
+  if (row.appealRate >= 45 && row.appeals >= 3) return '申诉偏高';
+  if (row.revokedRate >= 45 && row.revoked >= 3) return '撤销偏高';
+  return '稳定';
+}
+
+function buildSanctionPolicyStatsRow(key, label, meta = {}) {
+  return {
+    active: 0,
+    appealRate: 0,
+    appeals: 0,
+    approvedAppeals: 0,
+    durationHours: meta.durationHours ?? '',
+    expired: 0,
+    key,
+    label,
+    latestAt: '',
+    restrictive: 0,
+    revoked: 0,
+    revokedRate: 0,
+    source: meta.source || '',
+    status: '观察',
+    templateId: meta.templateId || '',
+    total: 0,
+    type: meta.type || '',
+    typeLabel: meta.typeLabel || '',
+    overturnRate: 0,
+  };
+}
+
+function finalizeSanctionPolicyRow(row) {
+  row.appealRate = analyticsPercent(row.appeals, row.total);
+  row.overturnRate = analyticsPercent(row.approvedAppeals, row.appeals);
+  row.revokedRate = analyticsPercent(row.revoked, row.total);
+  row.status = sanctionPolicyRowStatus(row);
+  return row;
+}
+
+function sanctionPolicyAppealsBySanction() {
+  const map = new Map();
+  ensureSanctionAppeals()
+    .filter((appeal) => appealTypeFor(appeal) === 'sanction' && appeal.sanctionId)
+    .forEach((appeal) => {
+      const key = String(appeal.sanctionId || '');
+      const rows = map.get(key) || [];
+      rows.push(appeal);
+      map.set(key, rows);
+    });
+  return map;
+}
+
+function adminSanctionPolicyReview() {
+  const sanctions = adminSanctions();
+  const appealsBySanction = sanctionPolicyAppealsBySanction();
+  const appealRows = ensureSanctionAppeals().map(adminSanctionAppealItem);
+  const reportRows = adminSocialReports();
+  const templateMap = new Map();
+  adminSanctionTemplates().forEach((template) => {
+    templateMap.set(template.id, buildSanctionPolicyStatsRow(template.id, template.label, {
+      durationHours: template.durationHours,
+      templateId: template.id,
+      type: template.type,
+      typeLabel: template.typeLabel,
+    }));
+  });
+  templateMap.set('manual_or_unknown', buildSanctionPolicyStatsRow('manual_or_unknown', '未使用模板/历史处罚', {
+    templateId: '',
+    typeLabel: '混合',
+  }));
+  const sourceMap = new Map();
+  const phoneMap = new Map();
+  const activeTypeCounts = { ban: 0, freeze: 0, mute: 0, warning: 0 };
+  sanctions.forEach((sanction) => {
+    const appeals = appealsBySanction.get(sanction.id) || [];
+    const approvedAppeals = appeals.filter((appeal) => sanctionAppealStatusFor(appeal.status) === 'approved').length;
+    const templateKey = sanction.templateId && templateMap.has(sanction.templateId) ? sanction.templateId : 'manual_or_unknown';
+    const templateRow = templateMap.get(templateKey);
+    const sourceKey = sanction.source || 'manual';
+    if (!sourceMap.has(sourceKey)) {
+      sourceMap.set(sourceKey, buildSanctionPolicyStatsRow(sourceKey, sourceKey, {
+        source: sourceKey,
+        typeLabel: '来源',
+      }));
+    }
+    const rows = [templateRow, sourceMap.get(sourceKey)];
+    rows.forEach((row) => {
+      row.total += 1;
+      row.active += sanction.status === 'active' ? 1 : 0;
+      row.expired += sanction.status === 'expired' ? 1 : 0;
+      row.revoked += sanction.status === 'revoked' ? 1 : 0;
+      row.restrictive += sanction.type !== 'warning' ? 1 : 0;
+      row.appeals += appeals.length;
+      row.approvedAppeals += approvedAppeals;
+      row.latestAt = !row.latestAt || String(sanction.createdAt).localeCompare(String(row.latestAt)) > 0 ? sanction.createdAt : row.latestAt;
+    });
+    if (sanction.status === 'active' && activeTypeCounts[sanction.type] !== undefined) activeTypeCounts[sanction.type] += 1;
+    const phoneRow = phoneMap.get(sanction.phone) || {
+      active: 0,
+      appealCount: 0,
+      approvedAppealCount: 0,
+      latestAt: '',
+      latestReason: '',
+      latestTypeLabel: '',
+      ownerName: sanction.ownerName,
+      petName: sanction.petName,
+      phone: sanction.phone,
+      restrictive: 0,
+      total: 0,
+    };
+    phoneRow.total += 1;
+    phoneRow.active += sanction.status === 'active' ? 1 : 0;
+    phoneRow.restrictive += sanction.type !== 'warning' ? 1 : 0;
+    phoneRow.appealCount += appeals.length;
+    phoneRow.approvedAppealCount += approvedAppeals;
+    if (!phoneRow.latestAt || String(sanction.createdAt).localeCompare(String(phoneRow.latestAt)) > 0) {
+      phoneRow.latestAt = sanction.createdAt;
+      phoneRow.latestReason = sanction.reason || '';
+      phoneRow.latestTypeLabel = sanction.typeLabel || sanction.type;
+    }
+    phoneMap.set(sanction.phone, phoneRow);
+  });
+  const templateRows = Array.from(templateMap.values()).map(finalizeSanctionPolicyRow)
+    .sort((a, b) => b.total - a.total || String(b.latestAt).localeCompare(String(a.latestAt)));
+  const sourceRows = Array.from(sourceMap.values()).map(finalizeSanctionPolicyRow)
+    .sort((a, b) => b.total - a.total || String(b.latestAt).localeCompare(String(a.latestAt)));
+  const repeatOffenders = Array.from(phoneMap.values())
+    .filter((row) => row.total >= 2 || row.restrictive >= 2 || row.active >= 2)
+    .sort((a, b) => b.restrictive - a.restrictive || b.total - a.total || String(b.latestAt).localeCompare(String(a.latestAt)))
+    .slice(0, 12);
+  const sanctionAppeals = appealRows.filter((appeal) => appeal.appealType === 'sanction');
+  const approvedSanctionAppeals = sanctionAppeals.filter((appeal) => appeal.status === 'approved');
+  const reportSuggestions = reportRows
+    .filter((report) => report.sanctionSuggestion)
+    .map((report) => ({
+      id: report.id,
+      ownerName: report.ownerName || '',
+      ownerPhone: report.ownerPhone || '',
+      reason: report.sanctionSuggestion?.reason || '',
+      sanctionId: report.sanctionSuggestion?.sanctionId || report.sanctionId || '',
+      status: report.sanctionSuggestion?.status || '',
+      targetId: report.targetId || '',
+      targetType: report.targetType || '',
+      templateId: report.sanctionSuggestion?.templateId || '',
+      typeLabel: report.sanctionSuggestion?.typeLabel || '',
+      updatedAt: report.reviewedAt || report.createdAt || '',
+    }));
+  const appliedSuggestions = reportSuggestions.filter((item) => item.status === 'applied');
+  const pendingSuggestions = reportSuggestions.filter((item) => item.status === 'suggested')
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+    .slice(0, 8);
+  const activeRestrictivePhones = new Set(sanctions.filter((item) => item.status === 'active' && item.type !== 'warning').map((item) => item.phone));
+  const openAppeals = appealRows.filter((appeal) => appeal.status === 'pending' || appeal.status === 'reviewing');
+  const recommendations = [];
+  if (openAppeals.length) recommendations.push({ level: 'warn', title: '先处理未关闭申诉', detail: `${openAppeals.length} 条申诉仍未关闭，策略复盘前应优先完成复核。` });
+  const highRiskTemplates = templateRows.filter((row) => row.status === '需复核' || row.status === '申诉偏高');
+  if (highRiskTemplates.length) recommendations.push({ level: 'bad', title: '复核高申诉模板', detail: `${highRiskTemplates.map((row) => row.label).join('、')} 的申诉或推翻比例偏高，建议检查证据标准和默认时长。` });
+  if (pendingSuggestions.length) recommendations.push({ level: 'warn', title: '处理举报处罚建议', detail: `${pendingSuggestions.length} 条举报处罚建议待应用或关闭，避免举报成立后没有限制闭环。` });
+  if (repeatOffenders.length) recommendations.push({ level: 'warn', title: '关注重复违规用户', detail: `${repeatOffenders.length} 个用户出现多次处罚或多条生效限制，可人工复核是否需要升级或合并处理。` });
+  if (!recommendations.length) recommendations.push({ level: 'ok', title: '策略暂无明显异常', detail: '当前处罚、申诉和撤销比例没有触发复盘预警，继续观察样本量。' });
+  return {
+    generatedAt: new Date().toISOString(),
+    mobileImpact: {
+      activeTypeCounts,
+      affectedRestrictiveUsers: activeRestrictivePhones.size,
+      rules: [
+        { key: 'warning', label: '警告', effect: '只通知和留痕，不限制移动端功能。' },
+        { key: 'mute', label: '禁言', effect: '发布小事、评论、点赞、打招呼、约遛、私信、宠友圈封面、地点投稿和地点点评会被后端拦截。' },
+        { key: 'freeze', label: '冻结', effect: '大多数写操作返回 ACCOUNT_RESTRICTED，反馈、通知已读和申诉入口保留。' },
+        { key: 'ban', label: '封禁', effect: '长期限制大多数写操作，申诉和反馈入口保留。' },
+      ],
+    },
+    recommendations,
+    repeatOffenders,
+    reportSuggestions: {
+      applied: appliedSuggestions.length,
+      applyRate: analyticsPercent(appliedSuggestions.length, reportSuggestions.length),
+      pending: pendingSuggestions,
+      suggested: pendingSuggestions.length,
+      total: reportSuggestions.length,
+    },
+    sourceRows,
+    summary: {
+      active: sanctions.filter((item) => item.status === 'active').length,
+      activeRestrictiveUsers: activeRestrictivePhones.size,
+      appealRate: analyticsPercent(sanctionAppeals.length, sanctions.length),
+      appeals: sanctionAppeals.length,
+      approvedAppeals: approvedSanctionAppeals.length,
+      overturnRate: analyticsPercent(approvedSanctionAppeals.length, sanctionAppeals.length),
+      repeatOffenders: repeatOffenders.length,
+      revoked: sanctions.filter((item) => item.status === 'revoked').length,
+      total: sanctions.length,
+    },
+    templateRows,
+  };
+}
+
 function parseSanctionDurationHours(type, value) {
   if (value === '' || value === null || value === undefined) return SANCTION_DEFAULT_DURATION_HOURS[type] || 0;
   const durationHours = Math.floor(Number(value));
@@ -21366,6 +21564,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       !q || item.phone.includes(q) || item.ownerName.includes(q) || item.reason.includes(q) || item.typeLabel.includes(q) || item.type.includes(q)
     );
     ok(res, rows.slice(0, 300));
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/sanction-policy-review') {
+    ok(res, adminSanctionPolicyReview());
     return true;
   }
 

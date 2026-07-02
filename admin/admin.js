@@ -203,7 +203,7 @@ function shortPhone(value) {
 
 function statusPill(status) {
   const value = String(status || '-');
-  const tone = /ready|approved|active|published|valid|closed|success|done|已通过|通过|已处理|已配置|已启用/.test(value)
+  const tone = /ready|approved|active|published|valid|closed|success|done|稳定|已通过|通过|已处理|已配置|已启用/.test(value)
     ? 'ok'
     : /failed|rejected|deleted|hidden|invalid|bad|ban|banned|freeze|frozen|muted|禁言|冻结|封禁|已隐藏|已驳回|驳回/.test(value)
       ? 'bad'
@@ -1379,7 +1379,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -1660,6 +1660,7 @@ async function handleSanctionAppealAction(button) {
   if (reason === null) return;
   const revokeSanction = op === 'approve' ? Boolean($(`appealRevoke-${id}`)?.checked ?? true) : undefined;
   await post(`/admin/sanction-appeals/${encodeURIComponent(id)}/${op}`, { reason, revokeSanction });
+  state.cache = { ...state.cache, audit: null, sanctionAppeals: null, sanctionPolicy: null, sanctions: null, summary: null, users: null };
 }
 
 function fillNotificationFormFromDataset(button) {
@@ -3699,12 +3700,102 @@ async function renderSocialRelations(force) {
   `;
 }
 
+function renderSanctionPolicyReview(policy = {}) {
+  const summary = policy.summary || {};
+  const reportSuggestions = policy.reportSuggestions || {};
+  const mobileImpact = policy.mobileImpact || {};
+  const activeTypeCounts = mobileImpact.activeTypeCounts || {};
+  const recommendations = Array.isArray(policy.recommendations) ? policy.recommendations : [];
+  const templateRows = Array.isArray(policy.templateRows) ? policy.templateRows : [];
+  const sourceRows = Array.isArray(policy.sourceRows) ? policy.sourceRows : [];
+  const repeatOffenders = Array.isArray(policy.repeatOffenders) ? policy.repeatOffenders : [];
+  const pendingSuggestions = Array.isArray(reportSuggestions.pending) ? reportSuggestions.pending : [];
+  const rules = Array.isArray(mobileImpact.rules) ? mobileImpact.rules : [];
+  return `
+    <div class="grid metrics">
+      ${metric('处罚总数', numberText(summary.total || 0), `${numberText(summary.active || 0)} 条仍生效`, '来自真实处罚流水，包含手动处罚、举报处罚和内容作者快捷处罚。')}
+      ${metric('申诉推翻率', percentText(summary.overturnRate || 0), `${numberText(summary.approvedAppeals || 0)} / ${numberText(summary.appeals || 0)} 条申诉通过`, '申诉通过代表原处罚或处理结果被运营认可有问题；比例偏高时应复核模板。')}
+      ${metric('受限用户', numberText(summary.activeRestrictiveUsers || 0), `禁言 ${numberText(activeTypeCounts.mute || 0)} · 冻结 ${numberText(activeTypeCounts.freeze || 0)} · 封禁 ${numberText(activeTypeCounts.ban || 0)}`, '只统计当前生效且会限制移动端写操作的账号。')}
+      ${metric('举报建议应用率', percentText(reportSuggestions.applyRate || 0), `${numberText(reportSuggestions.applied || 0)} / ${numberText(reportSuggestions.total || 0)} 条建议已应用`, '举报处理为有效后会生成处罚建议；建议长期不处理会造成举报闭环断层。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>处罚策略复盘</h2>
+          <div class="section-sub">从处罚流水、申诉、举报处罚建议和移动端限制结果回算策略质量</div>
+        </div>
+        ${help('这里只做复盘和运营建议，不自动升级处罚。禁言/冻结/封禁是否影响移动端，由后端账号限制中间件实时决定。')}
+      </div>
+      <div class="grid two">
+        <div>
+          <div class="mini-section-title">运营建议</div>
+          <div class="gap-list">
+            ${recommendations.map((item) => {
+              const level = item.level === 'bad' ? 'bad' : item.level === 'warn' ? 'warn' : 'ok';
+              const label = level === 'bad' ? '高风险' : level === 'warn' ? '关注' : '正常';
+              return `<div><strong>${tonePill(label, level)} ${escapeHtml(item.title || '-')}</strong><span>${escapeHtml(item.detail || '-')}</span></div>`;
+            }).join('')}
+          </div>
+        </div>
+        <div>
+          <div class="mini-section-title">移动端影响</div>
+          <div class="switch-panel">
+            ${rules.map((rule) => `<div class="switch-row"><span>${escapeHtml(rule.label || rule.key || '-')}</span><strong class="cell-sub clamp">${escapeHtml(rule.effect || '-')}</strong></div>`).join('')}
+            <div class="switch-row"><span>当前受限用户</span><strong>${numberText(mobileImpact.affectedRestrictiveUsers || 0)}</strong></div>
+          </div>
+        </div>
+      </div>
+      <div class="grid two social-evidence-grid">
+        <div>
+          <div class="mini-section-title">模板表现</div>
+          ${tableHtml(templateRows, [
+            ['模板', (row) => `<div class="cell-title">${escapeHtml(row.label || '-')}</div><div class="cell-sub">${escapeHtml(row.templateId || 'manual')} · ${escapeHtml(row.typeLabel || '-')}</div>`],
+            ['命中', (row) => `<div>${numberText(row.total || 0)} 次</div><div class="cell-sub">${numberText(row.active || 0)} 生效 · ${numberText(row.revoked || 0)} 撤销</div>`],
+            ['申诉', (row) => `<div>${percentText(row.appealRate || 0)} 申诉</div><div class="cell-sub">${percentText(row.overturnRate || 0)} 推翻</div>`],
+            ['状态', (row) => statusPill(row.status || '-')],
+          ], '暂无处罚模板数据')}
+        </div>
+        <div>
+          <div class="mini-section-title">来源质量</div>
+          ${tableHtml(sourceRows, [
+            ['来源', (row) => `<div class="cell-title">${escapeHtml(row.label || '-')}</div><div class="cell-sub">${escapeHtml(row.source || '-')}</div>`],
+            ['处罚', (row) => `<div>${numberText(row.total || 0)} 次</div><div class="cell-sub">${numberText(row.restrictive || 0)} 条限制型</div>`],
+            ['撤销/申诉', (row) => `<div>${percentText(row.revokedRate || 0)} 撤销</div><div class="cell-sub">${percentText(row.overturnRate || 0)} 推翻</div>`],
+            ['最新', (row) => formatTime(row.latestAt)],
+          ], '暂无处罚来源数据')}
+        </div>
+      </div>
+      <div class="grid two social-evidence-grid">
+        <div>
+          <div class="mini-section-title">重复违规用户</div>
+          ${tableHtml(repeatOffenders, [
+            ['用户', (row) => `<div class="cell-title">${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.phone)} ${row.petName ? `· ${escapeHtml(row.petName)}` : ''}</div>`],
+            ['次数', (row) => `<div>${numberText(row.total || 0)} 次</div><div class="cell-sub">${numberText(row.active || 0)} 生效 · ${numberText(row.restrictive || 0)} 限制型</div>`],
+            ['申诉', (row) => `<div>${numberText(row.appealCount || 0)} 条</div><div class="cell-sub">${numberText(row.approvedAppealCount || 0)} 条通过</div>`],
+            ['最近', (row) => `<div>${escapeHtml(row.latestTypeLabel || '-')}</div><div class="cell-sub clamp">${escapeHtml(row.latestReason || '-')}</div>`],
+          ], '暂无重复处罚用户')}
+        </div>
+        <div>
+          <div class="mini-section-title">待处理举报处罚建议</div>
+          ${tableHtml(pendingSuggestions, [
+            ['举报', (row) => `<div class="cell-title">${escapeHtml(row.id || '-')}</div><div class="cell-sub">${escapeHtml(row.targetType || '-')} · ${escapeHtml(row.targetId || '-')}</div>`],
+            ['作者', (row) => `<div>${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.ownerPhone || '')}</div>`],
+            ['建议', (row) => `<div>${statusPill(row.typeLabel || row.templateId || '-')}</div><div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div>`],
+          ], '暂无待应用处罚建议')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 async function renderSanctions(force) {
-  const [rows, templates] = await Promise.all([
+  const [rows, templates, policy] = await Promise.all([
     load('sanctions', '/admin/sanctions', force),
     load('sanctionTemplates', '/admin/sanction-templates', force),
+    load('sanctionPolicy', '/admin/sanction-policy-review', force),
   ]);
   $('content').innerHTML = `
+    ${renderSanctionPolicyReview(policy)}
     <div class="card">
       <div class="section-head">
         <div>
@@ -3770,6 +3861,7 @@ async function createSanction() {
   }
   await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours, reason, templateId, type });
   state.cache.sanctions = null;
+  state.cache.sanctionPolicy = null;
   state.cache.summary = null;
   state.cache.users = null;
 }
@@ -3799,6 +3891,7 @@ async function applyReportSanction(button) {
   });
   state.cache.reports = null;
   state.cache.moderation = null;
+  state.cache.sanctionPolicy = null;
   state.cache.sanctions = null;
   state.cache.summary = null;
   state.cache.users = null;
@@ -4477,6 +4570,7 @@ async function applySocialAuthorSanction(button) {
     ...state.cache,
     audit: null,
     reports: null,
+    sanctionPolicy: null,
     sanctions: null,
     socialComments: null,
     socialPosts: null,

@@ -558,6 +558,7 @@
 ### 3.11 用户处罚
 
 - `GET /admin/sanctions`
+- `GET /admin/sanction-policy-review`
 - `GET /admin/sanction-templates`
 - `GET /admin/users/{phone}/sanctions`
 - `POST /admin/users/{phone}/sanctions`
@@ -595,13 +596,16 @@
 - 举报中心处理为有效时，会自动生成处罚建议，建议包含处罚类型、时长、原因和被举报内容快照。
 - 举报中心支持按建议一键创建处罚，处罚会保留举报来源、处罚模板和证据快照，并写入 `social.report.sanction` 审计日志。
 - 内容安全任务池把举报处理为有效时，也会生成同样的处罚建议，避免两个入口逻辑不一致。
+- 用户处罚页新增处罚策略复盘：从处罚流水、申诉、举报处罚建议和移动端生效限制回算模板命中、申诉推翻率、来源质量、重复违规用户和待处理处罚建议。
 - 处罚新增、撤销、到期、申诉结果会写入 App 通知中心，并跳转到安全中心。
 - 所有处罚新增/撤销、申诉接手/通过/驳回写入审计日志。
 - 举报处理申诉详见 `docs/Operations_Backoffice_Report_Appeals_2026-07-01.md`。
+- 处罚策略复盘详见 `docs/Operations_Backoffice_Sanction_Policy_Review_2026-07-03.md`。
 
 未实现：
 
 - 多管理员复核与双人审批。
+- 自动升级处罚策略。
 
 ### 3.12 内容安全任务池
 
