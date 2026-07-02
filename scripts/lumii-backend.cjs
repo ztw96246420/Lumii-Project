@@ -317,7 +317,7 @@ function defaultGptImage2PetAvatarPromptTemplate() {
     '- gentle softbox lighting',
     '- subtle ambient occlusion',
     '- clean self-shadowing and depth on the pet itself',
-    `- optional subtle soft contact shadow directly under the paws/body is allowed, as long as it remains clean on the warm off-white app background (${PET_AVATAR_STAGE_BACKGROUND})`,
+    `- optional subtle soft contact shadow directly under the paws/body is allowed, as long as it remains clean on the exact Lumii companion-card matte background (${PET_AVATAR_STAGE_BACKGROUND})`,
     '- clean edge separation',
     '- smooth, premium, commercial finish',
     'Composition:',
@@ -327,9 +327,10 @@ function defaultGptImage2PetAvatarPromptTemplate() {
     '- front view or very slight 3/4 view, matching the reference as closely as possible',
     '- symmetrical, stable composition',
     '- enough negative space for app-avatar or card-style cropping',
-    `- clean solid warm off-white Lumii avatar-stage background matching the app display frame color (${PET_AVATAR_STAGE_BACKGROUND})`,
-    '- fill every background pixel with the same smooth warm off-white matte color',
-    '- the background must be perfectly smooth, single-color, and finished-looking, with no pattern, no texture, no vignette, no gradient, and no visible scene',
+    `- one opaque, flat, edge-to-edge Lumii companion-card matte background in exactly ${PET_AVATAR_STAGE_BACKGROUND}`,
+    '- this is the color of the pet display panel behind the name / breed / companion-online area, not the app root page background',
+    '- fill every background pixel with the same smooth single matte color',
+    '- the background must be perfectly smooth, flat, single-color, and finished-looking, with no pattern, no texture, no vignette, no gradient, and no visible scene',
     '- this output should be an app-matching matte image, not a preview canvas or asset-editor screenshot',
     '- do not add any background pattern, tiled squares, grid, texture, or preview canvas',
     '- no studio backdrop, no floor plane, no horizon line, no room, no outdoor environment',
@@ -4594,16 +4595,125 @@ function removeCheckerboardBackground(decoded) {
   return { height, removed, rgba, width };
 }
 
+function detectFlatLightBackgroundProfile({ height, rgba, width }) {
+  const edgeSize = Math.max(4, Math.round(Math.min(width, height) * 0.04));
+  let b = 0;
+  let count = 0;
+  let g = 0;
+  let r = 0;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (x >= edgeSize && y >= edgeSize && x < width - edgeSize && y < height - edgeSize) continue;
+      const offset = (y * width + x) * 4;
+      const alpha = rgba[offset + 3];
+      if (alpha < 24) continue;
+      const pixelR = rgba[offset];
+      const pixelG = rgba[offset + 1];
+      const pixelB = rgba[offset + 2];
+      if (!isLightNeutralPixel(pixelR, pixelG, pixelB)) continue;
+      r += pixelR;
+      g += pixelG;
+      b += pixelB;
+      count += 1;
+    }
+  }
+
+  const minSamples = Math.max(80, Math.round((width + height) * 0.16));
+  if (count < minSamples) return null;
+  const color = [r / count, g / count, b / count];
+  let variance = 0;
+  let checked = 0;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (x >= edgeSize && y >= edgeSize && x < width - edgeSize && y < height - edgeSize) continue;
+      const offset = (y * width + x) * 4;
+      const alpha = rgba[offset + 3];
+      if (alpha < 24) continue;
+      const pixelR = rgba[offset];
+      const pixelG = rgba[offset + 1];
+      const pixelB = rgba[offset + 2];
+      if (!isLightNeutralPixel(pixelR, pixelG, pixelB)) continue;
+      variance += colorDistanceSq(pixelR, pixelG, pixelB, color);
+      checked += 1;
+    }
+  }
+  if (!checked) return null;
+  const stdDev = Math.sqrt(variance / checked);
+  if (stdDev > 18) return null;
+  const threshold = Math.max(28, Math.min(46, stdDev * 2.4 + 18));
+  return { color, thresholdSq: threshold * threshold };
+}
+
+function isFlatLightBackgroundPixel(rgba, offset, profile) {
+  const alpha = rgba[offset + 3];
+  if (alpha < 24) return true;
+  const r = rgba[offset];
+  const g = rgba[offset + 1];
+  const b = rgba[offset + 2];
+  if (!isLightNeutralPixel(r, g, b)) return false;
+  return colorDistanceSq(r, g, b, profile.color) <= profile.thresholdSq;
+}
+
+function removeFlatLightBackground(decoded) {
+  const profile = detectFlatLightBackgroundProfile(decoded);
+  if (!profile) return null;
+  const { height, width } = decoded;
+  const rgba = Buffer.from(decoded.rgba);
+  const pixels = width * height;
+  const visited = new Uint8Array(pixels);
+  const stack = [];
+
+  for (let x = 0; x < width; x += 1) {
+    stack.push(x);
+    stack.push((height - 1) * width + x);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    stack.push(y * width);
+    stack.push(y * width + width - 1);
+  }
+
+  let removed = 0;
+  while (stack.length) {
+    const pixel = stack.pop();
+    if (visited[pixel]) continue;
+    visited[pixel] = 1;
+    const offset = pixel * 4;
+    if (!isFlatLightBackgroundPixel(rgba, offset, profile)) continue;
+
+    rgba[offset] = 255;
+    rgba[offset + 1] = 255;
+    rgba[offset + 2] = 255;
+    rgba[offset + 3] = 0;
+    removed += 1;
+
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    if (x > 0) stack.push(pixel - 1);
+    if (x < width - 1) stack.push(pixel + 1);
+    if (y > 0) stack.push(pixel - width);
+    if (y < height - 1) stack.push(pixel + width);
+  }
+
+  const minRemoved = Math.max(600, Math.round(width * height * 0.08));
+  const maxRemoved = Math.round(width * height * 0.9);
+  if (removed < minRemoved || removed > maxRemoved) return null;
+  return { height, removed, rgba, width };
+}
+
 function cleanPetAvatarImage(downloaded, scope) {
   if (String(scope || '') !== 'pet-avatar') return downloaded;
   if (!isPngBuffer(downloaded?.buffer)) return downloaded;
   try {
     const decoded = decodePngToRgba(downloaded.buffer);
     if (!decoded) return downloaded;
-    const cleaned = removeCheckerboardBackground(decoded);
+    const checkerboardCleaned = removeCheckerboardBackground(decoded);
+    const cleaned = checkerboardCleaned || removeFlatLightBackground(decoded);
     if (!cleaned) return downloaded;
     return {
       buffer: encodeRgbaPng(cleaned.width, cleaned.height, cleaned.rgba),
+      cleanedBackground: true,
+      cleanedBackgroundKind: checkerboardCleaned ? 'checkerboard' : 'flat_light',
       cleanedCheckerboard: true,
       mimeType: 'image/png',
       removedPixels: cleaned.removed,
@@ -4753,10 +4863,11 @@ async function storeAvatarUrlToCos(req, user, avatarUrl, { petId = '', scope = '
   const downloaded = await downloadImageBuffer(value);
   if (!downloaded?.buffer?.length) return value;
   const prepared = cleanPetAvatarImage(downloaded, scope);
-  if (prepared.cleanedCheckerboard) {
-    console.log('[avatar:image] removed fake transparent checkerboard', {
+  if (prepared.cleanedBackground) {
+    console.log('[avatar:image] removed generated background', {
       bytesAfter: prepared.buffer.length,
       bytesBefore: downloaded.buffer.length,
+      kind: prepared.cleanedBackgroundKind || 'unknown',
       removedPixels: prepared.removedPixels,
       scope,
     });
@@ -21664,8 +21775,9 @@ async function handle(req, res) {
       const prepared = objectKey.startsWith('pet-avatar/')
         ? (shouldCleanPetAvatar ? cleanPetAvatarImage({ buffer: result.body, mimeType: result.headers['content-type'] }, 'pet-avatar') : { buffer: result.body, mimeType: result.headers['content-type'] || 'application/octet-stream' })
         : { buffer: result.body, mimeType: result.headers['content-type'] || 'application/octet-stream' };
-      if (prepared.cleanedCheckerboard) {
-        console.log('[avatar:image] cleaned storage response checkerboard', {
+      if (prepared.cleanedBackground) {
+        console.log('[avatar:image] cleaned storage response background', {
+          kind: prepared.cleanedBackgroundKind || 'unknown',
           objectKey,
           removedPixels: prepared.removedPixels,
         });
