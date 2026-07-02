@@ -4872,8 +4872,8 @@ function isLocalImagePlaceholderUrl(value) {
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type, Range',
+    'Access-Control-Allow-Methods': 'GET, HEAD, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Origin': '*',
     'Content-Length': Buffer.byteLength(body),
     'Content-Type': 'application/json; charset=utf-8',
@@ -21508,7 +21508,7 @@ async function handle(req, res) {
   }
 
   const storageObjectMatch = pathname.match(/^\/storage\/objects\/(.+)$/);
-  if (req.method === 'GET' && storageObjectMatch) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && storageObjectMatch) {
     const objectKey = decodeURIComponent(storageObjectMatch[1]);
     if (!objectKey || objectKey.includes('..') || objectKey.startsWith('/')) {
       fail(res, 400, 'Storage object is invalid', false);
@@ -21520,9 +21520,29 @@ async function handle(req, res) {
       return;
     }
     try {
-      const result = await cosRequest('GET', objectKey, { timeoutMs: 20000 });
+      if (req.method === 'HEAD') {
+        const result = await cosRequest('HEAD', objectKey, { timeoutMs: 20000 });
+        res.writeHead(200, {
+          'Accept-Ranges': 'bytes',
+          'Access-Control-Allow-Headers': 'Authorization, Content-Type, Range',
+          'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': `private, max-age=${COS_PROXY_CACHE_SECONDS}`,
+          'Content-Length': Number(result.headers['content-length'] || 0),
+          'Content-Type': result.headers['content-type'] || 'application/octet-stream',
+        });
+        res.end();
+        return;
+      }
+
+      const range = String(req.headers.range || '').trim();
+      const shouldCleanPetAvatar = objectKey.startsWith('pet-avatar/') && !range;
+      const result = await cosRequest('GET', objectKey, {
+        headers: range ? { Range: range } : {},
+        timeoutMs: 20000,
+      });
       const prepared = objectKey.startsWith('pet-avatar/')
-        ? cleanPetAvatarImage({ buffer: result.body, mimeType: result.headers['content-type'] }, 'pet-avatar')
+        ? (shouldCleanPetAvatar ? cleanPetAvatarImage({ buffer: result.body, mimeType: result.headers['content-type'] }, 'pet-avatar') : { buffer: result.body, mimeType: result.headers['content-type'] || 'application/octet-stream' })
         : { buffer: result.body, mimeType: result.headers['content-type'] || 'application/octet-stream' };
       if (prepared.cleanedCheckerboard) {
         console.log('[avatar:image] cleaned storage response checkerboard', {
@@ -21530,12 +21550,17 @@ async function handle(req, res) {
           removedPixels: prepared.removedPixels,
         });
       }
-      res.writeHead(200, {
+      const responseHeaders = {
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, Range',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': `private, max-age=${COS_PROXY_CACHE_SECONDS}`,
         'Content-Length': prepared.buffer.length,
         'Content-Type': prepared.mimeType || result.headers['content-type'] || 'application/octet-stream',
-      });
+      };
+      if (result.headers['content-range']) responseHeaders['Content-Range'] = result.headers['content-range'];
+      res.writeHead(result.statusCode === 206 ? 206 : 200, responseHeaders);
       res.end(prepared.buffer);
     } catch {
       fail(res, 404, 'Storage object not found', false);
