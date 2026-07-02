@@ -78,13 +78,16 @@ const PET_AVATAR_ANIMATION_DOWNLOAD_TIMEOUT_MS = Number(process.env.PET_AVATAR_A
 const PET_AVATAR_ANIMATION_STAGE_BACKGROUND = normalizeHexColor(PET_AVATAR_STAGE_BACKGROUND, '#FFFDFC');
 const PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR = normalizeHexColor(process.env.PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR || '#00FF00', '#00FF00');
 const PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND = normalizeHexColor(process.env.PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND || PET_AVATAR_ANIMATION_STAGE_BACKGROUND, '#FFFDFC');
-const PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION = 'chroma-key-composite-v3';
+const PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION = 'chroma-key-despill-v4';
 const PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED = process.env.PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED === 'false' ? false : true;
 const PET_AVATAR_ANIMATION_FFMPEG_BIN = process.env.PET_AVATAR_ANIMATION_FFMPEG_BIN || 'ffmpeg';
 const PET_AVATAR_ANIMATION_FFMPEG_TIMEOUT_MS = Number(process.env.PET_AVATAR_ANIMATION_FFMPEG_TIMEOUT_MS || 90 * 1000);
 const PET_AVATAR_ANIMATION_FFMPEG_CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.PET_AVATAR_ANIMATION_FFMPEG_CONCURRENCY || '1') || 1));
-const PET_AVATAR_ANIMATION_CHROMA_SIMILARITY = Math.max(0.01, Math.min(1, Number(process.env.PET_AVATAR_ANIMATION_CHROMA_SIMILARITY || '0.18') || 0.18));
-const PET_AVATAR_ANIMATION_CHROMA_BLEND = Math.max(0, Math.min(1, Number(process.env.PET_AVATAR_ANIMATION_CHROMA_BLEND || '0.08') || 0.08));
+const PET_AVATAR_ANIMATION_CHROMA_SIMILARITY = Math.max(0.01, Math.min(1, Number(process.env.PET_AVATAR_ANIMATION_CHROMA_SIMILARITY || '0.26') || 0.26));
+const PET_AVATAR_ANIMATION_CHROMA_BLEND = Math.max(0, Math.min(1, Number(process.env.PET_AVATAR_ANIMATION_CHROMA_BLEND || '0.06') || 0.06));
+const PET_AVATAR_ANIMATION_DESPILL_ENABLED = process.env.PET_AVATAR_ANIMATION_DESPILL_ENABLED === 'false' ? false : true;
+const PET_AVATAR_ANIMATION_DESPILL_MIX = Math.max(0, Math.min(1, Number(process.env.PET_AVATAR_ANIMATION_DESPILL_MIX || '0.85') || 0.85));
+const PET_AVATAR_ANIMATION_DESPILL_EXPAND = Math.max(0, Math.min(1, Number(process.env.PET_AVATAR_ANIMATION_DESPILL_EXPAND || '0.16') || 0.16));
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
@@ -403,7 +406,7 @@ function defaultPetChatBaseSystemPrompt() {
 }
 
 function avatarAnimationChromaBackgroundPromptLine() {
-  return `Use a pure chroma key green matte background in exactly ${PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR}, edge-to-edge across the whole 1:1 frame. This green is an internal post-production key that will be removed by Lumii after generation and composited onto the app companion-card matte ${PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND}. Keep the green perfectly flat, evenly lit, and unchanged for the full 4 seconds. Do not create a separate card, border, rounded rectangle, floor, horizon, white studio sweep, gray backdrop, gradient, vignette, checkerboard transparency pattern, room, outdoor scene, or environment. Avoid green spill, green reflection, or green halos on fur. Keep only a very soft, neutral contact shadow directly under the pet if it looks natural.`;
+  return `Use a pure chroma key green matte background in exactly ${PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR}, edge-to-edge across the whole 1:1 frame. This green is an internal post-production key that will be removed by Lumii after generation and composited onto the app companion-card matte ${PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND}. Keep the green perfectly flat, evenly lit, and unchanged for the full 4 seconds. Keep a clean separation between the pet outline and the green matte: no green rim, no green glow, no green reflection, and no green-tinted fur edges. Do not create a separate card, border, rounded rectangle, floor, horizon, white studio sweep, gray backdrop, gradient, vignette, checkerboard transparency pattern, room, outdoor scene, or environment. Keep only a very soft, neutral contact shadow directly under the pet if it looks natural.`;
 }
 
 function defaultDogAvatarAnimationPromptTemplate() {
@@ -443,7 +446,7 @@ function defaultPetAvatarAnimationPromptTemplate() {
 
 function defaultPetAvatarAnimationNegativePromptTemplate() {
   return [
-    'distorted face, identity drift, morphing, changed breed, changed fur color, changed markings, changed age, bad anatomy, extra limbs, missing tail, duplicate pet, multiple pets, blurry, jitter, frozen body, unnatural movement, aggressive barking, aggressive hissing, arched back, background changes, non-green background, uneven green background, green spill on fur, green reflection, green halo, mismatched background color, app root page background, pure white background, gray background, separate card, border, rounded rectangle frame, checkerboard transparency pattern, gradient background, vignette, room background, outdoor background, floor line, horizon line, camera zoom, camera pan, camera shake, dramatic action pose, text, logo, watermark',
+    'distorted face, identity drift, morphing, changed breed, changed fur color, changed markings, changed age, bad anatomy, extra limbs, missing tail, duplicate pet, multiple pets, blurry, jitter, frozen body, unnatural movement, aggressive barking, aggressive hissing, arched back, background changes, non-green background, uneven green background, green spill on fur, green reflection, green halo, green outline, green rim, green glow, green-tinted fur edges, mismatched background color, app root page background, pure white background, gray background, separate card, border, rounded rectangle frame, checkerboard transparency pattern, gradient background, vignette, room background, outdoor background, floor line, horizon line, camera zoom, camera pan, camera shake, dramatic action pose, text, logo, watermark',
   ].join('\n');
 }
 
@@ -5043,8 +5046,11 @@ async function postprocessAvatarAnimationVideo(downloaded, { petId = '' } = {}) 
         await fs.promises.writeFile(inputPath, downloaded.buffer);
         const chroma = ffmpegColorFromHex(PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR, '#00FF00');
         const matte = ffmpegColorFromHex(PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND, '#FFFDFC');
+        const despill = PET_AVATAR_ANIMATION_DESPILL_ENABLED
+          ? `,despill=type=green:mix=${PET_AVATAR_ANIMATION_DESPILL_MIX}:expand=${PET_AVATAR_ANIMATION_DESPILL_EXPAND}:green=-1:alpha=0`
+          : '';
         const filter = [
-          `[0:v]scale=480:480:force_original_aspect_ratio=decrease,pad=480:480:(ow-iw)/2:(oh-ih)/2:${chroma},format=rgba,chromakey=${chroma}:${PET_AVATAR_ANIMATION_CHROMA_SIMILARITY}:${PET_AVATAR_ANIMATION_CHROMA_BLEND}[fg]`,
+          `[0:v]scale=480:480:force_original_aspect_ratio=decrease,pad=480:480:(ow-iw)/2:(oh-ih)/2:${chroma},format=rgba,chromakey=${chroma}:${PET_AVATAR_ANIMATION_CHROMA_SIMILARITY}:${PET_AVATAR_ANIMATION_CHROMA_BLEND}${despill}[fg]`,
           `color=c=${matte}:s=480x480:r=24:d=4,format=rgba[bg]`,
           '[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1:format=auto,format=yuv420p',
         ].join(';');
@@ -5079,8 +5085,13 @@ async function postprocessAvatarAnimationVideo(downloaded, { petId = '' } = {}) 
           bytesAfter: buffer.length,
           bytesBefore: downloaded.buffer.length,
           chromaKey: PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR,
+          chromaBlend: PET_AVATAR_ANIMATION_CHROMA_BLEND,
+          chromaSimilarity: PET_AVATAR_ANIMATION_CHROMA_SIMILARITY,
           compositeBackground: PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND,
           concurrency: PET_AVATAR_ANIMATION_FFMPEG_CONCURRENCY,
+          despillEnabled: PET_AVATAR_ANIMATION_DESPILL_ENABLED,
+          despillExpand: PET_AVATAR_ANIMATION_DESPILL_EXPAND,
+          despillMix: PET_AVATAR_ANIMATION_DESPILL_MIX,
           petId,
         });
         return {
@@ -10608,7 +10619,12 @@ function avatarAnimationRequestSignature(user, pet, sourceAvatarUrl) {
     model: seedance.model,
     prompt,
     chromaKeyColor: PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR,
+    chromaBlend: PET_AVATAR_ANIMATION_CHROMA_BLEND,
+    chromaSimilarity: PET_AVATAR_ANIMATION_CHROMA_SIMILARITY,
     compositeBackground: PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND,
+    despillEnabled: PET_AVATAR_ANIMATION_DESPILL_ENABLED,
+    despillExpand: PET_AVATAR_ANIMATION_DESPILL_EXPAND,
+    despillMix: PET_AVATAR_ANIMATION_DESPILL_MIX,
     postprocessEnabled: PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED,
     provider,
     resolution: '480p',
@@ -10624,7 +10640,12 @@ function avatarAnimationJobMatchesCurrentPolicy(user, pet, sourceAvatarUrl, job)
   if (job.provider !== effectivePetAvatarAnimationProvider()) return false;
   if (job.stageBackground !== PET_AVATAR_ANIMATION_STAGE_BACKGROUND) return false;
   if (job.chromaKeyColor !== PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR) return false;
+  if (Number(job.chromaSimilarity ?? -1) !== PET_AVATAR_ANIMATION_CHROMA_SIMILARITY) return false;
+  if (Number(job.chromaBlend ?? -1) !== PET_AVATAR_ANIMATION_CHROMA_BLEND) return false;
   if (job.compositeBackground !== PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND) return false;
+  if (Boolean(job.despillEnabled) !== PET_AVATAR_ANIMATION_DESPILL_ENABLED) return false;
+  if (Number(job.despillMix ?? -1) !== PET_AVATAR_ANIMATION_DESPILL_MIX) return false;
+  if (Number(job.despillExpand ?? -1) !== PET_AVATAR_ANIMATION_DESPILL_EXPAND) return false;
   if (Boolean(job.postprocessEnabled) !== PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED) return false;
   if (job.sourcePrepVersion !== PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION) return false;
   return job.requestSignature === avatarAnimationRequestSignature(user, pet, value);
@@ -10638,8 +10659,13 @@ function createAvatarAnimationJob({ avatarJob, pet, sourceAvatarUrl, user }) {
     aspectRatio: '1:1',
     avatarJobId: avatarJob?.id || '',
     chromaKeyColor: PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR,
+    chromaBlend: PET_AVATAR_ANIMATION_CHROMA_BLEND,
+    chromaSimilarity: PET_AVATAR_ANIMATION_CHROMA_SIMILARITY,
     compositeBackground: PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND,
     createdAt: Date.now(),
+    despillEnabled: PET_AVATAR_ANIMATION_DESPILL_ENABLED,
+    despillExpand: PET_AVATAR_ANIMATION_DESPILL_EXPAND,
+    despillMix: PET_AVATAR_ANIMATION_DESPILL_MIX,
     duration: 4,
     id,
     model: seedance.model,
@@ -10733,7 +10759,12 @@ async function startSeedanceAvatarAnimationJob(req, user, job) {
   const preparedSourceAvatarUrl = await prepareAvatarAnimationSourceUrl(req, user, job.sourceAvatarUrl, { petId: job.petId || '' });
   Object.assign(job, {
     chromaKeyColor: PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR,
+    chromaBlend: PET_AVATAR_ANIMATION_CHROMA_BLEND,
+    chromaSimilarity: PET_AVATAR_ANIMATION_CHROMA_SIMILARITY,
     compositeBackground: PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND,
+    despillEnabled: PET_AVATAR_ANIMATION_DESPILL_ENABLED,
+    despillExpand: PET_AVATAR_ANIMATION_DESPILL_EXPAND,
+    despillMix: PET_AVATAR_ANIMATION_DESPILL_MIX,
     model: providerConfig.model,
     postprocessEnabled: PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED,
     progress: 2,
