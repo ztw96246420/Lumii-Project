@@ -90,6 +90,7 @@ const PET_AVATAR_ANIMATION_DESPILL_MIX = Math.max(0, Math.min(1, Number(process.
 const PET_AVATAR_ANIMATION_DESPILL_EXPAND = Math.max(0, Math.min(1, Number(process.env.PET_AVATAR_ANIMATION_DESPILL_EXPAND || '0.16') || 0.16));
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+const MEDIA_PUBLIC_PROBE_BASE_URL = (process.env.MEDIA_PUBLIC_PROBE_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_PUBLIC_PROBE_TIMEOUT_MS = Math.max(1000, Number(process.env.MEDIA_PUBLIC_PROBE_TIMEOUT_MS || '6000') || 6000);
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
 const MEDIA_UPLOAD_MAX_BYTES = Number(process.env.MEDIA_UPLOAD_MAX_BYTES || '9000000');
@@ -15428,7 +15429,7 @@ function adminCheckStatus(status, key, label, detail, evidence = '') {
 }
 
 function publicMediaBaseUrl() {
-  return (PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+  return (MEDIA_PUBLIC_PROBE_BASE_URL || PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 }
 
 function storageObjectKeyFromPublicUrl(value) {
