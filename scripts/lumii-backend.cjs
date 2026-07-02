@@ -90,6 +90,7 @@ const PET_AVATAR_ANIMATION_DESPILL_MIX = Math.max(0, Math.min(1, Number(process.
 const PET_AVATAR_ANIMATION_DESPILL_EXPAND = Math.max(0, Math.min(1, Number(process.env.PET_AVATAR_ANIMATION_DESPILL_EXPAND || '0.16') || 0.16));
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+const MEDIA_PUBLIC_PROBE_TIMEOUT_MS = Math.max(1000, Number(process.env.MEDIA_PUBLIC_PROBE_TIMEOUT_MS || '6000') || 6000);
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
 const MEDIA_UPLOAD_MAX_BYTES = Number(process.env.MEDIA_UPLOAD_MAX_BYTES || '9000000');
 const COS_BUCKET = process.env.COS_BUCKET || '';
@@ -15426,7 +15427,164 @@ function adminCheckStatus(status, key, label, detail, evidence = '') {
   return { detail, evidence, key, label, status };
 }
 
-function adminSystemHealth() {
+function publicMediaBaseUrl() {
+  return (PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+}
+
+function storageObjectKeyFromPublicUrl(value) {
+  const text = String(value || '').trim();
+  const marker = '/storage/objects/';
+  const index = text.indexOf(marker);
+  if (index < 0) return '';
+  try {
+    return decodeURIComponent(text.slice(index + marker.length).split(/[?#]/)[0]);
+  } catch {
+    return '';
+  }
+}
+
+function adminMediaProbeObjectKey() {
+  const candidates = [];
+  const addKey = (objectKey, updatedAt = 0, source = '') => {
+    const key = String(objectKey || '').trim();
+    if (!key || key.includes('..') || key.startsWith('/')) return;
+    candidates.push({ objectKey: key, source, updatedAt: analyticsTimeMs(updatedAt) || 0 });
+  };
+  const addUrl = (url, updatedAt = 0, source = '') => addKey(storageObjectKeyFromPublicUrl(url), updatedAt, source);
+
+  Object.values(state.avatarAnimationJobs || {}).forEach((job) => {
+    addUrl(job.videoUrl || job.resultUrl, job.readyAt || job.updatedAt || job.createdAt, 'avatarAnimationJobs.videoUrl');
+    addUrl(job.preparedSourceAvatarUrl, job.updatedAt || job.createdAt, 'avatarAnimationJobs.preparedSourceAvatarUrl');
+  });
+  Object.values(state.avatarJobs || {}).forEach((job) => {
+    addUrl(job.resultUrl, job.readyAt || job.updatedAt || job.createdAt, 'avatarJobs.resultUrl');
+  });
+  Object.values(state.mediaUploads || {}).forEach((media) => {
+    if (isMediaUploadBlockedFromPublic(media)) return;
+    addKey(media.objectKey, media.createdAt || media.updatedAt, 'mediaUploads.objectKey');
+  });
+  Object.values(state.users || {}).forEach((user) => {
+    (user.pets || []).forEach((pet) => {
+      addUrl(pet.avatarAnimationUrl, pet.avatarAnimationUpdatedAt || pet.updatedAt || pet.createdAt, 'pets.avatarAnimationUrl');
+      addUrl(pet.avatarUrl, pet.updatedAt || pet.createdAt, 'pets.avatarUrl');
+      addUrl(pet.petCircleCoverUrl || pet.circleCoverUrl, pet.updatedAt || pet.createdAt, 'pets.circleCoverUrl');
+    });
+  });
+
+  return candidates.sort((a, b) => b.updatedAt - a.updatedAt || String(a.objectKey).localeCompare(String(b.objectKey)))[0] || null;
+}
+
+function publicStorageProbeUrl(baseUrl, objectKey) {
+  const base = String(baseUrl || '').replace(/\/+$/, '');
+  const key = String(objectKey || '').trim();
+  if (!base || !key) return '';
+  return `${base}/storage/objects/${encodeURIComponent(key)}`;
+}
+
+function probeHeaderSnapshot(response) {
+  if (!response) return {};
+  return {
+    age: response.headers.get('age') || '',
+    cacheControl: response.headers.get('cache-control') || '',
+    cacheLookup: response.headers.get('x-cache-lookup') || '',
+    contentLength: response.headers.get('content-length') || '',
+    contentRange: response.headers.get('content-range') || '',
+    contentType: response.headers.get('content-type') || '',
+    location: response.headers.get('location') || '',
+    server: response.headers.get('server') || '',
+    xNwsLogUuid: response.headers.get('x-nws-log-uuid') || '',
+  };
+}
+
+async function runMediaPublicProbeRequest(url, method) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MEDIA_PUBLIC_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      headers: method === 'GET' ? { Range: 'bytes=0-0' } : {},
+      method,
+      redirect: 'manual',
+      signal: controller.signal,
+    });
+    return {
+      headers: probeHeaderSnapshot(response),
+      ok: response.ok,
+      redirected: response.status >= 300 && response.status < 400,
+      status: response.status,
+      statusText: response.statusText || '',
+    };
+  } catch (error) {
+    return {
+      error: error?.name === 'AbortError' ? `timeout after ${MEDIA_PUBLIC_PROBE_TIMEOUT_MS}ms` : (error?.message || String(error)),
+      headers: {},
+      ok: false,
+      redirected: false,
+      status: 0,
+      statusText: '',
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function adminMediaPublicProbe() {
+  const baseUrl = publicMediaBaseUrl();
+  if (!baseUrl) {
+    return {
+      baseUrl,
+      detail: '未配置公开访问 base URL',
+      evidence: 'PET_AVATAR_PUBLIC_BASE_URL / LUMII_PUBLIC_BASE_URL',
+      objectKey: '',
+      ok: false,
+      status: 'warn',
+      url: '',
+    };
+  }
+  const candidate = adminMediaProbeObjectKey();
+  if (!candidate?.objectKey) {
+    return {
+      baseUrl,
+      detail: '已配置公开访问 base URL，但当前没有可用于探测的 COS 媒体对象',
+      evidence: '等待产生至少一个 pet-avatar / mediaUploads / avatarAnimation 对象后自动探测',
+      objectKey: '',
+      ok: false,
+      status: 'warn',
+      url: '',
+    };
+  }
+  const url = publicStorageProbeUrl(baseUrl, candidate.objectKey);
+  const [head, get] = await Promise.all([
+    runMediaPublicProbeRequest(url, 'HEAD'),
+    runMediaPublicProbeRequest(url, 'GET'),
+  ]);
+  const getLocation = get.headers?.location || '';
+  const blockedByWebblock = get.redirected && /webblock\.html/i.test(getLocation);
+  const getOk = get.status === 200 || get.status === 206;
+  const headOk = head.status === 200 || head.status === 206;
+  const status = blockedByWebblock || (get.status >= 400) || get.error ? 'bad' : getOk ? 'ok' : headOk ? 'warn' : 'bad';
+  const detail = blockedByWebblock
+    ? 'CDN GET 被 302 到腾讯 webblock，App 实际媒体加载不可用'
+    : getOk
+      ? `CDN GET 探测成功（${get.status}）`
+      : get.error
+        ? `CDN GET 探测失败：${get.error}`
+        : `CDN GET 返回 ${get.status || '-'}，需要复核`;
+  const evidence = `HEAD ${head.status || head.error || '-'} / GET ${get.status || get.error || '-'}${getLocation ? ` / Location ${getLocation}` : ''}`;
+  return {
+    baseUrl,
+    detail,
+    evidence,
+    get,
+    head,
+    objectKey: candidate.objectKey,
+    ok: status === 'ok',
+    source: candidate.source || '',
+    status,
+    url,
+  };
+}
+
+async function adminSystemHealth() {
   const now = Date.now();
   const memory = process.memoryUsage();
   const stateFile = adminSafeStateFileInfo();
@@ -15444,7 +15602,9 @@ function adminSystemHealth() {
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
   const stateSizeWarn = stateFile.sizeBytes > 15 * 1024 * 1024;
   const ipAllowlist = adminIpAllowlistStatus('');
+  const mediaProbe = await adminMediaPublicProbe();
   const checks = [
+    adminCheckStatus(mediaProbe.status, 'media_cdn_get', '媒体 CDN GET 探测', mediaProbe.detail, mediaProbe.evidence),
     adminCheckStatus(stateFile.exists ? stateSizeWarn ? 'warn' : 'ok' : 'bad', 'state_file', '状态文件', stateFile.exists ? `JSON state ${Math.round(stateFile.sizeBytes / 1024)} KB` : '状态文件不存在或不可读', stateFile.path),
     adminCheckStatus(process.env.LUMII_ADMIN_USERNAME && process.env.LUMII_ADMIN_PASSWORD ? 'ok' : 'warn', 'admin_credentials', '后台账号环境变量', process.env.LUMII_ADMIN_PASSWORD ? '后台密码由环境变量覆盖' : '仍可能使用默认后台账号密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'admin_ip_allowlist', '后台 IP 白名单', ipAllowlist.configured ? `已配置 ${ipAllowlist.entryCount} 条后端白名单规则` : '未配置后台 IP 白名单，/admin 仍可被公网访问', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
@@ -15477,7 +15637,7 @@ function adminSystemHealth() {
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_media_base'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_media_base', 'media_cdn_get'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
@@ -15509,6 +15669,7 @@ function adminSystemHealth() {
     resources: {
       memory,
     },
+    mediaProbe,
   };
 }
 
@@ -15951,14 +16112,14 @@ function adminReadinessGaps(context) {
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }
 
-function adminLaunchReadiness() {
+async function adminLaunchReadiness() {
   const config = currentOpsConfig();
   const linkageItems = adminConfigLinkageItems(config);
   const linkageSummary = adminConfigLinkageSummary(linkageItems);
   const context = {
     accounts: adminAccounts(),
     contentSafety: adminContentSafetyStatus(config),
-    health: adminSystemHealth(),
+    health: await adminSystemHealth(),
     linkageSummary,
   };
   const modules = adminReadinessModules(context);
@@ -20375,12 +20536,12 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   }
 
   if (req.method === 'GET' && pathname === '/admin/system/health') {
-    ok(res, adminSystemHealth());
+    ok(res, await adminSystemHealth());
     return true;
   }
 
   if (req.method === 'GET' && pathname === '/admin/launch/readiness') {
-    ok(res, adminLaunchReadiness());
+    ok(res, await adminLaunchReadiness());
     return true;
   }
 

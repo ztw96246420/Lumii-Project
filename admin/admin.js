@@ -2153,6 +2153,47 @@ function healthStatusPill(status) {
   return tonePill(label, tone);
 }
 
+function renderMediaProbe(probe = {}) {
+  const head = probe.head || {};
+  const get = probe.get || {};
+  const getHeaders = get.headers || {};
+  const headHeaders = head.headers || {};
+  const getStatus = get.error ? `ERROR ${get.error}` : `${get.status || '-'} ${get.statusText || ''}`.trim();
+  const headStatus = head.error ? `ERROR ${head.error}` : `${head.status || '-'} ${head.statusText || ''}`.trim();
+  const location = getHeaders.location || '';
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>媒体 CDN 探测</h2>
+          <div class="section-sub">用真实 storage object 做 HEAD + Range GET，不被“HEAD 假通”误导</div>
+        </div>
+        ${help('这里会用公开媒体域名请求一个真实 COS 对象，并关闭自动跳转。如果 GET 被腾讯 CDN 302 到 webblock，App 实际加载媒体也会失败。')}
+      </div>
+      <div class="grid two compact-grid">
+        <div>
+          <div class="switch-row"><span>探测状态</span><strong>${healthStatusPill(probe.status)}</strong></div>
+          <div class="switch-row"><span>Base URL</span><strong class="cell-sub clamp">${escapeHtml(probe.baseUrl || '-')}</strong></div>
+          <div class="switch-row"><span>样本来源</span><strong>${escapeHtml(probe.source || '-')}</strong></div>
+          <div class="switch-row"><span>对象 Key</span><strong class="cell-sub clamp">${escapeHtml(probe.objectKey || '-')}</strong></div>
+        </div>
+        <div>
+          <div class="switch-row"><span>HEAD</span><strong>${escapeHtml(headStatus)}</strong></div>
+          <div class="switch-row"><span>GET</span><strong>${escapeHtml(getStatus)}</strong></div>
+          <div class="switch-row"><span>缓存</span><strong>${escapeHtml(getHeaders.cacheLookup || headHeaders.cacheLookup || '-')}</strong></div>
+          <div class="switch-row"><span>Log UUID</span><strong class="cell-sub clamp">${escapeHtml(getHeaders.xNwsLogUuid || headHeaders.xNwsLogUuid || '-')}</strong></div>
+        </div>
+      </div>
+      <div class="callout ${probe.status === 'bad' ? 'bad' : probe.status === 'ok' ? 'ok' : ''}">
+        <strong>${escapeHtml(probe.detail || '-')}</strong>
+        <span>${escapeHtml(probe.evidence || '-')}</span>
+      </div>
+      ${location ? `<div class="switch-row"><span>GET Location</span><strong class="cell-sub clamp">${escapeHtml(location)}</strong></div>` : ''}
+      <div class="switch-row"><span>探测 URL</span><strong class="cell-sub clamp">${escapeHtml(probe.url || '-')}</strong></div>
+    </div>
+  `;
+}
+
 async function renderSystemHealth(force) {
   const data = await load('systemHealth', '/admin/system/health', force);
   const summary = data.summary || {};
@@ -2162,6 +2203,7 @@ async function renderSystemHealth(force) {
   const heapUsed = Number(memory.heapUsed || 0);
   const heapTotal = Number(memory.heapTotal || 0);
   const heapFoot = heapTotal ? `${bytesText(heapUsed)} / ${bytesText(heapTotal)}` : bytesText(heapUsed);
+  const mediaProbeCard = renderMediaProbe(data.mediaProbe || {});
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('整体状态', data.status === 'bad' ? '异常' : data.status === 'warn' ? '需关注' : '正常', `${summary.warn || 0} 关注 · ${summary.bad || 0} 异常`, '系统健康聚合运行、存储、关键外部配置和业务积压。')}
@@ -2169,6 +2211,8 @@ async function renderSystemHealth(force) {
       ${metric('状态文件', bytesText(stateFile.sizeBytes), stateFile.exists ? `更新 ${formatTime(stateFile.modifiedAt)}` : '不可读', '当前文件态后端的 JSON state 体积和更新时间。')}
       ${metric('内存堆', heapFoot, `RSS ${bytesText(memory.rss || 0)}`, 'Node.js 进程内存快照，用于排查异常增长。')}
     </div>
+
+    ${mediaProbeCard}
 
     <div class="grid two">
       <div class="card">

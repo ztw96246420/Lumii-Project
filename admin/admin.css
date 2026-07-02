@@ -317,6 +317,10 @@ textarea {
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
 }
 
+.grid.compact-grid {
+  gap: 12px;
+}
+
 .card {
   background: rgba(255, 253, 249, 0.92);
   border: 1px solid var(--line);
@@ -1511,6 +1515,39 @@ th {
 .switch-row input {
   width: 18px;
   height: 18px;
+}
+
+.callout {
+  background: rgba(255, 247, 239, 0.66);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink);
+  display: grid;
+  gap: 6px;
+  line-height: 1.55;
+  margin: 12px 0 4px;
+  padding: 12px 14px;
+}
+
+.callout strong {
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.callout span {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.callout.bad {
+  background: rgba(240, 85, 65, 0.08);
+  border-color: rgba(240, 85, 65, 0.28);
+}
+
+.callout.ok {
+  background: rgba(50, 155, 107, 0.08);
+  border-color: rgba(50, 155, 107, 0.24);
 }
 
 .toast {
