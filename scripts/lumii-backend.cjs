@@ -22241,9 +22241,22 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/ai/pet-avatar/animation/latest') {
     const petId = url.searchParams.get('petId') || selectedPetFor(user)?.id || '';
+    const pet = user.pets?.find((item) => item.id === petId) || selectedPetFor(user);
     const job = latestAvatarAnimationJobForUser(user, petId);
+    const canRegenerateAnimation = pet?.avatarUrl && !isGeneratedAvatarServerUri(pet.avatarUrl) && effectivePetAvatarAnimationProvider() !== 'disabled';
+    const needsPolicyRegeneration = canRegenerateAnimation && (
+      (job && ['processing', 'ready'].includes(job.status) && !avatarAnimationJobMatchesCurrentPolicy(user, pet, pet.avatarUrl, job))
+      || (!job && pet?.avatarAnimationUrl)
+    );
+    if (needsPolicyRegeneration) {
+      pet.avatarAnimationUrl = '';
+      pet.avatarAnimationStatus = 'processing';
+      const replacementJob = ensureAvatarAnimationJob(req, user, pet, null, pet.avatarUrl);
+      saveState();
+      ok(res, publicAvatarAnimationJob(replacementJob));
+      return;
+    }
     if (!job) {
-      const pet = user.pets?.find((item) => item.id === petId) || selectedPetFor(user);
       if (pet?.avatarAnimationUrl) {
         ok(res, {
           aspectRatio: '1:1',
