@@ -237,6 +237,8 @@
 - `POST /admin/social/comments/{commentId}/hide`
 - `POST /admin/social/comments/{commentId}/restore`
 - `POST /admin/social/comments/{commentId}/delete`
+- `POST /admin/social/posts/{postId}/evidence`
+- `POST /admin/social/comments/{commentId}/evidence`
 
 已支持：
 
@@ -245,15 +247,17 @@
 - 动态隐藏、恢复、删除。
 - 评论隐藏、恢复、删除。
 - 动态/评论作者快捷处罚：宠友圈后台可直接对作者警告、禁言 24h 或冻结 72h，后端会固化内容证据快照、写处罚流水、写审计，并通知用户跳转安全中心。
+- 动态/评论证据详情入口：宠友圈后台可在列表中直接查看内容快照、图片、举报、评论、作者当前限制、直接关联处罚和近期审计；查看必须填写原因，并写入 `social.post.evidence.view` / `social.comment.evidence.view` 审计。
 - App 可见性已排除 `hidden` 动态和评论。
 - 删除动态会清理点赞和评论展示。
 - 作者处罚会复用用户处罚体系，移动端发布、评论、点赞、打招呼、约遛、私信、地点投稿和地点点评等写接口会实时受禁言/冻结/封禁影响。
 - 独立说明文档：[Operations_Backoffice_Social_Author_Sanction_2026-07-02.md](Operations_Backoffice_Social_Author_Sanction_2026-07-02.md)。
+- 独立说明文档：[Operations_Backoffice_Social_Evidence_Detail_2026-07-02.md](Operations_Backoffice_Social_Evidence_Detail_2026-07-02.md)。
 
 未实现：
 
 - 申诉。
-- 动态详情页中的完整证据查看入口。
+- 独立证据快照表、图片证据长期归档和水印化取证。
 
 ### 3.6 举报中心
 

@@ -50,6 +50,7 @@ const state = {
   petQ: '',
   petSpecies: 'all',
   reportMessageContexts: {},
+  socialEvidenceDetail: null,
   socialRelationKind: 'all',
   socialRelationQ: '',
   socialRelationStatus: 'all',
@@ -816,6 +817,15 @@ async function onContentClick(event) {
     if (action === 'post-delete') await confirmPost(`/admin/social/posts/${id}/delete`, { reason }, '确认删除这条动态？');
     if (action === 'comment-hide') await post(`/admin/social/comments/${id}/hide`, { reason });
     if (action === 'comment-restore') await post(`/admin/social/comments/${id}/restore`, { reason });
+    if (action === 'social-evidence-load') {
+      await loadSocialEvidenceDetail(button);
+      return;
+    }
+    if (action === 'social-evidence-close') {
+      state.socialEvidenceDetail = null;
+      await render(false);
+      return;
+    }
     if (action === 'social-author-sanction') {
       await applySocialAuthorSanction(button);
       return;
@@ -4286,6 +4296,7 @@ async function renderSocialPosts(force) {
     load('socialComments', '/admin/social/comments', force),
   ]);
   $('content').innerHTML = `
+    ${state.socialEvidenceDetail ? renderSocialEvidenceDetail(state.socialEvidenceDetail) : ''}
     <div class="card">
       <div class="section-head">
         <div>
@@ -4302,6 +4313,7 @@ async function renderSocialPosts(force) {
         ['发布时间', (p) => formatTime(p.createdAt)],
         ['操作', (p) => `
           <div class="actions">
+            <button class="small-button" data-action="social-evidence-load" data-target-type="post" data-id="${escapeHtml(p.id)}">证据</button>
             <button class="small-button" data-action="post-hide" data-id="${p.id}">隐藏</button>
             <button class="small-button" data-action="post-restore" data-id="${p.id}">恢复</button>
             <button class="small-button danger" data-action="post-delete" data-id="${p.id}">删除</button>
@@ -4325,12 +4337,105 @@ async function renderSocialPosts(force) {
         ['时间', (c) => formatTime(c.createdAt)],
         ['操作', (c) => `
           <div class="actions">
+            <button class="small-button" data-action="social-evidence-load" data-target-type="comment" data-id="${escapeHtml(c.id)}">证据</button>
             <button class="small-button" data-action="comment-hide" data-id="${c.id}">隐藏</button>
             <button class="small-button" data-action="comment-restore" data-id="${c.id}">恢复</button>
             ${socialAuthorSanctionButtons('comment', c)}
           </div>
         `],
       ])}
+    </div>
+  `;
+}
+
+function renderSocialEvidenceDetail(detail = {}) {
+  const isPost = detail.detailType === 'post';
+  const item = isPost ? detail.post || {} : detail.comment || {};
+  const snapshot = detail.evidenceSnapshot || {};
+  const summary = detail.summary || {};
+  const title = isPost ? (snapshot.targetLabel || '宠友圈动态') : '宠友圈评论';
+  const content = snapshot.contentText || item.content || '';
+  const mediaUrls = Array.isArray(snapshot.mediaUrls) ? snapshot.mediaUrls : [];
+  const parentPost = detail.parentPost || {};
+  return `
+    <div class="card social-evidence-panel">
+      <div class="section-head">
+        <div>
+          <h2>证据详情 · ${escapeHtml(title)}</h2>
+          <div class="section-sub">${escapeHtml(snapshot.targetId || item.id || '-')} · ${escapeHtml(snapshot.ownerName || item.ownerName || '-')} ${snapshot.ownerPhone ? shortPhone(snapshot.ownerPhone) : ''}</div>
+        </div>
+        <div class="actions">
+          ${help('查看证据会写入审计日志；这里聚合真实动态、评论、举报、处罚和近期后台动作，便于运营判断是否隐藏、删除或处罚。')}
+          <button class="small-button" data-action="social-evidence-close">关闭</button>
+        </div>
+      </div>
+      <div class="social-evidence-metrics">
+        <span>举报 ${numberText(summary.reports || 0)}</span>
+        <span>处罚 ${numberText(summary.relatedSanctions || 0)}</span>
+        <span>生效限制 ${numberText(summary.activeSanctions || 0)}</span>
+        <span>审计 ${numberText(summary.auditLogs || 0)}</span>
+        ${isPost ? `<span>评论 ${numberText(summary.comments || 0)}</span><span>点赞 ${numberText(summary.likes || 0)}</span><span>图片 ${numberText(summary.images || 0)}</span>` : ''}
+      </div>
+      <div class="grid two social-evidence-grid">
+        <div>
+          <div class="mini-section-title">内容快照</div>
+          <div class="social-evidence-copy">${escapeHtml(content || '无正文内容')}</div>
+          ${mediaUrls.length ? `<div class="moderation-media-strip">${mediaUrls.slice(0, 6).map((url) => `<img src="${escapeHtml(url)}" alt="" loading="lazy" />`).join('')}</div>` : '<div class="cell-sub">无图片证据</div>'}
+          <div class="switch-panel">
+            <div class="switch-row"><span>状态</span><strong>${statusPill(snapshot.targetStatus || item.status || '-')}</strong></div>
+            <div class="switch-row"><span>创建时间</span><strong>${formatTime(snapshot.createdAt || item.createdAt)}</strong></div>
+            <div class="switch-row"><span>生成时间</span><strong>${formatTime(detail.generatedAt)}</strong></div>
+            <div class="switch-row"><span>查看原因</span><strong class="cell-sub clamp">${escapeHtml(detail.reason || '-')}</strong></div>
+          </div>
+          ${!isPost && parentPost.id ? `
+            <div class="mini-section-title">父级小事</div>
+            <div class="gap-list compact">
+              <div><strong>${escapeHtml(parentPost.petName || parentPost.ownerName || '宠友圈动态')}</strong><span>${escapeHtml(parentPost.content || '').slice(0, 160)}</span></div>
+            </div>
+          ` : ''}
+        </div>
+        <div>
+          <div class="mini-section-title">作者限制</div>
+          ${tableHtml(detail.activeSanctions || [], [
+            ['类型', (row) => statusPill(row.typeLabel || row.type)],
+            ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div>`],
+            ['到期', (row) => row.expiresAt ? formatTime(row.expiresAt) : '长期/警告'],
+          ], '暂无生效处罚')}
+        </div>
+      </div>
+      <div class="grid two social-evidence-grid">
+        <div>
+          <div class="mini-section-title">相关举报</div>
+          ${tableHtml(detail.reports || [], [
+            ['对象', (row) => `<div class="cell-title">${escapeHtml(row.targetType || '-')}</div><div class="cell-sub">${escapeHtml(row.targetId || '-')}</div>`],
+            ['状态', (row) => statusPill(row.status)],
+            ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.content || '-')}</div>`],
+          ], '暂无相关举报')}
+        </div>
+        <div>
+          <div class="mini-section-title">本内容处罚</div>
+          ${tableHtml(detail.relatedSanctions || [], [
+            ['处罚', (row) => statusPill(row.typeLabel || row.type)],
+            ['状态', (row) => statusPill(row.status)],
+            ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div>`],
+          ], '暂无直接关联处罚')}
+        </div>
+      </div>
+      ${isPost ? `
+        <div class="mini-section-title">评论证据</div>
+        ${tableHtml(detail.comments || [], [
+          ['评论', (row) => `<div class="cell-title">${escapeHtml(row.content || '-')}</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
+          ['用户', (row) => `<div>${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.ownerPhone || '')}</div>`],
+          ['状态', (row) => statusPill(row.status || '-')],
+          ['时间', (row) => formatTime(row.createdAt)],
+        ], '暂无评论')}
+      ` : ''}
+      <div class="mini-section-title">近期审计</div>
+      ${tableHtml(detail.auditLogs || [], [
+        ['动作', (row) => `<div class="cell-title">${escapeHtml(row.action || '-')}</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
+        ['管理员', (row) => escapeHtml(row.adminName || '-')],
+        ['原因/时间', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div><div>${formatTime(row.createdAt)}</div>`],
+      ], '暂无相关审计')}
     </div>
   `;
 }
@@ -4380,6 +4485,23 @@ async function applySocialAuthorSanction(button) {
   };
   showToast('作者处罚已创建');
   await render(true);
+}
+
+async function loadSocialEvidenceDetail(button) {
+  const targetType = button.dataset.targetType === 'comment' ? 'comment' : 'post';
+  const id = button.dataset.id || '';
+  if (!id) return;
+  const label = targetType === 'comment' ? '评论证据' : '动态证据';
+  const reason = window.prompt(`请输入查看${label}的原因`, `排查${label}：${id}`);
+  if (reason === null) return;
+  const endpoint = targetType === 'comment'
+    ? `/admin/social/comments/${encodeURIComponent(id)}/evidence`
+    : `/admin/social/posts/${encodeURIComponent(id)}/evidence`;
+  const detail = await post(endpoint, { reason: reason.trim() });
+  state.socialEvidenceDetail = detail;
+  state.cache.audit = null;
+  showToast('已加载证据详情');
+  await render(false);
 }
 
 async function renderReports(force) {

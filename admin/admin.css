@@ -918,6 +918,42 @@ th {
   width: 42px;
 }
 
+.social-evidence-panel {
+  border-color: rgba(255, 127, 79, 0.22);
+}
+
+.social-evidence-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+
+.social-evidence-metrics span {
+  background: rgba(255, 247, 239, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 7px 10px;
+}
+
+.social-evidence-grid {
+  margin-top: 10px;
+}
+
+.social-evidence-copy {
+  background: rgba(255, 247, 239, 0.66);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.75;
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  white-space: pre-wrap;
+}
+
 .moderation-list,
 .ticket-list {
   display: grid;

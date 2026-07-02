@@ -17785,6 +17785,160 @@ function adminSocialReports() {
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
+function socialAuditRowsForTarget(targetType, targetId, extraTargetIds = []) {
+  const ids = new Set([String(targetId || ''), ...extraTargetIds.map((item) => String(item || ''))].filter(Boolean));
+  const typeSet = new Set([
+    targetType === 'post' ? 'pet_circle_post' : targetType === 'comment' ? 'pet_circle_comment' : targetType,
+    targetType === 'post' ? 'post' : targetType === 'comment' ? 'comment' : '',
+    'social_report',
+    'sanction',
+  ].filter(Boolean));
+  return (state.adminAuditLogs || [])
+    .filter((log) => ids.has(String(log.targetId || '')) || ids.has(String(log.after?.sanction?.sourceTargetId || '')))
+    .filter((log) => !typeSet.size || typeSet.has(String(log.targetType || '')) || String(log.action || '').startsWith('social.'))
+    .slice(0, 12)
+    .map((log) => ({
+      action: log.action || '',
+      adminName: log.adminName || '',
+      createdAt: log.createdAt || '',
+      id: log.id || '',
+      reason: log.reason || '',
+      targetId: log.targetId || '',
+      targetType: log.targetType || '',
+    }));
+}
+
+function socialEvidenceSanctionsForTargets(targetIds = [], ownerPhones = []) {
+  const ids = new Set(targetIds.map((item) => String(item || '')).filter(Boolean));
+  const phones = new Set(ownerPhones.map((item) => String(item || '')).filter(Boolean));
+  return adminSanctions()
+    .filter((sanction) =>
+      (!phones.size || phones.has(String(sanction.phone || ''))) &&
+      (
+        ids.has(String(sanction.sourceTargetId || '')) ||
+        ids.has(String(sanction.evidenceSnapshot?.targetId || ''))
+      )
+    )
+    .slice(0, 12);
+}
+
+function adminSocialPostEvidenceDetail(admin, postId, reason = '') {
+  const post = adminSocialPosts().find((item) => item.id === postId);
+  const moment = findSocialMomentById(postId);
+  if (!post || !moment) return { error: '动态不存在', statusCode: 404 };
+  const comments = adminSocialComments().filter((comment) => comment.postId === postId);
+  const commentIds = comments.map((comment) => comment.id);
+  const reports = adminSocialReports().filter((report) => report.targetId === postId || commentIds.includes(report.targetId));
+  const reportIds = reports.map((report) => report.id);
+  const likes = ensureSocialLikes().filter((like) => like.postId === postId);
+  const owner = state.users?.[post.ownerPhone];
+  const activeSanctions = activeUserSanctionsFor(post.ownerPhone).map(adminSanctionItem);
+  const relatedSanctions = socialEvidenceSanctionsForTargets(
+    [postId, ...commentIds],
+    [post.ownerPhone, ...comments.map((comment) => comment.ownerPhone)],
+  );
+  const detail = {
+    activeSanctions,
+    auditLogs: socialAuditRowsForTarget('post', postId, [...commentIds, ...reportIds]),
+    comments,
+    detailType: 'post',
+    evidenceSnapshot: normalizeSanctionEvidenceSnapshot({
+      contentText: post.content,
+      createdAt: post.createdAt,
+      mediaUrls: post.imageUrls,
+      ownerName: post.ownerName,
+      ownerPhone: post.ownerPhone,
+      snapshotAt: '',
+      snapshotId: '',
+      targetId: post.id,
+      targetLabel: post.petName ? `${post.petName} 的小事` : '宠友圈动态',
+      targetStatus: post.status,
+      targetType: 'post',
+    }),
+    generatedAt: new Date().toISOString(),
+    likeCount: likes.length,
+    likeSamples: likes.slice(0, 12),
+    owner: owner ? adminUserSummary(owner) : null,
+    post: {
+      ...post,
+      adminModerationReason: moment.adminModerationReason || '',
+      deletedAt: moment.deletedAt || '',
+      location: moment.location || null,
+      moderation: moment.moderation || null,
+      photoCount: Number(moment.photoCount || post.imageUrls?.length || 0),
+      rawStatus: moment.status || 'published',
+    },
+    reason: String(reason || '').slice(0, 240),
+    relatedSanctions,
+    reports,
+    summary: {
+      activeSanctions: activeSanctions.length,
+      auditLogs: 0,
+      comments: comments.length,
+      images: post.imageUrls.length,
+      likes: likes.length,
+      relatedSanctions: relatedSanctions.length,
+      reports: reports.length,
+    },
+  };
+  detail.summary.auditLogs = detail.auditLogs.length;
+  writeAdminAudit(admin, 'social.post.evidence.view', 'pet_circle_post', postId, null, {
+    commentCount: comments.length,
+    imageCount: post.imageUrls.length,
+    ownerPhone: post.ownerPhone,
+    reportCount: reports.length,
+  }, reason || '查看宠友圈动态证据详情');
+  return { detail };
+}
+
+function adminSocialCommentEvidenceDetail(admin, commentId, reason = '') {
+  const comment = adminSocialComments().find((item) => item.id === commentId);
+  if (!comment) return { error: '评论不存在', statusCode: 404 };
+  const post = adminSocialPosts().find((item) => item.id === comment.postId) || null;
+  const reports = adminSocialReports().filter((report) => report.targetId === commentId);
+  const reportIds = reports.map((report) => report.id);
+  const owner = state.users?.[comment.ownerPhone];
+  const activeSanctions = activeUserSanctionsFor(comment.ownerPhone).map(adminSanctionItem);
+  const relatedSanctions = socialEvidenceSanctionsForTargets([commentId], [comment.ownerPhone]);
+  const detail = {
+    activeSanctions,
+    auditLogs: socialAuditRowsForTarget('comment', commentId, reportIds),
+    comment,
+    detailType: 'comment',
+    evidenceSnapshot: normalizeSanctionEvidenceSnapshot({
+      contentText: comment.content,
+      createdAt: comment.createdAt,
+      ownerName: comment.ownerName,
+      ownerPhone: comment.ownerPhone,
+      snapshotAt: '',
+      snapshotId: '',
+      targetId: comment.id,
+      targetLabel: '宠友圈评论',
+      targetStatus: comment.status,
+      targetType: 'comment',
+    }),
+    generatedAt: new Date().toISOString(),
+    owner: owner ? adminUserSummary(owner) : null,
+    parentPost: post,
+    reason: String(reason || '').slice(0, 240),
+    relatedSanctions,
+    reports,
+    summary: {
+      activeSanctions: activeSanctions.length,
+      auditLogs: 0,
+      relatedSanctions: relatedSanctions.length,
+      reports: reports.length,
+    },
+  };
+  detail.summary.auditLogs = detail.auditLogs.length;
+  writeAdminAudit(admin, 'social.comment.evidence.view', 'pet_circle_comment', commentId, null, {
+    ownerPhone: comment.ownerPhone,
+    postId: comment.postId,
+    reportCount: reports.length,
+  }, reason || '查看宠友圈评论证据详情');
+  return { detail };
+}
+
 function adminPlaceReviews() {
   state.placeReviews = state.placeReviews || {};
   return Object.entries(state.placeReviews).flatMap(([phone, reviews]) =>
@@ -21428,6 +21582,40 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/social/comments') {
     ok(res, adminSocialComments());
+    return true;
+  }
+
+  const adminPostEvidenceMatch = pathname.match(/^\/admin\/social\/posts\/([^/]+)\/evidence$/);
+  if (req.method === 'POST' && adminPostEvidenceMatch) {
+    const reason = String(body.reason || '').replace(/\s+/g, ' ').trim();
+    if (!reason) {
+      fail(res, 400, '请填写查看证据原因', false, undefined, 'ADMIN_SOCIAL_EVIDENCE_REASON_REQUIRED');
+      return true;
+    }
+    const result = adminSocialPostEvidenceDetail(admin, decodeURIComponent(adminPostEvidenceMatch[1]), reason);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SOCIAL_EVIDENCE_NOT_FOUND');
+      return true;
+    }
+    saveState();
+    ok(res, result.detail);
+    return true;
+  }
+
+  const adminCommentEvidenceMatch = pathname.match(/^\/admin\/social\/comments\/([^/]+)\/evidence$/);
+  if (req.method === 'POST' && adminCommentEvidenceMatch) {
+    const reason = String(body.reason || '').replace(/\s+/g, ' ').trim();
+    if (!reason) {
+      fail(res, 400, '请填写查看证据原因', false, undefined, 'ADMIN_SOCIAL_EVIDENCE_REASON_REQUIRED');
+      return true;
+    }
+    const result = adminSocialCommentEvidenceDetail(admin, decodeURIComponent(adminCommentEvidenceMatch[1]), reason);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SOCIAL_EVIDENCE_NOT_FOUND');
+      return true;
+    }
+    saveState();
+    ok(res, result.detail);
     return true;
   }
 
