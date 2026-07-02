@@ -4757,37 +4757,87 @@ async function storeAvatarAnimationUrlToCos(req, user, videoUrl, { petId = '' } 
   return stored?.url || value;
 }
 
-async function mirrorReadyAvatarAnimationIfNeeded(req, user, job) {
-  if (!job || job.status !== 'ready') return job;
-  if (job.provider !== 'doubao-seedance-1-5-pro') return job;
-  const currentUrl = String(job.videoUrl || job.resultUrl || '').trim();
-  if (!/^https?:\/\//i.test(currentUrl) || currentUrl.includes('/storage/objects/')) return job;
+function avatarAnimationNeedsLocalMirror(job) {
+  if (!job || job.provider !== 'doubao-seedance-1-5-pro') return false;
+  const currentUrl = String(job.videoUrl || job.resultUrl || job.sourceResultUrl || '').trim();
+  return /^https?:\/\//i.test(currentUrl) && !currentUrl.includes('/storage/objects/');
+}
+
+function markAvatarAnimationMirroring(user, job, sourceUrl) {
+  job.sourceResultUrl = job.sourceResultUrl || sourceUrl;
+  job.videoUrl = '';
+  job.resultUrl = '';
+  job.status = 'processing';
+  job.progress = Math.max(96, Number(job.progress || 0));
+  job.providerStatus = 'ready_mirroring';
+  job.mirrorQueuedAt = Date.now();
+  const pet = user.pets?.find((item) => item.id === job.petId);
+  if (pet) {
+    pet.avatarAnimationJobId = job.id;
+    pet.avatarAnimationStatus = 'processing';
+    pet.avatarAnimationUrl = '';
+  }
+  touchAvatarAnimationJob(job);
+}
+
+async function runAvatarAnimationMirror(reqSnapshot, ownerPhone, jobId, sourceUrl) {
+  const user = state.users?.[ownerPhone];
+  const job = state.avatarAnimationJobs?.[jobId];
+  if (!user || !job) return;
   try {
-    const mirroredUrl = await storeAvatarAnimationUrlToCos(req, user, currentUrl, { petId: job.petId || '' });
-    if (mirroredUrl && mirroredUrl !== currentUrl && mirroredUrl.includes('/storage/objects/')) {
-      job.sourceResultUrl = job.sourceResultUrl || currentUrl;
+    const mirroredUrl = await storeAvatarAnimationUrlToCos(reqSnapshot, user, sourceUrl, { petId: job.petId || '' });
+    if (mirroredUrl && mirroredUrl !== sourceUrl && mirroredUrl.includes('/storage/objects/')) {
       job.resultUrl = mirroredUrl;
       job.videoUrl = mirroredUrl;
       job.providerStatus = 'ready_mirrored';
+      job.status = 'ready';
+      job.progress = 100;
+      job.readyAt = new Date().toISOString();
       job.lastStatusError = '';
       const pet = user.pets?.find((item) => item.id === job.petId);
       if (pet) {
         pet.avatarAnimationJobId = job.id;
         pet.avatarAnimationStatus = 'ready';
-        pet.avatarAnimationUpdatedAt = new Date().toISOString();
+        pet.avatarAnimationUpdatedAt = job.readyAt;
         pet.avatarAnimationUrl = mirroredUrl;
       }
       touchAvatarAnimationJob(job);
+    } else {
+      throw new Error('Animation video mirror did not produce a local storage URL');
     }
   } catch (error) {
     job.lastStatusError = `Animation video mirror skipped: ${error.message || String(error)}`;
+    job.providerStatus = 'mirror_failed';
+    job.status = 'processing';
+    job.progress = Math.max(96, Number(job.progress || 96));
+    job.mirrorFailedAt = Date.now();
     touchAvatarAnimationJob(job);
     console.warn('[avatar-animation] ready video mirror skipped', {
       jobId: job.id,
       message: error.message || String(error),
     });
+  } finally {
+    saveState();
   }
-  return job;
+}
+
+function queueReadyAvatarAnimationMirrorIfNeeded(req, user, job) {
+  if (!avatarAnimationNeedsLocalMirror(job)) return false;
+  const sourceUrl = String(job.videoUrl || job.resultUrl || job.sourceResultUrl || '').trim();
+  if (!sourceUrl) return false;
+  const now = Date.now();
+  if (job.providerStatus === 'ready_mirroring' && Number(job.mirrorQueuedAt || 0) && now - Number(job.mirrorQueuedAt || 0) < 10 * 60 * 1000) {
+    return true;
+  }
+  if (job.providerStatus === 'mirror_failed' && Number(job.mirrorFailedAt || 0) && now - Number(job.mirrorFailedAt || 0) < 60 * 1000) {
+    return true;
+  }
+  markAvatarAnimationMirroring(user, job, sourceUrl);
+  const reqSnapshot = requestSnapshotForAvatarJob(req);
+  setTimeout(() => {
+    void runAvatarAnimationMirror(reqSnapshot, user.phone, job.id, sourceUrl);
+  }, 0);
+  return true;
 }
 
 async function storeBase64ImageToCos(req, user, body, { base64Key, fileNamePrefix, mimeTypeKey, nameKey, petId = '', scope }) {
@@ -10386,36 +10436,24 @@ async function refreshSeedanceAvatarAnimationJob(req, user, job) {
   if (status === 'completed' || status === 'succeeded' || status === 'success') {
     const resultUrl = seedanceVideoUrlFrom(payload);
     if (!resultUrl) throw new Error('Seedance result does not include a video URL');
-    let finalResultUrl = resultUrl;
-    try {
-      finalResultUrl = await storeAvatarAnimationUrlToCos(req, user, resultUrl, { petId: job.petId || '' });
-      if (finalResultUrl && finalResultUrl !== resultUrl) job.sourceResultUrl = resultUrl;
-    } catch (error) {
-      console.warn('[avatar-animation:seedance] result storage skipped', {
-        jobId: job.id,
-        message: error.message || String(error),
-      });
-      finalResultUrl = resultUrl;
-    }
-    job.progress = 100;
-    job.resultUrl = finalResultUrl;
-    job.status = 'ready';
-    job.videoUrl = finalResultUrl;
-    job.readyAt = new Date().toISOString();
-    const pet = user.pets?.find((item) => item.id === job.petId);
-    if (pet) {
-      pet.avatarAnimationJobId = job.id;
-      pet.avatarAnimationStatus = 'ready';
-      pet.avatarAnimationUpdatedAt = job.readyAt;
-      pet.avatarAnimationUrl = finalResultUrl;
-    }
-    touchAvatarAnimationJob(job);
     state.aiUsage = state.aiUsage || createInitialState().aiUsage;
     state.aiUsage.avatarAnimation = state.aiUsage.avatarAnimation || createInitialState().aiUsage.avatarAnimation;
     if (!job.usageRecorded) {
       state.aiUsage.avatarAnimation.succeeded += 1;
       job.usageRecorded = true;
     }
+    if (job.videoUrl && job.videoUrl.includes('/storage/objects/')) {
+      job.progress = 100;
+      job.resultUrl = job.videoUrl;
+      job.status = 'ready';
+      job.readyAt = job.readyAt || new Date().toISOString();
+      touchAvatarAnimationJob(job);
+      return job;
+    }
+    job.sourceResultUrl = job.sourceResultUrl || resultUrl;
+    job.resultUrl = resultUrl;
+    job.videoUrl = resultUrl;
+    queueReadyAvatarAnimationMirrorIfNeeded(req, user, job);
     return job;
   }
 
@@ -22081,7 +22119,7 @@ async function handle(req, res) {
       return;
     }
     await refreshAvatarAnimationJob(req, user, job);
-    await mirrorReadyAvatarAnimationIfNeeded(req, user, job);
+    queueReadyAvatarAnimationMirrorIfNeeded(req, user, job);
     saveState();
     ok(res, publicAvatarAnimationJob(job));
     return;
@@ -22114,7 +22152,7 @@ async function handle(req, res) {
       return;
     }
     await refreshAvatarAnimationJob(req, user, job);
-    await mirrorReadyAvatarAnimationIfNeeded(req, user, job);
+    queueReadyAvatarAnimationMirrorIfNeeded(req, user, job);
     saveState();
     ok(res, publicAvatarAnimationJob(job));
     return;
