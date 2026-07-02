@@ -57,6 +57,7 @@ const GPT_IMAGE2_RESOLUTION = process.env.GPT_IMAGE2_RESOLUTION || '2k';
 const GPT_IMAGE2_OFFICIAL_FALLBACK = process.env.GPT_IMAGE2_OFFICIAL_FALLBACK === 'true';
 const GPT_IMAGE2_STUCK_TASK_MIN_TIMEOUT_MS = Number(process.env.GPT_IMAGE2_STUCK_TASK_MIN_TIMEOUT_MS || 5 * 60 * 1000);
 const GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER = Number(process.env.GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER || '4');
+const PET_AVATAR_STAGE_BACKGROUND = process.env.PET_AVATAR_STAGE_BACKGROUND || process.env.PET_AVATAR_ANIMATION_STAGE_BACKGROUND || '#FBF7F1';
 const PET_AVATAR_PROVIDER = (process.env.PET_AVATAR_PROVIDER || (GPT_IMAGE2_API_KEY ? 'gpt-image-2' : TTAPI_API_KEY ? 'ttapi-flux-edits' : 'mock')).toLowerCase();
 const APIMART_API_KEY = process.env.APIMART_API_KEY || GPT_IMAGE2_API_KEY || '';
 const APIMART_BASE_URL = (process.env.APIMART_BASE_URL || GPT_IMAGE2_BASE_URL || 'https://api.apimart.ai').replace(/\/+$/, '');
@@ -64,7 +65,7 @@ const PET_AVATAR_ANIMATION_PROVIDER = (process.env.PET_AVATAR_ANIMATION_PROVIDER
 const PET_AVATAR_ANIMATION_MODEL = process.env.PET_AVATAR_ANIMATION_MODEL || 'doubao-seedance-1-5-pro';
 const PET_AVATAR_ANIMATION_ENABLED = process.env.PET_AVATAR_ANIMATION_ENABLED === 'false' ? false : true;
 const PET_AVATAR_ANIMATION_MAX_BYTES = Number(process.env.PET_AVATAR_ANIMATION_MAX_BYTES || 35 * 1024 * 1024);
-const PET_AVATAR_ANIMATION_STAGE_BACKGROUND = process.env.PET_AVATAR_ANIMATION_STAGE_BACKGROUND || '#FBF7F1';
+const PET_AVATAR_ANIMATION_STAGE_BACKGROUND = PET_AVATAR_STAGE_BACKGROUND;
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
@@ -309,12 +310,12 @@ function defaultGptImage2PetAvatarPromptTemplate() {
     '- high-end 3D render',
     '- collectible figurine / premium mascot aesthetic',
     '- hybrid look of soft realistic fur + polished figurine-quality character design',
-    '- premium app asset / character cutout quality',
+    '- premium app asset quality on a clean Lumii avatar-stage matte',
     '- soft global illumination',
     '- gentle softbox lighting',
     '- subtle ambient occlusion',
     '- clean self-shadowing and depth on the pet itself',
-    '- optional subtle soft contact shadow directly under the paws/body is allowed, as long as it remains clean and compositable on a transparent canvas',
+    `- optional subtle soft contact shadow directly under the paws/body is allowed, as long as it remains clean on the warm off-white app background (${PET_AVATAR_STAGE_BACKGROUND})`,
     '- clean edge separation',
     '- smooth, premium, commercial finish',
     'Composition:',
@@ -324,17 +325,19 @@ function defaultGptImage2PetAvatarPromptTemplate() {
     '- front view or very slight 3/4 view, matching the reference as closely as possible',
     '- symmetrical, stable composition',
     '- enough negative space for app-avatar or card-style cropping',
-    '- isolated cutout-style character asset for compositing inside a mobile app',
-    '- if true alpha transparency is supported by the image pipeline, use real transparent alpha pixels only',
-    '- do not draw or simulate transparency with a checkerboard, chessboard, gray-and-white square grid, or PNG preview background',
-    '- no visible background color, no studio backdrop, no floor plane, no horizon line, no environment',
-    '- crisp but natural cutout edges around fur, ears, whiskers, tail, and paws so the pet can be composited cleanly on any app background',
+    `- clean solid warm off-white Lumii avatar-stage background matching the app display frame color (${PET_AVATAR_STAGE_BACKGROUND})`,
+    '- fill every background pixel with the same smooth warm off-white matte color',
+    '- the background must be perfectly smooth, single-color, and finished-looking, with no pattern, no texture, no vignette, no gradient, and no visible scene',
+    '- this output should be an app-matching matte image, not a preview canvas or asset-editor screenshot',
+    '- do not add any background pattern, tiled squares, grid, texture, or preview canvas',
+    '- no studio backdrop, no floor plane, no horizon line, no room, no outdoor environment',
+    '- crisp but natural edge separation around fur, ears, whiskers, tail, and paws so the pet blends into the Lumii app frame',
     'Accessory handling:',
     'Preserve any distinctive accessory, clothing, bib, scarf, or signature item from the original photo if it helps recognizability. Keep its main colors and visual identity, but simplify it slightly into a clean premium 3D character style. Do not add random fashion items. Only add a small accessory if it supports the original look and does not reduce recognizability.',
     'Output feeling:',
     'The final image should feel like a premium pet character collectible, as if the real pet has been transformed into a polished, adorable 3D figurine or animated companion for a high-end pet social app. It should be charming, clean, premium, and emotionally warm.',
     'Avoid:',
-    'photorealistic image, realistic street/environment background, white background, off-white background, colored background, gradient background, checkerboard background, transparency grid, gray-and-white squares, fake transparent PNG preview, studio backdrop, visible floor plane, hard cast shadow, large backdrop shadow, generic breed mascot, newly invented pet, changed breed, changed fur color, changed markings, changed age, exaggerated babyfication, flat vector illustration, black comic outline, anime look, low-quality plastic toy, rough sculpt, overly glossy cheap material, human body, full fashion outfit, hat, sunglasses, text, logo, watermark, extra limbs, distorted face, multiple pets, cluttered background, dramatic action pose.',
+    'photorealistic image, realistic street/environment background, pure white background, gray background, colored background, gradient background, patterned background, tiled square background, grid background, preview canvas, studio backdrop, visible floor plane, horizon line, hard cast shadow, large backdrop shadow, generic breed mascot, newly invented pet, changed breed, changed fur color, changed markings, changed age, exaggerated babyfication, flat vector illustration, black comic outline, anime look, low-quality plastic toy, rough sculpt, overly glossy cheap material, human body, full fashion outfit, hat, sunglasses, text, logo, watermark, extra limbs, distorted face, multiple pets, cluttered background, dramatic action pose.',
   ].join('\n');
 }
 

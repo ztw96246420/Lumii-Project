@@ -81,3 +81,4 @@
 - `PET_AVATAR_ANIMATION_STAGE_BACKGROUND`: default `#FBF7F1`.
 - The Seedance prompt uses this value as the solid warm off-white Lumii avatar-stage background, so generated MP4 pixels blend with the app companion display frame.
 - Keep only a soft contact shadow under the pet; avoid pure white, gray, checkerboard, gradients, room/outdoor scenes, floor lines, and horizon lines.
+- Existing MP4 files keep their baked background pixels. Regenerate the static avatar first, then regenerate animation, when changing matte/background policy.

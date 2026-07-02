@@ -127,6 +127,7 @@ async function main() {
     assert.equal(initial.data.ai.avatar.provider, 'gpt-image-2');
     assert.equal(initial.data.aiRuntime.credentials.gptImage2, true);
     assert.equal(initial.data.aiRuntime.credentials.apimart, true);
+    assert.ok(initial.data.ai.avatar.gptImage2.promptTemplate.includes('#FBF7F1'));
     assert.ok(initial.data.ai.avatarAnimation.seedance.dogPromptTemplate.includes('#FBF7F1'));
     assert.ok(initial.data.aiRuntime.petAvatar.providers.some((item) => item.provider === 'gpt-image-2' && item.promptPreview.includes('dog')));
     assert.ok(initial.data.aiRuntime.petAvatarAnimation.providers.some((item) => item.provider === 'doubao-seedance-1-5-pro' && item.promptPreview.includes('Avoid')));

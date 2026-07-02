@@ -27,7 +27,7 @@ import {
   StatusBar as NativeStatusBar,
   View,
 } from 'react-native';
-import type { ImageStyle, KeyboardTypeOptions, RefreshControlProps, StyleProp, TextStyle, ViewStyle } from 'react-native';
+import type { ImageSourcePropType, ImageStyle, KeyboardTypeOptions, RefreshControlProps, StyleProp, TextStyle, ViewStyle } from 'react-native';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import {
   AlertTriangle,
@@ -10715,7 +10715,7 @@ export default function LumiiMvpApp() {
             </View>
             <View style={styles.homePetHeroMedia}>
               {showDynamicAvatar ? (
-                <PetCompanionVideo uri={avatarAnimationVideoUri} />
+                <PetCompanionVideo fallbackSource={petImageSource} uri={avatarAnimationVideoUri} />
               ) : (
                 <Image resizeMode="contain" source={petImageSource} style={styles.homePetHeroImage} />
               )}
@@ -17591,7 +17591,8 @@ function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
   );
 }
 
-function PetCompanionVideo({ uri }: { uri: string }) {
+function PetCompanionVideo({ fallbackSource, uri }: { fallbackSource?: ImageSourcePropType; uri: string }) {
+  const [firstFrameReady, setFirstFrameReady] = useState(false);
   const player = useVideoPlayer(uri, (videoPlayer) => {
     videoPlayer.loop = true;
     videoPlayer.muted = true;
@@ -17602,16 +17603,25 @@ function PetCompanionVideo({ uri }: { uri: string }) {
     player.loop = true;
     player.muted = true;
     player.play();
+    setFirstFrameReady(false);
   }, [player, uri]);
 
   return (
-    <VideoView
-      contentFit="contain"
-      nativeControls={false}
-      player={player}
-      playsInline
-      style={styles.homePetHeroVideo}
-    />
+    <View style={styles.homePetHeroVideoStage}>
+      <VideoView
+        contentFit="cover"
+        nativeControls={false}
+        onFirstFrameRender={() => setFirstFrameReady(true)}
+        player={player}
+        playsInline
+        style={[styles.homePetHeroVideo, firstFrameReady ? null : styles.homePetHeroVideoHidden]}
+        surfaceType="textureView"
+        useExoShutter={false}
+      />
+      {!firstFrameReady && fallbackSource ? (
+        <Image resizeMode="contain" source={fallbackSource} style={styles.homePetHeroVideoFallback} />
+      ) : null}
+    </View>
   );
 }
 
@@ -18879,7 +18889,10 @@ const styles = StyleSheet.create({
   homePetHeroCopy: { flexShrink: 0, paddingTop: 16, width: 138, zIndex: 2 },
   homePetHeroImage: { backgroundColor: 'transparent', height: 286, resizeMode: 'contain', width: 264 },
   homePetHeroMedia: { alignItems: 'center', backgroundColor: 'transparent', bottom: 0, justifyContent: 'flex-end', left: 116, paddingBottom: 0, paddingTop: 4, position: 'absolute', right: -24, top: 0, zIndex: 1 },
-  homePetHeroVideo: { backgroundColor: lumiiAvatarStageBackground, height: 286, width: 264 },
+  homePetHeroVideo: { backgroundColor: lumiiAvatarStageBackground, bottom: 0, height: '100%', left: 0, position: 'absolute', right: 0, top: 0, width: '100%' },
+  homePetHeroVideoFallback: { backgroundColor: lumiiAvatarStageBackground, bottom: 0, height: '100%', left: 0, position: 'absolute', resizeMode: 'contain', right: 0, top: 0, width: '100%' },
+  homePetHeroVideoHidden: { opacity: 0 },
+  homePetHeroVideoStage: { alignItems: 'center', backgroundColor: lumiiAvatarStageBackground, borderColor: 'rgba(255,255,255,0.84)', borderRadius: 30, borderWidth: 1, height: 264, justifyContent: 'center', overflow: 'hidden', position: 'relative', shadowColor: '#50371e', shadowOffset: { height: 12, width: 0 }, shadowOpacity: 0.08, shadowRadius: 24, width: 264 },
   homePetHeroMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', marginTop: 5 },
   homePetHeroName: { color: palette.ink, fontFamily: appFontFamily, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 27 },
   homePetAvatarShell: { alignItems: 'center', backgroundColor: '#FFEDD9', borderColor: '#fff', borderRadius: 112, borderWidth: 4, height: 224, justifyContent: 'center', overflow: 'hidden', shadowColor: '#b46e3c', shadowOffset: { height: 28, width: 0 }, shadowOpacity: 0.26, shadowRadius: 56, width: 224, zIndex: 2 },

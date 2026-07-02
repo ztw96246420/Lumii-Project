@@ -22,6 +22,7 @@
 - `ai.avatar.gptImage2.size`：`1:1` / `16:9` / `9:16` / `4:3` / `3:4`。
 - `ai.avatar.gptImage2.officialFallback`
 - `ai.avatar.gptImage2.promptTemplate`
+- `PET_AVATAR_STAGE_BACKGROUND`：静态灵伴形象和动效共用的 Lumii 舞台底色，默认 `#FBF7F1`。GPT Image 2 静态 prompt 应使用同色暖白 matte 背景，不再要求 true transparent / PNG cutout，避免上游把透明预览棋盘格画进结果图。
 - `ai.avatar.ttapiFlux.mode`
 - `ai.avatar.ttapiFlux.promptTemplate`
 - `ai.avatar.ttapiMidjourney.mode`
