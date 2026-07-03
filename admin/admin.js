@@ -515,6 +515,10 @@ async function onContentClick(event) {
       await editPetCalendarRecord(button);
       return;
     }
+    if (action === 'pet-calendar-create') {
+      await createPetCalendarRecord();
+      return;
+    }
     if (action === 'social-relations-filter') {
       state.socialRelationKind = $('socialRelationKind').value;
       state.socialRelationStatus = $('socialRelationStatus').value;
@@ -3979,6 +3983,101 @@ function promptPetCalendarPatch(row) {
   };
 }
 
+function promptPetCalendarCreate() {
+  const phone = window.prompt('用户手机号', '');
+  if (phone === null) return null;
+  const petId = window.prompt('宠物 ID（可从宠物档案或当前列表复制）', '');
+  if (petId === null) return null;
+  const type = window.prompt('新增类型：weight / vaccine / memo', 'memo');
+  if (type === null) return null;
+  const normalizedType = type.trim();
+  if (!['memo', 'vaccine', 'weight'].includes(normalizedType)) {
+    showToast('新增类型只能是 weight / vaccine / memo');
+    return null;
+  }
+  if (normalizedType === 'weight') {
+    const kg = window.prompt('体重 kg', '');
+    if (kg === null) return null;
+    const recordedAt = window.prompt('记录日期：YYYY-MM-DD', new Date().toISOString().slice(0, 10));
+    if (recordedAt === null) return null;
+    const note = window.prompt('体重备注，可留空', '运营新增体重记录');
+    if (note === null) return null;
+    return {
+      phone: phone.trim(),
+      petId: petId.trim(),
+      record: {
+        kg: normalizeAdminPetWeightInput(kg),
+        note: note.trim(),
+        recordedAt: recordedAt.trim(),
+      },
+      type: normalizedType,
+    };
+  }
+  if (normalizedType === 'vaccine') {
+    const name = window.prompt('疫苗/驱虫名称', '疫苗/驱虫计划');
+    if (name === null) return null;
+    const dueAt = window.prompt('计划日期：YYYY-MM-DD', new Date().toISOString().slice(0, 10));
+    if (dueAt === null) return null;
+    const status = window.prompt('状态：due / overdue / done（移动端 due/overdue 都显示计划中）', 'due');
+    if (status === null) return null;
+    const reminderEnabled = window.prompt('是否开启提醒：true / false', 'false');
+    if (reminderEnabled === null) return null;
+    return {
+      phone: phone.trim(),
+      petId: petId.trim(),
+      record: {
+        dueAt: dueAt.trim(),
+        name: name.trim(),
+        reminderEnabled: parseAdminPromptBoolean(reminderEnabled, false),
+        status: status.trim() || 'due',
+      },
+      type: normalizedType,
+    };
+  }
+  const title = window.prompt('备忘标题', '运营备忘');
+  if (title === null) return null;
+  const content = window.prompt('备忘内容', '');
+  if (content === null) return null;
+  const reminderEnabled = window.prompt('是否开启提醒：true / false', 'false');
+  if (reminderEnabled === null) return null;
+  const reminderAt = window.prompt('提醒时间：YYYY-MM-DD HH:mm；关闭提醒可留空', '');
+  if (reminderAt === null) return null;
+  const repeat = window.prompt('重复频率：none / monthly / quarterly / yearly', 'none');
+  if (repeat === null) return null;
+  return {
+    phone: phone.trim(),
+    petId: petId.trim(),
+    record: {
+      content: content.trim(),
+      reminderAt: reminderAt.trim(),
+      reminderEnabled: parseAdminPromptBoolean(reminderEnabled, false),
+      repeat: repeat.trim() || 'none',
+      title: title.trim(),
+    },
+    type: normalizedType,
+  };
+}
+
+async function createPetCalendarRecord() {
+  const draft = promptPetCalendarCreate();
+  if (!draft) return;
+  const reason = window.prompt('请输入新增原因，会写入审计并通知用户', `运营新增宠物日历记录：${draft.phone}`);
+  if (reason === null) return;
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) {
+    showToast('请填写新增原因');
+    return;
+  }
+  if (!window.confirm('确认新增这条宠物日历记录？该操作会直接出现在用户移动端宠物日历中，并写入审计。')) return;
+  const result = await post('/admin/pet-calendar', {
+    ...draft,
+    reason: trimmedReason,
+  });
+  state.cache = { ...state.cache, audit: null, notifications: null, petCalendar: null, pets: null, summary: null, users: null };
+  showToast(`宠物日历已新增：${result.item?.typeLabel || draft.type}`);
+  await render(true);
+}
+
 async function editPetCalendarRecord(button) {
   const recordId = button.dataset.id;
   const row = cachedPetCalendarRow(recordId);
@@ -4057,6 +4156,7 @@ async function renderPetCalendar(force) {
             <select id="petCalendarSource">
               ${petCalendarOption(state.petCalendarSource, 'all', '全部')}
               ${petCalendarOption(state.petCalendarSource, 'manual', '用户记录')}
+              ${petCalendarOption(state.petCalendarSource, 'admin', '运营新增')}
               ${petCalendarOption(state.petCalendarSource, 'pet_circle', '宠友圈同步')}
               ${petCalendarOption(state.petCalendarSource, 'ai_chat', 'AI 对话')}
             </select>
@@ -4066,6 +4166,7 @@ async function renderPetCalendar(force) {
           <label>搜索<input id="petCalendarQ" placeholder="手机号、宠物、标题、记录ID" value="${escapeHtml(state.petCalendarQ)}" /></label>
         </div>
         <div class="actions">
+          <button class="small-button" data-action="pet-calendar-create">新增记录</button>
           <button class="small-button" data-action="pet-calendar-filter">筛选</button>
           <button class="small-button ghost" data-action="pet-calendar-clear">清空</button>
         </div>
@@ -4091,6 +4192,7 @@ async function renderPetCalendar(force) {
         </div>
         <div class="gap-list">
           <div><strong>修正留痕</strong><span>后台可修正明显错误的体重、疫苗/驱虫和备忘字段，必须填写原因。</span></div>
+          <div><strong>运营新增</strong><span>后台可按手机号和宠物 ID 新增体重、疫苗/驱虫或备忘，来源会标记为运营新增。</span></div>
           <div><strong>来源追踪</strong><span>宠友圈同步、AI 对话写入会被标识出来，方便解释“为什么日历里多了一条”。</span></div>
           <div><strong>不制造默认记录</strong><span>本页直接读取持久化 state，不触发移动端健康列表的默认初始化逻辑。</span></div>
         </div>
@@ -4106,7 +4208,7 @@ async function renderPetCalendar(force) {
         <div class="gap-list">
           <div><strong>体重修正</strong><span>支持 kg、记录日期和备注；同步更新宠物档案上的最新体重。</span></div>
           <div><strong>疫苗/驱虫修正</strong><span>支持名称、计划日期、状态和提醒开关；完成状态会关闭提醒。</span></div>
-          <div><strong>备忘修正</strong><span>支持标题、内容、提醒时间和重复频率；删除/恢复暂不开放。</span></div>
+          <div><strong>备忘新增/修正</strong><span>支持标题、内容、提醒时间和重复频率；删除/恢复暂不开放。</span></div>
         </div>
       </div>
     </div>

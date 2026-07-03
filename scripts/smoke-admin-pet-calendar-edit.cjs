@@ -223,21 +223,81 @@ async function main() {
     assert.equal(memoPatch.data.item.title, 'Admin memo');
     assert.equal(memoPatch.data.item.reminderEnabled, true);
 
+    const adminCreatedWeight = await request('/admin/pet-calendar', {
+      body: {
+        phone,
+        petId: createdPet.data.id,
+        reason: 'smoke creates admin weight record',
+        record: { kg: 7.4, note: 'admin created weight', recordedAt: '2026-07-03' },
+        type: 'weight',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(adminCreatedWeight.data.item.sourceKey, 'admin');
+    assert.equal(adminCreatedWeight.data.item.kg, 7.4);
+
+    const adminCreatedVaccine = await request('/admin/pet-calendar', {
+      body: {
+        phone,
+        petId: createdPet.data.id,
+        reason: 'smoke creates admin vaccine record',
+        record: { dueAt: '2030-03-01', name: 'Admin deworm', reminderEnabled: true, status: 'due' },
+        type: 'vaccine',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(adminCreatedVaccine.data.item.sourceKey, 'admin');
+    assert.equal(adminCreatedVaccine.data.item.reminderEnabled, true);
+
+    const adminCreatedMemo = await request('/admin/pet-calendar', {
+      body: {
+        phone,
+        petId: createdPet.data.id,
+        reason: 'smoke creates admin memo record',
+        record: {
+          content: 'admin created memo content',
+          reminderAt: '',
+          reminderEnabled: false,
+          repeat: 'none',
+          title: 'Admin created memo',
+        },
+        type: 'memo',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(adminCreatedMemo.data.item.sourceKey, 'admin');
+    assert.equal(adminCreatedMemo.data.item.title, 'Admin created memo');
+
+    const adminSourceCalendar = await request(`/admin/pet-calendar?source=admin&q=${encodeURIComponent(phone)}`, { token: adminToken });
+    assert.equal(adminSourceCalendar.data.summary.all, 3);
+    assert.ok(adminSourceCalendar.data.records.every((item) => item.sourceKey === 'admin'));
+
     const mobileWeights = await request('/health/weights', { token: userToken });
     assert.ok(mobileWeights.data.some((item) => item.id === createdWeight.data.id && item.kg === 7.1 && item.note === 'admin corrected weight'));
+    assert.ok(mobileWeights.data.some((item) => item.id === adminCreatedWeight.data.record.id && item.kg === 7.4 && item.note === 'admin created weight'));
 
     const mobileVaccines = await request('/health/vaccines', { token: userToken });
     assert.ok(mobileVaccines.data.some((item) => item.id === createdVaccine.data.id && item.name === 'Rabies booster' && item.status === 'done'));
+    assert.ok(mobileVaccines.data.some((item) => item.id === adminCreatedVaccine.data.record.id && item.name === 'Admin deworm' && item.status === 'due'));
     const reminders = await request('/health/vaccine-reminders', { token: userToken });
     assert.equal(reminders.data.includes(createdVaccine.data.id), false, 'done vaccine reminder should be disabled');
+    assert.equal(reminders.data.includes(adminCreatedVaccine.data.record.id), true, 'admin-created vaccine reminder should be enabled');
 
     const mobileMemos = await request('/health/memos', { token: userToken });
     assert.ok(mobileMemos.data.some((item) => item.id === createdMemo.data.id && item.title === 'Admin memo' && item.reminderAt === '2030-02-01 10:15'));
+    assert.ok(mobileMemos.data.some((item) => item.id === adminCreatedMemo.data.record.id && item.title === 'Admin created memo'));
 
     const notifications = await request('/notifications', { token: userToken });
     assert.ok(
       notifications.data.some((item) => item.title === '宠物日历记录已修正'),
       'mobile notification should mention admin calendar correction',
+    );
+    assert.ok(
+      notifications.data.some((item) => item.title === '宠物日历记录已新增'),
+      'mobile notification should mention admin calendar creation',
     );
 
     const audit = await request('/admin/audit-logs?action=calendar.record.update', { token: adminToken });
@@ -245,6 +305,11 @@ async function main() {
     assert.ok(touchedIds.has(weightRow.id), 'weight edit audit should be recorded');
     assert.ok(touchedIds.has(vaccineRow.id), 'vaccine edit audit should be recorded');
     assert.ok(touchedIds.has(memoRow.id), 'memo edit audit should be recorded');
+    const createAudit = await request('/admin/audit-logs?action=calendar.record.create', { token: adminToken });
+    const createdIds = new Set(createAudit.data.items.map((item) => item.targetId));
+    assert.ok(createdIds.has(adminCreatedWeight.data.recordId), 'weight create audit should be recorded');
+    assert.ok(createdIds.has(adminCreatedVaccine.data.recordId), 'vaccine create audit should be recorded');
+    assert.ok(createdIds.has(adminCreatedMemo.data.recordId), 'memo create audit should be recorded');
   } finally {
     await stopBackend();
     fs.rmSync(tmpDir, { force: true, recursive: true });

@@ -16144,8 +16144,142 @@ function notifyPetCalendarRecordUpdated(phone, pet, type, changedFields, reason,
   }, 'system', { force: true });
 }
 
+function notifyPetCalendarRecordCreated(phone, pet, type, reason, record) {
+  const typeLabel = type === 'weight' ? '体重记录' : type === 'vaccine' ? '疫苗/驱虫计划' : '备忘记录';
+  const detail = type === 'weight'
+    ? `${Number(record?.kg) || 0} kg`
+    : type === 'vaccine'
+      ? (record?.name || '疫苗/驱虫')
+      : (record?.title || '备忘');
+  addNotification(phone, {
+    actionRoute: 'petCalendar',
+    category: 'system',
+    id: `n-pet-calendar-create-${pet.id}-${record?.id || Date.now()}-${Date.now()}`,
+    kind: 'system',
+    petId: pet.id,
+    read: false,
+    reason,
+    text: `运营已为${pet.name || '宠物'}新增${typeLabel}：${detail}。`,
+    title: '宠物日历记录已新增',
+    ...(type === 'memo' ? { memoId: record?.id } : {}),
+    ...(type === 'vaccine' ? { vaccineId: record?.id } : {}),
+  }, 'system', { force: true });
+}
+
 function adminUpdatedPetCalendarRow(recordId) {
   return adminPetCalendarRecords({ q: recordId, limit: 1 }).records.find((row) => row.id === recordId) || null;
+}
+
+function findAdminPetCalendarTarget(phoneInput, petIdInput) {
+  const phone = normalizePhone(phoneInput);
+  const petId = String(petIdInput || '').trim();
+  if (!phone) return { error: '请输入正确手机号', statusCode: 400 };
+  if (!petId) return { error: '请输入宠物 ID', statusCode: 400 };
+  const user = state.users?.[phone];
+  if (!user) return { error: '用户不存在', statusCode: 404 };
+  const pet = Array.isArray(user.pets) ? user.pets.find((item) => item?.id === petId) : null;
+  if (!pet) return { error: '宠物不存在，请确认宠物 ID', statusCode: 404 };
+  return { key: `${phone}:${pet.id}`, pet, phone, user };
+}
+
+function parseAdminPetCalendarCreatePayload(body = {}) {
+  const type = String(body.type || '').trim();
+  if (!['memo', 'vaccine', 'weight'].includes(type)) return { error: '请选择新增记录类型', statusCode: 400 };
+  const target = findAdminPetCalendarTarget(body.phone, body.petId);
+  if (target.error) return target;
+  const recordPayload = body.record && typeof body.record === 'object' && !Array.isArray(body.record) ? body.record : {};
+  if (type === 'weight') {
+    const weightInput = parseWeightRecordPayload(recordPayload);
+    if (weightInput.error) return { error: weightInput.error, statusCode: 400 };
+    return { ...target, record: weightInput.record, type };
+  }
+  if (type === 'vaccine') {
+    const vaccineInput = parseAdminPetCalendarVaccinePayload(recordPayload, {}, target.key);
+    if (vaccineInput.error) return { error: vaccineInput.error, statusCode: 400 };
+    return { ...target, record: vaccineInput.record, type };
+  }
+  const memoInput = parseHealthMemoPayload(recordPayload);
+  if (memoInput.error) return { error: memoInput.error, statusCode: 400 };
+  return { ...target, record: memoInput.memo, type };
+}
+
+function adminCreatePetCalendarRecord(admin, body = {}) {
+  const reason = adminReason(body, '');
+  if (!reason) return { error: '请填写新增原因', statusCode: 400 };
+  const parsed = parseAdminPetCalendarCreatePayload(body);
+  if (parsed.error) return parsed;
+  const now = new Date().toISOString();
+  const today = todayIsoDate();
+  let record = null;
+  let storeName = '';
+
+  if (parsed.type === 'weight') {
+    storeName = 'weights';
+    const records = adminHealthStoreMutableList(storeName, parsed.key);
+    record = {
+      id: `w-admin-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      ...parsed.record,
+      source: 'admin',
+      updatedAt: now,
+    };
+    records.unshift(record);
+    records.sort((left, right) =>
+      String(right.recordedAt || '').localeCompare(String(left.recordedAt || '')) || String(right.id || '').localeCompare(String(left.id || ''))
+    );
+    syncPetWeightFromAdminRecords(parsed.pet, records);
+  } else if (parsed.type === 'vaccine') {
+    storeName = 'vaccines';
+    const { reminderEnabled, ...recordFields } = parsed.record;
+    const records = adminHealthStoreMutableList(storeName, parsed.key);
+    const days = daysUntilDate(recordFields.dueAt);
+    const status = recordFields.status === 'done'
+      ? 'done'
+      : recordFields.status === 'overdue' || (days !== null && days < 0)
+        ? 'overdue'
+        : 'due';
+    record = {
+      dueAt: recordFields.dueAt,
+      id: `v-admin-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      name: recordFields.name,
+      source: 'admin',
+      status,
+      updatedAt: now,
+    };
+    records.unshift(record);
+    setAdminVaccineReminderForKey(parsed.key, record.id, status === 'done' ? false : Boolean(reminderEnabled));
+    records.sort((left, right) => String(left.dueAt || '').localeCompare(String(right.dueAt || '')) || String(left.id || '').localeCompare(String(right.id || '')));
+  } else {
+    storeName = 'memos';
+    const records = adminHealthStoreMutableList(storeName, parsed.key);
+    record = {
+      id: `m-admin-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      ...parsed.record,
+      createdAt: today,
+      source: 'admin',
+      updatedAt: today,
+    };
+    records.unshift(record);
+  }
+
+  const recordId = `${parsed.type}:${parsed.phone}:${parsed.pet.id}:${record.id}`;
+  const snapshot = adminPetCalendarRecordSnapshot(parsed.type, record, parsed.key);
+  writeAdminAudit(admin, 'calendar.record.create', 'pet_calendar_record', recordId, null, {
+    key: parsed.key,
+    pet: { id: parsed.pet.id, name: parsed.pet.name || '' },
+    phone: parsed.phone,
+    record: snapshot,
+    storeName,
+    type: parsed.type,
+  }, reason);
+  notifyPetCalendarRecordCreated(parsed.phone, parsed.pet, parsed.type, reason, record);
+  return {
+    item: adminUpdatedPetCalendarRow(recordId),
+    petId: parsed.pet.id,
+    phone: parsed.phone,
+    record,
+    recordId,
+    type: parsed.type,
+  };
 }
 
 function adminUpdatePetCalendarRecord(admin, recordId, body = {}) {
@@ -16250,6 +16384,7 @@ function adminUpdatePetCalendarRecord(admin, recordId, body = {}) {
 }
 
 function adminPetCalendarSource(type, record, aiMemoIds, aiWeightIds) {
+  if (record?.source === 'admin') return { key: 'admin', label: '运营新增' };
   if (type === 'memo' && record?.source === 'pet_circle') return { key: 'pet_circle', label: '宠友圈同步' };
   if (type === 'memo' && aiMemoIds.has(record?.id)) return { key: 'ai_chat', label: 'AI 对话' };
   if (type === 'weight' && aiWeightIds.has(record?.id)) return { key: 'ai_chat', label: 'AI 对话' };
@@ -23915,6 +24050,17 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       to: url.searchParams.get('to') || '',
       type: url.searchParams.get('type') || 'all',
     }));
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/pet-calendar') {
+    const result = adminCreatePetCalendarRecord(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PET_CALENDAR_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 
