@@ -675,6 +675,7 @@ function createInitialState() {
     appEvents: [],
     avatarAnimationJobs: {},
     avatarJobs: {},
+    aiAvatarSamples: {},
     conversations: {},
     conversationMessages: {},
     feedback: [],
@@ -3336,6 +3337,34 @@ function adminExportDataset(type) {
         exportColumn('createdAt', '反馈时间', (row) => exportDateText(row.createdAt)),
       ],
     },
+    ai_avatar_samples: {
+      description: 'AI 灵伴提示词优化、供应商异常和素材质量样本，用于运营复盘、提示词实验和供应商排障。',
+      label: 'AI 灵伴样本池',
+      rows: () => adminAiAvatarSamples({ limit: ADMIN_EXPORT_ROW_LIMIT, status: 'all', type: 'all' }).items,
+      columns: [
+        exportColumn('id', '样本ID'),
+        exportColumn('typeLabel', '样本类型'),
+        exportColumn('statusLabel', '复核状态'),
+        exportColumn('sourceLabel', '来源'),
+        exportColumn('note', '样本说明'),
+        exportColumn('tags', '标签', (row) => exportJoin(row.tags || [])),
+        exportColumn('jobId', '任务ID'),
+        exportColumn('jobStatus', '任务状态'),
+        exportColumn('ownerPhone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('petName', '宠物名'),
+        exportColumn('provider', '供应商'),
+        exportColumn('providerStatus', '供应商状态'),
+        exportColumn('providerTraceCount', '调用轨迹数'),
+        exportColumn('feedbackReasonLabel', '反馈原因'),
+        exportColumn('feedbackContent', '反馈内容'),
+        exportColumn('reviewNote', '复核备注'),
+        exportColumn('createdBy', '创建人'),
+        exportColumn('createdAt', '创建时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('reviewedBy', '复核人'),
+        exportColumn('reviewedAt', '复核时间', (row) => exportDateText(row.reviewedAt)),
+      ],
+    },
     ai_provider_usage: {
       description: 'AI 供应商请求、成功失败、成本、额度和任务健康，用于成本复盘和供应商监控。',
       label: 'AI 供应商用量',
@@ -3679,7 +3708,7 @@ function adminExportSensitiveColumns(columns = []) {
 function adminExportCatalog(filters = {}) {
   const normalizedFilters = normalizeAdminExportFilters(filters);
   const exportPolicy = normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports);
-  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'places', 'place_reviews', 'place_submissions', 'place_contributions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
+  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_avatar_samples', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'places', 'place_reviews', 'place_submissions', 'place_contributions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
@@ -4115,6 +4144,7 @@ function loadState() {
         ...initialState.avatarAnimationJobs,
         ...(loadedState.avatarAnimationJobs || {}),
       },
+      aiAvatarSamples: loadedState.aiAvatarSamples && typeof loadedState.aiAvatarSamples === 'object' && !Array.isArray(loadedState.aiAvatarSamples) ? loadedState.aiAvatarSamples : initialState.aiAvatarSamples,
       mediaUploads: {
         ...initialState.mediaUploads,
         ...(loadedState.mediaUploads || {}),
@@ -15247,6 +15277,7 @@ function adminUserBusinessDataSummary(phone) {
     }, 0);
   const mediaIds = new Set(Object.values(state.mediaUploads || {}).filter((item) => item?.ownerPhone === normalizedPhone).map((item) => item.mediaId).filter(Boolean));
   const avatarJobs = Object.values(state.avatarJobs || {}).filter((job) => job?.ownerPhone === normalizedPhone || mediaIds.has(job?.mediaId));
+  const avatarJobIds = new Set(avatarJobs.map((job) => job.id).filter(Boolean));
   const avatarAnimationJobs = Object.values(state.avatarAnimationJobs || {}).filter((job) => job?.ownerPhone === normalizedPhone || mediaIds.has(job?.mediaId));
   const healthStoreCount = ['weights', 'vaccines', 'memos', 'vaccineReminders'].reduce((sum, key) => (
     sum + Object.keys(state.health?.[key] || {}).filter((itemKey) => itemKey.startsWith(healthPrefix)).length
@@ -15255,6 +15286,7 @@ function adminUserBusinessDataSummary(phone) {
   const supportTicketCount = (state.supportTickets || []).filter((item) => item.phone === normalizedPhone || feedbackIds.has(item.sourceId)).length;
   return {
     aiAvatarDailyUsage: state.petAvatarDailyUsage?.[normalizedPhone] ? 1 : 0,
+    aiAvatarSamples: Object.values(state.aiAvatarSamples || {}).filter((sample) => sample?.ownerPhone === normalizedPhone || avatarJobIds.has(sample?.jobId) || mediaIds.has(sample?.mediaId)).length,
     avatarAnimationJobs: avatarAnimationJobs.length,
     avatarJobs: avatarJobs.length,
     conversations: conversationCount,
@@ -15295,6 +15327,7 @@ function adminClearUserBusinessData(admin, phone, body = {}) {
   const healthPrefix = `${normalizedPhone}:`;
   const feedbackIds = new Set((state.feedback || []).filter((item) => item.phone === normalizedPhone).map((item) => item.id).filter(Boolean));
   const mediaIds = new Set(Object.values(state.mediaUploads || {}).filter((item) => item?.ownerPhone === normalizedPhone).map((item) => item.mediaId).filter(Boolean));
+  const avatarJobIds = new Set(Object.values(state.avatarJobs || {}).filter((job) => job?.ownerPhone === normalizedPhone || mediaIds.has(job?.mediaId)).map((job) => job.id).filter(Boolean));
 
   user.pets = [];
   user.activePetId = '';
@@ -15310,6 +15343,7 @@ function adminClearUserBusinessData(admin, phone, body = {}) {
   deleteObjectKeysByPredicate(state.mediaUploads, (_key, item) => item?.ownerPhone === normalizedPhone);
   deleteObjectKeysByPredicate(state.avatarAnimationJobs, (_key, job) => job?.ownerPhone === normalizedPhone || mediaIds.has(job?.mediaId));
   deleteObjectKeysByPredicate(state.avatarJobs, (_key, job) => job?.ownerPhone === normalizedPhone || mediaIds.has(job?.mediaId));
+  deleteObjectKeysByPredicate(state.aiAvatarSamples, (_key, sample) => sample?.ownerPhone === normalizedPhone || avatarJobIds.has(sample?.jobId) || mediaIds.has(sample?.mediaId));
   deleteObjectKeysByPredicate(state.moderationTaskMeta, (taskId) => moderationTaskMetaBelongsToClearedUser(taskId, ids));
   if (state.petAvatarDailyUsage) delete state.petAvatarDailyUsage[normalizedPhone];
   if (state.petChatDailyUsage) delete state.petChatDailyUsage[normalizedPhone];
@@ -17072,6 +17106,7 @@ async function adminSystemHealth() {
       { key: 'mediaUploads', label: '媒体上传', rows: countObject(state.mediaUploads) },
       { key: 'avatarJobs', label: 'AI 任务', rows: countObject(state.avatarJobs) },
       { key: 'avatarAnimationJobs', label: '动效任务', rows: countObject(state.avatarAnimationJobs) },
+      { key: 'aiAvatarSamples', label: 'AI 样本', rows: countObject(state.aiAvatarSamples) },
       { key: 'adminAuditLogs', label: '审计日志', rows: countArray(state.adminAuditLogs) },
       { key: 'launchReadinessQuestionOverrides', label: '上线台账决策', rows: countObject(state.launchReadinessQuestionOverrides) },
       { key: 'appEvents', label: '移动端事件', rows: countArray(state.appEvents) },
@@ -17130,6 +17165,7 @@ function adminPermissionCatalog() {
     ['calendar.view', '查看宠物日历', '宠物'],
     ['calendar.edit', '修正宠物日历记录', '宠物'],
     ['ai.avatar.view', '查看 AI 灵伴任务、素材和反馈', 'AI'],
+    ['ai.avatar.sample', '沉淀和复核 AI 灵伴样本', 'AI'],
     ['ai.chat.view_summary', '查看 AI 对话摘要和风险标签', 'AI'],
     ['moderation.view', '查看内容安全任务池', '内容安全'],
     ['moderation.process', '处理内容安全任务', '内容安全'],
@@ -19052,6 +19088,272 @@ function reviewAvatarFeedback(admin, jobId, body = {}, req = null) {
   touchAvatarJob(job);
   writeAdminAudit(admin, 'ai.avatar.feedback.review', 'avatar_job', job.id, before, job.feedback, adminReason(body, '标记 AI 生成反馈已处理'));
   return { item: adminAvatarFeedbackItem(job, req) };
+}
+
+const aiAvatarSampleTypes = new Set(['prompt_quality', 'provider_anomaly', 'material_quality']);
+const aiAvatarSampleStatuses = new Set(['open', 'reviewed', 'ignored']);
+
+function ensureAiAvatarSamples() {
+  if (!state.aiAvatarSamples || typeof state.aiAvatarSamples !== 'object' || Array.isArray(state.aiAvatarSamples)) {
+    state.aiAvatarSamples = {};
+  }
+  return state.aiAvatarSamples;
+}
+
+function normalizeAiAvatarSampleType(value) {
+  const type = String(value || '').trim();
+  return aiAvatarSampleTypes.has(type) ? type : 'prompt_quality';
+}
+
+function aiAvatarSampleTypeLabel(type) {
+  if (type === 'provider_anomaly') return '供应商异常样本';
+  if (type === 'material_quality') return '素材质量样本';
+  return '提示词优化样本';
+}
+
+function normalizeAiAvatarSampleStatus(value) {
+  const status = String(value || '').trim();
+  return aiAvatarSampleStatuses.has(status) ? status : 'open';
+}
+
+function aiAvatarSampleStatusLabel(status) {
+  if (status === 'reviewed') return '已复核';
+  if (status === 'ignored') return '已忽略';
+  return '待复盘';
+}
+
+function aiAvatarSampleSourceLabel(source) {
+  if (source === 'avatar_feedback') return '用户反馈';
+  if (source === 'provider_trace') return '调用轨迹';
+  if (source === 'media_quality') return '上传素材';
+  return '生成任务';
+}
+
+function aiAvatarSampleTags(input) {
+  if (Array.isArray(input)) {
+    return input
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .slice(0, 8);
+  }
+  return String(input || '')
+    .split(/[,\s，、]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function aiAvatarSampleDefaultTags(type, job) {
+  const tags = [aiAvatarSampleTypeLabel(type)];
+  if (job?.provider) tags.push(job.provider);
+  if (job?.feedback?.reason) tags.push(avatarFeedbackReasonLabel(job.feedback.reason));
+  if (job?.errorCode) tags.push(job.errorCode);
+  if (job?.status) tags.push(job.status);
+  return [...new Set(tags)].slice(0, 8);
+}
+
+function aiAvatarSampleDefaultNote(type, job) {
+  if (type === 'provider_anomaly') {
+    return [job?.errorCode, job?.errorMessage || job?.lastStatusError, job?.providerStatus]
+      .filter(Boolean)
+      .join(' · ') || '记录供应商异常样本';
+  }
+  if (type === 'material_quality') {
+    const media = job?.mediaId ? state.mediaUploads?.[job.mediaId] : null;
+    const analysis = media?.analysis || {};
+    return [analysis.title, analysis.message, analysis.code].filter(Boolean).join(' · ') || '记录素材质量样本';
+  }
+  const feedback = job?.feedback || {};
+  return [avatarFeedbackReasonLabel(feedback.reason || 'other'), feedback.content].filter(Boolean).join(' · ') || '记录提示词优化样本';
+}
+
+function aiAvatarSampleJobContext(job, req = null) {
+  const owner = job?.ownerPhone ? state.users[job.ownerPhone] : null;
+  const media = job?.mediaId ? state.mediaUploads?.[job.mediaId] : null;
+  const pet = owner?.pets?.find((item) => item.id === job?.petId) || (owner ? selectedPetFor(owner) : null);
+  const feedback = job?.feedback || {};
+  const providerTrace = adminAiProviderTraceRows(job);
+  const latestProviderTrace = providerTrace[providerTrace.length - 1] || null;
+  const mediaPreviewUrl = media?.objectUrl || media?.previewUrl || (req && media?.mediaId ? mediaUploadFileUrl(req, media.mediaId) : '');
+  return {
+    errorCode: job?.errorCode || '',
+    errorMessage: job?.errorMessage || '',
+    feedbackContent: feedback.content || '',
+    feedbackReason: feedback.reason || '',
+    feedbackReasonLabel: feedback.reason ? avatarFeedbackReasonLabel(feedback.reason) : '',
+    jobStatus: job?.status || '',
+    lastStatusError: job?.lastStatusError || '',
+    mediaId: job?.mediaId || '',
+    mediaPreviewUrl,
+    ownerName: owner?.ownerName || (job?.ownerPhone ? `用户${String(job.ownerPhone).slice(-4)}` : ''),
+    ownerPhone: job?.ownerPhone || '',
+    petId: pet?.id || job?.petId || '',
+    petName: pet?.name || job?.petName || '',
+    previewUrl: mediaPreviewUrl,
+    progress: job?.progress || 0,
+    provider: job?.provider || '',
+    providerCost: adminAiProviderCostSnapshot(job),
+    providerJobId: job?.providerJobId || '',
+    providerStatus: job?.providerStatus || '',
+    providerTrace: providerTrace.slice(-5).reverse(),
+    providerTraceCount: providerTrace.length,
+    providerTraceLatestAt: latestProviderTrace?.at || '',
+    providerTraceLatestStage: latestProviderTrace?.stage || '',
+    providerTraceLatestStageLabel: latestProviderTrace?.stageLabel || '',
+    providerTraceLatestStatus: latestProviderTrace?.providerStatus || '',
+    resultUrl: job?.resultUrl || '',
+    sourceResultUrl: job?.sourceResultUrl || '',
+  };
+}
+
+function aiAvatarSampleItem(sample, req = null) {
+  const job = sample?.jobId ? state.avatarJobs?.[sample.jobId] : null;
+  const context = job ? aiAvatarSampleJobContext(job, req) : {};
+  const type = normalizeAiAvatarSampleType(sample?.type);
+  const status = normalizeAiAvatarSampleStatus(sample?.status);
+  return {
+    ...sample,
+    ...context,
+    createdAt: sample?.createdAt || '',
+    createdBy: sample?.createdBy || '',
+    id: sample?.id || '',
+    note: sample?.note || '',
+    reviewNote: sample?.reviewNote || '',
+    reviewedAt: sample?.reviewedAt || '',
+    reviewedBy: sample?.reviewedBy || '',
+    source: sample?.source || 'avatar_job',
+    sourceLabel: aiAvatarSampleSourceLabel(sample?.source || 'avatar_job'),
+    status,
+    statusLabel: aiAvatarSampleStatusLabel(status),
+    tags: Array.isArray(sample?.tags) ? sample.tags : [],
+    type,
+    typeLabel: aiAvatarSampleTypeLabel(type),
+    updatedAt: sample?.updatedAt || sample?.createdAt || '',
+  };
+}
+
+function adminAiAvatarSamples(options = {}, req = null) {
+  const q = String(options.q || '').trim().toLowerCase();
+  const statusFilter = String(options.status || 'open');
+  const typeFilter = String(options.type || 'all');
+  const limit = Math.floor(clampNumber(options.limit, 300, 1, ADMIN_EXPORT_ROW_LIMIT));
+  const allItems = Object.values(ensureAiAvatarSamples())
+    .map((sample) => aiAvatarSampleItem(sample, req))
+    .sort((a, b) => {
+      if (a.status === 'open' && b.status !== 'open') return -1;
+      if (b.status === 'open' && a.status !== 'open') return 1;
+      return analyticsTimeMs(b.updatedAt || b.createdAt) - analyticsTimeMs(a.updatedAt || a.createdAt);
+    });
+  const filtered = allItems.filter((item) => {
+    if (statusFilter !== 'all' && item.status !== statusFilter) return false;
+    if (typeFilter !== 'all' && item.type !== typeFilter) return false;
+    if (!q) return true;
+    const haystack = [
+      item.id,
+      item.typeLabel,
+      item.statusLabel,
+      item.sourceLabel,
+      item.note,
+      item.reviewNote,
+      item.jobId,
+      item.jobStatus,
+      item.ownerPhone,
+      item.ownerName,
+      item.petName,
+      item.mediaId,
+      item.provider,
+      item.providerStatus,
+      item.feedbackReason,
+      item.feedbackReasonLabel,
+      item.feedbackContent,
+      ...(item.tags || []),
+    ].join(' ').toLowerCase();
+    return haystack.includes(q);
+  });
+  return {
+    items: filtered.slice(0, limit),
+    summary: {
+      all: allItems.length,
+      filtered: filtered.length,
+      ignored: allItems.filter((item) => item.status === 'ignored').length,
+      materialQuality: allItems.filter((item) => item.type === 'material_quality').length,
+      open: allItems.filter((item) => item.status === 'open').length,
+      promptQuality: allItems.filter((item) => item.type === 'prompt_quality').length,
+      providerAnomaly: allItems.filter((item) => item.type === 'provider_anomaly').length,
+      reviewed: allItems.filter((item) => item.status === 'reviewed').length,
+    },
+  };
+}
+
+function createAiAvatarSample(admin, jobId, body = {}, req = null) {
+  const job = state.avatarJobs?.[jobId];
+  if (!job) return { error: 'AI 任务不存在', statusCode: 404 };
+  const type = normalizeAiAvatarSampleType(body.type);
+  const source = body.source || (type === 'provider_anomaly' ? 'provider_trace' : type === 'material_quality' ? 'media_quality' : job.feedback ? 'avatar_feedback' : 'avatar_job');
+  const now = new Date().toISOString();
+  const samples = ensureAiAvatarSamples();
+  const existing = Object.values(samples).find((item) => item?.jobId === job.id && item?.type === type && item?.status === 'open') || null;
+  const before = existing ? cloneJson(existing) : null;
+  const id = existing?.id || `avatar-sample-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const inputTags = aiAvatarSampleTags(body.tags);
+  const context = aiAvatarSampleJobContext(job, req);
+  const sample = {
+    ...(existing || {}),
+    createdAt: existing?.createdAt || now,
+    createdBy: existing?.createdBy || admin?.username || ADMIN_USERNAME,
+    errorCode: context.errorCode || '',
+    errorMessage: context.errorMessage || '',
+    feedbackContent: context.feedbackContent || '',
+    feedbackReason: context.feedbackReason || '',
+    feedbackReasonLabel: context.feedbackReasonLabel || '',
+    id,
+    jobId: job.id,
+    jobStatus: context.jobStatus || '',
+    lastStatusError: context.lastStatusError || '',
+    mediaId: context.mediaId || '',
+    note: String(body.note || body.sampleReason || aiAvatarSampleDefaultNote(type, job)).replace(/\s+/g, ' ').trim().slice(0, 500),
+    ownerName: context.ownerName || '',
+    ownerPhone: context.ownerPhone || '',
+    petId: context.petId || '',
+    petName: context.petName || '',
+    provider: context.provider || '',
+    providerJobId: context.providerJobId || '',
+    providerStatus: context.providerStatus || '',
+    resultUrl: context.resultUrl || '',
+    source,
+    status: 'open',
+    tags: inputTags.length ? inputTags : aiAvatarSampleDefaultTags(type, job),
+    type,
+    updatedAt: now,
+    updatedBy: admin?.username || ADMIN_USERNAME,
+  };
+  samples[id] = sample;
+  const item = aiAvatarSampleItem(sample, req);
+  writeAdminAudit(admin, existing ? 'ai.avatar.sample.update' : 'ai.avatar.sample.create', 'ai_avatar_sample', id, before, item, adminReason(body, existing ? '更新 AI 样本' : '加入 AI 样本池'));
+  return { item };
+}
+
+function reviewAiAvatarSample(admin, sampleId, body = {}, req = null) {
+  const samples = ensureAiAvatarSamples();
+  const sample = samples[sampleId];
+  if (!sample) return { error: 'AI 样本不存在', statusCode: 404 };
+  const status = normalizeAiAvatarSampleStatus(body.status || 'reviewed');
+  const before = cloneJson(sample);
+  const now = new Date().toISOString();
+  sample.status = status;
+  sample.updatedAt = now;
+  sample.updatedBy = admin?.username || ADMIN_USERNAME;
+  sample.reviewNote = String(body.reviewNote || body.note || body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  if (status === 'open') {
+    sample.reviewedAt = '';
+    sample.reviewedBy = '';
+  } else {
+    sample.reviewedAt = now;
+    sample.reviewedBy = admin?.username || ADMIN_USERNAME;
+  }
+  const item = aiAvatarSampleItem(sample, req);
+  writeAdminAudit(admin, 'ai.avatar.sample.review', 'ai_avatar_sample', sample.id, before, item, adminReason(body, `AI 样本${aiAvatarSampleStatusLabel(status)}`));
+  return { item };
 }
 
 function adminProviderLabel(provider) {
@@ -23232,11 +23534,44 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/ai/avatar-samples') {
+    ok(res, adminAiAvatarSamples({
+      q: url.searchParams.get('q') || '',
+      status: url.searchParams.get('status') || 'open',
+      type: url.searchParams.get('type') || 'all',
+    }, req));
+    return true;
+  }
+
   const adminAvatarFeedbackReviewMatch = pathname.match(/^\/admin\/ai\/avatar-feedback\/([^/]+)\/review$/);
   if (req.method === 'POST' && adminAvatarFeedbackReviewMatch) {
     const result = reviewAvatarFeedback(admin, decodeURIComponent(adminAvatarFeedbackReviewMatch[1]), body, req);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_AVATAR_FEEDBACK_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.item);
+    return true;
+  }
+
+  const adminAvatarSampleCreateMatch = pathname.match(/^\/admin\/ai\/avatar-jobs\/([^/]+)\/samples$/);
+  if (req.method === 'POST' && adminAvatarSampleCreateMatch) {
+    const result = createAiAvatarSample(admin, decodeURIComponent(adminAvatarSampleCreateMatch[1]), body, req);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_AVATAR_SAMPLE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.item);
+    return true;
+  }
+
+  const adminAvatarSampleReviewMatch = pathname.match(/^\/admin\/ai\/avatar-samples\/([^/]+)\/review$/);
+  if (req.method === 'POST' && adminAvatarSampleReviewMatch) {
+    const result = reviewAiAvatarSample(admin, decodeURIComponent(adminAvatarSampleReviewMatch[1]), body, req);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_AVATAR_SAMPLE_REVIEW_INVALID');
       return true;
     }
     saveState();

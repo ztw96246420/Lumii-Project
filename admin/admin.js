@@ -5,6 +5,9 @@ const state = {
   aiFeedbackStatus: 'all',
   aiMediaQ: '',
   aiMediaQuality: 'all',
+  aiSampleQ: '',
+  aiSampleStatus: 'open',
+  aiSampleType: 'all',
   auditAction: 'all',
   auditAdmin: 'all',
   auditFrom: '',
@@ -831,6 +834,30 @@ async function onContentClick(event) {
       await render(true);
       return;
     }
+    if (action === 'avatar-sample-filter') {
+      state.aiSampleStatus = $('aiSampleStatus').value;
+      state.aiSampleType = $('aiSampleType').value;
+      state.aiSampleQ = $('aiSampleQ').value.trim();
+      state.cache = { ...state.cache, avatarSamples: null };
+      await render(true);
+      return;
+    }
+    if (action === 'avatar-sample-clear') {
+      state.aiSampleStatus = 'open';
+      state.aiSampleType = 'all';
+      state.aiSampleQ = '';
+      state.cache = { ...state.cache, avatarSamples: null };
+      await render(true);
+      return;
+    }
+    if (action === 'avatar-sample-add') {
+      await addAvatarSample(button);
+      return;
+    }
+    if (action === 'avatar-sample-review') {
+      await reviewAvatarSample(button);
+      return;
+    }
     if (action === 'ai-media-filter') {
       state.aiMediaQuality = $('aiMediaQuality').value;
       state.aiMediaQ = $('aiMediaQ').value.trim();
@@ -1445,7 +1472,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -4649,6 +4676,92 @@ function avatarFeedbackAction(row) {
   return `<button class="small-button" data-action="avatar-feedback-review" data-id="${escapeHtml(row.jobId)}" data-default-note="记录为${escapeHtml(row.reasonLabel || '生成质量')}反馈">标记处理</button>`;
 }
 
+function avatarSampleTypeText(type) {
+  if (type === 'provider_anomaly') return '供应商异常样本';
+  if (type === 'material_quality') return '素材质量样本';
+  return '提示词优化样本';
+}
+
+function avatarSampleStatusPill(row) {
+  const tone = row.status === 'reviewed' ? 'ok' : row.status === 'ignored' ? '' : 'warn';
+  return tonePill(row.statusLabel || row.status || '-', tone);
+}
+
+function avatarSampleTypePill(row) {
+  const tone = row.type === 'provider_anomaly' ? 'bad' : row.type === 'material_quality' ? 'warn' : 'ok';
+  return tonePill(row.typeLabel || avatarSampleTypeText(row.type), tone);
+}
+
+function avatarSampleCell(row) {
+  return `
+    <div class="ai-job-cell">
+      ${avatarPreview(row.resultUrl || row.mediaPreviewUrl || row.previewUrl, '样')}
+      <div>
+        <div class="cell-title">${avatarSampleTypePill(row)}</div>
+        <div class="cell-sub clamp">${escapeHtml(row.note || '暂无样本说明')}</div>
+        <div class="cell-sub">${(row.tags || []).slice(0, 4).map((tag) => `#${escapeHtml(tag)}`).join(' ')}</div>
+      </div>
+    </div>
+  `;
+}
+
+function avatarSampleEvidenceCell(row) {
+  const feedback = row.feedbackReasonLabel ? `${row.feedbackReasonLabel}${row.feedbackContent ? ` · ${row.feedbackContent}` : ''}` : '';
+  const error = row.providerStatus || row.providerTraceLatestStatus || row.errorCode || '';
+  return `
+    <div>${escapeHtml(row.sourceLabel || '-')}</div>
+    <div class="cell-sub clamp">${escapeHtml(feedback || error || '来自生成任务')}</div>
+    <div class="cell-sub">${numberText(row.providerTraceCount || 0)} 条调用轨迹</div>
+  `;
+}
+
+function avatarSampleAction(row) {
+  if (row.status !== 'open') {
+    return `<div class="cell-sub">${escapeHtml(row.reviewedBy || '-')} · ${formatTime(row.reviewedAt)}</div>`;
+  }
+  return `
+    <div class="actions">
+      <button class="small-button" data-action="avatar-sample-review" data-id="${escapeHtml(row.id)}" data-next-status="reviewed">复核完成</button>
+      <button class="small-button ghost" data-action="avatar-sample-review" data-id="${escapeHtml(row.id)}" data-next-status="ignored">忽略</button>
+    </div>
+  `;
+}
+
+async function addAvatarSample(button) {
+  const jobId = button.dataset.id || '';
+  const type = button.dataset.sampleType || 'prompt_quality';
+  const label = button.dataset.sampleTypeLabel || avatarSampleTypeText(type);
+  const note = window.prompt(`请输入${label}说明`, button.dataset.defaultNote || label);
+  if (note === null) return;
+  const tags = window.prompt('可选：样本标签，用逗号分隔', button.dataset.defaultTags || label);
+  if (tags === null) return;
+  await post(`/admin/ai/avatar-jobs/${encodeURIComponent(jobId)}/samples`, {
+    note: note.trim() || label,
+    reason: `加入${label}`,
+    tags,
+    type,
+  });
+  state.cache = { ...state.cache, avatarJobs: null, avatarSamples: null, aiUsage: null, audit: null };
+  showToast('已加入 AI 样本池');
+  await render(true);
+}
+
+async function reviewAvatarSample(button) {
+  const id = button.dataset.id || '';
+  const status = button.dataset.nextStatus || 'reviewed';
+  const label = status === 'ignored' ? '忽略' : '复核完成';
+  const note = window.prompt(`请输入${label}备注`, status === 'ignored' ? '样本暂不进入复盘' : '样本已完成复盘');
+  if (note === null) return;
+  await post(`/admin/ai/avatar-samples/${encodeURIComponent(id)}/review`, {
+    note: note.trim() || label,
+    reason: `AI 样本${label}`,
+    status,
+  });
+  state.cache = { ...state.cache, avatarSamples: null, audit: null };
+  showToast(`AI 样本已${label}`);
+  await render(true);
+}
+
 function avatarMediaCell(row) {
   return `
     <div class="ai-job-cell">
@@ -4727,17 +4840,25 @@ async function renderAvatarJobs(force) {
     q: state.aiMediaQ,
     quality: state.aiMediaQuality,
   });
-  const [jobs, feedbackData, mediaData, aiUsage] = await Promise.all([
+  const sampleQuery = new URLSearchParams({
+    q: state.aiSampleQ,
+    status: state.aiSampleStatus,
+    type: state.aiSampleType,
+  });
+  const [jobs, feedbackData, mediaData, aiUsage, sampleData] = await Promise.all([
     load('avatarJobs', '/admin/ai/avatar-jobs', force),
     load('avatarFeedback', `/admin/ai/avatar-feedback?${feedbackQuery.toString()}`, force),
     load('aiMedia', `/admin/ai/media?${mediaQuery.toString()}`, force),
     load('aiUsage', '/admin/ai/usage?days=14', force),
+    load('avatarSamples', `/admin/ai/avatar-samples?${sampleQuery.toString()}`, force),
   ]);
   const jobRows = Array.isArray(jobs) ? jobs : [];
   const feedbackRows = feedbackData.items || [];
   const feedbackSummary = feedbackData.summary || {};
   const mediaRows = mediaData.items || [];
   const mediaSummary = mediaData.summary || {};
+  const sampleRows = sampleData.items || [];
+  const sampleSummary = sampleData.summary || {};
   const usageSummary = aiUsage.summary || {};
   const providerRows = aiUsage.providers || [];
   const topErrors = aiUsage.topErrors || [];
@@ -4752,6 +4873,7 @@ async function renderAvatarJobs(force) {
       ${metric('可能卡住', numberText(stuck.length), '处理中超过 5 分钟未更新', '用于排查进度条停在中间或 provider 状态没有刷新。')}
       ${metric('调用轨迹', numberText(usageSummary.providerTraceEntries), `${numberText(usageSummary.providerTraceJobs)} 个任务有记录`, '新任务会记录供应商 submit/status/action 调用摘要、耗时、成本快照和错误。')}
       ${metric('待处理反馈', numberText(feedbackSummary.received), `${numberText(feedbackSummary.reviewed)} 条已处理`, '用户在 AI 灵伴结果页提交的不满意反馈。')}
+      ${metric('样本池', numberText(sampleSummary.open || 0), `${numberText(sampleSummary.all || 0)} 条总样本`, '运营把反馈、异常调用和素材问题沉淀成样本，用于提示词优化和供应商复盘。')}
       ${metric('上传素材', numberText(mediaSummary.totalMedia), `${numberText(mediaSummary.linked)} 张已发起生成`, '移动端上传到 /media/uploads 的宠物原图素材。')}
       ${metric('素材风险', numberText((mediaSummary.warning || 0) + (mediaSummary.blocked || 0)), `${numberText(mediaSummary.blocked)} 张不可生成`, 'warning/blocked 来自上传时的照片质量分析。')}
     </div>
@@ -4776,10 +4898,56 @@ async function renderAvatarJobs(force) {
             <button class="small-button" data-action="avatar-refresh" data-id="${escapeHtml(job.id)}">刷新</button>
             <button class="small-button" data-action="avatar-retry" data-id="${escapeHtml(job.id)}">重试</button>
             <button class="small-button" data-action="avatar-refund" data-id="${escapeHtml(job.id)}">返还</button>
+            <button class="small-button" data-action="avatar-sample-add" data-id="${escapeHtml(job.id)}" data-sample-type="prompt_quality" data-sample-type-label="提示词优化样本" data-default-note="${escapeHtml(job.feedback?.reasonLabel || job.lastStatusError || '记录为提示词优化样本')}" data-default-tags="提示词,${escapeHtml(job.provider || 'AI')}">提示词样本</button>
+            <button class="small-button" data-action="avatar-sample-add" data-id="${escapeHtml(job.id)}" data-sample-type="provider_anomaly" data-sample-type-label="供应商异常样本" data-default-note="${escapeHtml(job.errorCode || job.providerStatus || job.lastStatusError || '记录为供应商异常样本')}" data-default-tags="供应商,${escapeHtml(job.provider || 'AI')}">供应商样本</button>
             <button class="small-button danger" data-action="avatar-fail" data-id="${escapeHtml(job.id)}">失败</button>
           </div>
         `],
       ], '暂无 AI 形象任务')}
+    </div>
+
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>AI 样本池</h2>
+          <div class="section-sub">提示词优化、供应商异常和素材质量样本沉淀</div>
+        </div>
+        ${help('样本池不会自动改 prompt 或重跑任务；它用于把真实反馈和异常任务沉淀为运营复盘证据，后续再进入配置中心的提示词版本管理。')}
+      </div>
+      <div class="toolbar moderation-toolbar ai-toolbar">
+        <div class="toolbar-left">
+          <label>状态
+            <select id="aiSampleStatus">
+              ${option('open', '待复盘', state.aiSampleStatus)}
+              ${option('reviewed', '已复核', state.aiSampleStatus)}
+              ${option('ignored', '已忽略', state.aiSampleStatus)}
+              ${option('all', '全部', state.aiSampleStatus)}
+            </select>
+          </label>
+          <label>类型
+            <select id="aiSampleType">
+              ${option('all', '全部', state.aiSampleType)}
+              ${option('prompt_quality', '提示词优化', state.aiSampleType)}
+              ${option('provider_anomaly', '供应商异常', state.aiSampleType)}
+              ${option('material_quality', '素材质量', state.aiSampleType)}
+            </select>
+          </label>
+          <label>搜索<input id="aiSampleQ" placeholder="手机号、宠物、任务ID、供应商、反馈内容" value="${escapeHtml(state.aiSampleQ)}" /></label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="avatar-sample-filter">筛选</button>
+          <button class="small-button ghost" data-action="avatar-sample-clear">清空</button>
+        </div>
+      </div>
+      ${tableHtml(sampleRows, [
+        ['样本', avatarSampleCell],
+        ['用户 / 宠物', (row) => `<div>${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.ownerPhone)} · ${escapeHtml(row.petName || '-')}</div>`],
+        ['任务', (row) => `<div>${statusPill(row.jobStatus || '-')}</div><div class="cell-sub">${escapeHtml(row.jobId || '-')}</div><div class="cell-sub">${escapeHtml(row.provider || '-')} · ${escapeHtml(row.providerStatus || '-')}</div>`],
+        ['证据', avatarSampleEvidenceCell],
+        ['状态', (row) => `${avatarSampleStatusPill(row)}<div class="cell-sub">${row.reviewedAt ? formatTime(row.reviewedAt) : '等待运营复盘'}</div>`],
+        ['时间', (row) => `<div>创建：${formatTime(row.createdAt)}</div><div class="cell-sub">更新：${formatTime(row.updatedAt)}</div>`],
+        ['操作', avatarSampleAction],
+      ], '暂无 AI 样本')}
     </div>
 
     <div class="grid two">
