@@ -69,13 +69,16 @@ async function waitForBackend() {
 
 async function startFakeProvider() {
   const imageBuffer = Buffer.from(tinyPngBase64, 'base64');
+  let submitCount = 0;
   providerServer = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/v1/images/generations') {
+      submitCount += 1;
+      const taskId = `sample-task-${submitCount}`;
       req.resume();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         code: 200,
-        data: [{ status: 'submitted', task_id: 'sample-task-1' }],
+        data: [{ status: 'submitted', task_id: taskId }],
       }));
       return;
     }
@@ -92,6 +95,15 @@ async function startFakeProvider() {
           status: 'completed',
           task_id: 'sample-task-1',
         },
+      }));
+      return;
+    }
+    if (req.method === 'GET' && req.url === '/v1/tasks/sample-task-2') {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        code: 500,
+        data: { status: 'failed', task_id: 'sample-task-2' },
+        message: 'upstream status failed for smoke',
       }));
       return;
     }
@@ -220,6 +232,17 @@ async function waitForReadyJob(jobId, token) {
   throw new Error(`avatar job did not become ready: ${JSON.stringify(latest?.data || {})}`);
 }
 
+async function waitForProviderJobId(jobId, token) {
+  const deadline = Date.now() + 10_000;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await request(`/ai/pet-avatar/jobs/${encodeURIComponent(jobId)}`, { token });
+    if (latest.data?.providerJobId) return latest.data;
+    await delay(250);
+  }
+  throw new Error(`avatar job did not get provider job id: ${JSON.stringify(latest?.data || {})}`);
+}
+
 async function main() {
   await startFakeProvider();
   const port = await getFreePort();
@@ -255,6 +278,13 @@ async function main() {
       token: userToken,
     });
 
+    const autoPromptSamples = await request('/admin/ai/avatar-samples?status=open&type=prompt_quality', { token: adminToken });
+    assert.equal(autoPromptSamples.data.items.length, 1);
+    assert.equal(autoPromptSamples.data.items[0].jobId, readyJob.id);
+    assert.equal(autoPromptSamples.data.items[0].autoCreated, true);
+    assert.equal(autoPromptSamples.data.items[0].autoReason, '用户生成反馈自动入池');
+    assert.equal(autoPromptSamples.data.items[0].source, 'avatar_feedback');
+
     const promptSample = await request(`/admin/ai/avatar-jobs/${encodeURIComponent(readyJob.id)}/samples`, {
       body: {
         note: '身份保真失败，进入提示词优化样本',
@@ -267,10 +297,12 @@ async function main() {
     });
     assert.equal(promptSample.data.type, 'prompt_quality');
     assert.equal(promptSample.data.status, 'open');
+    assert.equal(promptSample.data.id, autoPromptSamples.data.items[0].id);
     assert.equal(promptSample.data.jobId, readyJob.id);
     assert.equal(promptSample.data.ownerPhone, TEST_PHONE);
     assert.equal(promptSample.data.feedbackReason, 'not_same_pet');
     assert.ok(promptSample.data.providerTraceCount >= 2);
+    assert.equal(promptSample.data.autoCreated, true);
     assert.equal(JSON.stringify(promptSample.data.providerTrace).includes(tinyPngBase64), false, 'sample trace leaked base64 image data');
 
     const providerSample = await request(`/admin/ai/avatar-jobs/${encodeURIComponent(readyJob.id)}/samples`, {
@@ -307,12 +339,29 @@ async function main() {
     assert.equal(reviewedSamples.data.items.length, 1);
     assert.equal(reviewedSamples.data.items[0].id, promptSample.data.id);
 
+    const failingStarted = await request('/ai/pet-avatar/jobs', {
+      body: { mediaId: upload.data.mediaId },
+      method: 'POST',
+      token: userToken,
+    });
+    await waitForProviderJobId(failingStarted.data.id, userToken);
+    for (let index = 0; index < 3; index += 1) {
+      await request(`/ai/pet-avatar/jobs/${encodeURIComponent(failingStarted.data.id)}`, { token: userToken });
+    }
+    const providerAutoSamples = await request('/admin/ai/avatar-samples?status=open&type=provider_anomaly', { token: adminToken });
+    const providerAutoSample = providerAutoSamples.data.items.find((item) => item.jobId === failingStarted.data.id);
+    assert.ok(providerAutoSample, 'missing auto provider anomaly sample');
+    assert.equal(providerAutoSample.autoCreated, true);
+    assert.equal(providerAutoSample.autoReason, '供应商状态刷新异常自动入池');
+    assert.ok(Number(providerAutoSample.autoSignalCount || 0) >= 1);
+
     const catalog = await request('/admin/exports', { token: adminToken });
-    assert.equal(catalog.data.some((dataset) => dataset.type === 'ai_avatar_samples' && dataset.totalRows >= 2), true);
+    assert.equal(catalog.data.some((dataset) => dataset.type === 'ai_avatar_samples' && dataset.totalRows >= 3), true);
 
     const audit = await request('/admin/audit-logs?targetType=ai_avatar_sample&limit=20', { token: adminToken });
     const actions = audit.data.items.map((item) => item.action);
     assert.equal(actions.includes('ai.avatar.sample.create'), true);
+    assert.equal(actions.includes('ai.avatar.sample.update'), true);
     assert.equal(actions.includes('ai.avatar.sample.review'), true);
 
     console.log('AI avatar samples smoke passed');

@@ -3348,6 +3348,9 @@ function adminExportDataset(type) {
         exportColumn('sourceLabel', '来源'),
         exportColumn('note', '样本说明'),
         exportColumn('tags', '标签', (row) => exportJoin(row.tags || [])),
+        exportColumn('autoCreated', '自动入池', (row) => exportBoolText(row.autoCreated)),
+        exportColumn('autoReason', '自动入池原因'),
+        exportColumn('autoSignalCount', '自动信号次数'),
         exportColumn('jobId', '任务ID'),
         exportColumn('jobStatus', '任务状态'),
         exportColumn('ownerPhone', '手机号'),
@@ -10940,6 +10943,16 @@ function markAvatarRefreshFailure(job, error) {
     job.providerStatus = job.providerStatus || 'status_retrying';
   }
   touchAvatarJob(job);
+  if (job.status === 'failed' || Number(job.statusErrorCount || 0) >= 3) {
+    autoCreateAiAvatarSample(job, 'provider_anomaly', {
+      note: job.status === 'failed'
+        ? `供应商状态刷新失败并进入失败态：${job.errorMessage || message}`
+        : `供应商状态刷新连续失败 ${Number(job.statusErrorCount || 0)} 次：${message}`,
+      reason: '供应商状态刷新异常自动入池',
+      source: 'provider_trace',
+      tags: ['自动入池', '供应商异常', job.provider || 'provider', job.errorCode || 'status_refresh_error'],
+    });
+  }
   return job;
 }
 
@@ -10991,6 +11004,12 @@ async function startAvatarGenerationJobInBackground(reqSnapshot, user, job, medi
       jobId: job.id,
       message: job.errorMessage,
       provider: job.provider,
+    });
+    autoCreateAiAvatarSample(job, 'provider_anomaly', {
+      note: `供应商提交失败：${job.errorMessage}`,
+      reason: '供应商提交失败自动入池',
+      source: 'provider_trace',
+      tags: ['自动入池', '供应商提交失败', job.provider || 'provider', job.errorCode || 'submit_failed'],
     });
   } finally {
     saveState();
@@ -19299,6 +19318,10 @@ function createAiAvatarSample(admin, jobId, body = {}, req = null) {
   const context = aiAvatarSampleJobContext(job, req);
   const sample = {
     ...(existing || {}),
+    autoCreated: Boolean(existing?.autoCreated || body.autoCreated),
+    autoCreatedAt: existing?.autoCreatedAt || (body.autoCreated ? now : ''),
+    autoReason: String(body.autoReason || existing?.autoReason || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+    autoSignalCount: Math.max(0, Number(existing?.autoSignalCount || 0)) + (body.autoCreated ? 1 : 0),
     createdAt: existing?.createdAt || now,
     createdBy: existing?.createdBy || admin?.username || ADMIN_USERNAME,
     errorCode: context.errorCode || '',
@@ -19331,6 +19354,27 @@ function createAiAvatarSample(admin, jobId, body = {}, req = null) {
   const item = aiAvatarSampleItem(sample, req);
   writeAdminAudit(admin, existing ? 'ai.avatar.sample.update' : 'ai.avatar.sample.create', 'ai_avatar_sample', id, before, item, adminReason(body, existing ? '更新 AI 样本' : '加入 AI 样本池'));
   return { item };
+}
+
+function autoCreateAiAvatarSample(job, typeInput, options = {}) {
+  if (!job?.id || !state.avatarJobs?.[job.id]) return null;
+  const type = normalizeAiAvatarSampleType(typeInput);
+  const source = options.source || (type === 'provider_anomaly' ? 'provider_trace' : type === 'material_quality' ? 'media_quality' : 'avatar_feedback');
+  const reason = String(options.reason || 'AI 样本自动入池').replace(/\s+/g, ' ').trim();
+  const tags = aiAvatarSampleTags(options.tags || []);
+  const result = createAiAvatarSample({
+    role: 'system',
+    username: 'system:ai-avatar-sampler',
+  }, job.id, {
+    autoCreated: true,
+    autoReason: reason,
+    note: options.note || aiAvatarSampleDefaultNote(type, job),
+    reason,
+    source,
+    tags: tags.length ? tags : ['自动入池', aiAvatarSampleTypeLabel(type)],
+    type,
+  }, options.req || null);
+  return result.item || null;
 }
 
 function reviewAiAvatarSample(admin, sampleId, body = {}, req = null) {
@@ -25327,6 +25371,12 @@ async function handle(req, res) {
       status: 'received',
     };
     touchAvatarJob(job);
+    autoCreateAiAvatarSample(job, 'prompt_quality', {
+      note: `移动端反馈：${avatarFeedbackReasonLabel(reason)}${content ? ` · ${content}` : ''}`,
+      reason: '用户生成反馈自动入池',
+      source: 'avatar_feedback',
+      tags: ['自动入池', '移动端反馈', avatarFeedbackReasonLabel(reason)],
+    });
     saveState();
     ok(res, job);
     return;

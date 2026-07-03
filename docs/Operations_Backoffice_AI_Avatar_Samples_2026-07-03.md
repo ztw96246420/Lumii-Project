@@ -12,12 +12,16 @@
 - 任务行新增：
   - `提示词样本`：通常用于“不像同一只宠物”、毛色/脸型/表情偏差、风格不满意等反馈。
   - `供应商样本`：通常用于生成失败、卡住、上游状态异常、成本异常或 trace 异常。
+- 自动入池：
+  - 移动端提交 AI 灵伴生成反馈后，系统自动创建或更新一条 `prompt_quality` 待复盘样本。
+  - 供应商提交失败、状态查询连续异常或任务进入超时失败态时，系统自动创建或更新一条 `provider_anomaly` 待复盘样本。
 - 样本池支持：
   - 类型筛选：全部、提示词优化、供应商异常、素材质量。
   - 状态筛选：待复盘、已复核、已忽略、全部。
   - 关键词搜索：手机号、宠物名、任务 ID、供应商、反馈内容、标签。
   - 复核完成 / 忽略。
 - 数据导出新增 `ai_avatar_samples`。
+- 导出字段包含 `autoCreated`、`autoReason` 和 `autoSignalCount`，便于区分系统自动捞出的样本和人工沉淀样本。
 - 系统健康 collections 新增 `aiAvatarSamples` 行数。
 - 清理用户业务数据时，同步清理该用户关联的 AI 样本。
 
@@ -42,6 +46,7 @@
 - 供应商：`provider`、`providerJobId`、`providerStatus`、`providerTraceCount`、`providerCost`。
 - 反馈：`feedbackReason`、`feedbackReasonLabel`、`feedbackContent`。
 - 运营：`type`、`status`、`note`、`tags`、`reviewNote`、`createdBy`、`reviewedBy`。
+- 自动沉淀：`autoCreated`、`autoCreatedAt`、`autoReason`、`autoSignalCount`。
 
 不会保存或导出：
 
@@ -61,7 +66,7 @@
 
 - Prompt 多版本实验：把样本绑定到 prompt version、实验批次和对照结果。
 - 供应商工单闭环：把 provider anomaly 样本导出或汇总为供应商问题单。
-- 自动抽样：按失败码、低满意反馈、成本异常自动生成待复盘样本。
+- 自动抽样增强：按成本异常、背景异常、视频边缘异常、重复失败码和低满意反馈聚合生成批量复盘队列。
 - 样本结论标签：身份不一致、背景不融合、透明通道异常、视频边缘异常、素材过暗、多宠入镜等细分标签。
 
 ## 验证

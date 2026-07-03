@@ -4699,6 +4699,7 @@ function avatarSampleCell(row) {
       <div>
         <div class="cell-title">${avatarSampleTypePill(row)}</div>
         <div class="cell-sub clamp">${escapeHtml(row.note || '暂无样本说明')}</div>
+        ${row.autoCreated ? `<div class="cell-sub">${tonePill('自动入池', 'warn')} ${numberText(row.autoSignalCount || 1)} 次信号</div>` : ''}
         <div class="cell-sub">${(row.tags || []).slice(0, 4).map((tag) => `#${escapeHtml(tag)}`).join(' ')}</div>
       </div>
     </div>
