@@ -51,6 +51,7 @@ const state = {
   petSpecies: 'all',
   reportMessageContexts: {},
   socialEvidenceDetail: null,
+  socialRelationContexts: {},
   socialRelationKind: 'all',
   socialRelationQ: '',
   socialRelationStatus: 'all',
@@ -495,6 +496,7 @@ async function onContentClick(event) {
       state.socialRelationStatus = $('socialRelationStatus').value;
       state.socialRelationQ = $('socialRelationQ').value.trim();
       state.cache = { ...state.cache, socialRelations: null };
+      state.socialRelationContexts = {};
       await render(true);
       return;
     }
@@ -503,7 +505,16 @@ async function onContentClick(event) {
       state.socialRelationStatus = 'all';
       state.socialRelationQ = '';
       state.cache = { ...state.cache, socialRelations: null };
+      state.socialRelationContexts = {};
       await render(true);
+      return;
+    }
+    if (action === 'social-relation-context') {
+      await loadSocialRelationContext(button);
+      return;
+    }
+    if (action === 'social-relation-message-hide') {
+      await hideSocialRelationMessage(button);
       return;
     }
     if (action === 'feedback-filter') {
@@ -3883,9 +3894,116 @@ function socialRelationRisk(row) {
   if (row.blocked) risks.push(statusPill('已拉黑'));
   if (row.notificationCount) risks.push(statusPill(`${row.notificationCount} 通知`));
   if (row.messageCount) risks.push(statusPill(`${row.messageCount} 消息`));
-  if (row.kind === 'conversation') risks.push(statusPill('正文受限'));
+  if (row.kind === 'conversation') risks.push(statusPill('可审计查看'));
   const reason = row.blockReasonLabel ? `<div class="cell-sub">原因：${escapeHtml(row.blockReasonLabel)}${row.blockReasonDetail ? ` · ${escapeHtml(row.blockReasonDetail)}` : ''}</div>` : '';
   return `${risks.join(' ') || '<span class="muted">无明显风险</span>'}${reason}`;
+}
+
+function renderSocialRelationActions(row) {
+  if (!row.conversationId || !row.messageCount) return '<span class="muted">无会话</span>';
+  return `<div class="actions relationship-actions"><button class="small-button" data-action="social-relation-context" data-id="${escapeHtml(row.id)}">上下文</button></div>`;
+}
+
+function socialRelationContextMessageActions(message) {
+  if (!message.canHide) return '';
+  return `
+    <button class="small-button danger"
+      data-action="social-relation-message-hide"
+      data-message-id="${escapeHtml(message.id)}"
+      data-context-id="${escapeHtml(message.relationId || '')}"
+      data-phone="${escapeHtml(message.ownerPhone || '')}"
+      data-conversation-id="${escapeHtml(message.conversationId || '')}">
+      隐藏
+    </button>
+  `;
+}
+
+function socialRelationMessageStatusLabel(status) {
+  const labels = {
+    deleted: '已删除',
+    hidden: '已隐藏',
+    sent: '已发送',
+    system: '系统',
+  };
+  return labels[status] || status;
+}
+
+function renderSocialRelationContext(row) {
+  const context = state.socialRelationContexts?.[row.id];
+  if (!context) return row.messageCount ? '<div class="report-message-placeholder">需填写原因后查看最近消息窗口</div>' : '';
+  const messages = (context.messages || []).map((message) => {
+    const enriched = { ...message, relationId: row.id };
+    return `
+      <div class="report-message-row ${message.status === 'hidden' || message.status === 'deleted' ? 'target' : ''}">
+        <div class="report-message-meta">
+          <strong>${escapeHtml(message.authorLabel || message.author || '-')}</strong>
+          <span>${escapeHtml(message.authorName || '-')} ${message.authorPhone ? shortPhone(message.authorPhone) : ''}</span>
+          <span>${formatTime(message.time)}</span>
+          ${message.status ? statusPill(socialRelationMessageStatusLabel(message.status)) : ''}
+          ${socialRelationContextMessageActions(enriched)}
+        </div>
+        <div class="report-message-text">${escapeHtml(message.text || '无正文内容')}</div>
+      </div>
+    `;
+  }).join('');
+  return `
+    <div class="report-message-context relationship-message-context">
+      <div class="report-message-context-head">
+        <strong>最近消息窗口</strong>
+        <span>${numberText(context.messageCount || 0)} / ${numberText(context.totalMessages || 0)} 条 · ${formatTime(context.viewedAt)}</span>
+      </div>
+      <div class="cell-sub">查看原因：${escapeHtml(context.reason || '-')}</div>
+      ${messages || '<div class="cell-sub">暂无消息</div>'}
+    </div>
+  `;
+}
+
+function socialRelationSummary(row) {
+  return `
+    <div class="cell-title">${escapeHtml(row.summary || '-')}</div>
+    <div class="cell-sub clamp">${escapeHtml(row.postId || row.placeId || row.conversationId || row.id)}</div>
+    ${renderSocialRelationContext(row)}
+  `;
+}
+
+async function loadSocialRelationContext(button) {
+  const id = button.dataset.id;
+  const reason = window.prompt('查看私信上下文需要填写原因，此操作会写入审计日志。', '关系消息排查，核对最近消息窗口');
+  if (reason === null) return;
+  const cleanReason = reason.trim();
+  if (!cleanReason) {
+    showToast('请填写查看原因');
+    return;
+  }
+  const context = await post(`/admin/social-relations/${encodeURIComponent(id)}/message-context`, { reason: cleanReason });
+  state.socialRelationContexts = { ...state.socialRelationContexts, [id]: context };
+  state.cache.audit = null;
+  showToast('已加载会话上下文');
+  await render(false);
+}
+
+async function hideSocialRelationMessage(button) {
+  const messageId = button.dataset.messageId || '';
+  const contextId = button.dataset.contextId || '';
+  const phone = button.dataset.phone || '';
+  const conversationId = button.dataset.conversationId || '';
+  const reason = window.prompt('隐藏这条私信消息？隐藏后双方移动端会话都不再展示，并写入审计。', '关系消息页隐藏违规私信');
+  if (reason === null) return;
+  const cleanReason = reason.trim();
+  if (!cleanReason) {
+    showToast('请填写隐藏原因');
+    return;
+  }
+  if (!window.confirm('确认隐藏这条私信消息？该操作会同步影响双方移动端会话。')) return;
+  await post(`/admin/social-relations/messages/${encodeURIComponent(messageId)}/hide`, {
+    conversationId,
+    phone,
+    reason: cleanReason,
+  });
+  state.cache = { ...state.cache, audit: null, reports: null, socialRelations: null };
+  if (contextId) delete state.socialRelationContexts[contextId];
+  showToast('私信消息已隐藏');
+  await render(true);
 }
 
 async function renderSocialRelations(force) {
@@ -3911,9 +4029,9 @@ async function renderSocialRelations(force) {
       <div class="section-head">
         <div>
           <h2>关系消息记录</h2>
-          <div class="section-sub">招呼、约遛、会话、拉黑和通知链路的只读排查视角</div>
+          <div class="section-sub">招呼、约遛、会话、拉黑和通知链路；会话支持带原因查看最近消息窗口</div>
         </div>
-        ${help('默认只展示会话摘要、状态、通知和拉黑信息，不展示完整私信正文。后续若开放正文查看，需要原因、权限和审计。')}
+        ${help('默认只展示摘要；点击上下文需要填写原因并写审计。这里不是任意全文检索，只能从已有关系会话查看最近消息窗口。违规消息可隐藏，隐藏后双方移动端不再展示。')}
       </div>
       <div class="toolbar moderation-toolbar relationship-toolbar">
         <div class="toolbar-left">
@@ -3946,8 +4064,9 @@ async function renderSocialRelations(force) {
         ['类型', (r) => `<div>${statusPill(r.typeLabel)}</div><div class="cell-sub">${escapeHtml(r.sourceLabel || '-')}</div>`],
         ['双方', (r) => socialRelationPair(r)],
         ['状态', (r) => `${statusPill(r.statusLabel || r.status)}<div class="cell-sub">${formatTime(r.updatedAt || r.createdAt)}</div>`],
-        ['摘要', (r) => `<div class="cell-title">${escapeHtml(r.summary || '-')}</div><div class="cell-sub clamp">${escapeHtml(r.postId || r.placeId || r.conversationId || r.id)}</div>`],
+        ['摘要', socialRelationSummary],
         ['通知 / 风险', (r) => socialRelationRisk(r)],
+        ['操作', renderSocialRelationActions],
       ], '暂无关系消息记录')}
     </div>
     <div class="grid two">
@@ -3962,7 +4081,7 @@ async function renderSocialRelations(force) {
         <div class="gap-list">
           <div><strong>招呼</strong><span>pending 表示等待接收方处理；accepted 后双方可查看完整宠友圈并发消息。</span></div>
           <div><strong>约遛</strong><span>接收方从约遛会话回复时，会把待处理约遛转为 accepted，避免死循环。</span></div>
-          <div><strong>会话</strong><span>默认只显示摘要，不开放完整正文，降低隐私风险。</span></div>
+          <div><strong>会话</strong><span>默认只显示摘要；需要原因后才可查看最近消息窗口，所有查看都会进审计。</span></div>
         </div>
       </div>
       <div class="card">

@@ -12908,9 +12908,14 @@ function conversationMessageModerationStatus(message = {}) {
   return message.status || 'sent';
 }
 
+function isConversationMessagePubliclyVisible(message = {}) {
+  if (!message) return false;
+  return !(message.deletedAt || message.adminHiddenAt || message.status === 'deleted' || message.status === 'hidden');
+}
+
 function isConversationMessageVisibleFor(user, message = {}) {
   if (!message || message.author === 'system') return Boolean(message);
-  if (message.deletedAt || message.adminHiddenAt || message.status === 'deleted' || message.status === 'hidden') return false;
+  if (!isConversationMessagePubliclyVisible(message)) return false;
   return !socialReportFor(user, 'message', message.id);
 }
 
@@ -12947,6 +12952,40 @@ function findConversationMessageMirror(record, otherPhone) {
     );
   }
   return index >= 0 ? { conversationId: mirrorConversationId, index, list, message: list[index], phone: otherPhone } : null;
+}
+
+function refreshConversationSummaryForRecord(record) {
+  if (!record?.phone || !record.conversationId) return;
+  const conversations = state.conversations?.[record.phone] || [];
+  const conversation = conversations.find((item) => item?.id === record.conversationId);
+  if (!conversation) return;
+  const messages = getConversationMessages(record.phone, record.conversationId);
+  const latest = [...messages].reverse().find(isConversationMessagePubliclyVisible);
+  conversation.lastMessage = latest?.text || '暂无消息摘要';
+  conversation.updatedAt = latest?.time || latest?.createdAt || conversation.updatedAt || new Date().toISOString();
+  if (!latest) conversation.unread = 0;
+}
+
+function hideConversationMessageRecords(admin, records, action, reason, now = new Date().toISOString()) {
+  const affected = records.filter(Boolean);
+  const before = affected.map((record) => ({
+    conversationId: record.conversationId,
+    message: { ...record.message },
+    phone: record.phone,
+  }));
+  affected.forEach((record) => {
+    record.message.adminHiddenAt = now;
+    record.message.adminHiddenBy = admin?.username || 'admin';
+    record.message.adminModerationReason = reason;
+    if (action === 'delete') {
+      record.message.deletedAt = now;
+      record.message.status = 'deleted';
+    } else {
+      record.message.status = 'hidden';
+    }
+    refreshConversationSummaryForRecord(record);
+  });
+  return { affected, before };
 }
 
 function findConversationMessageReportTarget(report = {}) {
@@ -12990,23 +13029,7 @@ function reportConversationMessage(conversationId, messageId, user, body = {}) {
 function moderateReportedConversationMessage(admin, report, action, reason, now = new Date().toISOString()) {
   const found = findConversationMessageReportTarget(report);
   if (!found.record?.message) return { error: '被举报私信不存在', statusCode: 404 };
-  const records = [found.record, found.ownerRecord].filter(Boolean);
-  const before = records.map((record) => ({
-    conversationId: record.conversationId,
-    message: { ...record.message },
-    phone: record.phone,
-  }));
-  records.forEach((record) => {
-    record.message.adminHiddenAt = now;
-    record.message.adminHiddenBy = admin?.username || 'admin';
-    record.message.adminModerationReason = reason;
-    if (action === 'delete') {
-      record.message.deletedAt = now;
-      record.message.status = 'deleted';
-    } else {
-      record.message.status = 'hidden';
-    }
-  });
+  const { affected: records, before } = hideConversationMessageRecords(admin, [found.record, found.ownerRecord], action, reason, now);
   writeAdminAudit(admin, `moderation.message.${action}`, 'conversation_message', report.targetId, before, records.map((record) => ({
     conversationId: record.conversationId,
     message: record.message,
@@ -15780,6 +15803,96 @@ function adminConversationMessageCount(phone, conversationId) {
   return Array.isArray(messages) ? messages.length : 0;
 }
 
+function adminSocialRelationById(relationId) {
+  const id = String(relationId || '');
+  if (!id) return null;
+  return adminSocialRelations({ limit: ADMIN_EXPORT_ROW_LIMIT }).items.find((item) => item.id === id) || null;
+}
+
+function adminRelationMessageRow(row, message) {
+  const authorRole = message.author === 'system' ? 'system' : message.author === 'me' ? 'from_user' : 'target_user';
+  const authorPhone = authorRole === 'from_user' ? row.fromPhone : authorRole === 'target_user' ? row.targetPhone : '';
+  const authorUser = authorPhone ? state.users?.[authorPhone] : null;
+  return {
+    adminHiddenAt: message.adminHiddenAt || '',
+    author: message.author || '',
+    authorLabel: authorRole === 'system' ? '系统' : authorRole === 'from_user' ? '发起方' : '接收方',
+    authorName: authorRole === 'system' ? '系统' : authorUser?.ownerName || (authorPhone ? `用户${authorPhone.slice(-4)}` : '-'),
+    authorPhone,
+    canHide: authorRole !== 'system' && isConversationMessagePubliclyVisible(message),
+    conversationId: row.conversationId || '',
+    deletedAt: message.deletedAt || '',
+    id: message.id,
+    ownerPhone: row.fromPhone,
+    status: conversationMessageModerationStatus(message),
+    text: message.text || '',
+    threadMessageId: message.threadMessageId || '',
+    time: message.time || message.createdAt || '',
+  };
+}
+
+function adminSocialRelationMessageContext(admin, relationId, body = {}) {
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '查看私信上下文必须填写原因', statusCode: 400 };
+  const row = adminSocialRelationById(relationId);
+  if (!row) return { error: '关系消息记录不存在', statusCode: 404 };
+  if (!row.conversationId || !row.fromPhone || !row.targetPhone) return { error: '这条记录没有可查看的会话', statusCode: 400 };
+  const messages = getConversationMessages(row.fromPhone, row.conversationId);
+  if (!messages.length) return { error: '这条会话暂无消息可查看', statusCode: 404 };
+  const windowSize = Math.floor(clampNumber(body.limit, 20, 5, 50));
+  const contextMessages = messages.slice(-windowSize).map((message) => adminRelationMessageRow(row, message));
+  const context = {
+    conversationId: row.conversationId,
+    fromName: row.fromName,
+    fromPhone: row.fromPhone,
+    messageCount: contextMessages.length,
+    reason,
+    relationId: row.id,
+    targetName: row.targetName,
+    targetPhone: row.targetPhone,
+    totalMessages: messages.length,
+    viewedAt: new Date().toISOString(),
+    messages: contextMessages,
+  };
+  writeAdminAudit(admin, 'social.relation.message_context.view', 'conversation', row.conversationId, null, {
+    conversationId: row.conversationId,
+    fromPhone: row.fromPhone,
+    messageCount: contextMessages.length,
+    reason,
+    relationId: row.id,
+    targetPhone: row.targetPhone,
+    totalMessages: messages.length,
+  }, reason);
+  return { context };
+}
+
+function adminHideRelationConversationMessage(admin, messageId, body = {}) {
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '隐藏私信消息必须填写原因', statusCode: 400 };
+  const phone = normalizePhone(body.phone || body.ownerPhone || '');
+  const conversationId = String(body.conversationId || '').trim();
+  if (!phone || !conversationId) return { error: '缺少会话定位信息，请刷新后重试', statusCode: 400 };
+  const record = findConversationMessageRecord(phone, conversationId, messageId);
+  if (!record?.message) return { error: '私信消息不存在', statusCode: 404 };
+  if (record.message.author === 'system') return { error: '系统消息不能隐藏', statusCode: 400 };
+  if (!isConversationMessagePubliclyVisible(record.message)) return { error: '这条私信消息已不可见', statusCode: 400 };
+  const otherPhone = conversationTargetPhone(record.conversationId);
+  const mirror = findConversationMessageMirror(record, otherPhone);
+  const { affected, before } = hideConversationMessageRecords(admin, [record, mirror], 'hide', reason);
+  writeAdminAudit(admin, 'social.relation.message.hide', 'conversation_message', messageId, before, affected.map((item) => ({
+    conversationId: item.conversationId,
+    message: item.message,
+    phone: item.phone,
+  })), reason);
+  return {
+    affectedCount: affected.length,
+    conversationId: record.conversationId,
+    message: record.message,
+    messageId,
+    phone: record.phone,
+  };
+}
+
 function adminSocialRelations(options = {}) {
   const kindFilter = String(options.kind || 'all');
   const statusFilter = String(options.status || 'all');
@@ -16345,6 +16458,8 @@ function adminPermissionCatalog() {
     ['moderation.process', '处理内容安全任务', '内容安全'],
     ['moderation.sample_review', '复审内容安全命中与抽样样本', '内容安全'],
     ['social.report.process', '处理举报', '社区安全'],
+    ['message.view_content', '带原因查看私信上下文', '社区安全'],
+    ['message.moderate', '隐藏违规私信消息', '社区安全'],
     ['user.sanction', '创建或撤销处罚', '社区安全'],
     ['sanction.appeal.process', '处理账号/举报申诉', '社区安全'],
     ['place.moderate', '审核地点点评和新增地点', '地点'],
@@ -22058,6 +22173,29 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       q: url.searchParams.get('q') || '',
       status: url.searchParams.get('status') || 'all',
     }));
+    return true;
+  }
+
+  const adminSocialRelationContextMatch = pathname.match(/^\/admin\/social-relations\/([^/]+)\/message-context$/);
+  if (req.method === 'POST' && adminSocialRelationContextMatch) {
+    const result = adminSocialRelationMessageContext(admin, decodeURIComponent(adminSocialRelationContextMatch[1]), body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SOCIAL_RELATION_CONTEXT_INVALID');
+      return true;
+    }
+    ok(res, result.context);
+    return true;
+  }
+
+  const adminSocialRelationMessageHideMatch = pathname.match(/^\/admin\/social-relations\/messages\/([^/]+)\/hide$/);
+  if (req.method === 'POST' && adminSocialRelationMessageHideMatch) {
+    const result = adminHideRelationConversationMessage(admin, decodeURIComponent(adminSocialRelationMessageHideMatch[1]), body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SOCIAL_RELATION_MESSAGE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

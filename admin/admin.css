@@ -1194,13 +1194,19 @@ th {
 }
 
 .pet-calendar-actions,
-.pet-profile-actions {
+.pet-profile-actions,
+.relationship-actions {
   min-width: 86px;
 }
 
 .pet-calendar-actions .small-button,
-.pet-profile-actions .small-button {
+.pet-profile-actions .small-button,
+.relationship-actions .small-button {
   white-space: nowrap;
+}
+
+.relationship-message-context {
+  max-width: 560px;
 }
 
 .ticket-card {
