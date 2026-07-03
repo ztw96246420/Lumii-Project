@@ -666,6 +666,7 @@ function createInitialState() {
   return {
     adminAuditLogs: [],
     adminExportApprovals: [],
+    adminSanctionApprovals: [],
     launchReadinessQuestionOverrides: {},
     opsConfigApprovals: [],
     adminLoginSecurity: {
@@ -4253,6 +4254,7 @@ function loadState() {
       },
       adminAuditLogs: Array.isArray(loadedState.adminAuditLogs) ? loadedState.adminAuditLogs : initialState.adminAuditLogs,
       adminExportApprovals: Array.isArray(loadedState.adminExportApprovals) ? loadedState.adminExportApprovals : initialState.adminExportApprovals,
+      adminSanctionApprovals: Array.isArray(loadedState.adminSanctionApprovals) ? loadedState.adminSanctionApprovals : initialState.adminSanctionApprovals,
       launchReadinessQuestionOverrides: loadedState.launchReadinessQuestionOverrides && typeof loadedState.launchReadinessQuestionOverrides === 'object' && !Array.isArray(loadedState.launchReadinessQuestionOverrides) ? loadedState.launchReadinessQuestionOverrides : initialState.launchReadinessQuestionOverrides,
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
@@ -6150,9 +6152,26 @@ function ensureSanctionAppeals() {
   return state.sanctionAppeals;
 }
 
+function ensureSanctionApprovals() {
+  if (!Array.isArray(state.adminSanctionApprovals)) state.adminSanctionApprovals = [];
+  return state.adminSanctionApprovals;
+}
+
 function normalizeSanctionType(value) {
   const type = String(value || '').trim();
   return SANCTION_TYPES.has(type) ? type : '';
+}
+
+function sanctionRequiresApproval(type, durationHours) {
+  return type === 'ban' && Number(durationHours || 0) === 0;
+}
+
+function sanctionApprovalStatusLabel(status) {
+  return {
+    approved: '已审批',
+    canceled: '已取消',
+    pending_approval: '待审批',
+  }[status] || status || '-';
 }
 
 function sanctionExpiresAtMs(sanction) {
@@ -6270,6 +6289,160 @@ function adminSanctions() {
   return ensureUserSanctions()
     .map(adminSanctionItem)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function adminSanctionApprovalItem(approval = {}) {
+  const phone = normalizePhone(approval.phone || '');
+  const user = state.users?.[phone];
+  const pet = user ? selectedPetFor(user) : null;
+  const status = String(approval.status || 'pending_approval');
+  const durationHours = Math.max(0, Math.floor(Number(approval.durationHours || 0)));
+  return {
+    approvalReason: approval.approvalReason || '',
+    approvedAt: approval.approvedAt || '',
+    approvedBy: approval.approvedBy || '',
+    cancelReason: approval.cancelReason || '',
+    canceledAt: approval.canceledAt || '',
+    canceledBy: approval.canceledBy || '',
+    createdAt: approval.createdAt || '',
+    createdBy: approval.createdBy || '',
+    durationHours,
+    evidenceSnapshot: approval.evidenceSnapshot || null,
+    highRisk: sanctionRequiresApproval(approval.type, durationHours),
+    id: approval.id || '',
+    ownerName: user?.ownerName || approval.ownerName || `用户${String(phone || '').slice(-4)}`,
+    petName: pet?.name || '',
+    phone,
+    reason: approval.reason || '',
+    sanctionId: approval.sanctionId || '',
+    source: approval.source || 'manual',
+    sourceReportId: approval.sourceReportId || '',
+    sourceTargetId: approval.sourceTargetId || '',
+    sourceTargetType: approval.sourceTargetType || '',
+    status,
+    statusLabel: sanctionApprovalStatusLabel(status),
+    templateId: approval.templateId || '',
+    type: approval.type || '',
+    typeLabel: SANCTION_TYPE_LABELS[approval.type] || approval.type || '-',
+  };
+}
+
+function adminSanctionApprovals(options = {}) {
+  const status = String(options.status || 'open').trim() || 'open';
+  const limit = Math.min(80, Math.max(10, Number(options.limit || 20) || 20));
+  const all = ensureSanctionApprovals().map(adminSanctionApprovalItem);
+  const items = all
+    .filter((item) => {
+      if (status === 'all') return true;
+      if (status === 'open') return item.status === 'pending_approval';
+      return item.status === status;
+    })
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .slice(0, limit);
+  return {
+    items,
+    summary: {
+      approved: all.filter((item) => item.status === 'approved').length,
+      canceled: all.filter((item) => item.status === 'canceled').length,
+      pending: all.filter((item) => item.status === 'pending_approval').length,
+      total: all.length,
+    },
+  };
+}
+
+function createSanctionApproval(admin, body = {}) {
+  const phone = normalizePhone(body.phone || '');
+  const user = phone ? state.users?.[phone] : null;
+  if (!user) return { error: '用户不存在', statusCode: 404 };
+  const type = normalizeSanctionType(body.type);
+  if (!type) return { error: '请选择正确的处罚类型', statusCode: 400 };
+  const durationHours = parseSanctionDurationHours(type, body.durationHours);
+  if (durationHours === null) return { error: '处罚时长需为 0 到 8760 小时', statusCode: 400 };
+  if (!sanctionRequiresApproval(type, durationHours)) {
+    return { error: '当前处罚不属于强制审批范围，可直接创建处罚', statusCode: 400 };
+  }
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '请填写处罚原因', statusCode: 400 };
+  const approval = {
+    createdAt: new Date().toISOString(),
+    createdBy: admin?.username || 'admin',
+    durationHours,
+    evidenceSnapshot: normalizeSanctionEvidenceSnapshot(body.evidenceSnapshot),
+    id: `sanction-approval-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    phone,
+    reason,
+    source: String(body.source || 'manual').slice(0, 60),
+    sourceReportId: String(body.sourceReportId || '').slice(0, 120),
+    sourceTargetId: String(body.sourceTargetId || '').slice(0, 120),
+    sourceTargetType: String(body.sourceTargetType || '').slice(0, 60),
+    status: 'pending_approval',
+    templateId: String(body.templateId || '').slice(0, 120),
+    type,
+  };
+  ensureSanctionApprovals().unshift(approval);
+  state.adminSanctionApprovals = state.adminSanctionApprovals.slice(0, 200);
+  writeAdminAudit(admin, 'user.sanction.approval.create', 'sanction_approval', approval.id, null, adminSanctionApprovalItem(approval), reason);
+  return {
+    approval: adminSanctionApprovalItem(approval),
+    approvals: adminSanctionApprovals(),
+  };
+}
+
+function approveSanctionApproval(admin, approvalId, body = {}) {
+  const approval = ensureSanctionApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '处罚审批不存在', statusCode: 404 };
+  if (approval.status !== 'pending_approval') return { error: '只有待审批处罚可以审批通过', statusCode: 409 };
+  const beforeApproval = cloneJson(approval);
+  const beforeUser = state.users?.[approval.phone] ? adminUserSummary(state.users[approval.phone]) : null;
+  const result = createUserSanction(admin, approval.phone, {
+    approvalId: approval.id,
+    durationHours: approval.durationHours,
+    evidenceSnapshot: approval.evidenceSnapshot,
+    reason: approval.reason,
+    source: approval.source || 'manual_approval',
+    sourceReportId: approval.sourceReportId || '',
+    sourceTargetId: approval.sourceTargetId || '',
+    sourceTargetType: approval.sourceTargetType || '',
+    templateId: approval.templateId || '',
+    type: approval.type,
+  }, { approved: true });
+  if (result.error) return result;
+  approval.approvalReason = adminReason(body, '审批通过永久封禁处罚');
+  approval.approvedAt = new Date().toISOString();
+  approval.approvedBy = admin?.username || 'admin';
+  approval.sanctionId = result.sanction.id;
+  approval.status = 'approved';
+  const afterUser = state.users?.[approval.phone] ? adminUserSummary(state.users[approval.phone]) : null;
+  writeAdminAudit(admin, 'user.sanction.approval.approve', 'sanction_approval', approval.id, beforeApproval, {
+    approval: adminSanctionApprovalItem(approval),
+    sanction: adminSanctionItem(result.sanction),
+    user: afterUser,
+  }, approval.approvalReason);
+  writeAdminAudit(admin, 'user.sanction.create', 'user', approval.phone, beforeUser, {
+    ...afterUser,
+    sanction: adminSanctionItem(result.sanction),
+  }, approval.reason);
+  return {
+    approval: adminSanctionApprovalItem(approval),
+    approvals: adminSanctionApprovals(),
+    sanction: adminSanctionItem(result.sanction),
+  };
+}
+
+function cancelSanctionApproval(admin, approvalId, body = {}) {
+  const approval = ensureSanctionApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '处罚审批不存在', statusCode: 404 };
+  if (approval.status !== 'pending_approval') return { error: '只有待审批处罚可以取消', statusCode: 409 };
+  const before = cloneJson(approval);
+  approval.cancelReason = adminReason(body, '取消处罚审批');
+  approval.canceledAt = new Date().toISOString();
+  approval.canceledBy = admin?.username || 'admin';
+  approval.status = 'canceled';
+  writeAdminAudit(admin, 'user.sanction.approval.cancel', 'sanction_approval', approval.id, before, adminSanctionApprovalItem(approval), approval.cancelReason);
+  return {
+    approval: adminSanctionApprovalItem(approval),
+    approvals: adminSanctionApprovals(),
+  };
 }
 
 function sanctionPolicyRowStatus(row) {
@@ -6477,7 +6650,7 @@ function parseSanctionDurationHours(type, value) {
   return durationHours;
 }
 
-function createUserSanction(admin, phone, body = {}) {
+function createUserSanction(admin, phone, body = {}, options = {}) {
   const user = state.users?.[phone];
   if (!user) return { error: '用户不存在', statusCode: 404 };
   const type = normalizeSanctionType(body.type);
@@ -6486,6 +6659,14 @@ function createUserSanction(admin, phone, body = {}) {
   if (!reason) return { error: '请填写处罚原因', statusCode: 400 };
   const durationHours = parseSanctionDurationHours(type, body.durationHours);
   if (durationHours === null) return { error: '处罚时长需为 0 到 8760 小时', statusCode: 400 };
+  if (sanctionRequiresApproval(type, durationHours) && options.approved !== true) {
+    return {
+      approvalRequired: true,
+      code: 'ADMIN_SANCTION_APPROVAL_REQUIRED',
+      error: '永久封禁需要先提交并审批处罚申请',
+      statusCode: 409,
+    };
+  }
   const createdAt = new Date().toISOString();
   const sanction = {
     createdAt,
@@ -18655,7 +18836,7 @@ function adminReadinessModules(context) {
       status: 'partial',
       evidence: '举报可处理有效/无效/关闭，证据快照、处罚建议、一键处罚、处罚撤销、账号申诉和举报处理申诉已接入。',
       mobileLinkage: '有效举报和处罚会通知作者；处罚会限制移动端写接口，用户可在安全中心提交账号限制申诉或举报处理申诉。',
-      nextStep: '永久封禁、批量处罚和高风险处罚建议需要双人审批。',
+      nextStep: '生产期补批量处罚、高风险处罚建议和永久封禁的多管理员双人审批。',
     },
     {
       key: 'places',
@@ -18728,7 +18909,7 @@ function adminReadinessQuestions(context = {}) {
     ['q-message-view', 'P1', '私信是否允许人工查看全文？如果允许，谁审批、保留多久？', '当前后台默认只做摘要排查。', '影响隐私合规和骚扰治理能力。'],
     ['q-clear-data', 'P1', '用户业务数据清理是否只保留测试环境？', '当前已实现清理链路，生产是否开放需确认。', '影响误操作风险、用户数据权益和客服 SOP。'],
     ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '当前后台可人工返还；自动规则未定。', '影响用户权益、成本和客服处理标准。'],
-    ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '当前单 admin 可执行处罚；双人审批未接。', '影响高风险处罚治理。'],
+    ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '已接入单 admin 永久封禁审批流；审批通过后才真正写入处罚并影响移动端账号状态。生产期若需要双人审批，可在此基础上接多管理员复核。', '影响高风险处罚治理。', 'ready', '已接入'],
     ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏，不开放完整手机号导出。', '影响隐私合规和数据泄露风险。'],
     ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '当前已记录基础贡献积分并通知提交人，但不做用户端公开展示或奖励兑换。', '影响地点生态激励。'],
     ['q-notification-approval', 'P1', '系统通知是否需要发送审批？', '已接入单 admin 发送审批流和“强制审批”配置开关；生产期若需要双人审批，可在此基础上接多管理员复核。', '影响误发和运营风险。', 'ready', '已接入'],
@@ -18809,7 +18990,7 @@ function adminReadinessGaps(context) {
       area: '高风险操作',
       severity: 'P1',
       status: 'partial',
-      issue: '配置发布、强制通知和敏感导出已有单 admin 审批；处罚、数据清理仍缺审批，所有高风险动作仍缺多管理员双人审批。',
+      issue: '配置发布、强制通知、敏感导出和永久封禁已有单 admin 审批；数据清理仍缺审批，所有高风险动作仍缺多管理员双人审批。',
       requiredAction: '补审批人/申请人分离、双人审批、撤回/驳回、审批通知和超时处理。',
       evidence: '账号权限页已预留 super_admin / ops_admin / auditor',
     },
@@ -25093,6 +25274,41 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/sanction-approvals') {
+    ok(res, adminSanctionApprovals({
+      limit: url.searchParams.get('limit') || 20,
+      status: url.searchParams.get('status') || 'open',
+    }));
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/sanction-approvals') {
+    const result = createSanctionApproval(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SANCTION_APPROVAL_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminSanctionApprovalActionMatch = pathname.match(/^\/admin\/sanction-approvals\/([^/]+)\/(approve|cancel)$/);
+  if (req.method === 'POST' && adminSanctionApprovalActionMatch) {
+    const approvalId = decodeURIComponent(adminSanctionApprovalActionMatch[1]);
+    const action = adminSanctionApprovalActionMatch[2];
+    const result = action === 'approve'
+      ? approveSanctionApproval(admin, approvalId, body)
+      : cancelSanctionApproval(admin, approvalId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SANCTION_APPROVAL_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
   if (req.method === 'GET' && pathname === '/admin/sanctions') {
     const q = String(url.searchParams.get('q') || '').trim();
     const rows = adminSanctions().filter((item) =>
@@ -25129,7 +25345,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     const before = phone && state.users[phone] ? adminUserSummary(state.users[phone]) : null;
     const result = phone ? createUserSanction(admin, phone, body) : { error: '用户不存在', statusCode: 404 };
     if (result.error) {
-      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SANCTION_INVALID');
+      fail(res, result.statusCode || 400, result.error, false, { approvalRequired: Boolean(result.approvalRequired) }, result.code || 'ADMIN_SANCTION_INVALID');
       return true;
     }
     const after = adminUserSummary(state.users[phone]);

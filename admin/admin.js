@@ -814,6 +814,8 @@ async function onContentClick(event) {
       return;
     }
     if (action === 'sanction-create') await createSanction();
+    if (action === 'sanction-approval-approve') await approveSanctionApproval(id);
+    if (action === 'sanction-approval-cancel') await cancelSanctionApproval(id);
     if (action === 'sanction-revoke') await confirmPost(`/admin/users/${encodeURIComponent(phone)}/sanctions/${encodeURIComponent(id)}/revoke`, { reason }, '确认撤销这条处罚？');
     if (action === 'quick-mute') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 24, reason: '用户列表快捷禁言', type: 'mute' });
     if (action === 'quick-freeze') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 72, reason: '用户列表快捷冻结', type: 'freeze' });
@@ -1531,7 +1533,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionApprovals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -4789,11 +4791,46 @@ function renderSanctionPolicyReview(policy = {}) {
   `;
 }
 
+function sanctionApprovalTone(status) {
+  return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'canceled' ? 'bad' : '';
+}
+
+function renderSanctionApprovals(approvals = {}) {
+  const items = approvals.items || [];
+  const summary = approvals.summary || {};
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>永久封禁审批</h2>
+          <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${numberText(summary.approved || 0)} 条已审批 · ${numberText(summary.canceled || 0)} 条已取消</div>
+        </div>
+        ${help('永久封禁提交后不会立刻影响移动端账号状态；只有审批通过时才会创建真实处罚、更新用户状态并发送站内通知。当前是单 admin 审批版本，生产多管理员后可升级为双人审批。')}
+      </div>
+      ${items.length ? tableHtml(items, [
+        ['用户', (row) => `<div class="cell-title">${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.phone)} ${row.petName ? `· ${escapeHtml(row.petName)}` : ''}</div>`],
+        ['处罚', (row) => `<div>${statusPill(row.typeLabel || row.type || '-')}</div><div class="cell-sub">${row.durationHours ? `${numberText(row.durationHours)}h` : '长期有效'}</div>`],
+        ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div><div class="cell-sub">${escapeHtml(row.source || 'manual')} · ${escapeHtml(row.templateId || row.sourceTargetId || '-')}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, sanctionApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `审批 ${formatTime(row.approvedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>`],
+        ['提交', (row) => `<div>${formatTime(row.createdAt)}</div><div class="cell-sub">${escapeHtml(row.createdBy || '-')}</div>`],
+        ['操作', (row) => row.status === 'pending_approval' ? `
+          <div class="actions">
+            <button class="small-button" data-action="sanction-approval-approve" data-id="${escapeHtml(row.id)}">审批通过</button>
+            <button class="small-button danger" data-action="sanction-approval-cancel" data-id="${escapeHtml(row.id)}">取消</button>
+          </div>
+          <div class="cell-sub">${escapeHtml(row.id || '-')}</div>
+        ` : `<div class="cell-sub">${escapeHtml(row.sanctionId || row.approvalReason || row.cancelReason || '-')}</div>`],
+      ], '暂无永久封禁审批') : '<div class="placeholder mini"><div><strong>暂无待审批永久封禁</strong><div>创建永久封禁时会先进入这里，审批通过后才会写入处罚流水。</div></div></div>'}
+    </div>
+  `;
+}
+
 async function renderSanctions(force) {
-  const [rows, templates, policy] = await Promise.all([
+  const [rows, templates, policy, approvals] = await Promise.all([
     load('sanctions', '/admin/sanctions', force),
     load('sanctionTemplates', '/admin/sanction-templates', force),
     load('sanctionPolicy', '/admin/sanction-policy-review', force),
+    load('sanctionApprovals', '/admin/sanction-approvals', force),
   ]);
   $('content').innerHTML = `
     ${renderSanctionPolicyReview(policy)}
@@ -4826,9 +4863,10 @@ async function renderSanctions(force) {
       <label>处罚原因<textarea id="sanctionReason" placeholder="写清楚依据，例如：多次发布广告评论，经举报核实"></textarea></label>
       <div class="actions">
         <button class="small-button" data-action="sanction-template-apply">套用模板</button>
-        <button class="primary-button" data-action="sanction-create">创建处罚</button>
+        <button class="primary-button" data-action="sanction-create">创建处罚 / 提交审批</button>
       </div>
     </div>
+    ${renderSanctionApprovals(approvals)}
     <div class="card">
       <div class="section-head">
         <div>
@@ -4860,11 +4898,51 @@ async function createSanction() {
   if (!phone || !reason) {
     throw new Error('请填写手机号和处罚原因');
   }
-  await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours, reason, templateId, type });
-  state.cache.sanctions = null;
-  state.cache.sanctionPolicy = null;
-  state.cache.summary = null;
-  state.cache.users = null;
+  if (type === 'ban' && durationHours === 0) {
+    await post('/admin/sanction-approvals', { durationHours, phone, reason, templateId, type });
+    showToast('永久封禁审批已提交，审批通过后才会生效');
+  } else {
+    await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours, reason, templateId, type });
+    showToast('处罚已创建');
+  }
+  invalidateSanctionCaches();
+  if (state.route === 'sanctions') await render(true);
+}
+
+function invalidateSanctionCaches() {
+  state.cache = {
+    ...state.cache,
+    audit: null,
+    sanctionApprovals: null,
+    sanctionPolicy: null,
+    sanctions: null,
+    summary: null,
+    users: null,
+  };
+}
+
+async function approveSanctionApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入审批说明', '审批通过永久封禁处罚');
+  if (reason === null) return;
+  await post(`/admin/sanction-approvals/${encodeURIComponent(id)}/approve`, {
+    reason: reason.trim() || '审批通过永久封禁处罚',
+  });
+  invalidateSanctionCaches();
+  showToast('永久封禁审批已通过，处罚已生效');
+  if (state.route === 'sanctions') await render(true);
+}
+
+async function cancelSanctionApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入取消原因', '取消永久封禁审批');
+  if (reason === null) return;
+  await post(`/admin/sanction-approvals/${encodeURIComponent(id)}/cancel`, {
+    reason: reason.trim() || '取消永久封禁审批',
+  });
+  invalidateSanctionCaches();
+  showToast('永久封禁审批已取消');
+  if (state.route === 'sanctions') await render(true);
 }
 
 function applySanctionTemplate() {
