@@ -478,6 +478,19 @@ function formatSupportTicketTime(value?: string, fallback = '时间待确认') {
   return `${date.getMonth() + 1}月${date.getDate()}日 ${formatClockTime(date)}`;
 }
 
+function formatSupportTicketDeadline(value?: string) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const clock = formatClockTime(date);
+  const today = new Date();
+  if (isSameCalendarDay(date, today)) return `今天 ${clock}`;
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+  if (isSameCalendarDay(date, tomorrow)) return `明天 ${clock}`;
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${clock}`;
+}
+
 function formatMessageListTime(value?: string, fallback = '新消息') {
   const text = String(value ?? '').trim();
   if (!text) return fallback;
@@ -15534,6 +15547,12 @@ export default function LumiiMvpApp() {
   function supportTicketSlaText(ticket: SupportTicketItem) {
     if (ticket.status === 'closed' || ticket.status === 'resolved') return '';
     if (ticket.status === 'waiting_user' && ticket.slaType !== 'resolution') return '';
+    const actionText = ticket.slaType === 'resolution' ? '处理完成' : '响应';
+    const deadlineText = formatSupportTicketDeadline(ticket.slaDueAt);
+    if (ticket.slaState === 'overdue') {
+      return deadlineText ? `预计${actionText}已超时 · 原定${deadlineText}前` : `预计${actionText}已超时`;
+    }
+    if (deadlineText) return `预计${deadlineText}前${actionText}`;
     const configuredHours =
       ticket.slaType === 'first_response'
         ? remoteConfig.support?.firstResponseSlaHours?.[ticket.priority]

@@ -49,6 +49,8 @@ admin|Admin|客服|1,2,3,4,5,6,0|09:00|22:00|true
   - `slaType=first_response`：显示预计响应时间。
   - `slaType=resolution`：显示预计处理完成时间。
   - 工单已 resolved/closed 后不再显示预计时间。
+- 移动端优先使用后端返回的 `slaDueAt` 展示精确截止时间，例如“预计今天 18:00前响应”或“预计明天 12:00前处理完成”；若旧数据缺少 `slaDueAt`，再回退为 `slaHours` 的相对文案。
+- 若下一条 SLA 已超时，移动端展示“预计响应/处理完成已超时 · 原定 xx 前”，方便用户理解当前反馈进度异常，而不暴露客服负责人或排班。
 
 ## 验证
 
@@ -65,4 +67,5 @@ node scripts/smoke-ticket-sla-roster.cjs
 - 非枚举负责人无法分配。
 - 分配后仍保留首响 SLA；客服真实回复用户后首响 SLA 完成，当前 SLA 切到解决 SLA。
 - 客服回复并解决后，移动端工单状态同步。
+- 移动端 typecheck 覆盖 `slaDueAt` 精确截止文案的字段消费。
 - 配置、分配、回复均写入审计。

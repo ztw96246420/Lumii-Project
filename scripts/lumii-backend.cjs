@@ -2672,7 +2672,7 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       key: 'support.firstResponseSlaHours',
       label: '工单首响 SLA',
       mobileApplied: true,
-      mobileEvidence: '移动端我的反馈读取工单返回的 slaType/slaHours；首响未完成时展示预计响应时间。',
+      mobileEvidence: '移动端我的反馈读取工单返回的 slaType/slaDueAt/slaHours；首响未完成时展示预计响应截止时间。',
       userImpact: '影响用户提交反馈后，多久能看到客服首次处理的预期口径。',
     },
     {
@@ -2682,7 +2682,7 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       key: 'support.resolutionSlaHours',
       label: '工单解决 SLA',
       mobileApplied: true,
-      mobileEvidence: '移动端我的反馈在首响完成后可读取解决 SLA 作为预计处理完成文案。',
+      mobileEvidence: '移动端我的反馈在首响完成后读取解决 SLA 的 slaDueAt/slaHours，展示预计处理完成截止时间。',
       userImpact: '影响客服对反馈最终处理完成时间的运营口径。',
     },
     {
