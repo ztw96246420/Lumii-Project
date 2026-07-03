@@ -15069,6 +15069,32 @@ function notifyPetMediaModeration(phone, pet, kind, reason) {
   }, 'system', { force: true });
 }
 
+function notifyPetMediaReplacement(phone, pet, kind, reason) {
+  if (!phone || !pet || !state.users?.[phone]) return false;
+  const kindLabel = kind === 'cover' ? '宠友圈封面' : '宠物头像';
+  const reasonText = String(reason || '').trim();
+  return addNotification(phone, {
+    actionRoute: kind === 'cover' ? 'petCircle' : 'profile',
+    category: 'system',
+    createdAt: new Date().toISOString(),
+    id: `n-pet-media-replace-${pet.id}-${kind}-${Date.now()}`,
+    kind: 'system',
+    petId: pet.id,
+    read: false,
+    text: reasonText
+      ? `${pet.name || '宠物'}的${kindLabel}已由平台协助替换，原因：${reasonText}。如有疑问可以通过反馈联系我们。`
+      : `${pet.name || '宠物'}的${kindLabel}已由平台协助替换。如有疑问可以通过反馈联系我们。`,
+    title: `${kindLabel}已替换`,
+  }, 'system', { force: true });
+}
+
+function adminPetMediaKindLabel(kind) {
+  if (kind === 'cover') return '宠友圈封面';
+  if (kind === 'avatar') return '宠物头像';
+  if (kind === 'ai-avatar') return 'AI 灵伴形象';
+  return '宠物媒体';
+}
+
 function petProfileFieldLabel(key) {
   return {
     birthday: '生日',
@@ -15217,6 +15243,104 @@ function adminClearPetMedia(admin, petId, kindInput, body = {}) {
   writeAdminAudit(admin, action, 'pet', pet.id, before, after, reason);
   notifyPetMediaModeration(phone, pet, kind, reason);
   return {
+    item: adminPetProfiles({ q: pet.id, limit: 1 }).items.find((row) => row.id === pet.id) || null,
+    phone: user.phone,
+    petId: pet.id,
+  };
+}
+
+async function adminReplacePetMedia(admin, req, petId, kindInput, body = {}) {
+  const kind = String(kindInput || '').trim();
+  const allowedKinds = new Set(['avatar', 'cover']);
+  if (!allowedKinds.has(kind)) return { error: '当前只支持替换宠物头像或宠友圈封面', statusCode: 400 };
+  const found = findAdminPetById(petId);
+  if (!found) return { error: '宠物档案不存在', statusCode: 404 };
+  const { phone, pet, user } = found;
+  const reason = String(body?.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '请填写替换原因', statusCode: 400 };
+  const imageUrl = String(body?.imageUrl || body?.url || '').trim();
+  const kindLabel = adminPetMediaKindLabel(kind);
+  if (!imageUrl) return { error: `请填写新的${kindLabel}图片 URL`, statusCode: 400 };
+  if (imageUrl.length > 2000) return { error: `${kindLabel}地址过长，请重新填写`, statusCode: 400 };
+  if (isLocalImagePlaceholderUrl(imageUrl)) return { error: `${kindLabel}还没有上传完成，请填写可公开访问的图片 URL`, statusCode: 400 };
+  if (!/^https?:\/\//i.test(imageUrl)) return { error: `请填写可公开访问的 http(s) ${kindLabel}图片 URL`, statusCode: 400 };
+  if (!isImageUrlPubliclyVisible(imageUrl)) return { error: `这张${kindLabel}正在审核或已不可用，请重新选择`, statusCode: 400 };
+
+  let downloaded = null;
+  if (!mediaUploadForImageUrl(imageUrl)) {
+    downloaded = await downloadImageBuffer(imageUrl).catch(() => null);
+    if (downloaded?.buffer?.length) {
+      const safety = await moderateImageFileContentForPublicUse(downloaded.buffer.toString('base64'), phone, kind === 'cover' ? 'pet_circle_cover' : 'pet_profile_avatar', pet.id);
+      if (safety.action !== 'allow') {
+        return {
+          error: safety.error || `${kindLabel}图片需要修改后再使用`,
+          moderation: safety,
+          review: safety.action === 'review',
+          statusCode: safety.action === 'block' ? 400 : 409,
+        };
+      }
+    }
+  }
+
+  const before = cloneJson({
+    acceptedAvatarJobIds: Object.values(state.avatarJobs || {}).filter((job) => job?.ownerPhone === phone && job.acceptedPetId === pet.id).map((job) => job.id),
+    avatarAnimationJobId: pet.avatarAnimationJobId || '',
+    avatarAnimationStatus: pet.avatarAnimationStatus || '',
+    avatarAnimationUrl: pet.avatarAnimationUrl || '',
+    avatarUrl: pet.avatarUrl || '',
+    pet,
+    petCircleCoverImageUrl: pet.petCircleCoverImageUrl || '',
+  });
+  const now = new Date().toISOString();
+  let storedUrl = '';
+  try {
+    storedUrl = await storeAvatarUrlToCos(req, user, imageUrl, {
+      petId: pet.id,
+      scope: kind === 'cover' ? 'pet-circle-cover-admin' : 'pet-profile-avatar-admin',
+    });
+  } catch (error) {
+    return { error: `${kindLabel}图片下载或存储失败，请确认 URL 可公开访问`, statusCode: 400 };
+  }
+
+  let clearedAvatarJobCount = 0;
+  if (kind === 'cover') {
+    if (String(pet.petCircleCoverImageUrl || '') === storedUrl) return { error: '新的宠友圈封面与当前封面一致', statusCode: 400 };
+    pet.petCircleCoverImageUrl = storedUrl;
+  } else {
+    if (String(pet.avatarUrl || '') === storedUrl) return { error: '新的宠物头像与当前头像一致', statusCode: 400 };
+    pet.avatarUrl = storedUrl;
+    Object.values(state.avatarJobs || {}).forEach((job) => {
+      if (job?.ownerPhone !== phone || job.acceptedPetId !== pet.id) return;
+      job.adminReplacedAt = now;
+      job.adminReplacedReason = reason;
+      job.adminReplacedBy = admin?.username || 'admin';
+      job.acceptedPetId = '';
+      job.acceptedAt = '';
+      clearedAvatarJobCount += 1;
+      touchAvatarJob(job);
+    });
+    delete pet.avatarAnimationJobId;
+    delete pet.avatarAnimationStatus;
+    delete pet.avatarAnimationUrl;
+    delete pet.avatarAnimationUpdatedAt;
+  }
+
+  pet.updatedAt = now;
+  const after = cloneJson({
+    avatarAnimationJobId: pet.avatarAnimationJobId || '',
+    avatarAnimationStatus: pet.avatarAnimationStatus || '',
+    avatarAnimationUrl: pet.avatarAnimationUrl || '',
+    avatarUrl: pet.avatarUrl || '',
+    clearedAvatarJobCount,
+    imageUrl: storedUrl,
+    pet,
+    petCircleCoverImageUrl: pet.petCircleCoverImageUrl || '',
+  });
+  const action = kind === 'cover' ? 'pet.media.replace_cover' : 'pet.media.replace_avatar';
+  writeAdminAudit(admin, action, 'pet', pet.id, before, after, reason);
+  notifyPetMediaReplacement(phone, pet, kind, reason);
+  return {
+    imageUrl: storedUrl,
     item: adminPetProfiles({ q: pet.id, limit: 1 }).items.find((row) => row.id === pet.id) || null,
     phone: user.phone,
     petId: pet.id,
@@ -16616,7 +16740,7 @@ function adminPermissionCatalog() {
     ['user.clear_data', '清理用户业务数据', '用户'],
     ['pet.view', '查看宠物档案', '宠物'],
     ['pet.edit', '修正宠物资料', '宠物'],
-    ['pet.media_moderate', '清理头像、AI 形象、宠友圈封面', '宠物'],
+    ['pet.media_moderate', '清理或替换头像、宠友圈封面', '宠物'],
     ['calendar.view', '查看宠物日历', '宠物'],
     ['calendar.edit', '修正宠物日历记录', '宠物'],
     ['ai.avatar.view', '查看 AI 灵伴任务、素材和反馈', 'AI'],
@@ -22304,6 +22428,27 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     const result = adminClearPetMedia(admin, petId, kind, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PET_MEDIA_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminPetMediaReplaceMatch = pathname.match(/^\/admin\/pets\/([^/]+)\/media\/([^/]+)\/replace$/);
+  if (req.method === 'POST' && adminPetMediaReplaceMatch) {
+    const petId = decodeURIComponent(adminPetMediaReplaceMatch[1]);
+    const kind = decodeURIComponent(adminPetMediaReplaceMatch[2]);
+    const result = await adminReplacePetMedia(admin, req, petId, kind, body);
+    if (result.error) {
+      fail(
+        res,
+        result.statusCode || 400,
+        result.error,
+        Boolean(result.review),
+        result.moderation,
+        result.moderation?.action === 'block' ? 'ADMIN_PET_MEDIA_BLOCKED' : result.review ? 'ADMIN_PET_MEDIA_REVIEW' : 'ADMIN_PET_MEDIA_INVALID',
+      );
       return true;
     }
     saveState();

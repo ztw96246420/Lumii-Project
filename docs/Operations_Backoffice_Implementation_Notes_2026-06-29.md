@@ -141,6 +141,7 @@
 - `GET /admin/pets/{petId}`
 - `PATCH /admin/pets/{petId}`
 - `POST /admin/pets/{petId}/media/{avatar|ai-avatar|cover}/clear`
+- `POST /admin/pets/{petId}/media/{avatar|cover}/replace`
 
 已支持：
 
@@ -157,13 +158,17 @@
 - 支持清空违规普通头像、AI 灵伴形象、宠友圈封面。
 - 清空媒体会写入 `adminAuditLogs`，action 分别为 `pet.media.clear_avatar`、`pet.media.clear_ai_avatar`、`pet.media.clear_cover`。
 - 清空媒体会强制给用户写入站内通知，并在移动端下一次刷新、登录或重新拉取 `/me` / 宠友圈资料时影响真实展示。
+- 支持使用公开图片 URL 替换普通头像或宠友圈封面；替换前会校验图片公开可见状态，外部图片会先走图片内容安全再镜像进站内存储。
+- 替换头像会解除旧 AI 形象任务的 `acceptedPetId` 关联，并清空旧动效字段，避免移动端继续播放过期素材；替换封面会同步影响宠友圈主页封面。
+- 替换媒体会写入 `adminAuditLogs`，action 分别为 `pet.media.replace_avatar`、`pet.media.replace_cover`，并给用户写入站内通知。
 - 数据导出新增宠物档案 CSV。
 - 独立说明文档：[Operations_Backoffice_Pet_Media_Moderation_2026-06-30.md](Operations_Backoffice_Pet_Media_Moderation_2026-06-30.md)。
 - 资料修正文档：[Operations_Backoffice_Pet_Profile_Edit_2026-07-03.md](Operations_Backoffice_Pet_Profile_Edit_2026-07-03.md)。
+- 媒体替换文档：[Operations_Backoffice_Pet_Media_Replace_2026-07-03.md](Operations_Backoffice_Pet_Media_Replace_2026-07-03.md)。
 
 暂未开放：
 
-- 后台替换头像、替换 AI 形象图、更换宠友圈封面。
+- 后台替换 AI 灵伴形象图。
 - 合并重复宠物档案。
 - 上述动作会影响首页、AI 对话、宠物日历、宠友圈和会话引用，需要更细权限、引用迁移或上传审核后再开放。
 

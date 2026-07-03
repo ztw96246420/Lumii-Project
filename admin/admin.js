@@ -461,6 +461,10 @@ async function onContentClick(event) {
       await clearPetMedia(button);
       return;
     }
+    if (action === 'pet-media-replace') {
+      await replacePetMedia(button);
+      return;
+    }
     if (action === 'pet-profile-edit') {
       await editPetProfile(button);
       return;
@@ -3454,6 +3458,8 @@ function petAvatarStatus(row) {
 function renderPetMediaActions(row) {
   const buttons = [
     `<button class="small-button" data-action="pet-profile-edit" data-id="${escapeHtml(row.id)}">修正资料</button>`,
+    `<button class="small-button" data-action="pet-media-replace" data-id="${escapeHtml(row.id)}" data-kind="avatar" data-name="${escapeHtml(row.name || '')}" data-current-url="${escapeHtml(row.avatarUrl || '')}">换头像</button>`,
+    `<button class="small-button" data-action="pet-media-replace" data-id="${escapeHtml(row.id)}" data-kind="cover" data-name="${escapeHtml(row.name || '')}" data-current-url="${escapeHtml(row.petCircleCoverImageUrl || '')}">换封面</button>`,
   ];
   if (row.avatarStatusKey === 'ai') {
     buttons.push(`<button class="small-button danger" data-action="pet-media-clear" data-id="${escapeHtml(row.id)}" data-kind="ai-avatar" data-name="${escapeHtml(row.name || '')}">清AI形象</button>`);
@@ -3547,6 +3553,39 @@ async function clearPetMedia(button) {
   await render(true);
 }
 
+async function replacePetMedia(button) {
+  const petId = button.dataset.id;
+  const kind = button.dataset.kind || '';
+  const petName = button.dataset.name || '这只宠物';
+  const currentUrl = button.dataset.currentUrl || '';
+  const kindLabel = kind === 'cover' ? '宠友圈封面' : '宠物头像';
+  const imageUrl = window.prompt(`请输入「${petName}」新的${kindLabel}图片 URL`, currentUrl || 'https://');
+  if (imageUrl === null) return;
+  const trimmedUrl = imageUrl.trim();
+  if (!trimmedUrl) {
+    showToast(`请填写新的${kindLabel}图片 URL`);
+    return;
+  }
+  const reason = window.prompt(`请输入替换「${petName}」${kindLabel}的原因`, `${kindLabel}运营替换`);
+  if (reason === null) return;
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) {
+    showToast('请填写替换原因');
+    return;
+  }
+  const impact = kind === 'cover'
+    ? '该操作会影响移动端宠友圈主页封面，并写入审计日志。'
+    : '该操作会影响移动端首页、宠物档案、宠友圈头像；若原头像是 AI 形象，会解除旧 AI 任务关联和旧动效，并写入审计日志。';
+  if (!window.confirm(`确认替换「${petName}」的${kindLabel}？${impact}`)) return;
+  await post(`/admin/pets/${encodeURIComponent(petId)}/media/${encodeURIComponent(kind)}/replace`, {
+    imageUrl: trimmedUrl,
+    reason: trimmedReason,
+  });
+  state.cache = { ...state.cache, aiMedia: null, audit: null, pets: null, users: null };
+  showToast(`${kindLabel}已替换`);
+  await render(true);
+}
+
 async function renderPets(force) {
   const query = new URLSearchParams({
     avatar: state.petAvatar,
@@ -3572,7 +3611,7 @@ async function renderPets(force) {
           <h2>宠物档案</h2>
           <div class="section-sub">全局排查与媒体治理：宠物资料、头像、AI 形象、宠友圈和日历关联记录</div>
         </div>
-        ${help('这页直接聚合 users.pets 和关联业务数据。清空头像、AI 形象或封面会写审计、通知用户，并影响移动端下一次刷新后的展示；不导出图片二进制。')}
+        ${help('这页直接聚合 users.pets 和关联业务数据。替换或清空头像、AI 形象、封面会写审计、通知用户，并影响移动端下一次刷新后的展示；不导出图片二进制。')}
       </div>
       <div class="toolbar moderation-toolbar pet-profile-toolbar">
         <div class="toolbar-left">
@@ -3639,16 +3678,18 @@ async function renderPets(force) {
         <div class="section-head">
           <div>
             <h2>媒体治理动作</h2>
-            <div class="section-sub">已开放清空违规头像、AI 形象和宠友圈封面</div>
+            <div class="section-sub">已开放替换头像/封面，以及清空违规头像、AI 形象和封面</div>
           </div>
-          ${help('媒体动作会保留 before/after 审计，并给用户写入站内通知；当前只清空，不做后台替换上传。')}
+          ${help('媒体动作会保留 before/after 审计，并给用户写入站内通知；后台替换要求图片 URL，头像替换会解除旧 AI 形象关联和旧动效，避免继续播放过期素材。')}
         </div>
         <div class="gap-list">
+          <div><strong>替换头像</strong><span>用于用户申诉或运营修正头像，移动端首页、宠物档案、AI 对话头像和宠友圈头像会随刷新更新。</span></div>
+          <div><strong>替换封面</strong><span>用于修正宠友圈主页封面，移动端宠友圈主页会直接读取新封面。</span></div>
           <div><strong>清空头像</strong><span>用于普通头像违规，移动端会回到现有兜底头像展示。</span></div>
           <div><strong>清空 AI 形象</strong><span>用于 AI 结果不适合展示，会解除已应用任务关联并清空当前头像。</span></div>
           <div><strong>清空封面</strong><span>用于宠友圈封面违规，移动端宠友圈主页回退到小事图片或宠物头像。</span></div>
           <div><strong>资料修正已开放</strong><span>昵称、类型、品种、性别、生日和体重可由后台带原因修正，并同步影响移动端展示。</span></div>
-          <div><strong>仍预留</strong><span>后台替换封面和合并重复宠物仍需更细权限与引用迁移。</span></div>
+          <div><strong>仍预留</strong><span>合并重复宠物仍需更细权限与引用迁移。</span></div>
           <div><strong>合并重复宠物</strong><span>生产阶段需要迁移日历、AI、宠友圈和会话引用，不能直接删档。</span></div>
         </div>
       </div>
