@@ -203,8 +203,10 @@
 ### 3.4.1 AI 对话
 
 - `GET /admin/ai/pet-chat/messages`
+- `GET /admin/ai/pet-chat/quality-review`
 - `POST /admin/ai/pet-chat/messages/{messageId}/view`
 - `POST /admin/ai/pet-chat/messages/{messageId}/tag`
+- `POST /admin/ai/pet-chat/messages/{messageId}/quality-review`
 - `POST /admin/ai/pet-chat/messages/{messageId}/hide`
 
 已支持：
@@ -216,6 +218,9 @@
 - 查看完整上下文会写入审计日志，action 为 `ai.petChat.view`，记录手机号、宠物、消息 ID 和查看原因。
 - 支持给 AI 回复标记 `quality_issue`、`medical_sample`、`false_positive`、`false_negative`，用于沉淀质量问题、医疗风险样本、误杀和漏杀样本。
 - 标记动作会写入审计日志，action 为 `ai.petChat.tag`，记录标签、原因和操作者。
+- 新增 AI 对话质量抽检队列，按隐藏、质量标签、误触发/漏触发、用户“不像它”、医疗风险和业务写入自动排序。
+- 支持将 AI 回复复核为 `reviewed`、`safe`、`needs_fix`、`ignored`；`needs_fix` 会自动追加 `quality_issue` 标签。
+- 复核动作会写入审计日志，action 为 `ai.petChat.quality_review`，记录复核状态、原因、操作者、手机号和宠物 ID。
 - 支持隐藏不适合继续展示的 AI 回复，必须填写处理原因。
 - 隐藏动作会写入审计日志，action 为 `ai.petChat.hide`，记录原因、操作者、手机号、宠物和消息 ID。
 - 移动端 `GET /ai/pet-chat/messages` 已排除被后台隐藏的 AI 回复。
@@ -224,7 +229,7 @@
 当前限制：
 
 - 尚未保存上游模型的完整 request / response 原始报文，只能基于当前业务消息和上下文排查。
-- 暂未做 AI 对话质量抽检队列、采样规则和复核流。
+- AI 对话质量抽检队列已按业务风险排序；尚未做多 reviewer 一致性评分、模型版本分桶和自动回归分析。
 - 暂未接入第三方内容安全模型对 AI 回复做自动拦截，当前主要依靠风险提示、后台检索和人工处理。
 
 ### 3.5 宠友圈

@@ -1075,6 +1075,27 @@ th {
   line-height: 1.65;
 }
 
+.pet-chat-review-panel {
+  background:
+    linear-gradient(135deg, rgba(255, 247, 239, 0.94), rgba(255, 253, 249, 0.94));
+}
+
+.pet-chat-review-card {
+  grid-template-columns: minmax(0, 1fr) 230px;
+}
+
+.pet-chat-pair.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.compact-metrics .metric {
+  min-height: 102px;
+}
+
+.compact-metrics .metric-value {
+  font-size: 28px;
+}
+
 .pet-chat-detail {
   background: #fff;
   border: 1px solid var(--line);
@@ -1640,6 +1661,10 @@ th {
 
   .ticket-head {
     display: grid;
+  }
+
+  .pet-chat-pair.compact {
+    grid-template-columns: 1fr;
   }
 
   .ticket-status-row {

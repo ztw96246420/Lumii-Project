@@ -430,6 +430,10 @@ async function onContentClick(event) {
       await tagPetChatMessage(button);
       return;
     }
+    if (action === 'pet-chat-review') {
+      await reviewPetChatMessage(button);
+      return;
+    }
     if (action === 'pet-chat-hide') {
       await hidePetChatMessage(button);
       return;
@@ -1358,8 +1362,27 @@ async function tagPetChatMessage(button) {
     tag,
   });
   state.cache.petChat = null;
+  state.cache.petChatQualityReview = null;
   state.cache.audit = null;
   showToast('已标记 AI 回复');
+  await render(true);
+}
+
+async function reviewPetChatMessage(button) {
+  const id = button.dataset.id;
+  const reviewStatus = button.dataset.status;
+  if (!id || !reviewStatus) return;
+  const label = button.textContent.trim() || petChatQualityReviewStatusLabel(reviewStatus);
+  const reason = window.prompt('请输入 AI 对话复核说明', `${label}：${id}`);
+  if (reason === null) return;
+  await post(`/admin/ai/pet-chat/messages/${encodeURIComponent(id)}/quality-review`, {
+    reason: reason.trim() || `${label}：${id}`,
+    reviewStatus,
+  });
+  state.cache.petChat = null;
+  state.cache.petChatQualityReview = null;
+  state.cache.audit = null;
+  showToast('AI 对话复核已记录');
   await render(true);
 }
 
@@ -1373,13 +1396,14 @@ async function hidePetChatMessage(button) {
   });
   delete state.petChatDetails[id];
   state.cache.petChat = null;
+  state.cache.petChatQualityReview = null;
   state.cache.audit = null;
   showToast('AI 回复已隐藏');
   await render(true);
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -3043,15 +3067,26 @@ function petChatTagLabel(tag) {
   }[tag] || tag;
 }
 
+function petChatQualityReviewStatusLabel(status) {
+  return {
+    ignored: '豁免',
+    needs_fix: '需修正',
+    reviewed: '已复核',
+    safe: '样本正常',
+  }[status] || '待复核';
+}
+
 async function renderPetChat(force) {
   const query = new URLSearchParams({
     flag: state.petChatFlag,
     q: state.petChatQ,
   });
   const rows = await load('petChat', `/admin/ai/pet-chat/messages?${query.toString()}`, force);
+  const qualityReview = await load('petChatQualityReview', '/admin/ai/pet-chat/quality-review', force);
   const medicalCount = rows.filter((row) => row.hasMedicalAlert).length;
   const writeCount = rows.filter((row) => row.hasCalendarWrite || row.updatedPet).length;
   const offCount = rows.filter((row) => row.feedback === 'off').length;
+  const reviewSummary = qualityReview.summary || {};
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('AI 回复', rows.length, `${petChatFlagLabel(state.petChatFlag)}筛选`, '后台默认只展示摘要；查看完整正文必须填写原因并写审计。')}
@@ -3059,6 +3094,12 @@ async function renderPetChat(force) {
       ${metric('业务写入', writeCount, '备忘/体重/疫苗/档案', 'AI 对话触发的结构化业务动作，用于排查自动写入是否合理。')}
       ${metric('不像它反馈', offCount, '用户点了“不像它”', '这些反馈会进入后续提示词上下文，也适合运营抽查。')}
     </div>
+    <div class="grid metrics compact-metrics">
+      ${metric('待抽检', numberText(reviewSummary.unreviewed || 0), `${numberText(reviewSummary.queueCount || 0)} 条进入队列`, '队列优先展示隐藏、质量问题、误触发/漏触发、用户“不像它”、医疗风险和业务写入回复。')}
+      ${metric('已复核', numberText(reviewSummary.reviewed || 0), `${numberText(reviewSummary.needsFix || 0)} 条需修正`, '复核结论只在后台沉淀；标为需修正会自动加质量问题标签。')}
+      ${metric('移动端隐藏', numberText(reviewSummary.hidden || 0), '隐藏后用户侧不可见', '隐藏 AI 回复会立即从移动端 AI 对话列表和后续模型上下文中移除。')}
+    </div>
+    ${renderPetChatQualityReviewPanel(qualityReview)}
     <div class="card">
       <div class="section-head">
         <div>
@@ -3090,9 +3131,67 @@ async function renderPetChat(force) {
   `;
 }
 
+function renderPetChatQualityReviewPanel(data = {}) {
+  const items = data.items || [];
+  const policy = data.policy || {};
+  return `
+    <div class="card pet-chat-review-panel">
+      <div class="section-head">
+        <div>
+          <h2>AI 对话质量抽检</h2>
+          <div class="section-sub">${escapeHtml(policy.sampling || '按风险和反馈自动排序，帮助运营优先看高价值样本。')}</div>
+        </div>
+        ${help(policy.mobileImpact || '复核标签仅后台可见；隐藏回复会影响移动端可见性。')}
+      </div>
+      ${items.length ? `
+        <div class="moderation-list compact">
+          ${items.slice(0, 8).map(renderPetChatQualityReviewItem).join('')}
+        </div>
+      ` : '<div class="placeholder"><div><strong>暂无待抽检 AI 对话</strong><div>有新 AI 回复、用户反馈或运营标签后会自动进入这里。</div></div></div>'}
+    </div>
+  `;
+}
+
+function renderPetChatQualityReviewItem(row) {
+  const tags = (row.adminTags || []).map((tag) => riskBadge(petChatTagLabel(tag))).join('');
+  const status = row.adminQualityReviewStatus ? petChatQualityReviewStatusLabel(row.adminQualityReviewStatus) : '待复核';
+  return `
+    <article class="moderation-card pet-chat-review-card">
+      <div class="moderation-card-main">
+        <div class="moderation-title-row">
+          <div>
+            <div class="cell-title">${escapeHtml(row.petName || row.ownerName || '-')} · ${escapeHtml(status)}</div>
+            <div class="cell-sub">${shortPhone(row.ownerPhone)} · 风险 ${numberText(row.queueScore || 0)} · ${formatTime(row.time)}</div>
+          </div>
+          <div class="moderation-status">${tonePill(status, row.adminQualityReviewStatus === 'needs_fix' || row.adminHiddenAt ? 'bad' : row.adminQualityReviewedAt ? 'ok' : 'warn')}</div>
+        </div>
+        <div class="pet-chat-pair compact">
+          <div><strong>主人</strong><span>${escapeHtml(row.userSummary || '无用户输入摘要')}</span></div>
+          <div><strong>AI</strong><span>${escapeHtml(row.aiSummary || '无 AI 回复摘要')}</span></div>
+        </div>
+        <div class="risk-row">
+          ${riskBadge(row.queueReason || '抽样复核')}
+          ${row.feedback ? riskBadge(`反馈：${row.feedback === 'good' ? '像它' : '不像它'}`) : ''}
+          ${tags}
+          ${row.adminHiddenAt ? riskBadge(`隐藏：${formatTime(row.adminHiddenAt)}`) : ''}
+        </div>
+        ${row.adminQualityReviewReason ? `<div class="cell-sub clamp">复核说明：${escapeHtml(row.adminQualityReviewReason)}</div>` : ''}
+      </div>
+      <div class="moderation-actions">
+        <button class="small-button" data-action="pet-chat-view" data-id="${escapeHtml(row.id)}">查看全文</button>
+        <button class="small-button" data-action="pet-chat-review" data-id="${escapeHtml(row.id)}" data-status="reviewed">已复核</button>
+        <button class="small-button" data-action="pet-chat-review" data-id="${escapeHtml(row.id)}" data-status="safe">样本正常</button>
+        <button class="small-button danger" data-action="pet-chat-review" data-id="${escapeHtml(row.id)}" data-status="needs_fix">需修正</button>
+        ${row.adminHiddenAt ? '<span class="muted">已隐藏</span>' : `<button class="small-button danger" data-action="pet-chat-hide" data-id="${escapeHtml(row.id)}">隐藏回复</button>`}
+      </div>
+    </article>
+  `;
+}
+
 function renderPetChatRow(row) {
   const actionLabels = (row.actionLabels || []).map(riskBadge).join('');
   const tags = (row.adminTags || []).map((tag) => riskBadge(petChatTagLabel(tag))).join('');
+  const reviewStatus = row.adminQualityReviewStatus ? petChatQualityReviewStatusLabel(row.adminQualityReviewStatus) : '';
   const detail = state.petChatDetails[row.id];
   return `
     <article class="moderation-card pet-chat-card">
@@ -3112,12 +3211,15 @@ function renderPetChatRow(row) {
           ${actionLabels || riskBadge('普通回复')}
           ${row.feedback ? riskBadge(`反馈：${row.feedback === 'good' ? '像它' : '不像它'}`) : ''}
           ${tags}
+          ${reviewStatus ? riskBadge(`复核：${reviewStatus}`) : ''}
           ${row.adminHiddenAt ? riskBadge(`隐藏：${formatTime(row.adminHiddenAt)}`) : ''}
         </div>
+        ${row.adminQualityReviewReason ? `<div class="cell-sub clamp">复核说明：${escapeHtml(row.adminQualityReviewReason)}</div>` : ''}
         ${detail ? renderPetChatDetail(detail) : ''}
       </div>
       <div class="moderation-actions">
         <button class="small-button" data-action="pet-chat-view" data-id="${escapeHtml(row.id)}">查看全文</button>
+        <button class="small-button" data-action="pet-chat-review" data-id="${escapeHtml(row.id)}" data-status="reviewed">已复核</button>
         <button class="small-button" data-action="pet-chat-tag" data-id="${escapeHtml(row.id)}" data-tag="quality_issue">质量问题</button>
         <button class="small-button" data-action="pet-chat-tag" data-id="${escapeHtml(row.id)}" data-tag="medical_sample">医疗样本</button>
         <button class="small-button" data-action="pet-chat-tag" data-id="${escapeHtml(row.id)}" data-tag="false_positive">误触发</button>
