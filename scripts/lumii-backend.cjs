@@ -15046,6 +15046,101 @@ function notifyPetMediaModeration(phone, pet, kind, reason) {
   }, 'system', { force: true });
 }
 
+function petProfileFieldLabel(key) {
+  return {
+    birthday: '生日',
+    breed: '品种',
+    gender: '性别',
+    name: '昵称',
+    species: '类型',
+    weightKg: '体重',
+  }[key] || key;
+}
+
+function adminPetProfileSnapshot(pet = {}) {
+  return {
+    birthday: pet.birthday || '',
+    breed: pet.breed || '',
+    gender: pet.gender || 'unknown',
+    name: pet.name || '',
+    species: pet.species || '',
+    weightKg: pet.weightKg ?? '',
+  };
+}
+
+function adminPetProfileInput(body = {}) {
+  const source = body.profile && typeof body.profile === 'object' && !Array.isArray(body.profile) ? body.profile : body;
+  const allowedKeys = ['birthday', 'breed', 'gender', 'name', 'species', 'weightKg'];
+  const profile = {};
+  allowedKeys.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(source, key)) profile[key] = source[key];
+  });
+  return profile;
+}
+
+function notifyPetProfileUpdated(phone, pet, changedFields, reason) {
+  if (!phone || !pet || !state.users?.[phone]) return false;
+  const fieldText = changedFields.map(petProfileFieldLabel).join('、') || '资料';
+  const reasonText = String(reason || '').trim();
+  return addNotification(phone, {
+    actionRoute: 'profile',
+    category: 'system',
+    createdAt: new Date().toISOString(),
+    id: `n-pet-profile-${pet.id}-${Date.now()}`,
+    kind: 'system',
+    petId: pet.id,
+    read: false,
+    text: reasonText
+      ? `${pet.name || '宠物'}的${fieldText}已由平台协助修正，原因：${reasonText}。如有疑问可以通过反馈联系我们。`
+      : `${pet.name || '宠物'}的${fieldText}已由平台协助修正。如有疑问可以通过反馈联系我们。`,
+    title: '宠物资料已修正',
+  }, 'system', { force: true });
+}
+
+async function adminUpdatePetProfile(admin, petId, body = {}) {
+  const found = findAdminPetById(petId);
+  if (!found) return { error: '宠物档案不存在', statusCode: 404 };
+  const { phone, pet, user } = found;
+  const reason = String(body?.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '请填写修正原因', statusCode: 400 };
+  const profile = adminPetProfileInput(body);
+  if (!Object.keys(profile).length) return { error: '请至少填写一个要修正的宠物资料字段', statusCode: 400 };
+  const petPatch = parsePetProfilePayload(profile, { partial: true });
+  if (petPatch.error) return { error: petPatch.error, statusCode: 400 };
+  const profileModeration = await moderatePetProfileTextForPublicUse(petPatch.patch || {}, user, pet.id);
+  if (profileModeration.action && profileModeration.action !== 'allow') {
+    return {
+      error: profileModeration.error,
+      moderation: profileModeration,
+      review: profileModeration.action === 'review',
+      statusCode: profileModeration.statusCode || 400,
+    };
+  }
+  const before = adminPetProfileSnapshot(pet);
+  for (const key of petPatch.unset || []) delete pet[key];
+  Object.assign(pet, petPatch.patch || {});
+  const after = adminPetProfileSnapshot(pet);
+  const changedFields = Object.keys(after).filter((key) => String(before[key] ?? '') !== String(after[key] ?? ''));
+  if (!changedFields.length) return { error: '宠物资料没有变化', statusCode: 400 };
+  pet.updatedAt = new Date().toISOString();
+  writeAdminAudit(admin, 'pet.profile.update', 'pet', pet.id, {
+    pet: before,
+    phone,
+  }, {
+    changedFields,
+    pet: after,
+    phone,
+  }, reason);
+  notifyPetProfileUpdated(phone, pet, changedFields, reason);
+  return {
+    changedFields,
+    item: adminPetProfiles({ q: pet.id, limit: 1 }).items.find((row) => row.id === pet.id) || null,
+    pet,
+    phone: user.phone,
+    petId: pet.id,
+  };
+}
+
 function adminClearPetMedia(admin, petId, kindInput, body = {}) {
   const kind = String(kindInput || '').trim();
   const allowedKinds = new Set(['ai-avatar', 'avatar', 'cover']);
@@ -16000,6 +16095,7 @@ function adminPermissionCatalog() {
     ['user.tag', '标记用户风险标签', '用户'],
     ['user.clear_data', '清理用户业务数据', '用户'],
     ['pet.view', '查看宠物档案', '宠物'],
+    ['pet.edit', '修正宠物资料', '宠物'],
     ['pet.media_moderate', '清理头像、AI 形象、宠友圈封面', '宠物'],
     ['ai.avatar.view', '查看 AI 灵伴任务、素材和反馈', 'AI'],
     ['ai.chat.view_summary', '查看 AI 对话摘要和风险标签', 'AI'],
@@ -21638,6 +21734,41 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       q: url.searchParams.get('q') || '',
       species: url.searchParams.get('species') || 'all',
     }));
+    return true;
+  }
+
+  const adminPetProfileMatch = pathname.match(/^\/admin\/pets\/([^/]+)$/);
+  if (req.method === 'GET' && adminPetProfileMatch) {
+    const petId = decodeURIComponent(adminPetProfileMatch[1]);
+    const found = findAdminPetById(petId);
+    if (!found) {
+      fail(res, 404, '宠物档案不存在', false, undefined, 'ADMIN_PET_NOT_FOUND');
+      return true;
+    }
+    ok(res, {
+      item: adminPetProfiles({ q: petId, limit: 1 }).items.find((row) => row.id === petId) || null,
+      owner: adminUserSummary(found.user),
+      pet: found.pet,
+    });
+    return true;
+  }
+
+  if (req.method === 'PATCH' && adminPetProfileMatch) {
+    const petId = decodeURIComponent(adminPetProfileMatch[1]);
+    const result = await adminUpdatePetProfile(admin, petId, body);
+    if (result.error) {
+      fail(
+        res,
+        result.statusCode || 400,
+        result.error,
+        Boolean(result.review),
+        result.moderation,
+        result.moderation?.action === 'block' ? 'ADMIN_PET_PROFILE_BLOCKED' : result.review ? 'ADMIN_PET_PROFILE_REVIEW' : 'ADMIN_PET_PROFILE_INVALID',
+      );
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

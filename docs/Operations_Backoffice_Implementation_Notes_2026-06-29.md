@@ -138,6 +138,9 @@
 ### 3.3.1 宠物档案
 
 - `GET /admin/pets`
+- `GET /admin/pets/{petId}`
+- `PATCH /admin/pets/{petId}`
+- `POST /admin/pets/{petId}/media/{avatar|ai-avatar|cover}/clear`
 
 已支持：
 
@@ -148,15 +151,18 @@
 - 形象状态区分：缺头像、普通头像、AI 形象已应用、有宠友圈封面。
 - AI 形象已应用通过 `avatarUrl`、`avatarJobs.acceptedPetId` 与 `ready` 状态共同判断，避免清空头像后仍误判为 AI 形象。
 - 表格展示主人、默认宠物、物种/品种/性别/生日/年龄、体重、最近 AI 任务、宠物日历记录数、宠友圈小事数、地点点评数、最近关联时间和媒体治理操作。
+- 支持后台修正宠物昵称、类型、品种、性别、生日和体重；复用移动端同一套资料校验与内容安全规则。
+- 修正资料必须填写原因，会写入 `adminAuditLogs`，action 为 `pet.profile.update`，并给用户写入站内通知。
+- 修正资料会直接更新 `users.pets`，移动端 `/pets`、`/me`、首页宠物卡片、宠物日历和 AI 对话上下文下一次刷新都会读取新值。
 - 支持清空违规普通头像、AI 灵伴形象、宠友圈封面。
 - 清空媒体会写入 `adminAuditLogs`，action 分别为 `pet.media.clear_avatar`、`pet.media.clear_ai_avatar`、`pet.media.clear_cover`。
 - 清空媒体会强制给用户写入站内通知，并在移动端下一次刷新、登录或重新拉取 `/me` / 宠友圈资料时影响真实展示。
 - 数据导出新增宠物档案 CSV。
 - 独立说明文档：[Operations_Backoffice_Pet_Media_Moderation_2026-06-30.md](Operations_Backoffice_Pet_Media_Moderation_2026-06-30.md)。
+- 资料修正文档：[Operations_Backoffice_Pet_Profile_Edit_2026-07-03.md](Operations_Backoffice_Pet_Profile_Edit_2026-07-03.md)。
 
 暂未开放：
 
-- 后台直接修正宠物资料。
 - 后台替换头像、替换 AI 形象图、更换宠友圈封面。
 - 合并重复宠物档案。
 - 上述动作会影响首页、AI 对话、宠物日历、宠友圈和会话引用，需要更细权限、引用迁移或上传审核后再开放。

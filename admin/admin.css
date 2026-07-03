@@ -1193,6 +1193,14 @@ th {
   padding: 10px;
 }
 
+.pet-profile-actions {
+  min-width: 86px;
+}
+
+.pet-profile-actions .small-button {
+  white-space: nowrap;
+}
+
 .ticket-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 330px;

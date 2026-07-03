@@ -460,6 +460,10 @@ async function onContentClick(event) {
       await clearPetMedia(button);
       return;
     }
+    if (action === 'pet-profile-edit') {
+      await editPetProfile(button);
+      return;
+    }
     if (action === 'pet-calendar-filter') {
       state.petCalendarType = $('petCalendarType').value;
       state.petCalendarStatus = $('petCalendarStatus').value;
@@ -3429,7 +3433,9 @@ function petAvatarStatus(row) {
 }
 
 function renderPetMediaActions(row) {
-  const buttons = [];
+  const buttons = [
+    `<button class="small-button" data-action="pet-profile-edit" data-id="${escapeHtml(row.id)}">修正资料</button>`,
+  ];
   if (row.avatarStatusKey === 'ai') {
     buttons.push(`<button class="small-button danger" data-action="pet-media-clear" data-id="${escapeHtml(row.id)}" data-kind="ai-avatar" data-name="${escapeHtml(row.name || '')}">清AI形象</button>`);
   } else if (row.hasAvatar) {
@@ -3438,8 +3444,69 @@ function renderPetMediaActions(row) {
   if (row.hasPetCircleCover) {
     buttons.push(`<button class="small-button danger" data-action="pet-media-clear" data-id="${escapeHtml(row.id)}" data-kind="cover" data-name="${escapeHtml(row.name || '')}">清封面</button>`);
   }
-  if (!buttons.length) return '<span class="cell-sub">无可处理媒体</span>';
-  return `<div class="actions">${buttons.join('')}</div>`;
+  return `<div class="actions pet-profile-actions">${buttons.join('')}</div>`;
+}
+
+function cachedPetProfileRow(petId) {
+  return (state.cache.pets?.items || []).find((item) => item.id === petId) || null;
+}
+
+function normalizeAdminPetWeightInput(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const number = Number(text);
+  return Number.isFinite(number) ? number : text;
+}
+
+async function editPetProfile(button) {
+  const petId = button.dataset.id;
+  const row = cachedPetProfileRow(petId);
+  if (!petId || !row) {
+    showToast('请刷新宠物档案列表后再操作');
+    return;
+  }
+  const name = window.prompt('宠物昵称', row.name || '');
+  if (name === null) return;
+  const species = window.prompt('宠物类型：dog / cat', row.species === 'cat' ? 'cat' : 'dog');
+  if (species === null) return;
+  const breed = window.prompt('品种，可填“待完善”', row.breed || '');
+  if (breed === null) return;
+  const gender = window.prompt('性别：male / female / unknown', row.gender || 'unknown');
+  if (gender === null) return;
+  const birthday = window.prompt('生日：YYYY / YYYY-MM / YYYY-MM-DD；留空表示未知', row.birthday || '');
+  if (birthday === null) return;
+  const weightKg = window.prompt('体重 kg；留空表示未知', row.weightKg || '');
+  if (weightKg === null) return;
+  const reason = window.prompt('请输入修正原因，会写入审计并通知用户', `修正宠物资料：${row.name}`);
+  if (reason === null) return;
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) {
+    showToast('请填写修正原因');
+    return;
+  }
+  const profile = {
+    birthday: birthday.trim(),
+    breed: breed.trim(),
+    gender: gender.trim() || 'unknown',
+    name: name.trim(),
+    species: species.trim(),
+    weightKg: normalizeAdminPetWeightInput(weightKg),
+  };
+  if (!window.confirm(`确认修正「${row.name}」的宠物资料？该操作会影响移动端首页、宠物日历、AI 对话上下文，并写入审计。`)) return;
+  const result = await patch(`/admin/pets/${encodeURIComponent(petId)}`, {
+    profile,
+    reason: trimmedReason,
+  });
+  state.cache = { ...state.cache, audit: null, petCalendar: null, pets: null, users: null };
+  showToast(`宠物资料已修正：${(result.changedFields || []).map((field) => ({
+    birthday: '生日',
+    breed: '品种',
+    gender: '性别',
+    name: '昵称',
+    species: '类型',
+    weightKg: '体重',
+  }[field] || field)).join('、') || '已更新'}`);
+  await render(true);
 }
 
 async function clearPetMedia(button) {
@@ -3561,7 +3628,8 @@ async function renderPets(force) {
           <div><strong>清空头像</strong><span>用于普通头像违规，移动端会回到现有兜底头像展示。</span></div>
           <div><strong>清空 AI 形象</strong><span>用于 AI 结果不适合展示，会解除已应用任务关联并清空当前头像。</span></div>
           <div><strong>清空封面</strong><span>用于宠友圈封面违规，移动端宠友圈主页回退到小事图片或宠物头像。</span></div>
-          <div><strong>仍预留</strong><span>后台直接修正宠物资料、替换封面和合并重复宠物仍需更细权限。</span></div>
+          <div><strong>资料修正已开放</strong><span>昵称、类型、品种、性别、生日和体重可由后台带原因修正，并同步影响移动端展示。</span></div>
+          <div><strong>仍预留</strong><span>后台替换封面和合并重复宠物仍需更细权限与引用迁移。</span></div>
           <div><strong>合并重复宠物</strong><span>生产阶段需要迁移日历、AI、宠友圈和会话引用，不能直接删档。</span></div>
         </div>
       </div>
