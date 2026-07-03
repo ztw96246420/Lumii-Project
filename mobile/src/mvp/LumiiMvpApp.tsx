@@ -226,6 +226,8 @@ const fallbackRemoteConfig: AppRemoteConfig = {
   },
   moderation: {
     enabled: false,
+    machineImageEnabled: false,
+    machineTextEnabled: false,
     reviewMessage: '内容已进入人工审核，通过后会展示给附近用户',
     textRulesEnabled: true,
   },
@@ -2615,6 +2617,13 @@ export default function LumiiMvpApp() {
   const petCircleEnabled = remoteConfig.features.petCircle !== false;
   const placesEnabled = remoteConfig.features.places !== false;
   const walkInviteEnabled = remoteConfig.features.walkInvite !== false;
+  const moderationConfig = remoteConfig.moderation || {};
+  const contentSafetyHintEnabled = Boolean(
+    moderationConfig.enabled && (moderationConfig.textRulesEnabled !== false || moderationConfig.machineTextEnabled || moderationConfig.machineImageEnabled),
+  );
+  const contentSafetyReviewHint = String(moderationConfig.reviewMessage || '触发复审时，通过后会展示给附近用户')
+    .trim()
+    .replace(/^内容已进入/, '触发复审时，内容会进入') || '触发复审时，通过后会展示给附近用户';
   const maintenanceEnabled = remoteConfig.app.maintenanceEnabled && !isHomePreviewMode;
   const maintenanceMessage = remoteConfig.app.maintenanceMessage || '灵伴正在维护升级，请稍后再试';
   const appUpdate = remoteConfig.app.update;
@@ -12695,6 +12704,7 @@ export default function LumiiMvpApp() {
                   </View>
                 ) : null}
               </View>
+              {renderPublicContentSafetyNotice('评论会按平台安全规则校验')}
               <View style={styles.petCircleCommentInputRowMake}>
                 <TextInput
                   maxLength={petCircleCommentMaxLength}
@@ -13493,6 +13503,7 @@ export default function LumiiMvpApp() {
                 </View>
               ) : null}
             </View>
+            {renderPublicContentSafetyNotice('评论会按平台安全规则校验')}
             <View style={styles.petCircleCommentInputRowMake}>
               <TextInput
                 maxLength={petCircleCommentMaxLength}
@@ -15961,6 +15972,8 @@ export default function LumiiMvpApp() {
             />
           </View>
 
+          {renderPublicContentSafetyNotice('公开小事会按平台安全规则校验')}
+
           <View style={styles.dailyPhotoSectionHeaderMake}>
             <Text style={styles.dailyPhotoSectionTitleMake}>图片</Text>
             <Text style={styles.dailyPhotoCounterMake}>{dailyPhotoCount}/{dailyPostPhotoLimit}</Text>
@@ -16263,6 +16276,16 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderPublicContentSafetyNotice(scopeText: string) {
+    if (!contentSafetyHintEnabled) return null;
+    return (
+      <View style={styles.publicContentSafetyNoticeMake}>
+        <ShieldCheck color={palette.teal} size={13} strokeWidth={2.5} />
+        <Text style={styles.publicContentSafetyNoticeTextMake}>{scopeText}。{contentSafetyReviewHint}</Text>
+      </View>
+    );
+  }
+
   function renderAddPlaceReview() {
     if (placeSubmitResult) return renderPlaceSubmitResult(placeSubmitResult);
     const isReviewMode = placeComposerMode === 'review';
@@ -16455,7 +16478,9 @@ export default function LumiiMvpApp() {
           <View style={styles.addPlaceNoticeMake}>
             <Shield color={palette.teal} size={13} strokeWidth={2.5} />
             <Text style={styles.addPlaceNoticeTextMake}>
-              {isReviewMode ? '点评需经过 24 小时人工审核，请保持真实客观' : '地点和体验会进入 24 小时人工审核，通过后展示给附近用户'}
+              {contentSafetyHintEnabled
+                ? `${isReviewMode ? '地点点评' : '地点内容'}会按平台安全规则校验。${contentSafetyReviewHint}`
+                : isReviewMode ? '点评需经过 24 小时人工审核，请保持真实客观' : '地点和体验会进入 24 小时人工审核，通过后展示给附近用户'}
             </Text>
           </View>
 
@@ -19957,6 +19982,8 @@ const styles = StyleSheet.create({
   profileUnreadBadge: { backgroundColor: palette.danger, borderRadius: 10, color: '#fff', fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 1 },
   profileVerifyPill: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 10, flexDirection: 'row', gap: 4, marginTop: 8, paddingHorizontal: 8, paddingVertical: 3 },
   profileVerifyText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600' },
+  publicContentSafetyNoticeMake: { alignItems: 'flex-start', backgroundColor: 'rgba(77,182,172,0.08)', borderColor: 'rgba(77,182,172,0.18)', borderRadius: 13, borderWidth: 1, flexDirection: 'row', gap: 8, marginTop: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  publicContentSafetyNoticeTextMake: { color: palette.teal, flex: 1, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17 },
   progressFill: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(90deg, #FFB48C 0%, #FF8A5C 60%, #FF6F3B 100%)' } as object) : null), backgroundColor: palette.orange, borderRadius: 999, height: '100%', shadowColor: palette.orange, shadowOffset: { height: 0, width: 0 }, shadowOpacity: 0.45, shadowRadius: 12 },
   progressTrack: { backgroundColor: 'rgba(255,138,92,0.16)', borderRadius: 999, height: 6, marginTop: 28, overflow: 'hidden', width: '100%' },
   ratingPill: { alignItems: 'center', flexDirection: 'row', gap: 3 },

@@ -916,6 +916,8 @@ export type AppRemoteConfig = {
   };
   moderation?: {
     enabled?: boolean;
+    machineImageEnabled?: boolean;
+    machineTextEnabled?: boolean;
     reviewMessage?: string;
     textRulesEnabled?: boolean;
   };

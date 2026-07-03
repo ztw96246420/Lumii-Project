@@ -139,6 +139,8 @@ const mockAppRemoteConfig: AppRemoteConfig = {
   },
   moderation: {
     enabled: false,
+    machineImageEnabled: false,
+    machineTextEnabled: false,
     reviewMessage: '内容已进入人工审核，通过后会展示给附近用户',
     textRulesEnabled: true,
   },

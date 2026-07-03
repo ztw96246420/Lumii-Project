@@ -147,6 +147,16 @@ async function main() {
     assert.ok(configPayload.data.contentSafety.image.bizTypes.some((item) => item.scope === 'place_review' && item.bizType), 'place review image Biztype should be listed');
     assert.ok(configPayload.data.contentSafety.image.bizTypes.some((item) => item.scope === 'place_submission' && item.bizType), 'place submission image Biztype should be listed');
 
+    const appConfig = await request('/app/config');
+    assert.equal(appConfig.data.moderation.enabled, true);
+    assert.equal(appConfig.data.moderation.machineImageEnabled, true);
+    assert.equal(appConfig.data.moderation.machineTextEnabled, true);
+    assert.equal(appConfig.data.moderation.textRulesEnabled, true);
+    assert.equal(typeof appConfig.data.moderation.reviewMessage, 'string');
+    assert.equal(Object.hasOwn(appConfig.data.moderation, 'blockKeywords'), false, 'app config must not expose block keywords');
+    assert.equal(Object.hasOwn(appConfig.data.moderation, 'highRiskKeywords'), false, 'app config must not expose high-risk keywords');
+    assert.equal(Object.hasOwn(appConfig.data.moderation, 'reviewKeywords'), false, 'app config must not expose review keywords');
+
     const readiness = await request('/admin/launch/readiness', { token: adminToken });
     const contentModel = rowByKey(readiness.data.gaps, 'content_model');
     const imageModeration = rowByKey(readiness.data.gaps, 'image_moderation');
