@@ -164,15 +164,14 @@
 - 替换头像会解除旧 AI 形象任务的 `acceptedPetId` 关联，并清空旧动效字段，避免移动端继续播放过期素材；替换封面会同步影响宠友圈主页封面。
 - 替换 AI 灵伴形象会创建 `provider=admin`、`status=ready` 的已应用 AI 形象任务，并清空旧动效字段，确保后台 AI 状态和移动端 `avatarUrl` 使用同一份数据。
 - 替换媒体会写入 `adminAuditLogs`，action 分别为 `pet.media.replace_avatar`、`pet.media.replace_ai_avatar`、`pet.media.replace_cover`，并给用户写入站内通知。
+- 支持同一用户下合并重复宠物档案；接口为 `POST /admin/pets/{sourcePetId}/merge`，必须填写目标宠物 ID、合并原因和源宠物 ID 确认。
+- 合并时目标宠物保留现有资料，源宠物只补齐目标空字段；宠物日历、AI 形象任务、AI 对话、宠友圈小事、通知、移动端事件和他人会话卡片引用会迁移到目标宠物。若目标未继承源头像，则源宠物的已应用 AI 状态和动效不会强行套到目标头像上。
+- 合并完成后源宠物会从 `users.pets` 移除；若源宠物是默认宠物，则默认宠物切换到目标宠物；动作写入 `pet.profile.merge` 审计并通知用户。
 - 数据导出新增宠物档案 CSV。
 - 独立说明文档：[Operations_Backoffice_Pet_Media_Moderation_2026-06-30.md](Operations_Backoffice_Pet_Media_Moderation_2026-06-30.md)。
 - 资料修正文档：[Operations_Backoffice_Pet_Profile_Edit_2026-07-03.md](Operations_Backoffice_Pet_Profile_Edit_2026-07-03.md)。
 - 媒体替换文档：[Operations_Backoffice_Pet_Media_Replace_2026-07-03.md](Operations_Backoffice_Pet_Media_Replace_2026-07-03.md)。
-
-暂未开放：
-
-- 合并重复宠物档案。
-- 合并动作会影响首页、AI 对话、宠物日历、宠友圈和会话引用，需要更细权限和引用迁移后再开放。
+- 重复宠物合并文档：[Operations_Backoffice_Pet_Profile_Merge_2026-07-04.md](Operations_Backoffice_Pet_Profile_Merge_2026-07-04.md)。
 
 ### 3.4 AI 灵伴
 

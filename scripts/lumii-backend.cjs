@@ -15952,6 +15952,374 @@ async function adminUpdatePetProfile(admin, petId, body = {}) {
   };
 }
 
+function adminPetMergeHasValue(value) {
+  if (value === undefined || value === null) return false;
+  if (typeof value === 'string') return Boolean(value.trim());
+  return true;
+}
+
+function adminPetMergeCopyMissingField(targetPet, sourcePet, field) {
+  if (adminPetMergeHasValue(targetPet?.[field]) || !adminPetMergeHasValue(sourcePet?.[field])) return false;
+  targetPet[field] = cloneJson(sourcePet[field]);
+  return true;
+}
+
+function adminPetMergeKey(phone, petId) {
+  return `${phone}:${petId}`;
+}
+
+function mergeAdminPetCalendarStores(phone, sourcePet, targetPet) {
+  const sourceKey = adminPetMergeKey(phone, sourcePet.id);
+  const targetKey = adminPetMergeKey(phone, targetPet.id);
+  const summary = {
+    deletedRecords: 0,
+    memos: 0,
+    vaccineReminders: 0,
+    vaccines: 0,
+    weights: 0,
+  };
+  const moveStore = (storeName, type) => {
+    const sourceRecords = adminHealthStoreList(storeName, sourceKey);
+    if (!sourceRecords.length) return;
+    const targetRecords = adminHealthStoreMutableList(storeName, targetKey);
+    const existingIds = new Set(targetRecords.map((record) => String(record?.id || '')).filter(Boolean));
+    sourceRecords.forEach((record) => {
+      const id = String(record?.id || '');
+      if (id && existingIds.has(id)) return;
+      targetRecords.push(record);
+      if (id) existingIds.add(id);
+      summary[storeName] += 1;
+    });
+    sortAdminPetCalendarStore(type, targetRecords);
+    delete state.health[storeName][sourceKey];
+  };
+  moveStore('weights', 'weight');
+  moveStore('vaccines', 'vaccine');
+  moveStore('memos', 'memo');
+
+  const sourceReminderIds = adminHealthStoreList('vaccineReminders', sourceKey);
+  if (sourceReminderIds.length) {
+    const targetReminderIds = adminHealthStoreMutableList('vaccineReminders', targetKey);
+    const existing = new Set(targetReminderIds.map((id) => String(id || '')).filter(Boolean));
+    sourceReminderIds.forEach((id) => {
+      const value = String(id || '').trim();
+      if (!value || existing.has(value)) return;
+      targetReminderIds.push(value);
+      existing.add(value);
+      summary.vaccineReminders += 1;
+    });
+    delete state.health.vaccineReminders[sourceKey];
+  }
+
+  const deletedStore = adminPetCalendarDeletedStore();
+  Object.entries(deletedStore).forEach(([recordId, deleted]) => {
+    const parsed = parseAdminPetCalendarRecordId(recordId);
+    const belongsToSource = (
+      (parsed?.phone === phone && parsed.petId === sourcePet.id) ||
+      (deleted?.phone === phone && deleted?.petId === sourcePet.id) ||
+      deleted?.key === sourceKey
+    );
+    if (!belongsToSource) return;
+    const nextDeleted = {
+      ...deleted,
+      key: targetKey,
+      pet: { id: targetPet.id, name: targetPet.name || '' },
+      petId: targetPet.id,
+      phone,
+    };
+    const nextRecordId = parsed?.phone === phone && parsed.petId === sourcePet.id
+      ? `${parsed.type}:${phone}:${targetPet.id}:${parsed.sourceId}`
+      : recordId;
+    if (nextRecordId !== recordId && !deletedStore[nextRecordId]) {
+      deletedStore[nextRecordId] = nextDeleted;
+      delete deletedStore[recordId];
+    } else {
+      deletedStore[recordId] = nextDeleted;
+    }
+    summary.deletedRecords += 1;
+  });
+
+  if (summary.weights > 0) syncPetWeightFromAdminRecords(targetPet, adminHealthStoreList('weights', targetKey));
+  return summary;
+}
+
+function mergeAdminPetChatMessages(phone, sourcePet, targetPet) {
+  state.petChatMessages = state.petChatMessages || {};
+  const sourceKey = adminPetMergeKey(phone, sourcePet.id);
+  const targetKey = adminPetMergeKey(phone, targetPet.id);
+  const sourceMessages = Array.isArray(state.petChatMessages[sourceKey]) ? state.petChatMessages[sourceKey] : [];
+  if (!sourceMessages.length) {
+    delete state.petChatMessages[sourceKey];
+    return 0;
+  }
+  const targetMessages = Array.isArray(state.petChatMessages[targetKey]) ? state.petChatMessages[targetKey] : [];
+  const existingIds = new Set(targetMessages.map((message) => String(message?.id || '')).filter(Boolean));
+  let moved = 0;
+  sourceMessages.forEach((message) => {
+    const id = String(message?.id || '');
+    if (id && existingIds.has(id)) return;
+    if (message?.updatedPet?.id === sourcePet.id) {
+      message.updatedPet = {
+        ...message.updatedPet,
+        id: targetPet.id,
+        name: targetPet.name || message.updatedPet.name || '',
+      };
+    }
+    targetMessages.push(message);
+    if (id) existingIds.add(id);
+    moved += 1;
+  });
+  targetMessages.sort((left, right) =>
+    analyticsTimeMs(left?.time || left?.createdAt || left?.id) - analyticsTimeMs(right?.time || right?.createdAt || right?.id)
+  );
+  state.petChatMessages[targetKey] = targetMessages;
+  delete state.petChatMessages[sourceKey];
+  return moved;
+}
+
+function updateMergedPetNotifications(sourcePetId, targetPetId) {
+  let count = 0;
+  Object.values(state.notifications || {}).forEach((notifications) => {
+    if (!Array.isArray(notifications)) return;
+    notifications.forEach((notification) => {
+      if (notification?.petId === sourcePetId) {
+        notification.petId = targetPetId;
+        count += 1;
+      }
+      if (notification?.properties?.petId === sourcePetId) {
+        notification.properties.petId = targetPetId;
+        count += 1;
+      }
+      if (notification?.data?.petId === sourcePetId) {
+        notification.data.petId = targetPetId;
+        count += 1;
+      }
+    });
+  });
+  return count;
+}
+
+function updateMergedPetConversations(user) {
+  let count = 0;
+  Object.entries(state.conversations || {}).forEach(([ownerPhone, conversations]) => {
+    if (ownerPhone === user.phone || !Array.isArray(conversations)) return;
+    const owner = state.users?.[ownerPhone];
+    if (!owner) return;
+    conversations.forEach((conversation, index) => {
+      if (conversation?.id !== conversationIdFor(user.phone) && conversation?.ownerId !== `user-${user.phone}`) return;
+      const next = buildConversationFor(owner, user, conversation.lastMessage, conversation.unread);
+      if (!next) return;
+      conversations[index] = {
+        ...conversation,
+        ...next,
+        updatedAt: conversation.updatedAt || next.updatedAt,
+      };
+      count += 1;
+    });
+  });
+  return count;
+}
+
+function updateMergedPetAppEvents(phone, sourcePet, targetPet) {
+  let count = 0;
+  (Array.isArray(state.appEvents) ? state.appEvents : []).forEach((event) => {
+    if (event?.phone !== phone) return;
+    if (event.petId === sourcePet.id) {
+      event.petId = targetPet.id;
+      event.petName = targetPet.name || event.petName || '';
+      count += 1;
+    }
+    if (event?.properties?.petId === sourcePet.id) {
+      event.properties.petId = targetPet.id;
+      count += 1;
+    }
+    if (event?.properties?.activePetId === sourcePet.id) {
+      event.properties.activePetId = targetPet.id;
+      count += 1;
+    }
+  });
+  return count;
+}
+
+function updateMergedPetMediaUploads(phone, sourcePetId, targetPetId) {
+  let count = 0;
+  Object.values(state.mediaUploads || {}).forEach((media) => {
+    if (!media || media.ownerPhone !== phone) return;
+    if (media.petId === sourcePetId) {
+      media.petId = targetPetId;
+      count += 1;
+    }
+    if (media.analysis?.petId === sourcePetId) {
+      media.analysis.petId = targetPetId;
+      count += 1;
+    }
+  });
+  return count;
+}
+
+function updateMergedPetAiJobs(phone, sourcePet, targetPet, options = {}) {
+  const migrateAppliedAvatar = Boolean(options.migrateAppliedAvatar);
+  const summary = { avatarAnimationJobs: 0, avatarJobs: 0, detachedAcceptedAvatarJobs: 0, detachedAvatarAnimationJobs: 0 };
+  Object.values(state.avatarJobs || {}).forEach((job) => {
+    if (!job || normalizePhone(job.ownerPhone) !== phone) return;
+    let changed = false;
+    if (job.petId === sourcePet.id) {
+      job.petId = targetPet.id;
+      changed = true;
+    }
+    if (job.acceptedPetId === sourcePet.id) {
+      if (migrateAppliedAvatar || (job.resultUrl && job.resultUrl === targetPet.avatarUrl)) {
+        job.acceptedPetId = targetPet.id;
+      } else {
+        job.mergedAcceptedPetId = sourcePet.id;
+        job.acceptedPetId = '';
+        job.acceptedAt = '';
+        summary.detachedAcceptedAvatarJobs += 1;
+      }
+      changed = true;
+    }
+    if (changed) {
+      job.petName = targetPet.name || job.petName || '';
+      job.mergedFromPetIds = [...new Set([...(job.mergedFromPetIds || []), sourcePet.id])];
+      touchAvatarJob(job);
+      summary.avatarJobs += 1;
+    }
+  });
+  Object.values(state.avatarAnimationJobs || {}).forEach((job) => {
+    if (!job || normalizePhone(job.ownerPhone) !== phone) return;
+    if (job.petId !== sourcePet.id) return;
+    if (migrateAppliedAvatar || (job.videoUrl && job.videoUrl === targetPet.avatarAnimationUrl)) {
+      job.petId = targetPet.id;
+    } else {
+      job.mergedFromPetId = sourcePet.id;
+      job.petId = '';
+      summary.detachedAvatarAnimationJobs += 1;
+    }
+    job.petName = targetPet.name || job.petName || '';
+    job.mergedFromPetIds = [...new Set([...(job.mergedFromPetIds || []), sourcePet.id])];
+    touchAvatarAnimationJob(job);
+    summary.avatarAnimationJobs += 1;
+  });
+  return summary;
+}
+
+function notifyPetProfilesMerged(phone, targetPet, sourcePet, reason) {
+  if (!phone || !targetPet || !sourcePet || !state.users?.[phone]) return false;
+  const reasonText = String(reason || '').trim();
+  return addNotification(phone, {
+    actionRoute: 'profile',
+    category: 'system',
+    createdAt: new Date().toISOString(),
+    id: `n-pet-merge-${targetPet.id}-${Date.now()}`,
+    kind: 'system',
+    petId: targetPet.id,
+    read: false,
+    text: reasonText
+      ? `平台已将重复宠物档案「${sourcePet.name || sourcePet.id}」合并到「${targetPet.name || targetPet.id}」，相关日历、AI、宠友圈和对话记录已迁移。原因：${reasonText}。`
+      : `平台已将重复宠物档案「${sourcePet.name || sourcePet.id}」合并到「${targetPet.name || targetPet.id}」，相关日历、AI、宠友圈和对话记录已迁移。`,
+    title: '重复宠物档案已合并',
+  }, 'system', { force: true });
+}
+
+function adminMergePetProfiles(admin, sourcePetId, body = {}) {
+  const sourceFound = findAdminPetById(sourcePetId);
+  if (!sourceFound) return { error: '源宠物档案不存在或已被合并', statusCode: 404 };
+  const targetPetId = String(body.targetPetId || body.mergeIntoPetId || body.targetId || '').trim();
+  if (!targetPetId) return { error: '请选择要合并到的目标宠物', statusCode: 400 };
+  if (targetPetId === sourceFound.pet.id) return { error: '不能把宠物档案合并到自身', statusCode: 400 };
+  const targetFound = findAdminPetById(targetPetId);
+  if (!targetFound) return { error: '目标宠物档案不存在', statusCode: 404 };
+  if (targetFound.phone !== sourceFound.phone) return { error: '当前只允许合并同一用户下的重复宠物档案', statusCode: 400 };
+  const confirmation = String(body.confirmation || body.confirmSourcePetId || '').trim();
+  if (confirmation && confirmation !== sourceFound.pet.id) return { error: '合并确认 ID 与源宠物不一致', statusCode: 400 };
+  const reason = adminReason(body, '合并重复宠物档案');
+  if (!reason) return { error: '请填写合并原因', statusCode: 400 };
+
+  const { phone, user } = sourceFound;
+  const sourcePet = sourceFound.pet;
+  const targetPet = targetFound.pet;
+  const before = cloneJson({
+    sourcePet,
+    targetPet,
+    user: adminUserSummary(user),
+  });
+  const now = new Date().toISOString();
+  const copiedFields = [];
+  [
+    'avatarUrl',
+    'birthday',
+    'breed',
+    'gender',
+    'healthScore',
+    'personality',
+    'petCircleCoverImageUrl',
+    'species',
+    'weightKg',
+  ].forEach((field) => {
+    if (adminPetMergeCopyMissingField(targetPet, sourcePet, field)) copiedFields.push(field);
+  });
+  const shouldCopyAnimation = (
+    (!targetPet.avatarAnimationUrl && sourcePet.avatarAnimationUrl) &&
+    (!targetPet.avatarUrl || targetPet.avatarUrl === sourcePet.avatarUrl || copiedFields.includes('avatarUrl'))
+  );
+  if (shouldCopyAnimation) {
+    ['avatarAnimationJobId', 'avatarAnimationStatus', 'avatarAnimationUpdatedAt', 'avatarAnimationUrl'].forEach((field) => {
+      if (adminPetMergeCopyMissingField(targetPet, sourcePet, field)) copiedFields.push(field);
+    });
+  }
+  targetPet.updatedAt = now;
+  targetPet.mergedSourcePetIds = [...new Set([...(targetPet.mergedSourcePetIds || []), sourcePet.id, ...(sourcePet.mergedSourcePetIds || [])])];
+
+  const calendarSummary = mergeAdminPetCalendarStores(phone, sourcePet, targetPet);
+  const chatMessages = mergeAdminPetChatMessages(phone, sourcePet, targetPet);
+  const migrateAppliedAvatar = Boolean(targetPet.avatarUrl && targetPet.avatarUrl === sourcePet.avatarUrl);
+  const aiSummary = updateMergedPetAiJobs(phone, sourcePet, targetPet, { migrateAppliedAvatar });
+  let socialMoments = 0;
+  ensureSocialMoments().forEach((moment) => {
+    if (moment?.phone !== phone || moment.petId !== sourcePet.id) return;
+    moment.petId = targetPet.id;
+    moment.mergedFromPetId = sourcePet.id;
+    socialMoments += 1;
+  });
+  const notifications = updateMergedPetNotifications(sourcePet.id, targetPet.id);
+  const appEvents = updateMergedPetAppEvents(phone, sourcePet, targetPet);
+  const mediaUploads = updateMergedPetMediaUploads(phone, sourcePet.id, targetPet.id);
+
+  user.pets = (Array.isArray(user.pets) ? user.pets : []).filter((pet) => pet?.id !== sourcePet.id);
+  if (user.activePetId === sourcePet.id || !user.pets.some((pet) => pet?.id === user.activePetId)) user.activePetId = targetPet.id;
+  const conversations = updateMergedPetConversations(user);
+
+  const summary = {
+    appEvents,
+    avatarAnimationJobs: aiSummary.avatarAnimationJobs,
+    avatarJobs: aiSummary.avatarJobs,
+    calendar: calendarSummary,
+    conversations,
+    detachedAcceptedAvatarJobs: aiSummary.detachedAcceptedAvatarJobs,
+    detachedAvatarAnimationJobs: aiSummary.detachedAvatarAnimationJobs,
+    mediaUploads,
+    notifications,
+    petChatMessages: chatMessages,
+    socialMoments,
+  };
+  notifyPetProfilesMerged(phone, targetPet, sourcePet, reason);
+  writeAdminAudit(admin, 'pet.profile.merge', 'pet', targetPet.id, before, {
+    copiedFields,
+    removedPetId: sourcePet.id,
+    summary,
+    targetPet: cloneJson(targetPet),
+    user: adminUserSummary(user),
+  }, reason);
+  return {
+    copiedFields,
+    item: adminPetProfiles({ q: targetPet.id, limit: 1 }).items.find((row) => row.id === targetPet.id) || null,
+    phone,
+    removedPetId: sourcePet.id,
+    summary,
+    targetPetId: targetPet.id,
+  };
+}
+
 function adminClearPetMedia(admin, petId, kindInput, body = {}) {
   const kind = String(kindInput || '').trim();
   const allowedKinds = new Set(['ai-avatar', 'avatar', 'cover']);
@@ -24563,6 +24931,19 @@ async function handleAdminRequest(req, res, pathname, url, body) {
         result.moderation,
         result.moderation?.action === 'block' ? 'ADMIN_PET_PROFILE_BLOCKED' : result.review ? 'ADMIN_PET_PROFILE_REVIEW' : 'ADMIN_PET_PROFILE_INVALID',
       );
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminPetProfileMergeMatch = pathname.match(/^\/admin\/pets\/([^/]+)\/merge$/);
+  if (req.method === 'POST' && adminPetProfileMergeMatch) {
+    const petId = decodeURIComponent(adminPetProfileMergeMatch[1]);
+    const result = adminMergePetProfiles(admin, petId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PET_PROFILE_MERGE_INVALID');
       return true;
     }
     saveState();

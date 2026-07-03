@@ -490,6 +490,10 @@ async function onContentClick(event) {
       await editPetProfile(button);
       return;
     }
+    if (action === 'pet-profile-merge') {
+      await mergePetProfile(button);
+      return;
+    }
     if (action === 'pet-calendar-filter') {
       state.petCalendarType = $('petCalendarType').value;
       state.petCalendarStatus = $('petCalendarStatus').value;
@@ -3691,6 +3695,7 @@ function renderPetMediaActions(row) {
     `<button class="small-button" data-action="pet-media-replace" data-id="${escapeHtml(row.id)}" data-kind="avatar" data-name="${escapeHtml(row.name || '')}" data-current-url="${escapeHtml(row.avatarUrl || '')}">换头像</button>`,
     `<button class="small-button" data-action="pet-media-replace" data-id="${escapeHtml(row.id)}" data-kind="ai-avatar" data-name="${escapeHtml(row.name || '')}" data-current-url="${escapeHtml(row.avatarUrl || '')}">换AI形象</button>`,
     `<button class="small-button" data-action="pet-media-replace" data-id="${escapeHtml(row.id)}" data-kind="cover" data-name="${escapeHtml(row.name || '')}" data-current-url="${escapeHtml(row.petCircleCoverImageUrl || '')}">换封面</button>`,
+    `<button class="small-button danger" data-action="pet-profile-merge" data-id="${escapeHtml(row.id)}" data-name="${escapeHtml(row.name || '')}" data-phone="${escapeHtml(row.phone || '')}">合并</button>`,
   ];
   if (row.avatarStatusKey === 'ai') {
     buttons.push(`<button class="small-button danger" data-action="pet-media-clear" data-id="${escapeHtml(row.id)}" data-kind="ai-avatar" data-name="${escapeHtml(row.name || '')}">清AI形象</button>`);
@@ -3705,6 +3710,21 @@ function renderPetMediaActions(row) {
 
 function cachedPetProfileRow(petId) {
   return (state.cache.pets?.items || []).find((item) => item.id === petId) || null;
+}
+
+async function adminPetProfileRowById(petId) {
+  const id = String(petId || '').trim();
+  if (!id) return null;
+  const cached = cachedPetProfileRow(id);
+  if (cached) return cached;
+  const data = await load('pets', `/admin/pets?q=${encodeURIComponent(id)}`, true);
+  return (data.items || []).find((item) => item.id === id) || null;
+}
+
+function clearPetProfileCaches() {
+  ['aiMedia', 'audit', 'avatarJobs', 'avatarSamples', 'exports', 'notifications', 'petCalendar', 'petChat', 'pets', 'socialPosts', 'socialRelations', 'summary', 'users'].forEach((key) => {
+    state.cache[key] = null;
+  });
 }
 
 function normalizeAdminPetWeightInput(value) {
@@ -3762,6 +3782,64 @@ async function editPetProfile(button) {
     species: '类型',
     weightKg: '体重',
   }[field] || field)).join('、') || '已更新'}`);
+  await render(true);
+}
+
+async function mergePetProfile(button) {
+  const sourcePetId = button.dataset.id || '';
+  const source = await adminPetProfileRowById(sourcePetId);
+  if (!source) {
+    showToast('源宠物档案不存在或已被合并，请刷新列表');
+    return;
+  }
+  const targetPetIdInput = window.prompt(
+    `把「${source.name || source.id}」合并到哪只目标宠物？\n\n只允许合并同一用户下的重复宠物。请输入目标宠物 ID：`,
+    '',
+  );
+  if (targetPetIdInput === null) return;
+  const targetPetId = targetPetIdInput.trim();
+  if (!targetPetId) {
+    showToast('请填写目标宠物 ID');
+    return;
+  }
+  if (targetPetId === source.id) {
+    showToast('不能把宠物档案合并到自身');
+    return;
+  }
+  const target = await adminPetProfileRowById(targetPetId);
+  if (!target) {
+    showToast('目标宠物档案不存在，请确认 ID');
+    return;
+  }
+  if (target.phone !== source.phone) {
+    showToast('当前只允许合并同一用户下的宠物档案');
+    return;
+  }
+  const reason = window.prompt('请输入合并原因，系统会写入审计并通知用户', `合并重复宠物档案：${source.name || source.id} -> ${target.name || target.id}`);
+  if (reason === null) return;
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) {
+    showToast('请填写合并原因');
+    return;
+  }
+  const confirmation = window.prompt(
+    `高风险操作确认\n\n源宠物「${source.name || source.id}」会从用户宠物列表移除；日历、AI任务、宠友圈、AI对话、通知和会话卡片会迁移到「${target.name || target.id}」。\n\n请输入源宠物 ID 以确认：`,
+    '',
+  );
+  if (confirmation === null) return;
+  if (confirmation.trim() !== source.id) {
+    showToast('确认 ID 不匹配，已取消合并');
+    return;
+  }
+  const result = await post(`/admin/pets/${encodeURIComponent(source.id)}/merge`, {
+    confirmation: confirmation.trim(),
+    reason: trimmedReason,
+    targetPetId,
+  });
+  clearPetProfileCaches();
+  const summary = result.summary || {};
+  const calendar = summary.calendar || {};
+  showToast(`宠物档案已合并：迁移小事 ${summary.socialMoments || 0} 条、日历 ${(calendar.weights || 0) + (calendar.vaccines || 0) + (calendar.memos || 0)} 条、AI任务 ${(summary.avatarJobs || 0) + (summary.avatarAnimationJobs || 0)} 个`);
   await render(true);
 }
 
@@ -3922,8 +4000,8 @@ async function renderPets(force) {
           <div><strong>清空 AI 形象</strong><span>用于 AI 结果不适合展示，会解除已应用任务关联并清空当前头像。</span></div>
           <div><strong>清空封面</strong><span>用于宠友圈封面违规，移动端宠友圈主页回退到小事图片或宠物头像。</span></div>
           <div><strong>资料修正已开放</strong><span>昵称、类型、品种、性别、生日和体重可由后台带原因修正，并同步影响移动端展示。</span></div>
-          <div><strong>仍预留</strong><span>合并重复宠物仍需更细权限与引用迁移。</span></div>
-          <div><strong>合并重复宠物</strong><span>生产阶段需要迁移日历、AI、宠友圈和会话引用，不能直接删档。</span></div>
+          <div><strong>合并重复宠物已开放</strong><span>仅支持同一用户下合并；会迁移日历、AI、宠友圈、AI 对话、通知和会话卡片引用，并保留 before/after 审计。</span></div>
+          <div><strong>合并确认规则</strong><span>目标宠物保留现有资料，源宠物只补齐目标空字段；操作时必须输入目标宠物 ID、原因和源宠物 ID 确认。</span></div>
         </div>
       </div>
     </div>
