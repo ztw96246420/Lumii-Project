@@ -290,6 +290,63 @@ async function main() {
     assert.ok(mobileMemos.data.some((item) => item.id === createdMemo.data.id && item.title === 'Admin memo' && item.reminderAt === '2030-02-01 10:15'));
     assert.ok(mobileMemos.data.some((item) => item.id === adminCreatedMemo.data.record.id && item.title === 'Admin created memo'));
 
+    const deletedWeight = await request(`/admin/pet-calendar/${encodeURIComponent(adminCreatedWeight.data.recordId)}/delete`, {
+      body: { reason: 'smoke deletes admin weight record' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(deletedWeight.data.item.isDeleted, true);
+    let deletedCalendar = await request(`/admin/pet-calendar?recordState=deleted&q=${encodeURIComponent(phone)}`, { token: adminToken });
+    assert.ok(deletedCalendar.data.records.some((item) => item.id === adminCreatedWeight.data.recordId && item.isDeleted));
+    let mobileWeightsAfterLifecycle = await request('/health/weights', { token: userToken });
+    assert.equal(mobileWeightsAfterLifecycle.data.some((item) => item.id === adminCreatedWeight.data.record.id), false);
+
+    const restoredWeight = await request(`/admin/pet-calendar/${encodeURIComponent(adminCreatedWeight.data.recordId)}/restore`, {
+      body: { reason: 'smoke restores admin weight record' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(restoredWeight.data.item.isDeleted, false);
+    mobileWeightsAfterLifecycle = await request('/health/weights', { token: userToken });
+    assert.ok(mobileWeightsAfterLifecycle.data.some((item) => item.id === adminCreatedWeight.data.record.id && item.kg === 7.4));
+
+    const batchDelete = await request('/admin/pet-calendar/batch', {
+      body: {
+        action: 'delete',
+        reason: 'smoke batch deletes calendar records',
+        recordIds: [adminCreatedVaccine.data.recordId, adminCreatedMemo.data.recordId],
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(batchDelete.data.successCount, 2);
+    const mobileVaccinesAfterDelete = await request('/health/vaccines', { token: userToken });
+    assert.equal(mobileVaccinesAfterDelete.data.some((item) => item.id === adminCreatedVaccine.data.record.id), false);
+    const remindersAfterDelete = await request('/health/vaccine-reminders', { token: userToken });
+    assert.equal(remindersAfterDelete.data.includes(adminCreatedVaccine.data.record.id), false, 'deleted vaccine reminder should be disabled');
+    const mobileMemosAfterDelete = await request('/health/memos', { token: userToken });
+    assert.equal(mobileMemosAfterDelete.data.some((item) => item.id === adminCreatedMemo.data.record.id), false);
+    deletedCalendar = await request(`/admin/pet-calendar?recordState=deleted&q=${encodeURIComponent(phone)}`, { token: adminToken });
+    assert.ok(deletedCalendar.data.records.some((item) => item.id === adminCreatedVaccine.data.recordId && item.isDeleted));
+    assert.ok(deletedCalendar.data.records.some((item) => item.id === adminCreatedMemo.data.recordId && item.isDeleted));
+
+    const batchRestore = await request('/admin/pet-calendar/batch', {
+      body: {
+        action: 'restore',
+        reason: 'smoke batch restores calendar records',
+        recordIds: [adminCreatedVaccine.data.recordId, adminCreatedMemo.data.recordId],
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(batchRestore.data.successCount, 2);
+    const mobileVaccinesAfterRestore = await request('/health/vaccines', { token: userToken });
+    assert.ok(mobileVaccinesAfterRestore.data.some((item) => item.id === adminCreatedVaccine.data.record.id && item.name === 'Admin deworm'));
+    const remindersAfterRestore = await request('/health/vaccine-reminders', { token: userToken });
+    assert.equal(remindersAfterRestore.data.includes(adminCreatedVaccine.data.record.id), true, 'restored vaccine reminder should be restored');
+    const mobileMemosAfterRestore = await request('/health/memos', { token: userToken });
+    assert.ok(mobileMemosAfterRestore.data.some((item) => item.id === adminCreatedMemo.data.record.id && item.title === 'Admin created memo'));
+
     const notifications = await request('/notifications', { token: userToken });
     assert.ok(
       notifications.data.some((item) => item.title === '宠物日历记录已修正'),
@@ -298,6 +355,14 @@ async function main() {
     assert.ok(
       notifications.data.some((item) => item.title === '宠物日历记录已新增'),
       'mobile notification should mention admin calendar creation',
+    );
+    assert.ok(
+      notifications.data.some((item) => item.title === '宠物日历记录已删除'),
+      'mobile notification should mention admin calendar deletion',
+    );
+    assert.ok(
+      notifications.data.some((item) => item.title === '宠物日历记录已恢复'),
+      'mobile notification should mention admin calendar restoration',
     );
 
     const audit = await request('/admin/audit-logs?action=calendar.record.update', { token: adminToken });
@@ -310,6 +375,20 @@ async function main() {
     assert.ok(createdIds.has(adminCreatedWeight.data.recordId), 'weight create audit should be recorded');
     assert.ok(createdIds.has(adminCreatedVaccine.data.recordId), 'vaccine create audit should be recorded');
     assert.ok(createdIds.has(adminCreatedMemo.data.recordId), 'memo create audit should be recorded');
+    const deleteAudit = await request('/admin/audit-logs?action=calendar.record.delete', { token: adminToken });
+    const deletedIds = new Set(deleteAudit.data.items.map((item) => item.targetId));
+    assert.ok(deletedIds.has(adminCreatedWeight.data.recordId), 'weight delete audit should be recorded');
+    assert.ok(deletedIds.has(adminCreatedVaccine.data.recordId), 'vaccine delete audit should be recorded');
+    assert.ok(deletedIds.has(adminCreatedMemo.data.recordId), 'memo delete audit should be recorded');
+    const restoreAudit = await request('/admin/audit-logs?action=calendar.record.restore', { token: adminToken });
+    const restoredIds = new Set(restoreAudit.data.items.map((item) => item.targetId));
+    assert.ok(restoredIds.has(adminCreatedWeight.data.recordId), 'weight restore audit should be recorded');
+    assert.ok(restoredIds.has(adminCreatedVaccine.data.recordId), 'vaccine restore audit should be recorded');
+    assert.ok(restoredIds.has(adminCreatedMemo.data.recordId), 'memo restore audit should be recorded');
+    const batchDeleteAudit = await request('/admin/audit-logs?action=calendar.record.batch.delete', { token: adminToken });
+    assert.ok(batchDeleteAudit.data.items.some((item) => item.after?.successCount === 2), 'batch delete audit should be recorded');
+    const batchRestoreAudit = await request('/admin/audit-logs?action=calendar.record.batch.restore', { token: adminToken });
+    assert.ok(batchRestoreAudit.data.items.some((item) => item.after?.successCount === 2), 'batch restore audit should be recorded');
   } finally {
     await stopBackend();
     fs.rmSync(tmpDir, { force: true, recursive: true });

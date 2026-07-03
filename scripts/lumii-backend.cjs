@@ -687,6 +687,7 @@ function createInitialState() {
     feedback: [],
     greetings: [],
     health: {
+      deletedRecords: {},
       memos: {},
       vaccineReminders: {},
       vaccines: {},
@@ -9334,7 +9335,7 @@ function currentClockTime() {
 }
 
 function healthList(storeName, user, defaultsFactory) {
-  state.health = state.health || { memos: {}, vaccines: {}, weights: {} };
+  state.health = state.health || { deletedRecords: {}, memos: {}, vaccineReminders: {}, vaccines: {}, weights: {} };
   state.health[storeName] = state.health[storeName] || {};
   const key = healthKeyFor(user);
   if (!state.health[storeName][key]) state.health[storeName][key] = defaultsFactory(user);
@@ -9549,7 +9550,7 @@ function buildWeightTrend(records) {
 }
 
 function vaccineReminderIdsFor(user) {
-  state.health = state.health || { memos: {}, vaccineReminders: {}, vaccines: {}, weights: {} };
+  state.health = state.health || { deletedRecords: {}, memos: {}, vaccineReminders: {}, vaccines: {}, weights: {} };
   state.health.vaccineReminders = state.health.vaccineReminders || {};
   const key = healthKeyFor(user);
   if (!Array.isArray(state.health.vaccineReminders[key])) state.health.vaccineReminders[key] = [];
@@ -15409,7 +15410,7 @@ function adminUserBusinessDataSummary(phone) {
   const avatarAnimationJobs = Object.values(state.avatarAnimationJobs || {}).filter((job) => job?.ownerPhone === normalizedPhone || mediaIds.has(job?.mediaId));
   const healthStoreCount = ['weights', 'vaccines', 'memos', 'vaccineReminders'].reduce((sum, key) => (
     sum + Object.keys(state.health?.[key] || {}).filter((itemKey) => itemKey.startsWith(healthPrefix)).length
-  ), 0);
+  ), 0) + Object.values(state.health?.deletedRecords || {}).filter((item) => item?.phone === normalizedPhone || item?.key?.startsWith(healthPrefix)).length;
   const feedbackIds = new Set((state.feedback || []).filter((item) => item.phone === normalizedPhone).map((item) => item.id).filter(Boolean));
   const supportTicketCount = (state.supportTickets || []).filter((item) => item.phone === normalizedPhone || feedbackIds.has(item.sourceId)).length;
   return {
@@ -15467,6 +15468,9 @@ function adminClearUserBusinessData(admin, phone, body = {}) {
     if (!state.health?.[key]) return;
     deleteObjectKeysByPredicate(state.health[key], (itemKey) => itemKey.startsWith(healthPrefix));
   });
+  if (state.health?.deletedRecords) {
+    deleteObjectKeysByPredicate(state.health.deletedRecords, (_itemKey, item) => item?.phone === normalizedPhone || item?.key?.startsWith(healthPrefix));
+  }
   deleteObjectKeysByPredicate(state.petChatMessages, (key) => key.startsWith(healthPrefix));
   deleteObjectKeysByPredicate(state.mediaUploads, (_key, item) => item?.ownerPhone === normalizedPhone);
   deleteObjectKeysByPredicate(state.avatarAnimationJobs, (_key, job) => job?.ownerPhone === normalizedPhone || mediaIds.has(job?.mediaId));
@@ -16019,10 +16023,26 @@ function adminHealthRecordDate(value, fallback = '') {
 }
 
 function adminHealthStoreMutableList(storeName, key) {
-  state.health = state.health || { memos: {}, vaccineReminders: {}, vaccines: {}, weights: {} };
+  state.health = state.health || { deletedRecords: {}, memos: {}, vaccineReminders: {}, vaccines: {}, weights: {} };
   state.health[storeName] = state.health[storeName] || {};
   if (!Array.isArray(state.health[storeName][key])) state.health[storeName][key] = [];
   return state.health[storeName][key];
+}
+
+function adminPetCalendarTypeLabel(type) {
+  return type === 'weight' ? '体重记录' : type === 'vaccine' ? '疫苗/驱虫计划' : '备忘记录';
+}
+
+function adminPetCalendarStoreName(type) {
+  return type === 'weight' ? 'weights' : type === 'vaccine' ? 'vaccines' : 'memos';
+}
+
+function adminPetCalendarDeletedStore() {
+  state.health = state.health || { deletedRecords: {}, memos: {}, vaccineReminders: {}, vaccines: {}, weights: {} };
+  state.health.deletedRecords = state.health.deletedRecords && typeof state.health.deletedRecords === 'object' && !Array.isArray(state.health.deletedRecords)
+    ? state.health.deletedRecords
+    : {};
+  return state.health.deletedRecords;
 }
 
 function setAdminVaccineReminderForKey(key, vaccineId, enabled) {
@@ -16087,7 +16107,7 @@ function findAdminPetCalendarRecord(recordId) {
   const user = state.users?.[parsed.phone];
   const pet = Array.isArray(user?.pets) ? user.pets.find((item) => item?.id === parsed.petId) : null;
   if (!user || !pet) return null;
-  const storeName = parsed.type === 'weight' ? 'weights' : parsed.type === 'vaccine' ? 'vaccines' : 'memos';
+  const storeName = adminPetCalendarStoreName(parsed.type);
   const records = adminHealthStoreMutableList(storeName, parsed.key);
   const index = records.findIndex((item) => item?.id === parsed.sourceId);
   if (index < 0) return null;
@@ -16128,7 +16148,7 @@ function parseAdminPetCalendarVaccinePayload(value, current, key) {
 }
 
 function notifyPetCalendarRecordUpdated(phone, pet, type, changedFields, reason, record) {
-  const typeLabel = type === 'weight' ? '体重记录' : type === 'vaccine' ? '疫苗/驱虫计划' : '备忘记录';
+  const typeLabel = adminPetCalendarTypeLabel(type);
   addNotification(phone, {
     actionRoute: 'petCalendar',
     category: 'system',
@@ -16145,7 +16165,7 @@ function notifyPetCalendarRecordUpdated(phone, pet, type, changedFields, reason,
 }
 
 function notifyPetCalendarRecordCreated(phone, pet, type, reason, record) {
-  const typeLabel = type === 'weight' ? '体重记录' : type === 'vaccine' ? '疫苗/驱虫计划' : '备忘记录';
+  const typeLabel = adminPetCalendarTypeLabel(type);
   const detail = type === 'weight'
     ? `${Number(record?.kg) || 0} kg`
     : type === 'vaccine'
@@ -16166,8 +16186,42 @@ function notifyPetCalendarRecordCreated(phone, pet, type, reason, record) {
   }, 'system', { force: true });
 }
 
+function notifyPetCalendarRecordDeleted(phone, pet, type, reason, record) {
+  const typeLabel = adminPetCalendarTypeLabel(type);
+  addNotification(phone, {
+    actionRoute: 'petCalendar',
+    category: 'system',
+    id: `n-pet-calendar-delete-${pet.id}-${record?.id || Date.now()}-${Date.now()}`,
+    kind: 'system',
+    petId: pet.id,
+    read: false,
+    reason,
+    text: `运营已移除${pet.name || '宠物'}的一条${typeLabel}，宠物日历已同步更新。`,
+    title: '宠物日历记录已删除',
+    ...(type === 'memo' ? { memoId: record?.id } : {}),
+    ...(type === 'vaccine' ? { vaccineId: record?.id } : {}),
+  }, 'system', { force: true });
+}
+
+function notifyPetCalendarRecordRestored(phone, pet, type, reason, record) {
+  const typeLabel = adminPetCalendarTypeLabel(type);
+  addNotification(phone, {
+    actionRoute: 'petCalendar',
+    category: 'system',
+    id: `n-pet-calendar-restore-${pet.id}-${record?.id || Date.now()}-${Date.now()}`,
+    kind: 'system',
+    petId: pet.id,
+    read: false,
+    reason,
+    text: `运营已恢复${pet.name || '宠物'}的一条${typeLabel}，宠物日历已同步更新。`,
+    title: '宠物日历记录已恢复',
+    ...(type === 'memo' ? { memoId: record?.id } : {}),
+    ...(type === 'vaccine' ? { vaccineId: record?.id } : {}),
+  }, 'system', { force: true });
+}
+
 function adminUpdatedPetCalendarRow(recordId) {
-  return adminPetCalendarRecords({ q: recordId, limit: 1 }).records.find((row) => row.id === recordId) || null;
+  return adminPetCalendarRecords({ q: recordId, limit: 1, recordState: 'all' }).records.find((row) => row.id === recordId) || null;
 }
 
 function findAdminPetCalendarTarget(phoneInput, petIdInput) {
@@ -16383,6 +16437,183 @@ function adminUpdatePetCalendarRecord(admin, recordId, body = {}) {
   };
 }
 
+function findAdminDeletedPetCalendarRecord(recordId) {
+  const parsed = parseAdminPetCalendarRecordId(recordId);
+  if (!parsed) return null;
+  const store = adminPetCalendarDeletedStore();
+  const deleted = store[String(recordId || '')];
+  if (!deleted) return null;
+  const phone = normalizePhone(deleted.phone || parsed.phone);
+  const user = state.users?.[phone];
+  const petId = deleted.petId || parsed.petId;
+  const pet = Array.isArray(user?.pets) ? user.pets.find((item) => item?.id === petId) : null;
+  return {
+    ...parsed,
+    deleted,
+    key: deleted.key || parsed.key,
+    pet,
+    petId,
+    phone,
+    recordId: String(recordId || ''),
+    store,
+    storeName: deleted.storeName || adminPetCalendarStoreName(parsed.type),
+    user,
+  };
+}
+
+function adminDeletePetCalendarRecord(admin, recordId, body = {}) {
+  const found = findAdminPetCalendarRecord(recordId);
+  if (!found) return { error: '宠物日历记录不存在或已删除', statusCode: 404 };
+  const reason = adminReason(body, '');
+  if (!reason) return { error: '请填写删除原因', statusCode: 400 };
+  const deletedStore = adminPetCalendarDeletedStore();
+  if (deletedStore[found.recordId]) return { error: '宠物日历记录已在已删除列表中', statusCode: 409 };
+  const before = adminPetCalendarRecordSnapshot(found.type, found.record, found.key);
+  const now = new Date().toISOString();
+  const record = cloneJson(found.record);
+  const deleted = {
+    deletedAt: now,
+    deletedBy: admin?.username || 'admin',
+    id: found.recordId,
+    key: found.key,
+    ownerName: found.user.ownerName || `用户${found.phone.slice(-4)}`,
+    pet: { id: found.pet.id, name: found.pet.name || '' },
+    petId: found.pet.id,
+    phone: found.phone,
+    reason,
+    record,
+    recordId: found.recordId,
+    reminderEnabled: found.type === 'vaccine' ? Boolean(before.reminderEnabled) : false,
+    snapshot: before,
+    sourceId: found.sourceId,
+    storeName: found.storeName,
+    type: found.type,
+  };
+  found.records.splice(found.index, 1);
+  if (found.type === 'weight') {
+    syncPetWeightFromAdminRecords(found.pet, found.records);
+  } else if (found.type === 'vaccine') {
+    setAdminVaccineReminderForKey(found.key, found.record.id, false);
+  }
+  deletedStore[found.recordId] = deleted;
+  writeAdminAudit(admin, 'calendar.record.delete', 'pet_calendar_record', found.recordId, {
+    key: found.key,
+    pet: { id: found.pet.id, name: found.pet.name || '' },
+    phone: found.phone,
+    record: before,
+    type: found.type,
+  }, {
+    deletedAt: now,
+    deletedBy: deleted.deletedBy,
+    key: found.key,
+    pet: deleted.pet,
+    phone: found.phone,
+    record: before,
+    type: found.type,
+  }, reason);
+  notifyPetCalendarRecordDeleted(found.phone, found.pet, found.type, reason, record);
+  return {
+    item: adminUpdatedPetCalendarRow(found.recordId),
+    petId: found.pet.id,
+    phone: found.phone,
+    record,
+    recordId: found.recordId,
+    type: found.type,
+  };
+}
+
+function sortAdminPetCalendarStore(type, records) {
+  if (type === 'weight') {
+    records.sort((left, right) =>
+      String(right.recordedAt || '').localeCompare(String(left.recordedAt || '')) || String(right.id || '').localeCompare(String(left.id || ''))
+    );
+  } else if (type === 'vaccine') {
+    records.sort((left, right) => String(left.dueAt || '').localeCompare(String(right.dueAt || '')) || String(left.id || '').localeCompare(String(right.id || '')));
+  } else {
+    records.sort((left, right) =>
+      String(right.createdAt || right.updatedAt || right.id || '').localeCompare(String(left.createdAt || left.updatedAt || left.id || ''))
+    );
+  }
+}
+
+function adminRestorePetCalendarRecord(admin, recordId, body = {}) {
+  const found = findAdminDeletedPetCalendarRecord(recordId);
+  if (!found) return { error: '已删除的宠物日历记录不存在', statusCode: 404 };
+  const reason = adminReason(body, '');
+  if (!reason) return { error: '请填写恢复原因', statusCode: 400 };
+  if (!found.user || !found.pet) return { error: '用户或宠物不存在，无法恢复到移动端', statusCode: 404 };
+  const records = adminHealthStoreMutableList(found.storeName, found.key);
+  if (records.some((item) => item?.id === found.sourceId)) return { error: '宠物日历记录已经恢复', statusCode: 409 };
+  const record = cloneJson(found.deleted.record);
+  records.unshift(record);
+  sortAdminPetCalendarStore(found.type, records);
+  if (found.type === 'weight') {
+    syncPetWeightFromAdminRecords(found.pet, records);
+  } else if (found.type === 'vaccine') {
+    setAdminVaccineReminderForKey(found.key, record.id, record.status === 'done' ? false : Boolean(found.deleted.reminderEnabled));
+  }
+  delete found.store[found.recordId];
+  const after = adminPetCalendarRecordSnapshot(found.type, record, found.key);
+  writeAdminAudit(admin, 'calendar.record.restore', 'pet_calendar_record', found.recordId, {
+    deletedAt: found.deleted.deletedAt || '',
+    deletedBy: found.deleted.deletedBy || '',
+    key: found.key,
+    pet: found.deleted.pet || { id: found.pet.id, name: found.pet.name || '' },
+    phone: found.phone,
+    record: found.deleted.snapshot || after,
+    type: found.type,
+  }, {
+    key: found.key,
+    pet: { id: found.pet.id, name: found.pet.name || '' },
+    phone: found.phone,
+    record: after,
+    type: found.type,
+  }, reason);
+  notifyPetCalendarRecordRestored(found.phone, found.pet, found.type, reason, record);
+  return {
+    item: adminUpdatedPetCalendarRow(found.recordId),
+    petId: found.pet.id,
+    phone: found.phone,
+    record,
+    recordId: found.recordId,
+    type: found.type,
+  };
+}
+
+function adminBatchPetCalendarRecords(admin, body = {}) {
+  const action = String(body.action || '').trim();
+  if (!['delete', 'restore'].includes(action)) return { error: '批量动作只能是 delete / restore', statusCode: 400 };
+  const reason = adminReason(body, '');
+  if (!reason) return { error: '请填写批量处理原因', statusCode: 400 };
+  const recordIds = Array.from(new Set((Array.isArray(body.recordIds) ? body.recordIds : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)))
+    .slice(0, 50);
+  if (!recordIds.length) return { error: '请选择要批量处理的宠物日历记录', statusCode: 400 };
+  const results = [];
+  const errors = [];
+  recordIds.forEach((recordId) => {
+    const result = action === 'delete'
+      ? adminDeletePetCalendarRecord(admin, recordId, { reason })
+      : adminRestorePetCalendarRecord(admin, recordId, { reason });
+    if (result.error) {
+      errors.push({ error: result.error, recordId, statusCode: result.statusCode || 400 });
+    } else {
+      results.push({ recordId, type: result.type });
+    }
+  });
+  const summary = {
+    action,
+    errorCount: errors.length,
+    errors,
+    recordIds,
+    results,
+    successCount: results.length,
+  };
+  writeAdminAudit(admin, `calendar.record.batch.${action}`, 'pet_calendar_record_batch', `pet-calendar-batch-${Date.now()}`, null, summary, reason);
+  return summary;
+}
+
 function adminPetCalendarSource(type, record, aiMemoIds, aiWeightIds) {
   if (record?.source === 'admin') return { key: 'admin', label: '运营新增' };
   if (type === 'memo' && record?.source === 'pet_circle') return { key: 'pet_circle', label: '宠友圈同步' };
@@ -16392,10 +16623,90 @@ function adminPetCalendarSource(type, record, aiMemoIds, aiWeightIds) {
   return { key: 'manual', label: '用户记录' };
 }
 
+function adminDeletedPetCalendarRecordRow(deleted, aiMemoIds, aiWeightIds) {
+  const parsed = parseAdminPetCalendarRecordId(deleted?.recordId || deleted?.id);
+  if (!parsed) return null;
+  const phone = normalizePhone(deleted.phone || parsed.phone);
+  const user = state.users?.[phone];
+  const petId = deleted.petId || parsed.petId;
+  const pet = Array.isArray(user?.pets) ? user.pets.find((item) => item?.id === petId) : null;
+  const record = deleted.record || {};
+  const source = adminPetCalendarSource(parsed.type, record, aiMemoIds, aiWeightIds);
+  const base = {
+    deletedAt: deleted.deletedAt || '',
+    deletedBy: deleted.deletedBy || '',
+    deletionReason: deleted.reason || '',
+    isDeleted: true,
+    ownerName: user?.ownerName || deleted.ownerName || (phone ? `用户${phone.slice(-4)}` : '未知用户'),
+    petBreed: pet?.breed || '',
+    petId,
+    petName: pet?.name || deleted.pet?.name || '已删除记录',
+    petSpecies: pet?.species === 'cat' ? 'cat' : 'dog',
+    phone,
+    recordState: 'deleted',
+    sourceId: parsed.sourceId,
+    sourceKey: source.key,
+    sourceLabel: source.label,
+    statusLabel: '已删除',
+    type: parsed.type,
+    typeLabel: parsed.type === 'weight' ? '体重' : parsed.type === 'vaccine' ? '疫苗/驱虫' : '备忘',
+    updatedAt: deleted.deletedAt || record.updatedAt || record.createdAt || '',
+  };
+  if (parsed.type === 'weight') {
+    const date = adminHealthRecordDate(record.recordedAt, parsed.sourceId);
+    return {
+      ...base,
+      date,
+      detail: `${Number(record.kg) || 0} kg${record.note ? ` · ${record.note}` : ''}`,
+      id: parsed ? deleted.recordId : '',
+      kg: Number(record.kg) || 0,
+      note: record.note || '',
+      rawStatus: 'recorded',
+      recordedAt: record.recordedAt || date,
+      status: 'recorded',
+      title: '体重记录',
+    };
+  }
+  if (parsed.type === 'vaccine') {
+    const date = adminHealthRecordDate(record.dueAt, parsed.sourceId);
+    const rawStatus = record.status === 'done' ? 'done' : record.status === 'overdue' ? 'overdue' : 'due';
+    return {
+      ...base,
+      date,
+      detail: `${record.name || '疫苗/驱虫'} · 原状态：${vaccineStatusCopy(rawStatus)}${deleted.reminderEnabled ? ' · 原已开提醒' : ''}`,
+      dueAt: record.dueAt || date,
+      id: deleted.recordId,
+      name: record.name || '疫苗/驱虫',
+      rawStatus,
+      reminderEnabled: Boolean(deleted.reminderEnabled),
+      status: rawStatus,
+      title: record.name || '疫苗/驱虫',
+    };
+  }
+  const sourceMomentDate = record?.source === 'pet_circle' && record.sourceId
+    ? ensureSocialMoments().find((item) => item.id === record.sourceId && item.phone === phone)?.createdAt
+    : '';
+  const date = adminHealthRecordDate(sourceMomentDate || record.createdAt, parsed.sourceId || record.updatedAt);
+  return {
+    ...base,
+    content: record.content || '',
+    date,
+    detail: record.content || '',
+    id: deleted.recordId,
+    rawStatus: 'recorded',
+    reminderAt: record.reminderAt || '',
+    reminderEnabled: Boolean(record.reminderEnabled),
+    repeat: record.repeat || 'none',
+    status: 'recorded',
+    title: record.title || '备忘',
+  };
+}
+
 function adminPetCalendarRecords(options = {}) {
   const typeFilter = String(options.type || 'all');
   const statusFilter = String(options.status || 'all');
   const sourceFilter = String(options.source || 'all');
+  const recordStateFilter = ['active', 'all', 'deleted'].includes(String(options.recordState || 'active')) ? String(options.recordState || 'active') : 'active';
   const q = String(options.q || '').trim().toLowerCase();
   const from = adminHealthRecordDate(options.from);
   const to = adminHealthRecordDate(options.to);
@@ -16404,6 +16715,9 @@ function adminPetCalendarRecords(options = {}) {
   const aiMemoIds = new Set(messages.map((message) => message.createdMemo?.id).filter(Boolean));
   const aiWeightIds = new Set(messages.map((message) => message.createdWeight?.id).filter(Boolean));
   const records = [];
+  const deletedRows = Object.values(adminPetCalendarDeletedStore())
+    .map((deleted) => adminDeletedPetCalendarRecordRow(deleted, aiMemoIds, aiWeightIds))
+    .filter(Boolean);
 
   Object.values(state.users || {}).forEach((user) => {
     const phone = normalizePhone(user?.phone);
@@ -16431,9 +16745,11 @@ function adminPetCalendarRecords(options = {}) {
           date,
           detail: `${Number(record.kg) || 0} kg${record.note ? ` · ${record.note}` : ''}`,
           id: `weight:${phone}:${pet.id}:${record.id}`,
+          isDeleted: false,
           kg: Number(record.kg) || 0,
           note: record.note || '',
           rawStatus: 'recorded',
+          recordState: 'active',
           recordedAt: record.recordedAt || date,
           sourceId: record.id,
           sourceKey: source.key,
@@ -16459,8 +16775,10 @@ function adminPetCalendarRecords(options = {}) {
           detail: `${record.name || '疫苗/驱虫'} · ${vaccineStatusCopy(rawStatus)}${reminderIds.has(record.id) ? ' · 已开提醒' : ''}`,
           dueAt: record.dueAt || date,
           id: `vaccine:${phone}:${pet.id}:${record.id}`,
+          isDeleted: false,
           name: record.name || '疫苗/驱虫',
           rawStatus,
+          recordState: 'active',
           reminderEnabled: reminderIds.has(record.id),
           sourceId: record.id,
           sourceKey: source.key,
@@ -16486,7 +16804,9 @@ function adminPetCalendarRecords(options = {}) {
           date,
           detail: record.content || '',
           id: `memo:${phone}:${pet.id}:${record.id}`,
+          isDeleted: false,
           rawStatus: 'recorded',
+          recordState: 'active',
           reminderAt: record.reminderAt || '',
           reminderEnabled: Boolean(record.reminderEnabled),
           repeat: record.repeat || 'none',
@@ -16504,7 +16824,8 @@ function adminPetCalendarRecords(options = {}) {
     });
   });
 
-  const filteredRecords = records
+  const recordPool = recordStateFilter === 'deleted' ? deletedRows : recordStateFilter === 'all' ? [...records, ...deletedRows] : records;
+  const filteredRecords = recordPool
     .filter((record) => typeFilter === 'all' || record.type === typeFilter)
     .filter((record) => statusFilter === 'all' || record.status === statusFilter || record.rawStatus === statusFilter)
     .filter((record) => sourceFilter === 'all' || record.sourceKey === sourceFilter)
@@ -16522,6 +16843,8 @@ function adminPetCalendarRecords(options = {}) {
         record.petBreed,
         record.title,
         record.detail,
+        record.deletedAt,
+        record.deletionReason,
         record.sourceLabel,
         record.statusLabel,
       ].some((value) => String(value || '').toLowerCase().includes(q));
@@ -16532,18 +16855,20 @@ function adminPetCalendarRecords(options = {}) {
   const summary = {
     aiWrites: summarySource.filter((record) => record.sourceKey === 'ai_chat').length,
     all: summarySource.length,
+    active: summarySource.filter((record) => record.recordState !== 'deleted').length,
+    deleted: summarySource.filter((record) => record.recordState === 'deleted').length,
     memos: summarySource.filter((record) => record.type === 'memo').length,
     overdueVaccines: summarySource.filter((record) => record.type === 'vaccine' && record.rawStatus === 'overdue').length,
     petCircleMemos: summarySource.filter((record) => record.sourceKey === 'pet_circle').length,
     recorded: summarySource.filter((record) => record.status === 'recorded').length,
     reminderEnabled: summarySource.filter((record) => record.reminderEnabled).length,
-    totalRecords: records.length,
+    totalRecords: records.length + deletedRows.length,
     vaccines: summarySource.filter((record) => record.type === 'vaccine').length,
     weights: summarySource.filter((record) => record.type === 'weight').length,
   };
 
   return {
-    filters: { from, q: options.q || '', source: sourceFilter, status: statusFilter, to, type: typeFilter },
+    filters: { from, q: options.q || '', recordState: recordStateFilter, source: sourceFilter, status: statusFilter, to, type: typeFilter },
     records: filteredRecords.slice(0, limit),
     summary,
   };
@@ -24045,6 +24370,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     ok(res, adminPetCalendarRecords({
       from: url.searchParams.get('from') || '',
       q: url.searchParams.get('q') || '',
+      recordState: url.searchParams.get('recordState') || 'active',
       source: url.searchParams.get('source') || 'all',
       status: url.searchParams.get('status') || 'all',
       to: url.searchParams.get('to') || '',
@@ -24057,6 +24383,33 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     const result = adminCreatePetCalendarRecord(admin, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PET_CALENDAR_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/pet-calendar/batch') {
+    const result = adminBatchPetCalendarRecords(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PET_CALENDAR_BATCH_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminPetCalendarLifecycleMatch = pathname.match(/^\/admin\/pet-calendar\/(.+)\/(delete|restore)$/);
+  if (req.method === 'POST' && adminPetCalendarLifecycleMatch) {
+    const recordId = decodeURIComponent(adminPetCalendarLifecycleMatch[1]);
+    const action = decodeURIComponent(adminPetCalendarLifecycleMatch[2]);
+    const result = action === 'delete'
+      ? adminDeletePetCalendarRecord(admin, recordId, body)
+      : adminRestorePetCalendarRecord(admin, recordId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PET_CALENDAR_LIFECYCLE_INVALID');
       return true;
     }
     saveState();

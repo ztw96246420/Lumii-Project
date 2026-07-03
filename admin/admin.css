@@ -1199,6 +1199,10 @@ th {
   min-width: 86px;
 }
 
+.pet-calendar-actions {
+  min-width: 132px;
+}
+
 .pet-calendar-actions .small-button,
 .pet-profile-actions .small-button,
 .relationship-actions .small-button {

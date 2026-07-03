@@ -768,7 +768,10 @@
 
 - `GET /admin/pet-calendar`
 - `POST /admin/pet-calendar`
+- `POST /admin/pet-calendar/batch`
 - `PATCH /admin/pet-calendar/{recordId}`
+- `POST /admin/pet-calendar/{recordId}/delete`
+- `POST /admin/pet-calendar/{recordId}/restore`
 
 已支持：
 
@@ -781,6 +784,7 @@
   - 宠友圈同步备忘。
   - AI 对话自动创建备忘、体重和医疗门禁提醒。
 - 支持按类型、状态、来源、日期区间、手机号/宠物/标题/记录 ID 搜索。
+- 支持按记录状态筛选：有效记录、已删除、全部。
 - 顶部 KPI 覆盖：当前筛选记录数、体重记录、疫苗/驱虫、备忘、提醒开启、AI 写入。
 - 后台不会调用会初始化默认记录的 C 端列表函数，只读取已持久化 state，避免打开后台制造默认日历数据。
 - 疫苗/驱虫后台可区分 `due`、`overdue`、`done`；移动端仍按产品口径把未完成统一展示为“计划中”。
@@ -796,12 +800,17 @@
 - 新增动作写入 `calendar.record.create` 审计，包含手机号、宠物 ID、记录类型、记录快照和原因。
 - 修正后给用户写入“宠物日历记录已修正”站内通知；疫苗/驱虫被标记完成时同时复用完成通知口径。
 - 新增后给用户写入“宠物日历记录已新增”站内通知，移动端下一次刷新对应 `/health/*` 即可看到记录。
+- 后台支持带原因软删除和恢复记录：
+  - 删除会从真实 `/health/*` store 移除记录，移动端下一次刷新不再展示。
+  - 删除快照保存在 `health.deletedRecords`，保留原记录、提醒开关、删除人、删除时间和原因。
+  - 恢复会把快照写回原 store；体重会重算宠物档案最新体重，疫苗/驱虫会恢复提醒开关。
+  - 删除、恢复分别写入 `calendar.record.delete` / `calendar.record.restore` 审计，并给用户写入站内通知。
+- 后台支持批量删除和批量恢复，单次最多 50 条；每条仍逐条写审计和通知，批量动作额外写入 `calendar.record.batch.delete` / `calendar.record.batch.restore` 汇总审计。
 - 数据导出新增宠物日历 CSV。
 
 暂未开放：
 
-- 后台删除、恢复、批量处理宠物日历记录。
-- 删除/恢复/批量处理需要更细权限或双人审批后再开放。
+- 宠物日历高风险动作的双人复核和多角色权限。
 
 ### 3.15 消息、招呼与约遛
 

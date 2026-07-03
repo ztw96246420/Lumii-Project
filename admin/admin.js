@@ -45,6 +45,7 @@ const state = {
   petBirthday: 'all',
   petCalendarFrom: '',
   petCalendarQ: '',
+  petCalendarRecordState: 'active',
   petCalendarSource: 'all',
   petCalendarStatus: 'all',
   petCalendarTo: '',
@@ -493,6 +494,7 @@ async function onContentClick(event) {
       state.petCalendarType = $('petCalendarType').value;
       state.petCalendarStatus = $('petCalendarStatus').value;
       state.petCalendarSource = $('petCalendarSource').value;
+      state.petCalendarRecordState = $('petCalendarRecordState').value;
       state.petCalendarFrom = $('petCalendarFrom').value;
       state.petCalendarTo = $('petCalendarTo').value;
       state.petCalendarQ = $('petCalendarQ').value.trim();
@@ -504,6 +506,7 @@ async function onContentClick(event) {
       state.petCalendarType = 'all';
       state.petCalendarStatus = 'all';
       state.petCalendarSource = 'all';
+      state.petCalendarRecordState = 'active';
       state.petCalendarFrom = '';
       state.petCalendarTo = '';
       state.petCalendarQ = '';
@@ -517,6 +520,18 @@ async function onContentClick(event) {
     }
     if (action === 'pet-calendar-create') {
       await createPetCalendarRecord();
+      return;
+    }
+    if (action === 'pet-calendar-delete') {
+      await deletePetCalendarRecord(button);
+      return;
+    }
+    if (action === 'pet-calendar-restore') {
+      await restorePetCalendarRecord(button);
+      return;
+    }
+    if (action === 'pet-calendar-batch') {
+      await batchPetCalendarRecords();
       return;
     }
     if (action === 'social-relations-filter') {
@@ -3903,11 +3918,27 @@ function petCalendarSourceBadge(record) {
 }
 
 function renderPetCalendarActions(row) {
-  return `<div class="actions pet-calendar-actions"><button class="small-button" data-action="pet-calendar-edit" data-id="${escapeHtml(row.id)}">修正记录</button></div>`;
+  if (row.isDeleted) {
+    return `<div class="actions pet-calendar-actions"><button class="small-button" data-action="pet-calendar-restore" data-id="${escapeHtml(row.id)}">恢复</button></div>`;
+  }
+  return `
+    <div class="actions pet-calendar-actions">
+      <button class="small-button" data-action="pet-calendar-edit" data-id="${escapeHtml(row.id)}">修正</button>
+      <button class="small-button danger" data-action="pet-calendar-delete" data-id="${escapeHtml(row.id)}">删除</button>
+    </div>
+  `;
+}
+
+function renderPetCalendarBatchCell(row) {
+  return `<label class="inline-check"><input class="pet-calendar-batch-check" type="checkbox" value="${escapeHtml(row.id)}" /> 批量</label>`;
 }
 
 function cachedPetCalendarRow(recordId) {
   return (state.cache.petCalendar?.records || []).find((item) => item.id === recordId) || null;
+}
+
+function clearPetCalendarCaches() {
+  state.cache = { ...state.cache, audit: null, notifications: null, petCalendar: null, pets: null, summary: null, users: null };
 }
 
 function parseAdminPromptBoolean(value, fallback = false) {
@@ -4073,7 +4104,7 @@ async function createPetCalendarRecord() {
     ...draft,
     reason: trimmedReason,
   });
-  state.cache = { ...state.cache, audit: null, notifications: null, petCalendar: null, pets: null, summary: null, users: null };
+  clearPetCalendarCaches();
   showToast(`宠物日历已新增：${result.item?.typeLabel || draft.type}`);
   await render(true);
 }
@@ -4099,8 +4130,80 @@ async function editPetCalendarRecord(button) {
     reason: trimmedReason,
     record,
   });
-  state.cache = { ...state.cache, audit: null, notifications: null, petCalendar: null, pets: null, summary: null, users: null };
+  clearPetCalendarCaches();
   showToast(`宠物日历已修正：${(result.changedFields || []).map(petCalendarChangedLabel).join('、') || '已更新'}`);
+  await render(true);
+}
+
+async function deletePetCalendarRecord(button) {
+  const recordId = button.dataset.id;
+  const row = cachedPetCalendarRow(recordId);
+  if (!recordId || !row) {
+    showToast('请刷新宠物日历列表后再操作');
+    return;
+  }
+  const reason = window.prompt('请输入删除原因，会写入审计并通知用户', `删除宠物日历记录：${row.petName || row.ownerName}`);
+  if (reason === null) return;
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) {
+    showToast('请填写删除原因');
+    return;
+  }
+  if (!window.confirm(`确认删除「${row.petName || '宠物'}」的${row.typeLabel || '宠物日历'}记录？移动端将不再展示，但后台可恢复。`)) return;
+  const result = await post(`/admin/pet-calendar/${encodeURIComponent(recordId)}/delete`, {
+    reason: trimmedReason,
+  });
+  clearPetCalendarCaches();
+  showToast(`宠物日历已删除：${result.item?.typeLabel || row.typeLabel || '记录'}`);
+  await render(true);
+}
+
+async function restorePetCalendarRecord(button) {
+  const recordId = button.dataset.id;
+  const row = cachedPetCalendarRow(recordId);
+  if (!recordId || !row) {
+    showToast('请刷新宠物日历列表后再操作');
+    return;
+  }
+  const reason = window.prompt('请输入恢复原因，会写入审计并通知用户', `恢复宠物日历记录：${row.petName || row.ownerName}`);
+  if (reason === null) return;
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) {
+    showToast('请填写恢复原因');
+    return;
+  }
+  if (!window.confirm(`确认恢复「${row.petName || '宠物'}」的${row.typeLabel || '宠物日历'}记录？移动端将重新展示。`)) return;
+  const result = await post(`/admin/pet-calendar/${encodeURIComponent(recordId)}/restore`, {
+    reason: trimmedReason,
+  });
+  clearPetCalendarCaches();
+  showToast(`宠物日历已恢复：${result.item?.typeLabel || row.typeLabel || '记录'}`);
+  await render(true);
+}
+
+async function batchPetCalendarRecords() {
+  const recordIds = Array.from(document.querySelectorAll('.pet-calendar-batch-check:checked')).map((item) => item.value).filter(Boolean);
+  if (!recordIds.length) {
+    showToast('请先勾选要批量处理的日历记录');
+    return;
+  }
+  const action = $('petCalendarBulkAction')?.value || 'delete';
+  const label = action === 'restore' ? '恢复' : '删除';
+  const reason = window.prompt(`请输入批量${label}原因，会写入审计并通知用户`, `批量${label}宠物日历记录`);
+  if (reason === null) return;
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) {
+    showToast(`请填写批量${label}原因`);
+    return;
+  }
+  if (!window.confirm(`确认批量${label} ${recordIds.length} 条宠物日历记录？`)) return;
+  const result = await post('/admin/pet-calendar/batch', {
+    action,
+    reason: trimmedReason,
+    recordIds,
+  });
+  clearPetCalendarCaches();
+  showToast(`批量${label}完成：成功 ${result.successCount || 0}，失败 ${result.errorCount || 0}`);
   await render(true);
 }
 
@@ -4108,6 +4211,7 @@ async function renderPetCalendar(force) {
   const query = new URLSearchParams({
     from: state.petCalendarFrom,
     q: state.petCalendarQ,
+    recordState: state.petCalendarRecordState,
     source: state.petCalendarSource,
     status: state.petCalendarStatus,
     to: state.petCalendarTo,
@@ -4116,9 +4220,10 @@ async function renderPetCalendar(force) {
   const data = await load('petCalendar', `/admin/pet-calendar?${query.toString()}`, force);
   const records = data.records || [];
   const summary = data.summary || {};
+  const defaultBulkAction = state.petCalendarRecordState === 'deleted' ? 'restore' : 'delete';
   $('content').innerHTML = `
     <div class="grid metrics">
-      ${metric('日历记录', numberText(summary.all), `${numberText(summary.totalRecords)} 条全量记录`, '当前筛选下的体重、疫苗/驱虫和备忘总数；全量记录不受筛选影响。')}
+      ${metric('日历记录', numberText(summary.all), `${numberText(summary.active)} 有效 · ${numberText(summary.deleted)} 已删除`, '当前筛选下的体重、疫苗/驱虫和备忘总数；已删除记录只在选择“已删除/全部”时展示。')}
       ${metric('体重记录', numberText(summary.weights), `${numberText(summary.recorded)} 条已记录`, '体重来自移动端手动记录或 AI 对话自动写入。')}
       ${metric('疫苗/驱虫', numberText(summary.vaccines), `${numberText(summary.overdueVaccines)} 条已逾期`, '后台会区分 due / overdue；移动端统一展示为“计划中”。')}
       ${metric('备忘', numberText(summary.memos), `${numberText(summary.petCircleMemos)} 条宠友圈同步`, '备忘包括手动新增、宠友圈同步和 AI 对话创建。')}
@@ -4161,22 +4266,35 @@ async function renderPetCalendar(force) {
               ${petCalendarOption(state.petCalendarSource, 'ai_chat', 'AI 对话')}
             </select>
           </label>
+          <label>记录状态
+            <select id="petCalendarRecordState">
+              ${petCalendarOption(state.petCalendarRecordState, 'active', '有效记录')}
+              ${petCalendarOption(state.petCalendarRecordState, 'deleted', '已删除')}
+              ${petCalendarOption(state.petCalendarRecordState, 'all', '全部')}
+            </select>
+          </label>
           <label>开始日期<input id="petCalendarFrom" type="date" value="${escapeHtml(state.petCalendarFrom)}" /></label>
           <label>结束日期<input id="petCalendarTo" type="date" value="${escapeHtml(state.petCalendarTo)}" /></label>
           <label>搜索<input id="petCalendarQ" placeholder="手机号、宠物、标题、记录ID" value="${escapeHtml(state.petCalendarQ)}" /></label>
         </div>
         <div class="actions">
+          <select id="petCalendarBulkAction">
+            ${petCalendarOption(defaultBulkAction, 'delete', '批量删除')}
+            ${petCalendarOption(defaultBulkAction, 'restore', '批量恢复')}
+          </select>
+          <button class="small-button" data-action="pet-calendar-batch">批量处理</button>
           <button class="small-button" data-action="pet-calendar-create">新增记录</button>
           <button class="small-button" data-action="pet-calendar-filter">筛选</button>
           <button class="small-button ghost" data-action="pet-calendar-clear">清空</button>
         </div>
       </div>
       ${tableHtml(records, [
+        ['批量', renderPetCalendarBatchCell],
         ['用户 / 宠物', (r) => `<div class="cell-title">${escapeHtml(r.ownerName)}</div><div class="cell-sub">${shortPhone(r.phone)} · ${escapeHtml(r.petName)} ${r.petBreed ? `· ${escapeHtml(r.petBreed)}` : ''}</div>`],
         ['类型', (r) => `<div>${statusPill(r.typeLabel)}</div><div class="cell-sub">${escapeHtml(r.sourceId || '-')}</div>`],
         ['标题 / 内容', (r) => `<div class="cell-title">${escapeHtml(r.title || '-')}</div><div class="cell-sub clamp">${escapeHtml(r.detail || '-')}</div>`],
-        ['日期', (r) => `<div>${escapeHtml(r.date || '-')}</div><div class="cell-sub">更新：${formatTime(r.updatedAt)}</div>`],
-        ['状态', (r) => `${statusPill(r.statusLabel || r.status)}${r.reminderEnabled ? '<div class="cell-sub">已开提醒</div>' : ''}`],
+        ['日期', (r) => `<div>${escapeHtml(r.date || '-')}</div><div class="cell-sub">${r.isDeleted ? `删除：${formatTime(r.deletedAt)}` : `更新：${formatTime(r.updatedAt)}`}</div>`],
+        ['状态', (r) => `${statusPill(r.statusLabel || r.status)}${r.isDeleted ? `<div class="cell-sub">${escapeHtml(r.deletionReason || '已进入可恢复区')}</div>` : r.reminderEnabled ? '<div class="cell-sub">已开提醒</div>' : ''}`],
         ['来源', (r) => `${petCalendarSourceBadge(r)}<div class="cell-sub">${escapeHtml(r.id)}</div>`],
         ['操作', renderPetCalendarActions],
       ], '暂无宠物日历记录')}
@@ -4194,6 +4312,7 @@ async function renderPetCalendar(force) {
           <div><strong>修正留痕</strong><span>后台可修正明显错误的体重、疫苗/驱虫和备忘字段，必须填写原因。</span></div>
           <div><strong>运营新增</strong><span>后台可按手机号和宠物 ID 新增体重、疫苗/驱虫或备忘，来源会标记为运营新增。</span></div>
           <div><strong>来源追踪</strong><span>宠友圈同步、AI 对话写入会被标识出来，方便解释“为什么日历里多了一条”。</span></div>
+          <div><strong>软删除</strong><span>后台删除会从移动端真实日历移除，但保留快照、原因和恢复入口。</span></div>
           <div><strong>不制造默认记录</strong><span>本页直接读取持久化 state，不触发移动端健康列表的默认初始化逻辑。</span></div>
         </div>
       </div>
@@ -4201,14 +4320,14 @@ async function renderPetCalendar(force) {
         <div class="section-head">
           <div>
             <h2>动作边界</h2>
-            <div class="section-sub">开放低风险修正，删除和恢复仍保留给后续治理</div>
+            <div class="section-sub">新增、修正、删除、恢复都写审计，批量动作额外沉淀汇总</div>
           </div>
-          ${help('修正会直接影响移动端宠物日历；删除、恢复、批量处理属于更高风险动作，后续需要更细权限或双人审批。')}
+          ${help('删除会直接影响移动端宠物日历，但不会硬删数据；恢复会把快照放回原 store。批量处理最多一次 50 条，仍逐条写审计和通知。')}
         </div>
         <div class="gap-list">
           <div><strong>体重修正</strong><span>支持 kg、记录日期和备注；同步更新宠物档案上的最新体重。</span></div>
           <div><strong>疫苗/驱虫修正</strong><span>支持名称、计划日期、状态和提醒开关；完成状态会关闭提醒。</span></div>
-          <div><strong>备忘新增/修正</strong><span>支持标题、内容、提醒时间和重复频率；删除/恢复暂不开放。</span></div>
+          <div><strong>删除与恢复</strong><span>体重会重算最新体重；疫苗/驱虫会同步关闭或恢复提醒；备忘会从移动端列表移除或恢复。</span></div>
         </div>
       </div>
     </div>
