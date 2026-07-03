@@ -360,6 +360,14 @@ async function onContentClick(event) {
       await render(true);
       return;
     }
+    if (action === 'launch-question-update') {
+      await updateLaunchReadinessQuestion(button);
+      return;
+    }
+    if (action === 'launch-question-reset') {
+      await resetLaunchReadinessQuestion(button);
+      return;
+    }
     if (action === 'moderation-filter') {
       state.moderationStatus = $('moderationStatus').value;
       state.moderationQ = $('moderationQ').value.trim();
@@ -1952,6 +1960,78 @@ function readinessPriorityPill(priority) {
   return tonePill(value, tone);
 }
 
+function launchQuestionDecision(row) {
+  if (!row.hasDecisionOverride) {
+    return '<div class="cell-sub">尚未记录人工决策</div>';
+  }
+  return `
+    <div class="cell-title">${escapeHtml(row.decisionNote || '-')}</div>
+    <div class="cell-sub">${escapeHtml(row.decisionUpdatedBy || '-')} · ${formatTime(row.decisionUpdatedAt)}</div>
+  `;
+}
+
+function launchQuestionActions(row) {
+  return `
+    <div class="actions">
+      <button
+        class="small-button"
+        data-action="launch-question-update"
+        data-id="${escapeHtml(row.id)}"
+        data-note="${escapeHtml(row.decisionNote || '')}"
+        data-owner="${escapeHtml(row.owner || '')}"
+        data-question="${escapeHtml(row.question || '')}"
+        data-status="${escapeHtml(row.status || 'open')}"
+      >更新</button>
+      ${row.hasDecisionOverride ? `<button class="small-button ghost" data-action="launch-question-reset" data-id="${escapeHtml(row.id)}" data-question="${escapeHtml(row.question || '')}">重置</button>` : ''}
+    </div>
+  `;
+}
+
+async function updateLaunchReadinessQuestion(button) {
+  const id = button.dataset.id || '';
+  const question = button.dataset.question || id;
+  const status = window.prompt(`更新「${question}」状态：open / reviewing / ready / deferred`, button.dataset.status || 'open');
+  if (status === null) return;
+  const owner = window.prompt('负责人或决策来源', button.dataset.owner || '待业务确认');
+  if (owner === null) return;
+  const note = window.prompt('决策备注，会显示在上线台账', button.dataset.note || '');
+  if (note === null) return;
+  const reason = window.prompt('请输入更新原因，会写入审计日志', `更新上线台账问题：${question}`);
+  if (reason === null) return;
+  if (!note.trim() || !reason.trim()) {
+    showToast('请填写决策备注和更新原因');
+    return;
+  }
+  await post(`/admin/launch/readiness/questions/${encodeURIComponent(id)}`, {
+    note: note.trim(),
+    owner: owner.trim(),
+    reason: reason.trim(),
+    status: status.trim(),
+  });
+  state.cache = { ...state.cache, audit: null, launchReadiness: null };
+  showToast('上线台账已更新');
+  await render(true);
+}
+
+async function resetLaunchReadinessQuestion(button) {
+  const id = button.dataset.id || '';
+  const question = button.dataset.question || id;
+  if (!window.confirm(`确认重置「${question}」的人工决策记录？会回到动态台账默认口径。`)) return;
+  const reason = window.prompt('请输入重置原因，会写入审计日志', `重置上线台账问题：${question}`);
+  if (reason === null) return;
+  if (!reason.trim()) {
+    showToast('请填写重置原因');
+    return;
+  }
+  await post(`/admin/launch/readiness/questions/${encodeURIComponent(id)}`, {
+    reason: reason.trim(),
+    reset: true,
+  });
+  state.cache = { ...state.cache, audit: null, launchReadiness: null };
+  showToast('上线台账记录已重置');
+  await render(true);
+}
+
 async function renderLaunchReadiness(force) {
   const data = await load('launchReadiness', '/admin/launch/readiness', force);
   const summary = data.summary || {};
@@ -2005,39 +2085,39 @@ async function renderLaunchReadiness(force) {
       </div>
     </div>
 
-    <div class="grid two">
-      <div class="card">
-        <div class="section-head">
-          <div>
-            <h2>上线前必须确认</h2>
-            <div class="section-sub">持续需要你拍板的问题</div>
-          </div>
-          ${help('这些不是代码 TODO，而是业务、合规或运营策略选择。确认后才能进入对应实现或上线口径。')}
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>上线前必须确认</h2>
+          <div class="section-sub">持续需要你拍板的问题</div>
         </div>
-        ${tableHtml(questions, [
-          ['级别', (row) => readinessPriorityPill(row.priority)],
-          ['问题', (row) => `<div class="cell-title">${escapeHtml(row.question)}</div><div class="cell-sub">${escapeHtml(row.id)}</div>`],
-          ['当前口径', (row) => `<div class="cell-sub clamp">${escapeHtml(row.currentPolicy || '-')}</div>`],
-          ['影响', (row) => `<div class="cell-sub clamp">${escapeHtml(row.impact || '-')}</div>`],
-          ['状态', (row) => `${statusPill(row.statusLabel || row.status)}<div class="cell-sub">${escapeHtml(row.owner || '-')}</div>`],
-        ], '暂无待确认问题')}
+        ${help('这些不是代码 TODO，而是业务、合规或运营策略选择。确认后才能进入对应实现或上线口径。')}
       </div>
+      ${tableHtml(questions, [
+        ['级别', (row) => readinessPriorityPill(row.priority)],
+        ['问题', (row) => `<div class="cell-title">${escapeHtml(row.question)}</div><div class="cell-sub">${escapeHtml(row.id)}</div>`],
+        ['当前口径', (row) => `<div class="cell-sub clamp">${escapeHtml(row.currentPolicy || '-')}</div>`],
+        ['影响', (row) => `<div class="cell-sub clamp">${escapeHtml(row.impact || '-')}</div>`],
+        ['状态', (row) => `${statusPill(row.statusLabel || row.status)}<div class="cell-sub">${escapeHtml(row.owner || '-')}</div>`],
+        ['决策记录', (row) => launchQuestionDecision(row)],
+        ['操作', (row) => launchQuestionActions(row)],
+      ], '暂无待确认问题')}
+    </div>
 
-      <div class="card">
-        <div class="section-head">
-          <div>
-            <h2>配置联动关注项</h2>
-            <div class="section-sub">非“前后端联动”的配置项</div>
-          </div>
-          ${help('这里从配置中心联动体检抽取：仅后端、仅移动端、预留或待接入的项目，方便上线前逐项核对。')}
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>配置联动关注项</h2>
+          <div class="section-sub">非“前后端联动”的配置项</div>
         </div>
-        ${tableHtml(attentionItems, [
-          ['状态', (item) => configLinkageStatusPill(item.status, item.statusLabel)],
-          ['配置', (item) => `<div class="cell-title">${escapeHtml(item.label)}</div><div class="cell-sub">${escapeHtml(item.key)} · ${escapeHtml(item.group || '-')}</div>`],
-          ['当前值', (item) => `<div class="cell-sub">${escapeHtml(item.currentValue || '-')}</div>`],
-          ['影响', (item) => `<div class="cell-sub clamp">${escapeHtml(item.userImpact || item.operatorNote || '-')}</div>`],
-        ], '暂无需要关注的配置项')}
+        ${help('这里从配置中心联动体检抽取：仅后端、仅移动端、预留或待接入的项目，方便上线前逐项核对。')}
       </div>
+      ${tableHtml(attentionItems, [
+        ['状态', (item) => configLinkageStatusPill(item.status, item.statusLabel)],
+        ['配置', (item) => `<div class="cell-title">${escapeHtml(item.label)}</div><div class="cell-sub">${escapeHtml(item.key)} · ${escapeHtml(item.group || '-')}</div>`],
+        ['当前值', (item) => `<div class="cell-sub">${escapeHtml(item.currentValue || '-')}</div>`],
+        ['影响', (item) => `<div class="cell-sub clamp">${escapeHtml(item.userImpact || item.operatorNote || '-')}</div>`],
+      ], '暂无需要关注的配置项')}
     </div>
 
     <div class="card">

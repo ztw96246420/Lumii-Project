@@ -90,6 +90,7 @@
 ### 3.2.2 上线台账
 
 - `GET /admin/launch/readiness`
+- `POST /admin/launch/readiness/questions/{questionId}`
 
 已支持：
 
@@ -97,11 +98,12 @@
 - 汇总展示模块成熟度、上线前必须确认的问题、生产风险和配置联动关注项。
 - 模块状态使用“测试可用 / 部分可用 / 生产阻断 / 已预留”，避免把测试阶段可用误认为生产级完成。
 - 台账读取配置中心联动体检、系统健康、账号权限等现有真实状态，不新建一套割裂的假数据。
+- 支持在页面内更新待澄清问题状态、负责人/决策来源和决策备注；更新和重置均写入 `adminAuditLogs`。
 - 独立文档：`docs/Operations_Backoffice_Launch_Readiness_Register_2026-06-30.md`。
+- 决策记录文档：[Operations_Backoffice_Launch_Readiness_Question_Updates_2026-07-03.md](Operations_Backoffice_Launch_Readiness_Question_Updates_2026-07-03.md)。
 
 未实现：
 
-- 页面内编辑待澄清问题。
 - 多管理员 owner 分配、审批流、关闭状态流转和上线结论签署。
 
 ### 3.3 用户管理

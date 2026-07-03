@@ -660,6 +660,7 @@ function createInitialState() {
   return {
     adminAuditLogs: [],
     adminExportApprovals: [],
+    launchReadinessQuestionOverrides: {},
     opsConfigApprovals: [],
     adminLoginSecurity: {
       failedAttempts: 0,
@@ -4136,6 +4137,7 @@ function loadState() {
       },
       adminAuditLogs: Array.isArray(loadedState.adminAuditLogs) ? loadedState.adminAuditLogs : initialState.adminAuditLogs,
       adminExportApprovals: Array.isArray(loadedState.adminExportApprovals) ? loadedState.adminExportApprovals : initialState.adminExportApprovals,
+      launchReadinessQuestionOverrides: loadedState.launchReadinessQuestionOverrides && typeof loadedState.launchReadinessQuestionOverrides === 'object' && !Array.isArray(loadedState.launchReadinessQuestionOverrides) ? loadedState.launchReadinessQuestionOverrides : initialState.launchReadinessQuestionOverrides,
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
       socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
@@ -16688,6 +16690,7 @@ async function adminSystemHealth() {
       { key: 'avatarJobs', label: 'AI 任务', rows: countObject(state.avatarJobs) },
       { key: 'avatarAnimationJobs', label: '动效任务', rows: countObject(state.avatarAnimationJobs) },
       { key: 'adminAuditLogs', label: '审计日志', rows: countArray(state.adminAuditLogs) },
+      { key: 'launchReadinessQuestionOverrides', label: '上线台账决策', rows: countObject(state.launchReadinessQuestionOverrides) },
       { key: 'appEvents', label: '移动端事件', rows: countArray(state.appEvents) },
       { key: 'notifications', label: '通知记录', rows: countNotificationRows },
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
@@ -16767,6 +16770,7 @@ function adminPermissionCatalog() {
     ['data.export.approve', '提交和审批数据导出', '导出'],
     ['system.health.view', '查看系统健康', '系统管理'],
     ['launch.readiness.view', '查看上线台账', '系统管理'],
+    ['launch.readiness.update', '更新上线台账待澄清问题', '系统管理'],
   ].map(([key, label, group]) => ({ group, key, label, status: 'active' }));
 }
 
@@ -16915,6 +16919,60 @@ function adminReadinessStatusMeta(status) {
   return map[status] || { label: status || '未知', tone: 'warn' };
 }
 
+function normalizeReadinessQuestionStatus(value) {
+  const status = String(value || '').trim();
+  if (['deferred', 'open', 'ready', 'reviewing'].includes(status)) return status;
+  const map = {
+    已确认: 'ready',
+    已接入: 'ready',
+    已解决: 'ready',
+    待确认: 'open',
+    待业务确认: 'open',
+    跟进中: 'reviewing',
+    处理中: 'reviewing',
+    暂缓: 'deferred',
+    延后: 'deferred',
+  };
+  return map[status] || 'open';
+}
+
+function readinessQuestionStatusLabel(status) {
+  return {
+    deferred: '暂缓',
+    open: '待确认',
+    ready: '已确认',
+    reviewing: '跟进中',
+  }[normalizeReadinessQuestionStatus(status)] || '待确认';
+}
+
+function ensureLaunchReadinessQuestionOverrides() {
+  if (!state.launchReadinessQuestionOverrides || typeof state.launchReadinessQuestionOverrides !== 'object' || Array.isArray(state.launchReadinessQuestionOverrides)) {
+    state.launchReadinessQuestionOverrides = {};
+  }
+  return state.launchReadinessQuestionOverrides;
+}
+
+function applyLaunchReadinessQuestionOverride(question) {
+  const override = ensureLaunchReadinessQuestionOverrides()[question.id];
+  if (!override || typeof override !== 'object' || Array.isArray(override)) return question;
+  const status = normalizeReadinessQuestionStatus(override.status || question.status);
+  const owner = String(override.owner || '').replace(/\s+/g, ' ').trim().slice(0, 40) || question.owner;
+  const note = String(override.note || '').replace(/\s+/g, ' ').trim().slice(0, 360);
+  return {
+    ...question,
+    defaultOwner: question.owner,
+    defaultStatus: question.status,
+    defaultStatusLabel: question.statusLabel,
+    decisionNote: note,
+    decisionUpdatedAt: override.updatedAt || '',
+    decisionUpdatedBy: override.updatedBy || '',
+    hasDecisionOverride: true,
+    owner,
+    status,
+    statusLabel: readinessQuestionStatusLabel(status),
+  };
+}
+
 function adminReadinessModules(context) {
   const { accounts, contentSafety, health, linkageSummary } = context;
   const hasHealthBad = Number(health?.summary?.bad || 0) > 0;
@@ -17051,7 +17109,7 @@ function adminReadinessQuestions(context = {}) {
   const safetyVendorReady = contentSafetyReadiness.textReady && contentSafetyReadiness.imageReady;
   const imagePolicyReady = contentSafetyReadiness.imageReady;
   const ipAllowlistReady = Boolean(context.accounts?.security?.ipAllowlist?.configured);
-  return [
+  const questions = [
     ['q-domain', 'P1', '后台正式域名使用 ops.lumiiapp.cn、admin.lumiiapp.cn，还是先沿用 /admin？', '当前可沿用 /admin；生产建议独立后台域名并做访问控制。', '影响后台入口、证书、CDN/网关和运维 SOP。'],
     ['q-ip', 'P0', '生产后台是否必须白名单 IP？', ipAllowlistReady ? '已接入后端 IP 白名单：/admin 页面和 /admin/* API 都会拦截非白名单 IP。' : '当前未强制白名单；生产前建议至少网关层限制。', '影响后台暴露面和账号被撞库风险。', ipAllowlistReady ? 'ready' : 'open', ipAllowlistReady ? '已接入' : '待确认'],
     ['q-mfa', 'P0', '后台账号是否接企业微信、飞书或邮箱 MFA？', '当前单 admin 账号无 MFA。', '影响生产后台登录安全。'],
@@ -17076,6 +17134,7 @@ function adminReadinessQuestions(context = {}) {
     statusLabel,
     question,
   }));
+  return questions.map(applyLaunchReadinessQuestionOverride);
 }
 
 function adminReadinessGaps(context) {
@@ -17212,6 +17271,39 @@ async function adminLaunchReadiness() {
       totalModules: modules.length,
     },
   };
+}
+
+async function adminUpdateLaunchReadinessQuestion(admin, questionId, body = {}) {
+  const id = String(questionId || '').trim();
+  const readiness = await adminLaunchReadiness();
+  const question = (readiness.questions || []).find((item) => item.id === id);
+  if (!question) return { error: '待澄清问题不存在', statusCode: 404 };
+  const reason = String(body?.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '请填写更新原因', statusCode: 400 };
+  const overrides = ensureLaunchReadinessQuestionOverrides();
+  const before = cloneJson(overrides[id] || null);
+  if (body?.reset === true) {
+    delete overrides[id];
+    writeAdminAudit(admin, 'launch.readiness.question.reset', 'launch_readiness_question', id, before, null, reason);
+    return adminLaunchReadiness();
+  }
+
+  const status = normalizeReadinessQuestionStatus(body?.status || question.status);
+  const owner = String(body?.owner || question.owner || '待业务确认').replace(/\s+/g, ' ').trim().slice(0, 40) || '待业务确认';
+  const note = String(body?.note || body?.decisionNote || '').replace(/\s+/g, ' ').trim().slice(0, 360);
+  if (!note) return { error: '请填写决策备注', statusCode: 400 };
+  const now = new Date().toISOString();
+  overrides[id] = {
+    note,
+    owner,
+    question: question.question,
+    status,
+    statusLabel: readinessQuestionStatusLabel(status),
+    updatedAt: now,
+    updatedBy: admin?.username || 'admin',
+  };
+  writeAdminAudit(admin, 'launch.readiness.question.update', 'launch_readiness_question', id, before, cloneJson(overrides[id]), reason);
+  return adminLaunchReadiness();
 }
 
 const APP_EVENT_MAX_ROWS = 8000;
@@ -21854,6 +21946,19 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/launch/readiness') {
     ok(res, await adminLaunchReadiness());
+    return true;
+  }
+
+  const adminLaunchQuestionMatch = pathname.match(/^\/admin\/launch\/readiness\/questions\/([^/]+)$/);
+  if (req.method === 'POST' && adminLaunchQuestionMatch) {
+    const questionId = decodeURIComponent(adminLaunchQuestionMatch[1]);
+    const result = await adminUpdateLaunchReadinessQuestion(admin, questionId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_LAUNCH_READINESS_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 
