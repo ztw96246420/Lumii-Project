@@ -8,10 +8,11 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const TEST_CODE = '962464';
-const TEST_PHONE = '13900008888';
+const APPROVE_PHONE = '13900008889';
+const CANCEL_PHONE = '13900008890';
 const rootDir = path.join(__dirname, '..');
 const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-avatar-animation-'));
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-data-clear-approval-'));
 const statePath = path.join(tmpDir, 'state.json');
 let backendProcess = null;
 let baseUrl = '';
@@ -110,7 +111,7 @@ async function stopBackend() {
 
 async function loginUser(phone) {
   await request('/auth/sms/send', {
-    body: { deviceId: `avatar-animation-smoke-${phone}`, phone },
+    body: { deviceId: `data-clear-smoke-${phone}`, phone },
     method: 'POST',
   });
   const payload = await request('/auth/sms/verify', {
@@ -130,59 +131,86 @@ async function loginAdmin() {
   return payload.data.token;
 }
 
-async function createPet(token) {
+async function createPet(token, name) {
   const payload = await request('/pets', {
     body: {
       birthday: '2024-01-05',
       breed: 'dog',
       gender: 'male',
-      name: 'Lucky',
+      name,
       species: 'dog',
       weightKg: 18.6,
     },
     method: 'POST',
     token,
   });
-  assert.ok(payload.data?.id, 'missing pet id');
+  assert.ok(payload.data?.id, `missing pet id for ${name}`);
   return payload.data;
+}
+
+async function petCount(token) {
+  const payload = await request('/pets', { token });
+  return payload.data.length;
+}
+
+async function submitApproval(adminToken, phone, reason) {
+  const payload = await request('/admin/data-clear-approvals', {
+    body: { confirmation: phone, phone, reason },
+    method: 'POST',
+    token: adminToken,
+  });
+  assert.ok(payload.data?.approval?.id, 'missing data clear approval id');
+  return payload.data.approval;
 }
 
 async function main() {
   const port = await getFreePort();
   await startBackend(port);
   try {
-    const userToken = await loginUser(TEST_PHONE);
+    const approveUserToken = await loginUser(APPROVE_PHONE);
+    const cancelUserToken = await loginUser(CANCEL_PHONE);
     const adminToken = await loginAdmin();
-    const pet = await createPet(userToken);
+    await createPet(approveUserToken, 'Lucky');
+    await createPet(cancelUserToken, 'Mochi');
 
-    const savedPet = await request(`/pets/${encodeURIComponent(pet.id)}/avatar`, {
-      body: { avatarUrl: 'https://example.com/lumii-static-avatar.png' },
-      method: 'POST',
-      token: userToken,
-    });
-    assert.equal(savedPet.data.avatarAnimationStatus, 'ready');
-    assert.ok(savedPet.data.avatarAnimationJobId, 'missing animation job id on saved pet');
-
-    const latest = await request(`/ai/pet-avatar/animation/latest?petId=${encodeURIComponent(pet.id)}`, { token: userToken });
-    assert.equal(latest.data.status, 'ready');
-    assert.equal(latest.data.progress, 100);
-    assert.equal(latest.data.provider, 'mock');
-
-    const beforeClear = await request(`/admin/users/${encodeURIComponent(TEST_PHONE)}/business-data-summary`, { token: adminToken });
-    assert.equal(beforeClear.data.summary.avatarAnimationJobs, 1);
-
-    const clearApproval = await request('/admin/data-clear-approvals', {
-      body: { confirmation: TEST_PHONE, phone: TEST_PHONE, reason: 'smoke clear avatar animation data' },
+    const direct = await request(`/admin/users/${encodeURIComponent(APPROVE_PHONE)}/clear-business-data`, {
+      body: { confirmation: APPROVE_PHONE, reason: 'smoke direct clear must require approval' },
+      expectedStatus: 409,
       method: 'POST',
       token: adminToken,
     });
-    await request(`/admin/data-clear-approvals/${encodeURIComponent(clearApproval.data.approval.id)}/approve`, {
-      body: { reason: 'smoke approve avatar animation data clear' },
+    assert.equal(direct.error?.code, 'ADMIN_DATA_CLEAR_APPROVAL_REQUIRED');
+    assert.equal(direct.data?.approvalRequired, true);
+    assert.equal(await petCount(approveUserToken), 1, 'direct clear must not remove mobile data');
+
+    const approval = await submitApproval(adminToken, APPROVE_PHONE, 'smoke submit data clear approval');
+    assert.equal(approval.status, 'pending_approval');
+    assert.equal(approval.beforeSummary?.pets, 1);
+    assert.equal(await petCount(approveUserToken), 1, 'pending approval must not remove mobile data');
+
+    const approved = await request(`/admin/data-clear-approvals/${encodeURIComponent(approval.id)}/approve`, {
+      body: { reason: 'smoke approve data clear' },
       method: 'POST',
       token: adminToken,
     });
-    const afterClear = await request(`/admin/users/${encodeURIComponent(TEST_PHONE)}/business-data-summary`, { token: adminToken });
-    assert.equal(afterClear.data.summary.avatarAnimationJobs, 0);
+    assert.equal(approved.data.approval.status, 'approved');
+    assert.equal(approved.data.clearResult.before.pets, 1);
+    assert.equal(approved.data.clearResult.after.pets, 0);
+    assert.equal(await petCount(approveUserToken), 0, 'approved clear should remove business data');
+
+    const canceledApproval = await submitApproval(adminToken, CANCEL_PHONE, 'smoke cancel data clear approval');
+    const canceled = await request(`/admin/data-clear-approvals/${encodeURIComponent(canceledApproval.id)}/cancel`, {
+      body: { reason: 'smoke cancel data clear' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(canceled.data.approval.status, 'canceled');
+    assert.equal(await petCount(cancelUserToken), 1, 'canceled approval must keep mobile data');
+
+    const approvals = await request('/admin/data-clear-approvals?status=all', { token: adminToken });
+    assert.equal(approvals.data.summary.approved, 1);
+    assert.equal(approvals.data.summary.canceled, 1);
+    assert.equal(approvals.data.summary.pending, 0);
   } finally {
     await stopBackend();
     fs.rmSync(tmpDir, { force: true, recursive: true });

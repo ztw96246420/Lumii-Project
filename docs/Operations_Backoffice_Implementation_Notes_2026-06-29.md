@@ -9,7 +9,7 @@
 - 后台 API：`/admin/*`
 - 移动端公开配置：`/app/config`
 - 移动端已经开始读取后台配置，避免后台和 App 割裂。
-- 第一版仅支持单一 `admin` 权限管理员；细角色和双人审批先预留。配置发布、系统通知和数据导出已接入单 admin 审批流，可在配置中心强制开启。
+- 第一版仅支持单一 `admin` 权限管理员；细角色和双人审批先预留。配置发布、系统通知、数据导出、永久封禁和用户业务数据清理已接入单 admin 审批流。
 
 ## 2. Product Design 设计 brief
 
@@ -114,6 +114,10 @@
 - `POST /admin/users/{phone}/notes`
 - `POST /admin/users/{phone}/risk-tags`
 - `GET /admin/users/{phone}/business-data-summary`
+- `GET /admin/data-clear-approvals`
+- `POST /admin/data-clear-approvals`
+- `POST /admin/data-clear-approvals/{approvalId}/approve`
+- `POST /admin/data-clear-approvals/{approvalId}/cancel`
 - `POST /admin/users/{phone}/clear-business-data`
 
 已支持：

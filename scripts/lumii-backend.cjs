@@ -665,6 +665,7 @@ function defaultOpsConfig() {
 function createInitialState() {
   return {
     adminAuditLogs: [],
+    adminDataClearApprovals: [],
     adminExportApprovals: [],
     adminSanctionApprovals: [],
     launchReadinessQuestionOverrides: {},
@@ -4253,6 +4254,7 @@ function loadState() {
         ...(loadedState.adminLoginSecurity || {}),
       },
       adminAuditLogs: Array.isArray(loadedState.adminAuditLogs) ? loadedState.adminAuditLogs : initialState.adminAuditLogs,
+      adminDataClearApprovals: Array.isArray(loadedState.adminDataClearApprovals) ? loadedState.adminDataClearApprovals : initialState.adminDataClearApprovals,
       adminExportApprovals: Array.isArray(loadedState.adminExportApprovals) ? loadedState.adminExportApprovals : initialState.adminExportApprovals,
       adminSanctionApprovals: Array.isArray(loadedState.adminSanctionApprovals) ? loadedState.adminSanctionApprovals : initialState.adminSanctionApprovals,
       launchReadinessQuestionOverrides: loadedState.launchReadinessQuestionOverrides && typeof loadedState.launchReadinessQuestionOverrides === 'object' && !Array.isArray(loadedState.launchReadinessQuestionOverrides) ? loadedState.launchReadinessQuestionOverrides : initialState.launchReadinessQuestionOverrides,
@@ -15683,13 +15685,148 @@ function adminUserBusinessDataSummary(phone) {
   };
 }
 
-function adminClearUserBusinessData(admin, phone, body = {}) {
+function ensureDataClearApprovals() {
+  if (!Array.isArray(state.adminDataClearApprovals)) state.adminDataClearApprovals = [];
+  return state.adminDataClearApprovals;
+}
+
+function dataClearApprovalStatusLabel(status) {
+  return {
+    approved: '已执行',
+    canceled: '已取消',
+    pending_approval: '待审批',
+  }[status] || status || '-';
+}
+
+function adminDataClearApprovalItem(approval = {}) {
+  const phone = normalizePhone(approval.phone || '');
+  const user = state.users?.[phone];
+  return {
+    afterSummary: approval.afterSummary || null,
+    approvalReason: approval.approvalReason || '',
+    approvedAt: approval.approvedAt || '',
+    approvedBy: approval.approvedBy || '',
+    beforeSummary: approval.beforeSummary || null,
+    beforeUser: approval.beforeUser || null,
+    cancelReason: approval.cancelReason || '',
+    canceledAt: approval.canceledAt || '',
+    canceledBy: approval.canceledBy || '',
+    createdAt: approval.createdAt || '',
+    createdBy: approval.createdBy || '',
+    id: approval.id || '',
+    ownerName: user?.ownerName || approval.beforeUser?.ownerName || `用户${String(phone || '').slice(-4)}`,
+    phone,
+    reason: approval.reason || '',
+    status: approval.status || 'pending_approval',
+    statusLabel: dataClearApprovalStatusLabel(approval.status || 'pending_approval'),
+  };
+}
+
+function adminDataClearApprovals(options = {}) {
+  const status = String(options.status || 'open').trim() || 'open';
+  const limit = Math.min(80, Math.max(10, Number(options.limit || 20) || 20));
+  const all = ensureDataClearApprovals().map(adminDataClearApprovalItem);
+  const items = all
+    .filter((item) => {
+      if (status === 'all') return true;
+      if (status === 'open') return item.status === 'pending_approval';
+      return item.status === status;
+    })
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .slice(0, limit);
+  return {
+    items,
+    summary: {
+      approved: all.filter((item) => item.status === 'approved').length,
+      canceled: all.filter((item) => item.status === 'canceled').length,
+      pending: all.filter((item) => item.status === 'pending_approval').length,
+      total: all.length,
+    },
+  };
+}
+
+function createDataClearApproval(admin, body = {}) {
+  const phone = normalizePhone(body.phone || '');
+  const user = phone ? state.users?.[phone] : null;
+  if (!user) return { error: '用户不存在', statusCode: 404 };
+  const confirmation = String(body.confirmation || '').trim();
+  if (confirmation !== phone) return { error: '请用目标手机号确认清理动作', statusCode: 400 };
+  const reason = adminReason(body, '提交用户业务数据清理审批');
+  const duplicate = ensureDataClearApprovals().find((item) => item.phone === phone && item.status === 'pending_approval');
+  if (duplicate) return { error: '该用户已有待审批的数据清理申请', statusCode: 409 };
+  const approval = {
+    beforeSummary: adminUserBusinessDataSummary(phone),
+    beforeUser: adminUserSummary(user),
+    createdAt: new Date().toISOString(),
+    createdBy: admin?.username || 'admin',
+    id: `data-clear-approval-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    phone,
+    reason,
+    status: 'pending_approval',
+  };
+  ensureDataClearApprovals().unshift(approval);
+  state.adminDataClearApprovals = state.adminDataClearApprovals.slice(0, 200);
+  writeAdminAudit(admin, 'user.clear_business_data.approval.create', 'data_clear_approval', approval.id, null, adminDataClearApprovalItem(approval), reason);
+  return {
+    approval: adminDataClearApprovalItem(approval),
+    approvals: adminDataClearApprovals(),
+  };
+}
+
+function approveDataClearApproval(admin, approvalId, body = {}) {
+  const approval = ensureDataClearApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '数据清理审批不存在', statusCode: 404 };
+  if (approval.status !== 'pending_approval') return { error: '只有待审批数据清理申请可以执行', statusCode: 409 };
+  const beforeApproval = cloneJson(approval);
+  const result = adminClearUserBusinessData(admin, approval.phone, {
+    confirmation: approval.phone,
+    reason: approval.reason,
+  }, { approved: true, approvalId: approval.id });
+  if (result.error) return result;
+  approval.afterSummary = result.after;
+  approval.approvalReason = adminReason(body, '审批并执行用户业务数据清理');
+  approval.approvedAt = new Date().toISOString();
+  approval.approvedBy = admin?.username || 'admin';
+  approval.status = 'approved';
+  writeAdminAudit(admin, 'user.clear_business_data.approval.approve', 'data_clear_approval', approval.id, beforeApproval, adminDataClearApprovalItem(approval), approval.approvalReason);
+  return {
+    approval: adminDataClearApprovalItem(approval),
+    approvals: adminDataClearApprovals(),
+    clearResult: result,
+  };
+}
+
+function cancelDataClearApproval(admin, approvalId, body = {}) {
+  const approval = ensureDataClearApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '数据清理审批不存在', statusCode: 404 };
+  if (approval.status !== 'pending_approval') return { error: '只有待审批数据清理申请可以取消', statusCode: 409 };
+  const before = cloneJson(approval);
+  approval.cancelReason = adminReason(body, '取消用户业务数据清理审批');
+  approval.canceledAt = new Date().toISOString();
+  approval.canceledBy = admin?.username || 'admin';
+  approval.status = 'canceled';
+  writeAdminAudit(admin, 'user.clear_business_data.approval.cancel', 'data_clear_approval', approval.id, before, adminDataClearApprovalItem(approval), approval.cancelReason);
+  return {
+    approval: adminDataClearApprovalItem(approval),
+    approvals: adminDataClearApprovals(),
+  };
+}
+
+function adminClearUserBusinessData(admin, phone, body = {}, options = {}) {
   const normalizedPhone = normalizePhone(phone);
   const user = normalizedPhone ? state.users[normalizedPhone] : null;
   if (!user) return { error: '用户不存在', statusCode: 404 };
   const reason = adminReason(body, '清理用户业务数据');
   const confirmation = String(body.confirmation || '').trim();
   if (confirmation !== normalizedPhone) return { error: '请用目标手机号确认清理动作', statusCode: 400 };
+  if (options.approved !== true) {
+    return {
+      approvalRequired: true,
+      code: 'ADMIN_DATA_CLEAR_APPROVAL_REQUIRED',
+      error: '用户业务数据清理需要先提交并审批申请',
+      statusCode: 409,
+    };
+  }
   const beforeSummary = adminUserBusinessDataSummary(normalizedPhone);
   const beforeUser = adminUserSummary(user);
   const ids = businessDataIdsForUser(normalizedPhone);
@@ -18907,7 +19044,7 @@ function adminReadinessQuestions(context = {}) {
     ['q-safety-vendor', 'P0', '内容安全供应商选哪家，文本和图片是否同一供应商？', safetyVendorReady ? '已选腾讯云天御：文本和图片机审均通过配置中心开关联动，Biztype 可由环境变量覆盖。' : `腾讯云内容安全基座未完全就绪，仍缺：${contentSafetyReadiness.missing.join('、') || '配置复核'}。`, '影响宠友圈、评论、头像、宠物图、地点点评的真实审核能力。', safetyVendorReady ? 'ready' : 'open', safetyVendorReady ? '已确认' : '待业务确认'],
     ['q-image-policy', 'P0', '图片审核失败时，宠友圈发布是阻断、送审，还是先隐藏等待审核？', imagePolicyReady ? '已实现：Block 拒绝，Review 进入 pending_review；宠友圈、地点内容会阻止发布/提交含待审或驳回图片，审核通过后才可继续。' : '图片机审未完全就绪，当前仍需人工任务池和配置复核兜底。', '影响用户发布体验和违规内容外露风险。', imagePolicyReady ? 'ready' : 'open', imagePolicyReady ? '已确认' : '待业务确认'],
     ['q-message-view', 'P1', '私信是否允许人工查看全文？如果允许，谁审批、保留多久？', '当前后台默认只做摘要排查。', '影响隐私合规和骚扰治理能力。'],
-    ['q-clear-data', 'P1', '用户业务数据清理是否只保留测试环境？', '当前已实现清理链路，生产是否开放需确认。', '影响误操作风险、用户数据权益和客服 SOP。'],
+    ['q-clear-data', 'P1', '用户业务数据清理是否只保留测试环境？', '已接入单 admin 数据清理审批；审批通过后才真正清理移动端业务数据。生产是否开放或升级双人审批仍需确认。', '影响误操作风险、用户数据权益和客服 SOP。'],
     ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '当前后台可人工返还；自动规则未定。', '影响用户权益、成本和客服处理标准。'],
     ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '已接入单 admin 永久封禁审批流；审批通过后才真正写入处罚并影响移动端账号状态。生产期若需要双人审批，可在此基础上接多管理员复核。', '影响高风险处罚治理。', 'ready', '已接入'],
     ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏，不开放完整手机号导出。', '影响隐私合规和数据泄露风险。'],
@@ -18990,7 +19127,7 @@ function adminReadinessGaps(context) {
       area: '高风险操作',
       severity: 'P1',
       status: 'partial',
-      issue: '配置发布、强制通知、敏感导出和永久封禁已有单 admin 审批；数据清理仍缺审批，所有高风险动作仍缺多管理员双人审批。',
+      issue: '配置发布、强制通知、敏感导出、永久封禁和用户业务数据清理已有单 admin 审批；所有高风险动作仍缺多管理员双人审批。',
       requiredAction: '补审批人/申请人分离、双人审批、撤回/驳回、审批通知和超时处理。',
       evidence: '账号权限页已预留 super_admin / ops_admin / auditor',
     },
@@ -25049,6 +25186,41 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/data-clear-approvals') {
+    ok(res, adminDataClearApprovals({
+      limit: url.searchParams.get('limit') || 20,
+      status: url.searchParams.get('status') || 'open',
+    }));
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/data-clear-approvals') {
+    const result = createDataClearApproval(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_DATA_CLEAR_APPROVAL_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminDataClearApprovalActionMatch = pathname.match(/^\/admin\/data-clear-approvals\/([^/]+)\/(approve|cancel)$/);
+  if (req.method === 'POST' && adminDataClearApprovalActionMatch) {
+    const approvalId = decodeURIComponent(adminDataClearApprovalActionMatch[1]);
+    const action = adminDataClearApprovalActionMatch[2];
+    const result = action === 'approve'
+      ? approveDataClearApproval(admin, approvalId, body)
+      : cancelDataClearApproval(admin, approvalId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_DATA_CLEAR_APPROVAL_ACTION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
   const adminUserBusinessSummaryMatch = pathname.match(/^\/admin\/users\/([^/]+)\/business-data-summary$/);
   if (req.method === 'GET' && adminUserBusinessSummaryMatch) {
     const phone = normalizePhone(decodeURIComponent(adminUserBusinessSummaryMatch[1]));
@@ -25066,7 +25238,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     const phone = normalizePhone(decodeURIComponent(adminUserClearBusinessDataMatch[1]));
     const result = adminClearUserBusinessData(admin, phone, body);
     if (result.error) {
-      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_USER_CLEAR_BUSINESS_DATA_INVALID');
+      fail(res, result.statusCode || 400, result.error, false, { approvalRequired: Boolean(result.approvalRequired) }, result.code || 'ADMIN_USER_CLEAR_BUSINESS_DATA_INVALID');
       return true;
     }
     saveState();

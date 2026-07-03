@@ -831,6 +831,14 @@ async function onContentClick(event) {
       await clearUserBusinessData(phone);
       return;
     }
+    if (action === 'data-clear-approval-approve') {
+      await approveDataClearApproval(id);
+      return;
+    }
+    if (action === 'data-clear-approval-cancel') {
+      await cancelDataClearApproval(id);
+      return;
+    }
     if (action === 'user-timeline-load') {
       await loadUserTimeline(phone);
       return;
@@ -1533,7 +1541,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionApprovals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'dataClearApprovals', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionApprovals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -1605,6 +1613,48 @@ function userBusinessSummaryText(summary = {}) {
   return groups.map(([label, value]) => `${label} ${value}`).join(' · ');
 }
 
+function dataClearApprovalTone(status) {
+  return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'canceled' ? 'bad' : '';
+}
+
+function renderDataClearApprovals(approvals = {}) {
+  const items = approvals.items || [];
+  const summary = approvals.summary || {};
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>用户业务数据清理审批</h2>
+          <div class="section-sub">待审批 ${numberText(summary.pending || 0)} · 已执行 ${numberText(summary.approved || 0)} · 已取消 ${numberText(summary.canceled || 0)}</div>
+        </div>
+        ${help('清理申请提交后不会立刻影响移动端；只有审批通过才会删除该用户的宠物、AI、宠友圈、关系消息、地点、通知、工单等业务数据，并保留账号与审计日志。当前是单 admin 审批版本，生产多管理员后可升级为双人审批。')}
+      </div>
+      ${items.length ? tableHtml(items, [
+        ['用户', (row) => `<div class="cell-title">${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.phone)}</div>`],
+        ['清理范围', (row) => `<div class="cell-sub clamp">${escapeHtml(userBusinessSummaryText(row.beforeSummary || {}))}</div>`],
+        ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div><div class="cell-sub">提交人：${escapeHtml(row.createdBy || '-')}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, dataClearApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `执行 ${formatTime(row.approvedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>`],
+        ['结果', (row) => row.status === 'approved'
+          ? `<div class="cell-sub clamp">已清理：${escapeHtml(userBusinessSummaryText(row.beforeSummary || {}))}</div>`
+          : row.status === 'canceled'
+            ? `<div class="cell-sub clamp">${escapeHtml(row.cancelReason || '已取消')}</div>`
+            : '<div class="cell-sub">等待审批，不影响移动端</div>'],
+        ['操作', (row) => row.status === 'pending_approval' ? `
+          <div class="actions">
+            <button class="small-button" data-action="data-clear-approval-approve" data-id="${escapeHtml(row.id)}">审批执行</button>
+            <button class="small-button danger" data-action="data-clear-approval-cancel" data-id="${escapeHtml(row.id)}">取消</button>
+          </div>
+        ` : '-'],
+      ], '暂无待审批的数据清理申请') : '<div class="placeholder"><div><strong>暂无待审批的数据清理申请</strong><div>从用户列表提交申请后会出现在这里。</div></div></div>'}
+    </div>
+  `;
+}
+
+function invalidateDataClearCaches() {
+  clearOperationalCaches();
+  state.cache.dataClearApprovals = null;
+}
+
 async function clearUserBusinessData(phone) {
   if (!phone) return;
   const preview = await api(`/admin/users/${encodeURIComponent(phone)}/business-data-summary`);
@@ -1617,14 +1667,40 @@ async function clearUserBusinessData(phone) {
   if (reason === null) return;
   const confirmation = window.prompt(`请再次输入完整手机号 ${phone} 确认清理`, '');
   if (confirmation === null) return;
-  const result = await post(`/admin/users/${encodeURIComponent(phone)}/clear-business-data`, {
+  await post('/admin/data-clear-approvals', {
     confirmation: confirmation.trim(),
+    phone,
     reason: reason.trim() || '测试重置用户业务数据',
   });
-  clearOperationalCaches();
-  if (state.userTimeline?.user?.phone === phone) state.userTimeline = null;
-  showToast(`已清理：${userBusinessSummaryText(result.before || {})}`);
+  invalidateDataClearCaches();
+  showToast(`业务数据清理审批已提交：${shortPhone(phone)}`);
   await render(true);
+}
+
+async function approveDataClearApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入审批说明', '审批并执行用户业务数据清理');
+  if (reason === null) return;
+  const result = await post(`/admin/data-clear-approvals/${encodeURIComponent(id)}/approve`, {
+    reason: reason.trim() || '审批并执行用户业务数据清理',
+  });
+  invalidateDataClearCaches();
+  const phone = result.approval?.phone;
+  if (phone && state.userTimeline?.user?.phone === phone) state.userTimeline = null;
+  showToast(`数据清理已执行：${shortPhone(phone)}`);
+  if (state.route === 'users') await render(true);
+}
+
+async function cancelDataClearApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入取消原因', '取消用户业务数据清理审批');
+  if (reason === null) return;
+  await post(`/admin/data-clear-approvals/${encodeURIComponent(id)}/cancel`, {
+    reason: reason.trim() || '取消用户业务数据清理审批',
+  });
+  invalidateDataClearCaches();
+  showToast('数据清理审批已取消');
+  if (state.route === 'users') await render(true);
 }
 
 function valueOf(id) {
@@ -3601,7 +3677,11 @@ function renderUserTimelinePanel(data) {
 }
 
 async function renderUsers(force) {
-  const users = await load('users', '/admin/users', force);
+  const [users, dataClearApprovals] = await Promise.all([
+    load('users', '/admin/users', force),
+    load('dataClearApprovals', '/admin/data-clear-approvals', force),
+  ]);
+  const dataClearSummary = dataClearApprovals.summary || {};
   const activeSanctions = users.reduce((sum, user) => sum + Number(user.sanctions?.activeCount || 0), 0);
   const withTags = users.filter((user) => (user.adminRiskTags || []).length).length;
   const withNotes = users.filter((user) => Number(user.adminNoteCount || 0) > 0).length;
@@ -3615,7 +3695,9 @@ async function renderUsers(force) {
       ${metric('24h 活跃', numberText(activeToday), '按最近活跃时间估算', 'lastSeenAt 来自登录、发现刷新、埋点等移动端行为。')}
       ${metric('生效处罚', numberText(activeSanctions), '禁言 / 冻结 / 封禁 / 警告', '统计当前仍处于 active 的处罚记录，方便从用户列表快速发现风险。')}
       ${metric('运营标记', `${numberText(withTags)} / ${numberText(withNotes)}`, '风险标签 / 备注', '运营内部标签和备注只在后台展示，并写审计。')}
+      ${metric('清理审批', numberText(dataClearSummary.pending || 0), '用户业务数据清理', '清理业务数据需先提交申请；审批通过才会真正影响移动端用户数据。')}
     </div>
+    ${renderDataClearApprovals(dataClearApprovals)}
     <div class="card">
       <div class="section-head">
         <div>

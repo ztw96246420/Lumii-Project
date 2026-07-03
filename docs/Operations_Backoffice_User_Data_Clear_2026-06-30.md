@@ -1,6 +1,6 @@
 # 运营后台用户业务数据清理说明
 
-版本：2026-06-30
+版本：2026-07-04
 
 ## 1. 目标
 
@@ -9,7 +9,8 @@
 - 操作前能看到清理预览。
 - 操作时必须填写原因。
 - 操作时必须再次输入完整手机号确认。
-- 操作后移动端真实受影响，用户重新进入 App 时不再带旧宠物、旧动态、旧 AI 任务和旧通知。
+- 提交申请后不会立刻影响移动端。
+- 审批通过后移动端真实受影响，用户重新进入 App 时不再带旧宠物、旧动态、旧 AI 任务和旧通知。
 - 后台审计日志保留动作证据。
 
 ## 2. 后台入口
@@ -21,18 +22,25 @@
 接口：
 
 - `GET /admin/users/{phone}/business-data-summary`
+- `GET /admin/data-clear-approvals`
+- `POST /admin/data-clear-approvals`
+- `POST /admin/data-clear-approvals/{approvalId}/approve`
+- `POST /admin/data-clear-approvals/{approvalId}/cancel`
 - `POST /admin/users/{phone}/clear-business-data`
 
-执行接口 body：
+提交审批 body：
 
 ```json
 {
   "confirmation": "目标完整手机号",
+  "phone": "目标完整手机号",
   "reason": "清理原因"
 }
 ```
 
-`confirmation` 必须与目标手机号完全一致，否则接口拒绝执行。
+`confirmation` 必须与目标手机号完全一致，否则接口拒绝提交审批。
+
+`POST /admin/users/{phone}/clear-business-data` 现在不是管理台直连入口；未带已审批上下文时会返回 `ADMIN_DATA_CLEAR_APPROVAL_REQUIRED`，只有审批通过动作内部才会调用真实清理。
 
 ## 3. 清理范围
 
@@ -77,7 +85,12 @@
 
 ## 5. 移动端影响
 
-清理后：
+申请待审批时：
+
+- 移动端不受影响。
+- `/me`、`/pets`、宠物日历、AI 灵伴、宠友圈、关系消息等接口继续返回现有业务数据。
+
+审批通过并执行清理后：
 
 - `/me` 返回的 `activePet` 为 `null`。
 - `/pets` 返回空列表。
@@ -86,7 +99,13 @@
 
 ## 6. 审计
 
-执行清理会写入 `adminAuditLogs`：
+审批流会写入 `adminAuditLogs`：
+
+- `user.clear_business_data.approval.create`
+- `user.clear_business_data.approval.approve`
+- `user.clear_business_data.approval.cancel`
+
+审批通过后的真实清理还会写入：
 
 - `action`: `user.clear_business_data`
 - `targetType`: `user`
