@@ -42,6 +42,12 @@
 
 事件属性只包含实验 ID、分组、入口来源等结构化字段，不包含聊天正文、用户输入、图片 URL 或地址。
 
+## 数据看板观测
+
+- 数据看板已新增「首页 AI 入口实验观测」。
+- 后端 `/admin/analytics` 返回 `experimentMetrics`，按 `experimentId + variant` 聚合曝光、点击、点击率和点击后 AI 对话估算。
+- 该观测闭环详见 [Operations_Backoffice_Experiment_Analytics_2026-07-03.md](Operations_Backoffice_Experiment_Analytics_2026-07-03.md)。
+
 ## 配置联动体检
 
 配置中心的“配置联动体检”已把 `experiments.homeAiEntry.enabled` 标为移动端联动项：
@@ -55,7 +61,7 @@
 
 - 多实验注册表。
 - 实验互斥层。
-- 指标胜出分析、置信度和显著性判断。
+- 置信度、显著性判断和自动胜出决策。
 - 自动停止、自动回滚。
 - 面向人群包、设备 ID、宠物 ID 的更多分桶维度。
 - 实验结束后的配置归档和胜出版本固化流程。
@@ -63,6 +69,7 @@
 ## 回归脚本
 
 - `node scripts/smoke-config-experiments.cjs`
+- `node scripts/smoke-analytics-events.cjs`
 
 脚本覆盖：
 

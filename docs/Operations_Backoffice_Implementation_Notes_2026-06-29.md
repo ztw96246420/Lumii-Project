@@ -554,6 +554,7 @@
 - 配置预约创建、到点发布、取消和失败分别写入 `config.schedule.create`、`config.schedule.publish`、`config.schedule.cancel`、`config.schedule.fail`。
 - 独立文档：[Operations_Backoffice_Config_Scheduled_Publish_2026-07-01.md](Operations_Backoffice_Config_Scheduled_Publish_2026-07-01.md)。
 - 实验和 A/B 分流基座已接入：配置中心新增 `experiments.homeAiEntry`，移动端首页 AI 对话入口按手机号稳定分桶展示 A/B 文案，并上报 `config.experiment_exposure` 和 `pet_chat.entry_click`。
+- 数据看板已新增首页 AI 入口实验观测：`/admin/analytics` 返回 `experimentMetrics`，按 `experimentId + variant` 聚合曝光、点击、点击率和点击后 AI 对话估算；详见 [Operations_Backoffice_Experiment_Analytics_2026-07-03.md](Operations_Backoffice_Experiment_Analytics_2026-07-03.md)。
 - 独立文档：[Operations_Backoffice_Config_Experiments_2026-07-01.md](Operations_Backoffice_Config_Experiments_2026-07-01.md)。
 - 数据导出新增配置联动体检 CSV。
 - 独立文档：[Operations_Backoffice_Config_Linkage_2026-06-30.md](Operations_Backoffice_Config_Linkage_2026-06-30.md)。

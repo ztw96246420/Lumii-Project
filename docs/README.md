@@ -73,6 +73,7 @@
 | [Operations_Backoffice_AI_Prompt_Versions_2026-07-03.md](./Operations_Backoffice_AI_Prompt_Versions_2026-07-03.md) | 当前专项 | AI Prompt 候选版本、样本关联、配置草稿和移动端生成任务追溯 |
 | [Operations_Backoffice_Config_Approval_2026-07-01.md](./Operations_Backoffice_Config_Approval_2026-07-01.md) | 当前专项 | 配置发布审批、高风险确认和版本回滚 |
 | [Operations_Backoffice_Config_Experiments_2026-07-01.md](./Operations_Backoffice_Config_Experiments_2026-07-01.md) | 当前专项 | 配置实验与首页 AI 入口 A/B 分流基座 |
+| [Operations_Backoffice_Experiment_Analytics_2026-07-03.md](./Operations_Backoffice_Experiment_Analytics_2026-07-03.md) | 当前专项 | 配置实验曝光、点击率、点击后对话估算和数据看板观测闭环 |
 | [Operations_Backoffice_Config_Scheduled_Publish_2026-07-01.md](./Operations_Backoffice_Config_Scheduled_Publish_2026-07-01.md) | 当前专项 | 配置预约发布、到点生效、防覆盖和验收脚本 |
 | [Operations_Backoffice_Config_Linkage_2026-06-30.md](./Operations_Backoffice_Config_Linkage_2026-06-30.md) | 当前专项 | 配置项前后端联动清单 |
 

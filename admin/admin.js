@@ -2537,6 +2537,7 @@ async function renderAnalytics(force) {
   const safety = summary.safety || {};
   const events = summary.events || {};
   const configPrompts = summary.configPrompts || {};
+  const experimentMetrics = data.experimentMetrics || {};
   const eventDetail = data.eventDetail || {};
   const filterOptions = eventDetail.options || {};
   const cohorts = data.cohorts || {};
@@ -2613,6 +2614,7 @@ async function renderAnalytics(force) {
       ${metric('安全任务', numberText(safety.moderationTasks), `${numberText(safety.handledModerationTasks)} 已处理`, '统一内容安全任务池：举报、被举报内容、地点点评和新增地点。')}
       ${metric('安全样本复审', numberText(safety.sampleUnreviewed || 0), `复审率 ${percentText(safety.sampleReviewRate)} · 误杀/漏杀 ${numberText(safety.falsePositive || 0)}/${numberText(safety.falseNegative || 0)}`, '风险命中和抽样复审沉淀到样本池；待复审越高，说明规则质量需要运营回看。')}
     </div>
+    ${renderAnalyticsExperimentPanel(experimentMetrics)}
     <div class="grid two analytics-grid">
       <div class="card">
         <div class="section-head">
@@ -2758,6 +2760,40 @@ async function renderAnalytics(force) {
   renderAnalyticsCharts(data);
 }
 
+function renderAnalyticsExperimentPanel(data = {}) {
+  const rows = data.rows || [];
+  const summary = data.summary || {};
+  const current = summary.currentExperiment || {};
+  const best = summary.bestVariant || null;
+  const statusText = current.enabled ? `实验开启 · ${numberText(current.rolloutPercent || 0)}% 流量 · B组 ${numberText(current.variantBPercent || 0)}%` : '实验关闭，仅保留配置和历史数据';
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>首页 AI 入口实验观测</h2>
+          <div class="section-sub">${escapeHtml(current.name || 'homeAiEntry')} · ${escapeHtml(current.id || '-')} · ${escapeHtml(statusText)}</div>
+        </div>
+        ${help('配置中心控制 experiments.homeAiEntry；移动端按实验 ID 和手机号稳定分桶。这里聚合 config.experiment_exposure 与 pet_chat.entry_click，后续对话为同一用户点击后产生 AI 对话请求的测试期估算口径。')}
+      </div>
+      <div class="grid metrics">
+        ${metric('实验曝光', numberText(summary.exposures || 0), `${numberText(summary.exposureUsers || 0)} 位用户`, '曝光来自移动端进入首页或展示首页 AI 入口时上报的 config.experiment_exposure。')}
+        ${metric('入口点击率', percentText(summary.clickRate || 0), `${numberText(summary.clickUsers || 0)} 位点击 · ${numberText(summary.clicks || 0)} 次`, '点击率按分组去重用户计算：点击用户 / 曝光用户。')}
+        ${metric('后续对话估算', percentText(summary.chatConversionRate || 0), `${numberText(summary.chatUsersAfterClick || 0)} 位用户`, '当前 AI 对话请求未直接携带 experimentId；这里按同一用户点击后产生用户消息粗略归因。')}
+        ${metric('当前较优组', best ? `${escapeHtml(best.variantLabel)} ${percentText(best.clickRate || 0)}` : '暂无', best ? `${numberText(best.clickUsers || 0)} 位点击用户` : '需要更多曝光', '仅按当前窗口内点击率排序，不自动调整配置；上线前仍需结合样本量和业务判断。')}
+      </div>
+      <div id="analyticsExperimentChart" class="analytics-chart"></div>
+      ${tableHtml(rows, [
+        ['实验', (row) => `<div class="cell-title">${escapeHtml(row.experimentName || row.experimentId)}</div><div class="cell-sub">${escapeHtml(row.experimentId)}${row.current ? ' · 当前配置' : ''}</div>`],
+        ['分组', (row) => `${statusPill(row.variantLabel || row.variant)}<div class="cell-sub">${escapeHtml(row.variant || '-')}</div>`],
+        ['曝光', (row) => `<div>${numberText(row.exposures || 0)} 次</div><div class="cell-sub">${numberText(row.exposureUsers || 0)} 位用户</div>`],
+        ['点击', (row) => `<div>${numberText(row.clicks || 0)} 次</div><div class="cell-sub">${numberText(row.clickUsers || 0)} 位用户 · ${percentText(row.clickRate || 0)}</div>`],
+        ['后续对话', (row) => `<div>${numberText(row.chatUsersAfterClick || 0)} 位用户</div><div class="cell-sub">估算转化 ${percentText(row.chatConversionRate || 0)}</div>`],
+        ['最近事件', (row) => formatTime(row.latestAt)],
+      ], '暂无实验事件；开启配置并完成移动端曝光后会显示 A/B 数据。')}
+    </div>
+  `;
+}
+
 function renderAnalyticsFunnels(funnels) {
   if (!funnels.length) return '<div class="placeholder"><div><strong>暂无漏斗数据</strong><div>窗口内还没有可计算的移动端事件。</div></div></div>';
   return `<div class="analytics-funnel-list">${funnels.map((funnel) => `
@@ -2820,7 +2856,7 @@ function renderAnalyticsEventDetail(rows) {
 function renderAnalyticsCharts(data) {
   const buckets = data.buckets || [];
   const labels = buckets.map((item) => item.label);
-  const chartIds = ['analyticsGrowthChart', 'analyticsAiChart', 'analyticsSocialChart', 'analyticsEventChart', 'analyticsOpsChart'];
+  const chartIds = ['analyticsGrowthChart', 'analyticsAiChart', 'analyticsSocialChart', 'analyticsEventChart', 'analyticsOpsChart', 'analyticsExperimentChart'];
   if (!window.echarts) {
     chartIds.forEach((id) => {
       const node = $(id);
@@ -2898,6 +2934,16 @@ function renderAnalyticsCharts(data) {
       { name: '误杀', smooth: true, type: 'line', data: buckets.map((item) => item.moderationFalsePositive || 0) },
       { name: '漏杀', smooth: true, type: 'line', data: buckets.map((item) => item.moderationFalseNegative || 0) },
       { name: '工单', smooth: true, type: 'line', data: buckets.map((item) => item.tickets) },
+    ],
+  });
+  const experimentRows = data.experimentMetrics?.rows || [];
+  const experimentLabels = experimentRows.map((row) => `${row.variantLabel || row.variant}${row.current ? '*' : ''}`);
+  renderChart('analyticsExperimentChart', {
+    xAxis: { ...axisStyle, data: experimentLabels, type: 'category' },
+    series: [
+      { barMaxWidth: 28, name: '曝光用户', type: 'bar', data: experimentRows.map((row) => row.exposureUsers || 0) },
+      { barMaxWidth: 28, name: '点击用户', type: 'bar', data: experimentRows.map((row) => row.clickUsers || 0) },
+      { name: '点击率%', smooth: true, type: 'line', data: experimentRows.map((row) => row.clickRate || 0) },
     ],
   });
 }

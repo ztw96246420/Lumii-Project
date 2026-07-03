@@ -18203,6 +18203,136 @@ function flattenPetChatMessagesForAnalytics() {
   return Object.values(state.petChatMessages || {}).flatMap((messages) => (Array.isArray(messages) ? messages : []));
 }
 
+function petChatRequestRowsForExperimentAnalytics() {
+  return Object.entries(state.petChatMessages || {}).flatMap(([key, messages]) => {
+    const { phone, petId } = parsePetChatStorageKey(key);
+    if (!phone || !Array.isArray(messages)) return [];
+    return messages
+      .filter((message) => message?.author === 'me')
+      .map((message) => ({
+        createdAt: message.time || message.createdAt,
+        petId,
+        phone,
+      }))
+      .filter((message) => analyticsTimeMs(message.createdAt));
+  });
+}
+
+function analyticsExperimentProperty(event, key, maxLength = 80) {
+  return normalizeAppEventText(event?.properties?.[key], maxLength);
+}
+
+function analyticsExperimentVariant(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (text === 'control' || text === 'treatment') return text;
+  return 'unknown';
+}
+
+function analyticsExperimentVariantLabel(variant) {
+  if (variant === 'control') return 'A 组';
+  if (variant === 'treatment') return 'B 组';
+  return '未分组';
+}
+
+function buildAnalyticsExperimentMetrics(appEvents = [], petChatRequests = []) {
+  const currentHomeAiEntry = currentOpsConfig().experiments?.homeAiEntry || defaultOpsConfig().experiments.homeAiEntry;
+  const currentExperimentId = normalizeExperimentIdText(currentHomeAiEntry.id, 'home_ai_entry_copy_v1');
+  const relevantEvents = appEvents
+    .filter((event) => event?.name === 'config.experiment_exposure' || event?.name === 'pet_chat.entry_click')
+    .map((event) => ({
+      ...event,
+      experimentId: normalizeExperimentIdText(analyticsExperimentProperty(event, 'experimentId'), ''),
+      timestamp: analyticsTimeMs(event.createdAt || event.occurredAt),
+      variant: analyticsExperimentVariant(analyticsExperimentProperty(event, 'variant', 40)),
+    }))
+    .filter((event) => event.experimentId && event.timestamp);
+  const experimentIds = new Set([currentExperimentId, ...relevantEvents.map((event) => event.experimentId)].filter(Boolean));
+  const rows = [];
+  const chatRequestsByPhone = petChatRequests.reduce((acc, message) => {
+    const phone = normalizePhone(message.phone);
+    const timestamp = analyticsTimeMs(message.createdAt);
+    if (!phone || !timestamp) return acc;
+    if (!acc.has(phone)) acc.set(phone, []);
+    acc.get(phone).push(timestamp);
+    return acc;
+  }, new Map());
+  chatRequestsByPhone.forEach((items) => items.sort((left, right) => left - right));
+
+  experimentIds.forEach((experimentId) => {
+    const experimentEvents = relevantEvents.filter((event) => event.experimentId === experimentId);
+    const name = experimentEvents.map((event) => analyticsExperimentProperty(event, 'experimentName', 80)).find(Boolean)
+      || (experimentId === currentExperimentId ? currentHomeAiEntry.name : '')
+      || experimentId;
+    ['control', 'treatment'].forEach((variant) => {
+      const exposures = experimentEvents.filter((event) => event.name === 'config.experiment_exposure' && event.variant === variant);
+      const clicks = experimentEvents.filter((event) => event.name === 'pet_chat.entry_click' && event.variant === variant);
+      const exposureUsers = new Set(exposures.map((event) => event.phone).filter(Boolean));
+      const clickUsers = new Set(clicks.map((event) => event.phone).filter(Boolean));
+      const chatUsersAfterClick = new Set();
+      clicks.forEach((event) => {
+        const phone = normalizePhone(event.phone);
+        if (!phone) return;
+        const requestTimes = chatRequestsByPhone.get(phone) || [];
+        if (requestTimes.some((timestamp) => timestamp >= event.timestamp)) chatUsersAfterClick.add(phone);
+      });
+      const latestAt = [...exposures, ...clicks]
+        .map((event) => event.timestamp)
+        .sort((left, right) => right - left)[0] || 0;
+      rows.push({
+        chatConversionRate: analyticsPercent(chatUsersAfterClick.size, clickUsers.size),
+        chatUsersAfterClick: chatUsersAfterClick.size,
+        clickRate: analyticsPercent(clickUsers.size, exposureUsers.size),
+        clickUsers: clickUsers.size,
+        clicks: clicks.length,
+        current: experimentId === currentExperimentId,
+        experimentId,
+        experimentName: name,
+        exposureUsers: exposureUsers.size,
+        exposures: exposures.length,
+        latestAt: latestAt ? new Date(latestAt).toISOString() : '',
+        variant,
+        variantLabel: analyticsExperimentVariantLabel(variant),
+      });
+    });
+  });
+
+  const activeRows = rows.filter((row) => row.exposures || row.clicks || row.current);
+  const totals = activeRows.reduce((acc, row) => {
+    acc.chatUsersAfterClick += row.chatUsersAfterClick;
+    acc.clickUsers += row.clickUsers;
+    acc.clicks += row.clicks;
+    acc.exposureUsers += row.exposureUsers;
+    acc.exposures += row.exposures;
+    return acc;
+  }, { chatUsersAfterClick: 0, clickUsers: 0, clicks: 0, exposureUsers: 0, exposures: 0 });
+  const comparableRows = activeRows.filter((row) => row.exposureUsers > 0);
+  const bestVariant = comparableRows
+    .slice()
+    .sort((left, right) => Number(right.clickRate || 0) - Number(left.clickRate || 0) || Number(right.clickUsers || 0) - Number(left.clickUsers || 0))[0] || null;
+
+  return {
+    rows: activeRows.sort((left, right) => String(left.experimentId).localeCompare(String(right.experimentId)) || String(left.variant).localeCompare(String(right.variant))),
+    summary: {
+      bestVariant,
+      chatConversionRate: analyticsPercent(totals.chatUsersAfterClick, totals.clickUsers),
+      chatUsersAfterClick: totals.chatUsersAfterClick,
+      clickRate: analyticsPercent(totals.clickUsers, totals.exposureUsers),
+      clickUsers: totals.clickUsers,
+      clicks: totals.clicks,
+      currentExperiment: {
+        enabled: Boolean(currentHomeAiEntry.enabled),
+        id: currentExperimentId,
+        name: currentHomeAiEntry.name || '',
+        rolloutPercent: Number(currentHomeAiEntry.rolloutPercent || 0),
+        variantBPercent: Number(currentHomeAiEntry.variantBPercent || 0),
+      },
+      experiments: experimentIds.size,
+      exposureUsers: totals.exposureUsers,
+      exposures: totals.exposures,
+    },
+  };
+}
+
 function analyticsAddDays(day, offset) {
   const timestamp = analyticsTimeMs(day);
   if (!timestamp) return '';
@@ -18417,6 +18547,7 @@ function adminAnalytics(options = {}) {
   const sanctions = adminSanctions();
   const aiUsage = state.aiUsage || createInitialState().aiUsage;
   const appEvents = pruneAppEvents();
+  const petChatExperimentRequests = petChatRequestRowsForExperimentAnalytics();
 
   users.forEach((user) => {
     incrementAnalyticsBucket(bucketMap, user.createdAt, 'newUsers');
@@ -18537,6 +18668,7 @@ function adminAnalytics(options = {}) {
     ],
     days,
     eventDetail,
+    experimentMetrics: buildAnalyticsExperimentMetrics(windowAppEvents, petChatExperimentRequests),
     filters: {
       days,
       eventName: eventDetail.filters.name,

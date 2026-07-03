@@ -170,8 +170,10 @@ async function main() {
   await startBackend(port);
   try {
     const userToken = await loginUser('19900006001');
+    const treatmentToken = await loginUser('19900006002');
     const adminToken = await loginAdmin();
     await createPet(userToken);
+    await createPet(treatmentToken);
 
     await track(userToken, 'home.module_exposure', { count: 5, module: 'pet_hero' });
     await track(userToken, 'ai_avatar.entry_click', { remaining: 3, source: 'pet_detail' });
@@ -191,6 +193,14 @@ async function main() {
     await track(userToken, 'config.splash_action', { action: 'primary', actionRoute: 'home', hasActionRoute: true, version: 'smoke-splash' });
     await track(userToken, 'config.update_impression', { force: false, latestVersion: '9.9.9', minVersion: '1.0.0', version: '9.9.9' });
     await track(userToken, 'config.update_action', { action: 'primary', force: false, latestVersion: '9.9.9', minVersion: '1.0.0', urlConfigured: true, version: '9.9.9' });
+    await track(userToken, 'config.experiment_exposure', { experimentId: 'home_ai_entry_copy_v1', experimentName: 'Home AI entry smoke', source: 'home_ai_entry', variant: 'control' });
+    await track(userToken, 'pet_chat.entry_click', { experimentId: 'home_ai_entry_copy_v1', source: 'home_hero', variant: 'control' });
+    await request('/ai/pet-chat/messages', {
+      body: { text: '今天想散步吗？' },
+      method: 'POST',
+      token: userToken,
+    });
+    await track(treatmentToken, 'config.experiment_exposure', { experimentId: 'home_ai_entry_copy_v1', experimentName: 'Home AI entry smoke', source: 'home_ai_entry', variant: 'treatment' });
 
     const invalid = await request('/analytics/events', {
       body: { name: 'unknown.event' },
@@ -222,6 +232,23 @@ async function main() {
     assert.equal(summary.configPrompts.totalImpressions, 3);
     assert.equal(summary.configPrompts.totalActions, 3);
     assert.equal(summary.configPrompts.totalActionRate, 100);
+    assert.equal(analytics.data.experimentMetrics.summary.exposures, 2);
+    assert.equal(analytics.data.experimentMetrics.summary.exposureUsers, 2);
+    assert.equal(analytics.data.experimentMetrics.summary.clicks, 1);
+    assert.equal(analytics.data.experimentMetrics.summary.clickUsers, 1);
+    assert.equal(analytics.data.experimentMetrics.summary.clickRate, 50);
+    const controlExperiment = analytics.data.experimentMetrics.rows.find((row) => row.experimentId === 'home_ai_entry_copy_v1' && row.variant === 'control');
+    const treatmentExperiment = analytics.data.experimentMetrics.rows.find((row) => row.experimentId === 'home_ai_entry_copy_v1' && row.variant === 'treatment');
+    assert.ok(controlExperiment, 'control experiment row should exist');
+    assert.ok(treatmentExperiment, 'treatment experiment row should exist');
+    assert.equal(controlExperiment.exposureUsers, 1);
+    assert.equal(controlExperiment.clickUsers, 1);
+    assert.equal(controlExperiment.clickRate, 100);
+    assert.equal(controlExperiment.chatUsersAfterClick, 1);
+    assert.equal(controlExperiment.chatConversionRate, 100);
+    assert.equal(treatmentExperiment.exposureUsers, 1);
+    assert.equal(treatmentExperiment.clickUsers, 0);
+    assert.equal(treatmentExperiment.clickRate, 0);
     assert.ok(Array.isArray(analytics.data.funnels), 'funnels should be returned');
     const aiFunnel = analytics.data.funnels.find((item) => item.key === 'aiAvatar');
     assert.ok(aiFunnel, 'AI funnel should exist');
