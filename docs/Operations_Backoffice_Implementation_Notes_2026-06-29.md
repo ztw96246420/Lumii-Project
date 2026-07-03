@@ -773,6 +773,7 @@
 ### 3.15 消息、招呼与约遛
 
 - `GET /admin/social-relations`
+- `POST /admin/social-relations/{relationId}/repair`
 - `POST /admin/social-relations/{relationId}/message-context`
 - `POST /admin/social-relations/messages/{messageId}/hide`
 
@@ -790,18 +791,20 @@
 - 会话行支持点击“上下文”后填写查看原因，后台只返回该关系最近消息窗口，不开放任意全文搜索；查看写入 `social.relation.message_context.view` 审计。
 - 上下文窗口内可隐藏非系统消息；隐藏写入 `social.relation.message.hide` 审计，并同步隐藏双方移动端会话里的对应消息。
 - 隐藏消息后会重新计算双方会话列表摘要，避免 App 会话列表继续露出被隐藏文本。
+- 待处理招呼/约遛支持“修复接受”和“关闭”；修复接受会补齐 accepted 关系、双方会话入口和可发消息状态，关闭会清理待处理请求/邀请的可回复状态。
+- 关系状态修复写入 `social.relation.repair.accept` / `social.relation.repair.close` 审计，必须填写原因。
 - 关系消息页展示拉黑原因统计，支持按 `block` 类型筛选，CSV 导出新增拉黑原因和补充说明字段。
 - 约遛接收方回复会自动接受关系的现有移动端/后端逻辑已可在本页通过状态排查。
 - 数据导出新增关系消息 CSV。
 - 移动端拉黑接口 `POST /social/blocks` 已支持传入 `reasonCode` 和 `reason`；当前宠友圈卡片主动拉黑默认传 `no_interest`，黑名单列表展示拉黑原因。
 - 独立说明文档：[Operations_Backoffice_Social_Block_Risk_2026-07-01.md](Operations_Backoffice_Social_Block_Risk_2026-07-01.md)。
 - 私信上下文独立说明文档：[Operations_Backoffice_Social_Relation_Message_Context_2026-07-03.md](Operations_Backoffice_Social_Relation_Message_Context_2026-07-03.md)。
+- 异常关系修复说明文档：[Operations_Backoffice_Social_Relation_Repair_2026-07-03.md](Operations_Backoffice_Social_Relation_Repair_2026-07-03.md)。
 
 暂未开放：
 
-- 后台修复异常招呼/约遛状态。
 - 任意会话全文检索；目前只允许从已有关系行或私信消息举报查看最近上下文窗口。
-- 后台直接改写/补发双方会话消息、手工修复异常关系状态仍未开放。
+- 后台直接改写/补发双方私信消息仍未开放；关系修复只补系统消息和状态，不允许编辑用户正文。
 - 隐藏消息后的自动处罚联动仍需从举报中心、内容安全任务或用户处罚页处理。
 
 ### 3.16 数据导出

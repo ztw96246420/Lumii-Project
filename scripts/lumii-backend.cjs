@@ -15803,10 +15803,177 @@ function adminConversationMessageCount(phone, conversationId) {
   return Array.isArray(messages) ? messages.length : 0;
 }
 
+function adminGreetingRelationId(greeting, index) {
+  return `greeting:${greeting.fromPhone}:${greeting.targetPhone}:${greeting.at || index}`;
+}
+
+function adminWalkInviteRelationId(invite, index) {
+  return invite.inviteId || `walk:${invite.fromPhone}:${invite.targetPhone}:${invite.at || index}`;
+}
+
 function adminSocialRelationById(relationId) {
   const id = String(relationId || '');
   if (!id) return null;
   return adminSocialRelations({ limit: ADMIN_EXPORT_ROW_LIMIT }).items.find((item) => item.id === id) || null;
+}
+
+function adminSocialRelationRecordById(relationId) {
+  const id = String(relationId || '');
+  if (!id) return null;
+  const greetingIndex = (state.greetings || []).findIndex((greeting, index) => adminGreetingRelationId(greeting, index) === id);
+  if (greetingIndex >= 0) return { index: greetingIndex, kind: 'greeting', record: state.greetings[greetingIndex] };
+  const inviteIndex = (state.invites || []).findIndex((invite, index) => adminWalkInviteRelationId(invite, index) === id);
+  if (inviteIndex >= 0) return { index: inviteIndex, kind: 'walk_invite', record: state.invites[inviteIndex] };
+  return null;
+}
+
+function markRelationNotificationsRead(phone, otherPhone, kinds = [], now = new Date().toISOString()) {
+  const kindSet = new Set(kinds);
+  const otherOwnerId = `user-${otherPhone}`;
+  const otherConversationId = conversationIdFor(otherPhone);
+  let changed = false;
+  state.notifications[phone] = (state.notifications[phone] || []).map((notification) => {
+    const kind = normalizeNotificationKind(notification?.kind) || inferNotificationKind(notification);
+    if (kindSet.size && !kindSet.has(kind)) return notification;
+    const belongs = notification.ownerId === otherOwnerId || notification.conversationId === otherConversationId || notificationConversationId(notification) === otherConversationId;
+    if (!belongs || notification.read) return notification;
+    changed = true;
+    return { ...notification, read: true, readAt: notification.readAt || now };
+  });
+  return changed;
+}
+
+function appendConversationSystemMessageOnce(phone, conversationId, text, now = new Date().toISOString()) {
+  const messages = getConversationMessages(phone, conversationId);
+  if (messages.some((message) => message?.author === 'system' && message?.text === text)) return false;
+  appendConversationMessage(phone, conversationId, {
+    author: 'system',
+    id: messageId(),
+    text,
+    time: now,
+  });
+  return true;
+}
+
+function adminEnsureAcceptedRelationConversation(fromPhone, targetPhone, options = {}) {
+  const fromUser = state.users?.[fromPhone];
+  const targetUser = state.users?.[targetPhone];
+  if (!fromUser || !targetUser) return { error: '关系双方用户不存在', statusCode: 404 };
+  if (socialBlockBetween(fromPhone, targetPhone)) return { error: '双方已拉黑，不能修复为已接受', statusCode: 409 };
+  const fromPet = activePetFor(fromUser);
+  const targetPet = activePetFor(targetUser);
+  if (!fromPet || !targetPet) return { error: '关系双方需要先完成宠物建档', statusCode: 400 };
+  ensureAcceptedGreetingBetween(fromPhone, targetPhone, {
+    message: options.acceptedMessage || 'admin repaired accepted social relation',
+    ownerId: options.ownerId || `user-${targetPhone}`,
+    source: options.source || 'admin_repair',
+  });
+  const now = options.now || new Date().toISOString();
+  const fromLastMessage = options.fromLastMessage || `${targetPet.name}已接受${fromPet.name}的招呼，可以开始聊天。`;
+  const targetLastMessage = options.targetLastMessage || '你们已经互相打招呼，可以开始聊天。';
+  const fromConversation = buildConversationFor(fromUser, targetUser, fromLastMessage, 1);
+  const targetConversation = buildConversationFor(targetUser, fromUser, targetLastMessage, 0);
+  if (!fromConversation || !targetConversation) return { error: '关系双方需要先完成宠物建档', statusCode: 400 };
+  upsertConversation(fromPhone, fromConversation);
+  upsertConversation(targetPhone, targetConversation);
+  appendConversationSystemMessageOnce(fromPhone, fromConversation.id, fromLastMessage, now);
+  appendConversationSystemMessageOnce(targetPhone, targetConversation.id, targetLastMessage, now);
+  addNotification(fromPhone, {
+    conversationId: conversationIdFor(targetPhone),
+    id: `n-admin-repair-accepted-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    kind: 'greeting_accepted',
+    ownerId: `user-${targetPhone}`,
+    read: false,
+    text: fromLastMessage,
+    title: '关系状态已恢复',
+  }, 'interaction');
+  return { fromConversation, targetConversation };
+}
+
+function adminCloseWalkInviteConversation(invite, now = new Date().toISOString()) {
+  const fromUser = state.users?.[invite.fromPhone];
+  const targetUser = state.users?.[invite.targetPhone];
+  if (!fromUser || !targetUser) return { error: '约遛双方用户不存在', statusCode: 404 };
+  const text = '约遛邀请已关闭';
+  const fromConversation = buildConversationFor(fromUser, targetUser, text, 0);
+  const targetConversation = buildConversationFor(targetUser, fromUser, text, 0);
+  if (fromConversation) {
+    upsertConversation(invite.fromPhone, fromConversation);
+    appendConversationSystemMessageOnce(invite.fromPhone, fromConversation.id, text, now);
+  }
+  if (targetConversation) {
+    upsertConversation(invite.targetPhone, targetConversation);
+    appendConversationSystemMessageOnce(invite.targetPhone, targetConversation.id, text, now);
+  }
+  return { fromConversation, targetConversation };
+}
+
+function adminRepairSocialRelation(admin, relationId, body = {}) {
+  const action = String(body.action || '').trim();
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!['accept', 'close'].includes(action)) return { error: '请选择有效的修复动作', statusCode: 400 };
+  if (!reason) return { error: '修复关系状态必须填写原因', statusCode: 400 };
+  const found = adminSocialRelationRecordById(relationId);
+  if (!found?.record) return { error: '关系记录不存在或不支持修复', statusCode: 404 };
+  const record = found.record;
+  if (socialBlockBetween(record.fromPhone, record.targetPhone)) return { error: '双方已拉黑，不能修复关系状态', statusCode: 409 };
+  const currentStatus = String(record.status || 'pending');
+  const now = new Date().toISOString();
+  const before = { kind: found.kind, record: { ...record }, relationId };
+
+  if (found.kind === 'greeting') {
+    if (action === 'accept') {
+      record.status = 'accepted';
+      record.respondedAt = Date.now();
+      removeGreetingRequestNotificationsFor(record.targetPhone, `user-${record.fromPhone}`);
+      const conversation = adminEnsureAcceptedRelationConversation(record.fromPhone, record.targetPhone, {
+        acceptedMessage: 'admin repaired greeting accepted',
+        ownerId: record.ownerId || `user-${record.targetPhone}`,
+        source: record.source || 'admin_repair',
+        now,
+      });
+      if (conversation.error) return conversation;
+    } else {
+      if (currentStatus === 'accepted') return { error: '已接受招呼不能直接关闭，请通过处罚或拉黑链路处理', statusCode: 409 };
+      record.status = 'rejected';
+      record.respondedAt = Date.now();
+      removeGreetingRequestNotificationsFor(record.targetPhone, `user-${record.fromPhone}`);
+      markRelationNotificationsRead(record.targetPhone, record.fromPhone, ['greeting_request', 'pet_circle_greeting'], now);
+    }
+  } else if (found.kind === 'walk_invite') {
+    if (action === 'accept') {
+      record.status = 'accepted';
+      record.respondedAt = Date.now();
+      const conversation = adminEnsureAcceptedRelationConversation(record.fromPhone, record.targetPhone, {
+        acceptedMessage: 'admin repaired walk invite accepted',
+        fromLastMessage: '约遛关系已确认，可以继续聊天。',
+        ownerId: record.ownerId || `user-${record.targetPhone}`,
+        source: 'walk_invite',
+        targetLastMessage: '约遛关系已确认，可以继续聊天。',
+        now,
+      });
+      if (conversation.error) return conversation;
+      markRelationNotificationsRead(record.targetPhone, record.fromPhone, ['walk_invite'], now);
+    } else {
+      if (currentStatus === 'accepted') return { error: '已接受约遛不能直接关闭，请通过处罚或拉黑链路处理', statusCode: 409 };
+      record.status = 'rejected';
+      record.respondedAt = Date.now();
+      markRelationNotificationsRead(record.targetPhone, record.fromPhone, ['walk_invite'], now);
+      adminCloseWalkInviteConversation(record, now);
+    }
+  } else {
+    return { error: '仅招呼和约遛关系支持状态修复', statusCode: 400 };
+  }
+
+  const after = { kind: found.kind, record: { ...record }, relationId };
+  writeAdminAudit(admin, `social.relation.repair.${action}`, found.kind, relationId, before, after, reason);
+  return {
+    action,
+    after,
+    before,
+    relation: adminSocialRelationById(relationId),
+    relationId,
+  };
 }
 
 function adminRelationMessageRow(row, message) {
@@ -15914,7 +16081,7 @@ function adminSocialRelations(options = {}) {
       fromName: from.name,
       fromPetName: from.petName,
       fromPhone: from.phone,
-      id: `greeting:${greeting.fromPhone}:${greeting.targetPhone}:${greeting.at || index}`,
+      id: adminGreetingRelationId(greeting, index),
       kind: 'greeting',
       messageCount: 0,
       notificationCount: notifications.length,
@@ -15947,7 +16114,7 @@ function adminSocialRelations(options = {}) {
       fromName: from.name,
       fromPetName: from.petName,
       fromPhone: from.phone,
-      id: invite.inviteId || `walk:${invite.fromPhone}:${invite.targetPhone}:${invite.at || index}`,
+      id: adminWalkInviteRelationId(invite, index),
       kind: 'walk_invite',
       messageCount: adminConversationMessageCount(from.phone, conversationIdFor(target.phone)),
       notificationCount: notifications.length,
@@ -16458,6 +16625,7 @@ function adminPermissionCatalog() {
     ['moderation.process', '处理内容安全任务', '内容安全'],
     ['moderation.sample_review', '复审内容安全命中与抽样样本', '内容安全'],
     ['social.report.process', '处理举报', '社区安全'],
+    ['social.relation.repair', '修复异常招呼/约遛状态', '社区安全'],
     ['message.view_content', '带原因查看私信上下文', '社区安全'],
     ['message.moderate', '隐藏违规私信消息', '社区安全'],
     ['user.sanction', '创建或撤销处罚', '社区安全'],
@@ -22173,6 +22341,18 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       q: url.searchParams.get('q') || '',
       status: url.searchParams.get('status') || 'all',
     }));
+    return true;
+  }
+
+  const adminSocialRelationRepairMatch = pathname.match(/^\/admin\/social-relations\/([^/]+)\/repair$/);
+  if (req.method === 'POST' && adminSocialRelationRepairMatch) {
+    const result = adminRepairSocialRelation(admin, decodeURIComponent(adminSocialRelationRepairMatch[1]), body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SOCIAL_RELATION_REPAIR_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

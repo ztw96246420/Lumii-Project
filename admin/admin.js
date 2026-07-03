@@ -517,6 +517,10 @@ async function onContentClick(event) {
       await hideSocialRelationMessage(button);
       return;
     }
+    if (action === 'social-relation-repair') {
+      await repairSocialRelation(button);
+      return;
+    }
     if (action === 'feedback-filter') {
       state.feedbackStatus = $('feedbackStatus').value;
       state.feedbackCategory = $('feedbackCategory').value;
@@ -3900,8 +3904,20 @@ function socialRelationRisk(row) {
 }
 
 function renderSocialRelationActions(row) {
-  if (!row.conversationId || !row.messageCount) return '<span class="muted">无会话</span>';
-  return `<div class="actions relationship-actions"><button class="small-button" data-action="social-relation-context" data-id="${escapeHtml(row.id)}">上下文</button></div>`;
+  const buttons = [];
+  if (row.conversationId && row.messageCount) {
+    buttons.push(`<button class="small-button" data-action="social-relation-context" data-id="${escapeHtml(row.id)}">上下文</button>`);
+  }
+  if ((row.kind === 'greeting' || row.kind === 'walk_invite') && !row.blocked) {
+    if (row.status !== 'accepted') {
+      buttons.push(`<button class="small-button" data-action="social-relation-repair" data-id="${escapeHtml(row.id)}" data-repair-action="accept">修复接受</button>`);
+    }
+    if (row.status === 'pending') {
+      buttons.push(`<button class="small-button ghost" data-action="social-relation-repair" data-id="${escapeHtml(row.id)}" data-repair-action="close">关闭</button>`);
+    }
+  }
+  if (!buttons.length) return '<span class="muted">无操作</span>';
+  return `<div class="actions relationship-actions">${buttons.join('')}</div>`;
 }
 
 function socialRelationContextMessageActions(message) {
@@ -4006,6 +4022,36 @@ async function hideSocialRelationMessage(button) {
   await render(true);
 }
 
+async function repairSocialRelation(button) {
+  const id = button.dataset.id || '';
+  const repairAction = button.dataset.repairAction || '';
+  const isAccept = repairAction === 'accept';
+  const reason = window.prompt(
+    isAccept
+      ? '修复为已接受？后台会补齐双方可发消息关系和会话入口，并写入审计。'
+      : '关闭这条待处理关系？后台会清理待处理状态，并写入审计。',
+    isAccept ? '运营修复异常关系为已接受' : '运营关闭异常待处理关系',
+  );
+  if (reason === null) return;
+  const cleanReason = reason.trim();
+  if (!cleanReason) {
+    showToast('请填写修复原因');
+    return;
+  }
+  const confirmText = isAccept
+    ? '确认修复为已接受？移动端双方会变为可发消息关系。'
+    : '确认关闭这条待处理关系？移动端将不再把它视为可回复的待处理邀请。';
+  if (!window.confirm(confirmText)) return;
+  await post(`/admin/social-relations/${encodeURIComponent(id)}/repair`, {
+    action: repairAction,
+    reason: cleanReason,
+  });
+  state.cache = { ...state.cache, audit: null, socialRelations: null };
+  delete state.socialRelationContexts[id];
+  showToast(isAccept ? '关系已修复为已接受' : '关系已关闭');
+  await render(true);
+}
+
 async function renderSocialRelations(force) {
   const query = new URLSearchParams({
     kind: state.socialRelationKind,
@@ -4029,9 +4075,9 @@ async function renderSocialRelations(force) {
       <div class="section-head">
         <div>
           <h2>关系消息记录</h2>
-          <div class="section-sub">招呼、约遛、会话、拉黑和通知链路；会话支持带原因查看最近消息窗口</div>
+          <div class="section-sub">招呼、约遛、会话、拉黑和通知链路；支持修复异常待处理关系</div>
         </div>
-        ${help('默认只展示摘要；点击上下文需要填写原因并写审计。这里不是任意全文检索，只能从已有关系会话查看最近消息窗口。违规消息可隐藏，隐藏后双方移动端不再展示。')}
+        ${help('默认只展示摘要；点击上下文需要填写原因并写审计。待处理招呼/约遛可修复为已接受或关闭，动作会影响移动端会话、可回复状态和招呼请求。')}
       </div>
       <div class="toolbar moderation-toolbar relationship-toolbar">
         <div class="toolbar-left">
@@ -4079,8 +4125,8 @@ async function renderSocialRelations(force) {
           ${help('约遛邀请产生 pending 会话时，接收方回复会自动接受关系；这里可以看待处理状态是否还存在。')}
         </div>
         <div class="gap-list">
-          <div><strong>招呼</strong><span>pending 表示等待接收方处理；accepted 后双方可查看完整宠友圈并发消息。</span></div>
-          <div><strong>约遛</strong><span>接收方从约遛会话回复时，会把待处理约遛转为 accepted，避免死循环。</span></div>
+          <div><strong>招呼</strong><span>pending 表示等待接收方处理；必要时可修复为 accepted 或关闭待处理请求。</span></div>
+          <div><strong>约遛</strong><span>接收方从约遛会话回复时会转为 accepted；异常 pending 可由后台修复接受或关闭。</span></div>
           <div><strong>会话</strong><span>默认只显示摘要；需要原因后才可查看最近消息窗口，所有查看都会进审计。</span></div>
         </div>
       </div>
