@@ -46,7 +46,7 @@
 ### 后端强制
 
 - `moderation.enabled` / `moderation.textRulesEnabled`：后端实时执行文本规则，移动端当前只展示后端返回的错误或送审结果。
-- `moderation.machineTextEnabled`：后端调用腾讯云文本内容安全，覆盖宠友圈小事、评论、地点内容和宠物资料文本；移动端只读取公开开关，不获取 Biztype 或密钥。
+- `moderation.machineTextEnabled`：后端调用腾讯云文本内容安全，覆盖私信、AI 回复输出、宠友圈小事、评论、地点内容和宠物资料文本；移动端只读取公开开关，不获取 Biztype 或密钥。
 - `moderation.machineImageEnabled`：后端调用腾讯云图片内容安全，覆盖宠物头像、AI 原图、宠友圈图片、封面和工单附件；移动端只看到审核结果和错误提示。
 - `moderation.sampleReviewRatePercent`：后端按比例稳定抽样已通过的公开内容进入样本复盘；移动端不读取该比例，用户侧发布结果不受影响。
 - `notifications.rateLimitEnabled` / `notifications.maxCampaignsPerDay` / `notifications.maxPerUserPerDay`：后端限制后台系统通知的 24 小时批次上限和单用户入站上限；移动端不读取阈值，但用户只会收到频控允许入站的系统通知。

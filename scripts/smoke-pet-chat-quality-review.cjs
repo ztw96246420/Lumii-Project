@@ -194,6 +194,58 @@ async function main() {
 
     const audit = await request('/admin/audit-logs?action=ai.petChat.quality_review', { token: adminToken });
     assert.ok(audit.data.items.some((item) => item.targetId === aiMessageId), 'quality review audit log should be recorded');
+
+    await request('/admin/config', {
+      body: {
+        moderation: {
+          enabled: true,
+          reviewKeywords: ['主人'],
+          reviewMessage: 'AI 回复命中安全复核规则',
+          textRulesEnabled: true,
+        },
+        reason: 'smoke enables AI reply output moderation',
+        riskAcknowledged: true,
+        riskConfirmText: '确认发布高风险配置',
+      },
+      method: 'PATCH',
+      token: adminToken,
+    });
+
+    const interceptedReply = await request('/ai/pet-chat/messages', {
+      body: { text: '我们今天去公园散步吗？' },
+      method: 'POST',
+      token: userToken,
+    });
+    const interceptedId = interceptedReply.data?.id;
+    assert.ok(interceptedId, 'missing intercepted AI reply id');
+    assert.ok(interceptedReply.data?.adminHiddenAt, 'intercepted AI reply should be auto hidden');
+    assert.match(interceptedReply.data?.text || '', /安全复核/, 'mobile response should only contain safety fallback text');
+    assert.equal(interceptedReply.data?.adminModeratedOriginalText, undefined, 'mobile response must not expose moderated original text');
+
+    const mobileMessagesAfterIntercept = await request('/ai/pet-chat/messages', { token: userToken });
+    assert.equal(
+      mobileMessagesAfterIntercept.data.some((message) => message.id === interceptedId),
+      false,
+      'auto-hidden AI reply must not be returned to mobile message list',
+    );
+
+    const safetyRows = await request('/admin/ai/pet-chat/messages?flag=safety', { token: adminToken });
+    const safetyRow = safetyRows.data.find((row) => row.id === interceptedId);
+    assert.ok(safetyRow, 'admin safety filter should include auto-hidden AI reply');
+    assert.equal(safetyRow.contentSafetyAction, 'review');
+    assert.ok(safetyRow.adminHiddenAt, 'admin safety row should be hidden from mobile');
+    assert.ok(safetyRow.adminTags.includes('content_safety'));
+    assert.ok(safetyRow.adminTags.includes('safety_review'));
+
+    const safetyQueue = await request('/admin/ai/pet-chat/quality-review', { token: adminToken });
+    assert.ok(safetyQueue.data.summary.safetyIntercepted >= 1, 'quality review summary should count safety interceptions');
+
+    const safetyDetail = await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(interceptedId)}/view`, {
+      body: { reason: 'smoke verifies moderated original text' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.match(safetyDetail.data.moderatedOriginalText || '', /主人/, 'admin detail should keep moderated original text for review');
   } finally {
     await stopBackend();
     fs.rmSync(tmpDir, { force: true, recursive: true });

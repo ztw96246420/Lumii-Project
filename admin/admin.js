@@ -3291,6 +3291,7 @@ function petChatFlagLabel(flag) {
     feedback_off: '不像它',
     hidden: '已隐藏',
     medical: '医疗风险',
+    safety: '机审拦截',
     tagged: '运营标记',
     writes: '写入记录',
   }[flag] || flag;
@@ -3298,10 +3299,13 @@ function petChatFlagLabel(flag) {
 
 function petChatTagLabel(tag) {
   return {
+    content_safety: '内容安全',
     false_negative: '漏触发',
     false_positive: '误触发',
     medical_sample: '医疗样本',
     quality_issue: '质量问题',
+    safety_block: '机审阻断',
+    safety_review: '机审复审',
   }[tag] || tag;
 }
 
@@ -3336,6 +3340,7 @@ async function renderPetChat(force) {
       ${metric('待抽检', numberText(reviewSummary.unreviewed || 0), `${numberText(reviewSummary.queueCount || 0)} 条进入队列`, '队列优先展示隐藏、质量问题、误触发/漏触发、用户“不像它”、医疗风险和业务写入回复。')}
       ${metric('已复核', numberText(reviewSummary.reviewed || 0), `${numberText(reviewSummary.needsFix || 0)} 条需修正`, '复核结论只在后台沉淀；标为需修正会自动加质量问题标签。')}
       ${metric('移动端隐藏', numberText(reviewSummary.hidden || 0), '隐藏后用户侧不可见', '隐藏 AI 回复会立即从移动端 AI 对话列表和后续模型上下文中移除。')}
+      ${metric('机审拦截', numberText(reviewSummary.safetyIntercepted || 0), '自动隐藏并进复核', 'AI 回复命中文本内容安全 Review/Block 后，原文只进后台复核，移动端不会展示。')}
     </div>
     ${renderPetChatQualityReviewPanel(qualityReview)}
     <div class="card">
@@ -3350,7 +3355,7 @@ async function renderPetChat(force) {
         <div class="toolbar-left">
           <label>状态筛选
             <select id="petChatFlag">
-              ${['all', 'medical', 'writes', 'feedback_off', 'feedback_good', 'tagged', 'hidden'].map((flag) => `<option value="${flag}" ${state.petChatFlag === flag ? 'selected' : ''}>${petChatFlagLabel(flag)}</option>`).join('')}
+              ${['all', 'medical', 'writes', 'safety', 'feedback_off', 'feedback_good', 'tagged', 'hidden'].map((flag) => `<option value="${flag}" ${state.petChatFlag === flag ? 'selected' : ''}>${petChatFlagLabel(flag)}</option>`).join('')}
             </select>
           </label>
           <label>搜索
@@ -3393,6 +3398,9 @@ function renderPetChatQualityReviewPanel(data = {}) {
 function renderPetChatQualityReviewItem(row) {
   const tags = (row.adminTags || []).map((tag) => riskBadge(petChatTagLabel(tag))).join('');
   const status = row.adminQualityReviewStatus ? petChatQualityReviewStatusLabel(row.adminQualityReviewStatus) : '待复核';
+  const safety = row.contentSafetyAction && row.contentSafetyAction !== 'allow'
+    ? riskBadge(`机审：${row.contentSafetyAction === 'block' ? '阻断' : '复审'} ${numberText(row.contentSafetyRiskScore || 0)}`)
+    : '';
   return `
     <article class="moderation-card pet-chat-review-card">
       <div class="moderation-card-main">
@@ -3409,6 +3417,7 @@ function renderPetChatQualityReviewItem(row) {
         </div>
         <div class="risk-row">
           ${riskBadge(row.queueReason || '抽样复核')}
+          ${safety}
           ${row.feedback ? riskBadge(`反馈：${row.feedback === 'good' ? '像它' : '不像它'}`) : ''}
           ${tags}
           ${row.adminHiddenAt ? riskBadge(`隐藏：${formatTime(row.adminHiddenAt)}`) : ''}
@@ -3431,6 +3440,9 @@ function renderPetChatRow(row) {
   const tags = (row.adminTags || []).map((tag) => riskBadge(petChatTagLabel(tag))).join('');
   const reviewStatus = row.adminQualityReviewStatus ? petChatQualityReviewStatusLabel(row.adminQualityReviewStatus) : '';
   const detail = state.petChatDetails[row.id];
+  const safety = row.contentSafetyAction && row.contentSafetyAction !== 'allow'
+    ? riskBadge(`机审：${row.contentSafetyAction === 'block' ? '阻断' : '复审'} ${numberText(row.contentSafetyRiskScore || 0)}`)
+    : '';
   return `
     <article class="moderation-card pet-chat-card">
       <div class="moderation-card-main">
@@ -3447,6 +3459,7 @@ function renderPetChatRow(row) {
         </div>
         <div class="risk-row">
           ${actionLabels || riskBadge('普通回复')}
+          ${safety}
           ${row.feedback ? riskBadge(`反馈：${row.feedback === 'good' ? '像它' : '不像它'}`) : ''}
           ${tags}
           ${reviewStatus ? riskBadge(`复核：${reviewStatus}`) : ''}
@@ -3479,6 +3492,7 @@ function renderPetChatDetail(detail) {
   `).join('');
   const actionSummary = [
     detail.medicalAlert ? `医疗风险：${detail.medicalAlert.reason || '-'}` : '',
+    detail.moderatedOriginalText ? '内容安全：原回复已自动隐藏' : '',
     detail.createdMemo ? `写入备忘：${detail.createdMemo.title || '-'}` : '',
     detail.createdWeight ? `写入体重：${detail.createdWeight.kg || '-'}kg` : '',
     detail.updatedVaccine ? `更新疫苗/驱虫：${detail.updatedVaccine.name || '-'}` : '',
@@ -3489,6 +3503,7 @@ function renderPetChatDetail(detail) {
       <div class="cell-title">完整上下文</div>
       <div class="cell-sub">查看动作已写入审计日志</div>
       ${actionSummary.length ? `<div class="risk-row">${actionSummary.map(riskBadge).join('')}</div>` : ''}
+      ${detail.moderatedOriginalText ? `<div class="pet-chat-line ai"><strong>机审原文</strong><span>仅后台可见</span><p>${escapeHtml(detail.moderatedOriginalText)}</p></div>` : ''}
       <div class="pet-chat-context">${context}</div>
     </div>
   `;

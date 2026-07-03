@@ -107,6 +107,7 @@ const TENCENT_CMS_TEXT_VERSION = process.env.TENCENT_CMS_TEXT_VERSION || '2020-1
 const TENCENT_CMS_TEXT_BIZ_TYPE = process.env.TENCENT_CMS_TEXT_BIZ_TYPE || '';
 const TENCENT_CMS_TEXT_BIZ_TYPES = {
   conversation_message: process.env.TENCENT_CMS_TEXT_BIZ_CONVERSATION || process.env.TENCENT_CMS_TEXT_BIZ_CHAT || 'lumii_t_conversation',
+  pet_chat_ai_reply: process.env.TENCENT_CMS_TEXT_BIZ_AI_REPLY || process.env.TENCENT_CMS_TEXT_BIZ_PET_CHAT || 'lumii_t_ai_reply',
   pet_circle_comment: process.env.TENCENT_CMS_TEXT_BIZ_SOCIAL_COMMENT || process.env.TENCENT_CMS_TEXT_BIZ_COMMENT || 'lumii_t_social_comment',
   pet_circle_post: process.env.TENCENT_CMS_TEXT_BIZ_SOCIAL_POST || process.env.TENCENT_CMS_TEXT_BIZ_POST || 'lumii_t_social_post',
   pet_profile: process.env.TENCENT_CMS_TEXT_BIZ_PROFILE || 'lumii_t_profile',
@@ -1286,6 +1287,7 @@ function adminContentSafetyStatus(config = currentOpsConfig()) {
   const moderation = config.moderation || {};
   const textScopes = [
     ['conversation_message', '私信聊天文本'],
+    ['pet_chat_ai_reply', 'AI 对话回复文本'],
     ['pet_circle_post', '宠友圈小事文本'],
     ['pet_circle_comment', '宠友圈评论文本'],
     ['place_review', '地点点评文本'],
@@ -9692,6 +9694,52 @@ function visiblePetChatMessagesFor(user) {
   return petChatMessagesFor(user).filter((message) => !message.adminHiddenAt);
 }
 
+function petChatAdminDisplayText(message = {}) {
+  return String(message.adminModeratedOriginalText || message.text || '');
+}
+
+function petChatModerationFallbackText(moderation = {}) {
+  const message = String(moderation.message || '').trim();
+  if (message && !/公开展示|附近用户/.test(message)) return `这条回复正在进行安全复核：${message}`;
+  return '这条回复正在进行安全复核，暂时不展示原文。我已经把它交给平台复核，稍后可以继续和我聊天。';
+}
+
+async function moderatePetChatAiReply(user, aiMessage, replyText) {
+  const contentText = String(replyText || '').trim();
+  if (!contentText) return { action: 'allow' };
+  const moderation = await evaluateContentTextModeration('AI 回复', contentText, {
+    ownerPhone: user.phone,
+    scope: 'pet_chat_ai_reply',
+    targetId: aiMessage.id,
+  });
+  if (moderation.action === 'allow') {
+    if (moderation.source || moderation.provider || moderation.bizType) aiMessage.contentSafety = contentSafetySnapshot(moderation);
+    maybeRecordModerationQualitySample({ contentText, ownerPhone: user.phone, scope: 'pet_chat_ai_reply', targetId: aiMessage.id });
+    return moderation;
+  }
+  aiMessage.contentSafety = contentSafetySnapshot(moderation);
+  const now = new Date().toISOString();
+  aiMessage.adminHiddenAt = now;
+  aiMessage.adminHiddenBy = 'system';
+  aiMessage.adminHiddenReason = moderation.message || 'AI 回复命中内容安全策略，自动隐藏等待复核';
+  aiMessage.adminModeratedOriginalText = contentText;
+  aiMessage.adminModeratedTextHiddenAt = now;
+  aiMessage.adminModeratedTextReplacement = petChatModerationFallbackText(moderation);
+  aiMessage.adminQualityReviewStatus = 'needs_fix';
+  aiMessage.adminQualityReviewReason = aiMessage.adminHiddenReason;
+  aiMessage.adminQualityReviewedAt = now;
+  aiMessage.adminQualityReviewedBy = 'system';
+  const tags = new Set(Array.isArray(aiMessage.adminTags) ? aiMessage.adminTags : []);
+  tags.add('content_safety');
+  tags.add(moderation.action === 'block' ? 'safety_block' : 'safety_review');
+  aiMessage.adminTags = [...tags];
+  aiMessage.adminTaggedAt = now;
+  aiMessage.adminTaggedBy = 'system';
+  aiMessage.adminTagReason = aiMessage.adminHiddenReason;
+  recordModerationSample({ ...moderation, contentText, ownerPhone: user.phone, scope: 'pet_chat_ai_reply', targetId: aiMessage.id });
+  return moderation;
+}
+
 function parsePetChatStorageKey(key) {
   const [phone, ...petIdParts] = String(key || '').split(':');
   return {
@@ -9702,6 +9750,7 @@ function parsePetChatStorageKey(key) {
 
 function petChatAdminActionLabels(message = {}) {
   return [
+    message.contentSafety?.action && message.contentSafety.action !== 'allow' ? `机审${message.contentSafety.action === 'block' ? '阻断' : '复审'}` : '',
     message.medicalAlert ? '医疗风险' : '',
     message.createdMemo ? '写入备忘' : '',
     message.createdWeight ? '写入体重' : '',
@@ -9731,6 +9780,9 @@ function petChatQualityReviewSignal(row = {}) {
     reasons.push(reason);
   };
   if (row.adminHiddenAt) add(95, '已被运营隐藏，需复盘是否影响用户体验');
+  if (tags.has('safety_block')) add(94, 'AI 回复命中内容安全阻断');
+  if (tags.has('safety_review')) add(88, 'AI 回复进入内容安全复审');
+  if (tags.has('content_safety')) add(84, '内容安全机审命中');
   if (tags.has('quality_issue')) add(82, '已标记质量问题');
   if (tags.has('false_positive')) add(76, '已标记误触发');
   if (tags.has('false_negative')) add(76, '已标记漏触发');
@@ -9771,7 +9823,11 @@ function adminPetChatMessages(options = {}) {
           adminQualityReviewedAt: message.adminQualityReviewedAt || '',
           adminQualityReviewedBy: message.adminQualityReviewedBy || '',
           adminTags: Array.isArray(message.adminTags) ? message.adminTags : [],
-          aiSummary: compactPetChatLine(message.text || '', 120, { removeSavedActions: true }),
+          aiSummary: compactPetChatLine(petChatAdminDisplayText(message), 120, { removeSavedActions: true }),
+          contentSafety: message.contentSafety || null,
+          contentSafetyAction: message.contentSafety?.action || '',
+          contentSafetyRiskScore: Number(message.contentSafety?.riskScore || 0),
+          contentSafetyRiskTypes: Array.isArray(message.contentSafety?.riskTypes) ? message.contentSafety.riskTypes : [],
           createdMemoTitle: message.createdMemo?.title || '',
           createdWeightKg: message.createdWeight?.kg || '',
           feedback: message.feedback || '',
@@ -9799,12 +9855,13 @@ function adminPetChatMessages(options = {}) {
       if (flag === 'feedback_good') return row.feedback === 'good';
       if (flag === 'feedback_off') return row.feedback === 'off';
       if (flag === 'hidden') return Boolean(row.adminHiddenAt);
+      if (flag === 'safety') return Boolean(row.contentSafetyAction && row.contentSafetyAction !== 'allow');
       if (flag === 'tagged') return row.adminTags.length > 0;
       return true;
     })
     .filter((row) => {
       if (!q) return true;
-      return [row.id, row.ownerPhone, row.ownerName, row.petName, row.userSummary, row.aiSummary, row.medicalReason, row.feedback, row.actionLabels.join(' ')]
+      return [row.id, row.ownerPhone, row.ownerName, row.petName, row.userSummary, row.aiSummary, row.medicalReason, row.feedback, row.actionLabels.join(' '), row.contentSafety?.sourceLabel, row.contentSafetyRiskTypes.join(' ')]
         .some((value) => String(value || '').toLowerCase().includes(q));
     })
     .sort((a, b) => String(b.time).localeCompare(String(a.time)))
@@ -9836,6 +9893,7 @@ function adminPetChatQualityReview() {
       feedbackOff: rows.filter((row) => row.feedback === 'off').length,
       hidden: rows.filter((row) => row.adminHiddenAt).length,
       medicalRisk: rows.filter((row) => row.hasMedicalAlert).length,
+      safetyIntercepted: rows.filter((row) => row.contentSafetyAction && row.contentSafetyAction !== 'allow').length,
       needsFix: rows.filter((row) => row.adminQualityReviewStatus === 'needs_fix').length,
       qualityIssue: qualityIssue.length,
       queueCount: queue.length,
@@ -9887,6 +9945,7 @@ function adminPetChatDetail(admin, messageId, reason = '') {
     feedbackAt: found.message.feedbackAt || '',
     medicalAlert: found.message.medicalAlert || null,
     message: found.message,
+    moderatedOriginalText: found.message.adminModeratedOriginalText || '',
     ownerName: found.user?.ownerName || (found.phone ? `用户${found.phone.slice(-4)}` : '-'),
     ownerPhone: found.phone,
     pet: found.pet || null,
@@ -27403,9 +27462,17 @@ async function handle(req, res) {
       updatedVaccine: vaccineAction?.vaccine,
       vaccineReminderIds: vaccineAction?.reminderIds,
     };
+    const outputModeration = await moderatePetChatAiReply(user, aiMessage, replyText);
     messages.push(userMessage, aiMessage);
     saveState();
-    ok(res, aiMessage);
+    const responseMessage = aiMessage.adminHiddenAt
+      ? {
+          ...aiMessage,
+          adminModeratedOriginalText: undefined,
+          text: aiMessage.adminModeratedTextReplacement || petChatModerationFallbackText(outputModeration),
+        }
+      : aiMessage;
+    ok(res, responseMessage);
     return;
   }
 
