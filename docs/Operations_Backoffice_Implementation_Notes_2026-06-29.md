@@ -184,6 +184,7 @@
 - `GET /admin/ai/avatar-samples`
 - `POST /admin/ai/avatar-jobs/{jobId}/samples`
 - `POST /admin/ai/avatar-samples/{sampleId}/review`
+- `POST /admin/ai/avatar-jobs/{jobId}/apply`
 - `POST /admin/ai/avatar-jobs/{jobId}/refresh`
 - `POST /admin/ai/avatar-jobs/{jobId}/retry`
 - `POST /admin/ai/avatar-jobs/{jobId}/mark-failed`
@@ -205,6 +206,8 @@
 - AI 灵伴页新增“AI 样本池”：运营可从任务行将生成反馈沉淀为提示词优化样本，将失败、卡住或 trace 异常沉淀为供应商异常样本，也保留素材质量样本类型；样本支持待复盘、已复核、已忽略状态，支持按类型、状态和关键词筛选。
 - 移动端提交 AI 灵伴生成反馈后会自动沉淀 `prompt_quality` 样本；供应商提交失败、状态查询连续异常或超时失败会自动沉淀 `provider_anomaly` 样本。自动入池只增加后台复盘待办，不改变移动端头像、任务结果或线上 prompt。
 - AI 样本保存用户、宠物、任务、供应商、反馈原因、调用轨迹数量和成本快照等脱敏快照；复核、忽略和重复更新都会写入 `ai.avatar.sample.*` 审计日志。
+- AI 任务 ready 且有结果图时，运营可将任务结果直接应用到同一用户的指定宠物档案；该动作会更新移动端 `users.pets[].avatarUrl`、写入 `avatarJobs.acceptedPetId/acceptedAt/adminAppliedAt`、清空旧动效字段，并给用户写入站内通知。
+- 应用 AI 任务结果必须填写原因，写入 `adminAuditLogs`，action 为 `ai.avatar.apply_to_pet`；如果目标宠物已有其他已接受 AI 任务，会解除旧任务的 `acceptedPetId`，避免后台同时判断多个 AI 形象已应用。
 - 配置中心新增 GPT Image 2 Prompt 版本库：支持从当前线上配置存档、把当前编辑区保存为候选版本、关联 AI 样本 ID、生成配置草稿和归档。候选版本不会直接影响移动端，必须发布配置草稿或审批通过后才会进入新生成任务。
 - 配置中心已支持 AI 外围系统配置：查看并配置灵伴形象 provider、gpt-image2 model/resolution/size/prompt、TTAPI 备用 provider prompt、宠物 AI 对话 provider、DeepSeek model/thinking/temperature/max_tokens/system prompt。
 - 后台 `GET /admin/config` 返回 AI runtime 解释数据：密钥状态、当前 provider、参数摘要、prompt 模板和示例渲染后的 prompt 预览。
@@ -214,6 +217,7 @@
 - 返还形象生成额度。
 - 写入审计日志。
 - 数据导出新增 AI 上传素材、AI 生成反馈、AI 灵伴样本池、AI 供应商用量 CSV；AI 任务 CSV 新增调用轨迹数量、最近调用阶段、最近调用状态、供应商任务 ID 和成本快照；不导出图片二进制或 base64 原图。
+- 独立说明文档：[Operations_Backoffice_AI_Avatar_Job_Apply_2026-07-04.md](Operations_Backoffice_AI_Avatar_Job_Apply_2026-07-04.md)。
 - 独立说明文档：[Operations_Backoffice_AI_Avatar_Samples_2026-07-03.md](Operations_Backoffice_AI_Avatar_Samples_2026-07-03.md)。
 - 独立说明文档：[Operations_Backoffice_AI_Provider_Trace_2026-07-03.md](Operations_Backoffice_AI_Provider_Trace_2026-07-03.md)。
 
@@ -221,7 +225,7 @@
 
 - 新任务已沉淀供应商调用脱敏摘要和成本快照；历史任务没有 trace，且当前不保存完整原始 request / response。
 - 已记录 submit / status / action 调用耗时；queued / running / completed 等更细 SLA 节点仍依赖上游返回。
-- 已开放“加入提示词样本集”和“供应商异常样本”的后台沉淀入口；尚未开放直接应用结果图到宠物头像等会影响移动端展示的高权限动作。
+- 已开放“加入提示词样本集”“供应商异常样本”和“应用 ready 结果到宠物 AI 形象”的后台入口；应用动作限定同一用户宠物，且必须写原因和审计。
 - AI Prompt 版本库已支持候选版本、样本关联和生成配置草稿；尚未做候选版本 diff、按人群灰度、样本批量重跑评测或自动回滚。
 
 ### 3.4.1 AI 对话

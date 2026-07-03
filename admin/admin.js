@@ -932,6 +932,10 @@ async function onContentClick(event) {
       await render(true);
       return;
     }
+    if (action === 'avatar-apply') {
+      await applyAvatarJobToPet(button);
+      return;
+    }
     if (action === 'avatar-refresh') await post(`/admin/ai/avatar-jobs/${id}/refresh`, { reason });
     if (action === 'avatar-retry') await post(`/admin/ai/avatar-jobs/${id}/retry`, { reason });
     if (action === 'avatar-fail') await post(`/admin/ai/avatar-jobs/${id}/mark-failed`, { reason });
@@ -4960,6 +4964,9 @@ function avatarPreview(url, label = '图') {
 }
 
 function avatarTaskCell(job) {
+  const appliedText = job.acceptedPetId
+    ? `已应用：${escapeHtml(job.acceptedPetName || job.acceptedPetId)}`
+    : job.status === 'ready' && job.resultUrl ? '可应用到宠物档案' : '';
   return `
     <div class="ai-job-cell">
       ${avatarPreview(job.resultUrl || job.previewUrl, job.status === 'ready' ? 'AI' : '原')}
@@ -4967,7 +4974,23 @@ function avatarTaskCell(job) {
         <div class="cell-title">${escapeHtml(job.petName || job.id)}</div>
         <div class="cell-sub">${escapeHtml(job.id)}</div>
         <div class="cell-sub">${job.mediaId ? `素材：${escapeHtml(job.mediaId)}` : '无素材ID'}</div>
+        ${appliedText ? `<div class="cell-sub">${appliedText}</div>` : ''}
       </div>
+    </div>
+  `;
+}
+
+function avatarJobAction(job) {
+  const canApply = job.status === 'ready' && job.resultUrl;
+  return `
+    <div class="actions">
+      <button class="small-button" data-action="avatar-refresh" data-id="${escapeHtml(job.id)}">刷新</button>
+      <button class="small-button" data-action="avatar-retry" data-id="${escapeHtml(job.id)}">重试</button>
+      <button class="small-button" data-action="avatar-refund" data-id="${escapeHtml(job.id)}">返还</button>
+      ${canApply ? `<button class="small-button ghost" data-action="avatar-apply" data-id="${escapeHtml(job.id)}" data-pet-id="${escapeHtml(job.acceptedPetId || job.petId || '')}" data-pet-name="${escapeHtml(job.acceptedPetName || job.petName || '')}">应用为AI形象</button>` : ''}
+      <button class="small-button" data-action="avatar-sample-add" data-id="${escapeHtml(job.id)}" data-sample-type="prompt_quality" data-sample-type-label="提示词优化样本" data-default-note="${escapeHtml(job.feedback?.reasonLabel || job.lastStatusError || '记录为提示词优化样本')}" data-default-tags="提示词,${escapeHtml(job.provider || 'AI')}">提示词样本</button>
+      <button class="small-button" data-action="avatar-sample-add" data-id="${escapeHtml(job.id)}" data-sample-type="provider_anomaly" data-sample-type-label="供应商异常样本" data-default-note="${escapeHtml(job.errorCode || job.providerStatus || job.lastStatusError || '记录为供应商异常样本')}" data-default-tags="供应商,${escapeHtml(job.provider || 'AI')}">供应商样本</button>
+      <button class="small-button danger" data-action="avatar-fail" data-id="${escapeHtml(job.id)}">失败</button>
     </div>
   `;
 }
@@ -5061,6 +5084,34 @@ async function addAvatarSample(button) {
   });
   state.cache = { ...state.cache, avatarJobs: null, avatarSamples: null, aiUsage: null, audit: null };
   showToast('已加入 AI 样本池');
+  await render(true);
+}
+
+async function applyAvatarJobToPet(button) {
+  const jobId = button.dataset.id || '';
+  const defaultPetId = button.dataset.petId || '';
+  const petId = window.prompt('请输入要应用到的宠物 ID', defaultPetId);
+  if (petId === null) return;
+  const targetPetId = petId.trim();
+  if (!targetPetId) {
+    showToast('请填写宠物 ID');
+    return;
+  }
+  const petName = button.dataset.petName || targetPetId;
+  const reason = window.prompt('请输入应用原因', `运营复核后将 AI 形象应用到 ${petName}`);
+  if (reason === null) return;
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) {
+    showToast('请填写应用原因');
+    return;
+  }
+  if (!window.confirm(`确认把这个 AI 形象结果应用到 ${petName}？这会替换该宠物当前首页形象，并清空旧动效。`)) return;
+  await post(`/admin/ai/avatar-jobs/${encodeURIComponent(jobId)}/apply`, {
+    petId: targetPetId,
+    reason: trimmedReason,
+  });
+  state.cache = { ...state.cache, aiUsage: null, audit: null, avatarJobs: null, notifications: null, pets: null, users: null };
+  showToast('AI 形象已应用到宠物档案');
   await render(true);
 }
 
@@ -5211,16 +5262,7 @@ async function renderAvatarJobs(force) {
         ['调用轨迹', avatarTraceCell],
         ['错误', (job) => `<div>${escapeHtml(job.errorCode || '-')}</div><div class="cell-sub clamp">${escapeHtml(job.lastStatusError || job.errorMessage || '')}</div>`],
         ['时间', (job) => `<div>创建：${formatTime(job.createdAt)}</div><div class="cell-sub">更新：${formatTime(job.updatedAt)}</div>`],
-        ['操作', (job) => `
-          <div class="actions">
-            <button class="small-button" data-action="avatar-refresh" data-id="${escapeHtml(job.id)}">刷新</button>
-            <button class="small-button" data-action="avatar-retry" data-id="${escapeHtml(job.id)}">重试</button>
-            <button class="small-button" data-action="avatar-refund" data-id="${escapeHtml(job.id)}">返还</button>
-            <button class="small-button" data-action="avatar-sample-add" data-id="${escapeHtml(job.id)}" data-sample-type="prompt_quality" data-sample-type-label="提示词优化样本" data-default-note="${escapeHtml(job.feedback?.reasonLabel || job.lastStatusError || '记录为提示词优化样本')}" data-default-tags="提示词,${escapeHtml(job.provider || 'AI')}">提示词样本</button>
-            <button class="small-button" data-action="avatar-sample-add" data-id="${escapeHtml(job.id)}" data-sample-type="provider_anomaly" data-sample-type-label="供应商异常样本" data-default-note="${escapeHtml(job.errorCode || job.providerStatus || job.lastStatusError || '记录为供应商异常样本')}" data-default-tags="供应商,${escapeHtml(job.provider || 'AI')}">供应商样本</button>
-            <button class="small-button danger" data-action="avatar-fail" data-id="${escapeHtml(job.id)}">失败</button>
-          </div>
-        `],
+        ['操作', avatarJobAction],
       ], '暂无 AI 形象任务')}
     </div>
 

@@ -15726,6 +15726,130 @@ function createAdminAcceptedAvatarJob(admin, user, pet, resultUrl, sourceUrl, re
   return job;
 }
 
+async function adminApplyAvatarJobToPet(admin, req, jobIdInput, body = {}) {
+  const jobId = String(jobIdInput || '').trim();
+  const job = state.avatarJobs?.[jobId];
+  if (!job) return { error: 'AI 形象任务不存在', statusCode: 404 };
+  const ownerPhone = normalizePhone(job.ownerPhone);
+  const owner = ownerPhone ? state.users?.[ownerPhone] : null;
+  if (!owner) return { error: '任务归属用户不存在，无法应用到宠物档案', statusCode: 404 };
+  if (job.status !== 'ready' || !job.resultUrl) return { error: '只有已完成且有结果图的 AI 形象任务可以应用', statusCode: 400 };
+
+  const reason = String(body?.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '请填写应用原因', statusCode: 400 };
+  const petId = String(body?.petId || job.acceptedPetId || job.petId || '').trim();
+  if (!petId) return { error: '请指定要应用到的宠物 ID', statusCode: 400 };
+  const pet = Array.isArray(owner.pets) ? owner.pets.find((item) => item?.id === petId) : null;
+  if (!pet) return { error: '目标宠物不属于该任务用户，无法跨用户应用 AI 形象', statusCode: 404 };
+
+  const sourceUrl = String(job.resultUrl || '').trim();
+  if (isLocalImagePlaceholderUrl(sourceUrl)) return { error: 'AI 形象结果图还没有上传完成，暂不能应用', statusCode: 400 };
+  const isInternalStorageUrl = sourceUrl.includes('/storage/objects/');
+  const isLumiiUri = sourceUrl.startsWith('lumii://');
+  if (!isInternalStorageUrl && !isLumiiUri && !/^https?:\/\//i.test(sourceUrl)) {
+    return { error: 'AI 形象结果图地址不可访问，暂不能应用', statusCode: 400 };
+  }
+  if (!isImageUrlPubliclyVisible(sourceUrl)) return { error: '这张 AI 形象结果图正在审核或已不可用，暂不能应用', statusCode: 400 };
+
+  let downloaded = null;
+  if (!isInternalStorageUrl && !isLumiiUri && !mediaUploadForImageUrl(sourceUrl)) {
+    downloaded = await downloadImageBuffer(sourceUrl).catch(() => null);
+    if (downloaded?.buffer?.length) {
+      const safety = await moderateImageFileContentForPublicUse(downloaded.buffer.toString('base64'), ownerPhone, 'pet_avatar', pet.id);
+      if (safety.action !== 'allow') {
+        return {
+          error: safety.error || 'AI 形象结果图需要复核后才能应用',
+          moderation: safety,
+          review: safety.action === 'review',
+          statusCode: safety.action === 'block' ? 400 : 409,
+        };
+      }
+    }
+  }
+
+  const before = cloneJson({
+    job,
+    targetPet: {
+      avatarAnimationJobId: pet.avatarAnimationJobId || '',
+      avatarAnimationStatus: pet.avatarAnimationStatus || '',
+      avatarAnimationUrl: pet.avatarAnimationUrl || '',
+      avatarUrl: pet.avatarUrl || '',
+      id: pet.id,
+      name: pet.name || '',
+    },
+  });
+
+  let storedUrl = '';
+  try {
+    storedUrl = await storeAvatarUrlToCos(req, owner, sourceUrl, { petId: pet.id, scope: 'pet-avatar' });
+  } catch (error) {
+    return { error: 'AI 形象结果图下载或存储失败，请确认结果图仍可公开访问', statusCode: 400 };
+  }
+  if (String(pet.avatarUrl || '') === storedUrl && job.acceptedPetId === pet.id && job.acceptedAt) {
+    return { error: '这个 AI 形象任务已经应用到目标宠物', statusCode: 400 };
+  }
+
+  const now = new Date().toISOString();
+  let clearedAvatarJobCount = 0;
+  Object.values(state.avatarJobs || {}).forEach((otherJob) => {
+    if (!otherJob || otherJob.id === job.id || otherJob.ownerPhone !== ownerPhone || otherJob.acceptedPetId !== pet.id) return;
+    otherJob.adminReplacedAt = now;
+    otherJob.adminReplacedReason = reason;
+    otherJob.adminReplacedBy = admin?.username || 'admin';
+    otherJob.acceptedPetId = '';
+    otherJob.acceptedAt = '';
+    clearedAvatarJobCount += 1;
+    touchAvatarJob(otherJob);
+  });
+
+  pet.avatarUrl = storedUrl;
+  pet.updatedAt = now;
+  delete pet.avatarAnimationJobId;
+  delete pet.avatarAnimationStatus;
+  delete pet.avatarAnimationUrl;
+  delete pet.avatarAnimationUpdatedAt;
+
+  job.acceptedAt = now;
+  job.acceptedPetId = pet.id;
+  job.adminAppliedAt = now;
+  job.adminAppliedBy = admin?.username || 'admin';
+  job.adminAppliedReason = reason;
+  job.petId = pet.id;
+  job.petName = pet.name || job.petName || '';
+  job.progress = 100;
+  if (storedUrl !== sourceUrl) {
+    job.sourceResultUrl = job.sourceResultUrl || sourceUrl;
+    job.resultUrl = storedUrl;
+  }
+  delete job.avatarAnimationJobId;
+  touchAvatarJob(job);
+
+  const after = cloneJson({
+    clearedAvatarJobCount,
+    imageUrl: storedUrl,
+    job,
+    targetPet: {
+      avatarAnimationJobId: pet.avatarAnimationJobId || '',
+      avatarAnimationStatus: pet.avatarAnimationStatus || '',
+      avatarAnimationUrl: pet.avatarAnimationUrl || '',
+      avatarUrl: pet.avatarUrl || '',
+      id: pet.id,
+      name: pet.name || '',
+    },
+  });
+  writeAdminAudit(admin, 'ai.avatar.apply_to_pet', 'avatar_job', job.id, before, after, reason);
+  notifyPetMediaReplacement(ownerPhone, pet, 'ai-avatar', reason);
+
+  return {
+    clearedAvatarJobCount,
+    imageUrl: storedUrl,
+    item: adminAvatarJobs().find((row) => row.id === job.id) || null,
+    pet: adminPetProfiles({ q: pet.id, limit: 1 }).items.find((row) => row.id === pet.id) || null,
+    petId: pet.id,
+    phone: owner.phone,
+  };
+}
+
 function adminPetMediaKindLabel(kind) {
   if (kind === 'cover') return '宠友圈封面';
   if (kind === 'avatar') return '宠物头像';
@@ -19439,11 +19563,16 @@ function adminAvatarJobs() {
       const owner = job.ownerPhone ? state.users[job.ownerPhone] : null;
       const media = job.mediaId ? state.mediaUploads?.[job.mediaId] : null;
       const pet = owner?.pets?.find((item) => item.id === job.petId) || (owner ? selectedPetFor(owner) : null);
+      const acceptedPet = owner?.pets?.find((item) => item.id === job.acceptedPetId) || null;
       const providerTrace = adminAiProviderTraceRows(job);
       const latestProviderTrace = providerTrace[providerTrace.length - 1] || null;
       const providerCost = adminAiProviderCostSnapshot(job);
       return {
         acceptedAt: job.acceptedAt,
+        acceptedPetId: job.acceptedPetId || '',
+        acceptedPetName: acceptedPet?.name || '',
+        adminAppliedAt: job.adminAppliedAt || '',
+        adminAppliedBy: job.adminAppliedBy || '',
         createdAt: job.createdAt,
         errorCode: job.errorCode,
         errorMessage: job.errorMessage,
@@ -24763,6 +24892,25 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     }
     saveState();
     ok(res, result.item);
+    return true;
+  }
+
+  const adminAvatarApplyMatch = pathname.match(/^\/admin\/ai\/avatar-jobs\/([^/]+)\/apply$/);
+  if (req.method === 'POST' && adminAvatarApplyMatch) {
+    const result = await adminApplyAvatarJobToPet(admin, req, decodeURIComponent(adminAvatarApplyMatch[1]), body);
+    if (result.error) {
+      fail(
+        res,
+        result.statusCode || 400,
+        result.error,
+        Boolean(result.review),
+        result.moderation,
+        result.moderation?.action === 'block' ? 'ADMIN_AVATAR_APPLY_BLOCKED' : result.review ? 'ADMIN_AVATAR_APPLY_REVIEW' : 'ADMIN_AVATAR_APPLY_INVALID',
+      );
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

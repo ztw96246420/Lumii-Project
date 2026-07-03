@@ -1605,6 +1605,7 @@ type OpsConfig = {
 
 - `GET /admin/ai/avatar-jobs`
 - `GET /admin/ai/avatar-jobs/{jobId}`
+- `POST /admin/ai/avatar-jobs/{jobId}/apply`
 - `POST /admin/ai/avatar-jobs/{jobId}/refresh`
 - `POST /admin/ai/avatar-jobs/{jobId}/retry`
 - `POST /admin/ai/avatar-jobs/{jobId}/mark-failed`
