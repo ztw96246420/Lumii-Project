@@ -486,6 +486,10 @@ async function onContentClick(event) {
       await render(true);
       return;
     }
+    if (action === 'pet-calendar-edit') {
+      await editPetCalendarRecord(button);
+      return;
+    }
     if (action === 'social-relations-filter') {
       state.socialRelationKind = $('socialRelationKind').value;
       state.socialRelationStatus = $('socialRelationStatus').value;
@@ -3646,6 +3650,113 @@ function petCalendarSourceBadge(record) {
   return `<span class="pill ${tone}">${escapeHtml(record.sourceLabel || '-')}</span>`;
 }
 
+function renderPetCalendarActions(row) {
+  return `<div class="actions pet-calendar-actions"><button class="small-button" data-action="pet-calendar-edit" data-id="${escapeHtml(row.id)}">修正记录</button></div>`;
+}
+
+function cachedPetCalendarRow(recordId) {
+  return (state.cache.petCalendar?.records || []).find((item) => item.id === recordId) || null;
+}
+
+function parseAdminPromptBoolean(value, fallback = false) {
+  const text = String(value ?? '').trim().toLowerCase();
+  if (!text) return fallback;
+  if (['1', 'true', 'yes', 'y', '开', '开启', '是'].includes(text)) return true;
+  if (['0', 'false', 'no', 'n', '关', '关闭', '否'].includes(text)) return false;
+  return text === 'true';
+}
+
+function petCalendarChangedLabel(field) {
+  return {
+    content: '内容',
+    dueAt: '计划日期',
+    kg: '体重',
+    name: '名称',
+    note: '备注',
+    recordedAt: '记录日期',
+    reminderAt: '提醒时间',
+    reminderEnabled: '提醒开关',
+    repeat: '重复频率',
+    status: '状态',
+    title: '标题',
+  }[field] || field;
+}
+
+function promptPetCalendarPatch(row) {
+  if (row.type === 'weight') {
+    const kg = window.prompt('体重 kg', row.kg || '');
+    if (kg === null) return null;
+    const recordedAt = window.prompt('记录日期：YYYY-MM-DD', row.recordedAt || row.date || '');
+    if (recordedAt === null) return null;
+    const note = window.prompt('体重备注，可留空', row.note || '');
+    if (note === null) return null;
+    return {
+      kg: normalizeAdminPetWeightInput(kg),
+      note: note.trim(),
+      recordedAt: recordedAt.trim(),
+    };
+  }
+  if (row.type === 'vaccine') {
+    const name = window.prompt('疫苗/驱虫名称', row.name || row.title || '');
+    if (name === null) return null;
+    const dueAt = window.prompt('计划日期：YYYY-MM-DD', row.dueAt || row.date || '');
+    if (dueAt === null) return null;
+    const status = window.prompt('状态：due / overdue / done（移动端 due/overdue 都显示计划中）', row.rawStatus || 'due');
+    if (status === null) return null;
+    const reminderEnabled = window.prompt('是否开启提醒：true / false', row.reminderEnabled ? 'true' : 'false');
+    if (reminderEnabled === null) return null;
+    return {
+      dueAt: dueAt.trim(),
+      name: name.trim(),
+      reminderEnabled: parseAdminPromptBoolean(reminderEnabled, Boolean(row.reminderEnabled)),
+      status: status.trim(),
+    };
+  }
+  const title = window.prompt('备忘标题', row.title || '');
+  if (title === null) return null;
+  const content = window.prompt('备忘内容', row.content || row.detail || '');
+  if (content === null) return null;
+  const reminderEnabled = window.prompt('是否开启提醒：true / false', row.reminderEnabled ? 'true' : 'false');
+  if (reminderEnabled === null) return null;
+  const reminderAt = window.prompt('提醒时间：YYYY-MM-DD HH:mm；关闭提醒可留空', row.reminderAt || '');
+  if (reminderAt === null) return null;
+  const repeat = window.prompt('重复频率：none / monthly / quarterly / yearly', row.repeat || 'none');
+  if (repeat === null) return null;
+  return {
+    content: content.trim(),
+    reminderAt: reminderAt.trim(),
+    reminderEnabled: parseAdminPromptBoolean(reminderEnabled, Boolean(row.reminderEnabled)),
+    repeat: repeat.trim() || 'none',
+    title: title.trim(),
+  };
+}
+
+async function editPetCalendarRecord(button) {
+  const recordId = button.dataset.id;
+  const row = cachedPetCalendarRow(recordId);
+  if (!recordId || !row) {
+    showToast('请刷新宠物日历列表后再操作');
+    return;
+  }
+  const record = promptPetCalendarPatch(row);
+  if (!record) return;
+  const reason = window.prompt('请输入修正原因，会写入审计并通知用户', `修正宠物日历记录：${row.petName || row.ownerName}`);
+  if (reason === null) return;
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) {
+    showToast('请填写修正原因');
+    return;
+  }
+  if (!window.confirm(`确认修正「${row.petName || '宠物'}」的${row.typeLabel || '宠物日历'}记录？该操作会影响移动端宠物日历，并写入审计。`)) return;
+  const result = await patch(`/admin/pet-calendar/${encodeURIComponent(recordId)}`, {
+    reason: trimmedReason,
+    record,
+  });
+  state.cache = { ...state.cache, audit: null, notifications: null, petCalendar: null, pets: null, summary: null, users: null };
+  showToast(`宠物日历已修正：${(result.changedFields || []).map(petCalendarChangedLabel).join('、') || '已更新'}`);
+  await render(true);
+}
+
 async function renderPetCalendar(force) {
   const query = new URLSearchParams({
     from: state.petCalendarFrom,
@@ -3671,9 +3782,9 @@ async function renderPetCalendar(force) {
       <div class="section-head">
         <div>
           <h2>宠物日历记录</h2>
-          <div class="section-sub">只读排查页：展示移动端真实宠物日历数据，不在后台直接修改用户记录</div>
+          <div class="section-sub">展示并修正移动端真实宠物日历数据，体重、疫苗/驱虫、备忘都会写回用户记录</div>
         </div>
-        ${help('后台技术字段仍读取 health store，但所有运营文案统一叫“宠物日历”。这页不调用会初始化默认记录的 C 端列表函数，避免打开后台制造假记录。')}
+        ${help('后台技术字段仍读取 health store，但所有运营文案统一叫“宠物日历”。本页不调用会初始化默认记录的 C 端列表函数；修正记录时必须填写原因，并写入审计与用户通知。')}
       </div>
       <div class="toolbar moderation-toolbar pet-calendar-toolbar">
         <div class="toolbar-left">
@@ -3718,6 +3829,7 @@ async function renderPetCalendar(force) {
         ['日期', (r) => `<div>${escapeHtml(r.date || '-')}</div><div class="cell-sub">更新：${formatTime(r.updatedAt)}</div>`],
         ['状态', (r) => `${statusPill(r.statusLabel || r.status)}${r.reminderEnabled ? '<div class="cell-sub">已开提醒</div>' : ''}`],
         ['来源', (r) => `${petCalendarSourceBadge(r)}<div class="cell-sub">${escapeHtml(r.id)}</div>`],
+        ['操作', renderPetCalendarActions],
       ], '暂无宠物日历记录')}
     </div>
     <div class="grid two">
@@ -3730,7 +3842,7 @@ async function renderPetCalendar(force) {
           ${help('例如疫苗 due / overdue 在后台分开，方便运营发现逾期提醒；移动端已按你的要求统一显示“计划中”。')}
         </div>
         <div class="gap-list">
-          <div><strong>只读优先</strong><span>第一版不在后台编辑/删除日历记录，避免单 admin 误改用户数据。</span></div>
+          <div><strong>修正留痕</strong><span>后台可修正明显错误的体重、疫苗/驱虫和备忘字段，必须填写原因。</span></div>
           <div><strong>来源追踪</strong><span>宠友圈同步、AI 对话写入会被标识出来，方便解释“为什么日历里多了一条”。</span></div>
           <div><strong>不制造默认记录</strong><span>本页直接读取持久化 state，不触发移动端健康列表的默认初始化逻辑。</span></div>
         </div>
@@ -3738,15 +3850,15 @@ async function renderPetCalendar(force) {
       <div class="card">
         <div class="section-head">
           <div>
-            <h2>后续动作预留</h2>
-            <div class="section-sub">需要审批和更细审计后再开放</div>
+            <h2>动作边界</h2>
+            <div class="section-sub">开放低风险修正，删除和恢复仍保留给后续治理</div>
           </div>
-          ${help('需求文档里有修复体重、标记疫苗完成、编辑/删除备忘。这里先预留，不直接开放。')}
+          ${help('修正会直接影响移动端宠物日历；删除、恢复、批量处理属于更高风险动作，后续需要更细权限或双人审批。')}
         </div>
         <div class="gap-list">
-          <div><strong>体重修复</strong><span>只处理明显错误值，必须写原因、before/after 和影响范围。</span></div>
-          <div><strong>疫苗状态修复</strong><span>后台可分 due / overdue / done，但移动端仍统一简化给用户。</span></div>
-          <div><strong>备忘恢复</strong><span>删除、恢复、批量处理应进入高危操作审计。</span></div>
+          <div><strong>体重修正</strong><span>支持 kg、记录日期和备注；同步更新宠物档案上的最新体重。</span></div>
+          <div><strong>疫苗/驱虫修正</strong><span>支持名称、计划日期、状态和提醒开关；完成状态会关闭提醒。</span></div>
+          <div><strong>备忘修正</strong><span>支持标题、内容、提醒时间和重复频率；删除/恢复暂不开放。</span></div>
         </div>
       </div>
     </div>

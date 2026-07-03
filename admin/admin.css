@@ -1193,10 +1193,12 @@ th {
   padding: 10px;
 }
 
+.pet-calendar-actions,
 .pet-profile-actions {
   min-width: 86px;
 }
 
+.pet-calendar-actions .small-button,
 .pet-profile-actions .small-button {
   white-space: nowrap;
 }
