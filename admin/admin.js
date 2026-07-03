@@ -3670,6 +3670,7 @@ function renderPetMediaActions(row) {
   const buttons = [
     `<button class="small-button" data-action="pet-profile-edit" data-id="${escapeHtml(row.id)}">修正资料</button>`,
     `<button class="small-button" data-action="pet-media-replace" data-id="${escapeHtml(row.id)}" data-kind="avatar" data-name="${escapeHtml(row.name || '')}" data-current-url="${escapeHtml(row.avatarUrl || '')}">换头像</button>`,
+    `<button class="small-button" data-action="pet-media-replace" data-id="${escapeHtml(row.id)}" data-kind="ai-avatar" data-name="${escapeHtml(row.name || '')}" data-current-url="${escapeHtml(row.avatarUrl || '')}">换AI形象</button>`,
     `<button class="small-button" data-action="pet-media-replace" data-id="${escapeHtml(row.id)}" data-kind="cover" data-name="${escapeHtml(row.name || '')}" data-current-url="${escapeHtml(row.petCircleCoverImageUrl || '')}">换封面</button>`,
   ];
   if (row.avatarStatusKey === 'ai') {
@@ -3769,7 +3770,7 @@ async function replacePetMedia(button) {
   const kind = button.dataset.kind || '';
   const petName = button.dataset.name || '这只宠物';
   const currentUrl = button.dataset.currentUrl || '';
-  const kindLabel = kind === 'cover' ? '宠友圈封面' : '宠物头像';
+  const kindLabel = kind === 'cover' ? '宠友圈封面' : kind === 'ai-avatar' ? 'AI 灵伴形象' : '宠物头像';
   const imageUrl = window.prompt(`请输入「${petName}」新的${kindLabel}图片 URL`, currentUrl || 'https://');
   if (imageUrl === null) return;
   const trimmedUrl = imageUrl.trim();
@@ -3786,7 +3787,9 @@ async function replacePetMedia(button) {
   }
   const impact = kind === 'cover'
     ? '该操作会影响移动端宠友圈主页封面，并写入审计日志。'
-    : '该操作会影响移动端首页、宠物档案、宠友圈头像；若原头像是 AI 形象，会解除旧 AI 任务关联和旧动效，并写入审计日志。';
+    : kind === 'ai-avatar'
+      ? '该操作会影响移动端首页、AI 对话头像和宠友圈头像；会登记为已应用的 AI 灵伴形象，解除旧 AI 任务关联和旧动效，并写入审计日志。'
+      : '该操作会影响移动端首页、宠物档案、宠友圈头像；若原头像是 AI 形象，会解除旧 AI 任务关联和旧动效，并写入审计日志。';
   if (!window.confirm(`确认替换「${petName}」的${kindLabel}？${impact}`)) return;
   await post(`/admin/pets/${encodeURIComponent(petId)}/media/${encodeURIComponent(kind)}/replace`, {
     imageUrl: trimmedUrl,

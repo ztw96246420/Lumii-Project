@@ -157,7 +157,9 @@ async function main() {
     assert.ok(petId, 'missing created pet id');
 
     const nextAvatarUrl = 'https://example.com/storage/objects/admin-replaced-avatar.png';
+    const nextAiAvatarUrl = 'https://example.com/storage/objects/admin-replaced-ai-avatar.png';
     const nextCoverUrl = 'https://example.com/storage/objects/admin-replaced-cover.png';
+    const finalAvatarUrl = 'https://example.com/storage/objects/admin-replaced-final-avatar.png';
 
     const avatarResult = await request(`/admin/pets/${encodeURIComponent(petId)}/media/avatar/replace`, {
       body: {
@@ -183,15 +185,53 @@ async function main() {
     assert.equal(coverResult.data.item.petCircleCoverImageUrl, nextCoverUrl);
     assert.equal(coverResult.data.item.hasPetCircleCover, true);
 
-    const mobilePets = await request('/pets', { token: userToken });
-    const mobilePet = mobilePets.data.find((item) => item.id === petId);
-    assert.equal(mobilePet.avatarUrl, nextAvatarUrl);
-    assert.equal(mobilePet.petCircleCoverImageUrl, nextCoverUrl);
-    assert.equal(mobilePet.avatarAnimationUrl || '', '', 'avatar replacement should clear stale animation URL');
+    const aiAvatarResult = await request(`/admin/pets/${encodeURIComponent(petId)}/media/ai-avatar/replace`, {
+      body: {
+        imageUrl: nextAiAvatarUrl,
+        reason: 'smoke replaces ai companion avatar',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(aiAvatarResult.data.imageUrl, nextAiAvatarUrl);
+    assert.equal(aiAvatarResult.data.item.avatarUrl, nextAiAvatarUrl);
+    assert.equal(aiAvatarResult.data.item.avatarStatusKey, 'ai');
+    assert.ok(aiAvatarResult.data.avatarJobId || aiAvatarResult.data.item.avatarJobId, 'missing admin ai avatar job id');
+
+    const avatarJobs = await request('/admin/ai/avatar-jobs', { token: adminToken });
+    const adminAvatarJobId = aiAvatarResult.data.avatarJobId || aiAvatarResult.data.item.avatarJobId;
+    const adminAvatarJob = avatarJobs.data.find((item) => item.id === adminAvatarJobId);
+    assert.equal(adminAvatarJob?.status, 'ready');
+    assert.equal(adminAvatarJob?.provider, 'admin');
+    assert.equal(adminAvatarJob?.resultUrl, nextAiAvatarUrl);
+
+    const mobilePetsAfterAi = await request('/pets', { token: userToken });
+    const mobilePetAfterAi = mobilePetsAfterAi.data.find((item) => item.id === petId);
+    assert.equal(mobilePetAfterAi.avatarUrl, nextAiAvatarUrl);
+    assert.equal(mobilePetAfterAi.petCircleCoverImageUrl, nextCoverUrl);
+    assert.equal(mobilePetAfterAi.avatarAnimationUrl || '', '', 'ai avatar replacement should clear stale animation URL');
+
+    const finalAvatarResult = await request(`/admin/pets/${encodeURIComponent(petId)}/media/avatar/replace`, {
+      body: {
+        imageUrl: finalAvatarUrl,
+        reason: 'smoke replaces ai companion with normal avatar',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(finalAvatarResult.data.imageUrl, finalAvatarUrl);
+    assert.equal(finalAvatarResult.data.item.avatarUrl, finalAvatarUrl);
+    assert.equal(finalAvatarResult.data.item.avatarStatusKey, 'basic');
 
     const profile = await request('/social/pet-circle/profiles/me/posts', { token: userToken });
-    assert.equal(profile.data.profile.avatarUrl, nextAvatarUrl);
+    assert.equal(profile.data.profile.avatarUrl, finalAvatarUrl);
     assert.equal(profile.data.profile.coverImageUrl, nextCoverUrl);
+
+    const mobilePets = await request('/pets', { token: userToken });
+    const mobilePet = mobilePets.data.find((item) => item.id === petId);
+    assert.equal(mobilePet.avatarUrl, finalAvatarUrl);
+    assert.equal(mobilePet.petCircleCoverImageUrl, nextCoverUrl);
+    assert.equal(mobilePet.avatarAnimationUrl || '', '', 'avatar replacement should clear stale animation URL');
 
     const notifications = await request('/notifications', { token: userToken });
     assert.ok(
@@ -201,18 +241,8 @@ async function main() {
 
     const audit = await request('/admin/audit-logs?limit=80', { token: adminToken });
     assert.ok(audit.data.items.some((item) => item.action === 'pet.media.replace_avatar' && item.targetId === petId));
+    assert.ok(audit.data.items.some((item) => item.action === 'pet.media.replace_ai_avatar' && item.targetId === petId));
     assert.ok(audit.data.items.some((item) => item.action === 'pet.media.replace_cover' && item.targetId === petId));
-
-    const invalid = await request(`/admin/pets/${encodeURIComponent(petId)}/media/ai-avatar/replace`, {
-      body: {
-        imageUrl: nextAvatarUrl,
-        reason: 'smoke rejects ai avatar replacement',
-      },
-      expectedStatus: 400,
-      method: 'POST',
-      token: adminToken,
-    });
-    assert.equal(invalid.error?.code, 'ADMIN_PET_MEDIA_INVALID');
 
     console.log('admin pet media replace smoke passed');
   } finally {

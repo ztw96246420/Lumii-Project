@@ -186,10 +186,14 @@ async function main() {
     assert.ok(petId, 'missing created pet id');
 
     const nextAvatarUrl = 'https://example.com/storage/objects/page-replaced-avatar.png';
+    const nextAiAvatarUrl = 'https://example.com/storage/objects/page-replaced-ai-avatar.png';
     const nextCoverUrl = 'https://example.com/storage/objects/page-replaced-cover.png';
     const dialogAnswers = [
       nextAvatarUrl,
       'page smoke replaces avatar',
+      true,
+      nextAiAvatarUrl,
+      'page smoke replaces ai avatar',
       true,
       nextCoverUrl,
       'page smoke replaces cover',
@@ -218,13 +222,15 @@ async function main() {
 
     await page.locator(`button[data-action="pet-media-replace"][data-kind="avatar"][data-id="${petId}"]`).click();
     await page.getByText('宠物头像已替换').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.locator(`button[data-action="pet-media-replace"][data-kind="ai-avatar"][data-id="${petId}"]`).click();
+    await page.getByText('AI 灵伴形象已替换').waitFor({ state: 'visible', timeout: 30_000 });
     await page.locator(`button[data-action="pet-media-replace"][data-kind="cover"][data-id="${petId}"]`).click();
     await page.getByText('宠友圈封面已替换').waitFor({ state: 'visible', timeout: 30_000 });
     await page.screenshot({ fullPage: true, path: path.join(artifactsDir, 'pet-media-replace-after.png') });
 
     const mobilePets = await request('/pets', { token: userToken });
     const mobilePet = mobilePets.data.find((item) => item.id === petId);
-    assert.equal(mobilePet.avatarUrl, nextAvatarUrl);
+    assert.equal(mobilePet.avatarUrl, nextAiAvatarUrl);
     assert.equal(mobilePet.petCircleCoverImageUrl, nextCoverUrl);
     assert.equal(dialogAnswers.length, 0, 'not all expected dialogs were consumed');
 
