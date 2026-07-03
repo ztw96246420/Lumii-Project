@@ -7043,6 +7043,7 @@ async function renderConfig(force) {
   const exportsConfig = config.exports || {};
   const moderation = config.moderation || {};
   const notifications = config.notifications || {};
+  const placesConfig = config.places || {};
   const revisions = config.revisions || [];
   const splash = config.app?.splash || {};
   const support = config.support || {};
@@ -7083,6 +7084,21 @@ async function renderConfig(force) {
         ${featureCheckbox('cfgFeaturePetChat', 'AI 宠物对话', config.features.petChat)}
         ${featureCheckbox('cfgFeatureWalkInvite', '约遛邀请', config.features.walkInvite)}
         ${featureCheckbox('cfgMaintenanceEnabled', '维护模式', config.app.maintenanceEnabled)}
+      </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>地点贡献身份</h2>
+            <div class="section-sub">控制用户在移动端“我的”页是否展示地点共建者徽章</div>
+          </div>
+          ${help('地点审核通过后已经会记录贡献分。这里控制是否把“自己的贡献身份”公开给用户本人；当前不做排行榜、兑换和活动奖励，避免把运营账本误解成现金或余额。')}
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgPlaceContributionBadgesEnabled', '展示地点共建者徽章', Boolean(placesConfig.contributionBadgesEnabled))}
+        </div>
+        <div class="config-grid">
+          <label>展示最低贡献分<input id="cfgPlaceContributionBadgeMinPoints" type="number" min="1" max="1000" value="${Number.isFinite(Number(placesConfig.contributionBadgeMinPoints)) ? placesConfig.contributionBadgeMinPoints : 1}" /></label>
+        </div>
       </div>
       <div class="config-section">
         <div class="section-head compact">
@@ -7795,6 +7811,10 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isFinite(moderationSampleReviewRatePercent) || moderationSampleReviewRatePercent < 0 || moderationSampleReviewRatePercent > 100) {
     throw new Error('内容安全抽样复审率必须在 0-100 之间');
   }
+  const placeContributionBadgeMinPoints = Number($('cfgPlaceContributionBadgeMinPoints').value);
+  if (!Number.isFinite(placeContributionBadgeMinPoints) || placeContributionBadgeMinPoints < 1 || placeContributionBadgeMinPoints > 1000) {
+    throw new Error('地点贡献身份展示门槛必须在 1-1000 分之间');
+  }
   const ttapiMjTimeout = Number($('cfgTtapiMjTimeout').value);
   if (!Number.isFinite(ttapiMjTimeout) || ttapiMjTimeout < 60 || ttapiMjTimeout > 1800) {
     throw new Error('TTAPI Midjourney timeout 必须在 60-1800 秒之间');
@@ -7950,6 +7970,10 @@ async function saveConfig(mode = 'publish') {
       maxPerUserPerDay: Number($('cfgNotificationMaxPerUserPerDay').value),
       rateLimitEnabled: $('cfgNotificationRateLimitEnabled').checked,
       requireApproval: $('cfgNotificationRequireApproval').checked,
+    },
+    places: {
+      contributionBadgeMinPoints: placeContributionBadgeMinPoints,
+      contributionBadgesEnabled: $('cfgPlaceContributionBadgesEnabled').checked,
     },
     reason: mode === 'draft' ? '配置草稿保存' : '配置中心发布',
     social: {

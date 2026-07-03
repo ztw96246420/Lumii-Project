@@ -340,6 +340,7 @@
 - 新增地点可由后台关联到已有地点，视为审核通过并把提交图片补充进目标地点 `photoUrls`。
 - 新增地点审核通过会记录地点贡献者账本：发现新地点 `+10` 贡献分，补充已有地点 `+5` 贡献分；地点目录展示贡献者数量，后台新增贡献者卡片。
 - 点评和新增地点审核通过/驳回后，会向提交人写入 App 通知中心；移动端沿用 `place_review` / `place_submission` 通知入口，并在新增地点结果页展示审核状态、原因和贡献分。
+- 配置中心新增 `places.contributionBadgesEnabled` 和 `places.contributionBadgeMinPoints`；移动端“我的”页会在开关开启且用户达到门槛时展示地点共建者徽章。
 - 地点点评审核通过后，会进入 App 地点详情的“社区点评”公开列表；审核中和驳回点评不公开。
 - App 地点详情的公开点评可被用户举报；举报进入后台举报中心和统一内容安全任务池，`targetType=place_review`，有效并隐藏/删除后公开列表不再展示该点评。
 - 后台地点点评/新增地点审核表会显示结果通知时间。
@@ -361,7 +362,7 @@
 
 当前限制：
 
-- 贡献分当前只是后台运营账本和用户通知提示，尚未做用户端公开徽章、贡献等级、活动奖励或兑换规则。
+- 贡献分当前已支持用户本人公开徽章和轻量等级展示；排行榜、活动奖励或兑换规则仍需另行确认。
 
 ### 3.8 反馈工单
 
@@ -566,6 +567,7 @@
 - 草稿创建、发布、废弃分别写入 `config.draft.create`、`config.draft.publish`、`config.draft.discard`。
 - 新增回归脚本：`node scripts/smoke-config-approval.cjs`，覆盖强制审批、直接发布拦截、审批后 `/app/config` 生效、草稿审批、回滚审批和审计日志。
 - 新增回归脚本：`node scripts/smoke-config-experiments.cjs`，覆盖首页 AI 入口实验配置、`/app/config` 下发、联动体检和曝光/点击事件上报。
+- 扩展回归脚本：`node scripts/smoke-place-contributions.cjs`，覆盖地点贡献账本、`/me.placeContributionSummary`、贡献徽章配置发布和 `/app/config` 下发。
 - 移动端无需改包，下一次读取 `/app/config` 后立即按回滚后的功能开关、维护模式、公告、更新策略、图片上限、附近半径和附近小事展示天数等配置生效。
 
 移动端暂未完整接入：暂无。

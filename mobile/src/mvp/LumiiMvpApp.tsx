@@ -229,6 +229,10 @@ const fallbackRemoteConfig: AppRemoteConfig = {
     reviewMessage: '内容已进入人工审核，通过后会展示给附近用户',
     textRulesEnabled: true,
   },
+  places: {
+    contributionBadgeMinPoints: 1,
+    contributionBadgesEnabled: false,
+  },
   social: {
     discoverRadiusKm: defaultDiscoverRadiusKm,
     nearbyMomentTtlDays: 7,
@@ -14976,6 +14980,15 @@ export default function LumiiMvpApp() {
     const petBadgeText = [petGenderSymbol, pet?.breed || speciesLabel].filter(Boolean).join(' ');
     const petTags = buildPetProfileTags(pet, pendingVaccines.length, vaccines.length);
     const unreadNotificationCount = notifications.filter((item) => !item.read).length;
+    const placeContributionSummary = session?.account?.placeContributionSummary;
+    const placeContributionPoints = Number(placeContributionSummary?.points || 0);
+    const placeContributionTotal = Number(placeContributionSummary?.total || 0);
+    const placeContributionMinPoints = Math.max(1, Number(remoteConfig.places?.contributionBadgeMinPoints ?? placeContributionSummary?.minPublicPoints ?? 1));
+    const showPlaceContributionBadge = placesEnabled
+      && remoteConfig.places?.contributionBadgesEnabled === true
+      && placeContributionTotal > 0
+      && placeContributionPoints >= placeContributionMinPoints;
+    const placeContributionLevel = placeContributionSummary?.level?.label || '地点新星';
     return (
       <Screen showBack={false} title="">
         <View style={styles.profileMakePage}>
@@ -15017,6 +15030,17 @@ export default function LumiiMvpApp() {
                 <Edit3 color={palette.muted} size={18} strokeWidth={2.2} />
               </Pressable>
             </View>
+            {showPlaceContributionBadge ? (
+              <View style={styles.profileContributionBadge}>
+                <View style={styles.profileContributionIcon}>
+                  <MapPin color={palette.teal} size={14} strokeWidth={2.6} />
+                </View>
+                <View style={styles.flex}>
+                  <Text style={styles.profileContributionTitle}>地点共建者 · {placeContributionLevel}</Text>
+                  <Text style={styles.profileContributionMeta}>{placeContributionPoints} 贡献分 · {placeContributionTotal} 次通过审核</Text>
+                </View>
+              </View>
+            ) : null}
           </View>
 
           <View style={[styles.profileCurrentWrap, profileBlockPaddingStyle]}>
@@ -19845,6 +19869,10 @@ const styles = StyleSheet.create({
   recognitionQuality: { backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 14, color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', right: 14, top: 14 },
   recognitionSuccessBadge: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.95)', borderRadius: 14, flexDirection: 'row', gap: 5, left: 14, paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', top: 14 },
   profileCard: { alignItems: 'center', flexDirection: 'row', gap: 14 },
+  profileContributionBadge: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: 'rgba(255,255,255,0.72)', borderColor: 'rgba(77,182,172,0.22)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, marginTop: 14, paddingHorizontal: 12, paddingVertical: 10 },
+  profileContributionIcon: { alignItems: 'center', backgroundColor: '#E8F5F3', borderRadius: 11, height: 28, justifyContent: 'center', width: 28 },
+  profileContributionMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '500', lineHeight: 15, marginTop: 1 },
+  profileContributionTitle: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700', lineHeight: 18 },
   profileCurrentWrap: { alignSelf: 'stretch', marginBottom: 18, marginTop: 16, paddingHorizontal: 16 },
   profileHeroContent: { alignItems: 'center', flexDirection: 'row', gap: 14, position: 'relative' },
   profileHeroMake: { alignSelf: 'stretch', backgroundColor: '#ffe3d1', borderRadius: 22, marginHorizontal: 16, marginTop: 16, overflow: 'hidden', padding: 18, position: 'relative' },

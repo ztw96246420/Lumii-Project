@@ -142,6 +142,10 @@ const mockAppRemoteConfig: AppRemoteConfig = {
     reviewMessage: '内容已进入人工审核，通过后会展示给附近用户',
     textRulesEnabled: true,
   },
+  places: {
+    contributionBadgeMinPoints: 1,
+    contributionBadgesEnabled: false,
+  },
   social: {
     discoverRadiusKm: 3,
     nearbyMomentTtlDays: 7,
@@ -3610,6 +3614,21 @@ function buildMockAccountSnapshot(): AccountSnapshot {
     ownerName: mockOwnerName,
     permissions: mockPermissions,
     permissionsOnboardingCompleted: mockPermissionsOnboardingCompleted,
+    placeContributionSummary: {
+      created: 0,
+      level: {
+        key: 'none',
+        label: '待点亮',
+        minPoints: 0,
+        nextLabel: '地点新星',
+        nextPoints: 1,
+      },
+      linkedExisting: 0,
+      minPublicPoints: 1,
+      points: 0,
+      publicEligible: false,
+      total: 0,
+    },
     settings: mockUserSettings,
   };
 }

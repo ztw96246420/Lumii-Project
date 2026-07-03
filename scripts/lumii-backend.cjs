@@ -648,6 +648,10 @@ function defaultOpsConfig() {
       rateLimitEnabled: true,
       requireApproval: false,
     },
+    places: {
+      contributionBadgeMinPoints: 1,
+      contributionBadgesEnabled: false,
+    },
     social: {
       discoverRadiusKm: DEFAULT_DISCOVER_RADIUS_KM,
       nearbyMomentTtlDays: 7,
@@ -980,6 +984,14 @@ function normalizeAnalyticsConfig(value, defaults) {
   };
 }
 
+function normalizePlacesOpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    contributionBadgeMinPoints: Math.floor(clampNumber(source.contributionBadgeMinPoints, defaults.contributionBadgeMinPoints || 1, 1, 1000)),
+    contributionBadgesEnabled: Boolean(source.contributionBadgesEnabled),
+  };
+}
+
 function normalizeExperimentIdText(value, fallback) {
   const text = String(value || '')
     .trim()
@@ -1148,6 +1160,7 @@ function normalizeOpsConfig(value) {
   const features = source.features && typeof source.features === 'object' ? source.features : {};
   const moderation = source.moderation && typeof source.moderation === 'object' ? source.moderation : {};
   const notifications = source.notifications && typeof source.notifications === 'object' ? source.notifications : {};
+  const places = source.places && typeof source.places === 'object' ? source.places : {};
   const social = source.social && typeof source.social === 'object' ? source.social : {};
   const support = source.support && typeof source.support === 'object' ? source.support : {};
   return {
@@ -1197,6 +1210,7 @@ function normalizeOpsConfig(value) {
     },
     moderation: normalizeModerationConfig(moderation, defaults.moderation),
     notifications: normalizeNotificationOpsConfig(notifications, defaults.notifications),
+    places: normalizePlacesOpsConfig(places, defaults.places),
     support: normalizeSupportConfig(support, defaults.support),
     social: {
       discoverRadiusKm: clampNumber(social.discoverRadiusKm, defaults.social.discoverRadiusKm, 1, 20),
@@ -1238,6 +1252,8 @@ function opsConfigSummary(config) {
     notificationMaxPerUserPerDay: Number(config?.notifications?.maxPerUserPerDay || 0),
     notificationRateLimitEnabled: config?.notifications?.rateLimitEnabled !== false,
     notificationRequireApproval: Boolean(config?.notifications?.requireApproval),
+    placeContributionBadgeMinPoints: Number(config?.places?.contributionBadgeMinPoints || 0),
+    placeContributionBadgesEnabled: Boolean(config?.places?.contributionBadgesEnabled),
     discoverRadiusKm: Number(config?.social?.discoverRadiusKm || 0),
     enabledFeatures: Object.values(features).filter((value) => value !== false).length,
     nearbyMomentTtlDays: Number(config?.social?.nearbyMomentTtlDays || 0),
@@ -1420,6 +1436,7 @@ function buildOpsConfigPatch(before, body = {}) {
     features: { ...before.features, ...(body.features || {}) },
     moderation: { ...before.moderation, ...(body.moderation || {}) },
     notifications: { ...before.notifications, ...(body.notifications || {}) },
+    places: { ...before.places, ...(body.places || {}) },
     social: { ...before.social, ...(body.social || {}) },
     support: {
       ...before.support,
@@ -1510,6 +1527,8 @@ function configChangeSummary(before, after) {
     ['social.petCircleMaxPhotos', 'Pet circle max photos'],
     ['social.discoverRadiusKm', 'Discover radius'],
     ['social.nearbyMomentTtlDays', 'Nearby moment TTL'],
+    ['places.contributionBadgesEnabled', 'Place contribution public badges'],
+    ['places.contributionBadgeMinPoints', 'Place contribution public badge min points'],
     ['features.aiAvatar', 'AI avatar feature'],
     ['features.petChat', 'Pet chat feature'],
     ['features.petCircle', 'Pet circle feature'],
@@ -2457,6 +2476,17 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileApplied: true,
       mobileEvidence: '移动端隐藏/拦截地图、地点详情、点评和新增地点入口。',
       userImpact: '可临时关闭地图地点相关能力。',
+    },
+    {
+      backendEvidence: '/me 返回 placeContributionSummary；/app/config 返回 places.contributionBadgesEnabled 和 contributionBadgeMinPoints。',
+      backendEnforced: false,
+      group: '发现/地图',
+      key: 'places.contributionBadgesEnabled',
+      label: '地点贡献身份展示',
+      mobileApplied: true,
+      mobileEvidence: '移动端“我的”页读取 remoteConfig.places.contributionBadgesEnabled，命中门槛后展示地点共建者徽章。',
+      operatorNote: '当前只公开用户自己的贡献身份、等级和分数摘要；排行榜、兑换和活动奖励仍需另行确认。',
+      userImpact: '让通过地点审核的用户看到自己的社区贡献身份，关闭后移动端不展示。',
     },
     {
       backendEvidence: '约遛创建接口调用 failIfFeatureDisabled(walkInvite)。',
@@ -4088,6 +4118,10 @@ function publicAppConfig() {
       machineTextEnabled: config.moderation.machineTextEnabled,
       reviewMessage: config.moderation.reviewMessage,
       textRulesEnabled: config.moderation.textRulesEnabled,
+    },
+    places: {
+      contributionBadgeMinPoints: config.places?.contributionBadgeMinPoints || 1,
+      contributionBadgesEnabled: Boolean(config.places?.contributionBadgesEnabled),
     },
     social: config.social,
     support: {
@@ -8224,9 +8258,33 @@ const PLACE_CONTRIBUTION_POINTS = {
   linked_existing: 5,
 };
 
+const PLACE_CONTRIBUTION_LEVELS = [
+  { key: 'starter', label: '地点新星', minPoints: 1 },
+  { key: 'guide', label: '社区向导', minPoints: 20 },
+  { key: 'expert', label: '地点达人', minPoints: 50 },
+  { key: 'guardian', label: '城市守护者', minPoints: 100 },
+];
+
 function normalizePlaceContributionAction(value) {
   const action = String(value || '').trim();
   return Object.prototype.hasOwnProperty.call(PLACE_CONTRIBUTION_POINTS, action) ? action : 'created';
+}
+
+function placeContributionLevelFor(points) {
+  const numeric = Math.max(0, Number(points || 0));
+  let current = null;
+  let next = null;
+  for (const level of PLACE_CONTRIBUTION_LEVELS) {
+    if (numeric >= level.minPoints) current = level;
+    else if (!next) next = level;
+  }
+  return {
+    key: current?.key || 'none',
+    label: current?.label || '待点亮',
+    minPoints: current?.minPoints || 0,
+    nextLabel: next?.label || '',
+    nextPoints: next?.minPoints || 0,
+  };
 }
 
 function placeContributionActionLabel(action) {
@@ -8254,6 +8312,20 @@ function placeContributionSummary(contributions = ensurePlaceContributions()) {
     points: visible.reduce((sum, item) => sum + Number(item.points || 0), 0),
     total: visible.length,
     users: new Set(visible.map((item) => item.phone).filter(Boolean)).size,
+  };
+}
+
+function placeContributionSummaryForPhone(phone) {
+  const normalizedPhone = String(phone || '').trim();
+  const contributions = ensurePlaceContributions().filter((item) => String(item.phone || '') === normalizedPhone);
+  const summary = placeContributionSummary(contributions);
+  const config = currentOpsConfig().places || defaultOpsConfig().places;
+  const minPublicPoints = Math.max(1, Number(config.contributionBadgeMinPoints || 1));
+  return {
+    ...summary,
+    level: placeContributionLevelFor(summary.points),
+    minPublicPoints,
+    publicEligible: summary.points >= minPublicPoints,
   };
 }
 
@@ -9113,6 +9185,7 @@ function buildAccountSnapshot(user) {
     ownerName: user.ownerName || `用户${user.phone.slice(-4)}`,
     permissions,
     permissionsOnboardingCompleted: Boolean(user.permissionsOnboardingCompleted || allPermissionsGranted(permissions)),
+    placeContributionSummary: placeContributionSummaryForPhone(user.phone),
     sanctions: userSanctionSummary(user.phone),
     settings: normalizeUserSettings(user.settings),
   };

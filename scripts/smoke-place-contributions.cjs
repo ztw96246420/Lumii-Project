@@ -184,6 +184,38 @@ async function main() {
     assert.equal(contributionPayload.data.summary.points, 15);
     assert.equal(contributionPayload.data.summary.linkedExisting, 1);
 
+    const profileBeforeBadgeConfig = await request('/me', { token: userToken });
+    assert.equal(profileBeforeBadgeConfig.data.placeContributionSummary.points, 15);
+    assert.equal(profileBeforeBadgeConfig.data.placeContributionSummary.total, 2);
+    assert.equal(profileBeforeBadgeConfig.data.placeContributionSummary.level.key, 'starter');
+    assert.equal(profileBeforeBadgeConfig.data.placeContributionSummary.publicEligible, true);
+
+    const configBeforeBadge = await request('/app/config');
+    assert.equal(configBeforeBadge.data.places.contributionBadgesEnabled, false);
+
+    const publishedConfig = await request('/admin/config', {
+      body: {
+        places: {
+          contributionBadgeMinPoints: 10,
+          contributionBadgesEnabled: true,
+        },
+        reason: 'Smoke enable place contribution badge',
+      },
+      method: 'PATCH',
+      token: adminToken,
+    });
+    assert.equal(publishedConfig.data.places.contributionBadgesEnabled, true);
+    assert.equal(publishedConfig.data.places.contributionBadgeMinPoints, 10);
+
+    const appConfigAfterBadge = await request('/app/config');
+    assert.equal(appConfigAfterBadge.data.places.contributionBadgesEnabled, true);
+    assert.equal(appConfigAfterBadge.data.places.contributionBadgeMinPoints, 10);
+
+    const profileAfterBadgeConfig = await request('/me', { token: userToken });
+    assert.equal(profileAfterBadgeConfig.data.placeContributionSummary.points, 15);
+    assert.equal(profileAfterBadgeConfig.data.placeContributionSummary.minPublicPoints, 10);
+    assert.equal(profileAfterBadgeConfig.data.placeContributionSummary.publicEligible, true);
+
     const notifications = await request('/notifications', { token: userToken });
     const contributionNotifications = notifications.data.filter((item) => item.kind === 'place_submission' && /\+\d+贡献分/.test(item.text || ''));
     assert.equal(contributionNotifications.length, 2, 'expected contribution notifications for both submission outcomes');

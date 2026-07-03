@@ -44,6 +44,7 @@ export type AccountSnapshot = {
   ownerName?: string;
   permissions: PermissionStateMap;
   permissionsOnboardingCompleted: boolean;
+  placeContributionSummary?: PlaceContributionSummary;
   sanctions?: AccountSanctionSnapshot;
   settings: UserSettings;
 };
@@ -51,6 +52,23 @@ export type AccountSnapshot = {
 export type UserProfile = AccountSnapshot & {
   ownerName: string;
   phone: string;
+};
+
+export type PlaceContributionSummary = {
+  created: number;
+  level?: {
+    key: string;
+    label: string;
+    minPoints: number;
+    nextLabel?: string;
+    nextPoints?: number;
+  };
+  linkedExisting: number;
+  minPublicPoints?: number;
+  points: number;
+  publicEligible?: boolean;
+  total: number;
+  users?: number;
 };
 
 export type OwnerProfilePatch = Partial<Pick<UserProfile, 'ownerAvatarUrl' | 'ownerBio' | 'ownerName'>> & {
@@ -900,6 +918,10 @@ export type AppRemoteConfig = {
     enabled?: boolean;
     reviewMessage?: string;
     textRulesEnabled?: boolean;
+  };
+  places?: {
+    contributionBadgeMinPoints?: number;
+    contributionBadgesEnabled?: boolean;
   };
   social: {
     discoverRadiusKm: number;
