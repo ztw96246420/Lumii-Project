@@ -166,6 +166,13 @@ function secondsText(value) {
   return number >= 60 ? `${Math.round(number / 60)} 分钟` : `${Math.round(number)} 秒`;
 }
 
+function durationMsText(value) {
+  const number = Number(value || 0);
+  if (!number) return '-';
+  if (number < 1000) return `${Math.round(number)} ms`;
+  return secondsText(number / 1000);
+}
+
 function durationText(value) {
   const seconds = Number(value || 0);
   if (!seconds) return '-';
@@ -4621,6 +4628,20 @@ function avatarTaskCell(job) {
   `;
 }
 
+function avatarTraceCell(job) {
+  const trace = job.providerTraceLatest || {};
+  const cost = job.providerCost || {};
+  if (!job.providerTraceCount) {
+    return '<div class="cell-sub">尚未记录调用轨迹</div>';
+  }
+  const hasCost = Number(cost.cost || 0) || Number(cost.creditsCost || 0) || Number(cost.quota || 0);
+  return `
+    <div>${escapeHtml(trace.stageLabel || job.providerTraceLatestStageLabel || '-')} · ${escapeHtml(trace.method || '-')}</div>
+    <div class="cell-sub">${escapeHtml(trace.providerStatus || job.providerTraceLatestStatus || '-')} · ${durationMsText(trace.durationMs)}</div>
+    <div class="cell-sub">${numberText(job.providerTraceCount)} 次调用${hasCost ? ` · ${moneyText(cost.cost || 0)} / ${numberText(cost.creditsCost || 0, 2)} credits` : ''}</div>
+  `;
+}
+
 function avatarFeedbackAction(row) {
   if (row.status === 'reviewed') {
     return `<div class="cell-sub">已由 ${escapeHtml(row.reviewedBy || '-')} 处理</div>`;
@@ -4729,6 +4750,7 @@ async function renderAvatarJobs(force) {
       ${metric('生成任务', numberText(jobRows.length), `${numberText(processing.length)} 个处理中`, 'AI 灵伴生成任务全量计数，包含历史供应商任务。')}
       ${metric('可用结果', numberText(ready.length), `${numberText(failed.length)} 个失败`, 'ready 表示后端已有结果图；是否应用到宠物头像看 acceptedAt。')}
       ${metric('可能卡住', numberText(stuck.length), '处理中超过 5 分钟未更新', '用于排查进度条停在中间或 provider 状态没有刷新。')}
+      ${metric('调用轨迹', numberText(usageSummary.providerTraceEntries), `${numberText(usageSummary.providerTraceJobs)} 个任务有记录`, '新任务会记录供应商 submit/status/action 调用摘要、耗时、成本快照和错误。')}
       ${metric('待处理反馈', numberText(feedbackSummary.received), `${numberText(feedbackSummary.reviewed)} 条已处理`, '用户在 AI 灵伴结果页提交的不满意反馈。')}
       ${metric('上传素材', numberText(mediaSummary.totalMedia), `${numberText(mediaSummary.linked)} 张已发起生成`, '移动端上传到 /media/uploads 的宠物原图素材。')}
       ${metric('素材风险', numberText((mediaSummary.warning || 0) + (mediaSummary.blocked || 0)), `${numberText(mediaSummary.blocked)} 张不可生成`, 'warning/blocked 来自上传时的照片质量分析。')}
@@ -4746,6 +4768,7 @@ async function renderAvatarJobs(force) {
         ['任务', avatarTaskCell],
         ['用户', (job) => `<div>${escapeHtml(job.ownerName || '-')}</div><div class="cell-sub">${shortPhone(job.ownerPhone)}</div>`],
         ['状态', (job) => `${statusPill(job.status)}<div class="cell-sub">${escapeHtml(job.provider || '-')} · ${job.progress || 0}%</div><div class="cell-sub">${escapeHtml(job.providerStatus || '-')}</div>`],
+        ['调用轨迹', avatarTraceCell],
         ['错误', (job) => `<div>${escapeHtml(job.errorCode || '-')}</div><div class="cell-sub clamp">${escapeHtml(job.lastStatusError || job.errorMessage || '')}</div>`],
         ['时间', (job) => `<div>创建：${formatTime(job.createdAt)}</div><div class="cell-sub">更新：${formatTime(job.updatedAt)}</div>`],
         ['操作', (job) => `
@@ -4848,7 +4871,7 @@ async function renderAvatarJobs(force) {
             <h2>用量成本</h2>
             <div class="section-sub">今日额度消耗、DeepSeek token 和 gpt-image2 累计成本</div>
           </div>
-          ${help('当前成本字段来自 provider 累计回传；由于缺少每次调用时间，今日成本暂不拆分，只展示累计成本和今日次数。')}
+          ${help('累计成本来自 provider 汇总字段；新任务还会记录逐次调用的成本快照，历史任务无法反推逐次费用。')}
         </div>
         <div class="insight-list">
           <div><span>今日灵伴形象</span><strong>${numberText(usageSummary.todayPetAvatarCount)}</strong></div>
@@ -4858,6 +4881,8 @@ async function renderAvatarJobs(force) {
           <div><span>平均回复字数</span><strong>${numberText(usageSummary.averageReplyLength)}</strong></div>
           <div><span>gpt-image2 累计成本</span><strong>${moneyText(usageSummary.gptImage2Cost)}</strong></div>
           <div><span>gpt-image2 Credits</span><strong>${numberText(usageSummary.gptImage2CreditsCost, 2)}</strong></div>
+          <div><span>Trace 成本快照</span><strong>${moneyText(usageSummary.providerTraceCost)}</strong></div>
+          <div><span>Trace Credits</span><strong>${numberText(usageSummary.providerTraceCreditsCost, 2)}</strong></div>
           <div><span>形象额度触顶用户</span><strong>${numberText(usageSummary.petAvatarQuotaHitUsers)}</strong></div>
           <div><span>对话额度触顶用户</span><strong>${numberText(usageSummary.petChatQuotaHitUsers)}</strong></div>
         </div>
@@ -4868,7 +4893,7 @@ async function renderAvatarJobs(force) {
             <h2>供应商监控</h2>
             <div class="section-sub">按 provider 对比 ready、失败和卡住任务</div>
           </div>
-          ${help('柱状图来自业务任务状态；请求数、成本和 credits 来自 aiUsage 累计字段。')}
+          ${help('柱状图来自业务任务状态；请求数、累计成本来自 aiUsage，调用轨迹来自新任务的供应商请求快照。')}
         </div>
         <div id="aiProviderChart" class="analytics-chart"></div>
       </div>
@@ -4886,6 +4911,7 @@ async function renderAvatarJobs(force) {
         ['供应商', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.provider)} · ${aiProviderRolePill(row)}</div>`],
         ['请求 / 成功', (row) => `<div>${numberText(row.requests)} 请求</div><div class="cell-sub">${numberText(row.succeeded)} 成功 · ${numberText(row.failed)} 失败</div>`],
         ['任务健康', (row) => `<div>${numberText(row.jobCount)} 任务</div><div class="cell-sub">${numberText(row.ready)} ready · ${numberText(row.processing)} 处理中 · ${numberText(row.stuck)} 卡住</div>`],
+        ['调用轨迹', (row) => `<div>${numberText(row.traceCount)} 条轨迹</div><div class="cell-sub">${numberText(row.tracedJobs)} 个任务 · 最近 ${formatTime(row.latestTraceAt)}</div>`],
         ['成本 / 额度', (row) => `<div>${moneyText(row.cost || 0)}</div><div class="cell-sub">${numberText(row.creditsCost || 0, 2)} credits · ${numberText(row.quota || 0, 2)} quota</div>`],
         ['质量', (row) => `<div>${percentText(row.successRate)} 成功率</div><div class="cell-sub">平均 ${secondsText(row.averageSeconds)} · ${escapeHtml(row.topErrorCode || '无 Top 错误')}</div>`],
         ['最近任务', (row) => formatTime(row.latestJobAt)],
@@ -4929,7 +4955,7 @@ async function renderAvatarJobs(force) {
           <div><strong>卡住优先看任务</strong><span>processing 超过 5 分钟未更新，先刷新 provider 状态，再判断是否重试或标记失败。</span></div>
           <div><strong>不像宠物优先看反馈</strong><span>毛色、脸型、表情和不像同一只宠物，都会进入生成反馈，后续可沉淀为提示词样本。</span></div>
           <div><strong>清晰度优先看素材</strong><span>warning 和 blocked 通常来自图片太小、多宠、人物入镜或主体不清晰。</span></div>
-          <div><strong>成本异常看供应商</strong><span>同样任务量下成本或 credits 突增，优先检查 provider 配置、尺寸档位和重试次数。</span></div>
+          <div><strong>成本异常看供应商</strong><span>同样任务量下成本或 credits 突增，优先检查 provider 配置、尺寸档位、调用轨迹和重试次数。</span></div>
         </div>
       </div>
       <div class="card">
@@ -4941,7 +4967,7 @@ async function renderAvatarJobs(force) {
           ${help('成本和供应商监控已可读；后续高风险动作仍需要更细权限、原因、审计和可能的双人审批。')}
         </div>
         <div class="gap-list">
-          <div><strong>完整 SLA</strong><span>记录 submit、queued、running、completed 等上游节点，精确评估供应商耗时。</span></div>
+          <div><strong>完整 SLA</strong><span>当前已记录 submit/status/action 调用耗时；queued、running、completed 等细节点仍依赖上游返回。</span></div>
           <div><strong>样本集</strong><span>把已处理反馈沉淀成身份不一致、风格不满意、素材质量差等训练/评估样本。</span></div>
           <div><strong>供应商切换</strong><span>生产阶段应通过配置中心和灰度策略切换，不直接在任务页一键切 provider。</span></div>
         </div>

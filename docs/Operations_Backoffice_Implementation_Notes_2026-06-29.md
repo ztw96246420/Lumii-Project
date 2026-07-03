@@ -198,6 +198,7 @@
 - 查看 AI 用量成本：今日灵伴形象消耗、今日 AI 对话消耗、额度触顶用户、DeepSeek 请求和 token、平均回复字数、gpt-image2 累计成本和 credits。
 - 查看供应商监控：当前启用 provider、历史/备用 provider、请求数、成功失败、任务 ready/processing/stuck、平均耗时、成功率和 Top 错误码。
 - AI 灵伴页使用 ECharts 展示 provider ready / failed / stuck 对比。
+- 新任务会沉淀 AI 供应商调用轨迹：submit / status / action 的 endpoint、耗时、供应商状态、prompt hash、输入数量、成本快照和错误摘要；后台任务列表、供应商明细和 CSV 导出均可查看脱敏摘要。
 - 配置中心已支持 AI 外围系统配置：查看并配置灵伴形象 provider、gpt-image2 model/resolution/size/prompt、TTAPI 备用 provider prompt、宠物 AI 对话 provider、DeepSeek model/thinking/temperature/max_tokens/system prompt。
 - 后台 `GET /admin/config` 返回 AI runtime 解释数据：密钥状态、当前 provider、参数摘要、prompt 模板和示例渲染后的 prompt 预览。
 - 刷新上游任务状态。
@@ -205,11 +206,13 @@
 - 后台标记失败。
 - 返还形象生成额度。
 - 写入审计日志。
-- 数据导出新增 AI 上传素材、AI 生成反馈、AI 供应商用量 CSV；不导出图片二进制或 base64 原图。
+- 数据导出新增 AI 上传素材、AI 生成反馈、AI 供应商用量 CSV；AI 任务 CSV 新增调用轨迹数量、最近调用阶段、最近调用状态、供应商任务 ID 和成本快照；不导出图片二进制或 base64 原图。
+- 独立说明文档：[Operations_Backoffice_AI_Provider_Trace_2026-07-03.md](Operations_Backoffice_AI_Provider_Trace_2026-07-03.md)。
 
 当前限制：
 
-- 尚未沉淀供应商原始 request / response、逐次调用成本快照、完整 SLA 时间线。
+- 新任务已沉淀供应商调用脱敏摘要和成本快照；历史任务没有 trace，且当前不保存完整原始 request / response。
+- 已记录 submit / status / action 调用耗时；queued / running / completed 等更细 SLA 节点仍依赖上游返回。
 - 尚未开放“加入提示词样本集”、“供应商异常样本”或“直接应用结果图到宠物头像”等高权限动作。
 - AI prompt 当前支持单一线上版本，尚未做多版本实验、按人群灰度或自动回滚。
 

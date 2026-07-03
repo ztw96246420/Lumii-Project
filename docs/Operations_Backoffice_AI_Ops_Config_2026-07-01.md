@@ -44,6 +44,7 @@
 - 当前 prompt 模板。
 - 以示例宠物渲染后的 prompt 预览。
 - DeepSeek 对话会追加的动态上下文结构。
+- 新建灵伴形象任务和刷新任务状态后，AI 灵伴页会展示供应商调用轨迹脱敏摘要，用于核对实际请求是否按当前配置执行。
 
 ## Prompt 模板变量
 
@@ -63,6 +64,7 @@
 - 宠物 AI 对话读取当前 `ai.petChat.provider`；`fallback` 不调用外部模型。
 - DeepSeek 请求读取当前 `model`、`thinking`、`temperature`、`maxTokens` 和 `baseSystemPrompt`。
 - DeepSeek 仍由服务端追加动态上下文：宠物档案、近期体重、备忘、疫苗/驱虫、用户反馈样本和最近对话历史。
+- 供应商调用轨迹只记录脱敏摘要：endpoint、method、provider、stage、耗时、prompt hash/长度、图片数量、供应商状态、成本快照和错误摘要。
 
 ## 安全与治理
 
@@ -71,6 +73,7 @@
 - 切换 AI provider 属于 P1 高风险配置，需要输入 `确认发布高风险配置`。
 - 修改 gpt-image2 prompt 或 DeepSeek system prompt 属于 P2 风险，会进入版本历史和审计。
 - 配置支持保存草稿、发布草稿、提交审批、预约发布、版本历史和回滚。
+- 调用轨迹不保存 API Key、base64 原图、完整图片 URL 或完整 prompt 原文；如需完整原始报文，需要单独设计更严格的加密存储、留存周期和审批访问。
 
 ## 验收
 
@@ -79,11 +82,13 @@
 - 后台切换 `ai.avatar.provider` 后，新建形象任务进入对应 provider 分支。
 - 后台修改 DeepSeek base system prompt 后，新对话请求使用新 system prompt。
 - `/app/config` 不暴露 prompt/provider/model 详情。
+- AI 灵伴页能看到新任务的供应商调用轨迹，且 trace 不泄露 base64 原图或完整 prompt。
 - 配置发布、草稿、审批、预约发布、回滚、审计均可复用配置中心既有链路。
 
 ## 回归脚本
 
 - `node scripts/smoke-config-ai-ops.cjs`
+- `node scripts/smoke-ai-provider-trace.cjs`
 
 该脚本覆盖：
 
@@ -92,3 +97,5 @@
 - provider/prompt 发布。
 - AI 配置进入版本历史。
 - `/app/config` 不泄露 prompt/provider 详情。
+
+`smoke-ai-provider-trace.cjs` 会启动本地 fake gpt-image2 服务，覆盖上传、生成、刷新和后台 trace 查询，并确认 trace 不泄露 base64 原图。

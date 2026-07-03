@@ -3271,7 +3271,17 @@ function adminExportDataset(type) {
         exportColumn('id', '任务ID'),
         exportColumn('status', '状态'),
         exportColumn('provider', '供应商'),
+        exportColumn('providerJobId', '供应商任务ID'),
         exportColumn('providerStatus', '供应商状态'),
+        exportColumn('providerTraceCount', '调用轨迹数'),
+        exportColumn('providerTraceLatestStageLabel', '最近调用阶段'),
+        exportColumn('providerTraceLatestStatus', '最近调用状态'),
+        exportColumn('providerTraceLatestAt', '最近调用时间', (row) => exportDateText(row.providerTraceLatestAt)),
+        exportColumn('promptVersion', 'Prompt版本'),
+        exportColumn('providerCost', '成本快照', (row) => {
+          const cost = row.providerCost || {};
+          return `cost=${Number(cost.cost || 0)} credits=${Number(cost.creditsCost || 0)} quota=${Number(cost.quota || 0)}`;
+        }),
         exportColumn('progress', '进度'),
         exportColumn('ownerPhone', '手机号'),
         exportColumn('ownerName', '主人昵称'),
@@ -10699,6 +10709,143 @@ function nextProcessingProgress(current, remoteProgress) {
   return Math.min(98, Math.max(10, Number(current || 10) + 12));
 }
 
+const AI_PROVIDER_TRACE_MAX_ENTRIES = 24;
+
+function aiTraceHash(value) {
+  const text = String(value || '');
+  if (!text) return '';
+  return crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
+}
+
+function aiTraceUrlKind(value) {
+  const text = String(value || '').trim();
+  if (/^data:/i.test(text)) return 'data-url';
+  if (/^https?:\/\//i.test(text)) {
+    try {
+      return new URL(text).hostname || 'http-url';
+    } catch {
+      return 'http-url';
+    }
+  }
+  return text ? 'value' : '';
+}
+
+function aiTracePromptSnapshot(value) {
+  const text = String(value || '');
+  return {
+    hash: aiTraceHash(text),
+    length: text.length,
+    lines: text ? text.split(/\r?\n/).length : 0,
+  };
+}
+
+function aiTraceCostSnapshot(payload = {}) {
+  const data = payload?.data || {};
+  return {
+    cost: Number(data.cost ?? payload.cost ?? 0) || 0,
+    creditsCost: Number(data.credits_cost ?? data.creditsCost ?? payload.credits_cost ?? payload.creditsCost ?? 0) || 0,
+    quota: Number(data.quota ?? payload.quota ?? 0) || 0,
+  };
+}
+
+function aiTraceStatusFromPayload(payload = {}) {
+  const data = payload?.data;
+  if (Array.isArray(data)) return String(data[0]?.status || payload.status || '').slice(0, 80);
+  return String(data?.status || payload.status || '').slice(0, 80);
+}
+
+function aiTraceTaskIdFromPayload(payload = {}) {
+  return gptImage2TaskIdFrom(payload) || ttapiJobIdFrom(payload) || '';
+}
+
+function sanitizeAiProviderRequest(value = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const imageUrls = Array.isArray(source.image_urls) ? source.image_urls : [];
+  const snapshot = {};
+  [
+    'action',
+    'aspect_ratio',
+    'audio',
+    'camerafixed',
+    'duration',
+    'model',
+    'mode',
+    'n',
+    'official_fallback',
+    'resolution',
+    'size',
+    'timeout',
+  ].forEach((key) => {
+    if (source[key] !== undefined) snapshot[key] = source[key];
+  });
+  if (source.prompt !== undefined) snapshot.prompt = aiTracePromptSnapshot(source.prompt);
+  if (imageUrls.length) {
+    snapshot.imageUrlCount = imageUrls.length;
+    snapshot.imageUrlKinds = imageUrls.map(aiTraceUrlKind).slice(0, 6);
+  }
+  if (source.image) {
+    snapshot.image = {
+      bytes: Number(source.image.bytes || 0) || 0,
+      mimeType: String(source.image.mimeType || '').slice(0, 80),
+    };
+  }
+  if (source.jobId) snapshot.jobIdHash = aiTraceHash(source.jobId);
+  return snapshot;
+}
+
+function sanitizeAiProviderResponse(payload = {}) {
+  const status = aiTraceStatusFromPayload(payload);
+  const taskId = aiTraceTaskIdFromPayload(payload);
+  const data = payload?.data || {};
+  const cost = aiTraceCostSnapshot(payload);
+  return {
+    code: payload?.code === undefined ? '' : String(payload.code).slice(0, 80),
+    cost,
+    estimatedTime: Number(data.estimated_time ?? data.estimatedTime ?? payload.estimated_time ?? payload.estimatedTime ?? 0) || 0,
+    hasImageResult: Boolean(gptImage2ResultUrlFrom(payload) || ttapiResultUrlFrom(payload)),
+    hasVideoResult: Boolean(seedanceVideoUrlFrom(payload)),
+    message: String(payload?.message || payload?.error?.message || data?.error?.message || '').slice(0, 240),
+    progress: Number(data.progress ?? payload.progress ?? 0) || 0,
+    status,
+    taskId,
+  };
+}
+
+function appendAiProviderTrace(job, input = {}) {
+  if (!job) return null;
+  const now = Date.now();
+  const responsePayload = input.response || input.error?.payload || null;
+  const response = responsePayload ? sanitizeAiProviderResponse(responsePayload) : null;
+  const cost = response?.cost || aiTraceCostSnapshot(responsePayload || {});
+  const entry = {
+    at: now,
+    durationMs: Math.max(0, Number(input.durationMs || 0) || 0),
+    endpoint: String(input.endpoint || '').slice(0, 160),
+    error: String(input.error?.message || input.error || '').slice(0, 240),
+    method: String(input.method || 'GET').toUpperCase().slice(0, 12),
+    provider: String(input.provider || job.provider || '').slice(0, 80),
+    providerJobId: String(input.providerJobId || response?.taskId || job.providerJobId || '').slice(0, 120),
+    providerStatus: String(input.providerStatus || response?.status || job.providerStatus || '').slice(0, 120),
+    request: sanitizeAiProviderRequest(input.request || {}),
+    response,
+    stage: String(input.stage || 'status').slice(0, 40),
+    traceId: `trace-${now}-${Math.random().toString(16).slice(2, 8)}`,
+  };
+  job.providerTrace = Array.isArray(job.providerTrace) ? job.providerTrace : [];
+  job.providerTrace.push(entry);
+  if (job.providerTrace.length > AI_PROVIDER_TRACE_MAX_ENTRIES) {
+    job.providerTrace = job.providerTrace.slice(-AI_PROVIDER_TRACE_MAX_ENTRIES);
+  }
+  job.latestProviderTrace = entry;
+  if (cost.cost || cost.creditsCost || cost.quota) {
+    job.providerCostSnapshot = {
+      ...cost,
+      updatedAt: new Date(now).toISOString(),
+    };
+  }
+  return entry;
+}
+
 function gptImage2StuckTaskTimeoutMs(data) {
   const estimatedSeconds = Number(data?.estimated_time ?? data?.estimatedTime ?? 0);
   const multiplier = Number.isFinite(GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER) && GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER > 0 ? GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER : 4;
@@ -11095,19 +11242,44 @@ async function startSeedanceAvatarAnimationJob(req, user, job) {
     status: 'processing',
   });
   touchAvatarAnimationJob(job);
-  const payload = await apimartVideoRequest('/v1/videos/generations', {
-    method: 'POST',
-    body: {
-      aspect_ratio: '1:1',
-      audio: false,
-      camerafixed: providerConfig.cameraFixed !== false,
-      duration: 4,
-      image_urls: [preparedSourceAvatarUrl],
-      model: providerConfig.model,
-      prompt,
-      resolution: '480p',
-    },
-  });
+  const requestBody = {
+    aspect_ratio: '1:1',
+    audio: false,
+    camerafixed: providerConfig.cameraFixed !== false,
+    duration: 4,
+    image_urls: [preparedSourceAvatarUrl],
+    model: providerConfig.model,
+    prompt,
+    resolution: '480p',
+  };
+  const startedAt = Date.now();
+  let payload;
+  try {
+    payload = await apimartVideoRequest('/v1/videos/generations', {
+      method: 'POST',
+      body: requestBody,
+    });
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint: '/v1/videos/generations',
+      method: 'POST',
+      provider: 'doubao-seedance-1-5-pro',
+      request: requestBody,
+      response: payload,
+      stage: 'submit',
+    });
+  } catch (error) {
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint: '/v1/videos/generations',
+      error,
+      method: 'POST',
+      provider: 'doubao-seedance-1-5-pro',
+      request: requestBody,
+      stage: 'submit',
+    });
+    throw error;
+  }
   const providerJobId = seedanceAvatarAnimationTaskIdFrom(payload);
   if (!providerJobId) throw new Error('Seedance did not return a task id');
   state.aiUsage = state.aiUsage || createInitialState().aiUsage;
@@ -11187,9 +11359,34 @@ async function refreshSeedanceAvatarAnimationJob(req, user, job) {
     touchAvatarAnimationJob(job);
     return job;
   }
-  const payload = await apimartVideoRequest(`/v1/tasks/${encodeURIComponent(job.providerJobId)}?language=zh`, {
-    method: 'GET',
-  });
+  const endpoint = `/v1/tasks/${encodeURIComponent(job.providerJobId)}?language=zh`;
+  const startedAt = Date.now();
+  let payload;
+  try {
+    payload = await apimartVideoRequest(endpoint, {
+      method: 'GET',
+    });
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      method: 'GET',
+      provider: 'doubao-seedance-1-5-pro',
+      providerJobId: job.providerJobId,
+      response: payload,
+      stage: 'status',
+    });
+  } catch (error) {
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      error,
+      method: 'GET',
+      provider: 'doubao-seedance-1-5-pro',
+      providerJobId: job.providerJobId,
+      stage: 'status',
+    });
+    throw error;
+  }
   const data = payload?.data || {};
   const status = String(data.status || payload.status || '').toLowerCase();
   job.providerStatus = status || job.providerStatus;
@@ -11278,18 +11475,43 @@ async function startGptImage2AvatarJob(user, job, media) {
     status: 'processing',
   });
   touchAvatarJob(job);
-  const payload = await gptImage2Request('/v1/images/generations', {
-    method: 'POST',
-    body: {
-      image_urls: [media.dataUrl],
-      model: providerConfig.model,
-      n: 1,
-      official_fallback: providerConfig.officialFallback,
-      prompt,
-      resolution: providerConfig.resolution,
-      size: providerConfig.size,
-    },
-  });
+  const requestBody = {
+    image_urls: [media.dataUrl],
+    model: providerConfig.model,
+    n: 1,
+    official_fallback: providerConfig.officialFallback,
+    prompt,
+    resolution: providerConfig.resolution,
+    size: providerConfig.size,
+  };
+  const startedAt = Date.now();
+  let payload;
+  try {
+    payload = await gptImage2Request('/v1/images/generations', {
+      method: 'POST',
+      body: requestBody,
+    });
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint: '/v1/images/generations',
+      method: 'POST',
+      provider: 'gpt-image-2',
+      request: requestBody,
+      response: payload,
+      stage: 'submit',
+    });
+  } catch (error) {
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint: '/v1/images/generations',
+      error,
+      method: 'POST',
+      provider: 'gpt-image-2',
+      request: requestBody,
+      stage: 'submit',
+    });
+    throw error;
+  }
   const providerJobId = gptImage2TaskIdFrom(payload);
   if (!providerJobId) throw new Error('GPT Image 2 did not return a task id');
   state.aiUsage = state.aiUsage || createInitialState().aiUsage;
@@ -11311,14 +11533,44 @@ async function startTtapiAvatarJob(req, user, job, media) {
   const referenceUrl = mediaUploadFileUrl(req, media.mediaId);
   if (!referenceUrl) throw new Error('Public media URL is not available.');
   const prompt = buildPetAvatarPrompt(user, referenceUrl);
-  const payload = await ttapiMidjourneyRequest('/midjourney/v1/imagine', {
-    method: 'POST',
-    body: {
-      mode: providerConfig.mode,
-      prompt,
-      timeout: providerConfig.timeout,
-    },
-  });
+  const requestBody = {
+    image_urls: [referenceUrl],
+    mode: providerConfig.mode,
+    prompt,
+    timeout: providerConfig.timeout,
+  };
+  const startedAt = Date.now();
+  let payload;
+  try {
+    payload = await ttapiMidjourneyRequest('/midjourney/v1/imagine', {
+      method: 'POST',
+      body: {
+        mode: providerConfig.mode,
+        prompt,
+        timeout: providerConfig.timeout,
+      },
+    });
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint: '/midjourney/v1/imagine',
+      method: 'POST',
+      provider: 'ttapi-midjourney',
+      request: requestBody,
+      response: payload,
+      stage: 'submit',
+    });
+  } catch (error) {
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint: '/midjourney/v1/imagine',
+      error,
+      method: 'POST',
+      provider: 'ttapi-midjourney',
+      request: requestBody,
+      stage: 'submit',
+    });
+    throw error;
+  }
   const providerJobId = ttapiJobIdFrom(payload);
   if (!providerJobId) throw new Error('TTAPI did not return a job id');
   state.aiUsage = state.aiUsage || createInitialState().aiUsage;
@@ -11351,10 +11603,50 @@ async function startTtapiFluxAvatarJob(user, job, media) {
   form.append('prompt', prompt);
   form.append('aspect_ratio', '1:1');
 
-  const payload = await ttapiFluxRequest('/flux/edits', {
-    method: 'POST',
-    body: form,
-  });
+  const startedAt = Date.now();
+  let payload;
+  try {
+    payload = await ttapiFluxRequest('/flux/edits', {
+      method: 'POST',
+      body: form,
+    });
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint: '/flux/edits',
+      method: 'POST',
+      provider: 'ttapi-flux-edits',
+      request: {
+        aspect_ratio: '1:1',
+        image: {
+          bytes: fileParts.buffer.length,
+          mimeType: fileParts.mimeType,
+        },
+        mode: providerConfig.mode,
+        prompt,
+      },
+      response: payload,
+      stage: 'submit',
+    });
+  } catch (error) {
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint: '/flux/edits',
+      error,
+      method: 'POST',
+      provider: 'ttapi-flux-edits',
+      request: {
+        aspect_ratio: '1:1',
+        image: {
+          bytes: fileParts.buffer.length,
+          mimeType: fileParts.mimeType,
+        },
+        mode: providerConfig.mode,
+        prompt,
+      },
+      stage: 'submit',
+    });
+    throw error;
+  }
   const providerJobId = ttapiJobIdFrom(payload);
   if (!providerJobId) throw new Error('TTAPI Flux did not return a job id');
   state.aiUsage = state.aiUsage || createInitialState().aiUsage;
@@ -11390,9 +11682,34 @@ async function refreshGptImage2AvatarJob(req, user, job) {
     touchAvatarJob(job);
     return job;
   }
-  const payload = await gptImage2Request(`/v1/tasks/${encodeURIComponent(job.providerJobId)}`, {
-    method: 'GET',
-  });
+  const endpoint = `/v1/tasks/${encodeURIComponent(job.providerJobId)}`;
+  const startedAt = Date.now();
+  let payload;
+  try {
+    payload = await gptImage2Request(endpoint, {
+      method: 'GET',
+    });
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      method: 'GET',
+      provider: 'gpt-image-2',
+      providerJobId: job.providerJobId,
+      response: payload,
+      stage: 'status',
+    });
+  } catch (error) {
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      error,
+      method: 'GET',
+      provider: 'gpt-image-2',
+      providerJobId: job.providerJobId,
+      stage: 'status',
+    });
+    throw error;
+  }
   const data = payload?.data || {};
   const status = String(data.status || payload.status || '').toLowerCase();
   job.providerStatus = status || job.providerStatus;
@@ -11481,7 +11798,32 @@ async function refreshTtapiAvatarJob(job) {
     touchAvatarJob(job);
     return job;
   }
-  const payload = await ttapiMidjourneyRequest(`/midjourney/v1/fetch?jobId=${encodeURIComponent(activeProviderJobId)}`);
+  const endpoint = `/midjourney/v1/fetch?jobId=${encodeURIComponent(activeProviderJobId)}`;
+  const startedAt = Date.now();
+  let payload;
+  try {
+    payload = await ttapiMidjourneyRequest(endpoint);
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      method: 'GET',
+      provider: 'ttapi-midjourney',
+      providerJobId: activeProviderJobId,
+      response: payload,
+      stage: 'status',
+    });
+  } catch (error) {
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      error,
+      method: 'GET',
+      provider: 'ttapi-midjourney',
+      providerJobId: activeProviderJobId,
+      stage: 'status',
+    });
+    throw error;
+  }
   job.providerStatus = payload.status;
   job.lastStatusCheckedAt = Date.now();
   job.lastStatusError = '';
@@ -11490,6 +11832,12 @@ async function refreshTtapiAvatarJob(job) {
   if (payload.status === 'SUCCESS') {
     const providerConfig = effectiveTtapiMidjourneyAvatarConfig();
     if (providerConfig.autoUpsample && !job.upsampleJobId) {
+      const actionRequestBody = {
+        action: 'upsample1',
+        jobId: job.providerJobId,
+        timeout: providerConfig.timeout,
+      };
+      const actionStartedAt = Date.now();
       const actionPayload = await ttapiMidjourneyRequest('/midjourney/v1/action', {
         method: 'POST',
         body: {
@@ -11498,6 +11846,16 @@ async function refreshTtapiAvatarJob(job) {
           jobId: job.providerJobId,
           timeout: providerConfig.timeout,
         },
+      });
+      appendAiProviderTrace(job, {
+        durationMs: Date.now() - actionStartedAt,
+        endpoint: '/midjourney/v1/action',
+        method: 'POST',
+        provider: 'ttapi-midjourney',
+        providerJobId: job.providerJobId,
+        request: actionRequestBody,
+        response: actionPayload,
+        stage: 'action',
       });
       const upsampleJobId = ttapiJobIdFrom(actionPayload);
       if (upsampleJobId) {
@@ -11558,9 +11916,34 @@ async function refreshTtapiFluxAvatarJob(job) {
     touchAvatarJob(job);
     return job;
   }
-  const payload = await ttapiFluxRequest(`/flux/fetch?jobId=${encodeURIComponent(job.providerJobId)}`, {
-    method: 'GET',
-  });
+  const endpoint = `/flux/fetch?jobId=${encodeURIComponent(job.providerJobId)}`;
+  const startedAt = Date.now();
+  let payload;
+  try {
+    payload = await ttapiFluxRequest(endpoint, {
+      method: 'GET',
+    });
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      method: 'GET',
+      provider: 'ttapi-flux-edits',
+      providerJobId: job.providerJobId,
+      response: payload,
+      stage: 'status',
+    });
+  } catch (error) {
+    appendAiProviderTrace(job, {
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      error,
+      method: 'GET',
+      provider: 'ttapi-flux-edits',
+      providerJobId: job.providerJobId,
+      stage: 'status',
+    });
+    throw error;
+  }
   job.providerStatus = payload.status;
   job.lastStatusCheckedAt = Date.now();
   job.lastStatusError = '';
@@ -18189,6 +18572,9 @@ function adminAvatarJobs() {
       const owner = job.ownerPhone ? state.users[job.ownerPhone] : null;
       const media = job.mediaId ? state.mediaUploads?.[job.mediaId] : null;
       const pet = owner?.pets?.find((item) => item.id === job.petId) || (owner ? selectedPetFor(owner) : null);
+      const providerTrace = adminAiProviderTraceRows(job);
+      const latestProviderTrace = providerTrace[providerTrace.length - 1] || null;
+      const providerCost = adminAiProviderCostSnapshot(job);
       return {
         acceptedAt: job.acceptedAt,
         createdAt: job.createdAt,
@@ -18204,8 +18590,21 @@ function adminAvatarJobs() {
         previewUrl: media?.objectUrl || media?.previewUrl || '',
         progress: job.progress,
         provider: job.provider,
+        providerCost,
+        providerJobId: job.providerJobId || '',
         providerStatus: job.providerStatus,
+        providerTrace: providerTrace.slice(-8).reverse(),
+        providerTraceCount: providerTrace.length,
+        providerTraceLatest: latestProviderTrace,
+        providerTraceLatestAt: latestProviderTrace?.at || '',
+        providerTraceLatestStage: latestProviderTrace?.stage || '',
+        providerTraceLatestStageLabel: latestProviderTrace?.stageLabel || '',
+        providerTraceLatestStatus: latestProviderTrace?.providerStatus || '',
+        promptVersion: job.promptVersion || '',
         resultUrl: job.resultUrl,
+        slaTimeline: adminAiSlaTimeline(job),
+        sourceResultUrl: job.sourceResultUrl || '',
+        submittedAt: job.submittedAt || '',
         status: job.status,
         updatedAt: job.updatedAt,
       };
@@ -18743,6 +19142,11 @@ function adminAiUsage(options = {}) {
     ttapiMidjourney: { ...createInitialState().aiUsage.ttapiMidjourney, ...(state.aiUsage?.ttapiMidjourney || {}) },
   };
   const avatarJobs = Object.values(state.avatarJobs || {});
+  const avatarProviderTraceEntries = avatarJobs.flatMap((job) => adminAiProviderTraceRows(job).map((trace) => ({ ...trace, jobId: job.id })));
+  const avatarProviderTraceCostEntries = avatarProviderTraceEntries.filter((trace) => {
+    const cost = trace.response?.cost || {};
+    return Number(cost.cost || 0) || Number(cost.creditsCost || 0) || Number(cost.quota || 0);
+  });
   const petChatMessages = flattenPetChatMessagesForAnalytics();
   const petChatRequests = petChatMessages.filter((message) => message.author === 'me');
   const petChatReplies = petChatMessages.filter((message) => message.author === 'ai');
@@ -18774,6 +19178,7 @@ function adminAiUsage(options = {}) {
       const providerFailed = jobs.filter((job) => job.status === 'failed');
       const providerProcessing = jobs.filter((job) => job.status === 'processing');
       const providerStuck = providerProcessing.filter((job) => Date.now() - analyticsTimeMs(job.updatedAt || job.createdAt) > 5 * 60 * 1000);
+      const providerTraceEntries = jobs.flatMap((job) => adminAiProviderTraceRows(job));
       const durations = providerReady.map(analyticsAvatarDurationSeconds).filter((value) => value !== null);
       const providerErrors = adminErrorCodeRows(jobs);
       return {
@@ -18794,6 +19199,9 @@ function adminAiUsage(options = {}) {
         succeeded: Number(usage.succeeded || providerReady.length || 0),
         successRate: analyticsPercent(providerReady.length, providerReady.length + providerFailed.length),
         topErrorCode: providerErrors[0]?.code || '',
+        traceCount: providerTraceEntries.length,
+        tracedJobs: jobs.filter((job) => adminAiProviderTraceRows(job).length > 0).length,
+        latestTraceAt: providerTraceEntries.map((trace) => analyticsTimeMs(trace.at)).sort((a, b) => b - a)[0] || 0,
       };
     })
     .filter((provider) => provider.jobCount || provider.requests || provider.provider === effectivePetAvatarProvider());
@@ -18808,8 +19216,8 @@ function adminAiUsage(options = {}) {
   return {
     buckets,
     dataGaps: [
-      { label: '今日 AI 成本', reason: '当前 gpt-image2 成本是累计字段，缺少逐次调用时间，不能可靠拆成今日成本。' },
-      { label: '供应商原始 SLA', reason: '当前只持久化业务任务时间，未完整保存 submit / queued / running / completed 每个上游节点。' },
+      { label: '历史 AI 成本', reason: '新任务已记录供应商调用成本快照；历史任务仍只有累计成本，不能反推逐次费用。' },
+      { label: '供应商完整 SLA', reason: '新任务已记录 submit/status/action 调用耗时；更细的 queued/running/completed 节点仍依赖上游返回。' },
       { label: 'DeepSeek 单次成本', reason: '当前记录 token 总量，未配置单价和每条消息成本快照。' },
     ],
     days,
@@ -18838,6 +19246,10 @@ function adminAiUsage(options = {}) {
       medicalRisk: medicalRisk.length,
       petAvatarQuotaHitUsers: adminQuotaHitCount(state.petAvatarDailyUsage, effectivePetAvatarDailyLimit()),
       petChatQuotaHitUsers: adminQuotaHitCount(state.petChatDailyUsage, effectivePetChatDailyLimit()),
+      providerTraceCost: avatarProviderTraceCostEntries.reduce((sum, trace) => sum + Number(trace.response?.cost?.cost || 0), 0),
+      providerTraceCreditsCost: avatarProviderTraceCostEntries.reduce((sum, trace) => sum + Number(trace.response?.cost?.creditsCost || 0), 0),
+      providerTraceEntries: avatarProviderTraceEntries.length,
+      providerTraceJobs: avatarJobs.filter((job) => adminAiProviderTraceRows(job).length > 0).length,
       todayPetAvatarCount: todayAvatarUsage.count,
       todayPetAvatarUsers: todayAvatarUsage.users,
       todayPetChatCount: todayPetChatUsage.count,
@@ -18849,6 +19261,79 @@ function adminAiUsage(options = {}) {
     },
     topErrors: errorCodes,
   };
+}
+
+function adminAiTraceStageLabel(stage) {
+  const value = String(stage || '');
+  return {
+    action: '供应商动作',
+    status: '查询状态',
+    submit: '提交任务',
+  }[value] || value || '调用';
+}
+
+function adminAiProviderTraceRows(job) {
+  return (Array.isArray(job?.providerTrace) ? job.providerTrace : [])
+    .map((trace) => ({
+      at: trace.at || '',
+      durationMs: Number(trace.durationMs || 0) || 0,
+      endpoint: trace.endpoint || '',
+      error: trace.error || '',
+      method: trace.method || '',
+      provider: trace.provider || job?.provider || '',
+      providerJobId: trace.providerJobId || '',
+      providerStatus: trace.providerStatus || '',
+      request: trace.request || {},
+      response: trace.response || null,
+      stage: trace.stage || '',
+      stageLabel: adminAiTraceStageLabel(trace.stage),
+      traceId: trace.traceId || '',
+    }))
+    .sort((a, b) => analyticsTimeMs(a.at) - analyticsTimeMs(b.at));
+}
+
+function adminAiLatestProviderTrace(job) {
+  const traces = adminAiProviderTraceRows(job);
+  return traces[traces.length - 1] || null;
+}
+
+function adminAiProviderCostSnapshot(job) {
+  const snapshot = job?.providerCostSnapshot || {};
+  const latest = adminAiLatestProviderTrace(job);
+  const cost = latest?.response?.cost || {};
+  return {
+    cost: Number(snapshot.cost ?? cost.cost ?? 0) || 0,
+    creditsCost: Number(snapshot.creditsCost ?? cost.creditsCost ?? 0) || 0,
+    quota: Number(snapshot.quota ?? cost.quota ?? 0) || 0,
+    updatedAt: snapshot.updatedAt || (latest?.at ? new Date(analyticsTimeMs(latest.at)).toISOString() : ''),
+  };
+}
+
+function adminAiSlaTimeline(job) {
+  const events = [];
+  const add = (key, label, at, detail = '') => {
+    if (!at) return;
+    events.push({
+      at,
+      detail,
+      key,
+      label,
+      timestamp: analyticsTimeMs(at),
+    });
+  };
+  add('created', '创建任务', job?.createdAt, job?.provider || '');
+  add('submitted', '提交完成', job?.submittedAt, job?.providerJobId || '');
+  adminAiProviderTraceRows(job).forEach((trace) => add(`trace:${trace.traceId || trace.stage}`, trace.stageLabel, trace.at, trace.providerStatus || trace.error || trace.endpoint));
+  add('ready', '结果就绪', job?.readyAt || (job?.status === 'ready' ? job?.updatedAt : ''), job?.resultUrl ? '已有结果' : '');
+  add('failed', '任务失败', job?.status === 'failed' ? job?.updatedAt : '', job?.errorCode || job?.errorMessage || '');
+  add('accepted', '用户采用', job?.acceptedAt, job?.acceptedPetId || '');
+  return events
+    .filter((item) => Number.isFinite(item.timestamp))
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .map((item, index, rows) => ({
+      ...item,
+      elapsedSeconds: index === 0 ? 0 : Math.round((item.timestamp - rows[0].timestamp) / 1000),
+    }));
 }
 
 function adminSocialPosts() {
