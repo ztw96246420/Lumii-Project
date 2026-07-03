@@ -475,6 +475,7 @@ function defaultOpsConfig() {
           model: GPT_IMAGE2_MODEL,
           officialFallback: GPT_IMAGE2_OFFICIAL_FALLBACK,
           promptTemplate: defaultGptImage2PetAvatarPromptTemplate(),
+          promptVersion: 'ops-config-gpt-image-2',
           resolution: GPT_IMAGE2_RESOLUTION,
           size: GPT_IMAGE2_SIZE,
         },
@@ -676,6 +677,7 @@ function createInitialState() {
     avatarAnimationJobs: {},
     avatarJobs: {},
     aiAvatarSamples: {},
+    aiPromptVersions: {},
     conversations: {},
     conversationMessages: {},
     feedback: [],
@@ -1027,6 +1029,11 @@ function normalizeAiModelText(value, fallback, maxLength = 80) {
   return text || fallback;
 }
 
+function normalizeAiVersionText(value, fallback = 'ops-config-gpt-image-2') {
+  const text = String(value || '').trim().replace(/\s+/g, '-').replace(/[^0-9A-Za-z._:/+-]/g, '').slice(0, 120);
+  return text || fallback;
+}
+
 function normalizeAiPromptTemplate(value, fallback) {
   const text = String(value || '').trim().slice(0, AI_PROMPT_TEMPLATE_MAX_CHARS);
   return text || fallback;
@@ -1038,6 +1045,7 @@ function normalizeGptImage2OpsConfig(value, defaults = {}) {
     model: normalizeAiModelText(source.model, defaults.model || GPT_IMAGE2_MODEL),
     officialFallback: source.officialFallback === undefined ? Boolean(defaults.officialFallback) : Boolean(source.officialFallback),
     promptTemplate: normalizeAiPromptTemplate(source.promptTemplate, defaults.promptTemplate || defaultGptImage2PetAvatarPromptTemplate()),
+    promptVersion: normalizeAiVersionText(source.promptVersion, defaults.promptVersion || 'ops-config-gpt-image-2'),
     resolution: normalizeAiProvider(source.resolution, ['1k', '2k', '4k'], defaults.resolution || GPT_IMAGE2_RESOLUTION),
     size: normalizeAiProvider(source.size, ['1:1', '16:9', '9:16', '4:3', '3:4'], defaults.size || GPT_IMAGE2_SIZE),
   };
@@ -1252,6 +1260,7 @@ function opsConfigSummary(config) {
     aiPetChatProvider: String(config?.ai?.petChat?.provider || ''),
     deepseekModel: String(config?.ai?.petChat?.deepseek?.model || ''),
     gptImage2Model: String(config?.ai?.avatar?.gptImage2?.model || ''),
+    gptImage2PromptVersion: String(config?.ai?.avatar?.gptImage2?.promptVersion || ''),
     gptImage2Resolution: String(config?.ai?.avatar?.gptImage2?.resolution || ''),
   };
 }
@@ -1482,6 +1491,7 @@ function configChangeSummary(before, after) {
     ['ai.avatar.gptImage2.model', 'GPT Image 2 model'],
     ['ai.avatar.gptImage2.resolution', 'GPT Image 2 resolution'],
     ['ai.avatar.gptImage2.size', 'GPT Image 2 size'],
+    ['ai.avatar.gptImage2.promptVersion', 'GPT Image 2 prompt version'],
     ['ai.avatar.gptImage2.promptTemplate', 'GPT Image 2 prompt template'],
     ['ai.avatar.ttapiFlux.mode', 'TTAPI Flux mode'],
     ['ai.avatar.ttapiFlux.promptTemplate', 'TTAPI Flux prompt template'],
@@ -3368,6 +3378,31 @@ function adminExportDataset(type) {
         exportColumn('reviewedAt', '复核时间', (row) => exportDateText(row.reviewedAt)),
       ],
     },
+    ai_prompt_versions: {
+      description: 'AI Prompt 候选版本、样本关联、配置草稿关联和当前线上命中状态，用于复盘灵伴形象生成 prompt 变更。',
+      label: 'AI Prompt 版本库',
+      rows: () => adminAiPromptVersions({ limit: ADMIN_EXPORT_ROW_LIMIT, status: 'all', target: 'avatar_gpt_image2' }).items,
+      columns: [
+        exportColumn('id', '版本ID'),
+        exportColumn('name', '版本名称'),
+        exportColumn('targetLabel', '目标'),
+        exportColumn('statusLabel', '状态'),
+        exportColumn('sourceLabel', '来源'),
+        exportColumn('current', '当前线上命中', (row) => exportBoolText(row.current)),
+        exportColumn('promptHash', 'Prompt Hash'),
+        exportColumn('promptLength', '字符数'),
+        exportColumn('promptLineCount', '行数'),
+        exportColumn('sampleCount', '关联样本数'),
+        exportColumn('sampleIds', '关联样本ID', (row) => exportJoin(row.sampleIds || [])),
+        exportColumn('lastDraftId', '最近配置草稿'),
+        exportColumn('lastDraftAt', '最近草稿时间', (row) => exportDateText(row.lastDraftAt)),
+        exportColumn('note', '备注'),
+        exportColumn('createdBy', '创建人'),
+        exportColumn('createdAt', '创建时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('updatedBy', '更新人'),
+        exportColumn('updatedAt', '更新时间', (row) => exportDateText(row.updatedAt)),
+      ],
+    },
     ai_provider_usage: {
       description: 'AI 供应商请求、成功失败、成本、额度和任务健康，用于成本复盘和供应商监控。',
       label: 'AI 供应商用量',
@@ -3711,7 +3746,7 @@ function adminExportSensitiveColumns(columns = []) {
 function adminExportCatalog(filters = {}) {
   const normalizedFilters = normalizeAdminExportFilters(filters);
   const exportPolicy = normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports);
-  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_avatar_samples', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'places', 'place_reviews', 'place_submissions', 'place_contributions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
+  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_avatar_samples', 'ai_prompt_versions', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'places', 'place_reviews', 'place_submissions', 'place_contributions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
@@ -4148,6 +4183,7 @@ function loadState() {
         ...(loadedState.avatarAnimationJobs || {}),
       },
       aiAvatarSamples: loadedState.aiAvatarSamples && typeof loadedState.aiAvatarSamples === 'object' && !Array.isArray(loadedState.aiAvatarSamples) ? loadedState.aiAvatarSamples : initialState.aiAvatarSamples,
+      aiPromptVersions: loadedState.aiPromptVersions && typeof loadedState.aiPromptVersions === 'object' && !Array.isArray(loadedState.aiPromptVersions) ? loadedState.aiPromptVersions : initialState.aiPromptVersions,
       mediaUploads: {
         ...initialState.mediaUploads,
         ...(loadedState.mediaUploads || {}),
@@ -11520,7 +11556,7 @@ async function startGptImage2AvatarJob(user, job, media) {
     progress: 2,
     provider: 'gpt-image-2',
     providerStatus: 'submitting',
-    promptVersion: 'ops-config-gpt-image-2',
+    promptVersion: `${providerConfig.promptVersion || 'ops-config-gpt-image-2'}#${aiTraceHash(providerConfig.promptTemplate || prompt)}`,
     status: 'processing',
   });
   touchAvatarJob(job);
@@ -17126,6 +17162,7 @@ async function adminSystemHealth() {
       { key: 'avatarJobs', label: 'AI 任务', rows: countObject(state.avatarJobs) },
       { key: 'avatarAnimationJobs', label: '动效任务', rows: countObject(state.avatarAnimationJobs) },
       { key: 'aiAvatarSamples', label: 'AI 样本', rows: countObject(state.aiAvatarSamples) },
+      { key: 'aiPromptVersions', label: 'AI Prompt 版本', rows: countObject(state.aiPromptVersions) },
       { key: 'adminAuditLogs', label: '审计日志', rows: countArray(state.adminAuditLogs) },
       { key: 'launchReadinessQuestionOverrides', label: '上线台账决策', rows: countObject(state.launchReadinessQuestionOverrides) },
       { key: 'appEvents', label: '移动端事件', rows: countArray(state.appEvents) },
@@ -19397,6 +19434,278 @@ function reviewAiAvatarSample(admin, sampleId, body = {}, req = null) {
   }
   const item = aiAvatarSampleItem(sample, req);
   writeAdminAudit(admin, 'ai.avatar.sample.review', 'ai_avatar_sample', sample.id, before, item, adminReason(body, `AI 样本${aiAvatarSampleStatusLabel(status)}`));
+  return { item };
+}
+
+const aiPromptVersionTargets = new Set(['avatar_gpt_image2']);
+const aiPromptVersionStatuses = new Set(['candidate', 'drafted', 'archived']);
+const aiPromptVersionSources = new Set(['current_config', 'sample_pool', 'manual']);
+
+function ensureAiPromptVersions() {
+  if (!state.aiPromptVersions || typeof state.aiPromptVersions !== 'object' || Array.isArray(state.aiPromptVersions)) {
+    state.aiPromptVersions = {};
+  }
+  Object.entries(state.aiPromptVersions).forEach(([id, item]) => {
+    const normalized = normalizeAiPromptVersion(item);
+    if (normalized) state.aiPromptVersions[id] = normalized;
+    if (!normalized) delete state.aiPromptVersions[id];
+  });
+  return state.aiPromptVersions;
+}
+
+function normalizeAiPromptVersionTarget(value) {
+  const target = String(value || '').trim();
+  return aiPromptVersionTargets.has(target) ? target : 'avatar_gpt_image2';
+}
+
+function aiPromptVersionTargetLabel(target) {
+  if (target === 'avatar_gpt_image2') return 'GPT Image 2 灵伴形象';
+  return target || '未知 Prompt';
+}
+
+function normalizeAiPromptVersionStatus(value) {
+  const status = String(value || '').trim();
+  return aiPromptVersionStatuses.has(status) ? status : 'candidate';
+}
+
+function aiPromptVersionStatusLabel(status) {
+  if (status === 'drafted') return '已生成配置草稿';
+  if (status === 'archived') return '已归档';
+  return '候选中';
+}
+
+function normalizeAiPromptVersionSource(value) {
+  const source = String(value || '').trim();
+  return aiPromptVersionSources.has(source) ? source : 'manual';
+}
+
+function aiPromptVersionSourceLabel(source) {
+  if (source === 'current_config') return '当前线上配置';
+  if (source === 'sample_pool') return 'AI 样本池';
+  return '手动创建';
+}
+
+function aiPromptVersionSampleIds(input) {
+  const raw = Array.isArray(input) ? input : String(input || '').split(/[,\s，、]+/);
+  const samples = ensureAiAvatarSamples();
+  return [...new Set(raw.map((item) => String(item || '').trim()).filter(Boolean))]
+    .filter((id) => samples[id])
+    .slice(0, 20);
+}
+
+function normalizeAiPromptVersion(item = {}) {
+  if (!item || typeof item !== 'object') return null;
+  const id = String(item.id || '').trim();
+  const promptTemplate = normalizeAiPromptTemplate(item.promptTemplate, '');
+  if (!id || !promptTemplate) return null;
+  const sampleIds = aiPromptVersionSampleIds(item.sampleIds || []);
+  const target = normalizeAiPromptVersionTarget(item.target);
+  const status = normalizeAiPromptVersionStatus(item.status);
+  const source = normalizeAiPromptVersionSource(item.source);
+  const promptHash = aiTraceHash(promptTemplate);
+  return {
+    archivedAt: item.archivedAt || '',
+    archivedBy: item.archivedBy || '',
+    archiveReason: String(item.archiveReason || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+    createdAt: item.createdAt || new Date().toISOString(),
+    createdBy: item.createdBy || ADMIN_USERNAME,
+    currentPromptHashAtCreate: String(item.currentPromptHashAtCreate || '').slice(0, 32),
+    currentPromptVersionAtCreate: String(item.currentPromptVersionAtCreate || '').slice(0, 160),
+    id,
+    lastDraftAt: item.lastDraftAt || '',
+    lastDraftBy: item.lastDraftBy || '',
+    lastDraftId: item.lastDraftId || '',
+    name: String(item.name || '').replace(/\s+/g, ' ').trim().slice(0, 80) || `${aiPromptVersionTargetLabel(target)} 候选`,
+    note: String(item.note || '').replace(/\s+/g, ' ').trim().slice(0, 500),
+    promptHash,
+    promptLength: promptTemplate.length,
+    promptLineCount: promptTemplate.split(/\r?\n/).filter((line) => line.trim()).length,
+    promptTemplate,
+    sampleIds,
+    source,
+    status,
+    target,
+    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
+    updatedBy: item.updatedBy || item.createdBy || ADMIN_USERNAME,
+  };
+}
+
+function currentAiPromptVersionConfig(target = 'avatar_gpt_image2') {
+  const config = currentOpsConfig();
+  if (normalizeAiPromptVersionTarget(target) === 'avatar_gpt_image2') {
+    const gptImage2 = config.ai?.avatar?.gptImage2 || effectiveGptImage2AvatarConfig();
+    return {
+      promptHash: aiTraceHash(gptImage2.promptTemplate || ''),
+      promptTemplate: gptImage2.promptTemplate || '',
+      promptVersion: gptImage2.promptVersion || 'ops-config-gpt-image-2',
+      target: 'avatar_gpt_image2',
+    };
+  }
+  return {
+    promptHash: '',
+    promptTemplate: '',
+    promptVersion: '',
+    target: normalizeAiPromptVersionTarget(target),
+  };
+}
+
+function aiPromptVersionItem(item, req = null) {
+  const version = normalizeAiPromptVersion(item);
+  if (!version) return null;
+  const current = currentAiPromptVersionConfig(version.target);
+  const sampleItems = version.sampleIds
+    .map((id) => state.aiAvatarSamples?.[id])
+    .filter(Boolean)
+    .map((sample) => aiAvatarSampleItem(sample, req));
+  return {
+    ...version,
+    current: current.promptVersion === version.id || current.promptHash === version.promptHash,
+    currentPromptHash: current.promptHash,
+    currentPromptVersion: current.promptVersion,
+    sampleCount: sampleItems.length,
+    samplePreview: sampleItems.slice(0, 4).map((sample) => ({
+      id: sample.id,
+      jobId: sample.jobId,
+      note: sample.note,
+      petName: sample.petName,
+      statusLabel: sample.statusLabel,
+      typeLabel: sample.typeLabel,
+    })),
+    sourceLabel: aiPromptVersionSourceLabel(version.source),
+    statusLabel: aiPromptVersionStatusLabel(version.status),
+    targetLabel: aiPromptVersionTargetLabel(version.target),
+  };
+}
+
+function adminAiPromptVersions(options = {}, req = null) {
+  const q = String(options.q || '').trim().toLowerCase();
+  const status = String(options.status || 'all');
+  const target = normalizeAiPromptVersionTarget(options.target || 'avatar_gpt_image2');
+  const items = Object.values(ensureAiPromptVersions())
+    .map((item) => aiPromptVersionItem(item, req))
+    .filter(Boolean)
+    .filter((item) => item.target === target)
+    .sort((a, b) => {
+      if (a.current && !b.current) return -1;
+      if (b.current && !a.current) return 1;
+      return analyticsTimeMs(b.updatedAt || b.createdAt) - analyticsTimeMs(a.updatedAt || a.createdAt);
+    });
+  const filtered = items.filter((item) => {
+    if (status !== 'all' && item.status !== status) return false;
+    if (!q) return true;
+    const haystack = [
+      item.id,
+      item.name,
+      item.note,
+      item.promptHash,
+      item.sourceLabel,
+      item.statusLabel,
+      item.targetLabel,
+      item.lastDraftId,
+      ...(item.sampleIds || []),
+    ].join(' ').toLowerCase();
+    return haystack.includes(q);
+  });
+  const current = currentAiPromptVersionConfig(target);
+  return {
+    current,
+    items: filtered.slice(0, Math.floor(clampNumber(options.limit, 100, 1, ADMIN_EXPORT_ROW_LIMIT))),
+    summary: {
+      all: items.length,
+      archived: items.filter((item) => item.status === 'archived').length,
+      candidate: items.filter((item) => item.status === 'candidate').length,
+      currentKnown: items.some((item) => item.current),
+      drafted: items.filter((item) => item.status === 'drafted').length,
+      filtered: filtered.length,
+      sampleLinked: items.filter((item) => Number(item.sampleCount || 0) > 0).length,
+    },
+  };
+}
+
+function createAiPromptVersion(admin, body = {}, req = null) {
+  const target = normalizeAiPromptVersionTarget(body.target);
+  const source = normalizeAiPromptVersionSource(body.source);
+  const current = currentAiPromptVersionConfig(target);
+  const rawPrompt = body.promptTemplate === undefined || body.promptTemplate === null
+    ? (source === 'current_config' ? current.promptTemplate : '')
+    : String(body.promptTemplate || '');
+  const promptTemplate = normalizeAiPromptTemplate(rawPrompt, '');
+  if (!promptTemplate) {
+    return { error: '请填写 Prompt 模板，或选择从当前线上配置存档', statusCode: 400, code: 'ADMIN_AI_PROMPT_TEMPLATE_REQUIRED' };
+  }
+  const now = new Date().toISOString();
+  const sampleIds = aiPromptVersionSampleIds(body.sampleIds || []);
+  const id = `prompt-version-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const item = normalizeAiPromptVersion({
+    createdAt: now,
+    createdBy: admin?.username || ADMIN_USERNAME,
+    currentPromptHashAtCreate: current.promptHash,
+    currentPromptVersionAtCreate: current.promptVersion,
+    id,
+    name: body.name || `${aiPromptVersionSourceLabel(source)} ${new Date().toISOString().slice(0, 10)}`,
+    note: body.note || body.reason || '',
+    promptTemplate,
+    sampleIds,
+    source,
+    status: 'candidate',
+    target,
+    updatedAt: now,
+    updatedBy: admin?.username || ADMIN_USERNAME,
+  });
+  ensureAiPromptVersions()[id] = item;
+  const responseItem = aiPromptVersionItem(item, req);
+  writeAdminAudit(admin, 'ai.prompt.version.create', 'ai_prompt_version', id, null, responseItem, adminReason(body, '创建 AI Prompt 候选版本'));
+  return { item: responseItem };
+}
+
+function createAiPromptVersionDraft(admin, versionId, body = {}, req = null) {
+  const versions = ensureAiPromptVersions();
+  const version = versions[versionId];
+  if (!version) return { error: 'AI Prompt 候选版本不存在', statusCode: 404, code: 'ADMIN_AI_PROMPT_VERSION_NOT_FOUND' };
+  if (version.status === 'archived') return { error: '已归档的 Prompt 版本不能生成配置草稿', statusCode: 409, code: 'ADMIN_AI_PROMPT_VERSION_ARCHIVED' };
+  const before = cloneJson(version);
+  const reason = adminReason(body, `由 Prompt 候选 ${version.id} 生成配置草稿`);
+  const draft = createOpsConfigDraft(admin, {
+    ai: {
+      avatar: {
+        gptImage2: {
+          promptTemplate: version.promptTemplate,
+          promptVersion: version.id,
+        },
+      },
+    },
+    reason,
+  });
+  const now = new Date().toISOString();
+  version.lastDraftAt = now;
+  version.lastDraftBy = admin?.username || ADMIN_USERNAME;
+  version.lastDraftId = draft.id;
+  version.status = 'drafted';
+  version.updatedAt = now;
+  version.updatedBy = admin?.username || ADMIN_USERNAME;
+  const item = aiPromptVersionItem(version, req);
+  writeAdminAudit(admin, 'ai.prompt.version.draft', 'ai_prompt_version', version.id, before, {
+    draftId: draft.id,
+    item,
+  }, reason);
+  return { draft, item };
+}
+
+function archiveAiPromptVersion(admin, versionId, body = {}, req = null) {
+  const versions = ensureAiPromptVersions();
+  const version = versions[versionId];
+  if (!version) return { error: 'AI Prompt 候选版本不存在', statusCode: 404, code: 'ADMIN_AI_PROMPT_VERSION_NOT_FOUND' };
+  if (version.status === 'archived') return { error: 'AI Prompt 候选版本已归档', statusCode: 409, code: 'ADMIN_AI_PROMPT_VERSION_ALREADY_ARCHIVED' };
+  const before = cloneJson(version);
+  const now = new Date().toISOString();
+  version.archivedAt = now;
+  version.archivedBy = admin?.username || ADMIN_USERNAME;
+  version.archiveReason = adminReason(body, '归档 AI Prompt 候选版本');
+  version.status = 'archived';
+  version.updatedAt = now;
+  version.updatedBy = admin?.username || ADMIN_USERNAME;
+  const item = aiPromptVersionItem(version, req);
+  writeAdminAudit(admin, 'ai.prompt.version.archive', 'ai_prompt_version', version.id, before, item, version.archiveReason);
   return { item };
 }
 
@@ -23587,6 +23896,26 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/ai/prompt-versions') {
+    ok(res, adminAiPromptVersions({
+      q: url.searchParams.get('q') || '',
+      status: url.searchParams.get('status') || 'all',
+      target: url.searchParams.get('target') || 'avatar_gpt_image2',
+    }, req));
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/ai/prompt-versions') {
+    const result = createAiPromptVersion(admin, body, req);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_AI_PROMPT_VERSION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.item);
+    return true;
+  }
+
   const adminAvatarFeedbackReviewMatch = pathname.match(/^\/admin\/ai\/avatar-feedback\/([^/]+)\/review$/);
   if (req.method === 'POST' && adminAvatarFeedbackReviewMatch) {
     const result = reviewAvatarFeedback(admin, decodeURIComponent(adminAvatarFeedbackReviewMatch[1]), body, req);
@@ -23620,6 +23949,22 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     }
     saveState();
     ok(res, result.item);
+    return true;
+  }
+
+  const adminAiPromptVersionActionMatch = pathname.match(/^\/admin\/ai\/prompt-versions\/([^/]+)\/(draft|archive)$/);
+  if (req.method === 'POST' && adminAiPromptVersionActionMatch) {
+    const versionId = decodeURIComponent(adminAiPromptVersionActionMatch[1]);
+    const action = adminAiPromptVersionActionMatch[2];
+    const result = action === 'draft'
+      ? createAiPromptVersionDraft(admin, versionId, body, req)
+      : archiveAiPromptVersion(admin, versionId, body, req);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_AI_PROMPT_VERSION_ACTION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, action === 'draft' ? { draft: result.draft, item: result.item, config: adminOpsConfigResponse() } : result.item);
     return true;
   }
 

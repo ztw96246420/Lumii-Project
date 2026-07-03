@@ -8,6 +8,8 @@ const state = {
   aiSampleQ: '',
   aiSampleStatus: 'open',
   aiSampleType: 'all',
+  aiPromptQ: '',
+  aiPromptStatus: 'all',
   auditAction: 'all',
   auditAdmin: 'all',
   auditFrom: '',
@@ -858,6 +860,36 @@ async function onContentClick(event) {
       await reviewAvatarSample(button);
       return;
     }
+    if (action === 'ai-prompt-filter') {
+      state.aiPromptStatus = $('aiPromptStatus')?.value || 'all';
+      state.aiPromptQ = $('aiPromptQ')?.value.trim() || '';
+      state.cache.aiPromptVersions = null;
+      await render(true);
+      return;
+    }
+    if (action === 'ai-prompt-clear') {
+      state.aiPromptStatus = 'all';
+      state.aiPromptQ = '';
+      state.cache.aiPromptVersions = null;
+      await render(true);
+      return;
+    }
+    if (action === 'ai-prompt-save-current') {
+      await saveAiPromptVersion('current_config');
+      return;
+    }
+    if (action === 'ai-prompt-save-candidate') {
+      await saveAiPromptVersion('manual');
+      return;
+    }
+    if (action === 'ai-prompt-draft') {
+      await draftAiPromptVersion(id);
+      return;
+    }
+    if (action === 'ai-prompt-archive') {
+      await archiveAiPromptVersion(id);
+      return;
+    }
     if (action === 'ai-media-filter') {
       state.aiMediaQuality = $('aiMediaQuality').value;
       state.aiMediaQ = $('aiMediaQ').value.trim();
@@ -1472,7 +1504,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -6710,6 +6742,72 @@ function renderConfigGovernance(config = {}) {
   `;
 }
 
+function aiPromptVersionStatusCell(row) {
+  const status = row.current ? '当前线上' : row.statusLabel || row.status || '-';
+  const tone = row.current ? 'ok' : row.status === 'archived' ? 'warn' : '';
+  return `${tonePill(status, tone)}<div class="cell-sub">${escapeHtml(row.sourceLabel || '-')}</div>`;
+}
+
+function renderAiPromptVersionLibrary(data = {}, gptImage2 = {}) {
+  const rows = Array.isArray(data.items) ? data.items : [];
+  const summary = data.summary || {};
+  const current = data.current || {};
+  return `
+    <div class="config-section prompt-version-panel">
+      <div class="section-head compact">
+        <div>
+          <h2>GPT Image 2 Prompt 版本库</h2>
+          <div class="section-sub">候选版本不会直接影响移动端；生成配置草稿并发布后，新生成任务才会使用该版本</div>
+        </div>
+        ${help('这是一条从样本池到配置中心的治理链路：样本沉淀问题，Prompt 候选沉淀方案，配置草稿负责发布前复核，最终移动端生成任务记录 promptVersion 和 hash，方便按结果反查。')}
+      </div>
+      <div class="grid metrics">
+        ${metric('候选版本', numberText(summary.candidate || 0), `${numberText(summary.all || 0)} 个总版本`, '包含手动创建、从当前线上存档和基于样本池沉淀的 Prompt 候选。')}
+        ${metric('已生成草稿', numberText(summary.drafted || 0), '仍需发布才生效', '生成配置草稿不会改变 /app/config，也不会影响移动端新任务。')}
+        ${metric('样本关联', numberText(summary.sampleLinked || 0), '来自 AI 样本池', '关联样本 ID 便于回看真实反馈、素材问题或供应商异常。')}
+        ${metric('线上 Prompt', current.promptVersion || gptImage2.promptVersion || '-', `hash ${current.promptHash || '-'}`, '当前真正会被后端生成任务读取的配置版本。')}
+      </div>
+      <div class="config-grid">
+        <label>候选名称<input id="aiPromptVersionName" maxlength="80" placeholder="例如 3D透明底-v3" /></label>
+        <label>关联样本 ID<input id="aiPromptVersionSampleIds" maxlength="800" placeholder="可粘贴 AI 样本池 ID，逗号分隔" /></label>
+        <label class="wide">候选备注<textarea id="aiPromptVersionNote" maxlength="500" placeholder="说明要解决的问题，例如格子背景、宠物不像、视频底色等"></textarea></label>
+      </div>
+      <div class="toolbar moderation-toolbar ai-toolbar">
+        <div class="toolbar-left">
+          <label>状态
+            <select id="aiPromptStatus">
+              ${option('all', '全部', state.aiPromptStatus)}
+              ${option('candidate', '候选中', state.aiPromptStatus)}
+              ${option('drafted', '已生成草稿', state.aiPromptStatus)}
+              ${option('archived', '已归档', state.aiPromptStatus)}
+            </select>
+          </label>
+          <label>搜索<input id="aiPromptQ" placeholder="版本名、ID、hash、样本ID" value="${escapeHtml(state.aiPromptQ)}" /></label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="ai-prompt-save-candidate">保存当前编辑为候选</button>
+          <button class="small-button ghost" data-action="ai-prompt-save-current">存档当前线上 Prompt</button>
+          <button class="small-button ghost" data-action="ai-prompt-filter">筛选</button>
+          <button class="small-button ghost" data-action="ai-prompt-clear">清空</button>
+        </div>
+      </div>
+      ${tableHtml(rows, [
+        ['版本', (row) => `<div class="cell-title">${escapeHtml(row.name || row.id)}</div><div class="cell-sub">${escapeHtml(row.id)}</div>`],
+        ['状态', aiPromptVersionStatusCell],
+        ['Prompt', (row) => `<div>hash ${escapeHtml(row.promptHash || '-')}</div><div class="cell-sub">${numberText(row.promptLength || 0)} 字 / ${numberText(row.promptLineCount || 0)} 行</div><div class="cell-sub clamp">${escapeHtml(row.note || '-')}</div>`],
+        ['样本', (row) => `<div>${numberText(row.sampleCount || 0)} 个样本</div><div class="cell-sub clamp">${escapeHtml((row.sampleIds || []).join(', ') || '-')}</div>`],
+        ['草稿', (row) => `<div>${escapeHtml(row.lastDraftId || '-')}</div><div class="cell-sub">${row.lastDraftAt ? formatTime(row.lastDraftAt) : '-'}</div>`],
+        ['操作', (row) => row.status === 'archived' ? `<div class="cell-sub">${escapeHtml(row.archiveReason || '已归档')}</div>` : `
+          <div class="actions">
+            <button class="small-button" data-action="ai-prompt-draft" data-id="${escapeHtml(row.id)}">生成配置草稿</button>
+            <button class="small-button danger" data-action="ai-prompt-archive" data-id="${escapeHtml(row.id)}">归档</button>
+          </div>
+        `],
+      ], '暂无 Prompt 候选版本')}
+    </div>
+  `;
+}
+
 async function renderNotifications(force) {
   const data = await load('notifications', '/admin/notifications', force);
   const summary = data.summary || {};
@@ -6875,7 +6973,15 @@ async function renderNotifications(force) {
 }
 
 async function renderConfig(force) {
-  const config = await load('config', '/admin/config', force);
+  const promptQuery = new URLSearchParams({
+    q: state.aiPromptQ,
+    status: state.aiPromptStatus,
+    target: 'avatar_gpt_image2',
+  });
+  const [config, aiPromptVersions] = await Promise.all([
+    load('config', '/admin/config', force),
+    load('aiPromptVersions', `/admin/ai/prompt-versions?${promptQuery.toString()}`, force),
+  ]);
   const ai = config.ai || {};
   const aiAvatarAnimation = ai.avatarAnimation || {};
   const aiAvatarAnimationSeedance = aiAvatarAnimation.seedance || {};
@@ -6973,6 +7079,7 @@ async function renderConfig(force) {
             </select>
           </label>
           <label>GPT Image 2 model<input id="cfgGptImage2Model" maxlength="80" value="${escapeHtml(aiAvatarGptImage2.model || 'gpt-image-2')}" /></label>
+          <label>GPT Image 2 prompt version<input id="cfgGptImage2PromptVersion" maxlength="120" value="${escapeHtml(aiAvatarGptImage2.promptVersion || 'ops-config-gpt-image-2')}" /></label>
           <label>GPT Image 2 分辨率
             <select id="cfgGptImage2Resolution">
               ${configProviderOption(aiAvatarGptImage2.resolution, '1k', '1k')}
@@ -7027,6 +7134,7 @@ async function renderConfig(force) {
           <label>DeepSeek max_tokens<input id="cfgDeepSeekMaxTokens" type="number" min="80" max="2000" value="${Number.isFinite(Number(aiPetChatDeepSeek.maxTokens)) ? aiPetChatDeepSeek.maxTokens : 420}" /></label>
           <label>DeepSeek temperature<input id="cfgDeepSeekTemperature" type="number" min="0" max="2" step="0.01" value="${Number.isFinite(Number(aiPetChatDeepSeek.temperature)) ? aiPetChatDeepSeek.temperature : 0.7}" /></label>
           <label class="wide">GPT Image 2 灵伴形象 prompt 模板<textarea id="cfgGptImage2PromptTemplate" maxlength="12000" placeholder="支持 {species}、{breed}、{petName}、{speciesLabel}">${escapeHtml(aiAvatarGptImage2.promptTemplate || '')}</textarea></label>
+          <div class="wide">${renderAiPromptVersionLibrary(aiPromptVersions, aiAvatarGptImage2)}</div>
           <label class="wide">灵伴动效狗狗 prompt 模板<textarea id="cfgSeedanceDogPromptTemplate" maxlength="12000" placeholder="支持 {species}、{breed}、{petName}、{speciesLabel}">${escapeHtml(aiAvatarAnimationSeedance.dogPromptTemplate || '')}</textarea></label>
           <label class="wide">灵伴动效猫咪 prompt 模板<textarea id="cfgSeedanceCatPromptTemplate" maxlength="12000" placeholder="支持 {species}、{breed}、{petName}、{speciesLabel}">${escapeHtml(aiAvatarAnimationSeedance.catPromptTemplate || '')}</textarea></label>
           <label class="wide">灵伴动效默认 prompt 模板<textarea id="cfgSeedanceDefaultPromptTemplate" maxlength="12000" placeholder="非猫狗或兜底物种会使用这个模板">${escapeHtml(aiAvatarAnimationSeedance.defaultPromptTemplate || '')}</textarea></label>
@@ -7284,6 +7392,66 @@ function configRouteOption(current, value, label) {
 
 function configProviderOption(current, value, label) {
   return `<option value="${escapeHtml(value)}" ${String(current || '') === value ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+}
+
+function aiPromptVersionFormPayload(source) {
+  const sampleIds = $('aiPromptVersionSampleIds')?.value.trim() || '';
+  return {
+    name: $('aiPromptVersionName')?.value.trim() || '',
+    note: $('aiPromptVersionNote')?.value.trim() || '',
+    promptTemplate: source === 'current_config' ? undefined : ($('cfgGptImage2PromptTemplate')?.value || ''),
+    reason: source === 'current_config' ? '存档当前线上 GPT Image 2 Prompt' : '保存当前编辑为 GPT Image 2 Prompt 候选',
+    sampleIds,
+    source: source === 'current_config' ? 'current_config' : sampleIds ? 'sample_pool' : 'manual',
+    target: 'avatar_gpt_image2',
+  };
+}
+
+async function saveAiPromptVersion(source = 'manual') {
+  const payload = aiPromptVersionFormPayload(source);
+  if (source !== 'current_config' && !payload.promptTemplate.trim()) {
+    showToast('请先填写 GPT Image 2 prompt 模板');
+    return;
+  }
+  if (!payload.name) {
+    const defaultName = source === 'current_config' ? '线上 Prompt 存档' : 'Prompt 候选';
+    const name = window.prompt('请输入候选版本名称', defaultName);
+    if (name === null) return;
+    payload.name = name.trim() || defaultName;
+  }
+  await post('/admin/ai/prompt-versions', payload);
+  state.cache.aiPromptVersions = null;
+  state.cache.audit = null;
+  showToast(source === 'current_config' ? '线上 Prompt 已存档' : 'Prompt 候选已保存');
+  await render(true);
+}
+
+async function draftAiPromptVersion(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入生成配置草稿的原因', `由 Prompt 候选 ${id} 生成配置草稿`);
+  if (reason === null) return;
+  const result = await post(`/admin/ai/prompt-versions/${encodeURIComponent(id)}/draft`, {
+    reason: reason.trim() || `由 Prompt 候选 ${id} 生成配置草稿`,
+  });
+  state.cache.config = result.config || null;
+  state.cache.aiPromptVersions = null;
+  state.cache.audit = null;
+  state.cache.summary = null;
+  showToast('已生成配置草稿，发布后才会影响移动端生成');
+  await render(true);
+}
+
+async function archiveAiPromptVersion(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入归档原因', `归档 Prompt 候选 ${id}`);
+  if (reason === null) return;
+  await post(`/admin/ai/prompt-versions/${encodeURIComponent(id)}/archive`, {
+    reason: reason.trim() || `归档 Prompt 候选 ${id}`,
+  });
+  state.cache.aiPromptVersions = null;
+  state.cache.audit = null;
+  showToast('Prompt 候选已归档');
+  await render(true);
 }
 
 function renderAiRuntimeConfig(runtime = {}) {
@@ -7625,6 +7793,7 @@ async function saveConfig(mode = 'publish') {
           model: $('cfgGptImage2Model').value,
           officialFallback: $('cfgGptImage2OfficialFallback').checked,
           promptTemplate: $('cfgGptImage2PromptTemplate').value,
+          promptVersion: $('cfgGptImage2PromptVersion').value,
           resolution: $('cfgGptImage2Resolution').value,
           size: $('cfgGptImage2Size').value,
         },
@@ -7807,6 +7976,7 @@ async function saveConfig(mode = 'publish') {
   if (!nextConfig) return;
   state.cache.config = nextConfig;
   state.cache.summary = null;
+  state.cache.aiPromptVersions = null;
   showToast(mode === 'draft' ? '配置草稿已保存' : mode === 'approval' ? '配置发布审批已提交' : mode === 'schedule' ? '配置预约发布已创建' : '配置已发布');
   await render(true);
 }
@@ -7826,6 +7996,7 @@ async function publishConfigDraft(id) {
   if (!nextConfig) return;
   state.cache.config = nextConfig;
   state.cache.summary = null;
+  state.cache.aiPromptVersions = null;
   showToast('配置草稿已发布');
   await render(true);
 }
@@ -7856,6 +8027,7 @@ async function scheduleConfigDraft(id) {
   if (!nextConfig) return;
   state.cache.config = nextConfig;
   state.cache.summary = null;
+  state.cache.aiPromptVersions = null;
   showToast('配置草稿预约发布已创建');
   await render(true);
 }
@@ -7877,6 +8049,7 @@ async function requestConfigApprovalForDraft(id) {
   if (!nextConfig) return;
   state.cache.config = nextConfig;
   state.cache.summary = null;
+  state.cache.aiPromptVersions = null;
   showToast('配置草稿发布审批已提交');
   await render(true);
 }
@@ -7907,6 +8080,7 @@ async function rollbackConfigRevision(id) {
   if (!nextConfig) return;
   state.cache.config = nextConfig;
   state.cache.summary = null;
+  state.cache.aiPromptVersions = null;
   showToast('配置已回滚');
   await render(true);
 }
@@ -7937,6 +8111,7 @@ async function scheduleConfigRollback(id) {
   if (!nextConfig) return;
   state.cache.config = nextConfig;
   state.cache.summary = null;
+  state.cache.aiPromptVersions = null;
   showToast('配置回滚预约已创建');
   await render(true);
 }
@@ -7958,6 +8133,7 @@ async function requestConfigApprovalForRollback(id) {
   if (!nextConfig) return;
   state.cache.config = nextConfig;
   state.cache.summary = null;
+  state.cache.aiPromptVersions = null;
   showToast('配置回滚审批已提交');
   await render(true);
 }
@@ -7970,6 +8146,7 @@ async function approveConfigApproval(id) {
     reason: reason.trim() || '审批通过配置发布',
   });
   state.cache.summary = null;
+  state.cache.aiPromptVersions = null;
   showToast('配置审批已发布');
   await render(true);
 }
@@ -7993,6 +8170,7 @@ async function cancelConfigSchedule(id) {
     reason: reason.trim() || '取消配置预约发布',
   });
   state.cache.summary = null;
+  state.cache.aiPromptVersions = null;
   showToast('配置预约已取消');
   await render(true);
 }

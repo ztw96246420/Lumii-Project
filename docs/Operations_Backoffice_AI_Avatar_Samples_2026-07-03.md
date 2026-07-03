@@ -61,6 +61,7 @@
 - 移动端不直接读取样本池。
 - 入样本池、复核、忽略都不会改变用户当前头像、灵伴形象、动效或任务状态。
 - 后续如果样本推动 prompt 修改，仍需通过配置中心发布线上 prompt；移动端只受 `/app/config` 和真实生成任务结果影响。
+- Prompt 修改现在由配置中心的 GPT Image 2 Prompt 版本库承接：候选版本可关联样本 ID，并生成配置草稿。详见 [Operations_Backoffice_AI_Prompt_Versions_2026-07-03.md](Operations_Backoffice_AI_Prompt_Versions_2026-07-03.md)。
 
 ## 后续预留
 

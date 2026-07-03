@@ -205,6 +205,7 @@
 - AI 灵伴页新增“AI 样本池”：运营可从任务行将生成反馈沉淀为提示词优化样本，将失败、卡住或 trace 异常沉淀为供应商异常样本，也保留素材质量样本类型；样本支持待复盘、已复核、已忽略状态，支持按类型、状态和关键词筛选。
 - 移动端提交 AI 灵伴生成反馈后会自动沉淀 `prompt_quality` 样本；供应商提交失败、状态查询连续异常或超时失败会自动沉淀 `provider_anomaly` 样本。自动入池只增加后台复盘待办，不改变移动端头像、任务结果或线上 prompt。
 - AI 样本保存用户、宠物、任务、供应商、反馈原因、调用轨迹数量和成本快照等脱敏快照；复核、忽略和重复更新都会写入 `ai.avatar.sample.*` 审计日志。
+- 配置中心新增 GPT Image 2 Prompt 版本库：支持从当前线上配置存档、把当前编辑区保存为候选版本、关联 AI 样本 ID、生成配置草稿和归档。候选版本不会直接影响移动端，必须发布配置草稿或审批通过后才会进入新生成任务。
 - 配置中心已支持 AI 外围系统配置：查看并配置灵伴形象 provider、gpt-image2 model/resolution/size/prompt、TTAPI 备用 provider prompt、宠物 AI 对话 provider、DeepSeek model/thinking/temperature/max_tokens/system prompt。
 - 后台 `GET /admin/config` 返回 AI runtime 解释数据：密钥状态、当前 provider、参数摘要、prompt 模板和示例渲染后的 prompt 预览。
 - 刷新上游任务状态。
@@ -221,7 +222,7 @@
 - 新任务已沉淀供应商调用脱敏摘要和成本快照；历史任务没有 trace，且当前不保存完整原始 request / response。
 - 已记录 submit / status / action 调用耗时；queued / running / completed 等更细 SLA 节点仍依赖上游返回。
 - 已开放“加入提示词样本集”和“供应商异常样本”的后台沉淀入口；尚未开放直接应用结果图到宠物头像等会影响移动端展示的高权限动作。
-- AI prompt 当前支持单一线上版本，样本池已支持自动沉淀真实反馈和供应商异常；尚未做多版本实验、按人群灰度或自动回滚。
+- AI Prompt 版本库已支持候选版本、样本关联和生成配置草稿；尚未做候选版本 diff、按人群灰度、样本批量重跑评测或自动回滚。
 
 ### 3.4.1 AI 对话
 
@@ -438,6 +439,10 @@
 - `POST /admin/config/approvals/{approvalId}/approve`
 - `POST /admin/config/approvals/{approvalId}/cancel`
 - `POST /admin/config/revisions/{revisionId}/rollback`
+- `GET /admin/ai/prompt-versions`
+- `POST /admin/ai/prompt-versions`
+- `POST /admin/ai/prompt-versions/{versionId}/draft`
+- `POST /admin/ai/prompt-versions/{versionId}/archive`
 - `GET /app/config`
 
 当前配置字段：
@@ -449,6 +454,7 @@
 - `ai.avatar.gptImage2.resolution`
 - `ai.avatar.gptImage2.size`
 - `ai.avatar.gptImage2.officialFallback`
+- `ai.avatar.gptImage2.promptVersion`
 - `ai.avatar.gptImage2.promptTemplate`
 - `ai.avatar.ttapiFlux.mode`
 - `ai.avatar.ttapiFlux.promptTemplate`
