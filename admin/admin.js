@@ -7698,6 +7698,7 @@ async function renderConfig(force) {
   const moderation = config.moderation || {};
   const notifications = config.notifications || {};
   const placesConfig = config.places || {};
+  const placesPublicReviews = placesConfig.publicReviews || {};
   const revisions = config.revisions || [];
   const socialMessageAccess = config.social?.messageAccess || {};
   const splash = config.app?.splash || {};
@@ -7772,6 +7773,30 @@ async function renderConfig(force) {
         </div>
         <div class="config-grid">
           <label>展示最低贡献分<input id="cfgPlaceContributionBadgeMinPoints" type="number" min="1" max="1000" value="${Number.isFinite(Number(placesConfig.contributionBadgeMinPoints)) ? placesConfig.contributionBadgeMinPoints : 1}" /></label>
+        </div>
+      </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>地点公开点评</h2>
+            <div class="section-sub">控制 App 地点详情公开点评的排序、图片过滤和首屏展示数量</div>
+          </div>
+          ${help('这里会同时影响后端 /places/{id}/reviews 的返回口径和移动端地点详情的展示条数。默认保持现状：最新优先、不过滤有图、后端最多 20 条、详情页展示 3 条。')}
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgPlaceReviewRequirePhotos', '只展示带图片点评', Boolean(placesPublicReviews.requirePhotos))}
+          <div class="switch-row"><span>移动端“查看更多”</span>${statusPill('预留')}</div>
+        </div>
+        <div class="config-grid">
+          <label>公开点评排序
+            <select id="cfgPlaceReviewSort">
+              ${configProviderOption(placesPublicReviews.sort || 'newest', 'newest', '最新优先')}
+              ${configProviderOption(placesPublicReviews.sort || 'newest', 'oldest', '最早优先')}
+              ${configProviderOption(placesPublicReviews.sort || 'newest', 'with_photos_first', '有图优先')}
+            </select>
+          </label>
+          <label>后端最多返回条数<input id="cfgPlaceReviewApiLimit" type="number" min="3" max="50" value="${Number.isFinite(Number(placesPublicReviews.apiLimit)) ? placesPublicReviews.apiLimit : 20}" /></label>
+          <label>详情页首屏展示条数<input id="cfgPlaceReviewDetailDisplayLimit" type="number" min="1" max="12" value="${Number.isFinite(Number(placesPublicReviews.detailDisplayLimit)) ? placesPublicReviews.detailDisplayLimit : 3}" /></label>
         </div>
       </div>
       <div class="config-section">
@@ -8501,6 +8526,17 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isFinite(placeContributionBadgeMinPoints) || placeContributionBadgeMinPoints < 1 || placeContributionBadgeMinPoints > 1000) {
     throw new Error('地点贡献身份展示门槛必须在 1-1000 分之间');
   }
+  const placeReviewApiLimit = Number($('cfgPlaceReviewApiLimit').value);
+  const placeReviewDetailDisplayLimit = Number($('cfgPlaceReviewDetailDisplayLimit').value);
+  if (!Number.isInteger(placeReviewApiLimit) || placeReviewApiLimit < 3 || placeReviewApiLimit > 50) {
+    throw new Error('地点公开点评后端返回条数必须是 3-50 之间的整数');
+  }
+  if (!Number.isInteger(placeReviewDetailDisplayLimit) || placeReviewDetailDisplayLimit < 1 || placeReviewDetailDisplayLimit > 12) {
+    throw new Error('地点公开点评首屏展示条数必须是 1-12 之间的整数');
+  }
+  if (placeReviewDetailDisplayLimit > placeReviewApiLimit) {
+    throw new Error('地点公开点评首屏展示条数不能大于后端返回条数');
+  }
   const ttapiMjTimeout = Number($('cfgTtapiMjTimeout').value);
   if (!Number.isFinite(ttapiMjTimeout) || ttapiMjTimeout < 60 || ttapiMjTimeout > 1800) {
     throw new Error('TTAPI Midjourney timeout 必须在 60-1800 秒之间');
@@ -8666,6 +8702,12 @@ async function saveConfig(mode = 'publish') {
     places: {
       contributionBadgeMinPoints: placeContributionBadgeMinPoints,
       contributionBadgesEnabled: $('cfgPlaceContributionBadgesEnabled').checked,
+      publicReviews: {
+        apiLimit: placeReviewApiLimit,
+        detailDisplayLimit: placeReviewDetailDisplayLimit,
+        requirePhotos: $('cfgPlaceReviewRequirePhotos').checked,
+        sort: $('cfgPlaceReviewSort').value,
+      },
     },
     reason: mode === 'draft' ? '配置草稿保存' : '配置中心发布',
     social: {

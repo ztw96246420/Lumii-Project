@@ -924,6 +924,12 @@ export type AppRemoteConfig = {
   places?: {
     contributionBadgeMinPoints?: number;
     contributionBadgesEnabled?: boolean;
+    publicReviews?: {
+      apiLimit?: number;
+      detailDisplayLimit?: number;
+      requirePhotos?: boolean;
+      sort?: 'newest' | 'oldest' | 'with_photos_first';
+    };
   };
   social: {
     discoverRadiusKm: number;

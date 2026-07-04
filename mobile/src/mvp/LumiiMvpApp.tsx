@@ -234,6 +234,12 @@ const fallbackRemoteConfig: AppRemoteConfig = {
   places: {
     contributionBadgeMinPoints: 1,
     contributionBadgesEnabled: false,
+    publicReviews: {
+      apiLimit: 20,
+      detailDisplayLimit: 3,
+      requirePhotos: false,
+      sort: 'newest',
+    },
   },
   social: {
     discoverRadiusKm: defaultDiscoverRadiusKm,
@@ -14207,7 +14213,30 @@ export default function LumiiMvpApp() {
     const myPlaceReview = place ? placeReviewsByPlaceId[place.id] : undefined;
     const hasPendingPlaceReview = myPlaceReview?.status === 'pending_review';
     const publicPlaceReviews = place ? publicPlaceReviewsByPlaceId[place.id] ?? [] : [];
-    const visiblePublicPlaceReviews = publicPlaceReviews.slice(0, 3);
+    const publicReviewConfig = remoteConfig.places?.publicReviews || {};
+    const publicReviewDisplayLimit = Math.max(1, Math.min(12, Math.floor(Number(publicReviewConfig.detailDisplayLimit) || 3)));
+    const publicReviewSort = publicReviewConfig.sort === 'oldest' || publicReviewConfig.sort === 'with_photos_first'
+      ? publicReviewConfig.sort
+      : 'newest';
+    const publicReviewTime = (review: PlaceReview) => review.reviewedAt || review.createdAt || '';
+    const publicReviewPhotoCount = (review: PlaceReview) => review.imageUrls?.length || 0;
+    const configuredPublicPlaceReviews = [...publicPlaceReviews]
+      .filter((review) => !publicReviewConfig.requirePhotos || publicReviewPhotoCount(review) > 0)
+      .sort((a, b) => {
+        if (publicReviewSort === 'oldest') return publicReviewTime(a).localeCompare(publicReviewTime(b));
+        if (publicReviewSort === 'with_photos_first') {
+          return publicReviewPhotoCount(b) - publicReviewPhotoCount(a) || publicReviewTime(b).localeCompare(publicReviewTime(a));
+        }
+        return publicReviewTime(b).localeCompare(publicReviewTime(a));
+      });
+    const visiblePublicPlaceReviews = configuredPublicPlaceReviews.slice(0, publicReviewDisplayLimit);
+    const publicReviewPolicyLabel = publicReviewConfig.requirePhotos
+      ? '仅有图'
+      : publicReviewSort === 'oldest'
+        ? '最早优先'
+        : publicReviewSort === 'with_photos_first'
+          ? '有图优先'
+          : '最新优先';
     const publicPlaceReviewsLoading = Boolean(place && publicPlaceReviewsLoadingId === place.id);
     const pet = getCurrentPet();
     const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
@@ -14330,7 +14359,7 @@ export default function LumiiMvpApp() {
               <View style={styles.placePublicReviewsMake}>
                 <View style={styles.rowBetween}>
                   <Text style={styles.placePublicReviewsTitleMake}>社区点评</Text>
-                  <Text style={styles.placePublicReviewsMetaMake}>{publicPlaceReviewsLoading ? '读取中' : `${publicPlaceReviews.length} 条已公开`}</Text>
+                  <Text style={styles.placePublicReviewsMetaMake}>{publicPlaceReviewsLoading ? '读取中' : `${configuredPublicPlaceReviews.length} 条已公开 · ${publicReviewPolicyLabel}`}</Text>
                 </View>
                 {publicPlaceReviewsLoading && !visiblePublicPlaceReviews.length ? (
                   <View style={styles.placePublicReviewEmptyMake}>

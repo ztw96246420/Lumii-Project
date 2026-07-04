@@ -138,6 +138,7 @@ async function main() {
     const reviewerToken = await loginUser('19900004001');
     const reporterToken = await loginUser('19900004002');
     const observerToken = await loginUser('19900004003');
+    const photoReviewerToken = await loginUser('19900004004');
     const adminToken = await loginAdmin();
 
     const nearby = await request('/places/nearby', { token: reviewerToken });
@@ -161,6 +162,24 @@ async function main() {
     });
     assert.equal(approved.data.status, 'approved');
 
+    await delay(20);
+    const photoSubmitted = await request(`/places/${encodeURIComponent(place.id)}/reviews`, {
+      body: {
+        content: 'Smoke public review with photo: clear fenced lawn and water bowl.',
+        imageUrls: ['https://static.lumii.test/place-review-photo.jpg'],
+      },
+      method: 'POST',
+      token: photoReviewerToken,
+    });
+    assert.equal(photoSubmitted.data.status, 'pending_review');
+    assert.equal(photoSubmitted.data.imageUrls.length, 1);
+    const photoApproved = await request(`/admin/places/reviews/${encodeURIComponent(photoSubmitted.data.id)}/approve`, {
+      body: { reason: 'Smoke approve public place review with photo' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(photoApproved.data.status, 'approved');
+
     const publicReviews = await request(`/places/${encodeURIComponent(place.id)}/reviews`, { token: reporterToken });
     const visibleReview = publicReviews.data.find((item) => item.id === submitted.data.id);
     assert.ok(visibleReview, 'approved review should appear in public place reviews');
@@ -168,8 +187,41 @@ async function main() {
     assert.equal(visibleReview.content, submitted.data.content);
     assert.ok(visibleReview.ownerName, 'public review should include a display owner name');
     assert.equal(Object.hasOwn(visibleReview, 'ownerPhone'), false, 'public review must not expose ownerPhone');
+    assert.equal(publicReviews.data[0].id, photoSubmitted.data.id, 'newest approved review should appear first by default');
 
-    const report = await request(`/places/reviews/${encodeURIComponent(submitted.data.id)}/report`, {
+    const publishedConfig = await request('/admin/config', {
+      body: {
+        places: {
+          contributionBadgeMinPoints: 1,
+          contributionBadgesEnabled: false,
+          publicReviews: {
+            apiLimit: 5,
+            detailDisplayLimit: 2,
+            requirePhotos: true,
+            sort: 'with_photos_first',
+          },
+        },
+        reason: 'Smoke configure place public review policy',
+      },
+      method: 'PATCH',
+      token: adminToken,
+    });
+    assert.equal(publishedConfig.data.places.publicReviews.requirePhotos, true);
+    assert.equal(publishedConfig.data.places.publicReviews.sort, 'with_photos_first');
+    assert.equal(publishedConfig.data.places.publicReviews.apiLimit, 5);
+    assert.equal(publishedConfig.data.places.publicReviews.detailDisplayLimit, 2);
+
+    const appConfig = await request('/app/config');
+    assert.equal(appConfig.data.places.publicReviews.requirePhotos, true);
+    assert.equal(appConfig.data.places.publicReviews.sort, 'with_photos_first');
+    assert.equal(appConfig.data.places.publicReviews.apiLimit, 5);
+    assert.equal(appConfig.data.places.publicReviews.detailDisplayLimit, 2);
+
+    const photoOnlyReviews = await request(`/places/${encodeURIComponent(place.id)}/reviews`, { token: reporterToken });
+    assert.ok(photoOnlyReviews.data.some((item) => item.id === photoSubmitted.data.id), 'photo review should remain public when photo-only is enabled');
+    assert.equal(photoOnlyReviews.data.some((item) => item.id === submitted.data.id), false, 'photo-only policy should hide text-only public reviews');
+
+    const report = await request(`/places/reviews/${encodeURIComponent(photoSubmitted.data.id)}/report`, {
       body: { content: 'Smoke report place review' },
       method: 'POST',
       token: reporterToken,
@@ -178,13 +230,13 @@ async function main() {
     assert.equal(report.data.targetType, 'place_review');
 
     const hiddenForReporter = await request(`/places/${encodeURIComponent(place.id)}/reviews`, { token: reporterToken });
-    assert.equal(hiddenForReporter.data.some((item) => item.id === submitted.data.id), false, 'reported review should be hidden for reporter');
+    assert.equal(hiddenForReporter.data.some((item) => item.id === photoSubmitted.data.id), false, 'reported review should be hidden for reporter');
 
     const reports = await request('/admin/social/reports', { token: adminToken });
     const adminReport = reports.data.find((item) => item.id === report.data.id);
     assert.equal(adminReport?.targetType, 'place_review');
     assert.equal(adminReport?.evidenceSnapshot?.targetType, 'place_review');
-    assert.equal(adminReport?.evidenceSnapshot?.contentText, submitted.data.content);
+    assert.equal(adminReport?.evidenceSnapshot?.contentText, photoSubmitted.data.content);
 
     const taskId = `report:${report.data.id}`;
     const tasks = await request('/admin/moderation/tasks?status=all', { token: adminToken });
@@ -200,7 +252,7 @@ async function main() {
     assert.equal(hiddenTask.data.status, 'approved');
 
     const hiddenForObserver = await request(`/places/${encodeURIComponent(place.id)}/reviews`, { token: observerToken });
-    assert.equal(hiddenForObserver.data.some((item) => item.id === submitted.data.id), false, 'admin hidden review should be removed globally');
+    assert.equal(hiddenForObserver.data.some((item) => item.id === photoSubmitted.data.id), false, 'admin hidden review should be removed globally');
 
     console.log('place public review smoke passed');
   } finally {

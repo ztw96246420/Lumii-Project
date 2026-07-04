@@ -147,6 +147,12 @@ const mockAppRemoteConfig: AppRemoteConfig = {
   places: {
     contributionBadgeMinPoints: 1,
     contributionBadgesEnabled: false,
+    publicReviews: {
+      apiLimit: 20,
+      detailDisplayLimit: 3,
+      requirePhotos: false,
+      sort: 'newest',
+    },
   },
   social: {
     discoverRadiusKm: 3,

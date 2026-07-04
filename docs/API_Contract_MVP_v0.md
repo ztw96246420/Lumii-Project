@@ -1456,7 +1456,7 @@ Response data:
 
 ### GET `/places/{placeId}/reviews`
 
-读取某个地点已审核通过的公开点评列表。App 地点详情会展示最近公开点评，审核中和驳回点评不会出现在公开列表。
+读取某个地点已审核通过的公开点评列表。App 地点详情会按后台 `places.publicReviews` 配置展示公开点评，审核中和驳回点评不会出现在公开列表。
 
 Response data:
 
@@ -1477,7 +1477,10 @@ Array<{
 ```
 
 说明：
-- 仅返回 `status=approved` 的点评，按 `reviewedAt` / `createdAt` 倒序排列。
+- 仅返回 `status=approved` 的点评，排序由后台配置 `places.publicReviews.sort` 控制：`newest`、`oldest` 或 `with_photos_first`。
+- 当后台配置 `places.publicReviews.requirePhotos=true` 时，仅返回带公开图片的点评。
+- 可传 `?limit=N` 请求较少条数，但最终不会超过后台配置 `places.publicReviews.apiLimit`。
+- 移动端地点详情首屏展示条数由 `/app/config.places.publicReviews.detailDisplayLimit` 控制。
 - `imageUrls` 仅包含已通过图片审核的公开图片，最多 3 张。
 - 当前用户已举报的地点点评不再返回；后台处理为隐藏或删除后，该点评对所有用户不再公开。
 - 如果地点不存在，返回 404 和中文错误 `地点不存在`。

@@ -658,6 +658,12 @@ function defaultOpsConfig() {
     places: {
       contributionBadgeMinPoints: 1,
       contributionBadgesEnabled: false,
+      publicReviews: {
+        apiLimit: 20,
+        detailDisplayLimit: 3,
+        requirePhotos: false,
+        sort: 'newest',
+      },
     },
     social: {
       discoverRadiusKm: DEFAULT_DISCOVER_RADIUS_KM,
@@ -1000,11 +1006,26 @@ function normalizeAnalyticsConfig(value, defaults) {
   };
 }
 
+const PLACE_PUBLIC_REVIEW_SORT_SET = new Set(['newest', 'oldest', 'with_photos_first']);
+
+function normalizePlacePublicReviewsOpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  const sort = PLACE_PUBLIC_REVIEW_SORT_SET.has(String(source.sort || '')) ? String(source.sort) : fallback.sort || 'newest';
+  return {
+    apiLimit: Math.floor(clampNumber(source.apiLimit, fallback.apiLimit || 20, 3, 50)),
+    detailDisplayLimit: Math.floor(clampNumber(source.detailDisplayLimit, fallback.detailDisplayLimit || 3, 1, 12)),
+    requirePhotos: Boolean(source.requirePhotos),
+    sort: PLACE_PUBLIC_REVIEW_SORT_SET.has(sort) ? sort : 'newest',
+  };
+}
+
 function normalizePlacesOpsConfig(value, defaults = {}) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
     contributionBadgeMinPoints: Math.floor(clampNumber(source.contributionBadgeMinPoints, defaults.contributionBadgeMinPoints || 1, 1, 1000)),
     contributionBadgesEnabled: Boolean(source.contributionBadgesEnabled),
+    publicReviews: normalizePlacePublicReviewsOpsConfig(source.publicReviews, defaults.publicReviews),
   };
 }
 
@@ -1293,6 +1314,10 @@ function opsConfigSummary(config) {
     notificationRequireApproval: Boolean(config?.notifications?.requireApproval),
     placeContributionBadgeMinPoints: Number(config?.places?.contributionBadgeMinPoints || 0),
     placeContributionBadgesEnabled: Boolean(config?.places?.contributionBadgesEnabled),
+    placePublicReviewApiLimit: Number(config?.places?.publicReviews?.apiLimit || 0),
+    placePublicReviewDetailDisplayLimit: Number(config?.places?.publicReviews?.detailDisplayLimit || 0),
+    placePublicReviewRequirePhotos: Boolean(config?.places?.publicReviews?.requirePhotos),
+    placePublicReviewSort: String(config?.places?.publicReviews?.sort || ''),
     discoverRadiusKm: Number(config?.social?.discoverRadiusKm || 0),
     enabledFeatures: Object.values(features).filter((value) => value !== false).length,
     messageAccessContextWindowLimit: Number(config?.social?.messageAccess?.contextWindowLimit || 0),
@@ -2571,6 +2596,17 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileEvidence: '移动端“我的”页读取 remoteConfig.places.contributionBadgesEnabled，命中门槛后展示地点共建者徽章。',
       operatorNote: '当前只公开用户自己的贡献身份、等级和分数摘要；排行榜、兑换和活动奖励仍需另行确认。',
       userImpact: '让通过地点审核的用户看到自己的社区贡献身份，关闭后移动端不展示。',
+    },
+    {
+      backendEvidence: 'publicPlaceReviewsForPlace 读取 currentOpsConfig().places.publicReviews，强制公开点评排序、只看有图和返回数量。',
+      backendEnforced: true,
+      group: '发现/地图',
+      key: 'places.publicReviews',
+      label: '地点公开点评展示策略',
+      mobileApplied: true,
+      mobileEvidence: '移动端地点详情读取 remoteConfig.places.publicReviews，控制首屏展示条数和点评策略文案。',
+      operatorNote: '默认保持最新优先、不过滤有图、后端最多 20 条、详情页展示 3 条；后续可在此基础上接“查看更多”。',
+      userImpact: '影响用户在地点详情看到哪些公开点评，以及首屏看到几条。',
     },
     {
       backendEvidence: '约遛创建接口调用 failIfFeatureDisabled(walkInvite)。',
@@ -4210,6 +4246,7 @@ function publicAppConfig() {
     places: {
       contributionBadgeMinPoints: config.places?.contributionBadgeMinPoints || 1,
       contributionBadgesEnabled: Boolean(config.places?.contributionBadgesEnabled),
+      publicReviews: normalizePlacePublicReviewsOpsConfig(config.places?.publicReviews, defaultOpsConfig().places.publicReviews),
     },
     social: config.social,
     support: {
@@ -8492,6 +8529,12 @@ function approvedPlaceReviewCount(placeId) {
 function publicPlaceReviewsForPlace(placeId, viewer = null, limit = 20) {
   const targetPlaceId = String(placeId || '').trim();
   if (!targetPlaceId) return [];
+  const config = normalizePlacePublicReviewsOpsConfig(currentOpsConfig().places?.publicReviews, defaultOpsConfig().places.publicReviews);
+  const configuredLimit = Math.max(1, Math.min(50, Number(config.apiLimit || 20)));
+  const requestedLimit = Number(limit || 0);
+  const effectiveLimit = requestedLimit > 0
+    ? Math.max(1, Math.min(configuredLimit, requestedLimit))
+    : configuredLimit;
   const rows = [];
   Object.entries(state.placeReviews || {}).forEach(([phone, reviews]) => {
     if (!Array.isArray(reviews)) return;
@@ -8499,17 +8542,27 @@ function publicPlaceReviewsForPlace(placeId, viewer = null, limit = 20) {
     reviews.forEach((review) => {
       if (review?.placeId !== targetPlaceId || review.status !== 'approved') return;
       if (viewer && socialReportFor(viewer, 'place_review', review.id)) return;
+      const imageUrls = visibleImageUrls(review.imageUrls).slice(0, 3);
+      if (config.requirePhotos && !imageUrls.length) return;
       rows.push({
         ...review,
-        imageUrls: visibleImageUrls(review.imageUrls).slice(0, 3),
+        imageUrls,
         ownerAvatarUrl: owner?.ownerAvatarUrl || '',
         ownerName: owner?.ownerName || `用户${String(phone || '').slice(-4)}`,
       });
     });
   });
+  const reviewTime = (item) => String(item.reviewedAt || item.createdAt || '');
+  const photoCount = (item) => Array.isArray(item.imageUrls) ? item.imageUrls.length : 0;
   return rows
-    .sort((a, b) => String(b.reviewedAt || b.createdAt || '').localeCompare(String(a.reviewedAt || a.createdAt || '')))
-    .slice(0, Math.max(1, Math.min(50, Number(limit) || 20)));
+    .sort((a, b) => {
+      if (config.sort === 'oldest') return reviewTime(a).localeCompare(reviewTime(b));
+      if (config.sort === 'with_photos_first') {
+        return photoCount(b) - photoCount(a) || reviewTime(b).localeCompare(reviewTime(a));
+      }
+      return reviewTime(b).localeCompare(reviewTime(a));
+    })
+    .slice(0, effectiveLimit);
 }
 
 function placeFavoriteCount(placeId) {
@@ -19308,9 +19361,9 @@ function adminReadinessModules(context) {
       module: '地点审核',
       group: '地点',
       status: 'partial',
-      evidence: '地点点评和新增地点支持通过/驳回、关联已有地点、原因模板、通知、导出、地点编辑、人工合并和基础贡献账本。',
-      mobileLinkage: '审核状态会影响地点详情、地点提交和用户通知中心。',
-      nextStep: '补用户端公开贡献身份、贡献等级/奖励策略、多角色权限、点评分页和排序口径。',
+      evidence: '地点点评和新增地点支持通过/驳回、关联已有地点、原因模板、通知、导出、地点编辑、人工合并、贡献账本、贡献纠偏和公开点评展示策略。',
+      mobileLinkage: '审核状态会影响地点详情、地点提交和用户通知中心；公开点评排序、只看有图和展示条数由配置中心下发。',
+      nextStep: '补地点贡献排行榜/活动奖励策略和生产期多角色权限。',
     },
     {
       key: 'support',
@@ -28848,7 +28901,7 @@ async function handle(req, res) {
       fail(res, 404, '地点不存在', false);
       return;
     }
-    ok(res, publicPlaceReviewsForPlace(placeId, user));
+    ok(res, publicPlaceReviewsForPlace(placeId, user, url.searchParams.get('limit')));
     return;
   }
 
