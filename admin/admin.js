@@ -5220,16 +5220,35 @@ function avatarTaskCell(job) {
 
 function avatarJobAction(job) {
   const canApply = job.status === 'ready' && job.resultUrl;
+  const canRefund = job.quotaConsumed && !job.quotaRefunded;
   return `
     <div class="actions">
       <button class="small-button" data-action="avatar-refresh" data-id="${escapeHtml(job.id)}">刷新</button>
       <button class="small-button" data-action="avatar-retry" data-id="${escapeHtml(job.id)}">重试</button>
-      <button class="small-button" data-action="avatar-refund" data-id="${escapeHtml(job.id)}">返还</button>
+      ${canRefund ? `<button class="small-button" data-action="avatar-refund" data-id="${escapeHtml(job.id)}">返还</button>` : '<span class="cell-sub">额度不可返还</span>'}
       ${canApply ? `<button class="small-button ghost" data-action="avatar-apply" data-id="${escapeHtml(job.id)}" data-pet-id="${escapeHtml(job.acceptedPetId || job.petId || '')}" data-pet-name="${escapeHtml(job.acceptedPetName || job.petName || '')}">应用为AI形象</button>` : ''}
       <button class="small-button" data-action="avatar-sample-add" data-id="${escapeHtml(job.id)}" data-sample-type="prompt_quality" data-sample-type-label="提示词优化样本" data-default-note="${escapeHtml(job.feedback?.reasonLabel || job.lastStatusError || '记录为提示词优化样本')}" data-default-tags="提示词,${escapeHtml(job.provider || 'AI')}">提示词样本</button>
       <button class="small-button" data-action="avatar-sample-add" data-id="${escapeHtml(job.id)}" data-sample-type="provider_anomaly" data-sample-type-label="供应商异常样本" data-default-note="${escapeHtml(job.errorCode || job.providerStatus || job.lastStatusError || '记录为供应商异常样本')}" data-default-tags="供应商,${escapeHtml(job.provider || 'AI')}">供应商样本</button>
       <button class="small-button danger" data-action="avatar-fail" data-id="${escapeHtml(job.id)}">失败</button>
     </div>
+  `;
+}
+
+function avatarQuotaCell(job) {
+  if (!job.quotaConsumed) {
+    return '<div class="cell-sub">未扣额度</div>';
+  }
+  if (job.quotaRefunded) {
+    const source = job.quotaRefundSource === 'auto' ? '自动返还' : '人工返还';
+    return `
+      ${tonePill('已返还', 'ok')}
+      <div class="cell-sub">${source} · ${formatTime(job.quotaRefundedAt)}</div>
+      <div class="cell-sub clamp">${escapeHtml(job.quotaRefundReason || '')}</div>
+    `;
+  }
+  return `
+    ${tonePill('已扣除', job.status === 'failed' ? 'warn' : '')}
+    <div class="cell-sub">${job.status === 'failed' ? '未命中自动返还规则' : '处理中或已完成'}</div>
   `;
 }
 
@@ -5467,6 +5486,7 @@ async function renderAvatarJobs(force) {
   const sampleRows = sampleData.items || [];
   const sampleSummary = sampleData.summary || {};
   const usageSummary = aiUsage.summary || {};
+  const refundPolicy = aiUsage.quotaRefundPolicy || {};
   const providerRows = aiUsage.providers || [];
   const topErrors = aiUsage.topErrors || [];
   const processing = jobRows.filter((job) => job.status === 'processing');
@@ -5479,6 +5499,7 @@ async function renderAvatarJobs(force) {
       ${metric('可用结果', numberText(ready.length), `${numberText(failed.length)} 个失败`, 'ready 表示后端已有结果图；是否应用到宠物头像看 acceptedAt。')}
       ${metric('可能卡住', numberText(stuck.length), '处理中超过 5 分钟未更新', '用于排查进度条停在中间或 provider 状态没有刷新。')}
       ${metric('调用轨迹', numberText(usageSummary.providerTraceEntries), `${numberText(usageSummary.providerTraceJobs)} 个任务有记录`, '新任务会记录供应商 submit/status/action 调用摘要、耗时、成本快照和错误。')}
+      ${metric('额度返还', numberText(usageSummary.avatarQuotaRefunded || 0), `${numberText(usageSummary.avatarQuotaAutoRefunded || 0)} 自动`, '供应商侧失败可按配置自动返还用户当日生成额度；人工返还会防重复并写审计。')}
       ${metric('待处理反馈', numberText(feedbackSummary.received), `${numberText(feedbackSummary.reviewed)} 条已处理`, '用户在 AI 灵伴结果页提交的不满意反馈。')}
       ${metric('样本池', numberText(sampleSummary.open || 0), `${numberText(sampleSummary.all || 0)} 条总样本`, '运营把反馈、异常调用和素材问题沉淀成样本，用于提示词优化和供应商复盘。')}
       ${metric('上传素材', numberText(mediaSummary.totalMedia), `${numberText(mediaSummary.linked)} 张已发起生成`, '移动端上传到 /media/uploads 的宠物原图素材。')}
@@ -5493,11 +5514,22 @@ async function renderAvatarJobs(force) {
         </div>
         ${help('刷新只同步上游任务状态；重试会基于原始 mediaId 新建生成任务；返还额度会写入审计。')}
       </div>
+      <div class="switch-panel">
+        <div class="switch-row">
+          <span>自动返还策略</span>
+          <strong>${refundPolicy.enabled === false ? '关闭' : escapeHtml(refundPolicy.label || '供应商失败自动返还')}</strong>
+        </div>
+        <div class="switch-row">
+          <span>今日返还</span>
+          <strong>${numberText(usageSummary.todayAvatarQuotaRefunded || 0)} 次</strong>
+        </div>
+      </div>
       ${tableHtml(jobRows, [
         ['任务', avatarTaskCell],
         ['用户', (job) => `<div>${escapeHtml(job.ownerName || '-')}</div><div class="cell-sub">${shortPhone(job.ownerPhone)}</div>`],
         ['状态', (job) => `${statusPill(job.status)}<div class="cell-sub">${escapeHtml(job.provider || '-')} · ${job.progress || 0}%</div><div class="cell-sub">${escapeHtml(job.providerStatus || '-')}</div>`],
         ['调用轨迹', avatarTraceCell],
+        ['额度', avatarQuotaCell],
         ['错误', (job) => `<div>${escapeHtml(job.errorCode || '-')}</div><div class="cell-sub clamp">${escapeHtml(job.lastStatusError || job.errorMessage || '')}</div>`],
         ['时间', (job) => `<div>创建：${formatTime(job.createdAt)}</div><div class="cell-sub">更新：${formatTime(job.updatedAt)}</div>`],
         ['操作', avatarJobAction],
@@ -7551,6 +7583,7 @@ async function renderConfig(force) {
   const aiAvatarAnimation = ai.avatarAnimation || {};
   const aiAvatarAnimationSeedance = aiAvatarAnimation.seedance || {};
   const aiAvatar = ai.avatar || {};
+  const aiAvatarFailureRefund = ai.avatarFailureRefund || {};
   const aiAvatarGptImage2 = aiAvatar.gptImage2 || {};
   const aiAvatarFlux = aiAvatar.ttapiFlux || {};
   const aiAvatarMidjourney = aiAvatar.ttapiMidjourney || {};
@@ -7661,6 +7694,10 @@ async function renderConfig(force) {
           </label>
           <label>GPT Image 2 model<input id="cfgGptImage2Model" maxlength="80" value="${escapeHtml(aiAvatarGptImage2.model || 'gpt-image-2')}" /></label>
           <label>GPT Image 2 prompt version<input id="cfgGptImage2PromptVersion" maxlength="120" value="${escapeHtml(aiAvatarGptImage2.promptVersion || 'ops-config-gpt-image-2')}" /></label>
+          ${featureCheckbox('cfgAvatarFailureRefundEnabled', '供应商失败自动返还额度', aiAvatarFailureRefund.enabled !== false)}
+          ${featureCheckbox('cfgAvatarFailureRefundProviderStart', '提交失败返还', aiAvatarFailureRefund.providerStartFailure !== false)}
+          ${featureCheckbox('cfgAvatarFailureRefundProviderTimeout', '超时返还', aiAvatarFailureRefund.providerTimeout !== false)}
+          ${featureCheckbox('cfgAvatarFailureRefundProviderFailure', '供应商失败返还', aiAvatarFailureRefund.providerFailure !== false)}
           <label>GPT Image 2 分辨率
             <select id="cfgGptImage2Resolution">
               ${configProviderOption(aiAvatarGptImage2.resolution, '1k', '1k')}
@@ -8393,6 +8430,12 @@ async function saveConfig(mode = 'publish') {
           promptTemplate: $('cfgTtapiMjPromptTemplate').value,
           timeout: ttapiMjTimeout,
         },
+      },
+      avatarFailureRefund: {
+        enabled: $('cfgAvatarFailureRefundEnabled').checked,
+        providerFailure: $('cfgAvatarFailureRefundProviderFailure').checked,
+        providerStartFailure: $('cfgAvatarFailureRefundProviderStart').checked,
+        providerTimeout: $('cfgAvatarFailureRefundProviderTimeout').checked,
       },
       petChat: {
         deepseek: {

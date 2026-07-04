@@ -492,6 +492,12 @@ function defaultOpsConfig() {
           timeout: TTAPI_MJ_TIMEOUT,
         },
       },
+      avatarFailureRefund: {
+        enabled: true,
+        providerFailure: true,
+        providerStartFailure: true,
+        providerTimeout: true,
+      },
       petChat: {
         deepseek: {
           baseSystemPrompt: defaultPetChatBaseSystemPrompt(),
@@ -1120,6 +1126,16 @@ function normalizeDeepSeekOpsConfig(value, defaults = {}) {
   };
 }
 
+function normalizeAvatarFailureRefundOpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    enabled: source.enabled === undefined ? defaults.enabled !== false : Boolean(source.enabled),
+    providerFailure: source.providerFailure === undefined ? defaults.providerFailure !== false : Boolean(source.providerFailure),
+    providerStartFailure: source.providerStartFailure === undefined ? defaults.providerStartFailure !== false : Boolean(source.providerStartFailure),
+    providerTimeout: source.providerTimeout === undefined ? defaults.providerTimeout !== false : Boolean(source.providerTimeout),
+  };
+}
+
 function normalizeAiOpsConfig(value, defaults = {}) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const avatar = source.avatar && typeof source.avatar === 'object' && !Array.isArray(source.avatar) ? source.avatar : {};
@@ -1132,6 +1148,7 @@ function normalizeAiOpsConfig(value, defaults = {}) {
       ttapiFlux: normalizeTtapiFluxOpsConfig(avatar.ttapiFlux, defaults.avatar?.ttapiFlux),
       ttapiMidjourney: normalizeTtapiMidjourneyOpsConfig(avatar.ttapiMidjourney, defaults.avatar?.ttapiMidjourney),
     },
+    avatarFailureRefund: normalizeAvatarFailureRefundOpsConfig(source.avatarFailureRefund, defaults.avatarFailureRefund),
     petAvatarDailyLimit: Math.floor(clampNumber(source.petAvatarDailyLimit, defaults.petAvatarDailyLimit, 0, 1000)),
     petChat: {
       deepseek: normalizeDeepSeekOpsConfig(petChat.deepseek, defaults.petChat?.deepseek),
@@ -1519,6 +1536,10 @@ function configChangeSummary(before, after) {
     ['ai.avatar.ttapiFlux.promptTemplate', 'TTAPI Flux prompt template'],
     ['ai.avatar.ttapiMidjourney.mode', 'TTAPI Midjourney mode'],
     ['ai.avatar.ttapiMidjourney.promptTemplate', 'TTAPI Midjourney prompt template'],
+    ['ai.avatarFailureRefund.enabled', 'Avatar failure auto refund enabled'],
+    ['ai.avatarFailureRefund.providerStartFailure', 'Avatar start failure refund'],
+    ['ai.avatarFailureRefund.providerTimeout', 'Avatar timeout refund'],
+    ['ai.avatarFailureRefund.providerFailure', 'Avatar provider failure refund'],
     ['ai.avatarAnimation.enabled', 'Avatar animation enabled'],
     ['ai.avatarAnimation.provider', 'Avatar animation provider'],
     ['ai.avatarAnimation.seedance.model', 'Seedance model'],
@@ -1612,6 +1633,10 @@ function configRiskChanges(before, after) {
   addRisk('notifications.requireApproval', 'Notification approval guard', 'P1', 'Can require or bypass manual approval before system notifications reach users.');
   addRisk('configApproval.requireApproval', 'Config publish approval guard', 'P1', 'Can require or bypass approval before mobile-impacting configuration reaches /app/config.');
   addRisk('ai.avatar.provider', 'AI avatar provider', 'P1', 'Can route new image generation jobs to another external provider or mock fallback.');
+  addRisk('ai.avatarFailureRefund.enabled', 'AI avatar failure refund guard', 'P2', 'Can enable or disable automatic quota returns for provider-side avatar failures.');
+  addRisk('ai.avatarFailureRefund.providerStartFailure', 'AI avatar submit failure refund', 'P2', 'Can change whether provider submit failures return user quota automatically.');
+  addRisk('ai.avatarFailureRefund.providerTimeout', 'AI avatar timeout refund', 'P2', 'Can change whether provider timeouts return user quota automatically.');
+  addRisk('ai.avatarFailureRefund.providerFailure', 'AI avatar provider failed refund', 'P2', 'Can change whether explicit provider failures return user quota automatically.');
   addRisk('ai.avatarAnimation.enabled', 'Avatar animation switch', 'P1', 'Can start or stop new companion animation tasks after image generation.');
   addRisk('ai.avatarAnimation.provider', 'Avatar animation provider', 'P1', 'Can route new companion animation jobs to another external video provider, mock fallback, or disabled mode.');
   addRisk('ai.petChat.provider', 'AI pet chat provider', 'P1', 'Can route pet chat away from the external model or into fallback replies.');
@@ -2401,6 +2426,16 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileApplied: true,
       mobileEvidence: '移动端读取 /ai/usage 和 /app/config，生成页展示 count/limit/remaining。',
       userImpact: '控制单用户每天可生成 AI 灵伴形象的次数。',
+    },
+    {
+      backendEvidence: 'autoRefundAvatarJobQuota 读取 currentOpsConfig().ai.avatarFailureRefund；供应商提交失败、返回失败和超时可自动返还 petAvatarDailyUsage。',
+      backendEnforced: true,
+      group: 'AI',
+      key: 'ai.avatarFailureRefund',
+      label: '灵伴失败额度返还',
+      mobileApplied: true,
+      mobileEvidence: '移动端读取 /ai/usage；自动返还后生成页 count/remaining 会恢复。',
+      userImpact: '控制供应商侧失败是否自动归还用户当日生成次数，避免用户因平台/供应商失败损失额度。',
     },
     {
       backendEvidence: 'consumePetChatQuota / canUsePetChat 读取 currentOpsConfig().ai.petChatDailyLimit。',
@@ -10472,6 +10507,10 @@ function effectivePetAvatarAnimationConfig() {
   return currentOpsConfig().ai.avatarAnimation || defaultOpsConfig().ai.avatarAnimation;
 }
 
+function effectivePetAvatarFailureRefundConfig() {
+  return currentOpsConfig().ai.avatarFailureRefund || defaultOpsConfig().ai.avatarFailureRefund;
+}
+
 function effectivePetAvatarAnimationProvider() {
   const config = effectivePetAvatarAnimationConfig();
   if (!config.enabled) return 'disabled';
@@ -10556,6 +10595,75 @@ function refundPetAvatarQuota(user) {
   const usage = petAvatarDailyUsageFor(user.phone);
   usage.count = Math.max(0, Number(usage.count || 0) - 1);
   return usage;
+}
+
+function avatarFailureRefundCategory(job = {}) {
+  const code = String(job.errorCode || '').trim();
+  if (code === 'AVATAR_PROVIDER_START_FAILED' || code === 'AVATAR_PROVIDER_START_TIMEOUT') return 'providerStartFailure';
+  if (code === 'AVATAR_PROVIDER_STATUS_TIMEOUT' || code === 'AVATAR_PROVIDER_TIMEOUT') return 'providerTimeout';
+  if (code === 'AVATAR_PROVIDER_FAILED') return 'providerFailure';
+  return '';
+}
+
+function avatarFailureRefundCategoryLabel(category) {
+  return {
+    providerFailure: '供应商返回失败',
+    providerStartFailure: '供应商提交失败',
+    providerTimeout: '供应商超时',
+  }[category] || '供应商失败';
+}
+
+function avatarJobQuotaAlreadyRefunded(job) {
+  return Boolean(job?.quotaRefunded || job?.quotaRefundedAt || job?.adminQuotaRefundedAt);
+}
+
+function refundAvatarJobQuota(owner, job, options = {}) {
+  if (!owner || !job) return { error: 'AI 任务不存在', statusCode: 404 };
+  if (!job.quotaConsumed) return { error: '该任务未消耗灵伴形象额度，不能返还', statusCode: 409 };
+  if (avatarJobQuotaAlreadyRefunded(job)) return { error: '该任务额度已返还，不能重复返还', statusCode: 409 };
+  const now = new Date().toISOString();
+  const usage = refundPetAvatarQuota(owner);
+  job.quotaRefunded = true;
+  job.quotaRefundedAt = now;
+  job.quotaRefundedBy = options.by || 'system';
+  job.quotaRefundReason = String(options.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  job.quotaRefundSource = options.source || 'auto';
+  if (options.source === 'admin') job.adminQuotaRefundedAt = now;
+  touchAvatarJob(job);
+  return { job, refunded: true, usage };
+}
+
+function autoRefundAvatarJobQuota(owner, job, trigger = '') {
+  const policy = effectivePetAvatarFailureRefundConfig();
+  const category = avatarFailureRefundCategory(job);
+  if (policy.enabled === false || !category || policy[category] === false || !job?.quotaConsumed || avatarJobQuotaAlreadyRefunded(job)) {
+    return { category, refunded: false, skipped: true };
+  }
+  const actualOwner = owner || (job.ownerPhone ? state.users?.[job.ownerPhone] : null);
+  const before = cloneJson(job);
+  const reason = `自动返还：${avatarFailureRefundCategoryLabel(category)}${trigger ? ` · ${trigger}` : ''}`;
+  const result = refundAvatarJobQuota(actualOwner, job, {
+    by: 'system',
+    reason,
+    source: 'auto',
+  });
+  if (result.refunded) {
+    writeAdminAudit({ role: 'system', username: 'system' }, 'ai.avatar.auto_refund_quota', 'avatar_job', job.id, before, job, reason);
+  }
+  return { ...result, category };
+}
+
+function avatarFailureRefundPolicySummary(policy = effectivePetAvatarFailureRefundConfig()) {
+  const enabledRules = [
+    policy.providerStartFailure ? '供应商提交失败' : '',
+    policy.providerTimeout ? '供应商超时' : '',
+    policy.providerFailure ? '供应商返回失败' : '',
+  ].filter(Boolean);
+  return {
+    enabled: policy.enabled !== false,
+    enabledRules,
+    label: policy.enabled === false ? '关闭' : enabledRules.length ? enabledRules.join('、') : '未开启自动规则',
+  };
 }
 
 function recordTtapiAvatarUsage(result, succeeded) {
@@ -11347,10 +11455,7 @@ async function startAvatarGenerationJobInBackground(reqSnapshot, user, job, medi
     job.providerStatus = 'submit_failed';
     job.status = 'failed';
     job.submitErrorCount = Number(job.submitErrorCount || 0) + 1;
-    if (job.quotaConsumed && !job.providerJobId && !job.quotaRefunded) {
-      refundPetAvatarQuota(user);
-      job.quotaRefunded = true;
-    }
+    autoRefundAvatarJobQuota(user, job, 'background_start_failed');
     touchAvatarJob(job);
     console.warn('[avatar] background start failed', {
       jobId: job.id,
@@ -18940,9 +19045,9 @@ function adminReadinessModules(context) {
       module: 'AI 灵伴生成',
       group: 'AI',
       status: hasHealthBad ? 'blocked' : 'partial',
-      evidence: '后台可看任务状态、卡住任务、供应商、素材、反馈、重试、标失败和返还额度。',
+      evidence: '后台可看任务状态、卡住任务、供应商、素材、反馈、重试、标失败、人工返还和供应商失败自动返还额度。',
       mobileLinkage: '额度、功能开关、结果应用和失败状态会联动移动端生成页与首页形象。',
-      nextStep: '生产期补供应商 SLA、失败归因分层、图片安全审核和成本对账。',
+      nextStep: '生产期补供应商 SLA、失败归因成本对账和更细的多供应商赔付 SOP。',
     },
     {
       key: 'pet_chat',
@@ -19045,7 +19150,7 @@ function adminReadinessQuestions(context = {}) {
     ['q-image-policy', 'P0', '图片审核失败时，宠友圈发布是阻断、送审，还是先隐藏等待审核？', imagePolicyReady ? '已实现：Block 拒绝，Review 进入 pending_review；宠友圈、地点内容会阻止发布/提交含待审或驳回图片，审核通过后才可继续。' : '图片机审未完全就绪，当前仍需人工任务池和配置复核兜底。', '影响用户发布体验和违规内容外露风险。', imagePolicyReady ? 'ready' : 'open', imagePolicyReady ? '已确认' : '待业务确认'],
     ['q-message-view', 'P1', '私信是否允许人工查看全文？如果允许，谁审批、保留多久？', '当前后台默认只做摘要排查。', '影响隐私合规和骚扰治理能力。'],
     ['q-clear-data', 'P1', '用户业务数据清理是否只保留测试环境？', '已接入单 admin 数据清理审批；审批通过后才真正清理移动端业务数据。生产是否开放或升级双人审批仍需确认。', '影响误操作风险、用户数据权益和客服 SOP。'],
-    ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '当前后台可人工返还；自动规则未定。', '影响用户权益、成本和客服处理标准。'],
+    ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '已接入可配置策略：默认供应商提交失败、供应商超时、供应商返回失败会自动返还；照片不合格、内容安全拦截、运营手动标失败不自动返还，后台仍可人工返还且防重复。', '影响用户权益、成本和客服处理标准。', 'ready', '已接入'],
     ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '已接入单 admin 永久封禁审批流；审批通过后才真正写入处罚并影响移动端账号状态。生产期若需要双人审批，可在此基础上接多管理员复核。', '影响高风险处罚治理。', 'ready', '已接入'],
     ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏，不开放完整手机号导出。', '影响隐私合规和数据泄露风险。'],
     ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '当前已记录基础贡献积分并通知提交人，但不做用户端公开展示或奖励兑换。', '影响地点生态激励。'],
@@ -20283,6 +20388,12 @@ function adminAvatarJobs() {
         providerTraceLatestStageLabel: latestProviderTrace?.stageLabel || '',
         providerTraceLatestStatus: latestProviderTrace?.providerStatus || '',
         promptVersion: job.promptVersion || '',
+        quotaConsumed: Boolean(job.quotaConsumed),
+        quotaRefunded: avatarJobQuotaAlreadyRefunded(job),
+        quotaRefundedAt: job.quotaRefundedAt || job.adminQuotaRefundedAt || '',
+        quotaRefundedBy: job.quotaRefundedBy || '',
+        quotaRefundReason: job.quotaRefundReason || '',
+        quotaRefundSource: job.quotaRefundSource || (job.adminQuotaRefundedAt ? 'admin' : ''),
         resultUrl: job.resultUrl,
         slaTimeline: adminAiSlaTimeline(job),
         sourceResultUrl: job.sourceResultUrl || '',
@@ -21411,6 +21522,9 @@ function adminAiUsage(options = {}) {
   const stuck = processing.filter((job) => Date.now() - analyticsTimeMs(job.updatedAt || job.createdAt) > 5 * 60 * 1000);
   const ready = avatarJobs.filter((job) => job.status === 'ready');
   const failed = avatarJobs.filter((job) => job.status === 'failed');
+  const quotaRefunded = avatarJobs.filter(avatarJobQuotaAlreadyRefunded);
+  const quotaAutoRefunded = quotaRefunded.filter((job) => job.quotaRefundSource === 'auto');
+  const todayQuotaRefunded = quotaRefunded.filter((job) => String(job.quotaRefundedAt || job.adminQuotaRefundedAt || '').slice(0, 10) === todayUsageKey());
   const avatarDurations = ready.map(analyticsAvatarDurationSeconds).filter((value) => value !== null);
   const ownerPhones = new Set(avatarJobs.map((job) => job.ownerPhone).filter(Boolean));
   const errorCodes = adminErrorCodeRows(avatarJobs);
@@ -21472,11 +21586,14 @@ function adminAiUsage(options = {}) {
       petChatDailyLimit: effectivePetChatDailyLimit(),
     },
     providers,
+    quotaRefundPolicy: avatarFailureRefundPolicySummary(),
     summary: {
       actionRecords: actionReplies.length,
       averageReplyLength,
       avatarAverageSeconds: analyticsAverage(avatarDurations),
       avatarFailed: failed.length,
+      avatarQuotaAutoRefunded: quotaAutoRefunded.length,
+      avatarQuotaRefunded: quotaRefunded.length,
       avatarProcessing: processing.length,
       avatarReady: ready.length,
       avatarStarted: avatarJobs.length,
@@ -21495,6 +21612,7 @@ function adminAiUsage(options = {}) {
       providerTraceCreditsCost: avatarProviderTraceCostEntries.reduce((sum, trace) => sum + Number(trace.response?.cost?.creditsCost || 0), 0),
       providerTraceEntries: avatarProviderTraceEntries.length,
       providerTraceJobs: avatarJobs.filter((job) => adminAiProviderTraceRows(job).length > 0).length,
+      todayAvatarQuotaRefunded: todayQuotaRefunded.length,
       todayPetAvatarCount: todayAvatarUsage.count,
       todayPetAvatarUsers: todayAvatarUsage.users,
       todayPetChatCount: todayPetChatUsage.count,
@@ -25776,6 +25894,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       else if (job.provider === 'ttapi-flux-edits' && job.status === 'processing') await refreshTtapiFluxAvatarJob(job).catch((error) => markAvatarRefreshFailure(job, error));
       else if (job.provider === 'ttapi-midjourney' && job.status === 'processing') await refreshTtapiAvatarJob(job).catch((error) => markAvatarRefreshFailure(job, error));
       else touchAvatarJob(job);
+      if (job.status === 'failed') autoRefundAvatarJobQuota(owner, job, 'admin_refresh');
     } else if (action === 'retry') {
       if (!job.mediaId) {
         fail(res, 400, '原始照片缺失，无法重试', false, undefined, 'ADMIN_AVATAR_RETRY_INVALID');
@@ -25796,9 +25915,15 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       job.errorMessage = String(body.reason || '运营后台标记失败').slice(0, 240);
       touchAvatarJob(job);
     } else if (action === 'refund-quota') {
-      refundPetAvatarQuota(owner);
-      job.adminQuotaRefundedAt = new Date().toISOString();
-      touchAvatarJob(job);
+      const refundResult = refundAvatarJobQuota(owner, job, {
+        by: admin?.username || 'admin',
+        reason: adminReason(body, '运营后台返还额度'),
+        source: 'admin',
+      });
+      if (refundResult.error) {
+        fail(res, refundResult.statusCode || 409, refundResult.error, false, undefined, 'ADMIN_AVATAR_REFUND_INVALID');
+        return true;
+      }
     }
     writeAdminAudit(admin, `ai.avatar.${action}`, 'avatar_job', job.id, before, job, body.reason);
     saveState();
@@ -27376,6 +27501,7 @@ async function handle(req, res) {
       }
       touchAvatarJob(job);
     }
+    if (job.status === 'failed') autoRefundAvatarJobQuota(user, job, 'mobile_status_refresh');
     saveState();
     ok(res, job);
     return;
