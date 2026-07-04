@@ -9180,6 +9180,49 @@ function updateAdminPlace(admin, placeId, body = {}) {
   return { place: adminPlaceCatalog().places.find((place) => place.id === next.id), reason };
 }
 
+function correctPlaceFromReport(admin, reportId, body = {}) {
+  const report = ensureSocialReports().find((item) => item.id === reportId);
+  if (!report) return { error: '举报不存在', statusCode: 404 };
+  if (report.targetType !== 'place') return { error: '只有地点信息举报可以直接修正地点资料', statusCode: 400 };
+  const found = findPlaceById(report.targetId);
+  if (!found?.place) return { error: '被举报地点不存在', statusCode: 404 };
+  const built = buildAdminPlacePatch(found.place, body);
+  if (built.error) return built;
+  const now = new Date().toISOString();
+  const reason = adminReason(body, '根据地点信息举报修正地点资料');
+  const beforePlace = cloneJson(found.place);
+  const beforeReport = cloneJson(report);
+  const next = {
+    ...found.place,
+    ...built.patch,
+    lastReportCorrectionId: report.id,
+    reportCorrectedAt: now,
+    updatedAt: now,
+    updatedBy: admin?.username || 'admin',
+  };
+  state.places[found.index] = next;
+  report.status = 'valid';
+  report.reviewedAt = now;
+  report.reviewedBy = admin?.username || 'admin';
+  report.reviewReason = reason;
+  report.placeCorrection = {
+    correctedAt: now,
+    correctedBy: admin?.username || 'admin',
+    patch: cloneJson(built.patch),
+    placeId: next.id,
+    reason,
+  };
+  delete report.sanctionSuggestion;
+  ensureSocialReportEvidenceSnapshot(report);
+  notifySocialReportResolution(report, 'valid', reason);
+  writeAdminAudit(admin, 'place.report.correct', 'place', next.id, beforePlace, next, reason);
+  writeAdminAudit(admin, 'social.report.place_correct', 'social_report', report.id, beforeReport, report, reason);
+  return {
+    place: adminPlaceCatalog().places.find((place) => place.id === next.id),
+    report: adminSocialReports().find((item) => item.id === report.id),
+  };
+}
+
 function replacePlaceIdReferences(sourceId, targetId) {
   const summary = { favorites: 0, invites: 0, notifications: 0, reviews: 0, submissions: 0 };
   Object.values(state.placeReviews || {}).forEach((reviews) => {
@@ -22039,9 +22082,11 @@ function adminSocialReports() {
       const reporter = state.users[report.phone];
       const owner = state.users[report.ownerPhone];
       const evidenceSnapshot = socialReportEvidenceSnapshot(report);
-      const suggestion = report.sanctionSuggestion || ((report.status || 'pending') === 'valid'
-        ? buildReportSanctionSuggestion({ username: report.reviewedBy || 'admin' }, report, report.reviewReason || '')
-        : null);
+      const suggestion = report.ownerPhone
+        ? (report.sanctionSuggestion || ((report.status || 'pending') === 'valid'
+          ? buildReportSanctionSuggestion({ username: report.reviewedBy || 'admin' }, report, report.reviewReason || '')
+          : null))
+        : null;
       return {
         content: report.content,
         createdAt: report.createdAt,
@@ -26408,6 +26453,19 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     writeAdminAudit(admin, 'social.report.resolve', 'social_report', reportId, before, report, body.reason);
     saveState();
     ok(res, adminSocialReports().find((item) => item.id === reportId));
+    return true;
+  }
+
+  const adminReportCorrectPlaceMatch = pathname.match(/^\/admin\/social\/reports\/([^/]+)\/correct-place$/);
+  if (req.method === 'POST' && adminReportCorrectPlaceMatch) {
+    const reportId = decodeURIComponent(adminReportCorrectPlaceMatch[1]);
+    const result = correctPlaceFromReport(admin, reportId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PLACE_REPORT_CORRECTION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

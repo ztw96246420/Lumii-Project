@@ -170,12 +170,26 @@ async function main() {
     assert.equal(placeReportTask.actions.some((item) => item.action === 'hide'), false, 'place report should not expose direct hide action');
     assert.ok(placeReportTasks.data.summary.places >= 1, 'place report should count as a place moderation task');
 
-    const validPlaceReportTask = await request(`/admin/moderation/tasks/${encodeURIComponent(placeReportTaskId)}/valid`, {
-      body: { reason: 'Smoke confirms place information report' },
+    const correctedAddress = `${place.address} Smoke corrected`;
+    const correctedPlace = await request(`/admin/social/reports/${encodeURIComponent(placeReport.data.id)}/correct-place`, {
+      body: {
+        address: correctedAddress,
+        category: place.category || 'other',
+        name: place.name,
+        petFriendlyStatus: 'verified',
+        reason: 'Smoke corrects place information from report',
+        supportedSpecies: place.supportedSpecies || ['cat', 'dog'],
+        tags: place.tags || ['smoke corrected'],
+      },
       method: 'POST',
       token: adminToken,
     });
-    assert.equal(validPlaceReportTask.data.status, 'approved');
+    assert.equal(correctedPlace.data.report.status, 'valid');
+    assert.equal(correctedPlace.data.report.sanctionSuggestion, null, 'place catalog report should not generate user sanction suggestion');
+    assert.equal(correctedPlace.data.place.address, correctedAddress);
+
+    const correctedPlaceDetail = await request(`/places/${encodeURIComponent(place.id)}`, { token: observerToken });
+    assert.equal(correctedPlaceDetail.data.address, correctedAddress, 'mobile place detail should read admin-corrected address');
 
     const submitted = await request(`/places/${encodeURIComponent(place.id)}/reviews`, {
       body: { content: 'Smoke public review: clean grass, friendly staff, clear leash area.' },

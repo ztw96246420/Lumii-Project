@@ -974,6 +974,10 @@ async function onContentClick(event) {
     }
     if (action === 'report-valid') await post(`/admin/social/reports/${id}/resolve`, { reason, status: 'valid' });
     if (action === 'report-invalid') await post(`/admin/social/reports/${id}/resolve`, { reason, status: 'invalid' });
+    if (action === 'report-place-correct') {
+      await handleReportPlaceCorrection(button);
+      return;
+    }
     if (action === 'report-message-context') {
       await loadReportMessageContext(button);
       return;
@@ -1397,6 +1401,53 @@ async function handlePlaceEdit(button) {
   });
   clearPlaceAdminCaches();
   showToast('地点资料已更新');
+  await render(true);
+  return true;
+}
+
+async function handleReportPlaceCorrection(button) {
+  const reportId = button.dataset.id || '';
+  const placeId = button.dataset.targetId || '';
+  const place = await adminPlaceById(placeId);
+  if (!place) throw new Error('被举报地点不存在或已被合并');
+  const name = window.prompt('根据举报修正地点名称', place.name || '');
+  if (name === null) return false;
+  const address = window.prompt('根据举报修正地点地址', place.address || '');
+  if (address === null) return false;
+  const category = window.prompt('分类：cafe / clinic / other / park / shop', place.category || 'other');
+  if (category === null) return false;
+  const petFriendlyStatus = window.prompt('宠物友好状态：candidate / rejected / unknown / verified', place.petFriendlyStatus || 'unknown');
+  if (petFriendlyStatus === null) return false;
+  const supportedSpecies = window.prompt('支持宠物：dog,cat', (place.supportedSpecies || []).join(','));
+  if (supportedSpecies === null) return false;
+  const tags = window.prompt('标签，用逗号分隔', (place.tags || []).join(','));
+  if (tags === null) return false;
+  const phone = window.prompt('联系电话，可留空', place.phone || '');
+  if (phone === null) return false;
+  const openingHoursToday = window.prompt('营业时间，可留空', place.openingHoursToday || '');
+  if (openingHoursToday === null) return false;
+  const reason = window.prompt('请输入修正原因', `根据地点信息举报修正：${place.name}`);
+  if (reason === null) return false;
+  await post(`/admin/social/reports/${encodeURIComponent(reportId)}/correct-place`, {
+    address,
+    category,
+    name,
+    openingHoursToday,
+    petFriendlyStatus,
+    phone,
+    reason: reason.trim() || `根据地点信息举报修正：${place.name}`,
+    supportedSpecies,
+    tags,
+  });
+  state.cache = {
+    ...state.cache,
+    audit: null,
+    moderation: null,
+    places: null,
+    reports: null,
+    summary: null,
+  };
+  showToast('地点资料已修正，举报已标记有效');
   await render(true);
   return true;
 }
@@ -6087,6 +6138,7 @@ async function renderReports(force) {
         <div class="actions">
           ${r.targetType === 'message' ? `<button class="small-button" data-action="report-message-context" data-id="${escapeHtml(r.id)}">上下文</button>` : ''}
           ${r.targetType === 'message' ? `<button class="small-button" data-action="report-mark-harassment" data-id="${escapeHtml(r.id)}">标记骚扰</button>` : ''}
+          ${r.targetType === 'place' ? `<button class="small-button" data-action="report-place-correct" data-id="${escapeHtml(r.id)}" data-target-id="${escapeHtml(r.targetId)}">修正地点</button>` : ''}
           <button class="small-button" data-action="report-valid" data-id="${escapeHtml(r.id)}">有效</button>
           <button class="small-button" data-action="report-invalid" data-id="${escapeHtml(r.id)}">无效</button>
         </div>
