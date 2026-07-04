@@ -7935,6 +7935,7 @@ async function renderConfig(force) {
   const contentSafety = config.contentSafety || {};
   const exportsConfig = config.exports || {};
   const moderation = config.moderation || {};
+  const moderationPublicHint = moderation.publicHint || {};
   const notifications = config.notifications || {};
   const placesConfig = config.places || {};
   const placesPublicReviews = placesConfig.publicReviews || {};
@@ -8277,6 +8278,7 @@ async function renderConfig(force) {
           ${featureCheckbox('cfgModerationTextRulesEnabled', '启用文本关键词规则', moderation.textRulesEnabled !== false)}
           ${featureCheckbox('cfgModerationMachineTextEnabled', '启用腾讯云文本机审', moderation.machineTextEnabled)}
           ${featureCheckbox('cfgModerationMachineImageEnabled', '启用腾讯云图片机审', moderation.machineImageEnabled)}
+          ${featureCheckbox('cfgModerationPublicHintEnabled', '移动端展示公开内容安全轻提示', moderationPublicHint.enabled !== false)}
         </div>
         ${renderContentSafetyStatus(contentSafety)}
         <div class="config-grid announcement-grid">
@@ -8286,6 +8288,10 @@ async function renderConfig(force) {
           <label>阻断提示<input id="cfgModerationBlockMessage" maxlength="80" value="${escapeHtml(moderation.blockMessage || '')}" /></label>
           <label>复审提示<input id="cfgModerationReviewMessage" maxlength="80" value="${escapeHtml(moderation.reviewMessage || '')}" /></label>
           <label>抽样复审率 %<input id="cfgModerationSampleReviewRatePercent" type="number" min="0" max="100" value="${Number.isFinite(Number(moderation.sampleReviewRatePercent)) ? moderation.sampleReviewRatePercent : 0}" /></label>
+          <label class="wide">小事发布轻提示<textarea id="cfgModerationPublicHintPostText" maxlength="140" placeholder="展示在发布今日小事页">${escapeHtml(moderationPublicHint.postText || '')}</textarea></label>
+          <label class="wide">评论轻提示<textarea id="cfgModerationPublicHintCommentText" maxlength="140" placeholder="展示在宠友圈评论输入区">${escapeHtml(moderationPublicHint.commentText || '')}</textarea></label>
+          <label class="wide">地点提交轻提示<textarea id="cfgModerationPublicHintPlaceText" maxlength="140" placeholder="展示在地点点评/新增地点页">${escapeHtml(moderationPublicHint.placeText || '')}</textarea></label>
+          <label class="wide">图片审核轻提示<textarea id="cfgModerationPublicHintImageText" maxlength="140" placeholder="预留给头像、封面和上传图片入口">${escapeHtml(moderationPublicHint.imageText || '')}</textarea></label>
         </div>
       </div>
       <div class="config-section">
@@ -8927,6 +8933,13 @@ async function saveConfig(mode = 'publish') {
       highRiskKeywords: $('cfgModerationHighRiskKeywords').value,
       machineImageEnabled: $('cfgModerationMachineImageEnabled').checked,
       machineTextEnabled: $('cfgModerationMachineTextEnabled').checked,
+      publicHint: {
+        commentText: $('cfgModerationPublicHintCommentText').value,
+        enabled: $('cfgModerationPublicHintEnabled').checked,
+        imageText: $('cfgModerationPublicHintImageText').value,
+        placeText: $('cfgModerationPublicHintPlaceText').value,
+        postText: $('cfgModerationPublicHintPostText').value,
+      },
       reviewKeywords: $('cfgModerationReviewKeywords').value,
       reviewMessage: $('cfgModerationReviewMessage').value,
       sampleReviewRatePercent: moderationSampleReviewRatePercent,

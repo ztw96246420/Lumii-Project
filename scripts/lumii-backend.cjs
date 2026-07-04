@@ -585,6 +585,13 @@ function defaultOpsConfig() {
       highRiskKeywords: [],
       machineImageEnabled: false,
       machineTextEnabled: false,
+      publicHint: {
+        commentText: '评论会按平台安全规则校验，触发复审时通过后再展示',
+        enabled: true,
+        imageText: '图片会同步进行安全审核，请上传真实清晰内容',
+        placeText: '地点内容会按平台安全规则校验，触发复审时通过后再展示',
+        postText: '公开小事会按平台安全规则校验，触发复审时通过后再展示给附近宠友',
+      },
       reviewKeywords: [],
       reviewMessage: '内容已进入人工审核，通过后会展示给附近用户',
       sampleReviewRatePercent: 0,
@@ -819,6 +826,22 @@ function normalizeKeywordList(value, fallback = [], maxItems = 80) {
   return [];
 }
 
+function normalizeModerationHintText(value, fallback, maxLength = 140) {
+  return String(value || fallback || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function normalizeModerationPublicHint(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const fallback = defaults && typeof defaults === 'object' && !Array.isArray(defaults) ? defaults : {};
+  return {
+    commentText: normalizeModerationHintText(source.commentText, fallback.commentText),
+    enabled: source.enabled !== false,
+    imageText: normalizeModerationHintText(source.imageText, fallback.imageText),
+    placeText: normalizeModerationHintText(source.placeText, fallback.placeText),
+    postText: normalizeModerationHintText(source.postText, fallback.postText),
+  };
+}
+
 function normalizeModerationConfig(value, defaults) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
@@ -828,6 +851,7 @@ function normalizeModerationConfig(value, defaults) {
     highRiskKeywords: normalizeKeywordList(source.highRiskKeywords, defaults.highRiskKeywords),
     machineImageEnabled: Boolean(source.machineImageEnabled),
     machineTextEnabled: Boolean(source.machineTextEnabled),
+    publicHint: normalizeModerationPublicHint(source.publicHint, defaults.publicHint),
     reviewKeywords: normalizeKeywordList(source.reviewKeywords, defaults.reviewKeywords),
     reviewMessage: String(source.reviewMessage || defaults.reviewMessage).slice(0, 80),
     sampleReviewRatePercent: Math.floor(clampNumber(source.sampleReviewRatePercent, defaults.sampleReviewRatePercent ?? 0, 0, 100)),
@@ -1310,6 +1334,7 @@ function opsConfigSummary(config) {
     machineImageModerationEnabled: Boolean(config?.moderation?.machineImageEnabled),
     machineTextModerationEnabled: Boolean(config?.moderation?.machineTextEnabled),
     moderationEnabled: Boolean(config?.moderation?.enabled),
+    moderationPublicHintEnabled: config?.moderation?.publicHint?.enabled !== false,
     moderationSampleReviewRatePercent: Number(config?.moderation?.sampleReviewRatePercent ?? 0),
     notificationMaxCampaignsPerDay: Number(config?.notifications?.maxCampaignsPerDay || 0),
     notificationMaxPerUserPerDay: Number(config?.notifications?.maxPerUserPerDay || 0),
@@ -1640,6 +1665,11 @@ function configChangeSummary(before, after) {
     ['moderation.textRulesEnabled', 'Text rules enabled'],
     ['moderation.machineTextEnabled', 'Tencent text moderation'],
     ['moderation.machineImageEnabled', 'Tencent image moderation'],
+    ['moderation.publicHint.enabled', 'Public safety hint enabled'],
+    ['moderation.publicHint.postText', 'Pet circle safety hint copy'],
+    ['moderation.publicHint.commentText', 'Comment safety hint copy'],
+    ['moderation.publicHint.placeText', 'Place safety hint copy'],
+    ['moderation.publicHint.imageText', 'Image safety hint copy'],
     ['moderation.blockKeywords', 'Block keywords'],
     ['moderation.highRiskKeywords', 'High-risk keywords'],
     ['moderation.reviewKeywords', 'Review keywords'],
@@ -1684,6 +1714,7 @@ function configRiskChanges(before, after) {
   addRisk('moderation.enabled', 'Content safety master switch', 'P0', 'Can allow or block public UGC safety checks.');
   addRisk('moderation.machineTextEnabled', 'Tencent text moderation', 'P0', 'Can change machine review coverage for public text.');
   addRisk('moderation.machineImageEnabled', 'Tencent image moderation', 'P0', 'Can change machine review coverage for public images.');
+  addRisk('moderation.publicHint.enabled', 'Public safety hint visibility', 'P2', 'Can hide or show user-facing safety guidance on public submission surfaces.');
   addRisk('moderation.blockKeywords', 'Block keywords', 'P1', 'Can immediately reject user submissions.');
   addRisk('moderation.highRiskKeywords', 'High-risk keywords', 'P1', 'Can send public content into review.');
   addRisk('moderation.reviewKeywords', 'Review keywords', 'P1', 'Can send public content into review.');
@@ -2743,6 +2774,17 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileEvidence: '移动端读取 /app/config.moderation，在公开小事、评论、地点点评和新增地点入口展示内容安全轻提示；真正拦截和送审仍由后端结果决定。',
       operatorNote: '只下发总开关和公开提示文案，不暴露关键词、Biztype 或供应商策略。',
       userImpact: '影响公开内容提交是否进入规则审核。',
+    },
+    {
+      backendEvidence: '关键词规则由后端执行；blockKeywords 不进入 /app/config，避免暴露规则。',
+      backendEnforced: true,
+      group: '内容安全',
+      key: 'moderation.publicHint',
+      label: '公开内容安全轻提示',
+      mobileApplied: true,
+      mobileEvidence: '移动端读取 /app/config.moderation.publicHint，在公开小事、评论、地点点评和新增地点入口展示运营配置的安全提示。',
+      operatorNote: '只下发用户可读提示，不下发关键词、Biztype、供应商策略或命中规则。',
+      userImpact: '影响用户提交前看到的安全说明，不改变后端实际审核结果。',
     },
     {
       backendEvidence: '关键词规则由后端执行；blockKeywords 不进入 /app/config，避免暴露规则。',
@@ -4243,6 +4285,7 @@ function publicAppConfig() {
       enabled: config.moderation.enabled,
       machineImageEnabled: config.moderation.machineImageEnabled,
       machineTextEnabled: config.moderation.machineTextEnabled,
+      publicHint: config.moderation.publicHint,
       reviewMessage: config.moderation.reviewMessage,
       textRulesEnabled: config.moderation.textRulesEnabled,
     },

@@ -228,6 +228,13 @@ const fallbackRemoteConfig: AppRemoteConfig = {
     enabled: false,
     machineImageEnabled: false,
     machineTextEnabled: false,
+    publicHint: {
+      commentText: '评论会按平台安全规则校验，触发复审时通过后再展示',
+      enabled: true,
+      imageText: '图片会同步进行安全审核，请上传真实清晰内容',
+      placeText: '地点内容会按平台安全规则校验，触发复审时通过后再展示',
+      postText: '公开小事会按平台安全规则校验，触发复审时通过后再展示给附近宠友',
+    },
     reviewMessage: '内容已进入人工审核，通过后会展示给附近用户',
     textRulesEnabled: true,
   },
@@ -2638,8 +2645,11 @@ export default function LumiiMvpApp() {
   const placesEnabled = remoteConfig.features.places !== false;
   const walkInviteEnabled = remoteConfig.features.walkInvite !== false;
   const moderationConfig = remoteConfig.moderation || {};
+  const moderationPublicHint = moderationConfig.publicHint || {};
   const contentSafetyHintEnabled = Boolean(
-    moderationConfig.enabled && (moderationConfig.textRulesEnabled !== false || moderationConfig.machineTextEnabled || moderationConfig.machineImageEnabled),
+    moderationConfig.enabled
+    && moderationPublicHint.enabled !== false
+    && (moderationConfig.textRulesEnabled !== false || moderationConfig.machineTextEnabled || moderationConfig.machineImageEnabled),
   );
   const contentSafetyReviewHint = String(moderationConfig.reviewMessage || '触发复审时，通过后会展示给附近用户')
     .trim()
@@ -12749,7 +12759,7 @@ export default function LumiiMvpApp() {
                   </View>
                 ) : null}
               </View>
-              {renderPublicContentSafetyNotice('评论会按平台安全规则校验')}
+              {renderPublicContentSafetyNotice('comment', '评论会按平台安全规则校验')}
               <View style={styles.petCircleCommentInputRowMake}>
                 <TextInput
                   maxLength={petCircleCommentMaxLength}
@@ -13548,7 +13558,7 @@ export default function LumiiMvpApp() {
                 </View>
               ) : null}
             </View>
-            {renderPublicContentSafetyNotice('评论会按平台安全规则校验')}
+            {renderPublicContentSafetyNotice('comment', '评论会按平台安全规则校验')}
             <View style={styles.petCircleCommentInputRowMake}>
               <TextInput
                 maxLength={petCircleCommentMaxLength}
@@ -16054,7 +16064,7 @@ export default function LumiiMvpApp() {
             />
           </View>
 
-          {renderPublicContentSafetyNotice('公开小事会按平台安全规则校验')}
+          {renderPublicContentSafetyNotice('post', '公开小事会按平台安全规则校验')}
 
           <View style={styles.dailyPhotoSectionHeaderMake}>
             <Text style={styles.dailyPhotoSectionTitleMake}>图片</Text>
@@ -16358,12 +16368,25 @@ export default function LumiiMvpApp() {
     );
   }
 
-  function renderPublicContentSafetyNotice(scopeText: string) {
+  function getPublicContentSafetyNoticeText(surface: 'comment' | 'image' | 'place' | 'post', fallbackScopeText: string) {
+    const configuredText = surface === 'post'
+      ? moderationPublicHint.postText
+      : surface === 'comment'
+        ? moderationPublicHint.commentText
+        : surface === 'place'
+          ? moderationPublicHint.placeText
+          : moderationPublicHint.imageText;
+    const fallbackText = `${fallbackScopeText}。${contentSafetyReviewHint}`;
+    return String(configuredText || fallbackText).trim();
+  }
+
+  function renderPublicContentSafetyNotice(surface: 'comment' | 'image' | 'place' | 'post', fallbackScopeText: string) {
     if (!contentSafetyHintEnabled) return null;
+    const noticeText = getPublicContentSafetyNoticeText(surface, fallbackScopeText);
     return (
       <View style={styles.publicContentSafetyNoticeMake}>
         <ShieldCheck color={palette.teal} size={13} strokeWidth={2.5} />
-        <Text style={styles.publicContentSafetyNoticeTextMake}>{scopeText}。{contentSafetyReviewHint}</Text>
+        <Text style={styles.publicContentSafetyNoticeTextMake}>{noticeText}</Text>
       </View>
     );
   }
@@ -16382,6 +16405,9 @@ export default function LumiiMvpApp() {
     const saving = isReviewMode ? placeReviewSaving : placeSubmissionSaving;
     const placePhotoPlaceholderCount = Math.max(0, 2 - placePhotoUris.length);
     const customSelectedPlaceFeatureTags = selectedPlaceFeatureTags.filter((tag) => !placeFriendlyFeatureOptions.includes(tag as (typeof placeFriendlyFeatureOptions)[number]));
+    const placeSafetyNoticeText = contentSafetyHintEnabled
+      ? getPublicContentSafetyNoticeText('place', `${isReviewMode ? '地点点评' : '地点内容'}会按平台安全规则校验`)
+      : isReviewMode ? '点评需经过 24 小时人工审核，请保持真实客观' : '地点和体验会进入 24 小时人工审核，通过后展示给附近用户';
     const submitComposer = () => {
       if (isReviewMode) void createPlaceReview();
       else void submitPlaceDraft();
@@ -16559,11 +16585,7 @@ export default function LumiiMvpApp() {
 
           <View style={styles.addPlaceNoticeMake}>
             <Shield color={palette.teal} size={13} strokeWidth={2.5} />
-            <Text style={styles.addPlaceNoticeTextMake}>
-              {contentSafetyHintEnabled
-                ? `${isReviewMode ? '地点点评' : '地点内容'}会按平台安全规则校验。${contentSafetyReviewHint}`
-                : isReviewMode ? '点评需经过 24 小时人工审核，请保持真实客观' : '地点和体验会进入 24 小时人工审核，通过后展示给附近用户'}
-            </Text>
+            <Text style={styles.addPlaceNoticeTextMake}>{placeSafetyNoticeText}</Text>
           </View>
 
           {placeSubmissionStatus === 'pending_review' && !isReviewMode ? (

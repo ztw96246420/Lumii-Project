@@ -918,6 +918,13 @@ export type AppRemoteConfig = {
     enabled?: boolean;
     machineImageEnabled?: boolean;
     machineTextEnabled?: boolean;
+    publicHint?: {
+      commentText?: string;
+      enabled?: boolean;
+      imageText?: string;
+      placeText?: string;
+      postText?: string;
+    };
     reviewMessage?: string;
     textRulesEnabled?: boolean;
   };
