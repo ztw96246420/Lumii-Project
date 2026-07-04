@@ -3749,6 +3749,7 @@ function adminExportDataset(type) {
         exportColumn('id', '贡献记录ID'),
         exportColumn('actionLabel', '贡献类型'),
         exportColumn('points', '积分'),
+        exportColumn('statusLabel', '状态'),
         exportColumn('phone', '手机号'),
         exportColumn('ownerName', '主人昵称'),
         exportColumn('submissionId', '提交ID'),
@@ -3756,7 +3757,10 @@ function adminExportDataset(type) {
         exportColumn('placeName', '地点名称'),
         exportColumn('createdBy', '记录人'),
         exportColumn('reason', '原因'),
+        exportColumn('voidedBy', '撤销人'),
+        exportColumn('voidedReason', '撤销原因'),
         exportColumn('createdAt', '记录时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('voidedAt', '撤销时间', (row) => exportDateText(row.voidedAt)),
       ],
     },
     tickets: {
@@ -8521,6 +8525,7 @@ function approvedPlaceSubmissionCount(placeId) {
 const PLACE_CONTRIBUTION_POINTS = {
   created: 10,
   linked_existing: 5,
+  manual_adjustment: 0,
 };
 
 const PLACE_CONTRIBUTION_LEVELS = [
@@ -8554,6 +8559,7 @@ function placeContributionLevelFor(points) {
 
 function placeContributionActionLabel(action) {
   if (action === 'linked_existing') return '补充已有地点';
+  if (action === 'manual_adjustment') return '运营手动调整';
   if (action === 'created') return '发现新地点';
   return action || '-';
 }
@@ -8563,6 +8569,19 @@ function ensurePlaceContributions() {
   return state.placeContributions;
 }
 
+function normalizePlaceContributionStatus(value) {
+  const status = String(value || 'active').trim();
+  return status === 'voided' ? 'voided' : 'active';
+}
+
+function isPlaceContributionActive(item) {
+  return normalizePlaceContributionStatus(item?.status) === 'active';
+}
+
+function sanitizePlaceContributionReason(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+}
+
 function placeContributionForSubmission(submissionId) {
   const id = String(submissionId || '').trim();
   if (!id) return null;
@@ -8570,13 +8589,16 @@ function placeContributionForSubmission(submissionId) {
 }
 
 function placeContributionSummary(contributions = ensurePlaceContributions()) {
-  const visible = Array.isArray(contributions) ? contributions : [];
+  const source = Array.isArray(contributions) ? contributions : [];
+  const visible = source.filter(isPlaceContributionActive);
   return {
     created: visible.filter((item) => item.action === 'created').length,
     linkedExisting: visible.filter((item) => item.action === 'linked_existing').length,
+    manualAdjustments: visible.filter((item) => item.action === 'manual_adjustment').length,
     points: visible.reduce((sum, item) => sum + Number(item.points || 0), 0),
     total: visible.length,
     users: new Set(visible.map((item) => item.phone).filter(Boolean)).size,
+    voided: source.filter((item) => normalizePlaceContributionStatus(item?.status) === 'voided').length,
   };
 }
 
@@ -8584,13 +8606,16 @@ function placeContributionSummaryForPhone(phone) {
   const normalizedPhone = String(phone || '').trim();
   const contributions = ensurePlaceContributions().filter((item) => String(item.phone || '') === normalizedPhone);
   const summary = placeContributionSummary(contributions);
+  const points = Math.max(0, Number(summary.points || 0));
   const config = currentOpsConfig().places || defaultOpsConfig().places;
   const minPublicPoints = Math.max(1, Number(config.contributionBadgeMinPoints || 1));
   return {
     ...summary,
-    level: placeContributionLevelFor(summary.points),
+    points,
+    rawPoints: summary.points,
+    level: placeContributionLevelFor(points),
     minPublicPoints,
-    publicEligible: summary.points >= minPublicPoints,
+    publicEligible: points >= minPublicPoints,
   };
 }
 
@@ -8602,11 +8627,46 @@ function adminPlaceContributions() {
       return {
         ...item,
         actionLabel: placeContributionActionLabel(item.action),
+        canVoid: isPlaceContributionActive(item),
         ownerName: owner?.ownerName || `用户${String(item.phone || '').slice(-4)}`,
         placeName: place?.name || item.placeName || item.placeId,
+        status: normalizePlaceContributionStatus(item.status),
+        statusLabel: isPlaceContributionActive(item) ? '有效' : '已撤销',
       };
     })
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+}
+
+function findPlaceContributionById(contributionId) {
+  const id = String(contributionId || '').trim();
+  if (!id) return null;
+  const contributions = ensurePlaceContributions();
+  const index = contributions.findIndex((item) => item.id === id);
+  if (index < 0) return null;
+  return { contribution: contributions[index], index };
+}
+
+function notifyPlaceContributionChange(phone, contribution, type, reason = '') {
+  if (!phone || !contribution || !state.users?.[phone]) return false;
+  const now = new Date().toISOString();
+  const points = Number(contribution.points || 0);
+  const signedPoints = points > 0 ? `+${points}` : String(points);
+  const title = type === 'voided' ? '地点贡献记录已调整' : '地点贡献分已调整';
+  const reasonText = sanitizePlaceContributionReason(reason || contribution.reason);
+  const text = type === 'voided'
+    ? `一条地点贡献记录已由运营撤销，相关贡献分不再计入你的地点共建身份${reasonText ? `，原因：${reasonText}` : ''}。`
+    : `运营已为你调整 ${signedPoints} 地点贡献分，当前地点共建身份会自动重新计算${reasonText ? `，原因：${reasonText}` : ''}。`;
+  return addNotification(phone, {
+    category: 'system',
+    contributionId: contribution.id,
+    createdAt: now,
+    id: `n-place-contribution-${type}-${contribution.id}-${Date.now()}`,
+    kind: 'place_contribution',
+    placeId: contribution.placeId || '',
+    read: false,
+    text,
+    title,
+  }, 'system', { force: true });
 }
 
 function appendPlaceContributor(place, phone) {
@@ -8677,7 +8737,9 @@ function recordPlaceContribution(admin, phone, submission, place, actionValue, r
     placeId: place.id,
     placeName: place.name || submission.name || '',
     points,
-    reason: String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+    reason: sanitizePlaceContributionReason(reason),
+    source: 'submission_review',
+    status: 'active',
     submissionId: submission.id,
   };
   ensurePlaceContributions().unshift(contribution);
@@ -8689,6 +8751,72 @@ function recordPlaceContribution(admin, phone, submission, place, actionValue, r
   submission.contributionRewardedAt = now;
   writeAdminAudit(admin, 'place.contribution.create', 'place_contribution', contribution.id, null, contribution, contribution.reason || contribution.actionLabel);
   return contribution;
+}
+
+function adminCreatePlaceContributionAdjustment(admin, body = {}) {
+  const phone = String(body.phone || '').replace(/\D/g, '');
+  if (!/^1\d{10}$/.test(phone) || !state.users?.[phone]) {
+    return { error: '用户不存在，请填写已注册手机号', statusCode: 404 };
+  }
+  const points = Math.round(Number(body.points || 0));
+  if (!Number.isFinite(points) || points === 0 || points < -1000 || points > 1000) {
+    return { error: '调整分值必须是 -1000 到 1000 之间的非 0 整数', statusCode: 400 };
+  }
+  const reason = sanitizePlaceContributionReason(body.reason);
+  if (reason.length < 4) {
+    return { error: '请填写 4 个字以上的调整原因', statusCode: 400 };
+  }
+  const placeId = String(body.placeId || '').trim();
+  const place = placeId ? (state.places || []).find((item) => item.id === placeId) : null;
+  if (placeId && !place) return { error: '关联地点不存在', statusCode: 404 };
+  const now = new Date().toISOString();
+  const contribution = {
+    action: 'manual_adjustment',
+    actionLabel: placeContributionActionLabel('manual_adjustment'),
+    createdAt: now,
+    createdBy: admin?.username || 'admin',
+    id: `place-contribution-adjust-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    phone,
+    placeId,
+    placeName: place?.name || String(body.placeName || '').trim().slice(0, 80),
+    points,
+    reason,
+    source: 'admin_manual',
+    status: 'active',
+    submissionId: '',
+  };
+  ensurePlaceContributions().unshift(contribution);
+  if (place) appendPlaceContributor(place, phone);
+  notifyPlaceContributionChange(phone, contribution, 'adjusted', reason);
+  writeAdminAudit(admin, 'place.contribution.adjust', 'place_contribution', contribution.id, null, contribution, reason);
+  return {
+    contribution: adminPlaceContributions().find((item) => item.id === contribution.id) || contribution,
+    summary: placeContributionSummaryForPhone(phone),
+  };
+}
+
+function adminVoidPlaceContribution(admin, contributionId, body = {}) {
+  const found = findPlaceContributionById(contributionId);
+  if (!found) return { error: '贡献记录不存在', statusCode: 404 };
+  const contribution = found.contribution;
+  if (!isPlaceContributionActive(contribution)) {
+    return { error: '贡献记录已撤销', statusCode: 409 };
+  }
+  const reason = sanitizePlaceContributionReason(body.reason);
+  if (reason.length < 4) {
+    return { error: '请填写 4 个字以上的撤销原因', statusCode: 400 };
+  }
+  const before = { ...contribution };
+  contribution.status = 'voided';
+  contribution.voidedAt = new Date().toISOString();
+  contribution.voidedBy = admin?.username || 'admin';
+  contribution.voidedReason = reason;
+  notifyPlaceContributionChange(contribution.phone, contribution, 'voided', reason);
+  writeAdminAudit(admin, 'place.contribution.void', 'place_contribution', contribution.id, before, contribution, reason);
+  return {
+    contribution: adminPlaceContributions().find((item) => item.id === contribution.id) || contribution,
+    summary: placeContributionSummaryForPhone(contribution.phone),
+  };
 }
 
 function normalizePlaceCategoryForResponse(place) {
@@ -19248,7 +19376,7 @@ function adminReadinessQuestions(context = {}) {
     ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '已接入可配置策略：默认供应商提交失败、供应商超时、供应商返回失败会自动返还；照片不合格、内容安全拦截、运营手动标失败不自动返还，后台仍可人工返还且防重复。', '影响用户权益、成本和客服处理标准。', 'ready', '已接入'],
     ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '已接入单 admin 永久封禁审批流；审批通过后才真正写入处罚并影响移动端账号状态。生产期若需要双人审批，可在此基础上接多管理员复核。', '影响高风险处罚治理。', 'ready', '已接入'],
     ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏，不开放完整手机号导出。', '影响隐私合规和数据泄露风险。'],
-    ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '当前已记录基础贡献积分并通知提交人，但不做用户端公开展示或奖励兑换。', '影响地点生态激励。'],
+    ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '已接入用户本人公开贡献身份、轻量等级、后台手动调整和撤销；排行榜、他人主页展示、活动奖励或兑换规则仍待确认。', '影响地点生态激励。'],
     ['q-notification-approval', 'P1', '系统通知是否需要发送审批？', '已接入单 admin 发送审批流和“强制审批”配置开关；生产期若需要双人审批，可在此基础上接多管理员复核。', '影响误发和运营风险。', 'ready', '已接入'],
     ['q-config-approval', 'P0', '配置强制更新、维护模式、全功能关闭是否必须审批？', '已接入单 admin 配置发布审批流和“强制配置发布审批”开关；生产期若需要双人审批，可在此基础上接多管理员复核。', '影响事故风险和发布治理。', 'ready', '已接入'],
     ['q-compliance-text', 'P0', 'App 备案、隐私政策、内容审核制度是否已准备生产版文本？', '当前代码层面不可替代法务/合规文本确认。', '影响正式上线合规。'],
@@ -26289,6 +26417,30 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       contributions,
       summary: placeContributionSummary(contributions),
     });
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/places/contributions/adjust') {
+    const result = adminCreatePlaceContributionAdjustment(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PLACE_CONTRIBUTION_ADJUST_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminPlaceContributionVoidMatch = pathname.match(/^\/admin\/places\/contributions\/([^/]+)\/void$/);
+  if (req.method === 'POST' && adminPlaceContributionVoidMatch) {
+    const contributionId = decodeURIComponent(adminPlaceContributionVoidMatch[1]);
+    const result = adminVoidPlaceContribution(admin, contributionId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PLACE_CONTRIBUTION_VOID_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

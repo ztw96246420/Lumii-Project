@@ -994,6 +994,14 @@ async function onContentClick(event) {
       await handlePlaceMerge(button);
       return;
     }
+    if (action === 'place-contribution-adjust') {
+      await handlePlaceContributionAdjust();
+      return;
+    }
+    if (action === 'place-contribution-void') {
+      await handlePlaceContributionVoid(button);
+      return;
+    }
     if (action === 'place-template-create') {
       await handlePlaceTemplateCreate();
       return;
@@ -1440,6 +1448,52 @@ async function handlePlaceSubmissionLinkExisting(button) {
   });
   clearPlaceAdminCaches();
   showToast('新增地点已关联到已有地点，并已记录贡献');
+  await render(true);
+  return true;
+}
+
+async function handlePlaceContributionAdjust() {
+  const phone = window.prompt('用户手机号');
+  if (phone === null) return false;
+  const trimmedPhone = phone.replace(/\D/g, '');
+  if (!/^1\d{10}$/.test(trimmedPhone)) throw new Error('请填写 11 位用户手机号');
+  const pointsText = window.prompt('调整贡献分，正数补分、负数扣分，范围 -1000 到 1000', '5');
+  if (pointsText === null) return false;
+  const points = Number(pointsText);
+  if (!Number.isFinite(points) || Math.round(points) !== points || points === 0 || points < -1000 || points > 1000) {
+    throw new Error('调整分值必须是 -1000 到 1000 之间的非 0 整数');
+  }
+  const placeId = window.prompt('关联地点 ID，可留空', '');
+  if (placeId === null) return false;
+  const reason = window.prompt('调整原因，会进入审计并通知用户', '运营手动纠正地点贡献分');
+  if (reason === null) return false;
+  const trimmedReason = reason.replace(/\s+/g, ' ').trim();
+  if (trimmedReason.length < 4) throw new Error('请填写 4 个字以上的调整原因');
+  await post('/admin/places/contributions/adjust', {
+    phone: trimmedPhone,
+    placeId: placeId.trim(),
+    points,
+    reason: trimmedReason,
+  });
+  clearPlaceAdminCaches();
+  showToast('地点贡献分已调整');
+  await render(true);
+  return true;
+}
+
+async function handlePlaceContributionVoid(button) {
+  const id = button.dataset.id || '';
+  const title = button.dataset.title || '地点贡献记录';
+  const reason = window.prompt(`撤销「${title}」的原因`, '运营撤销误记地点贡献');
+  if (reason === null) return false;
+  const trimmedReason = reason.replace(/\s+/g, ' ').trim();
+  if (trimmedReason.length < 4) throw new Error('请填写 4 个字以上的撤销原因');
+  if (!window.confirm('确认撤销这条地点贡献记录？撤销后该分数不会再计入移动端地点共建身份。')) return false;
+  await post(`/admin/places/contributions/${encodeURIComponent(id)}/void`, {
+    reason: trimmedReason,
+  });
+  clearPlaceAdminCaches();
+  showToast('地点贡献记录已撤销');
   await render(true);
   return true;
 }
@@ -6138,12 +6192,18 @@ function placeSubmissionDuplicateSummary(submission) {
 }
 
 function renderPlaceContributions(contributions) {
-  const rows = Array.isArray(contributions) ? contributions.slice(0, 8) : [];
+  const rows = Array.isArray(contributions) ? contributions.slice(0, 12) : [];
+  const signedPoints = (value) => {
+    const points = Number(value || 0);
+    return `${points > 0 ? '+' : ''}${numberText(points)}`;
+  };
   return tableHtml(rows, [
-    ['贡献', (row) => `<div class="cell-title">${escapeHtml(row.actionLabel || row.action || '-')} · +${numberText(row.points || 0)}</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
+    ['贡献', (row) => `<div class="cell-title">${escapeHtml(row.actionLabel || row.action || '-')} · ${signedPoints(row.points)} 分</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
     ['用户', (row) => `<div>${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.phone)}</div>`],
     ['地点', (row) => `<div>${escapeHtml(row.placeName || row.placeId || '-')}</div><div class="cell-sub">${escapeHtml(row.placeId || '-')}</div>`],
-    ['来源', (row) => `<div>${escapeHtml(row.submissionId || '-')}</div><div class="cell-sub">${formatTime(row.createdAt)}</div>`],
+    ['状态', (row) => `${statusPill(row.statusLabel || row.status || '有效')}<div class="cell-sub">${row.voidedAt ? `撤销：${formatTime(row.voidedAt)}` : '计入移动端身份'}</div>`],
+    ['来源', (row) => `<div>${escapeHtml(row.submissionId || row.source || '-')}</div><div class="cell-sub">${formatTime(row.createdAt)}</div><div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div>`],
+    ['操作', (row) => row.canVoid ? `<button class="small-button danger" data-action="place-contribution-void" data-id="${escapeHtml(row.id)}" data-title="${escapeHtml(row.actionLabel || row.id || '')}">撤销</button>` : '<span class="cell-sub">已锁定</span>'],
   ], '暂无地点贡献记录');
 }
 
@@ -6178,13 +6238,17 @@ async function renderPlaces(force) {
   const placeSummary = Array.isArray(catalog) ? {} : catalog.summary || {};
   const contributions = contributionData?.contributions || [];
   const contributionSummary = contributionData?.summary || {};
+  const signedContributionPoints = (value) => {
+    const points = Number(value || 0);
+    return `${points > 0 ? '+' : ''}${numberText(points)}`;
+  };
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('地点总数', numberText(placeSummary.total || places.length), `${numberText(placeSummary.highQuality || 0)} 个高质量`, '来自 seed、高德回流和用户审核入库的地点目录总数。')}
       ${metric('平均质量分', numberText(placeSummary.averageQualityScore || 0), '实时计算', '质量分由地址、坐标、分类、标签、评分、点评、收藏和宠物友好状态综合计算，不会自动改写地点。')}
       ${metric('重复候选', numberText(placeSummary.duplicatePlaceCount || 0), '需人工确认', '重复候选只给运营证据，不自动合并或隐藏，避免误伤真实不同地点。')}
       ${metric('待治理', numberText(placeSummary.needsReview || 0), '低分/重复/candidate', '质量分低于 60、有重复候选或宠物友好状态仍为 candidate 的地点会进入待治理口径。')}
-      ${metric('地点贡献', numberText(contributionSummary.total || placeSummary.contributionRecords || 0), `+${numberText(contributionSummary.points || placeSummary.contributionPoints || 0)} 分`, '新增地点审核通过或关联已有地点后，会给提交人记录地点贡献；当前只是运营积分账本，不等同现金或余额。')}
+      ${metric('地点贡献', numberText(contributionSummary.total || placeSummary.contributionRecords || 0), `${signedContributionPoints(contributionSummary.points ?? placeSummary.contributionPoints ?? 0)} 分`, '新增地点审核通过、关联已有地点或运营纠偏后，会重算提交人的地点贡献；当前只是运营积分账本，不等同现金或余额。')}
     </div>
     <div class="card">
       <div class="section-head">
@@ -6229,15 +6293,25 @@ async function renderPlaces(force) {
       <div class="section-head">
         <div>
           <h2>地点贡献者</h2>
-          <div class="section-sub">新增地点通过或关联已有地点后自动记录，移动端会通过通知中心告知用户贡献结果</div>
+          <div class="section-sub">新增地点通过、关联已有地点或运营纠偏后自动重算；移动端“地点共建者”身份只读取有效记录</div>
         </div>
-        ${help('当前贡献分是运营积分账本，用于后续贡献者标记、活动激励或地点生态复盘；暂不等同现金、余额或可提现资产。')}
+        <div class="actions">
+          <button class="small-button" data-action="place-contribution-adjust">手动调整</button>
+        </div>
+        ${help('手动调整用于误审、刷分、线下活动补分或客服纠偏；撤销会保留审计记录但不再计入移动端地点共建身份。当前贡献分仍只是运营积分账本，不等同现金、余额或可提现资产。')}
       </div>
       <div class="template-summary-row">
         <span class="risk-badge">贡献 ${numberText(contributionSummary.total || 0)}</span>
         <span class="risk-badge">用户 ${numberText(contributionSummary.users || 0)}</span>
-        <span class="risk-badge">积分 +${numberText(contributionSummary.points || 0)}</span>
+        <span class="risk-badge">积分 ${signedContributionPoints(contributionSummary.points || 0)}</span>
         <span class="risk-badge">关联已有 ${numberText(contributionSummary.linkedExisting || 0)}</span>
+        <span class="risk-badge">手动 ${numberText(contributionSummary.manualAdjustments || 0)}</span>
+        <span class="risk-badge">已撤销 ${numberText(contributionSummary.voided || 0)}</span>
+      </div>
+      <div class="switch-panel">
+        <div class="switch-row"><span>移动端身份</span>${statusPill('已联动')}</div>
+        <div class="switch-row"><span>排行榜</span>${statusPill('预留')}</div>
+        <div class="switch-row"><span>活动奖励 / 兑换</span>${statusPill('预留')}</div>
       </div>
       ${renderPlaceContributions(contributions)}
     </div>

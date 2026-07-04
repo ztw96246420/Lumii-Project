@@ -183,6 +183,47 @@ async function main() {
     assert.equal(contributionPayload.data.summary.total, 2);
     assert.equal(contributionPayload.data.summary.points, 15);
     assert.equal(contributionPayload.data.summary.linkedExisting, 1);
+    assert.equal(contributionPayload.data.summary.manualAdjustments, 0);
+    assert.equal(contributionPayload.data.summary.voided, 0);
+
+    const adjustmentPayload = await request('/admin/places/contributions/adjust', {
+      body: {
+        phone: '19900003001',
+        points: 7,
+        reason: 'Smoke manual correction',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(adjustmentPayload.data.contribution.action, 'manual_adjustment');
+    assert.equal(adjustmentPayload.data.contribution.points, 7);
+    assert.equal(adjustmentPayload.data.contribution.status, 'active');
+    assert.equal(adjustmentPayload.data.summary.points, 22);
+
+    const contributionAfterAdjust = await request('/admin/places/contributions', { token: adminToken });
+    assert.equal(contributionAfterAdjust.data.summary.total, 3);
+    assert.equal(contributionAfterAdjust.data.summary.points, 22);
+    assert.equal(contributionAfterAdjust.data.summary.manualAdjustments, 1);
+    assert.equal(contributionAfterAdjust.data.summary.voided, 0);
+
+    const profileAfterAdjust = await request('/me', { token: userToken });
+    assert.equal(profileAfterAdjust.data.placeContributionSummary.points, 22);
+    assert.equal(profileAfterAdjust.data.placeContributionSummary.rawPoints, 22);
+    assert.equal(profileAfterAdjust.data.placeContributionSummary.manualAdjustments, 1);
+
+    const voidPayload = await request(`/admin/places/contributions/${encodeURIComponent(adjustmentPayload.data.contribution.id)}/void`, {
+      body: { reason: 'Smoke void manual correction' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(voidPayload.data.contribution.status, 'voided');
+    assert.equal(voidPayload.data.summary.points, 15);
+
+    const contributionAfterVoid = await request('/admin/places/contributions', { token: adminToken });
+    assert.equal(contributionAfterVoid.data.summary.total, 2);
+    assert.equal(contributionAfterVoid.data.summary.points, 15);
+    assert.equal(contributionAfterVoid.data.summary.manualAdjustments, 0);
+    assert.equal(contributionAfterVoid.data.summary.voided, 1);
 
     const profileBeforeBadgeConfig = await request('/me', { token: userToken });
     assert.equal(profileBeforeBadgeConfig.data.placeContributionSummary.points, 15);
