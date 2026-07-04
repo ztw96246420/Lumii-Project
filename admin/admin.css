@@ -1569,6 +1569,16 @@ th {
   gap: 14px;
 }
 
+.form-actions {
+  align-items: end;
+  display: flex;
+  margin: 14px 0;
+}
+
+.form-actions .primary-button {
+  width: 100%;
+}
+
 .switch-row {
   display: flex;
   justify-content: space-between;

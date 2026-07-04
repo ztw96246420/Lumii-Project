@@ -138,6 +138,8 @@ const ADMIN_TOKEN_TTL_MS = Number(process.env.LUMII_ADMIN_TOKEN_TTL_MS || 12 * 6
 const ADMIN_LOGIN_MAX_ATTEMPTS = Math.max(1, Number(process.env.LUMII_ADMIN_LOGIN_MAX_ATTEMPTS || '5') || 5);
 const ADMIN_LOGIN_LOCK_MS = Math.max(60 * 1000, Number(process.env.LUMII_ADMIN_LOGIN_LOCK_MS || 15 * 60 * 1000) || 15 * 60 * 1000);
 const ADMIN_IP_ALLOWLIST_RAW = process.env.LUMII_ADMIN_IP_ALLOWLIST || process.env.LUMII_ADMIN_IP_WHITELIST || '';
+const ADMIN_PASSWORD_MIN_LENGTH = Math.max(8, Number(process.env.LUMII_ADMIN_PASSWORD_MIN_LENGTH || '10') || 10);
+const ADMIN_PASSWORD_HASH_ITERATIONS = Math.max(100000, Number(process.env.LUMII_ADMIN_PASSWORD_HASH_ITERATIONS || '210000') || 210000);
 
 const seedOwners = [
   {
@@ -683,6 +685,7 @@ function defaultOpsConfig() {
 function createInitialState() {
   return {
     adminAuditLogs: [],
+    adminAccounts: {},
     adminDataClearApprovals: [],
     adminExportApprovals: [],
     adminSanctionApprovals: [],
@@ -4373,6 +4376,7 @@ function loadState() {
         ...initialState.adminLoginSecurity,
         ...(loadedState.adminLoginSecurity || {}),
       },
+      adminAccounts: loadedState.adminAccounts && typeof loadedState.adminAccounts === 'object' && !Array.isArray(loadedState.adminAccounts) ? loadedState.adminAccounts : initialState.adminAccounts,
       adminAuditLogs: Array.isArray(loadedState.adminAuditLogs) ? loadedState.adminAuditLogs : initialState.adminAuditLogs,
       adminDataClearApprovals: Array.isArray(loadedState.adminDataClearApprovals) ? loadedState.adminDataClearApprovals : initialState.adminDataClearApprovals,
       adminExportApprovals: Array.isArray(loadedState.adminExportApprovals) ? loadedState.adminExportApprovals : initialState.adminExportApprovals,
@@ -5880,16 +5884,170 @@ function phoneFromRequest(req) {
   return '';
 }
 
-function createAdminToken(username) {
+function normalizeAdminUsername(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, '')
+    .slice(0, 64);
+}
+
+function normalizeAdminDisplayName(value, fallback = '') {
+  return String(value || fallback || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 40);
+}
+
+function ensureAdminAccounts() {
+  state.adminAccounts = state.adminAccounts && typeof state.adminAccounts === 'object' && !Array.isArray(state.adminAccounts) ? state.adminAccounts : {};
+  return state.adminAccounts;
+}
+
+function adminEnvAccount() {
+  return {
+    createdAt: '',
+    displayName: ADMIN_USERNAME,
+    id: 'admin-env',
+    isEnvAccount: true,
+    mfaEnabled: false,
+    passwordUpdatedAt: '',
+    roleIds: ['admin'],
+    source: 'env',
+    status: 'active',
+    updatedAt: '',
+    username: ADMIN_USERNAME,
+  };
+}
+
+function normalizeAdminRoleIds(value, fallback = ['admin']) {
+  const known = new Set(adminRoleCatalog().map((role) => role.key));
+  const roleIds = []
+    .concat(value || [])
+    .map((item) => String(item || '').trim())
+    .filter((item) => known.has(item));
+  const unique = Array.from(new Set(roleIds));
+  return unique.length ? unique : fallback;
+}
+
+function publicAdminAccount(account = {}) {
+  return {
+    createdAt: account.createdAt || '',
+    createdBy: account.createdBy || '',
+    disabledAt: account.disabledAt || '',
+    disabledBy: account.disabledBy || '',
+    disabledReason: account.disabledReason || '',
+    displayName: account.displayName || account.username || '',
+    id: account.id || '',
+    lastLoginAt: account.lastLoginAt || '',
+    lastLoginIp: account.lastLoginIp || '',
+    lastLoginUserAgent: account.lastLoginUserAgent || '',
+    lockedUntil: '',
+    mfaEnabled: Boolean(account.mfaEnabled),
+    passwordUpdatedAt: account.passwordUpdatedAt || '',
+    roleIds: normalizeAdminRoleIds(account.roleIds, ['admin']),
+    source: account.source || (account.isEnvAccount ? 'env' : 'state'),
+    status: account.status || 'active',
+    updatedAt: account.updatedAt || '',
+    username: account.username || '',
+  };
+}
+
+function storedAdminAccounts() {
+  const accounts = ensureAdminAccounts();
+  return Object.values(accounts)
+    .filter((account) => account && typeof account === 'object')
+    .map((account) => ({
+      ...account,
+      displayName: normalizeAdminDisplayName(account.displayName, account.username),
+      roleIds: normalizeAdminRoleIds(account.roleIds, ['admin']),
+      source: 'state',
+      status: ['active', 'disabled'].includes(account.status) ? account.status : 'active',
+      username: normalizeAdminUsername(account.username),
+    }))
+    .filter((account) => account.id && account.username);
+}
+
+function findStoredAdminAccountById(accountId) {
+  const id = String(accountId || '').trim();
+  if (!id) return null;
+  const account = ensureAdminAccounts()[id];
+  return account && typeof account === 'object' ? account : null;
+}
+
+function adminAccountByUsername(username) {
+  const normalized = normalizeAdminUsername(username);
+  if (!normalized) return null;
+  if (safeEqualText(normalized, ADMIN_USERNAME)) return adminEnvAccount();
+  return Object.values(ensureAdminAccounts()).find((account) => safeEqualText(normalizeAdminUsername(account?.username), normalized)) || null;
+}
+
+function adminAccountByIdOrUsername(adminId, username) {
+  const id = String(adminId || '').trim();
+  if (id === 'admin-env') return adminEnvAccount();
+  const stored = id ? findStoredAdminAccountById(id) : null;
+  if (stored) return stored.status === 'disabled' ? null : publicAdminAccount(stored);
+  const byUsername = adminAccountByUsername(username);
+  return byUsername?.status === 'disabled' ? null : byUsername;
+}
+
+function adminPasswordHash(password, salt, iterations = ADMIN_PASSWORD_HASH_ITERATIONS) {
+  return crypto.pbkdf2Sync(String(password || ''), String(salt || ''), iterations, 32, 'sha256').toString('hex');
+}
+
+function adminPasswordRecord(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const iterations = ADMIN_PASSWORD_HASH_ITERATIONS;
+  return {
+    passwordHash: adminPasswordHash(password, salt, iterations),
+    passwordIterations: iterations,
+    passwordSalt: salt,
+    passwordUpdatedAt: new Date().toISOString(),
+  };
+}
+
+function verifyAdminAccountPassword(account, password) {
+  if (!account) return false;
+  if (account.isEnvAccount) return safeEqualText(password, ADMIN_PASSWORD);
+  const salt = String(account.passwordSalt || '');
+  const hash = String(account.passwordHash || '');
+  const iterations = Math.max(1, Number(account.passwordIterations || ADMIN_PASSWORD_HASH_ITERATIONS));
+  if (!salt || !hash) return false;
+  return safeEqualText(adminPasswordHash(password, salt, iterations), hash);
+}
+
+function adminCanManageAccounts(admin = {}) {
+  const roleIds = normalizeAdminRoleIds(admin.roleIds, ['admin']);
+  return roleIds.includes('admin') || roleIds.includes('super_admin');
+}
+
+function requireAdminAccountManager(admin) {
+  if (adminCanManageAccounts(admin)) return null;
+  return { error: '当前管理员没有账号权限管理能力', statusCode: 403, code: 'ADMIN_ACCOUNT_PERMISSION_DENIED' };
+}
+
+function adminAccountReason(value, fallback = '') {
+  const reason = String(value || fallback || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (reason.length < ADMIN_EXPORT_REASON_MIN_LENGTH) {
+    return { error: `请填写操作原因（至少 ${ADMIN_EXPORT_REASON_MIN_LENGTH} 个字）`, statusCode: 400, code: 'ADMIN_ACCOUNT_REASON_REQUIRED' };
+  }
+  return { reason };
+}
+
+function createAdminToken(accountOrUsername) {
   const now = Date.now();
+  const account = typeof accountOrUsername === 'string' ? adminAccountByUsername(accountOrUsername) : accountOrUsername;
+  const username = account?.username || ADMIN_USERNAME;
+  const roleIds = normalizeAdminRoleIds(account?.roleIds, ['admin']);
   const payloadPart = base64UrlEncode(
     JSON.stringify({
+      adminId: account?.id || (safeEqualText(username, ADMIN_USERNAME) ? 'admin-env' : ''),
       exp: now + ADMIN_TOKEN_TTL_MS,
       iat: now,
       jti: crypto.randomBytes(12).toString('hex'),
       role: 'admin',
+      roleIds,
       username,
-      version: 1,
+      version: 2,
     }),
   );
   return `lumii-admin-v1.${payloadPart}.${authTokenSignature(payloadPart)}`;
@@ -5902,14 +6060,23 @@ function adminFromRequest(req) {
     if (prefix !== 'lumii-admin-v1' || !payloadPart || !signature) return null;
     if (!safeEqualText(signature, authTokenSignature(payloadPart))) return null;
     const payload = JSON.parse(base64UrlDecode(payloadPart));
-    if (payload?.version !== 1 || payload?.role !== 'admin') return null;
+    if (![1, 2].includes(Number(payload?.version || 0)) || payload?.role !== 'admin') return null;
     if (Number(payload.exp || 0) < Date.now()) return null;
+    const account = adminAccountByIdOrUsername(payload.adminId, payload.username);
+    if (!account) return null;
+    const issuedAt = Number(payload.iat || 0);
+    const passwordUpdatedAt = Date.parse(String(account.passwordUpdatedAt || ''));
+    if (Number.isFinite(passwordUpdatedAt) && passwordUpdatedAt > issuedAt) return null;
+    const roleIds = normalizeAdminRoleIds(payload.roleIds || account.roleIds, ['admin']);
     return {
+      displayName: account.displayName || account.username,
       expiresAt: Number(payload.exp || 0),
+      id: account.id || '',
       issuedAt: Number(payload.iat || 0),
       jti: String(payload.jti || ''),
-      role: 'admin',
-      username: String(payload.username || ADMIN_USERNAME),
+      role: roleIds[0] || 'admin',
+      roleIds,
+      username: String(account.username || payload.username || ADMIN_USERNAME),
     };
   } catch (_) {
     return null;
@@ -19128,7 +19295,7 @@ function adminPermissionCatalog() {
 
 function adminRoleCatalog() {
   return [
-    { key: 'admin', label: '单管理员', note: '当前版本唯一实际角色，拥有后台全部已开放能力。', status: 'active' },
+    { key: 'admin', label: '管理员', note: '当前阶段唯一实际运行角色，拥有后台全部已开放能力；多账号已接入，细角色拦截后续补齐。', status: 'active' },
     { key: 'super_admin', label: '超级管理员', note: '生产期用于账号权限、双人审批最终确认和危险配置。', status: 'reserved' },
     { key: 'ops_admin', label: '运营管理员', note: '生产期用于日常运营、配置、通知和工单。', status: 'reserved' },
     { key: 'content_moderator', label: '内容审核员', note: '生产期用于动态、评论、图片和地点内容审核。', status: 'reserved' },
@@ -19139,6 +19306,122 @@ function adminRoleCatalog() {
 
 function adminAccountHighRiskPattern() {
   return /(ban|clear|config|delete|export|freeze|hide|revoke|rollback|sanction|send|submission|update)/i;
+}
+
+function adminStoredAccountRows() {
+  return storedAdminAccounts()
+    .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')))
+    .map(publicAdminAccount);
+}
+
+function adminAccountRows(loginLogs = []) {
+  const lastEnvLogin = loginLogs.find((log) => safeEqualText(log.adminName || '', ADMIN_USERNAME)) || loginLogs[0] || null;
+  return [
+    {
+      ...publicAdminAccount(adminEnvAccount()),
+      lastLoginAt: lastEnvLogin?.createdAt || '',
+      lastLoginIp: lastEnvLogin?.ip || '',
+      lockedUntil: adminLoginSecurityStatus().lockedUntil,
+      status: adminLoginSecurityStatus().locked ? 'locked' : 'active',
+    },
+    ...adminStoredAccountRows(),
+  ];
+}
+
+function validateAdminUsername(username) {
+  const normalized = normalizeAdminUsername(username);
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.@-]{2,63}$/.test(normalized)) {
+    return { error: '账号名需为 3-64 位字母、数字、点、下划线、横线或 @，且不能以符号开头', statusCode: 400, code: 'ADMIN_ACCOUNT_USERNAME_INVALID' };
+  }
+  if (safeEqualText(normalized, ADMIN_USERNAME) || adminAccountByUsername(normalized)) {
+    return { error: '后台账号已存在', statusCode: 409, code: 'ADMIN_ACCOUNT_EXISTS' };
+  }
+  return { username: normalized };
+}
+
+function validateAdminPassword(password) {
+  const text = String(password || '');
+  if (text.length < ADMIN_PASSWORD_MIN_LENGTH) {
+    return { error: `后台账号密码至少需要 ${ADMIN_PASSWORD_MIN_LENGTH} 位`, statusCode: 400, code: 'ADMIN_ACCOUNT_PASSWORD_WEAK' };
+  }
+  if (!/[A-Za-z]/.test(text) || !/\d/.test(text)) {
+    return { error: '后台账号密码需要同时包含字母和数字', statusCode: 400, code: 'ADMIN_ACCOUNT_PASSWORD_WEAK' };
+  }
+  return { password: text };
+}
+
+function createAdminAccount(admin, body = {}) {
+  const permission = requireAdminAccountManager(admin);
+  if (permission) return permission;
+  const usernameResult = validateAdminUsername(body.username);
+  if (usernameResult.error) return usernameResult;
+  const passwordResult = validateAdminPassword(body.password);
+  if (passwordResult.error) return passwordResult;
+  const reasonResult = adminAccountReason(body.reason, '新增后台管理员账号');
+  if (reasonResult.error) return reasonResult;
+  const now = new Date().toISOString();
+  const id = `admin-account-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const account = {
+    ...adminPasswordRecord(passwordResult.password),
+    createdAt: now,
+    createdBy: admin?.username || ADMIN_USERNAME,
+    displayName: normalizeAdminDisplayName(body.displayName, usernameResult.username),
+    id,
+    mfaEnabled: false,
+    roleIds: ['admin'],
+    source: 'state',
+    status: 'active',
+    updatedAt: now,
+    username: usernameResult.username,
+  };
+  ensureAdminAccounts()[id] = account;
+  writeAdminAudit(admin, 'admin.account.create', 'admin_account', id, null, publicAdminAccount(account), reasonResult.reason);
+  return { account: publicAdminAccount(account), accounts: adminAccountRows(), summary: adminAccounts(admin).summary };
+}
+
+function changeAdminAccountStatus(admin, accountId, status, body = {}) {
+  const permission = requireAdminAccountManager(admin);
+  if (permission) return permission;
+  const account = findStoredAdminAccountById(accountId);
+  if (!account) return { error: '后台账号不存在，环境变量账号不能在这里禁用', statusCode: 404, code: 'ADMIN_ACCOUNT_NOT_FOUND' };
+  if (safeEqualText(account.id, admin?.id || '')) return { error: '不能禁用当前登录账号', statusCode: 409, code: 'ADMIN_ACCOUNT_SELF_DISABLE' };
+  const reasonResult = adminAccountReason(body.reason, status === 'disabled' ? '禁用后台账号' : '启用后台账号');
+  if (reasonResult.error) return reasonResult;
+  const before = publicAdminAccount(account);
+  const now = new Date().toISOString();
+  account.status = status;
+  account.updatedAt = now;
+  if (status === 'disabled') {
+    account.disabledAt = now;
+    account.disabledBy = admin?.username || ADMIN_USERNAME;
+    account.disabledReason = reasonResult.reason;
+  } else {
+    account.disabledAt = '';
+    account.disabledBy = '';
+    account.disabledReason = '';
+  }
+  const after = publicAdminAccount(account);
+  writeAdminAudit(admin, status === 'disabled' ? 'admin.account.disable' : 'admin.account.enable', 'admin_account', account.id, before, after, reasonResult.reason);
+  return { account: after, accounts: adminAccountRows(), summary: adminAccounts(admin).summary };
+}
+
+function resetAdminAccountPassword(admin, accountId, body = {}) {
+  const permission = requireAdminAccountManager(admin);
+  if (permission) return permission;
+  const account = findStoredAdminAccountById(accountId);
+  if (!account) return { error: '后台账号不存在，环境变量账号密码只能通过环境变量修改', statusCode: 404, code: 'ADMIN_ACCOUNT_NOT_FOUND' };
+  const passwordResult = validateAdminPassword(body.password);
+  if (passwordResult.error) return passwordResult;
+  const reasonResult = adminAccountReason(body.reason, '重置后台账号密码');
+  if (reasonResult.error) return reasonResult;
+  const before = publicAdminAccount(account);
+  Object.assign(account, adminPasswordRecord(passwordResult.password), {
+    passwordResetBy: admin?.username || ADMIN_USERNAME,
+    updatedAt: new Date().toISOString(),
+  });
+  const after = publicAdminAccount(account);
+  writeAdminAudit(admin, 'admin.account.reset_password', 'admin_account', account.id, before, after, reasonResult.reason);
+  return { account: after, accounts: adminAccountRows(), summary: adminAccounts(admin).summary };
 }
 
 function adminAccounts(admin = {}) {
@@ -19182,35 +19465,25 @@ function adminAccounts(admin = {}) {
   const usernameFromEnv = Boolean(process.env.LUMII_ADMIN_USERNAME);
   const loginSecurity = adminLoginSecurityStatus();
   const ipAllowlist = adminIpAllowlistStatus(admin.ip || '');
+  const accountRows = adminAccountRows(loginLogs);
+  const storedCount = adminStoredAccountRows().length;
   const checks = [
     adminCheckStatus(usernameFromEnv && passwordFromEnv ? 'ok' : 'warn', 'credential_env', '后台账号环境变量', passwordFromEnv ? '后台密码由环境变量覆盖' : '仍可能使用默认后台密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus(loginSecurity.locked ? 'warn' : 'ok', 'login_lockout', '登录失败锁定', loginSecurity.locked ? `当前已锁定到 ${loginSecurity.lockedUntil}` : `连续 ${loginSecurity.maxAttempts} 次失败会锁定 ${loginSecurity.lockMinutes} 分钟`, 'LUMII_ADMIN_LOGIN_MAX_ATTEMPTS / LUMII_ADMIN_LOGIN_LOCK_MS'),
-    adminCheckStatus('warn', 'mfa', 'MFA', '当前单 admin 版本未接 MFA，生产期必须补齐。', '预留'),
+    adminCheckStatus('warn', 'mfa', 'MFA', '当前后台账号未接 MFA，生产期必须补齐。', '预留'),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'ip_allowlist', 'IP 白名单', ipAllowlist.configured ? `已启用后端白名单，当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '当前未强制后台 IP 白名单，生产期应在网关或后端启用。', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
-    adminCheckStatus('warn', 'multi_accounts', '多管理员账号', '当前只有一个环境变量 admin 账号，未开放新增、禁用、重置密码。', '预留'),
+    adminCheckStatus(storedCount > 0 ? 'ok' : 'warn', 'multi_accounts', '多管理员账号', storedCount > 0 ? `已启用 ${storedCount} 个 state 管理员账号，可新增、禁用、启用和重置密码。` : '当前只有环境变量 admin 账号，可在本页新增 state 管理员账号。', 'JSON state：adminAccounts'),
   ];
-  const lastLogin = loginLogs[0] || null;
   return {
-    accounts: [
-      {
-        createdAt: '',
-        displayName: ADMIN_USERNAME,
-        id: 'admin-env',
-        lastLoginAt: lastLogin?.createdAt || '',
-        lastLoginIp: lastLogin?.ip || '',
-        lockedUntil: loginSecurity.lockedUntil,
-        mfaEnabled: false,
-        roleIds: ['admin'],
-        status: loginSecurity.locked ? 'locked' : 'active',
-        updatedAt: '',
-        username: ADMIN_USERNAME,
-      },
-    ],
+    accounts: accountRows,
     currentSession: {
+      displayName: admin.displayName || admin.username || ADMIN_USERNAME,
       expiresAt: admin.expiresAt ? new Date(admin.expiresAt).toISOString() : '',
+      id: admin.id || '',
       issuedAt: admin.issuedAt ? new Date(admin.issuedAt).toISOString() : '',
       ip: admin.ip || '',
       role: admin.role || 'admin',
+      roleIds: normalizeAdminRoleIds(admin.roleIds, ['admin']),
       tokenId: admin.jti ? `${String(admin.jti).slice(0, 6)}...${String(admin.jti).slice(-4)}` : '',
       userAgent: admin.userAgent || '',
       username: admin.username || ADMIN_USERNAME,
@@ -19229,12 +19502,13 @@ function adminAccounts(admin = {}) {
     },
     loginSecurity,
     summary: {
-      activeAccounts: 1,
+      activeAccounts: accountRows.filter((account) => account.status === 'active').length,
       activePermissions: adminPermissionCatalog().length,
       failedAttempts: loginSecurity.failedAttempts,
-      lockedAccounts: loginSecurity.locked ? 1 : 0,
+      lockedAccounts: accountRows.filter((account) => account.status === 'locked').length,
       reservedRoles: adminRoleCatalog().filter((role) => role.status === 'reserved').length,
       securityWarnings: checks.filter((check) => check.status !== 'ok').length,
+      stateAccounts: storedCount,
     },
     updatedAt: new Date().toISOString(),
     recentFailedLogins: failedLoginLogs,
@@ -25198,11 +25472,15 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   if (req.method === 'POST' && pathname === '/admin/auth/login') {
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
+    const account = adminAccountByUsername(username);
     const admin = {
+      displayName: account?.displayName || username,
+      id: account?.id || '',
       ip: clientIpFromRequest(req),
-      role: 'admin',
+      role: normalizeAdminRoleIds(account?.roleIds, ['admin'])[0],
+      roleIds: normalizeAdminRoleIds(account?.roleIds, ['admin']),
       userAgent: String(req.headers['user-agent'] || '').slice(0, 180),
-      username,
+      username: account?.username || username,
     };
     const lockStatus = adminLoginSecurityStatus();
     if (lockStatus.locked) {
@@ -25211,7 +25489,13 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       fail(res, 429, `后台登录已被临时锁定，请 ${lockStatus.remainingLockMinutes} 分钟后再试`, true, lockStatus, 'ADMIN_LOGIN_LOCKED');
       return true;
     }
-    if (!safeEqualText(username, ADMIN_USERNAME) || !safeEqualText(password, ADMIN_PASSWORD)) {
+    if (account?.status === 'disabled') {
+      writeAdminAudit(admin, 'admin.login.disabled_account', 'admin_user', account.username, null, publicAdminAccount(account), '禁用账号尝试登录');
+      saveState();
+      fail(res, 403, '该后台账号已被禁用，请联系超级管理员', false, undefined, 'ADMIN_ACCOUNT_DISABLED');
+      return true;
+    }
+    if (!account || !verifyAdminAccountPassword(account, password)) {
       const failedStatus = recordAdminLoginFailure(admin, username, '管理员账号或密码不正确');
       saveState();
       if (failedStatus.locked) {
@@ -25221,10 +25505,16 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       fail(res, 401, `管理员账号或密码不正确，还可尝试 ${Math.max(0, failedStatus.maxAttempts - failedStatus.failedAttempts)} 次`, false, failedStatus, 'ADMIN_LOGIN_FAILED');
       return true;
     }
+    if (!account.isEnvAccount) {
+      account.lastLoginAt = new Date().toISOString();
+      account.lastLoginIp = admin.ip || '';
+      account.lastLoginUserAgent = admin.userAgent || '';
+      account.updatedAt = account.updatedAt || account.lastLoginAt;
+    }
     recordAdminLoginSuccess(admin);
-    writeAdminAudit(admin, 'admin.login', 'admin_user', username, null, { username }, 'login');
+    writeAdminAudit(admin, 'admin.login', 'admin_user', account.id || account.username, null, publicAdminAccount(account), 'login');
     saveState();
-    ok(res, { admin, loginSecurity: adminLoginSecurityStatus(), token: createAdminToken(username) });
+    ok(res, { admin, loginSecurity: adminLoginSecurityStatus(), token: createAdminToken(account) });
     return true;
   }
 
@@ -25240,6 +25530,33 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/accounts') {
     ok(res, adminAccounts(admin));
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/accounts') {
+    const result = createAdminAccount(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_ACCOUNT_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminAccountStatusMatch = pathname.match(/^\/admin\/accounts\/([^/]+)\/(disable|enable|reset-password)$/);
+  if (req.method === 'POST' && adminAccountStatusMatch) {
+    const accountId = decodeURIComponent(adminAccountStatusMatch[1]);
+    const action = adminAccountStatusMatch[2];
+    const result = action === 'reset-password'
+      ? resetAdminAccountPassword(admin, accountId, body)
+      : changeAdminAccountStatus(admin, accountId, action === 'disable' ? 'disabled' : 'active', body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_ACCOUNT_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

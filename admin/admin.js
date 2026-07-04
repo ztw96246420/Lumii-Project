@@ -381,6 +381,22 @@ async function onContentClick(event) {
       await resetLaunchReadinessQuestion(button);
       return;
     }
+    if (action === 'admin-account-create') {
+      await handleAdminAccountCreate();
+      return;
+    }
+    if (action === 'admin-account-disable') {
+      await handleAdminAccountStatus(button, 'disable');
+      return;
+    }
+    if (action === 'admin-account-enable') {
+      await handleAdminAccountStatus(button, 'enable');
+      return;
+    }
+    if (action === 'admin-account-reset-password') {
+      await handleAdminAccountPasswordReset(button);
+      return;
+    }
     if (action === 'moderation-filter') {
       state.moderationStatus = $('moderationStatus').value;
       state.moderationQ = $('moderationQ').value.trim();
@@ -2422,6 +2438,61 @@ async function renderLaunchReadiness(force) {
   `;
 }
 
+function adminAccountActionCell(row) {
+  if (row.source === 'env') {
+    return '<span class="cell-sub">环境变量账号请在服务器环境变量中维护。</span>';
+  }
+  const disabled = row.status === 'disabled';
+  return `
+    <div class="actions">
+      <button class="small-button" data-action="${disabled ? 'admin-account-enable' : 'admin-account-disable'}" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">${disabled ? '启用' : '禁用'}</button>
+      <button class="small-button ghost" data-action="admin-account-reset-password" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">重置密码</button>
+    </div>
+  `;
+}
+
+async function handleAdminAccountCreate() {
+  const username = $('adminAccountUsername').value.trim();
+  const displayName = $('adminAccountDisplayName').value.trim();
+  const password = $('adminAccountPassword').value;
+  const reason = $('adminAccountReason').value.trim() || '新增后台管理员账号';
+  await post('/admin/accounts', { displayName, password, reason, username });
+  ['adminAccountUsername', 'adminAccountDisplayName', 'adminAccountPassword'].forEach((id) => {
+    const node = $(id);
+    if (node) node.value = '';
+  });
+  state.cache.adminAccounts = null;
+  state.cache.audit = null;
+  showToast('后台账号已创建');
+  await render(true);
+}
+
+async function handleAdminAccountStatus(button, action) {
+  const username = button.dataset.username || '该账号';
+  const verb = action === 'disable' ? '禁用' : '启用';
+  const reason = window.prompt(`请输入${verb} ${username} 的原因`, `${verb}后台管理员账号`);
+  if (reason === null) return;
+  if (!window.confirm(`确认${verb}后台账号 ${username}？`)) return;
+  await post(`/admin/accounts/${encodeURIComponent(button.dataset.id)}/${action}`, { reason: reason.trim() || `${verb}后台管理员账号` });
+  state.cache.adminAccounts = null;
+  state.cache.audit = null;
+  showToast(`账号已${verb}`);
+  await render(true);
+}
+
+async function handleAdminAccountPasswordReset(button) {
+  const username = button.dataset.username || '该账号';
+  const password = window.prompt(`请输入 ${username} 的新密码（至少 10 位，含字母和数字）`);
+  if (password === null) return;
+  const reason = window.prompt('请输入重置密码原因', '重置后台管理员密码');
+  if (reason === null) return;
+  await post(`/admin/accounts/${encodeURIComponent(button.dataset.id)}/reset-password`, { password, reason: reason.trim() || '重置后台管理员密码' });
+  state.cache.adminAccounts = null;
+  state.cache.audit = null;
+  showToast('账号密码已重置');
+  await render(true);
+}
+
 async function renderAdminAccounts(force) {
   const data = await load('adminAccounts', '/admin/accounts', force);
   const summary = data.summary || {};
@@ -2430,9 +2501,9 @@ async function renderAdminAccounts(force) {
   const ipAllowlist = data.security?.ipAllowlist || {};
   $('content').innerHTML = `
     <div class="grid metrics">
-      ${metric('管理员账号', numberText(summary.activeAccounts || 0), '当前仅单 admin', '当前版本只开放一个环境变量后台账号，App 用户账号与后台账号分离。')}
+      ${metric('管理员账号', numberText(summary.activeAccounts || 0), `${numberText(summary.stateAccounts || 0)} 个 state 账号`, '后台账号与 App 用户账号分离。环境变量 admin 仍可用，新增账号保存在服务端 state。')}
       ${metric('已开放权限', numberText(summary.activePermissions || 0), 'admin 全量权限', '当前没有细角色拦截，页面明确列出实际开放能力和生产期预留角色。')}
-      ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.reservedRoles || 0)} 个预留角色`, 'MFA、多管理员和密码轮换仍是生产期治理能力；登录失败锁定与后端 IP 白名单能力已接入。')}
+      ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.reservedRoles || 0)} 个预留角色`, '多管理员基础能力已接入；MFA、细角色拦截和密码轮换仍是生产期治理能力。')}
       ${metric('登录保护', loginSecurity.locked ? '已锁定' : `${numberText(loginSecurity.failedAttempts || 0)}/${numberText(loginSecurity.maxAttempts || 5)}`, loginSecurity.locked ? `到 ${formatTime(loginSecurity.lockedUntil)}` : `${numberText(loginSecurity.lockMinutes || 15)} 分钟锁定`, '连续失败达到阈值后，后台会临时锁定登录，并写入审计日志。')}
       ${metric('IP 白名单', ipAllowlist.configured ? '已启用' : '未启用', ipAllowlist.configured ? `${numberText(ipAllowlist.entryCount || 0)} 条规则 · 当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '配置环境变量后生效', '配置 LUMII_ADMIN_IP_ALLOWLIST 后，/admin 页面和 /admin/* API 都会拦截非白名单 IP。')}
       ${metric('当前会话', session.expiresAt ? formatTime(session.expiresAt) : '-', `${escapeHtml(session.ip || 'IP 未记录')}`, '当前后台 token 的到期时间、请求 IP 和 User-Agent 摘要。')}
@@ -2442,17 +2513,20 @@ async function renderAdminAccounts(force) {
       <div class="card">
         <div class="section-head">
           <div>
-            <h2>当前后台账号</h2>
-            <div class="section-sub">环境变量账号 · 单 admin 权限</div>
+            <h2>新增后台账号</h2>
+            <div class="section-sub">保存到服务端 state · 当前统一 admin 权限</div>
           </div>
-          ${help('这里不展示密码或任何密钥值，只展示后台账号来源、状态、MFA 状态和最近登录证据。')}
+          ${help('这是多管理员底座，不会复用 App 手机号账号。密码只保存 PBKDF2 哈希，不会在后台回显。当前阶段新增账号均按 admin 权限处理，后续再接细角色拦截。')}
         </div>
-        ${tableHtml(data.accounts || [], [
-          ['账号', (row) => `<div class="cell-title">${escapeHtml(row.displayName || row.username)}</div><div class="cell-sub">${escapeHtml(row.id)} · ${escapeHtml(row.username)}</div>`],
-          ['角色', (row) => `<div>${(row.roleIds || []).map((role) => statusPill(role)).join(' ')}</div><div class="cell-sub">${row.mfaEnabled ? 'MFA 已启用' : 'MFA 未启用'}</div>`],
-          ['状态', (row) => `${statusPill(row.status)}<div class="cell-sub">${row.lastLoginAt ? `最近登录 ${formatTime(row.lastLoginAt)}` : '暂无登录记录'}</div>`],
-          ['最近 IP', (row) => `<div class="cell-sub">${escapeHtml(row.lastLoginIp || 'IP 未记录')}</div>`],
-        ], '暂无后台账号')}
+        <div class="form-grid">
+          <label>账号名<input id="adminAccountUsername" maxlength="64" placeholder="例如 ops_admin_01" /></label>
+          <label>显示名称<input id="adminAccountDisplayName" maxlength="40" placeholder="例如 运营管理员" /></label>
+          <label>初始密码<input id="adminAccountPassword" type="password" autocomplete="new-password" placeholder="至少 10 位，含字母和数字" /></label>
+          <label>操作原因<input id="adminAccountReason" maxlength="120" value="新增后台管理员账号" /></label>
+          <div class="form-actions">
+            <button class="primary-button" data-action="admin-account-create">创建账号</button>
+          </div>
+        </div>
       </div>
 
       <div class="card">
@@ -2469,6 +2543,24 @@ async function renderAdminAccounts(force) {
           ['说明', (row) => `<div>${escapeHtml(row.detail || '-')}</div><div class="cell-sub">${escapeHtml(row.evidence || '-')}</div>`],
         ], '暂无安全检查')}
       </div>
+    </div>
+
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>后台账号列表</h2>
+          <div class="section-sub">环境变量账号 + state 账号；禁用后 token 会失效</div>
+        </div>
+        ${help('环境变量账号不能在页面禁用或重置密码，仍需在服务器环境变量中维护。state 账号可禁用、启用和重置密码，所有操作都会写审计日志。')}
+      </div>
+      ${tableHtml(data.accounts || [], [
+        ['账号', (row) => `<div class="cell-title">${escapeHtml(row.displayName || row.username)}</div><div class="cell-sub">${escapeHtml(row.id)} · ${escapeHtml(row.username)} · ${escapeHtml(row.source || '-')}</div>`],
+        ['角色', (row) => `<div>${(row.roleIds || []).map((role) => statusPill(role)).join(' ')}</div><div class="cell-sub">${row.mfaEnabled ? 'MFA 已启用' : 'MFA 未启用'}</div>`],
+        ['状态', (row) => `${statusPill(row.status)}<div class="cell-sub">${row.disabledAt ? `禁用：${formatTime(row.disabledAt)}` : row.lastLoginAt ? `最近登录 ${formatTime(row.lastLoginAt)}` : '暂无登录记录'}</div>`],
+        ['最近 IP', (row) => `<div class="cell-sub">${escapeHtml(row.lastLoginIp || 'IP 未记录')}</div>`],
+        ['密码', (row) => `<div class="cell-sub">${row.passwordUpdatedAt ? `最近更新 ${formatTime(row.passwordUpdatedAt)}` : row.source === 'env' ? '环境变量维护' : '未记录'}</div>`],
+        ['操作', (row) => adminAccountActionCell(row)],
+      ], '暂无后台账号')}
     </div>
 
     <div class="grid two">
