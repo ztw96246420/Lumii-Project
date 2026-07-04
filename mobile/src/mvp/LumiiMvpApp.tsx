@@ -39,6 +39,7 @@ import {
   CalendarDays,
   Camera,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -2578,6 +2579,7 @@ export default function LumiiMvpApp() {
   const [placeReviewsByPlaceId, setPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview>>({});
   const [publicPlaceReviewsByPlaceId, setPublicPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview[]>>({});
   const [publicPlaceReviewsLoadingId, setPublicPlaceReviewsLoadingId] = useState('');
+  const [expandedPublicPlaceReviewPlaceIds, setExpandedPublicPlaceReviewPlaceIds] = useState<string[]>([]);
   const [placeReportingIds, setPlaceReportingIds] = useState<string[]>([]);
   const [placeReviewReportingIds, setPlaceReviewReportingIds] = useState<string[]>([]);
   const [locatingMap, setLocatingMap] = useState(false);
@@ -9303,6 +9305,7 @@ export default function LumiiMvpApp() {
     setPlaceReviewsByPlaceId({});
     setPublicPlaceReviewsByPlaceId({});
     setPublicPlaceReviewsLoadingId('');
+    setExpandedPublicPlaceReviewPlaceIds([]);
     setPlaceReportingIds([]);
     setPlaceReviewReportingIds([]);
     setCustomPlaceFeatureDraft('');
@@ -14266,7 +14269,12 @@ export default function LumiiMvpApp() {
         }
         return publicReviewTime(b).localeCompare(publicReviewTime(a));
       });
-    const visiblePublicPlaceReviews = configuredPublicPlaceReviews.slice(0, publicReviewDisplayLimit);
+    const publicReviewExpanded = Boolean(place && expandedPublicPlaceReviewPlaceIds.includes(place.id));
+    const visiblePublicPlaceReviews = publicReviewExpanded
+      ? configuredPublicPlaceReviews
+      : configuredPublicPlaceReviews.slice(0, publicReviewDisplayLimit);
+    const publicReviewHiddenCount = Math.max(0, configuredPublicPlaceReviews.length - publicReviewDisplayLimit);
+    const publicReviewCanToggle = configuredPublicPlaceReviews.length > publicReviewDisplayLimit;
     const publicReviewPolicyLabel = publicReviewConfig.requirePhotos
       ? '仅有图'
       : publicReviewSort === 'oldest'
@@ -14460,6 +14468,31 @@ export default function LumiiMvpApp() {
                     <Text style={styles.placePublicReviewEmptyTextMake}>还没有公开点评，写一条真实体验帮附近宠友判断。</Text>
                   </View>
                 )}
+                {publicReviewCanToggle ? (
+                  <Pressable
+                    accessibilityLabel={publicReviewExpanded ? '收起公开点评' : '查看更多公开点评'}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      if (!place) return;
+                      setExpandedPublicPlaceReviewPlaceIds((ids) => (
+                        ids.includes(place.id)
+                          ? ids.filter((id) => id !== place.id)
+                          : [...ids, place.id]
+                      ));
+                    }}
+                    style={[styles.placePublicReviewMoreButtonMake, webPressableReset]}
+                  >
+                    <Text style={styles.placePublicReviewMoreTextMake}>
+                      {publicReviewExpanded ? '收起点评' : `查看更多 ${publicReviewHiddenCount} 条`}
+                    </Text>
+                    <ChevronDown
+                      color={palette.orange}
+                      size={14}
+                      strokeWidth={2.6}
+                      style={publicReviewExpanded ? styles.placePublicReviewMoreIconExpandedMake : undefined}
+                    />
+                  </Pressable>
+                ) : null}
               </View>
               <View style={styles.placeDetailBottomCtaMake}>
                 {walkInvitePickingPlace ? (
@@ -19959,6 +19992,9 @@ const styles = StyleSheet.create({
   placePublicReviewEmptyTextMake: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18 },
   placePublicReviewItemMake: { borderColor: 'rgba(234,223,210,0.86)', borderTopWidth: 1, paddingTop: 12 },
   placePublicReviewListMake: { gap: 12, marginTop: 12 },
+  placePublicReviewMoreButtonMake: { alignItems: 'center', alignSelf: 'center', backgroundColor: 'rgba(255,138,92,0.08)', borderColor: 'rgba(255,138,92,0.22)', borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 5, marginTop: 12, minHeight: 34, paddingHorizontal: 14, paddingVertical: 7 },
+  placePublicReviewMoreIconExpandedMake: { transform: [{ rotate: '180deg' }] },
+  placePublicReviewMoreTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800', lineHeight: 16 },
   placePublicReviewPhotoMake: { backgroundColor: palette.pale, borderRadius: 10, height: 58, width: 58 },
   placePublicReviewPhotoRowMake: { flexDirection: 'row', gap: 7, marginTop: 10 },
   placePublicReviewReportMake: { alignItems: 'center', backgroundColor: 'rgba(255, 185, 75, 0.13)', borderRadius: 999, flexDirection: 'row', gap: 4, minHeight: 28, paddingHorizontal: 9, paddingVertical: 5 },

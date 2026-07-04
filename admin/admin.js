@@ -8021,11 +8021,11 @@ async function renderConfig(force) {
             <h2>地点公开点评</h2>
             <div class="section-sub">控制 App 地点详情公开点评的排序、图片过滤和首屏展示数量</div>
           </div>
-          ${help('这里会同时影响后端 /places/{id}/reviews 的返回口径和移动端地点详情的展示条数。默认保持现状：最新优先、不过滤有图、后端最多 20 条、详情页展示 3 条。')}
+          ${help('这里会同时影响后端 /places/{id}/reviews 的返回口径和移动端地点详情的展示条数。超过首屏条数时，移动端会展示“查看更多/收起”，最多展开到后端返回上限。')}
         </div>
         <div class="switch-panel">
           ${featureCheckbox('cfgPlaceReviewRequirePhotos', '只展示带图片点评', Boolean(placesPublicReviews.requirePhotos))}
-          <div class="switch-row"><span>移动端“查看更多”</span>${statusPill('预留')}</div>
+          <div class="switch-row"><span>移动端“查看更多”</span>${tonePill('已接入', 'ok')}</div>
         </div>
         <div class="config-grid">
           <label>公开点评排序

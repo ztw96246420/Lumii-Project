@@ -2638,8 +2638,8 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       key: 'places.publicReviews',
       label: '地点公开点评展示策略',
       mobileApplied: true,
-      mobileEvidence: '移动端地点详情读取 remoteConfig.places.publicReviews，控制首屏展示条数和点评策略文案。',
-      operatorNote: '默认保持最新优先、不过滤有图、后端最多 20 条、详情页展示 3 条；后续可在此基础上接“查看更多”。',
+      mobileEvidence: '移动端地点详情读取 remoteConfig.places.publicReviews，控制首屏展示条数、点评策略文案和“查看更多/收起”展开范围。',
+      operatorNote: '默认保持最新优先、不过滤有图、后端最多 20 条、详情页展示 3 条；超过首屏条数时移动端可展开到后端返回上限。',
       userImpact: '影响用户在地点详情看到哪些公开点评，以及首屏看到几条。',
     },
     {
