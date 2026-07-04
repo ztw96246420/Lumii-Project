@@ -1522,6 +1522,7 @@ const places: Place[] = [
 let favoritePlaceIds: string[] = [];
 let placeReviews: PlaceReview[] = [];
 let placeReviewReportedIds: string[] = [];
+let placeReportedIds: string[] = [];
 let placeSubmissions: PlaceSubmission[] = [];
 
 function buildMockSanctionAppealList(): SanctionAppealList {
@@ -3565,6 +3566,15 @@ export const mockApi = {
       if (!review || review.status !== 'approved') return error<PetCircleReportResult>('地点点评不存在或已不可见', false, undefined, 'PLACE_REVIEW_REPORT_INVALID');
       placeReviewReportedIds = [reviewId, ...placeReviewReportedIds];
       return success({ id: `mock-report-${Date.now()}`, reported: true, targetId: reviewId, targetType: 'place_review' });
+    },
+
+    async reportPlace(placeId: string, _content?: string): Promise<ApiResult<PetCircleReportResult>> {
+      await wait(140);
+      const place = places.find((item) => item.id === placeId);
+      if (placeReportedIds.includes(placeId)) return success({ id: `mock-report-place-${placeId}`, reported: true, targetId: placeId, targetType: 'place' });
+      if (!place) return error<PetCircleReportResult>('地点不存在或已不可见', false, undefined, 'PLACE_REPORT_INVALID');
+      placeReportedIds = [placeId, ...placeReportedIds];
+      return success({ id: `mock-report-${Date.now()}`, reported: true, targetId: placeId, targetType: 'place' });
     },
 
     async createSubmission(name: string, address: string, content: string, imageUrls: string[] = []): Promise<ApiResult<PlaceSubmission>> {

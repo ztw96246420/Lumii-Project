@@ -2571,6 +2571,7 @@ export default function LumiiMvpApp() {
   const [placeReviewsByPlaceId, setPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview>>({});
   const [publicPlaceReviewsByPlaceId, setPublicPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview[]>>({});
   const [publicPlaceReviewsLoadingId, setPublicPlaceReviewsLoadingId] = useState('');
+  const [placeReportingIds, setPlaceReportingIds] = useState<string[]>([]);
   const [placeReviewReportingIds, setPlaceReviewReportingIds] = useState<string[]>([]);
   const [locatingMap, setLocatingMap] = useState(false);
   const locatingMapRef = useRef(false);
@@ -5081,6 +5082,30 @@ export default function LumiiMvpApp() {
       showToast(result.error?.message ?? '举报提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
     } finally {
       setPlaceReviewReportingIds((ids) => ids.filter((id) => id !== review.id));
+    }
+  }
+
+  async function reportPlace(place: Place) {
+    if (!placesEnabled || !place.id || placeReportingIds.includes(place.id)) return;
+    const confirmed = await confirmAction('举报这个地点？', '我们会把地点名称、地址和宠物友好信息提交给运营复核。', '提交举报', true);
+    if (!confirmed) return;
+    setPlaceReportingIds((ids) => [...ids, place.id]);
+    try {
+      const feedbackContent = [
+        '地点信息举报',
+        `地点：${place.name}`,
+        `地址：${place.address}`,
+        place.category ? `分类：${place.category}` : '',
+        place.tags?.length ? `标签：${place.tags.join(' / ')}` : '',
+      ].filter(Boolean).join('\n');
+      const result = await lumiiApi.places.reportPlace(place.id, feedbackContent);
+      if (result.data?.reported) {
+        showToast('举报已提交', { subtitle: '运营会复核地点名称、地址和宠物友好信息', tone: 'success', variant: 'surface' });
+      } else {
+        showToast(result.error?.message ?? '举报提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
+      }
+    } finally {
+      setPlaceReportingIds((ids) => ids.filter((id) => id !== place.id));
     }
   }
 
@@ -9268,6 +9293,7 @@ export default function LumiiMvpApp() {
     setPlaceReviewsByPlaceId({});
     setPublicPlaceReviewsByPlaceId({});
     setPublicPlaceReviewsLoadingId('');
+    setPlaceReportingIds([]);
     setPlaceReviewReportingIds([]);
     setCustomPlaceFeatureDraft('');
     setCustomPlaceFeatureVisible(false);
@@ -14210,6 +14236,7 @@ export default function LumiiMvpApp() {
     const place = selectedPlace;
     const isFavoritePlace = place ? favoritePlaceIds.includes(place.id) : false;
     const isFavoriteSaving = place ? favoritePlaceSavingIds.includes(place.id) : false;
+    const isPlaceReporting = place ? placeReportingIds.includes(place.id) : false;
     const myPlaceReview = place ? placeReviewsByPlaceId[place.id] : undefined;
     const hasPendingPlaceReview = myPlaceReview?.status === 'pending_review';
     const publicPlaceReviews = place ? publicPlaceReviewsByPlaceId[place.id] ?? [] : [];
@@ -14267,6 +14294,13 @@ export default function LumiiMvpApp() {
                     <ActivityIndicator color={palette.orange} size="small" />
                   ) : (
                     <Heart color={isFavoritePlace ? palette.orange : palette.ink} fill={isFavoritePlace ? palette.orange : 'transparent'} size={15} strokeWidth={2.4} />
+                  )}
+                </Pressable>
+                <Pressable accessibilityLabel="举报地点信息" accessibilityRole="button" disabled={isPlaceReporting} onPress={() => void reportPlace(place)} style={styles.placeBackButtonMake}>
+                  {isPlaceReporting ? (
+                    <ActivityIndicator color={palette.warning} size="small" />
+                  ) : (
+                    <Flag color={palette.warning} size={15} strokeWidth={2.4} />
                   )}
                 </Pressable>
               </View>

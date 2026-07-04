@@ -617,6 +617,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<PetCircleReportResult>('POST', `/places/reviews/${encodeURIComponent(reviewId)}/report`, { content });
       },
 
+      async reportPlace(placeId: string, content?: string): Promise<ApiResult<PetCircleReportResult>> {
+        return request<PetCircleReportResult>('POST', `/places/${encodeURIComponent(placeId)}/report`, { content });
+      },
+
       async createSubmission(name: string, address: string, content: string, imageUrls: string[] = []): Promise<ApiResult<PlaceSubmission>> {
         return request<PlaceSubmission>('POST', '/places/submissions', {
           address,

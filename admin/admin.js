@@ -6076,7 +6076,7 @@ async function renderReports(force) {
     empty: '暂无举报',
     rows,
     columns: [
-      ['举报对象', (r) => `<div class="cell-title">${escapeHtml(r.targetType)} · ${escapeHtml(r.targetId)}</div><div class="cell-sub">被举报：${escapeHtml(r.ownerName)} ${shortPhone(r.ownerPhone)}</div>`],
+      ['举报对象', (r) => `<div class="cell-title">${escapeHtml(reportTargetTypeLabel(r.targetType))} · ${escapeHtml(r.targetId)}</div><div class="cell-sub">被举报：${escapeHtml(r.ownerName || '-')} ${shortPhone(r.ownerPhone)}</div>`],
       ['举报人', (r) => `<div>${escapeHtml(r.reporterName)}</div><div class="cell-sub">${shortPhone(r.reporterPhone)}</div>`],
       ['原因', (r) => escapeHtml(r.content || '-')],
       ['内容快照', renderReportEvidenceSnapshot],
@@ -6093,6 +6093,16 @@ async function renderReports(force) {
       `],
     ],
   });
+}
+
+function reportTargetTypeLabel(targetType) {
+  return {
+    comment: '宠友圈评论',
+    message: '私信消息',
+    place: '地点信息',
+    place_review: '地点点评',
+    post: '宠友圈小事',
+  }[targetType] || targetType || '-';
 }
 
 function renderReportEvidenceSnapshot(report) {

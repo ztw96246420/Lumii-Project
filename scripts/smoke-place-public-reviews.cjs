@@ -145,6 +145,38 @@ async function main() {
     const place = nearby.data?.find((item) => item?.id);
     assert.ok(place?.id, 'expected at least one place');
 
+    const placeReport = await request(`/places/${encodeURIComponent(place.id)}/report`, {
+      body: { content: 'Smoke report incorrect place address and pet-friendly tags' },
+      method: 'POST',
+      token: reporterToken,
+    });
+    assert.equal(placeReport.data.reported, true);
+    assert.equal(placeReport.data.targetType, 'place');
+    assert.equal(placeReport.data.targetId, place.id);
+
+    const placeReports = await request('/admin/social/reports', { token: adminToken });
+    const adminPlaceReport = placeReports.data.find((item) => item.id === placeReport.data.id);
+    assert.equal(adminPlaceReport?.targetType, 'place');
+    assert.equal(adminPlaceReport?.evidenceSnapshot?.targetType, 'place');
+    assert.ok(adminPlaceReport?.evidenceSnapshot?.targetLabel, 'place report should include a target label');
+    assert.ok(adminPlaceReport?.evidenceSnapshot?.contentText.includes(place.name), 'place report snapshot should include place name');
+
+    const placeReportTaskId = `report:${placeReport.data.id}`;
+    const placeReportTasks = await request('/admin/moderation/tasks?status=all', { token: adminToken });
+    const placeReportTask = placeReportTasks.data.tasks.find((item) => item.id === placeReportTaskId);
+    assert.ok(placeReportTask, 'place report should enter moderation tasks');
+    assert.equal(placeReportTask.targetType, 'place');
+    assert.ok(placeReportTask.actions.some((item) => item.action === 'valid'), 'place report task should allow valid action');
+    assert.equal(placeReportTask.actions.some((item) => item.action === 'hide'), false, 'place report should not expose direct hide action');
+    assert.ok(placeReportTasks.data.summary.places >= 1, 'place report should count as a place moderation task');
+
+    const validPlaceReportTask = await request(`/admin/moderation/tasks/${encodeURIComponent(placeReportTaskId)}/valid`, {
+      body: { reason: 'Smoke confirms place information report' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(validPlaceReportTask.data.status, 'approved');
+
     const submitted = await request(`/places/${encodeURIComponent(place.id)}/reviews`, {
       body: { content: 'Smoke public review: clean grass, friendly staff, clear leash area.' },
       method: 'POST',

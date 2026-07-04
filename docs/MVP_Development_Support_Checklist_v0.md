@@ -367,7 +367,7 @@ Android 调用：
 - ~~地图定位前端当前性保护。~~ App 已补定位 ref 级互斥和账号 token 校验，切号或退出后的旧定位回包不会覆盖当前账号地图中心或权限状态。
 - ~~`POST /places/{placeId}/favorite`：收藏地点。~~ MVP 测试后端已改用 `PATCH /places/{placeId}/favorite`。
 - ~~`DELETE /places/{placeId}/favorite`：取消收藏。~~ MVP 测试后端已改用 `PATCH /places/{placeId}/favorite`。
-- `POST /places/{placeId}/report`：举报地点信息。
+- ~~`POST /places/{placeId}/report`：举报地点信息。~~ MVP 测试后端、mock API 和地点详情入口已支持；举报会进入统一 `socialReports` 和内容安全任务池，当前只做有效/无效/升级，不直接下架地点。
 
 需要你确认：
 - ~~选择高德还是腾讯作为首发地图。~~ 已确认 MVP 首发先选高德地图。

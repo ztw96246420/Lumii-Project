@@ -13889,6 +13889,14 @@ function reportPlaceReview(reviewId, user, body = {}) {
   return { report: createSocialReport(user, 'place_review', reviewId, found.phone, body), review: found.review };
 }
 
+function reportPlace(placeId, user, body = {}) {
+  const existing = socialReportFor(user, 'place', placeId);
+  if (existing) return { report: existing };
+  const found = findPlaceById(placeId);
+  if (!found?.place) return { error: '地点不存在或已不可见', statusCode: 404 };
+  return { report: createSocialReport(user, 'place', found.place.id, '', body), place: found.place };
+}
+
 function deleteSocialMoment(postId, user) {
   const moment = findSocialMomentById(postId);
   if (!moment || moment.status === 'deleted') return { error: '这条小事已不可见', statusCode: 404 };
@@ -14449,6 +14457,7 @@ function socialReportTargetLabel(targetType) {
   if (targetType === 'message') return '私信消息';
   if (targetType === 'post') return '小事';
   if (targetType === 'comment') return '评论';
+  if (targetType === 'place') return '地点信息';
   if (targetType === 'place_review') return '地点点评';
   return '内容';
 }
@@ -22041,7 +22050,7 @@ function adminSocialReports() {
         harassmentFlaggedBy: report.harassmentFlaggedBy || '',
         harassmentFlaggedReason: report.harassmentFlaggedReason || '',
         id: report.id,
-        ownerName: owner?.ownerName || `用户${String(report.ownerPhone || '').slice(-4)}`,
+        ownerName: owner?.ownerName || evidenceSnapshot.ownerName || (report.ownerPhone ? `用户${String(report.ownerPhone || '').slice(-4)}` : ''),
         ownerPhone: report.ownerPhone,
         ownerResultNotifiedAt: report.ownerResultNotifiedAt || '',
         ownerResultNotifiedStatus: report.ownerResultNotifiedStatus || '',
@@ -24312,6 +24321,27 @@ function socialReportTargetSnapshot(report) {
       targetStatus: review.status,
     };
   }
+  if (report.targetType === 'place') {
+    const found = findPlaceById(report.targetId);
+    const place = found?.place;
+    if (!place) return { contentText: '', targetLabel: '地点不存在', targetStatus: 'missing' };
+    const tags = Array.isArray(place.tags) ? place.tags.join(' / ') : '';
+    const contentText = [
+      place.name,
+      place.address,
+      tags,
+      place.phone ? `电话：${place.phone}` : '',
+      place.openingHoursToday ? `营业：${place.openingHoursToday}` : '',
+    ].filter(Boolean).join(' · ');
+    return {
+      contentText,
+      mediaUrls: visibleImageUrls([place.coverImageUrl, ...(Array.isArray(place.photoUrls) ? place.photoUrls : [])]).slice(0, 6),
+      ownerName: '地点目录',
+      ownerPhone: '',
+      targetLabel: place.name || '地点信息',
+      targetStatus: place.petFriendlyStatus || place.source || 'active',
+    };
+  }
   if (report.targetType === 'message') {
     const found = findConversationMessageReportTarget(report);
     const owner = state.users[found.ownerPhone || report.ownerPhone];
@@ -24769,7 +24799,7 @@ function adminModerationTasks(options = {}) {
       media: allTasks.filter((task) => task.kind === 'media_upload').length,
       overdue: allTasks.filter((task) => task.sla?.status === 'overdue').length,
       pending: allTasks.filter((task) => ['pending', 'reviewing', 'escalated'].includes(task.status)).length,
-      places: allTasks.filter((task) => task.kind === 'place_review' || task.kind === 'place_submission').length,
+      places: allTasks.filter((task) => task.kind === 'place_review' || task.kind === 'place_submission' || task.targetType === 'place').length,
       reports: allTasks.filter((task) => task.kind === 'report').length,
       ruleHits: sampleSummary.riskHits,
       sampleFalseNegative: sampleSummary.falseNegative,
@@ -28911,6 +28941,19 @@ async function handle(req, res) {
     const result = reportPlaceReview(decodeURIComponent(placeReviewReportMatch[1]), user, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'PLACE_REVIEW_REPORT_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, { id: result.report.id, reported: true, targetId: result.report.targetId, targetType: result.report.targetType });
+    return;
+  }
+
+  const placeReportMatch = pathname.match(/^\/places\/([^/]+)\/report$/);
+  if (req.method === 'POST' && placeReportMatch) {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
+    const result = reportPlace(decodeURIComponent(placeReportMatch[1]), user, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'PLACE_REPORT_INVALID');
       return;
     }
     saveState();

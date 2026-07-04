@@ -450,7 +450,7 @@ export type PetCircleReportResult = {
   id: string;
   reported: true;
   targetId: string;
-  targetType: 'comment' | 'message' | 'place_review' | 'post';
+  targetType: 'comment' | 'message' | 'place' | 'place_review' | 'post';
 };
 
 export type SocialBlockResult = {
