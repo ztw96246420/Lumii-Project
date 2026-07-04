@@ -169,6 +169,24 @@ async function main() {
     const targetToken = await loginUser(targetPhone);
     const adminToken = await loginAdmin();
 
+    const updatedConfig = await request('/admin/config', {
+      body: {
+        reason: 'smoke configures private message access policy',
+        social: {
+          messageAccess: {
+            contextWindowLimit: 5,
+            fullConversationSearchEnabled: false,
+            requireReason: true,
+            retentionDays: 30,
+          },
+        },
+      },
+      method: 'PATCH',
+      token: adminToken,
+    });
+    assert.equal(updatedConfig.data.social.messageAccess.contextWindowLimit, 5);
+    assert.equal(updatedConfig.data.social.messageAccess.retentionDays, 30);
+
     await createPet(fromToken, 'MsgLucky');
     await createPet(targetToken, 'MsgMochi', 'cat');
     await refreshPresence(fromToken, 22.543096, 114.057865);
@@ -189,6 +207,13 @@ async function main() {
 
     const fromConversationId = `c-${targetPhone}`;
     const targetConversationId = `c-${fromPhone}`;
+    for (let index = 1; index <= 6; index += 1) {
+      await request(`/conversations/${encodeURIComponent(fromConversationId)}/messages`, {
+        body: { text: `smoke relation context filler ${index}` },
+        method: 'POST',
+        token: fromToken,
+      });
+    }
     const messageText = 'smoke relation message should be hidden';
     const sent = await request(`/conversations/${encodeURIComponent(fromConversationId)}/messages`, {
       body: { text: messageText },
@@ -208,12 +233,25 @@ async function main() {
     );
     assert.ok(row?.id, 'admin social relations should include conversation row');
     assert.equal(row.messageCount >= 1, true);
+    assert.equal(relations.data.messageAccessPolicy.contextWindowLimit, 5);
+    assert.equal(relations.data.messageAccessPolicy.fullConversationSearchEnabled, false);
 
-    const context = await request(`/admin/social-relations/${encodeURIComponent(row.id)}/message-context`, {
-      body: { reason: 'smoke reviews relation messages' },
+    await request(`/admin/social-relations/${encodeURIComponent(row.id)}/message-context`, {
+      body: { reason: '' },
+      expectedStatus: 400,
       method: 'POST',
       token: adminToken,
     });
+
+    const context = await request(`/admin/social-relations/${encodeURIComponent(row.id)}/message-context`, {
+      body: { limit: 50, reason: 'smoke reviews relation messages' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(context.data.policy.contextWindowLimit, 5);
+    assert.equal(context.data.policy.retentionDays, 30);
+    assert.equal(context.data.messages.length <= 5, true, 'context should be capped by configured message window');
+    assert.ok(context.data.retentionExpiresAt, 'context should include retention marker');
     const contextMessage = context.data.messages.find((item) => item.text === messageText);
     assert.ok(contextMessage?.canHide, 'context should expose hideable message');
     assert.equal(contextMessage.authorPhone, fromPhone);

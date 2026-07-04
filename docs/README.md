@@ -68,6 +68,7 @@
 | [Operations_Backoffice_Media_CDN_Probe_2026-07-02.md](./Operations_Backoffice_Media_CDN_Probe_2026-07-02.md) | 当前专项 | 媒体 CDN 真实 GET 探测、webblock 识别和系统健康联动 |
 | [Operations_Backoffice_Social_Author_Sanction_2026-07-02.md](./Operations_Backoffice_Social_Author_Sanction_2026-07-02.md) | 当前专项 | 宠友圈动态/评论作者快捷处罚、证据快照、移动端限制联动 |
 | [Operations_Backoffice_Social_Evidence_Detail_2026-07-02.md](./Operations_Backoffice_Social_Evidence_Detail_2026-07-02.md) | 当前专项 | 宠友圈动态/评论证据详情、举报聚合、审计原因和移动端内容联动 |
+| [Operations_Backoffice_Message_Access_Governance_2026-07-04.md](./Operations_Backoffice_Message_Access_Governance_2026-07-04.md) | 当前专项 | 私信上下文查看策略、审计保留标记、关系消息隐藏与移动端会话联动 |
 | [Operations_Backoffice_Sanction_Policy_Review_2026-07-03.md](./Operations_Backoffice_Sanction_Policy_Review_2026-07-03.md) | 当前专项 | 处罚模板命中、申诉推翻率、来源质量、重复违规和移动端限制复盘 |
 | [Operations_Backoffice_Sanction_Approval_2026-07-04.md](./Operations_Backoffice_Sanction_Approval_2026-07-04.md) | 当前专项 | 永久封禁审批、直接封禁拦截、审批通过后移动端账号限制联动 |
 | [Operations_Backoffice_User_Data_Clear_2026-06-30.md](./Operations_Backoffice_User_Data_Clear_2026-06-30.md) | 当前专项 | 用户业务数据清理审批、执行范围、移动端影响和审计口径 |

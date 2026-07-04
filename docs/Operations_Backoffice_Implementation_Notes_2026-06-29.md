@@ -315,7 +315,7 @@
 - 按建议创建处罚后，会关联原举报、处罚模板、被举报目标和证据快照。
 - 有效举报通知会携带 `reportId`、`targetType` 和 `targetId`，方便移动端通知中心和后续深链定位具体对象。
 - 私信消息举报已接入同一举报中心，`targetType=message`；举报后先对举报者隐藏，运营在后台处理为“有效并隐藏/删除”后，会同步隐藏/删除双方会话中的对应消息。
-- 私信消息举报支持在举报中心按原因查看上下文窗口，查看动作写入 `social.report.message_context.view` 审计；上下文只围绕被举报消息展开，不开放任意会话全文检索。
+- 私信消息举报支持在举报中心按 `social.messageAccess` 策略查看上下文窗口，查看动作写入 `social.report.message_context.view` 审计；上下文只围绕被举报消息展开，不开放任意会话全文检索。
 - 私信消息举报支持标记疑似骚扰，会给被举报用户增加 `suspected_harassment` 风险标签，并写入 `social.report.message.harassment_flag` 审计。
 - 举报 CSV 导出新增证据快照 ID、快照时间、目标状态和内容摘要字段。
 - 独立说明文档：[Operations_Backoffice_Report_Evidence_Snapshot_2026-06-30.md](Operations_Backoffice_Report_Evidence_Snapshot_2026-06-30.md)。
@@ -845,6 +845,7 @@
 - 隐藏消息后会重新计算双方会话列表摘要，避免 App 会话列表继续露出被隐藏文本。
 - 待处理招呼/约遛支持“修复接受”和“关闭”；修复接受会补齐 accepted 关系、双方会话入口和可发消息状态，关闭会清理待处理请求/邀请的可回复状态。
 - 关系状态修复写入 `social.relation.repair.accept` / `social.relation.repair.close` 审计，必须填写原因。
+- 关系消息页和举报中心共用 `social.messageAccess` 私信查看策略：最近窗口大小、查看原因必填和审计保留标记均由配置中心控制。
 - 关系消息页展示拉黑原因统计，支持按 `block` 类型筛选，CSV 导出新增拉黑原因和补充说明字段。
 - 约遛接收方回复会自动接受关系的现有移动端/后端逻辑已可在本页通过状态排查。
 - 数据导出新增关系消息 CSV。

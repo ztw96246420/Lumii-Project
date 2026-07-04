@@ -661,6 +661,12 @@ function defaultOpsConfig() {
     },
     social: {
       discoverRadiusKm: DEFAULT_DISCOVER_RADIUS_KM,
+      messageAccess: {
+        contextWindowLimit: 20,
+        fullConversationSearchEnabled: false,
+        requireReason: true,
+        retentionDays: 180,
+      },
       nearbyMomentTtlDays: 7,
       petCircleMaxPhotos: 6,
     },
@@ -1169,6 +1175,17 @@ function normalizeHttpUrlText(value, maxLength = 500) {
   return text;
 }
 
+function normalizeSocialMessageAccessOpsConfig(value, defaults = {}) {
+  const fallback = defaults && typeof defaults === 'object' ? defaults : defaultOpsConfig().social.messageAccess;
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    contextWindowLimit: Math.floor(clampNumber(source.contextWindowLimit, fallback.contextWindowLimit || 20, 5, 50)),
+    fullConversationSearchEnabled: false,
+    requireReason: source.requireReason !== false,
+    retentionDays: Math.floor(clampNumber(source.retentionDays, fallback.retentionDays || 180, 7, 365)),
+  };
+}
+
 function normalizeOpsConfig(value) {
   const defaults = defaultOpsConfig();
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -1235,6 +1252,7 @@ function normalizeOpsConfig(value) {
     support: normalizeSupportConfig(support, defaults.support),
     social: {
       discoverRadiusKm: clampNumber(social.discoverRadiusKm, defaults.social.discoverRadiusKm, 1, 20),
+      messageAccess: normalizeSocialMessageAccessOpsConfig(social.messageAccess, defaults.social.messageAccess),
       nearbyMomentTtlDays: Math.floor(clampNumber(social.nearbyMomentTtlDays, defaults.social.nearbyMomentTtlDays, 1, 90)),
       petCircleMaxPhotos: Math.floor(clampNumber(social.petCircleMaxPhotos, defaults.social.petCircleMaxPhotos, 1, 9)),
     },
@@ -1277,6 +1295,9 @@ function opsConfigSummary(config) {
     placeContributionBadgesEnabled: Boolean(config?.places?.contributionBadgesEnabled),
     discoverRadiusKm: Number(config?.social?.discoverRadiusKm || 0),
     enabledFeatures: Object.values(features).filter((value) => value !== false).length,
+    messageAccessContextWindowLimit: Number(config?.social?.messageAccess?.contextWindowLimit || 0),
+    messageAccessRequireReason: config?.social?.messageAccess?.requireReason !== false,
+    messageAccessRetentionDays: Number(config?.social?.messageAccess?.retentionDays || 0),
     nearbyMomentTtlDays: Number(config?.social?.nearbyMomentTtlDays || 0),
     petAvatarDailyLimit: Number(config?.ai?.petAvatarDailyLimit || 0),
     petChatDailyLimit: Number(config?.ai?.petChatDailyLimit || 0),
@@ -1459,7 +1480,14 @@ function buildOpsConfigPatch(before, body = {}) {
     moderation: { ...before.moderation, ...(body.moderation || {}) },
     notifications: { ...before.notifications, ...(body.notifications || {}) },
     places: { ...before.places, ...(body.places || {}) },
-    social: { ...before.social, ...(body.social || {}) },
+    social: {
+      ...before.social,
+      ...(body.social || {}),
+      messageAccess: {
+        ...(before.social?.messageAccess || {}),
+        ...(body.social?.messageAccess || {}),
+      },
+    },
     support: {
       ...before.support,
       ...(body.support || {}),
@@ -1553,6 +1581,9 @@ function configChangeSummary(before, after) {
     ['social.petCircleMaxPhotos', 'Pet circle max photos'],
     ['social.discoverRadiusKm', 'Discover radius'],
     ['social.nearbyMomentTtlDays', 'Nearby moment TTL'],
+    ['social.messageAccess.contextWindowLimit', 'Private message context window'],
+    ['social.messageAccess.requireReason', 'Private message view reason required'],
+    ['social.messageAccess.retentionDays', 'Private message audit retention marker'],
     ['places.contributionBadgesEnabled', 'Place contribution public badges'],
     ['places.contributionBadgeMinPoints', 'Place contribution public badge min points'],
     ['features.aiAvatar', 'AI avatar feature'],
@@ -1632,6 +1663,9 @@ function configRiskChanges(before, after) {
   addRisk('notifications.rateLimitEnabled', 'Notification rate limit', 'P1', 'Can remove the guardrail that prevents repeated system notifications.');
   addRisk('notifications.requireApproval', 'Notification approval guard', 'P1', 'Can require or bypass manual approval before system notifications reach users.');
   addRisk('configApproval.requireApproval', 'Config publish approval guard', 'P1', 'Can require or bypass approval before mobile-impacting configuration reaches /app/config.');
+  addRisk('social.messageAccess.requireReason', 'Private message view reason guard', 'P1', 'Can allow admins to view private message context without entering a case reason.');
+  addRisk('social.messageAccess.contextWindowLimit', 'Private message context window', 'P2', 'Can expose more or fewer recent private messages during admin investigations.');
+  addRisk('social.messageAccess.retentionDays', 'Private message audit retention marker', 'P2', 'Can change how long message-view audit evidence is marked for retention.');
   addRisk('ai.avatar.provider', 'AI avatar provider', 'P1', 'Can route new image generation jobs to another external provider or mock fallback.');
   addRisk('ai.avatarFailureRefund.enabled', 'AI avatar failure refund guard', 'P2', 'Can enable or disable automatic quota returns for provider-side avatar failures.');
   addRisk('ai.avatarFailureRefund.providerStartFailure', 'AI avatar submit failure refund', 'P2', 'Can change whether provider submit failures return user quota automatically.');
@@ -2476,6 +2510,16 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileApplied: true,
       mobileEvidence: '发现页文案和客户端兜底过滤使用 remoteConfig.social.nearbyMomentTtlDays。',
       userImpact: '影响附近宠友圈保留多少天内的小事。',
+    },
+    {
+      backendEvidence: 'adminSocialRelationMessageContext 读取 effectiveSocialMessageAccessPolicy()，强制最近消息窗口、查看原因和审计保留标记；不开放任意全文检索。',
+      backendEnforced: true,
+      group: '社区安全',
+      key: 'social.messageAccess',
+      label: '私信上下文查看策略',
+      mobileApplied: true,
+      mobileEvidence: '后台隐藏违规私信后，/conversations 和 /conversations/{id}/messages 会同步过滤并重算摘要，双方移动端不再看到该消息。',
+      userImpact: '控制运营排查骚扰/争议时最多能看多少条最近私信，以及是否必须留下查看原因。',
     },
     {
       backendEvidence: '上传、生成、重试 AI 形象接口均调用 failIfFeatureDisabled(aiAvatar)。',
@@ -10549,6 +10593,20 @@ function effectiveNearbyMomentTtlMs() {
   return currentOpsConfig().social.nearbyMomentTtlDays * 24 * 60 * 60 * 1000;
 }
 
+function effectiveSocialMessageAccessPolicy() {
+  return normalizeSocialMessageAccessOpsConfig(currentOpsConfig().social?.messageAccess, defaultOpsConfig().social.messageAccess);
+}
+
+function publicSocialMessageAccessPolicy(policy = effectiveSocialMessageAccessPolicy()) {
+  return {
+    approvalMode: 'single_admin_audited',
+    contextWindowLimit: policy.contextWindowLimit,
+    fullConversationSearchEnabled: false,
+    requireReason: policy.requireReason !== false,
+    retentionDays: policy.retentionDays,
+  };
+}
+
 function petChatDailyUsageFor(phone) {
   state.petChatDailyUsage = state.petChatDailyUsage || {};
   const day = todayUsageKey();
@@ -13930,8 +13988,9 @@ function moderateReportedConversationMessage(admin, report, action, reason, now 
 }
 
 function adminConversationMessageContext(admin, reportId, body = {}) {
+  const policy = effectiveSocialMessageAccessPolicy();
   const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
-  if (!reason) return { error: '查看私信上下文必须填写原因', statusCode: 400 };
+  if (policy.requireReason !== false && !reason) return { error: '查看私信上下文必须填写原因', statusCode: 400 };
   const report = ensureSocialReports().find((item) => item.id === reportId);
   if (!report) return { error: '举报不存在', statusCode: 404 };
   if (report.targetType !== 'message') return { error: '只有私信消息举报支持查看上下文', statusCode: 400 };
@@ -13942,8 +14001,16 @@ function adminConversationMessageContext(admin, reportId, body = {}) {
   const contextSource = target ? 'conversation' : 'snapshot';
   let messages = [];
   if (target && found.record?.list) {
-    const start = Math.max(0, found.record.index - 4);
-    const end = Math.min(found.record.list.length, found.record.index + 5);
+    const requestedLimit = body.limit === undefined ? policy.contextWindowLimit : body.limit;
+    const windowSize = Math.min(policy.contextWindowLimit, Math.floor(clampNumber(requestedLimit, policy.contextWindowLimit, 5, 50)));
+    const beforeCount = Math.floor((windowSize - 1) / 2);
+    const afterCount = windowSize - beforeCount - 1;
+    let start = Math.max(0, found.record.index - beforeCount);
+    let end = Math.min(found.record.list.length, found.record.index + afterCount + 1);
+    if (end - start < windowSize) {
+      start = Math.max(0, end - windowSize);
+      end = Math.min(found.record.list.length, start + windowSize);
+    }
     messages = found.record.list.slice(start, end).map((message) => {
       const authorRole = message.author === 'system' ? 'system' : message.author === 'me' ? 'reporter' : 'reported_user';
       const authorPhone = authorRole === 'reporter' ? found.reporterPhone : authorRole === 'reported_user' ? found.ownerPhone : '';
@@ -13978,18 +14045,24 @@ function adminConversationMessageContext(admin, reportId, body = {}) {
       time: report.messageTime || report.createdAt || '',
     }];
   }
+  const viewedAt = new Date();
+  const normalizedReason = reason || '配置允许免填查看原因';
+  const policySnapshot = publicSocialMessageAccessPolicy(policy);
+  const retentionExpiresAt = new Date(viewedAt.getTime() + policy.retentionDays * 24 * 60 * 60 * 1000).toISOString();
   const context = {
     contextSource,
     conversationId: found.conversationId || report.conversationId || '',
     messageCount: messages.length,
     ownerName: owner?.ownerName || `用户${String(found.ownerPhone || report.ownerPhone || '').slice(-4)}`,
     ownerPhone: found.ownerPhone || report.ownerPhone || '',
-    reason,
+    policy: policySnapshot,
+    reason: normalizedReason,
     reportId: report.id,
+    retentionExpiresAt,
     reporterName: reporter?.ownerName || `用户${String(found.reporterPhone || report.phone || '').slice(-4)}`,
     reporterPhone: found.reporterPhone || report.phone || '',
     targetMessageId: report.targetId,
-    viewedAt: new Date().toISOString(),
+    viewedAt: viewedAt.toISOString(),
     messages,
   };
   writeAdminAudit(admin, 'social.report.message_context.view', 'conversation_message', report.targetId, null, {
@@ -13997,10 +14070,12 @@ function adminConversationMessageContext(admin, reportId, body = {}) {
     conversationId: context.conversationId,
     messageCount: messages.length,
     ownerPhone: context.ownerPhone,
-    reason,
+    policy: policySnapshot,
+    reason: normalizedReason,
     reportId: report.id,
     reporterPhone: context.reporterPhone,
-  }, reason);
+    retentionExpiresAt,
+  }, normalizedReason);
   return { context };
 }
 
@@ -18155,37 +18230,47 @@ function adminRelationMessageRow(row, message) {
 }
 
 function adminSocialRelationMessageContext(admin, relationId, body = {}) {
+  const policy = effectiveSocialMessageAccessPolicy();
   const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
-  if (!reason) return { error: '查看私信上下文必须填写原因', statusCode: 400 };
+  if (policy.requireReason !== false && !reason) return { error: '查看私信上下文必须填写原因', statusCode: 400 };
   const row = adminSocialRelationById(relationId);
   if (!row) return { error: '关系消息记录不存在', statusCode: 404 };
   if (!row.conversationId || !row.fromPhone || !row.targetPhone) return { error: '这条记录没有可查看的会话', statusCode: 400 };
   const messages = getConversationMessages(row.fromPhone, row.conversationId);
   if (!messages.length) return { error: '这条会话暂无消息可查看', statusCode: 404 };
-  const windowSize = Math.floor(clampNumber(body.limit, 20, 5, 50));
+  const requestedLimit = body.limit === undefined ? policy.contextWindowLimit : body.limit;
+  const windowSize = Math.min(policy.contextWindowLimit, Math.floor(clampNumber(requestedLimit, policy.contextWindowLimit, 5, 50)));
   const contextMessages = messages.slice(-windowSize).map((message) => adminRelationMessageRow(row, message));
+  const viewedAt = new Date();
+  const normalizedReason = reason || '配置允许免填查看原因';
+  const policySnapshot = publicSocialMessageAccessPolicy(policy);
+  const retentionExpiresAt = new Date(viewedAt.getTime() + policy.retentionDays * 24 * 60 * 60 * 1000).toISOString();
   const context = {
     conversationId: row.conversationId,
     fromName: row.fromName,
     fromPhone: row.fromPhone,
     messageCount: contextMessages.length,
-    reason,
+    policy: policySnapshot,
+    reason: normalizedReason,
     relationId: row.id,
+    retentionExpiresAt,
     targetName: row.targetName,
     targetPhone: row.targetPhone,
     totalMessages: messages.length,
-    viewedAt: new Date().toISOString(),
+    viewedAt: viewedAt.toISOString(),
     messages: contextMessages,
   };
   writeAdminAudit(admin, 'social.relation.message_context.view', 'conversation', row.conversationId, null, {
     conversationId: row.conversationId,
     fromPhone: row.fromPhone,
     messageCount: contextMessages.length,
-    reason,
+    policy: policySnapshot,
+    reason: normalizedReason,
     relationId: row.id,
+    retentionExpiresAt,
     targetPhone: row.targetPhone,
     totalMessages: messages.length,
-  }, reason);
+  }, normalizedReason);
   return { context };
 }
 
@@ -18421,6 +18506,7 @@ function adminSocialRelations(options = {}) {
   return {
     filters: { kind: kindFilter, q: options.q || '', status: statusFilter },
     items: filtered.slice(0, limit),
+    messageAccessPolicy: publicSocialMessageAccessPolicy(),
     summary,
   };
 }
@@ -19072,6 +19158,15 @@ function adminReadinessModules(context) {
         : '补齐腾讯云密钥和配置中心机审开关，再回归小事、评论、图片、地点和私信链路。',
     },
     {
+      key: 'social_relations',
+      module: '关系消息治理',
+      group: '安全',
+      status: 'ready',
+      evidence: '已支持招呼/约遛/会话/拉黑排查、异常关系修复、私信上下文窗口、违规私信隐藏、查看原因审计和可配置消息查看策略。',
+      mobileLinkage: '修复关系会影响双方可回复状态；隐藏私信会同步从双方移动端会话列表、消息列表和摘要中移除。',
+      nextStep: '生产期如启用多管理员，再把高敏私信查看升级为双人审批；任意私信全文检索仍不开放。',
+    },
+    {
       key: 'reports',
       module: '举报与申诉',
       group: '安全',
@@ -19148,7 +19243,7 @@ function adminReadinessQuestions(context = {}) {
     ['q-mfa', 'P0', '后台账号是否接企业微信、飞书或邮箱 MFA？', '当前单 admin 账号无 MFA。', '影响生产后台登录安全。'],
     ['q-safety-vendor', 'P0', '内容安全供应商选哪家，文本和图片是否同一供应商？', safetyVendorReady ? '已选腾讯云天御：文本和图片机审均通过配置中心开关联动，Biztype 可由环境变量覆盖。' : `腾讯云内容安全基座未完全就绪，仍缺：${contentSafetyReadiness.missing.join('、') || '配置复核'}。`, '影响宠友圈、评论、头像、宠物图、地点点评的真实审核能力。', safetyVendorReady ? 'ready' : 'open', safetyVendorReady ? '已确认' : '待业务确认'],
     ['q-image-policy', 'P0', '图片审核失败时，宠友圈发布是阻断、送审，还是先隐藏等待审核？', imagePolicyReady ? '已实现：Block 拒绝，Review 进入 pending_review；宠友圈、地点内容会阻止发布/提交含待审或驳回图片，审核通过后才可继续。' : '图片机审未完全就绪，当前仍需人工任务池和配置复核兜底。', '影响用户发布体验和违规内容外露风险。', imagePolicyReady ? 'ready' : 'open', imagePolicyReady ? '已确认' : '待业务确认'],
-    ['q-message-view', 'P1', '私信是否允许人工查看全文？如果允许，谁审批、保留多久？', '当前后台默认只做摘要排查。', '影响隐私合规和骚扰治理能力。'],
+    ['q-message-view', 'P1', '私信是否允许人工查看全文？如果允许，谁审批、保留多久？', '已接入策略：不开放任意全文检索；仅允许在举报/关系排查中查看最近上下文窗口，窗口大小、原因必填和保留标记由 social.messageAccess 配置；单 admin 阶段视为带审计的自审批；隐藏私信会同步影响双方移动端会话。', '影响隐私合规和骚扰治理能力。', 'ready', '已接入'],
     ['q-clear-data', 'P1', '用户业务数据清理是否只保留测试环境？', '已接入单 admin 数据清理审批；审批通过后才真正清理移动端业务数据。生产是否开放或升级双人审批仍需确认。', '影响误操作风险、用户数据权益和客服 SOP。'],
     ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '已接入可配置策略：默认供应商提交失败、供应商超时、供应商返回失败会自动返还；照片不合格、内容安全拦截、运营手动标失败不自动返还，后台仍可人工返还且防重复。', '影响用户权益、成本和客服处理标准。', 'ready', '已接入'],
     ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '已接入单 admin 永久封禁审批流；审批通过后才真正写入处罚并影响移动端账号状态。生产期若需要双人审批，可在此基础上接多管理员复核。', '影响高风险处罚治理。', 'ready', '已接入'],

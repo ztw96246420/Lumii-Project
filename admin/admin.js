@@ -2101,6 +2101,7 @@ function configSnapshot(config) {
   return `
     <div class="switch-row"><span>宠友圈图片上限</span><strong>${config.social.petCircleMaxPhotos}</strong></div>
     <div class="switch-row"><span>附近默认半径</span><strong>${config.social.discoverRadiusKm}km</strong></div>
+    <div class="switch-row"><span>私信上下文窗口</span><strong>${config.social?.messageAccess?.contextWindowLimit || 20}条</strong></div>
     <div class="switch-row"><span>形象生成额度</span><strong>${config.ai.petAvatarDailyLimit}/天</strong></div>
     <div class="switch-row"><span>AI 对话额度</span><strong>${config.ai.petChatDailyLimit}/天</strong></div>
     <div class="switch-row"><span>工单紧急 SLA</span><strong>${config.support?.slaHours?.urgent || 2}h</strong></div>
@@ -4558,6 +4559,19 @@ function renderSocialRelationActions(row) {
   return `<div class="actions relationship-actions">${buttons.join('')}</div>`;
 }
 
+function renderSocialRelationMessagePolicy(policy = {}) {
+  const windowLimit = Number(policy.contextWindowLimit || 20);
+  const retentionDays = Number(policy.retentionDays || 180);
+  return `
+    <div class="switch-panel relationship-policy">
+      <div class="switch-row"><span>上下文窗口</span><strong>最近 ${numberText(windowLimit)} 条</strong></div>
+      <div class="switch-row"><span>查看原因</span>${statusPill(policy.requireReason === false ? '可免填' : '必填')}</div>
+      <div class="switch-row"><span>全文检索</span>${statusPill(policy.fullConversationSearchEnabled ? '已开放' : '未开放')}</div>
+      <div class="switch-row"><span>审计保留标记</span><strong>${numberText(retentionDays)} 天</strong></div>
+    </div>
+  `;
+}
+
 function socialRelationContextMessageActions(message) {
   if (!message.canHide) return '';
   return `
@@ -4607,6 +4621,7 @@ function renderSocialRelationContext(row) {
         <span>${numberText(context.messageCount || 0)} / ${numberText(context.totalMessages || 0)} 条 · ${formatTime(context.viewedAt)}</span>
       </div>
       <div class="cell-sub">查看原因：${escapeHtml(context.reason || '-')}</div>
+      <div class="cell-sub">策略：最近 ${numberText(context.policy?.contextWindowLimit || context.messageCount || 0)} 条 / 审计保留至 ${context.retentionExpiresAt ? formatTime(context.retentionExpiresAt) : '-'}</div>
       ${messages || '<div class="cell-sub">暂无消息</div>'}
     </div>
   `;
@@ -4622,14 +4637,18 @@ function socialRelationSummary(row) {
 
 async function loadSocialRelationContext(button) {
   const id = button.dataset.id;
+  const policy = state.cache.socialRelations?.messageAccessPolicy || {};
   const reason = window.prompt('查看私信上下文需要填写原因，此操作会写入审计日志。', '关系消息排查，核对最近消息窗口');
   if (reason === null) return;
   const cleanReason = reason.trim();
-  if (!cleanReason) {
+  if (!cleanReason && policy.requireReason !== false) {
     showToast('请填写查看原因');
     return;
   }
-  const context = await post(`/admin/social-relations/${encodeURIComponent(id)}/message-context`, { reason: cleanReason });
+  const context = await post(`/admin/social-relations/${encodeURIComponent(id)}/message-context`, {
+    limit: policy.contextWindowLimit || undefined,
+    reason: cleanReason,
+  });
   state.socialRelationContexts = { ...state.socialRelationContexts, [id]: context };
   state.cache.audit = null;
   showToast('已加载会话上下文');
@@ -4698,6 +4717,7 @@ async function renderSocialRelations(force) {
   });
   const data = await load('socialRelations', `/admin/social-relations?${query.toString()}`, force);
   const rows = data.items || [];
+  const messageAccessPolicy = data.messageAccessPolicy || {};
   const summary = data.summary || {};
   $('content').innerHTML = `
     <div class="grid metrics">
@@ -4744,6 +4764,7 @@ async function renderSocialRelations(force) {
           <button class="small-button ghost" data-action="social-relations-clear">清空</button>
         </div>
       </div>
+      ${renderSocialRelationMessagePolicy(messageAccessPolicy)}
       ${tableHtml(rows, [
         ['类型', (r) => `<div>${statusPill(r.typeLabel)}</div><div class="cell-sub">${escapeHtml(r.sourceLabel || '-')}</div>`],
         ['双方', (r) => socialRelationPair(r)],
@@ -5063,14 +5084,19 @@ async function applyReportSanction(button) {
 
 async function loadReportMessageContext(button) {
   const id = button.dataset.id;
+  const config = state.cache.config || await load('config', '/admin/config', false);
+  const policy = config.social?.messageAccess || {};
   const reason = window.prompt('查看私信上下文需要填写原因，此操作会写入审计日志。', '处理私信举报，核对上下文');
   if (reason === null) return;
   const cleanReason = reason.trim();
-  if (!cleanReason) {
+  if (!cleanReason && policy.requireReason !== false) {
     showToast('请填写查看原因');
     return;
   }
-  const context = await post(`/admin/social/reports/${encodeURIComponent(id)}/message-context`, { reason: cleanReason });
+  const context = await post(`/admin/social/reports/${encodeURIComponent(id)}/message-context`, {
+    limit: policy.contextWindowLimit || undefined,
+    reason: cleanReason,
+  });
   state.reportMessageContexts = { ...state.reportMessageContexts, [id]: context };
   state.cache.audit = null;
   showToast('已加载私信上下文');
@@ -6053,6 +6079,7 @@ function renderReportMessageContext(report) {
         <span>${escapeHtml(context.contextSource || 'conversation')} · ${numberText(context.messageCount || 0)} 条 · ${formatTime(context.viewedAt)}</span>
       </div>
       <div class="cell-sub">查看原因：${escapeHtml(context.reason || '-')}</div>
+      <div class="cell-sub">策略：最近 ${numberText(context.policy?.contextWindowLimit || context.messageCount || 0)} 条 / 审计保留至 ${context.retentionExpiresAt ? formatTime(context.retentionExpiresAt) : '-'}</div>
       ${rows || '<div class="cell-sub">暂无上下文消息</div>'}
     </div>
   `;
@@ -7149,6 +7176,7 @@ function configRevisionSummaryText(summary = {}) {
     `图片 ${summary.petCircleMaxPhotos || 0}`,
     `半径 ${summary.discoverRadiusKm || 0}km`,
     `TTL ${summary.nearbyMomentTtlDays || 0}天`,
+    `私信窗口 ${summary.messageAccessContextWindowLimit || 20}条`,
     `埋点 ${summary.analyticsEnabled === false ? '关' : `开/${summary.analyticsSampleRatePercent ?? 100}%`}`,
     `配置审批 ${summary.configApprovalRequireApproval ? `开/${summary.configApprovalExpiresHours || 24}h` : '关'}`,
     `导出审批 ${summary.exportRequireApproval ? `开/${summary.exportApprovalExpiresHours || 24}h` : '关'}`,
@@ -7597,6 +7625,7 @@ async function renderConfig(force) {
   const notifications = config.notifications || {};
   const placesConfig = config.places || {};
   const revisions = config.revisions || [];
+  const socialMessageAccess = config.social?.messageAccess || {};
   const splash = config.app?.splash || {};
   const support = config.support || {};
   const supportFirstResponseSlaHours = support.firstResponseSlaHours || {};
@@ -7628,6 +7657,25 @@ async function renderConfig(force) {
         <label>灵伴形象每日额度<input id="cfgPetAvatarDailyLimit" type="number" min="0" max="1000" value="${config.ai.petAvatarDailyLimit}" /></label>
         <label>AI 对话每日额度<input id="cfgPetChatDailyLimit" type="number" min="0" max="1000" value="${config.ai.petChatDailyLimit}" /></label>
         <label>维护提示<input id="cfgMaintenanceMessage" value="${escapeHtml(config.app.maintenanceMessage || '')}" /></label>
+      </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>私信上下文查看策略</h2>
+            <div class="section-sub">控制关系消息/举报排查时能查看多少最近私信，以及是否必须留下查看原因</div>
+          </div>
+          ${help('这里不开放任意私信全文检索。后台只能在已有举报或关系消息排查中查看最近窗口；查看动作会写审计，隐藏私信会同步影响双方移动端会话列表和消息列表。')}
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgMessageAccessRequireReason', '查看私信上下文必须填写原因', socialMessageAccess.requireReason !== false)}
+          <div class="switch-row"><span>任意私信全文检索</span>${statusPill('未开放')}</div>
+          <div class="switch-row"><span>审批模式</span><strong>单 admin 审计自审批</strong></div>
+        </div>
+        <div class="config-grid">
+          <label>最近消息窗口条数<input id="cfgMessageAccessContextWindowLimit" type="number" min="5" max="50" value="${Number.isFinite(Number(socialMessageAccess.contextWindowLimit)) ? socialMessageAccess.contextWindowLimit : 20}" /></label>
+          <label>审计保留标记天数<input id="cfgMessageAccessRetentionDays" type="number" min="7" max="365" value="${Number.isFinite(Number(socialMessageAccess.retentionDays)) ? socialMessageAccess.retentionDays : 180}" /></label>
+          <label>全文检索状态<input disabled value="未开放，生产期如需启用须另走双人审批设计" /></label>
+        </div>
       </div>
       <div class="switch-panel">
         ${featureCheckbox('cfgFeaturePetCircle', '宠友圈', config.features.petCircle)}
@@ -8355,6 +8403,14 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isFinite(analyticsRetentionDays) || analyticsRetentionDays < 7 || analyticsRetentionDays > 180) {
     throw new Error('事件保留天数必须在 7-180 之间');
   }
+  const messageAccessContextWindowLimit = Number($('cfgMessageAccessContextWindowLimit').value);
+  const messageAccessRetentionDays = Number($('cfgMessageAccessRetentionDays').value);
+  if (!Number.isFinite(messageAccessContextWindowLimit) || messageAccessContextWindowLimit < 5 || messageAccessContextWindowLimit > 50) {
+    throw new Error('私信上下文窗口必须在 5-50 条之间');
+  }
+  if (!Number.isFinite(messageAccessRetentionDays) || messageAccessRetentionDays < 7 || messageAccessRetentionDays > 365) {
+    throw new Error('私信审计保留标记必须在 7-365 天之间');
+  }
   const configApprovalExpiresHours = Number($('cfgConfigApprovalExpiresHours').value);
   if (!Number.isFinite(configApprovalExpiresHours) || configApprovalExpiresHours < 1 || configApprovalExpiresHours > 168) {
     throw new Error('配置发布审批有效期必须在 1-168 小时之间');
@@ -8540,6 +8596,12 @@ async function saveConfig(mode = 'publish') {
     reason: mode === 'draft' ? '配置草稿保存' : '配置中心发布',
     social: {
       discoverRadiusKm: Number($('cfgDiscoverRadiusKm').value),
+      messageAccess: {
+        contextWindowLimit: messageAccessContextWindowLimit,
+        fullConversationSearchEnabled: false,
+        requireReason: $('cfgMessageAccessRequireReason').checked,
+        retentionDays: messageAccessRetentionDays,
+      },
       nearbyMomentTtlDays: Number($('cfgNearbyMomentTtlDays').value),
       petCircleMaxPhotos: Number($('cfgPetCircleMaxPhotos').value),
     },

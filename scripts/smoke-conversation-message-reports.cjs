@@ -233,6 +233,9 @@ async function main() {
     assert.equal(context.data.reportId, report.data.id);
     assert.equal(context.data.ownerPhone, senderPhone);
     assert.equal(context.data.reporterPhone, reporterPhone);
+    assert.equal(context.data.policy.contextWindowLimit, 20);
+    assert.equal(context.data.policy.fullConversationSearchEnabled, false);
+    assert.ok(context.data.retentionExpiresAt, 'message report context should include retention marker');
     assert.ok(context.data.messages.some((message) => message.isTarget && message.text === text && message.authorLabel === '被举报人'));
 
     const auditAfterContext = await request('/admin/audit-logs?limit=50', { token: adminToken });

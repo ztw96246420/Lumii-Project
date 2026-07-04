@@ -11,9 +11,9 @@
 ## 已实现
 
 - 后台关系消息页的会话行新增“上下文”操作。
-- 点击“上下文”必须填写查看原因。
-- 后端接口 `POST /admin/social-relations/{relationId}/message-context` 返回该关系最近 5-50 条消息，默认 20 条。
-- 查看动作写入审计日志 `social.relation.message_context.view`。
+- 点击“上下文”会按配置策略校验查看原因，默认必须填写。
+- 后端接口 `POST /admin/social-relations/{relationId}/message-context` 返回该关系最近消息窗口；窗口上限由 `social.messageAccess.contextWindowLimit` 配置，范围 5-50，默认 20。
+- 查看动作写入审计日志 `social.relation.message_context.view`，并记录策略快照与保留到期标记。
 - 上下文窗口内非系统消息可执行“隐藏”。
 - 后端接口 `POST /admin/social-relations/messages/{messageId}/hide` 隐藏对应私信。
 - 隐藏动作写入审计日志 `social.relation.message.hide`。
@@ -46,6 +46,7 @@
 - 默认列表仍只展示摘要和脱敏后的风险信息。
 - 不支持任意关键词搜索私信全文。
 - 不支持打开全量历史私信，只返回当前关系行最近消息窗口。
+- 最近消息窗口、查看原因必填和审计保留标记由配置中心 `social.messageAccess` 管理。
 - 系统消息不能被隐藏。
 - 已隐藏或已删除消息不能重复隐藏。
 
@@ -62,7 +63,6 @@
 
 ## 后续未开放
 
-- 后台直接修复异常招呼/约遛状态。
 - 后台直接新增、改写或补发用户私信。
 - 隐藏私信后自动创建处罚；当前仍需从举报中心、内容安全任务或用户处罚页人工处理。
-- 更细粒度的双人审批或审批单制度，可在生产期高风险权限收口时追加。
+- 更细粒度的双人审批或审批单制度，可在生产期多管理员上线后追加；当前为单 admin 带审计自审批。
