@@ -167,9 +167,34 @@ async function main() {
     assert.equal(latest.data.status, 'ready');
     assert.equal(latest.data.progress, 100);
     assert.equal(latest.data.provider, 'mock');
+    const firstAnimationJobId = latest.data.id;
+
+    const adminAnimationJobs = await request('/admin/ai/avatar-animation-jobs', { token: adminToken });
+    assert.equal(Array.isArray(adminAnimationJobs.data), true);
+    assert.equal(adminAnimationJobs.data.some((job) => job.id === firstAnimationJobId && job.status === 'ready'), true);
+
+    await request(`/admin/ai/avatar-animation-jobs/${encodeURIComponent(firstAnimationJobId)}/mark-failed`, {
+      body: { reason: 'smoke mark animation failed' },
+      method: 'POST',
+      token: adminToken,
+    });
+    const failedLatest = await request(`/ai/pet-avatar/animation/latest?petId=${encodeURIComponent(pet.id)}`, { token: userToken });
+    assert.equal(failedLatest.data.status, 'failed');
+    assert.equal(failedLatest.data.errorCode, 'ADMIN_MARKED_FAILED');
+
+    const retried = await request(`/admin/ai/avatar-animation-jobs/${encodeURIComponent(firstAnimationJobId)}/retry`, {
+      body: { reason: 'smoke retry animation after failure' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.notEqual(retried.data.id, firstAnimationJobId);
+    assert.equal(retried.data.status, 'ready');
+    const retriedLatest = await request(`/ai/pet-avatar/animation/latest?petId=${encodeURIComponent(pet.id)}`, { token: userToken });
+    assert.equal(retriedLatest.data.id, retried.data.id);
+    assert.equal(retriedLatest.data.status, 'ready');
 
     const beforeClear = await request(`/admin/users/${encodeURIComponent(TEST_PHONE)}/business-data-summary`, { token: adminToken });
-    assert.equal(beforeClear.data.summary.avatarAnimationJobs, 1);
+    assert.equal(beforeClear.data.summary.avatarAnimationJobs, 2);
 
     const clearApproval = await request('/admin/data-clear-approvals', {
       body: { confirmation: TEST_PHONE, phone: TEST_PHONE, reason: 'smoke clear avatar animation data' },

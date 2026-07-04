@@ -64,6 +64,18 @@
 - 提交阶段超过 2 分钟未拿到 task id，标记失败。
 - 状态阶段超过 20 分钟未完成，标记失败。
 
+## 后台处置
+
+路径：后台“AI 灵伴” -> “动效任务”。
+
+运营可处理移动端不再轮询后残留的卡住任务：
+
+- `刷新`：请求上游状态并同步宠物档案动效字段。
+- `重试`：基于当前静态灵伴形象新建动效任务，并写回 `avatarAnimationJobId/avatarAnimationStatus/avatarAnimationUrl`。
+- `失败`：手动结束异常任务，清空当前任务对应的动效 URL，让移动端首页回退到静态灵伴。
+
+详见：[Operations_Backoffice_AI_Avatar_Animation_Recovery_2026-07-04.md](./Operations_Backoffice_AI_Avatar_Animation_Recovery_2026-07-04.md)。
+
 ## 移动端接口
 
 - `GET /ai/pet-avatar/animation/latest?petId=...`

@@ -954,6 +954,9 @@ async function onContentClick(event) {
     if (action === 'avatar-retry') await post(`/admin/ai/avatar-jobs/${id}/retry`, { reason });
     if (action === 'avatar-fail') await post(`/admin/ai/avatar-jobs/${id}/mark-failed`, { reason });
     if (action === 'avatar-refund') await post(`/admin/ai/avatar-jobs/${id}/refund-quota`, { reason });
+    if (action === 'avatar-animation-refresh') await post(`/admin/ai/avatar-animation-jobs/${id}/refresh`, { reason });
+    if (action === 'avatar-animation-retry') await post(`/admin/ai/avatar-animation-jobs/${id}/retry`, { reason });
+    if (action === 'avatar-animation-fail') await post(`/admin/ai/avatar-animation-jobs/${id}/mark-failed`, { reason });
     if (action === 'post-hide') await post(`/admin/social/posts/${id}/hide`, { reason });
     if (action === 'post-restore') await post(`/admin/social/posts/${id}/restore`, { reason });
     if (action === 'post-delete') await confirmPost(`/admin/social/posts/${id}/delete`, { reason }, '确认删除这条动态？');
@@ -1646,7 +1649,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'dataClearApprovals', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionApprovals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarAnimationJobs', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'dataClearApprovals', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionApprovals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -5365,6 +5368,59 @@ function avatarJobAction(job) {
   `;
 }
 
+function avatarAnimationPreview(job) {
+  const videoUrl = String(job.videoUrl || '').trim();
+  const imageUrl = String(job.sourceAvatarUrl || job.petAvatarUrl || '').trim();
+  return `
+    <div class="ai-media-preview">
+      ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" muted playsinline preload="metadata"></video>` : imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="" loading="lazy" />` : '<span>动效</span>'}
+    </div>
+  `;
+}
+
+function avatarAnimationTaskCell(job) {
+  return `
+    <div class="ai-job-cell">
+      ${avatarAnimationPreview(job)}
+      <div>
+        <div class="cell-title">${escapeHtml(job.petName || job.id)}</div>
+        <div class="cell-sub">${escapeHtml(job.id)}</div>
+        <div class="cell-sub">${job.avatarJobId ? `静态任务：${escapeHtml(job.avatarJobId)}` : '无静态任务ID'}</div>
+        ${job.retryOfJobId ? `<div class="cell-sub">重试自：${escapeHtml(job.retryOfJobId)}</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function avatarAnimationStatusCell(job) {
+  return `
+    ${statusPill(job.status)}
+    <div class="cell-sub">${escapeHtml(job.provider || '-')} · ${job.progress || 0}%</div>
+    <div class="cell-sub">${escapeHtml(job.providerStatus || '-')}</div>
+    ${job.stuck ? '<div class="cell-sub">可能卡住，建议刷新或重试</div>' : ''}
+  `;
+}
+
+function avatarAnimationTraceCell(job) {
+  const trace = job.providerTraceLatest || {};
+  if (!job.providerTraceCount) return '<div class="cell-sub">暂无调用轨迹</div>';
+  return `
+    <div>${escapeHtml(trace.stageLabel || job.providerTraceLatestStageLabel || '-')}</div>
+    <div class="cell-sub">${escapeHtml(trace.providerStatus || job.providerTraceLatestStatus || '-')} · ${durationMsText(trace.durationMs)}</div>
+    <div class="cell-sub">${numberText(job.providerTraceCount || 0)} 次调用</div>
+  `;
+}
+
+function avatarAnimationAction(job) {
+  return `
+    <div class="actions">
+      <button class="small-button" data-action="avatar-animation-refresh" data-id="${escapeHtml(job.id)}">刷新</button>
+      <button class="small-button" data-action="avatar-animation-retry" data-id="${escapeHtml(job.id)}">重试</button>
+      <button class="small-button danger" data-action="avatar-animation-fail" data-id="${escapeHtml(job.id)}">失败</button>
+    </div>
+  `;
+}
+
 function avatarQuotaCell(job) {
   if (!job.quotaConsumed) {
     return '<div class="cell-sub">未扣额度</div>';
@@ -5602,14 +5658,16 @@ async function renderAvatarJobs(force) {
     status: state.aiSampleStatus,
     type: state.aiSampleType,
   });
-  const [jobs, feedbackData, mediaData, aiUsage, sampleData] = await Promise.all([
+  const [jobs, animationJobs, feedbackData, mediaData, aiUsage, sampleData] = await Promise.all([
     load('avatarJobs', '/admin/ai/avatar-jobs', force),
+    load('avatarAnimationJobs', '/admin/ai/avatar-animation-jobs', force),
     load('avatarFeedback', `/admin/ai/avatar-feedback?${feedbackQuery.toString()}`, force),
     load('aiMedia', `/admin/ai/media?${mediaQuery.toString()}`, force),
     load('aiUsage', '/admin/ai/usage?days=14', force),
     load('avatarSamples', `/admin/ai/avatar-samples?${sampleQuery.toString()}`, force),
   ]);
   const jobRows = Array.isArray(jobs) ? jobs : [];
+  const animationRows = Array.isArray(animationJobs) ? animationJobs : [];
   const feedbackRows = feedbackData.items || [];
   const feedbackSummary = feedbackData.summary || {};
   const mediaRows = mediaData.items || [];
@@ -5624,11 +5682,18 @@ async function renderAvatarJobs(force) {
   const failed = jobRows.filter((job) => job.status === 'failed');
   const ready = jobRows.filter((job) => job.status === 'ready');
   const stuck = processing.filter((job) => Date.now() - new Date(job.updatedAt || job.createdAt || 0).getTime() > 5 * 60 * 1000);
+  const animationProcessing = animationRows.filter((job) => job.status === 'processing');
+  const animationReady = animationRows.filter((job) => job.status === 'ready');
+  const animationFailed = animationRows.filter((job) => job.status === 'failed');
+  const animationStuck = animationRows.filter((job) => job.stuck);
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('生成任务', numberText(jobRows.length), `${numberText(processing.length)} 个处理中`, 'AI 灵伴生成任务全量计数，包含历史供应商任务。')}
       ${metric('可用结果', numberText(ready.length), `${numberText(failed.length)} 个失败`, 'ready 表示后端已有结果图；是否应用到宠物头像看 acceptedAt。')}
       ${metric('可能卡住', numberText(stuck.length), '处理中超过 5 分钟未更新', '用于排查进度条停在中间或 provider 状态没有刷新。')}
+      ${metric('动效任务', numberText(animationRows.length), `${numberText(animationProcessing.length)} 个处理中`, '静态灵伴形象保存后异步生成的动态灵伴任务，移动端首页会读取该状态。')}
+      ${metric('动效可用', numberText(animationReady.length), `${numberText(animationFailed.length)} 个失败`, 'ready 后移动端首页可播放视频；失败或卡住时运营可刷新、重试或标失败。')}
+      ${metric('动效卡住', numberText(animationStuck.length), '处理中超过 10 分钟未更新', '这里和系统健康页的动效队列报警一致，方便直接在本页处置。')}
       ${metric('调用轨迹', numberText(usageSummary.providerTraceEntries), `${numberText(usageSummary.providerTraceJobs)} 个任务有记录`, '新任务会记录供应商 submit/status/action 调用摘要、耗时、成本快照和错误。')}
       ${metric('额度返还', numberText(usageSummary.avatarQuotaRefunded || 0), `${numberText(usageSummary.avatarQuotaAutoRefunded || 0)} 自动`, '供应商侧失败可按配置自动返还用户当日生成额度；人工返还会防重复并写审计。')}
       ${metric('待处理反馈', numberText(feedbackSummary.received), `${numberText(feedbackSummary.reviewed)} 条已处理`, '用户在 AI 灵伴结果页提交的不满意反馈。')}
@@ -5665,6 +5730,26 @@ async function renderAvatarJobs(force) {
         ['时间', (job) => `<div>创建：${formatTime(job.createdAt)}</div><div class="cell-sub">更新：${formatTime(job.updatedAt)}</div>`],
         ['操作', avatarJobAction],
       ], '暂无 AI 形象任务')}
+    </div>
+
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>动效任务</h2>
+          <div class="section-sub">静态灵伴形象后的异步视频任务，直接影响首页动态灵伴播放</div>
+        </div>
+        ${help('刷新会同步上游 Seedance 状态；重试会基于当前静态灵伴形象新建动效任务；失败会同步宠物档案状态，移动端不再一直显示生成中。')}
+      </div>
+      ${tableHtml(animationRows, [
+        ['任务', avatarAnimationTaskCell],
+        ['用户', (job) => `<div>${escapeHtml(job.ownerName || '-')}</div><div class="cell-sub">${shortPhone(job.ownerPhone)}</div>`],
+        ['状态', avatarAnimationStatusCell],
+        ['调用轨迹', avatarAnimationTraceCell],
+        ['宠物档案', (job) => `<div>${escapeHtml(job.petAvatarAnimationStatus || '-')}</div><div class="cell-sub clamp">${escapeHtml(job.petAvatarAnimationUrl || '')}</div>`],
+        ['错误', (job) => `<div>${escapeHtml(job.errorCode || '-')}</div><div class="cell-sub clamp">${escapeHtml(job.lastStatusError || job.errorMessage || '')}</div>`],
+        ['时间', (job) => `<div>创建：${formatTime(job.createdAt)}</div><div class="cell-sub">更新：${formatTime(job.updatedAt)}</div>`],
+        ['操作', avatarAnimationAction],
+      ], '暂无灵伴动效任务')}
     </div>
 
     <div class="card">

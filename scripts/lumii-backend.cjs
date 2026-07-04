@@ -20733,6 +20733,128 @@ function adminAvatarJobs() {
     .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
 }
 
+function syncAvatarAnimationJobToPet(user, job, options = {}) {
+  const pet = user?.pets?.find((item) => item.id === job?.petId);
+  if (!pet || !job?.id) return null;
+  const force = Boolean(options.force);
+  const previous = {
+    avatarAnimationJobId: pet.avatarAnimationJobId || '',
+    avatarAnimationStatus: pet.avatarAnimationStatus || '',
+    avatarAnimationUrl: pet.avatarAnimationUrl || '',
+    avatarAnimationUpdatedAt: pet.avatarAnimationUpdatedAt || '',
+  };
+  if (!force && pet.avatarAnimationJobId && pet.avatarAnimationJobId !== job.id) {
+    return { after: previous, before: previous, pet, skipped: true };
+  }
+  if (job.status === 'ready') {
+    const videoUrl = job.videoUrl || job.resultUrl || '';
+    pet.avatarAnimationJobId = job.id;
+    pet.avatarAnimationStatus = 'ready';
+    pet.avatarAnimationUpdatedAt = job.readyAt || new Date().toISOString();
+    if (videoUrl) pet.avatarAnimationUrl = videoUrl;
+  } else if (job.status === 'processing') {
+    pet.avatarAnimationJobId = job.id;
+    pet.avatarAnimationStatus = 'processing';
+    if (pet.avatarAnimationJobId === job.id) pet.avatarAnimationUrl = '';
+  } else if (job.status === 'failed') {
+    if (!pet.avatarAnimationJobId || pet.avatarAnimationJobId === job.id) {
+      pet.avatarAnimationJobId = job.id;
+      pet.avatarAnimationStatus = 'failed';
+      pet.avatarAnimationUrl = '';
+      pet.avatarAnimationUpdatedAt = new Date().toISOString();
+    }
+  }
+  return {
+    after: {
+      avatarAnimationJobId: pet.avatarAnimationJobId || '',
+      avatarAnimationStatus: pet.avatarAnimationStatus || '',
+      avatarAnimationUrl: pet.avatarAnimationUrl || '',
+      avatarAnimationUpdatedAt: pet.avatarAnimationUpdatedAt || '',
+    },
+    before: previous,
+    pet,
+  };
+}
+
+function adminAvatarAnimationJobs() {
+  return Object.values(state.avatarAnimationJobs || {})
+    .map((job) => {
+      const owner = job.ownerPhone ? state.users[job.ownerPhone] : null;
+      const pet = owner?.pets?.find((item) => item.id === job.petId) || (owner ? selectedPetFor(owner) : null);
+      const avatarJob = job.avatarJobId ? state.avatarJobs?.[job.avatarJobId] : null;
+      const providerTrace = adminAiProviderTraceRows(job);
+      const latestProviderTrace = providerTrace[providerTrace.length - 1] || null;
+      const ageMs = Date.now() - Number(job.updatedAt || job.createdAt || Date.now());
+      return {
+        ageMs,
+        avatarJobId: job.avatarJobId || '',
+        createdAt: job.createdAt,
+        duration: Number(job.duration || 4),
+        errorCode: job.errorCode || '',
+        errorMessage: job.errorMessage || '',
+        id: job.id,
+        lastStatusCheckedAt: job.lastStatusCheckedAt || '',
+        lastStatusError: job.lastStatusError || '',
+        model: job.model || '',
+        ownerName: owner?.ownerName || '',
+        ownerPhone: job.ownerPhone || '',
+        petAvatarAnimationJobId: pet?.avatarAnimationJobId || '',
+        petAvatarAnimationStatus: pet?.avatarAnimationStatus || '',
+        petAvatarAnimationUrl: pet?.avatarAnimationUrl || '',
+        petAvatarUrl: pet?.avatarUrl || '',
+        petId: job.petId || '',
+        petName: pet?.name || job.petName || '',
+        progress: job.progress || 0,
+        provider: job.provider || '',
+        providerJobId: job.providerJobId || '',
+        providerStatus: job.providerStatus || '',
+        providerTrace: providerTrace.slice(-8).reverse(),
+        providerTraceCount: providerTrace.length,
+        providerTraceLatest: latestProviderTrace,
+        providerTraceLatestAt: latestProviderTrace?.at || '',
+        providerTraceLatestStageLabel: latestProviderTrace?.stageLabel || '',
+        providerTraceLatestStatus: latestProviderTrace?.providerStatus || '',
+        readyAt: job.readyAt || '',
+        requestSignature: job.requestSignature || '',
+        resolution: job.resolution || '480p',
+        retryOfJobId: job.retryOfJobId || '',
+        sourceAvatarUrl: job.sourceAvatarUrl || avatarJob?.resultUrl || '',
+        sourceResultUrl: job.sourceResultUrl || '',
+        stageBackground: job.stageBackground || '',
+        status: job.status || 'processing',
+        stuck: job.status === 'processing' && ageMs > 10 * 60 * 1000,
+        submittedAt: job.submittedAt || '',
+        updatedAt: job.updatedAt,
+        videoUrl: job.videoUrl || job.resultUrl || '',
+      };
+    })
+    .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
+}
+
+function retryAvatarAnimationJob(admin, req, owner, job, body = {}) {
+  const pet = owner?.pets?.find((item) => item.id === job?.petId) || (owner ? selectedPetFor(owner) : null);
+  if (!pet?.id) return { error: '宠物档案不存在，无法重试动效任务', statusCode: 404 };
+  const sourceAvatarUrl = String(pet.avatarUrl || job?.sourceAvatarUrl || '').trim();
+  if (!sourceAvatarUrl || !/^https?:\/\//i.test(sourceAvatarUrl) || isGeneratedAvatarServerUri(sourceAvatarUrl)) {
+    return { error: '当前宠物缺少可用的静态灵伴形象，无法重试动效任务', statusCode: 400 };
+  }
+  const before = cloneJson(job);
+  const nextJob = createAvatarAnimationJob({
+    avatarJob: job?.avatarJobId ? state.avatarJobs?.[job.avatarJobId] : null,
+    pet,
+    sourceAvatarUrl,
+    user: owner,
+  });
+  nextJob.retryOfJobId = job.id;
+  nextJob.adminRetriedAt = new Date().toISOString();
+  nextJob.adminRetriedBy = admin?.username || 'admin';
+  nextJob.adminRetryReason = adminReason(body, '运营后台重试灵伴动效任务');
+  syncAvatarAnimationJobToPet(owner, nextJob, { force: true });
+  if (nextJob.status === 'processing') queueAvatarAnimationStart(req, owner, nextJob);
+  writeAdminAudit(admin, 'ai.avatar_animation.retry', 'avatar_animation_job', job.id, before, nextJob, nextJob.adminRetryReason);
+  return { job: nextJob };
+}
+
 function avatarMediaQuality(analysis = {}) {
   if (analysis.status === 'blocked') return 'blocked';
   if (analysis.status === 'warning') return 'warning';
@@ -26046,6 +26168,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/ai/avatar-animation-jobs') {
+    ok(res, adminAvatarAnimationJobs());
+    return true;
+  }
+
   if (req.method === 'GET' && pathname === '/admin/ai/usage') {
     ok(res, adminAiUsage({ days: url.searchParams.get('days') || 14 }));
     return true;
@@ -26277,6 +26404,40 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       }
     }
     writeAdminAudit(admin, `ai.avatar.${action}`, 'avatar_job', job.id, before, job, body.reason);
+    saveState();
+    ok(res, job);
+    return true;
+  }
+
+  const adminAvatarAnimationActionMatch = pathname.match(/^\/admin\/ai\/avatar-animation-jobs\/([^/]+)\/(refresh|retry|mark-failed)$/);
+  if (req.method === 'POST' && adminAvatarAnimationActionMatch) {
+    const jobId = decodeURIComponent(adminAvatarAnimationActionMatch[1]);
+    const action = adminAvatarAnimationActionMatch[2];
+    const job = state.avatarAnimationJobs?.[jobId];
+    const owner = job?.ownerPhone ? state.users[job.ownerPhone] : null;
+    if (!job || !owner) {
+      fail(res, 404, '灵伴动效任务不存在', false, undefined, 'ADMIN_AVATAR_ANIMATION_JOB_NOT_FOUND');
+      return true;
+    }
+    const before = cloneJson(job);
+    if (action === 'refresh') {
+      await refreshAvatarAnimationJob(req, owner, job);
+      queueReadyAvatarAnimationMirrorIfNeeded(req, owner, job);
+      syncAvatarAnimationJobToPet(owner, job);
+    } else if (action === 'retry') {
+      const result = retryAvatarAnimationJob(admin, req, owner, job, body);
+      if (result.error) {
+        fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_AVATAR_ANIMATION_RETRY_INVALID');
+        return true;
+      }
+      saveState();
+      ok(res, result.job);
+      return true;
+    } else if (action === 'mark-failed') {
+      markAvatarAnimationFailure(job, 'ADMIN_MARKED_FAILED', String(body.reason || '运营后台标记动效任务失败').slice(0, 240), 'admin_marked_failed');
+      syncAvatarAnimationJobToPet(owner, job);
+    }
+    writeAdminAudit(admin, `ai.avatar_animation.${action}`, 'avatar_animation_job', job.id, before, job, adminReason(body, `运营后台${action}灵伴动效任务`));
     saveState();
     ok(res, job);
     return true;
@@ -27817,6 +27978,7 @@ async function handle(req, res) {
     }
     await refreshAvatarAnimationJob(req, user, job);
     queueReadyAvatarAnimationMirrorIfNeeded(req, user, job);
+    syncAvatarAnimationJobToPet(user, job, { force: true });
     saveState();
     ok(res, publicAvatarAnimationJob(job));
     return;
@@ -27850,6 +28012,7 @@ async function handle(req, res) {
     }
     await refreshAvatarAnimationJob(req, user, job);
     queueReadyAvatarAnimationMirrorIfNeeded(req, user, job);
+    syncAvatarAnimationJobToPet(user, job, { force: true });
     saveState();
     ok(res, publicAvatarAnimationJob(job));
     return;

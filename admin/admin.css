@@ -886,7 +886,8 @@ th {
   width: 54px;
 }
 
-.ai-media-preview img {
+.ai-media-preview img,
+.ai-media-preview video {
   height: 100%;
   object-fit: cover;
   width: 100%;
