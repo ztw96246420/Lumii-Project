@@ -408,7 +408,7 @@ async function main() {
     await page.getByRole('button', { name: '发送宠友圈评论' }).click();
     await waitExactText(page, '一起散步呀');
     await screenshot(page, 'smoke-frontend-02a-discover-comments.png');
-    await page.getByRole('button', { name: '删除评论' }).first().click();
+    await page.getByRole('button', { name: '删除评论' }).last().click();
     await page.getByText('一起散步呀', { exact: true }).waitFor({ state: 'hidden', timeout: 30_000 });
     await page.getByRole('button', { name: '关闭宠友圈评论' }).click();
 
