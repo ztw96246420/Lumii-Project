@@ -94,6 +94,8 @@ const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10'
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_PUBLIC_PROBE_BASE_URL = (process.env.MEDIA_PUBLIC_PROBE_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_PUBLIC_PROBE_TIMEOUT_MS = Math.max(1000, Number(process.env.MEDIA_PUBLIC_PROBE_TIMEOUT_MS || '6000') || 6000);
+const STATE_STORAGE_WARN_BYTES = Math.max(1024 * 1024, Number(process.env.STATE_STORAGE_WARN_BYTES || 15 * 1024 * 1024) || 15 * 1024 * 1024);
+const STATE_MEDIA_DATAURL_PRUNE_ENABLED = process.env.STATE_MEDIA_DATAURL_PRUNE_ENABLED === 'false' ? false : true;
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
 const MEDIA_UPLOAD_MAX_BYTES = Number(process.env.MEDIA_UPLOAD_MAX_BYTES || '9000000');
 const COS_BUCKET = process.env.COS_BUCKET || '';
@@ -4448,9 +4450,74 @@ function loadState() {
 let state = loadState();
 const amapPoiCache = new Map();
 
+function durableMediaUrl(media = {}) {
+  const objectUrl = String(media.objectUrl || '').trim();
+  if (/^https?:\/\//i.test(objectUrl)) return objectUrl;
+  const objectKey = String(media.objectKey || '').trim();
+  const base = appMediaPublicBaseUrl();
+  if (objectKey && base) return publicStorageProbeUrl(base, objectKey);
+  return '';
+}
+
+function mediaDataUrlBytes(media = {}) {
+  return Buffer.byteLength(String(media.dataUrl || ''), 'utf8');
+}
+
+function prunePersistedMediaDataUrl(media, options = {}) {
+  if (!STATE_MEDIA_DATAURL_PRUNE_ENABLED || !media?.dataUrl || !durableMediaUrl(media)) {
+    return { changed: false, media, prunedBytes: 0 };
+  }
+  const target = options.mutate ? media : { ...media };
+  const prunedBytes = mediaDataUrlBytes(target);
+  delete target.dataUrl;
+  target.dataUrlPrunedAt = target.dataUrlPrunedAt || new Date(options.now || Date.now()).toISOString();
+  target.dataUrlPrunedBytes = Math.max(Number(target.dataUrlPrunedBytes || 0), prunedBytes);
+  target.dataUrlPrunedReason = options.reason || target.dataUrlPrunedReason || 'state_storage_compaction';
+  return { changed: true, media: target, prunedBytes };
+}
+
+function compactStateForPersistence(inputState, options = {}) {
+  const mutate = Boolean(options.mutate);
+  const target = mutate ? inputState : { ...inputState };
+  const mediaUploads = target.mediaUploads && typeof target.mediaUploads === 'object' && !Array.isArray(target.mediaUploads)
+    ? (mutate ? target.mediaUploads : { ...target.mediaUploads })
+    : {};
+  let changed = false;
+  let mediaDataUrlsPruned = 0;
+  let mediaDataUrlBytesPruned = 0;
+  Object.entries(mediaUploads).forEach(([mediaId, media]) => {
+    const result = prunePersistedMediaDataUrl(media, {
+      mutate,
+      now: options.now,
+      reason: options.reason,
+    });
+    if (!result.changed) return;
+    mediaUploads[mediaId] = result.media;
+    changed = true;
+    mediaDataUrlsPruned += 1;
+    mediaDataUrlBytesPruned += result.prunedBytes;
+  });
+  if (!mutate && mediaDataUrlsPruned > 0) target.mediaUploads = mediaUploads;
+  return {
+    changed,
+    state: target,
+    summary: {
+      mediaDataUrlBytesPruned,
+      mediaDataUrlsPruned,
+    },
+  };
+}
+
 function saveState() {
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
-  fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
+  const compacted = compactStateForPersistence(state, { mutate: false, reason: 'save_state' });
+  fs.writeFileSync(statePath, JSON.stringify(compacted.state, null, 2));
+}
+
+const startupStateCompaction = compactStateForPersistence(state, { mutate: true, reason: 'startup_state_storage_compaction' });
+if (startupStateCompaction.changed) {
+  saveState();
+  console.warn('[state-storage] compacted persisted media data URLs', startupStateCompaction.summary);
 }
 
 function cosEnabled() {
@@ -11636,6 +11703,23 @@ function dataUrlToFileParts(dataUrl, fallbackMimeType) {
   };
 }
 
+function mediaProviderImageUrl(media = {}) {
+  return durableMediaUrl(media) || String(media.dataUrl || '').trim();
+}
+
+async function mediaUploadFileParts(media = {}) {
+  const fromDataUrl = dataUrlToFileParts(media.dataUrl, media.mimeType);
+  if (fromDataUrl?.buffer?.length) return fromDataUrl;
+  const objectKey = String(media.objectKey || '').trim();
+  if (!objectKey || !cosEnabled()) return null;
+  const result = await cosRequest('GET', objectKey, { timeoutMs: 20000 });
+  const mimeType = normalizeImageMimeType(media.mimeType || result.headers?.['content-type']) || 'application/octet-stream';
+  return {
+    buffer: result.body,
+    mimeType,
+  };
+}
+
 async function ttapiMidjourneyRequest(pathname, options = {}) {
   const response = await fetch(`${TTAPI_MJ_BASE_URL}${pathname}`, {
     method: options.method || 'GET',
@@ -12690,7 +12774,8 @@ const avatarFeedbackReasons = new Set(['color', 'expression', 'face_shape', 'not
 
 async function startGptImage2AvatarJob(user, job, media) {
   if (!GPT_IMAGE2_API_KEY) throw new Error('GPT Image 2 key is not configured');
-  if (!media?.dataUrl) throw new Error('Pet photo is missing. Please upload again.');
+  const sourceImageUrl = mediaProviderImageUrl(media);
+  if (!sourceImageUrl) throw new Error('Pet photo is missing. Please upload again.');
   const providerConfig = effectiveGptImage2AvatarConfig();
   const prompt = buildGptImage2PetAvatarPrompt(user);
   Object.assign(job, {
@@ -12703,7 +12788,7 @@ async function startGptImage2AvatarJob(user, job, media) {
   });
   touchAvatarJob(job);
   const requestBody = {
-    image_urls: [media.dataUrl],
+    image_urls: [sourceImageUrl],
     model: providerConfig.model,
     n: 1,
     official_fallback: providerConfig.officialFallback,
@@ -12755,9 +12840,8 @@ async function startGptImage2AvatarJob(user, job, media) {
 
 async function startTtapiAvatarJob(req, user, job, media) {
   if (!TTAPI_API_KEY) throw new Error('TTAPI key is not configured');
-  if (!media?.dataUrl) throw new Error('Pet photo is missing. Please upload again.');
   const providerConfig = effectiveTtapiMidjourneyAvatarConfig();
-  const referenceUrl = mediaUploadFileUrl(req, media.mediaId);
+  const referenceUrl = durableMediaUrl(media) || mediaUploadFileUrl(req, media.mediaId);
   if (!referenceUrl) throw new Error('Public media URL is not available.');
   const prompt = buildPetAvatarPrompt(user, referenceUrl);
   const requestBody = {
@@ -12817,9 +12901,8 @@ async function startTtapiAvatarJob(req, user, job, media) {
 
 async function startTtapiFluxAvatarJob(user, job, media) {
   if (!TTAPI_API_KEY) throw new Error('TTAPI key is not configured');
-  if (!media?.dataUrl) throw new Error('Pet photo is missing. Please upload again.');
   const providerConfig = effectiveTtapiFluxAvatarConfig();
-  const fileParts = dataUrlToFileParts(media.dataUrl, media.mimeType);
+  const fileParts = await mediaUploadFileParts(media);
   if (!fileParts?.buffer?.length) throw new Error('Pet photo file is invalid. Please upload again.');
 
   const prompt = buildFluxPetAvatarPrompt(user);
@@ -19460,7 +19543,7 @@ async function adminSystemHealth() {
   const config = currentOpsConfig();
   const notifications = adminSystemNotifications().summary;
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
-  const stateSizeWarn = stateFile.sizeBytes > 15 * 1024 * 1024;
+  const stateSizeWarn = stateFile.sizeBytes > STATE_STORAGE_WARN_BYTES;
   const ipAllowlist = adminIpAllowlistStatus('');
   const appMediaBase = appMediaPublicBaseUrl();
   const cdnMediaBase = cdnMediaPublicProbeBaseUrl();
