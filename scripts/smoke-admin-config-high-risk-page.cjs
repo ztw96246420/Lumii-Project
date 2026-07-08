@@ -186,10 +186,12 @@ async function main() {
     await page.locator('button[data-route="config"]').click();
     await page.locator('#cfgHighRiskApprovalRequireDifferentAdmin').waitFor({ state: 'attached', timeout: 30_000 });
     await page.locator('#cfgHighRiskApprovalRequireDifferentAdmin').check();
+    await page.locator('#cfgHighRiskApprovalPendingExpiresHours').fill('36');
     assert.equal(await page.locator('#cfgHighRiskApprovalRequireDifferentAdmin').isChecked(), true);
     await page.locator('button[data-action="save-config"]').click();
     const saved = await waitForSavedConfig(adminToken);
     assert.equal(saved.highRiskApproval.requireDifferentAdmin, true);
+    assert.equal(saved.highRiskApproval.pendingExpiresHours, 36);
     assert.ok(saved.linkage?.items?.some((item) => item.key === 'highRiskApproval.requireDifferentAdmin'));
 
     console.log('admin config high risk page smoke passed');

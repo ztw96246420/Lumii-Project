@@ -1744,7 +1744,7 @@ function userBusinessSummaryText(summary = {}) {
 }
 
 function dataClearApprovalTone(status) {
-  return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'canceled' ? 'bad' : '';
+  return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'canceled' || status === 'expired' ? 'bad' : '';
 }
 
 function renderDataClearApprovals(approvals = {}) {
@@ -1755,7 +1755,7 @@ function renderDataClearApprovals(approvals = {}) {
       <div class="section-head">
         <div>
           <h2>用户业务数据清理审批</h2>
-          <div class="section-sub">待审批 ${numberText(summary.pending || 0)} · 已执行 ${numberText(summary.approved || 0)} · 已取消 ${numberText(summary.canceled || 0)}</div>
+          <div class="section-sub">待审批 ${numberText(summary.pending || 0)} · 已执行 ${numberText(summary.approved || 0)} · 已过期 ${numberText(summary.expired || 0)} · 已取消 ${numberText(summary.canceled || 0)}</div>
         </div>
         ${help('清理申请提交后不会立刻影响移动端；只有审批通过才会删除该用户的宠物、AI、宠友圈、关系消息、地点、通知、工单等业务数据，并保留账号与审计日志。当前是单 admin 审批版本，生产多管理员后可升级为双人审批。')}
       </div>
@@ -1763,11 +1763,13 @@ function renderDataClearApprovals(approvals = {}) {
         ['用户', (row) => `<div class="cell-title">${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.phone)}</div>`],
         ['清理范围', (row) => `<div class="cell-sub clamp">${escapeHtml(userBusinessSummaryText(row.beforeSummary || {}))}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div><div class="cell-sub">提交人：${escapeHtml(row.createdBy || '-')}</div>`],
-        ['状态', (row) => `${tonePill(row.statusLabel || row.status, dataClearApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `执行 ${formatTime(row.approvedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, dataClearApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `执行 ${formatTime(row.approvedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt ? `超时 ${formatTime(row.approvalExpiresAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>`],
         ['结果', (row) => row.status === 'approved'
           ? `<div class="cell-sub clamp">已清理：${escapeHtml(userBusinessSummaryText(row.beforeSummary || {}))}</div>`
           : row.status === 'canceled'
             ? `<div class="cell-sub clamp">${escapeHtml(row.cancelReason || '已取消')}</div>`
+            : row.status === 'expired'
+              ? `<div class="cell-sub clamp">${escapeHtml(row.expireReason || '审批超时自动过期')}</div>`
             : '<div class="cell-sub">等待审批，不影响移动端</div>'],
         ['操作', (row) => row.status === 'pending_approval' ? `
           <div class="actions">
@@ -5147,7 +5149,7 @@ function renderSanctionPolicyReview(policy = {}) {
 }
 
 function sanctionApprovalTone(status) {
-  return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'canceled' ? 'bad' : '';
+  return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'canceled' || status === 'expired' ? 'bad' : '';
 }
 
 function renderSanctionApprovals(approvals = {}) {
@@ -5158,7 +5160,7 @@ function renderSanctionApprovals(approvals = {}) {
       <div class="section-head">
         <div>
           <h2>永久封禁审批</h2>
-          <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${numberText(summary.approved || 0)} 条已审批 · ${numberText(summary.canceled || 0)} 条已取消</div>
+          <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${numberText(summary.approved || 0)} 条已审批 · ${numberText(summary.expired || 0)} 条已过期 · ${numberText(summary.canceled || 0)} 条已取消</div>
         </div>
         ${help('永久封禁提交后不会立刻影响移动端账号状态；只有审批通过时才会创建真实处罚、更新用户状态并发送站内通知。当前是单 admin 审批版本，生产多管理员后可升级为双人审批。')}
       </div>
@@ -5166,7 +5168,7 @@ function renderSanctionApprovals(approvals = {}) {
         ['用户', (row) => `<div class="cell-title">${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.phone)} ${row.petName ? `· ${escapeHtml(row.petName)}` : ''}</div>`],
         ['处罚', (row) => `<div>${statusPill(row.typeLabel || row.type || '-')}</div><div class="cell-sub">${row.durationHours ? `${numberText(row.durationHours)}h` : '长期有效'}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div><div class="cell-sub">${escapeHtml(row.source || 'manual')} · ${escapeHtml(row.templateId || row.sourceTargetId || '-')}</div>`],
-        ['状态', (row) => `${tonePill(row.statusLabel || row.status, sanctionApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `审批 ${formatTime(row.approvedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, sanctionApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `审批 ${formatTime(row.approvedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt ? `超时 ${formatTime(row.approvalExpiresAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>`],
         ['提交', (row) => `<div>${formatTime(row.createdAt)}</div><div class="cell-sub">${escapeHtml(row.createdBy || '-')}</div>`],
         ['操作', (row) => row.status === 'pending_approval' ? `
           <div class="actions">
@@ -7046,6 +7048,7 @@ function renderTicketQualityReviewQueue(qualityReview = {}) {
 function ticketBatchReplyStatusLabel(status) {
   return {
     canceled: '已取消',
+    expired: '已过期',
     pending_approval: '待审批',
     sent: '已发送',
     sent_with_errors: '部分失败',
@@ -7082,6 +7085,7 @@ function renderTicketBatchReplyApprovals(batchReplyApprovals = {}, qualityPolicy
               <div class="cell-title">${escapeHtml(ticketBatchReplyStatusLabel(row.status))}</div>
               <div class="cell-sub">${escapeHtml(row.id || '-')}</div>
               <div class="cell-sub">${formatTime(row.createdAt)} · ${escapeHtml(row.createdBy || '-')}</div>
+              <div class="cell-sub">${row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt && row.status === 'pending_approval' ? `超时 ${formatTime(row.approvalExpiresAt)}` : ''}</div>
             </div>
             <div class="ticket-content">${escapeHtml(row.content || '-')}</div>
             <div class="cell-sub">${numberText(row.ticketCount || 0)} 个工单 · ${row.notifyUser === false ? '不通知' : '通知用户'} · ${numberText(row.successCount || 0)} 成功 / ${numberText(row.errorCount || 0)} 失败${row.approvedAt ? ` · ${formatTime(row.approvedAt)}` : ''}</div>
@@ -7399,6 +7403,7 @@ function notificationCampaignStatusLabel(status) {
   return {
     canceled: '已作废',
     draft: '草稿',
+    expired: '审批过期',
     failed: '失败',
     pending_approval: '待审批',
     scheduled: '已预约',
@@ -7480,7 +7485,9 @@ function renderNotificationCampaign(campaign) {
         <div class="moderation-meta">
           <span>发送人：${escapeHtml(campaign.createdBy || '-')}</span>
           ${campaign.approvalRequestedAt ? `<span>提交审批：${formatTime(campaign.approvalRequestedAt)} · ${escapeHtml(campaign.approvalRequestedBy || '-')}</span>` : ''}
+          ${campaign.approvalExpiresAt && campaign.status === 'pending_approval' ? `<span>审批超时：${formatTime(campaign.approvalExpiresAt)}</span>` : ''}
           ${campaign.approvedAt ? `<span>审批：${formatTime(campaign.approvedAt)} · ${escapeHtml(campaign.approvedBy || '-')}</span>` : ''}
+          ${campaign.expiredAt ? `<span>审批过期：${formatTime(campaign.expiredAt)}</span>` : ''}
           ${campaign.audiencePackageName ? `<span>人群包：${escapeHtml(campaign.audiencePackageName)}</span>` : ''}
           <span>目标：${campaign.audienceCount || 0}</span>
           <span>送达：${campaign.deliveredCount || 0}</span>
@@ -8257,6 +8264,7 @@ async function renderConfig(force) {
         </div>
         <div class="switch-panel">
           ${featureCheckbox('cfgHighRiskApprovalRequireDifferentAdmin', '审批人/申请人必须分离', Boolean(highRiskApproval.requireDifferentAdmin))}
+          <label>待审批超时小时<input id="cfgHighRiskApprovalPendingExpiresHours" type="number" min="1" max="720" value="${Number.isFinite(Number(highRiskApproval.pendingExpiresHours)) ? highRiskApproval.pendingExpiresHours : 72}" /></label>
         </div>
       </div>
       <div class="config-section">
@@ -8847,6 +8855,10 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isInteger(exportMaxDownloadsPerApproval) || exportMaxDownloadsPerApproval < 1 || exportMaxDownloadsPerApproval > 20) {
     throw new Error('单个导出审批下载上限必须在 1-20 次之间');
   }
+  const highRiskPendingExpiresHours = Number($('cfgHighRiskApprovalPendingExpiresHours').value);
+  if (!Number.isInteger(highRiskPendingExpiresHours) || highRiskPendingExpiresHours < 1 || highRiskPendingExpiresHours > 720) {
+    throw new Error('高风险待审批超时必须在 1-720 小时之间');
+  }
   const moderationSampleReviewRatePercent = Number($('cfgModerationSampleReviewRatePercent').value);
   if (!Number.isFinite(moderationSampleReviewRatePercent) || moderationSampleReviewRatePercent < 0 || moderationSampleReviewRatePercent > 100) {
     throw new Error('内容安全抽样复审率必须在 0-100 之间');
@@ -9007,6 +9019,7 @@ async function saveConfig(mode = 'publish') {
       walkInvite: $('cfgFeatureWalkInvite').checked,
     },
     highRiskApproval: {
+      pendingExpiresHours: highRiskPendingExpiresHours,
       requireDifferentAdmin: $('cfgHighRiskApprovalRequireDifferentAdmin').checked,
     },
     exports: {
@@ -9456,7 +9469,7 @@ function renderExportApprovals(approvals = {}) {
       </div>
       ${items.length ? tableHtml(items, [
         ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.datasetLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.datasetType || '-')}</div>`],
-        ['状态', (row) => `${tonePill(row.statusLabel || row.status, exportApprovalTone(row.status))}<div class="cell-sub">${row.expiresAt ? `有效至 ${formatTime(row.expiresAt)}` : '待审批后生成有效期'}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, exportApprovalTone(row.status))}<div class="cell-sub">${row.status === 'pending_approval' && row.requestExpiresAt ? `超时 ${formatTime(row.requestExpiresAt)}` : row.expiresAt ? `有效至 ${formatTime(row.expiresAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : '待审批后生成有效期'}</div>`],
         ['筛选/行数', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filterSummary || '全部数据')}</div><div class="cell-sub">导出 ${numberText(row.rowCount || 0)} / 匹配 ${numberText(row.matchedRows || 0)} / 原始 ${numberText(row.totalRows || 0)}</div>`],
         ['敏感字段', (row) => `<div class="export-fields">${(row.sensitiveColumns || []).slice(0, 6).map((item) => `<span>${escapeHtml(item)}</span>`).join('') || '<span>无明显敏感列</span>'}${(row.sensitiveColumns || []).length > 6 ? `<span>+${(row.sensitiveColumns || []).length - 6}</span>` : ''}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.exportReason || '-')}</div><div class="cell-sub">${escapeHtml(row.createdBy || '-')} · ${formatTime(row.createdAt)}</div>`],
