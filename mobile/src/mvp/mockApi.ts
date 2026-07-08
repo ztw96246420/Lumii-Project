@@ -2,6 +2,8 @@ import { extractMainlandChinaPhone } from '../services/sms';
 import { getLumiiInstallationId } from '../services/installationId';
 import type {
   AccountSnapshot,
+  AccountDeletionConfirmResult,
+  AccountDeletionRequestResult,
   ApiResult,
   AppAnalyticsEventInput,
   AppRemoteConfig,
@@ -166,6 +168,8 @@ let currentMockPhone = '13800138000';
 let mockOwnerName = '灵伴用户';
 let mockOwnerBio = '';
 let mockOwnerAvatarUrl = '';
+let mockAccountDeletion: AccountSnapshot['accountDeletion'] = null;
+let mockAccountDeletionRequest: AccountDeletionRequestResult | null = null;
 let pets: PetProfile[] = [];
 let activePetId = '';
 let generationProgressById: Record<string, number> = {};
@@ -2448,6 +2452,46 @@ export const mockApi = {
       return success(buildMockUserProfile());
     },
 
+    async confirmDeletion(code: string): Promise<ApiResult<AccountDeletionConfirmResult>> {
+      await wait(180);
+      if (!mockAccountDeletionRequest) return error<AccountDeletionConfirmResult>('请先获取注销验证码', true, undefined, 'ACCOUNT_DELETE_CODE_REQUIRED');
+      if (Date.now() > Number(mockAccountDeletionRequest.expiresAt || 0)) {
+        mockAccountDeletionRequest = null;
+        return error<AccountDeletionConfirmResult>('注销验证码已过期，请重新获取', true, undefined, 'ACCOUNT_DELETE_CODE_EXPIRED');
+      }
+      if (String(code || '').trim() !== '962464' && String(code || '').trim() !== mockAccountDeletionRequest.code) {
+        return error<AccountDeletionConfirmResult>('注销验证码错误，请检查后重试', true, undefined, 'ACCOUNT_DELETE_CODE_INVALID');
+      }
+      const now = Date.now();
+      const scheduledDeletionAt = new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString();
+      mockAccountDeletion = {
+        confirmedAt: new Date(now).toISOString(),
+        remainingDays: 30,
+        requestedAt: mockAccountDeletionRequest.requestedAt,
+        scheduledDeletionAt,
+        status: 'pending',
+      };
+      mockAccountDeletionRequest = null;
+      return success({ account: buildMockAccountSnapshot(), phone: currentMockPhone, scheduledDeletionAt, status: 'deletion_pending' });
+    },
+
+    async requestDeletion(): Promise<ApiResult<AccountDeletionRequestResult>> {
+      await wait(160);
+      if (mockAccountDeletion?.status === 'pending') {
+        return success({ accountDeletion: mockAccountDeletion, phone: currentMockPhone, requested: false });
+      }
+      const now = Date.now();
+      mockAccountDeletionRequest = {
+        availableAt: now,
+        code: '962464',
+        expiresAt: now + OTP_TTL_MS,
+        phone: currentMockPhone,
+        requested: true,
+        requestedAt: new Date(now).toISOString(),
+      };
+      return success(mockAccountDeletionRequest);
+    },
+
     async updateMe(patch: OwnerProfilePatch): Promise<ApiResult<UserProfile>> {
       await wait(120);
       const ownerName = String(patch.ownerName ?? '').trim();
@@ -2538,6 +2582,10 @@ export const mockApi = {
         delete smsVerifyAttemptsByPhone[phone];
       }
       currentMockPhone = phone;
+      if (mockAccountDeletion?.status === 'pending') {
+        mockAccountDeletion = null;
+        mockAccountDeletionRequest = null;
+      }
       return success({ account: buildMockAccountSnapshot(), phone, token: `mock-token-${phone}` });
     },
 
@@ -3668,6 +3716,8 @@ export const mockApi = {
 function buildMockAccountSnapshot(): AccountSnapshot {
   return {
     activePet: pets.find((pet) => pet.id === activePetId) ?? pets[0] ?? null,
+    accountDeletion: mockAccountDeletion,
+    accountStatus: mockAccountDeletion?.status === 'pending' ? 'deletion_pending' : 'active',
     ownerAvatarUrl: mockOwnerAvatarUrl,
     ownerBio: mockOwnerBio,
     ownerName: mockOwnerName,

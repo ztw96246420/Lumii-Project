@@ -106,6 +106,7 @@ import { BottomSheet, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field
 import type {
   AppRoute,
   AppTab,
+  AccountDeletionRequestResult,
   ApiError,
   ApiResult,
   AppAnalyticsEventName,
@@ -2260,6 +2261,12 @@ export default function LumiiMvpApp() {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [amapNavigationPlace, setAmapNavigationPlace] = useState<Place | null>(null);
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
+  const [accountDeletionCode, setAccountDeletionCode] = useState('');
+  const [accountDeletionError, setAccountDeletionError] = useState('');
+  const [accountDeletionRequest, setAccountDeletionRequest] = useState<AccountDeletionRequestResult | null>(null);
+  const [accountDeletionRequesting, setAccountDeletionRequesting] = useState(false);
+  const [accountDeletionConfirming, setAccountDeletionConfirming] = useState(false);
+  const [accountDeletionSheetVisible, setAccountDeletionSheetVisible] = useState(false);
   const [sessionBootstrapping, setSessionBootstrapping] = useState(!isHomePreviewMode);
   const [bootPetAvatarUri, setBootPetAvatarUri] = useState<string | null>(isHomePreviewMode ? initialPreviewPets[0]?.avatarUrl ?? null : null);
 
@@ -9393,7 +9400,49 @@ export default function LumiiMvpApp() {
     ownerProfileSavingRef.current = false;
     setOwnerProfileSaving(false);
     setOwnerProfileSaved(false);
+    setAccountDeletionCode('');
+    setAccountDeletionError('');
+    setAccountDeletionRequest(null);
+    setAccountDeletionRequesting(false);
+    setAccountDeletionConfirming(false);
+    setAccountDeletionSheetVisible(false);
     replace('login');
+  }
+
+  async function requestAccountDeletion() {
+    if (accountDeletionRequesting || accountDeletionConfirming) return;
+    setAccountDeletionRequesting(true);
+    setAccountDeletionError('');
+    const result = await lumiiApi.account.requestDeletion();
+    setAccountDeletionRequesting(false);
+    if (result.state === 'success' && result.data) {
+      setAccountDeletionRequest(result.data);
+      setAccountDeletionCode('');
+      setAccountDeletionSheetVisible(true);
+      return;
+    }
+    showToast(result.error?.message ?? '注销申请发起失败，请稍后重试', { tone: 'error', variant: 'surface' });
+  }
+
+  async function confirmAccountDeletion() {
+    if (accountDeletionConfirming) return;
+    const code = accountDeletionCode.trim();
+    if (code.length !== 6) {
+      setAccountDeletionError('请输入 6 位验证码');
+      return;
+    }
+    setAccountDeletionConfirming(true);
+    setAccountDeletionError('');
+    const result = await lumiiApi.account.confirmDeletion(code);
+    setAccountDeletionConfirming(false);
+    if (result.state !== 'success') {
+      setAccountDeletionError(result.error?.message ?? '注销确认失败，请稍后重试');
+      return;
+    }
+    await clearPersistedLumiiSession();
+    clearLocalAccountState();
+    setLumiiAuthToken();
+    showToast('注销申请已提交', { subtitle: '30 天冷静期内重新登录可撤销申请', tone: 'success', variant: 'surface' });
   }
 
   async function logout() {
@@ -16650,6 +16699,12 @@ export default function LumiiMvpApp() {
   function renderAccountSecurity() {
     const deviceLabel = currentDeviceLabel();
     const verificationLabel = accountVerificationLabel(session?.phone);
+    const deletion = session?.account?.accountDeletion ?? null;
+    const deletionValue = deletion?.status === 'pending'
+      ? `${deletion.remainingDays ?? 30}天后`
+      : accountDeletionRequesting
+        ? '发送中'
+        : '未申请';
     return (
       <Screen title="账号安全">
         <View style={styles.settingsMakePage}>
@@ -16672,6 +16727,22 @@ export default function LumiiMvpApp() {
           <SettingsMakeSection title="登录与设备">
             <SettingsMakeRow Icon={Smartphone} iconBg="#E8F5F3" iconColor={palette.teal} title="登录设备" value={deviceLabel} />
             <SettingsMakeRow Icon={EyeOff} iconBg="#EFEAE1" iconColor={palette.ink} last title="登录保护" value="验证码登录" />
+          </SettingsMakeSection>
+
+          <SettingsMakeSection footnote="提交注销后账号会进入 30 天冷静期；冷静期内重新登录即可自动撤销。正式删除前，你的资料、宠物记录和互动内容仍按平台规则保留。" title="危险操作">
+            <SettingsMakeRow
+              accessibilityLabel="request-account-deletion"
+              danger
+              Icon={Trash2}
+              iconBg="#FBE4DE"
+              iconColor={palette.danger}
+              last
+              onPress={deletion?.status === 'pending' ? undefined : () => void requestAccountDeletion()}
+              right={accountDeletionRequesting ? <ActivityIndicator color={palette.danger} size="small" /> : deletion?.status === 'pending' ? null : undefined}
+              sub={deletion?.status === 'pending' ? `预计删除：${formatOptionalDateLabel(deletion.scheduledDeletionAt)}` : '需要短信验证码二次确认'}
+              title={deletion?.status === 'pending' ? '注销申请已提交' : '注销账号'}
+              value={deletionValue}
+            />
           </SettingsMakeSection>
         </View>
       </Screen>
@@ -17194,6 +17265,54 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderAccountDeletionSheet() {
+    const expiresAt = accountDeletionRequest?.expiresAt ? new Date(accountDeletionRequest.expiresAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '';
+    const disabled = accountDeletionConfirming || accountDeletionCode.trim().length !== 6;
+    return (
+      <BottomSheet contentStyle={styles.accountDeletionSheetMake} dismissDisabled={accountDeletionConfirming} onClose={() => setAccountDeletionSheetVisible(false)} visible={accountDeletionSheetVisible}>
+        <View style={styles.logoutSheetIconMake}>
+          <Trash2 color={palette.danger} size={26} strokeWidth={2.4} />
+        </View>
+        <Text style={styles.logoutSheetTitleMake}>确认注销账号？</Text>
+        <Text style={styles.logoutSheetBodyMake}>提交后账号进入 30 天冷静期，本机将退出登录。冷静期内重新登录可自动撤销注销申请。</Text>
+        <View style={styles.accountDeletionImpactMake}>
+          {['你的宠物档案、宠物日历、灵伴形象和社交内容会进入删除计划。', '冷静期结束后将按平台规则清理账号相关业务数据。', '如果只是暂时不用，建议选择退出登录。'].map((item) => (
+            <View key={item} style={styles.accountDeletionImpactRowMake}>
+              <AlertTriangle color={palette.orange} size={13} strokeWidth={2.4} />
+              <Text style={styles.accountDeletionImpactTextMake}>{item}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.accountDeletionCodeBlockMake}>
+          <Text style={styles.accountDeletionCodeLabelMake}>短信验证码{expiresAt ? ` · ${expiresAt} 前有效` : ''}</Text>
+          <TextInput
+            accessibilityLabel="account-deletion-code-input"
+            keyboardType="number-pad"
+            maxLength={6}
+            onChangeText={(text) => {
+              setAccountDeletionCode(text.replace(/\D/g, '').slice(0, 6));
+              if (accountDeletionError) setAccountDeletionError('');
+            }}
+            placeholder="输入 6 位验证码"
+            placeholderTextColor={palette.muted}
+            style={[styles.makeTextInput, accountDeletionError && styles.makeTextInputError, webTextInputReset]}
+            value={accountDeletionCode}
+          />
+          {accountDeletionError ? <Text style={styles.accountDeletionErrorTextMake}>{accountDeletionError}</Text> : null}
+        </View>
+        <View style={styles.logoutSheetActionsMake}>
+          <Pressable accessibilityLabel="confirm-account-deletion" accessibilityRole="button" disabled={disabled} onPress={() => void confirmAccountDeletion()} style={[styles.sheetDangerButtonMake, disabled && styles.aiCtaDisabled, webPressableReset]}>
+            {accountDeletionConfirming ? <ActivityIndicator color="#fff" size="small" /> : null}
+            <Text style={styles.sheetDangerButtonTextMake}>确认注销</Text>
+          </Pressable>
+          <Pressable accessibilityLabel="cancel-account-deletion" accessibilityRole="button" disabled={accountDeletionConfirming} onPress={() => setAccountDeletionSheetVisible(false)} style={[styles.sheetGhostButtonMake, webPressableReset]}>
+            <Text style={styles.sheetGhostButtonTextMake}>再想想</Text>
+          </Pressable>
+        </View>
+      </BottomSheet>
+    );
+  }
+
   function renderPetDeleteConfirmSheet() {
     const pet = petDeleteConfirm;
     const deleting = pet ? petDeletingId === pet.id : false;
@@ -17596,6 +17715,7 @@ export default function LumiiMvpApp() {
           {renderGreetingSheet()}
           {renderAmapNavigationConfirm()}
           {renderLogoutConfirmSheet()}
+          {renderAccountDeletionSheet()}
           {renderPetDeleteConfirmSheet()}
           {renderMemoDeleteConfirm()}
           {renderWeightDeleteConfirm()}
@@ -18279,6 +18399,13 @@ const styles = StyleSheet.create({
   accountSecurityHeroMake: { alignItems: 'center', backgroundColor: '#E8F5F3', borderRadius: 16, flexDirection: 'row', gap: 12, marginBottom: 18, marginHorizontal: 16, marginTop: 8, padding: 14 },
   accountSecurityHeroSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 17, marginTop: 2 },
   accountSecurityHeroTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', lineHeight: 20 },
+  accountDeletionCodeBlockMake: { alignSelf: 'stretch', gap: 8, marginTop: 16 },
+  accountDeletionCodeLabelMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', lineHeight: 17 },
+  accountDeletionErrorTextMake: { color: palette.danger, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 17 },
+  accountDeletionImpactMake: { alignSelf: 'stretch', backgroundColor: '#FFF7EE', borderColor: 'rgba(255,138,92,0.20)', borderRadius: 14, borderWidth: 1, gap: 8, marginTop: 16, paddingHorizontal: 12, paddingVertical: 11 },
+  accountDeletionImpactRowMake: { alignItems: 'flex-start', flexDirection: 'row', gap: 8 },
+  accountDeletionImpactTextMake: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 17 },
+  accountDeletionSheetMake: { alignItems: 'center', gap: 0, paddingBottom: 20, paddingHorizontal: 20, paddingTop: 10 },
   addPlaceBgGlowMake: { backgroundColor: 'rgba(255,217,182,0.48)', borderRadius: 220, height: 240, left: -70, position: 'absolute', right: -70, top: -120 },
   addPlaceChipRowMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   addPlaceCustomTagButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 14, flexDirection: 'row', gap: 4, height: 38, justifyContent: 'center', paddingHorizontal: 13, shadowColor: palette.orange, shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.18, shadowRadius: 16 },

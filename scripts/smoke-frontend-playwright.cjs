@@ -627,6 +627,30 @@ async function main() {
     await screenshot(settingsPage, 'smoke-frontend-04f-logout-confirmed.png');
     await settingsContext.close();
 
+    const deletionContext = await browser.newContext({
+      deviceScaleFactor: 1,
+      geolocation: { latitude: 31.2304, longitude: 121.4737 },
+      permissions: ['geolocation'],
+      viewport: { height: 920, width: 430 },
+    });
+    const deletionPage = await deletionContext.newPage();
+    collectPageErrors(deletionPage, pageErrors);
+
+    await deletionPage.goto(`${baseUrl}/?route=profile`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(deletionPage, '我的');
+    await clickExactText(deletionPage, '设置与隐私');
+    await waitExactText(deletionPage, '设置与隐私');
+    await deletionPage.getByLabel('账号安全').click();
+    await waitExactText(deletionPage, '账号安全');
+    await deletionPage.getByLabel('request-account-deletion').click();
+    await waitExactText(deletionPage, '确认注销账号？');
+    await deletionPage.getByLabel('account-deletion-code-input').fill('962464');
+    await deletionPage.getByLabel('confirm-account-deletion').click();
+    await waitExactText(deletionPage, '准备好遇见你的灵伴了吗？');
+    await waitExactText(deletionPage, '获取验证码');
+    await screenshot(deletionPage, 'smoke-frontend-04g-account-deletion-confirmed.png');
+    await deletionContext.close();
+
     const interactionContext = await browser.newContext({
       deviceScaleFactor: 1,
       geolocation: { latitude: 31.2304, longitude: 121.4737 },

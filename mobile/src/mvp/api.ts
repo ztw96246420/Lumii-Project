@@ -3,6 +3,8 @@ import { getLumiiInstallationId } from '../services/installationId';
 import type {
   ApiError,
   ApiResult,
+  AccountDeletionConfirmResult,
+  AccountDeletionRequestResult,
   AppAnalyticsEventInput,
   AppRemoteConfig,
   AiUsageSummary,
@@ -172,6 +174,14 @@ function createHttpApi(baseUrl: string): LumiiApi {
     account: {
       async getMe(): Promise<ApiResult<UserProfile>> {
         return request<UserProfile>('GET', '/me');
+      },
+
+      async confirmDeletion(code: string): Promise<ApiResult<AccountDeletionConfirmResult>> {
+        return request<AccountDeletionConfirmResult>('POST', '/account/delete/confirm', { code });
+      },
+
+      async requestDeletion(): Promise<ApiResult<AccountDeletionRequestResult>> {
+        return request<AccountDeletionRequestResult>('POST', '/account/delete/request');
       },
 
       async updateMe(patch: OwnerProfilePatch): Promise<ApiResult<UserProfile>> {

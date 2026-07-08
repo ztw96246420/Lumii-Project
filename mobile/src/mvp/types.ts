@@ -38,7 +38,8 @@ export type AccountSanctionSnapshot = {
 
 export type AccountSnapshot = {
   activePet: PetProfile | null;
-  accountStatus?: 'active' | 'banned' | 'frozen' | 'muted' | string;
+  accountDeletion?: AccountDeletionSnapshot | null;
+  accountStatus?: 'active' | 'banned' | 'deletion_pending' | 'frozen' | 'muted' | string;
   ownerAvatarUrl?: string;
   ownerBio?: string;
   ownerName?: string;
@@ -47,6 +48,31 @@ export type AccountSnapshot = {
   placeContributionSummary?: PlaceContributionSummary;
   sanctions?: AccountSanctionSnapshot;
   settings: UserSettings;
+};
+
+export type AccountDeletionSnapshot = {
+  confirmedAt?: string;
+  remainingDays?: number;
+  requestedAt?: string;
+  scheduledDeletionAt: string;
+  status: 'pending';
+};
+
+export type AccountDeletionRequestResult = {
+  accountDeletion?: AccountDeletionSnapshot | null;
+  availableAt?: number;
+  code?: string;
+  expiresAt?: number;
+  phone: string;
+  requested: boolean;
+  requestedAt?: string;
+};
+
+export type AccountDeletionConfirmResult = {
+  account: AccountSnapshot;
+  phone: string;
+  scheduledDeletionAt: string;
+  status: 'deletion_pending';
 };
 
 export type UserProfile = AccountSnapshot & {

@@ -22,6 +22,7 @@ const SMS_DAILY_LIMIT = Number(process.env.SMS_DAILY_LIMIT || '50');
 const SMS_DEVICE_DAILY_LIMIT = Number(process.env.SMS_DEVICE_DAILY_LIMIT || '80');
 const SMS_IP_DAILY_LIMIT = Number(process.env.SMS_IP_DAILY_LIMIT || '150');
 const SMS_VERIFY_MAX_ATTEMPTS = Math.max(1, Number(process.env.SMS_VERIFY_MAX_ATTEMPTS || '5') || 5);
+const ACCOUNT_DELETE_COOLING_OFF_MS = Number(process.env.ACCOUNT_DELETE_COOLING_OFF_MS || 30 * 24 * 60 * 60 * 1000);
 const AUTH_TOKEN_TTL_MS = Number(process.env.AUTH_TOKEN_TTL_MS || 30 * 24 * 60 * 60 * 1000);
 const AUTH_TOKEN_SECRET = process.env.LUMII_TOKEN_SECRET || process.env.AUTH_TOKEN_SECRET || 'lumii-mvp-dev-token-secret';
 const ONLINE_TTL_MS = 30 * 60 * 1000;
@@ -6538,7 +6539,66 @@ function accountStatusFor(user) {
   if (activeUserSanctionOfType(user.phone, 'ban')) return 'banned';
   if (activeUserSanctionOfType(user.phone, 'freeze')) return 'frozen';
   if (activeUserSanctionOfType(user.phone, 'mute')) return 'muted';
-  return user.accountStatus && !['banned', 'frozen', 'muted'].includes(user.accountStatus) ? user.accountStatus : 'active';
+  if (isAccountDeletionPending(user)) return 'deletion_pending';
+  return user.accountStatus && !['banned', 'frozen', 'muted', 'deletion_pending'].includes(user.accountStatus) ? user.accountStatus : 'active';
+}
+
+function normalizeAccountDeletion(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const status = String(value.status || '').trim();
+  if (!['canceled', 'pending'].includes(status)) return null;
+  const scheduledDeletionAt = String(value.scheduledDeletionAt || '').trim();
+  const requestedAt = String(value.requestedAt || '').trim();
+  const confirmedAt = String(value.confirmedAt || '').trim();
+  if (status === 'pending' && (!scheduledDeletionAt || Number.isNaN(Date.parse(scheduledDeletionAt)))) return null;
+  return {
+    cancelReason: String(value.cancelReason || '').trim().slice(0, 120),
+    canceledAt: String(value.canceledAt || '').trim(),
+    confirmedAt,
+    requestedAt,
+    scheduledDeletionAt,
+    status,
+  };
+}
+
+function isAccountDeletionPending(user) {
+  const deletion = normalizeAccountDeletion(user?.accountDeletion);
+  return deletion?.status === 'pending';
+}
+
+function accountDeletionSnapshot(user) {
+  const deletion = normalizeAccountDeletion(user?.accountDeletion);
+  if (deletion?.status !== 'pending') return null;
+  const scheduledMs = Date.parse(deletion.scheduledDeletionAt);
+  return {
+    confirmedAt: deletion.confirmedAt,
+    remainingDays: Math.max(0, Math.ceil((scheduledMs - Date.now()) / (24 * 60 * 60 * 1000))),
+    requestedAt: deletion.requestedAt,
+    scheduledDeletionAt: deletion.scheduledDeletionAt,
+    status: 'pending',
+  };
+}
+
+function cancelAccountDeletionOnLogin(user) {
+  if (!isAccountDeletionPending(user)) return false;
+  user.accountDeletion = {
+    ...normalizeAccountDeletion(user.accountDeletion),
+    cancelReason: 'login',
+    canceledAt: new Date().toISOString(),
+    status: 'canceled',
+  };
+  user.accountStatus = accountStatusFor(user);
+  addNotification(user.phone, {
+    actionRoute: 'settings',
+    category: 'system',
+    createdAt: new Date().toISOString(),
+    id: `n-account-delete-canceled-${Date.now()}`,
+    kind: 'system',
+    read: false,
+    text: '你已重新登录，账号注销申请已自动撤销。',
+    title: '注销申请已撤销',
+  });
+  return true;
 }
 
 function userSanctionSummary(phone) {
@@ -7479,6 +7539,11 @@ function allowRestrictedWrite(pathname) {
 }
 
 function failIfAccountRestricted(user, req, pathname, res) {
+  const deletion = accountDeletionSnapshot(user);
+  if (deletion && req.method !== 'GET' && !allowRestrictedWrite(pathname)) {
+    fail(res, 403, `账号注销申请已确认，预计 ${deletion.scheduledDeletionAt} 后删除。重新登录可在冷静期内撤销。`, false, { accountDeletion: deletion }, 'ACCOUNT_DELETION_PENDING');
+    return true;
+  }
   const sanction = accountWriteRestrictionFor(user);
   if (!sanction || req.method === 'GET' || allowRestrictedWrite(pathname)) return false;
   const label = SANCTION_TYPE_LABELS[sanction.type] || '限制';
@@ -7519,6 +7584,9 @@ function ensureUser(phone) {
   state.users[phone].favoritePlaceIds = normalizeFavoritePlaceIds(state.users[phone].favoritePlaceIds);
   state.users[phone].adminNotes = normalizeAdminNotes(state.users[phone].adminNotes);
   state.users[phone].adminRiskTags = normalizeAdminRiskTags(state.users[phone].adminRiskTags);
+  const normalizedDeletion = normalizeAccountDeletion(state.users[phone].accountDeletion);
+  if (normalizedDeletion) state.users[phone].accountDeletion = normalizedDeletion;
+  else delete state.users[phone].accountDeletion;
   state.users[phone].permissionsOnboardingCompleted = Boolean(state.users[phone].permissionsOnboardingCompleted);
   return state.users[phone];
 }
@@ -9878,6 +9946,7 @@ function buildAccountSnapshot(user) {
   const permissions = normalizePermissionState(user.permissions);
   return {
     activePet: selectedPetFor(user),
+    accountDeletion: accountDeletionSnapshot(user),
     accountStatus: accountStatusFor(user),
     ownerAvatarUrl: user.ownerAvatarUrl || '',
     ownerBio: user.ownerBio || '',
@@ -9911,6 +9980,9 @@ function requireUser(req, res) {
   user.permissions = normalizePermissionState(user.permissions);
   user.settings = normalizeUserSettings(user.settings);
   user.favoritePlaceIds = normalizeFavoritePlaceIds(user.favoritePlaceIds);
+  const normalizedDeletion = normalizeAccountDeletion(user.accountDeletion);
+  if (normalizedDeletion) user.accountDeletion = normalizedDeletion;
+  else delete user.accountDeletion;
   user.permissionsOnboardingCompleted = Boolean(user.permissionsOnboardingCompleted);
   user.accountStatus = accountStatusFor(user);
   user.lastSeenAt = user.settings.nearbyVisible === false ? 0 : Date.now();
@@ -10004,6 +10076,15 @@ function defaultVaccinesFor(user) {
 
 function todayIsoDate() {
   const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function localDateKey(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return calendarDatePart(value);
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
@@ -22314,7 +22395,7 @@ function adminAiUsage(options = {}) {
   const failed = avatarJobs.filter((job) => job.status === 'failed');
   const quotaRefunded = avatarJobs.filter(avatarJobQuotaAlreadyRefunded);
   const quotaAutoRefunded = quotaRefunded.filter((job) => job.quotaRefundSource === 'auto');
-  const todayQuotaRefunded = quotaRefunded.filter((job) => String(job.quotaRefundedAt || job.adminQuotaRefundedAt || '').slice(0, 10) === todayUsageKey());
+  const todayQuotaRefunded = quotaRefunded.filter((job) => localDateKey(job.quotaRefundedAt || job.adminQuotaRefundedAt || '') === todayUsageKey());
   const avatarDurations = ready.map(analyticsAvatarDurationSeconds).filter((value) => value !== null);
   const ownerPhones = new Set(avatarJobs.map((job) => job.ownerPhone).filter(Boolean));
   const errorCodes = adminErrorCodeRows(avatarJobs);
@@ -27645,6 +27726,7 @@ async function handle(req, res) {
       return;
     }
     const user = ensureUser(phone);
+    cancelAccountDeletionOnLogin(user);
     user.lastSeenAt = Date.now();
     if (ticket && !ticket.consumedAt) {
       state.sms[phone] = {
@@ -27789,6 +27871,73 @@ async function handle(req, res) {
 
   if (req.method === 'POST' && pathname === '/auth/token/refresh') {
     ok(res, { account: buildAccountSnapshot(user), phone: user.phone, token: createAuthToken(user.phone) });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/account/delete/request') {
+    if (isAccountDeletionPending(user)) {
+      ok(res, {
+        accountDeletion: accountDeletionSnapshot(user),
+        phone: user.phone,
+        requested: false,
+      });
+      return;
+    }
+    const now = Date.now();
+    user.accountDeletionRequest = {
+      code: TEST_CODE,
+      expiresAt: now + SMS_TTL_MS,
+      phone: user.phone,
+      requestedAt: new Date(now).toISOString(),
+    };
+    saveState();
+    ok(res, {
+      availableAt: now,
+      code: TEST_CODE,
+      expiresAt: user.accountDeletionRequest.expiresAt,
+      phone: user.phone,
+      requested: true,
+      requestedAt: user.accountDeletionRequest.requestedAt,
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/account/delete/confirm') {
+    const request = user.accountDeletionRequest && typeof user.accountDeletionRequest === 'object' ? user.accountDeletionRequest : null;
+    const code = String(body.code || '').trim();
+    const now = Date.now();
+    if (!request?.code) {
+      fail(res, 400, '请先获取注销验证码', true, undefined, 'ACCOUNT_DELETE_CODE_REQUIRED');
+      return;
+    }
+    if (now > Number(request.expiresAt || 0)) {
+      delete user.accountDeletionRequest;
+      saveState();
+      fail(res, 400, '注销验证码已过期，请重新获取', true, undefined, 'ACCOUNT_DELETE_CODE_EXPIRED');
+      return;
+    }
+    if (code !== TEST_CODE && code !== request.code) {
+      fail(res, 400, '注销验证码错误，请检查后重试', true, undefined, 'ACCOUNT_DELETE_CODE_INVALID');
+      return;
+    }
+    const confirmedAt = new Date(now).toISOString();
+    const scheduledDeletionAt = new Date(now + ACCOUNT_DELETE_COOLING_OFF_MS).toISOString();
+    user.accountDeletion = {
+      confirmedAt,
+      requestedAt: request.requestedAt || confirmedAt,
+      scheduledDeletionAt,
+      status: 'pending',
+    };
+    delete user.accountDeletionRequest;
+    user.accountStatus = accountStatusFor(user);
+    revokeSignedAuthToken(bearerTokenFromRequest(req));
+    saveState();
+    ok(res, {
+      account: buildAccountSnapshot(user),
+      phone: user.phone,
+      scheduledDeletionAt,
+      status: 'deletion_pending',
+    });
     return;
   }
 
