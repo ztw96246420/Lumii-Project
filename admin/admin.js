@@ -8259,6 +8259,7 @@ async function renderConfig(force) {
         </div>
         <div class="config-grid">
           <label>审批有效期小时<input id="cfgExportApprovalExpiresHours" type="number" min="1" max="168" value="${Number.isFinite(Number(exportsConfig.approvalExpiresHours)) ? exportsConfig.approvalExpiresHours : 24}" /></label>
+          <label>单审批下载上限<input id="cfgExportMaxDownloadsPerApproval" type="number" min="1" max="20" value="${Number.isFinite(Number(exportsConfig.maxDownloadsPerApproval)) ? exportsConfig.maxDownloadsPerApproval : 1}" /></label>
         </div>
       </div>
       <div class="config-section">
@@ -8829,6 +8830,10 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isFinite(exportApprovalExpiresHours) || exportApprovalExpiresHours < 1 || exportApprovalExpiresHours > 168) {
     throw new Error('导出审批有效期必须在 1-168 小时之间');
   }
+  const exportMaxDownloadsPerApproval = Number($('cfgExportMaxDownloadsPerApproval').value);
+  if (!Number.isInteger(exportMaxDownloadsPerApproval) || exportMaxDownloadsPerApproval < 1 || exportMaxDownloadsPerApproval > 20) {
+    throw new Error('单个导出审批下载上限必须在 1-20 次之间');
+  }
   const moderationSampleReviewRatePercent = Number($('cfgModerationSampleReviewRatePercent').value);
   if (!Number.isFinite(moderationSampleReviewRatePercent) || moderationSampleReviewRatePercent < 0 || moderationSampleReviewRatePercent > 100) {
     throw new Error('内容安全抽样复审率必须在 0-100 之间');
@@ -8990,6 +8995,7 @@ async function saveConfig(mode = 'publish') {
     },
     exports: {
       approvalExpiresHours: exportApprovalExpiresHours,
+      maxDownloadsPerApproval: exportMaxDownloadsPerApproval,
       requireApproval: $('cfgExportRequireApproval').checked,
     },
     moderation: {
@@ -9400,6 +9406,13 @@ function exportApprovalStatusOptions() {
     .join('');
 }
 
+function exportApprovalDownloadText(row = {}) {
+  const maxDownloads = Number(row.maxDownloads || 1);
+  const downloadCount = Number(row.downloadCount || 0);
+  if (!downloadCount) return `未下载 · 上限 ${numberText(maxDownloads)} 次`;
+  return `已下载 ${numberText(downloadCount)} / ${numberText(maxDownloads)} 次 · ${formatTime(row.lastDownloadedAt)}`;
+}
+
 function exportApprovalTone(status) {
   return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'expired' || status === 'canceled' ? 'bad' : '';
 }
@@ -9437,7 +9450,7 @@ function renderExportApprovals(approvals = {}) {
             ${row.status === 'approved' ? `<button class="small-button" data-action="download-approved-export" data-id="${escapeHtml(row.id)}" data-export-type="${escapeHtml(row.datasetType)}" data-export-reason="${escapeHtml(row.exportReason || '')}" data-filters="${escapeHtml(JSON.stringify(row.filters || {}))}">下载 CSV</button>` : ''}
             ${row.status === 'pending_approval' || row.status === 'approved' ? `<button class="small-button danger" data-action="cancel-export-approval" data-id="${escapeHtml(row.id)}">取消</button>` : ''}
           </div>
-          <div class="cell-sub">${row.downloadCount ? `已下载 ${numberText(row.downloadCount)} 次 · ${formatTime(row.lastDownloadedAt)}` : escapeHtml(row.id || '-')}</div>
+          <div class="cell-sub">${escapeHtml(exportApprovalDownloadText(row))}</div>
         `],
       ], '暂无导出审批') : '<div class="placeholder mini"><div><strong>暂无导出审批</strong><div>在数据集列表点击“提交审批”后，会在这里等待审批。</div></div></div>'}
     </div>

@@ -147,7 +147,7 @@ async function main() {
 
     await request('/admin/config', {
       body: {
-        exports: { approvalExpiresHours: 12, requireApproval: true },
+        exports: { approvalExpiresHours: 12, maxDownloadsPerApproval: 1, requireApproval: true },
         reason: 'export approval smoke',
       },
       method: 'PATCH',
@@ -203,9 +203,19 @@ async function main() {
     const approvals = await request('/admin/exports/approvals?type=users&status=all', { token: adminToken });
     const downloadedApproval = approvals.data.items.find((item) => item.id === approvalId);
     assert.equal(downloadedApproval.downloadCount, 1);
+    assert.equal(downloadedApproval.maxDownloads, 1);
+    assert.equal(downloadedApproval.downloadRemaining, 0);
+
+    const repeatedDownload = await request(`/admin/exports/users.csv?reason=export%20approval%20smoke&approvalId=${encodeURIComponent(approvalId)}`, {
+      expectedStatus: 409,
+      token: adminToken,
+    });
+    assert.equal(repeatedDownload.error.code, 'ADMIN_EXPORT_APPROVAL_DOWNLOAD_LIMIT');
 
     const history = await request('/admin/exports/history?type=users', { token: adminToken });
     assert.equal(history.data.items[0].approvalId, approvalId);
+    assert.equal(history.data.items[0].approvalDownloadCount, 1);
+    assert.equal(history.data.items[0].approvalMaxDownloads, 1);
 
     const audit = await request('/admin/audit-logs?limit=100', { token: adminToken });
     assert.ok(audit.data.items.some((item) => item.action === 'data.export.approval.create'), 'approval creation should be audited');

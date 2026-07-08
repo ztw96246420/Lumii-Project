@@ -580,6 +580,7 @@ function defaultOpsConfig() {
     },
     exports: {
       approvalExpiresHours: 24,
+      maxDownloadsPerApproval: 1,
       requireApproval: false,
     },
     experiments: {
@@ -1029,6 +1030,7 @@ function normalizeExportOpsConfig(value, defaults = {}) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
     approvalExpiresHours: Math.floor(clampNumber(source.approvalExpiresHours, defaults.approvalExpiresHours || 24, 1, 168)),
+    maxDownloadsPerApproval: Math.floor(clampNumber(source.maxDownloadsPerApproval, defaults.maxDownloadsPerApproval || 1, 1, 20)),
     requireApproval: Boolean(source.requireApproval),
   };
 }
@@ -4058,6 +4060,9 @@ function adminExportApprovalStatusLabel(status) {
 function adminExportApprovalItem(approval = {}) {
   const dataset = adminExportDataset(approval.datasetType);
   const status = adminExportApprovalCurrentStatus(approval);
+  const policy = normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports);
+  const maxDownloads = Math.max(1, Math.floor(Number(approval.maxDownloads || policy.maxDownloadsPerApproval || 1)));
+  const downloadCount = Math.max(0, Math.floor(Number(approval.downloadCount || 0)));
   return {
     approvalReason: approval.approvalReason || '',
     approvedAt: approval.approvedAt || '',
@@ -4069,7 +4074,8 @@ function adminExportApprovalItem(approval = {}) {
     createdBy: approval.createdBy || '',
     datasetLabel: dataset?.label || approval.datasetLabel || approval.datasetType || '',
     datasetType: approval.datasetType || '',
-    downloadCount: Math.max(0, Math.floor(Number(approval.downloadCount || 0))),
+    downloadCount,
+    downloadRemaining: Math.max(0, maxDownloads - downloadCount),
     expiresAt: approval.expiresAt || '',
     exportReason: approval.exportReason || '',
     filterSummary: approval.filterSummary || adminExportFilterSummary(approval.filters || {}),
@@ -4077,6 +4083,7 @@ function adminExportApprovalItem(approval = {}) {
     id: approval.id || '',
     lastDownloadedAt: approval.lastDownloadedAt || '',
     matchedRows: Math.max(0, Math.floor(Number(approval.matchedRows || 0))),
+    maxDownloads,
     rejectReason: approval.rejectReason || '',
     rowCount: Math.max(0, Math.floor(Number(approval.rowCount || 0))),
     sensitiveColumns: Array.isArray(approval.sensitiveColumns) ? approval.sensitiveColumns : [],
@@ -4123,6 +4130,7 @@ function createAdminExportApproval(admin, body = {}) {
   }
   const result = buildAdminExportPreview(datasetType, normalizeAdminExportFilters(body.filters || {}));
   if (!result) return { error: '导出数据集不存在', statusCode: 404 };
+  const policy = normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports);
   const sensitiveColumns = adminExportSensitiveColumns((adminExportDataset(datasetType)?.columns || []));
   const approval = {
     columnsCount: result.columns.length,
@@ -4136,6 +4144,7 @@ function createAdminExportApproval(admin, body = {}) {
     filters: result.filters,
     id: `export-approval-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     matchedRows: result.matchedRows,
+    maxDownloads: policy.maxDownloadsPerApproval,
     rowCount: result.rowCount,
     sensitiveColumns,
     sensitiveColumnCount: sensitiveColumns.length,
@@ -4198,6 +4207,9 @@ function validateAdminExportApprovalForDownload(approvalId, type, filters = {}, 
   if (!approval) return { error: '当前配置要求先提交并审批导出申请', statusCode: 409, code: 'ADMIN_EXPORT_APPROVAL_REQUIRED', policy };
   const item = adminExportApprovalItem(approval);
   if (item.status !== 'approved') return { error: `导出审批${item.statusLabel}，不能下载`, statusCode: 409, code: 'ADMIN_EXPORT_APPROVAL_INVALID', policy };
+  if (item.downloadCount >= item.maxDownloads) {
+    return { error: `导出审批下载次数已用完（${item.downloadCount}/${item.maxDownloads}），请重新提交审批`, statusCode: 409, code: 'ADMIN_EXPORT_APPROVAL_DOWNLOAD_LIMIT', policy };
+  }
   const normalizedFilters = normalizeAdminExportFilters(filters);
   if (item.datasetType !== type || JSON.stringify(normalizedConfigComparable(item.filters)) !== JSON.stringify(normalizedConfigComparable(normalizedFilters))) {
     return { error: '导出审批与当前数据集或筛选条件不一致，请重新提交审批', statusCode: 409, code: 'ADMIN_EXPORT_APPROVAL_MISMATCH', policy };
@@ -4221,7 +4233,9 @@ function adminExportHistory(options = {}) {
       const rowCount = Number(after.rowCount || 0);
       return {
         adminName: log.adminName || '',
+        approvalDownloadCount: Number(after.approvalDownloadCount || 0),
         approvalId: after.approvalId || '',
+        approvalMaxDownloads: Number(after.approvalMaxDownloads || 0),
         columnsCount: Array.isArray(after.columns) ? after.columns.length : 0,
         createdAt: log.createdAt,
         datasetLabel: dataset?.label || datasetType || '未知数据集',
@@ -21065,9 +21079,9 @@ function adminReadinessGaps(context) {
       area: '数据导出',
       severity: 'P1',
       status: 'partial',
-      issue: '导出已有审计、原因必填、CSV 水印和单 admin 审批，但没有多管理员双人审批、异步任务、归档和过期下载链接。',
-      requiredAction: '补审批人/申请人分离、双人审批、文件生命周期、对象存储归档和敏感字段授权。',
-      evidence: '数据导出页 / 审计日志',
+      issue: '导出已有审计、原因必填、CSV 水印、单 admin 审批、审批有效期和单审批下载次数上限；仍缺多管理员双人审批、异步任务和对象存储归档。',
+      requiredAction: '补审批人/申请人分离、双人审批、导出异步任务、文件生命周期、对象存储归档和敏感字段授权。',
+      evidence: '数据导出页 / 审计日志 / exports.maxDownloadsPerApproval',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }
@@ -26877,6 +26891,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       fail(res, approvalResult.statusCode || 409, approvalResult.error, false, {
         approvalRequired: approvalResult.policy?.requireApproval !== false,
         approvalExpiresHours: approvalResult.policy?.approvalExpiresHours || 24,
+        maxDownloadsPerApproval: approvalResult.policy?.maxDownloadsPerApproval || 1,
       }, approvalResult.code || 'ADMIN_EXPORT_APPROVAL_REQUIRED');
       return true;
     }
@@ -26890,7 +26905,9 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       approvalResult.approval.lastDownloadedAt = new Date().toISOString();
     }
     writeAdminAudit(admin, 'data.export.download', 'data_export', type, null, {
+      approvalDownloadCount: approvalResult.approval ? Math.max(0, Math.floor(Number(approvalResult.approval.downloadCount || 0))) : 0,
       approvalId: approvalResult.item?.id || '',
+      approvalMaxDownloads: approvalResult.approval ? Math.max(1, Math.floor(Number(approvalResult.approval.maxDownloads || approvalResult.policy?.maxDownloadsPerApproval || 1))) : 0,
       columns: result.columns,
       exportReason: result.exportReason,
       filterSummary: result.filterSummary,
