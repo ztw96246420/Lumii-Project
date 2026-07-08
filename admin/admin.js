@@ -2679,14 +2679,18 @@ function renderMediaProbe(probe = {}) {
   const getStatus = get.error ? `ERROR ${get.error}` : `${get.status || '-'} ${get.statusText || ''}`.trim();
   const headStatus = head.error ? `ERROR ${head.error}` : `${head.status || '-'} ${head.statusText || ''}`.trim();
   const location = getHeaders.location || '';
+  const title = probe.kind === 'cdn' ? '媒体 CDN 探测' : 'App 媒体探测';
+  const helpText = probe.kind === 'cdn'
+    ? '这里会用 CDN 域名请求一个真实 COS 对象，并关闭自动跳转。如果 GET 被腾讯 CDN 302 到 webblock，说明 CDN 仍需处理；只要 App 媒体探测正常，当前 App 可继续走源站。'
+    : '这里会用 App 实际返回给移动端的媒体 base URL 请求真实 COS 对象，并关闭自动跳转。这个探测失败才代表 App 实际媒体加载不可用。';
   return `
     <div class="card">
       <div class="section-head">
         <div>
-          <h2>媒体 CDN 探测</h2>
+          <h2>${escapeHtml(title)}</h2>
           <div class="section-sub">用真实 storage object 做 HEAD + Range GET，不被“HEAD 假通”误导</div>
         </div>
-        ${help('这里会用公开媒体域名请求一个真实 COS 对象，并关闭自动跳转。如果 GET 被腾讯 CDN 302 到 webblock，App 实际加载媒体也会失败。')}
+        ${help(helpText)}
       </div>
       <div class="grid two compact-grid">
         <div>
@@ -2721,7 +2725,7 @@ async function renderSystemHealth(force) {
   const heapUsed = Number(memory.heapUsed || 0);
   const heapTotal = Number(memory.heapTotal || 0);
   const heapFoot = heapTotal ? `${bytesText(heapUsed)} / ${bytesText(heapTotal)}` : bytesText(heapUsed);
-  const mediaProbeCard = renderMediaProbe(data.mediaProbe || {});
+  const mediaProbeCard = [renderMediaProbe(data.mediaProbe || {}), data.mediaCdnProbe ? renderMediaProbe(data.mediaCdnProbe) : ''].join('');
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('整体状态', data.status === 'bad' ? '异常' : data.status === 'warn' ? '需关注' : '正常', `${summary.warn || 0} 关注 · ${summary.bad || 0} 异常`, '系统健康聚合运行、存储、关键外部配置和业务积压。')}

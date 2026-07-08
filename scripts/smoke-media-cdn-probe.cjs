@@ -14,6 +14,7 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-media-cdn-probe-'));
 const statePath = path.join(tmpDir, 'state.json');
 let backendProcess = null;
 let cdnServer = null;
+let originServer = null;
 let baseUrl = '';
 
 function getFreePort() {
@@ -113,7 +114,34 @@ async function startFakeCdn() {
   return `http://127.0.0.1:${address.port}`;
 }
 
-async function startBackend(port, publicBaseUrl) {
+async function startFakeOrigin() {
+  originServer = http.createServer((req, res) => {
+    if (req.method === 'HEAD') {
+      res.writeHead(200, {
+        'Content-Length': '1234',
+        'Content-Type': 'image/png',
+        Server: 'origin-smoke',
+      });
+      res.end();
+      return;
+    }
+    res.writeHead(206, {
+      'Content-Length': '1',
+      'Content-Range': 'bytes 0-0/1234',
+      'Content-Type': 'image/png',
+      Server: 'origin-smoke',
+    });
+    res.end(Buffer.from([0]));
+  });
+  await new Promise((resolve, reject) => {
+    originServer.once('error', reject);
+    originServer.listen(0, '127.0.0.1', resolve);
+  });
+  const address = originServer.address();
+  return `http://127.0.0.1:${address.port}`;
+}
+
+async function startBackend(port, appBaseUrl, cdnBaseUrl) {
   baseUrl = `http://127.0.0.1:${port}`;
   backendProcess = spawn(process.execPath, [backendScript, '--port', String(port)], {
     cwd: rootDir,
@@ -121,9 +149,9 @@ async function startBackend(port, publicBaseUrl) {
       ...process.env,
       LUMII_BACKEND_PORT: String(port),
       LUMII_BACKEND_STATE_PATH: statePath,
-      MEDIA_PUBLIC_PROBE_BASE_URL: publicBaseUrl,
+      MEDIA_PUBLIC_PROBE_BASE_URL: cdnBaseUrl,
       MEDIA_PUBLIC_PROBE_TIMEOUT_MS: '3000',
-      PET_AVATAR_PUBLIC_BASE_URL: 'http://127.0.0.1:1',
+      PET_AVATAR_PUBLIC_BASE_URL: appBaseUrl,
       SMS_COOLDOWN_MS: '0',
       SMS_DAILY_LIMIT: '1000',
       SMS_DEVICE_DAILY_LIMIT: '1000',
@@ -162,6 +190,13 @@ async function stopFakeCdn() {
   await new Promise((resolve) => server.close(resolve));
 }
 
+async function stopFakeOrigin() {
+  if (!originServer) return;
+  const server = originServer;
+  originServer = null;
+  await new Promise((resolve) => server.close(resolve));
+}
+
 async function loginAdmin() {
   const payload = await request('/admin/auth/login', {
     body: { password: 'LumiiAdmin@2026', username: 'admin' },
@@ -173,22 +208,33 @@ async function loginAdmin() {
 
 async function main() {
   writeProbeState();
-  const publicBaseUrl = await startFakeCdn();
+  const appBaseUrl = await startFakeOrigin();
+  const cdnBaseUrl = await startFakeCdn();
   const port = await getFreePort();
-  await startBackend(port, publicBaseUrl);
+  await startBackend(port, appBaseUrl, cdnBaseUrl);
   try {
     const adminToken = await loginAdmin();
     const health = await request('/admin/system/health', { token: adminToken });
     const probe = health.data.mediaProbe;
-    assert.equal(probe.status, 'bad');
+    assert.equal(probe.kind, 'app');
+    assert.equal(probe.status, 'ok');
     assert.equal(probe.head.status, 200);
-    assert.equal(probe.get.status, 302);
-    assert.match(probe.get.headers.location, /webblock\.html/);
-    assert.equal(health.data.checks.some((item) => item.key === 'media_cdn_get' && item.status === 'bad'), true);
+    assert.equal(probe.get.status, 206);
+    assert.equal(health.data.checks.some((item) => item.key === 'media_public_get' && item.status === 'ok'), true);
+
+    const cdnProbe = health.data.mediaCdnProbe;
+    assert.equal(cdnProbe.kind, 'cdn');
+    assert.equal(cdnProbe.status, 'bad');
+    assert.equal(cdnProbe.head.status, 200);
+    assert.equal(cdnProbe.get.status, 302);
+    assert.match(cdnProbe.get.headers.location, /webblock\.html/);
+    assert.equal(health.data.checks.some((item) => item.key === 'media_cdn_get' && item.status === 'warn'), true);
+    assert.notEqual(health.data.status, 'bad');
     console.log('media CDN probe smoke passed');
   } finally {
     await stopBackend();
     await stopFakeCdn();
+    await stopFakeOrigin();
     fs.rmSync(tmpDir, { force: true, recursive: true });
   }
 }
@@ -196,6 +242,7 @@ async function main() {
 main().catch(async (error) => {
   await stopBackend();
   await stopFakeCdn();
+  await stopFakeOrigin();
   try {
     fs.rmSync(tmpDir, { force: true, recursive: true });
   } catch {

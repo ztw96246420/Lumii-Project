@@ -19148,8 +19148,16 @@ function adminCheckStatus(status, key, label, detail, evidence = '') {
   return { detail, evidence, key, label, status };
 }
 
+function appMediaPublicBaseUrl() {
+  return (PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+}
+
+function cdnMediaPublicProbeBaseUrl() {
+  return (MEDIA_PUBLIC_PROBE_BASE_URL || '').replace(/\/+$/, '');
+}
+
 function publicMediaBaseUrl() {
-  return (MEDIA_PUBLIC_PROBE_BASE_URL || PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+  return (appMediaPublicBaseUrl() || cdnMediaPublicProbeBaseUrl()).replace(/\/+$/, '');
 }
 
 function storageObjectKeyFromPublicUrl(value) {
@@ -19248,13 +19256,17 @@ async function runMediaPublicProbeRequest(url, method) {
   }
 }
 
-async function adminMediaPublicProbe() {
-  const baseUrl = publicMediaBaseUrl();
+async function adminMediaPublicProbe(baseUrlInput = publicMediaBaseUrl(), options = {}) {
+  const baseUrl = String(baseUrlInput || '').replace(/\/+$/, '');
+  const kind = options.kind || 'app';
+  const label = options.label || (kind === 'cdn' ? 'CDN media' : 'App media');
   if (!baseUrl) {
     return {
       baseUrl,
-      detail: '未配置公开访问 base URL',
+      detail: `${label} public base URL is not configured`,
       evidence: 'PET_AVATAR_PUBLIC_BASE_URL / LUMII_PUBLIC_BASE_URL',
+      kind,
+      label,
       objectKey: '',
       ok: false,
       status: 'warn',
@@ -19265,8 +19277,10 @@ async function adminMediaPublicProbe() {
   if (!candidate?.objectKey) {
     return {
       baseUrl,
-      detail: '已配置公开访问 base URL，但当前没有可用于探测的 COS 媒体对象',
+      detail: `${label} public base URL is configured, but no COS media object is available for probing yet`,
       evidence: '等待产生至少一个 pet-avatar / mediaUploads / avatarAnimation 对象后自动探测',
+      kind,
+      label,
       objectKey: '',
       ok: false,
       status: 'warn',
@@ -19284,12 +19298,12 @@ async function adminMediaPublicProbe() {
   const headOk = head.status === 200 || head.status === 206;
   const status = blockedByWebblock || (get.status >= 400) || get.error ? 'bad' : getOk ? 'ok' : headOk ? 'warn' : 'bad';
   const detail = blockedByWebblock
-    ? 'CDN GET 被 302 到腾讯 webblock，App 实际媒体加载不可用'
+    ? `${label} GET was redirected to Tencent webblock${kind === 'cdn' ? '; App can still load media if the App media probe is OK' : '; App media loading is unavailable'}`
     : getOk
-      ? `CDN GET 探测成功（${get.status}）`
+      ? `${label} GET probe succeeded (${get.status})`
       : get.error
-        ? `CDN GET 探测失败：${get.error}`
-        : `CDN GET 返回 ${get.status || '-'}，需要复核`;
+        ? `${label} GET probe failed: ${get.error}`
+        : `${label} GET returned ${get.status || '-'}, please review`;
   const evidence = `HEAD ${head.status || head.error || '-'} / GET ${get.status || get.error || '-'}${getLocation ? ` / Location ${getLocation}` : ''}`;
   return {
     baseUrl,
@@ -19297,6 +19311,8 @@ async function adminMediaPublicProbe() {
     evidence,
     get,
     head,
+    kind,
+    label,
     objectKey: candidate.objectKey,
     ok: status === 'ok',
     source: candidate.source || '',
@@ -19323,9 +19339,14 @@ async function adminSystemHealth() {
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
   const stateSizeWarn = stateFile.sizeBytes > 15 * 1024 * 1024;
   const ipAllowlist = adminIpAllowlistStatus('');
-  const mediaProbe = await adminMediaPublicProbe();
+  const appMediaBase = appMediaPublicBaseUrl();
+  const cdnMediaBase = cdnMediaPublicProbeBaseUrl();
+  const mediaProbe = await adminMediaPublicProbe(appMediaBase || cdnMediaBase, { kind: 'app', label: 'App media' });
+  const mediaCdnProbe = cdnMediaBase && cdnMediaBase !== (appMediaBase || '') ? await adminMediaPublicProbe(cdnMediaBase, { kind: 'cdn', label: 'CDN media' }) : null;
+  const mediaCdnProbeStatus = mediaCdnProbe?.status === 'bad' ? 'warn' : mediaCdnProbe?.status;
   const checks = [
-    adminCheckStatus(mediaProbe.status, 'media_cdn_get', '媒体 CDN GET 探测', mediaProbe.detail, mediaProbe.evidence),
+    adminCheckStatus(mediaProbe.status, 'media_public_get', 'App 媒体公开 GET 探测', mediaProbe.detail, mediaProbe.evidence),
+    ...(mediaCdnProbe ? [adminCheckStatus(mediaCdnProbeStatus, 'media_cdn_get', '媒体 CDN GET 探测', mediaCdnProbe.detail, mediaCdnProbe.evidence)] : []),
     adminCheckStatus(stateFile.exists ? stateSizeWarn ? 'warn' : 'ok' : 'bad', 'state_file', '状态文件', stateFile.exists ? `JSON state ${Math.round(stateFile.sizeBytes / 1024)} KB` : '状态文件不存在或不可读', stateFile.path),
     adminCheckStatus(process.env.LUMII_ADMIN_USERNAME && process.env.LUMII_ADMIN_PASSWORD ? 'ok' : 'warn', 'admin_credentials', '后台账号环境变量', process.env.LUMII_ADMIN_PASSWORD ? '后台密码由环境变量覆盖' : '仍可能使用默认后台账号密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'admin_ip_allowlist', '后台 IP 白名单', ipAllowlist.configured ? `已配置 ${ipAllowlist.entryCount} 条后端白名单规则` : '未配置后台 IP 白名单，/admin 仍可被公网访问', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
@@ -19335,7 +19356,7 @@ async function adminSystemHealth() {
     adminCheckStatus(DEEPSEEK_API_KEY ? 'ok' : 'warn', 'deepseek', 'DeepSeek 对话', DEEPSEEK_API_KEY ? 'AI 对话密钥已配置' : '未配置 DeepSeek 密钥，可能使用回退逻辑', effectiveDeepSeekChatConfig().model),
     adminCheckStatus(effectivePetAvatarProvider() === 'mock' ? 'warn' : effectivePetAvatarProvider() === 'gpt-image-2' && !GPT_IMAGE2_API_KEY ? 'bad' : 'ok', 'pet_avatar_provider', '灵伴形象生成', effectivePetAvatarProvider() === 'mock' ? '当前使用 mock provider' : `当前 provider：${effectivePetAvatarProvider()}`, `gpt-image-2 key=${GPT_IMAGE2_API_KEY ? 'set' : 'missing'} resolution=${effectiveGptImage2AvatarConfig().resolution}`),
     adminCheckStatus(effectivePetAvatarAnimationProvider() === 'disabled' ? 'warn' : effectivePetAvatarAnimationProvider() === 'doubao-seedance-1-5-pro' && !APIMART_API_KEY ? 'bad' : 'ok', 'pet_avatar_animation_provider', '灵伴动效生成', effectivePetAvatarAnimationProvider() === 'disabled' ? '当前已关闭动效生成' : `当前 provider：${effectivePetAvatarAnimationProvider()}`, `apimart key=${APIMART_API_KEY ? 'set' : 'missing'} ${effectiveSeedanceAvatarAnimationConfig().duration}s/${effectiveSeedanceAvatarAnimationConfig().aspectRatio}/${effectiveSeedanceAvatarAnimationConfig().resolution}`),
-    adminCheckStatus(PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL ? 'ok' : 'warn', 'public_media_base', '媒体公开访问域名', PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL ? '已配置公开访问 base URL' : '未配置公开访问 base URL，部分媒体 URL 依赖请求 Host', 'PET_AVATAR_PUBLIC_BASE_URL / LUMII_PUBLIC_BASE_URL'),
+    adminCheckStatus(appMediaPublicBaseUrl() ? 'ok' : 'warn', 'public_media_base', '媒体公开访问域名', appMediaPublicBaseUrl() ? '已配置公开访问 base URL' : '未配置公开访问 base URL，部分媒体 URL 依赖请求 Host', 'PET_AVATAR_PUBLIC_BASE_URL / LUMII_PUBLIC_BASE_URL'),
     adminCheckStatus(stuckAvatarJobs.length ? 'warn' : 'ok', 'avatar_queue', 'AI 任务队列', stuckAvatarJobs.length ? `${stuckAvatarJobs.length} 个生成任务可能卡住` : '暂无卡住的生成任务', `${processingAvatarJobs.length} processing / ${avatarJobs.length} total`),
     adminCheckStatus(stuckAvatarAnimationJobs.length ? 'warn' : 'ok', 'avatar_animation_queue', '动效任务队列', stuckAvatarAnimationJobs.length ? `${stuckAvatarAnimationJobs.length} 个动效任务可能卡住` : '暂无卡住的动效任务', `${processingAvatarAnimationJobs.length} processing / ${avatarAnimationJobs.length} total`),
     adminCheckStatus(Number(tickets.overdue || 0) ? 'warn' : 'ok', 'support_sla', '客服 SLA', Number(tickets.overdue || 0) ? `${tickets.overdue} 个工单已超时` : '暂无超时工单', `${tickets.open || 0} open / ${tickets.all || 0} all`),
@@ -19361,7 +19382,7 @@ async function adminSystemHealth() {
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_media_base', 'media_cdn_get'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_media_base', 'media_public_get', 'media_cdn_get'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
@@ -19394,6 +19415,7 @@ async function adminSystemHealth() {
       memory,
     },
     mediaProbe,
+    mediaCdnProbe,
   };
 }
 
