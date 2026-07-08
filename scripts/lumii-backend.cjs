@@ -67,6 +67,7 @@ const GPT_IMAGE2_RESOLUTION = process.env.GPT_IMAGE2_RESOLUTION || '2k';
 const GPT_IMAGE2_OFFICIAL_FALLBACK = process.env.GPT_IMAGE2_OFFICIAL_FALLBACK === 'true';
 const GPT_IMAGE2_STUCK_TASK_MIN_TIMEOUT_MS = Number(process.env.GPT_IMAGE2_STUCK_TASK_MIN_TIMEOUT_MS || 5 * 60 * 1000);
 const GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER = Number(process.env.GPT_IMAGE2_STUCK_TASK_ESTIMATE_MULTIPLIER || '4');
+const AI_STUCK_JOB_REAPER_INTERVAL_MS = Math.max(250, Number(process.env.AI_STUCK_JOB_REAPER_INTERVAL_MS || 60 * 1000) || 60 * 1000);
 const PET_AVATAR_STAGE_BACKGROUND = process.env.PET_AVATAR_STAGE_BACKGROUND || process.env.PET_AVATAR_ANIMATION_STAGE_BACKGROUND || '#FFFDFC';
 const PET_AVATAR_PROVIDER = (process.env.PET_AVATAR_PROVIDER || (GPT_IMAGE2_API_KEY ? 'gpt-image-2' : TTAPI_API_KEY ? 'ttapi-flux-edits' : 'mock')).toLowerCase();
 const APIMART_API_KEY = process.env.APIMART_API_KEY || GPT_IMAGE2_API_KEY || '';
@@ -12561,6 +12562,128 @@ async function refreshAvatarAnimationJob(req, user, job) {
     touchAvatarAnimationJob(job);
   }
   return job;
+}
+
+function avatarJobProviderTimeoutMs(job) {
+  const provider = String(job?.provider || effectivePetAvatarProvider() || '').toLowerCase();
+  if (provider === 'gpt-image-2') {
+    const providerData = job?.latestProviderTrace?.response?.data || job?.providerData || {};
+    return gptImage2StuckTaskTimeoutMs(providerData);
+  }
+  return 8 * 60 * 1000;
+}
+
+function recordAvatarJobProviderTimeoutUsage(job) {
+  if (!job || job.usageRecorded || (!job.providerJobId && !job.upsampleJobId)) return;
+  state.aiUsage = state.aiUsage || createInitialState().aiUsage;
+  const provider = String(job.provider || '').toLowerCase();
+  if (provider === 'gpt-image-2') {
+    state.aiUsage.gptImage2 = state.aiUsage.gptImage2 || createInitialState().aiUsage.gptImage2;
+    state.aiUsage.gptImage2.failed += 1;
+  } else if (provider === 'ttapi-flux-edits') {
+    state.aiUsage.ttapiFlux = state.aiUsage.ttapiFlux || createInitialState().aiUsage.ttapiFlux;
+    state.aiUsage.ttapiFlux.failed += 1;
+  } else if (provider === 'ttapi-midjourney') {
+    state.aiUsage.ttapiMidjourney = state.aiUsage.ttapiMidjourney || createInitialState().aiUsage.ttapiMidjourney;
+    state.aiUsage.ttapiMidjourney.failed += 1;
+  } else {
+    return;
+  }
+  job.usageRecorded = true;
+}
+
+function failStuckAvatarJob(job, code, message, providerStatus, now = Date.now()) {
+  job.errorCode = code;
+  job.errorMessage = message;
+  job.lastStatusCheckedAt = now;
+  job.lastStatusError = message;
+  job.progress = Math.max(code === 'AVATAR_PROVIDER_START_TIMEOUT' ? 2 : 10, Number(job.progress || 0));
+  job.providerStatus = providerStatus;
+  job.status = 'failed';
+  job.statusErrorCount = Number(job.statusErrorCount || 0) + 1;
+  job.timedOutAt = now;
+  recordAvatarJobProviderTimeoutUsage(job);
+  touchAvatarJob(job);
+  autoCreateAiAvatarSample(job, 'provider_anomaly', {
+    note: `AI 生成任务后台超时收敛：${message}`,
+    reason: '后台定时器发现 AI 生成任务长时间卡在 processing',
+    source: 'stuck_job_reaper',
+    tags: ['自动入池', '后台收敛', job.provider || 'provider', code],
+  });
+  return job;
+}
+
+function reapStuckAvatarJobs(now = Date.now()) {
+  let failed = 0;
+  let refunded = 0;
+  Object.values(state.avatarJobs || {}).forEach((job) => {
+    if (!job || job.status !== 'processing') return;
+    const ageMs = now - Number(job.createdAt || now);
+    const hasProviderJob = Boolean(job.providerJobId || job.upsampleJobId);
+    let code = '';
+    let message = '';
+    let providerStatus = '';
+    if (!hasProviderJob && ageMs >= AVATAR_JOB_START_TIMEOUT_MS) {
+      code = 'AVATAR_PROVIDER_START_TIMEOUT';
+      message = 'AI 灵伴生成任务提交超时，请重新生成。';
+      providerStatus = 'submit_timeout';
+    } else if (hasProviderJob && ageMs >= avatarJobProviderTimeoutMs(job)) {
+      code = 'AVATAR_PROVIDER_TIMEOUT';
+      message = 'AI 灵伴生成超时，上游图像任务长时间未返回结果，请重新生成。';
+      providerStatus = 'processing_timeout';
+    }
+    if (!code) return;
+    const before = cloneJson(job);
+    failStuckAvatarJob(job, code, message, providerStatus, now);
+    failed += 1;
+    const refund = autoRefundAvatarJobQuota(state.users?.[job.ownerPhone], job, 'stuck_job_reaper');
+    if (refund?.refunded) refunded += 1;
+    writeAdminAudit({ role: 'system', username: 'system' }, 'ai.avatar.auto_mark_failed', 'avatar_job', job.id, before, job, message);
+  });
+  return { failed, refunded };
+}
+
+function reapStuckAvatarAnimationJobs(now = Date.now()) {
+  let failed = 0;
+  Object.values(state.avatarAnimationJobs || {}).forEach((job) => {
+    if (!job || job.status !== 'processing') return;
+    const ageMs = now - Number(job.createdAt || now);
+    let code = '';
+    let message = '';
+    let providerStatus = '';
+    if (!job.providerJobId && ageMs >= AVATAR_ANIMATION_JOB_START_TIMEOUT_MS) {
+      code = 'AVATAR_ANIMATION_PROVIDER_START_TIMEOUT';
+      message = '灵伴动效生成任务提交超时，请重新生成。';
+      providerStatus = 'submit_timeout';
+    } else if (job.providerJobId && ageMs >= AVATAR_ANIMATION_JOB_STATUS_TIMEOUT_MS) {
+      code = 'AVATAR_ANIMATION_PROVIDER_TIMEOUT';
+      message = '灵伴动效生成超时，上游视频任务长时间未返回结果，请稍后重新生成。';
+      providerStatus = 'processing_timeout';
+    }
+    if (!code) return;
+    const before = cloneJson(job);
+    markAvatarAnimationFailure(job, code, message, providerStatus);
+    syncAvatarAnimationJobToPet(state.users?.[job.ownerPhone], job);
+    failed += 1;
+    writeAdminAudit({ role: 'system', username: 'system' }, 'ai.avatar_animation.auto_mark_failed', 'avatar_animation_job', job.id, before, job, message);
+  });
+  return { failed };
+}
+
+function reapStuckAiJobs() {
+  const now = Date.now();
+  const avatar = reapStuckAvatarJobs(now);
+  const animation = reapStuckAvatarAnimationJobs(now);
+  const total = avatar.failed + animation.failed;
+  if (total > 0) {
+    saveState();
+    console.warn('[ai-stuck-reaper] marked stuck AI jobs failed', {
+      avatarFailed: avatar.failed,
+      avatarRefunded: avatar.refunded,
+      avatarAnimationFailed: animation.failed,
+    });
+  }
+  return { avatar, animation, total };
 }
 
 const avatarFeedbackReasons = new Set(['color', 'expression', 'face_shape', 'not_same_pet', 'other', 'style']);
@@ -29805,3 +29928,12 @@ const notificationScheduler = setInterval(() => {
   }
 }, 60 * 1000);
 if (typeof notificationScheduler.unref === 'function') notificationScheduler.unref();
+
+const aiStuckJobReaper = setInterval(() => {
+  try {
+    reapStuckAiJobs();
+  } catch (error) {
+    console.error('Failed to reap stuck AI jobs', error);
+  }
+}, AI_STUCK_JOB_REAPER_INTERVAL_MS);
+if (typeof aiStuckJobReaper.unref === 'function') aiStuckJobReaper.unref();
