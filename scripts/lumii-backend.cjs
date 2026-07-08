@@ -19848,8 +19848,10 @@ function adminDashboardSummary() {
   const moderation = adminModerationTasks({ status: 'all' }).summary;
   const notifications = adminSystemNotifications().summary;
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
+  const alerts = adminOperationalAlerts({ limit: 20 });
   const config = currentOpsConfig();
   return {
+    alerts: alerts.summary,
     ai: {
       avatarFailed: avatarJobs.filter((job) => job.status === 'failed').length,
       avatarProcessing: processingAvatarJobs.length,
@@ -19920,6 +19922,259 @@ function adminSafeStateFileInfo() {
 
 function adminCheckStatus(status, key, label, detail, evidence = '') {
   return { detail, evidence, key, label, status };
+}
+
+function adminAlertSeverityRank(severity) {
+  return {
+    critical: 4,
+    high: 3,
+    medium: 2,
+    low: 1,
+  }[String(severity || '').toLowerCase()] || 0;
+}
+
+function adminOperationalAlerts(options = {}) {
+  const now = Date.now();
+  const stateFile = adminSafeStateFileInfo();
+  const avatarJobs = Object.values(state.avatarJobs || {});
+  const processingAvatarJobs = avatarJobs.filter((job) => job.status === 'processing');
+  const stuckAvatarJobs = processingAvatarJobs.filter((job) => now - analyticsTimeMs(job.updatedAt || job.createdAt) > 5 * 60 * 1000);
+  const avatarAnimationJobs = Object.values(state.avatarAnimationJobs || {});
+  const processingAvatarAnimationJobs = avatarAnimationJobs.filter((job) => job.status === 'processing');
+  const stuckAvatarAnimationJobs = processingAvatarAnimationJobs.filter((job) => now - analyticsTimeMs(job.updatedAt || job.createdAt) > 10 * 60 * 1000);
+  const moderation = adminModerationTasks({ status: 'all' }).summary;
+  const tickets = adminSupportTickets({ status: 'all' }).summary;
+  const appeals = adminSanctionAppeals({ status: 'all' }).summary;
+  const notifications = adminSystemNotifications().summary;
+  const config = currentOpsConfig();
+  const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
+  const ipAllowlist = adminIpAllowlistStatus('');
+  const stateSizeWarn = stateFile.sizeBytes > STATE_STORAGE_WARN_BYTES;
+  const items = [];
+  const generatedAt = new Date(now).toISOString();
+  const latestJobUpdatedAt = (jobs = []) => {
+    const timestamps = jobs
+      .map((job) => analyticsTimeMs(job.updatedAt || job.createdAt))
+      .filter((timestamp) => Number.isFinite(timestamp) && timestamp > 0);
+    return new Date(timestamps.length ? Math.max(...timestamps) : now).toISOString();
+  };
+  const add = (condition, alert) => {
+    if (!condition) return;
+    const key = String(alert.key || `alert-${items.length + 1}`);
+    items.push({
+      actionLabel: alert.actionLabel || '查看',
+      actionRoute: alert.actionRoute || '',
+      area: alert.area || '系统',
+      createdAt: alert.createdAt || generatedAt,
+      detail: alert.detail || '',
+      evidence: alert.evidence || '',
+      id: `alert-${key}`,
+      key,
+      severity: alert.severity || 'medium',
+      source: alert.source || 'runtime',
+      status: alert.status || 'open',
+      title: alert.title || key,
+      updatedAt: alert.updatedAt || generatedAt,
+    });
+  };
+
+  add(!stateFile.exists, {
+    actionLabel: '看健康页',
+    actionRoute: 'systemHealth',
+    area: '数据底座',
+    detail: '后端 JSON state 文件不可读或不存在，业务状态可能无法持久化。',
+    evidence: stateFile.path,
+    key: 'state_file_missing',
+    severity: 'critical',
+    title: '状态文件不可用',
+  });
+  add(stateFile.exists && stateSizeWarn, {
+    actionLabel: '看健康页',
+    actionRoute: 'systemHealth',
+    area: '数据底座',
+    detail: `JSON state 已达到 ${Math.round(stateFile.sizeBytes / 1024)} KB，继续膨胀会影响启动、写入和备份恢复。`,
+    evidence: `STATE_STORAGE_WARN_BYTES=${STATE_STORAGE_WARN_BYTES}`,
+    key: 'state_file_large',
+    severity: 'high',
+    title: '状态文件体积偏大',
+    updatedAt: stateFile.modifiedAt || generatedAt,
+  });
+  add(!process.env.LUMII_ADMIN_USERNAME || !process.env.LUMII_ADMIN_PASSWORD, {
+    actionLabel: '看账号',
+    actionRoute: 'adminAccounts',
+    area: '后台安全',
+    detail: '后台账号或密码仍可能来自默认值，生产前必须由环境变量覆盖。',
+    evidence: 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD',
+    key: 'admin_credentials',
+    severity: 'critical',
+    title: '后台账号环境变量未完全覆盖',
+  });
+  add(!ipAllowlist.configured, {
+    actionLabel: '看账号',
+    actionRoute: 'adminAccounts',
+    area: '后台安全',
+    detail: '后台 IP 白名单未配置，/admin 暴露面仍偏大。',
+    evidence: 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST',
+    key: 'admin_ip_allowlist',
+    severity: 'high',
+    title: '后台 IP 白名单未启用',
+  });
+  add(Boolean(config.app?.maintenanceEnabled), {
+    actionLabel: '看配置',
+    actionRoute: 'config',
+    area: '移动端配置',
+    detail: maintenanceMessage(),
+    evidence: '/app/config maintenanceEnabled=true',
+    key: 'maintenance_enabled',
+    severity: 'medium',
+    title: 'App 维护模式已开启',
+  });
+  add(stuckAvatarJobs.length > 0, {
+    actionLabel: '看 AI 灵伴',
+    actionRoute: 'avatarJobs',
+    area: 'AI 队列',
+    detail: `${stuckAvatarJobs.length} 个灵伴形象生成任务超过 5 分钟未更新。`,
+    evidence: `${processingAvatarJobs.length} processing / ${avatarJobs.length} total`,
+    key: 'avatar_queue',
+    severity: 'high',
+    title: 'AI 灵伴生成队列疑似卡住',
+    updatedAt: latestJobUpdatedAt(stuckAvatarJobs),
+  });
+  add(stuckAvatarAnimationJobs.length > 0, {
+    actionLabel: '看 AI 灵伴',
+    actionRoute: 'avatarJobs',
+    area: 'AI 队列',
+    detail: `${stuckAvatarAnimationJobs.length} 个灵伴动效生成任务超过 10 分钟未更新。`,
+    evidence: `${processingAvatarAnimationJobs.length} processing / ${avatarAnimationJobs.length} total`,
+    key: 'avatar_animation_queue',
+    severity: 'high',
+    title: '灵伴动效生成队列疑似卡住',
+    updatedAt: latestJobUpdatedAt(stuckAvatarAnimationJobs),
+  });
+  add(Number(tickets.overdue || 0) > 0, {
+    actionLabel: '看工单',
+    actionRoute: 'tickets',
+    area: '客服',
+    detail: `${tickets.overdue} 个客服工单已超过 SLA。`,
+    evidence: `${tickets.open || 0} open / ${tickets.all || 0} all`,
+    key: 'support_sla',
+    severity: 'high',
+    title: '客服工单 SLA 超时',
+  });
+  add(Number(tickets.urgent || 0) > 0, {
+    actionLabel: '看工单',
+    actionRoute: 'tickets',
+    area: '客服',
+    detail: `${tickets.urgent} 个紧急工单等待处理。`,
+    evidence: `${tickets.open || 0} open / ${tickets.all || 0} all`,
+    key: 'support_urgent',
+    severity: 'medium',
+    title: '存在紧急客服工单',
+  });
+  add(Number(moderation.escalated || 0) > 0, {
+    actionLabel: '看审核',
+    actionRoute: 'moderation',
+    area: '内容安全',
+    detail: `${moderation.escalated} 个内容安全任务已升级，需要人工处理。`,
+    evidence: `${moderation.pending || 0} pending / ${moderation.all || 0} all`,
+    key: 'moderation_escalated',
+    severity: 'high',
+    title: '内容安全任务升级',
+  });
+  add(Number(moderation.sampleUnreviewed || 0) > 0, {
+    actionLabel: '看审核',
+    actionRoute: 'moderation',
+    area: '内容安全',
+    detail: `${moderation.sampleUnreviewed} 个内容安全样本尚未复核。`,
+    evidence: `${moderation.qualitySamples || 0} samples`,
+    key: 'moderation_sample_review',
+    severity: 'medium',
+    title: '内容安全样本待复核',
+  });
+  add(Number(appeals.open || 0) > 0, {
+    actionLabel: '看申诉',
+    actionRoute: 'sanctionAppeals',
+    area: '社区治理',
+    detail: `${appeals.open} 个用户申诉未关闭。`,
+    evidence: `${appeals.pending || 0} pending / ${appeals.all || 0} all`,
+    key: 'sanction_appeals_open',
+    severity: 'medium',
+    title: '用户申诉待处理',
+  });
+  add(Number(notifications.pendingApprovals || 0) > 0, {
+    actionLabel: '看通知',
+    actionRoute: 'notifications',
+    area: '通知触达',
+    detail: `${notifications.pendingApprovals} 个系统通知批次等待审批。`,
+    evidence: `${notifications.campaigns || 0} campaigns`,
+    key: 'notification_pending_approval',
+    severity: 'medium',
+    title: '系统通知待审批',
+  });
+  add(Number(notifications.pushFailed || 0) > 0, {
+    actionLabel: '看通知',
+    actionRoute: 'notifications',
+    area: '通知触达',
+    detail: `${notifications.pushFailed} 条 Expo Push ticket 发送失败。`,
+    evidence: `${notifications.pushSent || 0} sent / ${notifications.pushAttempted || 0} attempted`,
+    key: 'push_ticket_failed',
+    severity: 'high',
+    title: '推送 ticket 存在失败',
+  });
+  add(Number(notifications.pushReceiptFailed || 0) > 0, {
+    actionLabel: '看通知',
+    actionRoute: 'notifications',
+    area: '通知触达',
+    detail: `${notifications.pushReceiptFailed} 条 Expo Push receipt 返回失败。`,
+    evidence: `${notifications.pushReceiptOk || 0} ok / ${notifications.pushReceiptAttempted || 0} attempted`,
+    key: 'push_receipt_failed',
+    severity: 'high',
+    title: '推送回执存在失败',
+  });
+  add(Number(notifications.pushReceiptPending || 0) > 0, {
+    actionLabel: '看通知',
+    actionRoute: 'notifications',
+    area: '通知触达',
+    detail: `${notifications.pushReceiptPending} 条 Expo Push receipt 仍在等待轮询。`,
+    evidence: `receipt polling=${notifications.pushReceiptEnabled ? 'enabled' : 'disabled'}`,
+    key: 'push_receipt_pending',
+    severity: 'low',
+    title: '推送回执待确认',
+  });
+  add(config.analytics?.enabled === false, {
+    actionLabel: '看配置',
+    actionRoute: 'config',
+    area: '数据埋点',
+    detail: '移动端事件采集被关闭，线上问题排查会缺少行为证据。',
+    evidence: `events=${appEvents.total || 0}`,
+    key: 'analytics_disabled',
+    severity: 'medium',
+    title: '移动端埋点已关闭',
+  });
+
+  const sorted = items.sort((left, right) => (
+    adminAlertSeverityRank(right.severity) - adminAlertSeverityRank(left.severity)
+    || String(right.updatedAt || '').localeCompare(String(left.updatedAt || ''))
+    || String(left.key).localeCompare(String(right.key))
+  ));
+  const limit = Math.max(1, Math.min(200, Number(options.limit || 50) || 50));
+  const visibleItems = sorted.slice(0, limit);
+  const count = (severity) => sorted.filter((item) => item.severity === severity).length;
+  const highCount = count('critical') + count('high');
+  const summary = {
+    critical: count('critical'),
+    generatedAt,
+    high: count('high'),
+    low: count('low'),
+    medium: count('medium'),
+    needsAction: highCount,
+    total: sorted.length,
+  };
+  return {
+    generatedAt,
+    items: visibleItems,
+    summary,
+  };
 }
 
 function appMediaPublicBaseUrl() {
@@ -20111,6 +20366,7 @@ async function adminSystemHealth() {
   const config = currentOpsConfig();
   const notifications = adminSystemNotifications().summary;
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
+  const alerts = adminOperationalAlerts({ limit: 12 });
   const stateSizeWarn = stateFile.sizeBytes > STATE_STORAGE_WARN_BYTES;
   const ipAllowlist = adminIpAllowlistStatus('');
   const appMediaBase = appMediaPublicBaseUrl();
@@ -20141,6 +20397,7 @@ async function adminSystemHealth() {
   const countArray = (value) => Array.isArray(value) ? value.length : 0;
   const countNotificationRows = Object.values(state.notifications || {}).reduce((sum, rows) => sum + (Array.isArray(rows) ? rows.length : 0), 0);
   return {
+    alerts,
     checks,
     collections: [
       { key: 'users', label: '用户', rows: countObject(state.users) },
@@ -20799,9 +21056,9 @@ function adminReadinessGaps(context) {
       area: '可观测性',
       severity: healthBad ? 'P0' : 'P1',
       status: healthBad ? 'blocked' : 'partial',
-      issue: '后台内置健康页不能替代生产日志、APM、告警和值班。',
-      requiredAction: '接入服务日志、错误告警、任务失败告警、队列积压告警和数据库健康检查。',
-      evidence: '系统健康页',
+      issue: '后台已接入内置健康页和运营告警中心，但仍不能替代生产日志、APM、外部告警和值班。',
+      requiredAction: '继续接入外部服务日志、错误告警、APM、告警通知渠道和值班 SOP；内置告警用于上线前和早期运营排查。',
+      evidence: '系统健康页 / /admin/dashboard/alerts',
     },
     {
       key: 'exports_governance',
@@ -26509,6 +26766,13 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/dashboard/summary') {
     ok(res, adminDashboardSummary());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/dashboard/alerts') {
+    ok(res, adminOperationalAlerts({
+      limit: url.searchParams.get('limit') || 50,
+    }));
     return true;
   }
 

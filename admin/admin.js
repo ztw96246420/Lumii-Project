@@ -351,6 +351,12 @@ async function onContentClick(event) {
   const phone = button.dataset.phone || '';
   const reason = button.dataset.reason || '运营后台处理';
   try {
+    if (action === 'route') {
+      state.route = button.dataset.route || 'dashboard';
+      setChrome();
+      await render(true);
+      return;
+    }
     if (action === 'analytics-filter') {
       state.analyticsDays = $('analyticsDays').value;
       state.analyticsEventName = $('analyticsEventName').value;
@@ -2183,8 +2189,47 @@ function metric(label, value, foot, tip) {
   `;
 }
 
+function alertSeverityPill(severity) {
+  const value = String(severity || 'medium');
+  const label = {
+    critical: '严重',
+    high: '高',
+    low: '低',
+    medium: '中',
+  }[value] || value;
+  const tone = value === 'critical' || value === 'high' ? 'bad' : value === 'medium' ? 'warn' : 'ok';
+  return tonePill(label, tone);
+}
+
+function renderAlertPanel(alerts = {}, options = {}) {
+  const summary = alerts.summary || {};
+  const items = alerts.items || [];
+  const compact = Boolean(options.compact);
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>${escapeHtml(options.title || '运营告警')}</h2>
+          <div class="section-sub">${numberText(summary.total || 0)} 条打开告警 · ${numberText(summary.needsAction || 0)} 条高优先级</div>
+        </div>
+        ${help('从后台安全、状态文件、AI 队列、审核、工单、通知触达和埋点配置实时聚合；这是内置运营排查入口，不替代外部 APM 和日志告警。')}
+      </div>
+      ${items.length ? tableHtml(items, [
+        ['级别', (row) => alertSeverityPill(row.severity)],
+        ['告警', (row) => `<div class="cell-title">${escapeHtml(row.title || '-')}</div><div class="cell-sub">${escapeHtml(row.area || '-')} · ${escapeHtml(row.key || '-')}</div>`],
+        ['说明', (row) => `<div>${escapeHtml(row.detail || '-')}</div><div class="cell-sub clamp">${escapeHtml(row.evidence || '-')}</div>`],
+        ...(compact ? [] : [['更新时间', (row) => `<div>${formatTime(row.updatedAt)}</div><div class="cell-sub">${escapeHtml(row.source || 'runtime')}</div>`]]),
+        ['处理', (row) => row.actionRoute ? `<button class="small-button" data-action="route" data-route="${escapeHtml(row.actionRoute)}">${escapeHtml(row.actionLabel || '查看')}</button>` : '<span class="cell-sub">仅提示</span>'],
+      ], '暂无运营告警') : '<div class="placeholder">暂无运营告警</div>'}
+    </div>
+  `;
+}
+
 async function renderDashboard(force) {
-  const data = await load('summary', '/admin/dashboard/summary', force);
+  const [data, alerts] = await Promise.all([
+    load('summary', '/admin/dashboard/summary', force),
+    load('dashboardAlerts', '/admin/dashboard/alerts', force),
+  ]);
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('用户总数', data.users.total, `${data.users.withPets} 位已建档`, '来自当前后端 users 状态。')}
@@ -2195,7 +2240,9 @@ async function renderDashboard(force) {
       ${metric('地点待审', data.places.pendingReviews + data.places.pendingSubmissions, `${data.places.total} 个地点`, '地点点评与新增地点提交合计。')}
       ${metric('通知触达', data.notifications?.campaigns || 0, `${data.notifications?.devices || 0} 台设备`, '后台系统通知发送批次和当前注册推送设备数。')}
       ${metric('移动端事件', numberText(data.events?.total || 0), `${numberText(data.events?.uniqueUsers || 0)} 位用户`, '页面、发现、地图、地点和通知点击等移动端行为事件。')}
+      ${metric('运营告警', numberText(alerts.summary?.total || data.alerts?.total || 0), `${numberText(alerts.summary?.needsAction || data.alerts?.needsAction || 0)} 条高优先级`, '从安全、队列、SLA、审核、通知和埋点聚合的实时运营告警。')}
     </div>
+    ${renderAlertPanel(alerts)}
     <div class="grid two">
       <div class="card">
         <div class="section-head">
@@ -2735,6 +2782,7 @@ async function renderSystemHealth(force) {
     </div>
 
     ${mediaProbeCard}
+    ${renderAlertPanel(data.alerts || {}, { compact: true, title: '健康告警' })}
 
     <div class="grid two">
       <div class="card">
