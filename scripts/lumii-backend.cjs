@@ -10153,10 +10153,32 @@ function isValidPetBirthdayValue(value) {
   return true;
 }
 
+function defaultWeightRecordId(phone, petId) {
+  return phone && petId ? `w-${phone}-${petId}-1` : '';
+}
+
+function isDefaultWeightRecord(record, context = {}) {
+  const expectedId = defaultWeightRecordId(context.phone, context.petId);
+  return Boolean(expectedId && String(record?.id || '') === expectedId);
+}
+
+function sortWeightRecordsByLatest(records) {
+  return [...(Array.isArray(records) ? records : [])].sort((left, right) =>
+    String(right.recordedAt || '').localeCompare(String(left.recordedAt || '')) ||
+    String(right.id || '').localeCompare(String(left.id || ''))
+  );
+}
+
+function latestEffectiveWeightRecord(records, context = {}) {
+  const rows = Array.isArray(records) ? records : [];
+  const explicitRows = rows.filter((record) => !isDefaultWeightRecord(record, context));
+  return sortWeightRecordsByLatest(explicitRows.length ? explicitRows : rows)[0] || null;
+}
+
 function syncPetWeightFromRecords(user, records) {
   const pet = selectedPetFor(user);
   if (!pet) return;
-  const latest = records[0];
+  const latest = latestEffectiveWeightRecord(records, { petId: pet.id, phone: user.phone });
   if (latest) {
     pet.weightKg = Number(latest.kg) || undefined;
   } else {
@@ -10219,8 +10241,10 @@ function buildHealthCalendarEvents(user) {
   ].sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.id).localeCompare(String(b.id)));
 }
 
-function buildWeightTrend(records) {
-  const sortedRecords = [...(records || [])].sort((a, b) => String(b.recordedAt || '').localeCompare(String(a.recordedAt || '')));
+function buildWeightTrend(records, context = {}) {
+  const rows = Array.isArray(records) ? records : [];
+  const explicitRows = rows.filter((record) => !isDefaultWeightRecord(record, context));
+  const sortedRecords = sortWeightRecordsByLatest(explicitRows.length ? explicitRows : rows);
   const current = sortedRecords[0];
   const previous = sortedRecords[1];
   if (!current) {
@@ -10289,7 +10313,8 @@ function buildHealthSummary(user) {
   const weights = healthList('weights', user, defaultWeightRecordsFor);
   const vaccines = vaccineListFor(user);
   const memos = healthList('memos', user, defaultMemosFor);
-  const trend = buildWeightTrend(weights);
+  const trend = buildWeightTrend(weights, { petId: pet.id, phone: user.phone });
+  const latestWeight = latestEffectiveWeightRecord(weights, { petId: pet.id, phone: user.phone });
   const pendingVaccines = vaccines.filter((item) => item.status !== 'done');
   const urgentVaccines = pendingVaccines.filter((item) => {
     const days = daysUntilDate(item.dueAt);
@@ -10298,8 +10323,8 @@ function buildHealthSummary(user) {
   return {
     healthScore: Number(pet.healthScore) || 92,
     latestMemo: memos[0],
-    latestWeightKg: weights[0]?.kg ?? pet.weightKg,
-    latestWeightRecordedAt: weights[0]?.recordedAt,
+    latestWeightKg: latestWeight?.kg ?? pet.weightKg,
+    latestWeightRecordedAt: latestWeight?.recordedAt,
     memoCount: memos.length,
     nextVaccine: pendingVaccines[0] || vaccines[0],
     pendingVaccineCount: pendingVaccines.length,
@@ -16925,6 +16950,7 @@ function mergeAdminPetCalendarStores(phone, sourcePet, targetPet) {
     const targetRecords = adminHealthStoreMutableList(storeName, targetKey);
     const existingIds = new Set(targetRecords.map((record) => String(record?.id || '')).filter(Boolean));
     sourceRecords.forEach((record) => {
+      if (storeName === 'weights' && isDefaultWeightRecord(record, { petId: sourcePet.id, phone })) return;
       const id = String(record?.id || '');
       if (id && existingIds.has(id)) return;
       targetRecords.push(record);
@@ -16980,7 +17006,7 @@ function mergeAdminPetCalendarStores(phone, sourcePet, targetPet) {
     summary.deletedRecords += 1;
   });
 
-  if (summary.weights > 0) syncPetWeightFromAdminRecords(targetPet, adminHealthStoreList('weights', targetKey));
+  if (summary.weights > 0) syncPetWeightFromAdminRecords(targetPet, adminHealthStoreList('weights', targetKey), { petId: targetPet.id, phone });
   return summary;
 }
 
@@ -17595,12 +17621,9 @@ function setAdminVaccineReminderForKey(key, vaccineId, enabled) {
   return next;
 }
 
-function syncPetWeightFromAdminRecords(pet, records) {
+function syncPetWeightFromAdminRecords(pet, records, context = {}) {
   if (!pet) return;
-  const sorted = [...records].sort((left, right) =>
-    String(right.recordedAt || '').localeCompare(String(left.recordedAt || '')) || String(right.id || '').localeCompare(String(left.id || ''))
-  );
-  const latest = sorted[0];
+  const latest = latestEffectiveWeightRecord(records, { ...context, petId: context.petId || pet.id });
   if (latest) {
     pet.weightKg = Number(latest.kg) || undefined;
   } else {
@@ -17823,7 +17846,7 @@ function adminCreatePetCalendarRecord(admin, body = {}) {
     records.sort((left, right) =>
       String(right.recordedAt || '').localeCompare(String(left.recordedAt || '')) || String(right.id || '').localeCompare(String(left.id || ''))
     );
-    syncPetWeightFromAdminRecords(parsed.pet, records);
+    syncPetWeightFromAdminRecords(parsed.pet, records, { petId: parsed.pet.id, phone: parsed.phone });
   } else if (parsed.type === 'vaccine') {
     storeName = 'vaccines';
     const { reminderEnabled, ...recordFields } = parsed.record;
@@ -17908,7 +17931,7 @@ function adminUpdatePetCalendarRecord(admin, recordId, body = {}) {
     found.records.sort((left, right) =>
       String(right.recordedAt || '').localeCompare(String(left.recordedAt || '')) || String(right.id || '').localeCompare(String(left.id || ''))
     );
-    syncPetWeightFromAdminRecords(found.pet, found.records);
+    syncPetWeightFromAdminRecords(found.pet, found.records, { petId: found.pet.id, phone: found.phone });
   } else if (found.type === 'vaccine') {
     const vaccineInput = parseAdminPetCalendarVaccinePayload(payload, found.record, found.key);
     if (vaccineInput.error) return { error: vaccineInput.error, statusCode: 400 };
@@ -18034,7 +18057,7 @@ function adminDeletePetCalendarRecord(admin, recordId, body = {}) {
   };
   found.records.splice(found.index, 1);
   if (found.type === 'weight') {
-    syncPetWeightFromAdminRecords(found.pet, found.records);
+    syncPetWeightFromAdminRecords(found.pet, found.records, { petId: found.pet.id, phone: found.phone });
   } else if (found.type === 'vaccine') {
     setAdminVaccineReminderForKey(found.key, found.record.id, false);
   }
@@ -18091,7 +18114,7 @@ function adminRestorePetCalendarRecord(admin, recordId, body = {}) {
   records.unshift(record);
   sortAdminPetCalendarStore(found.type, records);
   if (found.type === 'weight') {
-    syncPetWeightFromAdminRecords(found.pet, records);
+    syncPetWeightFromAdminRecords(found.pet, records, { petId: found.pet.id, phone: found.phone });
   } else if (found.type === 'vaccine') {
     setAdminVaccineReminderForKey(found.key, record.id, record.status === 'done' ? false : Boolean(found.deleted.reminderEnabled));
   }
@@ -28511,7 +28534,8 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/health/weights/trend') {
-    ok(res, buildWeightTrend(healthList('weights', user, defaultWeightRecordsFor)));
+    const pet = selectedPetFor(user);
+    ok(res, buildWeightTrend(healthList('weights', user, defaultWeightRecordsFor), { petId: pet?.id, phone: user.phone }));
     return;
   }
 

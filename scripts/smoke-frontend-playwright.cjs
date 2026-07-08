@@ -172,6 +172,21 @@ function isoDateAfterDays(days) {
   return `${year}-${month}-${day}`;
 }
 
+async function selectVaccineQuickDate(page, date) {
+  await page.getByLabel(`vaccine-quick-date-${date}`).click();
+  await waitBodyIncludes(page, date);
+}
+
+async function selectPetBirthday(page, triggerLabel, isoDate) {
+  const [year, month, day] = isoDate.split('-').map((part) => Number(part));
+  await page.getByLabel(triggerLabel).click();
+  await page.getByRole('button', { exact: true, name: `pet-birthday-year-${year}` }).click();
+  await page.getByRole('button', { exact: true, name: `pet-birthday-month-${month}` }).click();
+  await page.getByRole('button', { exact: true, name: `pet-birthday-day-${day}` }).click();
+  await page.getByLabel('confirm-pet-birthday-picker').click();
+  await page.getByLabel('confirm-pet-birthday-picker').waitFor({ state: 'hidden', timeout: 30_000 });
+}
+
 async function loginMockUser(page, phone) {
   await page.goto(baseUrl, { timeout: 60_000, waitUntil: 'networkidle' });
   await page.getByPlaceholder('请输入中国大陆手机号').fill(phone);
@@ -296,14 +311,13 @@ async function main() {
     await page.goto(`${baseUrl}/?route=vaccine`, { timeout: 60_000, waitUntil: 'networkidle' });
     await page.getByLabel('toggle-vaccine-composer').click();
     await page.getByLabel('vaccine-name-input').fill(smokeVaccineName);
-    await page.getByLabel('vaccine-date-input').fill(isoDateAfterDays(0));
+    await selectVaccineQuickDate(page, isoDateAfterDays(0));
     await page.getByLabel('save-vaccine-plan').click();
     await waitBodyIncludes(page, smokeVaccineName);
     await screenshot(page, 'smoke-frontend-00e-vaccine-added.png');
 
-    await waitLabelEnabled(page, 'enable-vaccine-reminder');
-    await page.getByLabel('enable-vaccine-reminder').click();
-    await waitBodyIncludes(page, '提醒已开启');
+    await page.getByLabel(/^enable-vaccine-reminder-PW vaccine smoke-/).first().click();
+    await page.getByLabel(/^vaccine-reminder-enabled-PW vaccine smoke-/).first().waitFor({ state: 'visible', timeout: 30_000 });
     await screenshot(page, 'smoke-frontend-00f-vaccine-reminder-enabled.png');
 
     const smokeVaccineDoneButton = page.getByLabel(/^complete-vaccine-PW vaccine smoke-/);
@@ -432,21 +446,11 @@ async function main() {
     await screenshot(page, 'smoke-frontend-02f-notification-conversation-read.png');
 
     const notificationVaccineName = 'PW notification vaccine';
-    await page.goto(`${baseUrl}/?route=vaccine`, { timeout: 60_000, waitUntil: 'networkidle' });
-    await page.getByLabel('toggle-vaccine-composer').click();
-    await page.getByLabel('vaccine-name-input').fill(notificationVaccineName);
-    await page.getByLabel('vaccine-date-input').fill(isoDateAfterDays(3));
-    await page.getByLabel('save-vaccine-plan').click();
-    await waitExactText(page, notificationVaccineName);
-    await waitLabelEnabled(page, 'enable-vaccine-reminder');
-    await page.getByLabel('enable-vaccine-reminder').click();
-    await waitExactText(page, '提醒已开启');
-
-    await page.goto(`${baseUrl}/?route=notifications`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/?route=notifications&mockVaccineNotification=enabled`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '健康提醒');
     await waitExactText(page, '查看计划');
     await clickExactText(page, '健康提醒');
-    await waitExactText(page, '疫苗计划');
+    await waitExactText(page, '疫苗/驱虫计划');
     await waitExactText(page, notificationVaccineName);
     await screenshot(page, 'smoke-frontend-02g-notification-to-vaccine.png');
 
@@ -568,7 +572,7 @@ async function main() {
     await waitExactText(settingsPage, '编辑宠物资料');
     await settingsPage.getByLabel('edit-pet-name-input').fill('PW宠物编辑');
     await settingsPage.getByLabel('edit-pet-breed-input').fill('边境牧羊犬');
-    await settingsPage.getByLabel('edit-pet-birthday-input').fill('2024-06-01');
+    await selectPetBirthday(settingsPage, 'edit-pet-birthday-input', '2024-06-01');
     await settingsPage.getByLabel('edit-pet-weight-input').fill('13.6');
     await settingsPage.getByLabel('save-edit-pet-profile').click();
     await waitExactText(settingsPage, '宠物档案');
@@ -743,7 +747,7 @@ async function main() {
     await clickExactText(realPage, '发现');
     await waitExactText(realPage, '宠友圈');
     await realPage.getByText('分享 Lucky 的今日小事', { exact: true }).waitFor({ state: 'hidden', timeout: 8_000 });
-    await waitFirstVisibleText(realPage, ['附近伙伴还没发布小事', '附近暂时还没有小事'], { timeout: 30_000 });
+    await waitFirstVisibleText(realPage, ['附近伙伴近 7 天还没发布小事', '附近近 7 天还没有小事'], { timeout: 30_000 });
     await screenshot(realPage, 'smoke-frontend-06-real-session-empty-circle.png');
     await realContext.close();
 
@@ -759,7 +763,7 @@ async function main() {
     await petOnboardingPage.goto(`${baseUrl}/?route=petInfo`, { timeout: 60_000, waitUntil: 'networkidle' });
     await petOnboardingPage.getByLabel('new-pet-name-input').fill('PW建档Lucky');
     await petOnboardingPage.getByLabel('new-pet-breed-input').fill('边牧');
-    await petOnboardingPage.getByLabel('new-pet-birthday-input').fill('2024-05-30');
+    await selectPetBirthday(petOnboardingPage, 'new-pet-birthday-input', '2024-05-30');
     await petOnboardingPage.getByLabel('new-pet-weight-input').fill('12.5');
     await petOnboardingPage.getByLabel('save-new-pet-profile').click();
     await waitExactText(petOnboardingPage, '添加宠物 2/2');

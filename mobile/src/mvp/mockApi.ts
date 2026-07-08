@@ -1212,7 +1212,28 @@ function ensureMockMyPetCircleProfileFixtures() {
     activePetId = mockMultiPetFixturePets[0].id;
   }
   const pet = activeMockPet();
-  if (!pet || nearbyMoments.some((moment) => moment.id === 'mock-my-circle-today-evening')) return;
+  const ensureNotificationComment = () => {
+    if (petCircleComments.some((comment) => comment.id === 'mock-my-circle-today-evening-comment')) return;
+    petCircleComments = [
+      {
+        author: '奶油',
+        avatarUrl: owners.find((owner) => owner.id === 'o1')?.imageUrl,
+        content: '奶油：今天也太可爱啦。',
+        createdAt: new Date().toISOString(),
+        id: 'mock-my-circle-today-evening-comment',
+        ownerId: 'o1',
+        ownedByMe: false,
+        postId: 'mock-my-circle-today-evening',
+        text: '奶油：今天也太可爱啦。',
+      },
+      ...petCircleComments,
+    ];
+  };
+  if (!pet) return;
+  if (nearbyMoments.some((moment) => moment.id === 'mock-my-circle-today-evening')) {
+    ensureNotificationComment();
+    return;
+  }
   const ownerId = currentMockOwnerId();
   const now = new Date();
   const todayLate = new Date(now);
@@ -1311,6 +1332,7 @@ function ensureMockMyPetCircleProfileFixtures() {
     },
   ];
   nearbyMoments = [...fixtures, ...nearbyMoments.filter((moment) => !fixtures.some((fixture) => fixture.id === moment.id))];
+  ensureNotificationComment();
 }
 
 function ensureMockPetCircleInteractionFixtures() {
@@ -1445,7 +1467,7 @@ let notifications: NotificationItem[] = [
     createdAt: new Date().toISOString(),
     id: 'mock-pet-circle-comment-notification',
     kind: 'pet_circle_comment',
-    postId: 'pet-circle-fallback-lucky',
+    postId: 'mock-my-circle-today-evening',
     read: false,
     text: '奶油评论了 Lucky 的小事',
     title: 'Lucky 的小事有新互动',
@@ -2003,7 +2025,26 @@ function pruneMockHealthReminderNotifications() {
   return changed;
 }
 
+const mockVaccineNotificationFixtureId = 'mock-vaccine-notification';
+
+function ensureMockVaccineNotificationFixture() {
+  if (getMockWebPreviewParam('mockVaccineNotification') !== 'enabled') return;
+  if (!vaccines.some((vaccine) => vaccine.id === mockVaccineNotificationFixtureId)) {
+    vaccines = [
+      {
+        dueAt: todayIsoDate(),
+        id: mockVaccineNotificationFixtureId,
+        name: 'PW notification vaccine',
+        status: 'due' as const,
+      },
+      ...vaccines,
+    ].sort((left, right) => left.dueAt.localeCompare(right.dueAt));
+  }
+  vaccineReminderIds = [...new Set([mockVaccineNotificationFixtureId, ...vaccineReminderIds])];
+}
+
 function ensureMockHealthReminderNotifications() {
+  ensureMockVaccineNotificationFixture();
   let changed = pruneMockHealthReminderNotifications();
   const enabled = new Set(vaccineReminderIds);
   vaccines

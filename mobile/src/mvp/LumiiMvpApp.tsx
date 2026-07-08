@@ -9924,7 +9924,7 @@ export default function LumiiMvpApp() {
             <View style={styles.petEditDividerMake} />
             <View style={styles.petEditRowMake}>
               <Text style={styles.petEditLabelMake}>生日</Text>
-              <DateValueButton onPress={openPetBirthdayPicker} placeholder="未知" style={styles.petEditDateButtonMake} textStyle={styles.petEditInputMake} value={formatPetBirthdayValue(petDraft.birthday)} />
+              <DateValueButton accessibilityLabel="edit-pet-birthday-input" onPress={openPetBirthdayPicker} placeholder="未知" style={styles.petEditDateButtonMake} textStyle={styles.petEditInputMake} value={formatPetBirthdayValue(petDraft.birthday)} />
             </View>
             <View style={styles.petEditDividerMake} />
             <View style={styles.petEditRowMake}>
@@ -10013,7 +10013,7 @@ export default function LumiiMvpApp() {
           <PetInfoMakeField accessibilityLabel="new-pet-breed-input" label="品种" onChangeText={(breed) => setPetDraft((draft) => ({ ...draft, breed }))} placeholder="例如：金毛寻回犬" value={petDraft.breed} />
           <View style={styles.petInfoFieldMake}>
             <Text style={styles.petInfoFieldLabelMake}>生日</Text>
-            <DateValueButton onPress={openPetBirthdayPicker} placeholder="未知" style={styles.petInfoInputShellMake} textStyle={styles.petInfoDateValueTextMake} value={formatPetBirthdayValue(petDraft.birthday)} />
+            <DateValueButton accessibilityLabel="new-pet-birthday-input" onPress={openPetBirthdayPicker} placeholder="未知" style={styles.petInfoInputShellMake} textStyle={styles.petInfoDateValueTextMake} value={formatPetBirthdayValue(petDraft.birthday)} />
           </View>
           <View style={styles.optionWrap}>
             <Text style={styles.label}>性别</Text>
@@ -10594,7 +10594,7 @@ export default function LumiiMvpApp() {
   function renderHome() {
     const pet = getCurrentPet();
     if (!pet) return renderEmptyPet();
-    const nextVaccine = healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
+    const nextVaccine = pendingVaccines[0] ?? healthSummary?.nextVaccine ?? vaccines[0];
     const latestWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet.weightKg;
     const petMeta = [pet.breed || speciesLabels[pet.species], formatPetAge(pet.birthday)].filter(Boolean).join(' · ');
     const memoCount = healthSummary?.memoCount ?? memos.length;
@@ -11319,7 +11319,7 @@ export default function LumiiMvpApp() {
 
   function renderHealth() {
     const pet = getCurrentPet();
-    const nextHealthVaccine = healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
+    const nextHealthVaccine = pendingVaccines[0] ?? healthSummary?.nextVaccine ?? vaccines[0];
     const latestWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet?.weightKg;
     const healthScore = healthSummary?.healthScore ?? pet?.healthScore ?? 92;
     const weightSubtitle = healthSummary?.weightSummary ?? (weights.length > 1 ? `最近一次 ${formatOptionalDateLabel(weights[0]?.recordedAt)}` : '暂无连续记录，先从今天开始');
@@ -12284,9 +12284,8 @@ export default function LumiiMvpApp() {
   function renderVaccine() {
     const focusedVaccine = focusedVaccineId ? vaccines.find((item) => item.id === focusedVaccineId) : undefined;
     const visibleVaccines = focusedVaccine ? [focusedVaccine, ...vaccines.filter((item) => item.id !== focusedVaccine.id)] : vaccines;
-    const nextVaccine = focusedVaccine ?? healthSummary?.nextVaccine ?? pendingVaccines[0] ?? vaccines[0];
+    const nextVaccine = focusedVaccine ?? pendingVaccines[0] ?? healthSummary?.nextVaccine ?? vaccines[0];
     const nextVaccineDueLabel = formatDueLabel(nextVaccine?.dueAt);
-    const nextVaccineReminderSaving = nextVaccine ? vaccineReminderSavingIds.includes(nextVaccine.id) : false;
     const overdueVaccine = vaccines.find((item) => item.status === 'overdue' || (daysUntilDate(item.dueAt) ?? 999) < 0);
     const upcomingVaccine = vaccines.find((item) => item.status !== 'done' && (daysUntilDate(item.dueAt) ?? 999) >= 0 && (daysUntilDate(item.dueAt) ?? 999) <= 14);
     const heroStatus = !nextVaccine ? '暂无计划' : nextVaccine.status === 'done' ? '已完成' : nextVaccine.status === 'overdue' ? '已逾期' : (daysUntilDate(nextVaccine.dueAt) ?? 999) <= 14 ? '即将到期' : '计划中';
@@ -12320,12 +12319,6 @@ export default function LumiiMvpApp() {
             <View style={styles.vaccineHeroIcon}>
               <Syringe color={palette.orange} size={26} strokeWidth={2.5} />
             </View>
-          </View>
-          <View style={styles.vaccineHeroActions}>
-            <Pressable accessibilityLabel="enable-vaccine-reminder" accessibilityRole="button" disabled={!nextVaccine || nextVaccine.status === 'done' || nextVaccineReminderSaving} onPress={() => void enableVaccineReminder(nextVaccine)} style={[styles.vaccineHeroActionSecondary, (!nextVaccine || nextVaccine.status === 'done') && styles.vaccineHeroActionDisabled, webPressableReset]}>
-              {nextVaccineReminderSaving ? <ActivityIndicator color={palette.orange} size="small" /> : <Bell color={palette.orange} size={13} strokeWidth={2.4} />}
-              <Text style={[styles.vaccineHeroActionSecondaryText, (!nextVaccine || nextVaccine.status === 'done') && styles.vaccineHeroActionDisabledText]}>{nextVaccine && vaccineReminderIds.includes(nextVaccine.id) ? '提醒已开启' : '开启提醒'}</Text>
-            </Pressable>
           </View>
         </View>
 
@@ -12380,6 +12373,7 @@ export default function LumiiMvpApp() {
               <View style={styles.vaccineComposerField}>
                 <Text style={styles.label}>计划日期</Text>
                 <DateValueButton
+                  accessibilityLabel="open-vaccine-due-picker"
                   disabled={vaccineCreating}
                   onPress={openVaccineDueDatePicker}
                   placeholder="选择计划日期"
@@ -12390,6 +12384,8 @@ export default function LumiiMvpApp() {
                 <View style={styles.vaccineQuickDateRow}>
                   {vaccineQuickDates.map((item) => (
                     <Pressable
+                      accessibilityLabel={`vaccine-quick-date-${item.date}`}
+                      accessibilityRole="button"
                       disabled={vaccineCreating}
                       key={item.label}
                       onPress={() => setVaccineDueDraft(item.date)}
@@ -12407,6 +12403,8 @@ export default function LumiiMvpApp() {
           {visibleVaccines.length ? visibleVaccines.map((item, index) => {
             const meta = vaxRowMeta(item);
             const doneSaving = vaccineDoneSavingIds.includes(item.id);
+            const reminderEnabled = vaccineReminderIds.includes(item.id);
+            const reminderSaving = vaccineReminderSavingIds.includes(item.id);
             const focusedFromNotification = item.id === focusedVaccineId;
             return (
             <View key={item.id}>
@@ -12423,6 +12421,18 @@ export default function LumiiMvpApp() {
                 </View>
                 <View style={styles.vaccinePlanRightMake}>
                   <Text style={styles.timelineDateMake}>{formatCompactDateLabel(item.dueAt)}</Text>
+                  {item.status !== 'done' ? (
+                    <Pressable
+                      accessibilityLabel={`${reminderEnabled ? 'vaccine-reminder-enabled' : 'enable-vaccine-reminder'}-${item.name}-${item.id}`}
+                      accessibilityRole="button"
+                      disabled={reminderEnabled || reminderSaving}
+                      onPress={() => void enableVaccineReminder(item)}
+                      style={[styles.vaccinePlanReminderButtonMake, (reminderEnabled || reminderSaving) && styles.vaccinePlanDoneButtonDisabledMake, webPressableReset]}
+                    >
+                      {reminderSaving ? <ActivityIndicator color={palette.teal} size="small" /> : <Bell color={reminderEnabled ? palette.teal : palette.orange} size={11} strokeWidth={2.8} />}
+                      <Text style={[styles.vaccinePlanReminderButtonTextMake, reminderEnabled && styles.vaccinePlanReminderButtonTextEnabledMake]}>{reminderEnabled ? '已提醒' : '提醒'}</Text>
+                    </Pressable>
+                  ) : null}
                   {item.status !== 'done' ? (
                     <Pressable
                       accessibilityLabel={`complete-vaccine-${item.name}-${item.id}`}
@@ -17685,6 +17695,7 @@ function InlineErrorMake({ style, text }: { style?: ViewStyle; text: string }) {
 }
 
 function DateValueButton({
+  accessibilityLabel,
   disabled,
   onPress,
   placeholder = '选择日期',
@@ -17692,6 +17703,7 @@ function DateValueButton({
   textStyle,
   value,
 }: {
+  accessibilityLabel?: string;
   disabled?: boolean;
   onPress: () => void;
   placeholder?: string;
@@ -17701,7 +17713,7 @@ function DateValueButton({
 }) {
   const hasValue = Boolean(value);
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={[styles.dateValueButton, style, disabled && styles.opacity60, webPressableReset]}>
+    <Pressable accessibilityLabel={accessibilityLabel} accessibilityRole="button" disabled={disabled} onPress={onPress} style={[styles.dateValueButton, style, disabled && styles.opacity60, webPressableReset]}>
       <Text numberOfLines={1} style={[styles.dateValueText, textStyle, !hasValue && styles.dateValuePlaceholder]}>{hasValue ? value : placeholder}</Text>
       <CalendarDays color={hasValue ? palette.orange : palette.muted} size={15} strokeWidth={2.4} />
     </Pressable>
@@ -20236,13 +20248,6 @@ const styles = StyleSheet.create({
   vaccineDateInputEmpty: { borderColor: 'rgba(122,121,114,0.26)' },
   vaccineDateValueTextMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400' },
   vaccineEmptyPlanMake: { gap: 4, paddingHorizontal: 2, paddingVertical: 18 },
-  vaccineHeroActionDisabled: { opacity: 0.58 },
-  vaccineHeroActionDisabledText: { color: palette.muted },
-  vaccineHeroActionPrimary: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 20, flex: 1, flexDirection: 'row', gap: 5, height: 40, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.26, shadowRadius: 20 },
-  vaccineHeroActionPrimaryText: { color: '#fff', fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
-  vaccineHeroActionSecondary: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 20, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 5, height: 40, justifyContent: 'center' },
-  vaccineHeroActionSecondaryText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '700' },
-  vaccineHeroActions: { flexDirection: 'row', gap: 8, marginTop: 14 },
   vaccineHeroGlow: { backgroundColor: 'rgba(255,255,255,0.38)', borderRadius: 64, height: 128, position: 'absolute', right: -28, top: -34, width: 128 },
   vaccineHeroIcon: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.86)', borderRadius: 28, height: 56, justifyContent: 'center', shadowColor: '#b46e3c', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.22, shadowRadius: 22, width: 56 },
   vaccineHeroMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFE3CB 0%, #FFD2A8 100%)' } as object) : null), backgroundColor: '#ffd2a8', borderRadius: 22, marginTop: 8, overflow: 'hidden', paddingHorizontal: 18, paddingVertical: 16, position: 'relative', shadowColor: '#b46e3c', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.18, shadowRadius: 30 },
@@ -20258,6 +20263,9 @@ const styles = StyleSheet.create({
   vaccinePlanDoneButtonDisabledMake: { opacity: 0.58 },
   vaccinePlanDoneButtonMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.orange, borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 4, justifyContent: 'center', minHeight: 28, paddingHorizontal: 9 },
   vaccinePlanDoneButtonTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', lineHeight: 16 },
+  vaccinePlanReminderButtonMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: 'rgba(77,182,172,0.42)', borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 4, justifyContent: 'center', minHeight: 28, paddingHorizontal: 9 },
+  vaccinePlanReminderButtonTextEnabledMake: { color: palette.teal },
+  vaccinePlanReminderButtonTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '700', lineHeight: 16 },
   vaccinePlanRightMake: { alignItems: 'flex-end', flexShrink: 0, gap: 7, minWidth: 58 },
   vaccinePlanRow: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 12 },
   vaccinePlanRowFocusedMake: { backgroundColor: 'rgba(255,138,92,0.08)', borderColor: 'rgba(255,138,92,0.28)', borderRadius: 14, borderWidth: 1, marginHorizontal: -8, paddingHorizontal: 8 },
