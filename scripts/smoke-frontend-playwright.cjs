@@ -80,6 +80,11 @@ async function waitLabelEnabled(page, label) {
 
 function collectPageErrors(page, pageErrors) {
   page.on('pageerror', (error) => pageErrors.push(error.message));
+  page.on('response', (response) => {
+    const status = response.status();
+    if (status < 400) return;
+    pageErrors.push(`HTTP ${status}: ${response.url()}`);
+  });
   page.on('console', (message) => {
     if (message.type() === 'error') {
       const text = message.text();

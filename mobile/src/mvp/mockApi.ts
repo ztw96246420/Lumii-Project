@@ -1296,7 +1296,7 @@ function ensureMockMyPetCircleProfileFixtures() {
       id: 'mock-my-circle-last-week',
       imageUrl: pet.avatarUrl,
       imageUrls: [
-        'https://images.unsplash.com/photo-1598134493136-7b63ebbd7bde?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
+        'https://images.unsplash.com/photo-1587300003388-59208cc962cb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
         'https://images.unsplash.com/photo-1558788353-f76d92427f16?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
         'https://images.unsplash.com/photo-1537151625747-768eb6cf92b2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
       ],
