@@ -539,6 +539,9 @@ function defaultOpsConfig() {
       approvalExpiresHours: 24,
       requireApproval: false,
     },
+    highRiskApproval: {
+      requireDifferentAdmin: false,
+    },
     app: {
       announcement: {
         actionLabel: '知道了',
@@ -1043,6 +1046,13 @@ function normalizeConfigApprovalOpsConfig(value, defaults = {}) {
   };
 }
 
+function normalizeHighRiskApprovalOpsConfig(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    requireDifferentAdmin: Boolean(source.requireDifferentAdmin ?? defaults.requireDifferentAdmin),
+  };
+}
+
 function normalizeAnalyticsConfig(value, defaults) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
@@ -1263,6 +1273,7 @@ function normalizeOpsConfig(value) {
   const experiments = source.experiments && typeof source.experiments === 'object' ? source.experiments : {};
   const exportsConfig = source.exports && typeof source.exports === 'object' ? source.exports : {};
   const features = source.features && typeof source.features === 'object' ? source.features : {};
+  const highRiskApproval = source.highRiskApproval && typeof source.highRiskApproval === 'object' ? source.highRiskApproval : {};
   const moderation = source.moderation && typeof source.moderation === 'object' ? source.moderation : {};
   const notifications = source.notifications && typeof source.notifications === 'object' ? source.notifications : {};
   const places = source.places && typeof source.places === 'object' ? source.places : {};
@@ -1313,6 +1324,7 @@ function normalizeOpsConfig(value) {
       places: features.places !== false,
       walkInvite: features.walkInvite !== false,
     },
+    highRiskApproval: normalizeHighRiskApprovalOpsConfig(highRiskApproval, defaults.highRiskApproval),
     moderation: normalizeModerationConfig(moderation, defaults.moderation),
     notifications: normalizeNotificationOpsConfig(notifications, defaults.notifications),
     places: normalizePlacesOpsConfig(places, defaults.places),
@@ -1332,6 +1344,28 @@ function currentOpsConfig() {
   return state.opsConfig;
 }
 
+function highRiskApprovalPolicy() {
+  return normalizeHighRiskApprovalOpsConfig(currentOpsConfig().highRiskApproval, defaultOpsConfig().highRiskApproval);
+}
+
+function currentAdminUsername(admin = {}) {
+  return String(admin?.username || ADMIN_USERNAME).trim() || ADMIN_USERNAME;
+}
+
+function rejectSelfHighRiskApproval(admin, approval = {}, label = '高风险审批') {
+  const policy = highRiskApprovalPolicy();
+  if (!policy.requireDifferentAdmin) return null;
+  const createdBy = String(approval.createdBy || approval.approvalRequestedBy || '').trim();
+  const approver = currentAdminUsername(admin);
+  if (!createdBy || !safeEqualText(createdBy, approver)) return null;
+  return {
+    code: 'ADMIN_APPROVAL_SELF_APPROVAL_BLOCKED',
+    error: `${label}已开启审批人/申请人分离，请使用另一名管理员账号审批。`,
+    policy,
+    statusCode: 409,
+  };
+}
+
 function cloneJson(value) {
   return JSON.parse(JSON.stringify(value || {}));
 }
@@ -1346,6 +1380,7 @@ function opsConfigSummary(config) {
     configApprovalRequireApproval: Boolean(config?.configApproval?.requireApproval),
     exportApprovalExpiresHours: Number(config?.exports?.approvalExpiresHours || 0),
     exportRequireApproval: Boolean(config?.exports?.requireApproval),
+    highRiskRequireDifferentAdmin: Boolean(config?.highRiskApproval?.requireDifferentAdmin),
     homeAiEntryExperimentEnabled: Boolean(config?.experiments?.homeAiEntry?.enabled),
     homeAiEntryRolloutPercent: Number(config?.experiments?.homeAiEntry?.rolloutPercent ?? 0),
     homeAiEntryVariantBPercent: Number(config?.experiments?.homeAiEntry?.variantBPercent ?? 0),
@@ -1540,6 +1575,7 @@ function buildOpsConfigPatch(before, body = {}) {
     },
     configApproval: { ...before.configApproval, ...(body.configApproval || {}) },
     exports: { ...before.exports, ...(body.exports || {}) },
+    highRiskApproval: { ...before.highRiskApproval, ...(body.highRiskApproval || {}) },
     experiments: {
       ...before.experiments,
       ...(body.experiments || {}),
@@ -2109,6 +2145,8 @@ function approveOpsConfigApproval(admin, approvalId, body = {}) {
   if (JSON.stringify(configApprovalComparable(currentOpsConfig())) !== JSON.stringify(configApprovalComparable(approval.baseConfig))) {
     return { error: '当前配置已经变化，请重新提交配置审批', statusCode: 409, code: 'ADMIN_CONFIG_APPROVAL_STALE' };
   }
+  const selfApproval = rejectSelfHighRiskApproval(admin, approval, '配置发布审批');
+  if (selfApproval) return selfApproval;
   const beforeApproval = cloneJson(approval);
   const before = currentOpsConfig();
   const now = new Date().toISOString();
@@ -2782,6 +2820,17 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       mobileEvidence: '移动端不读取配置发布审批本身；审批通过后才会更新 /app/config，从而影响移动端功能开关、公告、维护和额度。',
       operatorNote: '当前为单 admin 审批闭环；生产多管理员上线后可升级为审批人/申请人分离和双人审批。',
       userImpact: '不直接改变 App 展示，但会降低误发布维护、强更、关闭功能等高风险配置的概率。',
+    },
+    {
+      backendEvidence: 'rejectSelfHighRiskApproval 读取 currentOpsConfig().highRiskApproval.requireDifferentAdmin；配置发布、系统通知、数据导出、封禁、用户业务数据清理和批量客服回复审批都会拦截提交人自审。',
+      backendEnforced: true,
+      group: '配置治理',
+      key: 'highRiskApproval.requireDifferentAdmin',
+      label: '高风险审批人分离',
+      mobileApplied: false,
+      mobileEvidence: '移动端不读取该治理配置；它只影响后台高风险审批是否允许同一管理员提交并通过。',
+      operatorNote: '生产开启前需先在账号权限页新增至少第二个 state 管理员账号，避免只有单管理员时高风险审批无法通过。',
+      userImpact: '不直接改变 App 展示，但能降低敏感导出、强制通知、永久封禁、数据清理和配置误操作风险。',
     },
     {
       backendEvidence: 'socialChatContentViolation 实时读取 moderation 配置，命中后阻断或送审小事、评论、地点内容。',
@@ -4166,6 +4215,8 @@ function approveAdminExportApproval(admin, approvalId, body = {}) {
   if (!approval) return { error: '导出审批不存在', statusCode: 404 };
   const currentStatus = adminExportApprovalCurrentStatus(approval);
   if (currentStatus !== 'pending_approval') return { error: '只有待审批导出申请可以审批', statusCode: 409 };
+  const selfApproval = rejectSelfHighRiskApproval(admin, approval, '导出审批');
+  if (selfApproval) return selfApproval;
   const before = cloneJson(approval);
   const policy = normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports);
   const now = new Date();
@@ -6879,6 +6930,8 @@ function approveSanctionApproval(admin, approvalId, body = {}) {
   const approval = ensureSanctionApprovals().find((item) => item.id === approvalId);
   if (!approval) return { error: '处罚审批不存在', statusCode: 404 };
   if (approval.status !== 'pending_approval') return { error: '只有待审批处罚可以审批通过', statusCode: 409 };
+  const selfApproval = rejectSelfHighRiskApproval(admin, approval, '处罚审批');
+  if (selfApproval) return selfApproval;
   const beforeApproval = cloneJson(approval);
   const beforeUser = state.users?.[approval.phone] ? adminUserSummary(state.users[approval.phone]) : null;
   const result = createUserSanction(admin, approval.phone, {
@@ -16494,6 +16547,8 @@ function approveSystemNotification(admin, id, body = {}) {
   const notification = ensureSystemNotifications().find((item) => item.id === id);
   if (!notification) return { error: '系统通知不存在', statusCode: 404 };
   if (notification.status !== 'pending_approval') return { error: '只有待审批通知可以审批发送', statusCode: 409 };
+  const selfApproval = rejectSelfHighRiskApproval(admin, notification, '系统通知审批');
+  if (selfApproval) return selfApproval;
   const before = systemNotificationItem(notification);
   const now = new Date().toISOString();
   const reason = String(body.reason || '审批通过系统通知').replace(/\s+/g, ' ').trim().slice(0, 240) || '审批通过系统通知';
@@ -17294,6 +17349,8 @@ function approveDataClearApproval(admin, approvalId, body = {}) {
   const approval = ensureDataClearApprovals().find((item) => item.id === approvalId);
   if (!approval) return { error: '数据清理审批不存在', statusCode: 404 };
   if (approval.status !== 'pending_approval') return { error: '只有待审批数据清理申请可以执行', statusCode: 409 };
+  const selfApproval = rejectSelfHighRiskApproval(admin, approval, '数据清理审批');
+  if (selfApproval) return selfApproval;
   const beforeApproval = cloneJson(approval);
   const result = adminClearUserBusinessData(admin, approval.phone, {
     confirmation: approval.phone,
@@ -21048,9 +21105,9 @@ function adminReadinessGaps(context) {
       area: '高风险操作',
       severity: 'P1',
       status: 'partial',
-      issue: '配置发布、强制通知、敏感导出、永久封禁和用户业务数据清理已有单 admin 审批；所有高风险动作仍缺多管理员双人审批。',
-      requiredAction: '补审批人/申请人分离、双人审批、撤回/驳回、审批通知和超时处理。',
-      evidence: '账号权限页已预留 super_admin / ops_admin / auditor',
+      issue: '配置发布、强制通知、敏感导出、永久封禁、用户业务数据清理和批量客服回复已有审批流，并支持开启审批人/申请人分离；仍缺真正双人会签、审批通知和超时处理。',
+      requiredAction: '生产前开启 highRiskApproval.requireDifferentAdmin，新增至少第二个管理员账号；继续补双人会签、撤回/驳回、审批通知和超时处理。',
+      evidence: '配置中心 highRiskApproval.requireDifferentAdmin / 账号权限页 state 管理员账号',
     },
     {
       key: 'push_provider',
@@ -25293,6 +25350,8 @@ function sendSupportTicketBatchReplyApproval(admin, approvalId, body = {}) {
   const approval = ensureSupportTicketBatchReplyApprovals().find((item) => item.id === approvalId);
   if (!approval) return { error: '批量回复申请不存在', statusCode: 404 };
   if (approval.status !== 'pending_approval') return { error: '只有待审批批量回复可以发送', statusCode: 409 };
+  const selfApproval = rejectSelfHighRiskApproval(admin, approval, '批量客服回复审批');
+  if (selfApproval) return selfApproval;
   const before = JSON.parse(JSON.stringify(approval));
   const reason = adminReason(body, '审批发送批量客服回复');
   const results = [];
@@ -26866,7 +26925,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       ? approveAdminExportApproval(admin, approvalId, body)
       : cancelAdminExportApproval(admin, approvalId, body);
     if (result.error) {
-      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_EXPORT_APPROVAL_ACTION_INVALID');
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_EXPORT_APPROVAL_ACTION_INVALID');
       return true;
     }
     ok(res, result);
@@ -26950,7 +27009,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   if (req.method === 'POST' && adminNotificationApproveMatch) {
     const result = approveSystemNotification(admin, decodeURIComponent(adminNotificationApproveMatch[1]), body);
     if (result.error) {
-      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_NOTIFICATION_INVALID');
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_NOTIFICATION_INVALID');
       return true;
     }
     saveState();
@@ -27083,7 +27142,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       ? sendSupportTicketBatchReplyApproval(admin, approvalId, body)
       : cancelSupportTicketBatchReplyApproval(admin, approvalId, body);
     if (result.error) {
-      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_TICKET_BATCH_REPLY_ACTION_INVALID');
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_TICKET_BATCH_REPLY_ACTION_INVALID');
       return true;
     }
     saveState();
@@ -27349,7 +27408,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       ? approveDataClearApproval(admin, approvalId, body)
       : cancelDataClearApproval(admin, approvalId, body);
     if (result.error) {
-      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_DATA_CLEAR_APPROVAL_ACTION_INVALID');
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_DATA_CLEAR_APPROVAL_ACTION_INVALID');
       return true;
     }
     saveState();
@@ -27609,7 +27668,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       ? approveSanctionApproval(admin, approvalId, body)
       : cancelSanctionApproval(admin, approvalId, body);
     if (result.error) {
-      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SANCTION_APPROVAL_INVALID');
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_SANCTION_APPROVAL_INVALID');
       return true;
     }
     saveState();

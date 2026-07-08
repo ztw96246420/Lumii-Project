@@ -8000,6 +8000,7 @@ async function renderConfig(force) {
   const configApproval = config.configApproval || {};
   const contentSafety = config.contentSafety || {};
   const exportsConfig = config.exports || {};
+  const highRiskApproval = config.highRiskApproval || {};
   const moderation = config.moderation || {};
   const moderationPublicHint = moderation.publicHint || {};
   const notifications = config.notifications || {};
@@ -8244,6 +8245,18 @@ async function renderConfig(force) {
         </div>
         <div class="config-grid">
           <label>审批有效期小时<input id="cfgConfigApprovalExpiresHours" type="number" min="1" max="168" value="${Number.isFinite(Number(configApproval.approvalExpiresHours)) ? configApproval.approvalExpiresHours : 24}" /></label>
+        </div>
+      </div>
+      <div class="config-section">
+        <div class="section-head compact">
+          <div>
+            <h2>高风险审批治理</h2>
+            <div class="section-sub">控制配置发布、系统通知、数据导出、封禁、数据清理和批量客服回复是否必须由另一名管理员审批</div>
+          </div>
+          ${help('开启后，同一管理员提交的高风险审批不能由自己审批通过。需要先在账号权限页新增至少一个 state 管理员账号；当前不影响普通内容审核和低风险处理。')}
+        </div>
+        <div class="switch-panel">
+          ${featureCheckbox('cfgHighRiskApprovalRequireDifferentAdmin', '审批人/申请人必须分离', Boolean(highRiskApproval.requireDifferentAdmin))}
         </div>
       </div>
       <div class="config-section">
@@ -8992,6 +9005,9 @@ async function saveConfig(mode = 'publish') {
       petCircle: $('cfgFeaturePetCircle').checked,
       places: $('cfgFeaturePlaces').checked,
       walkInvite: $('cfgFeatureWalkInvite').checked,
+    },
+    highRiskApproval: {
+      requireDifferentAdmin: $('cfgHighRiskApprovalRequireDifferentAdmin').checked,
     },
     exports: {
       approvalExpiresHours: exportApprovalExpiresHours,
