@@ -14,10 +14,12 @@ const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-notification-expo-push-'));
 const statePath = path.join(tmpDir, 'state.json');
 const expoRequests = [];
+const expoReceiptRequests = [];
 let backendProcess = null;
 let expoServer = null;
 let baseUrl = '';
-let expoUrl = '';
+let expoReceiptUrl = '';
+let expoSendUrl = '';
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -52,10 +54,30 @@ async function startExpoServer() {
     }
     const text = await readRequestBody(req);
     const payload = text ? JSON.parse(text) : [];
+    if (req.url.includes('/push/getReceipts')) {
+      const ids = Array.isArray(payload.ids) ? payload.ids : [];
+      expoReceiptRequests.push(...ids);
+      const data = {};
+      ids.forEach((id) => {
+        if (id === 'expo-ticket-receipt-bad') {
+          data[id] = {
+            details: { error: 'DeviceNotRegistered' },
+            message: 'The recipient device is not registered with FCM/APNs.',
+            status: 'error',
+          };
+        } else {
+          data[id] = { status: 'ok' };
+        }
+      });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data }));
+      return;
+    }
     const messages = Array.isArray(payload) ? payload : [payload];
     expoRequests.push(...messages);
-    const data = messages.map((message, index) => {
+    const data = messages.map((message) => {
       const token = String(message?.to || '');
+      if (token.includes('receipt-bad-token')) return { id: 'expo-ticket-receipt-bad', status: 'ok' };
       if (token.includes('bad-token')) {
         return {
           details: { error: 'DeviceNotRegistered' },
@@ -63,14 +85,15 @@ async function startExpoServer() {
           status: 'error',
         };
       }
-      return { id: `expo-ticket-${index + 1}`, status: 'ok' };
+      return { id: 'expo-ticket-good', status: 'ok' };
     });
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ data }));
   });
   await new Promise((resolve) => expoServer.listen(0, '127.0.0.1', resolve));
   const address = expoServer.address();
-  expoUrl = `http://127.0.0.1:${address.port}/--/api/v2/push/send`;
+  expoSendUrl = `http://127.0.0.1:${address.port}/--/api/v2/push/send`;
+  expoReceiptUrl = `http://127.0.0.1:${address.port}/--/api/v2/push/getReceipts`;
 }
 
 async function stopExpoServer() {
@@ -122,7 +145,11 @@ async function startBackend(port) {
     env: {
       ...process.env,
       EXPO_PUSH_ENABLED: 'true',
-      EXPO_PUSH_ENDPOINT: expoUrl,
+      EXPO_PUSH_ENDPOINT: expoSendUrl,
+      EXPO_PUSH_RECEIPT_DELAY_MS: '50',
+      EXPO_PUSH_RECEIPT_ENDPOINT: expoReceiptUrl,
+      EXPO_PUSH_RECEIPT_RETRY_MS: '100',
+      EXPO_PUSH_RECEIPT_SWEEP_INTERVAL_MS: '1000',
       EXPO_PUSH_TIMEOUT_MS: '3000',
       LUMII_BACKEND_PORT: String(port),
       LUMII_BACKEND_STATE_PATH: statePath,
@@ -190,7 +217,13 @@ async function waitForPushResult(adminToken, campaignId) {
     const payload = await request('/admin/notifications', { token: adminToken });
     latest = payload.data;
     const campaign = payload.data.campaigns.find((item) => item.id === campaignId);
-    if (campaign && campaign.pushStatus && !['queued'].includes(campaign.pushStatus)) {
+    if (
+      campaign
+      && campaign.pushStatus
+      && !['queued'].includes(campaign.pushStatus)
+      && campaign.pushReceiptStatus
+      && !['waiting_ticket', 'scheduled', 'pending', 'retrying'].includes(campaign.pushReceiptStatus)
+    ) {
       return { campaign, notifications: payload.data };
     }
     await delay(100);
@@ -209,6 +242,11 @@ async function main() {
 
     await request('/devices/push-token', {
       body: { deviceId: 'expo-good-device', platform: 'android', token: 'ExponentPushToken[smoke-good-token]' },
+      method: 'POST',
+      token: userToken,
+    });
+    await request('/devices/push-token', {
+      body: { deviceId: 'expo-receipt-bad-device', platform: 'android', token: 'ExponentPushToken[smoke-receipt-bad-token]' },
       method: 'POST',
       token: userToken,
     });
@@ -236,35 +274,52 @@ async function main() {
     assert.ok(campaignId, 'missing campaign id');
 
     const { campaign, notifications } = await waitForPushResult(adminToken, campaignId);
-    assert.equal(expoRequests.length, 2);
+    assert.equal(expoRequests.length, 3);
     assert.deepEqual(
       expoRequests.map((item) => item.to).sort(),
-      ['ExponentPushToken[smoke-bad-token]', 'ExponentPushToken[smoke-good-token]'],
+      ['ExponentPushToken[smoke-bad-token]', 'ExponentPushToken[smoke-good-token]', 'ExponentPushToken[smoke-receipt-bad-token]'],
     );
+    assert.deepEqual(expoReceiptRequests.sort(), ['expo-ticket-good', 'expo-ticket-receipt-bad']);
     assert.equal(expoRequests[0].title, 'Expo push smoke');
     assert.equal(expoRequests[0].data.campaignId, campaignId);
     assert.equal(campaign.pushProvider, 'expo');
     assert.equal(campaign.pushStatus, 'partial');
-    assert.equal(campaign.pushAttemptedCount, 2);
-    assert.equal(campaign.pushSentCount, 1);
+    assert.equal(campaign.pushAttemptedCount, 3);
+    assert.equal(campaign.pushSentCount, 2);
     assert.equal(campaign.pushFailedCount, 1);
-    assert.equal(campaign.pushInvalidTokenCount, 1);
+    assert.equal(campaign.pushInvalidTokenCount, 2);
+    assert.equal(campaign.pushReceiptAttemptedCount, 2);
+    assert.equal(campaign.pushReceiptOkCount, 1);
+    assert.equal(campaign.pushReceiptFailedCount, 1);
+    assert.equal(campaign.pushReceiptPendingCount, 0);
+    assert.equal(campaign.pushReceiptStatus, 'partial');
     assert.ok(campaign.pushFailedPhones.includes(phone));
     assert.equal(notifications.summary.pushEnabled, true);
     assert.equal(notifications.summary.pushProvider, 'expo');
-    assert.equal(notifications.summary.pushAttempted, 2);
-    assert.equal(notifications.summary.pushSent, 1);
+    assert.equal(notifications.summary.pushAttempted, 3);
+    assert.equal(notifications.summary.pushSent, 2);
     assert.equal(notifications.summary.pushFailed, 1);
-    assert.equal(notifications.summary.pushSuccessRate, 50);
+    assert.equal(notifications.summary.pushSuccessRate, 66.7);
+    assert.equal(notifications.summary.pushReceiptEnabled, true);
+    assert.equal(notifications.summary.pushReceiptAttempted, 2);
+    assert.equal(notifications.summary.pushReceiptOk, 1);
+    assert.equal(notifications.summary.pushReceiptFailed, 1);
+    assert.equal(notifications.summary.pushReceiptSuccessRate, 50);
 
     const devicesPayload = await request('/admin/push-devices', { token: adminToken });
     const badDevice = devicesPayload.data.find((device) => device.deviceId === 'expo-bad-device');
     const goodDevice = devicesPayload.data.find((device) => device.deviceId === 'expo-good-device');
+    const receiptBadDevice = devicesPayload.data.find((device) => device.deviceId === 'expo-receipt-bad-device');
     assert.equal(goodDevice?.enabled, true);
     assert.equal(goodDevice?.lastPushStatus, 'sent');
+    assert.equal(goodDevice?.lastPushReceiptStatus, 'ok');
     assert.equal(badDevice?.enabled, false);
     assert.equal(badDevice?.lastPushStatus, 'invalid');
     assert.equal(badDevice?.disabledReason, 'DeviceNotRegistered');
+    assert.equal(receiptBadDevice?.enabled, false);
+    assert.equal(receiptBadDevice?.lastPushStatus, 'invalid');
+    assert.equal(receiptBadDevice?.lastPushReceiptStatus, 'invalid');
+    assert.equal(receiptBadDevice?.disabledReason, 'DeviceNotRegistered');
 
     console.log('notification expo push smoke passed');
   } finally {

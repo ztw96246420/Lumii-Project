@@ -136,6 +136,14 @@ const EXPO_PUSH_ENDPOINT = (process.env.EXPO_PUSH_ENDPOINT || 'https://exp.host/
 const EXPO_PUSH_ACCESS_TOKEN = process.env.EXPO_PUSH_ACCESS_TOKEN || '';
 const EXPO_PUSH_TIMEOUT_MS = Math.max(1000, Number(process.env.EXPO_PUSH_TIMEOUT_MS || '8000') || 8000);
 const EXPO_PUSH_BATCH_SIZE = Math.max(1, Math.min(100, Number(process.env.EXPO_PUSH_BATCH_SIZE || '100') || 100));
+const EXPO_PUSH_RECEIPTS_ENABLED = EXPO_PUSH_ENABLED && process.env.EXPO_PUSH_RECEIPTS_ENABLED !== 'false';
+const EXPO_PUSH_RECEIPT_ENDPOINT = (process.env.EXPO_PUSH_RECEIPT_ENDPOINT || 'https://exp.host/--/api/v2/push/getReceipts').trim();
+const EXPO_PUSH_RECEIPT_DELAY_MS = Math.max(0, Number(process.env.EXPO_PUSH_RECEIPT_DELAY_MS || 15 * 60 * 1000) || 0);
+const EXPO_PUSH_RECEIPT_RETRY_MS = Math.max(1000, Number(process.env.EXPO_PUSH_RECEIPT_RETRY_MS || 5 * 60 * 1000) || 5 * 60 * 1000);
+const EXPO_PUSH_RECEIPT_SWEEP_INTERVAL_MS = Math.max(1000, Number(process.env.EXPO_PUSH_RECEIPT_SWEEP_INTERVAL_MS || 60 * 1000) || 60 * 1000);
+const EXPO_PUSH_RECEIPT_MAX_ATTEMPTS = Math.max(1, Math.min(12, Number(process.env.EXPO_PUSH_RECEIPT_MAX_ATTEMPTS || '4') || 4));
+const EXPO_PUSH_RECEIPT_MAX_AGE_MS = Math.max(60 * 1000, Number(process.env.EXPO_PUSH_RECEIPT_MAX_AGE_MS || 24 * 60 * 60 * 1000) || 24 * 60 * 60 * 1000);
+const EXPO_PUSH_RECEIPT_BATCH_SIZE = Math.max(1, Math.min(1000, Number(process.env.EXPO_PUSH_RECEIPT_BATCH_SIZE || '1000') || 1000));
 
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
@@ -15587,6 +15595,10 @@ function isExpoPushToken(token) {
   return /^(ExponentPushToken|ExpoPushToken)\[[^\]]+\]$/.test(String(token || '').trim());
 }
 
+function pushTokenHash(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex').slice(0, 32);
+}
+
 function activePushDevicesForPhone(phone) {
   const devices = Array.isArray(state.pushDevices?.[phone]) ? state.pushDevices[phone] : [];
   return devices.filter((device) => device?.token && !device.disabledAt);
@@ -15600,11 +15612,29 @@ function updatePushDeviceState(phone, token, patch = {}) {
   return true;
 }
 
+function updatePushDeviceStateByHash(phone, tokenHash, patch = {}) {
+  const normalizedHash = String(tokenHash || '');
+  if (!normalizedHash) return false;
+  const devices = Array.isArray(state.pushDevices?.[phone]) ? state.pushDevices[phone] : [];
+  const device = devices.find((item) => pushTokenHash(item?.token) === normalizedHash);
+  if (!device) return false;
+  Object.assign(device, patch);
+  return true;
+}
+
 function markPushDeviceDelivery(phone, token, status, error = '') {
   return updatePushDeviceState(phone, token, {
     lastPushAt: new Date().toISOString(),
     lastPushError: String(error || '').slice(0, 300),
     lastPushStatus: status,
+  });
+}
+
+function markPushDeviceReceipt(phone, tokenHash, status, error = '') {
+  return updatePushDeviceStateByHash(phone, tokenHash, {
+    lastPushReceiptAt: new Date().toISOString(),
+    lastPushReceiptError: String(error || '').slice(0, 300),
+    lastPushReceiptStatus: status,
   });
 }
 
@@ -15615,6 +15645,20 @@ function disablePushDevice(phone, token, reason = 'DeviceNotRegistered') {
     disabledReason: String(reason || 'DeviceNotRegistered').slice(0, 120),
     lastPushAt: now,
     lastPushError: String(reason || '').slice(0, 300),
+    lastPushStatus: 'invalid',
+  });
+}
+
+function disablePushDeviceByHash(phone, tokenHash, reason = 'DeviceNotRegistered') {
+  const now = new Date().toISOString();
+  return updatePushDeviceStateByHash(phone, tokenHash, {
+    disabledAt: now,
+    disabledReason: String(reason || 'DeviceNotRegistered').slice(0, 120),
+    lastPushAt: now,
+    lastPushError: String(reason || '').slice(0, 300),
+    lastPushReceiptAt: now,
+    lastPushReceiptError: String(reason || '').slice(0, 300),
+    lastPushReceiptStatus: 'invalid',
     lastPushStatus: 'invalid',
   });
 }
@@ -15642,6 +15686,7 @@ function systemNotificationPushTargetsForPhone(phone, notification, createdAt, d
       deviceId: device.deviceId || '',
       phone,
       token: device.token,
+      tokenHash: pushTokenHash(device.token),
       message: {
         body: notification.text,
         data: systemNotificationPushData(notification, phone, notificationId, deepLinkContext),
@@ -15678,6 +15723,34 @@ async function postExpoPushBatch(messages) {
   if (!response.ok) {
     const message = payload?.errors?.[0]?.message || payload?.message || text || `HTTP ${response.status}`;
     throw new Error(`Expo Push failed: ${response.status} ${String(message).slice(0, 180)}`);
+  }
+  return payload;
+}
+
+async function postExpoReceiptBatch(ids) {
+  const headers = {
+    accept: 'application/json',
+    'accept-encoding': 'gzip, deflate',
+    'content-type': 'application/json',
+  };
+  if (EXPO_PUSH_ACCESS_TOKEN) headers.authorization = `Bearer ${EXPO_PUSH_ACCESS_TOKEN}`;
+  const response = await fetchWithTimeout(EXPO_PUSH_RECEIPT_ENDPOINT, {
+    body: JSON.stringify({ ids }),
+    headers,
+    method: 'POST',
+  }, EXPO_PUSH_TIMEOUT_MS);
+  const text = await response.text();
+  let payload = {};
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`Expo receipt returned invalid JSON: ${text.slice(0, 180)}`);
+    }
+  }
+  if (!response.ok) {
+    const message = payload?.errors?.[0]?.message || payload?.message || text || `HTTP ${response.status}`;
+    throw new Error(`Expo receipt failed: ${response.status} ${String(message).slice(0, 180)}`);
   }
   return payload;
 }
@@ -15719,7 +15792,9 @@ async function sendExpoPushTargets(targets) {
             deviceId: target.deviceId,
             id: ticket.id || '',
             phone: target.phone,
+            receiptStatus: ticket.id ? 'pending' : '',
             status: 'ok',
+            tokenHash: target.tokenHash,
             tokenTail: String(target.token).slice(-8),
           });
           return;
@@ -15737,7 +15812,9 @@ async function sendExpoPushTargets(targets) {
           deviceId: target.deviceId,
           error: ticketError.message,
           phone: target.phone,
+          receiptStatus: '',
           status: 'error',
+          tokenHash: target.tokenHash,
           tokenTail: String(target.token).slice(-8),
         });
       });
@@ -15752,7 +15829,9 @@ async function sendExpoPushTargets(targets) {
           deviceId: target.deviceId,
           error: message,
           phone: target.phone,
+          receiptStatus: '',
           status: 'error',
+          tokenHash: target.tokenHash,
           tokenTail: String(target.token).slice(-8),
         });
       });
@@ -15771,6 +15850,15 @@ function prepareSystemNotificationPush(notification, pushTargets, now) {
   notification.pushLastError = '';
   notification.pushProvider = EXPO_PUSH_ENABLED ? 'expo' : 'disabled';
   notification.pushQueuedAt = EXPO_PUSH_ENABLED && pushTargets.length ? now : '';
+  notification.pushReceiptAttemptedCount = 0;
+  notification.pushReceiptAttempts = 0;
+  notification.pushReceiptFailedCount = 0;
+  notification.pushReceiptLastCheckedAt = '';
+  notification.pushReceiptLastError = '';
+  notification.pushReceiptNextCheckAt = '';
+  notification.pushReceiptOkCount = 0;
+  notification.pushReceiptPendingCount = 0;
+  notification.pushReceiptStatus = EXPO_PUSH_RECEIPTS_ENABLED ? (pushTargets.length ? 'waiting_ticket' : 'no_tickets') : EXPO_PUSH_ENABLED ? 'disabled' : 'disabled';
   notification.pushSentCount = 0;
   notification.pushSkippedDeviceCount = 0;
   notification.pushStatus = EXPO_PUSH_ENABLED ? (pushTargets.length ? 'queued' : 'no_devices') : 'disabled';
@@ -15797,6 +15885,7 @@ async function runSystemNotificationPushDelivery(notification, pushTargets) {
   const before = systemNotificationItem(notification);
   const summary = await sendExpoPushTargets(pushTargets);
   const now = new Date().toISOString();
+  const receiptTickets = summary.tickets.filter((ticket) => ticket.status === 'ok' && ticket.id);
   notification.pushAttemptedCount = summary.attempted;
   notification.pushCompletedAt = now;
   notification.pushFailedCount = summary.failed;
@@ -15806,10 +15895,178 @@ async function runSystemNotificationPushDelivery(notification, pushTargets) {
   notification.pushProvider = 'expo';
   notification.pushSentCount = summary.sent;
   notification.pushStatus = summary.failed > 0 && summary.sent > 0 ? 'partial' : summary.failed > 0 ? 'failed' : 'sent';
-  notification.pushTickets = summary.tickets.slice(0, 50);
+  notification.pushTickets = summary.tickets.slice(0, 1000);
+  notification.pushReceiptAttemptedCount = receiptTickets.length;
+  notification.pushReceiptFailedCount = 0;
+  notification.pushReceiptOkCount = 0;
+  notification.pushReceiptPendingCount = receiptTickets.length;
+  notification.pushReceiptStatus = !EXPO_PUSH_RECEIPTS_ENABLED
+    ? 'disabled'
+    : receiptTickets.length
+      ? 'scheduled'
+      : 'no_tickets';
+  notification.pushReceiptNextCheckAt = EXPO_PUSH_RECEIPTS_ENABLED && receiptTickets.length
+    ? new Date(Date.now() + EXPO_PUSH_RECEIPT_DELAY_MS).toISOString()
+    : '';
   notification.updatedAt = now;
   writeAdminAudit({ role: 'system', username: 'system' }, 'notification.system.push_result', 'system_notification', notification.id, before, systemNotificationItem(notification), notification.pushLastError || notification.pushStatus);
   saveState();
+  scheduleSystemNotificationPushReceiptCheck(notification);
+}
+
+function scheduleSystemNotificationPushReceiptCheck(notification) {
+  if (!EXPO_PUSH_RECEIPTS_ENABLED || !notification?.pushReceiptNextCheckAt) return;
+  const delayMs = Math.max(0, Date.parse(notification.pushReceiptNextCheckAt) - Date.now());
+  const timer = setTimeout(() => {
+    runSystemNotificationPushReceiptCheck(notification).catch((error) => {
+      const message = String(error?.message || error || 'Expo receipt check failed').slice(0, 300);
+      notification.pushReceiptAttempts = Number(notification.pushReceiptAttempts || 0) + 1;
+      notification.pushReceiptLastCheckedAt = new Date().toISOString();
+      notification.pushReceiptLastError = message;
+      notification.pushReceiptStatus = 'failed';
+      notification.updatedAt = notification.pushReceiptLastCheckedAt;
+      saveState();
+    });
+  }, delayMs);
+  if (typeof timer.unref === 'function') timer.unref();
+}
+
+function expoReceiptError(receipt = {}) {
+  const detailError = receipt?.details?.error || '';
+  const message = receipt?.message || detailError || receipt?.status || 'Expo receipt error';
+  return {
+    code: String(detailError || '').slice(0, 80),
+    message: String(message || '').slice(0, 240),
+  };
+}
+
+function pushReceiptTickets(notification) {
+  return (Array.isArray(notification?.pushTickets) ? notification.pushTickets : [])
+    .filter((ticket) => ticket?.status === 'ok' && ticket.id);
+}
+
+function summarizePushReceipts(notification) {
+  const tickets = pushReceiptTickets(notification);
+  const ok = tickets.filter((ticket) => ticket.receiptStatus === 'ok').length;
+  const failed = tickets.filter((ticket) => ticket.receiptStatus === 'error').length;
+  const pending = Math.max(0, tickets.length - ok - failed);
+  notification.pushReceiptAttemptedCount = tickets.length;
+  notification.pushReceiptFailedCount = failed;
+  notification.pushReceiptOkCount = ok;
+  notification.pushReceiptPendingCount = pending;
+  const invalidCount = (Array.isArray(notification.pushTickets) ? notification.pushTickets : [])
+    .filter((ticket) => ticket.code === 'DeviceNotRegistered' || ticket.receiptCode === 'DeviceNotRegistered')
+    .length;
+  notification.pushInvalidTokenCount = invalidCount;
+  return { failed, ok, pending, total: tickets.length };
+}
+
+async function fetchExpoReceiptsForTickets(tickets) {
+  const receipts = {};
+  const ids = tickets.map((ticket) => String(ticket.id || '')).filter(Boolean);
+  for (let index = 0; index < ids.length; index += EXPO_PUSH_RECEIPT_BATCH_SIZE) {
+    const batchIds = ids.slice(index, index + EXPO_PUSH_RECEIPT_BATCH_SIZE);
+    const payload = await postExpoReceiptBatch(batchIds);
+    if (Array.isArray(payload?.errors) && payload.errors.length) {
+      throw new Error(String(payload.errors[0]?.message || payload.errors[0]?.code || 'Expo receipt request error').slice(0, 240));
+    }
+    Object.assign(receipts, payload?.data || {});
+  }
+  return receipts;
+}
+
+async function runSystemNotificationPushReceiptCheck(notification) {
+  if (!EXPO_PUSH_RECEIPTS_ENABLED || !notification) return false;
+  const tickets = pushReceiptTickets(notification);
+  if (!tickets.length) {
+    notification.pushReceiptStatus = 'no_tickets';
+    notification.pushReceiptNextCheckAt = '';
+    return false;
+  }
+  const startedAt = Date.parse(notification.pushCompletedAt || notification.pushQueuedAt || notification.deliveredAt || notification.createdAt || '') || Date.now();
+  const tooOld = Date.now() - startedAt > EXPO_PUSH_RECEIPT_MAX_AGE_MS;
+  if (tooOld) {
+    notification.pushReceiptLastCheckedAt = new Date().toISOString();
+    notification.pushReceiptLastError = 'Expo receipts expired before completion';
+    notification.pushReceiptNextCheckAt = '';
+    notification.pushReceiptStatus = 'expired';
+    summarizePushReceipts(notification);
+    notification.updatedAt = notification.pushReceiptLastCheckedAt;
+    saveState();
+    return false;
+  }
+
+  const pendingTickets = tickets.filter((ticket) => ticket.receiptStatus !== 'ok' && ticket.receiptStatus !== 'error');
+  if (!pendingTickets.length) {
+    const totals = summarizePushReceipts(notification);
+    notification.pushReceiptNextCheckAt = '';
+    notification.pushReceiptStatus = totals.failed > 0 && totals.ok > 0 ? 'partial' : totals.failed > 0 ? 'failed' : 'ok';
+    notification.updatedAt = new Date().toISOString();
+    saveState();
+    return false;
+  }
+
+  const before = systemNotificationItem(notification);
+  const now = new Date().toISOString();
+  notification.pushReceiptAttempts = Number(notification.pushReceiptAttempts || 0) + 1;
+  notification.pushReceiptLastCheckedAt = now;
+  try {
+    const receipts = await fetchExpoReceiptsForTickets(pendingTickets);
+    pendingTickets.forEach((ticket) => {
+      const receipt = receipts[ticket.id];
+      if (!receipt) return;
+      ticket.receiptCheckedAt = now;
+      if (receipt.status === 'ok') {
+        ticket.receiptStatus = 'ok';
+        ticket.receiptError = '';
+        ticket.receiptCode = '';
+        markPushDeviceReceipt(ticket.phone, ticket.tokenHash, 'ok');
+        return;
+      }
+      const error = expoReceiptError(receipt);
+      ticket.receiptStatus = 'error';
+      ticket.receiptError = error.message;
+      ticket.receiptCode = error.code;
+      markPushDeviceReceipt(ticket.phone, ticket.tokenHash, 'failed', error.message);
+      if (error.code === 'DeviceNotRegistered') {
+        disablePushDeviceByHash(ticket.phone, ticket.tokenHash, error.code);
+      }
+    });
+    const totals = summarizePushReceipts(notification);
+    notification.pushReceiptLastError = pendingTickets.find((ticket) => ticket.receiptStatus === 'error')?.receiptError || '';
+    if (totals.pending > 0 && notification.pushReceiptAttempts < EXPO_PUSH_RECEIPT_MAX_ATTEMPTS) {
+      notification.pushReceiptNextCheckAt = new Date(Date.now() + EXPO_PUSH_RECEIPT_RETRY_MS).toISOString();
+      notification.pushReceiptStatus = 'pending';
+      scheduleSystemNotificationPushReceiptCheck(notification);
+    } else {
+      notification.pushReceiptNextCheckAt = '';
+      notification.pushReceiptStatus = totals.pending > 0
+        ? 'incomplete'
+        : totals.failed > 0 && totals.ok > 0
+          ? 'partial'
+          : totals.failed > 0
+            ? 'failed'
+            : 'ok';
+    }
+    notification.updatedAt = now;
+    writeAdminAudit({ role: 'system', username: 'system' }, 'notification.system.push_receipt', 'system_notification', notification.id, before, systemNotificationItem(notification), notification.pushReceiptLastError || notification.pushReceiptStatus);
+    saveState();
+    return true;
+  } catch (error) {
+    const message = String(error?.message || error || 'Expo receipt request failed').slice(0, 300);
+    notification.pushReceiptLastError = message;
+    if (notification.pushReceiptAttempts < EXPO_PUSH_RECEIPT_MAX_ATTEMPTS) {
+      notification.pushReceiptNextCheckAt = new Date(Date.now() + EXPO_PUSH_RECEIPT_RETRY_MS).toISOString();
+      notification.pushReceiptStatus = 'retrying';
+      scheduleSystemNotificationPushReceiptCheck(notification);
+    } else {
+      notification.pushReceiptNextCheckAt = '';
+      notification.pushReceiptStatus = 'failed';
+    }
+    notification.updatedAt = now;
+    saveState();
+    return false;
+  }
 }
 
 function adminPushDevices() {
@@ -15822,6 +16079,9 @@ function adminPushDevices() {
       enabled: !device.disabledAt,
       lastPushAt: device.lastPushAt || '',
       lastPushError: device.lastPushError || '',
+      lastPushReceiptAt: device.lastPushReceiptAt || '',
+      lastPushReceiptError: device.lastPushReceiptError || '',
+      lastPushReceiptStatus: device.lastPushReceiptStatus || '',
       lastPushStatus: device.lastPushStatus || '',
       ownerName: user?.ownerName || `用户${String(phone).slice(-4)}`,
       phone,
@@ -15927,6 +16187,15 @@ function systemNotificationItem(item) {
     pushLastError: item.pushLastError || '',
     pushProvider: item.pushProvider || 'none',
     pushQueuedAt: item.pushQueuedAt || '',
+    pushReceiptAttemptedCount: Number(item.pushReceiptAttemptedCount || 0),
+    pushReceiptAttempts: Number(item.pushReceiptAttempts || 0),
+    pushReceiptFailedCount: Number(item.pushReceiptFailedCount || 0),
+    pushReceiptLastCheckedAt: item.pushReceiptLastCheckedAt || '',
+    pushReceiptLastError: item.pushReceiptLastError || '',
+    pushReceiptNextCheckAt: item.pushReceiptNextCheckAt || '',
+    pushReceiptOkCount: Number(item.pushReceiptOkCount || 0),
+    pushReceiptPendingCount: Number(item.pushReceiptPendingCount || 0),
+    pushReceiptStatus: item.pushReceiptStatus || '',
     pushSentCount: Number(item.pushSentCount || 0),
     pushSkippedDeviceCount: Number(item.pushSkippedDeviceCount || 0),
     pushStatus: item.pushStatus || '',
@@ -15964,6 +16233,10 @@ function adminSystemNotifications() {
   const openCount = sentCampaigns.reduce((sum, item) => sum + Number(item.uniqueOpenCount || 0), 0);
   const pushAttemptedCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushAttemptedCount || 0), 0);
   const pushFailedCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushFailedCount || 0), 0);
+  const pushReceiptAttemptedCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushReceiptAttemptedCount || 0), 0);
+  const pushReceiptFailedCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushReceiptFailedCount || 0), 0);
+  const pushReceiptOkCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushReceiptOkCount || 0), 0);
+  const pushReceiptPendingCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushReceiptPendingCount || 0), 0);
   const pushSentCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushSentCount || 0), 0);
   const readCount = sentCampaigns.reduce((sum, item) => sum + Number(item.readCount || 0), 0);
   return {
@@ -15985,6 +16258,12 @@ function adminSystemNotifications() {
       pushEnabled: EXPO_PUSH_ENABLED,
       pushFailed: pushFailedCount,
       pushProvider: EXPO_PUSH_ENABLED ? 'expo' : 'disabled',
+      pushReceiptAttempted: pushReceiptAttemptedCount,
+      pushReceiptEnabled: EXPO_PUSH_RECEIPTS_ENABLED,
+      pushReceiptFailed: pushReceiptFailedCount,
+      pushReceiptOk: pushReceiptOkCount,
+      pushReceiptPending: pushReceiptPendingCount,
+      pushReceiptSuccessRate: analyticsPercent(pushReceiptOkCount, pushReceiptAttemptedCount),
       pushSent: pushSentCount,
       pushSuccessRate: analyticsPercent(pushSentCount, pushAttemptedCount),
       readRate: analyticsPercent(readCount, deliveredCount),
@@ -16256,6 +16535,29 @@ function processDueSystemNotifications() {
   }
   if (changed) saveState();
   return changed;
+}
+
+let expoPushReceiptSweepRunning = false;
+
+async function processDueExpoPushReceipts() {
+  if (!EXPO_PUSH_RECEIPTS_ENABLED || expoPushReceiptSweepRunning) return false;
+  expoPushReceiptSweepRunning = true;
+  let changed = false;
+  try {
+    const due = ensureSystemNotifications().filter((notification) => {
+      if (notification.pushProvider !== 'expo') return false;
+      if (!notification.pushReceiptNextCheckAt) return false;
+      if (Date.parse(notification.pushReceiptNextCheckAt) > Date.now()) return false;
+      if (Number(notification.pushReceiptAttempts || 0) >= EXPO_PUSH_RECEIPT_MAX_ATTEMPTS) return false;
+      return ['pending', 'retrying', 'scheduled', 'waiting_ticket'].includes(String(notification.pushReceiptStatus || ''));
+    });
+    for (const notification of due.slice(0, 20)) {
+      changed = (await runSystemNotificationPushReceiptCheck(notification)) || changed;
+    }
+    return changed;
+  } finally {
+    expoPushReceiptSweepRunning = false;
+  }
 }
 
 function resolveOwnerId(ownerId) {
@@ -20485,12 +20787,12 @@ function adminReadinessGaps(context) {
       severity: 'P1',
       status: 'partial',
       issue: EXPO_PUSH_ENABLED
-        ? '系统通知已接 Expo Push 下发和 ticket 结果记录；仍缺长期 receipt 拉取、失败重试、Android 厂商 Push/APNs 专项优化和多管理员双人审批。'
+        ? '系统通知已接 Expo Push 下发、ticket 记录、receipt 轮询和失效 token 标记；仍缺 Android 厂商 Push/APNs 专项优化、通知展示回执和多管理员双人审批。'
         : '当前以站内通知为主，Expo Push 开关未启用；厂商 Push、送达回执和多管理员双人审批未完成。',
       requiredAction: EXPO_PUSH_ENABLED
-        ? '补 Expo receipt 定时拉取、失败重试/退避、厂商通道专项配置和生产期双人审批策略。'
+        ? '继续补厂商通道专项配置、客户端展示/点击回传质量、失败告警和生产期双人审批策略。'
         : '配置 EXPO_PUSH_ENABLED=true 并验证 Expo Push；再接 receipt、失败重试、Android 厂商 Push、iOS APNs 和生产双人审批。',
-      evidence: '通知运营页设备 token 概览 / systemNotifications.pushStatus',
+      evidence: '通知运营页设备 token 概览 / systemNotifications.pushStatus / systemNotifications.pushReceiptStatus',
     },
     {
       key: 'observability',
@@ -30281,6 +30583,13 @@ const notificationScheduler = setInterval(() => {
   }
 }, 60 * 1000);
 if (typeof notificationScheduler.unref === 'function') notificationScheduler.unref();
+
+const expoPushReceiptScheduler = setInterval(() => {
+  processDueExpoPushReceipts().catch((error) => {
+    console.error('Failed to process Expo push receipts', error);
+  });
+}, EXPO_PUSH_RECEIPT_SWEEP_INTERVAL_MS);
+if (typeof expoPushReceiptScheduler.unref === 'function') expoPushReceiptScheduler.unref();
 
 const aiStuckJobReaper = setInterval(() => {
   try {
