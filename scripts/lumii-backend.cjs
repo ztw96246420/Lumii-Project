@@ -131,6 +131,11 @@ const TENCENT_CMS_IMAGE_BIZ_TYPES = {
   support: process.env.TENCENT_CMS_IMAGE_BIZ_SUPPORT || 'lumii_i_support',
 };
 const TENCENT_CMS_TIMEOUT_MS = Number(process.env.TENCENT_CMS_TIMEOUT_MS || '12000');
+const EXPO_PUSH_ENABLED = process.env.EXPO_PUSH_ENABLED === 'true';
+const EXPO_PUSH_ENDPOINT = (process.env.EXPO_PUSH_ENDPOINT || 'https://exp.host/--/api/v2/push/send').trim();
+const EXPO_PUSH_ACCESS_TOKEN = process.env.EXPO_PUSH_ACCESS_TOKEN || '';
+const EXPO_PUSH_TIMEOUT_MS = Math.max(1000, Number(process.env.EXPO_PUSH_TIMEOUT_MS || '8000') || 8000);
+const EXPO_PUSH_BATCH_SIZE = Math.max(1, Math.min(100, Number(process.env.EXPO_PUSH_BATCH_SIZE || '100') || 100));
 
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
@@ -15578,11 +15583,246 @@ function touchNotificationAudiencePackage(id, deliveredCount, admin, usedAt = ne
   return target;
 }
 
+function isExpoPushToken(token) {
+  return /^(ExponentPushToken|ExpoPushToken)\[[^\]]+\]$/.test(String(token || '').trim());
+}
+
+function activePushDevicesForPhone(phone) {
+  const devices = Array.isArray(state.pushDevices?.[phone]) ? state.pushDevices[phone] : [];
+  return devices.filter((device) => device?.token && !device.disabledAt);
+}
+
+function updatePushDeviceState(phone, token, patch = {}) {
+  const devices = Array.isArray(state.pushDevices?.[phone]) ? state.pushDevices[phone] : [];
+  const device = devices.find((item) => item?.token === token);
+  if (!device) return false;
+  Object.assign(device, patch);
+  return true;
+}
+
+function markPushDeviceDelivery(phone, token, status, error = '') {
+  return updatePushDeviceState(phone, token, {
+    lastPushAt: new Date().toISOString(),
+    lastPushError: String(error || '').slice(0, 300),
+    lastPushStatus: status,
+  });
+}
+
+function disablePushDevice(phone, token, reason = 'DeviceNotRegistered') {
+  const now = new Date().toISOString();
+  return updatePushDeviceState(phone, token, {
+    disabledAt: now,
+    disabledReason: String(reason || 'DeviceNotRegistered').slice(0, 120),
+    lastPushAt: now,
+    lastPushError: String(reason || '').slice(0, 300),
+    lastPushStatus: 'invalid',
+  });
+}
+
+function systemNotificationPushData(notification, phone, notificationId, deepLinkContext = {}) {
+  return {
+    actionRoute: notification.actionRoute || '',
+    campaignId: notification.id,
+    category: 'system',
+    deepLinkId: notification.deepLinkId || '',
+    deepLinkType: notification.deepLinkType || '',
+    kind: 'system',
+    notificationId,
+    phone,
+    source: 'system_notification',
+    ...deepLinkContext,
+  };
+}
+
+function systemNotificationPushTargetsForPhone(phone, notification, createdAt, deepLinkContext = {}) {
+  const notificationId = `${notification.id}-${phone}`;
+  return activePushDevicesForPhone(phone)
+    .filter((device) => isExpoPushToken(device.token))
+    .map((device) => ({
+      deviceId: device.deviceId || '',
+      phone,
+      token: device.token,
+      message: {
+        body: notification.text,
+        data: systemNotificationPushData(notification, phone, notificationId, deepLinkContext),
+        sound: 'default',
+        title: notification.title,
+        to: device.token,
+      },
+      notificationId,
+      queuedAt: createdAt,
+    }));
+}
+
+async function postExpoPushBatch(messages) {
+  const headers = {
+    accept: 'application/json',
+    'accept-encoding': 'gzip, deflate',
+    'content-type': 'application/json',
+  };
+  if (EXPO_PUSH_ACCESS_TOKEN) headers.authorization = `Bearer ${EXPO_PUSH_ACCESS_TOKEN}`;
+  const response = await fetchWithTimeout(EXPO_PUSH_ENDPOINT, {
+    body: JSON.stringify(messages),
+    headers,
+    method: 'POST',
+  }, EXPO_PUSH_TIMEOUT_MS);
+  const text = await response.text();
+  let payload = {};
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`Expo Push returned invalid JSON: ${text.slice(0, 180)}`);
+    }
+  }
+  if (!response.ok) {
+    const message = payload?.errors?.[0]?.message || payload?.message || text || `HTTP ${response.status}`;
+    throw new Error(`Expo Push failed: ${response.status} ${String(message).slice(0, 180)}`);
+  }
+  return payload;
+}
+
+function expoPushTicketError(ticket = {}) {
+  const detailError = ticket?.details?.error || '';
+  const message = ticket?.message || detailError || ticket?.status || 'Expo Push error';
+  return {
+    code: String(detailError || '').slice(0, 80),
+    message: String(message || '').slice(0, 240),
+  };
+}
+
+async function sendExpoPushTargets(targets) {
+  const summary = {
+    attempted: targets.length,
+    errors: [],
+    failed: 0,
+    failedPhones: [],
+    invalidTokens: [],
+    sent: 0,
+    tickets: [],
+  };
+  for (let index = 0; index < targets.length; index += EXPO_PUSH_BATCH_SIZE) {
+    const batchTargets = targets.slice(index, index + EXPO_PUSH_BATCH_SIZE);
+    try {
+      const payload = await postExpoPushBatch(batchTargets.map((target) => target.message));
+      const data = Array.isArray(payload?.data) ? payload.data : payload?.data ? [payload.data] : [];
+      if (Array.isArray(payload?.errors) && payload.errors.length) {
+        summary.errors.push(...payload.errors.map((item) => String(item?.message || item).slice(0, 240)));
+      }
+      batchTargets.forEach((target, batchIndex) => {
+        const ticket = data[batchIndex] || {};
+        const status = ticket.status === 'ok' ? 'ok' : 'error';
+        if (status === 'ok') {
+          summary.sent += 1;
+          markPushDeviceDelivery(target.phone, target.token, 'sent');
+          summary.tickets.push({
+            deviceId: target.deviceId,
+            id: ticket.id || '',
+            phone: target.phone,
+            status: 'ok',
+            tokenTail: String(target.token).slice(-8),
+          });
+          return;
+        }
+        const ticketError = expoPushTicketError(ticket);
+        summary.failed += 1;
+        summary.failedPhones.push(target.phone);
+        markPushDeviceDelivery(target.phone, target.token, 'failed', ticketError.message);
+        if (ticketError.code === 'DeviceNotRegistered') {
+          disablePushDevice(target.phone, target.token, ticketError.code);
+          summary.invalidTokens.push({ phone: target.phone, tokenTail: String(target.token).slice(-8) });
+        }
+        summary.tickets.push({
+          code: ticketError.code,
+          deviceId: target.deviceId,
+          error: ticketError.message,
+          phone: target.phone,
+          status: 'error',
+          tokenTail: String(target.token).slice(-8),
+        });
+      });
+    } catch (error) {
+      const message = String(error?.message || error || 'Expo Push request failed').slice(0, 240);
+      summary.errors.push(message);
+      batchTargets.forEach((target) => {
+        summary.failed += 1;
+        summary.failedPhones.push(target.phone);
+        markPushDeviceDelivery(target.phone, target.token, 'failed', message);
+        summary.tickets.push({
+          deviceId: target.deviceId,
+          error: message,
+          phone: target.phone,
+          status: 'error',
+          tokenTail: String(target.token).slice(-8),
+        });
+      });
+    }
+  }
+  summary.failedPhones = Array.from(new Set(summary.failedPhones)).slice(0, 50);
+  return summary;
+}
+
+function prepareSystemNotificationPush(notification, pushTargets, now) {
+  notification.pushAttemptedCount = EXPO_PUSH_ENABLED ? pushTargets.length : 0;
+  notification.pushCompletedAt = '';
+  notification.pushFailedCount = 0;
+  notification.pushFailedPhones = [];
+  notification.pushInvalidTokenCount = 0;
+  notification.pushLastError = '';
+  notification.pushProvider = EXPO_PUSH_ENABLED ? 'expo' : 'disabled';
+  notification.pushQueuedAt = EXPO_PUSH_ENABLED && pushTargets.length ? now : '';
+  notification.pushSentCount = 0;
+  notification.pushSkippedDeviceCount = 0;
+  notification.pushStatus = EXPO_PUSH_ENABLED ? (pushTargets.length ? 'queued' : 'no_devices') : 'disabled';
+  notification.pushTickets = [];
+}
+
+function queueSystemNotificationPushDelivery(notification, pushTargets) {
+  if (!EXPO_PUSH_ENABLED || !pushTargets.length) return;
+  setTimeout(() => {
+    runSystemNotificationPushDelivery(notification, pushTargets).catch((error) => {
+      const message = String(error?.message || error || 'Expo Push delivery failed').slice(0, 300);
+      notification.pushCompletedAt = new Date().toISOString();
+      notification.pushFailedCount = Number(notification.pushAttemptedCount || pushTargets.length || 0);
+      notification.pushLastError = message;
+      notification.pushStatus = 'failed';
+      notification.updatedAt = notification.pushCompletedAt;
+      saveState();
+    });
+  }, 0);
+}
+
+async function runSystemNotificationPushDelivery(notification, pushTargets) {
+  if (!notification || !Array.isArray(pushTargets) || !pushTargets.length) return;
+  const before = systemNotificationItem(notification);
+  const summary = await sendExpoPushTargets(pushTargets);
+  const now = new Date().toISOString();
+  notification.pushAttemptedCount = summary.attempted;
+  notification.pushCompletedAt = now;
+  notification.pushFailedCount = summary.failed;
+  notification.pushFailedPhones = summary.failedPhones.slice(0, 50);
+  notification.pushInvalidTokenCount = summary.invalidTokens.length;
+  notification.pushLastError = summary.errors[0] || '';
+  notification.pushProvider = 'expo';
+  notification.pushSentCount = summary.sent;
+  notification.pushStatus = summary.failed > 0 && summary.sent > 0 ? 'partial' : summary.failed > 0 ? 'failed' : 'sent';
+  notification.pushTickets = summary.tickets.slice(0, 50);
+  notification.updatedAt = now;
+  writeAdminAudit({ role: 'system', username: 'system' }, 'notification.system.push_result', 'system_notification', notification.id, before, systemNotificationItem(notification), notification.pushLastError || notification.pushStatus);
+  saveState();
+}
+
 function adminPushDevices() {
   return Object.entries(state.pushDevices || {}).flatMap(([phone, devices]) => {
     const user = state.users?.[phone];
     return (Array.isArray(devices) ? devices : []).map((device) => ({
+      disabledAt: device.disabledAt || '',
+      disabledReason: device.disabledReason || '',
       deviceId: device.deviceId || '',
+      enabled: !device.disabledAt,
+      lastPushAt: device.lastPushAt || '',
+      lastPushError: device.lastPushError || '',
+      lastPushStatus: device.lastPushStatus || '',
       ownerName: user?.ownerName || `用户${String(phone).slice(-4)}`,
       phone,
       platform: device.platform || 'unknown',
@@ -15679,6 +15919,18 @@ function systemNotificationItem(item) {
     openCount: effectStats.openCount,
     openRate: effectStats.openRate,
     phonesInput: item.phonesInput || '',
+    pushAttemptedCount: Number(item.pushAttemptedCount || 0),
+    pushCompletedAt: item.pushCompletedAt || '',
+    pushFailedCount: Number(item.pushFailedCount || 0),
+    pushFailedPhones: Array.isArray(item.pushFailedPhones) ? item.pushFailedPhones.slice(0, 20) : [],
+    pushInvalidTokenCount: Number(item.pushInvalidTokenCount || 0),
+    pushLastError: item.pushLastError || '',
+    pushProvider: item.pushProvider || 'none',
+    pushQueuedAt: item.pushQueuedAt || '',
+    pushSentCount: Number(item.pushSentCount || 0),
+    pushSkippedDeviceCount: Number(item.pushSkippedDeviceCount || 0),
+    pushStatus: item.pushStatus || '',
+    pushTickets: Array.isArray(item.pushTickets) ? item.pushTickets.slice(0, 20) : [],
     rateLimitSnapshot: item.rateLimitSnapshot || null,
     readCount: effectStats.readCount,
     readRate: effectStats.readRate,
@@ -15710,6 +15962,9 @@ function adminSystemNotifications() {
   const sentCampaigns = campaigns.filter((item) => item.status === 'sent');
   const deliveredCount = sentCampaigns.reduce((sum, item) => sum + Number(item.deliveredCount || 0), 0);
   const openCount = sentCampaigns.reduce((sum, item) => sum + Number(item.uniqueOpenCount || 0), 0);
+  const pushAttemptedCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushAttemptedCount || 0), 0);
+  const pushFailedCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushFailedCount || 0), 0);
+  const pushSentCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushSentCount || 0), 0);
   const readCount = sentCampaigns.reduce((sum, item) => sum + Number(item.readCount || 0), 0);
   return {
     campaigns,
@@ -15726,6 +15981,12 @@ function adminSystemNotifications() {
       drafts: campaigns.filter((item) => item.status === 'draft').length,
       openRate: analyticsPercent(openCount, deliveredCount),
       opens: openCount,
+      pushAttempted: pushAttemptedCount,
+      pushEnabled: EXPO_PUSH_ENABLED,
+      pushFailed: pushFailedCount,
+      pushProvider: EXPO_PUSH_ENABLED ? 'expo' : 'disabled',
+      pushSent: pushSentCount,
+      pushSuccessRate: analyticsPercent(pushSentCount, pushAttemptedCount),
       readRate: analyticsPercent(readCount, deliveredCount),
       reads: readCount,
       pendingApprovals: campaigns.filter((item) => item.status === 'pending_approval').length,
@@ -15801,6 +16062,7 @@ function deliverManagedSystemNotification(notification, admin, reason = '发送�
   const audiencePackage = notification.target === 'audience_package' ? findNotificationAudiencePackage(notification.audiencePackageId) : null;
   const deepLinkContext = notificationDeepLinkPayload(notification);
   const campaignRate = systemNotificationCampaignRateLimit(nowMs);
+  const pushTargets = [];
   notification.audienceCount = targetPhones.length;
   notification.audiencePackageName = audiencePackage?.name || notification.audiencePackageName || '';
   notification.deliveredAt = now;
@@ -15844,18 +16106,22 @@ function deliverManagedSystemNotification(notification, admin, reason = '发送�
       title: notification.title,
       ...deepLinkContext,
     }, 'system', { force: !notification.respectUserSettings });
-    if (added) notification.deliveredCount += 1;
-    else {
+    if (added) {
+      notification.deliveredCount += 1;
+      pushTargets.push(...systemNotificationPushTargetsForPhone(phone, notification, now, deepLinkContext));
+    } else {
       notification.skippedCount += 1;
       notification.failedPhones.push(phone);
     }
   }
   notification.failedReason = '';
   notification.status = 'sent';
+  prepareSystemNotificationPush(notification, pushTargets, now);
   if (notification.target === 'audience_package' && notification.audiencePackageId) {
     touchNotificationAudiencePackage(notification.audiencePackageId, notification.deliveredCount, admin, now);
   }
   writeAdminAudit(admin, 'notification.system.send', 'system_notification', notification.id, null, systemNotificationItem(notification), reason);
+  queueSystemNotificationPushDelivery(notification, pushTargets);
   return true;
 }
 
@@ -20218,9 +20484,13 @@ function adminReadinessGaps(context) {
       area: '通知触达',
       severity: 'P1',
       status: 'partial',
-      issue: '当前以站内通知为主，厂商 Push、送达回执和多管理员双人审批未完成。',
-      requiredAction: '接 Android 厂商 Push、iOS APNs、回执、失败重试；生产期如启用多人后台，再补双人审批。',
-      evidence: '通知运营页设备 token 概览',
+      issue: EXPO_PUSH_ENABLED
+        ? '系统通知已接 Expo Push 下发和 ticket 结果记录；仍缺长期 receipt 拉取、失败重试、Android 厂商 Push/APNs 专项优化和多管理员双人审批。'
+        : '当前以站内通知为主，Expo Push 开关未启用；厂商 Push、送达回执和多管理员双人审批未完成。',
+      requiredAction: EXPO_PUSH_ENABLED
+        ? '补 Expo receipt 定时拉取、失败重试/退避、厂商通道专项配置和生产期双人审批策略。'
+        : '配置 EXPO_PUSH_ENABLED=true 并验证 Expo Push；再接 receipt、失败重试、Android 厂商 Push、iOS APNs 和生产双人审批。',
+      evidence: '通知运营页设备 token 概览 / systemNotifications.pushStatus',
     },
     {
       key: 'observability',

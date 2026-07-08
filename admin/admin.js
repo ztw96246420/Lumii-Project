@@ -7436,6 +7436,7 @@ function renderNotificationCampaign(campaign) {
           ${campaign.audiencePackageName ? `<span>人群包：${escapeHtml(campaign.audiencePackageName)}</span>` : ''}
           <span>目标：${campaign.audienceCount || 0}</span>
           <span>送达：${campaign.deliveredCount || 0}</span>
+          <span>Push：${numberText(campaign.pushSentCount || 0)} / ${numberText(campaign.pushAttemptedCount || 0)}${campaign.pushStatus ? ` · ${escapeHtml(campaign.pushStatus)}` : ''}</span>
           <span>已读：${numberText(campaign.readCount || 0)} / ${percentText(campaign.readRate || 0)}</span>
           <span>点击：${numberText(campaign.uniqueOpenCount || 0)} 人 · ${numberText(campaign.openCount || 0)} 次</span>
           <span>打开率：${percentText(campaign.openRate || 0)}</span>
@@ -7443,6 +7444,7 @@ function renderNotificationCampaign(campaign) {
           ${deepLinkLabel ? `<span>深链：${escapeHtml(deepLinkLabel)}</span>` : ''}
           ${campaign.scheduledAt ? `<span>预约：${formatTime(campaign.scheduledAt)}</span>` : ''}
           ${campaign.deliveredAt ? `<span>发送：${formatTime(campaign.deliveredAt)}</span>` : ''}
+          ${campaign.pushCompletedAt ? `<span>Push 完成：${formatTime(campaign.pushCompletedAt)}</span>` : ''}
           ${campaign.latestOpenAt ? `<span>最近点击：${formatTime(campaign.latestOpenAt)}</span>` : ''}
           ${campaign.canceledAt ? `<span>撤回：${formatTime(campaign.canceledAt)}</span>` : ''}
           ${campaign.rateLimitSnapshot ? `<span>频控：${campaign.rateLimitSnapshot.campaignsLast24h || 0}/${campaign.rateLimitSnapshot.maxCampaignsPerDay || 0} 批</span>` : ''}
@@ -7455,6 +7457,9 @@ function renderNotificationCampaign(campaign) {
           ${deepLinkLabel ? `<span class="risk-badge">深链 ${escapeHtml(deepLinkLabel)}</span>` : ''}
           ${phones ? `<span class="risk-badge">样本 ${escapeHtml(phones)}</span>` : ''}
           ${failed ? `<span class="risk-badge">未入站 ${escapeHtml(failed)}</span>` : ''}
+          ${campaign.pushFailedCount ? `<span class="risk-badge">Push 失败 ${campaign.pushFailedCount}</span>` : ''}
+          ${campaign.pushInvalidTokenCount ? `<span class="risk-badge">无效 token ${campaign.pushInvalidTokenCount}</span>` : ''}
+          ${campaign.pushLastError ? `<span class="risk-badge">Push：${escapeHtml(campaign.pushLastError)}</span>` : ''}
           ${campaign.failedReason ? `<span class="risk-badge">失败：${escapeHtml(campaign.failedReason)}</span>` : ''}
           ${campaign.approvalReason ? `<span class="risk-badge">审批说明 ${escapeHtml(campaign.approvalReason)}</span>` : ''}
           ${campaign.revokedCount ? `<span class="risk-badge">已撤回 ${campaign.revokedCount}</span>` : ''}
@@ -7765,7 +7770,8 @@ async function renderNotifications(force) {
       ${metric('通知已读', numberText(summary.reads || 0), `${percentText(summary.readRate || 0)} 已读率`, '按系统通知批次写入 App 通知中心后的 read 状态回算，撤回后当前站内通知会减少。')}
       ${metric('通知点击', numberText(summary.opens || 0), `${percentText(summary.openRate || 0)} 打开率`, '来自移动端 notification.open 事件；点击率按系统通知批次的去重点击人数 / 送达数计算。')}
       ${metric('用户总数', summary.users || 0, `${summary.activeToday || 0} 今日活跃`, '“今日活跃用户”目标按 lastSeenAt 近 24 小时计算。')}
-      ${metric('推送设备', summary.devices || 0, '已登记 token', '当前只是设备登记和站内通知记录；真实厂商推送服务后续可接入。')}
+      ${metric('推送设备', summary.devices || 0, summary.pushEnabled ? 'Expo Push 已启用' : 'Expo Push 未启用', '用户授权通知后登记设备 token；系统通知可通过 Expo Push 下发，失败 token 会被标记。')}
+      ${metric('Push 下发', numberText(summary.pushSent || 0), `${numberText(summary.pushAttempted || 0)} 尝试 · ${percentText(summary.pushSuccessRate || 0)}`, '统计系统通知发起的 Expo Push ticket 结果；不等同于用户点击或最终展示。')}
       ${metric('人群包', summary.audiencePackages || audiencePackages.length, '灰度触达', '保存测试手机号、灰度用户和补偿用户，发送时按当前注册用户重新计算可触达范围。')}
       ${metric('待处理', (summary.drafts || 0) + (summary.scheduled || 0) + (summary.pendingApprovals || 0), `${summary.drafts || 0} 草稿 · ${summary.pendingApprovals || 0} 审批 · ${summary.scheduled || 0} 预约`, '草稿和待审批通知不会触达用户；审批通过后才会写入 App 通知中心或转为预约。')}
       ${metric('审批保护', approvalRequired ? '已开启' : '未开启', approvalRequired ? '直接发送会被拦截' : '可直接发送', '开启后，立即发送和预约发送必须先提交审批，审批通过才触达移动端。')}
@@ -7847,7 +7853,7 @@ async function renderNotifications(force) {
         <div class="section-head">
           <div>
             <h2>模板与发送前检查</h2>
-            <div class="section-sub">模板可一键套用；当前先落 App 通知中心，厂商 Push 后续接入</div>
+            <div class="section-sub">模板可一键套用；系统通知会先落 App 通知中心，启用后同步下发 Expo Push</div>
           </div>
         </div>
         <div class="notification-template-list">
@@ -7900,13 +7906,14 @@ async function renderNotifications(force) {
         <div class="section-head">
           <div>
             <h2>最近设备</h2>
-            <div class="section-sub">用于后续接入厂商 Push 的设备 token 概览</div>
+            <div class="section-sub">设备 token、最近 Push 状态和失效标记</div>
           </div>
         </div>
         ${devices.length ? tableHtml(devices.slice(0, 8), [
           ['用户', (d) => `<div>${escapeHtml(d.ownerName || '-')}</div><div class="cell-sub">${shortPhone(d.phone)}</div>`],
           ['平台', (d) => statusPill(d.platform)],
           ['Token', (d) => `<span class="cell-sub">...${escapeHtml(d.tokenTail || '-')}</span>`],
+          ['状态', (d) => `${statusPill(d.enabled === false ? '已失效' : d.lastPushStatus || '可用')}<div class="cell-sub">${escapeHtml(d.lastPushError || d.disabledReason || '-')}</div>`],
           ['更新', (d) => formatTime(d.updatedAt)],
         ]) : '<div class="placeholder"><div><strong>暂无设备</strong><div>用户授权通知后，App 会登记设备 token。</div></div></div>'}
       </div>
