@@ -32,6 +32,7 @@ const suites = [
   { key: 'moderation-sanction', title: 'Report sanction linkage', script: 'smoke-report-sanction-linkage.cjs', timeoutMs: 180_000 },
   { key: 'report-appeals', title: 'Report appeals', script: 'smoke-report-appeals.cjs', timeoutMs: 180_000 },
   { key: 'sanction-approval', title: 'Sanction approval', script: 'smoke-sanction-approval.cjs', timeoutMs: 180_000 },
+  { key: 'sanction-batch-approval', title: 'Sanction batch approval', script: 'smoke-sanction-batch-approval.cjs', timeoutMs: 180_000 },
   { key: 'sanction-policy-review', title: 'Sanction policy review', script: 'smoke-sanction-policy-review.cjs', timeoutMs: 180_000 },
   { key: 'social-author-sanction', title: 'Social author sanction', script: 'smoke-social-author-sanction.cjs', timeoutMs: 180_000 },
   { key: 'social-block-risk', title: 'Social block risk', script: 'smoke-social-block-risk.cjs', timeoutMs: 180_000 },
@@ -78,6 +79,7 @@ const suites = [
 
   { key: 'admin-accounts-page', title: 'Admin accounts page', script: 'smoke-admin-accounts-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-config-page', title: 'Admin high-risk config page', script: 'smoke-admin-config-high-risk-page.cjs', timeoutMs: 180_000, visual: true },
+  { key: 'admin-sanctions-page', title: 'Admin sanctions page', script: 'smoke-admin-sanctions-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-legal-documents-page', title: 'Admin legal documents page', script: 'smoke-admin-legal-documents-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-system-health-page', title: 'Admin system health page', script: 'smoke-admin-system-health-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-media-page', title: 'Admin media replace page', script: 'smoke-admin-pet-media-replace-page.cjs', timeoutMs: 180_000, visual: true },

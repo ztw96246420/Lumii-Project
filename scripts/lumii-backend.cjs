@@ -809,6 +809,7 @@ function createInitialState() {
     adminDataClearApprovals: [],
     adminExportApprovals: [],
     adminExportJobs: [],
+    adminSanctionBatchApprovals: [],
     adminSanctionApprovals: [],
     launchReadinessQuestionOverrides: {},
     launchReadinessSignoff: {},
@@ -1653,6 +1654,11 @@ function processExpiredHighRiskApprovals() {
     action: 'user.sanction.approval.expire',
     item: adminSanctionApprovalItem,
     targetType: 'sanction_approval',
+  }) || changed;
+  changed = expireEach(ensureSanctionBatchApprovals(), {
+    action: 'user.sanction.batch_approval.expire',
+    item: adminSanctionBatchApprovalItem,
+    targetType: 'sanction_batch_approval',
   }) || changed;
   changed = expireEach(ensureDataClearApprovals(), {
     action: 'user.clear_business_data.approval.expire',
@@ -5613,6 +5619,7 @@ function loadState() {
       adminDataClearApprovals: Array.isArray(loadedState.adminDataClearApprovals) ? loadedState.adminDataClearApprovals : initialState.adminDataClearApprovals,
       adminExportApprovals: Array.isArray(loadedState.adminExportApprovals) ? loadedState.adminExportApprovals : initialState.adminExportApprovals,
       adminExportJobs: Array.isArray(loadedState.adminExportJobs) ? loadedState.adminExportJobs : initialState.adminExportJobs,
+      adminSanctionBatchApprovals: Array.isArray(loadedState.adminSanctionBatchApprovals) ? loadedState.adminSanctionBatchApprovals : initialState.adminSanctionBatchApprovals,
       adminSanctionApprovals: Array.isArray(loadedState.adminSanctionApprovals) ? loadedState.adminSanctionApprovals : initialState.adminSanctionApprovals,
       launchReadinessQuestionOverrides: loadedState.launchReadinessQuestionOverrides && typeof loadedState.launchReadinessQuestionOverrides === 'object' && !Array.isArray(loadedState.launchReadinessQuestionOverrides) ? loadedState.launchReadinessQuestionOverrides : initialState.launchReadinessQuestionOverrides,
       launchReadinessSignoff: loadedState.launchReadinessSignoff && typeof loadedState.launchReadinessSignoff === 'object' && !Array.isArray(loadedState.launchReadinessSignoff) ? loadedState.launchReadinessSignoff : initialState.launchReadinessSignoff,
@@ -8442,6 +8449,11 @@ function ensureSanctionApprovals() {
   return state.adminSanctionApprovals;
 }
 
+function ensureSanctionBatchApprovals() {
+  if (!Array.isArray(state.adminSanctionBatchApprovals)) state.adminSanctionBatchApprovals = [];
+  return state.adminSanctionBatchApprovals;
+}
+
 function normalizeSanctionType(value) {
   const type = String(value || '').trim();
   return SANCTION_TYPES.has(type) ? type : '';
@@ -8573,6 +8585,7 @@ function adminSanctionItem(sanction) {
   const user = state.users?.[sanction.phone];
   const pet = user ? selectedPetFor(user) : null;
   return {
+    batchApprovalId: sanction.batchApprovalId || '',
     createdAt: sanction.createdAt,
     createdBy: sanction.createdBy || '',
     durationHours: Number(sanction.durationHours || 0),
@@ -8706,6 +8719,108 @@ function adminSanctionApprovals(options = {}) {
   };
 }
 
+function parseSanctionBatchPhones(body = {}) {
+  const source = Array.isArray(body.phones)
+    ? body.phones
+    : Array.isArray(body.targetPhones)
+      ? body.targetPhones
+      : String(body.phones || body.targetPhones || '')
+        .split(/[\s,，;；]+/u);
+  const seen = new Set();
+  const phones = [];
+  const invalid = [];
+  source.forEach((value) => {
+    const phone = normalizePhone(value);
+    if (!phone) {
+      if (String(value || '').trim()) invalid.push(String(value).trim());
+      return;
+    }
+    if (seen.has(phone)) return;
+    seen.add(phone);
+    phones.push(phone);
+  });
+  return {
+    invalid,
+    phones: phones.slice(0, 50),
+    truncated: phones.length > 50,
+  };
+}
+
+function adminSanctionBatchApprovalItem(approval = {}) {
+  const status = highRiskApprovalCurrentStatus(approval);
+  const durationHours = Math.max(0, Math.floor(Number(approval.durationHours || 0)));
+  const targetPhones = Array.isArray(approval.targetPhones) ? approval.targetPhones.map(normalizePhone).filter(Boolean) : [];
+  const results = Array.isArray(approval.results) ? approval.results : [];
+  return {
+    ...highRiskApprovalPublicMeta(approval),
+    approvalReason: approval.approvalReason || '',
+    approvedAt: approval.approvedAt || '',
+    approvedBy: approval.approvedBy || '',
+    cancelReason: approval.cancelReason || '',
+    canceledAt: approval.canceledAt || '',
+    canceledBy: approval.canceledBy || '',
+    createdAt: approval.createdAt || '',
+    createdBy: approval.createdBy || '',
+    durationHours,
+    errorCount: Number(approval.errorCount ?? results.filter((item) => item.error).length),
+    expiredAt: approval.expiredAt || '',
+    expireReason: approval.expireReason || '',
+    approvalExpiresAt: approval.approvalExpiresAt || '',
+    id: approval.id || '',
+    reason: approval.reason || '',
+    rejectedAt: approval.rejectedAt || '',
+    rejectedBy: approval.rejectedBy || '',
+    rejectReason: approval.rejectReason || '',
+    results,
+    source: approval.source || 'manual_batch',
+    status,
+    statusLabel: sanctionApprovalStatusLabel(status),
+    successCount: Number(approval.successCount ?? results.filter((item) => item.sanctionId).length),
+    targetCount: targetPhones.length,
+    targetPhones,
+    targets: targetPhones.slice(0, 8).map((phone) => {
+      const user = state.users?.[phone];
+      const pet = user ? selectedPetFor(user) : null;
+      return {
+        ownerName: user?.ownerName || `用户${phone.slice(-4)}`,
+        petName: pet?.name || '',
+        phone,
+      };
+    }),
+    templateId: approval.templateId || '',
+    type: approval.type || '',
+    typeLabel: SANCTION_TYPE_LABELS[approval.type] || approval.type || '-',
+  };
+}
+
+function adminSanctionBatchApprovals(options = {}) {
+  processExpiredHighRiskApprovals();
+  const status = String(options.status || 'open').trim() || 'open';
+  const limit = Math.min(80, Math.max(10, Number(options.limit || 20) || 20));
+  const all = ensureSanctionBatchApprovals().map(adminSanctionBatchApprovalItem);
+  const items = all
+    .filter((item) => {
+      if (status === 'all') return true;
+      if (status === 'open') return item.status === 'pending_approval';
+      return item.status === status;
+    })
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .slice(0, limit);
+  return {
+    items,
+    summary: {
+      approved: all.filter((item) => item.status === 'approved').length,
+      canceled: all.filter((item) => item.status === 'canceled').length,
+      expired: all.filter((item) => item.status === 'expired').length,
+      failedTargets: all.reduce((sum, item) => sum + Number(item.errorCount || 0), 0),
+      pending: all.filter((item) => item.status === 'pending_approval').length,
+      rejected: all.filter((item) => item.status === 'rejected').length,
+      successfulTargets: all.reduce((sum, item) => sum + Number(item.successCount || 0), 0),
+      total: all.length,
+    },
+  };
+}
+
 function createSanctionApproval(admin, body = {}) {
   const phone = normalizePhone(body.phone || '');
   const user = phone ? state.users?.[phone] : null;
@@ -8743,6 +8858,43 @@ function createSanctionApproval(admin, body = {}) {
   return {
     approval: adminSanctionApprovalItem(approval),
     approvals: adminSanctionApprovals(),
+  };
+}
+
+function createSanctionBatchApproval(admin, body = {}) {
+  const { invalid, phones, truncated } = parseSanctionBatchPhones(body);
+  if (!phones.length) return { error: '请填写至少一个有效手机号', statusCode: 400 };
+  if (invalid.length) return { error: `存在无效手机号：${invalid.slice(0, 5).join('、')}`, statusCode: 400 };
+  if (truncated) return { error: '单次批量处罚最多支持 50 个用户', statusCode: 400 };
+  const missing = phones.filter((phone) => !state.users?.[phone]);
+  if (missing.length) return { error: `用户不存在：${missing.slice(0, 5).join('、')}`, statusCode: 404 };
+  const type = normalizeSanctionType(body.type);
+  if (!type) return { error: '请选择正确的处罚类型', statusCode: 400 };
+  const durationHours = parseSanctionDurationHours(type, body.durationHours);
+  if (durationHours === null) return { error: '处罚时长需为 0 到 8760 小时', statusCode: 400 };
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '请填写批量处罚原因', statusCode: 400 };
+  const now = new Date().toISOString();
+  const approval = {
+    approvalExpiresAt: highRiskApprovalPendingExpiresAt(now),
+    createdAt: now,
+    createdBy: admin?.username || 'admin',
+    durationHours,
+    id: `sanction-batch-approval-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    reason,
+    requiredApprovals: highRiskApprovalRequiredApprovals(),
+    source: String(body.source || 'manual_batch').slice(0, 60),
+    status: 'pending_approval',
+    targetPhones: phones,
+    templateId: String(body.templateId || '').slice(0, 120),
+    type,
+  };
+  ensureSanctionBatchApprovals().unshift(approval);
+  state.adminSanctionBatchApprovals = state.adminSanctionBatchApprovals.slice(0, 200);
+  writeAdminAudit(admin, 'user.sanction.batch_approval.create', 'sanction_batch_approval', approval.id, null, adminSanctionBatchApprovalItem(approval), reason);
+  return {
+    approval: adminSanctionBatchApprovalItem(approval),
+    approvals: adminSanctionBatchApprovals(),
   };
 }
 
@@ -8798,6 +8950,62 @@ function approveSanctionApproval(admin, approvalId, body = {}) {
   };
 }
 
+function approveSanctionBatchApproval(admin, approvalId, body = {}) {
+  processExpiredHighRiskApprovals();
+  const approval = ensureSanctionBatchApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '批量处罚审批不存在', statusCode: 404 };
+  const currentStatus = highRiskApprovalCurrentStatus(approval);
+  if (currentStatus === 'expired') return highRiskApprovalExpiredResult('批量处罚审批');
+  if (currentStatus !== 'pending_approval') return { error: '只有待审批批量处罚可以审批通过', statusCode: 409 };
+  const beforeApproval = cloneJson(approval);
+  const vote = recordHighRiskApprovalVote(admin, approval, body, '批量处罚审批', '审批通过批量处罚');
+  if (vote.error) return vote;
+  if (!vote.final) {
+    writeAdminAudit(admin, 'user.sanction.batch_approval.vote', 'sanction_batch_approval', approval.id, beforeApproval, adminSanctionBatchApprovalItem(approval), vote.reason);
+    return {
+      approval: adminSanctionBatchApprovalItem(approval),
+      approvals: adminSanctionBatchApprovals(),
+    };
+  }
+
+  const results = [];
+  const targetPhones = Array.isArray(approval.targetPhones) ? approval.targetPhones.map(normalizePhone).filter(Boolean) : [];
+  for (const phone of targetPhones) {
+    const beforeUser = state.users?.[phone] ? adminUserSummary(state.users[phone]) : null;
+    const result = createUserSanction(admin, phone, {
+      batchApprovalId: approval.id,
+      durationHours: approval.durationHours,
+      reason: approval.reason,
+      source: approval.source || 'manual_batch',
+      templateId: approval.templateId || '',
+      type: approval.type,
+    }, { approved: true });
+    if (result.error) {
+      results.push({ error: result.error, phone, statusCode: result.statusCode || 400 });
+      continue;
+    }
+    const afterUser = state.users?.[phone] ? adminUserSummary(state.users[phone]) : null;
+    const sanction = adminSanctionItem(result.sanction);
+    results.push({ phone, sanctionId: sanction.id });
+    writeAdminAudit(admin, 'user.sanction.create', 'user', phone, beforeUser, {
+      ...afterUser,
+      sanction,
+    }, approval.reason);
+  }
+
+  approval.approvedAt = vote.now;
+  approval.approvedBy = currentAdminUsername(admin);
+  approval.errorCount = results.filter((item) => item.error).length;
+  approval.results = results;
+  approval.status = 'approved';
+  approval.successCount = results.filter((item) => item.sanctionId).length;
+  writeAdminAudit(admin, 'user.sanction.batch_approval.approve', 'sanction_batch_approval', approval.id, beforeApproval, adminSanctionBatchApprovalItem(approval), vote.reason);
+  return {
+    approval: adminSanctionBatchApprovalItem(approval),
+    approvals: adminSanctionBatchApprovals(),
+  };
+}
+
 function cancelSanctionApproval(admin, approvalId, body = {}) {
   processExpiredHighRiskApprovals();
   const approval = ensureSanctionApprovals().find((item) => item.id === approvalId);
@@ -8814,6 +9022,25 @@ function cancelSanctionApproval(admin, approvalId, body = {}) {
   return {
     approval: adminSanctionApprovalItem(approval),
     approvals: adminSanctionApprovals(),
+  };
+}
+
+function cancelSanctionBatchApproval(admin, approvalId, body = {}) {
+  processExpiredHighRiskApprovals();
+  const approval = ensureSanctionBatchApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '批量处罚审批不存在', statusCode: 404 };
+  const currentStatus = highRiskApprovalCurrentStatus(approval);
+  if (currentStatus === 'expired') return highRiskApprovalExpiredResult('批量处罚审批');
+  if (currentStatus !== 'pending_approval') return { error: '只有待审批批量处罚可以取消', statusCode: 409 };
+  const before = cloneJson(approval);
+  approval.cancelReason = adminReason(body, '取消批量处罚审批');
+  approval.canceledAt = new Date().toISOString();
+  approval.canceledBy = currentAdminUsername(admin);
+  approval.status = 'canceled';
+  writeAdminAudit(admin, 'user.sanction.batch_approval.cancel', 'sanction_batch_approval', approval.id, before, adminSanctionBatchApprovalItem(approval), approval.cancelReason);
+  return {
+    approval: adminSanctionBatchApprovalItem(approval),
+    approvals: adminSanctionBatchApprovals(),
   };
 }
 
@@ -8835,6 +9062,27 @@ function rejectSanctionApproval(admin, approvalId, body = {}) {
   return {
     approval: adminSanctionApprovalItem(approval),
     approvals: adminSanctionApprovals(),
+  };
+}
+
+function rejectSanctionBatchApproval(admin, approvalId, body = {}) {
+  processExpiredHighRiskApprovals();
+  const approval = ensureSanctionBatchApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '批量处罚审批不存在', statusCode: 404 };
+  const currentStatus = highRiskApprovalCurrentStatus(approval);
+  if (currentStatus === 'expired') return highRiskApprovalExpiredResult('批量处罚审批');
+  if (currentStatus !== 'pending_approval') return { error: '只有待审批批量处罚可以驳回', statusCode: 409 };
+  const selfApproval = rejectSelfHighRiskApproval(admin, approval, '批量处罚审批');
+  if (selfApproval) return selfApproval;
+  rejectHighRiskApprovalRecord(admin, approval, body, {
+    action: 'user.sanction.batch_approval.reject',
+    defaultReason: '驳回批量处罚审批',
+    item: adminSanctionBatchApprovalItem,
+    targetType: 'sanction_batch_approval',
+  });
+  return {
+    approval: adminSanctionBatchApprovalItem(approval),
+    approvals: adminSanctionBatchApprovals(),
   };
 }
 
@@ -9062,6 +9310,7 @@ function createUserSanction(admin, phone, body = {}, options = {}) {
   }
   const createdAt = new Date().toISOString();
   const sanction = {
+    batchApprovalId: String(body.batchApprovalId || '').slice(0, 120),
     createdAt,
     createdBy: admin?.username || 'admin',
     durationHours,
@@ -22322,6 +22571,7 @@ function adminHighRiskPendingApprovalSummary() {
     { count: pendingItems(ensureAdminExportApprovals(), adminExportApprovalItem).length, key: 'exports', label: '数据导出' },
     { count: pendingItems(ensureSystemNotifications(), systemNotificationItem).length, key: 'notifications', label: '系统通知' },
     { count: pendingItems(ensureSanctionApprovals(), adminSanctionApprovalItem).length, key: 'sanctions', label: '永久封禁' },
+    { count: pendingItems(ensureSanctionBatchApprovals(), adminSanctionBatchApprovalItem).length, key: 'sanctionBatches', label: '批量处罚' },
     { count: pendingItems(ensureDataClearApprovals(), adminDataClearApprovalItem).length, key: 'dataClear', label: '数据清理' },
     { count: pendingItems(ensureSupportTicketBatchReplyApprovals(), supportTicketBatchReplyApprovalItem).length, key: 'batchReplies', label: '批量回复' },
   ];
@@ -23956,9 +24206,9 @@ function adminReadinessModules(context) {
       module: '举报与申诉',
       group: '安全',
       status: 'partial',
-      evidence: '举报可处理有效/无效/关闭，证据快照、处罚建议、一键处罚、处罚撤销、账号申诉和举报处理申诉已接入。',
-      mobileLinkage: '有效举报和处罚会通知作者；处罚会限制移动端写接口，用户可在安全中心提交账号限制申诉或举报处理申诉。',
-      nextStep: '生产期补批量处罚、高风险处罚建议，并将永久封禁纳入高风险最少会签人数和值守通知 SOP。',
+      evidence: '举报可处理有效/无效/关闭，证据快照、处罚建议、一键处罚、批量处罚审批、处罚撤销、账号申诉和举报处理申诉已接入。',
+      mobileLinkage: '有效举报和处罚会通知作者；单个或批量审批通过的处罚都会限制移动端写接口，用户可在安全中心提交账号限制申诉或举报处理申诉。',
+      nextStep: '生产期补高风险处罚建议命中率复盘，并将处罚审批纳入值守通知 SOP。',
     },
     {
       key: 'places',
@@ -30943,10 +31193,29 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/sanction-batch-approvals') {
+    ok(res, adminSanctionBatchApprovals({
+      limit: url.searchParams.get('limit') || 20,
+      status: url.searchParams.get('status') || 'open',
+    }));
+    return true;
+  }
+
   if (req.method === 'POST' && pathname === '/admin/sanction-approvals') {
     const result = createSanctionApproval(admin, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SANCTION_APPROVAL_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/sanction-batch-approvals') {
+    const result = createSanctionBatchApproval(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_SANCTION_BATCH_APPROVAL_INVALID');
       return true;
     }
     saveState();
@@ -30965,6 +31234,24 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       : cancelSanctionApproval(admin, approvalId, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_SANCTION_APPROVAL_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminSanctionBatchApprovalActionMatch = pathname.match(/^\/admin\/sanction-batch-approvals\/([^/]+)\/(approve|cancel|reject)$/);
+  if (req.method === 'POST' && adminSanctionBatchApprovalActionMatch) {
+    const approvalId = decodeURIComponent(adminSanctionBatchApprovalActionMatch[1]);
+    const action = adminSanctionBatchApprovalActionMatch[2];
+    const result = action === 'approve'
+      ? approveSanctionBatchApproval(admin, approvalId, body)
+      : action === 'reject'
+        ? rejectSanctionBatchApproval(admin, approvalId, body)
+        : cancelSanctionBatchApproval(admin, approvalId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_SANCTION_BATCH_APPROVAL_INVALID');
       return true;
     }
     saveState();

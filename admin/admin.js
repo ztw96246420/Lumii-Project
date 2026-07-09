@@ -935,7 +935,15 @@ async function onContentClick(event) {
       applySanctionTemplate();
       return;
     }
+    if (action === 'sanction-batch-template-apply') {
+      applySanctionBatchTemplate();
+      return;
+    }
     if (action === 'sanction-create') await createSanction();
+    if (action === 'sanction-batch-create') await createSanctionBatchApproval();
+    if (action === 'sanction-batch-approval-approve') await approveSanctionBatchApproval(id);
+    if (action === 'sanction-batch-approval-reject') await rejectSanctionBatchApproval(id);
+    if (action === 'sanction-batch-approval-cancel') await cancelSanctionBatchApproval(id);
     if (action === 'sanction-approval-approve') await approveSanctionApproval(id);
     if (action === 'sanction-approval-reject') await rejectSanctionApproval(id);
     if (action === 'sanction-approval-cancel') await cancelSanctionApproval(id);
@@ -1791,7 +1799,7 @@ async function unhidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarAnimationJobs', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'dataClearApprovals', 'feedback', 'legalDocuments', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionApprovals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarAnimationJobs', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'dataClearApprovals', 'feedback', 'legalDocuments', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionApprovals', 'sanctionBatchApprovals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -5705,12 +5713,67 @@ function renderSanctionApprovals(approvals = {}) {
   `;
 }
 
+function renderSanctionBatchApprovals(batchApprovals = {}, templates = []) {
+  const items = batchApprovals.items || [];
+  const summary = batchApprovals.summary || {};
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>批量处罚审批</h2>
+          <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${numberText(summary.successfulTargets || 0)} 个账号已执行 · ${numberText(summary.failedTargets || 0)} 个失败</div>
+        </div>
+        ${help('批量处罚提交后不会立刻影响移动端；审批通过后逐个写入真实处罚流水，并复用账号限制中间件。建议只用于同一批证据清晰的违规账号。')}
+      </div>
+      <div class="form-grid">
+        <label>批量模板
+          <select id="sanctionBatchTemplate">
+            <option value="">不使用模板</option>
+            ${templates.map((template) => `<option value="${escapeHtml(template.id)}">${escapeHtml(template.label)} · ${escapeHtml(template.typeLabel)}${template.durationHours ? ` ${template.durationHours}h` : ''}</option>`).join('')}
+          </select>
+        </label>
+        <label>处罚类型
+          <select id="sanctionBatchType">
+            <option value="mute">禁言</option>
+            <option value="freeze">冻结</option>
+            <option value="ban">封禁</option>
+            <option value="warning">警告</option>
+          </select>
+        </label>
+        <label>时长（小时）<input id="sanctionBatchDurationHours" type="number" min="0" max="8760" value="72" /></label>
+      </div>
+      <label>目标手机号<textarea id="sanctionBatchPhones" placeholder="每行一个手机号，或用逗号、空格分隔；单次最多 50 个账号"></textarea></label>
+      <label>批量处罚原因<textarea id="sanctionBatchReason" placeholder="写清楚共同证据和处理依据，例如：同批广告账号，多条举报核实成立"></textarea></label>
+      <div class="actions">
+        <button class="small-button" data-action="sanction-batch-template-apply">套用批量模板</button>
+        <button class="primary-button" data-action="sanction-batch-create">提交批量处罚审批</button>
+      </div>
+      ${items.length ? tableHtml(items, [
+        ['批次', (row) => `<div class="cell-title">${escapeHtml(row.id || '-')}</div><div class="cell-sub">${formatTime(row.createdAt)} · ${escapeHtml(row.createdBy || '-')}</div>`],
+        ['处罚', (row) => `<div>${statusPill(row.typeLabel || row.type || '-')}</div><div class="cell-sub">${row.durationHours ? `${numberText(row.durationHours)}h` : '长期有效'}</div>`],
+        ['目标', (row) => `<div>${numberText(row.targetCount || 0)} 个账号</div><div class="cell-sub clamp">${(row.targets || []).map((target) => `${escapeHtml(target.ownerName || '-')} ${shortPhone(target.phone)}`).join('、') || '-'}</div>`],
+        ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div><div class="cell-sub">${escapeHtml(row.source || 'manual_batch')}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, sanctionApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `执行 ${formatTime(row.approvedAt)}` : row.rejectedAt ? `驳回 ${formatTime(row.rejectedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt ? `超时 ${formatTime(row.approvalExpiresAt)}` : '-'}</div>${approvalProgressText(row)}`],
+        ['执行', (row) => `<div>成功 ${numberText(row.successCount || 0)} · 失败 ${numberText(row.errorCount || 0)}</div><div class="cell-sub clamp">${(row.results || []).filter((item) => item.error).slice(0, 2).map((item) => `${shortPhone(item.phone)} ${escapeHtml(item.error)}`).join('；') || '-'}</div>`],
+        ['操作', (row) => row.status === 'pending_approval' ? `
+          <div class="actions">
+            <button class="small-button" data-action="sanction-batch-approval-approve" data-id="${escapeHtml(row.id)}">审批通过</button>
+            <button class="small-button danger" data-action="sanction-batch-approval-reject" data-id="${escapeHtml(row.id)}">驳回</button>
+            <button class="small-button ghost" data-action="sanction-batch-approval-cancel" data-id="${escapeHtml(row.id)}">取消</button>
+          </div>
+        ` : `<div class="cell-sub">${escapeHtml(row.approvalReason || row.rejectReason || row.cancelReason || '-')}</div>`],
+      ], '暂无批量处罚审批') : '<div class="placeholder mini"><div><strong>暂无待审批批量处罚</strong><div>填写目标手机号和原因后提交，审批通过才会批量生效。</div></div></div>'}
+    </div>
+  `;
+}
+
 async function renderSanctions(force) {
-  const [rows, templates, policy, approvals] = await Promise.all([
+  const [rows, templates, policy, approvals, batchApprovals] = await Promise.all([
     load('sanctions', '/admin/sanctions', force),
     load('sanctionTemplates', '/admin/sanction-templates', force),
     load('sanctionPolicy', '/admin/sanction-policy-review', force),
     load('sanctionApprovals', '/admin/sanction-approvals', force),
+    load('sanctionBatchApprovals', '/admin/sanction-batch-approvals', force),
   ]);
   $('content').innerHTML = `
     ${renderSanctionPolicyReview(policy)}
@@ -5746,6 +5809,7 @@ async function renderSanctions(force) {
         <button class="primary-button" data-action="sanction-create">创建处罚 / 提交审批</button>
       </div>
     </div>
+    ${renderSanctionBatchApprovals(batchApprovals, templates)}
     ${renderSanctionApprovals(approvals)}
     <div class="card">
       <div class="section-head">
@@ -5789,16 +5853,73 @@ async function createSanction() {
   if (state.route === 'sanctions') await render(true);
 }
 
+async function createSanctionBatchApproval() {
+  const templateId = $('sanctionBatchTemplate')?.value || '';
+  const template = (state.cache.sanctionTemplates || []).find((item) => item.id === templateId);
+  const type = template?.type || $('sanctionBatchType').value;
+  const durationHours = Number(template ? template.durationHours : $('sanctionBatchDurationHours').value);
+  const phones = $('sanctionBatchPhones').value.trim();
+  const reason = $('sanctionBatchReason').value.trim() || template?.reason || '';
+  if (!phones || !reason) throw new Error('请填写批量手机号和处罚原因');
+  await post('/admin/sanction-batch-approvals', {
+    durationHours,
+    phones,
+    reason,
+    templateId,
+    type,
+  });
+  invalidateSanctionCaches();
+  showToast('批量处罚审批已提交，审批通过后才会生效');
+  if (state.route === 'sanctions') await render(true);
+}
+
 function invalidateSanctionCaches() {
   state.cache = {
     ...state.cache,
     audit: null,
     sanctionApprovals: null,
+    sanctionBatchApprovals: null,
     sanctionPolicy: null,
     sanctions: null,
     summary: null,
     users: null,
   };
+}
+
+async function approveSanctionBatchApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入审批说明', '审批通过批量处罚');
+  if (reason === null) return;
+  const result = await post(`/admin/sanction-batch-approvals/${encodeURIComponent(id)}/approve`, {
+    reason: reason.trim() || '审批通过批量处罚',
+  });
+  invalidateSanctionCaches();
+  showToast(`批量处罚审批已通过：成功 ${result.approval?.successCount || 0}，失败 ${result.approval?.errorCount || 0}`);
+  if (state.route === 'sanctions') await render(true);
+}
+
+async function cancelSanctionBatchApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入取消原因', '取消批量处罚审批');
+  if (reason === null) return;
+  await post(`/admin/sanction-batch-approvals/${encodeURIComponent(id)}/cancel`, {
+    reason: reason.trim() || '取消批量处罚审批',
+  });
+  invalidateSanctionCaches();
+  showToast('批量处罚审批已取消');
+  if (state.route === 'sanctions') await render(true);
+}
+
+async function rejectSanctionBatchApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入驳回原因', '驳回批量处罚审批');
+  if (reason === null) return;
+  await post(`/admin/sanction-batch-approvals/${encodeURIComponent(id)}/reject`, {
+    reason: reason.trim() || '驳回批量处罚审批',
+  });
+  invalidateSanctionCaches();
+  showToast('批量处罚审批已驳回');
+  if (state.route === 'sanctions') await render(true);
 }
 
 async function approveSanctionApproval(id) {
@@ -5848,6 +5969,15 @@ function applySanctionTemplate() {
   $('sanctionDurationHours').value = template.durationHours;
   $('sanctionReason').value = template.reason;
   showToast('已套用处罚模板');
+}
+
+function applySanctionBatchTemplate() {
+  const templateId = $('sanctionBatchTemplate')?.value || '';
+  const template = (state.cache.sanctionTemplates || []).find((item) => item.id === templateId);
+  if (!template) return;
+  $('sanctionBatchType').value = template.type || 'mute';
+  $('sanctionBatchDurationHours').value = String(template.durationHours ?? '');
+  if (!$('sanctionBatchReason').value.trim()) $('sanctionBatchReason').value = template.reason || '';
 }
 
 async function applyReportSanction(button) {
