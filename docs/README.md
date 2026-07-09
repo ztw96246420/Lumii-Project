@@ -73,6 +73,7 @@
 | [Operations_Backoffice_Sanction_Policy_Review_2026-07-03.md](./Operations_Backoffice_Sanction_Policy_Review_2026-07-03.md) | 当前专项 | 处罚模板命中、申诉推翻率、来源质量、重复违规和移动端限制复盘 |
 | [Operations_Backoffice_Sanction_Approval_2026-07-04.md](./Operations_Backoffice_Sanction_Approval_2026-07-04.md) | 当前专项 | 永久封禁审批、直接封禁拦截、审批通过后移动端账号限制联动 |
 | [Operations_Backoffice_User_Data_Clear_2026-06-30.md](./Operations_Backoffice_User_Data_Clear_2026-06-30.md) | 当前专项 | 用户业务数据清理审批、执行范围、移动端影响和审计口径 |
+| [Operations_Backoffice_User_Auth_Sessions_2026-07-09.md](./Operations_Backoffice_User_Auth_Sessions_2026-07-09.md) | 当前专项 | 移动端短信登录、Token 刷新、登出来源、设备 hash 和 IP 排查 |
 | [Operations_Backoffice_AI_Ops_Config_2026-07-01.md](./Operations_Backoffice_AI_Ops_Config_2026-07-01.md) | 当前专项 | AI provider、模型参数、prompt 和 DeepSeek system prompt 配置 |
 | [Operations_Backoffice_AI_Prompt_Versions_2026-07-03.md](./Operations_Backoffice_AI_Prompt_Versions_2026-07-03.md) | 当前专项 | AI Prompt 候选版本、样本关联、配置草稿和移动端生成任务追溯 |
 | [Operations_Backoffice_AI_Avatar_Failure_Refund_2026-07-04.md](./Operations_Backoffice_AI_Avatar_Failure_Refund_2026-07-04.md) | 当前专项 | AI 灵伴供应商失败自动返还额度、防重复返还、后台任务字段和移动端额度联动 |

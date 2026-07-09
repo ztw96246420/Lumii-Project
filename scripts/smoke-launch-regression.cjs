@@ -39,6 +39,7 @@ const suites = [
   { key: 'observability', title: 'Observability alerts', script: 'smoke-observability-alerts.cjs', timeoutMs: 180_000 },
 
   { key: 'admin-accounts', title: 'Admin accounts', script: 'smoke-admin-accounts.cjs', timeoutMs: 180_000 },
+  { key: 'user-auth-sessions', title: 'User auth sessions', script: 'smoke-user-auth-sessions.cjs', timeoutMs: 180_000 },
   { key: 'high-risk-countersign', title: 'High-risk countersign', script: 'smoke-high-risk-approval-countersign.cjs', timeoutMs: 180_000 },
   { key: 'data-clear', title: 'Data clear approval', script: 'smoke-data-clear-approval.cjs', timeoutMs: 180_000 },
   { key: 'export-approval', title: 'Export approval and signed links', script: 'smoke-export-approval.cjs', timeoutMs: 180_000 },

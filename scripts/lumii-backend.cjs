@@ -25,6 +25,7 @@ const SMS_VERIFY_MAX_ATTEMPTS = Math.max(1, Number(process.env.SMS_VERIFY_MAX_AT
 const ACCOUNT_DELETE_COOLING_OFF_MS = Number(process.env.ACCOUNT_DELETE_COOLING_OFF_MS || 30 * 24 * 60 * 60 * 1000);
 const AUTH_TOKEN_TTL_MS = Number(process.env.AUTH_TOKEN_TTL_MS || 30 * 24 * 60 * 60 * 1000);
 const AUTH_TOKEN_SECRET = process.env.LUMII_TOKEN_SECRET || process.env.AUTH_TOKEN_SECRET || 'lumii-mvp-dev-token-secret';
+const AUTH_SESSION_RETAIN_PER_USER = Math.max(5, Math.min(100, Number(process.env.LUMII_AUTH_SESSION_RETAIN_PER_USER || '30') || 30));
 const ONLINE_TTL_MS = 30 * 60 * 1000;
 const NEARBY_LOCATION_MAX_AGE_MS = Number(process.env.NEARBY_LOCATION_MAX_AGE_MS || String(10 * 60 * 1000));
 const DEFAULT_DISCOVER_RADIUS_KM = 3;
@@ -744,6 +745,7 @@ function createInitialState() {
       lockCount: 0,
     },
     appEvents: [],
+    authSessions: {},
     avatarAnimationJobs: {},
     avatarJobs: {},
     aiAvatarSamples: {},
@@ -5263,6 +5265,7 @@ function loadState() {
         ...(loadedState.smsIpDailyUsage || {}),
       },
       appEvents: Array.isArray(loadedState.appEvents) ? loadedState.appEvents : [],
+      authSessions: loadedState.authSessions && typeof loadedState.authSessions === 'object' && !Array.isArray(loadedState.authSessions) ? loadedState.authSessions : initialState.authSessions,
       supportTicketReplyTemplates: Array.isArray(loadedState.supportTicketReplyTemplates) ? loadedState.supportTicketReplyTemplates : [],
       aiUsage: {
         ...initialState.aiUsage,
@@ -6907,6 +6910,248 @@ function phoneFromRequest(req) {
   if (token.startsWith('lumii-v1.')) return phoneFromSignedToken(token);
   if (token.startsWith('lumii-local-')) return normalizePhone(token.slice('lumii-local-'.length));
   return '';
+}
+
+function authSessionStatusLabel(status) {
+  return {
+    active: '有效',
+    expired: '已过期',
+    refreshed: '已刷新',
+    revoked: '已登出',
+  }[status] || status || '-';
+}
+
+function authSessionSourceLabel(source) {
+  return {
+    legacy_token: '历史 token',
+    sms_login: '短信登录',
+    token_refresh: 'Token 刷新',
+  }[source] || source || '-';
+}
+
+function ensureAuthSessionsStore() {
+  if (!state.authSessions || typeof state.authSessions !== 'object' || Array.isArray(state.authSessions)) {
+    state.authSessions = {};
+  }
+  return state.authSessions;
+}
+
+function authSessionTimeValue(value) {
+  const parsed = Date.parse(String(value || ''));
+  if (Number.isFinite(parsed)) return parsed;
+  const numeric = Number(value || 0);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function authSessionRequestContext(req) {
+  const headers = req?.headers || {};
+  return {
+    deviceId: normalizeSmsDeviceId(headers['x-lumii-device-id']),
+    ip: req ? clientIpFromRequest(req) : 'unknown',
+    userAgent: String(headers['user-agent'] || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+  };
+}
+
+function authSessionDeviceMeta(deviceId) {
+  const normalized = normalizeSmsDeviceId(deviceId);
+  if (!normalized) return { deviceIdHash: '', deviceIdTail: '' };
+  return {
+    deviceIdHash: crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 12),
+    deviceIdTail: normalized.slice(-8),
+  };
+}
+
+function sortedAuthSessionsForPhone(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) return [];
+  const sessions = ensureAuthSessionsStore()[normalizedPhone];
+  if (!Array.isArray(sessions)) return [];
+  return [...sessions].sort((a, b) => authSessionTimeValue(b.lastSeenAt || b.updatedAt || b.createdAt || b.issuedAt) - authSessionTimeValue(a.lastSeenAt || a.updatedAt || a.createdAt || a.issuedAt));
+}
+
+function pruneAuthSessionsForPhone(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) return false;
+  const store = ensureAuthSessionsStore();
+  const sessions = Array.isArray(store[normalizedPhone]) ? sortedAuthSessionsForPhone(normalizedPhone) : [];
+  if (sessions.length <= AUTH_SESSION_RETAIN_PER_USER) {
+    store[normalizedPhone] = sessions;
+    return false;
+  }
+  store[normalizedPhone] = sessions.slice(0, AUTH_SESSION_RETAIN_PER_USER);
+  return true;
+}
+
+function findAuthSessionForToken(token) {
+  const payload = signedAuthTokenPayload(token);
+  const phone = normalizePhone(payload?.phone || '');
+  if (!phone) return null;
+  const digest = authTokenDigest(token);
+  const sessions = ensureAuthSessionsStore()[phone];
+  if (!Array.isArray(sessions)) return null;
+  const session = sessions.find((item) => item?.tokenDigest === digest);
+  return session ? { phone, session } : null;
+}
+
+function recordAuthSession(phone, token, req, options = {}) {
+  const payload = signedAuthTokenPayload(token);
+  const normalizedPhone = normalizePhone(phone || payload?.phone || '');
+  if (!payload || !normalizedPhone) return null;
+  const context = authSessionRequestContext(req);
+  const deviceMeta = authSessionDeviceMeta(options.deviceId || context.deviceId);
+  const digest = authTokenDigest(token);
+  const sessions = ensureAuthSessionsStore()[normalizedPhone];
+  const list = Array.isArray(sessions) ? sessions : [];
+  const existingIndex = list.findIndex((item) => item?.tokenDigest === digest);
+  const existing = existingIndex >= 0 ? list[existingIndex] : {};
+  const previous = options.previousToken ? findAuthSessionForToken(options.previousToken) : null;
+  const nowIso = new Date().toISOString();
+  const issuedAt = Number(payload.iat || Date.now());
+  const expiresAt = Number(payload.exp || Date.now() + AUTH_TOKEN_TTL_MS);
+  const session = {
+    ...existing,
+    createdAt: existing.createdAt || nowIso,
+    deviceIdHash: deviceMeta.deviceIdHash || existing.deviceIdHash || '',
+    deviceIdTail: deviceMeta.deviceIdTail || existing.deviceIdTail || '',
+    expiresAt: new Date(expiresAt).toISOString(),
+    id: existing.id || `auth-${digest.slice(0, 16)}`,
+    issuedAt: new Date(issuedAt).toISOString(),
+    jti: payload.jti || existing.jti || '',
+    lastEvent: options.source === 'token_refresh' ? 'token_refresh' : 'login',
+    lastIp: context.ip,
+    lastSeenAt: nowIso,
+    lastUserAgent: context.userAgent,
+    loginAt: existing.loginAt || nowIso,
+    loginIp: existing.loginIp || context.ip,
+    loginUserAgent: existing.loginUserAgent || context.userAgent,
+    phone: normalizedPhone,
+    previousSessionId: previous?.session?.id || existing.previousSessionId || '',
+    previousTokenTail: options.previousToken ? String(options.previousToken).slice(-10) : existing.previousTokenTail || '',
+    smsSentAt: options.smsSentAt || existing.smsSentAt || '',
+    smsSentIp: options.smsSentIp || existing.smsSentIp || '',
+    smsSentUserAgent: options.smsSentUserAgent || existing.smsSentUserAgent || '',
+    source: options.source || existing.source || 'sms_login',
+    status: 'active',
+    tokenDigest: digest,
+    tokenTail: String(token || '').slice(-10),
+    updatedAt: nowIso,
+  };
+  if (existingIndex >= 0) {
+    list[existingIndex] = session;
+  } else {
+    list.unshift(session);
+  }
+  ensureAuthSessionsStore()[normalizedPhone] = list;
+  pruneAuthSessionsForPhone(normalizedPhone);
+  return session;
+}
+
+function touchAuthSession(token, req, event = 'request') {
+  const found = findAuthSessionForToken(token);
+  if (!found) return null;
+  const context = authSessionRequestContext(req);
+  const deviceMeta = authSessionDeviceMeta(context.deviceId);
+  const nowIso = new Date().toISOString();
+  found.session.lastEvent = event;
+  found.session.lastIp = context.ip;
+  found.session.lastSeenAt = nowIso;
+  found.session.lastUserAgent = context.userAgent;
+  found.session.updatedAt = nowIso;
+  if (deviceMeta.deviceIdHash && !found.session.deviceIdHash) found.session.deviceIdHash = deviceMeta.deviceIdHash;
+  if (deviceMeta.deviceIdTail && !found.session.deviceIdTail) found.session.deviceIdTail = deviceMeta.deviceIdTail;
+  return found.session;
+}
+
+function markAuthSessionRevoked(token, req) {
+  const payload = signedAuthTokenPayload(token);
+  const phone = normalizePhone(payload?.phone || '');
+  if (!payload || !phone) return false;
+  let found = findAuthSessionForToken(token);
+  if (!found) {
+    const context = authSessionRequestContext(req);
+    const digest = authTokenDigest(token);
+    const session = {
+      createdAt: new Date(Number(payload.iat || Date.now())).toISOString(),
+      expiresAt: new Date(Number(payload.exp || Date.now())).toISOString(),
+      id: `auth-${digest.slice(0, 16)}`,
+      issuedAt: new Date(Number(payload.iat || Date.now())).toISOString(),
+      jti: payload.jti || '',
+      lastIp: context.ip,
+      lastSeenAt: new Date().toISOString(),
+      lastUserAgent: context.userAgent,
+      phone,
+      source: 'legacy_token',
+      status: 'active',
+      tokenDigest: digest,
+      tokenTail: String(token || '').slice(-10),
+      updatedAt: new Date().toISOString(),
+    };
+    const store = ensureAuthSessionsStore();
+    store[phone] = Array.isArray(store[phone]) ? store[phone] : [];
+    store[phone].unshift(session);
+    found = { phone, session };
+  }
+  const context = authSessionRequestContext(req);
+  const nowIso = new Date().toISOString();
+  found.session.lastEvent = 'logout';
+  found.session.lastIp = context.ip;
+  found.session.lastSeenAt = nowIso;
+  found.session.lastUserAgent = context.userAgent;
+  found.session.revokedAt = found.session.revokedAt || nowIso;
+  found.session.revokedIp = context.ip;
+  found.session.revokedUserAgent = context.userAgent;
+  found.session.status = 'revoked';
+  found.session.updatedAt = nowIso;
+  pruneAuthSessionsForPhone(phone);
+  return true;
+}
+
+function adminAuthSessionItem(session = {}) {
+  const expiresAtMs = authSessionTimeValue(session.expiresAt);
+  const storedStatus = String(session.status || 'active');
+  const status = storedStatus === 'revoked' ? 'revoked' : expiresAtMs > 0 && expiresAtMs <= Date.now() ? 'expired' : storedStatus;
+  return {
+    createdAt: session.createdAt || '',
+    deviceIdHash: session.deviceIdHash || '',
+    deviceIdTail: session.deviceIdTail || '',
+    expiresAt: session.expiresAt || '',
+    id: session.id || '',
+    issuedAt: session.issuedAt || '',
+    lastEvent: session.lastEvent || '',
+    lastIp: session.lastIp || '',
+    lastSeenAt: session.lastSeenAt || session.updatedAt || session.createdAt || '',
+    lastUserAgent: session.lastUserAgent || '',
+    loginAt: session.loginAt || session.createdAt || '',
+    loginIp: session.loginIp || session.lastIp || '',
+    loginUserAgent: session.loginUserAgent || '',
+    previousSessionId: session.previousSessionId || '',
+    previousTokenTail: session.previousTokenTail || '',
+    revokedAt: session.revokedAt || '',
+    revokedIp: session.revokedIp || '',
+    smsSentAt: session.smsSentAt || '',
+    smsSentIp: session.smsSentIp || '',
+    source: session.source || '',
+    sourceLabel: authSessionSourceLabel(session.source),
+    status,
+    statusLabel: authSessionStatusLabel(status),
+    tokenTail: session.tokenTail || '',
+  };
+}
+
+function adminAuthSessionsForPhone(phone) {
+  return sortedAuthSessionsForPhone(phone).map(adminAuthSessionItem);
+}
+
+function adminAuthSessionSummary(phone) {
+  const sessions = adminAuthSessionsForPhone(phone);
+  const latest = sessions[0] || null;
+  return {
+    active: sessions.filter((item) => item.status === 'active' || item.status === 'refreshed').length,
+    expired: sessions.filter((item) => item.status === 'expired').length,
+    latest,
+    revoked: sessions.filter((item) => item.status === 'revoked').length,
+    total: sessions.length,
+  };
 }
 
 function normalizeAdminUsername(value) {
@@ -17993,6 +18238,7 @@ function adminUserSummary(user) {
     adminNoteCount: adminNotes.length,
     adminRiskTagLabels: adminRiskTags.map(adminUserRiskTagLabel),
     adminRiskTags,
+    authSessionSummary: adminAuthSessionSummary(user.phone),
     createdAt: user.createdAt,
     lastSeenAt: user.lastSeenAt || 0,
     ownerAvatarUrl: user.ownerAvatarUrl || '',
@@ -18081,6 +18327,27 @@ function adminUserTimeline(phone, options = {}) {
     targetType: 'user',
     title: '账号创建',
     tone: summary.status === 'active' ? 'ok' : 'warn',
+  });
+
+  adminAuthSessionsForPhone(normalizedPhone).forEach((session) => {
+    const eventTitle = session.status === 'revoked'
+      ? '移动端登出'
+      : session.source === 'token_refresh'
+        ? '移动端会话刷新'
+        : '移动端登录';
+    adminTimelineAdd(items, {
+      actor: session.loginIp || session.lastIp || 'unknown',
+      createdAt: session.revokedAt || session.lastSeenAt || session.loginAt || session.createdAt,
+      detail: `${session.sourceLabel} · IP ${session.lastIp || session.loginIp || '未记录'} · 设备 ${session.deviceIdHash || session.deviceIdTail || '-'} · UA ${session.lastUserAgent || session.loginUserAgent || '未记录'}`,
+      id: `account:${normalizedPhone}:auth:${session.id}`,
+      kind: 'account',
+      status: session.statusLabel,
+      targetId: session.id,
+      targetLabel: session.deviceIdHash || session.deviceIdTail || session.tokenTail || session.id,
+      targetType: 'auth_session',
+      title: eventTitle,
+      tone: session.status === 'active' ? 'ok' : session.status === 'revoked' ? 'warn' : 'bad',
+    });
   });
 
   normalizeAdminNotes(user.adminNotes).forEach((note) => {
@@ -18557,6 +18824,7 @@ function adminUserBusinessDataSummary(phone) {
   return {
     aiAvatarDailyUsage: state.petAvatarDailyUsage?.[normalizedPhone] ? 1 : 0,
     aiAvatarSamples: Object.values(state.aiAvatarSamples || {}).filter((sample) => sample?.ownerPhone === normalizedPhone || avatarJobIds.has(sample?.jobId) || mediaIds.has(sample?.mediaId)).length,
+    authSessions: adminAuthSessionsForPhone(normalizedPhone).length,
     avatarAnimationJobs: avatarAnimationJobs.length,
     avatarJobs: avatarJobs.length,
     conversations: conversationCount,
@@ -18810,6 +19078,7 @@ function adminClearUserBusinessData(admin, phone, body = {}, options = {}) {
   if (state.placeSubmissions) delete state.placeSubmissions[normalizedPhone];
   if (state.notifications) delete state.notifications[normalizedPhone];
   if (state.pushDevices) delete state.pushDevices[normalizedPhone];
+  if (state.authSessions) delete state.authSessions[normalizedPhone];
   if (state.conversations) delete state.conversations[normalizedPhone];
   if (state.conversationMessages) delete state.conversationMessages[normalizedPhone];
 
@@ -29180,6 +29449,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       aiUsage: buildAiUsageSummary(user),
       adminNotes: normalizeAdminNotes(user.adminNotes),
       riskTagOptions: ADMIN_USER_RISK_TAGS,
+      authSessions: adminAuthSessionsForPhone(phone),
       avatarJobs: adminAvatarJobs().filter((job) => job.ownerPhone === phone),
       feedback: adminFeedbackItems().filter((item) => item.phone === phone),
       notifications: normalizeNotificationsFor(phone),
@@ -30642,8 +30912,12 @@ async function handle(req, res) {
       attempts: 0,
       availableAt: now + SMS_COOLDOWN_MS,
       code: TEST_CODE,
+      createdAt: now,
+      deviceId,
       expiresAt: now + SMS_TTL_MS,
       phone,
+      sentIp: clientIp,
+      sentUserAgent: String(req.headers['user-agent'] || '').replace(/\s+/g, ' ').trim().slice(0, 180),
     };
     state.sms[phone] = ticket;
     consumeSmsQuota(phone);
@@ -30726,14 +31000,24 @@ async function handle(req, res) {
         expiresAt: Date.now(),
       };
     }
+    const token = createAuthToken(phone);
+    recordAuthSession(phone, token, req, {
+      deviceId: ticket?.deviceId || normalizeSmsDeviceId(req.headers['x-lumii-device-id']),
+      smsSentAt: ticket?.createdAt ? new Date(ticket.createdAt).toISOString() : '',
+      smsSentIp: ticket?.sentIp || '',
+      smsSentUserAgent: ticket?.sentUserAgent || '',
+      source: 'sms_login',
+    });
     saveState();
-    ok(res, { account: buildAccountSnapshot(user), phone, token: createAuthToken(phone) });
+    ok(res, { account: buildAccountSnapshot(user), phone, token });
     return;
   }
 
   if (req.method === 'POST' && pathname === '/auth/logout') {
-    const revoked = revokeSignedAuthToken(bearerTokenFromRequest(req));
-    if (revoked) saveState();
+    const token = bearerTokenFromRequest(req);
+    const revoked = revokeSignedAuthToken(token);
+    const sessionUpdated = markAuthSessionRevoked(token, req);
+    if (revoked || sessionUpdated) saveState();
     ok(res, true);
     return;
   }
@@ -30860,7 +31144,15 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && pathname === '/auth/token/refresh') {
-    ok(res, { account: buildAccountSnapshot(user), phone: user.phone, token: createAuthToken(user.phone) });
+    const previousToken = bearerTokenFromRequest(req);
+    touchAuthSession(previousToken, req, 'token_refresh');
+    const token = createAuthToken(user.phone);
+    recordAuthSession(user.phone, token, req, {
+      previousToken,
+      source: 'token_refresh',
+    });
+    saveState();
+    ok(res, { account: buildAccountSnapshot(user), phone: user.phone, token });
     return;
   }
 

@@ -4075,6 +4075,7 @@ async function renderUsers(force) {
   const activeSanctions = users.reduce((sum, user) => sum + Number(user.sanctions?.activeCount || 0), 0);
   const withTags = users.filter((user) => (user.adminRiskTags || []).length).length;
   const withNotes = users.filter((user) => Number(user.adminNoteCount || 0) > 0).length;
+  const authSessionCount = users.reduce((sum, user) => sum + Number(user.authSessionSummary?.total || 0), 0);
   const activeToday = users.filter((user) => {
     const time = new Date(user.lastSeenAt || user.createdAt || 0).getTime();
     return Number.isFinite(time) && Date.now() - time <= 24 * 60 * 60 * 1000;
@@ -4083,6 +4084,7 @@ async function renderUsers(force) {
     <div class="grid metrics">
       ${metric('用户账号', numberText(users.length), `${numberText(users.filter((user) => user.petCount).length)} 位已建档`, '当前后台最多展示最近 200 位用户。')}
       ${metric('24h 活跃', numberText(activeToday), '按最近活跃时间估算', 'lastSeenAt 来自登录、发现刷新、埋点等移动端行为。')}
+      ${metric('登录设备', numberText(authSessionCount), `${numberText(users.filter((user) => user.authSessionSummary?.latest).length)} 位有记录`, '记录移动端短信登录、Token 刷新和登出来源，脱敏展示设备 hash、IP 与 UA 摘要。')}
       ${metric('生效处罚', numberText(activeSanctions), '禁言 / 冻结 / 封禁 / 警告', '统计当前仍处于 active 的处罚记录，方便从用户列表快速发现风险。')}
       ${metric('运营标记', `${numberText(withTags)} / ${numberText(withNotes)}`, '风险标签 / 备注', '运营内部标签和备注只在后台展示，并写审计。')}
       ${metric('清理审批', numberText(dataClearSummary.pending || 0), '用户业务数据清理', '清理业务数据需先提交申请；审批通过才会真正影响移动端用户数据。')}
@@ -4100,6 +4102,7 @@ async function renderUsers(force) {
         ['用户', (u) => `<div class="cell-title">${escapeHtml(u.ownerName)}</div><div class="cell-sub">${shortPhone(u.phone)}</div>`],
         ['宠物', (u) => `${u.activePet ? `<div class="cell-title">${escapeHtml(u.activePet.name)}</div><div class="cell-sub">${escapeHtml(u.activePet.species)} · ${escapeHtml(u.activePet.breed || '-')}</div>` : '-'}`],
         ['设置', (u) => `${statusPill(u.settings.nearbyVisible ? 'nearby on' : 'nearby off')} ${statusPill(u.settings.pushNotifications ? 'push on' : 'push off')}`],
+        ['登录来源', (u) => renderUserAuthSession(u.authSessionSummary)],
         ['内容', (u) => `<div>${u.socialPostCount} 条小事</div><div class="cell-sub">${u.reportsAgainstCount} 次被举报</div>`],
         ['账号状态', (u) => `${statusPill(u.status)}<div class="cell-sub">${(u.sanctions?.activeTypes || []).map((type) => statusPill(type)).join(' ') || '无生效处罚'}</div>`],
         ['运营标记', renderUserOpsMark],
@@ -4134,6 +4137,19 @@ function renderUserOpsMark(user) {
     ${blockLine}
     <div class="cell-sub">${noteCount ? `${noteCount} 条备注${user.adminLatestNoteAt ? ` · ${formatTime(user.adminLatestNoteAt)}` : ''}` : '暂无运营备注'}</div>
     ${latestNote ? `<div class="cell-sub clamp">最近：${latestNote}</div>` : ''}
+  `;
+}
+
+function renderUserAuthSession(summary = {}) {
+  const latest = summary.latest || null;
+  if (!latest) return '<div class="cell-sub">暂无登录记录</div>';
+  const device = latest.deviceIdHash || latest.deviceIdTail || '-';
+  const ip = latest.lastIp || latest.loginIp || 'IP 未记录';
+  return `
+    <div>${formatTime(latest.lastSeenAt || latest.loginAt || latest.createdAt)}</div>
+    <div class="cell-sub">${statusPill(latest.statusLabel || latest.status || '-')} ${escapeHtml(latest.sourceLabel || '-')}</div>
+    <div class="cell-sub">IP ${escapeHtml(ip)}</div>
+    <div class="cell-sub">设备 ${escapeHtml(device)} · ${numberText(summary.total || 0)} 次</div>
   `;
 }
 
