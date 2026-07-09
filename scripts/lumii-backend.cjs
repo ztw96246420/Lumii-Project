@@ -3242,7 +3242,7 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       label: '数据导出审批',
       mobileApplied: false,
       mobileEvidence: '移动端不读取导出治理配置；后台导出覆盖移动端真实业务数据和 App 事件，因此只在后台拦截。',
-      operatorNote: '可叠加高风险审批人分离和最少审批人数；已支持服务器本地归档任务，生产期仍需继续补对象存储和敏感字段授权。',
+      operatorNote: '可叠加高风险审批人分离和最少审批人数；已支持默认脱敏、完整敏感字段授权和服务器本地归档任务，生产期仍需继续补对象存储和签名下载链接。',
       userImpact: '不影响用户 App 使用，但降低后台误导出和敏感数据泄露风险。',
     },
     {
@@ -3534,6 +3534,12 @@ function exportColumn(key, label, value) {
   return { key, label, value };
 }
 
+function adminExportBoolean(value) {
+  if (value === true || value === 1) return true;
+  const text = String(value || '').trim().toLowerCase();
+  return ['1', 'true', 'yes', 'on'].includes(text);
+}
+
 function adminExportWatermarkColumns(watermark = {}) {
   return [
     exportColumn('__exportWatermarkId', '导出水印ID', () => watermark.id || ''),
@@ -3544,9 +3550,66 @@ function adminExportWatermarkColumns(watermark = {}) {
   ];
 }
 
-function exportCellValue(row, column) {
+function adminExportColumnIsSensitive(column = {}) {
+  const key = String(column?.key || '');
+  const label = String(column?.label || '');
+  const text = `${key} ${label}`;
+  const keyPattern = /(phone|mobile|tel|contact|ownerName|reporterName|authorName|fromName|targetName|nickname|address|longitude|latitude|lng|lat|ip|userAgent|ua|device|token|secret|content|text|body|message|reason|note|summary)/i;
+  const labelPattern = /(手机号|电话|联系方式|昵称|姓名|内容|正文|地址|经度|纬度|IP|User-Agent|UA|设备|Token|原因|备注|摘要)/i;
+  return keyPattern.test(text) || labelPattern.test(text);
+}
+
+function adminExportMaskText(value) {
+  const text = String(value ?? '');
+  if (!text) return '';
+  return '[redacted]';
+}
+
+function adminExportMaskName(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  if (text.length <= 1) return '*';
+  return `${text.slice(0, 1)}*`;
+}
+
+function adminExportMaskPhone(value) {
+  const text = String(value ?? '');
+  return text.replace(/\b(1[3-9]\d)(\d{4})(\d{4})\b/g, '$1****$3');
+}
+
+function adminExportMaskIp(value) {
+  const text = String(value ?? '');
+  return text
+    .replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}\b/g, '$1.*')
+    .replace(/\b([a-f0-9]{1,4}:[a-f0-9]{1,4}):[a-f0-9:]+\b/gi, '$1:****');
+}
+
+function adminExportMaskLocation(value) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric.toFixed(2);
+  return adminExportMaskText(value);
+}
+
+function adminExportMaskCellValue(column = {}, raw) {
+  if (raw === null || raw === undefined) return '';
+  if (Array.isArray(raw) || typeof raw === 'object') return '[redacted]';
+  const text = String(raw);
+  const key = String(column?.key || '').toLowerCase();
+  const label = String(column?.label || '').toLowerCase();
+  const identityText = `${key} ${label}`;
+  if (/(phone|mobile|tel|手机号|电话|联系方式)/i.test(identityText)) return adminExportMaskPhone(text);
+  if (/(ip|user-agent|ua)/i.test(identityText)) return adminExportMaskIp(text);
+  if (/(longitude|latitude|lng|lat|经度|纬度)/i.test(identityText)) return adminExportMaskLocation(text);
+  if (/(ownername|reportername|authorname|fromname|targetname|nickname|昵称|姓名)/i.test(identityText)) return adminExportMaskName(text);
+  return adminExportMaskText(text);
+}
+
+function exportCellValue(row, column, options = {}) {
   const raw = typeof column.value === 'function' ? column.value(row) : row?.[column.key];
   if (raw === null || raw === undefined) return '';
+  if (options.maskSensitive && adminExportColumnIsSensitive(column)) {
+    return adminExportMaskCellValue(column, raw);
+  }
   if (Array.isArray(raw)) return exportJoin(raw);
   if (typeof raw === 'object') return JSON.stringify(raw);
   return String(raw);
@@ -3557,9 +3620,9 @@ function escapeCsvCell(value) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-function csvFromRows(rows, columns) {
+function csvFromRows(rows, columns, options = {}) {
   const header = columns.map((column) => escapeCsvCell(column.label));
-  const lines = rows.map((row) => columns.map((column) => escapeCsvCell(exportCellValue(row, column))).join(','));
+  const lines = rows.map((row) => columns.map((column) => escapeCsvCell(exportCellValue(row, column, options))).join(','));
   return `\ufeff${[header.join(','), ...lines].join('\r\n')}\r\n`;
 }
 
@@ -4278,10 +4341,10 @@ function adminExportDataset(type) {
 }
 
 function adminExportSensitiveColumns(columns = []) {
-  const pattern = /(手机号|电话|联系方式|昵称|姓名|内容|正文|地址|经度|纬度|IP|User-Agent|UA|设备|Token|原因|备注|摘要)/i;
   return (Array.isArray(columns) ? columns : [])
+    .filter((column) => adminExportColumnIsSensitive(column))
     .map((column) => String(column?.label || column?.key || '').trim())
-    .filter((label) => pattern.test(label))
+    .filter(Boolean)
     .slice(0, 20);
 }
 
@@ -4302,6 +4365,7 @@ function adminExportCatalog(filters = {}) {
         description: dataset.description,
         filterSummary: adminExportFilterSummary(normalizedFilters),
         governanceLabel: exportPolicy.requireApproval ? '需审批 · 原因 · CSV水印' : '需原因 · CSV水印',
+        sensitiveExportPolicy: '默认脱敏；完整敏感字段需 data.export.sensitive 权限和单独审批',
         label: dataset.label,
         limit: ADMIN_EXPORT_ROW_LIMIT,
         reasonRequired: true,
@@ -4338,6 +4402,7 @@ function buildAdminExportCsv(type, filters = {}, options = {}) {
   const dataset = adminExportDataset(type);
   const preview = buildAdminExportPreview(type, filters);
   if (!dataset || !preview) return null;
+  const includeSensitive = options.includeSensitive === true;
   const matchedRows = filterAdminExportRows(dataset.rows(), preview.filters);
   const rows = matchedRows.slice(0, ADMIN_EXPORT_ROW_LIMIT);
   const baseResult = {
@@ -4347,11 +4412,16 @@ function buildAdminExportCsv(type, filters = {}, options = {}) {
   const reason = normalizeAdminExportReason(options.reason);
   const watermark = createAdminExportWatermark(options.admin, baseResult, reason);
   const columns = [...dataset.columns, ...adminExportWatermarkColumns(watermark)];
+  const sensitiveColumns = adminExportSensitiveColumns(dataset.columns);
   return {
     ...baseResult,
     columns: columns.map((column) => column.label),
-    csv: csvFromRows(rows, columns),
+    csv: csvFromRows(rows, columns, { maskSensitive: !includeSensitive }),
     exportReason: reason,
+    includeSensitive,
+    sensitiveColumns,
+    sensitiveColumnCount: sensitiveColumns.length,
+    sensitiveExportMode: includeSensitive ? 'full' : 'masked',
     watermark,
     watermarkId: watermark.id,
   };
@@ -4413,6 +4483,7 @@ function adminExportApprovalItem(approval = {}) {
     filterSummary: approval.filterSummary || adminExportFilterSummary(approval.filters || {}),
     filters: normalizeAdminExportFilters(approval.filters || {}),
     id: approval.id || '',
+    includeSensitive: approval.includeSensitive === true,
     lastDownloadedAt: approval.lastDownloadedAt || '',
     matchedRows: Math.max(0, Math.floor(Number(approval.matchedRows || 0))),
     maxDownloads,
@@ -4423,6 +4494,7 @@ function adminExportApprovalItem(approval = {}) {
     rowCount: Math.max(0, Math.floor(Number(approval.rowCount || 0))),
     sensitiveColumns: Array.isArray(approval.sensitiveColumns) ? approval.sensitiveColumns : [],
     sensitiveColumnCount: Math.max(0, Math.floor(Number(approval.sensitiveColumnCount || 0))),
+    sensitiveExportMode: approval.includeSensitive === true ? 'full' : 'masked',
     status,
     statusLabel: adminExportApprovalStatusLabel(status),
     totalRows: Math.max(0, Math.floor(Number(approval.totalRows || 0))),
@@ -4470,6 +4542,10 @@ function createAdminExportApproval(admin, body = {}) {
   if (!result) return { error: '导出数据集不存在', statusCode: 404 };
   const policy = normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports);
   const sensitiveColumns = adminExportSensitiveColumns((adminExportDataset(datasetType)?.columns || []));
+  const includeSensitive = adminExportBoolean(body.includeSensitive) && sensitiveColumns.length > 0;
+  if (includeSensitive && !adminHasPermission(admin, 'data.export.sensitive')) {
+    return { error: '完整敏感字段导出需要 data.export.sensitive 权限', statusCode: 403, code: 'ADMIN_EXPORT_SENSITIVE_FORBIDDEN' };
+  }
   const approval = {
     columnsCount: result.columns.length,
     createdAt: new Date().toISOString(),
@@ -4481,6 +4557,7 @@ function createAdminExportApproval(admin, body = {}) {
     filterSummary: result.filterSummary,
     filters: result.filters,
     id: `export-approval-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    includeSensitive,
     matchedRows: result.matchedRows,
     maxDownloads: policy.maxDownloadsPerApproval,
     requestExpiresAt: highRiskApprovalPendingExpiresAt(),
@@ -4488,6 +4565,7 @@ function createAdminExportApproval(admin, body = {}) {
     rowCount: result.rowCount,
     sensitiveColumns,
     sensitiveColumnCount: sensitiveColumns.length,
+    sensitiveExportMode: includeSensitive ? 'full' : 'masked',
     status: 'pending_approval',
     totalRows: result.totalRows,
   };
@@ -4633,10 +4711,12 @@ function adminExportJobItem(job = {}) {
     filterSummary: job.filterSummary || adminExportFilterSummary(job.filters || {}),
     filters: normalizeAdminExportFilters(job.filters || {}),
     id: job.id || '',
+    includeSensitive: job.includeSensitive === true,
     lastDownloadedAt: job.lastDownloadedAt || '',
     matchedRows: Math.max(0, Math.floor(Number(job.matchedRows || 0))),
     rowCount: Math.max(0, Math.floor(Number(job.rowCount || 0))),
     sizeBytes: Math.max(0, Math.floor(Number(job.sizeBytes || 0))),
+    sensitiveExportMode: job.includeSensitive === true ? 'full' : 'masked',
     startedAt: job.startedAt || '',
     status,
     statusLabel: adminExportJobStatusLabel(status),
@@ -4712,11 +4792,13 @@ function completeAdminExportJob(job, result, admin) {
   job.error = '';
   job.filename = result.filename;
   job.filterSummary = result.filterSummary;
+  job.includeSensitive = result.includeSensitive === true;
   job.matchedRows = result.matchedRows;
   job.rowCount = result.rowCount;
   job.sizeBytes = stat.size;
   job.status = 'completed';
   job.storageFileName = storageFileName;
+  job.sensitiveExportMode = result.sensitiveExportMode;
   job.totalRows = result.totalRows;
   job.watermarkId = result.watermarkId;
   job.watermark = result.watermark;
@@ -4731,7 +4813,7 @@ function processAdminExportJob(jobId, admin) {
   job.status = 'running';
   saveState();
   try {
-    const result = buildAdminExportCsv(job.datasetType, job.filters || {}, { admin, reason: job.exportReason });
+    const result = buildAdminExportCsv(job.datasetType, job.filters || {}, { admin, includeSensitive: job.includeSensitive === true, reason: job.exportReason });
     if (!result) throw new Error('导出数据集不存在');
     completeAdminExportJob(job, result, admin);
   } catch (error) {
@@ -4761,7 +4843,10 @@ function createAdminExportJob(admin, body = {}) {
   }
   const filters = normalizeAdminExportFilters(body.filters || {});
   if (!adminExportDataset(datasetType)) return { error: '导出数据集不存在', statusCode: 404 };
-  const approvalResult = validateAdminExportApprovalForDownload(String(body.approvalId || ''), datasetType, filters, exportReason);
+  const approvalResult = validateAdminExportApprovalForDownload(String(body.approvalId || ''), datasetType, filters, exportReason, {
+    admin,
+    includeSensitive: body.includeSensitive,
+  });
   if (approvalResult.error) return approvalResult;
   const preview = buildAdminExportPreview(datasetType, filters);
   if (!preview) return { error: '导出数据集不存在', statusCode: 404 };
@@ -4783,9 +4868,11 @@ function createAdminExportJob(admin, body = {}) {
     filterSummary: preview.filterSummary,
     filters,
     id: `export-job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    includeSensitive: approvalResult.includeSensitive === true,
     matchedRows: preview.matchedRows,
     rowCount: preview.rowCount,
     status: 'queued',
+    sensitiveExportMode: approvalResult.includeSensitive === true ? 'full' : 'masked',
     totalRows: preview.totalRows,
   };
   ensureAdminExportJobs().unshift(job);
@@ -4826,11 +4913,23 @@ function downloadAdminExportJob(admin, jobId) {
   };
 }
 
-function validateAdminExportApprovalForDownload(approvalId, type, filters = {}, exportReason = '') {
+function validateAdminExportApprovalForDownload(approvalId, type, filters = {}, exportReason = '', options = {}) {
   const policy = normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports);
-  if (!policy.requireApproval && !approvalId) return { ok: true, policy };
+  const sensitiveColumns = adminExportSensitiveColumns((adminExportDataset(type)?.columns || []));
+  const includeSensitive = adminExportBoolean(options.includeSensitive) && sensitiveColumns.length > 0;
+  if (includeSensitive && !adminHasPermission(options.admin || {}, 'data.export.sensitive')) {
+    return { error: '完整敏感字段导出需要 data.export.sensitive 权限', statusCode: 403, code: 'ADMIN_EXPORT_SENSITIVE_FORBIDDEN', policy };
+  }
+  if (!policy.requireApproval && !approvalId && !includeSensitive) return { includeSensitive: false, ok: true, policy };
   const approval = ensureAdminExportApprovals().find((item) => item.id === approvalId);
-  if (!approval) return { error: '当前配置要求先提交并审批导出申请', statusCode: 409, code: 'ADMIN_EXPORT_APPROVAL_REQUIRED', policy };
+  if (!approval) {
+    return {
+      error: includeSensitive ? '完整敏感字段导出必须先提交并审批完整敏感字段申请' : '当前配置要求先提交并审批导出申请',
+      statusCode: 409,
+      code: includeSensitive ? 'ADMIN_EXPORT_SENSITIVE_APPROVAL_REQUIRED' : 'ADMIN_EXPORT_APPROVAL_REQUIRED',
+      policy,
+    };
+  }
   const item = adminExportApprovalItem(approval);
   if (item.status !== 'approved') return { error: `导出审批${item.statusLabel}，不能下载`, statusCode: 409, code: 'ADMIN_EXPORT_APPROVAL_INVALID', policy };
   if (item.downloadCount >= item.maxDownloads) {
@@ -4843,7 +4942,10 @@ function validateAdminExportApprovalForDownload(approvalId, type, filters = {}, 
   if (normalizeAdminExportReason(item.exportReason) !== normalizeAdminExportReason(exportReason)) {
     return { error: '导出审批与当前导出原因不一致，请使用审批时的导出原因', statusCode: 409, code: 'ADMIN_EXPORT_APPROVAL_MISMATCH', policy };
   }
-  return { approval, item, ok: true, policy };
+  if (includeSensitive && item.includeSensitive !== true) {
+    return { error: '当前审批单未授权完整敏感字段导出，请重新提交完整敏感字段审批', statusCode: 409, code: 'ADMIN_EXPORT_SENSITIVE_APPROVAL_REQUIRED', policy };
+  }
+  return { approval, includeSensitive, item, ok: true, policy };
 }
 
 function adminExportHistory(options = {}) {
@@ -4871,11 +4973,13 @@ function adminExportHistory(options = {}) {
         filterSummary: after.filterSummary || log.reason || '全部数据',
         filters: after.filters || {},
         id: log.id,
+        includeSensitive: after.includeSensitive === true,
         ip: log.ip || '',
         matchedRows: Number(after.matchedRows ?? rowCount),
         reason: log.reason || '',
         role: log.role || '',
         rowCount,
+        sensitiveExportMode: after.sensitiveExportMode || (after.includeSensitive === true ? 'full' : 'masked'),
         totalRows: Number(after.totalRows || 0),
         userAgent: log.userAgent || '',
         watermarkId: after.watermarkId || after.watermark?.id || '',
@@ -21496,6 +21600,7 @@ function adminPermissionRows() {
     ['audit.view', '查看审计日志', '审计'],
     ['data.export.download', '下载运营 CSV', '导出'],
     ['data.export.approve', '提交和审批数据导出', '导出'],
+    ['data.export.sensitive', '申请完整敏感字段导出', '导出'],
     ['system.health.view', '查看系统健康', '系统管理'],
     ['launch.readiness.view', '查看上线台账', '系统管理'],
     ['launch.readiness.update', '更新上线台账待澄清问题', '系统管理'],
@@ -21546,6 +21651,7 @@ function adminRolePermissionMap() {
       'admin.manage_roles',
       'data.export.download',
       'data.export.approve',
+      'data.export.sensitive',
       'user.clear_data',
     ].includes(key)),
     super_admin: all,
@@ -22204,7 +22310,7 @@ function adminReadinessModules(context) {
       status: 'partial',
       evidence: 'CSV 导出支持筛选、导出原因、文件水印、审批申请、审批通过、服务器本地归档任务、审批下载、历史、行数摘要和 data.export.* 审计；审计日志支持搜索筛选。',
       mobileLinkage: '导出覆盖移动端真实业务数据和 App 事件，不导出图片二进制或完整设备 token；强制审批开启后需按审批单创建归档或下载。',
-      nextStep: '生产期补导出审批值守通知、对象存储归档、签名下载链接和敏感字段授权。',
+      nextStep: '生产期补导出审批值守通知、对象存储归档、签名下载链接和文件生命周期策略。',
     },
     {
       key: 'system',
@@ -22355,8 +22461,8 @@ function adminReadinessGaps(context) {
       area: '数据导出',
       severity: 'P1',
       status: 'partial',
-      issue: '导出已有审计、原因必填、CSV 水印、审批流、高风险会签、审批有效期、单审批下载次数上限和服务器本地归档任务；仍缺对象存储归档、签名下载链接和敏感字段授权。',
-      requiredAction: '补对象存储归档、签名下载链接、敏感字段授权和审批值守通知。',
+      issue: '导出已有审计、原因必填、CSV 水印、默认敏感字段脱敏、完整敏感字段授权、审批流、高风险会签、审批有效期、单审批下载次数上限和服务器本地归档任务；仍缺对象存储归档和签名下载链接。',
+      requiredAction: '补对象存储归档、签名下载链接和审批值守通知。',
       evidence: '数据导出页 / 导出归档任务 / 审计日志 / exports.maxDownloadsPerApproval',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
@@ -28231,7 +28337,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   if (req.method === 'POST' && pathname === '/admin/exports/approvals') {
     const result = createAdminExportApproval(admin, body);
     if (result.error) {
-      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_EXPORT_APPROVAL_INVALID');
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_EXPORT_APPROVAL_INVALID');
       return true;
     }
     ok(res, result);
@@ -28268,16 +28374,23 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       fail(res, 404, '导出数据集不存在', false, undefined, 'ADMIN_EXPORT_NOT_FOUND');
       return true;
     }
-    const approvalResult = validateAdminExportApprovalForDownload(url.searchParams.get('approvalId') || '', type, filters, exportReason);
+    const approvalResult = validateAdminExportApprovalForDownload(url.searchParams.get('approvalId') || '', type, filters, exportReason, {
+      admin,
+      includeSensitive: url.searchParams.get('includeSensitive') || url.searchParams.get('sensitive'),
+    });
     if (approvalResult.error) {
       fail(res, approvalResult.statusCode || 409, approvalResult.error, false, {
-        approvalRequired: approvalResult.policy?.requireApproval !== false,
+        approvalRequired: approvalResult.policy?.requireApproval !== false || approvalResult.code === 'ADMIN_EXPORT_SENSITIVE_APPROVAL_REQUIRED',
         approvalExpiresHours: approvalResult.policy?.approvalExpiresHours || 24,
         maxDownloadsPerApproval: approvalResult.policy?.maxDownloadsPerApproval || 1,
       }, approvalResult.code || 'ADMIN_EXPORT_APPROVAL_REQUIRED');
       return true;
     }
-    const result = buildAdminExportCsv(type, filters, { admin, reason: exportReason });
+    const result = buildAdminExportCsv(type, filters, {
+      admin,
+      includeSensitive: approvalResult.includeSensitive === true,
+      reason: exportReason,
+    });
     if (!result) {
       fail(res, 404, '导出数据集不存在', false, undefined, 'ADMIN_EXPORT_NOT_FOUND');
       return true;
@@ -28295,8 +28408,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       filterSummary: result.filterSummary,
       filters: result.filters,
       filename: result.filename,
+      includeSensitive: result.includeSensitive === true,
       matchedRows: result.matchedRows,
       rowCount: result.rowCount,
+      sensitiveColumns: result.sensitiveColumns,
+      sensitiveExportMode: result.sensitiveExportMode,
       totalRows: result.totalRows,
       type,
       watermark: result.watermark,

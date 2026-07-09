@@ -27,6 +27,7 @@ const state = {
   analyticsSource: 'all',
   cache: {},
   exportFrom: '',
+  exportIncludeSensitive: false,
   exportPhone: '',
   exportQ: '',
   exportApprovalStatus: 'open',
@@ -803,6 +804,7 @@ async function onContentClick(event) {
       state.exportFrom = $('exportFrom').value;
       state.exportTo = $('exportTo').value;
       state.exportQ = $('exportQ').value.trim();
+      state.exportIncludeSensitive = $('exportIncludeSensitive')?.checked === true;
       state.exportReason = $('exportReason').value.trim();
       state.cache = { ...state.cache, exports: null };
       await render(true);
@@ -825,6 +827,7 @@ async function onContentClick(event) {
       state.exportStatus = 'all';
       state.exportPhone = '';
       state.exportFrom = '';
+      state.exportIncludeSensitive = false;
       state.exportTo = '';
       state.exportQ = '';
       state.exportApprovalStatus = 'open';
@@ -858,7 +861,11 @@ async function onContentClick(event) {
       } catch {
         filters = null;
       }
-      await createExportJob(button.dataset.exportType || id, button.dataset.id || '', state.exportReason, filters);
+      const hasIncludeSensitiveFlag = button.dataset.includeSensitive !== undefined;
+      const includeSensitive = hasIncludeSensitiveFlag
+        ? button.dataset.includeSensitive === 'true' || button.dataset.includeSensitive === '1'
+        : state.exportIncludeSensitive;
+      await createExportJob(button.dataset.exportType || id, button.dataset.id || '', state.exportReason, filters, includeSensitive);
       return;
     }
     if (action === 'download-approved-export') {
@@ -873,7 +880,7 @@ async function onContentClick(event) {
       } catch {
         // Keep current filters if legacy approval rows do not expose filter data.
       }
-      await downloadExport(button.dataset.exportType, id);
+      await downloadExport(button.dataset.exportType, id, button.dataset.includeSensitive === 'true' || button.dataset.includeSensitive === '1');
       return;
     }
     if (action === 'download-export-job') {
@@ -9512,6 +9519,7 @@ function exportQueryParams(options = {}) {
   if (state.exportFrom) query.set('from', state.exportFrom);
   if (state.exportTo) query.set('to', state.exportTo);
   if (state.exportQ) query.set('q', state.exportQ);
+  if (state.exportIncludeSensitive) query.set('includeSensitive', '1');
   if (options.includeReason && state.exportReason) query.set('reason', state.exportReason);
   return query;
 }
@@ -9553,7 +9561,16 @@ function exportFilterSummary(rows = []) {
   if (state.exportFrom) parts.push(`开始=${state.exportFrom}`);
   if (state.exportTo) parts.push(`结束=${state.exportTo}`);
   if (state.exportQ) parts.push(`关键词=${state.exportQ}`);
+  if (state.exportIncludeSensitive) parts.push('完整敏感字段');
   return parts.join('；') || '未筛选';
+}
+
+function exportSensitiveModeText(row = {}) {
+  return row.includeSensitive || row.sensitiveExportMode === 'full' ? '完整敏感字段' : '默认脱敏';
+}
+
+function exportSensitiveModeTone(row = {}) {
+  return row.includeSensitive || row.sensitiveExportMode === 'full' ? 'bad' : 'ok';
 }
 
 function exportStatusOptions() {
@@ -9663,13 +9680,13 @@ function renderExportApprovals(approvals = {}) {
         ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.datasetLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.datasetType || '-')}</div>`],
         ['状态', (row) => `${tonePill(row.statusLabel || row.status, exportApprovalTone(row.status))}<div class="cell-sub">${row.status === 'pending_approval' && row.requestExpiresAt ? `超时 ${formatTime(row.requestExpiresAt)}` : row.rejectedAt ? `驳回 ${formatTime(row.rejectedAt)}` : row.expiresAt ? `有效至 ${formatTime(row.expiresAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : '待审批后生成有效期'}</div>${approvalProgressText(row)}`],
         ['筛选/行数', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filterSummary || '全部数据')}</div><div class="cell-sub">导出 ${numberText(row.rowCount || 0)} / 匹配 ${numberText(row.matchedRows || 0)} / 原始 ${numberText(row.totalRows || 0)}</div>`],
-        ['敏感字段', (row) => `<div class="export-fields">${(row.sensitiveColumns || []).slice(0, 6).map((item) => `<span>${escapeHtml(item)}</span>`).join('') || '<span>无明显敏感列</span>'}${(row.sensitiveColumns || []).length > 6 ? `<span>+${(row.sensitiveColumns || []).length - 6}</span>` : ''}</div>`],
+        ['敏感字段', (row) => `<div>${tonePill(exportSensitiveModeText(row), exportSensitiveModeTone(row))}</div><div class="export-fields">${(row.sensitiveColumns || []).slice(0, 6).map((item) => `<span>${escapeHtml(item)}</span>`).join('') || '<span>无明显敏感列</span>'}${(row.sensitiveColumns || []).length > 6 ? `<span>+${(row.sensitiveColumns || []).length - 6}</span>` : ''}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.exportReason || '-')}</div><div class="cell-sub">${escapeHtml(row.createdBy || '-')} · ${formatTime(row.createdAt)}</div>`],
         ['操作', (row) => `
           <div class="actions">
             ${row.status === 'pending_approval' ? `<button class="small-button" data-action="approve-export-approval" data-id="${escapeHtml(row.id)}">审批通过</button>` : ''}
             ${row.status === 'pending_approval' ? `<button class="small-button danger" data-action="reject-export-approval" data-id="${escapeHtml(row.id)}">驳回</button>` : ''}
-            ${row.status === 'approved' ? `<button class="small-button" data-action="create-export-job" data-id="${escapeHtml(row.id)}" data-export-type="${escapeHtml(row.datasetType)}" data-export-reason="${escapeHtml(row.exportReason || '')}" data-filters="${escapeHtml(JSON.stringify(row.filters || {}))}">生成归档</button>` : ''}
+            ${row.status === 'approved' ? `<button class="small-button" data-action="create-export-job" data-id="${escapeHtml(row.id)}" data-export-type="${escapeHtml(row.datasetType)}" data-export-reason="${escapeHtml(row.exportReason || '')}" data-include-sensitive="${row.includeSensitive ? 'true' : 'false'}" data-filters="${escapeHtml(JSON.stringify(row.filters || {}))}">生成归档</button>` : ''}
             ${row.status === 'pending_approval' || row.status === 'approved' ? `<button class="small-button ghost" data-action="cancel-export-approval" data-id="${escapeHtml(row.id)}">取消</button>` : ''}
           </div>
           <div class="cell-sub">${escapeHtml(row.rejectReason || row.cancelReason || exportApprovalDownloadText(row))}</div>
@@ -9708,7 +9725,7 @@ function renderExportJobs(jobs = {}) {
         ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.datasetLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.datasetType || '-')}</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
         ['状态', (row) => `${tonePill(row.statusLabel || row.status, exportJobTone(row.status))}<div class="cell-sub">${row.completedAt ? `完成 ${formatTime(row.completedAt)}` : row.startedAt ? `开始 ${formatTime(row.startedAt)}` : `创建 ${formatTime(row.createdAt)}`}</div><div class="cell-sub">${row.expiresAt ? `保留至 ${formatTime(row.expiresAt)}` : '-'}</div>`],
         ['筛选/行数', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filterSummary || '全部数据')}</div><div class="cell-sub">导出 ${numberText(row.rowCount || 0)} / 匹配 ${numberText(row.matchedRows || 0)} / 原始 ${numberText(row.totalRows || 0)}</div>`],
-        ['文件', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filename || '-')}</div><div class="cell-sub">${bytesText(row.sizeBytes || 0)} · 水印 ${escapeHtml(row.watermarkId || '-')}</div><div class="cell-sub">审批 ${escapeHtml(row.approvalId || '直接导出')}</div>`],
+        ['文件', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filename || '-')}</div><div class="cell-sub">${bytesText(row.sizeBytes || 0)} · 水印 ${escapeHtml(row.watermarkId || '-')}</div><div class="cell-sub">审批 ${escapeHtml(row.approvalId || '直接导出')} · ${escapeHtml(exportSensitiveModeText(row))}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.exportReason || row.error || '-')}</div><div class="cell-sub">${escapeHtml(row.createdBy || '-')} · ${formatTime(row.createdAt)}</div>`],
         ['操作', (row) => `
           <div class="actions">
@@ -9762,6 +9779,7 @@ async function renderExports(force) {
           <label>结束日期<input id="exportTo" type="date" value="${escapeHtml(state.exportTo)}" /></label>
           <input id="exportQ" value="${escapeHtml(state.exportQ)}" placeholder="关键词：ID / 昵称 / 内容 / 原因" />
           <input id="exportReason" value="${escapeHtml(state.exportReason)}" placeholder="导出原因，必填，例如：排查用户反馈" />
+          <label class="inline-check"><input id="exportIncludeSensitive" type="checkbox" ${state.exportIncludeSensitive ? 'checked' : ''} /> 完整敏感字段</label>
         </div>
         <div class="actions">
           <button class="small-button" data-action="export-filter">筛选</button>
@@ -9771,14 +9789,14 @@ async function renderExports(force) {
       ${tableHtml(visibleRows, [
         ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.type)}</div><div class="cell-sub">${escapeHtml(row.description)}</div>`],
         ['当前行数', (row) => `<div class="cell-title">${escapeHtml(row.rowCount)}</div><div class="cell-sub">原始 ${escapeHtml(row.totalRows ?? row.rowCount)} · 上限 ${escapeHtml(row.limit)}</div>`],
-        ['字段', (row) => `<div class="export-fields">${(row.columns || []).slice(0, 8).map((item) => `<span>${escapeHtml(item)}</span>`).join('')}${(row.columns || []).length > 8 ? `<span>+${(row.columns || []).length - 8}</span>` : ''}</div><div class="cell-sub">敏感列 ${numberText(row.sensitiveColumnCount || 0)} 个</div>`],
+        ['字段', (row) => `<div class="export-fields">${(row.columns || []).slice(0, 8).map((item) => `<span>${escapeHtml(item)}</span>`).join('')}${(row.columns || []).length > 8 ? `<span>+${(row.columns || []).length - 8}</span>` : ''}</div><div class="cell-sub">敏感列 ${numberText(row.sensitiveColumnCount || 0)} 个 · 默认脱敏</div>`],
         ['操作', (row) => `
           <div class="actions">
             <button class="small-button" data-action="request-export-approval" data-id="${escapeHtml(row.type)}">提交审批</button>
             ${approvalPolicy.requireApproval ? '' : `<button class="small-button" data-action="create-export-job" data-export-type="${escapeHtml(row.type)}">生成归档</button><button class="small-button ghost" data-action="download-export" data-id="${escapeHtml(row.type)}">直接下载</button>`}
           </div>
           <div class="cell-sub">${escapeHtml(row.filterSummary || activeFilterSummary)}</div>
-          <div class="cell-sub">${escapeHtml(row.governanceLabel || '需原因 · CSV水印')}</div>
+          <div class="cell-sub">${escapeHtml(row.governanceLabel || '需原因 · CSV水印')} · ${escapeHtml(row.sensitiveExportPolicy || '敏感字段默认脱敏')}</div>
         `],
       ], '暂无可导出数据')}
     </div>
@@ -9794,7 +9812,7 @@ async function renderExports(force) {
       </div>
       ${tableHtml(historyRows, [
         ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.datasetLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.datasetType || '-')}</div>`],
-        ['文件/水印', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filename || '-')}</div><div class="cell-sub">字段 ${escapeHtml(row.columnsCount || 0)} 个 · 水印 ${escapeHtml(row.watermarkId || '-')}</div><div class="cell-sub">审批 ${escapeHtml(row.approvalId || '直接下载')}</div>`],
+        ['文件/水印', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filename || '-')}</div><div class="cell-sub">字段 ${escapeHtml(row.columnsCount || 0)} 个 · 水印 ${escapeHtml(row.watermarkId || '-')}</div><div class="cell-sub">审批 ${escapeHtml(row.approvalId || '直接下载')} · ${escapeHtml(exportSensitiveModeText(row))}</div>`],
         ['筛选/行数', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filterSummary || '全部数据')}</div><div class="cell-sub">导出 ${escapeHtml(row.rowCount || 0)} / 匹配 ${escapeHtml(row.matchedRows || 0)} / 原始 ${escapeHtml(row.totalRows || 0)}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.exportReason || row.reason || '-')}</div>`],
         ['管理员', (row) => `<div>${escapeHtml(row.adminName || '-')}</div><div class="cell-sub">${escapeHtml(row.ip || 'IP 未记录')}</div>`],
@@ -9813,6 +9831,7 @@ async function requestExportApproval(type) {
   }
   const result = await post('/admin/exports/approvals', {
     filters: exportFiltersPayload(),
+    includeSensitive: state.exportIncludeSensitive,
     reason: state.exportReason,
     type,
   });
@@ -9861,7 +9880,7 @@ async function rejectExportApproval(id) {
   if (state.route === 'exports') await render(true);
 }
 
-async function createExportJob(type, approvalId = '', reason = '', filters = null) {
+async function createExportJob(type, approvalId = '', reason = '', filters = null, includeSensitive = state.exportIncludeSensitive) {
   if (!type) return;
   const exportReason = String(reason || $('exportReason')?.value.trim() || state.exportReason || '').trim();
   state.exportReason = exportReason;
@@ -9872,6 +9891,7 @@ async function createExportJob(type, approvalId = '', reason = '', filters = nul
   const payload = {
     approvalId,
     filters: filters || exportFiltersPayload(),
+    includeSensitive: includeSensitive === true,
     reason: exportReason,
     type,
   };
@@ -9912,7 +9932,7 @@ async function downloadExportJob(id) {
   if (state.route === 'exports') await render(true);
 }
 
-async function downloadExport(type, approvalId = '') {
+async function downloadExport(type, approvalId = '', includeSensitive = state.exportIncludeSensitive) {
   if (!type) return;
   if (!approvalId) state.exportReason = $('exportReason')?.value.trim() || state.exportReason;
   if (state.exportReason.length < 4) {
@@ -9921,6 +9941,7 @@ async function downloadExport(type, approvalId = '') {
   }
   const query = exportQueryParams({ includeReason: true });
   if (approvalId) query.set('approvalId', approvalId);
+  if (includeSensitive) query.set('includeSensitive', '1');
   const queryText = query.toString();
   const response = await fetch(`/admin/exports/${encodeURIComponent(type)}.csv${queryText ? `?${queryText}` : ''}`, {
     headers: {

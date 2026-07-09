@@ -166,6 +166,13 @@ async function main() {
     });
     assert.equal(direct.error.code, 'ADMIN_EXPORT_APPROVAL_REQUIRED');
 
+    const sensitiveDirect = await request('/admin/exports/users.csv?reason=export%20approval%20smoke&includeSensitive=1', {
+      expectedStatus: 409,
+      raw: false,
+      token: adminToken,
+    });
+    assert.equal(sensitiveDirect.error.code, 'ADMIN_EXPORT_SENSITIVE_APPROVAL_REQUIRED');
+
     const approvalDraft = await request('/admin/exports/approvals', {
       body: {
         filters: { status: 'all' },
@@ -179,6 +186,7 @@ async function main() {
     assert.equal(approvalDraft.data.approval.datasetType, 'users');
 
     const approvalId = approvalDraft.data.approval.id;
+    assert.equal(approvalDraft.data.approval.includeSensitive, false);
     const approved = await request(`/admin/exports/approvals/${encodeURIComponent(approvalId)}/approve`, {
       body: { reason: 'approve export approval smoke' },
       method: 'POST',
@@ -222,14 +230,16 @@ async function main() {
       token: adminToken,
     });
     assert.ok(archived.data.includes('导出水印ID'));
-    assert.ok(archived.data.includes('19900007400'));
+    assert.ok(archived.data.includes('199****7400'));
+    assert.ok(!archived.data.includes('19900007400'));
 
     const downloaded = await request(`/admin/exports/users.csv?reason=export%20approval%20smoke&approvalId=${encodeURIComponent(approvalId)}`, {
       raw: true,
       token: adminToken,
     });
     assert.ok(downloaded.data.includes('导出水印ID'));
-    assert.ok(downloaded.data.includes('19900007400'));
+    assert.ok(downloaded.data.includes('199****7400'));
+    assert.ok(!downloaded.data.includes('19900007400'));
 
     const approvals = await request('/admin/exports/approvals?type=users&status=all', { token: adminToken });
     const downloadedApproval = approvals.data.items.find((item) => item.id === approvalId);
@@ -243,10 +253,36 @@ async function main() {
     });
     assert.equal(repeatedDownload.error.code, 'ADMIN_EXPORT_APPROVAL_DOWNLOAD_LIMIT');
 
+    const sensitiveApprovalDraft = await request('/admin/exports/approvals', {
+      body: {
+        filters: { status: 'all' },
+        includeSensitive: true,
+        reason: 'export approval smoke sensitive',
+        type: 'users',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(sensitiveApprovalDraft.data.approval.includeSensitive, true);
+    const sensitiveApprovalId = sensitiveApprovalDraft.data.approval.id;
+    await request(`/admin/exports/approvals/${encodeURIComponent(sensitiveApprovalId)}/approve`, {
+      body: { reason: 'approve sensitive export approval smoke' },
+      method: 'POST',
+      token: adminToken,
+    });
+    const sensitiveDownloaded = await request(`/admin/exports/users.csv?reason=export%20approval%20smoke%20sensitive&includeSensitive=1&approvalId=${encodeURIComponent(sensitiveApprovalId)}`, {
+      raw: true,
+      token: adminToken,
+    });
+    assert.ok(sensitiveDownloaded.data.includes('19900007400'));
+
     const history = await request('/admin/exports/history?type=users', { token: adminToken });
-    assert.equal(history.data.items[0].approvalId, approvalId);
-    assert.equal(history.data.items[0].approvalDownloadCount, 2);
-    assert.equal(history.data.items[0].approvalMaxDownloads, 2);
+    const maskedHistory = history.data.items.find((item) => item.approvalId === approvalId);
+    assert.equal(maskedHistory.approvalDownloadCount, 2);
+    assert.equal(maskedHistory.approvalMaxDownloads, 2);
+    assert.equal(maskedHistory.sensitiveExportMode, 'masked');
+    const sensitiveHistory = history.data.items.find((item) => item.approvalId === sensitiveApprovalId);
+    assert.equal(sensitiveHistory.sensitiveExportMode, 'full');
 
     const audit = await request('/admin/audit-logs?limit=100', { token: adminToken });
     assert.ok(audit.data.items.some((item) => item.action === 'data.export.approval.create'), 'approval creation should be audited');
