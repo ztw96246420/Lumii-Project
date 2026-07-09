@@ -30,24 +30,24 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function request(pathname, { body, expectedStatus = 200, method = 'GET', token } = {}) {
+async function request(pathname, { body, expectedStatus = 200, method = 'GET', raw = false, token } = {}) {
   const response = await fetch(`${baseUrl}${pathname}`, {
     body: body === undefined ? undefined : JSON.stringify(body),
     headers: {
-      Accept: 'application/json',
+      Accept: raw ? '*/*' : 'application/json',
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     method,
   });
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : undefined;
+  const payload = raw ? text : text ? JSON.parse(text) : undefined;
   assert.equal(
     response.status,
     expectedStatus,
     `${method} ${pathname} expected ${expectedStatus}, got ${response.status}: ${text}`,
   );
-  return payload;
+  return raw ? { data: payload, headers: response.headers } : payload;
 }
 
 async function waitForBackend() {
@@ -209,6 +209,22 @@ async function main() {
     assert.ok(audit.data.items.some((item) => item.targetId === aiMessageId), 'quality review audit log should be recorded');
     const unhideAudit = await request('/admin/audit-logs?action=ai.petChat.unhide', { token: adminToken });
     assert.ok(unhideAudit.data.items.some((item) => item.targetId === aiMessageId), 'unhide audit log should be recorded');
+
+    const exportCatalog = await request('/admin/exports?phone=19900007701', { token: adminToken });
+    const petChatExportDataset = exportCatalog.data.find((item) => item.type === 'pet_chat_messages');
+    assert.ok(petChatExportDataset, 'pet chat export dataset should be listed');
+    assert.ok(petChatExportDataset.columns.includes('医疗风险'), 'pet chat export should expose medical risk column');
+    assert.ok(petChatExportDataset.columns.includes('复核状态'), 'pet chat export should expose review status column');
+    assert.ok(petChatExportDataset.rowCount >= 1, 'pet chat export should match the smoke user');
+    assert.ok(petChatExportDataset.sensitiveColumnCount >= 1, 'pet chat export should declare sensitive columns');
+    const petChatCsv = await request('/admin/exports/pet_chat_messages.csv?reason=pet%20chat%20medical%20sample%20export&phone=19900007701', {
+      raw: true,
+      token: adminToken,
+    });
+    assert.ok(petChatCsv.data.includes(aiMessageId), 'pet chat export should include the AI reply id');
+    assert.ok(petChatCsv.data.includes('199****7701'), 'pet chat export should mask owner phone by default');
+    assert.equal(petChatCsv.data.includes('19900007701'), false, 'pet chat export must not expose full phone by default');
+    assert.ok(petChatCsv.data.includes('[redacted]'), 'pet chat export should redact sensitive text by default');
 
     await request('/admin/config', {
       body: {

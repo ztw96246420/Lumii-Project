@@ -242,6 +242,8 @@
 - `POST /admin/ai/pet-chat/messages/{messageId}/tag`
 - `POST /admin/ai/pet-chat/messages/{messageId}/quality-review`
 - `POST /admin/ai/pet-chat/messages/{messageId}/hide`
+- `POST /admin/ai/pet-chat/messages/{messageId}/unhide`
+- `GET /admin/exports/pet_chat_messages.csv`
 
 已支持：
 
@@ -261,6 +263,7 @@
 - 用户继续对话时，DeepSeek 上下文已跳过被后台隐藏的 AI 回复，避免问题回复继续影响后续生成。
 - AI 回复输出已接内容安全自动拦截：最终回复文本按 `pet_chat_ai_reply` 走文本审核，命中 Review/Block 时自动隐藏原回复、只给移动端返回安全占位文案，并把原文留在后台“机审拦截”筛选和质量抽检队列中复核。
 - 输出审核命中会写入内容安全样本池，保留 Biztype、RequestId、风险标签和风险分，方便运营复盘误杀/漏杀。
+- AI 对话抽检样本已接入导出数据集 `pet_chat_messages`，覆盖消息 ID、用户/宠物、医疗风险、自动写入、机审动作、运营标签、复核/隐藏状态和抽检分；默认 CSV 脱敏，完整敏感字段仍需 `data.export.sensitive` 权限和导出审批。
 
 当前限制：
 

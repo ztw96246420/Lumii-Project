@@ -3630,7 +3630,7 @@ function adminExportColumnIsSensitive(column = {}) {
   const key = String(column?.key || '');
   const label = String(column?.label || '');
   const text = `${key} ${label}`;
-  const keyPattern = /(phone|mobile|tel|contact|ownerName|reporterName|authorName|fromName|targetName|nickname|address|longitude|latitude|lng|lat|ip|userAgent|ua|device|token|secret|content|text|body|message|reason|note|summary)/i;
+  const keyPattern = /(phone|mobile|tel|contact|ownerName|reporterName|authorName|fromName|targetName|nickname|address|longitude|latitude|lng|lat|ip|userAgent|ua|device|token|secret|content|text|body|message|reason|note|summary|filter|query)/i;
   const labelPattern = /(手机号|电话|联系方式|昵称|姓名|内容|正文|地址|经度|纬度|IP|User-Agent|UA|设备|Token|原因|备注|摘要)/i;
   return keyPattern.test(text) || labelPattern.test(text);
 }
@@ -4080,6 +4080,59 @@ function adminExportDataset(type) {
         exportColumn('updatedAt', '更新时间', (row) => exportDateText(row.updatedAt)),
       ],
     },
+    pet_chat_messages: {
+      description: '宠物 AI 对话摘要、医疗风险、自动写入、机审拦截和运营复核状态，用于抽检医疗风险样本和回复质量；默认不导出完整上下文。',
+      label: 'AI 对话抽检',
+      rows: () => adminPetChatMessages({ flag: 'all', limit: ADMIN_EXPORT_ROW_LIMIT }).map((row) => {
+        const signal = petChatQualityReviewSignal(row);
+        const writeTypes = [
+          row.createdMemoTitle ? '备忘' : '',
+          row.createdWeightKg ? '体重' : '',
+          row.updatedVaccineName ? '疫苗/驱虫' : '',
+          row.updatedPet ? '宠物档案' : '',
+        ].filter(Boolean);
+        return {
+          ...row,
+          adminTagLabels: (row.adminTags || []).map(petChatAdminTagLabel),
+          queueReason: signal.reason,
+          queueScore: signal.score,
+          writeTypes,
+        };
+      }),
+      columns: [
+        exportColumn('id', '消息ID'),
+        exportColumn('time', '时间', (row) => exportDateText(row.time)),
+        exportColumn('ownerPhone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('petName', '宠物名'),
+        exportColumn('petId', '宠物ID'),
+        exportColumn('userMessageId', '用户消息ID'),
+        exportColumn('userSummary', '用户问题摘要'),
+        exportColumn('aiSummary', 'AI回复摘要'),
+        exportColumn('hasMedicalAlert', '医疗风险', (row) => exportBoolText(row.hasMedicalAlert)),
+        exportColumn('medicalReason', '医疗风险原因'),
+        exportColumn('hasCalendarWrite', '自动写入', (row) => exportBoolText(row.hasCalendarWrite || row.updatedPet)),
+        exportColumn('writeTypes', '写入类型', (row) => exportJoin(row.writeTypes || [])),
+        exportColumn('createdMemoTitle', '写入备忘标题'),
+        exportColumn('createdWeightKg', '写入体重kg'),
+        exportColumn('updatedVaccineName', '更新疫苗/驱虫'),
+        exportColumn('updatedPet', '更新宠物档案', (row) => exportBoolText(row.updatedPet)),
+        exportColumn('feedback', '用户反馈'),
+        exportColumn('adminTagLabels', '运营标签', (row) => exportJoin(row.adminTagLabels || [])),
+        exportColumn('adminQualityReviewStatusLabel', '复核状态'),
+        exportColumn('adminQualityReviewReason', '复核说明'),
+        exportColumn('adminQualityReviewedBy', '复核人'),
+        exportColumn('adminQualityReviewedAt', '复核时间', (row) => exportDateText(row.adminQualityReviewedAt)),
+        exportColumn('adminHiddenAt', '隐藏时间', (row) => exportDateText(row.adminHiddenAt)),
+        exportColumn('adminHiddenBy', '隐藏人'),
+        exportColumn('adminHiddenReason', '隐藏原因'),
+        exportColumn('contentSafetyAction', '机审动作'),
+        exportColumn('contentSafetyRiskScore', '机审风险分'),
+        exportColumn('contentSafetyRiskTypes', '机审风险标签', (row) => exportJoin(row.contentSafetyRiskTypes || [])),
+        exportColumn('queueScore', '抽检分'),
+        exportColumn('queueReason', '抽检原因'),
+      ],
+    },
     ai_provider_usage: {
       description: 'AI 供应商请求、成功失败、成本、额度和任务健康，用于成本复盘和供应商监控。',
       label: 'AI 供应商用量',
@@ -4427,7 +4480,7 @@ function adminExportSensitiveColumns(columns = []) {
 function adminExportCatalog(filters = {}) {
   const normalizedFilters = normalizeAdminExportFilters(filters);
   const exportPolicy = normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports);
-  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_avatar_samples', 'ai_prompt_versions', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'places', 'place_reviews', 'place_submissions', 'place_contributions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
+  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_avatar_samples', 'ai_prompt_versions', 'pet_chat_messages', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'places', 'place_reviews', 'place_submissions', 'place_contributions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
@@ -12487,6 +12540,18 @@ function petChatQualityReviewStatusLabel(status) {
   }[status] || '待复核';
 }
 
+function petChatAdminTagLabel(tag) {
+  return {
+    content_safety: '内容安全',
+    false_negative: '漏触发',
+    false_positive: '误触发',
+    medical_sample: '医疗样本',
+    quality_issue: '质量问题',
+    safety_block: '机审阻断',
+    safety_review: '机审复审',
+  }[tag] || tag;
+}
+
 function petChatQualityReviewSignal(row = {}) {
   const tags = new Set(Array.isArray(row.adminTags) ? row.adminTags : []);
   let score = 0;
@@ -12517,6 +12582,7 @@ function petChatQualityReviewSignal(row = {}) {
 function adminPetChatMessages(options = {}) {
   const q = String(options.q || '').trim().toLowerCase();
   const flag = String(options.flag || 'all');
+  const limit = Math.max(1, Math.min(ADMIN_EXPORT_ROW_LIMIT, Math.floor(Number(options.limit || 300))));
   const rows = Object.entries(state.petChatMessages || {}).flatMap(([key, messages]) => {
     const { phone, petId } = parsePetChatStorageKey(key);
     const user = phone ? state.users?.[phone] : null;
@@ -12581,7 +12647,7 @@ function adminPetChatMessages(options = {}) {
         .some((value) => String(value || '').toLowerCase().includes(q));
     })
     .sort((a, b) => String(b.time).localeCompare(String(a.time)))
-    .slice(0, 300);
+    .slice(0, limit);
 }
 
 function adminPetChatQualityReview() {
