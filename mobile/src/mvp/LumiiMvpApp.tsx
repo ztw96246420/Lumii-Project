@@ -244,6 +244,15 @@ const fallbackRemoteConfig: AppRemoteConfig = {
   places: {
     contributionBadgeMinPoints: 1,
     contributionBadgesEnabled: false,
+    contributionLeaderboardEnabled: false,
+    contributionLeaderboardLimit: 10,
+    contributionRewardPolicy: {
+      cycle: 'monthly',
+      description: '测试期仅用于社区荣誉展示，不含现金、余额或实物兑换。',
+      enabled: false,
+      rewardLabel: '地点共建荣誉',
+      topN: 3,
+    },
     publicReviews: {
       apiLimit: 20,
       detailDisplayLimit: 3,
@@ -15191,6 +15200,21 @@ export default function LumiiMvpApp() {
       && placeContributionTotal > 0
       && placeContributionPoints >= placeContributionMinPoints;
     const placeContributionLevel = placeContributionSummary?.level?.label || '地点新星';
+    const placeContributionLeaderboardVisible = remoteConfig.places?.contributionLeaderboardEnabled === true || placeContributionSummary?.leaderboardEnabled === true;
+    const placeContributionRank = Number(placeContributionSummary?.rank || 0);
+    const placeContributionRankTotal = Number(placeContributionSummary?.rankTotal || 0);
+    const placeContributionRankText = placeContributionLeaderboardVisible && placeContributionRank > 0
+      ? ` · 第${placeContributionRank}${placeContributionRankTotal > 0 ? `/${placeContributionRankTotal}` : ''}名`
+      : '';
+    const placeContributionNextRemaining = Math.max(0, Number(placeContributionSummary?.nextLevelRemainingPoints || 0));
+    const placeContributionNextText = placeContributionNextRemaining > 0 && placeContributionSummary?.level?.nextLabel
+      ? `距${placeContributionSummary.level.nextLabel}还差${placeContributionNextRemaining}分`
+      : '';
+    const placeContributionRewardPolicy = placeContributionSummary?.rewardPolicy || remoteConfig.places?.contributionRewardPolicy;
+    const placeContributionRewardText = placeContributionRewardPolicy?.publicEnabled && placeContributionSummary?.rewardEligible
+      ? `${placeContributionRewardPolicy.cycleLabel || '每月'}${placeContributionRewardPolicy.rewardLabel || placeContributionSummary.rewardLabel || '地点共建荣誉'}候选`
+      : '';
+    const placeContributionExtraText = placeContributionRewardText || placeContributionNextText;
     return (
       <Screen showBack={false} title="">
         <View style={styles.profileMakePage}>
@@ -15239,7 +15263,10 @@ export default function LumiiMvpApp() {
                 </View>
                 <View style={styles.flex}>
                   <Text style={styles.profileContributionTitle}>地点共建者 · {placeContributionLevel}</Text>
-                  <Text style={styles.profileContributionMeta}>{placeContributionPoints} 贡献分 · {placeContributionTotal} 次通过审核</Text>
+                  <Text style={styles.profileContributionMeta}>{placeContributionPoints} 贡献分 · {placeContributionTotal} 次通过审核{placeContributionRankText}</Text>
+                  {placeContributionExtraText ? (
+                    <Text style={styles.profileContributionMeta}>{placeContributionExtraText}</Text>
+                  ) : null}
                 </View>
               </View>
             ) : null}

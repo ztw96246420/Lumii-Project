@@ -82,6 +82,7 @@ export type UserProfile = AccountSnapshot & {
 
 export type PlaceContributionSummary = {
   created: number;
+  leaderboardEnabled?: boolean;
   level?: {
     key: string;
     label: string;
@@ -91,10 +92,28 @@ export type PlaceContributionSummary = {
   };
   linkedExisting: number;
   minPublicPoints?: number;
+  nextLevelRemainingPoints?: number;
   points: number;
   publicEligible?: boolean;
+  rank?: number;
+  rankTotal?: number;
+  rawPoints?: number;
+  rewardEligible?: boolean;
+  rewardLabel?: string;
+  rewardPolicy?: PlaceContributionRewardPolicy;
   total: number;
   users?: number;
+};
+
+export type PlaceContributionRewardPolicy = {
+  cycle?: 'monthly' | 'quarterly' | 'seasonal';
+  cycleLabel?: string;
+  description?: string;
+  enabled?: boolean;
+  leaderboardEnabled?: boolean;
+  publicEnabled?: boolean;
+  rewardLabel?: string;
+  topN?: number;
 };
 
 export type OwnerProfilePatch = Partial<Pick<UserProfile, 'ownerAvatarUrl' | 'ownerBio' | 'ownerName'>> & {
@@ -957,6 +976,9 @@ export type AppRemoteConfig = {
   places?: {
     contributionBadgeMinPoints?: number;
     contributionBadgesEnabled?: boolean;
+    contributionLeaderboardEnabled?: boolean;
+    contributionLeaderboardLimit?: number;
+    contributionRewardPolicy?: PlaceContributionRewardPolicy;
     publicReviews?: {
       apiLimit?: number;
       detailDisplayLimit?: number;

@@ -149,6 +149,15 @@ const mockAppRemoteConfig: AppRemoteConfig = {
   places: {
     contributionBadgeMinPoints: 1,
     contributionBadgesEnabled: false,
+    contributionLeaderboardEnabled: false,
+    contributionLeaderboardLimit: 10,
+    contributionRewardPolicy: {
+      cycle: 'monthly',
+      description: '测试期仅用于社区荣誉展示，不含现金、余额或实物兑换。',
+      enabled: false,
+      rewardLabel: '地点共建荣誉',
+      topN: 3,
+    },
     publicReviews: {
       apiLimit: 20,
       detailDisplayLimit: 3,

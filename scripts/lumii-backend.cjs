@@ -771,6 +771,15 @@ function defaultOpsConfig() {
     places: {
       contributionBadgeMinPoints: 1,
       contributionBadgesEnabled: false,
+      contributionLeaderboardEnabled: false,
+      contributionLeaderboardLimit: 10,
+      contributionRewardPolicy: {
+        cycle: 'monthly',
+        description: '测试期仅用于社区荣誉展示，不含现金、余额或实物兑换。',
+        enabled: false,
+        rewardLabel: '地点共建荣誉',
+        topN: 3,
+      },
       publicReviews: {
         apiLimit: 20,
         detailDisplayLimit: 3,
@@ -1170,11 +1179,29 @@ function normalizePlacePublicReviewsOpsConfig(value, defaults = {}) {
   };
 }
 
+const PLACE_CONTRIBUTION_REWARD_CYCLES = new Set(['monthly', 'quarterly', 'seasonal']);
+
+function normalizePlaceContributionRewardPolicy(value, defaults = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+  const cycle = PLACE_CONTRIBUTION_REWARD_CYCLES.has(String(source.cycle || '')) ? String(source.cycle) : fallback.cycle || 'monthly';
+  return {
+    cycle: PLACE_CONTRIBUTION_REWARD_CYCLES.has(cycle) ? cycle : 'monthly',
+    description: String(source.description || fallback.description || '测试期仅用于社区荣誉展示，不含现金、余额或实物兑换。').replace(/\s+/g, ' ').trim().slice(0, 160),
+    enabled: Boolean(source.enabled),
+    rewardLabel: String(source.rewardLabel || fallback.rewardLabel || '地点共建荣誉').replace(/\s+/g, ' ').trim().slice(0, 40),
+    topN: Math.floor(clampNumber(source.topN, fallback.topN || 3, 1, 20)),
+  };
+}
+
 function normalizePlacesOpsConfig(value, defaults = {}) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
     contributionBadgeMinPoints: Math.floor(clampNumber(source.contributionBadgeMinPoints, defaults.contributionBadgeMinPoints || 1, 1, 1000)),
     contributionBadgesEnabled: Boolean(source.contributionBadgesEnabled),
+    contributionLeaderboardEnabled: Boolean(source.contributionLeaderboardEnabled),
+    contributionLeaderboardLimit: Math.floor(clampNumber(source.contributionLeaderboardLimit, defaults.contributionLeaderboardLimit || 10, 3, 50)),
+    contributionRewardPolicy: normalizePlaceContributionRewardPolicy(source.contributionRewardPolicy, defaults.contributionRewardPolicy),
     publicReviews: normalizePlacePublicReviewsOpsConfig(source.publicReviews, defaults.publicReviews),
   };
 }
@@ -1976,6 +2003,9 @@ function configChangeSummary(before, after) {
     ['social.messageAccess.retentionDays', 'Private message audit retention marker'],
     ['places.contributionBadgesEnabled', 'Place contribution public badges'],
     ['places.contributionBadgeMinPoints', 'Place contribution public badge min points'],
+    ['places.contributionLeaderboardEnabled', 'Place contribution leaderboard'],
+    ['places.contributionLeaderboardLimit', 'Place contribution leaderboard limit'],
+    ['places.contributionRewardPolicy', 'Place contribution reward policy'],
     ['features.aiAvatar', 'AI avatar feature'],
     ['features.petChat', 'Pet chat feature'],
     ['features.petCircle', 'Pet circle feature'],
@@ -3007,15 +3037,15 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       userImpact: '可临时关闭地图地点相关能力。',
     },
     {
-      backendEvidence: '/me 返回 placeContributionSummary；/app/config 返回 places.contributionBadgesEnabled 和 contributionBadgeMinPoints。',
+      backendEvidence: '/me 返回 placeContributionSummary、我的排名和奖励资格；/app/config 返回地点贡献徽章、排行榜和奖励策略；/places/contributions/leaderboard 返回匿名化排行榜。',
       backendEnforced: false,
       group: '发现/地图',
       key: 'places.contributionBadgesEnabled',
       label: '地点贡献身份展示',
       mobileApplied: true,
-      mobileEvidence: '移动端“我的”页读取 remoteConfig.places.contributionBadgesEnabled，命中门槛后展示地点共建者徽章。',
-      operatorNote: '当前只公开用户自己的贡献身份、等级和分数摘要；排行榜、兑换和活动奖励仍需另行确认。',
-      userImpact: '让通过地点审核的用户看到自己的社区贡献身份，关闭后移动端不展示。',
+      mobileEvidence: '移动端“我的”页读取 remoteConfig.places.contributionBadgesEnabled，命中门槛后展示地点共建者徽章、排名和下一等级差距。',
+      operatorNote: '排行榜接口默认关闭；开启后只返回匿名化共建者昵称，不返回手机号。奖励策略默认为社区荣誉展示，不等同现金、余额或实物兑换。',
+      userImpact: '让通过地点审核的用户看到自己的社区贡献身份、排名和荣誉激励口径，关闭后移动端不展示。',
     },
     {
       backendEvidence: 'publicPlaceReviewsForPlace 读取 currentOpsConfig().places.publicReviews，强制公开点评排序、只看有图和返回数量。',
@@ -5304,6 +5334,8 @@ function sendCsv(res, filename, csv) {
 function publicAppConfig() {
   processDueOpsConfigSchedules();
   const config = currentOpsConfig();
+  const placeRewardPolicy = normalizePlaceContributionRewardPolicy(config.places?.contributionRewardPolicy, defaultOpsConfig().places.contributionRewardPolicy);
+  const placeContributionLeaderboardEnabled = Boolean(config.places?.contributionLeaderboardEnabled);
   return {
     ai: {
       petAvatarDailyLimit: config.ai.petAvatarDailyLimit,
@@ -5329,6 +5361,14 @@ function publicAppConfig() {
     places: {
       contributionBadgeMinPoints: config.places?.contributionBadgeMinPoints || 1,
       contributionBadgesEnabled: Boolean(config.places?.contributionBadgesEnabled),
+      contributionLeaderboardEnabled: placeContributionLeaderboardEnabled,
+      contributionLeaderboardLimit: Math.max(3, Math.min(50, Number(config.places?.contributionLeaderboardLimit || 10))),
+      contributionRewardPolicy: {
+        ...placeRewardPolicy,
+        cycleLabel: { monthly: '每月', quarterly: '每季度', seasonal: '每期活动' }[placeRewardPolicy.cycle] || '每月',
+        leaderboardEnabled: placeContributionLeaderboardEnabled,
+        publicEnabled: Boolean(placeContributionLeaderboardEnabled && placeRewardPolicy.enabled),
+      },
       publicReviews: normalizePlacePublicReviewsOpsConfig(config.places?.publicReviews, defaultOpsConfig().places.publicReviews),
     },
     social: config.social,
@@ -10905,6 +10945,79 @@ function placeContributionSummary(contributions = ensurePlaceContributions()) {
   };
 }
 
+function placeContributionPublicName(phone, ownerName = '') {
+  const name = String(ownerName || '').replace(/\s+/g, ' ').trim();
+  if (name) return name.length <= 1 ? `${name}*` : `${name.slice(0, 1)}*`;
+  const suffix = String(phone || '').slice(-4);
+  return suffix ? `共建者${suffix}` : '共建者';
+}
+
+function placeContributionLeaderboard(options = {}) {
+  const maxLimit = Math.max(1, Math.floor(Number(options.maxLimit || 50)));
+  const limit = Math.max(1, Math.min(maxLimit, Math.floor(Number(options.limit || 10))));
+  const includePrivate = options.includePrivate === true;
+  const grouped = new Map();
+  ensurePlaceContributions().filter(isPlaceContributionActive).forEach((item) => {
+    const phone = String(item.phone || '').trim();
+    if (!phone) return;
+    const current = grouped.get(phone) || {
+      created: 0,
+      latestAt: '',
+      linkedExisting: 0,
+      manualAdjustments: 0,
+      phone,
+      points: 0,
+      total: 0,
+    };
+    current.created += item.action === 'created' ? 1 : 0;
+    current.linkedExisting += item.action === 'linked_existing' ? 1 : 0;
+    current.manualAdjustments += item.action === 'manual_adjustment' ? 1 : 0;
+    current.points += Number(item.points || 0);
+    current.total += 1;
+    current.latestAt = String(item.createdAt || '').localeCompare(current.latestAt) > 0 ? item.createdAt : current.latestAt;
+    grouped.set(phone, current);
+  });
+  return [...grouped.values()]
+    .map((row) => {
+      const owner = state.users?.[row.phone];
+      const level = placeContributionLevelFor(row.points);
+      return {
+        ...row,
+        level,
+        ownerAvatarUrl: includePrivate ? owner?.ownerAvatarUrl || '' : '',
+        ownerName: includePrivate ? owner?.ownerName || `用户${row.phone.slice(-4)}` : placeContributionPublicName(row.phone, owner?.ownerName),
+        publicName: placeContributionPublicName(row.phone, owner?.ownerName),
+      };
+    })
+    .sort((a, b) => Number(b.points || 0) - Number(a.points || 0)
+      || Number(b.total || 0) - Number(a.total || 0)
+      || String(b.latestAt || '').localeCompare(String(a.latestAt || '')))
+    .map((row, index) => ({ ...row, rank: index + 1 }))
+    .slice(0, limit);
+}
+
+function placeContributionRankForPhone(phone) {
+  const normalizedPhone = String(phone || '').trim();
+  if (!normalizedPhone) return { rank: 0, rankTotal: 0 };
+  const full = placeContributionLeaderboard({ includePrivate: true, limit: 50_000, maxLimit: 50_000 });
+  const found = full.find((item) => item.phone === normalizedPhone);
+  return {
+    rank: found?.rank || 0,
+    rankTotal: full.length,
+  };
+}
+
+function placeContributionRewardPolicySnapshot() {
+  const config = currentOpsConfig().places || defaultOpsConfig().places;
+  const policy = normalizePlaceContributionRewardPolicy(config.contributionRewardPolicy, defaultOpsConfig().places.contributionRewardPolicy);
+  return {
+    ...policy,
+    cycleLabel: { monthly: '每月', quarterly: '每季度', seasonal: '每期活动' }[policy.cycle] || '每月',
+    leaderboardEnabled: Boolean(config.contributionLeaderboardEnabled),
+    publicEnabled: Boolean(config.contributionLeaderboardEnabled && policy.enabled),
+  };
+}
+
 function placeContributionSummaryForPhone(phone) {
   const normalizedPhone = String(phone || '').trim();
   const contributions = ensurePlaceContributions().filter((item) => String(item.phone || '') === normalizedPhone);
@@ -10912,11 +11025,21 @@ function placeContributionSummaryForPhone(phone) {
   const points = Math.max(0, Number(summary.points || 0));
   const config = currentOpsConfig().places || defaultOpsConfig().places;
   const minPublicPoints = Math.max(1, Number(config.contributionBadgeMinPoints || 1));
+  const level = placeContributionLevelFor(points);
+  const rank = placeContributionRankForPhone(normalizedPhone);
+  const rewardPolicy = placeContributionRewardPolicySnapshot();
   return {
     ...summary,
+    leaderboardEnabled: Boolean(config.contributionLeaderboardEnabled),
+    nextLevelRemainingPoints: level.nextPoints ? Math.max(0, Number(level.nextPoints || 0) - points) : 0,
     points,
+    rank: rank.rank,
+    rankTotal: rank.rankTotal,
     rawPoints: summary.points,
-    level: placeContributionLevelFor(points),
+    rewardEligible: Boolean(rewardPolicy.publicEnabled && rank.rank > 0 && rank.rank <= Number(rewardPolicy.topN || 0)),
+    rewardLabel: rewardPolicy.rewardLabel,
+    rewardPolicy,
+    level,
     minPublicPoints,
     publicEligible: points >= minPublicPoints,
   };
@@ -23842,9 +23965,9 @@ function adminReadinessModules(context) {
       module: '地点审核',
       group: '地点',
       status: 'partial',
-      evidence: '地点点评和新增地点支持通过/驳回、关联已有地点、原因模板、通知、导出、地点编辑、人工合并、贡献账本、贡献纠偏和公开点评展示策略。',
-      mobileLinkage: '审核状态会影响地点详情、地点提交和用户通知中心；公开点评排序、只看有图和展示条数由配置中心下发。',
-      nextStep: '补地点贡献排行榜/活动奖励策略和生产期多角色权限。',
+      evidence: '地点点评和新增地点支持通过/驳回、关联已有地点、原因模板、通知、导出、地点编辑、人工合并、贡献账本、贡献纠偏、匿名贡献榜、荣誉候选策略和公开点评展示策略。',
+      mobileLinkage: '审核状态会影响地点详情、地点提交和用户通知中心；公开点评、贡献身份、我的排名和荣誉候选提示均由配置中心下发。',
+      nextStep: '生产期补真实活动结算/兑换规则和多角色权限。',
     },
     {
       key: 'support',
@@ -23917,7 +24040,7 @@ function adminReadinessQuestions(context = {}) {
     ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '已接入可配置策略：默认供应商提交失败、供应商超时、供应商返回失败会自动返还；照片不合格、内容安全拦截、运营手动标失败不自动返还，后台仍可人工返还且防重复。', '影响用户权益、成本和客服处理标准。', 'ready', '已接入'],
     ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '已接入永久封禁审批流和高风险最少会签人数；达到会签人数后才真正写入处罚并影响移动端账号状态。', '影响高风险处罚治理。', 'ready', '已接入'],
     ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏；完整敏感字段导出必须具备 data.export.sensitive 权限，并提交 includeSensitive=true 的导出审批。', '影响隐私合规和数据泄露风险。', 'ready', '已接入'],
-    ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '已接入用户本人公开贡献身份、轻量等级、后台手动调整和撤销；排行榜、他人主页展示、活动奖励或兑换规则仍待确认。', '影响地点生态激励。'],
+    ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '已接入用户本人公开贡献身份、轻量等级、我的排名、匿名排行榜接口、后台手动调整/撤销和荣誉候选策略；真实活动结算、他人主页展示或兑换规则仍待确认。', '影响地点生态激励。'],
     ['q-notification-approval', 'P1', '系统通知是否需要发送审批？', '已接入发送审批流、“强制审批”配置开关和高风险最少会签人数；达到会签人数后才发送。', '影响误发和运营风险。', 'ready', '已接入'],
     ['q-config-approval', 'P0', '配置强制更新、维护模式、全功能关闭是否必须审批？', '已接入配置发布审批流、“强制配置发布审批”开关和高风险最少会签人数；达到会签人数后才发布 /app/config。', '影响事故风险和发布治理。', 'ready', '已接入'],
     ['q-compliance-text', 'P0', 'App 备案、隐私政策、内容审核制度是否已准备生产版文本？', compliancePolicy, '影响正式上线合规。', complianceReady ? 'ready' : 'open', complianceReady ? '已签署' : '待签署'],
@@ -31504,8 +31627,14 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/places/contributions') {
     const contributions = adminPlaceContributions();
+    const placesConfig = currentOpsConfig().places || defaultOpsConfig().places;
     ok(res, {
       contributions,
+      leaderboard: placeContributionLeaderboard({
+        includePrivate: true,
+        limit: placesConfig.contributionLeaderboardLimit || 10,
+      }),
+      rewardPolicy: placeContributionRewardPolicySnapshot(),
       summary: placeContributionSummary(contributions),
     });
     return true;
@@ -34022,6 +34151,23 @@ async function handle(req, res) {
   if (req.method === 'GET' && pathname === '/places/favorites') {
     if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     ok(res, favoritePlaceIdsFor(user));
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/places/contributions/leaderboard') {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
+    const config = currentOpsConfig().places || defaultOpsConfig().places;
+    const rewardPolicy = placeContributionRewardPolicySnapshot();
+    const enabled = Boolean(config.contributionLeaderboardEnabled);
+    ok(res, {
+      enabled,
+      items: enabled ? placeContributionLeaderboard({
+        includePrivate: false,
+        limit: config.contributionLeaderboardLimit || 10,
+      }).map(({ phone, ...item }) => item) : [],
+      mySummary: placeContributionSummaryForPhone(user.phone),
+      rewardPolicy,
+    });
     return;
   }
 

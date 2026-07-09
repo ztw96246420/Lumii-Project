@@ -7035,6 +7035,38 @@ function renderPlaceContributions(contributions) {
   ], '暂无地点贡献记录');
 }
 
+function renderPlaceContributionLeaderboard(leaderboard, rewardPolicy = {}) {
+  const rows = Array.isArray(leaderboard) ? leaderboard.slice(0, 10) : [];
+  const leaderboardEnabled = Boolean(rewardPolicy.leaderboardEnabled);
+  const rewardEnabled = Boolean(rewardPolicy.enabled);
+  const publicEnabled = Boolean(rewardPolicy.publicEnabled);
+  const rewardLabel = rewardPolicy.rewardLabel || '地点共建荣誉';
+  const cycleLabel = rewardPolicy.cycleLabel || '每月';
+  const topN = Number.isFinite(Number(rewardPolicy.topN)) ? Number(rewardPolicy.topN) : 3;
+  const policyDescription = rewardPolicy.description || '测试期仅用于社区荣誉展示，不含现金、余额或实物兑换。';
+  return `
+    <div class="switch-panel">
+      <div class="switch-row"><span>移动端身份</span>${statusPill('已联动')}</div>
+      <div class="switch-row"><span>排行榜</span>${statusPill(leaderboardEnabled ? '已开放' : '未开放')}</div>
+      <div class="switch-row"><span>荣誉奖励</span>${statusPill(publicEnabled ? '已开放' : rewardEnabled ? '待榜单开放' : '未开放')}</div>
+    </div>
+    <div class="template-summary-row">
+      <span class="risk-badge">Top ${numberText(topN)}</span>
+      <span class="risk-badge">${escapeHtml(cycleLabel)}</span>
+      <span class="risk-badge">${escapeHtml(rewardLabel)}</span>
+      <span class="risk-badge">公开匿名化</span>
+    </div>
+    <div class="cell-sub clamp">${escapeHtml(policyDescription)}</div>
+    ${tableHtml(rows, [
+      ['排名', (row) => `<div class="cell-title">#${numberText(row.rank || 0)}</div><div class="cell-sub">${escapeHtml(row.level?.label || '-')}</div>`],
+      ['用户', (row) => `<div>${escapeHtml(row.ownerName || row.publicName || '-')}</div><div class="cell-sub">${shortPhone(row.phone)}</div>`],
+      ['贡献分', (row) => `<div class="cell-title">${numberText(row.points || 0)} 分</div><div class="cell-sub">${numberText(row.total || 0)} 条有效记录</div>`],
+      ['构成', (row) => `<div>新地点 ${numberText(row.created || 0)} · 关联 ${numberText(row.linkedExisting || 0)}</div><div class="cell-sub">手动 ${numberText(row.manualAdjustments || 0)}</div>`],
+      ['最近贡献', (row) => formatTime(row.latestAt)],
+    ], '暂无贡献排行榜')}
+  `;
+}
+
 function placeQualityEvidence(place) {
   const reasons = Array.isArray(place.qualityReasons) ? place.qualityReasons : [];
   return [
@@ -7065,6 +7097,8 @@ async function renderPlaces(force) {
   const places = Array.isArray(catalog) ? catalog : catalog.places || [];
   const placeSummary = Array.isArray(catalog) ? {} : catalog.summary || {};
   const contributions = contributionData?.contributions || [];
+  const contributionLeaderboard = contributionData?.leaderboard || [];
+  const contributionRewardPolicy = contributionData?.rewardPolicy || {};
   const contributionSummary = contributionData?.summary || {};
   const signedContributionPoints = (value) => {
     const points = Number(value || 0);
@@ -7136,11 +7170,7 @@ async function renderPlaces(force) {
         <span class="risk-badge">手动 ${numberText(contributionSummary.manualAdjustments || 0)}</span>
         <span class="risk-badge">已撤销 ${numberText(contributionSummary.voided || 0)}</span>
       </div>
-      <div class="switch-panel">
-        <div class="switch-row"><span>移动端身份</span>${statusPill('已联动')}</div>
-        <div class="switch-row"><span>排行榜</span>${statusPill('预留')}</div>
-        <div class="switch-row"><span>活动奖励 / 兑换</span>${statusPill('预留')}</div>
-      </div>
+      ${renderPlaceContributionLeaderboard(contributionLeaderboard, contributionRewardPolicy)}
       ${renderPlaceContributions(contributions)}
     </div>
     <div class="card">
@@ -8558,6 +8588,7 @@ async function renderConfig(force) {
   const moderationPublicHint = moderation.publicHint || {};
   const notifications = config.notifications || {};
   const placesConfig = config.places || {};
+  const placeContributionRewardPolicy = placesConfig.contributionRewardPolicy || {};
   const placesPublicReviews = placesConfig.publicReviews || {};
   const revisions = config.revisions || [];
   const socialMessageAccess = config.social?.messageAccess || {};
@@ -8624,15 +8655,28 @@ async function renderConfig(force) {
         <div class="section-head compact">
           <div>
             <h2>地点贡献身份</h2>
-            <div class="section-sub">控制用户在移动端“我的”页是否展示地点共建者徽章</div>
+            <div class="section-sub">控制用户在移动端“我的”页是否展示地点共建者徽章、我的排名和荣誉候选提示</div>
           </div>
-          ${help('地点审核通过后已经会记录贡献分。这里控制是否把“自己的贡献身份”公开给用户本人；当前不做排行榜、兑换和活动奖励，避免把运营账本误解成现金或余额。')}
+          ${help('地点审核通过后会记录贡献分。这里控制是否把“自己的贡献身份”、匿名排行榜和荣誉策略公开给用户；当前只做社区荣誉，不做现金、余额或实物兑换。')}
         </div>
         <div class="switch-panel">
           ${featureCheckbox('cfgPlaceContributionBadgesEnabled', '展示地点共建者徽章', Boolean(placesConfig.contributionBadgesEnabled))}
+          ${featureCheckbox('cfgPlaceContributionLeaderboardEnabled', '开放匿名贡献排行榜', Boolean(placesConfig.contributionLeaderboardEnabled))}
+          ${featureCheckbox('cfgPlaceContributionRewardEnabled', '开放荣誉候选提示', Boolean(placeContributionRewardPolicy.enabled))}
         </div>
         <div class="config-grid">
           <label>展示最低贡献分<input id="cfgPlaceContributionBadgeMinPoints" type="number" min="1" max="1000" value="${Number.isFinite(Number(placesConfig.contributionBadgeMinPoints)) ? placesConfig.contributionBadgeMinPoints : 1}" /></label>
+          <label>榜单返回人数<input id="cfgPlaceContributionLeaderboardLimit" type="number" min="3" max="50" value="${Number.isFinite(Number(placesConfig.contributionLeaderboardLimit)) ? placesConfig.contributionLeaderboardLimit : 10}" /></label>
+          <label>荣誉 Top N<input id="cfgPlaceContributionRewardTopN" type="number" min="1" max="20" value="${Number.isFinite(Number(placeContributionRewardPolicy.topN)) ? placeContributionRewardPolicy.topN : 3}" /></label>
+          <label>荣誉周期
+            <select id="cfgPlaceContributionRewardCycle">
+              ${configProviderOption(placeContributionRewardPolicy.cycle || 'monthly', 'monthly', '每月')}
+              ${configProviderOption(placeContributionRewardPolicy.cycle || 'monthly', 'quarterly', '每季度')}
+              ${configProviderOption(placeContributionRewardPolicy.cycle || 'monthly', 'seasonal', '每期活动')}
+            </select>
+          </label>
+          <label>荣誉名称<input id="cfgPlaceContributionRewardLabel" maxlength="40" value="${escapeHtml(placeContributionRewardPolicy.rewardLabel || '地点共建荣誉')}" /></label>
+          <label class="wide">荣誉说明<textarea id="cfgPlaceContributionRewardDescription" maxlength="160" placeholder="建议明确这是社区荣誉，不含现金、余额或实物兑换。">${escapeHtml(placeContributionRewardPolicy.description || '测试期仅用于社区荣誉展示，不含现金、余额或实物兑换。')}</textarea></label>
         </div>
       </div>
       <div class="config-section">
@@ -9418,6 +9462,21 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isFinite(placeContributionBadgeMinPoints) || placeContributionBadgeMinPoints < 1 || placeContributionBadgeMinPoints > 1000) {
     throw new Error('地点贡献身份展示门槛必须在 1-1000 分之间');
   }
+  const placeContributionLeaderboardLimit = Number($('cfgPlaceContributionLeaderboardLimit').value);
+  if (!Number.isInteger(placeContributionLeaderboardLimit) || placeContributionLeaderboardLimit < 3 || placeContributionLeaderboardLimit > 50) {
+    throw new Error('地点贡献排行榜返回人数必须是 3-50 之间的整数');
+  }
+  const placeContributionRewardTopN = Number($('cfgPlaceContributionRewardTopN').value);
+  if (!Number.isInteger(placeContributionRewardTopN) || placeContributionRewardTopN < 1 || placeContributionRewardTopN > 20) {
+    throw new Error('地点贡献荣誉 Top N 必须是 1-20 之间的整数');
+  }
+  const placeContributionRewardCycle = $('cfgPlaceContributionRewardCycle').value;
+  if (!['monthly', 'quarterly', 'seasonal'].includes(placeContributionRewardCycle)) {
+    throw new Error('地点贡献荣誉周期无效');
+  }
+  const placeContributionRewardLabel = $('cfgPlaceContributionRewardLabel').value.trim();
+  if (!placeContributionRewardLabel) throw new Error('地点贡献荣誉名称不能为空');
+  const placeContributionRewardDescription = $('cfgPlaceContributionRewardDescription').value.trim();
   const placeReviewApiLimit = Number($('cfgPlaceReviewApiLimit').value);
   const placeReviewDetailDisplayLimit = Number($('cfgPlaceReviewDetailDisplayLimit').value);
   if (!Number.isInteger(placeReviewApiLimit) || placeReviewApiLimit < 3 || placeReviewApiLimit > 50) {
@@ -9607,6 +9666,15 @@ async function saveConfig(mode = 'publish') {
     places: {
       contributionBadgeMinPoints: placeContributionBadgeMinPoints,
       contributionBadgesEnabled: $('cfgPlaceContributionBadgesEnabled').checked,
+      contributionLeaderboardEnabled: $('cfgPlaceContributionLeaderboardEnabled').checked,
+      contributionLeaderboardLimit: placeContributionLeaderboardLimit,
+      contributionRewardPolicy: {
+        cycle: placeContributionRewardCycle,
+        description: placeContributionRewardDescription,
+        enabled: $('cfgPlaceContributionRewardEnabled').checked,
+        rewardLabel: placeContributionRewardLabel,
+        topN: placeContributionRewardTopN,
+      },
       publicReviews: {
         apiLimit: placeReviewApiLimit,
         detailDisplayLimit: placeReviewDetailDisplayLimit,

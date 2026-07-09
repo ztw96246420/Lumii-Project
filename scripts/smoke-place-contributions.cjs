@@ -185,6 +185,10 @@ async function main() {
     assert.equal(contributionPayload.data.summary.linkedExisting, 1);
     assert.equal(contributionPayload.data.summary.manualAdjustments, 0);
     assert.equal(contributionPayload.data.summary.voided, 0);
+    assert.equal(contributionPayload.data.leaderboard[0].phone, '19900003001');
+    assert.equal(contributionPayload.data.leaderboard[0].rank, 1);
+    assert.equal(contributionPayload.data.leaderboard[0].points, 15);
+    assert.equal(contributionPayload.data.rewardPolicy.publicEnabled, false);
 
     const adjustmentPayload = await request('/admin/places/contributions/adjust', {
       body: {
@@ -233,29 +237,72 @@ async function main() {
 
     const configBeforeBadge = await request('/app/config');
     assert.equal(configBeforeBadge.data.places.contributionBadgesEnabled, false);
+    assert.equal(configBeforeBadge.data.places.contributionLeaderboardEnabled, false);
+
+    const leaderboardBeforeConfig = await request('/places/contributions/leaderboard', { token: userToken });
+    assert.equal(leaderboardBeforeConfig.data.enabled, false);
+    assert.equal(leaderboardBeforeConfig.data.items.length, 0);
+    assert.equal(leaderboardBeforeConfig.data.mySummary.rank, 1);
+    assert.equal(leaderboardBeforeConfig.data.mySummary.rankTotal, 1);
+    assert.equal(leaderboardBeforeConfig.data.rewardPolicy.publicEnabled, false);
 
     const publishedConfig = await request('/admin/config', {
       body: {
         places: {
           contributionBadgeMinPoints: 10,
           contributionBadgesEnabled: true,
+          contributionLeaderboardEnabled: true,
+          contributionLeaderboardLimit: 5,
+          contributionRewardPolicy: {
+            cycle: 'monthly',
+            description: 'Smoke 荣誉展示，不含现金兑换',
+            enabled: true,
+            rewardLabel: 'Smoke 地点共建荣誉',
+            topN: 3,
+          },
         },
-        reason: 'Smoke enable place contribution badge',
+        reason: 'Smoke enable place contribution badge and leaderboard',
       },
       method: 'PATCH',
       token: adminToken,
     });
     assert.equal(publishedConfig.data.places.contributionBadgesEnabled, true);
     assert.equal(publishedConfig.data.places.contributionBadgeMinPoints, 10);
+    assert.equal(publishedConfig.data.places.contributionLeaderboardEnabled, true);
+    assert.equal(publishedConfig.data.places.contributionLeaderboardLimit, 5);
+    assert.equal(publishedConfig.data.places.contributionRewardPolicy.enabled, true);
+    assert.equal(publishedConfig.data.places.contributionRewardPolicy.rewardLabel, 'Smoke 地点共建荣誉');
 
     const appConfigAfterBadge = await request('/app/config');
     assert.equal(appConfigAfterBadge.data.places.contributionBadgesEnabled, true);
     assert.equal(appConfigAfterBadge.data.places.contributionBadgeMinPoints, 10);
+    assert.equal(appConfigAfterBadge.data.places.contributionLeaderboardEnabled, true);
+    assert.equal(appConfigAfterBadge.data.places.contributionLeaderboardLimit, 5);
+    assert.equal(appConfigAfterBadge.data.places.contributionRewardPolicy.enabled, true);
+    assert.equal(appConfigAfterBadge.data.places.contributionRewardPolicy.publicEnabled, true);
+    assert.equal(appConfigAfterBadge.data.places.contributionRewardPolicy.cycleLabel, '每月');
+    assert.equal(appConfigAfterBadge.data.places.contributionRewardPolicy.topN, 3);
 
     const profileAfterBadgeConfig = await request('/me', { token: userToken });
     assert.equal(profileAfterBadgeConfig.data.placeContributionSummary.points, 15);
     assert.equal(profileAfterBadgeConfig.data.placeContributionSummary.minPublicPoints, 10);
     assert.equal(profileAfterBadgeConfig.data.placeContributionSummary.publicEligible, true);
+    assert.equal(profileAfterBadgeConfig.data.placeContributionSummary.leaderboardEnabled, true);
+    assert.equal(profileAfterBadgeConfig.data.placeContributionSummary.rank, 1);
+    assert.equal(profileAfterBadgeConfig.data.placeContributionSummary.rankTotal, 1);
+    assert.equal(profileAfterBadgeConfig.data.placeContributionSummary.nextLevelRemainingPoints, 5);
+    assert.equal(profileAfterBadgeConfig.data.placeContributionSummary.rewardEligible, true);
+    assert.equal(profileAfterBadgeConfig.data.placeContributionSummary.rewardPolicy.publicEnabled, true);
+
+    const leaderboardAfterConfig = await request('/places/contributions/leaderboard', { token: userToken });
+    assert.equal(leaderboardAfterConfig.data.enabled, true);
+    assert.equal(leaderboardAfterConfig.data.items[0].rank, 1);
+    assert.equal(leaderboardAfterConfig.data.items[0].points, 15);
+    assert.equal(leaderboardAfterConfig.data.items[0].phone, undefined);
+    assert.equal(leaderboardAfterConfig.data.items[0].publicName, leaderboardAfterConfig.data.items[0].ownerName);
+    assert.equal(leaderboardAfterConfig.data.mySummary.rank, 1);
+    assert.equal(leaderboardAfterConfig.data.mySummary.rewardEligible, true);
+    assert.equal(leaderboardAfterConfig.data.rewardPolicy.publicEnabled, true);
 
     const notifications = await request('/notifications', { token: userToken });
     const contributionNotifications = notifications.data.filter((item) => item.kind === 'place_submission' && /\+\d+贡献分/.test(item.text || ''));
