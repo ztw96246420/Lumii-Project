@@ -7044,22 +7044,155 @@ function requireAdmin(req, res) {
   return admin;
 }
 
+function stableAuditValue(value) {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return value.map(stableAuditValue);
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'object') {
+    return Object.keys(value)
+      .sort()
+      .reduce((acc, key) => {
+        const item = value[key];
+        if (typeof item !== 'undefined' && typeof item !== 'function') acc[key] = stableAuditValue(item);
+        return acc;
+      }, {});
+  }
+  if (typeof value === 'number') return Number.isFinite(value) ? value : String(value);
+  if (typeof value === 'bigint') return String(value);
+  return value;
+}
+
+function stableAuditJson(value) {
+  try {
+    return JSON.stringify(stableAuditValue(value));
+  } catch {
+    return JSON.stringify(String(value || ''));
+  }
+}
+
+function adminAuditHashPayload(log = {}) {
+  return {
+    action: log.action || '',
+    adminName: log.adminName || '',
+    after: log.after ?? null,
+    before: log.before ?? null,
+    chainVersion: Number(log.chainVersion || 1),
+    createdAt: log.createdAt || '',
+    id: log.id || '',
+    ip: log.ip || '',
+    prevHash: log.prevHash || '',
+    reason: log.reason || '',
+    role: log.role || '',
+    targetId: log.targetId || '',
+    targetType: log.targetType || '',
+    userAgent: log.userAgent || '',
+  };
+}
+
+function adminAuditHash(log = {}) {
+  return crypto.createHash('sha256').update(stableAuditJson(adminAuditHashPayload(log))).digest('hex');
+}
+
+function adminAuditHashTail(value) {
+  const text = String(value || '');
+  return text ? text.slice(0, 8) : '';
+}
+
+function adminAuditIntegrityStatusLabel(status) {
+  return {
+    broken: '链路异常',
+    legacy: '历史未签名',
+    partial: '部分验证',
+    verified: '链路正常',
+  }[status] || status || '-';
+}
+
+function adminAuditIntegrity(logs = state.adminAuditLogs) {
+  const items = [];
+  const ordered = (Array.isArray(logs) ? logs : []).slice().reverse();
+  let previousHash = '';
+  let signedSeen = false;
+  let verified = 0;
+  let signed = 0;
+  let legacyUnsigned = 0;
+  let broken = 0;
+  let rootOutsideWindow = false;
+  for (const log of ordered) {
+    const hasSignature = Boolean(log?.hash || log?.prevHash || log?.chainVersion);
+    if (!hasSignature) {
+      legacyUnsigned += 1;
+      previousHash = '';
+      items.push({ id: log?.id || '', status: 'legacy' });
+      continue;
+    }
+    signed += 1;
+    const expectedHash = adminAuditHash(log);
+    const hashOk = String(log?.hash || '') === expectedHash;
+    const prevHash = String(log?.prevHash || '');
+    let prevOk = true;
+    if (!signedSeen && !previousHash && prevHash) {
+      rootOutsideWindow = true;
+    } else if (prevHash !== previousHash) {
+      prevOk = false;
+    }
+    const status = hashOk && prevOk ? 'verified' : 'broken';
+    if (status === 'verified') verified += 1;
+    else broken += 1;
+    items.push({
+      expectedHashTail: adminAuditHashTail(expectedHash),
+      hashTail: adminAuditHashTail(log?.hash),
+      id: log?.id || '',
+      prevHashTail: adminAuditHashTail(prevHash),
+      status,
+    });
+    previousHash = String(log?.hash || '');
+    signedSeen = true;
+  }
+  const latestHash = (Array.isArray(logs) && logs[0]?.hash) ? logs[0].hash : '';
+  const status = broken
+    ? 'broken'
+    : signed === 0
+      ? 'legacy'
+      : legacyUnsigned || rootOutsideWindow
+        ? 'partial'
+        : 'verified';
+  return {
+    broken,
+    checkedAt: new Date().toISOString(),
+    latestHash,
+    latestHashTail: adminAuditHashTail(latestHash),
+    legacyUnsigned,
+    rootOutsideWindow,
+    signed,
+    status,
+    statusLabel: adminAuditIntegrityStatusLabel(status),
+    total: Array.isArray(logs) ? logs.length : 0,
+    verified,
+    items: items.reverse(),
+  };
+}
+
 function writeAdminAudit(admin, action, targetType, targetId, before, after, reason = '') {
   state.adminAuditLogs = Array.isArray(state.adminAuditLogs) ? state.adminAuditLogs : [];
-  state.adminAuditLogs.unshift({
+  const previousHash = state.adminAuditLogs[0]?.hash || '';
+  const entry = {
     action,
     adminName: admin?.username || 'admin',
     after,
     before,
+    chainVersion: 1,
     createdAt: new Date().toISOString(),
     id: `audit-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     ip: admin?.ip || '',
+    prevHash: previousHash,
     reason: String(reason || '').slice(0, 240),
     role: admin?.role || 'admin',
     targetId: String(targetId || ''),
     targetType,
     userAgent: String(admin?.userAgent || '').slice(0, 180),
-  });
+  };
+  entry.hash = adminAuditHash(entry);
+  state.adminAuditLogs.unshift(entry);
   state.adminAuditLogs = state.adminAuditLogs.slice(0, 1000);
 }
 
@@ -7283,6 +7416,8 @@ function auditSearchHaystack(log) {
 
 function adminAuditLogs(options = {}) {
   const logs = Array.isArray(state.adminAuditLogs) ? state.adminAuditLogs : [];
+  const integrity = adminAuditIntegrity(logs);
+  const integrityById = new Map((integrity.items || []).map((item) => [item.id, item]));
   const action = String(options.action || 'all');
   const adminName = String(options.admin || 'all');
   const targetType = String(options.targetType || 'all');
@@ -7306,9 +7441,33 @@ function adminAuditLogs(options = {}) {
   const targetTypes = Array.from(new Set(logs.map((log) => log.targetType).filter(Boolean))).sort();
   return {
     filters: { actions, admins, targetTypes },
-    items: matched.slice(0, limit),
+    integrity: {
+      broken: integrity.broken,
+      checkedAt: integrity.checkedAt,
+      latestHashTail: integrity.latestHashTail,
+      legacyUnsigned: integrity.legacyUnsigned,
+      rootOutsideWindow: integrity.rootOutsideWindow,
+      signed: integrity.signed,
+      status: integrity.status,
+      statusLabel: integrity.statusLabel,
+      total: integrity.total,
+      verified: integrity.verified,
+    },
+    items: matched.slice(0, limit).map((log) => {
+      const item = integrityById.get(log.id) || {};
+      return {
+        ...log,
+        hashTail: adminAuditHashTail(log.hash),
+        integrityStatus: item.status || 'legacy',
+        integrityStatusLabel: adminAuditIntegrityStatusLabel(item.status || 'legacy'),
+        prevHashTail: adminAuditHashTail(log.prevHash),
+      };
+    }),
     summary: {
       highRisk: matched.filter((log) => highRiskPattern.test(String(log.action || ''))).length,
+      integrityBroken: integrity.broken,
+      integritySigned: integrity.signed,
+      integrityStatus: integrity.status,
       matched: matched.length,
       missingReason: matched.filter((log) => highRiskPattern.test(String(log.action || '')) && !String(log.reason || '').trim()).length,
       total: logs.length,
@@ -22308,7 +22467,7 @@ function adminReadinessModules(context) {
       module: '数据导出与审计',
       group: '治理',
       status: 'partial',
-      evidence: 'CSV 导出支持筛选、导出原因、文件水印、审批申请、审批通过、服务器本地归档任务、审批下载、历史、行数摘要和 data.export.* 审计；审计日志支持搜索筛选。',
+      evidence: 'CSV 导出支持筛选、导出原因、文件水印、审批申请、审批通过、服务器本地归档任务、审批下载、历史、行数摘要和 data.export.* 审计；审计日志支持搜索筛选与 hash 链完整性校验。',
       mobileLinkage: '导出覆盖移动端真实业务数据和 App 事件，不导出图片二进制或完整设备 token；强制审批开启后需按审批单创建归档或下载。',
       nextStep: '生产期补导出审批值守通知、对象存储归档、签名下载链接和文件生命周期策略。',
     },
@@ -22319,7 +22478,7 @@ function adminReadinessModules(context) {
       status: hasAccountWarnings ? 'partial' : 'ready',
       evidence: '已覆盖系统健康、外部依赖、业务积压、多后台账号、角色权限点、会话和高风险动作。',
       mobileLinkage: '系统健康观测包含影响 App 的 AI、地图、媒体、客服、通知和配置能力。',
-      nextStep: '生产期补 APM、外部告警、账号离职轮换 SOP 和不可篡改审计。',
+      nextStep: '生产期补 APM、外部告警、账号离职轮换 SOP，并把审计 hash 链同步到数据库/WORM/日志服务。',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }
@@ -22341,7 +22500,7 @@ function adminReadinessQuestions(context = {}) {
     ['q-clear-data', 'P1', '用户业务数据清理是否只保留测试环境？', '已接入数据清理审批和高风险最少会签人数；达到会签人数后才真正清理移动端业务数据。生产是否开放或隐藏入口仍需确认。', '影响误操作风险、用户数据权益和客服 SOP。'],
     ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '已接入可配置策略：默认供应商提交失败、供应商超时、供应商返回失败会自动返还；照片不合格、内容安全拦截、运营手动标失败不自动返还，后台仍可人工返还且防重复。', '影响用户权益、成本和客服处理标准。', 'ready', '已接入'],
     ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '已接入永久封禁审批流和高风险最少会签人数；达到会签人数后才真正写入处罚并影响移动端账号状态。', '影响高风险处罚治理。', 'ready', '已接入'],
-    ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏，不开放完整手机号导出。', '影响隐私合规和数据泄露风险。'],
+    ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏；完整敏感字段导出必须具备 data.export.sensitive 权限，并提交 includeSensitive=true 的导出审批。', '影响隐私合规和数据泄露风险。', 'ready', '已接入'],
     ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '已接入用户本人公开贡献身份、轻量等级、后台手动调整和撤销；排行榜、他人主页展示、活动奖励或兑换规则仍待确认。', '影响地点生态激励。'],
     ['q-notification-approval', 'P1', '系统通知是否需要发送审批？', '已接入发送审批流、“强制审批”配置开关和高风险最少会签人数；达到会签人数后才发送。', '影响误发和运营风险。', 'ready', '已接入'],
     ['q-config-approval', 'P0', '配置强制更新、维护模式、全功能关闭是否必须审批？', '已接入配置发布审批流、“强制配置发布审批”开关和高风险最少会签人数；达到会签人数后才发布 /app/config。', '影响事故风险和发布治理。', 'ready', '已接入'],
