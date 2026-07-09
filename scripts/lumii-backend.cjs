@@ -1402,6 +1402,24 @@ function highRiskApprovalExpiredResult(label = '高风险审批') {
   };
 }
 
+function rejectHighRiskApprovalRecord(admin, approval, body = {}, {
+  action = '',
+  defaultReason = '驳回高风险审批',
+  item,
+  targetType = '',
+} = {}) {
+  const before = cloneJson(approval);
+  const now = new Date().toISOString();
+  approval.rejectReason = adminReason(body, defaultReason);
+  approval.rejectedAt = now;
+  approval.rejectedBy = currentAdminUsername(admin);
+  approval.status = 'rejected';
+  approval.updatedAt = now;
+  const after = typeof item === 'function' ? item(approval) : approval;
+  if (action && targetType) writeAdminAudit(admin, action, targetType, approval.id || 'unknown', before, after, approval.rejectReason);
+  return approval;
+}
+
 function markHighRiskApprovalExpired(approval, { action, item, targetType } = {}) {
   if (!approval || String(approval.status || 'pending_approval') !== 'pending_approval') return false;
   if (highRiskApprovalCurrentStatus(approval) !== 'expired') return false;
@@ -2052,6 +2070,9 @@ function normalizeOpsConfigApproval(item = {}) {
     expiresAt: item.expiresAt || '',
     id: String(item.id),
     reason: String(item.reason || '').slice(0, 240),
+    rejectedAt: item.rejectedAt || '',
+    rejectedBy: item.rejectedBy || '',
+    rejectReason: String(item.rejectReason || '').slice(0, 240),
     revisionId: item.revisionId || '',
     riskChanges: Array.isArray(item.riskChanges) ? item.riskChanges : configRiskChanges(baseConfig, config),
     sourceDraftId: item.sourceDraftId || '',
@@ -2119,6 +2140,9 @@ function opsConfigApprovalItem(approval = {}) {
     expiresAt: item.expiresAt,
     id: item.id,
     reason: item.reason,
+    rejectedAt: item.rejectedAt,
+    rejectedBy: item.rejectedBy,
+    rejectReason: item.rejectReason,
     revisionId: item.revisionId,
     riskChanges: item.riskChanges,
     sourceDraftId: item.sourceDraftId,
@@ -2151,6 +2175,7 @@ function adminOpsConfigApprovals(options = {}) {
       expired: all.filter((item) => item.status === 'expired').length,
       matched: items.length,
       pending: all.filter((item) => item.status === 'pending_approval').length,
+      rejected: all.filter((item) => item.status === 'rejected').length,
       total: all.length,
     },
   };
@@ -2298,6 +2323,27 @@ function cancelOpsConfigApproval(admin, approvalId, body = {}) {
   approval.cancelReason = adminReason(body, '取消配置审批');
   approval.updatedAt = approval.canceledAt;
   writeAdminAudit(admin, 'config.approval.cancel', 'ops_config_approval', approval.id, before, approval, approval.cancelReason);
+  saveState();
+  return {
+    approval: opsConfigApprovalItem(approval),
+    config: adminOpsConfigResponse(),
+  };
+}
+
+function rejectOpsConfigApproval(admin, approvalId, body = {}) {
+  processExpiredHighRiskApprovals();
+  const approval = ensureOpsConfigApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '配置审批不存在', statusCode: 404, code: 'ADMIN_CONFIG_APPROVAL_NOT_FOUND' };
+  const currentStatus = opsConfigApprovalCurrentStatus(approval);
+  if (currentStatus === 'expired') return highRiskApprovalExpiredResult('配置发布审批');
+  if (currentStatus !== 'pending_approval') return { error: `配置审批${opsConfigApprovalStatusLabel(currentStatus)}，不能驳回`, statusCode: 409, code: 'ADMIN_CONFIG_APPROVAL_INVALID' };
+  const selfApproval = rejectSelfHighRiskApproval(admin, approval, '配置发布审批');
+  if (selfApproval) return selfApproval;
+  rejectHighRiskApprovalRecord(admin, approval, body, {
+    action: 'config.approval.reject',
+    defaultReason: '驳回配置审批',
+    targetType: 'ops_config_approval',
+  });
   saveState();
   return {
     approval: opsConfigApprovalItem(approval),
@@ -4232,6 +4278,7 @@ function adminExportApprovalItem(approval = {}) {
     approvedBy: approval.approvedBy || '',
     canceledAt: approval.canceledAt || '',
     canceledBy: approval.canceledBy || '',
+    cancelReason: approval.cancelReason || '',
     columnsCount: Math.max(0, Math.floor(Number(approval.columnsCount || 0))),
     createdAt: approval.createdAt || '',
     createdBy: approval.createdBy || '',
@@ -4249,6 +4296,8 @@ function adminExportApprovalItem(approval = {}) {
     lastDownloadedAt: approval.lastDownloadedAt || '',
     matchedRows: Math.max(0, Math.floor(Number(approval.matchedRows || 0))),
     maxDownloads,
+    rejectedAt: approval.rejectedAt || '',
+    rejectedBy: approval.rejectedBy || '',
     rejectReason: approval.rejectReason || '',
     requestExpiresAt: approval.requestExpiresAt || approval.approvalExpiresAt || '',
     rowCount: Math.max(0, Math.floor(Number(approval.rowCount || 0))),
@@ -4281,9 +4330,11 @@ function adminExportApprovals(options = {}) {
     policy: normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports),
     summary: {
       approved: all.filter((item) => item.status === 'approved').length,
+      canceled: all.filter((item) => item.status === 'canceled').length,
       expired: all.filter((item) => item.status === 'expired').length,
       matched: items.length,
       pending: all.filter((item) => item.status === 'pending_approval').length,
+      rejected: all.filter((item) => item.status === 'rejected').length,
       total: all.length,
     },
   };
@@ -4364,9 +4415,30 @@ function cancelAdminExportApproval(admin, approvalId, body = {}) {
   const before = cloneJson(approval);
   approval.canceledAt = new Date().toISOString();
   approval.canceledBy = admin?.username || ADMIN_USERNAME;
-  approval.rejectReason = adminReason(body, '取消导出审批');
+  approval.cancelReason = adminReason(body, '取消导出审批');
   approval.status = 'canceled';
-  writeAdminAudit(admin, 'data.export.approval.cancel', 'data_export_approval', approval.id, before, approval, approval.rejectReason);
+  writeAdminAudit(admin, 'data.export.approval.cancel', 'data_export_approval', approval.id, before, approval, approval.cancelReason);
+  saveState();
+  return {
+    approval: adminExportApprovalItem(approval),
+    approvals: adminExportApprovals({ type: approval.datasetType }),
+  };
+}
+
+function rejectAdminExportApproval(admin, approvalId, body = {}) {
+  processExpiredHighRiskApprovals();
+  const approval = ensureAdminExportApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '导出审批不存在', statusCode: 404 };
+  const currentStatus = adminExportApprovalCurrentStatus(approval);
+  if (currentStatus === 'expired') return highRiskApprovalExpiredResult('导出审批');
+  if (currentStatus !== 'pending_approval') return { error: '只有待审批导出申请可以驳回', statusCode: 409 };
+  const selfApproval = rejectSelfHighRiskApproval(admin, approval, '导出审批');
+  if (selfApproval) return selfApproval;
+  rejectHighRiskApprovalRecord(admin, approval, body, {
+    action: 'data.export.approval.reject',
+    defaultReason: '驳回导出审批',
+    targetType: 'data_export_approval',
+  });
   saveState();
   return {
     approval: adminExportApprovalItem(approval),
@@ -6875,6 +6947,7 @@ function sanctionApprovalStatusLabel(status) {
     canceled: '已取消',
     expired: '已过期',
     pending_approval: '待审批',
+    rejected: '已驳回',
   }[status] || status || '-';
 }
 
@@ -7080,6 +7153,9 @@ function adminSanctionApprovalItem(approval = {}) {
     petName: pet?.name || '',
     phone,
     reason: approval.reason || '',
+    rejectedAt: approval.rejectedAt || '',
+    rejectedBy: approval.rejectedBy || '',
+    rejectReason: approval.rejectReason || '',
     sanctionId: approval.sanctionId || '',
     source: approval.source || 'manual',
     sourceReportId: approval.sourceReportId || '',
@@ -7113,6 +7189,7 @@ function adminSanctionApprovals(options = {}) {
       canceled: all.filter((item) => item.status === 'canceled').length,
       expired: all.filter((item) => item.status === 'expired').length,
       pending: all.filter((item) => item.status === 'pending_approval').length,
+      rejected: all.filter((item) => item.status === 'rejected').length,
       total: all.length,
     },
   };
@@ -7216,6 +7293,27 @@ function cancelSanctionApproval(admin, approvalId, body = {}) {
   approval.canceledBy = admin?.username || 'admin';
   approval.status = 'canceled';
   writeAdminAudit(admin, 'user.sanction.approval.cancel', 'sanction_approval', approval.id, before, adminSanctionApprovalItem(approval), approval.cancelReason);
+  return {
+    approval: adminSanctionApprovalItem(approval),
+    approvals: adminSanctionApprovals(),
+  };
+}
+
+function rejectSanctionApproval(admin, approvalId, body = {}) {
+  processExpiredHighRiskApprovals();
+  const approval = ensureSanctionApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '处罚审批不存在', statusCode: 404 };
+  const currentStatus = highRiskApprovalCurrentStatus(approval);
+  if (currentStatus === 'expired') return highRiskApprovalExpiredResult('处罚审批');
+  if (currentStatus !== 'pending_approval') return { error: '只有待审批处罚可以驳回', statusCode: 409 };
+  const selfApproval = rejectSelfHighRiskApproval(admin, approval, '处罚审批');
+  if (selfApproval) return selfApproval;
+  rejectHighRiskApprovalRecord(admin, approval, body, {
+    action: 'user.sanction.approval.reject',
+    defaultReason: '驳回处罚审批',
+    item: adminSanctionApprovalItem,
+    targetType: 'sanction_approval',
+  });
   return {
     approval: adminSanctionApprovalItem(approval),
     approvals: adminSanctionApprovals(),
@@ -16483,7 +16581,7 @@ function systemNotificationItem(item) {
     id: item.id,
     latestOpenAt: effectStats.latestOpenAt,
     latestReadAt: effectStats.latestReadAt,
-    mode: item.mode || (status === 'draft' ? 'draft' : status === 'scheduled' ? 'scheduled' : status === 'pending_approval' || status === 'expired' ? 'approval' : 'send'),
+    mode: item.mode || (status === 'draft' ? 'draft' : status === 'scheduled' ? 'scheduled' : status === 'pending_approval' || status === 'expired' || status === 'rejected' ? 'approval' : 'send'),
     openCount: effectStats.openCount,
     openRate: effectStats.openRate,
     phonesInput: item.phonesInput || '',
@@ -16513,6 +16611,9 @@ function systemNotificationItem(item) {
     readRate: effectStats.readRate,
     rateLimitedCount: Number(item.rateLimitedCount || 0),
     rateLimitedPhones: Array.isArray(item.rateLimitedPhones) ? item.rateLimitedPhones.slice(0, 20) : [],
+    rejectedAt: item.rejectedAt || '',
+    rejectedBy: item.rejectedBy || '',
+    rejectReason: item.rejectReason || '',
     respectUserSettings: item.respectUserSettings !== false,
     revokedCount: Number(item.revokedCount || 0),
     scheduledAt: item.scheduledAt || '',
@@ -16579,6 +16680,7 @@ function adminSystemNotifications() {
       reads: readCount,
       expiredApprovals: campaigns.filter((item) => item.status === 'expired').length,
       pendingApprovals: campaigns.filter((item) => item.status === 'pending_approval').length,
+      rejectedApprovals: campaigns.filter((item) => item.status === 'rejected').length,
       scheduled: campaigns.filter((item) => item.status === 'scheduled').length,
       users: users.length,
     },
@@ -16813,6 +16915,25 @@ function approveSystemNotification(admin, id, body = {}) {
   notification.scheduledAt = '';
   deliverManagedSystemNotification(notification, admin, reason);
   writeAdminAudit(admin, notification.status === 'sent' ? 'notification.system.approve_send' : 'notification.system.approve_failed', 'system_notification', id, before, systemNotificationItem(notification), reason);
+  return { notification: systemNotificationItem(notification), summary: adminSystemNotifications().summary };
+}
+
+function rejectSystemNotification(admin, id, body = {}) {
+  processExpiredHighRiskApprovals();
+  const notification = ensureSystemNotifications().find((item) => item.id === id);
+  if (!notification) return { error: '系统通知不存在', statusCode: 404 };
+  const currentStatus = highRiskApprovalCurrentStatus(notification);
+  if (currentStatus === 'expired') return highRiskApprovalExpiredResult('系统通知审批');
+  if (currentStatus !== 'pending_approval') return { error: '只有待审批通知可以驳回', statusCode: 409 };
+  const selfApproval = rejectSelfHighRiskApproval(admin, notification, '系统通知审批');
+  if (selfApproval) return selfApproval;
+  rejectHighRiskApprovalRecord(admin, notification, body, {
+    action: 'notification.system.approval.reject',
+    defaultReason: '驳回系统通知审批',
+    item: systemNotificationItem,
+    targetType: 'system_notification',
+  });
+  notification.mode = 'approval';
   return { notification: systemNotificationItem(notification), summary: adminSystemNotifications().summary };
 }
 
@@ -17515,6 +17636,7 @@ function dataClearApprovalStatusLabel(status) {
     canceled: '已取消',
     expired: '已过期',
     pending_approval: '待审批',
+    rejected: '已驳回',
   }[status] || status || '-';
 }
 
@@ -17541,6 +17663,9 @@ function adminDataClearApprovalItem(approval = {}) {
     ownerName: user?.ownerName || approval.beforeUser?.ownerName || `用户${String(phone || '').slice(-4)}`,
     phone,
     reason: approval.reason || '',
+    rejectedAt: approval.rejectedAt || '',
+    rejectedBy: approval.rejectedBy || '',
+    rejectReason: approval.rejectReason || '',
     status,
     statusLabel: dataClearApprovalStatusLabel(status),
   };
@@ -17566,6 +17691,7 @@ function adminDataClearApprovals(options = {}) {
       canceled: all.filter((item) => item.status === 'canceled').length,
       expired: all.filter((item) => item.status === 'expired').length,
       pending: all.filter((item) => item.status === 'pending_approval').length,
+      rejected: all.filter((item) => item.status === 'rejected').length,
       total: all.length,
     },
   };
@@ -17642,6 +17768,27 @@ function cancelDataClearApproval(admin, approvalId, body = {}) {
   approval.canceledBy = admin?.username || 'admin';
   approval.status = 'canceled';
   writeAdminAudit(admin, 'user.clear_business_data.approval.cancel', 'data_clear_approval', approval.id, before, adminDataClearApprovalItem(approval), approval.cancelReason);
+  return {
+    approval: adminDataClearApprovalItem(approval),
+    approvals: adminDataClearApprovals(),
+  };
+}
+
+function rejectDataClearApproval(admin, approvalId, body = {}) {
+  processExpiredHighRiskApprovals();
+  const approval = ensureDataClearApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '数据清理审批不存在', statusCode: 404 };
+  const currentStatus = highRiskApprovalCurrentStatus(approval);
+  if (currentStatus === 'expired') return highRiskApprovalExpiredResult('数据清理审批');
+  if (currentStatus !== 'pending_approval') return { error: '只有待审批数据清理申请可以驳回', statusCode: 409 };
+  const selfApproval = rejectSelfHighRiskApproval(admin, approval, '数据清理审批');
+  if (selfApproval) return selfApproval;
+  rejectHighRiskApprovalRecord(admin, approval, body, {
+    action: 'user.clear_business_data.approval.reject',
+    defaultReason: '驳回用户业务数据清理审批',
+    item: adminDataClearApprovalItem,
+    targetType: 'data_clear_approval',
+  });
   return {
     approval: adminDataClearApprovalItem(approval),
     approvals: adminDataClearApprovals(),
@@ -25733,6 +25880,9 @@ function supportTicketBatchReplyApprovalItem(approval = {}) {
     nextStatus: supportTicketStatusFor(approval.nextStatus || 'waiting_user'),
     notifyUser: approval.notifyUser !== false,
     reason: approval.reason || '',
+    rejectedAt: approval.rejectedAt || '',
+    rejectedBy: approval.rejectedBy || '',
+    rejectReason: approval.rejectReason || '',
     results: Array.isArray(approval.results) ? approval.results.slice(0, 20) : [],
     status,
     successCount: Math.max(0, Math.floor(Number(approval.successCount || 0))),
@@ -25752,6 +25902,7 @@ function supportTicketBatchReplyApprovalList(limit = 8) {
     items,
     expired: items.filter((item) => item.status === 'expired').length,
     pending: items.filter((item) => item.status === 'pending_approval').length,
+    rejected: items.filter((item) => item.status === 'rejected').length,
     sent: ensureSupportTicketBatchReplyApprovals().filter((item) => item.status === 'sent' || item.status === 'sent_with_errors').length,
     total: ensureSupportTicketBatchReplyApprovals().length,
   };
@@ -25870,6 +26021,26 @@ function cancelSupportTicketBatchReplyApproval(admin, approvalId, body = {}) {
   approval.cancelReason = adminReason(body, '取消批量客服回复');
   approval.status = 'canceled';
   writeAdminAudit(admin, 'ticket.batch_reply.cancel', 'support_ticket_batch_reply', approval.id, before, approval, approval.cancelReason);
+  return {
+    approval: supportTicketBatchReplyApprovalItem(approval),
+    approvals: supportTicketBatchReplyApprovalList(),
+  };
+}
+
+function rejectSupportTicketBatchReplyApproval(admin, approvalId, body = {}) {
+  processExpiredHighRiskApprovals();
+  const approval = ensureSupportTicketBatchReplyApprovals().find((item) => item.id === approvalId);
+  if (!approval) return { error: '批量回复申请不存在', statusCode: 404 };
+  const currentStatus = highRiskApprovalCurrentStatus(approval);
+  if (currentStatus === 'expired') return highRiskApprovalExpiredResult('批量客服回复审批');
+  if (currentStatus !== 'pending_approval') return { error: '只有待审批批量回复可以驳回', statusCode: 409 };
+  const selfApproval = rejectSelfHighRiskApproval(admin, approval, '批量客服回复审批');
+  if (selfApproval) return selfApproval;
+  rejectHighRiskApprovalRecord(admin, approval, body, {
+    action: 'ticket.batch_reply.reject',
+    defaultReason: '驳回批量客服回复',
+    targetType: 'support_ticket_batch_reply',
+  });
   return {
     approval: supportTicketBatchReplyApprovalItem(approval),
     approvals: supportTicketBatchReplyApprovalList(),
@@ -27385,12 +27556,14 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
-  const adminExportApprovalActionMatch = pathname.match(/^\/admin\/exports\/approvals\/([^/]+)\/(approve|cancel)$/);
+  const adminExportApprovalActionMatch = pathname.match(/^\/admin\/exports\/approvals\/([^/]+)\/(approve|cancel|reject)$/);
   if (req.method === 'POST' && adminExportApprovalActionMatch) {
     const approvalId = decodeURIComponent(adminExportApprovalActionMatch[1]);
     const action = adminExportApprovalActionMatch[2];
     const result = action === 'approve'
       ? approveAdminExportApproval(admin, approvalId, body)
+      : action === 'reject'
+        ? rejectAdminExportApproval(admin, approvalId, body)
       : cancelAdminExportApproval(admin, approvalId, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_EXPORT_APPROVAL_ACTION_INVALID');
@@ -27476,6 +27649,18 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   const adminNotificationApproveMatch = pathname.match(/^\/admin\/notifications\/([^/]+)\/approve$/);
   if (req.method === 'POST' && adminNotificationApproveMatch) {
     const result = approveSystemNotification(admin, decodeURIComponent(adminNotificationApproveMatch[1]), body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_NOTIFICATION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminNotificationRejectMatch = pathname.match(/^\/admin\/notifications\/([^/]+)\/reject$/);
+  if (req.method === 'POST' && adminNotificationRejectMatch) {
+    const result = rejectSystemNotification(admin, decodeURIComponent(adminNotificationRejectMatch[1]), body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_NOTIFICATION_INVALID');
       return true;
@@ -27602,12 +27787,14 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
-  const adminTicketBatchReplyMatch = pathname.match(/^\/admin\/tickets\/batch-replies\/([^/]+)\/(approve|cancel)$/);
+  const adminTicketBatchReplyMatch = pathname.match(/^\/admin\/tickets\/batch-replies\/([^/]+)\/(approve|cancel|reject)$/);
   if (req.method === 'POST' && adminTicketBatchReplyMatch) {
     const approvalId = decodeURIComponent(adminTicketBatchReplyMatch[1]);
     const action = adminTicketBatchReplyMatch[2];
     const result = action === 'approve'
       ? sendSupportTicketBatchReplyApproval(admin, approvalId, body)
+      : action === 'reject'
+        ? rejectSupportTicketBatchReplyApproval(admin, approvalId, body)
       : cancelSupportTicketBatchReplyApproval(admin, approvalId, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_TICKET_BATCH_REPLY_ACTION_INVALID');
@@ -27868,12 +28055,14 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
-  const adminDataClearApprovalActionMatch = pathname.match(/^\/admin\/data-clear-approvals\/([^/]+)\/(approve|cancel)$/);
+  const adminDataClearApprovalActionMatch = pathname.match(/^\/admin\/data-clear-approvals\/([^/]+)\/(approve|cancel|reject)$/);
   if (req.method === 'POST' && adminDataClearApprovalActionMatch) {
     const approvalId = decodeURIComponent(adminDataClearApprovalActionMatch[1]);
     const action = adminDataClearApprovalActionMatch[2];
     const result = action === 'approve'
       ? approveDataClearApproval(admin, approvalId, body)
+      : action === 'reject'
+        ? rejectDataClearApproval(admin, approvalId, body)
       : cancelDataClearApproval(admin, approvalId, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_DATA_CLEAR_APPROVAL_ACTION_INVALID');
@@ -28128,12 +28317,14 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
-  const adminSanctionApprovalActionMatch = pathname.match(/^\/admin\/sanction-approvals\/([^/]+)\/(approve|cancel)$/);
+  const adminSanctionApprovalActionMatch = pathname.match(/^\/admin\/sanction-approvals\/([^/]+)\/(approve|cancel|reject)$/);
   if (req.method === 'POST' && adminSanctionApprovalActionMatch) {
     const approvalId = decodeURIComponent(adminSanctionApprovalActionMatch[1]);
     const action = adminSanctionApprovalActionMatch[2];
     const result = action === 'approve'
       ? approveSanctionApproval(admin, approvalId, body)
+      : action === 'reject'
+        ? rejectSanctionApproval(admin, approvalId, body)
       : cancelSanctionApproval(admin, approvalId, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_SANCTION_APPROVAL_INVALID');
@@ -28980,12 +29171,14 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
-  const adminConfigApprovalActionMatch = pathname.match(/^\/admin\/config\/approvals\/([^/]+)\/(approve|cancel)$/);
+  const adminConfigApprovalActionMatch = pathname.match(/^\/admin\/config\/approvals\/([^/]+)\/(approve|cancel|reject)$/);
   if (req.method === 'POST' && adminConfigApprovalActionMatch) {
     const approvalId = decodeURIComponent(adminConfigApprovalActionMatch[1]);
     const action = adminConfigApprovalActionMatch[2];
     const result = action === 'approve'
       ? approveOpsConfigApproval(admin, approvalId, body)
+      : action === 'reject'
+        ? rejectOpsConfigApproval(admin, approvalId, body)
       : cancelOpsConfigApproval(admin, approvalId, body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_CONFIG_APPROVAL_ACTION_INVALID');

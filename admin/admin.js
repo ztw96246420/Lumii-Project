@@ -660,6 +660,10 @@ async function onContentClick(event) {
       await approveTicketBatchReply(id);
       return;
     }
+    if (action === 'ticket-batch-reply-reject') {
+      await rejectTicketBatchReply(id);
+      return;
+    }
     if (action === 'ticket-batch-reply-cancel') {
       await cancelTicketBatchReply(id);
       return;
@@ -707,6 +711,7 @@ async function onContentClick(event) {
     if (action === 'notification-audience-save') await saveNotificationAudiencePackage();
     if (action === 'notification-audience-delete') await confirmPost(`/admin/notifications/audience-packages/${encodeURIComponent(id)}/delete`, { reason: '删除通知人群包' }, '确认删除这个通知人群包？');
     if (action === 'notification-approve') await approveNotificationCampaign(id);
+    if (action === 'notification-reject') await rejectNotificationCampaign(id);
     if (action === 'notification-cancel') await cancelNotificationCampaign(id, button.dataset.status);
     if (action === 'send-notification') await sendSystemNotification('send');
     if (action === 'submit-notification-approval') await sendSystemNotification('approval');
@@ -761,6 +766,10 @@ async function onContentClick(event) {
       await approveConfigApproval(id);
       return;
     }
+    if (action === 'config-approval-reject') {
+      await rejectConfigApproval(id);
+      return;
+    }
     if (action === 'config-approval-cancel') {
       await cancelConfigApproval(id);
       return;
@@ -808,6 +817,10 @@ async function onContentClick(event) {
       await approveExportApproval(id);
       return;
     }
+    if (action === 'reject-export-approval') {
+      await rejectExportApproval(id);
+      return;
+    }
     if (action === 'cancel-export-approval') {
       await cancelExportApproval(id);
       return;
@@ -837,6 +850,7 @@ async function onContentClick(event) {
     }
     if (action === 'sanction-create') await createSanction();
     if (action === 'sanction-approval-approve') await approveSanctionApproval(id);
+    if (action === 'sanction-approval-reject') await rejectSanctionApproval(id);
     if (action === 'sanction-approval-cancel') await cancelSanctionApproval(id);
     if (action === 'sanction-revoke') await confirmPost(`/admin/users/${encodeURIComponent(phone)}/sanctions/${encodeURIComponent(id)}/revoke`, { reason }, '确认撤销这条处罚？');
     if (action === 'quick-mute') await post(`/admin/users/${encodeURIComponent(phone)}/sanctions`, { durationHours: 24, reason: '用户列表快捷禁言', type: 'mute' });
@@ -855,6 +869,10 @@ async function onContentClick(event) {
     }
     if (action === 'data-clear-approval-approve') {
       await approveDataClearApproval(id);
+      return;
+    }
+    if (action === 'data-clear-approval-reject') {
+      await rejectDataClearApproval(id);
       return;
     }
     if (action === 'data-clear-approval-cancel') {
@@ -1744,7 +1762,7 @@ function userBusinessSummaryText(summary = {}) {
 }
 
 function dataClearApprovalTone(status) {
-  return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'canceled' || status === 'expired' ? 'bad' : '';
+  return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'canceled' || status === 'expired' || status === 'rejected' ? 'bad' : '';
 }
 
 function renderDataClearApprovals(approvals = {}) {
@@ -1755,7 +1773,7 @@ function renderDataClearApprovals(approvals = {}) {
       <div class="section-head">
         <div>
           <h2>用户业务数据清理审批</h2>
-          <div class="section-sub">待审批 ${numberText(summary.pending || 0)} · 已执行 ${numberText(summary.approved || 0)} · 已过期 ${numberText(summary.expired || 0)} · 已取消 ${numberText(summary.canceled || 0)}</div>
+          <div class="section-sub">待审批 ${numberText(summary.pending || 0)} · 已执行 ${numberText(summary.approved || 0)} · 已驳回 ${numberText(summary.rejected || 0)} · 已过期 ${numberText(summary.expired || 0)} · 已取消 ${numberText(summary.canceled || 0)}</div>
         </div>
         ${help('清理申请提交后不会立刻影响移动端；只有审批通过才会删除该用户的宠物、AI、宠友圈、关系消息、地点、通知、工单等业务数据，并保留账号与审计日志。当前是单 admin 审批版本，生产多管理员后可升级为双人审批。')}
       </div>
@@ -1763,9 +1781,11 @@ function renderDataClearApprovals(approvals = {}) {
         ['用户', (row) => `<div class="cell-title">${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.phone)}</div>`],
         ['清理范围', (row) => `<div class="cell-sub clamp">${escapeHtml(userBusinessSummaryText(row.beforeSummary || {}))}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div><div class="cell-sub">提交人：${escapeHtml(row.createdBy || '-')}</div>`],
-        ['状态', (row) => `${tonePill(row.statusLabel || row.status, dataClearApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `执行 ${formatTime(row.approvedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt ? `超时 ${formatTime(row.approvalExpiresAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, dataClearApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `执行 ${formatTime(row.approvedAt)}` : row.rejectedAt ? `驳回 ${formatTime(row.rejectedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt ? `超时 ${formatTime(row.approvalExpiresAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>`],
         ['结果', (row) => row.status === 'approved'
           ? `<div class="cell-sub clamp">已清理：${escapeHtml(userBusinessSummaryText(row.beforeSummary || {}))}</div>`
+          : row.status === 'rejected'
+            ? `<div class="cell-sub clamp">${escapeHtml(row.rejectReason || '已驳回')}</div>`
           : row.status === 'canceled'
             ? `<div class="cell-sub clamp">${escapeHtml(row.cancelReason || '已取消')}</div>`
             : row.status === 'expired'
@@ -1774,7 +1794,8 @@ function renderDataClearApprovals(approvals = {}) {
         ['操作', (row) => row.status === 'pending_approval' ? `
           <div class="actions">
             <button class="small-button" data-action="data-clear-approval-approve" data-id="${escapeHtml(row.id)}">审批执行</button>
-            <button class="small-button danger" data-action="data-clear-approval-cancel" data-id="${escapeHtml(row.id)}">取消</button>
+            <button class="small-button danger" data-action="data-clear-approval-reject" data-id="${escapeHtml(row.id)}">驳回</button>
+            <button class="small-button ghost" data-action="data-clear-approval-cancel" data-id="${escapeHtml(row.id)}">取消</button>
           </div>
         ` : '-'],
       ], '暂无待审批的数据清理申请') : '<div class="placeholder"><div><strong>暂无待审批的数据清理申请</strong><div>从用户列表提交申请后会出现在这里。</div></div></div>'}
@@ -1832,6 +1853,18 @@ async function cancelDataClearApproval(id) {
   });
   invalidateDataClearCaches();
   showToast('数据清理审批已取消');
+  if (state.route === 'users') await render(true);
+}
+
+async function rejectDataClearApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入驳回原因', '驳回用户业务数据清理审批');
+  if (reason === null) return;
+  await post(`/admin/data-clear-approvals/${encodeURIComponent(id)}/reject`, {
+    reason: reason.trim() || '驳回用户业务数据清理审批',
+  });
+  invalidateDataClearCaches();
+  showToast('数据清理审批已驳回');
   if (state.route === 'users') await render(true);
 }
 
@@ -1967,6 +2000,17 @@ async function cancelTicketBatchReply(id) {
   await render(true);
 }
 
+async function rejectTicketBatchReply(id) {
+  const reason = window.prompt('请输入驳回原因', '驳回批量客服回复');
+  if (reason === null) return;
+  await post(`/admin/tickets/batch-replies/${encodeURIComponent(id)}/reject`, {
+    reason: reason.trim() || '驳回批量客服回复',
+  });
+  showToast('批量回复申请已驳回');
+  state.cache = { ...state.cache, tickets: null, audit: null, summary: null };
+  await render(true);
+}
+
 async function reviewTicketQuality(button) {
   const ticketId = button.dataset.ticketId || '';
   const status = button.dataset.status || 'reviewed';
@@ -2087,6 +2131,13 @@ async function approveNotificationCampaign(id) {
   const reason = window.prompt('请输入审批说明', '审批通过系统通知');
   if (reason === null) return;
   await post(`/admin/notifications/${encodeURIComponent(id)}/approve`, { reason: reason.trim() || '审批通过系统通知' });
+  state.cache.notifications = null;
+}
+
+async function rejectNotificationCampaign(id) {
+  const reason = window.prompt('请输入驳回原因', '驳回系统通知审批');
+  if (reason === null) return;
+  await post(`/admin/notifications/${encodeURIComponent(id)}/reject`, { reason: reason.trim() || '驳回系统通知审批' });
   state.cache.notifications = null;
 }
 
@@ -5161,7 +5212,7 @@ function renderSanctionPolicyReview(policy = {}) {
 }
 
 function sanctionApprovalTone(status) {
-  return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'canceled' || status === 'expired' ? 'bad' : '';
+  return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'canceled' || status === 'expired' || status === 'rejected' ? 'bad' : '';
 }
 
 function renderSanctionApprovals(approvals = {}) {
@@ -5172,7 +5223,7 @@ function renderSanctionApprovals(approvals = {}) {
       <div class="section-head">
         <div>
           <h2>永久封禁审批</h2>
-          <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${numberText(summary.approved || 0)} 条已审批 · ${numberText(summary.expired || 0)} 条已过期 · ${numberText(summary.canceled || 0)} 条已取消</div>
+          <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${numberText(summary.approved || 0)} 条已审批 · ${numberText(summary.rejected || 0)} 条已驳回 · ${numberText(summary.expired || 0)} 条已过期 · ${numberText(summary.canceled || 0)} 条已取消</div>
         </div>
         ${help('永久封禁提交后不会立刻影响移动端账号状态；只有审批通过时才会创建真实处罚、更新用户状态并发送站内通知。当前是单 admin 审批版本，生产多管理员后可升级为双人审批。')}
       </div>
@@ -5180,15 +5231,16 @@ function renderSanctionApprovals(approvals = {}) {
         ['用户', (row) => `<div class="cell-title">${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.phone)} ${row.petName ? `· ${escapeHtml(row.petName)}` : ''}</div>`],
         ['处罚', (row) => `<div>${statusPill(row.typeLabel || row.type || '-')}</div><div class="cell-sub">${row.durationHours ? `${numberText(row.durationHours)}h` : '长期有效'}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div><div class="cell-sub">${escapeHtml(row.source || 'manual')} · ${escapeHtml(row.templateId || row.sourceTargetId || '-')}</div>`],
-        ['状态', (row) => `${tonePill(row.statusLabel || row.status, sanctionApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `审批 ${formatTime(row.approvedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt ? `超时 ${formatTime(row.approvalExpiresAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, sanctionApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `审批 ${formatTime(row.approvedAt)}` : row.rejectedAt ? `驳回 ${formatTime(row.rejectedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt ? `超时 ${formatTime(row.approvalExpiresAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>`],
         ['提交', (row) => `<div>${formatTime(row.createdAt)}</div><div class="cell-sub">${escapeHtml(row.createdBy || '-')}</div>`],
         ['操作', (row) => row.status === 'pending_approval' ? `
           <div class="actions">
             <button class="small-button" data-action="sanction-approval-approve" data-id="${escapeHtml(row.id)}">审批通过</button>
-            <button class="small-button danger" data-action="sanction-approval-cancel" data-id="${escapeHtml(row.id)}">取消</button>
+            <button class="small-button danger" data-action="sanction-approval-reject" data-id="${escapeHtml(row.id)}">驳回</button>
+            <button class="small-button ghost" data-action="sanction-approval-cancel" data-id="${escapeHtml(row.id)}">取消</button>
           </div>
           <div class="cell-sub">${escapeHtml(row.id || '-')}</div>
-        ` : `<div class="cell-sub">${escapeHtml(row.sanctionId || row.approvalReason || row.cancelReason || '-')}</div>`],
+        ` : `<div class="cell-sub">${escapeHtml(row.sanctionId || row.approvalReason || row.rejectReason || row.cancelReason || '-')}</div>`],
       ], '暂无永久封禁审批') : '<div class="placeholder mini"><div><strong>暂无待审批永久封禁</strong><div>创建永久封禁时会先进入这里，审批通过后才会写入处罚流水。</div></div></div>'}
     </div>
   `;
@@ -5311,6 +5363,18 @@ async function cancelSanctionApproval(id) {
   });
   invalidateSanctionCaches();
   showToast('永久封禁审批已取消');
+  if (state.route === 'sanctions') await render(true);
+}
+
+async function rejectSanctionApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入驳回原因', '驳回永久封禁审批');
+  if (reason === null) return;
+  await post(`/admin/sanction-approvals/${encodeURIComponent(id)}/reject`, {
+    reason: reason.trim() || '驳回永久封禁审批',
+  });
+  invalidateSanctionCaches();
+  showToast('永久封禁审批已驳回');
   if (state.route === 'sanctions') await render(true);
 }
 
@@ -7062,6 +7126,7 @@ function ticketBatchReplyStatusLabel(status) {
     canceled: '已取消',
     expired: '已过期',
     pending_approval: '待审批',
+    rejected: '已驳回',
     sent: '已发送',
     sent_with_errors: '部分失败',
   }[status] || status || '-';
@@ -7097,15 +7162,17 @@ function renderTicketBatchReplyApprovals(batchReplyApprovals = {}, qualityPolicy
               <div class="cell-title">${escapeHtml(ticketBatchReplyStatusLabel(row.status))}</div>
               <div class="cell-sub">${escapeHtml(row.id || '-')}</div>
               <div class="cell-sub">${formatTime(row.createdAt)} · ${escapeHtml(row.createdBy || '-')}</div>
-              <div class="cell-sub">${row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt && row.status === 'pending_approval' ? `超时 ${formatTime(row.approvalExpiresAt)}` : ''}</div>
+              <div class="cell-sub">${row.rejectedAt ? `驳回 ${formatTime(row.rejectedAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt && row.status === 'pending_approval' ? `超时 ${formatTime(row.approvalExpiresAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : ''}</div>
             </div>
             <div class="ticket-content">${escapeHtml(row.content || '-')}</div>
             <div class="cell-sub">${numberText(row.ticketCount || 0)} 个工单 · ${row.notifyUser === false ? '不通知' : '通知用户'} · ${numberText(row.successCount || 0)} 成功 / ${numberText(row.errorCount || 0)} 失败${row.approvedAt ? ` · ${formatTime(row.approvedAt)}` : ''}</div>
             <div class="notification-template-actions">
               ${row.status === 'pending_approval' ? `
                 <button class="small-button" data-action="ticket-batch-reply-approve" data-id="${escapeHtml(row.id)}">审批发送</button>
-                <button class="small-button danger" data-action="ticket-batch-reply-cancel" data-id="${escapeHtml(row.id)}">取消</button>
+                <button class="small-button danger" data-action="ticket-batch-reply-reject" data-id="${escapeHtml(row.id)}">驳回</button>
+                <button class="small-button ghost" data-action="ticket-batch-reply-cancel" data-id="${escapeHtml(row.id)}">取消</button>
               ` : `<span class="risk-badge">${escapeHtml(ticketBatchReplyStatusLabel(row.status))}</span>`}
+              ${row.rejectReason || row.cancelReason ? `<span class="cell-sub">${escapeHtml(row.rejectReason || row.cancelReason)}</span>` : ''}
             </div>
           </article>
         `).join('')}
@@ -7418,6 +7485,7 @@ function notificationCampaignStatusLabel(status) {
     expired: '审批过期',
     failed: '失败',
     pending_approval: '待审批',
+    rejected: '已驳回',
     scheduled: '已预约',
     sent: '已发送',
   }[status] || status || '-';
@@ -7476,6 +7544,7 @@ function renderNotificationCampaign(campaign) {
   const failed = (campaign.failedPhones || []).slice(0, 5).map(shortPhone).join('、');
   const phones = (campaign.targetPhones || []).length ? (campaign.targetPhones || []).slice(0, 6).map(shortPhone).join('、') : String(campaign.phonesInput || '').split(/[\s,，;；]+/).filter(Boolean).slice(0, 6).map(shortPhone).join('、');
   const canApprove = campaign.status === 'pending_approval';
+  const canReject = campaign.status === 'pending_approval';
   const canCancel = ['draft', 'pending_approval', 'scheduled', 'sent'].includes(campaign.status);
   const cancelLabel = campaign.status === 'sent' ? '撤回' : campaign.status === 'scheduled' ? '取消预约' : campaign.status === 'pending_approval' ? '作废审批' : '作废草稿';
   const deepLinkType = campaign.deepLinkType || (campaign.postId ? 'post' : campaign.placeId ? 'place' : campaign.submissionId ? 'submission' : campaign.ticketId ? 'ticket' : campaign.conversationId ? 'conversation' : campaign.memoId ? 'memo' : campaign.vaccineId ? 'vaccine' : '');
@@ -7499,6 +7568,7 @@ function renderNotificationCampaign(campaign) {
           ${campaign.approvalRequestedAt ? `<span>提交审批：${formatTime(campaign.approvalRequestedAt)} · ${escapeHtml(campaign.approvalRequestedBy || '-')}</span>` : ''}
           ${campaign.approvalExpiresAt && campaign.status === 'pending_approval' ? `<span>审批超时：${formatTime(campaign.approvalExpiresAt)}</span>` : ''}
           ${campaign.approvedAt ? `<span>审批：${formatTime(campaign.approvedAt)} · ${escapeHtml(campaign.approvedBy || '-')}</span>` : ''}
+          ${campaign.rejectedAt ? `<span>驳回：${formatTime(campaign.rejectedAt)} · ${escapeHtml(campaign.rejectedBy || '-')}</span>` : ''}
           ${campaign.expiredAt ? `<span>审批过期：${formatTime(campaign.expiredAt)}</span>` : ''}
           ${campaign.audiencePackageName ? `<span>人群包：${escapeHtml(campaign.audiencePackageName)}</span>` : ''}
           <span>目标：${campaign.audienceCount || 0}</span>
@@ -7535,6 +7605,7 @@ function renderNotificationCampaign(campaign) {
           ${campaign.pushReceiptLastError ? `<span class="risk-badge">回执：${escapeHtml(campaign.pushReceiptLastError)}</span>` : ''}
           ${campaign.failedReason ? `<span class="risk-badge">失败：${escapeHtml(campaign.failedReason)}</span>` : ''}
           ${campaign.approvalReason ? `<span class="risk-badge">审批说明 ${escapeHtml(campaign.approvalReason)}</span>` : ''}
+          ${campaign.rejectReason ? `<span class="risk-badge">驳回原因 ${escapeHtml(campaign.rejectReason)}</span>` : ''}
           ${campaign.revokedCount ? `<span class="risk-badge">已撤回 ${campaign.revokedCount}</span>` : ''}
         </div>
         <div class="notification-campaign-actions">
@@ -7552,6 +7623,7 @@ function renderNotificationCampaign(campaign) {
             data-title="${escapeHtml(campaign.title || '')}"
           >套用</button>
           ${canApprove ? `<button class="small-button" data-action="notification-approve" data-id="${escapeHtml(campaign.id)}">审批发送</button>` : ''}
+          ${canReject ? `<button class="small-button danger" data-action="notification-reject" data-id="${escapeHtml(campaign.id)}">驳回</button>` : ''}
           ${canCancel ? `<button class="small-button danger" data-action="notification-cancel" data-id="${escapeHtml(campaign.id)}" data-status="${escapeHtml(campaign.status)}">${cancelLabel}</button>` : ''}
         </div>
       </div>
@@ -7671,7 +7743,7 @@ function renderConfigApprovals(approvals = {}) {
       <div class="section-head compact">
         <div>
           <h2>配置发布审批</h2>
-          <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${policy.requireApproval ? '强制审批' : '可选审批'} · 有效期 ${numberText(policy.approvalExpiresHours || 24)} 小时</div>
+          <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${numberText(summary.rejected || 0)} 条已驳回 · ${policy.requireApproval ? '强制审批' : '可选审批'} · 有效期 ${numberText(policy.approvalExpiresHours || 24)} 小时</div>
         </div>
         ${help('配置审批单绑定配置快照和申请时的基线配置。审批通过前不会影响移动端；如果期间配置已经变化，审批会被后端拦截，要求重新提交。')}
       </div>
@@ -7684,9 +7756,10 @@ function renderConfigApprovals(approvals = {}) {
         ['操作', (item) => item.status === 'pending_approval' ? `
           <div class="actions">
             <button class="small-button" data-action="config-approval-approve" data-id="${escapeHtml(item.id)}">审批并发布</button>
-            <button class="small-button danger" data-action="config-approval-cancel" data-id="${escapeHtml(item.id)}">取消</button>
+            <button class="small-button danger" data-action="config-approval-reject" data-id="${escapeHtml(item.id)}">驳回</button>
+            <button class="small-button ghost" data-action="config-approval-cancel" data-id="${escapeHtml(item.id)}">取消</button>
           </div>
-        ` : `<div class="cell-sub">${escapeHtml(item.revisionId || item.approvalReason || '-')}</div>`],
+        ` : `<div class="cell-sub">${escapeHtml(item.revisionId || item.approvalReason || item.rejectReason || item.cancelReason || '-')}</div>`],
       ], '暂无配置审批') : '<div class="placeholder mini"><div><strong>暂无配置审批</strong><div>提交发布、草稿发布或回滚审批后，会在这里等待处理。</div></div></div>'}
     </div>
   `;
@@ -9337,6 +9410,19 @@ async function cancelConfigApproval(id) {
   await render(true);
 }
 
+async function rejectConfigApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入驳回原因', '驳回配置审批');
+  if (reason === null) return;
+  state.cache.config = await post(`/admin/config/approvals/${encodeURIComponent(id)}/reject`, {
+    reason: reason.trim() || '驳回配置审批',
+  });
+  state.cache.summary = null;
+  state.cache.aiPromptVersions = null;
+  showToast('配置审批已驳回');
+  await render(true);
+}
+
 async function cancelConfigSchedule(id) {
   if (!id) return;
   const reason = window.prompt('请输入取消预约原因', '取消配置预约发布');
@@ -9438,11 +9524,12 @@ function exportApprovalStatusLabel(status) {
     expired: '已过期',
     open: '待处理/可下载',
     pending_approval: '待审批',
+    rejected: '已驳回',
   }[status] || status || '-';
 }
 
 function exportApprovalStatusOptions() {
-  return ['open', 'pending_approval', 'approved', 'expired', 'canceled', 'all']
+  return ['open', 'pending_approval', 'approved', 'rejected', 'expired', 'canceled', 'all']
     .map((status) => `<option value="${status}" ${state.exportApprovalStatus === status ? 'selected' : ''}>${escapeHtml(exportApprovalStatusLabel(status))}</option>`)
     .join('');
 }
@@ -9455,7 +9542,7 @@ function exportApprovalDownloadText(row = {}) {
 }
 
 function exportApprovalTone(status) {
-  return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'expired' || status === 'canceled' ? 'bad' : '';
+  return status === 'approved' ? 'ok' : status === 'pending_approval' ? 'warn' : status === 'expired' || status === 'canceled' || status === 'rejected' ? 'bad' : '';
 }
 
 function renderExportApprovals(approvals = {}) {
@@ -9467,7 +9554,7 @@ function renderExportApprovals(approvals = {}) {
       <div class="section-head">
         <div>
           <h2>导出审批</h2>
-          <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${numberText(summary.approved || 0)} 条已审批 · 有效期 ${numberText(policy.approvalExpiresHours || 24)} 小时</div>
+          <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${numberText(summary.approved || 0)} 条已审批 · ${numberText(summary.rejected || 0)} 条已驳回 · 有效期 ${numberText(policy.approvalExpiresHours || 24)} 小时</div>
         </div>
         ${help('开启强制审批后，CSV 下载必须使用已审批且未过期的 approvalId；审批会绑定数据集、筛选条件和导出原因，避免审批一个范围却下载另一个范围。当前仍是单 admin 版本，生产多管理员后可升级为双人审批。')}
       </div>
@@ -9481,17 +9568,18 @@ function renderExportApprovals(approvals = {}) {
       </div>
       ${items.length ? tableHtml(items, [
         ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.datasetLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.datasetType || '-')}</div>`],
-        ['状态', (row) => `${tonePill(row.statusLabel || row.status, exportApprovalTone(row.status))}<div class="cell-sub">${row.status === 'pending_approval' && row.requestExpiresAt ? `超时 ${formatTime(row.requestExpiresAt)}` : row.expiresAt ? `有效至 ${formatTime(row.expiresAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : '待审批后生成有效期'}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, exportApprovalTone(row.status))}<div class="cell-sub">${row.status === 'pending_approval' && row.requestExpiresAt ? `超时 ${formatTime(row.requestExpiresAt)}` : row.rejectedAt ? `驳回 ${formatTime(row.rejectedAt)}` : row.expiresAt ? `有效至 ${formatTime(row.expiresAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : '待审批后生成有效期'}</div>`],
         ['筛选/行数', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filterSummary || '全部数据')}</div><div class="cell-sub">导出 ${numberText(row.rowCount || 0)} / 匹配 ${numberText(row.matchedRows || 0)} / 原始 ${numberText(row.totalRows || 0)}</div>`],
         ['敏感字段', (row) => `<div class="export-fields">${(row.sensitiveColumns || []).slice(0, 6).map((item) => `<span>${escapeHtml(item)}</span>`).join('') || '<span>无明显敏感列</span>'}${(row.sensitiveColumns || []).length > 6 ? `<span>+${(row.sensitiveColumns || []).length - 6}</span>` : ''}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.exportReason || '-')}</div><div class="cell-sub">${escapeHtml(row.createdBy || '-')} · ${formatTime(row.createdAt)}</div>`],
         ['操作', (row) => `
           <div class="actions">
             ${row.status === 'pending_approval' ? `<button class="small-button" data-action="approve-export-approval" data-id="${escapeHtml(row.id)}">审批通过</button>` : ''}
+            ${row.status === 'pending_approval' ? `<button class="small-button danger" data-action="reject-export-approval" data-id="${escapeHtml(row.id)}">驳回</button>` : ''}
             ${row.status === 'approved' ? `<button class="small-button" data-action="download-approved-export" data-id="${escapeHtml(row.id)}" data-export-type="${escapeHtml(row.datasetType)}" data-export-reason="${escapeHtml(row.exportReason || '')}" data-filters="${escapeHtml(JSON.stringify(row.filters || {}))}">下载 CSV</button>` : ''}
-            ${row.status === 'pending_approval' || row.status === 'approved' ? `<button class="small-button danger" data-action="cancel-export-approval" data-id="${escapeHtml(row.id)}">取消</button>` : ''}
+            ${row.status === 'pending_approval' || row.status === 'approved' ? `<button class="small-button ghost" data-action="cancel-export-approval" data-id="${escapeHtml(row.id)}">取消</button>` : ''}
           </div>
-          <div class="cell-sub">${escapeHtml(exportApprovalDownloadText(row))}</div>
+          <div class="cell-sub">${escapeHtml(row.rejectReason || row.cancelReason || exportApprovalDownloadText(row))}</div>
         `],
       ], '暂无导出审批') : '<div class="placeholder mini"><div><strong>暂无导出审批</strong><div>在数据集列表点击“提交审批”后，会在这里等待审批。</div></div></div>'}
     </div>
@@ -9618,6 +9706,19 @@ async function cancelExportApproval(id) {
   state.cache.audit = null;
   state.cache.exports = null;
   showToast('导出审批已取消');
+  if (state.route === 'exports') await render(true);
+}
+
+async function rejectExportApproval(id) {
+  if (!id) return;
+  const reason = window.prompt('请输入驳回原因', '驳回导出审批');
+  if (reason === null) return;
+  await post(`/admin/exports/approvals/${encodeURIComponent(id)}/reject`, {
+    reason: reason.trim() || '驳回导出审批',
+  });
+  state.cache.audit = null;
+  state.cache.exports = null;
+  showToast('导出审批已驳回');
   if (state.route === 'exports') await render(true);
 }
 
