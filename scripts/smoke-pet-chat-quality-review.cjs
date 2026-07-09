@@ -160,12 +160,27 @@ async function main() {
     const aiMessageId = aiReply.data?.id;
     assert.ok(aiMessageId, 'missing AI reply id');
     assert.ok(aiReply.data?.medicalAlert, 'medical alert reply should be generated');
+    assert.equal(aiReply.data?.adminAiTrace, undefined, 'mobile pet chat response must not expose admin AI trace');
 
     const initialQueue = await request('/admin/ai/pet-chat/quality-review', { token: adminToken });
     const queueItem = initialQueue.data.items.find((item) => item.id === aiMessageId);
     assert.ok(queueItem, 'AI reply should enter quality review queue');
     assert.equal(queueItem.hasMedicalAlert, true);
     assert.ok(queueItem.queueScore >= 60, 'medical sample should have high queue score');
+    assert.equal(queueItem.provider, 'rule_guard');
+    assert.equal(queueItem.model, 'rule-based-medical-gate');
+    assert.equal(queueItem.source, 'safety_guard');
+    assert.ok(queueItem.promptHash, 'admin pet chat row should include prompt hash');
+
+    const medicalDetail = await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(aiMessageId)}/view`, {
+      body: { reason: 'smoke verifies AI trace snapshot' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(medicalDetail.data.aiTrace.provider, 'rule_guard');
+    assert.equal(medicalDetail.data.aiTrace.model, 'rule-based-medical-gate');
+    assert.equal(medicalDetail.data.aiTrace.petSnapshot.name, '桃桃');
+    assert.ok(medicalDetail.data.aiTrace.basePrompt.hash, 'AI trace should include base prompt hash');
 
     const reviewed = await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(aiMessageId)}/quality-review`, {
       body: { reason: 'smoke marks reply as needs fix', reviewStatus: 'needs_fix' },
@@ -204,6 +219,9 @@ async function main() {
       true,
       'unhidden AI reply must return to mobile',
     );
+    const restoredMobileReply = mobileMessagesAfterUnhide.data.find((message) => message.id === aiMessageId);
+    assert.equal(restoredMobileReply.adminAiTrace, undefined, 'mobile message list must not expose admin AI trace');
+    assert.equal(restoredMobileReply.adminModeratedOriginalText, undefined, 'mobile message list must not expose moderated original text');
 
     const audit = await request('/admin/audit-logs?action=ai.petChat.quality_review', { token: adminToken });
     assert.ok(audit.data.items.some((item) => item.targetId === aiMessageId), 'quality review audit log should be recorded');
@@ -214,6 +232,8 @@ async function main() {
     const petChatExportDataset = exportCatalog.data.find((item) => item.type === 'pet_chat_messages');
     assert.ok(petChatExportDataset, 'pet chat export dataset should be listed');
     assert.ok(petChatExportDataset.columns.includes('医疗风险'), 'pet chat export should expose medical risk column');
+    assert.ok(petChatExportDataset.columns.includes('模型'), 'pet chat export should expose model column');
+    assert.ok(petChatExportDataset.columns.includes('System Prompt Hash'), 'pet chat export should expose prompt hash column');
     assert.ok(petChatExportDataset.columns.includes('复核状态'), 'pet chat export should expose review status column');
     assert.ok(petChatExportDataset.rowCount >= 1, 'pet chat export should match the smoke user');
     assert.ok(petChatExportDataset.sensitiveColumnCount >= 1, 'pet chat export should declare sensitive columns');
@@ -222,6 +242,8 @@ async function main() {
       token: adminToken,
     });
     assert.ok(petChatCsv.data.includes(aiMessageId), 'pet chat export should include the AI reply id');
+    assert.ok(petChatCsv.data.includes('rule_guard'), 'pet chat export should include provider trace');
+    assert.ok(petChatCsv.data.includes('rule-based-medical-gate'), 'pet chat export should include model trace');
     assert.ok(petChatCsv.data.includes('199****7701'), 'pet chat export should mask owner phone by default');
     assert.equal(petChatCsv.data.includes('19900007701'), false, 'pet chat export must not expose full phone by default');
     assert.ok(petChatCsv.data.includes('[redacted]'), 'pet chat export should redact sensitive text by default');

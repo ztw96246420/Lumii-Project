@@ -4231,7 +4231,7 @@ function renderPetChatQualityReviewItem(row) {
         <div class="moderation-title-row">
           <div>
             <div class="cell-title">${escapeHtml(row.petName || row.ownerName || '-')} · ${escapeHtml(status)}</div>
-            <div class="cell-sub">${shortPhone(row.ownerPhone)} · 风险 ${numberText(row.queueScore || 0)} · ${formatTime(row.time)}</div>
+            <div class="cell-sub">${shortPhone(row.ownerPhone)} · 风险 ${numberText(row.queueScore || 0)} · ${escapeHtml(row.provider || row.source || '-')} ${escapeHtml(row.model || '')} · ${formatTime(row.time)}</div>
           </div>
           <div class="moderation-status">${tonePill(status, row.adminQualityReviewStatus === 'needs_fix' || row.adminHiddenAt ? 'bad' : row.adminQualityReviewedAt ? 'ok' : 'warn')}</div>
         </div>
@@ -4242,6 +4242,7 @@ function renderPetChatQualityReviewItem(row) {
         <div class="risk-row">
           ${riskBadge(row.queueReason || '抽样复核')}
           ${safety}
+          ${row.source ? riskBadge(`来源：${row.source}`) : ''}
           ${row.feedback ? riskBadge(`反馈：${row.feedback === 'good' ? '像它' : '不像它'}`) : ''}
           ${tags}
           ${row.adminHiddenAt ? riskBadge(`隐藏：${formatTime(row.adminHiddenAt)}`) : ''}
@@ -4273,7 +4274,7 @@ function renderPetChatRow(row) {
         <div class="moderation-title-row">
           <div>
             <div class="cell-title">${escapeHtml(row.ownerName || '-')} ${row.petName ? `· ${escapeHtml(row.petName)}` : ''}</div>
-            <div class="cell-sub">${shortPhone(row.ownerPhone)} · ${escapeHtml(row.id)} · ${formatTime(row.time)}</div>
+            <div class="cell-sub">${shortPhone(row.ownerPhone)} · ${escapeHtml(row.id)} · ${escapeHtml(row.provider || row.source || '-')} ${escapeHtml(row.model || '')} · ${formatTime(row.time)}</div>
           </div>
           <div class="moderation-status">${statusPill(row.adminHiddenAt ? 'hidden' : row.feedback || 'normal')}</div>
         </div>
@@ -4284,6 +4285,8 @@ function renderPetChatRow(row) {
         <div class="risk-row">
           ${actionLabels || riskBadge('普通回复')}
           ${safety}
+          ${row.source ? riskBadge(`来源：${row.source}`) : ''}
+          ${row.promptHash ? riskBadge(`Prompt ${row.promptHash}`) : ''}
           ${row.feedback ? riskBadge(`反馈：${row.feedback === 'good' ? '像它' : '不像它'}`) : ''}
           ${tags}
           ${reviewStatus ? riskBadge(`复核：${reviewStatus}`) : ''}
@@ -4322,11 +4325,31 @@ function renderPetChatDetail(detail) {
     detail.updatedVaccine ? `更新疫苗/驱虫：${detail.updatedVaccine.name || '-'}` : '',
     detail.updatedPet ? '更新宠物档案' : '',
   ].filter(Boolean);
+  const trace = detail.aiTrace || {};
+  const petSnapshot = trace.petSnapshot || {};
+  const traceSummary = trace.provider || trace.model || trace.source ? `
+    <div class="pet-chat-trace">
+      <div class="mini-section-title">生成快照</div>
+      <div class="risk-row">
+        ${trace.provider ? riskBadge(`供应商：${trace.provider}`) : ''}
+        ${trace.model ? riskBadge(`模型：${trace.model}`) : ''}
+        ${trace.source ? riskBadge(`来源：${trace.source}`) : ''}
+        ${trace.reason ? riskBadge(`原因：${trace.reason}`) : ''}
+      </div>
+      <div class="cell-sub">System Prompt：hash ${escapeHtml(trace.basePrompt?.hash || '-')} · ${numberText(trace.basePrompt?.length || 0)} 字 · ${numberText(trace.basePrompt?.lineCount || 0)} 行</div>
+      <div class="cell-sub">动态上下文：hash ${escapeHtml(trace.contextPrompt?.hash || '-')} · ${numberText(trace.contextPrompt?.length || 0)} 字</div>
+      ${trace.historySummary ? `<div class="cell-sub">历史摘要：hash ${escapeHtml(trace.historySummary.hash || '-')} · ${numberText(trace.historySummary.length || 0)} 字</div>` : ''}
+      ${trace.usage ? `<div class="cell-sub">Token：prompt ${numberText(trace.usage.promptTokens || 0)} / completion ${numberText(trace.usage.completionTokens || 0)} / total ${numberText(trace.usage.totalTokens || 0)}</div>` : ''}
+      <div class="cell-sub">宠物快照：${escapeHtml(petSnapshot.name || '-')} · ${escapeHtml(petSnapshot.species || '-')} · ${escapeHtml(petSnapshot.breed || '品种未记录')} · ${escapeHtml(petSnapshot.weightKg ? `${petSnapshot.weightKg}kg` : '体重未记录')}</div>
+      ${trace.basePrompt?.summary ? `<div class="cell-sub clamp">System 摘要：${escapeHtml(trace.basePrompt.summary)}</div>` : ''}
+    </div>
+  ` : '';
   return `
     <div class="pet-chat-detail">
       <div class="cell-title">完整上下文</div>
       <div class="cell-sub">查看动作已写入审计日志</div>
       ${actionSummary.length ? `<div class="risk-row">${actionSummary.map(riskBadge).join('')}</div>` : ''}
+      ${traceSummary}
       ${detail.moderatedOriginalText ? `<div class="pet-chat-line ai"><strong>机审原文</strong><span>仅后台可见</span><p>${escapeHtml(detail.moderatedOriginalText)}</p></div>` : ''}
       <div class="pet-chat-context">${context}</div>
     </div>

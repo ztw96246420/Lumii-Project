@@ -4106,6 +4106,11 @@ function adminExportDataset(type) {
         exportColumn('ownerName', '主人昵称'),
         exportColumn('petName', '宠物名'),
         exportColumn('petId', '宠物ID'),
+        exportColumn('provider', '供应商'),
+        exportColumn('model', '模型'),
+        exportColumn('source', '生成来源'),
+        exportColumn('promptHash', 'System Prompt Hash'),
+        exportColumn('promptSummary', 'System Prompt 摘要'),
         exportColumn('userMessageId', '用户消息ID'),
         exportColumn('userSummary', '用户问题摘要'),
         exportColumn('aiSummary', 'AI回复摘要'),
@@ -12463,6 +12468,15 @@ function visiblePetChatMessagesFor(user) {
   return petChatMessagesFor(user).filter((message) => !message.adminHiddenAt);
 }
 
+function publicPetChatMessage(message = {}) {
+  const {
+    adminAiTrace,
+    adminModeratedOriginalText,
+    ...publicMessage
+  } = message || {};
+  return publicMessage;
+}
+
 function petChatAdminDisplayText(message = {}) {
   return String(message.adminModeratedOriginalText || message.text || '');
 }
@@ -12594,6 +12608,7 @@ function adminPetChatMessages(options = {}) {
       .map(({ index, message }) => {
         const userMessage = [...list.slice(0, index)].reverse().find((item) => item.author === 'me');
         const actionLabels = petChatAdminActionLabels(message);
+        const aiTrace = message.adminAiTrace || {};
         return {
           actionLabels,
           adminHiddenAt: message.adminHiddenAt || '',
@@ -12618,11 +12633,17 @@ function adminPetChatMessages(options = {}) {
           hasMedicalAlert: Boolean(message.medicalAlert),
           id: message.id,
           medicalReason: message.medicalAlert?.reason || '',
+          model: aiTrace.model || '',
           ownerName: user?.ownerName || (phone ? `用户${phone.slice(-4)}` : '-'),
           ownerPhone: phone,
           petId,
           petName: pet?.name || '',
+          provider: aiTrace.provider || '',
+          promptHash: aiTrace.basePrompt?.hash || '',
+          promptSummary: aiTrace.basePrompt?.summary || '',
+          source: aiTrace.source || message.source || '',
           time: message.time || message.createdAt || '',
+          traceReason: aiTrace.reason || '',
           updatedPet: Boolean(message.updatedPet),
           updatedVaccineName: message.updatedVaccine?.name || '',
           userMessageId: userMessage?.id || '',
@@ -12643,7 +12664,7 @@ function adminPetChatMessages(options = {}) {
     })
     .filter((row) => {
       if (!q) return true;
-      return [row.id, row.ownerPhone, row.ownerName, row.petName, row.userSummary, row.aiSummary, row.medicalReason, row.feedback, row.actionLabels.join(' '), row.contentSafety?.sourceLabel, row.contentSafetyRiskTypes.join(' ')]
+      return [row.id, row.ownerPhone, row.ownerName, row.petName, row.userSummary, row.aiSummary, row.medicalReason, row.feedback, row.provider, row.model, row.source, row.promptHash, row.promptSummary, row.actionLabels.join(' '), row.contentSafety?.sourceLabel, row.contentSafetyRiskTypes.join(' ')]
         .some((value) => String(value || '').toLowerCase().includes(q));
     })
     .sort((a, b) => String(b.time).localeCompare(String(a.time)))
@@ -12720,6 +12741,7 @@ function adminPetChatDetail(admin, messageId, reason = '') {
   }));
   const detail = {
     actions: petChatAdminActionLabels(found.message),
+    aiTrace: found.message.adminAiTrace || null,
     context,
     createdMemo: found.message.createdMemo || null,
     createdWeight: found.message.createdWeight || null,
@@ -12918,6 +12940,59 @@ function petAgeLabel(birthday) {
 
 function petChatBaseSystemPrompt() {
   return effectiveDeepSeekChatConfig().baseSystemPrompt || defaultPetChatBaseSystemPrompt();
+}
+
+function petChatPromptSnapshot(text = '') {
+  const normalized = String(text || '');
+  const trimmed = normalized.replace(/\s+/g, ' ').trim();
+  return {
+    hash: crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16),
+    length: normalized.length,
+    lineCount: normalized ? normalized.split(/\r?\n/).length : 0,
+    summary: compactPetChatLine(trimmed, 140, { removeSavedActions: true }),
+  };
+}
+
+function petChatPetSnapshot(user) {
+  const pet = selectedPetFor(user) || activePetFor(user) || {};
+  return {
+    birthday: pet.birthday || '',
+    breed: pet.breed || '',
+    gender: pet.gender || '',
+    healthScore: pet.healthScore || '',
+    id: pet.id || '',
+    name: pet.name || '',
+    personality: Array.isArray(pet.personality) ? pet.personality.slice(0, 8) : [],
+    species: pet.species || '',
+    weightKg: pet.weightKg || '',
+  };
+}
+
+function petChatTraceSnapshot(user, options = {}) {
+  const deepseekConfig = options.deepseekConfig || effectiveDeepSeekChatConfig();
+  const basePrompt = options.basePrompt || petChatBaseSystemPrompt();
+  const contextPrompt = options.contextPrompt || buildPetChatContextPrompt(user);
+  const historySummary = options.historySummary || '';
+  const usage = options.usage && typeof options.usage === 'object' ? options.usage : null;
+  return {
+    basePrompt: petChatPromptSnapshot(basePrompt),
+    contextPrompt: petChatPromptSnapshot(contextPrompt),
+    createdAt: new Date().toISOString(),
+    historySummary: historySummary ? petChatPromptSnapshot(historySummary) : null,
+    maxTokens: Number(deepseekConfig.maxTokens || 0),
+    model: String(options.model || deepseekConfig.model || ''),
+    petSnapshot: petChatPetSnapshot(user),
+    provider: String(options.provider || effectivePetChatProvider() || ''),
+    reason: String(options.reason || ''),
+    source: String(options.source || ''),
+    temperature: Number(deepseekConfig.temperature || 0),
+    thinking: deepseekConfig.thinking || '',
+    usage: usage ? {
+      completionTokens: Number(usage.completion_tokens || 0),
+      promptTokens: Number(usage.prompt_tokens || 0),
+      totalTokens: Number(usage.total_tokens || 0),
+    } : null,
+  };
 }
 
 function escapeRegExpText(value) {
@@ -15633,18 +15708,53 @@ function petChatReplySafetyFallback(user, reason) {
 
 async function callDeepSeekPetChat(user, text, history) {
   const emergency = detectPetMedicalEmergency(text);
-  if (emergency) return { source: 'safety_guard', text: petMedicalSafetyReply(user, text) };
+  if (emergency) {
+    return {
+      source: 'safety_guard',
+      text: petMedicalSafetyReply(user, text),
+      trace: petChatTraceSnapshot(user, {
+        model: 'rule-based-medical-gate',
+        provider: 'rule_guard',
+        reason: emergency.reason,
+        source: 'safety_guard',
+      }),
+    };
+  }
   const provider = effectivePetChatProvider();
-  if (provider !== 'deepseek') return { source: 'fallback', text: fallbackPetChatReply(user, text) };
-  if (!DEEPSEEK_API_KEY) return { source: 'fallback', text: fallbackPetChatReply(user, text) };
+  if (provider !== 'deepseek') {
+    return {
+      source: 'fallback',
+      text: fallbackPetChatReply(user, text),
+      trace: petChatTraceSnapshot(user, {
+        model: 'rule-based-fallback',
+        provider,
+        reason: 'provider_not_deepseek',
+        source: 'fallback',
+      }),
+    };
+  }
+  if (!DEEPSEEK_API_KEY) {
+    return {
+      source: 'fallback',
+      text: fallbackPetChatReply(user, text),
+      trace: petChatTraceSnapshot(user, {
+        model: 'rule-based-fallback',
+        provider,
+        reason: 'missing_deepseek_key',
+        source: 'fallback',
+      }),
+    };
+  }
   const deepseekConfig = effectiveDeepSeekChatConfig();
   const historySummary = summarizePetChatHistory(history);
+  const basePrompt = petChatBaseSystemPrompt();
+  const contextPrompt = buildPetChatContextPrompt(user);
   const recentHistory = (Array.isArray(history) ? history : [])
     .filter((message) => message.author === 'me' || message.author === 'ai')
     .slice(-PET_CHAT_HISTORY_LIMIT);
   const messages = [
-    { role: 'system', content: petChatBaseSystemPrompt() },
-    { role: 'system', content: buildPetChatContextPrompt(user) },
+    { role: 'system', content: basePrompt },
+    { role: 'system', content: contextPrompt },
     ...(historySummary ? [{ role: 'system', content: historySummary }] : []),
     ...recentHistory.map((message) => ({
       role: message.author === 'me' ? 'user' : 'assistant',
@@ -15674,17 +15784,88 @@ async function callDeepSeekPetChat(user, text, history) {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       console.error('DeepSeek pet chat failed', response.status, payload?.error?.message || payload);
-      return { source: 'fallback', text: fallbackPetChatReply(user, text) };
+      return {
+        source: 'fallback',
+        text: fallbackPetChatReply(user, text),
+        trace: petChatTraceSnapshot(user, {
+          basePrompt,
+          contextPrompt,
+          deepseekConfig,
+          historySummary,
+          model: deepseekConfig.model,
+          provider,
+          reason: `deepseek_http_${response.status}`,
+          source: 'fallback',
+        }),
+      };
     }
     recordDeepSeekUsage(payload?.usage);
     const content = normalizePetChatPersonaReply(user, String(payload?.choices?.[0]?.message?.content || '').trim());
-    if (!content) return { source: 'fallback', text: fallbackPetChatReply(user, text) };
+    if (!content) {
+      return {
+        source: 'fallback',
+        text: fallbackPetChatReply(user, text),
+        trace: petChatTraceSnapshot(user, {
+          basePrompt,
+          contextPrompt,
+          deepseekConfig,
+          historySummary,
+          model: deepseekConfig.model,
+          provider,
+          reason: 'empty_deepseek_reply',
+          source: 'fallback',
+          usage: payload?.usage,
+        }),
+      };
+    }
     const unsafeReason = detectUnsafePetMedicalReply(content);
-    if (unsafeReason) return { source: 'safety_filter', text: petChatReplySafetyFallback(user, unsafeReason) };
-    return { source: 'deepseek', text: content };
+    if (unsafeReason) {
+      return {
+        source: 'safety_filter',
+        text: petChatReplySafetyFallback(user, unsafeReason),
+        trace: petChatTraceSnapshot(user, {
+          basePrompt,
+          contextPrompt,
+          deepseekConfig,
+          historySummary,
+          model: deepseekConfig.model,
+          provider,
+          reason: unsafeReason,
+          source: 'safety_filter',
+          usage: payload?.usage,
+        }),
+      };
+    }
+    return {
+      source: 'deepseek',
+      text: content,
+      trace: petChatTraceSnapshot(user, {
+        basePrompt,
+        contextPrompt,
+        deepseekConfig,
+        historySummary,
+        model: deepseekConfig.model,
+        provider,
+        source: 'deepseek',
+        usage: payload?.usage,
+      }),
+    };
   } catch (error) {
     console.error('DeepSeek pet chat error', error instanceof Error ? error.message : error);
-    return { source: 'fallback', text: fallbackPetChatReply(user, text) };
+    return {
+      source: 'fallback',
+      text: fallbackPetChatReply(user, text),
+      trace: petChatTraceSnapshot(user, {
+        basePrompt,
+        contextPrompt,
+        deepseekConfig,
+        historySummary,
+        model: deepseekConfig.model,
+        provider,
+        reason: 'deepseek_exception',
+        source: 'fallback',
+      }),
+    };
   }
 }
 
@@ -23621,9 +23802,9 @@ function adminReadinessModules(context) {
       module: 'AI 对话抽检',
       group: 'AI',
       status: 'partial',
-      evidence: '已支持摘要检索、原因审计后查看、医疗风险样本、质量标签和隐藏 AI 回复。',
+      evidence: '已支持摘要检索、原因审计后查看、生成快照追溯、医疗风险样本、质量标签、隐藏/恢复 AI 回复和样本导出。',
       mobileLinkage: '隐藏回复后移动端不再返回，后续上下文也跳过被隐藏回复。',
-      nextStep: '生产期接第三方内容安全、医疗风险更细规则和样本标注闭环。',
+      nextStep: '生产期补多 reviewer 一致性评分、模型版本分桶、自动回归分析和更细医疗风险规则。',
     },
     {
       key: 'moderation',
@@ -33735,7 +33916,7 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/ai/pet-chat/messages') {
     if (failIfFeatureDisabled(res, 'petChat', 'AI 宠物对话')) return;
-    ok(res, visiblePetChatMessagesFor(user));
+    ok(res, visiblePetChatMessagesFor(user).map(publicPetChatMessage));
     return;
   }
 
@@ -33795,6 +33976,7 @@ async function handle(req, res) {
     ].filter(Boolean);
     const replyText = savedNotices.length ? `${reply.text}\n\n${savedNotices.join('\n')}` : reply.text;
     const aiMessage = {
+      adminAiTrace: reply.trace || null,
       author: 'ai',
       createdMemo,
       createdWeight,
@@ -33813,10 +33995,11 @@ async function handle(req, res) {
     const responseMessage = aiMessage.adminHiddenAt
       ? {
           ...aiMessage,
+          adminAiTrace: undefined,
           adminModeratedOriginalText: undefined,
           text: aiMessage.adminModeratedTextReplacement || petChatModerationFallbackText(outputModeration),
         }
-      : aiMessage;
+      : publicPetChatMessage(aiMessage);
     ok(res, responseMessage);
     return;
   }

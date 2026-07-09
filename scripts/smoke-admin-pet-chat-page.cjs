@@ -210,8 +210,12 @@ async function main() {
 
     page.on('dialog', async (dialog) => {
       assert.equal(dialog.type(), 'prompt');
-      await dialog.accept('visual smoke restores hidden AI reply');
+      await dialog.accept(dialog.message().includes('完整') ? 'visual smoke verifies AI trace snapshot' : 'visual smoke restores hidden AI reply');
     });
+    await page.locator(`button[data-action="pet-chat-view"][data-id="${aiMessageId}"]`).first().click();
+    await page.getByText('生成快照').waitFor({ timeout: 30_000 });
+    await page.getByText('模型：rule-based-fallback').waitFor({ timeout: 30_000 });
+    await page.getByText(/System Prompt：hash/).waitFor({ timeout: 30_000 });
     await unhideButton.click();
     await page.locator(`button[data-action="pet-chat-hide"][data-id="${aiMessageId}"]`).first().waitFor({ timeout: 30_000 });
 
