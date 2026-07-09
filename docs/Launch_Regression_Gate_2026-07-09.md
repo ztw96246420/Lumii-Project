@@ -19,12 +19,14 @@ The default gate runs:
 - Backend and admin JavaScript syntax checks.
 - Mobile core flows.
 - Pet friend circle posting, comments, visibility, location, and calendar sync.
-- AI avatar animation lifecycle, retry, failure recovery, prompt/provider traces.
-- Content safety, moderation, reports, appeals, sanctions, and social blocking.
+- AI avatar generation/animation lifecycle, retry, failure recovery, quota refund, sample review, prompt/provider traces, admin job result apply, and pet chat quality review.
+- Content safety, moderation, reports, appeals, sanctions, social evidence, private-message report context, and social blocking.
 - Legal document update/signoff, public legal text endpoints, launch-readiness compliance linkage, and audit records.
-- Pet calendar, pet profile, pet media, places, notifications, analytics, and observability.
-- Admin accounts, high-risk countersign, data clear approval, export approval, signed export links, audit integrity journal, state compaction, and state backup recovery.
+- Pet calendar, pet profile edit/merge, pet media, places, notifications, Expo Push simulation, audience packages, campaign stats, analytics, support SLA, and observability.
+- Admin accounts, IP allowlist, account deletion, user timeline, high-risk approval countersign/expiry/reject/separation, data clear approval, export approval, signed export links, audit integrity journal, state compaction, and state backup recovery.
 - Admin production security package generation, MFA/IP/password-rotation readiness, and non-leaking security audit records.
+- Config center AI ops, approval, content-safety hints, experiments, risk confirmation, scheduled publish, and media CDN probe.
+- All standalone non-visual smoke scripts under `scripts/smoke-*.cjs` are included in the default gate; visual/browser checks remain opt-in through `--include-visual`.
 
 ## Visual Gate
 
