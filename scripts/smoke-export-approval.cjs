@@ -225,6 +225,29 @@ async function main() {
     assert.equal(completedJob?.status, 'completed');
     assert.ok(completedJob.filename.endsWith('.csv'));
     assert.ok(completedJob.sizeBytes > 0);
+
+    const signedLink = await request(`/admin/exports/jobs/${encodeURIComponent(jobId)}/signed-downloads`, {
+      body: { ttlMinutes: 5 },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(signedLink.data.job.id, jobId);
+    assert.equal(signedLink.data.ttlMinutes, 5);
+    assert.ok(signedLink.data.path.includes(`/admin/exports/jobs/${encodeURIComponent(jobId)}/signed-download?token=`));
+    assert.ok(signedLink.data.signedUrl.startsWith(baseUrl));
+    const signedDownload = await request(new URL(signedLink.data.signedUrl).pathname + new URL(signedLink.data.signedUrl).search, {
+      raw: true,
+    });
+    assert.ok(signedDownload.data.includes('导出水印ID'));
+    assert.ok(signedDownload.data.includes('199****7400'));
+    assert.ok(!signedDownload.data.includes('19900007400'));
+    const tamperedPath = signedLink.data.path.replace(/.$/u, (char) => (char === 'a' ? 'b' : 'a'));
+    const tamperedDownload = await request(tamperedPath, {
+      expectedStatus: 403,
+      raw: false,
+    });
+    assert.equal(tamperedDownload.error.code, 'ADMIN_EXPORT_SIGNED_LINK_INVALID');
+
     const archived = await request(`/admin/exports/jobs/${encodeURIComponent(jobId)}/download`, {
       raw: true,
       token: adminToken,
@@ -232,6 +255,10 @@ async function main() {
     assert.ok(archived.data.includes('导出水印ID'));
     assert.ok(archived.data.includes('199****7400'));
     assert.ok(!archived.data.includes('19900007400'));
+    const jobsAfterSignedDownload = await request('/admin/exports/jobs?type=users&status=all', { token: adminToken });
+    const signedJob = jobsAfterSignedDownload.data.items.find((item) => item.id === jobId);
+    assert.equal(signedJob.signedLinkCount, 1);
+    assert.equal(signedJob.signedDownloadCount, 1);
 
     const downloaded = await request(`/admin/exports/users.csv?reason=export%20approval%20smoke&approvalId=${encodeURIComponent(approvalId)}`, {
       raw: true,
@@ -289,6 +316,8 @@ async function main() {
     assert.ok(audit.data.items.some((item) => item.action === 'data.export.approval.approve'), 'approval approve should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'data.export.job.create'), 'export job creation should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'data.export.job.complete'), 'export job completion should be audited');
+    assert.ok(audit.data.items.some((item) => item.action === 'data.export.job.signed_link.create'), 'signed export link creation should be audited');
+    assert.ok(audit.data.items.some((item) => item.action === 'data.export.job.signed_link.download'), 'signed export link download should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'data.export.job.download'), 'export job download should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'data.export.download'), 'approved download should be audited');
 

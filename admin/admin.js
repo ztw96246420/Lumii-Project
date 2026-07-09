@@ -887,6 +887,10 @@ async function onContentClick(event) {
       await downloadExportJob(id);
       return;
     }
+    if (action === 'create-export-signed-link') {
+      await createExportSignedLink(id);
+      return;
+    }
     if (action === 'download-export') {
       await downloadExport(id);
       return;
@@ -9725,11 +9729,12 @@ function renderExportJobs(jobs = {}) {
         ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.datasetLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.datasetType || '-')}</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
         ['状态', (row) => `${tonePill(row.statusLabel || row.status, exportJobTone(row.status))}<div class="cell-sub">${row.completedAt ? `完成 ${formatTime(row.completedAt)}` : row.startedAt ? `开始 ${formatTime(row.startedAt)}` : `创建 ${formatTime(row.createdAt)}`}</div><div class="cell-sub">${row.expiresAt ? `保留至 ${formatTime(row.expiresAt)}` : '-'}</div>`],
         ['筛选/行数', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filterSummary || '全部数据')}</div><div class="cell-sub">导出 ${numberText(row.rowCount || 0)} / 匹配 ${numberText(row.matchedRows || 0)} / 原始 ${numberText(row.totalRows || 0)}</div>`],
-        ['文件', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filename || '-')}</div><div class="cell-sub">${bytesText(row.sizeBytes || 0)} · 水印 ${escapeHtml(row.watermarkId || '-')}</div><div class="cell-sub">审批 ${escapeHtml(row.approvalId || '直接导出')} · ${escapeHtml(exportSensitiveModeText(row))}</div>`],
+        ['文件', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filename || '-')}</div><div class="cell-sub">${bytesText(row.sizeBytes || 0)} · 水印 ${escapeHtml(row.watermarkId || '-')}</div><div class="cell-sub">审批 ${escapeHtml(row.approvalId || '直接导出')} · ${escapeHtml(exportSensitiveModeText(row))}</div><div class="cell-sub">签名 ${numberText(row.signedLinkCount || 0)} 次 / 下载 ${numberText(row.signedDownloadCount || 0)} 次${row.lastSignedLinkExpiresAt ? ` · 最近到期 ${formatTime(row.lastSignedLinkExpiresAt)}` : ''}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.exportReason || row.error || '-')}</div><div class="cell-sub">${escapeHtml(row.createdBy || '-')} · ${formatTime(row.createdAt)}</div>`],
         ['操作', (row) => `
           <div class="actions">
             ${row.status === 'completed' ? `<button class="small-button" data-action="download-export-job" data-id="${escapeHtml(row.id)}">下载归档</button>` : ''}
+            ${row.status === 'completed' ? `<button class="small-button ghost" data-action="create-export-signed-link" data-id="${escapeHtml(row.id)}">签名链接</button>` : ''}
           </div>
           <div class="cell-sub">${row.status === 'failed' ? escapeHtml(row.error || '生成失败') : row.lastDownloadedAt ? `上次下载 ${formatTime(row.lastDownloadedAt)}` : '归档完成后可下载'}</div>
         `],
@@ -9929,6 +9934,25 @@ async function downloadExportJob(id) {
   state.cache.audit = null;
   state.cache.exports = null;
   showToast('导出归档已开始下载');
+  if (state.route === 'exports') await render(true);
+}
+
+async function createExportSignedLink(id) {
+  if (!id) return;
+  const ttlInput = window.prompt('签名链接有效分钟数，1-1440', '15');
+  if (ttlInput === null) return;
+  const ttlMinutes = Math.max(1, Math.min(1440, Math.floor(Number(ttlInput || 15) || 15)));
+  const result = await post(`/admin/exports/jobs/${encodeURIComponent(id)}/signed-downloads`, { ttlMinutes });
+  const url = result.signedUrl || result.path || '';
+  if (navigator.clipboard && url) {
+    await navigator.clipboard.writeText(url).catch(() => {});
+  }
+  if (url) {
+    window.prompt(`签名链接已生成，有效到 ${formatTime(result.expiresAt)}。已尝试复制，若未复制可手动复制：`, url);
+  }
+  state.cache.audit = null;
+  state.cache.exports = null;
+  showToast('签名下载链接已生成');
   if (state.route === 'exports') await render(true);
 }
 

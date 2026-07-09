@@ -152,6 +152,7 @@ const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? proce
 const statePath = process.env.LUMII_BACKEND_STATE_PATH || path.join(__dirname, '..', 'dist', 'lumii-backend-state.json');
 const ADMIN_EXPORT_FILE_DIR = process.env.LUMII_ADMIN_EXPORT_DIR || path.join(path.dirname(statePath), 'admin-export-files');
 const ADMIN_EXPORT_FILE_RETENTION_HOURS = Math.max(1, Math.floor(Number(process.env.LUMII_ADMIN_EXPORT_FILE_RETENTION_HOURS || 72) || 72));
+const ADMIN_EXPORT_SIGNED_DOWNLOAD_TTL_MINUTES = Math.max(1, Math.min(1440, Math.floor(Number(process.env.LUMII_ADMIN_EXPORT_SIGNED_DOWNLOAD_TTL_MINUTES || 15) || 15)));
 const adminStaticDir = path.join(__dirname, '..', 'admin');
 const ADMIN_USERNAME = process.env.LUMII_ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.LUMII_ADMIN_PASSWORD || 'LumiiAdmin@2026';
@@ -3242,7 +3243,7 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       label: '数据导出审批',
       mobileApplied: false,
       mobileEvidence: '移动端不读取导出治理配置；后台导出覆盖移动端真实业务数据和 App 事件，因此只在后台拦截。',
-      operatorNote: '可叠加高风险审批人分离和最少审批人数；已支持默认脱敏、完整敏感字段授权和服务器本地归档任务，生产期仍需继续补对象存储和签名下载链接。',
+      operatorNote: '可叠加高风险审批人分离和最少审批人数；已支持默认脱敏、完整敏感字段授权、服务器本地归档任务和短时效签名下载链接，生产期仍需继续补对象存储归档。',
       userImpact: '不影响用户 App 使用，但降低后台误导出和敏感数据泄露风险。',
     },
     {
@@ -4713,10 +4714,16 @@ function adminExportJobItem(job = {}) {
     id: job.id || '',
     includeSensitive: job.includeSensitive === true,
     lastDownloadedAt: job.lastDownloadedAt || '',
+    lastSignedDownloadedAt: job.lastSignedDownloadedAt || '',
+    lastSignedLinkCreatedAt: job.lastSignedLinkCreatedAt || '',
+    lastSignedLinkCreatedBy: job.lastSignedLinkCreatedBy || '',
+    lastSignedLinkExpiresAt: job.lastSignedLinkExpiresAt || '',
     matchedRows: Math.max(0, Math.floor(Number(job.matchedRows || 0))),
     rowCount: Math.max(0, Math.floor(Number(job.rowCount || 0))),
     sizeBytes: Math.max(0, Math.floor(Number(job.sizeBytes || 0))),
     sensitiveExportMode: job.includeSensitive === true ? 'full' : 'masked',
+    signedDownloadCount: Math.max(0, Math.floor(Number(job.signedDownloadCount || 0))),
+    signedLinkCount: Math.max(0, Math.floor(Number(job.signedLinkCount || 0))),
     startedAt: job.startedAt || '',
     status,
     statusLabel: adminExportJobStatusLabel(status),
@@ -4909,6 +4916,142 @@ function downloadAdminExportJob(admin, jobId) {
   return {
     filePath,
     filename: job.filename || `lumii-${job.datasetType || 'export'}.csv`,
+    job: adminExportJobItem(job),
+  };
+}
+
+function adminExportSignedDownloadPayloadPart(payload = {}) {
+  return base64UrlEncode(JSON.stringify({
+    exp: Number(payload.exp || 0),
+    filename: String(payload.filename || ''),
+    iat: Number(payload.iat || 0),
+    jobExpiresAt: String(payload.jobExpiresAt || ''),
+    jobId: String(payload.jobId || ''),
+    kind: 'admin_export_job_signed_download',
+    nonce: String(payload.nonce || ''),
+    storageFileName: String(payload.storageFileName || ''),
+    version: 1,
+    watermarkId: String(payload.watermarkId || ''),
+  }));
+}
+
+function createAdminExportSignedDownloadToken(job = {}, ttlMinutes = ADMIN_EXPORT_SIGNED_DOWNLOAD_TTL_MINUTES) {
+  const now = Date.now();
+  const ttlMs = Math.max(1, Math.min(1440, Math.floor(Number(ttlMinutes || ADMIN_EXPORT_SIGNED_DOWNLOAD_TTL_MINUTES) || ADMIN_EXPORT_SIGNED_DOWNLOAD_TTL_MINUTES))) * 60 * 1000;
+  const payloadPart = adminExportSignedDownloadPayloadPart({
+    exp: now + ttlMs,
+    filename: job.filename || '',
+    iat: now,
+    jobExpiresAt: job.expiresAt || '',
+    jobId: job.id || '',
+    nonce: crypto.randomBytes(8).toString('hex'),
+    storageFileName: job.storageFileName || '',
+    watermarkId: job.watermarkId || '',
+  });
+  return `lumii-admin-export-v1.${payloadPart}.${authTokenSignature(payloadPart)}`;
+}
+
+function signedAdminExportDownloadPayload(token) {
+  try {
+    const [prefix, payloadPart, signature] = String(token || '').split('.');
+    if (prefix !== 'lumii-admin-export-v1' || !payloadPart || !signature) return null;
+    if (!safeEqualText(signature, authTokenSignature(payloadPart))) return null;
+    const payload = JSON.parse(base64UrlDecode(payloadPart));
+    if (payload?.kind !== 'admin_export_job_signed_download' || Number(payload.version || 0) !== 1) return null;
+    if (Number(payload.exp || 0) < Date.now()) return { expired: true, payload };
+    return { payload };
+  } catch {
+    return null;
+  }
+}
+
+function adminExportSignedDownloadPath(jobId, token) {
+  return `/admin/exports/jobs/${encodeURIComponent(jobId)}/signed-download?token=${encodeURIComponent(token)}`;
+}
+
+function absoluteUrlFromRequest(req, pathnameWithQuery) {
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || (req.socket?.encrypted ? 'https' : 'http');
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  return host ? `${proto}://${host}${pathnameWithQuery}` : pathnameWithQuery;
+}
+
+function createAdminExportSignedDownload(admin, jobId, body = {}, req = null) {
+  processExpiredAdminExportJobs();
+  const job = ensureAdminExportJobs().find((item) => item.id === jobId);
+  if (!job) return { error: '导出归档任务不存在', statusCode: 404, code: 'ADMIN_EXPORT_JOB_NOT_FOUND' };
+  const item = adminExportJobItem(job);
+  if (item.status !== 'completed') {
+    return { error: `导出归档${item.statusLabel}，暂不能生成签名链接`, statusCode: item.status === 'expired' ? 410 : 409, code: 'ADMIN_EXPORT_JOB_NOT_READY' };
+  }
+  const filePath = adminExportJobFilePath(job);
+  if (!filePath || !fs.existsSync(filePath)) {
+    job.error = '归档文件不存在';
+    job.status = 'failed';
+    job.failedAt = new Date().toISOString();
+    saveState();
+    return { error: '导出归档文件不存在，请重新生成', statusCode: 404, code: 'ADMIN_EXPORT_JOB_FILE_MISSING' };
+  }
+  const ttlMinutes = Math.max(1, Math.min(1440, Math.floor(Number(body.ttlMinutes || ADMIN_EXPORT_SIGNED_DOWNLOAD_TTL_MINUTES) || ADMIN_EXPORT_SIGNED_DOWNLOAD_TTL_MINUTES)));
+  const token = createAdminExportSignedDownloadToken(job, ttlMinutes);
+  const payload = signedAdminExportDownloadPayload(token)?.payload || {};
+  const pathWithToken = adminExportSignedDownloadPath(job.id, token);
+  job.lastSignedLinkCreatedAt = new Date().toISOString();
+  job.lastSignedLinkCreatedBy = currentAdminUsername(admin);
+  job.lastSignedLinkExpiresAt = new Date(Number(payload.exp || Date.now())).toISOString();
+  job.signedLinkCount = Math.max(0, Math.floor(Number(job.signedLinkCount || 0))) + 1;
+  writeAdminAudit(admin, 'data.export.job.signed_link.create', 'data_export_job', job.id, null, adminExportJobItem(job), `生成导出归档签名链接：${job.datasetLabel || job.datasetType}；有效 ${ttlMinutes} 分钟`);
+  saveState();
+  return {
+    expiresAt: job.lastSignedLinkExpiresAt,
+    job: adminExportJobItem(job),
+    path: pathWithToken,
+    signedUrl: req ? absoluteUrlFromRequest(req, pathWithToken) : pathWithToken,
+    ttlMinutes,
+  };
+}
+
+function downloadAdminExportJobWithSignedToken(req, jobId, token) {
+  processExpiredAdminExportJobs();
+  const parsed = signedAdminExportDownloadPayload(token);
+  if (!parsed) return { error: '签名下载链接无效', statusCode: 403, code: 'ADMIN_EXPORT_SIGNED_LINK_INVALID' };
+  if (parsed.expired) return { error: '签名下载链接已过期', statusCode: 410, code: 'ADMIN_EXPORT_SIGNED_LINK_EXPIRED' };
+  const payload = parsed.payload || {};
+  if (String(payload.jobId || '') !== String(jobId || '')) {
+    return { error: '签名下载链接与归档任务不匹配', statusCode: 403, code: 'ADMIN_EXPORT_SIGNED_LINK_MISMATCH' };
+  }
+  const job = ensureAdminExportJobs().find((item) => item.id === jobId);
+  if (!job) return { error: '导出归档任务不存在', statusCode: 404, code: 'ADMIN_EXPORT_JOB_NOT_FOUND' };
+  const item = adminExportJobItem(job);
+  if (item.status !== 'completed') {
+    return { error: `导出归档${item.statusLabel}，暂不能下载`, statusCode: item.status === 'expired' ? 410 : 409, code: 'ADMIN_EXPORT_JOB_NOT_READY' };
+  }
+  if (
+    String(payload.storageFileName || '') !== String(job.storageFileName || '')
+    || String(payload.jobExpiresAt || '') !== String(job.expiresAt || '')
+    || String(payload.watermarkId || '') !== String(job.watermarkId || '')
+  ) {
+    return { error: '签名下载链接与当前归档文件不一致，请重新生成链接', statusCode: 403, code: 'ADMIN_EXPORT_SIGNED_LINK_MISMATCH' };
+  }
+  const filePath = adminExportJobFilePath(job);
+  if (!filePath || !fs.existsSync(filePath)) {
+    job.error = '归档文件不存在';
+    job.status = 'failed';
+    job.failedAt = new Date().toISOString();
+    saveState();
+    return { error: '导出归档文件不存在，请重新生成', statusCode: 404, code: 'ADMIN_EXPORT_JOB_FILE_MISSING' };
+  }
+  job.lastSignedDownloadedAt = new Date().toISOString();
+  job.signedDownloadCount = Math.max(0, Math.floor(Number(job.signedDownloadCount || 0))) + 1;
+  writeAdminAudit({
+    ip: clientIpFromRequest(req),
+    role: 'signed_link',
+    userAgent: String(req.headers['user-agent'] || '').slice(0, 180),
+    username: `signed:${job.lastSignedLinkCreatedBy || job.createdBy || 'admin'}`,
+  }, 'data.export.job.signed_link.download', 'data_export_job', job.id, null, adminExportJobItem(job), `签名链接下载导出归档：${job.datasetLabel || job.datasetType}；${job.exportReason}`);
+  saveState();
+  return {
+    filePath,
+    filename: job.filename || payload.filename || `lumii-${job.datasetType || 'export'}.csv`,
     job: adminExportJobItem(job),
   };
 }
@@ -22469,7 +22612,7 @@ function adminReadinessModules(context) {
       status: 'partial',
       evidence: 'CSV 导出支持筛选、导出原因、文件水印、审批申请、审批通过、服务器本地归档任务、审批下载、历史、行数摘要和 data.export.* 审计；审计日志支持搜索筛选与 hash 链完整性校验。',
       mobileLinkage: '导出覆盖移动端真实业务数据和 App 事件，不导出图片二进制或完整设备 token；强制审批开启后需按审批单创建归档或下载。',
-      nextStep: '生产期补导出审批值守通知、对象存储归档、签名下载链接和文件生命周期策略。',
+      nextStep: '生产期补导出审批值守通知、对象存储归档和更细文件生命周期策略。',
     },
     {
       key: 'system',
@@ -22620,9 +22763,9 @@ function adminReadinessGaps(context) {
       area: '数据导出',
       severity: 'P1',
       status: 'partial',
-      issue: '导出已有审计、原因必填、CSV 水印、默认敏感字段脱敏、完整敏感字段授权、审批流、高风险会签、审批有效期、单审批下载次数上限和服务器本地归档任务；仍缺对象存储归档和签名下载链接。',
-      requiredAction: '补对象存储归档、签名下载链接和审批值守通知。',
-      evidence: '数据导出页 / 导出归档任务 / 审计日志 / exports.maxDownloadsPerApproval',
+      issue: '导出已有审计、原因必填、CSV 水印、默认敏感字段脱敏、完整敏感字段授权、审批流、高风险会签、审批有效期、单审批下载次数上限、服务器本地归档任务和短时效签名下载链接；仍缺对象存储归档。',
+      requiredAction: '补对象存储归档、文件生命周期策略和审批值守通知。',
+      evidence: '数据导出页 / 导出归档任务 / 签名链接 / 审计日志 / exports.maxDownloadsPerApproval',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }
@@ -28473,6 +28616,17 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  const adminExportSignedDownloadCreateMatch = pathname.match(/^\/admin\/exports\/jobs\/([^/]+)\/signed-downloads$/);
+  if (req.method === 'POST' && adminExportSignedDownloadCreateMatch) {
+    const result = createAdminExportSignedDownload(admin, decodeURIComponent(adminExportSignedDownloadCreateMatch[1]), body, req);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_EXPORT_SIGNED_LINK_INVALID');
+      return true;
+    }
+    ok(res, result);
+    return true;
+  }
+
   const adminExportJobDownloadMatch = pathname.match(/^\/admin\/exports\/jobs\/([^/]+)\/download$/);
   if (req.method === 'GET' && adminExportJobDownloadMatch) {
     const result = downloadAdminExportJob(admin, decodeURIComponent(adminExportJobDownloadMatch[1]));
@@ -30353,6 +30507,17 @@ async function handle(req, res) {
       }, 'ADMIN_IP_NOT_ALLOWED');
       return;
     }
+  }
+
+  const signedAdminExportDownloadMatch = pathname.match(/^\/admin\/exports\/jobs\/([^/]+)\/signed-download$/);
+  if (req.method === 'GET' && signedAdminExportDownloadMatch) {
+    const result = downloadAdminExportJobWithSignedToken(req, decodeURIComponent(signedAdminExportDownloadMatch[1]), url.searchParams.get('token') || '');
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_EXPORT_SIGNED_LINK_INVALID');
+      return;
+    }
+    sendCsv(res, result.filename, fs.readFileSync(result.filePath, 'utf8'));
+    return;
   }
 
   if (serveAdminStatic(req, res, pathname)) {
