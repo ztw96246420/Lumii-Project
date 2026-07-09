@@ -90,6 +90,8 @@ const PET_AVATAR_ANIMATION_CHROMA_BLEND = Math.max(0, Math.min(1, Number(process
 const PET_AVATAR_ANIMATION_DESPILL_ENABLED = process.env.PET_AVATAR_ANIMATION_DESPILL_ENABLED === 'false' ? false : true;
 const PET_AVATAR_ANIMATION_DESPILL_MIX = Math.max(0, Math.min(1, Number(process.env.PET_AVATAR_ANIMATION_DESPILL_MIX || '0.85') || 0.85));
 const PET_AVATAR_ANIMATION_DESPILL_EXPAND = Math.max(0, Math.min(1, Number(process.env.PET_AVATAR_ANIMATION_DESPILL_EXPAND || '0.16') || 0.16));
+const PET_AVATAR_ANIMATION_MIRROR_MAX_ATTEMPTS = Math.max(1, Math.min(8, Number(process.env.PET_AVATAR_ANIMATION_MIRROR_MAX_ATTEMPTS || '3') || 3));
+const PET_AVATAR_ANIMATION_MIRROR_RETRY_MS = Math.max(50, Number(process.env.PET_AVATAR_ANIMATION_MIRROR_RETRY_MS || 60 * 1000) || 60 * 1000);
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_PUBLIC_PROBE_BASE_URL = (process.env.MEDIA_PUBLIC_PROBE_BASE_URL || '').replace(/\/+$/, '');
@@ -5770,6 +5772,7 @@ async function storeAvatarAnimationUrlToCos(req, user, videoUrl, { petId = '' } 
 
 function avatarAnimationNeedsLocalMirror(job) {
   if (!job || job.provider !== 'doubao-seedance-1-5-pro') return false;
+  if (!['processing', 'ready'].includes(String(job.status || ''))) return false;
   const currentUrl = String(job.videoUrl || job.resultUrl || job.sourceResultUrl || '').trim();
   return /^https?:\/\//i.test(currentUrl) && !currentUrl.includes('/storage/objects/');
 }
@@ -5817,13 +5820,23 @@ async function runAvatarAnimationMirror(reqSnapshot, ownerPhone, jobId, sourceUr
       throw new Error('Animation video mirror did not produce a local storage URL');
     }
   } catch (error) {
-    job.lastStatusError = `Animation video mirror skipped: ${error.message || String(error)}`;
-    job.providerStatus = 'mirror_failed';
-    job.status = 'processing';
-    job.progress = Math.max(96, Number(job.progress || 96));
+    const message = `Animation video mirror skipped: ${error.message || String(error)}`;
+    job.lastStatusError = message;
+    job.mirrorFailedCount = Number(job.mirrorFailedCount || 0) + 1;
     job.mirrorFailedAt = Date.now();
-    touchAvatarAnimationJob(job);
+    if (job.mirrorFailedCount >= PET_AVATAR_ANIMATION_MIRROR_MAX_ATTEMPTS) {
+      const before = cloneJson(job);
+      markAvatarAnimationFailure(job, 'AVATAR_ANIMATION_MIRROR_FAILED', '灵伴动效视频处理失败，请稍后重新生成。', 'mirror_failed');
+      syncAvatarAnimationJobToPet(user, job, { force: true });
+      writeAdminAudit({ role: 'system', username: 'system' }, 'ai.avatar_animation.mirror_failed', 'avatar_animation_job', job.id, before, job, message);
+    } else {
+      job.providerStatus = 'mirror_failed';
+      job.status = 'processing';
+      job.progress = Math.max(96, Number(job.progress || 96));
+      touchAvatarAnimationJob(job);
+    }
     console.warn('[avatar-animation] ready video mirror skipped', {
+      attempts: job.mirrorFailedCount,
       jobId: job.id,
       message: error.message || String(error),
     });
@@ -5840,7 +5853,7 @@ function queueReadyAvatarAnimationMirrorIfNeeded(req, user, job) {
   if (job.providerStatus === 'ready_mirroring' && Number(job.mirrorQueuedAt || 0) && now - Number(job.mirrorQueuedAt || 0) < 10 * 60 * 1000) {
     return true;
   }
-  if (job.providerStatus === 'mirror_failed' && Number(job.mirrorFailedAt || 0) && now - Number(job.mirrorFailedAt || 0) < 60 * 1000) {
+  if (job.providerStatus === 'mirror_failed' && Number(job.mirrorFailedAt || 0) && now - Number(job.mirrorFailedAt || 0) < PET_AVATAR_ANIMATION_MIRROR_RETRY_MS) {
     return true;
   }
   markAvatarAnimationMirroring(user, job, sourceUrl);
@@ -22985,6 +22998,7 @@ function adminAvatarAnimationJobs() {
         id: job.id,
         lastStatusCheckedAt: job.lastStatusCheckedAt || '',
         lastStatusError: job.lastStatusError || '',
+        mirrorFailedCount: Number(job.mirrorFailedCount || 0),
         model: job.model || '',
         ownerName: owner?.ownerName || '',
         ownerPhone: job.ownerPhone || '',
