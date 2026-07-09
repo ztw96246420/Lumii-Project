@@ -10330,18 +10330,47 @@ function exportJobTone(status) {
   return status === 'completed' ? 'ok' : status === 'failed' || status === 'expired' ? 'bad' : 'warn';
 }
 
+function exportJobObjectStorageTone(status) {
+  if (status === 'archived') return 'ok';
+  if (status === 'failed' || status === 'unconfigured') return 'bad';
+  if (status === 'pending') return 'warn';
+  return '';
+}
+
+function exportJobObjectStorageText(row = {}, policy = {}) {
+  const status = row.objectStorageStatus || '';
+  if (status) return row.objectStorageStatusLabel || status;
+  if (policy.objectStorageEnabled) return 'COS 待归档';
+  if (policy.objectStorageConfigured) return '仅本地';
+  return 'COS 未启用';
+}
+
+function exportJobObjectStorageDetail(row = {}, policy = {}) {
+  if (row.objectStorageStatus === 'archived') {
+    return `${escapeHtml(row.objectKey || '-')} · ${bytesText(row.objectSizeBytes || row.sizeBytes || 0)}${row.objectArchivedAt ? ` · ${formatTime(row.objectArchivedAt)}` : ''}`;
+  }
+  if (row.objectStorageStatus === 'failed') return escapeHtml(row.objectStorageError || '对象存储归档失败');
+  if (row.objectStorageStatus === 'unconfigured') return '已开启归档，但 COS 环境变量未完整配置';
+  if (row.objectStorageStatus === 'pending') return row.objectArchiveAttemptedAt ? `尝试 ${formatTime(row.objectArchiveAttemptedAt)}` : '等待写入对象存储';
+  if (policy.objectStorageEnabled) return `前缀 ${escapeHtml(policy.objectStoragePrefix || 'admin-exports')}`;
+  return '本地归档仍可按保留期下载';
+}
+
 function renderExportJobs(jobs = {}) {
   const items = jobs.items || [];
   const summary = jobs.summary || {};
   const policy = jobs.policy || {};
+  const objectStorageSummary = policy.objectStorageEnabled
+    ? ` · COS ${numberText(summary.objectArchived || 0)} 已归档${summary.objectArchiveFailed ? ` / ${numberText(summary.objectArchiveFailed)} 失败` : ''}`
+    : policy.objectStorageConfigured ? ' · COS 可配置' : ' · 仅本地';
   return `
     <div class="card">
       <div class="section-head">
         <div>
           <h2>导出归档任务</h2>
-          <div class="section-sub">${numberText(summary.queued || 0)} 排队 · ${numberText(summary.running || 0)} 生成中 · ${numberText(summary.completed || 0)} 可下载 · 保留 ${numberText(policy.retentionHours || 72)} 小时</div>
+          <div class="section-sub">${numberText(summary.queued || 0)} 排队 · ${numberText(summary.running || 0)} 生成中 · ${numberText(summary.completed || 0)} 可下载 · 保留 ${numberText(policy.retentionHours || 72)} 小时${objectStorageSummary}</div>
         </div>
-        ${help('归档任务会把 CSV 生成到服务器本地文件，state 只保存任务元数据。审批下载次数在创建归档任务时消耗，归档文件可在保留期内重复下载。')}
+        ${help('归档任务会先把 CSV 生成到服务器本地文件；开启 COS 归档后会同时写入对象存储并记录 objectKey。审批下载次数在创建归档任务时消耗，本地文件可在保留期内重复下载。')}
       </div>
       <div class="toolbar moderation-toolbar">
         <div class="toolbar-left">
@@ -10356,6 +10385,7 @@ function renderExportJobs(jobs = {}) {
         ['状态', (row) => `${tonePill(row.statusLabel || row.status, exportJobTone(row.status))}<div class="cell-sub">${row.completedAt ? `完成 ${formatTime(row.completedAt)}` : row.startedAt ? `开始 ${formatTime(row.startedAt)}` : `创建 ${formatTime(row.createdAt)}`}</div><div class="cell-sub">${row.expiresAt ? `保留至 ${formatTime(row.expiresAt)}` : '-'}</div>`],
         ['筛选/行数', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filterSummary || '全部数据')}</div><div class="cell-sub">导出 ${numberText(row.rowCount || 0)} / 匹配 ${numberText(row.matchedRows || 0)} / 原始 ${numberText(row.totalRows || 0)}</div>`],
         ['文件', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filename || '-')}</div><div class="cell-sub">${bytesText(row.sizeBytes || 0)} · 水印 ${escapeHtml(row.watermarkId || '-')}</div><div class="cell-sub">审批 ${escapeHtml(row.approvalId || '直接导出')} · ${escapeHtml(exportSensitiveModeText(row))}</div><div class="cell-sub">签名 ${numberText(row.signedLinkCount || 0)} 次 / 下载 ${numberText(row.signedDownloadCount || 0)} 次${row.lastSignedLinkExpiresAt ? ` · 最近到期 ${formatTime(row.lastSignedLinkExpiresAt)}` : ''}</div>`],
+        ['对象归档', (row) => `<div>${tonePill(exportJobObjectStorageText(row, policy), exportJobObjectStorageTone(row.objectStorageStatus))}</div><div class="cell-sub clamp">${exportJobObjectStorageDetail(row, policy)}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.exportReason || row.error || '-')}</div><div class="cell-sub">${escapeHtml(row.createdBy || '-')} · ${formatTime(row.createdAt)}</div>`],
         ['操作', (row) => `
           <div class="actions">

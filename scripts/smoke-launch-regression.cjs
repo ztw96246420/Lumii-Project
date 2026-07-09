@@ -68,6 +68,7 @@ const suites = [
   { key: 'high-risk-separation', title: 'High-risk approval separation', script: 'smoke-high-risk-approval-separation.cjs', timeoutMs: 180_000 },
   { key: 'data-clear', title: 'Data clear approval', script: 'smoke-data-clear-approval.cjs', timeoutMs: 180_000 },
   { key: 'export-approval', title: 'Export approval and signed links', script: 'smoke-export-approval.cjs', timeoutMs: 180_000 },
+  { key: 'export-object-archive', title: 'Export object archive', script: 'smoke-export-object-archive.cjs', timeoutMs: 180_000 },
   { key: 'config-ai-ops', title: 'Config AI ops', script: 'smoke-config-ai-ops.cjs', timeoutMs: 180_000 },
   { key: 'config-approval', title: 'Config approval', script: 'smoke-config-approval.cjs', timeoutMs: 180_000 },
   { key: 'config-content-safety-hints', title: 'Config content safety hints', script: 'smoke-config-content-safety-hints.cjs', timeoutMs: 180_000 },

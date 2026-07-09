@@ -921,12 +921,13 @@
 - 导出申请、审批通过、取消和下载都会写入 `adminAuditLogs`；下载 action 为 `data.export.download`，记录数据集、文件名、字段、行数、导出原因、筛选条件、水印 ID 和审批单 ID。
 - 默认不导出图片二进制、设备 token、完整审计 before/after 快照等大字段或敏感字段。
 - 新增回归脚本：`node scripts/smoke-export-approval.cjs`，覆盖强制审批、审批创建、审批通过、筛选不一致拦截、带审批下载、下载次数、导出历史和审计日志。
+- 新增对象归档回归脚本：`node scripts/smoke-export-object-archive.cjs`，通过本地假 COS 验证导出归档会写入对象存储、回填 objectKey/objectStorageStatus，并写入 `data.export.job.object_archive.complete` 审计。
 
 未实现：
 
 - 多管理员双人确认和审批人/申请人分离。
-- 异步大文件导出、过期下载链接和对象存储归档。
-- 独立导出任务表、文件归档和更完整的审批状态流转。
+- 更大文件分片/流式导出、COS 生命周期和对象销毁审计。
+- 独立导出任务表和更完整的审批状态流转。
 - 按更细字段做数据集专属筛选，例如举报原因、地点 ID、AI 供应商、工单优先级等。
 
 ### 3.17 数据看板

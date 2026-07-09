@@ -6,7 +6,7 @@
 
 数据导出用于测试排查、客服复盘和运营分析，但它天然包含较高的数据泄漏风险。本轮新增的目标是把“原因必填 + CSV 水印 + 审计”升级为“可强制审批 + 条件锁定 + 下载追踪”的闭环。
 
-当前已支持高风险审批人/申请人分离、`highRiskApproval.requiredApprovals` 最少会签人数和服务器本地导出归档任务；生产期建议会签人数配置为 2 或以上，并补审批值守通知、对象存储归档和敏感字段授权。
+当前已支持高风险审批人/申请人分离、`highRiskApproval.requiredApprovals` 最少会签人数、服务器本地导出归档任务、短时效签名下载链接和可选 COS 对象存储归档；生产期建议会签人数配置为 2 或以上，并补审批值守通知、COS 生命周期策略和敏感字段授权。
 
 ## 2. 配置项
 
@@ -38,6 +38,7 @@
 - `GET /admin/exports/jobs?type=&status=`：导出归档任务列表。
 - `POST /admin/exports/jobs`：按数据集、筛选、原因和可选审批单创建归档任务。
 - `GET /admin/exports/jobs/{jobId}/download`：下载已完成归档文件。
+- `POST /admin/exports/jobs/{jobId}/signed-downloads`：生成短时效签名下载链接。
 - `GET /admin/exports/{type}.csv?reason=&approvalId=`：下载 CSV。
 - `GET /admin/exports/history`：导出历史。
 
@@ -49,7 +50,9 @@
 - 下载时会校验审批单未过期。
 - 下载时会校验数据集、筛选条件和导出原因必须与审批单一致。
 - 通过审批创建归档任务或直接下载后，会回写审批下载次数和最近下载时间。
-- 归档任务会写入服务器本地文件目录，state 只保留任务元数据、文件名、行数、水印和过期时间。
+- 归档任务会先写入服务器本地文件目录，state 只保留任务元数据、文件名、行数、水印和过期时间。
+- 开启 `LUMII_ADMIN_EXPORT_COS_ENABLED=true` 且 `COS_BUCKET`、`COS_REGION`、`COS_SECRET_ID`、`COS_SECRET_KEY` 完整时，归档任务会同步写入 COS，后台展示 `objectStorageStatus`、`objectKey`、归档时间和失败原因。
+- COS 归档失败不会把本地归档任务改成失败，管理员仍可在本地文件保留期内下载；失败会写入 `data.export.job.object_archive.fail` 审计，成功写入 `data.export.job.object_archive.complete`。
 
 ## 6. 审计
 
@@ -60,7 +63,11 @@
 - `data.export.approval.cancel`
 - `data.export.job.create`
 - `data.export.job.complete`
+- `data.export.job.object_archive.complete`
+- `data.export.job.object_archive.fail`
 - `data.export.job.download`
+- `data.export.job.signed_link.create`
+- `data.export.job.signed_link.download`
 - `data.export.download`
 
 下载审计包含审批单 ID、数据集、文件名、字段、行数、导出原因、筛选条件、水印 ID、管理员、IP 和 User-Agent。
@@ -71,6 +78,7 @@
 
 ```bash
 node scripts/smoke-export-approval.cjs
+node scripts/smoke-export-object-archive.cjs
 ```
 
 覆盖内容：
@@ -82,15 +90,15 @@ node scripts/smoke-export-approval.cjs
 - 用不一致筛选条件下载被拦截。
 - 用审批单创建导出归档任务。
 - 归档任务生成完成并可下载。
+- 开启 COS 归档时，归档任务写入对象存储并返回 objectKey。
 - 用审批单下载成功。
 - 审批单下载次数回写。
 - 导出历史记录审批单 ID。
-- 审计日志记录申请、审批和下载。
+- 审计日志记录申请、审批、对象归档、签名链接和下载。
 
 ## 8. 后续增强
 
 - 生产期启用审批人/申请人分离和最少 2 人会签。
 - 高敏数据集敏感字段授权。
 - 按数据集配置可导字段和脱敏规则。
-- 对象存储归档和签名下载链接。
-- 导出文件生命周期和销毁审计。
+- COS 生命周期、对象销毁审计和归档失败告警。

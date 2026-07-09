@@ -106,6 +106,9 @@ const COS_REGION = process.env.COS_REGION || 'ap-guangzhou';
 const COS_SECRET_ID = process.env.COS_SECRET_ID || '';
 const COS_SECRET_KEY = process.env.COS_SECRET_KEY || '';
 const COS_PROXY_CACHE_SECONDS = Number(process.env.COS_PROXY_CACHE_SECONDS || '3600');
+const COS_ENDPOINT = (process.env.COS_ENDPOINT || '').trim().replace(/\/+$/, '');
+const ADMIN_EXPORT_COS_ENABLED = process.env.LUMII_ADMIN_EXPORT_COS_ENABLED === 'true';
+const ADMIN_EXPORT_COS_PREFIX = (process.env.LUMII_ADMIN_EXPORT_COS_PREFIX || 'admin-exports').trim().replace(/^\/+|\/+$/g, '') || 'admin-exports';
 const TENCENTCLOUD_SECRET_ID = process.env.TENCENTCLOUD_SECRET_ID || process.env.TENCENT_CLOUD_SECRET_ID || '';
 const TENCENTCLOUD_SECRET_KEY = process.env.TENCENTCLOUD_SECRET_KEY || process.env.TENCENT_CLOUD_SECRET_KEY || '';
 const TENCENT_CMS_REGION = process.env.TENCENT_CMS_REGION || 'ap-guangzhou';
@@ -3354,7 +3357,7 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       label: '数据导出审批',
       mobileApplied: false,
       mobileEvidence: '移动端不读取导出治理配置；后台导出覆盖移动端真实业务数据和 App 事件，因此只在后台拦截。',
-      operatorNote: '可叠加高风险审批人分离和最少审批人数；已支持默认脱敏、完整敏感字段授权、服务器本地归档任务和短时效签名下载链接，生产期仍需继续补对象存储归档。',
+      operatorNote: '可叠加高风险审批人分离和最少审批人数；已支持默认脱敏、完整敏感字段授权、服务器本地归档任务、可选 COS 对象归档和短时效签名下载链接，生产期需配置 COS 生命周期和站外审批提醒。',
       userImpact: '不影响用户 App 使用，但降低后台误导出和敏感数据泄露风险。',
     },
     {
@@ -4860,6 +4863,71 @@ function adminExportJobFilePath(job = {}) {
   return filePath;
 }
 
+function adminExportObjectStorageEnabled() {
+  return ADMIN_EXPORT_COS_ENABLED && cosEnabled();
+}
+
+function adminExportObjectStorageStatusLabel(status) {
+  return {
+    archived: 'COS 已归档',
+    disabled: '仅本地',
+    failed: 'COS 归档失败',
+    pending: 'COS 归档中',
+    unconfigured: 'COS 未配置',
+  }[status] || status || '';
+}
+
+function adminExportCosObjectKey(job = {}, storageFileName = '') {
+  const createdAt = adminExportDateMs(job.completedAt || job.createdAt) || Date.now();
+  const datePart = new Date(createdAt).toISOString().slice(0, 10);
+  const safeName = safeAdminExportStorageFileName(storageFileName || job.storageFileName || `${job.id || 'export'}.csv`);
+  return [ADMIN_EXPORT_COS_PREFIX, datePart, safeName].filter(Boolean).join('/');
+}
+
+async function archiveAdminExportJobToObjectStorage(job, result, admin, csvBuffer) {
+  if (!ADMIN_EXPORT_COS_ENABLED) {
+    job.objectStorageStatus = job.objectStorageStatus || 'disabled';
+    return;
+  }
+  if (!cosEnabled()) {
+    const before = cloneJson(job);
+    job.objectStorageProvider = 'tencent-cos';
+    job.objectStorageStatus = 'unconfigured';
+    job.objectStorageError = 'COS is not configured';
+    writeAdminAudit(admin, 'data.export.job.object_archive.fail', 'data_export_job', job.id, before, adminExportJobItem(job), job.objectStorageError);
+    return;
+  }
+
+  const attemptedAt = new Date().toISOString();
+  const objectKey = adminExportCosObjectKey(job, job.storageFileName || result?.filename || '');
+  const before = cloneJson(job);
+  job.objectArchiveAttemptedAt = attemptedAt;
+  job.objectKey = objectKey;
+  job.objectSizeBytes = Buffer.byteLength(csvBuffer || Buffer.alloc(0));
+  job.objectStorageError = '';
+  job.objectStorageProvider = 'tencent-cos';
+  job.objectStorageStatus = 'pending';
+  try {
+    const filename = safeAdminExportStorageFileName(job.filename || result?.filename || 'lumii-export.csv').replace(/"/g, '');
+    await cosRequest('PUT', objectKey, {
+      body: csvBuffer,
+      headers: {
+        'Cache-Control': 'private, max-age=0, no-store',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Type': 'text/csv; charset=utf-8',
+      },
+      timeoutMs: 30000,
+    });
+    job.objectArchivedAt = new Date().toISOString();
+    job.objectStorageStatus = 'archived';
+    writeAdminAudit(admin, 'data.export.job.object_archive.complete', 'data_export_job', job.id, before, adminExportJobItem(job), `导出归档已写入对象存储：${objectKey}`);
+  } catch (error) {
+    job.objectStorageError = String(error?.message || error || 'COS 归档失败').slice(0, 240);
+    job.objectStorageStatus = 'failed';
+    writeAdminAudit(admin, 'data.export.job.object_archive.fail', 'data_export_job', job.id, before, adminExportJobItem(job), job.objectStorageError);
+  }
+}
+
 function adminExportJobItem(job = {}) {
   const status = adminExportJobCurrentStatus(job);
   const dataset = adminExportDataset(job.datasetType);
@@ -4888,6 +4956,14 @@ function adminExportJobItem(job = {}) {
     lastSignedLinkCreatedBy: job.lastSignedLinkCreatedBy || '',
     lastSignedLinkExpiresAt: job.lastSignedLinkExpiresAt || '',
     matchedRows: Math.max(0, Math.floor(Number(job.matchedRows || 0))),
+    objectArchivedAt: job.objectArchivedAt || '',
+    objectArchiveAttemptedAt: job.objectArchiveAttemptedAt || '',
+    objectKey: job.objectKey || '',
+    objectSizeBytes: Math.max(0, Math.floor(Number(job.objectSizeBytes || 0))),
+    objectStorageError: job.objectStorageError || '',
+    objectStorageProvider: job.objectStorageProvider || '',
+    objectStorageStatus: job.objectStorageStatus || '',
+    objectStorageStatusLabel: adminExportObjectStorageStatusLabel(job.objectStorageStatus || ''),
     rowCount: Math.max(0, Math.floor(Number(job.rowCount || 0))),
     sizeBytes: Math.max(0, Math.floor(Number(job.sizeBytes || 0))),
     sensitiveExportMode: job.includeSensitive === true ? 'full' : 'masked',
@@ -4927,6 +5003,8 @@ function adminExportJobs(options = {}) {
   const type = String(options.type || 'all').trim() || 'all';
   const status = String(options.status || 'open').trim() || 'open';
   const limit = Math.min(80, Math.max(10, Number(options.limit || 20) || 20));
+  const objectStorageEnabled = adminExportObjectStorageEnabled();
+  const objectStorageConfigured = cosEnabled();
   const all = ensureAdminExportJobs()
     .map(adminExportJobItem)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -4941,14 +5019,21 @@ function adminExportJobs(options = {}) {
   return {
     items,
     policy: {
+      objectStorageConfigured,
+      objectStorageEnabled,
+      objectStoragePrefix: ADMIN_EXPORT_COS_PREFIX,
+      objectStorageProvider: objectStorageEnabled ? 'tencent-cos' : '',
       retentionHours: ADMIN_EXPORT_FILE_RETENTION_HOURS,
-      storage: 'server_local_file',
+      storage: objectStorageEnabled ? 'server_local_file+tencent_cos' : 'server_local_file',
     },
     summary: {
       completed: all.filter((item) => item.status === 'completed').length,
       expired: all.filter((item) => item.status === 'expired').length,
       failed: all.filter((item) => item.status === 'failed').length,
       matched: items.length,
+      objectArchiveFailed: all.filter((item) => item.objectStorageStatus === 'failed').length,
+      objectArchived: all.filter((item) => item.objectStorageStatus === 'archived').length,
+      objectPending: all.filter((item) => item.objectStorageStatus === 'pending').length,
       open: all.filter((item) => ['queued', 'running', 'completed'].includes(item.status)).length,
       queued: all.filter((item) => item.status === 'queued').length,
       running: all.filter((item) => item.status === 'running').length,
@@ -4957,11 +5042,12 @@ function adminExportJobs(options = {}) {
   };
 }
 
-function completeAdminExportJob(job, result, admin) {
+async function completeAdminExportJob(job, result, admin) {
   fs.mkdirSync(ADMIN_EXPORT_FILE_DIR, { recursive: true });
   const storageFileName = safeAdminExportStorageFileName(`${job.id}-${result.filename}`);
   const filePath = path.join(ADMIN_EXPORT_FILE_DIR, storageFileName);
-  fs.writeFileSync(filePath, result.csv, 'utf8');
+  const csvBuffer = Buffer.from(result.csv, 'utf8');
+  fs.writeFileSync(filePath, csvBuffer);
   const stat = fs.statSync(filePath);
   job.completedAt = new Date().toISOString();
   job.columnsCount = result.columns.length;
@@ -4978,10 +5064,13 @@ function completeAdminExportJob(job, result, admin) {
   job.totalRows = result.totalRows;
   job.watermarkId = result.watermarkId;
   job.watermark = result.watermark;
+  if (ADMIN_EXPORT_COS_ENABLED) {
+    await archiveAdminExportJobToObjectStorage(job, result, admin, csvBuffer);
+  }
   writeAdminAudit(admin, 'data.export.job.complete', 'data_export_job', job.id, null, adminExportJobItem(job), `导出归档生成完成：${result.label}；${result.exportReason}；${result.filterSummary}`);
 }
 
-function processAdminExportJob(jobId, admin) {
+async function processAdminExportJob(jobId, admin) {
   const job = ensureAdminExportJobs().find((item) => item.id === jobId);
   if (!job || job.status !== 'queued') return;
   const before = cloneJson(job);
@@ -4991,7 +5080,7 @@ function processAdminExportJob(jobId, admin) {
   try {
     const result = buildAdminExportCsv(job.datasetType, job.filters || {}, { admin, includeSensitive: job.includeSensitive === true, reason: job.exportReason });
     if (!result) throw new Error('导出数据集不存在');
-    completeAdminExportJob(job, result, admin);
+    await completeAdminExportJob(job, result, admin);
   } catch (error) {
     job.error = String(error?.message || error || '导出归档生成失败').slice(0, 240);
     job.failedAt = new Date().toISOString();
@@ -5003,12 +5092,24 @@ function processAdminExportJob(jobId, admin) {
 }
 
 function scheduleAdminExportJob(jobId, admin) {
-  setImmediate(() => processAdminExportJob(jobId, {
+  const jobAdmin = {
     ip: admin?.ip || '',
     role: admin?.role || '',
     userAgent: admin?.userAgent || '',
     username: currentAdminUsername(admin),
-  }));
+  };
+  setImmediate(() => {
+    processAdminExportJob(jobId, jobAdmin).catch((error) => {
+      const job = ensureAdminExportJobs().find((item) => item.id === jobId);
+      if (job && ['queued', 'running'].includes(job.status)) {
+        job.error = String(error?.message || error || '导出归档生成失败').slice(0, 240);
+        job.failedAt = new Date().toISOString();
+        job.status = 'failed';
+        writeAdminAudit(jobAdmin, 'data.export.job.fail', 'data_export_job', job.id, null, adminExportJobItem(job), job.error);
+        saveState();
+      }
+    });
+  });
 }
 
 function createAdminExportJob(admin, body = {}) {
@@ -5046,6 +5147,8 @@ function createAdminExportJob(admin, body = {}) {
     id: `export-job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     includeSensitive: approvalResult.includeSensitive === true,
     matchedRows: preview.matchedRows,
+    objectStorageProvider: ADMIN_EXPORT_COS_ENABLED ? 'tencent-cos' : '',
+    objectStorageStatus: ADMIN_EXPORT_COS_ENABLED ? (cosEnabled() ? 'pending' : 'unconfigured') : '',
     rowCount: preview.rowCount,
     status: 'queued',
     sensitiveExportMode: approvalResult.includeSensitive === true ? 'full' : 'masked',
@@ -5749,7 +5852,20 @@ function cosEnabled() {
   return Boolean(COS_BUCKET && COS_REGION && COS_SECRET_ID && COS_SECRET_KEY);
 }
 
+function cosEndpointUrl() {
+  if (!COS_ENDPOINT) return null;
+  try {
+    const parsed = new URL(COS_ENDPOINT);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function cosHost() {
+  const endpoint = cosEndpointUrl();
+  if (endpoint) return endpoint.host;
   return `${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com`;
 }
 
@@ -5787,19 +5903,23 @@ function cosSignature(method, objectPath, headers = {}) {
 
 function cosRequest(method, objectKey, { body, headers = {}, timeoutMs = 20000 } = {}) {
   if (!cosEnabled()) return Promise.reject(new Error('COS is not configured'));
+  const endpoint = cosEndpointUrl();
   const objectPath = cosObjectPath(objectKey);
+  const requestPath = endpoint ? `${endpoint.pathname.replace(/\/+$/, '')}${objectPath}` : objectPath;
   const requestHeaders = Object.fromEntries(Object.entries(headers).map(([key, value]) => [String(key).toLowerCase(), String(value)]));
   requestHeaders.host = cosHost();
   if (body && !requestHeaders['content-length']) requestHeaders['content-length'] = String(Buffer.byteLength(body));
   requestHeaders.authorization = cosSignature(method, objectPath, requestHeaders);
 
   return new Promise((resolve, reject) => {
-    const req = https.request(
+    const requestClient = endpoint?.protocol === 'http:' ? http : https;
+    const req = requestClient.request(
       {
         headers: requestHeaders,
-        hostname: cosHost(),
+        hostname: endpoint?.hostname || cosHost(),
         method,
-        path: objectPath,
+        path: requestPath,
+        port: endpoint?.port || undefined,
         timeout: timeoutMs,
       },
       (response) => {
@@ -24395,10 +24515,14 @@ function adminReadinessModules(context) {
       key: 'exports_audit',
       module: '数据导出与审计',
       group: '治理',
-      status: 'partial',
-      evidence: 'CSV 导出支持筛选、导出原因、文件水印、审批申请、审批通过、服务器本地归档任务、审批下载、历史、行数摘要和 data.export.* 审计；审计日志支持搜索筛选与 hash 链完整性校验。',
+      status: adminExportObjectStorageEnabled() ? 'ready' : 'partial',
+      evidence: adminExportObjectStorageEnabled()
+        ? `CSV 导出支持筛选、导出原因、文件水印、审批申请、审批通过、服务器本地归档任务、COS 对象归档（前缀 ${ADMIN_EXPORT_COS_PREFIX}）、审批下载、短时效签名链接、历史、行数摘要和 data.export.* 审计；审计日志支持搜索筛选与 hash 链完整性校验。`
+        : 'CSV 导出支持筛选、导出原因、文件水印、审批申请、审批通过、服务器本地归档任务、审批下载、短时效签名链接、历史、行数摘要和 data.export.* 审计；COS 对象归档代码已接入，当前环境未开启或 COS 未完整配置。',
       mobileLinkage: '导出覆盖移动端真实业务数据和 App 事件，不导出图片二进制或完整设备 token；强制审批开启后需按审批单创建归档或下载。',
-      nextStep: '导出审批已进入 /admin/approvals/pending 值守队列；生产期补对象存储归档、站外审批提醒和更细文件生命周期策略。',
+      nextStep: adminExportObjectStorageEnabled()
+        ? '导出审批已进入 /admin/approvals/pending 值守队列；生产期继续补 COS 生命周期策略、站外审批提醒和更细文件销毁审计。'
+        : '配置 LUMII_ADMIN_EXPORT_COS_ENABLED=true、COS_BUCKET、COS_REGION、COS_SECRET_ID、COS_SECRET_KEY 后启用对象存储归档；生产期继续补站外审批提醒和更细文件生命周期策略。',
     },
     {
       key: 'system',
@@ -24567,10 +24691,14 @@ function adminReadinessGaps(context) {
       key: 'exports_governance',
       area: '数据导出',
       severity: 'P1',
-      status: 'partial',
-      issue: '导出已有审计、原因必填、CSV 水印、默认敏感字段脱敏、完整敏感字段授权、审批流、高风险会签、审批有效期、单审批下载次数上限、服务器本地归档任务和短时效签名下载链接；仍缺对象存储归档。',
-      requiredAction: '补对象存储归档、文件生命周期策略和站外审批提醒。',
-      evidence: '数据导出页 / 导出归档任务 / 签名链接 / 审计日志 / exports.maxDownloadsPerApproval / /admin/approvals/pending',
+      status: adminExportObjectStorageEnabled() ? 'ready' : 'partial',
+      issue: adminExportObjectStorageEnabled()
+        ? '导出已有审计、原因必填、CSV 水印、默认敏感字段脱敏、完整敏感字段授权、审批流、高风险会签、审批有效期、单审批下载次数上限、服务器本地归档任务、COS 对象归档和短时效签名下载链接。'
+        : '导出已有审计、原因必填、CSV 水印、默认敏感字段脱敏、完整敏感字段授权、审批流、高风险会签、审批有效期、单审批下载次数上限、服务器本地归档任务和短时效签名下载链接；对象存储归档能力已接入但当前环境未开启或 COS 未完整配置。',
+      requiredAction: adminExportObjectStorageEnabled()
+        ? '生产期配置 COS 生命周期、文件销毁审计和站外审批提醒。'
+        : '配置 LUMII_ADMIN_EXPORT_COS_ENABLED=true 和 COS 环境变量；再补文件生命周期策略和站外审批提醒。',
+      evidence: '数据导出页 / 导出归档任务 / 对象归档状态 / 签名链接 / 审计日志 / exports.maxDownloadsPerApproval / /admin/approvals/pending',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }
