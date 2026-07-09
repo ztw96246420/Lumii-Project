@@ -161,6 +161,8 @@ const ADMIN_PASSWORD_MIN_LENGTH = Math.max(8, Number(process.env.LUMII_ADMIN_PAS
 const ADMIN_PASSWORD_HASH_ITERATIONS = Math.max(100000, Number(process.env.LUMII_ADMIN_PASSWORD_HASH_ITERATIONS || '210000') || 210000);
 const ADMIN_MFA_SECRET = process.env.LUMII_ADMIN_MFA_SECRET || process.env.LUMII_ADMIN_TOTP_SECRET || '';
 const ADMIN_MFA_WINDOW = Math.max(0, Math.min(3, Number(process.env.LUMII_ADMIN_MFA_WINDOW || '1') || 1));
+const ADMIN_PASSWORD_ROTATION_DAYS = Math.max(0, Number(process.env.LUMII_ADMIN_PASSWORD_ROTATION_DAYS || '90') || 0);
+const ADMIN_PASSWORD_ROTATED_AT = process.env.LUMII_ADMIN_PASSWORD_ROTATED_AT || process.env.LUMII_ADMIN_PASSWORD_UPDATED_AT || '';
 
 const seedOwners = [
   {
@@ -6311,7 +6313,7 @@ function adminEnvAccount() {
     isEnvAccount: true,
     mfaEnabled: Boolean(normalizeAdminMfaSecret(ADMIN_MFA_SECRET)),
     mfaSecret: normalizeAdminMfaSecret(ADMIN_MFA_SECRET),
-    passwordUpdatedAt: '',
+    passwordUpdatedAt: normalizeIsoDateText(ADMIN_PASSWORD_ROTATED_AT),
     roleIds: ['admin'],
     source: 'env',
     status: 'active',
@@ -6328,6 +6330,11 @@ function normalizeAdminRoleIds(value, fallback = ['admin']) {
     .filter((item) => known.has(item));
   const unique = Array.from(new Set(roleIds));
   return unique.length ? unique : fallback;
+}
+
+function normalizeIsoDateText(value) {
+  const ms = Date.parse(String(value || ''));
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : '';
 }
 
 function normalizeAdminMfaSecret(value) {
@@ -21316,6 +21323,46 @@ function adminAccountRows(loginLogs = []) {
   ];
 }
 
+function adminPasswordRotationStatus(accountRows = []) {
+  const activeRows = accountRows.filter((account) => account.status === 'active' || account.status === 'locked');
+  const maxAgeDays = ADMIN_PASSWORD_ROTATION_DAYS;
+  const maxAgeMs = maxAgeDays > 0 ? maxAgeDays * 24 * 60 * 60 * 1000 : 0;
+  const now = Date.now();
+  const missingUpdatedAtAccounts = [];
+  const staleAccounts = [];
+  let nextRotationAt = '';
+  let nextRotationMs = Number.POSITIVE_INFINITY;
+  activeRows.forEach((account) => {
+    const username = account.username || account.id || 'unknown';
+    const updatedMs = Date.parse(String(account.passwordUpdatedAt || ''));
+    if (maxAgeDays <= 0) return;
+    if (!Number.isFinite(updatedMs)) {
+      missingUpdatedAtAccounts.push(username);
+      return;
+    }
+    const dueMs = updatedMs + maxAgeMs;
+    if (dueMs <= now) {
+      staleAccounts.push(username);
+      return;
+    }
+    if (dueMs < nextRotationMs) {
+      nextRotationMs = dueMs;
+      nextRotationAt = new Date(dueMs).toISOString();
+    }
+  });
+  const overdueAccounts = Array.from(new Set([...missingUpdatedAtAccounts, ...staleAccounts]));
+  return {
+    activeAccounts: activeRows.length,
+    configured: maxAgeDays > 0 && overdueAccounts.length === 0,
+    enabled: maxAgeDays > 0,
+    maxAgeDays,
+    missingUpdatedAtAccounts,
+    nextRotationAt,
+    overdueAccounts,
+    staleAccounts,
+  };
+}
+
 function validateAdminUsername(username) {
   const normalized = normalizeAdminUsername(username);
   if (!/^[A-Za-z0-9][A-Za-z0-9_.@-]{2,63}$/.test(normalized)) {
@@ -21490,11 +21537,13 @@ function adminAccounts(admin = {}) {
   const activeMfaCount = activeAccountRows.filter((account) => account.mfaEnabled).length;
   const allActiveMfaEnabled = activeAccountRows.length > 0 && activeMfaCount === activeAccountRows.length;
   const anyMfaEnabled = activeMfaCount > 0;
+  const passwordRotation = adminPasswordRotationStatus(accountRows);
   const sessionPermissionKeys = adminPermissionsForRoles(admin.roleIds || [admin.role || 'admin']);
   const checks = [
     adminCheckStatus(usernameFromEnv && passwordFromEnv ? 'ok' : 'warn', 'credential_env', '后台账号环境变量', passwordFromEnv ? '后台密码由环境变量覆盖' : '仍可能使用默认后台密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus('ok', 'login_lockout', '逐账号登录失败锁定', loginSecurity.locked ? `当前 ${loginSecurity.lockedAccountCount} 个账号锁定到 ${loginSecurity.lockedUntil}` : `每个账号连续 ${loginSecurity.maxAttempts} 次失败会独立锁定 ${loginSecurity.lockMinutes} 分钟`, 'LUMII_ADMIN_LOGIN_MAX_ATTEMPTS / LUMII_ADMIN_LOGIN_LOCK_MS'),
     adminCheckStatus(allActiveMfaEnabled ? 'ok' : anyMfaEnabled ? 'warn' : 'warn', 'mfa', 'MFA', allActiveMfaEnabled ? `所有 ${activeAccountRows.length} 个活跃后台账号均已启用 TOTP MFA。` : anyMfaEnabled ? `${activeMfaCount}/${activeAccountRows.length} 个活跃后台账号启用 TOTP MFA，生产期建议全部启用。` : '已接入 TOTP MFA 验证能力，但当前没有活跃后台账号启用。', 'LUMII_ADMIN_MFA_SECRET / state adminAccounts.mfaSecret'),
+    adminCheckStatus(passwordRotation.configured ? 'ok' : 'warn', 'password_rotation', '密码轮换', passwordRotation.enabled ? passwordRotation.configured ? `所有 ${passwordRotation.activeAccounts} 个活跃后台账号均有 ${passwordRotation.maxAgeDays} 天内的轮换记录。` : `${passwordRotation.overdueAccounts.length}/${passwordRotation.activeAccounts} 个活跃后台账号缺少轮换时间或已超过 ${passwordRotation.maxAgeDays} 天。` : '未启用后台密码轮换检查，生产期建议配置轮换周期。', 'LUMII_ADMIN_PASSWORD_ROTATION_DAYS / LUMII_ADMIN_PASSWORD_ROTATED_AT / state adminAccounts.passwordUpdatedAt'),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'ip_allowlist', 'IP 白名单', ipAllowlist.configured ? `已启用后端白名单，当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '当前未强制后台 IP 白名单，生产期应在网关或后端启用。', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
     adminCheckStatus(storedCount > 0 ? 'ok' : 'warn', 'multi_accounts', '多管理员账号', storedCount > 0 ? `已启用 ${storedCount} 个 state 管理员账号，可新增、禁用、启用和重置密码。` : '当前只有环境变量 admin 账号，可在本页新增 state 管理员账号。', 'JSON state：adminAccounts'),
   ];
@@ -21528,6 +21577,7 @@ function adminAccounts(admin = {}) {
         partial: anyMfaEnabled && !allActiveMfaEnabled,
       },
       mfaRequired: allActiveMfaEnabled,
+      passwordRotation,
       passwordFromEnv,
       usernameFromEnv,
     },
@@ -21765,7 +21815,7 @@ function adminReadinessModules(context) {
       status: hasAccountWarnings ? 'partial' : 'ready',
       evidence: '已覆盖系统健康、外部依赖、业务积压、多后台账号、角色权限点、会话和高风险动作。',
       mobileLinkage: '系统健康观测包含影响 App 的 AI、地图、媒体、客服、通知和配置能力。',
-      nextStep: '生产期补 MFA、APM 和不可篡改审计。',
+      nextStep: '生产期补 APM、外部告警、账号离职轮换 SOP 和不可篡改审计。',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }

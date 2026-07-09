@@ -14,6 +14,7 @@
   - `LUMII_ADMIN_USERNAME`
   - `LUMII_ADMIN_PASSWORD`
   - `LUMII_ADMIN_MFA_SECRET` / `LUMII_ADMIN_TOTP_SECRET`
+  - `LUMII_ADMIN_PASSWORD_ROTATED_AT` / `LUMII_ADMIN_PASSWORD_ROTATION_DAYS`
 - 新增 state 管理员账号：
   - `POST /admin/accounts`
   - 保存到 `state.adminAccounts`
@@ -39,6 +40,10 @@
   - 禁用账号后，该账号已有 token 立即无法通过 `/admin/me`。
   - 重置密码后，该账号旧 token 立即失效。
   - 启用、重置或关闭 MFA 后，该账号旧 token 立即失效。
+- 密码轮换检查：
+  - state 账号使用 `passwordUpdatedAt` 计算是否超过轮换周期。
+  - 环境变量 admin 账号使用 `LUMII_ADMIN_PASSWORD_ROTATED_AT` / `LUMII_ADMIN_PASSWORD_UPDATED_AT` 记录最近轮换时间。
+  - `LUMII_ADMIN_PASSWORD_ROTATION_DAYS` 默认 90 天；超期或缺失轮换时间会在账号权限页安全检查中标记为 warn。
 - TOTP MFA：
   - 创建 state 账号时可传入 `mfaSecret` / `totpSecret`。
   - `POST /admin/accounts/{id}/reset-mfa` 可启用、重置或传空关闭 state 账号 MFA。
@@ -80,6 +85,7 @@
 - 暂不做环境变量账号的页面禁用或页面重置密码。
 - 数据仍保存在 JSON state；生产期应迁移到正式数据库。
 - 第一版 RBAC 是后端集中权限门和页面角色选择，按钮级隐藏仍可继续细化；安全边界以后端拦截为准。
+- 已接入密码轮换状态检查，但离职交接、定期执行、外部密码库和人事流程仍属于生产 SOP。
 
 ## 生产期待补
 
@@ -106,6 +112,7 @@ node scripts/smoke-admin-accounts.cjs
 脚本覆盖：
 
 - 环境变量 admin 启用 MFA 后，缺验证码会被拒绝，正确验证码可登录。
+- 环境变量 admin 的密码轮换时间会纳入安全检查。
 - admin 可创建 state 管理员账号。
 - state 管理员账号启用 MFA 后，缺验证码/错误验证码会被拒绝，正确验证码可登录。
 - 新账号可登录，默认客服角色。
@@ -118,4 +125,5 @@ node scripts/smoke-admin-accounts.cjs
 - 重置密码后旧 token 和旧密码失效。
 - 重置/关闭 MFA 后旧 token 失效，关闭后可无验证码登录。
 - 新密码可登录。
+- 密码轮换检查在环境变量账号和 state 账号均未超期时返回 ok。
 - 创建、禁用、启用、重置密码、重置 MFA 和 MFA 登录失败均写审计。

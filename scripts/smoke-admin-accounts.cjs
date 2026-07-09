@@ -13,6 +13,7 @@ const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-admin-accounts-'));
 const statePath = path.join(tmpDir, 'state.json');
 const ENV_MFA_SECRET = 'JBSWY3DPEHPK3PXR';
+const ENV_PASSWORD_ROTATED_AT = new Date().toISOString();
 const SUPPORT_MFA_SECRET = 'JBSWY3DPEHPK3PXP';
 let backendProcess = null;
 let baseUrl = '';
@@ -75,7 +76,10 @@ async function startBackend(port) {
       ...process.env,
       AMAP_WEB_SERVICE_KEY: '',
       LUMII_ADMIN_MFA_SECRET: ENV_MFA_SECRET,
+      LUMII_ADMIN_PASSWORD: 'LumiiAdmin@2026',
       LUMII_ADMIN_PASSWORD_MIN_LENGTH: '10',
+      LUMII_ADMIN_PASSWORD_ROTATED_AT: ENV_PASSWORD_ROTATED_AT,
+      LUMII_ADMIN_PASSWORD_ROTATION_DAYS: '90',
       LUMII_BACKEND_PORT: String(port),
       LUMII_BACKEND_STATE_PATH: statePath,
       SMS_COOLDOWN_MS: '0',
@@ -168,6 +172,11 @@ async function main() {
     assert.equal(initial.data.summary.stateAccounts, 0);
     assert.equal(initial.data.security.mfa.configured, true);
     assert.equal(initial.data.security.mfa.enabledAccounts, 1);
+    assert.equal(initial.data.security.passwordRotation.configured, true);
+    assert.equal(initial.data.security.passwordRotation.enabled, true);
+    assert.equal(initial.data.security.passwordRotation.maxAgeDays, 90);
+    assert.equal(initial.data.security.passwordRotation.overdueAccounts.length, 0);
+    assert.equal(initial.data.security.checks.some((item) => item.key === 'password_rotation' && item.status === 'ok'), true);
 
     const created = await request('/admin/accounts', {
       body: {
@@ -291,6 +300,8 @@ async function main() {
     assert.equal(finalAccounts.data.accounts.some((item) => item.username === 'ops_admin_01' && item.mfaEnabled === false), true);
     assert.equal(finalAccounts.data.security.mfa.enabledAccounts, 1);
     assert.equal(finalAccounts.data.security.mfa.partial, true);
+    assert.equal(finalAccounts.data.security.passwordRotation.configured, true);
+    assert.equal(finalAccounts.data.security.passwordRotation.overdueAccounts.length, 0);
     assert.equal(finalAccounts.data.loginSecurity.lockedAccountCount, 0);
   } finally {
     await stopBackend();
