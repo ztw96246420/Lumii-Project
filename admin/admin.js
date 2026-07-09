@@ -286,6 +286,7 @@ async function login() {
   try {
     const data = await api('/admin/auth/login', {
       body: JSON.stringify({
+        mfaCode: $('mfaInput')?.value || '',
         password: $('passwordInput').value,
         username: $('usernameInput').value,
       }),
@@ -300,6 +301,7 @@ async function login() {
   } catch (error) {
     const lockText = error.data?.lockedUntil ? `（锁定到 ${formatTime(error.data.lockedUntil)}）` : '';
     $('loginError').textContent = `${error.message || '登录失败'}${lockText}`;
+    if (error.code === 'ADMIN_MFA_REQUIRED' || error.code === 'ADMIN_MFA_FAILED') $('mfaInput')?.focus();
   }
 }
 
@@ -401,6 +403,10 @@ async function onContentClick(event) {
     }
     if (action === 'admin-account-reset-password') {
       await handleAdminAccountPasswordReset(button);
+      return;
+    }
+    if (action === 'admin-account-reset-mfa') {
+      await handleAdminAccountMfaReset(button);
       return;
     }
     if (action === 'moderation-filter') {
@@ -2547,6 +2553,7 @@ function adminAccountActionCell(row) {
     <div class="actions">
       <button class="small-button" data-action="${disabled ? 'admin-account-enable' : 'admin-account-disable'}" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">${disabled ? '启用' : '禁用'}</button>
       <button class="small-button ghost" data-action="admin-account-reset-password" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">重置密码</button>
+      <button class="small-button ghost" data-action="admin-account-reset-mfa" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">${row.mfaEnabled ? '重置 MFA' : '启用 MFA'}</button>
     </div>
   `;
 }
@@ -2555,10 +2562,11 @@ async function handleAdminAccountCreate() {
   const username = $('adminAccountUsername').value.trim();
   const displayName = $('adminAccountDisplayName').value.trim();
   const password = $('adminAccountPassword').value;
+  const mfaSecret = $('adminAccountMfaSecret')?.value.trim() || '';
   const roleId = $('adminAccountRole')?.value || 'support';
   const reason = $('adminAccountReason').value.trim() || '新增后台管理员账号';
-  await post('/admin/accounts', { displayName, password, reason, roleIds: [roleId], username });
-  ['adminAccountUsername', 'adminAccountDisplayName', 'adminAccountPassword'].forEach((id) => {
+  await post('/admin/accounts', { displayName, mfaSecret, password, reason, roleIds: [roleId], username });
+  ['adminAccountUsername', 'adminAccountDisplayName', 'adminAccountPassword', 'adminAccountMfaSecret'].forEach((id) => {
     const node = $(id);
     if (node) node.value = '';
   });
@@ -2594,6 +2602,24 @@ async function handleAdminAccountPasswordReset(button) {
   await render(true);
 }
 
+async function handleAdminAccountMfaReset(button) {
+  const username = button.dataset.username || '该账号';
+  const mfaSecret = window.prompt(`请输入 ${username} 的 Base32 TOTP Secret。留空将关闭该账号 MFA。`);
+  if (mfaSecret === null) return;
+  const trimmedSecret = mfaSecret.trim();
+  const defaultReason = trimmedSecret ? '启用或重置后台账号 MFA' : '关闭后台账号 MFA';
+  const reason = window.prompt('请输入更新 MFA 原因', defaultReason);
+  if (reason === null) return;
+  await post(`/admin/accounts/${encodeURIComponent(button.dataset.id)}/reset-mfa`, {
+    mfaSecret: trimmedSecret,
+    reason: reason.trim() || defaultReason,
+  });
+  state.cache.adminAccounts = null;
+  state.cache.audit = null;
+  showToast(trimmedSecret ? '账号 MFA 已更新' : '账号 MFA 已关闭');
+  await render(true);
+}
+
 async function renderAdminAccounts(force) {
   const data = await load('adminAccounts', '/admin/accounts', force);
   const summary = data.summary || {};
@@ -2606,7 +2632,7 @@ async function renderAdminAccounts(force) {
     <div class="grid metrics">
       ${metric('管理员账号', numberText(summary.activeAccounts || 0), `${numberText(summary.stateAccounts || 0)} 个 state 账号`, '后台账号与 App 用户账号分离。环境变量 admin 仍可用，新增账号保存在服务端 state。')}
       ${metric('当前权限', numberText(summary.activePermissions || 0), `${(session.roleIds || []).join(' / ') || '未识别角色'}`, '后台已按角色做运行时权限拦截；按钮漏隐藏时，后端仍会按权限点拒绝。')}
-      ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.reservedRoles || 0)} 个预留角色`, '多管理员、角色权限、登录失败锁定和 IP 白名单底座已接入；MFA 与密码轮换仍是生产期治理能力。')}
+      ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.reservedRoles || 0)} 个预留角色`, '多管理员、角色权限、登录失败锁定、IP 白名单和 TOTP MFA 底座已接入；密码轮换 SOP 仍是生产期治理能力。')}
       ${metric('登录保护', loginSecurity.lockedAccountCount ? `${numberText(loginSecurity.lockedAccountCount)} 个锁定` : `${numberText(loginSecurity.failedAttempts || 0)}/${numberText(loginSecurity.maxAttempts || 5)}`, `${numberText(loginSecurity.lockMinutes || 15)} 分钟锁定`, '连续失败达到阈值后，只临时锁定对应后台账号，并写入审计日志。')}
       ${metric('IP 白名单', ipAllowlist.configured ? '已启用' : '未启用', ipAllowlist.configured ? `${numberText(ipAllowlist.entryCount || 0)} 条规则 · 当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '配置环境变量后生效', '配置 LUMII_ADMIN_IP_ALLOWLIST 后，/admin 页面和 /admin/* API 都会拦截非白名单 IP。')}
       ${metric('当前会话', session.expiresAt ? formatTime(session.expiresAt) : '-', `${escapeHtml(session.ip || 'IP 未记录')}`, '当前后台 token 的到期时间、请求 IP 和 User-Agent 摘要。')}
@@ -2626,6 +2652,7 @@ async function renderAdminAccounts(force) {
           <label>显示名称<input id="adminAccountDisplayName" maxlength="40" placeholder="例如 运营管理员" /></label>
           <label>初始密码<input id="adminAccountPassword" type="password" autocomplete="new-password" placeholder="至少 10 位，含字母和数字" /></label>
           <label>角色<select id="adminAccountRole">${roleOptions}</select></label>
+          <label>MFA Secret<input id="adminAccountMfaSecret" maxlength="120" placeholder="Base32 TOTP 密钥，可留空后续设置" /></label>
           <label>操作原因<input id="adminAccountReason" maxlength="120" value="新增后台管理员账号" /></label>
           <div class="form-actions">
             <button class="primary-button" data-action="admin-account-create">创建账号</button>
@@ -2639,7 +2666,7 @@ async function renderAdminAccounts(force) {
             <h2>安全检查</h2>
             <div class="section-sub">密码来源、MFA、IP 白名单和多账号状态</div>
           </div>
-          ${help('当前已支持多管理员、角色权限、逐账号登录失败锁定和后端 IP 白名单；生产期还要接入 MFA 与账号禁用/轮换 SOP。')}
+          ${help('当前已支持多管理员、角色权限、逐账号登录失败锁定、TOTP MFA 和后端 IP 白名单；生产期还要补账号禁用/轮换 SOP。')}
         </div>
         ${tableHtml(data.security?.checks || [], [
           ['状态', (row) => healthStatusPill(row.status)],

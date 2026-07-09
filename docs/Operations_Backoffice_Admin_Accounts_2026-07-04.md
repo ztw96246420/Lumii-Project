@@ -6,13 +6,14 @@
 
 把后台账号从“只有一个环境变量 admin”推进到“环境变量 admin + 可运营维护的 state 管理员账号”。
 
-2026-07-09 已在多账号底座上补齐第一版运行时 RBAC 与逐账号登录失败锁定：新增账号可选择 `super_admin`、`ops_admin`、`content_moderator`、`support`、`auditor` 等角色，后端会按权限点拦截高风险 API；某个账号连续登录失败只锁定该账号，不影响其他管理员登录。这样先解决多人测试、离职禁用、密码重置、审计归因、基础最小权限和撞库隔离问题，后续再叠加 MFA、账号禁用/轮换 SOP 和双人审批。
+2026-07-09 已在多账号底座上补齐第一版运行时 RBAC、逐账号登录失败锁定与 TOTP MFA：新增账号可选择 `super_admin`、`ops_admin`、`content_moderator`、`support`、`auditor` 等角色，后端会按权限点拦截高风险 API；某个账号连续登录失败只锁定该账号，不影响其他管理员登录；启用 MFA 的账号登录需提交 6 位 TOTP 验证码。这样先解决多人测试、离职禁用、密码重置、二次验证、审计归因、基础最小权限和撞库隔离问题，后续再叠加账号禁用/轮换 SOP 和双人审批。
 
 ## 已支持
 
 - 环境变量账号继续可用：
   - `LUMII_ADMIN_USERNAME`
   - `LUMII_ADMIN_PASSWORD`
+  - `LUMII_ADMIN_MFA_SECRET` / `LUMII_ADMIN_TOTP_SECRET`
 - 新增 state 管理员账号：
   - `POST /admin/accounts`
   - 保存到 `state.adminAccounts`
@@ -33,9 +34,16 @@
   - 禁用账号
   - 启用账号
   - 重置密码
+  - 启用/重置/关闭 MFA
 - token 失效规则：
   - 禁用账号后，该账号已有 token 立即无法通过 `/admin/me`。
   - 重置密码后，该账号旧 token 立即失效。
+  - 启用、重置或关闭 MFA 后，该账号旧 token 立即失效。
+- TOTP MFA：
+  - 创建 state 账号时可传入 `mfaSecret` / `totpSecret`。
+  - `POST /admin/accounts/{id}/reset-mfa` 可启用、重置或传空关闭 state 账号 MFA。
+  - 环境变量 admin 账号的 MFA 只能通过服务器环境变量配置。
+  - MFA Secret 仅存储在服务端 state 或环境变量，不在账号列表接口回显。
 - 逐账号登录保护：
   - 每个账号独立累计登录失败次数。
   - 达到 `LUMII_ADMIN_LOGIN_MAX_ATTEMPTS` 后只锁定该账号 `LUMII_ADMIN_LOGIN_LOCK_MS`。
@@ -46,13 +54,16 @@
   - `admin.account.disable`
   - `admin.account.enable`
   - `admin.account.reset_password`
+  - `admin.account.reset_mfa`
+  - `admin.login.mfa_required`
+  - `admin.login.mfa_failed`
   - 禁用账号尝试登录会记录 `admin.login.disabled_account`。
 - 页面：
   - 账号权限页新增“新增后台账号”表单。
   - 创建账号时可选择角色。
   - 账号权限页新增“后台账号列表”，展示环境变量账号和 state 账号。
   - 角色边界和权限点表展示每个角色拥有的权限。
-  - state 账号支持页面禁用、启用和重置密码。
+  - state 账号支持页面禁用、启用、重置密码和重置 MFA。
 
 ## 后台与移动端关系
 
@@ -64,7 +75,6 @@
 
 ## 当前边界
 
-- 暂不做 MFA。
 - 暂不做管理员设备管理。
 - 暂不做密码过期策略。
 - 暂不做环境变量账号的页面禁用或页面重置密码。
@@ -78,8 +88,9 @@
   - 更细的 AI/地点专项角色。
   - 按字段授权，例如完整手机号、导出敏感字段。
   - 按页面隐藏无权限操作按钮。
-- MFA：
-  - TOTP 或企业微信/飞书/邮箱二次验证。
+- 继续强化 MFA：
+  - 生产前为所有活跃后台账号配置 TOTP。
+  - 后续可升级企业微信/飞书/邮箱二次验证或设备绑定。
 - 密码强度和密码过期策略。
 - 管理员离职禁用流程。
 - 管理员最近登录设备。
@@ -94,8 +105,9 @@ node scripts/smoke-admin-accounts.cjs
 
 脚本覆盖：
 
-- 环境变量 admin 可登录。
+- 环境变量 admin 启用 MFA 后，缺验证码会被拒绝，正确验证码可登录。
 - admin 可创建 state 管理员账号。
+- state 管理员账号启用 MFA 后，缺验证码/错误验证码会被拒绝，正确验证码可登录。
 - 新账号可登录，默认客服角色。
 - 客服角色可查看工单，但不能访问账号管理、用户业务数据清理或导出历史。
 - 客服账号输错到锁定后，环境变量 admin 仍可登录。
@@ -104,5 +116,6 @@ node scripts/smoke-admin-accounts.cjs
 - 禁用账号不能登录。
 - 启用账号后可重新登录。
 - 重置密码后旧 token 和旧密码失效。
+- 重置/关闭 MFA 后旧 token 失效，关闭后可无验证码登录。
 - 新密码可登录。
-- 创建、禁用、启用、重置密码均写审计。
+- 创建、禁用、启用、重置密码、重置 MFA 和 MFA 登录失败均写审计。

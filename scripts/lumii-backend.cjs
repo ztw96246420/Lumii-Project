@@ -159,6 +159,8 @@ const ADMIN_LOGIN_LOCK_MS = Math.max(60 * 1000, Number(process.env.LUMII_ADMIN_L
 const ADMIN_IP_ALLOWLIST_RAW = process.env.LUMII_ADMIN_IP_ALLOWLIST || process.env.LUMII_ADMIN_IP_WHITELIST || '';
 const ADMIN_PASSWORD_MIN_LENGTH = Math.max(8, Number(process.env.LUMII_ADMIN_PASSWORD_MIN_LENGTH || '10') || 10);
 const ADMIN_PASSWORD_HASH_ITERATIONS = Math.max(100000, Number(process.env.LUMII_ADMIN_PASSWORD_HASH_ITERATIONS || '210000') || 210000);
+const ADMIN_MFA_SECRET = process.env.LUMII_ADMIN_MFA_SECRET || process.env.LUMII_ADMIN_TOTP_SECRET || '';
+const ADMIN_MFA_WINDOW = Math.max(0, Math.min(3, Number(process.env.LUMII_ADMIN_MFA_WINDOW || '1') || 1));
 
 const seedOwners = [
   {
@@ -6307,7 +6309,8 @@ function adminEnvAccount() {
     displayName: ADMIN_USERNAME,
     id: 'admin-env',
     isEnvAccount: true,
-    mfaEnabled: false,
+    mfaEnabled: Boolean(normalizeAdminMfaSecret(ADMIN_MFA_SECRET)),
+    mfaSecret: normalizeAdminMfaSecret(ADMIN_MFA_SECRET),
     passwordUpdatedAt: '',
     roleIds: ['admin'],
     source: 'env',
@@ -6327,6 +6330,67 @@ function normalizeAdminRoleIds(value, fallback = ['admin']) {
   return unique.length ? unique : fallback;
 }
 
+function normalizeAdminMfaSecret(value) {
+  const normalized = String(value || '').replace(/[\s-]+/g, '').toUpperCase();
+  if (!normalized) return '';
+  if (!/^[A-Z2-7]+=*$/.test(normalized)) return '';
+  try {
+    return base32DecodeBuffer(normalized).length ? normalized.replace(/=+$/g, '') : '';
+  } catch {
+    return '';
+  }
+}
+
+function base32DecodeBuffer(value) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const clean = String(value || '').replace(/=+$/g, '').toUpperCase();
+  let bits = '';
+  for (const char of clean) {
+    const index = alphabet.indexOf(char);
+    if (index < 0) throw new Error('invalid base32 character');
+    bits += index.toString(2).padStart(5, '0');
+  }
+  const bytes = [];
+  for (let offset = 0; offset + 8 <= bits.length; offset += 8) {
+    bytes.push(Number.parseInt(bits.slice(offset, offset + 8), 2));
+  }
+  return Buffer.from(bytes);
+}
+
+function adminAccountMfaSecret(account = {}) {
+  if (account.isEnvAccount) return normalizeAdminMfaSecret(ADMIN_MFA_SECRET || account.mfaSecret);
+  return normalizeAdminMfaSecret(account.mfaSecret);
+}
+
+function adminAccountMfaEnabled(account = {}) {
+  return Boolean(account && account.mfaEnabled && adminAccountMfaSecret(account));
+}
+
+function totpCodeForSecret(secret, counter) {
+  const key = base32DecodeBuffer(secret);
+  const buffer = Buffer.alloc(8);
+  buffer.writeBigUInt64BE(BigInt(counter));
+  const digest = crypto.createHmac('sha1', key).update(buffer).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const code = ((digest[offset] & 0x7f) << 24)
+    | ((digest[offset + 1] & 0xff) << 16)
+    | ((digest[offset + 2] & 0xff) << 8)
+    | (digest[offset + 3] & 0xff);
+  return String(code % 1_000_000).padStart(6, '0');
+}
+
+function verifyAdminAccountMfa(account, inputCode, now = Date.now()) {
+  if (!adminAccountMfaEnabled(account)) return true;
+  const code = String(inputCode || '').replace(/\s+/g, '');
+  if (!/^\d{6}$/.test(code)) return false;
+  const secret = adminAccountMfaSecret(account);
+  const counter = Math.floor(now / 30_000);
+  for (let delta = -ADMIN_MFA_WINDOW; delta <= ADMIN_MFA_WINDOW; delta += 1) {
+    if (safeEqualText(totpCodeForSecret(secret, counter + delta), code)) return true;
+  }
+  return false;
+}
+
 function publicAdminAccount(account = {}) {
   const roleIds = normalizeAdminRoleIds(account.roleIds, ['admin']);
   return {
@@ -6341,7 +6405,8 @@ function publicAdminAccount(account = {}) {
     lastLoginIp: account.lastLoginIp || '',
     lastLoginUserAgent: account.lastLoginUserAgent || '',
     lockedUntil: '',
-    mfaEnabled: Boolean(account.mfaEnabled),
+    mfaEnabled: adminAccountMfaEnabled(account),
+    mfaUpdatedAt: account.mfaUpdatedAt || '',
     passwordUpdatedAt: account.passwordUpdatedAt || '',
     permissionKeys: adminPermissionsForRoles(roleIds),
     roleIds,
@@ -6466,6 +6531,8 @@ function adminFromRequest(req) {
     const issuedAt = Number(payload.iat || 0);
     const passwordUpdatedAt = Date.parse(String(account.passwordUpdatedAt || ''));
     if (Number.isFinite(passwordUpdatedAt) && passwordUpdatedAt > issuedAt) return null;
+    const mfaUpdatedAt = Date.parse(String(account.mfaUpdatedAt || ''));
+    if (Number.isFinite(mfaUpdatedAt) && mfaUpdatedAt > issuedAt) return null;
     const roleIds = normalizeAdminRoleIds(account.roleIds || payload.roleIds, ['admin']);
     return {
       displayName: account.displayName || account.username,
@@ -21281,6 +21348,11 @@ function createAdminAccount(admin, body = {}) {
   const reasonResult = adminAccountReason(body.reason, '新增后台管理员账号');
   if (reasonResult.error) return reasonResult;
   const roleIds = normalizeAdminRoleIds(body.roleIds || body.roles || body.roleId || ['support'], ['support']);
+  const rawMfaSecret = body.mfaSecret || body.totpSecret || '';
+  const mfaSecret = normalizeAdminMfaSecret(rawMfaSecret);
+  if (String(rawMfaSecret || '').trim() && !mfaSecret) {
+    return { error: 'MFA Secret 必须是有效的 Base32 TOTP 密钥', statusCode: 400, code: 'ADMIN_ACCOUNT_MFA_SECRET_INVALID' };
+  }
   const now = new Date().toISOString();
   const id = `admin-account-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   const account = {
@@ -21289,7 +21361,8 @@ function createAdminAccount(admin, body = {}) {
     createdBy: admin?.username || ADMIN_USERNAME,
     displayName: normalizeAdminDisplayName(body.displayName, usernameResult.username),
     id,
-    mfaEnabled: false,
+    mfaEnabled: Boolean(mfaSecret),
+    mfaSecret,
     roleIds,
     source: 'state',
     status: 'active',
@@ -21347,6 +21420,29 @@ function resetAdminAccountPassword(admin, accountId, body = {}) {
   return { account: after, accounts: adminAccountRows(), summary: adminAccounts(admin).summary };
 }
 
+function resetAdminAccountMfa(admin, accountId, body = {}) {
+  const permission = requireAdminAccountManager(admin);
+  if (permission) return permission;
+  const account = findStoredAdminAccountById(accountId);
+  if (!account) return { error: '后台账号不存在，环境变量账号 MFA 只能通过环境变量修改', statusCode: 404, code: 'ADMIN_ACCOUNT_NOT_FOUND' };
+  const reasonResult = adminAccountReason(body.reason, '更新后台账号 MFA');
+  if (reasonResult.error) return reasonResult;
+  const rawSecret = body.mfaSecret ?? body.totpSecret ?? body.secret ?? '';
+  const mfaSecret = normalizeAdminMfaSecret(rawSecret);
+  if (String(rawSecret || '').trim() && !mfaSecret) {
+    return { error: 'MFA Secret 必须是有效的 Base32 TOTP 密钥', statusCode: 400, code: 'ADMIN_ACCOUNT_MFA_SECRET_INVALID' };
+  }
+  const before = publicAdminAccount(account);
+  account.mfaSecret = mfaSecret;
+  account.mfaEnabled = Boolean(mfaSecret);
+  account.mfaUpdatedAt = new Date().toISOString();
+  account.mfaUpdatedBy = admin?.username || ADMIN_USERNAME;
+  account.updatedAt = account.mfaUpdatedAt;
+  const after = publicAdminAccount(account);
+  writeAdminAudit(admin, 'admin.account.reset_mfa', 'admin_account', account.id, before, after, reasonResult.reason);
+  return { account: after, accounts: adminAccountRows(), summary: adminAccounts(admin).summary };
+}
+
 function adminAccounts(admin = {}) {
   const logs = Array.isArray(state.adminAuditLogs) ? state.adminAuditLogs : [];
   const loginLogs = logs
@@ -21390,11 +21486,15 @@ function adminAccounts(admin = {}) {
   const ipAllowlist = adminIpAllowlistStatus(admin.ip || '');
   const accountRows = adminAccountRows(loginLogs);
   const storedCount = adminStoredAccountRows().length;
+  const activeAccountRows = accountRows.filter((account) => account.status === 'active' || account.status === 'locked');
+  const activeMfaCount = activeAccountRows.filter((account) => account.mfaEnabled).length;
+  const allActiveMfaEnabled = activeAccountRows.length > 0 && activeMfaCount === activeAccountRows.length;
+  const anyMfaEnabled = activeMfaCount > 0;
   const sessionPermissionKeys = adminPermissionsForRoles(admin.roleIds || [admin.role || 'admin']);
   const checks = [
     adminCheckStatus(usernameFromEnv && passwordFromEnv ? 'ok' : 'warn', 'credential_env', '后台账号环境变量', passwordFromEnv ? '后台密码由环境变量覆盖' : '仍可能使用默认后台密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus('ok', 'login_lockout', '逐账号登录失败锁定', loginSecurity.locked ? `当前 ${loginSecurity.lockedAccountCount} 个账号锁定到 ${loginSecurity.lockedUntil}` : `每个账号连续 ${loginSecurity.maxAttempts} 次失败会独立锁定 ${loginSecurity.lockMinutes} 分钟`, 'LUMII_ADMIN_LOGIN_MAX_ATTEMPTS / LUMII_ADMIN_LOGIN_LOCK_MS'),
-    adminCheckStatus('warn', 'mfa', 'MFA', '当前后台账号未接 MFA，生产期必须补齐。', '预留'),
+    adminCheckStatus(allActiveMfaEnabled ? 'ok' : anyMfaEnabled ? 'warn' : 'warn', 'mfa', 'MFA', allActiveMfaEnabled ? `所有 ${activeAccountRows.length} 个活跃后台账号均已启用 TOTP MFA。` : anyMfaEnabled ? `${activeMfaCount}/${activeAccountRows.length} 个活跃后台账号启用 TOTP MFA，生产期建议全部启用。` : '已接入 TOTP MFA 验证能力，但当前没有活跃后台账号启用。', 'LUMII_ADMIN_MFA_SECRET / state adminAccounts.mfaSecret'),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'ip_allowlist', 'IP 白名单', ipAllowlist.configured ? `已启用后端白名单，当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '当前未强制后台 IP 白名单，生产期应在网关或后端启用。', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
     adminCheckStatus(storedCount > 0 ? 'ok' : 'warn', 'multi_accounts', '多管理员账号', storedCount > 0 ? `已启用 ${storedCount} 个 state 管理员账号，可新增、禁用、启用和重置密码。` : '当前只有环境变量 admin 账号，可在本页新增 state 管理员账号。', 'JSON state：adminAccounts'),
   ];
@@ -21421,7 +21521,13 @@ function adminAccounts(admin = {}) {
       checks,
       defaultPasswordRisk: !passwordFromEnv,
       ipAllowlist,
-      mfaRequired: false,
+      mfa: {
+        activeAccounts: activeAccountRows.length,
+        configured: allActiveMfaEnabled,
+        enabledAccounts: activeMfaCount,
+        partial: anyMfaEnabled && !allActiveMfaEnabled,
+      },
+      mfaRequired: allActiveMfaEnabled,
       passwordFromEnv,
       usernameFromEnv,
     },
@@ -21669,10 +21775,12 @@ function adminReadinessQuestions(context = {}) {
   const safetyVendorReady = contentSafetyReadiness.textReady && contentSafetyReadiness.imageReady;
   const imagePolicyReady = contentSafetyReadiness.imageReady;
   const ipAllowlistReady = Boolean(context.accounts?.security?.ipAllowlist?.configured);
+  const mfaReady = Boolean(context.accounts?.security?.mfa?.configured);
+  const mfaPartial = Boolean(context.accounts?.security?.mfa?.partial);
   const questions = [
     ['q-domain', 'P1', '后台正式域名使用 ops.lumiiapp.cn、admin.lumiiapp.cn，还是先沿用 /admin？', '当前可沿用 /admin；生产建议独立后台域名并做访问控制。', '影响后台入口、证书、CDN/网关和运维 SOP。'],
     ['q-ip', 'P0', '生产后台是否必须白名单 IP？', ipAllowlistReady ? '已接入后端 IP 白名单：/admin 页面和 /admin/* API 都会拦截非白名单 IP。' : '当前未强制白名单；生产前建议至少网关层限制。', '影响后台暴露面和账号被撞库风险。', ipAllowlistReady ? 'ready' : 'open', ipAllowlistReady ? '已接入' : '待确认'],
-    ['q-mfa', 'P0', '后台账号是否接企业微信、飞书或邮箱 MFA？', '当前单 admin 账号无 MFA。', '影响生产后台登录安全。'],
+    ['q-mfa', 'P0', '后台账号是否接企业微信、飞书或邮箱 MFA？', mfaReady ? '已接入 TOTP MFA，所有活跃后台账号均需二次验证码后才能登录。' : mfaPartial ? '已接入 TOTP MFA，但仍有活跃后台账号未启用，生产前建议补齐。' : '已接入 TOTP MFA 基座，但当前没有活跃后台账号启用；生产前需配置 LUMII_ADMIN_MFA_SECRET 或 state 账号 MFA Secret。', '影响生产后台登录安全。', mfaReady ? 'ready' : mfaPartial ? 'reviewing' : 'open', mfaReady ? '已接入' : mfaPartial ? '部分启用' : '待配置'],
     ['q-safety-vendor', 'P0', '内容安全供应商选哪家，文本和图片是否同一供应商？', safetyVendorReady ? '已选腾讯云天御：文本和图片机审均通过配置中心开关联动，Biztype 可由环境变量覆盖。' : `腾讯云内容安全基座未完全就绪，仍缺：${contentSafetyReadiness.missing.join('、') || '配置复核'}。`, '影响宠友圈、评论、头像、宠物图、地点点评的真实审核能力。', safetyVendorReady ? 'ready' : 'open', safetyVendorReady ? '已确认' : '待业务确认'],
     ['q-image-policy', 'P0', '图片审核失败时，宠友圈发布是阻断、送审，还是先隐藏等待审核？', imagePolicyReady ? '已实现：Block 拒绝，Review 进入 pending_review；宠友圈、地点内容会阻止发布/提交含待审或驳回图片，审核通过后才可继续。' : '图片机审未完全就绪，当前仍需人工任务池和配置复核兜底。', '影响用户发布体验和违规内容外露风险。', imagePolicyReady ? 'ready' : 'open', imagePolicyReady ? '已确认' : '待业务确认'],
     ['q-message-view', 'P1', '私信是否允许人工查看全文？如果允许，谁审批、保留多久？', '已接入策略：不开放任意全文检索；仅允许在举报/关系排查中查看最近上下文窗口，窗口大小、原因必填和保留标记由 social.messageAccess 配置；单 admin 阶段视为带审计的自审批；隐藏私信会同步影响双方移动端会话。', '影响隐私合规和骚扰治理能力。', 'ready', '已接入'],
@@ -21701,6 +21809,7 @@ function adminReadinessGaps(context) {
   const { accounts, contentSafety, health } = context;
   const defaultPasswordRisk = Boolean(accounts?.security?.defaultPasswordRisk);
   const ipAllowlistReady = Boolean(accounts?.security?.ipAllowlist?.configured);
+  const mfaReady = Boolean(accounts?.security?.mfa?.configured);
   const healthBad = Number(health?.summary?.bad || 0) > 0;
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
   return [
@@ -21712,11 +21821,19 @@ function adminReadinessGaps(context) {
       issue: defaultPasswordRisk
         ? '后台密码仍可能使用默认值'
         : ipAllowlistReady
-          ? '已接逐账号登录失败锁定、多管理员账号、角色权限和后端 IP 白名单，仍缺 MFA、账号禁用/轮换 SOP 和正式数据库。'
-          : '已接逐账号登录失败锁定、多管理员账号和角色权限，仍缺 IP 白名单、MFA 和正式数据库。',
+          ? mfaReady
+            ? '已接逐账号登录失败锁定、多管理员账号、角色权限、后端 IP 白名单和 TOTP MFA，仍缺账号禁用/轮换 SOP 和正式数据库。'
+            : '已接逐账号登录失败锁定、多管理员账号、角色权限和后端 IP 白名单，仍缺全员启用 MFA、账号禁用/轮换 SOP 和正式数据库。'
+          : mfaReady
+            ? '已接逐账号登录失败锁定、多管理员账号、角色权限和 TOTP MFA，仍缺 IP 白名单和正式数据库。'
+            : '已接逐账号登录失败锁定、多管理员账号和角色权限，仍缺 IP 白名单、全员启用 MFA 和正式数据库。',
       requiredAction: ipAllowlistReady
-        ? '生产前继续启用 MFA、账号禁用/轮换 SOP，并确认后台密码由环境变量覆盖。'
-        : '生产前启用环境变量密码、IP 白名单、MFA 和账号禁用/轮换 SOP。',
+        ? mfaReady
+          ? '生产前继续补账号禁用/轮换 SOP，并确认后台密码由环境变量覆盖。'
+          : '生产前为所有活跃后台账号启用 MFA、补账号禁用/轮换 SOP，并确认后台密码由环境变量覆盖。'
+        : mfaReady
+          ? '生产前启用环境变量密码、IP 白名单和账号禁用/轮换 SOP。'
+          : '生产前启用环境变量密码、IP 白名单、全员 MFA 和账号禁用/轮换 SOP。',
       evidence: '账号权限页 / 系统健康页',
     },
     {
@@ -27441,6 +27558,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   if (req.method === 'POST' && pathname === '/admin/auth/login') {
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
+    const mfaCode = String(body.mfaCode || body.otp || body.totp || '');
     const account = adminAccountByUsername(username);
     const admin = {
       displayName: account?.displayName || username,
@@ -27473,6 +27591,21 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       }
       fail(res, 401, `管理员账号或密码不正确，还可尝试 ${Math.max(0, failedStatus.maxAttempts - failedStatus.failedAttempts)} 次`, false, failedStatus, 'ADMIN_LOGIN_FAILED');
       return true;
+    }
+    if (adminAccountMfaEnabled(account)) {
+      const mfaData = { mfaRequired: true, username: account.username };
+      if (!mfaCode.trim()) {
+        writeAdminAudit(admin, 'admin.login.mfa_required', 'admin_user', account.id || account.username, null, mfaData, '后台登录需要 MFA 验证码');
+        saveState();
+        fail(res, 401, '请输入后台 MFA 验证码', false, mfaData, 'ADMIN_MFA_REQUIRED');
+        return true;
+      }
+      if (!verifyAdminAccountMfa(account, mfaCode)) {
+        writeAdminAudit(admin, 'admin.login.mfa_failed', 'admin_user', account.id || account.username, null, mfaData, '后台 MFA 验证失败');
+        saveState();
+        fail(res, 401, '后台 MFA 验证码不正确或已过期', false, mfaData, 'ADMIN_MFA_FAILED');
+        return true;
+      }
     }
     if (!account.isEnvAccount) {
       account.lastLoginAt = new Date().toISOString();
@@ -27518,13 +27651,15 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
-  const adminAccountStatusMatch = pathname.match(/^\/admin\/accounts\/([^/]+)\/(disable|enable|reset-password)$/);
+  const adminAccountStatusMatch = pathname.match(/^\/admin\/accounts\/([^/]+)\/(disable|enable|reset-password|reset-mfa)$/);
   if (req.method === 'POST' && adminAccountStatusMatch) {
     const accountId = decodeURIComponent(adminAccountStatusMatch[1]);
     const action = adminAccountStatusMatch[2];
     const result = action === 'reset-password'
       ? resetAdminAccountPassword(admin, accountId, body)
-      : changeAdminAccountStatus(admin, accountId, action === 'disable' ? 'disabled' : 'active', body);
+      : action === 'reset-mfa'
+        ? resetAdminAccountMfa(admin, accountId, body)
+        : changeAdminAccountStatus(admin, accountId, action === 'disable' ? 'disabled' : 'active', body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_ACCOUNT_INVALID');
       return true;
