@@ -89,6 +89,7 @@ const navItems = [
   { key: 'tickets', label: '工单中心' },
   { key: 'notifications', label: '通知运营' },
   { key: 'config', label: '配置中心' },
+  { key: 'legalDocuments', label: '合规文本' },
   { key: 'systemHealth', label: '系统健康' },
   { key: 'launchReadiness', label: '上线台账' },
   { key: 'adminAccounts', label: '账号权限' },
@@ -108,6 +109,7 @@ const titles = {
   exports: ['数据导出', '可审计的运营 CSV 下载'],
   feedback: ['反馈收集', 'App 原始反馈、自动工单和客服处理入口'],
   launchReadiness: ['上线台账', '生产前缺口、待澄清问题和移动端联动复核'],
+  legalDocuments: ['合规文本', '隐私政策、用户协议、内容审核制度和 App 备案材料签署'],
   moderation: ['内容安全', '举报、动态、评论和地点审核任务池'],
   notifications: ['通知运营', '系统通知、定向触达和移动端通知中心联动'],
   petCalendar: ['宠物日历', '体重、疫苗/驱虫、备忘和自动写入排查'],
@@ -408,6 +410,18 @@ async function onContentClick(event) {
     }
     if (action === 'launch-signoff-reset') {
       await resetLaunchReadinessSignoff(button);
+      return;
+    }
+    if (action === 'legal-doc-edit') {
+      await editLegalDocument(button);
+      return;
+    }
+    if (action === 'legal-doc-approve') {
+      await approveLegalDocument(button);
+      return;
+    }
+    if (action === 'legal-doc-reset') {
+      await resetLegalDocument(button);
       return;
     }
     if (action === 'admin-account-create') {
@@ -1748,7 +1762,7 @@ async function hidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarAnimationJobs', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'dataClearApprovals', 'feedback', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionApprovals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarAnimationJobs', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'dataClearApprovals', 'feedback', 'legalDocuments', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionApprovals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -2261,6 +2275,7 @@ async function render(force = false) {
     exports: renderExports,
     feedback: renderFeedback,
     launchReadiness: renderLaunchReadiness,
+    legalDocuments: renderLegalDocuments,
     moderation: renderModeration,
     notifications: renderNotifications,
     petCalendar: renderPetCalendar,
@@ -2669,6 +2684,137 @@ async function renderLaunchReadiness(force) {
 
     <div class="cell-sub">生成时间：${formatTime(data.generatedAt)}</div>
   `;
+}
+
+function legalDocumentPlainText(doc = {}) {
+  return (doc.sections || [])
+    .flatMap((section) => Array.isArray(section.body) ? section.body : [])
+    .filter(Boolean)
+    .join('\n');
+}
+
+function legalDocumentPreview(doc = {}) {
+  const text = legalDocumentPlainText(doc);
+  if (!text) return '-';
+  return text.length > 220 ? `${text.slice(0, 220)}...` : text;
+}
+
+function legalDocumentStatusPill(doc = {}) {
+  return tonePill(doc.statusLabel || doc.status || '-', doc.statusTone || (doc.productionReady ? 'ok' : 'warn'));
+}
+
+function legalDocumentActions(doc = {}) {
+  return `
+    <div class="actions">
+      <button class="small-button" data-action="legal-doc-edit" data-key="${escapeHtml(doc.key)}">编辑</button>
+      <button class="small-button" data-action="legal-doc-approve" data-key="${escapeHtml(doc.key)}" data-title="${escapeHtml(doc.label || doc.title || doc.key)}">签署</button>
+      <button class="small-button ghost" data-action="legal-doc-reset" data-key="${escapeHtml(doc.key)}" data-title="${escapeHtml(doc.label || doc.title || doc.key)}">重置</button>
+    </div>
+  `;
+}
+
+async function renderLegalDocuments(force) {
+  const data = await load('legalDocuments', '/admin/legal-documents', force);
+  const summary = data.summary || {};
+  const documents = data.documents || [];
+  const missingText = (summary.missingLabels || []).join('、') || '无';
+  $('content').innerHTML = `
+    <div class="grid metrics">
+      ${metric('合规材料', `${numberText(summary.approved || 0)}/${numberText(summary.required || 0)}`, summary.allRequiredApproved ? '生产签署已齐' : `缺：${missingText}`, '隐私政策、用户协议、内容审核制度和 App 备案材料均签署后，上线台账的合规文本项才会自动变为已确认。')}
+      ${metric('公开文本', numberText(summary.publicDocuments || 0), '由 /legal/* 读取', '公开文本会被 App 设置页、登录页或 WebView 读取；App 备案材料只在后台内部留存。')}
+      ${metric('上线台账', summary.allRequiredApproved ? '可收敛' : '待签署', summary.allRequiredApproved ? 'q-compliance-text 自动 ready' : 'q-compliance-text 保持 open', '编辑任一材料会把它重新打回草稿，需要重新签署。')}
+    </div>
+
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>合规文本签署</h2>
+          <div class="section-sub">默认测试文本不等于生产确认；编辑、签署、重置都会写入审计日志。</div>
+        </div>
+        ${help('正式上线前建议由运营、法务或合规顾问确认版本号、生效日期和正文后再点击签署。签署不是发布按钮，但会影响上线台账的 P0 判断。')}
+      </div>
+      ${tableHtml(documents, [
+        ['材料', (row) => `<div class="cell-title">${escapeHtml(row.label || row.title || row.key)}</div><div class="cell-sub">${escapeHtml(row.key)}${row.requiredForLaunch ? ' · 上线必需' : ''}</div>`],
+        ['状态', (row) => `${legalDocumentStatusPill(row)}<div class="cell-sub">${row.hasRequiredContent ? '正文完整' : '正文不完整'}</div>`],
+        ['版本', (row) => `<div>${escapeHtml(row.version || '-')}</div><div class="cell-sub">${escapeHtml(row.effectiveDate || '-')}</div>`],
+        ['签署', (row) => row.productionReady ? `<div>${escapeHtml(row.approvedBy || '-')}</div><div class="cell-sub">${formatTime(row.approvedAt)}</div><div class="cell-sub clamp">${escapeHtml(row.approvalNote || '-')}</div>` : '<span class="cell-sub">尚未生产签署</span>'],
+        ['公开端', (row) => row.publicPath ? `<code>${escapeHtml(row.publicPath)}</code>` : '<span class="cell-sub">内部材料</span>'],
+        ['正文摘要', (row) => `<div class="cell-sub clamp">${escapeHtml(legalDocumentPreview(row))}</div>`],
+        ['操作', (row) => legalDocumentActions(row)],
+      ], '暂无合规文本')}
+    </div>
+  `;
+}
+
+async function currentLegalDocument(key) {
+  const data = await load('legalDocuments', '/admin/legal-documents', false);
+  return (data.documents || []).find((item) => item.key === key) || null;
+}
+
+function invalidateLegalDocumentCaches() {
+  state.cache.legalDocuments = null;
+  state.cache.launchReadiness = null;
+  state.cache.systemHealth = null;
+  state.cache.summary = null;
+  state.cache.audit = null;
+}
+
+async function editLegalDocument(button) {
+  const key = button.dataset.key || '';
+  const doc = await currentLegalDocument(key);
+  if (!doc) throw new Error('合规文本不存在');
+  const title = window.prompt('标题', doc.title || doc.label || '');
+  if (title === null) return;
+  const version = window.prompt('版本号', doc.version || '');
+  if (version === null) return;
+  const effectiveDate = window.prompt('生效日期，建议 YYYY-MM-DD', doc.effectiveDate || '');
+  if (effectiveDate === null) return;
+  const disclaimer = window.prompt('页面说明/合规备注', doc.disclaimer || '');
+  if (disclaimer === null) return;
+  const bodyText = window.prompt('正文段落，可用换行分段', legalDocumentPlainText(doc));
+  if (bodyText === null) return;
+  const reason = window.prompt('更新原因，会写入审计日志', `更新合规文本：${doc.label || doc.title || key}`);
+  if (reason === null) return;
+  await patch(`/admin/legal-documents/${encodeURIComponent(key)}`, {
+    bodyText,
+    disclaimer,
+    effectiveDate,
+    reason: reason.trim(),
+    sectionTitle: '正文',
+    title,
+    version,
+  });
+  invalidateLegalDocumentCaches();
+  showToast('合规文本已更新，状态已回到草稿');
+  await render(true);
+}
+
+async function approveLegalDocument(button) {
+  const key = button.dataset.key || '';
+  const title = button.dataset.title || key;
+  if (!window.confirm(`确认签署「${title}」为当前生产确认版本？`)) return;
+  const reason = window.prompt('签署说明，会写入审计日志', `签署生产合规文本：${title}`);
+  if (reason === null) return;
+  await post(`/admin/legal-documents/${encodeURIComponent(key)}/approve`, {
+    reason: reason.trim(),
+  });
+  invalidateLegalDocumentCaches();
+  showToast('合规文本已签署');
+  await render(true);
+}
+
+async function resetLegalDocument(button) {
+  const key = button.dataset.key || '';
+  const title = button.dataset.title || key;
+  if (!window.confirm(`确认把「${title}」重置为默认测试文本？签署状态会被清除。`)) return;
+  const reason = window.prompt('重置原因，会写入审计日志', `重置合规文本：${title}`);
+  if (reason === null) return;
+  await post(`/admin/legal-documents/${encodeURIComponent(key)}/reset`, {
+    reason: reason.trim(),
+  });
+  invalidateLegalDocumentCaches();
+  showToast('合规文本已重置');
+  await render(true);
 }
 
 function adminAccountActionCell(row) {

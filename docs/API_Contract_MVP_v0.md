@@ -1751,32 +1751,35 @@ Request:
 - `content` 和 `attachments` 至少提供一个。
 - 返回 `SupportTicketDetail`。
 
-## 10. 合规静态文本
+## 10. 合规文本
 
 ### GET `/legal/terms`
 
-读取用户协议测试版静态文本。MVP 测试后端和 mock API 均不要求登录即可访问。
+读取当前后台配置的用户协议文本。不要求登录即可访问。
 
 Response data:
 
 ```ts
 type LegalDocument = {
+  approvedAt?: string;
   disclaimer: string;
   effectiveDate: string;
-  key: 'terms';
+  key: 'terms' | 'privacy' | 'content_policy';
+  productionReady?: boolean;
   sections: Array<{ title: string; body: string[] }>;
+  status?: 'approved' | 'draft' | 'reviewing';
   title: string;
   version: string;
 };
 ```
 
 说明：
-- 当前内容是测试版协议文本，用于说明现阶段核心功能与数据处理方式。
-- 正式上线前必须替换为法务或合规顾问确认后的完整文本。
+- 默认内容仍是测试版文本，正式上线前需要在后台“合规文本”页更新并签署。
+- 后台签署会写入审计日志，并联动上线台账 `q-compliance-text`。
 
 ### GET `/legal/privacy`
 
-读取隐私政策测试版静态文本。MVP 测试后端和 mock API 均不要求登录即可访问。
+读取当前后台配置的隐私政策文本。不要求登录即可访问。
 
 Response data:
 
@@ -1786,7 +1789,21 @@ LegalDocument
 
 说明：
 - 当前内容是测试版隐私政策文本，会覆盖登录、宠物照片、AI 处理、附近发现、推送通知等核心场景。
-- 正式上线前仍需要补个人信息收集清单、第三方 SDK 清单、注销规则、未成年人保护说明和正式隐私政策。
+- 正式上线前仍需要补个人信息收集清单、第三方 SDK 清单、注销规则、未成年人保护说明和正式隐私政策，并在后台签署。
+
+### GET `/legal/content-policy`
+
+读取当前后台配置的内容审核制度文本。不要求登录即可访问。
+
+Response data:
+
+```ts
+LegalDocument
+```
+
+说明：
+- 内容审核制度用于说明平台对宠友圈小事、评论、头像/宠物图、地点点评、举报和人工复核的处理规则。
+- App 备案与上架合规材料是后台内部签署项，不通过公开 `/legal/*` 暴露。
 
 ## 11. P0 待后端确认
 

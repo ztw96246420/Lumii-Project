@@ -327,6 +327,72 @@ const legalDocuments = {
     title: '灵伴用户协议',
     version: 'test-2026-06-12',
   },
+  content_policy: {
+    disclaimer: '当前为灵伴测试版内容审核制度说明，用于沉淀平台内容安全、举报处理和人工复核规则；正式上线前需要运营、法务或合规顾问确认后签署。',
+    effectiveDate: '2026-07-09',
+    key: 'content_policy',
+    sections: [
+      {
+        body: [
+          '灵伴会对宠友圈小事、评论、私信举报、宠物头像、宠物图片、地点点评、新增地点和客服附件等用户内容进行基础规则校验、第三方机审和人工复核。',
+          '内容安全规则覆盖违法违规、骚扰引流、辱骂攻击、色情低俗、暴恐涉政、个人隐私泄露、医疗风险误导和平台社区规则禁止的内容。',
+        ],
+        title: '审核范围',
+      },
+      {
+        body: [
+          '机审结果为通过时内容可继续流转；结果为待复核时进入后台内容安全任务池；结果为阻断时会拒绝发布、隐藏或要求用户更换内容。',
+          '用户举报、运营抽样、重复违规、骚扰风险和敏感场景会进入人工复核，不要求每一条已通过内容都人工复核。',
+        ],
+        title: '处理机制',
+      },
+      {
+        body: [
+          '运营可在后台对内容执行通过、隐藏、删除、驳回、处罚、撤销和申诉处理，并保留审计日志和证据快照。',
+          '正式生产期需要持续复盘误杀、漏杀、处罚一致性和封禁策略，并根据监管要求更新制度文本。',
+        ],
+        title: '运营闭环',
+      },
+    ],
+    title: '灵伴内容审核制度',
+    version: 'test-2026-07-09',
+  },
+  app_filing: {
+    disclaimer: '当前为 App 备案与上架合规材料的后台确认项，不作为公开用户协议展示；正式上线前需要确认包名、主体、隐私政策地址、SDK 清单、权限说明和备案状态。',
+    effectiveDate: '2026-07-09',
+    key: 'app_filing',
+    sections: [
+      {
+        body: [
+          '确认 Android 包名、签名信息、应用名称、主体信息、隐私政策链接、用户协议链接和应用图标/截图材料与备案、应用市场和高德等第三方平台配置一致。',
+          '确认第三方 SDK 清单、权限用途说明、个人信息收集清单、账号注销路径和未成年人/儿童个人信息边界已经按生产口径准备。',
+        ],
+        title: '备案材料',
+      },
+      {
+        body: [
+          '备案或应用市场材料发生变化时，需要在后台重新更新并签署本项，避免上线台账继续沿用旧结论。',
+        ],
+        title: '变更要求',
+      },
+    ],
+    title: '灵伴 App 备案与上架合规材料',
+    version: 'test-2026-07-09',
+  },
+};
+
+const legalDocumentDefinitions = [
+  { key: 'terms', label: '用户协议', publicPath: '/legal/terms', requiredForLaunch: true },
+  { key: 'privacy', label: '隐私政策', publicPath: '/legal/privacy', requiredForLaunch: true },
+  { key: 'content_policy', label: '内容审核制度', publicPath: '/legal/content-policy', requiredForLaunch: true },
+  { key: 'app_filing', label: 'App 备案材料', publicPath: '', requiredForLaunch: true },
+];
+
+const legalDocumentKeyAliases = {
+  appFiling: 'app_filing',
+  'app-filing': 'app_filing',
+  contentPolicy: 'content_policy',
+  'content-policy': 'content_policy',
 };
 
 const generatedAvatarUrl = 'lumii://golden-retriever-avatar';
@@ -737,6 +803,7 @@ function createInitialState() {
     adminSanctionApprovals: [],
     launchReadinessQuestionOverrides: {},
     launchReadinessSignoff: {},
+    legalDocuments: {},
     opsConfigApprovals: [],
     adminLoginSecurity: {
       accountFailures: {},
@@ -5451,6 +5518,7 @@ function loadState() {
       adminSanctionApprovals: Array.isArray(loadedState.adminSanctionApprovals) ? loadedState.adminSanctionApprovals : initialState.adminSanctionApprovals,
       launchReadinessQuestionOverrides: loadedState.launchReadinessQuestionOverrides && typeof loadedState.launchReadinessQuestionOverrides === 'object' && !Array.isArray(loadedState.launchReadinessQuestionOverrides) ? loadedState.launchReadinessQuestionOverrides : initialState.launchReadinessQuestionOverrides,
       launchReadinessSignoff: loadedState.launchReadinessSignoff && typeof loadedState.launchReadinessSignoff === 'object' && !Array.isArray(loadedState.launchReadinessSignoff) ? loadedState.launchReadinessSignoff : initialState.launchReadinessSignoff,
+      legalDocuments: loadedState.legalDocuments && typeof loadedState.legalDocuments === 'object' && !Array.isArray(loadedState.legalDocuments) ? loadedState.legalDocuments : initialState.legalDocuments,
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
       socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
@@ -22346,6 +22414,7 @@ async function adminSystemHealth() {
       { key: 'adminExportJobs', label: '导出归档任务', rows: countArray(state.adminExportJobs) },
       { key: 'launchReadinessQuestionOverrides', label: '上线台账决策', rows: countObject(state.launchReadinessQuestionOverrides) },
       { key: 'launchReadinessSignoff', label: '上线台账签署', rows: countObject(state.launchReadinessSignoff) ? 1 : 0 },
+      { key: 'legalDocuments', label: '合规文本', rows: adminLegalDocumentsStatus().summary.total },
       { key: 'appEvents', label: '移动端事件', rows: countArray(state.appEvents) },
       { key: 'notifications', label: '通知记录', rows: countNotificationRows },
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
@@ -22424,6 +22493,8 @@ function adminPermissionRows() {
     ['config.approve', '提交和审批配置发布', '配置'],
     ['config.draft', '创建、发布、废弃配置草稿', '配置'],
     ['config.rollback', '回滚配置版本', '配置'],
+    ['legal.documents.view', '查看合规文本与签署状态', '合规'],
+    ['legal.documents.update', '更新并签署合规文本', '合规'],
     ['audit.view', '查看审计日志', '审计'],
     ['data.export.download', '下载运营 CSV', '导出'],
     ['data.export.approve', '提交和审批数据导出', '导出'],
@@ -22452,6 +22523,7 @@ function adminRolePermissionMap() {
     'audit.view',
     'system.health.view',
     'launch.readiness.view',
+    'legal.documents.view',
   ];
   return {
     admin: all,
@@ -22602,6 +22674,8 @@ function adminRequiredPermissionForRequest(method, pathname) {
   if (path === '/admin/places') return httpMethod === 'GET' ? 'place.moderate' : 'place.moderate';
   if (path.startsWith('/admin/places')) return httpMethod === 'GET' ? 'place.moderate' : 'place.moderate';
   if (path === '/admin/feedback' || path.startsWith('/admin/feedback/')) return 'support.ticket.process';
+  if (path === '/admin/legal-documents') return httpMethod === 'GET' ? 'legal.documents.view' : 'legal.documents.update';
+  if (path.startsWith('/admin/legal-documents/')) return httpMethod === 'GET' ? 'legal.documents.view' : 'legal.documents.update';
   if (path === '/admin/config') return httpMethod === 'GET' ? 'config.update' : 'config.update';
   if (path.startsWith('/admin/config/approvals')) return 'config.approve';
   if (path.startsWith('/admin/config/drafts')) return 'config.draft';
@@ -22999,6 +23073,242 @@ function ensureLaunchReadinessSignoff() {
   return state.launchReadinessSignoff;
 }
 
+function legalDocumentDefinitionFor(key) {
+  return legalDocumentDefinitions.find((item) => item.key === key) || null;
+}
+
+function normalizeLegalDocumentKey(value) {
+  const raw = String(value || '').trim();
+  const normalized = legalDocumentKeyAliases[raw] || raw.replace(/-/g, '_');
+  return legalDocumentDefinitionFor(normalized) ? normalized : '';
+}
+
+function normalizeLegalDocumentText(value, fallback = '', maxLength = 1000) {
+  const text = String(value ?? fallback ?? '').replace(/\r/g, '').trim();
+  return text.slice(0, maxLength);
+}
+
+function normalizeLegalDocumentSection(section, index = 0) {
+  if (!section || typeof section !== 'object' || Array.isArray(section)) return null;
+  const title = normalizeLegalDocumentText(section.title, index === 0 ? '正文' : `章节 ${index + 1}`, 80) || (index === 0 ? '正文' : `章节 ${index + 1}`);
+  const rawBody = Array.isArray(section.body) ? section.body : String(section.body || '').split(/\n+/u);
+  const body = rawBody
+    .map((line) => normalizeLegalDocumentText(line, '', 1600))
+    .filter(Boolean)
+    .slice(0, 20);
+  if (!body.length) return null;
+  return { body, title };
+}
+
+function legalDocumentSectionsFromBodyText(bodyText, title = '正文') {
+  const body = String(bodyText || '')
+    .replace(/\r/g, '')
+    .split(/\n+/u)
+    .map((line) => normalizeLegalDocumentText(line, '', 1600))
+    .filter(Boolean)
+    .slice(0, 40);
+  return body.length ? [{ body, title: normalizeLegalDocumentText(title, '正文', 80) || '正文' }] : [];
+}
+
+function defaultLegalDocumentForKey(key) {
+  const normalizedKey = normalizeLegalDocumentKey(key);
+  const definition = legalDocumentDefinitionFor(normalizedKey);
+  const defaults = cloneJson(legalDocuments[normalizedKey] || {});
+  return {
+    ...defaults,
+    approvedAt: '',
+    approvedBy: '',
+    approvalNote: '',
+    key: normalizedKey,
+    label: definition?.label || normalizedKey,
+    productionReady: false,
+    publicPath: definition?.publicPath || '',
+    requiredForLaunch: Boolean(definition?.requiredForLaunch),
+    status: 'draft',
+    updatedAt: '',
+    updatedBy: '',
+  };
+}
+
+function normalizeLegalDocumentRecord(record, key) {
+  const normalizedKey = normalizeLegalDocumentKey(key || record?.key);
+  const fallback = defaultLegalDocumentForKey(normalizedKey);
+  const source = record && typeof record === 'object' && !Array.isArray(record) ? record : {};
+  const sections = Array.isArray(source.sections)
+    ? source.sections.map(normalizeLegalDocumentSection).filter(Boolean).slice(0, 30)
+    : [];
+  const status = ['approved', 'draft', 'reviewing'].includes(String(source.status || '')) ? String(source.status) : 'draft';
+  const productionReady = Boolean(source.productionReady) && status === 'approved';
+  return {
+    ...fallback,
+    approvedAt: normalizeLegalDocumentText(source.approvedAt, fallback.approvedAt, 40),
+    approvedBy: normalizeLegalDocumentText(source.approvedBy, fallback.approvedBy, 80),
+    approvalNote: normalizeLegalDocumentText(source.approvalNote, fallback.approvalNote, 240),
+    disclaimer: normalizeLegalDocumentText(source.disclaimer, fallback.disclaimer, 1200),
+    effectiveDate: normalizeLegalDocumentText(source.effectiveDate, fallback.effectiveDate, 20),
+    sections: sections.length ? sections : fallback.sections,
+    status,
+    title: normalizeLegalDocumentText(source.title, fallback.title || fallback.label, 120),
+    updatedAt: normalizeLegalDocumentText(source.updatedAt, fallback.updatedAt, 40),
+    updatedBy: normalizeLegalDocumentText(source.updatedBy, fallback.updatedBy, 80),
+    version: normalizeLegalDocumentText(source.version, fallback.version, 80),
+    productionReady,
+  };
+}
+
+function ensureLegalDocuments() {
+  if (!state.legalDocuments || typeof state.legalDocuments !== 'object' || Array.isArray(state.legalDocuments)) {
+    state.legalDocuments = {};
+  }
+  for (const definition of legalDocumentDefinitions) {
+    state.legalDocuments[definition.key] = normalizeLegalDocumentRecord(state.legalDocuments[definition.key], definition.key);
+  }
+  return state.legalDocuments;
+}
+
+function legalDocumentStatusLabel(doc) {
+  if (doc?.productionReady && doc?.status === 'approved') return '已签署';
+  if (doc?.status === 'reviewing') return '复核中';
+  return '待签署';
+}
+
+function legalDocumentStatusTone(doc) {
+  if (doc?.productionReady && doc?.status === 'approved') return 'ok';
+  if (doc?.status === 'reviewing') return 'warn';
+  return 'bad';
+}
+
+function legalDocumentHasRequiredContent(doc) {
+  return Boolean(
+    normalizeLegalDocumentText(doc?.title, '', 1) &&
+    normalizeLegalDocumentText(doc?.version, '', 1) &&
+    normalizeLegalDocumentText(doc?.effectiveDate, '', 1) &&
+    Array.isArray(doc?.sections) &&
+    doc.sections.some((section) => Array.isArray(section.body) && section.body.some((line) => normalizeLegalDocumentText(line, '', 1)))
+  );
+}
+
+function adminLegalDocumentItems() {
+  const docs = ensureLegalDocuments();
+  return legalDocumentDefinitions.map((definition) => {
+    const doc = normalizeLegalDocumentRecord(docs[definition.key], definition.key);
+    docs[definition.key] = doc;
+    return {
+      ...doc,
+      hasRequiredContent: legalDocumentHasRequiredContent(doc),
+      statusLabel: legalDocumentStatusLabel(doc),
+      statusTone: legalDocumentStatusTone(doc),
+    };
+  });
+}
+
+function adminLegalDocumentsStatus() {
+  const documents = adminLegalDocumentItems();
+  const required = documents.filter((doc) => doc.requiredForLaunch);
+  const approved = required.filter((doc) => doc.productionReady && doc.status === 'approved');
+  const missing = required.filter((doc) => !(doc.productionReady && doc.status === 'approved'));
+  return {
+    documents,
+    summary: {
+      allRequiredApproved: missing.length === 0,
+      approved: approved.length,
+      missingLabels: missing.map((doc) => doc.label),
+      missingRequiredKeys: missing.map((doc) => doc.key),
+      publicDocuments: documents.filter((doc) => doc.publicPath).length,
+      required: required.length,
+      total: documents.length,
+    },
+  };
+}
+
+function publicLegalDocument(key) {
+  const normalizedKey = normalizeLegalDocumentKey(key);
+  const doc = ensureLegalDocuments()[normalizedKey];
+  if (!doc) return null;
+  return {
+    approvedAt: doc.approvedAt || '',
+    disclaimer: doc.disclaimer || '',
+    effectiveDate: doc.effectiveDate || '',
+    key: doc.key,
+    productionReady: Boolean(doc.productionReady),
+    sections: Array.isArray(doc.sections) ? doc.sections : [],
+    status: doc.status || 'draft',
+    title: doc.title || '',
+    version: doc.version || '',
+  };
+}
+
+function buildLegalDocumentPatch(current, body = {}) {
+  const next = cloneJson(current);
+  if (Object.prototype.hasOwnProperty.call(body, 'title')) next.title = normalizeLegalDocumentText(body.title, current.title, 120);
+  if (Object.prototype.hasOwnProperty.call(body, 'version')) next.version = normalizeLegalDocumentText(body.version, current.version, 80);
+  if (Object.prototype.hasOwnProperty.call(body, 'effectiveDate')) next.effectiveDate = normalizeLegalDocumentText(body.effectiveDate, current.effectiveDate, 20);
+  if (Object.prototype.hasOwnProperty.call(body, 'disclaimer')) next.disclaimer = normalizeLegalDocumentText(body.disclaimer, current.disclaimer, 1200);
+  if (Array.isArray(body.sections)) {
+    next.sections = body.sections.map(normalizeLegalDocumentSection).filter(Boolean).slice(0, 30);
+  } else if (Object.prototype.hasOwnProperty.call(body, 'bodyText')) {
+    next.sections = legalDocumentSectionsFromBodyText(body.bodyText, body.sectionTitle || '正文');
+  }
+  next.status = 'draft';
+  next.productionReady = false;
+  next.approvedAt = '';
+  next.approvedBy = '';
+  next.approvalNote = '';
+  return normalizeLegalDocumentRecord(next, current.key);
+}
+
+function updateAdminLegalDocument(admin, key, body = {}) {
+  const normalizedKey = normalizeLegalDocumentKey(key);
+  if (!normalizedKey) return { error: '合规文本不存在', statusCode: 404 };
+  const reason = normalizeLegalDocumentText(body.reason, '', 240);
+  if (!reason) return { error: '请填写更新原因', statusCode: 400 };
+  const docs = ensureLegalDocuments();
+  const before = cloneJson(docs[normalizedKey]);
+  const next = buildLegalDocumentPatch(before, body);
+  next.updatedAt = new Date().toISOString();
+  next.updatedBy = admin.username;
+  docs[normalizedKey] = next;
+  writeAdminAudit(admin, 'legal.document.update', 'legal_document', normalizedKey, before, next, reason);
+  return { item: adminLegalDocumentItems().find((doc) => doc.key === normalizedKey), status: adminLegalDocumentsStatus() };
+}
+
+function approveAdminLegalDocument(admin, key, body = {}) {
+  const normalizedKey = normalizeLegalDocumentKey(key);
+  if (!normalizedKey) return { error: '合规文本不存在', statusCode: 404 };
+  const reason = normalizeLegalDocumentText(body.reason || body.approvalNote, '', 240);
+  if (!reason) return { error: '请填写签署原因或签署说明', statusCode: 400 };
+  const docs = ensureLegalDocuments();
+  const before = cloneJson(docs[normalizedKey]);
+  const next = normalizeLegalDocumentRecord(before, normalizedKey);
+  if (!legalDocumentHasRequiredContent(next)) return { error: '签署前需要补齐标题、版本、生效日期和正文', statusCode: 400 };
+  const now = new Date().toISOString();
+  next.approvedAt = now;
+  next.approvedBy = admin.username;
+  next.approvalNote = reason;
+  next.productionReady = true;
+  next.status = 'approved';
+  next.updatedAt = now;
+  next.updatedBy = admin.username;
+  docs[normalizedKey] = next;
+  writeAdminAudit(admin, 'legal.document.approve', 'legal_document', normalizedKey, before, next, reason);
+  return { item: adminLegalDocumentItems().find((doc) => doc.key === normalizedKey), status: adminLegalDocumentsStatus() };
+}
+
+function resetAdminLegalDocument(admin, key, body = {}) {
+  const normalizedKey = normalizeLegalDocumentKey(key);
+  if (!normalizedKey) return { error: '合规文本不存在', statusCode: 404 };
+  const reason = normalizeLegalDocumentText(body.reason, '', 240);
+  if (!reason) return { error: '请填写重置原因', statusCode: 400 };
+  const docs = ensureLegalDocuments();
+  const before = cloneJson(docs[normalizedKey]);
+  const next = defaultLegalDocumentForKey(normalizedKey);
+  next.updatedAt = new Date().toISOString();
+  next.updatedBy = admin.username;
+  docs[normalizedKey] = next;
+  writeAdminAudit(admin, 'legal.document.reset', 'legal_document', normalizedKey, before, next, reason);
+  return { item: adminLegalDocumentItems().find((doc) => doc.key === normalizedKey), status: adminLegalDocumentsStatus() };
+}
+
 function normalizeLaunchReadinessConclusion(value) {
   const conclusion = String(value || '').trim();
   if (['conditional', 'not_ready', 'ready_for_production', 'ready_for_test'].includes(conclusion)) return conclusion;
@@ -23196,6 +23506,11 @@ function adminReadinessQuestions(context = {}) {
   const ipAllowlistReady = Boolean(context.accounts?.security?.ipAllowlist?.configured);
   const mfaReady = Boolean(context.accounts?.security?.mfa?.configured);
   const mfaPartial = Boolean(context.accounts?.security?.mfa?.partial);
+  const legalStatus = adminLegalDocumentsStatus();
+  const complianceReady = Boolean(legalStatus.summary.allRequiredApproved);
+  const compliancePolicy = complianceReady
+    ? `后台已签署生产合规文本与材料：${legalStatus.documents.filter((doc) => doc.requiredForLaunch).map((doc) => `${doc.label} ${doc.version}`).join('、')}。`
+    : `后台仍缺生产签署：${legalStatus.summary.missingLabels.join('、') || '合规文本复核'}。请在「合规文本」页更新并签署后再关闭该项。`;
   const questions = [
     ['q-domain', 'P1', '后台正式域名使用 ops.lumiiapp.cn、admin.lumiiapp.cn，还是先沿用 /admin？', '当前可沿用 /admin；生产建议独立后台域名并做访问控制。', '影响后台入口、证书、CDN/网关和运维 SOP。'],
     ['q-ip', 'P0', '生产后台是否必须白名单 IP？', ipAllowlistReady ? '已接入后端 IP 白名单：/admin 页面和 /admin/* API 都会拦截非白名单 IP。' : '当前未强制白名单；生产前建议至少网关层限制。', '影响后台暴露面和账号被撞库风险。', ipAllowlistReady ? 'ready' : 'open', ipAllowlistReady ? '已接入' : '待确认'],
@@ -23210,7 +23525,7 @@ function adminReadinessQuestions(context = {}) {
     ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '已接入用户本人公开贡献身份、轻量等级、后台手动调整和撤销；排行榜、他人主页展示、活动奖励或兑换规则仍待确认。', '影响地点生态激励。'],
     ['q-notification-approval', 'P1', '系统通知是否需要发送审批？', '已接入发送审批流、“强制审批”配置开关和高风险最少会签人数；达到会签人数后才发送。', '影响误发和运营风险。', 'ready', '已接入'],
     ['q-config-approval', 'P0', '配置强制更新、维护模式、全功能关闭是否必须审批？', '已接入配置发布审批流、“强制配置发布审批”开关和高风险最少会签人数；达到会签人数后才发布 /app/config。', '影响事故风险和发布治理。', 'ready', '已接入'],
-    ['q-compliance-text', 'P0', 'App 备案、隐私政策、内容审核制度是否已准备生产版文本？', '当前代码层面不可替代法务/合规文本确认。', '影响正式上线合规。'],
+    ['q-compliance-text', 'P0', 'App 备案、隐私政策、内容审核制度是否已准备生产版文本？', compliancePolicy, '影响正式上线合规。', complianceReady ? 'ready' : 'open', complianceReady ? '已签署' : '待签署'],
   ].map(([id, priority, question, currentPolicy, impact, status = 'open', statusLabel = '待确认']) => ({
     currentPolicy,
     id,
@@ -30932,6 +31247,40 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/legal-documents') {
+    ok(res, adminLegalDocumentsStatus());
+    return true;
+  }
+
+  const adminLegalDocumentMatch = pathname.match(/^\/admin\/legal-documents\/([^/]+)$/);
+  if (req.method === 'PATCH' && adminLegalDocumentMatch) {
+    const key = decodeURIComponent(adminLegalDocumentMatch[1]);
+    const result = updateAdminLegalDocument(admin, key, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_LEGAL_DOCUMENT_UPDATE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.status);
+    return true;
+  }
+
+  const adminLegalDocumentActionMatch = pathname.match(/^\/admin\/legal-documents\/([^/]+)\/(approve|reset)$/);
+  if (req.method === 'POST' && adminLegalDocumentActionMatch) {
+    const key = decodeURIComponent(adminLegalDocumentActionMatch[1]);
+    const action = adminLegalDocumentActionMatch[2];
+    const result = action === 'approve'
+      ? approveAdminLegalDocument(admin, key, body)
+      : resetAdminLegalDocument(admin, key, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_LEGAL_DOCUMENT_ACTION_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.status);
+    return true;
+  }
+
   if (req.method === 'GET' && pathname === '/admin/config') {
     ok(res, adminOpsConfigResponse());
     return true;
@@ -31152,12 +31501,17 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/legal/terms') {
-    ok(res, legalDocuments.terms);
+    ok(res, publicLegalDocument('terms'));
     return;
   }
 
   if (req.method === 'GET' && pathname === '/legal/privacy') {
-    ok(res, legalDocuments.privacy);
+    ok(res, publicLegalDocument('privacy'));
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/legal/content-policy') {
+    ok(res, publicLegalDocument('content_policy'));
     return;
   }
 

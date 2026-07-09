@@ -21,6 +21,7 @@ const suites = [
   { key: 'ai-provider-trace', title: 'AI provider trace', script: 'smoke-ai-provider-trace.cjs', timeoutMs: 180_000 },
 
   { key: 'content-safety', title: 'Content safety E2E', script: 'smoke-content-safety-e2e.cjs', timeoutMs: 180_000 },
+  { key: 'legal-documents', title: 'Legal document signoff', script: 'smoke-legal-documents.cjs', timeoutMs: 180_000 },
   { key: 'launch-readiness-safety', title: 'Launch readiness content safety', script: 'smoke-launch-readiness-content-safety.cjs', timeoutMs: 180_000 },
   { key: 'launch-readiness-decisions', title: 'Launch readiness decisions', script: 'smoke-launch-readiness-question-update.cjs', timeoutMs: 180_000 },
   { key: 'moderation-sanction', title: 'Report sanction linkage', script: 'smoke-report-sanction-linkage.cjs', timeoutMs: 180_000 },
@@ -48,6 +49,7 @@ const suites = [
   { key: 'state-compaction', title: 'State storage compaction', script: 'smoke-state-storage-compaction.cjs', timeoutMs: 180_000 },
 
   { key: 'admin-config-page', title: 'Admin high-risk config page', script: 'smoke-admin-config-high-risk-page.cjs', timeoutMs: 180_000, visual: true },
+  { key: 'admin-legal-documents-page', title: 'Admin legal documents page', script: 'smoke-admin-legal-documents-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-system-health-page', title: 'Admin system health page', script: 'smoke-admin-system-health-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-media-page', title: 'Admin media replace page', script: 'smoke-admin-pet-media-replace-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'frontend-playwright', title: 'Frontend Playwright smoke', script: 'smoke-frontend-playwright.cjs', timeoutMs: 420_000, visual: true },

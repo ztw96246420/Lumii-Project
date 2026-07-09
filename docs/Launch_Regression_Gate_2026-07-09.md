@@ -21,6 +21,7 @@ The default gate runs:
 - Pet friend circle posting, comments, visibility, location, and calendar sync.
 - AI avatar animation lifecycle, retry, failure recovery, prompt/provider traces.
 - Content safety, moderation, reports, appeals, sanctions, and social blocking.
+- Legal document update/signoff, public legal text endpoints, launch-readiness compliance linkage, and audit records.
 - Pet calendar, pet profile, pet media, places, notifications, analytics, and observability.
 - Admin accounts, high-risk countersign, data clear approval, export approval, signed export links, audit integrity journal, state compaction, and state backup recovery.
 
