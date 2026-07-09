@@ -16,6 +16,7 @@ const rootDir = path.join(__dirname, '..');
 const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-state-storage-'));
 const statePath = path.join(tmpDir, 'state.json');
+const backupDir = path.join(tmpDir, 'state-backups');
 const tinyPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/atK3qsAAAAASUVORK5CYII=';
 
 let backendProcess = null;
@@ -207,6 +208,9 @@ async function startBackend(port) {
       SMS_DAILY_LIMIT: '1000',
       SMS_DEVICE_DAILY_LIMIT: '1000',
       SMS_IP_DAILY_LIMIT: '1000',
+      STATE_BACKUP_DIR: backupDir,
+      STATE_BACKUP_MIN_INTERVAL_MS: '0',
+      STATE_BACKUP_RETAIN: '12',
       STATE_STORAGE_WARN_BYTES: '50000',
       TENCENTCLOUD_SECRET_ID: '',
       TENCENTCLOUD_SECRET_KEY: '',
@@ -290,6 +294,10 @@ async function main() {
     const adminToken = await loginAdmin();
     const health = await request('/admin/system/health', { token: adminToken });
     assert.equal(health.data.checks.some((item) => item.key === 'state_file' && item.status === 'ok'), true);
+    assert.equal(health.data.checks.some((item) => item.key === 'state_backups'), true);
+    assert.equal(health.data.stateBackups?.enabled, true);
+    assert.ok(health.data.stateBackups?.count >= 1, 'state health should report at least one backup');
+    assert.ok(fs.readdirSync(backupDir).some((name) => name.endsWith('.json.gz')), 'state backup gzip file should exist');
 
     const userToken = await loginUser();
     const started = await request('/ai/pet-avatar/jobs', {
@@ -302,6 +310,18 @@ async function main() {
     assert.equal(providerSubmitBodies.length >= 1, true);
     assert.deepEqual(providerSubmitBodies[0].image_urls, [`${providerBaseUrl}/source.png`]);
     assert.equal(JSON.stringify(providerSubmitBodies[0]).includes('data:image/png;base64'), false);
+
+    await stopBackend();
+    fs.writeFileSync(statePath, '{ corrupted json', 'utf8');
+    const recoveryPort = await getFreePort();
+    await startBackend(recoveryPort);
+    const recoveredState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    assert.ok(recoveredState.users?.[TEST_PHONE], 'state should recover users from latest backup');
+    assert.ok(recoveredState.avatarJobs?.[readyJob.id], 'state should recover avatar jobs from latest backup');
+    const recoveredAdminToken = await loginAdmin();
+    const recoveredHealth = await request('/admin/system/health', { token: recoveredAdminToken });
+    assert.equal(recoveredHealth.data.stateBackups?.loadedFromBackup, true);
+    assert.ok(recoveredHealth.data.stateBackups?.restoredBackupPath, 'health should expose restored backup path');
 
     console.log('state storage compaction smoke passed');
   } finally {

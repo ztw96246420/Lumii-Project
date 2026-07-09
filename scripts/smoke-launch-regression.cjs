@@ -48,6 +48,7 @@ const suites = [
   { key: 'state-compaction', title: 'State storage compaction', script: 'smoke-state-storage-compaction.cjs', timeoutMs: 180_000 },
 
   { key: 'admin-config-page', title: 'Admin high-risk config page', script: 'smoke-admin-config-high-risk-page.cjs', timeoutMs: 180_000, visual: true },
+  { key: 'admin-system-health-page', title: 'Admin system health page', script: 'smoke-admin-system-health-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-media-page', title: 'Admin media replace page', script: 'smoke-admin-pet-media-replace-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'frontend-playwright', title: 'Frontend Playwright smoke', script: 'smoke-frontend-playwright.cjs', timeoutMs: 420_000, visual: true },
 ];

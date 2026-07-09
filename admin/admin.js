@@ -2987,11 +2987,28 @@ async function renderSystemHealth(force) {
   const summary = data.summary || {};
   const runtime = data.runtime || {};
   const stateFile = data.stateFile || {};
+  const stateBackups = data.stateBackups || {};
   const memory = data.resources?.memory || {};
   const heapUsed = Number(memory.heapUsed || 0);
   const heapTotal = Number(memory.heapTotal || 0);
   const heapFoot = heapTotal ? `${bytesText(heapUsed)} / ${bytesText(heapTotal)}` : bytesText(heapUsed);
   const mediaProbeCard = [renderMediaProbe(data.mediaProbe || {}), data.mediaCdnProbe ? renderMediaProbe(data.mediaCdnProbe) : ''].join('');
+  const stateBackupCard = `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>状态备份</h2>
+          <div class="section-sub">${stateBackups.enabled ? `${numberText(stateBackups.count || 0)} 份备份` : '未启用'}</div>
+        </div>
+        ${help('状态文件成功写入后会生成滚动 gzip 备份，启动时可从最新有效备份恢复。')}
+      </div>
+      <div class="switch-row"><span>原子写入</span><strong>${stateBackups.atomicWrites ? '已启用' : '未确认'}</strong></div>
+      <div class="switch-row"><span>最近备份</span><strong>${stateBackups.latestAt ? formatTime(stateBackups.latestAt) : '-'}</strong></div>
+      <div class="switch-row"><span>备份路径</span><strong class="cell-sub clamp">${escapeHtml(stateBackups.latestPath || stateBackups.dir || '-')}</strong></div>
+      ${stateBackups.loadedFromBackup ? `<div class="callout ok"><strong>已从备份恢复</strong><span>${escapeHtml(stateBackups.restoredBackupPath || '-')}</span></div>` : ''}
+      ${stateBackups.lastBackupError || stateBackups.lastSaveError ? `<div class="callout bad"><strong>备份异常</strong><span>${escapeHtml(stateBackups.lastSaveError || stateBackups.lastBackupError)}</span></div>` : ''}
+    </div>
+  `;
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('整体状态', data.status === 'bad' ? '异常' : data.status === 'warn' ? '需关注' : '正常', `${summary.warn || 0} 关注 · ${summary.bad || 0} 异常`, '系统健康聚合运行、存储、关键外部配置和业务积压。')}
@@ -3001,6 +3018,7 @@ async function renderSystemHealth(force) {
     </div>
 
     ${mediaProbeCard}
+    ${stateBackupCard}
     ${renderAlertPanel(data.alerts || {}, { compact: true, title: '健康告警' })}
 
     <div class="grid two">

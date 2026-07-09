@@ -151,6 +151,10 @@ const EXPO_PUSH_RECEIPT_BATCH_SIZE = Math.max(1, Math.min(1000, Number(process.e
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
 const statePath = process.env.LUMII_BACKEND_STATE_PATH || path.join(__dirname, '..', 'dist', 'lumii-backend-state.json');
+const STATE_BACKUP_ENABLED = process.env.STATE_BACKUP_ENABLED === 'false' ? false : true;
+const STATE_BACKUP_DIR = process.env.STATE_BACKUP_DIR || path.join(path.dirname(statePath), 'state-backups');
+const STATE_BACKUP_RETAIN = Math.max(1, Math.min(200, Number(process.env.STATE_BACKUP_RETAIN || '48') || 48));
+const STATE_BACKUP_MIN_INTERVAL_MS = Math.max(0, Number(process.env.STATE_BACKUP_MIN_INTERVAL_MS || 5 * 60 * 1000) || 0);
 const ADMIN_AUDIT_JOURNAL_PATH = process.env.LUMII_ADMIN_AUDIT_JOURNAL_PATH || path.join(path.dirname(statePath), 'admin-audit-journal.jsonl');
 const ADMIN_EXPORT_FILE_DIR = process.env.LUMII_ADMIN_EXPORT_DIR || path.join(path.dirname(statePath), 'admin-export-files');
 const ADMIN_EXPORT_FILE_RETENTION_HOURS = Math.max(1, Math.floor(Number(process.env.LUMII_ADMIN_EXPORT_FILE_RETENTION_HOURS || 72) || 72));
@@ -5234,10 +5238,121 @@ function failIfMaintenanceWriteBlocked(req, pathname, res) {
   return true;
 }
 
+const stateStorageRuntime = {
+  lastBackupAt: '',
+  lastBackupAtMs: 0,
+  lastBackupError: '',
+  lastBackupPath: '',
+  lastLoadError: '',
+  lastLoadSource: '',
+  lastSaveAt: '',
+  lastSaveError: '',
+  loadedFromBackup: false,
+  restoredBackupPath: '',
+};
+
+function stateStorageReasonSlug(value) {
+  return String(value || 'state')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'state';
+}
+
+function listStateBackupFiles() {
+  try {
+    if (!STATE_BACKUP_ENABLED || !fs.existsSync(STATE_BACKUP_DIR)) return [];
+    return fs.readdirSync(STATE_BACKUP_DIR)
+      .filter((name) => /^state-\d{4}-\d{2}-\d{2}t/i.test(name) && (name.endsWith('.json.gz') || name.endsWith('.json')))
+      .map((name) => {
+        const filePath = path.join(STATE_BACKUP_DIR, name);
+        const stat = fs.statSync(filePath);
+        return {
+          createdAt: stat.mtime.toISOString(),
+          filePath,
+          name,
+          sizeBytes: stat.size,
+          timestampMs: stat.mtimeMs,
+        };
+      })
+      .sort((a, b) => b.timestampMs - a.timestampMs);
+  } catch (error) {
+    stateStorageRuntime.lastBackupError = String(error?.message || error || 'list state backups failed').slice(0, 240);
+    return [];
+  }
+}
+
+function readStateBackup(filePath) {
+  const buffer = fs.readFileSync(filePath);
+  const text = String(filePath || '').endsWith('.gz') ? zlib.gunzipSync(buffer).toString('utf8') : buffer.toString('utf8');
+  return JSON.parse(text);
+}
+
+function loadLatestStateBackup() {
+  const backups = listStateBackupFiles();
+  for (const backup of backups) {
+    try {
+      return {
+        backup,
+        loadedState: readStateBackup(backup.filePath),
+      };
+    } catch (error) {
+      stateStorageRuntime.lastBackupError = String(error?.message || error || 'read state backup failed').slice(0, 240);
+    }
+  }
+  return null;
+}
+
+function pruneStateBackups() {
+  const backups = listStateBackupFiles();
+  backups.slice(STATE_BACKUP_RETAIN).forEach((backup) => {
+    try {
+      fs.unlinkSync(backup.filePath);
+    } catch (error) {
+      stateStorageRuntime.lastBackupError = String(error?.message || error || 'prune state backup failed').slice(0, 240);
+    }
+  });
+}
+
+function shouldWriteStateBackup() {
+  if (!STATE_BACKUP_ENABLED) return false;
+  if (!STATE_BACKUP_MIN_INTERVAL_MS) return true;
+  return Date.now() - Number(stateStorageRuntime.lastBackupAtMs || 0) >= STATE_BACKUP_MIN_INTERVAL_MS;
+}
+
+function createStateBackupSnapshot(jsonText, reason = 'save') {
+  if (!shouldWriteStateBackup()) return null;
+  try {
+    JSON.parse(jsonText);
+    fs.mkdirSync(STATE_BACKUP_DIR, { recursive: true });
+    const now = new Date();
+    const stamp = now.toISOString().replace(/[:.]/g, '-');
+    const fileName = `state-${stamp}-${stateStorageReasonSlug(reason)}.json.gz`;
+    const finalPath = path.join(STATE_BACKUP_DIR, fileName);
+    const tmpPath = `${finalPath}.tmp-${process.pid}-${Date.now()}`;
+    fs.writeFileSync(tmpPath, zlib.gzipSync(Buffer.from(jsonText, 'utf8')));
+    fs.renameSync(tmpPath, finalPath);
+    stateStorageRuntime.lastBackupAt = now.toISOString();
+    stateStorageRuntime.lastBackupAtMs = now.getTime();
+    stateStorageRuntime.lastBackupError = '';
+    stateStorageRuntime.lastBackupPath = finalPath;
+    pruneStateBackups();
+    return finalPath;
+  } catch (error) {
+    stateStorageRuntime.lastBackupError = String(error?.message || error || 'write state backup failed').slice(0, 240);
+    console.warn(`[state-storage] backup failed: ${stateStorageRuntime.lastBackupError}`);
+    return null;
+  }
+}
+
 function loadState() {
   try {
     const initialState = createInitialState();
     const loadedState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    stateStorageRuntime.lastLoadError = '';
+    stateStorageRuntime.lastLoadSource = 'state_file';
+    stateStorageRuntime.loadedFromBackup = false;
+    stateStorageRuntime.restoredBackupPath = '';
     return {
       ...initialState,
       ...loadedState,
@@ -5349,7 +5464,20 @@ function loadState() {
       notificationAudiencePackages: Array.isArray(loadedState.notificationAudiencePackages) ? loadedState.notificationAudiencePackages : initialState.notificationAudiencePackages,
       userSanctions: Array.isArray(loadedState.userSanctions) ? loadedState.userSanctions : initialState.userSanctions,
     };
-  } catch {
+  } catch (error) {
+    stateStorageRuntime.lastLoadError = String(error?.message || error || 'load state failed').slice(0, 240);
+    const backup = loadLatestStateBackup();
+    if (backup?.loadedState) {
+      stateStorageRuntime.lastLoadSource = 'state_backup';
+      stateStorageRuntime.loadedFromBackup = true;
+      stateStorageRuntime.restoredBackupPath = backup.backup.filePath;
+      console.warn(`[state-storage] restored state from backup: ${backup.backup.filePath}`);
+      return {
+        ...createInitialState(),
+        ...backup.loadedState,
+      };
+    }
+    stateStorageRuntime.lastLoadSource = 'initial_state';
     return createInitialState();
   }
 }
@@ -5418,13 +5546,30 @@ function compactStateForPersistence(inputState, options = {}) {
 function saveState() {
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
   const compacted = compactStateForPersistence(state, { mutate: false, reason: 'save_state' });
-  fs.writeFileSync(statePath, JSON.stringify(compacted.state, null, 2));
+  const jsonText = JSON.stringify(compacted.state, null, 2);
+  const tmpPath = `${statePath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    fs.writeFileSync(tmpPath, jsonText);
+    fs.renameSync(tmpPath, statePath);
+    stateStorageRuntime.lastSaveAt = new Date().toISOString();
+    stateStorageRuntime.lastSaveError = '';
+    createStateBackupSnapshot(jsonText, 'save');
+  } catch (error) {
+    stateStorageRuntime.lastSaveError = String(error?.message || error || 'save state failed').slice(0, 240);
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch {}
+    throw error;
+  }
 }
 
 const startupStateCompaction = compactStateForPersistence(state, { mutate: true, reason: 'startup_state_storage_compaction' });
 if (startupStateCompaction.changed) {
   saveState();
   console.warn('[state-storage] compacted persisted media data URLs', startupStateCompaction.summary);
+}
+if (stateStorageRuntime.loadedFromBackup) {
+  saveState();
 }
 
 function cosEnabled() {
@@ -21638,6 +21783,31 @@ function adminSafeStateFileInfo() {
   }
 }
 
+function adminStateStorageBackupsInfo() {
+  const backups = listStateBackupFiles();
+  const latest = backups[0] || null;
+  return {
+    atomicWrites: true,
+    count: backups.length,
+    dir: STATE_BACKUP_DIR,
+    enabled: STATE_BACKUP_ENABLED,
+    latestAt: latest?.createdAt || '',
+    latestPath: latest?.filePath || '',
+    latestSizeBytes: latest?.sizeBytes || 0,
+    lastBackupAt: stateStorageRuntime.lastBackupAt || '',
+    lastBackupError: stateStorageRuntime.lastBackupError || '',
+    lastBackupPath: stateStorageRuntime.lastBackupPath || '',
+    lastLoadError: stateStorageRuntime.lastLoadError || '',
+    lastLoadSource: stateStorageRuntime.lastLoadSource || '',
+    lastSaveAt: stateStorageRuntime.lastSaveAt || '',
+    lastSaveError: stateStorageRuntime.lastSaveError || '',
+    loadedFromBackup: Boolean(stateStorageRuntime.loadedFromBackup),
+    minIntervalMs: STATE_BACKUP_MIN_INTERVAL_MS,
+    restoredBackupPath: stateStorageRuntime.restoredBackupPath || '',
+    retain: STATE_BACKUP_RETAIN,
+  };
+}
+
 function adminCheckStatus(status, key, label, detail, evidence = '') {
   return { detail, evidence, key, label, status };
 }
@@ -21691,6 +21861,7 @@ function adminOperationalAlerts(options = {}) {
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
   const ipAllowlist = adminIpAllowlistStatus('');
   const stateSizeWarn = stateFile.sizeBytes > STATE_STORAGE_WARN_BYTES;
+  const stateBackups = adminStateStorageBackupsInfo();
   const items = [];
   const generatedAt = new Date(now).toISOString();
   const latestJobUpdatedAt = (jobs = []) => {
@@ -21739,6 +21910,18 @@ function adminOperationalAlerts(options = {}) {
     severity: 'high',
     title: '状态文件体积偏大',
     updatedAt: stateFile.modifiedAt || generatedAt,
+  });
+  add(!stateBackups.enabled || Boolean(stateBackups.lastBackupError || stateBackups.lastSaveError), {
+    actionLabel: '看健康页',
+    actionRoute: 'systemHealth',
+    area: '数据底座',
+    detail: !stateBackups.enabled
+      ? '状态文件滚动备份未启用，主 state 损坏时缺少自动恢复来源。'
+      : `状态持久化异常：${stateBackups.lastSaveError || stateBackups.lastBackupError}`,
+    evidence: stateBackups.latestPath || stateBackups.dir,
+    key: 'state_backup_unhealthy',
+    severity: 'high',
+    title: '状态备份不可用',
   });
   add(!process.env.LUMII_ADMIN_USERNAME || !process.env.LUMII_ADMIN_PASSWORD, {
     actionLabel: '看账号',
@@ -22119,6 +22302,7 @@ async function adminSystemHealth() {
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
   const alerts = adminOperationalAlerts({ limit: 12 });
   const stateSizeWarn = stateFile.sizeBytes > STATE_STORAGE_WARN_BYTES;
+  const stateBackups = adminStateStorageBackupsInfo();
   const ipAllowlist = adminIpAllowlistStatus('');
   const appMediaBase = appMediaPublicBaseUrl();
   const cdnMediaBase = cdnMediaPublicProbeBaseUrl();
@@ -22126,6 +22310,7 @@ async function adminSystemHealth() {
   const mediaCdnProbe = cdnMediaBase && cdnMediaBase !== (appMediaBase || '') ? await adminMediaPublicProbe(cdnMediaBase, { kind: 'cdn', label: 'CDN media' }) : null;
   const mediaCdnProbeStatus = mediaCdnProbe?.status === 'bad' ? 'warn' : mediaCdnProbe?.status;
   const checks = [
+    adminCheckStatus(!stateBackups.enabled ? 'warn' : stateBackups.lastBackupError || stateBackups.lastSaveError ? 'warn' : stateBackups.count > 0 ? 'ok' : 'warn', 'state_backups', '状态文件备份', !stateBackups.enabled ? '状态备份未启用' : stateBackups.count > 0 ? `已有 ${stateBackups.count} 份备份，最近 ${stateBackups.latestAt || '-'}` : '尚未生成状态备份，下次成功写入后会自动生成', stateBackups.latestPath || stateBackups.dir),
     adminCheckStatus(mediaProbe.status, 'media_public_get', 'App 媒体公开 GET 探测', mediaProbe.detail, mediaProbe.evidence),
     ...(mediaCdnProbe ? [adminCheckStatus(mediaCdnProbeStatus, 'media_cdn_get', '媒体 CDN GET 探测', mediaCdnProbe.detail, mediaCdnProbe.evidence)] : []),
     adminCheckStatus(stateFile.exists ? stateSizeWarn ? 'warn' : 'ok' : 'bad', 'state_file', '状态文件', stateFile.exists ? `JSON state ${Math.round(stateFile.sizeBytes / 1024)} KB` : '状态文件不存在或不可读', stateFile.path),
@@ -22187,6 +22372,7 @@ async function adminSystemHealth() {
       uptimeSeconds: Math.round(process.uptime()),
     },
     stateFile,
+    stateBackups,
     status: bad ? 'bad' : warn ? 'warn' : 'ok',
     summary: {
       bad,
@@ -23045,6 +23231,8 @@ function adminReadinessGaps(context) {
   const mfaReady = Boolean(accounts?.security?.mfa?.configured);
   const healthBad = Number(health?.summary?.bad || 0) > 0;
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
+  const stateBackups = adminStateStorageBackupsInfo();
+  const stateStorageRecoverable = stateBackups.enabled && stateBackups.count > 0 && !stateBackups.lastBackupError && !stateBackups.lastSaveError;
   return [
     {
       key: 'admin_security',
@@ -23077,6 +23265,18 @@ function adminReadinessGaps(context) {
       issue: '当前后端仍是 JSON state 文件态，不能作为生产级数据库。',
       requiredAction: '迁移数据库、独立审计存储、备份恢复和迁移脚本。',
       evidence: 'scripts/lumii-backend.cjs statePath',
+      area: '数据底座',
+      severity: stateStorageRecoverable ? 'P1' : 'P0',
+      status: stateStorageRecoverable ? 'partial' : 'blocked',
+      issue: stateStorageRecoverable
+        ? '当前仍是 JSON state 文件态，但已接入原子写入、滚动 gzip 备份、启动损坏恢复和系统健康检查；正式大规模生产仍建议迁移数据库。'
+        : '当前后端仍是 JSON state 文件态，且缺少可证明的滚动备份/自动恢复能力，不能作为生产级数据底座。',
+      requiredAction: stateStorageRecoverable
+        ? '继续规划数据库迁移、独立审计存储和备份恢复演练；上线前确认 STATE_BACKUP_DIR 挂载到持久磁盘并纳入服务器备份。'
+        : '启用状态备份并完成恢复演练，再迁移数据库、独立审计存储、备份恢复和迁移脚本。',
+      evidence: stateStorageRecoverable
+        ? `atomic write + ${stateBackups.count} backups, latest=${stateBackups.latestAt || '-'}`
+        : `STATE_BACKUP_ENABLED=${stateBackups.enabled} backups=${stateBackups.count} error=${stateBackups.lastBackupError || stateBackups.lastSaveError || '-'}`,
     },
     {
       key: 'content_model',

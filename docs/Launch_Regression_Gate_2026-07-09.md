@@ -22,7 +22,7 @@ The default gate runs:
 - AI avatar animation lifecycle, retry, failure recovery, prompt/provider traces.
 - Content safety, moderation, reports, appeals, sanctions, and social blocking.
 - Pet calendar, pet profile, pet media, places, notifications, analytics, and observability.
-- Admin accounts, high-risk countersign, data clear approval, export approval, signed export links, audit integrity journal, and state compaction.
+- Admin accounts, high-risk countersign, data clear approval, export approval, signed export links, audit integrity journal, state compaction, and state backup recovery.
 
 ## Visual Gate
 
