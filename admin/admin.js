@@ -225,6 +225,17 @@ function statusPill(status) {
   return `<span class="pill ${tone}">${escapeHtml(value)}</span>`;
 }
 
+function approvalProgressText(row = {}) {
+  const required = Number(row.requiredApprovals || 0);
+  if (!Number.isFinite(required) || required <= 1) return '';
+  const count = Math.max(0, Number(row.approvalCount || 0));
+  const remaining = Math.max(0, required - count);
+  if (row.status === 'pending_approval') {
+    return `<div class="cell-sub">会签 ${numberText(count)}/${numberText(required)}${remaining ? ` · 还需 ${numberText(remaining)} 人` : ''}</div>`;
+  }
+  return `<div class="cell-sub">会签 ${numberText(count)}/${numberText(required)}</div>`;
+}
+
 function option(value, label, selected) {
   return `<option value="${escapeHtml(value)}" ${String(value) === String(selected) ? 'selected' : ''}>${escapeHtml(label)}</option>`;
 }
@@ -1781,13 +1792,13 @@ function renderDataClearApprovals(approvals = {}) {
           <h2>用户业务数据清理审批</h2>
           <div class="section-sub">待审批 ${numberText(summary.pending || 0)} · 已执行 ${numberText(summary.approved || 0)} · 已驳回 ${numberText(summary.rejected || 0)} · 已过期 ${numberText(summary.expired || 0)} · 已取消 ${numberText(summary.canceled || 0)}</div>
         </div>
-        ${help('清理申请提交后不会立刻影响移动端；只有审批通过才会删除该用户的宠物、AI、宠友圈、关系消息、地点、通知、工单等业务数据，并保留账号与审计日志。当前是单 admin 审批版本，生产多管理员后可升级为双人审批。')}
+        ${help('清理申请提交后不会立刻影响移动端；达到高风险治理配置的最少会签人数后，才会删除该用户的宠物、AI、宠友圈、关系消息、地点、通知、工单等业务数据，并保留账号与审计日志。')}
       </div>
       ${items.length ? tableHtml(items, [
         ['用户', (row) => `<div class="cell-title">${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.phone)}</div>`],
         ['清理范围', (row) => `<div class="cell-sub clamp">${escapeHtml(userBusinessSummaryText(row.beforeSummary || {}))}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div><div class="cell-sub">提交人：${escapeHtml(row.createdBy || '-')}</div>`],
-        ['状态', (row) => `${tonePill(row.statusLabel || row.status, dataClearApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `执行 ${formatTime(row.approvedAt)}` : row.rejectedAt ? `驳回 ${formatTime(row.rejectedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt ? `超时 ${formatTime(row.approvalExpiresAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, dataClearApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `执行 ${formatTime(row.approvedAt)}` : row.rejectedAt ? `驳回 ${formatTime(row.rejectedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt ? `超时 ${formatTime(row.approvalExpiresAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>${approvalProgressText(row)}`],
         ['结果', (row) => row.status === 'approved'
           ? `<div class="cell-sub clamp">已清理：${escapeHtml(userBusinessSummaryText(row.beforeSummary || {}))}</div>`
           : row.status === 'rejected'
@@ -5252,13 +5263,13 @@ function renderSanctionApprovals(approvals = {}) {
           <h2>永久封禁审批</h2>
           <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${numberText(summary.approved || 0)} 条已审批 · ${numberText(summary.rejected || 0)} 条已驳回 · ${numberText(summary.expired || 0)} 条已过期 · ${numberText(summary.canceled || 0)} 条已取消</div>
         </div>
-        ${help('永久封禁提交后不会立刻影响移动端账号状态；只有审批通过时才会创建真实处罚、更新用户状态并发送站内通知。当前是单 admin 审批版本，生产多管理员后可升级为双人审批。')}
+        ${help('永久封禁提交后不会立刻影响移动端账号状态；达到高风险治理配置的最少会签人数后，才会创建真实处罚、更新用户状态并发送站内通知。')}
       </div>
       ${items.length ? tableHtml(items, [
         ['用户', (row) => `<div class="cell-title">${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.phone)} ${row.petName ? `· ${escapeHtml(row.petName)}` : ''}</div>`],
         ['处罚', (row) => `<div>${statusPill(row.typeLabel || row.type || '-')}</div><div class="cell-sub">${row.durationHours ? `${numberText(row.durationHours)}h` : '长期有效'}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div><div class="cell-sub">${escapeHtml(row.source || 'manual')} · ${escapeHtml(row.templateId || row.sourceTargetId || '-')}</div>`],
-        ['状态', (row) => `${tonePill(row.statusLabel || row.status, sanctionApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `审批 ${formatTime(row.approvedAt)}` : row.rejectedAt ? `驳回 ${formatTime(row.rejectedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt ? `超时 ${formatTime(row.approvalExpiresAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, sanctionApprovalTone(row.status))}<div class="cell-sub">${row.approvedAt ? `审批 ${formatTime(row.approvedAt)}` : row.rejectedAt ? `驳回 ${formatTime(row.rejectedAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt ? `超时 ${formatTime(row.approvalExpiresAt)}` : `提交 ${formatTime(row.createdAt)}`}</div>${approvalProgressText(row)}`],
         ['提交', (row) => `<div>${formatTime(row.createdAt)}</div><div class="cell-sub">${escapeHtml(row.createdBy || '-')}</div>`],
         ['操作', (row) => row.status === 'pending_approval' ? `
           <div class="actions">
@@ -6227,7 +6238,7 @@ async function renderAvatarJobs(force) {
             <h2>下一阶段预留</h2>
             <div class="section-sub">保留高权限动作，不在单 admin 第一版贸然开放</div>
           </div>
-          ${help('成本和供应商监控已可读；后续高风险动作仍需要更细权限、原因、审计和可能的双人审批。')}
+          ${help('成本和供应商监控已可读；后续高风险动作仍需要更细权限、原因、审计和站外审批通知。')}
         </div>
         <div class="gap-list">
           <div><strong>完整 SLA</strong><span>当前已记录 submit/status/action 调用耗时；queued、running、completed 等细节点仍依赖上游返回。</span></div>
@@ -7190,6 +7201,7 @@ function renderTicketBatchReplyApprovals(batchReplyApprovals = {}, qualityPolicy
               <div class="cell-sub">${escapeHtml(row.id || '-')}</div>
               <div class="cell-sub">${formatTime(row.createdAt)} · ${escapeHtml(row.createdBy || '-')}</div>
               <div class="cell-sub">${row.rejectedAt ? `驳回 ${formatTime(row.rejectedAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.approvalExpiresAt && row.status === 'pending_approval' ? `超时 ${formatTime(row.approvalExpiresAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : ''}</div>
+              ${approvalProgressText(row)}
             </div>
             <div class="ticket-content">${escapeHtml(row.content || '-')}</div>
             <div class="cell-sub">${numberText(row.ticketCount || 0)} 个工单 · ${row.notifyUser === false ? '不通知' : '通知用户'} · ${numberText(row.successCount || 0)} 成功 / ${numberText(row.errorCount || 0)} 失败${row.approvedAt ? ` · ${formatTime(row.approvedAt)}` : ''}</div>
@@ -7594,6 +7606,7 @@ function renderNotificationCampaign(campaign) {
           <span>发送人：${escapeHtml(campaign.createdBy || '-')}</span>
           ${campaign.approvalRequestedAt ? `<span>提交审批：${formatTime(campaign.approvalRequestedAt)} · ${escapeHtml(campaign.approvalRequestedBy || '-')}</span>` : ''}
           ${campaign.approvalExpiresAt && campaign.status === 'pending_approval' ? `<span>审批超时：${formatTime(campaign.approvalExpiresAt)}</span>` : ''}
+          ${approvalProgressText(campaign)}
           ${campaign.approvedAt ? `<span>审批：${formatTime(campaign.approvedAt)} · ${escapeHtml(campaign.approvedBy || '-')}</span>` : ''}
           ${campaign.rejectedAt ? `<span>驳回：${formatTime(campaign.rejectedAt)} · ${escapeHtml(campaign.rejectedBy || '-')}</span>` : ''}
           ${campaign.expiredAt ? `<span>审批过期：${formatTime(campaign.expiredAt)}</span>` : ''}
@@ -7776,7 +7789,7 @@ function renderConfigApprovals(approvals = {}) {
       </div>
       ${items.length ? tableHtml(items, [
         ['申请', (item) => `<div class="cell-title">${escapeHtml(item.actionLabel || item.action || '-')}</div><div class="cell-sub">${formatTime(item.createdAt)} · ${escapeHtml(item.createdBy || '-')}</div><div class="cell-sub">${escapeHtml(item.sourceDraftId || item.sourceRevisionId || item.id)}</div>`],
-        ['状态', (item) => `${statusPill(item.statusLabel || item.status)}<div class="cell-sub">${item.expiresAt ? `有效至 ${formatTime(item.expiresAt)}` : '-'}</div>`],
+        ['状态', (item) => `${statusPill(item.statusLabel || item.status)}<div class="cell-sub">${item.expiresAt ? `有效至 ${formatTime(item.expiresAt)}` : '-'}</div>${approvalProgressText(item)}`],
         ['风险', (item) => `${configRiskPills(item.riskChanges)}<div class="cell-sub clamp">${escapeHtml(item.reason || '-')}</div>`],
         ['变更摘要', (item) => configChangeSummaryList(item.changeSummary)],
         ['风险详情', (item) => configRiskSummary(item.riskChanges)],
@@ -7841,7 +7854,7 @@ function renderConfigGovernance(config = {}) {
           <h2>配置发布治理</h2>
           <div class="section-sub">草稿不会影响移动端；发布后下一次 /app/config 拉取生效</div>
         </div>
-        ${help('建议高风险改动先保存草稿，由运营复核影响摘要后再发布。当前单 admin 版本会强制输入确认文案并写审计，双人审批后续可接在同一个入口上。')}
+        ${help('建议高风险改动先保存草稿，由运营复核影响摘要后再发布。发布审批会按高风险治理配置记录会签人数，达到最少审批人数后才真正更新 /app/config。')}
       </div>
       ${activeDrafts.length ? tableHtml(activeDrafts.slice(0, 8), [
         ['草稿', (draft) => `<div class="cell-title">${escapeHtml(draft.id)}</div><div class="cell-sub">${formatTime(draft.updatedAt || draft.createdAt)} · ${escapeHtml(draft.createdBy || '-')}</div>`],
@@ -8357,7 +8370,7 @@ async function renderConfig(force) {
             <h2>配置发布审批</h2>
             <div class="section-sub">控制会影响 /app/config 的发布、草稿发布和回滚是否必须先审批</div>
           </div>
-          ${help('草稿保存不影响移动端，因此不需要审批；真正发布到 /app/config 的动作会被这里控制。当前单 admin 可自审批，生产多管理员后可升级为双人审批。')}
+          ${help('草稿保存不影响移动端，因此不需要审批；真正发布到 /app/config 的动作会被这里控制，并可叠加审批人/申请人分离与最少会签人数。')}
         </div>
         <div class="switch-panel">
           ${featureCheckbox('cfgConfigApprovalRequireApproval', '强制配置发布审批', Boolean(configApproval.requireApproval))}
@@ -8370,12 +8383,13 @@ async function renderConfig(force) {
         <div class="section-head compact">
           <div>
             <h2>高风险审批治理</h2>
-            <div class="section-sub">控制配置发布、系统通知、数据导出、封禁、数据清理和批量客服回复是否必须由另一名管理员审批</div>
+            <div class="section-sub">控制配置发布、系统通知、数据导出、封禁、数据清理和批量客服回复是否必须由多名管理员会签</div>
           </div>
-          ${help('开启后，同一管理员提交的高风险审批不能由自己审批通过。需要先在账号权限页新增至少一个 state 管理员账号；当前不影响普通内容审核和低风险处理。')}
+          ${help('开启审批人/申请人分离后，同一管理员提交的高风险审批不能由自己审批通过；最少审批人数大于 1 时，达到人数前只记录会签，不会执行高风险动作。')}
         </div>
         <div class="switch-panel">
           ${featureCheckbox('cfgHighRiskApprovalRequireDifferentAdmin', '审批人/申请人必须分离', Boolean(highRiskApproval.requireDifferentAdmin))}
+          <label>最少审批人数<input id="cfgHighRiskApprovalRequiredApprovals" type="number" min="1" max="3" value="${Number.isFinite(Number(highRiskApproval.requiredApprovals)) ? highRiskApproval.requiredApprovals : 1}" /></label>
           <label>待审批超时小时<input id="cfgHighRiskApprovalPendingExpiresHours" type="number" min="1" max="720" value="${Number.isFinite(Number(highRiskApproval.pendingExpiresHours)) ? highRiskApproval.pendingExpiresHours : 72}" /></label>
         </div>
       </div>
@@ -8385,7 +8399,7 @@ async function renderConfig(force) {
             <h2>数据导出治理</h2>
             <div class="section-sub">控制 CSV 下载是否必须先走导出审批，审批只影响后台，不下发移动端</div>
           </div>
-          ${help('开启强制审批后，导出页直接下载会被后端拦截，必须先提交导出审批并审批通过；审批绑定数据集、筛选条件、原因和有效期。当前单 admin 可自审批，生产多管理员后可升级双人审批。')}
+          ${help('开启强制审批后，导出页直接下载会被后端拦截，必须先提交导出审批并达到高风险治理配置的最少会签人数；审批绑定数据集、筛选条件、原因和有效期。')}
         </div>
         <div class="switch-panel">
           ${featureCheckbox('cfgExportRequireApproval', '强制导出审批', Boolean(exportsConfig.requireApproval))}
@@ -8971,6 +8985,10 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isInteger(highRiskPendingExpiresHours) || highRiskPendingExpiresHours < 1 || highRiskPendingExpiresHours > 720) {
     throw new Error('高风险待审批超时必须在 1-720 小时之间');
   }
+  const highRiskRequiredApprovals = Number($('cfgHighRiskApprovalRequiredApprovals').value);
+  if (!Number.isInteger(highRiskRequiredApprovals) || highRiskRequiredApprovals < 1 || highRiskRequiredApprovals > 3) {
+    throw new Error('高风险最少审批人数必须在 1-3 人之间');
+  }
   const moderationSampleReviewRatePercent = Number($('cfgModerationSampleReviewRatePercent').value);
   if (!Number.isFinite(moderationSampleReviewRatePercent) || moderationSampleReviewRatePercent < 0 || moderationSampleReviewRatePercent > 100) {
     throw new Error('内容安全抽样复审率必须在 0-100 之间');
@@ -9133,6 +9151,7 @@ async function saveConfig(mode = 'publish') {
     highRiskApproval: {
       pendingExpiresHours: highRiskPendingExpiresHours,
       requireDifferentAdmin: $('cfgHighRiskApprovalRequireDifferentAdmin').checked,
+      requiredApprovals: highRiskRequiredApprovals,
     },
     exports: {
       approvalExpiresHours: exportApprovalExpiresHours,
@@ -9583,7 +9602,7 @@ function renderExportApprovals(approvals = {}) {
           <h2>导出审批</h2>
           <div class="section-sub">${numberText(summary.pending || 0)} 条待审批 · ${numberText(summary.approved || 0)} 条已审批 · ${numberText(summary.rejected || 0)} 条已驳回 · 有效期 ${numberText(policy.approvalExpiresHours || 24)} 小时</div>
         </div>
-        ${help('开启强制审批后，CSV 下载必须使用已审批且未过期的 approvalId；审批会绑定数据集、筛选条件和导出原因，避免审批一个范围却下载另一个范围。当前仍是单 admin 版本，生产多管理员后可升级为双人审批。')}
+        ${help('开启强制审批后，CSV 下载必须使用已审批且未过期的 approvalId；审批会绑定数据集、筛选条件和导出原因，并按高风险治理配置记录会签，避免审批一个范围却下载另一个范围。')}
       </div>
       <div class="toolbar moderation-toolbar">
         <div class="toolbar-left">
@@ -9595,7 +9614,7 @@ function renderExportApprovals(approvals = {}) {
       </div>
       ${items.length ? tableHtml(items, [
         ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.datasetLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.datasetType || '-')}</div>`],
-        ['状态', (row) => `${tonePill(row.statusLabel || row.status, exportApprovalTone(row.status))}<div class="cell-sub">${row.status === 'pending_approval' && row.requestExpiresAt ? `超时 ${formatTime(row.requestExpiresAt)}` : row.rejectedAt ? `驳回 ${formatTime(row.rejectedAt)}` : row.expiresAt ? `有效至 ${formatTime(row.expiresAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : '待审批后生成有效期'}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, exportApprovalTone(row.status))}<div class="cell-sub">${row.status === 'pending_approval' && row.requestExpiresAt ? `超时 ${formatTime(row.requestExpiresAt)}` : row.rejectedAt ? `驳回 ${formatTime(row.rejectedAt)}` : row.expiresAt ? `有效至 ${formatTime(row.expiresAt)}` : row.expiredAt ? `过期 ${formatTime(row.expiredAt)}` : row.canceledAt ? `取消 ${formatTime(row.canceledAt)}` : '待审批后生成有效期'}</div>${approvalProgressText(row)}`],
         ['筛选/行数', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filterSummary || '全部数据')}</div><div class="cell-sub">导出 ${numberText(row.rowCount || 0)} / 匹配 ${numberText(row.matchedRows || 0)} / 原始 ${numberText(row.totalRows || 0)}</div>`],
         ['敏感字段', (row) => `<div class="export-fields">${(row.sensitiveColumns || []).slice(0, 6).map((item) => `<span>${escapeHtml(item)}</span>`).join('') || '<span>无明显敏感列</span>'}${(row.sensitiveColumns || []).length > 6 ? `<span>+${(row.sensitiveColumns || []).length - 6}</span>` : ''}</div>`],
         ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.exportReason || '-')}</div><div class="cell-sub">${escapeHtml(row.createdBy || '-')} · ${formatTime(row.createdAt)}</div>`],

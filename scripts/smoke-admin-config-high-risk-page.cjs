@@ -155,7 +155,10 @@ async function waitForSavedConfig(adminToken) {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const payload = await request('/admin/config', { token: adminToken });
-    if (payload.data?.highRiskApproval?.requireDifferentAdmin === true) return payload.data;
+    if (
+      payload.data?.highRiskApproval?.requireDifferentAdmin === true
+      && Number(payload.data?.highRiskApproval?.requiredApprovals) === 2
+    ) return payload.data;
     await delay(200);
   }
   throw new Error('high risk approval config was not saved from admin page');
@@ -186,13 +189,16 @@ async function main() {
     await page.locator('button[data-route="config"]').click();
     await page.locator('#cfgHighRiskApprovalRequireDifferentAdmin').waitFor({ state: 'attached', timeout: 30_000 });
     await page.locator('#cfgHighRiskApprovalRequireDifferentAdmin').check();
+    await page.locator('#cfgHighRiskApprovalRequiredApprovals').fill('2');
     await page.locator('#cfgHighRiskApprovalPendingExpiresHours').fill('36');
     assert.equal(await page.locator('#cfgHighRiskApprovalRequireDifferentAdmin').isChecked(), true);
     await page.locator('button[data-action="save-config"]').click();
     const saved = await waitForSavedConfig(adminToken);
     assert.equal(saved.highRiskApproval.requireDifferentAdmin, true);
+    assert.equal(saved.highRiskApproval.requiredApprovals, 2);
     assert.equal(saved.highRiskApproval.pendingExpiresHours, 36);
     assert.ok(saved.linkage?.items?.some((item) => item.key === 'highRiskApproval.requireDifferentAdmin'));
+    assert.ok(saved.linkage?.items?.some((item) => item.key === 'highRiskApproval.requiredApprovals'));
 
     console.log('admin config high risk page smoke passed');
   } finally {
