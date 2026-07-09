@@ -81,6 +81,7 @@ const suites = [
   { key: 'admin-legal-documents-page', title: 'Admin legal documents page', script: 'smoke-admin-legal-documents-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-system-health-page', title: 'Admin system health page', script: 'smoke-admin-system-health-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-media-page', title: 'Admin media replace page', script: 'smoke-admin-pet-media-replace-page.cjs', timeoutMs: 180_000, visual: true },
+  { key: 'admin-pet-chat-page', title: 'Admin pet chat page', script: 'smoke-admin-pet-chat-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'frontend-playwright', title: 'Frontend Playwright smoke', script: 'smoke-frontend-playwright.cjs', timeoutMs: 420_000, visual: true },
 ];
 

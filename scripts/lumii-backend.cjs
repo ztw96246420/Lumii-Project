@@ -12759,6 +12759,41 @@ function hidePetChatAdminMessage(admin, messageId, body = {}) {
   return { row: adminPetChatMessages({ flag: 'all' }).find((item) => item.id === found.message.id) };
 }
 
+function unhidePetChatAdminMessage(admin, messageId, body = {}) {
+  const found = findPetChatAdminMessage(messageId);
+  if (!found || found.message?.author !== 'ai') return { error: 'AI 对话消息不存在', statusCode: 404 };
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '取消隐藏 AI 回复必须填写原因', statusCode: 400 };
+  if (!found.message.adminHiddenAt) return { error: '这条 AI 回复当前未隐藏', statusCode: 400 };
+  const contentSafetyAction = found.message.contentSafety?.action || '';
+  if (contentSafetyAction && contentSafetyAction !== 'allow' && found.message.adminQualityReviewStatus !== 'safe') {
+    return { error: '内容安全拦截的 AI 回复必须先复核为“样本正常”，才能恢复展示', statusCode: 400 };
+  }
+  const before = {
+    adminHiddenAt: found.message.adminHiddenAt || '',
+    adminHiddenBy: found.message.adminHiddenBy || '',
+    adminHiddenReason: found.message.adminHiddenReason || '',
+    adminQualityReviewStatus: found.message.adminQualityReviewStatus || '',
+  };
+  delete found.message.adminHiddenAt;
+  delete found.message.adminHiddenBy;
+  delete found.message.adminHiddenReason;
+  found.message.adminUnhiddenAt = new Date().toISOString();
+  found.message.adminUnhiddenBy = admin?.username || 'admin';
+  found.message.adminUnhiddenReason = reason;
+  writeAdminAudit(admin, 'ai.petChat.unhide', 'pet_chat_message', found.message.id, before, {
+    adminUnhiddenAt: found.message.adminUnhiddenAt,
+    contentSafetyAction,
+    ownerPhone: found.phone,
+    petId: found.petId,
+    reason,
+  }, reason);
+  return {
+    queue: adminPetChatQualityReview(),
+    row: adminPetChatMessages({ flag: 'all' }).find((item) => item.id === found.message.id),
+  };
+}
+
 function setPetChatFeedback(user, messageId, rating) {
   const normalizedRating = rating === 'good' || rating === 'off' ? rating : '';
   if (!normalizedRating) return { error: 'Invalid feedback rating', statusCode: 400 };
@@ -22680,7 +22715,7 @@ function adminRequiredPermissionForRequest(method, pathname) {
   if (path === '/admin/ai/prompt-versions') return httpMethod === 'GET' ? 'ai.avatar.view' : 'config.update';
   if (path.startsWith('/admin/ai/prompt-versions')) return 'config.update';
   if (/^\/admin\/ai\/pet-chat\/messages\/[^/]+\/view$/u.test(path)) return 'message.view_content';
-  if (/^\/admin\/ai\/pet-chat\/messages\/[^/]+\/hide$/u.test(path)) return 'message.moderate';
+  if (/^\/admin\/ai\/pet-chat\/messages\/[^/]+\/(hide|unhide)$/u.test(path)) return 'message.moderate';
   if (/^\/admin\/ai\/pet-chat\/messages\/[^/]+\/(tag|quality-review)$/u.test(path)) return 'moderation.sample_review';
   if (path.startsWith('/admin/ai/pet-chat')) return 'ai.chat.view_summary';
   if (/^\/admin\/ai\/avatar-(jobs|animation-jobs)\/[^/]+\/apply$/u.test(path)) return 'pet.media_moderate';
@@ -30848,6 +30883,18 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     }
     saveState();
     ok(res, result.row || null);
+    return true;
+  }
+
+  const adminPetChatUnhideMatch = pathname.match(/^\/admin\/ai\/pet-chat\/messages\/([^/]+)\/unhide$/);
+  if (req.method === 'POST' && adminPetChatUnhideMatch) {
+    const result = unhidePetChatAdminMessage(admin, decodeURIComponent(adminPetChatUnhideMatch[1]), body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PET_CHAT_UNHIDE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

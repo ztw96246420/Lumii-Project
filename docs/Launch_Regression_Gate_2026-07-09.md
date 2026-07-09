@@ -34,8 +34,10 @@ The default gate runs:
 node scripts/smoke-launch-regression.cjs --include-visual
 ```
 
-This also runs Playwright-backed admin/frontend page checks. Use it when page
-layout, admin UI, or browser-visible interaction changed.
+This also runs Playwright-backed admin/frontend page checks, including admin
+accounts, legal documents, system health, media replacement, AI pet chat review,
+and the mobile frontend smoke. Use it when page layout, admin UI, or
+browser-visible interaction changed.
 
 ## Focused Gate
 

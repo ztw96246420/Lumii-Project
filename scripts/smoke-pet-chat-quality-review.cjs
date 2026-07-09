@@ -192,8 +192,23 @@ async function main() {
     const hiddenRows = await request('/admin/ai/pet-chat/messages?flag=hidden', { token: adminToken });
     assert.ok(hiddenRows.data.some((row) => row.id === aiMessageId && row.adminHiddenAt), 'admin hidden list should include hidden AI reply');
 
+    const unhidden = await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(aiMessageId)}/unhide`, {
+      body: { reason: 'smoke restores an operator-hidden AI reply' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(unhidden.data.row.adminHiddenAt, '', 'operator-hidden AI reply should be restored');
+    const mobileMessagesAfterUnhide = await request('/ai/pet-chat/messages', { token: userToken });
+    assert.equal(
+      mobileMessagesAfterUnhide.data.some((message) => message.id === aiMessageId),
+      true,
+      'unhidden AI reply must return to mobile',
+    );
+
     const audit = await request('/admin/audit-logs?action=ai.petChat.quality_review', { token: adminToken });
     assert.ok(audit.data.items.some((item) => item.targetId === aiMessageId), 'quality review audit log should be recorded');
+    const unhideAudit = await request('/admin/audit-logs?action=ai.petChat.unhide', { token: adminToken });
+    assert.ok(unhideAudit.data.items.some((item) => item.targetId === aiMessageId), 'unhide audit log should be recorded');
 
     await request('/admin/config', {
       body: {
@@ -239,6 +254,32 @@ async function main() {
 
     const safetyQueue = await request('/admin/ai/pet-chat/quality-review', { token: adminToken });
     assert.ok(safetyQueue.data.summary.safetyIntercepted >= 1, 'quality review summary should count safety interceptions');
+
+    const blockedUnhide = await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(interceptedId)}/unhide`, {
+      body: { reason: 'smoke should not restore safety-intercepted reply before safe review' },
+      expectedStatus: 400,
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(blockedUnhide.error?.code, 'ADMIN_PET_CHAT_UNHIDE_INVALID');
+
+    await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(interceptedId)}/quality-review`, {
+      body: { reason: 'smoke marks safety-intercepted reply as safe after review', reviewStatus: 'safe' },
+      method: 'POST',
+      token: adminToken,
+    });
+    const restoredSafetyReply = await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(interceptedId)}/unhide`, {
+      body: { reason: 'smoke restores safety-intercepted reply after safe review' },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(restoredSafetyReply.data.row.adminHiddenAt, '', 'safe-reviewed AI reply should be restored');
+    const mobileMessagesAfterSafetyRestore = await request('/ai/pet-chat/messages', { token: userToken });
+    assert.equal(
+      mobileMessagesAfterSafetyRestore.data.some((message) => message.id === interceptedId),
+      true,
+      'safe-reviewed restored AI reply must return to mobile',
+    );
 
     const safetyDetail = await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(interceptedId)}/view`, {
       body: { reason: 'smoke verifies moderated original text' },

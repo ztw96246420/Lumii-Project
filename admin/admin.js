@@ -533,6 +533,10 @@ async function onContentClick(event) {
       await hidePetChatMessage(button);
       return;
     }
+    if (action === 'pet-chat-unhide') {
+      await unhidePetChatMessage(button);
+      return;
+    }
     if (action === 'pets-filter') {
       state.petSpecies = $('petSpecies').value;
       state.petBirthday = $('petBirthday').value;
@@ -1768,6 +1772,21 @@ async function hidePetChatMessage(button) {
   state.cache.petChatQualityReview = null;
   state.cache.audit = null;
   showToast('AI 回复已隐藏');
+  await render(true);
+}
+
+async function unhidePetChatMessage(button) {
+  const id = button.dataset.id;
+  if (!id) return;
+  const reason = window.prompt('请输入取消隐藏原因；恢复后移动端会重新展示这条 AI 回复', `取消隐藏 AI 回复：${id}`);
+  if (reason === null) return;
+  await post(`/admin/ai/pet-chat/messages/${encodeURIComponent(id)}/unhide`, {
+    reason: reason.trim(),
+  });
+  state.cache.petChat = null;
+  state.cache.petChatQualityReview = null;
+  state.cache.audit = null;
+  showToast('AI 回复已恢复展示');
   await render(true);
 }
 
@@ -4234,7 +4253,7 @@ function renderPetChatQualityReviewItem(row) {
         <button class="small-button" data-action="pet-chat-review" data-id="${escapeHtml(row.id)}" data-status="reviewed">已复核</button>
         <button class="small-button" data-action="pet-chat-review" data-id="${escapeHtml(row.id)}" data-status="safe">样本正常</button>
         <button class="small-button danger" data-action="pet-chat-review" data-id="${escapeHtml(row.id)}" data-status="needs_fix">需修正</button>
-        ${row.adminHiddenAt ? '<span class="muted">已隐藏</span>' : `<button class="small-button danger" data-action="pet-chat-hide" data-id="${escapeHtml(row.id)}">隐藏回复</button>`}
+        ${row.adminHiddenAt ? `<span class="muted">已隐藏</span><button class="small-button ghost" data-action="pet-chat-unhide" data-id="${escapeHtml(row.id)}">取消隐藏</button>` : `<button class="small-button danger" data-action="pet-chat-hide" data-id="${escapeHtml(row.id)}">隐藏回复</button>`}
       </div>
     </article>
   `;
@@ -4280,7 +4299,7 @@ function renderPetChatRow(row) {
         <button class="small-button" data-action="pet-chat-tag" data-id="${escapeHtml(row.id)}" data-tag="medical_sample">医疗样本</button>
         <button class="small-button" data-action="pet-chat-tag" data-id="${escapeHtml(row.id)}" data-tag="false_positive">误触发</button>
         <button class="small-button" data-action="pet-chat-tag" data-id="${escapeHtml(row.id)}" data-tag="false_negative">漏触发</button>
-        ${row.adminHiddenAt ? '<span class="muted">已隐藏</span>' : `<button class="small-button danger" data-action="pet-chat-hide" data-id="${escapeHtml(row.id)}">隐藏回复</button>`}
+        ${row.adminHiddenAt ? `<span class="muted">已隐藏</span><button class="small-button ghost" data-action="pet-chat-unhide" data-id="${escapeHtml(row.id)}">取消隐藏</button>` : `<button class="small-button danger" data-action="pet-chat-hide" data-id="${escapeHtml(row.id)}">隐藏回复</button>`}
       </div>
     </article>
   `;
