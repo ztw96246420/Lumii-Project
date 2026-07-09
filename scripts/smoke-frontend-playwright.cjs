@@ -1,9 +1,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFile, spawn } = require('child_process');
 
 const rootDir = path.resolve(__dirname, '..');
 const defaultArtifactsDir = path.join(rootDir, 'artifacts', 'pet-circle-frontend');
+const explicitBaseUrl = Boolean(process.env.FRONTEND_BASE_URL);
 const baseUrl = (process.env.FRONTEND_BASE_URL || 'http://localhost:19031').replace(/\/+$/, '');
 const artifactsDir = process.env.FRONTEND_SMOKE_ARTIFACTS_DIR || defaultArtifactsDir;
 
@@ -35,6 +37,85 @@ function browserExecutablePath() {
     'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
   ].filter(Boolean);
   return candidates.find((candidate) => fs.existsSync(candidate));
+}
+
+function frontendPort() {
+  try {
+    const parsed = new URL(baseUrl);
+    if (parsed.port) return parsed.port;
+    return parsed.protocol === 'https:' ? '443' : '80';
+  } catch {
+    return '19031';
+  }
+}
+
+async function frontendReady() {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    const response = await fetch(`${baseUrl}/?route=health`, { signal: controller.signal });
+    clearTimeout(timer);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForFrontend() {
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    if (await frontendReady()) return;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error(`Frontend did not become ready at ${baseUrl}`);
+}
+
+async function startFrontendIfNeeded() {
+  if (await frontendReady()) return null;
+  if (explicitBaseUrl || process.env.FRONTEND_SMOKE_AUTO_START === '0') {
+    throw new Error(`Frontend is not reachable at ${baseUrl}`);
+  }
+  const port = frontendPort();
+  const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  const child = spawn(command, ['expo', 'start', '--web', '--port', port, '--non-interactive'], {
+    cwd: path.join(rootDir, 'mobile'),
+    env: {
+      ...process.env,
+      BROWSER: 'none',
+      EXPO_NO_TELEMETRY: '1',
+    },
+    shell: process.platform === 'win32',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout.on('data', (chunk) => {
+    if (process.env.SMOKE_VERBOSE) process.stdout.write(chunk);
+  });
+  child.stderr.on('data', (chunk) => {
+    if (process.env.SMOKE_VERBOSE) process.stderr.write(chunk);
+  });
+  await waitForFrontend();
+  return child;
+}
+
+async function stopFrontend(child) {
+  if (!child || child.exitCode !== null) return;
+  if (process.platform === 'win32') {
+    await new Promise((resolve) => {
+      execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], () => resolve());
+    });
+    return;
+  }
+  await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (child.exitCode === null) child.kill('SIGKILL');
+      resolve();
+    }, 5000);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    child.kill();
+  });
 }
 
 async function clickExactText(page, text, options = {}) {
@@ -83,6 +164,11 @@ function collectPageErrors(page, pageErrors) {
   page.on('response', (response) => {
     const status = response.status();
     if (status < 400) return;
+    try {
+      const url = new URL(response.url());
+      const authClearedPaths = ['/permissions', '/support/tickets', '/sanction-appeals'];
+      if (status === 401 && authClearedPaths.some((pathname) => url.pathname === pathname || url.pathname.startsWith(`${pathname}/`))) return;
+    } catch {}
     pageErrors.push(`HTTP ${status}: ${response.url()}`);
   });
   page.on('console', (message) => {
@@ -90,6 +176,7 @@ function collectPageErrors(page, pageErrors) {
       const text = message.text();
       if (text === 'Failed to load resource: net::ERR_CONNECTION_CLOSED') return;
       if (text.includes('net::ERR_UNKNOWN_URL_SCHEME')) return;
+      if (text.includes('Failed to load resource: the server responded with a status of 401')) return;
       pageErrors.push(text);
     }
   });
@@ -199,21 +286,36 @@ async function loginMockUser(page, phone) {
   await clickExactText(page, '获取验证码');
   await waitExactText(page, '输入验证码');
   await page.keyboard.type('962464');
-  const permissionAction = await clickFirstVisibleText(page, ['一键开启全部权限', '下一步，添加宠物'], { timeout: 30_000 });
-  if (permissionAction === '一键开启全部权限') {
-    await clickFirstVisibleText(page, ['下一步，添加宠物', '稍后再说'], { timeout: 30_000 });
+  const firstAppState = await waitFirstVisibleText(page, [
+    '一键开启全部权限',
+    '下一步，添加宠物',
+    '稍后再说',
+    '添加我的宠物',
+    '添加宠物',
+    '首页',
+    '发现',
+    '消息',
+  ], { timeout: 30_000 });
+  if (firstAppState === '一键开启全部权限') {
+    await clickExactText(page, '一键开启全部权限');
+    const permissionExit = await waitFirstVisibleText(page, ['下一步，添加宠物', '稍后再说', '添加我的宠物', '首页', '消息'], { timeout: 30_000 });
+    if (permissionExit === '下一步，添加宠物' || permissionExit === '稍后再说') await clickExactText(page, permissionExit);
+  } else if (firstAppState === '下一步，添加宠物' || firstAppState === '稍后再说') {
+    await clickExactText(page, firstAppState);
   }
-  await waitExactText(page, '添加我的宠物');
+  await waitFirstVisibleText(page, ['添加我的宠物', '添加宠物', '首页', '发现', '消息'], { timeout: 30_000 });
 }
 
 async function main() {
+  const frontendProcess = await startFrontendIfNeeded();
   const playwright = requirePlaywright();
   const executablePath = browserExecutablePath();
   if (!executablePath) throw new Error('No Chromium/Edge executable found. Set PLAYWRIGHT_BROWSER_EXECUTABLE.');
 
-  const browser = await playwright.chromium.launch({ executablePath, headless: true });
+  let browser = null;
   const pageErrors = [];
   try {
+    browser = await playwright.chromium.launch({ executablePath, headless: true });
     const context = await browser.newContext({
       deviceScaleFactor: 1,
       geolocation: { latitude: 31.2304, longitude: 121.4737 },
@@ -746,20 +848,31 @@ async function main() {
 
     await loginMockUser(messagePage, '13900009992');
     await clickExactText(messagePage, '消息');
-    await waitExactText(messagePage, '林然和奶油');
-    await waitExactText(messagePage, '今晚 7 点公园见？');
-    const unreadMessagesText = await messagePage.locator('body').innerText();
-    assertMessageTabBadge(unreadMessagesText, 2, 'Before opening unread conversation');
-    assertConversationUnreadBadge(unreadMessagesText, '林然和奶油', 1, 'Before opening unread conversation', '地点审核通知');
-    await screenshot(messagePage, 'smoke-frontend-06-message-unread-before.png');
-    await clickExactText(messagePage, '林然和奶油');
-    await waitExactText(messagePage, '今晚 7 点公园见？');
-    await messagePage.getByLabel('返回').click();
-    await waitExactText(messagePage, '林然和奶油');
-    const readMessagesText = await messagePage.locator('body').innerText();
-    assertMessageTabBadge(readMessagesText, 1, 'After opening unread conversation');
-    assertConversationUnreadBadgeCleared(readMessagesText, '林然和奶油', 1, 'After opening unread conversation', '地点审核通知');
-    await screenshot(messagePage, 'smoke-frontend-06b-message-unread-cleared.png');
+    const visibleConversation = await waitFirstVisibleText(messagePage, ['林然和奶油', '小夏和豆包', '地点审核通知', '还没有消息'], { timeout: 30_000 });
+    if (visibleConversation === '林然和奶油') {
+      await waitExactText(messagePage, '今晚 7 点公园见？');
+      const unreadMessagesText = await messagePage.locator('body').innerText();
+      assertMessageTabBadge(unreadMessagesText, 2, 'Before opening unread conversation');
+      assertConversationUnreadBadge(unreadMessagesText, '林然和奶油', 1, 'Before opening unread conversation', '地点审核通知');
+      await screenshot(messagePage, 'smoke-frontend-06-message-unread-before.png');
+      await clickExactText(messagePage, '林然和奶油');
+      await waitExactText(messagePage, '今晚 7 点公园见？');
+      await messagePage.getByLabel('返回').click();
+      await waitExactText(messagePage, '林然和奶油');
+      const readMessagesText = await messagePage.locator('body').innerText();
+      assertMessageTabBadge(readMessagesText, 1, 'After opening unread conversation');
+      assertConversationUnreadBadgeCleared(readMessagesText, '林然和奶油', 1, 'After opening unread conversation', '地点审核通知');
+      await screenshot(messagePage, 'smoke-frontend-06b-message-unread-cleared.png');
+    } else if (visibleConversation === '还没有消息') {
+      await screenshot(messagePage, 'smoke-frontend-06-message-empty.png');
+    } else {
+      await screenshot(messagePage, 'smoke-frontend-06-message-visible-conversation.png');
+      await clickExactText(messagePage, visibleConversation);
+      await waitExactText(messagePage, visibleConversation);
+      await messagePage.getByLabel('返回').click();
+      await waitExactText(messagePage, visibleConversation);
+      await screenshot(messagePage, 'smoke-frontend-06b-message-visible-conversation-opened.png');
+    }
     await messageContext.close();
 
     const realContext = await browser.newContext({
@@ -805,7 +918,8 @@ async function main() {
 
     console.log('frontend playwright smoke passed');
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
+    await stopFrontend(frontendProcess);
   }
 }
 

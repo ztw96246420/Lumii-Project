@@ -88,6 +88,7 @@
 | 文档/目录 | 状态 | 用途 |
 | --- | --- | --- |
 | [Android_APK_Testing_2026-06-06.md](./Android_APK_Testing_2026-06-06.md) | 真机策略 | APK 真机测试流程、省流量策略 |
+| [Launch_Regression_Gate_2026-07-09.md](./Launch_Regression_Gate_2026-07-09.md) | 当前门禁 | APK 打包和服务端部署前的一键业务回归脚本 |
 | [Android_APK_Build_v2_2026-06-06.md](./Android_APK_Build_v2_2026-06-06.md) | 历史构建记录 | 旧版 APK 构建记录 |
 | [Android_Back_Gesture_Behavior_2026-06-11.md](./Android_Back_Gesture_Behavior_2026-06-11.md) | 当前说明 | Android 返回手势和退出行为 |
 | [qa-screenshots/](./qa-screenshots/) | 历史测试资产 | 页面 QA 截图证据 |
