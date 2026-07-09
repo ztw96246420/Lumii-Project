@@ -402,6 +402,14 @@ async function onContentClick(event) {
       await resetLaunchReadinessQuestion(button);
       return;
     }
+    if (action === 'launch-signoff') {
+      await signLaunchReadiness(button);
+      return;
+    }
+    if (action === 'launch-signoff-reset') {
+      await resetLaunchReadinessSignoff(button);
+      return;
+    }
     if (action === 'admin-account-create') {
       await handleAdminAccountCreate();
       return;
@@ -2414,6 +2422,7 @@ function launchQuestionDecision(row) {
   return `
     <div class="cell-title">${escapeHtml(row.decisionNote || '-')}</div>
     <div class="cell-sub">${escapeHtml(row.decisionUpdatedBy || '-')} · ${formatTime(row.decisionUpdatedAt)}</div>
+    ${row.closedAt ? `<div class="cell-sub">关闭：${escapeHtml(row.closedBy || '-')} · ${formatTime(row.closedAt)}</div>` : ''}
   `;
 }
 
@@ -2434,10 +2443,38 @@ function launchQuestionActions(row) {
   `;
 }
 
+function launchReadinessSignoffPanel(signoff = {}, summary = {}) {
+  const signed = Boolean(signoff.isSigned);
+  const snapshot = signoff.snapshot || {};
+  const tone = signoff.conclusionTone || (signed ? 'warn' : '');
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>上线结论签署</h2>
+          <div class="section-sub">${signed ? `${escapeHtml(signoff.releaseVersion || '-')} · ${formatTime(signoff.signedAt)} · ${escapeHtml(signoff.signedBy || '-')}` : '尚未签署当前上线结论'}</div>
+        </div>
+        ${help('签署只是沉淀上线评审结论，不会改变移动端行为；如果选择“可生产上线”，后端会要求当前 P0 为 0。')}
+      </div>
+      <div class="switch-row"><span>当前结论</span>${tonePill(signoff.conclusionLabel || '未签署', tone)}</div>
+      <div class="switch-row"><span>当前 P0</span><strong>${numberText(summary.openP0 || 0)}</strong></div>
+      ${signed ? `
+        <div class="switch-row"><span>签署快照</span><strong>P0 ${numberText(snapshot.openP0 || 0)} · 待确认 ${numberText(snapshot.openQuestions || 0)} · 模块 ${numberText(snapshot.readyModules || 0)}/${numberText(snapshot.totalModules || 0)}</strong></div>
+        <div class="switch-row"><span>快照状态</span>${signoff.stale ? tonePill('已变化', 'warn') : tonePill('一致', 'ok')}</div>
+        <div class="cell-sub clamp">${escapeHtml(signoff.note || '-')}</div>
+      ` : '<div class="cell-sub">签署后会保留当前 P0、待确认问题、模块状态和签署说明快照。</div>'}
+      <div class="actions">
+        <button class="small-button" data-action="launch-signoff" data-conclusion="${escapeHtml(signoff.conclusion || 'conditional')}" data-version="${escapeHtml(signoff.releaseVersion || '')}" data-note="${escapeHtml(signoff.note || '')}">${signed ? '重新签署' : '签署结论'}</button>
+        ${signed ? '<button class="small-button ghost" data-action="launch-signoff-reset">重置签署</button>' : ''}
+      </div>
+    </div>
+  `;
+}
+
 async function updateLaunchReadinessQuestion(button) {
   const id = button.dataset.id || '';
   const question = button.dataset.question || id;
-  const status = window.prompt(`更新「${question}」状态：open / reviewing / ready / deferred`, button.dataset.status || 'open');
+  const status = window.prompt(`更新「${question}」状态：open / reviewing / ready / deferred / closed`, button.dataset.status || 'open');
   if (status === null) return;
   const owner = window.prompt('负责人或决策来源', button.dataset.owner || '待业务确认');
   if (owner === null) return;
@@ -2457,6 +2494,47 @@ async function updateLaunchReadinessQuestion(button) {
   });
   state.cache = { ...state.cache, audit: null, launchReadiness: null };
   showToast('上线台账已更新');
+  await render(true);
+}
+
+async function signLaunchReadiness(button) {
+  const conclusion = window.prompt('签署结论：not_ready / conditional / ready_for_test / ready_for_production', button.dataset.conclusion || 'conditional');
+  if (conclusion === null) return;
+  const releaseVersion = window.prompt('版本或批次标识', button.dataset.version || `launch-${new Date().toISOString().slice(0, 10)}`);
+  if (releaseVersion === null) return;
+  const note = window.prompt('签署说明，会保留在上线台账', button.dataset.note || '');
+  if (note === null) return;
+  const reason = window.prompt('签署原因，会写入审计日志', `签署上线台账结论：${releaseVersion}`);
+  if (reason === null) return;
+  if (!releaseVersion.trim() || !note.trim() || !reason.trim()) {
+    showToast('请填写版本、签署说明和签署原因');
+    return;
+  }
+  await post('/admin/launch/readiness/signoff', {
+    conclusion: conclusion.trim(),
+    note: note.trim(),
+    reason: reason.trim(),
+    releaseVersion: releaseVersion.trim(),
+  });
+  state.cache = { ...state.cache, audit: null, launchReadiness: null };
+  showToast('上线台账结论已签署');
+  await render(true);
+}
+
+async function resetLaunchReadinessSignoff() {
+  if (!window.confirm('确认重置当前上线台账签署结论？历史审计仍会保留。')) return;
+  const reason = window.prompt('请输入重置签署原因，会写入审计日志', '重置上线台账签署结论');
+  if (reason === null) return;
+  if (!reason.trim()) {
+    showToast('请填写重置原因');
+    return;
+  }
+  await post('/admin/launch/readiness/signoff', {
+    reason: reason.trim(),
+    reset: true,
+  });
+  state.cache = { ...state.cache, audit: null, launchReadiness: null };
+  showToast('上线台账签署已重置');
   await render(true);
 }
 
@@ -2486,6 +2564,7 @@ async function renderLaunchReadiness(force) {
   const modules = data.modules || [];
   const questions = data.questions || [];
   const gaps = data.gaps || [];
+  const signoff = data.signoff || {};
   const attentionItems = data.linkage?.attentionItems || [];
   const productionBlockers = gaps.filter((gap) => gap.status !== 'ready' && (gap.status === 'blocked' || gap.severity === 'P0'));
   $('content').innerHTML = `
@@ -2493,8 +2572,11 @@ async function renderLaunchReadiness(force) {
       ${metric('上线口径', summary.status === 'ready' ? '可复核' : '需治理', `${numberText(summary.readyModules || 0)} 个模块测试可用`, summary.statusLabel || '这里不是宣布生产完成，而是把测试可用、部分可用、生产阻断分开。')}
       ${metric('P0 待处理', numberText(summary.openP0 || 0), '生产前必须确认', 'P0 包含安全、合规、内容安全、数据底座和高风险配置等事项。')}
       ${metric('待澄清问题', numberText(summary.openQuestions || 0), '需要业务拍板', '这些问题来自运营后台 PRD 的上线前确认清单，并在这里持续收口。')}
+      ${metric('签署结论', signoff.conclusionLabel || '未签署', signoff.stale ? '快照已变化' : signoff.isSigned ? '已签署' : '待签署', '上线台账签署会保留当前 P0、待确认问题和模块状态快照。')}
       ${metric('配置联动', `${numberText(summary.linkedConfigItems || 0)}/${numberText(summary.totalConfigItems || 0)}`, `${numberText(linkageSummary.reserved || 0)} 项预留`, '统计配置中心里真实前后端联动、仅后端、仅移动端和预留项。')}
     </div>
+
+    ${launchReadinessSignoffPanel(signoff, summary)}
 
     <div class="grid two">
       <div class="card">

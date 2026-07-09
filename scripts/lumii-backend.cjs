@@ -732,6 +732,7 @@ function createInitialState() {
     adminExportJobs: [],
     adminSanctionApprovals: [],
     launchReadinessQuestionOverrides: {},
+    launchReadinessSignoff: {},
     opsConfigApprovals: [],
     adminLoginSecurity: {
       accountFailures: {},
@@ -5334,6 +5335,7 @@ function loadState() {
       adminExportJobs: Array.isArray(loadedState.adminExportJobs) ? loadedState.adminExportJobs : initialState.adminExportJobs,
       adminSanctionApprovals: Array.isArray(loadedState.adminSanctionApprovals) ? loadedState.adminSanctionApprovals : initialState.adminSanctionApprovals,
       launchReadinessQuestionOverrides: loadedState.launchReadinessQuestionOverrides && typeof loadedState.launchReadinessQuestionOverrides === 'object' && !Array.isArray(loadedState.launchReadinessQuestionOverrides) ? loadedState.launchReadinessQuestionOverrides : initialState.launchReadinessQuestionOverrides,
+      launchReadinessSignoff: loadedState.launchReadinessSignoff && typeof loadedState.launchReadinessSignoff === 'object' && !Array.isArray(loadedState.launchReadinessSignoff) ? loadedState.launchReadinessSignoff : initialState.launchReadinessSignoff,
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
       socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
@@ -22158,6 +22160,7 @@ async function adminSystemHealth() {
       { key: 'adminAuditLogs', label: '审计日志', rows: countArray(state.adminAuditLogs) },
       { key: 'adminExportJobs', label: '导出归档任务', rows: countArray(state.adminExportJobs) },
       { key: 'launchReadinessQuestionOverrides', label: '上线台账决策', rows: countObject(state.launchReadinessQuestionOverrides) },
+      { key: 'launchReadinessSignoff', label: '上线台账签署', rows: countObject(state.launchReadinessSignoff) ? 1 : 0 },
       { key: 'appEvents', label: '移动端事件', rows: countArray(state.appEvents) },
       { key: 'notifications', label: '通知记录', rows: countNotificationRows },
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
@@ -22362,6 +22365,7 @@ function adminRequiredPermissionForRequest(method, pathname) {
   if (path.startsWith('/admin/dashboard')) return 'dashboard.view';
   if (path === '/admin/analytics') return 'analytics.view';
   if (path === '/admin/system/health') return 'system.health.view';
+  if (path === '/admin/launch/readiness/signoff') return 'launch.readiness.update';
   if (path.startsWith('/admin/launch/readiness/questions')) return 'launch.readiness.update';
   if (path === '/admin/launch/readiness') return 'launch.readiness.view';
   if (/^\/admin\/exports\/[^/]+\.csv$/u.test(path)) return 'data.export.download';
@@ -22770,7 +22774,7 @@ function adminReadinessStatusMeta(status) {
 
 function normalizeReadinessQuestionStatus(value) {
   const status = String(value || '').trim();
-  if (['deferred', 'open', 'ready', 'reviewing'].includes(status)) return status;
+  if (['closed', 'deferred', 'open', 'ready', 'reviewing'].includes(status)) return status;
   const map = {
     已确认: 'ready',
     已接入: 'ready',
@@ -22787,6 +22791,7 @@ function normalizeReadinessQuestionStatus(value) {
 
 function readinessQuestionStatusLabel(status) {
   return {
+    closed: '已关闭',
     deferred: '暂缓',
     open: '待确认',
     ready: '已确认',
@@ -22801,6 +22806,40 @@ function ensureLaunchReadinessQuestionOverrides() {
   return state.launchReadinessQuestionOverrides;
 }
 
+function ensureLaunchReadinessSignoff() {
+  if (!state.launchReadinessSignoff || typeof state.launchReadinessSignoff !== 'object' || Array.isArray(state.launchReadinessSignoff)) {
+    state.launchReadinessSignoff = {};
+  }
+  return state.launchReadinessSignoff;
+}
+
+function normalizeLaunchReadinessConclusion(value) {
+  const conclusion = String(value || '').trim();
+  if (['conditional', 'not_ready', 'ready_for_production', 'ready_for_test'].includes(conclusion)) return conclusion;
+  return 'conditional';
+}
+
+function launchReadinessConclusionLabel(conclusion) {
+  return {
+    conditional: '有条件推进',
+    not_ready: '暂不具备上线',
+    ready_for_production: '可生产上线',
+    ready_for_test: '可小范围测试',
+  }[normalizeLaunchReadinessConclusion(conclusion)] || '有条件推进';
+}
+
+function launchReadinessConclusionTone(conclusion) {
+  const normalized = normalizeLaunchReadinessConclusion(conclusion);
+  if (normalized === 'ready_for_production' || normalized === 'ready_for_test') return 'ok';
+  if (normalized === 'not_ready') return 'bad';
+  return 'warn';
+}
+
+function launchReadinessQuestionIsOpen(question) {
+  const status = normalizeReadinessQuestionStatus(question?.status);
+  return status !== 'ready' && status !== 'closed';
+}
+
 function applyLaunchReadinessQuestionOverride(question) {
   const override = ensureLaunchReadinessQuestionOverrides()[question.id];
   if (!override || typeof override !== 'object' || Array.isArray(override)) return question;
@@ -22809,6 +22848,8 @@ function applyLaunchReadinessQuestionOverride(question) {
   const note = String(override.note || '').replace(/\s+/g, ' ').trim().slice(0, 360);
   return {
     ...question,
+    closedAt: override.closedAt || '',
+    closedBy: override.closedBy || '',
     defaultOwner: question.owner,
     defaultStatus: question.status,
     defaultStatusLabel: question.statusLabel,
@@ -23106,6 +23147,41 @@ function adminReadinessGaps(context) {
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }
 
+function adminLaunchReadinessSignoffItem(summary = {}) {
+  const signoff = ensureLaunchReadinessSignoff();
+  if (!signoff.signedAt) {
+    return {
+      conclusion: 'unsigned',
+      conclusionLabel: '未签署',
+      conclusionTone: 'warn',
+      isSigned: false,
+      note: '',
+      releaseVersion: '',
+      signedAt: '',
+      signedBy: '',
+      snapshot: null,
+      stale: false,
+    };
+  }
+  const conclusion = normalizeLaunchReadinessConclusion(signoff.conclusion);
+  const snapshot = signoff.snapshot && typeof signoff.snapshot === 'object' && !Array.isArray(signoff.snapshot) ? signoff.snapshot : {};
+  return {
+    conclusion,
+    conclusionLabel: launchReadinessConclusionLabel(conclusion),
+    conclusionTone: launchReadinessConclusionTone(conclusion),
+    isSigned: true,
+    note: signoff.note || '',
+    releaseVersion: signoff.releaseVersion || '',
+    signedAt: signoff.signedAt || '',
+    signedBy: signoff.signedBy || '',
+    snapshot,
+    stale: Number(snapshot.openP0 ?? -1) !== Number(summary.openP0 ?? -2) ||
+      Number(snapshot.openQuestions ?? -1) !== Number(summary.openQuestions ?? -2) ||
+      String(snapshot.status || '') !== String(summary.status || ''),
+    updatedAt: signoff.updatedAt || signoff.signedAt || '',
+  };
+}
+
 async function adminLaunchReadiness() {
   const config = currentOpsConfig();
   const linkageItems = adminConfigLinkageItems(config);
@@ -23120,7 +23196,12 @@ async function adminLaunchReadiness() {
   const questions = adminReadinessQuestions(context);
   const gaps = adminReadinessGaps(context);
   const countStatus = (rows, status) => rows.filter((item) => item.status === status).length;
-  const openP0 = questions.filter((item) => item.priority === 'P0' && item.status !== 'ready').length + gaps.filter((item) => item.severity === 'P0' && item.status !== 'ready').length;
+  const openP0 = questions.filter((item) => item.priority === 'P0' && launchReadinessQuestionIsOpen(item)).length + gaps.filter((item) => item.severity === 'P0' && item.status !== 'ready').length;
+  const signoff = adminLaunchReadinessSignoffItem({
+    openP0,
+    openQuestions: questions.filter(launchReadinessQuestionIsOpen).length,
+    status: openP0 ? 'partial' : 'ready',
+  });
   return {
     generatedAt: new Date().toISOString(),
     gaps,
@@ -23130,11 +23211,12 @@ async function adminLaunchReadiness() {
     },
     modules,
     questions,
+    signoff,
     summary: {
       blockedGaps: countStatus(gaps, 'blocked'),
       linkedConfigItems: linkageSummary.linked,
       openP0,
-      openQuestions: questions.filter((item) => item.status !== 'ready').length,
+      openQuestions: questions.filter(launchReadinessQuestionIsOpen).length,
       partialModules: countStatus(modules, 'partial'),
       readyModules: countStatus(modules, 'ready'),
       reservedItems: countStatus(gaps, 'reserved') + Number(linkageSummary.reserved || 0),
@@ -23167,6 +23249,8 @@ async function adminUpdateLaunchReadinessQuestion(admin, questionId, body = {}) 
   if (!note) return { error: '请填写决策备注', statusCode: 400 };
   const now = new Date().toISOString();
   overrides[id] = {
+    closedAt: status === 'closed' ? now : '',
+    closedBy: status === 'closed' ? admin?.username || 'admin' : '',
     note,
     owner,
     question: question.question,
@@ -23176,6 +23260,56 @@ async function adminUpdateLaunchReadinessQuestion(admin, questionId, body = {}) 
     updatedBy: admin?.username || 'admin',
   };
   writeAdminAudit(admin, 'launch.readiness.question.update', 'launch_readiness_question', id, before, cloneJson(overrides[id]), reason);
+  return adminLaunchReadiness();
+}
+
+async function adminSignLaunchReadiness(admin, body = {}) {
+  const reason = String(body?.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (!reason) return { error: '请填写签署原因', statusCode: 400 };
+  const store = ensureLaunchReadinessSignoff();
+  const before = cloneJson(store);
+  if (body?.reset === true) {
+    state.launchReadinessSignoff = {};
+    writeAdminAudit(admin, 'launch.readiness.signoff.reset', 'launch_readiness_signoff', 'current', before, null, reason);
+    return adminLaunchReadiness();
+  }
+  const readiness = await adminLaunchReadiness();
+  const conclusion = normalizeLaunchReadinessConclusion(body?.conclusion);
+  const releaseVersion = String(body?.releaseVersion || body?.version || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const note = String(body?.note || '').replace(/\s+/g, ' ').trim().slice(0, 600);
+  if (!releaseVersion) return { error: '请填写版本或批次标识', statusCode: 400 };
+  if (!note) return { error: '请填写签署说明', statusCode: 400 };
+  if (conclusion === 'ready_for_production' && Number(readiness.summary?.openP0 || 0) > 0) {
+    return {
+      code: 'ADMIN_LAUNCH_READINESS_P0_OPEN',
+      error: '仍存在 P0 待处理或生产阻断，不能签署为可生产上线',
+      openP0: readiness.summary.openP0,
+      statusCode: 409,
+    };
+  }
+  const now = new Date().toISOString();
+  const signoff = {
+    conclusion,
+    conclusionLabel: launchReadinessConclusionLabel(conclusion),
+    id: `launch-signoff-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    note,
+    releaseVersion,
+    signedAt: now,
+    signedBy: admin?.username || 'admin',
+    snapshot: {
+      blockedGaps: readiness.summary?.blockedGaps || 0,
+      openP0: readiness.summary?.openP0 || 0,
+      openQuestions: readiness.summary?.openQuestions || 0,
+      partialModules: readiness.summary?.partialModules || 0,
+      readyModules: readiness.summary?.readyModules || 0,
+      status: readiness.summary?.status || '',
+      statusLabel: readiness.summary?.statusLabel || '',
+      totalModules: readiness.summary?.totalModules || 0,
+    },
+    updatedAt: now,
+  };
+  state.launchReadinessSignoff = signoff;
+  writeAdminAudit(admin, 'launch.readiness.signoff', 'launch_readiness_signoff', signoff.id, before, cloneJson(signoff), reason);
   return adminLaunchReadiness();
 }
 
@@ -28903,6 +29037,17 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/launch/readiness') {
     ok(res, await adminLaunchReadiness());
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/launch/readiness/signoff') {
+    const result = await adminSignLaunchReadiness(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, { openP0: result.openP0 }, result.code || 'ADMIN_LAUNCH_READINESS_SIGNOFF_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

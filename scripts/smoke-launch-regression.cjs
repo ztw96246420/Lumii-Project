@@ -22,6 +22,7 @@ const suites = [
 
   { key: 'content-safety', title: 'Content safety E2E', script: 'smoke-content-safety-e2e.cjs', timeoutMs: 180_000 },
   { key: 'launch-readiness-safety', title: 'Launch readiness content safety', script: 'smoke-launch-readiness-content-safety.cjs', timeoutMs: 180_000 },
+  { key: 'launch-readiness-decisions', title: 'Launch readiness decisions', script: 'smoke-launch-readiness-question-update.cjs', timeoutMs: 180_000 },
   { key: 'moderation-sanction', title: 'Report sanction linkage', script: 'smoke-report-sanction-linkage.cjs', timeoutMs: 180_000 },
   { key: 'report-appeals', title: 'Report appeals', script: 'smoke-report-appeals.cjs', timeoutMs: 180_000 },
   { key: 'social-block-risk', title: 'Social block risk', script: 'smoke-social-block-risk.cjs', timeoutMs: 180_000 },

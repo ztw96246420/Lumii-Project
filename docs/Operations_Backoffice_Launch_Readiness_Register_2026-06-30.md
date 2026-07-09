@@ -22,10 +22,12 @@
 
 - `GET /admin/launch/readiness`
 - `POST /admin/launch/readiness/questions/{questionId}`
+- `POST /admin/launch/readiness/signoff`
 
 接口返回：
 
 - `summary`：上线口径、P0 待处理数、待澄清问题数、配置联动数。
+- `signoff`：当前上线结论签署、签署快照和快照是否已变化。
 - `modules`：后台模块成熟度台账。
 - `questions`：上线前必须确认的问题。
 - `gaps`：生产风险和预留治理项。
@@ -33,11 +35,13 @@
 
 写接口支持：
 
-- 更新状态：`open`、`reviewing`、`ready`、`deferred`。
+- 更新状态：`open`、`reviewing`、`ready`、`deferred`、`closed`。
 - 记录负责人/决策来源。
 - 记录决策备注。
 - 重置人工覆盖记录，回到动态台账默认口径。
 - 写入 `adminAuditLogs`，action 为 `launch.readiness.question.update` 或 `launch.readiness.question.reset`。
+- 签署上线结论：记录版本、结论、说明、签署人、签署时间和当前台账快照；存在未关闭 P0 时不允许签署 `ready_for_production`。
+- 重置上线结论签署，并写入 `launch.readiness.signoff.reset` 审计。
 
 ## 3. 页面口径
 
@@ -122,7 +126,19 @@
 - 哪些后端接口会按配置强制拦截。
 - 哪些能力目前只是预留或后端单侧生效。
 
-## 8. 暂不做的事情
+## 8. 上线结论签署
+
+签署不是替代真实问题修复，而是把当前后台判断和运营结论固定成一份可追溯快照。每次签署会记录：
+
+- 发布版本。
+- 结论：`not_ready`、`conditional`、`ready_for_test`、`ready_for_production`。
+- 签署说明。
+- 签署人和签署时间。
+- 当前 P0 数、待确认问题数、模块 ready/partial 数和整体上线状态。
+
+如签署后台账里的 P0、待确认问题或整体状态发生变化，页面会标记快照已变化，需要重新签署。
+
+## 9. 暂不做的事情
 
 本版本不做：
 
@@ -136,7 +152,7 @@
 - 很多问题需要业务策略确认，不能由代码擅自替业务拍板。
 - 先把台账、人工决策记录、角色权限和草稿发布治理做成后台可见，后续再接审批 owner、站外通知和值守 SOP。
 
-## 9. 后续建议
+## 10. 后续建议
 
 下一步可继续沿着这张台账推进：
 

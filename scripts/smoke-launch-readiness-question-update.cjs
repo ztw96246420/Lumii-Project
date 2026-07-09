@@ -154,8 +154,64 @@ async function main() {
     assert.equal(persistedQuestion.status, 'ready');
     assert.ok(persistedQuestion.decisionUpdatedAt);
 
+    const closed = await request('/admin/launch/readiness/questions/q-domain', {
+      body: {
+        note: 'Smoke closed the launch domain decision after sign-off review',
+        owner: 'product',
+        reason: 'smoke closes launch readiness decision',
+        status: 'closed',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    const closedQuestion = rowById(closed.data.questions, 'q-domain');
+    assert.equal(closedQuestion.status, 'closed');
+    assert.equal(closedQuestion.statusLabel, '已关闭');
+    assert.ok(closedQuestion.closedAt, 'closed question should keep closedAt');
+
     const audit = await request('/admin/audit-logs?limit=40', { token: adminToken });
     assert.ok(audit.data.items.some((item) => item.action === 'launch.readiness.question.update' && item.targetId === 'q-domain'));
+
+    const rejectedSignoff = await request('/admin/launch/readiness/signoff', {
+      body: {
+        conclusion: 'ready_for_production',
+        note: 'smoke should reject production signoff while P0 is still open',
+        reason: 'smoke rejects production launch signoff with blockers',
+        releaseVersion: 'smoke-production',
+      },
+      expectedStatus: 409,
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(rejectedSignoff.error?.code, 'ADMIN_LAUNCH_READINESS_P0_OPEN');
+
+    const signed = await request('/admin/launch/readiness/signoff', {
+      body: {
+        conclusion: 'ready_for_test',
+        note: 'smoke signs a small-scope test launch conclusion',
+        reason: 'smoke signs launch readiness',
+        releaseVersion: 'smoke-test-build',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(signed.data.signoff.conclusion, 'ready_for_test');
+    assert.equal(signed.data.signoff.releaseVersion, 'smoke-test-build');
+    assert.equal(signed.data.signoff.snapshot.openP0, signed.data.summary.openP0);
+    assert.ok(signed.data.signoff.isSigned);
+
+    const signoffAudit = await request('/admin/audit-logs?limit=60', { token: adminToken });
+    assert.ok(signoffAudit.data.items.some((item) => item.action === 'launch.readiness.signoff'));
+
+    const resetSignoff = await request('/admin/launch/readiness/signoff', {
+      body: {
+        reason: 'smoke resets launch readiness signoff',
+        reset: true,
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(resetSignoff.data.signoff.isSigned, false);
 
     const reset = await request('/admin/launch/readiness/questions/q-domain', {
       body: {

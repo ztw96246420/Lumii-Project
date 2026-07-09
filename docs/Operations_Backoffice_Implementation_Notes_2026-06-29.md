@@ -99,12 +99,14 @@
 - 模块状态使用“测试可用 / 部分可用 / 生产阻断 / 已预留”，避免把测试阶段可用误认为生产级完成。
 - 台账读取配置中心联动体检、系统健康、账号权限等现有真实状态，不新建一套割裂的假数据。
 - 支持在页面内更新待澄清问题状态、负责人/决策来源和决策备注；更新和重置均写入 `adminAuditLogs`。
+- 支持将待澄清问题流转为 `closed`，并记录关闭人和关闭时间。
+- 支持上线结论签署：保存签署版本、结论、说明、签署人、签署时间和当前台账快照；如仍有未关闭 P0，会拒绝签署 `ready_for_production`。
 - 独立文档：`docs/Operations_Backoffice_Launch_Readiness_Register_2026-06-30.md`。
 - 决策记录文档：[Operations_Backoffice_Launch_Readiness_Question_Updates_2026-07-03.md](Operations_Backoffice_Launch_Readiness_Question_Updates_2026-07-03.md)。
 
 未实现：
 
-- 多管理员 owner 分配、审批流、关闭状态流转和上线结论签署。
+- 多管理员 owner 自动分配、审批流和多人会签工作流。
 
 ### 3.3 用户管理
 
