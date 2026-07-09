@@ -160,6 +160,27 @@ async function main() {
     assert.ok(notification, 'missing delivered notification');
     assert.equal(notification.read, false);
 
+    await request('/analytics/events', {
+      body: {
+        appBuild: 99,
+        appVersion: 'smoke',
+        name: 'notification.impression',
+        occurredAt: new Date().toISOString(),
+        platform: 'smoke',
+        properties: {
+          campaignId,
+          kind: 'system',
+          notificationId: notification.id,
+          route: 'notifications',
+          source: 'smoke',
+        },
+        route: 'notifications',
+        source: 'smoke',
+      },
+      method: 'POST',
+      token: userToken,
+    });
+
     await request('/notifications/read', {
       body: { ids: [notification.id] },
       method: 'POST',
@@ -190,19 +211,27 @@ async function main() {
     const campaign = adminNotifications.data.campaigns.find((item) => item.id === campaignId);
     assert.ok(campaign, 'missing campaign in admin list');
     assert.equal(campaign.deliveredCount, 1);
+    assert.equal(campaign.impressionCount, 1);
+    assert.equal(campaign.uniqueImpressionCount, 1);
+    assert.equal(campaign.impressionRate, 100);
     assert.equal(campaign.readCount, 1);
     assert.equal(campaign.uniqueOpenCount, 1);
     assert.equal(campaign.openCount, 1);
     assert.equal(campaign.readRate, 100);
     assert.equal(campaign.openRate, 100);
+    assert.equal(adminNotifications.data.summary.impressions, 1);
+    assert.equal(adminNotifications.data.summary.impressionRate, 100);
     assert.equal(adminNotifications.data.summary.reads, 1);
     assert.equal(adminNotifications.data.summary.opens, 1);
     assert.equal(adminNotifications.data.summary.readRate, 100);
     assert.equal(adminNotifications.data.summary.openRate, 100);
 
     const analytics = await request('/admin/analytics?days=7', { token: adminToken });
+    assert.equal(analytics.data.summary.events.notificationImpressions, 1);
+    assert.equal(analytics.data.summary.events.systemNotificationImpressions, 1);
     assert.equal(analytics.data.summary.events.notificationOpens, 1);
     assert.equal(analytics.data.summary.events.systemNotificationOpens, 1);
+    assert.ok(analytics.data.buckets.some((bucket) => bucket.systemNotificationImpressions === 1), 'bucket should include system notification impressions');
     assert.ok(analytics.data.buckets.some((bucket) => bucket.systemNotificationOpens === 1), 'bucket should include system notification opens');
 
     console.log('notification campaign stats smoke passed');

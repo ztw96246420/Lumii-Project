@@ -875,6 +875,7 @@ export type AppAnalyticsEventName =
   | 'map.open'
   | 'map.place_detail_view'
   | 'map.poi_search'
+  | 'notification.impression'
   | 'notification.open'
   | 'pet_chat.entry_click'
   | 'pet_circle.card_exposure'

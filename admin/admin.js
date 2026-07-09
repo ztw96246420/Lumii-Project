@@ -8237,6 +8237,8 @@ function renderNotificationCampaign(campaign) {
           <span>送达：${campaign.deliveredCount || 0}</span>
           <span>Push：${numberText(campaign.pushSentCount || 0)} / ${numberText(campaign.pushAttemptedCount || 0)}${campaign.pushStatus ? ` · ${escapeHtml(campaign.pushStatus)}` : ''}</span>
           <span>回执：${numberText(campaign.pushReceiptOkCount || 0)} / ${numberText(campaign.pushReceiptAttemptedCount || 0)}${campaign.pushReceiptStatus ? ` · ${escapeHtml(campaign.pushReceiptStatus)}` : ''}</span>
+          <span>展示：${numberText(campaign.uniqueImpressionCount || 0)} 人 · ${numberText(campaign.impressionCount || 0)} 次</span>
+          <span>展示率：${percentText(campaign.impressionRate || 0)}</span>
           <span>已读：${numberText(campaign.readCount || 0)} / ${percentText(campaign.readRate || 0)}</span>
           <span>点击：${numberText(campaign.uniqueOpenCount || 0)} 人 · ${numberText(campaign.openCount || 0)} 次</span>
           <span>打开率：${percentText(campaign.openRate || 0)}</span>
@@ -8247,6 +8249,7 @@ function renderNotificationCampaign(campaign) {
           ${campaign.pushCompletedAt ? `<span>Push 完成：${formatTime(campaign.pushCompletedAt)}</span>` : ''}
           ${campaign.pushReceiptLastCheckedAt ? `<span>回执检查：${formatTime(campaign.pushReceiptLastCheckedAt)}</span>` : ''}
           ${campaign.pushReceiptNextCheckAt ? `<span>下次回执：${formatTime(campaign.pushReceiptNextCheckAt)}</span>` : ''}
+          ${campaign.latestImpressionAt ? `<span>最近展示：${formatTime(campaign.latestImpressionAt)}</span>` : ''}
           ${campaign.latestOpenAt ? `<span>最近点击：${formatTime(campaign.latestOpenAt)}</span>` : ''}
           ${campaign.canceledAt ? `<span>撤回：${formatTime(campaign.canceledAt)}</span>` : ''}
           ${campaign.rateLimitSnapshot ? `<span>频控：${campaign.rateLimitSnapshot.campaignsLast24h || 0}/${campaign.rateLimitSnapshot.maxCampaignsPerDay || 0} 批</span>` : ''}
@@ -8576,6 +8579,7 @@ async function renderNotifications(force) {
     <div class="grid metrics">
       ${metric('发送批次', summary.campaigns || 0, '系统通知历史', '每次后台发送系统通知都会形成一条发送记录，并写入审计日志。')}
       ${metric('通知已读', numberText(summary.reads || 0), `${percentText(summary.readRate || 0)} 已读率`, '按系统通知批次写入 App 通知中心后的 read 状态回算，撤回后当前站内通知会减少。')}
+      ${metric('通知展示', numberText(summary.impressions || 0), `${percentText(summary.impressionRate || 0)} 展示率`, '来自移动端通知列表 notification.impression 事件；展示率按系统通知批次的去重展示人数 / 送达数计算。')}
       ${metric('通知点击', numberText(summary.opens || 0), `${percentText(summary.openRate || 0)} 打开率`, '来自移动端 notification.open 事件；点击率按系统通知批次的去重点击人数 / 送达数计算。')}
       ${metric('用户总数', summary.users || 0, `${summary.activeToday || 0} 今日活跃`, '“今日活跃用户”目标按 lastSeenAt 近 24 小时计算。')}
       ${metric('推送设备', summary.devices || 0, summary.pushEnabled ? 'Expo Push 已启用' : 'Expo Push 未启用', '用户授权通知后登记设备 token；系统通知可通过 Expo Push 下发，失败 token 会被标记。')}

@@ -18704,12 +18704,16 @@ function systemNotificationCampaignStats(campaignId, deliveredCount = 0) {
   if (!id) {
     return {
       currentInboxCount: 0,
+      impressionCount: 0,
+      impressionRate: 0,
+      latestImpressionAt: '',
       latestOpenAt: '',
       latestReadAt: '',
       openCount: 0,
       openRate: 0,
       readCount: 0,
       readRate: 0,
+      uniqueImpressionCount: 0,
       uniqueOpenCount: 0,
       unreadCount: 0,
     };
@@ -18726,12 +18730,24 @@ function systemNotificationCampaignStats(campaignId, deliveredCount = 0) {
   const openEvents = (Array.isArray(state.appEvents) ? state.appEvents : [])
     .filter((event) => event?.name === 'notification.open')
     .filter((event) => String(event.properties?.campaignId || '') === id);
+  const impressionEvents = (Array.isArray(state.appEvents) ? state.appEvents : [])
+    .filter((event) => event?.name === 'notification.impression')
+    .filter((event) => String(event.properties?.campaignId || '') === id);
   const uniqueOpenKeys = new Set();
   openEvents.forEach((event) => {
     const notificationId = String(event.properties?.notificationId || '');
     uniqueOpenKeys.add(notificationId || event.phone || event.deviceIdHash || event.id);
   });
+  const uniqueImpressionKeys = new Set();
+  impressionEvents.forEach((event) => {
+    const notificationId = String(event.properties?.notificationId || '');
+    uniqueImpressionKeys.add(notificationId || event.phone || event.deviceIdHash || event.id);
+  });
   const denominator = Number(deliveredCount || notifications.length || 0);
+  const latestImpressionAt = impressionEvents
+    .map((event) => event.createdAt || event.occurredAt || '')
+    .filter(Boolean)
+    .sort((a, b) => String(b).localeCompare(String(a)))[0] || '';
   const latestOpenAt = openEvents
     .map((event) => event.createdAt || event.occurredAt || '')
     .filter(Boolean)
@@ -18742,12 +18758,16 @@ function systemNotificationCampaignStats(campaignId, deliveredCount = 0) {
     .sort((a, b) => String(b).localeCompare(String(a)))[0] || '';
   return {
     currentInboxCount: notifications.length,
+    impressionCount: impressionEvents.length,
+    impressionRate: analyticsPercent(uniqueImpressionKeys.size, denominator),
+    latestImpressionAt,
     latestOpenAt,
     latestReadAt,
     openCount: openEvents.length,
     openRate: analyticsPercent(uniqueOpenKeys.size, denominator),
     readCount: readItems.length,
     readRate: analyticsPercent(readItems.length, denominator),
+    uniqueImpressionCount: uniqueImpressionKeys.size,
     uniqueOpenCount: uniqueOpenKeys.size,
     unreadCount: notifications.filter((item) => !item.read).length,
   };
@@ -18785,6 +18805,9 @@ function systemNotificationItem(item) {
     expiredAt: item.expiredAt || '',
     expireReason: item.expireReason || '',
     id: item.id,
+    impressionCount: effectStats.impressionCount,
+    impressionRate: effectStats.impressionRate,
+    latestImpressionAt: effectStats.latestImpressionAt,
     latestOpenAt: effectStats.latestOpenAt,
     latestReadAt: effectStats.latestReadAt,
     mode: item.mode || (status === 'draft' ? 'draft' : status === 'scheduled' ? 'scheduled' : status === 'pending_approval' || status === 'expired' || status === 'rejected' ? 'approval' : 'send'),
@@ -18829,6 +18852,7 @@ function systemNotificationItem(item) {
     targetPhones: targetPhones.slice(0, 30),
     text: item.text || '',
     title: item.title || '',
+    uniqueImpressionCount: effectStats.uniqueImpressionCount,
     uniqueOpenCount: effectStats.uniqueOpenCount,
     unreadCount: effectStats.unreadCount,
     ...deepLinkPayload,
@@ -18846,6 +18870,7 @@ function adminSystemNotifications() {
   const users = Object.values(state.users || {});
   const sentCampaigns = campaigns.filter((item) => item.status === 'sent');
   const deliveredCount = sentCampaigns.reduce((sum, item) => sum + Number(item.deliveredCount || 0), 0);
+  const impressionCount = sentCampaigns.reduce((sum, item) => sum + Number(item.uniqueImpressionCount || 0), 0);
   const openCount = sentCampaigns.reduce((sum, item) => sum + Number(item.uniqueOpenCount || 0), 0);
   const pushAttemptedCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushAttemptedCount || 0), 0);
   const pushFailedCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushFailedCount || 0), 0);
@@ -18868,6 +18893,8 @@ function adminSystemNotifications() {
       delivered: deliveredCount,
       devices: devices.length,
       drafts: campaigns.filter((item) => item.status === 'draft').length,
+      impressionRate: analyticsPercent(impressionCount, deliveredCount),
+      impressions: impressionCount,
       openRate: analyticsPercent(openCount, deliveredCount),
       opens: openCount,
       pushAttempted: pushAttemptedCount,
@@ -24498,9 +24525,9 @@ function adminReadinessModules(context) {
       module: '通知运营',
       group: '触达',
       status: 'partial',
-      evidence: '支持系统通知、草稿、待审批、预约、撤回、模板、通知人群包、设备概览、actionRoute、对象深链、发送审批、频控和批次效果统计。',
-      mobileLinkage: '通知会写入 App 通知中心，支持跳首页、发现、地图、我的、安全中心、设置、反馈进度。',
-      nextStep: '生产期补厂商 Push、送达回执；强制通知审批已进入高风险会签和 /admin/approvals/pending 值守队列。',
+      evidence: '支持系统通知、草稿、待审批、预约、撤回、模板、通知人群包、设备概览、actionRoute、对象深链、发送审批、频控、Expo Push ticket/receipt 和展示/已读/点击批次效果统计。',
+      mobileLinkage: '通知会写入 App 通知中心，支持跳首页、发现、地图、我的、安全中心、设置、反馈进度；移动端通知页会上报 notification.impression，点击会上报 notification.open。',
+      nextStep: '生产期补 Android 厂商 Push/APNs 专项优化、OS 级展示回执、站外审批提醒和值守 SOP；强制通知审批已进入高风险会签和 /admin/approvals/pending 值守队列。',
     },
     {
       key: 'config',
@@ -24671,12 +24698,12 @@ function adminReadinessGaps(context) {
       severity: 'P1',
       status: 'partial',
       issue: EXPO_PUSH_ENABLED
-        ? '系统通知已接 Expo Push 下发、ticket 记录、receipt 轮询、失效 token 标记、高风险会签和后台待审批值守队列；仍缺 Android 厂商 Push/APNs 专项优化、通知展示回执和站外审批提醒。'
+        ? '系统通知已接 Expo Push 下发、ticket 记录、receipt 轮询、失效 token 标记、App 内通知展示/点击回传、高风险会签和后台待审批值守队列；仍缺 Android 厂商 Push/APNs 专项优化、OS 级展示回执和站外审批提醒。'
         : '当前以站内通知为主，Expo Push 开关未启用；后台待审批值守队列已接，厂商 Push、送达回执和站外审批提醒未完成。',
       requiredAction: EXPO_PUSH_ENABLED
-        ? '继续补厂商通道专项配置、客户端展示/点击回传质量、失败告警和生产审批值守通知策略。'
+        ? '继续补厂商通道专项配置、OS 级展示回执、失败告警和生产审批值守通知策略。'
         : '配置 EXPO_PUSH_ENABLED=true 并验证 Expo Push；再接 receipt、失败重试、Android 厂商 Push、iOS APNs 和生产审批值守通知。',
-      evidence: '通知运营页设备 token 概览 / systemNotifications.pushStatus / systemNotifications.pushReceiptStatus',
+      evidence: '通知运营页设备 token 概览 / systemNotifications.pushStatus / systemNotifications.pushReceiptStatus / notification.impression / notification.open',
     },
     {
       key: 'observability',
@@ -24897,6 +24924,7 @@ const APP_EVENT_ALLOWED_NAMES = new Set([
   'map.open',
   'map.place_detail_view',
   'map.poi_search',
+  'notification.impression',
   'notification.open',
   'pet_chat.entry_click',
   'pet_circle.card_exposure',
@@ -24935,6 +24963,7 @@ const APP_EVENT_LABELS = {
   'map.open': '地图打开',
   'map.place_detail_view': '地点详情查看',
   'map.poi_search': 'POI 搜索',
+  'notification.impression': '通知展示',
   'notification.open': '通知点击',
   'pet_chat.entry_click': 'AI 对话入口点击',
   'pet_circle.card_exposure': '小事卡片曝光',
@@ -25216,6 +25245,7 @@ function analyticsWindow(daysInput) {
       moderationSamples: 0,
       moderationTasks: 0,
       newUsers: 0,
+      notificationImpressions: 0,
       notificationOpens: 0,
       pageViews: 0,
       petChatRequests: 0,
@@ -25234,6 +25264,7 @@ function analyticsWindow(daysInput) {
       socialImages: 0,
       socialLikes: 0,
       socialPosts: 0,
+      systemNotificationImpressions: 0,
       systemNotificationOpens: 0,
       tickets: 0,
       walkInvites: 0,
@@ -25699,6 +25730,8 @@ function adminAnalytics(options = {}) {
     if (event.name === 'map.open') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'mapOpens');
     if (event.name === 'map.poi_search') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'poiSearches');
     if (event.name === 'map.place_detail_view') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'placeDetailViews');
+    if (event.name === 'notification.impression') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'notificationImpressions');
+    if (event.name === 'notification.impression' && event.properties?.campaignId) incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'systemNotificationImpressions');
     if (event.name === 'notification.open') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'notificationOpens');
     if (event.name === 'notification.open' && event.properties?.campaignId) incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'systemNotificationOpens');
     if (event.name === 'pet_circle.card_exposure') incrementAnalyticsBucket(bucketMap, event.createdAt || event.occurredAt, 'petCircleCardExposures', eventAmount);
@@ -25821,11 +25854,13 @@ function adminAnalytics(options = {}) {
         homeModuleExposures: sumAnalyticsBuckets(buckets, 'homeModuleExposures'),
         latestAt: windowAppEvents.map((event) => analyticsTimeMs(event.createdAt)).sort((a, b) => b - a)[0] || 0,
         mapOpens: sumAnalyticsBuckets(buckets, 'mapOpens'),
+        notificationImpressions: sumAnalyticsBuckets(buckets, 'notificationImpressions'),
         notificationOpens: sumAnalyticsBuckets(buckets, 'notificationOpens'),
         pageViews: sumAnalyticsBuckets(buckets, 'pageViews'),
         petCircleCardExposures: sumAnalyticsBuckets(buckets, 'petCircleCardExposures'),
         retentionDays: Number(config.analytics?.retentionDays || 30),
         sampleRatePercent: Number(config.analytics?.sampleRatePercent ?? 100),
+        systemNotificationImpressions: sumAnalyticsBuckets(buckets, 'systemNotificationImpressions'),
         systemNotificationOpens: sumAnalyticsBuckets(buckets, 'systemNotificationOpens'),
         total: sumAnalyticsBuckets(buckets, 'appEvents'),
         uniqueUsers: appEventUsers.size,

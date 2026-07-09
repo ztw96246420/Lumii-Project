@@ -22,7 +22,7 @@ The default gate runs:
 - AI avatar generation/animation lifecycle, retry, failure recovery, quota refund, sample review, prompt/provider traces, admin job result apply, and pet chat quality review.
 - Content safety, moderation, reports, appeals, sanctions, social evidence, private-message report context, and social blocking.
 - Legal document update/signoff, public legal text endpoints, launch-readiness compliance linkage, and audit records.
-- Pet calendar, pet profile edit/merge, pet media, places, notifications, Expo Push simulation, audience packages, campaign stats, analytics, support SLA, and observability.
+- Pet calendar, pet profile edit/merge, pet media, places, notifications, notification display/click stats, Expo Push simulation, audience packages, campaign stats, analytics, support SLA, and observability.
 - Admin accounts, IP allowlist, account deletion, user timeline, high-risk approval countersign/expiry/reject/separation, data clear approval, export approval, signed export links, audit integrity journal, state compaction, and state backup recovery.
 - Admin production security package generation, MFA/IP/password-rotation readiness, and non-leaking security audit records.
 - Config center AI ops, approval, content-safety hints, experiments, risk confirmation, scheduled publish, and media CDN probe.

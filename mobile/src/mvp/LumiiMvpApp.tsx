@@ -2561,6 +2561,7 @@ export default function LumiiMvpApp() {
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([createConversationSafetyMessage()]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const notificationsRef = useRef<NotificationItem[]>([]);
+  const notificationImpressionKeysRef = useRef<Set<string>>(new Set());
   const [notificationSeenAtById, setNotificationSeenAtById] = useState<Record<string, number>>({});
   const notificationSeenAtByIdRef = useRef<Record<string, number>>({});
   const [notificationFilter, setNotificationFilter] = useState<NotificationFilter>('all');
@@ -2725,6 +2726,27 @@ export default function LumiiMvpApp() {
       properties,
       route: routeRef.current,
       source: 'mobile',
+    });
+  }
+
+  function trackNotificationImpressions(items: NotificationItem[], source = 'notification_list') {
+    if (!items.length) return;
+    const identity = session?.phone || phoneValueRef.current || 'guest';
+    items.slice(0, 80).forEach((item, index) => {
+      const eventKey = `${identity}:${item.id}`;
+      if (notificationImpressionKeysRef.current.has(eventKey)) return;
+      notificationImpressionKeysRef.current.add(eventKey);
+      const kind = notificationKindFor(item);
+      trackAppEvent('notification.impression', {
+        campaignId: item.campaignId || '',
+        category: item.category || notificationCategoryFor(item),
+        index,
+        kind,
+        notificationId: item.id,
+        route: 'notifications',
+        source,
+        unread: !item.read,
+      });
     });
   }
 
@@ -3769,6 +3791,12 @@ export default function LumiiMvpApp() {
     const assignment = resolveCurrentHomeAiEntryExperiment();
     if (assignment) trackHomeAiEntryExperimentExposure(assignment);
   }, [activePet?.id, activePet?.name, petChatEnabled, remoteConfig.experiments, route, session?.phone]);
+
+  useEffect(() => {
+    if (route !== 'notifications' || !notifications.length || !sessionTokenRef.current) return;
+    const visibleNotifications = notifications.filter((item) => notificationFilter === 'all' || notificationCategoryFor(item) === notificationFilter);
+    trackNotificationImpressions(visibleNotifications, notificationFilter === 'all' ? 'notification_list' : `notification_filter_${notificationFilter}`);
+  }, [notificationFilter, notifications, route, session?.phone]);
 
   useEffect(() => {
     if (maintenanceEnabled) return;
