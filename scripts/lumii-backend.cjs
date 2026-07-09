@@ -150,6 +150,7 @@ const EXPO_PUSH_RECEIPT_BATCH_SIZE = Math.max(1, Math.min(1000, Number(process.e
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
 const statePath = process.env.LUMII_BACKEND_STATE_PATH || path.join(__dirname, '..', 'dist', 'lumii-backend-state.json');
+const ADMIN_AUDIT_JOURNAL_PATH = process.env.LUMII_ADMIN_AUDIT_JOURNAL_PATH || path.join(path.dirname(statePath), 'admin-audit-journal.jsonl');
 const ADMIN_EXPORT_FILE_DIR = process.env.LUMII_ADMIN_EXPORT_DIR || path.join(path.dirname(statePath), 'admin-export-files');
 const ADMIN_EXPORT_FILE_RETENTION_HOURS = Math.max(1, Math.floor(Number(process.env.LUMII_ADMIN_EXPORT_FILE_RETENTION_HOURS || 72) || 72));
 const ADMIN_EXPORT_SIGNED_DOWNLOAD_TTL_MINUTES = Math.max(1, Math.min(1440, Math.floor(Number(process.env.LUMII_ADMIN_EXPORT_SIGNED_DOWNLOAD_TTL_MINUTES || 15) || 15)));
@@ -7241,6 +7242,68 @@ function adminAuditHashTail(value) {
   return text ? text.slice(0, 8) : '';
 }
 
+function appendAdminAuditJournal(entry = {}) {
+  try {
+    fs.mkdirSync(path.dirname(ADMIN_AUDIT_JOURNAL_PATH), { recursive: true });
+    fs.appendFileSync(ADMIN_AUDIT_JOURNAL_PATH, `${stableAuditJson(entry)}\n`, 'utf8');
+    return { ok: true };
+  } catch (error) {
+    const message = String(error?.message || error || 'append audit journal failed').slice(0, 240);
+    console.warn(`Admin audit journal append failed: ${message}`);
+    return { error: message, ok: false };
+  }
+}
+
+function adminAuditJournalStatus(logs = state.adminAuditLogs) {
+  const status = {
+    checkedAt: new Date().toISOString(),
+    exists: false,
+    invalidLines: 0,
+    latestHashTail: '',
+    latestStateHashTail: adminAuditHashTail(Array.isArray(logs) ? logs[0]?.hash : ''),
+    lineCount: 0,
+    path: ADMIN_AUDIT_JOURNAL_PATH,
+    sizeBytes: 0,
+    stateLatestMatchesJournal: false,
+    status: 'missing',
+    statusLabel: '尚未生成',
+    validLines: 0,
+  };
+  try {
+    if (!fs.existsSync(ADMIN_AUDIT_JOURNAL_PATH)) return status;
+    const stat = fs.statSync(ADMIN_AUDIT_JOURNAL_PATH);
+    status.exists = true;
+    status.sizeBytes = stat.size;
+    const raw = fs.readFileSync(ADMIN_AUDIT_JOURNAL_PATH, 'utf8');
+    const lines = raw.split(/\r?\n/u).filter((line) => line.trim());
+    status.lineCount = lines.length;
+    let latestHash = '';
+    for (const line of lines) {
+      try {
+        const log = JSON.parse(line);
+        if (String(log.hash || '') !== adminAuditHash(log)) {
+          status.invalidLines += 1;
+          continue;
+        }
+        status.validLines += 1;
+        latestHash = String(log.hash || latestHash);
+      } catch {
+        status.invalidLines += 1;
+      }
+    }
+    status.latestHashTail = adminAuditHashTail(latestHash);
+    status.stateLatestMatchesJournal = Boolean(latestHash && Array.isArray(logs) && logs[0]?.hash === latestHash);
+    status.status = status.invalidLines ? 'broken' : status.lineCount ? 'ready' : 'empty';
+    status.statusLabel = status.invalidLines ? 'Journal 异常' : status.lineCount ? 'Journal 正常' : 'Journal 为空';
+    return status;
+  } catch (error) {
+    status.error = String(error?.message || error || 'audit journal check failed').slice(0, 240);
+    status.status = 'error';
+    status.statusLabel = 'Journal 不可读';
+    return status;
+  }
+}
+
 function adminAuditIntegrityStatusLabel(status) {
   return {
     broken: '链路异常',
@@ -7337,6 +7400,7 @@ function writeAdminAudit(admin, action, targetType, targetId, before, after, rea
   entry.hash = adminAuditHash(entry);
   state.adminAuditLogs.unshift(entry);
   state.adminAuditLogs = state.adminAuditLogs.slice(0, 1000);
+  appendAdminAuditJournal(entry);
 }
 
 function ensureAdminLoginSecurity() {
@@ -7560,6 +7624,7 @@ function auditSearchHaystack(log) {
 function adminAuditLogs(options = {}) {
   const logs = Array.isArray(state.adminAuditLogs) ? state.adminAuditLogs : [];
   const integrity = adminAuditIntegrity(logs);
+  const journal = adminAuditJournalStatus(logs);
   const integrityById = new Map((integrity.items || []).map((item) => [item.id, item]));
   const action = String(options.action || 'all');
   const adminName = String(options.admin || 'all');
@@ -7596,6 +7661,7 @@ function adminAuditLogs(options = {}) {
       total: integrity.total,
       verified: integrity.verified,
     },
+    journal,
     items: matched.slice(0, limit).map((log) => {
       const item = integrityById.get(log.id) || {};
       return {
@@ -7609,6 +7675,7 @@ function adminAuditLogs(options = {}) {
     summary: {
       highRisk: matched.filter((log) => highRiskPattern.test(String(log.action || ''))).length,
       integrityBroken: integrity.broken,
+      journalStatus: journal.status,
       integritySigned: integrity.signed,
       integrityStatus: integrity.status,
       matched: matched.length,
@@ -22621,7 +22688,7 @@ function adminReadinessModules(context) {
       status: hasAccountWarnings ? 'partial' : 'ready',
       evidence: '已覆盖系统健康、外部依赖、业务积压、多后台账号、角色权限点、会话和高风险动作。',
       mobileLinkage: '系统健康观测包含影响 App 的 AI、地图、媒体、客服、通知和配置能力。',
-      nextStep: '生产期补 APM、外部告警、账号离职轮换 SOP，并把审计 hash 链同步到数据库/WORM/日志服务。',
+      nextStep: '生产期补 APM、外部告警、账号离职轮换 SOP，并把本地审计 journal 同步到数据库/WORM/日志服务。',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }

@@ -10029,6 +10029,7 @@ async function renderAudit(force) {
   const summary = Array.isArray(data) ? { matched: rows.length, total: rows.length } : data.summary || {};
   const filters = Array.isArray(data) ? { actions: [], admins: [], targetTypes: [] } : data.filters || {};
   const integrity = Array.isArray(data) ? {} : data.integrity || {};
+  const journal = Array.isArray(data) ? {} : data.journal || {};
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('匹配日志', numberText(summary.matched || 0), `${numberText(summary.total || 0)} 条总审计`, '按当前筛选条件命中的审计记录数量。')}
@@ -10036,6 +10037,8 @@ async function renderAudit(force) {
       ${metric('缺少原因', numberText(summary.missingReason || 0), '高风险动作原因为空', '高风险操作应尽量填写原因；历史兼容记录可能为空。')}
       ${metric('链路状态', integrity.statusLabel || '历史未签名', `${numberText(integrity.verified || 0)} 已验证 / ${numberText(integrity.broken || 0)} 异常`, '新审计日志会写入 prevHash/hash；旧日志保持 legacy，不伪装成已验证。')}
       ${metric('已签名日志', numberText(integrity.signed || 0), `${numberText(integrity.legacyUnsigned || 0)} 条历史未签名`, '用于判断当前 retained window 内有多少日志可被哈希链验证。')}
+      ${metric('Journal', journal.statusLabel || '尚未生成', `${numberText(journal.validLines || 0)} 行有效 / ${numberText(journal.invalidLines || 0)} 异常`, '新审计会追加到独立 JSONL journal，用于脱离 JSON state 的审计对账。')}
+      ${metric('Journal 体积', bytesText(journal.sizeBytes || 0), `${numberText(journal.lineCount || 0)} 行 · 最新 ${journal.latestHashTail || '-'}`, '生产期可把该 journal 同步到数据库、WORM 或外部日志服务。')}
       ${metric('最新 Hash', integrity.latestHashTail || '-', `${numberText((filters.actions || []).length)} 动作 / ${numberText((filters.targetTypes || []).length)} 对象`, '展示最新审计记录 hash 尾号，便于人工对账和截图留存。')}
     </div>
     <div class="card">

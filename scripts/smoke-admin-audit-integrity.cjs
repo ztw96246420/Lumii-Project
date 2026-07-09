@@ -11,6 +11,7 @@ const rootDir = path.join(__dirname, '..');
 const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-audit-integrity-'));
 const statePath = path.join(tmpDir, 'state.json');
+const journalPath = path.join(tmpDir, 'admin-audit-journal.jsonl');
 let backendProcess = null;
 let baseUrl = '';
 
@@ -141,7 +142,13 @@ async function main() {
     assert.equal(audit.data.integrity.status, 'verified');
     assert.equal(audit.data.integrity.broken, 0);
     assert.ok(audit.data.integrity.signed >= 2, 'expected signed audit logs');
+    assert.equal(audit.data.journal.status, 'ready');
+    assert.ok(audit.data.journal.exists, 'audit journal should exist');
+    assert.ok(audit.data.journal.validLines >= 2, 'audit journal should contain signed audit lines');
+    assert.equal(audit.data.journal.invalidLines, 0);
+    assert.equal(audit.data.journal.stateLatestMatchesJournal, true);
     assert.equal(audit.data.summary.integrityStatus, 'verified');
+    assert.equal(audit.data.summary.journalStatus, 'ready');
     const rows = audit.data.items || [];
     const configLog = rows.find((item) => item.action === 'config.update');
     const loginLog = rows.find((item) => item.action === 'admin.login');
@@ -151,6 +158,10 @@ async function main() {
     assert.equal(loginLog.integrityStatus, 'verified');
     assert.equal(configLog.prevHash, loginLog.hash, 'newer audit log should link to previous hash');
     assert.equal(configLog.hashTail, configLog.hash.slice(0, 8));
+    assert.ok(fs.existsSync(journalPath), 'journal file should be written beside smoke state');
+    const journalLines = fs.readFileSync(journalPath, 'utf8').trim().split(/\r?\n/u);
+    assert.ok(journalLines.length >= 2, 'journal file should have at least two entries');
+    assert.ok(journalLines.some((line) => JSON.parse(line).hash === configLog.hash), 'journal should include config audit hash');
 
     await stopBackend();
 
@@ -164,6 +175,8 @@ async function main() {
     const tamperedAudit = await request('/admin/audit-logs?limit=20', { token: adminTokenAfterTamper });
     assert.equal(tamperedAudit.data.integrity.status, 'broken');
     assert.ok(tamperedAudit.data.integrity.broken >= 1, 'tampered audit should be detected');
+    assert.equal(tamperedAudit.data.journal.status, 'ready');
+    assert.equal(tamperedAudit.data.journal.invalidLines, 0);
     assert.ok(
       (tamperedAudit.data.items || []).some((item) => item.action === 'config.update' && item.integrityStatus === 'broken'),
       'tampered config audit row should be marked broken',
