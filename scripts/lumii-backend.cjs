@@ -20413,6 +20413,28 @@ function adminAlertSeverityRank(severity) {
   }[String(severity || '').toLowerCase()] || 0;
 }
 
+function adminHighRiskPendingApprovalSummary() {
+  processExpiredHighRiskApprovals();
+  const pendingItems = (items, mapper) => (items || [])
+    .map(mapper)
+    .filter(Boolean)
+    .filter((item) => item.status === 'pending_approval');
+  const groups = [
+    { count: pendingItems(ensureOpsConfigApprovals(), opsConfigApprovalItem).length, key: 'config', label: '配置发布' },
+    { count: pendingItems(ensureAdminExportApprovals(), adminExportApprovalItem).length, key: 'exports', label: '数据导出' },
+    { count: pendingItems(ensureSystemNotifications(), systemNotificationItem).length, key: 'notifications', label: '系统通知' },
+    { count: pendingItems(ensureSanctionApprovals(), adminSanctionApprovalItem).length, key: 'sanctions', label: '永久封禁' },
+    { count: pendingItems(ensureDataClearApprovals(), adminDataClearApprovalItem).length, key: 'dataClear', label: '数据清理' },
+    { count: pendingItems(ensureSupportTicketBatchReplyApprovals(), supportTicketBatchReplyApprovalItem).length, key: 'batchReplies', label: '批量回复' },
+  ];
+  const total = groups.reduce((sum, item) => sum + item.count, 0);
+  return {
+    groups,
+    summaryText: groups.filter((item) => item.count > 0).map((item) => `${item.label} ${item.count}`).join(' · '),
+    total,
+  };
+}
+
 function adminOperationalAlerts(options = {}) {
   const now = Date.now();
   const stateFile = adminSafeStateFileInfo();
@@ -20426,6 +20448,7 @@ function adminOperationalAlerts(options = {}) {
   const tickets = adminSupportTickets({ status: 'all' }).summary;
   const appeals = adminSanctionAppeals({ status: 'all' }).summary;
   const notifications = adminSystemNotifications().summary;
+  const highRiskApprovals = adminHighRiskPendingApprovalSummary();
   const config = currentOpsConfig();
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
   const ipAllowlist = adminIpAllowlistStatus('');
@@ -20590,6 +20613,16 @@ function adminOperationalAlerts(options = {}) {
     key: 'notification_pending_approval',
     severity: 'medium',
     title: '系统通知待审批',
+  });
+  add(Number(highRiskApprovals.total || 0) > 0, {
+    actionLabel: '看上线台账',
+    actionRoute: 'launchReadiness',
+    area: '高风险操作',
+    detail: `${highRiskApprovals.total} 个高风险审批等待处理：${highRiskApprovals.summaryText || '待审批'}`,
+    evidence: '配置发布 / 数据导出 / 系统通知 / 永久封禁 / 用户业务数据清理 / 批量客服回复',
+    key: 'high_risk_pending_approvals',
+    severity: 'high',
+    title: '高风险审批待处理',
   });
   add(Number(notifications.pushFailed || 0) > 0, {
     actionLabel: '看通知',
@@ -21702,9 +21735,9 @@ function adminReadinessGaps(context) {
       area: '高风险操作',
       severity: 'P1',
       status: 'partial',
-      issue: '配置发布、强制通知、敏感导出、永久封禁、用户业务数据清理和批量客服回复已有审批流，并支持开启审批人/申请人分离和待审批超时；仍缺真正双人会签、审批通知和明确驳回/退回意见。',
-      requiredAction: '生产前开启 highRiskApproval.requireDifferentAdmin，新增至少第二个具备审批权限的管理员账号；继续补双人会签、审批通知和明确驳回/退回意见。',
-      evidence: '配置中心 highRiskApproval.requireDifferentAdmin / highRiskApproval.pendingExpiresHours / 账号权限页 state 管理员账号',
+      issue: '配置发布、强制通知、敏感导出、永久封禁、用户业务数据清理和批量客服回复已有审批流，并支持开启审批人/申请人分离、待审批超时、明确驳回意见和后台聚合待审批提醒；仍缺真正双人会签和站外/推送式审批通知。',
+      requiredAction: '生产前开启 highRiskApproval.requireDifferentAdmin，新增至少第二个具备审批权限的管理员账号；如生产需要，再补企业微信/邮件/站内管理员通知和真正双人会签。',
+      evidence: '配置中心 highRiskApproval.requireDifferentAdmin / highRiskApproval.pendingExpiresHours / /admin/dashboard/alerts high_risk_pending_approvals / 账号权限页 state 管理员账号',
     },
     {
       key: 'push_provider',

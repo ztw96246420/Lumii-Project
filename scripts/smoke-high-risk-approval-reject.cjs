@@ -328,6 +328,19 @@ async function rejectApprovals(adminToken, ids) {
   assertRejectedRecord(batchReply.data.approval, ids.batchReply, 'batch reply approval');
 }
 
+async function assertPendingApprovalAlert(adminToken) {
+  const alerts = await request('/admin/dashboard/alerts', { token: adminToken });
+  const alert = (alerts.data.items || []).find((item) => item.key === 'high_risk_pending_approvals');
+  assert.ok(alert, 'pending high-risk approvals should surface in operational alerts');
+  assert.match(alert.detail || '', /6 个高风险审批等待处理/);
+  assert.match(alert.detail || '', /配置发布 1/);
+  assert.match(alert.detail || '', /数据导出 1/);
+  assert.match(alert.detail || '', /系统通知 1/);
+  assert.match(alert.detail || '', /永久封禁 1/);
+  assert.match(alert.detail || '', /数据清理 1/);
+  assert.match(alert.detail || '', /批量回复 1/);
+}
+
 function findById(items, id) {
   return (items || []).find((item) => item.id === id);
 }
@@ -380,6 +393,16 @@ async function assertRejectedApprovalsBlock(adminToken, ids, notifyUserToken) {
   assert.ok(!inbox.data.some((item) => item.campaignId === ids.notification), 'rejected notification must not reach inbox');
 }
 
+async function assertReadinessReflectsRejectClosure(adminToken) {
+  const readiness = await request('/admin/launch/readiness', { token: adminToken });
+  const gap = (readiness.data.gaps || []).find((item) => item.key === 'high_risk_approval');
+  assert.ok(gap, 'readiness should include high-risk approval gap');
+  assert.equal(gap.status, 'partial');
+  assert.match(gap.issue || '', /明确驳回意见/);
+  assert.doesNotMatch(gap.requiredAction || '', /驳回|退回意见/, 'readiness must not list explicit rejection as remaining work');
+  assert.match(gap.evidence || '', /high_risk_pending_approvals/);
+}
+
 async function main() {
   const port = await getFreePort();
   await startBackend(port);
@@ -387,9 +410,11 @@ async function main() {
     const adminToken = await loginAdmin();
     await enableApprovalPolicies(adminToken);
     const { ids, notifyUserToken } = await createApprovals(adminToken);
+    await assertPendingApprovalAlert(adminToken);
     await rejectApprovals(adminToken, ids);
     await assertRejectedLists(adminToken, ids);
     await assertRejectedApprovalsBlock(adminToken, ids, notifyUserToken);
+    await assertReadinessReflectsRejectClosure(adminToken);
     console.log('high risk approval reject smoke passed');
   } finally {
     await stopBackend();
