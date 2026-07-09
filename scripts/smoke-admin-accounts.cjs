@@ -177,6 +177,27 @@ async function main() {
     assert.equal(initial.data.security.passwordRotation.maxAgeDays, 90);
     assert.equal(initial.data.security.passwordRotation.overdueAccounts.length, 0);
     assert.equal(initial.data.security.checks.some((item) => item.key === 'password_rotation' && item.status === 'ok'), true);
+    assert.equal(initial.data.hardeningPlan.passwordFromEnv, true);
+    assert.equal(initial.data.hardeningPlan.mfaConfigured, true);
+    assert.equal(initial.data.hardeningPlan.passwordRotationConfigured, true);
+    assert.equal(initial.data.hardeningPlan.ipAllowlistConfigured, false);
+    assert.equal(initial.data.hardeningPlan.missing.includes('后台 IP 白名单'), true);
+
+    const securityPackage = await request('/admin/accounts/security-package', {
+      body: { reason: 'smoke generates admin production security package', username: 'admin' },
+      method: 'POST',
+      token: envToken,
+    });
+    assert.equal(securityPackage.data.username, 'admin');
+    assert.ok(securityPackage.data.password.startsWith('Lumii-'));
+    assert.ok(/^[A-Z2-7]+$/.test(securityPackage.data.mfaSecret), 'generated MFA secret should be base32');
+    assert.equal(totpCodeForSecret(securityPackage.data.mfaSecret).length, 6);
+    assert.ok(securityPackage.data.otpauthUri.includes(encodeURIComponent(securityPackage.data.mfaSecret)));
+    assert.ok(securityPackage.data.systemdDropIn.includes('LUMII_ADMIN_PASSWORD='));
+    assert.ok(securityPackage.data.systemdDropIn.includes('LUMII_ADMIN_MFA_SECRET='));
+    assert.ok(securityPackage.data.systemdDropIn.includes('LUMII_ADMIN_IP_ALLOWLIST='));
+    assert.ok(securityPackage.data.exportCommands.includes('export LUMII_ADMIN_USERNAME='));
+    assert.ok(securityPackage.data.restartCommands.includes('systemctl restart lumii-backend'));
 
     const created = await request('/admin/accounts', {
       body: {
@@ -229,6 +250,13 @@ async function main() {
     assert.equal(deniedClear.data.permission, 'user.clear_data');
     const deniedExport = await request('/admin/exports/history', { expectedStatus: 403, token: opsToken });
     assert.equal(deniedExport.data.permission, 'data.export.download');
+    const deniedSecurityPackage = await request('/admin/accounts/security-package', {
+      body: { reason: 'support should not generate production security package', username: 'support' },
+      expectedStatus: 403,
+      method: 'POST',
+      token: opsToken,
+    });
+    assert.equal(deniedSecurityPackage.data.permission, 'admin.manage_roles');
 
     await request(`/admin/accounts/${encodeURIComponent(account.id)}/disable`, {
       body: { reason: 'smoke 禁用后台管理员账号' },
@@ -293,6 +321,12 @@ async function main() {
     const loginActions = loginAudit.data.items.map((item) => item.action);
     assert.equal(loginActions.includes('admin.login.mfa_required'), true);
     assert.equal(loginActions.includes('admin.login.mfa_failed'), true);
+    const securityAudit = await request('/admin/audit-logs?q=security_plan', { token: envToken });
+    const securityEntry = securityAudit.data.items.find((item) => item.action === 'admin.security_plan.generate');
+    assert.ok(securityEntry, 'security package generation should be audited');
+    const auditText = JSON.stringify(securityEntry);
+    assert.equal(auditText.includes(securityPackage.data.password), false, 'generated password must not be written to audit');
+    assert.equal(auditText.includes(securityPackage.data.mfaSecret), false, 'generated MFA secret must not be written to audit');
 
     const finalAccounts = await request('/admin/accounts', { token: envToken });
     assert.equal(finalAccounts.data.summary.stateAccounts, 1);

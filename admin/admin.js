@@ -1,5 +1,6 @@
 const state = {
   admin: null,
+  adminSecurityPackage: null,
   aiFeedbackQ: '',
   aiFeedbackReason: 'all',
   aiFeedbackStatus: 'all',
@@ -442,6 +443,15 @@ async function onContentClick(event) {
     }
     if (action === 'admin-account-reset-mfa') {
       await handleAdminAccountMfaReset(button);
+      return;
+    }
+    if (action === 'admin-security-package-generate') {
+      await handleAdminSecurityPackageGenerate();
+      return;
+    }
+    if (action === 'admin-security-package-clear') {
+      state.adminSecurityPackage = null;
+      await render(true);
       return;
     }
     if (action === 'moderation-filter') {
@@ -2893,6 +2903,77 @@ async function handleAdminAccountMfaReset(button) {
   await render(true);
 }
 
+function adminSecurityPackageText(pkg = {}) {
+  const lines = [
+    '# systemd override',
+    pkg.systemdDropIn || '',
+    '',
+    '# optional shell export preview',
+    pkg.exportCommands || '',
+    '',
+    '# apply commands',
+    pkg.restartCommands || '',
+    '',
+    `# otpauth URI: ${pkg.otpauthUri || ''}`,
+  ];
+  return lines.join('\n');
+}
+
+function renderAdminSecurityPackagePanel(data = {}) {
+  const plan = data.hardeningPlan || {};
+  const pkg = state.adminSecurityPackage;
+  const missing = (plan.missing || []).join('、') || '无';
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>生产安全硬化配置包</h2>
+          <div class="section-sub">${plan.complete ? '后台生产安全配置已齐' : `仍缺：${escapeHtml(missing)}`}</div>
+        </div>
+        ${help('这里只生成可复制的配置建议，不会自动修改服务器环境变量。生成动作会写审计，但审计不会记录密码或 MFA Secret。真正启用前请确认 IP 白名单不会把你锁在后台外。')}
+      </div>
+      <div class="switch-panel">
+        <div class="switch-row"><span>后台密码环境变量</span>${plan.passwordFromEnv ? tonePill('已配置', 'ok') : tonePill('未配置', 'bad')}</div>
+        <div class="switch-row"><span>全员 MFA</span>${plan.mfaConfigured ? tonePill('已覆盖', 'ok') : tonePill('未覆盖', 'warn')}</div>
+        <div class="switch-row"><span>后台 IP 白名单</span>${plan.ipAllowlistConfigured ? tonePill('已配置', 'ok') : tonePill('未配置', 'warn')}</div>
+        <div class="switch-row"><span>密码轮换记录</span>${plan.passwordRotationConfigured ? tonePill('已记录', 'ok') : tonePill('未记录', 'warn')}</div>
+        <div class="switch-row"><span>当前请求 IP</span><strong>${escapeHtml(plan.currentIp || '-')}</strong></div>
+      </div>
+      <div class="actions" style="margin-top:12px">
+        <button class="small-button" data-action="admin-security-package-generate">生成一次性配置包</button>
+        ${pkg ? '<button class="small-button ghost" data-action="admin-security-package-clear">清除页面上的配置包</button>' : ''}
+      </div>
+      ${pkg ? `
+        <div class="mini-section-title">一次性配置包 · ${escapeHtml(pkg.generatedAt || '')}</div>
+        <div class="switch-panel">
+          <div class="switch-row"><span>新后台账号</span><strong>${escapeHtml(pkg.username || '-')}</strong></div>
+          <div class="switch-row"><span>新后台密码</span><strong class="cell-sub clamp">${escapeHtml(pkg.password || '-')}</strong></div>
+          <div class="switch-row"><span>MFA Secret</span><strong class="cell-sub clamp">${escapeHtml(pkg.mfaSecret || '-')}</strong></div>
+          <div class="switch-row"><span>建议白名单</span><strong>${escapeHtml(pkg.env?.LUMII_ADMIN_IP_ALLOWLIST || '-')}</strong></div>
+        </div>
+        <pre class="prompt-preview">${escapeHtml(adminSecurityPackageText(pkg))}</pre>
+        <div class="cell-sub">${(pkg.warnings || []).map((item) => escapeHtml(item)).join(' / ')}</div>
+      ` : '<div class="cell-sub" style="margin-top:10px">生成后会显示 systemd override、环境变量、TOTP URI 和重启命令；刷新页面后不会保留。</div>'}
+    </div>
+  `;
+}
+
+async function handleAdminSecurityPackageGenerate() {
+  const username = window.prompt('生产后台账号名', state.admin?.username || 'admin');
+  if (username === null) return;
+  const reason = window.prompt('生成原因，会写入审计日志', '生成后台生产安全配置包');
+  if (reason === null) return;
+  state.adminSecurityPackage = await post('/admin/accounts/security-package', {
+    reason: reason.trim() || '生成后台生产安全配置包',
+    username: username.trim() || 'admin',
+  });
+  state.cache.adminAccounts = null;
+  state.cache.audit = null;
+  state.cache.launchReadiness = null;
+  showToast('生产安全配置包已生成');
+  await render(true);
+}
+
 async function renderAdminAccounts(force) {
   const data = await load('adminAccounts', '/admin/accounts', force);
   const summary = data.summary || {};
@@ -2910,6 +2991,8 @@ async function renderAdminAccounts(force) {
       ${metric('IP 白名单', ipAllowlist.configured ? '已启用' : '未启用', ipAllowlist.configured ? `${numberText(ipAllowlist.entryCount || 0)} 条规则 · 当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '配置环境变量后生效', '配置 LUMII_ADMIN_IP_ALLOWLIST 后，/admin 页面和 /admin/* API 都会拦截非白名单 IP。')}
       ${metric('当前会话', session.expiresAt ? formatTime(session.expiresAt) : '-', `${escapeHtml(session.ip || 'IP 未记录')}`, '当前后台 token 的到期时间、请求 IP 和 User-Agent 摘要。')}
     </div>
+
+    ${renderAdminSecurityPackagePanel(data)}
 
     <div class="grid two">
       <div class="card">

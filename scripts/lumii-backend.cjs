@@ -7447,6 +7447,23 @@ function base32DecodeBuffer(value) {
   return Buffer.from(bytes);
 }
 
+function base32EncodeBuffer(buffer) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
+  let bits = '';
+  for (const byte of bytes) bits += byte.toString(2).padStart(8, '0');
+  let output = '';
+  for (let offset = 0; offset < bits.length; offset += 5) {
+    const chunk = bits.slice(offset, offset + 5).padEnd(5, '0');
+    output += alphabet[Number.parseInt(chunk, 2)];
+  }
+  return output;
+}
+
+function generateAdminMfaSecret() {
+  return base32EncodeBuffer(crypto.randomBytes(20));
+}
+
 function adminAccountMfaSecret(account = {}) {
   if (account.isEnvAccount) return normalizeAdminMfaSecret(ADMIN_MFA_SECRET || account.mfaSecret);
   return normalizeAdminMfaSecret(account.mfaSecret);
@@ -22896,6 +22913,100 @@ function resetAdminAccountMfa(admin, accountId, body = {}) {
   return { account: after, accounts: adminAccountRows(), summary: adminAccounts(admin).summary };
 }
 
+function generateAdminPassword() {
+  const random = crypto.randomBytes(18).toString('base64url');
+  return `Lumii-${random}-2026`;
+}
+
+function shellSingleQuote(value) {
+  return `'${String(value || '').replace(/'/g, `'\\''`)}'`;
+}
+
+function systemdEnvironmentLine(key, value) {
+  const escaped = String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return `Environment="${key}=${escaped}"`;
+}
+
+function adminSecurityHardeningSummary(admin = {}, accountsData = null) {
+  const data = accountsData || adminAccounts(admin);
+  const security = data.security || {};
+  const missing = [];
+  if (security.defaultPasswordRisk) missing.push('后台密码环境变量');
+  if (!security.ipAllowlist?.configured) missing.push('后台 IP 白名单');
+  if (!security.mfa?.configured) missing.push('全员 MFA');
+  if (!security.passwordRotation?.configured) missing.push('密码轮换记录');
+  return {
+    complete: missing.length === 0,
+    currentIp: security.ipAllowlist?.currentIp || admin.ip || 'unknown',
+    ipAllowlistConfigured: Boolean(security.ipAllowlist?.configured),
+    mfaConfigured: Boolean(security.mfa?.configured),
+    missing,
+    passwordFromEnv: Boolean(security.passwordFromEnv),
+    passwordRotationConfigured: Boolean(security.passwordRotation?.configured),
+  };
+}
+
+function createAdminSecurityHardeningPackage(admin = {}, body = {}) {
+  const permission = requireAdminAccountManager(admin);
+  if (permission) return permission;
+  const username = normalizeAdminUsername(body.username || ADMIN_USERNAME || 'admin') || 'admin';
+  const currentIp = normalizeAdminIpText(admin.ip || '') || 'unknown';
+  const suggestedAllowlist = currentIp && currentIp !== 'unknown' ? currentIp : '<your-office-or-vpn-ip>';
+  const generatedAt = new Date().toISOString();
+  const password = generateAdminPassword();
+  const mfaSecret = generateAdminMfaSecret();
+  const issuer = 'Lumii';
+  const label = `${issuer} Admin:${username}`;
+  const otpauthUri = `otpauth://totp/${encodeURIComponent(label)}?secret=${encodeURIComponent(mfaSecret)}&issuer=${encodeURIComponent(issuer)}`;
+  const env = {
+    LUMII_ADMIN_USERNAME: username,
+    LUMII_ADMIN_PASSWORD: password,
+    LUMII_ADMIN_MFA_SECRET: mfaSecret,
+    LUMII_ADMIN_IP_ALLOWLIST: suggestedAllowlist,
+    LUMII_ADMIN_PASSWORD_ROTATION_DAYS: '90',
+    LUMII_ADMIN_PASSWORD_ROTATED_AT: generatedAt,
+  };
+  const systemdDropIn = [
+    '[Service]',
+    ...Object.entries(env).map(([key, value]) => systemdEnvironmentLine(key, value)),
+  ].join('\n');
+  const exportCommands = Object.entries(env)
+    .map(([key, value]) => `export ${key}=${shellSingleQuote(value)}`)
+    .join('\n');
+  const restartCommands = [
+    'sudo systemctl edit lumii-backend',
+    'sudo systemctl daemon-reload',
+    'sudo systemctl restart lumii-backend',
+    'systemctl is-active lumii-backend',
+  ].join('\n');
+  const summary = adminSecurityHardeningSummary(admin);
+  writeAdminAudit(admin, 'admin.security_plan.generate', 'admin_security', username, null, {
+    currentIp,
+    generatedAt,
+    missing: summary.missing,
+    suggestedAllowlist,
+    username,
+  }, body.reason || '生成后台生产安全配置包');
+  return {
+    env,
+    exportCommands,
+    generatedAt,
+    mfaSecret,
+    otpauthUri,
+    password,
+    restartCommands,
+    summary,
+    systemdDropIn,
+    username,
+    warnings: [
+      '先把 TOTP Secret 加入认证器并验证验证码，再重启服务。',
+      '确认 IP 白名单包含你的办公出口、VPN 或堡垒机 IP，否则 /admin 会被拦截。',
+      '应用配置后旧默认后台密码会失效，请保存新密码到团队密码库。',
+      '建议保留当前 SSH 会话，完成后台登录验证后再关闭。',
+    ],
+  };
+}
+
 function adminAccounts(admin = {}) {
   const logs = Array.isArray(state.adminAuditLogs) ? state.adminAuditLogs : [];
   const loginLogs = logs
@@ -22953,7 +23064,7 @@ function adminAccounts(admin = {}) {
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'ip_allowlist', 'IP 白名单', ipAllowlist.configured ? `已启用后端白名单，当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '当前未强制后台 IP 白名单，生产期应在网关或后端启用。', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
     adminCheckStatus(storedCount > 0 ? 'ok' : 'warn', 'multi_accounts', '多管理员账号', storedCount > 0 ? `已启用 ${storedCount} 个 state 管理员账号，可新增、禁用、启用和重置密码。` : '当前只有环境变量 admin 账号，可在本页新增 state 管理员账号。', 'JSON state：adminAccounts'),
   ];
-  return {
+  const response = {
     accounts: accountRows,
     currentSession: {
       displayName: admin.displayName || admin.username || ADMIN_USERNAME,
@@ -23000,6 +23111,8 @@ function adminAccounts(admin = {}) {
     updatedAt: new Date().toISOString(),
     recentFailedLogins: failedLoginLogs,
   };
+  response.hardeningPlan = adminSecurityHardeningSummary(admin, response);
+  return response;
 }
 
 function adminContentSafetyReadiness(contentSafety = adminContentSafetyStatus()) {
@@ -29489,6 +29602,17 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/accounts') {
     ok(res, adminAccounts(admin));
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/accounts/security-package') {
+    const result = createAdminSecurityHardeningPackage(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_SECURITY_PACKAGE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

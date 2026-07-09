@@ -48,6 +48,7 @@ const suites = [
   { key: 'audit-integrity', title: 'Audit integrity journal', script: 'smoke-admin-audit-integrity.cjs', timeoutMs: 180_000 },
   { key: 'state-compaction', title: 'State storage compaction', script: 'smoke-state-storage-compaction.cjs', timeoutMs: 180_000 },
 
+  { key: 'admin-accounts-page', title: 'Admin accounts page', script: 'smoke-admin-accounts-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-config-page', title: 'Admin high-risk config page', script: 'smoke-admin-config-high-risk-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-legal-documents-page', title: 'Admin legal documents page', script: 'smoke-admin-legal-documents-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-system-health-page', title: 'Admin system health page', script: 'smoke-admin-system-health-page.cjs', timeoutMs: 180_000, visual: true },

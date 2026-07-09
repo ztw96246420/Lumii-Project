@@ -24,6 +24,7 @@ The default gate runs:
 - Legal document update/signoff, public legal text endpoints, launch-readiness compliance linkage, and audit records.
 - Pet calendar, pet profile, pet media, places, notifications, analytics, and observability.
 - Admin accounts, high-risk countersign, data clear approval, export approval, signed export links, audit integrity journal, state compaction, and state backup recovery.
+- Admin production security package generation, MFA/IP/password-rotation readiness, and non-leaking security audit records.
 
 ## Visual Gate
 
