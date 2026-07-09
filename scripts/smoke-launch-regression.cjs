@@ -63,6 +63,7 @@ const suites = [
   { key: 'user-auth-sessions', title: 'User auth sessions', script: 'smoke-user-auth-sessions.cjs', timeoutMs: 180_000 },
   { key: 'high-risk-countersign', title: 'High-risk countersign', script: 'smoke-high-risk-approval-countersign.cjs', timeoutMs: 180_000 },
   { key: 'high-risk-expiry', title: 'High-risk approval expiry', script: 'smoke-high-risk-approval-expiry.cjs', timeoutMs: 180_000 },
+  { key: 'pending-approval-watch', title: 'Pending approval watch queue', script: 'smoke-pending-approval-watch.cjs', timeoutMs: 180_000 },
   { key: 'high-risk-reject', title: 'High-risk approval reject', script: 'smoke-high-risk-approval-reject.cjs', timeoutMs: 180_000 },
   { key: 'high-risk-separation', title: 'High-risk approval separation', script: 'smoke-high-risk-approval-separation.cjs', timeoutMs: 180_000 },
   { key: 'data-clear', title: 'Data clear approval', script: 'smoke-data-clear-approval.cjs', timeoutMs: 180_000 },
@@ -78,6 +79,7 @@ const suites = [
   { key: 'state-compaction', title: 'State storage compaction', script: 'smoke-state-storage-compaction.cjs', timeoutMs: 180_000 },
 
   { key: 'admin-accounts-page', title: 'Admin accounts page', script: 'smoke-admin-accounts-page.cjs', timeoutMs: 180_000, visual: true },
+  { key: 'admin-dashboard-page', title: 'Admin dashboard page', script: 'smoke-admin-dashboard-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-config-page', title: 'Admin high-risk config page', script: 'smoke-admin-config-high-risk-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-sanctions-page', title: 'Admin sanctions page', script: 'smoke-admin-sanctions-page.cjs', timeoutMs: 180_000, visual: true },
   { key: 'admin-legal-documents-page', title: 'Admin legal documents page', script: 'smoke-admin-legal-documents-page.cjs', timeoutMs: 180_000, visual: true },

@@ -1799,7 +1799,7 @@ async function unhidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarAnimationJobs', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'dataClearApprovals', 'feedback', 'legalDocuments', 'mediaModeration', 'moderation', 'notifications', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionApprovals', 'sanctionBatchApprovals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarAnimationJobs', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'dashboardAlerts', 'dataClearApprovals', 'feedback', 'legalDocuments', 'mediaModeration', 'moderation', 'notifications', 'pendingApprovals', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionApprovals', 'sanctionBatchApprovals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -2284,7 +2284,11 @@ async function sendSystemNotification(mode = 'send') {
 }
 
 async function post(path, body) {
-  return api(path, { body: JSON.stringify(body), method: 'POST' });
+  const result = await api(path, { body: JSON.stringify(body), method: 'POST' });
+  state.cache.pendingApprovals = null;
+  state.cache.dashboardAlerts = null;
+  state.cache.summary = null;
+  return result;
 }
 
 async function patch(path, body) {
@@ -2389,10 +2393,45 @@ function renderAlertPanel(alerts = {}, options = {}) {
   `;
 }
 
+function pendingApprovalDeadlineText(row = {}) {
+  const minutes = row.minutesRemaining;
+  if (minutes === null || minutes === undefined) return '未设置';
+  if (minutes <= 0) return '即将过期';
+  if (minutes < 60) return `${numberText(minutes)} 分钟`;
+  return `${numberText(minutes / 60, 1)} 小时`;
+}
+
+function renderPendingApprovalPanel(queue = {}) {
+  const summary = queue.summary || {};
+  const groups = (queue.groups || []).filter((item) => Number(item.count || 0) > 0);
+  const items = queue.items || [];
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>待审批值守队列</h2>
+          <div class="section-sub">${numberText(summary.total || 0)} 条待审批 · ${numberText(summary.needsAction || 0)} 条即将超时 · ${numberText(groups.length)} 个业务模块</div>
+        </div>
+        ${help('聚合配置发布、系统通知、数据导出、处罚、数据清理和批量客服回复的待审批单；这里仅用于值守分流，实际审批仍回到对应模块保留会签和审计。')}
+      </div>
+      ${groups.length ? `<div class="actions">${groups.map((group) => `<span class="risk-badge">${escapeHtml(group.label)} ${numberText(group.count || 0)}</span>`).join('')}</div>` : ''}
+      ${items.length ? tableHtml(items, [
+        ['级别', (row) => alertSeverityPill(row.severity)],
+        ['审批单', (row) => `<div class="cell-title">${escapeHtml(row.title || '-')}</div><div class="cell-sub">${escapeHtml(row.sourceLabel || '-')} · ${escapeHtml(row.targetId || '-')}</div>`],
+        ['说明', (row) => `<div>${escapeHtml(row.detail || '-')}</div><div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div>`],
+        ['会签', (row) => `<div>${numberText(row.approvalCount || 0)} / ${numberText(row.requiredApprovals || 1)}</div><div class="cell-sub">还需 ${numberText(row.remainingApprovals || 0)} 人</div>`],
+        ['时效', (row) => `<div>${pendingApprovalDeadlineText(row)}</div><div class="cell-sub">${formatTime(row.expiresAt)}</div>`],
+        ['处理', (row) => row.actionRoute ? `<button class="small-button" data-action="route" data-route="${escapeHtml(row.actionRoute)}">${escapeHtml(row.actionLabel || '去处理')}</button>` : '<span class="cell-sub">仅提示</span>'],
+      ], '暂无待审批事项') : '<div class="placeholder">暂无待审批事项</div>'}
+    </div>
+  `;
+}
+
 async function renderDashboard(force) {
-  const [data, alerts] = await Promise.all([
+  const [data, alerts, pendingApprovals] = await Promise.all([
     load('summary', '/admin/dashboard/summary', force),
     load('dashboardAlerts', '/admin/dashboard/alerts', force),
+    load('pendingApprovals', '/admin/approvals/pending', force),
   ]);
   $('content').innerHTML = `
     <div class="grid metrics">
@@ -2405,8 +2444,10 @@ async function renderDashboard(force) {
       ${metric('通知触达', data.notifications?.campaigns || 0, `${data.notifications?.devices || 0} 台设备`, '后台系统通知发送批次和当前注册推送设备数。')}
       ${metric('移动端事件', numberText(data.events?.total || 0), `${numberText(data.events?.uniqueUsers || 0)} 位用户`, '页面、发现、地图、地点和通知点击等移动端行为事件。')}
       ${metric('运营告警', numberText(alerts.summary?.total || data.alerts?.total || 0), `${numberText(alerts.summary?.needsAction || data.alerts?.needsAction || 0)} 条高优先级`, '从安全、队列、SLA、审核、通知和埋点聚合的实时运营告警。')}
+      ${metric('待审批', numberText(pendingApprovals.summary?.total || 0), `${numberText(pendingApprovals.summary?.needsAction || 0)} 条即将超时`, '聚合高风险审批单，方便值守运营按时处理。')}
     </div>
     ${renderAlertPanel(alerts)}
+    ${renderPendingApprovalPanel(pendingApprovals)}
     <div class="grid two">
       <div class="card">
         <div class="section-head">

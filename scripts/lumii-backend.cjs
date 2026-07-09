@@ -22583,6 +22583,150 @@ function adminHighRiskPendingApprovalSummary() {
   };
 }
 
+function adminPendingApprovalExpiresAt(item = {}) {
+  return item.approvalExpiresAt || item.requestExpiresAt || item.expiresAt || '';
+}
+
+function adminPendingApprovalMinutesRemaining(expiresAt) {
+  const expiresMs = Date.parse(String(expiresAt || ''));
+  if (!Number.isFinite(expiresMs)) return null;
+  return Math.max(0, Math.ceil((expiresMs - Date.now()) / 60000));
+}
+
+function adminPendingApprovalSeverity(minutesRemaining, remainingApprovals = 0) {
+  if (minutesRemaining !== null && minutesRemaining <= 60) return 'critical';
+  if (minutesRemaining !== null && minutesRemaining <= 6 * 60) return 'high';
+  if (Number(remainingApprovals || 0) > 1) return 'medium';
+  return 'low';
+}
+
+function adminPendingApprovalItem(source, item = {}, detail = {}) {
+  const expiresAt = adminPendingApprovalExpiresAt(item);
+  const minutesRemaining = adminPendingApprovalMinutesRemaining(expiresAt);
+  const remainingApprovals = Math.max(0, Number(item.remainingApprovals || 0));
+  const createdAt = item.createdAt || item.approvalRequestedAt || '';
+  return {
+    actionLabel: source.actionLabel || '去处理',
+    actionRoute: source.actionRoute || '',
+    approvalCount: Number(item.approvalCount || 0),
+    createdAt,
+    createdBy: item.createdBy || item.approvalRequestedBy || '',
+    detail: detail.detail || '',
+    expiresAt,
+    id: `${source.key}:${item.id || createdAt || source.label}`,
+    minutesRemaining,
+    reason: item.reason || item.exportReason || '',
+    remainingApprovals,
+    requiredApprovals: Math.max(1, Number(item.requiredApprovals || 1)),
+    severity: adminPendingApprovalSeverity(minutesRemaining, remainingApprovals),
+    sourceKey: source.key,
+    sourceLabel: source.label,
+    targetId: item.id || '',
+    title: detail.title || source.label,
+    updatedAt: item.updatedAt || createdAt,
+  };
+}
+
+function adminHighRiskPendingApprovalQueue(options = {}) {
+  processExpiredHighRiskApprovals();
+  const limit = Math.max(1, Math.min(200, Number(options.limit || 80) || 80));
+  const pendingItems = (items, mapper) => (items || [])
+    .map(mapper)
+    .filter(Boolean)
+    .filter((item) => item.status === 'pending_approval');
+  const queue = [
+    ...pendingItems(ensureOpsConfigApprovals(), opsConfigApprovalItem).map((item) => adminPendingApprovalItem({
+      actionLabel: '去配置审批',
+      actionRoute: 'config',
+      key: 'config',
+      label: '配置发布',
+    }, item, {
+      detail: `${item.actionLabel || '配置发布'} · ${(item.riskChanges || []).length} 个高风险项 · ${(item.changeSummary || []).length} 个配置差异`,
+      title: `${item.actionLabel || '配置发布'}审批`,
+    })),
+    ...pendingItems(ensureAdminExportApprovals(), adminExportApprovalItem).map((item) => adminPendingApprovalItem({
+      actionLabel: '去导出审批',
+      actionRoute: 'exports',
+      key: 'exports',
+      label: '数据导出',
+    }, item, {
+      detail: `${item.datasetLabel || item.datasetType || '数据集'} · ${item.rowCount || item.matchedRows || 0} 行${item.includeSensitive ? ' · 完整敏感字段' : ' · 默认脱敏'}`,
+      title: `${item.datasetLabel || '数据'}导出审批`,
+    })),
+    ...pendingItems(ensureSystemNotifications(), systemNotificationItem).map((item) => adminPendingApprovalItem({
+      actionLabel: '去通知审批',
+      actionRoute: 'notifications',
+      key: 'notifications',
+      label: '系统通知',
+    }, item, {
+      detail: `${item.title || '系统通知'} · ${item.audienceCount || item.targetPhones?.length || 0} 人 · ${item.approvalIntendedMode === 'scheduled' ? '预约发送' : '立即发送'}`,
+      title: '系统通知审批',
+    })),
+    ...pendingItems(ensureSanctionApprovals(), adminSanctionApprovalItem).map((item) => adminPendingApprovalItem({
+      actionLabel: '去处罚审批',
+      actionRoute: 'sanctions',
+      key: 'sanctions',
+      label: '永久封禁',
+    }, item, {
+      detail: `${item.ownerName || `用户${String(item.phone || '').slice(-4)}`} ${item.phone || ''} · ${item.typeLabel || item.type || '处罚'}`,
+      title: '用户处罚审批',
+    })),
+    ...pendingItems(ensureSanctionBatchApprovals(), adminSanctionBatchApprovalItem).map((item) => adminPendingApprovalItem({
+      actionLabel: '去批量处罚',
+      actionRoute: 'sanctions',
+      key: 'sanctionBatches',
+      label: '批量处罚',
+    }, item, {
+      detail: `${item.targetCount || 0} 个账号 · ${item.typeLabel || item.type || '处罚'} · 成功后批量写入处罚流水`,
+      title: '批量处罚审批',
+    })),
+    ...pendingItems(ensureDataClearApprovals(), adminDataClearApprovalItem).map((item) => adminPendingApprovalItem({
+      actionLabel: '去数据清理',
+      actionRoute: 'users',
+      key: 'dataClear',
+      label: '数据清理',
+    }, item, {
+      detail: `${item.ownerName || `用户${String(item.phone || '').slice(-4)}`} ${item.phone || ''} · 审批通过后清空业务数据`,
+      title: '用户业务数据清理审批',
+    })),
+    ...pendingItems(ensureSupportTicketBatchReplyApprovals(), supportTicketBatchReplyApprovalItem).map((item) => adminPendingApprovalItem({
+      actionLabel: '去工单审批',
+      actionRoute: 'tickets',
+      key: 'batchReplies',
+      label: '批量回复',
+    }, item, {
+      detail: `${item.ticketCount || 0} 个工单 · ${item.notifyUser ? '通知用户' : '仅内部处理'} · 下个状态 ${item.nextStatus || '-'}`,
+      title: '批量客服回复审批',
+    })),
+  ];
+  const sorted = queue.sort((left, right) => {
+    const leftExpires = Date.parse(String(left.expiresAt || ''));
+    const rightExpires = Date.parse(String(right.expiresAt || ''));
+    const leftRank = Number.isFinite(leftExpires) ? leftExpires : Number.MAX_SAFE_INTEGER;
+    const rightRank = Number.isFinite(rightExpires) ? rightExpires : Number.MAX_SAFE_INTEGER;
+    return leftRank - rightRank
+      || adminAlertSeverityRank(right.severity) - adminAlertSeverityRank(left.severity)
+      || String(right.createdAt || '').localeCompare(String(left.createdAt || ''));
+  });
+  const count = (severity) => sorted.filter((item) => item.severity === severity).length;
+  const groups = adminHighRiskPendingApprovalSummary().groups;
+  return {
+    generatedAt: new Date().toISOString(),
+    groups,
+    items: sorted.slice(0, limit),
+    policy: highRiskApprovalPolicy(),
+    summary: {
+      critical: count('critical'),
+      groupsWithPending: groups.filter((item) => item.count > 0).length,
+      high: count('high'),
+      low: count('low'),
+      medium: count('medium'),
+      needsAction: count('critical') + count('high'),
+      total: sorted.length,
+    },
+  };
+}
+
 function adminOperationalAlerts(options = {}) {
   const now = Date.now();
   const stateFile = adminSafeStateFileInfo();
@@ -23291,6 +23435,7 @@ function adminRequiredPermissionForRequest(method, pathname) {
   const httpMethod = String(method || 'GET').toUpperCase();
   const path = String(pathname || '');
   if (path === '/admin/me') return '';
+  if (path === '/admin/approvals/pending') return 'dashboard.view';
   if (path.startsWith('/admin/accounts')) return 'admin.manage_roles';
   if (path.startsWith('/admin/dashboard')) return 'dashboard.view';
   if (path === '/admin/analytics') return 'analytics.view';
@@ -24208,7 +24353,7 @@ function adminReadinessModules(context) {
       status: 'partial',
       evidence: '举报可处理有效/无效/关闭，证据快照、处罚建议、一键处罚、批量处罚审批、处罚撤销、账号申诉和举报处理申诉已接入。',
       mobileLinkage: '有效举报和处罚会通知作者；单个或批量审批通过的处罚都会限制移动端写接口，用户可在安全中心提交账号限制申诉或举报处理申诉。',
-      nextStep: '生产期补高风险处罚建议命中率复盘，并将处罚审批纳入值守通知 SOP。',
+      nextStep: '生产期补高风险处罚建议命中率复盘；处罚审批已进入 /admin/approvals/pending 值守队列，后续可再接企业微信/邮件等站外通知。',
     },
     {
       key: 'places',
@@ -24235,7 +24380,7 @@ function adminReadinessModules(context) {
       status: 'partial',
       evidence: '支持系统通知、草稿、待审批、预约、撤回、模板、通知人群包、设备概览、actionRoute、对象深链、发送审批、频控和批次效果统计。',
       mobileLinkage: '通知会写入 App 通知中心，支持跳首页、发现、地图、我的、安全中心、设置、反馈进度。',
-      nextStep: '生产期补厂商 Push、送达回执，并将强制通知审批纳入高风险最少会签人数和值守通知 SOP。',
+      nextStep: '生产期补厂商 Push、送达回执；强制通知审批已进入高风险会签和 /admin/approvals/pending 值守队列。',
     },
     {
       key: 'config',
@@ -24244,7 +24389,7 @@ function adminReadinessModules(context) {
       status: hasConfigReserved ? 'partial' : 'ready',
       evidence: '配置可保存草稿、提交发布审批、审批发布、预约发布、立即发布、草稿发布/废弃、版本化、回滚和审计，已展示前后端联动体检与高风险摘要。',
       mobileLinkage: '移动端读取 /app/config 后应用功能开关、维护、公告、更新、启动提示、额度和附近策略。',
-      nextStep: '生产期补审批值守通知、灰度配置和 A/B 实验分流。',
+      nextStep: '后台已补 /admin/approvals/pending 待审批值守队列；生产期继续补站外审批提醒、灰度配置和 A/B 实验分流。',
     },
     {
       key: 'exports_audit',
@@ -24253,7 +24398,7 @@ function adminReadinessModules(context) {
       status: 'partial',
       evidence: 'CSV 导出支持筛选、导出原因、文件水印、审批申请、审批通过、服务器本地归档任务、审批下载、历史、行数摘要和 data.export.* 审计；审计日志支持搜索筛选与 hash 链完整性校验。',
       mobileLinkage: '导出覆盖移动端真实业务数据和 App 事件，不导出图片二进制或完整设备 token；强制审批开启后需按审批单创建归档或下载。',
-      nextStep: '生产期补导出审批值守通知、对象存储归档和更细文件生命周期策略。',
+      nextStep: '导出审批已进入 /admin/approvals/pending 值守队列；生产期补对象存储归档、站外审批提醒和更细文件生命周期策略。',
     },
     {
       key: 'system',
@@ -24392,9 +24537,9 @@ function adminReadinessGaps(context) {
       area: '高风险操作',
       severity: 'P1',
       status: 'partial',
-      issue: '配置发布、强制通知、敏感导出、永久封禁、用户业务数据清理和批量客服回复已有审批流，并支持开启审批人/申请人分离、最少审批人数会签、待审批超时、明确驳回意见和后台聚合待审批提醒；仍缺站外/推送式审批通知和生产审批值守 SOP。',
-      requiredAction: '生产前开启 highRiskApproval.requireDifferentAdmin，并将 highRiskApproval.requiredApprovals 配到 2 或以上；新增足够具备审批权限的管理员账号，再补企业微信/邮件/站内管理员通知和值守交接 SOP。',
-      evidence: '配置中心 highRiskApproval.requireDifferentAdmin / highRiskApproval.requiredApprovals / highRiskApproval.pendingExpiresHours / /admin/dashboard/alerts high_risk_pending_approvals / 账号权限页 state 管理员账号',
+      issue: '配置发布、强制通知、敏感导出、永久封禁、批量处罚、用户业务数据清理和批量客服回复已有审批流，并支持审批人/申请人分离、最少审批人数会签、待审批超时、明确驳回意见和 /admin/approvals/pending 后台值守队列；仍缺企业微信/邮件等站外审批通知和生产值守 SOP。',
+      requiredAction: '生产前开启 highRiskApproval.requireDifferentAdmin，并将 highRiskApproval.requiredApprovals 配到 2 或以上；新增足够具备审批权限的管理员账号，再补企业微信/邮件等站外审批提醒和值守交接 SOP。',
+      evidence: '配置中心 highRiskApproval.requireDifferentAdmin / highRiskApproval.requiredApprovals / highRiskApproval.pendingExpiresHours / /admin/approvals/pending / /admin/dashboard/alerts high_risk_pending_approvals / 账号权限页 state 管理员账号',
     },
     {
       key: 'push_provider',
@@ -24402,8 +24547,8 @@ function adminReadinessGaps(context) {
       severity: 'P1',
       status: 'partial',
       issue: EXPO_PUSH_ENABLED
-        ? '系统通知已接 Expo Push 下发、ticket 记录、receipt 轮询、失效 token 标记和高风险会签；仍缺 Android 厂商 Push/APNs 专项优化、通知展示回执和值守通知 SOP。'
-        : '当前以站内通知为主，Expo Push 开关未启用；厂商 Push、送达回执和值守通知 SOP 未完成。',
+        ? '系统通知已接 Expo Push 下发、ticket 记录、receipt 轮询、失效 token 标记、高风险会签和后台待审批值守队列；仍缺 Android 厂商 Push/APNs 专项优化、通知展示回执和站外审批提醒。'
+        : '当前以站内通知为主，Expo Push 开关未启用；后台待审批值守队列已接，厂商 Push、送达回执和站外审批提醒未完成。',
       requiredAction: EXPO_PUSH_ENABLED
         ? '继续补厂商通道专项配置、客户端展示/点击回传质量、失败告警和生产审批值守通知策略。'
         : '配置 EXPO_PUSH_ENABLED=true 并验证 Expo Push；再接 receipt、失败重试、Android 厂商 Push、iOS APNs 和生产审批值守通知。',
@@ -24424,8 +24569,8 @@ function adminReadinessGaps(context) {
       severity: 'P1',
       status: 'partial',
       issue: '导出已有审计、原因必填、CSV 水印、默认敏感字段脱敏、完整敏感字段授权、审批流、高风险会签、审批有效期、单审批下载次数上限、服务器本地归档任务和短时效签名下载链接；仍缺对象存储归档。',
-      requiredAction: '补对象存储归档、文件生命周期策略和审批值守通知。',
-      evidence: '数据导出页 / 导出归档任务 / 签名链接 / 审计日志 / exports.maxDownloadsPerApproval',
+      requiredAction: '补对象存储归档、文件生命周期策略和站外审批提醒。',
+      evidence: '数据导出页 / 导出归档任务 / 签名链接 / 审计日志 / exports.maxDownloadsPerApproval / /admin/approvals/pending',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }
@@ -30308,6 +30453,13 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   if (req.method === 'GET' && pathname === '/admin/dashboard/alerts') {
     ok(res, adminOperationalAlerts({
       limit: url.searchParams.get('limit') || 50,
+    }));
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/approvals/pending') {
+    ok(res, adminHighRiskPendingApprovalQueue({
+      limit: url.searchParams.get('limit') || 80,
     }));
     return true;
   }
