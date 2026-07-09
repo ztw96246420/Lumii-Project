@@ -6242,6 +6242,7 @@ function normalizeAdminRoleIds(value, fallback = ['admin']) {
 }
 
 function publicAdminAccount(account = {}) {
+  const roleIds = normalizeAdminRoleIds(account.roleIds, ['admin']);
   return {
     createdAt: account.createdAt || '',
     createdBy: account.createdBy || '',
@@ -6256,7 +6257,8 @@ function publicAdminAccount(account = {}) {
     lockedUntil: '',
     mfaEnabled: Boolean(account.mfaEnabled),
     passwordUpdatedAt: account.passwordUpdatedAt || '',
-    roleIds: normalizeAdminRoleIds(account.roleIds, ['admin']),
+    permissionKeys: adminPermissionsForRoles(roleIds),
+    roleIds,
     source: account.source || (account.isEnvAccount ? 'env' : 'state'),
     status: account.status || 'active',
     updatedAt: account.updatedAt || '',
@@ -6328,8 +6330,7 @@ function verifyAdminAccountPassword(account, password) {
 }
 
 function adminCanManageAccounts(admin = {}) {
-  const roleIds = normalizeAdminRoleIds(admin.roleIds, ['admin']);
-  return roleIds.includes('admin') || roleIds.includes('super_admin');
+  return adminHasPermission(admin, 'admin.manage_roles');
 }
 
 function requireAdminAccountManager(admin) {
@@ -6379,7 +6380,7 @@ function adminFromRequest(req) {
     const issuedAt = Number(payload.iat || 0);
     const passwordUpdatedAt = Date.parse(String(account.passwordUpdatedAt || ''));
     if (Number.isFinite(passwordUpdatedAt) && passwordUpdatedAt > issuedAt) return null;
-    const roleIds = normalizeAdminRoleIds(payload.roleIds || account.roleIds, ['admin']);
+    const roleIds = normalizeAdminRoleIds(account.roleIds || payload.roleIds, ['admin']);
     return {
       displayName: account.displayName || account.username,
       expiresAt: Number(payload.exp || 0),
@@ -20681,8 +20682,9 @@ async function adminSystemHealth() {
   };
 }
 
-function adminPermissionCatalog() {
+function adminPermissionRows() {
   return [
+    ['admin.manage_roles', '管理后台账号和角色', '系统管理'],
     ['admin.login', '登录后台', '系统管理'],
     ['dashboard.view', '查看工作台', '看板'],
     ['analytics.view', '查看数据看板', '看板'],
@@ -20721,18 +20723,192 @@ function adminPermissionCatalog() {
     ['system.health.view', '查看系统健康', '系统管理'],
     ['launch.readiness.view', '查看上线台账', '系统管理'],
     ['launch.readiness.update', '更新上线台账待澄清问题', '系统管理'],
-  ].map(([key, label, group]) => ({ group, key, label, status: 'active' }));
+  ];
+}
+
+function adminPermissionKeys() {
+  return adminPermissionRows().map(([key]) => key);
+}
+
+function adminRolePermissionMap() {
+  const all = adminPermissionKeys();
+  const readOnly = [
+    'dashboard.view',
+    'analytics.view',
+    'user.view',
+    'pet.view',
+    'calendar.view',
+    'ai.avatar.view',
+    'ai.chat.view_summary',
+    'moderation.view',
+    'audit.view',
+    'system.health.view',
+    'launch.readiness.view',
+  ];
+  return {
+    admin: all,
+    auditor: readOnly,
+    content_moderator: [
+      'dashboard.view',
+      'user.view',
+      'pet.view',
+      'pet.media_moderate',
+      'ai.avatar.view',
+      'ai.avatar.sample',
+      'ai.chat.view_summary',
+      'moderation.view',
+      'moderation.process',
+      'moderation.sample_review',
+      'social.report.process',
+      'message.view_content',
+      'message.moderate',
+      'place.moderate',
+      'audit.view',
+      'launch.readiness.view',
+    ],
+    ops_admin: all.filter((key) => ![
+      'admin.manage_roles',
+      'data.export.download',
+      'data.export.approve',
+      'user.clear_data',
+    ].includes(key)),
+    super_admin: all,
+    support: [
+      'dashboard.view',
+      'user.view',
+      'user.note',
+      'pet.view',
+      'calendar.view',
+      'ai.avatar.view',
+      'ai.chat.view_summary',
+      'social.relation.repair',
+      'support.ticket.process',
+      'audit.view',
+      'launch.readiness.view',
+    ],
+  };
+}
+
+function adminPermissionsForRoles(roleIds = []) {
+  const roleMap = adminRolePermissionMap();
+  const keys = new Set();
+  normalizeAdminRoleIds(roleIds, []).forEach((roleId) => {
+    (roleMap[roleId] || []).forEach((permission) => keys.add(permission));
+  });
+  return Array.from(keys).sort();
+}
+
+function adminRolesForPermission(permissionKey) {
+  const roleMap = adminRolePermissionMap();
+  return Object.entries(roleMap)
+    .filter(([, permissions]) => permissions.includes(permissionKey))
+    .map(([roleId]) => roleId)
+    .sort();
+}
+
+function adminHasPermission(admin = {}, permissionKey = '') {
+  const required = String(permissionKey || '').trim();
+  if (!required) return true;
+  return adminPermissionsForRoles(admin.roleIds || [admin.role || 'admin']).includes(required);
+}
+
+function adminPermissionCatalog() {
+  return adminPermissionRows().map(([key, label, group]) => ({
+    group,
+    key,
+    label,
+    roleIds: adminRolesForPermission(key),
+    status: 'active',
+  }));
 }
 
 function adminRoleCatalog() {
+  const roleMap = adminRolePermissionMap();
   return [
-    { key: 'admin', label: '管理员', note: '当前阶段唯一实际运行角色，拥有后台全部已开放能力；多账号已接入，细角色拦截后续补齐。', status: 'active' },
-    { key: 'super_admin', label: '超级管理员', note: '生产期用于账号权限、双人审批最终确认和危险配置。', status: 'reserved' },
-    { key: 'ops_admin', label: '运营管理员', note: '生产期用于日常运营、配置、通知和工单。', status: 'reserved' },
-    { key: 'content_moderator', label: '内容审核员', note: '生产期用于动态、评论、图片和地点内容审核。', status: 'reserved' },
-    { key: 'support', label: '客服', note: '生产期用于工单、低风险用户排查和通知补发。', status: 'reserved' },
-    { key: 'auditor', label: '审计员', note: '生产期用于只读审计和操作复核。', status: 'reserved' },
-  ];
+    { key: 'admin', label: '管理员', note: '兼容现有环境变量账号，拥有后台全部已开放能力。', status: 'active' },
+    { key: 'super_admin', label: '超级管理员', note: '用于账号权限、审批最终确认和危险配置。', status: 'active' },
+    { key: 'ops_admin', label: '运营管理员', note: '用于日常运营、配置、通知、工单和非导出类治理操作。', status: 'active' },
+    { key: 'content_moderator', label: '内容审核员', note: '用于动态、评论、图片、私信上下文和地点内容审核。', status: 'active' },
+    { key: 'support', label: '客服', note: '用于工单、低风险用户排查、关系状态排查和备注。', status: 'active' },
+    { key: 'auditor', label: '审计员', note: '用于只读审计、看板和上线台账复核。', status: 'active' },
+  ].map((role) => ({ ...role, permissionKeys: roleMap[role.key] || [] }));
+}
+
+function adminRequiredPermissionForRequest(method, pathname) {
+  const httpMethod = String(method || 'GET').toUpperCase();
+  const path = String(pathname || '');
+  if (path === '/admin/me') return '';
+  if (path.startsWith('/admin/accounts')) return 'admin.manage_roles';
+  if (path.startsWith('/admin/dashboard')) return 'dashboard.view';
+  if (path === '/admin/analytics') return 'analytics.view';
+  if (path === '/admin/system/health') return 'system.health.view';
+  if (path.startsWith('/admin/launch/readiness/questions')) return 'launch.readiness.update';
+  if (path === '/admin/launch/readiness') return 'launch.readiness.view';
+  if (/^\/admin\/exports\/[^/]+\.csv$/u.test(path)) return 'data.export.download';
+  if (path.startsWith('/admin/exports/approvals')) return 'data.export.approve';
+  if (path.startsWith('/admin/exports')) return httpMethod === 'GET' ? 'data.export.download' : 'data.export.approve';
+  if (path === '/admin/push-devices') return 'notification.send';
+  if (path.startsWith('/admin/notifications') && /\/approve$/u.test(path)) return 'notification.approve';
+  if (path.startsWith('/admin/notifications')) return 'notification.send';
+  if (path.startsWith('/admin/tickets')) return 'support.ticket.process';
+  if (path === '/admin/moderation/tasks') return 'moderation.view';
+  if (path.startsWith('/admin/moderation/samples')) return 'moderation.sample_review';
+  if (path.startsWith('/admin/moderation/tasks')) return 'moderation.process';
+  if (path === '/admin/media/moderation') return 'moderation.view';
+  if (/^\/admin\/media\/[^/]+\/moderate$/u.test(path)) return 'moderation.process';
+  if (/^\/admin\/users\/[^/]+\/clear-business-data$/u.test(path) || path.startsWith('/admin/data-clear-approvals')) return 'user.clear_data';
+  if (/^\/admin\/users\/[^/]+\/notes$/u.test(path)) return 'user.note';
+  if (/^\/admin\/users\/[^/]+\/risk-tags$/u.test(path)) return 'user.tag';
+  if (/^\/admin\/users\/[^/]+\/sanctions(?:\/|$)/u.test(path) || path.startsWith('/admin/sanction')) return 'user.sanction';
+  if (path.startsWith('/admin/users')) return 'user.view';
+  if (path === '/admin/pets' || (httpMethod === 'GET' && /^\/admin\/pets\/[^/]+$/u.test(path))) return 'pet.view';
+  if (/^\/admin\/pets\/[^/]+\/media(?:\/|$)/u.test(path)) return 'pet.media_moderate';
+  if (/^\/admin\/pets\/[^/]+\/merge$/u.test(path) || (httpMethod === 'PATCH' && /^\/admin\/pets\/[^/]+$/u.test(path))) return 'pet.edit';
+  if (path === '/admin/pet-calendar') return httpMethod === 'GET' ? 'calendar.view' : 'calendar.edit';
+  if (path.startsWith('/admin/pet-calendar')) return httpMethod === 'GET' ? 'calendar.view' : 'calendar.edit';
+  if (/^\/admin\/social-relations\/[^/]+\/message-context$/u.test(path)) return 'message.view_content';
+  if (/^\/admin\/social-relations\/messages\/[^/]+\/hide$/u.test(path)) return 'message.moderate';
+  if (/^\/admin\/social-relations\/[^/]+\/repair$/u.test(path)) return 'social.relation.repair';
+  if (path.startsWith('/admin/social-relations')) return 'social.relation.repair';
+  if (/^\/admin\/social\/reports\/[^/]+\/message-context$/u.test(path)) return 'message.view_content';
+  if (/^\/admin\/social\/reports\/[^/]+\/flag-harassment$/u.test(path)) return 'message.moderate';
+  if (/^\/admin\/social\/reports\/[^/]+\/sanction$/u.test(path) || /^\/admin\/social\/(posts|comments)\/[^/]+\/sanction$/u.test(path)) return 'user.sanction';
+  if (path.startsWith('/admin/social/reports')) return 'social.report.process';
+  if (/^\/admin\/social\/(posts|comments)\/[^/]+\/evidence$/u.test(path)) return 'moderation.view';
+  if (/^\/admin\/social\/(posts|comments)\/[^/]+\/(hide|restore|delete)$/u.test(path)) return 'moderation.process';
+  if (path.startsWith('/admin/social')) return 'moderation.view';
+  if (path === '/admin/ai/prompt-versions') return httpMethod === 'GET' ? 'ai.avatar.view' : 'config.update';
+  if (path.startsWith('/admin/ai/prompt-versions')) return 'config.update';
+  if (/^\/admin\/ai\/pet-chat\/messages\/[^/]+\/view$/u.test(path)) return 'message.view_content';
+  if (/^\/admin\/ai\/pet-chat\/messages\/[^/]+\/hide$/u.test(path)) return 'message.moderate';
+  if (/^\/admin\/ai\/pet-chat\/messages\/[^/]+\/(tag|quality-review)$/u.test(path)) return 'moderation.sample_review';
+  if (path.startsWith('/admin/ai/pet-chat')) return 'ai.chat.view_summary';
+  if (/^\/admin\/ai\/avatar-(jobs|animation-jobs)\/[^/]+\/apply$/u.test(path)) return 'pet.media_moderate';
+  if (/^\/admin\/ai\/avatar-(jobs|animation-jobs)\/[^/]+/u.test(path)) return 'ai.avatar.sample';
+  if (path.startsWith('/admin/ai/avatar-samples')) return httpMethod === 'GET' ? 'ai.avatar.view' : 'ai.avatar.sample';
+  if (path.startsWith('/admin/ai/avatar-feedback')) return httpMethod === 'GET' ? 'ai.avatar.view' : 'ai.avatar.sample';
+  if (path.startsWith('/admin/ai')) return 'ai.avatar.view';
+  if (path === '/admin/places') return httpMethod === 'GET' ? 'place.moderate' : 'place.moderate';
+  if (path.startsWith('/admin/places')) return httpMethod === 'GET' ? 'place.moderate' : 'place.moderate';
+  if (path === '/admin/feedback' || path.startsWith('/admin/feedback/')) return 'support.ticket.process';
+  if (path === '/admin/config') return httpMethod === 'GET' ? 'config.update' : 'config.update';
+  if (path.startsWith('/admin/config/approvals')) return 'config.approve';
+  if (path.startsWith('/admin/config/drafts')) return 'config.draft';
+  if (path.startsWith('/admin/config/revisions')) return 'config.rollback';
+  if (path.startsWith('/admin/config/schedules')) return 'config.update';
+  if (path === '/admin/audit-logs') return 'audit.view';
+  return 'admin.manage_roles';
+}
+
+function requireAdminRequestPermission(admin, method, pathname) {
+  const permission = adminRequiredPermissionForRequest(method, pathname);
+  if (!permission || adminHasPermission(admin, permission)) return null;
+  return {
+    code: 'ADMIN_PERMISSION_DENIED',
+    error: '当前后台账号没有执行该操作的权限',
+    permission,
+    statusCode: 403,
+  };
 }
 
 function adminAccountHighRiskPattern() {
@@ -20790,6 +20966,7 @@ function createAdminAccount(admin, body = {}) {
   if (passwordResult.error) return passwordResult;
   const reasonResult = adminAccountReason(body.reason, '新增后台管理员账号');
   if (reasonResult.error) return reasonResult;
+  const roleIds = normalizeAdminRoleIds(body.roleIds || body.roles || body.roleId || ['support'], ['support']);
   const now = new Date().toISOString();
   const id = `admin-account-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   const account = {
@@ -20799,7 +20976,7 @@ function createAdminAccount(admin, body = {}) {
     displayName: normalizeAdminDisplayName(body.displayName, usernameResult.username),
     id,
     mfaEnabled: false,
-    roleIds: ['admin'],
+    roleIds,
     source: 'state',
     status: 'active',
     updatedAt: now,
@@ -20898,6 +21075,7 @@ function adminAccounts(admin = {}) {
   const ipAllowlist = adminIpAllowlistStatus(admin.ip || '');
   const accountRows = adminAccountRows(loginLogs);
   const storedCount = adminStoredAccountRows().length;
+  const sessionPermissionKeys = adminPermissionsForRoles(admin.roleIds || [admin.role || 'admin']);
   const checks = [
     adminCheckStatus(usernameFromEnv && passwordFromEnv ? 'ok' : 'warn', 'credential_env', '后台账号环境变量', passwordFromEnv ? '后台密码由环境变量覆盖' : '仍可能使用默认后台密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus(loginSecurity.locked ? 'warn' : 'ok', 'login_lockout', '登录失败锁定', loginSecurity.locked ? `当前已锁定到 ${loginSecurity.lockedUntil}` : `连续 ${loginSecurity.maxAttempts} 次失败会锁定 ${loginSecurity.lockMinutes} 分钟`, 'LUMII_ADMIN_LOGIN_MAX_ATTEMPTS / LUMII_ADMIN_LOGIN_LOCK_MS'),
@@ -20915,6 +21093,7 @@ function adminAccounts(admin = {}) {
       ip: admin.ip || '',
       role: admin.role || 'admin',
       roleIds: normalizeAdminRoleIds(admin.roleIds, ['admin']),
+      permissionKeys: sessionPermissionKeys,
       tokenId: admin.jti ? `${String(admin.jti).slice(0, 6)}...${String(admin.jti).slice(-4)}` : '',
       userAgent: admin.userAgent || '',
       username: admin.username || ADMIN_USERNAME,
@@ -20934,7 +21113,7 @@ function adminAccounts(admin = {}) {
     loginSecurity,
     summary: {
       activeAccounts: accountRows.filter((account) => account.status === 'active').length,
-      activePermissions: adminPermissionCatalog().length,
+      activePermissions: sessionPermissionKeys.length,
       failedAttempts: loginSecurity.failedAttempts,
       lockedAccounts: accountRows.filter((account) => account.status === 'locked').length,
       reservedRoles: adminRoleCatalog().filter((role) => role.status === 'reserved').length,
@@ -21163,9 +21342,9 @@ function adminReadinessModules(context) {
       module: '系统健康与账号权限',
       group: '系统',
       status: hasAccountWarnings ? 'partial' : 'ready',
-      evidence: '已覆盖系统健康、外部依赖、业务积压、单 admin 账号、权限点、会话和高风险动作。',
+      evidence: '已覆盖系统健康、外部依赖、业务积压、多后台账号、角色权限点、会话和高风险动作。',
       mobileLinkage: '系统健康观测包含影响 App 的 AI、地图、媒体、客服、通知和配置能力。',
-      nextStep: '生产期补多管理员、MFA、IP 白名单、APM 和不可篡改审计。',
+      nextStep: '生产期补 MFA、逐账号登录风控、APM 和不可篡改审计。',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }
@@ -21266,7 +21445,7 @@ function adminReadinessGaps(context) {
       severity: 'P1',
       status: 'partial',
       issue: '配置发布、强制通知、敏感导出、永久封禁、用户业务数据清理和批量客服回复已有审批流，并支持开启审批人/申请人分离和待审批超时；仍缺真正双人会签、审批通知和明确驳回/退回意见。',
-      requiredAction: '生产前开启 highRiskApproval.requireDifferentAdmin，新增至少第二个管理员账号；继续补双人会签、审批通知、驳回/退回和更细角色权限。',
+      requiredAction: '生产前开启 highRiskApproval.requireDifferentAdmin，新增至少第二个具备审批权限的管理员账号；继续补双人会签、审批通知和明确驳回/退回意见。',
       evidence: '配置中心 highRiskApproval.requireDifferentAdmin / highRiskApproval.pendingExpiresHours / 账号权限页 state 管理员账号',
     },
     {
@@ -26972,6 +27151,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   if (!admin) return true;
   admin.ip = clientIpFromRequest(req);
   admin.userAgent = String(req.headers['user-agent'] || '').slice(0, 180);
+  const permissionResult = requireAdminRequestPermission(admin, req.method, pathname);
+  if (permissionResult) {
+    fail(res, permissionResult.statusCode, permissionResult.error, false, { permission: permissionResult.permission }, permissionResult.code);
+    return true;
+  }
 
   if (req.method === 'GET' && pathname === '/admin/me') {
     ok(res, admin);

@@ -2504,8 +2504,9 @@ async function handleAdminAccountCreate() {
   const username = $('adminAccountUsername').value.trim();
   const displayName = $('adminAccountDisplayName').value.trim();
   const password = $('adminAccountPassword').value;
+  const roleId = $('adminAccountRole')?.value || 'support';
   const reason = $('adminAccountReason').value.trim() || '新增后台管理员账号';
-  await post('/admin/accounts', { displayName, password, reason, username });
+  await post('/admin/accounts', { displayName, password, reason, roleIds: [roleId], username });
   ['adminAccountUsername', 'adminAccountDisplayName', 'adminAccountPassword'].forEach((id) => {
     const node = $(id);
     if (node) node.value = '';
@@ -2548,11 +2549,13 @@ async function renderAdminAccounts(force) {
   const session = data.currentSession || {};
   const loginSecurity = data.loginSecurity || {};
   const ipAllowlist = data.security?.ipAllowlist || {};
+  const roles = data.roles || [];
+  const roleOptions = roles.map((role) => `<option value="${escapeHtml(role.key)}" ${role.key === 'support' ? 'selected' : ''}>${escapeHtml(role.label)} · ${escapeHtml(role.key)}</option>`).join('');
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('管理员账号', numberText(summary.activeAccounts || 0), `${numberText(summary.stateAccounts || 0)} 个 state 账号`, '后台账号与 App 用户账号分离。环境变量 admin 仍可用，新增账号保存在服务端 state。')}
-      ${metric('已开放权限', numberText(summary.activePermissions || 0), 'admin 全量权限', '当前没有细角色拦截，页面明确列出实际开放能力和生产期预留角色。')}
-      ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.reservedRoles || 0)} 个预留角色`, '多管理员基础能力已接入；MFA、细角色拦截和密码轮换仍是生产期治理能力。')}
+      ${metric('当前权限', numberText(summary.activePermissions || 0), `${(session.roleIds || []).join(' / ') || '未识别角色'}`, '后台已按角色做运行时权限拦截；按钮漏隐藏时，后端仍会按权限点拒绝。')}
+      ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.reservedRoles || 0)} 个预留角色`, '多管理员、角色权限、登录失败锁定和 IP 白名单底座已接入；MFA 与密码轮换仍是生产期治理能力。')}
       ${metric('登录保护', loginSecurity.locked ? '已锁定' : `${numberText(loginSecurity.failedAttempts || 0)}/${numberText(loginSecurity.maxAttempts || 5)}`, loginSecurity.locked ? `到 ${formatTime(loginSecurity.lockedUntil)}` : `${numberText(loginSecurity.lockMinutes || 15)} 分钟锁定`, '连续失败达到阈值后，后台会临时锁定登录，并写入审计日志。')}
       ${metric('IP 白名单', ipAllowlist.configured ? '已启用' : '未启用', ipAllowlist.configured ? `${numberText(ipAllowlist.entryCount || 0)} 条规则 · 当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '配置环境变量后生效', '配置 LUMII_ADMIN_IP_ALLOWLIST 后，/admin 页面和 /admin/* API 都会拦截非白名单 IP。')}
       ${metric('当前会话', session.expiresAt ? formatTime(session.expiresAt) : '-', `${escapeHtml(session.ip || 'IP 未记录')}`, '当前后台 token 的到期时间、请求 IP 和 User-Agent 摘要。')}
@@ -2563,14 +2566,15 @@ async function renderAdminAccounts(force) {
         <div class="section-head">
           <div>
             <h2>新增后台账号</h2>
-            <div class="section-sub">保存到服务端 state · 当前统一 admin 权限</div>
+            <div class="section-sub">保存到服务端 state · 按角色授予权限</div>
           </div>
-          ${help('这是多管理员底座，不会复用 App 手机号账号。密码只保存 PBKDF2 哈希，不会在后台回显。当前阶段新增账号均按 admin 权限处理，后续再接细角色拦截。')}
+          ${help('这是多管理员底座，不会复用 App 手机号账号。密码只保存 PBKDF2 哈希，不会在后台回显；新账号默认客服角色，避免误给高危权限。')}
         </div>
         <div class="form-grid">
           <label>账号名<input id="adminAccountUsername" maxlength="64" placeholder="例如 ops_admin_01" /></label>
           <label>显示名称<input id="adminAccountDisplayName" maxlength="40" placeholder="例如 运营管理员" /></label>
           <label>初始密码<input id="adminAccountPassword" type="password" autocomplete="new-password" placeholder="至少 10 位，含字母和数字" /></label>
+          <label>角色<select id="adminAccountRole">${roleOptions}</select></label>
           <label>操作原因<input id="adminAccountReason" maxlength="120" value="新增后台管理员账号" /></label>
           <div class="form-actions">
             <button class="primary-button" data-action="admin-account-create">创建账号</button>
@@ -2652,13 +2656,14 @@ async function renderAdminAccounts(force) {
         <div class="section-head">
           <div>
             <h2>角色边界</h2>
-            <div class="section-sub">实际 admin 与生产期预留角色</div>
+            <div class="section-sub">当前已启用的后台角色边界</div>
           </div>
-          ${help('预留角色不会影响当前权限判断，只用于标记后续生产治理方向。')}
+          ${help('角色已经进入后端运行时拦截；admin/super_admin 拥有全量能力，其他角色只拥有表内列出的权限点。')}
         </div>
         ${tableHtml(data.roles || [], [
           ['状态', (row) => row.status === 'active' ? tonePill('已启用', 'ok') : tonePill('预留', 'warn')],
           ['角色', (row) => `<div class="cell-title">${escapeHtml(row.label)}</div><div class="cell-sub">${escapeHtml(row.key)}</div>`],
+          ['权限数', (row) => `<div class="cell-title">${numberText((row.permissionKeys || []).length)}</div><div class="cell-sub clamp">${(row.permissionKeys || []).slice(0, 6).map((key) => escapeHtml(key)).join(' · ')}</div>`],
           ['说明', (row) => `<div class="cell-sub clamp">${escapeHtml(row.note || '-')}</div>`],
         ], '暂无角色')}
       </div>
@@ -2667,13 +2672,14 @@ async function renderAdminAccounts(force) {
         <div class="section-head">
           <div>
             <h2>权限点</h2>
-            <div class="section-sub">当前 admin 已开放能力清单</div>
+            <div class="section-sub">权限点与可用角色</div>
           </div>
-          ${help('这一版所有开放的后台功能都由 admin 访问；后续细角色会按这里的权限点拆分。')}
+          ${help('权限点由后端集中判断；这里展示每个权限点当前哪些角色拥有。')}
         </div>
         ${tableHtml(data.permissions || [], [
           ['分组', (row) => statusPill(row.group || '-')],
           ['权限点', (row) => `<div class="cell-title">${escapeHtml(row.key)}</div><div class="cell-sub">${escapeHtml(row.label)}</div>`],
+          ['角色', (row) => `<div>${(row.roleIds || []).map((role) => statusPill(role)).join(' ') || '<span class="cell-sub">未授权</span>'}</div>`],
           ['状态', (row) => statusPill(row.status || 'active')],
         ], '暂无权限点')}
       </div>

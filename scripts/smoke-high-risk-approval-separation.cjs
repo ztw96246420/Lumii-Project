@@ -150,6 +150,7 @@ async function createReviewer(adminToken) {
       displayName: 'Reviewer',
       password: 'Reviewer2026',
       reason: 'create reviewer for high risk approval separation smoke',
+      roleIds: ['super_admin'],
       username: 'reviewer_01',
     },
     method: 'POST',

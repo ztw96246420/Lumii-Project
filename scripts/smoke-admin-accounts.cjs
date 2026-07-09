@@ -130,6 +130,7 @@ async function main() {
         displayName: '值班管理员',
         password: 'OpsAdmin2026',
         reason: 'smoke 创建后台管理员账号',
+        roleIds: ['support'],
         username: 'ops_admin_01',
       },
       method: 'POST',
@@ -140,6 +141,9 @@ async function main() {
     assert.equal(account.username, 'ops_admin_01');
     assert.equal(account.status, 'active');
     assert.equal(account.source, 'state');
+    assert.deepEqual(account.roleIds, ['support']);
+    assert.equal(account.permissionKeys.includes('support.ticket.process'), true);
+    assert.equal(account.permissionKeys.includes('user.clear_data'), false);
     assert.equal(account.passwordHash, undefined);
 
     const rawState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
@@ -150,6 +154,15 @@ async function main() {
     const opsToken = await loginAdmin('ops_admin_01', 'OpsAdmin2026');
     const me = await request('/admin/me', { token: opsToken });
     assert.equal(me.data.username, 'ops_admin_01');
+    assert.deepEqual(me.data.roleIds, ['support']);
+    await request('/admin/tickets', { token: opsToken });
+    const deniedAccounts = await request('/admin/accounts', { expectedStatus: 403, token: opsToken });
+    assert.equal(deniedAccounts.error.code, 'ADMIN_PERMISSION_DENIED');
+    assert.equal(deniedAccounts.data.permission, 'admin.manage_roles');
+    const deniedClear = await request('/admin/data-clear-approvals', { expectedStatus: 403, token: opsToken });
+    assert.equal(deniedClear.data.permission, 'user.clear_data');
+    const deniedExport = await request('/admin/exports/history', { expectedStatus: 403, token: opsToken });
+    assert.equal(deniedExport.data.permission, 'data.export.download');
 
     await request(`/admin/accounts/${encodeURIComponent(account.id)}/disable`, {
       body: { reason: 'smoke 禁用后台管理员账号' },
