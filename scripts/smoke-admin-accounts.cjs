@@ -183,6 +183,19 @@ async function main() {
       token: envToken,
     });
     const enabledToken = await loginAdmin('ops_admin_01', 'OpsAdmin2026');
+    const maxAttempts = Number(initial.data.loginSecurity?.maxAttempts || 5);
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      await loginAdmin('ops_admin_01', `WrongPassword${attempt}`, attempt >= maxAttempts ? 429 : 401);
+    }
+    const envStillLogsIn = await loginAdmin();
+    assert.ok(envStillLogsIn, 'env admin should still login while support account is locked');
+    await loginAdmin('ops_admin_01', 'OpsAdmin2026', 429);
+    const lockedAccounts = await request('/admin/accounts', { token: envToken });
+    const lockedSupport = lockedAccounts.data.accounts.find((item) => item.username === 'ops_admin_01');
+    const envAccount = lockedAccounts.data.accounts.find((item) => item.username === 'admin');
+    assert.equal(lockedSupport.status, 'locked');
+    assert.equal(envAccount.status, 'active');
+    assert.equal(lockedAccounts.data.loginSecurity.lockedAccountCount, 1);
 
     await request(`/admin/accounts/${encodeURIComponent(account.id)}/reset-password`, {
       body: { password: 'OpsAdmin2027', reason: 'smoke 重置后台管理员密码' },
@@ -204,6 +217,7 @@ async function main() {
     const finalAccounts = await request('/admin/accounts', { token: envToken });
     assert.equal(finalAccounts.data.summary.stateAccounts, 1);
     assert.equal(finalAccounts.data.accounts.some((item) => item.username === 'ops_admin_01' && item.status === 'active'), true);
+    assert.equal(finalAccounts.data.loginSecurity.lockedAccountCount, 0);
   } finally {
     await stopBackend();
     fs.rmSync(tmpDir, { force: true, recursive: true });

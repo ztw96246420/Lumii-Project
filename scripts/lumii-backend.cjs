@@ -721,6 +721,7 @@ function createInitialState() {
     launchReadinessQuestionOverrides: {},
     opsConfigApprovals: [],
     adminLoginSecurity: {
+      accountFailures: {},
       failedAttempts: 0,
       firstFailedAt: '',
       lastFailedAt: '',
@@ -6430,6 +6431,9 @@ function ensureAdminLoginSecurity() {
     ...initial,
     ...(state.adminLoginSecurity || {}),
   };
+  state.adminLoginSecurity.accountFailures = state.adminLoginSecurity.accountFailures && typeof state.adminLoginSecurity.accountFailures === 'object' && !Array.isArray(state.adminLoginSecurity.accountFailures)
+    ? state.adminLoginSecurity.accountFailures
+    : {};
   state.adminLoginSecurity.failedAttempts = Math.max(0, Number(state.adminLoginSecurity.failedAttempts || 0));
   state.adminLoginSecurity.lockCount = Math.max(0, Number(state.adminLoginSecurity.lockCount || 0));
   return state.adminLoginSecurity;
@@ -6440,21 +6444,76 @@ function adminLoginLockUntilMs(security = ensureAdminLoginSecurity()) {
   return Number.isFinite(lockedUntil) ? lockedUntil : 0;
 }
 
-function adminLoginSecurityStatus() {
-  const security = ensureAdminLoginSecurity();
-  const lockedUntilMs = adminLoginLockUntilMs(security);
-  const now = Date.now();
-  const locked = lockedUntilMs > now;
+function adminLoginAccountKey(username) {
+  return (normalizeAdminUsername(username) || ADMIN_USERNAME || 'admin').toLowerCase();
+}
+
+function normalizeAdminLoginFailureRecord(username, record = {}) {
   return {
-    failedAttempts: Math.max(0, Number(security.failedAttempts || 0)),
-    firstFailedAt: security.firstFailedAt || '',
-    lastFailedAt: security.lastFailedAt || '',
-    lastFailedIp: security.lastFailedIp || '',
-    lastFailedUserAgent: security.lastFailedUserAgent || '',
-    lastUsername: security.lastUsername || '',
+    failedAttempts: Math.max(0, Number(record.failedAttempts || 0)),
+    firstFailedAt: record.firstFailedAt || '',
+    lastFailedAt: record.lastFailedAt || '',
+    lastFailedIp: record.lastFailedIp || '',
+    lastFailedUserAgent: record.lastFailedUserAgent || '',
+    lockedUntil: record.lockedUntil || '',
+    lockCount: Math.max(0, Number(record.lockCount || 0)),
+    username: normalizeAdminUsername(record.username || username) || normalizeAdminUsername(username) || ADMIN_USERNAME,
+  };
+}
+
+function adminLoginFailureRecord(username, { create = true } = {}) {
+  const security = ensureAdminLoginSecurity();
+  const key = adminLoginAccountKey(username);
+  if (!security.accountFailures[key] && create) security.accountFailures[key] = normalizeAdminLoginFailureRecord(username);
+  if (security.accountFailures[key]) security.accountFailures[key] = normalizeAdminLoginFailureRecord(username, security.accountFailures[key]);
+  return security.accountFailures[key] || normalizeAdminLoginFailureRecord(username);
+}
+
+function adminLoginFailureRows() {
+  const security = ensureAdminLoginSecurity();
+  const now = Date.now();
+  return Object.entries(security.accountFailures || {})
+    .map(([key, record]) => {
+      const normalized = normalizeAdminLoginFailureRecord(record?.username || key, record);
+      const lockedUntilMs = Date.parse(String(normalized.lockedUntil || ''));
+      const locked = Number.isFinite(lockedUntilMs) && lockedUntilMs > now;
+      return {
+        ...normalized,
+        key,
+        locked,
+        lockedUntil: locked ? new Date(lockedUntilMs).toISOString() : '',
+        remainingLockMs: locked ? Math.max(0, lockedUntilMs - now) : 0,
+        remainingLockMinutes: locked ? Math.max(1, Math.ceil((lockedUntilMs - now) / 60 / 1000)) : 0,
+      };
+    })
+    .filter((record) => record.failedAttempts > 0 || record.lockCount > 0 || record.locked)
+    .sort((left, right) => {
+      if (left.locked !== right.locked) return left.locked ? -1 : 1;
+      return String(right.lastFailedAt || '').localeCompare(String(left.lastFailedAt || ''));
+    });
+}
+
+function adminLoginAccountStatus(username) {
+  const record = adminLoginFailureRecord(username, { create: false });
+  const lockedUntilMs = Date.parse(String(record.lockedUntil || ''));
+  const now = Date.now();
+  const locked = Number.isFinite(lockedUntilMs) && lockedUntilMs > now;
+  if (!locked && record.lockedUntil && Number.isFinite(lockedUntilMs)) {
+    const mutable = adminLoginFailureRecord(username);
+    mutable.failedAttempts = 0;
+    mutable.firstFailedAt = '';
+    mutable.lockedUntil = '';
+  }
+  return {
+    failedAttempts: Math.max(0, Number(record.failedAttempts || 0)),
+    firstFailedAt: record.firstFailedAt || '',
+    lastFailedAt: record.lastFailedAt || '',
+    lastFailedIp: record.lastFailedIp || '',
+    lastFailedUserAgent: record.lastFailedUserAgent || '',
+    lastUsername: record.username || normalizeAdminUsername(username) || ADMIN_USERNAME,
     locked,
     lockedUntil: locked ? new Date(lockedUntilMs).toISOString() : '',
-    lockCount: Math.max(0, Number(security.lockCount || 0)),
+    lockCount: Math.max(0, Number(record.lockCount || 0)),
     lockMinutes: Math.ceil(ADMIN_LOGIN_LOCK_MS / 60 / 1000),
     maxAttempts: ADMIN_LOGIN_MAX_ATTEMPTS,
     remainingLockMs: locked ? Math.max(0, lockedUntilMs - now) : 0,
@@ -6462,24 +6521,59 @@ function adminLoginSecurityStatus() {
   };
 }
 
+function adminLoginSecurityStatus() {
+  const security = ensureAdminLoginSecurity();
+  const accountFailures = adminLoginFailureRows();
+  const lockedRows = accountFailures.filter((record) => record.locked);
+  const latest = accountFailures.find((record) => record.lastFailedAt) || null;
+  const lockedUntilMs = lockedRows.reduce((max, row) => Math.max(max, Date.parse(String(row.lockedUntil || '')) || 0), 0);
+  return {
+    accountFailures: accountFailures.slice(0, 20),
+    failedAttempts: latest ? Math.max(0, Number(latest.failedAttempts || 0)) : Math.max(0, Number(security.failedAttempts || 0)),
+    firstFailedAt: latest?.firstFailedAt || security.firstFailedAt || '',
+    lastFailedAt: latest?.lastFailedAt || security.lastFailedAt || '',
+    lastFailedIp: latest?.lastFailedIp || security.lastFailedIp || '',
+    lastFailedUserAgent: latest?.lastFailedUserAgent || security.lastFailedUserAgent || '',
+    lastUsername: latest?.username || security.lastUsername || '',
+    locked: lockedRows.length > 0,
+    lockedAccountCount: lockedRows.length,
+    lockedUntil: lockedUntilMs > Date.now() ? new Date(lockedUntilMs).toISOString() : '',
+    lockCount: accountFailures.reduce((sum, record) => sum + Math.max(0, Number(record.lockCount || 0)), 0),
+    lockMinutes: Math.ceil(ADMIN_LOGIN_LOCK_MS / 60 / 1000),
+    maxAttempts: ADMIN_LOGIN_MAX_ATTEMPTS,
+    remainingLockMs: lockedUntilMs > Date.now() ? Math.max(0, lockedUntilMs - Date.now()) : 0,
+    remainingLockMinutes: lockedUntilMs > Date.now() ? Math.max(1, Math.ceil((lockedUntilMs - Date.now()) / 60 / 1000)) : 0,
+    trackedAccountCount: accountFailures.length,
+  };
+}
+
 function recordAdminLoginFailure(admin, username, reason = 'invalid_credentials') {
   const security = ensureAdminLoginSecurity();
-  const before = cloneJson(security);
+  const record = adminLoginFailureRecord(username);
+  const before = cloneJson(record);
   const now = new Date().toISOString();
-  const attempts = Math.max(0, Number(security.failedAttempts || 0)) + 1;
+  const attempts = Math.max(0, Number(record.failedAttempts || 0)) + 1;
+  record.failedAttempts = attempts;
+  record.firstFailedAt = record.firstFailedAt || now;
+  record.lastFailedAt = now;
+  record.lastFailedIp = admin?.ip || '';
+  record.lastFailedUserAgent = admin?.userAgent || '';
+  record.username = normalizeAdminUsername(username) || ADMIN_USERNAME;
   security.failedAttempts = attempts;
-  security.firstFailedAt = security.firstFailedAt || now;
+  security.firstFailedAt = record.firstFailedAt;
   security.lastFailedAt = now;
-  security.lastFailedIp = admin?.ip || '';
-  security.lastFailedUserAgent = admin?.userAgent || '';
-  security.lastUsername = String(username || '').slice(0, 80);
+  security.lastFailedIp = record.lastFailedIp;
+  security.lastFailedUserAgent = record.lastFailedUserAgent;
+  security.lastUsername = record.username;
   let lockedNow = false;
   if (attempts >= ADMIN_LOGIN_MAX_ATTEMPTS) {
-    security.lockedUntil = new Date(Date.now() + ADMIN_LOGIN_LOCK_MS).toISOString();
+    record.lockedUntil = new Date(Date.now() + ADMIN_LOGIN_LOCK_MS).toISOString();
+    record.lockCount = Math.max(0, Number(record.lockCount || 0)) + 1;
+    security.lockedUntil = record.lockedUntil;
     security.lockCount = Math.max(0, Number(security.lockCount || 0)) + 1;
     lockedNow = true;
   }
-  const after = cloneJson(security);
+  const after = cloneJson(record);
   writeAdminAudit(admin, 'admin.login.failed', 'admin_user', username || ADMIN_USERNAME, before, after, reason);
   if (lockedNow) {
     writeAdminAudit(admin, 'admin.login.locked', 'admin_user', username || ADMIN_USERNAME, before, after, `连续 ${attempts} 次失败，锁定 ${Math.ceil(ADMIN_LOGIN_LOCK_MS / 60 / 1000)} 分钟`);
@@ -6487,21 +6581,28 @@ function recordAdminLoginFailure(admin, username, reason = 'invalid_credentials'
   return adminLoginSecurityStatus();
 }
 
-function recordAdminLoginSuccess(admin) {
+function clearAdminLoginFailureForAccount(username, admin, reason = '清理后台账号登录失败计数') {
   const security = ensureAdminLoginSecurity();
-  const before = cloneJson(security);
-  security.failedAttempts = 0;
-  security.firstFailedAt = '';
-  security.lastFailedAt = '';
-  security.lastFailedIp = '';
-  security.lastFailedUserAgent = '';
-  security.lastUsername = '';
-  security.lockedUntil = '';
-  const after = cloneJson(security);
+  const key = adminLoginAccountKey(username);
+  const before = cloneJson(security.accountFailures[key] || null);
+  if (security.accountFailures[key]) delete security.accountFailures[key];
+  const after = cloneJson(security.accountFailures[key] || null);
   if (JSON.stringify(before) !== JSON.stringify(after)) {
-    writeAdminAudit(admin, 'admin.login.reset_failures', 'admin_user', admin?.username || ADMIN_USERNAME, before, after, '登录成功后清零失败计数');
+    writeAdminAudit(admin, 'admin.login.reset_failures', 'admin_user', username || ADMIN_USERNAME, before, after, reason);
   }
+  const latest = adminLoginFailureRows()[0] || null;
+  security.failedAttempts = latest ? latest.failedAttempts : 0;
+  security.firstFailedAt = latest ? latest.firstFailedAt : '';
+  security.lastFailedAt = latest ? latest.lastFailedAt : '';
+  security.lastFailedIp = latest ? latest.lastFailedIp : '';
+  security.lastFailedUserAgent = latest ? latest.lastFailedUserAgent : '';
+  security.lastUsername = latest ? latest.username : '';
+  security.lockedUntil = latest?.lockedUntil || '';
   return adminLoginSecurityStatus();
+}
+
+function recordAdminLoginSuccess(admin, username = admin?.username || ADMIN_USERNAME) {
+  return clearAdminLoginFailureForAccount(username, admin, '登录成功后清零该账号失败计数');
 }
 
 function auditDateEndMs(value) {
@@ -20918,18 +21019,27 @@ function adminAccountHighRiskPattern() {
 function adminStoredAccountRows() {
   return storedAdminAccounts()
     .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')))
-    .map(publicAdminAccount);
+    .map((account) => {
+      const row = publicAdminAccount(account);
+      const loginStatus = adminLoginAccountStatus(row.username);
+      return {
+        ...row,
+        lockedUntil: loginStatus.lockedUntil,
+        status: row.status === 'disabled' ? 'disabled' : loginStatus.locked ? 'locked' : row.status,
+      };
+    });
 }
 
 function adminAccountRows(loginLogs = []) {
   const lastEnvLogin = loginLogs.find((log) => safeEqualText(log.adminName || '', ADMIN_USERNAME)) || loginLogs[0] || null;
+  const envLoginStatus = adminLoginAccountStatus(ADMIN_USERNAME);
   return [
     {
       ...publicAdminAccount(adminEnvAccount()),
       lastLoginAt: lastEnvLogin?.createdAt || '',
       lastLoginIp: lastEnvLogin?.ip || '',
-      lockedUntil: adminLoginSecurityStatus().lockedUntil,
-      status: adminLoginSecurityStatus().locked ? 'locked' : 'active',
+      lockedUntil: envLoginStatus.lockedUntil,
+      status: envLoginStatus.locked ? 'locked' : 'active',
     },
     ...adminStoredAccountRows(),
   ];
@@ -21029,6 +21139,7 @@ function resetAdminAccountPassword(admin, accountId, body = {}) {
   });
   const after = publicAdminAccount(account);
   writeAdminAudit(admin, 'admin.account.reset_password', 'admin_account', account.id, before, after, reasonResult.reason);
+  clearAdminLoginFailureForAccount(account.username, admin, '重置密码后清理该账号登录失败锁定');
   return { account: after, accounts: adminAccountRows(), summary: adminAccounts(admin).summary };
 }
 
@@ -21078,7 +21189,7 @@ function adminAccounts(admin = {}) {
   const sessionPermissionKeys = adminPermissionsForRoles(admin.roleIds || [admin.role || 'admin']);
   const checks = [
     adminCheckStatus(usernameFromEnv && passwordFromEnv ? 'ok' : 'warn', 'credential_env', '后台账号环境变量', passwordFromEnv ? '后台密码由环境变量覆盖' : '仍可能使用默认后台密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
-    adminCheckStatus(loginSecurity.locked ? 'warn' : 'ok', 'login_lockout', '登录失败锁定', loginSecurity.locked ? `当前已锁定到 ${loginSecurity.lockedUntil}` : `连续 ${loginSecurity.maxAttempts} 次失败会锁定 ${loginSecurity.lockMinutes} 分钟`, 'LUMII_ADMIN_LOGIN_MAX_ATTEMPTS / LUMII_ADMIN_LOGIN_LOCK_MS'),
+    adminCheckStatus('ok', 'login_lockout', '逐账号登录失败锁定', loginSecurity.locked ? `当前 ${loginSecurity.lockedAccountCount} 个账号锁定到 ${loginSecurity.lockedUntil}` : `每个账号连续 ${loginSecurity.maxAttempts} 次失败会独立锁定 ${loginSecurity.lockMinutes} 分钟`, 'LUMII_ADMIN_LOGIN_MAX_ATTEMPTS / LUMII_ADMIN_LOGIN_LOCK_MS'),
     adminCheckStatus('warn', 'mfa', 'MFA', '当前后台账号未接 MFA，生产期必须补齐。', '预留'),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'ip_allowlist', 'IP 白名单', ipAllowlist.configured ? `已启用后端白名单，当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '当前未强制后台 IP 白名单，生产期应在网关或后端启用。', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
     adminCheckStatus(storedCount > 0 ? 'ok' : 'warn', 'multi_accounts', '多管理员账号', storedCount > 0 ? `已启用 ${storedCount} 个 state 管理员账号，可新增、禁用、启用和重置密码。` : '当前只有环境变量 admin 账号，可在本页新增 state 管理员账号。', 'JSON state：adminAccounts'),
@@ -21344,7 +21455,7 @@ function adminReadinessModules(context) {
       status: hasAccountWarnings ? 'partial' : 'ready',
       evidence: '已覆盖系统健康、外部依赖、业务积压、多后台账号、角色权限点、会话和高风险动作。',
       mobileLinkage: '系统健康观测包含影响 App 的 AI、地图、媒体、客服、通知和配置能力。',
-      nextStep: '生产期补 MFA、逐账号登录风控、APM 和不可篡改审计。',
+      nextStep: '生产期补 MFA、APM 和不可篡改审计。',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }
@@ -21397,11 +21508,11 @@ function adminReadinessGaps(context) {
       issue: defaultPasswordRisk
         ? '后台密码仍可能使用默认值'
         : ipAllowlistReady
-          ? '已接登录失败锁定和后端 IP 白名单，仍缺 MFA、多管理员账号和账号禁用/轮换流程。'
-          : '已接登录失败锁定，仍缺 IP 白名单、MFA 和多管理员账号。',
+          ? '已接逐账号登录失败锁定、多管理员账号、角色权限和后端 IP 白名单，仍缺 MFA、账号禁用/轮换 SOP 和正式数据库。'
+          : '已接逐账号登录失败锁定、多管理员账号和角色权限，仍缺 IP 白名单、MFA 和正式数据库。',
       requiredAction: ipAllowlistReady
-        ? '生产前继续启用 MFA、多管理员账号、账号禁用/轮换流程，并确认后台密码由环境变量覆盖。'
-        : '生产前启用环境变量密码、IP 白名单、MFA、账号禁用/轮换流程。',
+        ? '生产前继续启用 MFA、账号禁用/轮换 SOP，并确认后台密码由环境变量覆盖。'
+        : '生产前启用环境变量密码、IP 白名单、MFA 和账号禁用/轮换 SOP。',
       evidence: '账号权限页 / 系统健康页',
     },
     {
@@ -27111,11 +27222,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       userAgent: String(req.headers['user-agent'] || '').slice(0, 180),
       username: account?.username || username,
     };
-    const lockStatus = adminLoginSecurityStatus();
+    const lockStatus = adminLoginAccountStatus(username || account?.username || ADMIN_USERNAME);
     if (lockStatus.locked) {
       writeAdminAudit(admin, 'admin.login.blocked_by_lock', 'admin_user', username || ADMIN_USERNAME, null, lockStatus, '后台登录临时锁定中');
       saveState();
-      fail(res, 429, `后台登录已被临时锁定，请 ${lockStatus.remainingLockMinutes} 分钟后再试`, true, lockStatus, 'ADMIN_LOGIN_LOCKED');
+      fail(res, 429, `该后台账号已被临时锁定，请 ${lockStatus.remainingLockMinutes} 分钟后再试`, true, lockStatus, 'ADMIN_LOGIN_LOCKED');
       return true;
     }
     if (account?.status === 'disabled') {
@@ -27140,7 +27251,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       account.lastLoginUserAgent = admin.userAgent || '';
       account.updatedAt = account.updatedAt || account.lastLoginAt;
     }
-    recordAdminLoginSuccess(admin);
+    recordAdminLoginSuccess(admin, account.username);
     writeAdminAudit(admin, 'admin.login', 'admin_user', account.id || account.username, null, publicAdminAccount(account), 'login');
     saveState();
     ok(res, { admin, loginSecurity: adminLoginSecurityStatus(), token: createAdminToken(account) });

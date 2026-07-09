@@ -2556,7 +2556,7 @@ async function renderAdminAccounts(force) {
       ${metric('管理员账号', numberText(summary.activeAccounts || 0), `${numberText(summary.stateAccounts || 0)} 个 state 账号`, '后台账号与 App 用户账号分离。环境变量 admin 仍可用，新增账号保存在服务端 state。')}
       ${metric('当前权限', numberText(summary.activePermissions || 0), `${(session.roleIds || []).join(' / ') || '未识别角色'}`, '后台已按角色做运行时权限拦截；按钮漏隐藏时，后端仍会按权限点拒绝。')}
       ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.reservedRoles || 0)} 个预留角色`, '多管理员、角色权限、登录失败锁定和 IP 白名单底座已接入；MFA 与密码轮换仍是生产期治理能力。')}
-      ${metric('登录保护', loginSecurity.locked ? '已锁定' : `${numberText(loginSecurity.failedAttempts || 0)}/${numberText(loginSecurity.maxAttempts || 5)}`, loginSecurity.locked ? `到 ${formatTime(loginSecurity.lockedUntil)}` : `${numberText(loginSecurity.lockMinutes || 15)} 分钟锁定`, '连续失败达到阈值后，后台会临时锁定登录，并写入审计日志。')}
+      ${metric('登录保护', loginSecurity.lockedAccountCount ? `${numberText(loginSecurity.lockedAccountCount)} 个锁定` : `${numberText(loginSecurity.failedAttempts || 0)}/${numberText(loginSecurity.maxAttempts || 5)}`, `${numberText(loginSecurity.lockMinutes || 15)} 分钟锁定`, '连续失败达到阈值后，只临时锁定对应后台账号，并写入审计日志。')}
       ${metric('IP 白名单', ipAllowlist.configured ? '已启用' : '未启用', ipAllowlist.configured ? `${numberText(ipAllowlist.entryCount || 0)} 条规则 · 当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '配置环境变量后生效', '配置 LUMII_ADMIN_IP_ALLOWLIST 后，/admin 页面和 /admin/* API 都会拦截非白名单 IP。')}
       ${metric('当前会话', session.expiresAt ? formatTime(session.expiresAt) : '-', `${escapeHtml(session.ip || 'IP 未记录')}`, '当前后台 token 的到期时间、请求 IP 和 User-Agent 摘要。')}
     </div>
@@ -2588,7 +2588,7 @@ async function renderAdminAccounts(force) {
             <h2>安全检查</h2>
             <div class="section-sub">密码来源、MFA、IP 白名单和多账号状态</div>
           </div>
-          ${help('当前已支持单 admin、登录失败锁定和后端 IP 白名单；生产期还要接入 MFA、多管理员和账号禁用/轮换。')}
+          ${help('当前已支持多管理员、角色权限、逐账号登录失败锁定和后端 IP 白名单；生产期还要接入 MFA 与账号禁用/轮换 SOP。')}
         </div>
         ${tableHtml(data.security?.checks || [], [
           ['状态', (row) => healthStatusPill(row.status)],
@@ -2621,17 +2621,23 @@ async function renderAdminAccounts(force) {
         <div class="section-head">
           <div>
             <h2>登录保护</h2>
-            <div class="section-sub">失败计数、临时锁定和最近失败来源</div>
+            <div class="section-sub">逐账号失败计数、临时锁定和最近失败来源</div>
           </div>
-          ${help('当前单 admin 账号共用一套失败计数。连续失败达到阈值会临时锁定登录；成功登录后自动清零。')}
+          ${help('登录失败现在按账号独立计数。某个账号被撞库锁定时，不会影响其他管理员登录；成功登录或重置密码会清零该账号失败计数。')}
         </div>
         ${tableHtml([loginSecurity], [
-          ['状态', (row) => row.locked ? tonePill('已锁定', 'bad') : tonePill('正常', 'ok')],
-          ['失败计数', (row) => `<div class="cell-title">${numberText(row.failedAttempts || 0)} / ${numberText(row.maxAttempts || 5)}</div><div class="cell-sub">累计锁定 ${numberText(row.lockCount || 0)} 次</div>`],
+          ['状态', (row) => row.lockedAccountCount ? tonePill(`${numberText(row.lockedAccountCount)} 个账号锁定`, 'bad') : tonePill('正常', 'ok')],
+          ['最近失败', (row) => `<div class="cell-title">${numberText(row.failedAttempts || 0)} / ${numberText(row.maxAttempts || 5)}</div><div class="cell-sub">${escapeHtml(row.lastUsername || '暂无账号')} · 累计锁定 ${numberText(row.lockCount || 0)} 次</div>`],
           ['策略', (row) => `<div>连续失败锁定 ${numberText(row.lockMinutes || 15)} 分钟</div><div class="cell-sub">环境变量可调阈值和时长</div>`],
           ['最近失败', (row) => `<div>${row.lastFailedAt ? formatTime(row.lastFailedAt) : '-'}</div><div class="cell-sub">${escapeHtml(row.lastFailedIp || 'IP 未记录')}</div>`],
           ['锁定到', (row) => row.locked ? `<div>${formatTime(row.lockedUntil)}</div><div class="cell-sub">剩余约 ${numberText(row.remainingLockMinutes || 0)} 分钟</div>` : '<span class="cell-sub">未锁定</span>'],
         ], '暂无登录保护状态')}
+        ${tableHtml(loginSecurity.accountFailures || [], [
+          ['账号', (row) => `<div class="cell-title">${escapeHtml(row.username || row.key || '-')}</div><div class="cell-sub">${row.locked ? '当前锁定' : '未锁定'}</div>`],
+          ['失败', (row) => `<div>${numberText(row.failedAttempts || 0)} / ${numberText(loginSecurity.maxAttempts || 5)}</div><div class="cell-sub">累计锁定 ${numberText(row.lockCount || 0)} 次</div>`],
+          ['最近来源', (row) => `<div>${row.lastFailedAt ? formatTime(row.lastFailedAt) : '-'}</div><div class="cell-sub">${escapeHtml(row.lastFailedIp || 'IP 未记录')}</div>`],
+          ['锁定到', (row) => row.locked ? `<div>${formatTime(row.lockedUntil)}</div><div class="cell-sub">剩余约 ${numberText(row.remainingLockMinutes || 0)} 分钟</div>` : '<span class="cell-sub">未锁定</span>'],
+        ], '暂无账号失败记录')}
       </div>
 
       <div class="card">

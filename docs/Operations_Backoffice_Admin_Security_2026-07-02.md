@@ -6,7 +6,7 @@
 
 把当前后台从“只有账号密码”推进到“生产可配置入口边界”的状态。
 
-2026-07-04 已新增多管理员账号底座，2026-07-09 已补第一版运行时 RBAC，详见 [Operations_Backoffice_Admin_Accounts_2026-07-04.md](./Operations_Backoffice_Admin_Accounts_2026-07-04.md)。本文继续记录登录失败锁定和后台 IP 白名单能力。
+2026-07-04 已新增多管理员账号底座，2026-07-09 已补第一版运行时 RBAC 与逐账号登录失败锁定，详见 [Operations_Backoffice_Admin_Accounts_2026-07-04.md](./Operations_Backoffice_Admin_Accounts_2026-07-04.md)。本文继续记录后台 IP 白名单能力。
 
 ## 已支持
 
@@ -17,6 +17,7 @@
 - `LUMII_ADMIN_IP_ALLOWLIST` / `LUMII_ADMIN_IP_WHITELIST`：后台 IP 白名单。
 - state 管理员账号：已支持创建、禁用、启用和重置密码；环境变量账号仍作为最高兼容入口。
 - 角色权限运行时拦截：`support`、`content_moderator`、`ops_admin`、`auditor` 等非全量账号调用未授权 `/admin/*` API 会被后端拒绝。
+- 逐账号登录失败锁定：某个账号达到失败阈值后只锁定该账号，其他管理员仍可登录处理。
 
 白名单格式：
 
@@ -37,13 +38,12 @@
 - 账号权限页展示 IP 白名单是否启用、当前 IP 是否允许、规则数量和安全检查。
 - 系统健康页把 `admin_ip_allowlist` 纳入外部/安全依赖检查。
 - 上线台账的 `q-ip` 会在白名单配置后自动标记为已接入。
-- 后台安全整体仍会因为 MFA、逐账号锁定和生产数据库未接而保持 `partial`，不误报为生产完全就绪。
+- 后台安全整体仍会因为 MFA、生产数据库和网关层安全未接而保持 `partial`，不误报为生产完全就绪。
 
 ## 仍未实现
 
 - MFA。
 - 后台登录设备管理。
-- 逐账号登录失败锁定。
 - 后台账号离职禁用流程。
 - 网关层 IP 白名单。当前为 Node 后端应用层白名单，生产建议网关层同时配置。
 
