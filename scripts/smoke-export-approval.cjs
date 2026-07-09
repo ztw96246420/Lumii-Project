@@ -147,7 +147,7 @@ async function main() {
 
     await request('/admin/config', {
       body: {
-        exports: { approvalExpiresHours: 12, maxDownloadsPerApproval: 1, requireApproval: true },
+        exports: { approvalExpiresHours: 12, maxDownloadsPerApproval: 2, requireApproval: true },
         reason: 'export approval smoke',
       },
       method: 'PATCH',
@@ -193,6 +193,37 @@ async function main() {
     });
     assert.equal(mismatch.error.code, 'ADMIN_EXPORT_APPROVAL_MISMATCH');
 
+    const jobCreated = await request('/admin/exports/jobs', {
+      body: {
+        approvalId,
+        filters: { status: 'all' },
+        reason: 'export approval smoke',
+        type: 'users',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(jobCreated.data.job.datasetType, 'users');
+    assert.ok(['queued', 'running', 'completed'].includes(jobCreated.data.job.status));
+    const jobId = jobCreated.data.job.id;
+    let completedJob = null;
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      const jobs = await request('/admin/exports/jobs?type=users&status=all', { token: adminToken });
+      completedJob = jobs.data.items.find((item) => item.id === jobId);
+      if (completedJob?.status === 'completed') break;
+      await delay(100);
+    }
+    assert.equal(completedJob?.status, 'completed');
+    assert.ok(completedJob.filename.endsWith('.csv'));
+    assert.ok(completedJob.sizeBytes > 0);
+    const archived = await request(`/admin/exports/jobs/${encodeURIComponent(jobId)}/download`, {
+      raw: true,
+      token: adminToken,
+    });
+    assert.ok(archived.data.includes('导出水印ID'));
+    assert.ok(archived.data.includes('19900007400'));
+
     const downloaded = await request(`/admin/exports/users.csv?reason=export%20approval%20smoke&approvalId=${encodeURIComponent(approvalId)}`, {
       raw: true,
       token: adminToken,
@@ -202,8 +233,8 @@ async function main() {
 
     const approvals = await request('/admin/exports/approvals?type=users&status=all', { token: adminToken });
     const downloadedApproval = approvals.data.items.find((item) => item.id === approvalId);
-    assert.equal(downloadedApproval.downloadCount, 1);
-    assert.equal(downloadedApproval.maxDownloads, 1);
+    assert.equal(downloadedApproval.downloadCount, 2);
+    assert.equal(downloadedApproval.maxDownloads, 2);
     assert.equal(downloadedApproval.downloadRemaining, 0);
 
     const repeatedDownload = await request(`/admin/exports/users.csv?reason=export%20approval%20smoke&approvalId=${encodeURIComponent(approvalId)}`, {
@@ -214,12 +245,15 @@ async function main() {
 
     const history = await request('/admin/exports/history?type=users', { token: adminToken });
     assert.equal(history.data.items[0].approvalId, approvalId);
-    assert.equal(history.data.items[0].approvalDownloadCount, 1);
-    assert.equal(history.data.items[0].approvalMaxDownloads, 1);
+    assert.equal(history.data.items[0].approvalDownloadCount, 2);
+    assert.equal(history.data.items[0].approvalMaxDownloads, 2);
 
     const audit = await request('/admin/audit-logs?limit=100', { token: adminToken });
     assert.ok(audit.data.items.some((item) => item.action === 'data.export.approval.create'), 'approval creation should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'data.export.approval.approve'), 'approval approve should be audited');
+    assert.ok(audit.data.items.some((item) => item.action === 'data.export.job.create'), 'export job creation should be audited');
+    assert.ok(audit.data.items.some((item) => item.action === 'data.export.job.complete'), 'export job completion should be audited');
+    assert.ok(audit.data.items.some((item) => item.action === 'data.export.job.download'), 'export job download should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'data.export.download'), 'approved download should be audited');
 
     console.log('export approval smoke passed');

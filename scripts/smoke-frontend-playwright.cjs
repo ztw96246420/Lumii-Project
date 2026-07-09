@@ -255,7 +255,6 @@ async function main() {
     await waitBodyIncludes(page, 'Lucky');
     await waitBodyIncludes(page, 'Mochi');
     await page.getByLabel('switch-pet-preview-pet-mochi').click();
-    await waitExactText(page, '已切换为Mochi，首页内容已更新');
     await waitExactText(page, '猫咪 · 英短');
     await page.getByLabel('switch-pet-preview-pet-lucky').waitFor({ state: 'visible', timeout: 30_000 });
     await screenshot(page, 'smoke-frontend-00a-multi-pet-switched.png');

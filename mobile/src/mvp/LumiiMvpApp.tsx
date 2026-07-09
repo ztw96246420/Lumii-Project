@@ -101,6 +101,7 @@ import { getLumiiPushRegistration } from '../services/pushToken';
 import { clearPersistedLumiiSession, deleteLocalJsonStorage, loadLocalJsonStorage, loadPersistedLumiiSession, saveLocalJsonStorage, savePersistedLumiiSession } from '../services/sessionStorage';
 import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
 import { apiConfig, lumiiApi, setLumiiAuthToken } from './api';
+import { mockApi } from './mockApi';
 import { productConfig } from './productConfig';
 import { BottomSheet, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, SkeletonLine, StatusPill, Toast, palette, styles as uiStyles } from './ui';
 import type {
@@ -2230,11 +2231,24 @@ function petCirclePostMatchesQuery(post: PetCirclePostView, query: string) {
 
 export default function LumiiMvpApp() {
   const previewRoute = normalizeWebPreviewRoute(getWebPreviewParam('route'));
+  const initialPreviewRoute = previewRoute ?? 'home';
   const isHomePreviewMode = Boolean(previewRoute) || getWebPreviewParam('preview') === 'home' || getWebPreviewParam('preview') === 'pet-home';
   const interactivePetCirclePreview = getWebPreviewParam('mockPetCircle') === 'interactive';
   const interactiveMultiPetPreview = getWebPreviewParam('mockMultiPet') === 'interactive';
   const backdatedHealthCalendarPreview = getWebPreviewParam('mockHealthCalendar') === 'backdated';
   const backdatedHealthCalendarDate = addDaysIsoDate(-6);
+  const defaultHealthCalendarDate = () => (isHomePreviewMode && backdatedHealthCalendarPreview ? backdatedHealthCalendarDate : todayIsoDate());
+  const defaultHealthCalendarMonth = () => monthStartIso(defaultHealthCalendarDate());
+  const useMockPetScopedApi = isHomePreviewMode;
+  const healthPreviewApi = useMockPetScopedApi ? mockApi.health : lumiiApi.health;
+  const petPreviewApi = isHomePreviewMode ? mockApi.pets : lumiiApi.pets;
+  const avatarPreviewApi = isHomePreviewMode ? mockApi.avatar : lumiiApi.avatar;
+  const aiPreviewApi = isHomePreviewMode ? mockApi.ai : lumiiApi.ai;
+  const messagePreviewApi = isHomePreviewMode ? mockApi.messages : lumiiApi.messages;
+  const socialPreviewApi = isHomePreviewMode ? mockApi.social : lumiiApi.social;
+  const placesPreviewApi = isHomePreviewMode ? mockApi.places : lumiiApi.places;
+  const accountPreviewApi = isHomePreviewMode ? mockApi.account : lumiiApi.account;
+  const settingsPreviewApi = isHomePreviewMode ? mockApi.settings : lumiiApi.settings;
   const initialPreviewPets = isHomePreviewMode && interactiveMultiPetPreview ? [webPreviewPet, webPreviewSecondPet] : [webPreviewPet];
   const previewNearbyVisibleParam = getWebPreviewParam('nearbyVisible');
   const initialUserSettings: UserSettings = isHomePreviewMode
@@ -2250,7 +2264,6 @@ export default function LumiiMvpApp() {
   const initialPreviewSession: AuthSession = isHomePreviewMode
     ? { ...webPreviewSession, account: { ...webPreviewSession.account!, activePet: initialPreviewPets[0], settings: initialUserSettings } }
     : webPreviewSession;
-  const initialPreviewRoute = previewRoute ?? 'home';
   const forcedHomeMomentKind = normalizeHomeMomentPreview(getWebPreviewParam('moment'));
   const profileHorizontalInset = Platform.OS === 'web' ? 16 : 12;
   const profileBlockMarginStyle = useMemo<ViewStyle>(() => ({ marginHorizontal: profileHorizontalInset }), [profileHorizontalInset]);
@@ -3022,11 +3035,11 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     const requestPetId = pet.id;
     try {
-      let result = await lumiiApi.avatar.getLatestAnimation(pet.id);
+      let result = await avatarPreviewApi.getLatestAnimation(pet.id);
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return false;
       if (!result.data && options.startIfMissing) {
         avatarAnimationAutoStartedPetIdsRef.current.add(pet.id);
-        result = await lumiiApi.avatar.startAnimation(pet.id);
+        result = await avatarPreviewApi.startAnimation(pet.id);
         if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return false;
       }
       if (result.data) {
@@ -4086,23 +4099,23 @@ export default function LumiiMvpApp() {
     const requestSessionToken = targetSessionToken;
     if (!requestSessionToken) return;
     const [profileResult, petListResult, healthSummaryResult, healthCalendarResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, momentResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult, aiUsageResult] = await Promise.all([
-      lumiiApi.account.getMe(),
-      lumiiApi.pets.listPets(),
-      lumiiApi.health.getHealthSummary(),
-      lumiiApi.health.listHealthCalendar(),
-      lumiiApi.health.listWeightRecords(),
-      lumiiApi.health.listVaccines(),
-      lumiiApi.health.listVaccineReminderIds(),
-      lumiiApi.health.listHealthMemos(),
-      lumiiApi.social.listNearbyOwners(),
-      petCircleEnabled ? lumiiApi.social.listPetCirclePosts() : Promise.resolve(successResult<PetCirclePostList>({ items: [], nextCursor: undefined })),
-      lumiiApi.social.listGreetingRequests(),
-      lumiiApi.messages.listConversations(),
-      lumiiApi.messages.listNotifications(),
-      placesEnabled ? lumiiApi.places.listNearbyPlaces() : Promise.resolve(successResult<Place[]>([])),
-      placesEnabled ? lumiiApi.places.listFavoritePlaceIds() : Promise.resolve(successResult<string[]>([])),
-      placesEnabled ? lumiiApi.places.listMyReviews() : Promise.resolve(successResult<PlaceReview[]>([])),
-      lumiiApi.ai.getUsage(),
+      accountPreviewApi.getMe(),
+      petPreviewApi.listPets(),
+      healthPreviewApi.getHealthSummary(),
+      healthPreviewApi.listHealthCalendar(),
+      healthPreviewApi.listWeightRecords(),
+      healthPreviewApi.listVaccines(),
+      healthPreviewApi.listVaccineReminderIds(),
+      healthPreviewApi.listHealthMemos(),
+      socialPreviewApi.listNearbyOwners(),
+      petCircleEnabled ? socialPreviewApi.listPetCirclePosts() : Promise.resolve(successResult<PetCirclePostList>({ items: [], nextCursor: undefined })),
+      socialPreviewApi.listGreetingRequests(),
+      messagePreviewApi.listConversations(),
+      messagePreviewApi.listNotifications(),
+      placesEnabled ? placesPreviewApi.listNearbyPlaces() : Promise.resolve(successResult<Place[]>([])),
+      placesEnabled ? placesPreviewApi.listFavoritePlaceIds() : Promise.resolve(successResult<string[]>([])),
+      placesEnabled ? placesPreviewApi.listMyReviews() : Promise.resolve(successResult<PlaceReview[]>([])),
+      aiPreviewApi.getUsage(),
     ]);
     if (sessionTokenRef.current !== requestSessionToken) return;
     let loadedSettings = userSettingsRef.current;
@@ -4181,7 +4194,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
     if (!options.silent || !socialBlocks.length) setSocialBlocksLoading(true);
-    const result = await lumiiApi.social.listBlocks();
+    const result = await socialPreviewApi.listBlocks();
     if (sessionTokenRef.current !== requestSessionToken) return;
     setSocialBlocksLoading(false);
     if (result.data) {
@@ -4198,7 +4211,7 @@ export default function LumiiMvpApp() {
     const confirmed = await confirmAction('解除拉黑？', `解除后，你和${block.ownerName}会重新按附近可见与距离规则互相出现。`, '解除拉黑', true);
     if (!confirmed) return;
     setSocialBlockRemovingOwnerIds((ids) => [...ids, block.ownerId]);
-    const result = await lumiiApi.social.unblockOwner(block.ownerId);
+    const result = await socialPreviewApi.unblockOwner(block.ownerId);
     setSocialBlockRemovingOwnerIds((ids) => ids.filter((id) => id !== block.ownerId));
     if (result.data) {
       setSocialBlocks((items) => items.filter((item) => item.ownerId !== block.ownerId));
@@ -4211,7 +4224,7 @@ export default function LumiiMvpApp() {
   async function loadAiUsage(options: { silent?: boolean } = { silent: true }) {
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return null;
-    const result = await lumiiApi.ai.getUsage();
+    const result = await aiPreviewApi.getUsage();
     if (sessionTokenRef.current !== requestSessionToken) return null;
     if (result.data) {
       setAiUsage(result.data);
@@ -4237,7 +4250,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     const requestPetId = activePetIdRef.current;
     if (!requestPetId) return null;
-    const result = await lumiiApi.health.getHealthSummary();
+    const result = await healthPreviewApi.getHealthSummary();
     if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return null;
     if (!result.data) return null;
     setHealthSummary(result.data);
@@ -4265,7 +4278,7 @@ export default function LumiiMvpApp() {
       setHealthCalendarLoading(true);
     }
     try {
-      const result = await lumiiApi.health.listHealthCalendar();
+      const result = await healthPreviewApi.listHealthCalendar();
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return null;
       if (result.data) {
         setHealthCalendarEvents(result.data);
@@ -4303,8 +4316,8 @@ export default function LumiiMvpApp() {
     healthCalendarLoadingRef.current = false;
     setHealthCalendarLoading(false);
     setHealthCalendarRefreshing(false);
-    setHealthCalendarMonth(monthStartIso());
-    setSelectedHealthCalendarDate(todayIsoDate());
+    setHealthCalendarMonth(defaultHealthCalendarMonth());
+    setSelectedHealthCalendarDate(defaultHealthCalendarDate());
     setWeights([]);
     setWeightEditorMode(null);
     setWeightEditRecord(null);
@@ -4371,14 +4384,14 @@ export default function LumiiMvpApp() {
     if (!requestPetId) return false;
     if (options.reset) resetPetScopedRuntimeState(options.pet ?? getCurrentPet());
     const [healthSummaryResult, healthCalendarResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, aiUsageResult, petChatResult] = await Promise.all([
-      lumiiApi.health.getHealthSummary(),
-      lumiiApi.health.listHealthCalendar(),
-      lumiiApi.health.listWeightRecords(),
-      lumiiApi.health.listVaccines(),
-      lumiiApi.health.listVaccineReminderIds(),
-      lumiiApi.health.listHealthMemos(),
-      lumiiApi.ai.getUsage(),
-      petChatEnabled ? lumiiApi.messages.listPetChatMessages() : Promise.resolve(successResult<ChatMessage[]>([])),
+      healthPreviewApi.getHealthSummary(),
+      healthPreviewApi.listHealthCalendar(),
+      healthPreviewApi.listWeightRecords(),
+      healthPreviewApi.listVaccines(),
+      healthPreviewApi.listVaccineReminderIds(),
+      healthPreviewApi.listHealthMemos(),
+      aiPreviewApi.getUsage(),
+      petChatEnabled ? messagePreviewApi.listPetChatMessages() : Promise.resolve(successResult<ChatMessage[]>([])),
     ]);
     if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return false;
 
@@ -4439,7 +4452,7 @@ export default function LumiiMvpApp() {
   async function refreshPets() {
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
-    const result = await lumiiApi.pets.listPets();
+    const result = await petPreviewApi.listPets();
     if (sessionTokenRef.current !== requestSessionToken) return;
     if (result.data) setPets(result.data);
   }
@@ -4454,7 +4467,7 @@ export default function LumiiMvpApp() {
     petSwitchingIdRef.current = pet.id;
     setPetSwitchingId(pet.id);
     try {
-      const result = await lumiiApi.pets.setActivePet(pet.id);
+      const result = await petPreviewApi.setActivePet(pet.id);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         activePetIdRef.current = result.data.id;
@@ -4491,7 +4504,7 @@ export default function LumiiMvpApp() {
     petDeletingIdRef.current = pet.id;
     setPetDeletingId(pet.id);
     try {
-      const result = await lumiiApi.pets.deletePet(pet.id);
+      const result = await petPreviewApi.deletePet(pet.id);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setPetDeleteConfirm(null);
@@ -4546,9 +4559,9 @@ export default function LumiiMvpApp() {
     inboxRefreshInFlightRef.current = true;
     try {
       const [greetingRequestResult, conversationResult, notificationResult] = await Promise.all([
-        lumiiApi.social.listGreetingRequests(),
-        lumiiApi.messages.listConversations(),
-        lumiiApi.messages.listNotifications(),
+        socialPreviewApi.listGreetingRequests(),
+        messagePreviewApi.listConversations(),
+        messagePreviewApi.listNotifications(),
       ]);
       if (sessionTokenRef.current !== requestSessionToken) return false;
       if (greetingRequestResult.data) {
@@ -4950,7 +4963,7 @@ export default function LumiiMvpApp() {
     if (!unreadIds.length) return;
     const requestSessionToken = sessionTokenRef.current;
     updateNotificationsAndRef((items) => items.map((item) => (unreadIds.includes(item.id) ? { ...item, read: true } : item)));
-    const result = await lumiiApi.messages.markNotificationsRead(unreadIds);
+    const result = await messagePreviewApi.markNotificationsRead(unreadIds);
     if (sessionTokenRef.current !== requestSessionToken) return;
     if (result.data) applyNotifications(result.data);
   }
@@ -4976,7 +4989,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     const previousNotifications = notificationsRef.current;
     updateNotificationsAndRef((items) => items.map((item) => (unreadIds.includes(item.id) ? { ...item, read: true } : item)));
-    const result = await lumiiApi.messages.markNotificationsRead(unreadIds);
+    const result = await messagePreviewApi.markNotificationsRead(unreadIds);
     if (sessionTokenRef.current !== requestSessionToken) return;
     if (result.data) {
       applyNotifications(result.data);
@@ -4991,7 +5004,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
     updateNotificationsAndRef((items) => items.map((item) => (item.id === notificationId ? { ...item, read: true } : item)));
-    const result = await lumiiApi.messages.markNotificationsRead([notificationId]);
+    const result = await messagePreviewApi.markNotificationsRead([notificationId]);
     if (sessionTokenRef.current !== requestSessionToken) return;
     if (result.data) applyNotifications(result.data);
   }
@@ -5007,7 +5020,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     let conversation = conversationsRef.current.find((item) => item.id === conversationId);
     if (!conversation) {
-      const result = await lumiiApi.messages.listConversations();
+      const result = await messagePreviewApi.listConversations();
       if (sessionTokenRef.current !== requestSessionToken) return false;
       if (result.data) {
         applyConversations(result.data);
@@ -5045,7 +5058,7 @@ export default function LumiiMvpApp() {
       go('placeDetail');
       return true;
     }
-    const result = await lumiiApi.places.getPlace(placeId);
+    const result = await placesPreviewApi.getPlace(placeId);
     if (sessionTokenRef.current !== requestSessionToken) return false;
     if (result.data) {
       setSelectedPlace(result.data);
@@ -5064,7 +5077,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return;
     setPublicPlaceReviewsLoadingId(placeId);
-    const result = await lumiiApi.places.listPlaceReviews(placeId);
+    const result = await placesPreviewApi.listPlaceReviews(placeId);
     if (sessionTokenRef.current !== requestSessionToken) return;
     if (result.data) {
       setPublicPlaceReviewsByPlaceId((items) => ({ ...items, [placeId]: result.data! }));
@@ -5086,7 +5099,7 @@ export default function LumiiMvpApp() {
         `点评内容：${review.content}`,
         '来源：地点详情公开点评',
       ].filter(Boolean).join('\n');
-      const result = await lumiiApi.places.reportReview(review.id, feedbackContent);
+      const result = await placesPreviewApi.reportReview(review.id, feedbackContent);
       if (result.data) {
         setPublicPlaceReviewsByPlaceId((items) => {
           const nextItems = { ...items };
@@ -5117,7 +5130,7 @@ export default function LumiiMvpApp() {
         place.category ? `分类：${place.category}` : '',
         place.tags?.length ? `标签：${place.tags.join(' / ')}` : '',
       ].filter(Boolean).join('\n');
-      const result = await lumiiApi.places.reportPlace(place.id, feedbackContent);
+      const result = await placesPreviewApi.reportPlace(place.id, feedbackContent);
       if (result.data?.reported) {
         showToast('举报已提交', { subtitle: '运营会复核地点名称、地址和宠物友好信息', tone: 'success', variant: 'surface' });
       } else {
@@ -5135,7 +5148,7 @@ export default function LumiiMvpApp() {
       return false;
     }
     const requestSessionToken = sessionTokenRef.current;
-    const result = await lumiiApi.places.listMySubmissions();
+    const result = await placesPreviewApi.listMySubmissions();
     if (sessionTokenRef.current !== requestSessionToken) return false;
     const submission = result.data?.find((item) => item.id === submissionId);
     if (submission) {
@@ -5174,7 +5187,7 @@ export default function LumiiMvpApp() {
       const requestSessionToken = sessionTokenRef.current;
       let memo = item.memoId ? memos.find((entry) => entry.id === item.memoId) : null;
       if (item.memoId && !memo) {
-        const result = await lumiiApi.health.listHealthMemos();
+        const result = await healthPreviewApi.listHealthMemos();
         if (sessionTokenRef.current !== requestSessionToken) return;
         if (result.data) {
           setMemos(result.data);
@@ -5195,7 +5208,7 @@ export default function LumiiMvpApp() {
       const requestSessionToken = sessionTokenRef.current;
       let vaccine = item.vaccineId ? vaccines.find((entry) => entry.id === item.vaccineId) : null;
       if (item.vaccineId && !vaccine) {
-        const result = await lumiiApi.health.listVaccines();
+        const result = await healthPreviewApi.listVaccines();
         if (sessionTokenRef.current !== requestSessionToken) return;
         if (result.data) {
           setVaccines(result.data);
@@ -5239,7 +5252,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return false;
     const location = lastDiscoverLocationRef.current ?? undefined;
-    const postResult = await lumiiApi.social.getPetCirclePost(postId, location);
+    const postResult = await socialPreviewApi.getPetCirclePost(postId, location);
     if (sessionTokenRef.current !== requestSessionToken) return false;
     if (!postResult.data) {
       if (isPetCirclePostGoneError(postResult.error)) {
@@ -5255,7 +5268,7 @@ export default function LumiiMvpApp() {
 
     if (!options.preloadComments) return true;
     setPetCircleCommentLoadingId(postId);
-    const commentsResult = await lumiiApi.social.listPetCircleComments(postId);
+    const commentsResult = await socialPreviewApi.listPetCircleComments(postId);
     if (sessionTokenRef.current !== requestSessionToken) return false;
     setPetCircleCommentLoadingId((current) => (current === postId ? '' : current));
     if (commentsResult.data) {
@@ -5481,13 +5494,13 @@ export default function LumiiMvpApp() {
     if (!requestSessionToken) return;
     conversationRefreshInFlightRef.current = conversationId;
     try {
-      const result = await lumiiApi.messages.listConversationMessages(conversationId);
+      const result = await messagePreviewApi.listConversationMessages(conversationId);
       if (sessionTokenRef.current !== requestSessionToken) return;
       const isActiveConversation = !selectedConversationIdRef.current || selectedConversationIdRef.current === conversationId;
       if (result.data) {
         if (isActiveConversation) setConversationMessagesFromServer(conversationId, result.data);
         if (options.markRead) {
-          void lumiiApi.messages.markConversationRead(conversationId).then((markResult) => {
+          void messagePreviewApi.markConversationRead(conversationId).then((markResult) => {
             if (sessionTokenRef.current !== requestSessionToken) return;
             if (!markResult.data && !options.silent) showToast(markResult.error?.message ?? '已读状态同步失败');
           });
@@ -5510,7 +5523,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     const requestPetId = activePetIdRef.current;
     if (!requestPetId) return;
-    const result = await lumiiApi.messages.listPetChatMessages();
+    const result = await messagePreviewApi.listPetChatMessages();
     if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
     if (result.data) {
       setChatMessages(result.data.length ? result.data : [createPetChatWelcomeMessage(activePet)]);
@@ -5552,7 +5565,7 @@ export default function LumiiMvpApp() {
       const registration = await getLumiiPushRegistration();
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (!registration?.token || registeredPushTokenRef.current === registration.token) return;
-      const result = await lumiiApi.messages.registerPushToken(registration.token, registration.platform, registration.deviceId);
+      const result = await messagePreviewApi.registerPushToken(registration.token, registration.platform, registration.deviceId);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         registeredPushTokenRef.current = result.data.token;
@@ -5623,7 +5636,7 @@ export default function LumiiMvpApp() {
     setUserSettings(accountSettings);
 
     const [petResult, latestPermissions] = await Promise.all([
-      lumiiApi.pets.listPets(),
+      petPreviewApi.listPets(),
       refreshPermissionStatuses({
         base: accountPermissions,
         completed: Boolean(account?.permissionsOnboardingCompleted),
@@ -5887,7 +5900,7 @@ export default function LumiiMvpApp() {
           showToast('宠物信息已保存');
           return;
         }
-        const result = await lumiiApi.pets.updatePet(pet.id, payload);
+        const result = await petPreviewApi.updatePet(pet.id, payload);
         if (result.data) {
           activePetIdRef.current = result.data.id;
           setActivePet(result.data);
@@ -5913,7 +5926,7 @@ export default function LumiiMvpApp() {
         return;
       }
 
-      const result = await lumiiApi.pets.createPet(payload);
+      const result = await petPreviewApi.createPet(payload);
       if (result.data) {
         activePetIdRef.current = result.data.id;
         setActivePet(result.data);
@@ -6050,7 +6063,7 @@ export default function LumiiMvpApp() {
     let recoveredJob = recoverableLocalSnapshot?.job ?? null;
     let recoveredMedia = recoverableLocalSnapshot?.media ?? null;
 
-    const latestResult = await lumiiApi.avatar.getLatestGeneration(pet.id);
+    const latestResult = await avatarPreviewApi.getLatestGeneration(pet.id);
     if (latestResult.data?.id && !latestResult.data.acceptedAt) {
       const latestUpdatedAt = Number(latestResult.data.updatedAt || latestResult.data.createdAt || 0);
       const localUpdatedAt = Number(recoveredJob?.updatedAt || recoveredJob?.createdAt || 0);
@@ -6066,7 +6079,7 @@ export default function LumiiMvpApp() {
     }
 
     if (!recoveredMedia && recoveredJob.mediaId) {
-      const mediaResult = await lumiiApi.avatar.getUploadedMedia(recoveredJob.mediaId);
+      const mediaResult = await avatarPreviewApi.getUploadedMedia(recoveredJob.mediaId);
       if (mediaResult.data) recoveredMedia = mediaResult.data;
     }
 
@@ -6154,7 +6167,7 @@ export default function LumiiMvpApp() {
       }
 
       const asset = pickerResult.assets[0];
-      const result = await lumiiApi.avatar.uploadPetMedia({
+      const result = await avatarPreviewApi.uploadPetMedia({
         base64: asset.base64 ?? undefined,
         fileName: asset.fileName ?? undefined,
         mimeType: asset.mimeType ?? undefined,
@@ -6215,7 +6228,7 @@ export default function LumiiMvpApp() {
       }
       const requestSessionToken = sessionTokenRef.current;
       const mediaId = media.mediaId;
-      const result = await lumiiApi.avatar.startGeneration(mediaId);
+      const result = await avatarPreviewApi.startGeneration(mediaId);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (mediaIdRef.current !== mediaId) return;
       if (!avatarFlowRoutes.has(routeRef.current)) return;
@@ -6279,7 +6292,7 @@ export default function LumiiMvpApp() {
     if (avatarPollingJobIdRef.current === requestedJobId) return;
     avatarPollingJobIdRef.current = requestedJobId;
     try {
-      const result = await lumiiApi.avatar.getGenerationStatus(requestedJobId);
+      const result = await avatarPreviewApi.getGenerationStatus(requestedJobId);
       if (avatarJobIdRef.current !== requestedJobId) return;
       if (!avatarFlowRoutes.has(routeRef.current)) return;
       if (result.data) {
@@ -6322,8 +6335,8 @@ export default function LumiiMvpApp() {
         result = { data: { ...pet, avatarUrl: selectedCandidateUri }, state: 'success' };
       } else {
         result = jobId && selectedCandidateUri === avatarJob?.resultUrl
-          ? await lumiiApi.avatar.acceptGeneration(jobId)
-          : await lumiiApi.avatar.saveAvatar(pet.id, selectedCandidateUri);
+          ? await avatarPreviewApi.acceptGeneration(jobId)
+          : await avatarPreviewApi.saveAvatar(pet.id, selectedCandidateUri);
       }
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (jobId && avatarJobIdRef.current !== jobId) return;
@@ -6361,7 +6374,7 @@ export default function LumiiMvpApp() {
       }
       const requestSessionToken = sessionTokenRef.current;
       const requestedJobId = avatarJob.id;
-      const result = await lumiiApi.avatar.retryGeneration(requestedJobId);
+      const result = await avatarPreviewApi.retryGeneration(requestedJobId);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (avatarJobIdRef.current !== requestedJobId) return;
       if (!avatarFlowRoutes.has(routeRef.current)) return;
@@ -6427,7 +6440,7 @@ export default function LumiiMvpApp() {
         .filter((item) => avatarFeedbackChipIds.includes(item.id))
         .map((item) => item.label)
         .join('、');
-      const result = await lumiiApi.avatar.sendGenerationFeedback(jobId, primaryOption.reason, content);
+      const result = await avatarPreviewApi.sendGenerationFeedback(jobId, primaryOption.reason, content);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (avatarJobIdRef.current !== jobId) return;
       if (result.data) {
@@ -6523,7 +6536,7 @@ export default function LumiiMvpApp() {
       retryMessageId ? items.map((item) => (item.id === retryMessageId ? local : item)) : [...items, local],
     );
     try {
-      const result = await lumiiApi.messages.sendMessage(text);
+      const result = await messagePreviewApi.sendMessage(text);
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) {
         setChatMessages((items) => items.filter((item) => item.id !== local.id));
         return;
@@ -6550,7 +6563,7 @@ export default function LumiiMvpApp() {
     const previousRating = chatFeedbackById[messageId];
     setChatFeedbackById((items) => ({ ...items, [messageId]: rating }));
     try {
-      const result = await lumiiApi.messages.sendPetChatFeedback(messageId, rating);
+      const result = await messagePreviewApi.sendPetChatFeedback(messageId, rating);
       if (result.data) {
         setChatMessages((items) => items.map((item) => (item.id === messageId ? { ...item, feedback: result.data!.feedback } : item)));
         showToast(rating === 'good' ? '已记录：这个回复像它' : '已记录：这条反馈会作为语气参考');
@@ -6606,7 +6619,7 @@ export default function LumiiMvpApp() {
         showToast('招呼请求已更新，请返回消息页刷新');
         return;
       }
-      const result = await lumiiApi.social.rejectGreeting(owner.id);
+      const result = await socialPreviewApi.rejectGreeting(owner.id);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         applyGreetingRequestOwners(greetingRequestOwnersRef.current.filter((item) => item.id !== owner.id));
@@ -6647,7 +6660,7 @@ export default function LumiiMvpApp() {
         showToast(feedbackResult.error?.message ?? '举报提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
         return;
       }
-      const rejectResult = await lumiiApi.social.rejectGreeting(owner.id);
+      const rejectResult = await socialPreviewApi.rejectGreeting(owner.id);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (rejectResult.data) {
         applyGreetingRequestOwners(greetingRequestOwnersRef.current.filter((item) => item.id !== owner.id));
@@ -6672,7 +6685,7 @@ export default function LumiiMvpApp() {
         showToast('招呼请求已更新，请返回消息页刷新');
         return;
       }
-      const result = await lumiiApi.social.acceptGreeting(owner.id);
+      const result = await socialPreviewApi.acceptGreeting(owner.id);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         applyGreetingRequestOwners(greetingRequestOwnersRef.current.filter((item) => item.id !== owner.id));
@@ -6718,7 +6731,7 @@ export default function LumiiMvpApp() {
       retryMessageId ? items.map((item) => (item.id === retryMessageId ? local : item)) : [...items, local],
     );
     try {
-      const result = await lumiiApi.messages.sendConversationMessage(conversationId, text);
+      const result = await messagePreviewApi.sendConversationMessage(conversationId, text);
       if (sessionTokenRef.current !== requestSessionToken) {
         delete localConversationMessageIdsRef.current[local.id];
         return;
@@ -6754,7 +6767,7 @@ export default function LumiiMvpApp() {
     if (!conversation?.id || message.author !== 'other') return;
     const confirmed = await confirmAction('举报这条消息？', '我们会把这条消息和会话对象提交给安全审核。举报后这条消息将不再展示给你。', '提交举报', true);
     if (!confirmed) return;
-    const result = await lumiiApi.messages.reportConversationMessage(conversation.id, message.id, '私信消息举报');
+    const result = await messagePreviewApi.reportConversationMessage(conversation.id, message.id, '私信消息举报');
     if (result.data) {
       setConversationMessages((items) => items.filter((item) => item.id !== message.id));
       showToast('举报已提交，消息已从当前会话隐藏');
@@ -6788,7 +6801,7 @@ export default function LumiiMvpApp() {
     weightSavingRef.current = true;
     setWeightSaving(true);
     try {
-      const result = await lumiiApi.health.recordWeight(Math.round(kg * 100) / 100, note || '手动记录', dateToIsoDate(weightDraftRecordedAt));
+      const result = await healthPreviewApi.recordWeight(Math.round(kg * 100) / 100, note || '手动记录', dateToIsoDate(weightDraftRecordedAt));
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setWeights((items) => [result.data!, ...items]);
@@ -6848,7 +6861,7 @@ export default function LumiiMvpApp() {
     weightEditSavingRef.current = true;
     setWeightEditSaving(true);
     try {
-      const result = await lumiiApi.health.updateWeightRecord(record.id, {
+      const result = await healthPreviewApi.updateWeightRecord(record.id, {
         kg: Math.round(kg * 100) / 100,
         note,
         recordedAt: record.recordedAt,
@@ -6880,7 +6893,7 @@ export default function LumiiMvpApp() {
     weightEditSavingRef.current = true;
     setWeightEditSaving(true);
     try {
-      const result = await lumiiApi.health.deleteWeightRecord(record.id);
+      const result = await healthPreviewApi.deleteWeightRecord(record.id);
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setWeightDeleteConfirm(null);
@@ -6919,7 +6932,7 @@ export default function LumiiMvpApp() {
     setVaccineReminderSavingIds([...vaccineReminderSavingIdsRef.current]);
     setVaccineReminderIds((items) => [vaccine.id, ...items.filter((id) => id !== vaccine.id)]);
     try {
-      const result = await lumiiApi.health.setVaccineReminder(vaccine.id, true);
+      const result = await healthPreviewApi.setVaccineReminder(vaccine.id, true);
       if (result.data) {
         setVaccineReminderIds(result.data);
         void loadInboxData();
@@ -6949,7 +6962,7 @@ export default function LumiiMvpApp() {
     vaccineDoneSavingIdsRef.current.add(vaccine.id);
     setVaccineDoneSavingIds([...vaccineDoneSavingIdsRef.current]);
     try {
-      const result = await lumiiApi.health.updateVaccineStatus(vaccine.id, 'done');
+      const result = await healthPreviewApi.updateVaccineStatus(vaccine.id, 'done');
       if (!result.data) {
         showToast(result.error?.message ?? '操作失败，请稍后重试');
         return;
@@ -6996,7 +7009,7 @@ export default function LumiiMvpApp() {
     vaccineCreatingRef.current = true;
     setVaccineCreating(true);
     try {
-      const result = await lumiiApi.health.createVaccinePlan({ dueAt, name });
+      const result = await healthPreviewApi.createVaccinePlan({ dueAt, name });
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setVaccines((items) => [result.data!, ...items.filter((item) => item.id !== result.data!.id)].sort((left, right) => left.dueAt.localeCompare(right.dueAt)));
@@ -7070,7 +7083,7 @@ export default function LumiiMvpApp() {
 
       setUserSettings(nextSettings);
       userSettingsRef.current = nextSettings;
-      const result = await lumiiApi.settings.updateUserSettings({ [key]: nextValue });
+      const result = await settingsPreviewApi.updateUserSettings({ [key]: nextValue });
       if (sessionTokenRef.current !== requestSessionToken) return false;
       if (result.data) {
         const serverSettings = { ...defaultUserSettings, ...result.data };
@@ -7179,7 +7192,7 @@ export default function LumiiMvpApp() {
     setOwnerProfileSaved(false);
     setOwnerProfileSaving(true);
     try {
-      const result = await lumiiApi.account.updateMe({
+      const result = await accountPreviewApi.updateMe({
         ownerAvatarBase64: ownerAvatarUploadDraft?.base64,
         ownerAvatarFileName: ownerAvatarUploadDraft?.fileName,
         ownerAvatarMimeType: ownerAvatarUploadDraft?.mimeType,
@@ -7223,7 +7236,7 @@ export default function LumiiMvpApp() {
     setFavoritePlaceSavingIds((ids) => [place.id, ...ids.filter((id) => id !== place.id)]);
     setFavoritePlaceIds((ids) => (nextFavorite ? [place.id, ...ids.filter((id) => id !== place.id)] : ids.filter((id) => id !== place.id)));
     try {
-      const result = await lumiiApi.places.setFavoritePlace(place.id, nextFavorite);
+      const result = await placesPreviewApi.setFavoritePlace(place.id, nextFavorite);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setFavoritePlaceIds(result.data);
@@ -7440,7 +7453,7 @@ export default function LumiiMvpApp() {
     memoDraftSavingRef.current = true;
     setMemoDraftSaving(true);
     try {
-      const result = await lumiiApi.health.saveHealthMemo(requestTitle, requestContent, {
+      const result = await healthPreviewApi.saveHealthMemo(requestTitle, requestContent, {
         reminderAt: memoDraftReminderEnabled ? formatMemoReminderValue(requestReminderAt) : undefined,
         reminderEnabled: memoDraftReminderEnabled,
         repeat: memoDraftRepeat,
@@ -7482,7 +7495,7 @@ export default function LumiiMvpApp() {
     memoSavingRef.current = true;
     setMemoSaving(true);
     try {
-      const result = await lumiiApi.health.saveHealthMemo(requestTitle, requestContent);
+      const result = await healthPreviewApi.saveHealthMemo(requestTitle, requestContent);
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setMemos((items) => [result.data!, ...items]);
@@ -7541,7 +7554,7 @@ export default function LumiiMvpApp() {
     memoEditSavingRef.current = true;
     setMemoEditSaving(true);
     try {
-      const result = await lumiiApi.health.updateHealthMemo(memo.id, {
+      const result = await healthPreviewApi.updateHealthMemo(memo.id, {
         content,
         reminderAt: memoEditReminderEnabled ? formatMemoReminderValue(requestReminderAt) : undefined,
         reminderEnabled: memoEditReminderEnabled,
@@ -7575,7 +7588,7 @@ export default function LumiiMvpApp() {
     memoDeletingRef.current = true;
     setMemoDeleting(true);
     try {
-      const result = await lumiiApi.health.deleteHealthMemo(memo.id);
+      const result = await healthPreviewApi.deleteHealthMemo(memo.id);
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setMemos(result.data);
@@ -7653,7 +7666,7 @@ export default function LumiiMvpApp() {
   async function uploadDailyPostImages(drafts: LocalImageUploadDraft[]) {
     const urls: string[] = [];
     for (const draft of drafts.slice(0, dailyPostPhotoLimit)) {
-      const result = await lumiiApi.avatar.uploadPetMedia({
+      const result = await avatarPreviewApi.uploadPetMedia({
         base64: draft.base64,
         fileName: draft.fileName,
         mimeType: draft.mimeType,
@@ -7713,7 +7726,7 @@ export default function LumiiMvpApp() {
         }
         uploadedImageUrls = uploadResult.urls;
       }
-      const result = await lumiiApi.health.saveHealthMemo('今日小事', `${requestText}${photoSummary}`);
+      const result = await healthPreviewApi.saveHealthMemo('今日小事', `${requestText}${photoSummary}`);
       if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
       if (result.data) {
         setMemos((items) => [result.data!, ...items]);
@@ -7724,7 +7737,7 @@ export default function LumiiMvpApp() {
         let momentSyncError = '';
         let momentUnderReview = false;
         if (dailyVisibility === 'nearby') {
-          const momentResult = await lumiiApi.social.createMoment(requestText, undefined, uploadedImageUrls.length || requestPhotoCount, { imageUrls: uploadedImageUrls, location: requestLocation, visibility: 'nearby' });
+          const momentResult = await socialPreviewApi.createMoment(requestText, undefined, uploadedImageUrls.length || requestPhotoCount, { imageUrls: uploadedImageUrls, location: requestLocation, visibility: 'nearby' });
           if (sessionTokenRef.current === requestSessionToken && momentResult.data) {
             momentUnderReview = momentResult.data.moderationStatus === 'pending_review';
             momentSynced = !momentUnderReview;
@@ -7792,7 +7805,7 @@ export default function LumiiMvpApp() {
         return;
       }
       const sourcePostId = greetingSheetSourcePostId;
-      const result = await lumiiApi.social.sendGreeting(ownerId, sourcePostId ? { postId: sourcePostId, source: 'pet_circle' } : undefined);
+      const result = await socialPreviewApi.sendGreeting(ownerId, sourcePostId ? { postId: sourcePostId, source: 'pet_circle' } : undefined);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         if (result.data.conversation) {
@@ -7994,7 +8007,7 @@ export default function LumiiMvpApp() {
     walkInviteSavingRef.current = true;
     setWalkInviteSaving(true);
     try {
-      const result = await lumiiApi.social.createWalkInvite(owner.id, {
+      const result = await socialPreviewApi.createWalkInvite(owner.id, {
         latitude: requestLatitude,
         longitude: requestLongitude,
         note: requestNote,
@@ -8054,7 +8067,7 @@ export default function LumiiMvpApp() {
     setPlaceSpeciesFilter(nextSpeciesFilter);
     try {
       const location = options.location ?? lastDiscoverLocationRef.current ?? undefined;
-      const result = query ? await lumiiApi.places.searchPlaces(query, location) : await lumiiApi.places.listNearbyPlaces(location);
+      const result = query ? await placesPreviewApi.searchPlaces(query, location) : await placesPreviewApi.listNearbyPlaces(location);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (placeQueryRef.current.trim() !== query) return;
       if (result.data) {
@@ -8097,7 +8110,7 @@ export default function LumiiMvpApp() {
         : lastDiscoverLocationRef.current ?? (await getDiscoverLocationHint({ requestId, requestSessionToken, silent: options.silent }));
       if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
       if (!location) return null;
-      const result = await lumiiApi.social.listNearbyOwners(location ?? undefined);
+      const result = await socialPreviewApi.listNearbyOwners(location ?? undefined);
       if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
       if (result.data) {
         trackAppEvent('discover.owners_loaded', {
@@ -8128,7 +8141,7 @@ export default function LumiiMvpApp() {
     setNearbyMomentsLoading(true);
     try {
       const location = options.location ?? lastDiscoverLocationRef.current ?? undefined;
-      const result = await lumiiApi.social.listPetCirclePosts(location ?? undefined);
+      const result = await socialPreviewApi.listPetCirclePosts(location ?? undefined);
       if (sessionTokenRef.current !== requestSessionToken) return null;
       if (result.data) {
         const sortedItems = sortPetCircleMomentsByRecency(filterNearbyMomentsByTtl(result.data.items, nearbyMomentTtlDays));
@@ -8169,7 +8182,7 @@ export default function LumiiMvpApp() {
     setPetCircleLoadingMore(true);
     try {
       const location = lastDiscoverLocationRef.current ?? undefined;
-      const result = await lumiiApi.social.listPetCirclePosts(location ?? undefined, { cursor, limit: 20 });
+      const result = await socialPreviewApi.listPetCirclePosts(location ?? undefined, { cursor, limit: 20 });
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         const additions = filterNearbyMomentsByTtl(result.data.items, nearbyMomentTtlDays);
@@ -8225,7 +8238,7 @@ export default function LumiiMvpApp() {
       setPetCircleProfileLoading(true);
     }
     try {
-      const result = await lumiiApi.social.listPetCircleProfilePosts(ownerId || 'me', { cursor: options.cursor, limit: options.append ? 20 : 30 });
+      const result = await socialPreviewApi.listPetCircleProfilePosts(ownerId || 'me', { cursor: options.cursor, limit: options.append ? 20 : 30 });
       if (sessionTokenRef.current !== requestSessionToken) return null;
       if (ownerId !== petCircleProfileOwnerIdRef.current && !(ownerId === 'me' && petCircleProfileOwnerIdRef.current === '')) return null;
       if (result.data) {
@@ -8300,7 +8313,7 @@ export default function LumiiMvpApp() {
         showToast(uploadDraft.error ?? '封面图读取失败，请重新选择', { tone: 'warning', variant: 'surface' });
         return;
       }
-      const uploadResult = await lumiiApi.avatar.uploadPetMedia({
+      const uploadResult = await avatarPreviewApi.uploadPetMedia({
         base64: uploadDraft.draft.base64,
         fileName: uploadDraft.draft.fileName,
         mimeType: uploadDraft.draft.mimeType,
@@ -8320,7 +8333,7 @@ export default function LumiiMvpApp() {
         showToast('封面图上传后没有生成可访问地址，请稍后重试', { tone: 'error', variant: 'surface' });
         return;
       }
-      const result = await lumiiApi.social.updatePetCircleCover(publicUrl);
+      const result = await socialPreviewApi.updatePetCircleCover(publicUrl);
       if (!result.data) {
         showToast(result.error?.message ?? '封面更新失败，请稍后重试', { tone: 'error', variant: 'surface' });
         return;
@@ -8340,7 +8353,7 @@ export default function LumiiMvpApp() {
     if (!requestSessionToken) return;
     setPetCircleCommentLoadingId(postId);
     try {
-      const result = await lumiiApi.social.listPetCircleComments(postId);
+      const result = await socialPreviewApi.listPetCircleComments(postId);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setPetCircleCommentsByPostId((items) => ({ ...items, [postId]: result.data! }));
@@ -8376,7 +8389,7 @@ export default function LumiiMvpApp() {
     if (petCircleCommentSending) return;
     setPetCircleCommentSending(true);
     try {
-      const result = await lumiiApi.social.createPetCircleComment(post.id, content);
+      const result = await socialPreviewApi.createPetCircleComment(post.id, content);
       if (result.data) {
         setPetCircleCommentDraft('');
         setPetCircleCommentsByPostId((items) => ({ ...items, [post.id]: result.data! }));
@@ -8395,7 +8408,7 @@ export default function LumiiMvpApp() {
     if (petCircleDeletingCommentIds.includes(comment.id)) return;
     setPetCircleDeletingCommentIds((ids) => [...ids, comment.id]);
     try {
-      const result = await lumiiApi.social.deletePetCircleComment(comment.id);
+      const result = await socialPreviewApi.deletePetCircleComment(comment.id);
       if (result.data) {
         setPetCircleCommentsByPostId((items) => {
           const nextComments = (items[comment.postId] ?? []).filter((item) => item.id !== comment.id);
@@ -8417,7 +8430,7 @@ export default function LumiiMvpApp() {
     setPetCircleProfileActionPostId('');
     setPetCircleDeletingPostIds((ids) => [...ids, post.id]);
     try {
-      const result = await lumiiApi.social.deletePetCirclePost(post.id);
+      const result = await socialPreviewApi.deletePetCirclePost(post.id);
       if (result.data) {
         setPetCircleProfilePosts((items) => items.filter((item) => item.id !== post.id));
         setNearbyMoments((items) => items.filter((item) => item.id !== post.id));
@@ -8703,7 +8716,7 @@ export default function LumiiMvpApp() {
         showToast(uploadedImages.error, { tone: 'warning', variant: 'surface' });
         return;
       }
-      const result = await lumiiApi.places.createReview(place.id, reviewDraft, uploadedImages.urls);
+      const result = await placesPreviewApi.createReview(place.id, reviewDraft, uploadedImages.urls);
       const stillReviewingSamePlace =
         sessionTokenRef.current === requestSessionToken &&
         selectedPlaceIdRef.current === place.id &&
@@ -8789,7 +8802,7 @@ export default function LumiiMvpApp() {
   async function uploadPlaceImages(drafts: LocalImageUploadDraft[], source: 'place_review' | 'place_submission') {
     const urls: string[] = [];
     for (const draft of drafts.slice(0, 3)) {
-      const result = await lumiiApi.avatar.uploadPetMedia({
+      const result = await avatarPreviewApi.uploadPetMedia({
         base64: draft.base64,
         fileName: draft.fileName,
         mimeType: draft.mimeType,
@@ -9067,7 +9080,7 @@ export default function LumiiMvpApp() {
         showToast(uploadedImages.error, { tone: 'warning', variant: 'surface' });
         return;
       }
-      const result = await lumiiApi.places.createSubmission(requestName, requestAddress, requestExperience, uploadedImages.urls);
+      const result = await placesPreviewApi.createSubmission(requestName, requestAddress, requestExperience, uploadedImages.urls);
       const stillEditingSubmission = sessionTokenRef.current === requestSessionToken && routeRef.current === 'addPlaceReview';
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
@@ -9197,8 +9210,8 @@ export default function LumiiMvpApp() {
     healthCalendarLoadingRef.current = false;
     setHealthCalendarLoading(false);
     setHealthCalendarRefreshing(false);
-    setHealthCalendarMonth(monthStartIso());
-    setSelectedHealthCalendarDate(todayIsoDate());
+    setHealthCalendarMonth(defaultHealthCalendarMonth());
+    setSelectedHealthCalendarDate(defaultHealthCalendarDate());
     setWeights([]);
     setWeightEditorMode(null);
     setWeightEditRecord(null);
@@ -9413,7 +9426,7 @@ export default function LumiiMvpApp() {
     if (accountDeletionRequesting || accountDeletionConfirming) return;
     setAccountDeletionRequesting(true);
     setAccountDeletionError('');
-    const result = await lumiiApi.account.requestDeletion();
+    const result = await accountPreviewApi.requestDeletion();
     setAccountDeletionRequesting(false);
     if (result.state === 'success' && result.data) {
       setAccountDeletionRequest(result.data);
@@ -9433,7 +9446,7 @@ export default function LumiiMvpApp() {
     }
     setAccountDeletionConfirming(true);
     setAccountDeletionError('');
-    const result = await lumiiApi.account.confirmDeletion(code);
+    const result = await accountPreviewApi.confirmDeletion(code);
     setAccountDeletionConfirming(false);
     if (result.state !== 'success') {
       setAccountDeletionError(result.error?.message ?? '注销确认失败，请稍后重试');
@@ -13104,7 +13117,7 @@ export default function LumiiMvpApp() {
         likedByMe: !wasLiked,
         likeCount: Math.max(0, post.likeCount + (wasLiked ? -1 : 1)),
       });
-      const result = wasLiked ? await lumiiApi.social.unlikePetCirclePost(post.id) : await lumiiApi.social.likePetCirclePost(post.id);
+      const result = wasLiked ? await socialPreviewApi.unlikePetCirclePost(post.id) : await socialPreviewApi.likePetCirclePost(post.id);
       if (result.data) {
         syncPetCirclePost(result.data);
       } else {
@@ -13121,7 +13134,7 @@ export default function LumiiMvpApp() {
     const loadPetCircleComments = async (postId: string, options: { silent?: boolean } = {}) => {
       if (!nearbyMoments.some((item) => item.id === postId)) return null;
       setPetCircleCommentLoadingId(postId);
-      const result = await lumiiApi.social.listPetCircleComments(postId);
+      const result = await socialPreviewApi.listPetCircleComments(postId);
       setPetCircleCommentLoadingId((current) => (current === postId ? '' : current));
       if (result.data) {
         setPetCircleCommentsByPostId((items) => ({ ...items, [postId]: result.data! }));
@@ -13160,7 +13173,7 @@ export default function LumiiMvpApp() {
       }
       if (petCircleCommentSending) return;
       setPetCircleCommentSending(true);
-      const result = await lumiiApi.social.createPetCircleComment(post.id, content);
+      const result = await socialPreviewApi.createPetCircleComment(post.id, content);
       setPetCircleCommentSending(false);
       if (result.data) {
         setPetCircleCommentDraft('');
@@ -13182,7 +13195,7 @@ export default function LumiiMvpApp() {
       const confirmed = await confirmDestructiveAction('删除这条小事？', '删除后会从宠友圈移除，评论和互动也将不再展示。');
       if (!confirmed) return;
       setPetCircleDeletingPostIds((ids) => [...ids, post.id]);
-      const result = await lumiiApi.social.deletePetCirclePost(post.id);
+      const result = await socialPreviewApi.deletePetCirclePost(post.id);
       setPetCircleDeletingPostIds((ids) => ids.filter((id) => id !== post.id));
       if (result.data) {
         setNearbyMoments((items) => items.filter((item) => item.id !== post.id));
@@ -13204,7 +13217,7 @@ export default function LumiiMvpApp() {
       const confirmed = await confirmDestructiveAction('删除这条评论？', '删除后这条评论不会再展示。');
       if (!confirmed) return;
       setPetCircleDeletingCommentIds((ids) => [...ids, comment.id]);
-      const result = await lumiiApi.social.deletePetCircleComment(comment.id);
+      const result = await socialPreviewApi.deletePetCircleComment(comment.id);
       setPetCircleDeletingCommentIds((ids) => ids.filter((id) => id !== comment.id));
       if (result.data) {
         setPetCircleCommentsByPostId((items) => {
@@ -13239,7 +13252,7 @@ export default function LumiiMvpApp() {
           `图片数量：${post.imageUrls.length}`,
           '来源：宠友圈帖子',
         ].filter(Boolean).join('\n');
-        const result = await lumiiApi.social.reportPetCirclePost(post.id, feedbackContent);
+        const result = await socialPreviewApi.reportPetCirclePost(post.id, feedbackContent);
         if (result.data) {
           removeUnavailablePetCirclePost(post.id);
           showToast('举报已提交', { subtitle: '已从你的宠友圈列表隐藏这条小事', tone: 'success', variant: 'surface' });
@@ -13278,7 +13291,7 @@ export default function LumiiMvpApp() {
           `帖子内容：${post.text}`,
           '来源：宠友圈评论',
         ].filter(Boolean).join('\n');
-        const result = await lumiiApi.social.reportPetCircleComment(comment.id, feedbackContent);
+        const result = await socialPreviewApi.reportPetCircleComment(comment.id, feedbackContent);
         if (result.data) {
           setPetCircleCommentsByPostId((items) => {
             const nextComments = (items[post.id] ?? []).filter((item) => item.id !== comment.id);
@@ -13304,7 +13317,7 @@ export default function LumiiMvpApp() {
       if (!confirmed) return;
       setPetCircleBlockingOwnerIds((ids) => [...ids, post.ownerId]);
       try {
-        const result = await lumiiApi.social.blockOwner(post.ownerId, {
+        const result = await socialPreviewApi.blockOwner(post.ownerId, {
           reason: '用户在宠友圈卡片主动拉黑',
           reasonCode: 'no_interest',
         });

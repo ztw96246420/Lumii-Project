@@ -30,6 +30,7 @@ const state = {
   exportPhone: '',
   exportQ: '',
   exportApprovalStatus: 'open',
+  exportJobStatus: 'open',
   exportReason: '',
   exportStatus: 'all',
   exportTo: '',
@@ -813,6 +814,12 @@ async function onContentClick(event) {
       await render(true);
       return;
     }
+    if (action === 'export-job-filter') {
+      state.exportJobStatus = $('exportJobStatus').value;
+      state.cache = { ...state.cache, exports: null };
+      await render(true);
+      return;
+    }
     if (action === 'export-clear') {
       state.exportType = 'all';
       state.exportStatus = 'all';
@@ -821,6 +828,7 @@ async function onContentClick(event) {
       state.exportTo = '';
       state.exportQ = '';
       state.exportApprovalStatus = 'open';
+      state.exportJobStatus = 'open';
       state.exportReason = '';
       state.cache = { ...state.cache, exports: null };
       await render(true);
@@ -842,6 +850,17 @@ async function onContentClick(event) {
       await cancelExportApproval(id);
       return;
     }
+    if (action === 'create-export-job') {
+      state.exportReason = button.dataset.exportReason || state.exportReason;
+      let filters = null;
+      try {
+        filters = JSON.parse(button.dataset.filters || '{}');
+      } catch {
+        filters = null;
+      }
+      await createExportJob(button.dataset.exportType || id, button.dataset.id || '', state.exportReason, filters);
+      return;
+    }
     if (action === 'download-approved-export') {
       state.exportReason = button.dataset.exportReason || state.exportReason;
       try {
@@ -855,6 +874,10 @@ async function onContentClick(event) {
         // Keep current filters if legacy approval rows do not expose filter data.
       }
       await downloadExport(button.dataset.exportType, id);
+      return;
+    }
+    if (action === 'download-export-job') {
+      await downloadExportJob(id);
       return;
     }
     if (action === 'download-export') {
@@ -9505,6 +9528,12 @@ function exportApprovalsUrl() {
   return `/admin/exports/approvals?${query.toString()}`;
 }
 
+function exportJobsUrl() {
+  const query = new URLSearchParams({ limit: '20', status: state.exportJobStatus || 'open' });
+  if (state.exportType !== 'all') query.set('type', state.exportType);
+  return `/admin/exports/jobs?${query.toString()}`;
+}
+
 function exportFiltersPayload() {
   return {
     from: state.exportFrom,
@@ -9580,6 +9609,24 @@ function exportApprovalStatusOptions() {
     .join('');
 }
 
+function exportJobStatusLabel(status) {
+  return {
+    all: '全部任务',
+    completed: '已生成',
+    expired: '已过期',
+    failed: '生成失败',
+    open: '排队/生成/可下载',
+    queued: '排队中',
+    running: '生成中',
+  }[status] || status || '-';
+}
+
+function exportJobStatusOptions() {
+  return ['open', 'queued', 'running', 'completed', 'failed', 'expired', 'all']
+    .map((status) => `<option value="${status}" ${state.exportJobStatus === status ? 'selected' : ''}>${escapeHtml(exportJobStatusLabel(status))}</option>`)
+    .join('');
+}
+
 function exportApprovalDownloadText(row = {}) {
   const maxDownloads = Number(row.maxDownloads || 1);
   const downloadCount = Number(row.downloadCount || 0);
@@ -9622,12 +9669,54 @@ function renderExportApprovals(approvals = {}) {
           <div class="actions">
             ${row.status === 'pending_approval' ? `<button class="small-button" data-action="approve-export-approval" data-id="${escapeHtml(row.id)}">审批通过</button>` : ''}
             ${row.status === 'pending_approval' ? `<button class="small-button danger" data-action="reject-export-approval" data-id="${escapeHtml(row.id)}">驳回</button>` : ''}
-            ${row.status === 'approved' ? `<button class="small-button" data-action="download-approved-export" data-id="${escapeHtml(row.id)}" data-export-type="${escapeHtml(row.datasetType)}" data-export-reason="${escapeHtml(row.exportReason || '')}" data-filters="${escapeHtml(JSON.stringify(row.filters || {}))}">下载 CSV</button>` : ''}
+            ${row.status === 'approved' ? `<button class="small-button" data-action="create-export-job" data-id="${escapeHtml(row.id)}" data-export-type="${escapeHtml(row.datasetType)}" data-export-reason="${escapeHtml(row.exportReason || '')}" data-filters="${escapeHtml(JSON.stringify(row.filters || {}))}">生成归档</button>` : ''}
             ${row.status === 'pending_approval' || row.status === 'approved' ? `<button class="small-button ghost" data-action="cancel-export-approval" data-id="${escapeHtml(row.id)}">取消</button>` : ''}
           </div>
           <div class="cell-sub">${escapeHtml(row.rejectReason || row.cancelReason || exportApprovalDownloadText(row))}</div>
         `],
       ], '暂无导出审批') : '<div class="placeholder mini"><div><strong>暂无导出审批</strong><div>在数据集列表点击“提交审批”后，会在这里等待审批。</div></div></div>'}
+    </div>
+  `;
+}
+
+function exportJobTone(status) {
+  return status === 'completed' ? 'ok' : status === 'failed' || status === 'expired' ? 'bad' : 'warn';
+}
+
+function renderExportJobs(jobs = {}) {
+  const items = jobs.items || [];
+  const summary = jobs.summary || {};
+  const policy = jobs.policy || {};
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>导出归档任务</h2>
+          <div class="section-sub">${numberText(summary.queued || 0)} 排队 · ${numberText(summary.running || 0)} 生成中 · ${numberText(summary.completed || 0)} 可下载 · 保留 ${numberText(policy.retentionHours || 72)} 小时</div>
+        </div>
+        ${help('归档任务会把 CSV 生成到服务器本地文件，state 只保存任务元数据。审批下载次数在创建归档任务时消耗，归档文件可在保留期内重复下载。')}
+      </div>
+      <div class="toolbar moderation-toolbar">
+        <div class="toolbar-left">
+          <label>任务状态<select id="exportJobStatus">${exportJobStatusOptions()}</select></label>
+        </div>
+        <div class="actions">
+          <button class="small-button" data-action="export-job-filter">筛选任务</button>
+        </div>
+      </div>
+      ${items.length ? tableHtml(items, [
+        ['数据集', (row) => `<div class="cell-title">${escapeHtml(row.datasetLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.datasetType || '-')}</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status, exportJobTone(row.status))}<div class="cell-sub">${row.completedAt ? `完成 ${formatTime(row.completedAt)}` : row.startedAt ? `开始 ${formatTime(row.startedAt)}` : `创建 ${formatTime(row.createdAt)}`}</div><div class="cell-sub">${row.expiresAt ? `保留至 ${formatTime(row.expiresAt)}` : '-'}</div>`],
+        ['筛选/行数', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filterSummary || '全部数据')}</div><div class="cell-sub">导出 ${numberText(row.rowCount || 0)} / 匹配 ${numberText(row.matchedRows || 0)} / 原始 ${numberText(row.totalRows || 0)}</div>`],
+        ['文件', (row) => `<div class="cell-sub clamp">${escapeHtml(row.filename || '-')}</div><div class="cell-sub">${bytesText(row.sizeBytes || 0)} · 水印 ${escapeHtml(row.watermarkId || '-')}</div><div class="cell-sub">审批 ${escapeHtml(row.approvalId || '直接导出')}</div>`],
+        ['原因', (row) => `<div class="cell-sub clamp">${escapeHtml(row.exportReason || row.error || '-')}</div><div class="cell-sub">${escapeHtml(row.createdBy || '-')} · ${formatTime(row.createdAt)}</div>`],
+        ['操作', (row) => `
+          <div class="actions">
+            ${row.status === 'completed' ? `<button class="small-button" data-action="download-export-job" data-id="${escapeHtml(row.id)}">下载归档</button>` : ''}
+          </div>
+          <div class="cell-sub">${row.status === 'failed' ? escapeHtml(row.error || '生成失败') : row.lastDownloadedAt ? `上次下载 ${formatTime(row.lastDownloadedAt)}` : '归档完成后可下载'}</div>
+        `],
+      ], '暂无导出归档任务') : '<div class="placeholder mini"><div><strong>暂无导出归档任务</strong><div>审批通过后点击“生成归档”，或在未强制审批时从数据集直接生成。</div></div></div>'}
     </div>
   `;
 }
@@ -9638,7 +9727,9 @@ async function renderExports(force) {
   const rows = await load('exports', exportUrl, force);
   const history = await api(exportHistoryUrl());
   const approvals = await api(exportApprovalsUrl());
+  const jobs = await api(exportJobsUrl());
   const approvalPolicy = approvals.policy || {};
+  const jobSummary = jobs.summary || {};
   const visibleRows = state.exportType === 'all' ? rows : rows.filter((row) => row.type === state.exportType);
   const matchedRows = visibleRows.reduce((sum, item) => sum + Number(item.rowCount || 0), 0);
   const originalRows = visibleRows.reduce((sum, item) => sum + Number(item.totalRows ?? item.rowCount ?? 0), 0);
@@ -9649,8 +9740,9 @@ async function renderExports(force) {
     <div class="grid metrics">
       ${metric('可导出数据集', visibleRows.length, `${rows.length} 个总数据集`, '导出接口需要管理员登录，并会写入审计日志。')}
       ${metric('匹配行数', matchedRows, `${originalRows} 条原始行`, '按当前筛选条件命中的业务行数；CSV 仍受单次上限保护。')}
-      ${metric('单次上限', rows[0]?.limit || 1000, '每个 CSV 最多行数', '防止误导出过大文件；后续可增加审批和异步导出。')}
+      ${metric('单次上限', rows[0]?.limit || 1000, '每个 CSV 最多行数', '防止误导出过大文件；审批后可生成服务器本地归档。')}
       ${metric('导出审批', approvalPolicy.requireApproval ? '强制' : '可选', `${numberText(approvals.summary?.pending || 0)} 条待审批`, '开启强制审批后，CSV 下载必须绑定已审批的审批单；审批单会校验数据集、筛选条件、原因和有效期。')}
+      ${metric('归档任务', numberText(jobSummary.open || 0), `${numberText(jobSummary.completed || 0)} 个可下载`, '审批通过后先生成归档任务，文件保留期内可重复下载，避免每次都同步生成。')}
       ${metric('筛选条件', activeFilterSummary === '未筛选' ? '未开启' : '已开启', activeFilterSummary, '下载 CSV 时会带上这些筛选条件，并写入审计日志。')}
     </div>
     <div class="card">
@@ -9683,7 +9775,7 @@ async function renderExports(force) {
         ['操作', (row) => `
           <div class="actions">
             <button class="small-button" data-action="request-export-approval" data-id="${escapeHtml(row.type)}">提交审批</button>
-            ${approvalPolicy.requireApproval ? '' : `<button class="small-button" data-action="download-export" data-id="${escapeHtml(row.type)}">直接下载</button>`}
+            ${approvalPolicy.requireApproval ? '' : `<button class="small-button" data-action="create-export-job" data-export-type="${escapeHtml(row.type)}">生成归档</button><button class="small-button ghost" data-action="download-export" data-id="${escapeHtml(row.type)}">直接下载</button>`}
           </div>
           <div class="cell-sub">${escapeHtml(row.filterSummary || activeFilterSummary)}</div>
           <div class="cell-sub">${escapeHtml(row.governanceLabel || '需原因 · CSV水印')}</div>
@@ -9691,6 +9783,7 @@ async function renderExports(force) {
       ], '暂无可导出数据')}
     </div>
     ${renderExportApprovals(approvals)}
+    ${renderExportJobs(jobs)}
     <div class="card">
       <div class="section-head">
         <div>
@@ -9765,6 +9858,57 @@ async function rejectExportApproval(id) {
   state.cache.audit = null;
   state.cache.exports = null;
   showToast('导出审批已驳回');
+  if (state.route === 'exports') await render(true);
+}
+
+async function createExportJob(type, approvalId = '', reason = '', filters = null) {
+  if (!type) return;
+  const exportReason = String(reason || $('exportReason')?.value.trim() || state.exportReason || '').trim();
+  state.exportReason = exportReason;
+  if (exportReason.length < 4) {
+    showToast('请先填写导出原因，至少 4 个字');
+    return;
+  }
+  const payload = {
+    approvalId,
+    filters: filters || exportFiltersPayload(),
+    reason: exportReason,
+    type,
+  };
+  const result = await post('/admin/exports/jobs', payload);
+  state.cache.audit = null;
+  state.cache.exports = null;
+  showToast(`导出归档已创建：${result.job?.datasetLabel || type}`);
+  if (state.route === 'exports') await render(true);
+}
+
+async function downloadExportJob(id) {
+  if (!id) return;
+  const response = await fetch(`/admin/exports/jobs/${encodeURIComponent(id)}/download`, {
+    headers: {
+      Accept: 'text/csv',
+      ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+    },
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload?.error?.message || `下载归档失败：${response.status}`);
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  const filename = match ? decodeURIComponent(match[1]) : `lumii-export-${id}.csv`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  state.cache.audit = null;
+  state.cache.exports = null;
+  showToast('导出归档已开始下载');
   if (state.route === 'exports') await render(true);
 }
 

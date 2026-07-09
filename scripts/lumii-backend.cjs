@@ -150,6 +150,8 @@ const EXPO_PUSH_RECEIPT_BATCH_SIZE = Math.max(1, Math.min(1000, Number(process.e
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
 const statePath = process.env.LUMII_BACKEND_STATE_PATH || path.join(__dirname, '..', 'dist', 'lumii-backend-state.json');
+const ADMIN_EXPORT_FILE_DIR = process.env.LUMII_ADMIN_EXPORT_DIR || path.join(path.dirname(statePath), 'admin-export-files');
+const ADMIN_EXPORT_FILE_RETENTION_HOURS = Math.max(1, Math.floor(Number(process.env.LUMII_ADMIN_EXPORT_FILE_RETENTION_HOURS || 72) || 72));
 const adminStaticDir = path.join(__dirname, '..', 'admin');
 const ADMIN_USERNAME = process.env.LUMII_ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.LUMII_ADMIN_PASSWORD || 'LumiiAdmin@2026';
@@ -724,6 +726,7 @@ function createInitialState() {
     adminAccounts: {},
     adminDataClearApprovals: [],
     adminExportApprovals: [],
+    adminExportJobs: [],
     adminSanctionApprovals: [],
     launchReadinessQuestionOverrides: {},
     opsConfigApprovals: [],
@@ -3239,7 +3242,7 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       label: '数据导出审批',
       mobileApplied: false,
       mobileEvidence: '移动端不读取导出治理配置；后台导出覆盖移动端真实业务数据和 App 事件，因此只在后台拦截。',
-      operatorNote: '可叠加高风险审批人分离和最少审批人数；生产期仍需继续补敏感字段授权和异步归档。',
+      operatorNote: '可叠加高风险审批人分离和最少审批人数；已支持服务器本地归档任务，生产期仍需继续补对象存储和敏感字段授权。',
       userImpact: '不影响用户 App 使用，但降低后台误导出和敏感数据泄露风险。',
     },
     {
@@ -4571,6 +4574,258 @@ function rejectAdminExportApproval(admin, approvalId, body = {}) {
   };
 }
 
+function ensureAdminExportJobs() {
+  state.adminExportJobs = Array.isArray(state.adminExportJobs) ? state.adminExportJobs : [];
+  return state.adminExportJobs;
+}
+
+function adminExportJobCurrentStatus(job = {}) {
+  const status = String(job.status || 'queued');
+  if (status === 'completed') {
+    const expiresMs = adminExportDateMs(job.expiresAt);
+    if (expiresMs !== null && expiresMs < Date.now()) return 'expired';
+  }
+  return status;
+}
+
+function adminExportJobStatusLabel(status) {
+  return {
+    completed: '已生成',
+    expired: '已过期',
+    failed: '生成失败',
+    queued: '排队中',
+    running: '生成中',
+  }[status] || status || '-';
+}
+
+function safeAdminExportStorageFileName(value) {
+  const text = String(value || 'export.csv').replace(/[^\w.\-]+/g, '_').slice(0, 160);
+  return text || 'export.csv';
+}
+
+function adminExportJobFilePath(job = {}) {
+  const storageFileName = safeAdminExportStorageFileName(job.storageFileName || '');
+  if (!storageFileName) return '';
+  const root = path.resolve(ADMIN_EXPORT_FILE_DIR);
+  const filePath = path.resolve(root, storageFileName);
+  if (!filePath.startsWith(root + path.sep)) return '';
+  return filePath;
+}
+
+function adminExportJobItem(job = {}) {
+  const status = adminExportJobCurrentStatus(job);
+  const dataset = adminExportDataset(job.datasetType);
+  return {
+    approvalId: job.approvalId || '',
+    approvalDownloadCount: Math.max(0, Math.floor(Number(job.approvalDownloadCount || 0))),
+    approvalMaxDownloads: Math.max(0, Math.floor(Number(job.approvalMaxDownloads || 0))),
+    completedAt: job.completedAt || '',
+    columnsCount: Math.max(0, Math.floor(Number(job.columnsCount || 0))),
+    createdAt: job.createdAt || '',
+    createdBy: job.createdBy || '',
+    datasetLabel: dataset?.label || job.datasetLabel || job.datasetType || '',
+    datasetType: job.datasetType || '',
+    error: job.error || '',
+    expiresAt: job.expiresAt || '',
+    exportReason: job.exportReason || '',
+    failedAt: job.failedAt || '',
+    filename: job.filename || '',
+    filterSummary: job.filterSummary || adminExportFilterSummary(job.filters || {}),
+    filters: normalizeAdminExportFilters(job.filters || {}),
+    id: job.id || '',
+    lastDownloadedAt: job.lastDownloadedAt || '',
+    matchedRows: Math.max(0, Math.floor(Number(job.matchedRows || 0))),
+    rowCount: Math.max(0, Math.floor(Number(job.rowCount || 0))),
+    sizeBytes: Math.max(0, Math.floor(Number(job.sizeBytes || 0))),
+    startedAt: job.startedAt || '',
+    status,
+    statusLabel: adminExportJobStatusLabel(status),
+    totalRows: Math.max(0, Math.floor(Number(job.totalRows || 0))),
+    watermarkId: job.watermarkId || '',
+  };
+}
+
+function processExpiredAdminExportJobs() {
+  let changed = false;
+  ensureAdminExportJobs().forEach((job) => {
+    if (job.status !== 'completed') return;
+    const expiresMs = adminExportDateMs(job.expiresAt);
+    if (expiresMs === null || expiresMs >= Date.now()) return;
+    const before = cloneJson(job);
+    const filePath = adminExportJobFilePath(job);
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch {}
+    }
+    job.expiredAt = new Date().toISOString();
+    job.status = 'expired';
+    writeAdminAudit({ username: 'system' }, 'data.export.job.expire', 'data_export_job', job.id, before, adminExportJobItem(job), '导出归档到期清理');
+    changed = true;
+  });
+  if (changed) saveState();
+}
+
+function adminExportJobs(options = {}) {
+  processExpiredAdminExportJobs();
+  const type = String(options.type || 'all').trim() || 'all';
+  const status = String(options.status || 'open').trim() || 'open';
+  const limit = Math.min(80, Math.max(10, Number(options.limit || 20) || 20));
+  const all = ensureAdminExportJobs()
+    .map(adminExportJobItem)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const items = all
+    .filter((item) => type === 'all' || item.datasetType === type)
+    .filter((item) => {
+      if (status === 'all') return true;
+      if (status === 'open') return ['queued', 'running', 'completed'].includes(item.status);
+      return item.status === status;
+    })
+    .slice(0, limit);
+  return {
+    items,
+    policy: {
+      retentionHours: ADMIN_EXPORT_FILE_RETENTION_HOURS,
+      storage: 'server_local_file',
+    },
+    summary: {
+      completed: all.filter((item) => item.status === 'completed').length,
+      expired: all.filter((item) => item.status === 'expired').length,
+      failed: all.filter((item) => item.status === 'failed').length,
+      matched: items.length,
+      open: all.filter((item) => ['queued', 'running', 'completed'].includes(item.status)).length,
+      queued: all.filter((item) => item.status === 'queued').length,
+      running: all.filter((item) => item.status === 'running').length,
+      total: all.length,
+    },
+  };
+}
+
+function completeAdminExportJob(job, result, admin) {
+  fs.mkdirSync(ADMIN_EXPORT_FILE_DIR, { recursive: true });
+  const storageFileName = safeAdminExportStorageFileName(`${job.id}-${result.filename}`);
+  const filePath = path.join(ADMIN_EXPORT_FILE_DIR, storageFileName);
+  fs.writeFileSync(filePath, result.csv, 'utf8');
+  const stat = fs.statSync(filePath);
+  job.completedAt = new Date().toISOString();
+  job.columnsCount = result.columns.length;
+  job.error = '';
+  job.filename = result.filename;
+  job.filterSummary = result.filterSummary;
+  job.matchedRows = result.matchedRows;
+  job.rowCount = result.rowCount;
+  job.sizeBytes = stat.size;
+  job.status = 'completed';
+  job.storageFileName = storageFileName;
+  job.totalRows = result.totalRows;
+  job.watermarkId = result.watermarkId;
+  job.watermark = result.watermark;
+  writeAdminAudit(admin, 'data.export.job.complete', 'data_export_job', job.id, null, adminExportJobItem(job), `导出归档生成完成：${result.label}；${result.exportReason}；${result.filterSummary}`);
+}
+
+function processAdminExportJob(jobId, admin) {
+  const job = ensureAdminExportJobs().find((item) => item.id === jobId);
+  if (!job || job.status !== 'queued') return;
+  const before = cloneJson(job);
+  job.startedAt = new Date().toISOString();
+  job.status = 'running';
+  saveState();
+  try {
+    const result = buildAdminExportCsv(job.datasetType, job.filters || {}, { admin, reason: job.exportReason });
+    if (!result) throw new Error('导出数据集不存在');
+    completeAdminExportJob(job, result, admin);
+  } catch (error) {
+    job.error = String(error?.message || error || '导出归档生成失败').slice(0, 240);
+    job.failedAt = new Date().toISOString();
+    job.status = 'failed';
+    writeAdminAudit(admin, 'data.export.job.fail', 'data_export_job', job.id, before, adminExportJobItem(job), job.error);
+  }
+  state.adminExportJobs = ensureAdminExportJobs().slice(0, 200);
+  saveState();
+}
+
+function scheduleAdminExportJob(jobId, admin) {
+  setImmediate(() => processAdminExportJob(jobId, {
+    ip: admin?.ip || '',
+    role: admin?.role || '',
+    userAgent: admin?.userAgent || '',
+    username: currentAdminUsername(admin),
+  }));
+}
+
+function createAdminExportJob(admin, body = {}) {
+  const datasetType = String(body.type || body.datasetType || '').trim();
+  const exportReason = normalizeAdminExportReason(body.reason || body.exportReason);
+  if (exportReason.length < ADMIN_EXPORT_REASON_MIN_LENGTH) {
+    return { error: `请填写导出原因（至少 ${ADMIN_EXPORT_REASON_MIN_LENGTH} 个字）`, statusCode: 400 };
+  }
+  const filters = normalizeAdminExportFilters(body.filters || {});
+  if (!adminExportDataset(datasetType)) return { error: '导出数据集不存在', statusCode: 404 };
+  const approvalResult = validateAdminExportApprovalForDownload(String(body.approvalId || ''), datasetType, filters, exportReason);
+  if (approvalResult.error) return approvalResult;
+  const preview = buildAdminExportPreview(datasetType, filters);
+  if (!preview) return { error: '导出数据集不存在', statusCode: 404 };
+  const now = new Date();
+  if (approvalResult.approval) {
+    approvalResult.approval.downloadCount = Math.max(0, Math.floor(Number(approvalResult.approval.downloadCount || 0))) + 1;
+    approvalResult.approval.lastDownloadedAt = now.toISOString();
+  }
+  const job = {
+    approvalDownloadCount: approvalResult.approval ? Math.max(0, Math.floor(Number(approvalResult.approval.downloadCount || 0))) : 0,
+    approvalId: approvalResult.item?.id || '',
+    approvalMaxDownloads: approvalResult.approval ? Math.max(1, Math.floor(Number(approvalResult.approval.maxDownloads || approvalResult.policy?.maxDownloadsPerApproval || 1))) : 0,
+    createdAt: now.toISOString(),
+    createdBy: currentAdminUsername(admin),
+    datasetLabel: preview.label,
+    datasetType,
+    expiresAt: new Date(now.getTime() + ADMIN_EXPORT_FILE_RETENTION_HOURS * 36e5).toISOString(),
+    exportReason,
+    filterSummary: preview.filterSummary,
+    filters,
+    id: `export-job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    matchedRows: preview.matchedRows,
+    rowCount: preview.rowCount,
+    status: 'queued',
+    totalRows: preview.totalRows,
+  };
+  ensureAdminExportJobs().unshift(job);
+  state.adminExportJobs = state.adminExportJobs.slice(0, 200);
+  writeAdminAudit(admin, 'data.export.job.create', 'data_export_job', job.id, null, adminExportJobItem(job), `创建导出归档任务：${preview.label}；${exportReason}；${preview.filterSummary}${job.approvalId ? `；审批 ${job.approvalId}` : ''}`);
+  saveState();
+  scheduleAdminExportJob(job.id, admin);
+  return {
+    approval: approvalResult.approval ? adminExportApprovalItem(approvalResult.approval) : null,
+    job: adminExportJobItem(job),
+    jobs: adminExportJobs({ type: datasetType }),
+  };
+}
+
+function downloadAdminExportJob(admin, jobId) {
+  processExpiredAdminExportJobs();
+  const job = ensureAdminExportJobs().find((item) => item.id === jobId);
+  if (!job) return { error: '导出归档任务不存在', statusCode: 404, code: 'ADMIN_EXPORT_JOB_NOT_FOUND' };
+  const item = adminExportJobItem(job);
+  if (item.status !== 'completed') {
+    return { error: `导出归档${item.statusLabel}，暂不能下载`, statusCode: item.status === 'expired' ? 410 : 409, code: 'ADMIN_EXPORT_JOB_NOT_READY' };
+  }
+  const filePath = adminExportJobFilePath(job);
+  if (!filePath || !fs.existsSync(filePath)) {
+    job.error = '归档文件不存在';
+    job.status = 'failed';
+    job.failedAt = new Date().toISOString();
+    saveState();
+    return { error: '导出归档文件不存在，请重新生成', statusCode: 404, code: 'ADMIN_EXPORT_JOB_FILE_MISSING' };
+  }
+  job.lastDownloadedAt = new Date().toISOString();
+  writeAdminAudit(admin, 'data.export.job.download', 'data_export_job', job.id, null, adminExportJobItem(job), `下载导出归档：${job.datasetLabel || job.datasetType}；${job.exportReason}`);
+  saveState();
+  return {
+    filePath,
+    filename: job.filename || `lumii-${job.datasetType || 'export'}.csv`,
+    job: adminExportJobItem(job),
+  };
+}
+
 function validateAdminExportApprovalForDownload(approvalId, type, filters = {}, exportReason = '') {
   const policy = normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports);
   if (!policy.requireApproval && !approvalId) return { ok: true, policy };
@@ -4825,6 +5080,7 @@ function loadState() {
       adminAuditLogs: Array.isArray(loadedState.adminAuditLogs) ? loadedState.adminAuditLogs : initialState.adminAuditLogs,
       adminDataClearApprovals: Array.isArray(loadedState.adminDataClearApprovals) ? loadedState.adminDataClearApprovals : initialState.adminDataClearApprovals,
       adminExportApprovals: Array.isArray(loadedState.adminExportApprovals) ? loadedState.adminExportApprovals : initialState.adminExportApprovals,
+      adminExportJobs: Array.isArray(loadedState.adminExportJobs) ? loadedState.adminExportJobs : initialState.adminExportJobs,
       adminSanctionApprovals: Array.isArray(loadedState.adminSanctionApprovals) ? loadedState.adminSanctionApprovals : initialState.adminSanctionApprovals,
       launchReadinessQuestionOverrides: loadedState.launchReadinessQuestionOverrides && typeof loadedState.launchReadinessQuestionOverrides === 'object' && !Array.isArray(loadedState.launchReadinessQuestionOverrides) ? loadedState.launchReadinessQuestionOverrides : initialState.launchReadinessQuestionOverrides,
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
@@ -21158,6 +21414,7 @@ async function adminSystemHealth() {
       { key: 'aiAvatarSamples', label: 'AI 样本', rows: countObject(state.aiAvatarSamples) },
       { key: 'aiPromptVersions', label: 'AI Prompt 版本', rows: countObject(state.aiPromptVersions) },
       { key: 'adminAuditLogs', label: '审计日志', rows: countArray(state.adminAuditLogs) },
+      { key: 'adminExportJobs', label: '导出归档任务', rows: countArray(state.adminExportJobs) },
       { key: 'launchReadinessQuestionOverrides', label: '上线台账决策', rows: countObject(state.launchReadinessQuestionOverrides) },
       { key: 'appEvents', label: '移动端事件', rows: countArray(state.appEvents) },
       { key: 'notifications', label: '通知记录', rows: countNotificationRows },
@@ -21364,6 +21621,7 @@ function adminRequiredPermissionForRequest(method, pathname) {
   if (path.startsWith('/admin/launch/readiness/questions')) return 'launch.readiness.update';
   if (path === '/admin/launch/readiness') return 'launch.readiness.view';
   if (/^\/admin\/exports\/[^/]+\.csv$/u.test(path)) return 'data.export.download';
+  if (path.startsWith('/admin/exports/jobs')) return 'data.export.download';
   if (path.startsWith('/admin/exports/approvals')) return 'data.export.approve';
   if (path.startsWith('/admin/exports')) return httpMethod === 'GET' ? 'data.export.download' : 'data.export.approve';
   if (path === '/admin/push-devices') return 'notification.send';
@@ -21944,9 +22202,9 @@ function adminReadinessModules(context) {
       module: '数据导出与审计',
       group: '治理',
       status: 'partial',
-      evidence: 'CSV 导出支持筛选、导出原因、文件水印、审批申请、审批通过、审批下载、历史、行数摘要和 data.export.* 审计；审计日志支持搜索筛选。',
-      mobileLinkage: '导出覆盖移动端真实业务数据和 App 事件，不导出图片二进制或完整设备 token；强制审批开启后需按审批单下载。',
-      nextStep: '生产期补导出审批值守通知、异步导出、文件归档和敏感字段授权。',
+      evidence: 'CSV 导出支持筛选、导出原因、文件水印、审批申请、审批通过、服务器本地归档任务、审批下载、历史、行数摘要和 data.export.* 审计；审计日志支持搜索筛选。',
+      mobileLinkage: '导出覆盖移动端真实业务数据和 App 事件，不导出图片二进制或完整设备 token；强制审批开启后需按审批单创建归档或下载。',
+      nextStep: '生产期补导出审批值守通知、对象存储归档、签名下载链接和敏感字段授权。',
     },
     {
       key: 'system',
@@ -22097,9 +22355,9 @@ function adminReadinessGaps(context) {
       area: '数据导出',
       severity: 'P1',
       status: 'partial',
-      issue: '导出已有审计、原因必填、CSV 水印、审批流、高风险会签、审批有效期和单审批下载次数上限；仍缺异步任务、对象存储归档和敏感字段授权。',
-      requiredAction: '补导出异步任务、文件生命周期、对象存储归档、敏感字段授权和审批值守通知。',
-      evidence: '数据导出页 / 审计日志 / exports.maxDownloadsPerApproval',
+      issue: '导出已有审计、原因必填、CSV 水印、审批流、高风险会签、审批有效期、单审批下载次数上限和服务器本地归档任务；仍缺对象存储归档、签名下载链接和敏感字段授权。',
+      requiredAction: '补对象存储归档、签名下载链接、敏感字段授权和审批值守通知。',
+      evidence: '数据导出页 / 导出归档任务 / 审计日志 / exports.maxDownloadsPerApproval',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }
@@ -27928,6 +28186,36 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       q: url.searchParams.get('q') || '',
       type: url.searchParams.get('type') || 'all',
     }));
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/exports/jobs') {
+    ok(res, adminExportJobs({
+      limit: url.searchParams.get('limit') || 20,
+      status: url.searchParams.get('status') || 'open',
+      type: url.searchParams.get('type') || 'all',
+    }));
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/exports/jobs') {
+    const result = createAdminExportJob(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_EXPORT_JOB_INVALID');
+      return true;
+    }
+    ok(res, result);
+    return true;
+  }
+
+  const adminExportJobDownloadMatch = pathname.match(/^\/admin\/exports\/jobs\/([^/]+)\/download$/);
+  if (req.method === 'GET' && adminExportJobDownloadMatch) {
+    const result = downloadAdminExportJob(admin, decodeURIComponent(adminExportJobDownloadMatch[1]));
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_EXPORT_JOB_DOWNLOAD_INVALID');
+      return true;
+    }
+    sendCsv(res, result.filename, fs.readFileSync(result.filePath, 'utf8'));
     return true;
   }
 
