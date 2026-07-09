@@ -8742,17 +8742,28 @@ function sha256Hex(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+function tencentCloudEndpointUrl(endpoint) {
+  const raw = String(endpoint || '').trim();
+  if (!raw) return new URL('https://tencentcloudapi.com');
+  if (/^https?:\/\//i.test(raw)) return new URL(raw);
+  return new URL(`https://${raw}`);
+}
+
 async function callTencentCloudApi({ action, endpoint, payload, region = TENCENT_CMS_REGION, service, version }) {
   if (!tencentCmsConfigured()) throw new Error('Tencent Cloud content safety credentials are not configured');
   const timestamp = Math.floor(Date.now() / 1000);
   const date = tencentCmsIsoDate(timestamp);
   const body = JSON.stringify(payload || {});
-  const canonicalHeaders = `content-type:application/json; charset=utf-8\nhost:${endpoint}\nx-tc-action:${String(action).toLowerCase()}\n`;
+  const endpointUrl = tencentCloudEndpointUrl(endpoint);
+  const hostHeader = endpointUrl.host;
+  const canonicalUri = endpointUrl.pathname || '/';
+  const canonicalQueryString = endpointUrl.search ? endpointUrl.search.slice(1) : '';
+  const canonicalHeaders = `content-type:application/json; charset=utf-8\nhost:${hostHeader}\nx-tc-action:${String(action).toLowerCase()}\n`;
   const signedHeaders = 'content-type;host;x-tc-action';
   const canonicalRequest = [
     'POST',
-    '/',
-    '',
+    canonicalUri,
+    canonicalQueryString,
     canonicalHeaders,
     signedHeaders,
     sha256Hex(body),
@@ -8772,12 +8783,12 @@ async function callTencentCloudApi({ action, endpoint, payload, region = TENCENT
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TENCENT_CMS_TIMEOUT_MS);
   try {
-    const response = await fetch(`https://${endpoint}`, {
+    const response = await fetch(endpointUrl.toString(), {
       body,
       headers: {
         Authorization: authorization,
         'Content-Type': 'application/json; charset=utf-8',
-        Host: endpoint,
+        Host: hostHeader,
         'X-TC-Action': action,
         'X-TC-Region': region,
         'X-TC-Timestamp': String(timestamp),
