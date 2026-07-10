@@ -51,7 +51,7 @@ async function waitForBackend() {
   throw new Error('backend start timeout');
 }
 
-async function startBackend() {
+async function startBackend(envOverrides = {}) {
   const port = await getFreePort();
   baseUrl = `http://127.0.0.1:${port}`;
   backendProcess = spawn(process.execPath, [backendScript, '--port', String(port)], {
@@ -60,8 +60,10 @@ async function startBackend() {
       ...process.env,
       LUMII_BACKEND_STATE_PATH: statePath,
       LUMII_PUBLIC_API_BASE_URL: 'http://api.lumiiapp.cn',
+      LUMII_PUBLIC_API_PROBE_CONNECT_ADDRESS: '',
       LUMII_PUBLIC_API_PROBE_TIMEOUT_MS: '1000',
       STATE_BACKUP_ENABLED: 'false',
+      ...envOverrides,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -108,11 +110,31 @@ async function main() {
     assert.equal(gap.severity, 'P0');
     assert.equal(gap.status, 'blocked');
     assert.match(gap.requiredAction, /TCP 443/);
-    console.log('public API HTTPS readiness smoke passed');
+  } finally {
+    await stopBackend();
+  }
+
+  const closedPort = await getFreePort();
+  await startBackend({
+    LUMII_PUBLIC_API_BASE_URL: `https://api.lumiiapp.cn:${closedPort}`,
+    LUMII_PUBLIC_API_PROBE_CONNECT_ADDRESS: '127.0.0.1',
+  });
+  try {
+    const login = await request('/admin/auth/login', {
+      body: { password: 'LumiiAdmin@2026', username: 'admin' },
+      method: 'POST',
+    });
+    const health = await request('/admin/system/health', { token: login.data.token });
+    assert.equal(health.data.publicApiProbe.probeMode, 'local_tls_sni');
+    assert.equal(health.data.publicApiProbe.connectAddress, '127.0.0.1');
+    assert.equal(health.data.publicApiProbe.status, 'bad');
+    assert.match(health.data.publicApiProbe.evidence, /via 127\.0\.0\.1 with SNI api\.lumiiapp\.cn/);
+    assert.ok(health.data.checks.some((item) => item.key === 'public_api_https' && item.status === 'bad'));
   } finally {
     await stopBackend();
     fs.rmSync(tmpDir, { force: true, recursive: true });
   }
+  console.log('public API HTTPS readiness smoke passed');
 }
 
 main().catch(async (error) => {

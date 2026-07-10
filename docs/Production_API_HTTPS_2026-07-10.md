@@ -11,9 +11,10 @@
 - 当前证书到期日：2026-10-08
 - 自动续期：`certbot.timer` 已安装，`certbot renew --dry-run` 已成功
 - 服务器本机 HTTPS：`GET /health` 已返回 `state=success`
-- 当前公网阻断：腾讯云 CVM 安全组尚未放行入站 TCP 443，外网 TLS 连接仍会失败
+- 公网 HTTPS：Nginx 已记录外部网络 `GET /health` 返回 200，入站 TCP 443 已生效
+- 当前开发电脑的 `FlClash` 网络路径会导致该域名 TLS 握手失败；这是本机代理路径问题，不是服务器或证书故障
 
-必须在腾讯云 CVM 绑定的安全组中新增：
+腾讯云 CVM 绑定安全组必须持续保留以下基线规则：
 
 ```text
 协议端口：TCP:443
@@ -24,7 +25,7 @@
 
 如实例启用了公网 IPv6，再补 `::/0` 的 TCP 443；当前服务主要使用公网 IPv4。
 
-放行后从非服务器网络验证：
+从非服务器网络持续验证：
 
 ```powershell
 curl.exe -fsS https://api.lumiiapp.cn/health
@@ -118,11 +119,12 @@ npm run build:android:apk
 ```text
 LUMII_PUBLIC_API_BASE_URL=https://api.lumiiapp.cn
 LUMII_PUBLIC_API_PROBE_TIMEOUT_MS=6000
+LUMII_PUBLIC_API_PROBE_CONNECT_ADDRESS=127.0.0.1
 ```
 
-后台系统健康会执行真实 `GET https://api.lumiiapp.cn/health`：
+后台系统健康会使用 `api.lumiiapp.cn` 作为 Host/SNI，并通过 `127.0.0.1:443` 执行真实 TLS 与 `GET /health` 校验：
 
 - 成功且响应 `state=success`：`public_api_https=ok`
-- HTTP、DNS/TLS 错误、超时、非 200 或响应格式错误：`public_api_https=bad`
+- HTTP、证书/SNI 错误、超时、非 200 或响应格式错误：`public_api_https=bad`
 
-上线台账同步生成 `api_https` P0。只有真实公网探测成功后才会变为 `ready`，因此当前安全组未放行 443 时仍应保持生产阻断。
+同机连接地址只绕过云主机访问自身公网 IP 时可能发生的 NAT 回环限制，不跳过证书验证，也不会把 HTTP 当成 HTTPS。公网安全组与外部可用性需继续由站外监控和 Nginx 外部访问证据覆盖；上线台账中的 `api_https` P0 负责阻断域名、TLS、证书和健康响应不合格的正式包。

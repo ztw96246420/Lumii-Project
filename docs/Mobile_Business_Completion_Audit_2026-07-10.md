@@ -82,7 +82,7 @@
 
 以下项目不能仅靠代码自动判定完成，需要以后台上线台账和真实生产值为准：
 
-- ~~正式 HTTPS API 域名、证书、Release API Base URL 与明文流量构建门禁。~~ 已完成域名解析、证书签发、自动续期、Nginx HTTPS、本地 Release Manifest 和 EAS/本地打包门禁；当前只剩腾讯云 CVM 安全组放行 TCP 443，后台 `api_https` P0 会持续阻断直到公网探测成功。
+- ~~正式 HTTPS API 域名、证书、Release API Base URL 与明文流量构建门禁。~~ 已完成域名解析、证书签发、自动续期、Nginx HTTPS、外网 `GET /health` 200 验证、本地 Release Manifest 和 EAS/本地打包门禁；同机后台探针通过本机连接地址保留正式域名 SNI/证书校验，避免云主机公网 IP 回环导致假告警。
 - 后台生产 IP 白名单、全部活跃管理员 MFA、密码轮换周期。
 - 用户协议、隐私政策、个人信息收集清单、第三方 SDK 清单、注销和举报规则的正式文本与签署。
 - 站外告警 Webhook、生产 Push 厂商通道、模板、送达回执和退订策略。

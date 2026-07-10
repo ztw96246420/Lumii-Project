@@ -100,6 +100,7 @@ const MEDIA_PUBLIC_PROBE_BASE_URL = (process.env.MEDIA_PUBLIC_PROBE_BASE_URL || 
 const MEDIA_PUBLIC_PROBE_TIMEOUT_MS = Math.max(1000, Number(process.env.MEDIA_PUBLIC_PROBE_TIMEOUT_MS || '6000') || 6000);
 const PUBLIC_API_BASE_URL = String(process.env.LUMII_PUBLIC_API_BASE_URL || '').trim().replace(/\/+$/, '');
 const PUBLIC_API_PROBE_TIMEOUT_MS = Math.max(1000, Number(process.env.LUMII_PUBLIC_API_PROBE_TIMEOUT_MS || '6000') || 6000);
+const PUBLIC_API_PROBE_CONNECT_ADDRESS = String(process.env.LUMII_PUBLIC_API_PROBE_CONNECT_ADDRESS || '').trim();
 const STATE_STORAGE_WARN_BYTES = Math.max(1024 * 1024, Number(process.env.STATE_STORAGE_WARN_BYTES || 15 * 1024 * 1024) || 15 * 1024 * 1024);
 const STATE_MEDIA_DATAURL_PRUNE_ENABLED = process.env.STATE_MEDIA_DATAURL_PRUNE_ENABLED === 'false' ? false : true;
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
@@ -23612,11 +23613,14 @@ async function adminMediaPublicProbe(baseUrlInput = publicMediaBaseUrl(), option
 
 async function adminPublicApiProbe(baseUrlInput = PUBLIC_API_BASE_URL) {
   const baseUrl = String(baseUrlInput || '').trim().replace(/\/+$/, '');
+  const connectAddress = PUBLIC_API_PROBE_CONNECT_ADDRESS;
   const baseResult = {
     baseUrl,
-    evidence: 'LUMII_PUBLIC_API_BASE_URL / GET /health',
+    connectAddress,
+    evidence: 'LUMII_PUBLIC_API_BASE_URL / TLS SNI / GET /health',
     label: 'Public API HTTPS',
     ok: false,
+    probeMode: connectAddress ? 'local_tls_sni' : 'public_dns',
     status: 'warn',
     url: baseUrl ? `${baseUrl}/health` : '',
   };
@@ -23640,39 +23644,70 @@ async function adminPublicApiProbe(baseUrlInput = PUBLIC_API_BASE_URL) {
   if ((parsed.pathname && parsed.pathname !== '/') || parsed.search || parsed.hash || parsed.username || parsed.password) {
     return { ...baseResult, detail: 'Public API base URL must be an origin without credentials, path, query, or fragment', status: 'bad' };
   }
+  if (connectAddress && !net.isIP(connectAddress)) {
+    return { ...baseResult, detail: 'Public API probe connect address must be an IPv4 or IPv6 address', status: 'bad' };
+  }
 
   const url = new URL('/health', parsed).toString();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PUBLIC_API_PROBE_TIMEOUT_MS);
   try {
-    const response = await fetch(url, { method: 'GET', redirect: 'manual', signal: controller.signal });
-    const text = (await response.text()).slice(0, 1000);
+    const probeResponse = await new Promise((resolve, reject) => {
+      const request = https.request({
+        headers: {
+          Accept: 'application/json',
+          Host: parsed.host,
+        },
+        hostname: connectAddress || parsed.hostname,
+        method: 'GET',
+        path: '/health',
+        port: parsed.port || 443,
+        protocol: 'https:',
+        rejectUnauthorized: true,
+        servername: parsed.hostname,
+      }, (response) => {
+        let text = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          if (text.length < 1000) text += chunk;
+        });
+        response.on('end', () => resolve({
+          server: String(response.headers.server || ''),
+          status: Number(response.statusCode || 0),
+          text: text.slice(0, 1000),
+        }));
+      });
+      request.setTimeout(PUBLIC_API_PROBE_TIMEOUT_MS, () => {
+        request.destroy(new Error(`timeout after ${PUBLIC_API_PROBE_TIMEOUT_MS}ms`));
+      });
+      request.once('error', reject);
+      request.end();
+    });
+    const text = probeResponse.text;
     let payload = null;
     try {
       payload = JSON.parse(text);
     } catch {
       payload = null;
     }
-    const ok = response.status === 200 && payload?.state === 'success';
+    const ok = probeResponse.status === 200 && payload?.state === 'success';
+    const routeDetail = connectAddress ? ` via ${connectAddress} with SNI ${parsed.hostname}` : '';
     return {
       ...baseResult,
-      detail: ok ? 'Public API HTTPS health probe succeeded' : `Public API health probe returned ${response.status || '-'} or an invalid payload`,
-      evidence: `GET ${url} -> ${response.status || '-'}${response.headers.get('server') ? ` / server=${response.headers.get('server')}` : ''}`,
+      detail: ok ? `Public API HTTPS health probe succeeded${routeDetail}` : `Public API health probe returned ${probeResponse.status || '-'} or an invalid payload${routeDetail}`,
+      evidence: `GET ${url}${routeDetail} -> ${probeResponse.status || '-'}${probeResponse.server ? ` / server=${probeResponse.server}` : ''}`,
       ok,
       status: ok ? 'ok' : 'bad',
       url,
     };
   } catch (error) {
-    const message = error?.name === 'AbortError' ? `timeout after ${PUBLIC_API_PROBE_TIMEOUT_MS}ms` : (error?.message || String(error));
+    const message = error?.message || String(error);
+    const routeDetail = connectAddress ? ` via ${connectAddress} with SNI ${parsed.hostname}` : '';
     return {
       ...baseResult,
-      detail: `Public API HTTPS health probe failed: ${message}`,
-      evidence: `GET ${url} -> ${message}`,
+      detail: `Public API HTTPS health probe failed${routeDetail}: ${message}`,
+      evidence: `GET ${url}${routeDetail} -> ${message}`,
       status: 'bad',
       url,
     };
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
