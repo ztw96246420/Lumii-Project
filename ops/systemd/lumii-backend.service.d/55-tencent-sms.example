@@ -1,0 +1,9 @@
+[Service]
+Environment="LUMII_SMS_PROVIDER=tencent"
+Environment="TENCENT_SMS_ENDPOINT=sms.tencentcloudapi.com"
+Environment="TENCENT_SMS_VERSION=2021-01-11"
+Environment="TENCENT_SMS_REGION=ap-guangzhou"
+Environment="TENCENT_SMS_SDK_APP_ID=<replace-with-sms-sdk-app-id>"
+Environment="TENCENT_SMS_SIGN_NAME=<replace-with-approved-sign-name>"
+Environment="TENCENT_SMS_TEMPLATE_ID=<replace-with-approved-template-id>"
+Environment="TENCENT_SMS_TEMPLATE_PARAM_MODE=code"

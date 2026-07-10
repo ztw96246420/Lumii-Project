@@ -14,6 +14,7 @@ const suites = [
   { key: 'admin-syntax', title: 'Admin syntax', command: process.execPath, args: ['--check', path.join(rootDir, 'admin', 'admin.js')], timeoutMs: 30_000 },
 
   { key: 'mobile-core', title: 'Mobile core flows', script: 'smoke-mobile-core-flows.cjs', timeoutMs: 180_000 },
+  { key: 'sms-production', title: 'Production SMS authentication', script: 'smoke-sms-production.cjs', timeoutMs: 180_000 },
   { key: 'pet-circle', title: 'Pet friend circle', script: 'smoke-pet-circle.cjs', timeoutMs: 180_000 },
   { key: 'avatar-animation', title: 'Avatar animation lifecycle', script: 'smoke-avatar-animation.cjs', timeoutMs: 180_000 },
   { key: 'avatar-mirror-failure', title: 'Avatar animation mirror failure', script: 'smoke-avatar-animation-mirror-failure.cjs', timeoutMs: 180_000 },

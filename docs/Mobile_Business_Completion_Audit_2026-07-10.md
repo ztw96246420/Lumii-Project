@@ -77,7 +77,7 @@
 - 移动端 TypeScript：`npm run typecheck` 通过。
 - 工单 SLA/客服排班/用户补充/评价/重开闭环：`node scripts/smoke-ticket-sla-roster.cjs` 通过。
 - 移动端完整 Playwright：`node scripts/smoke-frontend-playwright.cjs` 通过，含 39 路由直达、缺头像、宠友圈互动、设置/注销、真实登录会话和宠物建档流程。
-- 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 通过，69/69 套件全部成功；覆盖 Release HTTPS、API TLS/SNI、SQLite/WAL 迁移、并发冲突、镜像重建和损坏恢复。
+- 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 通过，70/70 套件全部成功；覆盖 Release HTTPS、API TLS/SNI、SQLite/WAL，以及生产短信随机 OTP、TC3 请求、固定码旁路阻断和注销验证码。
 - 移动端视觉门禁：完整 Playwright 已通过并检查缺头像关键截图；后台系统健康页新增 SQLite/WAL、revision、quick_check、JSON 镜像和备份展示，`node scripts/smoke-admin-system-health-page.cjs` 已通过。
 
 ## 4. 剩余工作
@@ -94,6 +94,7 @@
 - 后台生产 IP 白名单、全部活跃管理员 MFA、密码轮换周期。
 - 用户协议、隐私政策、个人信息收集清单、第三方 SDK 清单、注销和举报规则的正式文本与签署。
 - 站外告警 Webhook、生产 Push 厂商通道、模板、送达回执和退订策略。
+- 腾讯云短信代码和安全门禁已完成；仍需在短信控制台提供 `SmsSdkAppId`、已审核签名和验证码模板 ID 后才能切换生产，缺配置时登录会 fail closed。
 - ~~SQLite/WAL 单实例生产存储、JSON 回滚镜像、独立审计日志和备份恢复。~~ 已完成生产迁移与写入验证；后续仅在扩展多实例前迁移托管 PostgreSQL。
 
 ## 5. 当前完成度判断

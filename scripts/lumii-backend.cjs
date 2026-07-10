@@ -16,7 +16,12 @@ function normalizeHexColor(value, fallback = '#FFFDFC') {
   return `#${(/^[0-9a-f]{6}$/i.test(hex) ? hex : normalizedFallback).toUpperCase()}`;
 }
 
-const TEST_CODE = '962464';
+const RUNTIME_ENV = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
+const SMS_PROVIDER = String(process.env.LUMII_SMS_PROVIDER || process.env.SMS_PROVIDER || (RUNTIME_ENV === 'production' ? 'disabled' : 'mock')).trim().toLowerCase();
+const SMS_TEST_CODE = String(process.env.LUMII_SMS_TEST_CODE || '962464').trim();
+const SMS_EXPOSE_TEST_CODE = RUNTIME_ENV !== 'production' && SMS_PROVIDER === 'mock';
+if (!['disabled', 'mock', 'tencent'].includes(SMS_PROVIDER)) throw new Error(`Unsupported SMS provider: ${SMS_PROVIDER}`);
+if (RUNTIME_ENV === 'production' && SMS_PROVIDER === 'mock') throw new Error('Mock SMS provider is forbidden in production');
 const SMS_COOLDOWN_MS = Number(process.env.SMS_COOLDOWN_MS || 60 * 1000);
 const SMS_TTL_MS = Number(process.env.SMS_TTL_MS || 5 * 60 * 1000);
 const SMS_DAILY_LIMIT = Number(process.env.SMS_DAILY_LIMIT || '50');
@@ -115,6 +120,15 @@ const ADMIN_EXPORT_COS_ENABLED = process.env.LUMII_ADMIN_EXPORT_COS_ENABLED === 
 const ADMIN_EXPORT_COS_PREFIX = (process.env.LUMII_ADMIN_EXPORT_COS_PREFIX || 'admin-exports').trim().replace(/^\/+|\/+$/g, '') || 'admin-exports';
 const TENCENTCLOUD_SECRET_ID = process.env.TENCENTCLOUD_SECRET_ID || process.env.TENCENT_CLOUD_SECRET_ID || '';
 const TENCENTCLOUD_SECRET_KEY = process.env.TENCENTCLOUD_SECRET_KEY || process.env.TENCENT_CLOUD_SECRET_KEY || '';
+const TENCENT_SMS_ENDPOINT = process.env.TENCENT_SMS_ENDPOINT || 'sms.tencentcloudapi.com';
+const TENCENT_SMS_VERSION = process.env.TENCENT_SMS_VERSION || '2021-01-11';
+const TENCENT_SMS_REGION = process.env.TENCENT_SMS_REGION || 'ap-guangzhou';
+const TENCENT_SMS_SDK_APP_ID = String(process.env.TENCENT_SMS_SDK_APP_ID || process.env.SMS_SDK_APP_ID || '').trim();
+const TENCENT_SMS_SIGN_NAME = String(process.env.TENCENT_SMS_SIGN_NAME || process.env.SMS_SIGN_NAME || '').trim();
+const TENCENT_SMS_TEMPLATE_ID = String(process.env.TENCENT_SMS_TEMPLATE_ID || process.env.SMS_TEMPLATE_ID || '').trim();
+const TENCENT_SMS_TIMEOUT_MS = Math.max(1000, Number(process.env.TENCENT_SMS_TIMEOUT_MS || '8000') || 8000);
+const TENCENT_SMS_TEMPLATE_PARAM_MODE = String(process.env.TENCENT_SMS_TEMPLATE_PARAM_MODE || 'code').trim().toLowerCase();
+if (!['code', 'code_ttl'].includes(TENCENT_SMS_TEMPLATE_PARAM_MODE)) throw new Error(`Unsupported Tencent SMS template parameter mode: ${TENCENT_SMS_TEMPLATE_PARAM_MODE}`);
 const TENCENT_CMS_REGION = process.env.TENCENT_CMS_REGION || 'ap-guangzhou';
 const TENCENT_CMS_TEXT_ENDPOINT = process.env.TENCENT_CMS_TEXT_ENDPOINT || 'tms.tencentcloudapi.com';
 const TENCENT_CMS_TEXT_VERSION = process.env.TENCENT_CMS_TEXT_VERSION || '2020-12-29';
@@ -10741,8 +10755,12 @@ function socialChatContentViolation(label, value, maxLength = SOCIAL_MESSAGE_MAX
   return null;
 }
 
-function tencentCmsConfigured() {
+function tencentCloudCredentialsConfigured() {
   return Boolean(TENCENTCLOUD_SECRET_ID && TENCENTCLOUD_SECRET_KEY);
+}
+
+function tencentCmsConfigured() {
+  return tencentCloudCredentialsConfigured();
 }
 
 function tencentCmsIsoDate(timestampSeconds) {
@@ -10764,8 +10782,8 @@ function tencentCloudEndpointUrl(endpoint) {
   return new URL(`https://${raw}`);
 }
 
-async function callTencentCloudApi({ action, endpoint, payload, region = TENCENT_CMS_REGION, service, version }) {
-  if (!tencentCmsConfigured()) throw new Error('Tencent Cloud content safety credentials are not configured');
+async function callTencentCloudApi({ action, endpoint, payload, region = TENCENT_CMS_REGION, service, timeoutMs = TENCENT_CMS_TIMEOUT_MS, version }) {
+  if (!tencentCloudCredentialsConfigured()) throw new Error('Tencent Cloud credentials are not configured');
   const timestamp = Math.floor(Date.now() / 1000);
   const date = tencentCmsIsoDate(timestamp);
   const body = JSON.stringify(payload || {});
@@ -10796,7 +10814,7 @@ async function callTencentCloudApi({ action, endpoint, payload, region = TENCENT
   const signature = hmacSha256(secretSigning, stringToSign, 'hex');
   const authorization = `TC3-HMAC-SHA256 Credential=${TENCENTCLOUD_SECRET_ID}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TENCENT_CMS_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(endpointUrl.toString(), {
       body,
@@ -13783,6 +13801,130 @@ function consumeSmsIpQuota(ip) {
   const usage = smsIpDailyUsageFor(ip || 'unknown');
   usage.count += 1;
   return usage;
+}
+
+function smsProviderStatus() {
+  const missing = [];
+  if (SMS_PROVIDER === 'tencent') {
+    if (!tencentCloudCredentialsConfigured()) missing.push('Tencent Cloud credentials');
+    if (!TENCENT_SMS_SDK_APP_ID) missing.push('TENCENT_SMS_SDK_APP_ID');
+    if (!TENCENT_SMS_SIGN_NAME) missing.push('TENCENT_SMS_SIGN_NAME');
+    if (!TENCENT_SMS_TEMPLATE_ID) missing.push('TENCENT_SMS_TEMPLATE_ID');
+  }
+  const mockAllowed = SMS_PROVIDER === 'mock' && RUNTIME_ENV !== 'production';
+  const configured = SMS_PROVIDER === 'tencent' ? missing.length === 0 : mockAllowed;
+  return {
+    configured,
+    endpoint: SMS_PROVIDER === 'tencent' ? TENCENT_SMS_ENDPOINT : '',
+    missing,
+    mockAllowed,
+    productionReady: SMS_PROVIDER === 'tencent' && missing.length === 0,
+    provider: SMS_PROVIDER,
+    region: SMS_PROVIDER === 'tencent' ? TENCENT_SMS_REGION : '',
+    sdkAppIdConfigured: Boolean(TENCENT_SMS_SDK_APP_ID),
+    signNameConfigured: Boolean(TENCENT_SMS_SIGN_NAME),
+    templateIdConfigured: Boolean(TENCENT_SMS_TEMPLATE_ID),
+    templateParamMode: TENCENT_SMS_TEMPLATE_PARAM_MODE,
+  };
+}
+
+function createSmsProviderError(message, code = 'SMS_PROVIDER_UNAVAILABLE') {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function generateSmsCode() {
+  if (SMS_EXPOSE_TEST_CODE) return SMS_TEST_CODE;
+  return String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+}
+
+function smsCodeHash(phone, code, createdAt, purpose) {
+  return crypto
+    .createHmac('sha256', AUTH_TOKEN_SECRET)
+    .update(`${String(purpose || 'login')}:${String(phone || '')}:${Number(createdAt || 0)}:${String(code || '')}`)
+    .digest('hex');
+}
+
+function smsCodeMatches(ticket, code, purpose) {
+  const expected = String(ticket?.codeHash || '');
+  if (!expected || !/^[a-f0-9]{64}$/i.test(expected)) return false;
+  const actual = smsCodeHash(ticket.phone, code, ticket.createdAt, purpose || ticket.purpose || 'login');
+  const expectedBuffer = Buffer.from(expected, 'hex');
+  const actualBuffer = Buffer.from(actual, 'hex');
+  return expectedBuffer.length === actualBuffer.length && crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+}
+
+function createSmsTicket({ deviceId = '', phone, purpose = 'login', sentIp = '', userAgent = '' }) {
+  const createdAt = Date.now();
+  const code = generateSmsCode();
+  return {
+    code,
+    ticket: {
+      attempts: 0,
+      availableAt: createdAt + SMS_COOLDOWN_MS,
+      codeHash: smsCodeHash(phone, code, createdAt, purpose),
+      createdAt,
+      deviceId,
+      expiresAt: createdAt + SMS_TTL_MS,
+      phone,
+      provider: SMS_PROVIDER,
+      purpose,
+      sentIp,
+      sentUserAgent: String(userAgent || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+    },
+  };
+}
+
+async function sendSmsCode({ code, phone, purpose = 'login' }) {
+  const status = smsProviderStatus();
+  if (SMS_PROVIDER === 'disabled') throw createSmsProviderError('SMS provider is disabled');
+  if (SMS_PROVIDER === 'mock') {
+    if (!SMS_EXPOSE_TEST_CODE) throw createSmsProviderError('Mock SMS provider is not allowed in this environment');
+    return { provider: 'mock', requestId: '', serialNo: '', status: 'mock' };
+  }
+  if (!status.productionReady) {
+    throw createSmsProviderError(`Tencent SMS configuration is incomplete: ${status.missing.join(', ')}`);
+  }
+  const ttlMinutes = String(Math.max(1, Math.ceil(SMS_TTL_MS / 60_000)));
+  const templateParams = TENCENT_SMS_TEMPLATE_PARAM_MODE === 'code_ttl' ? [code, ttlMinutes] : [code];
+  const response = await callTencentCloudApi({
+    action: 'SendSms',
+    endpoint: TENCENT_SMS_ENDPOINT,
+    payload: {
+      PhoneNumberSet: [`+86${phone}`],
+      SignName: TENCENT_SMS_SIGN_NAME,
+      SmsSdkAppId: TENCENT_SMS_SDK_APP_ID,
+      TemplateId: TENCENT_SMS_TEMPLATE_ID,
+      TemplateParamSet: templateParams,
+    },
+    region: TENCENT_SMS_REGION,
+    service: 'sms',
+    timeoutMs: TENCENT_SMS_TIMEOUT_MS,
+    version: TENCENT_SMS_VERSION,
+  });
+  const delivery = Array.isArray(response.SendStatusSet) ? response.SendStatusSet[0] : null;
+  if (!delivery || String(delivery.Code || '').toLowerCase() !== 'ok') {
+    throw createSmsProviderError(delivery?.Message || delivery?.Code || 'Tencent SMS did not accept the message');
+  }
+  return {
+    provider: 'tencent',
+    purpose,
+    requestId: String(response.RequestId || ''),
+    serialNo: String(delivery.SerialNo || ''),
+    status: 'accepted',
+  };
+}
+
+function publicSmsTicket(ticket, code = '') {
+  return {
+    availableAt: ticket.availableAt,
+    expiresAt: ticket.expiresAt,
+    phone: ticket.phone,
+    provider: ticket.provider,
+    requested: true,
+    ...(SMS_EXPOSE_TEST_CODE && code ? { code } : {}),
+  };
 }
 
 function effectivePetChatDailyLimit() {
@@ -23886,6 +24028,7 @@ async function adminSystemHealth() {
   const tickets = adminSupportTickets({ status: 'all' }).summary;
   const appeals = adminSanctionAppeals({ status: 'all' }).summary;
   const config = currentOpsConfig();
+  const smsProvider = smsProviderStatus();
   const notifications = adminSystemNotifications().summary;
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
   const alerts = adminOperationalAlerts({ limit: 12 });
@@ -23919,6 +24062,17 @@ async function adminSystemHealth() {
     adminCheckStatus(publicApiProbe.status, 'public_api_https', 'App API HTTPS 探测', publicApiProbe.detail, publicApiProbe.evidence),
     adminCheckStatus(stateFile.exists ? stateSizeWarn ? 'warn' : 'ok' : stateStorage.driver === 'sqlite' && stateStorage.healthy ? 'warn' : 'bad', 'state_file', stateStorage.driver === 'sqlite' ? 'JSON 回滚镜像' : 'JSON 状态文件', stateFile.exists ? `JSON ${stateStorage.driver === 'sqlite' ? 'mirror' : 'state'} ${Math.round(stateFile.sizeBytes / 1024)} KB` : stateStorage.driver === 'sqlite' ? 'JSON 回滚镜像不存在，SQLite 仍为权威数据源' : '状态文件不存在或不可读', stateFile.path),
     adminCheckStatus(process.env.LUMII_ADMIN_USERNAME && process.env.LUMII_ADMIN_PASSWORD ? 'ok' : 'warn', 'admin_credentials', '后台账号环境变量', process.env.LUMII_ADMIN_PASSWORD ? '后台密码由环境变量覆盖' : '仍可能使用默认后台账号密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
+    adminCheckStatus(
+      smsProvider.productionReady ? 'ok' : smsProvider.mockAllowed ? 'ok' : RUNTIME_ENV === 'production' ? 'bad' : 'warn',
+      'sms_provider',
+      '短信验证码通道',
+      smsProvider.productionReady
+        ? `腾讯云短信已配置，模板参数模式 ${smsProvider.templateParamMode}`
+        : smsProvider.mockAllowed
+          ? '当前为非生产 mock 短信，仅用于自动化和本地开发'
+          : `生产短信未就绪：${smsProvider.missing.join('、') || `provider=${smsProvider.provider}`}`,
+      smsProvider.provider === 'tencent' ? `${smsProvider.endpoint} / SendSms / ${TENCENT_SMS_VERSION}` : `provider=${smsProvider.provider}`,
+    ),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'admin_ip_allowlist', '后台 IP 白名单', ipAllowlist.configured ? `已配置 ${ipAllowlist.entryCount} 条后端白名单规则` : '未配置后台 IP 白名单，/admin 仍可被公网访问', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
     adminCheckStatus(
       alertWebhook.configError ? 'bad' : !alertWebhook.configured ? 'warn' : alertWebhook.lastDelivery?.status === 'failed' ? 'warn' : 'ok',
@@ -23969,7 +24123,7 @@ async function adminSystemHealth() {
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'state_database', 'state_backups'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
@@ -24007,6 +24161,7 @@ async function adminSystemHealth() {
     publicApiProbe,
     mediaProbe,
     mediaCdnProbe,
+    smsProvider,
   };
 }
 
@@ -25258,6 +25413,8 @@ function adminReadinessGaps(context) {
   const alertWebhookHealthy = alertWebhookReady && health?.alertWebhook?.lastDelivery?.status !== 'failed';
   const publicApiProbe = health?.publicApiProbe || {};
   const publicApiHttpsReady = publicApiProbe.status === 'ok' && publicApiProbe.ok === true;
+  const smsProvider = health?.smsProvider || smsProviderStatus();
+  const smsProviderReady = Boolean(smsProvider.productionReady);
   const highRiskPolicy = highRiskApprovalPolicy();
   const highRiskPolicyReady = Boolean(highRiskPolicy.requireDifferentAdmin && Number(highRiskPolicy.requiredApprovals || 0) >= 2);
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
@@ -25291,6 +25448,19 @@ function adminReadinessGaps(context) {
         ? '持续监控证书续期、TLS 探测和 /health 可用性；正式包保持 usesCleartextTraffic=false。'
         : '配置 LUMII_PUBLIC_API_BASE_URL=https://api.lumiiapp.cn，确保云安全组放行 TCP 443、证书有效且 GET /health 返回 success，再构建正式包。',
       evidence: publicApiProbe.evidence || '系统健康页 public_api_https / EAS production HTTPS gate / Android release manifest',
+    },
+    {
+      key: 'sms_delivery',
+      area: '登录认证',
+      severity: 'P0',
+      status: smsProviderReady ? 'ready' : 'blocked',
+      issue: smsProviderReady
+        ? '腾讯云短信验证码通道已配置，生产环境不再暴露或接受固定测试码。'
+        : `生产短信验证码通道未就绪：${smsProvider.missing?.join('、') || `provider=${smsProvider.provider || 'disabled'}`}。`,
+      requiredAction: smsProviderReady
+        ? '持续监控 SendSms 接收状态、运营商回执、发送限额和验证码失败率。'
+        : '在腾讯云短信控制台完成资质、签名和验证码模板审核，并配置 TENCENT_SMS_SDK_APP_ID、TENCENT_SMS_SIGN_NAME、TENCENT_SMS_TEMPLATE_ID 与 LUMII_SMS_PROVIDER=tencent。',
+      evidence: '系统健康页 sms_provider / POST /auth/sms/send / Tencent Cloud SendSms 2021-01-11',
     },
     {
       key: 'state_storage',
@@ -33432,7 +33602,7 @@ async function handle(req, res) {
     const now = Date.now();
     const previous = state.sms[phone];
     if (previous && now < previous.availableAt) {
-      fail(res, 200, '操作太频繁，请稍后再试', true, previous);
+      fail(res, 200, '操作太频繁，请稍后再试', true, publicSmsTicket(previous));
       return;
     }
     if (!canSendSms(phone)) {
@@ -33461,24 +33631,31 @@ async function handle(req, res) {
       });
       return;
     }
-    const ticket = {
-      attempts: 0,
-      availableAt: now + SMS_COOLDOWN_MS,
-      code: TEST_CODE,
-      createdAt: now,
+    const { code, ticket } = createSmsTicket({
       deviceId,
-      expiresAt: now + SMS_TTL_MS,
       phone,
       sentIp: clientIp,
-      sentUserAgent: String(req.headers['user-agent'] || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+      userAgent: req.headers['user-agent'],
+    });
+    let delivery;
+    try {
+      delivery = await sendSmsCode({ code, phone, purpose: 'login' });
+    } catch (error) {
+      console.error('[sms] login code delivery failed', { code: error?.code || '', message: error?.message || String(error), phone: phone.slice(-4) });
+      fail(res, 503, '验证码暂时无法发送，请稍后再试', true, { provider: SMS_PROVIDER }, 'SMS_PROVIDER_UNAVAILABLE');
+      return;
+    }
+    state.sms[phone] = {
+      ...ticket,
+      providerRequestId: delivery.requestId,
+      providerSerialNo: delivery.serialNo,
+      providerStatus: delivery.status,
     };
-    state.sms[phone] = ticket;
     consumeSmsQuota(phone);
     consumeSmsDeviceQuota(deviceId);
     consumeSmsIpQuota(clientIp);
-    ensureUser(phone);
     saveState();
-    ok(res, ticket);
+    ok(res, publicSmsTicket(state.sms[phone], code));
     return;
   }
 
@@ -33491,6 +33668,10 @@ async function handle(req, res) {
     }
     const ticket = state.sms[phone];
     const now = Date.now();
+    if (!ticket || ticket.purpose !== 'login') {
+      fail(res, 400, '请先获取验证码', true, undefined, 'SMS_CODE_INVALID');
+      return;
+    }
     if (ticket?.lockedAt) {
       fail(
         res,
@@ -33502,22 +33683,22 @@ async function handle(req, res) {
       );
       return;
     }
-    if (ticket?.consumedAt && code !== TEST_CODE) {
+    if (ticket.consumedAt) {
       fail(res, 400, '验证码已使用，请重新获取', true);
       return;
     }
-    if (ticket && !ticket.consumedAt && now > ticket.expiresAt) {
+    if (now > ticket.expiresAt) {
       fail(res, 400, '验证码已过期，请重新获取', true, undefined, 'SMS_CODE_EXPIRED');
       return;
     }
-    if (ticket && !ticket.consumedAt && code !== TEST_CODE && ticket.code !== code) {
+    if (!smsCodeMatches(ticket, code, 'login')) {
       const attempts = Number(ticket.attempts || 0) + 1;
       const attemptsRemaining = Math.max(0, SMS_VERIFY_MAX_ATTEMPTS - attempts);
       const nextTicket = { ...ticket, attempts };
       if (attemptsRemaining <= 0) {
         state.sms[phone] = {
           ...nextTicket,
-          code: '',
+          codeHash: '',
           consumedAt: now,
           expiresAt: now,
           lockedAt: now,
@@ -33538,21 +33719,15 @@ async function handle(req, res) {
       fail(res, 400, '验证码错误，请检查后重试', true, { attempts, attemptsRemaining, phone }, 'SMS_CODE_INVALID');
       return;
     }
-    if (code !== TEST_CODE && ticket?.code !== code) {
-      fail(res, 400, '验证码错误，请检查后重试', true);
-      return;
-    }
     const user = ensureUser(phone);
     cancelAccountDeletionOnLogin(user);
     user.lastSeenAt = Date.now();
-    if (ticket && !ticket.consumedAt) {
-      state.sms[phone] = {
-        ...ticket,
-        code: '',
-        consumedAt: Date.now(),
-        expiresAt: Date.now(),
-      };
-    }
+    state.sms[phone] = {
+      ...ticket,
+      codeHash: '',
+      consumedAt: Date.now(),
+      expiresAt: Date.now(),
+    };
     const token = createAuthToken(phone);
     recordAuthSession(phone, token, req, {
       deviceId: ticket?.deviceId || normalizeSmsDeviceId(req.headers['x-lumii-device-id']),
@@ -33719,19 +33894,56 @@ async function handle(req, res) {
       return;
     }
     const now = Date.now();
-    user.accountDeletionRequest = {
-      code: TEST_CODE,
-      expiresAt: now + SMS_TTL_MS,
+    const previous = user.accountDeletionRequest && typeof user.accountDeletionRequest === 'object' ? user.accountDeletionRequest : null;
+    if (previous && now < Number(previous.availableAt || 0)) {
+      fail(res, 200, '操作太频繁，请稍后再试', true, {
+        ...publicSmsTicket(previous),
+        requestedAt: previous.requestedAt || '',
+      });
+      return;
+    }
+    if (!canSendSms(user.phone)) {
+      fail(res, 429, `今天验证码发送次数已达上限（${SMS_DAILY_LIMIT} 次），请明天再试`, true, { phone: user.phone }, 'SMS_DAILY_LIMITED');
+      return;
+    }
+    const deviceId = normalizeSmsDeviceId(body.deviceId || req.headers['x-lumii-device-id']);
+    const clientIp = clientIpFromRequest(req);
+    if (!canSendSmsFromDevice(deviceId)) {
+      fail(res, 429, `当前设备今天获取验证码次数已达上限（${SMS_DEVICE_DAILY_LIMIT} 次），请明天再试`, true, { deviceId, phone: user.phone }, 'SMS_DAILY_LIMITED');
+      return;
+    }
+    if (!canSendSmsFromIp(clientIp)) {
+      fail(res, 429, `当前网络今天获取验证码次数已达上限（${SMS_IP_DAILY_LIMIT} 次），请明天再试`, true, { phone: user.phone }, 'SMS_DAILY_LIMITED');
+      return;
+    }
+    const { code, ticket } = createSmsTicket({
+      deviceId,
       phone: user.phone,
-      requestedAt: new Date(now).toISOString(),
+      purpose: 'account_delete',
+      sentIp: clientIp,
+      userAgent: req.headers['user-agent'],
+    });
+    let delivery;
+    try {
+      delivery = await sendSmsCode({ code, phone: user.phone, purpose: 'account_delete' });
+    } catch (error) {
+      console.error('[sms] account deletion code delivery failed', { code: error?.code || '', message: error?.message || String(error), phone: user.phone.slice(-4) });
+      fail(res, 503, '注销验证码暂时无法发送，请稍后再试', true, { provider: SMS_PROVIDER }, 'SMS_PROVIDER_UNAVAILABLE');
+      return;
+    }
+    user.accountDeletionRequest = {
+      ...ticket,
+      providerRequestId: delivery.requestId,
+      providerSerialNo: delivery.serialNo,
+      providerStatus: delivery.status,
+      requestedAt: new Date(ticket.createdAt).toISOString(),
     };
+    consumeSmsQuota(user.phone);
+    consumeSmsDeviceQuota(deviceId);
+    consumeSmsIpQuota(clientIp);
     saveState();
     ok(res, {
-      availableAt: now,
-      code: TEST_CODE,
-      expiresAt: user.accountDeletionRequest.expiresAt,
-      phone: user.phone,
-      requested: true,
+      ...publicSmsTicket(user.accountDeletionRequest, code),
       requestedAt: user.accountDeletionRequest.requestedAt,
     });
     return;
@@ -33741,7 +33953,7 @@ async function handle(req, res) {
     const request = user.accountDeletionRequest && typeof user.accountDeletionRequest === 'object' ? user.accountDeletionRequest : null;
     const code = String(body.code || '').trim();
     const now = Date.now();
-    if (!request?.code) {
+    if (!request?.codeHash || request.purpose !== 'account_delete') {
       fail(res, 400, '请先获取注销验证码', true, undefined, 'ACCOUNT_DELETE_CODE_REQUIRED');
       return;
     }
@@ -33751,7 +33963,12 @@ async function handle(req, res) {
       fail(res, 400, '注销验证码已过期，请重新获取', true, undefined, 'ACCOUNT_DELETE_CODE_EXPIRED');
       return;
     }
-    if (code !== TEST_CODE && code !== request.code) {
+    if (!smsCodeMatches(request, code, 'account_delete')) {
+      request.attempts = Number(request.attempts || 0) + 1;
+      if (request.attempts >= SMS_VERIFY_MAX_ATTEMPTS) {
+        delete user.accountDeletionRequest;
+      }
+      saveState();
       fail(res, 400, '注销验证码错误，请检查后重试', true, undefined, 'ACCOUNT_DELETE_CODE_INVALID');
       return;
     }
@@ -35625,7 +35842,8 @@ const server = http.createServer((req, res) => {
 server.listen(port, '0.0.0.0', () => {
   console.log(`Lumii local backend listening on http://0.0.0.0:${port}`);
   console.log(`State storage: ${STATE_STORAGE_DRIVER}${sqliteStateStore ? ` (${STATE_SQLITE_PATH})` : ` (${statePath})`}`);
-  console.log(`Test OTP code: ${TEST_CODE}`);
+  console.log(`SMS provider: ${SMS_PROVIDER}`);
+  if (SMS_EXPOSE_TEST_CODE) console.log(`Test OTP code: ${SMS_TEST_CODE}`);
 });
 
 const notificationScheduler = setInterval(() => {

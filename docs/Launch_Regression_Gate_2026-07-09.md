@@ -19,6 +19,7 @@ The default gate runs:
 - Mobile preview/production Release HTTPS configuration validation, including API host allowlisting and Android cleartext-traffic protection.
 - Backend and admin JavaScript syntax checks.
 - Mobile core flows.
+- Production SMS fail-closed behavior, Tencent SendSms payload/signing, random OTP verification, one-time use, plaintext exclusion, and account-deletion OTP.
 - Pet friend circle posting, comments, visibility, location, and calendar sync.
 - AI avatar generation/animation lifecycle, retry, failure recovery, quota refund, sample review, prompt/provider traces, admin job result apply, and pet chat quality review.
 - Content safety, moderation, reports, appeals, sanctions, social evidence, private-message report context, and social blocking.
@@ -31,7 +32,7 @@ The default gate runs:
 - Public API HTTPS launch-readiness probing, including TLS/DNS/health failures and the corresponding P0 readiness blocker.
 - All standalone non-visual smoke scripts under `scripts/smoke-*.cjs` are included in the default gate; visual/browser checks remain opt-in through `--include-visual`.
 
-Last verified on 2026-07-10: 69/69 default non-visual suites passed.
+Last verified on 2026-07-10: 70/70 default non-visual suites passed.
 
 ## Visual Gate
 
