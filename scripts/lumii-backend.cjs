@@ -7749,6 +7749,9 @@ function publicAdminAccount(account = {}) {
     lockedUntil: '',
     mfaEnabled: adminAccountMfaEnabled(account),
     mfaUpdatedAt: account.mfaUpdatedAt || '',
+    offboardedAt: account.offboardedAt || '',
+    offboardedBy: account.offboardedBy || '',
+    offboardedReason: account.offboardedReason || '',
     passwordUpdatedAt: account.passwordUpdatedAt || '',
     permissionKeys: adminPermissionsForRoles(roleIds),
     roleIds,
@@ -7768,7 +7771,7 @@ function storedAdminAccounts() {
       displayName: normalizeAdminDisplayName(account.displayName, account.username),
       roleIds: normalizeAdminRoleIds(account.roleIds, ['admin']),
       source: 'state',
-      status: ['active', 'disabled'].includes(account.status) ? account.status : 'active',
+      status: ['active', 'disabled', 'offboarded'].includes(account.status) ? account.status : 'active',
       username: normalizeAdminUsername(account.username),
     }))
     .filter((account) => account.id && account.username);
@@ -7792,9 +7795,9 @@ function adminAccountByIdOrUsername(adminId, username) {
   const id = String(adminId || '').trim();
   if (id === 'admin-env') return adminEnvAccount();
   const stored = id ? findStoredAdminAccountById(id) : null;
-  if (stored) return stored.status === 'disabled' ? null : publicAdminAccount(stored);
+  if (stored) return ['disabled', 'offboarded'].includes(stored.status) ? null : publicAdminAccount(stored);
   const byUsername = adminAccountByUsername(username);
-  return byUsername?.status === 'disabled' ? null : byUsername;
+  return ['disabled', 'offboarded'].includes(byUsername?.status) ? null : byUsername;
 }
 
 function adminPasswordHash(password, salt, iterations = ADMIN_PASSWORD_HASH_ITERATIONS) {
@@ -23966,7 +23969,7 @@ function requireAdminRequestPermission(admin, method, pathname) {
 }
 
 function adminAccountHighRiskPattern() {
-  return /(ban|clear|config|delete|export|freeze|hide|revoke|rollback|sanction|send|submission|update)/i;
+  return /(ban|clear|config|delete|export|freeze|hide|offboard|revoke|rollback|sanction|send|submission|update)/i;
 }
 
 function adminStoredAccountRows() {
@@ -23978,7 +23981,7 @@ function adminStoredAccountRows() {
       return {
         ...row,
         lockedUntil: loginStatus.lockedUntil,
-        status: row.status === 'disabled' ? 'disabled' : loginStatus.locked ? 'locked' : row.status,
+        status: ['disabled', 'offboarded'].includes(row.status) ? row.status : loginStatus.locked ? 'locked' : row.status,
       };
     });
 }
@@ -24102,6 +24105,9 @@ function changeAdminAccountStatus(admin, accountId, status, body = {}) {
   const account = findStoredAdminAccountById(accountId);
   if (!account) return { error: '后台账号不存在，环境变量账号不能在这里禁用', statusCode: 404, code: 'ADMIN_ACCOUNT_NOT_FOUND' };
   if (safeEqualText(account.id, admin?.id || '')) return { error: '不能禁用当前登录账号', statusCode: 409, code: 'ADMIN_ACCOUNT_SELF_DISABLE' };
+  if (account.status === 'offboarded') {
+    return { error: '离职停用账号不能重新启用，请为返岗人员新建账号以保留审计边界', statusCode: 409, code: 'ADMIN_ACCOUNT_OFFBOARDED' };
+  }
   const reasonResult = adminAccountReason(body.reason, status === 'disabled' ? '禁用后台账号' : '启用后台账号');
   if (reasonResult.error) return reasonResult;
   const before = publicAdminAccount(account);
@@ -24122,11 +24128,44 @@ function changeAdminAccountStatus(admin, accountId, status, body = {}) {
   return { account: after, accounts: adminAccountRows(), summary: adminAccounts(admin).summary };
 }
 
+function offboardAdminAccount(admin, accountId, body = {}) {
+  const permission = requireAdminAccountManager(admin);
+  if (permission) return permission;
+  const account = findStoredAdminAccountById(accountId);
+  if (!account) return { error: '后台账号不存在，环境变量账号只能通过服务器环境变量停用', statusCode: 404, code: 'ADMIN_ACCOUNT_NOT_FOUND' };
+  if (safeEqualText(account.id, admin?.id || '')) return { error: '不能离职停用当前登录账号', statusCode: 409, code: 'ADMIN_ACCOUNT_SELF_DISABLE' };
+  if (account.status === 'offboarded') return { error: '该后台账号已经完成离职停用', statusCode: 409, code: 'ADMIN_ACCOUNT_OFFBOARDED' };
+  const reasonResult = adminAccountReason(body.reason, '后台管理员离职停用');
+  if (reasonResult.error) return reasonResult;
+  const before = publicAdminAccount(account);
+  const now = new Date().toISOString();
+  Object.assign(account, adminPasswordRecord(generateAdminPassword()), {
+    credentialDestroyedAt: now,
+    disabledAt: now,
+    disabledBy: admin?.username || ADMIN_USERNAME,
+    disabledReason: reasonResult.reason,
+    mfaEnabled: false,
+    mfaSecret: '',
+    mfaUpdatedAt: now,
+    mfaUpdatedBy: admin?.username || ADMIN_USERNAME,
+    offboardedAt: now,
+    offboardedBy: admin?.username || ADMIN_USERNAME,
+    offboardedReason: reasonResult.reason,
+    status: 'offboarded',
+    updatedAt: now,
+  });
+  const after = publicAdminAccount(account);
+  writeAdminAudit(admin, 'admin.account.offboard', 'admin_account', account.id, before, after, reasonResult.reason);
+  clearAdminLoginFailureForAccount(account.username, admin, '离职停用后清理该账号登录失败锁定');
+  return { account: after, accounts: adminAccountRows(), summary: adminAccounts(admin).summary };
+}
+
 function resetAdminAccountPassword(admin, accountId, body = {}) {
   const permission = requireAdminAccountManager(admin);
   if (permission) return permission;
   const account = findStoredAdminAccountById(accountId);
   if (!account) return { error: '后台账号不存在，环境变量账号密码只能通过环境变量修改', statusCode: 404, code: 'ADMIN_ACCOUNT_NOT_FOUND' };
+  if (account.status === 'offboarded') return { error: '离职停用账号不能重置密码', statusCode: 409, code: 'ADMIN_ACCOUNT_OFFBOARDED' };
   const passwordResult = validateAdminPassword(body.password);
   if (passwordResult.error) return passwordResult;
   const reasonResult = adminAccountReason(body.reason, '重置后台账号密码');
@@ -24147,6 +24186,7 @@ function resetAdminAccountMfa(admin, accountId, body = {}) {
   if (permission) return permission;
   const account = findStoredAdminAccountById(accountId);
   if (!account) return { error: '后台账号不存在，环境变量账号 MFA 只能通过环境变量修改', statusCode: 404, code: 'ADMIN_ACCOUNT_NOT_FOUND' };
+  if (account.status === 'offboarded') return { error: '离职停用账号不能重置 MFA', statusCode: 409, code: 'ADMIN_ACCOUNT_OFFBOARDED' };
   const reasonResult = adminAccountReason(body.reason, '更新后台账号 MFA');
   if (reasonResult.error) return reasonResult;
   const rawSecret = body.mfaSecret ?? body.totpSecret ?? body.secret ?? '';
@@ -24303,6 +24343,7 @@ function adminAccounts(admin = {}) {
   const accountRows = adminAccountRows(loginLogs);
   const storedCount = adminStoredAccountRows().length;
   const activeAccountRows = accountRows.filter((account) => account.status === 'active' || account.status === 'locked');
+  const offboardedAccountRows = accountRows.filter((account) => account.status === 'offboarded');
   const activeMfaCount = activeAccountRows.filter((account) => account.mfaEnabled).length;
   const allActiveMfaEnabled = activeAccountRows.length > 0 && activeMfaCount === activeAccountRows.length;
   const anyMfaEnabled = activeMfaCount > 0;
@@ -24315,6 +24356,7 @@ function adminAccounts(admin = {}) {
     adminCheckStatus(passwordRotation.configured ? 'ok' : 'warn', 'password_rotation', '密码轮换', passwordRotation.enabled ? passwordRotation.configured ? `所有 ${passwordRotation.activeAccounts} 个活跃后台账号均有 ${passwordRotation.maxAgeDays} 天内的轮换记录。` : `${passwordRotation.overdueAccounts.length}/${passwordRotation.activeAccounts} 个活跃后台账号缺少轮换时间或已超过 ${passwordRotation.maxAgeDays} 天。` : '未启用后台密码轮换检查，生产期建议配置轮换周期。', 'LUMII_ADMIN_PASSWORD_ROTATION_DAYS / LUMII_ADMIN_PASSWORD_ROTATED_AT / state adminAccounts.passwordUpdatedAt'),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'ip_allowlist', 'IP 白名单', ipAllowlist.configured ? `已启用后端白名单，当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '当前未强制后台 IP 白名单，生产期应在网关或后端启用。', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
     adminCheckStatus(storedCount > 0 ? 'ok' : 'warn', 'multi_accounts', '多管理员账号', storedCount > 0 ? `已启用 ${storedCount} 个 state 管理员账号，可新增、禁用、启用和重置密码。` : '当前只有环境变量 admin 账号，可在本页新增 state 管理员账号。', 'JSON state：adminAccounts'),
+    adminCheckStatus('ok', 'account_offboarding', '离职账号停用', `已接凭据销毁、MFA 清除、旧会话立即失效和禁止原账号恢复；当前 ${offboardedAccountRows.length} 个离职停用账号。`, 'POST /admin/accounts/{id}/offboard / admin.account.offboard'),
   ];
   const response = {
     accounts: accountRows,
@@ -24346,6 +24388,12 @@ function adminAccounts(admin = {}) {
         partial: anyMfaEnabled && !allActiveMfaEnabled,
       },
       mfaRequired: allActiveMfaEnabled,
+      offboarding: {
+        credentialDestruction: true,
+        offboardedAccounts: offboardedAccountRows.length,
+        sessionRevocation: true,
+        supported: true,
+      },
       passwordRotation,
       passwordFromEnv,
       usernameFromEnv,
@@ -24356,6 +24404,7 @@ function adminAccounts(admin = {}) {
       activePermissions: sessionPermissionKeys.length,
       failedAttempts: loginSecurity.failedAttempts,
       lockedAccounts: accountRows.filter((account) => account.status === 'locked').length,
+      offboardedAccounts: offboardedAccountRows.length,
       reservedRoles: adminRoleCatalog().filter((role) => role.status === 'reserved').length,
       securityWarnings: checks.filter((check) => check.status !== 'ok').length,
       stateAccounts: storedCount,
@@ -24863,7 +24912,7 @@ function adminReadinessModules(context) {
       status: hasAccountWarnings ? 'partial' : 'ready',
       evidence: '已覆盖系统健康、外部依赖、业务积压、多后台账号、角色权限点、会话和高风险动作。',
       mobileLinkage: '系统健康观测包含影响 App 的 AI、地图、媒体、客服、通知和配置能力。',
-      nextStep: '生产期补 APM、外部告警、账号离职轮换 SOP，并把本地审计 journal 同步到数据库/WORM/日志服务。',
+      nextStep: '生产期配置并验证站外告警、持续执行密码轮换，并把本地审计 journal 同步到数据库/WORM/日志服务；离职账号凭据销毁与会话失效已接入。',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }
@@ -24913,6 +24962,15 @@ function adminReadinessGaps(context) {
   const defaultPasswordRisk = Boolean(accounts?.security?.defaultPasswordRisk);
   const ipAllowlistReady = Boolean(accounts?.security?.ipAllowlist?.configured);
   const mfaReady = Boolean(accounts?.security?.mfa?.configured);
+  const passwordRotationReady = Boolean(accounts?.security?.passwordRotation?.configured);
+  const offboardingReady = Boolean(accounts?.security?.offboarding?.supported && accounts?.security?.offboarding?.credentialDestruction && accounts?.security?.offboarding?.sessionRevocation);
+  const adminSecurityMissing = [
+    defaultPasswordRisk ? '环境变量后台密码' : '',
+    ipAllowlistReady ? '' : 'IP 白名单',
+    mfaReady ? '' : '全员 MFA',
+    passwordRotationReady ? '' : '密码轮换记录',
+    offboardingReady ? '' : '离职停用闭环',
+  ].filter(Boolean);
   const healthBad = Number(health?.summary?.bad || 0) > 0;
   const alertWebhookReady = Boolean(health?.alertWebhook?.configured && !health?.alertWebhook?.configError);
   const alertWebhookHealthy = alertWebhookReady && health?.alertWebhook?.lastDelivery?.status !== 'failed';
@@ -24926,24 +24984,14 @@ function adminReadinessGaps(context) {
       key: 'admin_security',
       area: '后台安全',
       severity: 'P0',
-      status: defaultPasswordRisk ? 'blocked' : 'partial',
-      issue: defaultPasswordRisk
-        ? '后台密码仍可能使用默认值'
-        : ipAllowlistReady
-          ? mfaReady
-            ? '已接逐账号登录失败锁定、多管理员账号、角色权限、后端 IP 白名单和 TOTP MFA，仍缺账号禁用/轮换 SOP 和正式数据库。'
-            : '已接逐账号登录失败锁定、多管理员账号、角色权限和后端 IP 白名单，仍缺全员启用 MFA、账号禁用/轮换 SOP 和正式数据库。'
-          : mfaReady
-            ? '已接逐账号登录失败锁定、多管理员账号、角色权限和 TOTP MFA，仍缺 IP 白名单和正式数据库。'
-            : '已接逐账号登录失败锁定、多管理员账号和角色权限，仍缺 IP 白名单、全员启用 MFA 和正式数据库。',
-      requiredAction: ipAllowlistReady
-        ? mfaReady
-          ? '生产前继续补账号禁用/轮换 SOP，并确认后台密码由环境变量覆盖。'
-          : '生产前为所有活跃后台账号启用 MFA、补账号禁用/轮换 SOP，并确认后台密码由环境变量覆盖。'
-        : mfaReady
-          ? '生产前启用环境变量密码、IP 白名单和账号禁用/轮换 SOP。'
-          : '生产前启用环境变量密码、IP 白名单、全员 MFA 和账号禁用/轮换 SOP。',
-      evidence: '账号权限页 / 系统健康页',
+      status: defaultPasswordRisk ? 'blocked' : adminSecurityMissing.length ? 'partial' : 'ready',
+      issue: adminSecurityMissing.length
+        ? `已接逐账号登录失败锁定、多管理员、运行时 RBAC、密码轮换检查，以及离职账号凭据销毁、MFA 清除、旧会话失效和禁止恢复；仍缺：${adminSecurityMissing.join('、')}。`
+        : '后台环境变量密码、IP 白名单、全员 MFA、密码轮换、登录失败锁定、运行时 RBAC 和离职停用闭环均已就绪。',
+      requiredAction: adminSecurityMissing.length
+        ? `生产前补齐：${adminSecurityMissing.join('、')}；离职人员使用“离职停用”，返岗时新建账号。`
+        : '按季度抽查账号、MFA、密码轮换和离职停用审计。',
+      evidence: '账号权限页 / 系统健康页 / POST /admin/accounts/{id}/offboard / admin.account.offboard',
     },
     {
       key: 'state_storage',
@@ -30821,6 +30869,12 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       fail(res, 429, `该后台账号已被临时锁定，请 ${lockStatus.remainingLockMinutes} 分钟后再试`, true, lockStatus, 'ADMIN_LOGIN_LOCKED');
       return true;
     }
+    if (account?.status === 'offboarded') {
+      writeAdminAudit(admin, 'admin.login.offboarded_account', 'admin_user', account.username, null, publicAdminAccount(account), '离职停用账号尝试登录');
+      saveState();
+      fail(res, 403, '该后台账号已完成离职停用，不能恢复使用', false, undefined, 'ADMIN_ACCOUNT_OFFBOARDED');
+      return true;
+    }
     if (account?.status === 'disabled') {
       writeAdminAudit(admin, 'admin.login.disabled_account', 'admin_user', account.username, null, publicAdminAccount(account), '禁用账号尝试登录');
       saveState();
@@ -30907,7 +30961,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
-  const adminAccountStatusMatch = pathname.match(/^\/admin\/accounts\/([^/]+)\/(disable|enable|reset-password|reset-mfa)$/);
+  const adminAccountStatusMatch = pathname.match(/^\/admin\/accounts\/([^/]+)\/(disable|enable|offboard|reset-password|reset-mfa)$/);
   if (req.method === 'POST' && adminAccountStatusMatch) {
     const accountId = decodeURIComponent(adminAccountStatusMatch[1]);
     const action = adminAccountStatusMatch[2];
@@ -30915,6 +30969,8 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       ? resetAdminAccountPassword(admin, accountId, body)
       : action === 'reset-mfa'
         ? resetAdminAccountMfa(admin, accountId, body)
+        : action === 'offboard'
+          ? offboardAdminAccount(admin, accountId, body)
         : changeAdminAccountStatus(admin, accountId, action === 'disable' ? 'disabled' : 'active', body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_ACCOUNT_INVALID');

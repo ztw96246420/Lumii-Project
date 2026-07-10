@@ -337,6 +337,57 @@ async function main() {
     assert.equal(finalAccounts.data.security.passwordRotation.configured, true);
     assert.equal(finalAccounts.data.security.passwordRotation.overdueAccounts.length, 0);
     assert.equal(finalAccounts.data.loginSecurity.lockedAccountCount, 0);
+
+    const beforeOffboardState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    const beforeOffboardHash = beforeOffboardState.adminAccounts[account.id].passwordHash;
+    const offboarded = await request(`/admin/accounts/${encodeURIComponent(account.id)}/offboard`, {
+      body: { reason: 'smoke 管理员离职永久停用原账号' },
+      method: 'POST',
+      token: envToken,
+    });
+    assert.equal(offboarded.data.account.status, 'offboarded');
+    assert.equal(offboarded.data.account.mfaEnabled, false);
+    assert.ok(offboarded.data.account.offboardedAt);
+    assert.equal(offboarded.data.account.offboardedBy, 'admin');
+    await request('/admin/me', { expectedStatus: 401, token: noMfaToken });
+    const offboardedLogin = await loginAdmin('ops_admin_01', 'OpsAdmin2027', 403);
+    assert.equal(offboardedLogin.error.code, 'ADMIN_ACCOUNT_OFFBOARDED');
+    const blockedReenable = await request(`/admin/accounts/${encodeURIComponent(account.id)}/enable`, {
+      body: { reason: 'smoke 不应允许恢复离职账号' },
+      expectedStatus: 409,
+      method: 'POST',
+      token: envToken,
+    });
+    assert.equal(blockedReenable.error.code, 'ADMIN_ACCOUNT_OFFBOARDED');
+    const blockedPasswordReset = await request(`/admin/accounts/${encodeURIComponent(account.id)}/reset-password`, {
+      body: { password: 'ShouldNotWork2028', reason: 'smoke 不应允许重置离职账号密码' },
+      expectedStatus: 409,
+      method: 'POST',
+      token: envToken,
+    });
+    assert.equal(blockedPasswordReset.error.code, 'ADMIN_ACCOUNT_OFFBOARDED');
+    const blockedMfaReset = await request(`/admin/accounts/${encodeURIComponent(account.id)}/reset-mfa`, {
+      body: { mfaSecret: SUPPORT_MFA_SECRET, reason: 'smoke 不应允许重置离职账号 MFA' },
+      expectedStatus: 409,
+      method: 'POST',
+      token: envToken,
+    });
+    assert.equal(blockedMfaReset.error.code, 'ADMIN_ACCOUNT_OFFBOARDED');
+
+    const afterOffboardState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    const offboardedStored = afterOffboardState.adminAccounts[account.id];
+    assert.notEqual(offboardedStored.passwordHash, beforeOffboardHash, 'offboarding should destroy the previous password credential');
+    assert.equal(offboardedStored.mfaSecret, '');
+    assert.equal(offboardedStored.status, 'offboarded');
+    assert.ok(offboardedStored.credentialDestroyedAt);
+    const afterOffboardAccounts = await request('/admin/accounts', { token: envToken });
+    assert.equal(afterOffboardAccounts.data.summary.offboardedAccounts, 1);
+    assert.equal(afterOffboardAccounts.data.security.offboarding.supported, true);
+    assert.equal(afterOffboardAccounts.data.security.offboarding.credentialDestruction, true);
+    assert.equal(afterOffboardAccounts.data.security.offboarding.sessionRevocation, true);
+    assert.equal(afterOffboardAccounts.data.security.mfa.configured, true);
+    const offboardAudit = await request('/admin/audit-logs?q=admin.account.offboard', { token: envToken });
+    assert.equal(offboardAudit.data.items.some((item) => item.action === 'admin.account.offboard'), true);
   } finally {
     await stopBackend();
     fs.rmSync(tmpDir, { force: true, recursive: true });

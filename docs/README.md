@@ -66,6 +66,7 @@
 | [Operations_Backoffice_Implementation_Notes_2026-06-29.md](./Operations_Backoffice_Implementation_Notes_2026-06-29.md) | 当前实现记录 | 已落地后台能力、缺口和下一批建议 |
 | [Operations_Backoffice_Admin_Security_2026-07-02.md](./Operations_Backoffice_Admin_Security_2026-07-02.md) | 当前专项 | 单 admin 账号、登录失败锁定和后台 IP 白名单 |
 | [Operations_Backoffice_Admin_Accounts_2026-07-04.md](./Operations_Backoffice_Admin_Accounts_2026-07-04.md) | 当前专项 | 多管理员账号底座、state 账号、禁用、启用、重置密码和审计 |
+| [Operations_Backoffice_Admin_Offboarding_2026-07-10.md](./Operations_Backoffice_Admin_Offboarding_2026-07-10.md) | 当前专项 | 管理员离职凭据销毁、MFA 清除、会话失效、禁止恢复和审计流程 |
 | [Operations_Backoffice_External_Alerts_2026-07-10.md](./Operations_Backoffice_External_Alerts_2026-07-10.md) | 当前专项 | 企业微信/飞书/钉钉/通用 Webhook 站外告警、高风险审批提醒、去重和测试闭环 |
 | [Operations_Backoffice_Media_CDN_Probe_2026-07-02.md](./Operations_Backoffice_Media_CDN_Probe_2026-07-02.md) | 当前专项 | 媒体 CDN 真实 GET 探测、webblock 识别和系统健康联动 |
 | [Operations_Backoffice_Social_Author_Sanction_2026-07-02.md](./Operations_Backoffice_Social_Author_Sanction_2026-07-02.md) | 当前专项 | 宠友圈动态/评论作者快捷处罚、证据快照、移动端限制联动 |

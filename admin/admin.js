@@ -224,7 +224,7 @@ function statusPill(status) {
   const value = String(status || '-');
   const tone = /ready|approved|active|published|valid|closed|success|done|稳定|已通过|通过|已处理|已配置|已启用/.test(value)
     ? 'ok'
-    : /failed|rejected|deleted|hidden|invalid|bad|ban|banned|freeze|frozen|muted|禁言|冻结|封禁|已隐藏|已驳回|驳回/.test(value)
+    : /failed|rejected|deleted|hidden|invalid|bad|ban|banned|freeze|frozen|muted|offboarded|禁言|冻结|封禁|离职停用|已隐藏|已驳回|驳回/.test(value)
       ? 'bad'
       : 'warn';
   return `<span class="pill ${tone}">${escapeHtml(value)}</span>`;
@@ -439,6 +439,10 @@ async function onContentClick(event) {
     }
     if (action === 'admin-account-enable') {
       await handleAdminAccountStatus(button, 'enable');
+      return;
+    }
+    if (action === 'admin-account-offboard') {
+      await handleAdminAccountOffboard(button);
       return;
     }
     if (action === 'admin-account-reset-password') {
@@ -2927,12 +2931,16 @@ function adminAccountActionCell(row) {
   if (row.source === 'env') {
     return '<span class="cell-sub">环境变量账号请在服务器环境变量中维护。</span>';
   }
+  if (row.status === 'offboarded') {
+    return '<span class="cell-sub">已离职停用；为保留审计边界，该账号不可恢复，请按需新建账号。</span>';
+  }
   const disabled = row.status === 'disabled';
   return `
     <div class="actions">
       <button class="small-button" data-action="${disabled ? 'admin-account-enable' : 'admin-account-disable'}" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">${disabled ? '启用' : '禁用'}</button>
       <button class="small-button ghost" data-action="admin-account-reset-password" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">重置密码</button>
       <button class="small-button ghost" data-action="admin-account-reset-mfa" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">${row.mfaEnabled ? '重置 MFA' : '启用 MFA'}</button>
+      <button class="small-button danger" data-action="admin-account-offboard" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">离职停用</button>
     </div>
   `;
 }
@@ -2965,6 +2973,22 @@ async function handleAdminAccountStatus(button, action) {
   state.cache.adminAccounts = null;
   state.cache.audit = null;
   showToast(`账号已${verb}`);
+  await render(true);
+}
+
+async function handleAdminAccountOffboard(button) {
+  const username = button.dataset.username || '';
+  const confirmation = window.prompt(`离职停用会销毁 ${username} 的密码和 MFA，并立即让旧会话失效。请输入账号名确认：`);
+  if (confirmation === null) return;
+  if (confirmation.trim() !== username) throw new Error('账号名不一致，已取消离职停用');
+  const reason = window.prompt('请输入离职停用原因，会写入审计日志', '管理员离职，永久停用原账号');
+  if (reason === null) return;
+  await post(`/admin/accounts/${encodeURIComponent(button.dataset.id)}/offboard`, {
+    reason: reason.trim() || '管理员离职，永久停用原账号',
+  });
+  state.cache.adminAccounts = null;
+  state.cache.audit = null;
+  showToast('账号已完成离职停用');
   await render(true);
 }
 
@@ -3082,7 +3106,7 @@ async function renderAdminAccounts(force) {
     <div class="grid metrics">
       ${metric('管理员账号', numberText(summary.activeAccounts || 0), `${numberText(summary.stateAccounts || 0)} 个 state 账号`, '后台账号与 App 用户账号分离。环境变量 admin 仍可用，新增账号保存在服务端 state。')}
       ${metric('当前权限', numberText(summary.activePermissions || 0), `${(session.roleIds || []).join(' / ') || '未识别角色'}`, '后台已按角色做运行时权限拦截；按钮漏隐藏时，后端仍会按权限点拒绝。')}
-      ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.reservedRoles || 0)} 个预留角色`, '多管理员、角色权限、登录失败锁定、IP 白名单、TOTP MFA 和密码轮换状态检查已接入；离职交接 SOP 仍是生产期治理能力。')}
+      ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.offboardedAccounts || 0)} 个离职停用`, '多管理员、角色权限、登录失败锁定、IP 白名单、TOTP MFA、密码轮换检查和离职凭据销毁已接入。')}
       ${metric('登录保护', loginSecurity.lockedAccountCount ? `${numberText(loginSecurity.lockedAccountCount)} 个锁定` : `${numberText(loginSecurity.failedAttempts || 0)}/${numberText(loginSecurity.maxAttempts || 5)}`, `${numberText(loginSecurity.lockMinutes || 15)} 分钟锁定`, '连续失败达到阈值后，只临时锁定对应后台账号，并写入审计日志。')}
       ${metric('IP 白名单', ipAllowlist.configured ? '已启用' : '未启用', ipAllowlist.configured ? `${numberText(ipAllowlist.entryCount || 0)} 条规则 · 当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '配置环境变量后生效', '配置 LUMII_ADMIN_IP_ALLOWLIST 后，/admin 页面和 /admin/* API 都会拦截非白名单 IP。')}
       ${metric('当前会话', session.expiresAt ? formatTime(session.expiresAt) : '-', `${escapeHtml(session.ip || 'IP 未记录')}`, '当前后台 token 的到期时间、请求 IP 和 User-Agent 摘要。')}
@@ -3118,7 +3142,7 @@ async function renderAdminAccounts(force) {
             <h2>安全检查</h2>
             <div class="section-sub">密码来源、MFA、IP 白名单和多账号状态</div>
           </div>
-          ${help('当前已支持多管理员、角色权限、逐账号登录失败锁定、TOTP MFA 和后端 IP 白名单；生产期还要补账号禁用/轮换 SOP。')}
+          ${help('当前已支持多管理员、角色权限、逐账号登录失败锁定、TOTP MFA、后端 IP 白名单、密码轮换检查和不可恢复的离职停用。')}
         </div>
         ${tableHtml(data.security?.checks || [], [
           ['状态', (row) => healthStatusPill(row.status)],
@@ -3132,14 +3156,14 @@ async function renderAdminAccounts(force) {
       <div class="section-head">
         <div>
           <h2>后台账号列表</h2>
-          <div class="section-sub">环境变量账号 + state 账号；禁用后 token 会失效</div>
+          <div class="section-sub">环境变量账号 + state 账号；禁用或离职停用后 token 会立即失效</div>
         </div>
-        ${help('环境变量账号不能在页面禁用或重置密码，仍需在服务器环境变量中维护。state 账号可禁用、启用和重置密码，所有操作都会写审计日志。')}
+        ${help('普通禁用可重新启用；离职停用会销毁密码和 MFA，原账号不可恢复，返岗需新建账号。所有操作都会写审计日志。')}
       </div>
       ${tableHtml(data.accounts || [], [
         ['账号', (row) => `<div class="cell-title">${escapeHtml(row.displayName || row.username)}</div><div class="cell-sub">${escapeHtml(row.id)} · ${escapeHtml(row.username)} · ${escapeHtml(row.source || '-')}</div>`],
         ['角色', (row) => `<div>${(row.roleIds || []).map((role) => statusPill(role)).join(' ')}</div><div class="cell-sub">${row.mfaEnabled ? 'MFA 已启用' : 'MFA 未启用'}</div>`],
-        ['状态', (row) => `${statusPill(row.status)}<div class="cell-sub">${row.disabledAt ? `禁用：${formatTime(row.disabledAt)}` : row.lastLoginAt ? `最近登录 ${formatTime(row.lastLoginAt)}` : '暂无登录记录'}</div>`],
+        ['状态', (row) => `${statusPill(row.status === 'offboarded' ? '离职停用' : row.status)}<div class="cell-sub">${row.offboardedAt ? `离职：${formatTime(row.offboardedAt)}` : row.disabledAt ? `禁用：${formatTime(row.disabledAt)}` : row.lastLoginAt ? `最近登录 ${formatTime(row.lastLoginAt)}` : '暂无登录记录'}</div>`],
         ['最近 IP', (row) => `<div class="cell-sub">${escapeHtml(row.lastLoginIp || 'IP 未记录')}</div>`],
         ['密码', (row) => `<div class="cell-sub">${row.passwordUpdatedAt ? `最近更新 ${formatTime(row.passwordUpdatedAt)}` : row.source === 'env' ? '环境变量维护' : '未记录'}</div>`],
         ['操作', (row) => adminAccountActionCell(row)],

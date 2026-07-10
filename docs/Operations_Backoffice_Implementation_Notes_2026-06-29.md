@@ -1022,6 +1022,16 @@
 
 详细配置和值守口径见 `Operations_Backoffice_External_Alerts_2026-07-10.md`。
 
+## 3.18 管理员离职停用
+
+- 新增 `POST /admin/accounts/{id}/offboard`。
+- 离职停用会随机覆盖旧密码凭据、清空 MFA、更新时间戳并立即使旧 Token 失效。
+- 账号进入不可恢复的 `offboarded` 状态；普通启用、密码重置和 MFA 重置均会被后端拒绝。
+- 页面要求输入完整账号名二次确认，操作原因必填。
+- 返岗人员必须新建账号，避免混用旧审计身份。
+- 审计动作 `admin.account.offboard` 不记录密码、MFA Secret 或随机替换凭据。
+- `smoke-admin-accounts.cjs` 已覆盖凭据销毁、会话失效、禁止恢复和审计。
+
 ## 4. 预留菜单
 
 当前后台左侧暂无仅占位的一级菜单。

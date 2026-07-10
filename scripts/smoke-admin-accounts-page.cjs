@@ -155,8 +155,36 @@ async function main() {
 
   let browser = null;
   try {
+    const activeAccount = await request('/admin/accounts', {
+      body: {
+        displayName: '视觉值班账号',
+        password: 'VisualOps2026',
+        reason: 'visual smoke creates active admin account',
+        roleIds: ['support'],
+        username: 'visual_ops',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    const departedAccount = await request('/admin/accounts', {
+      body: {
+        displayName: '视觉离职账号',
+        password: 'VisualDeparted2026',
+        reason: 'visual smoke creates departed admin account',
+        roleIds: ['auditor'],
+        username: 'visual_departed',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    await request(`/admin/accounts/${encodeURIComponent(departedAccount.data.account.id)}/offboard`, {
+      body: { reason: 'visual smoke offboards departed admin account' },
+      method: 'POST',
+      token: adminToken,
+    });
     const accounts = await request('/admin/accounts', { token: adminToken });
     assert.equal(accounts.data?.hardeningPlan?.complete, false, 'default temp backend should not be production-hardened');
+    assert.equal(accounts.data.summary.offboardedAccounts, 1);
 
     browser = await playwright.chromium.launch({ executablePath, headless: true });
     const context = await browser.newContext({ viewport: { height: 960, width: 1440 } });
@@ -167,6 +195,9 @@ async function main() {
     await page.locator('#loginBtn').click();
     await page.locator('#nav button[data-route="adminAccounts"]').click();
     await page.locator('button[data-action="admin-security-package-generate"]').waitFor({ timeout: 30_000 });
+    await page.locator(`button[data-action="admin-account-offboard"][data-id="${activeAccount.data.account.id}"]`).waitFor({ timeout: 30_000 });
+    await page.getByText('已离职停用；为保留审计边界，该账号不可恢复，请按需新建账号。').waitFor({ timeout: 30_000 });
+    await page.getByText('离职停用', { exact: true }).first().waitFor({ timeout: 30_000 });
 
     let dialogIndex = 0;
     page.on('dialog', async (dialog) => {
