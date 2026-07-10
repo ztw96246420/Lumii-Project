@@ -895,9 +895,50 @@ function normalizeHomeMomentPreview(value: string): HomeMomentPreviewKind | null
   return null;
 }
 
+const webPreviewRoutes: Record<AppRoute, true> = {
+  accountSecurity: true,
+  addPlaceReview: true,
+  aiResult: true,
+  chat: true,
+  conversation: true,
+  dailyPost: true,
+  discover: true,
+  editPet: true,
+  emptyPet: true,
+  generating: true,
+  greetingRequests: true,
+  health: true,
+  healthCalendar: true,
+  healthMemos: true,
+  home: true,
+  login: true,
+  map: true,
+  memoEdit: true,
+  memoNew: true,
+  messages: true,
+  multiPet: true,
+  notifications: true,
+  otp: true,
+  ownerEdit: true,
+  permissions: true,
+  petCircleProfile: true,
+  petDetail: true,
+  petInfo: true,
+  placeDetail: true,
+  profile: true,
+  safety: true,
+  settings: true,
+  supportTickets: true,
+  upload: true,
+  uploadDetail: true,
+  uploadNoPet: true,
+  vaccine: true,
+  walkInvite: true,
+  weight: true,
+};
+
 function normalizeWebPreviewRoute(value: string): AppRoute | null {
-  if (value === 'addPlaceReview' || value === 'aiResult' || value === 'chat' || value === 'dailyPost' || value === 'discover' || value === 'editPet' || value === 'greetingRequests' || value === 'health' || value === 'healthCalendar' || value === 'home' || value === 'map' || value === 'memoNew' || value === 'multiPet' || value === 'notifications' || value === 'petCircleProfile' || value === 'petInfo' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'supportTickets' || value === 'uploadNoPet' || value === 'vaccine' || value === 'weight') return value;
-  return null;
+  return Object.prototype.hasOwnProperty.call(webPreviewRoutes, value) ? value as AppRoute : null;
 }
 
 function normalizeNotificationActionRoute(value?: string): AppRoute | null {
@@ -1497,6 +1538,11 @@ function getAvatarGeneratingStepRows(progress: number, resultPrefetching: boolea
 
 function isGeneratedAvatarUri(uri?: null | string) {
   return Boolean(uri?.startsWith('lumii://'));
+}
+
+function petImageSourceFor(uri?: null | string): ImageSourcePropType | undefined {
+  if (!uri) return undefined;
+  return isGeneratedAvatarUri(uri) ? generatedGoldenAvatarSource : { uri };
 }
 
 function getAvatarCandidateUrls(job?: null | AvatarJob) {
@@ -2245,6 +2291,7 @@ export default function LumiiMvpApp() {
   const interactivePetCirclePreview = getWebPreviewParam('mockPetCircle') === 'interactive';
   const interactiveMultiPetPreview = getWebPreviewParam('mockMultiPet') === 'interactive';
   const backdatedHealthCalendarPreview = getWebPreviewParam('mockHealthCalendar') === 'backdated';
+  const missingAvatarPreview = getWebPreviewParam('mockAvatar') === 'missing';
   const backdatedHealthCalendarDate = addDaysIsoDate(-6);
   const defaultHealthCalendarDate = () => (isHomePreviewMode && backdatedHealthCalendarPreview ? backdatedHealthCalendarDate : todayIsoDate());
   const defaultHealthCalendarMonth = () => monthStartIso(defaultHealthCalendarDate());
@@ -2258,7 +2305,13 @@ export default function LumiiMvpApp() {
   const placesPreviewApi = isHomePreviewMode ? mockApi.places : lumiiApi.places;
   const accountPreviewApi = isHomePreviewMode ? mockApi.account : lumiiApi.account;
   const settingsPreviewApi = isHomePreviewMode ? mockApi.settings : lumiiApi.settings;
-  const initialPreviewPets = isHomePreviewMode && interactiveMultiPetPreview ? [webPreviewPet, webPreviewSecondPet] : [webPreviewPet];
+  const supportPreviewApi = isHomePreviewMode ? mockApi.support : lumiiApi.support;
+  const analyticsPreviewApi = isHomePreviewMode ? mockApi.analytics : lumiiApi.analytics;
+  const authPreviewApi = isHomePreviewMode ? mockApi.auth : lumiiApi.auth;
+  const configPreviewApi = isHomePreviewMode ? mockApi.config : lumiiApi.config;
+  const permissionsPreviewApi = isHomePreviewMode ? mockApi.permissions : lumiiApi.permissions;
+  const initialPreviewPrimaryPet = missingAvatarPreview ? { ...webPreviewPet, avatarUrl: undefined } : webPreviewPet;
+  const initialPreviewPets = isHomePreviewMode && interactiveMultiPetPreview ? [initialPreviewPrimaryPet, webPreviewSecondPet] : [initialPreviewPrimaryPet];
   const previewNearbyVisibleParam = getWebPreviewParam('nearbyVisible');
   const initialUserSettings: UserSettings = isHomePreviewMode
     ? {
@@ -2364,7 +2417,7 @@ export default function LumiiMvpApp() {
   const initialPreviewAvatarResult = isHomePreviewMode && initialPreviewRoute === 'aiResult';
   const initialPreviewAvatarGenerating = isHomePreviewMode && initialPreviewRoute === 'generating';
   const initialPreviewUploadNoPet = isHomePreviewMode && initialPreviewRoute === 'uploadNoPet' && getWebPreviewParam('mockUpload') === 'noPet';
-  const initialPreviewMedia = initialPreviewAvatarResult || initialPreviewAvatarGenerating ? webPreviewAvatarMedia : initialPreviewUploadNoPet ? webPreviewNoPetMedia : null;
+  const initialPreviewMedia = initialPreviewAvatarResult || initialPreviewAvatarGenerating || initialPreviewRoute === 'uploadDetail' ? webPreviewAvatarMedia : initialPreviewUploadNoPet ? webPreviewNoPetMedia : null;
   const [media, setMedia] = useState<UploadedPetMedia | null>(initialPreviewMedia);
   const mediaIdRef = useRef<string | null>(initialPreviewMedia?.mediaId ?? null);
   const [mediaPickerMode, setMediaPickerMode] = useState<'camera' | 'library' | null>(null);
@@ -2716,7 +2769,7 @@ export default function LumiiMvpApp() {
     if (sampleRatePercent <= 0) return;
     const identity = session?.phone || phoneValueRef.current || 'guest';
     if (sampleRatePercent < 100 && hashStringToPercent(`${identity}:${name}`) >= sampleRatePercent) return;
-    void lumiiApi.analytics.trackEvent({
+    void analyticsPreviewApi.trackEvent({
       appBuild: lumiiAppBuildNumber,
       appVersion: lumiiAppVersion,
       name,
@@ -2862,7 +2915,7 @@ export default function LumiiMvpApp() {
 
   useEffect(() => {
     let cancelled = false;
-    lumiiApi.config.getAppConfig().then((result) => {
+    configPreviewApi.getAppConfig().then((result) => {
       if (cancelled || result.state !== 'success' || !result.data) return;
       remoteConfigRef.current = result.data;
       setRemoteConfig(result.data);
@@ -3514,7 +3567,7 @@ export default function LumiiMvpApp() {
         if (!mounted) return;
         if (persistedSession) {
           setLumiiAuthToken(persistedSession.token);
-          const refreshedSession = await lumiiApi.auth.refreshSession(persistedSession);
+          const refreshedSession = await authPreviewApi.refreshSession(persistedSession);
           if (!mounted) return;
           if (refreshedSession.error) {
             await clearPersistedLumiiSession();
@@ -4630,7 +4683,7 @@ export default function LumiiMvpApp() {
     if (!silent) setSupportTicketsLoading(true);
     setSupportTicketsError('');
     try {
-      const result = await lumiiApi.support.getTickets();
+      const result = await supportPreviewApi.getTickets();
       if (sessionTokenRef.current !== requestSessionToken) return false;
       if (result.data) {
         setSupportTickets(result.data.tickets);
@@ -4653,7 +4706,7 @@ export default function LumiiMvpApp() {
     if (!silent) setSanctionAppealsLoading(true);
     setSanctionAppealsError('');
     try {
-      const result = await lumiiApi.support.getSanctionAppeals();
+      const result = await supportPreviewApi.getSanctionAppeals();
       if (sessionTokenRef.current !== requestSessionToken) return false;
       if (result.data) {
         setSanctionAppeals(result.data.appeals);
@@ -4690,7 +4743,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     setSanctionAppealSubmitting(true);
     try {
-      const result = await lumiiApi.support.submitSanctionAppeal(content, sanctionId);
+      const result = await supportPreviewApi.submitSanctionAppeal(content, sanctionId);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setSanctionAppealDraft('');
@@ -4723,7 +4776,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     setReportAppealSubmitting(true);
     try {
-      const result = await lumiiApi.support.submitReportAppeal(reportId, content);
+      const result = await supportPreviewApi.submitReportAppeal(reportId, content);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setReportAppealDraft('');
@@ -4750,7 +4803,7 @@ export default function LumiiMvpApp() {
     const silent = options.silent === true;
     if (!silent) setSupportTicketDetailLoading(true);
     try {
-      const result = await lumiiApi.support.getTicket(ticketId);
+      const result = await supportPreviewApi.getTicket(ticketId);
       if (sessionTokenRef.current !== requestSessionToken) return false;
       if (result.data) {
         setSupportTicketDetail(result.data);
@@ -4848,7 +4901,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     setSupportTicketReplySending(true);
     try {
-      const result = await lumiiApi.support.replyTicket(ticketId, content, attachments);
+      const result = await supportPreviewApi.replyTicket(ticketId, content, attachments);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setSupportTicketDetail(result.data);
@@ -4876,7 +4929,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     setSupportTicketRatingSending(true);
     try {
-      const result = await lumiiApi.support.rateTicket(ticketId, finalRating, supportTicketSatisfactionComment.trim());
+      const result = await supportPreviewApi.rateTicket(ticketId, finalRating, supportTicketSatisfactionComment.trim());
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setSupportTicketDetail(result.data);
@@ -4904,7 +4957,7 @@ export default function LumiiMvpApp() {
     const requestSessionToken = sessionTokenRef.current;
     setSupportTicketReopenSending(true);
     try {
-      const result = await lumiiApi.support.reopenTicket(ticketId, content, attachments);
+      const result = await supportPreviewApi.reopenTicket(ticketId, content, attachments);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setSupportTicketDetail(result.data);
@@ -5581,7 +5634,7 @@ export default function LumiiMvpApp() {
   async function persistPermissionSnapshot(nextPermissions: PermissionStateMap, completed = false) {
     const requestSessionToken = sessionTokenRef.current;
     if (!requestSessionToken) return nextPermissions;
-    const result = await lumiiApi.permissions.savePermissionState(nextPermissions, Boolean(completed || allLumiiPermissionsGranted(nextPermissions)));
+    const result = await permissionsPreviewApi.savePermissionState(nextPermissions, Boolean(completed || allLumiiPermissionsGranted(nextPermissions)));
     if (sessionTokenRef.current !== requestSessionToken) return nextPermissions;
     if (result.data) {
       const savedPermissions = mergePermissionState(nextPermissions, result.data);
@@ -5747,7 +5800,7 @@ export default function LumiiMvpApp() {
     sendLoadingRef.current = true;
     setSendLoading(true);
     try {
-      const result = await lumiiApi.auth.sendSmsCode(requestPhone);
+      const result = await authPreviewApi.sendSmsCode(requestPhone);
       if (phoneValueRef.current.trim() !== requestPhone) return;
       if (result.state === 'success' && result.data) {
         otpMetaRef.current = result.data;
@@ -5784,7 +5837,7 @@ export default function LumiiMvpApp() {
     setVerifyLoading(true);
     setOtpInlineError('');
     try {
-      const result = await lumiiApi.auth.verifySmsCode(ticket.phone, code, ticket.expiresAt);
+      const result = await authPreviewApi.verifySmsCode(ticket.phone, code, ticket.expiresAt);
       const currentTicket = otpMetaRef.current;
       if (!currentTicket || currentTicket.phone !== ticket.phone || currentTicket.expiresAt !== ticket.expiresAt) return;
       if (result.data) {
@@ -6691,7 +6744,7 @@ export default function LumiiMvpApp() {
         showToast('招呼请求已更新，请返回消息页刷新');
         return;
       }
-      const feedbackResult = await lumiiApi.support.submitFeedback(feedbackContent, 'safety', session?.phone);
+      const feedbackResult = await supportPreviewApi.submitFeedback(feedbackContent, 'safety', session?.phone);
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (!feedbackResult.data) {
         showToast(feedbackResult.error?.message ?? '举报提交失败，请稍后重试', { tone: 'error', variant: 'surface' });
@@ -9497,7 +9550,7 @@ export default function LumiiMvpApp() {
 
   async function logout() {
     try {
-      await lumiiApi.auth.logout();
+      await authPreviewApi.logout();
     } finally {
       setLogoutConfirmVisible(false);
       await clearPersistedLumiiSession();
@@ -9974,7 +10027,7 @@ export default function LumiiMvpApp() {
         <Screen title="编辑宠物资料">
           <View style={styles.petEditAvatarBlock}>
             <Pressable onPress={() => void pickPetProfileAvatar()} style={[styles.petEditAvatarWrap, webPressableReset]}>
-              <PetAvatar size={88} uri={petDraft.avatarUrl || editingProfile?.avatarUrl || generatedGoldenAvatarUri} />
+              <PetAvatar size={88} uri={petDraft.avatarUrl || editingProfile?.avatarUrl} />
               <View style={styles.petEditCameraBadge}>
                 <Camera color="#fff" size={14} strokeWidth={2.4} />
               </View>
@@ -10699,7 +10752,7 @@ export default function LumiiMvpApp() {
     const memoCount = healthSummary?.memoCount ?? memos.length;
     const calendarSummary = healthCalendarEvents.length ? `${healthCalendarEvents.length} 条记录` : (healthSummary?.latestMemo?.title ?? memos[0]?.title ?? '查看记录');
     const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : '暂无附近伙伴';
-    const petImageSource = pet.avatarUrl && !isGeneratedAvatarUri(pet.avatarUrl) ? { uri: pet.avatarUrl } : generatedGoldenAvatarSource;
+    const petImageSource = petImageSourceFor(pet.avatarUrl);
     const vaccineDueLabel = formatDueLabel(nextVaccine?.dueAt);
     const homeChatHint = homeChatPrompts[homeHintIndex].replace(/\{petName\}/g, pet.name);
     const homeAiEntryExperiment = resolveHomeAiEntryExperiment(remoteConfig.experiments, session?.phone || phoneValueRef.current || 'guest', pet.name);
@@ -10749,7 +10802,7 @@ export default function LumiiMvpApp() {
         return (
           <>
             <View style={styles.homeMomentBody}>
-              <PetAvatar uri={activeNearbyMoment.imageUrl ?? generatedGoldenAvatarUri} size={70} />
+              <PetAvatar uri={activeNearbyMoment.imageUrl} size={70} />
               <View style={styles.homeMomentCopy}>
                 <View style={styles.homeMomentNameRow}>
                   <Text numberOfLines={1} style={styles.homeMomentName}>{activeNearbyMoment.petName} 的小事</Text>
@@ -10784,7 +10837,7 @@ export default function LumiiMvpApp() {
               <View style={styles.homeMomentAvatarStack}>
                 {owners.slice(0, 3).map((owner, index) => (
                   <View key={`${owner.id}-home-stack`} style={[styles.homeMomentStackAvatar, { left: index * 25, zIndex: 3 - index }]}>
-                    <PetAvatar uri={owner.imageUrl ?? generatedGoldenAvatarUri} size={42} />
+                    <PetAvatar uri={owner.imageUrl} size={42} />
                   </View>
                 ))}
               </View>
@@ -10843,7 +10896,7 @@ export default function LumiiMvpApp() {
         <View style={styles.homeMakePage}>
           <View style={styles.homeMakeHeader}>
             <View style={styles.homeMakeGreeting}>
-              <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={42} />
+              <PetAvatar uri={pet.avatarUrl} size={42} />
               <View style={styles.flex}>
                 <Text style={styles.homeMakeKicker}>早安，{pet.name}！</Text>
                 <Pressable onPress={() => handleHomeAiChatPress('home_header')} style={[styles.homeMakeChatEntry, webPressableReset]}>
@@ -10902,7 +10955,7 @@ export default function LumiiMvpApp() {
               {showDynamicAvatar ? (
                 <PetCompanionVideo fallbackSource={petImageSource} uri={avatarAnimationVideoUri} />
               ) : (
-                <Image resizeMode="contain" source={petImageSource} style={styles.homePetHeroImage} />
+                <PetPhoto iconSize={68} resizeMode="contain" uri={pet.avatarUrl} style={styles.homePetHeroImage} />
               )}
             </View>
           </View>
@@ -10994,7 +11047,7 @@ export default function LumiiMvpApp() {
             <ChevronLeft color={palette.ink} size={22} strokeWidth={2.4} />
           </Pressable>
           <View style={[styles.chatAvatarWrap, chatDisconnected && styles.chatAvatarWrapOffline]}>
-            <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={38} />
+            <PetAvatar uri={pet?.avatarUrl} size={38} />
             <View style={[styles.chatAvatarDot, chatDisconnected && styles.chatAvatarDotOffline]} />
           </View>
           <View style={styles.chatHeaderCopy}>
@@ -11029,7 +11082,7 @@ export default function LumiiMvpApp() {
           {chatMessages.map((message) => (
             <View key={message.id} style={styles.chatMessageGroup}>
               <View style={[styles.chatMakeBubbleRow, message.author === 'me' && styles.chatMakeBubbleRowMe]}>
-                {message.author === 'ai' ? <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={26} /> : null}
+                {message.author === 'ai' ? <PetAvatar uri={pet?.avatarUrl} size={26} /> : null}
                 <View style={styles.chatBubbleColumn}>
                   <View style={[styles.chatMakeBubble, message.author === 'me' && styles.chatMakeBubbleMe]}>
                     <Text style={[styles.chatMakeText, message.author === 'me' && styles.chatTextMe]}>{message.text}</Text>
@@ -11077,7 +11130,7 @@ export default function LumiiMvpApp() {
           ))}
           {chatReplying ? (
             <View style={styles.chatMakeBubbleRow}>
-              <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={26} />
+              <PetAvatar uri={pet?.avatarUrl} size={26} />
               <View style={[styles.chatMakeBubble, styles.chatTypingBubble]}>
                 {[0, 1, 2].map((dot) => <View key={dot} style={[styles.chatTypingDot, dot === 1 && styles.chatTypingDotMid, dot === 2 && styles.chatTypingDotLast]} />)}
               </View>
@@ -11123,7 +11176,7 @@ export default function LumiiMvpApp() {
     const canSendMessage = Boolean(conversation && conversation.canSendMessage !== false);
     const conversationInput = conversation ? conversationDraftsById[conversation.id] ?? '' : '';
     const failedConversationMessage = conversationMessages.slice().reverse().find((message) => message.author === 'me' && message.status === 'failed');
-    const conversationAvatarUri = conversation?.imageUrl ?? owners[0]?.imageUrl ?? generatedGoldenAvatarUri;
+    const conversationAvatarUri = conversation?.imageUrl ?? owners[0]?.imageUrl;
     const firstConversationTime = conversationMessages.find((message) => message.author !== 'system')?.time;
     const conversationDateText = firstConversationTime ? formatChatDateChip(firstConversationTime) : '今天';
     const parseWalkInviteMessage = (text: string) => {
@@ -11475,7 +11528,7 @@ export default function LumiiMvpApp() {
             <Text style={styles.healthHeroDesc}>{weightSubtitle}</Text>
           </View>
           <View style={styles.healthHeroAvatar}>
-            <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={64} />
+            <PetAvatar uri={pet?.avatarUrl} size={64} />
           </View>
         </View>
 
@@ -12568,9 +12621,8 @@ export default function LumiiMvpApp() {
 
   function renderPetCircleProfile() {
     const profile = petCircleProfile;
-    const coverUri = profile?.coverImageUrl || getCurrentPet()?.petCircleCoverImageUrl || petCircleProfilePosts.find((post) => post.imageUrls?.length)?.imageUrls?.[0] || getCurrentPet()?.avatarUrl || generatedGoldenAvatarUri;
-    const coverSource = coverUri && !isGeneratedAvatarUri(coverUri) ? { uri: coverUri } : generatedGoldenAvatarSource;
-    const avatarUri = profile?.avatarUrl || getCurrentPet()?.avatarUrl || generatedGoldenAvatarUri;
+    const coverUri = profile?.coverImageUrl || getCurrentPet()?.petCircleCoverImageUrl || petCircleProfilePosts.find((post) => post.imageUrls?.length)?.imageUrls?.[0] || getCurrentPet()?.avatarUrl;
+    const avatarUri = profile?.avatarUrl || getCurrentPet()?.avatarUrl;
     const selectedCommentPost = petCircleCommentPostId ? petCircleProfilePosts.find((post) => post.id === petCircleCommentPostId) ?? null : null;
     const selectedViewerPost = petCirclePhotoViewer ? petCircleProfilePosts.find((post) => post.id === petCirclePhotoViewer.postId) ?? null : null;
     const viewerIndex = selectedViewerPost ? Math.min(petCirclePhotoViewer?.index ?? 0, selectedViewerPost.imageUrls?.length ? selectedViewerPost.imageUrls.length - 1 : 0) : 0;
@@ -12749,7 +12801,7 @@ export default function LumiiMvpApp() {
             </Pressable>
           </View>
           <View style={styles.petCircleProfileCoverMake}>
-            <Image resizeMode="cover" source={coverSource} style={styles.avatarImage} />
+            <PetPhoto iconSize={42} uri={coverUri} style={styles.avatarImage} />
             {profile?.canChangeCover ? (
               <Pressable disabled={petCircleCoverUpdating} onPress={() => void pickPetCircleCover()} style={[styles.petCircleProfileCoverButtonMake, petCircleCoverUpdating && styles.mapSearchActionDisabled, webPressableReset]}>
                 {petCircleCoverUpdating ? <ActivityIndicator color={palette.ink} size="small" /> : <Camera color={palette.ink} size={15} strokeWidth={2.5} />}
@@ -12849,7 +12901,7 @@ export default function LumiiMvpApp() {
                   const canDeleteComment = Boolean(comment.ownedByMe || selectedCommentPost.ownedByMe);
                   return (
                     <View key={comment.id} style={styles.petCircleCommentRowMake}>
-                      <PetAvatar uri={comment.avatarUrl ?? generatedGoldenAvatarUri} size={32} />
+                      <PetAvatar uri={comment.avatarUrl} size={32} />
                       <View style={styles.flex}>
                         <View style={styles.petCircleCommentTitleRowMake}>
                           <Text style={styles.petCircleCommentAuthorMake}>{comment.author}</Text>
@@ -12998,14 +13050,13 @@ export default function LumiiMvpApp() {
     };
     const renderOwnerCard = (owner: NearbyOwner, preview = false) => {
       const savingGreeting = socialActionSavingIds.includes(`greet:${owner.id}`);
-      const petImageSource = owner.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
       const breed = preview ? '?' : owner.tags[0] ?? (owner.species === 'dog' ? '狗狗' : '猫咪');
       const tags = preview ? ['??', '??'] : (owner.tags.length > 1 ? owner.tags.slice(1, 3) : owner.tags.slice(0, 2));
       return (
         <View key={preview ? 'preview-owner-card' : owner.id} style={[styles.ownerCardMake, preview && styles.ownerCardPreviewBlur]}>
           <View style={styles.ownerCardTopMake}>
             <View style={styles.ownerPetPhotoMake}>
-              <Image resizeMode="cover" source={petImageSource} style={styles.avatarImage} />
+              <PetPhoto uri={owner.imageUrl} style={styles.avatarImage} />
             </View>
             <View style={styles.ownerInfoMake}>
               <View style={styles.ownerNameRowMake}>
@@ -13444,7 +13495,7 @@ export default function LumiiMvpApp() {
             onPress={() => openPetCircleOwnerSheet(post)}
             style={[styles.petCircleOwnerTapMake, webPressableReset]}
           >
-            <PetAvatar uri={post.imageUrl ?? generatedGoldenAvatarUri} size={42} />
+            <PetAvatar uri={post.imageUrl} size={42} />
             <View style={styles.flex}>
               <View style={styles.petCircleNameRowMake}>
                 <View style={styles.petCircleIdentityMake}>
@@ -13632,7 +13683,7 @@ export default function LumiiMvpApp() {
                 const reportingComment = petCircleReportingCommentIds.includes(comment.id);
                 return (
                   <View key={comment.id} style={styles.petCircleCommentRowMake}>
-                    <PetAvatar uri={comment.avatarUrl ?? generatedGoldenAvatarUri} size={32} />
+                    <PetAvatar uri={comment.avatarUrl} size={32} />
                     <View style={styles.flex}>
                       <View style={styles.petCircleCommentTitleRowMake}>
                         <Text style={styles.petCircleCommentAuthorMake}>{comment.author}</Text>
@@ -13738,14 +13789,13 @@ export default function LumiiMvpApp() {
       const savingGreeting = owner ? socialActionSavingIds.includes(`greet:${owner.id}`) : false;
       const conversation = owner ? conversations.find((item) => item.ownerId === owner.id && item.canSendMessage !== false) : undefined;
       const ownerBreed = owner ? owner.tags[0] ?? (owner.species === 'cat' ? '猫咪' : '狗狗') : '';
-      const ownerPetImageSource = owner?.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
       return (
         <BottomSheet contentStyle={styles.petCircleOwnerSheetMake} onClose={() => setPetCircleOwnerSheetOwner(null)} visible={Boolean(owner)}>
           {owner ? (
             <>
               <View style={styles.petCircleOwnerSheetHeaderMake}>
                 <View style={styles.ownerPetPhotoMake}>
-                  <Image resizeMode="cover" source={ownerPetImageSource} style={styles.avatarImage} />
+                  <PetPhoto uri={owner.imageUrl} style={styles.avatarImage} />
                 </View>
                 <View style={styles.flex}>
                   <Text numberOfLines={1} style={styles.sheetTitle}>{owner.petName}</Text>
@@ -14500,7 +14550,7 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.placeReviewPreviewMake}>
                 <View style={styles.placeReviewHeaderMake}>
-                  <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={28} />
+                  <PetAvatar uri={pet?.avatarUrl} size={28} />
                   <View style={styles.flex}>
                     <View style={styles.placeReviewAuthorRowMake}>
                       <Text numberOfLines={1} style={styles.placeReviewAuthorMake}>{myPlaceReview ? ownerName : '还没有你的点评'}</Text>
@@ -14991,7 +15041,7 @@ export default function LumiiMvpApp() {
               <Pressable onPress={() => { if (guardFeature(petChatEnabled, 'AI 宠物对话')) go('chat'); }} style={styles.conversationMakeRow}>
                 <View style={styles.conversationAvatarWrap}>
                   <View style={styles.conversationAiAvatarRingMake}>
-                    <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={50} />
+                    <PetAvatar uri={pet.avatarUrl} size={50} />
                   </View>
                   <View style={styles.conversationAiBadge}>
                     <Sparkles color="#fff" size={10} strokeWidth={2.6} />
@@ -15009,7 +15059,7 @@ export default function LumiiMvpApp() {
             {conversations.map((conversation) => (
               <Pressable key={conversation.id} onPress={() => void openConversation(conversation)} style={styles.conversationMakeRow}>
                 <View style={styles.conversationAvatarWrap}>
-                  <PetAvatar uri={conversation.imageUrl ?? (conversation.id === 'c1' ? generatedGoldenAvatarUri : owners[0]?.imageUrl)} size={50} />
+                  <PetAvatar uri={conversation.imageUrl ?? owners[0]?.imageUrl} size={50} />
                   <View style={styles.conversationOwnerBadge}>
                     <User color={palette.orange} size={10} strokeWidth={2.5} />
                   </View>
@@ -15309,7 +15359,7 @@ export default function LumiiMvpApp() {
             </View>
             {pet ? (
               <Pressable accessibilityLabel={`进入${pet.name}的宠物档案`} accessibilityRole="button" onPress={() => go('petDetail')} style={styles.profilePetCardMake}>
-                <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={60} />
+                <PetAvatar uri={pet.avatarUrl} size={60} />
                 <View style={styles.flex}>
                   <View style={styles.profilePetNameRow}>
                     <Text style={styles.profilePetName}>{pet.name}</Text>
@@ -15372,7 +15422,7 @@ export default function LumiiMvpApp() {
             <View style={[styles.multiPetHero, Boolean(petSwitchingId) && styles.multiPetHeroDimmedMake]}>
               <View style={styles.profileHeroOrb} />
               <View style={styles.multiPetHeroMain}>
-                <PetAvatar uri={current.avatarUrl ?? generatedGoldenAvatarUri} size={72} />
+                <PetAvatar uri={current.avatarUrl} size={72} />
                 <View style={styles.flex}>
                   <View style={styles.profilePetNameRow}>
                     <Text style={styles.multiPetHeroName}>{current.name}</Text>
@@ -15413,7 +15463,7 @@ export default function LumiiMvpApp() {
                   const deleting = petDeletingId === pet.id;
                   return (
                     <View key={pet.id} style={[styles.multiPetRow, isCurrent && styles.multiPetRowActive]}>
-                      <PetAvatar uri={pet.avatarUrl ?? generatedGoldenAvatarUri} size={54} />
+                      <PetAvatar uri={pet.avatarUrl} size={54} />
                       <Pressable
                         onPress={() => {
                           if (isCurrent) {
@@ -15685,7 +15735,7 @@ export default function LumiiMvpApp() {
     const genderSymbol = pet?.gender === 'female' ? '♀' : pet?.gender === 'male' ? '♂' : '未知';
     const vaccineValue = pendingVaccines.length ? `${pendingVaccines.length} 项计划中` : vaccines.length ? '已完成' : '待添加';
     const memoValue = memos.length ? `${memos.length} 条记录` : '待记录';
-    const detailImageUri = pet?.avatarUrl ?? generatedGoldenAvatarUri;
+    const detailImageUri = pet?.avatarUrl;
     const birthdayShort = pet?.birthday ? pet.birthday.slice(0, 7).replace(/-/g, '.') : '待补充';
     const bodySize = petBodySizeLabel(pet);
     const coatColor = '未记录';
@@ -15694,7 +15744,7 @@ export default function LumiiMvpApp() {
         {pet ? (
           <View style={styles.petDetailMakePage}>
             <View style={styles.petDetailHeroMake}>
-              <Image resizeMode="cover" source={{ uri: detailImageUri }} style={styles.petDetailHeroImage} />
+              <PetPhoto iconSize={72} uri={detailImageUri} style={styles.petDetailHeroImage} />
               <View style={styles.petDetailHeroOverlay} />
               <Pressable onPress={startPetAvatarRefresh} style={styles.petDetailCamera}>
                 <Camera color="#fff" size={12} strokeWidth={2.3} />
@@ -16205,7 +16255,7 @@ export default function LumiiMvpApp() {
       >
         <View style={styles.dailyPostPageMake}>
           <Pressable onPress={() => go('petDetail')} style={[styles.dailyPetChipMake, webPressableReset]}>
-            <PetAvatar uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} size={38} />
+            <PetAvatar uri={pet?.avatarUrl} size={38} />
             <View style={styles.flex}>
               <Text style={styles.dailyPetChipTitleMake}>{petName}的日常</Text>
               <Text style={styles.dailyPetChipSubMake}>{visibilitySubtitle}</Text>
@@ -16321,8 +16371,6 @@ export default function LumiiMvpApp() {
   function renderWalkInvite() {
     const owner = selectedOwner;
     const pet = getCurrentPet();
-    const currentPetImageSource = pet?.avatarUrl && !isGeneratedAvatarUri(pet.avatarUrl) ? { uri: pet.avatarUrl } : generatedGoldenAvatarSource;
-    const ownerPetImageSource = owner?.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
     const dateTiles = buildWalkInviteDateTiles();
     const activeDateIndex = Math.max(0, dateTiles.findIndex((tile) => walkInviteTime.startsWith(tile.day) || walkInviteTime.includes(tile.date)));
     const walkNotePlaceholder = pet?.name
@@ -16338,10 +16386,10 @@ export default function LumiiMvpApp() {
             <View style={styles.walkPetsCardMake}>
               <View style={styles.walkAvatarStackMake}>
                 <View style={styles.walkAvatarCircleMake}>
-                  <Image resizeMode="cover" source={currentPetImageSource} style={styles.avatarImage} />
+                  <PetPhoto uri={pet?.avatarUrl} style={styles.avatarImage} />
                 </View>
                 <View style={[styles.walkAvatarCircleMake, styles.walkAvatarOverlapMake]}>
-                  <Image resizeMode="cover" source={ownerPetImageSource} style={styles.avatarImage} />
+                  <PetPhoto uri={owner.imageUrl} style={styles.avatarImage} />
                 </View>
               </View>
               <View style={styles.flex}>
@@ -16467,7 +16515,6 @@ export default function LumiiMvpApp() {
             const reporting = socialActionSavingIds.includes(`report:${owner.id}`);
             const busy = accepting || rejecting || reporting;
             const focusedFromNotification = owner.id === focusedGreetingRequestOwnerId;
-            const petImageSource = owner.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
             const ownerAvatarUrl = discoverOwnerAvatarUrls[index % discoverOwnerAvatarUrls.length];
             const breed = owner.tags[0] ?? (owner.species === 'dog' ? '狗狗' : '猫咪');
             const extraTags = owner.tags.slice(1, 3);
@@ -16480,7 +16527,7 @@ export default function LumiiMvpApp() {
                 <View style={styles.greetingRequestTopMake}>
                   <View style={styles.greetingRequestAvatarWrapMake}>
                     <View style={styles.greetingRequestPetPhotoMake}>
-                      <Image resizeMode="cover" source={petImageSource} style={styles.avatarImage} />
+                      <PetPhoto uri={owner.imageUrl} style={styles.avatarImage} />
                     </View>
                     <View style={styles.greetingRequestOwnerAvatarMake}>
                       <Image resizeMode="cover" source={{ uri: ownerAvatarUrl }} style={styles.avatarImage} />
@@ -17060,7 +17107,7 @@ export default function LumiiMvpApp() {
                   const removing = socialBlockRemovingOwnerIds.includes(block.ownerId);
                   return (
                     <View key={block.id} style={styles.safetyBlockRowMake}>
-                      <PetAvatar uri={block.avatarUrl ?? generatedGoldenAvatarUri} size={38} />
+                      <PetAvatar uri={block.avatarUrl} size={38} />
                       <View style={styles.flex}>
                         <Text numberOfLines={1} style={styles.safetyBlockOwnerMake}>{block.ownerName}</Text>
                         <Text numberOfLines={1} style={styles.safetyBlockMetaMake}>
@@ -17245,7 +17292,6 @@ export default function LumiiMvpApp() {
     const ownerIndex = owner ? Math.max(0, owners.findIndex((item) => item.id === owner.id)) : 0;
     const ownerAvatarUrl = discoverOwnerAvatarUrls[ownerIndex % discoverOwnerAvatarUrls.length];
     const ownerBreed = owner ? owner.tags[0] ?? (owner.species === 'cat' ? '猫咪' : '狗狗') : '';
-    const ownerPetImageSource = owner?.imageUrl && !isGeneratedAvatarUri(owner.imageUrl) ? { uri: owner.imageUrl } : generatedGoldenAvatarSource;
     const currentPetIntro = currentPet
       ? `我家${currentPet.name}${currentPet.breed ? `（${currentPet.breed}）` : ''}`
       : '我家的灵伴';
@@ -17263,7 +17309,7 @@ export default function LumiiMvpApp() {
           <>
             <View style={styles.greetingSheetHeader}>
               <View style={styles.greetingSheetAvatarMake}>
-                <Image resizeMode="cover" source={ownerPetImageSource} style={styles.avatarImage} />
+                <PetPhoto uri={owner.imageUrl} style={styles.avatarImage} />
                 <View style={styles.greetingSheetOwnerAvatarMake}>
                   <Image resizeMode="cover" source={{ uri: ownerAvatarUrl }} style={styles.avatarImage} />
                 </View>
@@ -17389,7 +17435,7 @@ export default function LumiiMvpApp() {
         {pet ? (
           <>
             <View style={styles.petDeletePreviewMake}>
-              <PetAvatar size={44} uri={pet.avatarUrl ?? generatedGoldenAvatarUri} />
+              <PetAvatar size={44} uri={pet.avatarUrl} />
               <View style={styles.flex}>
                 <Text style={styles.petDeletePreviewNameMake}>{pet.name}</Text>
                 <Text style={styles.petDeletePreviewMetaMake}>{pet.breed || speciesLabels[pet.species]} · {formatPetAge(pet.birthday)} · {formatWeightKg(pet.weightKg)}</Text>
@@ -17954,6 +18000,7 @@ function Mascot({ size = 96 }: { size?: number }) {
 
 function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
   const remoteUri = uri && !isGeneratedAvatarUri(uri) ? uri : null;
+  const generatedUri = Boolean(uri && isGeneratedAvatarUri(uri));
   const [loading, setLoading] = useState(Boolean(remoteUri && !loadedRemoteAvatarUris.has(remoteUri)));
 
   useEffect(() => {
@@ -17962,24 +18009,26 @@ function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
 
   return (
     <View style={[styles.petAvatar, { borderRadius: size / 2, height: size, width: size }]}>
-      {remoteUri ? (
-        <View style={styles.avatarPlaceholder}>
+      {remoteUri || !generatedUri ? (
+        <View accessibilityLabel={!remoteUri && !generatedUri ? 'pet-avatar-placeholder' : undefined} accessibilityRole={!remoteUri && !generatedUri ? 'image' : undefined} style={styles.avatarPlaceholder}>
           <PawPrint color="#8a5226" size={Math.max(18, size * 0.34)} strokeWidth={2.4} />
         </View>
       ) : null}
-      <Image
-        onError={() => setLoading(false)}
-        onLoadEnd={() => {
-          if (remoteUri) loadedRemoteAvatarUris.add(remoteUri);
-          setLoading(false);
-        }}
-        onLoadStart={() => {
-          if (remoteUri && !loadedRemoteAvatarUris.has(remoteUri)) setLoading(true);
-        }}
-        resizeMode="cover"
-        source={remoteUri ? { uri: remoteUri } : generatedGoldenAvatarSource}
-        style={[styles.avatarImage, remoteUri && styles.avatarImageRemote]}
-      />
+      {remoteUri || generatedUri ? (
+        <Image
+          onError={() => setLoading(false)}
+          onLoadEnd={() => {
+            if (remoteUri) loadedRemoteAvatarUris.add(remoteUri);
+            setLoading(false);
+          }}
+          onLoadStart={() => {
+            if (remoteUri && !loadedRemoteAvatarUris.has(remoteUri)) setLoading(true);
+          }}
+          resizeMode="cover"
+          source={remoteUri ? { uri: remoteUri } : generatedGoldenAvatarSource}
+          style={[styles.avatarImage, remoteUri && styles.avatarImageRemote]}
+        />
+      ) : null}
       {loading ? (
         <View pointerEvents="none" style={styles.avatarLoadingOverlay}>
           <SkeletonLine borderRadius={size / 2} height={size} style={styles.avatarLoadingSkeleton} width={size} />
@@ -17990,6 +18039,25 @@ function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
       ) : null}
     </View>
   );
+}
+
+function PetPhoto({ iconSize = 28, resizeMode = 'cover', style, uri }: { iconSize?: number; resizeMode?: 'contain' | 'cover'; style?: StyleProp<ImageStyle>; uri?: null | string }) {
+  const [failed, setFailed] = useState(false);
+  const source = uri ? (isGeneratedAvatarUri(uri) ? generatedGoldenAvatarSource : { uri }) : null;
+
+  useEffect(() => {
+    setFailed(false);
+  }, [uri]);
+
+  if (!source || failed) {
+    return (
+      <View accessibilityLabel="pet-photo-placeholder" accessibilityRole="image" style={[styles.petPhotoPlaceholder, style]}>
+        <PawPrint color="#9B7560" size={iconSize} strokeWidth={2.2} />
+      </View>
+    );
+  }
+
+  return <Image onError={() => setFailed(true)} resizeMode={resizeMode} source={source} style={style} />;
 }
 
 function PetCompanionVideo({ fallbackSource, uri }: { fallbackSource?: ImageSourcePropType; uri: string }) {
@@ -18021,6 +18089,8 @@ function PetCompanionVideo({ fallbackSource, uri }: { fallbackSource?: ImageSour
       />
       {!firstFrameReady && fallbackSource ? (
         <Image resizeMode="contain" source={fallbackSource} style={styles.homePetHeroVideoFallback} />
+      ) : !firstFrameReady ? (
+        <PetPhoto iconSize={68} resizeMode="contain" style={styles.homePetHeroVideoFallback} />
       ) : null}
     </View>
   );
@@ -18379,7 +18449,7 @@ function HealthCalendarPetCard({ note, pet }: { note: string; pet?: null | PetPr
   const speciesLabel = pet?.breed || speciesLabels[pet?.species ?? 'dog'] || '宠物';
   return (
     <View style={styles.calendarPetCard}>
-      <PetAvatar size={44} uri={pet?.avatarUrl ?? generatedGoldenAvatarUri} />
+      <PetAvatar size={44} uri={pet?.avatarUrl} />
       <View style={styles.calendarPetCopy}>
         <View style={styles.calendarPetTitleRow}>
           <Text numberOfLines={1} style={styles.calendarPetName}>{pet?.name ?? '灵伴'}</Text>
@@ -20050,6 +20120,7 @@ const styles = StyleSheet.create({
   petTypeMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '500' },
   petTypeMakeTextActive: { color: palette.orange, fontWeight: '600' },
   petAvatar: { backgroundColor: '#f6dfbf', overflow: 'hidden' },
+  petPhotoPlaceholder: { alignItems: 'center', backgroundColor: '#F3ECE5', justifyContent: 'center', overflow: 'hidden' },
   petGreeting: { color: palette.ink, fontFamily: appFontFamily, fontSize: 19, fontWeight: '700', lineHeight: 25 },
   petHero: { alignItems: 'center', backgroundColor: palette.card, borderColor: palette.border, borderRadius: 28, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 18 },
   petHeroCopy: { flex: 1, gap: 8 },

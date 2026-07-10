@@ -226,6 +226,18 @@ async function main() {
     assert.equal(agentBeforeReply.open, 1);
     assert.equal(agentBeforeReply.firstResponseRate, 0);
 
+    const supplemented = await request(`/support/tickets/${encodeURIComponent(ticketId)}/reply`, {
+      body: { content: 'User added reproducible interaction details before the first support response.' },
+      method: 'POST',
+      token: userToken,
+    });
+    assert.equal(supplemented.data.status, 'reviewing');
+    assert.ok(supplemented.data.messages.some((message) => message.author === 'user' && message.content.includes('reproducible interaction details')));
+
+    const adminTicketsSupplemented = await request('/admin/tickets?status=all', { token: adminToken });
+    const adminTicketSupplemented = adminTicketsSupplemented.data.tickets.find((ticket) => ticket.id === ticketId);
+    assert.equal(adminTicketSupplemented.status, 'reviewing');
+
     const replied = await request(`/admin/tickets/${encodeURIComponent(ticketId)}/reply`, {
       body: { content: '你好，我们已经接手这条安全反馈，会继续核对相关互动记录。', nextStatus: 'resolved', notifyUser: true },
       method: 'POST',
@@ -246,6 +258,28 @@ async function main() {
       token: userToken,
     });
     assert.equal(rated.data.satisfaction.rating, 5);
+
+    const reopened = await request(`/support/tickets/${encodeURIComponent(ticketId)}/reopen`, {
+      body: { content: 'The same issue happened again after the initial resolution.' },
+      method: 'POST',
+      token: userToken,
+    });
+    assert.equal(reopened.data.status, 'reviewing');
+    assert.equal(reopened.data.reopenCount, 1);
+    assert.ok(reopened.data.messages.some((message) => message.author === 'user' && message.type === 'reopen'));
+
+    const adminTicketsReopened = await request('/admin/tickets?status=all', { token: adminToken });
+    const adminTicketReopened = adminTicketsReopened.data.tickets.find((ticket) => ticket.id === ticketId);
+    assert.equal(adminTicketReopened.status, 'reviewing');
+    assert.equal(adminTicketReopened.reopenCount, 1);
+
+    const resolvedAgain = await request(`/admin/tickets/${encodeURIComponent(ticketId)}/reply`, {
+      body: { content: 'We verified the follow-up details and completed the second review.', nextStatus: 'resolved', notifyUser: true },
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(resolvedAgain.data.status, 'resolved');
+    assert.equal(resolvedAgain.data.reopenCount, 1);
 
     await request('/admin/tickets/batch', {
       body: { action: 'priority', priority: 'high', reason: 'ticket quality smoke batch review', ticketIds: [ticketId] },
@@ -312,6 +346,8 @@ async function main() {
     const audit = await request('/admin/audit-logs?limit=100', { token: adminToken });
     assert.ok(audit.data.items.some((item) => item.action === 'config.update'), 'config update should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'ticket.update' && item.targetId === ticketId), 'ticket assignment should be audited');
+    assert.ok(audit.data.items.some((item) => item.action === 'ticket.user.reply' && item.targetId === ticketId), 'user ticket supplement should be audited');
+    assert.ok(audit.data.items.some((item) => item.action === 'ticket.user.reopen' && item.targetId === ticketId), 'user ticket reopen should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'ticket.reply.create' && item.targetId === ticketId), 'ticket reply should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'ticket.batch.update'), 'ticket batch review should be audited');
     assert.ok(audit.data.items.some((item) => item.action === 'ticket.batch_reply.create'), 'batch reply creation should be audited');

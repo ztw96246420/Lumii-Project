@@ -344,6 +344,29 @@ async function main() {
     await waitExactText(page, '宠物日历');
     await screenshot(page, 'smoke-frontend-00-health-preview.png');
 
+    await page.goto(`${baseUrl}/?route=home&mockAvatar=missing`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await page.getByLabel('pet-avatar-placeholder').first().waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('pet-photo-placeholder').first().waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(page, 'smoke-frontend-00-missing-avatar-placeholder.png');
+
+    const routeRenderCases = [
+      { route: 'generating', texts: ['生成灵伴', '正在生成你的小灵伴'] },
+      { route: 'petCircleProfile', texts: ['我发布的小事', '更换封面'] },
+      { route: 'healthMemos', texts: ['备忘', '还没有备忘'] },
+      { route: 'supportTickets', texts: ['我的反馈', '反馈处理进度'] },
+      { route: 'emptyPet', texts: ['还没有添加你的毛孩子', '添加我的宠物'] },
+      { route: 'upload', texts: ['添加宠物 2/2', '相册选择'] },
+      { route: 'uploadDetail', texts: ['识别结果', '确认并生成灵伴'] },
+      { route: 'ownerEdit', texts: ['编辑个人资料', '保存资料'] },
+      { route: 'petDetail', texts: ['宠物档案', '更换'] },
+      { route: 'accountSecurity', texts: ['账号安全', '验证码登录'] },
+    ];
+    for (const routeCase of routeRenderCases) {
+      await page.goto(`${baseUrl}/?route=${routeCase.route}`, { timeout: 60_000, waitUntil: 'networkidle' });
+      for (const text of routeCase.texts) await waitExactText(page, text);
+    }
+    await screenshot(page, 'smoke-frontend-00-route-coverage-account-security.png');
+
     const backdatedHealthDate = isoDateAfterDays(-6);
     await page.goto(`${baseUrl}/?route=healthCalendar&mockHealthCalendar=backdated`, { timeout: 60_000, waitUntil: 'networkidle' });
     await page.getByLabel(`health-calendar-day-${backdatedHealthDate}`).click();
@@ -836,6 +859,38 @@ async function main() {
     await waitExactText(greetingRequestPage, '我们已经互相打招呼啦');
     await screenshot(greetingRequestPage, 'smoke-frontend-05b-greeting-request-accepted.png');
     await greetingRequestContext.close();
+
+    const supportContext = await browser.newContext({
+      deviceScaleFactor: 1,
+      geolocation: { latitude: 31.2304, longitude: 121.4737 },
+      permissions: ['geolocation'],
+      viewport: { height: 920, width: 430 },
+    });
+    const supportPage = await supportContext.newPage();
+    collectPageErrors(supportPage, pageErrors);
+
+    await supportPage.goto(`${baseUrl}/?route=greetingRequests&mockGreetingRequests=interactive`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(supportPage, '招呼请求');
+    await supportPage.getByLabel('report-greeting-request-o2').click();
+    await waitExactText(supportPage, '举报已提交，招呼请求已忽略');
+    await supportPage.getByLabel('返回').click();
+    await waitExactText(supportPage, '早安，Lucky！');
+    await clickExactText(supportPage, '我的');
+    await waitExactText(supportPage, '我的');
+    await clickExactText(supportPage, '设置与隐私');
+    await waitExactText(supportPage, '设置与隐私');
+    await clickExactText(supportPage, '我的反馈');
+    await waitExactText(supportPage, '反馈处理进度');
+    await supportPage.getByText(/招呼请求举报/).first().click();
+    await waitExactText(supportPage, '反馈详情');
+    await waitExactText(supportPage, '处理记录');
+    const supportReplyText = 'Playwright 补充：请继续核对这条招呼请求。';
+    await supportPage.getByPlaceholder('补充更多现象、截图说明或你希望客服继续处理的内容').fill(supportReplyText);
+    await clickExactText(supportPage, '提交补充');
+    await waitExactText(supportPage, '已补充反馈');
+    await waitExactText(supportPage, supportReplyText);
+    await screenshot(supportPage, 'smoke-frontend-05c-support-ticket-reply.png');
+    await supportContext.close();
 
     const messageContext = await browser.newContext({
       deviceScaleFactor: 1,
