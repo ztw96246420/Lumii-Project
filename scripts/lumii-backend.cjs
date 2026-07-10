@@ -25377,17 +25377,17 @@ function adminReadinessQuestions(context = {}) {
     ? `后台已签署生产合规文本与材料：${legalStatus.documents.filter((doc) => doc.requiredForLaunch).map((doc) => `${doc.label} ${doc.version}`).join('、')}。`
     : `后台仍缺生产签署：${legalStatus.summary.missingLabels.join('、') || '合规文本复核'}。请在「合规文本」页更新并签署后再关闭该项。`;
   const questions = [
-    ['q-domain', 'P1', '后台正式域名使用 ops.lumiiapp.cn、admin.lumiiapp.cn，还是先沿用 /admin？', '当前可沿用 /admin；生产建议独立后台域名并做访问控制。', '影响后台入口、证书、CDN/网关和运维 SOP。'],
+    ['q-domain', 'P1', '后台正式域名使用 ops.lumiiapp.cn、admin.lumiiapp.cn，还是先沿用 /admin？', '首发确定沿用 https://api.lumiiapp.cn/admin，共用已验证 HTTPS 证书和 Nginx；通过后台强密码、MFA 与 IP 白名单控制访问，后续如拆分运维域名再迁移。', '影响后台入口、证书、CDN/网关和运维 SOP。', 'ready', '已确定'],
     ['q-ip', 'P0', '生产后台是否必须白名单 IP？', ipAllowlistReady ? '已接入后端 IP 白名单：/admin 页面和 /admin/* API 都会拦截非白名单 IP。' : '当前未强制白名单；生产前建议至少网关层限制。', '影响后台暴露面和账号被撞库风险。', ipAllowlistReady ? 'ready' : 'open', ipAllowlistReady ? '已接入' : '待确认'],
     ['q-mfa', 'P0', '后台账号是否接企业微信、飞书或邮箱 MFA？', mfaReady ? '已接入 TOTP MFA，所有活跃后台账号均需二次验证码后才能登录。' : mfaPartial ? '已接入 TOTP MFA，但仍有活跃后台账号未启用，生产前建议补齐。' : '已接入 TOTP MFA 基座，但当前没有活跃后台账号启用；生产前需配置 LUMII_ADMIN_MFA_SECRET 或 state 账号 MFA Secret。', '影响生产后台登录安全。', mfaReady ? 'ready' : mfaPartial ? 'reviewing' : 'open', mfaReady ? '已接入' : mfaPartial ? '部分启用' : '待配置'],
     ['q-safety-vendor', 'P0', '内容安全供应商选哪家，文本和图片是否同一供应商？', safetyVendorReady ? '已选腾讯云天御：文本和图片机审均通过配置中心开关联动，Biztype 可由环境变量覆盖。' : `腾讯云内容安全基座未完全就绪，仍缺：${contentSafetyReadiness.missing.join('、') || '配置复核'}。`, '影响宠友圈、评论、头像、宠物图、地点点评的真实审核能力。', safetyVendorReady ? 'ready' : 'open', safetyVendorReady ? '已确认' : '待业务确认'],
     ['q-image-policy', 'P0', '图片审核失败时，宠友圈发布是阻断、送审，还是先隐藏等待审核？', imagePolicyReady ? '已实现：Block 拒绝，Review 进入 pending_review；宠友圈、地点内容会阻止发布/提交含待审或驳回图片，审核通过后才可继续。' : '图片机审未完全就绪，当前仍需人工任务池和配置复核兜底。', '影响用户发布体验和违规内容外露风险。', imagePolicyReady ? 'ready' : 'open', imagePolicyReady ? '已确认' : '待业务确认'],
     ['q-message-view', 'P1', '私信是否允许人工查看全文？如果允许，谁审批、保留多久？', '已接入策略：不开放任意全文检索；仅允许在举报/关系排查中查看最近上下文窗口，窗口大小、原因必填和保留标记由 social.messageAccess 配置；单 admin 阶段视为带审计的自审批；隐藏私信会同步影响双方移动端会话。', '影响隐私合规和骚扰治理能力。', 'ready', '已接入'],
-    ['q-clear-data', 'P1', '用户业务数据清理是否只保留测试环境？', '已接入数据清理审批和高风险最少会签人数；达到会签人数后才真正清理移动端业务数据。生产是否开放或隐藏入口仍需确认。', '影响误操作风险、用户数据权益和客服 SOP。'],
+    ['q-clear-data', 'P1', '用户业务数据清理是否只保留测试环境？', '首发保留后台入口但不向移动端开放；仅具备 data.clear 权限的管理员可发起，必须满足高风险双人会签，执行结果写入独立审计链。', '影响误操作风险、用户数据权益和客服 SOP。', 'ready', '已确定'],
     ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '已接入可配置策略：默认供应商提交失败、供应商超时、供应商返回失败会自动返还；照片不合格、内容安全拦截、运营手动标失败不自动返还，后台仍可人工返还且防重复。', '影响用户权益、成本和客服处理标准。', 'ready', '已接入'],
     ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '已接入永久封禁审批流和高风险最少会签人数；达到会签人数后才真正写入处罚并影响移动端账号状态。', '影响高风险处罚治理。', 'ready', '已接入'],
     ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏；完整敏感字段导出必须具备 data.export.sensitive 权限，并提交 includeSensitive=true 的导出审批。', '影响隐私合规和数据泄露风险。', 'ready', '已接入'],
-    ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '已接入用户本人公开贡献身份、轻量等级、我的排名、匿名排行榜接口、后台手动调整/撤销和荣誉候选策略；真实活动结算、他人主页展示或兑换规则仍待确认。', '影响地点生态激励。'],
+    ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '首发只展示贡献积分、轻量等级、我的排名和匿名排行榜；不承诺现金、实物或兑换权益。后台保留调整/撤销和荣誉候选，未来活动另行配置规则。', '影响地点生态激励。', 'ready', '首发范围已确定'],
     ['q-notification-approval', 'P1', '系统通知是否需要发送审批？', '已接入发送审批流、“强制审批”配置开关和高风险最少会签人数；达到会签人数后才发送。', '影响误发和运营风险。', 'ready', '已接入'],
     ['q-config-approval', 'P0', '配置强制更新、维护模式、全功能关闭是否必须审批？', '已接入配置发布审批流、“强制配置发布审批”开关和高风险最少会签人数；达到会签人数后才发布 /app/config。', '影响事故风险和发布治理。', 'ready', '已接入'],
     ['q-compliance-text', 'P0', 'App 备案、隐私政策、内容审核制度是否已准备生产版文本？', compliancePolicy, '影响正式上线合规。', complianceReady ? 'ready' : 'open', complianceReady ? '已签署' : '待签署'],

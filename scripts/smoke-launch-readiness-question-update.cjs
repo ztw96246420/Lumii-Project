@@ -130,7 +130,15 @@ async function main() {
     const initial = await request('/admin/launch/readiness', { token: adminToken });
     const initialQuestion = rowById(initial.data.questions, 'q-domain');
     assert.ok(initialQuestion, 'missing q-domain question');
+    assert.equal(initialQuestion.status, 'ready');
+    assert.match(initialQuestion.currentPolicy, /api\.lumiiapp\.cn\/admin/);
     assert.equal(initialQuestion.hasDecisionOverride || false, false);
+    const clearDataQuestion = rowById(initial.data.questions, 'q-clear-data');
+    assert.equal(clearDataQuestion.status, 'ready');
+    assert.match(clearDataQuestion.currentPolicy, /双人会签/);
+    const placeRewardQuestion = rowById(initial.data.questions, 'q-place-reward');
+    assert.equal(placeRewardQuestion.status, 'ready');
+    assert.match(placeRewardQuestion.currentPolicy, /不承诺现金、实物或兑换权益/);
 
     const updated = await request('/admin/launch/readiness/questions/q-domain', {
       body: {
