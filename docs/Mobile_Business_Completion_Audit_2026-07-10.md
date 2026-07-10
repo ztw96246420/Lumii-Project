@@ -69,7 +69,7 @@
 - 移动端 TypeScript：`npm run typecheck` 通过。
 - 工单 SLA/客服排班/用户补充/评价/重开闭环：`node scripts/smoke-ticket-sla-roster.cjs` 通过。
 - 移动端完整 Playwright：`node scripts/smoke-frontend-playwright.cjs` 通过，含 39 路由直达、缺头像、宠友圈互动、设置/注销、真实登录会话和宠物建档流程。
-- 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 通过，68/68 套件全部成功；新增覆盖 Release HTTPS 构建配置与公网 API HTTPS 上线探针。
+- 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 通过，69/69 套件全部成功；覆盖 Release HTTPS、API TLS/SNI、SQLite/WAL 迁移、并发冲突、镜像重建和损坏恢复。
 - 移动端视觉门禁：完整 Playwright 已通过并检查缺头像关键截图；本轮未改动后台页面，沿用上一轮已通过的后台视觉门禁证据。
 
 ## 4. 剩余工作
@@ -86,7 +86,7 @@
 - 后台生产 IP 白名单、全部活跃管理员 MFA、密码轮换周期。
 - 用户协议、隐私政策、个人信息收集清单、第三方 SDK 清单、注销和举报规则的正式文本与签署。
 - 站外告警 Webhook、生产 Push 厂商通道、模板、送达回执和退订策略。
-- 大规模生产前的数据存储迁移、独立审计存储和备份恢复演练。
+- SQLite/WAL 单实例生产存储、JSON 回滚镜像、独立审计日志和备份恢复代码及自动化已完成；生产服务器切换验收后，后续仅在扩展多实例前迁移托管 PostgreSQL。
 
 ## 5. 当前完成度判断
 

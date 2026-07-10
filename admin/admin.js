@@ -3336,6 +3336,7 @@ async function renderSystemHealth(force) {
   const summary = data.summary || {};
   const runtime = data.runtime || {};
   const stateFile = data.stateFile || {};
+  const stateStorage = data.stateStorage || {};
   const stateBackups = data.stateBackups || {};
   const memory = data.resources?.memory || {};
   const heapUsed = Number(memory.heapUsed || 0);
@@ -3346,23 +3347,26 @@ async function renderSystemHealth(force) {
     <div class="card">
       <div class="section-head">
         <div>
-          <h2>状态备份</h2>
-          <div class="section-sub">${stateBackups.enabled ? `${numberText(stateBackups.count || 0)} 份备份` : '未启用'}</div>
+          <h2>状态数据库与备份</h2>
+          <div class="section-sub">${stateStorage.driver === 'sqlite' ? `SQLite revision ${numberText(stateStorage.revision || 0)}` : 'JSON 权威存储'} · ${stateBackups.enabled ? `${numberText(stateBackups.count || 0)} 份备份` : '未启用备份'}</div>
         </div>
-        ${help('状态文件成功写入后会生成滚动 gzip 备份，启动时可从最新有效备份恢复。')}
+        ${help('SQLite/WAL 是单实例生产的权威数据源；JSON 仅作为实时回滚镜像。每次持久化仍会生成滚动 gzip 快照，数据库校验失败时可从最新有效快照恢复。')}
       </div>
-      <div class="switch-row"><span>原子写入</span><strong>${stateBackups.atomicWrites ? '已启用' : '未确认'}</strong></div>
+      <div class="switch-row"><span>权威数据源</span><strong>${escapeHtml(stateStorage.driver === 'sqlite' ? 'SQLite / WAL' : 'JSON')}</strong></div>
+      <div class="switch-row"><span>数据库校验</span><strong>${stateStorage.driver === 'sqlite' ? `${escapeHtml(stateStorage.quickCheck || '-')} · revision ${numberText(stateStorage.revision || 0)}` : '尚未迁移'}</strong></div>
+      ${stateStorage.driver === 'sqlite' ? `<div class="switch-row"><span>数据库路径</span><strong class="cell-sub clamp">${escapeHtml(stateStorage.databasePath || '-')}</strong></div>` : ''}
+      <div class="switch-row"><span>JSON 回滚镜像</span><strong>${stateFile.exists ? `${bytesText(stateFile.sizeBytes)} · ${formatTime(stateFile.modifiedAt)}` : '不存在'}</strong></div>
       <div class="switch-row"><span>最近备份</span><strong>${stateBackups.latestAt ? formatTime(stateBackups.latestAt) : '-'}</strong></div>
       <div class="switch-row"><span>备份路径</span><strong class="cell-sub clamp">${escapeHtml(stateBackups.latestPath || stateBackups.dir || '-')}</strong></div>
       ${stateBackups.loadedFromBackup ? `<div class="callout ok"><strong>已从备份恢复</strong><span>${escapeHtml(stateBackups.restoredBackupPath || '-')}</span></div>` : ''}
-      ${stateBackups.lastBackupError || stateBackups.lastSaveError ? `<div class="callout bad"><strong>备份异常</strong><span>${escapeHtml(stateBackups.lastSaveError || stateBackups.lastBackupError)}</span></div>` : ''}
+      ${stateStorage.error || stateBackups.lastBackupError || stateBackups.lastSaveError || stateBackups.lastMirrorError ? `<div class="callout bad"><strong>存储异常</strong><span>${escapeHtml(stateStorage.error || stateBackups.lastSaveError || stateBackups.lastMirrorError || stateBackups.lastBackupError)}</span></div>` : ''}
     </div>
   `;
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('整体状态', data.status === 'bad' ? '异常' : data.status === 'warn' ? '需关注' : '正常', `${summary.warn || 0} 关注 · ${summary.bad || 0} 异常`, '系统健康聚合运行、存储、关键外部配置和业务积压。')}
       ${metric('运行时长', durationText(runtime.uptimeSeconds), `${escapeHtml(runtime.nodeVersion || '-')} · PID ${escapeHtml(runtime.pid || '-')}`, '后端 Node 进程当前持续运行时间。')}
-      ${metric('状态文件', bytesText(stateFile.sizeBytes), stateFile.exists ? `更新 ${formatTime(stateFile.modifiedAt)}` : '不可读', '当前文件态后端的 JSON state 体积和更新时间。')}
+      ${metric('数据存储', stateStorage.driver === 'sqlite' ? 'SQLite / WAL' : 'JSON', stateStorage.driver === 'sqlite' ? `${bytesText(Number(stateStorage.databaseBytes || 0) + Number(stateStorage.walBytes || 0))} · revision ${numberText(stateStorage.revision || 0)}` : stateFile.exists ? `${bytesText(stateFile.sizeBytes)} · 更新 ${formatTime(stateFile.modifiedAt)}` : '不可读', '当前权威数据源、事务日志体积和持久化 revision。')}
       ${metric('内存堆', heapFoot, `RSS ${bytesText(memory.rss || 0)}`, 'Node.js 进程内存快照，用于排查异常增长。')}
     </div>
 

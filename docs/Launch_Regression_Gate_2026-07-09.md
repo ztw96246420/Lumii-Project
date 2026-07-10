@@ -26,11 +26,12 @@ The default gate runs:
 - Pet calendar, pet profile edit/merge, pet media, places, notifications, notification display/click stats, Expo Push simulation, audience packages, campaign stats, analytics, support SLA, and observability.
 - Admin accounts, IP allowlist, account deletion, user timeline, high-risk approval countersign/expiry/reject/separation, data clear approval, export approval, signed export links, audit integrity journal, state compaction, and state backup recovery.
 - Admin production security package generation, MFA/IP/password-rotation readiness, and non-leaking security audit records.
+- SQLite/WAL state migration, optimistic revision conflict protection, JSON mirror rebuild, checksum recovery, and backup restoration.
 - Config center AI ops, approval, content-safety hints, experiments, risk confirmation, scheduled publish, and media CDN probe.
 - Public API HTTPS launch-readiness probing, including TLS/DNS/health failures and the corresponding P0 readiness blocker.
 - All standalone non-visual smoke scripts under `scripts/smoke-*.cjs` are included in the default gate; visual/browser checks remain opt-in through `--include-visual`.
 
-Last verified on 2026-07-10: 68/68 default non-visual suites passed.
+Last verified on 2026-07-10: 69/69 default non-visual suites passed.
 
 ## Visual Gate
 

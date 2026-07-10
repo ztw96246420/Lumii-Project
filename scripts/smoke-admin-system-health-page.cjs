@@ -11,6 +11,7 @@ const rootDir = path.join(__dirname, '..');
 const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-admin-system-health-page-'));
 const statePath = path.join(tmpDir, 'state.json');
+const databasePath = path.join(tmpDir, 'state.sqlite');
 const backupDir = path.join(tmpDir, 'state-backups');
 let backendProcess = null;
 let baseUrl = '';
@@ -105,6 +106,9 @@ async function startBackend(port) {
       GPT_IMAGE2_API_KEY: '',
       LUMII_BACKEND_PORT: String(port),
       LUMII_BACKEND_STATE_PATH: statePath,
+      LUMII_STATE_SQLITE_PATH: databasePath,
+      LUMII_STATE_STORAGE_DRIVER: 'sqlite',
+      NODE_NO_WARNINGS: '1',
       SMS_COOLDOWN_MS: '0',
       SMS_DAILY_LIMIT: '1000',
       SMS_DEVICE_DAILY_LIMIT: '1000',
@@ -162,6 +166,9 @@ async function main() {
   try {
     const health = await request('/admin/system/health', { token: adminToken });
     assert.ok(health.data?.stateBackups?.enabled, 'system health should expose enabled state backups');
+    assert.equal(health.data?.stateStorage?.driver, 'sqlite', 'system health should expose SQLite storage');
+    assert.equal(health.data?.stateStorage?.journalMode, 'wal', 'system health should expose WAL mode');
+    assert.ok((health.data?.checks || []).some((item) => item.key === 'state_database' && item.status === 'ok'), 'missing healthy state_database check');
     assert.ok((health.data?.checks || []).some((item) => item.key === 'state_backups'), 'missing state_backups health check');
 
     browser = await playwright.chromium.launch({ executablePath, headless: true });
@@ -172,8 +179,10 @@ async function main() {
     await page.locator('#passwordInput').fill('LumiiAdmin@2026');
     await page.locator('#loginBtn').click();
     await page.locator('button[data-route="systemHealth"]').click();
-    await page.getByRole('heading', { name: '状态备份' }).waitFor({ timeout: 30_000 });
-    await page.getByText('原子写入', { exact: true }).waitFor({ timeout: 30_000 });
+    await page.getByRole('heading', { name: '状态数据库与备份' }).waitFor({ timeout: 30_000 });
+    await page.getByText('权威数据源', { exact: true }).waitFor({ timeout: 30_000 });
+    await page.getByText('SQLite / WAL', { exact: true }).first().waitFor({ timeout: 30_000 });
+    await page.getByText('JSON 回滚镜像', { exact: true }).first().waitFor({ timeout: 30_000 });
     await page.getByText('备份路径', { exact: true }).waitFor({ timeout: 30_000 });
 
     console.log('admin system health page smoke passed');

@@ -158,6 +158,13 @@ const EXPO_PUSH_RECEIPT_BATCH_SIZE = Math.max(1, Math.min(1000, Number(process.e
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
 const statePath = process.env.LUMII_BACKEND_STATE_PATH || path.join(__dirname, '..', 'dist', 'lumii-backend-state.json');
+const STATE_STORAGE_DRIVER = String(process.env.LUMII_STATE_STORAGE_DRIVER || 'json').trim().toLowerCase();
+const STATE_SQLITE_PATH = process.env.LUMII_STATE_SQLITE_PATH || path.join(path.dirname(statePath), 'lumii-state.sqlite');
+const STATE_SQLITE_BUSY_TIMEOUT_MS = Math.max(1000, Math.min(60_000, Number(process.env.LUMII_STATE_SQLITE_BUSY_TIMEOUT_MS || '5000') || 5000));
+const STATE_SQLITE_COMMIT_RETAIN = Math.max(100, Math.min(100_000, Number(process.env.LUMII_STATE_SQLITE_COMMIT_RETAIN || '5000') || 5000));
+if (!['json', 'sqlite'].includes(STATE_STORAGE_DRIVER)) {
+  throw new Error(`Unsupported LUMII_STATE_STORAGE_DRIVER: ${STATE_STORAGE_DRIVER}`);
+}
 const STATE_BACKUP_ENABLED = process.env.STATE_BACKUP_ENABLED === 'false' ? false : true;
 const STATE_BACKUP_DIR = process.env.STATE_BACKUP_DIR || path.join(path.dirname(statePath), 'state-backups');
 const STATE_BACKUP_RETAIN = Math.max(1, Math.min(200, Number(process.env.STATE_BACKUP_RETAIN || '48') || 48));
@@ -5526,6 +5533,11 @@ function failIfMaintenanceWriteBlocked(req, pathname, res) {
 }
 
 const stateStorageRuntime = {
+  databaseChecksum: '',
+  databasePath: STATE_STORAGE_DRIVER === 'sqlite' ? STATE_SQLITE_PATH : '',
+  databaseRevision: 0,
+  databaseSource: '',
+  driver: STATE_STORAGE_DRIVER,
   lastBackupAt: '',
   lastBackupAtMs: 0,
   lastBackupError: '',
@@ -5534,7 +5546,9 @@ const stateStorageRuntime = {
   lastLoadSource: '',
   lastSaveAt: '',
   lastSaveError: '',
+  lastMirrorError: '',
   loadedFromBackup: false,
+  migratedFromJson: false,
   restoredBackupPath: '',
 };
 
@@ -5631,6 +5645,99 @@ function createStateBackupSnapshot(jsonText, reason = 'save') {
     return null;
   }
 }
+
+let sqliteStateStore = null;
+
+function writeStateJsonMirror(jsonText) {
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  const tmpPath = `${statePath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    fs.writeFileSync(tmpPath, jsonText);
+    fs.renameSync(tmpPath, statePath);
+    stateStorageRuntime.lastMirrorError = '';
+    return true;
+  } catch (error) {
+    stateStorageRuntime.lastMirrorError = String(error?.message || error || 'write state JSON mirror failed').slice(0, 240);
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch {}
+    return false;
+  }
+}
+
+function updateSqliteStateRuntime(snapshot) {
+  stateStorageRuntime.databaseChecksum = String(snapshot?.checksum || '');
+  stateStorageRuntime.databaseRevision = Number(snapshot?.revision || 0);
+  stateStorageRuntime.databaseSource = String(snapshot?.source || '');
+}
+
+function initializeConfiguredStateStorage() {
+  if (STATE_STORAGE_DRIVER !== 'sqlite') return null;
+  const { createSqliteStateStore } = require('./state-sqlite.cjs');
+  sqliteStateStore = createSqliteStateStore({
+    commitRetain: STATE_SQLITE_COMMIT_RETAIN,
+    databasePath: STATE_SQLITE_PATH,
+    timeoutMs: STATE_SQLITE_BUSY_TIMEOUT_MS,
+  });
+
+  let snapshot;
+  try {
+    snapshot = sqliteStateStore.load();
+  } catch (error) {
+    stateStorageRuntime.lastLoadError = String(error?.message || error || 'load SQLite state failed').slice(0, 240);
+    const backup = loadLatestStateBackup();
+    if (!backup?.loadedState) throw error;
+    const jsonText = JSON.stringify(backup.loadedState, null, 2);
+    snapshot = sqliteStateStore.restore(jsonText, 'gzip_backup_recovery');
+    stateStorageRuntime.loadedFromBackup = true;
+    stateStorageRuntime.restoredBackupPath = backup.backup.filePath;
+    console.warn(`[state-storage] recovered SQLite state from backup: ${backup.backup.filePath}`);
+  }
+
+  if (!snapshot) {
+    let jsonText = '';
+    let source = 'initial_state';
+    const legacyStateExists = fs.existsSync(statePath);
+    try {
+      jsonText = fs.readFileSync(statePath, 'utf8');
+      JSON.parse(jsonText);
+      source = 'json_state_migration';
+      stateStorageRuntime.migratedFromJson = true;
+    } catch (error) {
+      stateStorageRuntime.lastLoadError = String(error?.message || error || 'read JSON state for SQLite migration failed').slice(0, 240);
+      const backup = loadLatestStateBackup();
+      if (backup?.loadedState) {
+        jsonText = JSON.stringify(backup.loadedState, null, 2);
+        source = 'gzip_backup_migration';
+        stateStorageRuntime.loadedFromBackup = true;
+        stateStorageRuntime.restoredBackupPath = backup.backup.filePath;
+      } else if (legacyStateExists) {
+        const migrationError = new Error(`Refusing to initialize SQLite from invalid JSON state without a valid backup: ${statePath}`);
+        migrationError.code = 'STATE_SQLITE_MIGRATION_SOURCE_INVALID';
+        throw migrationError;
+      } else {
+        jsonText = JSON.stringify(createInitialState(), null, 2);
+      }
+    }
+    snapshot = sqliteStateStore.initialize(jsonText, source);
+  }
+
+  updateSqliteStateRuntime(snapshot);
+  stateStorageRuntime.lastLoadSource = 'sqlite';
+  if (!writeStateJsonMirror(snapshot.jsonText)) {
+    console.warn(`[state-storage] SQLite loaded but JSON mirror failed: ${stateStorageRuntime.lastMirrorError}`);
+  }
+  return snapshot;
+}
+
+const sqliteStateBootstrap = initializeConfiguredStateStorage();
+const sqliteStateBootstrapRuntime = sqliteStateBootstrap ? {
+  lastLoadError: stateStorageRuntime.lastLoadError,
+  lastLoadSource: stateStorageRuntime.lastLoadSource,
+  loadedFromBackup: stateStorageRuntime.loadedFromBackup,
+  migratedFromJson: stateStorageRuntime.migratedFromJson,
+  restoredBackupPath: stateStorageRuntime.restoredBackupPath,
+} : null;
 
 function loadState() {
   try {
@@ -5773,6 +5880,7 @@ function loadState() {
 }
 
 let state = loadState();
+if (sqliteStateBootstrapRuntime) Object.assign(stateStorageRuntime, sqliteStateBootstrapRuntime);
 const amapPoiCache = new Map();
 
 function durableMediaUrl(media = {}) {
@@ -5833,33 +5941,36 @@ function compactStateForPersistence(inputState, options = {}) {
   };
 }
 
-function saveState() {
-  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+function saveState(reason = 'save') {
   const compacted = compactStateForPersistence(state, { mutate: false, reason: 'save_state' });
   const jsonText = JSON.stringify(compacted.state, null, 2);
-  const tmpPath = `${statePath}.tmp-${process.pid}-${Date.now()}`;
   try {
-    fs.writeFileSync(tmpPath, jsonText);
-    fs.renameSync(tmpPath, statePath);
-    stateStorageRuntime.lastSaveAt = new Date().toISOString();
+    if (sqliteStateStore) {
+      const snapshot = sqliteStateStore.save(jsonText, stateStorageRuntime.databaseRevision, reason);
+      updateSqliteStateRuntime(snapshot);
+      if (!writeStateJsonMirror(jsonText)) {
+        console.warn(`[state-storage] SQLite committed but JSON mirror failed: ${stateStorageRuntime.lastMirrorError}`);
+      }
+      stateStorageRuntime.lastSaveAt = snapshot.updatedAt;
+    } else {
+      if (!writeStateJsonMirror(jsonText)) throw new Error(stateStorageRuntime.lastMirrorError || 'write state failed');
+      stateStorageRuntime.lastSaveAt = new Date().toISOString();
+    }
     stateStorageRuntime.lastSaveError = '';
-    createStateBackupSnapshot(jsonText, 'save');
+    createStateBackupSnapshot(jsonText, reason);
   } catch (error) {
     stateStorageRuntime.lastSaveError = String(error?.message || error || 'save state failed').slice(0, 240);
-    try {
-      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-    } catch {}
     throw error;
   }
 }
 
 const startupStateCompaction = compactStateForPersistence(state, { mutate: true, reason: 'startup_state_storage_compaction' });
 if (startupStateCompaction.changed) {
-  saveState();
+  saveState('startup_compaction');
   console.warn('[state-storage] compacted persisted media data URLs', startupStateCompaction.summary);
 }
 if (stateStorageRuntime.loadedFromBackup) {
-  saveState();
+  saveState('backup_recovery_confirmed');
 }
 
 function cosEnabled() {
@@ -22686,6 +22797,50 @@ function adminSafeStateFileInfo() {
   }
 }
 
+function adminStateStorageInfo() {
+  if (!sqliteStateStore) {
+    const stateFile = adminSafeStateFileInfo();
+    return {
+      authoritativeSource: 'json',
+      databaseBytes: 0,
+      databasePath: '',
+      driver: 'json',
+      healthy: stateFile.exists && !stateStorageRuntime.lastSaveError,
+      journalMode: '',
+      quickCheck: '',
+      revision: 0,
+      schemaVersion: 0,
+      stateFile,
+      updatedAt: stateFile.modifiedAt,
+      walBytes: 0,
+    };
+  }
+  try {
+    return {
+      ...sqliteStateStore.info(),
+      authoritativeSource: 'sqlite',
+      driver: 'sqlite',
+      stateFile: adminSafeStateFileInfo(),
+    };
+  } catch (error) {
+    return {
+      authoritativeSource: 'sqlite',
+      databaseBytes: 0,
+      databasePath: STATE_SQLITE_PATH,
+      driver: 'sqlite',
+      error: String(error?.message || error || 'read SQLite state health failed').slice(0, 240),
+      healthy: false,
+      journalMode: '',
+      quickCheck: 'failed',
+      revision: stateStorageRuntime.databaseRevision,
+      schemaVersion: 0,
+      stateFile: adminSafeStateFileInfo(),
+      updatedAt: '',
+      walBytes: 0,
+    };
+  }
+}
+
 function adminStateStorageBackupsInfo() {
   const backups = listStateBackupFiles();
   const latest = backups[0] || null;
@@ -22702,12 +22857,17 @@ function adminStateStorageBackupsInfo() {
     lastBackupPath: stateStorageRuntime.lastBackupPath || '',
     lastLoadError: stateStorageRuntime.lastLoadError || '',
     lastLoadSource: stateStorageRuntime.lastLoadSource || '',
+    lastMirrorError: stateStorageRuntime.lastMirrorError || '',
     lastSaveAt: stateStorageRuntime.lastSaveAt || '',
     lastSaveError: stateStorageRuntime.lastSaveError || '',
     loadedFromBackup: Boolean(stateStorageRuntime.loadedFromBackup),
     minIntervalMs: STATE_BACKUP_MIN_INTERVAL_MS,
     restoredBackupPath: stateStorageRuntime.restoredBackupPath || '',
     retain: STATE_BACKUP_RETAIN,
+    storageDriver: STATE_STORAGE_DRIVER,
+    databasePath: stateStorageRuntime.databasePath || '',
+    databaseRevision: stateStorageRuntime.databaseRevision || 0,
+    migratedFromJson: Boolean(stateStorageRuntime.migratedFromJson),
   };
 }
 
@@ -23715,6 +23875,7 @@ async function adminSystemHealth() {
   const now = Date.now();
   const memory = process.memoryUsage();
   const stateFile = adminSafeStateFileInfo();
+  const stateStorage = adminStateStorageInfo();
   const avatarJobs = Object.values(state.avatarJobs || {});
   const processingAvatarJobs = avatarJobs.filter((job) => job.status === 'processing');
   const stuckAvatarJobs = processingAvatarJobs.filter((job) => now - analyticsTimeMs(job.updatedAt || job.createdAt) > 5 * 60 * 1000);
@@ -23741,11 +23902,22 @@ async function adminSystemHealth() {
   ]);
   const mediaCdnProbeStatus = mediaCdnProbe?.status === 'bad' ? 'warn' : mediaCdnProbe?.status;
   const checks = [
-    adminCheckStatus(!stateBackups.enabled ? 'warn' : stateBackups.lastBackupError || stateBackups.lastSaveError ? 'warn' : stateBackups.count > 0 ? 'ok' : 'warn', 'state_backups', '状态文件备份', !stateBackups.enabled ? '状态备份未启用' : stateBackups.count > 0 ? `已有 ${stateBackups.count} 份备份，最近 ${stateBackups.latestAt || '-'}` : '尚未生成状态备份，下次成功写入后会自动生成', stateBackups.latestPath || stateBackups.dir),
+    adminCheckStatus(
+      stateStorage.driver !== 'sqlite' ? 'warn' : stateStorage.healthy && stateStorage.journalMode === 'wal' ? 'ok' : 'bad',
+      'state_database',
+      '业务状态数据库',
+      stateStorage.driver !== 'sqlite'
+        ? '当前仍使用 JSON 权威存储'
+        : stateStorage.healthy
+          ? `SQLite/WAL 正常，revision ${stateStorage.revision}，quick_check=${stateStorage.quickCheck}`
+          : `SQLite 状态异常：${stateStorage.error || stateStorage.quickCheck || 'unknown'}`,
+      stateStorage.databasePath || stateFile.path,
+    ),
+    adminCheckStatus(!stateBackups.enabled ? 'warn' : stateBackups.lastBackupError || stateBackups.lastSaveError || stateBackups.lastMirrorError ? 'warn' : stateBackups.count > 0 ? 'ok' : 'warn', 'state_backups', '状态快照备份', !stateBackups.enabled ? '状态备份未启用' : stateBackups.lastMirrorError ? `JSON 回滚镜像异常：${stateBackups.lastMirrorError}` : stateBackups.count > 0 ? `已有 ${stateBackups.count} 份备份，最近 ${stateBackups.latestAt || '-'}` : '尚未生成状态备份，下次成功写入后会自动生成', stateBackups.latestPath || stateBackups.dir),
     adminCheckStatus(mediaProbe.status, 'media_public_get', 'App 媒体公开 GET 探测', mediaProbe.detail, mediaProbe.evidence),
     ...(mediaCdnProbe ? [adminCheckStatus(mediaCdnProbeStatus, 'media_cdn_get', '媒体 CDN GET 探测', mediaCdnProbe.detail, mediaCdnProbe.evidence)] : []),
     adminCheckStatus(publicApiProbe.status, 'public_api_https', 'App API HTTPS 探测', publicApiProbe.detail, publicApiProbe.evidence),
-    adminCheckStatus(stateFile.exists ? stateSizeWarn ? 'warn' : 'ok' : 'bad', 'state_file', '状态文件', stateFile.exists ? `JSON state ${Math.round(stateFile.sizeBytes / 1024)} KB` : '状态文件不存在或不可读', stateFile.path),
+    adminCheckStatus(stateFile.exists ? stateSizeWarn ? 'warn' : 'ok' : stateStorage.driver === 'sqlite' && stateStorage.healthy ? 'warn' : 'bad', 'state_file', stateStorage.driver === 'sqlite' ? 'JSON 回滚镜像' : 'JSON 状态文件', stateFile.exists ? `JSON ${stateStorage.driver === 'sqlite' ? 'mirror' : 'state'} ${Math.round(stateFile.sizeBytes / 1024)} KB` : stateStorage.driver === 'sqlite' ? 'JSON 回滚镜像不存在，SQLite 仍为权威数据源' : '状态文件不存在或不可读', stateFile.path),
     adminCheckStatus(process.env.LUMII_ADMIN_USERNAME && process.env.LUMII_ADMIN_PASSWORD ? 'ok' : 'warn', 'admin_credentials', '后台账号环境变量', process.env.LUMII_ADMIN_PASSWORD ? '后台密码由环境变量覆盖' : '仍可能使用默认后台账号密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'admin_ip_allowlist', '后台 IP 白名单', ipAllowlist.configured ? `已配置 ${ipAllowlist.entryCount} 条后端白名单规则` : '未配置后台 IP 白名单，/admin 仍可被公网访问', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
     adminCheckStatus(
@@ -23797,7 +23969,7 @@ async function adminSystemHealth() {
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_media_base', 'media_public_get', 'media_cdn_get'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'state_database', 'state_backups'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
@@ -23818,12 +23990,13 @@ async function adminSystemHealth() {
       uptimeSeconds: Math.round(process.uptime()),
     },
     stateFile,
+    stateStorage,
     stateBackups,
     status: bad ? 'bad' : warn ? 'warn' : 'ok',
     summary: {
       bad,
       checks: checks.length,
-      stateSizeBytes: stateFile.sizeBytes,
+      stateSizeBytes: stateStorage.driver === 'sqlite' ? Number(stateStorage.databaseBytes || 0) + Number(stateStorage.walBytes || 0) : stateFile.sizeBytes,
       users: countObject(state.users),
       warn,
     },
@@ -25089,7 +25262,9 @@ function adminReadinessGaps(context) {
   const highRiskPolicyReady = Boolean(highRiskPolicy.requireDifferentAdmin && Number(highRiskPolicy.requiredApprovals || 0) >= 2);
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
   const stateBackups = adminStateStorageBackupsInfo();
-  const stateStorageRecoverable = stateBackups.enabled && stateBackups.count > 0 && !stateBackups.lastBackupError && !stateBackups.lastSaveError;
+  const stateStorage = health?.stateStorage || adminStateStorageInfo();
+  const stateStorageRecoverable = stateBackups.enabled && stateBackups.count > 0 && !stateBackups.lastBackupError && !stateBackups.lastSaveError && !stateBackups.lastMirrorError;
+  const stateStorageDatabaseReady = stateStorage.driver === 'sqlite' && stateStorage.healthy && stateStorage.journalMode === 'wal' && Number(stateStorage.revision || 0) > 0;
   return [
     {
       key: 'admin_security',
@@ -25120,23 +25295,23 @@ function adminReadinessGaps(context) {
     {
       key: 'state_storage',
       area: '数据底座',
-      severity: 'P0',
-      status: 'blocked',
-      issue: '当前后端仍是 JSON state 文件态，不能作为生产级数据库。',
-      requiredAction: '迁移数据库、独立审计存储、备份恢复和迁移脚本。',
-      evidence: 'scripts/lumii-backend.cjs statePath',
-      area: '数据底座',
-      severity: stateStorageRecoverable ? 'P1' : 'P0',
-      status: stateStorageRecoverable ? 'partial' : 'blocked',
-      issue: stateStorageRecoverable
-        ? '当前仍是 JSON state 文件态，但已接入原子写入、滚动 gzip 备份、启动损坏恢复和系统健康检查；正式大规模生产仍建议迁移数据库。'
-        : '当前后端仍是 JSON state 文件态，且缺少可证明的滚动备份/自动恢复能力，不能作为生产级数据底座。',
-      requiredAction: stateStorageRecoverable
-        ? '继续规划数据库迁移、独立审计存储和备份恢复演练；上线前确认 STATE_BACKUP_DIR 挂载到持久磁盘并纳入服务器备份。'
-        : '启用状态备份并完成恢复演练，再迁移数据库、独立审计存储、备份恢复和迁移脚本。',
-      evidence: stateStorageRecoverable
-        ? `atomic write + ${stateBackups.count} backups, latest=${stateBackups.latestAt || '-'}`
-        : `STATE_BACKUP_ENABLED=${stateBackups.enabled} backups=${stateBackups.count} error=${stateBackups.lastBackupError || stateBackups.lastSaveError || '-'}`,
+      severity: stateStorageDatabaseReady && stateStorageRecoverable ? 'P1' : 'P0',
+      status: stateStorageDatabaseReady && stateStorageRecoverable ? 'ready' : stateStorageDatabaseReady || stateStorageRecoverable ? 'partial' : 'blocked',
+      issue: stateStorageDatabaseReady && stateStorageRecoverable
+        ? `SQLite/WAL 已作为权威数据源，revision ${stateStorage.revision}；JSON 回滚镜像、滚动 gzip 备份和启动恢复均已启用，满足单实例首发。`
+        : stateStorageDatabaseReady
+          ? 'SQLite/WAL 已启用，但回滚镜像或滚动备份尚未形成可恢复证据。'
+          : stateStorageRecoverable
+            ? '仍以 JSON 文件作为权威数据源；虽有原子写入和滚动备份，但不满足数据库事务要求。'
+            : '状态数据库和可验证恢复链路均未就绪。',
+      requiredAction: stateStorageDatabaseReady && stateStorageRecoverable
+        ? '持续监控 SQLite quick_check、WAL、磁盘和备份恢复；扩展到多实例前迁移托管 PostgreSQL。'
+        : stateStorageDatabaseReady
+          ? '修复 JSON 回滚镜像和 gzip 备份，完成删除镜像后的 SQLite 恢复及损坏恢复演练。'
+          : '启用 LUMII_STATE_STORAGE_DRIVER=sqlite，迁移现有 JSON，完成事务、并发冲突和备份恢复测试。',
+      evidence: stateStorageDatabaseReady
+        ? `sqlite=${stateStorage.databasePath} journal=${stateStorage.journalMode} quick_check=${stateStorage.quickCheck} revision=${stateStorage.revision} backups=${stateBackups.count}`
+        : `driver=${stateStorage.driver} backups=${stateBackups.count} error=${stateStorage.error || stateBackups.lastBackupError || stateBackups.lastSaveError || '-'}`,
     },
     {
       key: 'content_model',
@@ -35449,7 +35624,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(port, '0.0.0.0', () => {
   console.log(`Lumii local backend listening on http://0.0.0.0:${port}`);
-  console.log(`State file: ${statePath}`);
+  console.log(`State storage: ${STATE_STORAGE_DRIVER}${sqliteStateStore ? ` (${STATE_SQLITE_PATH})` : ` (${statePath})`}`);
   console.log(`Test OTP code: ${TEST_CODE}`);
 });
 
@@ -35494,3 +35669,33 @@ const aiStuckJobReaper = setInterval(() => {
   }
 }, AI_STUCK_JOB_REAPER_INTERVAL_MS);
 if (typeof aiStuckJobReaper.unref === 'function') aiStuckJobReaper.unref();
+
+let shutdownStarted = false;
+function closeStateStorage() {
+  if (!sqliteStateStore) return;
+  try {
+    sqliteStateStore.close();
+  } catch (error) {
+    console.error('Failed to close SQLite state storage', error);
+  }
+  sqliteStateStore = null;
+}
+
+function gracefulShutdown(signal) {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  const forceExit = setTimeout(() => {
+    closeStateStorage();
+    process.exit(1);
+  }, 10_000);
+  if (typeof forceExit.unref === 'function') forceExit.unref();
+  server.close(() => {
+    clearTimeout(forceExit);
+    closeStateStorage();
+    process.exit(0);
+  });
+  console.log(`Lumii backend shutting down after ${signal}`);
+}
+
+process.once('SIGINT', () => gracefulShutdown('SIGINT'));
+process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));

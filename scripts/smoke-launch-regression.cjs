@@ -80,6 +80,7 @@ const suites = [
   { key: 'config-scheduled-publish', title: 'Config scheduled publish', script: 'smoke-config-scheduled-publish.cjs', timeoutMs: 180_000 },
   { key: 'media-cdn-probe', title: 'Media CDN probe', script: 'smoke-media-cdn-probe.cjs', timeoutMs: 180_000 },
   { key: 'audit-integrity', title: 'Audit integrity journal', script: 'smoke-admin-audit-integrity.cjs', timeoutMs: 180_000 },
+  { key: 'state-sqlite', title: 'SQLite state migration and recovery', nodeArgs: ['--no-warnings'], script: 'smoke-state-sqlite.cjs', timeoutMs: 180_000 },
   { key: 'state-compaction', title: 'State storage compaction', script: 'smoke-state-storage-compaction.cjs', timeoutMs: 180_000 },
 
   { key: 'admin-accounts-page', title: 'Admin accounts page', script: 'smoke-admin-accounts-page.cjs', timeoutMs: 180_000, visual: true },
@@ -97,7 +98,7 @@ function toCommand(suite) {
   if (suite.script) {
     return {
       command: process.execPath,
-      args: [path.join(rootDir, 'scripts', suite.script)],
+      args: [...(suite.nodeArgs || []), path.join(rootDir, 'scripts', suite.script)],
       cwd: rootDir,
     };
   }

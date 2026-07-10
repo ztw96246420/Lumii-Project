@@ -21,6 +21,9 @@ docs/qa-screenshots/*
 !docs/qa-screenshots/
 !docs/qa-screenshots/lumii-current-qa-*.png
 artifacts/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 # local environment and secrets
 .env
