@@ -64,19 +64,27 @@
 - 内置金毛资源只保留给明确的 Web 设计夹具和 AI 生成预览，不再作为真实用户兜底数据。
 - 新增 `mockAvatar=missing` 专用验收场景，同时断言圆形头像和首页大形象均进入中性缺省态。
 
+### 2.5 生产状态数据库
+
+- 生产运行时已从 EOL 的 Node 18 切换到官方 Node `v24.18.0` LTS，系统 Node 未被覆盖。
+- SQLite/WAL 已成为权威状态源，JSON 改为实时回滚镜像；保留独立审计 JSONL 和滚动 gzip 快照。
+- 迁移前后业务基线一致：20 个用户、16 只宠物、2 条宠友圈小事、120 条后台审计记录。
+- 生产后台验证：`driver=sqlite`、`journal=wal`、`quick_check=ok`、`revision=2`、`state_database=ok`、`state_storage=ready`。
+- 迁移前归档：`/home/ubuntu/lumii-migration-backups/20260710-102407/pre-sqlite-data.tar.gz`，SHA-256 为 `c90c8ab08327645081fd53d3b49a6b5bf7d0984a0d11a59bc9745b49c0136903`。
+
 ## 3. 当前验证证据
 
 - 移动端 TypeScript：`npm run typecheck` 通过。
 - 工单 SLA/客服排班/用户补充/评价/重开闭环：`node scripts/smoke-ticket-sla-roster.cjs` 通过。
 - 移动端完整 Playwright：`node scripts/smoke-frontend-playwright.cjs` 通过，含 39 路由直达、缺头像、宠友圈互动、设置/注销、真实登录会话和宠物建档流程。
 - 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 通过，69/69 套件全部成功；覆盖 Release HTTPS、API TLS/SNI、SQLite/WAL 迁移、并发冲突、镜像重建和损坏恢复。
-- 移动端视觉门禁：完整 Playwright 已通过并检查缺头像关键截图；本轮未改动后台页面，沿用上一轮已通过的后台视觉门禁证据。
+- 移动端视觉门禁：完整 Playwright 已通过并检查缺头像关键截图；后台系统健康页新增 SQLite/WAL、revision、quick_check、JSON 镜像和备份展示，`node scripts/smoke-admin-system-health-page.cjs` 已通过。
 
 ## 4. 剩余工作
 
-### 4.1 代码与自动化收口
+### 4.1 发布候选验收
 
-- 提交 Git、推送远端、同步服务器源码并复核线上健康状态。
+- 在生产 HTTPS API 上构建正式签名 APK，完成新装、升级、登录、建档、AI 生成、宠友圈、通知、注销和异常恢复的真机回归。
 
 ### 4.2 生产配置与业务确认
 
@@ -86,12 +94,12 @@
 - 后台生产 IP 白名单、全部活跃管理员 MFA、密码轮换周期。
 - 用户协议、隐私政策、个人信息收集清单、第三方 SDK 清单、注销和举报规则的正式文本与签署。
 - 站外告警 Webhook、生产 Push 厂商通道、模板、送达回执和退订策略。
-- SQLite/WAL 单实例生产存储、JSON 回滚镜像、独立审计日志和备份恢复代码及自动化已完成；生产服务器切换验收后，后续仅在扩展多实例前迁移托管 PostgreSQL。
+- ~~SQLite/WAL 单实例生产存储、JSON 回滚镜像、独立审计日志和备份恢复。~~ 已完成生产迁移与写入验证；后续仅在扩展多实例前迁移托管 PostgreSQL。
 
 ## 5. 当前完成度判断
 
-- 业务功能代码：约 90%-92%。
-- 按“逐功能验证、前后台闭环、可上线配置”综合口径：约 82%-85%。
-- 当前剩余：约 15%-18%，其中相当一部分是生产配置、真实厂商通道验收和正式业务签署，不是新增页面开发。
+- 业务功能代码：约 92%-94%。
+- 按“逐功能验证、前后台闭环、可上线配置”综合口径：约 85%-88%。
+- 当前剩余：约 12%-15%，主要是生产认证安全、真实厂商通道验收、正式业务签署和发布候选包真机验收，不是新增大块页面开发。
 
 该百分比只用于排期判断；是否可正式上线，以全量门禁通过且后台上线台账无未关闭 P0 为准。

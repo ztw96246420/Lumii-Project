@@ -2,6 +2,14 @@
 
 日期：2026-07-10
 
+生产状态：已完成切换并通过验收。
+
+- 服务器提交：`12796684`
+- 运行时：Node `v24.18.0`
+- 数据库：`/home/ubuntu/lumii-data/lumii-state.sqlite`
+- 上线验证：`WAL`、`quick_check=ok`、revision `2`、20 个用户、16 只宠物
+- 上线台账：`state_database=ok`、`state_storage=ready`
+
 ## 1. 目标与边界
 
 首发生产环境采用单后端实例。状态存储从单个 JSON 权威文件迁移为 SQLite/WAL：

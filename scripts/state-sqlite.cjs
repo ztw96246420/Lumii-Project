@@ -20,6 +20,13 @@ function fileSize(filePath) {
   }
 }
 
+function secureDatabaseFiles(databasePath) {
+  if (process.platform === 'win32') return;
+  [databasePath, `${databasePath}-wal`, `${databasePath}-shm`].forEach((filePath) => {
+    if (fs.existsSync(filePath)) fs.chmodSync(filePath, 0o600);
+  });
+}
+
 function createSqliteStateStore(options = {}) {
   const databasePathInput = String(options.databasePath || '').trim();
   if (!databasePathInput) throw new Error('SQLite state database path is required');
@@ -59,6 +66,7 @@ function createSqliteStateStore(options = {}) {
       source TEXT NOT NULL
     ) STRICT;
   `);
+  secureDatabaseFiles(databasePath);
 
   const selectSnapshot = database.prepare(`
     SELECT schema_version, revision, state_json, checksum_sha256, updated_at, source
