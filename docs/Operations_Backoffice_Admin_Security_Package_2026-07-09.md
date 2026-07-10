@@ -2,6 +2,15 @@
 
 日期：2026-07-09
 
+## 生产启用状态（2026-07-10）
+
+- `LUMII_ADMIN_USERNAME` 和随机强密码已通过 root-only systemd drop-in 启用。
+- drop-in：`/etc/systemd/system/lumii-backend.service.d/15-admin-credentials.conf`，权限 `0600 root:root`。
+- `LUMII_ADMIN_PASSWORD_ROTATION_DAYS=90` 和本次轮换时间已生效。
+- 旧仓库默认密码实测返回 401，新凭据返回 200。
+- 后台健康：`admin_credentials=ok`；账号安全：`defaultPasswordRisk=false`、`passwordRotation.configured=true`。
+- 一次性凭据文件仅保存在开发机当前 Windows 账号 ACL 下，不进入 Git；MFA 和 IP 白名单仍待管理员确认后启用。
+
 本次在运营后台“账号权限”页补齐生产安全硬化配置包。它解决的问题不是自动替你改服务器，而是把生产前必须配置的后台账号密码、MFA、IP 白名单和密码轮换记录整理成可复制、可审计的一次性配置建议。
 
 ## 为什么不自动启用
@@ -76,3 +85,5 @@ node scripts/smoke-admin-accounts.cjs
 node scripts/smoke-admin-accounts-page.cjs
 node scripts/smoke-launch-regression.cjs --only=admin-accounts,admin-accounts-page,audit-integrity
 ```
+
+生产代码还会在 `NODE_ENV=production` 时强制要求显式后台用户名、至少 16 字符且非仓库默认值的后台密码，以及至少 32 字符的 Token Secret；缺少任一项都会拒绝启动。

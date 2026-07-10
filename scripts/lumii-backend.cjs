@@ -30,7 +30,11 @@ const SMS_IP_DAILY_LIMIT = Number(process.env.SMS_IP_DAILY_LIMIT || '150');
 const SMS_VERIFY_MAX_ATTEMPTS = Math.max(1, Number(process.env.SMS_VERIFY_MAX_ATTEMPTS || '5') || 5);
 const ACCOUNT_DELETE_COOLING_OFF_MS = Number(process.env.ACCOUNT_DELETE_COOLING_OFF_MS || 30 * 24 * 60 * 60 * 1000);
 const AUTH_TOKEN_TTL_MS = Number(process.env.AUTH_TOKEN_TTL_MS || 30 * 24 * 60 * 60 * 1000);
-const AUTH_TOKEN_SECRET = process.env.LUMII_TOKEN_SECRET || process.env.AUTH_TOKEN_SECRET || 'lumii-mvp-dev-token-secret';
+const AUTH_TOKEN_SECRET_FROM_ENV = process.env.LUMII_TOKEN_SECRET || process.env.AUTH_TOKEN_SECRET || '';
+const AUTH_TOKEN_SECRET = AUTH_TOKEN_SECRET_FROM_ENV || 'lumii-mvp-dev-token-secret';
+if (RUNTIME_ENV === 'production' && AUTH_TOKEN_SECRET_FROM_ENV.length < 32) {
+  throw new Error('Production requires LUMII_TOKEN_SECRET or AUTH_TOKEN_SECRET with at least 32 characters');
+}
 const AUTH_SESSION_RETAIN_PER_USER = Math.max(5, Math.min(100, Number(process.env.LUMII_AUTH_SESSION_RETAIN_PER_USER || '30') || 30));
 const ONLINE_TTL_MS = 30 * 60 * 1000;
 const NEARBY_LOCATION_MAX_AGE_MS = Number(process.env.NEARBY_LOCATION_MAX_AGE_MS || String(10 * 60 * 1000));
@@ -190,6 +194,12 @@ const ADMIN_EXPORT_SIGNED_DOWNLOAD_TTL_MINUTES = Math.max(1, Math.min(1440, Math
 const adminStaticDir = path.join(__dirname, '..', 'admin');
 const ADMIN_USERNAME = process.env.LUMII_ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.LUMII_ADMIN_PASSWORD || 'LumiiAdmin@2026';
+if (RUNTIME_ENV === 'production' && (!process.env.LUMII_ADMIN_USERNAME || !process.env.LUMII_ADMIN_PASSWORD)) {
+  throw new Error('Production requires explicit LUMII_ADMIN_USERNAME and LUMII_ADMIN_PASSWORD');
+}
+if (RUNTIME_ENV === 'production' && (ADMIN_PASSWORD === 'LumiiAdmin@2026' || ADMIN_PASSWORD.length < 16)) {
+  throw new Error('Production admin password must be at least 16 characters and must not use the repository default');
+}
 const ADMIN_TOKEN_TTL_MS = Number(process.env.LUMII_ADMIN_TOKEN_TTL_MS || 12 * 60 * 60 * 1000);
 const ADMIN_LOGIN_MAX_ATTEMPTS = Math.max(1, Number(process.env.LUMII_ADMIN_LOGIN_MAX_ATTEMPTS || '5') || 5);
 const ADMIN_LOGIN_LOCK_MS = Math.max(60 * 1000, Number(process.env.LUMII_ADMIN_LOGIN_LOCK_MS || 15 * 60 * 1000) || 15 * 60 * 1000);

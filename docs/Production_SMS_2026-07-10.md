@@ -47,6 +47,7 @@ TENCENT_SMS_TEMPLATE_PARAM_MODE=code
 
 - 生产默认 `LUMII_SMS_PROVIDER=disabled`，缺配置时 fail closed。
 - 生产配置 `mock` 会拒绝启动。
+- 生产缺少显式后台强密码或至少 32 字符的 Token Secret 时同样拒绝启动。
 - 固定测试码只在非生产 mock 模式可用，且必须先获取有效票据。
 - 生产验证码由 `crypto.randomInt` 生成 6 位数字。
 - 状态库只保存 HMAC-SHA256，不保存验证码明文。
@@ -78,4 +79,4 @@ node scripts/smoke-sms-production.cjs
 node scripts/smoke-launch-regression.cjs
 ```
 
-专项测试覆盖生产 mock 拒绝启动、未配置通道 503、固定码旁路失败、TC3 签名请求、随机码登录、单次使用、明文不落库、注销验证码和后台上线台账。
+专项测试覆盖生产密钥/后台密码启动门禁、生产 mock 拒绝启动、未配置通道 503、固定码旁路失败、TC3 签名请求、随机码登录、单次使用、明文不落库、注销验证码和后台上线台账。

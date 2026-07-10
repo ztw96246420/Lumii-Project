@@ -64,6 +64,8 @@ async function startBackend(name, env = {}) {
       AMAP_WEB_SERVICE_KEY: '',
       DEEPSEEK_API_KEY: '',
       GPT_IMAGE2_API_KEY: '',
+      LUMII_ADMIN_PASSWORD: 'SmsProductionAdmin-Strong-2026',
+      LUMII_ADMIN_USERNAME: 'admin',
       LUMII_BACKEND_STATE_PATH: statePath,
       LUMII_PUBLIC_API_BASE_URL: '',
       LUMII_TOKEN_SECRET: 'sms-production-smoke-token-secret-32-bytes',
@@ -120,7 +122,10 @@ async function expectProductionMockRejected() {
     cwd: rootDir,
     env: {
       ...process.env,
+      LUMII_ADMIN_PASSWORD: 'SmsProductionAdmin-Strong-2026',
+      LUMII_ADMIN_USERNAME: 'admin',
       LUMII_BACKEND_STATE_PATH: path.join(tmpDir, 'forbidden-mock.json'),
+      LUMII_TOKEN_SECRET: 'sms-production-smoke-token-secret-32-bytes',
       LUMII_SMS_PROVIDER: 'mock',
       NODE_ENV: 'production',
     },
@@ -140,6 +145,38 @@ async function expectProductionMockRejected() {
   });
   assert.notEqual(code, 0);
   assert.match(stderr, /Mock SMS provider is forbidden in production/);
+}
+
+async function expectProductionConfigRejected(name, overrides, pattern) {
+  const port = await getFreePort();
+  const child = spawn(process.execPath, [backendScript, '--port', String(port)], {
+    cwd: rootDir,
+    env: {
+      ...process.env,
+      LUMII_ADMIN_PASSWORD: 'SmsProductionAdmin-Strong-2026',
+      LUMII_ADMIN_USERNAME: 'admin',
+      LUMII_BACKEND_STATE_PATH: path.join(tmpDir, `${name}.json`),
+      LUMII_SMS_PROVIDER: 'disabled',
+      LUMII_TOKEN_SECRET: 'sms-production-smoke-token-secret-32-bytes',
+      NODE_ENV: 'production',
+      ...overrides,
+    },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let stderr = '';
+  child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+  const code = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`${name} unexpectedly started the backend`));
+    }, 10_000);
+    child.once('exit', (exitCode) => {
+      clearTimeout(timeout);
+      resolve(exitCode);
+    });
+  });
+  assert.notEqual(code, 0);
+  assert.match(stderr, pattern);
 }
 
 async function startTencentSmsMock() {
@@ -180,13 +217,16 @@ async function startTencentSmsMock() {
 
 async function adminToken() {
   const login = await request('/admin/auth/login', {
-    body: { password: 'LumiiAdmin@2026', username: 'admin' },
+    body: { password: 'SmsProductionAdmin-Strong-2026', username: 'admin' },
     method: 'POST',
   });
   return login.data.token;
 }
 
 async function main() {
+  await expectProductionConfigRejected('missing-token-secret', { LUMII_TOKEN_SECRET: '' }, /Production requires LUMII_TOKEN_SECRET/);
+  await expectProductionConfigRejected('missing-admin-password', { LUMII_ADMIN_PASSWORD: '' }, /Production requires explicit LUMII_ADMIN_USERNAME and LUMII_ADMIN_PASSWORD/);
+  await expectProductionConfigRejected('default-admin-password', { LUMII_ADMIN_PASSWORD: 'LumiiAdmin@2026' }, /Production admin password must be at least 16 characters/);
   await expectProductionMockRejected();
 
   await startBackend('disabled', { LUMII_SMS_PROVIDER: 'disabled' });
