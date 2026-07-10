@@ -30,11 +30,13 @@
     "android": "expo run:android",
     "build:android:apk": "node scripts/build-arm64-apk.cjs",
     "build:android:preview": "npx eas-cli build -p android --profile preview",
+    "eas-build-pre-install": "node scripts/validate-release-config.cjs",
     "eas:whoami": "npx eas-cli whoami",
     "ios": "expo run:ios",
     "web": "expo start --web",
     "sms:test": "node scripts/test-sms.cjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "validate:release-config": "node scripts/validate-release-config.cjs"
   },
   "private": true
 }

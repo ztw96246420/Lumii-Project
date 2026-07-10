@@ -2,6 +2,7 @@ const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
 const fs = require('fs');
+const net = require('net');
 const os = require('os');
 const path = require('path');
 const zlib = require('zlib');
@@ -97,6 +98,8 @@ const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10'
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_PUBLIC_PROBE_BASE_URL = (process.env.MEDIA_PUBLIC_PROBE_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_PUBLIC_PROBE_TIMEOUT_MS = Math.max(1000, Number(process.env.MEDIA_PUBLIC_PROBE_TIMEOUT_MS || '6000') || 6000);
+const PUBLIC_API_BASE_URL = String(process.env.LUMII_PUBLIC_API_BASE_URL || '').trim().replace(/\/+$/, '');
+const PUBLIC_API_PROBE_TIMEOUT_MS = Math.max(1000, Number(process.env.LUMII_PUBLIC_API_PROBE_TIMEOUT_MS || '6000') || 6000);
 const STATE_STORAGE_WARN_BYTES = Math.max(1024 * 1024, Number(process.env.STATE_STORAGE_WARN_BYTES || 15 * 1024 * 1024) || 15 * 1024 * 1024);
 const STATE_MEDIA_DATAURL_PRUNE_ENABLED = process.env.STATE_MEDIA_DATAURL_PRUNE_ENABLED === 'false' ? false : true;
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
@@ -23607,6 +23610,72 @@ async function adminMediaPublicProbe(baseUrlInput = publicMediaBaseUrl(), option
   };
 }
 
+async function adminPublicApiProbe(baseUrlInput = PUBLIC_API_BASE_URL) {
+  const baseUrl = String(baseUrlInput || '').trim().replace(/\/+$/, '');
+  const baseResult = {
+    baseUrl,
+    evidence: 'LUMII_PUBLIC_API_BASE_URL / GET /health',
+    label: 'Public API HTTPS',
+    ok: false,
+    status: 'warn',
+    url: baseUrl ? `${baseUrl}/health` : '',
+  };
+  if (!baseUrl) {
+    return { ...baseResult, detail: 'Public API base URL is not configured' };
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    return { ...baseResult, detail: 'Public API base URL is not a valid absolute URL', status: 'bad' };
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (parsed.protocol !== 'https:') {
+    return { ...baseResult, detail: 'Public API must use HTTPS', status: 'bad' };
+  }
+  if (net.isIP(host) || host === 'localhost' || host.endsWith('.local')) {
+    return { ...baseResult, detail: 'Public API must use a production DNS hostname, not an IP or local hostname', status: 'bad' };
+  }
+  if ((parsed.pathname && parsed.pathname !== '/') || parsed.search || parsed.hash || parsed.username || parsed.password) {
+    return { ...baseResult, detail: 'Public API base URL must be an origin without credentials, path, query, or fragment', status: 'bad' };
+  }
+
+  const url = new URL('/health', parsed).toString();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PUBLIC_API_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { method: 'GET', redirect: 'manual', signal: controller.signal });
+    const text = (await response.text()).slice(0, 1000);
+    let payload = null;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+    const ok = response.status === 200 && payload?.state === 'success';
+    return {
+      ...baseResult,
+      detail: ok ? 'Public API HTTPS health probe succeeded' : `Public API health probe returned ${response.status || '-'} or an invalid payload`,
+      evidence: `GET ${url} -> ${response.status || '-'}${response.headers.get('server') ? ` / server=${response.headers.get('server')}` : ''}`,
+      ok,
+      status: ok ? 'ok' : 'bad',
+      url,
+    };
+  } catch (error) {
+    const message = error?.name === 'AbortError' ? `timeout after ${PUBLIC_API_PROBE_TIMEOUT_MS}ms` : (error?.message || String(error));
+    return {
+      ...baseResult,
+      detail: `Public API HTTPS health probe failed: ${message}`,
+      evidence: `GET ${url} -> ${message}`,
+      status: 'bad',
+      url,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function adminSystemHealth() {
   const now = Date.now();
   const memory = process.memoryUsage();
@@ -23630,13 +23699,17 @@ async function adminSystemHealth() {
   const ipAllowlist = adminIpAllowlistStatus('');
   const appMediaBase = appMediaPublicBaseUrl();
   const cdnMediaBase = cdnMediaPublicProbeBaseUrl();
-  const mediaProbe = await adminMediaPublicProbe(appMediaBase || cdnMediaBase, { kind: 'app', label: 'App media' });
-  const mediaCdnProbe = cdnMediaBase && cdnMediaBase !== (appMediaBase || '') ? await adminMediaPublicProbe(cdnMediaBase, { kind: 'cdn', label: 'CDN media' }) : null;
+  const [mediaProbe, mediaCdnProbe, publicApiProbe] = await Promise.all([
+    adminMediaPublicProbe(appMediaBase || cdnMediaBase, { kind: 'app', label: 'App media' }),
+    cdnMediaBase && cdnMediaBase !== (appMediaBase || '') ? adminMediaPublicProbe(cdnMediaBase, { kind: 'cdn', label: 'CDN media' }) : Promise.resolve(null),
+    adminPublicApiProbe(),
+  ]);
   const mediaCdnProbeStatus = mediaCdnProbe?.status === 'bad' ? 'warn' : mediaCdnProbe?.status;
   const checks = [
     adminCheckStatus(!stateBackups.enabled ? 'warn' : stateBackups.lastBackupError || stateBackups.lastSaveError ? 'warn' : stateBackups.count > 0 ? 'ok' : 'warn', 'state_backups', '状态文件备份', !stateBackups.enabled ? '状态备份未启用' : stateBackups.count > 0 ? `已有 ${stateBackups.count} 份备份，最近 ${stateBackups.latestAt || '-'}` : '尚未生成状态备份，下次成功写入后会自动生成', stateBackups.latestPath || stateBackups.dir),
     adminCheckStatus(mediaProbe.status, 'media_public_get', 'App 媒体公开 GET 探测', mediaProbe.detail, mediaProbe.evidence),
     ...(mediaCdnProbe ? [adminCheckStatus(mediaCdnProbeStatus, 'media_cdn_get', '媒体 CDN GET 探测', mediaCdnProbe.detail, mediaCdnProbe.evidence)] : []),
+    adminCheckStatus(publicApiProbe.status, 'public_api_https', 'App API HTTPS 探测', publicApiProbe.detail, publicApiProbe.evidence),
     adminCheckStatus(stateFile.exists ? stateSizeWarn ? 'warn' : 'ok' : 'bad', 'state_file', '状态文件', stateFile.exists ? `JSON state ${Math.round(stateFile.sizeBytes / 1024)} KB` : '状态文件不存在或不可读', stateFile.path),
     adminCheckStatus(process.env.LUMII_ADMIN_USERNAME && process.env.LUMII_ADMIN_PASSWORD ? 'ok' : 'warn', 'admin_credentials', '后台账号环境变量', process.env.LUMII_ADMIN_PASSWORD ? '后台密码由环境变量覆盖' : '仍可能使用默认后台账号密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'admin_ip_allowlist', '后台 IP 白名单', ipAllowlist.configured ? `已配置 ${ipAllowlist.entryCount} 条后端白名单规则` : '未配置后台 IP 白名单，/admin 仍可被公网访问', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
@@ -23689,7 +23762,7 @@ async function adminSystemHealth() {
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_media_base', 'media_public_get', 'media_cdn_get'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_media_base', 'media_public_get', 'media_cdn_get'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
@@ -23723,6 +23796,7 @@ async function adminSystemHealth() {
       memory,
     },
     alertWebhook,
+    publicApiProbe,
     mediaProbe,
     mediaCdnProbe,
   };
@@ -24974,6 +25048,8 @@ function adminReadinessGaps(context) {
   const healthBad = Number(health?.summary?.bad || 0) > 0;
   const alertWebhookReady = Boolean(health?.alertWebhook?.configured && !health?.alertWebhook?.configError);
   const alertWebhookHealthy = alertWebhookReady && health?.alertWebhook?.lastDelivery?.status !== 'failed';
+  const publicApiProbe = health?.publicApiProbe || {};
+  const publicApiHttpsReady = publicApiProbe.status === 'ok' && publicApiProbe.ok === true;
   const highRiskPolicy = highRiskApprovalPolicy();
   const highRiskPolicyReady = Boolean(highRiskPolicy.requireDifferentAdmin && Number(highRiskPolicy.requiredApprovals || 0) >= 2);
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
@@ -24992,6 +25068,19 @@ function adminReadinessGaps(context) {
         ? `生产前补齐：${adminSecurityMissing.join('、')}；离职人员使用“离职停用”，返岗时新建账号。`
         : '按季度抽查账号、MFA、密码轮换和离职停用审计。',
       evidence: '账号权限页 / 系统健康页 / POST /admin/accounts/{id}/offboard / admin.account.offboard',
+    },
+    {
+      key: 'api_https',
+      area: 'API 传输安全',
+      severity: 'P0',
+      status: publicApiHttpsReady ? 'ready' : 'blocked',
+      issue: publicApiHttpsReady
+        ? `正式 API 已通过 HTTPS 健康探测：${publicApiProbe.baseUrl || publicApiProbe.url || '-'}`
+        : `正式 API HTTPS 尚不可用：${publicApiProbe.detail || '未配置或尚未完成公网探测'}。`,
+      requiredAction: publicApiHttpsReady
+        ? '持续监控证书续期、TLS 探测和 /health 可用性；正式包保持 usesCleartextTraffic=false。'
+        : '配置 LUMII_PUBLIC_API_BASE_URL=https://api.lumiiapp.cn，确保云安全组放行 TCP 443、证书有效且 GET /health 返回 success，再构建正式包。',
+      evidence: publicApiProbe.evidence || '系统健康页 public_api_https / EAS production HTTPS gate / Android release manifest',
     },
     {
       key: 'state_storage',

@@ -9,6 +9,7 @@ const only = process.argv.find((arg) => arg.startsWith('--only='))?.slice('--onl
 
 const suites = [
   { key: 'mobile-typecheck', title: 'Mobile TypeScript', command: 'npm', args: ['run', 'typecheck'], cwd: path.join(rootDir, 'mobile'), timeoutMs: 90_000 },
+  { key: 'mobile-release-config', title: 'Mobile release HTTPS configuration', script: 'smoke-mobile-release-config.cjs', timeoutMs: 30_000 },
   { key: 'backend-syntax', title: 'Backend syntax', command: process.execPath, args: ['--check', path.join(rootDir, 'scripts', 'lumii-backend.cjs')], timeoutMs: 30_000 },
   { key: 'admin-syntax', title: 'Admin syntax', command: process.execPath, args: ['--check', path.join(rootDir, 'admin', 'admin.js')], timeoutMs: 30_000 },
 
@@ -28,6 +29,7 @@ const suites = [
   { key: 'legal-documents', title: 'Legal document signoff', script: 'smoke-legal-documents.cjs', timeoutMs: 180_000 },
   { key: 'launch-readiness-safety', title: 'Launch readiness content safety', script: 'smoke-launch-readiness-content-safety.cjs', timeoutMs: 180_000 },
   { key: 'launch-readiness-decisions', title: 'Launch readiness decisions', script: 'smoke-launch-readiness-question-update.cjs', timeoutMs: 180_000 },
+  { key: 'public-api-https', title: 'Public API HTTPS readiness', script: 'smoke-public-api-https.cjs', timeoutMs: 60_000 },
   { key: 'conversation-message-reports', title: 'Conversation message reports', script: 'smoke-conversation-message-reports.cjs', timeoutMs: 180_000 },
   { key: 'moderation-sanction', title: 'Report sanction linkage', script: 'smoke-report-sanction-linkage.cjs', timeoutMs: 180_000 },
   { key: 'report-appeals', title: 'Report appeals', script: 'smoke-report-appeals.cjs', timeoutMs: 180_000 },

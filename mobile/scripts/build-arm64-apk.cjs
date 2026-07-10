@@ -2,6 +2,7 @@ const { execFileSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { validateReleaseConfig } = require('./validate-release-config.cjs');
 
 const mobileRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(mobileRoot, '..');
@@ -9,12 +10,12 @@ const androidRoot = path.join(mobileRoot, 'android');
 const sourceApk = path.join(androidRoot, 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk');
 const distDir = path.join(repoRoot, 'dist');
 
-function run(command, args, cwd) {
+function run(command, args, cwd, env = process.env) {
   if (process.platform === 'win32' && command.endsWith('.bat')) {
-    execFileSync('cmd.exe', ['/d', '/s', '/c', command, ...args], { cwd, stdio: 'inherit' });
+    execFileSync('cmd.exe', ['/d', '/s', '/c', command, ...args], { cwd, env, stdio: 'inherit' });
     return;
   }
-  execFileSync(command, args, { cwd, stdio: 'inherit' });
+  execFileSync(command, args, { cwd, env, stdio: 'inherit' });
 }
 
 function pad(value) {
@@ -43,13 +44,31 @@ function sizeMb(bytes) {
 
 fs.mkdirSync(distDir, { recursive: true });
 
-run(process.platform === 'win32' ? 'gradlew.bat' : './gradlew', ['assembleRelease', '-PreactNativeArchitectures=arm64-v8a'], androidRoot);
+const allowInsecureTestApi = process.env.LUMII_ALLOW_INSECURE_TEST_API === '1';
+const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || (allowInsecureTestApi ? 'http://193.112.92.111' : 'https://api.lumiiapp.cn');
+const buildEnv = {
+  ...process.env,
+  EXPO_PUBLIC_API_BASE_URL: apiBaseUrl,
+  EXPO_PUBLIC_API_MODE: 'http',
+  EXPO_PUBLIC_REQUIRE_HTTPS: allowInsecureTestApi ? 'false' : 'true',
+  LUMII_ALLOW_CLEARTEXT: allowInsecureTestApi ? 'true' : 'false',
+  LUMII_PRODUCTION_BUILD: allowInsecureTestApi ? 'false' : 'true',
+};
+if (!allowInsecureTestApi) validateReleaseConfig(buildEnv, { forceProduction: true });
+
+run(
+  process.platform === 'win32' ? 'gradlew.bat' : './gradlew',
+  ['assembleRelease', '-PreactNativeArchitectures=arm64-v8a', `-PLUMII_ALLOW_CLEARTEXT=${allowInsecureTestApi ? 'true' : 'false'}`],
+  androidRoot,
+  buildEnv,
+);
 
 if (!fs.existsSync(sourceApk)) {
   throw new Error(`APK not found: ${sourceApk}`);
 }
 
-const destApk = path.join(distDir, `Lumii-Lingban-v1.0.0-vc11-arm64-${timestamp()}.apk`);
+const buildLabel = allowInsecureTestApi ? 'insecure-test-' : '';
+const destApk = path.join(distDir, `Lumii-Lingban-${buildLabel}v1.0.0-vc11-arm64-${timestamp()}.apk`);
 fs.copyFileSync(sourceApk, destApk);
 
 const stats = fs.statSync(destApk);
@@ -61,3 +80,5 @@ console.log(`SHA256: ${sha256(destApk)}`);
 console.log('PackageName: com.lumii.lingban');
 console.log('VersionCode: 11');
 console.log('ABI: arm64-v8a');
+console.log(`APIBaseURL: ${apiBaseUrl}`);
+console.log(`CleartextTraffic: ${allowInsecureTestApi}`);

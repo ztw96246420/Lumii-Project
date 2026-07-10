@@ -65,16 +65,19 @@ import type {
 } from './types';
 
 declare const process: {
-  env?: Record<string, string | undefined>;
+  env: Record<string, string | undefined>;
 };
 
 export type LumiiApi = typeof mockApi;
 export type LumiiApiMode = 'http' | 'mock';
 
-const env = process?.env ?? {};
 const localLanBackendBaseUrl = 'http://193.112.92.111';
-const configuredMode = env.EXPO_PUBLIC_API_MODE === 'mock' ? 'mock' : 'http';
-const configuredBaseUrl = (env.EXPO_PUBLIC_API_BASE_URL ?? localLanBackendBaseUrl).replace(/\/+$/, '');
+const configuredMode = process.env.EXPO_PUBLIC_API_MODE === 'mock' ? 'mock' : 'http';
+const configuredBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL ?? localLanBackendBaseUrl).replace(/\/+$/, '');
+const requiresHttps = process.env.EXPO_PUBLIC_REQUIRE_HTTPS === 'true';
+if (requiresHttps && (configuredMode !== 'http' || !configuredBaseUrl.startsWith('https://'))) {
+  throw new Error('Lumii production API configuration requires an HTTPS EXPO_PUBLIC_API_BASE_URL.');
+}
 const shouldUseHttp = configuredMode === 'http' && configuredBaseUrl.length > 0;
 const httpRequestTimeoutMs = 15000;
 const avatarStartRequestTimeoutMs = 120000;
@@ -87,6 +90,7 @@ export const apiConfig = {
   baseUrl: configuredBaseUrl,
   mode: shouldUseHttp ? 'http' : 'mock',
   requestedMode: configuredMode,
+  requiresHttps,
 } as const;
 
 export const lumiiApi: LumiiApi = shouldUseHttp ? createHttpApi(configuredBaseUrl) : mockApi;

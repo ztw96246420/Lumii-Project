@@ -17,6 +17,7 @@ def lumiiReleaseKeyAlias = lumiiReleaseSigningProperties.getProperty("LUMII_UPLO
 def lumiiReleaseStorePassword = lumiiReleaseSigningProperties.getProperty("LUMII_UPLOAD_STORE_PASSWORD") ?: findProperty("LUMII_UPLOAD_STORE_PASSWORD") ?: System.getenv("LUMII_UPLOAD_STORE_PASSWORD")
 def lumiiReleaseKeyPassword = lumiiReleaseSigningProperties.getProperty("LUMII_UPLOAD_KEY_PASSWORD") ?: findProperty("LUMII_UPLOAD_KEY_PASSWORD") ?: System.getenv("LUMII_UPLOAD_KEY_PASSWORD")
 def lumiiReleaseSigningConfigured = lumiiReleaseStoreFile && lumiiReleaseKeyAlias && lumiiReleaseStorePassword && lumiiReleaseKeyPassword
+def lumiiAllowCleartext = (findProperty("LUMII_ALLOW_CLEARTEXT") ?: System.getenv("LUMII_ALLOW_CLEARTEXT") ?: "false").toBoolean()
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -109,7 +110,8 @@ android {
         versionCode 11
         versionName "1.0.0"
         manifestPlaceholders = [
-            amapApiKey: "bd395c7d2cb7cf2c8d1f3c7939fbaaa6"
+            amapApiKey: "bd395c7d2cb7cf2c8d1f3c7939fbaaa6",
+            usesCleartextTraffic: lumiiAllowCleartext.toString()
         ]
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""

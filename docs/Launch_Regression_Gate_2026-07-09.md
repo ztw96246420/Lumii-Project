@@ -16,6 +16,7 @@ node scripts/smoke-launch-regression.cjs
 The default gate runs:
 
 - Mobile TypeScript compile check.
+- Mobile preview/production Release HTTPS configuration validation, including API host allowlisting and Android cleartext-traffic protection.
 - Backend and admin JavaScript syntax checks.
 - Mobile core flows.
 - Pet friend circle posting, comments, visibility, location, and calendar sync.
@@ -26,7 +27,10 @@ The default gate runs:
 - Admin accounts, IP allowlist, account deletion, user timeline, high-risk approval countersign/expiry/reject/separation, data clear approval, export approval, signed export links, audit integrity journal, state compaction, and state backup recovery.
 - Admin production security package generation, MFA/IP/password-rotation readiness, and non-leaking security audit records.
 - Config center AI ops, approval, content-safety hints, experiments, risk confirmation, scheduled publish, and media CDN probe.
+- Public API HTTPS launch-readiness probing, including TLS/DNS/health failures and the corresponding P0 readiness blocker.
 - All standalone non-visual smoke scripts under `scripts/smoke-*.cjs` are included in the default gate; visual/browser checks remain opt-in through `--include-visual`.
+
+Last verified on 2026-07-10: 68/68 default non-visual suites passed.
 
 ## Visual Gate
 
