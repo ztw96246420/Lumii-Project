@@ -1,12 +1,14 @@
 const fs = require('fs');
+const net = require('net');
 const os = require('os');
 const path = require('path');
 const { execFile, spawn } = require('child_process');
 
 const rootDir = path.resolve(__dirname, '..');
+const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
 const defaultArtifactsDir = path.join(rootDir, 'artifacts', 'pet-circle-frontend');
 const explicitBaseUrl = Boolean(process.env.FRONTEND_BASE_URL);
-const baseUrl = (process.env.FRONTEND_BASE_URL || 'http://localhost:19031').replace(/\/+$/, '');
+let baseUrl = (process.env.FRONTEND_BASE_URL || 'http://localhost:19031').replace(/\/+$/, '');
 const artifactsDir = process.env.FRONTEND_SMOKE_ARTIFACTS_DIR || defaultArtifactsDir;
 
 function requirePlaywright() {
@@ -70,7 +72,85 @@ async function waitForFrontend() {
   throw new Error(`Frontend did not become ready at ${baseUrl}`);
 }
 
-async function startFrontendIfNeeded() {
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      server.close(() => resolve(address.port));
+    });
+  });
+}
+
+async function waitForBackend(apiBaseUrl) {
+  const deadline = Date.now() + 30_000;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${apiBaseUrl}/health`);
+      if (response.ok) return;
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw lastError || new Error(`Frontend smoke backend did not start at ${apiBaseUrl}`);
+}
+
+async function startBackendForFrontendSmoke() {
+  const configuredApiBaseUrl = String(process.env.FRONTEND_SMOKE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (configuredApiBaseUrl) return { apiBaseUrl: configuredApiBaseUrl, process: null, tempDir: null };
+  const port = await getFreePort();
+  const apiBaseUrl = `http://127.0.0.1:${port}`;
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-frontend-smoke-backend-'));
+  const statePath = path.join(tempDir, 'state.json');
+  const child = spawn(process.execPath, [backendScript, '--port', String(port)], {
+    cwd: rootDir,
+    env: {
+      ...process.env,
+      LUMII_BACKEND_PORT: String(port),
+      LUMII_BACKEND_STATE_PATH: statePath,
+      SMS_COOLDOWN_MS: '0',
+      SMS_DAILY_LIMIT: '1000',
+      SMS_DEVICE_DAILY_LIMIT: '1000',
+      SMS_IP_DAILY_LIMIT: '1000',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout.on('data', (chunk) => {
+    if (process.env.SMOKE_VERBOSE) process.stdout.write(chunk);
+  });
+  child.stderr.on('data', (chunk) => process.stderr.write(chunk));
+  const runtime = { apiBaseUrl, process: child, tempDir };
+  try {
+    await waitForBackend(apiBaseUrl);
+    return runtime;
+  } catch (error) {
+    await stopBackendForFrontendSmoke(runtime);
+    throw error;
+  }
+}
+
+async function stopBackendForFrontendSmoke(runtime) {
+  const child = runtime?.process;
+  if (child && child.exitCode === null) {
+    await new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        if (child.exitCode === null) child.kill('SIGKILL');
+        resolve();
+      }, 3000);
+      child.once('exit', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+      child.kill();
+    });
+  }
+  if (runtime?.tempDir) fs.rmSync(runtime.tempDir, { force: true, recursive: true });
+}
+
+async function startFrontendIfNeeded(apiBaseUrl) {
   if (await frontendReady()) return null;
   if (explicitBaseUrl || process.env.FRONTEND_SMOKE_AUTO_START === '0') {
     throw new Error(`Frontend is not reachable at ${baseUrl}`);
@@ -82,6 +162,9 @@ async function startFrontendIfNeeded() {
     env: {
       ...process.env,
       BROWSER: 'none',
+      EXPO_PUBLIC_API_BASE_URL: apiBaseUrl,
+      EXPO_PUBLIC_API_MODE: 'http',
+      EXPO_PUBLIC_REQUIRE_HTTPS: 'false',
       EXPO_NO_TELEMETRY: '1',
     },
     shell: process.platform === 'win32',
@@ -307,14 +390,16 @@ async function loginMockUser(page, phone) {
 }
 
 async function main() {
-  const frontendProcess = await startFrontendIfNeeded();
-  const playwright = requirePlaywright();
-  const executablePath = browserExecutablePath();
-  if (!executablePath) throw new Error('No Chromium/Edge executable found. Set PLAYWRIGHT_BROWSER_EXECUTABLE.');
-
+  if (!explicitBaseUrl) baseUrl = `http://127.0.0.1:${await getFreePort()}`;
+  const backendRuntime = await startBackendForFrontendSmoke();
+  let frontendProcess = null;
   let browser = null;
   const pageErrors = [];
   try {
+    frontendProcess = await startFrontendIfNeeded(backendRuntime.apiBaseUrl);
+    const playwright = requirePlaywright();
+    const executablePath = browserExecutablePath();
+    if (!executablePath) throw new Error('No Chromium/Edge executable found. Set PLAYWRIGHT_BROWSER_EXECUTABLE.');
     browser = await playwright.chromium.launch({ executablePath, headless: true });
     const context = await browser.newContext({
       deviceScaleFactor: 1,
@@ -792,10 +877,15 @@ async function main() {
     await waitExactText(interactionPage, blockFixturePostText);
     await interactionPage.getByLabel('查看奶油的主人资料').first().click();
     await interactionPage.getByLabel('约遛资料卡宠友').waitFor({ state: 'visible', timeout: 30_000 });
-    await interactionPage.getByLabel('向资料卡宠友打招呼').click();
-    await waitExactText(interactionPage, '和奶油打个招呼');
-    await clickExactText(interactionPage, '取消');
-    await interactionPage.getByText('和奶油打个招呼', { exact: true }).waitFor({ state: 'hidden', timeout: 30_000 });
+    const ownerSheetGreeting = interactionPage.getByLabel('向资料卡宠友打招呼');
+    if (await ownerSheetGreeting.isVisible()) {
+      await ownerSheetGreeting.click();
+      await waitExactText(interactionPage, '和奶油打个招呼');
+      await clickExactText(interactionPage, '取消');
+      await interactionPage.getByText('和奶油打个招呼', { exact: true }).waitFor({ state: 'hidden', timeout: 30_000 });
+    } else {
+      await interactionPage.getByLabel('给资料卡宠友发消息').waitFor({ state: 'visible', timeout: 30_000 });
+    }
     try {
       await interactionPage.getByLabel('约遛资料卡宠友').waitFor({ state: 'visible', timeout: 3_000 });
     } catch {
@@ -975,6 +1065,7 @@ async function main() {
   } finally {
     if (browser) await browser.close();
     await stopFrontend(frontendProcess);
+    await stopBackendForFrontendSmoke(backendRuntime);
   }
 }
 

@@ -1858,7 +1858,7 @@ AI：
 社交：
 
 - `social.petCircleMaxPhotos`
-- `social.discoverRadiusKm`
+- `social.discoverRadiusKm`（`3km / 5km / 10km` 三档，首发默认 `10km`，服务端权威执行）
 - `social.nearbyMomentTtlDays`
 
 功能开关：

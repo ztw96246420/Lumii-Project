@@ -187,7 +187,7 @@ async function createApprovals(adminToken) {
   await createPet(clearUserToken, 'ClearExpiry');
 
   const configDraft = await request('/admin/config/approvals', {
-    body: { action: 'publish', reason: 'config approval expiry smoke', social: { discoverRadiusKm: 9 } },
+    body: { action: 'publish', reason: 'config approval expiry smoke', social: { discoverRadiusKm: 5 } },
     method: 'POST',
     token: adminToken,
   });

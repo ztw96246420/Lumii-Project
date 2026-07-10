@@ -8849,7 +8849,11 @@ async function renderConfig(force) {
       ${renderConfigLinkage(config)}
       <div class="config-grid">
         <label>宠友圈图片上限<input id="cfgPetCircleMaxPhotos" type="number" min="1" max="9" value="${config.social.petCircleMaxPhotos}" /></label>
-        <label>附近默认半径 km<input id="cfgDiscoverRadiusKm" type="number" min="1" max="20" value="${config.social.discoverRadiusKm}" /></label>
+        <label>附近默认半径
+          <select id="cfgDiscoverRadiusKm">
+            ${[10, 5, 3].map((radiusKm) => `<option value="${radiusKm}" ${Number(config.social.discoverRadiusKm) === radiusKm ? 'selected' : ''}>${radiusKm} km</option>`).join('')}
+          </select>
+        </label>
         <label>附近小事有效天数<input id="cfgNearbyMomentTtlDays" type="number" min="1" max="90" value="${config.social.nearbyMomentTtlDays}" /></label>
         <label>灵伴形象每日额度<input id="cfgPetAvatarDailyLimit" type="number" min="0" max="1000" value="${config.ai.petAvatarDailyLimit}" /></label>
         <label>AI 对话每日额度<input id="cfgPetChatDailyLimit" type="number" min="0" max="1000" value="${config.ai.petChatDailyLimit}" /></label>

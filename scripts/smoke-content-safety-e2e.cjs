@@ -306,7 +306,19 @@ async function main() {
       token: adminToken,
     });
     const visibleAfterApprove = await request('/social/pet-circle/posts', { token: ownerToken });
-    assert.ok(visibleAfterApprove.data.items.some((item) => item.id === reviewPost.data.id));
+    const visibleAfterApproveIds = visibleAfterApprove.data.items.map((item) => item.id);
+    const stateAfterPostApprove = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    const storedReviewPost = stateAfterPostApprove.socialMoments.find((item) => item.id === reviewPost.data.id);
+    assert.ok(
+      visibleAfterApproveIds.includes(reviewPost.data.id),
+      `approved post should be visible: ${JSON.stringify({
+        configuredRadiusKm: stateAfterPostApprove.opsConfig?.social?.discoverRadiusKm,
+        ownerLocation: stateAfterPostApprove.users?.['19900006001']?.location,
+        postLocation: storedReviewPost?.location,
+        postStatus: storedReviewPost?.status,
+        visibleAfterApproveIds,
+      })}`,
+    );
 
     const blockedPost = await request('/social/pet-circle/posts', {
       body: {

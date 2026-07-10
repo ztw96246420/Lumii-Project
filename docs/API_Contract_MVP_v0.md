@@ -873,14 +873,15 @@ HealthMemo[]
 Query:
 
 ```txt
-lat=23.1291&lng=113.2644&radiusKm=3&accuracy=30
+lat=23.1291&lng=113.2644&radiusKm=10&accuracy=30
 ```
 
 说明：
 - 当前测试后端会在 `nearbyVisible=true` 时保存用户最近一次位置和 `lastSeenAt`。
 - `fuzzyLocation=true` 时保存粗粒度位置，`fuzzyLocation=false` 时保存本次请求的精确位置。
 - 如果当前账号已关闭 `nearbyVisible`，仍可用本次请求的临时定位查询附近伙伴，但后端不会持久化该定位，也不会刷新在线曝光时间。
-- 发现范围默认 3km。
+- 发现范围由运营后台 `social.discoverRadiusKm` 统一控制，只支持 `3km / 5km / 10km`，首发默认 `10km`。
+- `radiusKm` 为旧版客户端兼容字段；服务端始终以后台配置为权威值，客户端不能自行扩大或缩小范围。
 - 距离返回模糊文案，例如 `500m 内`、`1km 内`、`约 1-2km`。
 - 超过在线时间窗口或超出距离范围不会返回。
 - 返回卡片的 `id` 形如 `user-{phone}`，当前作为 `POST /social/greetings`、`POST /social/walk-invites` 和招呼请求处理接口的 `ownerId` 入参。
@@ -892,7 +893,7 @@ lat=23.1291&lng=113.2644&radiusKm=3&accuracy=30
 Query:
 
 ```txt
-lat=23.1291&lng=113.2644&radiusKm=3&accuracy=30
+lat=23.1291&lng=113.2644&radiusKm=10&accuracy=30
 ```
 
 Response data:
@@ -924,7 +925,8 @@ type NearbyMoment = {
 ```
 
 说明：
-- 当前测试后端复用 `/social/discover` 的定位策略和默认 3km 范围。
+- 当前测试后端复用 `/social/discover` 的定位策略和后台半径档位，首发默认 `10km`。
+- 附近小事使用“小事发布位置快照”判断范围，不使用发布者后来更新的当前位置；发布者跨城市移动不会带走历史小事。
 - 如果当前请求和账号都没有可用定位，返回空数组，不降级为全量动态流。
 - 只返回附近其他用户的小事，不返回当前登录用户自己发布的小事。
 - 只返回猫/狗宠物、开启附近可见、在线窗口内、未超过 7 天的小事。
@@ -946,7 +948,7 @@ Request:
   "imageUrls": ["https://..."],
   "syncToHealthCalendar": true,
   "visibility": "nearby",
-  "location": { "latitude": 23.1291, "longitude": 113.2644, "radiusKm": 3, "accuracy": 30, "updatedAt": 1782054000000 }
+  "location": { "latitude": 23.1291, "longitude": 113.2644, "radiusKm": 10, "accuracy": 30, "updatedAt": 1782054000000 }
 }
 ```
 
@@ -962,6 +964,8 @@ NearbyMoment
 - `imageUrls` 只接受 `http/https` 图片地址；`data:`、`file://`、`content://` 等本机或内联地址会被过滤，必须先走媒体上传接口。
 - `syncToHealthCalendar=true` 时，测试后端会同时生成一条健康备忘；`visibility=private` 默认也会写入健康日历，但不进入宠友圈/附近小事流。由宠友圈小事同步出的健康备忘会携带 `source=pet_circle` / `sourceId={postId}`，健康日历归档日期应跟随源小事的 `createdAt`，避免历史小事在后续刷新时漂移到当天。
 - `visibility=nearby` 时必须开启附近可见，并提供 10 分钟内的新鲜定位。
+- 服务端会为公开小事保存不可变的模糊发布位置快照，用于后续附近范围判断；经纬度不会出现在移动端小事响应中。
+- 没有可靠发布位置的历史小事保留在本人和已建立关系的宠友圈归档，但不进入附近流，也不会用发布者当前定位猜测回填。
 - 如果当前账号没有宠物档案，返回中文错误，不创建小事。
 - 创建成功后，其他附近用户可通过 `GET /social/nearby-moments` 看到；当前用户首页不会把自己的小事当成附近小事展示。
 
@@ -972,7 +976,7 @@ NearbyMoment
 Query:
 
 ```txt
-lat=23.1291&lng=113.2644&radiusKm=3&accuracy=30&cursor=opaque&limit=30
+lat=23.1291&lng=113.2644&radiusKm=10&accuracy=30&cursor=opaque&limit=30
 ```
 
 Response data:
@@ -986,7 +990,7 @@ type PetCirclePostList = {
 
 说明：
 - 返回结构中的 `items` 使用 `NearbyMoment`，并补充点赞、评论、图片、可见性和 `ownedByMe` 状态。
-- 排序按模糊距离优先、发布时间倒序；`nextCursor` 为不透明游标，客户端只透传。
+- 先按后台配置半径和小事发布位置快照过滤，再按发布时间倒序；发布时间相同时才按距离排序。`nextCursor` 为不透明游标，客户端只透传。
 - 当前请求和账号都没有定位时返回空列表；当前账号关闭附近可见时不刷新在线曝光。
 - 已删除、仅自己可见、发布者关闭附近可见、超过 7 天或超出距离范围的小事不返回。
 - 当前用户已举报的小事不再返回；举报只先对举报者隐藏，后台审核/全局隐藏属于后续治理能力。
@@ -1366,6 +1370,8 @@ type Place = {
 ### GET `/places/nearby`
 
 附近宠物友好地点。
+
+说明：服务端与附近发现共用后台 `social.discoverRadiusKm` 的 `3km / 5km / 10km` 档位；首发默认查询 10km。移动端地图可在后台上限内进一步收窄筛选，但不能请求超过后台范围的数据。
 
 ### GET `/places/search?q=公园`
 

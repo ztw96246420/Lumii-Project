@@ -532,7 +532,7 @@
 移动端已接入：
 
 - `social.petCircleMaxPhotos`：发布今日小事图片上限和 UI 计数。
-- `social.discoverRadiusKm`：附近发现和地图定位请求半径。
+- `social.discoverRadiusKm`：附近发现和地图定位请求半径；当前固定为 `3/5/10km` 三档、默认 `10km`，服务端强制使用后台值，客户端不能绕过。
 - `social.nearbyMomentTtlDays`：附近宠友圈列表文案和客户端兜底过滤；后端仍是公开可见性的权威过滤。
 - `ai.petAvatarDailyLimit`：AI 形象额度兜底展示。
 - `ai.petChatDailyLimit`：AI 对话额度兜底展示。

@@ -199,7 +199,7 @@ async function createApprovals(adminToken) {
   await createPet(clearUserToken, 'ClearReject');
 
   const configDraft = await request('/admin/config/approvals', {
-    body: { action: 'publish', reason: 'config approval reject smoke', social: { discoverRadiusKm: 9 } },
+    body: { action: 'publish', reason: 'config approval reject smoke', social: { discoverRadiusKm: 5 } },
     method: 'POST',
     token: adminToken,
   });

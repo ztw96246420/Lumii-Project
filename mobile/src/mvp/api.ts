@@ -71,9 +71,9 @@ declare const process: {
 export type LumiiApi = typeof mockApi;
 export type LumiiApiMode = 'http' | 'mock';
 
-const localLanBackendBaseUrl = 'http://193.112.92.111';
+const defaultBackendBaseUrl = 'https://api.lumiiapp.cn';
 const configuredMode = process.env.EXPO_PUBLIC_API_MODE === 'mock' ? 'mock' : 'http';
-const configuredBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL ?? localLanBackendBaseUrl).replace(/\/+$/, '');
+const configuredBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL ?? defaultBackendBaseUrl).replace(/\/+$/, '');
 const requiresHttps = process.env.EXPO_PUBLIC_REQUIRE_HTTPS === 'true';
 if (requiresHttps && (configuredMode !== 'http' || !configuredBaseUrl.startsWith('https://'))) {
   throw new Error('Lumii production API configuration requires an HTTPS EXPO_PUBLIC_API_BASE_URL.');
@@ -103,7 +103,7 @@ export function setLumiiAuthToken(token?: string) {
 
 function nearbyLocationQuery(location?: NearbyLocationHint) {
   if (!location) return '';
-  return `lat=${encodeURIComponent(location.latitude)}&lng=${encodeURIComponent(location.longitude)}&radiusKm=${encodeURIComponent(location.radiusKm ?? 3)}${location.accuracy ? `&accuracy=${encodeURIComponent(location.accuracy)}` : ''}`;
+  return `lat=${encodeURIComponent(location.latitude)}&lng=${encodeURIComponent(location.longitude)}&radiusKm=${encodeURIComponent(location.radiusKm ?? 10)}${location.accuracy ? `&accuracy=${encodeURIComponent(location.accuracy)}` : ''}`;
 }
 
 function createHttpApi(baseUrl: string): LumiiApi {

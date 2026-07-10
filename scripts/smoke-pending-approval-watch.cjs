@@ -155,7 +155,7 @@ async function main() {
       body: {
         action: 'publish',
         reason: 'pending watch config approval',
-        social: { discoverRadiusKm: 6 },
+        social: { discoverRadiusKm: 5 },
       },
       method: 'POST',
       token: adminToken,

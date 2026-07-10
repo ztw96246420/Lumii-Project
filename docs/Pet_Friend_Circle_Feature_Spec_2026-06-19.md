@@ -94,7 +94,7 @@ MVP 阶段先做“可看、可发、可互动、可回流”的闭环。
 1. 用户进入「发现」。
 2. 默认展示「宠友圈」Tab。
 3. App 自动获取当前位置。
-4. 服务端返回附近 3km 内、7 天内、开启附近可见的猫狗小事。
+4. 服务端按后台 `3km / 5km / 10km` 档位返回范围内、7 天内、开启附近可见的猫狗小事；首发默认 10km。
 5. 用户可以下拉刷新。
 6. 用户可以切换到「附近伙伴」查看完整宠物主人列表。
 
@@ -214,7 +214,8 @@ type PetCirclePost = {
 
 ### 7.2 附近规则
 
-- 默认 3km 内。
+- 后台可选择 `3km / 5km / 10km`，首发默认 `10km`；服务端为权威范围，客户端参数不能越权修改。
+- 附近伙伴按用户当前定位判断；附近小事按发布时的模糊位置快照判断，发布者移动后历史小事不跟随迁移。
 - 使用模糊距离，不展示精确坐标。
 - 只展示开启「附近可见」的用户。
 - 用户关闭「附近可见」后：
@@ -279,7 +280,7 @@ type PetCirclePost = {
 ### 9.1 获取宠友圈动态
 
 ```txt
-GET /social/pet-circle/posts?lat=23.1291&lng=113.2644&radiusKm=3&cursor=xxx
+GET /social/pet-circle/posts?lat=23.1291&lng=113.2644&radiusKm=10&cursor=xxx
 ```
 
 返回：
@@ -344,6 +345,12 @@ type PetCirclePostRecord = {
   content: string;
   mood?: string;
   mediaIds: string[];
+  location?: {
+    accuracy: number;
+    capturedAt: string;
+    latitude: number;
+    longitude: number;
+  }; // 仅服务端保存的模糊发布位置快照，不返回客户端
   visibility: 'nearby' | 'private';
   status: 'published' | 'deleted' | 'hidden';
   createdAt: string;
@@ -542,7 +549,9 @@ Figma Make 提示词：
 ## 16. MVP 验收标准
 
 - 用户 A 发布一条附近可见小事。
-- 用户 B 在 3km 内刷新宠友圈，可以看到用户 A 的小事。
+- 用户 B 在后台配置半径内刷新宠友圈，可以看到用户 A 的小事；首发默认范围为 10km。
+- 用户 A 发布后移动到另一座城市，原小事仍锚定原发布地点，不会出现在新城市附近流；但仍保留在 A 的个人宠友圈归档。
+- 客户端传入大于后台配置的半径时，服务端仍按后台范围过滤。
 - 用户 B 点赞后，用户 A 的通知中心出现互动通知。
 - 用户 B 评论后，用户 A 可看到评论通知。
 - 用户 B 从动态发起打招呼，沿用现有招呼请求/会话逻辑。

@@ -989,6 +989,7 @@ export type AppRemoteConfig = {
   };
   social: {
     discoverRadiusKm: number;
+    discoverRadiusPolicyVersion?: number;
     nearbyMomentTtlDays: number;
     petCircleMaxPhotos: number;
   };

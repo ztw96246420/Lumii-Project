@@ -24,7 +24,7 @@
 - `ai.petAvatarDailyLimit`：后端限制生成次数，移动端展示形象生成额度。
 - `ai.petChatDailyLimit`：后端限制对话次数，移动端展示 AI 对话额度。
 - `social.petCircleMaxPhotos`：后端限制图片数量，移动端控制发布图片选择和计数。
-- `social.discoverRadiusKm`：移动端作为默认半径发请求，后端按请求半径返回附近数据。
+- `social.discoverRadiusKm`：后台固定提供 `3km / 5km / 10km` 三档，首发默认 `10km`；移动端同步展示并发起请求，后端以后台值为权威范围，旧客户端或篡改请求不能扩大/缩小附近伙伴、小事和地图 POI 的范围。
 - `social.nearbyMomentTtlDays`：后端过滤附近小事，移动端文案和兜底过滤同步。
 - `features.aiAvatar`：后端阻断上传/生成/重试，移动端隐藏或拦截入口。
 - `features.petChat`：后端阻断 AI 对话，移动端隐藏或拦截入口。

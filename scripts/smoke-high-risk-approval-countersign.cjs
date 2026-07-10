@@ -201,8 +201,8 @@ async function enableHighRiskCountersign(adminToken) {
 
 async function testConfigCountersign(adminToken, reviewerOneToken, reviewerTwoToken) {
   const current = await request('/admin/config', { token: adminToken });
-  const previousRadius = Number(current.data?.social?.discoverRadiusKm || 3);
-  const nextRadius = previousRadius === 8 ? 9 : 8;
+  const previousRadius = Number(current.data?.social?.discoverRadiusKm || 10);
+  const nextRadius = previousRadius === 10 ? 5 : previousRadius === 5 ? 3 : 10;
   const draft = await request('/admin/config/approvals', {
     body: {
       action: 'publish',

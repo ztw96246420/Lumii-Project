@@ -135,7 +135,7 @@ async function main() {
     const direct = await request('/admin/config', {
       body: {
         reason: 'direct config publish should be blocked',
-        social: { discoverRadiusKm: 7 },
+        social: { discoverRadiusKm: 5 },
       },
       expectedStatus: 409,
       method: 'PATCH',
@@ -144,13 +144,13 @@ async function main() {
     assert.equal(direct.error.code, 'ADMIN_CONFIG_APPROVAL_REQUIRED');
 
     const publicBefore = await request('/app/config');
-    assert.notEqual(publicBefore.data.social.discoverRadiusKm, 7);
+    assert.notEqual(publicBefore.data.social.discoverRadiusKm, 5);
 
     const approvalResponse = await request('/admin/config/approvals', {
       body: {
         action: 'publish',
         reason: 'approve radius change',
-        social: { discoverRadiusKm: 7 },
+        social: { discoverRadiusKm: 5 },
       },
       method: 'POST',
       token: adminToken,
@@ -159,7 +159,7 @@ async function main() {
     assert.equal(approvalResponse.data.approval.status, 'pending_approval');
 
     const publicStillBefore = await request('/app/config');
-    assert.notEqual(publicStillBefore.data.social.discoverRadiusKm, 7);
+    assert.notEqual(publicStillBefore.data.social.discoverRadiusKm, 5);
 
     const approvedPublish = await request(`/admin/config/approvals/${encodeURIComponent(publishApprovalId)}/approve`, {
       body: { reason: 'approve config radius change' },
@@ -170,7 +170,7 @@ async function main() {
     assert.ok(approvedPublish.data.approval.revisionId);
 
     const publicAfterPublish = await request('/app/config');
-    assert.equal(publicAfterPublish.data.social.discoverRadiusKm, 7);
+    assert.equal(publicAfterPublish.data.social.discoverRadiusKm, 5);
 
     const draftResponse = await request('/admin/config/drafts', {
       body: {
@@ -207,7 +207,7 @@ async function main() {
     });
 
     const publicAfterDraft = await request('/app/config');
-    assert.equal(publicAfterDraft.data.social.discoverRadiusKm, 7);
+    assert.equal(publicAfterDraft.data.social.discoverRadiusKm, 5);
     assert.equal(publicAfterDraft.data.social.nearbyMomentTtlDays, 12);
 
     const configAfterDraft = await request('/admin/config', { token: adminToken });
@@ -239,7 +239,7 @@ async function main() {
     });
 
     const publicAfterRollback = await request('/app/config');
-    assert.equal(publicAfterRollback.data.social.discoverRadiusKm, 7);
+    assert.equal(publicAfterRollback.data.social.discoverRadiusKm, 5);
     assert.notEqual(publicAfterRollback.data.social.nearbyMomentTtlDays, 12);
 
     const approvals = await request('/admin/config/approvals?status=all', { token: adminToken });

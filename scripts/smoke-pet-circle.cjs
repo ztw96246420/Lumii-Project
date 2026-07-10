@@ -197,6 +197,8 @@ function findByDetail(items, detail) {
 async function run() {
   const port = await getFreePort();
   await startBackend(port);
+  const initialConfig = await request('/app/config');
+  assert.equal(initialConfig.data.social.discoverRadiusKm, 10, 'nearby discovery should default to the 10km launch radius');
 
   const ownerPhone = '13900001001';
   const viewerPhone = '13900001002';
@@ -213,6 +215,15 @@ async function run() {
   const noLocationToken = await login(noLocationPhone);
   const interactionOffToken = await login(interactionOffPhone);
   const pushOffToken = await login(pushOffPhone);
+
+  patchState((state) => {
+    state.opsConfig.social.discoverRadiusKm = 3;
+    delete state.opsConfig.social.discoverRadiusPolicyVersion;
+  });
+  await restartBackend(port);
+  const migratedConfig = await request('/app/config');
+  assert.equal(migratedConfig.data.social.discoverRadiusKm, 10, 'legacy 3km config should migrate once to the 10km launch policy');
+  assert.equal(migratedConfig.data.social.discoverRadiusPolicyVersion, 2, 'migrated radius policy should be versioned so later 3km choices persist');
 
   const ownerPet = await createPet(ownerToken, 'Lucky');
   await createPet(viewerToken, 'Mochi', 'cat');
@@ -401,6 +412,18 @@ async function run() {
   assert.ok(publicPost.data?.id, 'nearby post missing id');
   assert.equal(publicPost.data.imageUrls.length, 6, 'nearby post should cap images at 6');
   assert.equal(publicPost.data.photoCount, 6, 'nearby post photo count should cap at 6');
+  assert.equal(publicPost.data.location, undefined, 'public pet circle cards must not expose stored coordinates');
+  const publicPostState = loadState().socialMoments.find((item) => item.id === publicPost.data.id);
+  assert.deepEqual(
+    publicPostState?.location,
+    {
+      accuracy: 1000,
+      capturedAt: new Date(ownerLoc.updatedAt).toISOString(),
+      latitude: 31.23,
+      longitude: 121.47,
+    },
+    'nearby posts should persist an immutable fuzzy publish-location snapshot',
+  );
 
   const secondPost = await request('/social/pet-circle/posts', {
     body: {
@@ -421,7 +444,7 @@ async function run() {
     token: ownerToken,
   });
   assert.ok(secondPost.data?.id && thirdPost.data?.id, 'pagination seed posts should be created');
-  const newerFartherLoc = location(31.246, 121.474);
+  const newerFartherLoc = location(31.29, 121.474);
   await refreshPresence(noLocationToken, newerFartherLoc);
   const newerFartherPost = await request('/social/pet-circle/posts', {
     body: {
@@ -433,6 +456,18 @@ async function run() {
     token: noLocationToken,
   });
   assert.ok(newerFartherPost.data?.id, 'newer farther sorting seed post should be created');
+  const outsideConfiguredLoc = location(31.37, 121.474, 20);
+  await refreshPresence(noLocationToken, outsideConfiguredLoc);
+  const outsideConfiguredPost = await request('/social/pet-circle/posts', {
+    body: {
+      content: 'client radius must not expand the configured nearby range',
+      location: outsideConfiguredLoc,
+      visibility: 'nearby',
+    },
+    method: 'POST',
+    token: noLocationToken,
+  });
+  assert.ok(outsideConfiguredPost.data?.id, 'outside configured radius post should be created for location isolation smoke');
   const expiredOwnPost = await request('/social/pet-circle/posts', {
     body: {
       content: 'expired own post should not remain in pet circle',
@@ -467,7 +502,13 @@ async function run() {
     token: viewerToken,
   });
   assert.ok(viewerList.data.items.some((item) => item.id === publicPost.data.id), 'near viewer should see nearby post');
+  assert.ok(viewerList.data.items.some((item) => item.id === newerFartherPost.data.id), 'server 10km config should override a stale client 3km radius');
+  assert.ok(!viewerList.data.items.some((item) => item.id === outsideConfiguredPost.data.id), 'a publisher move must not relocate older posts into the latest user position');
   assert.ok(!viewerList.data.items.some((item) => item.id === hiddenPost.data.id), 'private posts should not appear in circle list');
+  const expandedClientList = await request('/social/pet-circle/posts?lat=31.231&lng=121.474&radiusKm=20&accuracy=30', {
+    token: viewerToken,
+  });
+  assert.ok(!expandedClientList.data.items.some((item) => item.id === outsideConfiguredPost.data.id), 'client radius must not expand beyond the configured 10km range');
   const ownerList = await request('/social/pet-circle/posts?lat=31.2304&lng=121.4737&radiusKm=3&accuracy=30', {
     token: ownerToken,
   });
@@ -486,6 +527,50 @@ async function run() {
     token: farToken,
   });
   assert.ok(!farList.data.items.some((item) => item.id === publicPost.data.id), 'far viewer should not see nearby post');
+
+  await refreshPresence(ownerToken, farLoc);
+  const viewerListAfterOwnerMove = await request('/social/pet-circle/posts?lat=31.231&lng=121.474&radiusKm=10&accuracy=30', {
+    token: viewerToken,
+  });
+  assert.ok(viewerListAfterOwnerMove.data.items.some((item) => item.id === publicPost.data.id), 'a post should stay near its publish location after the owner moves');
+  const farListAfterOwnerMove = await request('/social/pet-circle/posts?lat=31.9&lng=121.9&radiusKm=10&accuracy=30', {
+    token: farToken,
+  });
+  assert.ok(!farListAfterOwnerMove.data.items.some((item) => item.id === publicPost.data.id), 'an old post must not follow its owner to another city');
+  const ownerListAfterMove = await request('/social/pet-circle/posts?lat=31.9&lng=121.9&radiusKm=10&accuracy=30', {
+    token: ownerToken,
+  });
+  assert.ok(!ownerListAfterMove.data.items.some((item) => item.id === publicPost.data.id), 'own posts outside the current nearby area should stay out of the nearby feed');
+  const ownerProfileAfterMove = await request('/social/pet-circle/profiles/me/posts', { token: ownerToken });
+  assert.ok(ownerProfileAfterMove.data.items.some((item) => item.id === publicPost.data.id), 'own posts should remain in the personal pet circle archive after moving');
+  await refreshPresence(ownerToken, ownerLoc);
+
+  const legacyLocationlessPost = await request('/social/pet-circle/posts', {
+    body: {
+      content: 'legacy post without a reliable publish location',
+      location: ownerLoc,
+      visibility: 'nearby',
+    },
+    method: 'POST',
+    token: ownerToken,
+  });
+  patchState((state) => {
+    const moment = state.socialMoments.find((item) => item.id === legacyLocationlessPost.data.id);
+    assert.ok(moment, 'legacy locationless post seed missing from state');
+    delete moment.location;
+  });
+  await restartBackend(port);
+  const viewerListWithLegacyPost = await request('/social/pet-circle/posts?lat=31.231&lng=121.474&radiusKm=10&accuracy=30', {
+    token: viewerToken,
+  });
+  assert.ok(!viewerListWithLegacyPost.data.items.some((item) => item.id === legacyLocationlessPost.data.id), 'legacy posts without a reliable location must stay out of nearby feeds');
+  const ownerProfileWithLegacyPost = await request('/social/pet-circle/profiles/me/posts', { token: ownerToken });
+  assert.ok(ownerProfileWithLegacyPost.data.items.some((item) => item.id === legacyLocationlessPost.data.id), 'legacy posts should remain available in the owner archive');
+  await expectApiError(`/social/pet-circle/posts/${encodeURIComponent(legacyLocationlessPost.data.id)}`, {
+    code: 'PET_CIRCLE_POST_GONE',
+    status: 404,
+    token: viewerToken,
+  });
 
   const syncedPublicContent = 'public sync to health calendar direct post';
   await request('/social/pet-circle/posts', {

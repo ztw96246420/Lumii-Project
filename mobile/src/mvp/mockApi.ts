@@ -166,7 +166,8 @@ const mockAppRemoteConfig: AppRemoteConfig = {
     },
   },
   social: {
-    discoverRadiusKm: 3,
+    discoverRadiusKm: 10,
+    discoverRadiusPolicyVersion: 2,
     nearbyMomentTtlDays: 7,
     petCircleMaxPhotos: 6,
   },

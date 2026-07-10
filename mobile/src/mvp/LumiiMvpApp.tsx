@@ -156,7 +156,8 @@ import type {
 } from './types';
 
 const smsCooldownMs = 60 * 1000;
-const defaultDiscoverRadiusKm = 3;
+const discoverRadiusOptionsKm = [3, 5, 10] as const;
+const defaultDiscoverRadiusKm = 10;
 const nearbyPublishLocationMaxAgeMs = 10 * 60 * 1000;
 const fallbackPetAvatarDailyLimit = 10;
 const fallbackPetChatDailyLimit = 80;
@@ -262,6 +263,7 @@ const fallbackRemoteConfig: AppRemoteConfig = {
   },
   social: {
     discoverRadiusKm: defaultDiscoverRadiusKm,
+    discoverRadiusPolicyVersion: 2,
     nearbyMomentTtlDays: 7,
     petCircleMaxPhotos: 6,
   },
@@ -1317,7 +1319,7 @@ const placeSortOptions: Array<{ key: PlaceSortMode; label: string }> = [
   { key: 'rating', label: '评分最高' },
   { key: 'reviews', label: '点评最多' },
 ];
-const placeDistanceFilterOptions = [1, 3, 5] as const;
+const placeDistanceFilterOptions = [3, 5, 10] as const;
 type PlaceDistanceFilterKm = (typeof placeDistanceFilterOptions)[number];
 
 function sortPlacesByMode(items: Place[], mode: PlaceSortMode) {
@@ -2648,7 +2650,7 @@ export default function LumiiMvpApp() {
   const placeQueryRef = useRef('');
   const mapSearchInputRef = useRef<TextInput>(null);
   const [placeFilter, setPlaceFilter] = useState<'all' | Place['category']>('all');
-  const [placeDistanceRadiusKm, setPlaceDistanceRadiusKm] = useState<PlaceDistanceFilterKm>(3);
+  const [placeDistanceRadiusKm, setPlaceDistanceRadiusKm] = useState<PlaceDistanceFilterKm>(defaultDiscoverRadiusKm);
   const [placeSpeciesFilter, setPlaceSpeciesFilter] = useState<PlaceSpeciesFilter>('all');
   const [placeSortMode, setPlaceSortMode] = useState<PlaceSortMode>('distance');
   const [placeSearching, setPlaceSearching] = useState(false);
@@ -2716,7 +2718,10 @@ export default function LumiiMvpApp() {
   }, [route]);
 
   const cooldownRemaining = Math.min(60, Math.max(0, Math.ceil((cooldownUntil - clock) / 1000)));
-  const configuredDiscoverRadiusKm = Math.max(1, Math.min(20, Number(remoteConfig.social.discoverRadiusKm) || defaultDiscoverRadiusKm));
+  const configuredDiscoverRadiusValue = Number(remoteConfig.social.discoverRadiusKm);
+  const configuredDiscoverRadiusKm = discoverRadiusOptionsKm.includes(configuredDiscoverRadiusValue as typeof discoverRadiusOptionsKm[number])
+    ? configuredDiscoverRadiusValue
+    : defaultDiscoverRadiusKm;
   const nearbyMomentTtlDays = normalizeNearbyMomentTtlDays(remoteConfig.social.nearbyMomentTtlDays);
   const dailyPostPhotoLimit = Math.max(1, Math.min(9, Math.floor(remoteConfig.social.petCircleMaxPhotos || dailyPostMaxPhotoCount)));
   const petAvatarDailyUsage = aiUsage?.daily.petAvatar;
@@ -2928,6 +2933,10 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     setNearbyMoments((items) => filterNearbyMomentsByTtl(items, nearbyMomentTtlDays));
   }, [nearbyMomentTtlDays]);
+
+  useEffect(() => {
+    setPlaceDistanceRadiusKm(configuredDiscoverRadiusKm as PlaceDistanceFilterKm);
+  }, [configuredDiscoverRadiusKm]);
 
   useEffect(() => {
     if (!shouldShowAppUpdate || !appUpdate?.enabled || !appUpdateVersionKey) {
@@ -8027,7 +8036,7 @@ export default function LumiiMvpApp() {
     setPlaceQuery('');
     setPlaceFilter('all');
     setPlaceSpeciesFilter('all');
-    setPlaceDistanceRadiusKm(3);
+    setPlaceDistanceRadiusKm(configuredDiscoverRadiusKm as PlaceDistanceFilterKm);
     setPlaceSortMode('distance');
     if (guardFeature(placesEnabled, '地图地点')) go('map');
     showToast('请选择约遛地点', { subtitle: '点击地图下方地点即可带回邀请页', tone: 'info', variant: 'surface' });
@@ -9402,7 +9411,7 @@ export default function LumiiMvpApp() {
     placeQueryRef.current = '';
     setPlaceQuery('');
     setPlaceFilter('all');
-    setPlaceDistanceRadiusKm(3);
+    setPlaceDistanceRadiusKm(configuredDiscoverRadiusKm as PlaceDistanceFilterKm);
     setPlaceSpeciesFilter('all');
     setPlaceSortMode('distance');
     placeSearchingRef.current = false;
@@ -14048,7 +14057,7 @@ export default function LumiiMvpApp() {
     const placeFilterMeta = [placeQuery.trim() ? '搜索结果' : placeFilterLabel, placeSpeciesFilterLabel || null, placeSortLabel].filter(Boolean).join(' · ');
     const placeResultMeta = placeSearching ? '搜索中...' : `${visiblePlaces.length} 个 · ${placeDistanceRadiusKm}km 内 · ${placeFilterMeta}`;
     const mapSheetTitle = walkInvitePickingPlace ? '选择约遛地点' : '附近宠物友好地点';
-    const distanceProgress = `${Math.round((placeDistanceRadiusKm / 5) * 100)}%`;
+    const distanceProgress = `${Math.round((placeDistanceRadiusKm / configuredDiscoverRadiusKm) * 100)}%`;
     const distanceProgressStyle = { width: distanceProgress as ViewStyle['width'] };
     const distanceThumbStyle = { left: distanceProgress as ViewStyle['left'] };
     const mapStyle = mapStyleOptions.find((item) => item.key === mapStyleKey) ?? mapStyleOptions[0];
@@ -14063,7 +14072,7 @@ export default function LumiiMvpApp() {
       setPlaceQuery('');
       setPlaceFilter('all');
       setPlaceSpeciesFilter('all');
-      setPlaceDistanceRadiusKm(3);
+      setPlaceDistanceRadiusKm(configuredDiscoverRadiusKm as PlaceDistanceFilterKm);
       setPlaceSortMode('distance');
       void searchPlaces({ filter: 'all', speciesFilter: 'all' });
     };
@@ -14073,8 +14082,9 @@ export default function LumiiMvpApp() {
       showToast(nextSpecies === 'all' ? '已取消宠物类型筛选' : `已筛选${nextSpecies === 'dog' ? '汪星' : '喵星'}友好地点`, { tone: 'info', variant: 'surface' });
     };
     const cyclePlaceDistanceFilter = () => {
-      const currentIndex = placeDistanceFilterOptions.indexOf(placeDistanceRadiusKm);
-      const nextRadius = placeDistanceFilterOptions[(currentIndex + 1) % placeDistanceFilterOptions.length] ?? 3;
+      const availableRadiusOptions = placeDistanceFilterOptions.filter((radiusKm) => radiusKm <= configuredDiscoverRadiusKm);
+      const currentIndex = availableRadiusOptions.indexOf(placeDistanceRadiusKm);
+      const nextRadius = availableRadiusOptions[(currentIndex + 1) % availableRadiusOptions.length] ?? configuredDiscoverRadiusKm;
       setPlaceDistanceRadiusKm(nextRadius);
       showToast(`已筛选 ${nextRadius}km 内地点`, { tone: 'info', variant: 'surface' });
     };

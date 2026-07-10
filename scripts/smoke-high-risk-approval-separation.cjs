@@ -216,7 +216,7 @@ async function testConfigApproval(adminToken, reviewerToken) {
     body: {
       action: 'publish',
       reason: 'config separation approval smoke',
-      social: { discoverRadiusKm: 8 },
+      social: { discoverRadiusKm: 5 },
     },
     method: 'POST',
     token: adminToken,
@@ -231,7 +231,7 @@ async function testConfigApproval(adminToken, reviewerToken) {
   });
   assert.equal(approved.data?.approval?.status, 'approved');
   assert.equal(approved.data?.approval?.approvedBy, 'reviewer_01');
-  assert.equal(approved.data?.social?.discoverRadiusKm, 8);
+  assert.equal(approved.data?.social?.discoverRadiusKm, 5);
 }
 
 async function testExportApproval(adminToken, reviewerToken) {

@@ -188,6 +188,12 @@ async function main() {
     await page.locator('#loginBtn').click();
     await page.locator('button[data-route="config"]').click();
     await page.locator('#cfgHighRiskApprovalRequireDifferentAdmin').waitFor({ state: 'attached', timeout: 30_000 });
+    assert.deepEqual(
+      await page.locator('#cfgDiscoverRadiusKm option').allTextContents(),
+      ['10 km', '5 km', '3 km'],
+      'nearby radius control should expose only the supported launch tiers',
+    );
+    await page.locator('#cfgDiscoverRadiusKm').selectOption('5');
     await page.locator('#cfgHighRiskApprovalRequireDifferentAdmin').check();
     await page.locator('#cfgHighRiskApprovalRequiredApprovals').fill('2');
     await page.locator('#cfgHighRiskApprovalPendingExpiresHours').fill('36');
@@ -197,6 +203,7 @@ async function main() {
     assert.equal(saved.highRiskApproval.requireDifferentAdmin, true);
     assert.equal(saved.highRiskApproval.requiredApprovals, 2);
     assert.equal(saved.highRiskApproval.pendingExpiresHours, 36);
+    assert.equal(saved.social.discoverRadiusKm, 5);
     assert.ok(saved.linkage?.items?.some((item) => item.key === 'highRiskApproval.requireDifferentAdmin'));
     assert.ok(saved.linkage?.items?.some((item) => item.key === 'highRiskApproval.requiredApprovals'));
 

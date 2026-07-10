@@ -38,7 +38,9 @@ if (RUNTIME_ENV === 'production' && AUTH_TOKEN_SECRET_FROM_ENV.length < 32) {
 const AUTH_SESSION_RETAIN_PER_USER = Math.max(5, Math.min(100, Number(process.env.LUMII_AUTH_SESSION_RETAIN_PER_USER || '30') || 30));
 const ONLINE_TTL_MS = 30 * 60 * 1000;
 const NEARBY_LOCATION_MAX_AGE_MS = Number(process.env.NEARBY_LOCATION_MAX_AGE_MS || String(10 * 60 * 1000));
-const DEFAULT_DISCOVER_RADIUS_KM = 3;
+const DISCOVER_RADIUS_OPTIONS_KM = Object.freeze([3, 5, 10]);
+const DEFAULT_DISCOVER_RADIUS_KM = 10;
+const DISCOVER_RADIUS_POLICY_VERSION = 2;
 const FUZZY_LOCATION_GRID_DEGREES = 0.01;
 const FUZZY_LOCATION_MIN_ACCURACY_METERS = 1000;
 const MAX_ACCURACY_BUFFER_KM = 2;
@@ -835,6 +837,7 @@ function defaultOpsConfig() {
     },
     social: {
       discoverRadiusKm: DEFAULT_DISCOVER_RADIUS_KM,
+      discoverRadiusPolicyVersion: DISCOVER_RADIUS_POLICY_VERSION,
       messageAccess: {
         contextWindowLimit: 20,
         fullConversationSearchEnabled: false,
@@ -969,6 +972,13 @@ function clampNumber(value, fallback, min, max) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
   return Math.min(max, Math.max(min, numeric));
+}
+
+function normalizeDiscoverRadiusKm(value, fallback = DEFAULT_DISCOVER_RADIUS_KM) {
+  const numeric = Number(value);
+  if (DISCOVER_RADIUS_OPTIONS_KM.includes(numeric)) return numeric;
+  const fallbackNumeric = Number(fallback);
+  return DISCOVER_RADIUS_OPTIONS_KM.includes(fallbackNumeric) ? fallbackNumeric : DEFAULT_DISCOVER_RADIUS_KM;
 }
 
 function normalizeKeywordList(value, fallback = [], maxItems = 80) {
@@ -1448,6 +1458,7 @@ function normalizeOpsConfig(value) {
   const places = source.places && typeof source.places === 'object' ? source.places : {};
   const social = source.social && typeof source.social === 'object' ? source.social : {};
   const support = source.support && typeof source.support === 'object' ? source.support : {};
+  const discoverRadiusPolicyVersion = Number(social.discoverRadiusPolicyVersion || 0);
   return {
     ai: normalizeAiOpsConfig(ai, defaults.ai),
     analytics: normalizeAnalyticsConfig(analytics, defaults.analytics),
@@ -1499,7 +1510,10 @@ function normalizeOpsConfig(value) {
     places: normalizePlacesOpsConfig(places, defaults.places),
     support: normalizeSupportConfig(support, defaults.support),
     social: {
-      discoverRadiusKm: clampNumber(social.discoverRadiusKm, defaults.social.discoverRadiusKm, 1, 20),
+      discoverRadiusKm: discoverRadiusPolicyVersion >= DISCOVER_RADIUS_POLICY_VERSION
+        ? normalizeDiscoverRadiusKm(social.discoverRadiusKm, defaults.social.discoverRadiusKm)
+        : DEFAULT_DISCOVER_RADIUS_KM,
+      discoverRadiusPolicyVersion: DISCOVER_RADIUS_POLICY_VERSION,
       messageAccess: normalizeSocialMessageAccessOpsConfig(social.messageAccess, defaults.social.messageAccess),
       nearbyMomentTtlDays: Math.floor(clampNumber(social.nearbyMomentTtlDays, defaults.social.nearbyMomentTtlDays, 1, 90)),
       petCircleMaxPhotos: Math.floor(clampNumber(social.petCircleMaxPhotos, defaults.social.petCircleMaxPhotos, 1, 9)),
@@ -1953,6 +1967,7 @@ function buildOpsConfigPatch(before, body = {}) {
     social: {
       ...before.social,
       ...(body.social || {}),
+      discoverRadiusKm: normalizeDiscoverRadiusKm(body.social?.discoverRadiusKm, before.social?.discoverRadiusKm),
       messageAccess: {
         ...(before.social?.messageAccess || {}),
         ...(body.social?.messageAccess || {}),
@@ -3020,7 +3035,7 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       userImpact: '影响发布今日小事最多可上传多少张图。',
     },
     {
-      backendEvidence: '后端接受移动端传入 radiusKm，并在附近伙伴、附近小事、地图 POI 请求中按半径计算。',
+      backendEvidence: '后端以运营后台的 3/5/10km 档位为权威值，在附近伙伴、附近小事和地图 POI 请求中统一执行，客户端不能扩大范围。',
       backendEnforced: true,
       group: '发现/地图',
       key: 'social.discoverRadiusKm',
@@ -7290,6 +7305,7 @@ function adminPathRequiresIpAllowlist(pathname) {
 }
 
 function numberFromQuery(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return undefined;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : undefined;
 }
@@ -7301,6 +7317,10 @@ function timestampFromValue(value) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function effectiveDiscoverRadiusKm() {
+  return normalizeDiscoverRadiusKm(currentOpsConfig()?.social?.discoverRadiusKm, DEFAULT_DISCOVER_RADIUS_KM);
+}
+
 function locationFromQuery(url) {
   const latitude = numberFromQuery(url.searchParams.get('lat'));
   const longitude = numberFromQuery(url.searchParams.get('lng'));
@@ -7310,7 +7330,7 @@ function locationFromQuery(url) {
     accuracy: numberFromQuery(url.searchParams.get('accuracy')),
     latitude,
     longitude,
-    radiusKm: numberFromQuery(url.searchParams.get('radiusKm')) || DEFAULT_DISCOVER_RADIUS_KM,
+    radiusKm: effectiveDiscoverRadiusKm(),
     updatedAt: Date.now(),
   };
 }
@@ -7325,7 +7345,7 @@ function locationFromPayload(value) {
     accuracy: numberFromQuery(source.accuracy),
     latitude,
     longitude,
-    radiusKm: numberFromQuery(source.radiusKm) || DEFAULT_DISCOVER_RADIUS_KM,
+    radiusKm: effectiveDiscoverRadiusKm(),
     updatedAt: timestampFromValue(source.updatedAt) || Date.now(),
   };
 }
@@ -7351,8 +7371,30 @@ function locationForPersistence(user, location) {
   return settings.fuzzyLocation === false ? location : fuzzyLocationForPersistence(location);
 }
 
+function socialMomentLocationSnapshot(location) {
+  const fuzzyLocation = fuzzyLocationForPersistence(location);
+  if (!fuzzyLocation) return null;
+  const capturedAtMs = timestampFromValue(location?.updatedAt) || Date.now();
+  return {
+    accuracy: fuzzyLocation.accuracy,
+    capturedAt: new Date(capturedAtMs).toISOString(),
+    latitude: fuzzyLocation.latitude,
+    longitude: fuzzyLocation.longitude,
+  };
+}
+
+function hasValidLocationCoordinates(location) {
+  const latitude = Number(location?.latitude);
+  const longitude = Number(location?.longitude);
+  return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
+}
+
+function socialMomentPublishLocation(moment) {
+  return hasValidLocationCoordinates(moment?.location) ? moment.location : null;
+}
+
 function distanceKmBetween(a, b) {
-  if (!a || !b) return null;
+  if (!hasValidLocationCoordinates(a) || !hasValidLocationCoordinates(b)) return null;
   const earthRadiusKm = 6371;
   const toRadians = (degrees) => (degrees * Math.PI) / 180;
   const dLat = toRadians(b.latitude - a.latitude);
@@ -7370,16 +7412,19 @@ function accuracyBufferKm(a, b) {
   return Math.min(MAX_ACCURACY_BUFFER_KM, meters / 1000);
 }
 
-function nearbyRadiusKmFor(viewer, fallback = DEFAULT_DISCOVER_RADIUS_KM) {
-  const radiusKm = Number(viewer?.location?.radiusKm || fallback || DEFAULT_DISCOVER_RADIUS_KM);
-  return Number.isFinite(radiusKm) && radiusKm > 0 ? radiusKm : DEFAULT_DISCOVER_RADIUS_KM;
+function canViewNearbyLocation(viewer, targetLocation) {
+  if (!hasValidLocationCoordinates(viewer?.location) || !hasValidLocationCoordinates(targetLocation)) return false;
+  const distanceKm = distanceKmBetween(viewer.location, targetLocation);
+  if (distanceKm === null || distanceKm === undefined) return false;
+  return distanceKm <= effectiveDiscoverRadiusKm() + accuracyBufferKm(viewer.location, targetLocation);
 }
 
-function canViewNearbyUser(viewer, targetUser, radiusKm = DEFAULT_DISCOVER_RADIUS_KM) {
-  if (!viewer?.location || !targetUser?.location) return false;
-  const distanceKm = distanceKmBetween(viewer.location, targetUser.location);
-  if (distanceKm === null || distanceKm === undefined) return false;
-  return distanceKm <= nearbyRadiusKmFor(viewer, radiusKm) + accuracyBufferKm(viewer.location, targetUser.location);
+function canViewNearbyUser(viewer, targetUser) {
+  return canViewNearbyLocation(viewer, targetUser?.location);
+}
+
+function canViewNearbyMoment(viewer, moment) {
+  return canViewNearbyLocation(viewer, socialMomentPublishLocation(moment));
 }
 
 function fuzzyDistance(distanceKm) {
@@ -7389,7 +7434,8 @@ function fuzzyDistance(distanceKm) {
   if (distanceKm < 2) return '约 1-2km';
   if (distanceKm < 3) return '约 2-3km';
   if (distanceKm < 5) return '约 3-5km';
-  return '5km 外';
+  if (distanceKm < 10) return '约 5-10km';
+  return '10km 外';
 }
 
 function base64UrlEncode(value) {
@@ -10411,7 +10457,7 @@ function matchesPlaceSearch(place, query) {
 function clampPlaceRadiusKm(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return DEFAULT_DISCOVER_RADIUS_KM;
-  return Math.min(5, Math.max(0.5, numeric));
+  return Math.min(10, Math.max(0.5, numeric));
 }
 
 function placeLocationFromQuery(url, user) {
@@ -10419,13 +10465,13 @@ function placeLocationFromQuery(url, user) {
   if (location) {
     return {
       ...location,
-      radiusKm: clampPlaceRadiusKm(location.radiusKm),
+      radiusKm: effectiveDiscoverRadiusKm(),
     };
   }
   if (!user?.location) return null;
   return {
     ...user.location,
-    radiusKm: clampPlaceRadiusKm(url.searchParams.get('radiusKm') || user.location.radiusKm || DEFAULT_DISCOVER_RADIUS_KM),
+    radiusKm: effectiveDiscoverRadiusKm(),
   };
 }
 
@@ -16821,7 +16867,7 @@ function deleteSocialBlock(user, ownerId) {
   return { ownerId: `user-${targetPhone}` };
 }
 
-function listOnlineOwners(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM) {
+function listOnlineOwners(viewer) {
   const now = Date.now();
   const realOwners = Object.values(state.users)
     .filter((user) => user.phone !== viewer.phone)
@@ -16833,7 +16879,7 @@ function listOnlineOwners(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM) {
       const distanceKm = distanceKmBetween(viewer.location, user.location);
       return { card: buildOwnerCard(user, viewer.phone, index, distanceKm ?? undefined), distanceKm, user };
     })
-    .filter(({ card, user }) => card && canViewNearbyUser(viewer, user, radiusKm))
+    .filter(({ card, user }) => card && canViewNearbyUser(viewer, user))
     .sort((a, b) => (a.distanceKm ?? Number.MAX_SAFE_INTEGER) - (b.distanceKm ?? Number.MAX_SAFE_INTEGER))
     .map(({ card }) => card);
   return realOwners;
@@ -16926,7 +16972,7 @@ function createSocialReport(user, targetType, targetId, ownerPhone, body = {}) {
   return report;
 }
 
-async function createSocialMoment(user, body = {}) {
+async function createSocialMoment(user, body = {}, options = {}) {
   const rawContent = String(body.content || '').replace(/\s+/g, ' ').trim();
   const violation = socialChatContentViolation('小事内容', rawContent, 280);
   if (violation) return { error: violation, statusCode: 400 };
@@ -16940,6 +16986,8 @@ async function createSocialMoment(user, body = {}) {
     return { error: moderation.message || '小事内容需要修改后再发布', statusCode: 400 };
   }
   const visibility = normalizeSocialVisibility(body.visibility);
+  const publishLocation = visibility === 'nearby' ? socialMomentLocationSnapshot(options.publishLocation) : null;
+  if (visibility === 'nearby' && !publishLocation) return { error: '请先完成定位后再发布到宠友圈', statusCode: 400 };
   const imageModerationError = socialMomentImageModerationError(body);
   if (imageModerationError) return { error: imageModerationError, statusCode: 400 };
   const imageUrls = normalizeSocialMomentImageUrls(body);
@@ -16949,6 +16997,7 @@ async function createSocialMoment(user, body = {}) {
     createdAt: new Date().toISOString(),
     id: `moment-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     imageUrls,
+    ...(publishLocation ? { location: publishLocation } : {}),
     mood: String(body.mood || '').trim().slice(0, 12),
     moderation: moderationMetadataFromEvaluation(moderation, 'pet_circle_post'),
     petId: pet.id,
@@ -16985,7 +17034,7 @@ function socialMomentAccessError(moment, viewer, options = {}) {
   const createdAtMs = new Date(moment.createdAt).getTime();
   const maxAgeMs = effectiveNearbyMomentTtlMs();
   if (!Number.isFinite(createdAtMs) || Date.now() - createdAtMs > maxAgeMs) return { error: '这条小事已不可见', statusCode: 404 };
-  if (!canViewNearbyUser(viewer, owner, nearbyRadiusKmFor(viewer))) return { error: '这条小事已不可见', statusCode: 404 };
+  if (!canViewNearbyMoment(viewer, moment)) return { error: '这条小事已不可见', statusCode: 404 };
   return null;
 }
 
@@ -17017,7 +17066,7 @@ function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
   return {
     commentCount: comments.length,
     createdAt: moment.createdAt,
-    distance: distanceKm === undefined ? '附近' : fuzzyDistance(distanceKm),
+    distance: distanceKm === undefined ? (socialMomentPublishLocation(moment) ? '附近' : '发布地点未知') : fuzzyDistance(distanceKm),
     id: moment.id,
     imageUrl: visibleImageUrl(pet.avatarUrl),
     imageUrls: publicImageUrls,
@@ -17057,7 +17106,7 @@ function decodePetCircleCursor(cursor) {
   }
 }
 
-function listNearbyMomentEntries(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, options = {}) {
+function listNearbyMomentEntries(viewer, options = {}) {
   const moments = ensureSocialMoments();
   const maxAgeMs = effectiveNearbyMomentTtlMs();
   const now = Date.now();
@@ -17075,8 +17124,9 @@ function listNearbyMomentEntries(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, 
       if (momentUser.settings?.nearbyVisible === false) return null;
       const createdAtMs = new Date(moment.createdAt).getTime();
       if (!Number.isFinite(createdAtMs) || now - createdAtMs > maxAgeMs) return null;
-      const distanceKm = distanceKmBetween(viewer.location, momentUser.location);
-      if (moment.phone !== viewer.phone && !canViewNearbyUser(viewer, momentUser, radiusKm)) return null;
+      const publishLocation = socialMomentPublishLocation(moment);
+      if (!publishLocation || !canViewNearbyMoment(viewer, moment)) return null;
+      const distanceKm = distanceKmBetween(viewer.location, publishLocation);
       return {
         card: buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm ?? undefined),
         createdAtMs,
@@ -17087,10 +17137,10 @@ function listNearbyMomentEntries(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, 
     .sort((a, b) => b.createdAtMs - a.createdAtMs || (a.distanceKm ?? Number.MAX_SAFE_INTEGER) - (b.distanceKm ?? Number.MAX_SAFE_INTEGER));
 }
 
-function listNearbyMomentsPage(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, options = {}) {
+function listNearbyMomentsPage(viewer, options = {}) {
   const limit = petCircleListLimit(options.limit, 20);
   const offset = decodePetCircleCursor(options.cursor);
-  const entries = listNearbyMomentEntries(viewer, radiusKm, options);
+  const entries = listNearbyMomentEntries(viewer, options);
   const pageEntries = entries.slice(offset, offset + limit);
   const nextOffset = offset + pageEntries.length;
   const page = {
@@ -17100,8 +17150,8 @@ function listNearbyMomentsPage(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, op
   return page;
 }
 
-function listNearbyMoments(viewer, radiusKm = DEFAULT_DISCOVER_RADIUS_KM, options = {}) {
-  return listNearbyMomentsPage(viewer, radiusKm, options).items;
+function listNearbyMoments(viewer, options = {}) {
+  return listNearbyMomentsPage(viewer, options).items;
 }
 
 function resolvePetCircleProfileTarget(viewer, ownerId = 'me') {
@@ -17133,7 +17183,7 @@ function petCircleProfilePostEntries(viewer, targetUser, options = {}) {
     .map(({ index, moment }) => {
       const createdAtMs = new Date(moment.createdAt).getTime();
       if (!Number.isFinite(createdAtMs)) return null;
-      const distanceKm = distanceKmBetween(viewer.location, targetUser.location);
+      const distanceKm = distanceKmBetween(viewer.location, socialMomentPublishLocation(moment));
       return {
         card: buildNearbyMomentCard(moment, targetUser, viewer, index, distanceKm ?? undefined),
         createdAtMs,
@@ -17219,7 +17269,7 @@ function getPetCirclePostCard(postId, viewer) {
   const { moment } = visible;
   const momentUser = state.users[moment.phone];
   if (!momentUser) return { error: '这条小事已不可见', statusCode: 404 };
-  const distanceKm = distanceKmBetween(viewer.location, momentUser.location);
+  const distanceKm = distanceKmBetween(viewer.location, socialMomentPublishLocation(moment));
   const card = buildNearbyMomentCard(moment, momentUser, viewer, 0, distanceKm ?? undefined);
   return card ? { card } : { error: '这条小事已不可见', statusCode: 404 };
 }
@@ -19528,7 +19578,7 @@ function resolveVisibleSocialTarget(viewer, ownerId) {
   if (socialBlockBetween(viewer.phone, targetPhone)) return null;
   targetUser.settings = normalizeUserSettings(targetUser.settings);
   if (targetUser.settings.nearbyVisible === false) return null;
-  if (!canViewNearbyUser(viewer, targetUser, nearbyRadiusKmFor(viewer))) return null;
+  if (!canViewNearbyUser(viewer, targetUser)) return null;
   return { targetPhone, targetUser };
 }
 
@@ -34972,7 +35022,7 @@ async function handle(req, res) {
       saveState();
     }
     const viewerForDiscovery = location ? { ...user, location } : user;
-    ok(res, listOnlineOwners(viewerForDiscovery, location?.radiusKm || user.location?.radiusKm || DEFAULT_DISCOVER_RADIUS_KM));
+    ok(res, listOnlineOwners(viewerForDiscovery));
     return;
   }
 
@@ -34986,7 +35036,7 @@ async function handle(req, res) {
       saveState();
     }
     const viewerForMoments = location ? { ...user, location } : user;
-    ok(res, listNearbyMoments(viewerForMoments, location?.radiusKm || user.location?.radiusKm || DEFAULT_DISCOVER_RADIUS_KM, { includeOwn: false }));
+    ok(res, listNearbyMoments(viewerForMoments, { includeOwn: false }));
     return;
   }
 
@@ -35002,7 +35052,7 @@ async function handle(req, res) {
       saveState();
     }
     const viewerForMoments = location ? { ...user, location } : user;
-    ok(res, listNearbyMomentsPage(viewerForMoments, location?.radiusKm || user.location?.radiusKm || DEFAULT_DISCOVER_RADIUS_KM, { cursor, limit }));
+    ok(res, listNearbyMomentsPage(viewerForMoments, { cursor, limit }));
     return;
   }
 
@@ -35055,7 +35105,7 @@ async function handle(req, res) {
       fail(res, 400, '请先完成定位后再发布到宠友圈', true, undefined, 'NEARBY_LOCATION_REQUIRED');
       return;
     }
-    const created = await createSocialMoment(user, body);
+    const created = await createSocialMoment(user, body, { publishLocation: publishLocation || user.location });
     if (created.error) {
       saveState();
       fail(res, created.statusCode || 400, created.error, false, undefined, 'SOCIAL_MOMENT_INVALID');
@@ -35065,7 +35115,8 @@ async function handle(req, res) {
       ? createHealthMemoFromSocialMoment(user, created.moment)
       : null;
     saveState();
-    ok(res, { ...buildNearbyMomentCard(created.moment, user, user, 0, undefined), ...(createdMemo ? { createdMemo } : {}) });
+    const createdDistanceKm = distanceKmBetween(user.location, socialMomentPublishLocation(created.moment));
+    ok(res, { ...buildNearbyMomentCard(created.moment, user, user, 0, createdDistanceKm ?? undefined), ...(createdMemo ? { createdMemo } : {}) });
     return;
   }
 
@@ -35670,7 +35721,7 @@ async function handle(req, res) {
   if (req.method === 'GET' && pathname === '/places/nearby') {
     if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     const location = placeLocationFromQuery(url, user);
-    const radiusKm = clampPlaceRadiusKm(location?.radiusKm || url.searchParams.get('radiusKm') || DEFAULT_DISCOVER_RADIUS_KM);
+    const radiusKm = effectiveDiscoverRadiusKm();
     const amapPlaces = await fetchAmapPlaces({ location, radiusKm });
     if (amapPlaces.length) {
       const upserted = upsertExternalPlacesForResponse(amapPlaces);
@@ -35723,7 +35774,7 @@ async function handle(req, res) {
     if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     const query = String(url.searchParams.get('q') || '').trim();
     const location = placeLocationFromQuery(url, user);
-    const radiusKm = clampPlaceRadiusKm(location?.radiusKm || url.searchParams.get('radiusKm') || DEFAULT_DISCOVER_RADIUS_KM);
+    const radiusKm = effectiveDiscoverRadiusKm();
     const amapPlaces = query ? await fetchAmapPlaces({ location, query, radiusKm }) : await fetchAmapPlaces({ location, radiusKm });
     if (amapPlaces.length) {
       const upserted = upsertExternalPlacesForResponse(amapPlaces);

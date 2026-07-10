@@ -126,13 +126,17 @@ async function main() {
     const adminToken = await loginAdmin();
     const initial = await request('/app/config');
     const initialRadius = initial.data.social.discoverRadiusKm;
+    const alternateRadii = [3, 5, 10].filter((radiusKm) => radiusKm !== initialRadius);
+    const canceledRadius = alternateRadii[0];
+    const scheduledRadius = alternateRadii[1];
+    const staleRadius = initialRadius;
 
     const canceled = await request('/admin/config/schedules', {
       body: {
         action: 'publish',
         reason: 'schedule cancel smoke',
         scheduledAt: soon(),
-        social: { discoverRadiusKm: initialRadius + 3 },
+        social: { discoverRadiusKm: canceledRadius },
       },
       method: 'POST',
       token: adminToken,
@@ -154,7 +158,7 @@ async function main() {
         action: 'publish',
         reason: 'schedule publish smoke',
         scheduledAt: soon(),
-        social: { discoverRadiusKm: initialRadius + 1 },
+        social: { discoverRadiusKm: scheduledRadius },
       },
       method: 'POST',
       token: adminToken,
@@ -166,7 +170,7 @@ async function main() {
     await delay(3000);
 
     const afterDue = await request('/app/config');
-    assert.equal(afterDue.data.social.discoverRadiusKm, initialRadius + 1);
+    assert.equal(afterDue.data.social.discoverRadiusKm, scheduledRadius);
 
     const configAfterDue = await request('/admin/config', { token: adminToken });
     assert.ok(configAfterDue.data.revisions.some((item) => item.action === 'scheduled_publish'), 'missing scheduled publish revision');
@@ -176,7 +180,7 @@ async function main() {
         action: 'publish',
         reason: 'schedule stale smoke',
         scheduledAt: soon(),
-        social: { discoverRadiusKm: initialRadius + 2 },
+        social: { discoverRadiusKm: staleRadius },
       },
       method: 'POST',
       token: adminToken,
@@ -194,7 +198,7 @@ async function main() {
     await delay(3000);
 
     const afterStale = await request('/app/config');
-    assert.equal(afterStale.data.social.discoverRadiusKm, initialRadius + 1);
+    assert.equal(afterStale.data.social.discoverRadiusKm, scheduledRadius);
     assert.equal(afterStale.data.social.nearbyMomentTtlDays, 11);
 
     const allSchedules = await request('/admin/config/schedules?status=all&limit=20', { token: adminToken });
