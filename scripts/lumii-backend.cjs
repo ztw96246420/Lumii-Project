@@ -175,6 +175,14 @@ const ADMIN_MFA_SECRET = process.env.LUMII_ADMIN_MFA_SECRET || process.env.LUMII
 const ADMIN_MFA_WINDOW = Math.max(0, Math.min(3, Number(process.env.LUMII_ADMIN_MFA_WINDOW || '1') || 1));
 const ADMIN_PASSWORD_ROTATION_DAYS = Math.max(0, Number(process.env.LUMII_ADMIN_PASSWORD_ROTATION_DAYS || '90') || 0);
 const ADMIN_PASSWORD_ROTATED_AT = process.env.LUMII_ADMIN_PASSWORD_ROTATED_AT || process.env.LUMII_ADMIN_PASSWORD_UPDATED_AT || '';
+const ADMIN_ALERT_WEBHOOK_URL = String(process.env.LUMII_ADMIN_ALERT_WEBHOOK_URL || '').trim();
+const ADMIN_ALERT_WEBHOOK_PROVIDER = String(process.env.LUMII_ADMIN_ALERT_WEBHOOK_PROVIDER || 'auto').trim().toLowerCase();
+const ADMIN_ALERT_WEBHOOK_MIN_SEVERITY = String(process.env.LUMII_ADMIN_ALERT_WEBHOOK_MIN_SEVERITY || 'high').trim().toLowerCase();
+const ADMIN_ALERT_WEBHOOK_TIMEOUT_MS = Math.max(1000, Number(process.env.LUMII_ADMIN_ALERT_WEBHOOK_TIMEOUT_MS || '8000') || 8000);
+const ADMIN_ALERT_WEBHOOK_INTERVAL_MS = Math.max(1000, Number(process.env.LUMII_ADMIN_ALERT_WEBHOOK_INTERVAL_MS || 5 * 60 * 1000) || 5 * 60 * 1000);
+const ADMIN_ALERT_WEBHOOK_REPEAT_MS = Math.max(60 * 1000, Number(process.env.LUMII_ADMIN_ALERT_WEBHOOK_REPEAT_MS || 6 * 60 * 60 * 1000) || 6 * 60 * 60 * 1000);
+const ADMIN_ALERT_WEBHOOK_INITIAL_DELAY_MS = Math.max(0, Number(process.env.LUMII_ADMIN_ALERT_WEBHOOK_INITIAL_DELAY_MS || '15000') || 0);
+const ADMIN_ALERT_WEBHOOK_DELIVERY_RETAIN = Math.max(20, Math.min(500, Number(process.env.LUMII_ADMIN_ALERT_WEBHOOK_DELIVERY_RETAIN || '200') || 200));
 
 const seedOwners = [
   {
@@ -807,6 +815,7 @@ function defaultOpsConfig() {
 
 function createInitialState() {
   return {
+    adminAlertWebhookDeliveries: [],
     adminAuditLogs: [],
     adminAccounts: {},
     adminDataClearApprovals: [],
@@ -5718,6 +5727,7 @@ function loadState() {
         ...(loadedState.adminLoginSecurity || {}),
       },
       adminAccounts: loadedState.adminAccounts && typeof loadedState.adminAccounts === 'object' && !Array.isArray(loadedState.adminAccounts) ? loadedState.adminAccounts : initialState.adminAccounts,
+      adminAlertWebhookDeliveries: Array.isArray(loadedState.adminAlertWebhookDeliveries) ? loadedState.adminAlertWebhookDeliveries : initialState.adminAlertWebhookDeliveries,
       adminAuditLogs: Array.isArray(loadedState.adminAuditLogs) ? loadedState.adminAuditLogs : initialState.adminAuditLogs,
       adminDataClearApprovals: Array.isArray(loadedState.adminDataClearApprovals) ? loadedState.adminDataClearApprovals : initialState.adminDataClearApprovals,
       adminExportApprovals: Array.isArray(loadedState.adminExportApprovals) ? loadedState.adminExportApprovals : initialState.adminExportApprovals,
@@ -23139,7 +23149,286 @@ function adminOperationalAlerts(options = {}) {
     generatedAt,
     items: visibleItems,
     summary,
+    webhook: adminAlertWebhookStatus(),
   };
+}
+
+const adminAlertWebhookRuntime = {
+  inFlight: false,
+};
+
+function adminAlertWebhookConfig() {
+  const supportedProviders = new Set(['auto', 'generic', 'wecom', 'feishu', 'dingtalk']);
+  let parsed = null;
+  let error = '';
+  if (ADMIN_ALERT_WEBHOOK_URL) {
+    try {
+      parsed = new URL(ADMIN_ALERT_WEBHOOK_URL);
+      if (!['http:', 'https:'].includes(parsed.protocol)) error = 'Webhook URL 只支持 HTTP/HTTPS';
+    } catch {
+      error = 'Webhook URL 格式不正确';
+    }
+  }
+  if (!supportedProviders.has(ADMIN_ALERT_WEBHOOK_PROVIDER)) error = 'Webhook provider 不受支持';
+  let provider = ADMIN_ALERT_WEBHOOK_PROVIDER;
+  if (provider === 'auto') {
+    const host = String(parsed?.hostname || '').toLowerCase();
+    provider = host.includes('qyapi.weixin.qq.com')
+      ? 'wecom'
+      : host.includes('open.feishu.cn') || host.includes('open.larksuite.com')
+        ? 'feishu'
+        : host.includes('oapi.dingtalk.com')
+          ? 'dingtalk'
+          : 'generic';
+  }
+  const minSeverity = adminAlertSeverityRank(ADMIN_ALERT_WEBHOOK_MIN_SEVERITY)
+    ? ADMIN_ALERT_WEBHOOK_MIN_SEVERITY
+    : 'high';
+  return {
+    configured: Boolean(ADMIN_ALERT_WEBHOOK_URL && parsed && !error),
+    error,
+    intervalMs: ADMIN_ALERT_WEBHOOK_INTERVAL_MS,
+    minSeverity,
+    provider,
+    repeatMs: ADMIN_ALERT_WEBHOOK_REPEAT_MS,
+    targetHost: parsed?.hostname || '',
+    url: ADMIN_ALERT_WEBHOOK_URL,
+  };
+}
+
+function ensureAdminAlertWebhookDeliveries() {
+  if (!Array.isArray(state.adminAlertWebhookDeliveries)) state.adminAlertWebhookDeliveries = [];
+  return state.adminAlertWebhookDeliveries;
+}
+
+function adminAlertWebhookPublicDelivery(delivery = {}) {
+  return {
+    alertCount: Number(delivery.alertCount || 0),
+    attemptedAt: delivery.attemptedAt || '',
+    completedAt: delivery.completedAt || '',
+    error: delivery.error || '',
+    id: delivery.id || '',
+    provider: delivery.provider || '',
+    status: delivery.status || '',
+    statusCode: Number(delivery.statusCode || 0),
+    trigger: delivery.trigger || '',
+  };
+}
+
+function adminAlertWebhookStatus() {
+  const config = adminAlertWebhookConfig();
+  const deliveries = ensureAdminAlertWebhookDeliveries();
+  const latest = deliveries[0] || null;
+  const latestSuccess = deliveries.find((item) => item.status === 'sent') || null;
+  const latestFailure = deliveries.find((item) => item.status === 'failed') || null;
+  return {
+    configured: config.configured,
+    configError: config.error,
+    deliveryCount: deliveries.length,
+    inFlight: adminAlertWebhookRuntime.inFlight,
+    intervalMinutes: Math.round(config.intervalMs / 60000),
+    lastDelivery: latest ? adminAlertWebhookPublicDelivery(latest) : null,
+    lastFailureAt: latestFailure?.completedAt || '',
+    lastSuccessAt: latestSuccess?.completedAt || '',
+    minSeverity: config.minSeverity,
+    provider: config.provider,
+    repeatHours: Number((config.repeatMs / (60 * 60 * 1000)).toFixed(1)),
+    targetHost: config.targetHost,
+  };
+}
+
+function adminAlertWebhookFingerprint(alert = {}) {
+  const stable = {
+    area: alert.area || '',
+    detail: alert.detail || '',
+    evidence: alert.evidence || '',
+    key: alert.key || alert.id || '',
+    severity: alert.severity || 'medium',
+    title: alert.title || '',
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(stable)).digest('hex').slice(0, 24);
+}
+
+function adminAlertWebhookDeliveryDue(fingerprint, now = Date.now()) {
+  const delivered = ensureAdminAlertWebhookDeliveries().find((item) => (
+    item.status === 'sent' && Array.isArray(item.fingerprints) && item.fingerprints.includes(fingerprint)
+  ));
+  if (!delivered) return true;
+  const completedAt = Date.parse(String(delivered.completedAt || delivered.attemptedAt || ''));
+  return !Number.isFinite(completedAt) || now - completedAt >= ADMIN_ALERT_WEBHOOK_REPEAT_MS;
+}
+
+function adminAlertWebhookMessage(alerts = [], trigger = 'scheduler') {
+  const severityLabel = { critical: '严重', high: '高', low: '低', medium: '中' };
+  const lines = [
+    `Lumii 运营告警：${alerts.length} 项需要处理`,
+    `触发方式：${trigger === 'manual_test' ? '后台手动测试' : '自动巡检'}`,
+    '',
+  ];
+  alerts.slice(0, 10).forEach((alert, index) => {
+    lines.push(`${index + 1}. [${severityLabel[alert.severity] || alert.severity || '中'}] ${alert.title || alert.key || '运营告警'}`);
+    if (alert.detail) lines.push(String(alert.detail).slice(0, 360));
+  });
+  if (alerts.length > 10) lines.push(`另有 ${alerts.length - 10} 项，请进入运营后台查看。`);
+  const adminBaseUrl = String(process.env.LUMII_ADMIN_PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (adminBaseUrl) lines.push('', `运营后台：${adminBaseUrl}/admin`);
+  lines.push('', `时间：${new Date().toISOString()}`);
+  return lines.join('\n').slice(0, 3500);
+}
+
+function adminAlertWebhookPayload(alerts, config, trigger) {
+  const text = adminAlertWebhookMessage(alerts, trigger);
+  const title = `Lumii 运营告警（${alerts.length}）`;
+  if (config.provider === 'wecom') {
+    return { markdown: { content: text }, msgtype: 'markdown' };
+  }
+  if (config.provider === 'feishu') {
+    return { content: { text }, msg_type: 'text' };
+  }
+  if (config.provider === 'dingtalk') {
+    return { msgtype: 'text', text: { content: text } };
+  }
+  return {
+    alerts: alerts.map((alert) => ({
+      actionRoute: alert.actionRoute || '',
+      area: alert.area || '',
+      detail: alert.detail || '',
+      evidence: alert.evidence || '',
+      key: alert.key || alert.id || '',
+      severity: alert.severity || 'medium',
+      title: alert.title || '',
+    })),
+    event: 'lumii.admin.alerts',
+    generatedAt: new Date().toISOString(),
+    schemaVersion: 1,
+    text,
+    title,
+    trigger,
+  };
+}
+
+function adminAlertWebhookVendorError(provider, responseJson = {}) {
+  if (provider === 'wecom' || provider === 'dingtalk') {
+    if (!Object.prototype.hasOwnProperty.call(responseJson, 'errcode')) return `${provider} 响应缺少 errcode`;
+    const code = Number(responseJson.errcode || 0);
+    return code === 0 ? '' : `${provider} errcode=${code} ${String(responseJson.errmsg || '').slice(0, 160)}`;
+  }
+  if (provider === 'feishu') {
+    if (!Object.prototype.hasOwnProperty.call(responseJson, 'code') && !Object.prototype.hasOwnProperty.call(responseJson, 'StatusCode')) {
+      return 'feishu 响应缺少 code';
+    }
+    const code = Number(responseJson.code ?? responseJson.StatusCode ?? 0);
+    return code === 0 ? '' : `feishu code=${code} ${String(responseJson.msg || responseJson.StatusMessage || '').slice(0, 160)}`;
+  }
+  return '';
+}
+
+async function postAdminAlertWebhook(alerts, config, trigger) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ADMIN_ALERT_WEBHOOK_TIMEOUT_MS);
+  try {
+    const response = await fetch(config.url, {
+      body: JSON.stringify(adminAlertWebhookPayload(alerts, config, trigger)),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      signal: controller.signal,
+    });
+    const responseText = await response.text();
+    let responseJson = {};
+    try {
+      responseJson = responseText ? JSON.parse(responseText) : {};
+    } catch {}
+    const vendorError = adminAlertWebhookVendorError(config.provider, responseJson);
+    if (!response.ok || vendorError) {
+      const error = new Error(vendorError || `Webhook HTTP ${response.status}`);
+      error.statusCode = response.status;
+      throw error;
+    }
+    return {
+      requestId: response.headers.get('x-request-id') || response.headers.get('x-tt-logid') || '',
+      statusCode: response.status,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function recordAdminAlertWebhookDelivery(delivery) {
+  state.adminAlertWebhookDeliveries = [delivery, ...ensureAdminAlertWebhookDeliveries()].slice(0, ADMIN_ALERT_WEBHOOK_DELIVERY_RETAIN);
+  saveState();
+}
+
+async function dispatchAdminAlertWebhook(options = {}) {
+  const config = adminAlertWebhookConfig();
+  if (!config.configured) {
+    return {
+      code: 'ADMIN_ALERT_WEBHOOK_NOT_CONFIGURED',
+      error: config.error || '站外告警 Webhook 尚未配置',
+      skipped: true,
+      statusCode: 409,
+      webhook: adminAlertWebhookStatus(),
+    };
+  }
+  if (adminAlertWebhookRuntime.inFlight) {
+    return { skipped: true, reason: 'in_flight', webhook: adminAlertWebhookStatus() };
+  }
+  const now = Date.now();
+  const minRank = adminAlertSeverityRank(config.minSeverity);
+  let alerts = Array.isArray(options.alerts)
+    ? options.alerts.filter(Boolean)
+    : adminOperationalAlerts({ limit: 200 }).items.filter((alert) => adminAlertSeverityRank(alert.severity) >= minRank);
+  if (!options.force) alerts = alerts.filter((alert) => adminAlertWebhookDeliveryDue(adminAlertWebhookFingerprint(alert), now));
+  if (!alerts.length) return { skipped: true, reason: 'deduplicated', webhook: adminAlertWebhookStatus() };
+
+  const attemptedAt = new Date(now).toISOString();
+  const trigger = String(options.trigger || 'scheduler').slice(0, 40);
+  const baseDelivery = {
+    alertCount: alerts.length,
+    alertKeys: alerts.map((alert) => String(alert.key || alert.id || '')).filter(Boolean),
+    attemptedAt,
+    fingerprints: alerts.map(adminAlertWebhookFingerprint),
+    id: `alert-webhook-${now}-${Math.random().toString(16).slice(2, 8)}`,
+    provider: config.provider,
+    trigger,
+  };
+  adminAlertWebhookRuntime.inFlight = true;
+  let result;
+  try {
+    const sent = await postAdminAlertWebhook(alerts, config, trigger);
+    const delivery = {
+      ...baseDelivery,
+      completedAt: new Date().toISOString(),
+      requestId: sent.requestId,
+      status: 'sent',
+      statusCode: sent.statusCode,
+    };
+    recordAdminAlertWebhookDelivery(delivery);
+    result = { delivery: adminAlertWebhookPublicDelivery(delivery), sent: true };
+  } catch (error) {
+    const delivery = {
+      ...baseDelivery,
+      completedAt: new Date().toISOString(),
+      error: String(error?.name === 'AbortError' ? 'Webhook 请求超时' : error?.message || error || 'Webhook 发送失败').slice(0, 240),
+      status: 'failed',
+      statusCode: Number(error?.statusCode || 0),
+    };
+    recordAdminAlertWebhookDelivery(delivery);
+    result = {
+      code: 'ADMIN_ALERT_WEBHOOK_FAILED',
+      delivery: adminAlertWebhookPublicDelivery(delivery),
+      error: `站外告警发送失败：${delivery.error}`,
+      statusCode: 502,
+    };
+  } finally {
+    adminAlertWebhookRuntime.inFlight = false;
+  }
+  return { ...result, webhook: adminAlertWebhookStatus() };
+}
+
+async function runAdminAlertWebhookSweep() {
+  const result = await dispatchAdminAlertWebhook({ trigger: 'scheduler' });
+  if (result.error && !result.skipped) console.warn(`[admin-alert-webhook] ${result.error}`);
+  return result;
 }
 
 function appMediaPublicBaseUrl() {
@@ -23332,6 +23621,7 @@ async function adminSystemHealth() {
   const notifications = adminSystemNotifications().summary;
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
   const alerts = adminOperationalAlerts({ limit: 12 });
+  const alertWebhook = adminAlertWebhookStatus();
   const stateSizeWarn = stateFile.sizeBytes > STATE_STORAGE_WARN_BYTES;
   const stateBackups = adminStateStorageBackupsInfo();
   const ipAllowlist = adminIpAllowlistStatus('');
@@ -23347,6 +23637,19 @@ async function adminSystemHealth() {
     adminCheckStatus(stateFile.exists ? stateSizeWarn ? 'warn' : 'ok' : 'bad', 'state_file', '状态文件', stateFile.exists ? `JSON state ${Math.round(stateFile.sizeBytes / 1024)} KB` : '状态文件不存在或不可读', stateFile.path),
     adminCheckStatus(process.env.LUMII_ADMIN_USERNAME && process.env.LUMII_ADMIN_PASSWORD ? 'ok' : 'warn', 'admin_credentials', '后台账号环境变量', process.env.LUMII_ADMIN_PASSWORD ? '后台密码由环境变量覆盖' : '仍可能使用默认后台账号密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'admin_ip_allowlist', '后台 IP 白名单', ipAllowlist.configured ? `已配置 ${ipAllowlist.entryCount} 条后端白名单规则` : '未配置后台 IP 白名单，/admin 仍可被公网访问', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
+    adminCheckStatus(
+      alertWebhook.configError ? 'bad' : !alertWebhook.configured ? 'warn' : alertWebhook.lastDelivery?.status === 'failed' ? 'warn' : 'ok',
+      'admin_alert_webhook',
+      '站外运营告警',
+      alertWebhook.configError
+        ? alertWebhook.configError
+        : !alertWebhook.configured
+          ? '未配置站外告警 Webhook，高风险审批和服务异常只能在后台查看'
+          : alertWebhook.lastDelivery?.status === 'failed'
+            ? `最近一次发送失败：${alertWebhook.lastDelivery.error || '请检查通道配置'}`
+            : `已配置 ${alertWebhook.provider} 通道${alertWebhook.lastSuccessAt ? `，最近成功 ${alertWebhook.lastSuccessAt}` : '，等待首次告警或手动测试'}`,
+      'LUMII_ADMIN_ALERT_WEBHOOK_URL / LUMII_ADMIN_ALERT_WEBHOOK_PROVIDER',
+    ),
     adminCheckStatus(config.app?.maintenanceEnabled ? 'warn' : 'ok', 'maintenance', '维护模式', config.app?.maintenanceEnabled ? maintenanceMessage() : '未开启维护模式', '/app/config + 写接口维护拦截'),
     adminCheckStatus(cosEnabled() ? 'ok' : 'warn', 'cos_storage', '腾讯云 COS', cosEnabled() ? '对象存储已配置' : '对象存储未完整配置，媒体可能走本地/代理兼容链路', `bucket=${COS_BUCKET ? 'set' : 'missing'} region=${COS_REGION || '-'}`),
     adminCheckStatus(AMAP_WEB_SERVICE_KEY ? 'ok' : 'warn', 'amap', '高德 POI', AMAP_WEB_SERVICE_KEY ? 'Web Service Key 已配置' : '未配置高德 Web Service Key，地点搜索会降级', AMAP_WEB_SERVICE_BASE_URL),
@@ -23383,7 +23686,7 @@ async function adminSystemHealth() {
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_media_base', 'media_public_get', 'media_cdn_get'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_media_base', 'media_public_get', 'media_cdn_get'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
@@ -23416,6 +23719,7 @@ async function adminSystemHealth() {
     resources: {
       memory,
     },
+    alertWebhook,
     mediaProbe,
     mediaCdnProbe,
   };
@@ -23584,6 +23888,7 @@ function adminRequiredPermissionForRequest(method, pathname) {
   if (path === '/admin/me') return '';
   if (path === '/admin/approvals/pending') return 'dashboard.view';
   if (path.startsWith('/admin/accounts')) return 'admin.manage_roles';
+  if (httpMethod === 'POST' && path === '/admin/dashboard/alerts/test') return 'config.update';
   if (path.startsWith('/admin/dashboard')) return 'dashboard.view';
   if (path === '/admin/analytics') return 'analytics.view';
   if (path === '/admin/system/health') return 'system.health.view';
@@ -24609,6 +24914,10 @@ function adminReadinessGaps(context) {
   const ipAllowlistReady = Boolean(accounts?.security?.ipAllowlist?.configured);
   const mfaReady = Boolean(accounts?.security?.mfa?.configured);
   const healthBad = Number(health?.summary?.bad || 0) > 0;
+  const alertWebhookReady = Boolean(health?.alertWebhook?.configured && !health?.alertWebhook?.configError);
+  const alertWebhookHealthy = alertWebhookReady && health?.alertWebhook?.lastDelivery?.status !== 'failed';
+  const highRiskPolicy = highRiskApprovalPolicy();
+  const highRiskPolicyReady = Boolean(highRiskPolicy.requireDifferentAdmin && Number(highRiskPolicy.requiredApprovals || 0) >= 2);
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
   const stateBackups = adminStateStorageBackupsInfo();
   const stateStorageRecoverable = stateBackups.enabled && stateBackups.count > 0 && !stateBackups.lastBackupError && !stateBackups.lastSaveError;
@@ -24687,10 +24996,14 @@ function adminReadinessGaps(context) {
       key: 'high_risk_approval',
       area: '高风险操作',
       severity: 'P1',
-      status: 'partial',
-      issue: '配置发布、强制通知、敏感导出、永久封禁、批量处罚、用户业务数据清理和批量客服回复已有审批流，并支持审批人/申请人分离、最少审批人数会签、待审批超时、明确驳回意见和 /admin/approvals/pending 后台值守队列；仍缺企业微信/邮件等站外审批通知和生产值守 SOP。',
-      requiredAction: '生产前开启 highRiskApproval.requireDifferentAdmin，并将 highRiskApproval.requiredApprovals 配到 2 或以上；新增足够具备审批权限的管理员账号，再补企业微信/邮件等站外审批提醒和值守交接 SOP。',
-      evidence: '配置中心 highRiskApproval.requireDifferentAdmin / highRiskApproval.requiredApprovals / highRiskApproval.pendingExpiresHours / /admin/approvals/pending / /admin/dashboard/alerts high_risk_pending_approvals / 账号权限页 state 管理员账号',
+      status: highRiskPolicyReady && alertWebhookHealthy ? 'ready' : 'partial',
+      issue: highRiskPolicyReady && alertWebhookHealthy
+        ? '高风险操作已接审批人/申请人分离、双人会签、待审批超时、明确驳回意见、后台值守队列和站外 Webhook 聚合提醒。'
+        : `高风险审批流（含明确驳回意见）和后台值守队列已接入；${highRiskPolicyReady ? '' : '生产双人会签策略尚未启用；'}${alertWebhookReady ? alertWebhookHealthy ? '' : '站外告警最近发送失败；' : '站外 Webhook 通道尚未配置；'}仍需确认生产值守交接 SOP。`,
+      requiredAction: highRiskPolicyReady && alertWebhookHealthy
+        ? '确认审批 owner、值守班表和超时升级 SOP，并持续抽查审批审计。'
+        : '生产前开启 highRiskApproval.requireDifferentAdmin=true，并将 highRiskApproval.requiredApprovals 配为至少 2；配置并测试 LUMII_ADMIN_ALERT_WEBHOOK_URL，再确认审批 owner 与值守交接 SOP。',
+      evidence: '配置中心 highRiskApproval.* / /admin/approvals/pending / /admin/dashboard/alerts high_risk_pending_approvals / LUMII_ADMIN_ALERT_WEBHOOK_URL',
     },
     {
       key: 'push_provider',
@@ -24710,9 +25023,13 @@ function adminReadinessGaps(context) {
       area: '可观测性',
       severity: healthBad ? 'P0' : 'P1',
       status: healthBad ? 'blocked' : 'partial',
-      issue: '后台已接入内置健康页和运营告警中心，但仍不能替代生产日志、APM、外部告警和值班。',
-      requiredAction: '继续接入外部服务日志、错误告警、APM、告警通知渠道和值班 SOP；内置告警用于上线前和早期运营排查。',
-      evidence: '系统健康页 / /admin/dashboard/alerts',
+      issue: alertWebhookHealthy
+        ? '后台已接内置健康页、运营告警中心和站外 Webhook 推送；仍需生产日志/APM 和正式值班流程。'
+        : '后台已接内置健康页、运营告警中心和站外 Webhook 能力，但通道尚未配置成功；仍不能替代生产日志、APM 与值班。',
+      requiredAction: alertWebhookHealthy
+        ? '继续接入外部日志/APM，并确认告警接收人、分级、静默与值班 SOP。'
+        : '配置并测试 LUMII_ADMIN_ALERT_WEBHOOK_URL，再接外部日志/APM 和值班 SOP。',
+      evidence: '系统健康页 / /admin/dashboard/alerts / LUMII_ADMIN_ALERT_WEBHOOK_URL / adminAlertWebhookDeliveries',
     },
     {
       key: 'exports_governance',
@@ -30613,6 +30930,39 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'POST' && pathname === '/admin/dashboard/alerts/test') {
+    const now = new Date().toISOString();
+    const result = await dispatchAdminAlertWebhook({
+      alerts: [{
+        actionLabel: '看健康页',
+        actionRoute: 'systemHealth',
+        area: '系统监控',
+        detail: `由 ${admin.username || 'admin'} 从运营后台发起，收到此消息表示站外告警通道可用。`,
+        evidence: 'POST /admin/dashboard/alerts/test',
+        key: 'manual_webhook_test',
+        severity: 'high',
+        title: 'Lumii 站外告警通道测试',
+        updatedAt: now,
+      }],
+      force: true,
+      trigger: 'manual_test',
+    });
+    writeAdminAudit(admin, 'admin.alert_webhook.test', 'admin_alert_webhook', result.delivery?.id || 'manual-test', null, {
+      provider: result.webhook?.provider || '',
+      sent: Boolean(result.sent),
+      status: result.delivery?.status || (result.skipped ? 'skipped' : 'failed'),
+      statusCode: result.delivery?.statusCode || 0,
+      targetHost: result.webhook?.targetHost || '',
+    }, body.reason || '测试站外运营告警通道');
+    saveState();
+    if (result.error) {
+      fail(res, result.statusCode || 502, result.error, false, { delivery: result.delivery, webhook: result.webhook }, result.code || 'ADMIN_ALERT_WEBHOOK_FAILED');
+      return true;
+    }
+    ok(res, result);
+    return true;
+  }
+
   if (req.method === 'GET' && pathname === '/admin/dashboard/alerts') {
     ok(res, adminOperationalAlerts({
       limit: url.searchParams.get('limit') || 50,
@@ -34932,6 +35282,22 @@ const notificationScheduler = setInterval(() => {
   }
 }, 60 * 1000);
 if (typeof notificationScheduler.unref === 'function') notificationScheduler.unref();
+
+if (ADMIN_ALERT_WEBHOOK_URL) {
+  const adminAlertWebhookScheduler = setInterval(() => {
+    runAdminAlertWebhookSweep().catch((error) => {
+      console.error('Failed to dispatch admin alert webhook', error);
+    });
+  }, ADMIN_ALERT_WEBHOOK_INTERVAL_MS);
+  if (typeof adminAlertWebhookScheduler.unref === 'function') adminAlertWebhookScheduler.unref();
+
+  const adminAlertWebhookInitialSweep = setTimeout(() => {
+    runAdminAlertWebhookSweep().catch((error) => {
+      console.error('Failed to dispatch initial admin alert webhook', error);
+    });
+  }, ADMIN_ALERT_WEBHOOK_INITIAL_DELAY_MS);
+  if (typeof adminAlertWebhookInitialSweep.unref === 'function') adminAlertWebhookInitialSweep.unref();
+}
 
 const expoPushReceiptScheduler = setInterval(() => {
   processDueExpoPushReceipts().catch((error) => {

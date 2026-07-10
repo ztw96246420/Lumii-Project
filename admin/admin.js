@@ -375,6 +375,10 @@ async function onContentClick(event) {
       await render(true);
       return;
     }
+    if (action === 'admin-alert-webhook-test') {
+      await testAdminAlertWebhook();
+      return;
+    }
     if (action === 'analytics-filter') {
       state.analyticsDays = $('analyticsDays').value;
       state.analyticsEventName = $('analyticsEventName').value;
@@ -2372,7 +2376,14 @@ function alertSeverityPill(severity) {
 function renderAlertPanel(alerts = {}, options = {}) {
   const summary = alerts.summary || {};
   const items = alerts.items || [];
+  const webhook = alerts.webhook || {};
   const compact = Boolean(options.compact);
+  const webhookTone = webhook.configError || webhook.lastDelivery?.status === 'failed' ? 'bad' : webhook.configured ? 'ok' : 'warn';
+  const webhookLabel = webhook.configError
+    ? '通道配置错误'
+    : webhook.configured
+      ? `${webhook.provider || 'Webhook'} 已接入`
+      : '站外通道未配置';
   return `
     <div class="card">
       <div class="section-head">
@@ -2380,8 +2391,13 @@ function renderAlertPanel(alerts = {}, options = {}) {
           <h2>${escapeHtml(options.title || '运营告警')}</h2>
           <div class="section-sub">${numberText(summary.total || 0)} 条打开告警 · ${numberText(summary.needsAction || 0)} 条高优先级</div>
         </div>
-        ${help('从后台安全、状态文件、AI 队列、审核、工单、通知触达和埋点配置实时聚合；这是内置运营排查入口，不替代外部 APM 和日志告警。')}
+        <div class="actions">
+          ${tonePill(webhookLabel, webhookTone)}
+          ${webhook.configured ? '<button class="small-button ghost" data-action="admin-alert-webhook-test">测试通道</button>' : ''}
+          ${help('从后台安全、状态文件、AI 队列、审核、工单、通知触达和埋点配置实时聚合；高优先级告警可通过站外 Webhook 聚合推送并自动去重，仍需配合外部 APM 和日志平台。')}
+        </div>
       </div>
+      ${!compact && webhook.configured ? `<div class="switch-row"><span>站外告警</span><strong>${escapeHtml(webhook.targetHost || webhook.provider || '-')} · 最近成功 ${webhook.lastSuccessAt ? formatTime(webhook.lastSuccessAt) : '等待首次发送'}</strong></div>` : ''}
       ${items.length ? tableHtml(items, [
         ['级别', (row) => alertSeverityPill(row.severity)],
         ['告警', (row) => `<div class="cell-title">${escapeHtml(row.title || '-')}</div><div class="cell-sub">${escapeHtml(row.area || '-')} · ${escapeHtml(row.key || '-')}</div>`],
@@ -2391,6 +2407,18 @@ function renderAlertPanel(alerts = {}, options = {}) {
       ], '暂无运营告警') : '<div class="placeholder">暂无运营告警</div>'}
     </div>
   `;
+}
+
+async function testAdminAlertWebhook() {
+  const reason = window.prompt('请输入测试原因', '验证站外运营告警通道');
+  if (reason === null) return;
+  const result = await post('/admin/dashboard/alerts/test', {
+    reason: reason.trim() || '验证站外运营告警通道',
+  });
+  clearCachePrefix('dashboardAlerts');
+  clearCachePrefix('systemHealth');
+  showToast(result.sent ? '站外测试告警已发送' : '站外告警测试已完成');
+  await render(true);
 }
 
 function pendingApprovalDeadlineText(row = {}) {
