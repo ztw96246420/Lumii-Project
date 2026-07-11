@@ -72,6 +72,7 @@ MVP 错误码表：
 | `SMS_DAILY_LIMITED` | 手机号、设备或 IP 当日短信额度已达上限 |
 | `SMS_CODE_INVALID` | 验证码错误 |
 | `SMS_CODE_ATTEMPT_LIMITED` | 同一张验证码票据输错次数过多，需要重新获取 |
+| `SMS_LOGIN_LOCKED` | 同手机号的设备/IP 或账号累计验证码失败达到阈值，当前登录客户端被临时锁定 |
 | `SMS_CODE_EXPIRED` | 验证码过期 |
 | `SMS_CODE_USED` | 验证码已使用 |
 | `VALIDATION_FAILED` | 普通入参校验失败 |
@@ -130,6 +131,7 @@ Request:
 {
   "phone": "13531850966",
   "code": "123456",
+  "deviceId": "lumii-android-installation-id",
   "expiresAt": 1780100240000
 }
 ```
@@ -166,7 +168,10 @@ Response:
 说明：
 - 验证码校验成功后，MVP 测试后端和 mock API 会消费当前手机号的验证码票据，避免同一张票据被重复使用或后续变成过期残留；测试后端会保留本次发送产生的 60s 冷却时间，防止登录成功后立刻重复发码。
 - 同一张验证码票据默认最多允许输错 5 次，可通过 `SMS_VERIFY_MAX_ATTEMPTS` 调整；达到上限后返回 `SMS_CODE_ATTEMPT_LIMITED`，该票据失效，用户需要等待当前发码冷却结束后重新获取验证码。前端复用现有验证码错误 toast/重新获取倒计时，不需要新增页面。
-- 为了测试便利，固定测试码 `962464` 在没有待验证票据时仍可作为快速登录码；生产短信服务需要改成真实随机码和一次性校验。
+- 登录失败会跨验证码票据累计：同手机号 + 设备或同手机号 + IP 默认在 15 分钟窗口内失败 10 次后锁定 15 分钟；同手机号跨客户端累计 20 次后使用更高层兜底锁定。分别通过 `SMS_LOGIN_CLIENT_MAX_FAILURES`、`SMS_LOGIN_ACCOUNT_MAX_FAILURES`、`SMS_LOGIN_FAILURE_WINDOW_MS`、`SMS_LOGIN_LOCK_MS` 调整。
+- 锁定期间 `/auth/sms/send` 与 `/auth/sms/verify` 返回 `SMS_LOGIN_LOCKED`，并在错误详情返回 `availableAt`、`lockedUntil` 和 `retryAfterSeconds`；App 使用真实锁定时间显示分钟级重发倒计时。
+- 验证成功会清除该手机号所有失败计数。后台用户管理页可以在客服完成身份核验后人工解除限制，必须填写原因并写入 `user.sms_login.unlock` 审计日志。
+- 固定测试码 `962464` 只允许非生产 mock 环境使用；真实后端必须先取得有效验证码票据，生产环境使用随机一次性验证码，不存在固定码旁路。
 
 ### POST `/auth/logout`
 

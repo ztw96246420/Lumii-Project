@@ -39,6 +39,11 @@ TENCENT_SMS_SDK_APP_ID=<生产值>
 TENCENT_SMS_SIGN_NAME=<生产值>
 TENCENT_SMS_TEMPLATE_ID=<生产值>
 TENCENT_SMS_TEMPLATE_PARAM_MODE=code
+SMS_VERIFY_MAX_ATTEMPTS=5
+SMS_LOGIN_CLIENT_MAX_FAILURES=10
+SMS_LOGIN_ACCOUNT_MAX_FAILURES=20
+SMS_LOGIN_FAILURE_WINDOW_MS=900000
+SMS_LOGIN_LOCK_MS=900000
 ```
 
 `TENCENTCLOUD_SECRET_ID` 和 `TENCENTCLOUD_SECRET_KEY` 继续从服务器受限环境文件读取，不写入 Git。
@@ -52,7 +57,10 @@ TENCENT_SMS_TEMPLATE_PARAM_MODE=code
 - 生产验证码由 `crypto.randomInt` 生成 6 位数字。
 - 状态库只保存 HMAC-SHA256，不保存验证码明文。
 - API 响应不返回生产验证码。
-- 验证码只能使用一次，受过期、冷却、手机号/设备/IP 日限额和错误次数锁定保护。
+- 验证码只能使用一次，受过期、冷却、手机号/设备/IP 日限额和分层错误次数锁定保护。
+- 单张票据默认最多错 5 次；同手机号 + 设备/IP 在 15 分钟内累计 10 次失败会限制该风险客户端 15 分钟，同手机号跨客户端累计 20 次失败后触发账号层兜底。
+- 成功登录会自动清零该手机号失败计数；锁定不会因重新发码而绕过。
+- 后台“用户管理”展示当前登录限制、最近失败 IP 和设备哈希；人工解锁需要 `user.login_unlock` 权限、身份核验原因和审计日志。
 - 短信发送失败不会创建用户，也不会保存可验证票据。
 - 登录验证码和注销验证码使用不同 purpose，不能互相替代。
 
@@ -62,6 +70,7 @@ TENCENT_SMS_TEMPLATE_PARAM_MODE=code
 
 ```text
 sms_provider=ok
+sms_login_lockout=ok
 ```
 
 上线台账：
@@ -79,4 +88,4 @@ node scripts/smoke-sms-production.cjs
 node scripts/smoke-launch-regression.cjs
 ```
 
-专项测试覆盖生产密钥/后台密码启动门禁、生产 mock 拒绝启动、未配置通道 503、固定码旁路失败、TC3 签名请求、随机码登录、单次使用、明文不落库、注销验证码和后台上线台账。
+专项测试覆盖生产密钥/后台密码启动门禁、生产 mock 拒绝启动、未配置通道 503、固定码旁路失败、TC3 签名请求、随机码登录、单次使用、明文不落库、连续失败临时锁定、锁定期禁止发码、后台解锁审计、恢复登录、注销验证码和后台上线台账。

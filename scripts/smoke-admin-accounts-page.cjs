@@ -9,8 +9,10 @@ const { spawn } = require('node:child_process');
 
 const rootDir = path.join(__dirname, '..');
 const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
+const artifactsDir = path.join(rootDir, 'artifacts', 'admin-accounts-page');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-admin-accounts-page-'));
 const statePath = path.join(tmpDir, 'state.json');
+const lockedUserPhone = '13900007661';
 let backendProcess = null;
 let baseUrl = '';
 
@@ -106,6 +108,11 @@ async function startBackend(port) {
       SMS_DAILY_LIMIT: '1000',
       SMS_DEVICE_DAILY_LIMIT: '1000',
       SMS_IP_DAILY_LIMIT: '1000',
+      SMS_LOGIN_ACCOUNT_MAX_FAILURES: '6',
+      SMS_LOGIN_CLIENT_MAX_FAILURES: '3',
+      SMS_LOGIN_FAILURE_WINDOW_MS: '60000',
+      SMS_LOGIN_LOCK_MS: '60000',
+      SMS_VERIFY_MAX_ATTEMPTS: '3',
       TENCENTCLOUD_SECRET_ID: '',
       TENCENTCLOUD_SECRET_KEY: '',
       TENCENT_CLOUD_SECRET_ID: '',
@@ -145,6 +152,7 @@ async function loginAdmin() {
 }
 
 async function main() {
+  fs.mkdirSync(artifactsDir, { recursive: true });
   const playwright = requirePlaywright();
   const executablePath = browserExecutablePath();
   if (!executablePath) throw new Error('No Chrome/Edge executable found. Set PLAYWRIGHT_BROWSER_EXECUTABLE.');
@@ -155,6 +163,27 @@ async function main() {
 
   let browser = null;
   try {
+    const firstSms = await request('/auth/sms/send', {
+      body: { deviceId: 'admin-visual-lock-device', phone: lockedUserPhone },
+      method: 'POST',
+    });
+    await request('/auth/sms/verify', {
+      body: { code: firstSms.data.code, deviceId: 'admin-visual-lock-device', phone: lockedUserPhone },
+      method: 'POST',
+    });
+    await request('/auth/sms/send', {
+      body: { deviceId: 'admin-visual-lock-device', phone: lockedUserPhone },
+      method: 'POST',
+    });
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const failed = await request('/auth/sms/verify', {
+        body: { code: '000000', deviceId: 'admin-visual-lock-device', phone: lockedUserPhone },
+        expectedStatus: attempt === 3 ? 429 : 400,
+        method: 'POST',
+      });
+      assert.equal(failed.error.code, attempt === 3 ? 'SMS_LOGIN_LOCKED' : 'SMS_CODE_INVALID');
+    }
+
     const activeAccount = await request('/admin/accounts', {
       body: {
         displayName: '视觉值班账号',
@@ -210,7 +239,19 @@ async function main() {
     await page.locator('pre.prompt-preview').filter({ hasText: 'LUMII_ADMIN_PASSWORD=' }).waitFor({ timeout: 30_000 });
     await page.locator('pre.prompt-preview').filter({ hasText: 'otpauth://totp/' }).waitFor({ timeout: 30_000 });
 
-    console.log('admin accounts page smoke passed');
+    await page.locator('#nav button[data-route="users"]').click();
+    const unlockButton = page.locator(`button[data-action="user-login-unlock"][data-phone="${lockedUserPhone}"]`);
+    await unlockButton.waitFor({ timeout: 30_000 });
+    await page.getByText('登录锁定', { exact: true }).first().waitFor({ timeout: 30_000 });
+    await page.screenshot({ fullPage: true, path: path.join(artifactsDir, 'user-login-locked.png') });
+    await unlockButton.click();
+    await unlockButton.waitFor({ state: 'hidden', timeout: 30_000 });
+    await page.getByText('短信登录限制已解除', { exact: true }).waitFor({ timeout: 30_000 });
+    await page.screenshot({ fullPage: true, path: path.join(artifactsDir, 'user-login-unlocked.png') });
+    const usersAfterUnlock = await request('/admin/users', { token: adminToken });
+    assert.equal(usersAfterUnlock.data.find((item) => item.phone === lockedUserPhone)?.loginSecurity?.locked, false);
+
+    console.log('admin accounts and user login lock page smoke passed');
   } finally {
     if (browser) await browser.close();
     await stopBackend();

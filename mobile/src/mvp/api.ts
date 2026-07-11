@@ -223,7 +223,8 @@ function createHttpApi(baseUrl: string): LumiiApi {
       },
 
       async verifySmsCode(phone: string, code: string, expiresAt: number): Promise<ApiResult<AuthSession>> {
-        const result = await request<AuthSession>('POST', '/auth/sms/verify', { code, expiresAt, phone });
+        const deviceId = await getLumiiInstallationId();
+        const result = await request<AuthSession>('POST', '/auth/sms/verify', { code, deviceId, expiresAt, phone });
         if (result.data?.token) setLumiiAuthToken(result.data.token);
         return result;
       },
@@ -692,7 +693,13 @@ function createHttpApi(baseUrl: string): LumiiApi {
       if (!response.ok) {
         if (timeoutId) clearTimeout(timeoutId);
         if (response.status === 401) notifyLumiiUnauthorized(requestAuthToken);
-        return errorResult(messageFromPayload(payload) ?? `服务请求失败（${response.status}）`, response.status >= 500, response.status, errorCodeFromPayload(payload, response.status));
+        return errorResult(
+          messageFromPayload(payload) ?? `服务请求失败（${response.status}）`,
+          response.status >= 500,
+          response.status,
+          errorCodeFromPayload(payload, response.status),
+          errorDetailsFromPayload(payload),
+        );
       }
 
       if (timeoutId) clearTimeout(timeoutId);
@@ -757,6 +764,11 @@ function errorCodeFromPayload(payload: unknown, statusCode?: number) {
   return statusCode ? errorCodeFromStatus(statusCode) : undefined;
 }
 
+function errorDetailsFromPayload(payload: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(payload) || !isRecord(payload.data)) return undefined;
+  return payload.data;
+}
+
 function errorCodeFromStatus(statusCode: number) {
   if (statusCode === 401) return 'AUTH_REQUIRED';
   if (statusCode === 403) return 'FORBIDDEN';
@@ -768,9 +780,10 @@ function errorCodeFromStatus(statusCode: number) {
   return 'REQUEST_FAILED';
 }
 
-function errorResult<T = never>(message: string, retryable: boolean, statusCode?: number, code?: string): ApiResult<T> {
+function errorResult<T = never>(message: string, retryable: boolean, statusCode?: number, code?: string, details?: Record<string, unknown>): ApiResult<T> {
   const apiError: ApiError = {
     ...(code ? { code } : {}),
+    ...(details ? { details } : {}),
     message,
     retryable,
     ...(statusCode === undefined ? {} : { statusCode }),

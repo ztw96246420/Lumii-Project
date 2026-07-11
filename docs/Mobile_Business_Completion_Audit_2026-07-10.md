@@ -110,10 +110,18 @@
 - 真机侧本地提醒同步键纳入计划名称，改名或改日期后会取消旧调度并按最新内容重新安排。
 - Mock API、真实 API、RN 页面、移动端核心 HTTP 冒烟与 Playwright 操作链路保持一致。
 
+### 2.11 短信登录失败锁定与后台解锁
+
+- 保留单张验证码最多 5 次错误限制，并新增跨票据的手机号 + 设备/IP 分层失败窗口；默认风险客户端 10 次、账号兜底 20 次后临时锁定 15 分钟。
+- 锁定不能通过重新发码绕过；成功登录自动清零，App 按服务端 `availableAt` 展示真实分钟级倒计时。
+- 后台用户管理新增“登录锁定”指标、失败来源与解除入口；客服需完成身份核验并填写原因，解锁动作写入独立审计。
+- 生产短信模拟测试覆盖随机码、TC3、锁定、禁止发码、后台解锁和恢复登录；后台与移动端 Playwright 均保留视觉证据。
+
 ## 3. 当前验证证据
 
 - 移动端 TypeScript：`npm run typecheck` 通过。
 - 移动端核心 HTTP：`node scripts/smoke-mobile-core-flows.cjs` 通过，覆盖空计划、新增、编辑、开启提醒、完成、恢复、删除及关联数据清理。
+- 生产短信安全：`node scripts/smoke-sms-production.cjs` 通过，覆盖分层失败锁定、锁定期禁止发码、后台解锁审计和恢复登录。
 - 工单 SLA/客服排班/用户补充/评价/重开闭环：`node scripts/smoke-ticket-sla-roster.cjs` 通过。
 - 移动端完整 Playwright：`node scripts/smoke-frontend-playwright.cjs` 通过，含 39 路由直达、缺头像、宠友圈互动、设置/注销、真实登录会话和宠物建档流程。
 - 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 通过，70/70 套件全部成功；覆盖 Release HTTPS、Android 敏感权限最小化、API TLS/SNI、SQLite/WAL，以及生产短信随机 OTP、TC3 请求、固定码旁路阻断和注销验证码。

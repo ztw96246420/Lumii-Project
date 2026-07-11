@@ -77,6 +77,11 @@ async function startBackend(name, env = {}) {
       SMS_DAILY_LIMIT: '100',
       SMS_DEVICE_DAILY_LIMIT: '100',
       SMS_IP_DAILY_LIMIT: '100',
+      SMS_LOGIN_ACCOUNT_MAX_FAILURES: '6',
+      SMS_LOGIN_CLIENT_MAX_FAILURES: '3',
+      SMS_LOGIN_FAILURE_WINDOW_MS: '60000',
+      SMS_LOGIN_LOCK_MS: '60000',
+      SMS_VERIFY_MAX_ATTEMPTS: '3',
       STATE_BACKUP_DIR: path.join(tmpDir, `${name}-backups`),
       STATE_BACKUP_MIN_INTERVAL_MS: '0',
       TENCENTCLOUD_SECRET_ID: '',
@@ -282,6 +287,7 @@ async function main() {
     assert.equal(firstDelivery.payload.TemplateId, '1000000');
     const loginCode = firstDelivery.payload.TemplateParamSet[0];
     assert.match(loginCode, /^\d{6}$/);
+    const fixedBypassCode = loginCode === '962464' ? '000000' : '962464';
 
     const persistedBeforeVerify = JSON.parse(fs.readFileSync(statePath, 'utf8'));
     assert.equal(Object.hasOwn(persistedBeforeVerify.sms[phone], 'code'), false);
@@ -289,49 +295,101 @@ async function main() {
     assert.equal(JSON.stringify(persistedBeforeVerify).includes(loginCode), false, 'state must not contain the plaintext OTP');
 
     const fixedBypass = await request('/auth/sms/verify', {
-      body: { code: '962464', phone },
+      body: { code: fixedBypassCode, deviceId: 'sms-production-device', phone },
       expectedStatus: 400,
       method: 'POST',
     });
     assert.equal(fixedBypass.error?.code, 'SMS_CODE_INVALID');
     const verified = await request('/auth/sms/verify', {
-      body: { code: loginCode, phone },
+      body: { code: loginCode, deviceId: 'sms-production-device', phone },
       method: 'POST',
     });
     assert.ok(verified.data?.token);
     const reused = await request('/auth/sms/verify', {
-      body: { code: loginCode, phone },
+      body: { code: loginCode, deviceId: 'sms-production-device', phone },
       expectedStatus: 400,
       method: 'POST',
     });
     assert.equal(reused.error?.code, 'SMS_CODE_USED');
 
+    const secondSent = await request('/auth/sms/send', {
+      body: { deviceId: 'sms-production-device', phone },
+      method: 'POST',
+    });
+    assert.equal(smsMock.deliveries.length, 2);
+    const secondLoginCode = smsMock.deliveries[1].payload.TemplateParamSet[0];
+    assert.match(secondLoginCode, /^\d{6}$/);
+    assert.equal(secondSent.data.provider, 'tencent');
+    const wrongLoginCode = secondLoginCode === '000000' ? '111111' : '000000';
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const failed = await request('/auth/sms/verify', {
+        body: { code: wrongLoginCode, deviceId: 'sms-production-device', phone },
+        expectedStatus: attempt === 3 ? 429 : 400,
+        method: 'POST',
+      });
+      assert.equal(failed.error?.code, attempt === 3 ? 'SMS_LOGIN_LOCKED' : 'SMS_CODE_INVALID');
+    }
+    const blockedSend = await request('/auth/sms/send', {
+      body: { deviceId: 'sms-production-device', phone },
+      expectedStatus: 429,
+      method: 'POST',
+    });
+    assert.equal(blockedSend.error?.code, 'SMS_LOGIN_LOCKED');
+    assert.equal(smsMock.deliveries.length, 2, 'locked login must not send another SMS');
+
     const admin = await adminToken();
+    const usersBeforeUnlock = await request('/admin/users', { token: admin });
+    const lockedUser = usersBeforeUnlock.data.find((item) => item.phone === phone);
+    assert.equal(lockedUser?.loginSecurity?.locked, true);
+    assert.equal(lockedUser?.loginSecurity?.clientFailedAttempts, 3);
+    const unlocked = await request(`/admin/users/${encodeURIComponent(phone)}/login-lock/unlock`, {
+      body: { reason: 'production smoke identity verified' },
+      method: 'POST',
+      token: admin,
+    });
+    assert.equal(unlocked.data.loginSecurity.locked, false);
+    assert.ok(unlocked.data.clearedRecords >= 1);
+    const unlockAudit = await request('/admin/audit-logs?action=user.sms_login.unlock', { token: admin });
+    assert.ok(unlockAudit.data.items.some((item) => item.targetId === phone));
+
+    const sentAfterUnlock = await request('/auth/sms/send', {
+      body: { deviceId: 'sms-production-device', phone },
+      method: 'POST',
+    });
+    assert.equal(sentAfterUnlock.data.provider, 'tencent');
+    assert.equal(smsMock.deliveries.length, 3);
+    const loginCodeAfterUnlock = smsMock.deliveries[2].payload.TemplateParamSet[0];
+    const verifiedAfterUnlock = await request('/auth/sms/verify', {
+      body: { code: loginCodeAfterUnlock, deviceId: 'sms-production-device', phone },
+      method: 'POST',
+    });
+    assert.ok(verifiedAfterUnlock.data?.token);
     const systemHealth = await request('/admin/system/health', { token: admin });
     assert.ok(systemHealth.data.checks.some((item) => item.key === 'sms_provider' && item.status === 'ok'));
+    assert.ok(systemHealth.data.checks.some((item) => item.key === 'sms_login_lockout' && item.status === 'ok'));
     const readiness = await request('/admin/launch/readiness', { token: admin });
     assert.equal(readiness.data.gaps.find((item) => item.key === 'sms_delivery')?.status, 'ready');
 
     const deletion = await request('/account/delete/request', {
       body: { deviceId: 'sms-production-device' },
       method: 'POST',
-      token: verified.data.token,
+      token: verifiedAfterUnlock.data.token,
     });
     assert.equal(Object.hasOwn(deletion.data, 'code'), false, 'production account deletion response must not expose the OTP');
-    assert.equal(smsMock.deliveries.length, 2);
-    const deletionCode = smsMock.deliveries[1].payload.TemplateParamSet[0];
+    assert.equal(smsMock.deliveries.length, 4);
+    const deletionCode = smsMock.deliveries[3].payload.TemplateParamSet[0];
     assert.match(deletionCode, /^\d{6}$/);
     const wrongDeletion = await request('/account/delete/confirm', {
       body: { code: '000000' },
       expectedStatus: 400,
       method: 'POST',
-      token: verified.data.token,
+      token: verifiedAfterUnlock.data.token,
     });
     assert.equal(wrongDeletion.error?.code, 'ACCOUNT_DELETE_CODE_INVALID');
     const confirmed = await request('/account/delete/confirm', {
       body: { code: deletionCode },
       method: 'POST',
-      token: verified.data.token,
+      token: verifiedAfterUnlock.data.token,
     });
     assert.equal(confirmed.data.status, 'deletion_pending');
   } finally {

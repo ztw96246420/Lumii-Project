@@ -1147,6 +1147,38 @@ async function main() {
     await screenshot(expiredSessionPage, 'smoke-frontend-06c-runtime-session-expired.png');
     await expiredSessionContext.close();
 
+    const loginLockContext = await browser.newContext({
+      deviceScaleFactor: 1,
+      viewport: { height: 920, width: 430 },
+    });
+    const loginLockPage = await loginLockContext.newPage();
+    loginLockPage.on('pageerror', (error) => pageErrors.push(error.message));
+    await loginLockPage.goto(baseUrl, { timeout: 60_000, waitUntil: 'networkidle' });
+    await loginLockPage.getByPlaceholder('请输入中国大陆手机号').fill('13900009994');
+    await loginLockPage.getByLabel('同意用户协议与隐私政策').click();
+    await clickExactText(loginLockPage, '获取验证码');
+    await waitExactText(loginLockPage, '输入验证码');
+    const loginLockInput = loginLockPage.getByLabel('验证码输入框');
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      const verifyResponsePromise = loginLockPage.waitForResponse((response) => response.url().endsWith('/auth/sms/verify') && response.request().method() === 'POST');
+      await loginLockInput.fill('000000');
+      const verifyResponse = await verifyResponsePromise;
+      if (verifyResponse.status() !== (attempt === 10 ? 429 : 400)) throw new Error(`Unexpected login lock verify status at attempt ${attempt}: ${verifyResponse.status()}`);
+      await waitFirstVisibleText(loginLockPage, attempt === 10
+        ? ['登录尝试过多，请 15 分钟后再试']
+        : ['验证码错误，请检查后重试', '验证码错误次数过多，请重新获取']);
+      await loginLockInput.fill('');
+      if (attempt === 5) {
+        const resendResponsePromise = loginLockPage.waitForResponse((response) => response.url().endsWith('/auth/sms/send') && response.request().method() === 'POST');
+        await clickExactText(loginLockPage, '重新发送');
+        await resendResponsePromise;
+        await waitExactText(loginLockPage, '输入验证码');
+      }
+    }
+    await waitExactText(loginLockPage, '15 分钟后重新发送');
+    await screenshot(loginLockPage, 'smoke-frontend-06d-login-temporarily-locked.png');
+    await loginLockContext.close();
+
     const petOnboardingContext = await browser.newContext({
       deviceScaleFactor: 1,
       geolocation: { latitude: 31.2304, longitude: 121.4737 },

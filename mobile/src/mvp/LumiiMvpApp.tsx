@@ -1568,9 +1568,13 @@ function isRecoverableAvatarGeneration(value: unknown, phone?: null | string, pe
   return data.job.status === 'processing' || data.job.status === 'ready';
 }
 
-function clampSmsCooldown(availableAt: number) {
+function clampSmsCooldown(availableAt: number, maximumDurationMs = smsCooldownMs) {
   const now = Date.now();
-  return Math.min(Math.max(availableAt, now), now + smsCooldownMs);
+  return Math.min(Math.max(availableAt, now), now + maximumDurationMs);
+}
+
+function formatSmsCooldown(seconds: number) {
+  return seconds > 60 ? `${Math.ceil(seconds / 60)} 分钟` : `${seconds}s`;
 }
 
 function formatMaskedPhone(phone?: null | string) {
@@ -2721,7 +2725,7 @@ export default function LumiiMvpApp() {
     return tabItems.some((item) => item.route === route) ? (route as AppTab) : null;
   }, [route]);
 
-  const cooldownRemaining = Math.min(60, Math.max(0, Math.ceil((cooldownUntil - clock) / 1000)));
+  const cooldownRemaining = Math.max(0, Math.ceil((cooldownUntil - clock) / 1000));
   const configuredDiscoverRadiusValue = Number(remoteConfig.social.discoverRadiusKm);
   const configuredDiscoverRadiusKm = discoverRadiusOptionsKm.includes(configuredDiscoverRadiusValue as typeof discoverRadiusOptionsKm[number])
     ? configuredDiscoverRadiusValue
@@ -5827,7 +5831,7 @@ export default function LumiiMvpApp() {
     }
     setAgreementAttention(false);
     if (cooldownRemaining > 0) {
-      showToast(`${cooldownRemaining}s 后可重新发送`);
+      showToast(`${formatSmsCooldown(cooldownRemaining)}后可重新发送`);
       return;
     }
     sendLoadingRef.current = true;
@@ -5845,7 +5849,10 @@ export default function LumiiMvpApp() {
         if (source === 'login') go('otp');
       } else {
         const cooldownData = result.data as { availableAt?: number } | undefined;
-        if (cooldownData?.availableAt) setCooldownUntil(clampSmsCooldown(cooldownData.availableAt));
+        const errorAvailableAt = Number(result.error?.details?.availableAt || 0);
+        if (cooldownData?.availableAt || errorAvailableAt) {
+          setCooldownUntil(clampSmsCooldown(cooldownData?.availableAt || errorAvailableAt, result.error?.code === 'SMS_LOGIN_LOCKED' ? 24 * 60 * 60 * 1000 : smsCooldownMs));
+        }
         showToast(result.error?.message ?? '验证码发送失败');
       }
     } finally {
@@ -5879,6 +5886,8 @@ export default function LumiiMvpApp() {
         await restoreAfterLogin(result.data);
       } else {
         const message = result.error?.message ?? '验证码校验失败';
+        const errorAvailableAt = Number(result.error?.details?.availableAt || 0);
+        if (result.error?.code === 'SMS_LOGIN_LOCKED' && errorAvailableAt) setCooldownUntil(clampSmsCooldown(errorAvailableAt, 24 * 60 * 60 * 1000));
         setOtpInlineError(message);
         showToast(message);
       }
@@ -9838,7 +9847,7 @@ export default function LumiiMvpApp() {
           >
             {sendLoading ? <ActivityIndicator color="#fff" size="small" /> : null}
             <Text style={[styles.loginSmsButtonText, loginSendCountdown && styles.loginSmsButtonTextCountdown]}>
-              {sendLoading ? '发送中...' : cooldownRemaining > 0 ? `${cooldownRemaining}s 后重试` : '获取验证码'}
+              {sendLoading ? '发送中...' : cooldownRemaining > 0 ? `${formatSmsCooldown(cooldownRemaining)}后重试` : '获取验证码'}
             </Text>
           </Pressable>
           <Pressable
@@ -9912,6 +9921,7 @@ export default function LumiiMvpApp() {
           <Pressable onPress={() => otpInputRef.current?.focus()} style={[styles.otpGrid, webPressableReset]}>
             <TextInput
               ref={otpInputRef}
+              accessibilityLabel="验证码输入框"
               autoFocus
               keyboardType="number-pad"
               maxLength={6}
@@ -9947,7 +9957,7 @@ export default function LumiiMvpApp() {
             <Text style={styles.resendText}>没有收到验证码？</Text>
             <Pressable disabled={!canResend} onPress={() => void requestSmsCode('otp')} style={webPressableReset}>
               <Text style={[styles.resendAction, !canResend && styles.resendActionDisabled]}>
-                {sendLoading ? '发送中...' : cooldownRemaining > 0 ? `${cooldownRemaining}s 后重新发送` : '重新发送'}
+                {sendLoading ? '发送中...' : cooldownRemaining > 0 ? `${formatSmsCooldown(cooldownRemaining)}后重新发送` : '重新发送'}
               </Text>
             </Pressable>
           </View>

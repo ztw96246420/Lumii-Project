@@ -28,6 +28,10 @@ const SMS_DAILY_LIMIT = Number(process.env.SMS_DAILY_LIMIT || '50');
 const SMS_DEVICE_DAILY_LIMIT = Number(process.env.SMS_DEVICE_DAILY_LIMIT || '80');
 const SMS_IP_DAILY_LIMIT = Number(process.env.SMS_IP_DAILY_LIMIT || '150');
 const SMS_VERIFY_MAX_ATTEMPTS = Math.max(1, Number(process.env.SMS_VERIFY_MAX_ATTEMPTS || '5') || 5);
+const SMS_LOGIN_CLIENT_MAX_FAILURES = Math.max(SMS_VERIFY_MAX_ATTEMPTS, Number(process.env.SMS_LOGIN_CLIENT_MAX_FAILURES || '10') || 10);
+const SMS_LOGIN_ACCOUNT_MAX_FAILURES = Math.max(SMS_LOGIN_CLIENT_MAX_FAILURES, Number(process.env.SMS_LOGIN_ACCOUNT_MAX_FAILURES || '20') || 20);
+const SMS_LOGIN_FAILURE_WINDOW_MS = Math.max(60 * 1000, Number(process.env.SMS_LOGIN_FAILURE_WINDOW_MS || 15 * 60 * 1000) || 15 * 60 * 1000);
+const SMS_LOGIN_LOCK_MS = Math.max(60 * 1000, Number(process.env.SMS_LOGIN_LOCK_MS || 15 * 60 * 1000) || 15 * 60 * 1000);
 const ACCOUNT_DELETE_COOLING_OFF_MS = Number(process.env.ACCOUNT_DELETE_COOLING_OFF_MS || 30 * 24 * 60 * 60 * 1000);
 const AUTH_TOKEN_TTL_MS = Number(process.env.AUTH_TOKEN_TTL_MS || 30 * 24 * 60 * 60 * 1000);
 const AUTH_TOKEN_SECRET_FROM_ENV = process.env.LUMII_TOKEN_SECRET || process.env.AUTH_TOKEN_SECRET || '';
@@ -964,6 +968,7 @@ function createInitialState() {
     smsDeviceDailyUsage: {},
     smsDailyUsage: {},
     smsIpDailyUsage: {},
+    smsLoginSecurity: { records: {} },
     users: {},
   };
 }
@@ -5813,6 +5818,9 @@ function loadState() {
         ...initialState.smsIpDailyUsage,
         ...(loadedState.smsIpDailyUsage || {}),
       },
+      smsLoginSecurity: loadedState.smsLoginSecurity && typeof loadedState.smsLoginSecurity === 'object' && !Array.isArray(loadedState.smsLoginSecurity)
+        ? loadedState.smsLoginSecurity
+        : initialState.smsLoginSecurity,
       appEvents: Array.isArray(loadedState.appEvents) ? loadedState.appEvents : [],
       authSessions: loadedState.authSessions && typeof loadedState.authSessions === 'object' && !Array.isArray(loadedState.authSessions) ? loadedState.authSessions : initialState.authSessions,
       supportTicketReplyTemplates: Array.isArray(loadedState.supportTicketReplyTemplates) ? loadedState.supportTicketReplyTemplates : [],
@@ -7184,6 +7192,7 @@ function errorCodeFrom(statusCode, message) {
   const text = String(message || '');
   if (/操作太频繁/.test(text)) return 'SMS_RATE_LIMITED';
   if (/验证码发送次数|当前设备今天获取验证码|当前网络今天获取验证码/.test(text)) return 'SMS_DAILY_LIMITED';
+  if (/登录尝试过多|短信登录.*锁定/.test(text)) return 'SMS_LOGIN_LOCKED';
   if (/验证码错误次数过多/.test(text)) return 'SMS_CODE_ATTEMPT_LIMITED';
   if (/验证码错误/.test(text)) return 'SMS_CODE_INVALID';
   if (/验证码已过期/.test(text)) return 'SMS_CODE_EXPIRED';
@@ -13866,6 +13875,206 @@ function consumeSmsIpQuota(ip) {
   return usage;
 }
 
+function ensureSmsLoginSecurity() {
+  if (!state.smsLoginSecurity || typeof state.smsLoginSecurity !== 'object' || Array.isArray(state.smsLoginSecurity)) {
+    state.smsLoginSecurity = { records: {} };
+  }
+  if (!state.smsLoginSecurity.records || typeof state.smsLoginSecurity.records !== 'object' || Array.isArray(state.smsLoginSecurity.records)) {
+    state.smsLoginSecurity.records = {};
+  }
+  return state.smsLoginSecurity;
+}
+
+function smsLoginSecurityKey(scope, phone, fingerprint = '') {
+  const digest = crypto
+    .createHmac('sha256', AUTH_TOKEN_SECRET)
+    .update(`${scope}:${phone}:${fingerprint}`)
+    .digest('hex')
+    .slice(0, 28);
+  return `${scope}:${digest}`;
+}
+
+function smsLoginSecurityContexts(phone, deviceId = '', ip = '') {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) return [];
+  const normalizedDeviceId = normalizeSmsDeviceId(deviceId);
+  const normalizedIp = String(ip || 'unknown').trim() || 'unknown';
+  const deviceMeta = authSessionDeviceMeta(normalizedDeviceId);
+  const contexts = [{
+    deviceIdHash: deviceMeta.deviceIdHash,
+    fingerprint: normalizedPhone,
+    ip: normalizedIp,
+    maxFailures: SMS_LOGIN_ACCOUNT_MAX_FAILURES,
+    phone: normalizedPhone,
+    scope: 'account',
+  }];
+  if (normalizedDeviceId) {
+    contexts.push({
+      deviceIdHash: deviceMeta.deviceIdHash,
+      fingerprint: normalizedDeviceId,
+      ip: normalizedIp,
+      maxFailures: SMS_LOGIN_CLIENT_MAX_FAILURES,
+      phone: normalizedPhone,
+      scope: 'device',
+    });
+  }
+  contexts.push({
+    deviceIdHash: deviceMeta.deviceIdHash,
+    fingerprint: normalizedIp,
+    ip: normalizedIp,
+    maxFailures: SMS_LOGIN_CLIENT_MAX_FAILURES,
+    phone: normalizedPhone,
+    scope: 'ip',
+  });
+  return contexts;
+}
+
+function normalizeSmsLoginSecurityRecord(record = {}, context = {}, now = Date.now()) {
+  const lockedUntilMs = Date.parse(String(record.lockedUntil || ''));
+  const firstFailedAtMs = Date.parse(String(record.firstFailedAt || ''));
+  const lockExpired = Number.isFinite(lockedUntilMs) && lockedUntilMs <= now;
+  const windowExpired = Number.isFinite(firstFailedAtMs) && now - firstFailedAtMs > SMS_LOGIN_FAILURE_WINDOW_MS;
+  const resetWindow = lockExpired || (!Number.isFinite(lockedUntilMs) && windowExpired);
+  return {
+    deviceIdHash: record.deviceIdHash || context.deviceIdHash || '',
+    failedAttempts: resetWindow ? 0 : Math.max(0, Number(record.failedAttempts || 0)),
+    firstFailedAt: resetWindow ? '' : record.firstFailedAt || '',
+    lastFailedAt: record.lastFailedAt || '',
+    lastFailedIp: record.lastFailedIp || context.ip || '',
+    lockCount: Math.max(0, Number(record.lockCount || 0)),
+    lockedUntil: lockExpired ? '' : record.lockedUntil || '',
+    maxFailures: Math.max(1, Number(context.maxFailures || record.maxFailures || SMS_LOGIN_CLIENT_MAX_FAILURES)),
+    phone: context.phone || normalizePhone(record.phone) || '',
+    scope: context.scope || record.scope || 'account',
+  };
+}
+
+function smsLoginSecurityRecord(context, options = {}) {
+  const security = ensureSmsLoginSecurity();
+  const key = smsLoginSecurityKey(context.scope, context.phone, context.fingerprint);
+  const existing = security.records[key];
+  if (!existing && !options.create) return null;
+  const record = normalizeSmsLoginSecurityRecord(existing || {}, context, options.now || Date.now());
+  security.records[key] = record;
+  return record;
+}
+
+function pruneSmsLoginSecurity(now = Date.now()) {
+  const security = ensureSmsLoginSecurity();
+  const retentionMs = 30 * 24 * 60 * 60 * 1000;
+  Object.entries(security.records).forEach(([key, record]) => {
+    const lastFailedAtMs = Date.parse(String(record?.lastFailedAt || ''));
+    const lockedUntilMs = Date.parse(String(record?.lockedUntil || ''));
+    const activeLock = Number.isFinite(lockedUntilMs) && lockedUntilMs > now;
+    if (!activeLock && (!Number.isFinite(lastFailedAtMs) || now - lastFailedAtMs > retentionMs)) delete security.records[key];
+  });
+  const entries = Object.entries(security.records);
+  if (entries.length <= 5000) return;
+  entries
+    .sort((left, right) => Date.parse(String(right[1]?.lastFailedAt || '')) - Date.parse(String(left[1]?.lastFailedAt || '')))
+    .slice(4000)
+    .forEach(([key]) => delete security.records[key]);
+}
+
+function smsLoginSecurityStatus(phone, deviceId = '', ip = '', now = Date.now()) {
+  const records = smsLoginSecurityContexts(phone, deviceId, ip)
+    .map((context) => smsLoginSecurityRecord(context, { now }))
+    .filter(Boolean);
+  const activeLocks = records
+    .map((record) => ({ record, untilMs: Date.parse(String(record.lockedUntil || '')) }))
+    .filter((item) => Number.isFinite(item.untilMs) && item.untilMs > now)
+    .sort((left, right) => right.untilMs - left.untilMs);
+  const lockedUntilMs = activeLocks[0]?.untilMs || 0;
+  const accountRecord = records.find((record) => record.scope === 'account');
+  const clientFailedAttempts = records
+    .filter((record) => record.scope !== 'account')
+    .reduce((maximum, record) => Math.max(maximum, Number(record.failedAttempts || 0)), 0);
+  return {
+    clientFailedAttempts,
+    failedAttempts: Number(accountRecord?.failedAttempts || 0),
+    lastFailedAt: records.map((record) => record.lastFailedAt).filter(Boolean).sort().at(-1) || '',
+    lastFailedIp: records.map((record) => record.lastFailedIp).find(Boolean) || '',
+    lockCount: records.reduce((maximum, record) => Math.max(maximum, Number(record.lockCount || 0)), 0),
+    locked: Boolean(lockedUntilMs),
+    lockedScopes: activeLocks.map((item) => item.record.scope),
+    lockedUntil: lockedUntilMs ? new Date(lockedUntilMs).toISOString() : '',
+    lockedUntilMs,
+    maxAccountFailures: SMS_LOGIN_ACCOUNT_MAX_FAILURES,
+    maxClientFailures: SMS_LOGIN_CLIENT_MAX_FAILURES,
+    remainingLockMinutes: lockedUntilMs ? Math.max(1, Math.ceil((lockedUntilMs - now) / 60_000)) : 0,
+    retryAfterSeconds: lockedUntilMs ? Math.max(1, Math.ceil((lockedUntilMs - now) / 1000)) : 0,
+  };
+}
+
+function recordSmsLoginFailure(phone, deviceId = '', ip = '', now = Date.now()) {
+  smsLoginSecurityContexts(phone, deviceId, ip).forEach((context) => {
+    const record = smsLoginSecurityRecord(context, { create: true, now });
+    if (!record.firstFailedAt) record.firstFailedAt = new Date(now).toISOString();
+    record.failedAttempts += 1;
+    record.lastFailedAt = new Date(now).toISOString();
+    record.lastFailedIp = context.ip;
+    record.deviceIdHash = context.deviceIdHash;
+    if (record.failedAttempts >= record.maxFailures && !record.lockedUntil) {
+      record.lockCount += 1;
+      record.lockedUntil = new Date(now + SMS_LOGIN_LOCK_MS).toISOString();
+    }
+  });
+  pruneSmsLoginSecurity(now);
+  return smsLoginSecurityStatus(phone, deviceId, ip, now);
+}
+
+function clearSmsLoginSecurity(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) return 0;
+  const security = ensureSmsLoginSecurity();
+  let cleared = 0;
+  Object.entries(security.records).forEach(([key, record]) => {
+    if (normalizePhone(record?.phone) !== normalizedPhone) return;
+    delete security.records[key];
+    cleared += 1;
+  });
+  return cleared;
+}
+
+function publicSmsLoginSecurity(phone, now = Date.now()) {
+  const normalizedPhone = normalizePhone(phone);
+  const security = ensureSmsLoginSecurity();
+  const records = Object.values(security.records)
+    .filter((record) => normalizePhone(record?.phone) === normalizedPhone)
+    .map((record) => normalizeSmsLoginSecurityRecord(record, record, now));
+  const activeLocks = records
+    .map((record) => ({ record, untilMs: Date.parse(String(record.lockedUntil || '')) }))
+    .filter((item) => Number.isFinite(item.untilMs) && item.untilMs > now)
+    .sort((left, right) => right.untilMs - left.untilMs);
+  const accountRecord = records.find((record) => record.scope === 'account');
+  const latestRecord = records.slice().sort((left, right) => String(right.lastFailedAt).localeCompare(String(left.lastFailedAt)))[0];
+  const lockedUntilMs = activeLocks[0]?.untilMs || 0;
+  return {
+    clientFailedAttempts: records.filter((record) => record.scope !== 'account').reduce((maximum, record) => Math.max(maximum, Number(record.failedAttempts || 0)), 0),
+    failedAttempts: Number(accountRecord?.failedAttempts || 0),
+    lastDeviceIdHash: latestRecord?.deviceIdHash || '',
+    lastFailedAt: latestRecord?.lastFailedAt || '',
+    lastFailedIp: latestRecord?.lastFailedIp || '',
+    lockCount: records.reduce((maximum, record) => Math.max(maximum, Number(record.lockCount || 0)), 0),
+    locked: Boolean(lockedUntilMs),
+    lockedScopes: activeLocks.map((item) => item.record.scope),
+    lockedUntil: lockedUntilMs ? new Date(lockedUntilMs).toISOString() : '',
+    maxAccountFailures: SMS_LOGIN_ACCOUNT_MAX_FAILURES,
+    maxClientFailures: SMS_LOGIN_CLIENT_MAX_FAILURES,
+    remainingLockMinutes: lockedUntilMs ? Math.max(1, Math.ceil((lockedUntilMs - now) / 60_000)) : 0,
+  };
+}
+
+function smsLoginLockedResponseData(status, phone) {
+  return {
+    availableAt: status.lockedUntilMs,
+    failedAttempts: status.failedAttempts,
+    lockedUntil: status.lockedUntil,
+    phone,
+    retryAfterSeconds: status.retryAfterSeconds,
+  };
+}
+
 function smsProviderStatus() {
   const missing = [];
   if (SMS_PROVIDER === 'tencent') {
@@ -19611,6 +19820,7 @@ function adminUserSummary(user) {
     authSessionSummary: adminAuthSessionSummary(user.phone),
     createdAt: user.createdAt,
     lastSeenAt: user.lastSeenAt || 0,
+    loginSecurity: publicSmsLoginSecurity(user.phone),
     ownerAvatarUrl: user.ownerAvatarUrl || '',
     ownerBio: user.ownerBio || '',
     ownerName: user.ownerName || `用户${user.phone.slice(-4)}`,
@@ -19698,6 +19908,22 @@ function adminUserTimeline(phone, options = {}) {
     title: '账号创建',
     tone: summary.status === 'active' ? 'ok' : 'warn',
   });
+
+  const loginSecurity = publicSmsLoginSecurity(normalizedPhone);
+  if (loginSecurity.lastFailedAt) {
+    adminTimelineAdd(items, {
+      actor: loginSecurity.lastFailedIp || 'unknown',
+      createdAt: loginSecurity.lastFailedAt,
+      detail: `连续失败 ${loginSecurity.failedAttempts} 次 · 设备 ${loginSecurity.lastDeviceIdHash || '-'}${loginSecurity.lockedUntil ? ` · 锁定至 ${loginSecurity.lockedUntil}` : ''}`,
+      id: `account:${normalizedPhone}:sms-login-security`,
+      kind: 'account',
+      status: loginSecurity.locked ? '登录锁定' : '失败计数中',
+      targetId: normalizedPhone,
+      targetType: 'sms_login_security',
+      title: loginSecurity.locked ? '短信登录临时锁定' : '短信验证码校验失败',
+      tone: loginSecurity.locked ? 'bad' : 'warn',
+    });
+  }
 
   adminAuthSessionsForPhone(normalizedPhone).forEach((session) => {
     const eventTitle = session.status === 'revoked'
@@ -20086,6 +20312,22 @@ function adminAddUserNote(admin, phone, body = {}) {
   return { notes: user.adminNotes, user: after };
 }
 
+function adminUnlockUserSmsLogin(admin, phone, body = {}) {
+  const normalizedPhone = normalizePhone(phone);
+  const user = normalizedPhone ? state.users[normalizedPhone] : null;
+  if (!user) return { error: '用户不存在', statusCode: 404 };
+  const reason = String(body.reason || '').replace(/\s+/g, ' ').trim();
+  if (reason.length < 4) return { error: '请填写至少 4 个字的解锁原因', statusCode: 400 };
+  const before = publicSmsLoginSecurity(normalizedPhone);
+  if (!before.locked && before.failedAttempts <= 0 && before.clientFailedAttempts <= 0) {
+    return { error: '该用户当前没有可解除的登录失败限制', statusCode: 409 };
+  }
+  const clearedRecords = clearSmsLoginSecurity(normalizedPhone);
+  const after = publicSmsLoginSecurity(normalizedPhone);
+  writeAdminAudit(admin, 'user.sms_login.unlock', 'user', normalizedPhone, before, after, reason);
+  return { clearedRecords, loginSecurity: after, phone: normalizedPhone };
+}
+
 function adminUpdateUserRiskTags(admin, phone, body = {}) {
   const normalizedPhone = normalizePhone(phone);
   const user = normalizedPhone ? state.users[normalizedPhone] : null;
@@ -20202,6 +20444,7 @@ function adminUserBusinessDataSummary(phone) {
     feedback: feedbackIds.size,
     greetings: (state.greetings || []).filter((item) => item.fromPhone === normalizedPhone || item.targetPhone === normalizedPhone).length,
     healthStores: healthStoreCount,
+    loginSecurityRecords: Object.values(ensureSmsLoginSecurity().records).filter((record) => normalizePhone(record?.phone) === normalizedPhone).length,
     invites: (state.invites || []).filter((item) => item.fromPhone === normalizedPhone || item.targetPhone === normalizedPhone).length,
     mediaUploads: mediaIds.size,
     moderationSamples: (state.moderationSamples || []).filter((item) => item.ownerPhone === normalizedPhone || ids.postIds.has(item.targetId) || ids.commentIds.has(item.targetId)).length,
@@ -20449,6 +20692,7 @@ function adminClearUserBusinessData(admin, phone, body = {}, options = {}) {
   if (state.notifications) delete state.notifications[normalizedPhone];
   if (state.pushDevices) delete state.pushDevices[normalizedPhone];
   if (state.authSessions) delete state.authSessions[normalizedPhone];
+  clearSmsLoginSecurity(normalizedPhone);
   if (state.conversations) delete state.conversations[normalizedPhone];
   if (state.conversationMessages) delete state.conversationMessages[normalizedPhone];
 
@@ -24140,6 +24384,13 @@ async function adminSystemHealth() {
           : `生产短信未就绪：${smsProvider.missing.join('、') || `provider=${smsProvider.provider}`}`,
       smsProvider.provider === 'tencent' ? `${smsProvider.endpoint} / SendSms / ${TENCENT_SMS_VERSION}` : `provider=${smsProvider.provider}`,
     ),
+    adminCheckStatus(
+      'ok',
+      'sms_login_lockout',
+      '短信登录失败锁定',
+      `单条验证码最多 ${SMS_VERIFY_MAX_ATTEMPTS} 次；同设备/IP ${SMS_LOGIN_CLIENT_MAX_FAILURES} 次、同手机号 ${SMS_LOGIN_ACCOUNT_MAX_FAILURES} 次失败后锁定 ${Math.ceil(SMS_LOGIN_LOCK_MS / 60_000)} 分钟`,
+      'SMS_VERIFY_MAX_ATTEMPTS / SMS_LOGIN_CLIENT_MAX_FAILURES / SMS_LOGIN_ACCOUNT_MAX_FAILURES / SMS_LOGIN_LOCK_MS',
+    ),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'admin_ip_allowlist', '后台 IP 白名单', ipAllowlist.configured ? `已配置 ${ipAllowlist.entryCount} 条后端白名单规则` : '未配置后台 IP 白名单，/admin 仍可被公网访问', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
     adminCheckStatus(
       alertWebhook.configError ? 'bad' : !alertWebhook.configured ? 'warn' : alertWebhook.lastDelivery?.status === 'failed' ? 'warn' : 'ok',
@@ -24241,6 +24492,7 @@ function adminPermissionRows() {
     ['user.view', '查看用户列表和详情', '用户'],
     ['user.note', '添加用户备注', '用户'],
     ['user.tag', '标记用户风险标签', '用户'],
+    ['user.login_unlock', '解除用户短信登录临时锁定', '用户'],
     ['user.clear_data', '清理用户业务数据', '用户'],
     ['pet.view', '查看宠物档案', '宠物'],
     ['pet.edit', '修正宠物资料', '宠物'],
@@ -24332,6 +24584,7 @@ function adminRolePermissionMap() {
       'dashboard.view',
       'user.view',
       'user.note',
+      'user.login_unlock',
       'pet.view',
       'calendar.view',
       'ai.avatar.view',
@@ -24418,6 +24671,7 @@ function adminRequiredPermissionForRequest(method, pathname) {
   if (/^\/admin\/users\/[^/]+\/clear-business-data$/u.test(path) || path.startsWith('/admin/data-clear-approvals')) return 'user.clear_data';
   if (/^\/admin\/users\/[^/]+\/notes$/u.test(path)) return 'user.note';
   if (/^\/admin\/users\/[^/]+\/risk-tags$/u.test(path)) return 'user.tag';
+  if (/^\/admin\/users\/[^/]+\/login-lock\/unlock$/u.test(path)) return 'user.login_unlock';
   if (/^\/admin\/users\/[^/]+\/sanctions(?:\/|$)/u.test(path) || path.startsWith('/admin/sanction')) return 'user.sanction';
   if (path.startsWith('/admin/users')) return 'user.view';
   if (path === '/admin/pets' || (httpMethod === 'GET' && /^\/admin\/pets\/[^/]+$/u.test(path))) return 'pet.view';
@@ -25527,7 +25781,7 @@ function adminReadinessGaps(context) {
       requiredAction: smsProviderReady
         ? '持续监控 SendSms 接收状态、运营商回执、发送限额和验证码失败率。'
         : '在腾讯云短信控制台完成资质、签名和验证码模板审核，并配置 TENCENT_SMS_SDK_APP_ID、TENCENT_SMS_SIGN_NAME、TENCENT_SMS_TEMPLATE_ID 与 LUMII_SMS_PROVIDER=tencent。',
-      evidence: '系统健康页 sms_provider / POST /auth/sms/send / Tencent Cloud SendSms 2021-01-11',
+      evidence: '系统健康页 sms_provider + sms_login_lockout / POST /auth/sms/send + /auth/sms/verify / Tencent Cloud SendSms 2021-01-11',
     },
     {
       key: 'state_storage',
@@ -32167,6 +32421,19 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  const adminUserLoginUnlockMatch = pathname.match(/^\/admin\/users\/([^/]+)\/login-lock\/unlock$/);
+  if (req.method === 'POST' && adminUserLoginUnlockMatch) {
+    const phone = normalizePhone(decodeURIComponent(adminUserLoginUnlockMatch[1]));
+    const result = adminUnlockUserSmsLogin(admin, phone, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_USER_LOGIN_UNLOCK_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
   const adminUserRiskTagsMatch = pathname.match(/^\/admin\/users\/([^/]+)\/risk-tags$/);
   if (req.method === 'POST' && adminUserRiskTagsMatch) {
     const phone = normalizePhone(decodeURIComponent(adminUserRiskTagsMatch[1]));
@@ -33668,6 +33935,18 @@ async function handle(req, res) {
     }
     const now = Date.now();
     const previous = state.sms[phone];
+    const loginSecurity = smsLoginSecurityStatus(phone, deviceId, clientIp, now);
+    if (loginSecurity.locked) {
+      fail(
+        res,
+        429,
+        `登录尝试过多，请 ${loginSecurity.remainingLockMinutes} 分钟后再试`,
+        true,
+        smsLoginLockedResponseData(loginSecurity, phone),
+        'SMS_LOGIN_LOCKED',
+      );
+      return;
+    }
     if (previous && now < previous.availableAt) {
       fail(res, 200, '操作太频繁，请稍后再试', true, publicSmsTicket(previous));
       return;
@@ -33735,6 +34014,20 @@ async function handle(req, res) {
     }
     const ticket = state.sms[phone];
     const now = Date.now();
+    const deviceId = normalizeSmsDeviceId(ticket?.deviceId || body.deviceId || req.headers['x-lumii-device-id']);
+    const clientIp = clientIpFromRequest(req);
+    const loginSecurity = smsLoginSecurityStatus(phone, deviceId, clientIp, now);
+    if (loginSecurity.locked) {
+      fail(
+        res,
+        429,
+        `登录尝试过多，请 ${loginSecurity.remainingLockMinutes} 分钟后再试`,
+        true,
+        smsLoginLockedResponseData(loginSecurity, phone),
+        'SMS_LOGIN_LOCKED',
+      );
+      return;
+    }
     if (!ticket || ticket.purpose !== 'login') {
       fail(res, 400, '请先获取验证码', true, undefined, 'SMS_CODE_INVALID');
       return;
@@ -33762,6 +34055,7 @@ async function handle(req, res) {
       const attempts = Number(ticket.attempts || 0) + 1;
       const attemptsRemaining = Math.max(0, SMS_VERIFY_MAX_ATTEMPTS - attempts);
       const nextTicket = { ...ticket, attempts };
+      const nextLoginSecurity = recordSmsLoginFailure(phone, deviceId, clientIp, now);
       if (attemptsRemaining <= 0) {
         state.sms[phone] = {
           ...nextTicket,
@@ -33771,6 +34065,17 @@ async function handle(req, res) {
           lockedAt: now,
         };
         saveState();
+        if (nextLoginSecurity.locked) {
+          fail(
+            res,
+            429,
+            `登录尝试过多，请 ${nextLoginSecurity.remainingLockMinutes} 分钟后再试`,
+            true,
+            smsLoginLockedResponseData(nextLoginSecurity, phone),
+            'SMS_LOGIN_LOCKED',
+          );
+          return;
+        }
         fail(
           res,
           400,
@@ -33783,6 +34088,17 @@ async function handle(req, res) {
       }
       state.sms[phone] = nextTicket;
       saveState();
+      if (nextLoginSecurity.locked) {
+        fail(
+          res,
+          429,
+          `登录尝试过多，请 ${nextLoginSecurity.remainingLockMinutes} 分钟后再试`,
+          true,
+          smsLoginLockedResponseData(nextLoginSecurity, phone),
+          'SMS_LOGIN_LOCKED',
+        );
+        return;
+      }
       fail(res, 400, '验证码错误，请检查后重试', true, { attempts, attemptsRemaining, phone }, 'SMS_CODE_INVALID');
       return;
     }
@@ -33795,6 +34111,7 @@ async function handle(req, res) {
       consumedAt: Date.now(),
       expiresAt: Date.now(),
     };
+    clearSmsLoginSecurity(phone);
     const token = createAuthToken(phone);
     recordAuthSession(phone, token, req, {
       deviceId: ticket?.deviceId || normalizeSmsDeviceId(req.headers['x-lumii-device-id']),

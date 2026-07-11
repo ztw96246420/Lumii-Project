@@ -77,12 +77,16 @@ const lastSmsSentAtByPhone: Record<string, number> = {};
 const smsCodeByPhone: Record<string, string> = {};
 const smsLockedByPhone: Record<string, boolean> = {};
 const smsVerifyAttemptsByPhone: Record<string, number> = {};
+const smsLoginFailureCountByPhone: Record<string, number> = {};
+const smsLoginLockedUntilByPhone: Record<string, number> = {};
 const smsDeviceDailyUsageById: Record<string, { count: number; day: string }> = {};
 const smsDailyUsageByPhone: Record<string, { count: number; day: string }> = {};
 const SMS_COOLDOWN_MS = 60 * 1000;
 const SMS_DAILY_LIMIT = 50;
 const SMS_DEVICE_DAILY_LIMIT = 80;
 const SMS_VERIFY_MAX_ATTEMPTS = 5;
+const SMS_LOGIN_MAX_FAILURES = 10;
+const SMS_LOGIN_LOCK_MS = 15 * 60 * 1000;
 const OTP_TTL_MS = 5 * 60 * 1000;
 const MOCK_MEDIA_UPLOAD_MAX_BASE64_CHARS = 12_000_000;
 const MOCK_NEARBY_LOCATION_MAX_AGE_MS = 10 * 60 * 1000;
@@ -2592,6 +2596,19 @@ export const mockApi = {
       if (!phone) return error('请输入正确的手机号', false);
 
       const now = Date.now();
+      const loginLockedUntil = smsLoginLockedUntilByPhone[phone] ?? 0;
+      if (loginLockedUntil > now) {
+        return error(`登录尝试过多，请 ${Math.max(1, Math.ceil((loginLockedUntil - now) / 60_000))} 分钟后再试`, true, {
+          availableAt: loginLockedUntil,
+          code: '',
+          expiresAt: loginLockedUntil,
+          phone,
+        }, 'SMS_LOGIN_LOCKED');
+      }
+      if (loginLockedUntil) {
+        delete smsLoginLockedUntilByPhone[phone];
+        delete smsLoginFailureCountByPhone[phone];
+      }
       const lastSentAt = lastSmsSentAtByPhone[phone] ?? 0;
       if (now - lastSentAt < SMS_COOLDOWN_MS) {
         return error('操作太频繁，请稍后再试', true, {
@@ -2635,12 +2652,23 @@ export const mockApi = {
     async verifySmsCode(phone: string, code: string, expiresAt: number): Promise<ApiResult<AuthSession>> {
       await wait(260);
       const storedCode = smsCodeByPhone[phone];
+      const loginLockedUntil = smsLoginLockedUntilByPhone[phone] ?? 0;
+      if (loginLockedUntil > Date.now()) {
+        return error<AuthSession>(`登录尝试过多，请 ${Math.max(1, Math.ceil((loginLockedUntil - Date.now()) / 60_000))} 分钟后再试`, true, undefined, 'SMS_LOGIN_LOCKED', { availableAt: loginLockedUntil });
+      }
       if (smsLockedByPhone[phone]) {
         return error<AuthSession>('验证码错误次数过多，请重新获取', true, undefined, 'SMS_CODE_ATTEMPT_LIMITED');
       }
       if (storedCode && Date.now() > expiresAt) return error('验证码已过期，请重新获取', true);
       if (code !== '962464' && storedCode !== code) {
         if (storedCode) {
+          const loginFailures = (smsLoginFailureCountByPhone[phone] ?? 0) + 1;
+          smsLoginFailureCountByPhone[phone] = loginFailures;
+          if (loginFailures >= SMS_LOGIN_MAX_FAILURES) {
+            const availableAt = Date.now() + SMS_LOGIN_LOCK_MS;
+            smsLoginLockedUntilByPhone[phone] = availableAt;
+            return error<AuthSession>('登录尝试过多，请 15 分钟后再试', true, undefined, 'SMS_LOGIN_LOCKED', { availableAt });
+          }
           const attempts = (smsVerifyAttemptsByPhone[phone] ?? 0) + 1;
           const attemptsRemaining = Math.max(0, SMS_VERIFY_MAX_ATTEMPTS - attempts);
           smsVerifyAttemptsByPhone[phone] = attempts;
@@ -2658,6 +2686,8 @@ export const mockApi = {
         delete smsCodeByPhone[phone];
         delete smsVerifyAttemptsByPhone[phone];
       }
+      delete smsLoginFailureCountByPhone[phone];
+      delete smsLoginLockedUntilByPhone[phone];
       currentMockPhone = phone;
       if (mockAccountDeletion?.status === 'pending') {
         mockAccountDeletion = null;
@@ -3842,6 +3872,6 @@ function mockErrorCodeFrom(message: string) {
   return 'VALIDATION_FAILED';
 }
 
-function error<T>(message: string, retryable: boolean, data?: T, code?: string): ApiResult<T> {
-  return { data, error: { code: code || mockErrorCodeFrom(message), message, retryable }, state: 'error' };
+function error<T>(message: string, retryable: boolean, data?: T, code?: string, details?: Record<string, unknown>): ApiResult<T> {
+  return { data, error: { code: code || mockErrorCodeFrom(message), ...(details ? { details } : {}), message, retryable }, state: 'error' };
 }
