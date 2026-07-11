@@ -36,6 +36,7 @@ import {
   ArrowUp,
   BatteryFull,
   Bell,
+  Bookmark,
   CalendarDays,
   Camera,
   Check,
@@ -427,7 +428,7 @@ function isPetCirclePostGoneError(error?: ApiError) {
 
 function isFreshNearbyLocation(location?: NearbyLocationHint | null, now = Date.now()) {
   const updatedAt = Number(location?.updatedAt || 0);
-  return Boolean(location && Number.isFinite(updatedAt) && updatedAt > 0 && now - updatedAt <= nearbyPublishLocationMaxAgeMs);
+  return Boolean(location && Number.isFinite(updatedAt) && updatedAt > 0 && updatedAt <= now + 60_000 && now - updatedAt <= nearbyPublishLocationMaxAgeMs);
 }
 
 function conversationIdFromNotification(item: NotificationItem) {
@@ -1300,6 +1301,7 @@ const defaultMapCenter = {
 };
 
 type MapVisualMode = 'lumii' | 'night' | 'satellite' | 'standard';
+type PlaceFilter = 'all' | 'favorite' | Place['category'];
 type PlaceSpeciesFilter = 'all' | Extract<PetSpecies, 'cat' | 'dog'>;
 type PlaceSortMode = 'distance' | 'rating' | 'reviews';
 
@@ -2657,7 +2659,7 @@ export default function LumiiMvpApp() {
   const [placeQuery, setPlaceQuery] = useState('');
   const placeQueryRef = useRef('');
   const mapSearchInputRef = useRef<TextInput>(null);
-  const [placeFilter, setPlaceFilter] = useState<'all' | Place['category']>('all');
+  const [placeFilter, setPlaceFilter] = useState<PlaceFilter>('all');
   const [placeDistanceRadiusKm, setPlaceDistanceRadiusKm] = useState<PlaceDistanceFilterKm>(defaultDiscoverRadiusKm);
   const [placeSpeciesFilter, setPlaceSpeciesFilter] = useState<PlaceSpeciesFilter>('all');
   const [placeSortMode, setPlaceSortMode] = useState<PlaceSortMode>('distance');
@@ -2667,6 +2669,7 @@ export default function LumiiMvpApp() {
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
   const selectedPlaceIdRef = useRef<string | null>(null);
   const [favoritePlaceIds, setFavoritePlaceIds] = useState<string[]>([]);
+  const [favoritePlaces, setFavoritePlaces] = useState<Place[]>([]);
   const [favoritePlaceSavingIds, setFavoritePlaceSavingIds] = useState<string[]>([]);
   const favoritePlaceSavingIdsRef = useRef<Set<string>>(new Set());
   const [placeReviewsByPlaceId, setPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview>>({});
@@ -4222,7 +4225,7 @@ export default function LumiiMvpApp() {
   async function loadCommonData(targetSessionToken = sessionTokenRef.current) {
     const requestSessionToken = targetSessionToken;
     if (!requestSessionToken) return;
-    const [profileResult, petListResult, healthSummaryResult, healthCalendarResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, momentResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, placeReviewResult, aiUsageResult] = await Promise.all([
+    const [profileResult, petListResult, healthSummaryResult, healthCalendarResult, weightResult, vaccineResult, vaccineReminderResult, memoResult, ownerResult, momentResult, greetingRequestResult, conversationResult, notificationResult, placeResult, favoritePlaceResult, favoritePlacesResult, placeReviewResult, aiUsageResult] = await Promise.all([
       accountPreviewApi.getMe(),
       petPreviewApi.listPets(),
       healthPreviewApi.getHealthSummary(),
@@ -4238,6 +4241,7 @@ export default function LumiiMvpApp() {
       messagePreviewApi.listNotifications(),
       placesEnabled ? placesPreviewApi.listNearbyPlaces() : Promise.resolve(successResult<Place[]>([])),
       placesEnabled ? placesPreviewApi.listFavoritePlaceIds() : Promise.resolve(successResult<string[]>([])),
+      placesEnabled ? placesPreviewApi.listFavoritePlaces() : Promise.resolve(successResult<Place[]>([])),
       placesEnabled ? placesPreviewApi.listMyReviews() : Promise.resolve(successResult<PlaceReview[]>([])),
       aiPreviewApi.getUsage(),
     ]);
@@ -4306,6 +4310,7 @@ export default function LumiiMvpApp() {
     if (notificationResult.data) applyNotifications(notificationResult.data);
     if (placeResult.data) setPlaces(placeResult.data);
     if (favoritePlaceResult.data) setFavoritePlaceIds(favoritePlaceResult.data);
+    if (favoritePlacesResult.data) setFavoritePlaces(favoritePlacesResult.data);
     if (placeReviewResult.data) setPlaceReviewsByPlaceId(indexPlaceReviewsByPlaceId(placeReviewResult.data));
     if (aiUsageResult.data) {
       setAiUsage(aiUsageResult.data);
@@ -7454,6 +7459,7 @@ export default function LumiiMvpApp() {
     favoritePlaceSavingIdsRef.current.add(place.id);
     setFavoritePlaceSavingIds((ids) => [place.id, ...ids.filter((id) => id !== place.id)]);
     setFavoritePlaceIds((ids) => (nextFavorite ? [place.id, ...ids.filter((id) => id !== place.id)] : ids.filter((id) => id !== place.id)));
+    setFavoritePlaces((items) => (nextFavorite ? [place, ...items.filter((item) => item.id !== place.id)] : items.filter((item) => item.id !== place.id)));
     try {
       const result = await placesPreviewApi.setFavoritePlace(place.id, nextFavorite);
       if (sessionTokenRef.current !== requestSessionToken) return;
@@ -7466,7 +7472,7 @@ export default function LumiiMvpApp() {
             ? {
                 icon: 'bookmark',
                 iconTone: 'orange',
-                subtitle: '后续可在收藏入口集中查看',
+                subtitle: '可在地图「想去」筛选中查看',
                 tone: 'success',
                 variant: 'dark',
               }
@@ -7481,6 +7487,7 @@ export default function LumiiMvpApp() {
         );
       } else {
         setFavoritePlaceIds((ids) => (wasFavorite ? [place.id, ...ids.filter((id) => id !== place.id)] : ids.filter((id) => id !== place.id)));
+        setFavoritePlaces((items) => (wasFavorite ? [place, ...items.filter((item) => item.id !== place.id)] : items.filter((item) => item.id !== place.id)));
         showToast(result.error?.message ?? '收藏状态保存失败', { tone: 'error', variant: 'surface' });
       }
     } finally {
@@ -8790,6 +8797,12 @@ export default function LumiiMvpApp() {
 
       if (!isLumiiAmapAvailable) {
         if (!isCurrentDiscoverRequest(requestSessionToken, requestId)) return null;
+        if (Platform.OS !== 'web') {
+          const message = '定位服务暂不可用，请稍后重试';
+          setDiscoverLocationError(message);
+          if (!options.silent) showToast(message, { tone: 'error', variant: 'surface' });
+          return null;
+        }
         const fallback = {
           latitude: defaultMapCenter.latitude,
           longitude: defaultMapCenter.longitude,
@@ -8858,6 +8871,12 @@ export default function LumiiMvpApp() {
 
       if (!isLumiiAmapAvailable) {
         if (sessionTokenRef.current !== requestSessionToken) return;
+        if (Platform.OS !== 'web') {
+          const message = '定位服务暂不可用，请稍后重试';
+          setMapLocationError(message);
+          if (!options.silent) showToast(message, { tone: 'error', variant: 'surface' });
+          return;
+        }
         const fallbackLocation = {
           latitude: defaultMapCenter.latitude,
           longitude: defaultMapCenter.longitude,
@@ -9305,12 +9324,20 @@ export default function LumiiMvpApp() {
     setPlaceSubmitResult(null);
     setPlaceSubmissionSaving(true);
     try {
+      const requestLocation = isFreshNearbyLocation(lastDiscoverLocationRef.current)
+        ? lastDiscoverLocationRef.current
+        : await getDiscoverLocationHint({ allowCachedOnError: false, requestSessionToken, silent: false });
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (!requestLocation) {
+        showToast('请先完成定位后再提交新地点', { subtitle: '草稿已保留，定位成功后可继续提交', tone: 'warning', variant: 'surface' });
+        return;
+      }
       const uploadedImages = requestPhotoDrafts.length ? await uploadPlaceImages(requestPhotoDrafts, 'place_submission') : { urls: [] };
       if (uploadedImages.error) {
         showToast(uploadedImages.error, { tone: 'warning', variant: 'surface' });
         return;
       }
-      const result = await placesPreviewApi.createSubmission(requestName, requestAddress, requestExperience, uploadedImages.urls);
+      const result = await placesPreviewApi.createSubmission(requestName, requestAddress, requestExperience, uploadedImages.urls, requestLocation);
       const stillEditingSubmission = sessionTokenRef.current === requestSessionToken && routeRef.current === 'addPlaceReview';
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
@@ -9550,6 +9577,7 @@ export default function LumiiMvpApp() {
     selectedPlaceIdRef.current = null;
     setSelectedPlace(null);
     setFavoritePlaceIds([]);
+    setFavoritePlaces([]);
     favoritePlaceSavingIdsRef.current.clear();
     setFavoritePlaceSavingIds([]);
     setPlaceReviewsByPlaceId({});
@@ -14222,24 +14250,33 @@ export default function LumiiMvpApp() {
   }
 
   function renderMap() {
-    const placeFilters: Array<{ key: 'all' | Place['category']; label: string }> = [
+    const placeFilters: Array<{ key: PlaceFilter; label: string }> = [
       { key: 'all', label: '全部' },
+      { key: 'favorite', label: '想去' },
       { key: 'park', label: '公园' },
       { key: 'cafe', label: '咖啡店' },
       { key: 'shop', label: '宠物店' },
       { key: 'clinic', label: '医院' },
     ];
-    const categoryFilteredPlaces = placeFilter === 'all' ? places : places.filter((place) => place.category === placeFilter);
+    const normalizedPlaceQuery = placeQuery.trim().toLowerCase();
+    const favoriteSourcePlaces = normalizedPlaceQuery
+      ? favoritePlaces.filter((place) => [place.name, place.address, ...(place.tags || [])].join(' ').toLowerCase().includes(normalizedPlaceQuery))
+      : favoritePlaces;
+    const categoryFilteredPlaces = placeFilter === 'favorite'
+      ? favoriteSourcePlaces
+      : placeFilter === 'all'
+        ? places
+        : places.filter((place) => place.category === placeFilter);
     const speciesFilteredPlaces = filterPlacesBySpecies(categoryFilteredPlaces, placeSpeciesFilter);
-    const filteredPlaces = filterPlacesByDistance(speciesFilteredPlaces, placeDistanceRadiusKm);
+    const filteredPlaces = placeFilter === 'favorite' ? speciesFilteredPlaces : filterPlacesByDistance(speciesFilteredPlaces, placeDistanceRadiusKm);
     const visiblePlaces = sortPlacesByMode(filteredPlaces, placeSortMode);
     const highlightedPlace = visiblePlaces[0];
     const placeFilterLabel = placeFilters.find((item) => item.key === placeFilter)?.label ?? '全部';
     const placeSpeciesFilterLabel = placeSpeciesFilter === 'dog' ? '汪星友好' : placeSpeciesFilter === 'cat' ? '喵星友好' : '';
     const placeSortLabel = placeSortOptions.find((item) => item.key === placeSortMode)?.label ?? '距离最近';
     const placeFilterMeta = [placeQuery.trim() ? '搜索结果' : placeFilterLabel, placeSpeciesFilterLabel || null, placeSortLabel].filter(Boolean).join(' · ');
-    const placeResultMeta = placeSearching ? '搜索中...' : `${visiblePlaces.length} 个 · ${placeDistanceRadiusKm}km 内 · ${placeFilterMeta}`;
-    const mapSheetTitle = walkInvitePickingPlace ? '选择约遛地点' : '附近宠物友好地点';
+    const placeResultMeta = placeSearching ? '搜索中...' : placeFilter === 'favorite' ? `${visiblePlaces.length} 个收藏 · ${placeFilterMeta}` : `${visiblePlaces.length} 个 · ${placeDistanceRadiusKm}km 内 · ${placeFilterMeta}`;
+    const mapSheetTitle = walkInvitePickingPlace ? '选择约遛地点' : placeFilter === 'favorite' ? '想去的地点' : '附近宠物友好地点';
     const distanceProgress = `${Math.round((placeDistanceRadiusKm / configuredDiscoverRadiusKm) * 100)}%`;
     const distanceProgressStyle = { width: distanceProgress as ViewStyle['width'] };
     const distanceThumbStyle = { left: distanceProgress as ViewStyle['left'] };
@@ -14455,6 +14492,7 @@ export default function LumiiMvpApp() {
               <ScrollView contentContainerStyle={styles.mapFilterSearchContentMake} horizontal showsHorizontalScrollIndicator={false} style={styles.mapFilterSearchScrollerMake}>
                 {placeFilters.map((item) => (
                   <Pressable key={item.key} onPress={() => setPlaceFilter(item.key)} style={[styles.mapChipMake, placeFilter === item.key && styles.mapChipMakeActive]}>
+                    {item.key === 'favorite' ? <Bookmark color={placeFilter === item.key ? '#fff' : palette.orange} fill={placeFilter === item.key ? '#fff' : 'transparent'} size={13} strokeWidth={2.3} /> : null}
                     <Text style={[styles.mapChipMakeText, placeFilter === item.key && styles.mapChipMakeTextActive]}>{getPlaceFilterChipLabel(item.key)}</Text>
                   </Pressable>
                 ))}
@@ -14480,17 +14518,19 @@ export default function LumiiMvpApp() {
                   );
                 })}
               </View>
-              <Pressable accessibilityRole="button" onPress={cyclePlaceDistanceFilter} style={[styles.mapDistanceFilterRowMake, webPressableReset]}>
-                <Text style={styles.mapDistanceFilterLabelMake}>距离</Text>
-                <View style={styles.mapDistanceTrackMake}>
-                  <View style={[styles.mapDistanceTrackFillMake, distanceProgressStyle]} />
-                  <View style={[styles.mapDistanceThumbMake, distanceThumbStyle]} />
-                </View>
-                <Text style={styles.mapDistanceValueMake}>{placeDistanceRadiusKm}km</Text>
-              </Pressable>
+              {placeFilter !== 'favorite' ? (
+                <Pressable accessibilityRole="button" onPress={cyclePlaceDistanceFilter} style={[styles.mapDistanceFilterRowMake, webPressableReset]}>
+                  <Text style={styles.mapDistanceFilterLabelMake}>距离</Text>
+                  <View style={styles.mapDistanceTrackMake}>
+                    <View style={[styles.mapDistanceTrackFillMake, distanceProgressStyle]} />
+                    <View style={[styles.mapDistanceThumbMake, distanceThumbStyle]} />
+                  </View>
+                  <Text style={styles.mapDistanceValueMake}>{placeDistanceRadiusKm}km</Text>
+                </Pressable>
+              ) : null}
               <View style={styles.mapSearchResultHeaderMake}>
-                <Text style={styles.sectionTitle}>搜索结果</Text>
-                <Text style={styles.metaText}>{visiblePlaces.length} 个匹配</Text>
+                <Text style={styles.sectionTitle}>{placeFilter === 'favorite' ? '想去的地点' : '搜索结果'}</Text>
+                <Text style={styles.metaText}>{visiblePlaces.length} 个{placeFilter === 'favorite' ? '收藏' : '匹配'}</Text>
               </View>
               <ScrollView contentContainerStyle={styles.mapSearchResultListMake} showsVerticalScrollIndicator={false}>
                 {visiblePlaces.map((place, index) => (
@@ -14506,11 +14546,11 @@ export default function LumiiMvpApp() {
                 ))}
                 {!visiblePlaces.length ? (
                   <EmptyState
-                    action="清空筛选"
-                    description="可以切换筛选条件，或搜索其他关键词。"
-                    icon={<MapPin color={palette.muted} size={26} strokeWidth={2.4} />}
+                    action={placeFilter === 'favorite' ? '查看附近地点' : '清空筛选'}
+                    description={placeFilter === 'favorite' ? '收藏地点后会集中显示在这里，换到其他城市也能找到。' : '可以切换筛选条件，或搜索其他关键词。'}
+                    icon={placeFilter === 'favorite' ? <Bookmark color={palette.orange} size={26} strokeWidth={2.4} /> : <MapPin color={palette.muted} size={26} strokeWidth={2.4} />}
                     onAction={clearMapSearch}
-                    title="没有匹配地点"
+                    title={placeFilter === 'favorite' ? '还没有想去的地点' : '没有匹配地点'}
                   />
                 ) : null}
               </ScrollView>
@@ -14543,6 +14583,7 @@ export default function LumiiMvpApp() {
               <ScrollView contentContainerStyle={styles.mapFilterFloatMake} horizontal showsHorizontalScrollIndicator={false} style={styles.mapFilterScrollerMake}>
                 {placeFilters.map((item) => (
                   <Pressable key={item.key} onPress={() => setPlaceFilter(item.key)} style={[styles.mapChipMake, placeFilter === item.key && styles.mapChipMakeActive]}>
+                    {item.key === 'favorite' ? <Bookmark color={placeFilter === item.key ? '#fff' : palette.orange} fill={placeFilter === item.key ? '#fff' : 'transparent'} size={13} strokeWidth={2.3} /> : null}
                     <Text style={[styles.mapChipMakeText, placeFilter === item.key && styles.mapChipMakeTextActive]}>{getPlaceFilterChipLabel(item.key)}</Text>
                   </Pressable>
                 ))}
@@ -14579,11 +14620,11 @@ export default function LumiiMvpApp() {
                     ))}
                     {!visiblePlaces.length ? (
                       <EmptyState
-                        action="清空筛选"
-                        description="可以切换筛选条件，或搜索其他关键词。"
-                        icon={<MapPin color={palette.muted} size={26} strokeWidth={2.4} />}
+                        action={placeFilter === 'favorite' ? '查看附近地点' : '清空筛选'}
+                        description={placeFilter === 'favorite' ? '收藏地点后会集中显示在这里，换到其他城市也能找到。' : '可以切换筛选条件，或搜索其他关键词。'}
+                        icon={placeFilter === 'favorite' ? <Bookmark color={palette.orange} size={26} strokeWidth={2.4} /> : <MapPin color={palette.muted} size={26} strokeWidth={2.4} />}
                         onAction={clearMapSearch}
-                        title="没有匹配地点"
+                        title={placeFilter === 'favorite' ? '还没有想去的地点' : '没有匹配地点'}
                       />
                     ) : null}
                   </ScrollView>
@@ -14651,8 +14692,8 @@ export default function LumiiMvpApp() {
           <View style={styles.placeDetailPageMake}>
             <View style={styles.placeHeroMake}>
               <Image resizeMode="cover" source={{ uri: getPlaceVisualUrl(place) }} style={styles.avatarImage} />
-              <View style={styles.placeHeroOverlay} />
-              <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={styles.placeBackButtonMake}>
+              <View pointerEvents="none" style={styles.placeHeroOverlay} />
+              <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={[styles.placeBackButtonMake, styles.placeHeroBackButtonMake]}>
                 <ChevronLeft color={palette.ink} size={18} strokeWidth={2.5} />
               </Pressable>
               <View style={styles.placeHeroActions}>
@@ -18400,7 +18441,8 @@ function getPlaceCategoryLabel(place: Place) {
   return '宠物友好地点';
 }
 
-function getPlaceFilterChipLabel(category: 'all' | Place['category']) {
+function getPlaceFilterChipLabel(category: PlaceFilter) {
+  if (category === 'favorite') return '想去';
   if (category === 'park') return '🌳 公园';
   if (category === 'cafe') return '☕ 咖啡店';
   if (category === 'shop') return '🛍️ 宠物店';
@@ -19642,7 +19684,7 @@ const styles = StyleSheet.create({
   mapChipFloatActive: { backgroundColor: palette.ink, borderColor: palette.ink },
   mapChipText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700' },
   mapChipTextActive: { color: '#fff' },
-  mapChipMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.95)', borderColor: palette.border, borderRadius: 16, borderWidth: 1, height: 34, justifyContent: 'center', paddingHorizontal: 14, shadowColor: '#000', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 18 },
+  mapChipMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.95)', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 5, height: 34, justifyContent: 'center', paddingHorizontal: 14, shadowColor: '#000', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.12, shadowRadius: 18 },
   mapChipMakeActive: { backgroundColor: palette.ink, borderColor: palette.ink },
   mapChipMakeText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500' },
   mapChipMakeTextActive: { color: '#fff', fontWeight: '600' },
@@ -19667,7 +19709,7 @@ const styles = StyleSheet.create({
   mapFilterScroller: { left: 0, position: 'absolute', right: 0, top: 74, zIndex: 2 },
   mapFilterScrollerMake: { left: 0, position: 'absolute', right: 0, top: 64, zIndex: 4 },
   mapFilterSearchContentMake: { gap: 8, paddingRight: 4 },
-  mapFilterSearchScrollerMake: { marginHorizontal: -2 },
+  mapFilterSearchScrollerMake: { height: 36, marginHorizontal: -2, maxHeight: 36 },
   mapFilterWrapMake: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   mapGreenPatchA: { backgroundColor: '#cfe7d2', borderRadius: 36, height: 122, left: -26, opacity: 0.96, position: 'absolute', top: 34, transform: [{ rotate: '-18deg' }], width: 150 },
   mapGreenPatchB: { backgroundColor: '#dcefd8', borderRadius: 46, bottom: 44, height: 126, opacity: 0.96, position: 'absolute', right: -34, transform: [{ rotate: '16deg' }], width: 184 },
@@ -20439,6 +20481,7 @@ const styles = StyleSheet.create({
   placeAddressMetaRowMake: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 6 },
   placeAddressText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 19 },
   placeBackButtonMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.94)', borderRadius: 19, height: 38, justifyContent: 'center', shadowColor: '#000', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.18, shadowRadius: 14, width: 38 },
+  placeHeroBackButtonMake: { left: 16, position: 'absolute', top: 44, zIndex: 6 },
   placeDetailBottomCtaMake: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 16 },
   placeDetailPageMake: { marginHorizontal: -20, marginTop: -18 },
   placeDistanceMake: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '700', marginLeft: 'auto' },
@@ -20447,7 +20490,7 @@ const styles = StyleSheet.create({
   placeFeatureTagCoolMake: { backgroundColor: 'rgba(77,182,172,0.14)', color: palette.teal },
   placeFeatureTagMake: { backgroundColor: palette.orangeSoft, borderRadius: 999, color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5 },
   placeFeatureTagOliveMake: { backgroundColor: '#E8F5F3', color: '#5F8D6A' },
-  placeHeroActions: { flexDirection: 'row', gap: 8, position: 'absolute', right: 16, top: 44 },
+  placeHeroActions: { flexDirection: 'row', gap: 8, position: 'absolute', right: 16, top: 44, zIndex: 6 },
   placeHeroMake: { backgroundColor: '#9fc8a4', height: 280, overflow: 'hidden', position: 'relative' },
   placeHeroOverlay: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0) 30%, rgba(0,0,0,0.55) 100%)' } as object) : null), backgroundColor: 'rgba(31,33,29,0.18)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
   placeNavigationButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, flex: 1, flexDirection: 'row', gap: 7, height: 52, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.24, shadowRadius: 18 },

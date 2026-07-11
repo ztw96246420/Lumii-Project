@@ -353,12 +353,16 @@ async function main() {
       token: primaryToken,
     });
     assert.equal(favoriteAfterAdd.data.includes(place.id), true);
+    const favoritePlacesAfterAdd = await request('/places/favorites/details', { token: primaryToken });
+    assert.equal(favoritePlacesAfterAdd.data.some((item) => item.id === place.id && item.name === place.name), true);
     const favoriteAfterRemove = await request(`/places/${encodeURIComponent(place.id)}/favorite`, {
       body: { favorite: false },
       method: 'PATCH',
       token: primaryToken,
     });
     assert.equal(favoriteAfterRemove.data.includes(place.id), false);
+    const favoritePlacesAfterRemove = await request('/places/favorites/details', { token: primaryToken });
+    assert.equal(favoritePlacesAfterRemove.data.some((item) => item.id === place.id), false);
     const placeReport = await request(`/places/${encodeURIComponent(place.id)}/report`, {
       body: { content: 'Smoke reports stale opening hours' },
       method: 'POST',

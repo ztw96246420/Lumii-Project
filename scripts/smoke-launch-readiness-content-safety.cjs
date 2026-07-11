@@ -160,8 +160,11 @@ async function main() {
     const readiness = await request('/admin/launch/readiness', { token: adminToken });
     const contentModel = rowByKey(readiness.data.gaps, 'content_model');
     const imageModeration = rowByKey(readiness.data.gaps, 'image_moderation');
+    const accountLifecycle = rowByKey(readiness.data.gaps, 'account_lifecycle');
     assert.equal(contentModel.status, 'ready');
     assert.equal(imageModeration.status, 'ready');
+    assert.equal(accountLifecycle.status, 'ready');
+    assert.ok(accountLifecycle.evidence.includes('account_deletion_processor'));
     assert.equal(rowByKey(readiness.data.questions, 'q-safety-vendor')?.status, 'ready');
     assert.equal(rowByKey(readiness.data.questions, 'q-image-policy')?.status, 'ready');
     assert.ok(!readiness.data.gaps.filter((gap) => gap.status !== 'ready' && gap.severity === 'P0').some((gap) => gap.key === 'content_model' || gap.key === 'image_moderation'));

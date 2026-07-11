@@ -13,8 +13,8 @@
 
 - 真机：使用 `expo-secure-store` 保存会话。
 - Web 预览：使用 `localStorage` 作为 fallback。
-- ~~API token 仍沿用 MVP 的 `lumii-local-手机号` 格式，后续正式后端需要替换为服务端签发 token。~~ 当前 MVP 测试后端已改为签发 `lumii-v1.<payload>.<signature>` HMAC 登录态 token，默认有效期 30 天，并通过 `POST /auth/token/refresh` 滚动刷新；旧 `lumii-local-手机号` 仅为兼容已安装测试包和历史缓存暂时保留。
-- 当前 MVP 测试后端已支持 `POST /auth/logout` 撤销当前 `lumii-v1` token；退出后继续使用该 token 访问 `/me` 或刷新登录态会返回 401。旧兼容 token 无法精确撤销，正式包应逐步淘汰。
+- ~~API token 仍沿用 MVP 的 `lumii-local-手机号` 格式，后续正式后端需要替换为服务端签发 token。~~ 当前后端签发 `lumii-v1.<payload>.<signature>` HMAC 登录态 token，默认有效期 30 天，并通过 `POST /auth/token/refresh` 滚动刷新；旧 `lumii-local-手机号` 默认拒绝且生产环境强制禁用，仅非生产环境可显式兼容本地旧缓存。
+- 后端支持 `POST /auth/logout` 撤销当前 `lumii-v1` token 及同设备历史刷新链；链上旧 token 均返回 401，其他独立设备会话保留。刷新产生的新会话会继承原设备 hash，便于后台排查和准确撤销。
 
 ## 后续正式版建议
 

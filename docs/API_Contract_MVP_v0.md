@@ -75,6 +75,10 @@ MVP 错误码表：
 | `SMS_LOGIN_LOCKED` | 同手机号的设备/IP 或账号累计验证码失败达到阈值，当前登录客户端被临时锁定 |
 | `SMS_CODE_EXPIRED` | 验证码过期 |
 | `SMS_CODE_USED` | 验证码已使用 |
+| `ACCOUNT_DELETE_CODE_REQUIRED` | 尚未获取有效的账号注销验证码 |
+| `ACCOUNT_DELETE_CODE_INVALID` | 账号注销验证码错误 |
+| `ACCOUNT_DELETE_CODE_EXPIRED` | 账号注销验证码已过期 |
+| `ACCOUNT_DELETION_PENDING` | 账号已进入注销冷静期，写操作受到限制 |
 | `VALIDATION_FAILED` | 普通入参校验失败 |
 | `CONTENT_POLICY_VIOLATION` | 文本命中基础内容安全拦截 |
 | `RESOURCE_NOT_FOUND` | 资源不存在或无权读取 |
@@ -83,6 +87,11 @@ MVP 错误码表：
 | `RATE_LIMITED` | 通用频控 |
 | `PET_CHAT_DAILY_LIMIT` | 灵伴对话当日额度已达上限 |
 | `PET_AVATAR_DAILY_LIMIT` | 灵伴形象生成当日额度已达上限 |
+| `AVATAR_PROVIDER_UNAVAILABLE` | 生产灵伴图片供应商未配置或不可用，不会返回测试图 |
+| `AVATAR_RESULT_REQUIRED` | 确认灵伴形象时未提供生成结果 |
+| `AVATAR_RESULT_INVALID` | 灵伴形象 URL 不属于当前账号的已完成生成任务 |
+| `PLACE_LOCATION_REQUIRED` | 新增地点时缺少可用的当前定位 |
+| `PLACE_LOCATION_STALE` | 新增地点时定位已超过有效期，需重新定位 |
 | `SERVER_ERROR` | 服务端异常 |
 | `ROUTE_NOT_FOUND` | 接口不存在 |
 
@@ -175,7 +184,7 @@ Response:
 
 ### POST `/auth/logout`
 
-退出登录。前端成功后清空本地 token。MVP 测试后端会撤销当前请求携带的 `lumii-v1` 签名 token，退出后继续用该 token 调用 `/me` 或 `/auth/token/refresh` 会返回 401。旧 `lumii-local-手机号` 仅作历史兼容，无法精确撤销。
+退出登录。前端成功后清空本地 token。后端会撤销当前请求携带的 `lumii-v1` 签名 token 及其同设备历史刷新链，退出后继续用任一链上 token 调用 `/me` 或 `/auth/token/refresh` 都会返回 401；其他独立设备会话不会被普通退出误伤。无签名的旧 `lumii-local-手机号` 格式默认拒绝，且在生产环境无法启用；仅非生产环境可通过 `LUMII_ALLOW_LEGACY_LOCAL_AUTH=true` 显式兼容本地旧缓存。
 
 ### POST `/auth/token/refresh`
 
@@ -187,7 +196,7 @@ Request:
 Authorization: Bearer lumii-v1.<payload>.<signature>
 ```
 
-Token 说明：MVP 测试后端当前签发 `lumii-v1.<payload>.<signature>` 格式的 HMAC 登录态 token，默认有效期 30 天，可用 `AUTH_TOKEN_TTL_MS` 调整；签名密钥来自 `LUMII_TOKEN_SECRET` 或 `AUTH_TOKEN_SECRET`。`POST /auth/token/refresh` 会滚动返回新 token；`POST /auth/logout` 会把当前签名 token 加入服务端撤销列表。为了不影响已安装测试包，后端暂时兼容旧 `lumii-local-手机号` token；生产版本仍建议替换为正式 access token / refresh token 体系。
+Token 说明：后端签发 `lumii-v1.<payload>.<signature>` 格式的 HMAC 登录态 token，默认有效期 30 天，可用 `AUTH_TOKEN_TTL_MS` 调整；签名密钥来自 `LUMII_TOKEN_SECRET` 或 `AUTH_TOKEN_SECRET`。`POST /auth/token/refresh` 会滚动返回新 token；`POST /auth/logout` 会把当前签名 token 加入服务端撤销列表。生产环境强制拒绝旧 `lumii-local-手机号` token，避免仅凭手机号伪造登录态。
 
 Response:
 
@@ -217,6 +226,60 @@ Response:
   }
 }
 ```
+
+### POST `/account/delete/request`
+
+发起账号注销短信验证。需要登录；短信频控、手机号/设备/IP 日限额和生产随机验证码规则与登录验证码一致。
+
+Response data：
+
+```ts
+{
+  phone: string;
+  requested: boolean;
+  availableAt?: number;
+  expiresAt?: number;
+  accountDeletion?: {
+    status: 'pending';
+    requestedAt: string;
+    confirmedAt: string;
+    scheduledDeletionAt: string;
+    remainingDays: number;
+  } | null;
+}
+```
+
+### POST `/account/delete/confirm`
+
+使用短信验证码确认注销。
+
+Request：
+
+```json
+{ "code": "123456" }
+```
+
+确认成功后：
+
+- 账号进入默认 30 天冷静期，服务端写入账号级 token 截止时间并撤销全部已记录会话；即使旧 token 已超出会话表保留上限，也会立即失效。本机清理本地账号状态并回到登录页。
+- 冷静期内使用新短信验证码重新登录会自动撤销注销，账号和业务数据恢复正常使用。
+- 冷静期到期后，服务端定时任务和请求前置检查都会执行永久清理；账号、宠物、宠物日历、灵伴图片/动效任务、聊天、社交、地点贡献、通知、客服及关联运营数据被删除。
+- COS 图片与视频进入持久化销毁队列；删除失败按指数退避重试，并在后台系统健康页显示待处理和失败数量。
+- 到期清理后只保留不含手机号的 HMAC 匿名墓碑，用于阻断注销前旧 token 和证明系统已执行删除；后台不可变审计按合规留存策略保存，不用于恢复用户业务数据。
+- 同一手机号到期后再次通过短信登录视为全新注册，旧 token 仍不可用，旧宠物与业务数据不会恢复。
+
+Response data：
+
+```ts
+{
+  account: AccountSnapshot;
+  phone: string;
+  scheduledDeletionAt: string;
+  status: 'deletion_pending';
+}
+```
+
+运行参数：`ACCOUNT_DELETE_COOLING_OFF_MS`、`ACCOUNT_DELETION_SWEEP_INTERVAL_MS`、`ACCOUNT_DELETION_TOMBSTONE_RETENTION_MS`、`ACCOUNT_DELETION_OBJECT_DELETE_BATCH_SIZE`、`ACCOUNT_DELETION_OBJECT_RETRY_BASE_MS`。匿名墓碑保留时间不会短于 token 最长有效期加 1 天。
 
 ### GET `/me`
 
@@ -1372,7 +1435,7 @@ type Place = {
 
 地点数据源策略：
 
-- ~~当前 MVP 测试后端仍使用 seed 地点数据。~~ 当前测试后端已接入高德 Web Service POI；无定位、无 Key、接口失败或无有效 POI 时才回退 seed 地点数据。
+- 非生产预览仍可使用明确标记为 `source=seed` 的示例地点；生产环境启动时会移除旧 seed 数据，高德无 Key、超时、失败或无结果时返回真实缓存/自有坐标地点或空列表，绝不返回示例地点。
 - 生产策略已确认采用“地图 POI 打底 + Lumii 自有宠物友好层”。
 - App 只调用 Lumii 后端接口，不直接调用高德 Web 服务。
 - 后端负责调用高德 POI 周边搜索/关键字搜索，并把 POI 标准化为 Lumii `Place`；当前请求 `show_fields=business,photos,navi`。
@@ -1384,11 +1447,14 @@ type Place = {
 
 附近宠物友好地点。
 
-说明：服务端与附近发现共用后台 `social.discoverRadiusKm` 的 `3km / 5km / 10km` 档位；首发默认查询 10km。移动端地图可在后台上限内进一步收窄筛选，但不能请求超过后台范围的数据。
+说明：
+- 请求应传 `lat`、`lng` 和可选 `accuracy`；服务端与附近发现共用后台 `social.discoverRadiusKm` 的 `3km / 5km / 10km` 档位，首发默认 10km。
+- 所有已审核的人工地点和高德缓存 POI 都按地点自身坐标与查询坐标重新计算距离；用户移动到其他城市后，旧地点不会跟随用户迁移。
+- 生产环境不使用过期账号位置，不返回无坐标或 seed 地点。高德故障时只会降级到半径内已保存的真实 POI/人工地点。
 
 ### GET `/places/search?q=公园`
 
-搜索地点。MVP 测试后端会按地点名称、地址、分类和标签进行包含匹配；`q` 为空时返回附近地点列表。
+在当前定位和后台半径内搜索地点；应同时传 `lat`、`lng` 和可选 `accuracy`。后端请求高德周边关键字搜索，并合并同半径内名称、地址、分类或标签匹配的真实自有地点；`q` 为空时等同附近地点列表。
 
 ### GET `/places/{placeId}`
 
@@ -1416,6 +1482,10 @@ Response:
 ```json
 ["place-park-1"]
 ```
+
+### GET `/places/favorites/details`
+
+读取当前用户收藏地点的完整 `Place[]`，按收藏顺序返回，不受用户当前城市或附近半径限制。App 地图页“想去”筛选使用该接口集中展示收藏，取消收藏后对应地点立即从列表移除。
 
 ### PATCH `/places/{placeId}/favorite`
 
@@ -1547,11 +1617,20 @@ Request:
   "name": "阳光宠物公园",
   "address": "滨江路 188 号",
   "content": "草坪很大，有饮水点，牵引绳友好。\n附照片 2 张（本次提交预览）",
-  "imageUrls": ["https://.../media/uploads/media-002/file"]
+  "imageUrls": ["https://.../media/uploads/media-002/file"],
+  "location": {
+    "accuracy": 18,
+    "latitude": 23.12911,
+    "longitude": 113.264385,
+    "updatedAt": 1783756800000
+  }
 }
 ```
 
-说明：新增地点图片需要先通过 `/media/uploads` 上传，上传来源为 `place_submission`。后端只保存已通过图片审核的公开 `fileUrl`，最多 3 张；审核通过后第一张可见图会成为 manual 地点封面。
+说明：
+- 移动端在上传图片前获取当前定位；定位失败时保留草稿且不上传图片。定位缺失返回 `PLACE_LOCATION_REQUIRED`，超过有效期返回 `PLACE_LOCATION_STALE`。
+- 新增地点图片需要先通过 `/media/uploads` 上传，上传来源为 `place_submission`。后端只保存已通过图片审核的公开 `fileUrl`，最多 3 张。
+- 审核通过时，manual 地点继承提交时的经纬度、定位精度和捕获时间；第一张可见图作为封面。同一地点之后按这组固定坐标出现在附近结果，不会跟随提交者当前所在地变化。
 
 Response data:
 
@@ -1562,6 +1641,10 @@ Response data:
   "address": "滨江路 188 号",
   "content": "草坪很大，有饮水点，牵引绳友好。\n附照片 2 张（本次提交预览）",
   "imageUrls": ["https://.../media/uploads/media-002/file"],
+  "latitude": 23.12911,
+  "longitude": 113.264385,
+  "locationAccuracy": 18,
+  "locationCapturedAt": "2026-07-11T16:00:00.000+08:00",
   "photoCount": 1,
   "status": "pending_review",
   "createdAt": "2026-06-16T09:30:00.000+08:00"

@@ -629,6 +629,10 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<string[]>('GET', '/places/favorites');
       },
 
+      async listFavoritePlaces(): Promise<ApiResult<Place[]>> {
+        return request<Place[]>('GET', '/places/favorites/details');
+      },
+
       async setFavoritePlace(placeId: string, favorite: boolean): Promise<ApiResult<string[]>> {
         return request<string[]>('PATCH', `/places/${encodeURIComponent(placeId)}/favorite`, { favorite });
       },
@@ -661,11 +665,12 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<PetCircleReportResult>('POST', `/places/${encodeURIComponent(placeId)}/report`, { content });
       },
 
-      async createSubmission(name: string, address: string, content: string, imageUrls: string[] = []): Promise<ApiResult<PlaceSubmission>> {
+      async createSubmission(name: string, address: string, content: string, imageUrls: string[] = [], location?: NearbyLocationHint): Promise<ApiResult<PlaceSubmission>> {
         return request<PlaceSubmission>('POST', '/places/submissions', {
           address,
           content,
           imageUrls,
+          location,
           name,
           source: 'mvp',
         });

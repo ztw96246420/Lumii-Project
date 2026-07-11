@@ -170,6 +170,7 @@ async function main() {
     assert.equal(health.data?.stateStorage?.journalMode, 'wal', 'system health should expose WAL mode');
     assert.ok((health.data?.checks || []).some((item) => item.key === 'state_database' && item.status === 'ok'), 'missing healthy state_database check');
     assert.ok((health.data?.checks || []).some((item) => item.key === 'state_backups'), 'missing state_backups health check');
+    assert.ok((health.data?.checks || []).some((item) => item.key === 'account_deletion_processor' && item.status === 'ok'), 'missing healthy account deletion processor check');
 
     browser = await playwright.chromium.launch({ executablePath, headless: true });
     const context = await browser.newContext({ viewport: { height: 900, width: 1440 } });
@@ -184,6 +185,7 @@ async function main() {
     await page.getByText('SQLite / WAL', { exact: true }).first().waitFor({ timeout: 30_000 });
     await page.getByText('JSON 回滚镜像', { exact: true }).first().waitFor({ timeout: 30_000 });
     await page.getByText('备份路径', { exact: true }).waitFor({ timeout: 30_000 });
+    await page.getByText('账号注销到期清理', { exact: true }).waitFor({ timeout: 30_000 });
 
     console.log('admin system health page smoke passed');
   } finally {

@@ -756,6 +756,15 @@ async function main() {
     await page.getByLabel('收藏地点').click();
     await waitExactText(page, '已收藏到「想去」');
     await page.getByLabel('取消收藏地点').waitFor({ timeout: 30_000 });
+    await page.getByText('已收藏到「想去」', { exact: true }).waitFor({ state: 'hidden', timeout: 10_000 });
+    await page.getByLabel('返回').click();
+    await waitExactText(page, '附近宠物友好地点');
+    await clickExactText(page, '想去');
+    await waitExactText(page, '想去的地点');
+    await waitExactText(page, '云杉宠物友好公园');
+    await screenshot(page, 'smoke-frontend-02h-favorite-places.png');
+    await clickExactText(page, '云杉宠物友好公园');
+    await page.getByLabel('取消收藏地点').waitFor({ timeout: 30_000 });
     await clickExactText(page, '写点评');
     await waitExactText(page, '写一条点评');
     await page.getByPlaceholder(/草坪很整洁/).fill('Playwright 地点点评：草坪整洁，饮水点清楚。');

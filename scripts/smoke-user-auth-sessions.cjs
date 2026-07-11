@@ -165,6 +165,11 @@ async function main() {
     assert.ok(refreshedToken, 'missing refreshed token');
     assert.notEqual(refreshedToken, userToken, 'refresh should issue a new token');
 
+    const beforeLogout = await request(`/admin/users/${encodeURIComponent(PHONE)}`, { token: adminToken });
+    assert.equal(beforeLogout.data.authSessions.length, 2);
+    assert.equal(beforeLogout.data.authSessions[0].deviceIdHash, beforeLogout.data.authSessions[1].deviceIdHash, 'refresh must preserve the device identity');
+    assert.equal(beforeLogout.data.authSessions[0].deviceIdTail, 'device-1');
+
     await request('/auth/logout', {
       headers: {
         'user-agent': 'LumiiAuthSmoke/1.0 logout',
@@ -179,8 +184,13 @@ async function main() {
     assert.equal(detail.data.authSessions.length, 2);
     assert.equal(detail.data.authSessions[0].status, 'revoked');
     assert.equal(detail.data.authSessions[0].revokedIp, '203.0.113.11');
-    assert.equal(detail.data.authSessions[1].status, 'active');
+    assert.equal(detail.data.authSessions[1].status, 'revoked');
     assert.equal(detail.data.authSessions[1].lastIp, '203.0.113.10');
+    assert.equal(detail.data.authSessions[1].revokedIp, '203.0.113.11');
+    const oldTokenAfterLogout = await request('/me', { expectedStatus: 401, token: userToken });
+    assert.equal(oldTokenAfterLogout.error?.code, 'AUTH_REQUIRED');
+    const refreshedTokenAfterLogout = await request('/me', { expectedStatus: 401, token: refreshedToken });
+    assert.equal(refreshedTokenAfterLogout.error?.code, 'AUTH_REQUIRED');
 
     const timeline = await request(`/admin/users/${encodeURIComponent(PHONE)}/timeline?kind=account`, { token: adminToken });
     assert.ok(timeline.data.items.some((item) => item.targetType === 'auth_session'), 'account timeline should include auth sessions');

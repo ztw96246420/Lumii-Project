@@ -11,6 +11,7 @@ const rootDir = path.resolve(__dirname, '..');
 const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-sms-production-'));
 const phone = '19900009771';
+const tinyPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/atK3qsAAAAASUVORK5CYII=';
 let backendProcess = null;
 let baseUrl = '';
 
@@ -61,12 +62,14 @@ async function startBackend(name, env = {}) {
     cwd: rootDir,
     env: {
       ...process.env,
+      APIMART_API_KEY: '',
       AMAP_WEB_SERVICE_KEY: '',
       DEEPSEEK_API_KEY: '',
       GPT_IMAGE2_API_KEY: '',
       LUMII_ADMIN_PASSWORD: 'SmsProductionAdmin-Strong-2026',
       LUMII_ADMIN_USERNAME: 'admin',
       LUMII_BACKEND_STATE_PATH: statePath,
+      LUMII_ALLOW_LEGACY_LOCAL_AUTH: 'true',
       LUMII_PUBLIC_API_BASE_URL: '',
       LUMII_TOKEN_SECRET: 'sms-production-smoke-token-secret-32-bytes',
       NODE_ENV: 'production',
@@ -88,6 +91,7 @@ async function startBackend(name, env = {}) {
       TENCENTCLOUD_SECRET_KEY: '',
       TENCENT_CLOUD_SECRET_ID: '',
       TENCENT_CLOUD_SECRET_KEY: '',
+      TTAPI_API_KEY: '',
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -236,6 +240,11 @@ async function main() {
 
   await startBackend('disabled', { LUMII_SMS_PROVIDER: 'disabled' });
   try {
+    const legacyToken = await request('/me', {
+      expectedStatus: 401,
+      token: `lumii-local-${phone}`,
+    });
+    assert.equal(legacyToken.error?.code, 'AUTH_REQUIRED', 'production must reject unsigned legacy phone tokens even when the compatibility flag is set');
     const send = await request('/auth/sms/send', {
       body: { deviceId: 'sms-disabled-device', phone },
       expectedStatus: 503,
@@ -253,8 +262,10 @@ async function main() {
     const admin = await adminToken();
     const systemHealth = await request('/admin/system/health', { token: admin });
     assert.ok(systemHealth.data.checks.some((item) => item.key === 'sms_provider' && item.status === 'bad'));
+    assert.ok(systemHealth.data.checks.some((item) => item.key === 'legacy_local_auth' && item.status === 'ok'));
     const readiness = await request('/admin/launch/readiness', { token: admin });
     assert.equal(readiness.data.gaps.find((item) => item.key === 'sms_delivery')?.status, 'blocked');
+    assert.equal(readiness.data.gaps.find((item) => item.key === 'auth_session_security')?.status, 'ready');
   } finally {
     await stopBackend();
   }
@@ -305,6 +316,86 @@ async function main() {
       method: 'POST',
     });
     assert.ok(verified.data?.token);
+    const userToken = verified.data.token;
+    const pet = await request('/pets', {
+      body: { birthday: '2024-01-01', breed: 'dog', gender: 'male', name: '生产守卫', species: 'dog', weightKg: 8 },
+      method: 'POST',
+      token: userToken,
+    });
+    const nearbyWithoutAmap = await request('/places/nearby?lat=23.12911&lng=113.264385', { token: userToken });
+    assert.deepEqual(nearbyWithoutAmap.data, [], 'production must not return seed places when Amap is unavailable');
+    const submissionWithoutLocation = await request('/places/submissions', {
+      body: { address: 'Production Guard Road 1', content: 'pet friendly production guard', name: 'Production Guard Place' },
+      expectedStatus: 400,
+      method: 'POST',
+      token: userToken,
+    });
+    assert.equal(submissionWithoutLocation.error?.code, 'PLACE_LOCATION_REQUIRED');
+    const submissionWithStaleLocation = await request('/places/submissions', {
+      body: {
+        address: 'Production Guard Road 1',
+        content: 'pet friendly production guard',
+        location: { latitude: 23.12911, longitude: 113.264385, updatedAt: Date.now() - 11 * 60 * 1000 },
+        name: 'Production Guard Place',
+      },
+      expectedStatus: 400,
+      method: 'POST',
+      token: userToken,
+    });
+    assert.equal(submissionWithStaleLocation.error?.code, 'PLACE_LOCATION_STALE');
+    const submissionLocation = { accuracy: 16, latitude: 23.12911, longitude: 113.264385, updatedAt: Date.now() };
+    const locatedSubmission = await request('/places/submissions', {
+      body: {
+        address: 'Production Guard Road 1',
+        content: 'pet friendly production guard',
+        location: submissionLocation,
+        name: 'Production Guard Place',
+      },
+      method: 'POST',
+      token: userToken,
+    });
+    assert.equal(locatedSubmission.data.latitude, submissionLocation.latitude);
+    assert.equal(locatedSubmission.data.longitude, submissionLocation.longitude);
+    const upload = await request('/media/uploads', {
+      body: {
+        base64: `data:image/png;base64,${tinyPngBase64}`,
+        fileName: 'production-guard.png',
+        mimeType: 'image/png',
+        source: 'pet_avatar',
+      },
+      method: 'POST',
+      token: userToken,
+    });
+    const mockAvatarBlocked = await request('/ai/pet-avatar/jobs', {
+      body: { mediaId: upload.data.mediaId },
+      expectedStatus: 503,
+      method: 'POST',
+      token: userToken,
+    });
+    assert.equal(mockAvatarBlocked.error?.code, 'AVATAR_PROVIDER_UNAVAILABLE');
+    const usageAfterMockBlock = await request('/ai/usage', { token: userToken });
+    assert.equal(usageAfterMockBlock.data.daily.petAvatar.count, 0, 'provider preflight rejection must not consume avatar quota');
+    const missingAvatarBlocked = await request(`/pets/${encodeURIComponent(pet.data.id)}/avatar`, {
+      body: {},
+      expectedStatus: 400,
+      method: 'POST',
+      token: userToken,
+    });
+    assert.equal(missingAvatarBlocked.error?.code, 'AVATAR_RESULT_REQUIRED');
+    const arbitraryAvatarBlocked = await request(`/pets/${encodeURIComponent(pet.data.id)}/avatar`, {
+      body: { avatarUrl: 'https://example.com/not-a-generated-avatar.png' },
+      expectedStatus: 400,
+      method: 'POST',
+      token: userToken,
+    });
+    assert.equal(arbitraryAvatarBlocked.error?.code, 'AVATAR_RESULT_INVALID');
+    const fixtureAvatarBlocked = await request(`/pets/${encodeURIComponent(pet.data.id)}/avatar`, {
+      body: { avatarUrl: 'lumii://golden-retriever-avatar' },
+      expectedStatus: 503,
+      method: 'POST',
+      token: userToken,
+    });
+    assert.equal(fixtureAvatarBlocked.error?.code, 'AVATAR_PROVIDER_UNAVAILABLE');
     const reused = await request('/auth/sms/verify', {
       body: { code: loginCode, deviceId: 'sms-production-device', phone },
       expectedStatus: 400,
@@ -367,8 +458,13 @@ async function main() {
     const systemHealth = await request('/admin/system/health', { token: admin });
     assert.ok(systemHealth.data.checks.some((item) => item.key === 'sms_provider' && item.status === 'ok'));
     assert.ok(systemHealth.data.checks.some((item) => item.key === 'sms_login_lockout' && item.status === 'ok'));
+    assert.ok(systemHealth.data.checks.some((item) => item.key === 'pet_avatar_provider' && item.status === 'bad'));
+    assert.ok(systemHealth.data.checks.some((item) => item.key === 'amap' && item.status === 'bad'));
+    assert.ok(systemHealth.data.checks.some((item) => item.key === 'place_location_integrity' && item.status === 'ok'));
     const readiness = await request('/admin/launch/readiness', { token: admin });
     assert.equal(readiness.data.gaps.find((item) => item.key === 'sms_delivery')?.status, 'ready');
+    assert.equal(readiness.data.gaps.find((item) => item.key === 'ai_runtime')?.status, 'blocked');
+    assert.equal(readiness.data.gaps.find((item) => item.key === 'place_discovery')?.status, 'blocked');
 
     const deletion = await request('/account/delete/request', {
       body: { deviceId: 'sms-production-device' },
@@ -395,6 +491,29 @@ async function main() {
   } finally {
     await stopBackend();
     await smsMock.close();
+  }
+
+  await startBackend('ai-ready', {
+    APIMART_API_KEY: 'apimart-production-smoke-key',
+    AMAP_WEB_SERVICE_KEY: 'amap-production-smoke-key',
+    DEEPSEEK_API_KEY: 'deepseek-production-smoke-key',
+    GPT_IMAGE2_API_KEY: 'gpt-image-production-smoke-key',
+    LUMII_SMS_PROVIDER: 'disabled',
+    PET_AVATAR_ANIMATION_PROVIDER: 'doubao-seedance-1-5-pro',
+    PET_AVATAR_PROVIDER: 'gpt-image-2',
+  });
+  try {
+    const admin = await adminToken();
+    const health = await request('/admin/system/health', { token: admin });
+    assert.ok(health.data.checks.some((item) => item.key === 'pet_avatar_provider' && item.status === 'ok'));
+    assert.ok(health.data.checks.some((item) => item.key === 'pet_avatar_animation_provider' && item.status === 'ok'));
+    assert.ok(health.data.checks.some((item) => item.key === 'deepseek' && item.status === 'ok'));
+    assert.ok(health.data.checks.some((item) => item.key === 'amap' && item.status === 'ok'));
+    const readiness = await request('/admin/launch/readiness', { token: admin });
+    assert.equal(readiness.data.gaps.find((item) => item.key === 'ai_runtime')?.status, 'ready');
+    assert.equal(readiness.data.gaps.find((item) => item.key === 'place_discovery')?.status, 'ready');
+  } finally {
+    await stopBackend();
   }
 
   console.log('production SMS security smoke passed');

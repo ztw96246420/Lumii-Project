@@ -1,6 +1,6 @@
 # Lumii / 灵伴 文档索引
 
-维护日期：2026-06-19
+维护日期：2026-07-11
 
 ## 阅读顺序
 
@@ -77,6 +77,7 @@
 | [Operations_Backoffice_User_Data_Clear_2026-06-30.md](./Operations_Backoffice_User_Data_Clear_2026-06-30.md) | 当前专项 | 用户业务数据清理审批、执行范围、移动端影响和审计口径 |
 | [Operations_Backoffice_User_Auth_Sessions_2026-07-09.md](./Operations_Backoffice_User_Auth_Sessions_2026-07-09.md) | 当前专项 | 移动端短信登录、Token 刷新、登出来源、设备 hash 和 IP 排查 |
 | [Operations_Backoffice_User_Login_Lockout_2026-07-11.md](./Operations_Backoffice_User_Login_Lockout_2026-07-11.md) | 当前专项 | 短信验证码分层失败锁定、移动端倒计时、后台人工解锁权限和审计 |
+| [Operations_Account_Deletion_2026-07-11.md](./Operations_Account_Deletion_2026-07-11.md) | 当前专项 | 注销冷静期、全端会话撤销、到期永久清理、匿名墓碑与 COS 销毁队列 |
 | [Operations_Backoffice_AI_Ops_Config_2026-07-01.md](./Operations_Backoffice_AI_Ops_Config_2026-07-01.md) | 当前专项 | AI provider、模型参数、prompt 和 DeepSeek system prompt 配置 |
 | [Operations_Backoffice_AI_Prompt_Versions_2026-07-03.md](./Operations_Backoffice_AI_Prompt_Versions_2026-07-03.md) | 当前专项 | AI Prompt 候选版本、样本关联、配置草稿和移动端生成任务追溯 |
 | [Operations_Backoffice_AI_Avatar_Failure_Refund_2026-07-04.md](./Operations_Backoffice_AI_Avatar_Failure_Refund_2026-07-04.md) | 当前专项 | AI 灵伴供应商失败自动返还额度、防重复返还、后台任务字段和移动端额度联动 |

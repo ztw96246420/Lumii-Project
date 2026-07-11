@@ -3694,6 +3694,12 @@ export const mockApi = {
       return success(favoritePlaceIds);
     },
 
+    async listFavoritePlaces(): Promise<ApiResult<Place[]>> {
+      await wait(120);
+      const byId = new Map(places.map((place) => [place.id, place]));
+      return success(favoritePlaceIds.map((id) => byId.get(id)).filter((place): place is Place => Boolean(place)));
+    },
+
     async setFavoritePlace(placeId: string, favorite: boolean): Promise<ApiResult<string[]>> {
       await wait(160);
       if (!places.some((place) => place.id === placeId)) return error('地点不存在', false);
@@ -3769,13 +3775,26 @@ export const mockApi = {
       return success({ id: `mock-report-${Date.now()}`, reported: true, targetId: placeId, targetType: 'place' });
     },
 
-    async createSubmission(name: string, address: string, content: string, imageUrls: string[] = []): Promise<ApiResult<PlaceSubmission>> {
+    async createSubmission(name: string, address: string, content: string, imageUrls: string[] = [], location?: NearbyLocationHint): Promise<ApiResult<PlaceSubmission>> {
       await wait();
       const trimmedName = name.trim();
       const trimmedAddress = address.trim();
       const trimmedContent = content.trim();
       if (!trimmedName || !trimmedAddress) return error('请填写地点名称和地址', false);
       if (!trimmedContent) return error('请填写宠物友好体验', false);
+      const locationUpdatedAt = Number(location?.updatedAt || 0);
+      const locationValid = Boolean(
+        location &&
+          Number.isFinite(location.latitude) &&
+          Math.abs(location.latitude) <= 90 &&
+          Number.isFinite(location.longitude) &&
+          Math.abs(location.longitude) <= 180 &&
+          Number.isFinite(locationUpdatedAt) &&
+          locationUpdatedAt > 0 &&
+          locationUpdatedAt <= Date.now() + 60_000 &&
+          Date.now() - locationUpdatedAt <= MOCK_NEARBY_LOCATION_MAX_AGE_MS,
+      );
+      if (!locationValid) return error<PlaceSubmission>('请先完成定位后再提交新地点', false, undefined, 'PLACE_LOCATION_REQUIRED');
       const violation =
         mockPublicPlaceContentViolation('地点名称', trimmedName, 60) ||
         mockPublicPlaceContentViolation('地点地址', trimmedAddress, 120) ||
@@ -3798,6 +3817,11 @@ export const mockApi = {
         createdAt: new Date().toISOString(),
         id: `place-submission-${Date.now()}`,
         imageUrls: imageUrls.slice(0, 3),
+        latitude: location?.latitude,
+        locationAccuracy: location?.accuracy,
+        locationCapturedAt: new Date(locationUpdatedAt).toISOString(),
+        locationSource: 'submission',
+        longitude: location?.longitude,
         name: trimmedName,
         photoCount: imageUrls.slice(0, 3).length,
         status: 'pending_review',

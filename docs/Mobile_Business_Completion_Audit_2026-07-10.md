@@ -117,16 +117,52 @@
 - 后台用户管理新增“登录锁定”指标、失败来源与解除入口；客服需完成身份核验并填写原因，解锁动作写入独立审计。
 - 生产短信模拟测试覆盖随机码、TC3、锁定、禁止发码、后台解锁和恢复登录；后台与移动端 Playwright 均保留视觉证据。
 
+### 2.12 账号注销到期永久清理
+
+- 注销短信确认后不再只撤销当前设备，而是写入账号级 token 截止时间并撤销该手机号全部已记录会话；超过会话表保留上限的旧 token 同样立即失效，冷静期内重新短信登录仍可自动撤销。
+- 到期清理同时由分钟级调度器和请求前置检查驱动，账号、宠物、宠物日历、AI、社交、聊天、地点贡献、通知、客服及关联运营记录被实际删除。
+- 上传原图、灵伴结果图和动效视频进入持久化 COS 销毁队列；失败指数退避重试，不会因为对象存储短暂不可用而恢复业务数据。
+- 只保留不含手机号的 HMAC 匿名墓碑，用于阻断注销前旧 token；同手机号到期后重新登录创建全新空账号，不会复活历史数据。
+- 后台系统健康新增 `account_deletion_processor`，上线台账新增 `account_lifecycle`；逾期未删除账号会形成 P0 阻断。
+
+### 2.13 地点收藏“想去”闭环
+
+- 地图筛选条新增使用现有视觉语言的“想去”入口，收藏成功文案直接指向该入口，不再提示尚不存在的后续功能。
+- 后端新增完整收藏地点列表接口，按收藏顺序返回且不受当前位置、城市或附近半径限制；用户旅行后仍能找回历史收藏。
+- 收藏/取消收藏在 ID 列表和完整地点列表中同步乐观更新，失败时双向回滚；空收藏显示明确空状态并可一键回到附近地点。
+- 移动端核心 HTTP 与 Playwright 覆盖收藏、集中查看、进入详情和取消后的接口一致性。
+
+### 2.14 生产登录态禁止明文兼容 token
+
+- 生产环境强制拒绝无签名的旧 `lumii-local-手机号` 格式，不能通过环境变量重新开启；仅非生产环境可显式启用旧缓存兼容。
+- 正式登录、刷新、退出、全端撤销和注销后阻断统一使用可验签、可过期、可撤销的 `lumii-v1` token；刷新会继承设备标识，普通退出会撤销同设备整条刷新链而不误伤其他设备。
+- 后台系统健康新增 `legacy_local_auth`，上线台账新增 `auth_session_security`；生产短信回归直接验证伪造旧 token 返回 401。
+
+### 2.15 生产 AI 禁止测试结果回退
+
+- 生产环境的图片 provider 为 `mock` 或缺少真实供应商密钥时，创建任务直接失败且不消耗额度，不再轮询后返回内置金毛测试图。
+- 生产环境拒绝保存 `lumii://` 测试形象；候选图保存接口只接受当前账号已完成任务返回的结果，不能注入任意外部图片。
+- 动效 mock 在生产环境会进入明确失败态，不会把静态图片伪装成已生成视频；上线台账 `ai_runtime` 同时检查 GPT Image 2、Seedance（启用时）和 DeepSeek。
+
+### 2.16 附近地点真实坐标闭环
+
+- 新增地点提交前必须获取 10 分钟内的有效定位；定位失败时保留草稿且不先上传图片，后端再以 `PLACE_LOCATION_REQUIRED` / `PLACE_LOCATION_STALE` 做最终拦截。
+- 提交记录保存经纬度、精度和捕获时间；后台审核创建 manual 地点时继承这组坐标，后续附近查询始终按地点坐标计算，不会随提交者移动到其他城市。
+- 生产环境启动时移除历史 seed 地点；高德缺 Key、超时或无结果时，只返回当前半径内已保存的真实高德/人工地点或空列表，不再回退四条示例地点。
+- 无坐标存量地点仍保留在后台治理目录，但不进入用户附近结果；系统健康新增 `place_location_integrity`，上线台账新增 P0 `place_discovery`，生产缺 `AMAP_WEB_SERVICE_KEY` 直接阻断上线。
+
 ## 3. 当前验证证据
 
 - 移动端 TypeScript：`npm run typecheck` 通过。
 - 移动端核心 HTTP：`node scripts/smoke-mobile-core-flows.cjs` 通过，覆盖空计划、新增、编辑、开启提醒、完成、恢复、删除及关联数据清理。
 - 生产短信安全：`node scripts/smoke-sms-production.cjs` 通过，覆盖分层失败锁定、锁定期禁止发码、后台解锁审计和恢复登录。
+- 账号注销：`node scripts/smoke-account-deletion.cjs` 通过，覆盖冷静期撤销、全会话失效、到期清理、COS 删除、手机号移除、旧 token 阻断和同手机号全新注册。
 - 工单 SLA/客服排班/用户补充/评价/重开闭环：`node scripts/smoke-ticket-sla-roster.cjs` 通过。
 - 移动端完整 Playwright：`node scripts/smoke-frontend-playwright.cjs` 通过，含 39 路由直达、缺头像、宠友圈互动、设置/注销、真实登录会话和宠物建档流程。
 - 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 通过，70/70 套件全部成功；覆盖 Release HTTPS、Android 敏感权限最小化、API TLS/SNI、SQLite/WAL，以及生产短信随机 OTP、TC3 请求、固定码旁路阻断和注销验证码。
 - 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-11 通过，79/79 套件全部成功；移动端 Playwright 覆盖本人宠友圈同日多条、唯一“我”标记、评论、删除确认、他人宠友圈权限、运行中 Token 撤销恢复，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除，后台 8 个关键运营页面同步通过。
 - 附近位置与半径专项：`node scripts/smoke-pet-circle.cjs`、配置审批/预约发布/双人会签回归和 `node scripts/smoke-admin-config-high-risk-page.cjs` 通过；覆盖发布位置快照、跨城市移动、历史无位置数据、10km 默认档位、3/5/10km 后台选择及客户端越权半径拦截。
+- 附近地点真实性：`node scripts/smoke-place-contributions.cjs` 与 `node scripts/smoke-sms-production.cjs` 通过；覆盖提交坐标/精度/时间落库、审核后 manual 地点继承坐标、跨城不跟随、缺失/过期定位拦截、生产无高德时返回空列表而非 seed，以及 `amap` / `place_location_integrity` / `place_discovery` 健康与 P0 门禁。
 - Android 候选包：`dist/Lumii-Lingban-v1.0.0-vc11-arm64-20260711-1300.apk` 已完成正式签名构建，大小 68.52 MB，SHA-256 为 `888F04A2AC264323A4758E68694336E4686D916DFF10FE62D551C28473A8904F`；包名 `com.lumii.lingban`、versionCode `11`、API `https://api.lumiiapp.cn`、禁止明文流量。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗权限且系统备份关闭。
 
 ## 4. 剩余工作

@@ -32,13 +32,19 @@ const SMS_LOGIN_CLIENT_MAX_FAILURES = Math.max(SMS_VERIFY_MAX_ATTEMPTS, Number(p
 const SMS_LOGIN_ACCOUNT_MAX_FAILURES = Math.max(SMS_LOGIN_CLIENT_MAX_FAILURES, Number(process.env.SMS_LOGIN_ACCOUNT_MAX_FAILURES || '20') || 20);
 const SMS_LOGIN_FAILURE_WINDOW_MS = Math.max(60 * 1000, Number(process.env.SMS_LOGIN_FAILURE_WINDOW_MS || 15 * 60 * 1000) || 15 * 60 * 1000);
 const SMS_LOGIN_LOCK_MS = Math.max(60 * 1000, Number(process.env.SMS_LOGIN_LOCK_MS || 15 * 60 * 1000) || 15 * 60 * 1000);
-const ACCOUNT_DELETE_COOLING_OFF_MS = Number(process.env.ACCOUNT_DELETE_COOLING_OFF_MS || 30 * 24 * 60 * 60 * 1000);
+const ACCOUNT_DELETE_COOLING_OFF_MS = Math.max(100, Number(process.env.ACCOUNT_DELETE_COOLING_OFF_MS || 30 * 24 * 60 * 60 * 1000) || 30 * 24 * 60 * 60 * 1000);
 const AUTH_TOKEN_TTL_MS = Number(process.env.AUTH_TOKEN_TTL_MS || 30 * 24 * 60 * 60 * 1000);
+const ACCOUNT_DELETION_TOMBSTONE_RETENTION_MS = Math.max(AUTH_TOKEN_TTL_MS + 24 * 60 * 60 * 1000, Number(process.env.ACCOUNT_DELETION_TOMBSTONE_RETENTION_MS || 180 * 24 * 60 * 60 * 1000) || 180 * 24 * 60 * 60 * 1000);
+const ACCOUNT_DELETION_SWEEP_INTERVAL_MS = Math.max(1000, Number(process.env.ACCOUNT_DELETION_SWEEP_INTERVAL_MS || 60 * 1000) || 60 * 1000);
+const ACCOUNT_DELETION_OBJECT_DELETE_BATCH_SIZE = Math.min(100, Math.max(1, Number(process.env.ACCOUNT_DELETION_OBJECT_DELETE_BATCH_SIZE || 20) || 20));
+const ACCOUNT_DELETION_OBJECT_RETRY_BASE_MS = Math.max(1000, Number(process.env.ACCOUNT_DELETION_OBJECT_RETRY_BASE_MS || 60 * 1000) || 60 * 1000);
 const AUTH_TOKEN_SECRET_FROM_ENV = process.env.LUMII_TOKEN_SECRET || process.env.AUTH_TOKEN_SECRET || '';
 const AUTH_TOKEN_SECRET = AUTH_TOKEN_SECRET_FROM_ENV || 'lumii-mvp-dev-token-secret';
 if (RUNTIME_ENV === 'production' && AUTH_TOKEN_SECRET_FROM_ENV.length < 32) {
   throw new Error('Production requires LUMII_TOKEN_SECRET or AUTH_TOKEN_SECRET with at least 32 characters');
 }
+const ALLOW_LEGACY_LOCAL_AUTH = RUNTIME_ENV !== 'production'
+  && ['1', 'true', 'yes'].includes(String(process.env.LUMII_ALLOW_LEGACY_LOCAL_AUTH || '').trim().toLowerCase());
 const AUTH_SESSION_RETAIN_PER_USER = Math.max(5, Math.min(100, Number(process.env.LUMII_AUTH_SESSION_RETAIN_PER_USER || '30') || 30));
 const ONLINE_TTL_MS = 30 * 60 * 1000;
 const NEARBY_LOCATION_MAX_AGE_MS = Number(process.env.NEARBY_LOCATION_MAX_AGE_MS || String(10 * 60 * 1000));
@@ -255,6 +261,7 @@ const defaultPlaces = [
     name: '云杉宠物友好公园',
     rating: 4.8,
     reviewCount: 36,
+    source: 'seed',
     supportedSpecies: ['dog'],
     tags: ['可遛狗', '草坪', '饮水点'],
   },
@@ -266,6 +273,7 @@ const defaultPlaces = [
     name: '暖爪咖啡',
     rating: 4.6,
     reviewCount: 18,
+    source: 'seed',
     supportedSpecies: ['cat', 'dog'],
     tags: ['室内友好', '可带猫包'],
   },
@@ -277,6 +285,7 @@ const defaultPlaces = [
     name: '毛球宠物生活馆',
     rating: 4.5,
     reviewCount: 21,
+    source: 'seed',
     supportedSpecies: ['cat', 'dog'],
     tags: ['宠物用品', '洗护美容'],
   },
@@ -288,6 +297,7 @@ const defaultPlaces = [
     name: '安心宠物医院',
     rating: 4.7,
     reviewCount: 24,
+    source: 'seed',
     supportedSpecies: ['cat', 'dog'],
     tags: ['急诊', '疫苗'],
   },
@@ -857,6 +867,8 @@ function defaultOpsConfig() {
 
 function createInitialState() {
   return {
+    accountDeletionObjectCleanup: {},
+    accountDeletionTombstones: {},
     adminAlertWebhookDeliveries: [],
     adminAuditLogs: [],
     adminAccounts: {},
@@ -963,7 +975,7 @@ function createInitialState() {
     placeContributions: [],
     placeReviews: {},
     placeSubmissions: {},
-    places: defaultPlaces,
+    places: RUNTIME_ENV === 'production' ? [] : defaultPlaces,
     sms: {},
     smsDeviceDailyUsage: {},
     smsDailyUsage: {},
@@ -5821,6 +5833,12 @@ function loadState() {
       smsLoginSecurity: loadedState.smsLoginSecurity && typeof loadedState.smsLoginSecurity === 'object' && !Array.isArray(loadedState.smsLoginSecurity)
         ? loadedState.smsLoginSecurity
         : initialState.smsLoginSecurity,
+      accountDeletionObjectCleanup: loadedState.accountDeletionObjectCleanup && typeof loadedState.accountDeletionObjectCleanup === 'object' && !Array.isArray(loadedState.accountDeletionObjectCleanup)
+        ? loadedState.accountDeletionObjectCleanup
+        : initialState.accountDeletionObjectCleanup,
+      accountDeletionTombstones: loadedState.accountDeletionTombstones && typeof loadedState.accountDeletionTombstones === 'object' && !Array.isArray(loadedState.accountDeletionTombstones)
+        ? loadedState.accountDeletionTombstones
+        : initialState.accountDeletionTombstones,
       appEvents: Array.isArray(loadedState.appEvents) ? loadedState.appEvents : [],
       authSessions: loadedState.authSessions && typeof loadedState.authSessions === 'object' && !Array.isArray(loadedState.authSessions) ? loadedState.authSessions : initialState.authSessions,
       supportTicketReplyTemplates: Array.isArray(loadedState.supportTicketReplyTemplates) ? loadedState.supportTicketReplyTemplates : [],
@@ -5927,6 +5945,9 @@ function loadState() {
 }
 
 let state = loadState();
+if (RUNTIME_ENV === 'production') {
+  state.places = (Array.isArray(state.places) ? state.places : []).filter((place) => !isSeedFixturePlace(place));
+}
 if (sqliteStateBootstrapRuntime) Object.assign(stateStorageRuntime, sqliteStateBootstrapRuntime);
 const amapPoiCache = new Map();
 
@@ -7361,7 +7382,7 @@ function locationFromPayload(value) {
 
 function isFreshNearbyLocation(location, now = Date.now()) {
   const updatedAt = Number(location?.updatedAt || 0);
-  return Number.isFinite(updatedAt) && updatedAt > 0 && now - updatedAt <= NEARBY_LOCATION_MAX_AGE_MS;
+  return Number.isFinite(updatedAt) && updatedAt > 0 && updatedAt <= now + 60_000 && now - updatedAt <= NEARBY_LOCATION_MAX_AGE_MS;
 }
 
 function fuzzyLocationForPersistence(location) {
@@ -7486,8 +7507,59 @@ function authTokenDigest(token) {
   return crypto.createHash('sha256').update(String(token || '')).digest('hex');
 }
 
+function ensureAccountDeletionTombstones() {
+  if (!state.accountDeletionTombstones || typeof state.accountDeletionTombstones !== 'object' || Array.isArray(state.accountDeletionTombstones)) {
+    state.accountDeletionTombstones = {};
+  }
+  return state.accountDeletionTombstones;
+}
+
+function ensureAccountDeletionObjectCleanup() {
+  if (!state.accountDeletionObjectCleanup || typeof state.accountDeletionObjectCleanup !== 'object' || Array.isArray(state.accountDeletionObjectCleanup)) {
+    state.accountDeletionObjectCleanup = {};
+  }
+  return state.accountDeletionObjectCleanup;
+}
+
+function accountDeletionPhoneHash(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) return '';
+  return crypto
+    .createHmac('sha256', AUTH_TOKEN_SECRET)
+    .update(`account-deletion:${normalizedPhone}`)
+    .digest('hex')
+    .slice(0, 32);
+}
+
+function accountDeletionTombstoneForPhone(phone, now = Date.now()) {
+  const phoneHash = accountDeletionPhoneHash(phone);
+  if (!phoneHash) return null;
+  const tombstone = ensureAccountDeletionTombstones()[phoneHash];
+  if (!tombstone) return null;
+  const retainedUntilMs = Date.parse(String(tombstone.retainedUntil || ''));
+  const hasQueuedObjects = Object.values(ensureAccountDeletionObjectCleanup()).some((item) => item?.tombstoneId === phoneHash);
+  if (Number.isFinite(retainedUntilMs) && retainedUntilMs <= now && Number(tombstone.objectCleanupPending || 0) <= 0 && !hasQueuedObjects) {
+    delete ensureAccountDeletionTombstones()[phoneHash];
+    return null;
+  }
+  return tombstone;
+}
+
+function accountDeletionInvalidBeforeMs(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  const tombstone = accountDeletionTombstoneForPhone(phone);
+  const accountDeletion = normalizeAccountDeletion(state.users?.[normalizedPhone]?.accountDeletion);
+  const values = [
+    tombstone?.invalidBefore || tombstone?.deletedAt || '',
+    accountDeletion?.tokenInvalidBefore || '',
+  ]
+    .map((value) => Date.parse(String(value || '')))
+    .filter(Number.isFinite);
+  return values.length ? Math.max(...values) : 0;
+}
+
 function createAuthToken(phone) {
-  const now = Date.now();
+  const now = Math.max(Date.now(), accountDeletionInvalidBeforeMs(phone) + 1);
   const payloadPart = base64UrlEncode(
     JSON.stringify({
       exp: now + AUTH_TOKEN_TTL_MS,
@@ -7545,14 +7617,21 @@ function phoneFromSignedToken(token) {
   if (!payload) return '';
   if (Number(payload.exp || 0) < Date.now()) return '';
   if (isAuthTokenRevoked(token)) return '';
-  return normalizePhone(payload.phone);
+  const phone = normalizePhone(payload.phone);
+  if (!phone) return '';
+  const invalidBeforeMs = accountDeletionInvalidBeforeMs(phone);
+  if (invalidBeforeMs && Number(payload.iat || 0) <= invalidBeforeMs) return '';
+  return phone;
 }
 
 function phoneFromRequest(req) {
   const token = bearerTokenFromRequest(req);
   if (!token) return '';
   if (token.startsWith('lumii-v1.')) return phoneFromSignedToken(token);
-  if (token.startsWith('lumii-local-')) return normalizePhone(token.slice('lumii-local-'.length));
+  if (ALLOW_LEGACY_LOCAL_AUTH && token.startsWith('lumii-local-')) {
+    const phone = normalizePhone(token.slice('lumii-local-'.length));
+    return phone && !accountDeletionTombstoneForPhone(phone) ? phone : '';
+  }
   return '';
 }
 
@@ -7655,8 +7734,8 @@ function recordAuthSession(phone, token, req, options = {}) {
   const session = {
     ...existing,
     createdAt: existing.createdAt || nowIso,
-    deviceIdHash: deviceMeta.deviceIdHash || existing.deviceIdHash || '',
-    deviceIdTail: deviceMeta.deviceIdTail || existing.deviceIdTail || '',
+    deviceIdHash: deviceMeta.deviceIdHash || previous?.session?.deviceIdHash || existing.deviceIdHash || '',
+    deviceIdTail: deviceMeta.deviceIdTail || previous?.session?.deviceIdTail || existing.deviceIdTail || '',
     expiresAt: new Date(expiresAt).toISOString(),
     id: existing.id || `auth-${digest.slice(0, 16)}`,
     issuedAt: new Date(issuedAt).toISOString(),
@@ -7665,9 +7744,9 @@ function recordAuthSession(phone, token, req, options = {}) {
     lastIp: context.ip,
     lastSeenAt: nowIso,
     lastUserAgent: context.userAgent,
-    loginAt: existing.loginAt || nowIso,
-    loginIp: existing.loginIp || context.ip,
-    loginUserAgent: existing.loginUserAgent || context.userAgent,
+    loginAt: previous?.session?.loginAt || existing.loginAt || nowIso,
+    loginIp: previous?.session?.loginIp || existing.loginIp || context.ip,
+    loginUserAgent: previous?.session?.loginUserAgent || existing.loginUserAgent || context.userAgent,
     phone: normalizedPhone,
     previousSessionId: previous?.session?.id || existing.previousSessionId || '',
     previousTokenTail: options.previousToken ? String(options.previousToken).slice(-10) : existing.previousTokenTail || '',
@@ -7748,6 +7827,61 @@ function markAuthSessionRevoked(token, req) {
   found.session.updatedAt = nowIso;
   pruneAuthSessionsForPhone(phone);
   return true;
+}
+
+function revokeAuthSessionChain(token, req, reason = 'logout') {
+  const updatedCurrent = markAuthSessionRevoked(token, req);
+  const found = findAuthSessionForToken(token);
+  if (!found) return updatedCurrent ? 1 : 0;
+  const sessions = ensureAuthSessionsStore()[found.phone] || [];
+  const byId = new Map(sessions.filter(Boolean).map((session) => [session.id, session]));
+  const context = authSessionRequestContext(req);
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  let current = found.session;
+  let revoked = 0;
+  const visited = new Set();
+  state.revokedAuthTokens = state.revokedAuthTokens || {};
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    const expiresAt = authSessionTimeValue(current.expiresAt);
+    const digest = String(current.tokenDigest || '').trim();
+    if (digest && expiresAt > now) state.revokedAuthTokens[digest] = expiresAt;
+    if (current.status !== 'revoked') revoked += 1;
+    current.lastEvent = reason;
+    current.revokedAt = current.revokedAt || nowIso;
+    current.revokedIp = current.revokedIp || context.ip;
+    current.status = 'revoked';
+    current.updatedAt = nowIso;
+    current = current.previousSessionId ? byId.get(current.previousSessionId) : null;
+  }
+  pruneRevokedAuthTokens();
+  return Math.max(revoked, updatedCurrent ? 1 : 0);
+}
+
+function revokeAllAuthSessionsForPhone(phone, reason = 'account_deletion') {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) return 0;
+  const sessions = ensureAuthSessionsStore()[normalizedPhone];
+  if (!Array.isArray(sessions)) return 0;
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  let revoked = 0;
+  state.revokedAuthTokens = state.revokedAuthTokens || {};
+  sessions.forEach((session) => {
+    const expiresAt = authSessionTimeValue(session?.expiresAt);
+    const digest = String(session?.tokenDigest || '').trim();
+    if (digest && expiresAt > now) state.revokedAuthTokens[digest] = expiresAt;
+    if (session?.status !== 'revoked') revoked += 1;
+    if (!session || typeof session !== 'object') return;
+    session.lastEvent = reason;
+    session.revokedAt = session.revokedAt || nowIso;
+    session.revokedIp = session.revokedIp || 'system';
+    session.status = 'revoked';
+    session.updatedAt = nowIso;
+  });
+  pruneRevokedAuthTokens();
+  return revoked;
 }
 
 function adminAuthSessionItem(session = {}) {
@@ -8829,10 +8963,10 @@ function activeUserSanctionOfType(phone, types, now = Date.now()) {
 
 function accountStatusFor(user) {
   if (!user?.phone) return 'active';
+  if (isAccountDeletionPending(user)) return 'deletion_pending';
   if (activeUserSanctionOfType(user.phone, 'ban')) return 'banned';
   if (activeUserSanctionOfType(user.phone, 'freeze')) return 'frozen';
   if (activeUserSanctionOfType(user.phone, 'mute')) return 'muted';
-  if (isAccountDeletionPending(user)) return 'deletion_pending';
   return user.accountStatus && !['banned', 'frozen', 'muted', 'deletion_pending'].includes(user.accountStatus) ? user.accountStatus : 'active';
 }
 
@@ -8843,6 +8977,7 @@ function normalizeAccountDeletion(value) {
   const scheduledDeletionAt = String(value.scheduledDeletionAt || '').trim();
   const requestedAt = String(value.requestedAt || '').trim();
   const confirmedAt = String(value.confirmedAt || '').trim();
+  const tokenInvalidBefore = String(value.tokenInvalidBefore || '').trim();
   if (status === 'pending' && (!scheduledDeletionAt || Number.isNaN(Date.parse(scheduledDeletionAt)))) return null;
   return {
     cancelReason: String(value.cancelReason || '').trim().slice(0, 120),
@@ -8851,6 +8986,7 @@ function normalizeAccountDeletion(value) {
     requestedAt,
     scheduledDeletionAt,
     status,
+    tokenInvalidBefore: tokenInvalidBefore && !Number.isNaN(Date.parse(tokenInvalidBefore)) ? tokenInvalidBefore : confirmedAt,
   };
 }
 
@@ -10448,7 +10584,7 @@ function parsePushDevicePayload(value) {
 
 function normalizeFavoritePlaceIds(value) {
   if (!Array.isArray(value)) return [];
-  const existingPlaceIds = new Set((state.places || []).map((place) => place.id));
+  const existingPlaceIds = new Set(runtimePlaceCatalog().map((place) => place.id));
   return [...new Set(value.map(String).filter((id) => existingPlaceIds.has(id)))];
 }
 
@@ -10457,8 +10593,13 @@ function favoritePlaceIdsFor(user) {
   return user.favoritePlaceIds;
 }
 
+function favoritePlacesFor(user) {
+  const byId = new Map(runtimePlaceCatalog().map((place) => [place.id, place]));
+  return favoritePlaceIdsFor(user).map((id) => byId.get(id)).filter(Boolean);
+}
+
 function setFavoritePlace(user, placeId, favorite) {
-  const place = (state.places || []).find((item) => item.id === placeId);
+  const place = runtimePlaceCatalog().find((item) => item.id === placeId);
   if (!place) return null;
   const current = favoritePlaceIdsFor(user);
   user.favoritePlaceIds = favorite ? [...new Set([placeId, ...current])] : current.filter((id) => id !== placeId);
@@ -10468,6 +10609,42 @@ function setFavoritePlace(user, placeId, favorite) {
 function matchesPlaceSearch(place, query) {
   const searchableText = [place.name, place.address, place.category, ...(place.tags || [])].join(' ');
   return searchableText.includes(query);
+}
+
+function isSeedFixturePlace(place) {
+  if (!place) return false;
+  if (place.source === 'seed') return true;
+  return defaultPlaces.some((fixture) => fixture.id === place.id);
+}
+
+function runtimePlaceCatalog() {
+  const places = Array.isArray(state.places) ? state.places : [];
+  return RUNTIME_ENV === 'production' ? places.filter((place) => !isSeedFixturePlace(place)) : places;
+}
+
+function placeCoordinates(place) {
+  if (!hasValidLocationCoordinates(place)) return null;
+  return {
+    accuracy: numberFromQuery(place.locationAccuracy ?? place.accuracy),
+    latitude: Number(place.latitude),
+    longitude: Number(place.longitude),
+  };
+}
+
+function runtimeNearbyPlaces(location, radiusKm, query = '') {
+  const normalizedQuery = String(query || '').trim();
+  const viewerLocation = hasValidLocationCoordinates(location) ? location : null;
+  if (!viewerLocation && RUNTIME_ENV === 'production') return [];
+  return runtimePlaceCatalog()
+    .filter((place) => !normalizedQuery || matchesPlaceSearch(place, normalizedQuery))
+    .flatMap((place) => {
+      const coordinates = placeCoordinates(place);
+      if (!viewerLocation || !coordinates) return RUNTIME_ENV === 'production' ? [] : [place];
+      const distanceKm = distanceKmBetween(viewerLocation, coordinates);
+      if (distanceKm === null || distanceKm > clampPlaceRadiusKm(radiusKm)) return [];
+      return [{ ...place, distance: formatDistanceMeters(distanceKm * 1000) }];
+    })
+    .sort((left, right) => placeDistanceMeters(left) - placeDistanceMeters(right));
 }
 
 function clampPlaceRadiusKm(value) {
@@ -10484,7 +10661,7 @@ function placeLocationFromQuery(url, user) {
       radiusKm: effectiveDiscoverRadiusKm(),
     };
   }
-  if (!user?.location) return null;
+  if (!user?.location || !isFreshNearbyLocation(user.location)) return null;
   return {
     ...user.location,
     radiusKm: effectiveDiscoverRadiusKm(),
@@ -11719,6 +11896,9 @@ function ensureManualPlaceForSubmission(submission, phone = '') {
     coverImageUrl: imageUrls[0] || '',
     distance: '附近',
     id: `manual-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    latitude: numberFromQuery(submission.latitude),
+    locationAccuracy: numberFromQuery(submission.locationAccuracy),
+    locationCapturedAt: submission.locationCapturedAt,
     name: submission.name,
     petFriendlyStatus: 'candidate',
     photoUrls: imageUrls,
@@ -11727,6 +11907,7 @@ function ensureManualPlaceForSubmission(submission, phone = '') {
     source: 'manual',
     supportedSpecies: ['cat', 'dog'],
     tags: ['用户提交', '待完善'],
+    longitude: numberFromQuery(submission.longitude),
   };
   state.places = [place, ...(state.places || [])];
   submission.approvedPlaceId = place.id;
@@ -12364,6 +12545,21 @@ function findDuplicatePlaceSubmission(user, name, address) {
   };
 }
 
+function placeSubmissionLocation(body, user) {
+  const explicitLocation = locationFromPayload(body?.location);
+  if (explicitLocation) {
+    if (!isFreshNearbyLocation(explicitLocation)) {
+      return { error: '定位已过期，请重新定位后再提交地点', errorCode: 'PLACE_LOCATION_STALE', statusCode: 400 };
+    }
+    return { location: explicitLocation, source: 'submission' };
+  }
+  const recentLocation = locationFromPayload(user?.location);
+  if (recentLocation && isFreshNearbyLocation(recentLocation)) {
+    return { location: recentLocation, source: 'recent_presence' };
+  }
+  return { error: '请先完成定位后再提交新地点', errorCode: 'PLACE_LOCATION_REQUIRED', statusCode: 400 };
+}
+
 async function createPlaceSubmission(user, body) {
   const name = String(body.name || '').trim();
   const address = String(body.address || '').trim();
@@ -12377,6 +12573,9 @@ async function createPlaceSubmission(user, body) {
   if (violation) return { error: violation, statusCode: 400 };
   const imageModerationError = placeImageModerationError(body);
   if (imageModerationError) return { error: imageModerationError, statusCode: 400 };
+  const locationResult = placeSubmissionLocation(body, user);
+  if (locationResult.error) return locationResult;
+  const submissionLocation = locationResult.location;
   const imageUrls = normalizePlaceImageUrls(body);
   const moderation = await evaluateContentTextModeration('新增地点内容', [name, address, content].join(' '), { ownerPhone: user.phone, scope: 'place_submission' });
   if (moderation.action === 'block') {
@@ -12391,6 +12590,11 @@ async function createPlaceSubmission(user, body) {
     createdAt: new Date().toISOString(),
     id: `place-submission-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
     imageUrls,
+    latitude: submissionLocation.latitude,
+    locationAccuracy: submissionLocation.accuracy,
+    locationCapturedAt: new Date(submissionLocation.updatedAt).toISOString(),
+    locationSource: locationResult.source,
+    longitude: submissionLocation.longitude,
     moderation: moderationMetadataFromEvaluation(moderation, 'place_submission'),
     name,
     photoCount: imageUrls.length,
@@ -14225,6 +14429,49 @@ function effectivePetAvatarAnimationProvider() {
   return config.provider || PET_AVATAR_ANIMATION_PROVIDER;
 }
 
+function petAvatarProviderOperational(provider = effectivePetAvatarProvider()) {
+  if (provider === 'gpt-image-2') return Boolean(GPT_IMAGE2_API_KEY);
+  if (provider === 'ttapi-flux-edits' || provider === 'ttapi-midjourney') return Boolean(TTAPI_API_KEY);
+  return provider === 'mock' && RUNTIME_ENV !== 'production';
+}
+
+function petAvatarAnimationProviderOperational(provider = effectivePetAvatarAnimationProvider()) {
+  if (provider === 'disabled') return effectivePetAvatarAnimationConfig().enabled === false;
+  if (provider === 'doubao-seedance-1-5-pro') return Boolean(APIMART_API_KEY);
+  return provider === 'mock' && RUNTIME_ENV !== 'production';
+}
+
+function petChatProviderOperational(provider = effectivePetChatProvider()) {
+  if (provider === 'deepseek') return Boolean(DEEPSEEK_API_KEY);
+  return provider === 'fallback' && RUNTIME_ENV !== 'production';
+}
+
+function aiRuntimeReadiness() {
+  const avatarProvider = effectivePetAvatarProvider();
+  const animationProvider = effectivePetAvatarAnimationProvider();
+  const chatProvider = effectivePetChatProvider();
+  const avatarReady = petAvatarProviderOperational(avatarProvider) && avatarProvider !== 'mock';
+  const animationEnabled = effectivePetAvatarAnimationConfig().enabled !== false;
+  const animationReady = !animationEnabled || (petAvatarAnimationProviderOperational(animationProvider) && animationProvider !== 'mock');
+  const chatReady = petChatProviderOperational(chatProvider) && chatProvider !== 'fallback';
+  const missing = [
+    avatarReady ? '' : `灵伴图片 provider=${avatarProvider}${avatarProvider === 'gpt-image-2' && !GPT_IMAGE2_API_KEY ? '（缺少 GPT_IMAGE2_API_KEY）' : ''}`,
+    animationReady ? '' : `灵伴动效 provider=${animationProvider}${animationProvider === 'doubao-seedance-1-5-pro' && !APIMART_API_KEY ? '（缺少 APIMART_API_KEY）' : ''}`,
+    chatReady ? '' : `宠物对话 provider=${chatProvider}${chatProvider === 'deepseek' && !DEEPSEEK_API_KEY ? '（缺少 DEEPSEEK_API_KEY）' : ''}`,
+  ].filter(Boolean);
+  return {
+    animationEnabled,
+    animationProvider,
+    animationReady,
+    avatarProvider,
+    avatarReady,
+    chatProvider,
+    chatReady,
+    missing,
+    ready: avatarReady && animationReady && chatReady,
+  };
+}
+
 function effectiveSeedanceAvatarAnimationConfig() {
   return effectivePetAvatarAnimationConfig().seedance || defaultOpsConfig().ai.avatarAnimation.seedance;
 }
@@ -15238,6 +15485,17 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
   if (media?.analysis && !media.analysis.canGenerate) {
     return { data: media.analysis, error: media.analysis.message || '当前照片不适合生成灵伴形象，请重新上传', retryable: false, statusCode: 400 };
   }
+  const provider = effectivePetAvatarProvider();
+  if (!petAvatarProviderOperational(provider)) {
+    return {
+      code: 'AVATAR_PROVIDER_UNAVAILABLE',
+      error: provider === 'mock' && RUNTIME_ENV === 'production'
+        ? '生产环境未配置真实灵伴形象生成服务，已拒绝使用测试形象，请稍后重试'
+        : '灵伴形象生成服务尚未就绪，请稍后重试',
+      retryable: true,
+      statusCode: 503,
+    };
+  }
   const id = `job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const job = createMockAvatarJob(id);
   const pet = selectedPetFor(user) || activePetFor(user);
@@ -15249,7 +15507,6 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
   state.avatarJobs[id] = job;
   touchAvatarJob(job);
 
-  const provider = effectivePetAvatarProvider();
   if (provider === 'mock') {
     consumePetAvatarQuota(user);
     job.quotaConsumed = true;
@@ -15367,6 +15624,8 @@ function createAvatarAnimationJob({ avatarJob, pet, sourceAvatarUrl, user }) {
   const id = `anim-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const provider = effectivePetAvatarAnimationProvider();
   const seedance = effectiveSeedanceAvatarAnimationConfig();
+  const mockReady = provider === 'mock' && RUNTIME_ENV !== 'production';
+  const providerReady = petAvatarAnimationProviderOperational(provider);
   const job = {
     aspectRatio: '1:1',
     avatarJobId: avatarJob?.id || '',
@@ -15384,22 +15643,27 @@ function createAvatarAnimationJob({ avatarJob, pet, sourceAvatarUrl, user }) {
     ownerPhone: user.phone,
     petId: pet?.id || '',
     petName: pet?.name || '',
-    progress: provider === 'mock' ? 100 : 2,
+    progress: mockReady ? 100 : 2,
     provider,
-    providerStatus: provider === 'mock' ? 'mock_ready' : 'queued',
+    providerStatus: mockReady ? 'mock_ready' : providerReady ? 'queued' : 'unavailable',
     postprocessEnabled: PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED,
     requestSignature: avatarAnimationRequestSignature(user, pet, sourceAvatarUrl),
     resolution: '480p',
     sourcePrepVersion: PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION,
     sourceAvatarUrl,
     stageBackground: PET_AVATAR_ANIMATION_STAGE_BACKGROUND,
-    status: provider === 'mock' ? 'ready' : 'processing',
+    status: mockReady ? 'ready' : providerReady ? 'processing' : 'failed',
     updatedAt: Date.now(),
   };
-  if (provider === 'mock') {
+  if (mockReady) {
     job.videoUrl = sourceAvatarUrl;
     job.resultUrl = sourceAvatarUrl;
     job.readyAt = new Date().toISOString();
+  } else if (!providerReady) {
+    job.errorCode = 'AVATAR_ANIMATION_PROVIDER_UNAVAILABLE';
+    job.errorMessage = provider === 'mock' && RUNTIME_ENV === 'production'
+      ? '生产环境已拒绝使用测试动效，请稍后重试。'
+      : '灵伴动效生成服务尚未就绪，请稍后重试。';
   }
   state.avatarAnimationJobs = state.avatarAnimationJobs || {};
   state.avatarAnimationJobs[id] = job;
@@ -15544,7 +15808,7 @@ async function startAvatarAnimationJobInBackground(reqSnapshot, user, job) {
     const provider = effectivePetAvatarAnimationProvider();
     if (provider === 'disabled') {
       markAvatarAnimationFailure(job, 'AVATAR_ANIMATION_DISABLED', '灵伴动效生成未启用。', 'disabled');
-    } else if (provider === 'mock') {
+    } else if (provider === 'mock' && RUNTIME_ENV !== 'production') {
       job.progress = 100;
       job.provider = 'mock';
       job.providerStatus = 'mock_ready';
@@ -20722,14 +20986,336 @@ function adminClearUserBusinessData(admin, phone, body = {}, options = {}) {
   });
 
   const afterSummary = adminUserBusinessDataSummary(normalizedPhone);
-  writeAdminAudit(admin, 'user.clear_business_data', 'user', normalizedPhone, {
-    summary: beforeSummary,
-    user: beforeUser,
-  }, {
-    summary: afterSummary,
-    user: adminUserSummary(user),
-  }, reason);
+  if (options.skipAudit !== true) {
+    writeAdminAudit(admin, 'user.clear_business_data', 'user', normalizedPhone, {
+      summary: beforeSummary,
+      user: beforeUser,
+    }, {
+      summary: afterSummary,
+      user: adminUserSummary(user),
+    }, reason);
+  }
   return { after: afterSummary, before: beforeSummary, phone: normalizedPhone };
+}
+
+function valueContainsExactPhone(value, phone) {
+  if (!phone) return false;
+  try {
+    return JSON.stringify(value).includes(phone);
+  } catch {
+    return false;
+  }
+}
+
+function accountStorageObjectKeys(phone, user) {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone || !user) return new Set();
+  const ownerId = ownerStorageId(user);
+  const ownerMarker = `/${ownerId}/`;
+  const keys = new Set();
+  const seen = new WeakSet();
+  const addValue = (value) => {
+    const text = String(value || '').trim();
+    if (!text || text.startsWith('data:') || text.length > 4000) return;
+    const parsed = storageObjectKeyFromPublicUrl(text);
+    const candidate = String(parsed || text).replace(/^\/+/, '');
+    if (!candidate || !candidate.includes(ownerMarker) || /^https?:\/\//i.test(candidate)) return;
+    keys.add(candidate);
+  };
+  const walk = (value) => {
+    if (typeof value === 'string') {
+      addValue(value);
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+      return;
+    }
+    Object.values(value).forEach(walk);
+  };
+  walk(state);
+  return keys;
+}
+
+function safeRemoveAdminExportFile(job) {
+  const filePath = adminExportJobFilePath(job);
+  if (!filePath || !fs.existsSync(filePath)) return false;
+  try {
+    fs.unlinkSync(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function removePhoneFromSystemNotification(notification, phone) {
+  if (!notification || typeof notification !== 'object') return;
+  ['failedPhones', 'rateLimitedPhones', 'targetPhones'].forEach((field) => {
+    if (!Array.isArray(notification[field])) return;
+    notification[field] = notification[field].filter((value) => normalizePhone(value) !== phone);
+  });
+  if (notification.phonesInput) {
+    notification.phonesInput = parseNotificationPhones(notification.phonesInput)
+      .filter((value) => value !== phone)
+      .join('\n');
+  }
+}
+
+function removePhoneFromSanctionBatchApproval(approval, phone) {
+  if (!approval || typeof approval !== 'object') return approval;
+  const targetPhones = Array.isArray(approval.targetPhones) ? approval.targetPhones.map(normalizePhone).filter(Boolean) : [];
+  if (!targetPhones.includes(phone)) return approval;
+  const next = {
+    ...approval,
+    results: Array.isArray(approval.results)
+      ? approval.results.filter((item) => normalizePhone(item?.phone || item?.targetPhone) !== phone)
+      : approval.results,
+    targetPhones: targetPhones.filter((value) => value !== phone),
+  };
+  next.successCount = Array.isArray(next.results) ? next.results.filter((item) => item?.sanctionId).length : Number(next.successCount || 0);
+  return next.targetPhones.length ? next : null;
+}
+
+function enqueueAccountDeletionObjectCleanup(objectKeys, tombstone) {
+  const queue = ensureAccountDeletionObjectCleanup();
+  let queued = 0;
+  for (const objectKeyValue of objectKeys || []) {
+    const objectKey = String(objectKeyValue || '').replace(/^\/+/, '').trim();
+    if (!objectKey || objectKey.includes('..')) continue;
+    const id = crypto.createHash('sha256').update(objectKey).digest('hex').slice(0, 32);
+    if (queue[id]) continue;
+    queue[id] = {
+      attempts: 0,
+      createdAt: new Date().toISOString(),
+      id,
+      lastAttemptAt: '',
+      lastError: '',
+      nextAttemptAt: Date.now(),
+      objectKey,
+      tombstoneId: tombstone.id,
+    };
+    queued += 1;
+  }
+  tombstone.objectCleanupPending = Number(tombstone.objectCleanupPending || 0) + queued;
+  tombstone.objectCleanupQueued = Number(tombstone.objectCleanupQueued || 0) + queued;
+  tombstone.status = tombstone.objectCleanupPending > 0 ? 'media_cleanup_pending' : 'complete';
+  return queued;
+}
+
+function accountDeletionRecordCount(summary = {}) {
+  return Object.values(summary).reduce((total, value) => total + (Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0), 0);
+}
+
+function purgeAccountAfterCoolingOff(phone, user, now = Date.now()) {
+  const normalizedPhone = normalizePhone(phone);
+  const deletion = normalizeAccountDeletion(user?.accountDeletion);
+  if (!normalizedPhone || !user || deletion?.status !== 'pending') return null;
+  const scheduledDeletionMs = Date.parse(deletion.scheduledDeletionAt);
+  if (!Number.isFinite(scheduledDeletionMs) || scheduledDeletionMs > now) return null;
+
+  const beforeSummary = adminUserBusinessDataSummary(normalizedPhone) || {};
+  const objectKeys = accountStorageObjectKeys(normalizedPhone, user);
+  const supportTicketIds = new Set((state.supportTickets || []).filter((item) => item?.phone === normalizedPhone).map((item) => item.id).filter(Boolean));
+  const sanctionIds = new Set((state.userSanctions || []).filter((item) => item?.phone === normalizedPhone).map((item) => item.id).filter(Boolean));
+  const explicitExportJobs = (state.adminExportJobs || []).filter((item) => valueContainsExactPhone(item, normalizedPhone));
+  explicitExportJobs.forEach((job) => {
+    if (job?.objectKey) objectKeys.add(String(job.objectKey));
+    safeRemoveAdminExportFile(job);
+  });
+
+  revokeAllAuthSessionsForPhone(normalizedPhone, 'account_deletion_executed');
+  adminClearUserBusinessData(
+    { ip: 'internal', role: 'system', userAgent: 'account-deletion-worker', username: 'system' },
+    normalizedPhone,
+    { confirmation: normalizedPhone, reason: '账号注销冷静期结束，执行永久清理' },
+    { approved: true, skipAudit: true },
+  );
+
+  if (state.sms) delete state.sms[normalizedPhone];
+  if (state.smsDailyUsage) delete state.smsDailyUsage[normalizedPhone];
+  clearSmsLoginSecurity(normalizedPhone);
+  state.appEvents = (state.appEvents || []).filter((item) => normalizePhone(item?.phone) !== normalizedPhone && !valueContainsExactPhone(item, normalizedPhone));
+  state.placeContributions = (state.placeContributions || []).filter((item) => normalizePhone(item?.phone) !== normalizedPhone);
+  state.userSanctions = (state.userSanctions || []).filter((item) => normalizePhone(item?.phone) !== normalizedPhone);
+  state.sanctionAppeals = (state.sanctionAppeals || []).filter((item) => normalizePhone(item?.phone) !== normalizedPhone && !sanctionIds.has(item?.sanctionId));
+  state.adminDataClearApprovals = (state.adminDataClearApprovals || []).filter((item) => normalizePhone(item?.phone) !== normalizedPhone);
+  state.adminSanctionApprovals = (state.adminSanctionApprovals || []).filter((item) => normalizePhone(item?.phone) !== normalizedPhone);
+  state.adminSanctionBatchApprovals = (state.adminSanctionBatchApprovals || [])
+    .map((item) => removePhoneFromSanctionBatchApproval(item, normalizedPhone))
+    .filter(Boolean);
+  state.adminExportApprovals = (state.adminExportApprovals || []).filter((item) => !valueContainsExactPhone(item, normalizedPhone));
+  state.adminExportJobs = (state.adminExportJobs || []).filter((item) => !valueContainsExactPhone(item, normalizedPhone));
+  state.adminAlertWebhookDeliveries = (state.adminAlertWebhookDeliveries || []).filter((item) => !valueContainsExactPhone(item, normalizedPhone));
+  state.supportTicketBatchReplyApprovals = (state.supportTicketBatchReplyApprovals || []).filter((item) => !(item?.ticketIds || []).some((ticketId) => supportTicketIds.has(ticketId)));
+  if (state.supportTicketQualityReviews) {
+    supportTicketIds.forEach((ticketId) => delete state.supportTicketQualityReviews[ticketId]);
+  }
+  (state.notificationAudiencePackages || []).forEach((item) => {
+    if (!Array.isArray(item?.phones)) return;
+    item.phones = item.phones.filter((value) => normalizePhone(value) !== normalizedPhone);
+    item.phoneCount = item.phones.length;
+  });
+  (state.systemNotifications || []).forEach((item) => removePhoneFromSystemNotification(item, normalizedPhone));
+  (state.places || []).forEach((place) => {
+    if (Array.isArray(place?.contributorPhones)) {
+      place.contributorPhones = place.contributorPhones.filter((value) => normalizePhone(value) !== normalizedPhone);
+    }
+    place.reviewCount = placeReviewCount(place.id);
+  });
+
+  delete state.users[normalizedPhone];
+
+  const deletedAt = new Date(now).toISOString();
+  const id = accountDeletionPhoneHash(normalizedPhone);
+  const tombstone = {
+    businessRecordCount: accountDeletionRecordCount(beforeSummary),
+    confirmedAt: deletion.confirmedAt,
+    deletedAt,
+    id,
+    invalidBefore: deletion.tokenInvalidBefore || deletedAt,
+    objectCleanupCompleted: 0,
+    objectCleanupPending: 0,
+    objectCleanupQueued: 0,
+    requestedAt: deletion.requestedAt,
+    retainedUntil: new Date(now + ACCOUNT_DELETION_TOMBSTONE_RETENTION_MS).toISOString(),
+    scheduledDeletionAt: deletion.scheduledDeletionAt,
+    status: 'complete',
+  };
+  ensureAccountDeletionTombstones()[id] = tombstone;
+  enqueueAccountDeletionObjectCleanup(objectKeys, tombstone);
+  writeAdminAudit(
+    { ip: 'internal', role: 'system', userAgent: 'account-deletion-worker', username: 'system' },
+    'account.deletion.execute',
+    'account_deletion_tombstone',
+    id,
+    null,
+    {
+      businessRecordCount: tombstone.businessRecordCount,
+      deletedAt,
+      objectCleanupQueued: tombstone.objectCleanupQueued,
+      scheduledDeletionAt: tombstone.scheduledDeletionAt,
+      status: tombstone.status,
+    },
+    '账号注销冷静期结束，系统自动执行',
+  );
+  return tombstone;
+}
+
+function pruneAccountDeletionTombstones(now = Date.now()) {
+  const tombstones = ensureAccountDeletionTombstones();
+  let removed = 0;
+  Object.entries(tombstones).forEach(([id, tombstone]) => {
+    const retainedUntilMs = Date.parse(String(tombstone?.retainedUntil || ''));
+    const hasQueuedObjects = Object.values(ensureAccountDeletionObjectCleanup()).some((item) => item?.tombstoneId === id);
+    if (!Number.isFinite(retainedUntilMs) || retainedUntilMs > now || Number(tombstone?.objectCleanupPending || 0) > 0 || hasQueuedObjects) return;
+    delete tombstones[id];
+    removed += 1;
+  });
+  return removed;
+}
+
+function processDueAccountDeletions(now = Date.now()) {
+  const deleted = [];
+  Object.entries(state.users || {}).forEach(([phone, user]) => {
+    const tombstone = purgeAccountAfterCoolingOff(phone, user, now);
+    if (tombstone) deleted.push(tombstone);
+  });
+  const tombstonesPruned = pruneAccountDeletionTombstones(now);
+  return {
+    changed: deleted.length > 0 || tombstonesPruned > 0,
+    deleted,
+    tombstonesPruned,
+  };
+}
+
+function accountDeletionOperationsSummary(now = Date.now()) {
+  const pendingUsers = Object.values(state.users || {}).filter((user) => isAccountDeletionPending(user));
+  const overdueUsers = pendingUsers.filter((user) => Date.parse(String(user.accountDeletion?.scheduledDeletionAt || '')) <= now);
+  const cleanup = Object.values(ensureAccountDeletionObjectCleanup());
+  const tombstones = Object.values(ensureAccountDeletionTombstones());
+  const lastDeletedAt = tombstones
+    .map((item) => item.deletedAt || '')
+    .filter(Boolean)
+    .sort((left, right) => String(right).localeCompare(String(left)))[0] || '';
+  return {
+    cleanupBlocked: cleanup.length > 0 && !cosEnabled(),
+    cleanupFailed: cleanup.filter((item) => Number(item.attempts || 0) > 0 && item.lastError).length,
+    cleanupPending: cleanup.length,
+    lastDeletedAt,
+    overdue: overdueUsers.length,
+    pending: pendingUsers.length,
+    tombstones: tombstones.length,
+  };
+}
+
+let accountDeletionObjectCleanupPromise = null;
+
+async function processAccountDeletionObjectCleanup(now = Date.now()) {
+  if (accountDeletionObjectCleanupPromise) return accountDeletionObjectCleanupPromise;
+  accountDeletionObjectCleanupPromise = (async () => {
+    const queue = ensureAccountDeletionObjectCleanup();
+    const due = Object.values(queue)
+      .filter((item) => Number(item?.nextAttemptAt || 0) <= now)
+      .sort((left, right) => Number(left.nextAttemptAt || 0) - Number(right.nextAttemptAt || 0))
+      .slice(0, ACCOUNT_DELETION_OBJECT_DELETE_BATCH_SIZE);
+    if (!due.length || !cosEnabled()) return { attempted: 0, changed: false };
+    let changed = false;
+    let completed = 0;
+    for (const item of due) {
+      item.attempts = Number(item.attempts || 0) + 1;
+      item.lastAttemptAt = new Date().toISOString();
+      try {
+        await cosRequest('DELETE', item.objectKey, { timeoutMs: 20_000 });
+        delete queue[item.id];
+        const tombstone = ensureAccountDeletionTombstones()[item.tombstoneId];
+        if (tombstone) {
+          tombstone.objectCleanupCompleted = Number(tombstone.objectCleanupCompleted || 0) + 1;
+          tombstone.objectCleanupPending = Math.max(0, Number(tombstone.objectCleanupPending || 0) - 1);
+          tombstone.status = tombstone.objectCleanupPending > 0 ? 'media_cleanup_pending' : 'complete';
+        }
+        completed += 1;
+      } catch (error) {
+        if (Number(error?.statusCode || 0) === 404) {
+          delete queue[item.id];
+          const tombstone = ensureAccountDeletionTombstones()[item.tombstoneId];
+          if (tombstone) {
+            tombstone.objectCleanupCompleted = Number(tombstone.objectCleanupCompleted || 0) + 1;
+            tombstone.objectCleanupPending = Math.max(0, Number(tombstone.objectCleanupPending || 0) - 1);
+            tombstone.status = tombstone.objectCleanupPending > 0 ? 'media_cleanup_pending' : 'complete';
+          }
+          completed += 1;
+        } else {
+          item.lastError = String(error?.message || error || 'COS delete failed').slice(0, 240);
+          const delay = Math.min(24 * 60 * 60 * 1000, ACCOUNT_DELETION_OBJECT_RETRY_BASE_MS * (2 ** Math.min(10, item.attempts - 1)));
+          item.nextAttemptAt = Date.now() + delay;
+        }
+      }
+      changed = true;
+    }
+    if (changed) saveState('account_deletion_object_cleanup');
+    return { attempted: due.length, changed, completed };
+  })();
+  try {
+    return await accountDeletionObjectCleanupPromise;
+  } finally {
+    accountDeletionObjectCleanupPromise = null;
+  }
+}
+
+function scheduleAccountDeletionObjectCleanup() {
+  processAccountDeletionObjectCleanup().catch((error) => {
+    console.error('Failed to delete account media objects', error);
+  });
+}
+
+function runDueAccountDeletionSweep(now = Date.now()) {
+  const result = processDueAccountDeletions(now);
+  if (result.changed) saveState('account_deletion_due');
+  if (Object.keys(ensureAccountDeletionObjectCleanup()).length > 0) scheduleAccountDeletionObjectCleanup();
+  return result;
 }
 
 function adminPetBirthdayInfo(pet) {
@@ -24340,6 +24926,10 @@ async function adminSystemHealth() {
   const appeals = adminSanctionAppeals({ status: 'all' }).summary;
   const config = currentOpsConfig();
   const smsProvider = smsProviderStatus();
+  const aiRuntime = aiRuntimeReadiness();
+  const accountDeletions = accountDeletionOperationsSummary(now);
+  const seedFixturePlaceCount = (state.places || []).filter(isSeedFixturePlace).length;
+  const unlocatedRuntimePlaceCount = runtimePlaceCatalog().filter((place) => !placeCoordinates(place)).length;
   const notifications = adminSystemNotifications().summary;
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
   const alerts = adminOperationalAlerts({ limit: 12 });
@@ -24391,6 +24981,26 @@ async function adminSystemHealth() {
       `单条验证码最多 ${SMS_VERIFY_MAX_ATTEMPTS} 次；同设备/IP ${SMS_LOGIN_CLIENT_MAX_FAILURES} 次、同手机号 ${SMS_LOGIN_ACCOUNT_MAX_FAILURES} 次失败后锁定 ${Math.ceil(SMS_LOGIN_LOCK_MS / 60_000)} 分钟`,
       'SMS_VERIFY_MAX_ATTEMPTS / SMS_LOGIN_CLIENT_MAX_FAILURES / SMS_LOGIN_ACCOUNT_MAX_FAILURES / SMS_LOGIN_LOCK_MS',
     ),
+    adminCheckStatus(
+      accountDeletions.overdue > 0 || accountDeletions.cleanupBlocked ? 'bad' : accountDeletions.cleanupFailed > 0 ? 'warn' : 'ok',
+      'account_deletion_processor',
+      '账号注销到期清理',
+      accountDeletions.overdue > 0
+        ? `${accountDeletions.overdue} 个账号已超过计划删除时间但尚未清理`
+        : accountDeletions.cleanupBlocked
+          ? `仍有 ${accountDeletions.cleanupPending} 个媒体文件待销毁，但 COS 删除能力未配置`
+        : accountDeletions.cleanupFailed > 0
+          ? `账号数据已清理，仍有 ${accountDeletions.cleanupFailed} 个对象存储文件等待重试删除`
+          : `待冷静期结束 ${accountDeletions.pending} 个，对象清理队列 ${accountDeletions.cleanupPending} 个，已留存匿名墓碑 ${accountDeletions.tombstones} 条`,
+      `coolingOff=${Math.ceil(ACCOUNT_DELETE_COOLING_OFF_MS / (24 * 60 * 60 * 1000))}d lastDeletedAt=${accountDeletions.lastDeletedAt || '-'} queue=${accountDeletions.cleanupPending}`,
+    ),
+    adminCheckStatus(
+      ALLOW_LEGACY_LOCAL_AUTH ? 'bad' : 'ok',
+      'legacy_local_auth',
+      '旧版明文登录态',
+      ALLOW_LEGACY_LOCAL_AUTH ? '当前非生产环境显式允许 lumii-local-手机号，仅可用于本地兼容调试' : 'lumii-local-手机号登录态已拒绝，用户必须使用服务端签名 token',
+      'production 强制关闭 / LUMII_ALLOW_LEGACY_LOCAL_AUTH 仅非生产可显式启用',
+    ),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'admin_ip_allowlist', '后台 IP 白名单', ipAllowlist.configured ? `已配置 ${ipAllowlist.entryCount} 条后端白名单规则` : '未配置后台 IP 白名单，/admin 仍可被公网访问', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
     adminCheckStatus(
       alertWebhook.configError ? 'bad' : !alertWebhook.configured ? 'warn' : alertWebhook.lastDelivery?.status === 'failed' ? 'warn' : 'ok',
@@ -24407,10 +25017,21 @@ async function adminSystemHealth() {
     ),
     adminCheckStatus(config.app?.maintenanceEnabled ? 'warn' : 'ok', 'maintenance', '维护模式', config.app?.maintenanceEnabled ? maintenanceMessage() : '未开启维护模式', '/app/config + 写接口维护拦截'),
     adminCheckStatus(cosEnabled() ? 'ok' : 'warn', 'cos_storage', '腾讯云 COS', cosEnabled() ? '对象存储已配置' : '对象存储未完整配置，媒体可能走本地/代理兼容链路', `bucket=${COS_BUCKET ? 'set' : 'missing'} region=${COS_REGION || '-'}`),
-    adminCheckStatus(AMAP_WEB_SERVICE_KEY ? 'ok' : 'warn', 'amap', '高德 POI', AMAP_WEB_SERVICE_KEY ? 'Web Service Key 已配置' : '未配置高德 Web Service Key，地点搜索会降级', AMAP_WEB_SERVICE_BASE_URL),
-    adminCheckStatus(DEEPSEEK_API_KEY ? 'ok' : 'warn', 'deepseek', 'DeepSeek 对话', DEEPSEEK_API_KEY ? 'AI 对话密钥已配置' : '未配置 DeepSeek 密钥，可能使用回退逻辑', effectiveDeepSeekChatConfig().model),
-    adminCheckStatus(effectivePetAvatarProvider() === 'mock' ? 'warn' : effectivePetAvatarProvider() === 'gpt-image-2' && !GPT_IMAGE2_API_KEY ? 'bad' : 'ok', 'pet_avatar_provider', '灵伴形象生成', effectivePetAvatarProvider() === 'mock' ? '当前使用 mock provider' : `当前 provider：${effectivePetAvatarProvider()}`, `gpt-image-2 key=${GPT_IMAGE2_API_KEY ? 'set' : 'missing'} resolution=${effectiveGptImage2AvatarConfig().resolution}`),
-    adminCheckStatus(effectivePetAvatarAnimationProvider() === 'disabled' ? 'warn' : effectivePetAvatarAnimationProvider() === 'doubao-seedance-1-5-pro' && !APIMART_API_KEY ? 'bad' : 'ok', 'pet_avatar_animation_provider', '灵伴动效生成', effectivePetAvatarAnimationProvider() === 'disabled' ? '当前已关闭动效生成' : `当前 provider：${effectivePetAvatarAnimationProvider()}`, `apimart key=${APIMART_API_KEY ? 'set' : 'missing'} ${effectiveSeedanceAvatarAnimationConfig().duration}s/${effectiveSeedanceAvatarAnimationConfig().aspectRatio}/${effectiveSeedanceAvatarAnimationConfig().resolution}`),
+    adminCheckStatus(AMAP_WEB_SERVICE_KEY ? 'ok' : RUNTIME_ENV === 'production' ? 'bad' : 'warn', 'amap', '高德 POI', AMAP_WEB_SERVICE_KEY ? 'Web Service Key 已配置' : RUNTIME_ENV === 'production' ? '未配置高德 Web Service Key，生产环境不会回退到示例地点' : '未配置高德 Web Service Key，本地预览使用示例地点', AMAP_WEB_SERVICE_BASE_URL),
+    adminCheckStatus(
+      seedFixturePlaceCount > 0 && RUNTIME_ENV === 'production' ? 'bad' : unlocatedRuntimePlaceCount > 0 ? 'warn' : 'ok',
+      'place_location_integrity',
+      '附近地点坐标完整性',
+      seedFixturePlaceCount > 0 && RUNTIME_ENV === 'production'
+        ? `生产状态中仍有 ${seedFixturePlaceCount} 条示例地点，已禁止对用户展示`
+        : unlocatedRuntimePlaceCount > 0
+          ? `${unlocatedRuntimePlaceCount} 条存量地点缺少坐标，已从“附近”结果排除，请在地点治理中补齐`
+          : '所有生产可见地点都有可用坐标，附近结果按实际距离计算',
+      `seed=${seedFixturePlaceCount} missingCoordinates=${unlocatedRuntimePlaceCount} radius=${effectiveDiscoverRadiusKm()}km`,
+    ),
+    adminCheckStatus(aiRuntime.chatReady ? 'ok' : RUNTIME_ENV === 'production' ? 'bad' : 'warn', 'deepseek', 'DeepSeek 对话', aiRuntime.chatReady ? 'AI 对话真实模型密钥已配置' : `当前 provider=${aiRuntime.chatProvider}，生产真实对话未就绪`, effectiveDeepSeekChatConfig().model),
+    adminCheckStatus(aiRuntime.avatarReady ? 'ok' : RUNTIME_ENV === 'production' ? 'bad' : 'warn', 'pet_avatar_provider', '灵伴形象生成', aiRuntime.avatarReady ? `当前 provider：${aiRuntime.avatarProvider}` : `真实图片 provider 未就绪：${aiRuntime.avatarProvider}`, `gpt-image-2 key=${GPT_IMAGE2_API_KEY ? 'set' : 'missing'} resolution=${effectiveGptImage2AvatarConfig().resolution}`),
+    adminCheckStatus(aiRuntime.animationReady ? 'ok' : RUNTIME_ENV === 'production' ? 'bad' : 'warn', 'pet_avatar_animation_provider', '灵伴动效生成', aiRuntime.animationReady ? aiRuntime.animationEnabled ? `当前 provider：${aiRuntime.animationProvider}` : '当前按配置关闭动效生成' : `真实动效 provider 未就绪：${aiRuntime.animationProvider}`, `apimart key=${APIMART_API_KEY ? 'set' : 'missing'} ${effectiveSeedanceAvatarAnimationConfig().duration}s/${effectiveSeedanceAvatarAnimationConfig().aspectRatio}/${effectiveSeedanceAvatarAnimationConfig().resolution}`),
     adminCheckStatus(appMediaPublicBaseUrl() ? 'ok' : 'warn', 'public_media_base', '媒体公开访问域名', appMediaPublicBaseUrl() ? '已配置公开访问 base URL' : '未配置公开访问 base URL，部分媒体 URL 依赖请求 Host', 'PET_AVATAR_PUBLIC_BASE_URL / LUMII_PUBLIC_BASE_URL'),
     adminCheckStatus(stuckAvatarJobs.length ? 'warn' : 'ok', 'avatar_queue', 'AI 任务队列', stuckAvatarJobs.length ? `${stuckAvatarJobs.length} 个生成任务可能卡住` : '暂无卡住的生成任务', `${processingAvatarJobs.length} processing / ${avatarJobs.length} total`),
     adminCheckStatus(stuckAvatarAnimationJobs.length ? 'warn' : 'ok', 'avatar_animation_queue', '动效任务队列', stuckAvatarAnimationJobs.length ? `${stuckAvatarAnimationJobs.length} 个动效任务可能卡住` : '暂无卡住的动效任务', `${processingAvatarAnimationJobs.length} processing / ${avatarAnimationJobs.length} total`),
@@ -24426,6 +25047,8 @@ async function adminSystemHealth() {
     checks,
     collections: [
       { key: 'users', label: '用户', rows: countObject(state.users) },
+      { key: 'accountDeletionTombstones', label: '匿名注销墓碑', rows: countObject(state.accountDeletionTombstones) },
+      { key: 'accountDeletionObjectCleanup', label: '注销媒体清理队列', rows: countObject(state.accountDeletionObjectCleanup) },
       { key: 'mediaUploads', label: '媒体上传', rows: countObject(state.mediaUploads) },
       { key: 'avatarJobs', label: 'AI 任务', rows: countObject(state.avatarJobs) },
       { key: 'avatarAnimationJobs', label: '动效任务', rows: countObject(state.avatarAnimationJobs) },
@@ -24441,7 +25064,7 @@ async function adminSystemHealth() {
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'place_location_integrity', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
@@ -24479,6 +25102,7 @@ async function adminSystemHealth() {
     publicApiProbe,
     mediaProbe,
     mediaCdnProbe,
+    accountDeletions,
     smsProvider,
   };
 }
@@ -25736,6 +26360,13 @@ function adminReadinessGaps(context) {
   const publicApiHttpsReady = publicApiProbe.status === 'ok' && publicApiProbe.ok === true;
   const smsProvider = health?.smsProvider || smsProviderStatus();
   const smsProviderReady = Boolean(smsProvider.productionReady);
+  const legacyAuthReady = !ALLOW_LEGACY_LOCAL_AUTH;
+  const aiRuntime = aiRuntimeReadiness();
+  const seedFixturePlaceCount = (state.places || []).filter(isSeedFixturePlace).length;
+  const unlocatedRuntimePlaceCount = runtimePlaceCatalog().filter((place) => !placeCoordinates(place)).length;
+  const placeDiscoveryReady = Boolean(AMAP_WEB_SERVICE_KEY) && seedFixturePlaceCount === 0;
+  const accountDeletions = health?.accountDeletions || accountDeletionOperationsSummary();
+  const accountDeletionReady = Number(accountDeletions.overdue || 0) === 0 && Number(accountDeletions.cleanupFailed || 0) === 0 && accountDeletions.cleanupBlocked !== true;
   const highRiskPolicy = highRiskApprovalPolicy();
   const highRiskPolicyReady = Boolean(highRiskPolicy.requireDifferentAdmin && Number(highRiskPolicy.requiredApprovals || 0) >= 2);
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
@@ -25782,6 +26413,58 @@ function adminReadinessGaps(context) {
         ? '持续监控 SendSms 接收状态、运营商回执、发送限额和验证码失败率。'
         : '在腾讯云短信控制台完成资质、签名和验证码模板审核，并配置 TENCENT_SMS_SDK_APP_ID、TENCENT_SMS_SIGN_NAME、TENCENT_SMS_TEMPLATE_ID 与 LUMII_SMS_PROVIDER=tencent。',
       evidence: '系统健康页 sms_provider + sms_login_lockout / POST /auth/sms/send + /auth/sms/verify / Tencent Cloud SendSms 2021-01-11',
+    },
+    {
+      key: 'account_lifecycle',
+      area: '账号与隐私',
+      severity: accountDeletionReady ? 'P1' : 'P0',
+      status: accountDeletionReady ? 'ready' : 'blocked',
+      issue: accountDeletionReady
+        ? `注销短信确认、全端会话撤销、冷静期登录撤销、到期业务数据清理、匿名墓碑和 COS 文件重试销毁均已接入；当前待到期 ${accountDeletions.pending || 0} 个。`
+        : `账号注销执行器异常：逾期 ${accountDeletions.overdue || 0} 个，媒体删除失败待重试 ${accountDeletions.cleanupFailed || 0} 个。`,
+      requiredAction: accountDeletionReady
+        ? '持续抽查注销到期任务、对象存储清理队列和 account.deletion.execute 审计。'
+        : '先恢复账号注销调度器或 COS 删除权限，清空逾期任务后再发布。',
+      evidence: '系统健康页 account_deletion_processor / account.deletion.execute / ACCOUNT_DELETE_COOLING_OFF_MS',
+    },
+    {
+      key: 'auth_session_security',
+      area: '账号与隐私',
+      severity: legacyAuthReady ? 'P1' : 'P0',
+      status: legacyAuthReady ? 'ready' : 'blocked',
+      issue: legacyAuthReady
+        ? '移动端只接受服务端 HMAC 签名、可过期、可撤销的登录态 token；旧 lumii-local-手机号格式已关闭。'
+        : '当前仍允许无需签名的旧 lumii-local-手机号登录态，不能发布。',
+      requiredAction: legacyAuthReady
+        ? '持续验证 token 过期、刷新、注销、全端撤销和账号删除墓碑。'
+        : '关闭 LUMII_ALLOW_LEGACY_LOCAL_AUTH，并确认生产环境拒绝旧明文登录态。',
+      evidence: '系统健康页 legacy_local_auth / POST /auth/sms/verify / POST /auth/token/refresh',
+    },
+    {
+      key: 'ai_runtime',
+      area: 'AI 核心业务',
+      severity: 'P0',
+      status: aiRuntime.ready ? 'ready' : 'blocked',
+      issue: aiRuntime.ready
+        ? `真实 AI 链路已就绪：图片 ${aiRuntime.avatarProvider}、动效 ${aiRuntime.animationEnabled ? aiRuntime.animationProvider : '已关闭'}、对话 ${aiRuntime.chatProvider}。`
+        : `生产 AI 链路未就绪：${aiRuntime.missing.join('；') || '配置异常'}。测试图片、测试动效和固定对话回退不会作为生产结果。`,
+      requiredAction: aiRuntime.ready
+        ? '持续监控供应商成功率、卡住任务、额度返还、生成成本和对话质量。'
+        : '配置并验证 GPT Image 2、Seedance（启用动效时）和 DeepSeek 的真实 provider 与密钥，再执行图片生成、动效播放和宠物第一人称对话真机验收。',
+      evidence: '系统健康页 pet_avatar_provider / pet_avatar_animation_provider / deepseek / AI 任务调用轨迹',
+    },
+    {
+      key: 'place_discovery',
+      area: '附近地点',
+      severity: 'P0',
+      status: placeDiscoveryReady ? 'ready' : 'blocked',
+      issue: placeDiscoveryReady
+        ? `高德 Web Service POI 已就绪；附近地点按当前后台配置的 ${effectiveDiscoverRadiusKm()}km 和地点坐标计算，生产不会回退示例地点。${unlocatedRuntimePlaceCount ? `存量 ${unlocatedRuntimePlaceCount} 条无坐标地点已自动排除。` : ''}`
+        : `生产附近地点未就绪：${AMAP_WEB_SERVICE_KEY ? '' : '未配置 AMAP_WEB_SERVICE_KEY；'}${seedFixturePlaceCount ? `仍存在 ${seedFixturePlaceCount} 条示例地点。` : ''}`,
+      requiredAction: placeDiscoveryReady
+        ? '持续监控高德调用失败率，并在地点治理中补齐存量无坐标数据。'
+        : '配置生产高德 Web Service Key，清除示例地点，再验证异地搜索、高德故障缓存回退和用户提交坐标。',
+      evidence: '系统健康页 amap / place_location_integrity / GET /places/nearby / GET /places/search / POST /places/submissions',
     },
     {
       key: 'state_storage',
@@ -33103,7 +33786,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       }
       const result = await createAvatarGenerationJob(req, owner, job.mediaId, job.id);
       if (result.error) {
-        fail(res, result.statusCode || 400, result.error, Boolean(result.retryable));
+        fail(res, result.statusCode || 400, result.error, Boolean(result.retryable), result.data, result.code);
         return true;
       }
       writeAdminAudit(admin, 'ai.avatar.retry', 'avatar_job', job.id, before, result.job, body.reason);
@@ -33847,6 +34530,7 @@ async function handle(req, res) {
 
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
+  runDueAccountDeletionSweep();
 
   if (req.method === 'GET' && pathname === '/health') {
     ok(res, { now: Date.now(), users: Object.keys(state.users).length });
@@ -34128,8 +34812,8 @@ async function handle(req, res) {
   if (req.method === 'POST' && pathname === '/auth/logout') {
     const token = bearerTokenFromRequest(req);
     const revoked = revokeSignedAuthToken(token);
-    const sessionUpdated = markAuthSessionRevoked(token, req);
-    if (revoked || sessionUpdated) saveState();
+    const sessionChainRevoked = revokeAuthSessionChain(token, req, 'logout_chain');
+    if (revoked || sessionChainRevoked) saveState();
     ok(res, true);
     return;
   }
@@ -34363,9 +35047,11 @@ async function handle(req, res) {
       requestedAt: request.requestedAt || confirmedAt,
       scheduledDeletionAt,
       status: 'pending',
+      tokenInvalidBefore: confirmedAt,
     };
     delete user.accountDeletionRequest;
     user.accountStatus = accountStatusFor(user);
+    revokeAllAuthSessionsForPhone(user.phone, 'account_deletion_pending');
     revokeSignedAuthToken(bearerTokenFromRequest(req));
     saveState();
     ok(res, {
@@ -34789,13 +35475,35 @@ async function handle(req, res) {
       fail(res, 404, '宠物档案不存在', false);
       return;
     }
-    const incomingAvatarUrl = String(body.avatarUrl || generatedAvatarUrl);
+    const incomingAvatarUrl = String(body.avatarUrl || '').trim();
+    if (!incomingAvatarUrl) {
+      fail(res, 400, '请选择已生成完成的灵伴形象', false, undefined, 'AVATAR_RESULT_REQUIRED');
+      return;
+    }
+    if (RUNTIME_ENV === 'production' && isGeneratedAvatarServerUri(incomingAvatarUrl)) {
+      fail(res, 503, '生产环境已拒绝使用测试灵伴形象，请重新生成', true, undefined, 'AVATAR_PROVIDER_UNAVAILABLE');
+      return;
+    }
+    const sourceJob = Object.values(state.avatarJobs || {}).find((job) => {
+      if (!job || job.ownerPhone !== user.phone || job.status !== 'ready') return false;
+      if (job.petId && job.petId !== pet.id) return false;
+      return [job.resultUrl, ...(Array.isArray(job.candidateUrls) ? job.candidateUrls : [])].filter(Boolean).includes(incomingAvatarUrl);
+    });
+    if (RUNTIME_ENV === 'production' && !sourceJob) {
+      fail(res, 400, '该图片不属于当前账号已完成的灵伴生成任务', false, undefined, 'AVATAR_RESULT_INVALID');
+      return;
+    }
     try {
       pet.avatarUrl = await storeAvatarUrlToCos(req, user, incomingAvatarUrl, { petId: pet.id, scope: 'pet-avatar' });
     } catch {
       pet.avatarUrl = incomingAvatarUrl;
     }
     ensureAvatarAnimationJob(req, user, pet, null, pet.avatarUrl);
+    if (sourceJob) {
+      sourceJob.acceptedAt = new Date().toISOString();
+      sourceJob.acceptedPetId = pet.id;
+      touchAvatarJob(sourceJob);
+    }
     saveState();
     ok(res, pet);
     return;
@@ -34889,7 +35597,7 @@ async function handle(req, res) {
     if (failIfFeatureDisabled(res, 'aiAvatar', 'AI 灵伴形象')) return;
     const result = await createAvatarGenerationJob(req, user, body.mediaId);
     if (result.error) {
-      fail(res, result.statusCode || 400, result.error, Boolean(result.retryable), result.data);
+      fail(res, result.statusCode || 400, result.error, Boolean(result.retryable), result.data, result.code);
       return;
     }
     saveState();
@@ -35012,6 +35720,12 @@ async function handle(req, res) {
       } catch (error) {
         markAvatarRefreshFailure(job, error);
       }
+    } else if (job.status === 'processing' && job.provider === 'mock' && RUNTIME_ENV === 'production') {
+      job.errorCode = 'AVATAR_PROVIDER_UNAVAILABLE';
+      job.errorMessage = '生产环境已拒绝使用测试灵伴形象，请重新生成。';
+      job.providerStatus = 'mock_forbidden';
+      job.status = 'failed';
+      touchAvatarJob(job);
     } else if (job.status === 'processing') {
       job.progress = Math.min(100, Number(job.progress || 24) + 38);
       if (job.progress >= 100) {
@@ -35044,7 +35758,7 @@ async function handle(req, res) {
       }
       const result = await createAvatarGenerationJob(req, user, job.mediaId, job.id);
       if (result.error) {
-        fail(res, result.statusCode || 400, result.error, Boolean(result.retryable), result.data);
+        fail(res, result.statusCode || 400, result.error, Boolean(result.retryable), result.data, result.code);
         return;
       }
       saveState();
@@ -35055,6 +35769,10 @@ async function handle(req, res) {
     if (action === 'accept') {
       if (job.status !== 'ready' || !job.resultUrl) {
         fail(res, 400, '形象还没生成完成，请稍后再试', true);
+        return;
+      }
+      if (RUNTIME_ENV === 'production' && (job.provider === 'mock' || isGeneratedAvatarServerUri(job.resultUrl))) {
+        fail(res, 503, '生产环境已拒绝使用测试灵伴形象，请重新生成', true, undefined, 'AVATAR_PROVIDER_UNAVAILABLE');
         return;
       }
       const pet = selectedPetFor(user);
@@ -36085,16 +36803,20 @@ async function handle(req, res) {
     if (amapPlaces.length) {
       const upserted = upsertExternalPlacesForResponse(amapPlaces);
       if (upserted.changed) saveState();
-      ok(res, placesForResponse(upserted.places));
-      return;
     }
-    ok(res, placesForResponse(state.places));
+    ok(res, placesForResponse(runtimeNearbyPlaces(location, radiusKm).slice(0, AMAP_POI_MAX_RESULTS)));
     return;
   }
 
   if (req.method === 'GET' && pathname === '/places/favorites') {
     if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     ok(res, favoritePlaceIdsFor(user));
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/places/favorites/details') {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
+    ok(res, placesForResponse(favoritePlacesFor(user)));
     return;
   }
 
@@ -36138,13 +36860,8 @@ async function handle(req, res) {
     if (amapPlaces.length) {
       const upserted = upsertExternalPlacesForResponse(amapPlaces);
       if (upserted.changed) saveState();
-      const seenIds = new Set(upserted.places.map((place) => place.id));
-      const localMatches = (query ? state.places.filter((place) => matchesPlaceSearch(place, query)) : state.places).filter((place) => !seenIds.has(place.id));
-      ok(res, placesForResponse([...upserted.places, ...localMatches].slice(0, AMAP_POI_MAX_RESULTS)));
-      return;
     }
-    const matchedPlaces = query ? state.places.filter((place) => matchesPlaceSearch(place, query)) : state.places;
-    ok(res, placesForResponse(matchedPlaces));
+    ok(res, placesForResponse(runtimeNearbyPlaces(location, radiusKm, query).slice(0, AMAP_POI_MAX_RESULTS)));
     return;
   }
 
@@ -36152,7 +36869,7 @@ async function handle(req, res) {
   if (req.method === 'GET' && placeDetailMatch) {
     if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
     const placeId = decodeURIComponent(placeDetailMatch[1]);
-    const place = (state.places || []).find((item) => item.id === placeId);
+    const place = runtimePlaceCatalog().find((item) => item.id === placeId);
     if (!place) {
       fail(res, 404, '地点不存在', false);
       return;
@@ -36218,7 +36935,7 @@ async function handle(req, res) {
     const result = await createPlaceSubmission(user, body);
     if (result.error) {
       saveState();
-      fail(res, result.statusCode || 400, result.error, false);
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.errorCode);
       return;
     }
     saveState();
@@ -36259,6 +36976,13 @@ const server = http.createServer((req, res) => {
   });
 });
 
+try {
+  runDueAccountDeletionSweep();
+  scheduleAccountDeletionObjectCleanup();
+} catch (error) {
+  console.error('Failed to process account deletions during startup', error);
+}
+
 server.listen(port, '0.0.0.0', () => {
   console.log(`Lumii local backend listening on http://0.0.0.0:${port}`);
   console.log(`State storage: ${STATE_STORAGE_DRIVER}${sqliteStateStore ? ` (${STATE_SQLITE_PATH})` : ` (${statePath})`}`);
@@ -36275,6 +36999,16 @@ const notificationScheduler = setInterval(() => {
   }
 }, 60 * 1000);
 if (typeof notificationScheduler.unref === 'function') notificationScheduler.unref();
+
+const accountDeletionScheduler = setInterval(() => {
+  try {
+    runDueAccountDeletionSweep();
+    scheduleAccountDeletionObjectCleanup();
+  } catch (error) {
+    console.error('Failed to process due account deletions', error);
+  }
+}, ACCOUNT_DELETION_SWEEP_INTERVAL_MS);
+if (typeof accountDeletionScheduler.unref === 'function') accountDeletionScheduler.unref();
 
 if (ADMIN_ALERT_WEBHOOK_URL) {
   const adminAlertWebhookScheduler = setInterval(() => {

@@ -127,10 +127,17 @@ async function loginAdmin() {
 }
 
 async function createSubmission(token, suffix) {
+  const location = {
+    accuracy: 18,
+    latitude: 23.12911,
+    longitude: 113.264385,
+    updatedAt: Date.now(),
+  };
   const payload = await request('/places/submissions', {
     body: {
       address: `Smoke Contribution Road ${suffix}`,
       content: `Smoke contribution place ${suffix}: friendly grass, water bowls, leash friendly.`,
+      location,
       name: `Smoke Contribution Yard ${suffix}`,
     },
     method: 'POST',
@@ -138,6 +145,10 @@ async function createSubmission(token, suffix) {
   });
   assert.ok(payload.data?.id, `missing submission id for ${suffix}`);
   assert.equal(payload.data.status, 'pending_review');
+  assert.equal(payload.data.latitude, location.latitude);
+  assert.equal(payload.data.longitude, location.longitude);
+  assert.equal(payload.data.locationAccuracy, location.accuracy);
+  assert.ok(payload.data.locationCapturedAt);
   return payload.data;
 }
 
@@ -165,6 +176,13 @@ async function main() {
     assert.equal(createdMySubmission?.contributionActionLabel, '发现新地点');
 
     const catalog = await request('/admin/places', { token: adminToken });
+    const createdPlace = catalog.data.places.find((place) => place.id === createdMySubmission.approvedPlaceId);
+    assert.equal(createdPlace?.latitude, createdSubmission.latitude, 'approved place should inherit submission latitude');
+    assert.equal(createdPlace?.longitude, createdSubmission.longitude, 'approved place should inherit submission longitude');
+    const nearbyAtSubmission = await request(`/places/nearby?lat=${createdSubmission.latitude}&lng=${createdSubmission.longitude}`, { token: userToken });
+    assert.ok(nearbyAtSubmission.data.some((place) => place.id === createdMySubmission.approvedPlaceId), 'approved manual place should be visible near its submitted coordinates');
+    const nearbyFromFarAway = await request('/places/nearby?lat=39.9042&lng=116.4074', { token: userToken });
+    assert.equal(nearbyFromFarAway.data.some((place) => place.id === createdMySubmission.approvedPlaceId), false, 'approved manual place must not follow the user to another city');
     const targetPlaceId = catalog.data.places.find((place) => place.id !== createdMySubmission.approvedPlaceId)?.id;
     assert.ok(targetPlaceId, 'expected an existing target place');
 

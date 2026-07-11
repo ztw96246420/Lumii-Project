@@ -685,7 +685,12 @@ export type PlaceSubmission = {
   createdAt: string;
   id: string;
   imageUrls?: string[];
+  latitude?: number;
   linkedExistingPlaceId?: string;
+  locationAccuracy?: number;
+  locationCapturedAt?: string;
+  locationSource?: 'recent_presence' | 'submission';
+  longitude?: number;
   name: string;
   photoCount?: number;
   reviewReason?: string;

@@ -1303,11 +1303,18 @@ async function run() {
   assert.equal(placeReviewNotification.placeId, reviewPlaceId, 'place review notification should carry place id');
 
   const placeSubmission = await request('/places/submissions', {
-    body: { address: 'Smoke New Place 42', content: 'friendly water bowl and outdoor seats', name: 'Smoke Friendly Yard' },
+    body: {
+      address: 'Smoke New Place 42',
+      content: 'friendly water bowl and outdoor seats',
+      location: location(ownerLoc.latitude, ownerLoc.longitude),
+      name: 'Smoke Friendly Yard',
+    },
     method: 'POST',
     token: readSenderToken,
   });
   assert.ok(placeSubmission.data.id, 'place submission should be created');
+  assert.equal(placeSubmission.data.latitude, ownerLoc.latitude, 'place submission should retain publish latitude');
+  assert.equal(placeSubmission.data.longitude, ownerLoc.longitude, 'place submission should retain publish longitude');
   const notificationsAfterPlaceSubmission = await request('/notifications', { token: readSenderToken });
   const placeSubmissionNotification = notificationsAfterPlaceSubmission.data.find((item) => item.id === `notification-${placeSubmission.data.id}`);
   assert.ok(placeSubmissionNotification, 'place submission notification should exist');
