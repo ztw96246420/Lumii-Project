@@ -558,6 +558,7 @@ async function main() {
     await screenshot(page, 'smoke-frontend-00d-weight-deleted.png');
 
     const smokeVaccineName = 'PW vaccine smoke';
+    const editedVaccineName = 'PW vaccine edited';
     await page.goto(`${baseUrl}/?route=vaccine`, { timeout: 60_000, waitUntil: 'networkidle' });
     await page.getByLabel('toggle-vaccine-composer').click();
     await page.getByLabel('vaccine-name-input').fill(smokeVaccineName);
@@ -566,15 +567,40 @@ async function main() {
     await waitBodyIncludes(page, smokeVaccineName);
     await screenshot(page, 'smoke-frontend-00e-vaccine-added.png');
 
-    await page.getByLabel(/^enable-vaccine-reminder-PW vaccine smoke-/).first().click();
-    await page.getByLabel(/^vaccine-reminder-enabled-PW vaccine smoke-/).first().waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel(/^edit-vaccine-plan-PW vaccine smoke-/).first().click();
+    await waitExactText(page, '编辑计划');
+    await page.getByLabel('vaccine-name-input').fill(editedVaccineName);
+    await selectVaccineQuickDate(page, isoDateAfterDays(7));
+    await page.getByLabel('save-vaccine-edit').click();
+    await waitBodyIncludes(page, editedVaccineName);
+    await waitBodyExcludes(page, smokeVaccineName);
+    await screenshot(page, 'smoke-frontend-00f-vaccine-edited.png');
+
+    await page.getByLabel(/^enable-vaccine-reminder-PW vaccine edited-/).first().click();
+    await page.getByLabel(/^vaccine-reminder-enabled-PW vaccine edited-/).first().waitFor({ state: 'visible', timeout: 30_000 });
     await screenshot(page, 'smoke-frontend-00f-vaccine-reminder-enabled.png');
 
-    const smokeVaccineDoneButton = page.getByLabel(/^complete-vaccine-PW vaccine smoke-/);
+    const smokeVaccineDoneButton = page.getByLabel(/^complete-vaccine-PW vaccine edited-/);
     await smokeVaccineDoneButton.click();
     await smokeVaccineDoneButton.waitFor({ state: 'hidden', timeout: 30_000 });
-    await waitBodyIncludes(page, smokeVaccineName);
+    await waitBodyIncludes(page, editedVaccineName);
     await screenshot(page, 'smoke-frontend-00g-vaccine-completed.png');
+
+    await page.getByLabel(/^edit-vaccine-plan-PW vaccine edited-/).first().click();
+    await page.getByLabel(/^restore-vaccine-plan-/).click();
+    await page.getByLabel(/^complete-vaccine-PW vaccine edited-/).waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(page, 'smoke-frontend-00g2-vaccine-restored.png');
+
+    await page.getByLabel(/^edit-vaccine-plan-PW vaccine edited-/).first().click();
+    await page.getByLabel(/^delete-vaccine-plan-/).click();
+    await waitExactText(page, '删除这条计划？');
+    await clickExactText(page, '取消');
+    await waitBodyIncludes(page, editedVaccineName);
+    await page.getByLabel(/^delete-vaccine-plan-/).click();
+    await waitExactText(page, '删除这条计划？');
+    await clickExactText(page, '删除');
+    await waitBodyExcludes(page, editedVaccineName);
+    await screenshot(page, 'smoke-frontend-00g3-vaccine-deleted.png');
 
     await page.goto(`${baseUrl}/?route=aiResult`, { timeout: 60_000, waitUntil: 'networkidle' });
     await page.getByLabel('select-avatar-candidate-1').click();

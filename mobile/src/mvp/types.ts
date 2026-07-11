@@ -395,6 +395,12 @@ export type CreateVaccinePlanInput = {
   name: string;
 };
 
+export type UpdateVaccinePlanInput = {
+  dueAt?: string;
+  name?: string;
+  status?: VaccinePlan['status'];
+};
+
 export type HealthMemo = {
   content: string;
   createdAt?: string;

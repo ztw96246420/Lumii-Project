@@ -265,6 +265,81 @@ async function main() {
     const calendar = await request('/health/calendar', { token: primaryToken });
     assert.equal(Array.isArray(calendar.data), true);
 
+    const vaccinesInitially = await request('/health/vaccines', { token: primaryToken });
+    assert.deepEqual(vaccinesInitially.data, [], 'new pets must not receive default vaccine records');
+    const settingsForVaccineNotifications = await request('/settings', {
+      body: { pushNotifications: true },
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(settingsForVaccineNotifications.data.pushNotifications, true);
+    const vaccineDueAt = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const vaccineEditedDueAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const createdVaccine = await request('/health/vaccines', {
+      body: { dueAt: vaccineDueAt, name: 'Core vaccine smoke' },
+      method: 'POST',
+      token: primaryToken,
+    });
+    assert.equal(createdVaccine.data.status, 'due');
+    const vaccineId = createdVaccine.data.id;
+    const enabledVaccineReminder = await request(`/health/vaccine-reminders/${encodeURIComponent(vaccineId)}`, {
+      body: { enabled: true },
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(enabledVaccineReminder.data.includes(vaccineId), true);
+
+    const editedVaccine = await request(`/health/vaccines/${encodeURIComponent(vaccineId)}`, {
+      body: { dueAt: vaccineEditedDueAt, name: 'Core vaccine edited' },
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(editedVaccine.data.name, 'Core vaccine edited');
+    assert.equal(editedVaccine.data.dueAt, vaccineEditedDueAt);
+    assert.equal(editedVaccine.data.status, 'due');
+    const vaccinesAfterEdit = await request('/health/vaccines', { token: primaryToken });
+    assert.equal(vaccinesAfterEdit.data.some((item) => item.id === vaccineId && item.name === 'Core vaccine edited'), true);
+    const calendarAfterVaccineEdit = await request('/health/calendar', { token: primaryToken });
+    assert.equal(calendarAfterVaccineEdit.data.some((item) => item.sourceId === vaccineId && item.date === vaccineEditedDueAt && item.title === 'Core vaccine edited'), true);
+
+    const completedVaccine = await request(`/health/vaccines/${encodeURIComponent(vaccineId)}`, {
+      body: { status: 'done' },
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(completedVaccine.data.status, 'done');
+    const remindersAfterVaccineDone = await request('/health/vaccine-reminders', { token: primaryToken });
+    assert.equal(remindersAfterVaccineDone.data.includes(vaccineId), false);
+    const notificationsAfterVaccineDone = await request('/notifications', { token: primaryToken });
+    assert.equal(notificationsAfterVaccineDone.data.some((item) => item.vaccineId === vaccineId && item.kind === 'vaccine_done'), true);
+
+    const restoredVaccine = await request(`/health/vaccines/${encodeURIComponent(vaccineId)}`, {
+      body: { status: 'due' },
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(restoredVaccine.data.status, 'due');
+    const notificationsAfterVaccineRestore = await request('/notifications', { token: primaryToken });
+    assert.equal(notificationsAfterVaccineRestore.data.some((item) => item.vaccineId === vaccineId && item.kind === 'vaccine_done'), false);
+
+    const invalidVaccinePatch = await request(`/health/vaccines/${encodeURIComponent(vaccineId)}`, {
+      body: {},
+      expectedStatus: 400,
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(invalidVaccinePatch.error.code, 'HEALTH_VACCINE_INVALID');
+
+    const vaccinesAfterDelete = await request(`/health/vaccines/${encodeURIComponent(vaccineId)}`, {
+      method: 'DELETE',
+      token: primaryToken,
+    });
+    assert.equal(vaccinesAfterDelete.data.some((item) => item.id === vaccineId), false);
+    const calendarAfterVaccineDelete = await request('/health/calendar', { token: primaryToken });
+    assert.equal(calendarAfterVaccineDelete.data.some((item) => item.sourceId === vaccineId), false);
+    const notificationsAfterVaccineDelete = await request('/notifications', { token: primaryToken });
+    assert.equal(notificationsAfterVaccineDelete.data.some((item) => item.vaccineId === vaccineId), false);
+
     const nearbyPlaces = await request('/places/nearby', { token: primaryToken });
     const place = nearbyPlaces.data?.find((item) => item?.id);
     assert.ok(place?.id, 'nearby places should include at least one place');

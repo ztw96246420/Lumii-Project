@@ -724,15 +724,11 @@ WeightRecord[]
 
 ### GET `/health/vaccines`
 
-当前宠物疫苗/驱虫计划。测试后端会按 `phone + activePetId` 持久化，默认根据猫/狗生成基础计划。
-
-默认模板：
-- 狗：`犬四联/犬六联`、`狂犬疫苗`、`体内驱虫`、`体外驱虫`。
-- 猫：`猫三联`、`狂犬疫苗`、`体内驱虫`、`体外驱虫`。
+当前宠物疫苗/驱虫计划。测试后端会按 `phone + activePetId` 持久化。
 
 说明：
-- 2026-06-18 后，测试后端读取疫苗计划时会为老账号自动补齐缺失模板；不会删除用户已新增或已标记完成的计划。
-- 默认模板只是 MVP 级健康提醒，不替代兽医建议；正式运营模板后续可按年龄、地区和医院建议扩充。
+- 新建宠物默认返回空列表，不会根据猫/狗自动创建疫苗或驱虫记录。
+- 历史版本自动生成且未经用户修改的默认模板已由迁移逻辑清理；用户主动新增的记录继续保留。
 
 ### POST `/health/vaccines`
 
@@ -755,18 +751,30 @@ Request:
 Request:
 
 ```json
-{ "status": "done" }
+{ "name": "狂犬疫苗加强针", "dueAt": "2026-07-30", "status": "due" }
 ```
 
-`status` 可为 `due`、`done`、`overdue`。
+`name`、`dueAt`、`status` 均为可选修改项，但请求必须至少包含一项。`status` 可为 `due`、`done`、`overdue`。
 
 说明：
-- 只接受 `status` 字段，未知字段或非法状态会返回 `HEALTH_VACCINE_INVALID`。
+- 只接受 `name`、`dueAt`、`status` 字段，未知字段、空修改或非法值会返回 `HEALTH_VACCINE_INVALID`。
+- `name` 最多 24 个字，`dueAt` 必须是合法 `YYYY-MM-DD` 日期。
+- 非完成状态会按日期归一：过去日期返回 `overdue`，今天或未来返回 `due`，避免客户端写入互相矛盾的日期和状态。
 - `vaccineId` 不存在时返回 404，不会新建计划。
 
 当疫苗计划被标记为 `done` 后：
 - 测试后端会自动移除该计划的提醒开关。
-- 测试后端会生成一条“疫苗计划已完成”通知，可通过 `GET /notifications` 读回；通知 `kind=vaccine_done`，并携带 `vaccineId` 用于从通知中心回到疫苗计划；是否生成受 `pushNotifications` 控制。
+- 测试后端会生成一条“疫苗/驱虫计划已完成”通知，可通过 `GET /notifications` 读回；通知 `kind=vaccine_done`，并携带 `vaccineId` 用于从通知中心回到疫苗计划；是否生成受 `pushNotifications` 控制。
+- 将已完成记录恢复为 `due` 时，服务端按计划日期返回 `due` 或 `overdue`，并清理旧完成通知；提醒不会被自动重新开启。
+
+### DELETE `/health/vaccines/{vaccineId}`
+
+删除当前宠物的一条疫苗/驱虫计划，成功后返回剩余计划列表。
+
+说明：
+- `vaccineId` 不存在时返回 404。
+- 删除会同步清理该计划的提醒开关、站内提醒、完成通知和宠物日历聚合事件。
+- App 删除前必须展示不可恢复的二次确认。
 
 ### GET `/health/vaccine-reminders`
 
@@ -797,11 +805,11 @@ Request:
 
 ### GET `/health/memos`
 
-当前宠物健康备忘列表。测试后端会按 `phone + activePetId` 持久化。
+当前宠物备忘列表。测试后端会按 `phone + activePetId` 持久化。
 
 产品入口说明：
-- 健康备忘仍是健康记录数据类型和 CRUD 接口，但不再作为 MVP 主流程的独立入口页。
-- App 主入口改为健康日历；旧健康备忘列表页仅保留兼容旧路由、历史栈或调试查看。
+- 备忘仍使用既有健康域 CRUD 接口，但不再作为 MVP 主流程的独立入口页。
+- App 主入口为宠物日历；旧备忘列表页仅保留兼容旧路由、历史栈或调试查看。
 
 ### POST `/health/memos`
 

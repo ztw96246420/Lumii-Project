@@ -61,6 +61,7 @@ import type {
   SupportTicketSummary,
   UploadPetMediaInput,
   UploadedPetMedia,
+  UpdateVaccinePlanInput,
   UserSettings,
   UserProfile,
   VaccinePlan,
@@ -422,6 +423,29 @@ function parseMockVaccineStatusPatch(status: unknown): { error: string; ok: fals
   const nextStatus = String(status || '').trim();
   if (!['done', 'due', 'overdue'].includes(nextStatus)) return { error: '疫苗状态无效', ok: false };
   return { ok: true, status: nextStatus as VaccinePlan['status'] };
+}
+
+function parseMockVaccineUpdatePayload(value: UpdateVaccinePlanInput, current: VaccinePlan): { error: string; ok: false } | { input: VaccinePlan; ok: true } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '疫苗计划参数无效，请刷新后重试', ok: false };
+  }
+  const source = value as Record<string, unknown>;
+  const allowedKeys = new Set(['dueAt', 'name', 'status']);
+  const keys = Object.keys(source);
+  const unknownKey = keys.find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `疫苗计划字段 ${unknownKey} 暂不支持`, ok: false };
+  if (!keys.length) return { error: '请至少修改一项疫苗计划内容', ok: false };
+  const name = String(Object.prototype.hasOwnProperty.call(source, 'name') ? source.name : current.name).trim();
+  const dueAt = String(Object.prototype.hasOwnProperty.call(source, 'dueAt') ? source.dueAt : current.dueAt).trim();
+  const requestedStatus = String(Object.prototype.hasOwnProperty.call(source, 'status') ? source.status : current.status).trim();
+  if (!name) return { error: '请输入疫苗或驱虫名称', ok: false };
+  if (name.length > 24) return { error: '疫苗名称最多 24 个字', ok: false };
+  if (!isValidIsoCalendarDate(dueAt)) return { error: '请选择正确的计划日期', ok: false };
+  const statusPatch = parseMockVaccineStatusPatch(requestedStatus);
+  if (!statusPatch.ok) return statusPatch;
+  const days = daysUntilDate(dueAt);
+  const status = statusPatch.status === 'done' ? 'done' : days !== null && days < 0 ? 'overdue' : 'due';
+  return { input: { dueAt, id: current.id, name, status }, ok: true };
 }
 
 function parseMockVaccineReminderPatch(enabled: unknown): { error: string; ok: false } | { enabled: boolean; ok: true } {
@@ -2081,6 +2105,45 @@ function ensureMockHealthReminderNotifications() {
   return changed;
 }
 
+function applyMockVaccineUpdate(id: string, patch: UpdateVaccinePlanInput): ApiResult<VaccinePlan> {
+  ensureMockVaccineTemplateCoverage();
+  const vaccine = vaccines.find((item) => item.id === id);
+  if (!vaccine) return error<VaccinePlan>('疫苗计划不存在', false, undefined, 'RESOURCE_NOT_FOUND');
+  const parsed = parseMockVaccineUpdatePayload(patch, vaccine);
+  if (!parsed.ok) return error<VaccinePlan>(parsed.error, false, undefined, 'HEALTH_VACCINE_INVALID');
+  const nextVaccine = parsed.input;
+  vaccines = vaccines.map((item) => (item.id === id ? nextVaccine : item)).sort((left, right) => left.dueAt.localeCompare(right.dueAt) || left.id.localeCompare(right.id));
+  const doneNotificationId = `mock-vaccine-done-${id}`;
+  if (nextVaccine.status === 'done') {
+    vaccineReminderIds = vaccineReminderIds.filter((item) => item !== id);
+    notifications = notifications.filter((item) => !(item.vaccineId === id && (normalizeMockNotificationKind(item.kind) || inferMockNotificationKind(item)) === 'vaccine_reminder'));
+    pruneMockHealthReminderNotifications();
+    const existing = notifications.find((item) => item.id === doneNotificationId);
+    if (existing) {
+      Object.assign(existing, {
+        kind: 'vaccine_done',
+        text: `${nextVaccine.name}已标记完成，宠物日历已更新。`,
+        title: '疫苗/驱虫计划已完成',
+        vaccineId: id,
+      });
+    } else {
+      addMockNotification({
+        id: doneNotificationId,
+        kind: 'vaccine_done',
+        read: false,
+        text: `${nextVaccine.name}已标记完成，宠物日历已更新。`,
+        title: '疫苗/驱虫计划已完成',
+        vaccineId: id,
+      });
+    }
+  } else {
+    notifications = notifications.filter((item) => item.id !== doneNotificationId && !(item.vaccineId === id && (normalizeMockNotificationKind(item.kind) || inferMockNotificationKind(item)) === 'vaccine_reminder'));
+    pruneMockHealthReminderNotifications();
+    ensureMockHealthReminderNotifications();
+  }
+  return success(nextVaccine);
+}
+
 function buildHealthSummary(): HealthSummary {
   ensureMockVaccineTemplateCoverage();
   const petId = activePetId || pets[0]?.id;
@@ -2976,30 +3039,26 @@ export const mockApi = {
       return success(vaccine);
     },
 
+    async updateVaccinePlan(id: string, patch: UpdateVaccinePlanInput): Promise<ApiResult<VaccinePlan>> {
+      await wait();
+      return applyMockVaccineUpdate(id, patch);
+    },
+
     async updateVaccineStatus(id: string, status: VaccinePlan['status']): Promise<ApiResult<VaccinePlan>> {
       await wait();
+      return applyMockVaccineUpdate(id, { status });
+    },
+
+    async deleteVaccinePlan(id: string): Promise<ApiResult<VaccinePlan[]>> {
+      await wait(160);
       ensureMockVaccineTemplateCoverage();
-      const statusPatch = parseMockVaccineStatusPatch(status);
-      if (!statusPatch.ok) return error<VaccinePlan>(statusPatch.error, false, undefined, 'HEALTH_VACCINE_INVALID');
-      const vaccine = vaccines.find((item) => item.id === id);
-      if (!vaccine) return error('疫苗计划不存在', false);
-      const nextVaccine = { ...vaccine, status: statusPatch.status };
-      vaccines = vaccines.map((item) => (item.id === id ? nextVaccine : item));
-      if (statusPatch.status === 'done') {
-        vaccineReminderIds = vaccineReminderIds.filter((item) => item !== id);
-        pruneMockHealthReminderNotifications();
-        addMockNotification({
-          id: `mock-vaccine-done-${id}`,
-          kind: 'vaccine_done',
-          read: false,
-          text: `${nextVaccine.name}已标记完成，健康时间线已更新。`,
-          title: '疫苗计划已完成',
-          vaccineId: id,
-        });
-      } else {
-        ensureMockHealthReminderNotifications();
-      }
-      return success(nextVaccine);
+      if (!vaccines.some((item) => item.id === id)) return error<VaccinePlan[]>('疫苗计划不存在', false, undefined, 'RESOURCE_NOT_FOUND');
+      vaccines = vaccines.filter((item) => item.id !== id);
+      vaccineReminderIds = vaccineReminderIds.filter((item) => item !== id);
+      notifications = notifications.filter((item) => item.vaccineId !== id);
+      pruneMockHealthReminderNotifications();
+      ensureMockHealthReminderNotifications();
+      return success(vaccines);
     },
 
     async listVaccineReminderIds(): Promise<ApiResult<string[]>> {

@@ -10353,18 +10353,25 @@ function parseHealthMemoPayload(value, current = null) {
   return { memo: { content, reminderAt: reminderEnabled ? reminderAt : undefined, reminderEnabled, repeat, title } };
 }
 
-function parseVaccineStatusPatch(value) {
+function parseVaccineUpdatePayload(value, current) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { error: '疫苗计划参数无效，请刷新后重试' };
   }
-  const allowedKeys = new Set(['status']);
+  const allowedKeys = new Set(['dueAt', 'name', 'status']);
   const keys = Object.keys(value);
   const unknownKey = keys.find((key) => !allowedKeys.has(key));
   if (unknownKey) return { error: `疫苗计划字段 ${unknownKey} 暂不支持` };
-  if (!Object.prototype.hasOwnProperty.call(value, 'status')) return { error: '请选择疫苗计划状态' };
-  const status = String(value.status || '').trim();
-  if (!['done', 'due', 'overdue'].includes(status)) return { error: '疫苗状态无效' };
-  return { status };
+  if (!keys.length) return { error: '请至少修改一项疫苗计划内容' };
+  const name = String(Object.prototype.hasOwnProperty.call(value, 'name') ? value.name : current?.name || '').trim();
+  const dueAt = String(Object.prototype.hasOwnProperty.call(value, 'dueAt') ? value.dueAt : current?.dueAt || '').trim();
+  const requestedStatus = String(Object.prototype.hasOwnProperty.call(value, 'status') ? value.status : current?.status || 'due').trim();
+  if (!name) return { error: '请输入疫苗或驱虫名称' };
+  if (name.length > 24) return { error: '疫苗名称最多 24 个字' };
+  if (!isValidIsoCalendarDate(dueAt)) return { error: '请选择正确的计划日期' };
+  if (!['done', 'due', 'overdue'].includes(requestedStatus)) return { error: '疫苗状态无效' };
+  const days = daysUntilDate(dueAt);
+  const status = requestedStatus === 'done' ? 'done' : days !== null && days < 0 ? 'overdue' : 'due';
+  return { input: { dueAt, name, status } };
 }
 
 function parseVaccineReminderPatch(value) {
@@ -34888,35 +34895,70 @@ async function handle(req, res) {
   const vaccineMatch = pathname.match(/^\/health\/vaccines\/([^/]+)$/);
   if (req.method === 'PATCH' && vaccineMatch) {
     const id = decodeURIComponent(vaccineMatch[1]);
-    const vaccinePatch = parseVaccineStatusPatch(body);
+    const vaccines = vaccineListFor(user);
+    const index = vaccines.findIndex((item) => item.id === id);
+    if (index < 0) {
+      fail(res, 404, '疫苗计划不存在', false);
+      return;
+    }
+    const vaccinePatch = parseVaccineUpdatePayload(body, vaccines[index]);
     if (vaccinePatch.error) {
       fail(res, 400, vaccinePatch.error, false, undefined, 'HEALTH_VACCINE_INVALID');
       return;
     }
-    const { status } = vaccinePatch;
-    const vaccines = vaccineListFor(user);
-    const index = vaccines.findIndex((item) => item.id === id);
-    if (index < 0) {
-      fail(res, 404, '疫苗计划不存在', true);
-      return;
-    }
-    vaccines[index] = { ...vaccines[index], status };
-    if (status === 'done') {
+    const nextVaccine = { ...vaccines[index], ...vaccinePatch.input };
+    vaccines[index] = nextVaccine;
+    vaccines.sort((left, right) => String(left.dueAt).localeCompare(String(right.dueAt)) || String(left.id).localeCompare(String(right.id)));
+    const doneNotificationId = `n-vaccine-done-${healthKeyFor(user)}-${id}`;
+    state.notifications[user.phone] = state.notifications[user.phone] || [];
+    const existingDoneNotification = state.notifications[user.phone].find((notification) => notification.id === doneNotificationId);
+    if (nextVaccine.status === 'done') {
       setVaccineReminderFor(user, id, false);
       pruneHealthReminderNotifications(user);
-      addNotification(user.phone, {
-        id: `n-vaccine-done-${healthKeyFor(user)}-${id}`,
-        kind: 'vaccine_done',
-        read: false,
-        text: `${vaccines[index].name}已标记完成，健康时间线已更新。`,
-        title: '疫苗计划已完成',
-        vaccineId: id,
-      });
+      if (existingDoneNotification) {
+        Object.assign(existingDoneNotification, {
+          kind: 'vaccine_done',
+          text: `${nextVaccine.name}已标记完成，宠物日历已更新。`,
+          title: '疫苗/驱虫计划已完成',
+          vaccineId: id,
+        });
+      } else {
+        addNotification(user.phone, {
+          id: doneNotificationId,
+          kind: 'vaccine_done',
+          read: false,
+          text: `${nextVaccine.name}已标记完成，宠物日历已更新。`,
+          title: '疫苗/驱虫计划已完成',
+          vaccineId: id,
+        });
+      }
     } else {
+      state.notifications[user.phone] = state.notifications[user.phone].filter((notification) => (
+        notification.id !== doneNotificationId && !(notification.vaccineId === id && notification.kind === 'vaccine_reminder')
+      ));
+      pruneHealthReminderNotifications(user);
       ensureHealthReminderNotifications(user);
     }
     saveState();
-    ok(res, vaccines[index]);
+    ok(res, nextVaccine);
+    return;
+  }
+
+  if (req.method === 'DELETE' && vaccineMatch) {
+    const id = decodeURIComponent(vaccineMatch[1]);
+    const vaccines = vaccineListFor(user);
+    const index = vaccines.findIndex((item) => item.id === id);
+    if (index < 0) {
+      fail(res, 404, '疫苗计划不存在', false);
+      return;
+    }
+    vaccines.splice(index, 1);
+    setVaccineReminderFor(user, id, false);
+    state.notifications[user.phone] = (state.notifications[user.phone] || []).filter((notification) => notification.vaccineId !== id);
+    pruneHealthReminderNotifications(user);
+    ensureHealthReminderNotifications(user);
+    saveState();
+    ok(res, vaccines);
     return;
   }
 

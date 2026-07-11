@@ -55,6 +55,7 @@ import type {
   SupportTicketList,
   UploadPetMediaInput,
   UploadedPetMedia,
+  UpdateVaccinePlanInput,
   UserSettings,
   UserProfile,
   VaccinePlan,
@@ -399,8 +400,16 @@ function createHttpApi(baseUrl: string): LumiiApi {
         return request<VaccinePlan>('POST', '/health/vaccines', input);
       },
 
+      async updateVaccinePlan(id: string, patch: UpdateVaccinePlanInput): Promise<ApiResult<VaccinePlan>> {
+        return request<VaccinePlan>('PATCH', `/health/vaccines/${encodeURIComponent(id)}`, patch);
+      },
+
       async updateVaccineStatus(id: string, status: VaccinePlan['status']): Promise<ApiResult<VaccinePlan>> {
         return request<VaccinePlan>('PATCH', `/health/vaccines/${encodeURIComponent(id)}`, { status });
+      },
+
+      async deleteVaccinePlan(id: string): Promise<ApiResult<VaccinePlan[]>> {
+        return request<VaccinePlan[]>('DELETE', `/health/vaccines/${encodeURIComponent(id)}`);
       },
 
       async listVaccineReminderIds(): Promise<ApiResult<string[]>> {
