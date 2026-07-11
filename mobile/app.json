@@ -18,6 +18,7 @@
     "android": {
       "package": "com.lumii.lingban",
       "versionCode": 11,
+      "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#FF8A5C",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -30,8 +31,7 @@
         "android.permission.CAMERA",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.READ_MEDIA_IMAGES"
       ],
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "resize"

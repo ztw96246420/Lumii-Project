@@ -95,20 +95,27 @@
 - “我”标记只出现在本人宠友圈头部；已互相接受招呼的他人宠友圈不展示“我”、更换封面或删除入口。
 - 三点菜单继续就地展示“查看评论/删除”；删除增加不可恢复二次确认，评论层增加明确关闭按钮，Mock 删除后不再被演示夹具重新生成。
 
+### 2.9 Android Release 权限最小化
+
+- 从正式包主 Manifest 和 Expo 配置移除当前业务未使用的 `RECORD_AUDIO` 与 `SYSTEM_ALERT_WINDOW`；语音录制和系统悬浮层均不是首发功能，不再为未来假设提前索取敏感权限。
+- Android 系统备份改为 `allowBackup=false`；账号、宠物和互动数据以服务端为准，本机登录凭据和草稿不进入系统迁移备份面。
+- Release 配置门禁会同时检查 Expo 配置和原生主 Manifest，后续预构建或依赖升级重新引入上述权限时直接失败。
+
 ## 3. 当前验证证据
 
 - 移动端 TypeScript：`npm run typecheck` 通过。
 - 工单 SLA/客服排班/用户补充/评价/重开闭环：`node scripts/smoke-ticket-sla-roster.cjs` 通过。
 - 移动端完整 Playwright：`node scripts/smoke-frontend-playwright.cjs` 通过，含 39 路由直达、缺头像、宠友圈互动、设置/注销、真实登录会话和宠物建档流程。
-- 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 通过，70/70 套件全部成功；覆盖 Release HTTPS、API TLS/SNI、SQLite/WAL，以及生产短信随机 OTP、TC3 请求、固定码旁路阻断和注销验证码。
+- 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 通过，70/70 套件全部成功；覆盖 Release HTTPS、Android 敏感权限最小化、API TLS/SNI、SQLite/WAL，以及生产短信随机 OTP、TC3 请求、固定码旁路阻断和注销验证码。
 - 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-11 通过，79/79 套件全部成功；移动端 Playwright 新增本人宠友圈同日多条、唯一“我”标记、评论、删除确认、他人宠友圈权限和运行中 Token 撤销恢复验证，后台 8 个关键运营页面同步通过。
 - 附近位置与半径专项：`node scripts/smoke-pet-circle.cjs`、配置审批/预约发布/双人会签回归和 `node scripts/smoke-admin-config-high-risk-page.cjs` 通过；覆盖发布位置快照、跨城市移动、历史无位置数据、10km 默认档位、3/5/10km 后台选择及客户端越权半径拦截。
+- Android 候选包：`dist/Lumii-Lingban-v1.0.0-vc11-arm64-20260711-1300.apk` 已完成正式签名构建，大小 68.52 MB，SHA-256 为 `888F04A2AC264323A4758E68694336E4686D916DFF10FE62D551C28473A8904F`；包名 `com.lumii.lingban`、versionCode `11`、API `https://api.lumiiapp.cn`、禁止明文流量。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗权限且系统备份关闭。
 
 ## 4. 剩余工作
 
 ### 4.1 发布候选验收
 
-- 在生产 HTTPS API 上构建正式签名 APK，完成新装、升级、登录、建档、AI 生成、宠友圈、通知、注销和异常恢复的真机回归。
+- 正式签名、arm64、生产 HTTPS 候选 APK 已构建并通过静态、签名、权限和自动化门禁；仍需在真机完成新装、同签名升级、登录、建档、AI 生成、宠友圈、通知、注销和异常恢复回归。
 
 ### 4.2 生产配置与业务确认
 

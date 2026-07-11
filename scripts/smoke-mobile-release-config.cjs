@@ -49,6 +49,13 @@ assert.equal(easConfig.build.production.environment, 'production');
 const manifest = fs.readFileSync(path.join(mobileDir, 'android', 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
 assert.match(manifest, /android:usesCleartextTraffic="\$\{usesCleartextTraffic\}"/);
 assert.doesNotMatch(manifest, /android:usesCleartextTraffic="true"/);
+assert.match(manifest, /android:allowBackup="false"/);
+assert.doesNotMatch(manifest, /android\.permission\.(?:RECORD_AUDIO|SYSTEM_ALERT_WINDOW)/);
+
+const appConfig = JSON.parse(fs.readFileSync(path.join(mobileDir, 'app.json'), 'utf8'));
+assert.equal(appConfig.expo.android.allowBackup, false);
+assert.ok(!appConfig.expo.android.permissions.includes('android.permission.RECORD_AUDIO'));
+assert.ok(!appConfig.expo.android.permissions.includes('android.permission.SYSTEM_ALERT_WINDOW'));
 
 const gradle = fs.readFileSync(path.join(mobileDir, 'android', 'app', 'build.gradle'), 'utf8');
 assert.match(gradle, /findProperty\("LUMII_ALLOW_CLEARTEXT"\)/);
