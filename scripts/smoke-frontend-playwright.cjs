@@ -452,6 +452,42 @@ async function main() {
     }
     await screenshot(page, 'smoke-frontend-00-route-coverage-account-security.png');
 
+    await page.goto(`${baseUrl}/?route=petCircleProfile`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '我发布的小事');
+    await page.getByLabel('更换宠友圈封面').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('我的宠友圈标记').waitFor({ state: 'visible', timeout: 30_000 });
+    if (await page.getByLabel('我的宠友圈标记').count() !== 1) {
+      throw new Error('Own pet circle profile should render exactly one header ownership badge');
+    }
+    await waitExactText(page, '今天 16:42');
+    await waitExactText(page, '今天 10:18');
+    await waitExactText(page, '10:18');
+    await waitExactText(page, '同日');
+    await page.getByLabel('打开小事操作菜单-mock-my-circle-today-evening').click();
+    await page.getByLabel('菜单查看评论-mock-my-circle-today-evening').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('菜单删除小事-mock-my-circle-today-evening').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('菜单查看评论-mock-my-circle-today-evening').click();
+    await waitExactText(page, 'Lucky 的评论');
+    await waitExactText(page, '奶油：今天也太可爱啦。');
+    await screenshot(page, 'smoke-frontend-00-profile-comments.png');
+    await page.getByLabel('关闭我的小事评论').click();
+    await page.getByText('Lucky 的评论', { exact: true }).waitFor({ state: 'hidden', timeout: 30_000 });
+    const deletableProfilePostText = '早上吃饭饭很开心，顺手记录一下精神状态。';
+    await page.getByLabel('打开小事操作菜单-mock-my-circle-today-morning').click();
+    await page.getByLabel('菜单删除小事-mock-my-circle-today-morning').click();
+    await waitExactText(page, '删除这条小事？');
+    await clickExactText(page, '取消');
+    await waitExactText(page, deletableProfilePostText);
+    await page.getByLabel('打开小事操作菜单-mock-my-circle-today-morning').click();
+    await page.getByLabel('菜单删除小事-mock-my-circle-today-morning').click();
+    await waitExactText(page, '删除这条小事？');
+    await clickExactText(page, '删除');
+    await page.getByText('删除这条小事？', { exact: true }).waitFor({ state: 'hidden', timeout: 30_000 });
+    await waitBodyExcludes(page, deletableProfilePostText);
+    await waitExactText(page, '小事已删除');
+    await page.waitForTimeout(350);
+    await screenshot(page, 'smoke-frontend-00-profile-post-deleted.png');
+
     const backdatedHealthDate = isoDateAfterDays(-6);
     await page.goto(`${baseUrl}/?route=healthCalendar&mockHealthCalendar=backdated`, { timeout: 60_000, waitUntil: 'networkidle' });
     await page.getByLabel(`health-calendar-day-${backdatedHealthDate}`).click();
@@ -877,6 +913,24 @@ async function main() {
     await waitExactText(interactionPage, blockFixturePostText);
     await interactionPage.getByLabel('查看奶油的主人资料').first().click();
     await interactionPage.getByLabel('约遛资料卡宠友').waitFor({ state: 'visible', timeout: 30_000 });
+    await interactionPage.getByLabel('查看资料卡宠友圈').click();
+    await waitExactText(interactionPage, '奶油 的宠友圈');
+    if (await interactionPage.getByLabel('我的宠友圈标记').count()) {
+      throw new Error('Accepted peer pet circle profile must not render the ownership badge');
+    }
+    if (await interactionPage.getByLabel('更换宠友圈封面').count()) {
+      throw new Error('Accepted peer pet circle profile must not expose cover editing');
+    }
+    await interactionPage.getByLabel('打开小事操作菜单-mock-fixture-pet-circle-interaction').click();
+    await interactionPage.getByLabel('菜单查看评论-mock-fixture-pet-circle-interaction').waitFor({ state: 'visible', timeout: 30_000 });
+    if (await interactionPage.getByLabel('菜单删除小事-mock-fixture-pet-circle-interaction').count()) {
+      throw new Error('Accepted peer pet circle profile must not expose post deletion');
+    }
+    await screenshot(interactionPage, 'smoke-frontend-05a-peer-pet-circle.png');
+    await interactionPage.getByLabel('返回').click();
+    await waitExactText(interactionPage, '宠友圈');
+    await interactionPage.getByLabel('查看奶油的主人资料').first().click();
+    await interactionPage.getByLabel('约遛资料卡宠友').waitFor({ state: 'visible', timeout: 30_000 });
     const ownerSheetGreeting = interactionPage.getByLabel('向资料卡宠友打招呼');
     if (await ownerSheetGreeting.isVisible()) {
       await ownerSheetGreeting.click();
@@ -1036,6 +1090,36 @@ async function main() {
     await waitFirstVisibleText(realPage, ['附近伙伴近 7 天还没发布小事', '附近近 7 天还没有小事'], { timeout: 30_000 });
     await screenshot(realPage, 'smoke-frontend-06-real-session-empty-circle.png');
     await realContext.close();
+
+    const expiredSessionContext = await browser.newContext({
+      deviceScaleFactor: 1,
+      geolocation: { latitude: 31.2304, longitude: 121.4737 },
+      permissions: ['geolocation'],
+      viewport: { height: 920, width: 430 },
+    });
+    const expiredSessionPage = await expiredSessionContext.newPage();
+    collectPageErrors(expiredSessionPage, pageErrors);
+
+    await loginMockUser(expiredSessionPage, '13900009993');
+    const persistedSession = await expiredSessionPage.evaluate(() => {
+      const raw = globalThis.localStorage?.getItem('lumii.auth.session.v1');
+      return raw ? JSON.parse(raw).session : null;
+    });
+    if (!persistedSession?.token) throw new Error('Runtime session expiry smoke could not read the persisted auth token');
+    const revokeResponse = await fetch(`${backendRuntime.apiBaseUrl}/auth/logout`, {
+      headers: { Authorization: `Bearer ${persistedSession.token}` },
+      method: 'POST',
+    });
+    if (!revokeResponse.ok) throw new Error(`Runtime session expiry smoke could not revoke the token: ${revokeResponse.status}`);
+    const expectedUnauthorizedErrorStart = pageErrors.length;
+    await clickExactText(expiredSessionPage, '我的');
+    await waitExactText(expiredSessionPage, '准备好遇见你的灵伴了吗？');
+    await waitExactText(expiredSessionPage, '登录已失效，请重新登录');
+    await expiredSessionPage.waitForFunction(() => !globalThis.localStorage?.getItem('lumii.auth.session.v1'), undefined, { timeout: 30_000 });
+    const expiryScenarioErrors = pageErrors.splice(expectedUnauthorizedErrorStart);
+    pageErrors.push(...expiryScenarioErrors.filter((message) => !message.startsWith('HTTP 401:')));
+    await screenshot(expiredSessionPage, 'smoke-frontend-06c-runtime-session-expired.png');
+    await expiredSessionContext.close();
 
     const petOnboardingContext = await browser.newContext({
       deviceScaleFactor: 1,

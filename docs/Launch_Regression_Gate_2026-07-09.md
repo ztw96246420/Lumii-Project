@@ -32,7 +32,7 @@ The default gate runs:
 - Public API HTTPS launch-readiness probing, including TLS/DNS/health failures and the corresponding P0 readiness blocker.
 - All standalone non-visual smoke scripts under `scripts/smoke-*.cjs` are included in the default gate; visual/browser checks remain opt-in through `--include-visual`.
 
-Last verified on 2026-07-10: 70/70 default non-visual suites passed.
+Last verified on 2026-07-11: 70/70 default non-visual suites passed.
 
 ## Visual Gate
 
@@ -42,8 +42,11 @@ node scripts/smoke-launch-regression.cjs --include-visual
 
 This also runs Playwright-backed admin/frontend page checks, including admin
 accounts, legal documents, system health, media replacement, AI pet chat review,
-and the mobile frontend smoke. Use it when page layout, admin UI, or
-browser-visible interaction changed.
+and the mobile frontend smoke. The mobile check covers runtime session expiry,
+own/peer pet-circle permissions, same-day archive timestamps, comments, and
+confirmed deletion. Last verified on 2026-07-11: 79/79 suites passed with visual
+checks enabled. Use it when page layout, admin UI, or browser-visible interaction
+changed.
 
 ## Focused Gate
 

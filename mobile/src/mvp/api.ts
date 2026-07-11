@@ -85,6 +85,8 @@ const avatarStatusRequestTimeoutMs = 30000;
 
 let authToken = '';
 let cachedActivePet: PetProfile | null = null;
+let unauthorizedHandler: (() => Promise<void> | void) | undefined;
+let unauthorizedTokenNotified = '';
 
 export const apiConfig = {
   baseUrl: configuredBaseUrl,
@@ -97,8 +99,22 @@ export const lumiiApi: LumiiApi = shouldUseHttp ? createHttpApi(configuredBaseUr
 
 export function setLumiiAuthToken(token?: string) {
   const nextToken = token ?? '';
-  if (authToken !== nextToken) cachedActivePet = null;
+  if (authToken !== nextToken) {
+    cachedActivePet = null;
+    unauthorizedTokenNotified = '';
+  }
   authToken = nextToken;
+}
+
+export function setLumiiUnauthorizedHandler(handler?: () => Promise<void> | void) {
+  unauthorizedHandler = handler;
+  if (!handler) unauthorizedTokenNotified = '';
+}
+
+function notifyLumiiUnauthorized(requestToken: string) {
+  if (!requestToken || requestToken !== authToken || unauthorizedTokenNotified === requestToken || !unauthorizedHandler) return;
+  unauthorizedTokenNotified = requestToken;
+  void Promise.resolve(unauthorizedHandler()).catch(() => undefined);
 }
 
 function nearbyLocationQuery(location?: NearbyLocationHint) {
@@ -650,13 +666,14 @@ function createHttpApi(baseUrl: string): LumiiApi {
   async function request<T>(method: string, path: string, body?: unknown, options: { timeoutMs?: number } = {}): Promise<ApiResult<T>> {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
     const timeoutId = controller ? setTimeout(() => controller.abort(), options.timeoutMs ?? httpRequestTimeoutMs) : undefined;
+    const requestAuthToken = authToken;
     try {
       const response = await fetch(`${baseUrl}${path}`, {
         body: body === undefined ? undefined : JSON.stringify(body),
         headers: {
           Accept: 'application/json',
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          ...(requestAuthToken ? { Authorization: `Bearer ${requestAuthToken}` } : {}),
         },
         method,
         signal: controller?.signal,
@@ -665,6 +682,7 @@ function createHttpApi(baseUrl: string): LumiiApi {
       const payload = await readJson(response);
       if (!response.ok) {
         if (timeoutId) clearTimeout(timeoutId);
+        if (response.status === 401) notifyLumiiUnauthorized(requestAuthToken);
         return errorResult(messageFromPayload(payload) ?? `服务请求失败（${response.status}）`, response.status >= 500, response.status, errorCodeFromPayload(payload, response.status));
       }
 

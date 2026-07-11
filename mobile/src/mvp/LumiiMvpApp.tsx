@@ -100,7 +100,7 @@ import { watchLumiiNotificationResponses } from '../services/notificationRespons
 import { getLumiiPushRegistration } from '../services/pushToken';
 import { clearPersistedLumiiSession, deleteLocalJsonStorage, loadLocalJsonStorage, loadPersistedLumiiSession, saveLocalJsonStorage, savePersistedLumiiSession } from '../services/sessionStorage';
 import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
-import { apiConfig, lumiiApi, setLumiiAuthToken } from './api';
+import { apiConfig, lumiiApi, setLumiiAuthToken, setLumiiUnauthorizedHandler } from './api';
 import { mockApi } from './mockApi';
 import { productConfig } from './productConfig';
 import { BottomSheet, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, SkeletonLine, StatusPill, Toast, palette, styles as uiStyles } from './ui';
@@ -2384,6 +2384,7 @@ export default function LumiiMvpApp() {
   const registeredPushTokenRef = useRef('');
   const scheduledPushRegistrationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionTokenRef = useRef(isHomePreviewMode ? initialPreviewSession.token : '');
+  const unauthorizedSessionHandlingRef = useRef(false);
   const permissionsRef = useRef<PermissionStateMap>(isHomePreviewMode ? webPreviewPermissions : initialPermissions);
   const userSettingsRef = useRef<UserSettings>(initialUserSettings);
   const userSettingSavingKeysRef = useRef<Set<UserSettingKey>>(new Set());
@@ -3600,6 +3601,23 @@ export default function LumiiMvpApp() {
       mounted = false;
     };
   }, [isHomePreviewMode]);
+
+  useEffect(() => {
+    if (isHomePreviewMode) return undefined;
+    unauthorizedSessionHandlingRef.current = false;
+    setLumiiUnauthorizedHandler(async () => {
+      if (!sessionTokenRef.current || unauthorizedSessionHandlingRef.current) return;
+      unauthorizedSessionHandlingRef.current = true;
+      try {
+        await clearPersistedLumiiSession();
+        clearLocalAccountState();
+        showToast('登录已失效，请重新登录', { tone: 'warning', variant: 'surface' });
+      } finally {
+        unauthorizedSessionHandlingRef.current = false;
+      }
+    });
+    return () => setLumiiUnauthorizedHandler();
+  }, [isHomePreviewMode, session?.phone, showToast]);
 
   useEffect(() => {
     if (!toast?.message) return undefined;
@@ -8549,6 +8567,17 @@ export default function LumiiMvpApp() {
     }
   }
 
+  function confirmDeletePetCircleProfilePost(post: NearbyMoment) {
+    if (!post.ownedByMe || petCircleDeletingPostIds.includes(post.id)) return;
+    setPetCircleProfileActionPostId('');
+    openConfirm(
+      '删除这条小事？',
+      '删除后会从宠友圈移除，相关评论和互动也将不再展示，且无法恢复。',
+      () => void deletePetCircleProfilePost(post),
+      '删除',
+    );
+  }
+
   async function refreshDiscoverByPull() {
     if (discoverRefreshingRef.current) return;
     if (!userSettingsRef.current.nearbyVisible) {
@@ -12713,14 +12742,14 @@ export default function LumiiMvpApp() {
             <Heart color={palette.orange} size={16} strokeWidth={2.2} />
             <Text style={styles.petCircleProfileMetricTextMake}>{post.likeCount ?? 0}</Text>
           </View>
-          <Pressable onPress={() => openPetCircleProfileComments(post)} style={[styles.petCircleProfileMetricMake, webPressableReset]}>
+          <Pressable accessibilityLabel={`查看小事评论-${post.id}`} onPress={() => openPetCircleProfileComments(post)} style={[styles.petCircleProfileMetricMake, webPressableReset]}>
             <MessageCircle color={palette.ink} size={16} strokeWidth={2.2} />
             <Text style={styles.petCircleProfileMetricTextMake}>{post.commentCount ?? 0}</Text>
           </Pressable>
           <View style={styles.flex} />
           <View style={styles.petCircleProfileActionAnchorMake}>
             <Pressable
-              accessibilityLabel="打开小事操作菜单"
+              accessibilityLabel={`打开小事操作菜单-${post.id}`}
               accessibilityRole="button"
               onPress={() => setPetCircleProfileActionPostId((current) => (current === post.id ? '' : post.id))}
               style={[styles.petCircleProfileMoreButtonMake, webPressableReset]}
@@ -12729,12 +12758,12 @@ export default function LumiiMvpApp() {
             </Pressable>
             {actionOpen ? (
               <View style={styles.petCircleProfileActionMenuMake}>
-                <Pressable onPress={() => openPetCircleProfileComments(post)} style={[styles.petCircleProfileActionMenuItemMake, webPressableReset]}>
+                <Pressable accessibilityLabel={`菜单查看评论-${post.id}`} onPress={() => openPetCircleProfileComments(post)} style={[styles.petCircleProfileActionMenuItemMake, webPressableReset]}>
                   <MessageCircle color={palette.ink} size={17} strokeWidth={2.4} />
                   <Text style={styles.petCircleProfileActionMenuTextMake}>查看评论</Text>
                 </Pressable>
                 {canDelete ? (
-                  <Pressable disabled={deleting} onPress={() => void deletePetCircleProfilePost(post)} style={[styles.petCircleProfileActionMenuItemMake, deleting && styles.mapSearchActionDisabled, webPressableReset]}>
+                  <Pressable accessibilityLabel={`菜单删除小事-${post.id}`} disabled={deleting} onPress={() => confirmDeletePetCircleProfilePost(post)} style={[styles.petCircleProfileActionMenuItemMake, deleting && styles.mapSearchActionDisabled, webPressableReset]}>
                     {deleting ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={17} strokeWidth={2.4} />}
                     <Text style={[styles.petCircleProfileActionMenuTextMake, styles.petCircleProfileActionMenuDangerTextMake]}>{deleting ? '删除中' : '删除'}</Text>
                   </Pressable>
@@ -12812,7 +12841,7 @@ export default function LumiiMvpApp() {
           <View style={styles.petCircleProfileCoverMake}>
             <PetPhoto iconSize={42} uri={coverUri} style={styles.avatarImage} />
             {profile?.canChangeCover ? (
-              <Pressable disabled={petCircleCoverUpdating} onPress={() => void pickPetCircleCover()} style={[styles.petCircleProfileCoverButtonMake, petCircleCoverUpdating && styles.mapSearchActionDisabled, webPressableReset]}>
+              <Pressable accessibilityLabel="更换宠友圈封面" disabled={petCircleCoverUpdating} onPress={() => void pickPetCircleCover()} style={[styles.petCircleProfileCoverButtonMake, petCircleCoverUpdating && styles.mapSearchActionDisabled, webPressableReset]}>
                 {petCircleCoverUpdating ? <ActivityIndicator color={palette.ink} size="small" /> : <Camera color={palette.ink} size={15} strokeWidth={2.5} />}
                 <Text style={styles.petCircleProfileCoverButtonTextMake}>{petCircleCoverUpdating ? '上传中' : '更换封面'}</Text>
               </Pressable>
@@ -12826,7 +12855,7 @@ export default function LumiiMvpApp() {
               <View style={styles.petCircleProfileNameRowMake}>
                 <Text numberOfLines={1} style={styles.petCircleProfileNameMake}>{profile?.petName ?? getCurrentPet()?.name ?? '灵伴'} 的宠友圈</Text>
                 {profile?.ownedByMe ? (
-                  <View style={styles.petCircleProfileMineBadgeMake}>
+                  <View accessibilityLabel="我的宠友圈标记" style={styles.petCircleProfileMineBadgeMake}>
                     <Text style={styles.petCircleProfileMineBadgeTextMake}>我</Text>
                   </View>
                 ) : null}
@@ -12898,6 +12927,9 @@ export default function LumiiMvpApp() {
                   <Text style={styles.sheetTitle}>{selectedCommentPost.petName} 的评论</Text>
                   <Text style={styles.petCircleSheetMetaMake}>{selectedCommentPost.commentCount ?? 0} 条评论 · {petCircleProfileExactTimeLabel(selectedCommentPost.createdAt)}</Text>
                 </View>
+                <Pressable accessibilityLabel="关闭我的小事评论" accessibilityRole="button" onPress={() => { setPetCircleCommentPostId(''); setPetCircleCommentDraft(''); }} style={[styles.greetingSheetClose, webPressableReset]}>
+                  <X color={palette.ink} size={18} strokeWidth={2.5} />
+                </Pressable>
               </View>
               <View style={styles.petCircleCommentListMake}>
                 {petCircleCommentLoadingId === selectedCommentPost.id ? (
@@ -12919,7 +12951,7 @@ export default function LumiiMvpApp() {
                         <Text style={styles.petCircleCommentTextMake}>{comment.text}</Text>
                       </View>
                       {canDeleteComment ? (
-                        <Pressable disabled={deletingComment} onPress={() => void deletePetCircleProfileComment(comment)} style={[styles.petCircleCommentDeleteMake, deletingComment && styles.mapSearchActionDisabled, webPressableReset]}>
+                        <Pressable accessibilityLabel={`删除评论-${comment.id}`} disabled={deletingComment} onPress={() => void deletePetCircleProfileComment(comment)} style={[styles.petCircleCommentDeleteMake, deletingComment && styles.mapSearchActionDisabled, webPressableReset]}>
                           {deletingComment ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={14} strokeWidth={2.4} />}
                         </Pressable>
                       ) : null}
@@ -12943,7 +12975,7 @@ export default function LumiiMvpApp() {
                   value={petCircleCommentDraft}
                 />
                 <Text style={styles.petCircleCommentCounterMake}>{petCircleCommentDraft.length}/{petCircleCommentMaxLength}</Text>
-                <Pressable disabled={petCircleCommentSending} onPress={() => void sendPetCircleProfileComment(selectedCommentPost)} style={[styles.petCircleCommentSendMake, petCircleCommentSending && styles.mapSearchActionDisabled, webPressableReset]}>
+                <Pressable accessibilityLabel="发送我的小事评论" disabled={petCircleCommentSending} onPress={() => void sendPetCircleProfileComment(selectedCommentPost)} style={[styles.petCircleCommentSendMake, petCircleCommentSending && styles.mapSearchActionDisabled, webPressableReset]}>
                   {petCircleCommentSending ? <ActivityIndicator color="#fff" size="small" /> : <Send color="#fff" size={14} strokeWidth={2.5} />}
                 </Pressable>
               </View>

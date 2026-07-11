@@ -1151,6 +1151,7 @@ const mockPetCircleInteractionFixtureOwners: Record<string, string> = {
 };
 
 const mockPetCircleDefaultCoverUrl = 'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=900';
+let mockMyPetCircleProfileFixturesSeeded = false;
 
 function currentMockOwnerId() {
   return `mock-${currentMockPhone}`;
@@ -1245,9 +1246,11 @@ function ensureMockMyPetCircleProfileFixtures() {
   };
   if (!pet) return;
   if (nearbyMoments.some((moment) => moment.id === 'mock-my-circle-today-evening')) {
+    mockMyPetCircleProfileFixturesSeeded = true;
     ensureNotificationComment();
     return;
   }
+  if (mockMyPetCircleProfileFixturesSeeded) return;
   const ownerId = currentMockOwnerId();
   const now = new Date();
   const todayLate = new Date(now);
@@ -1346,6 +1349,7 @@ function ensureMockMyPetCircleProfileFixtures() {
     },
   ];
   nearbyMoments = [...fixtures, ...nearbyMoments.filter((moment) => !fixtures.some((fixture) => fixture.id === moment.id))];
+  mockMyPetCircleProfileFixturesSeeded = true;
   ensureNotificationComment();
 }
 
