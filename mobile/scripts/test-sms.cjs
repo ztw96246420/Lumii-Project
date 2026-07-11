@@ -1,4 +1,4 @@
-const endpoint = process.env.SPUG_SMS_URL || process.env.EXPO_PUBLIC_SPUG_SMS_URL || '';
+const endpoint = process.env.SPUG_SMS_URL || '';
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const phone = args.find((arg) => !arg.startsWith('--')) || '';

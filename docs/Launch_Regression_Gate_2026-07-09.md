@@ -19,7 +19,7 @@ The default gate runs:
 - Mobile preview/production Release HTTPS configuration validation, including API host allowlisting and Android cleartext-traffic protection.
 - Backend and admin JavaScript syntax checks.
 - Mobile core flows.
-- Production SMS fail-closed behavior, Tencent SendSms payload/signing, random OTP verification, one-time use, plaintext exclusion, and account-deletion OTP.
+- Production SMS fail-closed behavior, Spug payload/response handling, Tencent fallback compatibility, random OTP verification, one-time use, plaintext exclusion, and account-deletion OTP.
 - Pet friend circle posting, comments, visibility, location, and calendar sync.
 - AI avatar generation/animation lifecycle, retry, failure recovery, quota refund, sample review, prompt/provider traces, admin job result apply, and pet chat quality review.
 - Content safety, moderation, reports, appeals, sanctions, social evidence, private-message report context, and social blocking.

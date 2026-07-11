@@ -115,7 +115,7 @@
 - 保留单张验证码最多 5 次错误限制，并新增跨票据的手机号 + 设备/IP 分层失败窗口；默认风险客户端 10 次、账号兜底 20 次后临时锁定 15 分钟。
 - 锁定不能通过重新发码绕过；成功登录自动清零，App 按服务端 `availableAt` 展示真实分钟级倒计时。
 - 后台用户管理新增“登录锁定”指标、失败来源与解除入口；客服需完成身份核验并填写原因，解锁动作写入独立审计。
-- 生产短信模拟测试覆盖随机码、TC3、锁定、禁止发码、后台解锁和恢复登录；后台与移动端 Playwright 均保留视觉证据。
+- 生产短信模拟测试覆盖 Spug 请求与拒绝回包、随机码、锁定、禁止发码、后台解锁和恢复登录；腾讯云 TC3 作为备用通道保留兼容测试，后台与移动端 Playwright 均保留视觉证据。
 
 ### 2.12 账号注销到期永久清理
 
@@ -159,7 +159,7 @@
 - 账号注销：`node scripts/smoke-account-deletion.cjs` 通过，覆盖冷静期撤销、全会话失效、到期清理、COS 删除、手机号移除、旧 token 阻断和同手机号全新注册。
 - 工单 SLA/客服排班/用户补充/评价/重开闭环：`node scripts/smoke-ticket-sla-roster.cjs` 通过。
 - 移动端完整 Playwright：`node scripts/smoke-frontend-playwright.cjs` 通过，含 39 路由直达、缺头像、宠友圈互动、设置/注销、真实登录会话和宠物建档流程。
-- 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 通过，70/70 套件全部成功；覆盖 Release HTTPS、Android 敏感权限最小化、API TLS/SNI、SQLite/WAL，以及生产短信随机 OTP、TC3 请求、固定码旁路阻断和注销验证码。
+- 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 通过，70/70 套件全部成功；覆盖 Release HTTPS、Android 敏感权限最小化、API TLS/SNI、SQLite/WAL，以及生产短信随机 OTP、Spug 请求、腾讯备用通道、固定码旁路阻断和注销验证码。
 - 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-11 通过，79/79 套件全部成功；移动端 Playwright 覆盖本人宠友圈同日多条、唯一“我”标记、评论、删除确认、他人宠友圈权限、运行中 Token 撤销恢复，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除，后台 8 个关键运营页面同步通过。
 - 附近位置与半径专项：`node scripts/smoke-pet-circle.cjs`、配置审批/预约发布/双人会签回归和 `node scripts/smoke-admin-config-high-risk-page.cjs` 通过；覆盖发布位置快照、跨城市移动、历史无位置数据、10km 默认档位、3/5/10km 后台选择及客户端越权半径拦截。
 - 附近地点真实性：`node scripts/smoke-place-contributions.cjs` 与 `node scripts/smoke-sms-production.cjs` 通过；覆盖提交坐标/精度/时间落库、审核后 manual 地点继承坐标、跨城不跟随、缺失/过期定位拦截、生产无高德时返回空列表而非 seed，以及 `amap` / `place_location_integrity` / `place_discovery` 健康与 P0 门禁。
@@ -179,7 +179,7 @@
 - 后台生产强密码和 90 天轮换记录已完成；仍需配置稳定办公/VPN IP 白名单和全部活跃管理员 MFA。
 - 生产后台实查确认四项必签材料仍为草稿：用户协议 `test-2026-06-12`、隐私政策 `test-2026-06-12`、内容审核制度 `test-2026-07-09`、App 备案材料 `test-2026-07-09`；正式文本、个人信息收集清单、第三方 SDK 清单、注销和举报规则仍需补齐并在后台签署。
 - 站外告警 Webhook、生产 Push 厂商通道、模板、送达回执和退订策略。
-- 腾讯云短信代码和安全门禁已完成；仍需在短信控制台提供 `SmsSdkAppId`、已审核签名和验证码模板 ID 后才能切换生产，缺配置时登录会 fail closed。
+- 当前生产短信改用 Spug 推送助手；后端安全代理、随机验证码、频控、失败锁定和上线门禁已完成。仍需把生产模板编号写入服务器受限环境配置、设置 Spug IP 白名单并完成一次真实手机号收发验收；腾讯云短信保留为未来企业化备用通道。
 - ~~SQLite/WAL 单实例生产存储、JSON 回滚镜像、独立审计日志和备份恢复。~~ 已完成生产迁移与写入验证；后续仅在扩展多实例前迁移托管 PostgreSQL。
 
 以下首发业务策略已固化，不再计入待确认范围：

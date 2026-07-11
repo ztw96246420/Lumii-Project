@@ -94,7 +94,7 @@
 | --- | --- | --- |
 | [Android_APK_Testing_2026-06-06.md](./Android_APK_Testing_2026-06-06.md) | 真机策略 | APK 真机测试流程、省流量策略 |
 | [Launch_Regression_Gate_2026-07-09.md](./Launch_Regression_Gate_2026-07-09.md) | 当前门禁 | APK 打包和服务端部署前的一键业务回归脚本 |
-| [Production_SMS_2026-07-10.md](./Production_SMS_2026-07-10.md) | 当前部署手册 | 腾讯云短信生产配置、失败锁定、安全门禁和验收 |
+| [Production_SMS_2026-07-10.md](./Production_SMS_2026-07-10.md) | 当前部署手册 | Spug 生产短信配置、失败锁定、安全门禁和验收；腾讯云为备用通道 |
 | [Android_APK_Build_v2_2026-06-06.md](./Android_APK_Build_v2_2026-06-06.md) | 历史构建记录 | 旧版 APK 构建记录 |
 | [Android_Back_Gesture_Behavior_2026-06-11.md](./Android_Back_Gesture_Behavior_2026-06-11.md) | 当前说明 | Android 返回手势和退出行为 |
 | [qa-screenshots/](./qa-screenshots/) | 历史测试资产 | 页面 QA 截图证据 |
@@ -125,4 +125,4 @@
 - ~~Stitch 是唯一设计源。~~ 当前主设计源是 Figma Make / Figma 源码包；Stitch 只保留历史参考。
 - ~~前端依赖 iframe 文案识别触发业务动作。~~ 当前为 React Native 状态机 + API 门面。
 - ~~每次真机验证都从云服务器下载 APK。~~ 当前只在里程碑包或原生配置变化时打 APK，日常不从云端下载。
-- ~~生产 App 内直接暴露 Spug 短信 URL。~~ 当前要求由后端代理短信或使用固定测试码；App 不保存短信服务密钥。
+- ~~生产 App 内直接暴露 Spug 短信 URL。~~ 当前统一由后端代理；Spug 模板编号不进入 App，固定测试码仅限非生产 mock。

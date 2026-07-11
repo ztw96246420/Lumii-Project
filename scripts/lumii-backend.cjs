@@ -20,7 +20,7 @@ const RUNTIME_ENV = String(process.env.NODE_ENV || 'development').trim().toLower
 const SMS_PROVIDER = String(process.env.LUMII_SMS_PROVIDER || process.env.SMS_PROVIDER || (RUNTIME_ENV === 'production' ? 'disabled' : 'mock')).trim().toLowerCase();
 const SMS_TEST_CODE = String(process.env.LUMII_SMS_TEST_CODE || '962464').trim();
 const SMS_EXPOSE_TEST_CODE = RUNTIME_ENV !== 'production' && SMS_PROVIDER === 'mock';
-if (!['disabled', 'mock', 'tencent'].includes(SMS_PROVIDER)) throw new Error(`Unsupported SMS provider: ${SMS_PROVIDER}`);
+if (!['disabled', 'mock', 'spug', 'tencent'].includes(SMS_PROVIDER)) throw new Error(`Unsupported SMS provider: ${SMS_PROVIDER}`);
 if (RUNTIME_ENV === 'production' && SMS_PROVIDER === 'mock') throw new Error('Mock SMS provider is forbidden in production');
 const SMS_COOLDOWN_MS = Number(process.env.SMS_COOLDOWN_MS || 60 * 1000);
 const SMS_TTL_MS = Number(process.env.SMS_TTL_MS || 5 * 60 * 1000);
@@ -134,6 +134,10 @@ const COS_PROXY_CACHE_SECONDS = Number(process.env.COS_PROXY_CACHE_SECONDS || '3
 const COS_ENDPOINT = (process.env.COS_ENDPOINT || '').trim().replace(/\/+$/, '');
 const ADMIN_EXPORT_COS_ENABLED = process.env.LUMII_ADMIN_EXPORT_COS_ENABLED === 'true';
 const ADMIN_EXPORT_COS_PREFIX = (process.env.LUMII_ADMIN_EXPORT_COS_PREFIX || 'admin-exports').trim().replace(/^\/+|\/+$/g, '') || 'admin-exports';
+const SPUG_SMS_BASE_URL = String(process.env.SPUG_SMS_BASE_URL || 'https://push.spug.cc/send').trim().replace(/\/+$/, '');
+const SPUG_SMS_TEMPLATE_ID = String(process.env.SPUG_SMS_TEMPLATE_ID || '').trim();
+const SPUG_SMS_SENDER_NAME = String(process.env.SPUG_SMS_SENDER_NAME || '灵伴').trim() || '灵伴';
+const SPUG_SMS_TIMEOUT_MS = Math.max(1000, Number(process.env.SPUG_SMS_TIMEOUT_MS || '8000') || 8000);
 const TENCENTCLOUD_SECRET_ID = process.env.TENCENTCLOUD_SECRET_ID || process.env.TENCENT_CLOUD_SECRET_ID || '';
 const TENCENTCLOUD_SECRET_KEY = process.env.TENCENTCLOUD_SECRET_KEY || process.env.TENCENT_CLOUD_SECRET_KEY || '';
 const TENCENT_SMS_ENDPOINT = process.env.TENCENT_SMS_ENDPOINT || 'sms.tencentcloudapi.com';
@@ -14281,6 +14285,19 @@ function smsLoginLockedResponseData(status, phone) {
 
 function smsProviderStatus() {
   const missing = [];
+  if (SMS_PROVIDER === 'spug') {
+    if (!SPUG_SMS_TEMPLATE_ID) missing.push('SPUG_SMS_TEMPLATE_ID');
+    if (SPUG_SMS_TEMPLATE_ID && !/^[A-Za-z0-9_-]{8,128}$/.test(SPUG_SMS_TEMPLATE_ID)) missing.push('valid SPUG_SMS_TEMPLATE_ID');
+    try {
+      const endpoint = new URL(SPUG_SMS_BASE_URL);
+      const loopback = ['127.0.0.1', '::1', 'localhost'].includes(endpoint.hostname);
+      if (!['http:', 'https:'].includes(endpoint.protocol) || (RUNTIME_ENV === 'production' && endpoint.protocol !== 'https:' && !loopback)) {
+        missing.push('secure SPUG_SMS_BASE_URL');
+      }
+    } catch {
+      missing.push('valid SPUG_SMS_BASE_URL');
+    }
+  }
   if (SMS_PROVIDER === 'tencent') {
     if (!tencentCloudCredentialsConfigured()) missing.push('Tencent Cloud credentials');
     if (!TENCENT_SMS_SDK_APP_ID) missing.push('TENCENT_SMS_SDK_APP_ID');
@@ -14288,19 +14305,21 @@ function smsProviderStatus() {
     if (!TENCENT_SMS_TEMPLATE_ID) missing.push('TENCENT_SMS_TEMPLATE_ID');
   }
   const mockAllowed = SMS_PROVIDER === 'mock' && RUNTIME_ENV !== 'production';
-  const configured = SMS_PROVIDER === 'tencent' ? missing.length === 0 : mockAllowed;
+  const liveProvider = ['spug', 'tencent'].includes(SMS_PROVIDER);
+  const configured = liveProvider ? missing.length === 0 : mockAllowed;
   return {
     configured,
-    endpoint: SMS_PROVIDER === 'tencent' ? TENCENT_SMS_ENDPOINT : '',
+    endpoint: SMS_PROVIDER === 'spug' ? SPUG_SMS_BASE_URL : SMS_PROVIDER === 'tencent' ? TENCENT_SMS_ENDPOINT : '',
     missing,
     mockAllowed,
-    productionReady: SMS_PROVIDER === 'tencent' && missing.length === 0,
+    productionReady: liveProvider && missing.length === 0,
     provider: SMS_PROVIDER,
     region: SMS_PROVIDER === 'tencent' ? TENCENT_SMS_REGION : '',
+    senderNameConfigured: SMS_PROVIDER === 'spug' ? Boolean(SPUG_SMS_SENDER_NAME) : Boolean(TENCENT_SMS_SIGN_NAME),
     sdkAppIdConfigured: Boolean(TENCENT_SMS_SDK_APP_ID),
     signNameConfigured: Boolean(TENCENT_SMS_SIGN_NAME),
-    templateIdConfigured: Boolean(TENCENT_SMS_TEMPLATE_ID),
-    templateParamMode: TENCENT_SMS_TEMPLATE_PARAM_MODE,
+    templateIdConfigured: SMS_PROVIDER === 'spug' ? Boolean(SPUG_SMS_TEMPLATE_ID) : Boolean(TENCENT_SMS_TEMPLATE_ID),
+    templateParamMode: SMS_PROVIDER === 'tencent' ? TENCENT_SMS_TEMPLATE_PARAM_MODE : 'code',
   };
 }
 
@@ -14360,7 +14379,42 @@ async function sendSmsCode({ code, phone, purpose = 'login' }) {
     return { provider: 'mock', requestId: '', serialNo: '', status: 'mock' };
   }
   if (!status.productionReady) {
-    throw createSmsProviderError(`Tencent SMS configuration is incomplete: ${status.missing.join(', ')}`);
+    throw createSmsProviderError(`SMS provider configuration is incomplete: ${status.missing.join(', ')}`);
+  }
+  if (SMS_PROVIDER === 'spug') {
+    const endpoint = `${SPUG_SMS_BASE_URL}/${encodeURIComponent(SPUG_SMS_TEMPLATE_ID)}`;
+    const response = await fetchWithTimeout(endpoint, {
+      body: JSON.stringify({
+        code,
+        name: SPUG_SMS_SENDER_NAME,
+        targets: phone,
+      }),
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      method: 'POST',
+    }, SPUG_SMS_TIMEOUT_MS);
+    const responseText = await response.text();
+    let payload = null;
+    try {
+      payload = responseText ? JSON.parse(responseText) : null;
+    } catch {
+      throw createSmsProviderError('Spug SMS response is not valid JSON');
+    }
+    const providerCode = payload && typeof payload === 'object' && Object.hasOwn(payload, 'code')
+      ? Number(payload.code)
+      : Number.NaN;
+    if (!response.ok || ![0, 200].includes(providerCode)) {
+      throw createSmsProviderError(String(payload?.msg || payload?.message || `Spug SMS request failed: ${response.status}`));
+    }
+    return {
+      provider: 'spug',
+      purpose,
+      requestId: String(payload?.requestId || payload?.request_id || payload?.data?.requestId || payload?.data?.request_id || ''),
+      serialNo: '',
+      status: 'accepted',
+    };
   }
   const ttlMinutes = String(Math.max(1, Math.ceil(SMS_TTL_MS / 60_000)));
   const templateParams = TENCENT_SMS_TEMPLATE_PARAM_MODE === 'code_ttl' ? [code, ttlMinutes] : [code];
@@ -24968,11 +25022,15 @@ async function adminSystemHealth() {
       'sms_provider',
       '短信验证码通道',
       smsProvider.productionReady
-        ? `腾讯云短信已配置，模板参数模式 ${smsProvider.templateParamMode}`
+        ? `${smsProvider.provider === 'spug' ? 'Spug 推送助手' : '腾讯云短信'}已配置${smsProvider.provider === 'tencent' ? `，模板参数模式 ${smsProvider.templateParamMode}` : ''}`
         : smsProvider.mockAllowed
           ? '当前为非生产 mock 短信，仅用于自动化和本地开发'
           : `生产短信未就绪：${smsProvider.missing.join('、') || `provider=${smsProvider.provider}`}`,
-      smsProvider.provider === 'tencent' ? `${smsProvider.endpoint} / SendSms / ${TENCENT_SMS_VERSION}` : `provider=${smsProvider.provider}`,
+      smsProvider.provider === 'spug'
+        ? `${smsProvider.endpoint}/<configured-template> / HTTPS POST`
+        : smsProvider.provider === 'tencent'
+          ? `${smsProvider.endpoint} / SendSms / ${TENCENT_SMS_VERSION}`
+          : `provider=${smsProvider.provider}`,
     ),
     adminCheckStatus(
       'ok',
@@ -26407,12 +26465,12 @@ function adminReadinessGaps(context) {
       severity: 'P0',
       status: smsProviderReady ? 'ready' : 'blocked',
       issue: smsProviderReady
-        ? '腾讯云短信验证码通道已配置，生产环境不再暴露或接受固定测试码。'
+        ? `${smsProvider.provider === 'spug' ? 'Spug 推送助手' : '腾讯云短信'}验证码通道已配置，生产环境不再暴露或接受固定测试码。`
         : `生产短信验证码通道未就绪：${smsProvider.missing?.join('、') || `provider=${smsProvider.provider || 'disabled'}`}。`,
       requiredAction: smsProviderReady
-        ? '持续监控 SendSms 接收状态、运营商回执、发送限额和验证码失败率。'
-        : '在腾讯云短信控制台完成资质、签名和验证码模板审核，并配置 TENCENT_SMS_SDK_APP_ID、TENCENT_SMS_SIGN_NAME、TENCENT_SMS_TEMPLATE_ID 与 LUMII_SMS_PROVIDER=tencent。',
-      evidence: '系统健康页 sms_provider + sms_login_lockout / POST /auth/sms/send + /auth/sms/verify / Tencent Cloud SendSms 2021-01-11',
+        ? '持续监控供应商推送日志、运营商回执、发送限额和验证码失败率。'
+        : '配置生产短信供应商；当前推荐 LUMII_SMS_PROVIDER=spug 与仅存于服务器的 SPUG_SMS_TEMPLATE_ID。',
+      evidence: '系统健康页 sms_provider + sms_login_lockout / POST /auth/sms/send + /auth/sms/verify / provider delivery log',
     },
     {
       key: 'account_lifecycle',

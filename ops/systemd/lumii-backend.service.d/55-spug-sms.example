@@ -1,0 +1,11 @@
+[Service]
+Environment="LUMII_SMS_PROVIDER=spug"
+Environment="SPUG_SMS_BASE_URL=https://push.spug.cc/send"
+Environment="SPUG_SMS_TEMPLATE_ID=<replace-with-template-id>"
+Environment="SPUG_SMS_SENDER_NAME=灵伴"
+Environment="SPUG_SMS_TIMEOUT_MS=8000"
+Environment="SMS_VERIFY_MAX_ATTEMPTS=5"
+Environment="SMS_LOGIN_CLIENT_MAX_FAILURES=10"
+Environment="SMS_LOGIN_ACCOUNT_MAX_FAILURES=20"
+Environment="SMS_LOGIN_FAILURE_WINDOW_MS=900000"
+Environment="SMS_LOGIN_LOCK_MS=900000"

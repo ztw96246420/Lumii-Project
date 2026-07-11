@@ -85,6 +85,8 @@ async function startBackend(name, env = {}) {
       SMS_LOGIN_FAILURE_WINDOW_MS: '60000',
       SMS_LOGIN_LOCK_MS: '60000',
       SMS_VERIFY_MAX_ATTEMPTS: '3',
+      SPUG_SMS_BASE_URL: '',
+      SPUG_SMS_TEMPLATE_ID: '',
       STATE_BACKUP_DIR: path.join(tmpDir, `${name}-backups`),
       STATE_BACKUP_MIN_INTERVAL_MS: '0',
       TENCENTCLOUD_SECRET_ID: '',
@@ -224,6 +226,35 @@ async function startTencentSmsMock() {
   };
 }
 
+async function startSpugSmsMock(responseFactory = null) {
+  const deliveries = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      const payload = JSON.parse(body || '{}');
+      deliveries.push({ headers: req.headers, path: req.url, payload });
+      const index = deliveries.length;
+      const response = responseFactory
+        ? responseFactory({ index, payload, req })
+        : { body: { code: 200, data: { request_id: `spug-request-${index}` }, msg: '请求成功' }, status: 200 };
+      res.writeHead(response.status || 200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(response.body));
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/send`,
+    close: () => new Promise((resolve) => server.close(resolve)),
+    deliveries,
+  };
+}
+
 async function adminToken() {
   const login = await request('/admin/auth/login', {
     body: { password: 'SmsProductionAdmin-Strong-2026', username: 'admin' },
@@ -270,12 +301,12 @@ async function main() {
     await stopBackend();
   }
 
-  const smsMock = await startTencentSmsMock();
-  const { statePath } = await startBackend('tencent', {
+  const tencentSmsMock = await startTencentSmsMock();
+  await startBackend('tencent-compatibility', {
     LUMII_SMS_PROVIDER: 'tencent',
     TENCENTCLOUD_SECRET_ID: 'AKID_SMS_SMOKE',
     TENCENTCLOUD_SECRET_KEY: 'sms-smoke-secret-key',
-    TENCENT_SMS_ENDPOINT: smsMock.endpoint,
+    TENCENT_SMS_ENDPOINT: tencentSmsMock.endpoint,
     TENCENT_SMS_REGION: 'ap-guangzhou',
     TENCENT_SMS_SDK_APP_ID: '1400000000',
     TENCENT_SMS_SIGN_NAME: '灵伴',
@@ -283,20 +314,63 @@ async function main() {
   });
   try {
     const sent = await request('/auth/sms/send', {
-      body: { deviceId: 'sms-production-device', phone },
+      body: { deviceId: 'sms-tencent-compatibility-device', phone: '19900009770' },
       method: 'POST',
     });
     assert.equal(sent.data.provider, 'tencent');
+    assert.equal(tencentSmsMock.deliveries.length, 1);
+    const delivery = tencentSmsMock.deliveries[0];
+    assert.equal(delivery.headers['x-tc-action'], 'SendSms');
+    assert.match(delivery.headers.authorization || '', /^TC3-HMAC-SHA256 /);
+    assert.equal(delivery.payload.PhoneNumberSet[0], '+8619900009770');
+  } finally {
+    await stopBackend();
+    await tencentSmsMock.close();
+  }
+
+  const rejectedSpugMock = await startSpugSmsMock(() => ({ body: { code: 403, msg: 'provider rejected request' }, status: 200 }));
+  await startBackend('spug-rejected', {
+    LUMII_SMS_PROVIDER: 'spug',
+    SPUG_SMS_BASE_URL: rejectedSpugMock.baseUrl,
+    SPUG_SMS_TEMPLATE_ID: 'SpugRejectedTemplate',
+  });
+  try {
+    const rejected = await request('/auth/sms/send', {
+      body: { deviceId: 'sms-spug-rejected-device', phone: '19900009772' },
+      expectedStatus: 503,
+      method: 'POST',
+    });
+    assert.equal(rejected.error?.code, 'SMS_PROVIDER_UNAVAILABLE');
+    assert.equal(rejectedSpugMock.deliveries.length, 1);
+    const health = await request('/health');
+    assert.equal(health.data.users, 0, 'rejected Spug delivery must not create a user');
+  } finally {
+    await stopBackend();
+    await rejectedSpugMock.close();
+  }
+
+  const smsMock = await startSpugSmsMock();
+  const spugTemplateId = 'SpugProductionSmokeTemplate';
+  const { statePath } = await startBackend('spug', {
+    LUMII_SMS_PROVIDER: 'spug',
+    SPUG_SMS_BASE_URL: smsMock.baseUrl,
+    SPUG_SMS_SENDER_NAME: '灵伴',
+    SPUG_SMS_TEMPLATE_ID: spugTemplateId,
+  });
+  try {
+    const sent = await request('/auth/sms/send', {
+      body: { deviceId: 'sms-production-device', phone },
+      method: 'POST',
+    });
+    assert.equal(sent.data.provider, 'spug');
     assert.equal(Object.hasOwn(sent.data, 'code'), false, 'production SMS response must not expose the OTP');
     assert.equal(smsMock.deliveries.length, 1);
     const firstDelivery = smsMock.deliveries[0];
-    assert.equal(firstDelivery.headers['x-tc-action'], 'SendSms');
-    assert.match(firstDelivery.headers.authorization || '', /^TC3-HMAC-SHA256 /);
-    assert.equal(firstDelivery.payload.PhoneNumberSet[0], `+86${phone}`);
-    assert.equal(firstDelivery.payload.SmsSdkAppId, '1400000000');
-    assert.equal(firstDelivery.payload.SignName, '灵伴');
-    assert.equal(firstDelivery.payload.TemplateId, '1000000');
-    const loginCode = firstDelivery.payload.TemplateParamSet[0];
+    assert.equal(firstDelivery.path, `/send/${spugTemplateId}`);
+    assert.match(firstDelivery.headers['content-type'] || '', /^application\/json/);
+    assert.equal(firstDelivery.payload.targets, phone);
+    assert.equal(firstDelivery.payload.name, '灵伴');
+    const loginCode = firstDelivery.payload.code;
     assert.match(loginCode, /^\d{6}$/);
     const fixedBypassCode = loginCode === '962464' ? '000000' : '962464';
 
@@ -408,9 +482,9 @@ async function main() {
       method: 'POST',
     });
     assert.equal(smsMock.deliveries.length, 2);
-    const secondLoginCode = smsMock.deliveries[1].payload.TemplateParamSet[0];
+    const secondLoginCode = smsMock.deliveries[1].payload.code;
     assert.match(secondLoginCode, /^\d{6}$/);
-    assert.equal(secondSent.data.provider, 'tencent');
+    assert.equal(secondSent.data.provider, 'spug');
     const wrongLoginCode = secondLoginCode === '000000' ? '111111' : '000000';
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       const failed = await request('/auth/sms/verify', {
@@ -447,15 +521,17 @@ async function main() {
       body: { deviceId: 'sms-production-device', phone },
       method: 'POST',
     });
-    assert.equal(sentAfterUnlock.data.provider, 'tencent');
+    assert.equal(sentAfterUnlock.data.provider, 'spug');
     assert.equal(smsMock.deliveries.length, 3);
-    const loginCodeAfterUnlock = smsMock.deliveries[2].payload.TemplateParamSet[0];
+    const loginCodeAfterUnlock = smsMock.deliveries[2].payload.code;
     const verifiedAfterUnlock = await request('/auth/sms/verify', {
       body: { code: loginCodeAfterUnlock, deviceId: 'sms-production-device', phone },
       method: 'POST',
     });
     assert.ok(verifiedAfterUnlock.data?.token);
     const systemHealth = await request('/admin/system/health', { token: admin });
+    assert.equal(systemHealth.data.smsProvider.provider, 'spug');
+    assert.equal(JSON.stringify(systemHealth.data).includes(spugTemplateId), false, 'admin health must not expose the Spug template credential');
     assert.ok(systemHealth.data.checks.some((item) => item.key === 'sms_provider' && item.status === 'ok'));
     assert.ok(systemHealth.data.checks.some((item) => item.key === 'sms_login_lockout' && item.status === 'ok'));
     assert.ok(systemHealth.data.checks.some((item) => item.key === 'pet_avatar_provider' && item.status === 'bad'));
@@ -473,7 +549,7 @@ async function main() {
     });
     assert.equal(Object.hasOwn(deletion.data, 'code'), false, 'production account deletion response must not expose the OTP');
     assert.equal(smsMock.deliveries.length, 4);
-    const deletionCode = smsMock.deliveries[3].payload.TemplateParamSet[0];
+    const deletionCode = smsMock.deliveries[3].payload.code;
     assert.match(deletionCode, /^\d{6}$/);
     const wrongDeletion = await request('/account/delete/confirm', {
       body: { code: '000000' },
