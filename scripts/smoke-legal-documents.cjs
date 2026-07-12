@@ -75,6 +75,7 @@ async function startBackend(port) {
       GPT_IMAGE2_API_KEY: '',
       LUMII_BACKEND_PORT: String(port),
       LUMII_BACKEND_STATE_PATH: statePath,
+      LUMII_REQUIRE_LEGAL_CONSENT: 'true',
       SMS_COOLDOWN_MS: '0',
       SMS_DAILY_LIMIT: '1000',
       SMS_DEVICE_DAILY_LIMIT: '1000',
@@ -175,6 +176,32 @@ async function main() {
     const publicContentPolicy = await request('/legal/content-policy');
     assert.equal(publicContentPolicy.data.version, 'prod-content_policy-smoke');
     assert.equal(publicContentPolicy.data.productionReady, true);
+
+    const consentPhone = '19900007881';
+    const sms = await request('/auth/sms/send', {
+      body: { deviceId: 'legal-consent-smoke-device', phone: consentPhone },
+      method: 'POST',
+    });
+    const missingConsent = await request('/auth/sms/verify', {
+      body: { code: sms.data.code, deviceId: 'legal-consent-smoke-device', expiresAt: sms.data.expiresAt, phone: consentPhone },
+      expectedStatus: 400,
+      method: 'POST',
+    });
+    assert.equal(missingConsent.error.code, 'LEGAL_CONSENT_REQUIRED');
+    const consentLogin = await request('/auth/sms/verify', {
+      body: { code: sms.data.code, deviceId: 'legal-consent-smoke-device', expiresAt: sms.data.expiresAt, legalConsentAccepted: true, phone: consentPhone },
+      method: 'POST',
+    });
+    assert.ok(consentLogin.data.token, 'legal-consent login should return a token');
+    assert.equal(consentLogin.data.account.legalConsent.termsVersion, 'prod-terms-smoke');
+    assert.equal(consentLogin.data.account.legalConsent.privacyVersion, 'prod-privacy-smoke');
+
+    const users = await request('/admin/users', { token: adminToken });
+    const consentUser = users.data.find((item) => item.phone === consentPhone);
+    assert.equal(consentUser.legalConsentSummary.count, 1);
+    assert.equal(consentUser.legalConsentSummary.latest.privacyVersion, 'prod-privacy-smoke');
+    const consentTimeline = await request(`/admin/users/${consentPhone}/timeline?kind=account&limit=50`, { token: adminToken });
+    assert.ok(consentTimeline.data.items.some((item) => item.targetType === 'legal_consent' && item.title === '协议与隐私政策同意留痕'));
 
     const finalReadiness = await request('/admin/launch/readiness', { token: adminToken });
     const finalQuestion = questionById(finalReadiness.data.questions, 'q-compliance-text');

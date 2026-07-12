@@ -319,6 +319,46 @@ async function main() {
         visibleAfterApproveIds,
       })}`,
     );
+    const notificationsAfterPostApprove = await request('/notifications', { token: ownerToken });
+    const postApproveNotification = notificationsAfterPostApprove.data.find((item) => item.id === `n-pet-circle-moderation-${reviewPost.data.id}-approved`);
+    assert.ok(postApproveNotification, 'approved pet circle post should notify its author');
+    assert.equal(postApproveNotification.actionRoute, 'petCircleProfile');
+    assert.equal(postApproveNotification.targetId, reviewPost.data.id);
+    assert.equal(postApproveNotification.postId, undefined, 'moderation result should route to owner archive instead of a public-only post deep link');
+
+    const rejectedReviewPost = await request('/social/pet-circle/posts', {
+      body: {
+        content: 'machine-review rejected social post from content safety smoke',
+        location: ownerLocation,
+        visibility: 'nearby',
+      },
+      method: 'POST',
+      token: ownerToken,
+    });
+    assert.equal(rejectedReviewPost.data.moderationStatus, 'pending_review');
+    tasks = await adminTasks(adminToken);
+    const rejectedPostTask = findTask(
+      tasks,
+      (item) => item.id === `post:${rejectedReviewPost.data.id}` && item.source === 'tencent_cms',
+      'second Tencent review pet circle post should enter moderation tasks',
+    );
+    const rejectedReason = 'Smoke rejects this pet circle post';
+    await request(`/admin/moderation/tasks/${encodeURIComponent(rejectedPostTask.id)}/hide`, {
+      body: { reason: rejectedReason },
+      method: 'POST',
+      token: adminToken,
+    });
+    const ownerProfileAfterPostReject = await request('/social/pet-circle/profiles/me/posts', { token: ownerToken });
+    const rejectedProfilePost = ownerProfileAfterPostReject.data.items.find((item) => item.id === rejectedReviewPost.data.id);
+    assert.equal(rejectedProfilePost?.moderationStatus, 'rejected', 'author archive should retain a rejected post');
+    assert.equal(rejectedProfilePost?.moderationReason, rejectedReason, 'author archive should expose the moderation reason');
+    const viewerFeedAfterPostReject = await request('/social/pet-circle/posts', { token: commenterToken });
+    assert.equal(viewerFeedAfterPostReject.data.items.some((item) => item.id === rejectedReviewPost.data.id), false, 'rejected post must stay hidden from other users');
+    const notificationsAfterPostReject = await request('/notifications', { token: ownerToken });
+    const postRejectNotification = notificationsAfterPostReject.data.find((item) => item.id === `n-pet-circle-moderation-${rejectedReviewPost.data.id}-rejected`);
+    assert.ok(postRejectNotification, 'rejected pet circle post should notify its author');
+    assert.equal(postRejectNotification.actionRoute, 'petCircleProfile');
+    assert.match(postRejectNotification.text, /Smoke rejects this pet circle post/);
 
     const blockedPost = await request('/social/pet-circle/posts', {
       body: {

@@ -57,6 +57,7 @@ export type AccountSnapshot = {
   activePet: PetProfile | null;
   accountDeletion?: AccountDeletionSnapshot | null;
   accountStatus?: 'active' | 'banned' | 'deletion_pending' | 'frozen' | 'muted' | string;
+  legalConsent?: LegalConsentSnapshot | null;
   ownerAvatarUrl?: string;
   ownerBio?: string;
   ownerName?: string;
@@ -65,6 +66,16 @@ export type AccountSnapshot = {
   placeContributionSummary?: PlaceContributionSummary;
   sanctions?: AccountSanctionSnapshot;
   settings: UserSettings;
+};
+
+export type LegalConsentSnapshot = {
+  acceptedAt: string;
+  id: string;
+  privacyEffectiveDate?: string;
+  privacyVersion: string;
+  source: 'sms_login' | string;
+  termsEffectiveDate?: string;
+  termsVersion: string;
 };
 
 export type AccountDeletionSnapshot = {
@@ -453,6 +464,7 @@ export type NearbyOwner = {
 
 export type NearbyMoment = {
   commentCount?: number;
+  createdMemo?: HealthMemo;
   createdAt: string;
   distance: string;
   id: string;
@@ -461,7 +473,8 @@ export type NearbyMoment = {
   likedByMe?: boolean;
   likeCount?: number;
   mood?: string;
-  moderationStatus?: 'pending_review';
+  moderationReason?: string;
+  moderationStatus?: 'pending_review' | 'rejected';
   ownerId: string;
   ownerName: string;
   ownedByMe?: boolean;
@@ -613,7 +626,7 @@ export type NotificationCategory = 'health' | 'interaction' | 'system' | 'walk';
 export type NotificationKind = 'conversation_message' | 'greeting_accepted' | 'greeting_request' | 'health_reminder' | 'medical_alert' | 'pet_circle_comment' | 'pet_circle_greeting' | 'pet_circle_like' | 'place_review' | 'place_submission' | 'support_reply' | 'system' | 'vaccine_done' | 'vaccine_reminder' | 'walk_invite';
 
 export type NotificationItem = {
-  actionRoute?: 'discover' | 'home' | 'map' | 'notifications' | 'profile' | 'safety' | 'settings' | 'supportTickets';
+  actionRoute?: 'discover' | 'home' | 'map' | 'notifications' | 'petCircleProfile' | 'profile' | 'safety' | 'settings' | 'supportTickets';
   campaignId?: string;
   category?: NotificationCategory;
   commentId?: string;
@@ -1046,6 +1059,7 @@ export type AppRoute =
   | 'healthCalendar'
   | 'healthMemos'
   | 'home'
+  | 'legalDocument'
   | 'login'
   | 'map'
   | 'memoEdit'
@@ -1059,6 +1073,7 @@ export type AppRoute =
   | 'petDetail'
   | 'petInfo'
   | 'petCircleProfile'
+  | 'placeContributions'
   | 'placeDetail'
   | 'profile'
   | 'safety'

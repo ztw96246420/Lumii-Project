@@ -71,6 +71,7 @@ async function startBackend(name, env = {}) {
       LUMII_BACKEND_STATE_PATH: statePath,
       LUMII_ALLOW_LEGACY_LOCAL_AUTH: 'true',
       LUMII_PUBLIC_API_BASE_URL: '',
+      LUMII_REQUIRE_LEGAL_CONSENT: 'true',
       LUMII_TOKEN_SECRET: 'sms-production-smoke-token-secret-32-bytes',
       NODE_ENV: 'production',
       NODE_NO_WARNINGS: '1',
@@ -385,11 +386,19 @@ async function main() {
       method: 'POST',
     });
     assert.equal(fixedBypass.error?.code, 'SMS_CODE_INVALID');
-    const verified = await request('/auth/sms/verify', {
+    const legalConsentRequired = await request('/auth/sms/verify', {
       body: { code: loginCode, deviceId: 'sms-production-device', phone },
+      expectedStatus: 400,
+      method: 'POST',
+    });
+    assert.equal(legalConsentRequired.error?.code, 'LEGAL_CONSENT_REQUIRED');
+    const verified = await request('/auth/sms/verify', {
+      body: { code: loginCode, deviceId: 'sms-production-device', legalConsentAccepted: true, phone },
       method: 'POST',
     });
     assert.ok(verified.data?.token);
+    assert.ok(verified.data.account?.legalConsent?.termsVersion);
+    assert.ok(verified.data.account?.legalConsent?.privacyVersion);
     const userToken = verified.data.token;
     const pet = await request('/pets', {
       body: { birthday: '2024-01-01', breed: 'dog', gender: 'male', name: '生产守卫', species: 'dog', weightKg: 8 },
@@ -525,7 +534,7 @@ async function main() {
     assert.equal(smsMock.deliveries.length, 3);
     const loginCodeAfterUnlock = smsMock.deliveries[2].payload.code;
     const verifiedAfterUnlock = await request('/auth/sms/verify', {
-      body: { code: loginCodeAfterUnlock, deviceId: 'sms-production-device', phone },
+      body: { code: loginCodeAfterUnlock, deviceId: 'sms-production-device', legalConsentAccepted: true, phone },
       method: 'POST',
     });
     assert.ok(verifiedAfterUnlock.data?.token);

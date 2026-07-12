@@ -424,6 +424,29 @@ async function main() {
       }
     });
 
+    await page.goto(`${baseUrl}/?route=login`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '准备好遇见你的灵伴了吗？');
+    await page.getByLabel('查看用户协议').click();
+    await waitExactText(page, '灵伴用户协议');
+    await waitExactText(page, '服务范围');
+    await waitBodyIncludes(page, '版本 test-2026-06-12 · 生效日期 2026-06-12');
+    await screenshot(page, 'smoke-frontend-00-terms-document.png');
+    await page.getByLabel('返回').click();
+    await waitExactText(page, '准备好遇见你的灵伴了吗？');
+    await page.getByLabel('查看隐私政策').click();
+    await waitExactText(page, '灵伴隐私政策');
+    await waitExactText(page, '我们收集的信息');
+    await screenshot(page, 'smoke-frontend-00-privacy-document.png');
+    await page.getByLabel('返回').click();
+    await waitExactText(page, '准备好遇见你的灵伴了吗？');
+
+    await page.goto(`${baseUrl}/?route=settings`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '协议与政策');
+    await clickExactText(page, '用户协议');
+    await waitExactText(page, '灵伴用户协议');
+    await page.getByLabel('返回').click();
+    await waitExactText(page, '设置与隐私');
+
     await page.goto(`${baseUrl}/?route=health`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '近期记录');
     await waitExactText(page, '宠物日历');
@@ -487,6 +510,74 @@ async function main() {
     await waitExactText(page, '小事已删除');
     await page.waitForTimeout(350);
     await screenshot(page, 'smoke-frontend-00-profile-post-deleted.png');
+
+    await page.goto(`${baseUrl}/?route=petCircleProfile&mockPetCircle=pending`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '审核中');
+    await page.getByLabel('小事审核中-mock-my-circle-pending-review').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('打开小事操作菜单-mock-my-circle-pending-review').click();
+    await page.getByLabel('菜单删除小事-mock-my-circle-pending-review').waitFor({ state: 'visible', timeout: 30_000 });
+    const pendingProfileScroll = await page.evaluate(() => {
+      const routeScroll = [...document.querySelectorAll('*')].find((element) => {
+        const style = window.getComputedStyle(element);
+        return style.overflowY === 'auto' && element.scrollHeight > element.clientHeight && element.clientWidth >= 300;
+      });
+      return routeScroll ? { clientWidth: routeScroll.clientWidth, scrollLeft: routeScroll.scrollLeft, scrollWidth: routeScroll.scrollWidth } : null;
+    });
+    if (pendingProfileScroll && (pendingProfileScroll.scrollLeft > 1 || pendingProfileScroll.scrollWidth > pendingProfileScroll.clientWidth + 1)) {
+      throw new Error(`Pending review profile must not overflow horizontally: ${JSON.stringify(pendingProfileScroll)}`);
+    }
+    if (await page.getByLabel('菜单查看评论-mock-my-circle-pending-review').count()) {
+      throw new Error('Pending review post must not expose comment actions');
+    }
+    await screenshot(page, 'smoke-frontend-00-profile-pending-review.png');
+
+    await page.goto(`${baseUrl}/?route=petCircleProfile&mockPetCircle=rejected`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '未通过');
+    await page.getByLabel('小事未通过-mock-my-circle-rejected').waitFor({ state: 'visible', timeout: 30_000 });
+    await waitExactText(page, '原因：内容不符合宠友圈发布规范，请调整后重新发布。');
+    await page.getByLabel('打开小事操作菜单-mock-my-circle-rejected').click();
+    await page.getByLabel('菜单删除小事-mock-my-circle-rejected').waitFor({ state: 'visible', timeout: 30_000 });
+    const rejectedProfileScroll = await page.evaluate(() => {
+      const routeScroll = [...document.querySelectorAll('*')].find((element) => {
+        const style = window.getComputedStyle(element);
+        return style.overflowY === 'auto' && element.scrollHeight > element.clientHeight && element.clientWidth >= 300;
+      });
+      return routeScroll ? { clientWidth: routeScroll.clientWidth, scrollLeft: routeScroll.scrollLeft, scrollWidth: routeScroll.scrollWidth } : null;
+    });
+    if (rejectedProfileScroll && (rejectedProfileScroll.scrollLeft > 1 || rejectedProfileScroll.scrollWidth > rejectedProfileScroll.clientWidth + 1)) {
+      throw new Error(`Rejected profile must not overflow horizontally: ${JSON.stringify(rejectedProfileScroll)}`);
+    }
+    if (await page.getByLabel('菜单查看评论-mock-my-circle-rejected').count()) {
+      throw new Error('Rejected post must not expose comment actions');
+    }
+    await screenshot(page, 'smoke-frontend-00-profile-rejected.png');
+
+    await page.goto(`${baseUrl}/?route=placeContributions&mockPlaceContributions=1`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '地点贡献记录');
+    await page.getByLabel('地点提交-mock-place-submission-approved').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('地点提交-mock-place-submission-pending').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('地点提交-mock-place-submission-rejected').waitFor({ state: 'visible', timeout: 30_000 });
+    await waitExactText(page, '原因：地点名称和详细地址暂时无法核实，请补充现场照片后重新提交。');
+    await screenshot(page, 'smoke-frontend-00-place-contributions-submissions.png');
+    await page.getByLabel('查看我的地点点评').click();
+    await page.getByLabel('地点点评-mock-place-review-approved').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('地点点评-mock-place-review-pending').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('地点点评-mock-place-review-rejected').waitFor({ state: 'visible', timeout: 30_000 });
+    await waitExactText(page, '原因：体验描述过于笼统，请补充真实到访时间和具体宠物友好信息。');
+    await screenshot(page, 'smoke-frontend-00-place-contributions-reviews.png');
+    await page.getByLabel('查看地点提交记录').click();
+    await page.getByLabel('重新提交地点-mock-place-submission-rejected').click();
+    await waitInputValue(page, '湖畔休息区');
+    await waitInputValue(page, '明湖街 18 号');
+
+    await page.goto(`${baseUrl}/?route=map&mockPlaceContributions=1`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '附近宠物友好地点');
+    await clickExactText(page, '附近宠物友好地点');
+    await clickExactText(page, '毛球宠物生活馆');
+    await waitExactText(page, '未通过');
+    await waitExactText(page, '原因：体验描述过于笼统，请补充真实到访时间和具体宠物友好信息。');
+    await waitExactText(page, '重写');
+    await screenshot(page, 'smoke-frontend-00-place-review-rejected-detail.png');
 
     const backdatedHealthDate = isoDateAfterDays(-6);
     await page.goto(`${baseUrl}/?route=healthCalendar&mockHealthCalendar=backdated`, { timeout: 60_000, waitUntil: 'networkidle' });

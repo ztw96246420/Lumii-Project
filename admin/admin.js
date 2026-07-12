@@ -4569,6 +4569,7 @@ async function renderUsers(force) {
   const withTags = users.filter((user) => (user.adminRiskTags || []).length).length;
   const withNotes = users.filter((user) => Number(user.adminNoteCount || 0) > 0).length;
   const authSessionCount = users.reduce((sum, user) => sum + Number(user.authSessionSummary?.total || 0), 0);
+  const legalConsentUsers = users.filter((user) => user.legalConsentSummary?.latest).length;
   const lockedLoginUsers = users.filter((user) => user.loginSecurity?.locked).length;
   const activeToday = users.filter((user) => {
     const time = new Date(user.lastSeenAt || user.createdAt || 0).getTime();
@@ -4576,7 +4577,7 @@ async function renderUsers(force) {
   }).length;
   $('content').innerHTML = `
     <div class="grid metrics">
-      ${metric('用户账号', numberText(users.length), `${numberText(users.filter((user) => user.petCount).length)} 位已建档`, '当前后台最多展示最近 200 位用户。')}
+      ${metric('用户账号', numberText(users.length), `${numberText(users.filter((user) => user.petCount).length)} 位已建档 · ${numberText(legalConsentUsers)} 位有协议留痕`, '当前后台最多展示最近 200 位用户。')}
       ${metric('24h 活跃', numberText(activeToday), '按最近活跃时间估算', 'lastSeenAt 来自登录、发现刷新、埋点等移动端行为。')}
       ${metric('登录设备', numberText(authSessionCount), `${numberText(users.filter((user) => user.authSessionSummary?.latest).length)} 位有记录`, '记录移动端短信登录、Token 刷新和登出来源，脱敏展示设备 hash、IP 与 UA 摘要。')}
       ${metric('登录锁定', numberText(lockedLoginUsers), '短信验证码防爆破', '按手机号、设备和网络分层累计错误；达到阈值后临时锁定，可由有权限的客服核验身份后解锁。')}
@@ -4597,7 +4598,7 @@ async function renderUsers(force) {
         ['用户', (u) => `<div class="cell-title">${escapeHtml(u.ownerName)}</div><div class="cell-sub">${shortPhone(u.phone)}</div>`],
         ['宠物', (u) => `${u.activePet ? `<div class="cell-title">${escapeHtml(u.activePet.name)}</div><div class="cell-sub">${escapeHtml(u.activePet.species)} · ${escapeHtml(u.activePet.breed || '-')}</div>` : '-'}`],
         ['设置', (u) => `${statusPill(u.settings.nearbyVisible ? 'nearby on' : 'nearby off')} ${statusPill(u.settings.pushNotifications ? 'push on' : 'push off')}`],
-        ['登录来源', (u) => renderUserAuthSession(u.authSessionSummary, u.loginSecurity)],
+        ['登录来源', (u) => renderUserAuthSession(u.authSessionSummary, u.loginSecurity, u.legalConsentSummary)],
         ['内容', (u) => `<div>${u.socialPostCount} 条小事</div><div class="cell-sub">${u.reportsAgainstCount} 次被举报</div>`],
         ['账号状态', (u) => `${statusPill(u.status)}<div class="cell-sub">${(u.sanctions?.activeTypes || []).map((type) => statusPill(type)).join(' ') || '无生效处罚'}</div>`],
         ['运营标记', renderUserOpsMark],
@@ -4636,14 +4637,18 @@ function renderUserOpsMark(user) {
   `;
 }
 
-function renderUserAuthSession(summary = {}, loginSecurity = {}) {
+function renderUserAuthSession(summary = {}, loginSecurity = {}, legalConsentSummary = {}) {
   const latest = summary.latest || null;
+  const latestConsent = legalConsentSummary.latest || null;
+  const consentStatus = latestConsent
+    ? `<div class="cell-sub">${statusPill('协议已同意')} ${escapeHtml(latestConsent.termsVersion || '-')} / ${escapeHtml(latestConsent.privacyVersion || '-')}</div><div class="cell-sub">${formatTime(latestConsent.acceptedAt)}</div>`
+    : '<div class="cell-sub">协议同意未留痕</div>';
   const lockStatus = loginSecurity.locked
     ? `<div class="cell-sub">${statusPill('登录锁定')} 至 ${formatTime(loginSecurity.lockedUntil)}</div><div class="cell-sub">连续失败 ${numberText(loginSecurity.failedAttempts || loginSecurity.clientFailedAttempts || 0)} 次 · IP ${escapeHtml(loginSecurity.lastFailedIp || '-')}</div>`
     : loginSecurity.failedAttempts || loginSecurity.clientFailedAttempts
       ? `<div class="cell-sub">${statusPill('校验失败')} 累计 ${numberText(loginSecurity.failedAttempts || loginSecurity.clientFailedAttempts || 0)} 次</div>`
       : '';
-  if (!latest) return `${lockStatus || '<div class="cell-sub">暂无登录记录</div>'}`;
+  if (!latest) return `${lockStatus || '<div class="cell-sub">暂无登录记录</div>'}${consentStatus}`;
   const device = latest.deviceIdHash || latest.deviceIdTail || '-';
   const ip = latest.lastIp || latest.loginIp || 'IP 未记录';
   return `
@@ -4652,6 +4657,7 @@ function renderUserAuthSession(summary = {}, loginSecurity = {}) {
     <div class="cell-sub">IP ${escapeHtml(ip)}</div>
     <div class="cell-sub">设备 ${escapeHtml(device)} · ${numberText(summary.total || 0)} 次</div>
     ${lockStatus}
+    ${consentStatus}
   `;
 }
 

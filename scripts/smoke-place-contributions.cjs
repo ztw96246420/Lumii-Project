@@ -175,6 +175,16 @@ async function main() {
     assert.equal(createdMySubmission?.contributionPoints, 10);
     assert.equal(createdMySubmission?.contributionActionLabel, '发现新地点');
 
+    const createdReview = await request(`/places/${encodeURIComponent(createdMySubmission.approvedPlaceId)}/reviews`, {
+      body: { content: 'Smoke owner review for contribution archive' },
+      method: 'POST',
+      token: userToken,
+    });
+    assert.ok(createdReview.data?.id, 'owner place review should be created');
+    const myReviews = await request('/places/reviews/my', { token: userToken });
+    const myCreatedReview = myReviews.data.find((item) => item.id === createdReview.data.id);
+    assert.equal(myCreatedReview?.placeName, createdMySubmission.name, 'owner review archive should include the current place name');
+
     const catalog = await request('/admin/places', { token: adminToken });
     const createdPlace = catalog.data.places.find((place) => place.id === createdMySubmission.approvedPlaceId);
     assert.equal(createdPlace?.latitude, createdSubmission.latitude, 'approved place should inherit submission latitude');

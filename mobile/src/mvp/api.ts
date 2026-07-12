@@ -224,9 +224,9 @@ function createHttpApi(baseUrl: string): LumiiApi {
         }));
       },
 
-      async verifySmsCode(phone: string, code: string, expiresAt: number): Promise<ApiResult<AuthSession>> {
+      async verifySmsCode(phone: string, code: string, expiresAt: number, legalConsentAccepted = false): Promise<ApiResult<AuthSession>> {
         const deviceId = await getLumiiInstallationId();
-        const result = await request<AuthSession>('POST', '/auth/sms/verify', { code, deviceId, expiresAt, phone });
+        const result = await request<AuthSession>('POST', '/auth/sms/verify', { code, deviceId, expiresAt, legalConsentAccepted, phone });
         if (result.data?.token) setLumiiAuthToken(result.data.token);
         return result;
       },

@@ -125,6 +125,7 @@ import type {
   HealthCalendarEvent,
   HealthMemo,
   HealthSummary,
+  LegalDocument,
   NearbyLocationHint,
   NearbyMoment,
   NearbyOwner,
@@ -692,6 +693,7 @@ const routeTitles: Partial<Record<AppRoute, string>> = {
   healthCalendar: '宠物日历',
   healthMemos: '备忘',
   home: '灵伴',
+  legalDocument: '协议与政策',
   map: '地图',
   memoEdit: '编辑备忘',
   memoNew: '新增备忘',
@@ -704,6 +706,7 @@ const routeTitles: Partial<Record<AppRoute, string>> = {
   petDetail: '宠物档案',
   petInfo: '宠物信息',
   petCircleProfile: '我发布的小事',
+  placeContributions: '地点贡献记录',
   placeDetail: '地点详情',
   profile: '我的',
   safety: '安全中心',
@@ -915,6 +918,7 @@ const webPreviewRoutes: Record<AppRoute, true> = {
   healthCalendar: true,
   healthMemos: true,
   home: true,
+  legalDocument: true,
   login: true,
   map: true,
   memoEdit: true,
@@ -928,6 +932,7 @@ const webPreviewRoutes: Record<AppRoute, true> = {
   petCircleProfile: true,
   petDetail: true,
   petInfo: true,
+  placeContributions: true,
   placeDetail: true,
   profile: true,
   safety: true,
@@ -946,7 +951,7 @@ function normalizeWebPreviewRoute(value: string): AppRoute | null {
 }
 
 function normalizeNotificationActionRoute(value?: string): AppRoute | null {
-  if (value === 'discover' || value === 'home' || value === 'map' || value === 'notifications' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'supportTickets') return value;
+  if (value === 'discover' || value === 'home' || value === 'map' || value === 'notifications' || value === 'petCircleProfile' || value === 'profile' || value === 'safety' || value === 'settings' || value === 'supportTickets') return value;
   return null;
 }
 
@@ -1415,6 +1420,8 @@ type PlaceSubmitResult = {
   status: 'error' | 'success';
   submittedAt: string;
 };
+
+type PlaceContributionTab = 'reviews' | 'submissions';
 
 type PlaceComposerDraft = {
   address: string;
@@ -2299,6 +2306,7 @@ export default function LumiiMvpApp() {
   const isHomePreviewMode = Boolean(previewRoute) || getWebPreviewParam('preview') === 'home' || getWebPreviewParam('preview') === 'pet-home';
   const interactivePetCirclePreview = getWebPreviewParam('mockPetCircle') === 'interactive';
   const interactiveMultiPetPreview = getWebPreviewParam('mockMultiPet') === 'interactive';
+  const placeContributionRecordsPreview = getWebPreviewParam('mockPlaceContributions') === '1';
   const backdatedHealthCalendarPreview = getWebPreviewParam('mockHealthCalendar') === 'backdated';
   const missingAvatarPreview = getWebPreviewParam('mockAvatar') === 'missing';
   const backdatedHealthCalendarDate = addDaysIsoDate(-6);
@@ -2318,6 +2326,7 @@ export default function LumiiMvpApp() {
   const analyticsPreviewApi = isHomePreviewMode ? mockApi.analytics : lumiiApi.analytics;
   const authPreviewApi = isHomePreviewMode ? mockApi.auth : lumiiApi.auth;
   const configPreviewApi = isHomePreviewMode ? mockApi.config : lumiiApi.config;
+  const legalPreviewApi = isHomePreviewMode ? mockApi.legal : lumiiApi.legal;
   const permissionsPreviewApi = isHomePreviewMode ? mockApi.permissions : lumiiApi.permissions;
   const initialPreviewPrimaryPet = missingAvatarPreview ? { ...webPreviewPet, avatarUrl: undefined } : webPreviewPet;
   const initialPreviewPets = isHomePreviewMode && interactiveMultiPetPreview ? [initialPreviewPrimaryPet, webPreviewSecondPet] : [initialPreviewPrimaryPet];
@@ -2363,6 +2372,11 @@ export default function LumiiMvpApp() {
   const [phoneFocused, setPhoneFocused] = useState(false);
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [agreementAttention, setAgreementAttention] = useState(false);
+  const [legalDocumentKey, setLegalDocumentKey] = useState<LegalDocument['key']>(getWebPreviewParam('legal') === 'privacy' ? 'privacy' : 'terms');
+  const [legalDocument, setLegalDocument] = useState<LegalDocument | null>(null);
+  const [legalDocumentError, setLegalDocumentError] = useState('');
+  const [legalDocumentLoading, setLegalDocumentLoading] = useState(false);
+  const legalDocumentRequestRef = useRef(0);
   const [loginInlineError, setLoginInlineError] = useState('');
   const [sendLoading, setSendLoading] = useState(false);
   const sendLoadingRef = useRef(false);
@@ -2679,6 +2693,11 @@ export default function LumiiMvpApp() {
   const [favoritePlaceSavingIds, setFavoritePlaceSavingIds] = useState<string[]>([]);
   const favoritePlaceSavingIdsRef = useRef<Set<string>>(new Set());
   const [placeReviewsByPlaceId, setPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview>>({});
+  const [myPlaceReviews, setMyPlaceReviews] = useState<PlaceReview[]>([]);
+  const [myPlaceSubmissions, setMyPlaceSubmissions] = useState<PlaceSubmission[]>([]);
+  const [placeContributionTab, setPlaceContributionTab] = useState<PlaceContributionTab>('submissions');
+  const [placeContributionRecordsLoading, setPlaceContributionRecordsLoading] = useState(false);
+  const [placeContributionRecordsError, setPlaceContributionRecordsError] = useState('');
   const [publicPlaceReviewsByPlaceId, setPublicPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview[]>>({});
   const [publicPlaceReviewsLoadingId, setPublicPlaceReviewsLoadingId] = useState('');
   const [expandedPublicPlaceReviewPlaceIds, setExpandedPublicPlaceReviewPlaceIds] = useState<string[]>([]);
@@ -2946,6 +2965,11 @@ export default function LumiiMvpApp() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (route !== 'legalDocument' || legalDocumentLoading || legalDocumentError || legalDocument?.key === legalDocumentKey) return;
+    void loadLegalDocument(legalDocumentKey);
+  }, [legalDocument?.key, legalDocumentError, legalDocumentKey, legalDocumentLoading, route]);
 
   useEffect(() => {
     setNearbyMoments((items) => filterNearbyMomentsByTtl(items, nearbyMomentTtlDays));
@@ -3486,6 +3510,31 @@ export default function LumiiMvpApp() {
     setRoute(nextRoute);
   }, []);
 
+  async function loadLegalDocument(key: LegalDocument['key']) {
+    const requestId = legalDocumentRequestRef.current + 1;
+    legalDocumentRequestRef.current = requestId;
+    setLegalDocumentKey(key);
+    setLegalDocumentLoading(true);
+    setLegalDocumentError('');
+    const result = key === 'privacy' ? await legalPreviewApi.getPrivacy() : await legalPreviewApi.getTerms();
+    if (legalDocumentRequestRef.current !== requestId) return;
+    setLegalDocumentLoading(false);
+    if (result.data?.key === key) {
+      setLegalDocument(result.data);
+      return;
+    }
+    setLegalDocument(null);
+    setLegalDocumentError(result.error?.message ?? '协议正文加载失败，请检查网络后重试');
+  }
+
+  function openLegalDocument(key: LegalDocument['key']) {
+    setLegalDocumentKey(key);
+    if (legalDocument?.key !== key) setLegalDocument(null);
+    setLegalDocumentError('');
+    go('legalDocument');
+    void loadLegalDocument(key);
+  }
+
   function showFeatureUnavailable(label: string) {
     showToast(`${label}暂时维护中`, { subtitle: '请稍后再试', tone: 'warning', variant: 'surface' });
   }
@@ -3683,6 +3732,12 @@ export default function LumiiMvpApp() {
       void loadPublicPlaceReviews(selectedPlace.id);
     }
   }, [placesEnabled, route, selectedPlace?.id]);
+
+  useEffect(() => {
+    const shouldLoad = route === 'placeContributions' || (isHomePreviewMode && placeContributionRecordsPreview && (route === 'map' || route === 'placeDetail'));
+    if (!session || !shouldLoad || !placesEnabled) return;
+    void loadPlaceContributionRecords({ silent: myPlaceReviews.length > 0 || myPlaceSubmissions.length > 0 });
+  }, [isHomePreviewMode, placeContributionRecordsPreview, placesEnabled, route, session]);
 
   useEffect(() => {
     if (walkInvitePickingPlace && route !== 'map' && route !== 'placeDetail') setWalkInvitePickingPlace(false);
@@ -4322,7 +4377,10 @@ export default function LumiiMvpApp() {
     if (placeResult.data) setPlaces(placeResult.data);
     if (favoritePlaceResult.data) setFavoritePlaceIds(favoritePlaceResult.data);
     if (favoritePlacesResult.data) setFavoritePlaces(favoritePlacesResult.data);
-    if (placeReviewResult.data) setPlaceReviewsByPlaceId(indexPlaceReviewsByPlaceId(placeReviewResult.data));
+    if (placeReviewResult.data) {
+      setMyPlaceReviews(placeReviewResult.data);
+      setPlaceReviewsByPlaceId(indexPlaceReviewsByPlaceId(placeReviewResult.data));
+    }
     if (aiUsageResult.data) {
       setAiUsage(aiUsageResult.data);
       setPetChatDailyCount(aiUsageResult.data.daily.petChat.count);
@@ -5284,6 +5342,51 @@ export default function LumiiMvpApp() {
     }
   }
 
+  async function loadPlaceContributionRecords(options: { silent?: boolean } = {}) {
+    if (!placesEnabled) return false;
+    const requestSessionToken = sessionTokenRef.current;
+    if (!requestSessionToken) return false;
+    if (!options.silent) setPlaceContributionRecordsLoading(true);
+    setPlaceContributionRecordsError('');
+    try {
+      const [reviewsResult, submissionsResult] = await Promise.all([
+        placesPreviewApi.listMyReviews(),
+        placesPreviewApi.listMySubmissions(),
+      ]);
+      if (sessionTokenRef.current !== requestSessionToken) return false;
+      if (reviewsResult.data) {
+        setMyPlaceReviews(reviewsResult.data);
+        setPlaceReviewsByPlaceId(indexPlaceReviewsByPlaceId(reviewsResult.data));
+      }
+      if (submissionsResult.data) setMyPlaceSubmissions(submissionsResult.data);
+      const errorMessage = reviewsResult.error?.message || submissionsResult.error?.message || '';
+      setPlaceContributionRecordsError(errorMessage);
+      return Boolean(reviewsResult.data || submissionsResult.data);
+    } catch {
+      if (sessionTokenRef.current === requestSessionToken) setPlaceContributionRecordsError('地点贡献记录加载失败');
+      return false;
+    } finally {
+      if (sessionTokenRef.current === requestSessionToken) setPlaceContributionRecordsLoading(false);
+    }
+  }
+
+  function openPlaceContributionRecords(tab: PlaceContributionTab = 'submissions') {
+    if (!guardFeature(placesEnabled, '地图地点')) return;
+    setPlaceContributionTab(tab);
+    go('placeContributions');
+  }
+
+  async function reopenPlaceReview(review: PlaceReview) {
+    const requestSessionToken = sessionTokenRef.current;
+    const result = await placesPreviewApi.getPlace(review.placeId);
+    if (sessionTokenRef.current !== requestSessionToken) return;
+    if (result.data) {
+      await openPlaceReviewComposer(result.data);
+      return;
+    }
+    showToast(result.error?.message ?? '地点暂时不可用，请稍后重试', { tone: 'warning', variant: 'surface' });
+  }
+
   async function openPlaceSubmissionFromNotification(submissionId?: string) {
     if (!guardFeature(placesEnabled, '地图地点')) return false;
     if (!submissionId) {
@@ -5506,6 +5609,10 @@ export default function LumiiMvpApp() {
       }
       const actionRoute = normalizeNotificationActionRoute(item.actionRoute);
       if (actionRoute) {
+        if (actionRoute === 'petCircleProfile') {
+          openPetCircleProfile('me');
+          return;
+        }
         go(actionRoute);
         return;
       }
@@ -5893,7 +6000,7 @@ export default function LumiiMvpApp() {
     setVerifyLoading(true);
     setOtpInlineError('');
     try {
-      const result = await authPreviewApi.verifySmsCode(ticket.phone, code, ticket.expiresAt);
+      const result = await authPreviewApi.verifySmsCode(ticket.phone, code, ticket.expiresAt, agreementAccepted);
       const currentTicket = otpMetaRef.current;
       if (!currentTicket || currentTicket.phone !== ticket.phone || currentTicket.expiresAt !== ticket.expiresAt) return;
       if (result.data) {
@@ -7963,48 +8070,62 @@ export default function LumiiMvpApp() {
         }
         uploadedImageUrls = uploadResult.urls;
       }
-      const result = await healthPreviewApi.saveHealthMemo('今日小事', `${requestText}${photoSummary}`);
-      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
-      if (result.data) {
-        setMemos((items) => [result.data!, ...items]);
+      if (dailyVisibility === 'nearby') {
+        const momentResult = await socialPreviewApi.createMoment(requestText, undefined, uploadedImageUrls.length || requestPhotoCount, {
+          imageUrls: uploadedImageUrls,
+          location: requestLocation,
+          syncToHealthCalendar: true,
+          visibility: 'nearby',
+        });
+        if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
+        if (!momentResult.data) {
+          const message = momentResult.error?.message ?? '发布失败，请稍后重试';
+          setNearbyMomentsError(message);
+          showToast(message, { subtitle: '内容和照片草稿已保留，可以直接重试', tone: 'error', variant: 'surface' });
+          return;
+        }
+        if (momentResult.data.createdMemo) {
+          setMemos((items) => [momentResult.data!.createdMemo!, ...items.filter((item) => item.id !== momentResult.data!.createdMemo!.id)]);
+        } else {
+          const memoResult = await healthPreviewApi.listHealthMemos();
+          if (isCurrentPetRequest(requestSessionToken, requestPetId) && memoResult.data) setMemos(memoResult.data);
+        }
+        const momentUnderReview = momentResult.data.moderationStatus === 'pending_review';
+        setNearbyMomentsError('');
+        if (!momentUnderReview) {
+          setHomeMomentIndex(0);
+          void loadNearbyMoments({ location: requestLocation, silent: true });
+        }
         setDailyPostText('');
         setDailyPostPhotoUris([]);
         setDailyPostPhotoDrafts([]);
-        let momentSynced = false;
-        let momentSyncError = '';
-        let momentUnderReview = false;
-        if (dailyVisibility === 'nearby') {
-          const momentResult = await socialPreviewApi.createMoment(requestText, undefined, uploadedImageUrls.length || requestPhotoCount, { imageUrls: uploadedImageUrls, location: requestLocation, visibility: 'nearby' });
-          if (sessionTokenRef.current === requestSessionToken && momentResult.data) {
-            momentUnderReview = momentResult.data.moderationStatus === 'pending_review';
-            momentSynced = !momentUnderReview;
-            if (momentUnderReview) {
-              setNearbyMomentsError('');
-            } else {
-              setNearbyMomentsError('');
-              setHomeMomentIndex(0);
-              void loadNearbyMoments({ location: requestLocation, silent: true });
-            }
-          } else if (sessionTokenRef.current === requestSessionToken && momentResult.error) {
-            momentSyncError = momentResult.error.message;
-            setNearbyMomentsError(momentResult.error.message);
-          }
-        }
         void refreshHealthSummary();
         replace('home');
-        const publicSubtitle = momentSynced
-          ? '已同步到宠物日历和宠友圈'
-          : momentUnderReview
-            ? '已同步到宠物日历，宠友圈内容已进入审核'
-            : `已同步到宠物日历，宠友圈同步${momentSyncError ? '稍后再试' : '稍后再试'}`;
         showToast('今日小事已记录', {
-          subtitle: dailyVisibility === 'nearby' ? publicSubtitle : '已保存为仅自己可见的日历记录',
-          tone: dailyVisibility === 'nearby' && (!momentSynced || momentUnderReview) ? 'info' : 'success',
+          subtitle: momentUnderReview ? '已同步到宠物日历，宠友圈内容已进入审核' : '已同步到宠物日历和宠友圈',
+          tone: momentUnderReview ? 'info' : 'success',
           variant: 'surface',
         });
-      } else {
-        showToast(result.error?.message ?? '发布失败，请稍后重试', { subtitle: '内容已留在编辑框中，不会丢失', tone: 'error', variant: 'surface' });
+        return;
       }
+
+      const memoResult = await healthPreviewApi.saveHealthMemo('今日小事', `${requestText}${photoSummary}`);
+      if (!isCurrentPetRequest(requestSessionToken, requestPetId)) return;
+      if (!memoResult.data) {
+        showToast(memoResult.error?.message ?? '保存失败，请稍后重试', { subtitle: '内容已留在编辑框中，不会丢失', tone: 'error', variant: 'surface' });
+        return;
+      }
+      setMemos((items) => [memoResult.data!, ...items]);
+      setDailyPostText('');
+      setDailyPostPhotoUris([]);
+      setDailyPostPhotoDrafts([]);
+      void refreshHealthSummary();
+      replace('home');
+      showToast('今日小事已记录', {
+        subtitle: '已保存为仅自己可见的日历记录',
+        tone: 'success',
+        variant: 'surface',
+      });
     } finally {
       dailyPostSavingRef.current = false;
       setDailyPostSaving(false);
@@ -8997,6 +9118,7 @@ export default function LumiiMvpApp() {
         if (stillReviewingSamePlace) setCustomPlaceFeatureVisible(false);
         if (stillReviewingSamePlace) setPlaceSubmissionRating(5);
         setPlaceReviewsByPlaceId((items) => ({ ...items, [place.id]: result.data! }));
+        setMyPlaceReviews((items) => [result.data!, ...items.filter((item) => item.placeId !== place.id)]);
         void loadInboxData();
         if (stillReviewingSamePlace) {
           setPlaceSubmitResult({
@@ -9240,12 +9362,27 @@ export default function LumiiMvpApp() {
     }
   }
 
-  async function openPlaceSubmissionComposer() {
+  async function openPlaceSubmissionComposer(seed?: PlaceSubmission) {
     const requestSessionToken = sessionTokenRef.current;
     setPlaceComposerMode('place');
     setPlaceSubmitResult(null);
     placePhotoPickingRef.current = false;
     setPlacePhotoPicking(false);
+    if (seed) {
+      setPlacePhotoUris([]);
+      setPlacePhotoDrafts([]);
+      setSelectedPlaceFeatureTags([]);
+      setCustomPlaceFeatureDraft('');
+      setCustomPlaceFeatureVisible(false);
+      setPlaceSubmissionRating(5);
+      setPlaceDraftName(seed.name);
+      setPlaceDraftAddress(seed.address);
+      setPlaceSubmissionExperience(seed.content);
+      setPlaceReviewDraft('');
+      go('addPlaceReview');
+      showToast('已带入上次提交内容', { subtitle: '请核对信息并补充可核实的现场照片', tone: 'info', variant: 'surface' });
+      return;
+    }
     let draft: null | PlaceComposerDraft = null;
     try {
       draft = await loadPlaceComposerDraft('place');
@@ -9353,6 +9490,7 @@ export default function LumiiMvpApp() {
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         await deletePlaceComposerDraft('place');
+        setMyPlaceSubmissions((items) => [result.data!, ...items.filter((item) => item.id !== result.data!.id)]);
         if (stillEditingSubmission) {
           setPlaceSubmissionExperience('');
           setPlaceDraftName('');
@@ -9592,6 +9730,11 @@ export default function LumiiMvpApp() {
     favoritePlaceSavingIdsRef.current.clear();
     setFavoritePlaceSavingIds([]);
     setPlaceReviewsByPlaceId({});
+    setMyPlaceReviews([]);
+    setMyPlaceSubmissions([]);
+    setPlaceContributionTab('submissions');
+    setPlaceContributionRecordsLoading(false);
+    setPlaceContributionRecordsError('');
     setPublicPlaceReviewsByPlaceId({});
     setPublicPlaceReviewsLoadingId('');
     setExpandedPublicPlaceReviewPlaceIds([]);
@@ -9948,20 +10091,95 @@ export default function LumiiMvpApp() {
               {sendLoading ? '发送中...' : cooldownRemaining > 0 ? `${formatSmsCooldown(cooldownRemaining)}后重试` : '获取验证码'}
             </Text>
           </Pressable>
-          <Pressable
-            accessibilityLabel="同意用户协议与隐私政策"
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: agreementAccepted }}
-            hitSlop={8}
-            onPress={() => {
-              setAgreementAttention(false);
-              setAgreementAccepted((value) => !value);
-            }}
-            style={[styles.agreementRow, webPressableReset]}
-          >
-            <View style={[styles.checkbox, agreementAccepted && styles.checkboxChecked, agreementAttention && !agreementAccepted && styles.checkboxAttention]}>{agreementAccepted ? <Check color="#fff" size={13} strokeWidth={3} /> : null}</View>
-            <Text style={[styles.agreementText, agreementAttention && !agreementAccepted && styles.agreementTextAttention]}>我已阅读并同意《用户协议》《隐私政策》</Text>
-          </Pressable>
+          <View style={styles.agreementRow}>
+            <Pressable
+              accessibilityLabel="同意用户协议与隐私政策"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: agreementAccepted }}
+              hitSlop={8}
+              onPress={() => {
+                setAgreementAttention(false);
+                setAgreementAccepted((value) => !value);
+              }}
+              style={[styles.agreementToggleMake, webPressableReset]}
+            >
+              <View style={[styles.checkbox, agreementAccepted && styles.checkboxChecked, agreementAttention && !agreementAccepted && styles.checkboxAttention]}>{agreementAccepted ? <Check color="#fff" size={13} strokeWidth={3} /> : null}</View>
+              <Text style={[styles.agreementText, agreementAttention && !agreementAccepted && styles.agreementTextAttention]}>我已阅读并同意</Text>
+            </Pressable>
+            <Pressable accessibilityLabel="查看用户协议" accessibilityRole="button" hitSlop={6} onPress={() => openLegalDocument('terms')} style={webPressableReset}>
+              <Text style={[styles.agreementLinkMake, agreementAttention && !agreementAccepted && styles.agreementTextAttention]}>《用户协议》</Text>
+            </Pressable>
+            <Text style={[styles.agreementJoinMake, agreementAttention && !agreementAccepted && styles.agreementTextAttention]}>与</Text>
+            <Pressable accessibilityLabel="查看隐私政策" accessibilityRole="button" hitSlop={6} onPress={() => openLegalDocument('privacy')} style={webPressableReset}>
+              <Text style={[styles.agreementLinkMake, agreementAttention && !agreementAccepted && styles.agreementTextAttention]}>《隐私政策》</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
+  function renderLegalDocument() {
+    const documentTitle = legalDocument?.title || (legalDocumentKey === 'privacy' ? '灵伴隐私政策' : '灵伴用户协议');
+    const DocumentIcon = legalDocumentKey === 'privacy' ? ShieldCheck : NotebookPen;
+    return (
+      <Screen title={documentTitle}>
+        <View style={styles.legalDocumentPageMake}>
+          <View style={styles.legalDocumentHeroMake}>
+            <View style={styles.legalDocumentIconMake}>
+              <DocumentIcon color={legalDocumentKey === 'privacy' ? palette.teal : palette.orange} size={24} strokeWidth={2.2} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.legalDocumentTitleMake}>{documentTitle}</Text>
+              <Text style={styles.legalDocumentMetaMake}>
+                {legalDocument ? `版本 ${legalDocument.version} · 生效日期 ${legalDocument.effectiveDate}` : '正在读取当前有效版本'}
+              </Text>
+            </View>
+          </View>
+
+          {legalDocumentLoading ? (
+            <View accessibilityLabel="协议正文加载中" style={styles.legalDocumentLoadingMake}>
+              <SkeletonLine height={18} width="42%" />
+              <SkeletonLine height={12} width="100%" />
+              <SkeletonLine height={12} width="94%" />
+              <SkeletonLine height={12} width="72%" />
+              <SkeletonLine height={18} style={styles.legalDocumentLoadingSectionMake} width="36%" />
+              <SkeletonLine height={12} width="100%" />
+              <SkeletonLine height={12} width="88%" />
+            </View>
+          ) : null}
+
+          {!legalDocumentLoading && legalDocumentError ? (
+            <ErrorState
+              action="重新加载"
+              description={legalDocumentError}
+              icon={<WifiOff color={palette.orange} size={20} strokeWidth={2.4} />}
+              iconTone="warning"
+              onAction={() => void loadLegalDocument(legalDocumentKey)}
+              title="暂时无法读取协议"
+            />
+          ) : null}
+
+          {!legalDocumentLoading && legalDocument ? (
+            <>
+              {legalDocument.disclaimer ? (
+                <View style={styles.legalDocumentNoticeMake}>
+                  <AlertCircle color={palette.orange} size={17} strokeWidth={2.3} />
+                  <Text style={styles.legalDocumentNoticeTextMake}>{legalDocument.disclaimer}</Text>
+                </View>
+              ) : null}
+              <View style={styles.legalDocumentSectionsMake}>
+                {legalDocument.sections.map((section, sectionIndex) => (
+                  <View key={`${section.title}-${sectionIndex}`} style={[styles.legalDocumentSectionMake, sectionIndex === legalDocument.sections.length - 1 && styles.legalDocumentSectionLastMake]}>
+                    <Text style={styles.legalDocumentSectionTitleMake}>{section.title}</Text>
+                    {section.body.map((paragraph, paragraphIndex) => (
+                      <Text key={`${sectionIndex}-${paragraphIndex}`} selectable style={styles.legalDocumentBodyMake}>{paragraph}</Text>
+                    ))}
+                  </View>
+                ))}
+              </View>
+            </>
+          ) : null}
         </View>
       </Screen>
     );
@@ -12975,6 +13193,9 @@ export default function LumiiMvpApp() {
       const deleting = petCircleDeletingPostIds.includes(post.id);
       const actionOpen = petCircleProfileActionPostId === post.id;
       const canDelete = Boolean(profile?.ownedByMe && post.ownedByMe);
+      const underReview = post.moderationStatus === 'pending_review';
+      const rejected = post.moderationStatus === 'rejected';
+      const interactionDisabled = underReview || rejected;
       const featured = post.id === petCircleProfilePosts[0]?.id;
       const compact = !featured;
       const dateCol = (
@@ -12987,14 +13208,32 @@ export default function LumiiMvpApp() {
       );
       const postMeta = (
         <View style={styles.petCircleProfilePostMetaMake}>
-          <View style={styles.petCircleProfileMetricMake}>
-            <Heart color={palette.orange} size={16} strokeWidth={2.2} />
-            <Text style={styles.petCircleProfileMetricTextMake}>{post.likeCount ?? 0}</Text>
-          </View>
-          <Pressable accessibilityLabel={`查看小事评论-${post.id}`} onPress={() => openPetCircleProfileComments(post)} style={[styles.petCircleProfileMetricMake, webPressableReset]}>
-            <MessageCircle color={palette.ink} size={16} strokeWidth={2.2} />
-            <Text style={styles.petCircleProfileMetricTextMake}>{post.commentCount ?? 0}</Text>
-          </Pressable>
+          {interactionDisabled ? (
+            <View
+              accessibilityLabel={`${underReview ? '小事审核中' : '小事未通过'}-${post.id}`}
+              style={[styles.petCircleProfileReviewingMake, rejected && styles.petCircleProfileRejectedMake]}
+            >
+              {underReview
+                ? <Clock color="#B47A28" size={13} strokeWidth={2.4} />
+                : <AlertCircle color="#A8443A" size={13} strokeWidth={2.4} />}
+              <Text style={[styles.petCircleProfileReviewingTextMake, rejected && styles.petCircleProfileRejectedTextMake]}>
+                {compact
+                  ? underReview ? '审核中' : '未通过'
+                  : underReview ? '审核中 · 仅自己可见' : '未通过 · 仅自己可见'}
+              </Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.petCircleProfileMetricMake}>
+                <Heart color={palette.orange} size={16} strokeWidth={2.2} />
+                <Text style={styles.petCircleProfileMetricTextMake}>{post.likeCount ?? 0}</Text>
+              </View>
+              <Pressable accessibilityLabel={`查看小事评论-${post.id}`} onPress={() => openPetCircleProfileComments(post)} style={[styles.petCircleProfileMetricMake, webPressableReset]}>
+                <MessageCircle color={palette.ink} size={16} strokeWidth={2.2} />
+                <Text style={styles.petCircleProfileMetricTextMake}>{post.commentCount ?? 0}</Text>
+              </Pressable>
+            </>
+          )}
           <View style={styles.flex} />
           <View style={styles.petCircleProfileActionAnchorMake}>
             <Pressable
@@ -13007,10 +13246,12 @@ export default function LumiiMvpApp() {
             </Pressable>
             {actionOpen ? (
               <View style={styles.petCircleProfileActionMenuMake}>
-                <Pressable accessibilityLabel={`菜单查看评论-${post.id}`} onPress={() => openPetCircleProfileComments(post)} style={[styles.petCircleProfileActionMenuItemMake, webPressableReset]}>
-                  <MessageCircle color={palette.ink} size={17} strokeWidth={2.4} />
-                  <Text style={styles.petCircleProfileActionMenuTextMake}>查看评论</Text>
-                </Pressable>
+                {interactionDisabled ? null : (
+                  <Pressable accessibilityLabel={`菜单查看评论-${post.id}`} onPress={() => openPetCircleProfileComments(post)} style={[styles.petCircleProfileActionMenuItemMake, webPressableReset]}>
+                    <MessageCircle color={palette.ink} size={17} strokeWidth={2.4} />
+                    <Text style={styles.petCircleProfileActionMenuTextMake}>查看评论</Text>
+                  </Pressable>
+                )}
                 {canDelete ? (
                   <Pressable accessibilityLabel={`菜单删除小事-${post.id}`} disabled={deleting} onPress={() => confirmDeletePetCircleProfilePost(post)} style={[styles.petCircleProfileActionMenuItemMake, deleting && styles.mapSearchActionDisabled, webPressableReset]}>
                     {deleting ? <ActivityIndicator color={palette.danger} size="small" /> : <Trash2 color={palette.danger} size={17} strokeWidth={2.4} />}
@@ -13040,6 +13281,7 @@ export default function LumiiMvpApp() {
                       <Text numberOfLines={1} style={styles.petCircleProfilePostPetNameMake}>{post.petName}</Text>
                       <Text numberOfLines={1} style={styles.petCircleProfilePostTimeMake}>{petCircleProfileExactTimeLabel(post.createdAt)}</Text>
                       <Text numberOfLines={1} style={styles.petCircleProfilePostTextMake}>{post.text}</Text>
+                      {rejected && post.moderationReason ? <Text numberOfLines={1} style={styles.petCircleProfileModerationReasonMake}>原因：{post.moderationReason}</Text> : null}
                       {postMeta}
                     </View>
                   </View>
@@ -13052,6 +13294,7 @@ export default function LumiiMvpApp() {
                   <Text numberOfLines={1} style={styles.petCircleProfilePostPetNameMake}>{post.petName}</Text>
                   <Text numberOfLines={1} style={styles.petCircleProfilePostTimeMake}>{petCircleProfileExactTimeLabel(post.createdAt)}</Text>
                   <Text numberOfLines={5} style={styles.petCircleProfilePostTextMake}>{post.text}</Text>
+                  {rejected && post.moderationReason ? <Text numberOfLines={2} style={styles.petCircleProfileModerationReasonMake}>原因：{post.moderationReason}</Text> : null}
                   {post.distance ? (
                     <View style={styles.petCircleProfilePlaceMake}>
                       <MapPin color={palette.teal} size={12} strokeWidth={2.5} />
@@ -13109,7 +13352,7 @@ export default function LumiiMvpApp() {
                   </View>
                 ) : null}
               </View>
-              <Text numberOfLines={1} style={styles.petCircleProfileSubMake}>{profile?.ownedByMe ? '我的宠友圈公开记录' : `${profile?.ownerName ?? '宠友'} 的公开小事`}</Text>
+              <Text numberOfLines={1} style={styles.petCircleProfileSubMake}>{profile?.ownedByMe ? '我的宠友圈发布记录' : `${profile?.ownerName ?? '宠友'} 的公开小事`}</Text>
             </View>
             <View style={styles.petCircleProfileStatsMake}>
               <View style={styles.petCircleProfileStatMake}>
@@ -13143,7 +13386,7 @@ export default function LumiiMvpApp() {
             </View>
           ) : !petCircleProfilePosts.length ? (
             <View style={styles.petCircleProfileEmptyMake}>
-              <Text style={styles.petCircleProfileEmptyTitleMake}>还没有公开小事</Text>
+              <Text style={styles.petCircleProfileEmptyTitleMake}>{profile?.ownedByMe ? '还没有发布小事' : '还没有公开小事'}</Text>
               <Text style={styles.petCircleProfileEmptyDescMake}>{profile?.ownedByMe ? '发布今日小事后，会在这里形成你的宠友圈归档。' : '对方暂时还没有公开过小事。'}</Text>
             </View>
           ) : (
@@ -14715,6 +14958,17 @@ export default function LumiiMvpApp() {
     const isPlaceReporting = place ? placeReportingIds.includes(place.id) : false;
     const myPlaceReview = place ? placeReviewsByPlaceId[place.id] : undefined;
     const hasPendingPlaceReview = myPlaceReview?.status === 'pending_review';
+    const hasApprovedPlaceReview = myPlaceReview?.status === 'approved';
+    const hasRejectedPlaceReview = myPlaceReview?.status === 'rejected' || myPlaceReview?.status === 'hidden' || myPlaceReview?.status === 'deleted';
+    const myPlaceReviewStatusLabel = hasApprovedPlaceReview
+      ? '已公开'
+      : hasPendingPlaceReview
+        ? '审核中'
+        : myPlaceReview?.status === 'deleted'
+          ? '已删除'
+          : myPlaceReview?.status === 'hidden'
+            ? '已隐藏'
+            : myPlaceReview ? '未通过' : '';
     const publicPlaceReviews = place ? publicPlaceReviewsByPlaceId[place.id] ?? [] : [];
     const publicReviewConfig = remoteConfig.places?.publicReviews || {};
     const publicReviewDisplayLimit = Math.max(1, Math.min(12, Math.floor(Number(publicReviewConfig.detailDisplayLimit) || 3)));
@@ -14750,12 +15004,15 @@ export default function LumiiMvpApp() {
     const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
     const placeReviewSummary = place?.reviewCount ? `· 社区点评 ${place.reviewCount} 条` : '· 待社区点评';
     const placeHasRating = place ? hasPlaceRating(place) : false;
-    const placeReviewTime = myPlaceReview
-      ? hasPendingPlaceReview
-        ? `审核中 · ${formatTimestampDisplay(myPlaceReview.createdAt)}`
-        : formatTimestampDisplay(myPlaceReview.createdAt)
-      : '暂无点评';
+    const placeReviewTime = myPlaceReview ? formatTimestampDisplay(myPlaceReview.reviewedAt || myPlaceReview.createdAt) : '暂无点评';
     const placeReviewBody = myPlaceReview?.content ?? '分享你的真实体验，帮助附近养宠人判断是否适合前往。';
+    const placeReviewActionLabel = !myPlaceReview
+      ? '写点评'
+      : hasApprovedPlaceReview
+        ? '修改'
+        : hasPendingPlaceReview
+          ? '补充'
+          : '重写';
     return (
       <Screen title="">
         {place ? (
@@ -14858,11 +15115,16 @@ export default function LumiiMvpApp() {
                   <View style={styles.flex}>
                     <View style={styles.placeReviewAuthorRowMake}>
                       <Text numberOfLines={1} style={styles.placeReviewAuthorMake}>{myPlaceReview ? ownerName : '还没有你的点评'}</Text>
-                      {myPlaceReview ? (
+                      {hasApprovedPlaceReview ? (
                         <View style={styles.placeReviewStarsMake}>
                           {Array.from({ length: 5 }).map((_, index) => (
                             <Star key={index} color="#FFB94B" fill="#FFB94B" size={10} strokeWidth={2} />
                           ))}
+                        </View>
+                      ) : null}
+                      {myPlaceReview && !hasApprovedPlaceReview ? (
+                        <View style={[styles.placeMyReviewStatusMake, hasPendingPlaceReview ? styles.placeMyReviewStatusPendingMake : styles.placeMyReviewStatusRejectedMake]}>
+                          <Text style={[styles.placeMyReviewStatusTextMake, hasPendingPlaceReview ? styles.placeMyReviewStatusPendingTextMake : styles.placeMyReviewStatusRejectedTextMake]}>{myPlaceReviewStatusLabel}</Text>
                         </View>
                       ) : null}
                     </View>
@@ -14870,6 +15132,9 @@ export default function LumiiMvpApp() {
                   </View>
                 </View>
                 <Text style={styles.placeReviewBodyMake}>{placeReviewBody}</Text>
+                {hasRejectedPlaceReview && myPlaceReview?.reviewReason ? (
+                  <Text style={styles.placeMyReviewReasonMake}>原因：{myPlaceReview.reviewReason}</Text>
+                ) : null}
               </View>
               <View style={styles.placePublicReviewsMake}>
                 <View style={styles.rowBetween}>
@@ -14973,7 +15238,7 @@ export default function LumiiMvpApp() {
                   <>
                     <Pressable disabled={placeReviewSaving} onPress={() => void openPlaceReviewComposer(place)} style={[styles.placeReviewShortcutMake, webPressableReset]}>
                       {placeReviewSaving ? <ActivityIndicator color={palette.ink} size="small" /> : <PenLine color={palette.ink} size={16} strokeWidth={2.4} />}
-                      <Text style={styles.placeReviewShortcutTextMake}>{hasPendingPlaceReview ? '再点评' : '写点评'}</Text>
+                      <Text style={styles.placeReviewShortcutTextMake}>{placeReviewActionLabel}</Text>
                     </Pressable>
                     <Pressable onPress={() => setAmapNavigationPlace(place)} style={[styles.placeNavigationButtonMake, webPressableReset]}>
                       <Navigation color="#fff" size={15} strokeWidth={2.6} />
@@ -15564,6 +15829,205 @@ export default function LumiiMvpApp() {
     );
   }
 
+  function renderPlaceContributions() {
+    const contributionSummary = session?.account?.placeContributionSummary;
+    const recordedContributionPoints = myPlaceSubmissions.reduce((sum, submission) => sum + Math.max(0, Number(submission.contributionPoints || 0)), 0);
+    const recordedContributionTotal = myPlaceSubmissions.filter((submission) => submission.status === 'approved' && Number(submission.contributionPoints || 0) > 0).length;
+    const contributionPoints = Math.max(Number(contributionSummary?.points || 0), recordedContributionPoints);
+    const contributionTotal = Math.max(Number(contributionSummary?.total || 0), recordedContributionTotal);
+    const contributionLevel = contributionSummary?.level?.label || (contributionTotal ? '地点新星' : '待点亮');
+    const reviews = [...myPlaceReviews].sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+    const submissions = [...myPlaceSubmissions].sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+    const activeItems = placeContributionTab === 'submissions' ? submissions : reviews;
+    const statusMeta = (status: PlaceReview['status'] | PlaceSubmission['status']) => {
+      if (status === 'approved') return { label: '已通过', tone: 'approved' as const };
+      if (status === 'pending_review') return { label: '审核中', tone: 'pending' as const };
+      if (status === 'deleted') return { label: '已删除', tone: 'rejected' as const };
+      if (status === 'hidden') return { label: '已隐藏', tone: 'rejected' as const };
+      return { label: '未通过', tone: 'rejected' as const };
+    };
+    const renderStatus = (status: PlaceReview['status'] | PlaceSubmission['status']) => {
+      const meta = statusMeta(status);
+      return (
+        <View style={[
+          styles.placeContributionStatusMake,
+          meta.tone === 'approved' && styles.placeContributionStatusApprovedMake,
+          meta.tone === 'pending' && styles.placeContributionStatusPendingMake,
+          meta.tone === 'rejected' && styles.placeContributionStatusRejectedMake,
+        ]}>
+          {meta.tone === 'approved' ? <Check color={palette.teal} size={11} strokeWidth={2.8} /> : null}
+          {meta.tone === 'pending' ? <Clock color="#9C691E" size={11} strokeWidth={2.5} /> : null}
+          {meta.tone === 'rejected' ? <AlertCircle color="#A8443A" size={11} strokeWidth={2.5} /> : null}
+          <Text style={[
+            styles.placeContributionStatusTextMake,
+            meta.tone === 'approved' && styles.placeContributionStatusApprovedTextMake,
+            meta.tone === 'pending' && styles.placeContributionStatusPendingTextMake,
+            meta.tone === 'rejected' && styles.placeContributionStatusRejectedTextMake,
+          ]}>{meta.label}</Text>
+        </View>
+      );
+    };
+    const renderPhotos = (id: string, imageUrls?: string[]) => imageUrls?.length ? (
+      <View style={styles.placeContributionPhotosMake}>
+        {imageUrls.slice(0, 3).map((uri, index) => (
+          <Image key={`${id}-photo-${index}`} resizeMode="cover" source={{ uri }} style={styles.placeContributionPhotoMake} />
+        ))}
+      </View>
+    ) : null;
+
+    return (
+      <Screen
+        refreshControl={<RefreshControl colors={[palette.orange]} onRefresh={() => void loadPlaceContributionRecords()} refreshing={placeContributionRecordsLoading} tintColor={palette.orange} />}
+        title="地点贡献记录"
+      >
+        <View style={styles.placeContributionPageMake}>
+          <View style={styles.placeContributionHeroMake}>
+            <View style={styles.placeContributionHeroIconMake}>
+              <MapPin color={palette.orange} size={23} strokeWidth={2.5} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.placeContributionHeroTitleMake}>地点共建 · {contributionLevel}</Text>
+              <Text style={styles.placeContributionHeroBodyMake}>提交真实地点与到访体验，帮助附近宠友做判断。</Text>
+            </View>
+            <View style={styles.placeContributionHeroStatsMake}>
+              <Text style={styles.placeContributionHeroStatValueMake}>{contributionPoints}</Text>
+              <Text style={styles.placeContributionHeroStatLabelMake}>贡献分</Text>
+            </View>
+          </View>
+
+          <View accessibilityRole="tablist" style={styles.placeContributionTabsMake}>
+            <Pressable
+              accessibilityLabel="查看地点提交记录"
+              accessibilityRole="tab"
+              accessibilityState={{ selected: placeContributionTab === 'submissions' }}
+              onPress={() => setPlaceContributionTab('submissions')}
+              style={[styles.placeContributionTabMake, placeContributionTab === 'submissions' && styles.placeContributionTabActiveMake, webPressableReset]}
+            >
+              <Text style={[styles.placeContributionTabTextMake, placeContributionTab === 'submissions' && styles.placeContributionTabTextActiveMake]}>地点提交</Text>
+              <Text style={[styles.placeContributionTabCountMake, placeContributionTab === 'submissions' && styles.placeContributionTabCountActiveMake]}>{submissions.length}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="查看我的地点点评"
+              accessibilityRole="tab"
+              accessibilityState={{ selected: placeContributionTab === 'reviews' }}
+              onPress={() => setPlaceContributionTab('reviews')}
+              style={[styles.placeContributionTabMake, placeContributionTab === 'reviews' && styles.placeContributionTabActiveMake, webPressableReset]}
+            >
+              <Text style={[styles.placeContributionTabTextMake, placeContributionTab === 'reviews' && styles.placeContributionTabTextActiveMake]}>我的点评</Text>
+              <Text style={[styles.placeContributionTabCountMake, placeContributionTab === 'reviews' && styles.placeContributionTabCountActiveMake]}>{reviews.length}</Text>
+            </Pressable>
+          </View>
+
+          {placeContributionRecordsError ? (
+            <Pressable accessibilityRole="button" onPress={() => void loadPlaceContributionRecords()} style={[styles.placeContributionErrorMake, webPressableReset]}>
+              <AlertCircle color={palette.warning} size={15} strokeWidth={2.4} />
+              <Text style={styles.placeContributionErrorTextMake}>{placeContributionRecordsError}，点此重试</Text>
+            </Pressable>
+          ) : null}
+
+          {placeContributionRecordsLoading && !activeItems.length ? (
+            <View style={styles.placeContributionSkeletonListMake}>
+              {[0, 1, 2].map((index) => (
+                <View key={index} style={styles.placeContributionRecordMake}>
+                  <SkeletonLine width="42%" />
+                  <SkeletonLine width="76%" />
+                  <SkeletonLine width="58%" />
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {!placeContributionRecordsLoading && !activeItems.length ? (
+            <EmptyState
+              action={placeContributionTab === 'submissions' ? '新增地点' : '去地图看看'}
+              description={placeContributionTab === 'submissions' ? '你提交的新地点和审核结果会长期保留在这里。' : '到访地点后写下真实体验，会在这里看到审核状态。'}
+              icon={placeContributionTab === 'submissions' ? <MapPin color={palette.muted} size={24} strokeWidth={2.4} /> : <MessageCircle color={palette.muted} size={24} strokeWidth={2.4} />}
+              onAction={() => placeContributionTab === 'submissions' ? void openPlaceSubmissionComposer() : go('map')}
+              title={placeContributionTab === 'submissions' ? '还没有提交过地点' : '还没有写过地点点评'}
+            />
+          ) : null}
+
+          {placeContributionTab === 'submissions' && submissions.length ? (
+            <View style={styles.placeContributionListMake}>
+              {submissions.map((submission) => {
+                const approvedPlaceId = submission.approvedPlaceId || submission.linkedExistingPlaceId;
+                return (
+                  <View accessibilityLabel={`地点提交-${submission.id}`} key={submission.id} style={styles.placeContributionRecordMake}>
+                    <View style={styles.placeContributionRecordHeaderMake}>
+                      <View style={styles.placeContributionRecordIconMake}><MapPin color={palette.orange} size={17} strokeWidth={2.5} /></View>
+                      <View style={styles.flex}>
+                        <Text numberOfLines={1} style={styles.placeContributionRecordTitleMake}>{submission.name}</Text>
+                        <Text numberOfLines={1} style={styles.placeContributionRecordMetaMake}>{submission.address}</Text>
+                      </View>
+                      {renderStatus(submission.status)}
+                    </View>
+                    <Text numberOfLines={3} style={styles.placeContributionRecordBodyMake}>{submission.content}</Text>
+                    {renderPhotos(submission.id, submission.imageUrls)}
+                    {submission.reviewReason ? <Text style={styles.placeContributionReasonMake}>原因：{submission.reviewReason}</Text> : null}
+                    <View style={styles.placeContributionRecordFooterMake}>
+                      <Text style={styles.placeContributionRecordTimeMake}>{formatTimestampDisplay(submission.reviewedAt || submission.createdAt)}</Text>
+                      {submission.status === 'approved' && Number(submission.contributionPoints || 0) > 0 ? (
+                        <Text style={styles.placeContributionPointsMake}>+{submission.contributionPoints} 贡献分</Text>
+                      ) : null}
+                      <View style={styles.flex} />
+                      {approvedPlaceId ? (
+                        <Pressable accessibilityLabel={`查看已通过地点-${submission.id}`} onPress={() => void openPlaceFromNotification(approvedPlaceId)} style={[styles.placeContributionActionMake, webPressableReset]}>
+                          <Text style={styles.placeContributionActionTextMake}>查看地点</Text>
+                          <ChevronRight color={palette.orange} size={13} strokeWidth={2.6} />
+                        </Pressable>
+                      ) : submission.status === 'rejected' ? (
+                        <Pressable accessibilityLabel={`重新提交地点-${submission.id}`} onPress={() => void openPlaceSubmissionComposer(submission)} style={[styles.placeContributionActionMake, webPressableReset]}>
+                          <Text style={styles.placeContributionActionTextMake}>重新提交</Text>
+                          <ChevronRight color={palette.orange} size={13} strokeWidth={2.6} />
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+
+          {placeContributionTab === 'reviews' && reviews.length ? (
+            <View style={styles.placeContributionListMake}>
+              {reviews.map((review) => {
+                const placeName = review.placeName || places.find((place) => place.id === review.placeId)?.name || '地点点评';
+                const canRetry = review.status === 'rejected' || review.status === 'hidden' || review.status === 'deleted';
+                return (
+                  <View accessibilityLabel={`地点点评-${review.id}`} key={review.id} style={styles.placeContributionRecordMake}>
+                    <View style={styles.placeContributionRecordHeaderMake}>
+                      <View style={[styles.placeContributionRecordIconMake, styles.placeContributionReviewIconMake]}><MessageCircle color={palette.teal} size={17} strokeWidth={2.5} /></View>
+                      <View style={styles.flex}>
+                        <Text numberOfLines={1} style={styles.placeContributionRecordTitleMake}>{placeName}</Text>
+                        <Text style={styles.placeContributionRecordMetaMake}>{formatTimestampDisplay(review.createdAt)}</Text>
+                      </View>
+                      {renderStatus(review.status)}
+                    </View>
+                    <Text numberOfLines={4} style={styles.placeContributionRecordBodyMake}>{review.content}</Text>
+                    {renderPhotos(review.id, review.imageUrls)}
+                    {review.reviewReason ? <Text style={styles.placeContributionReasonMake}>原因：{review.reviewReason}</Text> : null}
+                    <View style={styles.placeContributionRecordFooterMake}>
+                      <Text style={styles.placeContributionRecordTimeMake}>{review.reviewedAt ? `处理于 ${formatTimestampDisplay(review.reviewedAt)}` : '等待平台处理'}</Text>
+                      <View style={styles.flex} />
+                      <Pressable
+                        accessibilityLabel={`${canRetry ? '重新点评' : '查看点评地点'}-${review.id}`}
+                        onPress={() => canRetry ? void reopenPlaceReview(review) : void openPlaceFromNotification(review.placeId)}
+                        style={[styles.placeContributionActionMake, webPressableReset]}
+                      >
+                        <Text style={styles.placeContributionActionTextMake}>{canRetry ? '重新点评' : '查看地点'}</Text>
+                        <ChevronRight color={palette.orange} size={13} strokeWidth={2.6} />
+                      </Pressable>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+        </View>
+      </Screen>
+    );
+  }
+
   function renderProfile() {
     const pet = getCurrentPet();
     const maskedPhone = formatMaskedPhone(session?.phone);
@@ -15639,7 +16103,7 @@ export default function LumiiMvpApp() {
               </Pressable>
             </View>
             {showPlaceContributionBadge ? (
-              <View style={styles.profileContributionBadge}>
+              <Pressable accessibilityLabel="查看地点贡献记录" onPress={() => openPlaceContributionRecords()} style={[styles.profileContributionBadge, webPressableReset]}>
                 <View style={styles.profileContributionIcon}>
                   <MapPin color={palette.teal} size={14} strokeWidth={2.6} />
                 </View>
@@ -15650,7 +16114,8 @@ export default function LumiiMvpApp() {
                     <Text style={styles.profileContributionMeta}>{placeContributionExtraText}</Text>
                   ) : null}
                 </View>
-              </View>
+                <ChevronRight color={palette.teal} size={15} strokeWidth={2.5} />
+              </Pressable>
             ) : null}
           </View>
 
@@ -15695,6 +16160,16 @@ export default function LumiiMvpApp() {
           <View style={[styles.profileMenuGroup, profileBlockMarginStyle]}>
             <ProfileMakeRow Icon={PawPrint} iconBg="#FFE6D6" iconColor={palette.orange} onPress={() => go(pet ? 'petDetail' : 'petInfo')} title="宠物档案" value={pet?.name ?? '待添加'} />
             <ProfileMakeRow Icon={Users} iconBg="#E8F5F3" iconColor={palette.teal} onPress={() => go('multiPet')} title="多宠管理" value={pets.length ? `${pets.length} 只` : '去添加'} />
+            {placesEnabled ? (
+              <ProfileMakeRow
+                Icon={MapPin}
+                iconBg="#FFF0E6"
+                iconColor={palette.orange}
+                onPress={() => openPlaceContributionRecords()}
+                title="地点贡献"
+                value={placeContributionTotal > 0 ? `${placeContributionTotal} 次通过` : '查看记录'}
+              />
+            ) : null}
             <ProfileMakeRow
               Icon={Bell}
               iconBg="#FBF2D9"
@@ -16003,6 +16478,11 @@ export default function LumiiMvpApp() {
               title="通知"
               value={userSettings.pushNotifications ? '开启' : '关闭'}
             />
+          </SettingsMakeSection>
+
+          <SettingsMakeSection title="协议与政策">
+            <SettingsMakeRow Icon={NotebookPen} iconBg="#FFF0E7" iconColor={palette.orange} onPress={() => openLegalDocument('terms')} sub="查看当前有效版本" title="用户协议" />
+            <SettingsMakeRow Icon={ShieldCheck} iconBg="#E8F5F3" iconColor={palette.teal} last onPress={() => openLegalDocument('privacy')} sub="了解个人信息处理规则" title="隐私政策" />
           </SettingsMakeSection>
 
           <SettingsMakeSection title="安全与账号">
@@ -18006,6 +18486,8 @@ export default function LumiiMvpApp() {
         return renderPetInfo();
       case 'petCircleProfile':
         return renderPetCircleProfile();
+      case 'placeContributions':
+        return renderPlaceContributions();
       case 'emptyPet':
         return renderEmptyPet();
       case 'generating':
@@ -18024,6 +18506,8 @@ export default function LumiiMvpApp() {
         return renderMemoNew();
       case 'home':
         return renderHome();
+      case 'legalDocument':
+        return renderLegalDocument();
       case 'login':
         return renderLogin();
       case 'map':
@@ -18947,9 +19431,12 @@ const styles = StyleSheet.create({
   amapConfirmSubmitTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 14.5, fontWeight: '600' },
   amapConfirmSupportTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, lineHeight: 17, marginTop: 8, textAlign: 'center' },
   amapConfirmTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', letterSpacing: 0, lineHeight: 24, textAlign: 'center' },
-  agreementRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 8, marginTop: 18 },
-  agreementText: { color: palette.muted, flex: 1, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 21 },
+  agreementJoinMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 21 },
+  agreementLinkMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 13, fontWeight: '600', lineHeight: 21 },
+  agreementRow: { alignItems: 'center', columnGap: 2, flexDirection: 'row', flexWrap: 'wrap', marginTop: 18, rowGap: 2 },
+  agreementText: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500', lineHeight: 21 },
   agreementTextAttention: { color: palette.danger },
+  agreementToggleMake: { alignItems: 'flex-start', flexDirection: 'row', gap: 8 },
   appWrap: { alignItems: 'center', backgroundColor: Platform.OS === 'web' ? '#e8e2d9' : palette.background, flex: 1, justifyContent: 'center' },
   avatarImage: { backgroundColor: 'transparent', height: '100%', width: '100%' },
   avatarImageRemote: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
@@ -19725,6 +20212,20 @@ const styles = StyleSheet.create({
   infoChip: { backgroundColor: palette.background, borderRadius: 14, color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 14, paddingVertical: 10, textAlign: 'center' },
   infoChipRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   label: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500' },
+  legalDocumentBodyMake: { color: '#51483F', fontFamily: appFontFamily, fontSize: 14.5, letterSpacing: 0, lineHeight: 24, marginTop: 10 },
+  legalDocumentHeroMake: { alignItems: 'center', borderBottomColor: palette.border, borderBottomWidth: 1, flexDirection: 'row', gap: 13, paddingBottom: 18 },
+  legalDocumentIconMake: { alignItems: 'center', backgroundColor: '#FFF3EC', borderRadius: 12, height: 46, justifyContent: 'center', width: 46 },
+  legalDocumentLoadingMake: { gap: 12, paddingVertical: 10 },
+  legalDocumentLoadingSectionMake: { marginTop: 16 },
+  legalDocumentMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 18, marginTop: 3 },
+  legalDocumentNoticeMake: { alignItems: 'flex-start', backgroundColor: '#FFF7F1', borderColor: '#F4DED1', borderRadius: 8, borderWidth: 1, flexDirection: 'row', gap: 10, paddingHorizontal: 13, paddingVertical: 12 },
+  legalDocumentNoticeTextMake: { color: '#765D4D', flex: 1, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 20 },
+  legalDocumentPageMake: { gap: 20, paddingBottom: 32 },
+  legalDocumentSectionLastMake: { borderBottomWidth: 0, paddingBottom: 4 },
+  legalDocumentSectionMake: { borderBottomColor: palette.border, borderBottomWidth: 1, paddingBottom: 22, paddingTop: 2 },
+  legalDocumentSectionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 17, fontWeight: '700', letterSpacing: 0, lineHeight: 24 },
+  legalDocumentSectionsMake: { gap: 20 },
+  legalDocumentTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 18, fontWeight: '700', letterSpacing: 0, lineHeight: 25 },
   loginForm: { gap: 0, marginTop: 32 },
   loginHero: { marginTop: 50 },
   loginContent: { flex: 1, paddingHorizontal: 28 },
@@ -20334,6 +20835,11 @@ const styles = StyleSheet.create({
   petCircleProfilePostCardCompactMake: { paddingHorizontal: 10, paddingVertical: 9 },
   petCircleProfilePostCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, flex: 1, padding: 9, position: 'relative', shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.07, shadowRadius: 16 },
   petCircleProfilePostMetaMake: { alignItems: 'center', flexDirection: 'row', gap: 12, marginTop: 7 },
+  petCircleProfileModerationReasonMake: { color: '#9A433B', fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 17, marginTop: 4 },
+  petCircleProfileRejectedMake: { backgroundColor: '#FFF0ED', borderColor: '#F1C7C1' },
+  petCircleProfileRejectedTextMake: { color: '#A8443A' },
+  petCircleProfileReviewingMake: { alignItems: 'center', backgroundColor: '#FFF5DE', borderColor: '#F2D9A7', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 5, minHeight: 24, paddingHorizontal: 8 },
+  petCircleProfileReviewingTextMake: { color: '#9C691E', fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', letterSpacing: 0 },
   petCircleProfilePostPetNameMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 15, fontWeight: '900', lineHeight: 20 },
   petCircleProfilePostRowMake: { alignItems: 'stretch', flexDirection: 'row' },
   petCircleProfilePostTextMake: { color: 'rgba(27,28,25,0.82)', fontFamily: appFontFamily, fontSize: 12.8, fontWeight: '500', lineHeight: 19, marginTop: 6 },
@@ -20510,6 +21016,48 @@ const styles = StyleSheet.create({
   placeWriteReviewPanelMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 16, paddingHorizontal: 14, paddingVertical: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 20 },
   placeWriteReviewTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 19, marginTop: 8 },
   placeWriteReviewTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  placeContributionActionMake: { alignItems: 'center', flexDirection: 'row', gap: 2, minHeight: 30, paddingLeft: 8 },
+  placeContributionActionTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '800', lineHeight: 16 },
+  placeContributionErrorMake: { alignItems: 'center', backgroundColor: '#FFF7E8', borderColor: '#F2D9A7', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 10 },
+  placeContributionErrorTextMake: { color: '#8B6222', flex: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 18 },
+  placeContributionHeroBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, fontWeight: '500', lineHeight: 18, marginTop: 3 },
+  placeContributionHeroIconMake: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 20, height: 40, justifyContent: 'center', width: 40 },
+  placeContributionHeroMake: { alignItems: 'center', backgroundColor: '#FFF0E5', flexDirection: 'row', gap: 12, marginHorizontal: -20, marginTop: -18, paddingBottom: 18, paddingHorizontal: 20, paddingTop: 18 },
+  placeContributionHeroStatLabelMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', lineHeight: 14 },
+  placeContributionHeroStatsMake: { alignItems: 'flex-end', flexShrink: 0 },
+  placeContributionHeroStatValueMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 24, fontWeight: '800', lineHeight: 28 },
+  placeContributionHeroTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 16, fontWeight: '800', lineHeight: 21 },
+  placeContributionListMake: { gap: 10 },
+  placeContributionPageMake: { gap: 14, paddingBottom: 26 },
+  placeContributionPhotoMake: { backgroundColor: palette.pale, borderRadius: 10, height: 68, width: 68 },
+  placeContributionPhotosMake: { flexDirection: 'row', gap: 7, marginTop: 10 },
+  placeContributionPointsMake: { color: palette.teal, fontFamily: appFontFamily, fontSize: 11, fontWeight: '800', lineHeight: 15 },
+  placeContributionReasonMake: { backgroundColor: '#FFF1EE', borderRadius: 9, color: '#9A433B', fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 18, marginTop: 10, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 7 },
+  placeContributionRecordBodyMake: { color: 'rgba(27,28,25,0.82)', fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 19, marginTop: 10 },
+  placeContributionRecordFooterMake: { alignItems: 'center', borderColor: 'rgba(234,223,210,0.86)', borderTopWidth: 1, flexDirection: 'row', gap: 8, marginTop: 11, minHeight: 34, paddingTop: 8 },
+  placeContributionRecordHeaderMake: { alignItems: 'center', flexDirection: 'row', gap: 9 },
+  placeContributionRecordIconMake: { alignItems: 'center', backgroundColor: '#FFF0E6', borderRadius: 15, height: 30, justifyContent: 'center', width: 30 },
+  placeContributionRecordMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 12, shadowColor: '#50371e', shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.045, shadowRadius: 14 },
+  placeContributionRecordMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '500', lineHeight: 15, marginTop: 1 },
+  placeContributionRecordTimeMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', lineHeight: 15 },
+  placeContributionRecordTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '800', lineHeight: 19 },
+  placeContributionReviewIconMake: { backgroundColor: '#E8F5F3' },
+  placeContributionSkeletonListMake: { gap: 10 },
+  placeContributionStatusApprovedMake: { backgroundColor: '#EAF7F4', borderColor: '#BFE3DC' },
+  placeContributionStatusApprovedTextMake: { color: palette.teal },
+  placeContributionStatusMake: { alignItems: 'center', borderRadius: 999, borderWidth: 1, flexDirection: 'row', flexShrink: 0, gap: 3, minHeight: 24, paddingHorizontal: 8 },
+  placeContributionStatusPendingMake: { backgroundColor: '#FFF5DE', borderColor: '#F2D9A7' },
+  placeContributionStatusPendingTextMake: { color: '#9C691E' },
+  placeContributionStatusRejectedMake: { backgroundColor: '#FFF0ED', borderColor: '#F1C7C1' },
+  placeContributionStatusRejectedTextMake: { color: '#A8443A' },
+  placeContributionStatusTextMake: { fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', letterSpacing: 0, lineHeight: 14 },
+  placeContributionTabActiveMake: { backgroundColor: '#fff', borderColor: 'rgba(255,138,92,0.28)', shadowColor: '#50371e', shadowOffset: { height: 3, width: 0 }, shadowOpacity: 0.06, shadowRadius: 8 },
+  placeContributionTabCountActiveMake: { backgroundColor: '#FFE6D6', color: palette.orange },
+  placeContributionTabCountMake: { backgroundColor: 'rgba(87,88,84,0.10)', borderRadius: 999, color: palette.muted, fontFamily: appFontFamily, fontSize: 10, fontWeight: '800', lineHeight: 15, minWidth: 20, overflow: 'hidden', paddingHorizontal: 6, textAlign: 'center' },
+  placeContributionTabMake: { alignItems: 'center', borderColor: 'transparent', borderRadius: 12, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 6, height: 38, justifyContent: 'center' },
+  placeContributionTabsMake: { backgroundColor: palette.pale, borderRadius: 14, flexDirection: 'row', gap: 5, height: 46, padding: 4 },
+  placeContributionTabTextActiveMake: { color: palette.orange },
+  placeContributionTabTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '800', lineHeight: 17 },
   placeSubmitActionRowMake: { flexDirection: 'row', gap: 8, marginTop: 20, width: '100%' },
   placeSubmitBgGlowMake: { backgroundColor: 'rgba(255,217,182,0.46)', borderRadius: 220, height: 260, left: -40, position: 'absolute', right: -40, top: -120 },
   placeSubmitBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, lineHeight: 21.5, marginTop: 10, textAlign: 'center' },
@@ -20607,13 +21155,20 @@ const styles = StyleSheet.create({
   placePublicReviewsMake: { alignItems: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginTop: 12, paddingHorizontal: 14, paddingVertical: 12, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 18 },
   placePublicReviewsMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 16 },
   placePublicReviewsTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700', lineHeight: 19 },
+  placeMyReviewReasonMake: { color: '#9A433B', fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', lineHeight: 18, marginTop: 7 },
+  placeMyReviewStatusMake: { borderRadius: 999, borderWidth: 1, flexShrink: 0, minHeight: 22, paddingHorizontal: 7, paddingVertical: 2 },
+  placeMyReviewStatusPendingMake: { backgroundColor: '#FFF5DE', borderColor: '#F2D9A7' },
+  placeMyReviewStatusPendingTextMake: { color: '#9C691E' },
+  placeMyReviewStatusRejectedMake: { backgroundColor: '#FFF0ED', borderColor: '#F1C7C1' },
+  placeMyReviewStatusRejectedTextMake: { color: '#A8443A' },
+  placeMyReviewStatusTextMake: { fontFamily: appFontFamily, fontSize: 10, fontWeight: '700', letterSpacing: 0, lineHeight: 14 },
   placeReviewAuthorMake: { color: palette.ink, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '600', lineHeight: 17 },
   placeReviewAuthorRowMake: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   placeReviewBodyMake: { color: 'rgba(27,28,25,0.85)', fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 20, marginTop: 8 },
   placeReviewCountMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 15 },
   placeReviewHeaderMake: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   placeReviewPreviewMake: { alignItems: 'stretch', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 16, borderWidth: 1, marginTop: 16, paddingHorizontal: 14, paddingVertical: 12 },
-  placeReviewShortcutMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 2, height: 52, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.08, shadowRadius: 18, width: 52 },
+  placeReviewShortcutMake: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, gap: 2, height: 52, justifyContent: 'center', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.08, shadowRadius: 18, width: 64 },
   placeReviewShortcutTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 9.5, fontWeight: '600', lineHeight: 12 },
   placeReviewStarsMake: { alignItems: 'center', flexDirection: 'row', gap: 1 },
   placeReviewTimeMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '500', lineHeight: 14, marginTop: 1 },

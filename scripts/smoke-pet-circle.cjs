@@ -573,7 +573,7 @@ async function run() {
   });
 
   const syncedPublicContent = 'public sync to health calendar direct post';
-  await request('/social/pet-circle/posts', {
+  const syncedPublicPost = await request('/social/pet-circle/posts', {
     body: {
       content: syncedPublicContent,
       location: ownerLoc,
@@ -583,11 +583,41 @@ async function run() {
     method: 'POST',
     token: ownerToken,
   });
+  assert.equal(syncedPublicPost.data.createdMemo?.source, 'pet_circle', 'public synced post should return its calendar memo');
+  assert.equal(syncedPublicPost.data.createdMemo?.sourceId, syncedPublicPost.data.id, 'public synced post memo should link to the source post');
   const syncedPublicCalendar = await request('/health/calendar', { token: ownerToken });
   assert.ok(
     findByDetail(syncedPublicCalendar.data, syncedPublicContent),
     'syncToHealthCalendar=true should save public pet circle post to health calendar',
   );
+  const syncedPublicMemos = await request('/health/memos', { token: ownerToken });
+  assert.equal(
+    syncedPublicMemos.data.filter((item) => item.sourceId === syncedPublicPost.data.id).length,
+    1,
+    'public synced post should create exactly one linked calendar memo',
+  );
+
+  const pendingReviewPost = await request('/social/pet-circle/posts', {
+    body: {
+      content: 'owner-visible pending review post',
+      location: ownerLoc,
+      visibility: 'nearby',
+    },
+    method: 'POST',
+    token: ownerToken,
+  });
+  patchState((state) => {
+    const moment = state.socialMoments.find((item) => item.id === pendingReviewPost.data.id);
+    assert.ok(moment, 'pending review fixture post should exist');
+    moment.status = 'pending_review';
+  });
+  await restartBackend(port);
+  const ownerProfileWithPending = await request('/social/pet-circle/profiles/me/posts', { token: ownerToken });
+  const ownerPendingCard = ownerProfileWithPending.data.items.find((item) => item.id === pendingReviewPost.data.id);
+  assert.equal(ownerPendingCard?.moderationStatus, 'pending_review', 'author profile should expose its own pending review post');
+  const viewerFeedWithPending = await request('/social/pet-circle/posts?lat=31.231&lng=121.474&radiusKm=10&accuracy=30', { token: viewerToken });
+  assert.equal(viewerFeedWithPending.data.items.some((item) => item.id === pendingReviewPost.data.id), false, 'pending review post must stay hidden from nearby viewers');
+  await request(`/social/pet-circle/posts/${encodeURIComponent(pendingReviewPost.data.id)}`, { method: 'DELETE', token: ownerToken });
 
   await expectApiError(`/social/pet-circle/posts/${encodeURIComponent(publicPost.data.id)}/like`, {
     code: 'PET_CIRCLE_LIKE_INVALID',

@@ -17,6 +17,7 @@ function normalizeHexColor(value, fallback = '#FFFDFC') {
 }
 
 const RUNTIME_ENV = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
+const REQUIRE_LEGAL_CONSENT = process.env.LUMII_REQUIRE_LEGAL_CONSENT === 'true';
 const SMS_PROVIDER = String(process.env.LUMII_SMS_PROVIDER || process.env.SMS_PROVIDER || (RUNTIME_ENV === 'production' ? 'disabled' : 'mock')).trim().toLowerCase();
 const SMS_TEST_CODE = String(process.env.LUMII_SMS_TEST_CODE || '962464').trim();
 const SMS_EXPOSE_TEST_CODE = RUNTIME_ENV !== 'production' && SMS_PROVIDER === 'mock';
@@ -10397,6 +10398,7 @@ function ensureUser(phone) {
   state.users[phone].favoritePlaceIds = normalizeFavoritePlaceIds(state.users[phone].favoritePlaceIds);
   state.users[phone].adminNotes = normalizeAdminNotes(state.users[phone].adminNotes);
   state.users[phone].adminRiskTags = normalizeAdminRiskTags(state.users[phone].adminRiskTags);
+  state.users[phone].legalConsents = normalizeUserLegalConsentHistory(state.users[phone].legalConsents);
   const normalizedDeletion = normalizeAccountDeletion(state.users[phone].accountDeletion);
   if (normalizedDeletion) state.users[phone].accountDeletion = normalizedDeletion;
   else delete state.users[phone].accountDeletion;
@@ -11659,6 +11661,15 @@ function placeReviewsFor(user) {
   state.placeReviews = state.placeReviews || {};
   state.placeReviews[user.phone] = Array.isArray(state.placeReviews[user.phone]) ? state.placeReviews[user.phone] : [];
   return state.placeReviews[user.phone];
+}
+
+function placeReviewsForOwnerResponse(user) {
+  return placeReviewsFor(user)
+    .map((review) => ({
+      ...review,
+      placeName: (state.places || []).find((place) => place.id === review.placeId)?.name || review.placeName || '',
+    }))
+    .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')));
 }
 
 function placeReviewCount(placeId) {
@@ -12937,6 +12948,7 @@ function buildAccountSnapshot(user) {
     ownerAvatarUrl: user.ownerAvatarUrl || '',
     ownerBio: user.ownerBio || '',
     ownerName: user.ownerName || `用户${user.phone.slice(-4)}`,
+    legalConsent: userLegalConsentSummary(user).latest,
     permissions,
     permissionsOnboardingCompleted: Boolean(user.permissionsOnboardingCompleted || allPermissionsGranted(permissions)),
     placeContributionSummary: placeContributionSummaryForPhone(user.phone),
@@ -17693,6 +17705,14 @@ function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
   const likes = socialLikesForPost(moment.id);
   const comments = publishedSocialComments(moment.id, viewer);
   const publicImageUrls = visibleImageUrls(moment.imageUrls);
+  const ownedByMe = moment.phone === viewer.phone;
+  const moderationStatus = ownedByMe
+    ? moment.status === 'pending_review'
+      ? 'pending_review'
+      : moment.status === 'hidden'
+        ? 'rejected'
+        : undefined
+    : undefined;
   return {
     commentCount: comments.length,
     createdAt: moment.createdAt,
@@ -17703,10 +17723,11 @@ function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
     likedByMe: likes.some((like) => like.phone === viewer.phone),
     likeCount: likes.length,
     mood: moment.mood || undefined,
-    moderationStatus: moment.status === 'pending_review' ? 'pending_review' : undefined,
+    moderationReason: moderationStatus === 'rejected' ? String(moment.adminModerationReason || '').slice(0, 240) || undefined : undefined,
+    moderationStatus,
     ownerId: `user-${momentUser.phone}`,
     ownerName: momentUser.ownerName || `用户${suffix}`,
-    ownedByMe: moment.phone === viewer.phone,
+    ownedByMe,
     petName: pet.name || `灵伴${suffix}`,
     photoCount: publicImageUrls.length,
     species: pet.species === 'cat' ? 'cat' : 'dog',
@@ -17804,10 +17825,14 @@ function resolvePetCircleProfileTarget(viewer, ownerId = 'me') {
 
 function petCircleProfilePostEntries(viewer, targetUser, options = {}) {
   const includeReported = targetUser.phone === viewer.phone;
+  const includeOwnerOnlyModeration = targetUser.phone === viewer.phone;
   return ensureSocialMoments()
     .map((moment, index) => ({ index, moment }))
     .filter(({ moment }) => moment.phone === targetUser.phone)
-    .filter(({ moment }) => (moment.status || 'published') === 'published')
+    .filter(({ moment }) => (
+      (moment.status || 'published') === 'published' ||
+      (includeOwnerOnlyModeration && (moment.status === 'pending_review' || moment.status === 'hidden'))
+    ))
     .filter(({ moment }) => (moment.visibility || 'nearby') === 'nearby')
     .filter(({ moment }) => includeReported || !socialReportFor(viewer, 'post', moment.id))
     .map(({ index, moment }) => {
@@ -18686,6 +18711,50 @@ function notifyPlaceReviewModeration(phone, review, actionOrStatus, reason = '')
         ? `你对${placeName}的点评已通过审核。`
         : `你对${placeName}的点评未通过审核${reasonText ? `：${reasonText}。` : '。'}`,
     title: status === 'approved' ? '地点点评已通过' : '地点点评未通过',
+  }, 'system', { force: true });
+}
+
+function notifyPetCirclePostModeration(post, actionOrStatus, reason = '') {
+  if (!post?.phone || !state.users?.[post.phone]) return false;
+  const rawStatus = String(actionOrStatus || post.status || '').trim();
+  const status = rawStatus === 'approve'
+    ? 'approved'
+    : rawStatus === 'hide' || rawStatus === 'hidden'
+      ? 'rejected'
+      : rawStatus === 'restore'
+        ? 'restored'
+        : rawStatus === 'delete'
+          ? 'deleted'
+          : rawStatus;
+  if (!['approved', 'rejected', 'restored', 'deleted'].includes(status)) return false;
+  const notifiedAt = markResultNotification(post, status, 'moderationResultNotifiedStatus', 'moderationResultNotifiedAt');
+  if (!notifiedAt) return false;
+  const reasonText = String(reason || post.adminModerationReason || '').trim();
+  const title = status === 'approved'
+    ? '小事已通过审核'
+    : status === 'rejected'
+      ? '小事未通过审核'
+      : status === 'restored'
+        ? '小事已恢复展示'
+        : '小事已删除';
+  const text = status === 'approved'
+    ? '你发布的小事已通过审核，现已在符合范围的宠友圈中展示。'
+    : status === 'rejected'
+      ? `你发布的小事暂未通过审核${reasonText ? `，原因：${reasonText}` : ''}。可在“我发布的小事”中查看并删除。`
+      : status === 'restored'
+        ? '你发布的小事已恢复展示，可在“我发布的小事”中查看。'
+        : `你发布的小事已由平台删除${reasonText ? `，原因：${reasonText}` : ''}。`;
+  return addNotification(post.phone, {
+    actionRoute: 'petCircleProfile',
+    category: 'system',
+    createdAt: notifiedAt,
+    id: `n-pet-circle-moderation-${post.id}-${status}`,
+    kind: 'system',
+    read: false,
+    targetId: post.id,
+    targetType: 'post',
+    text,
+    title,
   }, 'system', { force: true });
 }
 
@@ -20234,6 +20303,7 @@ function adminUserSummary(user) {
     authSessionSummary: adminAuthSessionSummary(user.phone),
     createdAt: user.createdAt,
     lastSeenAt: user.lastSeenAt || 0,
+    legalConsentSummary: userLegalConsentSummary(user),
     loginSecurity: publicSmsLoginSecurity(user.phone),
     ownerAvatarUrl: user.ownerAvatarUrl || '',
     ownerBio: user.ownerBio || '',
@@ -20357,6 +20427,22 @@ function adminUserTimeline(phone, options = {}) {
       targetType: 'auth_session',
       title: eventTitle,
       tone: session.status === 'active' ? 'ok' : session.status === 'revoked' ? 'warn' : 'bad',
+    });
+  });
+
+  normalizeUserLegalConsentHistory(user.legalConsents).forEach((consent) => {
+    adminTimelineAdd(items, {
+      actor: 'mobile_user',
+      createdAt: consent.acceptedAt,
+      detail: `用户协议 ${consent.termsVersion} · 隐私政策 ${consent.privacyVersion}`,
+      id: `account:${normalizedPhone}:legal-consent:${consent.id}`,
+      kind: 'account',
+      status: '已同意',
+      targetId: consent.id,
+      targetLabel: `${consent.termsVersion} / ${consent.privacyVersion}`,
+      targetType: 'legal_consent',
+      title: '协议与隐私政策同意留痕',
+      tone: 'ok',
     });
   });
 
@@ -25236,6 +25322,17 @@ async function adminSystemHealth() {
       'SMS_VERIFY_MAX_ATTEMPTS / SMS_LOGIN_CLIENT_MAX_FAILURES / SMS_LOGIN_ACCOUNT_MAX_FAILURES / SMS_LOGIN_LOCK_MS',
     ),
     adminCheckStatus(
+      RUNTIME_ENV !== 'production' || REQUIRE_LEGAL_CONSENT ? 'ok' : 'bad',
+      'legal_consent_enforcement',
+      '登录协议同意留痕',
+      RUNTIME_ENV !== 'production'
+        ? '非生产环境允许旧测试客户端登录；携带 legalConsentAccepted=true 时仍会记录协议版本'
+        : REQUIRE_LEGAL_CONSENT
+          ? '生产登录强制校验同意声明，并记录当时的用户协议、隐私政策版本和时间'
+          : '生产尚未强制协议同意留痕；需先发布支持协议阅读与同意声明的新 APK，再开启强制校验',
+      'LUMII_REQUIRE_LEGAL_CONSENT / POST /auth/sms/verify / 用户时间线 legal_consent',
+    ),
+    adminCheckStatus(
       accountDeletions.overdue > 0 || accountDeletions.cleanupBlocked ? 'bad' : accountDeletions.cleanupFailed > 0 ? 'warn' : 'ok',
       'account_deletion_processor',
       '账号注销到期清理',
@@ -26306,6 +26403,56 @@ function publicLegalDocument(key) {
   };
 }
 
+function normalizeUserLegalConsent(record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
+  const acceptedAt = normalizeLegalDocumentText(record.acceptedAt, '', 40);
+  const termsVersion = normalizeLegalDocumentText(record.termsVersion, '', 80);
+  const privacyVersion = normalizeLegalDocumentText(record.privacyVersion, '', 80);
+  if (!acceptedAt || !termsVersion || !privacyVersion || Number.isNaN(new Date(acceptedAt).getTime())) return null;
+  return {
+    acceptedAt,
+    id: normalizeLegalDocumentText(record.id, `legal-consent-${acceptedAt}`, 100),
+    privacyEffectiveDate: normalizeLegalDocumentText(record.privacyEffectiveDate, '', 20),
+    privacyVersion,
+    source: normalizeLegalDocumentText(record.source, 'sms_login', 40) || 'sms_login',
+    termsEffectiveDate: normalizeLegalDocumentText(record.termsEffectiveDate, '', 20),
+    termsVersion,
+  };
+}
+
+function normalizeUserLegalConsentHistory(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(normalizeUserLegalConsent).filter(Boolean).slice(0, 24);
+}
+
+function userLegalConsentSummary(user) {
+  const history = normalizeUserLegalConsentHistory(user?.legalConsents);
+  if (user) user.legalConsents = history;
+  return {
+    count: history.length,
+    latest: history[0] || null,
+  };
+}
+
+function recordUserLegalConsent(user) {
+  const terms = publicLegalDocument('terms');
+  const privacy = publicLegalDocument('privacy');
+  if (!terms?.version || !privacy?.version) return null;
+  const acceptedAt = new Date().toISOString();
+  const record = normalizeUserLegalConsent({
+    acceptedAt,
+    id: `legal-consent-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+    privacyEffectiveDate: privacy.effectiveDate,
+    privacyVersion: privacy.version,
+    source: 'sms_login',
+    termsEffectiveDate: terms.effectiveDate,
+    termsVersion: terms.version,
+  });
+  if (!record) return null;
+  user.legalConsents = [record, ...normalizeUserLegalConsentHistory(user.legalConsents)].slice(0, 24);
+  return record;
+}
+
 function buildLegalDocumentPatch(current, body = {}) {
   const next = cloneJson(current);
   if (Object.prototype.hasOwnProperty.call(body, 'title')) next.title = normalizeLegalDocumentText(body.title, current.title, 120);
@@ -26634,6 +26781,7 @@ function adminReadinessGaps(context) {
   const publicApiHttpsReady = publicApiOriginReady && publicApiExternalProof.ok === true;
   const smsProvider = health?.smsProvider || smsProviderStatus();
   const smsProviderReady = Boolean(smsProvider.productionReady);
+  const legalConsentReady = RUNTIME_ENV !== 'production' || REQUIRE_LEGAL_CONSENT;
   const legacyAuthReady = !ALLOW_LEGACY_LOCAL_AUTH;
   const aiRuntime = aiRuntimeReadiness();
   const seedFixturePlaceCount = (state.places || []).filter(isSeedFixturePlace).length;
@@ -26691,6 +26839,19 @@ function adminReadinessGaps(context) {
         ? '持续监控供应商推送日志、运营商回执、发送限额和验证码失败率。'
         : '配置生产短信供应商；当前推荐 LUMII_SMS_PROVIDER=spug 与仅存于服务器的 SPUG_SMS_TEMPLATE_ID。',
       evidence: '系统健康页 sms_provider + sms_login_lockout / POST /auth/sms/send + /auth/sms/verify / provider delivery log',
+    },
+    {
+      key: 'legal_consent',
+      area: '账号与隐私',
+      severity: 'P0',
+      status: legalConsentReady ? 'ready' : 'blocked',
+      issue: legalConsentReady
+        ? '登录页可读取当前协议正文，生产验证码登录强制携带同意声明，并按用户记录协议版本与时间。'
+        : '新协议阅读页和服务端留痕能力已接入，但生产尚未开启强制校验，以避免旧 APK 在升级窗口内无法登录。',
+      requiredAction: legalConsentReady
+        ? '协议版本更新后抽查用户重新同意策略与后台时间线记录。'
+        : '发布包含协议阅读与 legalConsentAccepted 字段的新 APK，完成升级验证后配置 LUMII_REQUIRE_LEGAL_CONSENT=true。',
+      evidence: '登录页《用户协议》《隐私政策》 / POST /auth/sms/verify / 系统健康 legal_consent_enforcement / 用户时间线 legal_consent',
     },
     {
       key: 'account_lifecycle',
@@ -32518,6 +32679,7 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
     post.updatedAt = now;
     post.adminModerationReason = reason;
     markModerationTaskMeta(taskId, admin, action, reason);
+    notifyPetCirclePostModeration(post, action, reason);
     writeAdminAudit(admin, `moderation.post.${action}`, 'pet_circle_post', id, before, post, reason);
     return { task: adminModerationTasks({ status: 'all' }).tasks.find((item) => item.id === taskId) };
   }
@@ -34223,6 +34385,7 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     }
     post.updatedAt = new Date().toISOString();
     post.adminModerationReason = String(body.reason || '').slice(0, 240);
+    notifyPetCirclePostModeration(post, action, post.adminModerationReason);
     writeAdminAudit(admin, `social.post.${action}`, 'pet_circle_post', postId, before, post, body.reason);
     saveState();
     ok(res, adminSocialPosts().find((item) => item.id === postId));
@@ -35065,9 +35228,14 @@ async function handle(req, res) {
       fail(res, 400, '验证码错误，请检查后重试', true, { attempts, attemptsRemaining, phone }, 'SMS_CODE_INVALID');
       return;
     }
+    if (REQUIRE_LEGAL_CONSENT && body.legalConsentAccepted !== true) {
+      fail(res, 400, '请先阅读并同意用户协议与隐私政策', false, undefined, 'LEGAL_CONSENT_REQUIRED');
+      return;
+    }
     const user = ensureUser(phone);
     cancelAccountDeletionOnLogin(user);
     user.lastSeenAt = Date.now();
+    if (body.legalConsentAccepted === true) recordUserLegalConsent(user);
     state.sms[phone] = {
       ...ticket,
       codeHash: '',
@@ -37221,7 +37389,7 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && pathname === '/places/reviews/my') {
     if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
-    ok(res, placeReviewsFor(user));
+    ok(res, placeReviewsForOwnerResponse(user));
     return;
   }
 

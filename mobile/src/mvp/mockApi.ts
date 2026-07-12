@@ -1234,6 +1234,8 @@ function petCircleProfileLimit(value?: number, fallback = 20) {
 function mockPetCircleVisibleProfilePosts(ownerId = 'me') {
   ensureMockMyPetCircleProfileFixtures();
   ensureMockPetCircleInteractionFixtures();
+  ensureMockPetCirclePendingReviewFixture();
+  ensureMockPetCircleRejectedFixture();
   const normalizedOwnerId = ownerId && ownerId !== 'me' ? ownerId : currentMockOwnerId();
   return nearbyMoments
     .filter((moment) => moment.ownerId === normalizedOwnerId)
@@ -1251,6 +1253,63 @@ function mockPetCircleVisibleProfilePosts(ownerId = 'me') {
       const rightTime = new Date(right.createdAt).getTime();
       return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
     });
+}
+
+function ensureMockPetCirclePendingReviewFixture() {
+  if (getMockWebPreviewParam('mockPetCircle') !== 'pending') return;
+  if (nearbyMoments.some((moment) => moment.id === 'mock-my-circle-pending-review')) return;
+  const pet = activeMockPet();
+  nearbyMoments = [
+    {
+      commentCount: 0,
+      createdAt: new Date(Date.now() + 60_000).toISOString(),
+      distance: '附近',
+      id: 'mock-my-circle-pending-review',
+      imageUrl: pet?.avatarUrl,
+      imageUrls: [mockPetCircleDefaultCoverUrl],
+      likedByMe: false,
+      likeCount: 0,
+      moderationStatus: 'pending_review',
+      ownerId: currentMockOwnerId(),
+      ownerName: mockOwnerName,
+      ownedByMe: true,
+      petName: pet?.name ?? 'Lucky',
+      photoCount: 1,
+      species: pet?.species === 'cat' ? 'cat' : 'dog',
+      text: '这条小事正在等待平台复核，只有主人自己可以看到。',
+      visibility: 'nearby',
+    },
+    ...nearbyMoments,
+  ];
+}
+
+function ensureMockPetCircleRejectedFixture() {
+  if (getMockWebPreviewParam('mockPetCircle') !== 'rejected') return;
+  if (nearbyMoments.some((moment) => moment.id === 'mock-my-circle-rejected')) return;
+  const pet = activeMockPet();
+  nearbyMoments = [
+    {
+      commentCount: 0,
+      createdAt: new Date(Date.now() + 60_000).toISOString(),
+      distance: '附近',
+      id: 'mock-my-circle-rejected',
+      imageUrl: pet?.avatarUrl,
+      imageUrls: [mockPetCircleDefaultCoverUrl],
+      likedByMe: false,
+      likeCount: 0,
+      moderationReason: '内容不符合宠友圈发布规范，请调整后重新发布。',
+      moderationStatus: 'rejected',
+      ownerId: currentMockOwnerId(),
+      ownerName: mockOwnerName,
+      ownedByMe: true,
+      petName: pet?.name ?? 'Lucky',
+      photoCount: 1,
+      species: pet?.species === 'cat' ? 'cat' : 'dog',
+      text: '这条小事未通过审核，仅主人自己可以查看。',
+      visibility: 'nearby',
+    },
+    ...nearbyMoments,
+  ];
 }
 
 function buildMockPetCircleProfile(ownerId = 'me', posts?: NearbyMoment[]): PetCircleProfile {
@@ -1628,6 +1687,78 @@ let placeReviews: PlaceReview[] = [];
 let placeReviewReportedIds: string[] = [];
 let placeReportedIds: string[] = [];
 let placeSubmissions: PlaceSubmission[] = [];
+
+function ensureMockPlaceContributionFixtures() {
+  if (getMockWebPreviewParam('mockPlaceContributions') !== '1') return;
+  if (!placeSubmissions.some((item) => item.id === 'mock-place-submission-approved')) {
+    placeSubmissions = [
+      {
+        address: '滨江路 88 号东门',
+        approvedPlaceId: 'p1',
+        content: '草坪空间充足，入口旁有饮水点，傍晚遛狗的人比较多。',
+        contributionAction: 'created',
+        contributionActionLabel: '发现新地点',
+        contributionPoints: 10,
+        createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+        id: 'mock-place-submission-approved',
+        name: '云杉宠物友好公园',
+        reviewedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        status: 'approved',
+      },
+      {
+        address: '中央广场北侧 1F',
+        content: '店外有宠物停留区，想补充为附近宠友可查看的地点。',
+        createdAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+        id: 'mock-place-submission-pending',
+        name: '爪印生活集合店',
+        status: 'pending_review',
+      },
+      {
+        address: '明湖街 18 号',
+        content: '这里似乎可以带宠物进入。',
+        createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        id: 'mock-place-submission-rejected',
+        name: '湖畔休息区',
+        reviewReason: '地点名称和详细地址暂时无法核实，请补充现场照片后重新提交。',
+        reviewedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+        status: 'rejected',
+      },
+      ...placeSubmissions,
+    ];
+  }
+  if (!placeReviews.some((item) => item.id === 'mock-place-review-approved')) {
+    placeReviews = [
+      {
+        content: '草坪维护得不错，傍晚有不少宠友，饮水点也能正常使用。',
+        createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        id: 'mock-place-review-approved',
+        placeId: 'p1',
+        placeName: '云杉宠物友好公园',
+        reviewedAt: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
+        status: 'approved',
+      },
+      {
+        content: '周末去的时候室内可以带猫包，店员也很友好。',
+        createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+        id: 'mock-place-review-pending',
+        placeId: 'p2',
+        placeName: '暖爪咖啡',
+        status: 'pending_review',
+      },
+      {
+        content: '这个地点非常适合所有宠物，任何时间都可以进入。',
+        createdAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
+        id: 'mock-place-review-rejected',
+        placeId: 'p4',
+        placeName: '毛球宠物生活馆',
+        reviewReason: '体验描述过于笼统，请补充真实到访时间和具体宠物友好信息。',
+        reviewedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        status: 'rejected',
+      },
+      ...placeReviews,
+    ];
+  }
+}
 
 function buildMockSanctionAppealList(): SanctionAppealList {
   const appeals = sanctionAppeals.slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -2685,7 +2816,7 @@ export const mockApi = {
       return success({ availableAt: now + SMS_COOLDOWN_MS, code, expiresAt: now + OTP_TTL_MS, phone });
     },
 
-    async verifySmsCode(phone: string, code: string, expiresAt: number): Promise<ApiResult<AuthSession>> {
+    async verifySmsCode(phone: string, code: string, expiresAt: number, _legalConsentAccepted = false): Promise<ApiResult<AuthSession>> {
       await wait(260);
       const storedCode = smsCodeByPhone[phone];
       const loginLockedUntil = smsLoginLockedUntilByPhone[phone] ?? 0;
@@ -3301,8 +3432,9 @@ export const mockApi = {
         text: text.slice(0, 280),
         visibility,
       };
+      let createdMemo: HealthMemo | undefined;
       if (visibility === 'private' || options.syncToHealthCalendar) {
-        const memo: HealthMemo = {
+        createdMemo = {
           content: text.slice(0, 240),
           createdAt: normalizeCalendarDate(moment.createdAt),
           id: `m-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
@@ -3311,10 +3443,10 @@ export const mockApi = {
           title: mockPetChatMemoTitle(text),
           updatedAt: normalizeCalendarDate(moment.createdAt),
         };
-        memos = [memo, ...memos];
+        memos = [createdMemo, ...memos];
       }
       nearbyMoments = [moment, ...nearbyMoments].slice(0, 20);
-      return success(moment);
+      return success({ ...moment, ...(createdMemo ? { createdMemo } : {}) });
     },
 
     async likePetCirclePost(postId: string): Promise<ApiResult<NearbyMoment>> {
@@ -3766,6 +3898,7 @@ export const mockApi = {
 
     async listMyReviews(): Promise<ApiResult<PlaceReview[]>> {
       await wait(120);
+      ensureMockPlaceContributionFixtures();
       return success(placeReviews);
     },
 
@@ -3780,6 +3913,7 @@ export const mockApi = {
 
     async listMySubmissions(): Promise<ApiResult<PlaceSubmission[]>> {
       await wait(120);
+      ensureMockPlaceContributionFixtures();
       return success(placeSubmissions);
     },
 
@@ -3898,6 +4032,7 @@ export const mockApi = {
 };
 
 function buildMockAccountSnapshot(): AccountSnapshot {
+  const placeContributionPreview = getMockWebPreviewParam('mockPlaceContributions') === '1';
   return {
     activePet: pets.find((pet) => pet.id === activePetId) ?? pets[0] ?? null,
     accountDeletion: mockAccountDeletion,
@@ -3908,19 +4043,20 @@ function buildMockAccountSnapshot(): AccountSnapshot {
     permissions: mockPermissions,
     permissionsOnboardingCompleted: mockPermissionsOnboardingCompleted,
     placeContributionSummary: {
-      created: 0,
+      created: placeContributionPreview ? 1 : 0,
       level: {
-        key: 'none',
-        label: '待点亮',
-        minPoints: 0,
-        nextLabel: '地点新星',
-        nextPoints: 1,
+        key: placeContributionPreview ? 'starter' : 'none',
+        label: placeContributionPreview ? '地点新星' : '待点亮',
+        minPoints: placeContributionPreview ? 10 : 0,
+        nextLabel: placeContributionPreview ? '社区向导' : '地点新星',
+        nextPoints: placeContributionPreview ? 20 : 1,
       },
       linkedExisting: 0,
       minPublicPoints: 1,
-      points: 0,
-      publicEligible: false,
-      total: 0,
+      nextLevelRemainingPoints: placeContributionPreview ? 10 : 1,
+      points: placeContributionPreview ? 10 : 0,
+      publicEligible: placeContributionPreview,
+      total: placeContributionPreview ? 1 : 0,
     },
     settings: mockUserSettings,
   };

@@ -168,7 +168,7 @@ async function main() {
       method: 'POST',
     });
     await request('/auth/sms/verify', {
-      body: { code: firstSms.data.code, deviceId: 'admin-visual-lock-device', phone: lockedUserPhone },
+      body: { code: firstSms.data.code, deviceId: 'admin-visual-lock-device', legalConsentAccepted: true, phone: lockedUserPhone },
       method: 'POST',
     });
     await request('/auth/sms/send', {
@@ -242,6 +242,10 @@ async function main() {
     await page.locator('#nav button[data-route="users"]').click();
     const unlockButton = page.locator(`button[data-action="user-login-unlock"][data-phone="${lockedUserPhone}"]`);
     await unlockButton.waitFor({ timeout: 30_000 });
+    await page.getByText('协议已同意', { exact: true }).first().waitFor({ timeout: 30_000 });
+    await page.locator(`button[data-action="user-timeline-load"][data-phone="${lockedUserPhone}"]`).click();
+    await page.getByText('协议与隐私政策同意留痕', { exact: true }).waitFor({ timeout: 30_000 });
+    await page.screenshot({ fullPage: true, path: path.join(artifactsDir, 'user-legal-consent.png') });
     await page.getByText('登录锁定', { exact: true }).first().waitFor({ timeout: 30_000 });
     await page.screenshot({ fullPage: true, path: path.join(artifactsDir, 'user-login-locked.png') });
     await unlockButton.click();
