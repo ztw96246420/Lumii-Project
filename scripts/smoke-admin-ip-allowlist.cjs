@@ -139,6 +139,17 @@ async function main() {
     });
     assert.equal(blockedLogin.error?.code, 'ADMIN_IP_NOT_ALLOWED');
 
+    const spoofedForwardedLogin = await request('/admin/auth/login', {
+      body: { password: 'LumiiAdmin@2026', username: 'admin' },
+      expectedStatus: 403,
+      headers: {
+        'x-forwarded-for': '10.0.0.42, 203.0.113.9',
+        'x-real-ip': '203.0.113.9',
+      },
+      method: 'POST',
+    });
+    assert.equal(spoofedForwardedLogin.error?.code, 'ADMIN_IP_NOT_ALLOWED', 'X-Forwarded-For must not override the trusted proxy client IP');
+
     const cidrToken = await loginAdmin({ 'x-forwarded-for': '10.0.0.42' });
     const accounts = await request('/admin/accounts', {
       headers: { 'x-forwarded-for': '10.0.0.42' },

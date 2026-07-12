@@ -31,6 +31,7 @@ async function request(pathname, options = {}) {
     headers: {
       ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
       ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...(options.headers || {}),
     },
     method: options.method || 'GET',
   });
@@ -103,6 +104,8 @@ async function main() {
     assert.equal(health.data.publicApiProbe.status, 'bad');
     assert.match(health.data.publicApiProbe.detail, /must use HTTPS/);
     assert.ok(health.data.checks.some((item) => item.key === 'public_api_https' && item.status === 'bad'));
+    assert.equal(health.data.publicApiExternalProof.status, 'warn');
+    assert.ok(health.data.checks.some((item) => item.key === 'public_api_external_https' && item.status === 'warn'));
 
     const readiness = await request('/admin/launch/readiness', { token });
     const gap = readiness.data.gaps.find((item) => item.key === 'api_https');
@@ -130,6 +133,38 @@ async function main() {
     assert.equal(health.data.publicApiProbe.status, 'bad');
     assert.match(health.data.publicApiProbe.evidence, /via 127\.0\.0\.1 with SNI api\.lumiiapp\.cn/);
     assert.ok(health.data.checks.some((item) => item.key === 'public_api_https' && item.status === 'bad'));
+    assert.equal(health.data.publicApiExternalProof.status, 'warn');
+
+    await request('/health', {
+      headers: {
+        Host: 'api.lumiiapp.cn',
+        'x-forwarded-host': 'api.lumiiapp.cn',
+        'x-forwarded-for': '8.8.8.8',
+        'x-forwarded-proto': 'https',
+        'x-real-ip': '127.0.0.1',
+      },
+    });
+    const spoofedProofHealth = await request('/admin/system/health', { token: login.data.token });
+    assert.equal(spoofedProofHealth.data.publicApiExternalProof.status, 'warn', 'a forged forwarded IP must not create external proof');
+
+    await request('/health', {
+      headers: {
+        Host: 'api.lumiiapp.cn',
+        'x-forwarded-host': 'api.lumiiapp.cn',
+        'x-forwarded-for': '198.51.100.7, 8.8.8.8',
+        'x-forwarded-proto': 'https',
+        'x-real-ip': '8.8.8.8',
+      },
+    });
+    const provenHealth = await request('/admin/system/health', { token: login.data.token });
+    assert.equal(provenHealth.data.publicApiExternalProof.status, 'ok');
+    assert.equal(provenHealth.data.publicApiExternalProof.fresh, true);
+    assert.equal(provenHealth.data.publicApiExternalProof.source, 'external_https_request');
+    assert.ok(provenHealth.data.checks.some((item) => item.key === 'public_api_external_https' && item.status === 'ok'));
+
+    const readiness = await request('/admin/launch/readiness', { token: login.data.token });
+    const gap = readiness.data.gaps.find((item) => item.key === 'api_https');
+    assert.equal(gap.status, 'blocked', 'external proof must not hide a broken origin TLS probe');
   } finally {
     await stopBackend();
     fs.rmSync(tmpDir, { force: true, recursive: true });

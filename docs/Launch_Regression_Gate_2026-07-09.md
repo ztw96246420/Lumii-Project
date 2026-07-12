@@ -29,10 +29,10 @@ The default gate runs:
 - Admin production security package generation, MFA/IP/password-rotation readiness, and non-leaking security audit records.
 - SQLite/WAL state migration, optimistic revision conflict protection, JSON mirror rebuild, checksum recovery, and backup restoration.
 - Config center AI ops, approval, content-safety hints, experiments, risk confirmation, scheduled publish, and media CDN probe.
-- Public API HTTPS launch-readiness probing, including TLS/DNS/health failures and the corresponding P0 readiness blocker.
+- Public API HTTPS launch-readiness probing, including source TLS, expiring real external-request evidence, forged forwarding-header rejection, TLS/DNS/health failures, and the corresponding P0 readiness blocker.
 - All standalone non-visual smoke scripts under `scripts/smoke-*.cjs` are included in the default gate; visual/browser checks remain opt-in through `--include-visual`.
 
-Last verified on 2026-07-11: 70/70 default non-visual suites passed.
+Last verified on 2026-07-12: 70/70 default non-visual suites passed.
 
 ## Visual Gate
 
@@ -44,7 +44,7 @@ This also runs Playwright-backed admin/frontend page checks, including admin
 accounts, legal documents, system health, media replacement, AI pet chat review,
 and the mobile frontend smoke. The mobile check covers runtime session expiry,
 own/peer pet-circle permissions, same-day archive timestamps, comments, and
-confirmed deletion. Last verified on 2026-07-11: 79/79 suites passed with visual
+confirmed deletion. Last verified on 2026-07-12: 79/79 suites passed with visual
 checks enabled. Use it when page layout, admin UI, or browser-visible interaction
 changed.
 

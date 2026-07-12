@@ -1,6 +1,6 @@
 # Lumii 正式 API HTTPS 与 Release 构建门禁
 
-日期：2026-07-10
+日期：2026-07-12
 
 ## 1. 当前域名与服务器状态
 
@@ -11,8 +11,8 @@
 - 当前证书到期日：2026-10-08
 - 自动续期：`certbot.timer` 已安装，`certbot renew --dry-run` 已成功
 - 服务器本机 HTTPS：`GET /health` 已返回 `state=success`
-- 公网 HTTPS：Nginx 已记录外部网络 `GET /health` 返回 200，入站 TCP 443 已生效
-- 当前开发电脑的 `FlClash` 网络路径会导致该域名 TLS 握手失败；这是本机代理路径问题，不是服务器或证书故障
+- 公网 HTTPS：当前站外连接 TCP 443 成功，但 TLS ClientHello 在到达 Nginx 前被重置，`curl` 返回握手失败且 HTTP code 为 `000`
+- 当前判断：源站 Nginx、证书和本机 SNI 校验正常；腾讯云公网/备案/边缘网络链路仍需恢复，不能把源站成功误报成公网可用
 
 腾讯云 CVM 绑定安全组必须持续保留以下基线规则：
 
@@ -32,10 +32,12 @@ curl.exe -fsS https://api.lumiiapp.cn/health
 curl.exe -sS -o NUL -w "%{http_code} %{redirect_url}" http://api.lumiiapp.cn/health
 ```
 
-预期分别为：
+正式上线要求分别为：
 
 - HTTPS 返回 `{"data":...,"state":"success"}`
 - HTTP 返回 `301 https://api.lumiiapp.cn/health`
+
+截至 2026-07-12，第一项仍未满足，因此生产 APK 可以完成安全构建，但不能视为真机联网验收通过。
 
 ## 2. Nginx 配置
 
@@ -122,9 +124,23 @@ LUMII_PUBLIC_API_PROBE_TIMEOUT_MS=6000
 LUMII_PUBLIC_API_PROBE_CONNECT_ADDRESS=127.0.0.1
 ```
 
-后台系统健康会使用 `api.lumiiapp.cn` 作为 Host/SNI，并通过 `127.0.0.1:443` 执行真实 TLS 与 `GET /health` 校验：
+后台系统健康会使用 `api.lumiiapp.cn` 作为 Host/SNI，并通过 `127.0.0.1:443` 执行真实源站 TLS 与 `GET /health` 校验：
 
 - 成功且响应 `state=success`：`public_api_https=ok`
 - HTTP、证书/SNI 错误、超时、非 200 或响应格式错误：`public_api_https=bad`
 
-同机连接地址只绕过云主机访问自身公网 IP 时可能发生的 NAT 回环限制，不跳过证书验证，也不会把 HTTP 当成 HTTPS。公网安全组与外部可用性需继续由站外监控和 Nginx 外部访问证据覆盖；上线台账中的 `api_https` P0 负责阻断域名、TLS、证书和健康响应不合格的正式包。
+同机连接地址只绕过云主机访问自身公网 IP 时可能发生的 NAT 回环限制，不跳过证书验证，也不会把 HTTP 当成 HTTPS。但它只能证明源站，不能证明真实公网链路。
+
+服务端另外维护 `public_api_external_https` 证据：
+
+- Nginx 必须覆盖 `Host`、`X-Real-IP`、`X-Forwarded-For`、`X-Forwarded-Host` 和 `X-Forwarded-Proto`。
+- 后端只信任 `LUMII_TRUSTED_PROXY_IPS` 中的代理，默认仅 `127.0.0.1,::1`；客户端自带的伪造转发头不能覆盖 Nginx 的真实客户端 IP。
+- 站外浏览器、真机或监控通过正式域名和 HTTPS 到达后端后，会自动记录不含客户端 IP、Token 或 User-Agent 的限时证明。
+- 证明默认 24 小时有效，可通过 `LUMII_PUBLIC_API_EXTERNAL_PROOF_MAX_AGE_MS` 调整；过期后重新回到待验证。
+- 上线台账 `api_https` 只有在源站 TLS 与站外证据同时有效时才为 `ready`。
+
+生产服务器可用脱敏探针读取当前真实台账，不会输出管理员凭据、Token 或密钥：
+
+```bash
+sudo /opt/node-v24.18.0-linux-x64/bin/node scripts/probe-production-readiness.cjs
+```

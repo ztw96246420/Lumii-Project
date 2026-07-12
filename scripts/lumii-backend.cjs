@@ -122,6 +122,9 @@ const MEDIA_PUBLIC_PROBE_TIMEOUT_MS = Math.max(1000, Number(process.env.MEDIA_PU
 const PUBLIC_API_BASE_URL = String(process.env.LUMII_PUBLIC_API_BASE_URL || '').trim().replace(/\/+$/, '');
 const PUBLIC_API_PROBE_TIMEOUT_MS = Math.max(1000, Number(process.env.LUMII_PUBLIC_API_PROBE_TIMEOUT_MS || '6000') || 6000);
 const PUBLIC_API_PROBE_CONNECT_ADDRESS = String(process.env.LUMII_PUBLIC_API_PROBE_CONNECT_ADDRESS || '').trim();
+const PUBLIC_API_EXTERNAL_PROOF_MAX_AGE_MS = Math.max(5 * 60 * 1000, Number(process.env.LUMII_PUBLIC_API_EXTERNAL_PROOF_MAX_AGE_MS || 24 * 60 * 60 * 1000) || 24 * 60 * 60 * 1000);
+const PUBLIC_API_EXTERNAL_PROOF_PERSIST_INTERVAL_MS = Math.max(60 * 1000, Number(process.env.LUMII_PUBLIC_API_EXTERNAL_PROOF_PERSIST_INTERVAL_MS || 10 * 60 * 1000) || 10 * 60 * 1000);
+const TRUSTED_PROXY_IPS_RAW = String(process.env.LUMII_TRUSTED_PROXY_IPS || '127.0.0.1,::1').trim();
 const STATE_STORAGE_WARN_BYTES = Math.max(1024 * 1024, Number(process.env.STATE_STORAGE_WARN_BYTES || 15 * 1024 * 1024) || 15 * 1024 * 1024);
 const STATE_MEDIA_DATAURL_PRUNE_ENABLED = process.env.STATE_MEDIA_DATAURL_PRUNE_ENABLED === 'false' ? false : true;
 const MEDIA_UPLOAD_MAX_BASE64_CHARS = Number(process.env.MEDIA_UPLOAD_MAX_BASE64_CHARS || '12000000');
@@ -863,6 +866,7 @@ function createInitialState() {
     launchReadinessQuestionOverrides: {},
     launchReadinessSignoff: {},
     legalDocuments: {},
+    publicApiExternalProof: {},
     opsConfigApprovals: [],
     adminLoginSecurity: {
       accountFailures: {},
@@ -5896,6 +5900,7 @@ function loadState() {
       launchReadinessQuestionOverrides: loadedState.launchReadinessQuestionOverrides && typeof loadedState.launchReadinessQuestionOverrides === 'object' && !Array.isArray(loadedState.launchReadinessQuestionOverrides) ? loadedState.launchReadinessQuestionOverrides : initialState.launchReadinessQuestionOverrides,
       launchReadinessSignoff: loadedState.launchReadinessSignoff && typeof loadedState.launchReadinessSignoff === 'object' && !Array.isArray(loadedState.launchReadinessSignoff) ? loadedState.launchReadinessSignoff : initialState.launchReadinessSignoff,
       legalDocuments: loadedState.legalDocuments && typeof loadedState.legalDocuments === 'object' && !Array.isArray(loadedState.legalDocuments) ? loadedState.legalDocuments : initialState.legalDocuments,
+      publicApiExternalProof: loadedState.publicApiExternalProof && typeof loadedState.publicApiExternalProof === 'object' && !Array.isArray(loadedState.publicApiExternalProof) ? loadedState.publicApiExternalProof : initialState.publicApiExternalProof,
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
       socialMoments: Array.isArray(loadedState.socialMoments) ? loadedState.socialMoments : initialState.socialMoments,
@@ -5928,6 +5933,7 @@ function loadState() {
 }
 
 let state = loadState();
+let publicApiExternalProofLastPersistAt = 0;
 if (RUNTIME_ENV === 'production') {
   state.places = (Array.isArray(state.places) ? state.places : []).filter((place) => !isSeedFixturePlace(place));
 }
@@ -7254,13 +7260,26 @@ function normalizeSmsDeviceId(value) {
   return raw.replace(/[^\w.:-]/g, '').slice(0, 80);
 }
 
+function trustedProxyIpEntries() {
+  return TRUSTED_PROXY_IPS_RAW.split(/[,\s]+/u).map(normalizeAdminIpText).filter(Boolean);
+}
+
+function requestComesThroughTrustedProxy(req) {
+  const remoteAddress = normalizeAdminIpText(req.socket?.remoteAddress || '');
+  return Boolean(remoteAddress && trustedProxyIpEntries().some((entry) => adminIpMatchesEntry(remoteAddress, entry)));
+}
+
 function clientIpFromRequest(req) {
+  const remoteAddress = normalizeAdminIpText(req.socket?.remoteAddress || '');
+  if (!requestComesThroughTrustedProxy(req)) return remoteAddress || 'unknown';
+
+  const realIp = normalizeAdminIpText(req.headers['x-real-ip'] || '');
+  if (net.isIP(realIp)) return realIp;
   const forwardedFor = String(req.headers['x-forwarded-for'] || '')
-    .split(',')[0]
-    .trim();
-  const realIp = String(req.headers['x-real-ip'] || '').trim();
-  const remoteAddress = String(req.socket?.remoteAddress || '').trim();
-  return (forwardedFor || realIp || remoteAddress || 'unknown').replace(/^::ffff:/, '');
+    .split(',')
+    .map(normalizeAdminIpText)
+    .filter((value) => net.isIP(value));
+  return forwardedFor.at(-1) || remoteAddress || 'unknown';
 }
 
 function normalizeAdminIpText(value) {
@@ -25041,6 +25060,102 @@ async function adminPublicApiProbe(baseUrlInput = PUBLIC_API_BASE_URL) {
   }
 }
 
+function publicApiExpectedHostname() {
+  try {
+    return new URL(PUBLIC_API_BASE_URL).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function requestHostname(req) {
+  const value = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  if (!value) return '';
+  try {
+    return new URL(`https://${value}`).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function isPublicClientIp(value) {
+  const ip = normalizeAdminIpText(value).toLowerCase();
+  const family = net.isIP(ip);
+  if (family === 4) {
+    const parts = ip.split('.').map(Number);
+    if (parts[0] === 0 || parts[0] === 10 || parts[0] === 127 || parts[0] >= 224) return false;
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return false;
+    if (parts[0] === 169 && parts[1] === 254) return false;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return false;
+    if (parts[0] === 192 && parts[1] === 168) return false;
+    if (parts[0] === 198 && [18, 19].includes(parts[1])) return false;
+    return true;
+  }
+  if (family === 6) {
+    if (ip === '::' || ip === '::1' || /^f[cd]/u.test(ip) || /^fe[89ab]/u.test(ip) || ip.startsWith('2001:db8:')) return false;
+    return true;
+  }
+  return false;
+}
+
+function publicApiExternalProofStatus(publicApiProbe = {}) {
+  if (publicApiProbe.probeMode === 'public_dns' && publicApiProbe.ok === true) {
+    return {
+      ageMinutes: 0,
+      detail: 'Public DNS HTTPS probe succeeded without a local connect-address override',
+      evidence: publicApiProbe.evidence || '',
+      fresh: true,
+      maxAgeMinutes: Math.round(PUBLIC_API_EXTERNAL_PROOF_MAX_AGE_MS / 60_000),
+      observedAt: new Date().toISOString(),
+      ok: true,
+      source: 'public_dns_probe',
+      status: 'ok',
+    };
+  }
+  const proof = state.publicApiExternalProof && typeof state.publicApiExternalProof === 'object' ? state.publicApiExternalProof : {};
+  const observedAtMs = Date.parse(String(proof.observedAt || ''));
+  const ageMs = Number.isFinite(observedAtMs) ? Math.max(0, Date.now() - observedAtMs) : Infinity;
+  const ageMinutes = Number.isFinite(ageMs) ? Math.round(ageMs / 60_000) : null;
+  const fresh = Number.isFinite(ageMs) && ageMs <= PUBLIC_API_EXTERNAL_PROOF_MAX_AGE_MS;
+  return {
+    ageMinutes,
+    detail: fresh
+      ? `A real external HTTPS request reached the API ${ageMinutes} minutes ago`
+      : proof.observedAt
+        ? `The last external HTTPS request proof is stale (${ageMinutes ?? 'unknown'} minutes old)`
+        : 'No real external HTTPS request has reached the API since external proof tracking was enabled',
+    evidence: fresh ? `host=${proof.host || '-'} path=${proof.path || '-'} observedAt=${proof.observedAt}` : '等待站外浏览器、真机或监控通过正式域名访问 API',
+    fresh,
+    maxAgeMinutes: Math.round(PUBLIC_API_EXTERNAL_PROOF_MAX_AGE_MS / 60_000),
+    observedAt: proof.observedAt || '',
+    ok: fresh,
+    source: proof.source || 'external_https_request',
+    status: fresh ? 'ok' : 'warn',
+  };
+}
+
+function recordPublicApiExternalRequestProof(req, pathname = '') {
+  const expectedHostname = publicApiExpectedHostname();
+  if (!expectedHostname || !requestComesThroughTrustedProxy(req)) return false;
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',').at(-1)?.trim().toLowerCase();
+  if (forwardedProto !== 'https' || requestHostname(req) !== expectedHostname) return false;
+  if (!isPublicClientIp(clientIpFromRequest(req))) return false;
+
+  const now = Date.now();
+  const previous = state.publicApiExternalProof && typeof state.publicApiExternalProof === 'object' ? state.publicApiExternalProof : {};
+  state.publicApiExternalProof = {
+    host: expectedHostname,
+    observedAt: new Date(now).toISOString(),
+    path: String(pathname || '/').slice(0, 120),
+    source: 'external_https_request',
+  };
+  if (!previous.observedAt || now - publicApiExternalProofLastPersistAt >= PUBLIC_API_EXTERNAL_PROOF_PERSIST_INTERVAL_MS) {
+    publicApiExternalProofLastPersistAt = now;
+    saveState();
+  }
+  return true;
+}
+
 async function adminSystemHealth() {
   const now = Date.now();
   const memory = process.memoryUsage();
@@ -25075,6 +25190,7 @@ async function adminSystemHealth() {
     cdnMediaBase && cdnMediaBase !== (appMediaBase || '') ? adminMediaPublicProbe(cdnMediaBase, { kind: 'cdn', label: 'CDN media' }) : Promise.resolve(null),
     adminPublicApiProbe(),
   ]);
+  const publicApiExternalProof = publicApiExternalProofStatus(publicApiProbe);
   const mediaCdnProbeStatus = mediaCdnProbe?.status === 'bad' ? 'warn' : mediaCdnProbe?.status;
   const checks = [
     adminCheckStatus(
@@ -25091,7 +25207,8 @@ async function adminSystemHealth() {
     adminCheckStatus(!stateBackups.enabled ? 'warn' : stateBackups.lastBackupError || stateBackups.lastSaveError || stateBackups.lastMirrorError ? 'warn' : stateBackups.count > 0 ? 'ok' : 'warn', 'state_backups', '状态快照备份', !stateBackups.enabled ? '状态备份未启用' : stateBackups.lastMirrorError ? `JSON 回滚镜像异常：${stateBackups.lastMirrorError}` : stateBackups.count > 0 ? `已有 ${stateBackups.count} 份备份，最近 ${stateBackups.latestAt || '-'}` : '尚未生成状态备份，下次成功写入后会自动生成', stateBackups.latestPath || stateBackups.dir),
     adminCheckStatus(mediaProbe.status, 'media_public_get', 'App 媒体公开 GET 探测', mediaProbe.detail, mediaProbe.evidence),
     ...(mediaCdnProbe ? [adminCheckStatus(mediaCdnProbeStatus, 'media_cdn_get', '媒体 CDN GET 探测', mediaCdnProbe.detail, mediaCdnProbe.evidence)] : []),
-    adminCheckStatus(publicApiProbe.status, 'public_api_https', 'App API HTTPS 探测', publicApiProbe.detail, publicApiProbe.evidence),
+    adminCheckStatus(publicApiProbe.status, 'public_api_https', 'App API 源站 HTTPS 探测', publicApiProbe.detail, publicApiProbe.evidence),
+    adminCheckStatus(publicApiExternalProof.status, 'public_api_external_https', 'App API 站外 HTTPS 证据', publicApiExternalProof.detail, publicApiExternalProof.evidence),
     adminCheckStatus(stateFile.exists ? stateSizeWarn ? 'warn' : 'ok' : stateStorage.driver === 'sqlite' && stateStorage.healthy ? 'warn' : 'bad', 'state_file', stateStorage.driver === 'sqlite' ? 'JSON 回滚镜像' : 'JSON 状态文件', stateFile.exists ? `JSON ${stateStorage.driver === 'sqlite' ? 'mirror' : 'state'} ${Math.round(stateFile.sizeBytes / 1024)} KB` : stateStorage.driver === 'sqlite' ? 'JSON 回滚镜像不存在，SQLite 仍为权威数据源' : '状态文件不存在或不可读', stateFile.path),
     adminCheckStatus(process.env.LUMII_ADMIN_USERNAME && process.env.LUMII_ADMIN_PASSWORD ? 'ok' : 'warn', 'admin_credentials', '后台账号环境变量', process.env.LUMII_ADMIN_PASSWORD ? '后台密码由环境变量覆盖' : '仍可能使用默认后台账号密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus(
@@ -25199,7 +25316,7 @@ async function adminSystemHealth() {
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'place_location_integrity', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'place_location_integrity', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_api_external_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
@@ -25235,6 +25352,7 @@ async function adminSystemHealth() {
     },
     alertWebhook,
     publicApiProbe,
+    publicApiExternalProof,
     mediaProbe,
     mediaCdnProbe,
     accountDeletions,
@@ -26492,7 +26610,9 @@ function adminReadinessGaps(context) {
   const alertWebhookReady = Boolean(health?.alertWebhook?.configured && !health?.alertWebhook?.configError);
   const alertWebhookHealthy = alertWebhookReady && health?.alertWebhook?.lastDelivery?.status !== 'failed';
   const publicApiProbe = health?.publicApiProbe || {};
-  const publicApiHttpsReady = publicApiProbe.status === 'ok' && publicApiProbe.ok === true;
+  const publicApiExternalProof = health?.publicApiExternalProof || publicApiExternalProofStatus(publicApiProbe);
+  const publicApiOriginReady = publicApiProbe.status === 'ok' && publicApiProbe.ok === true;
+  const publicApiHttpsReady = publicApiOriginReady && publicApiExternalProof.ok === true;
   const smsProvider = health?.smsProvider || smsProviderStatus();
   const smsProviderReady = Boolean(smsProvider.productionReady);
   const legacyAuthReady = !ALLOW_LEGACY_LOCAL_AUTH;
@@ -26529,12 +26649,16 @@ function adminReadinessGaps(context) {
       severity: 'P0',
       status: publicApiHttpsReady ? 'ready' : 'blocked',
       issue: publicApiHttpsReady
-        ? `正式 API 已通过 HTTPS 健康探测：${publicApiProbe.baseUrl || publicApiProbe.url || '-'}`
-        : `正式 API HTTPS 尚不可用：${publicApiProbe.detail || '未配置或尚未完成公网探测'}。`,
+        ? `正式 API 已同时通过源站 TLS 健康探测和站外真实访问证据：${publicApiProbe.baseUrl || publicApiProbe.url || '-'}`
+        : publicApiOriginReady
+          ? `正式 API 源站 TLS 正常，但站外可达性尚未证实：${publicApiExternalProof.detail || '缺少站外请求证据'}。`
+          : `正式 API HTTPS 源站尚不可用：${publicApiProbe.detail || '未配置或尚未完成源站探测'}。`,
       requiredAction: publicApiHttpsReady
-        ? '持续监控证书续期、TLS 探测和 /health 可用性；正式包保持 usesCleartextTraffic=false。'
-        : '配置 LUMII_PUBLIC_API_BASE_URL=https://api.lumiiapp.cn，确保云安全组放行 TCP 443、证书有效且 GET /health 返回 success，再构建正式包。',
-      evidence: publicApiProbe.evidence || '系统健康页 public_api_https / EAS production HTTPS gate / Android release manifest',
+        ? '持续监控证书续期、源站 TLS、站外访问证据和 /health 可用性；正式包保持 usesCleartextTraffic=false。'
+        : publicApiOriginReady
+          ? '从站外浏览器、真机或监控通过正式域名访问 /health；成功请求会自动形成限时站外证据。'
+          : '配置 LUMII_PUBLIC_API_BASE_URL=https://api.lumiiapp.cn，确保 Nginx 源站 TLS、证书和 GET /health 正常，再处理公网安全组 TCP 443、CDN 与备案链路。',
+      evidence: `${publicApiProbe.evidence || '系统健康页 public_api_https'} / ${publicApiExternalProof.evidence || 'public_api_external_https'}`,
     },
     {
       key: 'sms_delivery',
@@ -34665,6 +34789,7 @@ async function handle(req, res) {
 
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
+  recordPublicApiExternalRequestProof(req, pathname);
   runDueAccountDeletionSweep();
 
   if (req.method === 'GET' && pathname === '/health') {
