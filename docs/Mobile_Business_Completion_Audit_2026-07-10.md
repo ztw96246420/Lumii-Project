@@ -1,6 +1,6 @@
 # 移动端业务完整性与上线收口审计
 
-日期：2026-07-11
+日期：2026-07-12
 
 ## 1. 审计口径
 
@@ -151,19 +151,28 @@
 - 生产环境启动时移除历史 seed 地点；高德缺 Key、超时或无结果时，只返回当前半径内已保存的真实高德/人工地点或空列表，不再回退四条示例地点。
 - 无坐标存量地点仍保留在后台治理目录，但不进入用户附近结果；系统健康新增 `place_location_integrity`，上线台账新增 P0 `place_discovery`，生产缺 `AMAP_WEB_SERVICE_KEY` 直接阻断上线。
 
+### 2.17 用户端登录设备管理
+
+- “账号安全”不再展示写死的设备说明，改为读取当前账号真实有效会话；同设备 token 刷新链聚合为一台设备，并明确标记本机。
+- 用户可以退出指定其他设备，或一键退出全部其他设备；被撤销设备的当前 token 与同设备历史刷新链立即失效，本机登录态保持有效。
+- 用户端只返回设备类型、脱敏尾号和最近活跃时间，不暴露 token、token 摘要、IP、完整设备 ID 或 User-Agent；完整证据继续留在后台受控审计页。
+- 移动端覆盖读取中、失败重试、空状态和操作中状态；不再展示尚未实现的邮箱、密码入口，也不再给纯信息行显示误导性箭头。
+- 双设备 HTTP 回归覆盖单设备退出、退出其他设备、刷新链、最终退出、401 阻断、后台时间线及业务数据清理。
+
 ## 3. 当前验证证据
 
 - 移动端 TypeScript：`npm run typecheck` 通过。
 - 移动端核心 HTTP：`node scripts/smoke-mobile-core-flows.cjs` 通过，覆盖空计划、新增、编辑、开启提醒、完成、恢复、删除及关联数据清理。
 - 生产短信安全：`node scripts/smoke-sms-production.cjs` 通过，覆盖分层失败锁定、锁定期禁止发码、后台解锁审计和恢复登录。
 - 账号注销：`node scripts/smoke-account-deletion.cjs` 通过，覆盖冷静期撤销、全会话失效、到期清理、COS 删除、手机号移除、旧 token 阻断和同手机号全新注册。
+- 用户登录设备：`node scripts/smoke-user-auth-sessions.cjs` 通过，覆盖双设备登录、用户端脱敏列表、单设备退出、退出其他设备、刷新链撤销、401 阻断、后台时间线和会话数据清理。
 - 工单 SLA/客服排班/用户补充/评价/重开闭环：`node scripts/smoke-ticket-sla-roster.cjs` 通过。
 - 移动端完整 Playwright：`node scripts/smoke-frontend-playwright.cjs` 通过，含 39 路由直达、缺头像、宠友圈互动、设置/注销、真实登录会话和宠物建档流程。
 - 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 通过，70/70 套件全部成功；覆盖 Release HTTPS、Android 敏感权限最小化、API TLS/SNI、SQLite/WAL，以及生产短信随机 OTP、Spug 请求、腾讯备用通道、固定码旁路阻断和注销验证码。
-- 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-11 通过，79/79 套件全部成功；移动端 Playwright 覆盖本人宠友圈同日多条、唯一“我”标记、评论、删除确认、他人宠友圈权限、运行中 Token 撤销恢复，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除，后台 8 个关键运营页面同步通过。
+- 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-12 通过，79/79 套件全部成功；移动端 Playwright 覆盖本人宠友圈同日多条、唯一“我”标记、评论、删除确认、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除，后台 8 个关键运营页面同步通过。
 - 附近位置与半径专项：`node scripts/smoke-pet-circle.cjs`、配置审批/预约发布/双人会签回归和 `node scripts/smoke-admin-config-high-risk-page.cjs` 通过；覆盖发布位置快照、跨城市移动、历史无位置数据、10km 默认档位、3/5/10km 后台选择及客户端越权半径拦截。
 - 附近地点真实性：`node scripts/smoke-place-contributions.cjs` 与 `node scripts/smoke-sms-production.cjs` 通过；覆盖提交坐标/精度/时间落库、审核后 manual 地点继承坐标、跨城不跟随、缺失/过期定位拦截、生产无高德时返回空列表而非 seed，以及 `amap` / `place_location_integrity` / `place_discovery` 健康与 P0 门禁。
-- Android 候选包：`dist/Lumii-Lingban-v1.0.0-vc11-arm64-20260711-1300.apk` 已完成正式签名构建，大小 68.52 MB，SHA-256 为 `888F04A2AC264323A4758E68694336E4686D916DFF10FE62D551C28473A8904F`；包名 `com.lumii.lingban`、versionCode `11`、API `https://api.lumiiapp.cn`、禁止明文流量。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗权限且系统备份关闭。
+- Android 候选包：`dist/Lumii-Lingban-v1.0.0-vc12-arm64-20260712-2327.apk` 已完成正式签名构建，大小 68.55 MB，SHA-256 为 `185A11CBBAA4702AD50D3B7548ECEF5989119BDB9DBCB2E08DF5CDE3256D0339`；包名 `com.lumii.lingban`、versionCode `12`、API `https://api.lumiiapp.cn`、禁止明文流量且仅含 `arm64-v8a`。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗权限且系统备份关闭。
 
 ## 4. 剩余工作
 
@@ -175,11 +184,11 @@
 
 以下项目不能仅靠代码自动判定完成，需要以后台上线台账和真实生产值为准：
 
-- ~~正式 HTTPS API 域名、证书、Release API Base URL 与明文流量构建门禁。~~ 已完成域名解析、证书签发、自动续期、Nginx HTTPS、外网 `GET /health` 200 验证、本地 Release Manifest 和 EAS/本地打包门禁；同机后台探针通过本机连接地址保留正式域名 SNI/证书校验，避免云主机公网 IP 回环导致假告警。
+- 正式 API 域名、源站证书、自动续期、Nginx HTTPS、Release API Base URL 与明文流量构建门禁已完成，源站本机 SNI/证书验证正常；但当前公网 `api.lumiiapp.cn:443` 的 TLS ClientHello 在到达 Nginx 前被重置，仍需腾讯云侧完成备案/网络策略同步并复测外网 `/health`，该项保持 P0 阻塞。
 - 后台生产强密码和 90 天轮换记录已完成；仍需配置稳定办公/VPN IP 白名单和全部活跃管理员 MFA。
 - 生产后台实查确认四项必签材料仍为草稿：用户协议 `test-2026-06-12`、隐私政策 `test-2026-06-12`、内容审核制度 `test-2026-07-09`、App 备案材料 `test-2026-07-09`；正式文本、个人信息收集清单、第三方 SDK 清单、注销和举报规则仍需补齐并在后台签署。
 - 站外告警 Webhook、生产 Push 厂商通道、模板、送达回执和退订策略。
-- 当前生产短信改用 Spug 推送助手；后端安全代理、随机验证码、频控、失败锁定和上线门禁已完成。仍需把生产模板编号写入服务器受限环境配置、设置 Spug IP 白名单并完成一次真实手机号收发验收；腾讯云短信保留为未来企业化备用通道。
+- 当前生产短信已切换 Spug 推送助手；模板编号与密钥只保存在服务器 `0600 root:root` 的 systemd 受限配置中，随机一次性验证码、频控、失败锁定、重复使用拦截和上线门禁均已完成，并已通过真实手机号发送与登录验证。若 Spug 控制台支持来源 IP 白名单，仍应限制为生产服务器出口；腾讯云短信仅保留为未来企业化备用通道。
 - ~~SQLite/WAL 单实例生产存储、JSON 回滚镜像、独立审计日志和备份恢复。~~ 已完成生产迁移与写入验证；后续仅在扩展多实例前迁移托管 PostgreSQL。
 
 以下首发业务策略已固化，不再计入待确认范围：
@@ -190,8 +199,8 @@
 
 ## 5. 当前完成度判断
 
-- 业务功能代码：约 94%-96%。
-- 按“逐功能验证、前后台闭环、可上线配置”综合口径：约 89%-92%。
-- 当前剩余：约 8%-11%，主要是短信/MFA/IP 白名单等生产认证配置、真实厂商通道验收、正式业务签署和发布候选包真机验收，不是新增大块页面开发。
+- 业务功能代码：约 96%-97%。
+- 按“逐功能验证、前后台闭环、可上线配置”综合口径：约 92%-94%。
+- 当前剩余：约 6%-8%，主要是公网 API TLS 恢复、后台 MFA/IP 白名单、正式业务签署、生产 Push 通道和发布候选包真机验收，不是新增大块页面开发。
 
 该百分比只用于排期判断；是否可正式上线，以全量门禁通过且后台上线台账无未关闭 P0 为准。

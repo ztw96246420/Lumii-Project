@@ -47,7 +47,6 @@ import {
   Compass,
   Edit3,
   Eye,
-  EyeOff,
   Flag,
   Heart,
   HeartPulse,
@@ -61,6 +60,7 @@ import {
   MapPin,
   MessageCircle,
   Mic,
+  MonitorSmartphone,
   MoreHorizontal,
   Navigation,
   NotebookPen,
@@ -116,6 +116,7 @@ import type {
   AiUsageSummary,
   AvatarAnimationJob,
   AvatarGenerationFeedbackReason,
+  AuthDeviceSession,
   AuthSession,
   AvatarJob,
   ChatMessage,
@@ -163,7 +164,7 @@ const nearbyPublishLocationMaxAgeMs = 10 * 60 * 1000;
 const fallbackPetAvatarDailyLimit = 10;
 const fallbackPetChatDailyLimit = 80;
 const lumiiAppVersion = '1.0.0';
-const lumiiAppBuildNumber = 1;
+const lumiiAppBuildNumber = 12;
 const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
 const lumiiCompanionPanelBackground = '#FFFDFC';
@@ -2350,6 +2351,11 @@ export default function LumiiMvpApp() {
   const [accountDeletionRequesting, setAccountDeletionRequesting] = useState(false);
   const [accountDeletionConfirming, setAccountDeletionConfirming] = useState(false);
   const [accountDeletionSheetVisible, setAccountDeletionSheetVisible] = useState(false);
+  const [authDeviceSessions, setAuthDeviceSessions] = useState<AuthDeviceSession[]>([]);
+  const [authDeviceSessionsError, setAuthDeviceSessionsError] = useState('');
+  const [authDeviceSessionsLoading, setAuthDeviceSessionsLoading] = useState(false);
+  const authDeviceSessionsLoadingRef = useRef(false);
+  const [authDeviceSessionActionId, setAuthDeviceSessionActionId] = useState('');
   const [sessionBootstrapping, setSessionBootstrapping] = useState(!isHomePreviewMode);
   const [bootPetAvatarUri, setBootPetAvatarUri] = useState<string | null>(isHomePreviewMode ? initialPreviewPets[0]?.avatarUrl ?? null : null);
 
@@ -4165,6 +4171,11 @@ export default function LumiiMvpApp() {
     if (!session || route !== 'settings') return;
     void loadSupportTickets({ silent: true });
   }, [route, session]);
+
+  useEffect(() => {
+    if (!session || route !== 'accountSecurity') return;
+    void loadAuthDeviceSessions({ silent: authDeviceSessions.length > 0 });
+  }, [route, session?.token]);
 
   useEffect(() => {
     if (!session || route !== 'supportTickets') return;
@@ -9680,7 +9691,66 @@ export default function LumiiMvpApp() {
     setAccountDeletionRequesting(false);
     setAccountDeletionConfirming(false);
     setAccountDeletionSheetVisible(false);
+    setAuthDeviceSessions([]);
+    setAuthDeviceSessionsError('');
+    authDeviceSessionsLoadingRef.current = false;
+    setAuthDeviceSessionsLoading(false);
+    setAuthDeviceSessionActionId('');
     replace('login');
+  }
+
+  async function loadAuthDeviceSessions(options: { silent?: boolean } = {}) {
+    if (authDeviceSessionsLoadingRef.current) return;
+    authDeviceSessionsLoadingRef.current = true;
+    if (!options.silent) setAuthDeviceSessionsLoading(true);
+    setAuthDeviceSessionsError('');
+    const result = await authPreviewApi.listSessions();
+    authDeviceSessionsLoadingRef.current = false;
+    setAuthDeviceSessionsLoading(false);
+    if (result.data) {
+      setAuthDeviceSessions(result.data);
+      return;
+    }
+    setAuthDeviceSessionsError(result.error?.message ?? '登录设备读取失败，请稍后重试');
+    if (!options.silent) showToast(result.error?.message ?? '登录设备读取失败，请稍后重试', { tone: 'error', variant: 'surface' });
+  }
+
+  async function revokeAuthDeviceSession(deviceSession: AuthDeviceSession) {
+    if (deviceSession.current || authDeviceSessionActionId) return;
+    const confirmed = await confirmAction('退出这台设备？', `${deviceSession.deviceLabel} 将立即失去登录状态，需要重新获取短信验证码。`, '退出设备', true);
+    if (!confirmed) return;
+    setAuthDeviceSessionActionId(deviceSession.id);
+    const result = await authPreviewApi.revokeSession(deviceSession.id);
+    setAuthDeviceSessionActionId('');
+    if (result.data) {
+      if (result.data.currentRevoked) {
+        await clearPersistedLumiiSession();
+        clearLocalAccountState();
+        showToast('当前设备已退出', { tone: 'success', variant: 'surface' });
+        return;
+      }
+      setAuthDeviceSessions(result.data.sessions);
+      showToast('设备已退出', { subtitle: `${deviceSession.deviceLabel} 需要重新验证后才能登录`, tone: 'success', variant: 'surface' });
+      return;
+    }
+    showToast(result.error?.message ?? '退出设备失败，请稍后重试', { tone: 'error', variant: 'surface' });
+  }
+
+  async function revokeOtherAuthDeviceSessions() {
+    if (authDeviceSessionActionId) return;
+    const otherCount = authDeviceSessions.filter((item) => !item.current).length;
+    if (!otherCount) return;
+    const confirmed = await confirmAction('退出其他设备？', `将退出另外 ${otherCount} 台登录设备，当前设备保持登录。`, '全部退出', true);
+    if (!confirmed) return;
+    setAuthDeviceSessionActionId('others');
+    const result = await authPreviewApi.revokeOtherSessions();
+    setAuthDeviceSessionActionId('');
+    if (result.data) {
+      setAuthDeviceSessions(result.data.sessions);
+      showToast(result.data.revoked ? '其他设备已全部退出' : '没有需要退出的其他设备', { tone: 'success', variant: 'surface' });
+      return;
+    }
+    showToast(result.error?.message ?? '退出其他设备失败，请稍后重试', { tone: 'error', variant: 'surface' });
   }
 
   async function requestAccountDeletion() {
@@ -13210,7 +13280,7 @@ export default function LumiiMvpApp() {
     const previewOwner: NearbyOwner = owners[0] ?? {
       distance: '?km',
       id: 'discover-preview',
-      imageUrl: generatedGoldenAvatarUri,
+      imageUrl: '',
       ownerName: '??',
       petName: '??',
       species: 'dog',
@@ -17048,6 +17118,7 @@ export default function LumiiMvpApp() {
   function renderAccountSecurity() {
     const deviceLabel = currentDeviceLabel();
     const verificationLabel = accountVerificationLabel(session?.phone);
+    const otherDeviceSessionCount = authDeviceSessions.filter((item) => !item.current).length;
     const deletion = session?.account?.accountDeletion ?? null;
     const deletionValue = deletion?.status === 'pending'
       ? `${deletion.remainingDays ?? 30}天后`
@@ -17069,13 +17140,51 @@ export default function LumiiMvpApp() {
 
           <SettingsMakeSection title="登录方式">
             <SettingsMakeRow Icon={Phone} iconBg="#EFEAE1" iconColor={palette.ink} title="手机号" value={formatMaskedPhone(session?.phone)} />
-            <SettingsMakeRow Icon={Mail} iconBg="#EFEAE1" iconColor={palette.ink} title="邮箱" value="未绑定" />
-            <SettingsMakeRow Icon={KeyRound} iconBg="#FFE6D6" iconColor={palette.orange} last title="登录密码" value="验证码登录" />
+            <SettingsMakeRow Icon={KeyRound} iconBg="#FFE6D6" iconColor={palette.orange} last title="验证方式" value="短信验证码" />
           </SettingsMakeSection>
 
-          <SettingsMakeSection title="登录与设备">
-            <SettingsMakeRow Icon={Smartphone} iconBg="#E8F5F3" iconColor={palette.teal} title="登录设备" value={deviceLabel} />
-            <SettingsMakeRow Icon={EyeOff} iconBg="#EFEAE1" iconColor={palette.ink} last title="登录保护" value="验证码登录" />
+          <SettingsMakeSection footnote="退出设备后，该设备上的历史登录 Token 会立即失效。" title="登录与设备">
+            {authDeviceSessionsLoading && !authDeviceSessions.length ? (
+              <SettingsMakeRow Icon={Smartphone} iconBg="#E8F5F3" iconColor={palette.teal} last right={<ActivityIndicator color={palette.orange} size="small" />} title="正在读取登录设备" />
+            ) : null}
+            {!authDeviceSessionsLoading && authDeviceSessionsError && !authDeviceSessions.length ? (
+              <SettingsMakeRow Icon={RefreshCw} iconBg="#FBE4DE" iconColor={palette.danger} last onPress={() => void loadAuthDeviceSessions()} title="登录设备读取失败" value="重试" />
+            ) : null}
+            {!authDeviceSessionsLoading && !authDeviceSessionsError && !authDeviceSessions.length ? (
+              <SettingsMakeRow Icon={Smartphone} iconBg="#E8F5F3" iconColor={palette.teal} last onPress={() => void loadAuthDeviceSessions()} sub="点按重新读取服务端登录记录" title={deviceLabel} value="刷新" />
+            ) : null}
+            {authDeviceSessions.map((deviceSession, index) => {
+              const actionSaving = authDeviceSessionActionId === deviceSession.id;
+              const isLast = index === authDeviceSessions.length - 1 && otherDeviceSessionCount === 0;
+              return (
+                <SettingsMakeRow
+                  accessibilityLabel={deviceSession.current ? 'current-auth-session' : `revoke-auth-session-${deviceSession.id}`}
+                  Icon={deviceSession.platform === 'web' ? MonitorSmartphone : Smartphone}
+                  iconBg={deviceSession.current ? '#E8F5F3' : '#EFEAE1'}
+                  iconColor={deviceSession.current ? palette.teal : palette.ink}
+                  key={deviceSession.id}
+                  last={isLast}
+                  onPress={deviceSession.current || authDeviceSessionActionId ? undefined : () => void revokeAuthDeviceSession(deviceSession)}
+                  right={actionSaving ? <ActivityIndicator color={palette.orange} size="small" /> : deviceSession.current ? <View style={styles.authDeviceCurrentBadgeMake}><Text style={styles.authDeviceCurrentTextMake}>本机</Text></View> : <Text style={styles.authDeviceExitTextMake}>退出</Text>}
+                  sub={`${deviceSession.current ? '当前设备 · ' : ''}最近活跃 ${formatTimestampDisplay(deviceSession.lastActiveAt)}`}
+                  title={deviceSession.deviceLabel}
+                />
+              );
+            })}
+            {otherDeviceSessionCount ? (
+              <SettingsMakeRow
+                accessibilityLabel="revoke-other-auth-sessions"
+                danger
+                Icon={LogOut}
+                iconBg="#FBE4DE"
+                iconColor={palette.danger}
+                last
+                onPress={authDeviceSessionActionId ? undefined : () => void revokeOtherAuthDeviceSessions()}
+                right={authDeviceSessionActionId === 'others' ? <ActivityIndicator color={palette.danger} size="small" /> : <Text style={styles.authDeviceExitAllTextMake}>退出 {otherDeviceSessionCount} 台</Text>}
+                sub="保留当前设备，撤销其他设备的全部登录 Token"
+                title="退出其他登录设备"
+              />
+            ) : null}
           </SettingsMakeSection>
 
           <SettingsMakeSection footnote="提交注销后账号会进入 30 天冷静期；冷静期内重新登录即可自动撤销。正式删除前，你的资料、宠物记录和互动内容仍按平台规则保留。" title="危险操作">
@@ -17367,29 +17476,6 @@ export default function LumiiMvpApp() {
           <View style={styles.safetyAuditNoteMake}>
             <Shield color={palette.teal} size={14} strokeWidth={2.4} />
             <Text style={styles.safetyAuditNoteTextMake}>所有举报会在 24 小时内由人工与算法共同审核。情节严重的，将立刻封禁并通知平台处理。</Text>
-          </View>
-        </View>
-      </Screen>
-    );
-  }
-
-  function renderPlaceholder(title: string, body: string) {
-    const isSafety = title.includes('安全');
-    const isAccount = title.includes('账号');
-    return (
-      <Screen title={title}>
-        <View style={styles.placeholderMake}>
-          <View style={styles.placeholderHeroMake}>
-            <Shield color={palette.teal} size={28} strokeWidth={2.5} />
-            <View style={styles.flex}>
-              <Text style={styles.timelineTitleMake}>{isAccount ? `账号已登录 · ${accountVerificationLabel(session?.phone)}` : isSafety ? '社区安全中心' : title}</Text>
-              <Text style={styles.timelineSubMake}>{body}</Text>
-            </View>
-          </View>
-          <View style={styles.settingsGroupMake}>
-            <Text style={styles.settingsGroupTitle}>{isAccount ? '登录方式' : isSafety ? '安全工具' : '功能入口'}</Text>
-            <ProfileMakeRow Icon={Phone} title="手机号" value={formatMaskedPhone(session?.phone)} />
-            <ProfileMakeRow Icon={Shield} title={isSafety ? '举报与拉黑' : '登录保护'} value={isSafety ? '对象页提交' : '已开启'} />
           </View>
         </View>
       </Screen>
@@ -18616,7 +18702,7 @@ function SettingsMakeRow({
         {sub ? <Text numberOfLines={1} style={styles.settingsMakeRowSub}>{sub}</Text> : null}
       </View>
       {value ? <Text numberOfLines={1} style={styles.settingsMakeRowValue}>{value}</Text> : null}
-      {right !== undefined ? right : <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} />}
+      {right !== undefined ? right : onPress ? <ChevronRight color={palette.muted} size={16} strokeWidth={2.2} /> : null}
     </Pressable>
   );
 }
@@ -18772,6 +18858,10 @@ const styles = StyleSheet.create({
   accountSecurityHeroMake: { alignItems: 'center', backgroundColor: '#E8F5F3', borderRadius: 16, flexDirection: 'row', gap: 12, marginBottom: 18, marginHorizontal: 16, marginTop: 8, padding: 14 },
   accountSecurityHeroSubMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12, lineHeight: 17, marginTop: 2 },
   accountSecurityHeroTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '600', lineHeight: 20 },
+  authDeviceCurrentBadgeMake: { backgroundColor: '#E8F5F3', borderRadius: 10, paddingHorizontal: 9, paddingVertical: 4 },
+  authDeviceCurrentTextMake: { color: palette.teal, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 16 },
+  authDeviceExitAllTextMake: { color: palette.danger, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 17 },
+  authDeviceExitTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 17 },
   accountDeletionCodeBlockMake: { alignSelf: 'stretch', gap: 8, marginTop: 16 },
   accountDeletionCodeLabelMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '700', lineHeight: 17 },
   accountDeletionErrorTextMake: { color: palette.danger, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', lineHeight: 17 },

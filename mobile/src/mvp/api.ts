@@ -11,6 +11,8 @@ import type {
   AvatarGenerationFeedbackReason,
   AvatarAnimationJob,
   AuthSession,
+  AuthDeviceSession,
+  AuthDeviceSessionMutationResult,
   AvatarJob,
   ChatMessage,
   Conversation,
@@ -233,6 +235,20 @@ function createHttpApi(baseUrl: string): LumiiApi {
         const result = await request<AuthSession>('POST', '/auth/token/refresh');
         if (result.data?.token) setLumiiAuthToken(result.data.token);
         return result;
+      },
+
+      async listSessions(): Promise<ApiResult<AuthDeviceSession[]>> {
+        return request<AuthDeviceSession[]>('GET', '/auth/sessions');
+      },
+
+      async revokeSession(sessionId: string): Promise<ApiResult<AuthDeviceSessionMutationResult>> {
+        const result = await request<AuthDeviceSessionMutationResult>('DELETE', `/auth/sessions/${encodeURIComponent(sessionId)}`);
+        if (result.data?.currentRevoked) setLumiiAuthToken();
+        return result;
+      },
+
+      async revokeOtherSessions(): Promise<ApiResult<AuthDeviceSessionMutationResult>> {
+        return request<AuthDeviceSessionMutationResult>('POST', '/auth/sessions/revoke-others');
       },
 
       async logout(): Promise<ApiResult<true>> {

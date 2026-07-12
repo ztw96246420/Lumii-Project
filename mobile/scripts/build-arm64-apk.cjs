@@ -9,6 +9,13 @@ const repoRoot = path.resolve(mobileRoot, '..');
 const androidRoot = path.join(mobileRoot, 'android');
 const sourceApk = path.join(androidRoot, 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk');
 const distDir = path.join(repoRoot, 'dist');
+const appConfig = JSON.parse(fs.readFileSync(path.join(mobileRoot, 'app.json'), 'utf8')).expo;
+const appVersion = String(appConfig.version || '').trim();
+const appVersionCode = Number(appConfig.android?.versionCode);
+
+if (!appVersion || !Number.isInteger(appVersionCode) || appVersionCode <= 0) {
+  throw new Error('app.json must define expo.version and a positive expo.android.versionCode');
+}
 
 function run(command, args, cwd, env = process.env) {
   if (process.platform === 'win32' && command.endsWith('.bat')) {
@@ -68,7 +75,7 @@ if (!fs.existsSync(sourceApk)) {
 }
 
 const buildLabel = allowInsecureTestApi ? 'insecure-test-' : '';
-const destApk = path.join(distDir, `Lumii-Lingban-${buildLabel}v1.0.0-vc11-arm64-${timestamp()}.apk`);
+const destApk = path.join(distDir, `Lumii-Lingban-${buildLabel}v${appVersion}-vc${appVersionCode}-arm64-${timestamp()}.apk`);
 fs.copyFileSync(sourceApk, destApk);
 
 const stats = fs.statSync(destApk);
@@ -78,7 +85,7 @@ console.log(`Path: ${destApk}`);
 console.log(`SizeMB: ${sizeMb(stats.size)}`);
 console.log(`SHA256: ${sha256(destApk)}`);
 console.log('PackageName: com.lumii.lingban');
-console.log('VersionCode: 11');
+console.log(`VersionCode: ${appVersionCode}`);
 console.log('ABI: arm64-v8a');
 console.log(`APIBaseURL: ${apiBaseUrl}`);
 console.log(`CleartextTraffic: ${allowInsecureTestApi}`);

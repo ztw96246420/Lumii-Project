@@ -235,27 +235,6 @@ const ADMIN_ALERT_WEBHOOK_REPEAT_MS = Math.max(60 * 1000, Number(process.env.LUM
 const ADMIN_ALERT_WEBHOOK_INITIAL_DELAY_MS = Math.max(0, Number(process.env.LUMII_ADMIN_ALERT_WEBHOOK_INITIAL_DELAY_MS || '15000') || 0);
 const ADMIN_ALERT_WEBHOOK_DELIVERY_RETAIN = Math.max(20, Math.min(500, Number(process.env.LUMII_ADMIN_ALERT_WEBHOOK_DELIVERY_RETAIN || '200') || 200));
 
-const seedOwners = [
-  {
-    distance: '附近 1km 内',
-    id: 'seed-owner-naiyou',
-    imageUrl: 'https://images.unsplash.com/photo-1552053831-71594a27632d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
-    ownerName: '林然',
-    petName: '奶油',
-    species: 'dog',
-    tags: ['金毛', '想交朋友', '可约遛'],
-  },
-  {
-    distance: '约 1-2km',
-    id: 'seed-owner-milo',
-    imageUrl: 'https://images.unsplash.com/photo-1573865526739-10659fec78a5?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=600',
-    ownerName: '小夏',
-    petName: 'Milo',
-    species: 'cat',
-    tags: ['布偶猫', '只线上聊天'],
-  },
-];
-
 const defaultPlaces = [
   {
     address: '滨江路 88 号',
@@ -7910,6 +7889,7 @@ function adminAuthSessionItem(session = {}) {
     previousTokenTail: session.previousTokenTail || '',
     revokedAt: session.revokedAt || '',
     revokedIp: session.revokedIp || '',
+    revokedUserAgent: session.revokedUserAgent || '',
     smsSentAt: session.smsSentAt || '',
     smsSentIp: session.smsSentIp || '',
     source: session.source || '',
@@ -7934,6 +7914,103 @@ function adminAuthSessionSummary(phone) {
     revoked: sessions.filter((item) => item.status === 'revoked').length,
     total: sessions.length,
   };
+}
+
+function authSessionDevicePlatform(userAgent = '') {
+  const value = String(userAgent || '').toLowerCase();
+  if (/android|okhttp/.test(value)) return 'android';
+  if (/iphone|ipad|ios/.test(value)) return 'ios';
+  if (/windows|macintosh|linux|chrome|firefox|safari|edg\//.test(value)) return 'web';
+  return 'unknown';
+}
+
+function authSessionDeviceLabel(session = {}) {
+  const platform = authSessionDevicePlatform(session.lastUserAgent || session.loginUserAgent);
+  const baseLabel = {
+    android: 'Android 设备',
+    ios: 'iPhone / iPad',
+    web: 'Web 浏览器',
+    unknown: '其他设备',
+  }[platform];
+  const tail = String(session.deviceIdTail || '').trim().slice(-4);
+  return tail ? `${baseLabel} · ${tail}` : baseLabel;
+}
+
+function authSessionIsActive(session, now = Date.now()) {
+  if (!session || String(session.status || 'active') === 'revoked') return false;
+  const expiresAt = authSessionTimeValue(session.expiresAt);
+  return expiresAt > now;
+}
+
+function authSessionRootId(session, byId) {
+  let current = session;
+  const visited = new Set();
+  while (current?.previousSessionId && !visited.has(current.id)) {
+    visited.add(current.id);
+    const previous = byId.get(current.previousSessionId);
+    if (!previous) break;
+    current = previous;
+  }
+  return current?.id || session?.id || '';
+}
+
+function authSessionDeviceGroupKey(session, byId) {
+  const deviceIdHash = String(session?.deviceIdHash || '').trim();
+  if (deviceIdHash) return `device:${deviceIdHash}`;
+  return `chain:${authSessionRootId(session, byId)}`;
+}
+
+function userAuthSessionsForPhone(phone, currentToken) {
+  const now = Date.now();
+  const sessions = sortedAuthSessionsForPhone(phone);
+  const byId = new Map(sessions.filter(Boolean).map((session) => [session.id, session]));
+  const current = findAuthSessionForToken(currentToken)?.session || null;
+  const currentGroupKey = current ? authSessionDeviceGroupKey(current, byId) : '';
+  const grouped = new Map();
+  sessions.filter((session) => authSessionIsActive(session, now)).forEach((session) => {
+    const groupKey = authSessionDeviceGroupKey(session, byId);
+    if (grouped.has(groupKey)) return;
+    grouped.set(groupKey, {
+      current: groupKey === currentGroupKey,
+      deviceLabel: authSessionDeviceLabel(session),
+      expiresAt: session.expiresAt || '',
+      id: session.id || '',
+      lastActiveAt: session.lastSeenAt || session.updatedAt || session.createdAt || '',
+      loginAt: session.loginAt || session.createdAt || '',
+      platform: authSessionDevicePlatform(session.lastUserAgent || session.loginUserAgent),
+    });
+  });
+  return [...grouped.values()].sort((left, right) => Number(right.current) - Number(left.current) || authSessionTimeValue(right.lastActiveAt) - authSessionTimeValue(left.lastActiveAt));
+}
+
+function revokeUserAuthSessionGroups(phone, currentToken, req, shouldRevoke, reason) {
+  const sessions = sortedAuthSessionsForPhone(phone);
+  const byId = new Map(sessions.filter(Boolean).map((session) => [session.id, session]));
+  const currentDigest = authTokenDigest(currentToken);
+  const context = authSessionRequestContext(req);
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  let currentRevoked = false;
+  let revoked = 0;
+  state.revokedAuthTokens = state.revokedAuthTokens || {};
+  sessions.forEach((session) => {
+    if (!authSessionIsActive(session, now)) return;
+    const groupKey = authSessionDeviceGroupKey(session, byId);
+    if (!shouldRevoke(session, groupKey)) return;
+    const digest = String(session.tokenDigest || '').trim();
+    const expiresAt = authSessionTimeValue(session.expiresAt);
+    if (digest && expiresAt > now) state.revokedAuthTokens[digest] = expiresAt;
+    if (digest && digest === currentDigest) currentRevoked = true;
+    session.lastEvent = reason;
+    session.revokedAt = session.revokedAt || nowIso;
+    session.revokedIp = context.ip;
+    session.revokedUserAgent = context.userAgent;
+    session.status = 'revoked';
+    session.updatedAt = nowIso;
+    revoked += 1;
+  });
+  pruneRevokedAuthTokens();
+  return { currentRevoked, revoked };
 }
 
 function normalizeAdminUsername(value) {
@@ -10252,7 +10329,7 @@ function mutedRestrictionFor(user) {
 }
 
 function allowRestrictedWrite(pathname) {
-  return pathname === '/analytics/events' || pathname === '/auth/token/refresh' || pathname === '/feedback' || pathname === '/notifications/read' || pathname.startsWith('/support/tickets') || pathname.startsWith('/sanction-appeals') || pathname.startsWith('/report-appeals');
+  return pathname === '/analytics/events' || pathname === '/auth/token/refresh' || pathname === '/feedback' || pathname === '/notifications/read' || pathname.startsWith('/auth/sessions') || pathname.startsWith('/support/tickets') || pathname.startsWith('/sanction-appeals') || pathname.startsWith('/report-appeals');
 }
 
 function failIfAccountRestricted(user, req, pathname, res) {
@@ -35007,6 +35084,68 @@ async function handle(req, res) {
     });
     saveState();
     ok(res, { account: buildAccountSnapshot(user), phone: user.phone, token });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/auth/sessions') {
+    const token = bearerTokenFromRequest(req);
+    if (!touchAuthSession(token, req, 'session_list')) {
+      recordAuthSession(user.phone, token, req, { source: 'legacy_token' });
+    }
+    saveState();
+    ok(res, userAuthSessionsForPhone(user.phone, token));
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/auth/sessions/revoke-others') {
+    const token = bearerTokenFromRequest(req);
+    const currentSession = findAuthSessionForToken(token)?.session;
+    if (!currentSession) {
+      fail(res, 409, '当前登录设备记录不可用，请重新登录后再试', false, undefined, 'AUTH_SESSION_CURRENT_NOT_FOUND');
+      return;
+    }
+    const sessions = sortedAuthSessionsForPhone(user.phone);
+    const byId = new Map(sessions.filter(Boolean).map((session) => [session.id, session]));
+    const currentGroupKey = authSessionDeviceGroupKey(currentSession, byId);
+    const result = revokeUserAuthSessionGroups(
+      user.phone,
+      token,
+      req,
+      (_session, groupKey) => groupKey !== currentGroupKey,
+      'user_revoke_other_devices',
+    );
+    saveState();
+    ok(res, {
+      ...result,
+      sessions: userAuthSessionsForPhone(user.phone, token),
+    });
+    return;
+  }
+
+  const userAuthSessionMatch = pathname.match(/^\/auth\/sessions\/([^/]+)$/);
+  if (req.method === 'DELETE' && userAuthSessionMatch) {
+    const sessionId = decodeURIComponent(userAuthSessionMatch[1]);
+    const token = bearerTokenFromRequest(req);
+    const sessions = sortedAuthSessionsForPhone(user.phone);
+    const targetSession = sessions.find((session) => session?.id === sessionId);
+    if (!targetSession || !authSessionIsActive(targetSession)) {
+      fail(res, 404, '登录设备已退出或不存在', false, undefined, 'AUTH_SESSION_NOT_FOUND');
+      return;
+    }
+    const byId = new Map(sessions.filter(Boolean).map((session) => [session.id, session]));
+    const targetGroupKey = authSessionDeviceGroupKey(targetSession, byId);
+    const result = revokeUserAuthSessionGroups(
+      user.phone,
+      token,
+      req,
+      (_session, groupKey) => groupKey === targetGroupKey,
+      'user_revoke_device',
+    );
+    saveState();
+    ok(res, {
+      ...result,
+      sessions: userAuthSessionsForPhone(user.phone, token),
+    });
     return;
   }
 

@@ -444,7 +444,7 @@ async function main() {
       { route: 'uploadDetail', texts: ['识别结果', '确认并生成灵伴'] },
       { route: 'ownerEdit', texts: ['编辑个人资料', '保存资料'] },
       { route: 'petDetail', texts: ['宠物档案', '更换'] },
-      { route: 'accountSecurity', texts: ['账号安全', '验证码登录'] },
+      { route: 'accountSecurity', texts: ['账号安全', '短信验证码'] },
     ];
     for (const routeCase of routeRenderCases) {
       await page.goto(`${baseUrl}/?route=${routeCase.route}`, { timeout: 60_000, waitUntil: 'networkidle' });
@@ -828,6 +828,7 @@ async function main() {
     await waitExactText(visibilityPage, '附近可见未开启，附近朋友暂不可见');
     await waitExactText(visibilityPage, '开启附近可见发现朋友');
     await waitExactText(visibilityPage, '去隐私设置');
+    await visibilityPage.getByLabel('pet-photo-placeholder').first().waitFor({ state: 'visible', timeout: 30_000 });
     await screenshot(visibilityPage, 'smoke-frontend-04b-discover-visibility-disabled.png');
     await visibilityContext.close();
 
@@ -875,8 +876,18 @@ async function main() {
     await waitExactText(settingsPage, '账号已登录 · 手机号已验证');
     await settingsPage.waitForFunction(() => /1[3-9]\d \*\*\*\* \d{4}/.test(document.body.innerText), undefined, { timeout: 30_000 });
     await waitExactText(settingsPage, 'Web 预览设备');
-    await waitExactText(settingsPage, '验证码登录');
+    await waitExactText(settingsPage, '短信验证码');
+    await waitExactText(settingsPage, 'Android 设备 · A102');
+    await waitExactText(settingsPage, 'iPhone / iPad · 9F21');
     await screenshot(settingsPage, 'smoke-frontend-04d-account-security.png');
+    await settingsPage.getByLabel('revoke-auth-session-mock-auth-android').click();
+    await waitBodyExcludes(settingsPage, 'Android 设备 · A102');
+    await settingsPage.getByLabel('revoke-other-auth-sessions').click();
+    await waitBodyExcludes(settingsPage, 'iPhone / iPad · 9F21');
+    await waitBodyExcludes(settingsPage, '退出其他登录设备');
+    await waitExactText(settingsPage, '本机');
+    await waitBodyExcludes(settingsPage, '其他设备已全部退出');
+    await screenshot(settingsPage, 'smoke-frontend-04d2-account-security-devices-revoked.png');
     await settingsPage.getByLabel('返回').click();
     await waitExactText(settingsPage, '设置与隐私');
     await settingsPage.getByLabel('附近可见').click();

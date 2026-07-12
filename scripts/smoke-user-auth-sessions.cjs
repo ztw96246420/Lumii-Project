@@ -119,30 +119,46 @@ async function loginAdmin() {
   return payload.data.token;
 }
 
+async function loginUserDevice({ deviceId, sendIp, userAgent, verifyIp }) {
+  await request('/auth/sms/send', {
+    body: { deviceId, phone: PHONE },
+    headers: {
+      'user-agent': userAgent,
+      'x-forwarded-for': sendIp,
+      'x-lumii-device-id': deviceId,
+    },
+    method: 'POST',
+  });
+  const login = await request('/auth/sms/verify', {
+    body: { code: TEST_CODE, expiresAt: Date.now() + 5 * 60 * 1000, phone: PHONE },
+    headers: {
+      'user-agent': userAgent,
+      'x-forwarded-for': verifyIp,
+      'x-lumii-device-id': deviceId,
+    },
+    method: 'POST',
+  });
+  assert.ok(login.data?.token, `missing user token for ${deviceId}`);
+  return login.data.token;
+}
+
 async function main() {
   const port = await getFreePort();
   await startBackend(port);
   try {
-    await request('/auth/sms/send', {
-      body: { deviceId: 'android-auth-device-1', phone: PHONE },
-      headers: {
-        'user-agent': 'LumiiAuthSmoke/1.0 send',
-        'x-forwarded-for': '203.0.113.8',
-        'x-lumii-device-id': 'android-auth-device-1',
-      },
-      method: 'POST',
+    const firstDeviceId = 'android-auth-device-1';
+    const secondDeviceId = 'ios-auth-device-2';
+    const firstDeviceHeaders = {
+      'user-agent': 'Lumii Android/1.0 okhttp',
+      'x-forwarded-for': '203.0.113.12',
+      'x-lumii-device-id': firstDeviceId,
+    };
+    const userToken = await loginUserDevice({
+      deviceId: firstDeviceId,
+      sendIp: '203.0.113.8',
+      userAgent: firstDeviceHeaders['user-agent'],
+      verifyIp: '203.0.113.9',
     });
-
-    const login = await request('/auth/sms/verify', {
-      body: { code: TEST_CODE, expiresAt: Date.now() + 5 * 60 * 1000, phone: PHONE },
-      headers: {
-        'user-agent': 'LumiiAuthSmoke/1.0 verify',
-        'x-forwarded-for': '203.0.113.9',
-      },
-      method: 'POST',
-    });
-    const userToken = login.data?.token;
-    assert.ok(userToken, 'missing user token after SMS verify');
 
     const adminToken = await loginAdmin();
     const users = await request('/admin/users', { token: adminToken });
@@ -153,11 +169,68 @@ async function main() {
     assert.equal(userRow.authSessionSummary?.latest?.deviceIdTail, 'device-1');
     assert.ok(userRow.authSessionSummary?.latest?.deviceIdHash, 'latest session should expose device hash');
 
+    const secondDeviceToken = await loginUserDevice({
+      deviceId: secondDeviceId,
+      sendIp: '203.0.113.20',
+      userAgent: 'Lumii iOS/1.0 iPhone',
+      verifyIp: '203.0.113.21',
+    });
+    const deviceSessions = await request('/auth/sessions', {
+      headers: firstDeviceHeaders,
+      token: userToken,
+    });
+    assert.equal(deviceSessions.data.length, 2, 'two active devices should be listed');
+    assert.equal(deviceSessions.data.filter((session) => session.current).length, 1, 'exactly one device should be current');
+    assert.equal(deviceSessions.data.find((session) => session.current)?.platform, 'android');
+    const otherSession = deviceSessions.data.find((session) => !session.current);
+    assert.ok(otherSession?.id, 'other device should expose a revocable public session id');
+    assert.equal(otherSession.platform, 'ios');
+    for (const session of deviceSessions.data) {
+      assert.deepEqual(
+        Object.keys(session).sort(),
+        ['current', 'deviceLabel', 'expiresAt', 'id', 'lastActiveAt', 'loginAt', 'platform'],
+        'public session list must not expose token, IP, or raw device identifiers',
+      );
+    }
+    const serializedSessions = JSON.stringify(deviceSessions.data);
+    assert.ok(!serializedSessions.includes(secondDeviceId), 'raw device id must not be exposed');
+    assert.ok(!serializedSessions.includes('tokenDigest'), 'token digest must not be exposed');
+    assert.ok(!serializedSessions.includes('lastIp'), 'IP address must not be exposed');
+
+    const revokeSingle = await request(`/auth/sessions/${encodeURIComponent(otherSession.id)}`, {
+      headers: firstDeviceHeaders,
+      method: 'DELETE',
+      token: userToken,
+    });
+    assert.equal(revokeSingle.data.currentRevoked, false);
+    assert.equal(revokeSingle.data.revoked, 1);
+    assert.equal(revokeSingle.data.sessions.length, 1);
+    assert.equal(revokeSingle.data.sessions[0].current, true);
+    const revokedSecondDevice = await request('/me', { expectedStatus: 401, token: secondDeviceToken });
+    assert.equal(revokedSecondDevice.error?.code, 'AUTH_REQUIRED');
+    await request('/me', { headers: firstDeviceHeaders, token: userToken });
+
+    const secondDeviceTokenAgain = await loginUserDevice({
+      deviceId: secondDeviceId,
+      sendIp: '203.0.113.22',
+      userAgent: 'Lumii iOS/1.0 iPhone',
+      verifyIp: '203.0.113.23',
+    });
+    const revokeOthers = await request('/auth/sessions/revoke-others', {
+      headers: firstDeviceHeaders,
+      method: 'POST',
+      token: userToken,
+    });
+    assert.equal(revokeOthers.data.currentRevoked, false);
+    assert.equal(revokeOthers.data.revoked, 1);
+    assert.equal(revokeOthers.data.sessions.length, 1);
+    assert.equal(revokeOthers.data.sessions[0].current, true);
+    const revokedSecondDeviceAgain = await request('/me', { expectedStatus: 401, token: secondDeviceTokenAgain });
+    assert.equal(revokedSecondDeviceAgain.error?.code, 'AUTH_REQUIRED');
+    await request('/me', { headers: firstDeviceHeaders, token: userToken });
+
     const refresh = await request('/auth/token/refresh', {
-      headers: {
-        'user-agent': 'LumiiAuthSmoke/1.0 refresh',
-        'x-forwarded-for': '203.0.113.10',
-      },
+      headers: { ...firstDeviceHeaders, 'x-forwarded-for': '203.0.113.10' },
       method: 'POST',
       token: userToken,
     });
@@ -166,9 +239,16 @@ async function main() {
     assert.notEqual(refreshedToken, userToken, 'refresh should issue a new token');
 
     const beforeLogout = await request(`/admin/users/${encodeURIComponent(PHONE)}`, { token: adminToken });
-    assert.equal(beforeLogout.data.authSessions.length, 2);
-    assert.equal(beforeLogout.data.authSessions[0].deviceIdHash, beforeLogout.data.authSessions[1].deviceIdHash, 'refresh must preserve the device identity');
-    assert.equal(beforeLogout.data.authSessions[0].deviceIdTail, 'device-1');
+    assert.equal(beforeLogout.data.authSessions.length, 4);
+    const activeBeforeLogout = beforeLogout.data.authSessions.filter((session) => session.status === 'active' || session.status === 'refreshed');
+    const revokedSecondDeviceSessions = beforeLogout.data.authSessions.filter((session) => session.deviceIdTail === 'device-2');
+    assert.equal(activeBeforeLogout.length, 2, 'only the current device refresh chain should remain active');
+    assert.equal(activeBeforeLogout[0].deviceIdHash, activeBeforeLogout[1].deviceIdHash, 'refresh must preserve the device identity');
+    assert.equal(activeBeforeLogout[0].deviceIdTail, 'device-1');
+    assert.equal(revokedSecondDeviceSessions.length, 2);
+    assert.ok(revokedSecondDeviceSessions.every((session) => session.status === 'revoked'));
+    assert.ok(revokedSecondDeviceSessions.every((session) => /iPhone/i.test(session.lastUserAgent)), 'target device activity evidence must remain intact');
+    assert.ok(revokedSecondDeviceSessions.every((session) => /Android/i.test(session.revokedUserAgent)), 'revocation evidence must identify the acting device');
 
     await request('/auth/logout', {
       headers: {
@@ -180,13 +260,11 @@ async function main() {
     });
 
     const detail = await request(`/admin/users/${encodeURIComponent(PHONE)}`, { token: adminToken });
-    assert.equal(detail.data.authSessionSummary?.total, 2);
-    assert.equal(detail.data.authSessions.length, 2);
-    assert.equal(detail.data.authSessions[0].status, 'revoked');
-    assert.equal(detail.data.authSessions[0].revokedIp, '203.0.113.11');
-    assert.equal(detail.data.authSessions[1].status, 'revoked');
-    assert.equal(detail.data.authSessions[1].lastIp, '203.0.113.10');
-    assert.equal(detail.data.authSessions[1].revokedIp, '203.0.113.11');
+    assert.equal(detail.data.authSessionSummary?.total, 4);
+    assert.equal(detail.data.authSessionSummary?.active, 0);
+    assert.equal(detail.data.authSessions.length, 4);
+    assert.ok(detail.data.authSessions.every((session) => session.status === 'revoked'));
+    assert.equal(detail.data.authSessions.filter((session) => session.revokedIp === '203.0.113.11').length, 2);
     const oldTokenAfterLogout = await request('/me', { expectedStatus: 401, token: userToken });
     assert.equal(oldTokenAfterLogout.error?.code, 'AUTH_REQUIRED');
     const refreshedTokenAfterLogout = await request('/me', { expectedStatus: 401, token: refreshedToken });
@@ -195,8 +273,9 @@ async function main() {
     const timeline = await request(`/admin/users/${encodeURIComponent(PHONE)}/timeline?kind=account`, { token: adminToken });
     assert.ok(timeline.data.items.some((item) => item.targetType === 'auth_session'), 'account timeline should include auth sessions');
 
+    const sessionCountBeforeClear = detail.data.authSessions.length;
     const beforeSummary = await request(`/admin/users/${encodeURIComponent(PHONE)}/business-data-summary`, { token: adminToken });
-    assert.equal(beforeSummary.data.summary.authSessions, 2);
+    assert.equal(beforeSummary.data.summary.authSessions, sessionCountBeforeClear);
 
     const approval = await request('/admin/data-clear-approvals', {
       body: { confirmation: PHONE, phone: PHONE, reason: 'smoke clear auth sessions' },
@@ -205,7 +284,7 @@ async function main() {
     });
     const approvalId = approval.data?.approval?.id;
     assert.ok(approvalId, 'missing data clear approval id');
-    assert.equal(approval.data.approval.beforeSummary?.authSessions, 2);
+    assert.equal(approval.data.approval.beforeSummary?.authSessions, sessionCountBeforeClear);
 
     const approved = await request(`/admin/data-clear-approvals/${encodeURIComponent(approvalId)}/approve`, {
       body: { reason: 'smoke approve auth session clear' },

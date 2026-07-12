@@ -22,6 +22,22 @@ export type AuthSession = {
   token: string;
 };
 
+export type AuthDeviceSession = {
+  current: boolean;
+  deviceLabel: string;
+  expiresAt: string;
+  id: string;
+  lastActiveAt: string;
+  loginAt: string;
+  platform: 'android' | 'ios' | 'unknown' | 'web';
+};
+
+export type AuthDeviceSessionMutationResult = {
+  currentRevoked: boolean;
+  revoked: number;
+  sessions: AuthDeviceSession[];
+};
+
 export type AccountSanctionSnapshot = {
   activeCount: number;
   activeRestrictiveCount: number;

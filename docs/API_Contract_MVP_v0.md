@@ -67,6 +67,8 @@ MVP 错误码表：
 | --- | --- |
 | `AUTH_REQUIRED` | 未登录或缺少 token |
 | `AUTH_TOKEN_EXPIRED` | 登录已失效，需要重新登录 |
+| `AUTH_SESSION_NOT_FOUND` | 指定登录设备已退出、过期或不存在 |
+| `AUTH_SESSION_CURRENT_NOT_FOUND` | 当前 token 缺少可管理的服务端会话记录，需要重新登录 |
 | `SMS_PHONE_INVALID` | 手机号格式不正确 |
 | `SMS_RATE_LIMITED` | 短信 60s 冷却或短时间过频 |
 | `SMS_DAILY_LIMITED` | 手机号、设备或 IP 当日短信额度已达上限 |
@@ -226,6 +228,44 @@ Response:
   }
 }
 ```
+
+### GET `/auth/sessions`
+
+读取当前账号仍有效的登录设备。后端按设备标识或同设备刷新链聚合，不会把一次 token 刷新展示成一台新设备；当前请求所属设备优先排列。
+
+Response data：
+
+```ts
+Array<{
+  current: boolean;
+  deviceLabel: string;
+  expiresAt: string;
+  id: string;
+  lastActiveAt: string;
+  loginAt: string;
+  platform: 'android' | 'ios' | 'unknown' | 'web';
+}>
+```
+
+隐私约束：用户端只返回可读设备类型、脱敏设备尾号和时间，不返回登录 token、token 摘要、IP、完整设备 ID 或 User-Agent；完整会话证据只允许后台受控审计读取。
+
+### DELETE `/auth/sessions/{sessionId}`
+
+退出指定登录设备。服务端撤销该设备当前所有有效 token 及历史刷新链；目标设备后续请求立即返回 401，当前设备不受影响。已退出、过期或不属于当前账号的 ID 返回 `AUTH_SESSION_NOT_FOUND`。
+
+Response data：
+
+```ts
+{
+  currentRevoked: boolean;
+  revoked: number;
+  sessions: AuthDeviceSession[];
+}
+```
+
+### POST `/auth/sessions/revoke-others`
+
+保留当前设备，退出账号在其他设备上的全部有效登录态。服务端以当前 token 所属设备组为边界，不能由客户端传入“保留设备 ID”，避免伪造设备标识绕过撤销。响应结构与单设备退出一致。
 
 ### POST `/account/delete/request`
 
@@ -1910,7 +1950,7 @@ LegalDocument
 ## 11. P0 待后端确认
 
 - ~~统一错误码表：短信、登录、上传、AI、地图、社交、健康、权限。~~ MVP 测试后端已统一 `error.code`；生产仍可继续细化埋点级错误码和后台统计。
-- ~~鉴权 token 刷新机制和 401 处理。~~ MVP 测试后端已支持签名登录态 token、`POST /auth/token/refresh`、`POST /auth/logout` 当前 token 撤销和 401 回登录处理；生产 access/refresh token、多端设备管理和安全审计仍待正式后端方案确认。
+- ~~鉴权 token 刷新机制、401 处理和多端设备自助管理。~~ 当前后端已支持签名登录态 token、滚动刷新、同设备刷新链撤销、用户端登录设备列表、单设备退出、退出其他设备、后台受控会话审计和 401 回登录处理；后续迁移独立认证服务时需保持同等撤销语义。
 - ~~短信频控规则：单手机号、单 IP、单设备、每日上限。~~ 当前后端已完成单手机号 60s 冷却、手机号/设备/IP 日限额、验证码输错限制、生产随机一次性验证码和 Spug 服务端代理；剩余增强为 WAF/黑名单、供应商最终送达监控和异常告警。
 - ~~上传图片基础限制：图片大小、格式、base64 合法性、图片文件头校验。~~ MVP 测试后端已支持 jpg/png/webp/heic/heif、默认 9MB 解码文件上限和损坏文件拦截；视频时长、对象存储直传、自动压缩、EXIF 清理和真实视觉识别模型仍待生产方案确认。
 - ~~地图供应商：已确认 MVP 首发优先高德地图。~~ Android 高德 Key 与 SDK 已接入；POI 数据来源/自有地点库边界已确认采用 POI 打底 + Lumii 自有宠物友好层；仍需高德 Web 服务 Key、iOS Key/SDK 和外部导航规则。

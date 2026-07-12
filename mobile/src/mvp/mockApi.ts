@@ -11,6 +11,8 @@ import type {
   AvatarAnimationJob,
   AvatarGenerationFeedbackReason,
   AuthSession,
+  AuthDeviceSession,
+  AuthDeviceSessionMutationResult,
   AvatarJob,
   ChatMessage,
   Conversation,
@@ -179,7 +181,41 @@ const mockAppRemoteConfig: AppRemoteConfig = {
   updatedAt: new Date().toISOString(),
 };
 
+function createMockAuthDeviceSessions(): AuthDeviceSession[] {
+  const now = Date.now();
+  return [
+    {
+      current: true,
+      deviceLabel: 'Web 预览设备',
+      expiresAt: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      id: 'mock-auth-current-web',
+      lastActiveAt: new Date(now).toISOString(),
+      loginAt: new Date(now - 35 * 60 * 1000).toISOString(),
+      platform: 'web',
+    },
+    {
+      current: false,
+      deviceLabel: 'Android 设备 · A102',
+      expiresAt: new Date(now + 27 * 24 * 60 * 60 * 1000).toISOString(),
+      id: 'mock-auth-android',
+      lastActiveAt: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+      loginAt: new Date(now - 6 * 24 * 60 * 60 * 1000).toISOString(),
+      platform: 'android',
+    },
+    {
+      current: false,
+      deviceLabel: 'iPhone / iPad · 9F21',
+      expiresAt: new Date(now + 22 * 24 * 60 * 60 * 1000).toISOString(),
+      id: 'mock-auth-ios',
+      lastActiveAt: new Date(now - 26 * 60 * 60 * 1000).toISOString(),
+      loginAt: new Date(now - 12 * 24 * 60 * 60 * 1000).toISOString(),
+      platform: 'ios',
+    },
+  ];
+}
+
 let currentMockPhone = '13800138000';
+let mockAuthDeviceSessions: AuthDeviceSession[] = createMockAuthDeviceSessions();
 let mockOwnerName = '灵伴用户';
 let mockOwnerBio = '';
 let mockOwnerAvatarUrl = '';
@@ -2689,6 +2725,7 @@ export const mockApi = {
       delete smsLoginFailureCountByPhone[phone];
       delete smsLoginLockedUntilByPhone[phone];
       currentMockPhone = phone;
+      if (!mockAuthDeviceSessions.some((session) => session.current)) mockAuthDeviceSessions = createMockAuthDeviceSessions();
       if (mockAccountDeletion?.status === 'pending') {
         mockAccountDeletion = null;
         mockAccountDeletionRequest = null;
@@ -2700,6 +2737,26 @@ export const mockApi = {
       await wait(120);
       if (session?.phone) currentMockPhone = session.phone;
       return success({ account: buildMockAccountSnapshot(), phone: currentMockPhone, token: `mock-token-${currentMockPhone}` });
+    },
+
+    async listSessions(): Promise<ApiResult<AuthDeviceSession[]>> {
+      await wait(120);
+      return success(mockAuthDeviceSessions.map((session) => ({ ...session })));
+    },
+
+    async revokeSession(sessionId: string): Promise<ApiResult<AuthDeviceSessionMutationResult>> {
+      await wait(160);
+      const target = mockAuthDeviceSessions.find((session) => session.id === sessionId);
+      if (!target) return error<AuthDeviceSessionMutationResult>('登录设备已退出或不存在', false, undefined, 'AUTH_SESSION_NOT_FOUND');
+      mockAuthDeviceSessions = target.current ? [] : mockAuthDeviceSessions.filter((session) => session.id !== sessionId);
+      return success({ currentRevoked: target.current, revoked: 1, sessions: mockAuthDeviceSessions.map((session) => ({ ...session })) });
+    },
+
+    async revokeOtherSessions(): Promise<ApiResult<AuthDeviceSessionMutationResult>> {
+      await wait(180);
+      const otherCount = mockAuthDeviceSessions.filter((session) => !session.current).length;
+      mockAuthDeviceSessions = mockAuthDeviceSessions.filter((session) => session.current);
+      return success({ currentRevoked: false, revoked: otherCount, sessions: mockAuthDeviceSessions.map((session) => ({ ...session })) });
     },
 
     async logout(): Promise<ApiResult<true>> {
