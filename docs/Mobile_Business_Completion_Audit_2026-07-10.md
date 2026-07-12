@@ -159,6 +159,13 @@
 - 移动端覆盖读取中、失败重试、空状态和操作中状态；不再展示尚未实现的邮箱、密码入口，也不再给纯信息行显示误导性箭头。
 - 双设备 HTTP 回归覆盖单设备退出、退出其他设备、刷新链、最终退出、401 阻断、后台时间线及业务数据清理。
 
+### 2.18 公网 API 证据与可信代理收口
+
+- 后台上线台账把源站 TLS 与站外真实可达性拆成两项证据；`127.0.0.1 + SNI` 成功只证明 Nginx/证书/源站，不再被误报成公网可用。
+- 站外浏览器、真机或监控通过正式域名到达 API 后，会自动形成默认 24 小时有效的外部证据；不保存客户端 IP、Token 或 User-Agent。
+- 后端仅信任 `LUMII_TRUSTED_PROXY_IPS` 中的反向代理，默认仅本机 Nginx；真实客户端 IP 优先读取由 Nginx 覆盖的 `X-Real-IP`，伪造 `X-Forwarded-For` 不能绕过短信频控或后台 IP 白名单。
+- 新增 `scripts/probe-production-readiness.cjs`，可在生产服务器读取脱敏的 P0、健康、管理员安全和审批策略，不输出管理员凭据、Token 或服务密钥。
+
 ## 3. 当前验证证据
 
 - 移动端 TypeScript：`npm run typecheck` 通过。
@@ -172,6 +179,7 @@
 - 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-12 通过，79/79 套件全部成功；移动端 Playwright 覆盖本人宠友圈同日多条、唯一“我”标记、评论、删除确认、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除，后台 8 个关键运营页面同步通过。
 - 附近位置与半径专项：`node scripts/smoke-pet-circle.cjs`、配置审批/预约发布/双人会签回归和 `node scripts/smoke-admin-config-high-risk-page.cjs` 通过；覆盖发布位置快照、跨城市移动、历史无位置数据、10km 默认档位、3/5/10km 后台选择及客户端越权半径拦截。
 - 附近地点真实性：`node scripts/smoke-place-contributions.cjs` 与 `node scripts/smoke-sms-production.cjs` 通过；覆盖提交坐标/精度/时间落库、审核后 manual 地点继承坐标、跨城不跟随、缺失/过期定位拦截、生产无高德时返回空列表而非 seed，以及 `amap` / `place_location_integrity` / `place_discovery` 健康与 P0 门禁。
+- 生产台账实查：`sudo node scripts/probe-production-readiness.cjs` 于 2026-07-12 返回 25 项健康检查、`bad=0`、`warn=3`、`openP0=5`、`blockedGaps=1`；公网 API 被正确标记为“源站正常、站外证据缺失”。生产当前只有 1 个活跃管理员且未配置 MFA/IP 白名单，不能在没有真实审批人的情况下强开双人会签。
 - Android 候选包：`dist/Lumii-Lingban-v1.0.0-vc12-arm64-20260712-2331.apk` 已完成正式签名构建，大小 68.55 MB，SHA-256 为 `185A11CBBAA4702AD50D3B7548ECEF5989119BDB9DBCB2E08DF5CDE3256D0339`；包名 `com.lumii.lingban`、versionCode `12`、API `https://api.lumiiapp.cn`、禁止明文流量且仅含 `arm64-v8a`。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗权限且系统备份关闭。
 
 ## 4. 剩余工作
@@ -190,6 +198,8 @@
 - 站外告警 Webhook、生产 Push 厂商通道、模板、送达回执和退订策略。
 - 当前生产短信已切换 Spug 推送助手；模板编号与密钥只保存在服务器 `0600 root:root` 的 systemd 受限配置中，随机一次性验证码、频控、失败锁定、重复使用拦截和上线门禁均已完成，并已通过真实手机号发送与登录验证。若 Spug 控制台支持来源 IP 白名单，仍应限制为生产服务器出口；腾讯云短信仅保留为未来企业化备用通道。
 - ~~SQLite/WAL 单实例生产存储、JSON 回滚镜像、独立审计日志和备份恢复。~~ 已完成生产迁移与写入验证；后续仅在扩展多实例前迁移托管 PostgreSQL。
+
+当前生产台账的 5 个 P0 由以下项目构成：公网 API 站外 TLS 证据、后台安全综合项、IP 白名单决策、全员 MFA 决策、正式合规文本签署。后台安全综合项与 IP/MFA 两个决策存在口径重叠，属于同一组外部落地工作，不代表额外三套功能缺失。
 
 以下首发业务策略已固化，不再计入待确认范围：
 

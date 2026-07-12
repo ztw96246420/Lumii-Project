@@ -25102,7 +25102,7 @@ function publicApiExternalProofStatus(publicApiProbe = {}) {
   if (publicApiProbe.probeMode === 'public_dns' && publicApiProbe.ok === true) {
     return {
       ageMinutes: 0,
-      detail: 'Public DNS HTTPS probe succeeded without a local connect-address override',
+      detail: '正式域名通过公网 DNS 完成 HTTPS 健康探测，未使用本机连接地址覆盖',
       evidence: publicApiProbe.evidence || '',
       fresh: true,
       maxAgeMinutes: Math.round(PUBLIC_API_EXTERNAL_PROOF_MAX_AGE_MS / 60_000),
@@ -25120,10 +25120,10 @@ function publicApiExternalProofStatus(publicApiProbe = {}) {
   return {
     ageMinutes,
     detail: fresh
-      ? `A real external HTTPS request reached the API ${ageMinutes} minutes ago`
+      ? `${ageMinutes} 分钟前已有站外 HTTPS 请求通过正式域名到达 API`
       : proof.observedAt
-        ? `The last external HTTPS request proof is stale (${ageMinutes ?? 'unknown'} minutes old)`
-        : 'No real external HTTPS request has reached the API since external proof tracking was enabled',
+        ? `最近一次站外 HTTPS 访问证据已过期（${ageMinutes ?? '未知'} 分钟前）`
+        : '启用站外证据追踪后，尚无真实站外 HTTPS 请求通过正式域名到达 API',
     evidence: fresh ? `host=${proof.host || '-'} path=${proof.path || '-'} observedAt=${proof.observedAt}` : '等待站外浏览器、真机或监控通过正式域名访问 API',
     fresh,
     maxAgeMinutes: Math.round(PUBLIC_API_EXTERNAL_PROOF_MAX_AGE_MS / 60_000),
