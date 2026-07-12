@@ -166,6 +166,12 @@
 - 后端仅信任 `LUMII_TRUSTED_PROXY_IPS` 中的反向代理，默认仅本机 Nginx；真实客户端 IP 优先读取由 Nginx 覆盖的 `X-Real-IP`，伪造 `X-Forwarded-For` 不能绕过短信频控或后台 IP 白名单。
 - 新增 `scripts/probe-production-readiness.cjs`，可在生产服务器读取脱敏的 P0、健康、管理员安全和审批策略，不输出管理员凭据、Token 或服务密钥。
 
+### 2.19 生产 Push 验收证据
+
+- 系统健康新增 `expo_push` 检查，区分未启用、未开启 receipt、无真机 token、等待首个成功 receipt、ticket/receipt 失败和已验证成功。
+- 脱敏生产探针同步输出有效/失效设备数量与下发、receipt 汇总，不输出完整 Expo Push Token 或用户手机号。
+- 当前生产已启用 Expo Push 和 receipt 轮询，但真实设备 token 为 0、成功 receipt 为 0；代码链路与模拟供应商回归通过，仍需在 versionCode 12 真机授权通知后完成首台设备登记和真实送达验收。
+
 ## 3. 当前验证证据
 
 - 移动端 TypeScript：`npm run typecheck` 通过。

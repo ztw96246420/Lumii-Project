@@ -321,6 +321,11 @@ async function main() {
     assert.equal(receiptBadDevice?.lastPushReceiptStatus, 'invalid');
     assert.equal(receiptBadDevice?.disabledReason, 'DeviceNotRegistered');
 
+    const healthPayload = await request('/admin/system/health', { token: adminToken });
+    const pushHealth = healthPayload.data.checks.find((item) => item.key === 'expo_push');
+    assert.equal(pushHealth?.status, 'warn');
+    assert.match(pushHealth?.detail || '', /receipt 失败 1/);
+
     console.log('notification expo push smoke passed');
   } finally {
     await stopBackend();

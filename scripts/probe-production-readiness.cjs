@@ -47,11 +47,13 @@ async function main() {
 
   const login = await request('/admin/auth/login', { body: { password, username } });
   if (!login?.token) throw new Error('Admin login did not return a token');
-  const [readiness, health, accounts, config] = await Promise.all([
+  const [readiness, health, accounts, config, notifications, pushDevices] = await Promise.all([
     request('/admin/launch/readiness', { token: login.token }),
     request('/admin/system/health', { token: login.token }),
     request('/admin/accounts', { token: login.token }),
     request('/admin/config', { token: login.token }),
+    request('/admin/notifications', { token: login.token }),
+    request('/admin/push-devices', { token: login.token }),
   ]);
 
   const result = {
@@ -79,6 +81,12 @@ async function main() {
       .map((item) => pick(item, ['key', 'label', 'status', 'detail', 'evidence'])),
     publicApiProbe: pick(health?.publicApiProbe, ['baseUrl', 'connectAddress', 'probeMode', 'status', 'ok', 'detail', 'evidence']),
     publicApiExternalProof: pick(health?.publicApiExternalProof, ['status', 'ok', 'fresh', 'observedAt', 'ageMinutes', 'maxAgeMinutes', 'source', 'detail', 'evidence']),
+    push: {
+      devices: Array.isArray(pushDevices) ? pushDevices.length : 0,
+      disabledDevices: Array.isArray(pushDevices) ? pushDevices.filter((item) => !item.enabled).length : 0,
+      enabledDevices: Array.isArray(pushDevices) ? pushDevices.filter((item) => item.enabled).length : 0,
+      summary: pick(notifications?.summary, ['pushEnabled', 'pushProvider', 'pushReceiptEnabled', 'pushAttempted', 'pushSent', 'pushFailed', 'pushSuccessRate', 'pushReceiptAttempted', 'pushReceiptOk', 'pushReceiptFailed', 'pushReceiptPending', 'pushReceiptSuccessRate']),
+    },
     healthSummary: health?.summary || {},
     modules: (readiness?.modules || [])
       .filter((item) => item.status !== 'ready')

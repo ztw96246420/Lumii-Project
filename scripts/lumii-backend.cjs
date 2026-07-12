@@ -25177,6 +25177,8 @@ async function adminSystemHealth() {
   const seedFixturePlaceCount = (state.places || []).filter(isSeedFixturePlace).length;
   const unlocatedRuntimePlaceCount = runtimePlaceCatalog().filter((place) => !placeCoordinates(place)).length;
   const notifications = adminSystemNotifications().summary;
+  const pushDevices = adminPushDevices();
+  const activePushDeviceCount = pushDevices.filter((device) => device.enabled).length;
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
   const alerts = adminOperationalAlerts({ limit: 12 });
   const alertWebhook = adminAlertWebhookStatus();
@@ -25245,6 +25247,23 @@ async function adminSystemHealth() {
           ? `账号数据已清理，仍有 ${accountDeletions.cleanupFailed} 个对象存储文件等待重试删除`
           : `待冷静期结束 ${accountDeletions.pending} 个，对象清理队列 ${accountDeletions.cleanupPending} 个，已留存匿名墓碑 ${accountDeletions.tombstones} 条`,
       `coolingOff=${Math.ceil(ACCOUNT_DELETE_COOLING_OFF_MS / (24 * 60 * 60 * 1000))}d lastDeletedAt=${accountDeletions.lastDeletedAt || '-'} queue=${accountDeletions.cleanupPending}`,
+    ),
+    adminCheckStatus(
+      !EXPO_PUSH_ENABLED || !EXPO_PUSH_RECEIPTS_ENABLED || activePushDeviceCount === 0 || Number(notifications.pushReceiptOk || 0) === 0 || Number(notifications.pushFailed || 0) > 0 || Number(notifications.pushReceiptFailed || 0) > 0 ? 'warn' : 'ok',
+      'expo_push',
+      'Expo Push 与回执',
+      !EXPO_PUSH_ENABLED
+        ? 'Expo Push 未启用，当前只有 App 内站内通知'
+        : !EXPO_PUSH_RECEIPTS_ENABLED
+          ? 'Expo Push 已启用，但 receipt 轮询未启用'
+          : activePushDeviceCount === 0
+            ? 'Expo Push 与 receipt 轮询已启用，尚无真机设备 token 登记'
+            : Number(notifications.pushFailed || 0) > 0 || Number(notifications.pushReceiptFailed || 0) > 0
+              ? `已有 ${activePushDeviceCount} 台有效设备；ticket 失败 ${notifications.pushFailed || 0}，receipt 失败 ${notifications.pushReceiptFailed || 0}`
+              : Number(notifications.pushReceiptOk || 0) === 0
+                ? `已有 ${activePushDeviceCount} 台有效设备，等待首个成功 receipt 完成生产验收`
+                : `已有 ${activePushDeviceCount} 台有效设备，成功 receipt ${notifications.pushReceiptOk || 0} 条`,
+      `provider=${EXPO_PUSH_ENABLED ? 'expo' : 'disabled'} receipts=${EXPO_PUSH_RECEIPTS_ENABLED ? 'enabled' : 'disabled'} devices=${activePushDeviceCount} attempted=${notifications.pushAttempted || 0}`,
     ),
     adminCheckStatus(
       ALLOW_LEGACY_LOCAL_AUTH ? 'bad' : 'ok',
@@ -25316,7 +25335,7 @@ async function adminSystemHealth() {
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'place_location_integrity', 'deepseek', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_api_external_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'place_location_integrity', 'deepseek', 'expo_push', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_api_external_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
