@@ -172,7 +172,7 @@
 - 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-12 通过，79/79 套件全部成功；移动端 Playwright 覆盖本人宠友圈同日多条、唯一“我”标记、评论、删除确认、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除，后台 8 个关键运营页面同步通过。
 - 附近位置与半径专项：`node scripts/smoke-pet-circle.cjs`、配置审批/预约发布/双人会签回归和 `node scripts/smoke-admin-config-high-risk-page.cjs` 通过；覆盖发布位置快照、跨城市移动、历史无位置数据、10km 默认档位、3/5/10km 后台选择及客户端越权半径拦截。
 - 附近地点真实性：`node scripts/smoke-place-contributions.cjs` 与 `node scripts/smoke-sms-production.cjs` 通过；覆盖提交坐标/精度/时间落库、审核后 manual 地点继承坐标、跨城不跟随、缺失/过期定位拦截、生产无高德时返回空列表而非 seed，以及 `amap` / `place_location_integrity` / `place_discovery` 健康与 P0 门禁。
-- Android 候选包：`dist/Lumii-Lingban-v1.0.0-vc12-arm64-20260712-2327.apk` 已完成正式签名构建，大小 68.55 MB，SHA-256 为 `185A11CBBAA4702AD50D3B7548ECEF5989119BDB9DBCB2E08DF5CDE3256D0339`；包名 `com.lumii.lingban`、versionCode `12`、API `https://api.lumiiapp.cn`、禁止明文流量且仅含 `arm64-v8a`。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗权限且系统备份关闭。
+- Android 候选包：`dist/Lumii-Lingban-v1.0.0-vc12-arm64-20260712-2331.apk` 已完成正式签名构建，大小 68.55 MB，SHA-256 为 `185A11CBBAA4702AD50D3B7548ECEF5989119BDB9DBCB2E08DF5CDE3256D0339`；包名 `com.lumii.lingban`、versionCode `12`、API `https://api.lumiiapp.cn`、禁止明文流量且仅含 `arm64-v8a`。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗权限且系统备份关闭。
 
 ## 4. 剩余工作
 
