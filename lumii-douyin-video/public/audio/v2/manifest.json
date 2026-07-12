@@ -1,0 +1,179 @@
+﻿{
+    "generatedAtUtc":  "2026-07-10T17:36:36.6713398Z",
+    "generator":  "edge-tts 7.2.7",
+    "sampleText":  "等等，照片里的毛孩子，跑出来啦？这就是灵伴。",
+    "samples":  [
+                    {
+                        "file":  "samples/sample-a-xiaoxiao.mp3",
+                        "voice":  "zh-CN-XiaoxiaoNeural",
+                        "rate":  "+22%",
+                        "pitch":  "+4Hz"
+                    },
+                    {
+                        "file":  "samples/sample-b-xiaoyi.mp3",
+                        "voice":  "zh-CN-XiaoyiNeural",
+                        "rate":  "+22%",
+                        "pitch":  "+3Hz"
+                    }
+                ],
+    "selected":  {
+                     "voice":  "zh-CN-XiaoyiNeural",
+                     "voiceDescription":  "Microsoft Chinese neural voice; listed by edge-tts as Female / Cartoon, Novel / Lively",
+                     "rate":  "+22%",
+                     "pitch":  "+3Hz",
+                     "reason":  "Compared with Xiaoxiao on identical copy; Xiaoyi is the explicitly lively voice and is 0.120 seconds shorter on the sample."
+                 },
+    "scenes":  [
+                   {
+                       "file":  "voice-01.mp3",
+                       "text":  "等等，照片里的毛孩子，跑出来啦？"
+                   },
+                   {
+                       "file":  "voice-02.mp3",
+                       "text":  "这就是灵伴：一张照片，生成专属电子分身。"
+                   },
+                   {
+                       "file":  "voice-03.mp3",
+                       "text":  "不是替代陪伴，只是多一种可爱模样。"
+                   },
+                   {
+                       "file":  "voice-04.mp3",
+                       "text":  "性格、成长、纪念日，它都替你认真记住。"
+                   },
+                   {
+                       "file":  "voice-05.mp3",
+                       "text":  "还能先打招呼，遇见附近同频的新朋友。"
+                   },
+                   {
+                       "file":  "voice-06.mp3",
+                       "text":  "每个瞬间，都值得珍藏。"
+                   },
+                   {
+                       "file":  "voice-07.mp3",
+                       "text":  "首批招募中！评论“灵伴”，带毛孩子来内测！"
+                   }
+               ],
+    "sfx":  [
+                {
+                    "file":  "sfx/sfx-shutter-modern.wav",
+                    "source":  "https://remotion.media/shutter-modern.wav"
+                },
+                {
+                    "file":  "sfx/sfx-whip.wav",
+                    "source":  "https://remotion.media/whip.wav"
+                },
+                {
+                    "file":  "sfx/sfx-whoosh.wav",
+                    "source":  "https://remotion.media/whoosh.wav"
+                },
+                {
+                    "file":  "sfx/sfx-ding.wav",
+                    "source":  "https://remotion.media/ding.wav"
+                },
+                {
+                    "file":  "sfx/sfx-record-scratch.wav",
+                    "source":  "https://remotion.media/record-scratch.wav"
+                }
+            ],
+    "totalVoiceDurationSeconds":  24.192,
+    "media":  [
+                  {
+                      "File":  "sample-a-xiaoxiao.mp3",
+                      "DurationSeconds":  4.344,
+                      "Codec":  "mp3",
+                      "SampleRate":  24000,
+                      "Channels":  1
+                  },
+                  {
+                      "File":  "sample-b-xiaoyi.mp3",
+                      "DurationSeconds":  4.224,
+                      "Codec":  "mp3",
+                      "SampleRate":  24000,
+                      "Channels":  1
+                  },
+                  {
+                      "File":  "voice-01.mp3",
+                      "DurationSeconds":  3.048,
+                      "Codec":  "mp3",
+                      "SampleRate":  24000,
+                      "Channels":  1
+                  },
+                  {
+                      "File":  "voice-02.mp3",
+                      "DurationSeconds":  4.032,
+                      "Codec":  "mp3",
+                      "SampleRate":  24000,
+                      "Channels":  1
+                  },
+                  {
+                      "File":  "voice-03.mp3",
+                      "DurationSeconds":  3.408,
+                      "Codec":  "mp3",
+                      "SampleRate":  24000,
+                      "Channels":  1
+                  },
+                  {
+                      "File":  "voice-04.mp3",
+                      "DurationSeconds":  3.864,
+                      "Codec":  "mp3",
+                      "SampleRate":  24000,
+                      "Channels":  1
+                  },
+                  {
+                      "File":  "voice-05.mp3",
+                      "DurationSeconds":  3.48,
+                      "Codec":  "mp3",
+                      "SampleRate":  24000,
+                      "Channels":  1
+                  },
+                  {
+                      "File":  "voice-06.mp3",
+                      "DurationSeconds":  2.424,
+                      "Codec":  "mp3",
+                      "SampleRate":  24000,
+                      "Channels":  1
+                  },
+                  {
+                      "File":  "voice-07.mp3",
+                      "DurationSeconds":  3.936,
+                      "Codec":  "mp3",
+                      "SampleRate":  24000,
+                      "Channels":  1
+                  },
+                  {
+                      "File":  "sfx-shutter-modern.wav",
+                      "DurationSeconds":  0.488957,
+                      "Codec":  "pcm_s16le",
+                      "SampleRate":  44100,
+                      "Channels":  1
+                  },
+                  {
+                      "File":  "sfx-whip.wav",
+                      "DurationSeconds":  0.173198,
+                      "Codec":  "pcm_s16le",
+                      "SampleRate":  96000,
+                      "Channels":  2
+                  },
+                  {
+                      "File":  "sfx-whoosh.wav",
+                      "DurationSeconds":  0.153537,
+                      "Codec":  "pcm_s16le",
+                      "SampleRate":  44100,
+                      "Channels":  1
+                  },
+                  {
+                      "File":  "sfx-ding.wav",
+                      "DurationSeconds":  1.4,
+                      "Codec":  "pcm_s16le",
+                      "SampleRate":  44100,
+                      "Channels":  2
+                  },
+                  {
+                      "File":  "sfx-record-scratch.wav",
+                      "DurationSeconds":  1.262404,
+                      "Codec":  "pcm_s16le",
+                      "SampleRate":  44100,
+                      "Channels":  2
+                  }
+              ]
+}
