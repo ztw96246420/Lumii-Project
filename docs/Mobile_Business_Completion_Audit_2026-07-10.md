@@ -211,7 +211,7 @@
 - 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-13 通过，79/79 套件全部成功；移动端 Playwright 覆盖协议阅读、本人宠友圈同日多条、审核中/驳回状态、唯一“我”标记、评论、删除确认、地点贡献记录、地点点评驳回纠错、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除，后台 8 个关键运营页面同步通过。
 - 附近位置与半径专项：`node scripts/smoke-pet-circle.cjs`、配置审批/预约发布/双人会签回归和 `node scripts/smoke-admin-config-high-risk-page.cjs` 通过；覆盖发布位置快照、跨城市移动、历史无位置数据、10km 默认档位、3/5/10km 后台选择及客户端越权半径拦截。
 - 附近地点真实性：`node scripts/smoke-place-contributions.cjs` 与 `node scripts/smoke-sms-production.cjs` 通过；覆盖提交坐标/精度/时间落库、审核后 manual 地点继承坐标、跨城不跟随、缺失/过期定位拦截、生产无高德时返回空列表而非 seed，以及 `amap` / `place_location_integrity` / `place_discovery` 健康与 P0 门禁。
-- 生产台账实查：`sudo node scripts/probe-production-readiness.cjs` 于 2026-07-12 返回 26 项健康检查、`bad=0`、`warn=4`、`openP0=5`、`blockedGaps=1`；四项警告分别为公网 API 站外证据、首台真机 Push、后台 IP 白名单和站外告警。生产当前只有 1 个活跃管理员且未配置 MFA/IP 白名单，不能在没有真实审批人的情况下强开双人会签。
+- 生产台账实查：部署 `b72ff7fb` 后于 2026-07-13 返回 27 项健康检查、`bad=1`、`warn=4`、`openP0=7`、`blockedGaps=3`；唯一 `bad` 是兼容发布期有意暂缓的 `legal_consent_enforcement`，四项警告分别为公网 API 站外证据、首台真机 Push、后台 IP 白名单和站外告警。生产当前只有 1 个活跃管理员且未配置 MFA/IP 白名单，不能在没有真实审批人的情况下强开双人会签。
 - Android 候选包：`dist/Lumii-Lingban-v1.0.0-vc13-arm64-20260713-0150.apk` 已完成正式签名构建，大小 68.58 MB，SHA-256 为 `4C99903149552CA8AF27095C638FCA223EF4A2C0A679C76BBC95E1C27C708D8E`；包名 `com.lumii.lingban`、versionCode `13`、API `https://api.lumiiapp.cn`、禁止明文流量且仅含 `arm64-v8a`，不含测试服务器 IP 或 localhost。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 仍为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗/安装包权限，系统备份关闭。
 
 ## 4. 剩余工作
@@ -224,7 +224,7 @@
 
 以下项目不能仅靠代码自动判定完成，需要以后台上线台账和真实生产值为准：
 
-- 正式 API 域名、源站证书、自动续期、Nginx HTTPS、Release API Base URL 与明文流量构建门禁已完成，源站本机 SNI/证书验证正常；但当前公网 `api.lumiiapp.cn:443` 的 TLS ClientHello 在到达 Nginx 前被重置，仍需腾讯云侧完成备案/网络策略同步并复测外网 `/health`，该项保持 P0 阻塞。
+- 正式 API 域名、源站证书、自动续期、Nginx HTTPS、Release API Base URL 与明文流量构建门禁已完成，源站本机 SNI/证书验证正常；但 2026-07-13 从开发机复测公网 `api.lumiiapp.cn:443` 仍在 TLS 握手阶段失败，需继续排查腾讯云侧备案/网络策略并复测外网 `/health`，该项保持 P0 阻塞。`media.lumiiapp.cn` 同期已能通过公网 HTTPS 到达 CDN/Nginx。
 - 后台生产强密码和 90 天轮换记录已完成；仍需配置稳定办公/VPN IP 白名单和全部活跃管理员 MFA。
 - 生产后台实查确认四项必签材料仍为草稿：用户协议 `test-2026-06-12`、隐私政策 `test-2026-06-12`、内容审核制度 `test-2026-07-09`、App 备案材料 `test-2026-07-09`；正式文本、个人信息收集清单、第三方 SDK 清单、注销和举报规则仍需补齐并在后台签署。
 - 站外告警 Webhook、生产 Push 厂商通道、模板、送达回执和退订策略。
@@ -232,7 +232,7 @@
 - 协议同意强制校验基座已经完成；先完成 versionCode 13 升级验收和分发，再将 systemd 环境变量 `LUMII_REQUIRE_LEGAL_CONSENT=true` 上线。开关未启用期间后台上线台账会保留对应 P0，避免兼容窗口被误判为已完成。
 - ~~SQLite/WAL 单实例生产存储、JSON 回滚镜像、独立审计日志和备份恢复。~~ 已完成生产迁移与写入验证；后续仅在扩展多实例前迁移托管 PostgreSQL。
 
-当前生产台账的 5 个 P0 由以下项目构成：公网 API 站外 TLS 证据、后台安全综合项、IP 白名单决策、全员 MFA 决策、正式合规文本签署。后台安全综合项与 IP/MFA 两个决策存在口径重叠，属于同一组外部落地工作，不代表额外三套功能缺失。
+当前生产台账的 7 个 P0 由以下项目构成：公网 API 站外 TLS 证据、后台安全综合项、协议同意强制开关、站外告警通道、IP 白名单决策、全员 MFA 决策、正式合规文本签署。后台安全综合项与 IP/MFA 两个决策存在口径重叠；协议强制开关需等待 versionCode 13 分发后开启，其余均为生产外部配置或业务签署，不代表新增页面或核心业务代码缺失。
 
 以下首发业务策略已固化，不再计入待确认范围：
 
