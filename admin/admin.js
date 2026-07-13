@@ -6294,7 +6294,7 @@ function avatarTaskCell(job) {
 
 function avatarJobAction(job) {
   const canApply = job.status === 'ready' && job.resultUrl;
-  const canRefund = job.quotaConsumed && !job.quotaRefunded;
+  const canRefund = job.quotaRefundable === true;
   return `
     <div class="actions">
       <button class="small-button" data-action="avatar-refresh" data-id="${escapeHtml(job.id)}">刷新</button>
@@ -6371,6 +6371,13 @@ function avatarQuotaCell(job) {
       ${tonePill('已返还', 'ok')}
       <div class="cell-sub">${source} · ${formatTime(job.quotaRefundedAt)}</div>
       <div class="cell-sub clamp">${escapeHtml(job.quotaRefundReason || '')}</div>
+    `;
+  }
+  if (job.quotaWindowExpired) {
+    return `
+      ${tonePill('周期已结束')}
+      <div class="cell-sub">${escapeHtml(job.quotaDay || '-')} 的当日额度已失效</div>
+      <div class="cell-sub">不会影响今天的可用次数</div>
     `;
   }
   return `

@@ -14782,8 +14782,20 @@ function consumePetAvatarQuota(user) {
   return usage;
 }
 
-function refundPetAvatarQuota(user) {
-  const usage = petAvatarDailyUsageFor(user.phone);
+function avatarJobQuotaDay(job = {}) {
+  return String(job.quotaDay || localDateKey(job.createdAt || '') || '').trim();
+}
+
+function avatarJobQuotaRefundable(job = {}) {
+  return ['failed', 'ready'].includes(String(job.status || ''))
+    && Boolean(job.quotaConsumed)
+    && !avatarJobQuotaAlreadyRefunded(job)
+    && avatarJobQuotaDay(job) === todayUsageKey();
+}
+
+function refundPetAvatarQuota(user, quotaDay = todayUsageKey()) {
+  const usage = state.petAvatarDailyUsage?.[user.phone];
+  if (!usage || usage.day !== quotaDay) return null;
   usage.count = Math.max(0, Number(usage.count || 0) - 1);
   return usage;
 }
@@ -14812,11 +14824,16 @@ function refundAvatarJobQuota(owner, job, options = {}) {
   if (!owner || !job) return { error: 'AI 任务不存在', statusCode: 404 };
   if (!job.quotaConsumed) return { error: '该任务未消耗灵伴形象额度，不能返还', statusCode: 409 };
   if (avatarJobQuotaAlreadyRefunded(job)) return { error: '该任务额度已返还，不能重复返还', statusCode: 409 };
+  if (!['failed', 'ready'].includes(String(job.status || ''))) return { error: '只有已结束的灵伴形象任务可以返还额度', statusCode: 409 };
+  const quotaDay = avatarJobQuotaDay(job);
+  if (!quotaDay || quotaDay !== todayUsageKey()) return { error: '该任务的当日额度周期已结束，无需影响今天的额度', statusCode: 409 };
   const now = new Date().toISOString();
-  const usage = refundPetAvatarQuota(owner);
+  const usage = refundPetAvatarQuota(owner, quotaDay);
+  if (!usage) return { error: '该任务的额度记录已失效，未修改今天的额度', statusCode: 409 };
   job.quotaRefunded = true;
   job.quotaRefundedAt = now;
   job.quotaRefundedBy = options.by || 'system';
+  job.quotaRefundDay = quotaDay;
   job.quotaRefundReason = String(options.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240);
   job.quotaRefundSource = options.source || 'auto';
   if (options.source === 'admin') job.adminQuotaRefundedAt = now;
@@ -15738,8 +15755,9 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
   touchAvatarJob(job);
 
   if (provider === 'mock') {
-    consumePetAvatarQuota(user);
+    const usage = consumePetAvatarQuota(user);
     job.quotaConsumed = true;
+    job.quotaDay = usage.day;
     saveState();
     return { job };
   }
@@ -15749,8 +15767,9 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
     job.provider = provider;
     job.providerStatus = 'queued';
     job.status = 'processing';
-    consumePetAvatarQuota(user);
+    const usage = consumePetAvatarQuota(user);
     job.quotaConsumed = true;
+    job.quotaDay = usage.day;
     touchAvatarJob(job);
     saveState();
     queueAvatarGenerationStart(req, user, job, media);
@@ -28278,6 +28297,7 @@ function adminAvatarJobs() {
       const providerTrace = adminAiProviderTraceRows(job);
       const latestProviderTrace = providerTrace[providerTrace.length - 1] || null;
       const providerCost = adminAiProviderCostSnapshot(job);
+      const quotaDay = avatarJobQuotaDay(job);
       return {
         acceptedAt: job.acceptedAt,
         acceptedPetId: job.acceptedPetId || '',
@@ -28309,11 +28329,14 @@ function adminAvatarJobs() {
         providerTraceLatestStatus: latestProviderTrace?.providerStatus || '',
         promptVersion: job.promptVersion || '',
         quotaConsumed: Boolean(job.quotaConsumed),
+        quotaDay,
+        quotaRefundable: avatarJobQuotaRefundable(job),
         quotaRefunded: avatarJobQuotaAlreadyRefunded(job),
         quotaRefundedAt: job.quotaRefundedAt || job.adminQuotaRefundedAt || '',
         quotaRefundedBy: job.quotaRefundedBy || '',
         quotaRefundReason: job.quotaRefundReason || '',
         quotaRefundSource: job.quotaRefundSource || (job.adminQuotaRefundedAt ? 'admin' : ''),
+        quotaWindowExpired: Boolean(job.quotaConsumed) && !avatarJobQuotaAlreadyRefunded(job) && Boolean(quotaDay) && quotaDay !== todayUsageKey(),
         resultUrl: job.resultUrl,
         slaTimeline: adminAiSlaTimeline(job),
         sourceResultUrl: job.sourceResultUrl || '',

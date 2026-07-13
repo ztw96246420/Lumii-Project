@@ -35,7 +35,8 @@ function delay(ms) {
 }
 
 function todayUsageKey() {
-  return new Date().toISOString().slice(0, 10);
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function writeStuckState() {
@@ -89,6 +90,7 @@ function writeStuckState() {
         providerJobId: 'gpt-image2-stuck-task',
         providerStatus: 'processing',
         quotaConsumed: true,
+        quotaDay: todayUsageKey(),
         status: 'processing',
         updatedAt: oldAvatarAt,
       },

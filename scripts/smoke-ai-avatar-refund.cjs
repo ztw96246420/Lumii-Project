@@ -229,6 +229,84 @@ async function main() {
     const audit = await request(`/admin/audit-logs?action=ai.avatar.auto_refund_quota&targetType=avatar_job&q=${encodeURIComponent(failedJob.id)}`, { token: adminToken });
     assert.equal(audit.data.items.some((item) => item.action === 'ai.avatar.auto_refund_quota' && item.targetId === failedJob.id), true);
 
+    await stopBackend();
+    const savedState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    const currentDay = new Date().toLocaleDateString('sv-SE');
+    const oldDay = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toLocaleDateString('sv-SE');
+    const failedTemplate = savedState.avatarJobs[failedJob.id];
+    savedState.avatarJobs['historical-failed-job'] = {
+      ...failedTemplate,
+      createdAt: Date.now() - 2 * 24 * 60 * 60 * 1000,
+      id: 'historical-failed-job',
+      quotaDay: oldDay,
+      quotaRefunded: false,
+      quotaRefundedAt: '',
+      quotaRefundedBy: '',
+      quotaRefundReason: '',
+      quotaRefundSource: '',
+      status: 'failed',
+      updatedAt: Date.now() - 2 * 24 * 60 * 60 * 1000,
+    };
+    savedState.avatarJobs['successful-current-job'] = {
+      ...failedTemplate,
+      errorCode: '',
+      errorMessage: '',
+      id: 'successful-current-job',
+      quotaDay: currentDay,
+      quotaRefunded: false,
+      quotaRefundedAt: '',
+      quotaRefundedBy: '',
+      quotaRefundReason: '',
+      quotaRefundSource: '',
+      resultUrl: 'https://example.com/avatar.png',
+      status: 'ready',
+      updatedAt: Date.now(),
+    };
+    savedState.avatarJobs['processing-current-job'] = {
+      ...savedState.avatarJobs['successful-current-job'],
+      id: 'processing-current-job',
+      resultUrl: '',
+      status: 'processing',
+    };
+    savedState.petAvatarDailyUsage[TEST_PHONE] = { count: 1, day: currentDay };
+    fs.writeFileSync(statePath, JSON.stringify(savedState, null, 2));
+
+    await startBackend(await getFreePort());
+    const guardedJobs = await request('/admin/ai/avatar-jobs', { token: adminToken });
+    const historicalRow = guardedJobs.data.find((item) => item.id === 'historical-failed-job');
+    const successfulRow = guardedJobs.data.find((item) => item.id === 'successful-current-job');
+    const processingRow = guardedJobs.data.find((item) => item.id === 'processing-current-job');
+    assert.equal(historicalRow.quotaRefundable, false);
+    assert.equal(historicalRow.quotaWindowExpired, true);
+    assert.equal(successfulRow.quotaRefundable, true);
+    assert.equal(processingRow.quotaRefundable, false);
+
+    const historicalRefund = await request('/admin/ai/avatar-jobs/historical-failed-job/refund-quota', {
+      body: { reason: '历史额度不可影响今日计数' },
+      expectedStatus: 409,
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.match(historicalRefund.error?.message || '', /额度周期已结束/);
+    const processingRefund = await request('/admin/ai/avatar-jobs/processing-current-job/refund-quota', {
+      body: { reason: '处理中任务不可提前返还' },
+      expectedStatus: 409,
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.match(processingRefund.error?.message || '', /只有已结束/);
+    const guardedUsage = await request('/ai/usage', { token: userToken });
+    assert.equal(guardedUsage.data.daily.petAvatar.count, 1);
+    assert.equal(guardedUsage.data.daily.petAvatar.remaining, 0);
+    await request('/admin/ai/avatar-jobs/successful-current-job/refund-quota', {
+      body: { reason: '用户反馈结果质量不符合预期' },
+      method: 'POST',
+      token: adminToken,
+    });
+    const goodwillUsage = await request('/ai/usage', { token: userToken });
+    assert.equal(goodwillUsage.data.daily.petAvatar.count, 0);
+    assert.equal(goodwillUsage.data.daily.petAvatar.remaining, 1);
+
     console.log('AI avatar refund smoke passed');
   } finally {
     await stopBackend();
