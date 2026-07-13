@@ -512,8 +512,8 @@ async function main() {
     await screenshot(page, 'smoke-frontend-00-profile-post-deleted.png');
 
     await page.goto(`${baseUrl}/?route=petCircleProfile&mockPetCircle=pending`, { timeout: 60_000, waitUntil: 'networkidle' });
-    await waitExactText(page, '审核中');
     await page.getByLabel('小事审核中-mock-my-circle-pending-review').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByText(/^审核中(?: · 仅自己可见)?$/).first().waitFor({ state: 'visible', timeout: 30_000 });
     await page.getByLabel('打开小事操作菜单-mock-my-circle-pending-review').click();
     await page.getByLabel('菜单删除小事-mock-my-circle-pending-review').waitFor({ state: 'visible', timeout: 30_000 });
     const pendingProfileScroll = await page.evaluate(() => {
@@ -532,8 +532,8 @@ async function main() {
     await screenshot(page, 'smoke-frontend-00-profile-pending-review.png');
 
     await page.goto(`${baseUrl}/?route=petCircleProfile&mockPetCircle=rejected`, { timeout: 60_000, waitUntil: 'networkidle' });
-    await waitExactText(page, '未通过');
     await page.getByLabel('小事未通过-mock-my-circle-rejected').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByText(/^未通过(?: · 仅自己可见)?$/).first().waitFor({ state: 'visible', timeout: 30_000 });
     await waitExactText(page, '原因：内容不符合宠友圈发布规范，请调整后重新发布。');
     await page.getByLabel('打开小事操作菜单-mock-my-circle-rejected').click();
     await page.getByLabel('菜单删除小事-mock-my-circle-rejected').waitFor({ state: 'visible', timeout: 30_000 });

@@ -92,7 +92,64 @@ async function stopBackend() {
   });
 }
 
+async function assertProductionRejectsPublicBackendBind() {
+  const port = await getFreePort();
+  const child = spawn(process.execPath, [backendScript, '--port', String(port)], {
+    cwd: rootDir,
+    env: {
+      ...process.env,
+      AUTH_TOKEN_SECRET: 'production-token-secret-at-least-thirty-two-characters',
+      LUMII_ADMIN_PASSWORD: 'LumiiProductionAdmin@2026',
+      LUMII_ADMIN_USERNAME: 'admin',
+      LUMII_BACKEND_HOST: '0.0.0.0',
+      LUMII_BACKEND_STATE_PATH: statePath,
+      LUMII_SMS_PROVIDER: 'disabled',
+      NODE_ENV: 'production',
+      STATE_BACKUP_ENABLED: 'false',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  child.stdout.on('data', (chunk) => { output += chunk.toString(); });
+  child.stderr.on('data', (chunk) => { output += chunk.toString(); });
+  const exitCode = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error('public backend bind rejection timed out'));
+    }, 10_000);
+    child.once('exit', (code) => {
+      clearTimeout(timeout);
+      resolve(code);
+    });
+  });
+  assert.notEqual(exitCode, 0);
+  assert.match(output, /Production backend must bind to 127\.0\.0\.1 or ::1/);
+}
+
 async function main() {
+  await assertProductionRejectsPublicBackendBind();
+
+  await startBackend({
+    AUTH_TOKEN_SECRET: 'production-token-secret-at-least-thirty-two-characters',
+    LUMII_ADMIN_PASSWORD: 'LumiiProductionAdmin@2026',
+    LUMII_ADMIN_USERNAME: 'admin',
+    LUMII_PUBLIC_API_BASE_URL: 'https://api.lumiiapp.cn',
+    LUMII_PUBLIC_API_PROBE_CONNECT_ADDRESS: '127.0.0.1',
+    LUMII_SMS_PROVIDER: 'disabled',
+    NODE_ENV: 'production',
+  });
+  try {
+    const login = await request('/admin/auth/login', {
+      body: { password: 'LumiiProductionAdmin@2026', username: 'admin' },
+      method: 'POST',
+    });
+    const health = await request('/admin/system/health', { token: login.data.token });
+    assert.equal(health.data.runtime.host, '127.0.0.1');
+    assert.ok(health.data.checks.some((item) => item.key === 'backend_bind_address' && item.status === 'ok'));
+  } finally {
+    await stopBackend();
+  }
+
   await startBackend();
   try {
     const login = await request('/admin/auth/login', {

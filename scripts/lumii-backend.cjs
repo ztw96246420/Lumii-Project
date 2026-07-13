@@ -195,6 +195,12 @@ const EXPO_PUSH_RECEIPT_BATCH_SIZE = Math.max(1, Math.min(1000, Number(process.e
 
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
+const BACKEND_HOST = String(process.env.LUMII_BACKEND_HOST || (RUNTIME_ENV === 'production' ? '127.0.0.1' : '0.0.0.0')).trim();
+const BACKEND_LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1']);
+if (!BACKEND_HOST) throw new Error('LUMII_BACKEND_HOST must not be empty');
+if (RUNTIME_ENV === 'production' && !BACKEND_LOOPBACK_HOSTS.has(BACKEND_HOST)) {
+  throw new Error('Production backend must bind to 127.0.0.1 or ::1 and remain behind the HTTPS reverse proxy');
+}
 const statePath = process.env.LUMII_BACKEND_STATE_PATH || path.join(__dirname, '..', 'dist', 'lumii-backend-state.json');
 const STATE_STORAGE_DRIVER = String(process.env.LUMII_STATE_STORAGE_DRIVER || 'json').trim().toLowerCase();
 const STATE_SQLITE_PATH = process.env.LUMII_STATE_SQLITE_PATH || path.join(path.dirname(statePath), 'lumii-state.sqlite');
@@ -25297,6 +25303,15 @@ async function adminSystemHealth() {
     ...(mediaCdnProbe ? [adminCheckStatus(mediaCdnProbeStatus, 'media_cdn_get', '媒体 CDN GET 探测', mediaCdnProbe.detail, mediaCdnProbe.evidence)] : []),
     adminCheckStatus(publicApiProbe.status, 'public_api_https', 'App API 源站 HTTPS 探测', publicApiProbe.detail, publicApiProbe.evidence),
     adminCheckStatus(publicApiExternalProof.status, 'public_api_external_https', 'App API 站外 HTTPS 证据', publicApiExternalProof.detail, publicApiExternalProof.evidence),
+    adminCheckStatus(
+      RUNTIME_ENV !== 'production' || BACKEND_LOOPBACK_HOSTS.has(BACKEND_HOST) ? 'ok' : 'bad',
+      'backend_bind_address',
+      '后端监听地址',
+      RUNTIME_ENV !== 'production'
+        ? `非生产环境监听 ${BACKEND_HOST}:${port}`
+        : `生产后端仅监听 ${BACKEND_HOST}:${port}，公网入口由 Nginx HTTPS 反向代理提供`,
+      'LUMII_BACKEND_HOST / 轻量服务器防火墙不得放行后端端口',
+    ),
     adminCheckStatus(stateFile.exists ? stateSizeWarn ? 'warn' : 'ok' : stateStorage.driver === 'sqlite' && stateStorage.healthy ? 'warn' : 'bad', 'state_file', stateStorage.driver === 'sqlite' ? 'JSON 回滚镜像' : 'JSON 状态文件', stateFile.exists ? `JSON ${stateStorage.driver === 'sqlite' ? 'mirror' : 'state'} ${Math.round(stateFile.sizeBytes / 1024)} KB` : stateStorage.driver === 'sqlite' ? 'JSON 回滚镜像不存在，SQLite 仍为权威数据源' : '状态文件不存在或不可读', stateFile.path),
     adminCheckStatus(process.env.LUMII_ADMIN_USERNAME && process.env.LUMII_ADMIN_PASSWORD ? 'ok' : 'warn', 'admin_credentials', '后台账号环境变量', process.env.LUMII_ADMIN_PASSWORD ? '后台密码由环境变量覆盖' : '仍可能使用默认后台账号密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus(
@@ -25432,7 +25447,7 @@ async function adminSystemHealth() {
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'cos_storage', 'amap', 'place_location_integrity', 'deepseek', 'expo_push', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_api_external_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'backend_bind_address', 'cos_storage', 'amap', 'place_location_integrity', 'deepseek', 'expo_push', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_api_external_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
@@ -25446,6 +25461,7 @@ async function adminSystemHealth() {
     ],
     runtime: {
       env: process.env.NODE_ENV || 'development',
+      host: BACKEND_HOST,
       nodeVersion: process.version,
       pid: process.pid,
       platform: process.platform,
@@ -37492,8 +37508,8 @@ try {
   console.error('Failed to process account deletions during startup', error);
 }
 
-server.listen(port, '0.0.0.0', () => {
-  console.log(`Lumii local backend listening on http://0.0.0.0:${port}`);
+server.listen(port, BACKEND_HOST, () => {
+  console.log(`Lumii backend listening on http://${BACKEND_HOST}:${port}`);
   console.log(`State storage: ${STATE_STORAGE_DRIVER}${sqliteStateStore ? ` (${STATE_SQLITE_PATH})` : ` (${statePath})`}`);
   console.log(`SMS provider: ${SMS_PROVIDER}`);
   if (SMS_EXPOSE_TEST_CODE) console.log(`Test OTP code: ${SMS_TEST_CODE}`);
