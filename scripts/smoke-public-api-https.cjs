@@ -40,6 +40,34 @@ async function request(pathname, options = {}) {
   return payload;
 }
 
+async function requestWithHost(pathname, host) {
+  const target = new URL(baseUrl);
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      headers: { Host: host },
+      hostname: target.hostname,
+      method: 'GET',
+      path: pathname,
+      port: target.port,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        try {
+          resolve({
+            payload: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+            status: res.statusCode,
+          });
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+    req.once('error', reject);
+    req.end();
+  });
+}
+
 async function waitForBackend() {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
@@ -152,6 +180,11 @@ async function main() {
 
   await startBackend();
   try {
+    const malformedHost = await requestWithHost('/health', '193.112.092.111');
+    assert.equal(malformedHost.status, 400);
+    assert.equal(malformedHost.payload.error?.code, 'INVALID_REQUEST_URL');
+    await request('/health');
+
     const login = await request('/admin/auth/login', {
       body: { password: 'LumiiAdmin@2026', username: 'admin' },
       method: 'POST',

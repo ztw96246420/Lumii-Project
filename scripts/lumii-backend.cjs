@@ -7040,6 +7040,52 @@ function avatarAnimationNeedsLocalMirror(job) {
   return /^https?:\/\//i.test(currentUrl) && !currentUrl.includes('/storage/objects/');
 }
 
+const avatarAnimationMirrorRetryTimers = new Map();
+
+function clearAvatarAnimationMirrorRetry(jobId) {
+  const timer = avatarAnimationMirrorRetryTimers.get(jobId);
+  if (timer) clearTimeout(timer);
+  avatarAnimationMirrorRetryTimers.delete(jobId);
+}
+
+function scheduleAvatarAnimationMirrorRetry(reqSnapshot, ownerPhone, jobId, sourceUrl, delayMs = PET_AVATAR_ANIMATION_MIRROR_RETRY_MS) {
+  if (avatarAnimationMirrorRetryTimers.has(jobId)) return false;
+  const timer = setTimeout(() => {
+    avatarAnimationMirrorRetryTimers.delete(jobId);
+    const user = state.users?.[ownerPhone];
+    const job = state.avatarAnimationJobs?.[jobId];
+    if (!user || !job || job.status !== 'processing') return;
+    if (Number(job.mirrorFailedCount || 0) >= PET_AVATAR_ANIMATION_MIRROR_MAX_ATTEMPTS) return;
+    const retrySourceUrl = String(job.sourceResultUrl || sourceUrl || '').trim();
+    if (!/^https?:\/\//i.test(retrySourceUrl) || retrySourceUrl.includes('/storage/objects/')) return;
+    markAvatarAnimationMirroring(user, job, retrySourceUrl);
+    saveState();
+    void runAvatarAnimationMirror(requestSnapshotForAvatarJob(reqSnapshot), ownerPhone, jobId, retrySourceUrl);
+  }, Math.max(0, Number(delayMs || 0)));
+  avatarAnimationMirrorRetryTimers.set(jobId, timer);
+  if (typeof timer.unref === 'function') timer.unref();
+  return true;
+}
+
+function resumePendingAvatarAnimationMirrors(now = Date.now()) {
+  let scheduled = 0;
+  Object.values(state.avatarAnimationJobs || {}).forEach((job) => {
+    if (!job || job.status !== 'processing') return;
+    if (!['mirror_failed', 'ready_mirroring'].includes(String(job.providerStatus || ''))) return;
+    if (now - Number(job.createdAt || now) >= AVATAR_ANIMATION_JOB_STATUS_TIMEOUT_MS) return;
+    if (Number(job.mirrorFailedCount || 0) >= PET_AVATAR_ANIMATION_MIRROR_MAX_ATTEMPTS) return;
+    const sourceUrl = String(job.sourceResultUrl || job.videoUrl || job.resultUrl || '').trim();
+    if (!/^https?:\/\//i.test(sourceUrl) || sourceUrl.includes('/storage/objects/')) return;
+    const retryAt = job.providerStatus === 'mirror_failed'
+      ? Number(job.mirrorFailedAt || now) + PET_AVATAR_ANIMATION_MIRROR_RETRY_MS
+      : now;
+    if (scheduleAvatarAnimationMirrorRetry(requestSnapshotForAvatarJob(), job.ownerPhone, job.id, sourceUrl, Math.max(0, retryAt - now))) {
+      scheduled += 1;
+    }
+  });
+  return scheduled;
+}
+
 function markAvatarAnimationMirroring(user, job, sourceUrl) {
   job.sourceResultUrl = job.sourceResultUrl || sourceUrl;
   job.videoUrl = '';
@@ -7079,6 +7125,7 @@ async function runAvatarAnimationMirror(reqSnapshot, ownerPhone, jobId, sourceUr
         pet.avatarAnimationUrl = mirroredUrl;
       }
       touchAvatarAnimationJob(job);
+      clearAvatarAnimationMirrorRetry(job.id);
     } else {
       throw new Error('Animation video mirror did not produce a local storage URL');
     }
@@ -7092,11 +7139,13 @@ async function runAvatarAnimationMirror(reqSnapshot, ownerPhone, jobId, sourceUr
       markAvatarAnimationFailure(job, 'AVATAR_ANIMATION_MIRROR_FAILED', '灵伴动效视频处理失败，请稍后重新生成。', 'mirror_failed');
       syncAvatarAnimationJobToPet(user, job, { force: true });
       writeAdminAudit({ role: 'system', username: 'system' }, 'ai.avatar_animation.mirror_failed', 'avatar_animation_job', job.id, before, job, message);
+      clearAvatarAnimationMirrorRetry(job.id);
     } else {
       job.providerStatus = 'mirror_failed';
       job.status = 'processing';
       job.progress = Math.max(96, Number(job.progress || 96));
       touchAvatarAnimationJob(job);
+      scheduleAvatarAnimationMirrorRetry(reqSnapshot, ownerPhone, job.id, sourceUrl);
     }
     console.warn('[avatar-animation] ready video mirror skipped', {
       attempts: job.mirrorFailedCount,
@@ -7112,6 +7161,7 @@ function queueReadyAvatarAnimationMirrorIfNeeded(req, user, job) {
   if (!avatarAnimationNeedsLocalMirror(job)) return false;
   const sourceUrl = String(job.videoUrl || job.resultUrl || job.sourceResultUrl || '').trim();
   if (!sourceUrl) return false;
+  if (avatarAnimationMirrorRetryTimers.has(job.id)) return true;
   const now = Date.now();
   if (job.providerStatus === 'ready_mirroring' && Number(job.mirrorQueuedAt || 0) && now - Number(job.mirrorQueuedAt || 0) < 10 * 60 * 1000) {
     return true;
@@ -15574,12 +15624,20 @@ function markAvatarRefreshFailure(job, error) {
   return job;
 }
 
-function requestSnapshotForAvatarJob(req) {
+function requestSnapshotForAvatarJob(req = null) {
+  const requestHeaders = req?.headers || {};
+  let publicHost = '';
+  let publicProto = '';
+  try {
+    const publicUrl = new URL(PET_AVATAR_PUBLIC_BASE_URL || PUBLIC_API_BASE_URL);
+    publicHost = publicUrl.host;
+    publicProto = publicUrl.protocol.replace(/:$/, '');
+  } catch {}
   return {
     headers: {
-      host: req.headers.host,
-      'x-forwarded-host': req.headers['x-forwarded-host'],
-      'x-forwarded-proto': req.headers['x-forwarded-proto'],
+      host: requestHeaders.host || publicHost || '127.0.0.1',
+      'x-forwarded-host': requestHeaders['x-forwarded-host'] || publicHost || undefined,
+      'x-forwarded-proto': requestHeaders['x-forwarded-proto'] || publicProto || undefined,
     },
   };
 }
@@ -34983,13 +35041,34 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   return true;
 }
 
+function incomingRequestUrl(req) {
+  const host = String(req.headers.host || '').trim();
+  if (host) {
+    try {
+      const parsedHost = new URL(`http://${host}`);
+      if (parsedHost.username || parsedHost.password || parsedHost.pathname !== '/' || parsedHost.search || parsedHost.hash) return null;
+    } catch {
+      return null;
+    }
+  }
+  try {
+    return new URL(String(req.url || '/'), 'http://lumii.internal');
+  } catch {
+    return null;
+  }
+}
+
 async function handle(req, res) {
+  const url = incomingRequestUrl(req);
+  if (!url) {
+    fail(res, 400, '请求地址无效', false, undefined, 'INVALID_REQUEST_URL');
+    return;
+  }
   if (req.method === 'OPTIONS') {
     sendJson(res, 200, true);
     return;
   }
 
-  const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
   recordPublicApiExternalRequestProof(req, pathname);
   runDueAccountDeletionSweep();
@@ -37510,6 +37589,12 @@ try {
   scheduleAccountDeletionObjectCleanup();
 } catch (error) {
   console.error('Failed to process account deletions during startup', error);
+}
+
+try {
+  resumePendingAvatarAnimationMirrors();
+} catch (error) {
+  console.error('Failed to resume avatar animation mirrors during startup', error);
 }
 
 server.listen(port, BACKEND_HOST, () => {

@@ -145,8 +145,8 @@ async function startBackend(port) {
       LUMII_BACKEND_PORT: String(port),
       LUMII_BACKEND_STATE_PATH: statePath,
       PET_AVATAR_ANIMATION_DOWNLOAD_TIMEOUT_MS: '300',
-      PET_AVATAR_ANIMATION_MIRROR_MAX_ATTEMPTS: '2',
-      PET_AVATAR_ANIMATION_MIRROR_RETRY_MS: '50',
+      PET_AVATAR_ANIMATION_MIRROR_MAX_ATTEMPTS: '3',
+      PET_AVATAR_ANIMATION_MIRROR_RETRY_MS: '1000',
       PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED: 'false',
       PET_AVATAR_ANIMATION_PROVIDER: 'doubao-seedance-1-5-pro',
       PET_AVATAR_PROVIDER: 'mock',
@@ -226,15 +226,18 @@ async function createPet(token) {
   return payload.data;
 }
 
-async function waitForAnimationFailure(token, petId) {
-  const deadline = Date.now() + 8_000;
+async function waitForSavedMirrorState(predicate, timeoutMs = 8_000) {
+  const deadline = Date.now() + timeoutMs;
   let latest = null;
   while (Date.now() < deadline) {
-    latest = await request(`/ai/pet-avatar/animation/latest?petId=${encodeURIComponent(petId)}`, { token });
-    if (latest.data?.status === 'failed') return latest.data;
-    await delay(100);
+    try {
+      const savedState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+      latest = Object.values(savedState.avatarAnimationJobs || {})[0] || null;
+      if (predicate(latest)) return latest;
+    } catch {}
+    await delay(50);
   }
-  throw new Error(`animation mirror failure did not converge: ${JSON.stringify(latest?.data || null)}`);
+  throw new Error(`saved mirror state did not converge: ${JSON.stringify(latest)}`);
 }
 
 async function main() {
@@ -253,7 +256,14 @@ async function main() {
     });
     assert.equal(started.data.status, 'processing');
 
-    const failed = await waitForAnimationFailure(userToken, pet.id);
+    await waitForSavedMirrorState((job) => Boolean(job?.providerJobId));
+    const mirrorStarted = await request(`/ai/pet-avatar/animation/latest?petId=${encodeURIComponent(pet.id)}`, { token: userToken });
+    assert.equal(mirrorStarted.data.status, 'processing');
+    await waitForSavedMirrorState((job) => Number(job?.mirrorFailedCount || 0) === 1 && job?.providerStatus === 'mirror_failed');
+
+    await stopBackend();
+    await startBackend(await getFreePort());
+    const failed = await waitForSavedMirrorState((job) => job?.status === 'failed');
     assert.equal(failed.errorCode, 'AVATAR_ANIMATION_MIRROR_FAILED');
     assert.equal(failed.providerStatus, 'mirror_failed');
     assert.equal(failed.videoUrl, '');
@@ -265,7 +275,7 @@ async function main() {
     assert.equal(row.status, 'failed');
     assert.equal(row.errorCode, 'AVATAR_ANIMATION_MIRROR_FAILED');
     assert.equal(row.providerStatus, 'mirror_failed');
-    assert.equal(Number(row.mirrorFailedCount || 0) >= 2, true);
+    assert.equal(Number(row.mirrorFailedCount || 0) >= 3, true);
 
     const audit = await request(`/admin/audit-logs?action=ai.avatar_animation.mirror_failed&targetType=avatar_animation_job&q=${encodeURIComponent(failed.id)}`, { token: adminToken });
     assert.equal(audit.data.items.some((item) => item.action === 'ai.avatar_animation.mirror_failed' && item.targetId === failed.id), true);
@@ -276,7 +286,7 @@ async function main() {
     assert.equal(savedPet.avatarAnimationStatus, 'failed');
     assert.equal(savedPet.avatarAnimationUrl || '', '');
     assert.equal(submitCount, 1);
-    assert.equal(statusCount >= 2, true);
+    assert.equal(statusCount, 1, 'mirror retries must not depend on more client status polling');
 
     console.log('avatar animation mirror failure smoke passed');
   } finally {
