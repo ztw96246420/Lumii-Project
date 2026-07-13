@@ -987,7 +987,9 @@ export type AppRemoteConfig = {
       enabled?: boolean;
       force?: boolean;
       iosUrl?: string;
+      latestBuildNumber?: number;
       latestVersion?: string;
+      minBuildNumber?: number;
       minVersion?: string;
       rolloutPercent?: number;
       subtitle?: string;

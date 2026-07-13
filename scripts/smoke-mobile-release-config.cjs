@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const typescript = require(path.join(__dirname, '..', 'mobile', 'node_modules', 'typescript'));
 
 const rootDir = path.resolve(__dirname, '..');
 const mobileDir = path.join(rootDir, 'mobile');
@@ -56,11 +57,54 @@ const appConfig = JSON.parse(fs.readFileSync(path.join(mobileDir, 'app.json'), '
 assert.equal(appConfig.expo.android.allowBackup, false);
 assert.ok(!appConfig.expo.android.permissions.includes('android.permission.RECORD_AUDIO'));
 assert.ok(!appConfig.expo.android.permissions.includes('android.permission.SYSTEM_ALERT_WINDOW'));
+assert.ok(appConfig.expo.android.versionCode >= 14, 'the release candidate must be versionCode 14 or newer');
 
 const gradle = fs.readFileSync(path.join(mobileDir, 'android', 'app', 'build.gradle'), 'utf8');
 assert.match(gradle, /findProperty\("LUMII_ALLOW_CLEARTEXT"\)/);
 assert.match(gradle, /LUMII_ALLOW_CLEARTEXT/);
 assert.match(gradle, /\?: "false"/);
+assert.equal(Number(gradle.match(/versionCode\s+(\d+)/)?.[1]), appConfig.expo.android.versionCode, 'Gradle and app.json version codes must match');
+assert.equal(gradle.match(/versionName\s+"([^"]+)"/)?.[1], appConfig.expo.version, 'Gradle and app.json versions must match');
+
+const appVersionSource = fs.readFileSync(path.join(mobileDir, 'src', 'mvp', 'appVersion.ts'), 'utf8');
+const appVersionCompiled = typescript.transpileModule(appVersionSource, {
+  compilerOptions: {
+    esModuleInterop: true,
+    module: typescript.ModuleKind.CommonJS,
+    resolveJsonModule: true,
+    target: typescript.ScriptTarget.ES2022,
+  },
+}).outputText;
+
+function loadAppVersionPolicy(nativeApplicationVersion, nativeBuildVersion) {
+  const module = { exports: {} };
+  const localRequire = (request) => {
+    if (request === 'expo-application') return { nativeApplicationVersion, nativeBuildVersion };
+    if (request === '../../app.json') return appConfig;
+    throw new Error(`Unexpected app version module dependency: ${request}`);
+  };
+  new Function('require', 'module', 'exports', appVersionCompiled)(localRequire, module, module.exports);
+  return module.exports;
+}
+
+const nativeVersionPolicy = loadAppVersionPolicy('2.4.1', '99');
+assert.equal(nativeVersionPolicy.lumiiAppVersion, '2.4.1', 'installed native version must override bundled config');
+assert.equal(nativeVersionPolicy.lumiiAppBuildNumber, 99, 'installed native build must override bundled config');
+const fallbackVersionPolicy = loadAppVersionPolicy(null, null);
+assert.equal(fallbackVersionPolicy.lumiiAppVersion, appConfig.expo.version, 'web preview must fall back to app.json version');
+assert.equal(fallbackVersionPolicy.lumiiAppBuildNumber, appConfig.expo.android.versionCode, 'web preview must fall back to app.json build');
+assert.equal(fallbackVersionPolicy.isAppBuildTargetNewer('1.0.0', 13, '1.0.0', 14), true, 'same version with a newer build must update');
+assert.equal(fallbackVersionPolicy.isAppBuildTargetNewer('1.0.0', 14, '1.0.0', 14), false, 'the current build must not update itself');
+assert.equal(fallbackVersionPolicy.isAppBuildTargetNewer('1.0.0', 99, '1.1.0', 1), true, 'a newer semantic version must update regardless of build reset');
+assert.equal(fallbackVersionPolicy.isAppBuildTargetNewer('1.1.0', 1, '1.0.0', 99), false, 'an older semantic version must not override by build number');
+assert.equal(fallbackVersionPolicy.isAppBuildTargetNewer('1.0.0', 13, '', 14), true, 'a build-only target must be supported');
+assert.equal(fallbackVersionPolicy.appBuildTargetKey('1.0.0', 14), '1.0.0#14');
+assert.equal(fallbackVersionPolicy.formatAppBuildTarget('1.0.0', 14), '1.0.0 (14)');
+
+const appSource = fs.readFileSync(path.join(mobileDir, 'src', 'mvp', 'LumiiMvpApp.tsx'), 'utf8');
+assert.match(appSource, /from '\.\/appVersion'/);
+assert.doesNotMatch(appSource, /const\s+lumiiAppBuildNumber\s*=\s*\d+/);
+assert.doesNotMatch(appSource, /const\s+lumiiAppVersion\s*=\s*['"][^'"]+['"]/);
 
 const apiSource = fs.readFileSync(path.join(mobileDir, 'src', 'mvp', 'api.ts'), 'utf8');
 assert.match(apiSource, /process\.env\.EXPO_PUBLIC_API_BASE_URL/);

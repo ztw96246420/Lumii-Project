@@ -102,6 +102,7 @@ import { getLumiiPushRegistration } from '../services/pushToken';
 import { clearPersistedLumiiSession, deleteLocalJsonStorage, loadLocalJsonStorage, loadPersistedLumiiSession, saveLocalJsonStorage, savePersistedLumiiSession } from '../services/sessionStorage';
 import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
 import { apiConfig, lumiiApi, setLumiiAuthToken, setLumiiUnauthorizedHandler } from './api';
+import { appBuildTargetKey, formatAppBuildTarget, isAppBuildTargetNewer, lumiiAppBuildNumber, lumiiAppVersion, normalizeAppBuildNumber } from './appVersion';
 import { mockApi } from './mockApi';
 import { productConfig } from './productConfig';
 import { BottomSheet, Button, Card, ConfirmDialog, EmptyState, ErrorState, Field, SkeletonLine, StatusPill, Toast, palette, styles as uiStyles } from './ui';
@@ -164,8 +165,6 @@ const defaultDiscoverRadiusKm = 10;
 const nearbyPublishLocationMaxAgeMs = 10 * 60 * 1000;
 const fallbackPetAvatarDailyLimit = 10;
 const fallbackPetChatDailyLimit = 80;
-const lumiiAppVersion = '1.0.0';
-const lumiiAppBuildNumber = 12;
 const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
 const lumiiCompanionPanelBackground = '#FFFDFC';
@@ -217,7 +216,9 @@ const fallbackRemoteConfig: AppRemoteConfig = {
       enabled: false,
       force: false,
       iosUrl: '',
+      latestBuildNumber: 0,
       latestVersion: '',
+      minBuildNumber: 0,
       minVersion: '',
       rolloutPercent: 100,
       subtitle: '',
@@ -965,27 +966,6 @@ function getAppSplashSeenStorageKey(phone: string, version: string) {
 
 function getAppUpdateDismissedStorageKey(phone: string, version: string) {
   return `lumii-app-update-dismissed:${phone}:${version}`;
-}
-
-function normalizeAppVersionNumbers(value?: null | string) {
-  return String(value || '')
-    .trim()
-    .split(/[^\d]+/)
-    .filter(Boolean)
-    .map((part) => Number(part));
-}
-
-function compareAppVersions(left?: null | string, right?: null | string) {
-  const leftParts = normalizeAppVersionNumbers(left);
-  const rightParts = normalizeAppVersionNumbers(right);
-  if (!rightParts.length) return 0;
-  const length = Math.max(leftParts.length, rightParts.length, 3);
-  for (let index = 0; index < length; index += 1) {
-    const diff = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
-    if (diff > 0) return 1;
-    if (diff < 0) return -1;
-  }
-  return 0;
 }
 
 function hashStringToPercent(value: string) {
@@ -2784,11 +2764,25 @@ export default function LumiiMvpApp() {
   const maintenanceMessage = remoteConfig.app.maintenanceMessage || '灵伴正在维护升级，请稍后再试';
   const appUpdate = remoteConfig.app.update;
   const appUpdateLatestVersion = String(appUpdate?.latestVersion || '').trim();
+  const appUpdateLatestBuildNumber = normalizeAppBuildNumber(appUpdate?.latestBuildNumber);
   const appUpdateMinVersion = String(appUpdate?.minVersion || '').trim();
-  const appUpdateVersionKey = appUpdateLatestVersion || appUpdateMinVersion;
+  const appUpdateMinBuildNumber = normalizeAppBuildNumber(appUpdate?.minBuildNumber);
+  const appUpdateVersionKey = appBuildTargetKey(
+    appUpdateLatestVersion || appUpdateMinVersion,
+    appUpdateLatestBuildNumber || appUpdateMinBuildNumber,
+  );
   const appUpdateRolloutPercent = Math.max(0, Math.min(100, Math.floor(appUpdate?.rolloutPercent ?? 100)));
-  const appUpdateRequired = Boolean(appUpdate?.enabled && appUpdate.force && appUpdateMinVersion && compareAppVersions(lumiiAppVersion, appUpdateMinVersion) < 0 && !isHomePreviewMode);
-  const appUpdateAvailable = Boolean(appUpdate?.enabled && appUpdateLatestVersion && compareAppVersions(lumiiAppVersion, appUpdateLatestVersion) < 0 && !isHomePreviewMode);
+  const appUpdateRequired = Boolean(
+    appUpdate?.enabled
+    && appUpdate.force
+    && isAppBuildTargetNewer(lumiiAppVersion, lumiiAppBuildNumber, appUpdateMinVersion, appUpdateMinBuildNumber)
+    && !isHomePreviewMode,
+  );
+  const appUpdateAvailable = Boolean(
+    appUpdate?.enabled
+    && isAppBuildTargetNewer(lumiiAppVersion, lumiiAppBuildNumber, appUpdateLatestVersion, appUpdateLatestBuildNumber)
+    && !isHomePreviewMode,
+  );
   const appUpdateRolloutAllowed = appUpdateRequired || appUpdateRolloutPercent >= 100 || hashStringToPercent(session?.phone || 'guest') < appUpdateRolloutPercent;
   const appUpdateDismissedKey = session?.phone && appUpdateAvailable && appUpdateVersionKey ? getAppUpdateDismissedStorageKey(session.phone, appUpdateVersionKey) : '';
   const shouldShowAppUpdate = appUpdateRequired || Boolean(session && appUpdateAvailable && appUpdateRolloutAllowed);
@@ -3038,12 +3032,16 @@ export default function LumiiMvpApp() {
     if (!appUpdateVisible || !appUpdate?.enabled || !appUpdateVersionKey) return;
     trackAppConfigPromptImpression('config.update_impression', 'update', appUpdateVersionKey, {
       force: appUpdateRequired,
+      currentBuildNumber: lumiiAppBuildNumber,
+      currentVersion: lumiiAppVersion,
+      latestBuildNumber: appUpdateLatestBuildNumber,
       latestVersion: appUpdateLatestVersion,
+      minBuildNumber: appUpdateMinBuildNumber,
       minVersion: appUpdateMinVersion,
       rolloutPercent: appUpdateRolloutPercent,
       source: appUpdateRequired ? 'force_update_modal' : 'update_modal',
     });
-  }, [appUpdate?.enabled, appUpdateLatestVersion, appUpdateMinVersion, appUpdateRequired, appUpdateRolloutPercent, appUpdateVersionKey, appUpdateVisible]);
+  }, [appUpdate?.enabled, appUpdateLatestBuildNumber, appUpdateLatestVersion, appUpdateMinBuildNumber, appUpdateMinVersion, appUpdateRequired, appUpdateRolloutPercent, appUpdateVersionKey, appUpdateVisible]);
 
   useEffect(() => {
     if (!appSplashVisible || !appSplash?.enabled || !appSplashVersion) return;
@@ -5688,7 +5686,11 @@ export default function LumiiMvpApp() {
     const targetUrl = getAppUpdateTargetUrl(appUpdate);
     trackAppConfigPromptAction('config.update_action', 'update', appUpdateVersionKey, {
       force: appUpdateRequired,
+      currentBuildNumber: lumiiAppBuildNumber,
+      currentVersion: lumiiAppVersion,
+      latestBuildNumber: appUpdateLatestBuildNumber,
       latestVersion: appUpdateLatestVersion,
+      minBuildNumber: appUpdateMinBuildNumber,
       minVersion: appUpdateMinVersion,
       rolloutPercent: appUpdateRolloutPercent,
       source: appUpdateRequired ? 'force_update_modal' : 'update_modal',
@@ -18053,7 +18055,10 @@ export default function LumiiMvpApp() {
 
   function renderAppUpdateModal() {
     if (!appUpdate?.enabled || (!appUpdateRequired && !appUpdateAvailable)) return null;
-    const latestVersionText = appUpdateLatestVersion || appUpdateMinVersion || '新版本';
+    const latestVersionText = formatAppBuildTarget(
+      appUpdateLatestVersion || appUpdateMinVersion,
+      appUpdateLatestBuildNumber || appUpdateMinBuildNumber,
+    );
     const title = appUpdate.title?.trim() || (appUpdateRequired ? '需要更新后继续使用' : '发现新版本');
     const body = appUpdate.subtitle?.trim() || (appUpdateRequired ? '当前版本已经低于最低可用版本，请先更新到最新版本。' : '新版本已准备好，建议更新后体验更稳定的灵伴。');
     return (

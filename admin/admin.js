@@ -9275,9 +9275,9 @@ async function renderConfig(force) {
         <div class="section-head compact">
           <div>
             <h2>版本与启动策略</h2>
-            <div class="section-sub">App 每次读取 /app/config 后会按版本、灰度比例和启动提示版本展示对应弹窗</div>
+            <div class="section-sub">App 每次读取 /app/config 后会按原生版本号、构建号、灰度比例和启动提示版本展示对应弹窗</div>
           </div>
-          ${help('强制更新需要填写最低可用版本和下载地址；可选更新按最新版本与灰度比例展示。启动提示按用户和提示版本只展示一次，修改版本号即可再次触达。')}
+          ${help('版本名相同时通过构建号区分 APK。强制更新至少填写最低版本或最低构建号及下载地址；可选更新至少填写最新版本或最新构建号。')}
         </div>
         <div class="switch-panel">
           ${featureCheckbox('cfgUpdateEnabled', '启用版本更新提示', update.enabled)}
@@ -9286,7 +9286,9 @@ async function renderConfig(force) {
         </div>
         <div class="config-grid announcement-grid">
           <label>最低可用版本<input id="cfgUpdateMinVersion" maxlength="32" placeholder="例如 1.0.1" value="${escapeHtml(update.minVersion || '')}" /></label>
+          <label>最低可用构建号<input id="cfgUpdateMinBuildNumber" type="number" min="0" max="2147483647" step="1" value="${Number.isInteger(Number(update.minBuildNumber)) ? Number(update.minBuildNumber) : 0}" /></label>
           <label>最新版本<input id="cfgUpdateLatestVersion" maxlength="32" placeholder="例如 1.1.0" value="${escapeHtml(update.latestVersion || '')}" /></label>
+          <label>最新构建号<input id="cfgUpdateLatestBuildNumber" type="number" min="0" max="2147483647" step="1" value="${Number.isInteger(Number(update.latestBuildNumber)) ? Number(update.latestBuildNumber) : 0}" /></label>
           <label>灰度比例 %<input id="cfgUpdateRolloutPercent" type="number" min="0" max="100" value="${Number.isFinite(Number(update.rolloutPercent)) ? update.rolloutPercent : 100}" /></label>
           <label>更新标题<input id="cfgUpdateTitle" maxlength="40" placeholder="例如 发现新版本" value="${escapeHtml(update.title || '发现新版本')}" /></label>
           <label class="wide">更新说明<textarea id="cfgUpdateSubtitle" maxlength="140" placeholder="给用户说明为什么需要更新">${escapeHtml(update.subtitle || '')}</textarea></label>
@@ -9597,18 +9599,23 @@ async function saveConfig(mode = 'publish') {
   const updateEnabled = $('cfgUpdateEnabled').checked;
   const updateForce = $('cfgUpdateForce').checked;
   const updateMinVersion = $('cfgUpdateMinVersion').value.trim();
+  const updateMinBuildNumber = Number($('cfgUpdateMinBuildNumber').value || 0);
   const updateLatestVersion = $('cfgUpdateLatestVersion').value.trim();
+  const updateLatestBuildNumber = Number($('cfgUpdateLatestBuildNumber').value || 0);
   const updateAndroidUrl = $('cfgUpdateAndroidUrl').value.trim();
   const updateIosUrl = $('cfgUpdateIosUrl').value.trim();
   const splashEnabled = $('cfgSplashEnabled').checked;
-  if (updateEnabled && !updateMinVersion && !updateLatestVersion) {
-    throw new Error('启用版本更新时，请至少填写最低可用版本或最新版本');
+  if (![updateMinBuildNumber, updateLatestBuildNumber].every((value) => Number.isInteger(value) && value >= 0 && value <= 2147483647)) {
+    throw new Error('版本构建号必须是 0-2147483647 之间的整数');
   }
-  if (updateEnabled && !updateForce && !updateLatestVersion) {
-    throw new Error('可选更新需要填写最新版本');
+  if (updateEnabled && !updateMinVersion && !updateMinBuildNumber && !updateLatestVersion && !updateLatestBuildNumber) {
+    throw new Error('启用版本更新时，请至少填写版本号或构建号');
   }
-  if (updateForce && (!updateMinVersion || (!updateAndroidUrl && !updateIosUrl))) {
-    throw new Error('强制更新需要填写最低可用版本，并至少配置一个下载地址');
+  if (updateEnabled && !updateForce && !updateLatestVersion && !updateLatestBuildNumber) {
+    throw new Error('可选更新需要填写最新版本或最新构建号');
+  }
+  if (updateForce && ((!updateMinVersion && !updateMinBuildNumber) || (!updateAndroidUrl && !updateIosUrl))) {
+    throw new Error('强制更新需要填写最低可用版本或最低构建号，并至少配置一个下载地址');
   }
   if ((updateAndroidUrl && !/^https?:\/\//i.test(updateAndroidUrl)) || (updateIosUrl && !/^https?:\/\//i.test(updateIosUrl))) {
     throw new Error('更新下载地址必须以 http:// 或 https:// 开头');
@@ -9881,7 +9888,9 @@ async function saveConfig(mode = 'publish') {
         enabled: updateEnabled,
         force: updateForce,
         iosUrl: updateIosUrl,
+        latestBuildNumber: updateLatestBuildNumber,
         latestVersion: updateLatestVersion,
+        minBuildNumber: updateMinBuildNumber,
         minVersion: updateMinVersion,
         rolloutPercent: Number($('cfgUpdateRolloutPercent').value),
         subtitle: $('cfgUpdateSubtitle').value,

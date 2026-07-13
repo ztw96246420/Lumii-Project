@@ -136,11 +136,27 @@ async function main() {
     const adminToken = await loginAdmin();
     const initial = await request('/admin/config', { token: adminToken });
     assert.equal(initial.data.experiments.homeAiEntry.enabled, false);
+    assert.equal(initial.data.app.update.latestBuildNumber, 0);
+    assert.equal(initial.data.app.update.minBuildNumber, 0);
     assert.ok(initial.data.linkage.items.some((item) => item.key === 'experiments.homeAiEntry.enabled' && item.status === 'mobile_only'));
     assert.equal(initial.data.linkage.summary.reserved, 0);
 
     const published = await request('/admin/config', {
       body: {
+        app: {
+          update: {
+            androidUrl: 'https://download.lumiiapp.cn/Lumii-Lingban.apk',
+            enabled: true,
+            force: false,
+            latestBuildNumber: 14,
+            latestVersion: '1.0.0',
+            minBuildNumber: 13,
+            minVersion: '1.0.0',
+            rolloutPercent: 50,
+            subtitle: '同版本构建号升级回归',
+            title: '发现新构建',
+          },
+        },
         experiments: {
           homeAiEntry: {
             controlSubtitle: 'A 组和 {petName} 聊一点轻松日常',
@@ -161,12 +177,17 @@ async function main() {
     });
     assert.equal(published.data.experiments.homeAiEntry.enabled, true);
     assert.equal(published.data.experiments.homeAiEntry.id, 'home_ai_entry_copy_smoke');
+    assert.equal(published.data.app.update.latestBuildNumber, 14);
+    assert.equal(published.data.app.update.minBuildNumber, 13);
     assert.ok(published.data.revisions[0].changeSummary.some((item) => item.key === 'experiments.homeAiEntry.enabled'));
 
     const appConfig = await request('/app/config');
     assert.equal(appConfig.data.experiments.homeAiEntry.enabled, true);
     assert.equal(appConfig.data.experiments.homeAiEntry.variantBPercent, 100);
     assert.equal(appConfig.data.experiments.homeAiEntry.treatmentTitle, '问问小心情');
+    assert.equal(appConfig.data.app.update.latestBuildNumber, 14);
+    assert.equal(appConfig.data.app.update.minBuildNumber, 13);
+    assert.equal(appConfig.data.app.update.latestVersion, '1.0.0');
 
     const userToken = await loginUser('13531850966');
     const exposure = await request('/analytics/events', {

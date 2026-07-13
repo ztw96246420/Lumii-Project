@@ -188,12 +188,19 @@ async function main() {
     await page.locator('#loginBtn').click();
     await page.locator('button[data-route="config"]').click();
     await page.locator('#cfgHighRiskApprovalRequireDifferentAdmin').waitFor({ state: 'attached', timeout: 30_000 });
+    await page.locator('#cfgUpdateMinBuildNumber').waitFor({ state: 'attached', timeout: 30_000 });
+    assert.equal(await page.locator('#cfgUpdateMinBuildNumber').getAttribute('min'), '0');
+    assert.equal(await page.locator('#cfgUpdateLatestBuildNumber').getAttribute('step'), '1');
     assert.deepEqual(
       await page.locator('#cfgDiscoverRadiusKm option').allTextContents(),
       ['10 km', '5 km', '3 km'],
       'nearby radius control should expose only the supported launch tiers',
     );
     await page.locator('#cfgDiscoverRadiusKm').selectOption('5');
+    await page.locator('#cfgUpdateMinVersion').fill('1.0.0');
+    await page.locator('#cfgUpdateMinBuildNumber').fill('13');
+    await page.locator('#cfgUpdateLatestVersion').fill('1.0.0');
+    await page.locator('#cfgUpdateLatestBuildNumber').fill('14');
     await page.locator('#cfgHighRiskApprovalRequireDifferentAdmin').check();
     await page.locator('#cfgHighRiskApprovalRequiredApprovals').fill('2');
     await page.locator('#cfgHighRiskApprovalPendingExpiresHours').fill('36');
@@ -204,6 +211,8 @@ async function main() {
     assert.equal(saved.highRiskApproval.requiredApprovals, 2);
     assert.equal(saved.highRiskApproval.pendingExpiresHours, 36);
     assert.equal(saved.social.discoverRadiusKm, 5);
+    assert.equal(saved.app.update.minBuildNumber, 13);
+    assert.equal(saved.app.update.latestBuildNumber, 14);
     assert.ok(saved.linkage?.items?.some((item) => item.key === 'highRiskApproval.requireDifferentAdmin'));
     assert.ok(saved.linkage?.items?.some((item) => item.key === 'highRiskApproval.requiredApprovals'));
 
