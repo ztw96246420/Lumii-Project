@@ -8,6 +8,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const rootDir = path.join(__dirname, '..');
+const artifactDir = path.join(rootDir, 'artifacts', 'admin-native');
 const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-admin-legal-page-'));
 const statePath = path.join(tmpDir, 'state.json');
@@ -175,6 +176,38 @@ async function main() {
     assert.equal(await page.locator('button[data-action="legal-doc-edit"]').count(), 4);
     assert.equal(await page.locator('button[data-action="legal-doc-approve"]').count(), 4);
     assert.equal(await page.locator('button[data-action="legal-doc-reset"]').count(), 4);
+
+    await page.locator('#legalOperatorName').fill('灵伴后台视觉回归运营主体');
+    await page.locator('#legalOperatorEmail').fill('privacy@example.com');
+    await page.locator('#legalOperatorReason').fill('后台页面回归配置运营主体');
+    await page.locator('button[data-action="legal-operator-save"]').click();
+    await page.locator('#legalOperatorName').waitFor({ timeout: 30_000 });
+    assert.equal(await page.locator('#legalOperatorName').inputValue(), '灵伴后台视觉回归运营主体');
+
+    await page.locator('button[data-action="legal-doc-edit"][data-key="privacy"]').click();
+    await page.locator('#legalDocumentEditor').waitFor({ timeout: 30_000 });
+    assert.match(await page.locator('#legalDocBody').inputValue(), /^## /u);
+    await page.locator('#legalDocVersion').fill('2026.07.14-privacy-ui');
+    await page.locator('#legalDocReason').fill('后台页面回归保存隐私政策草稿');
+    await page.locator('button[data-action="legal-doc-edit-save"]').click();
+    await page.locator('#legalDocumentEditor').waitFor({ state: 'detached', timeout: 30_000 });
+
+    page.on('dialog', async (dialog) => {
+      if (dialog.type() === 'prompt') await dialog.accept('后台页面回归签署发布');
+      else await dialog.accept();
+    });
+    const privacyApprove = page.locator('button[data-action="legal-doc-approve"][data-key="privacy"]');
+    assert.equal(await privacyApprove.isEnabled(), true);
+    await privacyApprove.click();
+    await page.getByText('线上 2026.07.14-privacy-ui').waitFor({ timeout: 30_000 });
+
+    const publicPrivacy = await request('/legal/privacy');
+    assert.equal(publicPrivacy.data.version, '2026.07.14-privacy-ui');
+    assert.equal(publicPrivacy.data.productionReady, true);
+    assert.equal(publicPrivacy.data.operatorProfile.operatorName, '灵伴后台视觉回归运营主体');
+
+    fs.mkdirSync(artifactDir, { recursive: true });
+    await page.screenshot({ fullPage: true, path: path.join(artifactDir, 'legal-documents-production-flow.png') });
 
     console.log('admin legal documents page smoke passed');
   } finally {

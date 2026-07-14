@@ -69,3 +69,11 @@ node scripts/smoke-launch-regression.cjs --only=legal-documents,admin-legal-docu
 ```
 
 完整回归默认会运行 `legal-documents`；带 `--include-visual` 时会运行后台页面检查。
+
+## 2026-07-14 production-readiness update
+
+- Documents now have separate draft and published state. Publishing creates an immutable revision snapshot with a content hash; later edits create a new draft and do not rewrite historical consent evidence.
+- The operator profile is maintained in the same admin page and covers the legal entity name, unified social credit code, registered address, support/privacy contacts, ICP/App filing details, and third-party/SDK disclosure details required by the document templates.
+- Placeholder, test, or incomplete operator values keep the documents non-production-ready. The server will not invent an entity, sign on behalf of an authorized person, or auto-enable consent enforcement.
+- Login consent traces store the exact terms/privacy versions, revision IDs, content hashes, acceptance source, timestamp, and mobile build evidence used at acceptance time.
+- Legacy `test-*` records migrate to detailed `preview-2026-07-14` drafts on startup. They remain drafts until an authorized operator completes the real profile and explicitly publishes each required document.

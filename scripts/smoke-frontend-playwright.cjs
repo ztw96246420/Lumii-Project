@@ -503,14 +503,14 @@ async function main() {
     await waitExactText(page, '准备好遇见你的灵伴了吗？');
     await page.getByLabel('查看用户协议').click();
     await waitExactText(page, '灵伴用户协议');
-    await waitExactText(page, '服务范围');
-    await waitBodyIncludes(page, '版本 test-2026-06-12 · 生效日期 2026-06-12');
+    await waitExactText(page, '账号与服务');
+    await waitBodyIncludes(page, '版本 preview-2026-07-14 · 生效日期 2026-07-14');
     await screenshot(page, 'smoke-frontend-00-terms-document.png');
     await page.getByLabel('返回').click();
     await waitExactText(page, '准备好遇见你的灵伴了吗？');
     await page.getByLabel('查看隐私政策').click();
     await waitExactText(page, '灵伴隐私政策');
-    await waitExactText(page, '我们收集的信息');
+    await waitExactText(page, '处理原则与账号信息');
     await screenshot(page, 'smoke-frontend-00-privacy-document.png');
     await page.getByLabel('返回').click();
     await waitExactText(page, '准备好遇见你的灵伴了吗？');
@@ -554,6 +554,9 @@ async function main() {
           throw new Error(`Upload detail must not present fabricated visual analysis:\n${uploadDetailBody}`);
         }
         await screenshot(page, 'smoke-frontend-00-upload-basic-check.png');
+      }
+      if (routeCase.route === 'petCircleProfile' || routeCase.route === 'petDetail') {
+        await page.getByLabel('AI生成内容标识').first().waitFor({ state: 'visible', timeout: 30_000 });
       }
     }
     await screenshot(page, 'smoke-frontend-00-route-coverage-account-security.png');
@@ -797,6 +800,7 @@ async function main() {
     await screenshot(page, 'smoke-frontend-00g3-vaccine-deleted.png');
 
     await page.goto(`${baseUrl}/?route=aiResult`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await page.getByLabel('AI生成内容标识').first().waitFor({ state: 'visible', timeout: 30_000 });
     await page.getByLabel('select-avatar-candidate-1').click();
     await page.getByLabel('open-avatar-feedback').click();
     await page.getByLabel('avatar-feedback-chip-color_lighter').click();
@@ -807,6 +811,7 @@ async function main() {
     await page.getByLabel('cancel-avatar-regenerate').click();
     await page.getByLabel('save-avatar-result').click();
     await waitExactText(page, '早安，Lucky！');
+    await page.getByLabel('AI生成内容标识').first().waitFor({ state: 'visible', timeout: 30_000 });
     await screenshot(page, 'smoke-frontend-00j-avatar-saved-home.png');
 
     await page.goto(`${baseUrl}/?route=memoNew`, { timeout: 60_000, waitUntil: 'networkidle' });

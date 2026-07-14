@@ -19,6 +19,7 @@ const suites = [
   { key: 'avatar-animation', title: 'Avatar animation lifecycle', script: 'smoke-avatar-animation.cjs', timeoutMs: 180_000 },
   { key: 'avatar-mirror-failure', title: 'Avatar animation mirror failure', script: 'smoke-avatar-animation-mirror-failure.cjs', timeoutMs: 180_000 },
   { key: 'admin-ai-avatar-job-apply', title: 'Admin AI avatar job apply', script: 'smoke-admin-ai-avatar-job-apply.cjs', timeoutMs: 180_000 },
+  { key: 'ai-generated-content-provenance', title: 'AI generated-content labels and provenance', script: 'smoke-ai-generated-content-provenance.cjs', timeoutMs: 180_000 },
   { key: 'ai-avatar-refund', title: 'AI avatar refund', script: 'smoke-ai-avatar-refund.cjs', timeoutMs: 180_000 },
   { key: 'ai-avatar-samples', title: 'AI avatar samples', script: 'smoke-ai-avatar-samples.cjs', timeoutMs: 180_000 },
   { key: 'ai-stuck-reaper', title: 'AI stuck-job recovery', script: 'smoke-ai-stuck-reaper.cjs', timeoutMs: 180_000 },

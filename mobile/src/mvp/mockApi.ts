@@ -241,6 +241,11 @@ let mockUserSettings: UserSettings = {
 };
 const mockMultiPetFixturePets: PetProfile[] = [
   {
+    avatarAiContentId: 'preview-pet-lucky-ai-image',
+    avatarAiGenerated: true,
+    avatarAiGeneratedAt: '2026-07-14T00:00:00.000Z',
+    avatarAiLabelVersion: 'cn-generated-content-v1',
+    avatarAiProvider: 'mock',
     avatarUrl: 'lumii://preview-golden-retriever',
     birthday: '2023-05-18',
     breed: '金毛',
@@ -738,64 +743,104 @@ const petTaxonomy: PetTaxonomy = {
 
 const legalDocuments: Record<LegalDocument['key'], LegalDocument> = {
   privacy: {
-    disclaimer: '当前为灵伴测试版协议文本，用于说明现阶段核心功能与数据处理方式；正式上线前会更新经法务确认的完整版本。',
-    effectiveDate: '2026-06-12',
+    disclaimer: '请完整阅读定位、宠物照片与 AI 处理、第三方服务、账号注销和未成年人保护相关内容。',
+    effectiveDate: '2026-07-14',
     key: 'privacy',
+    productionReady: true,
     sections: [
       {
         body: [
-          '灵伴会在你使用登录、宠物建档、AI 形象生成、附近发现、地图地点和通知提醒时处理必要信息。',
-          '位置信息默认用于附近发现和宠物友好地点推荐；产品侧会优先展示模糊距离，不展示精确住址。',
+          '灵伴仅在具有明确、合理目的并与目的直接相关的范围内处理个人信息，并尽量采用对个人权益影响较小的方式。',
+          '登录时会处理手机号、短信验证记录、协议版本、设备标识、登录会话、IP 地址和必要安全日志。',
         ],
-        title: '我们收集的信息',
+        title: '处理原则与账号信息',
       },
       {
         body: [
-          '你上传的宠物照片用于识别宠物主体、生成电子宠物形象和保存宠物档案。',
-          '如果照片包含人脸、多个宠物或无宠物内容，灵伴会提示重新上传或进入人工/模型校验策略。',
+          '宠物档案、宠物日历、公开小事、评论、招呼、约遛、私信、地点内容、举报和客服反馈用于实现对应功能及安全治理。',
+          '位置信息在获得系统授权后用于附近发现和地点服务；面向其他用户时优先展示模糊距离，不公开原始经纬度。',
         ],
-        title: '宠物照片与 AI 处理',
+        title: '宠物、社区与定位信息',
       },
       {
         body: [
-          '你可以在设置中关闭附近可见、互动消息提醒和推送通知。',
-          '正式上线前，我们会补充个人信息收集清单、第三方 SDK 清单、注销规则和未成年人保护说明。',
+          '当你主动生成灵伴形象、动效或使用宠物 AI 对话时，灵伴会处理你选择的宠物照片、档案摘要、提示词、对话内容和生成结果。',
+          '相关内容可能发送给当前启用的 AI、内容安全和对象存储服务商；如涉及向境外提供个人信息，会依法另行告知并在需要时取得单独同意。',
         ],
-        title: '你的控制权',
+        title: 'AI 与第三方处理',
+      },
+      {
+        body: [
+          '相机、相册、定位和通知权限只在使用相应功能时申请。拒绝后只影响依赖该权限的功能，你可以随时在系统设置中关闭。',
+          '账号注销冷静期届满后，账号、宠物、日历、AI、社交、聊天、通知和客服关联数据会进入永久清理。',
+        ],
+        title: '权限、保存与注销',
+      },
+      {
+        body: [
+          '你可以在 App 内查阅、更正或删除业务记录，调整附近可见和通知设置，管理登录设备，并通过“我的—帮助与反馈”提出个人信息权利请求。',
+          '未满十四周岁的未成年人不得自行注册或提交个人信息；确需使用时，应由监护人依法完成同意。',
+        ],
+        title: '你的权利与未成年人保护',
+      },
+      {
+        body: ['运营者：灵伴视觉预览环境', '投诉与个人信息权利请求渠道：App 内“我的—帮助与反馈”'],
+        title: '运营者与联系',
       },
     ],
+    status: 'approved',
     title: '灵伴隐私政策',
-    version: 'test-2026-06-12',
+    version: 'preview-2026-07-14',
   },
   terms: {
-    disclaimer: '当前为灵伴测试版协议文本，用于说明现阶段核心功能与数据处理方式；正式上线前会更新经法务确认的完整版本。',
-    effectiveDate: '2026-06-12',
+    disclaimer: '宠物健康内容、AI 生成结果、附近社交和线下约遛存在特定风险，请结合实际情况审慎判断。',
+    effectiveDate: '2026-07-14',
     key: 'terms',
+    productionReady: true,
     sections: [
       {
         body: [
-          '灵伴是围绕真实宠物、电子宠物形象、宠物日历记录和宠物主人社交的移动端服务。',
-          '当前版本功能仍在测试，页面、接口和 AI 结果可能持续调整。',
+          '本协议适用于注册、访问和使用 Lumii 灵伴。你应使用本人可正常接收短信的手机号注册，并妥善保护验证码和登录设备。',
+          '灵伴提供宠物档案、宠物日历、AI 灵伴、宠友圈、附近发现、关系消息、宠物友好地点、通知和客服支持。',
         ],
-        title: '服务范围',
+        title: '账号与服务',
       },
       {
         body: [
-          '用户应上传自己有权使用的宠物照片，不应上传侵犯他人权益、暴露他人隐私或无关的内容。',
-          '宠物健康内容仅作记录和提醒，不替代兽医诊断或治疗建议。',
+          'AI 输出可能存在不准确、失真、延迟或失败，不应被视为专业意见或事实保证。生成合成内容应保留适用规则要求的标识。',
+          '宠物健康内容仅作记录、提醒和一般信息交流，不构成兽医诊断、处方、治疗或急救建议。',
         ],
-        title: '用户责任',
+        title: 'AI 与宠物健康边界',
       },
       {
         body: [
-          '附近发现、聊天和约遛等功能应遵守友善、安全原则，线下见面建议选择公开宠物友好地点。',
-          '正式上线前，我们会补充举报处理、拉黑、账号注销和争议处理规则。',
+          '你应确保有权使用上传和发布的照片、文字及地点资料，不得泄露他人隐私或发布违法、有害、侵权、诈骗、骚扰和恶意营销内容。',
+          '附近结果不代表平台核验对方身份或线下安全。与陌生人见面时应选择公开地点，并自行评估人身、宠物和财产风险。',
         ],
-        title: '社交与安全',
+        title: '内容责任与社交安全',
+      },
+      {
+        body: [
+          '平台可通过规则、机审、举报和人工复核处理内容，并根据风险采取拒绝发布、隐藏、删除、警告、禁言、冻结或封禁等措施。',
+          '你可以按可用流程了解处理结果并申诉；平台不会仅以举报数量替代事实判断。',
+        ],
+        title: '审核、处罚与申诉',
+      },
+      {
+        body: [
+          '你可以在账号安全页发起注销；冷静期内重新短信登录可以撤销，期满后按隐私政策清理业务数据。',
+          '争议应先通过帮助与反馈协商；协商不成的，按中华人民共和国大陆地区法律向有管辖权的人民法院提起诉讼。',
+        ],
+        title: '注销与争议',
+      },
+      {
+        body: ['运营者：灵伴视觉预览环境', '联系渠道：App 内“我的—帮助与反馈”'],
+        title: '运营者与联系',
       },
     ],
+    status: 'approved',
     title: '灵伴用户协议',
-    version: 'test-2026-06-12',
+    version: 'preview-2026-07-14',
   },
 };
 
@@ -1241,6 +1286,9 @@ function mockPetCircleVisibleProfilePosts(ownerId = 'me') {
     .filter((moment) => !petCircleReportedPostIds.includes(moment.id))
     .map((moment) => ({
       ...moment,
+      avatarAiGenerated: moment.avatarAiGenerated ?? (moment.ownedByMe
+        ? activeMockPet()?.avatarAiGenerated === true
+        : owners.find((owner) => owner.id === moment.ownerId)?.avatarAiGenerated === true),
       commentCount: petCircleComments.filter((comment) => comment.postId === moment.id && !petCircleReportedCommentIds.includes(comment.id)).length,
       likedByMe: petCircleLikedIds.includes(moment.id),
       likeCount: moment.likeCount ?? (petCircleLikedIds.includes(moment.id) ? 1 : 0),
@@ -1323,6 +1371,7 @@ function buildMockPetCircleProfile(ownerId = 'me', posts?: NearbyMoment[]): PetC
     ? pet?.petCircleCoverImageUrl || latestPostImage || mockPetCircleDefaultCoverUrl
     : latestPostImage || owner?.imageUrl || mockPetCircleDefaultCoverUrl;
   return {
+    avatarAiGenerated: ownedByMe ? pet?.avatarAiGenerated === true : owner?.avatarAiGenerated === true,
     avatarUrl,
     canChangeCover: ownedByMe,
     coverImageUrl,
@@ -1659,6 +1708,9 @@ function createMockAvatarAnimationJob(pet: PetProfile, sourceAvatarUrl?: string)
   const id = `anim-${pet.id}-${Date.now()}`;
   animationProgressById[id] = 18;
   const job: AvatarAnimationJob = {
+    aiContentId: id,
+    aiGenerated: true,
+    aiLabelVersion: 'cn-generated-content-v1',
     aspectRatio: '1:1',
     createdAt: Date.now(),
     duration: 4,
@@ -2961,6 +3013,25 @@ export const mockApi = {
       pets = pets.map((pet) => {
         if (pet.id !== id) return pet;
         const nextPet = { ...pet, ...(petPatch.patch ?? {}) };
+        const avatarChanged = (Object.prototype.hasOwnProperty.call(petPatch.patch ?? {}, 'avatarUrl')
+          && String(petPatch.patch?.avatarUrl || '') !== String(pet.avatarUrl || ''))
+          || ((petPatch.unset ?? []).includes('avatarUrl') && Boolean(pet.avatarUrl));
+        if (avatarChanged) {
+          delete nextPet.avatarAiContentId;
+          delete nextPet.avatarAiGenerated;
+          delete nextPet.avatarAiGeneratedAt;
+          delete nextPet.avatarAiLabelVersion;
+          delete nextPet.avatarAiProvider;
+          delete nextPet.avatarAnimationAiContentId;
+          delete nextPet.avatarAnimationAiGenerated;
+          delete nextPet.avatarAnimationAiGeneratedAt;
+          delete nextPet.avatarAnimationAiLabelVersion;
+          delete nextPet.avatarAnimationAiProvider;
+          delete nextPet.avatarAnimationJobId;
+          delete nextPet.avatarAnimationStatus;
+          delete nextPet.avatarAnimationUpdatedAt;
+          delete nextPet.avatarAnimationUrl;
+        }
         for (const key of petPatch.unset ?? []) delete nextPet[key];
         return nextPet;
       });
@@ -3038,7 +3109,7 @@ export const mockApi = {
       const id = `job-${mediaId}`;
       generationProgressById[id] = 24;
       const pet = pets.find((item) => item.id === activePetId) ?? pets[0];
-      const job: AvatarJob = { createdAt: Date.now(), id, mediaId, petId: pet?.id, petName: pet?.name, progress: 24, provider: 'mock', status: 'processing', updatedAt: Date.now() };
+      const job: AvatarJob = { aiContentId: id, aiGenerated: true, aiLabelVersion: 'cn-generated-content-v1', createdAt: Date.now(), id, mediaId, petId: pet?.id, petName: pet?.name, progress: 24, provider: 'mock', status: 'processing', updatedAt: Date.now() };
       avatarJobsById = { ...avatarJobsById, [id]: job };
       return success(job);
     },
@@ -3056,6 +3127,7 @@ export const mockApi = {
             ? [goldenRetrieverAvatarUrl, goldenRetrieverAvatarUrl, goldenRetrieverAvatarUrl]
             : previous.candidateUrls,
         id,
+        aiGeneratedAt: progress >= 100 ? previous.aiGeneratedAt ?? new Date().toISOString() : previous.aiGeneratedAt,
         progress,
         resultUrl:
           progress >= 100
@@ -3135,7 +3207,7 @@ export const mockApi = {
       mockPetAvatarDailyCount += 1;
       const id = `job-${previous.mediaId}-${Date.now()}`;
       generationProgressById[id] = 24;
-      const job: AvatarJob = { createdAt: Date.now(), id, mediaId: previous.mediaId, originalJobId: jobId, petId: previous.petId, petName: previous.petName, progress: 24, provider: 'mock', status: 'processing', updatedAt: Date.now() };
+      const job: AvatarJob = { aiContentId: id, aiGenerated: true, aiLabelVersion: 'cn-generated-content-v1', createdAt: Date.now(), id, mediaId: previous.mediaId, originalJobId: jobId, petId: previous.petId, petName: previous.petName, progress: 24, provider: 'mock', status: 'processing', updatedAt: Date.now() };
       avatarJobsById = { ...avatarJobsById, [id]: job };
       return success(job);
     },
@@ -3148,10 +3220,21 @@ export const mockApi = {
       const pet = pets.find((item) => item.id === activePetId) ?? pets[0];
       if (!pet) return error('请先添加宠物档案', false);
       const animationJob = createMockAvatarAnimationJob(pet, job.resultUrl);
-      const updatedPet = { ...pet, avatarAnimationJobId: animationJob.id, avatarAnimationStatus: animationJob.status, avatarUrl: job.resultUrl };
+      const acceptedAt = new Date().toISOString();
+      const updatedPet = {
+        ...pet,
+        avatarAiContentId: job.aiContentId || job.id,
+        avatarAiGenerated: true,
+        avatarAiGeneratedAt: job.aiGeneratedAt || acceptedAt,
+        avatarAiLabelVersion: job.aiLabelVersion || 'cn-generated-content-v1',
+        avatarAiProvider: job.provider || 'mock',
+        avatarAnimationJobId: animationJob.id,
+        avatarAnimationStatus: animationJob.status,
+        avatarUrl: job.resultUrl,
+      };
       pets = pets.map((item) => (item.id === updatedPet.id ? updatedPet : item));
       activePetId = updatedPet.id;
-      avatarJobsById = { ...avatarJobsById, [jobId]: { ...job, acceptedAt: new Date().toISOString(), acceptedPetId: updatedPet.id, updatedAt: Date.now() } };
+      avatarJobsById = { ...avatarJobsById, [jobId]: { ...job, acceptedAt, acceptedPetId: updatedPet.id, updatedAt: Date.now() } };
       return success(updatedPet);
     },
 
@@ -3175,8 +3258,32 @@ export const mockApi = {
     async saveAvatar(petId: string, avatarUrl: string): Promise<ApiResult<PetProfile>> {
       const pet = pets.find((item) => item.id === petId);
       if (pet) {
+        const sourceJob = Object.values(avatarJobsById).find((job) => job.status === 'ready' && job.resultUrl === avatarUrl);
+        const acceptedAt = new Date().toISOString();
         const animationJob = createMockAvatarAnimationJob(pet, avatarUrl);
-        return mockApi.pets.updatePet(petId, { avatarAnimationJobId: animationJob.id, avatarAnimationStatus: animationJob.status, avatarUrl });
+        const updatedPet: PetProfile = {
+          ...pet,
+          ...(sourceJob ? {
+            avatarAiContentId: sourceJob.aiContentId || sourceJob.id,
+            avatarAiGenerated: true,
+            avatarAiGeneratedAt: sourceJob.aiGeneratedAt || acceptedAt,
+            avatarAiLabelVersion: sourceJob.aiLabelVersion || 'cn-generated-content-v1',
+            avatarAiProvider: sourceJob.provider || 'mock',
+          } : {}),
+          avatarAnimationJobId: animationJob.id,
+          avatarAnimationStatus: animationJob.status,
+          avatarUrl,
+        };
+        if (!sourceJob) {
+          delete updatedPet.avatarAiContentId;
+          delete updatedPet.avatarAiGenerated;
+          delete updatedPet.avatarAiGeneratedAt;
+          delete updatedPet.avatarAiLabelVersion;
+          delete updatedPet.avatarAiProvider;
+        }
+        pets = pets.map((item) => (item.id === petId ? updatedPet : item));
+        if (sourceJob) avatarJobsById = { ...avatarJobsById, [sourceJob.id]: { ...sourceJob, acceptedAt, acceptedPetId: petId } };
+        return success(updatedPet);
       }
       return mockApi.pets.updatePet(petId, { avatarUrl });
     },
@@ -3517,6 +3624,7 @@ export const mockApi = {
       if (violation) return error<PetCircleComment[]>(violation, false, undefined, 'PET_CIRCLE_COMMENT_INVALID');
       const comment: PetCircleComment = {
         author: mockOwnerName,
+        avatarAiGenerated: activeMockPet()?.avatarAiGenerated === true,
         avatarUrl: activeMockPet()?.avatarUrl,
         content: text,
         createdAt: new Date().toISOString(),

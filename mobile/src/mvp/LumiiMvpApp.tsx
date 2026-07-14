@@ -798,6 +798,11 @@ const webPreviewPermissions: PermissionStateMap = {
   notifications: 'granted',
 };
 const webPreviewPet: PetProfile = {
+  avatarAiContentId: 'preview-avatar-job',
+  avatarAiGenerated: true,
+  avatarAiGeneratedAt: '2026-07-14T00:00:00.000Z',
+  avatarAiLabelVersion: 'cn-generated-content-v1',
+  avatarAiProvider: 'mock',
   avatarUrl: generatedGoldenAvatarUri,
   birthday: '2023-05-18',
   breed: '金毛',
@@ -869,6 +874,10 @@ const webPreviewNoPetMedia: UploadedPetMedia = {
   quality: 'blocked',
 };
 const webPreviewAvatarJob: AvatarJob = {
+  aiContentId: 'preview-avatar-job',
+  aiGenerated: true,
+  aiGeneratedAt: '2026-07-14T00:00:00.000Z',
+  aiLabelVersion: 'cn-generated-content-v1',
   candidateUrls: [
     generatedGoldenAvatarUri,
     `${generatedGoldenAvatarUri}?variant=warm`,
@@ -1145,6 +1154,7 @@ type DailyPostVisibility = 'nearby' | 'private';
 type PetCirclePhotoViewerState = { index: number; postId: string };
 type PetCircleCommentView = {
   author: string;
+  avatarAiGenerated?: boolean;
   avatarUrl?: string;
   id: string;
   ownedByMe?: boolean;
@@ -2261,6 +2271,7 @@ function buildPetCirclePosts(moments: NearbyMoment[], commentsByPostId: Record<s
     const comments = loadedComments
       ? loadedComments.map((comment) => ({
         author: comment.author,
+        avatarAiGenerated: comment.avatarAiGenerated,
         avatarUrl: comment.avatarUrl,
         id: comment.id,
         ownedByMe: Boolean(comment.ownedByMe),
@@ -10207,7 +10218,7 @@ export default function LumiiMvpApp() {
             <View style={styles.flex}>
               <Text style={styles.legalDocumentTitleMake}>{documentTitle}</Text>
               <Text style={styles.legalDocumentMetaMake}>
-                {legalDocument ? `版本 ${legalDocument.version} · 生效日期 ${legalDocument.effectiveDate}` : '正在读取当前有效版本'}
+                {legalDocument ? `版本 ${legalDocument.version} · 生效日期 ${legalDocument.effectiveDate} · ${legalDocument.productionReady === false ? '未发布草稿' : '正式发布'}` : '正在读取当前有效版本'}
               </Text>
             </View>
           </View>
@@ -11133,12 +11144,10 @@ export default function LumiiMvpApp() {
             <View style={[styles.aiResultAvatarFrame, !multiCandidate && styles.aiResultAvatarFrameSingle]}>
               <PetAvatar uri={selectedAvatarUri} size={multiCandidate ? 230 : 260} />
             </View>
-            {!multiCandidate ? (
-              <View style={styles.aiResultHeroBadge}>
-                <Sparkles color={palette.orange} fill={palette.orange} size={13} strokeWidth={2.2} />
-                <Text style={styles.aiResultHeroBadgeText}>AI 灵伴</Text>
-              </View>
-            ) : null}
+            <View accessibilityLabel="AI生成内容标识" accessibilityRole="text" style={styles.aiResultHeroBadge}>
+              <Sparkles color={palette.orange} fill={palette.orange} size={13} strokeWidth={2.2} />
+              <Text style={styles.aiResultHeroBadgeText}>{multiCandidate ? 'AI生成' : 'AI生成 · 灵伴'}</Text>
+            </View>
             <Sparkles color={palette.orange} fill={palette.orange} size={13} strokeWidth={2.2} style={styles.aiSparkOne} />
             <Sparkles color={palette.orange} fill={palette.orange} size={10} strokeWidth={2.2} style={styles.aiSparkTwo} />
             <Sparkles color={palette.orange} fill={palette.orange} size={12} strokeWidth={2.2} style={styles.aiSparkThree} />
@@ -11315,6 +11324,9 @@ export default function LumiiMvpApp() {
     const avatarAnimationVideoUri = activeAnimationJob?.videoUrl || pet.avatarAnimationUrl || '';
     const canPlayAvatarAnimation = (activeAnimationJob?.status === 'ready' || pet.avatarAnimationStatus === 'ready') && isPlayableAvatarVideoUri(avatarAnimationVideoUri);
     const showDynamicAvatar = avatarDisplayMode === 'dynamic' && canPlayAvatarAnimation;
+    const homeHeroMediaAiGenerated = showDynamicAvatar
+      ? activeAnimationJob?.aiGenerated === true || pet.avatarAnimationAiGenerated === true
+      : pet.avatarAiGenerated === true;
     const avatarAnimationProcessing = activeAnimationJob?.status === 'processing';
     const avatarAnimationProgress = Math.max(8, Math.min(98, Number(activeAnimationJob?.progress || 8)));
     const avatarModeButtonLabel = showDynamicAvatar ? '静态灵伴' : '动态灵伴';
@@ -11358,6 +11370,7 @@ export default function LumiiMvpApp() {
               <View style={styles.homeMomentCopy}>
                 <View style={styles.homeMomentNameRow}>
                   <Text numberOfLines={1} style={styles.homeMomentName}>{activeNearbyMoment.petName} 的小事</Text>
+                  {activeNearbyMoment.avatarAiGenerated ? <AiGeneratedBadge compact /> : null}
                   <View style={styles.homeMomentDistance}>
                     <MapPin color={palette.teal} size={9} strokeWidth={2.4} />
                     <Text numberOfLines={1} style={styles.homeMomentDistanceText}>{activeNearbyMoment.distance}</Text>
@@ -11509,6 +11522,11 @@ export default function LumiiMvpApp() {
               ) : (
                 <PetPhoto iconSize={68} resizeMode="contain" uri={pet.avatarUrl} style={styles.homePetHeroImage} />
               )}
+              {homeHeroMediaAiGenerated ? (
+                <View style={styles.homePetHeroAiBadgeMake}>
+                  <AiGeneratedBadge compact overlay />
+                </View>
+              ) : null}
             </View>
           </View>
 
@@ -13450,6 +13468,7 @@ export default function LumiiMvpApp() {
             <View style={styles.petCircleProfileHeaderTextMake}>
               <View style={styles.petCircleProfileNameRowMake}>
                 <Text numberOfLines={1} style={styles.petCircleProfileNameMake}>{profile?.petName ?? getCurrentPet()?.name ?? '灵伴'} 的宠友圈</Text>
+                {profile?.avatarAiGenerated ? <AiGeneratedBadge compact /> : null}
                 {profile?.ownedByMe ? (
                   <View accessibilityLabel="我的宠友圈标记" style={styles.petCircleProfileMineBadgeMake}>
                     <Text style={styles.petCircleProfileMineBadgeTextMake}>我</Text>
@@ -13541,7 +13560,10 @@ export default function LumiiMvpApp() {
                       <PetAvatar uri={comment.avatarUrl} size={32} />
                       <View style={styles.flex}>
                         <View style={styles.petCircleCommentTitleRowMake}>
-                          <Text style={styles.petCircleCommentAuthorMake}>{comment.author}</Text>
+                          <View style={styles.petCircleCommentAuthorRowMake}>
+                            <Text style={styles.petCircleCommentAuthorMake}>{comment.author}</Text>
+                            {comment.avatarAiGenerated ? <AiGeneratedBadge compact /> : null}
+                          </View>
                           <Text style={styles.petCircleCommentTimeMake}>{formatTimestampDisplay(comment.createdAt)}</Text>
                         </View>
                         <Text style={styles.petCircleCommentTextMake}>{comment.text}</Text>
@@ -13698,6 +13720,7 @@ export default function LumiiMvpApp() {
             <View style={styles.ownerInfoMake}>
               <View style={styles.ownerNameRowMake}>
                 <Text numberOfLines={1} style={styles.ownerPetNameMake}>{preview ? '??' : owner.petName}</Text>
+                {!preview && owner.avatarAiGenerated ? <AiGeneratedBadge compact /> : null}
                 <View style={styles.ownerDistancePillMake}>
                   <MapPin color={palette.teal} size={10} strokeWidth={2.4} />
                   <Text style={styles.ownerDistanceTextMake}>{preview ? '?km' : owner.distance}</Text>
@@ -13752,6 +13775,7 @@ export default function LumiiMvpApp() {
         return;
       }
       openGreetingSheet({
+        avatarAiGenerated: post.avatarAiGenerated,
         distance: post.distance,
         id: post.ownerId,
         imageUrl: post.imageUrl,
@@ -13763,6 +13787,7 @@ export default function LumiiMvpApp() {
     };
     const ownerFromPetCirclePost = (post: PetCirclePostView): NearbyOwner => {
       return owners.find((item) => item.id === post.ownerId || (item.petName === post.petName && item.ownerName === post.ownerName)) ?? {
+        avatarAiGenerated: post.avatarAiGenerated,
         distance: post.distance,
         id: post.ownerId,
         imageUrl: post.imageUrl,
@@ -14137,6 +14162,7 @@ export default function LumiiMvpApp() {
               <View style={styles.petCircleNameRowMake}>
                 <View style={styles.petCircleIdentityMake}>
                   <Text numberOfLines={1} style={styles.petCirclePetNameMake}>{post.petName}</Text>
+                  {post.avatarAiGenerated ? <AiGeneratedBadge compact /> : null}
                   {post.ownedByMe ? (
                     <View style={styles.petCircleMineBadgeMake}>
                       <Text style={styles.petCircleMineBadgeTextMake}>我</Text>
@@ -14323,7 +14349,10 @@ export default function LumiiMvpApp() {
                     <PetAvatar uri={comment.avatarUrl} size={32} />
                     <View style={styles.flex}>
                       <View style={styles.petCircleCommentTitleRowMake}>
-                        <Text style={styles.petCircleCommentAuthorMake}>{comment.author}</Text>
+                        <View style={styles.petCircleCommentAuthorRowMake}>
+                          <Text style={styles.petCircleCommentAuthorMake}>{comment.author}</Text>
+                          {comment.avatarAiGenerated ? <AiGeneratedBadge compact /> : null}
+                        </View>
                         <Text style={styles.petCircleCommentTimeMake}>{comment.time}</Text>
                       </View>
                       <Text style={styles.petCircleCommentTextMake}>{comment.text}</Text>
@@ -14435,7 +14464,10 @@ export default function LumiiMvpApp() {
                   <PetPhoto uri={owner.imageUrl} style={styles.avatarImage} />
                 </View>
                 <View style={styles.flex}>
-                  <Text numberOfLines={1} style={styles.sheetTitle}>{owner.petName}</Text>
+                  <View style={styles.profilePetNameRow}>
+                    <Text numberOfLines={1} style={styles.sheetTitle}>{owner.petName}</Text>
+                    {owner.avatarAiGenerated ? <AiGeneratedBadge compact /> : null}
+                  </View>
                   <Text numberOfLines={1} style={styles.greetingSheetMeta}>{ownerBreed} · 主人 {owner.ownerName} · {owner.distance}</Text>
                 </View>
                 <Pressable accessibilityLabel="关闭宠友资料卡" onPress={() => setPetCircleOwnerSheetOwner(null)} style={[styles.greetingSheetClose, webPressableReset]}>
@@ -16242,6 +16274,7 @@ export default function LumiiMvpApp() {
                 <View style={styles.flex}>
                   <View style={styles.profilePetNameRow}>
                     <Text style={styles.profilePetName}>{pet.name}</Text>
+                    {pet.avatarAiGenerated ? <AiGeneratedBadge compact /> : null}
                     <Text style={styles.profilePetBadge}>{petBadgeText || petBreedDisplayLabel(pet)}</Text>
                   </View>
                   <Text style={styles.profilePetMeta}>{formatPetAge(pet.birthday)} · {formatWeightKg(pet.weightKg)}</Text>
@@ -16315,6 +16348,7 @@ export default function LumiiMvpApp() {
                 <View style={styles.flex}>
                   <View style={styles.profilePetNameRow}>
                     <Text style={styles.multiPetHeroName}>{current.name}</Text>
+                    {current.avatarAiGenerated ? <AiGeneratedBadge compact /> : null}
                     <View style={styles.currentPetBadge}>
                       <Sparkles color={palette.orange} size={9} strokeWidth={2.5} />
                       <Text style={styles.currentPetBadgeText}>当前灵伴</Text>
@@ -16365,6 +16399,7 @@ export default function LumiiMvpApp() {
                       >
                         <View style={styles.profilePetNameRow}>
                           <Text style={styles.multiPetRowName}>{pet.name}</Text>
+                          {pet.avatarAiGenerated ? <AiGeneratedBadge compact /> : null}
                            <Text numberOfLines={1} style={[styles.multiPetKindBadge, pet.species === 'dog' && styles.multiPetKindBadgeDog]}>{[speciesLabels[pet.species], specificPetBreedDisplayLabel(pet)].filter(Boolean).join(' · ')}</Text>
                         </View>
                         <Text style={styles.profilePetMeta}>{formatPetAge(pet.birthday)} · {formatWeightKg(pet.weightKg)}</Text>
@@ -16640,6 +16675,11 @@ export default function LumiiMvpApp() {
             <View style={styles.petDetailHeroMake}>
               <PetPhoto iconSize={72} uri={detailImageUri} style={styles.petDetailHeroImage} />
               <View style={styles.petDetailHeroOverlay} />
+              {pet.avatarAiGenerated ? (
+                <View style={styles.petDetailAiBadgeMake}>
+                  <AiGeneratedBadge overlay />
+                </View>
+              ) : null}
               <Pressable onPress={startPetAvatarRefresh} style={styles.petDetailCamera}>
                 <Camera color="#fff" size={12} strokeWidth={2.3} />
                 <Text style={styles.petDetailCameraText}>更换</Text>
@@ -18918,6 +18958,19 @@ function Mascot({ size = 96 }: { size?: number }) {
   );
 }
 
+function AiGeneratedBadge({ compact = false, overlay = false }: { compact?: boolean; overlay?: boolean }) {
+  return (
+    <View
+      accessibilityLabel="AI生成内容标识"
+      accessibilityRole="text"
+      style={[styles.aiGeneratedBadgeMake, compact && styles.aiGeneratedBadgeCompactMake, overlay && styles.aiGeneratedBadgeOverlayMake]}
+    >
+      <Sparkles color={overlay ? '#fff' : '#7A5235'} size={compact ? 8 : 9} strokeWidth={2.6} />
+      <Text style={[styles.aiGeneratedBadgeTextMake, compact && styles.aiGeneratedBadgeTextCompactMake, overlay && styles.aiGeneratedBadgeTextOverlayMake]}>AI生成</Text>
+    </View>
+  );
+}
+
 function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
   const remoteUri = uri && !isGeneratedAvatarUri(uri) ? uri : null;
   const generatedUri = Boolean(uri && isGeneratedAvatarUri(uri));
@@ -20072,6 +20125,12 @@ const styles = StyleSheet.create({
   aiResultHeaderHeart: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.7)', borderColor: palette.border, borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 },
   aiResultHero: { alignItems: 'center', height: 230, justifyContent: 'center', marginTop: 24, position: 'relative', width: 230 },
   aiResultHeroSingle: { height: 260, marginTop: 98, width: 260 },
+  aiGeneratedBadgeMake: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: '#FFF5EA', borderColor: '#E7C7AA', borderRadius: 4, borderWidth: 1, flexDirection: 'row', gap: 3, minHeight: 20, paddingHorizontal: 6, paddingVertical: 3 },
+  aiGeneratedBadgeCompactMake: { gap: 2, minHeight: 17, paddingHorizontal: 4, paddingVertical: 2 },
+  aiGeneratedBadgeOverlayMake: { backgroundColor: 'rgba(38, 31, 27, 0.74)', borderColor: 'rgba(255,255,255,0.62)' },
+  aiGeneratedBadgeTextMake: { color: '#7A5235', fontFamily: appFontFamily, fontSize: 10, fontWeight: '800', lineHeight: 12 },
+  aiGeneratedBadgeTextCompactMake: { fontSize: 9, lineHeight: 10 },
+  aiGeneratedBadgeTextOverlayMake: { color: '#fff' },
   aiResultHeroBadge: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, bottom: 3, flexDirection: 'row', gap: 5, paddingHorizontal: 14, paddingVertical: 6, position: 'absolute', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.13, shadowRadius: 20 },
   aiResultHeroBadgeText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   aiResultHeroGlow: { backgroundColor: 'rgba(255,138,92,0.20)', borderRadius: 145, height: 290, position: 'absolute', width: 290 },
@@ -20343,6 +20402,7 @@ const styles = StyleSheet.create({
   homePetHeroCopy: { flexShrink: 0, paddingTop: 16, width: 138, zIndex: 2 },
   homePetHeroImage: { backgroundColor: 'transparent', height: 286, resizeMode: 'contain', width: 264 },
   homePetHeroMedia: { alignItems: 'center', backgroundColor: 'transparent', bottom: 0, justifyContent: 'flex-end', left: 116, paddingBottom: 0, paddingTop: 4, position: 'absolute', right: -24, top: 0, zIndex: 1 },
+  homePetHeroAiBadgeMake: { bottom: 10, position: 'absolute', right: 28, zIndex: 4 },
   homePetHeroVideo: { backgroundColor: lumiiCompanionPanelBackground, bottom: 0, height: '100%', left: 0, position: 'absolute', right: 0, top: 0, width: '100%' },
   homePetHeroVideoFallback: { backgroundColor: lumiiCompanionPanelBackground, bottom: 0, height: '100%', left: 0, position: 'absolute', resizeMode: 'contain', right: 0, top: 0, width: '100%' },
   homePetHeroVideoHidden: { opacity: 0 },
@@ -20888,6 +20948,7 @@ const styles = StyleSheet.create({
   petCircleCardFocusedMake: { backgroundColor: '#FFF9F4', borderColor: palette.orange, borderWidth: 1.5, shadowColor: palette.orange, shadowOpacity: 0.18 },
   petCircleCardMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 22, borderWidth: 1, padding: 14, shadowColor: '#50371e', shadowOffset: { height: 14, width: 0 }, shadowOpacity: 0.10, shadowRadius: 30 },
   petCircleCommentAuthorMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '800' },
+  petCircleCommentAuthorRowMake: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 5, minWidth: 0 },
   petCircleCommentCounterMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', minWidth: 42, textAlign: 'right' },
   petCircleCommentDeleteMake: { alignItems: 'center', backgroundColor: 'rgba(229,87,63,0.08)', borderRadius: 13, height: 28, justifyContent: 'center', width: 28 },
   petCircleCommentEmptyMake: { alignItems: 'center', backgroundColor: palette.pale, borderRadius: 14, justifyContent: 'center', minHeight: 42 },
@@ -21125,6 +21186,7 @@ const styles = StyleSheet.create({
   petDetailEditText: { color: palette.orange, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600' },
   petDetailHeroImage: { height: '100%', width: '100%' },
   petDetailHeroMake: { alignItems: 'center', backgroundColor: '#f4b879', height: 220, justifyContent: 'center', marginHorizontal: -16, marginTop: -18, overflow: 'hidden', position: 'relative' },
+  petDetailAiBadgeMake: { left: 16, position: 'absolute', top: 16, zIndex: 5 },
   petDetailHeroMeta: { color: 'rgba(255,255,255,0.9)', fontFamily: appFontFamily, fontSize: 12, fontWeight: '400', marginTop: 2 },
   petDetailHeroName: { color: '#fff', fontFamily: appFontFamily, fontSize: 24, fontWeight: '700', lineHeight: 31 },
   petDetailHeroOverlay: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(180deg, rgba(0,0,0,0) 38%, rgba(0,0,0,0.56) 100%)' } as object) : null), backgroundColor: 'rgba(0,0,0,0.18)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },

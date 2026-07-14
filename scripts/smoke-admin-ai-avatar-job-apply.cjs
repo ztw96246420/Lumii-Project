@@ -176,6 +176,8 @@ async function main() {
     const beforeJobs = await request('/admin/ai/avatar-jobs', { token: adminToken });
     const beforeJob = beforeJobs.data.find((item) => item.id === jobId);
     assert.equal(beforeJob?.status, 'ready');
+    assert.equal(beforeJob?.aiContentId, jobId);
+    assert.equal(beforeJob?.aiLabelVersion, 'cn-generated-content-v1');
     assert.equal(beforeJob?.acceptedPetId, sourcePet.id);
     assert.equal(beforeJob?.acceptedPetName, 'ApplySource');
 
@@ -205,13 +207,18 @@ async function main() {
     const adminPets = await request('/admin/pets?q=Apply', { token: adminToken });
     const adminSourcePet = adminPets.data.items.find((item) => item.id === sourcePet.id);
     const adminTargetPet = adminPets.data.items.find((item) => item.id === targetPet.id);
-    assert.equal(adminSourcePet?.avatarStatusKey, 'basic');
+    assert.equal(adminSourcePet?.avatarStatusKey, 'ai');
+    assert.equal(adminSourcePet?.avatarAiGenerated, true);
     assert.equal(adminTargetPet?.avatarStatusKey, 'ai');
+    assert.equal(adminTargetPet?.avatarAiContentId, jobId);
+    assert.equal(adminTargetPet?.avatarAiGenerated, true);
     assert.equal(adminTargetPet?.avatarJobId, jobId);
 
     const mobilePets = await request('/pets', { token: userToken });
     const mobileTargetPet = mobilePets.data.find((item) => item.id === targetPet.id);
     assert.equal(mobileTargetPet.avatarUrl, resultUrl);
+    assert.equal(mobileTargetPet.avatarAiContentId, jobId);
+    assert.equal(mobileTargetPet.avatarAiGenerated, true);
     assert.equal(mobileTargetPet.avatarAnimationUrl || '', '', 'admin apply should clear stale animation URL');
 
     const afterJobs = await request('/admin/ai/avatar-jobs', { token: adminToken });

@@ -71,10 +71,14 @@ export type AccountSnapshot = {
 export type LegalConsentSnapshot = {
   acceptedAt: string;
   id: string;
+  privacyContentHash?: string;
   privacyEffectiveDate?: string;
+  privacyRevisionId?: string;
   privacyVersion: string;
   source: 'sms_login' | string;
+  termsContentHash?: string;
   termsEffectiveDate?: string;
+  termsRevisionId?: string;
   termsVersion: string;
 };
 
@@ -169,6 +173,16 @@ export type UserSettings = {
 export type PetSpecies = 'bird' | 'cat' | 'dog' | 'hamster' | 'rabbit' | 'reptile' | 'other';
 
 export type PetProfile = {
+  avatarAiContentId?: string;
+  avatarAiGenerated?: boolean;
+  avatarAiGeneratedAt?: string;
+  avatarAiLabelVersion?: string;
+  avatarAiProvider?: string;
+  avatarAnimationAiContentId?: string;
+  avatarAnimationAiGenerated?: boolean;
+  avatarAnimationAiGeneratedAt?: string;
+  avatarAnimationAiLabelVersion?: string;
+  avatarAnimationAiProvider?: string;
   avatarAnimationJobId?: string;
   avatarAnimationStatus?: AvatarAnimationJob['status'] | string;
   avatarAnimationUpdatedAt?: string;
@@ -219,6 +233,10 @@ export type PetTaxonomy = {
 export type AvatarJob = {
   acceptedAt?: string;
   acceptedPetId?: string;
+  aiContentId?: string;
+  aiGenerated?: boolean;
+  aiGeneratedAt?: string;
+  aiLabelVersion?: string;
   candidateUrls?: string[];
   createdAt?: number;
   errorCode?: string;
@@ -240,6 +258,10 @@ export type AvatarJob = {
 };
 
 export type AvatarAnimationJob = {
+  aiContentId?: string;
+  aiGenerated?: boolean;
+  aiGeneratedAt?: string;
+  aiLabelVersion?: string;
   aspectRatio?: '1:1' | string;
   avatarJobId?: string;
   createdAt?: number;
@@ -454,6 +476,7 @@ export type HealthCalendarEvent = {
 };
 
 export type NearbyOwner = {
+  avatarAiGenerated?: boolean;
   distance: string;
   greetingMessage?: string;
   greetingSentAt?: string;
@@ -467,6 +490,7 @@ export type NearbyOwner = {
 };
 
 export type NearbyMoment = {
+  avatarAiGenerated?: boolean;
   commentCount?: number;
   createdMemo?: HealthMemo;
   createdAt: string;
@@ -491,6 +515,7 @@ export type NearbyMoment = {
 
 export type PetCircleComment = {
   author: string;
+  avatarAiGenerated?: boolean;
   avatarUrl?: string;
   content: string;
   createdAt: string;
@@ -507,6 +532,7 @@ export type PetCirclePostList = {
 };
 
 export type PetCircleProfile = {
+  avatarAiGenerated?: boolean;
   avatarUrl?: string;
   canChangeCover?: boolean;
   coverImageUrl?: string;
@@ -549,6 +575,7 @@ export type SocialBlockResult = {
 };
 
 export type SocialBlockListItem = {
+  avatarAiGenerated?: boolean;
   avatarUrl?: string;
   blockedAt: string;
   id: string;
@@ -733,13 +760,27 @@ export type PlaceSubmission = {
 };
 
 export type LegalDocument = {
+  approvedAt?: string;
+  contentHash?: string;
   disclaimer: string;
   effectiveDate: string;
   key: 'privacy' | 'terms';
+  operatorProfile?: {
+    appFilingNumber?: string;
+    complaintChannel?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    icpFilingNumber?: string;
+    operatorName?: string;
+    registeredAddress?: string;
+  };
+  productionReady?: boolean;
+  revisionId?: string;
   sections: Array<{
     body: string[];
     title: string;
   }>;
+  status?: 'approved' | 'draft' | string;
   title: string;
   version: string;
 };

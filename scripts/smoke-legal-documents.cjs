@@ -126,28 +126,70 @@ function questionById(rows, id) {
 
 async function main() {
   const port = await getFreePort();
+  fs.writeFileSync(statePath, JSON.stringify({
+    legalDocuments: {
+      privacy: {
+        disclaimer: '当前为灵伴测试版协议文本；正式上线前会更新。',
+        effectiveDate: '2026-06-12',
+        key: 'privacy',
+        sections: [{ body: ['旧测试隐私正文'], title: '测试正文' }],
+        status: 'draft',
+        version: 'test-2026-06-12',
+      },
+    },
+  }));
   await startBackend(port);
   try {
     const adminToken = await loginAdmin();
     const initial = await request('/admin/legal-documents', { token: adminToken });
     assert.equal(initial.data.summary.total, 4);
     assert.equal(initial.data.summary.allRequiredApproved, false);
+    assert.equal(initial.data.summary.operatorProfileComplete, false);
+    assert.ok(initial.data.summary.missingLabels.includes('运营主体资料'));
     assert.deepEqual(initial.data.summary.missingRequiredKeys.sort(), ['app_filing', 'content_policy', 'privacy', 'terms'].sort());
+
+    const initialPrivacy = await request('/legal/privacy');
+    assert.equal(initialPrivacy.data.productionReady, false);
+    assert.equal(initialPrivacy.data.status, 'draft');
+    assert.equal(initialPrivacy.data.version, 'draft-2026-07-14');
+
+    const blockedPhone = '19900007880';
+    const blockedSms = await request('/auth/sms/send', {
+      body: { deviceId: 'legal-not-ready-device', phone: blockedPhone },
+      method: 'POST',
+    });
+    const blockedLogin = await request('/auth/sms/verify', {
+      body: { code: blockedSms.data.code, deviceId: 'legal-not-ready-device', expiresAt: blockedSms.data.expiresAt, legalConsentAccepted: true, phone: blockedPhone },
+      expectedStatus: 503,
+      method: 'POST',
+    });
+    assert.equal(blockedLogin.error.code, 'LEGAL_DOCUMENTS_NOT_READY');
 
     const initialReadiness = await request('/admin/launch/readiness', { token: adminToken });
     const initialQuestion = questionById(initialReadiness.data.questions, 'q-compliance-text');
     assert.equal(initialQuestion.status, 'open');
     assert.ok(initialQuestion.currentPolicy.includes('后台仍缺生产签署'));
 
+    const operatorStatus = await request('/admin/legal-documents/operator-profile', {
+      body: {
+        appFilingNumber: '粤ICP备TEST号-1A',
+        complaintChannel: 'App 内“我的—帮助与反馈”',
+        contactEmail: 'privacy@example.com',
+        operatorName: '灵伴合规回归测试运营主体',
+        reason: 'smoke configures operator profile',
+        registeredAddress: '广东省广州市测试地址',
+      },
+      method: 'PATCH',
+      token: adminToken,
+    });
+    assert.equal(operatorStatus.data.summary.operatorProfileComplete, true);
+
     for (const doc of initial.data.documents) {
-      const version = `prod-${doc.key}-smoke`;
+      const version = `2026.07.14-${doc.key}`;
       await request(`/admin/legal-documents/${encodeURIComponent(doc.key)}`, {
         body: {
-          bodyText: `${doc.label} smoke production paragraph.\nThis text is used to prove legal document update and approval linkage.`,
-          disclaimer: `${doc.label} smoke disclaimer`,
           effectiveDate: '2026-07-09',
           reason: `smoke updates ${doc.key}`,
-          title: `${doc.label} Smoke`,
           version,
         },
         method: 'PATCH',
@@ -169,13 +211,36 @@ async function main() {
     assert.equal(finalDocs.data.summary.approved, 4);
 
     const publicPrivacy = await request('/legal/privacy');
-    assert.equal(publicPrivacy.data.version, 'prod-privacy-smoke');
+    assert.equal(publicPrivacy.data.version, '2026.07.14-privacy');
     assert.equal(publicPrivacy.data.productionReady, true);
-    assert.ok(publicPrivacy.data.sections[0].body[0].includes('隐私政策 smoke'));
+    assert.ok(publicPrivacy.data.contentHash);
+    assert.ok(publicPrivacy.data.revisionId);
+    assert.equal(publicPrivacy.data.operatorProfile.operatorName, '灵伴合规回归测试运营主体');
+    assert.ok(publicPrivacy.data.sections.some((section) => section.title === '运营者与联系'));
 
     const publicContentPolicy = await request('/legal/content-policy');
-    assert.equal(publicContentPolicy.data.version, 'prod-content_policy-smoke');
+    assert.equal(publicContentPolicy.data.version, '2026.07.14-content_policy');
     assert.equal(publicContentPolicy.data.productionReady, true);
+
+    await request('/admin/legal-documents/privacy', {
+      body: {
+        disclaimer: '这是一个尚未签署的新草稿，不得提前暴露给移动端。',
+        reason: 'smoke creates an unpublished privacy draft',
+        version: '2026.07.15-privacy-draft',
+      },
+      method: 'PATCH',
+      token: adminToken,
+    });
+    const publicPrivacyAfterDraft = await request('/legal/privacy');
+    assert.equal(publicPrivacyAfterDraft.data.version, '2026.07.14-privacy');
+    assert.equal(publicPrivacyAfterDraft.data.disclaimer, publicPrivacy.data.disclaimer);
+    const draftStatus = await request('/admin/legal-documents', { token: adminToken });
+    const privacyDraft = draftStatus.data.documents.find((item) => item.key === 'privacy');
+    assert.equal(privacyDraft.status, 'draft');
+    assert.equal(privacyDraft.publicationReady, true);
+    assert.equal(privacyDraft.publishedVersion, '2026.07.14-privacy');
+    assert.equal(privacyDraft.publishedVersionCount, 1);
+    assert.equal(draftStatus.data.summary.allRequiredApproved, true);
 
     const consentPhone = '19900007881';
     const sms = await request('/auth/sms/send', {
@@ -193,13 +258,15 @@ async function main() {
       method: 'POST',
     });
     assert.ok(consentLogin.data.token, 'legal-consent login should return a token');
-    assert.equal(consentLogin.data.account.legalConsent.termsVersion, 'prod-terms-smoke');
-    assert.equal(consentLogin.data.account.legalConsent.privacyVersion, 'prod-privacy-smoke');
+    assert.equal(consentLogin.data.account.legalConsent.termsVersion, '2026.07.14-terms');
+    assert.equal(consentLogin.data.account.legalConsent.privacyVersion, '2026.07.14-privacy');
+    assert.equal(consentLogin.data.account.legalConsent.privacyRevisionId, publicPrivacy.data.revisionId);
+    assert.equal(consentLogin.data.account.legalConsent.privacyContentHash, publicPrivacy.data.contentHash);
 
     const users = await request('/admin/users', { token: adminToken });
     const consentUser = users.data.find((item) => item.phone === consentPhone);
     assert.equal(consentUser.legalConsentSummary.count, 1);
-    assert.equal(consentUser.legalConsentSummary.latest.privacyVersion, 'prod-privacy-smoke');
+    assert.equal(consentUser.legalConsentSummary.latest.privacyVersion, '2026.07.14-privacy');
     const consentTimeline = await request(`/admin/users/${consentPhone}/timeline?kind=account&limit=50`, { token: adminToken });
     assert.ok(consentTimeline.data.items.some((item) => item.targetType === 'legal_consent' && item.title === '协议与隐私政策同意留痕'));
 
@@ -207,9 +274,10 @@ async function main() {
     const finalQuestion = questionById(finalReadiness.data.questions, 'q-compliance-text');
     assert.equal(finalQuestion.status, 'ready');
     assert.equal(finalQuestion.statusLabel, '已签署');
-    assert.ok(finalQuestion.currentPolicy.includes('后台已签署生产合规文本与材料'));
+    assert.ok(finalQuestion.currentPolicy.includes('后台已发布生产合规文本与材料'));
 
     const audit = await request('/admin/audit-logs?limit=120', { token: adminToken });
+    assert.ok(audit.data.items.some((item) => item.action === 'legal.operator_profile.update'));
     assert.ok(audit.data.items.some((item) => item.action === 'legal.document.update' && item.targetId === 'privacy'));
     assert.ok(audit.data.items.some((item) => item.action === 'legal.document.approve' && item.targetId === 'content_policy'));
 

@@ -264,6 +264,39 @@ async function adminToken() {
   return login.data.token;
 }
 
+async function prepareProductionLegalDocuments(label) {
+  const token = await adminToken();
+  const current = await request('/admin/legal-documents', { token });
+  await request('/admin/legal-documents/operator-profile', {
+    body: {
+      appFilingNumber: '粤ICP备SMOKE号-1A',
+      complaintChannel: 'App 内帮助与反馈',
+      contactEmail: 'sms-smoke@example.com',
+      operatorName: '灵伴短信回归测试运营主体',
+      reason: `${label} configures legal operator profile`,
+      registeredAddress: '广东省广州市回归测试地址',
+    },
+    method: 'PATCH',
+    token,
+  });
+  for (const document of current.data.documents || []) {
+    await request(`/admin/legal-documents/${encodeURIComponent(document.key)}`, {
+      body: {
+        effectiveDate: '2026-07-14',
+        reason: `${label} prepares ${document.key}`,
+        version: `2026.07.14-${label}-${document.key}`,
+      },
+      method: 'PATCH',
+      token,
+    });
+    await request(`/admin/legal-documents/${encodeURIComponent(document.key)}/approve`, {
+      body: { reason: `${label} approves ${document.key}` },
+      method: 'POST',
+      token,
+    });
+  }
+}
+
 async function main() {
   await expectProductionConfigRejected('missing-token-secret', { LUMII_TOKEN_SECRET: '' }, /Production requires LUMII_TOKEN_SECRET/);
   await expectProductionConfigRejected('missing-admin-password', { LUMII_ADMIN_PASSWORD: '' }, /Production requires explicit LUMII_ADMIN_USERNAME and LUMII_ADMIN_PASSWORD/);
@@ -359,6 +392,7 @@ async function main() {
     SPUG_SMS_TEMPLATE_ID: spugTemplateId,
   });
   try {
+    await prepareProductionLegalDocuments('sms-production');
     const sent = await request('/auth/sms/send', {
       body: { deviceId: 'sms-production-device', phone },
       method: 'POST',

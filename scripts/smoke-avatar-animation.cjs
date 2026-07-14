@@ -162,11 +162,16 @@ async function main() {
     });
     assert.equal(savedPet.data.avatarAnimationStatus, 'ready');
     assert.ok(savedPet.data.avatarAnimationJobId, 'missing animation job id on saved pet');
+    assert.equal(savedPet.data.avatarAnimationAiGenerated, true);
+    assert.equal(savedPet.data.avatarAnimationAiContentId, savedPet.data.avatarAnimationJobId);
 
     const latest = await request(`/ai/pet-avatar/animation/latest?petId=${encodeURIComponent(pet.id)}`, { token: userToken });
     assert.equal(latest.data.status, 'ready');
     assert.equal(latest.data.progress, 100);
     assert.equal(latest.data.provider, 'mock');
+    assert.equal(latest.data.aiGenerated, true);
+    assert.equal(latest.data.aiContentId, latest.data.id);
+    assert.equal(latest.data.aiLabelVersion, 'cn-generated-content-v1');
     const firstAnimationJobId = latest.data.id;
 
     const adminAnimationJobs = await request('/admin/ai/avatar-animation-jobs', { token: adminToken });

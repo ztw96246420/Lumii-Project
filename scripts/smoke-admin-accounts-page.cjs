@@ -151,6 +151,38 @@ async function loginAdmin() {
   return payload.data.token;
 }
 
+async function prepareProductionLegalDocuments(token) {
+  const current = await request('/admin/legal-documents', { token });
+  await request('/admin/legal-documents/operator-profile', {
+    body: {
+      appFilingNumber: '粤ICP备VISUAL号-1A',
+      complaintChannel: 'App 内帮助与反馈',
+      contactEmail: 'visual-smoke@example.com',
+      operatorName: '灵伴后台视觉回归测试运营主体',
+      reason: 'visual smoke configures legal operator profile',
+      registeredAddress: '广东省广州市视觉回归测试地址',
+    },
+    method: 'PATCH',
+    token,
+  });
+  for (const document of current.data.documents || []) {
+    await request(`/admin/legal-documents/${encodeURIComponent(document.key)}`, {
+      body: {
+        effectiveDate: '2026-07-14',
+        reason: `visual smoke prepares ${document.key}`,
+        version: `2026.07.14-visual-${document.key}`,
+      },
+      method: 'PATCH',
+      token,
+    });
+    await request(`/admin/legal-documents/${encodeURIComponent(document.key)}/approve`, {
+      body: { reason: `visual smoke approves ${document.key}` },
+      method: 'POST',
+      token,
+    });
+  }
+}
+
 async function main() {
   fs.mkdirSync(artifactsDir, { recursive: true });
   const playwright = requirePlaywright();
@@ -163,6 +195,7 @@ async function main() {
 
   let browser = null;
   try {
+    await prepareProductionLegalDocuments(adminToken);
     const firstSms = await request('/auth/sms/send', {
       body: { deviceId: 'admin-visual-lock-device', phone: lockedUserPhone },
       method: 'POST',

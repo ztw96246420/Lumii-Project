@@ -220,6 +220,12 @@ button {
   color: var(--orange);
 }
 
+.primary-button:disabled,
+.small-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .danger {
   color: var(--red);
 }
@@ -1579,6 +1585,31 @@ th {
   gap: 14px;
 }
 
+.form-grid .wide {
+  grid-column: 1 / -1;
+}
+
+.notice {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 12px 0;
+  padding: 10px 12px;
+}
+
+.notice.ok {
+  background: rgba(72, 182, 168, 0.08);
+  border-color: rgba(72, 182, 168, 0.22);
+  color: var(--teal);
+}
+
+.notice.bad {
+  background: rgba(220, 96, 78, 0.08);
+  border-color: rgba(220, 96, 78, 0.2);
+  color: var(--red);
+}
+
 .form-actions {
   align-items: end;
   display: flex;
@@ -1696,7 +1727,8 @@ th {
     grid-template-columns: 1fr;
   }
 
-  .announcement-grid .wide {
+  .announcement-grid .wide,
+  .form-grid .wide {
     grid-column: auto;
   }
 

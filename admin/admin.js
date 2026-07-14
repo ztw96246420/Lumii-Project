@@ -40,6 +40,7 @@ const state = {
   feedbackCategory: 'all',
   feedbackQ: '',
   feedbackStatus: 'open',
+  legalEditorKey: '',
   mediaModerationQ: '',
   mediaModerationStatus: 'pending_review',
   moderationQ: '',
@@ -419,6 +420,19 @@ async function onContentClick(event) {
     }
     if (action === 'legal-doc-edit') {
       await editLegalDocument(button);
+      return;
+    }
+    if (action === 'legal-doc-edit-save') {
+      await saveLegalDocumentEditor();
+      return;
+    }
+    if (action === 'legal-doc-edit-cancel') {
+      state.legalEditorKey = '';
+      await render(true);
+      return;
+    }
+    if (action === 'legal-operator-save') {
+      await saveLegalOperatorProfile();
       return;
     }
     if (action === 'legal-doc-approve') {
@@ -2820,6 +2834,13 @@ function legalDocumentPlainText(doc = {}) {
     .join('\n');
 }
 
+function legalDocumentEditorText(doc = {}) {
+  return (doc.sections || [])
+    .map((section) => `## ${section.title || '正文'}\n${(Array.isArray(section.body) ? section.body : []).filter(Boolean).join('\n\n')}`)
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 function legalDocumentPreview(doc = {}) {
   const text = legalDocumentPlainText(doc);
   if (!text) return '-';
@@ -2830,12 +2851,72 @@ function legalDocumentStatusPill(doc = {}) {
   return tonePill(doc.statusLabel || doc.status || '-', doc.statusTone || (doc.productionReady ? 'ok' : 'warn'));
 }
 
-function legalDocumentActions(doc = {}) {
+function legalDocumentActions(doc = {}, operatorProfileComplete = false) {
+  const approveDisabled = !operatorProfileComplete || !doc.hasRequiredContent;
+  const approveTitle = !operatorProfileComplete
+    ? '请先补齐并保存运营主体资料'
+    : !doc.hasRequiredContent
+      ? `请先处理：${(doc.approvalIssues || []).join('；') || '正文不完整'}`
+      : '发布当前草稿为生产版本';
   return `
     <div class="actions">
       <button class="small-button" data-action="legal-doc-edit" data-key="${escapeHtml(doc.key)}">编辑</button>
-      <button class="small-button" data-action="legal-doc-approve" data-key="${escapeHtml(doc.key)}" data-title="${escapeHtml(doc.label || doc.title || doc.key)}">签署</button>
-      <button class="small-button ghost" data-action="legal-doc-reset" data-key="${escapeHtml(doc.key)}" data-title="${escapeHtml(doc.label || doc.title || doc.key)}">重置</button>
+      <button class="small-button" data-action="legal-doc-approve" data-key="${escapeHtml(doc.key)}" data-title="${escapeHtml(doc.label || doc.title || doc.key)}" title="${escapeHtml(approveTitle)}" ${approveDisabled ? 'disabled' : ''}>签署发布</button>
+      <button class="small-button ghost" data-action="legal-doc-reset" data-key="${escapeHtml(doc.key)}" data-title="${escapeHtml(doc.label || doc.title || doc.key)}">重置草稿</button>
+    </div>
+  `;
+}
+
+function renderLegalOperatorProfile(profile = {}, summary = {}) {
+  const missing = (summary.operatorProfileMissingFields || []).join('、');
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>运营主体资料</h2>
+          <div class="section-sub">该资料会随用户协议和隐私政策的已发布快照公开；修改后需要重新签署全部合规材料。</div>
+        </div>
+        ${tonePill(summary.operatorProfileComplete ? '资料完整' : `待补：${missing || '运营主体资料'}`, summary.operatorProfileComplete ? 'ok' : 'bad')}
+      </div>
+      <div class="form-grid">
+        <label>运营主体名称<input id="legalOperatorName" maxlength="160" placeholder="与 App 备案、应用市场公示主体一致" value="${escapeHtml(profile.operatorName || '')}" /></label>
+        <label>联系邮箱<input id="legalOperatorEmail" maxlength="160" placeholder="例如 privacy@example.com" value="${escapeHtml(profile.contactEmail || '')}" /></label>
+        <label>联系电话<input id="legalOperatorPhone" maxlength="80" placeholder="可选；将公开展示" value="${escapeHtml(profile.contactPhone || '')}" /></label>
+        <label>联系地址<input id="legalOperatorAddress" maxlength="240" placeholder="可选；与主体资料一致" value="${escapeHtml(profile.registeredAddress || '')}" /></label>
+        <label>ICP备案号<input id="legalOperatorIcp" maxlength="120" placeholder="例如 粤ICP备XXXXXXXX号" value="${escapeHtml(profile.icpFilingNumber || '')}" /></label>
+        <label>App 备案号<input id="legalOperatorAppFiling" maxlength="120" placeholder="备案完成后填写" value="${escapeHtml(profile.appFilingNumber || '')}" /></label>
+        <label class="wide">投诉与个人信息权利请求渠道<input id="legalOperatorComplaint" maxlength="240" value="${escapeHtml(profile.complaintChannel || '')}" /></label>
+        <label class="wide">更新原因<input id="legalOperatorReason" maxlength="240" placeholder="必填，会写入审计日志" /></label>
+      </div>
+      <div class="actions"><button class="primary-button" data-action="legal-operator-save">保存主体资料</button></div>
+    </div>
+  `;
+}
+
+function renderLegalDocumentEditor(doc) {
+  if (!doc) return '';
+  return `
+    <div class="card" id="legalDocumentEditor">
+      <div class="section-head">
+        <div>
+          <h2>编辑 ${escapeHtml(doc.label || doc.title || doc.key)}</h2>
+          <div class="section-sub">保存只更新草稿，不会替换 App 当前已发布版本。正文使用“## 章节标题”分隔章节，空行分隔段落。</div>
+        </div>
+        ${doc.publishedVersion ? tonePill(`线上 ${doc.publishedVersion}`, 'ok') : tonePill('尚无线上版本', 'bad')}
+      </div>
+      <div class="form-grid">
+        <label>标题<input id="legalDocTitle" maxlength="120" value="${escapeHtml(doc.title || '')}" /></label>
+        <label>版本号<input id="legalDocVersion" maxlength="80" placeholder="生产版本不能以 test / draft / demo / smoke 开头" value="${escapeHtml(doc.version || '')}" /></label>
+        <label>生效日期<input id="legalDocEffectiveDate" type="date" value="${escapeHtml(doc.effectiveDate || '')}" /></label>
+        <label class="wide">页面说明<textarea id="legalDocDisclaimer" maxlength="1200" placeholder="展示在正文前的阅读提示">${escapeHtml(doc.disclaimer || '')}</textarea></label>
+        <label class="wide">完整正文<textarea id="legalDocBody" maxlength="48000" rows="22" placeholder="## 第一章&#10;第一段正文&#10;&#10;第二段正文">${escapeHtml(legalDocumentEditorText(doc))}</textarea></label>
+        <label class="wide">更新原因<input id="legalDocReason" maxlength="240" placeholder="必填，会写入审计日志" /></label>
+      </div>
+      ${(doc.approvalIssues || []).length ? `<div class="notice bad">当前不能签署：${escapeHtml(doc.approvalIssues.join('；'))}</div>` : '<div class="notice ok">当前草稿具备签署所需的基础内容；仍应由运营主体或合规顾问确认。</div>'}
+      <div class="actions">
+        <button class="primary-button" data-action="legal-doc-edit-save" data-key="${escapeHtml(doc.key)}">保存草稿</button>
+        <button class="small-button ghost" data-action="legal-doc-edit-cancel">取消</button>
+      </div>
     </div>
   `;
 }
@@ -2844,32 +2925,38 @@ async function renderLegalDocuments(force) {
   const data = await load('legalDocuments', '/admin/legal-documents', force);
   const summary = data.summary || {};
   const documents = data.documents || [];
+  const operatorProfile = data.operatorProfile || {};
+  const editorDoc = documents.find((item) => item.key === state.legalEditorKey) || null;
   const missingText = (summary.missingLabels || []).join('、') || '无';
   $('content').innerHTML = `
     <div class="grid metrics">
-      ${metric('合规材料', `${numberText(summary.approved || 0)}/${numberText(summary.required || 0)}`, summary.allRequiredApproved ? '生产签署已齐' : `缺：${missingText}`, '隐私政策、用户协议、内容审核制度和 App 备案材料均签署后，上线台账的合规文本项才会自动变为已确认。')}
+      ${metric('已发布材料', `${numberText(summary.approved || 0)}/${numberText(summary.required || 0)}`, summary.allRequiredApproved ? '生产版本已齐' : `缺：${missingText}`, '运营主体资料完整，且隐私政策、用户协议、内容审核制度和 App 备案材料均存在与当前主体一致的已发布快照后，上线台账才会自动变为已确认。')}
       ${metric('公开文本', numberText(summary.publicDocuments || 0), '由 /legal/* 读取', '公开文本会被 App 设置页、登录页或 WebView 读取；App 备案材料只在后台内部留存。')}
-      ${metric('上线台账', summary.allRequiredApproved ? '可收敛' : '待签署', summary.allRequiredApproved ? 'q-compliance-text 自动 ready' : 'q-compliance-text 保持 open', '编辑任一材料会把它重新打回草稿，需要重新签署。')}
+      ${metric('上线台账', summary.allRequiredApproved ? '可收敛' : '待发布', summary.allRequiredApproved ? 'q-compliance-text 自动 ready' : 'q-compliance-text 保持 open', '编辑草稿不会污染已发布正文；运营主体变化后必须重新签署发布。')}
     </div>
+
+    ${renderLegalOperatorProfile(operatorProfile, summary)}
 
     <div class="card">
       <div class="section-head">
         <div>
           <h2>合规文本签署</h2>
-          <div class="section-sub">默认测试文本不等于生产确认；编辑、签署、重置都会写入审计日志。</div>
+          <div class="section-sub">草稿与已发布版本隔离；编辑、签署发布和重置草稿都会写入审计日志。</div>
         </div>
-        ${help('正式上线前建议由运营、法务或合规顾问确认版本号、生效日期和正文后再点击签署。签署不是发布按钮，但会影响上线台账的 P0 判断。')}
+        ${help('正式上线前应由运营主体、法务或合规顾问确认版本号、生效日期和正文。签署会创建带正文 SHA-256 的不可变发布快照，并影响上线台账 P0。')}
       </div>
       ${tableHtml(documents, [
         ['材料', (row) => `<div class="cell-title">${escapeHtml(row.label || row.title || row.key)}</div><div class="cell-sub">${escapeHtml(row.key)}${row.requiredForLaunch ? ' · 上线必需' : ''}</div>`],
-        ['状态', (row) => `${legalDocumentStatusPill(row)}<div class="cell-sub">${row.hasRequiredContent ? '正文完整' : '正文不完整'}</div>`],
-        ['版本', (row) => `<div>${escapeHtml(row.version || '-')}</div><div class="cell-sub">${escapeHtml(row.effectiveDate || '-')}</div>`],
-        ['签署', (row) => row.productionReady ? `<div>${escapeHtml(row.approvedBy || '-')}</div><div class="cell-sub">${formatTime(row.approvedAt)}</div><div class="cell-sub clamp">${escapeHtml(row.approvalNote || '-')}</div>` : '<span class="cell-sub">尚未生产签署</span>'],
+        ['状态', (row) => `${legalDocumentStatusPill(row)}<div class="cell-sub clamp">${row.hasRequiredContent ? '草稿内容校验通过' : `待处理：${escapeHtml((row.approvalIssues || []).join('；') || '正文不完整')}`}</div>`],
+        ['版本', (row) => `<div>草稿 ${escapeHtml(row.version || '-')}</div><div class="cell-sub">线上 ${escapeHtml(row.publishedVersion || '尚无')} · 历史 ${numberText(row.publishedVersionCount || 0)} 版</div>`],
+        ['线上签署', (row) => row.published ? `<div>${escapeHtml(row.published.approvedBy || '-')}</div><div class="cell-sub">${formatTime(row.published.approvedAt)}</div><div class="cell-sub clamp">${escapeHtml(row.published.approvalNote || '-')}</div>` : '<span class="cell-sub">尚无已发布版本</span>'],
         ['公开端', (row) => row.publicPath ? `<code>${escapeHtml(row.publicPath)}</code>` : '<span class="cell-sub">内部材料</span>'],
         ['正文摘要', (row) => `<div class="cell-sub clamp">${escapeHtml(legalDocumentPreview(row))}</div>`],
-        ['操作', (row) => legalDocumentActions(row)],
+        ['操作', (row) => legalDocumentActions(row, summary.operatorProfileComplete)],
       ], '暂无合规文本')}
     </div>
+
+    ${renderLegalDocumentEditor(editorDoc)}
   `;
 }
 
@@ -2890,57 +2977,74 @@ async function editLegalDocument(button) {
   const key = button.dataset.key || '';
   const doc = await currentLegalDocument(key);
   if (!doc) throw new Error('合规文本不存在');
-  const title = window.prompt('标题', doc.title || doc.label || '');
-  if (title === null) return;
-  const version = window.prompt('版本号', doc.version || '');
-  if (version === null) return;
-  const effectiveDate = window.prompt('生效日期，建议 YYYY-MM-DD', doc.effectiveDate || '');
-  if (effectiveDate === null) return;
-  const disclaimer = window.prompt('页面说明/合规备注', doc.disclaimer || '');
-  if (disclaimer === null) return;
-  const bodyText = window.prompt('正文段落，可用换行分段', legalDocumentPlainText(doc));
-  if (bodyText === null) return;
-  const reason = window.prompt('更新原因，会写入审计日志', `更新合规文本：${doc.label || doc.title || key}`);
-  if (reason === null) return;
+  state.legalEditorKey = key;
+  await render(true);
+  $('legalDocumentEditor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function saveLegalDocumentEditor() {
+  const key = state.legalEditorKey || '';
+  if (!key) throw new Error('请先选择需要编辑的合规文本');
+  const reason = $('legalDocReason')?.value.trim() || '';
+  if (!reason) throw new Error('请填写更新原因');
   await patch(`/admin/legal-documents/${encodeURIComponent(key)}`, {
-    bodyText,
-    disclaimer,
-    effectiveDate,
-    reason: reason.trim(),
+    bodyText: $('legalDocBody')?.value || '',
+    disclaimer: $('legalDocDisclaimer')?.value || '',
+    effectiveDate: $('legalDocEffectiveDate')?.value || '',
+    reason,
     sectionTitle: '正文',
-    title,
-    version,
+    title: $('legalDocTitle')?.value || '',
+    version: $('legalDocVersion')?.value || '',
   });
   invalidateLegalDocumentCaches();
-  showToast('合规文本已更新，状态已回到草稿');
+  state.legalEditorKey = '';
+  showToast('草稿已保存，线上版本未改变');
+  await render(true);
+}
+
+async function saveLegalOperatorProfile() {
+  const reason = $('legalOperatorReason')?.value.trim() || '';
+  if (!reason) throw new Error('请填写运营主体资料更新原因');
+  await patch('/admin/legal-documents/operator-profile', {
+    appFilingNumber: $('legalOperatorAppFiling')?.value.trim() || '',
+    complaintChannel: $('legalOperatorComplaint')?.value.trim() || '',
+    contactEmail: $('legalOperatorEmail')?.value.trim() || '',
+    contactPhone: $('legalOperatorPhone')?.value.trim() || '',
+    icpFilingNumber: $('legalOperatorIcp')?.value.trim() || '',
+    operatorName: $('legalOperatorName')?.value.trim() || '',
+    reason,
+    registeredAddress: $('legalOperatorAddress')?.value.trim() || '',
+  });
+  invalidateLegalDocumentCaches();
+  showToast('运营主体资料已保存，请重新签署合规材料');
   await render(true);
 }
 
 async function approveLegalDocument(button) {
   const key = button.dataset.key || '';
   const title = button.dataset.title || key;
-  if (!window.confirm(`确认签署「${title}」为当前生产确认版本？`)) return;
-  const reason = window.prompt('签署说明，会写入审计日志', `签署生产合规文本：${title}`);
+  if (!window.confirm(`确认签署并发布「${title}」？发布后 App 将读取该不可变版本。`)) return;
+  const reason = window.prompt('签署说明，会写入审计日志', `签署发布生产合规文本：${title}`);
   if (reason === null) return;
   await post(`/admin/legal-documents/${encodeURIComponent(key)}/approve`, {
     reason: reason.trim(),
   });
   invalidateLegalDocumentCaches();
-  showToast('合规文本已签署');
+  showToast('合规文本已签署发布');
   await render(true);
 }
 
 async function resetLegalDocument(button) {
   const key = button.dataset.key || '';
   const title = button.dataset.title || key;
-  if (!window.confirm(`确认把「${title}」重置为默认测试文本？签署状态会被清除。`)) return;
-  const reason = window.prompt('重置原因，会写入审计日志', `重置合规文本：${title}`);
+  if (!window.confirm(`确认把「${title}」草稿重置为默认完整草案？当前已发布版本不会下线。`)) return;
+  const reason = window.prompt('重置原因，会写入审计日志', `重置合规文本草稿：${title}`);
   if (reason === null) return;
   await post(`/admin/legal-documents/${encodeURIComponent(key)}/reset`, {
     reason: reason.trim(),
   });
   invalidateLegalDocumentCaches();
-  showToast('合规文本已重置');
+  showToast('合规文本草稿已重置，线上版本未改变');
   await render(true);
 }
 
@@ -6285,6 +6389,7 @@ function avatarTaskCell(job) {
       <div>
         <div class="cell-title">${escapeHtml(job.petName || job.id)}</div>
         <div class="cell-sub">${escapeHtml(job.id)}</div>
+        ${job.aiContentId ? `<div class="cell-sub">AI内容ID：${escapeHtml(job.aiContentId)}</div><div class="cell-sub">标识版本：${escapeHtml(job.aiLabelVersion || '-')}</div>` : ''}
         <div class="cell-sub">${job.mediaId ? `素材：${escapeHtml(job.mediaId)}` : '无素材ID'}</div>
         ${appliedText ? `<div class="cell-sub">${appliedText}</div>` : ''}
       </div>
@@ -6325,6 +6430,7 @@ function avatarAnimationTaskCell(job) {
       <div>
         <div class="cell-title">${escapeHtml(job.petName || job.id)}</div>
         <div class="cell-sub">${escapeHtml(job.id)}</div>
+        ${job.aiContentId ? `<div class="cell-sub">AI内容ID：${escapeHtml(job.aiContentId)}</div><div class="cell-sub">标识版本：${escapeHtml(job.aiLabelVersion || '-')}</div>` : ''}
         <div class="cell-sub">${job.avatarJobId ? `静态任务：${escapeHtml(job.avatarJobId)}` : '无静态任务ID'}</div>
         ${job.retryOfJobId ? `<div class="cell-sub">重试自：${escapeHtml(job.retryOfJobId)}</div>` : ''}
       </div>

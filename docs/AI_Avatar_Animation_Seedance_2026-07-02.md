@@ -95,3 +95,13 @@
 - Keep only a soft contact shadow under the pet; avoid pure white, gray, checkerboard, gradients, room/outdoor scenes, floor lines, and horizon lines.
 - Existing MP4 files keep their baked background pixels. Regenerate the static avatar first, then regenerate animation, when changing matte/background policy.
 - `PET_AVATAR_ANIMATION_DOWNLOAD_TIMEOUT_MS`: default 5 minutes. Server-side mirroring uses range requests when the upstream video supports `Accept-Ranges: bytes`.
+
+## AI generated-content labeling and provenance
+
+- Every static-avatar and animation job receives a stable AI content ID, generation type, provider, generated timestamp, and label version (`cn-generated-content-v1`).
+- Mobile surfaces that display the generated pet identity show the compact explicit label `AI生成`. User-uploaded replacement avatars do not inherit the label.
+- Newly mirrored PNG files contain PNG `tEXt` entries for `AI-Generated`, `AI-Service`, `AI-Content-ID`, `AI-Content-Type`, `AI-Provider`, `AI-Label-Version`, and `AI-Generated-At`.
+- COS objects for generated PNG and MP4 files receive equivalent `x-cos-meta-*` metadata. MP4 files also receive standard title/comment/description/encoded-by/creation-time metadata during FFmpeg processing or a metadata-only remux.
+- Pet records keep the content ID and label version for the currently applied static and dynamic companion. A manual avatar replacement clears stale provenance and animation bindings; startup migration only restores provenance when the current media still matches a completed generation job.
+- Operators can inspect the content ID and label version in the AI task tables. Public social payloads expose only the generated-content boolean and do not expose provider internals.
+- Regression command: `node scripts/smoke-ai-generated-content-provenance.cjs`.

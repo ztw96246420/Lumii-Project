@@ -106,6 +106,8 @@ const PET_AVATAR_ANIMATION_STAGE_BACKGROUND = normalizeHexColor(PET_AVATAR_STAGE
 const PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR = normalizeHexColor(process.env.PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR || '#00FF00', '#00FF00');
 const PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND = normalizeHexColor(process.env.PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND || PET_AVATAR_ANIMATION_STAGE_BACKGROUND, '#FFFDFC');
 const PET_AVATAR_ANIMATION_SOURCE_PREP_VERSION = 'chroma-key-despill-v4';
+const AI_GENERATED_CONTENT_LABEL_VERSION = 'cn-generated-content-v1';
+const AI_GENERATED_CONTENT_SERVICE = 'Lumii';
 const PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED = process.env.PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED === 'false' ? false : true;
 const PET_AVATAR_ANIMATION_FFMPEG_BIN = process.env.PET_AVATAR_ANIMATION_FFMPEG_BIN || 'ffmpeg';
 const PET_AVATAR_ANIMATION_FFMPEG_TIMEOUT_MS = Number(process.env.PET_AVATAR_ANIMATION_FFMPEG_TIMEOUT_MS || 90 * 1000);
@@ -324,68 +326,214 @@ const petTaxonomy = {
 
 const legalDocuments = {
   privacy: {
-    disclaimer: '当前为灵伴测试版协议文本，用于说明现阶段核心功能与数据处理方式；正式上线前会更新经法务确认的完整版本。',
-    effectiveDate: '2026-06-12',
+    disclaimer: '请在使用灵伴前完整阅读本政策，尤其是定位、宠物照片与 AI 处理、第三方服务、账号注销和未成年人保护相关内容。',
+    effectiveDate: '2026-07-14',
     key: 'privacy',
     sections: [
       {
         body: [
-          '灵伴会在你使用登录、宠物建档、AI 形象生成、附近发现、地图地点和通知提醒时处理必要信息。',
-          '位置信息默认用于附近发现和宠物友好地点推荐；产品侧会优先展示模糊距离，不展示精确住址。',
+          '本政策适用于 Lumii 灵伴移动应用及与其直接关联的后台服务。我们仅在具有明确、合理目的并与目的直接相关的范围内处理个人信息，并尽量采用对个人权益影响较小的方式。',
+          '运营者名称、联系方式、备案信息和当前公开版本由运营后台统一维护，并随本政策公开展示。未完成运营主体配置和生产签署的草稿不得作为正式上线文本。',
         ],
-        title: '我们收集的信息',
+        title: '适用范围与处理原则',
       },
       {
         body: [
-          '你上传的宠物照片用于识别宠物主体、生成电子宠物形象和保存宠物档案。',
-          '如果照片包含人脸、多个宠物或无宠物内容，灵伴会提示重新上传或进入人工/模型校验策略。',
+          '登录与账号：我们处理中国大陆手机号、短信验证记录、协议同意版本与时间、设备标识、登录会话、IP 地址、系统版本、应用版本及必要的安全日志，用于注册登录、会话安全、风控、故障排查和账号注销。短信验证码默认短时有效，明文验证码不会写入运营后台。',
+          '宠物档案与日历：你主动填写的宠物名称、物种、品种、性别、生日、体重、疫苗/驱虫计划、备忘和相关照片，用于建立宠物档案、展示日历和提供提醒。宠物健康内容仅作记录与提醒，不构成诊断或治疗建议。',
+          '社区与沟通：你发布的小事、评论、点赞、招呼、约遛、私信、举报、拉黑、地点点评、地点贡献、客服反馈及附件，用于实现社交互动、内容展示、安全审核、争议处理和客服支持。公开内容会按你选择的范围向其他用户展示。',
+          '运行日志：接口请求时间、错误码、功能使用事件、通知送达状态和崩溃排查信息，用于保障服务稳定、安全审计和改进体验。我们不会在运营页面展示完整鉴权令牌或短信验证码。',
+        ],
+        title: '我们处理的信息',
+      },
+      {
+        body: [
+          '当你使用附近发现、附近小事、宠物友好地点或新增地点时，我们会在获得系统授权后处理设备位置、定位精度和定位时间。附近小事保存发布时的位置快照，不会因为发布者之后移动到其他城市而改变归属。',
+          '定位权限不是登录、宠物建档和查看本人内容所必需。拒绝或关闭定位后，依赖当前位置的附近功能可能无法使用，但其他基本功能不应因此被拒绝。面向其他用户时优先展示模糊距离，不公开精确住址或原始经纬度。',
+        ],
+        title: '位置信息与附近功能',
+      },
+      {
+        body: [
+          '当你主动生成灵伴形象、灵伴动效或使用宠物 AI 对话时，我们会处理你选择的宠物照片、宠物档案摘要、生成提示词、对话内容、生成结果、任务状态和必要的质量反馈。照片可能包含人脸、住址、证件或其他个人信息，请在上传前自行检查并避免提交无关信息。',
+          '为完成生成或审核，相关内容可能发送给当前启用的 AI、内容安全或存储服务商。我们会尽量使用与手机号分离的任务标识和最少字段，并在配置切换时保留供应商、模型与提示词版本的审计记录。',
+          'AI 输出可能存在不准确、失真或不适当内容。灵伴形象和动效属于生成合成内容；在适用规则要求时，平台会添加显式或隐式标识，用户不得恶意删除、篡改或帮助他人规避相关标识。',
         ],
         title: '宠物照片与 AI 处理',
       },
       {
         body: [
-          '你可以在设置中关闭附近可见、互动消息提醒和推送通知。',
-          '正式上线前，我们会补充个人信息收集清单、第三方 SDK 清单、注销规则和未成年人保护说明。',
+          '相机和相册权限仅在你拍摄、选择或更换宠物照片、封面、社区图片和客服附件时申请；拒绝后可以继续使用不依赖图片的功能。',
+          '定位权限用于附近发现、地点推荐与地点贡献；通知权限用于互动消息、疫苗/驱虫计划、备忘和系统通知。通知权限拒绝后，站内通知仍可在 App 内查看。',
+          'Android 和 iOS 对相册、定位、通知等权限的名称与范围可能不同。你可以在系统设置中随时关闭权限；关闭只影响依赖该权限的功能。',
         ],
-        title: '你的控制权',
+        title: '设备权限说明',
+      },
+      {
+        body: [
+          '为实现短信、地图、对象存储、内容安全、AI 生成、AI 对话和推送通知，灵伴可能使用 Spug 短信服务、腾讯云 COS 与天御内容安全、高德地图、当前后台配置的 GPT Image 2/Seedance API 服务、DeepSeek 及 Expo Push。实际启用项以当前功能、后台配置和第三方服务清单为准。',
+          '我们会向服务商提供完成对应功能所必需的信息，例如手机号与验证码模板参数、位置查询参数、宠物图片或图片地址、生成提示词、对话上下文、内容审核文本/图片以及推送令牌。服务商不得将这些信息用于与受托目的无关的活动。',
+          '如果某项服务涉及向境外提供个人信息，我们会在实际发生前依法完成必要评估或备案，并在法律要求时另行告知境外接收方信息、处理目的、方式和种类并取得单独同意；未完成必要条件时不得发送个人信息。',
+        ],
+        title: '委托处理、第三方服务与跨境',
+      },
+      {
+        body: [
+          '我们不会出售个人信息。除获得你的单独同意、为履行法定义务、应对紧急情况或法律法规另有规定外，不会向其他个人信息处理者提供、公开披露或转让你的个人信息。',
+          '发生合并、分立、解散、收购或资产转让并涉及个人信息转移时，我们会依法告知接收方名称和联系方式，并要求接收方继续履行本政策及法律规定的义务。',
+        ],
+        title: '共享、转让与公开披露',
+      },
+      {
+        body: [
+          '账号和宠物业务数据在你使用服务期间保存；具体功能数据按实现目的所需的最短期限保存。私信安全审计窗口、运营日志和内容处置证据按后台当前留存策略执行，法律法规或争议处理另有要求的除外。',
+          '你发起账号注销后进入注销页面显示的冷静期；冷静期内重新短信登录可撤销注销。冷静期结束后，账号、宠物、日历、AI、社交、聊天、地点贡献、通知和客服关联数据会进入永久清理，相关对象存储文件通过销毁队列删除。',
+          '为阻断注销前旧登录令牌，系统会在有限期间保留不含明文手机号的匿名安全墓碑；法律要求保存的内容安全、审计或争议证据会与日常业务数据隔离并在期限届满后处理。',
+        ],
+        title: '保存期限与账号注销',
+      },
+      {
+        body: [
+          '你可以在 App 内查看、更正宠物资料和日历记录，删除本人小事、评论或错误记录，调整附近可见与消息通知设置，并通过“我的—账号安全”管理登录设备或发起账号注销。',
+          '你可以通过“我的—帮助与反馈”提出查阅、复制、更正、补充、删除、撤回同意、注销账号或解释个人信息处理规则的请求。涉及账号安全或他人权益时，我们可能先核验身份。',
+          '撤回同意不影响撤回前基于同意已经进行的处理。对于实现基本功能所必需或基于其他合法事由处理的信息，停止处理可能导致相应功能不可用。',
+        ],
+        title: '你的权利与控制方式',
+      },
+      {
+        body: [
+          '我们采用传输加密、访问控制、最小权限、令牌签名、敏感字段脱敏、后台审计、内容审核、备份恢复和删除队列等措施保护信息。任何安全措施都无法保证绝对安全；发生可能危害个人权益的事件时，我们会依法采取补救并履行通知或报告义务。',
+          '请妥善保护手机、短信验证码和登录设备，不要向他人转发验证码。发现账号异常、内容侵权或安全风险时，请及时通过帮助与反馈联系我们。',
+        ],
+        title: '信息安全',
+      },
+      {
+        body: [
+          '灵伴主要面向具备相应民事行为能力的宠物主人。未满十四周岁的未成年人不得自行注册或提交个人信息；确需使用时，应由监护人阅读相关规则并依法完成监护人同意。',
+          '如我们发现未经监护人同意处理了不满十四周岁未成年人的个人信息，将在核实后尽快停止相关处理并删除，法律法规另有规定的除外。',
+        ],
+        title: '未成年人保护',
+      },
+      {
+        body: [
+          '业务功能、处理目的、个人信息种类或第三方服务发生重要变化时，我们会更新政策版本并通过 App 内提示等合理方式告知。依法需要重新同意的，我们会在继续相关处理前再次取得同意。',
+          '对本政策或个人信息处理有疑问、意见、投诉或权利请求，可使用 App 内“我的—帮助与反馈”。运营者的其他公开联系方式会显示在本文末尾。',
+        ],
+        title: '政策更新与联系我们',
       },
     ],
     title: '灵伴隐私政策',
-    version: 'test-2026-06-12',
+    version: 'draft-2026-07-14',
   },
   terms: {
-    disclaimer: '当前为灵伴测试版协议文本，用于说明现阶段核心功能与数据处理方式；正式上线前会更新经法务确认的完整版本。',
-    effectiveDate: '2026-06-12',
+    disclaimer: '请在注册和使用灵伴前完整阅读本协议。宠物健康内容、AI 生成结果、附近社交和线下约遛存在特定风险，请结合实际情况审慎判断。',
+    effectiveDate: '2026-07-14',
     key: 'terms',
     sections: [
       {
         body: [
-          '灵伴是围绕真实宠物、电子宠物形象、宠物日历记录和宠物主人社交的移动端服务。',
-          '当前版本功能仍在测试，页面、接口和 AI 结果可能持续调整。',
+          '本协议是你与 Lumii 灵伴运营者之间关于注册、访问和使用灵伴服务的约定。运营者名称、联系方式、备案信息和当前生效版本由运营后台统一维护并随本文公开展示。',
+          '点击同意、完成短信登录或实际使用服务前，请确认你已经阅读并理解本协议和《灵伴隐私政策》。如果你不同意其中任何内容，请停止注册或使用相应服务。',
         ],
-        title: '服务范围',
+        title: '协议范围与接受',
       },
       {
         body: [
-          '用户应上传自己有权使用的宠物照片，不应上传侵犯他人权益、暴露他人隐私或无关的内容。',
-          '宠物健康内容仅作记录和提醒，不替代兽医诊断或治疗建议。',
+          '你应使用本人可正常接收短信的中国大陆手机号注册，并保证不冒用他人身份或账号。你应妥善保管手机、验证码和登录设备，并对账号下经有效验证发生的操作负责。',
+          '灵伴主要面向具有相应民事行为能力的宠物主人。未满十四周岁的未成年人不得自行注册；其他未成年人应在监护人指导下使用。',
+          '账号仅限本人使用，不得出租、出售、出借或用于批量注册、自动化攻击、刷量、引流和其他违法违规活动。发现异常使用时，平台可以要求安全验证或采取临时保护措施。',
         ],
-        title: '用户责任',
+        title: '账号注册与安全',
       },
       {
         body: [
-          '附近发现、聊天和约遛等功能应遵守友善、安全原则，线下见面建议选择公开宠物友好地点。',
-          '正式上线前，我们会补充举报处理、拉黑、账号注销和争议处理规则。',
+          '灵伴提供宠物档案、宠物日历、疫苗/驱虫计划、备忘提醒、AI 灵伴形象与动效、宠物第一人称 AI 对话、宠友圈、附近发现、招呼与约遛、私信、宠物友好地点、通知、举报和客服支持等功能。实际可用范围以当前版本、地区、系统权限和后台配置为准。',
+          '平台可以基于安全、合规、运营或技术原因调整功能，但不得无正当理由减损用户依法享有的权利。影响重大的变更会通过合理方式告知。',
         ],
-        title: '社交与安全',
+        title: '服务内容',
+      },
+      {
+        body: [
+          '你上传的宠物照片、档案摘要和提示词会用于生成灵伴形象或动效；宠物 AI 对话可能使用宠物资料和必要的对话上下文。AI 输出由模型生成，可能存在不准确、失真、重复、延迟、失败或不适当内容，不应被视为专业意见或事实保证。',
+          '平台会尽力保持宠物身份特征、提供内容安全检查并在供应商失败场景按公开规则处理额度，但不保证每次生成结果都符合主观审美。你不得利用 AI 功能生成或传播违法、有害、侵权、欺诈或冒充他人的内容。',
+          '灵伴形象、动效及其他模型输出属于生成合成内容。平台和用户应遵守适用的生成合成内容标识规则；不得恶意删除、篡改、伪造或帮助他人规避相关显式或隐式标识。',
+        ],
+        title: 'AI 服务与生成内容',
+      },
+      {
+        body: [
+          '你应确保对上传或发布的照片、文字、视频、地点资料及其他内容拥有合法权利或已经取得必要授权，不得泄露他人隐私、肖像、联系方式、住址、证件或商业秘密。',
+          '你保留对本人内容依法享有的权利。为提供存储、展示、审核、传播、备份、格式转换和投诉处理，需在服务范围和存续期间向平台授予非独占、可撤回、必要范围内的使用许可；该许可不会转移内容所有权。',
+          '删除内容后，公开展示会按产品流程停止；备份、审核证据、投诉争议或法律要求保存的副本可能在限定期间继续保留。',
+        ],
+        title: '用户内容与授权',
+      },
+      {
+        body: [
+          '使用宠友圈、评论、招呼、约遛、私信、地点点评和举报功能时，应保持真实、友善并尊重他人，不得骚扰、辱骂、威胁、歧视、诈骗、恶意营销、传播违法信息或反复绕过拉黑与处罚。',
+          '附近结果基于当前位置或内容发布时的位置快照，仅用于发现功能，不代表平台核验了对方身份、宠物状况、地点安全或线下活动。与陌生人线下见面时应选择公开地点，自行评估人身、宠物、交通和财产风险，并在必要时告知亲友。',
+          '平台提供举报、拉黑和客服入口。遇到紧急危险、违法犯罪或动物伤害风险时，应优先联系公安、急救、消防、动物诊疗或其他有权机构。',
+        ],
+        title: '社区互动与线下安全',
+      },
+      {
+        body: [
+          '宠物日历、体重记录、疫苗/驱虫计划、备忘和 AI 对话中的健康相关内容仅用于记录、提醒和一般信息交流，不构成兽医诊断、处方、治疗、用药或急救建议。',
+          '宠物出现呼吸困难、持续抽搐、严重出血、中毒、误食、创伤或其他紧急症状时，请立即联系合格兽医或就近动物诊疗机构，不要等待 App 提醒或 AI 回复。',
+        ],
+        title: '宠物健康免责声明',
+      },
+      {
+        body: [
+          '禁止发布或传播法律法规禁止的内容，禁止侵害国家安全、公共利益、未成年人权益或他人合法权益，禁止色情低俗、暴力恐怖、仇恨歧视、诈骗赌博、违法交易、恶意引流、虚假有害信息以及教唆违法行为。',
+          '平台会通过规则校验、第三方机审、用户举报、运营抽查和人工复核处理内容。根据风险和违规程度，可采取提示修改、拒绝发布、限制可见、隐藏、删除、警告、禁言、冻结、封禁或移交有权机关等措施，并保留必要证据和审计记录。',
+          '你可以通过站内通知或客服入口了解处理结果并按可用流程申诉。平台会结合原始内容、上下文、机审结果、举报材料和历史行为复核，不以举报数量单独替代事实判断。',
+        ],
+        title: '内容规则与违规处理',
+      },
+      {
+        body: [
+          '当前功能的免费额度、生成次数、内容上限和提醒策略以 App 页面及后台公开配置为准。未经明确展示价格和确认，不会自动向你收费。未来增加付费服务时，将另行展示价格、计费规则、退款条件和适用协议。',
+          '因用户照片不合格、内容安全拦截或主动放弃导致的失败，与供应商提交失败、超时或明确返回失败的处理规则可能不同；具体以任务页和当时公开规则为准。',
+        ],
+        title: '额度与费用',
+      },
+      {
+        body: [
+          '灵伴应用、品牌、界面、程序、文档和由平台提供的其他内容所包含的知识产权归权利人所有。除法律允许或平台明确授权外，不得复制、反向工程、恶意抓取、批量导出或用于建立竞争性服务。',
+          '如果你认为平台内容侵犯你的合法权益，可通过帮助与反馈提交权属证明、目标内容和具体请求。平台会依法核实并采取必要措施。',
+        ],
+        title: '知识产权与侵权投诉',
+      },
+      {
+        body: [
+          '你可以停止使用、退出登录或在“我的—账号安全”发起账号注销。注销进入页面显示的冷静期；冷静期内重新短信登录可撤销，期满后按隐私政策清理业务数据。',
+          '在账号注销、内容删除或服务终止前已产生的违规处置、费用、投诉、争议和依法应承担的责任，不因注销而当然免除。',
+        ],
+        title: '账号注销与服务终止',
+      },
+      {
+        body: [
+          '平台会采取合理措施保障服务连续性，但因设备、网络、第三方服务、不可抗力、监管要求、安全事件或必要维护导致的短时中断，可能无法完全避免。平台会在合理范围内恢复服务、保存任务状态或提供重试与客服处理。',
+          '平台不对用户自行发布的内容、线下见面结果、第三方地点信息或 AI 输出作真实性和适用性保证。任何责任限制均不排除法律规定不得限制或免除的责任。',
+        ],
+        title: '服务可用性与责任边界',
+      },
+      {
+        body: [
+          '本协议的订立、生效、履行和争议处理适用中华人民共和国大陆地区法律。发生争议时，双方应先通过帮助与反馈友好协商；协商不成的，按法律规定向有管辖权的人民法院提起诉讼。',
+          '协议版本更新后会标示版本号和生效日期。涉及用户重要权利义务或依法需要重新同意的变化，会通过 App 内提示等合理方式告知并在必要时重新取得同意。',
+          '关于本协议、内容处理、账号安全或服务投诉，可使用 App 内“我的—帮助与反馈”。运营者的其他公开联系方式会显示在本文末尾。',
+        ],
+        title: '协议更新、争议与联系',
       },
     ],
     title: '灵伴用户协议',
-    version: 'test-2026-06-12',
+    version: 'draft-2026-07-14',
   },
   content_policy: {
-    disclaimer: '当前为灵伴测试版内容审核制度说明，用于沉淀平台内容安全、举报处理和人工复核规则；正式上线前需要运营、法务或合规顾问确认后签署。',
-    effectiveDate: '2026-07-09',
+    disclaimer: '本制度用于约束灵伴公开内容、私信举报、AI 媒体和地点内容的机器审核、人工复核、处罚、申诉与审计流程。',
+    effectiveDate: '2026-07-14',
     key: 'content_policy',
     sections: [
       {
@@ -405,17 +553,31 @@ const legalDocuments = {
       {
         body: [
           '运营可在后台对内容执行通过、隐藏、删除、驳回、处罚、撤销和申诉处理，并保留审计日志和证据快照。',
-          '正式生产期需要持续复盘误杀、漏杀、处罚一致性和封禁策略，并根据监管要求更新制度文本。',
+          '运营应持续复盘误杀、漏杀、处罚一致性和封禁策略，根据监管要求和真实案例更新制度；高风险批量处罚、永久封禁和敏感数据导出应按后台审批策略执行。',
         ],
         title: '运营闭环',
       },
+      {
+        body: [
+          '举报、机审和人工复核结论应以事实、上下文和规则为依据，不以举报数量直接替代证据。内容作者应收到可理解的处理结果；具备申诉条件时，应提供申诉入口并由非原处理人复核。',
+          '审核人员只能在授权范围内查看完成任务所必需的信息。查看私信上下文、完整手机号、原始定位或敏感附件应具备对应权限、填写原因并形成审计。',
+        ],
+        title: '申诉、公平与最小访问',
+      },
+      {
+        body: [
+          'AI 生成的灵伴形象、动效及其他生成合成内容，应根据适用规则保留必要的显式或隐式标识。发现用户恶意删除、篡改或伪造标识时，可限制传播并进入人工复核。',
+          '面向公众传播的 AI 内容仍需遵守与普通内容相同的违法违规、侵权、隐私和社区安全规则，不因模型生成而免除平台或用户责任。',
+        ],
+        title: 'AI 生成合成内容标识',
+      },
     ],
     title: '灵伴内容审核制度',
-    version: 'test-2026-07-09',
+    version: 'draft-2026-07-14',
   },
   app_filing: {
-    disclaimer: '当前为 App 备案与上架合规材料的后台确认项，不作为公开用户协议展示；正式上线前需要确认包名、主体、隐私政策地址、SDK 清单、权限说明和备案状态。',
-    effectiveDate: '2026-07-09',
+    disclaimer: '本项只在运营后台留存，用于核对 App 备案、应用市场上架、主体资料、SDK/权限清单和正式包信息，不作为公开用户协议正文。',
+    effectiveDate: '2026-07-14',
     key: 'app_filing',
     sections: [
       {
@@ -428,12 +590,13 @@ const legalDocuments = {
       {
         body: [
           '备案或应用市场材料发生变化时，需要在后台重新更新并签署本项，避免上线台账继续沿用旧结论。',
+          'Android 正式包应核对包名 com.lumii.lingban、版本号与构建号、正式签名证书、HTTPS API、最小权限、隐私政策链接和账号注销路径；iOS 上架时应另行核对 Bundle ID、隐私清单和权限文案。',
         ],
         title: '变更要求',
       },
     ],
     title: '灵伴 App 备案与上架合规材料',
-    version: 'test-2026-07-09',
+    version: 'draft-2026-07-14',
   },
 };
 
@@ -876,6 +1039,7 @@ function createInitialState() {
     launchReadinessQuestionOverrides: {},
     launchReadinessSignoff: {},
     legalDocuments: {},
+    legalOperatorProfile: {},
     publicApiExternalProof: {},
     opsConfigApprovals: [],
     adminLoginSecurity: {
@@ -5912,6 +6076,7 @@ function loadState() {
       launchReadinessQuestionOverrides: loadedState.launchReadinessQuestionOverrides && typeof loadedState.launchReadinessQuestionOverrides === 'object' && !Array.isArray(loadedState.launchReadinessQuestionOverrides) ? loadedState.launchReadinessQuestionOverrides : initialState.launchReadinessQuestionOverrides,
       launchReadinessSignoff: loadedState.launchReadinessSignoff && typeof loadedState.launchReadinessSignoff === 'object' && !Array.isArray(loadedState.launchReadinessSignoff) ? loadedState.launchReadinessSignoff : initialState.launchReadinessSignoff,
       legalDocuments: loadedState.legalDocuments && typeof loadedState.legalDocuments === 'object' && !Array.isArray(loadedState.legalDocuments) ? loadedState.legalDocuments : initialState.legalDocuments,
+      legalOperatorProfile: loadedState.legalOperatorProfile && typeof loadedState.legalOperatorProfile === 'object' && !Array.isArray(loadedState.legalOperatorProfile) ? loadedState.legalOperatorProfile : initialState.legalOperatorProfile,
       publicApiExternalProof: loadedState.publicApiExternalProof && typeof loadedState.publicApiExternalProof === 'object' && !Array.isArray(loadedState.publicApiExternalProof) ? loadedState.publicApiExternalProof : initialState.publicApiExternalProof,
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
@@ -6207,6 +6372,97 @@ function pngChunk(type, data = Buffer.alloc(0)) {
   data.copy(chunk, 8);
   chunk.writeUInt32BE(pngCrc32(Buffer.concat([typeBuffer, data])), 8 + data.length);
   return chunk;
+}
+
+function aiMetadataTimestamp(value, fallback = Date.now()) {
+  const candidate = value === undefined || value === null || value === '' ? fallback : value;
+  const date = new Date(candidate);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : new Date(fallback).toISOString();
+}
+
+function initializeAiContentIdentity(job, kind = 'image') {
+  if (!job || typeof job !== 'object') return null;
+  const normalizedKind = kind === 'video' ? 'video' : 'image';
+  job.aiGenerated = true;
+  job.aiContentType = normalizedKind;
+  job.aiContentId = String(job.aiContentId || job.id || `ai-${normalizedKind}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`);
+  job.aiLabelVersion = String(job.aiLabelVersion || AI_GENERATED_CONTENT_LABEL_VERSION);
+  return job;
+}
+
+function aiGeneratedContentMetadata(job, kind = 'image', generatedAt = Date.now()) {
+  const identity = initializeAiContentIdentity(job, kind);
+  if (!identity) return {};
+  identity.aiGeneratedAt = aiMetadataTimestamp(identity.aiGeneratedAt || generatedAt);
+  return {
+    'ai-content-id': identity.aiContentId,
+    'ai-content-type': identity.aiContentType,
+    'ai-generated': 'true',
+    'ai-generated-at': identity.aiGeneratedAt,
+    'ai-label-version': identity.aiLabelVersion,
+    'ai-provider': String(identity.provider || identity.model || 'unknown'),
+    'ai-service': AI_GENERATED_CONTENT_SERVICE,
+  };
+}
+
+function sanitizeObjectMetadata(metadata = {}) {
+  const headers = {};
+  Object.entries(metadata || {}).forEach(([rawKey, rawValue]) => {
+    const key = String(rawKey || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
+    if (!key || rawValue === undefined || rawValue === null || rawValue === '') return;
+    const value = String(rawValue).replace(/[^\x20-\x7e]/g, '').trim().slice(0, 512);
+    if (!value) return;
+    headers[`x-cos-meta-${key}`] = value;
+  });
+  return headers;
+}
+
+function pngTextChunk(keyword, value) {
+  const safeKeyword = String(keyword || '').replace(/[^\x20-\x7e]/g, '').replace(/\0/g, '').slice(0, 79);
+  if (!safeKeyword) return null;
+  const safeValue = String(value ?? '').replace(/[^\x20-\x7e]/g, '').slice(0, 1024);
+  return pngChunk('tEXt', Buffer.concat([Buffer.from(safeKeyword, 'latin1'), Buffer.from([0]), Buffer.from(safeValue, 'latin1')]));
+}
+
+function embedAiMetadataInPng(buffer, metadata = {}) {
+  if (!isPngBuffer(buffer) || !metadata['ai-generated']) return buffer;
+  const entries = [
+    ['AI-Generated', metadata['ai-generated']],
+    ['AI-Service', metadata['ai-service']],
+    ['AI-Content-ID', metadata['ai-content-id']],
+    ['AI-Content-Type', metadata['ai-content-type']],
+    ['AI-Provider', metadata['ai-provider']],
+    ['AI-Label-Version', metadata['ai-label-version']],
+    ['AI-Generated-At', metadata['ai-generated-at']],
+  ].filter(([, value]) => value !== undefined && value !== null && value !== '');
+  if (!entries.length) return buffer;
+
+  const existingKeywords = new Set();
+  let offset = PNG_SIGNATURE.length;
+  let iendOffset = -1;
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString('ascii', offset + 4, offset + 8);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    if (dataEnd + 4 > buffer.length) return buffer;
+    if (type === 'tEXt') {
+      const separator = buffer.indexOf(0, dataStart);
+      if (separator >= dataStart && separator < dataEnd) existingKeywords.add(buffer.toString('latin1', dataStart, separator));
+    }
+    if (type === 'IEND') {
+      iendOffset = offset;
+      break;
+    }
+    offset = dataEnd + 4;
+  }
+  if (iendOffset < 0) return buffer;
+  const chunks = entries
+    .filter(([keyword]) => !existingKeywords.has(keyword))
+    .map(([keyword, value]) => pngTextChunk(keyword, value))
+    .filter(Boolean);
+  if (!chunks.length) return buffer;
+  return Buffer.concat([buffer.subarray(0, iendOffset), ...chunks, buffer.subarray(iendOffset)]);
 }
 
 function pngPaethPredictor(a, b, c) {
@@ -6722,20 +6978,22 @@ function cosObjectKeyFor(user, scope, fileName, petId = '') {
   return [safeScope, ownerStorageId(user), petId ? String(petId).replace(/[^a-z0-9_-]/gi, '-') : '', safeFileName].filter(Boolean).join('/');
 }
 
-async function uploadBufferToCos(req, user, { buffer, fileName, mimeType, petId = '', scope }) {
+async function uploadBufferToCos(req, user, { buffer, fileName, metadata = {}, mimeType, petId = '', scope }) {
   if (!cosEnabled() || !Buffer.isBuffer(buffer) || buffer.length <= 0) return null;
   const finalMimeType = normalizeStoredMimeType(mimeType);
   const objectKey = cosObjectKeyFor(user, scope, fileName, petId);
+  const finalBuffer = finalMimeType === 'image/png' ? embedAiMetadataInPng(buffer, metadata) : buffer;
   await cosRequest('PUT', objectKey, {
-    body: buffer,
+    body: finalBuffer,
     headers: {
       'cache-control': 'private, max-age=31536000',
       'content-type': finalMimeType,
+      ...sanitizeObjectMetadata(metadata),
     },
   });
   return {
     bucket: COS_BUCKET,
-    bytes: buffer.length,
+    bytes: finalBuffer.length,
     mimeType: finalMimeType,
     objectKey,
     provider: 'cos',
@@ -6849,7 +7107,7 @@ function base64UploadBuffer(parsedUpload) {
   };
 }
 
-async function storeAvatarUrlToCos(req, user, avatarUrl, { petId = '', scope = 'pet-avatar' } = {}) {
+async function storeAvatarUrlToCos(req, user, avatarUrl, { aiMetadata = {}, petId = '', scope = 'pet-avatar' } = {}) {
   const value = String(avatarUrl || '').trim();
   if (!value || value.startsWith('lumii://') || value.includes('/storage/objects/')) return value;
   const downloaded = await downloadImageBuffer(value);
@@ -6868,6 +7126,7 @@ async function storeAvatarUrlToCos(req, user, avatarUrl, { petId = '', scope = '
   const stored = await uploadBufferToCos(req, user, {
     buffer: prepared.buffer,
     fileName: `avatar-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${extension}`,
+    metadata: aiMetadata,
     mimeType: prepared.mimeType,
     petId,
     scope,
@@ -6932,8 +7191,26 @@ async function removeTempPath(tempPath) {
   } catch {}
 }
 
-async function postprocessAvatarAnimationVideo(downloaded, { petId = '' } = {}) {
-  if (!PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED) return downloaded;
+function ffmpegAiMetadataArgs(metadata = {}) {
+  if (!metadata['ai-generated']) return [];
+  const description = [
+    'AI-generated pet companion animation',
+    `service=${metadata['ai-service'] || AI_GENERATED_CONTENT_SERVICE}`,
+    `content_id=${metadata['ai-content-id'] || ''}`,
+    `provider=${metadata['ai-provider'] || 'unknown'}`,
+    `label_version=${metadata['ai-label-version'] || AI_GENERATED_CONTENT_LABEL_VERSION}`,
+  ].join('; ');
+  return [
+    '-metadata', 'title=Lumii AI-generated companion animation',
+    '-metadata', `comment=${description}`,
+    '-metadata', `description=${description}`,
+    '-metadata', 'encoded_by=Lumii AI',
+    '-metadata', `creation_time=${metadata['ai-generated-at'] || new Date().toISOString()}`,
+  ];
+}
+
+async function postprocessAvatarAnimationVideo(downloaded, { aiMetadata = {}, petId = '' } = {}) {
+  if (!PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED && !aiMetadata['ai-generated']) return downloaded;
   if (!downloaded?.buffer?.length || !String(downloaded.mimeType || '').startsWith('video/')) return downloaded;
 
   try {
@@ -6943,44 +7220,40 @@ async function postprocessAvatarAnimationVideo(downloaded, { petId = '' } = {}) 
       const outputPath = path.join(tempDir, 'output.mp4');
       try {
         await fs.promises.writeFile(inputPath, downloaded.buffer);
-        const chroma = ffmpegColorFromHex(PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR, '#00FF00');
-        const matte = ffmpegColorFromHex(PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND, '#FFFDFC');
-        const despill = PET_AVATAR_ANIMATION_DESPILL_ENABLED
-          ? `,despill=type=green:mix=${PET_AVATAR_ANIMATION_DESPILL_MIX}:expand=${PET_AVATAR_ANIMATION_DESPILL_EXPAND}:green=-1:alpha=0`
-          : '';
-        const filter = [
-          `[0:v]scale=480:480:force_original_aspect_ratio=decrease,pad=480:480:(ow-iw)/2:(oh-ih)/2:${chroma},format=rgba,chromakey=${chroma}:${PET_AVATAR_ANIMATION_CHROMA_SIMILARITY}:${PET_AVATAR_ANIMATION_CHROMA_BLEND}${despill}[fg]`,
-          `color=c=${matte}:s=480x480:r=24:d=4,format=rgba[bg]`,
-          '[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1:format=auto,format=yuv420p',
-        ].join(';');
-        await runProcess(PET_AVATAR_ANIMATION_FFMPEG_BIN, [
-          '-y',
-          '-hide_banner',
-          '-loglevel',
-          'error',
-          '-i',
-          inputPath,
-          '-filter_complex',
-          filter,
-          '-an',
-          '-t',
-          '4',
-          '-c:v',
-          'libx264',
-          '-preset',
-          'veryfast',
-          '-crf',
-          '18',
-          '-pix_fmt',
-          'yuv420p',
-          '-movflags',
-          '+faststart',
-          outputPath,
-        ], { timeoutMs: PET_AVATAR_ANIMATION_FFMPEG_TIMEOUT_MS });
+        const metadataArgs = ffmpegAiMetadataArgs(aiMetadata);
+        let ffmpegArgs;
+        if (PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED) {
+          const chroma = ffmpegColorFromHex(PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR, '#00FF00');
+          const matte = ffmpegColorFromHex(PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND, '#FFFDFC');
+          const despill = PET_AVATAR_ANIMATION_DESPILL_ENABLED
+            ? `,despill=type=green:mix=${PET_AVATAR_ANIMATION_DESPILL_MIX}:expand=${PET_AVATAR_ANIMATION_DESPILL_EXPAND}:green=-1:alpha=0`
+            : '';
+          const filter = [
+            `[0:v]scale=480:480:force_original_aspect_ratio=decrease,pad=480:480:(ow-iw)/2:(oh-ih)/2:${chroma},format=rgba,chromakey=${chroma}:${PET_AVATAR_ANIMATION_CHROMA_SIMILARITY}:${PET_AVATAR_ANIMATION_CHROMA_BLEND}${despill}[fg]`,
+            `color=c=${matte}:s=480x480:r=24:d=4,format=rgba[bg]`,
+            '[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1:format=auto,format=yuv420p',
+          ].join(';');
+          ffmpegArgs = [
+            '-y', '-hide_banner', '-loglevel', 'error', '-i', inputPath,
+            '-filter_complex', filter,
+            '-an', '-t', '4', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
+            ...metadataArgs,
+            '-movflags', '+faststart', outputPath,
+          ];
+        } else {
+          ffmpegArgs = [
+            '-y', '-hide_banner', '-loglevel', 'error', '-i', inputPath,
+            '-map', '0', '-c', 'copy',
+            ...metadataArgs,
+            '-movflags', '+faststart', outputPath,
+          ];
+        }
+        await runProcess(PET_AVATAR_ANIMATION_FFMPEG_BIN, ffmpegArgs, { timeoutMs: PET_AVATAR_ANIMATION_FFMPEG_TIMEOUT_MS });
         const stat = await fs.promises.stat(outputPath);
         if (!stat.size || stat.size > PET_AVATAR_ANIMATION_MAX_BYTES) throw new Error('Postprocessed video is empty or too large');
         const buffer = await fs.promises.readFile(outputPath);
-        console.log('[avatar-animation] chroma key composited video', {
+        console.log('[avatar-animation] prepared generated video', {
+          aiContentId: aiMetadata['ai-content-id'] || '',
           bytesAfter: buffer.length,
           bytesBefore: downloaded.buffer.length,
           chromaKey: PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR,
@@ -6995,15 +7268,16 @@ async function postprocessAvatarAnimationVideo(downloaded, { petId = '' } = {}) 
         });
         return {
           buffer,
+          metadataEmbedded: Boolean(aiMetadata['ai-generated']),
           mimeType: 'video/mp4',
-          postprocessed: true,
+          postprocessed: PET_AVATAR_ANIMATION_POSTPROCESS_ENABLED,
         };
       } finally {
         await removeTempPath(tempDir);
       }
     });
   } catch (error) {
-    console.warn('[avatar-animation] chroma key postprocess skipped', {
+    console.warn('[avatar-animation] generated video processing skipped', {
       chromaKey: PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR,
       compositeBackground: PET_AVATAR_ANIMATION_COMPOSITE_BACKGROUND,
       message: error.message || String(error),
@@ -7013,7 +7287,7 @@ async function postprocessAvatarAnimationVideo(downloaded, { petId = '' } = {}) 
   }
 }
 
-async function storeAvatarAnimationUrlToCos(req, user, videoUrl, { petId = '' } = {}) {
+async function storeAvatarAnimationUrlToCos(req, user, videoUrl, { aiMetadata = {}, petId = '' } = {}) {
   const value = String(videoUrl || '').trim();
   if (!value || value.startsWith('lumii://') || value.includes('/storage/objects/')) return value;
   const downloaded = await downloadRemoteFileBuffer(value, {
@@ -7022,11 +7296,12 @@ async function storeAvatarAnimationUrlToCos(req, user, videoUrl, { petId = '' } 
     timeoutMs: PET_AVATAR_ANIMATION_DOWNLOAD_TIMEOUT_MS,
   });
   if (!downloaded?.buffer?.length) return value;
-  const prepared = await postprocessAvatarAnimationVideo(downloaded, { petId });
+  const prepared = await postprocessAvatarAnimationVideo(downloaded, { aiMetadata, petId });
   const extension = mimeExtension(prepared.mimeType, 'mp4');
   const stored = await uploadBufferToCos(req, user, {
     buffer: prepared.buffer,
     fileName: `avatar-animation-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${extension}`,
+    metadata: aiMetadata,
     mimeType: prepared.mimeType,
     petId,
     scope: 'pet-avatar-animation',
@@ -7100,6 +7375,7 @@ function markAvatarAnimationMirroring(user, job, sourceUrl) {
     pet.avatarAnimationJobId = job.id;
     pet.avatarAnimationStatus = 'processing';
     pet.avatarAnimationUrl = '';
+    clearPetAvatarAnimationAiProvenance(pet);
   }
   touchAvatarAnimationJob(job);
 }
@@ -7109,7 +7385,8 @@ async function runAvatarAnimationMirror(reqSnapshot, ownerPhone, jobId, sourceUr
   const job = state.avatarAnimationJobs?.[jobId];
   if (!user || !job) return;
   try {
-    const mirroredUrl = await storeAvatarAnimationUrlToCos(reqSnapshot, user, sourceUrl, { petId: job.petId || '' });
+    const aiMetadata = aiGeneratedContentMetadata(job, 'video', job.readyAt || Date.now());
+    const mirroredUrl = await storeAvatarAnimationUrlToCos(reqSnapshot, user, sourceUrl, { aiMetadata, petId: job.petId || '' });
     if (mirroredUrl && mirroredUrl !== sourceUrl && mirroredUrl.includes('/storage/objects/')) {
       job.resultUrl = mirroredUrl;
       job.videoUrl = mirroredUrl;
@@ -7124,6 +7401,7 @@ async function runAvatarAnimationMirror(reqSnapshot, ownerPhone, jobId, sourceUr
         pet.avatarAnimationStatus = 'ready';
         pet.avatarAnimationUpdatedAt = job.readyAt;
         pet.avatarAnimationUrl = mirroredUrl;
+        applyPetAvatarAnimationAiProvenance(pet, job, job.readyAt);
       }
       touchAvatarAnimationJob(job);
       clearAvatarAnimationMirrorRetry(job.id);
@@ -15257,6 +15535,27 @@ function migrateLegacyUploadedPetMediaAnalysis() {
 
 migrateLegacyUploadedPetMediaAnalysis();
 
+function migrateLegacyTestLegalDocuments() {
+  let changed = false;
+  if (!state.legalDocuments || typeof state.legalDocuments !== 'object' || Array.isArray(state.legalDocuments)) state.legalDocuments = {};
+  for (const definition of legalDocumentDefinitions) {
+    const existing = state.legalDocuments[definition.key];
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) continue;
+    const version = String(existing.version || '').trim();
+    const hasPublishedSnapshot = Boolean(existing.published || (Array.isArray(existing.publishedVersions) && existing.publishedVersions.length));
+    if (!/^test(?:-|$)/iu.test(version) || hasPublishedSnapshot) continue;
+    const replacement = defaultLegalDocumentForKey(definition.key);
+    replacement.updatedAt = new Date().toISOString();
+    replacement.updatedBy = 'system-migration';
+    state.legalDocuments[definition.key] = replacement;
+    changed = true;
+  }
+  ensureLegalOperatorProfile();
+  if (changed) saveState();
+}
+
+migrateLegacyTestLegalDocuments();
+
 function mediaUploadFileUrl(req, mediaId) {
   if (PET_AVATAR_PUBLIC_BASE_URL) return `${PET_AVATAR_PUBLIC_BASE_URL}/media/uploads/${encodeURIComponent(mediaId)}/file`;
   const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -15648,7 +15947,7 @@ function touchAvatarJob(job) {
 }
 
 function createMockAvatarJob(id) {
-  return {
+  const job = {
     createdAt: Date.now(),
     id,
     progress: 24,
@@ -15657,6 +15956,8 @@ function createMockAvatarJob(id) {
     status: 'processing',
     updatedAt: Date.now(),
   };
+  initializeAiContentIdentity(job, 'image');
+  return job;
 }
 
 function latestAvatarJobForUser(user, petIdInput) {
@@ -15981,6 +16282,7 @@ function createAvatarAnimationJob({ avatarJob, pet, sourceAvatarUrl, user }) {
       ? '生产环境已拒绝使用测试动效，请稍后重试。'
       : '灵伴动效生成服务尚未就绪，请稍后重试。';
   }
+  initializeAiContentIdentity(job, 'video');
   state.avatarAnimationJobs = state.avatarAnimationJobs || {};
   state.avatarAnimationJobs[id] = job;
   return job;
@@ -15989,6 +16291,10 @@ function createAvatarAnimationJob({ avatarJob, pet, sourceAvatarUrl, user }) {
 function publicAvatarAnimationJob(job) {
   if (!job) return null;
   return {
+    aiContentId: job.aiContentId || '',
+    aiGenerated: job.aiGenerated === true,
+    aiGeneratedAt: job.aiGeneratedAt || '',
+    aiLabelVersion: job.aiLabelVersion || '',
     aspectRatio: job.aspectRatio || '1:1',
     avatarJobId: job.avatarJobId || '',
     createdAt: job.createdAt,
@@ -16008,6 +16314,137 @@ function publicAvatarAnimationJob(job) {
     updatedAt: job.updatedAt,
     videoUrl: job.videoUrl || job.resultUrl || '',
   };
+}
+
+const PET_AVATAR_AI_PROVENANCE_FIELDS = [
+  'avatarAiContentId',
+  'avatarAiGenerated',
+  'avatarAiGeneratedAt',
+  'avatarAiLabelVersion',
+  'avatarAiProvider',
+];
+const PET_AVATAR_ANIMATION_AI_PROVENANCE_FIELDS = [
+  'avatarAnimationAiContentId',
+  'avatarAnimationAiGenerated',
+  'avatarAnimationAiGeneratedAt',
+  'avatarAnimationAiLabelVersion',
+  'avatarAnimationAiProvider',
+];
+
+function clearPetAiProvenanceFields(pet, fields) {
+  if (!pet || typeof pet !== 'object') return false;
+  let changed = false;
+  fields.forEach((field) => {
+    if (!Object.prototype.hasOwnProperty.call(pet, field)) return;
+    delete pet[field];
+    changed = true;
+  });
+  return changed;
+}
+
+function clearPetAvatarAiProvenance(pet) {
+  return clearPetAiProvenanceFields(pet, PET_AVATAR_AI_PROVENANCE_FIELDS);
+}
+
+function clearPetAvatarAnimationAiProvenance(pet) {
+  return clearPetAiProvenanceFields(pet, PET_AVATAR_ANIMATION_AI_PROVENANCE_FIELDS);
+}
+
+function applyPetAvatarAiProvenance(pet, job, generatedAt = Date.now()) {
+  if (!pet || !job) return false;
+  const metadata = aiGeneratedContentMetadata(job, 'image', generatedAt);
+  const next = {
+    avatarAiContentId: metadata['ai-content-id'],
+    avatarAiGenerated: true,
+    avatarAiGeneratedAt: metadata['ai-generated-at'],
+    avatarAiLabelVersion: metadata['ai-label-version'],
+    avatarAiProvider: metadata['ai-provider'],
+  };
+  const changed = Object.entries(next).some(([key, value]) => pet[key] !== value);
+  Object.assign(pet, next);
+  return changed;
+}
+
+function applyPetAvatarAnimationAiProvenance(pet, job, generatedAt = Date.now()) {
+  if (!pet || !job) return false;
+  const metadata = aiGeneratedContentMetadata(job, 'video', generatedAt);
+  const next = {
+    avatarAnimationAiContentId: metadata['ai-content-id'],
+    avatarAnimationAiGenerated: true,
+    avatarAnimationAiGeneratedAt: metadata['ai-generated-at'],
+    avatarAnimationAiLabelVersion: metadata['ai-label-version'],
+    avatarAnimationAiProvider: metadata['ai-provider'],
+  };
+  const changed = Object.entries(next).some(([key, value]) => pet[key] !== value);
+  Object.assign(pet, next);
+  return changed;
+}
+
+function clearPetAvatarAnimationState(pet) {
+  if (!pet || typeof pet !== 'object') return false;
+  const fields = [
+    'avatarAnimationJobId',
+    'avatarAnimationStatus',
+    'avatarAnimationUpdatedAt',
+    'avatarAnimationUrl',
+    ...PET_AVATAR_ANIMATION_AI_PROVENANCE_FIELDS,
+  ];
+  return clearPetAiProvenanceFields(pet, fields);
+}
+
+function isAiAvatarStorageUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  try {
+    return /\/storage\/objects\/pet-avatar\//i.test(decodeURIComponent(raw));
+  } catch {
+    return /\/storage\/objects\/pet-avatar(?:%2f|\/)/i.test(raw);
+  }
+}
+
+function migrateAiContentProvenanceState() {
+  let changed = false;
+  Object.values(state.avatarJobs || {}).forEach((job) => {
+    if (!job?.id) return;
+    const before = `${job.aiContentId || ''}|${job.aiContentType || ''}|${job.aiLabelVersion || ''}|${job.aiGenerated === true}`;
+    initializeAiContentIdentity(job, 'image');
+    const after = `${job.aiContentId || ''}|${job.aiContentType || ''}|${job.aiLabelVersion || ''}|${job.aiGenerated === true}`;
+    if (before !== after) changed = true;
+  });
+  Object.values(state.avatarAnimationJobs || {}).forEach((job) => {
+    if (!job?.id) return;
+    const before = `${job.aiContentId || ''}|${job.aiContentType || ''}|${job.aiLabelVersion || ''}|${job.aiGenerated === true}`;
+    initializeAiContentIdentity(job, 'video');
+    const after = `${job.aiContentId || ''}|${job.aiContentType || ''}|${job.aiLabelVersion || ''}|${job.aiGenerated === true}`;
+    if (before !== after) changed = true;
+  });
+
+  Object.values(state.users || {}).forEach((user) => {
+    (Array.isArray(user?.pets) ? user.pets : []).forEach((pet) => {
+      if (!pet?.id) return;
+      const acceptedAvatarJob = Object.values(state.avatarJobs || {})
+        .filter((job) => job?.ownerPhone === user.phone && job.acceptedPetId === pet.id && job.status === 'ready' && !job.replacedAt)
+        .sort((left, right) => Number(right.updatedAt || right.createdAt || 0) - Number(left.updatedAt || left.createdAt || 0))[0];
+      const acceptedUrlMatches = acceptedAvatarJob && (
+        String(acceptedAvatarJob.resultUrl || '') === String(pet.avatarUrl || '')
+        || (Array.isArray(acceptedAvatarJob.candidateUrls) && acceptedAvatarJob.candidateUrls.includes(pet.avatarUrl))
+        || isAiAvatarStorageUrl(pet.avatarUrl)
+      );
+      if (acceptedUrlMatches && applyPetAvatarAiProvenance(pet, acceptedAvatarJob, acceptedAvatarJob.readyAt || acceptedAvatarJob.acceptedAt || acceptedAvatarJob.updatedAt)) {
+        changed = true;
+      }
+
+      const animationJob = Object.values(state.avatarAnimationJobs || {})
+        .filter((job) => job?.ownerPhone === user.phone && job.petId === pet.id && job.status === 'ready')
+        .filter((job) => job.id === pet.avatarAnimationJobId || String(job.videoUrl || job.resultUrl || '') === String(pet.avatarAnimationUrl || ''))
+        .sort((left, right) => Number(right.updatedAt || right.createdAt || 0) - Number(left.updatedAt || left.createdAt || 0))[0];
+      if (pet.avatarAnimationUrl && animationJob && applyPetAvatarAnimationAiProvenance(pet, animationJob, animationJob.readyAt || animationJob.updatedAt)) {
+        changed = true;
+      }
+      if (!pet.avatarAnimationUrl && clearPetAvatarAnimationAiProvenance(pet)) changed = true;
+    });
+  });
+  return changed;
 }
 
 function latestAvatarAnimationJobForUser(user, petIdInput) {
@@ -16168,6 +16605,8 @@ function ensureAvatarAnimationJob(req, user, pet, avatarJob, sourceAvatarUrl) {
   pet.avatarAnimationJobId = job.id;
   pet.avatarAnimationStatus = job.status;
   pet.avatarAnimationUrl = job.videoUrl || pet.avatarAnimationUrl || '';
+  if (job.status === 'ready') applyPetAvatarAnimationAiProvenance(pet, job, job.readyAt || Date.now());
+  else clearPetAvatarAnimationAiProvenance(pet);
   if (job.status === 'processing') queueAvatarAnimationStart(req, user, job);
   return job;
 }
@@ -16666,10 +17105,12 @@ async function refreshGptImage2AvatarJob(req, user, job) {
   if (status === 'completed' || status === 'succeeded' || status === 'success') {
     const resultUrl = gptImage2ResultUrlFrom(payload);
     if (!resultUrl) throw new Error('GPT Image 2 result does not include an image URL');
+    job.readyAt = job.readyAt || new Date().toISOString();
+    const aiMetadata = aiGeneratedContentMetadata(job, 'image', job.readyAt);
     let finalResultUrl = resultUrl;
     try {
       const pet = selectedPetFor(user);
-      finalResultUrl = await storeAvatarUrlToCos(req, user, resultUrl, { petId: pet?.id || '', scope: 'pet-avatar' });
+      finalResultUrl = await storeAvatarUrlToCos(req, user, resultUrl, { aiMetadata, petId: pet?.id || '', scope: 'pet-avatar' });
       if (finalResultUrl && finalResultUrl !== resultUrl) job.sourceResultUrl = resultUrl;
     } catch (error) {
       console.warn('[avatar:gpt-image-2] result storage skipped', {
@@ -17490,6 +17931,7 @@ function buildOwnerCard(user, viewerPhone, index, distanceKm) {
   const safeSpecies = pet.species === 'cat' ? 'cat' : 'dog';
   const distance = distanceKm === undefined ? '距离待确认' : fuzzyDistance(distanceKm);
   return {
+    avatarAiGenerated: pet.avatarAiGenerated === true,
     distance,
     id: `user-${user.phone}`,
     imageUrl: visibleImageUrl(pet.avatarUrl),
@@ -17628,6 +18070,7 @@ function buildSocialBlockListItem(block) {
   const suffix = String(block.blockedPhone || '').slice(-4);
   const pet = targetUser ? activePetFor(targetUser) : null;
   return {
+    avatarAiGenerated: pet?.avatarAiGenerated === true,
     avatarUrl: pet?.avatarUrl,
     blockedAt: block.createdAt,
     id: block.id,
@@ -17862,6 +18305,7 @@ function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
         : undefined
     : undefined;
   return {
+    avatarAiGenerated: pet.avatarAiGenerated === true,
     commentCount: comments.length,
     createdAt: moment.createdAt,
     distance: distanceKm === undefined ? (socialMomentPublishLocation(moment) ? '附近' : '发布地点未知') : fuzzyDistance(distanceKm),
@@ -18011,6 +18455,7 @@ function buildPetCircleProfile(viewer, targetUser, entries, target = {}) {
   const cards = entries.map((entry) => entry.card).filter(Boolean);
   const suffix = targetUser.phone.slice(-4);
   return {
+    avatarAiGenerated: pet?.avatarAiGenerated === true,
     avatarUrl: visibleImageUrl(pet?.avatarUrl),
     canChangeCover: Boolean(target.ownedByMe),
     coverImageUrl: defaultPetCircleCoverImageUrl(pet, cards),
@@ -18083,6 +18528,7 @@ function listPetCircleComments(postId, viewer) {
     const pet = author ? activePetFor(author) : null;
     return {
       author: author?.ownerName || `用户${String(comment.phone || '').slice(-4)}`,
+      avatarAiGenerated: pet?.avatarAiGenerated === true,
       avatarUrl: visibleImageUrl(pet?.avatarUrl),
       content: comment.content,
       createdAt: comment.createdAt,
@@ -21769,7 +22215,7 @@ function adminPetCalendarStats(phone, petId) {
 
 function adminPetAvatarStatus(pet, acceptedAvatarJob) {
   const hasAvatar = Boolean(String(pet?.avatarUrl || '').trim());
-  const hasAiAvatar = Boolean(hasAvatar && acceptedAvatarJob?.acceptedPetId === pet?.id && acceptedAvatarJob?.status === 'ready');
+  const hasAiAvatar = Boolean(hasAvatar && (pet?.avatarAiGenerated === true || (acceptedAvatarJob?.acceptedPetId === pet?.id && acceptedAvatarJob?.status === 'ready')));
   if (hasAiAvatar) return { key: 'ai', label: 'AI 形象已应用' };
   if (hasAvatar) return { key: 'basic', label: '普通头像' };
   return { key: 'missing', label: '缺头像' };
@@ -21826,8 +22272,8 @@ function notifyPetMediaReplacement(phone, pet, kind, reason) {
   }, 'system', { force: true });
 }
 
-function createAdminAcceptedAvatarJob(admin, user, pet, resultUrl, sourceUrl, reason, nowIso) {
-  const id = `job-admin-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+function createAdminAcceptedAvatarJob(admin, user, pet, resultUrl, sourceUrl, reason, nowIso, options = {}) {
+  const id = options.id || `job-admin-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const nowMs = Date.now();
   const job = {
     acceptedAt: nowIso,
@@ -21849,6 +22295,8 @@ function createAdminAcceptedAvatarJob(admin, user, pet, resultUrl, sourceUrl, re
     status: 'ready',
     updatedAt: nowMs,
   };
+  initializeAiContentIdentity(job, 'image');
+  aiGeneratedContentMetadata(job, 'image', nowIso);
   state.avatarJobs[id] = job;
   touchAvatarJob(job);
   return job;
@@ -21909,7 +22357,8 @@ async function adminApplyAvatarJobToPet(admin, req, jobIdInput, body = {}) {
 
   let storedUrl = '';
   try {
-    storedUrl = await storeAvatarUrlToCos(req, owner, sourceUrl, { petId: pet.id, scope: 'pet-avatar' });
+    const aiMetadata = aiGeneratedContentMetadata(job, 'image', job.readyAt || job.updatedAt || Date.now());
+    storedUrl = await storeAvatarUrlToCos(req, owner, sourceUrl, { aiMetadata, petId: pet.id, scope: 'pet-avatar' });
   } catch (error) {
     return { error: 'AI 形象结果图下载或存储失败，请确认结果图仍可公开访问', statusCode: 400 };
   }
@@ -21932,10 +22381,8 @@ async function adminApplyAvatarJobToPet(admin, req, jobIdInput, body = {}) {
 
   pet.avatarUrl = storedUrl;
   pet.updatedAt = now;
-  delete pet.avatarAnimationJobId;
-  delete pet.avatarAnimationStatus;
-  delete pet.avatarAnimationUrl;
-  delete pet.avatarAnimationUpdatedAt;
+  applyPetAvatarAiProvenance(pet, job, job.readyAt || now);
+  clearPetAvatarAnimationState(pet);
 
   job.acceptedAt = now;
   job.acceptedPetId = pet.id;
@@ -22387,12 +22834,17 @@ function adminMergePetProfiles(admin, sourcePetId, body = {}) {
   ].forEach((field) => {
     if (adminPetMergeCopyMissingField(targetPet, sourcePet, field)) copiedFields.push(field);
   });
+  if (copiedFields.includes('avatarUrl')) {
+    PET_AVATAR_AI_PROVENANCE_FIELDS.forEach((field) => {
+      if (adminPetMergeCopyMissingField(targetPet, sourcePet, field)) copiedFields.push(field);
+    });
+  }
   const shouldCopyAnimation = (
     (!targetPet.avatarAnimationUrl && sourcePet.avatarAnimationUrl) &&
     (!targetPet.avatarUrl || targetPet.avatarUrl === sourcePet.avatarUrl || copiedFields.includes('avatarUrl'))
   );
   if (shouldCopyAnimation) {
-    ['avatarAnimationJobId', 'avatarAnimationStatus', 'avatarAnimationUpdatedAt', 'avatarAnimationUrl'].forEach((field) => {
+    ['avatarAnimationJobId', 'avatarAnimationStatus', 'avatarAnimationUpdatedAt', 'avatarAnimationUrl', ...PET_AVATAR_ANIMATION_AI_PROVENANCE_FIELDS].forEach((field) => {
       if (adminPetMergeCopyMissingField(targetPet, sourcePet, field)) copiedFields.push(field);
     });
   }
@@ -22478,6 +22930,8 @@ function adminClearPetMedia(admin, petId, kindInput, body = {}) {
       delete pet.avatarUrl;
       changed = true;
     }
+    changed = clearPetAvatarAiProvenance(pet) || changed;
+    changed = clearPetAvatarAnimationState(pet) || changed;
     acceptedJobs.forEach((job) => {
       job.adminClearedAt = now;
       job.adminClearedReason = reason;
@@ -22551,9 +23005,16 @@ async function adminReplacePetMedia(admin, req, petId, kindInput, body = {}) {
     petCircleCoverImageUrl: pet.petCircleCoverImageUrl || '',
   });
   const now = new Date().toISOString();
+  const aiReplacementIdentity = kind === 'ai-avatar'
+    ? initializeAiContentIdentity({
+        id: `job-admin-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+        provider: 'admin',
+      }, 'image')
+    : null;
   let storedUrl = '';
   try {
     storedUrl = await storeAvatarUrlToCos(req, user, imageUrl, {
+      aiMetadata: aiReplacementIdentity ? aiGeneratedContentMetadata(aiReplacementIdentity, 'image', now) : {},
       petId: pet.id,
       scope: kind === 'cover' ? 'pet-circle-cover-admin' : kind === 'ai-avatar' ? 'pet-avatar' : 'pet-profile-avatar-admin',
     });
@@ -22580,15 +23041,14 @@ async function adminReplacePetMedia(admin, req, petId, kindInput, body = {}) {
       clearedAvatarJobCount += 1;
       touchAvatarJob(job);
     });
-    const adminAvatarJob = createAdminAcceptedAvatarJob(admin, user, pet, storedUrl, imageUrl, reason, now);
+    const adminAvatarJob = createAdminAcceptedAvatarJob(admin, user, pet, storedUrl, imageUrl, reason, now, { id: aiReplacementIdentity?.id });
     createdAvatarJobId = adminAvatarJob.id;
-    delete pet.avatarAnimationJobId;
-    delete pet.avatarAnimationStatus;
-    delete pet.avatarAnimationUrl;
-    delete pet.avatarAnimationUpdatedAt;
+    applyPetAvatarAiProvenance(pet, adminAvatarJob, now);
+    clearPetAvatarAnimationState(pet);
   } else {
     if (String(pet.avatarUrl || '') === storedUrl) return { error: '新的宠物头像与当前头像一致', statusCode: 400 };
     pet.avatarUrl = storedUrl;
+    clearPetAvatarAiProvenance(pet);
     Object.values(state.avatarJobs || {}).forEach((job) => {
       if (job?.ownerPhone !== phone || job.acceptedPetId !== pet.id) return;
       job.adminReplacedAt = now;
@@ -22599,10 +23059,7 @@ async function adminReplacePetMedia(admin, req, petId, kindInput, body = {}) {
       clearedAvatarJobCount += 1;
       touchAvatarJob(job);
     });
-    delete pet.avatarAnimationJobId;
-    delete pet.avatarAnimationStatus;
-    delete pet.avatarAnimationUrl;
-    delete pet.avatarAnimationUpdatedAt;
+    clearPetAvatarAnimationState(pet);
   }
 
   pet.updatedAt = now;
@@ -22666,6 +23123,11 @@ function adminPetProfiles(options = {}) {
       ].filter((value) => value > 0).sort((a, b) => b - a)[0] || 0;
       rows.push({
         ageLabel: petAgeLabel(pet.birthday),
+        avatarAiContentId: pet.avatarAiContentId || '',
+        avatarAiGenerated: pet.avatarAiGenerated === true,
+        avatarAiGeneratedAt: pet.avatarAiGeneratedAt || '',
+        avatarAiLabelVersion: pet.avatarAiLabelVersion || '',
+        avatarAiProvider: pet.avatarAiProvider || '',
         avatarJobId: avatarJob?.id || '',
         avatarStatusKey: avatarStatus.key,
         avatarStatusLabel: avatarStatus.label,
@@ -25486,14 +25948,16 @@ async function adminSystemHealth() {
       'SMS_VERIFY_MAX_ATTEMPTS / SMS_LOGIN_CLIENT_MAX_FAILURES / SMS_LOGIN_ACCOUNT_MAX_FAILURES / SMS_LOGIN_LOCK_MS',
     ),
     adminCheckStatus(
-      RUNTIME_ENV !== 'production' || REQUIRE_LEGAL_CONSENT ? 'ok' : 'bad',
+      RUNTIME_ENV !== 'production' || (REQUIRE_LEGAL_CONSENT && publicLegalDocument('terms')?.productionReady && publicLegalDocument('privacy')?.productionReady) ? 'ok' : 'bad',
       'legal_consent_enforcement',
       '登录协议同意留痕',
       RUNTIME_ENV !== 'production'
         ? '非生产环境允许旧测试客户端登录；携带 legalConsentAccepted=true 时仍会记录协议版本'
-        : REQUIRE_LEGAL_CONSENT
+        : REQUIRE_LEGAL_CONSENT && publicLegalDocument('terms')?.productionReady && publicLegalDocument('privacy')?.productionReady
           ? '生产登录强制校验同意声明，并记录当时的用户协议、隐私政策版本和时间'
-          : '生产尚未强制协议同意留痕；需先发布支持协议阅读与同意声明的新 APK，再开启强制校验',
+          : REQUIRE_LEGAL_CONSENT
+            ? '生产已开启同意校验，但用户协议或隐私政策尚未发布；登录会被安全阻断'
+            : '生产尚未强制协议同意留痕；需先发布支持协议阅读与同意声明的新 APK，再开启强制校验',
       'LUMII_REQUIRE_LEGAL_CONSENT / POST /auth/sms/verify / 用户时间线 legal_consent',
     ),
     adminCheckStatus(
@@ -26418,6 +26882,76 @@ function normalizeLegalDocumentText(value, fallback = '', maxLength = 1000) {
   return text.slice(0, maxLength);
 }
 
+function defaultLegalOperatorProfile() {
+  return {
+    appFilingNumber: '',
+    complaintChannel: 'App 内“我的—帮助与反馈”',
+    contactEmail: '',
+    contactPhone: '',
+    icpFilingNumber: '',
+    operatorName: '',
+    registeredAddress: '',
+    updatedAt: '',
+    updatedBy: '',
+  };
+}
+
+function normalizeLegalOperatorProfile(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const fallback = defaultLegalOperatorProfile();
+  return {
+    appFilingNumber: normalizeLegalDocumentText(source.appFilingNumber, fallback.appFilingNumber, 120),
+    complaintChannel: normalizeLegalDocumentText(source.complaintChannel, fallback.complaintChannel, 240),
+    contactEmail: normalizeLegalDocumentText(source.contactEmail, fallback.contactEmail, 160),
+    contactPhone: normalizeLegalDocumentText(source.contactPhone, fallback.contactPhone, 80),
+    icpFilingNumber: normalizeLegalDocumentText(source.icpFilingNumber, fallback.icpFilingNumber, 120),
+    operatorName: normalizeLegalDocumentText(source.operatorName, fallback.operatorName, 160),
+    registeredAddress: normalizeLegalDocumentText(source.registeredAddress, fallback.registeredAddress, 240),
+    updatedAt: normalizeLegalDocumentText(source.updatedAt, fallback.updatedAt, 40),
+    updatedBy: normalizeLegalDocumentText(source.updatedBy, fallback.updatedBy, 80),
+  };
+}
+
+function legalOperatorProfileStatus(value) {
+  const profile = normalizeLegalOperatorProfile(value);
+  const missingFields = [];
+  if (!profile.operatorName) missingFields.push('运营主体名称');
+  if (!profile.complaintChannel && !profile.contactEmail && !profile.contactPhone) missingFields.push('至少一种公开联系方式');
+  if (profile.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(profile.contactEmail)) missingFields.push('有效联系邮箱');
+  return {
+    complete: missingFields.length === 0,
+    missingFields,
+    profile,
+  };
+}
+
+function ensureLegalOperatorProfile() {
+  state.legalOperatorProfile = normalizeLegalOperatorProfile(state.legalOperatorProfile);
+  return state.legalOperatorProfile;
+}
+
+function legalOperatorPublicLines(value) {
+  const profile = normalizeLegalOperatorProfile(value);
+  const lines = [];
+  if (profile.operatorName) lines.push(`运营者：${profile.operatorName}`);
+  if (profile.registeredAddress) lines.push(`联系地址：${profile.registeredAddress}`);
+  if (profile.contactEmail) lines.push(`联系邮箱：${profile.contactEmail}`);
+  if (profile.contactPhone) lines.push(`联系电话：${profile.contactPhone}`);
+  if (profile.complaintChannel) lines.push(`投诉与权利请求渠道：${profile.complaintChannel}`);
+  if (profile.icpFilingNumber) lines.push(`ICP备案号：${profile.icpFilingNumber}`);
+  if (profile.appFilingNumber) lines.push(`App 备案号：${profile.appFilingNumber}`);
+  return lines;
+}
+
+function legalOperatorProfilesEqual(left, right) {
+  const comparable = (value) => {
+    const normalized = normalizeLegalOperatorProfile(value);
+    const { updatedAt: _updatedAt, updatedBy: _updatedBy, ...profile } = normalized;
+    return profile;
+  };
+  return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));
+}
+
 function normalizeLegalDocumentSection(section, index = 0) {
   if (!section || typeof section !== 'object' || Array.isArray(section)) return null;
   const title = normalizeLegalDocumentText(section.title, index === 0 ? '正文' : `章节 ${index + 1}`, 80) || (index === 0 ? '正文' : `章节 ${index + 1}`);
@@ -26431,13 +26965,35 @@ function normalizeLegalDocumentSection(section, index = 0) {
 }
 
 function legalDocumentSectionsFromBodyText(bodyText, title = '正文') {
-  const body = String(bodyText || '')
+  const lines = String(bodyText || '')
     .replace(/\r/g, '')
-    .split(/\n+/u)
-    .map((line) => normalizeLegalDocumentText(line, '', 1600))
-    .filter(Boolean)
-    .slice(0, 40);
-  return body.length ? [{ body, title: normalizeLegalDocumentText(title, '正文', 80) || '正文' }] : [];
+    .split(/\n/u)
+    .map((line) => normalizeLegalDocumentText(line, '', 1600));
+  const hasHeadings = lines.some((line) => /^#{1,3}\s+\S/u.test(line));
+  if (!hasHeadings) {
+    const body = lines.filter(Boolean).slice(0, 40);
+    return body.length ? [{ body, title: normalizeLegalDocumentText(title, '正文', 80) || '正文' }] : [];
+  }
+  const sections = [];
+  let current = null;
+  const pushCurrent = () => {
+    const normalized = current ? normalizeLegalDocumentSection(current, sections.length) : null;
+    if (normalized) sections.push(normalized);
+    current = null;
+  };
+  for (const line of lines) {
+    const heading = line.match(/^#{1,3}\s+(.+)$/u);
+    if (heading) {
+      pushCurrent();
+      current = { body: [], title: heading[1] };
+      continue;
+    }
+    if (!line) continue;
+    if (!current) current = { body: [], title };
+    current.body.push(line);
+  }
+  pushCurrent();
+  return sections.slice(0, 30);
 }
 
 function defaultLegalDocumentForKey(key) {
@@ -26452,12 +27008,75 @@ function defaultLegalDocumentForKey(key) {
     key: normalizedKey,
     label: definition?.label || normalizedKey,
     productionReady: false,
+    published: null,
+    publishedVersions: [],
     publicPath: definition?.publicPath || '',
     requiredForLaunch: Boolean(definition?.requiredForLaunch),
     status: 'draft',
     updatedAt: '',
     updatedBy: '',
   };
+}
+
+function legalDocumentContentHash(doc, operatorProfile) {
+  const content = {
+    disclaimer: normalizeLegalDocumentText(doc?.disclaimer, '', 1200),
+    effectiveDate: normalizeLegalDocumentText(doc?.effectiveDate, '', 20),
+    key: normalizeLegalDocumentKey(doc?.key),
+    operatorProfile: normalizeLegalOperatorProfile(operatorProfile),
+    sections: Array.isArray(doc?.sections) ? doc.sections.map(normalizeLegalDocumentSection).filter(Boolean) : [],
+    title: normalizeLegalDocumentText(doc?.title, '', 120),
+    version: normalizeLegalDocumentText(doc?.version, '', 80),
+  };
+  delete content.operatorProfile.updatedAt;
+  delete content.operatorProfile.updatedBy;
+  return crypto.createHash('sha256').update(JSON.stringify(content)).digest('hex');
+}
+
+function normalizeLegalPublishedSnapshot(value, key) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const normalizedKey = normalizeLegalDocumentKey(key || value.key);
+  const sections = Array.isArray(value.sections) ? value.sections.map(normalizeLegalDocumentSection).filter(Boolean).slice(0, 30) : [];
+  const operatorProfile = normalizeLegalOperatorProfile(value.operatorProfile);
+  const snapshot = {
+    approvedAt: normalizeLegalDocumentText(value.approvedAt, '', 40),
+    approvedBy: normalizeLegalDocumentText(value.approvedBy, '', 80),
+    approvalNote: normalizeLegalDocumentText(value.approvalNote, '', 240),
+    contentHash: normalizeLegalDocumentText(value.contentHash, '', 80),
+    disclaimer: normalizeLegalDocumentText(value.disclaimer, '', 1200),
+    effectiveDate: normalizeLegalDocumentText(value.effectiveDate, '', 20),
+    key: normalizedKey,
+    operatorProfile,
+    productionReady: true,
+    revisionId: normalizeLegalDocumentText(value.revisionId, '', 160),
+    sections,
+    status: 'approved',
+    title: normalizeLegalDocumentText(value.title, '', 120),
+    version: normalizeLegalDocumentText(value.version, '', 80),
+  };
+  if (!normalizedKey || !snapshot.approvedAt || !snapshot.title || !snapshot.version || !snapshot.effectiveDate || !sections.length || !legalOperatorProfileStatus(operatorProfile).complete) return null;
+  snapshot.contentHash = snapshot.contentHash || legalDocumentContentHash(snapshot, operatorProfile);
+  snapshot.revisionId = snapshot.revisionId || `${normalizedKey}-${snapshot.version}-${snapshot.contentHash.slice(0, 12)}`;
+  return snapshot;
+}
+
+function createLegalPublishedSnapshot(doc, operatorProfile, approval = {}) {
+  const profile = normalizeLegalOperatorProfile(operatorProfile);
+  const contentHash = legalDocumentContentHash(doc, profile);
+  return normalizeLegalPublishedSnapshot({
+    approvedAt: approval.approvedAt || doc.approvedAt,
+    approvedBy: approval.approvedBy || doc.approvedBy,
+    approvalNote: approval.approvalNote || doc.approvalNote,
+    contentHash,
+    disclaimer: doc.disclaimer,
+    effectiveDate: doc.effectiveDate,
+    key: doc.key,
+    operatorProfile: profile,
+    revisionId: `${doc.key}-${doc.version}-${contentHash.slice(0, 12)}`,
+    sections: doc.sections,
+    title: doc.title,
+    version: doc.version,
+  }, doc.key);
 }
 
 function normalizeLegalDocumentRecord(record, key) {
@@ -26469,6 +27088,18 @@ function normalizeLegalDocumentRecord(record, key) {
     : [];
   const status = ['approved', 'draft', 'reviewing'].includes(String(source.status || '')) ? String(source.status) : 'draft';
   const productionReady = Boolean(source.productionReady) && status === 'approved';
+  let published = normalizeLegalPublishedSnapshot(source.published, normalizedKey);
+  if (!published && productionReady && legalOperatorProfileStatus(ensureLegalOperatorProfile()).complete) {
+    published = createLegalPublishedSnapshot({
+      ...source,
+      key: normalizedKey,
+      sections: sections.length ? sections : fallback.sections,
+    }, ensureLegalOperatorProfile());
+  }
+  const publishedVersions = (Array.isArray(source.publishedVersions) ? source.publishedVersions : [])
+    .map((item) => normalizeLegalPublishedSnapshot(item, normalizedKey))
+    .filter(Boolean);
+  if (published && !publishedVersions.some((item) => item.revisionId === published.revisionId)) publishedVersions.unshift(published);
   return {
     ...fallback,
     approvedAt: normalizeLegalDocumentText(source.approvedAt, fallback.approvedAt, 40),
@@ -26483,6 +27114,8 @@ function normalizeLegalDocumentRecord(record, key) {
     updatedBy: normalizeLegalDocumentText(source.updatedBy, fallback.updatedBy, 80),
     version: normalizeLegalDocumentText(source.version, fallback.version, 80),
     productionReady,
+    published,
+    publishedVersions: publishedVersions.slice(0, 24),
   };
 }
 
@@ -26497,25 +27130,43 @@ function ensureLegalDocuments() {
 }
 
 function legalDocumentStatusLabel(doc) {
-  if (doc?.productionReady && doc?.status === 'approved') return '已签署';
+  if (doc?.published && doc?.productionReady && doc?.status === 'approved' && doc.published.revisionId === createLegalPublishedSnapshot(doc, doc.published.operatorProfile)?.revisionId) return '已发布';
+  if (doc?.published) return '已发布 · 有未签署草稿';
   if (doc?.status === 'reviewing') return '复核中';
   return '待签署';
 }
 
 function legalDocumentStatusTone(doc) {
-  if (doc?.productionReady && doc?.status === 'approved') return 'ok';
-  if (doc?.status === 'reviewing') return 'warn';
+  if (doc?.published && doc?.productionReady && doc?.status === 'approved') return 'ok';
+  if (doc?.published || doc?.status === 'reviewing') return 'warn';
   return 'bad';
 }
 
+function legalDocumentApprovalIssues(doc) {
+  const issues = [];
+  const title = normalizeLegalDocumentText(doc?.title, '', 120);
+  const version = normalizeLegalDocumentText(doc?.version, '', 80);
+  const effectiveDate = normalizeLegalDocumentText(doc?.effectiveDate, '', 20);
+  const sections = Array.isArray(doc?.sections) ? doc.sections.map(normalizeLegalDocumentSection).filter(Boolean) : [];
+  const fullText = [doc?.disclaimer, ...sections.flatMap((section) => [section.title, ...section.body])].join('\n');
+  if (!title) issues.push('标题');
+  if (!version || /^(?:test|draft|demo|smoke)(?:-|$)/iu.test(version)) issues.push('生产版本号');
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(effectiveDate) || Number.isNaN(new Date(`${effectiveDate}T00:00:00+08:00`).getTime())) issues.push('有效生效日期');
+  if (!sections.length) issues.push('正文');
+  if (/(?:测试版|正式上线前|待填写|待配置|\[[^\]]*待[^\]]*\])/u.test(fullText)) issues.push('未清理的测试或占位文案');
+  const requiredTerms = {
+    app_filing: ['包名', '隐私政策', 'SDK'],
+    content_policy: ['审核', '举报', '申诉'],
+    privacy: ['个人信息', '第三方', '注销', '未成年人'],
+    terms: ['账号', 'AI', '注销', '争议'],
+  }[normalizeLegalDocumentKey(doc?.key)] || [];
+  const missingTopics = requiredTerms.filter((topic) => !fullText.includes(topic));
+  if (missingTopics.length) issues.push(`缺少主题：${missingTopics.join('、')}`);
+  return issues;
+}
+
 function legalDocumentHasRequiredContent(doc) {
-  return Boolean(
-    normalizeLegalDocumentText(doc?.title, '', 1) &&
-    normalizeLegalDocumentText(doc?.version, '', 1) &&
-    normalizeLegalDocumentText(doc?.effectiveDate, '', 1) &&
-    Array.isArray(doc?.sections) &&
-    doc.sections.some((section) => Array.isArray(section.body) && section.body.some((line) => normalizeLegalDocumentText(line, '', 1)))
-  );
+  return legalDocumentApprovalIssues(doc).length === 0;
 }
 
 function adminLegalDocumentItems() {
@@ -26525,7 +27176,12 @@ function adminLegalDocumentItems() {
     docs[definition.key] = doc;
     return {
       ...doc,
+      approvalIssues: legalDocumentApprovalIssues(doc),
       hasRequiredContent: legalDocumentHasRequiredContent(doc),
+      publicationReady: Boolean(doc.published),
+      publishedOperatorCurrent: Boolean(doc.published && legalOperatorProfilesEqual(doc.published.operatorProfile, ensureLegalOperatorProfile())),
+      publishedVersion: doc.published?.version || '',
+      publishedVersionCount: doc.publishedVersions.length,
       statusLabel: legalDocumentStatusLabel(doc),
       statusTone: legalDocumentStatusTone(doc),
     };
@@ -26534,16 +27190,20 @@ function adminLegalDocumentItems() {
 
 function adminLegalDocumentsStatus() {
   const documents = adminLegalDocumentItems();
+  const operator = legalOperatorProfileStatus(ensureLegalOperatorProfile());
   const required = documents.filter((doc) => doc.requiredForLaunch);
-  const approved = required.filter((doc) => doc.productionReady && doc.status === 'approved');
-  const missing = required.filter((doc) => !(doc.productionReady && doc.status === 'approved'));
+  const approved = required.filter((doc) => doc.publicationReady && doc.publishedOperatorCurrent);
+  const missing = required.filter((doc) => !(doc.publicationReady && doc.publishedOperatorCurrent));
   return {
     documents,
+    operatorProfile: operator.profile,
     summary: {
-      allRequiredApproved: missing.length === 0,
+      allRequiredApproved: operator.complete && missing.length === 0,
       approved: approved.length,
-      missingLabels: missing.map((doc) => doc.label),
+      missingLabels: [...(!operator.complete ? ['运营主体资料'] : []), ...missing.map((doc) => doc.label)],
       missingRequiredKeys: missing.map((doc) => doc.key),
+      operatorProfileComplete: operator.complete,
+      operatorProfileMissingFields: operator.missingFields,
       publicDocuments: documents.filter((doc) => doc.publicPath).length,
       required: required.length,
       total: documents.length,
@@ -26555,16 +27215,26 @@ function publicLegalDocument(key) {
   const normalizedKey = normalizeLegalDocumentKey(key);
   const doc = ensureLegalDocuments()[normalizedKey];
   if (!doc) return null;
+  const source = doc.published || doc;
+  const operatorProfile = normalizeLegalOperatorProfile(source.operatorProfile || ensureLegalOperatorProfile());
+  const sections = Array.isArray(source.sections) ? cloneJson(source.sections) : [];
+  if (['privacy', 'terms'].includes(normalizedKey)) {
+    const contactLines = legalOperatorPublicLines(operatorProfile);
+    if (contactLines.length) sections.push({ body: contactLines, title: '运营者与联系' });
+  }
   return {
-    approvedAt: doc.approvedAt || '',
-    disclaimer: doc.disclaimer || '',
-    effectiveDate: doc.effectiveDate || '',
-    key: doc.key,
-    productionReady: Boolean(doc.productionReady),
-    sections: Array.isArray(doc.sections) ? doc.sections : [],
-    status: doc.status || 'draft',
-    title: doc.title || '',
-    version: doc.version || '',
+    approvedAt: source.approvedAt || '',
+    contentHash: source.contentHash || legalDocumentContentHash(source, operatorProfile),
+    disclaimer: source.disclaimer || '',
+    effectiveDate: source.effectiveDate || '',
+    key: source.key,
+    operatorProfile,
+    productionReady: Boolean(doc.published),
+    revisionId: source.revisionId || '',
+    sections,
+    status: doc.published ? 'approved' : 'draft',
+    title: source.title || '',
+    version: source.version || '',
   };
 }
 
@@ -26577,10 +27247,14 @@ function normalizeUserLegalConsent(record) {
   return {
     acceptedAt,
     id: normalizeLegalDocumentText(record.id, `legal-consent-${acceptedAt}`, 100),
+    privacyContentHash: normalizeLegalDocumentText(record.privacyContentHash, '', 80),
     privacyEffectiveDate: normalizeLegalDocumentText(record.privacyEffectiveDate, '', 20),
+    privacyRevisionId: normalizeLegalDocumentText(record.privacyRevisionId, '', 160),
     privacyVersion,
     source: normalizeLegalDocumentText(record.source, 'sms_login', 40) || 'sms_login',
+    termsContentHash: normalizeLegalDocumentText(record.termsContentHash, '', 80),
     termsEffectiveDate: normalizeLegalDocumentText(record.termsEffectiveDate, '', 20),
+    termsRevisionId: normalizeLegalDocumentText(record.termsRevisionId, '', 160),
     termsVersion,
   };
 }
@@ -26602,15 +27276,19 @@ function userLegalConsentSummary(user) {
 function recordUserLegalConsent(user) {
   const terms = publicLegalDocument('terms');
   const privacy = publicLegalDocument('privacy');
-  if (!terms?.version || !privacy?.version) return null;
+  if (!terms?.productionReady || !privacy?.productionReady || !terms.version || !privacy.version) return null;
   const acceptedAt = new Date().toISOString();
   const record = normalizeUserLegalConsent({
     acceptedAt,
     id: `legal-consent-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+    privacyContentHash: privacy.contentHash,
     privacyEffectiveDate: privacy.effectiveDate,
+    privacyRevisionId: privacy.revisionId,
     privacyVersion: privacy.version,
     source: 'sms_login',
+    termsContentHash: terms.contentHash,
     termsEffectiveDate: terms.effectiveDate,
+    termsRevisionId: terms.revisionId,
     termsVersion: terms.version,
   });
   if (!record) return null;
@@ -26660,7 +27338,10 @@ function approveAdminLegalDocument(admin, key, body = {}) {
   const docs = ensureLegalDocuments();
   const before = cloneJson(docs[normalizedKey]);
   const next = normalizeLegalDocumentRecord(before, normalizedKey);
-  if (!legalDocumentHasRequiredContent(next)) return { error: '签署前需要补齐标题、版本、生效日期和正文', statusCode: 400 };
+  const operator = legalOperatorProfileStatus(ensureLegalOperatorProfile());
+  if (!operator.complete) return { error: `签署前请补齐运营主体资料：${operator.missingFields.join('、')}`, statusCode: 400 };
+  const approvalIssues = legalDocumentApprovalIssues(next);
+  if (approvalIssues.length) return { error: `签署前请处理：${approvalIssues.join('；')}`, statusCode: 400 };
   const now = new Date().toISOString();
   next.approvedAt = now;
   next.approvedBy = admin.username;
@@ -26669,6 +27350,17 @@ function approveAdminLegalDocument(admin, key, body = {}) {
   next.status = 'approved';
   next.updatedAt = now;
   next.updatedBy = admin.username;
+  const snapshot = createLegalPublishedSnapshot(next, operator.profile, {
+    approvedAt: now,
+    approvedBy: admin.username,
+    approvalNote: reason,
+  });
+  if (!snapshot) return { error: '无法创建合规文本发布快照，请检查运营主体、版本和正文', statusCode: 400 };
+  next.published = snapshot;
+  next.publishedVersions = [
+    snapshot,
+    ...(Array.isArray(next.publishedVersions) ? next.publishedVersions : []).filter((item) => item.revisionId !== snapshot.revisionId),
+  ].slice(0, 24);
   docs[normalizedKey] = next;
   writeAdminAudit(admin, 'legal.document.approve', 'legal_document', normalizedKey, before, next, reason);
   return { item: adminLegalDocumentItems().find((doc) => doc.key === normalizedKey), status: adminLegalDocumentsStatus() };
@@ -26682,11 +27374,47 @@ function resetAdminLegalDocument(admin, key, body = {}) {
   const docs = ensureLegalDocuments();
   const before = cloneJson(docs[normalizedKey]);
   const next = defaultLegalDocumentForKey(normalizedKey);
+  next.published = before.published || null;
+  next.publishedVersions = Array.isArray(before.publishedVersions) ? before.publishedVersions : [];
   next.updatedAt = new Date().toISOString();
   next.updatedBy = admin.username;
   docs[normalizedKey] = next;
   writeAdminAudit(admin, 'legal.document.reset', 'legal_document', normalizedKey, before, next, reason);
   return { item: adminLegalDocumentItems().find((doc) => doc.key === normalizedKey), status: adminLegalDocumentsStatus() };
+}
+
+function updateAdminLegalOperatorProfile(admin, body = {}) {
+  const reason = normalizeLegalDocumentText(body.reason, '', 240);
+  if (!reason) return { error: '请填写运营主体资料更新原因', statusCode: 400 };
+  const before = cloneJson(ensureLegalOperatorProfile());
+  const next = normalizeLegalOperatorProfile({
+    ...before,
+    ...body,
+    updatedAt: new Date().toISOString(),
+    updatedBy: admin.username,
+  });
+  const status = legalOperatorProfileStatus(next);
+  state.legalOperatorProfile = next;
+  if (!legalOperatorProfilesEqual(before, next)) {
+    const docs = ensureLegalDocuments();
+    for (const definition of legalDocumentDefinitions) {
+      const doc = docs[definition.key];
+      if (!doc) continue;
+      doc.productionReady = false;
+      doc.status = 'draft';
+      doc.approvedAt = '';
+      doc.approvedBy = '';
+      doc.approvalNote = '';
+      doc.updatedAt = next.updatedAt;
+      doc.updatedBy = admin.username;
+    }
+  }
+  writeAdminAudit(admin, 'legal.operator_profile.update', 'legal_operator_profile', 'current', before, next, reason);
+  return {
+    profile: next,
+    profileStatus: status,
+    status: adminLegalDocumentsStatus(),
+  };
 }
 
 function normalizeLaunchReadinessConclusion(value) {
@@ -26897,7 +27625,7 @@ function adminReadinessQuestions(context = {}) {
   const legalStatus = adminLegalDocumentsStatus();
   const complianceReady = Boolean(legalStatus.summary.allRequiredApproved);
   const compliancePolicy = complianceReady
-    ? `后台已签署生产合规文本与材料：${legalStatus.documents.filter((doc) => doc.requiredForLaunch).map((doc) => `${doc.label} ${doc.version}`).join('、')}。`
+    ? `后台已发布生产合规文本与材料：${legalStatus.documents.filter((doc) => doc.requiredForLaunch).map((doc) => `${doc.label} ${doc.publishedVersion || doc.version}`).join('、')}。`
     : `后台仍缺生产签署：${legalStatus.summary.missingLabels.join('、') || '合规文本复核'}。请在「合规文本」页更新并签署后再关闭该项。`;
   const questions = [
     ['q-domain', 'P1', '后台正式域名使用 ops.lumiiapp.cn、admin.lumiiapp.cn，还是先沿用 /admin？', '首发确定沿用 https://api.lumiiapp.cn/admin，共用已验证 HTTPS 证书和 Nginx；通过后台强密码、MFA 与 IP 白名单控制访问，后续如拆分运维域名再迁移。', '影响后台入口、证书、CDN/网关和运维 SOP。', 'ready', '已确定'],
@@ -26950,7 +27678,8 @@ function adminReadinessGaps(context) {
   const publicApiHttpsReady = publicApiOriginReady && publicApiExternalProof.ok === true;
   const smsProvider = health?.smsProvider || smsProviderStatus();
   const smsProviderReady = Boolean(smsProvider.productionReady);
-  const legalConsentReady = RUNTIME_ENV !== 'production' || REQUIRE_LEGAL_CONSENT;
+  const legalConsentDocumentsReady = Boolean(publicLegalDocument('terms')?.productionReady && publicLegalDocument('privacy')?.productionReady);
+  const legalConsentReady = RUNTIME_ENV !== 'production' || (REQUIRE_LEGAL_CONSENT && legalConsentDocumentsReady);
   const legacyAuthReady = !ALLOW_LEGACY_LOCAL_AUTH;
   const aiRuntime = aiRuntimeReadiness();
   const seedFixturePlaceCount = (state.places || []).filter(isSeedFixturePlace).length;
@@ -27015,11 +27744,15 @@ function adminReadinessGaps(context) {
       severity: 'P0',
       status: legalConsentReady ? 'ready' : 'blocked',
       issue: legalConsentReady
-        ? '登录页可读取当前协议正文，生产验证码登录强制携带同意声明，并按用户记录协议版本与时间。'
-        : '新协议阅读页和服务端留痕能力已接入，但生产尚未开启强制校验，以避免旧 APK 在升级窗口内无法登录。',
+        ? '登录页可读取当前已发布协议，生产验证码登录强制携带同意声明，并按用户记录协议版本、正文哈希、发布修订和时间。'
+        : !legalConsentDocumentsReady
+          ? '协议阅读、发布快照和留痕能力已接入，但用户协议或隐私政策尚未完成生产发布。'
+          : '正式协议已发布，但生产尚未开启强制校验，以避免旧 APK 在升级窗口内无法登录。',
       requiredAction: legalConsentReady
         ? '协议版本更新后抽查用户重新同意策略与后台时间线记录。'
-        : '发布包含协议阅读与 legalConsentAccepted 字段的新 APK，完成升级验证后配置 LUMII_REQUIRE_LEGAL_CONSENT=true。',
+        : !legalConsentDocumentsReady
+          ? '先在合规文本页补齐运营主体资料并签署用户协议与隐私政策，再开启生产同意校验。'
+          : '完成 versionCode 16 分发与旧版收敛后配置 LUMII_REQUIRE_LEGAL_CONSENT=true。',
       evidence: '登录页《用户协议》《隐私政策》 / POST /auth/sms/verify / 系统健康 legal_consent_enforcement / 用户时间线 legal_consent',
     },
     {
@@ -28374,6 +29107,9 @@ function adminAvatarJobs() {
         acceptedAt: job.acceptedAt,
         acceptedPetId: job.acceptedPetId || '',
         acceptedPetName: acceptedPet?.name || '',
+        aiContentId: job.aiContentId || '',
+        aiGeneratedAt: job.aiGeneratedAt || '',
+        aiLabelVersion: job.aiLabelVersion || '',
         adminAppliedAt: job.adminAppliedAt || '',
         adminAppliedBy: job.adminAppliedBy || '',
         createdAt: job.createdAt,
@@ -28439,16 +29175,19 @@ function syncAvatarAnimationJobToPet(user, job, options = {}) {
     pet.avatarAnimationStatus = 'ready';
     pet.avatarAnimationUpdatedAt = job.readyAt || new Date().toISOString();
     if (videoUrl) pet.avatarAnimationUrl = videoUrl;
+    applyPetAvatarAnimationAiProvenance(pet, job, pet.avatarAnimationUpdatedAt);
   } else if (job.status === 'processing') {
     pet.avatarAnimationJobId = job.id;
     pet.avatarAnimationStatus = 'processing';
     if (pet.avatarAnimationJobId === job.id) pet.avatarAnimationUrl = '';
+    clearPetAvatarAnimationAiProvenance(pet);
   } else if (job.status === 'failed') {
     if (!pet.avatarAnimationJobId || pet.avatarAnimationJobId === job.id) {
       pet.avatarAnimationJobId = job.id;
       pet.avatarAnimationStatus = 'failed';
       pet.avatarAnimationUrl = '';
       pet.avatarAnimationUpdatedAt = new Date().toISOString();
+      clearPetAvatarAnimationAiProvenance(pet);
     }
   }
   return {
@@ -28474,6 +29213,9 @@ function adminAvatarAnimationJobs() {
       const ageMs = Date.now() - Number(job.updatedAt || job.createdAt || Date.now());
       return {
         ageMs,
+        aiContentId: job.aiContentId || '',
+        aiGeneratedAt: job.aiGeneratedAt || '',
+        aiLabelVersion: job.aiLabelVersion || '',
         avatarJobId: job.avatarJobId || '',
         createdAt: job.createdAt,
         duration: Number(job.duration || 4),
@@ -34907,6 +35649,17 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'PATCH' && pathname === '/admin/legal-documents/operator-profile') {
+    const result = updateAdminLegalOperatorProfile(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_LEGAL_OPERATOR_PROFILE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result.status);
+    return true;
+  }
+
   const adminLegalDocumentMatch = pathname.match(/^\/admin\/legal-documents\/([^/]+)$/);
   if (req.method === 'PATCH' && adminLegalDocumentMatch) {
     const key = decodeURIComponent(adminLegalDocumentMatch[1]);
@@ -35422,9 +36175,17 @@ async function handle(req, res) {
       fail(res, 400, '验证码错误，请检查后重试', true, { attempts, attemptsRemaining, phone }, 'SMS_CODE_INVALID');
       return;
     }
-    if (REQUIRE_LEGAL_CONSENT && body.legalConsentAccepted !== true) {
-      fail(res, 400, '请先阅读并同意用户协议与隐私政策', false, undefined, 'LEGAL_CONSENT_REQUIRED');
-      return;
+    if (REQUIRE_LEGAL_CONSENT) {
+      const terms = publicLegalDocument('terms');
+      const privacy = publicLegalDocument('privacy');
+      if (!terms?.productionReady || !privacy?.productionReady) {
+        fail(res, 503, '当前用户协议或隐私政策尚未完成生产发布，请稍后重试', true, undefined, 'LEGAL_DOCUMENTS_NOT_READY');
+        return;
+      }
+      if (body.legalConsentAccepted !== true) {
+        fail(res, 400, '请先阅读并同意用户协议与隐私政策', false, undefined, 'LEGAL_CONSENT_REQUIRED');
+        return;
+      }
     }
     const user = ensureUser(phone);
     cancelAccountDeletionOnLogin(user);
@@ -36135,6 +36896,23 @@ async function handle(req, res) {
         // Keep the original URL if mirroring fails.
       }
     }
+    const hasAvatarPatch = Object.prototype.hasOwnProperty.call(petPatch.patch || {}, 'avatarUrl');
+    const avatarWasUpdated = (hasAvatarPatch && String(petPatch.patch.avatarUrl || '') !== String(pet.avatarUrl || ''))
+      || ((petPatch.unset || []).includes('avatarUrl') && Boolean(pet.avatarUrl));
+    if (avatarWasUpdated) {
+      const replacedAt = new Date().toISOString();
+      Object.values(state.avatarJobs || {}).forEach((job) => {
+        if (!job || job.ownerPhone !== user.phone || job.acceptedPetId !== pet.id) return;
+        job.replacedAt = replacedAt;
+        job.replacedReason = 'user_profile_avatar_update';
+        job.acceptedAt = '';
+        job.acceptedPetId = '';
+        touchAvatarJob(job);
+      });
+      clearPetAvatarAiProvenance(pet);
+      clearPetAvatarAnimationState(pet);
+      pet.updatedAt = replacedAt;
+    }
     for (const key of petPatch.unset || []) delete pet[key];
     Object.assign(pet, petPatch.patch || {});
     saveState();
@@ -36196,14 +36974,19 @@ async function handle(req, res) {
       fail(res, 400, '该图片不属于当前账号已完成的灵伴生成任务', false, undefined, 'AVATAR_RESULT_INVALID');
       return;
     }
+    const acceptedAt = new Date().toISOString();
+    const aiMetadata = sourceJob ? aiGeneratedContentMetadata(sourceJob, 'image', sourceJob.readyAt || acceptedAt) : {};
     try {
-      pet.avatarUrl = await storeAvatarUrlToCos(req, user, incomingAvatarUrl, { petId: pet.id, scope: 'pet-avatar' });
+      pet.avatarUrl = await storeAvatarUrlToCos(req, user, incomingAvatarUrl, { aiMetadata, petId: pet.id, scope: 'pet-avatar' });
     } catch {
       pet.avatarUrl = incomingAvatarUrl;
     }
+    clearPetAvatarAnimationState(pet);
+    if (sourceJob) applyPetAvatarAiProvenance(pet, sourceJob, sourceJob.readyAt || acceptedAt);
+    else clearPetAvatarAiProvenance(pet);
     ensureAvatarAnimationJob(req, user, pet, null, pet.avatarUrl);
     if (sourceJob) {
-      sourceJob.acceptedAt = new Date().toISOString();
+      sourceJob.acceptedAt = acceptedAt;
       sourceJob.acceptedPetId = pet.id;
       touchAvatarJob(sourceJob);
     }
@@ -36338,6 +37121,10 @@ async function handle(req, res) {
     if (!job) {
       if (pet?.avatarAnimationUrl) {
         ok(res, {
+          aiContentId: pet.avatarAnimationAiContentId || '',
+          aiGenerated: pet.avatarAnimationAiGenerated === true,
+          aiGeneratedAt: pet.avatarAnimationAiGeneratedAt || '',
+          aiLabelVersion: pet.avatarAnimationAiLabelVersion || '',
           aspectRatio: '1:1',
           duration: 4,
           id: pet.avatarAnimationJobId || `pet-animation-${pet.id}`,
@@ -36483,13 +37270,17 @@ async function handle(req, res) {
         fail(res, 400, '请先添加宠物档案', false);
         return;
       }
+      const acceptedAt = new Date().toISOString();
+      const aiMetadata = aiGeneratedContentMetadata(job, 'image', job.readyAt || acceptedAt);
       try {
-        pet.avatarUrl = await storeAvatarUrlToCos(req, user, job.resultUrl, { petId: pet.id, scope: 'pet-avatar' });
+        pet.avatarUrl = await storeAvatarUrlToCos(req, user, job.resultUrl, { aiMetadata, petId: pet.id, scope: 'pet-avatar' });
       } catch {
         pet.avatarUrl = job.resultUrl;
       }
+      clearPetAvatarAnimationState(pet);
+      applyPetAvatarAiProvenance(pet, job, job.readyAt || acceptedAt);
       const animationJob = ensureAvatarAnimationJob(req, user, pet, job, pet.avatarUrl);
-      job.acceptedAt = new Date().toISOString();
+      job.acceptedAt = acceptedAt;
       job.acceptedPetId = pet.id;
       if (animationJob) job.avatarAnimationJobId = animationJob.id;
       touchAvatarJob(job);
@@ -37712,6 +38503,12 @@ const server = http.createServer((req, res) => {
     fail(res, 500, '本地服务异常，请稍后重试', true);
   });
 });
+
+try {
+  if (migrateAiContentProvenanceState()) saveState('ai_content_provenance_migration');
+} catch (error) {
+  console.error('Failed to migrate AI content provenance during startup', error);
+}
 
 try {
   runDueAccountDeletionSweep();
