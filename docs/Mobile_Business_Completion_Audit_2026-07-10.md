@@ -276,6 +276,7 @@
 - 附近地点真实性：`node scripts/smoke-place-contributions.cjs` 与 `node scripts/smoke-sms-production.cjs` 通过；覆盖提交坐标/精度/时间落库、审核后 manual 地点继承坐标、跨城不跟随、缺失/过期定位拦截、生产无高德时返回空列表而非 seed，以及 `amap` / `place_location_integrity` / `place_discovery` 健康与 P0 门禁。
 - 生产台账实查：部署 `1738bdd` 后于 2026-07-14 返回 28 项健康检查、`bad=1`、`warn=3`、`openP0=6`、`blockedGaps=2`；唯一 `bad` 是兼容发布期有意暂缓的 `legal_consent_enforcement`，三项警告分别为首台真机 Push、后台 IP 白名单和站外告警。`public_api_https`、`public_api_external_https`、`backend_bind_address` 均为 `ok`；AI 灵伴模块按自身运行时正确显示 `partial`；线上公开配置返回 `petCircleMaxPhotos=6`、`discoverRadiusKm=10`，后台静态资源同步限制最多 6 张；生产进程仅监听 `127.0.0.1:8787`，Lighthouse 规则仍无公网 8787；用户数保持 21，服务 `NRestarts=0`。生产当前只有 1 个活跃管理员且未配置 MFA/IP 白名单，不能在没有真实审批人的情况下强开双人会签。
 - Android 候选包：`dist/Lumii-Lingban-v1.0.0-vc17-arm64-20260714-1300.apk` 已完成正式签名构建，大小 68.59 MB，SHA-256 为 `2C986108E0B742937006C7152ADADA3E2B66D1D8AEB38CC3C796DBD4E4617DA8`；包名 `com.lumii.lingban`、versionCode `17`、API `https://api.lumiiapp.cn`、禁止明文流量且仅含 `arm64-v8a`，Bundle 不含测试服务器 `193.112.92.111` 或 `127.0.0.1` 端点，也不含短信模板和已知服务密钥。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 仍为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗/安装包权限，`allowBackup=false`、`usesCleartextTraffic=false`。
+- 原生 Android 升级验证：临时 x86_64 vc17 release 通过 `adb install -r` 从同签名 vc16 覆盖安装，系统实际读取 versionCode 17；冷启动 `Status: ok / LaunchState: COLD / TotalTime: 545ms`。登录页、用户协议和隐私政策原生截图位于 `artifacts/android-native-vc17/`，两份协议均从生产 HTTPS 读取完整 `draft-2026-07-14` 草稿并明确显示“未发布草稿”，不再出现旧 `test-*` 文案；Logcat 无 Fatal、ReactNativeJS 未处理异常或进程崩溃。
 
 ## 4. 剩余工作
 
