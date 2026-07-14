@@ -570,6 +570,10 @@ async function main() {
     await waitExactText(page, '近期记录');
     await waitExactText(page, '宠物日历');
     await screenshot(page, 'smoke-frontend-00-health-preview.png');
+    await page.getByLabel('新增日历记录').click();
+    await waitExactText(page, '新增备忘');
+    await page.getByLabel('返回').click();
+    await waitExactText(page, '近期记录');
 
     await page.goto(`${baseUrl}/?route=home&mockAvatar=missing`, { timeout: 60_000, waitUntil: 'networkidle' });
     await page.getByLabel('pet-avatar-placeholder').first().waitFor({ state: 'visible', timeout: 30_000 });
@@ -622,6 +626,12 @@ async function main() {
     await page.getByLabel('菜单查看评论-mock-my-circle-today-evening').click();
     await waitExactText(page, 'Lucky 的评论');
     await waitExactText(page, '奶油：今天也太可爱啦。');
+    const profileCommentText = 'Playwright 本人归档评论发送与删除回归。';
+    await page.getByPlaceholder('写评论...').fill(profileCommentText);
+    await page.getByLabel('发送我的小事评论').click();
+    await waitExactText(page, profileCommentText);
+    await page.getByLabel(/^删除评论-/).last().click();
+    await waitBodyExcludes(page, profileCommentText);
     await screenshot(page, 'smoke-frontend-00-profile-comments.png');
     await page.getByLabel('关闭我的小事评论').click();
     await page.getByText('Lucky 的评论', { exact: true }).waitFor({ state: 'hidden', timeout: 30_000 });
@@ -682,7 +692,9 @@ async function main() {
     }
     await screenshot(page, 'smoke-frontend-00-profile-rejected.png');
 
-    await page.goto(`${baseUrl}/?route=placeContributions&mockPlaceContributions=1`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/?route=profile&mockPlaceContributions=1`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '我的');
+    await clickExactText(page, '地点贡献');
     await waitExactText(page, '地点贡献记录');
     await page.getByLabel('地点提交-mock-place-submission-approved').waitFor({ state: 'visible', timeout: 30_000 });
     await page.getByLabel('地点提交-mock-place-submission-pending').waitFor({ state: 'visible', timeout: 30_000 });
@@ -711,6 +723,10 @@ async function main() {
 
     const backdatedHealthDate = isoDateAfterDays(-6);
     await page.goto(`${baseUrl}/?route=healthCalendar&mockHealthCalendar=backdated`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await page.getByLabel('calendar-quick-备忘').click();
+    await waitExactText(page, '新增备忘');
+    await page.getByLabel('返回').click();
+    await waitExactText(page, '宠物日历');
     await page.getByLabel(`health-calendar-day-${backdatedHealthDate}`).click();
     await page.getByLabel('health-calendar-event-memo-mock-backdated-profile-memo').waitFor({ state: 'visible', timeout: 30_000 });
     await page.getByLabel('health-calendar-event-memo-mock-backdated-social-memo').waitFor({ state: 'visible', timeout: 30_000 });
@@ -774,6 +790,11 @@ async function main() {
 
     await page.getByLabel(/^edit-weight-record-/).first().click();
     await page.getByLabel('delete-weight-record').click();
+    await page.getByLabel('cancel-delete-weight-record').click();
+    await page.getByLabel('confirm-delete-weight-record').waitFor({ state: 'hidden', timeout: 30_000 });
+    await waitBodyIncludes(page, 'PW weight edit');
+    await page.getByLabel(/^edit-weight-record-/).first().click();
+    await page.getByLabel('delete-weight-record').click();
     await page.getByLabel('confirm-delete-weight-record').click();
     await waitBodyExcludes(page, 'PW weight edit');
     await screenshot(page, 'smoke-frontend-00d-weight-deleted.png');
@@ -784,6 +805,10 @@ async function main() {
     await page.getByLabel('toggle-vaccine-composer').click();
     const vaccineWheelDate = isoDateAfterDays(8);
     const [vaccineWheelYear, vaccineWheelMonth, vaccineWheelDay] = vaccineWheelDate.split('-').map(Number);
+    await page.getByLabel('open-vaccine-due-picker').click();
+    await waitExactText(page, '选择计划日期');
+    await page.getByLabel('cancel-vaccine-due-picker').click();
+    await page.getByLabel('confirm-vaccine-due-picker').waitFor({ state: 'hidden', timeout: 30_000 });
     await page.getByLabel('open-vaccine-due-picker').click();
     await waitExactText(page, '选择计划日期');
     if (await page.getByLabel(`vaccine-due-year-${new Date().getFullYear() - 1}`).count()) {
@@ -878,9 +903,10 @@ async function main() {
     await page.getByLabel('AI生成内容标识').first().waitFor({ state: 'visible', timeout: 30_000 });
     await screenshot(page, 'smoke-frontend-00j-avatar-saved-home.png');
 
+    const memoDraftTitle = '洗澡记录';
     await page.goto(`${baseUrl}/?route=memoNew`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '新增备忘');
-    await page.getByPlaceholder('例如：洗澡记录、复诊提醒').fill('洗澡记录');
+    await page.getByPlaceholder('例如：洗澡记录、复诊提醒').fill(memoDraftTitle);
     await page.getByPlaceholder('今天有什么值得记录的小事？').fill('今天洗澡后精神很好');
     await page.getByLabel('toggle-memo-draft-reminder').click();
     if (!(await page.getByLabel('open-memo-draft-reminder-picker').isDisabled())) {
@@ -915,15 +941,41 @@ async function main() {
 
     const editedMemoTitle = 'PW备忘编辑';
     const editedMemoContent = 'Playwright 已编辑备忘内容';
-    await page.getByLabel(/^health-calendar-event-memo-m-/).first().click();
+    const createdMemoEvent = page.getByLabel(/^health-calendar-event-memo-m-/).filter({ hasText: memoDraftTitle }).first();
+    await createdMemoEvent.waitFor({ state: 'visible', timeout: 30_000 });
+    await createdMemoEvent.click();
     await waitExactText(page, '编辑备忘');
+    await waitExactText(page, '提前 3 天通知');
     await page.getByLabel('memo-edit-title-input').fill(editedMemoTitle);
     await page.getByLabel('memo-edit-content-input').fill(editedMemoContent);
+    const memoEditReminderToggle = page.getByLabel('toggle-memo-edit-reminder');
+    if ((await memoEditReminderToggle.getAttribute('aria-checked')) !== 'true') {
+      throw new Error('A memo created with a reminder must reopen with its reminder enabled');
+    }
+    await memoEditReminderToggle.click();
+    if (!(await page.getByLabel('open-memo-edit-reminder-picker').isDisabled())) {
+      throw new Error('The edit reminder picker must be disabled when the reminder is turned off');
+    }
+    await memoEditReminderToggle.click();
+    await waitLabelEnabled(page, 'open-memo-edit-reminder-picker');
+    await page.getByLabel('open-memo-edit-reminder-picker').click();
+    await waitExactText(page, '选择提醒时间');
+    await page.getByLabel('cancel-memo-reminder-picker').click();
+    await page.getByLabel('confirm-memo-reminder-picker').waitFor({ state: 'hidden', timeout: 30_000 });
+    await page.getByLabel('open-memo-edit-reminder-picker').click();
+    await page.getByLabel('memo-reminder-minute-30').click();
+    await page.getByLabel('confirm-memo-reminder-picker').click();
+    await page.getByLabel('confirm-memo-reminder-picker').waitFor({ state: 'hidden', timeout: 30_000 });
+    await waitExactText(page, `${reminderDate} · 10:30`);
     await clickExactText(page, '保存修改');
     await waitExactText(page, '宠物日历');
     await waitBodyIncludes(page, editedMemoTitle);
     await screenshot(page, 'smoke-frontend-01b-memo-edited.png');
     await page.getByLabel(/^health-calendar-event-memo-m-/).first().click();
+    await waitExactText(page, '编辑备忘');
+    await page.getByLabel('delete-health-memo').click();
+    await page.getByLabel('cancel-delete-health-memo').click();
+    await page.getByLabel('confirm-delete-health-memo').waitFor({ state: 'hidden', timeout: 30_000 });
     await waitExactText(page, '编辑备忘');
     await page.getByLabel('delete-health-memo').click();
     await page.getByLabel('confirm-delete-health-memo').click();
@@ -933,6 +985,13 @@ async function main() {
 
     await page.goto(`${baseUrl}/?route=discover`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '宠友圈');
+    await page.getByLabel('搜索附近内容').click();
+    await page.getByPlaceholder('搜索宠物名、主人、品种或标签').fill('Lucky');
+    await waitBodyIncludes(page, '搜索“Lucky”');
+    await page.getByLabel('清除搜索').click();
+    await page.getByPlaceholder('搜索宠物名、主人、品种或标签').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('收起搜索').click();
+    await page.getByPlaceholder('搜索宠物名、主人、品种或标签').waitFor({ state: 'hidden', timeout: 30_000 });
     await waitExactText(page, '分享 Lucky 的今日小事');
     await waitExactText(page, '+3');
     await waitExactText(page, '展开');
@@ -942,6 +1001,12 @@ async function main() {
     await waitExactText(page, '展开');
     await waitExactText(page, '已看到附近最新小事');
     await screenshot(page, 'smoke-frontend-02-discover-circle.png');
+    await page.getByLabel('查看我发布的小事').click();
+    await waitExactText(page, '我发布的小事');
+    await page.getByLabel('我的宠友圈标记').waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(page, 'smoke-frontend-02a-discover-to-my-posts.png');
+    await page.getByLabel('返回').click();
+    await waitExactText(page, '宠友圈');
     await clickExactText(page, '+3');
     await waitExactText(page, '3/6');
     await screenshot(page, 'smoke-frontend-02b-discover-photo-viewer.png');
@@ -1017,6 +1082,9 @@ async function main() {
     await page.getByLabel('返回').click();
     await waitExactText(page, '宠物');
     await clickExactText(page, '消息');
+    await waitExactText(page, '林然和奶油');
+    await page.getByLabel('刷新消息').click();
+    await waitLabelEnabled(page, '刷新消息');
     await waitExactText(page, '林然和奶油');
     const notificationReadMessagesText = await page.locator('body').innerText();
     assertMessageTabBadge(notificationReadMessagesText, 1, 'After opening conversation notification');
@@ -1187,6 +1255,10 @@ async function main() {
     while (birthdayLeapYear % 100 === 0 && birthdayLeapYear % 400 !== 0) birthdayLeapYear -= 4;
     const birthdayNonLeapYear = birthdayLeapYear - 1;
     await settingsPage.getByLabel('edit-pet-birthday-input').click();
+    await waitExactText(settingsPage, '选择宠物生日');
+    await settingsPage.getByLabel('cancel-pet-birthday-picker').click();
+    await settingsPage.getByLabel('confirm-pet-birthday-picker').waitFor({ state: 'hidden', timeout: 30_000 });
+    await settingsPage.getByLabel('edit-pet-birthday-input').click();
     await settingsPage.getByLabel(`pet-birthday-year-${birthdayCurrentYear - 30}`).waitFor({ state: 'visible', timeout: 30_000 });
     if (await settingsPage.getByLabel(`pet-birthday-year-${birthdayCurrentYear - 31}`).count()) {
       throw new Error('Birthday picker must expose at most the previous 30 years');
@@ -1311,6 +1383,11 @@ async function main() {
     await waitExactText(deletionPage, '账号安全');
     await deletionPage.getByLabel('request-account-deletion').click();
     await waitExactText(deletionPage, '确认注销账号？');
+    await deletionPage.getByLabel('cancel-account-deletion').click();
+    await deletionPage.getByText('确认注销账号？', { exact: true }).waitFor({ state: 'hidden', timeout: 30_000 });
+    await waitExactText(deletionPage, '账号安全');
+    await deletionPage.getByLabel('request-account-deletion').click();
+    await waitExactText(deletionPage, '确认注销账号？');
     await deletionPage.getByLabel('account-deletion-code-input').fill('962464');
     await deletionPage.getByLabel('confirm-account-deletion').click();
     await waitExactText(deletionPage, '准备好遇见你的灵伴了吗？');
@@ -1371,6 +1448,8 @@ async function main() {
     await interactionPage.getByLabel('约遛资料卡宠友').click();
     await waitExactText(interactionPage, '约遛邀请');
     await waitExactText(interactionPage, 'Lucky × 奶油');
+    const walkInviteTime = '18:15 - 19:00';
+    await interactionPage.getByLabel('walk-invite-time-input').fill(walkInviteTime);
     await interactionPage.getByLabel('walk-invite-place-input').fill('Playwright 宠物友好公园');
     await interactionPage.getByLabel('walk-invite-note-input').fill('Playwright 约遛邀请：牵引绳和饮水都带好。');
     await interactionPage.getByLabel('save-walk-invite-draft').click();
@@ -1382,6 +1461,7 @@ async function main() {
     await interactionPage.getByLabel('约遛资料卡宠友').waitFor({ state: 'visible', timeout: 30_000 });
     await interactionPage.getByLabel('约遛资料卡宠友').click();
     await waitExactText(interactionPage, '已恢复约遛草稿');
+    await waitLabelInputValue(interactionPage, 'walk-invite-time-input', walkInviteTime);
     await waitInputValue(interactionPage, 'Playwright 宠物友好公园');
     await waitInputValue(interactionPage, 'Playwright 约遛邀请：牵引绳和饮水都带好。');
     await interactionPage.getByLabel('send-walk-invite').click();

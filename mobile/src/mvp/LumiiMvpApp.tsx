@@ -10451,6 +10451,7 @@ export default function LumiiMvpApp() {
           </Pressable>
           <View style={styles.agreementRow}>
             <Pressable
+              aria-checked={agreementAccepted}
               accessibilityLabel="同意用户协议与隐私政策"
               accessibilityRole="checkbox"
               accessibilityState={{ checked: agreementAccepted }}
@@ -12929,7 +12930,7 @@ export default function LumiiMvpApp() {
             <Text style={[styles.fieldHintText, contentCount > 200 && styles.fieldHintError]}>{contentCount}/200</Text>
           </View>
 
-          <Pressable accessibilityLabel="toggle-memo-draft-reminder" accessibilityRole="switch" accessibilityState={{ checked: memoDraftReminderEnabled }} onPress={() => setMemoDraftReminderEnabled((enabled) => !enabled)} style={[styles.memoReminderRow, webPressableReset]}>
+          <Pressable aria-checked={memoDraftReminderEnabled} accessibilityLabel="toggle-memo-draft-reminder" accessibilityRole="switch" accessibilityState={{ checked: memoDraftReminderEnabled }} onPress={() => setMemoDraftReminderEnabled((enabled) => !enabled)} style={[styles.memoReminderRow, webPressableReset]}>
             <View style={styles.memoReminderIcon}>
               <Bell color={palette.orange} size={15} strokeWidth={2.4} />
             </View>
@@ -13038,6 +13039,8 @@ export default function LumiiMvpApp() {
           </View>
 
           <Pressable
+            aria-checked={memoEditReminderEnabled}
+            aria-disabled={controlsDisabled}
             accessibilityLabel="toggle-memo-edit-reminder"
             accessibilityRole="switch"
             accessibilityState={{ checked: memoEditReminderEnabled, disabled: controlsDisabled }}
@@ -18821,7 +18824,7 @@ export default function LumiiMvpApp() {
           <Pressable onPress={() => undefined} style={styles.memoReminderPickerSheet}>
             <View style={styles.memoReminderPickerHandle} />
             <View style={styles.memoReminderPickerHeader}>
-              <Pressable accessibilityLabel="cancel-memo-reminder-picker" accessibilityRole="button" onPress={closeMemoReminderPicker} style={[styles.memoReminderPickerNavButton, webPressableReset]}>
+              <Pressable accessibilityLabel="cancel-memo-reminder-picker" accessibilityRole="button" onPress={closeMemoReminderPicker} style={[styles.memoReminderPickerNavButton, styles.memoReminderPickerNavButtonLeft, webPressableReset]}>
                 <Text style={styles.memoReminderPickerCancelText}>取消</Text>
               </Pressable>
               <Text style={styles.memoReminderPickerTitle}>选择提醒时间</Text>
@@ -18860,7 +18863,7 @@ export default function LumiiMvpApp() {
           <Pressable onPress={() => undefined} style={styles.memoReminderPickerSheet}>
             <View style={styles.memoReminderPickerHandle} />
             <View style={styles.memoReminderPickerHeader}>
-              <Pressable accessibilityLabel="cancel-vaccine-due-picker" accessibilityRole="button" onPress={closeVaccineDueDatePicker} style={[styles.memoReminderPickerNavButton, webPressableReset]}>
+              <Pressable accessibilityLabel="cancel-vaccine-due-picker" accessibilityRole="button" onPress={closeVaccineDueDatePicker} style={[styles.memoReminderPickerNavButton, styles.memoReminderPickerNavButtonLeft, webPressableReset]}>
                 <Text style={styles.memoReminderPickerCancelText}>取消</Text>
               </Pressable>
               <Text style={styles.memoReminderPickerTitle}>选择计划日期</Text>
@@ -18899,7 +18902,7 @@ export default function LumiiMvpApp() {
           <Pressable onPress={() => undefined} style={styles.memoReminderPickerSheet}>
             <View style={styles.memoReminderPickerHandle} />
             <View style={styles.memoReminderPickerHeader}>
-              <Pressable accessibilityLabel="cancel-pet-birthday-picker" accessibilityRole="button" onPress={closePetBirthdayPicker} style={[styles.memoReminderPickerNavButton, webPressableReset]}>
+              <Pressable accessibilityLabel="cancel-pet-birthday-picker" accessibilityRole="button" onPress={closePetBirthdayPicker} style={[styles.memoReminderPickerNavButton, styles.memoReminderPickerNavButtonLeft, webPressableReset]}>
                 <Text style={styles.memoReminderPickerCancelText}>取消</Text>
               </Pressable>
               <Text style={styles.memoReminderPickerTitle}>选择宠物生日</Text>
@@ -20175,8 +20178,9 @@ const styles = StyleSheet.create({
   memoReminderPickerHandle: { alignSelf: 'center', backgroundColor: '#E4DDD2', borderRadius: 3, height: 5, marginBottom: 13, width: 46 },
   memoReminderPickerHeader: { alignItems: 'center', flexDirection: 'row', height: 34, justifyContent: 'center', position: 'relative' },
   memoReminderPickerHint: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '400', lineHeight: 16, marginTop: 12, paddingHorizontal: 18 },
-  memoReminderPickerNavButton: { alignItems: 'center', height: 34, justifyContent: 'center', left: 0, minWidth: 58, paddingHorizontal: 6, position: 'absolute', top: 0 },
-  memoReminderPickerNavButtonRight: { left: undefined, right: 0 },
+  memoReminderPickerNavButton: { alignItems: 'center', height: 34, justifyContent: 'center', minWidth: 58, paddingHorizontal: 6, position: 'absolute', top: 0 },
+  memoReminderPickerNavButtonLeft: { left: 0 },
+  memoReminderPickerNavButtonRight: { right: 0 },
   memoReminderPickerSheet: { backgroundColor: '#fff', borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingBottom: 18, paddingHorizontal: 18, paddingTop: 12, shadowColor: '#50371e', shadowOffset: { height: -8, width: 0 }, shadowOpacity: 0.18, shadowRadius: 30 },
   memoReminderPickerSummary: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#FFF4EE', borderRadius: 16, flexDirection: 'row', gap: 7, height: 32, justifyContent: 'center', marginTop: 12, maxWidth: 278, paddingHorizontal: 16 },
   memoReminderPickerSummaryText: { color: palette.orange, flexShrink: 1, fontFamily: appFontFamily, fontSize: 12, fontWeight: '800' },
