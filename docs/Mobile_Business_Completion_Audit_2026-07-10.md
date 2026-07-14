@@ -214,6 +214,14 @@
 - Android 候选包提升到 versionCode 14；`app.json` 与 Gradle 一致性、原生值优先、同版本高构建升级、旧语义版本不被高构建号反向覆盖均已进入 Release 门禁。
 - Expo SDK 56 依赖同步到官方兼容补丁版本；`expo install --check` 无过期依赖，`expo-doctor` 20/21 通过，唯一提示为保留原生 Android 工程时 `app.json` 字段不会自动同步的结构性提醒，当前由源码一致性与实包检查覆盖。
 
+### 2.26 生产运行时异常与 AI 任务收口
+
+- 回查 2026-07-08 以后生产日志：实际异常集中为历史 AI 卡死任务收口、1 次动效视频镜像 `fetch failed` 和 3 次非法 Host 引发的 `ERR_INVALID_URL`；本次都已形成可重现回归。
+- 请求路由不再使用不可信 Host 构造 URL；非法 Host 稳定返回 `400 / INVALID_REQUEST_URL`，不再记为 500 或输出异常堆栈。
+- Seedance 已返回结果后的视频下载、去绿边和 COS 镜像失败会由服务端自主重试，不再依赖用户停留首页继续轮询；服务重启后会从 SQLite 恢复 `mirror_failed / ready_mirroring` 任务，达到最大次数才收口为失败。
+- 灵伴形象额度现在保存任务实际扣减日；自动返还仍只覆盖供应商提交失败、返回失败和超时，后台可对同日已结束的成功/失败任务人工返还，但处理中任务和跨日历史任务不能误减今天额度。
+- 产线已部署到 `84ec0298`；非法 Host 实测返回 400，内网与站外 `https://api.lumiiapp.cn/health` 都返回 200，进程只监听 `127.0.0.1:8787`，部署后日志无新异常。
+
 ## 3. 当前验证证据
 
 - 移动端 TypeScript：`npm run typecheck` 通过。
@@ -223,11 +231,11 @@
 - 用户登录设备：`node scripts/smoke-user-auth-sessions.cjs` 通过，覆盖双设备登录、用户端脱敏列表、单设备退出、退出其他设备、刷新链撤销、401 阻断、后台时间线和会话数据清理。
 - 工单 SLA/客服排班/用户补充/评价/重开闭环：`node scripts/smoke-ticket-sla-roster.cjs` 通过。
 - 移动端完整 Playwright：`node scripts/smoke-frontend-playwright.cjs` 通过，含 41 路由直达、协议阅读、缺头像、宠友圈审核状态、地点贡献、宠友圈互动、设置/注销、真实登录会话和宠物建档流程。
-- 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 通过，70/70 套件全部成功；覆盖 Release HTTPS、Android 敏感权限最小化、API TLS/SNI、SQLite/WAL，以及生产短信随机 OTP、Spug 请求、腾讯备用通道、固定码旁路阻断和注销验证码。
-- 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-13 21:13 重新完整通过，79/79 套件全部成功；移动端 Playwright 用时 264.5 秒，覆盖协议阅读、本人宠友圈同日多条、审核中/驳回状态及昼夜排序差异、唯一“我”标记、评论、删除确认、地点贡献记录、地点点评驳回纠错、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除，后台 8 个关键运营页面同步通过。
+- 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 于 2026-07-14 完整通过，70/70 套件全部成功；覆盖 Release HTTPS、Android 敏感权限最小化、API TLS/SNI、SQLite/WAL，以及生产短信随机 OTP、Spug 请求、腾讯备用通道、固定码旁路阻断、注销验证码、动效镜像重试恢复和额度返还日期边界。
+- 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-14 重新完整通过，79/79 套件全部成功；移动端 Playwright 用时 261.9 秒，覆盖协议阅读、本人宠友圈同日多条、审核中/驳回状态及昼夜排序差异、唯一“我”标记、评论、删除确认、地点贡献记录、地点点评驳回纠错、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除，后台 8 个关键运营页面同步通过。
 - 附近位置与半径专项：`node scripts/smoke-pet-circle.cjs`、配置审批/预约发布/双人会签回归和 `node scripts/smoke-admin-config-high-risk-page.cjs` 通过；覆盖发布位置快照、跨城市移动、历史无位置数据、10km 默认档位、3/5/10km 后台选择及客户端越权半径拦截。
 - 附近地点真实性：`node scripts/smoke-place-contributions.cjs` 与 `node scripts/smoke-sms-production.cjs` 通过；覆盖提交坐标/精度/时间落库、审核后 manual 地点继承坐标、跨城不跟随、缺失/过期定位拦截、生产无高德时返回空列表而非 seed，以及 `amap` / `place_location_integrity` / `place_discovery` 健康与 P0 门禁。
-- 生产台账实查：部署 `7ad88e71` 后于 2026-07-13 返回 28 项健康检查、`bad=1`、`warn=3`、`openP0=6`、`blockedGaps=2`；唯一 `bad` 是兼容发布期有意暂缓的 `legal_consent_enforcement`，三项警告分别为首台真机 Push、后台 IP 白名单和站外告警。`public_api_https`、`public_api_external_https`、`backend_bind_address` 均为 `ok`；生产进程仅监听 `127.0.0.1:8787`，Lighthouse 规则仍无公网 8787。生产当前只有 1 个活跃管理员且未配置 MFA/IP 白名单，不能在没有真实审批人的情况下强开双人会签。
+- 生产台账实查：部署 `84ec0298` 后于 2026-07-14 返回 28 项健康检查、`bad=1`、`warn=3`、`openP0=6`、`blockedGaps=2`；唯一 `bad` 是兼容发布期有意暂缓的 `legal_consent_enforcement`，三项警告分别为首台真机 Push、后台 IP 白名单和站外告警。`public_api_https`、`public_api_external_https`、`backend_bind_address` 均为 `ok`；生产进程仅监听 `127.0.0.1:8787`，Lighthouse 规则仍无公网 8787；用户数保持 21，服务 `NRestarts=0`。生产当前只有 1 个活跃管理员且未配置 MFA/IP 白名单，不能在没有真实审批人的情况下强开双人会签。
 - Android 候选包：`dist/Lumii-Lingban-v1.0.0-vc14-arm64-20260713-2104.apk` 已完成正式签名构建，大小 68.58 MB，SHA-256 为 `93F504C3151F3CD9B913A6B9281193EBCB447C4CAD735F9107F0B7652EF806C0`；包名 `com.lumii.lingban`、versionCode `14`、API `https://api.lumiiapp.cn`、禁止明文流量且仅含 `arm64-v8a`，不含测试服务器 IP 或 localhost。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 仍为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗/安装包权限，系统备份关闭。
 
 ## 4. 剩余工作
