@@ -9361,7 +9361,7 @@ async function renderConfig(force) {
             <h2>系统通知治理</h2>
             <div class="section-sub">保存后立即影响通知运营页的发送、预约、审批和频控，避免误发或刷屏</div>
           </div>
-          ${help('这里只限制后台系统通知，不限制审核结果、工单回复、申诉处理、疫苗提醒等业务通知。开启发送审批后，直接发送和预约发送会被后端拦截，需先提交审批。')}
+          ${help('这里只限制后台系统通知，不限制审核结果、工单回复、申诉处理、疫苗/驱虫提醒等业务通知。开启发送审批后，直接发送和预约发送会被后端拦截，需先提交审批。')}
         </div>
         <div class="switch-panel">
           ${featureCheckbox('cfgNotificationRateLimitEnabled', '启用系统通知频控', notifications.rateLimitEnabled !== false)}
@@ -9775,8 +9775,11 @@ async function saveConfig(mode = 'publish') {
   if (updateEnabled && !updateForce && !updateLatestVersion && !updateLatestBuildNumber) {
     throw new Error('可选更新需要填写最新版本或最新构建号');
   }
-  if (updateForce && ((!updateMinVersion && !updateMinBuildNumber) || (!updateAndroidUrl && !updateIosUrl))) {
-    throw new Error('强制更新需要填写最低可用版本或最低构建号，并至少配置一个下载地址');
+  if (updateForce && !updateMinVersion && !updateMinBuildNumber) {
+    throw new Error('强制更新需要填写最低可用版本或最低构建号');
+  }
+  if (updateEnabled && !updateAndroidUrl) {
+    throw new Error('启用版本更新时必须配置 Android 下载地址');
   }
   if ((updateAndroidUrl && !/^https?:\/\//i.test(updateAndroidUrl)) || (updateIosUrl && !/^https?:\/\//i.test(updateIosUrl))) {
     throw new Error('更新下载地址必须以 http:// 或 https:// 开头');

@@ -98,6 +98,24 @@ async function waitForBackend(apiBaseUrl) {
   throw lastError || new Error(`Frontend smoke backend did not start at ${apiBaseUrl}`);
 }
 
+async function requestBackendJson(apiBaseUrl, pathname, { body, expectedStatus = 200, method = 'GET', token } = {}) {
+  const response = await fetch(`${apiBaseUrl}${pathname}`, {
+    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: {
+      Accept: 'application/json',
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    method,
+  });
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : undefined;
+  if (response.status !== expectedStatus) {
+    throw new Error(`${method} ${pathname} expected ${expectedStatus}, got ${response.status}: ${text}`);
+  }
+  return payload;
+}
+
 async function startBackendForFrontendSmoke() {
   const configuredApiBaseUrl = String(process.env.FRONTEND_SMOKE_API_BASE_URL || '').trim().replace(/\/+$/, '');
   if (configuredApiBaseUrl) return { apiBaseUrl: configuredApiBaseUrl, process: null, tempDir: null };
@@ -232,6 +250,20 @@ async function waitLabelInputValue(page, label, value) {
         },
       ),
     { expected: value, name: label },
+    { timeout: 30_000 },
+  );
+}
+
+async function waitVisibleLabel(page, label) {
+  await page.waitForFunction(
+    (name) => Array.from(document.querySelectorAll('[aria-label]')).some((element) => {
+      if (element.getAttribute('aria-label') !== name) return false;
+      const rect = element.getBoundingClientRect();
+      const style = globalThis.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0
+        && style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || 1) > 0;
+    }),
+    label,
     { timeout: 30_000 },
   );
 }
@@ -772,6 +804,7 @@ async function main() {
 
     await page.getByLabel(/^edit-vaccine-plan-PW vaccine smoke-/).first().click();
     await waitExactText(page, '编辑计划');
+    await waitLabelInputValue(page, 'vaccine-name-input', smokeVaccineName);
     await page.getByLabel('vaccine-name-input').fill(editedVaccineName);
     await waitLabelInputValue(page, 'vaccine-name-input', editedVaccineName);
     await selectVaccineQuickDate(page, isoDateAfterDays(7));
@@ -821,6 +854,25 @@ async function main() {
     await page.getByLabel('open-avatar-regenerate-confirm').click();
     await screenshot(page, 'smoke-frontend-00i-avatar-regenerate-confirm.png');
     await page.getByLabel('cancel-avatar-regenerate').click();
+
+    await page.goto(`${baseUrl}/?route=uploadDetail`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await clickExactText(page, '确认并生成灵伴');
+    await waitExactText(page, '正在生成你的小灵伴');
+    await waitExactText(page, '挑一个你最喜欢的');
+    await page.getByLabel('open-avatar-feedback').click();
+    await page.getByLabel('avatar-feedback-chip-color_lighter').click();
+    await page.getByLabel('submit-avatar-feedback').click();
+    await waitExactText(page, '正在生成你的小灵伴');
+    await waitExactText(page, '挑一个你最喜欢的');
+    await screenshot(page, 'smoke-frontend-00i1-avatar-feedback-retry-completed.png');
+
+    await page.getByLabel('open-avatar-regenerate-confirm').click();
+    await page.getByLabel('confirm-avatar-regenerate').click();
+    await waitExactText(page, '正在生成你的小灵伴');
+    await waitExactText(page, '挑一个你最喜欢的');
+    await screenshot(page, 'smoke-frontend-00i2-avatar-regenerate-completed.png');
+
+    await page.goto(`${baseUrl}/?route=aiResult`, { timeout: 60_000, waitUntil: 'networkidle' });
     await page.getByLabel('save-avatar-result').click();
     await waitExactText(page, '早安，Lucky！');
     await page.getByLabel('AI生成内容标识').first().waitFor({ state: 'visible', timeout: 30_000 });
@@ -978,6 +1030,9 @@ async function main() {
     await clickExactText(page, '健康提醒');
     await waitExactText(page, '疫苗/驱虫计划');
     await waitExactText(page, notificationVaccineName);
+    await waitExactText(page, '计划中');
+    const vaccinePlanText = await page.locator('body').innerText();
+    if (vaccinePlanText.includes('待接种')) throw new Error(`Vaccine/deworming plans must use the unified “计划中” status:\n${vaccinePlanText}`);
     await screenshot(page, 'smoke-frontend-02g-notification-to-vaccine.png');
 
     await page.goto(`${baseUrl}/?route=notifications`, { timeout: 60_000, waitUntil: 'networkidle' });
@@ -1046,6 +1101,24 @@ async function main() {
     await screenshot(page, 'smoke-frontend-02k-place-submission-created.png');
     await clickExactText(page, '回到地图');
     await waitExactText(page, '附近宠物友好地点');
+
+    await page.goto(`${baseUrl}/?route=map&mockPlaceContributions=1`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '附近宠物友好地点');
+    await clickExactText(page, '附近宠物友好地点');
+    await clickExactText(page, '云杉宠物友好公园');
+    await waitExactText(page, '草坪维护得不错，傍晚有不少宠友，饮水点也能正常使用。');
+    const placeReportDialogPromise = page.waitForEvent('dialog');
+    await page.getByLabel('举报地点信息').click();
+    const placeReportDialog = await placeReportDialogPromise;
+    if (!placeReportDialog.message().includes('举报这个地点？')) throw new Error(`Unexpected place report confirmation: ${placeReportDialog.message()}`);
+    await waitExactText(page, '举报已提交');
+    const reviewReportDialogPromise = page.waitForEvent('dialog');
+    await page.getByLabel('举报地点点评').click();
+    const reviewReportDialog = await reviewReportDialogPromise;
+    if (!reviewReportDialog.message().includes('举报这条地点点评？')) throw new Error(`Unexpected place review report confirmation: ${reviewReportDialog.message()}`);
+    await waitExactText(page, '已从你的公开点评列表隐藏这条点评');
+    await page.getByLabel('举报地点点评').waitFor({ state: 'hidden', timeout: 30_000 });
+    await screenshot(page, 'smoke-frontend-02l-place-and-review-reported.png');
 
     await page.goto(`${baseUrl}/?route=dailyPost`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '今日小事');
@@ -1300,6 +1373,17 @@ async function main() {
     await waitExactText(interactionPage, 'Lucky × 奶油');
     await interactionPage.getByLabel('walk-invite-place-input').fill('Playwright 宠物友好公园');
     await interactionPage.getByLabel('walk-invite-note-input').fill('Playwright 约遛邀请：牵引绳和饮水都带好。');
+    await interactionPage.getByLabel('save-walk-invite-draft').click();
+    await waitExactText(interactionPage, '约遛草稿已保存');
+    await screenshot(interactionPage, 'smoke-frontend-05a-walk-invite-draft-saved.png');
+    await interactionPage.reload({ timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(interactionPage, fixturePostText);
+    await interactionPage.getByLabel('查看奶油的主人资料').first().click();
+    await interactionPage.getByLabel('约遛资料卡宠友').waitFor({ state: 'visible', timeout: 30_000 });
+    await interactionPage.getByLabel('约遛资料卡宠友').click();
+    await waitExactText(interactionPage, '已恢复约遛草稿');
+    await waitInputValue(interactionPage, 'Playwright 宠物友好公园');
+    await waitInputValue(interactionPage, 'Playwright 约遛邀请：牵引绳和饮水都带好。');
     await interactionPage.getByLabel('send-walk-invite').click();
     await waitExactText(interactionPage, '约遛邀请已发送');
     await waitExactText(interactionPage, '林然和奶油');
@@ -1531,6 +1615,137 @@ async function main() {
     }
     await screenshot(realPage, 'smoke-frontend-06e-real-session-place-placeholders.png');
     await realContext.close();
+
+    const configPromptContext = await browser.newContext({
+      deviceScaleFactor: 1,
+      geolocation: { latitude: 31.2304, longitude: 121.4737 },
+      permissions: ['geolocation'],
+      viewport: { height: 920, width: 430 },
+    });
+    const configPromptPage = await configPromptContext.newPage();
+    collectPageErrors(configPromptPage, pageErrors);
+    let configAdminToken = '';
+    let originalAppConfig = null;
+    try {
+      await loginMockUser(configPromptPage, '13900009990');
+      const adminLogin = await requestBackendJson(backendRuntime.apiBaseUrl, '/admin/auth/login', {
+        body: { password: 'LumiiAdmin@2026', username: 'admin' },
+        method: 'POST',
+      });
+      configAdminToken = adminLogin.data?.token || '';
+      if (!configAdminToken) throw new Error('App config prompt smoke could not obtain an admin token');
+      const originalConfig = await requestBackendJson(backendRuntime.apiBaseUrl, '/admin/config', { token: configAdminToken });
+      originalAppConfig = originalConfig.data?.app;
+      if (!originalAppConfig) throw new Error('App config prompt smoke could not read the original app config');
+
+      const updateTargetUrl = `${baseUrl}/?updateDownload=1`;
+      await requestBackendJson(backendRuntime.apiBaseUrl, '/admin/config', {
+        body: {
+          app: {
+            announcement: {
+              actionLabel: '查看反馈',
+              actionRoute: 'supportTickets',
+              body: '运营公告会按账号和版本只展示一次。',
+              enabled: true,
+              title: 'PW运营公告',
+              version: 'pw-announcement-v1',
+            },
+            splash: {
+              actionLabel: '查看地图',
+              actionRoute: 'map',
+              body: '启动提示优先于公告，并在关闭后记录已读。',
+              enabled: true,
+              title: 'PW启动提示',
+              version: 'pw-splash-v1',
+            },
+            update: {
+              androidUrl: updateTargetUrl,
+              enabled: true,
+              force: false,
+              latestBuildNumber: 18,
+              latestVersion: '1.0.0',
+              minBuildNumber: 0,
+              minVersion: '',
+              rolloutPercent: 100,
+              subtitle: '可选更新应允许稍后处理。',
+              title: 'PW发现新版本',
+            },
+          },
+          reason: 'frontend app delivery prompt smoke',
+        },
+        method: 'PATCH',
+        token: configAdminToken,
+      });
+
+      await configPromptPage.reload({ timeout: 60_000, waitUntil: 'networkidle' });
+      await waitExactText(configPromptPage, 'PW发现新版本');
+      const updatePopupPromise = configPromptPage.waitForEvent('popup', { timeout: 30_000 });
+      await configPromptPage.getByLabel('open-app-update-action').click();
+      const updatePopup = await updatePopupPromise;
+      await updatePopup.waitForLoadState('domcontentloaded', { timeout: 30_000 }).catch(() => undefined);
+      if (!updatePopup.url().includes('updateDownload=1')) throw new Error(`Unexpected app update target: ${updatePopup.url()}`);
+      await updatePopup.close();
+      await configPromptPage.getByLabel('dismiss-app-update').click();
+      await waitExactText(configPromptPage, 'PW启动提示');
+      await configPromptPage.getByLabel('open-app-splash-action').click();
+      await waitExactText(configPromptPage, '附近宠物友好地点');
+      await waitExactText(configPromptPage, 'PW运营公告');
+      await configPromptPage.getByLabel('open-app-announcement-action').click();
+      await waitExactText(configPromptPage, '反馈处理进度');
+      await screenshot(configPromptPage, 'smoke-frontend-06f-app-config-prompts-completed.png');
+
+      await configPromptPage.reload({ timeout: 60_000, waitUntil: 'networkidle' });
+      await configPromptPage.waitForTimeout(1_000);
+      for (const label of ['dismiss-app-update', 'dismiss-app-splash', 'dismiss-app-announcement']) {
+        if (await configPromptPage.getByLabel(label).count()) throw new Error(`App config prompt must not repeat after being handled: ${label}`);
+      }
+
+      await requestBackendJson(backendRuntime.apiBaseUrl, '/admin/config', {
+        body: {
+          app: {
+            update: {
+              androidUrl: updateTargetUrl,
+              enabled: true,
+              force: true,
+              latestBuildNumber: 18,
+              latestVersion: '1.0.0',
+              minBuildNumber: 18,
+              minVersion: '1.0.0',
+              rolloutPercent: 100,
+              subtitle: '当前构建必须升级后才能继续。',
+              title: 'PW必须更新',
+            },
+          },
+          reason: 'frontend force update prompt smoke',
+          riskAcknowledged: true,
+          riskConfirmText: '确认发布高风险配置',
+        },
+        method: 'PATCH',
+        token: configAdminToken,
+      });
+      await configPromptPage.reload({ timeout: 60_000, waitUntil: 'networkidle' });
+      await waitExactText(configPromptPage, 'PW必须更新');
+      await waitVisibleLabel(configPromptPage, 'open-app-update-action');
+      const forceUpdateDismissActions = configPromptPage.getByLabel('dismiss-app-update');
+      for (let index = 0; index < await forceUpdateDismissActions.count(); index += 1) {
+        if (await forceUpdateDismissActions.nth(index).isVisible()) throw new Error('A mandatory update must not expose the dismiss action');
+      }
+      await screenshot(configPromptPage, 'smoke-frontend-06g-force-update-blocking.png');
+    } finally {
+      if (configAdminToken && originalAppConfig) {
+        await requestBackendJson(backendRuntime.apiBaseUrl, '/admin/config', {
+          body: {
+            app: originalAppConfig,
+            reason: 'restore app delivery config after frontend smoke',
+            riskAcknowledged: true,
+            riskConfirmText: '确认发布高风险配置',
+          },
+          method: 'PATCH',
+          token: configAdminToken,
+        }).catch(() => undefined);
+      }
+      await configPromptContext.close();
+    }
 
     const expiredSessionContext = await browser.newContext({
       deviceScaleFactor: 1,

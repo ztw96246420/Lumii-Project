@@ -2192,6 +2192,38 @@ function buildOpsConfigPatch(before, body = {}) {
   });
 }
 
+function validateOpsConfigAppDelivery(config) {
+  const app = normalizeOpsConfig(config).app;
+  const invalid = (field, error) => ({ code: 'ADMIN_CONFIG_APP_DELIVERY_INVALID', data: { field }, error, field, statusCode: 400 });
+  if (app.announcement?.enabled) {
+    if (!app.announcement.version) return invalid('app.announcement.version', '启用 App 公告时必须填写公告版本');
+    if (!app.announcement.title) return invalid('app.announcement.title', '启用 App 公告时必须填写公告标题');
+    if (!app.announcement.body) return invalid('app.announcement.body', '启用 App 公告时必须填写公告正文');
+  }
+  if (app.splash?.enabled) {
+    if (!app.splash.version) return invalid('app.splash.version', '启用启动提示时必须填写提示版本');
+    if (!app.splash.title) return invalid('app.splash.title', '启用启动提示时必须填写提示标题');
+    if (!app.splash.body) return invalid('app.splash.body', '启用启动提示时必须填写提示正文');
+  }
+  if (app.update?.enabled) {
+    const hasLatestTarget = Boolean(app.update.latestVersion || app.update.latestBuildNumber);
+    const hasMinimumTarget = Boolean(app.update.minVersion || app.update.minBuildNumber);
+    if (!hasLatestTarget && !hasMinimumTarget) {
+      return invalid('app.update.latestVersion', '启用版本更新时必须填写最新或最低版本号/构建号');
+    }
+    if (!app.update.force && !hasLatestTarget) {
+      return invalid('app.update.latestVersion', '可选更新必须填写最新版本号或最新构建号');
+    }
+    if (app.update.force && !hasMinimumTarget) {
+      return invalid('app.update.minVersion', '强制更新必须填写最低可用版本号或最低构建号');
+    }
+    if (!app.update.androidUrl) {
+      return invalid('app.update.androidUrl', '启用版本更新时必须配置 Android 下载地址');
+    }
+  }
+  return { code: '', error: '', field: '', statusCode: 200 };
+}
+
 function configValueAt(config, key) {
   return String(key || '').split('.').reduce((value, part) => (value === undefined || value === null ? undefined : value[part]), config);
 }
@@ -2665,6 +2697,8 @@ function createOpsConfigApproval(admin, body = {}) {
     next = buildOpsConfigPatch(before, body);
     actionLabel = '立即发布配置';
   }
+  const appDeliveryValidation = validateOpsConfigAppDelivery(next);
+  if (appDeliveryValidation.error) return appDeliveryValidation;
   const riskConfirmation = configRiskConfirmationResult(before, next, body, `approval_${action}`);
   if (!riskConfirmation.confirmed) {
     return {
@@ -2730,6 +2764,8 @@ function approveOpsConfigApproval(admin, approvalId, body = {}) {
     if (!draft) return { error: '配置草稿不存在，不能发布审批', statusCode: 404, code: 'ADMIN_CONFIG_DRAFT_NOT_FOUND' };
     if (draft.status !== 'draft') return { error: '配置草稿已经处理，不能发布审批', statusCode: 409, code: 'ADMIN_CONFIG_DRAFT_ALREADY_HANDLED' };
   }
+  const appDeliveryValidation = validateOpsConfigAppDelivery(approval.config);
+  if (appDeliveryValidation.error) return appDeliveryValidation;
   const vote = recordHighRiskApprovalVote(admin, approval, body, '配置发布审批', '审批通过配置发布');
   if (vote.error) return vote;
   if (!vote.final) {
@@ -2997,6 +3033,8 @@ function createOpsConfigSchedule(admin, body = {}) {
   if (scheduledAtResult.error) return scheduledAtResult;
   const candidate = buildOpsConfigScheduleCandidate(action, body);
   if (candidate.error) return candidate;
+  const appDeliveryValidation = validateOpsConfigAppDelivery(candidate.next);
+  if (appDeliveryValidation.error) return appDeliveryValidation;
   const riskConfirmation = configRiskConfirmationResult(candidate.before, candidate.next, body, `schedule_${action}`);
   if (!riskConfirmation.confirmed) {
     return {
@@ -3078,6 +3116,11 @@ function publishOpsConfigSchedule(schedule, admin = { username: 'system:schedule
   const before = currentOpsConfig();
   const now = new Date().toISOString();
   const next = normalizeOpsConfig({ ...cloneJson(schedule.config), updatedAt: now });
+  const appDeliveryValidation = validateOpsConfigAppDelivery(next);
+  if (appDeliveryValidation.error) {
+    failOpsConfigSchedule(schedule, appDeliveryValidation.error, admin);
+    return { failed: true, reason: 'invalid_app_delivery_config' };
+  }
   state.opsConfig = next;
   const revisionAction = `scheduled_${schedule.action}`;
   const revision = recordOpsConfigRevision(admin, next, schedule.reason || opsConfigScheduleActionLabel(schedule.action), revisionAction, schedule.sourceDraftId || schedule.sourceRevisionId || schedule.id, before);
@@ -10964,13 +11007,13 @@ function parseHealthMemoPayload(value, current = null) {
 
 function parseVaccineUpdatePayload(value, current) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { error: '疫苗计划参数无效，请刷新后重试' };
+    return { error: '疫苗/驱虫计划参数无效，请刷新后重试' };
   }
   const allowedKeys = new Set(['dueAt', 'name', 'status']);
   const keys = Object.keys(value);
   const unknownKey = keys.find((key) => !allowedKeys.has(key));
-  if (unknownKey) return { error: `疫苗计划字段 ${unknownKey} 暂不支持` };
-  if (!keys.length) return { error: '请至少修改一项疫苗计划内容' };
+  if (unknownKey) return { error: `疫苗/驱虫计划字段 ${unknownKey} 暂不支持` };
+  if (!keys.length) return { error: '请至少修改一项疫苗/驱虫计划内容' };
   const name = String(Object.prototype.hasOwnProperty.call(value, 'name') ? value.name : current?.name || '').trim();
   const dueAt = String(Object.prototype.hasOwnProperty.call(value, 'dueAt') ? value.dueAt : current?.dueAt || '').trim();
   const requestedStatus = String(Object.prototype.hasOwnProperty.call(value, 'status') ? value.status : current?.status || 'due').trim();
@@ -10985,24 +11028,24 @@ function parseVaccineUpdatePayload(value, current) {
 
 function parseVaccineReminderPatch(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { error: '疫苗提醒参数无效，请刷新后重试' };
+    return { error: '疫苗/驱虫提醒参数无效，请刷新后重试' };
   }
   const allowedKeys = new Set(['enabled']);
   const keys = Object.keys(value);
   const unknownKey = keys.find((key) => !allowedKeys.has(key));
-  if (unknownKey) return { error: `疫苗提醒字段 ${unknownKey} 暂不支持` };
-  if (typeof value.enabled !== 'boolean') return { error: '疫苗提醒开关必须是开启或关闭' };
+  if (unknownKey) return { error: `疫苗/驱虫提醒字段 ${unknownKey} 暂不支持` };
+  if (typeof value.enabled !== 'boolean') return { error: '疫苗/驱虫提醒开关必须是开启或关闭' };
   return { enabled: value.enabled };
 }
 
 function parseVaccineCreatePayload(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { error: '疫苗计划参数无效，请刷新后重试' };
+    return { error: '疫苗/驱虫计划参数无效，请刷新后重试' };
   }
   const allowedKeys = new Set(['dueAt', 'name']);
   const keys = Object.keys(value);
   const unknownKey = keys.find((key) => !allowedKeys.has(key));
-  if (unknownKey) return { error: `疫苗计划字段 ${unknownKey} 暂不支持` };
+  if (unknownKey) return { error: `疫苗/驱虫计划字段 ${unknownKey} 暂不支持` };
   const name = String(value.name || '').trim();
   const dueAt = String(value.dueAt || '').trim();
   if (!name) return { error: '请输入疫苗或驱虫名称' };
@@ -17857,8 +17900,8 @@ function applyPetChatVaccineAction(user, text) {
       kind: 'vaccine_done',
       petId: activePetFor(user)?.id || '',
       read: false,
-      text: `${vaccines[index].name}已标记完成，健康时间线已更新。`,
-      title: '疫苗计划已完成',
+      text: `${vaccines[index].name}已标记完成，宠物日历已更新。`,
+      title: '疫苗/驱虫计划已完成',
       vaccineId: vaccines[index].id,
     });
     return { action, reminderIds, vaccine: vaccines[index] };
@@ -36913,6 +36956,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     }
     const before = currentOpsConfig();
     const next = buildOpsConfigPatch(before, body);
+    const appDeliveryValidation = validateOpsConfigAppDelivery(next);
+    if (appDeliveryValidation.error) {
+      fail(res, appDeliveryValidation.statusCode, appDeliveryValidation.error, false, { field: appDeliveryValidation.field }, appDeliveryValidation.code);
+      return true;
+    }
     const riskConfirmation = configRiskConfirmationResult(before, next, body, 'publish');
     if (!riskConfirmation.confirmed) {
       fail(res, 409, `高风险配置需要输入「${CONFIG_HIGH_RISK_CONFIRM_TEXT}」后才能发布`, false, riskConfirmation, 'ADMIN_CONFIG_RISK_CONFIRM_REQUIRED');
@@ -36970,6 +37018,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     }
     const before = currentOpsConfig();
     const next = normalizeOpsConfig({ ...cloneJson(draft.config), updatedAt: now });
+    const appDeliveryValidation = validateOpsConfigAppDelivery(next);
+    if (appDeliveryValidation.error) {
+      fail(res, appDeliveryValidation.statusCode, appDeliveryValidation.error, false, { field: appDeliveryValidation.field }, appDeliveryValidation.code);
+      return true;
+    }
     const riskConfirmation = configRiskConfirmationResult(before, next, body, 'draft_publish');
     if (!riskConfirmation.confirmed) {
       fail(res, 409, `高风险配置草稿需要输入「${CONFIG_HIGH_RISK_CONFIRM_TEXT}」后才能发布`, false, riskConfirmation, 'ADMIN_CONFIG_RISK_CONFIRM_REQUIRED');
@@ -37005,6 +37058,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       ...cloneJson(revision.config),
       updatedAt: new Date().toISOString(),
     });
+    const appDeliveryValidation = validateOpsConfigAppDelivery(next);
+    if (appDeliveryValidation.error) {
+      fail(res, appDeliveryValidation.statusCode, appDeliveryValidation.error, false, { field: appDeliveryValidation.field }, appDeliveryValidation.code);
+      return true;
+    }
     const riskConfirmation = configRiskConfirmationResult(before, next, body, 'rollback');
     if (!riskConfirmation.confirmed) {
       fail(res, 409, `高风险配置回滚需要输入「${CONFIG_HIGH_RISK_CONFIRM_TEXT}」后才能发布`, false, riskConfirmation, 'ADMIN_CONFIG_RISK_CONFIRM_REQUIRED');
@@ -38628,7 +38686,7 @@ async function handle(req, res) {
     const vaccines = vaccineListFor(user);
     const index = vaccines.findIndex((item) => item.id === id);
     if (index < 0) {
-      fail(res, 404, '疫苗计划不存在', false);
+      fail(res, 404, '疫苗/驱虫计划不存在', false);
       return;
     }
     const vaccinePatch = parseVaccineUpdatePayload(body, vaccines[index]);
@@ -38681,7 +38739,7 @@ async function handle(req, res) {
     const vaccines = vaccineListFor(user);
     const index = vaccines.findIndex((item) => item.id === id);
     if (index < 0) {
-      fail(res, 404, '疫苗计划不存在', false);
+      fail(res, 404, '疫苗/驱虫计划不存在', false);
       return;
     }
     vaccines.splice(index, 1);
@@ -38710,12 +38768,12 @@ async function handle(req, res) {
     const vaccines = vaccineListFor(user);
     const vaccine = vaccines.find((item) => item.id === vaccineId);
     if (!vaccine) {
-      fail(res, 404, '疫苗计划不存在', false);
+      fail(res, 404, '疫苗/驱虫计划不存在', false);
       return;
     }
     const { enabled } = reminderPatch;
     if (vaccine.status === 'done' && enabled) {
-      fail(res, 400, '已完成的疫苗计划无需开启提醒', false, undefined, 'HEALTH_REMINDER_INVALID');
+      fail(res, 400, '已完成的疫苗/驱虫计划无需开启提醒', false, undefined, 'HEALTH_REMINDER_INVALID');
       return;
     }
     const reminderIds = setVaccineReminderFor(user, vaccineId, enabled);

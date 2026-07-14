@@ -123,6 +123,92 @@ async function main() {
   try {
     const adminToken = await loginAdmin();
 
+    const invalidAnnouncement = await request('/admin/config', {
+      body: {
+        app: { announcement: { body: 'Smoke 公告正文', enabled: true, title: '', version: 'smoke-announcement' } },
+        reason: 'reject incomplete app announcement',
+      },
+      expectedStatus: 400,
+      method: 'PATCH',
+      token: adminToken,
+    });
+    assert.equal(invalidAnnouncement.error?.code, 'ADMIN_CONFIG_APP_DELIVERY_INVALID');
+    assert.equal(invalidAnnouncement.data?.field, 'app.announcement.title');
+
+    const invalidUpdate = await request('/admin/config', {
+      body: {
+        app: { update: { androidUrl: '', enabled: true, force: false, latestBuildNumber: 18 } },
+        reason: 'reject update without android url',
+      },
+      expectedStatus: 400,
+      method: 'PATCH',
+      token: adminToken,
+    });
+    assert.equal(invalidUpdate.error?.code, 'ADMIN_CONFIG_APP_DELIVERY_INVALID');
+    assert.equal(invalidUpdate.data?.field, 'app.update.androidUrl');
+
+    const validAppDelivery = await request('/admin/config', {
+      body: {
+        app: {
+          announcement: { actionLabel: '查看反馈', actionRoute: 'supportTickets', body: 'Smoke 运营公告正文', enabled: true, title: 'Smoke 运营公告', version: 'smoke-announcement-v1' },
+          splash: { actionLabel: '查看地图', actionRoute: 'map', body: 'Smoke 启动提示正文', enabled: true, title: 'Smoke 启动提示', version: 'smoke-splash-v1' },
+          update: { androidUrl: 'https://download.lumiiapp.cn/Lumii-Lingban.apk', enabled: true, force: false, latestBuildNumber: 18, latestVersion: '1.0.0' },
+        },
+        reason: 'publish valid app delivery config',
+      },
+      method: 'PATCH',
+      token: adminToken,
+    });
+    assert.equal(validAppDelivery.data.app.announcement.enabled, true);
+    assert.equal(validAppDelivery.data.app.splash.enabled, true);
+    assert.equal(validAppDelivery.data.app.update.androidUrl, 'https://download.lumiiapp.cn/Lumii-Lingban.apk');
+
+    const invalidDraft = await request('/admin/config/drafts', {
+      body: {
+        app: { splash: { body: '', enabled: true, title: 'Incomplete splash', version: 'incomplete-splash' } },
+        reason: 'save incomplete splash draft',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    const invalidDraftId = invalidDraft.data.draft?.id;
+    assert.ok(invalidDraftId, 'missing incomplete app delivery draft id');
+    const invalidDraftPublish = await request(`/admin/config/drafts/${encodeURIComponent(invalidDraftId)}/publish`, {
+      body: { reason: 'reject incomplete splash draft publish' },
+      expectedStatus: 400,
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(invalidDraftPublish.error?.code, 'ADMIN_CONFIG_APP_DELIVERY_INVALID');
+    assert.equal(invalidDraftPublish.data?.field, 'app.splash.body');
+
+    const invalidApproval = await request('/admin/config/approvals', {
+      body: {
+        action: 'publish',
+        app: { announcement: { enabled: true, title: '', version: 'approval-invalid' } },
+        reason: 'reject incomplete announcement approval',
+      },
+      expectedStatus: 400,
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(invalidApproval.error?.code, 'ADMIN_CONFIG_APP_DELIVERY_INVALID');
+    assert.equal(invalidApproval.data?.field, 'app.announcement.title');
+
+    const invalidSchedule = await request('/admin/config/schedules', {
+      body: {
+        action: 'publish',
+        app: { update: { androidUrl: '', enabled: true, force: false, latestBuildNumber: 19 } },
+        reason: 'reject incomplete update schedule',
+        scheduledAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      },
+      expectedStatus: 400,
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(invalidSchedule.error?.code, 'ADMIN_CONFIG_APP_DELIVERY_INVALID');
+    assert.equal(invalidSchedule.data?.field, 'app.update.androidUrl');
+
     const rejected = await request('/admin/config', {
       body: {
         app: { maintenanceEnabled: true, maintenanceMessage: 'Smoke maintenance' },

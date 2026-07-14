@@ -494,14 +494,14 @@ function parseMockVaccineStatusPatch(status: unknown): { error: string; ok: fals
 
 function parseMockVaccineUpdatePayload(value: UpdateVaccinePlanInput, current: VaccinePlan): { error: string; ok: false } | { input: VaccinePlan; ok: true } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { error: '疫苗计划参数无效，请刷新后重试', ok: false };
+    return { error: '疫苗/驱虫计划参数无效，请刷新后重试', ok: false };
   }
   const source = value as Record<string, unknown>;
   const allowedKeys = new Set(['dueAt', 'name', 'status']);
   const keys = Object.keys(source);
   const unknownKey = keys.find((key) => !allowedKeys.has(key));
-  if (unknownKey) return { error: `疫苗计划字段 ${unknownKey} 暂不支持`, ok: false };
-  if (!keys.length) return { error: '请至少修改一项疫苗计划内容', ok: false };
+  if (unknownKey) return { error: `疫苗/驱虫计划字段 ${unknownKey} 暂不支持`, ok: false };
+  if (!keys.length) return { error: '请至少修改一项疫苗/驱虫计划内容', ok: false };
   const name = String(Object.prototype.hasOwnProperty.call(source, 'name') ? source.name : current.name).trim();
   const dueAt = String(Object.prototype.hasOwnProperty.call(source, 'dueAt') ? source.dueAt : current.dueAt).trim();
   const requestedStatus = String(Object.prototype.hasOwnProperty.call(source, 'status') ? source.status : current.status).trim();
@@ -516,18 +516,18 @@ function parseMockVaccineUpdatePayload(value: UpdateVaccinePlanInput, current: V
 }
 
 function parseMockVaccineReminderPatch(enabled: unknown): { error: string; ok: false } | { enabled: boolean; ok: true } {
-  if (typeof enabled !== 'boolean') return { error: '疫苗提醒开关必须是开启或关闭', ok: false };
+  if (typeof enabled !== 'boolean') return { error: '疫苗/驱虫提醒开关必须是开启或关闭', ok: false };
   return { enabled, ok: true };
 }
 
 function parseMockVaccineCreatePayload(value: Partial<CreateVaccinePlanInput>): { error: string; ok: false } | { input: CreateVaccinePlanInput; ok: true } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { error: '疫苗计划参数无效，请刷新后重试', ok: false };
+    return { error: '疫苗/驱虫计划参数无效，请刷新后重试', ok: false };
   }
   const source = value as Record<string, unknown>;
   const allowedKeys = new Set(['dueAt', 'name']);
   const unknownKey = Object.keys(source).find((key) => !allowedKeys.has(key));
-  if (unknownKey) return { error: `疫苗计划字段 ${unknownKey} 暂不支持`, ok: false };
+  if (unknownKey) return { error: `疫苗/驱虫计划字段 ${unknownKey} 暂不支持`, ok: false };
   const name = String(source.name || '').trim();
   const dueAt = String(source.dueAt || '').trim();
   if (!name) return { error: '请输入疫苗或驱虫名称', ok: false };
@@ -1134,8 +1134,8 @@ function applyMockPetChatVaccineAction(text: string): MockPetChatVaccineAction |
       id: `mock-vaccine-done-${vaccines[index].id}`,
       kind: 'vaccine_done',
       read: false,
-      text: `${vaccines[index].name}已标记完成，健康时间线已更新。`,
-      title: '疫苗计划已完成',
+      text: `${vaccines[index].name}已标记完成，宠物日历已更新。`,
+      title: '疫苗/驱虫计划已完成',
       vaccineId: vaccines[index].id,
     });
     return { action, reminderIds: vaccineReminderIds, vaccine: vaccines[index] };
@@ -2359,7 +2359,7 @@ function ensureMockHealthReminderNotifications() {
 function applyMockVaccineUpdate(id: string, patch: UpdateVaccinePlanInput): ApiResult<VaccinePlan> {
   ensureMockVaccineTemplateCoverage();
   const vaccine = vaccines.find((item) => item.id === id);
-  if (!vaccine) return error<VaccinePlan>('疫苗计划不存在', false, undefined, 'RESOURCE_NOT_FOUND');
+  if (!vaccine) return error<VaccinePlan>('疫苗/驱虫计划不存在', false, undefined, 'RESOURCE_NOT_FOUND');
   const parsed = parseMockVaccineUpdatePayload(patch, vaccine);
   if (!parsed.ok) return error<VaccinePlan>(parsed.error, false, undefined, 'HEALTH_VACCINE_INVALID');
   const nextVaccine = parsed.input;
@@ -3439,7 +3439,7 @@ export const mockApi = {
     async deleteVaccinePlan(id: string): Promise<ApiResult<VaccinePlan[]>> {
       await wait(160);
       ensureMockVaccineTemplateCoverage();
-      if (!vaccines.some((item) => item.id === id)) return error<VaccinePlan[]>('疫苗计划不存在', false, undefined, 'RESOURCE_NOT_FOUND');
+      if (!vaccines.some((item) => item.id === id)) return error<VaccinePlan[]>('疫苗/驱虫计划不存在', false, undefined, 'RESOURCE_NOT_FOUND');
       vaccines = vaccines.filter((item) => item.id !== id);
       vaccineReminderIds = vaccineReminderIds.filter((item) => item !== id);
       notifications = notifications.filter((item) => item.vaccineId !== id);
@@ -3460,8 +3460,8 @@ export const mockApi = {
       const reminderPatch = parseMockVaccineReminderPatch(enabled);
       if (!reminderPatch.ok) return error<string[]>(reminderPatch.error, false, undefined, 'HEALTH_REMINDER_INVALID');
       const vaccine = vaccines.find((item) => item.id === id);
-      if (!vaccine) return error<string[]>('疫苗计划不存在', false);
-      if (vaccine.status === 'done' && reminderPatch.enabled) return error<string[]>('已完成的疫苗计划无需开启提醒', false, undefined, 'HEALTH_REMINDER_INVALID');
+      if (!vaccine) return error<string[]>('疫苗/驱虫计划不存在', false);
+      if (vaccine.status === 'done' && reminderPatch.enabled) return error<string[]>('已完成的疫苗/驱虫计划无需开启提醒', false, undefined, 'HEALTH_REMINDER_INVALID');
       vaccineReminderIds = reminderPatch.enabled ? [...new Set([id, ...vaccineReminderIds])] : vaccineReminderIds.filter((item) => item !== id);
       if (reminderPatch.enabled) {
         ensureMockHealthReminderNotifications();

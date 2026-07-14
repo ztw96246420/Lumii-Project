@@ -455,7 +455,10 @@ async function main() {
     const remindersAfterVaccineDone = await request('/health/vaccine-reminders', { token: primaryToken });
     assert.equal(remindersAfterVaccineDone.data.includes(vaccineId), false);
     const notificationsAfterVaccineDone = await request('/notifications', { token: primaryToken });
-    assert.equal(notificationsAfterVaccineDone.data.some((item) => item.vaccineId === vaccineId && item.kind === 'vaccine_done'), true);
+    const vaccineDoneNotification = notificationsAfterVaccineDone.data.find((item) => item.vaccineId === vaccineId && item.kind === 'vaccine_done');
+    assert.ok(vaccineDoneNotification);
+    assert.equal(vaccineDoneNotification.title, '疫苗/驱虫计划已完成');
+    assert.equal(vaccineDoneNotification.text, 'Core vaccine edited已标记完成，宠物日历已更新。');
 
     const restoredVaccine = await request(`/health/vaccines/${encodeURIComponent(vaccineId)}`, {
       body: { status: 'due' },
@@ -473,6 +476,16 @@ async function main() {
       token: primaryToken,
     });
     assert.equal(invalidVaccinePatch.error.code, 'HEALTH_VACCINE_INVALID');
+    assert.equal(invalidVaccinePatch.error.message, '请至少修改一项疫苗/驱虫计划内容');
+
+    const invalidVaccineReminderPatch = await request(`/health/vaccine-reminders/${encodeURIComponent(vaccineId)}`, {
+      body: { enabled: 'yes' },
+      expectedStatus: 400,
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(invalidVaccineReminderPatch.error.code, 'HEALTH_REMINDER_INVALID');
+    assert.equal(invalidVaccineReminderPatch.error.message, '疫苗/驱虫提醒开关必须是开启或关闭');
 
     const vaccinesAfterDelete = await request(`/health/vaccines/${encodeURIComponent(vaccineId)}`, {
       method: 'DELETE',
@@ -483,6 +496,14 @@ async function main() {
     assert.equal(calendarAfterVaccineDelete.data.some((item) => item.sourceId === vaccineId), false);
     const notificationsAfterVaccineDelete = await request('/notifications', { token: primaryToken });
     assert.equal(notificationsAfterVaccineDelete.data.some((item) => item.vaccineId === vaccineId), false);
+
+    const missingVaccine = await request(`/health/vaccines/${encodeURIComponent(vaccineId)}`, {
+      body: { status: 'due' },
+      expectedStatus: 404,
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(missingVaccine.error.message, '疫苗/驱虫计划不存在');
 
     const nearbyPlaces = await request('/places/nearby', { token: primaryToken });
     const place = nearbyPlaces.data?.find((item) => item?.id);
