@@ -48,6 +48,8 @@ import type {
   PlaceSubmission,
   PermissionStateMap,
   PushDevice,
+  PushRegistrationDiagnostic,
+  PushRegistrationDiagnosticInput,
   ReportAppealTarget,
   SanctionAppealItem,
   SanctionAppealList,
@@ -1677,6 +1679,7 @@ let notifications: NotificationItem[] = [
 ];
 
 let pushDevices: PushDevice[] = [];
+let pushRegistrationDiagnostics: PushRegistrationDiagnostic[] = [];
 let feedbackSubmissions: FeedbackSubmission[] = [];
 let sanctionAppeals: SanctionAppealItem[] = [];
 let reportAppealTargets: ReportAppealTarget[] = [
@@ -3853,6 +3856,20 @@ export const mockApi = {
   },
 
   messages: {
+    async getPushRegistration(deviceId: string, platform: PushDevice['platform']): Promise<ApiResult<PushRegistrationDiagnostic>> {
+      await wait(80);
+      const normalizedDeviceId = String(deviceId || '').trim();
+      const existing = pushRegistrationDiagnostics.find((item) => item.deviceId === normalizedDeviceId);
+      return success(existing ?? {
+        attemptCount: 0,
+        deviceId: normalizedDeviceId,
+        platform,
+        stage: 'settings',
+        status: 'not_attempted',
+        updatedAt: '',
+      });
+    },
+
     async registerPushToken(token: string, platform: PushDevice['platform'], deviceId?: string): Promise<ApiResult<PushDevice>> {
       await wait(120);
       const pushDeviceInput = parseMockPushDevicePayload(token, platform, deviceId);
@@ -3862,7 +3879,40 @@ export const mockApi = {
         device,
         ...pushDevices.filter((item) => (device.deviceId ? item.deviceId !== device.deviceId : item.token !== device.token)),
       ];
+      if (device.deviceId) {
+        const previous = pushRegistrationDiagnostics.find((item) => item.deviceId === device.deviceId);
+        const updatedAt = new Date().toISOString();
+        pushRegistrationDiagnostics = [{
+          ...previous,
+          attemptCount: Math.max(1, previous?.attemptCount ?? 0),
+          deviceId: device.deviceId,
+          failureCode: undefined,
+          platform: device.platform,
+          registeredAt: previous?.registeredAt || updatedAt,
+          stage: 'backend',
+          status: 'registered',
+          updatedAt,
+        }, ...pushRegistrationDiagnostics.filter((item) => item.deviceId !== device.deviceId)];
+      }
       return success(device);
+    },
+
+    async updatePushRegistration(input: PushRegistrationDiagnosticInput): Promise<ApiResult<PushRegistrationDiagnostic>> {
+      await wait(80);
+      const previous = pushRegistrationDiagnostics.find((item) => item.deviceId === input.deviceId);
+      const updatedAt = new Date().toISOString();
+      const registeringNewAttempt = input.status === 'registering' && previous?.status !== 'registering';
+      const diagnostic: PushRegistrationDiagnostic = {
+        ...previous,
+        ...input,
+        attemptCount: Math.max(0, previous?.attemptCount ?? 0) + (registeringNewAttempt ? 1 : 0),
+        failureCode: input.status === 'failed' ? input.failureCode ?? 'unknown' : undefined,
+        lastAttemptAt: input.status === 'registering' || input.status === 'failed' ? updatedAt : previous?.lastAttemptAt,
+        registeredAt: input.status === 'registered' ? previous?.registeredAt || updatedAt : previous?.registeredAt,
+        updatedAt,
+      };
+      pushRegistrationDiagnostics = [diagnostic, ...pushRegistrationDiagnostics.filter((item) => item.deviceId !== input.deviceId)];
+      return success(diagnostic);
     },
 
     async listConversations(): Promise<ApiResult<Conversation[]>> {

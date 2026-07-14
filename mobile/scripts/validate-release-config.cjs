@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
+const fs = require('node:fs');
 const net = require('node:net');
+const path = require('node:path');
 
 const productionProfiles = new Set(['production', 'store']);
 const defaultProductionApiHost = 'api.lumiiapp.cn';
@@ -16,13 +18,36 @@ function validateReleaseConfig(env = process.env, options = {}) {
   const requiresHttps = String(env.EXPO_PUBLIC_REQUIRE_HTTPS || '').trim().toLowerCase() === 'true';
   const allowCleartext = String(env.LUMII_ALLOW_CLEARTEXT || '').trim().toLowerCase() === 'true';
 
-  if (!production) return { allowCleartext, baseUrl, mode, production, requiresHttps };
+  const googleServicesFilePath = options.googleServicesFilePath || path.join(__dirname, '..', 'android', 'app', 'google-services.json');
+
+  if (!production) return { allowCleartext, baseUrl, googleServicesFilePath, mode, production, requiresHttps };
 
   const errors = [];
   if (mode !== 'http') errors.push('EXPO_PUBLIC_API_MODE must be http for a production build.');
   if (!requiresHttps) errors.push('EXPO_PUBLIC_REQUIRE_HTTPS must be true for a production build.');
   if (allowCleartext) errors.push('LUMII_ALLOW_CLEARTEXT must not be true for a production build.');
   if (!baseUrl) errors.push('EXPO_PUBLIC_API_BASE_URL is required for a production build.');
+
+  if (!fs.existsSync(googleServicesFilePath)) {
+    errors.push(`Android push notifications require google-services.json at ${googleServicesFilePath}.`);
+  } else {
+    try {
+      const googleServices = JSON.parse(fs.readFileSync(googleServicesFilePath, 'utf8'));
+      const matchingClient = Array.isArray(googleServices.client)
+        ? googleServices.client.find((client) => client?.client_info?.android_client_info?.package_name === 'com.lumii.lingban')
+        : null;
+      if (!String(googleServices.project_info?.project_number || '').trim()) {
+        errors.push('google-services.json must contain project_info.project_number for FCM.');
+      }
+      if (!matchingClient) {
+        errors.push('google-services.json must contain an Android client for com.lumii.lingban.');
+      } else if (!String(matchingClient.client_info?.mobilesdk_app_id || '').trim()) {
+        errors.push('google-services.json Android client must contain client_info.mobilesdk_app_id.');
+      }
+    } catch {
+      errors.push('google-services.json must contain valid JSON.');
+    }
+  }
 
   let parsed;
   if (baseUrl) {
@@ -55,12 +80,12 @@ function validateReleaseConfig(env = process.env, options = {}) {
     throw error;
   }
 
-  return { allowCleartext, baseUrl, mode, production, requiresHttps };
+  return { allowCleartext, baseUrl, googleServicesFilePath, mode, production, requiresHttps };
 }
 
 function main() {
   const result = validateReleaseConfig(process.env);
-  console.log(`Lumii release config valid: profile=${result.production ? 'production' : 'non-production'} api=${result.baseUrl || '(default)'} httpsRequired=${result.requiresHttps} cleartext=${result.allowCleartext}`);
+  console.log(`Lumii release config valid: profile=${result.production ? 'production' : 'non-production'} api=${result.baseUrl || '(default)'} httpsRequired=${result.requiresHttps} cleartext=${result.allowCleartext} firebase=${result.googleServicesFilePath}`);
 }
 
 if (require.main === module) {

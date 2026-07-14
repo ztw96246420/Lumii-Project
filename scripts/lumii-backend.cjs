@@ -1073,6 +1073,7 @@ function createInitialState() {
     invites: [],
     notifications: {},
     pushDevices: {},
+    pushRegistrationDiagnostics: {},
     revokedAuthTokens: {},
     socialComments: [],
     socialLikes: [],
@@ -11023,6 +11024,57 @@ function parsePushDevicePayload(value) {
   };
 }
 
+const pushRegistrationStatuses = new Set(['disabled', 'failed', 'permission_denied', 'registered', 'registering']);
+const pushRegistrationStages = new Set(['backend', 'expo_token', 'native_token', 'permission', 'settings']);
+const pushRegistrationFailureCodes = new Set([
+  'backend_rejected',
+  'expo_network_error',
+  'expo_service_error',
+  'native_config_missing',
+  'native_token_failed',
+  'unknown',
+]);
+
+function parsePushRegistrationPayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '推送登记状态参数无效，请刷新后重试' };
+  }
+  const allowedKeys = new Set(['appBuildNumber', 'appVersion', 'deviceId', 'failureCode', 'platform', 'stage', 'status']);
+  const unknownKey = Object.keys(value).find((key) => !allowedKeys.has(key));
+  if (unknownKey) return { error: `推送登记状态字段 ${unknownKey} 暂不支持` };
+
+  const deviceId = String(value.deviceId || '').trim();
+  if (!deviceId || deviceId.length > 128 || /[\r\n\t]/.test(deviceId)) return { error: '设备标识格式无效' };
+  const platform = String(value.platform || '').trim();
+  if (!['android', 'ios', 'web'].includes(platform)) return { error: '推送平台必须是 android、ios 或 web' };
+  const status = String(value.status || '').trim();
+  if (!pushRegistrationStatuses.has(status)) return { error: '推送登记状态无效' };
+  const stage = String(value.stage || '').trim();
+  if (!pushRegistrationStages.has(stage)) return { error: '推送登记阶段无效' };
+  const failureCode = String(value.failureCode || '').trim();
+  if (failureCode && !pushRegistrationFailureCodes.has(failureCode)) return { error: '推送登记失败码无效' };
+  if (status === 'failed' && !failureCode) return { error: '推送登记失败时必须提供失败码' };
+
+  const appVersion = String(value.appVersion || '').trim();
+  if (appVersion.length > 32 || (appVersion && !/^[0-9A-Za-z._+-]+$/.test(appVersion))) return { error: 'App 版本格式无效' };
+  const appBuildNumber = value.appBuildNumber === undefined || value.appBuildNumber === null || value.appBuildNumber === ''
+    ? 0
+    : Number(value.appBuildNumber);
+  if (!Number.isInteger(appBuildNumber) || appBuildNumber < 0 || appBuildNumber > 2_147_483_647) return { error: 'App 构建号无效' };
+
+  return {
+    diagnostic: {
+      appBuildNumber: appBuildNumber || undefined,
+      appVersion: appVersion || undefined,
+      deviceId,
+      failureCode: status === 'failed' ? failureCode : undefined,
+      platform,
+      stage,
+      status,
+    },
+  };
+}
+
 function normalizeFavoritePlaceIds(value) {
   if (!Array.isArray(value)) return [];
   const existingPlaceIds = new Set(runtimePlaceCatalog().map((place) => place.id));
@@ -19836,6 +19888,69 @@ function pushTokenHash(token) {
   return crypto.createHash('sha256').update(String(token || '')).digest('hex').slice(0, 32);
 }
 
+function ensurePushRegistrationDiagnostics() {
+  if (!state.pushRegistrationDiagnostics || typeof state.pushRegistrationDiagnostics !== 'object' || Array.isArray(state.pushRegistrationDiagnostics)) {
+    state.pushRegistrationDiagnostics = {};
+  }
+  return state.pushRegistrationDiagnostics;
+}
+
+function pushRegistrationDiagnosticsForPhone(phone) {
+  const store = ensurePushRegistrationDiagnostics();
+  const current = store[phone];
+  if (!current || typeof current !== 'object' || Array.isArray(current)) {
+    store[phone] = {};
+  }
+  return store[phone];
+}
+
+function pushRegistrationDiagnosticPublicItem(record = {}, fallback = {}) {
+  return {
+    appBuildNumber: Number(record.appBuildNumber || 0) || undefined,
+    appVersion: record.appVersion || undefined,
+    attemptCount: Math.max(0, Math.floor(Number(record.attemptCount || 0))),
+    deviceId: record.deviceId || fallback.deviceId || '',
+    failureCode: record.failureCode || undefined,
+    lastAttemptAt: record.lastAttemptAt || undefined,
+    platform: record.platform || fallback.platform || 'android',
+    registeredAt: record.registeredAt || undefined,
+    stage: record.stage || fallback.stage || 'settings',
+    status: record.status || fallback.status || 'not_attempted',
+    updatedAt: record.updatedAt || '',
+  };
+}
+
+function updatePushRegistrationDiagnostic(phone, input = {}) {
+  const diagnostics = pushRegistrationDiagnosticsForPhone(phone);
+  const deviceId = String(input.deviceId || '').trim();
+  if (!deviceId) return null;
+  const previous = diagnostics[deviceId] && typeof diagnostics[deviceId] === 'object' ? diagnostics[deviceId] : {};
+  const now = new Date().toISOString();
+  const registeringNewAttempt = input.status === 'registering' && previous.status !== 'registering';
+  const record = {
+    ...previous,
+    ...input,
+    attemptCount: Math.max(0, Math.floor(Number(previous.attemptCount || 0))) + (registeringNewAttempt ? 1 : 0),
+    deviceId,
+    lastAttemptAt: input.status === 'registering' || input.status === 'failed' ? now : previous.lastAttemptAt || '',
+    registeredAt: input.status === 'registered' ? previous.registeredAt || now : previous.registeredAt || '',
+    updatedAt: now,
+  };
+  if (input.status !== 'failed') delete record.failureCode;
+  diagnostics[deviceId] = record;
+  return pushRegistrationDiagnosticPublicItem(record);
+}
+
+function markPushRegistrationRegistered(phone, device) {
+  if (!device?.deviceId) return null;
+  return updatePushRegistrationDiagnostic(phone, {
+    deviceId: device.deviceId,
+    platform: device.platform || 'android',
+    stage: 'backend',
+    status: 'registered',
+  });
+}
+
 function activePushDevicesForPhone(phone) {
   const devices = Array.isArray(state.pushDevices?.[phone]) ? state.pushDevices[phone] : [];
   return devices.filter((device) => device?.token && !device.disabledAt);
@@ -20307,26 +20422,65 @@ async function runSystemNotificationPushReceiptCheck(notification) {
 }
 
 function adminPushDevices() {
-  return Object.entries(state.pushDevices || {}).flatMap(([phone, devices]) => {
+  const rows = new Map();
+  Object.entries(ensurePushRegistrationDiagnostics()).forEach(([phone, diagnostics]) => {
     const user = state.users?.[phone];
-    return (Array.isArray(devices) ? devices : []).map((device) => ({
-      disabledAt: device.disabledAt || '',
-      disabledReason: device.disabledReason || '',
-      deviceId: device.deviceId || '',
-      enabled: !device.disabledAt,
-      lastPushAt: device.lastPushAt || '',
-      lastPushError: device.lastPushError || '',
-      lastPushReceiptAt: device.lastPushReceiptAt || '',
-      lastPushReceiptError: device.lastPushReceiptError || '',
-      lastPushReceiptStatus: device.lastPushReceiptStatus || '',
-      lastPushStatus: device.lastPushStatus || '',
-      ownerName: user?.ownerName || `用户${String(phone).slice(-4)}`,
-      phone,
-      platform: device.platform || 'unknown',
-      tokenTail: String(device.token || '').slice(-8),
-      updatedAt: device.updatedAt || '',
-    }));
-  }).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    if (!diagnostics || typeof diagnostics !== 'object' || Array.isArray(diagnostics)) return;
+    Object.values(diagnostics).forEach((diagnostic) => {
+      if (!diagnostic?.deviceId) return;
+      const key = `${phone}:${diagnostic.deviceId}`;
+      rows.set(key, {
+        appBuildNumber: Number(diagnostic.appBuildNumber || 0),
+        appVersion: diagnostic.appVersion || '',
+        attemptCount: Math.max(0, Math.floor(Number(diagnostic.attemptCount || 0))),
+        deviceId: diagnostic.deviceId,
+        enabled: false,
+        hasToken: false,
+        lastAttemptAt: diagnostic.lastAttemptAt || '',
+        ownerName: user?.ownerName || `用户${String(phone).slice(-4)}`,
+        phone,
+        platform: diagnostic.platform || 'unknown',
+        registrationFailureCode: diagnostic.failureCode || '',
+        registrationStage: diagnostic.stage || '',
+        registrationStatus: diagnostic.status || 'not_attempted',
+        registeredAt: diagnostic.registeredAt || '',
+        tokenTail: '',
+        updatedAt: diagnostic.updatedAt || '',
+      });
+    });
+  });
+
+  Object.entries(state.pushDevices || {}).forEach(([phone, devices]) => {
+    const user = state.users?.[phone];
+    (Array.isArray(devices) ? devices : []).forEach((device) => {
+      const key = `${phone}:${device.deviceId || `token-${pushTokenHash(device.token)}`}`;
+      const diagnostic = rows.get(key) || {};
+      rows.set(key, {
+        ...diagnostic,
+        disabledAt: device.disabledAt || '',
+        disabledReason: device.disabledReason || '',
+        deviceId: device.deviceId || diagnostic.deviceId || '',
+        enabled: !device.disabledAt,
+        hasToken: true,
+        lastPushAt: device.lastPushAt || '',
+        lastPushError: device.lastPushError || '',
+        lastPushReceiptAt: device.lastPushReceiptAt || '',
+        lastPushReceiptError: device.lastPushReceiptError || '',
+        lastPushReceiptStatus: device.lastPushReceiptStatus || '',
+        lastPushStatus: device.lastPushStatus || '',
+        ownerName: user?.ownerName || `用户${String(phone).slice(-4)}`,
+        phone,
+        platform: device.platform || diagnostic.platform || 'unknown',
+        registrationFailureCode: diagnostic.registrationFailureCode || '',
+        registrationStage: diagnostic.registrationStage || 'backend',
+        registrationStatus: diagnostic.registrationStatus || 'registered',
+        tokenTail: String(device.token || '').slice(-8),
+        updatedAt: [device.updatedAt || '', diagnostic.updatedAt || ''].sort((a, b) => String(b).localeCompare(String(a)))[0] || '',
+      });
+    });
+  });
+
+  return [...rows.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
 }
 
 function systemNotificationCampaignStats(campaignId, deliveredCount = 0) {
@@ -20497,6 +20651,8 @@ function adminSystemNotifications() {
     .slice(0, 200);
   const audiencePackages = adminNotificationAudiencePackages();
   const devices = adminPushDevices();
+  const tokenDevices = devices.filter((item) => item.hasToken);
+  const registrationFailures = devices.filter((item) => item.registrationStatus === 'failed');
   const users = Object.values(state.users || {});
   const sentCampaigns = campaigns.filter((item) => item.status === 'sent');
   const deliveredCount = sentCampaigns.reduce((sum, item) => sum + Number(item.deliveredCount || 0), 0);
@@ -20521,7 +20677,7 @@ function adminSystemNotifications() {
       audiencePackages: audiencePackages.length,
       campaigns: campaigns.length,
       delivered: deliveredCount,
-      devices: devices.length,
+      devices: tokenDevices.length,
       drafts: campaigns.filter((item) => item.status === 'draft').length,
       impressionRate: analyticsPercent(impressionCount, deliveredCount),
       impressions: impressionCount,
@@ -20539,6 +20695,11 @@ function adminSystemNotifications() {
       pushReceiptSuccessRate: analyticsPercent(pushReceiptOkCount, pushReceiptAttemptedCount),
       pushSent: pushSentCount,
       pushSuccessRate: analyticsPercent(pushSentCount, pushAttemptedCount),
+      registrationAttempts: devices.reduce((sum, item) => sum + Number(item.attemptCount || 0), 0),
+      registrationFailures: registrationFailures.length,
+      registrationNativeConfigFailures: registrationFailures.filter((item) => item.registrationFailureCode === 'native_config_missing').length,
+      registrationObservedDevices: devices.length,
+      registeredDevices: tokenDevices.filter((item) => item.enabled).length,
       readRate: analyticsPercent(readCount, deliveredCount),
       reads: readCount,
       expiredApprovals: campaigns.filter((item) => item.status === 'expired').length,
@@ -21557,6 +21718,7 @@ function adminUserBusinessDataSummary(phone) {
     placeReviews: (state.placeReviews?.[normalizedPhone] || []).length,
     placeSubmissions: (state.placeSubmissions?.[normalizedPhone] || []).length,
     pushDevices: (state.pushDevices?.[normalizedPhone] || []).length,
+    pushRegistrationDiagnostics: Object.keys(state.pushRegistrationDiagnostics?.[normalizedPhone] || {}).length,
     socialBlocks: ensureSocialBlocks().filter((item) => item.blockerPhone === normalizedPhone || item.blockedPhone === normalizedPhone).length,
     socialComments: ids.commentIds.size,
     socialLikes: ensureSocialLikes().filter((item) => item.phone === normalizedPhone || ids.postIds.has(item.postId)).length,
@@ -21792,6 +21954,7 @@ function adminClearUserBusinessData(admin, phone, body = {}, options = {}) {
   if (state.placeSubmissions) delete state.placeSubmissions[normalizedPhone];
   if (state.notifications) delete state.notifications[normalizedPhone];
   if (state.pushDevices) delete state.pushDevices[normalizedPhone];
+  if (state.pushRegistrationDiagnostics) delete state.pushRegistrationDiagnostics[normalizedPhone];
   if (state.authSessions) delete state.authSessions[normalizedPhone];
   clearSmsLoginSecurity(normalizedPhone);
   if (state.conversations) delete state.conversations[normalizedPhone];
@@ -25882,6 +26045,8 @@ async function adminSystemHealth() {
   const notifications = adminSystemNotifications().summary;
   const pushDevices = adminPushDevices();
   const activePushDeviceCount = pushDevices.filter((device) => device.enabled).length;
+  const pushRegistrationFailureCount = pushDevices.filter((device) => device.registrationStatus === 'failed').length;
+  const pushNativeConfigFailureCount = pushDevices.filter((device) => device.registrationFailureCode === 'native_config_missing').length;
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
   const alerts = adminOperationalAlerts({ limit: 12 });
   const alertWebhook = adminAlertWebhookStatus();
@@ -25974,21 +26139,27 @@ async function adminSystemHealth() {
       `coolingOff=${Math.ceil(ACCOUNT_DELETE_COOLING_OFF_MS / (24 * 60 * 60 * 1000))}d lastDeletedAt=${accountDeletions.lastDeletedAt || '-'} queue=${accountDeletions.cleanupPending}`,
     ),
     adminCheckStatus(
-      !EXPO_PUSH_ENABLED || !EXPO_PUSH_RECEIPTS_ENABLED || activePushDeviceCount === 0 || Number(notifications.pushReceiptOk || 0) === 0 || Number(notifications.pushFailed || 0) > 0 || Number(notifications.pushReceiptFailed || 0) > 0 ? 'warn' : 'ok',
+      !EXPO_PUSH_ENABLED || !EXPO_PUSH_RECEIPTS_ENABLED || activePushDeviceCount === 0 || Number(notifications.pushReceiptOk || 0) === 0 || Number(notifications.pushFailed || 0) > 0 || Number(notifications.pushReceiptFailed || 0) > 0 || pushRegistrationFailureCount > 0
+        ? 'warn'
+        : 'ok',
       'expo_push',
       'Expo Push 与回执',
-      !EXPO_PUSH_ENABLED
+      pushNativeConfigFailureCount > 0
+        ? `${pushNativeConfigFailureCount} 台设备报告安装包缺少 Firebase 原生配置，需结合发布构建校验核实并重新发布 APK`
+        : !EXPO_PUSH_ENABLED
         ? 'Expo Push 未启用，当前只有 App 内站内通知'
         : !EXPO_PUSH_RECEIPTS_ENABLED
           ? 'Expo Push 已启用，但 receipt 轮询未启用'
           : activePushDeviceCount === 0
-            ? 'Expo Push 与 receipt 轮询已启用，尚无真机设备 token 登记'
+            ? pushRegistrationFailureCount > 0
+              ? `Expo Push 与 receipt 轮询已启用，但 ${pushRegistrationFailureCount} 台设备登记失败，尚无有效真机 token`
+              : 'Expo Push 与 receipt 轮询已启用，尚无真机设备 token 登记'
             : Number(notifications.pushFailed || 0) > 0 || Number(notifications.pushReceiptFailed || 0) > 0
               ? `已有 ${activePushDeviceCount} 台有效设备；ticket 失败 ${notifications.pushFailed || 0}，receipt 失败 ${notifications.pushReceiptFailed || 0}`
               : Number(notifications.pushReceiptOk || 0) === 0
                 ? `已有 ${activePushDeviceCount} 台有效设备，等待首个成功 receipt 完成生产验收`
                 : `已有 ${activePushDeviceCount} 台有效设备，成功 receipt ${notifications.pushReceiptOk || 0} 条`,
-      `provider=${EXPO_PUSH_ENABLED ? 'expo' : 'disabled'} receipts=${EXPO_PUSH_RECEIPTS_ENABLED ? 'enabled' : 'disabled'} devices=${activePushDeviceCount} attempted=${notifications.pushAttempted || 0}`,
+      `provider=${EXPO_PUSH_ENABLED ? 'expo' : 'disabled'} receipts=${EXPO_PUSH_RECEIPTS_ENABLED ? 'enabled' : 'disabled'} devices=${activePushDeviceCount} registrationAttempts=${notifications.registrationAttempts || 0} registrationFailures=${pushRegistrationFailureCount} pushAttempted=${notifications.pushAttempted || 0}`,
     ),
     adminCheckStatus(
       ALLOW_LEGACY_LOCAL_AUTH ? 'bad' : 'ok',
@@ -29083,7 +29254,7 @@ function adminAnalytics(options = {}) {
         activeUsers: sumAnalyticsBuckets(buckets, 'activeUsers'),
         nearbyVisibleRate: analyticsPercent(users.filter((user) => user.settings.nearbyVisible !== false).length, users.length),
         newUsers: sumAnalyticsBuckets(buckets, 'newUsers'),
-        pushDeviceCount: Object.values(state.pushDevices || {}).length,
+        pushDeviceCount: Object.values(state.pushDevices || {}).reduce((sum, devices) => sum + (Array.isArray(devices) ? devices.length : 0), 0),
         pushEnabledRate: analyticsPercent(users.filter((user) => user.settings.pushNotifications !== false).length, users.length),
         total: users.length,
         withPetRate: analyticsPercent(users.filter((user) => (user.pets || []).length > 0).length, users.length),
@@ -36745,6 +36916,39 @@ async function handle(req, res) {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/devices/push-registration') {
+    const deviceId = String(url.searchParams.get('deviceId') || '').trim();
+    const platform = String(url.searchParams.get('platform') || 'android').trim();
+    if (!deviceId || deviceId.length > 128 || /[\r\n\t]/.test(deviceId)) {
+      fail(res, 400, '设备标识格式无效', false, undefined, 'PUSH_REGISTRATION_INVALID');
+      return;
+    }
+    if (!['android', 'ios', 'web'].includes(platform)) {
+      fail(res, 400, '推送平台必须是 android、ios 或 web', false, undefined, 'PUSH_REGISTRATION_INVALID');
+      return;
+    }
+    const record = pushRegistrationDiagnosticsForPhone(user.phone)[deviceId];
+    ok(res, pushRegistrationDiagnosticPublicItem(record, {
+      deviceId,
+      platform,
+      stage: 'settings',
+      status: 'not_attempted',
+    }));
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/devices/push-registration') {
+    const parsed = parsePushRegistrationPayload(body);
+    if (parsed.error) {
+      fail(res, 400, parsed.error, false, undefined, 'PUSH_REGISTRATION_INVALID');
+      return;
+    }
+    const diagnostic = updatePushRegistrationDiagnostic(user.phone, parsed.diagnostic);
+    saveState();
+    ok(res, diagnostic);
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/devices/push-token') {
     const pushDeviceInput = parsePushDevicePayload(body);
     if (pushDeviceInput.error) {
@@ -36758,6 +36962,7 @@ async function handle(req, res) {
       device,
       ...devices.filter((item) => (device.deviceId ? item.deviceId !== device.deviceId : item.token !== device.token)),
     ];
+    markPushRegistrationRegistered(user.phone, device);
     saveState();
     ok(res, device);
     return;

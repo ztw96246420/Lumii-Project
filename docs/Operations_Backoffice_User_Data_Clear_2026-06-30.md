@@ -60,7 +60,7 @@
 - 会话：`conversations`、`conversationMessages`
 - 用户通知：`notifications[phone]`
 - 其他用户侧与该用户相关的通知：例如该用户发起的招呼、约遛、点赞、评论、小事相关通知
-- 推送设备：`pushDevices[phone]`
+- 推送设备与登记诊断：`pushDevices[phone]`、`pushRegistrationDiagnostics[phone]`
 - 地点内容：`placeReviews[phone]`、`placeSubmissions[phone]`
 - 反馈和工单：`feedback`、`supportTickets`
 - 内容安全沉淀：与该用户内容相关的 `moderationSamples` 和 `moderationTaskMeta`

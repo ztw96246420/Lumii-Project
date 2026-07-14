@@ -19,6 +19,7 @@
       "package": "com.lumii.lingban",
       "versionCode": 17,
       "allowBackup": false,
+      "googleServicesFile": "./android/app/google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#FF8A5C",
         "foregroundImage": "./assets/android-icon-foreground.png",

@@ -688,6 +688,42 @@ export type PushDevice = {
   updatedAt: string;
 };
 
+export type PushRegistrationFailureCode =
+  | 'backend_rejected'
+  | 'expo_network_error'
+  | 'expo_service_error'
+  | 'native_config_missing'
+  | 'native_token_failed'
+  | 'unknown';
+
+export type PushRegistrationStage = 'backend' | 'expo_token' | 'native_token' | 'permission' | 'settings';
+
+export type PushRegistrationStatus = 'disabled' | 'failed' | 'not_attempted' | 'permission_denied' | 'registered' | 'registering';
+
+export type PushRegistrationDiagnostic = {
+  appBuildNumber?: number;
+  appVersion?: string;
+  attemptCount?: number;
+  deviceId: string;
+  failureCode?: PushRegistrationFailureCode;
+  lastAttemptAt?: string;
+  platform: PushDevice['platform'];
+  registeredAt?: string;
+  stage: PushRegistrationStage;
+  status: PushRegistrationStatus;
+  updatedAt: string;
+};
+
+export type PushRegistrationDiagnosticInput = {
+  appBuildNumber?: number;
+  appVersion?: string;
+  deviceId: string;
+  failureCode?: PushRegistrationFailureCode;
+  platform: PushDevice['platform'];
+  stage: PushRegistrationStage;
+  status: Exclude<PushRegistrationStatus, 'not_attempted'>;
+};
+
 export type Place = {
   address: string;
   businessArea?: string;

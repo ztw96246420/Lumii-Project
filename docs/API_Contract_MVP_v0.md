@@ -1303,7 +1303,7 @@ Request:
 
 ### POST `/devices/push-token`
 
-上报当前登录账号的设备推送 token。MVP 测试后端只保存 token，不连接厂商推送通道；后续接入 APNs、厂商通道、极光或个推时复用该设备记录。
+上报当前登录账号的 Expo Push Token。生产后端会通过 Expo Push Service 下发并轮询 ticket/receipt；无效 token 会被停用。
 
 App 调用时机：真机通知权限变为 `granted` 后，App 会通过 Expo Notifications 获取 Expo Push Token 并调用该接口登记；二次登录恢复到已授权通知状态时也会静默补登记。Web 预览不登记设备 token。
 
@@ -1330,7 +1330,44 @@ type PushDevice = {
 - `deviceId` 可选，传入时最多 128 字符，不能包含换行或制表符。
 - 请求只接受 `token`、`platform`、`deviceId` 三个字段；未知字段返回 `PUSH_DEVICE_INVALID`。
 - 传入 `deviceId` 时按 `deviceId` 去重更新；未传 `deviceId` 时按 token 去重。
-- 该接口不等于生产推送服务上线；生产仍需确认厂商通道、通知模板、送达回执和退订策略。
+- Android 客户端必须先用与 `com.lumii.lingban` 匹配的 `google-services.json` 获取 FCM token；Expo 项目 ID 不能替代 Firebase 原生配置。
+- Expo/EAS 项目还必须配置 FCM V1 服务账号，才能把 Expo Push 请求交付给该 Firebase Android App。
+- 成功写入 token 时，后端会把同一 `deviceId` 的登记诊断同步标记为 `registered/backend`。
+
+### GET `/devices/push-registration`
+
+读取当前登录账号指定安装实例的推送登记诊断。Query 必须提供 `deviceId`，可选 `platform=android|ios|web`。没有历史记录时返回 `status=not_attempted`，不伪造已登记状态。
+
+### POST `/devices/push-registration`
+
+上报当前安装实例的推送登记阶段，用于区分系统权限、FCM token、Expo token 和业务后端登记失败。客户端只允许上报枚举失败码，不上传原生异常原文或完整 token。
+
+Request:
+
+```ts
+type PushRegistrationDiagnosticInput = {
+  appBuildNumber?: number;
+  appVersion?: string;
+  deviceId: string;
+  failureCode?:
+    | 'backend_rejected'
+    | 'expo_network_error'
+    | 'expo_service_error'
+    | 'native_config_missing'
+    | 'native_token_failed'
+    | 'unknown';
+  platform: 'android' | 'ios' | 'web';
+  stage: 'backend' | 'expo_token' | 'native_token' | 'permission' | 'settings';
+  status: 'disabled' | 'failed' | 'permission_denied' | 'registered' | 'registering';
+};
+```
+
+Response 在上述字段之外返回 `attemptCount`、`lastAttemptAt`、`registeredAt` 与 `updatedAt`。说明：
+
+- `failed` 必须携带白名单内 `failureCode`；未知字段或任意错误文本返回 `PUSH_REGISTRATION_INVALID`。
+- 每次从非 `registering` 进入 `registering` 计为一次新尝试；成功登记后清除旧失败码。
+- 设置页“通知推送状态”读取该接口并支持手动重试；移动端还会在联网失败后按 30 秒、2 分钟、10 分钟退避重试，在 App 回到前台和设备 token 轮换时补登记。
+- 后台通知页同时展示尚未取得 token 的失败安装实例；客户端诊断属于观测信号，需与正式构建门禁和真实 receipt 共同判断，不能单独作为可信构建证明。
 
 ### GET `/notifications`
 

@@ -2,16 +2,29 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const typescript = require(path.join(__dirname, '..', 'mobile', 'node_modules', 'typescript'));
 
 const rootDir = path.resolve(__dirname, '..');
 const mobileDir = path.join(rootDir, 'mobile');
 const { validateReleaseConfig } = require(path.join(mobileDir, 'scripts', 'validate-release-config.cjs'));
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-release-config-'));
+const validGoogleServicesPath = path.join(tmpDir, 'google-services.json');
+fs.writeFileSync(validGoogleServicesPath, JSON.stringify({
+  client: [{
+    client_info: {
+      android_client_info: { package_name: 'com.lumii.lingban' },
+      mobilesdk_app_id: '1:1234567890:android:release-config-smoke',
+    },
+  }],
+  project_info: { project_number: '1234567890' },
+}));
+const productionValidationOptions = { forceProduction: true, googleServicesFilePath: validGoogleServicesPath };
 
-function expectInvalid(env, pattern) {
+function expectInvalid(env, pattern, options = productionValidationOptions) {
   assert.throws(
-    () => validateReleaseConfig(env, { forceProduction: true }),
+    () => validateReleaseConfig(env, options),
     (error) => error?.code === 'LUMII_RELEASE_CONFIG_INVALID' && pattern.test(error.message),
   );
 }
@@ -24,7 +37,7 @@ const validProductionEnv = {
   LUMII_ALLOW_CLEARTEXT: 'false',
 };
 
-const valid = validateReleaseConfig(validProductionEnv);
+const valid = validateReleaseConfig(validProductionEnv, productionValidationOptions);
 assert.equal(valid.production, true);
 assert.equal(valid.baseUrl, 'https://api.lumiiapp.cn');
 assert.equal(valid.allowCleartext, false);
@@ -55,11 +68,16 @@ assert.doesNotMatch(manifest, /android\.permission\.(?:RECORD_AUDIO|SYSTEM_ALERT
 
 const appConfig = JSON.parse(fs.readFileSync(path.join(mobileDir, 'app.json'), 'utf8'));
 assert.equal(appConfig.expo.android.allowBackup, false);
+assert.equal(appConfig.expo.android.googleServicesFile, './android/app/google-services.json');
 assert.ok(!appConfig.expo.android.permissions.includes('android.permission.RECORD_AUDIO'));
 assert.ok(!appConfig.expo.android.permissions.includes('android.permission.SYSTEM_ALERT_WINDOW'));
 assert.ok(appConfig.expo.android.versionCode >= 16, 'the release candidate must be versionCode 16 or newer');
 
 const gradle = fs.readFileSync(path.join(mobileDir, 'android', 'app', 'build.gradle'), 'utf8');
+const rootGradle = fs.readFileSync(path.join(mobileDir, 'android', 'build.gradle'), 'utf8');
+assert.match(rootGradle, /com\.google\.gms:google-services:4\.5\.0/);
+assert.match(gradle, /file\("google-services\.json"\)\.exists\(\)/);
+assert.match(gradle, /apply plugin: "com\.google\.gms\.google-services"/);
 assert.match(gradle, /findProperty\("LUMII_ALLOW_CLEARTEXT"\)/);
 assert.match(gradle, /LUMII_ALLOW_CLEARTEXT/);
 assert.match(gradle, /\?: "false"/);
@@ -117,4 +135,19 @@ assert.match(buildScript, /https:\/\/api\.lumiiapp\.cn/);
 assert.match(buildScript, /LUMII_ALLOW_INSECURE_TEST_API === '1'/);
 assert.match(buildScript, /insecure-test-/);
 
+expectInvalid(validProductionEnv, /require google-services\.json/, {
+  forceProduction: true,
+  googleServicesFilePath: path.join(tmpDir, 'missing-google-services.json'),
+});
+const wrongPackageGoogleServicesPath = path.join(tmpDir, 'wrong-package-google-services.json');
+fs.writeFileSync(wrongPackageGoogleServicesPath, JSON.stringify({
+  client: [{ client_info: { android_client_info: { package_name: 'com.example.wrong' }, mobilesdk_app_id: 'wrong' } }],
+  project_info: { project_number: '1234567890' },
+}));
+expectInvalid(validProductionEnv, /Android client for com\.lumii\.lingban/, {
+  forceProduction: true,
+  googleServicesFilePath: wrongPackageGoogleServicesPath,
+});
+
 console.log('mobile release configuration smoke passed');
+fs.rmSync(tmpDir, { force: true, recursive: true });

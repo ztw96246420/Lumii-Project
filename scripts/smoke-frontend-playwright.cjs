@@ -516,6 +516,10 @@ async function main() {
     await waitExactText(page, '准备好遇见你的灵伴了吗？');
 
     await page.goto(`${baseUrl}/?route=settings`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(page, '通知推送状态');
+    await waitExactText(page, '待登记');
+    await page.getByLabel('push-registration-status').waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(page, 'smoke-frontend-00-settings-push-registration.png');
     await waitExactText(page, '协议与政策');
     await clickExactText(page, '用户协议');
     await waitExactText(page, '灵伴用户协议');

@@ -46,6 +46,8 @@ import type {
   PlaceSubmission,
   PermissionStateMap,
   PushDevice,
+  PushRegistrationDiagnostic,
+  PushRegistrationDiagnosticInput,
   SanctionAppealItem,
   SanctionAppealList,
   SocialBlockListItem,
@@ -580,8 +582,16 @@ function createHttpApi(baseUrl: string): LumiiApi {
     },
 
     messages: {
+      async getPushRegistration(deviceId: string, platform: PushDevice['platform']): Promise<ApiResult<PushRegistrationDiagnostic>> {
+        return request<PushRegistrationDiagnostic>('GET', `/devices/push-registration?deviceId=${encodeURIComponent(deviceId)}&platform=${encodeURIComponent(platform)}`);
+      },
+
       async registerPushToken(token: string, platform: PushDevice['platform'], deviceId?: string): Promise<ApiResult<PushDevice>> {
         return request<PushDevice>('POST', '/devices/push-token', { deviceId, platform, token });
+      },
+
+      async updatePushRegistration(input: PushRegistrationDiagnosticInput): Promise<ApiResult<PushRegistrationDiagnostic>> {
+        return request<PushRegistrationDiagnostic>('POST', '/devices/push-registration', input);
       },
 
       async listConversations(): Promise<ApiResult<Conversation[]>> {

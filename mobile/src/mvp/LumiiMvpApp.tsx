@@ -98,7 +98,14 @@ import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg
 import { getLumiiPermissionStatus, requestLumiiPermission } from '../services/permissions';
 import { cancelVaccineLocalReminder, cancelVaccineLocalReminders, scheduleVaccineLocalReminder, syncVaccineLocalReminders } from '../services/healthReminders';
 import { watchLumiiNotificationResponses } from '../services/notificationResponses';
-import { getLumiiPushRegistration } from '../services/pushToken';
+import { getLumiiInstallationId } from '../services/installationId';
+import {
+  classifyLumiiPushRegistrationError,
+  getLumiiPushRegistration,
+  watchLumiiPushTokenChanges,
+  type LumiiPushRegistration,
+  type LumiiPushRegistrationFailure,
+} from '../services/pushToken';
 import { clearPersistedLumiiSession, deleteLocalJsonStorage, loadLocalJsonStorage, loadPersistedLumiiSession, saveLocalJsonStorage, savePersistedLumiiSession } from '../services/sessionStorage';
 import { LumiiAmapView, getLumiiAmapCurrentLocation, isLumiiAmapAvailable } from '../native/LumiiAmapView';
 import { apiConfig, lumiiApi, setLumiiAuthToken, setLumiiUnauthorizedHandler } from './api';
@@ -141,6 +148,8 @@ import type {
   PermissionStateMap,
   PetProfile,
   PetSpecies,
+  PushRegistrationDiagnostic,
+  PushRegistrationDiagnosticInput,
   Place,
   PlaceReview,
   PlaceSubmission,
@@ -163,11 +172,35 @@ const smsCooldownMs = 60 * 1000;
 const discoverRadiusOptionsKm = [3, 5, 10] as const;
 const defaultDiscoverRadiusKm = 10;
 const nearbyPublishLocationMaxAgeMs = 10 * 60 * 1000;
+const pushRegistrationRetryDelaysMs = [30 * 1000, 2 * 60 * 1000, 10 * 60 * 1000] as const;
 const fallbackPetAvatarDailyLimit = 10;
 const fallbackPetChatDailyLimit = 80;
 const appFontFamily = Platform.OS === 'web' ? 'Microsoft YaHei, PingFang SC, Arial, sans-serif' : undefined;
 const nativeTopInset = Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0;
 const lumiiCompanionPanelBackground = '#FFFDFC';
+
+function pushRegistrationDisplay(
+  diagnostic: PushRegistrationDiagnostic | null,
+  enabled: boolean,
+  permission: PermissionStateMap['notifications'],
+) {
+  if (!enabled) return { label: '已关闭', sub: '开启通知后自动登记当前设备' };
+  if (permission !== 'granted') return { label: '未授权', sub: '需要系统通知权限才能接收消息' };
+  if (!diagnostic || diagnostic.status === 'not_attempted') return { label: '待登记', sub: '点按检查当前设备的推送状态' };
+  if (diagnostic.status === 'registered') return { label: '已登记', sub: '当前设备可以接收系统推送' };
+  if (diagnostic.status === 'registering') return { label: '登记中', sub: '正在连接设备通知服务' };
+  if (diagnostic.status === 'disabled') return { label: '已关闭', sub: '开启通知后自动重新登记' };
+  if (diagnostic.status === 'permission_denied') return { label: '未授权', sub: '请先开启系统通知权限' };
+  const failureMessages = {
+    backend_rejected: '业务服务登记失败，点按重试',
+    expo_network_error: '网络连接失败，点按重试',
+    expo_service_error: '通知服务暂时不可用，点按重试',
+    native_config_missing: '当前安装包通知配置不完整，请更新版本',
+    native_token_failed: '设备通知服务登记失败，点按重试',
+    unknown: '设备登记失败，点按重试',
+  } as const;
+  return { label: '需处理', sub: failureMessages[diagnostic.failureCode ?? 'unknown'] };
+}
 
 const fallbackRemoteConfig: AppRemoteConfig = {
   ai: {
@@ -2420,6 +2453,8 @@ export default function LumiiMvpApp() {
   const routeRef = useRef<AppRoute>(isHomePreviewMode ? initialPreviewRoute : 'login');
   const systemSettingsOpenedAtRef = useRef(0);
   const registeredPushTokenRef = useRef('');
+  const pushRegistrationInFlightRef = useRef(false);
+  const pushRegistrationRetryCountRef = useRef(0);
   const scheduledPushRegistrationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionTokenRef = useRef(isHomePreviewMode ? initialPreviewSession.token : '');
   const unauthorizedSessionHandlingRef = useRef(false);
@@ -2440,6 +2475,8 @@ export default function LumiiMvpApp() {
   const vaccineDueWheelRefs = useRef<Partial<Record<VaccineDueWheelPart, { scrollTo: (options: { animated: boolean; y: number }) => void } | null>>>({});
   const [, setKeyboardHeight] = useState(0);
   const [permissions, setPermissions] = useState<PermissionStateMap>(isHomePreviewMode ? webPreviewPermissions : initialPermissions);
+  const [pushRegistrationDiagnostic, setPushRegistrationDiagnostic] = useState<PushRegistrationDiagnostic | null>(null);
+  const [pushRegistrationRefreshing, setPushRegistrationRefreshing] = useState(false);
   const [activePet, setActivePet] = useState<PetProfile | null>(isHomePreviewMode ? initialPreviewPets[0] ?? webPreviewPet : null);
   const [pets, setPets] = useState<PetProfile[]>(isHomePreviewMode ? initialPreviewPets : []);
   const [avatarAnimationJob, setAvatarAnimationJob] = useState<AvatarAnimationJob | null>(null);
@@ -3743,6 +3780,32 @@ export default function LumiiMvpApp() {
   }, [session?.token]);
 
   useEffect(() => {
+    if (!session || Platform.OS === 'web' || !userSettings.pushNotifications || permissions.notifications !== 'granted') return undefined;
+    let disposed = false;
+    let unsubscribe: (() => void) | undefined;
+    void watchLumiiPushTokenChanges((result) => {
+      if (disposed || sessionTokenRef.current !== session.token) return;
+      if (result.registration) {
+        void registerPushDevice({ force: true, registration: result.registration, silent: true, targetSession: session });
+      } else if (result.error) {
+        void recordPushRegistrationFailure(result.error, session, { silent: true });
+      }
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unsubscribe = cleanup;
+    }).catch(() => undefined);
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [permissions.notifications, session?.token, userSettings.pushNotifications]);
+
+  useEffect(() => {
+    if (!session || route !== 'settings' || Platform.OS === 'web') return;
+    void loadPushRegistrationDiagnostic(session);
+  }, [route, session?.token]);
+
+  useEffect(() => {
     phoneValueRef.current = phone;
   }, [phone]);
 
@@ -4211,6 +4274,9 @@ export default function LumiiMvpApp() {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState !== 'active') return;
       applyStableAndroidStatusBar();
+      if (permissionsRef.current.notifications === 'granted' && userSettingsRef.current.pushNotifications) {
+        schedulePushDeviceRegistration({ delayMs: 300 });
+      }
       if (focusedInboxRoutes.has(route) || passiveInboxRoutes.has(route) || route === 'conversation') void loadInboxData();
       if (route === 'conversation' && selectedConversationIdRef.current) {
         void loadConversationMessages(selectedConversationIdRef.current, { markRead: true, silent: true });
@@ -5842,24 +5908,158 @@ export default function LumiiMvpApp() {
     return nextPermissions;
   }
 
-  async function registerPushDevice(options: { silent?: boolean; targetSession?: AuthSession } = {}) {
+  function optimisticPushRegistrationDiagnostic(input: PushRegistrationDiagnosticInput) {
+    const updatedAt = new Date().toISOString();
+    setPushRegistrationDiagnostic((previous) => ({
+      ...previous,
+      ...input,
+      attemptCount: Math.max(0, previous?.attemptCount ?? 0) + (input.status === 'registering' && previous?.status !== 'registering' ? 1 : 0),
+      failureCode: input.status === 'failed' ? input.failureCode ?? 'unknown' : undefined,
+      lastAttemptAt: input.status === 'registering' || input.status === 'failed' ? updatedAt : previous?.lastAttemptAt,
+      registeredAt: input.status === 'registered' ? previous?.registeredAt || updatedAt : previous?.registeredAt,
+      updatedAt,
+    }));
+  }
+
+  async function reportPushRegistrationDiagnostic(input: PushRegistrationDiagnosticInput, targetSession: AuthSession) {
+    if (sessionTokenRef.current !== targetSession.token) return null;
+    optimisticPushRegistrationDiagnostic(input);
+    const result = await messagePreviewApi.updatePushRegistration(input);
+    if (sessionTokenRef.current !== targetSession.token) return null;
+    if (result.data) setPushRegistrationDiagnostic(result.data);
+    return result.data ?? null;
+  }
+
+  async function loadPushRegistrationDiagnostic(targetSession: AuthSession = session as AuthSession) {
+    if (!targetSession || Platform.OS === 'web') return null;
+    const requestSessionToken = targetSession.token;
+    const deviceId = await getLumiiInstallationId();
+    if (sessionTokenRef.current !== requestSessionToken) return null;
+    const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+    const result = await messagePreviewApi.getPushRegistration(deviceId, platform);
+    if (sessionTokenRef.current !== requestSessionToken) return null;
+    if (result.data) setPushRegistrationDiagnostic(result.data);
+    return result.data ?? null;
+  }
+
+  async function reportPushAvailability(
+    status: 'disabled' | 'permission_denied',
+    stage: 'permission' | 'settings',
+    targetSession: AuthSession = session as AuthSession,
+  ) {
+    if (!targetSession || Platform.OS === 'web') return null;
+    const deviceId = await getLumiiInstallationId();
+    if (sessionTokenRef.current !== targetSession.token) return null;
+    return reportPushRegistrationDiagnostic({
+      appBuildNumber: lumiiAppBuildNumber,
+      appVersion: lumiiAppVersion,
+      deviceId,
+      platform: Platform.OS === 'ios' ? 'ios' : 'android',
+      stage,
+      status,
+    }, targetSession);
+  }
+
+  function schedulePushRegistrationRetry(targetSession: AuthSession) {
+    const retryIndex = pushRegistrationRetryCountRef.current;
+    if (retryIndex >= pushRegistrationRetryDelaysMs.length) return;
+    pushRegistrationRetryCountRef.current += 1;
+    schedulePushDeviceRegistration({
+      delayMs: pushRegistrationRetryDelaysMs[retryIndex],
+      force: true,
+      targetSession,
+    });
+  }
+
+  async function recordPushRegistrationFailure(
+    failure: LumiiPushRegistrationFailure,
+    targetSession: AuthSession,
+    options: { silent?: boolean } = {},
+  ) {
+    const deviceId = await getLumiiInstallationId();
+    if (sessionTokenRef.current !== targetSession.token) return false;
+    await reportPushRegistrationDiagnostic({
+      appBuildNumber: lumiiAppBuildNumber,
+      appVersion: lumiiAppVersion,
+      deviceId,
+      failureCode: failure.code,
+      platform: Platform.OS === 'ios' ? 'ios' : 'android',
+      stage: failure.stage,
+      status: 'failed',
+    }, targetSession);
+    if (failure.retryable) schedulePushRegistrationRetry(targetSession);
+    if (!options.silent) showToast(failure.message, { tone: 'warning', variant: 'surface' });
+    return false;
+  }
+
+  async function registerPushDevice(options: {
+    force?: boolean;
+    registration?: LumiiPushRegistration;
+    silent?: boolean;
+    targetSession?: AuthSession;
+  } = {}) {
     const currentSession = options.targetSession ?? session;
-    if (!currentSession || Platform.OS === 'web') return;
+    if (!currentSession || Platform.OS === 'web' || pushRegistrationInFlightRef.current) return false;
     const requestSessionToken = currentSession.token;
+    if (!userSettingsRef.current.pushNotifications || permissionsRef.current.notifications !== 'granted') return false;
+    if (!options.force && registeredPushTokenRef.current) return true;
+    if (!options.force && options.registration?.token && registeredPushTokenRef.current === options.registration.token) return true;
+    pushRegistrationInFlightRef.current = true;
     try {
-      const registration = await getLumiiPushRegistration();
-      if (sessionTokenRef.current !== requestSessionToken) return;
-      if (!registration?.token || registeredPushTokenRef.current === registration.token) return;
+      const deviceId = options.registration?.deviceId ?? await getLumiiInstallationId();
+      if (sessionTokenRef.current !== requestSessionToken) return false;
+      await reportPushRegistrationDiagnostic({
+        appBuildNumber: lumiiAppBuildNumber,
+        appVersion: lumiiAppVersion,
+        deviceId,
+        platform: Platform.OS === 'ios' ? 'ios' : 'android',
+        stage: 'native_token',
+        status: 'registering',
+      }, currentSession);
+
+      let registration = options.registration;
+      if (!registration) {
+        try {
+          registration = await getLumiiPushRegistration() ?? undefined;
+        } catch (error) {
+          return recordPushRegistrationFailure(classifyLumiiPushRegistrationError(error), currentSession, options);
+        }
+      }
+      if (sessionTokenRef.current !== requestSessionToken || !registration?.token) return false;
+      if (!options.force && registeredPushTokenRef.current === registration.token) return true;
       const result = await messagePreviewApi.registerPushToken(registration.token, registration.platform, registration.deviceId);
-      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (sessionTokenRef.current !== requestSessionToken) return false;
       if (result.data) {
         registeredPushTokenRef.current = result.data.token;
-      } else if (!options.silent) {
-        showToast(result.error?.message ?? '通知设备登记失败');
+        pushRegistrationRetryCountRef.current = 0;
+        await reportPushRegistrationDiagnostic({
+          appBuildNumber: lumiiAppBuildNumber,
+          appVersion: lumiiAppVersion,
+          deviceId: registration.deviceId,
+          platform: registration.platform,
+          stage: 'backend',
+          status: 'registered',
+        }, currentSession);
+        if (!options.silent) showToast('通知设备已登记', { tone: 'success', variant: 'surface' });
+        return true;
       }
-    } catch {
-      if (sessionTokenRef.current !== requestSessionToken) return;
-      if (!options.silent) showToast('通知设备登记失败，不影响继续使用');
+      await reportPushRegistrationDiagnostic({
+        appBuildNumber: lumiiAppBuildNumber,
+        appVersion: lumiiAppVersion,
+        deviceId: registration.deviceId,
+        failureCode: 'backend_rejected',
+        platform: registration.platform,
+        stage: 'backend',
+        status: 'failed',
+      }, currentSession);
+      schedulePushRegistrationRetry(currentSession);
+      if (!options.silent) showToast(result.error?.message ?? '通知设备登记失败，稍后会自动重试', { tone: 'warning', variant: 'surface' });
+      return false;
+    } catch (error) {
+      if (sessionTokenRef.current !== requestSessionToken) return false;
+      return recordPushRegistrationFailure(classifyLumiiPushRegistrationError(error), currentSession, options);
+    } finally {
+      pushRegistrationInFlightRef.current = false;
     }
   }
 
@@ -5869,7 +6069,7 @@ export default function LumiiMvpApp() {
     scheduledPushRegistrationRef.current = null;
   }
 
-  function schedulePushDeviceRegistration(options: { delayMs?: number; targetSession?: AuthSession } = {}) {
+  function schedulePushDeviceRegistration(options: { delayMs?: number; force?: boolean; targetSession?: AuthSession } = {}) {
     const targetSession = options.targetSession ?? session;
     if (!targetSession || Platform.OS === 'web') return;
     if (permissionsRef.current.notifications !== 'granted' || !userSettingsRef.current.pushNotifications) return;
@@ -5878,7 +6078,7 @@ export default function LumiiMvpApp() {
       scheduledPushRegistrationRef.current = null;
       if (sessionTokenRef.current !== targetSession.token) return;
       if (permissionsRef.current.notifications !== 'granted' || !userSettingsRef.current.pushNotifications) return;
-      void registerPushDevice({ silent: true, targetSession });
+      void registerPushDevice({ force: options.force, silent: true, targetSession });
     }, options.delayMs ?? 1500);
   }
 
@@ -6077,6 +6277,8 @@ export default function LumiiMvpApp() {
     void persistPermissionSnapshot(nextPermissions);
     if (key === 'notifications' && result.status === 'granted') {
       schedulePushDeviceRegistration();
+    } else if (key === 'notifications') {
+      void reportPushAvailability('permission_denied', 'permission');
     }
     showToast(result.message);
   }
@@ -6100,6 +6302,8 @@ export default function LumiiMvpApp() {
       setPermissions(nextPermissions);
       if (key === 'notifications' && result.status === 'granted') {
         schedulePushDeviceRegistration();
+      } else if (key === 'notifications') {
+        void reportPushAvailability('permission_denied', 'permission');
       }
       showToast(result.message);
     }
@@ -7477,6 +7681,7 @@ export default function LumiiMvpApp() {
     try {
       if (key === 'pushNotifications' && !nextValue) {
         clearScheduledPushRegistration();
+        registeredPushTokenRef.current = '';
       }
 
       if (key === 'pushNotifications' && nextValue && permissionsRef.current.notifications !== 'granted') {
@@ -7488,6 +7693,7 @@ export default function LumiiMvpApp() {
         if (sessionTokenRef.current !== requestSessionToken) return false;
         setPermissions(savedPermissions);
         if (permissionResult.status !== 'granted') {
+          void reportPushAvailability('permission_denied', 'permission');
           showToast(permissionResult.status === 'blocked' ? '请先在系统设置开启消息通知权限' : '请先允许消息通知权限');
           return false;
         }
@@ -7513,6 +7719,7 @@ export default function LumiiMvpApp() {
             void cancelVaccineLocalReminders(vaccineReminderIds);
             localHealthReminderScheduledIdsRef.current = [];
             localHealthReminderSyncKeyRef.current = '';
+            void reportPushAvailability('disabled', 'settings');
           }
         }
         void syncNearbySettingsChange(key, serverSettings[key]);
@@ -7535,6 +7742,30 @@ export default function LumiiMvpApp() {
 
   async function toggleUserSetting(key: UserSettingKey, label: string) {
     await setUserSettingValue(key, label, !userSettingsRef.current[key]);
+  }
+
+  async function refreshPushRegistrationFromSettings() {
+    if (pushRegistrationRefreshing) return;
+    if (!userSettingsRef.current.pushNotifications) {
+      showToast('请先开启通知', { tone: 'info', variant: 'surface' });
+      return;
+    }
+    if (permissionsRef.current.notifications !== 'granted') {
+      if (permissionsRef.current.notifications === 'blocked' || permissionsRef.current.notifications === 'unavailable') {
+        await openPermissionSettings();
+        return;
+      }
+      await requestPermission('notifications');
+      if (mergePermissionState(permissionsRef.current).notifications !== 'granted') return;
+    }
+    pushRegistrationRetryCountRef.current = 0;
+    setPushRegistrationRefreshing(true);
+    try {
+      await registerPushDevice({ force: true, silent: false });
+      await loadPushRegistrationDiagnostic();
+    } finally {
+      setPushRegistrationRefreshing(false);
+    }
   }
 
   async function disableDiscoverForNow() {
@@ -9687,6 +9918,10 @@ export default function LumiiMvpApp() {
     setAvatarFeedbackSubmitting(false);
     setAvatarRegenerateConfirmVisible(false);
     registeredPushTokenRef.current = '';
+    pushRegistrationInFlightRef.current = false;
+    pushRegistrationRetryCountRef.current = 0;
+    setPushRegistrationDiagnostic(null);
+    setPushRegistrationRefreshing(false);
     sessionTokenRef.current = '';
     setChatMessages([createPetChatWelcomeMessage()]);
     setChatInput('');
@@ -16580,6 +16815,7 @@ export default function LumiiMvpApp() {
   }
 
   function renderSettings() {
+    const pushDisplay = pushRegistrationDisplay(pushRegistrationDiagnostic, userSettings.pushNotifications, permissions.notifications);
     return (
       <Screen title="设置与隐私">
         <View style={styles.settingsMakePage}>
@@ -16618,10 +16854,21 @@ export default function LumiiMvpApp() {
               Icon={Bell}
               iconBg="#FBF2D9"
               iconColor="#C99B3E"
-              last
               onPress={() => void toggleUserSetting('pushNotifications', '通知')}
               title="通知"
               value={userSettings.pushNotifications ? '开启' : '关闭'}
+            />
+            <SettingsMakeRow
+              accessibilityLabel="push-registration-status"
+              Icon={MonitorSmartphone}
+              iconBg="#E8F5F3"
+              iconColor={palette.teal}
+              last
+              onPress={() => void refreshPushRegistrationFromSettings()}
+              right={pushRegistrationRefreshing ? <ActivityIndicator color={palette.orange} size="small" /> : undefined}
+              sub={pushDisplay.sub}
+              title="通知推送状态"
+              value={pushRegistrationRefreshing ? '登记中' : pushDisplay.label}
             />
           </SettingsMakeSection>
 

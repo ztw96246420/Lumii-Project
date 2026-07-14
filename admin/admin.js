@@ -8353,6 +8353,44 @@ function notificationCampaignStatusLabel(status) {
   }[status] || status || '-';
 }
 
+function pushRegistrationStatusLabel(status) {
+  return {
+    disabled: '用户已关闭',
+    failed: '登记失败',
+    not_attempted: '尚未尝试',
+    permission_denied: '通知未授权',
+    registered: '已登记',
+    registering: '登记中',
+  }[status] || status || '-';
+}
+
+function pushRegistrationStatusTone(status) {
+  if (status === 'registered') return 'ok';
+  if (status === 'failed') return 'bad';
+  return 'warn';
+}
+
+function pushRegistrationFailureLabel(code) {
+  return {
+    backend_rejected: '业务服务登记失败',
+    expo_network_error: 'Expo 网络连接失败',
+    expo_service_error: 'Expo 服务异常',
+    native_config_missing: 'APK 缺少 Firebase 配置',
+    native_token_failed: 'FCM token 获取失败',
+    unknown: '未知失败',
+  }[code] || code || '';
+}
+
+function pushRegistrationStageLabel(stage) {
+  return {
+    backend: '业务服务',
+    expo_token: 'Expo token',
+    native_token: 'FCM token',
+    permission: '系统权限',
+    settings: '用户设置',
+  }[stage] || stage || '-';
+}
+
 function renderNotificationTemplate(template) {
   return `
     <article class="notification-template">
@@ -8784,6 +8822,7 @@ async function renderNotifications(force) {
       ${metric('通知点击', numberText(summary.opens || 0), `${percentText(summary.openRate || 0)} 打开率`, '来自移动端 notification.open 事件；点击率按系统通知批次的去重点击人数 / 送达数计算。')}
       ${metric('用户总数', summary.users || 0, `${summary.activeToday || 0} 今日活跃`, '“今日活跃用户”目标按 lastSeenAt 近 24 小时计算。')}
       ${metric('推送设备', summary.devices || 0, summary.pushEnabled ? 'Expo Push 已启用' : 'Expo Push 未启用', '用户授权通知后登记设备 token；系统通知可通过 Expo Push 下发，失败 token 会被标记。')}
+      ${metric('登记异常', summary.registrationFailures || 0, `${numberText(summary.registrationObservedDevices || 0)} 台已观测 · ${numberText(summary.registrationAttempts || 0)} 次尝试`, '记录授权后从 FCM token、Expo token 到业务后端登记的完整阶段；客户端报告缺少原生配置时需结合发布构建校验核实。')}
       ${metric('Push 下发', numberText(summary.pushSent || 0), `${numberText(summary.pushAttempted || 0)} 尝试 · ${percentText(summary.pushSuccessRate || 0)}`, '统计系统通知发起的 Expo Push ticket 结果；不等同于用户点击或最终展示。')}
       ${metric('Push 回执', numberText(summary.pushReceiptOk || 0), `${numberText(summary.pushReceiptAttempted || 0)} 已核验 · ${numberText(summary.pushReceiptPending || 0)} 待查 · ${percentText(summary.pushReceiptSuccessRate || 0)}`, '统计 Expo 向 FCM/APNs 交付后的 receipt 结果；仍不等同于用户实际点击。')}
       ${metric('人群包', summary.audiencePackages || audiencePackages.length, '灰度触达', '保存测试手机号、灰度用户和补偿用户，发送时按当前注册用户重新计算可触达范围。')}
@@ -8920,16 +8959,17 @@ async function renderNotifications(force) {
         <div class="section-head">
           <div>
             <h2>最近设备</h2>
-            <div class="section-sub">设备 token、最近 Push 状态和失效标记</div>
+            <div class="section-sub">原生登记阶段、设备 token、最近 Push 状态和失效标记</div>
           </div>
         </div>
-        ${devices.length ? tableHtml(devices.slice(0, 8), [
+        ${devices.length ? tableHtml(devices.slice(0, 12), [
           ['用户', (d) => `<div>${escapeHtml(d.ownerName || '-')}</div><div class="cell-sub">${shortPhone(d.phone)}</div>`],
           ['平台', (d) => statusPill(d.platform)],
-          ['Token', (d) => `<span class="cell-sub">...${escapeHtml(d.tokenTail || '-')}</span>`],
-          ['状态', (d) => `${statusPill(d.enabled === false ? '已失效' : d.lastPushStatus || '可用')}<div class="cell-sub">${escapeHtml(d.lastPushError || d.disabledReason || '-')}</div><div class="cell-sub">回执：${escapeHtml(d.lastPushReceiptStatus || '-')} ${d.lastPushReceiptAt ? '· ' + formatTime(d.lastPushReceiptAt) : ''}</div>`],
+          ['Token', (d) => d.hasToken ? `<span class="cell-sub">...${escapeHtml(d.tokenTail || '-')}</span>` : '<span class="cell-sub">尚未取得</span>'],
+          ['登记', (d) => `${tonePill(pushRegistrationStatusLabel(d.registrationStatus), pushRegistrationStatusTone(d.registrationStatus))}<div class="cell-sub">${escapeHtml(pushRegistrationStageLabel(d.registrationStage))} · 尝试 ${numberText(d.attemptCount || 0)} 次</div>${d.registrationFailureCode ? `<div class="cell-sub">${escapeHtml(pushRegistrationFailureLabel(d.registrationFailureCode))}</div>` : ''}<div class="cell-sub">App ${escapeHtml(d.appVersion || '-')} (${numberText(d.appBuildNumber || 0)})</div>`],
+          ['下发', (d) => d.hasToken ? `${statusPill(d.enabled === false ? '已失效' : d.lastPushStatus || '可用')}<div class="cell-sub">${escapeHtml(d.lastPushError || d.disabledReason || '-')}</div><div class="cell-sub">回执：${escapeHtml(d.lastPushReceiptStatus || '-')} ${d.lastPushReceiptAt ? '· ' + formatTime(d.lastPushReceiptAt) : ''}</div>` : '<span class="cell-sub">等待登记成功</span>'],
           ['更新', (d) => formatTime(d.updatedAt)],
-        ]) : '<div class="placeholder"><div><strong>暂无设备</strong><div>用户授权通知后，App 会登记设备 token。</div></div></div>'}
+        ]) : '<div class="placeholder"><div><strong>暂无设备</strong><div>用户授权通知后，App 会上报登记阶段并登记设备 token。</div></div></div>'}
       </div>
     </div>
   `;
