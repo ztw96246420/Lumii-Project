@@ -220,7 +220,7 @@
 - 请求路由不再使用不可信 Host 构造 URL；非法 Host 稳定返回 `400 / INVALID_REQUEST_URL`，不再记为 500 或输出异常堆栈。
 - Seedance 已返回结果后的视频下载、去绿边和 COS 镜像失败会由服务端自主重试，不再依赖用户停留首页继续轮询；服务重启后会从 SQLite 恢复 `mirror_failed / ready_mirroring` 任务，达到最大次数才收口为失败。
 - 灵伴形象额度现在保存任务实际扣减日；自动返还仍只覆盖供应商提交失败、返回失败和超时，后台可对同日已结束的成功/失败任务人工返还，但处理中任务和跨日历史任务不能误减今天额度。
-- 产线已部署到 `84ec0298`；非法 Host 实测返回 400，内网与站外 `https://api.lumiiapp.cn/health` 都返回 200，进程只监听 `127.0.0.1:8787`，部署后日志无新异常。
+- 业务代码产线已部署到 `e8993279`；非法 Host 实测返回 400，内网与站外 `https://api.lumiiapp.cn/health` 都返回 200，进程只监听 `127.0.0.1:8787`，部署后日志无新异常。
 
 ### 2.27 六图发布与日期选择器完整回归
 
@@ -243,7 +243,7 @@
 - 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-14 重新完整通过，79/79 套件全部成功；移动端 Playwright 用时 266.2 秒，覆盖协议阅读、本人宠友圈同日多条、审核中/驳回状态及昼夜排序差异、唯一“我”标记、评论、删除确认、3/6 与 6/6 真实选图、三类日期滚轮、地点贡献记录、地点点评驳回纠错、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除，后台 8 个关键运营页面同步通过。
 - 附近位置与半径专项：`node scripts/smoke-pet-circle.cjs`、配置审批/预约发布/双人会签回归和 `node scripts/smoke-admin-config-high-risk-page.cjs` 通过；覆盖发布位置快照、跨城市移动、历史无位置数据、10km 默认档位、3/5/10km 后台选择及客户端越权半径拦截。
 - 附近地点真实性：`node scripts/smoke-place-contributions.cjs` 与 `node scripts/smoke-sms-production.cjs` 通过；覆盖提交坐标/精度/时间落库、审核后 manual 地点继承坐标、跨城不跟随、缺失/过期定位拦截、生产无高德时返回空列表而非 seed，以及 `amap` / `place_location_integrity` / `place_discovery` 健康与 P0 门禁。
-- 生产台账实查：部署 `84ec0298` 后于 2026-07-14 返回 28 项健康检查、`bad=1`、`warn=3`、`openP0=6`、`blockedGaps=2`；唯一 `bad` 是兼容发布期有意暂缓的 `legal_consent_enforcement`，三项警告分别为首台真机 Push、后台 IP 白名单和站外告警。`public_api_https`、`public_api_external_https`、`backend_bind_address` 均为 `ok`；生产进程仅监听 `127.0.0.1:8787`，Lighthouse 规则仍无公网 8787；用户数保持 21，服务 `NRestarts=0`。生产当前只有 1 个活跃管理员且未配置 MFA/IP 白名单，不能在没有真实审批人的情况下强开双人会签。
+- 生产台账实查：部署 `e8993279` 后于 2026-07-14 返回 28 项健康检查、`bad=1`、`warn=3`、`openP0=6`、`blockedGaps=2`；唯一 `bad` 是兼容发布期有意暂缓的 `legal_consent_enforcement`，三项警告分别为首台真机 Push、后台 IP 白名单和站外告警。`public_api_https`、`public_api_external_https`、`backend_bind_address` 均为 `ok`；线上公开配置返回 `petCircleMaxPhotos=6`、`discoverRadiusKm=10`，后台静态资源同步限制最多 6 张；生产进程仅监听 `127.0.0.1:8787`，Lighthouse 规则仍无公网 8787；用户数保持 21，服务 `NRestarts=0`。生产当前只有 1 个活跃管理员且未配置 MFA/IP 白名单，不能在没有真实审批人的情况下强开双人会签。
 - Android 候选包：`dist/Lumii-Lingban-v1.0.0-vc15-arm64-20260714-0840.apk` 已完成正式签名构建，大小 68.58 MB，SHA-256 为 `75780C35003ADF0B3ED30658D9F1A834D37E07AB11CC97A6D5AC3FA63624062C`；包名 `com.lumii.lingban`、versionCode `15`、API `https://api.lumiiapp.cn`、禁止明文流量且仅含 `arm64-v8a`，不含测试服务器 IP 或 localhost。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 仍为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗/安装包权限，`allowBackup=false`、`usesCleartextTraffic=false`。
 
 ## 4. 剩余工作
