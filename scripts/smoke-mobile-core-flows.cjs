@@ -10,6 +10,11 @@ const { spawn } = require('node:child_process');
 const TEST_CODE = '962464';
 const PRIMARY_PHONE = '19900008801';
 const PEER_PHONE = '19900008802';
+const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+const VALID_PNG_UPLOAD_BASE64 = Buffer.concat([
+  Buffer.from(TINY_PNG_BASE64, 'base64'),
+  Buffer.alloc(25 * 1024),
+]).toString('base64');
 const rootDir = path.join(__dirname, '..');
 const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-mobile-core-'));
@@ -76,6 +81,7 @@ async function startBackend(port) {
       LUMII_BACKEND_PORT: String(port),
       LUMII_BACKEND_STATE_PATH: statePath,
       PET_AVATAR_ANIMATION_PROVIDER: 'mock',
+      PET_AVATAR_PUBLIC_BASE_URL: '',
       PET_AVATAR_PROVIDER: 'mock',
       SMS_COOLDOWN_MS: '0',
       SMS_DAILY_LIMIT: '1000',
@@ -141,6 +147,8 @@ async function createPet(token, name, species = 'dog') {
     token,
   });
   assert.ok(payload.data?.id, `missing pet id for ${name}`);
+  assert.equal(payload.data.healthScore, 0, 'a newly created pet must not receive an invented health score');
+  assert.deepEqual(payload.data.personality, [], 'a newly created pet must not receive invented personality tags');
   return payload.data;
 }
 
@@ -241,6 +249,24 @@ async function main() {
     const primaryCat = await createPet(primaryToken, 'CoreMochi', 'cat');
     const peerPet = await createPet(peerToken, 'CoreBuddy');
 
+    const uploadedPetPhoto = await request('/media/uploads', {
+      body: {
+        base64: VALID_PNG_UPLOAD_BASE64,
+        fileName: 'core-lucky-source.png',
+        mimeType: 'image/png',
+        source: 'pet_avatar',
+      },
+      method: 'POST',
+      token: primaryToken,
+    });
+    assert.equal(uploadedPetPhoto.data.analysis.code, 'basic_file_check', 'file validation must not claim visual pet recognition');
+    assert.equal(uploadedPetPhoto.data.analysis.qualityScore, 0, 'file validation must not fabricate a visual quality score');
+    assert.equal(uploadedPetPhoto.data.analysis.petCount, undefined, 'file validation must not fabricate a pet count');
+    assert.equal(uploadedPetPhoto.data.moderationStatus, 'approved');
+    assert.ok(uploadedPetPhoto.data.fileUrl, 'valid uploads should expose a durable file URL');
+    assert.equal(uploadedPetPhoto.data.previewUrl, uploadedPetPhoto.data.fileUrl, 'preview should use the uploaded file instead of a stock pet image');
+    assert.doesNotMatch(JSON.stringify(uploadedPetPhoto.data), /unsplash|golden[-_ ]?retriever/i, 'real uploads must not leak a stock golden retriever image');
+
     const petsBeforeDefault = await request('/pets', { token: primaryToken });
     assert.equal(petsBeforeDefault.data.length, 2);
     const activeDog = await request(`/pets/${encodeURIComponent(primaryDog.id)}/set-default`, {
@@ -262,8 +288,9 @@ async function main() {
 
     const healthSummary = await request('/health/summary', { token: primaryToken });
     assert.equal(healthSummary.state, 'success');
+    assert.equal(healthSummary.data.healthScore, 0, 'health summary must not expose a fabricated score');
     const calendar = await request('/health/calendar', { token: primaryToken });
-    assert.equal(Array.isArray(calendar.data), true);
+    assert.deepEqual(calendar.data, [], 'new pets must not receive a fabricated profile or weight calendar record');
 
     const vaccinesInitially = await request('/health/vaccines', { token: primaryToken });
     assert.deepEqual(vaccinesInitially.data, [], 'new pets must not receive default vaccine records');
@@ -372,17 +399,31 @@ async function main() {
     assert.equal(placeReport.data.targetType, 'place');
 
     await refreshDiscoverPresence(primaryToken, 22.543096, 114.057865);
-    await refreshDiscoverPresence(peerToken, 22.5433, 114.058);
+    const peerNearbyOwners = await refreshDiscoverPresence(peerToken, 22.5433, 114.058);
+    const primaryOwnerCard = peerNearbyOwners.find((item) => item.id === `user-${PRIMARY_PHONE}`);
+    assert.equal(primaryOwnerCard?.ownerAvatarUrl, ownerUpdated.data.ownerAvatarUrl, 'nearby owner card should use the real owner avatar');
 
+    await request('/social/greetings', {
+      body: { message: 'x'.repeat(121), ownerId: `user-${PEER_PHONE}` },
+      expectedStatus: 400,
+      method: 'POST',
+      token: primaryToken,
+    });
+
+    const greetingMessage = '你好 CoreBuddy，我家 CoreLucky 想和你认识一下。';
     const greeting = await request('/social/greetings', {
-      body: { ownerId: `user-${PEER_PHONE}` },
+      body: { message: greetingMessage, ownerId: `user-${PEER_PHONE}` },
       method: 'POST',
       token: primaryToken,
     });
     assert.equal(greeting.data.sent, true);
 
     const peerRequests = await request('/social/greeting-requests', { token: peerToken });
-    assert.ok(peerRequests.data.some((item) => item.id === `user-${PRIMARY_PHONE}`), 'peer should receive greeting request');
+    const primaryGreetingRequest = peerRequests.data.find((item) => item.id === `user-${PRIMARY_PHONE}`);
+    assert.ok(primaryGreetingRequest, 'peer should receive greeting request');
+    assert.equal(primaryGreetingRequest.greetingMessage, greetingMessage, 'receiver should see the sender-authored greeting message');
+    assert.equal(primaryGreetingRequest.ownerAvatarUrl, ownerUpdated.data.ownerAvatarUrl, 'greeting request should use the real owner avatar');
+    assert.equal(Number.isNaN(Date.parse(primaryGreetingRequest.greetingSentAt)), false, 'greeting request should expose its real sent time');
     const accepted = await request(`/social/greeting-requests/${encodeURIComponent(`user-${PRIMARY_PHONE}`)}/accept`, {
       body: {},
       method: 'POST',

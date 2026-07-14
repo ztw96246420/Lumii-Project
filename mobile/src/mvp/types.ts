@@ -327,6 +327,7 @@ export type UploadedPetMedia = {
 export type PetMediaAnalysis = {
   canGenerate: boolean;
   code:
+    | 'basic_file_check'
     | 'busy_scene'
     | 'file_too_large'
     | 'human_and_pet'
@@ -356,7 +357,7 @@ export type UploadPetMediaInput = {
   fileName?: string;
   mimeType?: string;
   previewUrl?: string;
-  source: 'camera' | 'library' | 'mvp_sample' | 'pet_circle_photo' | 'place_review' | 'place_submission';
+  source: 'camera' | 'library' | 'mvp_sample' | 'pet_avatar' | 'pet_circle_photo' | 'place_review' | 'place_submission';
 };
 
 export type PetChatFeedbackRating = 'good' | 'off';
@@ -454,8 +455,11 @@ export type HealthCalendarEvent = {
 
 export type NearbyOwner = {
   distance: string;
+  greetingMessage?: string;
+  greetingSentAt?: string;
   id: string;
   imageUrl?: string;
+  ownerAvatarUrl?: string;
   ownerName: string;
   petName: string;
   species: Extract<PetSpecies, 'cat' | 'dog'>;
@@ -594,6 +598,7 @@ export type ConversationMessage = {
 };
 
 export type GreetingOptions = {
+  message?: string;
   postId?: string;
   source?: 'pet_circle';
 };

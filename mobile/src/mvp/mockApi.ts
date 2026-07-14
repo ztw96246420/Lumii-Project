@@ -610,17 +610,13 @@ function smsDeviceDailyUsageFor(deviceId: string) {
 
 const acceptedPetMediaAnalysis: UploadedPetMedia['analysis'] = {
   canGenerate: true,
-  code: 'single_pet_clear',
-  humanPresent: false,
-  message: '照片中宠物主体清晰，可以生成灵伴形象。',
-  needsCrop: false,
-  otherAnimalPresent: false,
-  petCount: 1,
-  qualityScore: 96,
+  code: 'basic_file_check',
+  message: '图片文件已通过格式和完整性检查，可以提交生成；宠物特征将在生成时根据原图提取。',
+  qualityScore: 0,
   status: 'accepted',
   suggestions: [],
-  tags: ['单只宠物', '主体清晰', '可生成'],
-  title: '识别成功',
+  tags: ['格式可用', '文件完整', '可提交生成'],
+  title: '基础检查通过',
 };
 
 function normalizeMockImageMimeType(value?: string) {
@@ -704,12 +700,12 @@ function analyzeMockPetMediaUpload(input?: UploadPetMediaInput): UploadedPetMedi
     return petMediaAnalysis({
       canGenerate: true,
       code: 'low_quality',
-      message: '图片文件较小，可能清晰度不足。可以继续生成，但建议换一张更清晰的照片。',
-      qualityScore: 62,
+      message: '图片文件较小，生成细节可能不足。可以继续生成，但建议换一张原图或更大的照片。',
+      qualityScore: 0,
       status: 'warning',
-      suggestions: ['使用原图或高清图', '避免截图和压缩图', '保持宠物五官清晰'],
-      tags: ['清晰度偏低', '可尝试生成'],
-      title: '图片清晰度偏低',
+      suggestions: ['使用原图或更大的照片', '避免截图和多次压缩的图片'],
+      tags: ['文件较小', '可尝试生成'],
+      title: '图片文件较小',
     });
   }
   return acceptedPetMediaAnalysis;
@@ -1554,7 +1550,11 @@ function ensureMockGreetingRequestFixtures() {
   mockGreetingRequestFixturesSeeded = true;
   const fixtureOwner = owners[1] ?? owners[0];
   if (!fixtureOwner || greetingRequests.some((owner) => owner.id === fixtureOwner.id)) return;
-  greetingRequests = [fixtureOwner, ...greetingRequests];
+  greetingRequests = [{
+    ...fixtureOwner,
+    greetingMessage: `你好呀，${fixtureOwner.petName}想和你家毛孩子认识一下～`,
+    greetingSentAt: new Date().toISOString(),
+  }, ...greetingRequests];
 }
 
 function mockVisiblePetCircleMoments(includeOwn = true) {
@@ -2098,7 +2098,7 @@ function buildHealthCalendarEvents(): HealthCalendarEvent[] {
   ensureMockVaccineTemplateCoverage();
   return [
     ...weights.map((record) => ({
-      date: normalizeCalendarDate(record.recordedAt),
+      date: calendarDatePart(record.recordedAt),
       detail: `${record.kg} kg${record.note ? ` · ${record.note}` : ''}`,
       id: `calendar-weight-${record.id}`,
       sourceId: record.id,
@@ -2106,7 +2106,7 @@ function buildHealthCalendarEvents(): HealthCalendarEvent[] {
       type: 'weight' as const,
     })),
     ...vaccines.map((vaccine) => ({
-      date: normalizeCalendarDate(vaccine.dueAt),
+      date: calendarDatePart(vaccine.dueAt),
       detail: vaccineStatusCopy(vaccine.status),
       id: `calendar-vaccine-${vaccine.id}`,
       sourceId: vaccine.id,
@@ -2115,14 +2115,16 @@ function buildHealthCalendarEvents(): HealthCalendarEvent[] {
       type: 'vaccine' as const,
     })),
     ...memos.map((memo) => ({
-      date: normalizeCalendarDate(sourceDateForMockHealthMemo(memo), healthMemoCalendarDate(memo)),
+      date: calendarDatePart(sourceDateForMockHealthMemo(memo)) || calendarDatePart(healthMemoCalendarDate(memo)),
       detail: memo.content,
       id: `calendar-memo-${memo.id}`,
       sourceId: memo.id,
       title: memo.title,
       type: 'memo' as const,
     })),
-  ].sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.id).localeCompare(String(b.id)));
+  ]
+    .filter((event) => Boolean(event.date))
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.id).localeCompare(String(b.id)));
 }
 
 function isIsoDate(value: string) {
@@ -2339,7 +2341,7 @@ function buildHealthSummary(): HealthSummary {
     return days !== null && days <= 14;
   });
   return {
-    healthScore: pet.healthScore ?? 92,
+    healthScore: 0,
     latestMemo: memos[0],
     latestWeightKg: weights[0]?.kg ?? pet.weightKg,
     latestWeightRecordedAt: weights[0]?.recordedAt,
@@ -2943,9 +2945,9 @@ export const mockApi = {
       const pet: PetProfile = {
         ...(petInput.patch as CreatePetInput),
         createdAt: new Date().toISOString(),
-        healthScore: 96,
+        healthScore: 0,
         id: `pet-${Date.now()}`,
-        personality: ['亲人', '爱笑', '饭量稳定'],
+        personality: [],
       };
       pets = [pet, ...pets];
       activePetId = pet.id;
@@ -3007,11 +3009,14 @@ export const mockApi = {
     async uploadPetMedia(input?: UploadPetMediaInput): Promise<ApiResult<UploadedPetMedia>> {
       await wait();
       const analysis = analyzeMockPetMediaUpload(input);
+      const previewUrl = input?.previewUrl ?? (input?.source === 'mvp_sample' ? goldenRetrieverPhotoUrl : '');
       const media: UploadedPetMedia = {
         analysis,
-        fileUrl: input?.previewUrl ?? goldenRetrieverPhotoUrl,
+        fileUrl: previewUrl,
         mediaId: `media-${Date.now()}`,
-        previewUrl: input?.previewUrl ?? goldenRetrieverPhotoUrl,
+        moderationStatus: 'approved',
+        moderationStatusLabel: '已通过',
+        previewUrl,
         quality: analysis.status === 'blocked' ? 'blocked' : analysis.status === 'warning' ? 'warning' : 'good',
       };
       uploadedMediaById = { ...uploadedMediaById, [media.mediaId]: media };
@@ -3650,6 +3655,9 @@ export const mockApi = {
       if (isMockOwnerBlocked(ownerId)) return error<GreetingResult>('对方暂时不可打招呼，请刷新附近列表后再试', true, undefined, 'SOCIAL_TARGET_GONE');
       const owner = owners.find((item) => item.id === ownerId);
       if (!owner) return error<GreetingResult>('对方暂时不可打招呼，请刷新附近列表后再试', true);
+      const message = String(options.message || '我想认识你和你的毛孩子').replace(/\s+/g, ' ').trim();
+      if (!message) return error<GreetingResult>('先写一句招呼吧', false, undefined, 'SOCIAL_GREETING_INVALID');
+      if (message.length > 120) return error<GreetingResult>('招呼内容最多 120 个字', false, undefined, 'SOCIAL_GREETING_INVALID');
       const postId = String(options.postId || '').trim();
       if (options.source === 'pet_circle') {
         const visibleSourcePost = nearbyMoments.some((moment) => moment.id === postId && moment.ownerId === ownerId && !petCircleReportedPostIds.includes(moment.id) && !isMockOwnerBlocked(moment.ownerId));

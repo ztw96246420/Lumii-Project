@@ -550,7 +550,7 @@ function createHttpApi(baseUrl: string): LumiiApi {
       },
 
       async sendGreeting(ownerId: string, options: GreetingOptions = {}): Promise<ApiResult<GreetingResult>> {
-        return request<GreetingResult>('POST', '/social/greetings', { ownerId, postId: options.postId, source: options.source });
+        return request<GreetingResult>('POST', '/social/greetings', { message: options.message, ownerId, postId: options.postId, source: options.source });
       },
 
       async listGreetingRequests(): Promise<ApiResult<NearbyOwner[]>> {

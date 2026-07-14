@@ -76,6 +76,7 @@ const PET_CHAT_MAX_TOKENS = Number(process.env.PET_CHAT_MAX_TOKENS || '420');
 const PET_CHAT_MAX_INPUT_CHARS = Number(process.env.PET_CHAT_MAX_INPUT_CHARS || '600');
 const PET_CHAT_DAILY_LIMIT = Number(process.env.PET_CHAT_DAILY_LIMIT || '80');
 const SOCIAL_MESSAGE_MAX_CHARS = Number(process.env.SOCIAL_MESSAGE_MAX_CHARS || '600');
+const SOCIAL_GREETING_MESSAGE_MAX_CHARS = Math.max(20, Math.min(240, Number(process.env.SOCIAL_GREETING_MESSAGE_MAX_CHARS || '120') || 120));
 const TTAPI_API_KEY = process.env.TTAPI_API_KEY || '';
 const TTAPI_MJ_BASE_URL = (process.env.TTAPI_MJ_BASE_URL || 'https://api.ttapi.io').replace(/\/+$/, '');
 const TTAPI_MJ_MODE = process.env.TTAPI_MJ_MODE || 'fast';
@@ -12892,17 +12893,51 @@ function placeImageModerationError(body = {}) {
 
 function publicUploadedMedia(media, req) {
   if (!media) return null;
-  const analysis = media.analysis || analyzeUploadedPetMedia({}, media.dataUrl);
-  const moderationStatus = normalizeMediaModerationStatus(media.moderationStatus, { ...media, analysis });
+  const storedAnalysis = media.analysis || analyzeUploadedPetMedia({}, media.dataUrl);
+  const moderationStatus = normalizeMediaModerationStatus(media.moderationStatus, { ...media, analysis: storedAnalysis });
+  let analysis = {
+    ...storedAnalysis,
+    suggestions: Array.isArray(storedAnalysis.suggestions) ? [...storedAnalysis.suggestions] : [],
+    tags: Array.isArray(storedAnalysis.tags) ? [...storedAnalysis.tags] : [],
+  };
+  if (moderationStatus === 'pending_review') {
+    analysis = {
+      ...analysis,
+      canGenerate: false,
+      message: '这张图片正在进行安全审核，审核通过后才能生成灵伴形象。',
+      status: 'warning',
+      suggestions: ['稍后刷新审核状态', '也可以重新选择一张内容清晰、仅包含宠物的照片'],
+      tags: ['安全审核中'],
+      title: '图片安全审核中',
+    };
+  } else if (moderationStatus === 'hidden' || moderationStatus === 'rejected') {
+    analysis = {
+      ...analysis,
+      canGenerate: false,
+      message: media.moderationReason || '这张图片未通过平台安全审核，请重新选择合适的宠物照片。',
+      status: 'blocked',
+      suggestions: ['重新选择合适的宠物照片', '避免上传含敏感内容、人物隐私或无关内容的图片'],
+      tags: ['审核未通过'],
+      title: '图片不可用',
+    };
+  }
+  const hasStoredFile = Boolean(media.objectUrl || media.dataUrl);
+  const fileUrl = media.objectUrl || (hasStoredFile ? mediaUploadFileUrl(req, media.mediaId) : '');
+  const clientPreviewUrl = String(media.previewUrl || '').trim();
+  const safeClientPreviewUrl = clientPreviewUrl && clientPreviewUrl !== samplePhotoUrl ? clientPreviewUrl : '';
   return {
     analysis,
-    fileUrl: media.objectUrl || mediaUploadFileUrl(req, media.mediaId),
+    fileUrl,
     mediaId: media.mediaId,
     moderationReason: media.moderationReason || '',
     moderationStatus,
     moderationStatusLabel: mediaModerationStatusLabel(moderationStatus),
-    previewUrl: media.previewUrl || samplePhotoUrl,
-    quality: analysis.status === 'blocked' ? 'blocked' : analysis.status === 'warning' ? 'warning' : 'good',
+    previewUrl: media.objectUrl || fileUrl || safeClientPreviewUrl,
+    quality: moderationStatus === 'hidden' || moderationStatus === 'rejected' || analysis.status === 'blocked'
+      ? 'blocked'
+      : moderationStatus === 'pending_review' || analysis.status === 'warning'
+        ? 'warning'
+        : 'good',
   };
 }
 
@@ -13057,14 +13092,8 @@ function healthKeyFor(user) {
   return pet ? `${user.phone}:${pet.id}` : `${user.phone}:no-pet`;
 }
 
-function defaultWeightRecordsFor(user) {
-  const pet = selectedPetFor(user);
-  if (!pet) return [];
-  const kg = Number(pet.weightKg) || (pet.species === 'cat' ? 5.2 : 28.4);
-  const createdAt = normalizeCalendarDate(pet.createdAt, isoDateFromTimestampId(pet.id));
-  return [
-    { id: `w-${user.phone}-${pet.id}-1`, kg, note: '建档初始体重', recordedAt: createdAt },
-  ];
+function defaultWeightRecordsFor() {
+  return [];
 }
 
 function defaultMemosFor(user) {
@@ -13191,6 +13220,7 @@ function pruneDeprecatedDefaultHealthRecords() {
   const users = state.users || {};
   const memosByKey = state.health?.memos || {};
   const vaccinesByKey = state.health?.vaccines || {};
+  const weightsByKey = state.health?.weights || {};
 
   Object.values(users).forEach((user) => {
     const phone = normalizePhone(user?.phone);
@@ -13216,6 +13246,16 @@ function pruneDeprecatedDefaultHealthRecords() {
         });
         if (nextVaccines.length !== vaccines.length) {
           vaccinesByKey[key] = nextVaccines;
+          changed = true;
+        }
+      }
+
+      const weights = weightsByKey[key];
+      if (Array.isArray(weights)) {
+        const deprecatedWeightId = defaultWeightRecordId(phone, pet.id);
+        const nextWeights = weights.filter((record) => String(record?.id || '') !== deprecatedWeightId);
+        if (nextWeights.length !== weights.length) {
+          weightsByKey[key] = nextWeights;
           changed = true;
         }
       }
@@ -13353,7 +13393,7 @@ function buildHealthCalendarEvents(user) {
   const memos = healthList('memos', user, defaultMemosFor);
   return [
     ...weights.map((record) => ({
-      date: normalizeCalendarDate(record.recordedAt),
+      date: calendarDatePart(record.recordedAt),
       detail: `${Number(record.kg) || 0} kg${record.note ? ` · ${record.note}` : ''}`,
       id: `calendar-weight-${record.id}`,
       sourceId: record.id,
@@ -13361,7 +13401,7 @@ function buildHealthCalendarEvents(user) {
       type: 'weight',
     })),
     ...vaccines.map((vaccine) => ({
-      date: normalizeCalendarDate(vaccine.dueAt),
+      date: calendarDatePart(vaccine.dueAt),
       detail: vaccineStatusCopy(vaccine.status),
       id: `calendar-vaccine-${vaccine.id}`,
       sourceId: vaccine.id,
@@ -13370,14 +13410,18 @@ function buildHealthCalendarEvents(user) {
       type: 'vaccine',
     })),
     ...memos.map((memo) => ({
-      date: normalizeCalendarDate(sourceDateForHealthMemo(user, memo) || memo.createdAt, isoDateFromTimestampId(memo.id) || memo.updatedAt),
+      date:
+        calendarDatePart(sourceDateForHealthMemo(user, memo) || memo.createdAt) ||
+        calendarDatePart(isoDateFromTimestampId(memo.id) || memo.updatedAt),
       detail: memo.content,
       id: `calendar-memo-${memo.id}`,
       sourceId: memo.id,
       title: memo.title,
       type: 'memo',
     })),
-  ].sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.id).localeCompare(String(b.id)));
+  ]
+    .filter((event) => Boolean(event.date))
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.id).localeCompare(String(b.id)));
 }
 
 function buildWeightTrend(records, context = {}) {
@@ -13460,7 +13504,7 @@ function buildHealthSummary(user) {
     return days !== null && days <= 14;
   });
   return {
-    healthScore: Number(pet.healthScore) || 92,
+    healthScore: 0,
     latestMemo: memos[0],
     latestWeightKg: latestWeight?.kg ?? pet.weightKg,
     latestWeightRecordedAt: latestWeight?.recordedAt,
@@ -14045,7 +14089,6 @@ function petChatPetSnapshot(user) {
     birthday: pet.birthday || '',
     breed: pet.breed || '',
     gender: pet.gender || '',
-    healthScore: pet.healthScore || '',
     id: pet.id || '',
     name: pet.name || '',
     personality: Array.isArray(pet.personality) ? pet.personality.slice(0, 8) : [],
@@ -14150,8 +14193,7 @@ function buildPetChatContextPrompt(user) {
     `品种：${pet?.breed || '待补充'}`,
     `年龄：${petAgeLabel(pet?.birthday)}`,
     `体重：${pet?.weightKg ? `${pet.weightKg}kg` : '待记录'}`,
-    `性格标签：${pet?.personality?.length ? pet.personality.join('、') : '亲人、爱互动'}`,
-    `健康分：${pet?.healthScore || 92}/100`,
+    `性格标签：${pet?.personality?.length ? pet.personality.join('、') : '暂无记录'}`,
   ];
   const contextLines = [
     `近期体重：${weights.length ? weights.map((item) => `${item.recordedAt} ${item.kg}kg`).join('；') : '暂无'}`,
@@ -15067,26 +15109,22 @@ function uploadedMediaBytes(dataUrl) {
   return Buffer.byteLength(match[1], 'base64');
 }
 
-function mediaAnalysisResult(overrides) {
+function mediaAnalysisResult(overrides = {}) {
   return {
     canGenerate: true,
-    code: 'single_pet_clear',
-    humanPresent: false,
-    message: '照片中宠物主体清晰，可以生成灵伴形象。',
-    needsCrop: false,
-    otherAnimalPresent: false,
-    petCount: 1,
-    qualityScore: 96,
+    code: 'basic_file_check',
+    message: '图片文件已通过格式和完整性检查，可以提交生成；宠物特征将在生成时根据原图提取。',
+    qualityScore: 0,
     status: 'accepted',
     suggestions: [],
-    tags: ['单只宠物', '主体清晰', '可生成'],
-    title: '识别成功',
+    tags: ['格式可用', '文件完整', '可提交生成'],
+    title: '基础检查通过',
     ...overrides,
   };
 }
 
 function analyzeUploadedPetMedia(body, dataUrl, uploadIssue, uploadBytes) {
-  const debugCode = String(body.analysisCode || body.debugAnalysisCode || '').trim();
+  const debugCode = RUNTIME_ENV === 'production' ? '' : String(body.analysisCode || body.debugAnalysisCode || '').trim();
   if (debugCode === 'no_pet') {
     return mediaAnalysisResult({
       canGenerate: false,
@@ -15178,17 +15216,46 @@ function analyzeUploadedPetMedia(body, dataUrl, uploadIssue, uploadBytes) {
     return mediaAnalysisResult({
       canGenerate: true,
       code: 'low_quality',
-      message: '图片文件较小，可能清晰度不足。可以继续生成，但建议换一张更清晰的照片。',
-      qualityScore: 62,
+      message: '图片文件较小，生成细节可能不足。可以继续生成，但建议换一张原图或更大的照片。',
+      qualityScore: 0,
       status: 'warning',
-      suggestions: ['使用原图或高清图', '避免截图和压缩图', '保持宠物五官清晰'],
-      tags: ['清晰度偏低', '可尝试生成'],
-      title: '图片清晰度偏低',
+      suggestions: ['使用原图或更大的照片', '避免截图和多次压缩的图片'],
+      tags: ['文件较小', '可尝试生成'],
+      title: '图片文件较小',
     });
   }
 
   return mediaAnalysisResult({});
 }
+
+function migrateLegacyUploadedPetMediaAnalysis() {
+  let changed = false;
+  for (const media of Object.values(state.mediaUploads || {})) {
+    if (!media || typeof media !== 'object') continue;
+    const analysis = media.analysis || {};
+    if (analysis.code === 'single_pet_clear' && Number(analysis.qualityScore) === 96) {
+      media.analysis = mediaAnalysisResult({});
+      changed = true;
+    } else if (analysis.code === 'low_quality' && Number(analysis.qualityScore) === 62) {
+      media.analysis = mediaAnalysisResult({
+        code: 'low_quality',
+        message: '图片文件较小，生成细节可能不足。可以继续生成，但建议换一张原图或更大的照片。',
+        status: 'warning',
+        suggestions: ['使用原图或更大的照片', '避免截图和多次压缩的图片'],
+        tags: ['文件较小', '可尝试生成'],
+        title: '图片文件较小',
+      });
+      changed = true;
+    }
+    if (media.previewUrl === samplePhotoUrl) {
+      media.previewUrl = '';
+      changed = true;
+    }
+  }
+  if (changed) saveState();
+}
+
+migrateLegacyUploadedPetMediaAnalysis();
 
 function mediaUploadFileUrl(req, mediaId) {
   if (PET_AVATAR_PUBLIC_BASE_URL) return `${PET_AVATAR_PUBLIC_BASE_URL}/media/uploads/${encodeURIComponent(mediaId)}/file`;
@@ -17421,18 +17488,12 @@ function buildOwnerCard(user, viewerPhone, index, distanceKm) {
   if (!pet) return null;
   const suffix = user.phone.slice(-4);
   const safeSpecies = pet.species === 'cat' ? 'cat' : 'dog';
-  const distanceOptions = ['附近 500m 内', '附近 1km 内', '约 1-2km', '约 2-3km'];
-  const seed = Number(suffix.slice(-2)) || index;
-  const distance =
-    distanceKm === undefined
-      ? viewerPhone && viewerPhone !== user.phone
-        ? distanceOptions[seed % distanceOptions.length]
-        : '附近'
-      : fuzzyDistance(distanceKm);
+  const distance = distanceKm === undefined ? '距离待确认' : fuzzyDistance(distanceKm);
   return {
     distance,
     id: `user-${user.phone}`,
-    imageUrl: pet.avatarUrl,
+    imageUrl: visibleImageUrl(pet.avatarUrl),
+    ownerAvatarUrl: visibleImageUrl(user.ownerAvatarUrl),
     ownerName: user.ownerName || `用户${suffix}`,
     petName: pet.name || `灵伴${suffix}`,
     species: safeSpecies,
@@ -18587,7 +18648,14 @@ function listGreetingRequestsFor(user) {
     .filter((item) => !socialBlockBetween(user.phone, item.fromPhone))
     .map((item, index) => {
       const fromUser = state.users[item.fromPhone];
-      return fromUser ? buildOwnerCard(fromUser, user.phone, index, distanceKmBetween(user.location, fromUser.location) ?? undefined) : null;
+      const card = fromUser ? buildOwnerCard(fromUser, user.phone, index, distanceKmBetween(user.location, fromUser.location) ?? undefined) : null;
+      if (!card) return null;
+      const sentAt = Number(item.at || 0);
+      return {
+        ...card,
+        greetingMessage: String(item.message || '我想认识你和你的毛孩子').replace(/\s+/g, ' ').trim().slice(0, SOCIAL_GREETING_MESSAGE_MAX_CHARS),
+        greetingSentAt: sentAt > 0 ? new Date(sentAt).toISOString() : '',
+      };
     })
     .filter(Boolean);
 }
@@ -35948,9 +36016,9 @@ async function handle(req, res) {
     const pet = {
       ...petInput.patch,
       createdAt: new Date().toISOString(),
-      healthScore: 96,
+      healthScore: 0,
       id: `pet-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-      personality: ['亲人', '爱互动', '想交朋友'],
+      personality: [],
     };
     const profileModeration = await moderatePetProfileTextForPublicUse(petInput.patch, user, pet.id);
     if (profileModeration.action && profileModeration.action !== 'allow') {
@@ -36190,7 +36258,7 @@ async function handle(req, res) {
       mediaId,
       mimeType: parsedUpload.mimeType || normalizeImageMimeType(body.mimeType) || 'application/octet-stream',
       ownerPhone: user.phone,
-      previewUrl: body.previewUrl || samplePhotoUrl,
+      previewUrl: String(body.previewUrl || '').trim(),
       source: uploadSource,
     };
     const uploadFileContent = String(dataUrl || '').match(/^data:[^;]+;base64,(.+)$/)?.[1] || '';
@@ -36992,6 +37060,25 @@ async function handle(req, res) {
     const { targetPhone, targetUser } = target;
     const fromPet = activePetFor(user);
     const targetPet = activePetFor(targetUser);
+    const message = String(body.message || '我想认识你和你的毛孩子').replace(/\s+/g, ' ').trim();
+    const messageViolation = socialChatContentViolation('招呼内容', message, SOCIAL_GREETING_MESSAGE_MAX_CHARS);
+    if (messageViolation) {
+      fail(res, 400, messageViolation, false, undefined, 'SOCIAL_GREETING_INVALID');
+      return;
+    }
+    const moderation = await evaluateContentTextModeration('招呼内容', message, {
+      ownerPhone: user.phone,
+      reviewAsBlock: true,
+      scope: 'conversation_message',
+    });
+    if (moderation.action !== 'allow' && moderation.source !== 'tencent_cms_error') {
+      recordModerationSample({ ...moderation, contentText: message, ownerPhone: user.phone, scope: 'conversation_message' });
+      fail(res, moderation.action === 'block' ? 400 : 409, moderation.message || '招呼内容需要修改后再发送', false, undefined, 'SOCIAL_GREETING_INVALID');
+      return;
+    }
+    if (moderation.action !== 'allow') {
+      recordModerationSample({ ...moderation, contentText: message, ownerPhone: user.phone, scope: 'conversation_message' });
+    }
     const source = String(body.source || '').trim();
     const rawPostId = String(body.postId || '').trim();
     const isPetCircleGreeting = source === 'pet_circle' || source === 'pet-circle' || Boolean(rawPostId);
@@ -37011,6 +37098,8 @@ async function handle(req, res) {
     const existing = pendingGreetingFor(user.phone, targetPhone);
     if (existing) {
       existing.at = Date.now();
+      existing.id = existing.id || `greeting-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+      existing.message = message;
       if (sourcePostId) {
         existing.source = 'pet_circle';
         existing.postId = sourcePostId;
@@ -37019,11 +37108,22 @@ async function handle(req, res) {
       state.greetings.push({
         at: Date.now(),
         fromPhone: user.phone,
-        message: '我想认识你和你的毛孩子',
+        id: `greeting-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+        message,
         ownerId,
         ...(sourcePostId ? { postId: sourcePostId, source: 'pet_circle' } : {}),
         status: 'pending',
         targetPhone,
+      });
+    }
+    const savedGreeting = existing || state.greetings.find((item) => item.fromPhone === user.phone && item.targetPhone === targetPhone && (item.status || 'pending') === 'pending');
+    if (moderation.action === 'allow') {
+      maybeRecordModerationQualitySample({
+        ...moderation,
+        contentText: message,
+        ownerPhone: user.phone,
+        scope: 'conversation_message',
+        targetId: savedGreeting?.id || `greeting-${user.phone}-${targetPhone}`,
       });
     }
     if (!existing || sourcePostId) {
@@ -37033,7 +37133,9 @@ async function handle(req, res) {
         ownerId: `user-${user.phone}`,
         ...(sourcePostId ? { postId: sourcePostId } : {}),
         read: false,
-        text: sourcePostId ? `${user.ownerName}和${fromPet.name}从这条小事向你和${targetPet.name}打了招呼` : `${user.ownerName}和${fromPet.name}向你和${targetPet.name}打了招呼`,
+        text: sourcePostId
+          ? `${user.ownerName}和${fromPet.name}从这条小事向你和${targetPet.name}打了招呼：${message.slice(0, 48)}`
+          : `${user.ownerName}和${fromPet.name}：${message.slice(0, 48)}`,
         title: sourcePostId ? `${targetPet.name}的小事有新互动` : '新的招呼',
       }, 'interaction');
     }

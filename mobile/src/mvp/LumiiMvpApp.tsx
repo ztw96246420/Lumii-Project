@@ -534,7 +534,7 @@ function formatMessageListTime(value?: string, fallback = '新消息') {
 
 function formatChatDateChip(value?: string) {
   const text = String(value ?? '').trim();
-  if (!text) return `今天 ${formatClockTime()}`;
+  if (!text) return '时间待确认';
   const date = new Date(text);
   if (!Number.isNaN(date.getTime())) {
     const time = formatClockTime(date);
@@ -545,8 +545,8 @@ function formatChatDateChip(value?: string) {
     return `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
   }
   const clockMatch = text.match(/^(\d{1,2}):(\d{2})$/);
-  if (clockMatch) return `今天 ${clockMatch[1].padStart(2, '0')}:${clockMatch[2]}`;
-  if (text === '刚刚') return `今天 ${formatClockTime()}`;
+  if (clockMatch) return `${clockMatch[1].padStart(2, '0')}:${clockMatch[2]}`;
+  if (text === '刚刚') return text;
   return text;
 }
 
@@ -627,7 +627,7 @@ function formatGreetingRequestSeenTime(timestamp?: number) {
 
 function notificationGroupFor(item: NotificationItem, seenAt?: number) {
   const date = notificationDateFor(item) ?? dateFromTimestamp(seenAt);
-  if (!date) return '今天';
+  if (!date) return '更早';
   const today = new Date();
   if (isSameCalendarDay(date, today)) return '今天';
   const yesterday = new Date();
@@ -836,17 +836,18 @@ const webPreviewSession: AuthSession = {
 const webPreviewAvatarMedia: UploadedPetMedia = {
   analysis: {
     canGenerate: true,
-    code: 'single_pet_clear',
-    message: '主体清晰，毛色和五官都适合生成电子灵伴。',
-    petCount: 1,
-    qualityScore: 96,
+    code: 'basic_file_check',
+    message: '图片文件已通过格式和完整性检查，可以提交生成；宠物特征将在生成时根据原图提取。',
+    qualityScore: 0,
     status: 'accepted',
     suggestions: [],
-    tags: ['主体清晰', '五官完整', '光线自然'],
-    title: '识别成功',
+    tags: ['格式可用', '文件完整', '可提交生成'],
+    title: '基础检查通过',
   },
   fileUrl: 'lumii://preview-golden-retriever-source',
   mediaId: 'preview-avatar-media',
+  moderationStatus: 'approved',
+  moderationStatusLabel: '已通过',
   previewUrl: generatedGoldenAvatarUri,
   quality: 'good',
 };
@@ -1278,6 +1279,17 @@ const speciesLabels: Record<PetSpecies, string> = {
   reptile: '爬宠',
 };
 
+function specificPetBreedDisplayLabel(pet?: null | Pick<PetProfile, 'breed' | 'species'>) {
+  const breed = String(pet?.breed ?? '').trim();
+  const normalized = breed.toLowerCase();
+  if (!breed || normalized === pet?.species || ['unknown', 'unknown breed', '未知', '未知品种'].includes(normalized)) return '';
+  return breed;
+}
+
+function petBreedDisplayLabel(pet?: null | Pick<PetProfile, 'breed' | 'species'>) {
+  return specificPetBreedDisplayLabel(pet) || speciesLabels[pet?.species ?? 'other'] || '宠物';
+}
+
 const defaultMapCenter = {
   latitude: 23.1291,
   longitude: 113.2644,
@@ -1643,6 +1655,13 @@ function formatPetAge(birthday?: string) {
 function formatWeightKg(kg?: null | number) {
   if (!Number.isFinite(Number(kg))) return '待记录';
   return `${Number(kg).toFixed(1).replace(/\.0$/, '')} kg`;
+}
+
+function petProfileRecordLabel(pet?: PetProfile | null) {
+  if (pet?.birthday && pet?.weightKg) return '生日和体重已记录';
+  if (pet?.birthday) return '生日已记录，体重待补充';
+  if (pet?.weightKg) return '体重已记录，生日待补充';
+  return '基础资料待补充';
 }
 
 function formatDueLabel(dueAt?: string) {
@@ -2092,7 +2111,7 @@ function formatCalendarDateLabel(dateText: string) {
   return `${date.getMonth() + 1} 月 ${date.getDate()} 日`;
 }
 
-function formatOptionalDateLabel(dateText?: string, fallback = '今天') {
+function formatOptionalDateLabel(dateText?: string, fallback = '日期待确认') {
   return dateText ? formatCalendarDateLabel(dateText) : fallback;
 }
 
@@ -2210,15 +2229,13 @@ function buildPetCircleInteractivePreviewMoments(): NearbyMoment[] {
   ];
 }
 
-function buildPetCirclePhotoUrls(moment: NearbyMoment, index: number) {
-  if (moment.imageUrls?.length) return moment.imageUrls.slice(0, dailyPostMaxPhotoCount);
-  const firstPhoto = moment.imageUrl && !isGeneratedAvatarUri(moment.imageUrl) ? moment.imageUrl : '';
+function buildPetCirclePhotoUrls(moment: NearbyMoment, index: number, usePreviewFallback = false) {
+  const actualPhotoUrls = (moment.imageUrls ?? []).filter(Boolean).slice(0, dailyPostMaxPhotoCount);
+  if (actualPhotoUrls.length) return actualPhotoUrls;
+  if (!usePreviewFallback) return [];
   const fallbackPhotoCount = index === 0 ? 6 : index === 1 ? 3 : 2;
   const desiredPhotoCount = Math.min(dailyPostMaxPhotoCount, Math.max(1, moment.photoCount || fallbackPhotoCount));
-  return Array.from({ length: desiredPhotoCount }).map((_, photoIndex) => {
-    if (photoIndex === 0 && firstPhoto) return firstPhoto;
-    return petCirclePhotoUrls[(index + photoIndex) % petCirclePhotoUrls.length];
-  });
+  return Array.from({ length: desiredPhotoCount }).map((_, photoIndex) => petCirclePhotoUrls[(index + photoIndex) % petCirclePhotoUrls.length]);
 }
 
 function buildPetCircleComments(moment: NearbyMoment, index: number): PetCircleCommentView[] {
@@ -2258,7 +2275,7 @@ function buildPetCirclePosts(moments: NearbyMoment[], commentsByPostId: Record<s
       ...moment,
       commentCount: moment.commentCount ?? comments.length,
       comments,
-      imageUrls: buildPetCirclePhotoUrls(moment, index),
+      imageUrls: buildPetCirclePhotoUrls(moment, index, usingFallbackMoments),
       likedByMe,
       likeCount: moment.likeCount ?? (usingFallbackMoments ? 18 + index * 7 + (likedByMe ? 1 : 0) : 0),
       ownedByMe: Boolean(moment.ownedByMe),
@@ -2433,6 +2450,7 @@ export default function LumiiMvpApp() {
   const initialPreviewMedia = initialPreviewAvatarResult || initialPreviewAvatarGenerating || initialPreviewRoute === 'uploadDetail' ? webPreviewAvatarMedia : initialPreviewUploadNoPet ? webPreviewNoPetMedia : null;
   const [media, setMedia] = useState<UploadedPetMedia | null>(initialPreviewMedia);
   const mediaIdRef = useRef<string | null>(initialPreviewMedia?.mediaId ?? null);
+  const [mediaModerationRefreshing, setMediaModerationRefreshing] = useState(false);
   const [mediaPickerMode, setMediaPickerMode] = useState<'camera' | 'library' | null>(null);
   const mediaPickingRef = useRef(false);
   const [avatarJob, setAvatarJob] = useState<AvatarJob | null>(initialPreviewAvatarResult ? webPreviewAvatarJob : null);
@@ -6269,6 +6287,7 @@ export default function LumiiMvpApp() {
     avatarFailureTrackedJobIdRef.current = '';
     avatarSuccessTrackedJobIdRef.current = '';
     setMedia(null);
+    setMediaModerationRefreshing(false);
     setAvatarJob(null);
     setAvatarStarting(false);
     setAvatarPollingError('');
@@ -6445,7 +6464,7 @@ export default function LumiiMvpApp() {
       if (result.data) {
         mediaIdRef.current = result.data.mediaId;
         setMedia(result.data);
-        if (!result.data.analysis.canGenerate) {
+        if (result.data.moderationStatus === 'hidden' || result.data.moderationStatus === 'rejected' || (!result.data.analysis.canGenerate && result.data.moderationStatus !== 'pending_review')) {
           go('uploadNoPet');
           return;
         }
@@ -6472,6 +6491,15 @@ export default function LumiiMvpApp() {
     }
     if (!media) {
       showToast('请先上传宠物照片');
+      return;
+    }
+    if (media.moderationStatus === 'pending_review') {
+      showToast('图片正在进行安全审核', { subtitle: '审核通过后才能生成灵伴形象', tone: 'warning', variant: 'surface' });
+      return;
+    }
+    if (media.moderationStatus === 'hidden' || media.moderationStatus === 'rejected') {
+      showToast(media.moderationReason || '图片未通过安全审核，请重新选择', { tone: 'warning', variant: 'surface' });
+      replace('uploadNoPet');
       return;
     }
     if (!media.analysis.canGenerate) {
@@ -6545,6 +6573,32 @@ export default function LumiiMvpApp() {
     avatarTransitioningJobIdRef.current = null;
     void persistAvatarGenerationSnapshot(job, media, 'aiResult');
     replace('aiResult');
+  }
+
+  async function refreshAvatarMediaModeration() {
+    if (!media || mediaModerationRefreshing) return;
+    const mediaId = media.mediaId;
+    const requestSessionToken = sessionTokenRef.current;
+    setMediaModerationRefreshing(true);
+    try {
+      const result = await avatarPreviewApi.getUploadedMedia(mediaId);
+      if (sessionTokenRef.current !== requestSessionToken || mediaIdRef.current !== mediaId) return;
+      if (!result.data) {
+        showToast(result.error?.message ?? '审核状态刷新失败，请稍后重试', { tone: 'error', variant: 'surface' });
+        return;
+      }
+      setMedia(result.data);
+      if (result.data.moderationStatus === 'approved' && result.data.analysis.canGenerate) {
+        showToast('图片审核已通过，可以开始生成');
+      } else if (result.data.moderationStatus === 'hidden' || result.data.moderationStatus === 'rejected') {
+        showToast(result.data.moderationReason || '图片未通过安全审核，请重新选择', { tone: 'warning', variant: 'surface' });
+        replace('uploadNoPet');
+      } else {
+        showToast('图片仍在安全审核中', { subtitle: '请稍后再刷新', tone: 'warning', variant: 'surface' });
+      }
+    } finally {
+      setMediaModerationRefreshing(false);
+    }
   }
 
   async function pollAvatarJob() {
@@ -8156,6 +8210,17 @@ export default function LumiiMvpApp() {
     if (!beginSocialAction(actionId)) return;
     const requestSessionToken = sessionTokenRef.current;
     const owner = ownersRef.current.find((item) => item.id === ownerId) ?? (greetingSheetOwner?.id === ownerId ? greetingSheetOwner : undefined);
+    const message = greetingMessage.replace(/\s+/g, ' ').trim();
+    if (!message) {
+      endSocialAction(actionId);
+      showToast('先写一句招呼吧', { tone: 'error', variant: 'surface' });
+      return;
+    }
+    if (message.length > 120) {
+      endSocialAction(actionId);
+      showToast('招呼内容最多 120 个字', { tone: 'error', variant: 'surface' });
+      return;
+    }
     try {
       if (ownerId.startsWith('pet-circle-owner-')) {
         await sleep(350);
@@ -8169,7 +8234,10 @@ export default function LumiiMvpApp() {
         return;
       }
       const sourcePostId = greetingSheetSourcePostId;
-      const result = await socialPreviewApi.sendGreeting(ownerId, sourcePostId ? { postId: sourcePostId, source: 'pet_circle' } : undefined);
+      const result = await socialPreviewApi.sendGreeting(ownerId, {
+        message,
+        ...(sourcePostId ? { postId: sourcePostId, source: 'pet_circle' as const } : {}),
+      });
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         if (result.data.conversation) {
@@ -9587,6 +9655,7 @@ export default function LumiiMvpApp() {
     mediaPickingRef.current = false;
     mediaIdRef.current = null;
     setMedia(null);
+    setMediaModerationRefreshing(false);
     setMediaPickerMode(null);
     avatarJobIdRef.current = null;
     avatarPollingJobIdRef.current = null;
@@ -10706,21 +10775,35 @@ export default function LumiiMvpApp() {
       return renderMissingUploadMedia('识别结果');
     }
     const analysis = media?.analysis;
-    const analysisTags = analysis?.tags?.length ? analysis.tags : ['主体清晰', '五官完整', '光线正常'];
-    const featureSummary = analysis?.tags?.slice(0, 3).join(' · ') || '待生成时进一步提取';
-    const faceSummary = analysis?.title ?? '主体清晰 · 五官完整';
-    const moodSummary = analysis?.message ?? '温顺亲人 · 适合生成';
-    const avatarStartDisabled = avatarStarting;
+    const moderationPending = media.moderationStatus === 'pending_review';
+    const moderationBlocked = media.moderationStatus === 'hidden' || media.moderationStatus === 'rejected';
+    const basicFileCheck = analysis?.code === 'basic_file_check' || analysis?.code === 'low_quality';
+    const analysisTags = analysis?.tags?.length ? analysis.tags : ['格式可用', '文件完整', '可提交生成'];
+    const featureSummary = basicFileCheck ? '生成时按原图保留' : analysis?.tags?.slice(0, 3).join(' · ') || '待生成时进一步提取';
+    const faceSummary = basicFileCheck ? '生成时按原图保留' : analysis?.title ?? '待生成时进一步提取';
+    const checkSummary = moderationPending
+      ? '图片正在进行安全审核，通过后才能开始生成'
+      : analysis?.message ?? '图片文件检查完成';
+    const avatarActionLoading = avatarStarting || mediaModerationRefreshing;
+    const avatarStartDisabled = avatarActionLoading || moderationBlocked;
+    const badgeLabel = moderationPending ? '安全审核中' : moderationBlocked ? '图片不可用' : analysis?.status === 'warning' ? '建议优化' : basicFileCheck ? '图片可用' : '识别成功';
+    const qualityLabel = moderationPending
+      ? '暂不可生成'
+      : Number(analysis?.qualityScore || 0) > 0
+        ? `质量 ${analysis?.qualityScore}%`
+        : analysis?.status === 'warning'
+          ? '文件检查完成'
+          : '基础检查通过';
     const petSubjectParts = [speciesLabels[activePet?.species ?? petDraft.species], activePet?.breed || petDraft.breed].filter(Boolean);
     return (
       <Screen title="识别结果">
         <View style={[styles.recognitionHeroMake, Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg,#F8D9B7 0%, #E2A56A 100%)' } as object) : null]}>
           <PetAvatar uri={media.previewUrl} size={170} />
-          <View style={styles.recognitionSuccessBadge}>
+          <View style={[styles.recognitionSuccessBadge, moderationPending ? styles.recognitionPendingBadge : moderationBlocked ? styles.recognitionBlockedBadge : null]}>
             <Sparkles color="#fff" size={12} strokeWidth={2.4} />
-            <Text style={styles.recognitionBadgeText}>{analysis?.status === 'warning' ? '建议优化' : '识别成功'}</Text>
+            <Text style={styles.recognitionBadgeText}>{badgeLabel}</Text>
           </View>
-          <Text style={styles.recognitionQuality}>质量 {analysis?.qualityScore ?? 96}%</Text>
+          <Text style={styles.recognitionQuality}>{qualityLabel}</Text>
         </View>
         <View style={styles.recognitionDetailCardMake}>
           <MakeDetailRow label="宠物主体" value={petSubjectParts.join(' · ') || '待确认'} valueAlign="right" />
@@ -10729,7 +10812,7 @@ export default function LumiiMvpApp() {
           <View style={styles.makeDivider} />
           <MakeDetailRow label="五官特征" value={faceSummary} valueAlign="right" />
           <View style={styles.makeDivider} />
-          <MakeDetailRow label="表情气质" value={moodSummary} valueAlign="right" />
+          <MakeDetailRow label={basicFileCheck ? '图片检查' : '表情气质'} value={checkSummary} valueAlign="right" />
         </View>
         <View style={styles.recognitionFeatureChipsMake}>
           {analysisTags.map((tag) => (
@@ -10740,11 +10823,13 @@ export default function LumiiMvpApp() {
           <Pressable
             accessibilityRole="button"
             disabled={avatarStartDisabled}
-            onPress={() => void startAvatarGeneration()}
+            onPress={() => void (moderationPending ? refreshAvatarMediaModeration() : startAvatarGeneration())}
             style={({ pressed }) => [styles.recognitionPrimaryCta, pressed && !avatarStartDisabled && styles.recognitionPrimaryCtaPressed, avatarStartDisabled && styles.opacity60, webPressableReset]}
           >
-            {avatarStarting ? <ActivityIndicator color="#fff" size="small" /> : null}
-            <Text style={styles.recognitionPrimaryCtaText}>{avatarStarting ? '正在生成...' : '确认并生成灵伴'}</Text>
+            {avatarActionLoading ? <ActivityIndicator color="#fff" size="small" /> : null}
+            <Text style={styles.recognitionPrimaryCtaText}>
+              {mediaModerationRefreshing ? '正在刷新...' : avatarStarting ? '正在生成...' : moderationPending ? '刷新审核状态' : '确认并生成灵伴'}
+            </Text>
           </Pressable>
         </View>
       </Screen>
@@ -10753,7 +10838,8 @@ export default function LumiiMvpApp() {
 
   function renderUploadNoPet() {
     const analysis = media?.analysis;
-    const failedTitle = analysis?.title ?? '未检测到清晰宠物主体';
+    const moderationRejected = media?.moderationStatus === 'hidden' || media?.moderationStatus === 'rejected';
+    const failedTitle = moderationRejected ? '图片未通过安全审核' : analysis?.title ?? '图片暂不可用';
     const failedMessage = analysis?.message ?? '试试以下方式：';
     const failedSuggestions = analysis?.suggestions?.length
       ? analysis.suggestions
@@ -10765,7 +10851,7 @@ export default function LumiiMvpApp() {
           <View style={styles.failedAlertCircle}>
             <AlertTriangle color={palette.danger} size={30} strokeWidth={2.4} />
           </View>
-          <Text style={styles.failedBadgeMake}>识别失败</Text>
+          <Text style={styles.failedBadgeMake}>{moderationRejected ? '审核未通过' : '图片不可用'}</Text>
         </View>
         <View style={styles.detailCardMake}>
           <Text style={styles.cardTitle}>{failedTitle}</Text>
@@ -11214,7 +11300,7 @@ export default function LumiiMvpApp() {
     if (!pet) return renderEmptyPet();
     const nextVaccine = pendingVaccines[0] ?? healthSummary?.nextVaccine ?? vaccines[0];
     const latestWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet.weightKg;
-    const petMeta = [pet.breed || speciesLabels[pet.species], formatPetAge(pet.birthday)].filter(Boolean).join(' · ');
+    const petMeta = [petBreedDisplayLabel(pet), formatPetAge(pet.birthday)].filter(Boolean).join(' · ');
     const memoCount = healthSummary?.memoCount ?? memos.length;
     const calendarSummary = healthCalendarEvents.length ? `${healthCalendarEvents.length} 条记录` : (healthSummary?.latestMemo?.title ?? memos[0]?.title ?? '查看记录');
     const onlineCopy = owners.length ? `${owners.length} 位伙伴在线` : '暂无附近伙伴';
@@ -11412,7 +11498,7 @@ export default function LumiiMvpApp() {
                   <Text style={styles.homeHeroMiniText}>{homeAiEntryMiniTitle}{'\n'}{homeAiEntryMiniSubtitle}</Text>
                 </Pressable>
               )}
-              <Pressable onPress={() => { if (guardFeature(petCircleEnabled, '宠友圈')) go('dailyPost'); }} style={[styles.homeHeroMiniCard, styles.homeHeroMiniCardWide, webPressableReset]}>
+              <Pressable accessibilityLabel="发布今日小事" accessibilityRole="button" onPress={() => { if (guardFeature(petCircleEnabled, '宠友圈')) go('dailyPost'); }} style={[styles.homeHeroMiniCard, styles.homeHeroMiniCardWide, webPressableReset]}>
                 <MessageCircle color={palette.teal} size={14} strokeWidth={2.4} />
                 <Text style={styles.homeHeroMiniText}>要不要记录一件{'\n'}开心小事？</Text>
               </Pressable>
@@ -11642,9 +11728,9 @@ export default function LumiiMvpApp() {
     const canSendMessage = Boolean(conversation && conversation.canSendMessage !== false);
     const conversationInput = conversation ? conversationDraftsById[conversation.id] ?? '' : '';
     const failedConversationMessage = conversationMessages.slice().reverse().find((message) => message.author === 'me' && message.status === 'failed');
-    const conversationAvatarUri = conversation?.imageUrl ?? owners[0]?.imageUrl;
+    const conversationAvatarUri = conversation?.imageUrl;
     const firstConversationTime = conversationMessages.find((message) => message.author !== 'system')?.time;
-    const conversationDateText = firstConversationTime ? formatChatDateChip(firstConversationTime) : '今天';
+    const conversationDateText = firstConversationTime ? formatChatDateChip(firstConversationTime) : '暂无消息';
     const parseWalkInviteMessage = (text: string) => {
       const [rawFirstLine, ...noteLines] = text.split('\n');
       const firstLine = rawFirstLine.trim();
@@ -11710,7 +11796,7 @@ export default function LumiiMvpApp() {
       }
       const petCard = [
         `这是${pet.name}的小资料：`,
-        `品种：${pet.breed || speciesLabels[pet.species]}`,
+        `品种：${petBreedDisplayLabel(pet)}`,
         pet.weightKg ? `体重：${formatWeightKg(pet.weightKg)}` : '',
         pet.birthday ? `年龄：${formatPetAge(pet.birthday)}` : '',
         pet.personality.length ? `性格：${pet.personality.join('、')}` : '',
@@ -11770,7 +11856,7 @@ export default function LumiiMvpApp() {
                 <Text numberOfLines={1} style={styles.chatMakeName}>{conversation?.name ?? '会话已失效'}</Text>
                 <View style={styles.chatOnlineRow}>
                   <View style={[styles.homeOnlineDot, !canSendMessage && styles.chatOfflineDotMake]} />
-                  <Text numberOfLines={1} style={[styles.chatOnlineText, !canSendMessage && styles.chatOnlineTextMutedMake]}>{conversation ? (canSendMessage ? '在线 · 模糊距离' : '等待对方接受招呼') : '请返回消息列表重新选择'}</Text>
+                  <Text numberOfLines={1} style={[styles.chatOnlineText, !canSendMessage && styles.chatOnlineTextMutedMake]}>{conversation ? (canSendMessage ? '已接受招呼 · 模糊距离' : '等待对方接受招呼') : '请返回消息列表重新选择'}</Text>
                 </View>
               </View>
             </View>
@@ -11812,7 +11898,7 @@ export default function LumiiMvpApp() {
                       {message.author === 'other' ? <PetAvatar uri={conversationAvatarUri} size={26} /> : null}
                       {invite ? (
                         <View style={[styles.chatInviteBubbleMake, message.author === 'me' && styles.chatInviteBubbleMeMake]}>
-                          <Image resizeMode="cover" source={{ uri: walkInviteParkPhotoUrl }} style={styles.chatInviteHeroImageMake} />
+                          <PlaceVisual previewFallbackUri={walkInviteParkPhotoUrl} style={styles.chatInviteHeroImageMake} usePreviewFallback={isHomePreviewMode} />
                           <View style={styles.chatInviteHeroOverlayMake} />
                           <View style={styles.chatInviteBadgeMake}>
                             <PawPrint color={palette.orange} size={10} strokeWidth={2.6} />
@@ -11939,7 +12025,11 @@ export default function LumiiMvpApp() {
     const pet = getCurrentPet();
     const nextHealthVaccine = pendingVaccines[0] ?? healthSummary?.nextVaccine ?? vaccines[0];
     const latestWeight = healthSummary?.latestWeightKg ?? weights[0]?.kg ?? pet?.weightKg;
-    const healthScore = healthSummary?.healthScore ?? pet?.healthScore ?? 92;
+    const healthRecordCount = healthCalendarEvents.length;
+    const healthRecordStatus = healthRecordCount ? '持续记录' : '等待记录';
+    const healthRecordSummary = healthRecordCount
+      ? `累计 ${healthRecordCount} 条体重、疫苗/驱虫和备忘记录`
+      : '累计 0 条记录，从体重、疫苗/驱虫或备忘开始';
     const weightSubtitle = healthSummary?.weightSummary ?? (weights.length > 1 ? `最近一次 ${formatOptionalDateLabel(weights[0]?.recordedAt)}` : '暂无连续记录，先从今天开始');
     const latestMemo = healthSummary?.latestMemo ?? memos[0];
     const urgentHealthCount = healthSummary?.urgentVaccineCount ?? urgentVaccines.length;
@@ -11985,13 +12075,12 @@ export default function LumiiMvpApp() {
           <View style={styles.healthHeroCopy}>
             <View style={styles.healthHeroLabelRow}>
               <Heart color={palette.orange} fill={palette.orange} size={12} strokeWidth={2.4} />
-              <Text style={styles.healthHeroLabel}>今日健康分</Text>
+              <Text style={styles.healthHeroLabel}>宠物记录</Text>
             </View>
             <View style={styles.healthHeroScoreRow}>
-              <Text style={styles.healthHeroScore}>{healthScore}</Text>
-              <Text style={styles.healthHeroTotal}>/ 100</Text>
+              <Text style={styles.healthHeroStatus}>{healthRecordStatus}</Text>
             </View>
-            <Text style={styles.healthHeroDesc}>{weightSubtitle}</Text>
+            <Text style={styles.healthHeroDesc}>{healthRecordSummary}</Text>
           </View>
           <View style={styles.healthHeroAvatar}>
             <PetAvatar uri={pet?.avatarUrl} size={64} />
@@ -12000,7 +12089,7 @@ export default function LumiiMvpApp() {
 
         <View style={styles.healthSectionStack}>
           <HealthMakeRow Icon={Weight} badge={formatWeightKg(latestWeight)} chart onPress={() => go('weight')} subtitle={weightSubtitle} title="体重趋势" tone="warm" />
-          <HealthMakeRow Icon={Syringe} badge={urgentHealthCount ? `${urgentHealthCount} 项临近` : pendingHealthCount ? `${pendingHealthCount} 项` : '已完成'} badgeTone="warm" onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${vaccineReminderCopy(nextHealthVaccine)}` : '暂无计划'} title="疫苗/驱虫计划" tone="cool" />
+          <HealthMakeRow Icon={Syringe} badge={urgentHealthCount ? `${urgentHealthCount} 项临近` : pendingHealthCount ? `${pendingHealthCount} 项` : vaccines.length ? '已完成' : '暂无计划'} badgeTone="warm" onPress={() => go('vaccine')} subtitle={nextHealthVaccine ? `${nextHealthVaccine.name} · ${vaccineReminderCopy(nextHealthVaccine)}` : '暂无计划'} title="疫苗/驱虫计划" tone="cool" />
           <HealthMakeRow Icon={CalendarDays} badge={`${healthCalendarEvents.length || recentRows.length} 条`} onPress={() => go('healthCalendar')} subtitle="按月份查看体重、疫苗和备忘记录" title="宠物日历" tone="cool" />
         </View>
 
@@ -14870,6 +14959,7 @@ export default function LumiiMvpApp() {
                     }}
                     place={place}
                     rank={index + 1}
+                    usePreviewFallback={isHomePreviewMode}
                   />
                 ))}
                 {!visiblePlaces.length ? (
@@ -14919,7 +15009,12 @@ export default function LumiiMvpApp() {
               <View pointerEvents="none" style={styles.mapFilterRightFadeMake} />
 
               <View style={[styles.mapBottomSheetMake, !mapPlacesSheetExpanded && styles.mapBottomSheetCollapsedMake]}>
-                <Pressable accessibilityRole="button" onPress={() => setMapPlacesSheetExpanded((expanded) => !expanded)} style={[styles.mapSheetHeaderButtonMake, webPressableReset]}>
+                <Pressable
+                  accessibilityLabel={mapPlacesSheetExpanded ? '收起附近地点列表' : '展开附近地点列表'}
+                  accessibilityRole="button"
+                  onPress={() => setMapPlacesSheetExpanded((expanded) => !expanded)}
+                  style={[styles.mapSheetHeaderButtonMake, webPressableReset]}
+                >
                   <View style={styles.flex}>
                     <View style={styles.sheetHandle} />
                     <View style={styles.mapSheetHeader}>
@@ -14944,6 +15039,7 @@ export default function LumiiMvpApp() {
                         }}
                         place={place}
                         rank={index + 1}
+                        usePreviewFallback={isHomePreviewMode}
                       />
                     ))}
                     {!visiblePlaces.length ? (
@@ -15033,7 +15129,7 @@ export default function LumiiMvpApp() {
         {place ? (
           <View style={styles.placeDetailPageMake}>
             <View style={styles.placeHeroMake}>
-              <Image resizeMode="cover" source={{ uri: getPlaceVisualUrl(place) }} style={styles.avatarImage} />
+              <PlaceVisual place={place} style={styles.avatarImage} usePreviewFallback={isHomePreviewMode} />
               <View pointerEvents="none" style={styles.placeHeroOverlay} />
               <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={back} style={[styles.placeBackButtonMake, styles.placeHeroBackButtonMake]}>
                 <ChevronLeft color={palette.ink} size={18} strokeWidth={2.5} />
@@ -15643,7 +15739,7 @@ export default function LumiiMvpApp() {
             {conversations.map((conversation) => (
               <Pressable key={conversation.id} onPress={() => void openConversation(conversation)} style={styles.conversationMakeRow}>
                 <View style={styles.conversationAvatarWrap}>
-                  <PetAvatar uri={conversation.imageUrl ?? owners[0]?.imageUrl} size={50} />
+                  <PetAvatar uri={conversation.imageUrl} size={50} />
                   <View style={styles.conversationOwnerBadge}>
                     <User color={palette.orange} size={10} strokeWidth={2.5} />
                   </View>
@@ -16047,9 +16143,8 @@ export default function LumiiMvpApp() {
     const pet = getCurrentPet();
     const maskedPhone = formatMaskedPhone(session?.phone);
     const ownerName = formatOwnerName(session?.phone, pet, session?.account?.ownerName);
-    const speciesLabel = pet ? speciesLabels[pet.species] : '';
     const petGenderSymbol = pet?.gender === 'female' ? '♀' : pet?.gender === 'male' ? '♂' : '';
-    const petBadgeText = [petGenderSymbol, pet?.breed || speciesLabel].filter(Boolean).join(' ');
+    const petBadgeText = [petGenderSymbol, petBreedDisplayLabel(pet)].filter(Boolean).join(' ');
     const petTags = buildPetProfileTags(pet, pendingVaccines.length, vaccines.length);
     const unreadNotificationCount = notifications.filter((item) => !item.read).length;
     const placeContributionSummary = session?.account?.placeContributionSummary;
@@ -16147,7 +16242,7 @@ export default function LumiiMvpApp() {
                 <View style={styles.flex}>
                   <View style={styles.profilePetNameRow}>
                     <Text style={styles.profilePetName}>{pet.name}</Text>
-                    <Text style={styles.profilePetBadge}>{petBadgeText || speciesLabel}</Text>
+                    <Text style={styles.profilePetBadge}>{petBadgeText || petBreedDisplayLabel(pet)}</Text>
                   </View>
                   <Text style={styles.profilePetMeta}>{formatPetAge(pet.birthday)} · {formatWeightKg(pet.weightKg)}</Text>
                   <View style={styles.profilePetTags}>
@@ -16225,13 +16320,13 @@ export default function LumiiMvpApp() {
                       <Text style={styles.currentPetBadgeText}>当前灵伴</Text>
                     </View>
                   </View>
-                  <Text style={styles.profilePetMeta}>{speciesLabels[current.species]} · {current.breed || '品种待补充'}</Text>
+                  <Text style={styles.profilePetMeta}>{[speciesLabels[current.species], specificPetBreedDisplayLabel(current)].filter(Boolean).join(' · ')}</Text>
                   <Text style={styles.profilePetMeta}>{formatPetAge(current.birthday)} · {formatWeightKg(current.weightKg)}</Text>
                 </View>
               </View>
               <View style={styles.multiPetHeroHealth}>
-                <Heart color={palette.teal} size={12} strokeWidth={2.4} />
-                <Text style={styles.multiPetHeroHealthText}>{current.healthScore >= 80 ? '近 30 天健康稳定' : '建议关注近期健康状态'}</Text>
+                <CalendarDays color={palette.teal} size={12} strokeWidth={2.4} />
+                <Text style={styles.multiPetHeroHealthText}>{petProfileRecordLabel(current)}</Text>
               </View>
             </View>
           ) : null}
@@ -16270,12 +16365,12 @@ export default function LumiiMvpApp() {
                       >
                         <View style={styles.profilePetNameRow}>
                           <Text style={styles.multiPetRowName}>{pet.name}</Text>
-                          <Text numberOfLines={1} style={[styles.multiPetKindBadge, pet.species === 'dog' && styles.multiPetKindBadgeDog]}>{speciesLabels[pet.species]} · {pet.breed || '品种待补充'}</Text>
+                           <Text numberOfLines={1} style={[styles.multiPetKindBadge, pet.species === 'dog' && styles.multiPetKindBadgeDog]}>{[speciesLabels[pet.species], specificPetBreedDisplayLabel(pet)].filter(Boolean).join(' · ')}</Text>
                         </View>
                         <Text style={styles.profilePetMeta}>{formatPetAge(pet.birthday)} · {formatWeightKg(pet.weightKg)}</Text>
-                        <View style={[styles.multiPetHealthPill, pet.healthScore < 75 && styles.multiPetHealthPillWarn]}>
-                          {pet.healthScore < 75 ? <AlertTriangle color={palette.warning} size={10} strokeWidth={2.4} /> : <Heart color={palette.teal} size={10} strokeWidth={2.4} />}
-                          <Text style={[styles.multiPetHealthPillText, pet.healthScore < 75 && styles.multiPetHealthPillTextWarn]}>{pet.healthScore >= 80 ? '近 30 天健康稳定' : '建议关注近期健康状态'}</Text>
+                        <View style={styles.multiPetHealthPill}>
+                          <CalendarDays color={palette.teal} size={10} strokeWidth={2.4} />
+                          <Text style={styles.multiPetHealthPillText}>{petProfileRecordLabel(pet)}</Text>
                         </View>
                       </Pressable>
                       <View style={styles.multiPetActions}>
@@ -16551,7 +16646,7 @@ export default function LumiiMvpApp() {
               </Pressable>
               <View style={styles.petDetailHeroText}>
                 <Text style={styles.petDetailHeroName}>{pet.name}</Text>
-                <Text style={styles.petDetailHeroMeta}>{pet.breed || speciesLabels[pet.species]} · {genderSymbol} · {formatPetAge(pet.birthday)}</Text>
+                <Text style={styles.petDetailHeroMeta}>{petBreedDisplayLabel(pet)} · {genderSymbol} · {formatPetAge(pet.birthday)}</Text>
               </View>
               <Pressable onPress={() => go('editPet')} style={styles.petDetailEdit}>
                 <Edit3 color={palette.orange} size={12} strokeWidth={2.4} />
@@ -16575,7 +16670,7 @@ export default function LumiiMvpApp() {
               <View style={styles.petDetailInfoCardMake}>
                 <PetDetailInfoRow label="昵称" value={pet.name} />
                 <View style={styles.makeDivider} />
-                <PetDetailInfoRow label="品种" value={pet.breed || speciesLabels[pet.species]} />
+                <PetDetailInfoRow label="品种" value={petBreedDisplayLabel(pet)} />
                 <View style={styles.makeDivider} />
                 <PetDetailInfoRow label="性别 / 绝育" value={`${genderSymbol} / 未记录`} />
                 <View style={styles.makeDivider} />
@@ -17177,7 +17272,6 @@ export default function LumiiMvpApp() {
       ? `可以写下${pet.name}喜欢的玩具、性格或见面注意事项`
       : '可以写下宠物喜欢的玩具、性格或见面注意事项';
     const selectedWalkPlace = walkInvitePlaceId ? places.find((place) => place.id === walkInvitePlaceId) ?? null : null;
-    const walkPlaceVisualUrl = selectedWalkPlace ? getPlaceVisualUrl(selectedWalkPlace) : walkInviteParkPhotoUrl;
     const walkPlaceMeta = walkInvitePlaceAddress || (selectedWalkPlace ? walkInvitePlaceMetaFor(selectedWalkPlace) : '');
     return (
       <Screen title="约遛邀请">
@@ -17194,7 +17288,7 @@ export default function LumiiMvpApp() {
               </View>
               <View style={styles.flex}>
                 <Text numberOfLines={1} style={styles.walkPetsTitleMake}>{pet?.name ?? '我的宠物'} × {owner.petName}</Text>
-                <Text numberOfLines={1} style={styles.walkPetsMetaMake}>{pet?.breed ?? (pet?.species === 'cat' ? '猫咪' : '狗狗')} × {owner.tags[0] ?? (owner.species === 'cat' ? '猫咪' : '狗狗')} · 一起溜达？</Text>
+                <Text numberOfLines={1} style={styles.walkPetsMetaMake}>{petBreedDisplayLabel(pet)} × {owner.tags[0] ?? (owner.species === 'cat' ? '猫咪' : '狗狗')} · 一起溜达？</Text>
               </View>
             </View>
 
@@ -17226,7 +17320,7 @@ export default function LumiiMvpApp() {
 
             <Text style={styles.walkFieldLabelMake}>地点</Text>
             <View style={styles.walkPlaceCardMake}>
-              <Image resizeMode="cover" source={{ uri: walkPlaceVisualUrl }} style={styles.avatarImage} />
+              <PlaceVisual place={selectedWalkPlace ?? undefined} previewFallbackUri={walkInviteParkPhotoUrl} style={styles.avatarImage} usePreviewFallback={isHomePreviewMode} />
               <View style={styles.walkPlaceOverlayMake} />
               <View style={[styles.walkPlaceTitleMake, walkPlaceMeta && styles.walkPlaceTitleWithMetaMake]}>
                 <MapPin color="#fff" size={13} strokeWidth={2.4} />
@@ -17309,19 +17403,18 @@ export default function LumiiMvpApp() {
           </View>
         ) : null}
         <View style={styles.requestStackMake}>
-          {requestCount ? visibleGreetingRequestOwners.map((owner, index) => {
+          {requestCount ? visibleGreetingRequestOwners.map((owner) => {
             const accepting = socialActionSavingIds.includes(`accept:${owner.id}`);
             const rejecting = socialActionSavingIds.includes(`reject:${owner.id}`);
             const reporting = socialActionSavingIds.includes(`report:${owner.id}`);
             const busy = accepting || rejecting || reporting;
             const focusedFromNotification = owner.id === focusedGreetingRequestOwnerId;
-            const ownerAvatarUrl = discoverOwnerAvatarUrls[index % discoverOwnerAvatarUrls.length];
             const breed = owner.tags[0] ?? (owner.species === 'dog' ? '狗狗' : '猫咪');
             const extraTags = owner.tags.slice(1, 3);
             const tagText = [breed, owner.distance, ...extraTags].filter(Boolean).join(' · ');
-            const requestMessage = index === 0
-              ? `嗨～看起来${pet?.name ?? '你家宠物'}超有活力！要不约个时间一起玩？`
-              : `想和${pet?.name ?? '你家宠物'}做朋友～可以一起分享日常吗？`;
+            const requestMessage = owner.greetingMessage || `想和${pet?.name ?? '你家宠物'}认识一下～`;
+            const sentAt = Date.parse(owner.greetingSentAt || '');
+            const requestTimestamp = Number.isFinite(sentAt) ? sentAt : greetingRequestSeenAtById[owner.id];
             return (
               <View key={owner.id} style={[styles.greetingRequestCardMake, focusedFromNotification && styles.greetingRequestCardFocusedMake]}>
                 <View style={styles.greetingRequestTopMake}>
@@ -17329,14 +17422,12 @@ export default function LumiiMvpApp() {
                     <View style={styles.greetingRequestPetPhotoMake}>
                       <PetPhoto uri={owner.imageUrl} style={styles.avatarImage} />
                     </View>
-                    <View style={styles.greetingRequestOwnerAvatarMake}>
-                      <Image resizeMode="cover" source={{ uri: ownerAvatarUrl }} style={styles.avatarImage} />
-                    </View>
+                    <OwnerAvatar size={22} style={styles.greetingRequestOwnerAvatarMake} uri={owner.ownerAvatarUrl} />
                   </View>
                   <View style={styles.flex}>
                     <View style={styles.greetingRequestTitleRowMake}>
                       <Text numberOfLines={1} style={styles.greetingRequestTitleMake}>{owner.ownerName} & {owner.petName}</Text>
-                      <Text style={styles.greetingRequestTimeMake}>{formatGreetingRequestSeenTime(greetingRequestSeenAtById[owner.id])}</Text>
+                      <Text style={styles.greetingRequestTimeMake}>{formatGreetingRequestSeenTime(requestTimestamp)}</Text>
                     </View>
                     <Text numberOfLines={1} style={styles.greetingRequestMetaMake}>{tagText}</Text>
                     <Text style={styles.greetingRequestMessageMake}>{requestMessage}</Text>
@@ -17451,7 +17542,7 @@ export default function LumiiMvpApp() {
 
           {isReviewMode && place ? (
             <View style={styles.addPlacePlaceCardMake}>
-              <Image resizeMode="cover" source={{ uri: placeReviewPhotoUrls[0] }} style={styles.addPlacePlaceThumbMake} />
+              <PlaceVisual place={place} style={styles.addPlacePlaceThumbMake} usePreviewFallback={isHomePreviewMode} />
               <View style={styles.flex}>
                 <Text numberOfLines={1} style={styles.addPlacePlaceNameMake}>{place.name}</Text>
                 <Text numberOfLines={1} style={styles.addPlacePlaceMetaMake}>{getPlaceCategoryLabel(place)} · {place.address}</Text>
@@ -18108,8 +18199,6 @@ export default function LumiiMvpApp() {
     const owner = greetingSheetOwner;
     const saving = owner ? socialActionSavingIds.includes(`greet:${owner.id}`) : false;
     const currentPet = getCurrentPet();
-    const ownerIndex = owner ? Math.max(0, owners.findIndex((item) => item.id === owner.id)) : 0;
-    const ownerAvatarUrl = discoverOwnerAvatarUrls[ownerIndex % discoverOwnerAvatarUrls.length];
     const ownerBreed = owner ? owner.tags[0] ?? (owner.species === 'cat' ? '猫咪' : '狗狗') : '';
     const currentPetIntro = currentPet
       ? `我家${currentPet.name}${currentPet.breed ? `（${currentPet.breed}）` : ''}`
@@ -18129,9 +18218,7 @@ export default function LumiiMvpApp() {
             <View style={styles.greetingSheetHeader}>
               <View style={styles.greetingSheetAvatarMake}>
                 <PetPhoto uri={owner.imageUrl} style={styles.avatarImage} />
-                <View style={styles.greetingSheetOwnerAvatarMake}>
-                  <Image resizeMode="cover" source={{ uri: ownerAvatarUrl }} style={styles.avatarImage} />
-                </View>
+                <OwnerAvatar size={22} style={styles.greetingSheetOwnerAvatarMake} uri={owner.ownerAvatarUrl} />
               </View>
               <View style={styles.flex}>
                 <Text style={styles.sheetTitle}>和{owner.petName}打个招呼</Text>
@@ -18155,7 +18242,17 @@ export default function LumiiMvpApp() {
             </View>
 
             <View style={styles.greetingMessageCard}>
-              <Text style={styles.greetingMessageText}>{greetingMessage}</Text>
+              <TextInput
+                accessibilityLabel="招呼开场白"
+                maxLength={120}
+                multiline
+                onChangeText={setGreetingMessage}
+                placeholder="写一句友好的开场白"
+                placeholderTextColor="#B8B5AC"
+                style={[styles.greetingMessageInputMake, webTextInputReset]}
+                value={greetingMessage}
+              />
+              <Text style={styles.greetingMessageCountMake}>{greetingMessage.length}/120</Text>
             </View>
 
             <View style={styles.greetingSafetyMake}>
@@ -18257,7 +18354,7 @@ export default function LumiiMvpApp() {
               <PetAvatar size={44} uri={pet.avatarUrl} />
               <View style={styles.flex}>
                 <Text style={styles.petDeletePreviewNameMake}>{pet.name}</Text>
-                <Text style={styles.petDeletePreviewMetaMake}>{pet.breed || speciesLabels[pet.species]} · {formatPetAge(pet.birthday)} · {formatWeightKg(pet.weightKg)}</Text>
+                <Text style={styles.petDeletePreviewMetaMake}>{petBreedDisplayLabel(pet)} · {formatPetAge(pet.birthday)} · {formatWeightKg(pet.weightKg)}</Text>
               </View>
               <Trash2 color={palette.danger} size={18} strokeWidth={2.4} />
             </View>
@@ -18864,6 +18961,29 @@ function PetAvatar({ size = 96, uri }: { size?: number; uri?: null | string }) {
   );
 }
 
+function OwnerAvatar({ size = 22, style, uri }: { size?: number; style?: StyleProp<ViewStyle>; uri?: null | string }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [uri]);
+
+  const showImage = Boolean(uri && !failed);
+  return (
+    <View
+      accessibilityLabel={showImage ? 'owner-avatar' : 'owner-avatar-placeholder'}
+      accessibilityRole="image"
+      style={[styles.ownerAvatarPlaceholderMake, { borderRadius: size / 2, height: size, width: size }, style]}
+    >
+      {showImage ? (
+        <Image onError={() => setFailed(true)} resizeMode="cover" source={{ uri: uri! }} style={styles.avatarImage} />
+      ) : (
+        <User color={palette.muted} size={Math.max(10, size * 0.48)} strokeWidth={2.4} />
+      )}
+    </View>
+  );
+}
+
 function PetPhoto({ iconSize = 28, resizeMode = 'cover', style, uri }: { iconSize?: number; resizeMode?: 'contain' | 'cover'; style?: StyleProp<ImageStyle>; uri?: null | string }) {
   const [failed, setFailed] = useState(false);
   const source = uri ? (isGeneratedAvatarUri(uri) ? generatedGoldenAvatarSource : { uri }) : null;
@@ -18989,9 +19109,10 @@ function PlaceRow({ onPress, place }: { onPress: () => void; place: Place }) {
   );
 }
 
-function getPlaceVisualUrl(place: Place) {
+function getPlaceVisualUrl(place: Place, usePreviewFallback = false) {
   const photoUrl = place.coverImageUrl || place.photoUrls?.find((url) => /^https?:\/\//i.test(url));
   if (photoUrl) return photoUrl;
+  if (!usePreviewFallback) return '';
   if (place.category === 'park') return placeParkPhotoUrl;
   if (place.category === 'cafe') return placeCafePhotoUrl;
   if (place.category === 'shop') return placeReviewPhotoUrls[1] ?? placeCafePhotoUrl;
@@ -19011,7 +19132,7 @@ function getPlacePhotoBadgeText(place: Place) {
   const photoCount = Array.isArray(place.photoUrls) ? place.photoUrls.filter((url) => /^https?:\/\//i.test(url)).length : 0;
   if (photoCount > 0) return `${photoCount} 张图片`;
   if (place.coverImageUrl) return 'POI图片';
-  return '示意图';
+  return '暂无实景图';
 }
 
 function getPlaceOpeningText(place: Place) {
@@ -19039,11 +19160,32 @@ function getPlaceFilterChipLabel(category: PlaceFilter) {
   return '全部';
 }
 
-function PlaceSheetRow({ active, onPress, place }: { active?: boolean; onPress: () => void; place: Place; rank: number }) {
+function PlaceVisual({
+  place,
+  previewFallbackUri = '',
+  style,
+  usePreviewFallback = false,
+}: {
+  place?: Place;
+  previewFallbackUri?: string;
+  style?: StyleProp<ImageStyle>;
+  usePreviewFallback?: boolean;
+}) {
+  const uri = place ? getPlaceVisualUrl(place, usePreviewFallback) : usePreviewFallback ? previewFallbackUri : '';
+  if (uri) return <Image resizeMode="cover" source={{ uri }} style={style} />;
+  const Icon = place?.category === 'clinic' ? Stethoscope : place?.category === 'shop' ? PawPrint : MapPin;
+  return (
+    <View accessibilityLabel="place-photo-placeholder" accessibilityRole="image" style={[styles.placeVisualPlaceholderMake, style as StyleProp<ViewStyle>]}>
+      <Icon color={palette.teal} size={26} strokeWidth={2.2} />
+    </View>
+  );
+}
+
+function PlaceSheetRow({ active, onPress, place, usePreviewFallback = false }: { active?: boolean; onPress: () => void; place: Place; rank: number; usePreviewFallback?: boolean }) {
   return (
     <Pressable onPress={onPress} style={[styles.placeSheetRow, active && styles.placeSheetRowActive]}>
       <View style={styles.placeSheetPhotoMake}>
-        <Image resizeMode="cover" source={{ uri: getPlaceVisualUrl(place) }} style={styles.avatarImage} />
+        <PlaceVisual place={place} style={styles.avatarImage} usePreviewFallback={usePreviewFallback} />
         <View style={styles.placeSheetRatingBadgeMake}>
           {hasPlaceRating(place) ? <Star color="#FFB94B" fill="#FFB94B" size={8} strokeWidth={0} /> : null}
           <Text style={styles.placeSheetRatingTextMake}>{getPlaceRatingLabel(place)}</Text>
@@ -19270,7 +19412,7 @@ function MakeStepRow({ active, done, text }: { active?: boolean; done?: boolean;
 }
 
 function HealthCalendarPetCard({ note, pet }: { note: string; pet?: null | PetProfile }) {
-  const speciesLabel = pet?.breed || speciesLabels[pet?.species ?? 'dog'] || '宠物';
+  const speciesLabel = petBreedDisplayLabel(pet);
   return (
     <View style={styles.calendarPetCard}>
       <PetAvatar size={44} uri={pet?.avatarUrl} />
@@ -19734,6 +19876,7 @@ const styles = StyleSheet.create({
   ownerAvatarImageUploadingMake: { opacity: 0.82 },
   ownerAvatarImage: { height: '100%', width: '100%' },
   ownerAvatarLarge: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#fff', borderRadius: 48, borderWidth: 3, height: 96, justifyContent: 'center', overflow: 'hidden', shadowColor: '#50371e', shadowOffset: { height: 8, width: 0 }, shadowOpacity: 0.1, shadowRadius: 22, width: 96 },
+  ownerAvatarPlaceholderMake: { alignItems: 'center', backgroundColor: '#F3EEE8', justifyContent: 'center', overflow: 'hidden' },
   ownerAvatarOverlay: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.32)', bottom: 0, gap: 4, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
   ownerAvatarProgressTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 10, fontWeight: '600', lineHeight: 13 },
   ownerAvatarSuccessOverlayMake: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.85)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
@@ -19962,8 +20105,9 @@ const styles = StyleSheet.create({
   goldIcon: { backgroundColor: '#f2b441' },
   grid2: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   greetButtonMake: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 17, height: 34, justifyContent: 'center', position: 'absolute', right: 14, top: 70, width: 34 },
-  greetingMessageCard: { backgroundColor: palette.background, borderColor: palette.border, borderRadius: 16, borderWidth: 1, minHeight: 82, paddingHorizontal: 14, paddingVertical: 12 },
-  greetingMessageText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 22 },
+  greetingMessageCard: { backgroundColor: palette.background, borderColor: palette.border, borderRadius: 16, borderWidth: 1, minHeight: 96, paddingHorizontal: 14, paddingVertical: 10 },
+  greetingMessageCountMake: { alignSelf: 'flex-end', color: palette.muted, fontFamily: appFontFamily, fontSize: 10, fontWeight: '400', lineHeight: 14, marginTop: 2 },
+  greetingMessageInputMake: { color: palette.ink, flex: 1, fontFamily: appFontFamily, fontSize: 14, fontWeight: '400', lineHeight: 22, minHeight: 58, padding: 0, textAlignVertical: 'top' },
   greetingQuickChip: { alignItems: 'center', backgroundColor: '#fff', borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 4, maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 8 },
   greetingQuickChipActive: { backgroundColor: 'rgba(255,138,92,0.12)', borderColor: palette.orange, borderWidth: 1.5 },
   greetingQuickChipText: { color: palette.ink, fontFamily: appFontFamily, fontSize: 12.5, fontWeight: '500', lineHeight: 17 },
@@ -20076,6 +20220,7 @@ const styles = StyleSheet.create({
   healthHeroMake: { ...(Platform.OS === 'web' ? ({ backgroundImage: 'linear-gradient(135deg, #FFE3CB 0%, #FFD2A8 60%, #FFC089 100%)' } as object) : null), alignItems: 'center', backgroundColor: '#ffd2a8', borderRadius: 24, flexDirection: 'row', gap: 12, marginTop: 8, overflow: 'hidden', paddingHorizontal: 20, paddingVertical: 18, position: 'relative', shadowColor: '#b46e3c', shadowOffset: { height: 18, width: 0 }, shadowOpacity: 0.18, shadowRadius: 36 },
   healthHeroScore: { color: palette.ink, fontFamily: appFontFamily, fontSize: 44, fontWeight: '700', letterSpacing: 0, lineHeight: 48 },
   healthHeroScoreRow: { alignItems: 'baseline', flexDirection: 'row', gap: 6, marginTop: 6 },
+  healthHeroStatus: { color: palette.ink, fontFamily: appFontFamily, fontSize: 31, fontWeight: '700', letterSpacing: 0, lineHeight: 39 },
   healthHeroTotal: { color: palette.muted, fontFamily: appFontFamily, fontSize: 13, fontWeight: '500' },
   healthMakeBadge: { backgroundColor: palette.orangeSoft, borderRadius: 12, color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 3 },
   healthMakeBadgeCool: { backgroundColor: 'rgba(77,182,172,0.14)', color: palette.teal },
@@ -21124,6 +21269,7 @@ const styles = StyleSheet.create({
   placeSheetDistanceTextMake: { color: palette.teal, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '700', lineHeight: 14 },
   placeSheetMeta: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '500', lineHeight: 16, marginTop: 2 },
   placeSheetPhotoMake: { backgroundColor: palette.pale, borderRadius: 14, flexShrink: 0, height: 78, overflow: 'hidden', position: 'relative', width: 78 },
+  placeVisualPlaceholderMake: { alignItems: 'center', backgroundColor: '#E5F1EC', justifyContent: 'center', overflow: 'hidden' },
   placeSheetRatingBadgeMake: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 7, flexDirection: 'row', gap: 2, left: 6, paddingHorizontal: 6, paddingVertical: 2, position: 'absolute', top: 6 },
   placeSheetRatingTextMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 9.5, fontWeight: '700', lineHeight: 12 },
   placeSheetRow: { alignItems: 'flex-start', backgroundColor: '#fff', borderColor: 'rgba(234,223,210,0.72)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 12, minHeight: 100, paddingHorizontal: 10, paddingVertical: 10 },
@@ -21209,6 +21355,8 @@ const styles = StyleSheet.create({
   recognitionPrimaryCta: { alignItems: 'center', backgroundColor: palette.orange, borderRadius: 26, flexDirection: 'row', gap: 8, height: 52, justifyContent: 'center', shadowColor: palette.orange, shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.28, shadowRadius: 22 },
   recognitionPrimaryCtaPressed: { opacity: 0.86, transform: [{ scale: 0.99 }] },
   recognitionPrimaryCtaText: { color: '#fff', fontFamily: appFontFamily, fontSize: 16, fontWeight: '500', lineHeight: 22 },
+  recognitionBlockedBadge: { backgroundColor: 'rgba(221,92,92,0.95)' },
+  recognitionPendingBadge: { backgroundColor: 'rgba(230,145,61,0.95)' },
   recognitionQuality: { backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 14, color: palette.ink, fontFamily: appFontFamily, fontSize: 12, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', right: 14, top: 14 },
   recognitionSuccessBadge: { alignItems: 'center', backgroundColor: 'rgba(77,182,172,0.95)', borderRadius: 14, flexDirection: 'row', gap: 5, left: 14, paddingHorizontal: 12, paddingVertical: 5, position: 'absolute', top: 14 },
   profileCard: { alignItems: 'center', flexDirection: 'row', gap: 14 },

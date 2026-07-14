@@ -403,6 +403,7 @@ async function main() {
       token: ownerToken,
     });
     assert.equal(imageReviewUpload.data.moderationStatus, 'pending_review');
+    assert.equal(imageReviewUpload.data.analysis.canGenerate, false, 'pending image review must be reflected in the mobile upload response');
     await request('/social/pet-circle/posts', {
       body: {
         content: 'normal post with pending image should be blocked',
@@ -421,6 +422,21 @@ async function main() {
       'Tencent review media upload should enter moderation tasks',
     );
     assert.equal(mediaTask.source, 'pet_circle_photo');
+    const avatarStartWhilePending = await request('/ai/pet-avatar/jobs', {
+      body: { mediaId: imageReviewUpload.data.mediaId },
+      expectedStatus: 409,
+      method: 'POST',
+      token: ownerToken,
+    });
+    assert.match(avatarStartWhilePending.error.message, /安全审核/);
+    await request(`/admin/moderation/tasks/${encodeURIComponent(mediaTask.id)}/approve`, {
+      body: { reason: 'Smoke approves pending upload before avatar generation' },
+      method: 'POST',
+      token: adminToken,
+    });
+    const approvedImageUpload = await request(`/media/${encodeURIComponent(imageReviewUpload.data.mediaId)}`, { token: ownerToken });
+    assert.equal(approvedImageUpload.data.moderationStatus, 'approved');
+    assert.equal(approvedImageUpload.data.analysis.canGenerate, true, 'approved uploads should become available after refreshing their status');
 
     const imageBlockUpload = await request('/media/uploads', {
       body: {

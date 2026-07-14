@@ -57,7 +57,7 @@ const appConfig = JSON.parse(fs.readFileSync(path.join(mobileDir, 'app.json'), '
 assert.equal(appConfig.expo.android.allowBackup, false);
 assert.ok(!appConfig.expo.android.permissions.includes('android.permission.RECORD_AUDIO'));
 assert.ok(!appConfig.expo.android.permissions.includes('android.permission.SYSTEM_ALERT_WINDOW'));
-assert.ok(appConfig.expo.android.versionCode >= 15, 'the release candidate must be versionCode 15 or newer');
+assert.ok(appConfig.expo.android.versionCode >= 16, 'the release candidate must be versionCode 16 or newer');
 
 const gradle = fs.readFileSync(path.join(mobileDir, 'android', 'app', 'build.gradle'), 'utf8');
 assert.match(gradle, /findProperty\("LUMII_ALLOW_CLEARTEXT"\)/);

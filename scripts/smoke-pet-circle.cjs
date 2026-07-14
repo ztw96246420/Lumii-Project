@@ -259,6 +259,28 @@ async function run() {
   const profileEvent = findByTitle(calendar.data, '建档记录');
   assert.equal(profileEvent, undefined, 'new pets should not create a default profile memo event');
 
+  await request('/health/memos', {
+    body: { content: 'legacy memo without a reliable timestamp', title: 'Undated Legacy Memo' },
+    method: 'POST',
+    token: ownerToken,
+  });
+  patchState((state) => {
+    const owner = state.users[ownerPhone];
+    const memoBucketKey = `${ownerPhone}:${ownerPet.id}`;
+    const memo = state.health.memos[memoBucketKey].find((item) => item.title === 'Undated Legacy Memo');
+    assert.ok(memo, 'undated legacy memo missing from state');
+    memo.id = 'legacy-memo-without-timestamp';
+    memo.createdAt = '';
+    memo.updatedAt = '';
+  });
+  await restartBackend(port);
+  const calendarWithoutUndatedLegacyMemo = await request('/health/calendar', { token: ownerToken });
+  assert.equal(
+    findByTitle(calendarWithoutUndatedLegacyMemo.data, 'Undated Legacy Memo'),
+    undefined,
+    'legacy records without a reliable date must not be fabricated as records for today',
+  );
+
   const ownerLoc = location(31.2304, 121.4737);
   const viewerLoc = location(31.231, 121.474);
   const farLoc = location(31.9, 121.9);

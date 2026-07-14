@@ -220,7 +220,17 @@ async function waitInputValue(page, value) {
 
 async function waitLabelInputValue(page, label, value) {
   await page.waitForFunction(
-    ({ expected, name }) => document.querySelector(`[aria-label="${name}"]`)?.value === expected,
+    ({ expected, name }) =>
+      Array.from(document.querySelectorAll('[aria-label]')).some(
+        (element) => {
+          if (element.getAttribute('aria-label') !== name) return false;
+          const input = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+            ? element
+            : element.querySelector('input, textarea');
+          if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) return input.value === expected;
+          return element.getAttribute('contenteditable') === 'true' && element.textContent === expected;
+        },
+      ),
     { expected: value, name: label },
     { timeout: 30_000 },
   );
@@ -529,7 +539,7 @@ async function main() {
       { route: 'supportTickets', texts: ['我的反馈', '反馈处理进度'] },
       { route: 'emptyPet', texts: ['还没有添加你的毛孩子', '添加我的宠物'] },
       { route: 'upload', texts: ['添加宠物 2/2', '相册选择'] },
-      { route: 'uploadDetail', texts: ['识别结果', '确认并生成灵伴'] },
+      { route: 'uploadDetail', texts: ['识别结果', '图片可用', '基础检查通过', '确认并生成灵伴'] },
       { route: 'ownerEdit', texts: ['编辑个人资料', '保存资料'] },
       { route: 'petDetail', texts: ['宠物档案', '更换'] },
       { route: 'accountSecurity', texts: ['账号安全', '短信验证码'] },
@@ -538,6 +548,13 @@ async function main() {
     for (const routeCase of routeRenderCases) {
       await page.goto(`${baseUrl}/?route=${routeCase.route}`, { timeout: 60_000, waitUntil: 'networkidle' });
       for (const text of routeCase.texts) await waitExactText(page, text);
+      if (routeCase.route === 'uploadDetail') {
+        const uploadDetailBody = await page.locator('body').innerText();
+        if (uploadDetailBody.includes('质量 96%') || uploadDetailBody.includes('主体清晰 · 五官完整')) {
+          throw new Error(`Upload detail must not present fabricated visual analysis:\n${uploadDetailBody}`);
+        }
+        await screenshot(page, 'smoke-frontend-00-upload-basic-check.png');
+      }
     }
     await screenshot(page, 'smoke-frontend-00-route-coverage-account-security.png');
 
@@ -672,7 +689,7 @@ async function main() {
     await screenshot(page, 'smoke-frontend-00a2-multi-pet-deleted.png');
 
     await page.goto(`${baseUrl}/?route=uploadNoPet&mockUpload=noPet`, { timeout: 60_000, waitUntil: 'networkidle' });
-    await waitExactText(page, '识别失败');
+    await waitExactText(page, '图片不可用');
     await waitExactText(page, '未检测到宠物主体');
     await waitExactText(page, '让宠物占画面主体');
     await screenshot(page, 'smoke-frontend-00b-upload-no-pet.png');
@@ -922,7 +939,7 @@ async function main() {
     await waitExactText(page, '林然发来新消息');
     await waitExactText(page, '聊天');
     await clickExactText(page, '林然发来新消息');
-    await waitExactText(page, '在线 · 模糊距离');
+    await waitExactText(page, '已接受招呼 · 模糊距离');
     await waitExactText(page, '林然和奶油');
     await waitExactText(page, '今晚 7 点公园见？');
     await screenshot(page, 'smoke-frontend-02e-notification-to-conversation.png');
@@ -1273,6 +1290,10 @@ async function main() {
     await waitExactText(interactionPage, '和奶油打个招呼');
     await waitExactText(interactionPage, '选一句话开场');
     await interactionPage.getByText('改天一起遛弯？', { exact: true }).click();
+    const customGreetingMessage = '你好奶油，我家 Lucky 想和你认识一下，改天一起散步吧。';
+    await interactionPage.getByLabel('招呼开场白').fill(customGreetingMessage);
+    await waitExactText(interactionPage, `${customGreetingMessage.length}/120`);
+    await screenshot(interactionPage, 'smoke-frontend-05a-greeting-message-edit.png');
     await clickExactText(interactionPage, '发送招呼');
     await waitExactText(interactionPage, '已向奶油打招呼');
     await interactionPage.getByText('和奶油打个招呼', { exact: true }).waitFor({ state: 'hidden', timeout: 30_000 });
@@ -1308,12 +1329,31 @@ async function main() {
     await waitExactText(greetingRequestPage, '招呼请求');
     await waitExactText(greetingRequestPage, '1 条新招呼');
     await waitExactText(greetingRequestPage, '小夏 & 豆包');
+    await waitExactText(greetingRequestPage, '你好呀，豆包想和你家毛孩子认识一下～');
+    await greetingRequestPage.getByLabel('owner-avatar-placeholder').waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(greetingRequestPage, 'smoke-frontend-05b-greeting-request.png');
     await greetingRequestPage.getByLabel('accept-greeting-request-o2').click();
     await waitExactText(greetingRequestPage, '已接受招呼，可以聊天了');
     await waitExactText(greetingRequestPage, '小夏和豆包');
     await waitExactText(greetingRequestPage, '我们已经互相打招呼啦');
     await screenshot(greetingRequestPage, 'smoke-frontend-05b-greeting-request-accepted.png');
     await greetingRequestContext.close();
+
+    const conversationAvatarContext = await browser.newContext({
+      deviceScaleFactor: 1,
+      viewport: { height: 920, width: 430 },
+    });
+    const conversationAvatarPage = await conversationAvatarContext.newPage();
+    collectPageErrors(conversationAvatarPage, pageErrors);
+    await conversationAvatarPage.goto(`${baseUrl}/?route=messages`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(conversationAvatarPage, '地点审核通知');
+    await conversationAvatarPage.getByLabel('pet-avatar-placeholder').waitFor({ state: 'visible', timeout: 30_000 });
+    const firstOwnerImageCount = await conversationAvatarPage.locator('img[src*="photo-1599692392256-2d084495fe15"]').count();
+    if (firstOwnerImageCount !== 1) {
+      throw new Error(`A conversation without an avatar must not borrow the first nearby owner's image: ${firstOwnerImageCount}`);
+    }
+    await screenshot(conversationAvatarPage, 'smoke-frontend-05d-conversation-avatar-placeholder.png');
+    await conversationAvatarContext.close();
 
     const supportContext = await browser.newContext({
       deviceScaleFactor: 1,
@@ -1400,6 +1440,75 @@ async function main() {
     await realPage.getByText('分享 Lucky 的今日小事', { exact: true }).waitFor({ state: 'hidden', timeout: 8_000 });
     await waitFirstVisibleText(realPage, ['附近伙伴近 7 天还没发布小事', '附近近 7 天还没有小事'], { timeout: 30_000 });
     await screenshot(realPage, 'smoke-frontend-06-real-session-empty-circle.png');
+
+    const realSession = await realPage.evaluate(() => {
+      const raw = globalThis.localStorage?.getItem('lumii.auth.session.v1');
+      return raw ? JSON.parse(raw).session : null;
+    });
+    if (!realSession?.token) throw new Error('Text-only pet-circle smoke could not read the persisted auth token');
+    const createRealPetResponse = await fetch(`${backendRuntime.apiBaseUrl}/pets`, {
+      body: JSON.stringify({
+        birthday: '2024',
+        breed: 'dog',
+        gender: 'unknown',
+        name: 'PW无图Lucky',
+        species: 'dog',
+      }),
+      headers: { Authorization: `Bearer ${realSession.token}`, 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    const createRealPetPayload = await createRealPetResponse.json().catch(() => ({}));
+    if (!createRealPetResponse.ok) throw new Error(`Text-only pet-circle pet creation failed: ${createRealPetResponse.status} ${JSON.stringify(createRealPetPayload)}`);
+    if (createRealPetPayload.data?.healthScore !== 0 || createRealPetPayload.data?.personality?.length) {
+      throw new Error(`A newly created pet must not receive invented health or personality data: ${JSON.stringify(createRealPetPayload.data)}`);
+    }
+    await realPage.reload({ timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(realPage, '早安，PW无图Lucky！');
+    await clickExactText(realPage, '宠物日历');
+    await waitExactText(realPage, '宠物日历');
+    await waitExactText(realPage, 'PW无图Lucky');
+    await waitExactText(realPage, '本月还没有记录，先从今天开始');
+    await waitExactText(realPage, '这一天还没有备忘记录');
+    const realHealthBody = await realPage.locator('body').innerText();
+    if (realHealthBody.includes('今日健康分') || realHealthBody.includes('近 30 天健康稳定') || realHealthBody.includes('28.6 kg')) {
+      throw new Error(`A new pet must not be shown a fabricated health conclusion:\n${realHealthBody}`);
+    }
+    await screenshot(realPage, 'smoke-frontend-06c-real-session-empty-pet-calendar.png');
+    await realPage.getByLabel('calendar-quick-疫苗/驱虫').click();
+    await waitExactText(realPage, '疫苗/驱虫计划');
+    await waitExactText(realPage, '新增计划');
+    await waitExactText(realPage, '暂无疫苗或驱虫计划');
+    if (await realPage.getByLabel(/^edit-vaccine-plan-/).count()) {
+      throw new Error('A newly created pet must not receive any default vaccine or deworming plans');
+    }
+    await screenshot(realPage, 'smoke-frontend-06c1-real-session-empty-vaccine-plans.png');
+    await realPage.getByLabel('返回').click();
+    await waitExactText(realPage, '宠物日历');
+    await realPage.getByLabel('返回').click();
+    await waitExactText(realPage, '早安，PW无图Lucky！');
+    await realPage.getByLabel('发布今日小事').click();
+    await waitExactText(realPage, '今日小事');
+    const textOnlyPost = 'Playwright 真实无图小事，不应由前端补入示例宠物照片。';
+    await realPage
+      .getByPlaceholder('写下今天的小事，比如散步、食欲、精神状态，或者一个可爱的瞬间。')
+      .fill(textOnlyPost);
+    await clickExactText(realPage, '发布');
+    await waitExactText(realPage, '早安，PW无图Lucky！');
+    await clickExactText(realPage, '发现');
+    await waitExactText(realPage, textOnlyPost);
+    if (await realPage.locator('img[src*="images.unsplash.com"]').count()) {
+      throw new Error('A real text-only pet-circle post must not render fallback Unsplash photos');
+    }
+    await screenshot(realPage, 'smoke-frontend-06d-real-session-text-only-circle.png');
+    await clickExactText(realPage, '地图');
+    await waitExactText(realPage, '附近宠物友好地点');
+    await realPage.getByLabel('展开附近地点列表').click();
+    await realPage.getByLabel('收起附近地点列表').waitFor({ state: 'visible', timeout: 30_000 });
+    await realPage.getByLabel('place-photo-placeholder').first().waitFor({ state: 'visible', timeout: 30_000 });
+    if (await realPage.locator('img[src*="images.unsplash.com"]').count()) {
+      throw new Error('A real place result without an actual photo must not render an unrelated Unsplash image');
+    }
+    await screenshot(realPage, 'smoke-frontend-06e-real-session-place-placeholders.png');
     await realContext.close();
 
     const expiredSessionContext = await browser.newContext({
