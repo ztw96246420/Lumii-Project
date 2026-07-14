@@ -314,24 +314,25 @@ function parseMockUserSettingsPatch(value: Partial<UserSettings>) {
   return { patch: source as Partial<UserSettings> };
 }
 
-type MockPetProfilePatch = Partial<Pick<PetProfile, 'avatarUrl' | 'birthday' | 'breed' | 'gender' | 'name' | 'species' | 'weightKg'>>;
+type MockPetProfilePatch = Partial<Pick<PetProfile, 'avatarUrl' | 'birthday' | 'breed' | 'coatColor' | 'gender' | 'name' | 'species' | 'sterilizationStatus' | 'weightKg'>>;
 
-function parseMockPetProfilePayload(value: Partial<CreatePetInput | PetProfile>, options: { partial?: boolean } = {}) {
+function parseMockPetProfilePayload(value: CreatePetInput | PetProfile | PetProfilePatch, options: { partial?: boolean } = {}) {
   const partial = options.partial === true;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { error: '宠物资料参数无效，请刷新后重试' };
   }
-  const allowedKeys = new Set(['avatarBase64', 'avatarFileName', 'avatarMimeType', 'avatarUrl', 'birthday', 'breed', 'gender', 'name', 'species', 'weightKg']);
+  const allowedKeys = new Set(['avatarBase64', 'avatarFileName', 'avatarMimeType', 'avatarUrl', 'birthday', 'breed', 'coatColor', 'gender', 'name', 'species', 'sterilizationStatus', 'weightKg']);
   const source = value as Record<string, unknown>;
   const keys = Object.keys(source);
   const unknownKey = keys.find((key) => !allowedKeys.has(key));
   if (unknownKey) return { error: `宠物资料字段 ${unknownKey} 暂不支持` };
 
   const patch: MockPetProfilePatch = {};
-  const unset: Array<'avatarUrl' | 'birthday' | 'weightKg'> = [];
+  const unset: Array<'avatarUrl' | 'birthday' | 'coatColor' | 'weightKg'> = [];
   const fieldRules = petTaxonomy.fieldRules;
   const supportedSpecies = new Set(fieldRules.supportedSpecies);
   const genderIds = new Set(petTaxonomy.genders.map((item) => item.id));
+  const sterilizationStatuses = new Set<NonNullable<PetProfile['sterilizationStatus']>>(['not_sterilized', 'sterilized', 'unknown']);
 
   if (!partial || Object.prototype.hasOwnProperty.call(source, 'name')) {
     const name = String(source.name || '').trim();
@@ -353,10 +354,26 @@ function parseMockPetProfilePayload(value: Partial<CreatePetInput | PetProfile>,
     patch.breed = breed;
   }
 
+  if (Object.prototype.hasOwnProperty.call(source, 'coatColor')) {
+    const coatColor = String(source.coatColor || '').trim();
+    if (coatColor) {
+      if (coatColor.length > fieldRules.maxCoatColorLength) return { error: `宠物毛色最多 ${fieldRules.maxCoatColorLength} 个字` };
+      patch.coatColor = coatColor;
+    } else {
+      unset.push('coatColor');
+    }
+  }
+
   if (!partial || Object.prototype.hasOwnProperty.call(source, 'gender')) {
     const gender = String(source.gender || 'unknown').trim() || 'unknown';
     if (!genderIds.has(gender as PetProfile['gender'])) return { error: '请选择正确的宠物性别' };
     patch.gender = gender as PetProfile['gender'];
+  }
+
+  if (!partial || Object.prototype.hasOwnProperty.call(source, 'sterilizationStatus')) {
+    const sterilizationStatus = String(source.sterilizationStatus || 'unknown').trim() || 'unknown';
+    if (!sterilizationStatuses.has(sterilizationStatus as NonNullable<PetProfile['sterilizationStatus']>)) return { error: '请选择正确的绝育状态' };
+    patch.sterilizationStatus = sterilizationStatus as NonNullable<PetProfile['sterilizationStatus']>;
   }
 
   if (Object.prototype.hasOwnProperty.call(source, 'birthday')) {
@@ -723,6 +740,7 @@ const petTaxonomy: PetTaxonomy = {
   fieldRules: {
     birthdayFormat: 'YYYY / YYYY-MM / YYYY-MM-DD',
     maxBreedLength: 20,
+    maxCoatColorLength: 20,
     maxNameLength: 12,
     supportedSpecies: ['dog', 'cat'],
     weightUnit: 'kg',

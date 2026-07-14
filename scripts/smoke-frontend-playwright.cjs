@@ -1157,12 +1157,16 @@ async function main() {
     await waitExactText(settingsPage, '未知');
     await settingsPage.getByLabel('edit-pet-name-input').fill('PW宠物编辑');
     await settingsPage.getByLabel('edit-pet-breed-input').fill('边境牧羊犬');
+    await settingsPage.getByLabel('edit-pet-sterilization-sterilized').click();
+    await settingsPage.getByLabel('edit-pet-coat-color-input').fill('黑白相间');
     await selectPetBirthday(settingsPage, 'edit-pet-birthday-input', '2024-06-01');
     await settingsPage.getByLabel('edit-pet-weight-input').fill('13.6');
     await settingsPage.getByLabel('save-edit-pet-profile').click();
     await waitExactText(settingsPage, '宠物档案');
     await waitExactText(settingsPage, 'PW宠物编辑');
     await waitBodyIncludes(settingsPage, '边境牧羊犬');
+    await waitBodyIncludes(settingsPage, '已绝育');
+    await waitBodyIncludes(settingsPage, '黑白相间');
     await waitBodyIncludes(settingsPage, '13.6 kg');
     await screenshot(settingsPage, 'smoke-frontend-04c2-pet-profile-edited.png');
 

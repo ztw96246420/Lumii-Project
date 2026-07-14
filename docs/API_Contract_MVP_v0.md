@@ -452,8 +452,9 @@ Response data:
 ```ts
 type PetTaxonomy = {
   fieldRules: {
-    birthdayFormat: 'YYYY-MM-DD';
+    birthdayFormat: 'YYYY / YYYY-MM / YYYY-MM-DD';
     maxBreedLength: number;
+    maxCoatColorLength: number;
     maxNameLength: number;
     supportedSpecies: Array<'dog' | 'cat'>;
     weightUnit: 'kg';
@@ -491,7 +492,9 @@ Request:
   "name": "奶油",
   "species": "dog",
   "breed": "金毛寻回犬",
+  "coatColor": "奶油白",
   "gender": "unknown",
+  "sterilizationStatus": "unknown",
   "weightKg": 28.4
 }
 ```
@@ -504,7 +507,9 @@ type PetProfile = {
   name: string;
   species: 'dog' | 'cat' | 'rabbit' | 'hamster' | 'bird' | 'reptile' | 'other';
   breed: string;
+  coatColor?: string;
   gender: 'male' | 'female' | 'unknown';
+  sterilizationStatus?: 'sterilized' | 'not_sterilized' | 'unknown';
   weightKg?: number;
   birthday?: string;
   avatarUrl?: string;
@@ -518,13 +523,14 @@ MVP 产品约束：
 - 其他物种类型保留接口和类型扩展口，暂不作为首版核心体验。
 
 MVP 兜底校验：
-- `POST /pets` 必填 `name`、`species`，`breed` 为空时保存为“待完善”，`gender` 为空时保存为 `unknown`。
-- `PATCH /pets/{petId}` 当前只允许更新 `name`、`species`、`breed`、`gender`、`birthday`、`weightKg`、`avatarUrl`。
+- `POST /pets` 必填 `name`、`species`，`breed` 为空时保存为“待完善”，`gender` 和 `sterilizationStatus` 为空时保存为 `unknown`；不会臆造毛色。
+- `PATCH /pets/{petId}` 当前只允许更新 `name`、`species`、`breed`、`coatColor`、`gender`、`sterilizationStatus`、`birthday`、`weightKg`、`avatarUrl`。
 - `avatarBase64` / `avatarMimeType` / `avatarFileName` 可随 `POST /pets` 或 `PATCH /pets/{petId}` 一起传入，用于保存宠物普通头像；服务端转存 COS 后回填 `avatarUrl`。
-- `name` 最多 12 个字；`breed` 最多 20 个字。
+- `name` 最多 12 个字；`breed`、`coatColor` 最多 20 个字；`coatColor` 传空字符串会清空毛色。
 - `species` 当前只接受 `dog`、`cat`。
 - `gender` 只接受 `male`、`female`、`unknown`。
-- `birthday` 如填写必须是合法 `YYYY-MM-DD` 日期；传空字符串会清空生日。
+- `sterilizationStatus` 只接受 `sterilized`、`not_sterilized`、`unknown`。
+- `birthday` 如填写必须是合法 `YYYY`、`YYYY-MM` 或 `YYYY-MM-DD`，且不能晚于今天；传空字符串会清空生日。
 - `weightKg` 如填写必须是 `0-200kg` 之间的数字；传空字符串或 `null` 会清空体重。
 - `file://`、`content://` 等本机临时头像地址不能单独持久化；如果没有对应 base64 上传内容，返回 400。
 - 未支持字段、非法物种、非法生日、非法体重等返回 400，`error.code=PET_PROFILE_INVALID`，不会静默改成默认值或污染宠物档案。

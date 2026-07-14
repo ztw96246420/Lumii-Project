@@ -4851,6 +4851,10 @@ async function editPetProfile(button) {
   if (breed === null) return;
   const gender = window.prompt('性别：male / female / unknown', row.gender || 'unknown');
   if (gender === null) return;
+  const sterilizationStatus = window.prompt('绝育状态：sterilized / not_sterilized / unknown', row.sterilizationStatus || 'unknown');
+  if (sterilizationStatus === null) return;
+  const coatColor = window.prompt('毛色；留空表示未知', row.coatColor || '');
+  if (coatColor === null) return;
   const birthday = window.prompt('生日：YYYY / YYYY-MM / YYYY-MM-DD；留空表示未知', row.birthday || '');
   if (birthday === null) return;
   const weightKg = window.prompt('体重 kg；留空表示未知', row.weightKg || '');
@@ -4865,9 +4869,11 @@ async function editPetProfile(button) {
   const profile = {
     birthday: birthday.trim(),
     breed: breed.trim(),
+    coatColor: coatColor.trim(),
     gender: gender.trim() || 'unknown',
     name: name.trim(),
     species: species.trim(),
+    sterilizationStatus: sterilizationStatus.trim() || 'unknown',
     weightKg: normalizeAdminPetWeightInput(weightKg),
   };
   if (!window.confirm(`确认修正「${row.name}」的宠物资料？该操作会影响移动端首页、宠物日历、AI 对话上下文，并写入审计。`)) return;
@@ -4879,9 +4885,11 @@ async function editPetProfile(button) {
   showToast(`宠物资料已修正：${(result.changedFields || []).map((field) => ({
     birthday: '生日',
     breed: '品种',
+    coatColor: '毛色',
     gender: '性别',
     name: '昵称',
     species: '类型',
+    sterilizationStatus: '绝育状态',
     weightKg: '体重',
   }[field] || field)).join('、') || '已更新'}`);
   await render(true);
@@ -5055,7 +5063,7 @@ async function renderPets(force) {
               ${petFilterOption(state.petAvatar, 'cover', '有宠友圈封面')}
             </select>
           </label>
-          <label>搜索<input id="petQ" placeholder="手机号、主人、宠物、品种、宠物ID、任务ID" value="${escapeHtml(state.petQ)}" /></label>
+          <label>搜索<input id="petQ" placeholder="手机号、主人、宠物、品种、毛色、宠物ID、任务ID" value="${escapeHtml(state.petQ)}" /></label>
         </div>
         <div class="actions">
           <button class="small-button" data-action="pets-filter">筛选</button>
@@ -5065,7 +5073,7 @@ async function renderPets(force) {
       ${tableHtml(rows, [
         ['宠物', petProfileCell],
         ['主人', (r) => `<div class="cell-title">${escapeHtml(r.ownerName || '-')}</div><div class="cell-sub">${shortPhone(r.phone)} · ${escapeHtml(r.ownerStatus || 'active')}</div>`],
-        ['档案', (r) => `<div>${statusPill(r.speciesLabel || r.species)} ${escapeHtml(r.breed || '-')}</div><div class="cell-sub">${escapeHtml(r.genderLabel || '未知')} · ${escapeHtml(r.birthday || '生日未知')} · ${escapeHtml(r.ageLabel || '-')}</div><div class="cell-sub">${r.weightKg ? `${escapeHtml(r.weightKg)} kg` : '体重待记录'}</div>`],
+        ['档案', (r) => `<div>${statusPill(r.speciesLabel || r.species)} ${escapeHtml(r.breed || '-')}</div><div class="cell-sub">${escapeHtml(r.genderLabel || '未知')} · ${escapeHtml(r.sterilizationStatusLabel || '绝育未知')} · ${escapeHtml(r.birthday || '生日未知')} · ${escapeHtml(r.ageLabel || '-')}</div><div class="cell-sub">${escapeHtml(r.coatColor || '毛色待补充')} · ${r.weightKg ? `${escapeHtml(r.weightKg)} kg` : '体重待记录'}</div>`],
         ['形象', petAvatarStatus],
         ['关联记录', (r) => `<div>${numberText(r.calendarCount)} 条日历</div><div class="cell-sub">${numberText(r.socialPostCount)} 条小事 · ${numberText(r.placeReviewCount)} 条地点点评</div>`],
         ['时间', (r) => `<div>建档：${formatTime(r.createdAt)}</div><div class="cell-sub">最近关联：${formatTime(r.latestActivityAt)}</div>`],
@@ -5101,7 +5109,7 @@ async function renderPets(force) {
           <div><strong>清空头像</strong><span>用于普通头像违规，移动端会回到现有兜底头像展示。</span></div>
           <div><strong>清空 AI 形象</strong><span>用于 AI 结果不适合展示，会解除已应用任务关联并清空当前头像。</span></div>
           <div><strong>清空封面</strong><span>用于宠友圈封面违规，移动端宠友圈主页回退到小事图片或宠物头像。</span></div>
-          <div><strong>资料修正已开放</strong><span>昵称、类型、品种、性别、生日和体重可由后台带原因修正，并同步影响移动端展示。</span></div>
+          <div><strong>资料修正已开放</strong><span>昵称、类型、品种、毛色、性别、绝育状态、生日和体重可由后台带原因修正，并同步影响移动端展示。</span></div>
           <div><strong>合并重复宠物已开放</strong><span>仅支持同一用户下合并；会迁移日历、AI、宠友圈、AI 对话、通知和会话卡片引用，并保留 before/after 审计。</span></div>
           <div><strong>合并确认规则</strong><span>目标宠物保留现有资料，源宠物只补齐目标空字段；操作时必须输入目标宠物 ID、原因和源宠物 ID 确认。</span></div>
         </div>

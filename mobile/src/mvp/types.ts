@@ -172,6 +172,8 @@ export type UserSettings = {
 
 export type PetSpecies = 'bird' | 'cat' | 'dog' | 'hamster' | 'rabbit' | 'reptile' | 'other';
 
+export type PetSterilizationStatus = 'not_sterilized' | 'sterilized' | 'unknown';
+
 export type PetProfile = {
   avatarAiContentId?: string;
   avatarAiGenerated?: boolean;
@@ -190,6 +192,7 @@ export type PetProfile = {
   avatarUrl?: string;
   birthday?: string;
   breed: string;
+  coatColor?: string;
   createdAt?: string;
   gender: 'female' | 'male' | 'unknown';
   healthScore: number;
@@ -198,13 +201,15 @@ export type PetProfile = {
   personality: string[];
   petCircleCoverImageUrl?: string;
   species: PetSpecies;
+  sterilizationStatus?: PetSterilizationStatus;
   weightKg?: number;
 };
 
-export type PetProfilePatch = Partial<PetProfile> & {
+export type PetProfilePatch = Omit<Partial<PetProfile>, 'weightKg'> & {
   avatarBase64?: string;
   avatarFileName?: string;
   avatarMimeType?: string;
+  weightKg?: number | null;
 };
 
 export type CreatePetInput = Omit<PetProfile, 'healthScore' | 'id' | 'personality'>;
@@ -213,6 +218,7 @@ export type PetTaxonomy = {
   fieldRules: {
     birthdayFormat: 'YYYY / YYYY-MM / YYYY-MM-DD';
     maxBreedLength: number;
+    maxCoatColorLength: number;
     maxNameLength: number;
     supportedSpecies: Array<Extract<PetSpecies, 'cat' | 'dog'>>;
     weightUnit: 'kg';

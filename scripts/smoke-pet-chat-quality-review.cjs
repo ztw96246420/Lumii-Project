@@ -143,9 +143,11 @@ async function main() {
       body: {
         birthday: '2023-05-12',
         breed: 'Corgi',
+        coatColor: '黄白相间',
         gender: 'female',
         name: '桃桃',
         species: 'dog',
+        sterilizationStatus: 'sterilized',
         weightKg: 8.2,
       },
       method: 'POST',
@@ -180,6 +182,8 @@ async function main() {
     assert.equal(medicalDetail.data.aiTrace.provider, 'rule_guard');
     assert.equal(medicalDetail.data.aiTrace.model, 'rule-based-medical-gate');
     assert.equal(medicalDetail.data.aiTrace.petSnapshot.name, '桃桃');
+    assert.equal(medicalDetail.data.aiTrace.petSnapshot.coatColor, '黄白相间');
+    assert.equal(medicalDetail.data.aiTrace.petSnapshot.sterilizationStatus, 'sterilized');
     assert.ok(medicalDetail.data.aiTrace.basePrompt.hash, 'AI trace should include base prompt hash');
 
     const reviewed = await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(aiMessageId)}/quality-review`, {

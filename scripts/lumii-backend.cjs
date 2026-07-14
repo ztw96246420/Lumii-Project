@@ -303,6 +303,7 @@ const petTaxonomy = {
   fieldRules: {
     birthdayFormat: 'YYYY / YYYY-MM / YYYY-MM-DD',
     maxBreedLength: 20,
+    maxCoatColorLength: 20,
     maxNameLength: 12,
     supportedSpecies: ['dog', 'cat'],
     weightUnit: 'kg',
@@ -340,7 +341,7 @@ const legalDocuments = {
       {
         body: [
           '登录与账号：我们处理中国大陆手机号、短信验证记录、协议同意版本与时间、设备标识、登录会话、IP 地址、系统版本、应用版本及必要的安全日志，用于注册登录、会话安全、风控、故障排查和账号注销。短信验证码默认短时有效，明文验证码不会写入运营后台。',
-          '宠物档案与日历：你主动填写的宠物名称、物种、品种、性别、生日、体重、疫苗/驱虫计划、备忘和相关照片，用于建立宠物档案、展示日历和提供提醒。宠物健康内容仅作记录与提醒，不构成诊断或治疗建议。',
+          '宠物档案与日历：你主动填写的宠物名称、物种、品种、毛色、性别、绝育状态、生日、体重、疫苗/驱虫计划、备忘和相关照片，用于建立宠物档案、展示日历和提供提醒。宠物健康内容仅作记录与提醒，不构成诊断或治疗建议。',
           '社区与沟通：你发布的小事、评论、点赞、招呼、约遛、私信、举报、拉黑、地点点评、地点贡献、客服反馈及附件，用于实现社交互动、内容展示、安全审核、争议处理和客服支持。公开内容会按你选择的范围向其他用户展示。',
           '运行日志：接口请求时间、错误码、功能使用事件、通知送达状态和崩溃排查信息，用于保障服务稳定、安全审计和改进体验。我们不会在运营页面展示完整鉴权令牌或短信验证码。',
         ],
@@ -4168,7 +4169,9 @@ function adminExportDataset(type) {
         exportColumn('name', '宠物名'),
         exportColumn('speciesLabel', '物种'),
         exportColumn('breed', '品种'),
+        exportColumn('coatColor', '毛色'),
         exportColumn('genderLabel', '性别'),
+        exportColumn('sterilizationStatusLabel', '绝育状态'),
         exportColumn('birthday', '生日'),
         exportColumn('birthdayCompletenessLabel', '生日完整度'),
         exportColumn('weightKg', '体重kg'),
@@ -10807,7 +10810,7 @@ function parsePetProfilePayload(value, { partial = false } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { error: '宠物资料参数无效，请刷新后重试' };
   }
-  const allowedKeys = new Set(['avatarBase64', 'avatarFileName', 'avatarMimeType', 'avatarUrl', 'birthday', 'breed', 'gender', 'name', 'species', 'weightKg']);
+  const allowedKeys = new Set(['avatarBase64', 'avatarFileName', 'avatarMimeType', 'avatarUrl', 'birthday', 'breed', 'coatColor', 'gender', 'name', 'species', 'sterilizationStatus', 'weightKg']);
   const keys = Object.keys(value);
   const unknownKey = keys.find((key) => !allowedKeys.has(key));
   if (unknownKey) return { error: `宠物资料字段 ${unknownKey} 暂不支持` };
@@ -10817,6 +10820,7 @@ function parsePetProfilePayload(value, { partial = false } = {}) {
   const fieldRules = petTaxonomy.fieldRules;
   const supportedSpecies = new Set(fieldRules.supportedSpecies);
   const genderIds = new Set(petTaxonomy.genders.map((item) => item.id));
+  const sterilizationStatuses = new Set(['not_sterilized', 'sterilized', 'unknown']);
 
   if (!partial || Object.prototype.hasOwnProperty.call(value, 'name')) {
     const name = String(value.name || '').trim();
@@ -10838,10 +10842,26 @@ function parsePetProfilePayload(value, { partial = false } = {}) {
     patch.breed = breed;
   }
 
+  if (Object.prototype.hasOwnProperty.call(value, 'coatColor')) {
+    const coatColor = String(value.coatColor || '').trim();
+    if (coatColor) {
+      if (coatColor.length > fieldRules.maxCoatColorLength) return { error: `宠物毛色最多 ${fieldRules.maxCoatColorLength} 个字` };
+      patch.coatColor = coatColor;
+    } else {
+      unset.push('coatColor');
+    }
+  }
+
   if (!partial || Object.prototype.hasOwnProperty.call(value, 'gender')) {
     const gender = String(value.gender || 'unknown').trim() || 'unknown';
     if (!genderIds.has(gender)) return { error: '请选择正确的宠物性别' };
     patch.gender = gender;
+  }
+
+  if (!partial || Object.prototype.hasOwnProperty.call(value, 'sterilizationStatus')) {
+    const sterilizationStatus = String(value.sterilizationStatus || 'unknown').trim() || 'unknown';
+    if (!sterilizationStatuses.has(sterilizationStatus)) return { error: '请选择正确的绝育状态' };
+    patch.sterilizationStatus = sterilizationStatus;
   }
 
   if (Object.prototype.hasOwnProperty.call(value, 'birthday')) {
@@ -11911,7 +11931,7 @@ async function evaluateContentTextModeration(label, text, options = {}) {
 }
 
 function petProfileModerationText(patch = {}) {
-  return ['name', 'breed', 'species', 'gender']
+  return ['name', 'breed', 'coatColor', 'species', 'gender']
     .map((key) => String(patch?.[key] || '').trim())
     .filter(Boolean)
     .join(' ');
@@ -14452,6 +14472,12 @@ function petSpeciesLabel(species) {
   return '宠物';
 }
 
+function petSterilizationStatusLabel(status) {
+  if (status === 'sterilized') return '已绝育';
+  if (status === 'not_sterilized') return '未绝育';
+  return '未知';
+}
+
 function petAgeLabel(birthday) {
   const parts = parsePetBirthdayValue(birthday);
   if (!parts) return '年龄待补充';
@@ -14488,11 +14514,13 @@ function petChatPetSnapshot(user) {
   return {
     birthday: pet.birthday || '',
     breed: pet.breed || '',
+    coatColor: pet.coatColor || '',
     gender: pet.gender || '',
     id: pet.id || '',
     name: pet.name || '',
     personality: Array.isArray(pet.personality) ? pet.personality.slice(0, 8) : [],
     species: pet.species || '',
+    sterilizationStatus: pet.sterilizationStatus || 'unknown',
     weightKg: pet.weightKg || '',
   };
 }
@@ -14591,7 +14619,9 @@ function buildPetChatContextPrompt(user) {
     `宠物名：${petName}`,
     `物种：${petSpeciesLabel(pet?.species)}`,
     `品种：${pet?.breed || '待补充'}`,
+    `毛色：${pet?.coatColor || '待补充'}`,
     `年龄：${petAgeLabel(pet?.birthday)}`,
+    `绝育状态：${petSterilizationStatusLabel(pet?.sterilizationStatus)}`,
     `体重：${pet?.weightKg ? `${pet.weightKg}kg` : '待记录'}`,
     `性格标签：${pet?.personality?.length ? pet.personality.join('、') : '暂无记录'}`,
   ];
@@ -23388,9 +23418,11 @@ function petProfileFieldLabel(key) {
   return {
     birthday: '生日',
     breed: '品种',
+    coatColor: '毛色',
     gender: '性别',
     name: '昵称',
     species: '类型',
+    sterilizationStatus: '绝育状态',
     weightKg: '体重',
   }[key] || key;
 }
@@ -23399,16 +23431,18 @@ function adminPetProfileSnapshot(pet = {}) {
   return {
     birthday: pet.birthday || '',
     breed: pet.breed || '',
+    coatColor: pet.coatColor || '',
     gender: pet.gender || 'unknown',
     name: pet.name || '',
     species: pet.species || '',
+    sterilizationStatus: pet.sterilizationStatus || 'unknown',
     weightKg: pet.weightKg ?? '',
   };
 }
 
 function adminPetProfileInput(body = {}) {
   const source = body.profile && typeof body.profile === 'object' && !Array.isArray(body.profile) ? body.profile : body;
-  const allowedKeys = ['birthday', 'breed', 'gender', 'name', 'species', 'weightKg'];
+  const allowedKeys = ['birthday', 'breed', 'coatColor', 'gender', 'name', 'species', 'sterilizationStatus', 'weightKg'];
   const profile = {};
   allowedKeys.forEach((key) => {
     if (Object.prototype.hasOwnProperty.call(source, key)) profile[key] = source[key];
@@ -23487,7 +23521,13 @@ function adminPetMergeHasValue(value) {
 }
 
 function adminPetMergeCopyMissingField(targetPet, sourcePet, field) {
-  if (adminPetMergeHasValue(targetPet?.[field]) || !adminPetMergeHasValue(sourcePet?.[field])) return false;
+  const targetHasValue = field === 'sterilizationStatus'
+    ? ['not_sterilized', 'sterilized'].includes(targetPet?.[field])
+    : adminPetMergeHasValue(targetPet?.[field]);
+  const sourceHasValue = field === 'sterilizationStatus'
+    ? ['not_sterilized', 'sterilized'].includes(sourcePet?.[field])
+    : adminPetMergeHasValue(sourcePet?.[field]);
+  if (targetHasValue || !sourceHasValue) return false;
   targetPet[field] = cloneJson(sourcePet[field]);
   return true;
 }
@@ -23815,11 +23855,13 @@ function adminMergePetProfiles(admin, sourcePetId, body = {}) {
     'avatarUrl',
     'birthday',
     'breed',
+    'coatColor',
     'gender',
     'healthScore',
     'personality',
     'petCircleCoverImageUrl',
     'species',
+    'sterilizationStatus',
     'weightKg',
   ].forEach((field) => {
     if (adminPetMergeCopyMissingField(targetPet, sourcePet, field)) copiedFields.push(field);
@@ -24129,6 +24171,7 @@ function adminPetProfiles(options = {}) {
         birthdayCompletenessLabel: birthdayInfo.label,
         breed: pet.breed || '待完善',
         calendarCount: calendarStats.count,
+        coatColor: pet.coatColor || '',
         createdAt,
         gender: pet.gender || 'unknown',
         genderLabel: adminPetGenderLabel(pet.gender),
@@ -24147,6 +24190,8 @@ function adminPetProfiles(options = {}) {
         socialPostCount: petPosts.length,
         species: pet.species === 'cat' ? 'cat' : pet.species === 'dog' ? 'dog' : 'other',
         speciesLabel: petSpeciesLabel(pet.species),
+        sterilizationStatus: pet.sterilizationStatus || 'unknown',
+        sterilizationStatusLabel: petSterilizationStatusLabel(pet.sterilizationStatus),
         weightKg: pet.weightKg || '',
       });
     });
@@ -24166,7 +24211,9 @@ function adminPetProfiles(options = {}) {
         row.species,
         row.speciesLabel,
         row.breed,
+        row.coatColor,
         row.genderLabel,
+        row.sterilizationStatusLabel,
         row.birthday,
         row.birthdayCompletenessLabel,
         row.avatarStatusLabel,
@@ -28539,8 +28586,8 @@ function adminReadinessModules(context) {
       module: '宠物档案与宠物日历',
       group: '宠物',
       status: 'ready',
-      evidence: '已覆盖宠物档案、头像/AI 形象/封面清理、生日完整度、体重、疫苗/驱虫、备忘。',
-      mobileLinkage: '媒体清理、日历记录和疫苗状态会影响首页、档案、宠物日历和提醒展示。',
+      evidence: '已覆盖宠物档案、毛色/绝育状态、头像/AI 形象/封面清理、生日完整度、体重、疫苗/驱虫、备忘。',
+      mobileLinkage: '资料修正、媒体清理、日历记录和疫苗状态会影响首页、档案、AI 对话上下文、宠物日历和提醒展示。',
       nextStep: '高风险编辑/删除日历记录仍需更细权限、审计和审批后开放。',
     },
     {

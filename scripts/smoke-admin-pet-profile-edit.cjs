@@ -144,9 +144,11 @@ async function main() {
       body: {
         birthday: '2022',
         breed: 'Golden',
+        coatColor: '金黄色',
         gender: 'male',
         name: '旧名字',
         species: 'dog',
+        sterilizationStatus: 'unknown',
         weightKg: 18,
       },
       method: 'POST',
@@ -168,9 +170,11 @@ async function main() {
         profile: {
           birthday: '2023-05',
           breed: 'Corgi',
+          coatColor: '黄白相间',
           gender: 'female',
           name: '桃桃',
           species: 'dog',
+          sterilizationStatus: 'sterilized',
           weightKg: 9.4,
         },
         reason: 'smoke admin corrects pet profile',
@@ -178,10 +182,13 @@ async function main() {
       method: 'PATCH',
       token: adminToken,
     });
-    assert.deepEqual(new Set(updated.data.changedFields), new Set(['birthday', 'breed', 'gender', 'name', 'weightKg']));
+    assert.deepEqual(new Set(updated.data.changedFields), new Set(['birthday', 'breed', 'coatColor', 'gender', 'name', 'sterilizationStatus', 'weightKg']));
     assert.equal(updated.data.item.name, '桃桃');
     assert.equal(updated.data.item.breed, 'Corgi');
     assert.equal(updated.data.item.birthday, '2023-05');
+    assert.equal(updated.data.item.coatColor, '黄白相间');
+    assert.equal(updated.data.item.sterilizationStatus, 'sterilized');
+    assert.equal(updated.data.item.sterilizationStatusLabel, '已绝育');
     assert.equal(updated.data.item.weightKg, 9.4);
 
     const mobilePets = await request('/pets', { token: userToken });
@@ -190,6 +197,8 @@ async function main() {
     assert.equal(mobilePet.breed, 'Corgi');
     assert.equal(mobilePet.gender, 'female');
     assert.equal(mobilePet.birthday, '2023-05');
+    assert.equal(mobilePet.coatColor, '黄白相间');
+    assert.equal(mobilePet.sterilizationStatus, 'sterilized');
     assert.equal(mobilePet.weightKg, 9.4);
 
     const notifications = await request('/notifications', { token: userToken });
@@ -197,9 +206,19 @@ async function main() {
       notifications.data.some((item) => item.petId === petId && item.title === '宠物资料已修正'),
       'mobile notification should mention admin pet profile correction',
     );
+    assert.ok(
+      notifications.data.some((item) => item.petId === petId && item.text.includes('毛色') && item.text.includes('绝育状态')),
+      'mobile notification should identify coat color and sterilization corrections',
+    );
 
     const audit = await request('/admin/audit-logs?action=pet.profile.update', { token: adminToken });
     assert.ok(audit.data.items.some((item) => item.targetId === petId), 'pet profile update audit should be recorded');
+
+    const exportCatalog = await request(`/admin/exports?phone=${encodeURIComponent(phone)}`, { token: adminToken });
+    const petExport = exportCatalog.data.find((item) => item.type === 'pets');
+    assert.ok(petExport, 'pet profile export dataset should be listed');
+    assert.ok(petExport.columns.includes('毛色'), 'pet profile export should include coat color');
+    assert.ok(petExport.columns.includes('绝育状态'), 'pet profile export should include sterilization status');
 
     const detail = await request(`/admin/pets/${encodeURIComponent(petId)}`, { token: adminToken });
     assert.equal(detail.data.pet.name, '桃桃');

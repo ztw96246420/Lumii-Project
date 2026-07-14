@@ -292,6 +292,15 @@
 - 媒体上传按业务来源选择腾讯云 Biztype、COS 目录和归属：灵伴原图、宠友圈图片/封面锁定宠物；地点点评、地点投稿和客服附件保持账号/业务级。发布边界拒绝任意外链、跨账号、错场景和错宠物媒体；旧 APK 的相册/相机封面会按封面场景重新审核后兼容使用。
 - 新增 `smoke-pet-deletion.cjs`，使用真实 HTTP、三用户、多宠、后台接口和假 COS 覆盖身份锁定、非当前/最后宠物删除、上下游互动级联、遗留数据迁移、账号级地点媒体保留、合并目录销毁、匿名墓碑及关系恢复；`smoke-ai-provider-trace.cjs` 额外在 GPT Image 真实异步模拟中验证切宠后结果仍落到原任务宠物。
 
+### 2.35 宠物档案毛色、绝育状态与清空语义
+
+- 移动端“编辑宠物信息”补齐毛色输入和未知/未绝育/已绝育三态选择；宠物详情不再硬编码“未记录”，保存后按真实字段展示。新建宠物默认绝育状态为 `unknown`，毛色保持空值，不臆造档案信息。
+- 后端统一校验 `coatColor` 最多 20 字、`sterilizationStatus` 枚举及未知字段；毛色进入宠物资料文本机审，空毛色和 `weightKg=null` 分别具有明确清空语义。
+- 修复移动端删空体重后旧值仍残留的问题：编辑请求现在显式发送 `null`，本地预览和真实 API 均清除旧体重；非法或超范围体重在提交前和服务端双重拦截。
+- 运营后台宠物档案列表、搜索、修正、通知、审计和 CSV 字段同步支持毛色与绝育状态；重复宠物合并时，目标毛色为空或绝育状态未知才由源档案补齐，不覆盖目标已有真实资料。
+- 宠物 AI 对话生成快照和动态上下文纳入毛色、绝育状态，便于后台追溯实际模型输入；移动端响应仍不暴露后台提示词全文。
+- `smoke-mobile-core-flows.cjs`、`smoke-admin-pet-profile-edit.cjs`、`smoke-admin-pet-profile-merge.cjs`、`smoke-pet-chat-quality-review.cjs` 和完整前端 Playwright 已通过，覆盖默认值、非法枚举、长度上限、清空、后台通知、合并和详情展示。
+
 ## 3. 当前验证证据
 
 - 移动端 TypeScript：`npm run typecheck` 通过。
@@ -301,7 +310,7 @@
 - 用户登录设备：`node scripts/smoke-user-auth-sessions.cjs` 通过，覆盖双设备登录、用户端脱敏列表、单设备退出、退出其他设备、刷新链撤销、401 阻断、后台时间线和会话数据清理。
 - 工单 SLA/客服排班/用户补充/评价/重开闭环：`node scripts/smoke-ticket-sla-roster.cjs` 通过。
 - 移动端完整 Playwright：`node scripts/smoke-frontend-playwright.cjs` 通过，含 41 路由直达、协议阅读、缺头像、上传基础检查、宠友圈审核状态、地点贡献、宠友圈互动、设置/注销、真实登录会话、空宠物日历/疫苗计划和宠物建档流程。
-- 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-14 在最终工作树完整通过，84/84 套件全部成功；新增单宠物永久删除及媒体归属回归，AI 生成内容来源、文件元数据、Push 登记诊断和移动端运行异常回归继续通过，生产短信套件使用本地隔离模拟端且不会向真实手机号发码。移动端 Playwright 用时 275.3 秒，覆盖错误恢复页、协议阅读、AI 生成显式标识、上传基础检查、本人宠友圈同日多条、审核中/驳回状态及昼夜排序差异、唯一“我”标记、评论、删除确认、3/6 与 6/6 真实选图、三类日期滚轮、地点贡献记录、地点点评驳回纠错、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复、通知推送状态，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除；后台 9 个关键运营页面同步通过，通知运营页额外验证无 Token 的登记失败、失败阶段、App 构建号和 Firebase 配置提示。
+- 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-14 在最终工作树再次完整通过，84/84 套件全部成功；新增宠物毛色、绝育状态、体重清空、后台修正/导出、AI 快照和重复档案合并回归，单宠物永久删除、媒体归属、AI 生成内容来源、文件元数据、Push 登记诊断和移动端运行异常回归继续通过，生产短信套件使用本地隔离模拟端且不会向真实手机号发码。移动端 Playwright 用时 267.0 秒，覆盖错误恢复页、协议阅读、AI 生成显式标识、上传基础检查、宠物档案编辑与真实回显、本人宠友圈同日多条、审核中/驳回状态及昼夜排序差异、唯一“我”标记、评论、删除确认、3/6 与 6/6 真实选图、三类日期滚轮、地点贡献记录、地点点评驳回纠错、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复、通知推送状态，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除；后台 9 个关键运营页面同步通过，通知运营页额外验证无 Token 的登记失败、失败阶段、App 构建号和 Firebase 配置提示。
 - 附近位置与半径专项：`node scripts/smoke-pet-circle.cjs`、配置审批/预约发布/双人会签回归和 `node scripts/smoke-admin-config-high-risk-page.cjs` 通过；覆盖发布位置快照、跨城市移动、历史无位置数据、10km 默认档位、3/5/10km 后台选择及客户端越权半径拦截。
 - 附近地点真实性：`node scripts/smoke-place-contributions.cjs` 与 `node scripts/smoke-sms-production.cjs` 通过；覆盖提交坐标/精度/时间落库、审核后 manual 地点继承坐标、跨城不跟随、缺失/过期定位拦截、生产无高德时返回空列表而非 seed，以及 `amap` / `place_location_integrity` / `place_discovery` 健康与 P0 门禁。
 - 生产台账实查：业务提交 `6ff5ca4` 于 2026-07-14 部署后返回 30 项健康检查、`bad=1`、`warn=3`、`openP0=6`、`blockedGaps=2`；新增 `pet_deletion_processor`、SQLite `state_database` 和既有 `mobile_runtime_errors` 均为 `ok`，部署后无错误级服务日志。唯一 `bad` 是兼容发布期有意暂缓的 `legal_consent_enforcement`，三项警告分别为首台真机 Push、后台 IP 白名单和站外告警。`public_api_https`、`public_api_external_https`、`backend_bind_address` 均为 `ok`，站外再次请求 `https://api.lumiiapp.cn/health` 返回 200；AI 灵伴模块按自身运行时正确显示 `partial`；线上公开配置返回 `petCircleMaxPhotos=6`、`discoverRadiusKm=10`、`nearbyMomentTtlDays=7`，后台静态资源同步限制最多 6 张；生产进程仅监听 `127.0.0.1:8787`，Lighthouse 规则仍无公网 8787；用户数保持 21，服务 `NRestarts=0`。部署前 SQLite、WAL、JSON 回滚镜像和审计日志已备份至 `/home/ubuntu/lumii-data/deploy-backups/20260714-170850-pre-6ff5ca4`。生产当前只有 1 个活跃管理员且未配置 MFA/IP 白名单，不能在没有真实审批人的情况下强开双人会签。

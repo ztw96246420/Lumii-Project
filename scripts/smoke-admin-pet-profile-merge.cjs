@@ -204,7 +204,9 @@ async function main() {
     const sourcePet = await createPet(userToken, {
       birthday: '2021-03-02',
       breed: 'Golden Retriever',
+      coatColor: '浅金色',
       name: 'Lucky副档',
+      sterilizationStatus: 'sterilized',
       weightKg: 18.2,
     });
     await request(`/pets/${encodeURIComponent(sourcePet.id)}/set-default`, { method: 'POST', token: userToken });
@@ -272,6 +274,8 @@ async function main() {
     const mergedTargetPet = mobilePets.data.find((pet) => pet.id === targetPet.id);
     assert.ok(mergedTargetPet, 'target pet should remain in mobile list');
     assert.equal(mergedTargetPet.avatarUrl, sourceAiAvatarUrl, 'target pet should inherit source AI avatar because it had no avatar');
+    assert.equal(mergedTargetPet.coatColor, '浅金色', 'target pet should inherit a missing source coat color');
+    assert.equal(mergedTargetPet.sterilizationStatus, 'sterilized', 'known source sterilization status should replace unknown target status');
     assert.equal(mergedTargetPet.weightKg, 19.4, 'target pet should reflect latest merged weight record');
 
     const me = await request('/me', { token: userToken });

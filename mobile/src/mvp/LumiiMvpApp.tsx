@@ -1070,9 +1070,11 @@ type PetDraft = {
   avatarUrl: string;
   birthday: string;
   breed: string;
+  coatColor: string;
   gender: PetProfile['gender'];
   name: string;
   species: PetSpecies;
+  sterilizationStatus: NonNullable<PetProfile['sterilizationStatus']>;
   weight: string;
 };
 type LocalImageUploadDraft = {
@@ -1278,9 +1280,11 @@ const emptyPetDraft: PetDraft = {
   avatarUrl: '',
   birthday: '',
   breed: '',
+  coatColor: '',
   gender: 'unknown',
   name: '',
   species: 'dog',
+  sterilizationStatus: 'unknown',
   weight: '',
 };
 
@@ -1289,9 +1293,11 @@ function draftFromPet(pet: PetProfile): PetDraft {
     avatarUrl: pet.avatarUrl ?? '',
     birthday: pet.birthday ?? '',
     breed: pet.breed ?? '',
+    coatColor: pet.coatColor ?? '',
     gender: pet.gender,
     name: pet.name,
     species: pet.species,
+    sterilizationStatus: pet.sterilizationStatus ?? 'unknown',
     weight: pet.weightKg ? String(pet.weightKg) : '',
   };
 }
@@ -1304,9 +1310,11 @@ function arePetSnapshotsEqual(left?: null | PetProfile, right?: null | PetProfil
     left.name === right.name &&
     left.species === right.species &&
     left.breed === right.breed &&
+    left.coatColor === right.coatColor &&
     left.gender === right.gender &&
     left.birthday === right.birthday &&
     left.weightKg === right.weightKg &&
+    left.sterilizationStatus === right.sterilizationStatus &&
     left.avatarUrl === right.avatarUrl &&
     left.healthScore === right.healthScore &&
     (left.personality ?? []).join('|') === (right.personality ?? []).join('|')
@@ -1332,6 +1340,12 @@ function specificPetBreedDisplayLabel(pet?: null | Pick<PetProfile, 'breed' | 's
 
 function petBreedDisplayLabel(pet?: null | Pick<PetProfile, 'breed' | 'species'>) {
   return specificPetBreedDisplayLabel(pet) || speciesLabels[pet?.species ?? 'other'] || '宠物';
+}
+
+function petSterilizationStatusLabel(status?: PetProfile['sterilizationStatus']) {
+  if (status === 'sterilized') return '已绝育';
+  if (status === 'not_sterilized') return '未绝育';
+  return '未知';
 }
 
 const defaultMapCenter = {
@@ -6350,6 +6364,12 @@ export default function LumiiMvpApp() {
       showToast('请输入宠物昵称');
       return;
     }
+    const weightText = petDraft.weight.trim();
+    const weightKg = weightText ? Number(weightText) : undefined;
+    if (weightText && (!Number.isFinite(weightKg) || Number(weightKg) <= 0 || Number(weightKg) > 200)) {
+      showToast('请输入 0-200kg 之间的宠物体重');
+      return;
+    }
     const payload = {
       avatarBase64: petDraft.avatarBase64,
       avatarFileName: petDraft.avatarFileName,
@@ -6357,10 +6377,12 @@ export default function LumiiMvpApp() {
       avatarUrl: petDraft.avatarUrl || undefined,
       birthday: petDraft.birthday,
       breed: petDraft.breed.trim() || '未知品种',
+      coatColor: petDraft.coatColor.trim(),
       gender: petDraft.gender,
       name: petDraft.name.trim(),
       species: petDraft.species,
-      weightKg: Number.parseFloat(petDraft.weight) || undefined,
+      sterilizationStatus: petDraft.sterilizationStatus,
+      weightKg,
     };
     petProfileSavingRef.current = true;
     setPetProfileSaving(true);
@@ -6377,9 +6399,11 @@ export default function LumiiMvpApp() {
             avatarUrl: payload.avatarUrl ?? pet.avatarUrl,
             birthday: payload.birthday,
             breed: payload.breed,
+            coatColor: payload.coatColor || undefined,
             gender: payload.gender,
             name: payload.name,
             species: payload.species,
+            sterilizationStatus: payload.sterilizationStatus,
             weightKg: payload.weightKg,
           };
           activePetIdRef.current = nextPet.id;
@@ -6404,7 +6428,10 @@ export default function LumiiMvpApp() {
           showToast('宠物信息已保存');
           return;
         }
-        const result = await petPreviewApi.updatePet(pet.id, payload);
+        const result = await petPreviewApi.updatePet(pet.id, {
+          ...payload,
+          weightKg: payload.weightKg ?? null,
+        });
         if (result.data) {
           activePetIdRef.current = result.data.id;
           setActivePet(result.data);
@@ -10890,7 +10917,38 @@ export default function LumiiMvpApp() {
             <View style={styles.petEditDividerMake} />
             <View style={styles.petEditRowMake}>
               <Text style={styles.petEditLabelMake}>绝育</Text>
-              <Text style={styles.petEditReadonlyMake}>未记录</Text>
+              <View style={styles.petEditChipRowMake}>
+                {[
+                  { label: '未知', value: 'unknown' },
+                  { label: '未绝育', value: 'not_sterilized' },
+                  { label: '已绝育', value: 'sterilized' },
+                ].map((item) => {
+                  const selected = petDraft.sterilizationStatus === item.value;
+                  return (
+                    <Pressable
+                      accessibilityLabel={`edit-pet-sterilization-${item.value}`}
+                      key={item.value}
+                      onPress={() => setPetDraft((draft) => ({ ...draft, sterilizationStatus: item.value as NonNullable<PetProfile['sterilizationStatus']> }))}
+                      style={[styles.petEditMiniChipMake, selected && styles.petEditMiniChipActiveMake, webPressableReset]}
+                    >
+                      <Text style={[styles.petEditMiniChipTextMake, selected && styles.petEditMiniChipTextActiveMake]}>{item.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+            <View style={styles.petEditDividerMake} />
+            <View style={styles.petEditRowMake}>
+              <Text style={styles.petEditLabelMake}>毛色</Text>
+              <TextInput
+                accessibilityLabel="edit-pet-coat-color-input"
+                maxLength={20}
+                onChangeText={(coatColor) => setPetDraft((draft) => ({ ...draft, coatColor }))}
+                placeholder="例如：奶油白"
+                placeholderTextColor={palette.muted}
+                style={[styles.petEditInputMake, webTextInputReset]}
+                value={petDraft.coatColor}
+              />
             </View>
             <View style={styles.petEditDividerMake} />
             <View style={styles.petEditRowMake}>
@@ -16924,7 +16982,8 @@ export default function LumiiMvpApp() {
     const detailImageUri = pet?.avatarUrl;
     const birthdayShort = pet?.birthday ? pet.birthday.slice(0, 7).replace(/-/g, '.') : '待补充';
     const bodySize = petBodySizeLabel(pet);
-    const coatColor = '未记录';
+    const coatColor = pet?.coatColor?.trim() || '未记录';
+    const sterilizationLabel = petSterilizationStatusLabel(pet?.sterilizationStatus);
     return (
       <Screen title="宠物档案">
         {pet ? (
@@ -16969,7 +17028,9 @@ export default function LumiiMvpApp() {
                 <View style={styles.makeDivider} />
                 <PetDetailInfoRow label="品种" value={petBreedDisplayLabel(pet)} />
                 <View style={styles.makeDivider} />
-                <PetDetailInfoRow label="性别 / 绝育" value={`${genderSymbol} / 未记录`} />
+                <PetDetailInfoRow label="性别" value={genderSymbol} />
+                <View style={styles.makeDivider} />
+                <PetDetailInfoRow label="绝育" value={sterilizationLabel} />
                 <View style={styles.makeDivider} />
                 <PetDetailInfoRow label="毛色" value={coatColor} />
               </View>

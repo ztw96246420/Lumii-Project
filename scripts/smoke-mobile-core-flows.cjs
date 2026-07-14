@@ -177,6 +177,7 @@ async function main() {
     const taxonomy = await request('/pet-taxonomy');
     assert.ok(taxonomy.data?.fieldRules?.supportedSpecies?.includes('dog'), 'taxonomy should include dog');
     assert.ok(taxonomy.data?.fieldRules?.supportedSpecies?.includes('cat'), 'taxonomy should include cat');
+    assert.equal(taxonomy.data?.fieldRules?.maxCoatColorLength, 20, 'taxonomy should expose the coat color length limit');
 
     const primarySession = await login(PRIMARY_PHONE);
     let primaryToken = primarySession.token;
@@ -277,6 +278,45 @@ async function main() {
     assert.equal(activeDog.data.id, primaryDog.id);
     const dogDetail = await request(`/pets/${encodeURIComponent(primaryDog.id)}`, { token: primaryToken });
     assert.equal(dogDetail.data.name, 'CoreLucky');
+    assert.equal(dogDetail.data.sterilizationStatus, 'unknown', 'new pet sterilization status should default to unknown');
+    assert.equal(dogDetail.data.coatColor, undefined, 'new pet must not invent a coat color');
+
+    const invalidSterilization = await request(`/pets/${encodeURIComponent(primaryDog.id)}`, {
+      body: { sterilizationStatus: 'maybe' },
+      expectedStatus: 400,
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(invalidSterilization.error?.code, 'PET_PROFILE_INVALID');
+    const invalidCoatColor = await request(`/pets/${encodeURIComponent(primaryDog.id)}`, {
+      body: { coatColor: 'x'.repeat(21) },
+      expectedStatus: 400,
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(invalidCoatColor.error?.code, 'PET_PROFILE_INVALID');
+
+    const enrichedDog = await request(`/pets/${encodeURIComponent(primaryDog.id)}`, {
+      body: { coatColor: '奶油白', sterilizationStatus: 'sterilized' },
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(enrichedDog.data.coatColor, '奶油白');
+    assert.equal(enrichedDog.data.sterilizationStatus, 'sterilized');
+    const clearedDogFields = await request(`/pets/${encodeURIComponent(primaryDog.id)}`, {
+      body: { coatColor: '', weightKg: null },
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(clearedDogFields.data.coatColor, undefined, 'empty coat color should clear the previous value');
+    assert.equal(clearedDogFields.data.weightKg, undefined, 'null weight should clear the previous value');
+    const restoredDogFields = await request(`/pets/${encodeURIComponent(primaryDog.id)}`, {
+      body: { coatColor: '奶油白', weightKg: 12.5 },
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(restoredDogFields.data.coatColor, '奶油白');
+    assert.equal(restoredDogFields.data.weightKg, 12.5);
 
     const savedAvatar = await request(`/pets/${encodeURIComponent(primaryDog.id)}/avatar`, {
       body: { avatarUrl: 'https://static.lumii.test/core-lucky-avatar.png' },
