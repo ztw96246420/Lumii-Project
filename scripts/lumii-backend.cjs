@@ -26672,10 +26672,10 @@ function applyLaunchReadinessQuestionOverride(question) {
 }
 
 function adminReadinessModules(context) {
-  const { accounts, contentSafety, health, linkageSummary } = context;
-  const hasHealthBad = Number(health?.summary?.bad || 0) > 0;
+  const { accounts, contentSafety, linkageSummary } = context;
   const hasAccountWarnings = Number(accounts?.summary?.securityWarnings || 0) > 0;
   const hasConfigReserved = Number(linkageSummary?.reserved || 0) > 0;
+  const aiRuntime = aiRuntimeReadiness();
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
   return [
     {
@@ -26709,10 +26709,14 @@ function adminReadinessModules(context) {
       key: 'ai_avatar',
       module: 'AI 灵伴生成',
       group: 'AI',
-      status: hasHealthBad ? 'blocked' : 'partial',
-      evidence: '后台可看任务状态、卡住任务、供应商、素材、反馈、重试、标失败、人工返还和供应商失败自动返还额度。',
+      status: aiRuntime.ready ? 'partial' : 'blocked',
+      evidence: aiRuntime.ready
+        ? `真实 AI 运行时已就绪：图片 ${aiRuntime.avatarProvider}、动效 ${aiRuntime.animationEnabled ? aiRuntime.animationProvider : '已关闭'}、对话 ${aiRuntime.chatProvider}；后台可看任务状态、卡住任务、供应商、素材、反馈、重试、标失败、人工返还和供应商失败自动返还额度。`
+        : `AI 运行时未就绪：${aiRuntime.missing.join('；') || '供应商配置异常'}；后台任务治理、失败返还和人工处置基座已接入。`,
       mobileLinkage: '额度、功能开关、结果应用和失败状态会联动移动端生成页与首页形象。',
-      nextStep: '生产期补供应商 SLA、失败归因成本对账和更细的多供应商赔付 SOP。',
+      nextStep: aiRuntime.ready
+        ? '生产期补供应商 SLA、失败归因成本对账和更细的多供应商赔付 SOP。'
+        : `先补齐真实 AI 供应商配置：${aiRuntime.missing.join('；') || '检查图片、动效和对话 provider'}。`,
     },
     {
       key: 'pet_chat',

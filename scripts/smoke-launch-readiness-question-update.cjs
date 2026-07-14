@@ -11,6 +11,7 @@ const rootDir = path.join(__dirname, '..');
 const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-launch-question-'));
 const statePath = path.join(tmpDir, 'state.json');
+const testAdminPassword = 'LaunchReadiness@2026';
 let backendProcess = null;
 let baseUrl = '';
 
@@ -71,9 +72,16 @@ async function startBackend(port) {
     env: {
       ...process.env,
       AMAP_WEB_SERVICE_KEY: '',
-      DEEPSEEK_API_KEY: '',
+      APIMART_API_KEY: 'smoke-apimart-key',
+      DEEPSEEK_API_KEY: 'smoke-deepseek-key',
+      GPT_IMAGE2_API_KEY: 'smoke-gpt-image-key',
       LUMII_BACKEND_PORT: String(port),
       LUMII_BACKEND_STATE_PATH: statePath,
+      LUMII_ADMIN_PASSWORD: testAdminPassword,
+      LUMII_ADMIN_USERNAME: 'admin',
+      LUMII_SMS_PROVIDER: 'disabled',
+      LUMII_TOKEN_SECRET: 'launch-readiness-smoke-token-secret-32-bytes',
+      NODE_ENV: 'production',
       SMS_COOLDOWN_MS: '0',
       SMS_DAILY_LIMIT: '1000',
       SMS_DEVICE_DAILY_LIMIT: '1000',
@@ -111,7 +119,7 @@ async function stopBackend() {
 
 async function loginAdmin() {
   const payload = await request('/admin/auth/login', {
-    body: { password: 'LumiiAdmin@2026', username: 'admin' },
+    body: { password: testAdminPassword, username: 'admin' },
     method: 'POST',
   });
   assert.ok(payload.data?.token, 'missing admin token');
@@ -128,6 +136,12 @@ async function main() {
   try {
     const adminToken = await loginAdmin();
     const initial = await request('/admin/launch/readiness', { token: adminToken });
+    const aiAvatarModule = initial.data.modules.find((item) => item.key === 'ai_avatar');
+    assert.equal(aiAvatarModule?.status, 'partial', 'unrelated production health failures must not block a ready AI runtime');
+    assert.match(aiAvatarModule?.evidence || '', /gpt-image-2/);
+    assert.match(aiAvatarModule?.evidence || '', /doubao-seedance-1-5-pro/);
+    assert.match(aiAvatarModule?.evidence || '', /deepseek/);
+    assert.ok(initial.data.gaps.some((item) => item.status === 'blocked'), 'the fixture must retain unrelated blocked production gaps');
     const initialQuestion = rowById(initial.data.questions, 'q-domain');
     assert.ok(initialQuestion, 'missing q-domain question');
     assert.equal(initialQuestion.status, 'ready');
