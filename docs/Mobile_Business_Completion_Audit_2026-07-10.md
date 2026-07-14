@@ -1,6 +1,6 @@
 # 移动端业务完整性与上线收口审计
 
-日期：2026-07-13
+日期：2026-07-14
 
 ## 1. 审计口径
 
@@ -280,6 +280,18 @@
 - 系统健康新增 `mobile_runtime_errors`，按近 24 小时聚合报告、发生次数、账号、指纹和 fatal；由于客户端自报不是可信监控源，只会产生 `warn`。运营告警中心同步生成中优先级告警，达到 10 次或影响至少 3 个账号时升为高优先级。
 - `smoke-mobile-runtime-errors.cjs` 覆盖无异常健康状态、三次合并异常、敏感字段剥离、后台分析筛选、健康警告和运营告警；Playwright 真实触发 Error Boundary 并保存 `smoke-frontend-00-runtime-error-boundary.png`，正常业务页仍要求零非预期 console/page error。
 
+### 2.34 多宠历史身份与单宠物永久删除
+
+- 小事、评论、点赞、举报、招呼、约遛和互动通知固化动作发生时的 `petId / actorPetId`；用户后来切换当前宠物，不再改变历史小事、评论头像、待处理招呼或后台审核中的宠物身份。
+- 本人宠友圈归档只展示当前宠物的小事；直接打开历史小事仍展示原宠物。后台小事列表和举报证据同步按原宠物解析，不再用账号当前宠物覆盖。
+- 灵伴上传、生成、重试、GPT Image 结果落盘和采用统一锁定任务宠物；生成期间切宠不会把另一只宠物的照片或结果写到当前宠物。固化宠物已删除时返回 `AVATAR_PET_GONE`。
+- `DELETE /pets/{id}` 从单纯移除档案升级为不可恢复级联：宠物日历、AI 对话、图片/动效任务、宠物级上传媒体、宠友圈内容及互动、审核引用、通知、分析事件和待处理宠物级关系同步清理；删除非当前宠物保持原当前宠物。
+- 已接受招呼按账号级关系保留；删除最后一只宠物时双方会话卡暂时隐藏，新建宠物后自动恢复。待处理招呼/约遛随关联宠物删除，避免指向不存在档案。
+- COS 清理覆盖当前宠物目录、后台合并前 `mergedSourcePetIds` 旧目录和任务直接引用对象；仍被其他存续业务引用的共享文件不会误删。失败进入持久化重试队列，处理中并发删除产生的迟到对象会补入同一队列。
+- 只保留不含手机号、宠物 ID 和业务正文的 HMAC 匿名墓碑；后台新增独立 `pet_deletion_processor`，不再把宠物墓碑计入账号注销统计。完整运维口径见 `docs/Operations_Pet_Deletion_2026-07-14.md`。
+- 媒体上传按业务来源选择腾讯云 Biztype、COS 目录和归属：灵伴原图、宠友圈图片/封面锁定宠物；地点点评、地点投稿和客服附件保持账号/业务级。发布边界拒绝任意外链、跨账号、错场景和错宠物媒体；旧 APK 的相册/相机封面会按封面场景重新审核后兼容使用。
+- 新增 `smoke-pet-deletion.cjs`，使用真实 HTTP、三用户、多宠、后台接口和假 COS 覆盖身份锁定、非当前/最后宠物删除、上下游互动级联、遗留数据迁移、账号级地点媒体保留、合并目录销毁、匿名墓碑及关系恢复；`smoke-ai-provider-trace.cjs` 额外在 GPT Image 真实异步模拟中验证切宠后结果仍落到原任务宠物。
+
 ## 3. 当前验证证据
 
 - 移动端 TypeScript：`npm run typecheck` 通过。
@@ -289,7 +301,7 @@
 - 用户登录设备：`node scripts/smoke-user-auth-sessions.cjs` 通过，覆盖双设备登录、用户端脱敏列表、单设备退出、退出其他设备、刷新链撤销、401 阻断、后台时间线和会话数据清理。
 - 工单 SLA/客服排班/用户补充/评价/重开闭环：`node scripts/smoke-ticket-sla-roster.cjs` 通过。
 - 移动端完整 Playwright：`node scripts/smoke-frontend-playwright.cjs` 通过，含 41 路由直达、协议阅读、缺头像、上传基础检查、宠友圈审核状态、地点贡献、宠友圈互动、设置/注销、真实登录会话、空宠物日历/疫苗计划和宠物建档流程。
-- 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-14 在最终工作树完整通过，83/83 套件全部成功；新增 AI 生成内容来源、文件元数据、Push 登记诊断和移动端运行异常回归，生产短信套件使用本地隔离模拟端且不会向真实手机号发码。移动端 Playwright 用时 269.8 秒，覆盖错误恢复页、协议阅读、AI 生成显式标识、上传基础检查、本人宠友圈同日多条、审核中/驳回状态及昼夜排序差异、唯一“我”标记、评论、删除确认、3/6 与 6/6 真实选图、三类日期滚轮、地点贡献记录、地点点评驳回纠错、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复、通知推送状态，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除；后台 9 个关键运营页面同步通过，通知运营页额外验证无 Token 的登记失败、失败阶段、App 构建号和 Firebase 配置提示。
+- 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-14 在最终工作树完整通过，84/84 套件全部成功；新增单宠物永久删除及媒体归属回归，AI 生成内容来源、文件元数据、Push 登记诊断和移动端运行异常回归继续通过，生产短信套件使用本地隔离模拟端且不会向真实手机号发码。移动端 Playwright 用时 275.3 秒，覆盖错误恢复页、协议阅读、AI 生成显式标识、上传基础检查、本人宠友圈同日多条、审核中/驳回状态及昼夜排序差异、唯一“我”标记、评论、删除确认、3/6 与 6/6 真实选图、三类日期滚轮、地点贡献记录、地点点评驳回纠错、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复、通知推送状态，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除；后台 9 个关键运营页面同步通过，通知运营页额外验证无 Token 的登记失败、失败阶段、App 构建号和 Firebase 配置提示。
 - 附近位置与半径专项：`node scripts/smoke-pet-circle.cjs`、配置审批/预约发布/双人会签回归和 `node scripts/smoke-admin-config-high-risk-page.cjs` 通过；覆盖发布位置快照、跨城市移动、历史无位置数据、10km 默认档位、3/5/10km 后台选择及客户端越权半径拦截。
 - 附近地点真实性：`node scripts/smoke-place-contributions.cjs` 与 `node scripts/smoke-sms-production.cjs` 通过；覆盖提交坐标/精度/时间落库、审核后 manual 地点继承坐标、跨城不跟随、缺失/过期定位拦截、生产无高德时返回空列表而非 seed，以及 `amap` / `place_location_integrity` / `place_discovery` 健康与 P0 门禁。
 - 生产台账实查：部署 `79fbd49` 后于 2026-07-14 返回 29 项健康检查、`bad=1`、`warn=3`、`openP0=6`、`blockedGaps=2`；新增 `mobile_runtime_errors` 为 `ok`，唯一 `bad` 是兼容发布期有意暂缓的 `legal_consent_enforcement`，三项警告分别为首台真机 Push、后台 IP 白名单和站外告警。`public_api_https`、`public_api_external_https`、`backend_bind_address` 均为 `ok`，站外再次请求 `https://api.lumiiapp.cn/health` 返回 200；AI 灵伴模块按自身运行时正确显示 `partial`；线上公开配置返回 `petCircleMaxPhotos=6`、`discoverRadiusKm=10`，后台静态资源同步限制最多 6 张；生产进程仅监听 `127.0.0.1:8787`，Lighthouse 规则仍无公网 8787；用户数保持 21，服务 `NRestarts=0`。生产当前只有 1 个活跃管理员且未配置 MFA/IP 白名单，不能在没有真实审批人的情况下强开双人会签。

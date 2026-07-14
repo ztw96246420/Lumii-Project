@@ -7388,6 +7388,11 @@ async function runAvatarAnimationMirror(reqSnapshot, ownerPhone, jobId, sourceUr
   try {
     const aiMetadata = aiGeneratedContentMetadata(job, 'video', job.readyAt || Date.now());
     const mirroredUrl = await storeAvatarAnimationUrlToCos(reqSnapshot, user, sourceUrl, { aiMetadata, petId: job.petId || '' });
+    const pet = socialPetFor(user, job);
+    if (state.avatarAnimationJobs?.[job.id] !== job || !pet) {
+      enqueueDeletedPetStorageCleanup(user, job.petId, [mirroredUrl]);
+      return;
+    }
     if (mirroredUrl && mirroredUrl !== sourceUrl && mirroredUrl.includes('/storage/objects/')) {
       job.resultUrl = mirroredUrl;
       job.videoUrl = mirroredUrl;
@@ -7396,14 +7401,11 @@ async function runAvatarAnimationMirror(reqSnapshot, ownerPhone, jobId, sourceUr
       job.progress = 100;
       job.readyAt = new Date().toISOString();
       job.lastStatusError = '';
-      const pet = user.pets?.find((item) => item.id === job.petId);
-      if (pet) {
-        pet.avatarAnimationJobId = job.id;
-        pet.avatarAnimationStatus = 'ready';
-        pet.avatarAnimationUpdatedAt = job.readyAt;
-        pet.avatarAnimationUrl = mirroredUrl;
-        applyPetAvatarAnimationAiProvenance(pet, job, job.readyAt);
-      }
+      pet.avatarAnimationJobId = job.id;
+      pet.avatarAnimationStatus = 'ready';
+      pet.avatarAnimationUpdatedAt = job.readyAt;
+      pet.avatarAnimationUrl = mirroredUrl;
+      applyPetAvatarAnimationAiProvenance(pet, job, job.readyAt);
       touchAvatarAnimationJob(job);
       clearAvatarAnimationMirrorRetry(job.id);
     } else {
@@ -11607,12 +11609,38 @@ function tencentImageBizTypeForScope(scope) {
 
 function imageModerationScopeForUploadSource(source) {
   const value = String(source || '').trim();
-  if (/pet[-_]?circle|social|moment|post/i.test(value)) return 'pet_circle_photo';
   if (/place[-_]?review|place_review/i.test(value)) return 'place_review';
   if (/place[-_]?submission|place_submission|place[-_]?draft/i.test(value)) return 'place_submission';
-  if (/cover/i.test(value)) return 'pet_circle_cover';
   if (/support|feedback|ticket/i.test(value)) return 'support';
+  if (/cover/i.test(value)) return 'pet_circle_cover';
+  if (/pet[-_]?circle|social|moment|post/i.test(value)) return 'pet_circle_photo';
   return 'pet_avatar';
+}
+
+const PET_SCOPED_IMAGE_MODERATION_SCOPES = new Set(['pet_avatar', 'pet_circle_cover', 'pet_circle_photo']);
+
+function mediaUploadModerationScope(media) {
+  return imageModerationScopeForUploadSource(media?.source || media?.scope);
+}
+
+function isPetScopedImageModerationScope(scope) {
+  return PET_SCOPED_IMAGE_MODERATION_SCOPES.has(String(scope || ''));
+}
+
+function isPetScopedMediaUpload(media) {
+  return Boolean(media) && isPetScopedImageModerationScope(mediaUploadModerationScope(media));
+}
+
+function storageScopeForImageUpload(scope) {
+  const scopes = {
+    pet_avatar: 'pet-source',
+    pet_circle_cover: 'pet-circle-cover-source',
+    pet_circle_photo: 'pet-circle-photo',
+    place_review: 'place-review',
+    place_submission: 'place-submission',
+    support: 'support',
+  };
+  return scopes[String(scope || '')] || 'media-upload';
 }
 
 function tencentKeywordsFromResponse(response = {}) {
@@ -12958,7 +12986,7 @@ async function createPlaceReview(user, placeId, bodyOrContent) {
   if (!trimmedContent) return false;
   const violation = publicPlaceContentViolation('点评内容', trimmedContent, 500);
   if (violation) return { error: violation, statusCode: 400 };
-  const imageModerationError = placeImageModerationError(body);
+  const imageModerationError = placeImageModerationError(body, user, 'place_review');
   if (imageModerationError) return { error: imageModerationError, statusCode: 400 };
   const imageUrls = normalizePlaceImageUrls(body);
   const moderation = await evaluateContentTextModeration('点评内容', trimmedContent, { ownerPhone: user.phone, scope: 'place_review' });
@@ -13073,7 +13101,7 @@ async function createPlaceSubmission(user, body) {
     publicPlaceContentViolation('地点地址', address, 120) ||
     publicPlaceContentViolation('宠物友好体验', content, 500);
   if (violation) return { error: violation, statusCode: 400 };
-  const imageModerationError = placeImageModerationError(body);
+  const imageModerationError = placeImageModerationError(body, user, 'place_submission');
   if (imageModerationError) return { error: imageModerationError, statusCode: 400 };
   const locationResult = placeSubmissionLocation(body, user);
   if (locationResult.error) return locationResult;
@@ -13143,6 +13171,11 @@ function mediaUploadForImageUrl(imageUrl) {
   } catch {
     return null;
   }
+  const objectKey = storageObjectKeyFromPublicUrl(url);
+  if (objectKey) {
+    const media = mediaUploadForObjectKey(objectKey);
+    if (media) return media;
+  }
   return Object.values(state.mediaUploads || {}).find((media) => {
     if (!media) return false;
     return url === media.objectUrl;
@@ -13153,6 +13186,39 @@ function mediaUploadForObjectKey(objectKey) {
   const key = String(objectKey || '').trim();
   if (!key) return null;
   return Object.values(state.mediaUploads || {}).find((media) => media?.objectKey === key) || null;
+}
+
+function rawImageUrlsFromBody(body = {}) {
+  return Array.isArray(body.imageUrls) ? body.imageUrls : Array.isArray(body.photoUrls) ? body.photoUrls : [];
+}
+
+function uploadedMediaUsageError(body, user, options = {}) {
+  const expectedScope = String(options.expectedScope || '').trim();
+  const expectedPetId = String(options.petId || '').trim();
+  const label = String(options.label || '图片').trim() || '图片';
+  for (const item of rawImageUrlsFromBody(body)) {
+    const url = String(item || '').trim();
+    if (!url) continue;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+    } catch {
+      continue;
+    }
+    const media = mediaUploadForImageUrl(url);
+    if (!media) return `${label}必须先通过图片上传接口完成安全审核，请重新选择图片`;
+    if (normalizePhone(media.ownerPhone) !== normalizePhone(user?.phone)) return `不能使用其他账号上传的${label}`;
+    if (expectedScope && mediaUploadModerationScope(media) !== expectedScope) return `${label}上传场景不匹配，请重新选择图片`;
+    if (expectedPetId && String(media.petId || '').trim() !== expectedPetId) return `${label}不属于当前宠物，请重新选择图片`;
+    const status = normalizeMediaModerationStatus(media.moderationStatus, media);
+    if (status === 'pending_review') return `有${label}正在安全审核中，通过后才能提交`;
+    if (status === 'hidden' || status === 'rejected') return `有${label}未通过平台安全审核，请重新选择图片`;
+  }
+  return '';
+}
+
+function mediaUploadBase64FileContent(media) {
+  return String(media?.dataUrl || '').match(/^data:[^;]+;base64,(.+)$/)?.[1] || '';
 }
 
 function isMediaUploadPubliclyVisible(media) {
@@ -13209,16 +13275,8 @@ function normalizePlaceImageUrls(body = {}) {
   return urls;
 }
 
-function placeImageModerationError(body = {}) {
-  const rawUrls = Array.isArray(body.imageUrls) ? body.imageUrls : Array.isArray(body.photoUrls) ? body.photoUrls : [];
-  for (const item of rawUrls) {
-    const media = mediaUploadForImageUrl(item);
-    if (!media) continue;
-    const status = normalizeMediaModerationStatus(media.moderationStatus, media);
-    if (status === 'pending_review') return '有地点图片正在安全审核中，通过后才能提交';
-    if (status === 'hidden' || status === 'rejected') return '有地点图片未通过平台安全审核，请重新选择图片';
-  }
-  return '';
+function placeImageModerationError(body = {}, user = null, expectedScope = '') {
+  return uploadedMediaUsageError(body, user, { expectedScope, label: '地点图片' });
 }
 
 function publicUploadedMedia(media, req) {
@@ -13415,6 +13473,17 @@ function requireUser(req, res) {
 
 function activePetFor(user) {
   return selectedPetFor(user);
+}
+
+function petByIdForUser(user, petId) {
+  const id = String(petId || '').trim();
+  if (!id || !Array.isArray(user?.pets)) return null;
+  return user.pets.find((pet) => pet?.id === id) || null;
+}
+
+function socialPetFor(user, record = {}) {
+  const petId = String(record?.petId || '').trim();
+  return (petId ? petByIdForUser(user, petId) : null) || (!petId ? activePetFor(user) : null);
 }
 
 function healthKeyFor(user) {
@@ -13902,6 +13971,7 @@ function ensureHealthReminderNotifications(user) {
       const added = addNotification(user.phone, {
         id: healthReminderNotificationId(user, vaccine),
         kind: 'vaccine_reminder',
+        petId: activePetFor(user)?.id || '',
         read: false,
         text: `${vaccine.name}：${vaccineReminderCopy(vaccine)}，记得按宠物医院建议确认时间。`,
         title: '健康提醒',
@@ -16087,6 +16157,7 @@ function avatarStartFailureMessage(error) {
 }
 
 async function startAvatarGenerationJobInBackground(reqSnapshot, user, job, media) {
+  if (state.avatarJobs?.[job.id] !== job || !socialPetFor(user, job)) return;
   try {
     const provider = effectivePetAvatarProvider();
     if (provider === 'gpt-image-2') {
@@ -16096,6 +16167,7 @@ async function startAvatarGenerationJobInBackground(reqSnapshot, user, job, medi
     } else if (provider === 'ttapi-midjourney') {
       await startTtapiAvatarJob(reqSnapshot, user, job, media);
     }
+    if (state.avatarJobs?.[job.id] !== job || !socialPetFor(user, job)) return;
     job.submittedAt = Date.now();
     job.submitErrorCount = 0;
     touchAvatarJob(job);
@@ -16142,6 +16214,14 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
   if (mediaId && (!media || media.ownerPhone !== user.phone)) {
     return { error: '上传照片已失效，请重新上传', retryable: true, statusCode: 404 };
   }
+  if (media && !isPetScopedMediaUpload(media)) {
+    return {
+      code: 'AVATAR_MEDIA_SCOPE_INVALID',
+      error: '这张图片属于地点或客服业务，不能用于生成灵伴形象，请重新上传宠物照片',
+      retryable: false,
+      statusCode: 400,
+    };
+  }
   const mediaSafetyStatus = normalizeMediaModerationStatus(media?.moderationStatus, media);
   if (media && mediaSafetyStatus === 'pending_review') {
     return { error: '这张照片正在进行安全审核，请通过后再生成灵伴形象', retryable: true, statusCode: 409 };
@@ -16151,6 +16231,20 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
   }
   if (media?.analysis && !media.analysis.canGenerate) {
     return { data: media.analysis, error: media.analysis.message || '当前照片不适合生成灵伴形象，请重新上传', retryable: false, statusCode: 400 };
+  }
+  const originalJob = originalJobId ? state.avatarJobs?.[originalJobId] : null;
+  if (originalJobId && (!originalJob || originalJob.ownerPhone !== user.phone)) {
+    return { error: '原生成任务已失效，请重新上传照片', retryable: true, statusCode: 404 };
+  }
+  const lockedPetId = String(originalJob?.petId || media?.petId || '').trim();
+  const pet = lockedPetId ? petByIdForUser(user, lockedPetId) : selectedPetFor(user);
+  if (!pet) {
+    return {
+      code: lockedPetId ? 'AVATAR_PET_GONE' : 'PET_PROFILE_REQUIRED',
+      error: lockedPetId ? '这张照片关联的宠物档案已不存在，请重新选择宠物和照片' : '请先添加宠物档案',
+      retryable: false,
+      statusCode: lockedPetId ? 409 : 400,
+    };
   }
   const provider = effectivePetAvatarProvider();
   if (!petAvatarProviderOperational(provider)) {
@@ -16165,7 +16259,6 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
   }
   const id = `job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const job = createMockAvatarJob(id);
-  const pet = selectedPetFor(user) || activePetFor(user);
   job.mediaId = mediaId;
   job.ownerPhone = user.phone;
   job.petId = pet?.id || '';
@@ -16534,10 +16627,17 @@ function markAvatarAnimationFailure(job, code, message, providerStatus = 'failed
 async function startSeedanceAvatarAnimationJob(req, user, job) {
   if (!APIMART_API_KEY) throw new Error('APIMart video key is not configured');
   if (!/^https?:\/\//i.test(job.sourceAvatarUrl || '')) throw new Error('Public source avatar URL is not available for video generation');
-  const pet = user.pets?.find((item) => item.id === job.petId) || selectedPetFor(user);
+  const pet = socialPetFor(user, job);
+  if (!pet) throw new Error('Animation job pet profile no longer exists');
   const providerConfig = effectiveSeedanceAvatarAnimationConfig();
   const prompt = buildAvatarAnimationPrompt(user, pet, job.sourceAvatarUrl);
   const preparedSourceAvatarUrl = await prepareAvatarAnimationSourceUrl(req, user, job.sourceAvatarUrl, { petId: job.petId || '' });
+  if (state.avatarAnimationJobs?.[job.id] !== job || petByIdForUser(user, pet.id) !== pet) {
+    enqueueDeletedPetStorageCleanup(user, pet.id, [preparedSourceAvatarUrl]);
+    const error = new Error('Animation job pet profile was deleted');
+    error.code = 'AVATAR_PET_GONE';
+    throw error;
+  }
   Object.assign(job, {
     chromaKeyColor: PET_AVATAR_ANIMATION_CHROMA_KEY_COLOR,
     chromaBlend: PET_AVATAR_ANIMATION_CHROMA_BLEND,
@@ -16599,6 +16699,12 @@ async function startSeedanceAvatarAnimationJob(req, user, job) {
   state.aiUsage = state.aiUsage || createInitialState().aiUsage;
   state.aiUsage.avatarAnimation = state.aiUsage.avatarAnimation || createInitialState().aiUsage.avatarAnimation;
   state.aiUsage.avatarAnimation.requests += 1;
+  if (state.avatarAnimationJobs?.[job.id] !== job || petByIdForUser(user, pet.id) !== pet) {
+    enqueueDeletedPetStorageCleanup(user, pet.id, [preparedSourceAvatarUrl]);
+    const error = new Error('Animation job pet profile was deleted');
+    error.code = 'AVATAR_PET_GONE';
+    throw error;
+  }
   Object.assign(job, {
     progress: 10,
     providerJobId,
@@ -16609,6 +16715,7 @@ async function startSeedanceAvatarAnimationJob(req, user, job) {
 }
 
 async function startAvatarAnimationJobInBackground(reqSnapshot, user, job) {
+  if (state.avatarAnimationJobs?.[job.id] !== job || !socialPetFor(user, job)) return;
   try {
     const provider = effectivePetAvatarAnimationProvider();
     if (provider === 'disabled') {
@@ -16626,9 +16733,11 @@ async function startAvatarAnimationJobInBackground(reqSnapshot, user, job) {
     } else {
       markAvatarAnimationFailure(job, 'AVATAR_ANIMATION_PROVIDER_UNAVAILABLE', '灵伴动效生成服务暂不可用，请稍后重试。', provider || 'unavailable');
     }
+    if (state.avatarAnimationJobs?.[job.id] !== job || !socialPetFor(user, job)) return;
     job.submittedAt = Date.now();
     touchAvatarAnimationJob(job);
   } catch (error) {
+    if (error?.code === 'AVATAR_PET_GONE') return;
     markAvatarAnimationFailure(job, 'AVATAR_ANIMATION_PROVIDER_START_FAILED', avatarStartFailureMessage(error).replace('AI 灵伴生成', '灵伴动效生成').replace('AI 图像服务', 'AI 视频服务'), 'submit_failed');
     console.warn('[avatar-animation] background start failed', {
       jobId: job.id,
@@ -16703,6 +16812,7 @@ async function refreshSeedanceAvatarAnimationJob(req, user, job) {
     });
     throw error;
   }
+  if (state.avatarAnimationJobs?.[job.id] !== job || !socialPetFor(user, job)) return job;
   const data = payload?.data || {};
   const status = String(data.status || payload.status || '').toLowerCase();
   job.providerStatus = status || job.providerStatus;
@@ -17147,6 +17257,7 @@ async function refreshGptImage2AvatarJob(req, user, job) {
     });
     throw error;
   }
+  if (state.avatarJobs?.[job.id] !== job || !socialPetFor(user, job)) return job;
   const data = payload?.data || {};
   const status = String(data.status || payload.status || '').toLowerCase();
   job.providerStatus = status || job.providerStatus;
@@ -17159,10 +17270,22 @@ async function refreshGptImage2AvatarJob(req, user, job) {
     if (!resultUrl) throw new Error('GPT Image 2 result does not include an image URL');
     job.readyAt = job.readyAt || new Date().toISOString();
     const aiMetadata = aiGeneratedContentMetadata(job, 'image', job.readyAt);
+    const pet = socialPetFor(user, job);
+    if (!pet) {
+      job.errorCode = 'AVATAR_PET_GONE';
+      job.errorMessage = '生成任务关联的宠物档案已不存在，请重新选择宠物生成。';
+      job.progress = 100;
+      job.status = 'failed';
+      if (!job.usageRecorded) {
+        recordGptImage2AvatarUsage(payload, true);
+        job.usageRecorded = true;
+      }
+      touchAvatarJob(job);
+      return job;
+    }
     let finalResultUrl = resultUrl;
     try {
-      const pet = selectedPetFor(user);
-      finalResultUrl = await storeAvatarUrlToCos(req, user, resultUrl, { aiMetadata, petId: pet?.id || '', scope: 'pet-avatar' });
+      finalResultUrl = await storeAvatarUrlToCos(req, user, resultUrl, { aiMetadata, petId: pet.id, scope: 'pet-avatar' });
       if (finalResultUrl && finalResultUrl !== resultUrl) job.sourceResultUrl = resultUrl;
     } catch (error) {
       console.warn('[avatar:gpt-image-2] result storage skipped', {
@@ -17170,6 +17293,14 @@ async function refreshGptImage2AvatarJob(req, user, job) {
         message: error.message || String(error),
       });
       finalResultUrl = resultUrl;
+    }
+    if (state.avatarJobs?.[job.id] !== job || petByIdForUser(user, pet.id) !== pet) {
+      enqueueDeletedPetStorageCleanup(user, pet.id, [finalResultUrl]);
+      if (!job.usageRecorded) {
+        recordGptImage2AvatarUsage(payload, true);
+        job.usageRecorded = true;
+      }
+      return job;
     }
     job.progress = 100;
     job.resultUrl = finalResultUrl;
@@ -17490,6 +17621,7 @@ function createMedicalAlertFromPetChat(user, text) {
     id: notificationId,
     kind: 'medical_alert',
     memoId: memo.id,
+    petId: pet?.id || '',
     read: false,
     text: emergency.reason === 'toxic_ingestion'
       ? '已记录疑似误食风险，请尽快联系宠物医院或兽医确认处理方式。'
@@ -17693,6 +17825,7 @@ function applyPetChatVaccineAction(user, text) {
     addNotification(user.phone, {
       id: `n-vaccine-done-${healthKeyFor(user)}-${vaccines[index].id}`,
       kind: 'vaccine_done',
+      petId: activePetFor(user)?.id || '',
       read: false,
       text: `${vaccines[index].name}已标记完成，健康时间线已更新。`,
       title: '疫苗计划已完成',
@@ -17976,8 +18109,8 @@ async function callDeepSeekPetChat(user, text, history) {
   }
 }
 
-function buildOwnerCard(user, viewerPhone, index, distanceKm) {
-  const pet = activePetFor(user);
+function buildOwnerCard(user, viewerPhone, index, distanceKm, petOverride = null) {
+  const pet = petOverride || activePetFor(user);
   if (!pet) return null;
   const suffix = user.phone.slice(-4);
   const safeSpecies = pet.species === 'cat' ? 'cat' : 'dog';
@@ -18195,16 +18328,12 @@ function normalizeSocialMomentImageUrls(body = {}) {
   return urls;
 }
 
-function socialMomentImageModerationError(body = {}) {
-  const rawUrls = Array.isArray(body.imageUrls) ? body.imageUrls : Array.isArray(body.photoUrls) ? body.photoUrls : [];
-  for (const item of rawUrls) {
-    const media = mediaUploadForImageUrl(item);
-    if (!media) continue;
-    const status = normalizeMediaModerationStatus(media.moderationStatus, media);
-    if (status === 'pending_review') return '有图片正在安全审核中，通过后才能发布';
-    if (status === 'hidden' || status === 'rejected') return '有图片未通过平台安全审核，请重新选择图片';
-  }
-  return '';
+function socialMomentImageModerationError(body = {}, user = null, pet = null) {
+  return uploadedMediaUsageError(body, user, {
+    expectedScope: 'pet_circle_photo',
+    label: '宠友圈图片',
+    petId: pet?.id || '',
+  });
 }
 
 function hasSocialMomentImageUrlPayload(body = {}) {
@@ -18242,11 +18371,13 @@ function socialReportFor(user, targetType, targetId) {
 function createSocialReport(user, targetType, targetId, ownerPhone, body = {}) {
   const existing = socialReportFor(user, targetType, targetId);
   if (existing) return existing;
+  const pet = activePetFor(user);
   const report = {
     content: String(body.content || body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240),
     createdAt: new Date().toISOString(),
     id: `report-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     ownerPhone,
+    petId: pet?.id || '',
     phone: user.phone,
     status: 'pending',
     targetId,
@@ -18273,7 +18404,7 @@ async function createSocialMoment(user, body = {}, options = {}) {
   const visibility = normalizeSocialVisibility(body.visibility);
   const publishLocation = visibility === 'nearby' ? socialMomentLocationSnapshot(options.publishLocation) : null;
   if (visibility === 'nearby' && !publishLocation) return { error: '请先完成定位后再发布到宠友圈', statusCode: 400 };
-  const imageModerationError = socialMomentImageModerationError(body);
+  const imageModerationError = socialMomentImageModerationError(body, user, pet);
   if (imageModerationError) return { error: imageModerationError, statusCode: 400 };
   const imageUrls = normalizeSocialMomentImageUrls(body);
   const hasImageUrlPayload = hasSocialMomentImageUrlPayload(body);
@@ -18307,7 +18438,7 @@ function findSocialMomentById(postId) {
 function socialMomentAccessError(moment, viewer, options = {}) {
   if (!moment || moment.status === 'deleted' || moment.status === 'hidden' || moment.status === 'pending_review') return { error: '这条小事已不可见', statusCode: 404 };
   const owner = state.users[moment.phone];
-  if (owner && !activePetFor(owner)) return { error: '这条小事已不可见', statusCode: 404 };
+  if (owner && !socialPetFor(owner, moment)) return { error: '这条小事已不可见', statusCode: 404 };
   if (!owner) return { error: '这条小事已不可见', statusCode: 404 };
   owner.settings = normalizeUserSettings(owner.settings);
   if (owner.settings.nearbyVisible === false) return { error: '这条小事已不可见', statusCode: 404 };
@@ -18342,7 +18473,7 @@ function socialLikesForPost(postId) {
 }
 
 function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
-  const pet = activePetFor(momentUser);
+  const pet = socialPetFor(momentUser, moment);
   if (!pet) return null;
   const suffix = momentUser.phone.slice(-4);
   const likes = socialLikesForPost(moment.id);
@@ -18372,6 +18503,7 @@ function buildNearbyMomentCard(moment, momentUser, viewer, index, distanceKm) {
     ownerId: `user-${momentUser.phone}`,
     ownerName: momentUser.ownerName || `用户${suffix}`,
     ownedByMe,
+    petId: pet.id,
     petName: pet.name || `灵伴${suffix}`,
     photoCount: publicImageUrls.length,
     species: pet.species === 'cat' ? 'cat' : 'dog',
@@ -18410,7 +18542,7 @@ function listNearbyMomentEntries(viewer, options = {}) {
     .map((moment, index) => {
       const momentUser = state.users[moment.phone];
       if (!momentUser) return null;
-      if (!activePetFor(momentUser)) return null;
+      if (!socialPetFor(momentUser, moment)) return null;
       if ((moment.status || 'published') !== 'published') return null;
       if (!includeOwn && moment.phone === viewer.phone) return null;
       if ((moment.visibility || 'nearby') !== 'nearby') return null;
@@ -18470,9 +18602,11 @@ function resolvePetCircleProfileTarget(viewer, ownerId = 'me') {
 function petCircleProfilePostEntries(viewer, targetUser, options = {}) {
   const includeReported = targetUser.phone === viewer.phone;
   const includeOwnerOnlyModeration = targetUser.phone === viewer.phone;
+  const profilePet = activePetFor(targetUser);
   return ensureSocialMoments()
     .map((moment, index) => ({ index, moment }))
     .filter(({ moment }) => moment.phone === targetUser.phone)
+    .filter(({ moment }) => !moment.petId || moment.petId === profilePet?.id)
     .filter(({ moment }) => (
       (moment.status || 'published') === 'published' ||
       (includeOwnerOnlyModeration && (moment.status === 'pending_review' || moment.status === 'hidden'))
@@ -18551,12 +18685,24 @@ async function updatePetCircleCover(req, user, body = {}) {
   if (coverImageUrl.length > 2000) return { error: '封面图地址过长，请重新选择', statusCode: 400 };
   if (isLocalImagePlaceholderUrl(coverImageUrl)) return { error: '封面图还没有上传完成，请重新选择', statusCode: 400 };
   if (!isImageUrlPubliclyVisible(coverImageUrl)) return { error: '这张封面图正在审核或已不可用，请重新选择', statusCode: 400 };
-  if (!mediaUploadForImageUrl(coverImageUrl)) {
-    const downloaded = await downloadImageBuffer(coverImageUrl).catch(() => null);
-    if (downloaded?.buffer?.length) {
-      const safety = await moderateImageFileContentForPublicUse(downloaded.buffer.toString('base64'), user.phone, 'pet_circle_cover', pet.id);
-      if (safety.action !== 'allow') return { error: safety.error, statusCode: safety.action === 'block' ? 400 : 409 };
+  const coverMedia = mediaUploadForImageUrl(coverImageUrl);
+  if (!coverMedia) return { error: '封面图必须先完成上传和安全审核，请重新选择', statusCode: 400 };
+  if (normalizePhone(coverMedia.ownerPhone) !== normalizePhone(user.phone)) return { error: '不能使用其他账号上传的封面图', statusCode: 400 };
+  if (!coverMedia.petId && isPetScopedMediaUpload(coverMedia)) coverMedia.petId = pet.id;
+  if (coverMedia.petId !== pet.id) return { error: '封面图不属于当前宠物，请重新选择', statusCode: 400 };
+  const coverScope = mediaUploadModerationScope(coverMedia);
+  if (coverScope !== 'pet_circle_cover') {
+    if (coverScope !== 'pet_avatar') return { error: '封面图上传场景不匹配，请重新选择', statusCode: 400 };
+    let fileContent = mediaUploadBase64FileContent(coverMedia);
+    if (!fileContent) {
+      const downloaded = await downloadImageBuffer(coverImageUrl).catch(() => null);
+      fileContent = downloaded?.buffer?.length ? downloaded.buffer.toString('base64') : '';
     }
+    if (!fileContent) return { error: '封面图原文件已失效，请重新上传', statusCode: 400 };
+    const safety = await moderateImageFileContentForPublicUse(fileContent, user.phone, 'pet_circle_cover', coverMedia.mediaId || pet.id);
+    if (safety.action !== 'allow') return { error: safety.error, statusCode: safety.action === 'block' ? 400 : 409 };
+    coverMedia.coverContentSafety = contentSafetySnapshot(safety.result);
+    coverMedia.coverModeratedAt = new Date().toISOString();
   }
   pet.petCircleCoverImageUrl = await storeAvatarUrlToCos(req, user, coverImageUrl, { petId: pet.id, scope: 'pet-circle-cover' });
   const entries = petCircleProfilePostEntries(user, user);
@@ -18577,7 +18723,7 @@ function getPetCirclePostCard(postId, viewer) {
 function listPetCircleComments(postId, viewer) {
   return publishedSocialComments(postId, viewer).map((comment) => {
     const author = state.users[comment.phone];
-    const pet = author ? activePetFor(author) : null;
+    const pet = author ? socialPetFor(author, comment) : null;
     return {
       author: author?.ownerName || `用户${String(comment.phone || '').slice(-4)}`,
       avatarAiGenerated: pet?.avatarAiGenerated === true,
@@ -18587,6 +18733,7 @@ function listPetCircleComments(postId, viewer) {
       id: comment.id,
       ownerId: `user-${comment.phone}`,
       ownedByMe: viewer ? comment.phone === viewer.phone : false,
+      petId: pet?.id || comment.petId || '',
       postId: comment.postId,
       text: comment.content,
     };
@@ -18600,11 +18747,15 @@ function likeSocialMoment(postId, user) {
   if (moment.phone === user.phone) return { error: '暂不支持给自己的小事点赞', statusCode: 400 };
   const likes = ensureSocialLikes();
   if (!likes.some((like) => like.postId === postId && like.phone === user.phone)) {
-    likes.unshift({ createdAt: new Date().toISOString(), id: `like-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`, phone: user.phone, postId });
+    const pet = activePetFor(user);
+    likes.unshift({ createdAt: new Date().toISOString(), id: `like-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`, petId: pet?.id || '', phone: user.phone, postId });
     addNotification(moment.phone, {
+      actorPetId: pet?.id || '',
       category: 'interaction',
       id: `n-pet-circle-like-${postId}-${user.phone}`,
       kind: 'pet_circle_like',
+      ownerId: `user-${user.phone}`,
+      petId: socialPetFor(state.users[moment.phone], moment)?.id || moment.petId || '',
       postId: moment.id,
       read: false,
       text: `${user.ownerName || `用户${user.phone.slice(-4)}`}赞了这条小事`,
@@ -18641,6 +18792,7 @@ async function createPetCircleComment(postId, user, body = {}) {
     createdAt: new Date().toISOString(),
     id: `comment-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
     moderation: moderationMetadataFromEvaluation(moderation, 'pet_circle_comment'),
+    petId: activePetFor(user)?.id || '',
     phone: user.phone,
     postId,
     status: moderation.action === 'review' ? 'pending_review' : 'published',
@@ -18650,10 +18802,12 @@ async function createPetCircleComment(postId, user, body = {}) {
   else maybeRecordModerationQualitySample({ contentText: content, ownerPhone: user.phone, scope: 'pet_circle_comment', targetId: comment.id });
   if (comment.status === 'published' && moment.phone !== user.phone) {
     addNotification(moment.phone, {
+      actorPetId: comment.petId || '',
       category: 'interaction',
       commentId: comment.id,
       id: `n-pet-circle-comment-${comment.id}`,
       kind: 'pet_circle_comment',
+      petId: socialPetFor(state.users[moment.phone], moment)?.id || moment.petId || '',
       postId: moment.id,
       read: false,
       text: `${user.ownerName || `用户${user.phone.slice(-4)}`}评论了这条小事`,
@@ -18781,19 +18935,23 @@ function ensureAcceptedGreetingBetween(fromPhone, targetPhone, options = {}) {
       ((item.fromPhone === fromPhone && item.targetPhone === targetPhone) || (item.fromPhone === targetPhone && item.targetPhone === fromPhone)),
   );
   if (existingPending) {
+    existingPending.fromPetId = existingPending.fromPetId || options.fromPetId || '';
     existingPending.status = 'accepted';
     existingPending.respondedAt = Date.now();
     existingPending.source = existingPending.source || options.source;
+    existingPending.targetPetId = existingPending.targetPetId || options.targetPetId || '';
     return existingPending;
   }
 
   const accepted = {
     at: Date.now(),
+    fromPetId: options.fromPetId || '',
     fromPhone,
     message: options.message || 'walk invite opened conversation',
     ownerId: options.ownerId || `user-${targetPhone}`,
     source: options.source || 'walk_invite',
     status: 'accepted',
+    targetPetId: options.targetPetId || '',
     targetPhone,
   };
   state.greetings.push(accepted);
@@ -18806,9 +18964,11 @@ function acceptPendingWalkInviteForReply(phone, inviterPhone) {
   invite.status = 'accepted';
   invite.respondedAt = Date.now();
   ensureAcceptedGreetingBetween(inviterPhone, phone, {
+    fromPetId: invite.fromPetId || '',
     message: 'walk invite reply accepted conversation',
     ownerId: invite.ownerId,
     source: 'walk_invite',
+    targetPetId: invite.targetPetId || '',
   });
   removeGreetingRequestNotificationsFor(phone, `user-${inviterPhone}`);
   return true;
@@ -19146,7 +19306,10 @@ function listGreetingRequestsFor(user) {
     .filter((item) => !socialBlockBetween(user.phone, item.fromPhone))
     .map((item, index) => {
       const fromUser = state.users[item.fromPhone];
-      const card = fromUser ? buildOwnerCard(fromUser, user.phone, index, distanceKmBetween(user.location, fromUser.location) ?? undefined) : null;
+      const fromPet = fromUser ? socialPetFor(fromUser, { petId: item.fromPetId || '' }) : null;
+      const card = fromUser && fromPet
+        ? buildOwnerCard(fromUser, user.phone, index, distanceKmBetween(user.location, fromUser.location) ?? undefined, fromPet)
+        : null;
       if (!card) return null;
       const sentAt = Number(item.at || 0);
       return {
@@ -19403,6 +19566,7 @@ function notifyPetCirclePostModeration(post, actionOrStatus, reason = '') {
     createdAt: notifiedAt,
     id: `n-pet-circle-moderation-${post.id}-${status}`,
     kind: 'system',
+    petId: post.petId || '',
     read: false,
     targetId: post.id,
     targetType: 'post',
@@ -21637,7 +21801,13 @@ function businessDataIdsForUser(phone) {
   );
   const placeReviewIds = new Set((state.placeReviews?.[phone] || []).map((item) => item.id).filter(Boolean));
   const placeSubmissionIds = new Set((state.placeSubmissions?.[phone] || []).map((item) => item.id).filter(Boolean));
-  return { commentIds, placeReviewIds, placeSubmissionIds, postIds, reportIds };
+  const mediaIds = new Set(
+    Object.values(state.mediaUploads || {})
+      .filter((item) => item?.ownerPhone === phone)
+      .map((item) => item.mediaId)
+      .filter(Boolean),
+  );
+  return { commentIds, mediaIds, placeReviewIds, placeSubmissionIds, postIds, reportIds };
 }
 
 function moderationTaskMetaBelongsToClearedUser(taskId, ids) {
@@ -21645,6 +21815,7 @@ function moderationTaskMetaBelongsToClearedUser(taskId, ids) {
   if (kind === 'post') return ids.postIds.has(id);
   if (kind === 'comment') return ids.commentIds.has(id);
   if (kind === 'report') return ids.reportIds.has(id);
+  if (kind === 'media') return ids.mediaIds.has(id);
   if (kind === 'placeReview') return ids.placeReviewIds.has(id);
   if (kind === 'placeSubmission') return ids.placeSubmissionIds.has(id);
   return false;
@@ -22040,6 +22211,606 @@ function accountStorageObjectKeys(phone, user) {
   return keys;
 }
 
+function petStorageObjectKeys(phone, user, petId) {
+  const normalizedPhone = normalizePhone(phone);
+  const normalizedPetId = String(petId || '').trim();
+  if (!normalizedPhone || !user || !normalizedPetId) return new Set();
+  const ownerId = ownerStorageId(user);
+  const pet = petByIdForUser(user, normalizedPetId);
+  const storagePetIds = [...new Set([
+    normalizedPetId,
+    ...(Array.isArray(pet?.mergedSourcePetIds) ? pet.mergedSourcePetIds : []),
+  ])]
+    .map((value) => String(value || '').trim().replace(/[^a-z0-9_-]/gi, '-'))
+    .filter(Boolean);
+  const petMarkers = storagePetIds.map((storagePetId) => `/${ownerId}/${storagePetId}/`);
+  const keys = new Set();
+  const seen = new WeakSet();
+  const addValue = (value) => {
+    const text = String(value || '').trim();
+    if (!text || text.startsWith('data:') || text.length > 4000) return;
+    const parsed = storageObjectKeyFromPublicUrl(text);
+    const candidate = String(parsed || text).replace(/^\/+/, '');
+    if (!candidate || !petMarkers.some((marker) => candidate.includes(marker)) || /^https?:\/\//i.test(candidate)) return;
+    keys.add(candidate);
+  };
+  const walk = (value) => {
+    if (typeof value === 'string') {
+      addValue(value);
+      return;
+    }
+    if (!value || typeof value !== 'object' || seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) value.forEach(walk);
+    else Object.values(value).forEach(walk);
+  };
+  walk(state);
+  return keys;
+}
+
+function ownerStorageObjectKeysFromValue(user, value) {
+  if (!user) return new Set();
+  const ownerMarker = `/${ownerStorageId(user)}/`;
+  const keys = new Set();
+  const seen = new WeakSet();
+  const addValue = (candidateValue) => {
+    const text = String(candidateValue || '').trim();
+    if (!text || text.startsWith('data:') || text.length > 4000) return;
+    const parsed = storageObjectKeyFromPublicUrl(text);
+    const candidate = String(parsed || text).replace(/^\/+/, '');
+    if (!candidate || !candidate.includes(ownerMarker) || /^https?:\/\//i.test(candidate)) return;
+    keys.add(candidate);
+  };
+  const walk = (candidate) => {
+    if (typeof candidate === 'string') {
+      addValue(candidate);
+      return;
+    }
+    if (!candidate || typeof candidate !== 'object' || seen.has(candidate)) return;
+    seen.add(candidate);
+    if (Array.isArray(candidate)) candidate.forEach(walk);
+    else Object.values(candidate).forEach(walk);
+  };
+  walk(value);
+  return keys;
+}
+
+function liveBusinessReferencesStorageObjectKey(objectKey) {
+  const normalizedObjectKey = String(objectKey || '').replace(/^\/+/, '').trim();
+  if (!normalizedObjectKey) return false;
+  const seen = new WeakSet();
+  const references = (value) => {
+    if (typeof value === 'string') {
+      const parsed = storageObjectKeyFromPublicUrl(value);
+      return String(parsed || value).replace(/^\/+/, '').trim() === normalizedObjectKey;
+    }
+    if (!value || typeof value !== 'object' || seen.has(value)) return false;
+    seen.add(value);
+    return (Array.isArray(value) ? value : Object.values(value)).some(references);
+  };
+  return [
+    state.users,
+    state.health,
+    state.petChatMessages,
+    state.mediaUploads,
+    state.avatarJobs,
+    state.avatarAnimationJobs,
+    state.aiAvatarSamples,
+    state.socialMoments,
+    state.socialComments,
+    state.socialReports,
+    state.moderationSamples,
+    state.placeReviews,
+    state.placeSubmissions,
+    state.places,
+    state.feedback,
+    state.supportTickets,
+    state.conversations,
+    state.conversationMessages,
+    state.notifications,
+  ].some(references);
+}
+
+function existingOrActivePetIdForPhone(phone, candidatePetId = '') {
+  const normalizedPhone = normalizePhone(phone);
+  const user = normalizedPhone ? state.users?.[normalizedPhone] : null;
+  if (!user || !Array.isArray(user.pets)) return '';
+  const candidate = String(candidatePetId || '').trim();
+  if (candidate && user.pets.some((pet) => pet?.id === candidate)) return candidate;
+  return activePetFor(user)?.id || user.pets.find((pet) => pet?.id)?.id || '';
+}
+
+function healthPetIdForRecord(phone, storeNames, recordId) {
+  const normalizedPhone = normalizePhone(phone);
+  const normalizedRecordId = String(recordId || '').trim();
+  if (!normalizedPhone || !normalizedRecordId) return '';
+  const keyPrefix = `${normalizedPhone}:`;
+  for (const storeName of storeNames) {
+    for (const [key, records] of Object.entries(state.health?.[storeName] || {})) {
+      if (!key.startsWith(keyPrefix) || !Array.isArray(records)) continue;
+      if (!records.some((record) => record?.id === normalizedRecordId || record?.sourceId === normalizedRecordId)) continue;
+      const petId = key.slice(keyPrefix.length);
+      const existingPetId = existingOrActivePetIdForPhone(normalizedPhone, petId);
+      if (existingPetId === petId) return petId;
+    }
+  }
+  return '';
+}
+
+function migrateLegacyPetScopedIdentityState() {
+  let changed = false;
+  const assignMissingPetId = (record, phone, candidatePetId = '') => {
+    if (!record || record.petId) return String(record?.petId || '');
+    const petId = existingOrActivePetIdForPhone(phone, candidatePetId);
+    if (!petId) return '';
+    record.petId = petId;
+    changed = true;
+    return petId;
+  };
+
+  ensureSocialMoments().forEach((moment) => {
+    if (moment?.petId) return;
+    const linkedPetId = healthPetIdForRecord(moment?.phone, ['memos'], moment?.id);
+    assignMissingPetId(moment, moment?.phone, linkedPetId);
+  });
+  ensureSocialComments().forEach((comment) => assignMissingPetId(comment, comment?.phone));
+  ensureSocialLikes().forEach((like) => assignMissingPetId(like, like?.phone));
+  ensureSocialReports().forEach((report) => assignMissingPetId(report, report?.phone));
+
+  Object.values(state.mediaUploads || {}).forEach((media) => {
+    if (!media) return;
+    const scope = mediaUploadModerationScope(media);
+    if (media.scope !== scope) {
+      media.scope = scope;
+      changed = true;
+    }
+    if (!isPetScopedImageModerationScope(scope)) {
+      if (Object.prototype.hasOwnProperty.call(media, 'petId')) {
+        delete media.petId;
+        changed = true;
+      }
+      if (media.analysis && Object.prototype.hasOwnProperty.call(media.analysis, 'petId')) {
+        delete media.analysis.petId;
+        changed = true;
+      }
+      return;
+    }
+    const ownerPhone = normalizePhone(media.ownerPhone);
+    const owner = ownerPhone ? state.users?.[ownerPhone] : null;
+    if (media.petId && existingOrActivePetIdForPhone(ownerPhone, media.petId) === media.petId) return;
+    if (media.petId) {
+      delete media.petId;
+      changed = true;
+    }
+    const relatedAvatarJob = Object.values(state.avatarJobs || {}).find((job) => (
+      normalizePhone(job?.ownerPhone) === ownerPhone && job?.mediaId === media.mediaId
+    ));
+    const relatedMoment = scope === 'pet_circle_photo'
+      ? ensureSocialMoments().find((moment) => (
+          normalizePhone(moment?.phone) === ownerPhone &&
+          (moment.imageUrls || []).some((url) => imageUrlMatchesMedia(url, media))
+        ))
+      : null;
+    const relatedCoverPet = scope === 'pet_circle_cover' || !relatedAvatarJob
+      ? owner?.pets?.find((pet) => imageUrlMatchesMedia(pet?.petCircleCoverImageUrl, media))
+      : null;
+    const relatedAvatarPet = scope === 'pet_avatar' && !relatedAvatarJob
+      ? owner?.pets?.find((pet) => imageUrlMatchesMedia(pet?.avatarUrl, media))
+      : null;
+    assignMissingPetId(
+      media,
+      ownerPhone,
+      relatedAvatarJob?.petId ||
+        relatedAvatarJob?.acceptedPetId ||
+        relatedMoment?.petId ||
+        relatedCoverPet?.id ||
+        relatedAvatarPet?.id ||
+        '',
+    );
+  });
+
+  for (const records of [state.greetings, state.invites]) {
+    (Array.isArray(records) ? records : []).forEach((record) => {
+      if (!record.fromPetId) {
+        const fromPetId = existingOrActivePetIdForPhone(record.fromPhone);
+        if (fromPetId) {
+          record.fromPetId = fromPetId;
+          changed = true;
+        }
+      }
+      if (!record.targetPetId) {
+        const targetPetId = existingOrActivePetIdForPhone(record.targetPhone);
+        if (targetPetId) {
+          record.targetPetId = targetPetId;
+          changed = true;
+        }
+      }
+    });
+  }
+
+  const momentsById = new Map(ensureSocialMoments().map((moment) => [moment?.id, moment]));
+  const commentsById = new Map(ensureSocialComments().map((comment) => [comment?.id, comment]));
+  Object.entries(state.notifications || {}).forEach(([ownerPhone, notifications]) => {
+    if (!Array.isArray(notifications)) return;
+    notifications.forEach((notification) => {
+      if (!notification || typeof notification !== 'object') return;
+      if (!notification.petId) {
+        let targetPetId = '';
+        const postId = notification.postId || (notification.actionRoute === 'petCircleProfile' ? notification.targetId : '');
+        if (postId) targetPetId = momentsById.get(postId)?.petId || '';
+        if (!targetPetId && notification.commentId) {
+          const comment = commentsById.get(notification.commentId);
+          targetPetId = momentsById.get(comment?.postId)?.petId || '';
+        }
+        if (!targetPetId && notification.memoId) targetPetId = healthPetIdForRecord(ownerPhone, ['memos'], notification.memoId);
+        if (!targetPetId && notification.vaccineId) targetPetId = healthPetIdForRecord(ownerPhone, ['vaccines'], notification.vaccineId);
+        if (!targetPetId && notification.mediaId) targetPetId = state.mediaUploads?.[notification.mediaId]?.petId || '';
+        if (!targetPetId && ['greeting_request', 'greeting_accepted', 'pet_circle_greeting', 'walk_invite'].includes(notification.kind)) {
+          targetPetId = existingOrActivePetIdForPhone(ownerPhone);
+        }
+        if (targetPetId) {
+          notification.petId = targetPetId;
+          changed = true;
+        }
+      }
+      if (!notification.actorPetId && ['greeting_accepted', 'greeting_request', 'pet_circle_greeting', 'pet_circle_like', 'walk_invite'].includes(notification.kind)) {
+        let actorPhone = resolveOwnerId(notification.ownerId || '');
+        if (!actorPhone && notification.kind === 'pet_circle_like') {
+          actorPhone = String(notification.id || '').match(/-(1[3-9]\d{9})$/u)?.[1] || '';
+        }
+        const like = notification.kind === 'pet_circle_like'
+          ? ensureSocialLikes().find((item) => item?.phone === actorPhone && item?.postId === notification.postId)
+          : null;
+        const actorPetId = existingOrActivePetIdForPhone(actorPhone, like?.petId || '');
+        if (actorPetId) {
+          notification.actorPetId = actorPetId;
+          changed = true;
+        }
+      }
+    });
+  });
+  return changed;
+}
+
+function petDeletionRecordCount(value) {
+  if (Number.isFinite(Number(value))) return Math.max(0, Number(value));
+  if (!value || typeof value !== 'object') return 0;
+  return Object.values(value).reduce((total, item) => total + petDeletionRecordCount(item), 0);
+}
+
+function petDeletionTombstoneId(phone, petId) {
+  const normalizedPhone = normalizePhone(phone);
+  const normalizedPetId = String(petId || '').trim();
+  if (!normalizedPhone || !normalizedPetId) return '';
+  return crypto
+    .createHmac('sha256', AUTH_TOKEN_SECRET)
+    .update(`pet-deletion:${normalizedPhone}:${normalizedPetId}`)
+    .digest('hex')
+    .slice(0, 32);
+}
+
+function recordReferencesPetDeletion(record, context) {
+  if (!record || typeof record !== 'object') return false;
+  const referencedIds = new Set([
+    ...context.postIds,
+    ...context.commentIds,
+    ...context.reportIds,
+    ...context.memoIds,
+    ...context.vaccineIds,
+    ...context.mediaIds,
+    ...context.avatarJobIds,
+    ...context.animationJobIds,
+  ]);
+  const seen = new WeakSet();
+  const referencesDeletedRecord = (value) => {
+    if (typeof value === 'string') return value === context.petId || referencedIds.has(value);
+    if (!value || typeof value !== 'object' || seen.has(value)) return false;
+    seen.add(value);
+    return (Array.isArray(value) ? value : Object.values(value)).some(referencesDeletedRecord);
+  };
+  if (referencesDeletedRecord(record)) return true;
+  const recordId = String(record.id || '');
+  return [context.petId, ...referencedIds]
+    .some((id) => id && recordId.includes(id));
+}
+
+function reconcilePetRelationRecords(records, context, replacementPetId) {
+  const summary = { removed: 0, updated: 0 };
+  const next = (Array.isArray(records) ? records : []).filter((record) => {
+    const fromMatch = record?.fromPhone === context.phone && record?.fromPetId === context.petId;
+    const targetMatch = record?.targetPhone === context.phone && record?.targetPetId === context.petId;
+    const postMatch = record?.postId && context.postIds.has(record.postId);
+    const status = record?.status || 'pending';
+    const legacyPendingMatch = status === 'pending' && context.wasActive && (
+      (record?.fromPhone === context.phone && !record?.fromPetId) ||
+      (record?.targetPhone === context.phone && !record?.targetPetId)
+    );
+    if (status !== 'accepted' && (fromMatch || targetMatch || postMatch || legacyPendingMatch)) {
+      summary.removed += 1;
+      return false;
+    }
+    let changed = false;
+    if (fromMatch) {
+      if (replacementPetId) record.fromPetId = replacementPetId;
+      else delete record.fromPetId;
+      changed = true;
+    }
+    if (targetMatch) {
+      if (replacementPetId) record.targetPetId = replacementPetId;
+      else delete record.targetPetId;
+      changed = true;
+    }
+    if (postMatch) {
+      delete record.postId;
+      if (record.source === 'pet_circle') record.source = 'accepted_relation';
+      changed = true;
+    }
+    if (changed) summary.updated += 1;
+    return true;
+  });
+  return { next, summary };
+}
+
+function refreshConversationCardsForPetOwner(user) {
+  let removed = 0;
+  let updated = 0;
+  state.conversations = state.conversations || {};
+  Object.values(state.users || {}).forEach((owner) => {
+    if (!owner?.phone || owner.phone === user.phone) return;
+    state.conversations[owner.phone] = Array.isArray(state.conversations?.[owner.phone]) ? state.conversations[owner.phone] : [];
+    const conversations = state.conversations[owner.phone];
+    const conversationId = conversationIdFor(user.phone);
+    const existingIndex = conversations.findIndex((conversation) => (
+      conversation?.id === conversationId || conversation?.ownerId === `user-${user.phone}`
+    ));
+    const existing = existingIndex >= 0 ? conversations[existingIndex] : null;
+    const relationAccepted = canMessageBetween(owner.phone, user.phone);
+    const visible = Boolean(activePetFor(owner) && activePetFor(user) && !socialBlockBetween(owner.phone, user.phone));
+    if (!visible || (!existing && !relationAccepted)) {
+      if (existingIndex >= 0) {
+        conversations.splice(existingIndex, 1);
+        removed += 1;
+      }
+      return;
+    }
+    const messages = getConversationMessages(owner.phone, conversationId);
+    const latestMessage = messages[messages.length - 1];
+    const replacement = buildConversationFor(
+      owner,
+      user,
+      existing?.lastMessage || latestMessage?.text || '你们已经互相打过招呼啦',
+      existing?.unread || 0,
+    );
+    if (!replacement) return;
+    if (existing) {
+      conversations[existingIndex] = { ...existing, ...replacement, updatedAt: existing.updatedAt || replacement.updatedAt };
+    } else {
+      conversations.unshift(replacement);
+    }
+    updated += 1;
+  });
+  return { removed, updated };
+}
+
+function purgePetBusinessData(user, pet) {
+  const phone = normalizePhone(user?.phone);
+  const petId = String(pet?.id || '').trim();
+  if (!phone || !petId) return null;
+  const key = `${phone}:${petId}`;
+  const wasActive = user.activePetId === petId;
+  const objectKeys = petStorageObjectKeys(phone, user, petId);
+  const moments = ensureSocialMoments().filter((item) => item?.phone === phone && item?.petId === petId);
+  const postIds = new Set(moments.map((item) => item.id).filter(Boolean));
+  const comments = ensureSocialComments().filter((item) => postIds.has(item?.postId) || (item?.phone === phone && item?.petId === petId));
+  const commentIds = new Set(comments.map((item) => item.id).filter(Boolean));
+  const reports = ensureSocialReports().filter((item) => (
+    postIds.has(item?.targetId) ||
+    commentIds.has(item?.targetId) ||
+    (item?.phone === phone && item?.petId === petId)
+  ));
+  const reportIds = new Set(reports.map((item) => item.id).filter(Boolean));
+  const memoRecords = Array.isArray(state.health?.memos?.[key]) ? state.health.memos[key] : [];
+  const memoIds = new Set(memoRecords.map((item) => item?.id).filter(Boolean));
+  const vaccineRecords = Array.isArray(state.health?.vaccines?.[key]) ? state.health.vaccines[key] : [];
+  const vaccineIds = new Set(vaccineRecords.map((item) => item?.id).filter(Boolean));
+
+  const mediaIds = new Set();
+  const petMediaUrls = [
+    pet?.avatarUrl,
+    pet?.petCircleCoverImageUrl,
+    pet?.avatarAnimationUrl,
+    pet?.avatarAnimationPreparedSourceUrl,
+    ...moments.flatMap((moment) => Array.isArray(moment?.imageUrls) ? moment.imageUrls : []),
+  ].filter(Boolean);
+  Object.values(state.mediaUploads || {}).forEach((media) => {
+    if (!media || normalizePhone(media.ownerPhone) !== phone) return;
+    if (!isPetScopedMediaUpload(media)) return;
+    const referencedByPet = petMediaUrls.some((url) => imageUrlMatchesMedia(url, media));
+    if (media.petId === petId || media.analysis?.petId === petId || referencedByPet) {
+      if (media.mediaId) mediaIds.add(media.mediaId);
+    }
+  });
+  const avatarJobs = Object.values(state.avatarJobs || {}).filter((job) => (
+    job && normalizePhone(job.ownerPhone) === phone && (job.petId === petId || job.acceptedPetId === petId)
+  ));
+  const avatarJobIds = new Set(avatarJobs.map((job) => job.id).filter(Boolean));
+  avatarJobs.forEach((job) => {
+    if (job.mediaId && isPetScopedMediaUpload(state.mediaUploads?.[job.mediaId])) mediaIds.add(job.mediaId);
+  });
+  const animationJobs = Object.values(state.avatarAnimationJobs || {}).filter((job) => (
+    job && normalizePhone(job.ownerPhone) === phone && (job.petId === petId || avatarJobIds.has(job.avatarJobId))
+  ));
+  const animationJobIds = new Set(animationJobs.map((job) => job.id).filter(Boolean));
+  animationJobs.forEach((job) => {
+    if (job.mediaId && isPetScopedMediaUpload(state.mediaUploads?.[job.mediaId])) mediaIds.add(job.mediaId);
+  });
+  const mediaRecords = [...mediaIds].map((mediaId) => state.mediaUploads?.[mediaId]).filter(Boolean);
+  for (const objectKey of ownerStorageObjectKeysFromValue(user, [
+    pet,
+    moments,
+    comments,
+    reports,
+    memoRecords,
+    vaccineRecords,
+    mediaRecords,
+    avatarJobs,
+    animationJobs,
+  ])) {
+    objectKeys.add(objectKey);
+  }
+
+  const context = {
+    animationJobIds,
+    avatarJobIds,
+    commentIds,
+    mediaIds,
+    memoIds,
+    petId,
+    phone,
+    postIds,
+    reportIds,
+    vaccineIds,
+    wasActive,
+  };
+  const summary = {
+    ai: {
+      animationJobs: animationJobIds.size,
+      avatarJobs: avatarJobIds.size,
+      chatMessages: Array.isArray(state.petChatMessages?.[key]) ? state.petChatMessages[key].length : 0,
+      samples: 0,
+    },
+    calendar: {
+      deletedRecords: 0,
+      memos: memoRecords.length,
+      vaccineReminders: Array.isArray(state.health?.vaccineReminders?.[key]) ? state.health.vaccineReminders[key].length : 0,
+      vaccines: vaccineRecords.length,
+      weights: Array.isArray(state.health?.weights?.[key]) ? state.health.weights[key].length : 0,
+    },
+    events: 0,
+    mediaUploads: mediaIds.size,
+    notifications: 0,
+    relations: { conversationsRemoved: 0, conversationsUpdated: 0, greetingsRemoved: 0, greetingsUpdated: 0, invitesRemoved: 0, invitesUpdated: 0 },
+    social: {
+      comments: commentIds.size,
+      likes: ensureSocialLikes().filter((item) => postIds.has(item?.postId) || (item?.phone === phone && item?.petId === petId)).length,
+      moments: postIds.size,
+      reports: reportIds.size,
+    },
+  };
+
+  ['weights', 'vaccines', 'memos', 'vaccineReminders'].forEach((storeName) => {
+    if (state.health?.[storeName]) delete state.health[storeName][key];
+  });
+  if (state.health?.deletedRecords) {
+    Object.entries(state.health.deletedRecords).forEach(([recordId, deleted]) => {
+      const parsed = parseAdminPetCalendarRecordId(recordId);
+      if (!((parsed?.phone === phone && parsed?.petId === petId) || (deleted?.phone === phone && deleted?.petId === petId) || deleted?.key === key)) return;
+      delete state.health.deletedRecords[recordId];
+      summary.calendar.deletedRecords += 1;
+    });
+  }
+  if (state.petChatMessages) delete state.petChatMessages[key];
+  deleteObjectKeysByPredicate(state.avatarAnimationJobs, (id) => animationJobIds.has(id));
+  deleteObjectKeysByPredicate(state.avatarJobs, (id) => avatarJobIds.has(id));
+  deleteObjectKeysByPredicate(state.mediaUploads, (id) => mediaIds.has(id));
+  deleteObjectKeysByPredicate(state.aiAvatarSamples, (_id, sample) => {
+    const matches = sample?.petId === petId || avatarJobIds.has(sample?.jobId) || mediaIds.has(sample?.mediaId);
+    if (matches) summary.ai.samples += 1;
+    return matches;
+  });
+  Object.values(state.aiPromptVersions || {}).forEach((version) => {
+    if (!Array.isArray(version?.sampleIds)) return;
+    version.sampleIds = version.sampleIds.filter((sampleId) => state.aiAvatarSamples?.[sampleId]);
+  });
+
+  state.socialMoments = ensureSocialMoments().filter((item) => !postIds.has(item?.id));
+  state.socialComments = ensureSocialComments().filter((item) => !commentIds.has(item?.id));
+  state.socialLikes = ensureSocialLikes().filter((item) => !(postIds.has(item?.postId) || (item?.phone === phone && item?.petId === petId)));
+  state.socialReports = ensureSocialReports().filter((item) => !reportIds.has(item?.id));
+  state.moderationSamples = (state.moderationSamples || []).filter((item) => !(
+    postIds.has(item?.targetId) || commentIds.has(item?.targetId) || reportIds.has(item?.targetId) ||
+    avatarJobIds.has(item?.targetId) || mediaIds.has(item?.targetId) ||
+    (item?.ownerPhone === phone && item?.petId === petId)
+  ));
+  deleteObjectKeysByPredicate(state.moderationTaskMeta, (taskId) => {
+    const parsed = splitModerationTaskId(taskId);
+    return postIds.has(parsed.id) || commentIds.has(parsed.id) || reportIds.has(parsed.id) || mediaIds.has(parsed.id);
+  });
+
+  Object.entries(state.notifications || {}).forEach(([ownerPhone, notifications]) => {
+    if (!Array.isArray(notifications)) return;
+    const next = notifications.filter((notification) => !recordReferencesPetDeletion(notification, context));
+    summary.notifications += notifications.length - next.length;
+    state.notifications[ownerPhone] = next;
+  });
+  const appEvents = Array.isArray(state.appEvents) ? state.appEvents : [];
+  state.appEvents = appEvents.filter((event) => !recordReferencesPetDeletion(event, context));
+  summary.events = appEvents.length - state.appEvents.length;
+
+  const remainingPets = (Array.isArray(user.pets) ? user.pets : []).filter((item) => item?.id !== petId);
+  user.pets = remainingPets;
+  if (wasActive || !remainingPets.some((item) => item?.id === user.activePetId)) user.activePetId = remainingPets[0]?.id || '';
+  const replacementPetId = user.activePetId || '';
+  const greetingResult = reconcilePetRelationRecords(state.greetings, context, replacementPetId);
+  state.greetings = greetingResult.next;
+  summary.relations.greetingsRemoved = greetingResult.summary.removed;
+  summary.relations.greetingsUpdated = greetingResult.summary.updated;
+  const inviteResult = reconcilePetRelationRecords(state.invites, context, replacementPetId);
+  state.invites = inviteResult.next;
+  summary.relations.invitesRemoved = inviteResult.summary.removed;
+  summary.relations.invitesUpdated = inviteResult.summary.updated;
+  const conversationResult = refreshConversationCardsForPetOwner(user);
+  summary.relations.conversationsRemoved = conversationResult.removed;
+  summary.relations.conversationsUpdated = conversationResult.updated;
+
+  let sharedObjectCount = 0;
+  for (const objectKey of [...objectKeys]) {
+    if (!liveBusinessReferencesStorageObjectKey(objectKey)) continue;
+    objectKeys.delete(objectKey);
+    sharedObjectCount += 1;
+  }
+  summary.mediaObjects = {
+    cleanupCandidates: objectKeys.size,
+    retainedShared: sharedObjectCount,
+  };
+
+  const deletedAt = new Date().toISOString();
+  const tombstoneId = petDeletionTombstoneId(phone, petId);
+  const tombstone = {
+    businessRecordCount: petDeletionRecordCount(summary),
+    deletedAt,
+    id: tombstoneId,
+    objectCleanupCompleted: 0,
+    objectCleanupPending: 0,
+    objectCleanupQueued: 0,
+    retainedUntil: new Date(Date.now() + ACCOUNT_DELETION_TOMBSTONE_RETENTION_MS).toISOString(),
+    status: 'complete',
+    type: 'pet_deletion',
+  };
+  ensureAccountDeletionTombstones()[tombstoneId] = tombstone;
+  enqueueAccountDeletionObjectCleanup(objectKeys, tombstone);
+  console.log('[pet-deletion] purged pet business data', {
+    businessRecordCount: tombstone.businessRecordCount,
+    objectCleanupQueued: tombstone.objectCleanupQueued,
+    petDeletionId: tombstoneId,
+  });
+  return { objectKeys, summary, tombstone };
+}
+
+function enqueueDeletedPetStorageCleanup(user, petId, values) {
+  const normalizedPetId = String(petId || '').trim();
+  if (!user?.phone || !normalizedPetId) return 0;
+  const tombstone = ensureAccountDeletionTombstones()[petDeletionTombstoneId(user.phone, normalizedPetId)];
+  if (!tombstone || tombstone.type !== 'pet_deletion') return 0;
+  const objectKeys = ownerStorageObjectKeysFromValue(user, values);
+  for (const objectKey of [...objectKeys]) {
+    if (liveBusinessReferencesStorageObjectKey(objectKey)) objectKeys.delete(objectKey);
+  }
+  const queued = enqueueAccountDeletionObjectCleanup(objectKeys, tombstone);
+  if (queued > 0) scheduleAccountDeletionObjectCleanup();
+  return queued;
+}
+
 function safeRemoveAdminExportFile(job) {
   const filePath = adminExportJobFilePath(job);
   if (!filePath || !fs.existsSync(filePath)) return false;
@@ -22095,6 +22866,7 @@ function enqueueAccountDeletionObjectCleanup(objectKeys, tombstone) {
       lastError: '',
       nextAttemptAt: Date.now(),
       objectKey,
+      deletionType: tombstone.type || 'account_deletion',
       tombstoneId: tombstone.id,
     };
     queued += 1;
@@ -22234,8 +23006,8 @@ function processDueAccountDeletions(now = Date.now()) {
 function accountDeletionOperationsSummary(now = Date.now()) {
   const pendingUsers = Object.values(state.users || {}).filter((user) => isAccountDeletionPending(user));
   const overdueUsers = pendingUsers.filter((user) => Date.parse(String(user.accountDeletion?.scheduledDeletionAt || '')) <= now);
-  const cleanup = Object.values(ensureAccountDeletionObjectCleanup());
-  const tombstones = Object.values(ensureAccountDeletionTombstones());
+  const cleanup = Object.values(ensureAccountDeletionObjectCleanup()).filter((item) => item?.deletionType !== 'pet_deletion');
+  const tombstones = Object.values(ensureAccountDeletionTombstones()).filter((item) => item?.type !== 'pet_deletion');
   const lastDeletedAt = tombstones
     .map((item) => item.deletedAt || '')
     .filter(Boolean)
@@ -22247,6 +23019,22 @@ function accountDeletionOperationsSummary(now = Date.now()) {
     lastDeletedAt,
     overdue: overdueUsers.length,
     pending: pendingUsers.length,
+    tombstones: tombstones.length,
+  };
+}
+
+function petDeletionOperationsSummary() {
+  const cleanup = Object.values(ensureAccountDeletionObjectCleanup()).filter((item) => item?.deletionType === 'pet_deletion');
+  const tombstones = Object.values(ensureAccountDeletionTombstones()).filter((item) => item?.type === 'pet_deletion');
+  const lastDeletedAt = tombstones
+    .map((item) => item.deletedAt || '')
+    .filter(Boolean)
+    .sort((left, right) => String(right).localeCompare(String(left)))[0] || '';
+  return {
+    cleanupBlocked: cleanup.length > 0 && !cosEnabled(),
+    cleanupFailed: cleanup.filter((item) => Number(item.attempts || 0) > 0 && item.lastError).length,
+    cleanupPending: cleanup.length,
+    lastDeletedAt,
     tombstones: tombstones.length,
   };
 }
@@ -22577,6 +23365,7 @@ async function adminApplyAvatarJobToPet(admin, req, jobIdInput, body = {}) {
   });
   writeAdminAudit(admin, 'ai.avatar.apply_to_pet', 'avatar_job', job.id, before, after, reason);
   notifyPetMediaReplacement(ownerPhone, pet, 'ai-avatar', reason);
+  if (owner.activePetId === pet.id) refreshConversationCardsForPetOwner(owner);
 
   return {
     clearedAvatarJobCount,
@@ -22681,6 +23470,7 @@ async function adminUpdatePetProfile(admin, petId, body = {}) {
     phone,
   }, reason);
   notifyPetProfileUpdated(phone, pet, changedFields, reason);
+  if (user.activePetId === pet.id) refreshConversationCardsForPetOwner(user);
   return {
     changedFields,
     item: adminPetProfiles({ q: pet.id, limit: 1 }).items.find((row) => row.id === pet.id) || null,
@@ -22821,39 +23611,20 @@ function updateMergedPetNotifications(sourcePetId, targetPetId) {
   Object.values(state.notifications || {}).forEach((notifications) => {
     if (!Array.isArray(notifications)) return;
     notifications.forEach((notification) => {
-      if (notification?.petId === sourcePetId) {
-        notification.petId = targetPetId;
-        count += 1;
+      for (const field of ['petId', 'actorPetId']) {
+        if (notification?.[field] === sourcePetId) {
+          notification[field] = targetPetId;
+          count += 1;
+        }
+        if (notification?.properties?.[field] === sourcePetId) {
+          notification.properties[field] = targetPetId;
+          count += 1;
+        }
+        if (notification?.data?.[field] === sourcePetId) {
+          notification.data[field] = targetPetId;
+          count += 1;
+        }
       }
-      if (notification?.properties?.petId === sourcePetId) {
-        notification.properties.petId = targetPetId;
-        count += 1;
-      }
-      if (notification?.data?.petId === sourcePetId) {
-        notification.data.petId = targetPetId;
-        count += 1;
-      }
-    });
-  });
-  return count;
-}
-
-function updateMergedPetConversations(user) {
-  let count = 0;
-  Object.entries(state.conversations || {}).forEach(([ownerPhone, conversations]) => {
-    if (ownerPhone === user.phone || !Array.isArray(conversations)) return;
-    const owner = state.users?.[ownerPhone];
-    if (!owner) return;
-    conversations.forEach((conversation, index) => {
-      if (conversation?.id !== conversationIdFor(user.phone) && conversation?.ownerId !== `user-${user.phone}`) return;
-      const next = buildConversationFor(owner, user, conversation.lastMessage, conversation.unread);
-      if (!next) return;
-      conversations[index] = {
-        ...conversation,
-        ...next,
-        updatedAt: conversation.updatedAt || next.updatedAt,
-      };
-      count += 1;
     });
   });
   return count;
@@ -22868,12 +23639,28 @@ function updateMergedPetAppEvents(phone, sourcePet, targetPet) {
       event.petName = targetPet.name || event.petName || '';
       count += 1;
     }
+    if (event.actorPetId === sourcePet.id) {
+      event.actorPetId = targetPet.id;
+      count += 1;
+    }
     if (event?.properties?.petId === sourcePet.id) {
       event.properties.petId = targetPet.id;
       count += 1;
     }
     if (event?.properties?.activePetId === sourcePet.id) {
       event.properties.activePetId = targetPet.id;
+      count += 1;
+    }
+    if (event?.properties?.actorPetId === sourcePet.id) {
+      event.properties.actorPetId = targetPet.id;
+      count += 1;
+    }
+    if (event?.data?.petId === sourcePet.id) {
+      event.data.petId = targetPet.id;
+      count += 1;
+    }
+    if (event?.data?.actorPetId === sourcePet.id) {
+      event.data.actorPetId = targetPet.id;
       count += 1;
     }
   });
@@ -22883,7 +23670,7 @@ function updateMergedPetAppEvents(phone, sourcePet, targetPet) {
 function updateMergedPetMediaUploads(phone, sourcePetId, targetPetId) {
   let count = 0;
   Object.values(state.mediaUploads || {}).forEach((media) => {
-    if (!media || media.ownerPhone !== phone) return;
+    if (!media || media.ownerPhone !== phone || !isPetScopedMediaUpload(media)) return;
     if (media.petId === sourcePetId) {
       media.petId = targetPetId;
       count += 1;
@@ -22894,6 +23681,46 @@ function updateMergedPetMediaUploads(phone, sourcePetId, targetPetId) {
     }
   });
   return count;
+}
+
+function updateMergedPetScopedReferences(phone, sourcePetId, targetPetId) {
+  const summary = { aiSamples: 0, comments: 0, likes: 0, moderationSamples: 0, moments: 0, relations: 0, reports: 0 };
+  const updateActorRecords = (records, summaryKey) => {
+    (Array.isArray(records) ? records : []).forEach((record) => {
+      if (record?.phone !== phone || record?.petId !== sourcePetId) return;
+      record.petId = targetPetId;
+      summary[summaryKey] += 1;
+    });
+  };
+  updateActorRecords(ensureSocialMoments(), 'moments');
+  updateActorRecords(ensureSocialComments(), 'comments');
+  updateActorRecords(ensureSocialLikes(), 'likes');
+  updateActorRecords(ensureSocialReports(), 'reports');
+  for (const records of [state.greetings, state.invites]) {
+    (Array.isArray(records) ? records : []).forEach((record) => {
+      let changed = false;
+      if (record?.fromPhone === phone && record?.fromPetId === sourcePetId) {
+        record.fromPetId = targetPetId;
+        changed = true;
+      }
+      if (record?.targetPhone === phone && record?.targetPetId === sourcePetId) {
+        record.targetPetId = targetPetId;
+        changed = true;
+      }
+      if (changed) summary.relations += 1;
+    });
+  }
+  Object.values(state.aiAvatarSamples || {}).forEach((sample) => {
+    if (sample?.ownerPhone !== phone || sample?.petId !== sourcePetId) return;
+    sample.petId = targetPetId;
+    summary.aiSamples += 1;
+  });
+  (Array.isArray(state.moderationSamples) ? state.moderationSamples : []).forEach((sample) => {
+    if (sample?.ownerPhone !== phone || sample?.petId !== sourcePetId) return;
+    sample.petId = targetPetId;
+    summary.moderationSamples += 1;
+  });
+  return summary;
 }
 
 function updateMergedPetAiJobs(phone, sourcePet, targetPet, options = {}) {
@@ -23018,20 +23845,14 @@ function adminMergePetProfiles(admin, sourcePetId, body = {}) {
   const chatMessages = mergeAdminPetChatMessages(phone, sourcePet, targetPet);
   const migrateAppliedAvatar = Boolean(targetPet.avatarUrl && targetPet.avatarUrl === sourcePet.avatarUrl);
   const aiSummary = updateMergedPetAiJobs(phone, sourcePet, targetPet, { migrateAppliedAvatar });
-  let socialMoments = 0;
-  ensureSocialMoments().forEach((moment) => {
-    if (moment?.phone !== phone || moment.petId !== sourcePet.id) return;
-    moment.petId = targetPet.id;
-    moment.mergedFromPetId = sourcePet.id;
-    socialMoments += 1;
-  });
+  const scopedReferences = updateMergedPetScopedReferences(phone, sourcePet.id, targetPet.id);
   const notifications = updateMergedPetNotifications(sourcePet.id, targetPet.id);
   const appEvents = updateMergedPetAppEvents(phone, sourcePet, targetPet);
   const mediaUploads = updateMergedPetMediaUploads(phone, sourcePet.id, targetPet.id);
 
   user.pets = (Array.isArray(user.pets) ? user.pets : []).filter((pet) => pet?.id !== sourcePet.id);
   if (user.activePetId === sourcePet.id || !user.pets.some((pet) => pet?.id === user.activePetId)) user.activePetId = targetPet.id;
-  const conversations = updateMergedPetConversations(user);
+  const conversations = refreshConversationCardsForPetOwner(user).updated;
 
   const summary = {
     appEvents,
@@ -23043,8 +23864,14 @@ function adminMergePetProfiles(admin, sourcePetId, body = {}) {
     detachedAvatarAnimationJobs: aiSummary.detachedAvatarAnimationJobs,
     mediaUploads,
     notifications,
+    petScopedAiSamples: scopedReferences.aiSamples,
+    petScopedModerationSamples: scopedReferences.moderationSamples,
+    petScopedRelations: scopedReferences.relations,
     petChatMessages: chatMessages,
-    socialMoments,
+    socialComments: scopedReferences.comments,
+    socialLikes: scopedReferences.likes,
+    socialMoments: scopedReferences.moments,
+    socialReports: scopedReferences.reports,
   };
   notifyPetProfilesMerged(phone, targetPet, sourcePet, reason);
   writeAdminAudit(admin, 'pet.profile.merge', 'pet', targetPet.id, before, {
@@ -23118,6 +23945,7 @@ function adminClearPetMedia(admin, petId, kindInput, body = {}) {
   const action = kind === 'cover' ? 'pet.media.clear_cover' : kind === 'ai-avatar' ? 'pet.media.clear_ai_avatar' : 'pet.media.clear_avatar';
   writeAdminAudit(admin, action, 'pet', pet.id, before, after, reason);
   notifyPetMediaModeration(phone, pet, kind, reason);
+  if (kind !== 'cover' && user.activePetId === pet.id) refreshConversationCardsForPetOwner(user);
   return {
     item: adminPetProfiles({ q: pet.id, limit: 1 }).items.find((row) => row.id === pet.id) || null,
     phone: user.phone,
@@ -23240,6 +24068,7 @@ async function adminReplacePetMedia(admin, req, petId, kindInput, body = {}) {
   const action = kind === 'cover' ? 'pet.media.replace_cover' : kind === 'ai-avatar' ? 'pet.media.replace_ai_avatar' : 'pet.media.replace_avatar';
   writeAdminAudit(admin, action, 'pet', pet.id, before, after, reason);
   notifyPetMediaReplacement(phone, pet, kind, reason);
+  if (kind !== 'cover' && user.activePetId === pet.id) refreshConversationCardsForPetOwner(user);
   return {
     avatarJobId: createdAvatarJobId,
     imageUrl: storedUrl,
@@ -24348,9 +25177,11 @@ function adminEnsureAcceptedRelationConversation(fromPhone, targetPhone, options
   const targetPet = activePetFor(targetUser);
   if (!fromPet || !targetPet) return { error: '关系双方需要先完成宠物建档', statusCode: 400 };
   ensureAcceptedGreetingBetween(fromPhone, targetPhone, {
+    fromPetId: fromPet.id,
     message: options.acceptedMessage || 'admin repaired accepted social relation',
     ownerId: options.ownerId || `user-${targetPhone}`,
     source: options.source || 'admin_repair',
+    targetPetId: targetPet.id,
   });
   const now = options.now || new Date().toISOString();
   const fromLastMessage = options.fromLastMessage || `${targetPet.name}已接受${fromPet.name}的招呼，可以开始聊天。`;
@@ -24363,10 +25194,12 @@ function adminEnsureAcceptedRelationConversation(fromPhone, targetPhone, options
   appendConversationSystemMessageOnce(fromPhone, fromConversation.id, fromLastMessage, now);
   appendConversationSystemMessageOnce(targetPhone, targetConversation.id, targetLastMessage, now);
   addNotification(fromPhone, {
+    actorPetId: targetPet.id,
     conversationId: conversationIdFor(targetPhone),
     id: `n-admin-repair-accepted-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
     kind: 'greeting_accepted',
     ownerId: `user-${targetPhone}`,
+    petId: fromPet.id,
     read: false,
     text: fromLastMessage,
     title: '关系状态已恢复',
@@ -26052,6 +26885,7 @@ async function adminSystemHealth() {
   const smsProvider = smsProviderStatus();
   const aiRuntime = aiRuntimeReadiness();
   const accountDeletions = accountDeletionOperationsSummary(now);
+  const petDeletions = petDeletionOperationsSummary();
   const seedFixturePlaceCount = (state.places || []).filter(isSeedFixturePlace).length;
   const unlocatedRuntimePlaceCount = runtimePlaceCatalog().filter((place) => !placeCoordinates(place)).length;
   const notifications = adminSystemNotifications().summary;
@@ -26152,6 +26986,17 @@ async function adminSystemHealth() {
       `coolingOff=${Math.ceil(ACCOUNT_DELETE_COOLING_OFF_MS / (24 * 60 * 60 * 1000))}d lastDeletedAt=${accountDeletions.lastDeletedAt || '-'} queue=${accountDeletions.cleanupPending}`,
     ),
     adminCheckStatus(
+      petDeletions.cleanupBlocked ? 'bad' : petDeletions.cleanupFailed > 0 ? 'warn' : 'ok',
+      'pet_deletion_processor',
+      '宠物资料永久清理',
+      petDeletions.cleanupBlocked
+        ? `仍有 ${petDeletions.cleanupPending} 个宠物媒体文件待销毁，但 COS 删除能力未配置`
+        : petDeletions.cleanupFailed > 0
+          ? `宠物业务记录已清理，仍有 ${petDeletions.cleanupFailed} 个对象存储文件等待重试删除`
+          : `对象清理队列 ${petDeletions.cleanupPending} 个，已留存匿名执行墓碑 ${petDeletions.tombstones} 条`,
+      `lastDeletedAt=${petDeletions.lastDeletedAt || '-'} queue=${petDeletions.cleanupPending}`,
+    ),
+    adminCheckStatus(
       !EXPO_PUSH_ENABLED || !EXPO_PUSH_RECEIPTS_ENABLED || activePushDeviceCount === 0 || Number(notifications.pushReceiptOk || 0) === 0 || Number(notifications.pushFailed || 0) > 0 || Number(notifications.pushReceiptFailed || 0) > 0 || pushRegistrationFailureCount > 0
         ? 'warn'
         : 'ok',
@@ -26236,8 +27081,10 @@ async function adminSystemHealth() {
     checks,
     collections: [
       { key: 'users', label: '用户', rows: countObject(state.users) },
-      { key: 'accountDeletionTombstones', label: '匿名注销墓碑', rows: countObject(state.accountDeletionTombstones) },
-      { key: 'accountDeletionObjectCleanup', label: '注销媒体清理队列', rows: countObject(state.accountDeletionObjectCleanup) },
+      { key: 'accountDeletionTombstones', label: '账号匿名注销墓碑', rows: accountDeletions.tombstones },
+      { key: 'petDeletionTombstones', label: '宠物匿名删除墓碑', rows: petDeletions.tombstones },
+      { key: 'accountDeletionObjectCleanup', label: '账号注销媒体队列', rows: accountDeletions.cleanupPending },
+      { key: 'petDeletionObjectCleanup', label: '宠物删除媒体队列', rows: petDeletions.cleanupPending },
       { key: 'mediaUploads', label: '媒体上传', rows: countObject(state.mediaUploads) },
       { key: 'avatarJobs', label: 'AI 任务', rows: countObject(state.avatarJobs) },
       { key: 'avatarAnimationJobs', label: '动效任务', rows: countObject(state.avatarAnimationJobs) },
@@ -26264,6 +27111,7 @@ async function adminSystemHealth() {
       { detail: `${appeals.open || 0} 待处理 / ${appeals.pending || 0} 新申诉`, label: '申诉处理', status: appeals.open ? 'warn' : 'ok', value: appeals.open || 0 },
       { detail: `${notifications.campaigns || 0} 批次 / ${notifications.devices || 0} 设备`, label: '通知运营', status: 'ok', value: notifications.campaigns || 0 },
       { detail: `${appEvents.uniqueUsers || 0} 用户 / 最近 ${appEvents.latestAt ? new Date(appEvents.latestAt).toISOString() : '无'}`, label: '移动端事件', status: config.analytics?.enabled === false ? 'warn' : 'ok', value: appEvents.total || 0 },
+      { detail: `${petDeletions.cleanupPending} 待销毁 / ${petDeletions.cleanupFailed} 重试中`, label: '宠物媒体永久清理', status: petDeletions.cleanupBlocked || petDeletions.cleanupFailed ? 'warn' : 'ok', value: petDeletions.cleanupPending },
     ],
     runtime: {
       env: process.env.NODE_ENV || 'development',
@@ -26294,6 +27142,7 @@ async function adminSystemHealth() {
     mediaProbe,
     mediaCdnProbe,
     accountDeletions,
+    petDeletions,
     smsProvider,
   };
 }
@@ -27880,6 +28729,9 @@ function adminReadinessGaps(context) {
   const placeDiscoveryReady = Boolean(AMAP_WEB_SERVICE_KEY) && seedFixturePlaceCount === 0;
   const accountDeletions = health?.accountDeletions || accountDeletionOperationsSummary();
   const accountDeletionReady = Number(accountDeletions.overdue || 0) === 0 && Number(accountDeletions.cleanupFailed || 0) === 0 && accountDeletions.cleanupBlocked !== true;
+  const petDeletions = health?.petDeletions || petDeletionOperationsSummary();
+  const petDeletionReady = Number(petDeletions.cleanupFailed || 0) === 0 && petDeletions.cleanupBlocked !== true;
+  const accountLifecycleReady = accountDeletionReady && petDeletionReady;
   const highRiskPolicy = highRiskApprovalPolicy();
   const highRiskPolicyReady = Boolean(highRiskPolicy.requireDifferentAdmin && Number(highRiskPolicy.requiredApprovals || 0) >= 2);
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
@@ -27951,15 +28803,15 @@ function adminReadinessGaps(context) {
     {
       key: 'account_lifecycle',
       area: '账号与隐私',
-      severity: accountDeletionReady ? 'P1' : 'P0',
-      status: accountDeletionReady ? 'ready' : 'blocked',
-      issue: accountDeletionReady
-        ? `注销短信确认、全端会话撤销、冷静期登录撤销、到期业务数据清理、匿名墓碑和 COS 文件重试销毁均已接入；当前待到期 ${accountDeletions.pending || 0} 个。`
-        : `账号注销执行器异常：逾期 ${accountDeletions.overdue || 0} 个，媒体删除失败待重试 ${accountDeletions.cleanupFailed || 0} 个。`,
-      requiredAction: accountDeletionReady
-        ? '持续抽查注销到期任务、对象存储清理队列和 account.deletion.execute 审计。'
-        : '先恢复账号注销调度器或 COS 删除权限，清空逾期任务后再发布。',
-      evidence: '系统健康页 account_deletion_processor / account.deletion.execute / ACCOUNT_DELETE_COOLING_OFF_MS',
+      severity: accountLifecycleReady ? 'P1' : 'P0',
+      status: accountLifecycleReady ? 'ready' : 'blocked',
+      issue: accountLifecycleReady
+        ? `账号注销与单宠物永久删除均已接入业务级联清理、匿名墓碑和 COS 文件重试销毁；当前待注销到期 ${accountDeletions.pending || 0} 个，宠物媒体清理队列 ${petDeletions.cleanupPending || 0} 个。`
+        : `数据删除执行器异常：账号逾期 ${accountDeletions.overdue || 0} 个，账号媒体失败 ${accountDeletions.cleanupFailed || 0} 个，宠物媒体失败 ${petDeletions.cleanupFailed || 0} 个。`,
+      requiredAction: accountLifecycleReady
+        ? '持续抽查账号注销与宠物删除的对象存储清理队列和匿名执行墓碑。'
+        : '先恢复账号/宠物删除调度器或 COS 删除权限，清空失败任务后再发布。',
+      evidence: '系统健康页 account_deletion_processor / pet_deletion_processor / account.deletion.execute / ACCOUNT_DELETE_COOLING_OFF_MS',
     },
     {
       key: 'auth_session_security',
@@ -29536,11 +30388,12 @@ function avatarMediaQualityLabel(quality) {
 
 function avatarMediaSourceLabel(source) {
   if (source === 'mvp_sample') return '测试样例';
+  if (source === 'pet_circle_cover') return '宠友圈封面';
   if (source === 'pet_circle_photo') return '宠友圈图片';
   if (source === 'pet-source') return '宠物原图';
   if (source === 'place_review') return '地点点评';
   if (source === 'place_submission') return '新增地点';
-  if (source === 'support') return '工单附件';
+  if (source === 'support' || source === 'support_ticket') return '工单附件';
   return source || '用户上传';
 }
 
@@ -29737,6 +30590,8 @@ function notifyMediaModeration(media, action, reason) {
     createdAt: new Date().toISOString(),
     id: `n-media-${media.mediaId}-${Date.now()}`,
     kind: 'system',
+    mediaId: media.mediaId || '',
+    petId: media.petId || '',
     read: false,
     text: reasonText
       ? `你上传的一张图片${label}，原因：${reasonText}。请重新上传合适的图片。`
@@ -29797,7 +30652,9 @@ function adminAiMediaItem(media, req) {
   const latestJob = relatedJobs
     .slice()
     .sort((a, b) => analyticsTimeMs(b.updatedAt || b.createdAt) - analyticsTimeMs(a.updatedAt || a.createdAt))[0] || null;
-  const pet = owner?.pets?.find((item) => item.id === latestJob?.petId) || (owner ? selectedPetFor(owner) : null);
+  const linkedPetId = String(media?.petId || latestJob?.petId || '').trim();
+  const pet = linkedPetId ? owner?.pets?.find((item) => item.id === linkedPetId) || null : null;
+  const petScoped = isPetScopedMediaUpload(media);
   const analysis = media?.analysis || analyzeUploadedPetMedia({}, media?.dataUrl);
   const quality = avatarMediaQuality(analysis);
   const fileUrl = media?.objectUrl || (req && mediaId ? mediaUploadFileUrl(req, mediaId) : '');
@@ -29810,7 +30667,7 @@ function adminAiMediaItem(media, req) {
     analysisTitle: analysis.title || '',
     adminPreviewUrl,
     avatarJobCount: relatedJobs.length,
-    canGenerate: analysis.canGenerate !== false,
+    canGenerate: petScoped && analysis.canGenerate !== false,
     createdAt: media?.createdAt || '',
     fileName: media?.fileName || '',
     fileUrl,
@@ -29820,7 +30677,7 @@ function adminAiMediaItem(media, req) {
     mimeType: media?.mimeType || '',
     ownerName: owner?.ownerName || (ownerPhone ? `用户${ownerPhone.slice(-4)}` : ''),
     ownerPhone,
-    petId: pet?.id || latestJob?.petId || '',
+    petId: pet?.id || linkedPetId,
     petName: pet?.name || latestJob?.petName || '',
     previewUrl,
     quality,
@@ -29829,6 +30686,7 @@ function adminAiMediaItem(media, req) {
     sizeKb,
     source: media?.source || '',
     sourceLabel: avatarMediaSourceLabel(media?.source),
+    scope: mediaUploadModerationScope(media),
     storageProvider: media?.storageProvider || '',
     suggestions: Array.isArray(analysis.suggestions) ? analysis.suggestions : [],
     tags: Array.isArray(analysis.tags) ? analysis.tags : [],
@@ -30820,7 +31678,7 @@ function adminSocialPosts() {
   return ensureSocialMoments()
     .map((moment) => {
       const owner = state.users[moment.phone];
-      const pet = owner ? activePetFor(owner) : null;
+      const pet = owner ? socialPetFor(owner, moment) : null;
       const comments = ensureSocialComments().filter((comment) => comment.postId === moment.id && (comment.status || 'published') === 'published');
       const reports = ensureSocialReports().filter((report) => report.targetType === 'post' && report.targetId === moment.id);
       return {
@@ -30833,6 +31691,7 @@ function adminSocialPosts() {
         moderation: moment.moderation || null,
         ownerName: owner?.ownerName || `用户${String(moment.phone || '').slice(-4)}`,
         ownerPhone: moment.phone,
+        petId: pet?.id || moment.petId || '',
         petName: pet?.name,
         reportCount: reports.length,
         status: moment.status || 'published',
@@ -33844,11 +34703,14 @@ function adminHandleModerationTaskAction(admin, taskId, action, body = {}) {
       const post = findSocialMomentById(comment.postId);
       if (post?.phone && post.phone !== comment.phone) {
         const commenter = state.users[comment.phone];
+        const commenterPet = commenter ? socialPetFor(commenter, comment) : null;
         addNotification(post.phone, {
+          actorPetId: commenterPet?.id || comment.petId || '',
           category: 'interaction',
           commentId: comment.id,
           id: `n-pet-circle-comment-${comment.id}`,
           kind: 'pet_circle_comment',
+          petId: socialPetFor(state.users[post.phone], post)?.id || post.petId || '',
           postId: post.id,
           read: false,
           text: `${commenter?.ownerName || `用户${String(comment.phone || '').slice(-4)}`}评论了这条小事`,
@@ -36819,6 +37681,7 @@ async function handle(req, res) {
     user.ownerName = ownerName;
     user.ownerBio = ownerBio;
     user.ownerAvatarUrl = ownerAvatarUrl;
+    refreshConversationCardsForPetOwner(user);
     saveState();
     ok(res, buildUserProfile(user));
     return;
@@ -37093,6 +37956,7 @@ async function handle(req, res) {
     }
     user.pets.unshift(pet);
     user.activePetId = pet.id;
+    refreshConversationCardsForPetOwner(user);
     saveState();
     ok(res, pet);
     return;
@@ -37186,6 +38050,7 @@ async function handle(req, res) {
     }
     for (const key of petPatch.unset || []) delete pet[key];
     Object.assign(pet, petPatch.patch || {});
+    if (user.activePetId === pet.id) refreshConversationCardsForPetOwner(user);
     saveState();
     ok(res, pet);
     return;
@@ -37193,14 +38058,14 @@ async function handle(req, res) {
 
   if (req.method === 'DELETE' && petPatchMatch) {
     const petId = decodeURIComponent(petPatchMatch[1]);
-    const petExists = user.pets.some((item) => item.id === petId);
-    if (!petExists) {
+    const pet = user.pets.find((item) => item.id === petId);
+    if (!pet) {
       fail(res, 404, '宠物档案不存在', false);
       return;
     }
-    user.pets = user.pets.filter((item) => item.id !== petId);
-    if (user.activePetId === petId) user.activePetId = user.pets[0]?.id || '';
+    const deletion = purgePetBusinessData(user, pet);
     saveState();
+    if (deletion?.objectKeys?.size) scheduleAccountDeletionObjectCleanup();
     ok(res, user.pets);
     return;
   }
@@ -37214,6 +38079,7 @@ async function handle(req, res) {
       return;
     }
     user.activePetId = pet.id;
+    refreshConversationCardsForPetOwner(user);
     saveState();
     ok(res, pet);
     return;
@@ -37261,22 +38127,28 @@ async function handle(req, res) {
       sourceJob.acceptedPetId = pet.id;
       touchAvatarJob(sourceJob);
     }
+    if (user.activePetId === pet.id) refreshConversationCardsForPetOwner(user);
     saveState();
     ok(res, pet);
     return;
   }
 
   if (req.method === 'POST' && pathname === '/media/uploads') {
-    const uploadSource = body.source || 'mvp_sample';
+    const uploadSource = String(body.source || 'mvp_sample').trim().slice(0, 64) || 'mvp_sample';
     const uploadScope = imageModerationScopeForUploadSource(uploadSource);
-    if (uploadScope === 'pet_circle_photo' && failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
+    if ((uploadScope === 'pet_circle_photo' || uploadScope === 'pet_circle_cover') && failIfFeatureDisabled(res, 'petCircle', '宠友圈')) return;
     else if ((uploadScope === 'place_review' || uploadScope === 'place_submission') && failIfFeatureDisabled(res, 'places', '地图地点')) return;
     else if (uploadScope === 'pet_avatar' && failIfFeatureDisabled(res, 'aiAvatar', 'AI 灵伴形象')) return;
+    const petScopedUpload = isPetScopedImageModerationScope(uploadScope);
+    const activePet = petScopedUpload ? selectedPetFor(user) : null;
+    if (petScopedUpload && !activePet) {
+      fail(res, 400, '请先添加宠物档案后再上传宠物图片', false, undefined, 'PET_PROFILE_REQUIRED');
+      return;
+    }
     const mediaId = `media-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const parsedUpload = parseBase64Upload(body.base64, body.mimeType);
     const dataUrl = parsedUpload.dataUrl;
     const analysis = analyzeUploadedPetMedia(body, dataUrl, parsedUpload.issue, parsedUpload.bytes);
-    const activePet = selectedPetFor(user);
     const fileParts = base64UploadBuffer(parsedUpload);
     let cosStored = null;
     if (fileParts?.buffer?.length) {
@@ -37287,11 +38159,11 @@ async function handle(req, res) {
           fileName: `${mediaId}.${extension}`,
           mimeType: fileParts.mimeType,
           petId: activePet?.id || '',
-          scope: 'pet-source',
+          scope: storageScopeForImageUpload(uploadScope),
         });
       } catch (error) {
         if (!dataUrl) {
-          fail(res, 502, '宠物照片上传到云存储失败，请稍后重试', true);
+          fail(res, 502, '图片上传到云存储失败，请稍后重试', true);
           return;
         }
       }
@@ -37312,7 +38184,9 @@ async function handle(req, res) {
       mediaId,
       mimeType: parsedUpload.mimeType || normalizeImageMimeType(body.mimeType) || 'application/octet-stream',
       ownerPhone: user.phone,
+      ...(activePet ? { petId: activePet.id } : {}),
       previewUrl: String(body.previewUrl || '').trim(),
+      scope: uploadScope,
       source: uploadSource,
     };
     const uploadFileContent = String(dataUrl || '').match(/^data:[^;]+;base64,(.+)$/)?.[1] || '';
@@ -37536,18 +38410,26 @@ async function handle(req, res) {
         fail(res, 503, '生产环境已拒绝使用测试灵伴形象，请重新生成', true, undefined, 'AVATAR_PROVIDER_UNAVAILABLE');
         return;
       }
-      const pet = selectedPetFor(user);
+      const pet = socialPetFor(user, job);
       if (!pet) {
-        fail(res, 400, '请先添加宠物档案', false);
+        fail(res, 409, '这次生成关联的宠物档案已不存在，请重新选择宠物生成', false, undefined, 'AVATAR_PET_GONE');
         return;
       }
       const acceptedAt = new Date().toISOString();
       const aiMetadata = aiGeneratedContentMetadata(job, 'image', job.readyAt || acceptedAt);
+      let acceptedAvatarUrl = job.resultUrl;
       try {
-        pet.avatarUrl = await storeAvatarUrlToCos(req, user, job.resultUrl, { aiMetadata, petId: pet.id, scope: 'pet-avatar' });
+        acceptedAvatarUrl = await storeAvatarUrlToCos(req, user, job.resultUrl, { aiMetadata, petId: pet.id, scope: 'pet-avatar' });
       } catch {
-        pet.avatarUrl = job.resultUrl;
+        acceptedAvatarUrl = job.resultUrl;
       }
+      if (state.avatarJobs?.[job.id] !== job || petByIdForUser(user, pet.id) !== pet) {
+        enqueueDeletedPetStorageCleanup(user, pet.id, [acceptedAvatarUrl]);
+        saveState();
+        fail(res, 409, '宠物档案已删除，这次生成结果没有应用', false, undefined, 'AVATAR_PET_GONE');
+        return;
+      }
+      pet.avatarUrl = acceptedAvatarUrl;
       clearPetAvatarAnimationState(pet);
       applyPetAvatarAiProvenance(pet, job, job.readyAt || acceptedAt);
       const animationJob = ensureAvatarAnimationJob(req, user, pet, job, pet.avatarUrl);
@@ -37556,6 +38438,7 @@ async function handle(req, res) {
       if (animationJob) job.avatarAnimationJobId = animationJob.id;
       touchAvatarJob(job);
       user.activePetId = pet.id;
+      refreshConversationCardsForPetOwner(user);
       saveState();
       ok(res, pet);
       return;
@@ -37718,6 +38601,7 @@ async function handle(req, res) {
       if (existingDoneNotification) {
         Object.assign(existingDoneNotification, {
           kind: 'vaccine_done',
+          petId: activePetFor(user)?.id || '',
           text: `${nextVaccine.name}已标记完成，宠物日历已更新。`,
           title: '疫苗/驱虫计划已完成',
           vaccineId: id,
@@ -37726,6 +38610,7 @@ async function handle(req, res) {
         addNotification(user.phone, {
           id: doneNotificationId,
           kind: 'vaccine_done',
+          petId: activePetFor(user)?.id || '',
           read: false,
           text: `${nextVaccine.name}已标记完成，宠物日历已更新。`,
           title: '疫苗/驱虫计划已完成',
@@ -38121,7 +39006,7 @@ async function handle(req, res) {
     }
     const { targetPhone, targetUser } = target;
     const fromPet = activePetFor(user);
-    const targetPet = activePetFor(targetUser);
+    let targetPet = activePetFor(targetUser);
     const message = String(body.message || '我想认识你和你的毛孩子').replace(/\s+/g, ' ').trim();
     const messageViolation = socialChatContentViolation('招呼内容', message, SOCIAL_GREETING_MESSAGE_MAX_CHARS);
     if (messageViolation) {
@@ -38156,12 +39041,15 @@ async function handle(req, res) {
         return;
       }
       sourcePostId = visible.moment.id;
+      targetPet = socialPetFor(targetUser, visible.moment) || targetPet;
     }
     const existing = pendingGreetingFor(user.phone, targetPhone);
     if (existing) {
       existing.at = Date.now();
+      existing.fromPetId = fromPet?.id || '';
       existing.id = existing.id || `greeting-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
       existing.message = message;
+      existing.targetPetId = targetPet?.id || '';
       if (sourcePostId) {
         existing.source = 'pet_circle';
         existing.postId = sourcePostId;
@@ -38169,12 +39057,14 @@ async function handle(req, res) {
     } else {
       state.greetings.push({
         at: Date.now(),
+        fromPetId: fromPet?.id || '',
         fromPhone: user.phone,
         id: `greeting-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
         message,
         ownerId,
         ...(sourcePostId ? { postId: sourcePostId, source: 'pet_circle' } : {}),
         status: 'pending',
+        targetPetId: targetPet?.id || '',
         targetPhone,
       });
     }
@@ -38190,9 +39080,11 @@ async function handle(req, res) {
     }
     if (!existing || sourcePostId) {
       addNotification(targetPhone, {
+        actorPetId: fromPet?.id || '',
         id: sourcePostId ? `n-pet-circle-greeting-${sourcePostId}-${user.phone}` : `n-greeting-${Date.now()}`,
         kind: sourcePostId ? 'pet_circle_greeting' : 'greeting_request',
         ownerId: `user-${user.phone}`,
+        petId: targetPet?.id || '',
         ...(sourcePostId ? { postId: sourcePostId } : {}),
         read: false,
         text: sourcePostId
@@ -38218,22 +39110,24 @@ async function handle(req, res) {
       return;
     }
 
-    greeting.status = action === 'accept' ? 'accepted' : 'rejected';
-    greeting.respondedAt = Date.now();
-    removeGreetingRequestNotificationsFor(user.phone, ownerId);
-
     if (action === 'reject') {
+      greeting.status = 'rejected';
+      greeting.respondedAt = Date.now();
+      removeGreetingRequestNotificationsFor(user.phone, ownerId);
       saveState();
       ok(res, { ownerId, rejected: true });
       return;
     }
 
-    const myPet = activePetFor(user);
-    const fromPet = activePetFor(fromUser);
+    const myPet = socialPetFor(user, { petId: greeting.targetPetId || '' });
+    const fromPet = socialPetFor(fromUser, { petId: greeting.fromPetId || '' });
     if (!myPet || !fromPet) {
-      fail(res, 400, '请先为宠物建档后再互动', true);
+      fail(res, 409, '这条招呼关联的宠物档案已发生变化，请刷新后重试', true, undefined, 'GREETING_PET_CHANGED');
       return;
     }
+    greeting.status = 'accepted';
+    greeting.respondedAt = Date.now();
+    removeGreetingRequestNotificationsFor(user.phone, ownerId);
     const acceptedText = '我们已经互相打招呼啦';
     const myConversation = buildConversationFor(user, fromUser, acceptedText, 0);
     const senderConversation = buildConversationFor(fromUser, user, `${myPet.name}已接受你的招呼`, 1);
@@ -38256,10 +39150,12 @@ async function handle(req, res) {
       time: new Date().toISOString(),
     });
     addNotification(fromUser.phone, {
+      actorPetId: myPet.id,
       conversationId: conversationIdFor(user.phone),
       id: `n-greeting-accepted-${Date.now()}`,
       kind: 'greeting_accepted',
       ownerId: `user-${user.phone}`,
+      petId: fromPet.id,
       read: false,
       text: `${user.ownerName}和${myPet.name}已接受你的招呼`,
       title: '招呼已接受',
@@ -38297,11 +39193,13 @@ async function handle(req, res) {
       return;
     }
     const fromPet = activePetFor(user);
+    const targetPet = activePetFor(targetUser);
     const lastMessage = `约遛邀请 · ${time} · ${place}`;
     const messageBody = [lastMessage, placeAddress ? `地址：${placeAddress}` : '', note].filter(Boolean).join('\n');
     let senderConversation = null;
     state.invites.push({
       at: Date.now(),
+      fromPetId: fromPet?.id || '',
       fromPhone: user.phone,
       inviteId,
       ...(Number.isFinite(latitude) ? { latitude } : {}),
@@ -38311,6 +39209,7 @@ async function handle(req, res) {
       ...(placeAddress ? { placeAddress } : {}),
       ...(placeId ? { placeId } : {}),
       status: 'pending',
+      targetPetId: targetPet?.id || '',
       targetPhone,
       time,
     });
@@ -38337,10 +39236,12 @@ async function handle(req, res) {
       time: new Date().toISOString(),
     });
     addNotification(targetPhone, {
+      actorPetId: fromPet?.id || '',
       conversationId: targetConversation.id,
       id: `n-walk-${Date.now()}`,
       kind: 'walk_invite',
       ownerId: `user-${user.phone}`,
+      petId: targetPet?.id || '',
       read: false,
       text: `${user.ownerName}和${fromPet.name}邀请你在${time}去${place}`,
       title: '新的约遛邀请',
@@ -38774,6 +39675,12 @@ const server = http.createServer((req, res) => {
     fail(res, 500, '本地服务异常，请稍后重试', true);
   });
 });
+
+try {
+  if (migrateLegacyPetScopedIdentityState()) saveState('pet_scoped_identity_migration');
+} catch (error) {
+  console.error('Failed to migrate pet-scoped identity during startup', error);
+}
 
 try {
   if (migrateAiContentProvenanceState()) saveState('ai_content_provenance_migration');

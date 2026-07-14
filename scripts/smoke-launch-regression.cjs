@@ -47,6 +47,7 @@ const suites = [
   { key: 'pet-calendar-admin', title: 'Admin pet calendar edit', script: 'smoke-admin-pet-calendar-edit.cjs', timeoutMs: 180_000 },
   { key: 'pet-profile-admin', title: 'Admin pet profile edit', script: 'smoke-admin-pet-profile-edit.cjs', timeoutMs: 180_000 },
   { key: 'pet-profile-merge', title: 'Admin pet profile merge', script: 'smoke-admin-pet-profile-merge.cjs', timeoutMs: 180_000 },
+  { key: 'pet-deletion', title: 'Pet-scoped permanent deletion', script: 'smoke-pet-deletion.cjs', timeoutMs: 180_000 },
   { key: 'pet-media-admin', title: 'Admin pet media replace', script: 'smoke-admin-pet-media-replace.cjs', timeoutMs: 180_000 },
   { key: 'place-reviews', title: 'Place public reviews', script: 'smoke-place-public-reviews.cjs', timeoutMs: 180_000 },
   { key: 'place-contributions', title: 'Place contributions', script: 'smoke-place-contributions.cjs', timeoutMs: 180_000 },

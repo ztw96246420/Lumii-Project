@@ -4603,7 +4603,7 @@ export default function LumiiMvpApp() {
 
   function resetPetScopedRuntimeState(nextPet?: PetProfile | null) {
     if (localHealthReminderScheduledIdsRef.current.length) void cancelVaccineLocalReminders(localHealthReminderScheduledIdsRef.current);
-    resetAvatarDraft();
+    resetAvatarDraft({ clearPersisted: false });
     setChatMessages([createPetChatWelcomeMessage(nextPet)]);
     setChatInput('');
     setChatFeedbackById({});
@@ -4814,7 +4814,9 @@ export default function LumiiMvpApp() {
       if (sessionTokenRef.current !== requestSessionToken) return;
       if (result.data) {
         setPetDeleteConfirm(null);
-        const nextPet = result.data[0] ?? null;
+        const previousActivePetId = activePetIdRef.current;
+        const nextPet = result.data.find((item) => item.id === previousActivePetId) ?? result.data[0] ?? null;
+        await clearPersistedAvatarGeneration(pet.id, session?.phone);
         setPets(result.data);
         activePetIdRef.current = nextPet?.id ?? null;
         setActivePet(nextPet);
@@ -6496,8 +6498,8 @@ export default function LumiiMvpApp() {
     }
   }
 
-  function resetAvatarDraft() {
-    void clearPersistedAvatarGeneration();
+  function resetAvatarDraft(options: { clearPersisted?: boolean } = {}) {
+    if (options.clearPersisted !== false) void clearPersistedAvatarGeneration();
     mediaPickingRef.current = false;
     mediaIdRef.current = null;
     avatarJobIdRef.current = null;
@@ -9000,7 +9002,7 @@ export default function LumiiMvpApp() {
         fileName: uploadDraft.draft.fileName,
         mimeType: uploadDraft.draft.mimeType,
         previewUrl: uploadDraft.draft.uri,
-        source: uploadDraft.draft.source ?? 'library',
+        source: 'pet_circle_cover',
       });
       if (!uploadResult.data) {
         showToast(uploadResult.error?.message ?? '封面图上传失败，请稍后重试', { tone: 'error', variant: 'surface' });

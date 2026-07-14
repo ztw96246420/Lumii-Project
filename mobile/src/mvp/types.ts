@@ -379,7 +379,7 @@ export type UploadPetMediaInput = {
   fileName?: string;
   mimeType?: string;
   previewUrl?: string;
-  source: 'camera' | 'library' | 'mvp_sample' | 'pet_avatar' | 'pet_circle_photo' | 'place_review' | 'place_submission';
+  source: 'camera' | 'library' | 'mvp_sample' | 'pet_avatar' | 'pet_circle_cover' | 'pet_circle_photo' | 'place_review' | 'place_submission';
 };
 
 export type PetChatFeedbackRating = 'good' | 'off';
@@ -506,6 +506,7 @@ export type NearbyMoment = {
   ownerId: string;
   ownerName: string;
   ownedByMe?: boolean;
+  petId?: string;
   petName: string;
   photoCount?: number;
   species: Extract<PetSpecies, 'cat' | 'dog'>;
@@ -522,6 +523,7 @@ export type PetCircleComment = {
   id: string;
   ownerId: string;
   ownedByMe?: boolean;
+  petId?: string;
   postId: string;
   text: string;
 };
@@ -659,6 +661,7 @@ export type NotificationKind = 'conversation_message' | 'greeting_accepted' | 'g
 
 export type NotificationItem = {
   actionRoute?: 'discover' | 'home' | 'map' | 'notifications' | 'petCircleProfile' | 'profile' | 'safety' | 'settings' | 'supportTickets';
+  actorPetId?: string;
   campaignId?: string;
   category?: NotificationCategory;
   commentId?: string;
@@ -667,7 +670,9 @@ export type NotificationItem = {
   id: string;
   kind?: NotificationKind;
   memoId?: string;
+  mediaId?: string;
   ownerId?: string;
+  petId?: string;
   placeId?: string;
   postId?: string;
   read: boolean;

@@ -8,6 +8,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const TEST_CODE = '962464';
+const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 const rootDir = path.join(__dirname, '..');
 const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-social-author-sanction-'));
@@ -148,6 +149,16 @@ async function createPet(token, name, species = 'dog') {
   return payload.data;
 }
 
+async function uploadPetCircleImage(token, fileName) {
+  const payload = await request('/media/uploads', {
+    body: { base64: TINY_PNG_BASE64, fileName, mimeType: 'image/png', source: 'pet_circle_photo' },
+    method: 'POST',
+    token,
+  });
+  assert.ok(payload.data?.fileUrl);
+  return payload.data.fileUrl;
+}
+
 async function refreshPresence(token, lat, lng) {
   const query = new URLSearchParams({
     accuracy: '25',
@@ -173,10 +184,11 @@ async function main() {
     await refreshPresence(postAuthorToken, 22.543096, 114.057865);
     await refreshPresence(commentAuthorToken, 22.5433, 114.058);
 
+    const postImageUrl = await uploadPetCircleImage(postAuthorToken, 'social-author-sanction-post.png');
     const post = await request('/social/pet-circle/posts', {
       body: {
         content: 'direct social author sanction post target',
-        imageUrls: ['https://cdn.example.com/social-author-sanction-post.jpg'],
+        imageUrls: [postImageUrl],
         location: { accuracy: 25, latitude: 22.543096, longitude: 114.057865, radiusKm: 3, updatedAt: Date.now() },
         visibility: 'nearby',
       },

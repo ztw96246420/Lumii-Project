@@ -19,6 +19,7 @@ let backendProcess = null;
 let providerServer = null;
 let baseUrl = '';
 let providerBaseUrl = '';
+const providerObjectPuts = [];
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -103,6 +104,16 @@ async function startFakeProvider() {
       else res.end(imageBuffer);
       return;
     }
+    if (req.method === 'PUT') {
+      const chunks = [];
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', () => {
+        providerObjectPuts.push({ bytes: Buffer.concat(chunks).length, path: req.url });
+        res.writeHead(200, { ETag: '"trace-cos"' });
+        res.end();
+      });
+      return;
+    }
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ message: 'not found' }));
   });
@@ -129,6 +140,11 @@ async function startBackend(port) {
       ...process.env,
       AMAP_WEB_SERVICE_KEY: '',
       APIMART_API_KEY: '',
+      COS_BUCKET: 'lumii-trace-smoke',
+      COS_ENDPOINT: providerBaseUrl,
+      COS_REGION: 'ap-guangzhou',
+      COS_SECRET_ID: 'trace-cos-secret-id',
+      COS_SECRET_KEY: 'trace-cos-secret-key',
       DEEPSEEK_API_KEY: '',
       GPT_IMAGE2_API_KEY: 'smoke-gpt-image2-key',
       GPT_IMAGE2_BASE_URL: providerBaseUrl,
@@ -191,13 +207,13 @@ async function loginAdmin() {
   return payload.data.token;
 }
 
-async function createPet(token) {
+async function createPet(token, name = 'TraceLucky') {
   const payload = await request('/pets', {
     body: {
       birthday: '2024-01-05',
       breed: 'dog',
       gender: 'male',
-      name: 'TraceLucky',
+      name,
       species: 'dog',
       weightKg: 18.6,
     },
@@ -226,7 +242,7 @@ async function main() {
   try {
     const userToken = await loginUser(TEST_PHONE);
     const adminToken = await loginAdmin();
-    await createPet(userToken);
+    const pet = await createPet(userToken);
 
     const upload = await request('/media/uploads', {
       body: {
@@ -245,8 +261,27 @@ async function main() {
       method: 'POST',
       token: userToken,
     });
+    const switchedPet = await createPet(userToken, 'TraceMochi');
     const readyJob = await waitForReadyJob(started.data.id, userToken);
     assert.equal(readyJob.status, 'ready');
+    assert.ok(decodeURIComponent(readyJob.resultUrl).includes(`/${pet.id}/`), 'stored GPT Image result must remain under the job pet prefix after an active-pet switch');
+    assert.equal(decodeURIComponent(readyJob.resultUrl).includes(`/${switchedPet.id}/`), false);
+    assert.ok(providerObjectPuts.some((item) => decodeURIComponent(item.path).includes(`/${pet.id}/`) && item.bytes > 0));
+
+    const latestJob = await request(`/ai/pet-avatar/jobs/latest?petId=${encodeURIComponent(pet.id)}`, { token: userToken });
+    assert.equal(latestJob.data.id, readyJob.id, 'mobile recovery query should return the latest active-pet generation');
+    assert.equal(latestJob.data.status, 'ready');
+    const unrelatedPetLatest = await request(`/ai/pet-avatar/jobs/latest?petId=${encodeURIComponent(switchedPet.id)}`, { token: userToken });
+    assert.equal(unrelatedPetLatest.data, null, 'mobile recovery query must not return another pet generation');
+
+    const accepted = await request(`/ai/pet-avatar/jobs/${encodeURIComponent(readyJob.id)}/accept`, {
+      body: {},
+      method: 'POST',
+      token: userToken,
+    });
+    assert.equal(accepted.data.id, pet.id, 'accepting after a pet switch must apply the image to the job pet');
+    const switchedPetAfterAccept = await request(`/pets/${encodeURIComponent(switchedPet.id)}`, { token: userToken });
+    assert.equal(switchedPetAfterAccept.data.avatarUrl, undefined);
 
     const adminJobs = await request('/admin/ai/avatar-jobs', { token: adminToken });
     const row = adminJobs.data.find((item) => item.id === readyJob.id);

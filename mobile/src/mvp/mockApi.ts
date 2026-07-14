@@ -227,6 +227,7 @@ let mockAccountDeletion: AccountSnapshot['accountDeletion'] = null;
 let mockAccountDeletionRequest: AccountDeletionRequestResult | null = null;
 let pets: PetProfile[] = [];
 let activePetId = '';
+const mockDeletedPetIds = new Set<string>();
 let generationProgressById: Record<string, number> = {};
 let animationProgressById: Record<string, number> = {};
 let mockPermissions: PermissionStateMap = {
@@ -1192,7 +1193,7 @@ function getMockWebPreviewParam(key: string) {
 function ensureMockMultiPetFixtures() {
   if (getMockWebPreviewParam('mockMultiPet') !== 'interactive') return;
   const existingIds = new Set(pets.map((pet) => pet.id));
-  const missingPets = mockMultiPetFixturePets.filter((pet) => !existingIds.has(pet.id));
+  const missingPets = mockMultiPetFixturePets.filter((pet) => !existingIds.has(pet.id) && !mockDeletedPetIds.has(pet.id));
   if (missingPets.length) pets = [...pets, ...missingPets];
   if (!activePetId || !pets.some((pet) => pet.id === activePetId)) activePetId = mockMultiPetFixturePets[0]?.id ?? pets[0]?.id ?? '';
 }
@@ -1282,8 +1283,10 @@ function mockPetCircleVisibleProfilePosts(ownerId = 'me') {
   ensureMockPetCirclePendingReviewFixture();
   ensureMockPetCircleRejectedFixture();
   const normalizedOwnerId = ownerId && ownerId !== 'me' ? ownerId : currentMockOwnerId();
+  const profilePetId = normalizedOwnerId === currentMockOwnerId() ? activeMockPet()?.id : '';
   return nearbyMoments
     .filter((moment) => moment.ownerId === normalizedOwnerId)
+    .filter((moment) => !profilePetId || !moment.petId || moment.petId === profilePetId)
     .filter((moment) => (moment.visibility ?? 'nearby') === 'nearby')
     .filter((moment) => !petCircleReportedPostIds.includes(moment.id))
     .map((moment) => ({
@@ -3053,6 +3056,37 @@ export const mockApi = {
       await wait(160);
       ensureMockMultiPetFixtures();
       if (!pets.some((item) => item.id === id)) return error('宠物档案不存在', false);
+      const deletingWasActive = activePetId === id;
+      const removedPostIds = new Set(
+        nearbyMoments
+          .filter((moment) => moment.ownedByMe && (moment.petId === id || (!moment.petId && deletingWasActive)))
+          .map((moment) => moment.id),
+      );
+      const removedCommentIds = new Set(
+        petCircleComments
+          .filter((comment) => removedPostIds.has(comment.postId) || comment.petId === id)
+          .map((comment) => comment.id),
+      );
+      nearbyMoments = nearbyMoments.filter((moment) => !removedPostIds.has(moment.id));
+      petCircleComments = petCircleComments.filter((comment) => !removedCommentIds.has(comment.id));
+      petCircleLikedIds = petCircleLikedIds.filter((postId) => !removedPostIds.has(postId));
+      petCircleReportedPostIds = petCircleReportedPostIds.filter((postId) => !removedPostIds.has(postId));
+      petCircleReportedCommentIds = petCircleReportedCommentIds.filter((commentId) => !removedCommentIds.has(commentId));
+      notifications = notifications.filter((notification) => (
+        notification.petId !== id &&
+        notification.actorPetId !== id &&
+        !removedPostIds.has(notification.postId ?? '') &&
+        !removedCommentIds.has(notification.commentId ?? '')
+      ));
+      avatarJobsById = Object.fromEntries(Object.entries(avatarJobsById).filter(([, job]) => job.petId !== id && job.acceptedPetId !== id));
+      avatarAnimationJobsById = Object.fromEntries(Object.entries(avatarAnimationJobsById).filter(([, job]) => job.petId !== id));
+      if (deletingWasActive) {
+        weights = [];
+        vaccines = [];
+        memos = [];
+        vaccineReminderIds = [];
+      }
+      mockDeletedPetIds.add(id);
       pets = pets.filter((item) => item.id !== id);
       if (activePetId === id) activePetId = pets[0]?.id ?? '';
       return success(pets);
@@ -3543,6 +3577,7 @@ export const mockApi = {
         ownerId: `mock-${currentMockPhone}`,
         ownerName: mockOwnerName,
         ownedByMe: true,
+        petId: pet?.id,
         petName: pet?.name ?? '灵伴',
         photoCount: hasImageUrls ? imageUrls.length : Math.max(0, Math.min(6, photoCount)),
         species: pet?.species === 'cat' ? 'cat' : 'dog',
@@ -3579,6 +3614,7 @@ export const mockApi = {
       nearbyMoments = nearbyMoments.map((item) => (item.id === postId ? nextMoment : item));
       if (!moment.ownedByMe) {
         addMockNotification({
+          actorPetId: activeMockPet()?.id,
           category: 'interaction',
           id: `mock-pet-circle-like-${postId}`,
           kind: 'pet_circle_like',
@@ -3634,6 +3670,7 @@ export const mockApi = {
         id: `mock-comment-${Date.now()}`,
         ownerId: `mock-${currentMockPhone}`,
         ownedByMe: true,
+        petId: activeMockPet()?.id,
         postId,
         text,
       };
@@ -3641,6 +3678,7 @@ export const mockApi = {
       nearbyMoments = nearbyMoments.map((item) => (item.id === postId ? { ...item, commentCount: petCircleComments.filter((next) => next.postId === postId).length } : item));
       if (!moment.ownedByMe) {
         addMockNotification({
+          actorPetId: comment.petId,
           category: 'interaction',
           commentId: comment.id,
           id: `mock-pet-circle-comment-${comment.id}`,

@@ -304,8 +304,9 @@ function createHttpApi(baseUrl: string): LumiiApi {
       },
 
       async deletePet(id: string): Promise<ApiResult<PetProfile[]>> {
+        const previousActivePetId = cachedActivePet?.id;
         const result = await request<PetProfile[]>('DELETE', `/pets/${encodeURIComponent(id)}`);
-        if (result.data) cachedActivePet = result.data[0] ?? null;
+        if (result.data) cachedActivePet = result.data.find((pet) => pet.id === previousActivePetId) ?? result.data[0] ?? null;
         return result;
       },
 

@@ -12,6 +12,7 @@ const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-place-public-reviews-'));
 const statePath = path.join(tmpDir, 'state.json');
 const TEST_CODE = '962464';
+const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 let baseUrl = '';
 let backendProcess = null;
 
@@ -131,6 +132,16 @@ async function loginAdmin() {
   return payload.data.token;
 }
 
+async function uploadPlaceReviewImage(token, fileName) {
+  const payload = await request('/media/uploads', {
+    body: { base64: TINY_PNG_BASE64, fileName, mimeType: 'image/png', source: 'place_review' },
+    method: 'POST',
+    token,
+  });
+  assert.ok(payload.data?.fileUrl);
+  return payload.data.fileUrl;
+}
+
 async function main() {
   const port = await getFreePort();
   await startBackend(port);
@@ -209,10 +220,11 @@ async function main() {
     assert.equal(approved.data.status, 'approved');
 
     await delay(20);
+    const placeReviewImageUrl = await uploadPlaceReviewImage(photoReviewerToken, 'place-review-photo.png');
     const photoSubmitted = await request(`/places/${encodeURIComponent(place.id)}/reviews`, {
       body: {
         content: 'Smoke public review with photo: clear fenced lawn and water bowl.',
-        imageUrls: ['https://static.lumii.test/place-review-photo.jpg'],
+        imageUrls: [placeReviewImageUrl],
       },
       method: 'POST',
       token: photoReviewerToken,

@@ -90,8 +90,10 @@ MVP 错误码表：
 | `PET_CHAT_DAILY_LIMIT` | 灵伴对话当日额度已达上限 |
 | `PET_AVATAR_DAILY_LIMIT` | 灵伴形象生成当日额度已达上限 |
 | `AVATAR_PROVIDER_UNAVAILABLE` | 生产灵伴图片供应商未配置或不可用，不会返回测试图 |
+| `AVATAR_PET_GONE` | 生成任务固化的宠物档案已删除，不能应用或重试到其他宠物 |
 | `AVATAR_RESULT_REQUIRED` | 确认灵伴形象时未提供生成结果 |
 | `AVATAR_RESULT_INVALID` | 灵伴形象 URL 不属于当前账号的已完成生成任务 |
+| `GREETING_PET_CHANGED` | 待处理招呼固化的发起或目标宠物已失效，需刷新请求 |
 | `PLACE_LOCATION_REQUIRED` | 新增地点时缺少可用的当前定位 |
 | `PLACE_LOCATION_STALE` | 新增地点时定位已超过有效期，需重新定位 |
 | `SERVER_ERROR` | 服务端异常 |
@@ -536,10 +538,17 @@ MVP 兜底校验：
 
 ### DELETE `/pets/{petId}`
 
-删除某只宠物档案。MVP 测试后端行为：
-- 删除当前宠物后，会自动把剩余列表第一只设为当前宠物。
-- 如果删除后没有宠物，当前宠物会清空。
-- App 暂不暴露删除入口；后续必须等 Figma 补齐危险操作二次确认后再接 UI。
+永久删除某只宠物及其从属业务数据。App 已在宠物管理页提供危险操作二次确认；确认后不可恢复。
+
+服务端原子行为：
+- 删除非当前宠物时保留原当前宠物；只有删除当前宠物或当前宠物已失效时，才把剩余列表第一只设为当前宠物。
+- 如果删除后没有宠物，当前宠物清空；账号本身、主人资料和账号级设置保留。
+- 同步删除该宠物的体重、疫苗/驱虫计划、提醒、备忘、宠物 AI 对话、灵伴图片/动效任务、上传素材、AI 样本和来源引用。
+- 同步删除该宠物发布的小事，以及这些小事下的评论、点赞、举报、审核任务和通知；该宠物在其他小事产生的评论、点赞、举报及其通知也会移除。
+- 待处理且关联该宠物的招呼/约遛会移除；已经接受的账号级社交关系保留，并在账号仍有其他宠物时更新会话卡，删除最后一只宠物时暂时隐藏会话卡。
+- COS 原图、结果图、动效和合并前旧宠物目录进入持久化销毁队列，失败会指数退避重试；仍被其他存续业务对象引用的共享文件不会误删。
+- 只保留不含手机号、宠物 ID 或业务正文的 HMAC 匿名执行墓碑，用于后台健康检查和删除任务去重。
+- 后台系统健康以 `pet_deletion_processor` 独立展示宠物删除队列，不计入账号注销墓碑和队列统计。
 
 Response data:
 
@@ -578,6 +587,16 @@ MVP 测试后端当前已做基础文件校验：
 - 后端会校验 base64 合法性和图片文件头，不只相信前端传入的 `mimeType`。
 - 基础拦截会仍返回 `UploadedPetMedia`，但 `analysis.canGenerate=false`，`quality=blocked`，`analysis.code` 可能是 `missing_file`、`invalid_file`、`unsupported_format`、`file_too_large`。App 复用现有上传失败/识别结果链路，不新增页面。
 - 视频、对象存储直传、EXIF 清理、自动压缩、真实人脸/多宠/无宠物视觉识别模型仍属生产增强或后续专项。
+
+Request 中必须传业务来源 `source`，后端据此选择内容安全 Biztype、COS 目录和数据归属：
+
+- `camera`、`library`、`mvp_sample`、`pet_avatar`：灵伴原图，绑定上传时当前宠物。
+- `pet_circle_photo`：宠友圈小事图片，绑定上传时当前宠物。
+- `pet_circle_cover`：宠友圈封面，绑定上传时当前宠物；移动端更换封面必须使用该来源，不能再以 `library` 冒充灵伴原图。
+- `place_review`、`place_submission`：地点点评/投稿图片，属于账号和地点业务，不绑定当前宠物。
+- `support_ticket`：客服附件，属于账号和工单，不绑定当前宠物。
+- 宠物级来源在账号没有宠物档案时返回 `PET_PROFILE_REQUIRED`；地点/客服媒体不能作为 `/ai/pet-avatar/jobs` 的输入，返回 `AVATAR_MEDIA_SCOPE_INVALID`。
+- `petId`、COS object key 和内部审核字段不返回移动端；运营后台可查看规范化 `scope` 和真实关联对象。
 
 Response data:
 
@@ -619,6 +638,8 @@ Request:
 { "mediaId": "media-001" }
 ```
 
+`mediaId` 必须属于当前账号且为宠物级上传；任务锁定媒体上传时的宠物，之后切换当前宠物不会改变任务归属。
+
 Response data:
 
 ```ts
@@ -634,6 +655,7 @@ type AvatarJob = {
   id: string;
   mediaId?: string;
   originalJobId?: string;
+  petId?: string;
   status: 'processing' | 'ready' | 'failed';
   progress: number;
   resultUrl?: string;
@@ -649,7 +671,7 @@ type AvatarJob = {
 
 ### POST `/ai/pet-avatar/jobs/{jobId}/retry`
 
-基于原任务的 `mediaId` 重新生成一条新任务。MVP 测试后端会复用原上传媒体，仍受每日 AI 形象生成次数限制。
+基于原任务的 `mediaId` 重新生成一条新任务。MVP 测试后端会复用原上传媒体和原任务固化的 `petId`，仍受每日 AI 形象生成次数限制；用户在生成期间切换当前宠物不会改变重试归属。
 
 Response data:
 
@@ -659,7 +681,7 @@ AvatarJob
 
 ### POST `/ai/pet-avatar/jobs/{jobId}/accept`
 
-接受当前任务生成结果，并保存为当前宠物的电子形象。
+接受当前任务生成结果，并保存为任务创建时固化宠物的电子形象。
 
 Response data:
 
@@ -670,7 +692,8 @@ PetProfile
 说明：
 - 任务必须属于当前账号。
 - 任务必须是 `ready` 且包含 `resultUrl`。
-- 当前账号必须已经有宠物档案。
+- 任务固化的宠物档案必须仍然存在；生成期间切换当前宠物不会把结果应用到另一只宠物。
+- 固化宠物已删除时返回 `409 / AVATAR_PET_GONE`，结果不会应用；并发产生的本地存储对象会进入该宠物的销毁队列。
 
 ### POST `/ai/pet-avatar/jobs/{jobId}/feedback`
 
@@ -1052,7 +1075,7 @@ type NearbyMoment = {
 
 ### POST `/social/moments`
 
-发布一条“今日小事”到附近小事流。App 发布今日小事时会先写入健康日历的健康备忘，再调用该接口同步到附近小事。
+发布一条“今日小事”到附近小事流；这是兼容旧客户端的别名，当前 App 使用 `POST /social/pet-circle/posts`。服务端在一次状态提交内创建小事，并在 `syncToHealthCalendar=true`（兼容旧字段名）时原子创建关联宠物日历备忘，社交发布失败不会留下孤立日历记录。
 
 Request:
 
@@ -1068,17 +1091,17 @@ Request:
 }
 ```
 
-Response data:
+Response data（当前接口在小事卡片上附加关联备忘；旧客户端可继续只读取原小事字段）：
 
 ```ts
-NearbyMoment
+NearbyMoment & { createdMemo?: HealthMemo }
 ```
 
 说明：
 - `content` 必填，MVP 最大 280 字。
 - `imageUrls` 最多保存 6 张，来自媒体上传接口返回的公开 `fileUrl`；`photoCount` 按实际图片数封顶为 6。
-- `imageUrls` 只接受 `http/https` 图片地址；`data:`、`file://`、`content://` 等本机或内联地址会被过滤，必须先走媒体上传接口。
-- `syncToHealthCalendar=true` 时，测试后端会同时生成一条健康备忘；`visibility=private` 默认也会写入健康日历，但不进入宠友圈/附近小事流。由宠友圈小事同步出的健康备忘会携带 `source=pet_circle` / `sourceId={postId}`，健康日历归档日期应跟随源小事的 `createdAt`，避免历史小事在后续刷新时漂移到当天。
+- `imageUrls` 只接受当前账号以 `pet_circle_photo` 上传、已通过审核且属于当前宠物的 `fileUrl`；任意外链、跨账号媒体、地点/客服图片或其他宠物图片会被拒绝。`data:`、`file://`、`content://` 等本机或内联地址会被过滤。
+- `syncToHealthCalendar=true` 时，测试后端会同时生成一条宠物日历备忘；`visibility=private` 默认也会写入宠物日历，但不进入宠友圈/附近小事流。由宠友圈小事同步出的备忘会携带 `source=pet_circle` / `sourceId={postId}`，宠物日历归档日期应跟随源小事的 `createdAt`，避免历史小事在后续刷新时漂移到当天。
 - `visibility=nearby` 时必须开启附近可见，并提供 10 分钟内的新鲜定位。
 - 服务端会为公开小事保存不可变的模糊发布位置快照，用于后续附近范围判断；经纬度不会出现在移动端小事响应中。
 - 没有可靠发布位置的历史小事保留在本人和已建立关系的宠友圈归档，但不进入附近流，也不会用发布者当前定位猜测回填。
@@ -1110,10 +1133,25 @@ type PetCirclePostList = {
 - 当前请求和账号都没有定位时返回空列表；当前账号关闭附近可见时不刷新在线曝光。
 - 已删除、仅自己可见、发布者关闭附近可见、超过 7 天或超出距离范围的小事不返回。
 - 当前用户已举报的小事不再返回；举报只先对举报者隐藏，后台审核/全局隐藏属于后续治理能力。
+- 小事在创建时固化 `petId`；作者后续切换当前宠物，不会改变历史小事的宠物名、头像、物种或归档归属。评论、点赞、举报、招呼和约遛同样记录动作发生时的宠物 ID。
+- 移动端公开卡片与后台小事审核列表都按固化 `petId` 解析宠物，不使用账号后来切换的当前宠物冒充历史作者。
+
+### GET `/social/pet-circle/profiles/{ownerId}/posts`
+
+读取本人或已建立关系用户当前宠物的宠友圈归档，返回 `{ profile, items, nextCursor? }`。
+
+说明：
+- `{ownerId}=me` 读取当前登录账号当前宠物的“我发布的小事”；同一账号其他宠物的历史小事不会混入。
+- 查看他人归档要求双方已接受招呼，且不存在拉黑关系；他人页面不返回“我”、更换封面或删除权限。
+- 每条历史小事继续使用创建时固化的宠物身份；切换当前宠物只改变当前归档入口，不重写历史记录。
+
+### PATCH `/social/pet-circle/profile/cover`
+
+更新当前宠物的宠友圈封面。只接受当前账号上传、属于当前宠物且已通过图片审核的图片；新客户端使用 `pet_circle_cover` 来源。兼容旧客户端的 `camera/library` 素材会在应用为封面时按封面 Biztype 重新审核，任意外链、跨账号和错宠物图片均拒绝；封面按当前宠物独立保存。
 
 ### DELETE `/social/pet-circle/posts/{postId}`
 
-删除自己发布的宠友圈动态。删除后该动态不再展示，关联点赞会移除，关联评论会标记为删除且不再返回，相关 `pet_circle_like` / `pet_circle_comment` / `pet_circle_greeting` 通知会同步清理；健康日历记录保留。
+删除自己发布的宠友圈动态。删除后该动态不再展示，关联点赞会移除，关联评论会标记为删除且不再返回，相关 `pet_circle_like` / `pet_circle_comment` / `pet_circle_greeting` 通知会同步清理；宠物日历记录保留。
 
 ### POST `/social/pet-circle/posts/{postId}/report`
 
@@ -1133,7 +1171,7 @@ type PetCirclePostList = {
 
 ### POST `/social/pet-circle/posts/{postId}/comments`
 
-新增文本评论，最多 140 字；对方会收到 `pet_circle_comment` 互动通知。
+新增文本评论，最多 140 字；对方会收到 `pet_circle_comment` 互动通知。评论固化发表评论时的 `petId`，之后切宠不会改变评论头像归属；删除该宠物时，评论及对应通知同步清理。
 
 ### DELETE `/social/pet-circle/comments/{commentId}`
 
@@ -1214,6 +1252,7 @@ MVP 产品约束：
 当前测试后端策略：
 - ~~发送招呼时直接给双方创建会话。~~ 当前已改为只创建待处理招呼请求；接收方接受后才创建双方会话。
 - `source=pet_circle` 时，`postId` 必须是当前发送者可见且属于目标用户的宠友圈动态；成功后通知中心写入 `kind=pet_circle_greeting`，并携带 `postId` 作为来源上下文。点击该通知应进入招呼请求处理页，并将对应请求排到顶部，而不是只回流到动态详情。
+- 招呼记录固化发起宠物 `fromPetId` 和目标宠物 `targetPetId`；任一方随后切换当前宠物，待处理卡和接受结果仍使用本次招呼对应的宠物，不会串成新的当前宠物。
 - 如果双方已有待处理招呼，再从宠友圈动态发起招呼时不会创建第二条待处理请求；测试后端会刷新原请求时间并补充 `source=pet_circle` / `postId`，仍可生成去重后的宠友圈来源通知。
 - 如果 `ownerId` 不存在、指向自己，或对方已关闭附近可见，返回 404 中文错误，不创建招呼、会话、消息或通知，前端应提示刷新附近列表后重试。
 
@@ -1226,7 +1265,7 @@ MVP 产品约束：
 
 ### POST `/social/greeting-requests/{ownerId}/accept`
 
-接受招呼请求，创建双方会话。成功后测试后端会清理当前用户来自该 `ownerId` 的 `greeting_request` / `pet_circle_greeting` 通知，避免已处理招呼继续占用通知中心未读角标。
+接受招呼请求，创建双方会话。成功后测试后端会清理当前用户来自该 `ownerId` 的 `greeting_request` / `pet_circle_greeting` 通知，避免已处理招呼继续占用通知中心未读角标。若本次招呼固化的任一宠物档案已失效，返回 `409 / GREETING_PET_CHANGED`，不会把请求错误接受到另一只当前宠物。
 
 ### POST `/social/greeting-requests/{ownerId}/reject`
 
@@ -1600,7 +1639,7 @@ Request:
 }
 ```
 
-说明：地点点评图片需要先通过 `/media/uploads` 上传，上传来源为 `place_review`。后端只保存已通过图片审核的公开 `fileUrl`，最多 3 张；仍保留正文里的照片数量摘要，兼容旧版本展示。
+说明：地点点评图片需要先通过 `/media/uploads` 上传，上传来源为 `place_review`。后端只接受当前账号、场景匹配且已通过图片审核的公开 `fileUrl`，任意外链和跨账号/错场景媒体会被拒绝，最多 3 张；仍保留正文里的照片数量摘要，兼容旧版本展示。
 
 Response data:
 
@@ -1706,7 +1745,7 @@ Request:
 
 说明：
 - 移动端在上传图片前获取当前定位；定位失败时保留草稿且不上传图片。定位缺失返回 `PLACE_LOCATION_REQUIRED`，超过有效期返回 `PLACE_LOCATION_STALE`。
-- 新增地点图片需要先通过 `/media/uploads` 上传，上传来源为 `place_submission`。后端只保存已通过图片审核的公开 `fileUrl`，最多 3 张。
+- 新增地点图片需要先通过 `/media/uploads` 上传，上传来源为 `place_submission`。后端只接受当前账号、场景匹配且已通过图片审核的公开 `fileUrl`，任意外链和跨账号/错场景媒体会被拒绝，最多 3 张。
 - 审核通过时，manual 地点继承提交时的经纬度、定位精度和捕获时间；第一张可见图作为封面。同一地点之后按这组固定坐标出现在附近结果，不会跟随提交者当前所在地变化。
 
 Response data:

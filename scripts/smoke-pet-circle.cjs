@@ -6,6 +6,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const TEST_CODE = '962464';
+const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 const rootDir = path.resolve(__dirname, '..');
 const backendScript = path.join(__dirname, 'lumii-backend.cjs');
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-pet-circle-smoke-'));
@@ -156,6 +157,16 @@ async function createPet(token, name, species = 'dog') {
   });
   assert.ok(payload.data?.id, `missing pet id for ${name}`);
   return payload.data;
+}
+
+async function uploadImage(token, fileName, source = 'pet_circle_photo') {
+  const payload = await request('/media/uploads', {
+    body: { base64: TINY_PNG_BASE64, fileName, mimeType: 'image/png', source },
+    method: 'POST',
+    token,
+  });
+  assert.ok(payload.data?.fileUrl, `missing uploaded file URL for ${fileName}`);
+  return payload.data.fileUrl;
 }
 
 function location(latitude, longitude, radiusKm = 3, updatedAt = Date.now()) {
@@ -328,14 +339,15 @@ async function run() {
     'private pet circle post should be saved to health calendar',
   );
 
+  const filteredImageUrl = await uploadImage(hiddenToken, 'filtered-private-post.png');
   const filteredImagePost = await request('/social/pet-circle/posts', {
     body: {
       content: 'invalid direct image urls are filtered',
       imageUrls: [
         'data:image/png;base64,AA==',
         'file:///tmp/lucky.jpg',
-        'https://cdn.example.com/lumii/pet-circle/filter-ok.jpg',
-        'https://cdn.example.com/lumii/pet-circle/filter-ok.jpg',
+        filteredImageUrl,
+        filteredImageUrl,
       ],
       photoCount: 4,
       visibility: 'private',
@@ -343,8 +355,37 @@ async function run() {
     method: 'POST',
     token: hiddenToken,
   });
-  assert.deepEqual(filteredImagePost.data.imageUrls, ['https://cdn.example.com/lumii/pet-circle/filter-ok.jpg'], 'pet circle should only persist deduped http image URLs');
+  assert.deepEqual(filteredImagePost.data.imageUrls, [filteredImageUrl], 'pet circle should only persist deduped reviewed upload URLs');
   assert.equal(filteredImagePost.data.photoCount, 1, 'photoCount should reflect valid persisted image URLs');
+
+  await expectApiError('/social/pet-circle/posts', {
+    body: {
+      content: 'unreviewed external image must be rejected',
+      imageUrls: ['https://cdn.example.com/lumii/pet-circle/unreviewed.jpg'],
+      visibility: 'private',
+    },
+    code: 'SOCIAL_MOMENT_INVALID',
+    method: 'POST',
+    status: 400,
+    token: hiddenToken,
+  });
+
+  const wrongScopeImageUrl = await uploadImage(hiddenToken, 'wrong-scope-place-image.png', 'place_review');
+  await expectApiError('/social/pet-circle/posts', {
+    body: { content: 'wrong scope image must be rejected', imageUrls: [wrongScopeImageUrl], visibility: 'private' },
+    code: 'SOCIAL_MOMENT_INVALID',
+    method: 'POST',
+    status: 400,
+    token: hiddenToken,
+  });
+
+  await expectApiError('/social/pet-circle/posts', {
+    body: { content: 'cross account image must be rejected', imageUrls: [filteredImageUrl], visibility: 'private' },
+    code: 'SOCIAL_MOMENT_INVALID',
+    method: 'POST',
+    status: 400,
+    token: ownerToken,
+  });
 
   await expectApiError('/social/pet-circle/posts', {
     body: { content: 'no location nearby post', visibility: 'nearby' },
@@ -412,18 +453,14 @@ async function run() {
     token: ownerToken,
   });
 
+  const publicPostImageUrls = [];
+  for (let index = 1; index <= 7; index += 1) {
+    publicPostImageUrls.push(await uploadImage(ownerToken, `public-post-${index}.png`));
+  }
   const publicPost = await request('/social/pet-circle/posts', {
     body: {
       content: 'morning park walk with six photos',
-      imageUrls: [
-        'https://cdn.example.com/lumii/pet-circle/01.jpg',
-        'https://cdn.example.com/lumii/pet-circle/02.jpg',
-        'https://cdn.example.com/lumii/pet-circle/03.jpg',
-        'https://cdn.example.com/lumii/pet-circle/04.jpg',
-        'https://cdn.example.com/lumii/pet-circle/05.jpg',
-        'https://cdn.example.com/lumii/pet-circle/06.jpg',
-        'https://cdn.example.com/lumii/pet-circle/07.jpg',
-      ],
+      imageUrls: publicPostImageUrls,
       location: ownerLoc,
       mood: 'happy',
       photoCount: 7,
@@ -1164,10 +1201,11 @@ async function run() {
   await refreshPresence(readTargetToken, viewerLoc);
   const readSenderOwnerId = `user-${readSenderPhone}`;
   const readTargetOwnerId = `user-${readTargetPhone}`;
+  const readTargetProfileImageUrl = await uploadImage(readTargetToken, 'read-target-profile-history.png');
   const readTargetProfilePost = await request('/social/pet-circle/posts', {
     body: {
       content: 'profile page should expose accepted pet circle history',
-      imageUrls: ['https://cdn.example.com/lumii/pet-circle/profile-history.jpg'],
+      imageUrls: [readTargetProfileImageUrl],
       location: viewerLoc,
       visibility: 'nearby',
     },
@@ -1181,12 +1219,20 @@ async function run() {
     readTargetOwnProfile.data.items.some((item) => item.id === readTargetProfilePost.data.id && item.ownedByMe),
     'own pet circle profile should include owned posts',
   );
-  const readTargetCover = await request('/social/pet-circle/profile/cover', {
-    body: { coverImageUrl: 'lumii://pet-circle-cover-smoke' },
+  const legacyCoverImageUrl = await uploadImage(readTargetToken, 'read-target-legacy-cover.png', 'library');
+  const legacyCover = await request('/social/pet-circle/profile/cover', {
+    body: { coverImageUrl: legacyCoverImageUrl },
     method: 'PATCH',
     token: readTargetToken,
   });
-  assert.equal(readTargetCover.data.coverImageUrl, 'lumii://pet-circle-cover-smoke', 'cover endpoint should persist the selected profile cover');
+  assert.equal(legacyCover.data.coverImageUrl, legacyCoverImageUrl, 'legacy camera/library cover uploads should be re-moderated and remain compatible');
+  const readTargetCoverImageUrl = await uploadImage(readTargetToken, 'read-target-cover.png', 'pet_circle_cover');
+  const readTargetCover = await request('/social/pet-circle/profile/cover', {
+    body: { coverImageUrl: readTargetCoverImageUrl },
+    method: 'PATCH',
+    token: readTargetToken,
+  });
+  assert.equal(readTargetCover.data.coverImageUrl, readTargetCoverImageUrl, 'cover endpoint should persist the selected reviewed profile cover');
   await expectApiError(`/social/pet-circle/profiles/${encodeURIComponent(readTargetOwnerId)}/posts`, {
     code: 'PET_CIRCLE_PROFILE_FORBIDDEN',
     status: 403,

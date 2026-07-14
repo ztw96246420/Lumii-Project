@@ -292,6 +292,83 @@ async function main() {
     const calendar = await request('/health/calendar', { token: primaryToken });
     assert.deepEqual(calendar.data, [], 'new pets must not receive a fabricated profile or weight calendar record');
 
+    const earlierWeightDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const latestWeightDate = new Date().toISOString().slice(0, 10);
+    const earlierWeight = await request('/health/weights', {
+      body: { kg: 10, note: 'Core earlier weight', recordedAt: earlierWeightDate },
+      method: 'POST',
+      token: primaryToken,
+    });
+    const latestWeight = await request('/health/weights', {
+      body: { kg: 11, note: 'Core latest weight', recordedAt: latestWeightDate },
+      method: 'POST',
+      token: primaryToken,
+    });
+    const weightTrendBeforeEdit = await request('/health/weights/trend', { token: primaryToken });
+    assert.equal(weightTrendBeforeEdit.data.currentKg, 11);
+    assert.equal(weightTrendBeforeEdit.data.previousKg, 10);
+    assert.equal(weightTrendBeforeEdit.data.status, 'watch');
+
+    const editedWeight = await request(`/health/weights/${encodeURIComponent(latestWeight.data.id)}`, {
+      body: { kg: 10.5, note: 'Core edited weight' },
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(editedWeight.data.kg, 10.5);
+    assert.equal(editedWeight.data.note, 'Core edited weight');
+    const petAfterWeightEdit = await request(`/pets/${encodeURIComponent(primaryDog.id)}`, { token: primaryToken });
+    assert.equal(petAfterWeightEdit.data.weightKg, 10.5, 'editing the latest weight should update the active pet');
+
+    const weightsAfterDelete = await request(`/health/weights/${encodeURIComponent(latestWeight.data.id)}`, {
+      method: 'DELETE',
+      token: primaryToken,
+    });
+    assert.equal(weightsAfterDelete.data.some((item) => item.id === latestWeight.data.id), false);
+    assert.equal(weightsAfterDelete.data.some((item) => item.id === earlierWeight.data.id), true);
+    const weightTrendAfterDelete = await request('/health/weights/trend', { token: primaryToken });
+    assert.equal(weightTrendAfterDelete.data.currentKg, 10);
+    assert.equal(weightTrendAfterDelete.data.status, 'insufficient_data');
+    const petAfterWeightDelete = await request(`/pets/${encodeURIComponent(primaryDog.id)}`, { token: primaryToken });
+    assert.equal(petAfterWeightDelete.data.weightKg, 10, 'deleting the latest weight should restore the previous pet weight');
+
+    const memoReminderDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const createdMemo = await request('/health/memos', {
+      body: {
+        content: 'Core memo content',
+        reminderEnabled: false,
+        repeat: 'none',
+        title: 'Core memo',
+      },
+      method: 'POST',
+      token: primaryToken,
+    });
+    const editedMemo = await request(`/health/memos/${encodeURIComponent(createdMemo.data.id)}`, {
+      body: {
+        content: 'Core memo edited content',
+        reminderAt: `${memoReminderDate} 10:15`,
+        reminderEnabled: true,
+        repeat: 'monthly',
+        title: 'Core memo edited',
+      },
+      method: 'PATCH',
+      token: primaryToken,
+    });
+    assert.equal(editedMemo.data.title, 'Core memo edited');
+    assert.equal(editedMemo.data.reminderAt, `${memoReminderDate} 10:15`);
+    assert.equal(editedMemo.data.repeat, 'monthly');
+    const memosAfterEdit = await request('/health/memos', { token: primaryToken });
+    assert.equal(memosAfterEdit.data.some((item) => item.id === createdMemo.data.id && item.content === 'Core memo edited content'), true);
+    const calendarAfterMemoEdit = await request('/health/calendar', { token: primaryToken });
+    assert.equal(calendarAfterMemoEdit.data.some((item) => item.sourceId === createdMemo.data.id && item.title === 'Core memo edited'), true);
+
+    const memosAfterDelete = await request(`/health/memos/${encodeURIComponent(createdMemo.data.id)}`, {
+      method: 'DELETE',
+      token: primaryToken,
+    });
+    assert.equal(memosAfterDelete.data.some((item) => item.id === createdMemo.data.id), false);
+    const calendarAfterMemoDelete = await request('/health/calendar', { token: primaryToken });
+    assert.equal(calendarAfterMemoDelete.data.some((item) => item.sourceId === createdMemo.data.id), false);
+
     const vaccinesInitially = await request('/health/vaccines', { token: primaryToken });
     assert.deepEqual(vaccinesInitially.data, [], 'new pets must not receive default vaccine records');
     const settingsForVaccineNotifications = await request('/settings', {
