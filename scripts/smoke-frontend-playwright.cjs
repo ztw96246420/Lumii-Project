@@ -499,6 +499,14 @@ async function main() {
       }
     });
 
+    const runtimeErrorPage = await context.newPage();
+    await runtimeErrorPage.goto(`${baseUrl}/?runtimeErrorPreview=1`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await waitExactText(runtimeErrorPage, '页面暂时出了点问题');
+    await waitExactText(runtimeErrorPage, '已保存的数据不会受影响，可以重新加载当前页面。');
+    await runtimeErrorPage.getByLabel('重新加载应用').waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(runtimeErrorPage, 'smoke-frontend-00-runtime-error-boundary.png');
+    await runtimeErrorPage.close();
+
     await page.goto(`${baseUrl}/?route=login`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '准备好遇见你的灵伴了吗？');
     await page.getByLabel('查看用户协议').click();

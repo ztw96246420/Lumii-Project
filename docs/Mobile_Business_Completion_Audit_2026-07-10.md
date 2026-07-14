@@ -272,6 +272,14 @@
 - 新增 `smoke-push-registration-diagnostics.cjs`，覆盖未尝试、缺少 Firebase 配置、非法失败码、后台聚合、健康告警和同设备成功登记后自动清除失败状态；原有 Expo ticket/receipt 与移动端核心回归同步通过。
 - 2026-07-14 已只读核查 Expo/EAS 生产凭据：`FCM V1 Google Service Account Key` 和旧版 FCM 均未配置，因此 EAS 侧当前也不能完成 Android Push 下发。现有 EAS Android 构建签名 SHA-1 为 `11:3D:CB:E3:AD:C7:32:FD:BA:D1:93:63:47:F0:C6:A6:4A:09:03:0F`，与正式本地签名 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA` 不一致；在把同一正式 keystore 安全同步至 EAS 前不得改用 EAS 构建上线包，否则无法覆盖升级并会使高德签名配置失效。当前继续使用本地正式签名构建，仅把与 `google-services.json` 同一 Firebase 项目的 FCM V1 服务账号交给 EAS 管理。
 
+### 2.33 移动端运行异常恢复与脱敏遥测
+
+- App 根节点新增 React Error Boundary；渲染异常不再直接白屏，而是展示与现有浅暖视觉一致的恢复页，明确已保存数据不受影响并支持重新加载。开发态 Web 预览开关只用于 Playwright，正式 release 中不可触发。
+- 已登录期间的渲染异常、React Native 全局 JS 异常和 Web 未处理 Promise 拒绝会进入本地队列；队列按登录账号的不可逆本地作用域隔离，同一错误指纹 30 分钟内合并，最多 20 条、7 天过期，网络或登录态恢复后自动补报。
+- 客户端只上传 `errorName / fatal / fingerprint / kind / occurrenceCount / queuedDelaySeconds`，不上传异常 message、stack、componentStack、用户输入、手机号或 Token；后端对 `app.runtime_error` 再做独立白名单解析，篡改客户端携带的敏感或额外字段也不会落库。
+- 系统健康新增 `mobile_runtime_errors`，按近 24 小时聚合报告、发生次数、账号、指纹和 fatal；由于客户端自报不是可信监控源，只会产生 `warn`。运营告警中心同步生成中优先级告警，达到 10 次或影响至少 3 个账号时升为高优先级。
+- `smoke-mobile-runtime-errors.cjs` 覆盖无异常健康状态、三次合并异常、敏感字段剥离、后台分析筛选、健康警告和运营告警；Playwright 真实触发 Error Boundary 并保存 `smoke-frontend-00-runtime-error-boundary.png`，正常业务页仍要求零非预期 console/page error。
+
 ## 3. 当前验证证据
 
 - 移动端 TypeScript：`npm run typecheck` 通过。
@@ -281,7 +289,7 @@
 - 用户登录设备：`node scripts/smoke-user-auth-sessions.cjs` 通过，覆盖双设备登录、用户端脱敏列表、单设备退出、退出其他设备、刷新链撤销、401 阻断、后台时间线和会话数据清理。
 - 工单 SLA/客服排班/用户补充/评价/重开闭环：`node scripts/smoke-ticket-sla-roster.cjs` 通过。
 - 移动端完整 Playwright：`node scripts/smoke-frontend-playwright.cjs` 通过，含 41 路由直达、协议阅读、缺头像、上传基础检查、宠友圈审核状态、地点贡献、宠友圈互动、设置/注销、真实登录会话、空宠物日历/疫苗计划和宠物建档流程。
-- 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-14 在最终工作树完整通过，82/82 套件全部成功；新增 AI 生成内容来源、文件元数据和 Push 登记诊断回归，生产短信套件使用本地隔离模拟端且不会向真实手机号发码。移动端 Playwright 用时 267.8 秒，覆盖协议阅读、AI 生成显式标识、上传基础检查、本人宠友圈同日多条、审核中/驳回状态及昼夜排序差异、唯一“我”标记、评论、删除确认、3/6 与 6/6 真实选图、三类日期滚轮、地点贡献记录、地点点评驳回纠错、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复、通知推送状态，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除；后台 9 个关键运营页面同步通过，通知运营页额外验证无 Token 的登记失败、失败阶段、App 构建号和 Firebase 配置提示。
+- 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-14 在最终工作树完整通过，83/83 套件全部成功；新增 AI 生成内容来源、文件元数据、Push 登记诊断和移动端运行异常回归，生产短信套件使用本地隔离模拟端且不会向真实手机号发码。移动端 Playwright 用时 269.8 秒，覆盖错误恢复页、协议阅读、AI 生成显式标识、上传基础检查、本人宠友圈同日多条、审核中/驳回状态及昼夜排序差异、唯一“我”标记、评论、删除确认、3/6 与 6/6 真实选图、三类日期滚轮、地点贡献记录、地点点评驳回纠错、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复、通知推送状态，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除；后台 9 个关键运营页面同步通过，通知运营页额外验证无 Token 的登记失败、失败阶段、App 构建号和 Firebase 配置提示。
 - 附近位置与半径专项：`node scripts/smoke-pet-circle.cjs`、配置审批/预约发布/双人会签回归和 `node scripts/smoke-admin-config-high-risk-page.cjs` 通过；覆盖发布位置快照、跨城市移动、历史无位置数据、10km 默认档位、3/5/10km 后台选择及客户端越权半径拦截。
 - 附近地点真实性：`node scripts/smoke-place-contributions.cjs` 与 `node scripts/smoke-sms-production.cjs` 通过；覆盖提交坐标/精度/时间落库、审核后 manual 地点继承坐标、跨城不跟随、缺失/过期定位拦截、生产无高德时返回空列表而非 seed，以及 `amap` / `place_location_integrity` / `place_discovery` 健康与 P0 门禁。
 - 生产台账实查：部署 `1738bdd` 后于 2026-07-14 返回 28 项健康检查、`bad=1`、`warn=3`、`openP0=6`、`blockedGaps=2`；唯一 `bad` 是兼容发布期有意暂缓的 `legal_consent_enforcement`，三项警告分别为首台真机 Push、后台 IP 白名单和站外告警。`public_api_https`、`public_api_external_https`、`backend_bind_address` 均为 `ok`；AI 灵伴模块按自身运行时正确显示 `partial`；线上公开配置返回 `petCircleMaxPhotos=6`、`discoverRadiusKm=10`，后台静态资源同步限制最多 6 张；生产进程仅监听 `127.0.0.1:8787`，Lighthouse 规则仍无公网 8787；用户数保持 21，服务 `NRestarts=0`。生产当前只有 1 个活跃管理员且未配置 MFA/IP 白名单，不能在没有真实审批人的情况下强开双人会签。

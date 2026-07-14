@@ -99,6 +99,7 @@ import { getLumiiPermissionStatus, requestLumiiPermission } from '../services/pe
 import { cancelVaccineLocalReminder, cancelVaccineLocalReminders, scheduleVaccineLocalReminder, syncVaccineLocalReminders } from '../services/healthReminders';
 import { watchLumiiNotificationResponses } from '../services/notificationResponses';
 import { getLumiiInstallationId } from '../services/installationId';
+import { flushLumiiRuntimeErrors, installLumiiGlobalErrorHandler, setLumiiRuntimeErrorSession } from '../services/runtimeErrors';
 import {
   classifyLumiiPushRegistrationError,
   getLumiiPushRegistration,
@@ -3778,6 +3779,13 @@ export default function LumiiMvpApp() {
   useEffect(() => {
     sessionTokenRef.current = session?.token ?? '';
   }, [session?.token]);
+
+  useEffect(() => installLumiiGlobalErrorHandler(() => routeRef.current), []);
+
+  useEffect(() => {
+    setLumiiRuntimeErrorSession(session?.phone || '');
+    if (session?.token) void flushLumiiRuntimeErrors();
+  }, [session?.phone, session?.token]);
 
   useEffect(() => {
     if (!session || Platform.OS === 'web' || !userSettings.pushNotifications || permissions.notifications !== 'granted') return undefined;

@@ -25122,6 +25122,7 @@ function adminOperationalAlerts(options = {}) {
   const highRiskApprovals = adminHighRiskPendingApprovalSummary();
   const config = currentOpsConfig();
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
+  const runtimeErrors = appRuntimeErrorSummary();
   const ipAllowlist = adminIpAllowlistStatus('');
   const stateSizeWarn = stateFile.sizeBytes > STATE_STORAGE_WARN_BYTES;
   const stateBackups = adminStateStorageBackupsInfo();
@@ -25337,6 +25338,17 @@ function adminOperationalAlerts(options = {}) {
     key: 'push_receipt_pending',
     severity: 'low',
     title: '推送回执待确认',
+  });
+  add(runtimeErrors.occurrences > 0, {
+    actionLabel: '看数据',
+    actionRoute: 'analytics',
+    area: '移动端稳定性',
+    detail: `近 24 小时收到 ${runtimeErrors.occurrences} 次脱敏运行异常，涉及 ${runtimeErrors.uniqueUsers} 个账号、${runtimeErrors.uniqueFingerprints} 个指纹。`,
+    evidence: `fatal=${runtimeErrors.fatalOccurrences} reports=${runtimeErrors.reports} latest=${runtimeErrors.latestAt || '-'}`,
+    key: 'mobile_runtime_errors',
+    severity: runtimeErrors.occurrences >= 10 || runtimeErrors.uniqueUsers >= 3 ? 'high' : 'medium',
+    title: '移动端运行异常需要排查',
+    updatedAt: runtimeErrors.latestAt || generatedAt,
   });
   add(config.analytics?.enabled === false, {
     actionLabel: '看配置',
@@ -26048,6 +26060,7 @@ async function adminSystemHealth() {
   const pushRegistrationFailureCount = pushDevices.filter((device) => device.registrationStatus === 'failed').length;
   const pushNativeConfigFailureCount = pushDevices.filter((device) => device.registrationFailureCode === 'native_config_missing').length;
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
+  const runtimeErrors = appRuntimeErrorSummary();
   const alerts = adminOperationalAlerts({ limit: 12 });
   const alertWebhook = adminAlertWebhookStatus();
   const stateSizeWarn = stateFile.sizeBytes > STATE_STORAGE_WARN_BYTES;
@@ -26160,6 +26173,15 @@ async function adminSystemHealth() {
                 ? `已有 ${activePushDeviceCount} 台有效设备，等待首个成功 receipt 完成生产验收`
                 : `已有 ${activePushDeviceCount} 台有效设备，成功 receipt ${notifications.pushReceiptOk || 0} 条`,
       `provider=${EXPO_PUSH_ENABLED ? 'expo' : 'disabled'} receipts=${EXPO_PUSH_RECEIPTS_ENABLED ? 'enabled' : 'disabled'} devices=${activePushDeviceCount} registrationAttempts=${notifications.registrationAttempts || 0} registrationFailures=${pushRegistrationFailureCount} pushAttempted=${notifications.pushAttempted || 0}`,
+    ),
+    adminCheckStatus(
+      runtimeErrors.occurrences > 0 ? 'warn' : 'ok',
+      'mobile_runtime_errors',
+      '移动端运行异常',
+      runtimeErrors.occurrences > 0
+        ? `近 24 小时 ${runtimeErrors.occurrences} 次脱敏运行异常，涉及 ${runtimeErrors.uniqueUsers} 个账号、${runtimeErrors.uniqueFingerprints} 个指纹；需在数据看板按 app.runtime_error 排查。`
+        : '近 24 小时没有收到移动端渲染崩溃或全局 JS 异常。',
+      `reports=${runtimeErrors.reports} fatal=${runtimeErrors.fatalOccurrences} latest=${runtimeErrors.latestAt || '-'} / 客户端自报仅作观测，不作为可信故障定级`,
     ),
     adminCheckStatus(
       ALLOW_LEGACY_LOCAL_AUTH ? 'bad' : 'ok',
@@ -28253,6 +28275,7 @@ const APP_EVENT_ALLOWED_NAMES = new Set([
   'ai_avatar.start',
   'ai_avatar.success',
   'app.page_view',
+  'app.runtime_error',
   'config.announcement_action',
   'config.announcement_impression',
   'config.experiment_exposure',
@@ -28292,6 +28315,7 @@ const APP_EVENT_LABELS = {
   'ai_avatar.start': 'AI 形象开始生成',
   'ai_avatar.success': 'AI 形象生成成功',
   'app.page_view': '页面浏览',
+  'app.runtime_error': '移动端运行异常',
   'config.announcement_action': '公告主按钮点击',
   'config.announcement_impression': '公告展示',
   'config.experiment_exposure': '配置实验曝光',
@@ -28337,13 +28361,37 @@ const APP_EVENT_SENSITIVE_PROPERTY_KEYS = new Set([
   'latitude',
   'lng',
   'longitude',
+  'message',
   'password',
   'phone',
   'query',
   'secret',
+  'stack',
+  'componentstack',
+  'error',
+  'exception',
   'text',
   'token',
 ]);
+
+const APP_RUNTIME_ERROR_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function appRuntimeErrorSummary(windowMs = APP_RUNTIME_ERROR_WINDOW_MS) {
+  const cutoff = Date.now() - Math.max(60 * 1000, Number(windowMs || APP_RUNTIME_ERROR_WINDOW_MS));
+  const items = (Array.isArray(state.appEvents) ? state.appEvents : [])
+    .filter((event) => event?.name === 'app.runtime_error')
+    .filter((event) => analyticsTimeMs(event.createdAt || event.occurredAt) >= cutoff);
+  const occurrenceCount = (event) => Math.max(1, Math.min(999, Math.floor(Number(event?.properties?.occurrenceCount || 1)) || 1));
+  const latestTimestamp = items.reduce((latest, event) => Math.max(latest, analyticsTimeMs(event.createdAt || event.occurredAt)), 0);
+  return {
+    fatalOccurrences: items.filter((event) => event?.properties?.fatal === true).reduce((sum, event) => sum + occurrenceCount(event), 0),
+    latestAt: latestTimestamp ? new Date(latestTimestamp).toISOString() : '',
+    occurrences: items.reduce((sum, event) => sum + occurrenceCount(event), 0),
+    reports: items.length,
+    uniqueFingerprints: new Set(items.map((event) => String(event?.properties?.fingerprint || '')).filter(Boolean)).size,
+    uniqueUsers: new Set(items.map((event) => event?.phone).filter(Boolean)).size,
+  };
+}
 
 function normalizeAppEventName(value) {
   const name = String(value || '').trim();
@@ -28363,7 +28411,25 @@ function normalizeAppEventSource(value) {
   return source || 'mobile';
 }
 
-function normalizeAppEventProperties(value) {
+function normalizeRuntimeErrorProperties(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const errorName = String(value.errorName || '').replace(/[^0-9A-Za-z_.-]/g, '').slice(0, 48);
+  const fingerprint = /^[0-9a-f]{8,64}$/i.test(String(value.fingerprint || '').trim()) ? String(value.fingerprint).trim().toLowerCase() : '';
+  const kind = ['global', 'render', 'unhandled_rejection'].includes(String(value.kind || '').trim()) ? String(value.kind).trim() : '';
+  const occurrenceCount = Math.max(1, Math.min(999, Math.floor(Number(value.occurrenceCount || 1)) || 1));
+  const queuedDelaySeconds = Math.max(0, Math.min(7 * 24 * 60 * 60, Math.floor(Number(value.queuedDelaySeconds || 0)) || 0));
+  return {
+    ...(errorName ? { errorName } : {}),
+    fatal: value.fatal === true,
+    ...(fingerprint ? { fingerprint } : {}),
+    ...(kind ? { kind } : {}),
+    occurrenceCount,
+    ...(queuedDelaySeconds ? { queuedDelaySeconds } : {}),
+  };
+}
+
+function normalizeAppEventProperties(value, eventName = '') {
+  if (eventName === 'app.runtime_error') return normalizeRuntimeErrorProperties(value);
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const output = {};
   for (const [rawKey, rawValue] of Object.entries(value).slice(0, 32)) {
@@ -28433,7 +28499,7 @@ function recordAppEvent(req, user, body = {}) {
     petName: activePet?.name || '',
     phone: user.phone,
     platform: normalizeAppEventText(body.platform, 24),
-    properties: normalizeAppEventProperties(body.properties),
+    properties: normalizeAppEventProperties(body.properties, name),
     route: normalizeAppEventRoute(body.route),
     source: normalizeAppEventSource(body.source),
   };

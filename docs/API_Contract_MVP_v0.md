@@ -1930,7 +1930,34 @@ Request:
 - `content` 和 `attachments` 至少提供一个。
 - 返回 `SupportTicketDetail`。
 
-## 10. 合规文本
+## 10. 运行稳定性与移动端事件
+
+### POST `/analytics/events`
+
+上报已登录用户的白名单移动端事件。请求由当前登录态绑定账号，后端对事件名、route、source 和 properties 做长度、字符集及敏感字段过滤。
+
+运行异常使用 `name=app.runtime_error`：
+
+```ts
+type RuntimeErrorProperties = {
+  errorName?: string;
+  fatal: boolean;
+  fingerprint?: string;
+  kind?: 'global' | 'render' | 'unhandled_rejection';
+  occurrenceCount: number;
+  queuedDelaySeconds?: number;
+};
+```
+
+约束：
+
+- App 根节点使用 React Error Boundary，渲染异常时展示可重新加载的安全恢复页，避免直接白屏。
+- 运行异常按当前登录账号的本地不可逆作用域隔离；同类异常 30 分钟内合并，最多缓存 20 条、7 天过期，登录态可用后补报。
+- 客户端只计算错误类型和指纹，不把报错原文或堆栈放入请求。后端再次强制只接受上述固定字段；`message`、`stack`、`componentStack`、`error`、`exception`、`text`、`phone`、`token` 及任意额外属性均不会落库。
+- 后台系统健康以近 24 小时为窗口聚合报告数、发生次数、账号数、指纹数和 fatal 次数；客户端自报只触发 `warn`，不能单独把系统定级为可信故障。
+- 运营告警在出现异常时进入后台告警中心；达到 10 次或影响至少 3 个账号时提升为高优先级，并可由已配置的站外 Webhook 转发。
+
+## 11. 合规文本
 
 ### GET `/legal/terms`
 
@@ -1984,7 +2011,7 @@ LegalDocument
 - 内容审核制度用于说明平台对宠友圈小事、评论、头像/宠物图、地点点评、举报和人工复核的处理规则。
 - App 备案与上架合规材料是后台内部签署项，不通过公开 `/legal/*` 暴露。
 
-## 11. P0 待后端确认
+## 12. P0 待后端确认
 
 - ~~统一错误码表：短信、登录、上传、AI、地图、社交、健康、权限。~~ MVP 测试后端已统一 `error.code`；生产仍可继续细化埋点级错误码和后台统计。
 - ~~鉴权 token 刷新机制、401 处理和多端设备自助管理。~~ 当前后端已支持签名登录态 token、滚动刷新、同设备刷新链撤销、用户端登录设备列表、单设备退出、退出其他设备、后台受控会话审计和 401 回登录处理；后续迁移独立认证服务时需保持同等撤销语义。

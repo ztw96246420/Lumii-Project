@@ -977,6 +977,7 @@ export type AppAnalyticsEventName =
   | 'ai_avatar.start'
   | 'ai_avatar.success'
   | 'app.page_view'
+  | 'app.runtime_error'
   | 'config.announcement_action'
   | 'config.announcement_impression'
   | 'config.experiment_exposure'
