@@ -1,6 +1,6 @@
 # Lumii Launch Regression Gate
 
-Date: 2026-07-09
+Last updated: 2026-07-14
 
 This is the local pre-release gate for the current mobile + backoffice MVP.
 Run it before APK packaging and before server deployment when the change touches
@@ -32,7 +32,7 @@ The default gate runs:
 - Public API HTTPS launch-readiness probing, including source TLS, expiring real external-request evidence, forged forwarding-header rejection, TLS/DNS/health failures, and the corresponding P0 readiness blocker.
 - All standalone non-visual smoke scripts under `scripts/smoke-*.cjs` are included in the default gate; visual/browser checks remain opt-in through `--include-visual`.
 
-Last verified on 2026-07-12: 70/70 default non-visual suites passed.
+Last verified on 2026-07-14: 74/74 default non-visual suites passed as part of the complete visual gate run.
 
 ## Visual Gate
 
@@ -43,9 +43,12 @@ node scripts/smoke-launch-regression.cjs --include-visual
 This also runs Playwright-backed admin/frontend page checks, including admin
 accounts, legal documents, system health, media replacement, AI pet chat review,
 and the mobile frontend smoke. The mobile check covers runtime session expiry,
-own/peer pet-circle permissions, same-day archive timestamps, comments, and
-confirmed deletion. Last verified on 2026-07-12: 79/79 suites passed with visual
-checks enabled. Use it when page layout, admin UI, or browser-visible interaction
+own/peer pet-circle permissions, same-day archive timestamps, comment create/delete,
+delete and account-deletion cancellation, calendar shortcuts, reminder/date-picker
+cancel and confirm paths, discover search and own-post navigation, message refresh,
+walk-invite draft restore, and confirmed deletion. Last verified on 2026-07-14:
+84/84 suites passed with visual checks enabled; the mobile Playwright suite took
+310.5 seconds. Use it when page layout, admin UI, or browser-visible interaction
 changed.
 
 ## Focused Gate
