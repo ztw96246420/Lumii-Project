@@ -1832,14 +1832,17 @@ function updateMemoReminderDatePart(date: Date, part: MemoReminderWheelPart, val
 }
 
 function isMemoReminderWheelOptionDisabled(date: Date, part: MemoReminderWheelPart, value: number) {
-  const candidate = buildMemoReminderDate(
-    part === 'year' ? value : date.getFullYear(),
-    part === 'month' ? value : date.getMonth() + 1,
-    part === 'day' ? value : date.getDate(),
-    part === 'hour' ? value : date.getHours(),
-    part === 'minute' ? value : date.getMinutes(),
-  );
-  return candidate.getTime() < minimumMemoReminderDate().getTime();
+  const minimum = minimumMemoReminderDate();
+  const year = part === 'year' ? value : date.getFullYear();
+  const month = part === 'month' ? value : date.getMonth() + 1;
+  const day = part === 'day' ? value : date.getDate();
+  const hour = part === 'hour' ? value : date.getHours();
+  const minute = part === 'minute' ? value : date.getMinutes();
+  if (part === 'year') return new Date(year, 11, 31, 23, 59, 59, 999).getTime() < minimum.getTime();
+  if (part === 'month') return new Date(year, month, 0, 23, 59, 59, 999).getTime() < minimum.getTime();
+  if (part === 'day') return new Date(year, month - 1, day, 23, 59, 59, 999).getTime() < minimum.getTime();
+  if (part === 'hour') return new Date(year, month - 1, day, hour, 59, 59, 999).getTime() < minimum.getTime();
+  return buildMemoReminderDate(year, month, day, hour, minute).getTime() < minimum.getTime();
 }
 
 function buildMemoReminderWheelOptions(date: Date): Record<MemoReminderWheelPart, MemoReminderWheelOption[]> {
@@ -1903,12 +1906,13 @@ function updateVaccineDueDatePart(date: Date, part: VaccineDueWheelPart, value: 
 }
 
 function isVaccineDueWheelOptionDisabled(date: Date, part: VaccineDueWheelPart, value: number) {
-  const candidate = buildVaccineDueDate(
-    part === 'year' ? value : date.getFullYear(),
-    part === 'month' ? value : date.getMonth() + 1,
-    part === 'day' ? value : date.getDate(),
-  );
-  return candidate.getTime() < minimumVaccineDueDate().getTime();
+  const minimum = minimumVaccineDueDate();
+  const year = part === 'year' ? value : date.getFullYear();
+  const month = part === 'month' ? value : date.getMonth() + 1;
+  const day = part === 'day' ? value : date.getDate();
+  if (part === 'year') return new Date(year, 11, 31, 0, 0, 0, 0).getTime() < minimum.getTime();
+  if (part === 'month') return new Date(year, month, 0, 0, 0, 0).getTime() < minimum.getTime();
+  return buildVaccineDueDate(year, month, day).getTime() < minimum.getTime();
 }
 
 function buildVaccineDueWheelOptions(date: Date): Record<VaccineDueWheelPart, MemoReminderWheelOption[]> {
@@ -2739,7 +2743,7 @@ export default function LumiiMvpApp() {
     ? configuredDiscoverRadiusValue
     : defaultDiscoverRadiusKm;
   const nearbyMomentTtlDays = normalizeNearbyMomentTtlDays(remoteConfig.social.nearbyMomentTtlDays);
-  const dailyPostPhotoLimit = Math.max(1, Math.min(9, Math.floor(remoteConfig.social.petCircleMaxPhotos || dailyPostMaxPhotoCount)));
+  const dailyPostPhotoLimit = Math.max(1, Math.min(dailyPostMaxPhotoCount, Math.floor(remoteConfig.social.petCircleMaxPhotos || dailyPostMaxPhotoCount)));
   const petAvatarDailyUsage = aiUsage?.daily.petAvatar;
   const petAvatarDailyLimit = petAvatarDailyUsage?.limit ?? remoteConfig.ai.petAvatarDailyLimit ?? fallbackPetAvatarDailyLimit;
   const petAvatarDailyCount = petAvatarDailyUsage?.count ?? 0;
@@ -12469,6 +12473,9 @@ export default function LumiiMvpApp() {
 
           <Text style={styles.memoFieldLabel}>提醒时间</Text>
           <Pressable
+            accessibilityLabel="open-memo-draft-reminder-picker"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !memoDraftReminderEnabled }}
             disabled={!memoDraftReminderEnabled}
             onPress={() => openMemoReminderDatePicker('draft')}
             style={[styles.memoPickerRow, !memoDraftReminderEnabled && styles.memoPickerRowDisabled, webPressableReset]}
@@ -12512,7 +12519,7 @@ export default function LumiiMvpApp() {
             <Text style={[styles.fieldHintText, contentCount > 200 && styles.fieldHintError]}>{contentCount}/200</Text>
           </View>
 
-          <Pressable onPress={() => setMemoDraftReminderEnabled((enabled) => !enabled)} style={[styles.memoReminderRow, webPressableReset]}>
+          <Pressable accessibilityLabel="toggle-memo-draft-reminder" accessibilityRole="switch" accessibilityState={{ checked: memoDraftReminderEnabled }} onPress={() => setMemoDraftReminderEnabled((enabled) => !enabled)} style={[styles.memoReminderRow, webPressableReset]}>
             <View style={styles.memoReminderIcon}>
               <Bell color={palette.orange} size={15} strokeWidth={2.4} />
             </View>
@@ -12585,6 +12592,9 @@ export default function LumiiMvpApp() {
           <View style={styles.makeFieldGroup}>
             <Text style={styles.makeFieldLabel}>提醒时间</Text>
             <Pressable
+              accessibilityLabel="open-memo-edit-reminder-picker"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !memoEditReminderEnabled || controlsDisabled }}
               disabled={!memoEditReminderEnabled || controlsDisabled}
               onPress={() => openMemoReminderDatePicker('edit')}
               style={[styles.memoPickerRow, (!memoEditReminderEnabled || controlsDisabled) && styles.memoPickerRowDisabled, webPressableReset]}
@@ -12618,6 +12628,9 @@ export default function LumiiMvpApp() {
           </View>
 
           <Pressable
+            accessibilityLabel="toggle-memo-edit-reminder"
+            accessibilityRole="switch"
+            accessibilityState={{ checked: memoEditReminderEnabled, disabled: controlsDisabled }}
             disabled={controlsDisabled}
             onPress={() => setMemoEditReminderEnabled((enabled) => !enabled)}
             style={[styles.memoReminderRow, controlsDisabled && styles.opacity60, webPressableReset]}
@@ -17069,6 +17082,7 @@ export default function LumiiMvpApp() {
           <View style={styles.dailyPhotoGridMake}>
             {dailyPostPhotoUris.map((uri, index) => (
               <Pressable
+                accessibilityLabel={`remove-daily-post-photo-${index + 1}`}
                 disabled={dailyPhotoPicking}
                 key={`${uri}-${index}`}
                 onPress={() => {
@@ -17085,7 +17099,7 @@ export default function LumiiMvpApp() {
               </Pressable>
             ))}
             {dailyPostPhotoUris.length < dailyPostPhotoLimit ? (
-              <Pressable disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('library')} style={[styles.dailyPhotoAddMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
+              <Pressable accessibilityLabel="add-daily-post-photos" disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('library')} style={[styles.dailyPhotoAddMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
                 <View pointerEvents="none" style={styles.dailyPhotoAddDashMake}>
                   <Svg height="100%" viewBox="0 0 100 100" width="100%">
                     <Rect fill="none" height="96" rx="4" stroke="rgba(122,121,114,0.38)" strokeDasharray="5 5" strokeWidth="1.5" width="96" x="2" y="2" />
@@ -17137,10 +17151,10 @@ export default function LumiiMvpApp() {
 
           <View style={styles.dailyBottomBarMake}>
             <View style={styles.dailyToolRowMake}>
-              <Pressable disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('camera')} style={[styles.dailyToolButtonMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
+              <Pressable accessibilityLabel="take-daily-post-photo" disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('camera')} style={[styles.dailyToolButtonMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
                 {dailyPhotoPicking ? <ActivityIndicator color={palette.ink} size="small" /> : <Camera color={palette.ink} size={20} strokeWidth={2.3} />}
               </Pressable>
-              <Pressable disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('library')} style={[styles.dailyToolButtonMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
+              <Pressable accessibilityLabel="choose-daily-post-photos" disabled={dailyPhotoPicking} onPress={() => void pickDailyPostPhoto('library')} style={[styles.dailyToolButtonMake, dailyPhotoPicking && styles.mapSearchActionDisabled, webPressableReset]}>
                 <ImagePlus color={palette.ink} size={20} strokeWidth={2.3} />
               </Pressable>
             </View>

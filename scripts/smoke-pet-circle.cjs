@@ -199,6 +199,7 @@ async function run() {
   await startBackend(port);
   const initialConfig = await request('/app/config');
   assert.equal(initialConfig.data.social.discoverRadiusKm, 10, 'nearby discovery should default to the 10km launch radius');
+  assert.equal(initialConfig.data.social.petCircleMaxPhotos, 6, 'pet circle should expose the six-photo launch policy');
 
   const ownerPhone = '13900001001';
   const viewerPhone = '13900001002';

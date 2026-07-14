@@ -196,6 +196,7 @@ async function main() {
       ['10 km', '5 km', '3 km'],
       'nearby radius control should expose only the supported launch tiers',
     );
+    assert.equal(await page.locator('#cfgPetCircleMaxPhotos').getAttribute('max'), '6');
     await page.locator('#cfgDiscoverRadiusKm').selectOption('5');
     await page.locator('#cfgUpdateMinVersion').fill('1.0.0');
     await page.locator('#cfgUpdateMinBuildNumber').fill('13');

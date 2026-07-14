@@ -145,12 +145,13 @@ async function main() {
 
     const publicBefore = await request('/app/config');
     assert.notEqual(publicBefore.data.social.discoverRadiusKm, 5);
+    assert.equal(publicBefore.data.social.petCircleMaxPhotos, 6);
 
     const approvalResponse = await request('/admin/config/approvals', {
       body: {
         action: 'publish',
         reason: 'approve radius change',
-        social: { discoverRadiusKm: 5 },
+        social: { discoverRadiusKm: 5, petCircleMaxPhotos: 9 },
       },
       method: 'POST',
       token: adminToken,
@@ -171,6 +172,7 @@ async function main() {
 
     const publicAfterPublish = await request('/app/config');
     assert.equal(publicAfterPublish.data.social.discoverRadiusKm, 5);
+    assert.equal(publicAfterPublish.data.social.petCircleMaxPhotos, 6, 'pet circle photo policy must stay capped at six');
 
     const draftResponse = await request('/admin/config/drafts', {
       body: {

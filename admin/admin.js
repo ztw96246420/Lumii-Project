@@ -8887,7 +8887,7 @@ async function renderConfig(force) {
       ${renderConfigGovernance(config)}
       ${renderConfigLinkage(config)}
       <div class="config-grid">
-        <label>宠友圈图片上限<input id="cfgPetCircleMaxPhotos" type="number" min="1" max="9" value="${config.social.petCircleMaxPhotos}" /></label>
+        <label>宠友圈图片上限<input id="cfgPetCircleMaxPhotos" type="number" min="1" max="6" value="${config.social.petCircleMaxPhotos}" /></label>
         <label>附近默认半径
           <select id="cfgDiscoverRadiusKm">
             ${[10, 5, 3].map((radiusKm) => `<option value="${radiusKm}" ${Number(config.social.discoverRadiusKm) === radiusKm ? 'selected' : ''}>${radiusKm} km</option>`).join('')}

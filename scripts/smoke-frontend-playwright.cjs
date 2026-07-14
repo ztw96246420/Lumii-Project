@@ -218,6 +218,14 @@ async function waitInputValue(page, value) {
   );
 }
 
+async function waitLabelInputValue(page, label, value) {
+  await page.waitForFunction(
+    ({ expected, name }) => document.querySelector(`[aria-label="${name}"]`)?.value === expected,
+    { expected: value, name: label },
+    { timeout: 30_000 },
+  );
+}
+
 async function screenshot(page, name) {
   fs.mkdirSync(artifactsDir, { recursive: true });
   await page.screenshot({ fullPage: true, path: path.join(artifactsDir, name) });
@@ -362,6 +370,63 @@ async function selectPetBirthday(page, triggerLabel, isoDate) {
   await page.getByLabel('confirm-pet-birthday-picker').waitFor({ state: 'hidden', timeout: 30_000 });
 }
 
+async function chooseDailyPostPhotos(page, startIndex, count) {
+  const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 30_000 });
+  await page.getByLabel('add-daily-post-photos').click();
+  const fileChooser = await fileChooserPromise;
+  const buffer = fs.readFileSync(path.join(rootDir, 'mobile', 'assets', 'favicon.png'));
+  await fileChooser.setFiles(Array.from({ length: count }, (_, index) => ({
+    buffer,
+    mimeType: 'image/png',
+    name: `pet-circle-${startIndex + index}.png`,
+  })));
+}
+
+function assertAppRouteCoverage(routeRenderCases) {
+  const routeTypes = fs.readFileSync(path.join(rootDir, 'mobile', 'src', 'mvp', 'types.ts'), 'utf8');
+  const unionBody = routeTypes.match(/export type AppRoute =([\s\S]*?);/)?.[1] || '';
+  const appRoutes = [...unionBody.matchAll(/'([^']+)'/g)].map((match) => match[1]);
+  const contextualCoverage = {
+    addPlaceReview: 'map review and place submission flows',
+    aiResult: 'avatar candidate, feedback, regenerate, and save flow',
+    chat: 'pet first-person chat and feedback flow',
+    conversation: 'notification and inbox conversation flows',
+    dailyPost: 'public/private publishing and six-photo composer flow',
+    discover: 'nearby, visibility, interaction, report, and block flows',
+    editPet: 'profile edit and birthday picker flow',
+    greetingRequests: 'accept and report greeting flows',
+    health: 'pet calendar overview flow',
+    healthCalendar: 'backdated, create, edit, and delete memo flows',
+    home: 'avatar save, tab navigation, and session recovery flows',
+    legalDocument: 'login and settings legal document flows',
+    login: 'legal consent, OTP, lockout, deletion, and session flows',
+    map: 'nearby, favorites, detail, review, and submission flows',
+    memoEdit: 'calendar and notification memo edit flows',
+    memoNew: 'future reminder wheel and save flow',
+    messages: 'unread badge and conversation read flow',
+    multiPet: 'switch and delete pet flow',
+    notifications: 'circle, avatar, conversation, vaccine, and memo deep links',
+    otp: 'real login and lockout flows',
+    permissions: 'new-session permission onboarding flow',
+    petInfo: 'new pet profile and birthday picker flow',
+    placeContributions: 'submission and review status correction flows',
+    placeDetail: 'favorite, share, review, and moderation state flows',
+    profile: 'owner profile, settings, contributions, and account security flows',
+    safety: 'empty blocklist and report appeal flows',
+    settings: 'privacy, legal, session, and deletion flows',
+    uploadNoPet: 'no-pet recognition recovery flow',
+    vaccine: 'date wheel, create, edit, reminder, complete, restore, and delete flows',
+    walkInvite: 'compose and send invitation flow',
+    weight: 'create, edit, and delete weight flow',
+  };
+  const covered = new Set([...routeRenderCases.map((item) => item.route), ...Object.keys(contextualCoverage)]);
+  const missing = appRoutes.filter((route) => !covered.has(route));
+  const unknown = [...covered].filter((route) => !appRoutes.includes(route));
+  if (missing.length || unknown.length || appRoutes.length !== 41) {
+    throw new Error(`App route coverage contract mismatch: ${JSON.stringify({ appRouteCount: appRoutes.length, missing, unknown })}`);
+  }
+}
+
 async function loginMockUser(page, phone) {
   await page.goto(baseUrl, { timeout: 60_000, waitUntil: 'networkidle' });
   await page.getByPlaceholder('请输入中国大陆手机号').fill(phone);
@@ -469,6 +534,7 @@ async function main() {
       { route: 'petDetail', texts: ['宠物档案', '更换'] },
       { route: 'accountSecurity', texts: ['账号安全', '短信验证码'] },
     ];
+    assertAppRouteCoverage(routeRenderCases);
     for (const routeCase of routeRenderCases) {
       await page.goto(`${baseUrl}/?route=${routeCase.route}`, { timeout: 60_000, waitUntil: 'networkidle' });
       for (const text of routeCase.texts) await waitExactText(page, text);
@@ -652,6 +718,20 @@ async function main() {
     const editedVaccineName = 'PW vaccine edited';
     await page.goto(`${baseUrl}/?route=vaccine`, { timeout: 60_000, waitUntil: 'networkidle' });
     await page.getByLabel('toggle-vaccine-composer').click();
+    const vaccineWheelDate = isoDateAfterDays(8);
+    const [vaccineWheelYear, vaccineWheelMonth, vaccineWheelDay] = vaccineWheelDate.split('-').map(Number);
+    await page.getByLabel('open-vaccine-due-picker').click();
+    await waitExactText(page, '选择计划日期');
+    if (await page.getByLabel(`vaccine-due-year-${new Date().getFullYear() - 1}`).count()) {
+      throw new Error('Vaccine due-date picker must not expose a past year');
+    }
+    await page.getByLabel(`vaccine-due-year-${vaccineWheelYear}`).click();
+    await page.getByLabel(`vaccine-due-month-${vaccineWheelMonth}`).click();
+    await page.getByLabel(`vaccine-due-day-${vaccineWheelDay}`).click();
+    await page.getByLabel('confirm-vaccine-due-picker').click();
+    await page.getByLabel('confirm-vaccine-due-picker').waitFor({ state: 'hidden', timeout: 30_000 });
+    await waitBodyIncludes(page, vaccineWheelDate);
+    await screenshot(page, 'smoke-frontend-00e0-vaccine-date-wheel.png');
     await page.getByLabel('vaccine-name-input').fill(smokeVaccineName);
     await selectVaccineQuickDate(page, isoDateAfterDays(0));
     await page.getByLabel('save-vaccine-plan').click();
@@ -661,9 +741,15 @@ async function main() {
     await page.getByLabel(/^edit-vaccine-plan-PW vaccine smoke-/).first().click();
     await waitExactText(page, '编辑计划');
     await page.getByLabel('vaccine-name-input').fill(editedVaccineName);
+    await waitLabelInputValue(page, 'vaccine-name-input', editedVaccineName);
     await selectVaccineQuickDate(page, isoDateAfterDays(7));
+    await waitLabelInputValue(page, 'vaccine-name-input', editedVaccineName);
     await page.getByLabel('save-vaccine-edit').click();
-    await waitBodyIncludes(page, editedVaccineName);
+    await page.waitForTimeout(900);
+    const vaccineEditBody = await page.locator('body').innerText();
+    if (!vaccineEditBody.includes(editedVaccineName)) {
+      throw new Error(`Vaccine edit did not persist after using the date wheel:\n${vaccineEditBody}`);
+    }
     await waitBodyExcludes(page, smokeVaccineName);
     await screenshot(page, 'smoke-frontend-00f-vaccine-edited.png');
 
@@ -710,6 +796,33 @@ async function main() {
     await waitExactText(page, '新增备忘');
     await page.getByPlaceholder('例如：洗澡记录、复诊提醒').fill('洗澡记录');
     await page.getByPlaceholder('今天有什么值得记录的小事？').fill('今天洗澡后精神很好');
+    await page.getByLabel('toggle-memo-draft-reminder').click();
+    if (!(await page.getByLabel('open-memo-draft-reminder-picker').isDisabled())) {
+      throw new Error('Memo reminder date control must be disabled when reminders are off');
+    }
+    await page.getByLabel('toggle-memo-draft-reminder').click();
+    await waitLabelEnabled(page, 'open-memo-draft-reminder-picker');
+    await page.getByLabel('open-memo-draft-reminder-picker').click();
+    await waitExactText(page, '选择提醒时间');
+    const reminderMinuteLabels = await page.locator('[aria-label^="memo-reminder-minute-"]').evaluateAll((elements) => elements.map((element) => element.getAttribute('aria-label')));
+    const expectedReminderMinuteLabels = ['memo-reminder-minute-0', 'memo-reminder-minute-15', 'memo-reminder-minute-30', 'memo-reminder-minute-45'];
+    if (JSON.stringify(reminderMinuteLabels) !== JSON.stringify(expectedReminderMinuteLabels)) {
+      throw new Error(`Memo reminder minute precision must stay at 15 minutes: ${JSON.stringify(reminderMinuteLabels)}`);
+    }
+    if (await page.getByLabel(`memo-reminder-year-${new Date().getFullYear() - 1}`).count()) {
+      throw new Error('Memo reminder picker must not expose a past year');
+    }
+    const reminderDate = isoDateAfterDays(1);
+    const [reminderYear, reminderMonth, reminderDay] = reminderDate.split('-').map(Number);
+    await page.getByLabel(`memo-reminder-year-${reminderYear}`).click();
+    await page.getByLabel(`memo-reminder-month-${reminderMonth}`).click();
+    await page.getByLabel(`memo-reminder-day-${reminderDay}`).click();
+    await page.getByLabel('memo-reminder-hour-10').click();
+    await page.getByLabel('memo-reminder-minute-15').click();
+    await page.getByLabel('confirm-memo-reminder-picker').click();
+    await page.getByLabel('confirm-memo-reminder-picker').waitFor({ state: 'hidden', timeout: 30_000 });
+    await waitExactText(page, `${reminderDate} · 10:15`);
+    await screenshot(page, 'smoke-frontend-01-memo-reminder-wheel.png');
     await clickExactText(page, '保存备忘');
     await waitExactText(page, '宠物日历');
     await screenshot(page, 'smoke-frontend-01-memo-saved.png');
@@ -757,6 +870,18 @@ async function main() {
     const publicPostText = 'Playwright 评论链路小事，今天和 Lucky 在楼下转了一圈。';
     await page.goto(`${baseUrl}/?route=dailyPost`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '今日小事');
+    await waitExactText(page, '0/6');
+    await chooseDailyPostPhotos(page, 1, 3);
+    await waitExactText(page, '3/6');
+    await page.getByLabel('add-daily-post-photos').waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(page, 'smoke-frontend-02-daily-post-three-photos.png');
+    await chooseDailyPostPhotos(page, 4, 3);
+    await waitExactText(page, '6/6');
+    await page.getByLabel('add-daily-post-photos').waitFor({ state: 'hidden', timeout: 30_000 });
+    await screenshot(page, 'smoke-frontend-02-daily-post-six-photos.png');
+    await page.getByLabel('remove-daily-post-photo-1').click();
+    await waitExactText(page, '5/6');
+    await page.getByLabel('add-daily-post-photos').waitFor({ state: 'visible', timeout: 30_000 });
     await page
       .getByPlaceholder('写下今天的小事，比如散步、食欲、精神状态，或者一个可爱的瞬间。')
       .fill(publicPostText);
@@ -947,6 +1072,55 @@ async function main() {
 
     await settingsPage.goto(`${baseUrl}/?route=editPet`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(settingsPage, '编辑宠物资料');
+    const birthdayNow = new Date();
+    const birthdayCurrentYear = birthdayNow.getFullYear();
+    const birthdayPartialYear = birthdayCurrentYear - 2;
+    let birthdayLeapYear = birthdayCurrentYear - (birthdayCurrentYear % 4);
+    if (birthdayLeapYear >= birthdayCurrentYear) birthdayLeapYear -= 4;
+    while (birthdayLeapYear % 100 === 0 && birthdayLeapYear % 400 !== 0) birthdayLeapYear -= 4;
+    const birthdayNonLeapYear = birthdayLeapYear - 1;
+    await settingsPage.getByLabel('edit-pet-birthday-input').click();
+    await settingsPage.getByLabel(`pet-birthday-year-${birthdayCurrentYear - 30}`).waitFor({ state: 'visible', timeout: 30_000 });
+    if (await settingsPage.getByLabel(`pet-birthday-year-${birthdayCurrentYear - 31}`).count()) {
+      throw new Error('Birthday picker must expose at most the previous 30 years');
+    }
+    if (await settingsPage.getByLabel(`pet-birthday-year-${birthdayCurrentYear + 1}`).count()) {
+      throw new Error('Birthday picker must not expose future years');
+    }
+    await settingsPage.getByLabel(`pet-birthday-year-${birthdayCurrentYear}`).click();
+    const futureBirthdayMonth = birthdayNow.getMonth() + 2;
+    if (futureBirthdayMonth <= 12 && !(await settingsPage.getByLabel(`pet-birthday-month-${futureBirthdayMonth}`).isDisabled())) {
+      throw new Error('Birthday picker must disable future months in the current year');
+    }
+    await settingsPage.getByLabel(`pet-birthday-month-${birthdayNow.getMonth() + 1}`).click();
+    const futureBirthdayDay = birthdayNow.getDate() + 1;
+    const currentMonthLastDay = new Date(birthdayCurrentYear, birthdayNow.getMonth() + 1, 0).getDate();
+    if (futureBirthdayDay <= currentMonthLastDay && await settingsPage.getByLabel(`pet-birthday-day-${futureBirthdayDay}`).count()) {
+      throw new Error('Birthday picker must not expose future days in the current month');
+    }
+    await settingsPage.getByLabel(`pet-birthday-year-${birthdayPartialYear}`).click();
+    await settingsPage.getByLabel('pet-birthday-month-0').click();
+    await settingsPage.getByLabel('confirm-pet-birthday-picker').click();
+    if (!(await settingsPage.getByLabel('edit-pet-birthday-input').innerText()).includes(`${birthdayPartialYear}年`)) {
+      throw new Error('Birthday picker must preserve a year-only birthday');
+    }
+    await settingsPage.getByLabel('edit-pet-birthday-input').click();
+    await settingsPage.getByLabel('pet-birthday-month-2').click();
+    await settingsPage.getByLabel('pet-birthday-day-0').click();
+    await settingsPage.getByLabel('confirm-pet-birthday-picker').click();
+    if (!(await settingsPage.getByLabel('edit-pet-birthday-input').innerText()).includes(`${birthdayPartialYear}年2月`)) {
+      throw new Error('Birthday picker must preserve a year-and-month birthday');
+    }
+    await settingsPage.getByLabel('edit-pet-birthday-input').click();
+    await settingsPage.getByLabel(`pet-birthday-year-${birthdayLeapYear}`).click();
+    await settingsPage.getByLabel('pet-birthday-month-2').click();
+    await settingsPage.getByLabel('pet-birthday-day-29').click();
+    await settingsPage.getByLabel(`pet-birthday-year-${birthdayNonLeapYear}`).click();
+    await settingsPage.getByLabel('pet-birthday-day-29').waitFor({ state: 'detached', timeout: 30_000 });
+    await waitBodyIncludes(settingsPage, `${birthdayNonLeapYear}年2月28日`);
+    await screenshot(settingsPage, 'smoke-frontend-04c1-birthday-partial-and-linked.png');
+    await settingsPage.getByLabel('unknown-pet-birthday').click();
+    await waitExactText(settingsPage, '未知');
     await settingsPage.getByLabel('edit-pet-name-input').fill('PW宠物编辑');
     await settingsPage.getByLabel('edit-pet-breed-input').fill('边境牧羊犬');
     await selectPetBirthday(settingsPage, 'edit-pet-birthday-input', '2024-06-01');

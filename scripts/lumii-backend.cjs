@@ -1531,7 +1531,7 @@ function normalizeOpsConfig(value) {
       discoverRadiusPolicyVersion: DISCOVER_RADIUS_POLICY_VERSION,
       messageAccess: normalizeSocialMessageAccessOpsConfig(social.messageAccess, defaults.social.messageAccess),
       nearbyMomentTtlDays: Math.floor(clampNumber(social.nearbyMomentTtlDays, defaults.social.nearbyMomentTtlDays, 1, 90)),
-      petCircleMaxPhotos: Math.floor(clampNumber(social.petCircleMaxPhotos, defaults.social.petCircleMaxPhotos, 1, 9)),
+      petCircleMaxPhotos: Math.floor(clampNumber(social.petCircleMaxPhotos, defaults.social.petCircleMaxPhotos, 1, 6)),
     },
     updatedAt: String(source.updatedAt || defaults.updatedAt),
   };

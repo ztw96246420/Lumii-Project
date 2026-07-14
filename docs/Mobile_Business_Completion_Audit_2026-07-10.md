@@ -170,7 +170,7 @@
 
 - 系统健康新增 `expo_push` 检查，区分未启用、未开启 receipt、无真机 token、等待首个成功 receipt、ticket/receipt 失败和已验证成功。
 - 脱敏生产探针同步输出有效/失效设备数量与下发、receipt 汇总，不输出完整 Expo Push Token 或用户手机号。
-- 当前生产已启用 Expo Push 和 receipt 轮询，但真实设备 token 为 0、成功 receipt 为 0；代码链路与模拟供应商回归通过，仍需在 versionCode 14 真机授权通知后完成首台设备登记和真实送达验收。
+- 当前生产已启用 Expo Push 和 receipt 轮询，但真实设备 token 为 0、成功 receipt 为 0；代码链路与模拟供应商回归通过，仍需在 versionCode 15 真机授权通知后完成首台设备登记和真实送达验收。
 
 ### 2.20 今日小事原子发布
 
@@ -183,7 +183,7 @@
 - 登录页的《用户协议》《隐私政策》和设置页“协议与政策”均读取后端当前正式版本，展示标题、版本、生效日期、说明和完整章节，不再只有不可阅读的勾选文案。
 - 短信登录提交 `legalConsentAccepted`；服务端按当时生效的协议/隐私版本、时间、来源和记录 ID 留存，后台用户列表和时间线可查。
 - 新增 `LUMII_REQUIRE_LEGAL_CONSENT` 上线开关；开启后未同意请求返回 `LEGAL_CONSENT_REQUIRED`，且不消费已验证 OTP，用户勾选后可以直接重试。
-- 开关采用兼容发布顺序：versionCode 13 首次支持同意参数，当前以能准确上报原生构建号的 versionCode 14 作为分发与观测基线；确认旧版活跃量收敛后再启用强制校验。
+- 开关采用兼容发布顺序：versionCode 13 首次支持同意参数，当前以能准确上报原生构建号的 versionCode 15 作为最新分发与观测基线；确认旧版活跃量收敛后再启用强制校验。
 
 ### 2.22 宠友圈审核结果闭环
 
@@ -209,9 +209,9 @@
 ### 2.25 原生版本、构建号与同版本升级
 
 - 移动端新增 `expo-application`，正式 APK 的版本展示、分析事件和升级判断均读取系统实际 `nativeApplicationVersion` / `nativeBuildVersion`；Web 预览才回退 `app.json`，移除业务代码中写死的 `1.0.0 / 12`。
-- 更新策略新增 `latestBuildNumber`、`minBuildNumber`；运营后台支持填写、校验、保存和下发最低/最新构建号，解决 versionName 同为 `1.0.0` 时 vc12、vc13、vc14 无法区分的问题。
+- 更新策略新增 `latestBuildNumber`、`minBuildNumber`；运营后台支持填写、校验、保存和下发最低/最新构建号，解决 versionName 同为 `1.0.0` 时 vc12、vc13、vc14、vc15 无法区分的问题。
 - 更新判断先比较语义版本；语义版本相同时再比较构建号，并支持只配置构建号。强制更新、可选更新、灰度、忽略记录、弹窗展示和触达埋点均使用同一目标键。
-- Android 候选包提升到 versionCode 14；`app.json` 与 Gradle 一致性、原生值优先、同版本高构建升级、旧语义版本不被高构建号反向覆盖均已进入 Release 门禁。
+- Android 候选包提升到 versionCode 15；`app.json` 与 Gradle 一致性、原生值优先、同版本高构建升级、旧语义版本不被高构建号反向覆盖均已进入 Release 门禁。
 - Expo SDK 56 依赖同步到官方兼容补丁版本；`expo install --check` 无过期依赖，`expo-doctor` 20/21 通过，唯一提示为保留原生 Android 工程时 `app.json` 字段不会自动同步的结构性提醒，当前由源码一致性与实包检查覆盖。
 
 ### 2.26 生产运行时异常与 AI 任务收口
@@ -221,6 +221,14 @@
 - Seedance 已返回结果后的视频下载、去绿边和 COS 镜像失败会由服务端自主重试，不再依赖用户停留首页继续轮询；服务重启后会从 SQLite 恢复 `mirror_failed / ready_mirroring` 任务，达到最大次数才收口为失败。
 - 灵伴形象额度现在保存任务实际扣减日；自动返还仍只覆盖供应商提交失败、返回失败和超时，后台可对同日已结束的成功/失败任务人工返还，但处理中任务和跨日历史任务不能误减今天额度。
 - 产线已部署到 `84ec0298`；非法 Host 实测返回 400，内网与站外 `https://api.lumiiapp.cn/health` 都返回 200，进程只监听 `127.0.0.1:8787`，部署后日志无新异常。
+
+### 2.27 六图发布与日期选择器完整回归
+
+- 宠友圈图片上限从服务端配置归一化、后台输入约束和移动端渲染三层统一硬锁为 6；即使绕过后台输入提交 9，公开配置与发帖接口仍最多保留 6 张。
+- Playwright 使用真实 Web 文件选择器先加入 3 张、再补到 6 张，分别验证 `3/6`、完整虚线 `+` 格、`6/6` 两行网格、满额隐藏 `+` 和移除后恢复入口，不再只检查静态文案。
+- 修复日期滚轮跨月选择误禁：草稿位于下月较早日期时，切回本月的合法未来日期不再因为暂时沿用旧“日”而禁用整个月；年份、月份、日期和时分按“该区间是否仍有合法值”联动，最终值继续夹在允许范围内。
+- 备忘提醒覆盖仅 00/15/30/45 四个分钟档、关闭后日期入口禁用、重新开启、未来时间保存；疫苗/驱虫覆盖无过去年份与年月日滚轮保存；生日覆盖过去 30 年、禁止未来、仅年份、仅年月、未知、闰年 2 月 29 日切换到平年自动变为 28 日。
+- 备忘提醒开关和日期入口补齐 `switch/button` 语义及 `checked/disabled` 状态；移动端测试新增 41 个 `AppRoute` 覆盖契约，新增路由未归入直达或上下文业务链时门禁会直接失败。
 
 ## 3. 当前验证证据
 
@@ -232,11 +240,11 @@
 - 工单 SLA/客服排班/用户补充/评价/重开闭环：`node scripts/smoke-ticket-sla-roster.cjs` 通过。
 - 移动端完整 Playwright：`node scripts/smoke-frontend-playwright.cjs` 通过，含 41 路由直达、协议阅读、缺头像、宠友圈审核状态、地点贡献、宠友圈互动、设置/注销、真实登录会话和宠物建档流程。
 - 全量非视觉上线门禁：`node scripts/smoke-launch-regression.cjs` 于 2026-07-14 完整通过，70/70 套件全部成功；覆盖 Release HTTPS、Android 敏感权限最小化、API TLS/SNI、SQLite/WAL，以及生产短信随机 OTP、Spug 请求、腾讯备用通道、固定码旁路阻断、注销验证码、动效镜像重试恢复和额度返还日期边界。
-- 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-14 重新完整通过，79/79 套件全部成功；移动端 Playwright 用时 261.9 秒，覆盖协议阅读、本人宠友圈同日多条、审核中/驳回状态及昼夜排序差异、唯一“我”标记、评论、删除确认、地点贡献记录、地点点评驳回纠错、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除，后台 8 个关键运营页面同步通过。
+- 全量可视上线门禁：`node scripts/smoke-launch-regression.cjs --include-visual` 于 2026-07-14 重新完整通过，79/79 套件全部成功；移动端 Playwright 用时 266.2 秒，覆盖协议阅读、本人宠友圈同日多条、审核中/驳回状态及昼夜排序差异、唯一“我”标记、评论、删除确认、3/6 与 6/6 真实选图、三类日期滚轮、地点贡献记录、地点点评驳回纠错、他人宠友圈权限、登录设备退出、运行中 Token 撤销恢复，以及疫苗/驱虫计划新增、编辑、提醒、完成、恢复和删除，后台 8 个关键运营页面同步通过。
 - 附近位置与半径专项：`node scripts/smoke-pet-circle.cjs`、配置审批/预约发布/双人会签回归和 `node scripts/smoke-admin-config-high-risk-page.cjs` 通过；覆盖发布位置快照、跨城市移动、历史无位置数据、10km 默认档位、3/5/10km 后台选择及客户端越权半径拦截。
 - 附近地点真实性：`node scripts/smoke-place-contributions.cjs` 与 `node scripts/smoke-sms-production.cjs` 通过；覆盖提交坐标/精度/时间落库、审核后 manual 地点继承坐标、跨城不跟随、缺失/过期定位拦截、生产无高德时返回空列表而非 seed，以及 `amap` / `place_location_integrity` / `place_discovery` 健康与 P0 门禁。
 - 生产台账实查：部署 `84ec0298` 后于 2026-07-14 返回 28 项健康检查、`bad=1`、`warn=3`、`openP0=6`、`blockedGaps=2`；唯一 `bad` 是兼容发布期有意暂缓的 `legal_consent_enforcement`，三项警告分别为首台真机 Push、后台 IP 白名单和站外告警。`public_api_https`、`public_api_external_https`、`backend_bind_address` 均为 `ok`；生产进程仅监听 `127.0.0.1:8787`，Lighthouse 规则仍无公网 8787；用户数保持 21，服务 `NRestarts=0`。生产当前只有 1 个活跃管理员且未配置 MFA/IP 白名单，不能在没有真实审批人的情况下强开双人会签。
-- Android 候选包：`dist/Lumii-Lingban-v1.0.0-vc14-arm64-20260713-2104.apk` 已完成正式签名构建，大小 68.58 MB，SHA-256 为 `93F504C3151F3CD9B913A6B9281193EBCB447C4CAD735F9107F0B7652EF806C0`；包名 `com.lumii.lingban`、versionCode `14`、API `https://api.lumiiapp.cn`、禁止明文流量且仅含 `arm64-v8a`，不含测试服务器 IP 或 localhost。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 仍为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗/安装包权限，系统备份关闭。
+- Android 候选包：`dist/Lumii-Lingban-v1.0.0-vc15-arm64-20260714-0840.apk` 已完成正式签名构建，大小 68.58 MB，SHA-256 为 `75780C35003ADF0B3ED30658D9F1A834D37E07AB11CC97A6D5AC3FA63624062C`；包名 `com.lumii.lingban`、versionCode `15`、API `https://api.lumiiapp.cn`、禁止明文流量且仅含 `arm64-v8a`，不含测试服务器 IP 或 localhost。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 仍为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗/安装包权限，`allowBackup=false`、`usesCleartextTraffic=false`。
 
 ## 4. 剩余工作
 
@@ -253,10 +261,10 @@
 - 生产后台实查确认四项必签材料仍为草稿：用户协议 `test-2026-06-12`、隐私政策 `test-2026-06-12`、内容审核制度 `test-2026-07-09`、App 备案材料 `test-2026-07-09`；正式文本、个人信息收集清单、第三方 SDK 清单、注销和举报规则仍需补齐并在后台签署。
 - 站外告警 Webhook、生产 Push 厂商通道、模板、送达回执和退订策略。
 - 当前生产短信已切换 Spug 推送助手；模板编号与密钥只保存在服务器 `0600 root:root` 的 systemd 受限配置中，随机一次性验证码、频控、失败锁定、重复使用拦截和上线门禁均已完成，并已通过真实手机号发送与登录验证。若 Spug 控制台支持来源 IP 白名单，仍应限制为生产服务器出口；腾讯云短信仅保留为未来企业化备用通道。
-- 协议同意强制校验基座已经完成；先完成 versionCode 14 升级验收、分发并观察真实构建号分布，再将 systemd 环境变量 `LUMII_REQUIRE_LEGAL_CONSENT=true` 上线。开关未启用期间后台上线台账会保留对应 P0，避免兼容窗口被误判为已完成。
+- 协议同意强制校验基座已经完成；先完成 versionCode 15 升级验收、分发并观察真实构建号分布，再将 systemd 环境变量 `LUMII_REQUIRE_LEGAL_CONSENT=true` 上线。开关未启用期间后台上线台账会保留对应 P0，避免兼容窗口被误判为已完成。
 - ~~SQLite/WAL 单实例生产存储、JSON 回滚镜像、独立审计日志和备份恢复。~~ 已完成生产迁移与写入验证；后续仅在扩展多实例前迁移托管 PostgreSQL。
 
-当前生产台账的 6 个 P0 由以下项目构成：后台安全综合项、协议同意强制开关、站外告警通道、IP 白名单决策、全员 MFA 决策、正式合规文本签署。后台安全综合项与 IP/MFA 两个决策存在口径重叠；协议强制开关需等待 versionCode 14 分发与构建号观测后开启，其余均为生产外部配置或业务签署，不代表新增页面或核心业务代码缺失。
+当前生产台账的 6 个 P0 由以下项目构成：后台安全综合项、协议同意强制开关、站外告警通道、IP 白名单决策、全员 MFA 决策、正式合规文本签署。后台安全综合项与 IP/MFA 两个决策存在口径重叠；协议强制开关需等待 versionCode 15 分发与构建号观测后开启，其余均为生产外部配置或业务签署，不代表新增页面或核心业务代码缺失。
 
 以下首发业务策略已固化，不再计入待确认范围：
 

@@ -57,7 +57,7 @@ const appConfig = JSON.parse(fs.readFileSync(path.join(mobileDir, 'app.json'), '
 assert.equal(appConfig.expo.android.allowBackup, false);
 assert.ok(!appConfig.expo.android.permissions.includes('android.permission.RECORD_AUDIO'));
 assert.ok(!appConfig.expo.android.permissions.includes('android.permission.SYSTEM_ALERT_WINDOW'));
-assert.ok(appConfig.expo.android.versionCode >= 14, 'the release candidate must be versionCode 14 or newer');
+assert.ok(appConfig.expo.android.versionCode >= 15, 'the release candidate must be versionCode 15 or newer');
 
 const gradle = fs.readFileSync(path.join(mobileDir, 'android', 'app', 'build.gradle'), 'utf8');
 assert.match(gradle, /findProperty\("LUMII_ALLOW_CLEARTEXT"\)/);
@@ -93,13 +93,14 @@ assert.equal(nativeVersionPolicy.lumiiAppBuildNumber, 99, 'installed native buil
 const fallbackVersionPolicy = loadAppVersionPolicy(null, null);
 assert.equal(fallbackVersionPolicy.lumiiAppVersion, appConfig.expo.version, 'web preview must fall back to app.json version');
 assert.equal(fallbackVersionPolicy.lumiiAppBuildNumber, appConfig.expo.android.versionCode, 'web preview must fall back to app.json build');
-assert.equal(fallbackVersionPolicy.isAppBuildTargetNewer('1.0.0', 13, '1.0.0', 14), true, 'same version with a newer build must update');
-assert.equal(fallbackVersionPolicy.isAppBuildTargetNewer('1.0.0', 14, '1.0.0', 14), false, 'the current build must not update itself');
+const currentReleaseBuild = appConfig.expo.android.versionCode;
+assert.equal(fallbackVersionPolicy.isAppBuildTargetNewer('1.0.0', currentReleaseBuild - 1, '1.0.0', currentReleaseBuild), true, 'same version with a newer build must update');
+assert.equal(fallbackVersionPolicy.isAppBuildTargetNewer('1.0.0', currentReleaseBuild, '1.0.0', currentReleaseBuild), false, 'the current build must not update itself');
 assert.equal(fallbackVersionPolicy.isAppBuildTargetNewer('1.0.0', 99, '1.1.0', 1), true, 'a newer semantic version must update regardless of build reset');
 assert.equal(fallbackVersionPolicy.isAppBuildTargetNewer('1.1.0', 1, '1.0.0', 99), false, 'an older semantic version must not override by build number');
-assert.equal(fallbackVersionPolicy.isAppBuildTargetNewer('1.0.0', 13, '', 14), true, 'a build-only target must be supported');
-assert.equal(fallbackVersionPolicy.appBuildTargetKey('1.0.0', 14), '1.0.0#14');
-assert.equal(fallbackVersionPolicy.formatAppBuildTarget('1.0.0', 14), '1.0.0 (14)');
+assert.equal(fallbackVersionPolicy.isAppBuildTargetNewer('1.0.0', currentReleaseBuild - 1, '', currentReleaseBuild), true, 'a build-only target must be supported');
+assert.equal(fallbackVersionPolicy.appBuildTargetKey('1.0.0', currentReleaseBuild), `1.0.0#${currentReleaseBuild}`);
+assert.equal(fallbackVersionPolicy.formatAppBuildTarget('1.0.0', currentReleaseBuild), `1.0.0 (${currentReleaseBuild})`);
 
 const appSource = fs.readFileSync(path.join(mobileDir, 'src', 'mvp', 'LumiiMvpApp.tsx'), 'utf8');
 assert.match(appSource, /from '\.\/appVersion'/);
