@@ -441,6 +441,7 @@ async function main() {
     assert.equal(locatedSubmission.data.longitude, submissionLocation.longitude);
     const upload = await request('/media/uploads', {
       body: {
+        analysisCode: 'no_pet',
         base64: `data:image/png;base64,${tinyPngBase64}`,
         fileName: 'production-guard.png',
         mimeType: 'image/png',
@@ -449,6 +450,9 @@ async function main() {
       method: 'POST',
       token: userToken,
     });
+    assert.equal(upload.data.analysis.code, 'low_quality', 'production must ignore client-supplied media analysis debug codes');
+    assert.equal(upload.data.analysis.canGenerate, true);
+    assert.equal(upload.data.analysis.qualityScore, 0, 'file-size warnings must not fabricate a visual quality score');
     const mockAvatarBlocked = await request('/ai/pet-avatar/jobs', {
       body: { mediaId: upload.data.mediaId },
       expectedStatus: 503,
