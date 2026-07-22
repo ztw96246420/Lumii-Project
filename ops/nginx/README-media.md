@@ -86,8 +86,8 @@ In `CDN > Domain management > media.lumiiapp.cn > Manage`:
    lowest-priority fallback. Add higher-priority directory rules for
    `/storage/objects` and `/media/uploads`, both set to `follow origin`, with
    heuristic and forced caching disabled.
-3. Preserve URL parameters and case in the cache key. Do not ignore query
-   parameters during the first rollout.
+3. Preserve URL parameters, request scheme, and case in the cache key. Do not
+   ignore query parameters during the first rollout.
 4. Disable status-code caching, or set every configured 4xx/5xx status to
    zero seconds. In particular, remove the default/non-zero 404 cache.
 5. Enable edge `HTTP -> HTTPS` redirect, HTTP/2, TLS 1.2/1.3, and HSTS. Start
@@ -100,6 +100,12 @@ In `CDN > Domain management > media.lumiiapp.cn > Manage`:
    for `https://media.lumiiapp.cn/`. This is required to remove the historical
    API, authorization, HTTP-scheme, transformed-avatar, and negative-cache
    variants.
+
+Use this fail-safe order: first change `All files` to `do not cache` and
+refresh the whole domain; then deploy/reload Nginx and the backend; verify that
+`/health` and `/me` are 404 on the media Host and that a real object has
+matching HEAD/full/Range metadata; only then enable the two `follow origin`
+directory rules and refresh the whole domain once more.
 
 Tencent documents that dynamic/login/API routes must not be cached and that
 an unmatched response without `Cache-Control` may otherwise be cached for 600
