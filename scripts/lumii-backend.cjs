@@ -7571,15 +7571,48 @@ function mediaResponseHeaders({ cacheControl = publicMediaCacheControl(), conten
   return headers;
 }
 
+function normalizeMediaEtag(value) {
+  let normalized = String(Array.isArray(value) ? value[0] || '' : value || '').trim();
+  if (!normalized) return '';
+  const weak = /^W\//i.test(normalized);
+  if (weak) normalized = normalized.slice(2).trim();
+  while (normalized.length >= 2 && normalized.startsWith('"') && normalized.endsWith('"')) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  normalized = normalized.replace(/["\u0000-\u001f\u007f]/g, '');
+  return normalized ? `${weak ? 'W/' : ''}"${normalized}"` : '';
+}
+
+function totalBytesFromContentRange(value) {
+  const match = String(value || '').trim().match(/^bytes\s+\d+-\d+\/(\d+)$/i);
+  if (!match) return null;
+  const totalBytes = Number(match[1]);
+  return Number.isSafeInteger(totalBytes) && totalBytes >= 0 ? totalBytes : null;
+}
+
 function cosMediaResponseHeaders(result, { head = false } = {}) {
   const originHeaders = result?.headers || {};
+  const rangeTotalBytes = head ? totalBytesFromContentRange(originHeaders['content-range']) : null;
+  const responseBodyLength = result?.body?.length || 0;
   return mediaResponseHeaders({
-    contentLength: head ? Number(originHeaders['content-length'] || 0) : result?.body?.length || 0,
-    contentRange: originHeaders['content-range'] || '',
+    contentLength: head ? (rangeTotalBytes ?? responseBodyLength) : responseBodyLength,
+    contentRange: head ? '' : originHeaders['content-range'] || '',
     contentType: originHeaders['content-type'] || 'application/octet-stream',
-    etag: originHeaders.etag || '',
+    etag: normalizeMediaEtag(originHeaders.etag),
     lastModified: originHeaders['last-modified'] || '',
   });
+}
+
+async function cosMediaHeadRequest(objectKey, { timeoutMs = 20000 } = {}) {
+  try {
+    return await cosRequest('GET', objectKey, {
+      headers: { Range: 'bytes=0-0' },
+      timeoutMs,
+    });
+  } catch (error) {
+    if (Number(error?.statusCode || 0) !== 416) throw error;
+    return cosRequest('GET', objectKey, { timeoutMs });
+  }
 }
 
 function parseSingleByteRange(value, totalBytes) {
@@ -37514,12 +37547,14 @@ async function handle(req, res) {
     if (media?.objectKey && cosEnabled()) {
       try {
         const range = req.method === 'GET' ? String(req.headers.range || '').trim() : '';
-        const result = await cosRequest(req.method, media.objectKey, {
-          headers: range ? { Range: range } : {},
-          timeoutMs: 20000,
-        });
+        const result = req.method === 'HEAD'
+          ? await cosMediaHeadRequest(media.objectKey, { timeoutMs: 20000 })
+          : await cosRequest('GET', media.objectKey, {
+              headers: range ? { Range: range } : {},
+              timeoutMs: 20000,
+            });
         const responseHeaders = cosMediaResponseHeaders(result, { head: req.method === 'HEAD' });
-        res.writeHead(result.statusCode === 206 ? 206 : 200, responseHeaders);
+        res.writeHead(req.method === 'HEAD' ? 200 : result.statusCode === 206 ? 206 : 200, responseHeaders);
         res.end(req.method === 'HEAD' ? undefined : result.body);
         return;
       } catch {
@@ -37554,7 +37589,7 @@ async function handle(req, res) {
     }
     try {
       if (req.method === 'HEAD') {
-        const result = await cosRequest('HEAD', objectKey, { timeoutMs: 20000 });
+        const result = await cosMediaHeadRequest(objectKey, { timeoutMs: 20000 });
         res.writeHead(200, cosMediaResponseHeaders(result, { head: true }));
         res.end();
         return;

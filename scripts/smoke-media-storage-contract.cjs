@@ -17,6 +17,7 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-media-storage-contra
 const statePath = path.join(tmpDir, 'state.json');
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const expectedMediaCacheControl = 'public, max-age=60, s-maxage=300';
+const expectedCosEtag = '"storage-contract-etag"';
 
 let backendProcess = null;
 let cosServer = null;
@@ -134,10 +135,14 @@ async function startFakeCos(sourcePng, rawObjectKey) {
     const commonHeaders = {
       'Accept-Ranges': 'bytes',
       'Content-Type': 'image/png',
-      ETag: '"storage-contract-etag"',
+      ETag: '""storage-contract-etag""',
     };
     if (req.method === 'HEAD') {
-      res.writeHead(200, { ...commonHeaders, 'Content-Length': object.length });
+      res.writeHead(200, {
+        ...commonHeaders,
+        'Content-Length': object.length + 1234,
+        ETag: '"stale-head-etag"',
+      });
       res.end();
       return;
     }
@@ -350,12 +355,15 @@ async function main() {
     assert.deepEqual(full.body, sourcePng, 'full GET must return the exact COS representation');
     assert.equal(Number(full.headers.get('content-length')), sourcePng.length);
     assert.equal(full.headers.get('content-type'), 'image/png');
+    assert.equal(full.headers.get('etag'), expectedCosEtag, 'full GET must expose one well-formed ETag layer');
     assert.equal(full.headers.get('cache-control'), expectedMediaCacheControl);
 
     const head = await request(rawPath, { method: 'HEAD', raw: true });
     assert.equal(head.body.length, 0);
     assert.equal(Number(head.headers.get('content-length')), sourcePng.length, 'HEAD length must describe the full COS representation');
+    assert.equal(head.headers.get('content-range'), null, 'HEAD must describe the full representation, not expose the probe range');
     assert.equal(head.headers.get('content-type'), full.headers.get('content-type'));
+    assert.equal(head.headers.get('etag'), expectedCosEtag, 'HEAD metadata must come from the GET representation');
     assert.equal(head.headers.get('cache-control'), expectedMediaCacheControl);
 
     const range = await request(rawPath, {
@@ -405,6 +413,7 @@ async function main() {
     const mediaHead = await request(mediaPath, { method: 'HEAD', raw: true });
     assert.equal(mediaHead.body.length, 0);
     assert.equal(Number(mediaHead.headers.get('content-length')), mediaPut.body.length);
+    assert.equal(mediaHead.headers.get('content-range'), null);
     assert.equal(mediaHead.headers.get('content-type'), mediaFull.headers.get('content-type'));
     assert.equal(mediaHead.headers.get('etag'), mediaFull.headers.get('etag'));
     assert.equal(mediaHead.headers.get('cache-control'), expectedMediaCacheControl);

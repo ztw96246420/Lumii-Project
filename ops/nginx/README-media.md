@@ -65,6 +65,12 @@ sudo systemctl restart lumii-backend
 sudo systemctl cat lumii-backend
 ```
 
+If the unit also loads an `EnvironmentFile`, remove or update any duplicate
+media keys there before restarting. systemd gives values loaded from an
+`EnvironmentFile` precedence over `Environment=` entries in a drop-in. After
+restart, verify the five media variables in the running process environment;
+checking only `systemctl cat` is not sufficient.
+
 `PET_AVATAR_PUBLIC_BASE_URL` controls media URLs returned to the App.
 `MEDIA_PUBLIC_PROBE_BASE_URL` controls the independent admin health probe.
 Both should use `https://media.lumiiapp.cn` after the CDN route is healthy.
@@ -119,6 +125,19 @@ honors `s-maxage`, while `no-store` and `private` remain uncacheable:
 - <https://cloud.tencent.com/document/product/228/6299>
 
 ## Verification
+
+Run the cross-platform, read-only live probe with an approved object URL. It
+does not log in and never sends an upload, mutation, or delete request:
+
+```bash
+MEDIA_CDN_OBJECT_URL='https://media.lumiiapp.cn/storage/objects/<encoded-object-key>' \
+  node scripts/probe-media-cdn-live.cjs
+```
+
+The probe exits non-zero until edge redirect/HSTS/HTTP2, API isolation,
+bounded cache headers, query handling, and HEAD/full/Range consistency all
+pass. `MEDIA_CDN_PROBE_TIMEOUT_MS` and `MEDIA_CDN_PROBE_MAX_BYTES` can be
+overridden for slow or unusually large objects.
 
 Use a real, approved object key; encode `/` inside the object key as `%2F`.
 
