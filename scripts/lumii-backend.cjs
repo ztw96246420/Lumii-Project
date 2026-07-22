@@ -137,7 +137,10 @@ const COS_BUCKET = process.env.COS_BUCKET || '';
 const COS_REGION = process.env.COS_REGION || 'ap-guangzhou';
 const COS_SECRET_ID = process.env.COS_SECRET_ID || '';
 const COS_SECRET_KEY = process.env.COS_SECRET_KEY || '';
-const COS_PROXY_CACHE_SECONDS = Number(process.env.COS_PROXY_CACHE_SECONDS || '3600');
+const configuredCosProxyCacheSeconds = Number(process.env.COS_PROXY_CACHE_SECONDS ?? '300');
+const COS_PROXY_CACHE_SECONDS = Number.isFinite(configuredCosProxyCacheSeconds) ? Math.max(0, Math.min(300, Math.floor(configuredCosProxyCacheSeconds))) : 300;
+const configuredCosProxyBrowserCacheSeconds = Number(process.env.COS_PROXY_BROWSER_CACHE_SECONDS ?? '60');
+const COS_PROXY_BROWSER_CACHE_SECONDS = Number.isFinite(configuredCosProxyBrowserCacheSeconds) ? Math.max(0, Math.min(60, Math.floor(configuredCosProxyBrowserCacheSeconds))) : 60;
 const COS_ENDPOINT = (process.env.COS_ENDPOINT || '').trim().replace(/\/+$/, '');
 const ADMIN_EXPORT_COS_ENABLED = process.env.LUMII_ADMIN_EXPORT_COS_ENABLED === 'true';
 const ADMIN_EXPORT_COS_PREFIX = (process.env.LUMII_ADMIN_EXPORT_COS_PREFIX || 'admin-exports').trim().replace(/^\/+|\/+$/g, '') || 'admin-exports';
@@ -7540,10 +7543,86 @@ function sendJson(res, statusCode, payload) {
     'Access-Control-Allow-Headers': 'Authorization, Content-Type, Range',
     'Access-Control-Allow-Methods': 'GET, HEAD, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Origin': '*',
+    'Cache-Control': 'no-store',
     'Content-Length': Buffer.byteLength(body),
     'Content-Type': 'application/json; charset=utf-8',
   });
   res.end(body);
+}
+
+function publicMediaCacheControl() {
+  return `public, max-age=${COS_PROXY_BROWSER_CACHE_SECONDS}, s-maxage=${COS_PROXY_CACHE_SECONDS}`;
+}
+
+function mediaResponseHeaders({ cacheControl = publicMediaCacheControl(), contentLength = 0, contentRange = '', contentType = 'application/octet-stream', etag = '', lastModified = '' } = {}) {
+  const normalizedContentLength = Number(contentLength);
+  const headers = {
+    'Accept-Ranges': 'bytes',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type, Range',
+    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': cacheControl,
+    'Content-Length': Number.isFinite(normalizedContentLength) ? Math.max(0, normalizedContentLength) : 0,
+    'Content-Type': contentType || 'application/octet-stream',
+  };
+  if (contentRange) headers['Content-Range'] = contentRange;
+  if (etag) headers.ETag = etag;
+  if (lastModified) headers['Last-Modified'] = lastModified;
+  return headers;
+}
+
+function cosMediaResponseHeaders(result, { head = false } = {}) {
+  const originHeaders = result?.headers || {};
+  return mediaResponseHeaders({
+    contentLength: head ? Number(originHeaders['content-length'] || 0) : result?.body?.length || 0,
+    contentRange: originHeaders['content-range'] || '',
+    contentType: originHeaders['content-type'] || 'application/octet-stream',
+    etag: originHeaders.etag || '',
+    lastModified: originHeaders['last-modified'] || '',
+  });
+}
+
+function parseSingleByteRange(value, totalBytes) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const match = text.match(/^bytes=(\d*)-(\d*)$/i);
+  if (!match || (!match[1] && !match[2]) || totalBytes <= 0) return { invalid: true };
+  let start;
+  let end;
+  if (!match[1]) {
+    const suffixLength = Number(match[2]);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return { invalid: true };
+    start = Math.max(0, totalBytes - suffixLength);
+    end = totalBytes - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] ? Number(match[2]) : totalBytes - 1;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= totalBytes || end < start) return { invalid: true };
+    end = Math.min(end, totalBytes - 1);
+  }
+  return { end, start };
+}
+
+function sendMediaBuffer(req, res, buffer, contentType, cacheControl = publicMediaCacheControl()) {
+  const range = req.method === 'GET' ? parseSingleByteRange(req.headers.range, buffer.length) : null;
+  if (range?.invalid) {
+    res.writeHead(416, mediaResponseHeaders({
+      cacheControl: 'no-store',
+      contentLength: 0,
+      contentRange: `bytes */${buffer.length}`,
+      contentType,
+    }));
+    res.end();
+    return;
+  }
+  const responseBuffer = range ? buffer.subarray(range.start, range.end + 1) : buffer;
+  res.writeHead(range ? 206 : 200, mediaResponseHeaders({
+    cacheControl,
+    contentLength: responseBuffer.length,
+    contentRange: range ? `bytes ${range.start}-${range.end}/${buffer.length}` : '',
+    contentType,
+  }));
+  res.end(req.method === 'HEAD' ? undefined : responseBuffer);
 }
 
 function staticContentType(filePath) {
@@ -37425,7 +37504,7 @@ async function handle(req, res) {
   }
 
   const mediaFileMatch = pathname.match(/^\/media\/uploads\/([^/]+)\/file$/);
-  if (req.method === 'GET' && mediaFileMatch) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && mediaFileMatch) {
     const mediaId = decodeURIComponent(mediaFileMatch[1]);
     const media = state.mediaUploads?.[mediaId];
     if (isMediaUploadBlockedFromPublic(media)) {
@@ -37434,14 +37513,14 @@ async function handle(req, res) {
     }
     if (media?.objectKey && cosEnabled()) {
       try {
-        const result = await cosRequest('GET', media.objectKey, { timeoutMs: 20000 });
-        res.writeHead(200, {
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': `private, max-age=${COS_PROXY_CACHE_SECONDS}`,
-          'Content-Length': result.body.length,
-          'Content-Type': media.mimeType || result.headers['content-type'] || 'application/octet-stream',
+        const range = req.method === 'GET' ? String(req.headers.range || '').trim() : '';
+        const result = await cosRequest(req.method, media.objectKey, {
+          headers: range ? { Range: range } : {},
+          timeoutMs: 20000,
         });
-        res.end(result.body);
+        const responseHeaders = cosMediaResponseHeaders(result, { head: req.method === 'HEAD' });
+        res.writeHead(result.statusCode === 206 ? 206 : 200, responseHeaders);
+        res.end(req.method === 'HEAD' ? undefined : result.body);
         return;
       } catch {
         // Fall back to the legacy in-state data URL below when available.
@@ -37457,13 +37536,7 @@ async function handle(req, res) {
       return;
     }
     const buffer = Buffer.from(match[2], 'base64');
-    res.writeHead(200, {
-      'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'public, max-age=3600',
-      'Content-Length': buffer.length,
-      'Content-Type': normalizeImageMimeType(match[1]),
-    });
-    res.end(buffer);
+    sendMediaBuffer(req, res, buffer, normalizeImageMimeType(match[1]) || 'application/octet-stream');
     return;
   }
 
@@ -37482,47 +37555,18 @@ async function handle(req, res) {
     try {
       if (req.method === 'HEAD') {
         const result = await cosRequest('HEAD', objectKey, { timeoutMs: 20000 });
-        res.writeHead(200, {
-          'Accept-Ranges': 'bytes',
-          'Access-Control-Allow-Headers': 'Authorization, Content-Type, Range',
-          'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': `private, max-age=${COS_PROXY_CACHE_SECONDS}`,
-          'Content-Length': Number(result.headers['content-length'] || 0),
-          'Content-Type': result.headers['content-type'] || 'application/octet-stream',
-        });
+        res.writeHead(200, cosMediaResponseHeaders(result, { head: true }));
         res.end();
         return;
       }
 
       const range = String(req.headers.range || '').trim();
-      const shouldCleanPetAvatar = objectKey.startsWith('pet-avatar/') && !range;
       const result = await cosRequest('GET', objectKey, {
         headers: range ? { Range: range } : {},
         timeoutMs: 20000,
       });
-      const prepared = objectKey.startsWith('pet-avatar/')
-        ? (shouldCleanPetAvatar ? cleanPetAvatarImage({ buffer: result.body, mimeType: result.headers['content-type'] }, 'pet-avatar') : { buffer: result.body, mimeType: result.headers['content-type'] || 'application/octet-stream' })
-        : { buffer: result.body, mimeType: result.headers['content-type'] || 'application/octet-stream' };
-      if (prepared.cleanedBackground) {
-        console.log('[avatar:image] cleaned storage response background', {
-          kind: prepared.cleanedBackgroundKind || 'unknown',
-          objectKey,
-          removedPixels: prepared.removedPixels,
-        });
-      }
-      const responseHeaders = {
-        'Accept-Ranges': 'bytes',
-        'Access-Control-Allow-Headers': 'Authorization, Content-Type, Range',
-        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': `private, max-age=${COS_PROXY_CACHE_SECONDS}`,
-        'Content-Length': prepared.buffer.length,
-        'Content-Type': prepared.mimeType || result.headers['content-type'] || 'application/octet-stream',
-      };
-      if (result.headers['content-range']) responseHeaders['Content-Range'] = result.headers['content-range'];
-      res.writeHead(result.statusCode === 206 ? 206 : 200, responseHeaders);
-      res.end(prepared.buffer);
+      res.writeHead(result.statusCode === 206 ? 206 : 200, cosMediaResponseHeaders(result));
+      res.end(result.body);
     } catch {
       fail(res, 404, 'Storage object not found', false);
     }
