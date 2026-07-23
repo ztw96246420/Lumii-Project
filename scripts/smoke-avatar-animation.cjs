@@ -108,6 +108,22 @@ async function stopBackend() {
   });
 }
 
+function readSavedState() {
+  return JSON.parse(fs.readFileSync(statePath, 'utf8'));
+}
+
+function writeSavedState(value) {
+  fs.writeFileSync(statePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+async function restartBackendWithStateMutation(mutate) {
+  await stopBackend();
+  const savedState = readSavedState();
+  mutate(savedState);
+  writeSavedState(savedState);
+  await startBackend(await getFreePort());
+}
+
 async function loginUser(phone) {
   await request('/auth/sms/send', {
     body: { deviceId: `avatar-animation-smoke-${phone}`, phone },
@@ -173,6 +189,92 @@ async function main() {
     assert.equal(latest.data.aiContentId, latest.data.id);
     assert.equal(latest.data.aiLabelVersion, 'cn-generated-content-v1');
     const firstAnimationJobId = latest.data.id;
+    const firstAnimationUrl = latest.data.videoUrl;
+    const newerUnboundFailedJobId = 'anim-newer-unbound-failed-regression';
+
+    await restartBackendWithStateMutation((savedState) => {
+      const staleJob = savedState.avatarAnimationJobs[firstAnimationJobId];
+      const savedPetProfile = savedState.users[TEST_PHONE].pets.find((item) => item.id === pet.id);
+      assert.ok(staleJob, 'missing ready animation job before lifecycle aging');
+      assert.ok(savedPetProfile, 'missing pet before lifecycle aging');
+      const eightDaysAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;
+      staleJob.createdAt = eightDaysAgo;
+      staleJob.updatedAt = eightDaysAgo;
+      staleJob.requestSignature = 'retired-animation-policy-signature';
+      staleJob.stageBackground = '#010203';
+      savedState.avatarAnimationJobs[newerUnboundFailedJobId] = {
+        createdAt: Date.now() - 1000,
+        errorCode: 'AVATAR_ANIMATION_PROVIDER_TIMEOUT',
+        errorMessage: 'newer failed job must not replace the pet-bound ready result',
+        id: newerUnboundFailedJobId,
+        ownerPhone: TEST_PHONE,
+        petId: pet.id,
+        progress: 20,
+        provider: 'mock',
+        providerStatus: 'failed',
+        status: 'failed',
+        updatedAt: Date.now() - 1000,
+      };
+      assert.equal(savedPetProfile.avatarAnimationJobId, firstAnimationJobId);
+      assert.equal(savedPetProfile.avatarAnimationUrl, firstAnimationUrl);
+    });
+
+    const beforeStaleLatest = readSavedState();
+    const beforeStaleJobCount = Object.keys(beforeStaleLatest.avatarAnimationJobs || {}).length;
+    const staleReadyLatest = await request(`/ai/pet-avatar/animation/latest?petId=${encodeURIComponent(pet.id)}`, { token: userToken });
+    assert.equal(staleReadyLatest.data.id, firstAnimationJobId, 'GET latest must prefer the pet-bound ready job after recovery TTL');
+    assert.equal(staleReadyLatest.data.status, 'ready');
+    assert.equal(staleReadyLatest.data.videoUrl, firstAnimationUrl);
+    const afterStaleLatest = readSavedState();
+    const afterStalePet = afterStaleLatest.users[TEST_PHONE].pets.find((item) => item.id === pet.id);
+    assert.equal(Object.keys(afterStaleLatest.avatarAnimationJobs || {}).length, beforeStaleJobCount, 'GET latest must not create a replacement for an old policy signature');
+    assert.equal(afterStalePet.avatarAnimationJobId, firstAnimationJobId);
+    assert.equal(afterStalePet.avatarAnimationUrl, firstAnimationUrl, 'GET latest must not clear an existing animation URL');
+
+    const storedOnlyPet = await createPet(userToken);
+    const savedStoredOnlyPet = await request(`/pets/${encodeURIComponent(storedOnlyPet.id)}/avatar`, {
+      body: { avatarUrl: 'https://example.com/lumii-stored-only-static-avatar.png' },
+      method: 'POST',
+      token: userToken,
+    });
+    const storedOnlyAnimationJobId = savedStoredOnlyPet.data.avatarAnimationJobId;
+    const storedOnlyAnimationUrl = savedStoredOnlyPet.data.avatarAnimationUrl;
+    const storedOnlyOrphanJobId = 'anim-stored-only-orphan-processing';
+    assert.ok(storedOnlyAnimationJobId, 'missing animation job for stored-only lifecycle setup');
+    assert.ok(storedOnlyAnimationUrl, 'missing animation URL for stored-only lifecycle setup');
+
+    let storedOnlyJobCount = 0;
+    await restartBackendWithStateMutation((savedState) => {
+      const savedPetProfile = savedState.users[TEST_PHONE].pets.find((item) => item.id === storedOnlyPet.id);
+      assert.ok(savedPetProfile, 'missing stored-only pet before deleting its historical job');
+      assert.equal(savedPetProfile.avatarAnimationUrl, storedOnlyAnimationUrl);
+      delete savedState.avatarAnimationJobs[storedOnlyAnimationJobId];
+      delete savedState.avatarAnimationJobs[newerUnboundFailedJobId];
+      savedState.avatarAnimationJobs[storedOnlyOrphanJobId] = {
+        createdAt: Date.now() - 1000,
+        id: storedOnlyOrphanJobId,
+        ownerPhone: TEST_PHONE,
+        petId: storedOnlyPet.id,
+        progress: 30,
+        provider: 'mock',
+        providerStatus: 'processing',
+        sourceAvatarUrl: savedPetProfile.avatarUrl,
+        status: 'processing',
+        updatedAt: Date.now() - 1000,
+      };
+      storedOnlyJobCount = Object.keys(savedState.avatarAnimationJobs || {}).length;
+    });
+
+    const storedOnlyLatest = await request(`/ai/pet-avatar/animation/latest?petId=${encodeURIComponent(storedOnlyPet.id)}`, { token: userToken });
+    assert.equal(storedOnlyLatest.data.id, storedOnlyAnimationJobId);
+    assert.equal(storedOnlyLatest.data.provider, 'stored');
+    assert.equal(storedOnlyLatest.data.status, 'ready');
+    assert.equal(storedOnlyLatest.data.videoUrl, storedOnlyAnimationUrl);
+    const afterStoredOnlyLatest = readSavedState();
+    const afterStoredOnlyPet = afterStoredOnlyLatest.users[TEST_PHONE].pets.find((item) => item.id === storedOnlyPet.id);
+    assert.equal(Object.keys(afterStoredOnlyLatest.avatarAnimationJobs || {}).length, storedOnlyJobCount, 'GET latest must not create a job when the pet already has a stored animation URL');
+    assert.equal(afterStoredOnlyLatest.avatarAnimationJobs[storedOnlyOrphanJobId].status, 'processing', 'GET latest must not attach or refresh an unrelated orphan job');
+    assert.equal(afterStoredOnlyPet.avatarAnimationUrl, storedOnlyAnimationUrl);
 
     const adminAnimationJobs = await request('/admin/ai/avatar-animation-jobs', { token: adminToken });
     assert.equal(Array.isArray(adminAnimationJobs.data), true);
@@ -183,9 +285,17 @@ async function main() {
       method: 'POST',
       token: adminToken,
     });
+    await restartBackendWithStateMutation((savedState) => {
+      const savedPetProfile = savedState.users[TEST_PHONE].pets.find((item) => item.id === pet.id);
+      assert.ok(savedPetProfile, 'missing pet before failed-job profile resync');
+      savedPetProfile.avatarAnimationStatus = 'processing';
+    });
     const failedLatest = await request(`/ai/pet-avatar/animation/latest?petId=${encodeURIComponent(pet.id)}`, { token: userToken });
     assert.equal(failedLatest.data.status, 'failed');
     assert.equal(failedLatest.data.errorCode, 'ADMIN_MARKED_FAILED');
+    const afterFailedLatest = readSavedState();
+    const failedPetProfile = afterFailedLatest.users[TEST_PHONE].pets.find((item) => item.id === pet.id);
+    assert.equal(failedPetProfile.avatarAnimationStatus, 'failed', 'GET latest must repair a stale pet status from its bound terminal job');
 
     const retried = await request(`/admin/ai/avatar-animation-jobs/${encodeURIComponent(firstAnimationJobId)}/retry`, {
       body: { reason: 'smoke retry animation after failure' },
@@ -199,7 +309,7 @@ async function main() {
     assert.equal(retriedLatest.data.status, 'ready');
 
     const beforeClear = await request(`/admin/users/${encodeURIComponent(TEST_PHONE)}/business-data-summary`, { token: adminToken });
-    assert.equal(beforeClear.data.summary.avatarAnimationJobs, 2);
+    assert.equal(beforeClear.data.summary.avatarAnimationJobs, 3);
 
     const clearApproval = await request('/admin/data-clear-approvals', {
       body: { confirmation: TEST_PHONE, phone: TEST_PHONE, reason: 'smoke clear avatar animation data' },

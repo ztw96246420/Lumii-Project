@@ -16489,7 +16489,6 @@ function avatarJobForUser(user, jobId) {
 
 const AVATAR_ANIMATION_JOB_START_TIMEOUT_MS = 2 * 60 * 1000;
 const AVATAR_ANIMATION_JOB_STATUS_TIMEOUT_MS = 20 * 60 * 1000;
-const AVATAR_ANIMATION_JOB_RECOVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function touchAvatarAnimationJob(job) {
   if (job) job.updatedAt = Date.now();
@@ -16779,11 +16778,30 @@ function migrateAiContentProvenanceState() {
 
 function latestAvatarAnimationJobForUser(user, petIdInput) {
   const petId = String(petIdInput || '').trim();
-  const cutoff = Date.now() - AVATAR_ANIMATION_JOB_RECOVERY_TTL_MS;
-  return Object.values(state.avatarAnimationJobs || {})
+  const pet = petId
+    ? user?.pets?.find((item) => item.id === petId)
+    : selectedPetFor(user);
+  const jobs = Object.values(state.avatarAnimationJobs || {})
     .filter((job) => job && job.ownerPhone === user.phone)
-    .filter((job) => !petId || job.petId === petId)
-    .filter((job) => Number(job.updatedAt || job.createdAt || 0) >= cutoff)
+    .filter((job) => !petId || job.petId === petId);
+
+  const boundJobId = String(pet?.avatarAnimationJobId || '').trim();
+  if (boundJobId) {
+    const boundJob = jobs.find((job) => job.id === boundJobId);
+    if (boundJob) return boundJob;
+  }
+
+  const storedVideoUrl = String(pet?.avatarAnimationUrl || '').trim();
+  if (storedVideoUrl) {
+    const storedReadyJob = jobs
+      .filter((job) => job.status === 'ready' && String(job.videoUrl || job.resultUrl || '').trim() === storedVideoUrl)
+      .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))[0];
+    if (storedReadyJob) return storedReadyJob;
+    // Keep the persisted finished asset authoritative when its historical job was pruned.
+    return null;
+  }
+
+  return jobs
     .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))[0] || null;
 }
 
@@ -30493,6 +30511,14 @@ function syncAvatarAnimationJobToPet(user, job, options = {}) {
   };
 }
 
+function avatarAnimationPetNeedsSync(pet, job) {
+  if (!pet || !job?.id || pet.avatarAnimationJobId !== job.id) return false;
+  if (pet.avatarAnimationStatus !== job.status) return true;
+  const videoUrl = String(job.videoUrl || job.resultUrl || '').trim();
+  if (job.status === 'ready') return Boolean(videoUrl && pet.avatarAnimationUrl !== videoUrl);
+  return ['failed', 'processing'].includes(job.status) && Boolean(pet.avatarAnimationUrl);
+}
+
 function adminAvatarAnimationJobs() {
   return Object.values(state.avatarAnimationJobs || {})
     .map((job) => {
@@ -38434,19 +38460,6 @@ async function handle(req, res) {
     const petId = url.searchParams.get('petId') || selectedPetFor(user)?.id || '';
     const pet = user.pets?.find((item) => item.id === petId) || selectedPetFor(user);
     const job = latestAvatarAnimationJobForUser(user, petId);
-    const canRegenerateAnimation = pet?.avatarUrl && !isGeneratedAvatarServerUri(pet.avatarUrl) && effectivePetAvatarAnimationProvider() !== 'disabled';
-    const needsPolicyRegeneration = canRegenerateAnimation && (
-      (job && ['processing', 'ready'].includes(job.status) && !avatarAnimationJobMatchesCurrentPolicy(user, pet, pet.avatarUrl, job))
-      || (!job && pet?.avatarAnimationUrl)
-    );
-    if (needsPolicyRegeneration) {
-      pet.avatarAnimationUrl = '';
-      pet.avatarAnimationStatus = 'processing';
-      const replacementJob = ensureAvatarAnimationJob(req, user, pet, null, pet.avatarUrl);
-      saveState();
-      ok(res, publicAvatarAnimationJob(replacementJob));
-      return;
-    }
     if (!job) {
       if (pet?.avatarAnimationUrl) {
         ok(res, {
@@ -38471,10 +38484,13 @@ async function handle(req, res) {
       ok(res, null);
       return;
     }
-    await refreshAvatarAnimationJob(req, user, job);
-    queueReadyAvatarAnimationMirrorIfNeeded(req, user, job);
-    syncAvatarAnimationJobToPet(user, job, { force: true });
-    saveState();
+    const shouldRefresh = job.status === 'processing';
+    if (shouldRefresh) await refreshAvatarAnimationJob(req, user, job);
+    const mirrorQueued = queueReadyAvatarAnimationMirrorIfNeeded(req, user, job);
+    if (shouldRefresh || mirrorQueued || avatarAnimationPetNeedsSync(pet, job)) {
+      syncAvatarAnimationJobToPet(user, job, { force: true });
+      saveState();
+    }
     ok(res, publicAvatarAnimationJob(job));
     return;
   }

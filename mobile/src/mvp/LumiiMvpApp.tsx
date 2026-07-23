@@ -1307,6 +1307,15 @@ function arePetSnapshotsEqual(left?: null | PetProfile, right?: null | PetProfil
   if (!left || !right) return false;
   return (
     left.id === right.id &&
+    left.avatarAnimationAiContentId === right.avatarAnimationAiContentId &&
+    left.avatarAnimationAiGenerated === right.avatarAnimationAiGenerated &&
+    left.avatarAnimationAiGeneratedAt === right.avatarAnimationAiGeneratedAt &&
+    left.avatarAnimationAiLabelVersion === right.avatarAnimationAiLabelVersion &&
+    left.avatarAnimationAiProvider === right.avatarAnimationAiProvider &&
+    left.avatarAnimationJobId === right.avatarAnimationJobId &&
+    left.avatarAnimationStatus === right.avatarAnimationStatus &&
+    left.avatarAnimationUpdatedAt === right.avatarAnimationUpdatedAt &&
+    left.avatarAnimationUrl === right.avatarAnimationUrl &&
     left.name === right.name &&
     left.species === right.species &&
     left.breed === right.breed &&
@@ -6162,7 +6171,9 @@ export default function LumiiMvpApp() {
       return false;
     }
 
-    const restoredPet = account?.activePet ?? petResult.data?.[0] ?? getActivePetFallback();
+    const restoredPet = Array.isArray(petResult.data)
+      ? petResult.data.find((pet) => pet.id === account?.activePet?.id) ?? petResult.data[0] ?? null
+      : account?.activePet ?? getActivePetFallback();
     setBootPetAvatarUri(restoredPet?.avatarUrl ?? null);
     const permissionFlowDone = Boolean(account?.permissionsOnboardingCompleted || allLumiiPermissionsGranted(latestPermissions));
     const restoredSession: AuthSession = account
