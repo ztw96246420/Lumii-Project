@@ -338,6 +338,7 @@
 - 2026-07-25 上线门禁：非视觉套件 `76/76` 通过，10 个真实浏览器套件 `10/10` 通过；完整前端 Playwright 用时 313.5 秒。日期按钮定位改为精确匹配，App 更新测试从 `mobile/app.json` 动态读取当前构建号并以“当前 + 1”验证可选/强制更新，避免升版后测试假失败。
 - 业务与后台提交 `120141b0`、上线台账文案提交 `f9fb6cdb` 已通过直连 SSH 部署到生产。部署前停止服务，使用服务同款 Node 24 执行 `wal_checkpoint(TRUNCATE)` 与 `quick_check=ok`，主 SQLite、JSON 回滚镜像和独立审计日志备份到 `/home/ubuntu/lumii-data/deploy-backups/20260725-025501-pre-120141b0` 并生成 SHA-256 清单。服务恢复为 `active`、`NRestarts=0`，只监听 `127.0.0.1:8787`，部署后 warning/error 日志为 0，站外正式域名与本机 SNI 探针均成功，用户数保持 21，生产工作区无已跟踪改动。
 - Android vc19 最终代码候选：`dist/Lumii-Lingban-v1.0.0-vc19-arm64-20260725-0249.apk`，71,944,386 bytes（68.61 MiB），SHA-256 `ADA99E3445F96B2F0E825A0119CAC5D038D963AABAC7BBA50ED62DC00D3225FD`；包名 `com.lumii.lingban`、versionCode `19`、仅 `arm64-v8a`、API `https://api.lumiiapp.cn`。`apksigner` 验证 v2 签名有效，证书 SHA-1 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`allowBackup=false`、`usesCleartextTraffic=false`，无录音、悬浮窗、安装包或全量应用查询权限。实包已编译出 `google_app_id`、`gcm_defaultSenderId`、`google_api_key`、`project_id` 四项 Firebase 资源，Bundle 不含测试端点、生产 SSH/后台口令或服务账号私钥特征。
+- vc19 原生模拟器验证：同源码临时 x86_64 release 在 Android 16 / Google APIs 模拟器上从同签名 vc17 使用 `adb install -r` 成功覆盖升级，系统读取 versionCode 19、ABI `x86_64`；冷启动 `Status: ok / LaunchState: COLD / TotalTime: 1494ms`。登录页原生截图与 UI 树位于 `artifacts/android-native-vc19/`，进程稳定，Logcat 无 Fatal、ReactNativeJS 未处理异常或 Activity 启动失败；`FirebaseInitProvider` 明确报告默认 Firebase App 初始化成功。该验证不能替代 arm64 真机登录、通知授权和 FCM V1 真实下发。
 
 ## 4. 剩余工作
 
