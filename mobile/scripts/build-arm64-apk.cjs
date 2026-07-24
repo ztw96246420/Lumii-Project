@@ -55,6 +55,7 @@ const allowInsecureTestApi = process.env.LUMII_ALLOW_INSECURE_TEST_API === '1';
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || (allowInsecureTestApi ? 'http://193.112.92.111' : 'https://api.lumiiapp.cn');
 const buildEnv = {
   ...process.env,
+  NODE_ENV: 'production',
   EXPO_PUBLIC_API_BASE_URL: apiBaseUrl,
   EXPO_PUBLIC_API_MODE: 'http',
   EXPO_PUBLIC_REQUIRE_HTTPS: allowInsecureTestApi ? 'false' : 'true',

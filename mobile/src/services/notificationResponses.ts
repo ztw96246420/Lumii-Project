@@ -67,17 +67,23 @@ export function notificationItemFromResponseData(value: unknown): NotificationIt
   const actionRoute = notificationActionRouteFromResponseData(data);
   return {
     ...(actionRoute ? { actionRoute } : {}),
+    actorPetId: firstString(data.actorPetId),
+    campaignId: firstString(data.campaignId),
     category,
     commentId: firstString(data.commentId),
     conversationId: firstString(data.conversationId),
     createdAt: firstString(data.createdAt),
     id: serverNotificationId || syntheticNotificationId(kind, data),
     kind,
+    mediaId: firstString(data.mediaId),
     memoId: firstString(data.memoId),
     ownerId: firstString(data.ownerId),
+    petId: firstString(data.petId),
     placeId: firstString(data.placeId),
     postId: firstString(data.postId),
     read: !serverNotificationId,
+    reportAppealId: firstString(data.reportAppealId),
+    reportId: firstString(data.reportId),
     submissionId: firstString(data.submissionId),
     ticketId: firstString(data.ticketId),
     text,
@@ -88,7 +94,7 @@ export function notificationItemFromResponseData(value: unknown): NotificationIt
 
 function notificationActionRouteFromResponseData(data: Record<string, unknown>): NotificationItem['actionRoute'] | '' {
   const route = firstString(data.actionRoute, data.action_route);
-  if (route === 'discover' || route === 'home' || route === 'map' || route === 'notifications' || route === 'profile' || route === 'safety' || route === 'settings' || route === 'supportTickets') return route;
+  if (route === 'discover' || route === 'home' || route === 'map' || route === 'notifications' || route === 'petCircleProfile' || route === 'profile' || route === 'safety' || route === 'settings' || route === 'supportTickets') return route;
   return '';
 }
 
@@ -102,7 +108,7 @@ function isLumiiNotificationData(data: Record<string, unknown>) {
     isNotificationKind(explicitKind) ||
       isNotificationCategory(category) ||
       isKnownNotificationType(type) ||
-      firstString(data.notificationId, data.conversationId, data.ownerId, data.postId, data.placeId, data.submissionId, data.ticketId, data.memoId, data.vaccineId, data.actionRoute, data.action_route),
+      firstString(data.notificationId, data.conversationId, data.ownerId, data.postId, data.placeId, data.submissionId, data.ticketId, data.memoId, data.vaccineId, data.reportId, data.mediaId, data.petId, data.actionRoute, data.action_route),
   );
 }
 
@@ -138,7 +144,7 @@ function syntheticNotificationId(kind: NotificationKind, data: Record<string, un
   return [
     'external',
     kind,
-    firstString(data.conversationId, data.ownerId, data.postId, data.placeId, data.submissionId, data.ticketId, data.memoId, data.vaccineId, data.actionRoute, data.action_route) || Date.now(),
+    firstString(data.conversationId, data.ownerId, data.postId, data.placeId, data.submissionId, data.ticketId, data.memoId, data.vaccineId, data.reportId, data.mediaId, data.petId, data.actionRoute, data.action_route) || Date.now(),
   ].join('-');
 }
 

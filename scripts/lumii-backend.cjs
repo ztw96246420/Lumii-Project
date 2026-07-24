@@ -198,6 +198,7 @@ const EXPO_PUSH_RECEIPT_SWEEP_INTERVAL_MS = Math.max(1000, Number(process.env.EX
 const EXPO_PUSH_RECEIPT_MAX_ATTEMPTS = Math.max(1, Math.min(12, Number(process.env.EXPO_PUSH_RECEIPT_MAX_ATTEMPTS || '4') || 4));
 const EXPO_PUSH_RECEIPT_MAX_AGE_MS = Math.max(60 * 1000, Number(process.env.EXPO_PUSH_RECEIPT_MAX_AGE_MS || 24 * 60 * 60 * 1000) || 24 * 60 * 60 * 1000);
 const EXPO_PUSH_RECEIPT_BATCH_SIZE = Math.max(1, Math.min(1000, Number(process.env.EXPO_PUSH_RECEIPT_BATCH_SIZE || '1000') || 1000));
+const BUSINESS_PUSH_DELIVERY_RETAIN = Math.max(100, Math.min(5000, Number(process.env.BUSINESS_PUSH_DELIVERY_RETAIN || '2000') || 2000));
 
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
 const port = Number(process.env.LUMII_BACKEND_PORT || (argPortIndex >= 0 ? process.argv[argPortIndex + 1] : '8787'));
@@ -1061,6 +1062,7 @@ function createInitialState() {
     authSessions: {},
     avatarAnimationJobs: {},
     avatarJobs: {},
+    businessPushDeliveries: [],
     aiAvatarSamples: {},
     aiPromptVersions: {},
     conversations: {},
@@ -6083,6 +6085,7 @@ function loadState() {
         ...initialState.avatarAnimationJobs,
         ...(loadedState.avatarAnimationJobs || {}),
       },
+      businessPushDeliveries: Array.isArray(loadedState.businessPushDeliveries) ? loadedState.businessPushDeliveries : initialState.businessPushDeliveries,
       aiAvatarSamples: loadedState.aiAvatarSamples && typeof loadedState.aiAvatarSamples === 'object' && !Array.isArray(loadedState.aiAvatarSamples) ? loadedState.aiAvatarSamples : initialState.aiAvatarSamples,
       aiPromptVersions: loadedState.aiPromptVersions && typeof loadedState.aiPromptVersions === 'object' && !Array.isArray(loadedState.aiPromptVersions) ? loadedState.aiPromptVersions : initialState.aiPromptVersions,
       mediaUploads: {
@@ -19628,7 +19631,11 @@ function addNotification(phone, notification, category, options = {}) {
   if (!options.force && !shouldStoreNotification(phone, normalizedCategory)) return false;
   state.notifications[phone] = state.notifications[phone] || [];
   if (state.notifications[phone].some((item) => item.id === notification.id)) return false;
-  state.notifications[phone].unshift(normalizeNotificationItem(notification, normalizedCategory));
+  const normalizedNotification = normalizeNotificationItem(notification, normalizedCategory);
+  state.notifications[phone].unshift(normalizedNotification);
+  if (options.remotePush !== false && !normalizedNotification.campaignId) {
+    queueBusinessNotificationPush(phone, normalizedNotification);
+  }
   return true;
 }
 
@@ -20415,7 +20422,174 @@ function systemNotificationPushTargetsForPhone(phone, notification, createdAt, d
       },
       notificationId,
       queuedAt: createdAt,
+  }));
+}
+
+function ensureBusinessPushDeliveries() {
+  if (!Array.isArray(state.businessPushDeliveries)) state.businessPushDeliveries = [];
+  return state.businessPushDeliveries;
+}
+
+const businessPushDataKeys = [
+  'actionRoute',
+  'actorPetId',
+  'commentId',
+  'conversationId',
+  'mediaId',
+  'memoId',
+  'ownerId',
+  'petId',
+  'placeId',
+  'postId',
+  'reportAppealId',
+  'reportId',
+  'submissionId',
+  'ticketId',
+  'vaccineId',
+];
+
+function businessNotificationPushData(notification = {}) {
+  const data = {
+    body: String(notification.text || '').slice(0, 240),
+    category: normalizeNotificationCategory(notification.category || inferNotificationCategory(notification)),
+    createdAt: String(notification.createdAt || new Date().toISOString()),
+    id: String(notification.id || ''),
+    kind: normalizeNotificationKind(notification.kind) || inferNotificationKind(notification),
+    notificationId: String(notification.id || ''),
+    source: 'lumii_business_notification',
+    text: String(notification.text || '').slice(0, 240),
+    title: String(notification.title || '灵伴通知').slice(0, 48),
+  };
+  businessPushDataKeys.forEach((key) => {
+    const value = notification[key];
+    if (typeof value === 'string' && value.trim()) data[key] = value.trim().slice(0, 240);
+    else if (typeof value === 'number' && Number.isFinite(value)) data[key] = String(value);
+  });
+  return data;
+}
+
+function businessNotificationPushTargetsForPhone(phone, notification, createdAt) {
+  const data = businessNotificationPushData(notification);
+  return activePushDevicesForPhone(phone)
+    .filter((device) => isExpoPushToken(device.token))
+    .map((device) => ({
+      deviceId: device.deviceId || '',
+      phone,
+      token: device.token,
+      tokenHash: pushTokenHash(device.token),
+      message: {
+        body: data.body,
+        channelId: 'lumii-default',
+        data,
+        priority: 'high',
+        sound: 'default',
+        title: data.title,
+        to: device.token,
+      },
+      notificationId: data.notificationId,
+      queuedAt: createdAt,
     }));
+}
+
+function businessPushDeliveryItem(item = {}) {
+  return {
+    actionRoute: item.actionRoute || '',
+    category: item.category || '',
+    createdAt: item.createdAt || '',
+    id: item.id || '',
+    kind: item.kind || '',
+    notificationId: item.notificationId || '',
+    phone: item.phone || '',
+    pushAttemptedCount: Number(item.pushAttemptedCount || 0),
+    pushCompletedAt: item.pushCompletedAt || '',
+    pushFailedCount: Number(item.pushFailedCount || 0),
+    pushInvalidTokenCount: Number(item.pushInvalidTokenCount || 0),
+    pushLastError: item.pushLastError || '',
+    pushProvider: item.pushProvider || (EXPO_PUSH_ENABLED ? 'expo' : 'disabled'),
+    pushReceiptAttemptedCount: Number(item.pushReceiptAttemptedCount || 0),
+    pushReceiptFailedCount: Number(item.pushReceiptFailedCount || 0),
+    pushReceiptLastError: item.pushReceiptLastError || '',
+    pushReceiptOkCount: Number(item.pushReceiptOkCount || 0),
+    pushReceiptPendingCount: Number(item.pushReceiptPendingCount || 0),
+    pushReceiptStatus: item.pushReceiptStatus || '',
+    pushSentCount: Number(item.pushSentCount || 0),
+    pushStatus: item.pushStatus || '',
+    title: item.title || '',
+    updatedAt: item.updatedAt || item.createdAt || '',
+  };
+}
+
+function queueBusinessNotificationPush(phone, notification) {
+  if (!EXPO_PUSH_ENABLED || !notification?.id || notification.campaignId) return false;
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) return false;
+  const deliveries = ensureBusinessPushDeliveries();
+  const id = `business-push-${crypto.createHash('sha256').update(`${normalizedPhone}:${notification.id}`).digest('hex').slice(0, 24)}`;
+  if (deliveries.some((item) => item.id === id)) return false;
+  const now = new Date().toISOString();
+  const data = businessNotificationPushData(notification);
+  const pushTargets = businessNotificationPushTargetsForPhone(normalizedPhone, notification, now);
+  const delivery = {
+    actionRoute: data.actionRoute || '',
+    category: data.category,
+    createdAt: now,
+    data,
+    id,
+    kind: data.kind,
+    notificationId: data.notificationId,
+    phone: normalizedPhone,
+    pushScope: 'business',
+    title: data.title,
+    updatedAt: now,
+  };
+  prepareSystemNotificationPush(delivery, pushTargets, now);
+  deliveries.unshift(delivery);
+  if (deliveries.length > BUSINESS_PUSH_DELIVERY_RETAIN) deliveries.splice(BUSINESS_PUSH_DELIVERY_RETAIN);
+  if (!pushTargets.length) return true;
+  setTimeout(() => {
+    runBusinessNotificationPushDelivery(delivery, pushTargets).catch((error) => {
+      const message = String(error?.message || error || 'Business push delivery failed').slice(0, 300);
+      delivery.pushCompletedAt = new Date().toISOString();
+      delivery.pushFailedCount = Number(delivery.pushAttemptedCount || pushTargets.length || 0);
+      delivery.pushLastError = message;
+      delivery.pushStatus = 'failed';
+      delivery.updatedAt = delivery.pushCompletedAt;
+      saveState();
+    });
+  }, 0);
+  return true;
+}
+
+async function runBusinessNotificationPushDelivery(delivery, pushTargets) {
+  if (!delivery || !Array.isArray(pushTargets) || !pushTargets.length) return false;
+  const summary = await sendExpoPushTargets(pushTargets);
+  const now = new Date().toISOString();
+  const receiptTickets = summary.tickets.filter((ticket) => ticket.status === 'ok' && ticket.id);
+  delivery.pushAttemptedCount = summary.attempted;
+  delivery.pushCompletedAt = now;
+  delivery.pushFailedCount = summary.failed;
+  delivery.pushInvalidTokenCount = summary.invalidTokens.length;
+  delivery.pushLastError = summary.errors[0] || '';
+  delivery.pushProvider = 'expo';
+  delivery.pushSentCount = summary.sent;
+  delivery.pushStatus = summary.failed > 0 && summary.sent > 0 ? 'partial' : summary.failed > 0 ? 'failed' : 'sent';
+  delivery.pushTickets = summary.tickets.slice(0, 100);
+  delivery.pushReceiptAttemptedCount = receiptTickets.length;
+  delivery.pushReceiptFailedCount = 0;
+  delivery.pushReceiptOkCount = 0;
+  delivery.pushReceiptPendingCount = receiptTickets.length;
+  delivery.pushReceiptStatus = !EXPO_PUSH_RECEIPTS_ENABLED
+    ? 'disabled'
+    : receiptTickets.length
+      ? 'scheduled'
+      : 'no_tickets';
+  delivery.pushReceiptNextCheckAt = EXPO_PUSH_RECEIPTS_ENABLED && receiptTickets.length
+    ? new Date(Date.now() + EXPO_PUSH_RECEIPT_DELAY_MS).toISOString()
+    : '';
+  delivery.updatedAt = now;
+  saveState();
+  scheduleExpoPushReceiptCheck(delivery);
+  return true;
 }
 
 async function postExpoPushBatch(messages) {
@@ -20630,14 +20804,14 @@ async function runSystemNotificationPushDelivery(notification, pushTargets) {
   notification.updatedAt = now;
   writeAdminAudit({ role: 'system', username: 'system' }, 'notification.system.push_result', 'system_notification', notification.id, before, systemNotificationItem(notification), notification.pushLastError || notification.pushStatus);
   saveState();
-  scheduleSystemNotificationPushReceiptCheck(notification);
+  scheduleExpoPushReceiptCheck(notification);
 }
 
-function scheduleSystemNotificationPushReceiptCheck(notification) {
+function scheduleExpoPushReceiptCheck(notification) {
   if (!EXPO_PUSH_RECEIPTS_ENABLED || !notification?.pushReceiptNextCheckAt) return;
   const delayMs = Math.max(0, Date.parse(notification.pushReceiptNextCheckAt) - Date.now());
   const timer = setTimeout(() => {
-    runSystemNotificationPushReceiptCheck(notification).catch((error) => {
+    runExpoPushReceiptCheck(notification).catch((error) => {
       const message = String(error?.message || error || 'Expo receipt check failed').slice(0, 300);
       notification.pushReceiptAttempts = Number(notification.pushReceiptAttempts || 0) + 1;
       notification.pushReceiptLastCheckedAt = new Date().toISOString();
@@ -20694,7 +20868,7 @@ async function fetchExpoReceiptsForTickets(tickets) {
   return receipts;
 }
 
-async function runSystemNotificationPushReceiptCheck(notification) {
+async function runExpoPushReceiptCheck(notification) {
   if (!EXPO_PUSH_RECEIPTS_ENABLED || !notification) return false;
   const tickets = pushReceiptTickets(notification);
   if (!tickets.length) {
@@ -20725,7 +20899,8 @@ async function runSystemNotificationPushReceiptCheck(notification) {
     return false;
   }
 
-  const before = systemNotificationItem(notification);
+  const businessPush = notification.pushScope === 'business';
+  const before = businessPush ? businessPushDeliveryItem(notification) : systemNotificationItem(notification);
   const now = new Date().toISOString();
   notification.pushReceiptAttempts = Number(notification.pushReceiptAttempts || 0) + 1;
   notification.pushReceiptLastCheckedAt = now;
@@ -20756,7 +20931,7 @@ async function runSystemNotificationPushReceiptCheck(notification) {
     if (totals.pending > 0 && notification.pushReceiptAttempts < EXPO_PUSH_RECEIPT_MAX_ATTEMPTS) {
       notification.pushReceiptNextCheckAt = new Date(Date.now() + EXPO_PUSH_RECEIPT_RETRY_MS).toISOString();
       notification.pushReceiptStatus = 'pending';
-      scheduleSystemNotificationPushReceiptCheck(notification);
+      scheduleExpoPushReceiptCheck(notification);
     } else {
       notification.pushReceiptNextCheckAt = '';
       notification.pushReceiptStatus = totals.pending > 0
@@ -20768,7 +20943,9 @@ async function runSystemNotificationPushReceiptCheck(notification) {
             : 'ok';
     }
     notification.updatedAt = now;
-    writeAdminAudit({ role: 'system', username: 'system' }, 'notification.system.push_receipt', 'system_notification', notification.id, before, systemNotificationItem(notification), notification.pushReceiptLastError || notification.pushReceiptStatus);
+    if (!businessPush) {
+      writeAdminAudit({ role: 'system', username: 'system' }, 'notification.system.push_receipt', 'system_notification', notification.id, before, systemNotificationItem(notification), notification.pushReceiptLastError || notification.pushReceiptStatus);
+    }
     saveState();
     return true;
   } catch (error) {
@@ -20777,7 +20954,7 @@ async function runSystemNotificationPushReceiptCheck(notification) {
     if (notification.pushReceiptAttempts < EXPO_PUSH_RECEIPT_MAX_ATTEMPTS) {
       notification.pushReceiptNextCheckAt = new Date(Date.now() + EXPO_PUSH_RECEIPT_RETRY_MS).toISOString();
       notification.pushReceiptStatus = 'retrying';
-      scheduleSystemNotificationPushReceiptCheck(notification);
+      scheduleExpoPushReceiptCheck(notification);
     } else {
       notification.pushReceiptNextCheckAt = '';
       notification.pushReceiptStatus = 'failed';
@@ -21016,6 +21193,9 @@ function adminSystemNotifications() {
   const campaigns = ensureSystemNotifications().map(systemNotificationItem)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
     .slice(0, 200);
+  const businessPushDeliveryRows = ensureBusinessPushDeliveries().map(businessPushDeliveryItem)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const businessPushDeliveries = businessPushDeliveryRows.slice(0, 200);
   const audiencePackages = adminNotificationAudiencePackages();
   const devices = adminPushDevices();
   const tokenDevices = devices.filter((item) => item.hasToken);
@@ -21032,16 +21212,46 @@ function adminSystemNotifications() {
   const pushReceiptOkCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushReceiptOkCount || 0), 0);
   const pushReceiptPendingCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushReceiptPendingCount || 0), 0);
   const pushSentCount = sentCampaigns.reduce((sum, item) => sum + Number(item.pushSentCount || 0), 0);
+  const businessPushAttemptedCount = businessPushDeliveryRows.reduce((sum, item) => sum + Number(item.pushAttemptedCount || 0), 0);
+  const businessPushFailedCount = businessPushDeliveryRows.reduce((sum, item) => sum + Number(item.pushFailedCount || 0), 0);
+  const businessPushReceiptAttemptedCount = businessPushDeliveryRows.reduce((sum, item) => sum + Number(item.pushReceiptAttemptedCount || 0), 0);
+  const businessPushReceiptFailedCount = businessPushDeliveryRows.reduce((sum, item) => sum + Number(item.pushReceiptFailedCount || 0), 0);
+  const businessPushReceiptOkCount = businessPushDeliveryRows.reduce((sum, item) => sum + Number(item.pushReceiptOkCount || 0), 0);
+  const businessPushReceiptPendingCount = businessPushDeliveryRows.reduce((sum, item) => sum + Number(item.pushReceiptPendingCount || 0), 0);
+  const businessPushSentCount = businessPushDeliveryRows.reduce((sum, item) => sum + Number(item.pushSentCount || 0), 0);
+  const totalPushAttemptedCount = pushAttemptedCount + businessPushAttemptedCount;
+  const totalPushFailedCount = pushFailedCount + businessPushFailedCount;
+  const totalPushReceiptAttemptedCount = pushReceiptAttemptedCount + businessPushReceiptAttemptedCount;
+  const totalPushReceiptFailedCount = pushReceiptFailedCount + businessPushReceiptFailedCount;
+  const totalPushReceiptOkCount = pushReceiptOkCount + businessPushReceiptOkCount;
+  const totalPushReceiptPendingCount = pushReceiptPendingCount + businessPushReceiptPendingCount;
+  const totalPushSentCount = pushSentCount + businessPushSentCount;
   const readCount = sentCampaigns.reduce((sum, item) => sum + Number(item.readCount || 0), 0);
   return {
     campaigns,
     audiencePackages,
+    businessPushDeliveries,
     devices: devices.slice(0, 200),
     rateLimit: notificationRateLimitSnapshot(),
     summary: {
       activeToday: users.filter((user) => Date.now() - Number(user.lastSeenAt || 0) < 24 * 60 * 60 * 1000).length,
       approvalRequired: notificationApprovalRequired(),
       audiencePackages: audiencePackages.length,
+      businessPushAttempted: businessPushAttemptedCount,
+      businessPushDeliveries: businessPushDeliveryRows.length,
+      businessPushFailed: businessPushFailedCount,
+      businessPushReceiptAttempted: businessPushReceiptAttemptedCount,
+      businessPushReceiptFailed: businessPushReceiptFailedCount,
+      businessPushReceiptOk: businessPushReceiptOkCount,
+      businessPushReceiptPending: businessPushReceiptPendingCount,
+      businessPushSent: businessPushSentCount,
+      campaignPushAttempted: pushAttemptedCount,
+      campaignPushFailed: pushFailedCount,
+      campaignPushReceiptAttempted: pushReceiptAttemptedCount,
+      campaignPushReceiptFailed: pushReceiptFailedCount,
+      campaignPushReceiptOk: pushReceiptOkCount,
+      campaignPushReceiptPending: pushReceiptPendingCount,
+      campaignPushSent: pushSentCount,
       campaigns: campaigns.length,
       delivered: deliveredCount,
       devices: tokenDevices.length,
@@ -21050,18 +21260,18 @@ function adminSystemNotifications() {
       impressions: impressionCount,
       openRate: analyticsPercent(openCount, deliveredCount),
       opens: openCount,
-      pushAttempted: pushAttemptedCount,
+      pushAttempted: totalPushAttemptedCount,
       pushEnabled: EXPO_PUSH_ENABLED,
-      pushFailed: pushFailedCount,
+      pushFailed: totalPushFailedCount,
       pushProvider: EXPO_PUSH_ENABLED ? 'expo' : 'disabled',
-      pushReceiptAttempted: pushReceiptAttemptedCount,
+      pushReceiptAttempted: totalPushReceiptAttemptedCount,
       pushReceiptEnabled: EXPO_PUSH_RECEIPTS_ENABLED,
-      pushReceiptFailed: pushReceiptFailedCount,
-      pushReceiptOk: pushReceiptOkCount,
-      pushReceiptPending: pushReceiptPendingCount,
-      pushReceiptSuccessRate: analyticsPercent(pushReceiptOkCount, pushReceiptAttemptedCount),
-      pushSent: pushSentCount,
-      pushSuccessRate: analyticsPercent(pushSentCount, pushAttemptedCount),
+      pushReceiptFailed: totalPushReceiptFailedCount,
+      pushReceiptOk: totalPushReceiptOkCount,
+      pushReceiptPending: totalPushReceiptPendingCount,
+      pushReceiptSuccessRate: analyticsPercent(totalPushReceiptOkCount, totalPushReceiptAttemptedCount),
+      pushSent: totalPushSentCount,
+      pushSuccessRate: analyticsPercent(totalPushSentCount, totalPushAttemptedCount),
       registrationAttempts: devices.reduce((sum, item) => sum + Number(item.attemptCount || 0), 0),
       registrationFailures: registrationFailures.length,
       registrationNativeConfigFailures: registrationFailures.filter((item) => item.registrationFailureCode === 'native_config_missing').length,
@@ -21376,7 +21586,7 @@ async function processDueExpoPushReceipts() {
   expoPushReceiptSweepRunning = true;
   let changed = false;
   try {
-    const due = ensureSystemNotifications().filter((notification) => {
+    const due = [...ensureSystemNotifications(), ...ensureBusinessPushDeliveries()].filter((notification) => {
       if (notification.pushProvider !== 'expo') return false;
       if (!notification.pushReceiptNextCheckAt) return false;
       if (Date.parse(notification.pushReceiptNextCheckAt) > Date.now()) return false;
@@ -21384,7 +21594,7 @@ async function processDueExpoPushReceipts() {
       return ['pending', 'retrying', 'scheduled', 'waiting_ticket'].includes(String(notification.pushReceiptStatus || ''));
     });
     for (const notification of due.slice(0, 20)) {
-      changed = (await runSystemNotificationPushReceiptCheck(notification)) || changed;
+      changed = (await runExpoPushReceiptCheck(notification)) || changed;
     }
     return changed;
   } finally {
@@ -22092,6 +22302,7 @@ function adminUserBusinessDataSummary(phone) {
     placeReviews: (state.placeReviews?.[normalizedPhone] || []).length,
     placeSubmissions: (state.placeSubmissions?.[normalizedPhone] || []).length,
     pushDevices: (state.pushDevices?.[normalizedPhone] || []).length,
+    businessPushDeliveries: ensureBusinessPushDeliveries().filter((item) => item.phone === normalizedPhone || notificationBelongsToClearedUser(item.data || item, normalizedPhone, ids)).length,
     pushRegistrationDiagnostics: Object.keys(state.pushRegistrationDiagnostics?.[normalizedPhone] || {}).length,
     socialBlocks: ensureSocialBlocks().filter((item) => item.blockerPhone === normalizedPhone || item.blockedPhone === normalizedPhone).length,
     socialComments: ids.commentIds.size,
@@ -22328,6 +22539,7 @@ function adminClearUserBusinessData(admin, phone, body = {}, options = {}) {
   if (state.placeSubmissions) delete state.placeSubmissions[normalizedPhone];
   if (state.notifications) delete state.notifications[normalizedPhone];
   if (state.pushDevices) delete state.pushDevices[normalizedPhone];
+  state.businessPushDeliveries = ensureBusinessPushDeliveries().filter((item) => item.phone !== normalizedPhone && !notificationBelongsToClearedUser(item.data || item, normalizedPhone, ids));
   if (state.pushRegistrationDiagnostics) delete state.pushRegistrationDiagnostics[normalizedPhone];
   if (state.authSessions) delete state.authSessions[normalizedPhone];
   clearSmsLoginSecurity(normalizedPhone);
@@ -22946,6 +23158,10 @@ function purgePetBusinessData(user, pet) {
     summary.notifications += notifications.length - next.length;
     state.notifications[ownerPhone] = next;
   });
+  const businessPushDeliveries = ensureBusinessPushDeliveries();
+  const remainingBusinessPushDeliveries = businessPushDeliveries.filter((delivery) => !recordReferencesPetDeletion(delivery, context));
+  summary.businessPushDeliveries = businessPushDeliveries.length - remainingBusinessPushDeliveries.length;
+  state.businessPushDeliveries = remainingBusinessPushDeliveries;
   const appEvents = Array.isArray(state.appEvents) ? state.appEvents : [];
   state.appEvents = appEvents.filter((event) => !recordReferencesPetDeletion(event, context));
   summary.events = appEvents.length - state.appEvents.length;

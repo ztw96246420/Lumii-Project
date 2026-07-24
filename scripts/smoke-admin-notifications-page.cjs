@@ -222,6 +222,8 @@ async function main() {
     await page.screenshot({ fullPage: true, path: artifactPath });
     await page.locator('.metric-label').filter({ hasText: '登记异常' }).waitFor({ timeout: 30_000 });
     await page.getByRole('heading', { name: '最近设备' }).waitFor({ timeout: 30_000 });
+    await page.getByRole('heading', { name: '业务通知 Push' }).waitFor({ timeout: 30_000 });
+    await page.getByText('暂无业务 Push 记录', { exact: true }).waitFor({ timeout: 30_000 });
     await page.getByText('尚未取得', { exact: true }).waitFor({ timeout: 30_000 });
     await page.getByText('登记失败', { exact: true }).waitFor({ timeout: 30_000 });
     await page.getByText('APK 缺少 Firebase 配置', { exact: true }).waitFor({ timeout: 30_000 });

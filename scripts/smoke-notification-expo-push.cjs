@@ -231,6 +231,27 @@ async function waitForPushResult(adminToken, campaignId) {
   throw new Error(`push result did not complete: ${JSON.stringify(latest?.campaigns?.find((item) => item.id === campaignId) || null)}`);
 }
 
+async function waitForBusinessPushResult(adminToken, notificationId) {
+  const deadline = Date.now() + 5000;
+  let latest = null;
+  while (Date.now() < deadline) {
+    const payload = await request('/admin/notifications', { token: adminToken });
+    latest = payload.data;
+    const delivery = payload.data.businessPushDeliveries.find((item) => item.notificationId === notificationId);
+    if (
+      delivery
+      && delivery.pushStatus
+      && !['queued'].includes(delivery.pushStatus)
+      && delivery.pushReceiptStatus
+      && !['waiting_ticket', 'scheduled', 'pending', 'retrying'].includes(delivery.pushReceiptStatus)
+    ) {
+      return { delivery, notifications: payload.data };
+    }
+    await delay(100);
+  }
+  throw new Error(`business push result did not complete: ${JSON.stringify(latest?.businessPushDeliveries?.find((item) => item.notificationId === notificationId) || null)}`);
+}
+
 async function main() {
   await startExpoServer();
   const port = await getFreePort();
@@ -305,6 +326,53 @@ async function main() {
     assert.equal(notifications.summary.pushReceiptOk, 1);
     assert.equal(notifications.summary.pushReceiptFailed, 1);
     assert.equal(notifications.summary.pushReceiptSuccessRate, 50);
+
+    const feedback = await request('/feedback', {
+      body: { category: 'other', content: 'Business push smoke support ticket' },
+      method: 'POST',
+      token: userToken,
+    });
+    const ticketId = feedback.data?.supportTicketId;
+    assert.ok(ticketId, 'missing support ticket id');
+    await request(`/admin/tickets/${encodeURIComponent(ticketId)}/reply`, {
+      body: {
+        content: '业务推送回归：客服已收到并处理。',
+        nextStatus: 'resolved',
+        notifyUser: true,
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    const userNotifications = await request('/notifications', { token: userToken });
+    const supportNotification = userNotifications.data.find((item) => item.kind === 'support_reply' && item.ticketId === ticketId);
+    assert.ok(supportNotification?.id, 'support reply should create a business notification');
+    const { delivery: businessDelivery, notifications: notificationsAfterBusinessPush } = await waitForBusinessPushResult(adminToken, supportNotification.id);
+    assert.equal(expoRequests.length, 4);
+    const businessMessage = expoRequests[3];
+    assert.equal(businessMessage.to, 'ExponentPushToken[smoke-good-token]');
+    assert.equal(businessMessage.channelId, 'lumii-default');
+    assert.equal(businessMessage.data.source, 'lumii_business_notification');
+    assert.equal(businessMessage.data.kind, 'support_reply');
+    assert.equal(businessMessage.data.ticketId, ticketId);
+    assert.equal(businessMessage.data.notificationId, supportNotification.id);
+    assert.equal(businessDelivery.kind, 'support_reply');
+    assert.equal(businessDelivery.pushAttemptedCount, 1);
+    assert.equal(businessDelivery.pushSentCount, 1);
+    assert.equal(businessDelivery.pushFailedCount, 0);
+    assert.equal(businessDelivery.pushReceiptAttemptedCount, 1);
+    assert.equal(businessDelivery.pushReceiptOkCount, 1);
+    assert.equal(businessDelivery.pushReceiptFailedCount, 0);
+    assert.equal(businessDelivery.pushReceiptStatus, 'ok');
+    assert.equal(notificationsAfterBusinessPush.summary.businessPushDeliveries, 1);
+    assert.equal(notificationsAfterBusinessPush.summary.businessPushAttempted, 1);
+    assert.equal(notificationsAfterBusinessPush.summary.businessPushSent, 1);
+    assert.equal(notificationsAfterBusinessPush.summary.businessPushReceiptOk, 1);
+    assert.equal(notificationsAfterBusinessPush.summary.pushAttempted, 4);
+    assert.equal(notificationsAfterBusinessPush.summary.pushSent, 3);
+    assert.equal(notificationsAfterBusinessPush.summary.pushFailed, 1);
+    assert.equal(notificationsAfterBusinessPush.summary.pushReceiptAttempted, 3);
+    assert.equal(notificationsAfterBusinessPush.summary.pushReceiptOk, 2);
+    assert.equal(notificationsAfterBusinessPush.summary.pushReceiptFailed, 1);
 
     const devicesPayload = await request('/admin/push-devices', { token: adminToken });
     const badDevice = devicesPayload.data.find((device) => device.deviceId === 'expo-bad-device');

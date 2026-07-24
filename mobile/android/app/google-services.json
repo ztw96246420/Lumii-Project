@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "834077458395",
+    "project_id": "lumii-lingban",
+    "storage_bucket": "lumii-lingban.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:834077458395:android:27531f98a8d39898cb31fe",
+        "android_client_info": {
+          "package_name": "com.lumii.lingban"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCUlJ4743TJ_ksu4L4O4wIU8KAlmFLrvVU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

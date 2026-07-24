@@ -6,6 +6,8 @@ const { execFile, spawn } = require('child_process');
 
 const rootDir = path.resolve(__dirname, '..');
 const backendScript = path.join(rootDir, 'scripts', 'lumii-backend.cjs');
+const mobileAppConfig = JSON.parse(fs.readFileSync(path.join(rootDir, 'mobile', 'app.json'), 'utf8'));
+const nextAndroidBuildNumber = Math.max(1, Number(mobileAppConfig?.expo?.android?.versionCode || 0) + 1);
 const defaultArtifactsDir = path.join(rootDir, 'artifacts', 'pet-circle-frontend');
 const explicitBaseUrl = Boolean(process.env.FRONTEND_BASE_URL);
 let baseUrl = (process.env.FRONTEND_BASE_URL || 'http://localhost:19031').replace(/\/+$/, '');
@@ -816,7 +818,7 @@ async function main() {
     }
     await page.getByLabel(`vaccine-due-year-${vaccineWheelYear}`).click();
     await page.getByLabel(`vaccine-due-month-${vaccineWheelMonth}`).click();
-    await page.getByLabel(`vaccine-due-day-${vaccineWheelDay}`).click();
+    await page.getByLabel(`vaccine-due-day-${vaccineWheelDay}`, { exact: true }).click();
     await page.getByLabel('confirm-vaccine-due-picker').click();
     await page.getByLabel('confirm-vaccine-due-picker').waitFor({ state: 'hidden', timeout: 30_000 });
     await waitBodyIncludes(page, vaccineWheelDate);
@@ -1742,7 +1744,7 @@ async function main() {
               androidUrl: updateTargetUrl,
               enabled: true,
               force: false,
-              latestBuildNumber: 18,
+              latestBuildNumber: nextAndroidBuildNumber,
               latestVersion: '1.0.0',
               minBuildNumber: 0,
               minVersion: '',
@@ -1787,9 +1789,9 @@ async function main() {
               androidUrl: updateTargetUrl,
               enabled: true,
               force: true,
-              latestBuildNumber: 18,
+              latestBuildNumber: nextAndroidBuildNumber,
               latestVersion: '1.0.0',
-              minBuildNumber: 18,
+              minBuildNumber: nextAndroidBuildNumber,
               minVersion: '1.0.0',
               rolloutPercent: 100,
               subtitle: '当前构建必须升级后才能继续。',

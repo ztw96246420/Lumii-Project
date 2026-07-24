@@ -8322,11 +8322,71 @@ function notificationActionLabel(value) {
     home: '首页',
     map: '地图',
     notifications: '通知中心',
+    petCircleProfile: '宠友圈主页',
     profile: '我的',
     safety: '安全中心',
     settings: '设置',
     supportTickets: '反馈进度',
   }[value] || '无跳转';
+}
+
+function notificationKindLabel(value) {
+  return {
+    conversation_message: '私信消息',
+    greeting_accepted: '招呼已接受',
+    greeting_request: '新招呼',
+    health_reminder: '健康提醒',
+    medical_alert: '健康预警',
+    pet_circle_comment: '小事评论',
+    pet_circle_greeting: '宠友圈招呼',
+    pet_circle_like: '小事点赞',
+    place_review: '地点点评',
+    place_submission: '地点提交',
+    support_reply: '客服回复',
+    system: '业务结果',
+    vaccine_done: '健康计划完成',
+    vaccine_reminder: '疫苗/驱虫提醒',
+    walk_invite: '遛宠邀请',
+  }[value] || value || '-';
+}
+
+function pushDeliveryStatusLabel(value) {
+  return {
+    disabled: '未启用',
+    failed: '失败',
+    no_devices: '无可用设备',
+    partial: '部分成功',
+    queued: '排队中',
+    sent: '已交付 Expo',
+  }[value] || value || '-';
+}
+
+function pushDeliveryStatusTone(value) {
+  if (value === 'sent') return 'ok';
+  if (value === 'failed') return 'bad';
+  return 'warn';
+}
+
+function pushReceiptStatusLabel(value) {
+  return {
+    disabled: '未启用',
+    expired: '已过期',
+    failed: '失败',
+    incomplete: '未完整返回',
+    no_tickets: '无回执票据',
+    ok: '已确认',
+    partial: '部分成功',
+    pending: '查询中',
+    retrying: '重试中',
+    scheduled: '等待查询',
+    waiting_ticket: '等待票据',
+  }[value] || value || '-';
+}
+
+function pushReceiptStatusTone(value) {
+  if (value === 'ok') return 'ok';
+  if (value === 'failed' || value === 'expired') return 'bad';
+  return 'warn';
 }
 
 function notificationDeepLinkTypeLabel(value) {
@@ -8817,6 +8877,7 @@ async function renderNotifications(force) {
   const data = await load('notifications', '/admin/notifications', force);
   const summary = data.summary || {};
   const audiencePackages = data.audiencePackages || [];
+  const businessPushDeliveries = data.businessPushDeliveries || [];
   const campaigns = data.campaigns || [];
   const devices = data.devices || [];
   const rateLimit = data.rateLimit || {};
@@ -8829,9 +8890,9 @@ async function renderNotifications(force) {
       ${metric('通知展示', numberText(summary.impressions || 0), `${percentText(summary.impressionRate || 0)} 展示率`, '来自移动端通知列表 notification.impression 事件；展示率按系统通知批次的去重展示人数 / 送达数计算。')}
       ${metric('通知点击', numberText(summary.opens || 0), `${percentText(summary.openRate || 0)} 打开率`, '来自移动端 notification.open 事件；点击率按系统通知批次的去重点击人数 / 送达数计算。')}
       ${metric('用户总数', summary.users || 0, `${summary.activeToday || 0} 今日活跃`, '“今日活跃用户”目标按 lastSeenAt 近 24 小时计算。')}
-      ${metric('推送设备', summary.devices || 0, summary.pushEnabled ? 'Expo Push 已启用' : 'Expo Push 未启用', '用户授权通知后登记设备 token；系统通知可通过 Expo Push 下发，失败 token 会被标记。')}
+      ${metric('推送设备', summary.devices || 0, summary.pushEnabled ? 'Expo Push 已启用' : 'Expo Push 未启用', '用户授权通知后登记设备 token；系统群发和业务通知均可通过 Expo Push 下发，失败 token 会被标记。')}
       ${metric('登记异常', summary.registrationFailures || 0, `${numberText(summary.registrationObservedDevices || 0)} 台已观测 · ${numberText(summary.registrationAttempts || 0)} 次尝试`, '记录授权后从 FCM token、Expo token 到业务后端登记的完整阶段；客户端报告缺少原生配置时需结合发布构建校验核实。')}
-      ${metric('Push 下发', numberText(summary.pushSent || 0), `${numberText(summary.pushAttempted || 0)} 尝试 · ${percentText(summary.pushSuccessRate || 0)}`, '统计系统通知发起的 Expo Push ticket 结果；不等同于用户点击或最终展示。')}
+      ${metric('Push 下发', numberText(summary.pushSent || 0), `${numberText(summary.pushAttempted || 0)} 尝试 · ${percentText(summary.pushSuccessRate || 0)}`, `统计系统群发和业务通知的 Expo Push ticket 结果；业务 ${numberText(summary.businessPushSent || 0)}/${numberText(summary.businessPushAttempted || 0)}，群发 ${numberText(summary.campaignPushSent || 0)}/${numberText(summary.campaignPushAttempted || 0)}。`)}
       ${metric('Push 回执', numberText(summary.pushReceiptOk || 0), `${numberText(summary.pushReceiptAttempted || 0)} 已核验 · ${numberText(summary.pushReceiptPending || 0)} 待查 · ${percentText(summary.pushReceiptSuccessRate || 0)}`, '统计 Expo 向 FCM/APNs 交付后的 receipt 结果；仍不等同于用户实际点击。')}
       ${metric('人群包', summary.audiencePackages || audiencePackages.length, '灰度触达', '保存测试手机号、灰度用户和补偿用户，发送时按当前注册用户重新计算可触达范围。')}
       ${metric('待处理', (summary.drafts || 0) + (summary.scheduled || 0) + (summary.pendingApprovals || 0), `${summary.drafts || 0} 草稿 · ${summary.pendingApprovals || 0} 审批 · ${summary.scheduled || 0} 预约`, '草稿和待审批通知不会触达用户；审批通过后才会写入 App 通知中心或转为预约。')}
@@ -8979,6 +9040,22 @@ async function renderNotifications(force) {
           ['更新', (d) => formatTime(d.updatedAt)],
         ]) : '<div class="placeholder"><div><strong>暂无设备</strong><div>用户授权通知后，App 会上报登记阶段并登记设备 token。</div></div></div>'}
       </div>
+    </div>
+
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>业务通知 Push</h2>
+          <div class="section-sub">最近 200 条点赞、评论、招呼、私信、健康提醒、客服回复和审核结果等自动 Push 记录</div>
+        </div>
+      </div>
+      ${businessPushDeliveries.length ? tableHtml(businessPushDeliveries, [
+        ['业务通知', (row) => `<div class="cell-title">${escapeHtml(row.title || notificationKindLabel(row.kind))}</div><div class="cell-sub">${escapeHtml(notificationKindLabel(row.kind))} · ${escapeHtml(row.notificationId || row.id || '-')}</div>`],
+        ['用户 / 跳转', (row) => `<div>${shortPhone(row.phone)}</div><div class="cell-sub">${escapeHtml(notificationActionLabel(row.actionRoute))}</div>`],
+        ['下发', (row) => `${tonePill(pushDeliveryStatusLabel(row.pushStatus), pushDeliveryStatusTone(row.pushStatus))}<div class="cell-sub">${numberText(row.pushSentCount || 0)} 成功 / ${numberText(row.pushAttemptedCount || 0)} 尝试${row.pushInvalidTokenCount ? ` · ${numberText(row.pushInvalidTokenCount)} 失效设备` : ''}</div>${row.pushLastError ? `<div class="cell-sub clamp">${escapeHtml(row.pushLastError)}</div>` : ''}`],
+        ['回执', (row) => `${tonePill(pushReceiptStatusLabel(row.pushReceiptStatus), pushReceiptStatusTone(row.pushReceiptStatus))}<div class="cell-sub">${numberText(row.pushReceiptOkCount || 0)} 成功 / ${numberText(row.pushReceiptAttemptedCount || 0)} 查询${row.pushReceiptPendingCount ? ` · ${numberText(row.pushReceiptPendingCount)} 待查` : ''}</div>${row.pushReceiptLastError ? `<div class="cell-sub clamp">${escapeHtml(row.pushReceiptLastError)}</div>` : ''}`],
+        ['更新', (row) => formatTime(row.updatedAt || row.createdAt)],
+      ]) : '<div class="placeholder"><div><strong>暂无业务 Push 记录</strong><div>产生点赞、评论、私信、客服回复或健康提醒后，会在这里记录 Push 下发与回执结果。</div></div></div>'}
     </div>
   `;
 }
