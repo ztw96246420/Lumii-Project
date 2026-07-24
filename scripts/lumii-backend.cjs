@@ -29055,8 +29055,8 @@ function adminReadinessModules(context) {
       module: '通知运营',
       group: '触达',
       status: 'partial',
-      evidence: '支持系统通知、草稿、待审批、预约、撤回、模板、通知人群包、设备概览、actionRoute、对象深链、发送审批、频控、Expo Push ticket/receipt 和展示/已读/点击批次效果统计。',
-      mobileLinkage: '通知会写入 App 通知中心，支持跳首页、发现、地图、我的、安全中心、设置、反馈进度；移动端通知页会上报 notification.impression，点击会上报 notification.open。',
+      evidence: '支持系统通知、草稿、待审批、预约、撤回、模板、通知人群包、设备概览、actionRoute、对象深链、发送审批、频控、Expo Push ticket/receipt 和展示/已读/点击批次效果统计；点赞、评论、招呼、私信、健康提醒、客服回复和审核结果等业务通知也会自动 Push，并在后台单独追踪投递与回执。',
+      mobileLinkage: '系统与业务通知都会写入 App 通知中心并同步 Push，支持跳首页、发现、地图、宠友圈主页、我的、安全中心、设置、反馈进度及具体业务对象；移动端通知页会上报 notification.impression，点击会上报 notification.open。',
       nextStep: '生产期补 Android 厂商 Push/APNs 专项优化、OS 级展示回执、站外审批提醒和值守 SOP；强制通知审批已进入高风险会签和 /admin/approvals/pending 值守队列。',
     },
     {
@@ -29354,12 +29354,12 @@ function adminReadinessGaps(context) {
       severity: 'P1',
       status: 'partial',
       issue: EXPO_PUSH_ENABLED
-        ? '系统通知已接 Expo Push 下发、ticket 记录、receipt 轮询、失效 token 标记、App 内通知展示/点击回传、高风险会签和后台待审批值守队列；仍缺 Android 厂商 Push/APNs 专项优化、OS 级展示回执和站外审批提醒。'
+        ? '系统群发及点赞、评论、招呼、私信、健康提醒、客服回复、审核结果等业务通知均已接 Expo Push 下发、ticket 记录、receipt 轮询、失效 token 标记和后台投递追踪；系统群发同时支持 App 内展示/点击回传、高风险会签和待审批值守队列。仍缺 Android 厂商 Push/APNs 专项优化、OS 级展示回执和站外审批提醒。'
         : '当前以站内通知为主，Expo Push 开关未启用；后台待审批值守队列已接，厂商 Push、送达回执和站外审批提醒未完成。',
       requiredAction: EXPO_PUSH_ENABLED
         ? '继续补厂商通道专项配置、OS 级展示回执、失败告警和生产审批值守通知策略。'
         : '配置 EXPO_PUSH_ENABLED=true 并验证 Expo Push；再接 receipt、失败重试、Android 厂商 Push、iOS APNs 和生产审批值守通知。',
-      evidence: '通知运营页设备 token 概览 / systemNotifications.pushStatus / systemNotifications.pushReceiptStatus / notification.impression / notification.open',
+      evidence: '通知运营页设备 token 概览 / systemNotifications.pushStatus / businessPushDeliveries / pushReceiptStatus / notification.impression / notification.open',
     },
     {
       key: 'observability',
