@@ -334,12 +334,16 @@
 - Android vc17 业务验收包：`dist/Lumii-Lingban-v1.0.0-vc17-arm64-20260714-1300.apk` 已完成正式签名构建，大小 68.59 MB，SHA-256 为 `2C986108E0B742937006C7152ADADA3E2B66D1D8AEB38CC3C796DBD4E4617DA8`；包名 `com.lumii.lingban`、versionCode `17`、API `https://api.lumiiapp.cn`、禁止明文流量且仅含 `arm64-v8a`，Bundle 不含测试服务器 `193.112.92.111` 或 `127.0.0.1` 端点，也不含短信模板和已知服务密钥。`apksigner` 验证 v2 签名有效，签名证书 SHA-1 仍为 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`aapt2` 实包验证无录音/悬浮窗/安装包权限，`allowBackup=false`、`usesCleartextTraffic=false`。该包缺少 Firebase Android 资源，只用于 Push 之外的业务验收，不再作为最终上线候选。
 - 原生 Android 升级验证：临时 x86_64 vc17 release 通过 `adb install -r` 从同签名 vc16 覆盖安装，系统实际读取 versionCode 17；冷启动 `Status: ok / LaunchState: COLD / TotalTime: 545ms`。登录页、用户协议和隐私政策原生截图位于 `artifacts/android-native-vc17/`，两份协议均从生产 HTTPS 读取完整 `draft-2026-07-14` 草稿并明确显示“未发布草稿”，不再出现旧 `test-*` 文案；Logcat 无 Fatal、ReactNativeJS 未处理异常或进程崩溃。
 - Push 登记专项：`node scripts/smoke-push-registration-diagnostics.cjs`、`node scripts/smoke-notification-expo-push.cjs`、`node scripts/smoke-mobile-core-flows.cjs`、移动端 TypeScript 和 Release 配置门禁通过。vc17 实包缺少 Firebase 资源，不计作 Push 验收通过；补齐真实 Firebase 配置后必须构建新版本并完成真机 token、下发 ticket、receipt 和点击落页验证。
+- 业务通知 Push 闭环于 2026-07-25 补齐：点赞、评论、招呼、私信、健康提醒、客服回复、审核结果等通过统一通知入口同步下发 Expo Push；按通知 ID 去重，保留 ticket/receipt、失效 token、失败原因和最近 2,000 条投递记录，后台通知运营页可区分系统群发与业务通知。账号业务数据清理、账号注销和单宠物永久删除会同步清理相关投递记录；移动端通知响应补齐宠物、媒体、举报/申诉和宠友圈主页等落页字段。`smoke-notification-expo-push` 已验证系统群发与客服回复业务 Push 的 ticket、receipt、失效设备隔离和汇总指标。
+- 2026-07-25 上线门禁：非视觉套件 `76/76` 通过，10 个真实浏览器套件 `10/10` 通过；完整前端 Playwright 用时 313.5 秒。日期按钮定位改为精确匹配，App 更新测试从 `mobile/app.json` 动态读取当前构建号并以“当前 + 1”验证可选/强制更新，避免升版后测试假失败。
+- 业务与后台提交 `120141b0`、上线台账文案提交 `f9fb6cdb` 已通过直连 SSH 部署到生产。部署前停止服务，使用服务同款 Node 24 执行 `wal_checkpoint(TRUNCATE)` 与 `quick_check=ok`，主 SQLite、JSON 回滚镜像和独立审计日志备份到 `/home/ubuntu/lumii-data/deploy-backups/20260725-025501-pre-120141b0` 并生成 SHA-256 清单。服务恢复为 `active`、`NRestarts=0`，只监听 `127.0.0.1:8787`，部署后 warning/error 日志为 0，站外正式域名与本机 SNI 探针均成功，用户数保持 21，生产工作区无已跟踪改动。
+- Android vc19 最终代码候选：`dist/Lumii-Lingban-v1.0.0-vc19-arm64-20260725-0249.apk`，71,944,386 bytes（68.61 MiB），SHA-256 `ADA99E3445F96B2F0E825A0119CAC5D038D963AABAC7BBA50ED62DC00D3225FD`；包名 `com.lumii.lingban`、versionCode `19`、仅 `arm64-v8a`、API `https://api.lumiiapp.cn`。`apksigner` 验证 v2 签名有效，证书 SHA-1 `22:93:C8:19:C3:C9:C4:1D:8B:69:60:95:30:71:24:7F:63:99:48:DA`；`allowBackup=false`、`usesCleartextTraffic=false`，无录音、悬浮窗、安装包或全量应用查询权限。实包已编译出 `google_app_id`、`gcm_defaultSenderId`、`google_api_key`、`project_id` 四项 Firebase 资源，Bundle 不含测试端点、生产 SSH/后台口令或服务账号私钥特征。
 
 ## 4. 剩余工作
 
 ### 4.1 发布候选验收
 
-- vc17 已完成正式签名、arm64、生产 HTTPS、静态、签名、权限和业务自动化验收，但缺少 Firebase Android 配置；补齐配置后需提升构建号重新构建最终候选，并在真机完成新装、同签名升级、登录、建档、AI 生成、宠友圈、Push 通知、注销和异常恢复回归。
+- vc19 已完成正式签名、arm64、生产 HTTPS、Firebase Android 资源、静态、签名、权限和全量业务自动化验收；仍需在真实 Android 设备完成新装、从旧同签名版本升级、登录、建档、AI 生成与动效恢复、宠友圈、FCM token、Push 展示/点击落页、注销和异常恢复回归。未完成真机验收前不把 vc19 标记为正式发布完成。
 
 ### 4.2 生产配置与业务确认
 
@@ -347,14 +351,14 @@
 
 - ~~正式 API 域名站外 TLS 与公网 443。~~ 已完成：Lighthouse 防火墙放行 TCP 443、关闭公网后端端口 8787，站外 `https://api.lumiiapp.cn/health` 返回 200，源站 SNI 与站外访问证据均为 `ok`；生产后端仅监听 `127.0.0.1:8787`。后续保留证书续期、443 和站外 `/health` 持续监控。
 - 后台生产强密码和 90 天轮换记录已完成；仍需配置稳定办公/VPN IP 白名单和全部活跃管理员 MFA。
-- 生产后台实查确认四项必签材料仍为草稿：用户协议 `test-2026-06-12`、隐私政策 `test-2026-06-12`、内容审核制度 `test-2026-07-09`、App 备案材料 `test-2026-07-09`；正式文本、个人信息收集清单、第三方 SDK 清单、注销和举报规则仍需补齐并在后台签署。
+- 生产后台实查确认用户协议、隐私政策、内容审核制度、App 备案材料四项必签材料均为 `draft-2026-07-14` 草稿；正式文本、个人信息收集清单、第三方 SDK 清单、注销和举报规则仍需由真实经营主体补齐并在后台签署发布。
 - 部署本轮版本后，旧 `test-*` 材料会自动迁移为完整 `draft-2026-07-14` 草稿并进入可编辑、可审计、可发布流程；经营主体、联系资料、备案信息和授权签署仍必须录入真实值后由负责人确认，系统不会代填或自动签署。
-- 站外告警 Webhook；生产 Push 还需提供与 `com.lumii.lingban` 匹配的 Firebase `google-services.json`，在 Expo/EAS 配置同一项目的 FCM V1 服务账号，然后构建新 APK 完成真机 token、ticket、receipt、通知展示和点击落页验收。代码侧的登记诊断、退避重试、后台追踪、失效 token 和 receipt 处理已完成。
+- 站外告警 Webhook；与 `com.lumii.lingban` 匹配的 Firebase `google-services.json` 已接入 vc19，Expo/EAS 项目 `@ztw962464/lumii-lingban` 与 App projectId 一致。仍需为同一 Firebase 项目创建并上传 FCM V1 服务账号，然后用真机完成 token、系统/业务 Push、ticket、receipt、通知展示和点击落页验收。代码侧的登记诊断、退避重试、后台追踪、失效 token 和 receipt 处理已完成。
 - 当前生产短信已切换 Spug 推送助手；模板编号与密钥只保存在服务器 `0600 root:root` 的 systemd 受限配置中，随机一次性验证码、频控、失败锁定、重复使用拦截和上线门禁均已完成，并已通过真实手机号发送与登录验证。若 Spug 控制台支持来源 IP 白名单，仍应限制为生产服务器出口；腾讯云短信仅保留为未来企业化备用通道。
-- 协议同意强制校验基座已经完成；先完成 versionCode 17 升级验收、分发并观察真实构建号分布，再将 systemd 环境变量 `LUMII_REQUIRE_LEGAL_CONSENT=true` 上线。开关未启用期间后台上线台账会保留对应 P0，避免兼容窗口被误判为已完成。
+- 协议同意强制校验基座已经完成；先完成 versionCode 19 真机升级验收、分发并观察真实构建号分布，再将 systemd 环境变量 `LUMII_REQUIRE_LEGAL_CONSENT=true` 上线。开关未启用期间后台上线台账会保留对应 P0，避免兼容窗口被误判为已完成。
 - ~~SQLite/WAL 单实例生产存储、JSON 回滚镜像、独立审计日志和备份恢复。~~ 已完成生产迁移与写入验证；后续仅在扩展多实例前迁移托管 PostgreSQL。
 
-当前生产台账的 6 个 P0 由以下项目构成：后台安全综合项、协议同意强制开关、站外告警通道、IP 白名单决策、全员 MFA 决策、正式合规文本签署。后台安全综合项与 IP/MFA 两个决策存在口径重叠；协议强制开关需等待 versionCode 17 分发与构建号观测后开启，其余均为生产外部配置或业务签署，不代表新增页面或核心业务代码缺失。
+当前生产台账的 6 个 P0 由以下项目构成：后台安全综合项、协议同意强制开关、站外告警通道、IP 白名单决策、全员 MFA 决策、正式合规文本签署。后台安全综合项与 IP/MFA 两个决策存在口径重叠；协议强制开关需等待 versionCode 19 真机验收、分发与构建号观测后开启，其余均为生产外部配置或业务签署，不代表新增页面或核心业务代码缺失。
 
 以下首发业务策略已固化，不再计入待确认范围：
 
@@ -364,8 +368,8 @@
 
 ## 5. 当前完成度判断
 
-- 业务功能代码：约 98%-99%。
-- 按“逐功能验证、前后台闭环、可上线配置”综合口径：约 95%-96%。
-- 当前剩余：约 4%-5%，主要是后台 MFA/IP 白名单、正式业务签署、协议强制开关的兼容发布、生产 Push 真机回执和发布候选包真机验收，不是新增大块页面开发。
+- 业务功能代码：约 99%。
+- 按“逐功能验证、前后台闭环、可上线配置”综合口径：约 96%-97%。
+- 当前剩余：约 3%-4%，主要是后台 MFA/IP 白名单、正式业务签署、协议强制开关的兼容发布、FCM V1 云凭据、生产 Push 真机回执和 vc19 真机验收，不是新增大块页面开发。
 
 该百分比只用于排期判断；是否可正式上线，以全量门禁通过且后台上线台账无未关闭 P0 为准。
