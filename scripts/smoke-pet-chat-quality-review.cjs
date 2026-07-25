@@ -123,12 +123,12 @@ async function loginUser(phone) {
   return payload.data.token;
 }
 
-async function loginAdmin() {
+async function loginAdmin(username = 'admin', password = 'LumiiAdmin@2026') {
   const payload = await request('/admin/auth/login', {
-    body: { password: 'LumiiAdmin@2026', username: 'admin' },
+    body: { password, username },
     method: 'POST',
   });
-  assert.ok(payload.data?.token, 'missing admin token');
+  assert.ok(payload.data?.token, `missing admin token for ${username}`);
   return payload.data.token;
 }
 
@@ -138,6 +138,18 @@ async function main() {
   try {
     const userToken = await loginUser('19900007701');
     const adminToken = await loginAdmin();
+    await request('/admin/accounts', {
+      body: {
+        displayName: 'AI 质量复核员',
+        password: 'ReviewAdmin@2026',
+        reason: 'smoke creates a second independent AI reviewer',
+        roleIds: ['content_moderator'],
+        username: 'ai_reviewer_02',
+      },
+      method: 'POST',
+      token: adminToken,
+    });
+    const reviewerToken = await loginAdmin('ai_reviewer_02', 'ReviewAdmin@2026');
 
     await request('/pets', {
       body: {
@@ -194,6 +206,31 @@ async function main() {
     assert.equal(reviewed.data.row.adminQualityReviewStatus, 'needs_fix');
     assert.ok(reviewed.data.row.adminTags.includes('quality_issue'));
     assert.ok(reviewed.data.queue.summary.needsFix >= 1);
+    assert.equal(reviewed.data.row.reviewerCount, 1);
+    assert.equal(reviewed.data.row.reviewAgreementRate, 100);
+
+    const secondReview = await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(aiMessageId)}/quality-review`, {
+      body: { reason: 'independent reviewer considers the safety-gated reply acceptable', reviewStatus: 'safe' },
+      method: 'POST',
+      token: reviewerToken,
+    });
+    assert.equal(secondReview.data.row.adminQualityReviewStatus, 'safe');
+    assert.equal(secondReview.data.row.reviewCount, 2);
+    assert.equal(secondReview.data.row.reviewerCount, 2);
+    assert.equal(secondReview.data.row.adminQualityReviews.length, 2);
+    assert.equal(secondReview.data.row.hasReviewDisagreement, true);
+    assert.equal(secondReview.data.row.reviewAgreementRate, 50);
+    assert.deepEqual(secondReview.data.row.reviewerNames.sort(), ['admin', 'ai_reviewer_02']);
+    assert.equal(secondReview.data.queue.summary.multiReviewed, 1);
+    assert.equal(secondReview.data.queue.summary.reviewDisagreements, 1);
+    assert.equal(secondReview.data.queue.summary.reviewAgreementRate, 0);
+    assert.ok(secondReview.data.queue.items.some((item) => item.id === aiMessageId && item.hasReviewDisagreement));
+    const medicalModelBucket = secondReview.data.queue.modelBuckets.find((item) => item.model === 'rule-based-medical-gate');
+    assert.ok(medicalModelBucket, 'quality review should aggregate model-version buckets');
+    assert.equal(medicalModelBucket.provider, 'rule_guard');
+    assert.equal(medicalModelBucket.promptHash, queueItem.promptHash);
+    assert.equal(typeof medicalModelBucket.currentIssueRate, 'number');
+    assert.equal(typeof medicalModelBucket.regressionStatus, 'string');
 
     await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(aiMessageId)}/hide`, {
       body: { reason: 'smoke hides unsafe AI reply from mobile' },
@@ -226,6 +263,8 @@ async function main() {
     const restoredMobileReply = mobileMessagesAfterUnhide.data.find((message) => message.id === aiMessageId);
     assert.equal(restoredMobileReply.adminAiTrace, undefined, 'mobile message list must not expose admin AI trace');
     assert.equal(restoredMobileReply.adminModeratedOriginalText, undefined, 'mobile message list must not expose moderated original text');
+    assert.equal(restoredMobileReply.adminQualityReviews, undefined, 'mobile message list must not expose reviewer history');
+    assert.equal(Object.keys(restoredMobileReply).some((key) => key.startsWith('admin')), false, 'mobile pet chat must not expose admin-only fields');
 
     const audit = await request('/admin/audit-logs?action=ai.petChat.quality_review', { token: adminToken });
     assert.ok(audit.data.items.some((item) => item.targetId === aiMessageId), 'quality review audit log should be recorded');
@@ -239,6 +278,8 @@ async function main() {
     assert.ok(petChatExportDataset.columns.includes('模型'), 'pet chat export should expose model column');
     assert.ok(petChatExportDataset.columns.includes('System Prompt Hash'), 'pet chat export should expose prompt hash column');
     assert.ok(petChatExportDataset.columns.includes('复核状态'), 'pet chat export should expose review status column');
+    assert.ok(petChatExportDataset.columns.includes('审核员数'), 'pet chat export should expose reviewer count');
+    assert.ok(petChatExportDataset.columns.includes('审核一致率'), 'pet chat export should expose review agreement');
     assert.ok(petChatExportDataset.rowCount >= 1, 'pet chat export should match the smoke user');
     assert.ok(petChatExportDataset.sensitiveColumnCount >= 1, 'pet chat export should declare sensitive columns');
     const petChatCsv = await request('/admin/exports/pet_chat_messages.csv?reason=pet%20chat%20medical%20sample%20export&phone=19900007701', {
@@ -275,9 +316,10 @@ async function main() {
     });
     const interceptedId = interceptedReply.data?.id;
     assert.ok(interceptedId, 'missing intercepted AI reply id');
-    assert.ok(interceptedReply.data?.adminHiddenAt, 'intercepted AI reply should be auto hidden');
+    assert.equal(interceptedReply.data?.adminHiddenAt, undefined, 'mobile response must not expose admin hidden state');
     assert.match(interceptedReply.data?.text || '', /安全复核/, 'mobile response should only contain safety fallback text');
     assert.equal(interceptedReply.data?.adminModeratedOriginalText, undefined, 'mobile response must not expose moderated original text');
+    assert.equal(Object.keys(interceptedReply.data || {}).some((key) => key.startsWith('admin')), false, 'intercepted mobile response must not expose admin-only fields');
 
     const mobileMessagesAfterIntercept = await request('/ai/pet-chat/messages', { token: userToken });
     assert.equal(
@@ -306,7 +348,25 @@ async function main() {
     assert.equal(blockedUnhide.error?.code, 'ADMIN_PET_CHAT_UNHIDE_INVALID');
 
     await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(interceptedId)}/quality-review`, {
-      body: { reason: 'smoke marks safety-intercepted reply as safe after review', reviewStatus: 'safe' },
+      body: { reason: 'primary reviewer keeps safety-intercepted reply as needs fix', reviewStatus: 'needs_fix' },
+      method: 'POST',
+      token: adminToken,
+    });
+    await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(interceptedId)}/quality-review`, {
+      body: { reason: 'second reviewer independently considers the sample safe', reviewStatus: 'safe' },
+      method: 'POST',
+      token: reviewerToken,
+    });
+    const disagreementUnhide = await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(interceptedId)}/unhide`, {
+      body: { reason: 'smoke must not restore a safety sample with reviewer disagreement' },
+      expectedStatus: 400,
+      method: 'POST',
+      token: adminToken,
+    });
+    assert.equal(disagreementUnhide.error?.code, 'ADMIN_PET_CHAT_UNHIDE_INVALID');
+    assert.match(disagreementUnhide.error?.message || '', /审核分歧/);
+    await request(`/admin/ai/pet-chat/messages/${encodeURIComponent(interceptedId)}/quality-review`, {
+      body: { reason: 'primary reviewer resolves the disagreement with a safe conclusion', reviewStatus: 'safe' },
       method: 'POST',
       token: adminToken,
     });

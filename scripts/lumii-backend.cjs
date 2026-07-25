@@ -4420,7 +4420,7 @@ function adminExportDataset(type) {
       ],
     },
     pet_chat_messages: {
-      description: '宠物 AI 对话摘要、医疗风险、自动写入、机审拦截和运营复核状态，用于抽检医疗风险样本和回复质量；默认不导出完整上下文。',
+      description: '宠物 AI 对话摘要、医疗风险、自动写入、机审拦截和多审核员复核状态，用于按模型版本抽检医疗风险样本和回复质量；默认不导出完整上下文。',
       label: 'AI 对话抽检',
       rows: () => adminPetChatMessages({ flag: 'all', limit: ADMIN_EXPORT_ROW_LIMIT }).map((row) => {
         const signal = petChatQualityReviewSignal(row);
@@ -4467,6 +4467,12 @@ function adminExportDataset(type) {
         exportColumn('adminQualityReviewReason', '复核说明'),
         exportColumn('adminQualityReviewedBy', '复核人'),
         exportColumn('adminQualityReviewedAt', '复核时间', (row) => exportDateText(row.adminQualityReviewedAt)),
+        exportColumn('reviewCount', '复核次数'),
+        exportColumn('reviewerCount', '审核员数'),
+        exportColumn('reviewerNames', '审核员', (row) => exportJoin(row.reviewerNames || [])),
+        exportColumn('reviewAgreementRate', '审核一致率'),
+        exportColumn('hasReviewDisagreement', '审核有分歧', (row) => exportBoolText(row.hasReviewDisagreement)),
+        exportColumn('reviewConsensusStatus', '一致结论'),
         exportColumn('adminHiddenAt', '隐藏时间', (row) => exportDateText(row.adminHiddenAt)),
         exportColumn('adminHiddenBy', '隐藏人'),
         exportColumn('adminHiddenReason', '隐藏原因'),
@@ -14274,12 +14280,20 @@ function visiblePetChatMessagesFor(user) {
 }
 
 function publicPetChatMessage(message = {}) {
-  const {
-    adminAiTrace,
-    adminModeratedOriginalText,
-    ...publicMessage
-  } = message || {};
-  return publicMessage;
+  return {
+    author: message.author,
+    createdMemo: message.createdMemo,
+    createdWeight: message.createdWeight,
+    feedback: message.feedback,
+    id: message.id,
+    medicalAlert: message.medicalAlert,
+    status: message.status,
+    text: message.text,
+    time: message.time || message.createdAt,
+    updatedPet: message.updatedPet,
+    updatedVaccine: message.updatedVaccine,
+    vaccineReminderIds: message.vaccineReminderIds,
+  };
 }
 
 function petChatAdminDisplayText(message = {}) {
@@ -14371,6 +14385,61 @@ function petChatAdminTagLabel(tag) {
   }[tag] || tag;
 }
 
+function normalizePetChatQualityReviews(message = {}) {
+  const allowedStatuses = new Set(['ignored', 'needs_fix', 'reviewed', 'safe']);
+  const rows = Array.isArray(message.adminQualityReviews) ? message.adminQualityReviews : [];
+  const normalized = rows
+    .filter((review) => review && typeof review === 'object' && allowedStatuses.has(String(review.reviewStatus || '')))
+    .map((review, index) => ({
+      id: String(review.id || `legacy-${index + 1}`),
+      reason: String(review.reason || '').slice(0, 240),
+      reviewedAt: String(review.reviewedAt || ''),
+      reviewedBy: String(review.reviewedBy || 'admin').slice(0, 80),
+      reviewStatus: String(review.reviewStatus || ''),
+    }));
+  if (!normalized.length && allowedStatuses.has(String(message.adminQualityReviewStatus || '')) && message.adminQualityReviewedAt) {
+    normalized.push({
+      id: `legacy-${String(message.id || 'message')}-${Date.parse(message.adminQualityReviewedAt) || 0}`,
+      reason: String(message.adminQualityReviewReason || '').slice(0, 240),
+      reviewedAt: String(message.adminQualityReviewedAt || ''),
+      reviewedBy: String(message.adminQualityReviewedBy || 'admin').slice(0, 80),
+      reviewStatus: String(message.adminQualityReviewStatus || ''),
+    });
+  }
+  return normalized.slice(-30);
+}
+
+function petChatReviewerAgreement(message = {}) {
+  const history = normalizePetChatQualityReviews(message);
+  const latestByReviewer = new Map();
+  history.forEach((review) => {
+    const reviewer = String(review.reviewedBy || 'admin');
+    if (reviewer === 'system') return;
+    const previous = latestByReviewer.get(reviewer);
+    if (!previous || String(review.reviewedAt || '').localeCompare(String(previous.reviewedAt || '')) >= 0) {
+      latestByReviewer.set(reviewer, review);
+    }
+  });
+  const latestReviews = Array.from(latestByReviewer.values());
+  const statusCounts = latestReviews.reduce((counts, review) => {
+    counts[review.reviewStatus] = Number(counts[review.reviewStatus] || 0) + 1;
+    return counts;
+  }, {});
+  const ranked = Object.entries(statusCounts).sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+  const topCount = Number(ranked[0]?.[1] || 0);
+  const tied = ranked.length > 1 && Number(ranked[1]?.[1] || 0) === topCount;
+  return {
+    agreementRate: latestReviews.length ? analyticsPercent(topCount, latestReviews.length) : 0,
+    consensusStatus: tied ? '' : String(ranked[0]?.[0] || ''),
+    hasDisagreement: Object.keys(statusCounts).length > 1,
+    latestReviews,
+    reviewCount: history.filter((review) => review.reviewedBy !== 'system').length,
+    reviewerCount: latestReviews.length,
+    reviewerNames: Array.from(latestByReviewer.keys()),
+    statusCounts,
+  };
+}
+
 function petChatQualityReviewSignal(row = {}) {
   const tags = new Set(Array.isArray(row.adminTags) ? row.adminTags : []);
   let score = 0;
@@ -14390,6 +14459,7 @@ function petChatQualityReviewSignal(row = {}) {
   if (row.hasMedicalAlert) add(64, '命中医疗风险门禁');
   if (tags.has('medical_sample')) add(58, '已沉淀医疗样本');
   if (row.hasCalendarWrite || row.updatedPet) add(44, '触发宠物档案或日历写入');
+  if (row.hasReviewDisagreement) add(90, '多位审核员结论不一致，需仲裁复核');
   if (row.feedback === 'good') add(18, '用户反馈“像它”，可做正样本抽检');
   if (!row.adminQualityReviewedAt) add(12, '尚未完成运营复核');
   return {
@@ -14414,6 +14484,8 @@ function adminPetChatMessages(options = {}) {
         const userMessage = [...list.slice(0, index)].reverse().find((item) => item.author === 'me');
         const actionLabels = petChatAdminActionLabels(message);
         const aiTrace = message.adminAiTrace || {};
+        const qualityReviews = normalizePetChatQualityReviews(message);
+        const reviewerAgreement = petChatReviewerAgreement(message);
         return {
           actionLabels,
           adminHiddenAt: message.adminHiddenAt || '',
@@ -14424,6 +14496,14 @@ function adminPetChatMessages(options = {}) {
           adminQualityReviewStatusLabel: petChatQualityReviewStatusLabel(message.adminQualityReviewStatus || ''),
           adminQualityReviewedAt: message.adminQualityReviewedAt || '',
           adminQualityReviewedBy: message.adminQualityReviewedBy || '',
+          adminQualityReviews: qualityReviews,
+          reviewAgreementRate: reviewerAgreement.agreementRate,
+          reviewConsensusStatus: reviewerAgreement.consensusStatus,
+          reviewCount: reviewerAgreement.reviewCount,
+          reviewerCount: reviewerAgreement.reviewerCount,
+          reviewerNames: reviewerAgreement.reviewerNames,
+          reviewStatusCounts: reviewerAgreement.statusCounts,
+          hasReviewDisagreement: reviewerAgreement.hasDisagreement,
           adminTags: Array.isArray(message.adminTags) ? message.adminTags : [],
           aiSummary: compactPetChatLine(petChatAdminDisplayText(message), 120, { removeSavedActions: true }),
           contentSafety: message.contentSafety || null,
@@ -14487,12 +14567,14 @@ function adminPetChatQualityReview() {
   });
   const reviewed = rows.filter((row) => row.adminQualityReviewedAt);
   const qualityIssue = rows.filter((row) => row.adminQualityReviewStatus === 'needs_fix' || (row.adminTags || []).includes('quality_issue'));
+  const modelBuckets = petChatQualityModelBuckets(rows);
   const queue = rows
-    .filter((row) => !row.adminQualityReviewedAt || row.queueScore >= 60 || row.adminHiddenAt || row.feedback === 'off')
+    .filter((row) => !row.adminQualityReviewedAt || row.queueScore >= 60 || row.adminHiddenAt || row.feedback === 'off' || row.hasReviewDisagreement)
     .sort((a, b) => (Number(b.queueScore || 0) - Number(a.queueScore || 0)) || String(b.time).localeCompare(String(a.time)))
     .slice(0, 24);
   return {
     items: queue,
+    modelBuckets,
     policy: {
       mobileImpact: '复核标签仅后台可见；隐藏回复会立即从移动端 AI 对话列表和后续模型上下文中移除。',
       sampling: '队列优先展示隐藏、质量问题、误触发/漏触发、“不像它”、医疗风险和业务写入回复，同时保留少量普通样本。',
@@ -14501,6 +14583,12 @@ function adminPetChatQualityReview() {
       feedbackOff: rows.filter((row) => row.feedback === 'off').length,
       hidden: rows.filter((row) => row.adminHiddenAt).length,
       medicalRisk: rows.filter((row) => row.hasMedicalAlert).length,
+      multiReviewed: rows.filter((row) => row.reviewerCount >= 2).length,
+      reviewAgreementRate: analyticsPercent(
+        rows.filter((row) => row.reviewerCount >= 2 && !row.hasReviewDisagreement).length,
+        rows.filter((row) => row.reviewerCount >= 2).length,
+      ),
+      reviewDisagreements: rows.filter((row) => row.hasReviewDisagreement).length,
       safetyIntercepted: rows.filter((row) => row.contentSafetyAction && row.contentSafetyAction !== 'allow').length,
       needsFix: rows.filter((row) => row.adminQualityReviewStatus === 'needs_fix').length,
       qualityIssue: qualityIssue.length,
@@ -14512,6 +14600,76 @@ function adminPetChatQualityReview() {
       writes: rows.filter((row) => row.hasCalendarWrite || row.updatedPet).length,
     },
   };
+}
+
+function petChatQualityModelBuckets(rows = []) {
+  const now = Date.now();
+  const windowMs = 7 * 24 * 60 * 60 * 1000;
+  const bucketMap = new Map();
+  const isIssue = (row) => row.adminQualityReviewStatus === 'needs_fix'
+    || (row.adminTags || []).includes('quality_issue')
+    || row.feedback === 'off';
+  rows.forEach((row) => {
+    const provider = row.provider || 'unknown';
+    const model = row.model || 'unknown';
+    const promptHash = row.promptHash || 'unknown';
+    const source = row.source || 'unknown';
+    const key = `${provider}|${model}|${promptHash}|${source}`;
+    if (!bucketMap.has(key)) {
+      bucketMap.set(key, {
+        currentIssues: 0,
+        currentSamples: 0,
+        feedbackOff: 0,
+        issues: 0,
+        key,
+        model,
+        needsFix: 0,
+        previousIssues: 0,
+        previousSamples: 0,
+        promptHash,
+        provider,
+        reviewed: 0,
+        source,
+        total: 0,
+      });
+    }
+    const bucket = bucketMap.get(key);
+    const issue = isIssue(row);
+    const createdMs = Date.parse(String(row.time || ''));
+    bucket.total += 1;
+    if (issue) bucket.issues += 1;
+    if (row.adminQualityReviewedAt) bucket.reviewed += 1;
+    if (row.adminQualityReviewStatus === 'needs_fix') bucket.needsFix += 1;
+    if (row.feedback === 'off') bucket.feedbackOff += 1;
+    if (Number.isFinite(createdMs) && createdMs > now - windowMs) {
+      bucket.currentSamples += 1;
+      if (issue) bucket.currentIssues += 1;
+    } else if (Number.isFinite(createdMs) && createdMs > now - (2 * windowMs)) {
+      bucket.previousSamples += 1;
+      if (issue) bucket.previousIssues += 1;
+    }
+  });
+  return Array.from(bucketMap.values())
+    .map((bucket) => {
+      const currentIssueRate = analyticsPercent(bucket.currentIssues, bucket.currentSamples);
+      const previousIssueRate = analyticsPercent(bucket.previousIssues, bucket.previousSamples);
+      const regressionDelta = Math.round((currentIssueRate - previousIssueRate) * 10) / 10;
+      const enoughSamples = bucket.currentSamples >= 5 && bucket.previousSamples >= 5;
+      return {
+        ...bucket,
+        currentIssueRate,
+        issueRate: analyticsPercent(bucket.issues, bucket.total),
+        previousIssueRate,
+        regressionDelta,
+        regressionDetected: enoughSamples && regressionDelta >= 15,
+        regressionStatus: !enoughSamples ? 'insufficient_data' : regressionDelta >= 15 ? 'regression' : regressionDelta <= -15 ? 'improved' : 'stable',
+        reviewRate: analyticsPercent(bucket.reviewed, bucket.total),
+      };
+    })
+    .sort((left, right) => Number(right.regressionDetected) - Number(left.regressionDetected)
+      || right.currentIssueRate - left.currentIssueRate
+      || right.total - left.total
+      || left.key.localeCompare(right.key));
 }
 
 function findPetChatAdminMessage(messageId) {
@@ -14604,12 +14762,24 @@ function reviewPetChatAdminMessage(admin, messageId, body = {}) {
     adminQualityReviewStatus: found.message.adminQualityReviewStatus || '',
     adminQualityReviewedAt: found.message.adminQualityReviewedAt || '',
     adminQualityReviewedBy: found.message.adminQualityReviewedBy || '',
+    adminQualityReviews: normalizePetChatQualityReviews(found.message),
     adminTags: Array.isArray(found.message.adminTags) ? [...found.message.adminTags] : [],
   };
+  const reviewedAt = new Date().toISOString();
+  const reviewedBy = admin?.username || 'admin';
+  const qualityReviews = normalizePetChatQualityReviews(found.message);
+  qualityReviews.push({
+    id: `pet-chat-review-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    reason,
+    reviewedAt,
+    reviewedBy,
+    reviewStatus,
+  });
+  found.message.adminQualityReviews = qualityReviews.slice(-30);
   found.message.adminQualityReviewReason = reason;
   found.message.adminQualityReviewStatus = reviewStatus;
-  found.message.adminQualityReviewedAt = new Date().toISOString();
-  found.message.adminQualityReviewedBy = admin?.username || 'admin';
+  found.message.adminQualityReviewedAt = reviewedAt;
+  found.message.adminQualityReviewedBy = reviewedBy;
   if (reviewStatus === 'needs_fix') {
     const tags = new Set(Array.isArray(found.message.adminTags) ? found.message.adminTags : []);
     tags.add('quality_issue');
@@ -14623,6 +14793,7 @@ function reviewPetChatAdminMessage(admin, messageId, body = {}) {
     adminQualityReviewStatus: found.message.adminQualityReviewStatus,
     adminQualityReviewedAt: found.message.adminQualityReviewedAt,
     adminQualityReviewedBy: found.message.adminQualityReviewedBy,
+    adminQualityReviews: found.message.adminQualityReviews,
     adminTags: found.message.adminTags || [],
     ownerPhone: found.phone,
     petId: found.petId,
@@ -14659,8 +14830,14 @@ function unhidePetChatAdminMessage(admin, messageId, body = {}) {
   if (!reason) return { error: '取消隐藏 AI 回复必须填写原因', statusCode: 400 };
   if (!found.message.adminHiddenAt) return { error: '这条 AI 回复当前未隐藏', statusCode: 400 };
   const contentSafetyAction = found.message.contentSafety?.action || '';
-  if (contentSafetyAction && contentSafetyAction !== 'allow' && found.message.adminQualityReviewStatus !== 'safe') {
-    return { error: '内容安全拦截的 AI 回复必须先复核为“样本正常”，才能恢复展示', statusCode: 400 };
+  const reviewerAgreement = petChatReviewerAgreement(found.message);
+  if (contentSafetyAction && contentSafetyAction !== 'allow' && (found.message.adminQualityReviewStatus !== 'safe' || reviewerAgreement.hasDisagreement)) {
+    return {
+      error: reviewerAgreement.hasDisagreement
+        ? '内容安全样本存在审核分歧，必须先取得一致结论才能恢复展示'
+        : '内容安全拦截的 AI 回复必须先复核为“样本正常”，才能恢复展示',
+      statusCode: 400,
+    };
   }
   const before = {
     adminHiddenAt: found.message.adminHiddenAt || '',
@@ -29144,9 +29321,9 @@ function adminReadinessModules(context) {
       module: 'AI 对话抽检',
       group: 'AI',
       status: 'partial',
-      evidence: '已支持摘要检索、原因审计后查看、生成快照追溯、医疗风险样本、质量标签、隐藏/恢复 AI 回复和样本导出。',
+      evidence: '已支持摘要检索、原因审计后查看、生成快照追溯、医疗风险样本、多审核员复核历史与一致率、模型/Prompt 版本分桶、7 天自动回归分析、隐藏/恢复 AI 回复和样本导出。',
       mobileLinkage: '隐藏回复后移动端不再返回，后续上下文也跳过被隐藏回复。',
-      nextStep: '生产期补多 reviewer 一致性评分、模型版本分桶、自动回归分析和更细医疗风险规则。',
+      nextStep: '生产期继续扩充细分医疗风险规则与经过医生审核的回归样本。',
     },
     {
       key: 'moderation',
@@ -40047,12 +40224,10 @@ async function handle(req, res) {
     messages.push(userMessage, aiMessage);
     saveState();
     const responseMessage = aiMessage.adminHiddenAt
-      ? {
+      ? publicPetChatMessage({
           ...aiMessage,
-          adminAiTrace: undefined,
-          adminModeratedOriginalText: undefined,
           text: aiMessage.adminModeratedTextReplacement || petChatModerationFallbackText(outputModeration),
-        }
+        })
       : publicPetChatMessage(aiMessage);
     ok(res, responseMessage);
     return;

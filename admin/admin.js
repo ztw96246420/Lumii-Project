@@ -4392,6 +4392,12 @@ async function renderPetChat(force) {
       ${metric('移动端隐藏', numberText(reviewSummary.hidden || 0), '隐藏后用户侧不可见', '隐藏 AI 回复会立即从移动端 AI 对话列表和后续模型上下文中移除。')}
       ${metric('机审拦截', numberText(reviewSummary.safetyIntercepted || 0), '自动隐藏并进复核', 'AI 回复命中文本内容安全 Review/Block 后，原文只进后台复核，移动端不会展示。')}
     </div>
+    <div class="grid metrics compact-metrics">
+      ${metric('多人复核', numberText(reviewSummary.multiReviewed || 0), `${numberText(reviewSummary.reviewDisagreements || 0)} 条有分歧`, '同一条回复保留每位审核员的最新结论；出现分歧时会自动回到高优先级队列等待仲裁。')}
+      ${metric('审核一致率', percentText(reviewSummary.reviewAgreementRate || 0), '仅统计多人复核样本', '完全一致的多人复核样本数除以全部多人复核样本数。')}
+      ${metric('审核分歧', numberText(reviewSummary.reviewDisagreements || 0), '禁止恢复安全样本', '内容安全样本存在审核分歧时，必须先取得一致结论才能恢复给移动端。')}
+      ${metric('模型回归', numberText((qualityReview.modelBuckets || []).filter((row) => row.regressionDetected).length), '近 7 天自动比较', '两个连续 7 天窗口各至少 5 条样本，问题率上升 15 个百分点时标记回归。')}
+    </div>
     ${renderPetChatQualityReviewPanel(qualityReview)}
     <div class="card">
       <div class="section-head">
@@ -4426,6 +4432,7 @@ async function renderPetChat(force) {
 
 function renderPetChatQualityReviewPanel(data = {}) {
   const items = data.items || [];
+  const modelBuckets = data.modelBuckets || [];
   const policy = data.policy || {};
   return `
     <div class="card pet-chat-review-panel">
@@ -4441,6 +4448,30 @@ function renderPetChatQualityReviewPanel(data = {}) {
           ${items.slice(0, 8).map(renderPetChatQualityReviewItem).join('')}
         </div>
       ` : '<div class="placeholder"><div><strong>暂无待抽检 AI 对话</strong><div>有新 AI 回复、用户反馈或运营标签后会自动进入这里。</div></div></div>'}
+      ${renderPetChatModelBuckets(modelBuckets)}
+    </div>
+  `;
+}
+
+function renderPetChatModelBuckets(rows = []) {
+  if (!rows.length) return '';
+  return `
+    <div class="mini-section-title">模型 / Prompt 版本质量趋势</div>
+    <div class="cell-sub">自动对比近 7 天与前 7 天；两个窗口各至少 5 条样本且问题率上升 15 个百分点时标记回归。</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>模型版本</th><th>样本 / 复核</th><th>问题率</th><th>近 7 天</th><th>前 7 天</th><th>趋势</th></tr></thead>
+        <tbody>${rows.slice(0, 12).map((row) => `
+          <tr>
+            <td><div class="cell-title">${escapeHtml(row.provider || '-')} · ${escapeHtml(row.model || '-')}</div><div class="cell-sub">Prompt ${escapeHtml(row.promptHash || '-')} · ${escapeHtml(row.source || '-')}</div></td>
+            <td>${numberText(row.total || 0)} / ${numberText(row.reviewed || 0)}<div class="cell-sub">复核率 ${percentText(row.reviewRate || 0)}</div></td>
+            <td>${percentText(row.issueRate || 0)}<div class="cell-sub">需修正 ${numberText(row.needsFix || 0)} · 不像它 ${numberText(row.feedbackOff || 0)}</div></td>
+            <td>${percentText(row.currentIssueRate || 0)}<div class="cell-sub">${numberText(row.currentSamples || 0)} 条</div></td>
+            <td>${percentText(row.previousIssueRate || 0)}<div class="cell-sub">${numberText(row.previousSamples || 0)} 条</div></td>
+            <td>${tonePill(row.regressionStatus === 'regression' ? `回归 +${numberText(row.regressionDelta, 1)}pp` : row.regressionStatus === 'improved' ? `改善 ${numberText(row.regressionDelta, 1)}pp` : row.regressionStatus === 'stable' ? '稳定' : '样本不足', row.regressionStatus === 'regression' ? 'bad' : row.regressionStatus === 'improved' ? 'ok' : 'warn')}</td>
+          </tr>
+        `).join('')}</tbody>
+      </table>
     </div>
   `;
 }
@@ -4470,6 +4501,8 @@ function renderPetChatQualityReviewItem(row) {
           ${safety}
           ${row.source ? riskBadge(`来源：${row.source}`) : ''}
           ${row.feedback ? riskBadge(`反馈：${row.feedback === 'good' ? '像它' : '不像它'}`) : ''}
+          ${row.reviewerCount ? riskBadge(`${numberText(row.reviewerCount)} 位审核员 · 一致率 ${percentText(row.reviewAgreementRate || 0)}`) : ''}
+          ${row.hasReviewDisagreement ? riskBadge('审核结论有分歧') : ''}
           ${tags}
           ${row.adminHiddenAt ? riskBadge(`隐藏：${formatTime(row.adminHiddenAt)}`) : ''}
         </div>
@@ -4516,6 +4549,8 @@ function renderPetChatRow(row) {
           ${row.feedback ? riskBadge(`反馈：${row.feedback === 'good' ? '像它' : '不像它'}`) : ''}
           ${tags}
           ${reviewStatus ? riskBadge(`复核：${reviewStatus}`) : ''}
+          ${row.reviewerCount ? riskBadge(`${numberText(row.reviewerCount)} 位审核员 · 一致率 ${percentText(row.reviewAgreementRate || 0)}`) : ''}
+          ${row.hasReviewDisagreement ? riskBadge('审核结论有分歧') : ''}
           ${row.adminHiddenAt ? riskBadge(`隐藏：${formatTime(row.adminHiddenAt)}`) : ''}
         </div>
         ${row.adminQualityReviewReason ? `<div class="cell-sub clamp">复核说明：${escapeHtml(row.adminQualityReviewReason)}</div>` : ''}
