@@ -170,6 +170,7 @@ async function main() {
     assert.equal(health.data?.stateStorage?.journalMode, 'wal', 'system health should expose WAL mode');
     assert.ok((health.data?.checks || []).some((item) => item.key === 'state_database' && item.status === 'ok'), 'missing healthy state_database check');
     assert.ok((health.data?.checks || []).some((item) => item.key === 'state_backups'), 'missing state_backups health check');
+    assert.ok((health.data?.checks || []).some((item) => item.key === 'media_https_integrity' && item.status === 'ok'), 'missing healthy media HTTPS integrity check');
     assert.ok((health.data?.checks || []).some((item) => item.key === 'account_deletion_processor' && item.status === 'ok'), 'missing healthy account deletion processor check');
 
     browser = await playwright.chromium.launch({ executablePath, headless: true });

@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
@@ -22,9 +23,14 @@ const objectKeys = {
   post: 'pet-source/owner/pet/post.jpg',
   source: 'pet-source/owner/pet/source.jpg',
 };
+const amapHttpUrl = 'http://store.is.autonavi.com/showpic/legacy-photo-id';
+const amapHttpsUrl = 'https://store.is.autonavi.com/showpic/legacy-photo-id';
+const unknownHttpUrl = 'http://images.example.com/keep-original.jpg';
 
 let backendProcess = null;
 let baseUrl = '';
+let fakeAmapBaseUrl = '';
+let fakeAmapServer = null;
 
 function storageUrl(base, objectKey) {
   return `${base}/storage/objects/${encodeURIComponent(objectKey)}`;
@@ -43,6 +49,45 @@ function getFreePort() {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function startFakeAmap() {
+  fakeAmapServer = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://amap.test');
+    if (url.pathname !== '/v5/place/around') {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      info: 'OK',
+      infocode: '10000',
+      pois: [{
+        address: '广州市测试路 1 号',
+        id: 'fake-poi-1',
+        location: '113.2601,23.1301',
+        name: '测试宠物公园',
+        photos: [{ title: '高德图片', url: amapHttpUrl }],
+        type: '公园',
+        typecode: '110101',
+      }],
+      status: '1',
+    }));
+  });
+  await new Promise((resolve, reject) => {
+    fakeAmapServer.once('error', reject);
+    fakeAmapServer.listen(0, '127.0.0.1', resolve);
+  });
+  const address = fakeAmapServer.address();
+  fakeAmapBaseUrl = `http://127.0.0.1:${address.port}`;
+}
+
+async function stopFakeAmap() {
+  if (!fakeAmapServer) return;
+  const server = fakeAmapServer;
+  fakeAmapServer = null;
+  await new Promise((resolve) => server.close(resolve));
 }
 
 async function request(pathname, { body, method = 'GET', token } = {}) {
@@ -82,6 +127,8 @@ async function startBackend(port) {
     cwd: rootDir,
     env: {
       ...process.env,
+      AMAP_WEB_SERVICE_BASE_URL: fakeAmapBaseUrl,
+      AMAP_WEB_SERVICE_KEY: 'legacy-media-amap-key',
       LUMII_BACKEND_PORT: String(port),
       LUMII_BACKEND_STATE_PATH: statePath,
       LUMII_STATE_STORAGE_DRIVER: 'json',
@@ -151,6 +198,9 @@ async function main() {
     avatarJobs: {
       'job-1': { id: 'job-1', ownerPhone: TEST_PHONE, petId: 'pet-1', resultUrl: oldUrls.avatar, sourceResultUrl: externalProviderUrl },
     },
+    conversations: {
+      [TEST_PHONE]: [{ id: 'conversation-1', imageUrl: oldUrls.avatar }],
+    },
     mediaUploads: {
       'media-1': {
         mediaId: 'media-1',
@@ -164,6 +214,8 @@ async function main() {
     },
     socialMoments: [{ id: 'moment-1', imageUrls: [oldUrls.post], phone: TEST_PHONE, status: 'published' }],
     socialReports: [{ evidenceSnapshot: { mediaUrls: [oldUrls.post] }, id: 'report-1', ownerPhone: TEST_PHONE }],
+    places: [{ coverImageUrl: amapHttpUrl, id: 'amap-legacy-place', photoUrls: [amapHttpUrl] }],
+    supportTickets: [{ attachmentUrl: unknownHttpUrl, id: 'ticket-1', phone: TEST_PHONE }],
     users: {
       [TEST_PHONE]: {
         createdAt: Date.now() - 1000,
@@ -182,6 +234,7 @@ async function main() {
     },
   }, null, 2));
 
+  await startFakeAmap();
   const port = await getFreePort();
   await startBackend(port);
   try {
@@ -190,6 +243,11 @@ async function main() {
     expectCanonicalUrl(pets[0].avatarUrl, objectKeys.avatar);
     expectCanonicalUrl(pets[0].petCircleCoverImageUrl, objectKeys.cover);
     expectCanonicalUrl(pets[0].avatarAnimationUrl, objectKeys.animation);
+    const places = await request('/places/nearby?lat=23.13&lng=113.26', { token: session.token });
+    const fetchedAmapPlace = places.find((item) => item.id === 'amap-fake-poi-1');
+    assert.ok(fetchedAmapPlace, 'fake Amap place must be returned');
+    assert.equal(fetchedAmapPlace.coverImageUrl, amapHttpsUrl, 'new Amap responses must use HTTPS immediately');
+    assert.equal(fetchedAmapPlace.photoUrls[0], amapHttpsUrl, 'new Amap photo lists must use HTTPS immediately');
 
     const persisted = JSON.parse(fs.readFileSync(statePath, 'utf8'));
     expectCanonicalUrl(persisted.users[TEST_PHONE].ownerAvatarUrl, objectKeys.avatar);
@@ -197,13 +255,20 @@ async function main() {
     expectCanonicalUrl(persisted.mediaUploads['media-1'].previewUrl, objectKeys.source);
     expectCanonicalUrl(persisted.avatarJobs['job-1'].resultUrl, objectKeys.avatar);
     expectCanonicalUrl(persisted.avatarAnimationJobs['animation-1'].videoUrl, objectKeys.animation);
+    expectCanonicalUrl(persisted.conversations[TEST_PHONE][0].imageUrl, objectKeys.avatar);
     expectCanonicalUrl(persisted.socialMoments[0].imageUrls[0], objectKeys.post);
     expectCanonicalUrl(persisted.socialReports[0].evidenceSnapshot.mediaUrls[0], objectKeys.post);
+    assert.equal(persisted.places[0].coverImageUrl, amapHttpsUrl, 'known Amap media hosts must be upgraded to HTTPS');
+    assert.equal(persisted.places[0].photoUrls[0], amapHttpsUrl, 'all stored Amap photo URLs must be upgraded to HTTPS');
+    const persistedAmapPlace = persisted.places.find((item) => item.id === 'amap-fake-poi-1');
+    assert.equal(persistedAmapPlace.coverImageUrl, amapHttpsUrl, 'newly fetched Amap URLs must be persisted as HTTPS');
+    assert.equal(persisted.supportTickets[0].attachmentUrl, unknownHttpUrl, 'unknown HTTP hosts must not be rewritten without verification');
     assert.equal(persisted.avatarJobs['job-1'].sourceResultUrl, externalProviderUrl, 'external provider URLs must not be rewritten');
     assert.equal(persisted.adminAuditLogs[0].after.avatarUrl, oldUrls.avatar, 'immutable audit snapshots must retain original URLs');
     console.log('legacy media URL migration smoke passed');
   } finally {
     await stopBackend();
+    await stopFakeAmap();
     fs.rmSync(tmpDir, { force: true, recursive: true });
   }
 }
@@ -211,6 +276,7 @@ async function main() {
 main().catch(async (error) => {
   console.error(error.stack || error.message);
   await stopBackend();
+  await stopFakeAmap();
   fs.rmSync(tmpDir, { force: true, recursive: true });
   process.exit(1);
 });

@@ -6175,6 +6175,7 @@ const PUBLIC_MEDIA_URL_STATE_ROOTS = [
   'avatarAnimationJobs',
   'avatarJobs',
   'conversationMessages',
+  'conversations',
   'feedback',
   'mediaUploads',
   'moderationSamples',
@@ -6190,6 +6191,10 @@ const PUBLIC_MEDIA_URL_STATE_ROOTS = [
   'systemNotifications',
   'users',
 ];
+const HTTPS_UPGRADE_MEDIA_HOSTS = new Set([
+  'aos-cdn-image.amap.com',
+  'store.is.autonavi.com',
+]);
 
 function canonicalPublicStorageUrl(value) {
   const text = String(value || '').trim();
@@ -6200,9 +6205,24 @@ function canonicalPublicStorageUrl(value) {
   return publicStorageProbeUrl(base, objectKey);
 }
 
+function canonicalPersistedMediaUrl(value) {
+  const storageUrl = canonicalPublicStorageUrl(value);
+  if (storageUrl !== value) return storageUrl;
+  const text = String(value || '').trim();
+  if (!/^http:\/\//i.test(text)) return value;
+  try {
+    const parsed = new URL(text);
+    if (!HTTPS_UPGRADE_MEDIA_HOSTS.has(parsed.hostname.toLowerCase())) return value;
+    parsed.protocol = 'https:';
+    return parsed.toString();
+  } catch {
+    return value;
+  }
+}
+
 function migratePublicStorageUrlsInValue(value, runtime, seen = new WeakSet()) {
   if (typeof value === 'string') {
-    const migrated = canonicalPublicStorageUrl(value);
+    const migrated = canonicalPersistedMediaUrl(value);
     if (migrated !== value) runtime.changedUrls += 1;
     return migrated;
   }
@@ -6318,7 +6338,7 @@ const startupStateCompaction = compactStateForPersistence(state, { mutate: true,
 if (startupPublicMediaUrlMigration.changedUrls > 0 || startupStateCompaction.changed) {
   saveState(startupPublicMediaUrlMigration.changedUrls > 0 ? 'startup_public_media_url_migration' : 'startup_compaction');
   if (startupPublicMediaUrlMigration.changedUrls > 0) {
-    console.warn('[media-storage] migrated persisted public storage URLs', startupPublicMediaUrlMigration);
+    console.warn('[media-storage] migrated persisted public media URLs', startupPublicMediaUrlMigration);
   }
 }
 if (startupStateCompaction.changed) {
@@ -11532,7 +11552,7 @@ function amapPoiPhotos(poi) {
   return photos
     .map((photo) => ({
       title: compactText(photo?.title),
-      url: compactText(photo?.url),
+      url: canonicalPersistedMediaUrl(compactText(photo?.url)),
     }))
     .filter((photo) => {
       if (!photo.url || seen.has(photo.url)) return false;
@@ -27371,6 +27391,32 @@ function recordPublicApiExternalRequestProof(req, pathname = '') {
   return true;
 }
 
+function insecureLiveMediaUrlSummary(target = state) {
+  const roots = new Set();
+  let count = 0;
+  const seen = new WeakSet();
+  const visit = (value, root, field = '') => {
+    if (typeof value === 'string') {
+      if (/^http:\/\//i.test(value) && /(attachment|avatar|cover|image|media|photo|url|video)/i.test(field)) {
+        count += 1;
+        roots.add(root);
+      }
+      return;
+    }
+    if (!value || typeof value !== 'object' || seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, root, field));
+      return;
+    }
+    Object.entries(value).forEach(([key, item]) => visit(item, root, key));
+  };
+  PUBLIC_MEDIA_URL_STATE_ROOTS.forEach((root) => {
+    if (target?.[root]) visit(target[root], root);
+  });
+  return { count, roots: [...roots].sort() };
+}
+
 async function adminSystemHealth() {
   const now = Date.now();
   const memory = process.memoryUsage();
@@ -27406,6 +27452,7 @@ async function adminSystemHealth() {
   const ipAllowlist = adminIpAllowlistStatus('');
   const appMediaBase = appMediaPublicBaseUrl();
   const cdnMediaBase = cdnMediaPublicProbeBaseUrl();
+  const insecureMediaUrls = insecureLiveMediaUrlSummary();
   const [mediaProbe, mediaCdnProbe, publicApiProbe] = await Promise.all([
     adminMediaPublicProbe(appMediaBase || cdnMediaBase, { kind: 'app', label: 'App media' }),
     cdnMediaBase && cdnMediaBase !== (appMediaBase || '') ? adminMediaPublicProbe(cdnMediaBase, { kind: 'cdn', label: 'CDN media' }) : Promise.resolve(null),
@@ -27428,6 +27475,15 @@ async function adminSystemHealth() {
     adminCheckStatus(!stateBackups.enabled ? 'warn' : stateBackups.lastBackupError || stateBackups.lastSaveError || stateBackups.lastMirrorError ? 'warn' : stateBackups.count > 0 ? 'ok' : 'warn', 'state_backups', '状态快照备份', !stateBackups.enabled ? '状态备份未启用' : stateBackups.lastMirrorError ? `JSON 回滚镜像异常：${stateBackups.lastMirrorError}` : stateBackups.count > 0 ? `已有 ${stateBackups.count} 份备份，最近 ${stateBackups.latestAt || '-'}` : '尚未生成状态备份，下次成功写入后会自动生成', stateBackups.latestPath || stateBackups.dir),
     adminCheckStatus(mediaProbe.status, 'media_public_get', 'App 媒体公开 GET 探测', mediaProbe.detail, mediaProbe.evidence),
     ...(mediaCdnProbe ? [adminCheckStatus(mediaCdnProbeStatus, 'media_cdn_get', '媒体 CDN GET 探测', mediaCdnProbe.detail, mediaCdnProbe.evidence)] : []),
+    adminCheckStatus(
+      insecureMediaUrls.count > 0 ? RUNTIME_ENV === 'production' ? 'bad' : 'warn' : 'ok',
+      'media_https_integrity',
+      '业务媒体 HTTPS 完整性',
+      insecureMediaUrls.count > 0
+        ? `${insecureMediaUrls.count} 条用户可见媒体地址仍使用明文 HTTP`
+        : '用户可见业务媒体地址未发现明文 HTTP',
+      insecureMediaUrls.count > 0 ? `roots=${insecureMediaUrls.roots.join(',')}` : 'live media URL fields',
+    ),
     adminCheckStatus(publicApiProbe.status, 'public_api_https', 'App API 源站 HTTPS 探测', publicApiProbe.detail, publicApiProbe.evidence),
     adminCheckStatus(publicApiExternalProof.status, 'public_api_external_https', 'App API 站外 HTTPS 证据', publicApiExternalProof.detail, publicApiExternalProof.evidence),
     adminCheckStatus(
