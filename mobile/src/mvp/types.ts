@@ -398,7 +398,8 @@ export type ChatMessage = {
   id: string;
   medicalAlert?: {
     notificationId?: string;
-    reason: 'medical_emergency' | 'toxic_ingestion';
+    reason: 'acute_abdominal_emergency' | 'heatstroke' | 'major_bleeding' | 'medical_emergency' | 'neurologic_emergency' | 'obstetric_emergency' | 'persistent_gastrointestinal' | 'respiratory_distress' | 'severe_trauma' | 'toxic_ingestion' | 'urinary_emergency';
+    severity?: 'critical' | 'urgent';
   };
   status?: 'failed' | 'sending' | 'sent';
   text: string;

@@ -4455,6 +4455,8 @@ function adminExportDataset(type) {
         exportColumn('aiSummary', 'AI回复摘要'),
         exportColumn('hasMedicalAlert', '医疗风险', (row) => exportBoolText(row.hasMedicalAlert)),
         exportColumn('medicalReason', '医疗风险原因'),
+        exportColumn('medicalReasonLabel', '医疗风险分类'),
+        exportColumn('medicalSeverity', '医疗风险等级'),
         exportColumn('hasCalendarWrite', '自动写入', (row) => exportBoolText(row.hasCalendarWrite || row.updatedPet)),
         exportColumn('writeTypes', '写入类型', (row) => exportJoin(row.writeTypes || [])),
         exportColumn('createdMemoTitle', '写入备忘标题'),
@@ -14518,6 +14520,8 @@ function adminPetChatMessages(options = {}) {
           hasMedicalAlert: Boolean(message.medicalAlert),
           id: message.id,
           medicalReason: message.medicalAlert?.reason || '',
+          medicalReasonLabel: message.medicalAlert?.reason ? petMedicalRiskLabel(message.medicalAlert.reason) : '',
+          medicalSeverity: message.medicalAlert?.severity || '',
           model: aiTrace.model || '',
           ownerName: user?.ownerName || (phone ? `用户${phone.slice(-4)}` : '-'),
           ownerPhone: phone,
@@ -14549,7 +14553,7 @@ function adminPetChatMessages(options = {}) {
     })
     .filter((row) => {
       if (!q) return true;
-      return [row.id, row.ownerPhone, row.ownerName, row.petName, row.userSummary, row.aiSummary, row.medicalReason, row.feedback, row.provider, row.model, row.source, row.promptHash, row.promptSummary, row.actionLabels.join(' '), row.contentSafety?.sourceLabel, row.contentSafetyRiskTypes.join(' ')]
+      return [row.id, row.ownerPhone, row.ownerName, row.petName, row.userSummary, row.aiSummary, row.medicalReason, row.medicalReasonLabel, row.medicalSeverity, row.feedback, row.provider, row.model, row.source, row.promptHash, row.promptSummary, row.actionLabels.join(' '), row.contentSafety?.sourceLabel, row.contentSafetyRiskTypes.join(' ')]
         .some((value) => String(value || '').toLowerCase().includes(q));
     })
     .sort((a, b) => String(b.time).localeCompare(String(a.time)))
@@ -18032,31 +18036,136 @@ async function refreshTtapiFluxAvatarJob(job) {
   return job;
 }
 
+const PET_MEDICAL_RISK_RULES = [
+  {
+    reason: 'toxic_ingestion',
+    severity: 'critical',
+    patterns: [
+      /(误食|吃了|吞了|舔了|咬了).{0,30}(巧克力|葡萄干?|洋葱|大蒜|蒜|人用药|药片|老鼠药|蟑螂药|杀虫剂|清洁剂|消毒液|酒精|百合|电池|烟头|毒)/,
+      /(ate|swallowed|licked).{0,30}(chocolate|grape|raisin|onion|garlic|medicine|pesticide|cleaner|lily|battery|poison)/i,
+      /中毒|poisoned/i,
+    ],
+  },
+  {
+    reason: 'respiratory_distress',
+    severity: 'critical',
+    patterns: [
+      /没有(?:呼吸|气息)(?!困难|异常|问题)|呼吸停止|停止呼吸/,
+      /呼吸困难|喘不上|喘不过|张嘴呼吸|窒息|憋气|呼吸很费力|呼吸急促.*(?:发紫|虚弱|倒下)/,
+      /(?:牙龈|舌头|嘴唇).{0,8}(?:发紫|青紫|灰白).{0,8}(?:喘|呼吸|昏|倒)?/,
+      /difficulty breathing|cannot breathe|stopped breathing|blue gums/i,
+    ],
+  },
+  {
+    reason: 'neurologic_emergency',
+    severity: 'critical',
+    patterns: [
+      /抽搐|癫痫|昏迷|休克|晕倒|意识不清|失去意识|突然瘫|站不起来|四肢僵直/,
+      /seizure|unconscious|collapsed|cannot stand/i,
+    ],
+  },
+  {
+    reason: 'major_bleeding',
+    severity: 'critical',
+    patterns: [/大出血|流血不止|喷血|吐血|便血|尿血|伤口.{0,8}不停.{0,4}流血|heavy bleeding|vomiting blood|blood in (?:stool|urine)/i],
+  },
+  {
+    reason: 'severe_trauma',
+    severity: 'critical',
+    patterns: [/严重外伤|车撞|被车撞|高处坠落|摔伤|骨折|咬伤很深|伤口很深|胸腹部受伤|hit by a car|fracture|deep bite/i],
+  },
+  {
+    reason: 'urinary_emergency',
+    severity: 'critical',
+    patterns: [/尿不出来|无法排尿|排不出尿|频繁.{0,8}(?:蹲尿|进猫砂盆).{0,8}(?:没尿|没有尿)|超过.{0,6}(?:小时|一天).{0,8}(?:没尿|未排尿)|膀胱.{0,6}(?:胀|硬)|cannot urinate|unable to urinate/i],
+  },
+  {
+    reason: 'heatstroke',
+    severity: 'critical',
+    patterns: [/热射病|中暑|高温.{0,12}(?:喘|虚弱|倒下|昏迷)|体温.{0,6}(?:40|41|42)(?:度|℃)?|heatstroke/i],
+  },
+  {
+    reason: 'obstetric_emergency',
+    severity: 'critical',
+    patterns: [/难产|胎儿卡住|生产.{0,12}(?:超过|持续).{0,6}(?:两|2|三|3).{0,2}小时|宫缩.{0,12}(?:没有|不见).{0,6}(?:幼崽|胎儿)|dystocia|puppy stuck|kitten stuck/i],
+  },
+  {
+    reason: 'acute_abdominal_emergency',
+    severity: 'critical',
+    patterns: [/(?:肚子|腹部).{0,8}(?:突然|明显|越来越).{0,4}(?:鼓|胀|膨大).{0,12}(?:干呕|吐不出|坐立不安)|反复干呕.{0,12}(?:肚子|腹部).{0,6}(?:鼓|胀)|bloated abdomen.{0,20}(?:retching|cannot vomit)/i],
+  },
+  {
+    reason: 'persistent_gastrointestinal',
+    severity: 'urgent',
+    patterns: [/持续.{0,12}(?:呕吐|腹泻|拉稀)|一直.{0,12}(?:呕吐|吐|腹泻|拉稀)|反复.{0,8}(?:呕吐|吐|腹泻|拉稀)|一天.{0,8}(?:吐了|拉了).{0,4}(?:[3-9]|十|很多)次|persistent (?:vomiting|diarrhea)/i],
+  },
+  {
+    reason: 'medical_emergency',
+    severity: 'urgent',
+    patterns: [/不吃不喝|拒食拒水|高烧不退|明显疼痛.{0,8}(?:尖叫|无法活动)|精神极差.{0,8}(?:不动|叫不醒)/],
+  },
+];
+
+function petMedicalRiskLabel(reason) {
+  return {
+    acute_abdominal_emergency: '急性腹部风险',
+    heatstroke: '中暑/热射病',
+    major_bleeding: '严重出血',
+    medical_emergency: '其他紧急健康风险',
+    neurologic_emergency: '神经系统急症',
+    obstetric_emergency: '生产急症',
+    persistent_gastrointestinal: '持续呕吐/腹泻',
+    respiratory_distress: '呼吸窘迫',
+    severe_trauma: '严重外伤',
+    toxic_ingestion: '误食/中毒',
+    urinary_emergency: '排尿急症',
+  }[reason] || '紧急健康风险';
+}
+
+function petMedicalSignalMatches(text, pattern) {
+  return String(text || '').split(/[。！？!?；;\n]+/u).some((clause) => {
+    const match = clause.match(pattern);
+    if (!match) return false;
+    const prefix = clause.slice(Math.max(0, Number(match.index || 0) - 12), Number(match.index || 0));
+    const suffix = clause.slice(Number(match.index || 0) + String(match[0] || '').length);
+    if (/(?:没有|没出现|未见|并无|并未|否认|不是|不再|no|not|without|denies).{0,8}$/u.test(prefix)) return false;
+    const historicalResolved = /(?:以前|曾经|之前|过去).{0,8}$/u.test(prefix)
+      && /(?:现在|目前|后来|已经).{0,10}(?:恢复|好了|正常|痊愈)/u.test(suffix)
+      && !/(?:又|再次|重新|复发|今天|刚刚|现在又)/u.test(suffix);
+    return !historicalResolved;
+  });
+}
+
 function detectPetMedicalEmergency(text) {
-  const normalized = String(text || '').toLowerCase();
-  const toxicIngestion = /(误食|吃了|吞了|舔了|咬了).*(巧克力|葡萄|葡萄干|洋葱|大蒜|蒜|药|药片|老鼠药|蟑螂药|杀虫剂|清洁剂|消毒液|酒精|百合|电池|烟头|毒)/.test(normalized);
-  const emergencyPatterns = [
-    /呼吸困难|喘不上|喘不过|张嘴呼吸|窒息|憋气/,
-    /抽搐|癫痫|昏迷|休克|晕倒|意识不清|站不起来|瘫/,
-    /大出血|流血不止|吐血|便血|尿血/,
-    /严重外伤|车撞|被车撞|摔伤|骨折|咬伤很深|伤口很深/,
-    /持续.*(呕吐|腹泻|拉稀)|一直.*(呕吐|吐|腹泻|拉稀)/,
-    /不吃不喝|拒食拒水/,
-    /中毒|poison|toxic|chocolate|grape|onion|seizure|breathing|bleeding/,
-  ];
-  if (toxicIngestion) return { reason: 'toxic_ingestion' };
-  if (emergencyPatterns.some((pattern) => pattern.test(normalized))) return { reason: 'medical_emergency' };
+  const normalized = String(text || '').trim().toLowerCase();
+  if (!normalized) return null;
+  const educationalQuestion = /(什么是|怎么判断|如何判断|如何识别|有哪些表现|有什么症状|想了解|请介绍|科普|举例|what is|how to recognize|symptoms of)/u.test(normalized);
+  const currentSituation = /(现在|今天|刚刚|突然|正在|持续|一直|我家|它|他|她|宝贝|出现|发生)/u.test(normalized);
+  if (educationalQuestion && !currentSituation) return null;
+  for (const rule of PET_MEDICAL_RISK_RULES) {
+    if (rule.patterns.some((pattern) => petMedicalSignalMatches(normalized, pattern))) {
+      return { label: petMedicalRiskLabel(rule.reason), reason: rule.reason, severity: rule.severity };
+    }
+  }
   return null;
 }
 
 function petMedicalSafetyReply(user, text) {
-  const pet = selectedPetFor(user) || activePetFor(user);
-  const ingestionHint = /(误食|吃了|吞了|舔了|咬了)/.test(String(text || ''));
-  const extra = ingestionHint
-    ? '如果是误食，请尽量保留包装、成分、照片和大概时间，不要自行催吐或喂药。'
-    : '请先让我保持安静，避免继续运动；如果有出血、呼吸异常或抽搐，优先就近急诊。';
+  const emergency = detectPetMedicalEmergency(text);
+  const extra = {
+    acute_abdominal_emergency: '请不要喂食喂水或按压腹部，减少走动并尽快前往宠物急诊。',
+    heatstroke: '请立即转移到阴凉通风处，用常温水湿润身体并尽快送医；不要用冰水或把身体完全包裹。',
+    major_bleeding: '可以用干净纱布或毛巾持续轻压出血处，避免频繁揭开查看，同时尽快送医。',
+    neurologic_emergency: '请清理周围硬物，避免我撞伤；不要把手或物品伸进嘴里，并记录发作持续时间。',
+    obstetric_emergency: '请不要自行牵拉幼崽或使用药物，保持安静并立即联系具备产科急诊能力的宠物医院。',
+    persistent_gastrointestinal: '请记录呕吐或腹泻次数、是否带血、饮水与精神状态，尽快联系兽医；不要自行喂人用止吐止泻药。',
+    respiratory_distress: '请让我保持安静和通风，避免奔跑、压迫颈部或强行喂水，优先就近急诊。',
+    severe_trauma: '请尽量减少搬动，用平整硬板或厚毛毯辅助转运，不要自行复位疑似骨折。',
+    toxic_ingestion: '请尽量保留包装、成分、照片和大概时间，不要自行催吐或喂药。',
+    urinary_emergency: '排不出尿可能快速恶化，请不要按压腹部或等待观察，立即联系宠物急诊。',
+  }[emergency?.reason] || '请先让我保持安静，避免继续运动；如果有出血、呼吸异常或抽搐，优先就近急诊。';
   return [
-    '主人，这个情况我不能当作普通聊天处理。我可能存在需要尽快评估的风险，请马上联系宠物医院或兽医。',
+    `主人，这个情况我不能当作普通聊天处理。我可能存在${emergency?.label || '需要尽快评估的风险'}，请马上联系宠物医院或兽医。`,
     extra,
     '我不能替代兽医诊断，也不建议在没有医生指导时自行用药。你可以同时记录：发生时间、持续多久、精神/呼吸/食欲变化，带给医生判断。',
   ].join('\n\n');
@@ -18092,7 +18201,7 @@ function createMedicalAlertFromPetChat(user, text) {
   const emergency = detectPetMedicalEmergency(rawText);
   if (!emergency) return null;
   const pet = selectedPetFor(user) || activePetFor(user);
-  const title = emergency.reason === 'toxic_ingestion' ? '误食风险观察' : '紧急健康观察';
+  const title = `${petMedicalRiskLabel(emergency.reason)}观察`;
   const content = `${pet?.name ? `${pet.name}：` : ''}${rawText}`.slice(0, 240);
   const memo = createHealthMemoRecord(user, title, content, { dedupe: true });
   if (!memo) return null;
@@ -18103,12 +18212,10 @@ function createMedicalAlertFromPetChat(user, text) {
     memoId: memo.id,
     petId: pet?.id || '',
     read: false,
-    text: emergency.reason === 'toxic_ingestion'
-      ? '已记录疑似误食风险，请尽快联系宠物医院或兽医确认处理方式。'
-      : '已记录高风险健康观察，请优先联系宠物医院或兽医。',
+    text: `已记录${petMedicalRiskLabel(emergency.reason)}，请优先联系宠物医院或兽医。`,
     title: '就医提醒',
   });
-  return { memo, notificationId, reason: emergency.reason };
+  return { memo, notificationId, reason: emergency.reason, severity: emergency.severity };
 }
 
 function extractPetChatWeight(text) {
@@ -29321,9 +29428,9 @@ function adminReadinessModules(context) {
       module: 'AI 对话抽检',
       group: 'AI',
       status: 'partial',
-      evidence: '已支持摘要检索、原因审计后查看、生成快照追溯、医疗风险样本、多审核员复核历史与一致率、模型/Prompt 版本分桶、7 天自动回归分析、隐藏/恢复 AI 回复和样本导出。',
+      evidence: '已支持摘要检索、原因审计后查看、生成快照追溯、11 类医疗风险门禁与否定语义防误报、多审核员复核历史与一致率、模型/Prompt 版本分桶、7 天自动回归分析、隐藏/恢复 AI 回复和样本导出。',
       mobileLinkage: '隐藏回复后移动端不再返回，后续上下文也跳过被隐藏回复。',
-      nextStep: '生产期继续扩充细分医疗风险规则与经过医生审核的回归样本。',
+      nextStep: '上线前由执业兽医复核医疗提示文案和高风险回归样本；生产期按误报/漏报持续扩充样本。',
     },
     {
       key: 'moderation',
@@ -40212,7 +40319,7 @@ async function handle(req, res) {
       createdMemo,
       createdWeight,
       id: messageId(),
-      medicalAlert: medicalAlert ? { notificationId: medicalAlert.notificationId, reason: medicalAlert.reason } : undefined,
+      medicalAlert: medicalAlert ? { notificationId: medicalAlert.notificationId, reason: medicalAlert.reason, severity: medicalAlert.severity } : undefined,
       status: 'sent',
       text: replyText,
       time: new Date().toISOString(),

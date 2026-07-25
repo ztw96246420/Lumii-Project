@@ -4501,6 +4501,7 @@ function renderPetChatQualityReviewItem(row) {
           ${safety}
           ${row.source ? riskBadge(`来源：${row.source}`) : ''}
           ${row.feedback ? riskBadge(`反馈：${row.feedback === 'good' ? '像它' : '不像它'}`) : ''}
+          ${row.hasMedicalAlert ? riskBadge(`医疗：${row.medicalReasonLabel || row.medicalReason || '紧急风险'}${row.medicalSeverity ? ` · ${row.medicalSeverity === 'critical' ? '危急' : '紧急'}` : ''}`) : ''}
           ${row.reviewerCount ? riskBadge(`${numberText(row.reviewerCount)} 位审核员 · 一致率 ${percentText(row.reviewAgreementRate || 0)}`) : ''}
           ${row.hasReviewDisagreement ? riskBadge('审核结论有分歧') : ''}
           ${tags}
@@ -4547,6 +4548,7 @@ function renderPetChatRow(row) {
           ${row.source ? riskBadge(`来源：${row.source}`) : ''}
           ${row.promptHash ? riskBadge(`Prompt ${row.promptHash}`) : ''}
           ${row.feedback ? riskBadge(`反馈：${row.feedback === 'good' ? '像它' : '不像它'}`) : ''}
+          ${row.hasMedicalAlert ? riskBadge(`医疗：${row.medicalReasonLabel || row.medicalReason || '紧急风险'}${row.medicalSeverity ? ` · ${row.medicalSeverity === 'critical' ? '危急' : '紧急'}` : ''}`) : ''}
           ${tags}
           ${reviewStatus ? riskBadge(`复核：${reviewStatus}`) : ''}
           ${row.reviewerCount ? riskBadge(`${numberText(row.reviewerCount)} 位审核员 · 一致率 ${percentText(row.reviewAgreementRate || 0)}`) : ''}

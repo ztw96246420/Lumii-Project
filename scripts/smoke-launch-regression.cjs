@@ -26,6 +26,7 @@ const suites = [
   { key: 'ai-prompt-versions', title: 'AI prompt versions', script: 'smoke-ai-prompt-versions.cjs', timeoutMs: 180_000 },
   { key: 'ai-provider-trace', title: 'AI provider trace', script: 'smoke-ai-provider-trace.cjs', timeoutMs: 180_000 },
   { key: 'pet-chat-quality-review', title: 'Pet chat quality review', script: 'smoke-pet-chat-quality-review.cjs', timeoutMs: 180_000 },
+  { key: 'pet-chat-medical-risk-rules', title: 'Pet chat medical risk rules', script: 'smoke-pet-chat-medical-risk-rules.cjs', timeoutMs: 180_000 },
 
   { key: 'content-safety', title: 'Content safety E2E', script: 'smoke-content-safety-e2e.cjs', timeoutMs: 180_000 },
   { key: 'legal-documents', title: 'Legal document signoff', script: 'smoke-legal-documents.cjs', timeoutMs: 180_000 },
