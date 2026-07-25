@@ -5878,6 +5878,8 @@ function renderSanctionPolicyReview(policy = {}) {
   const sourceRows = Array.isArray(policy.sourceRows) ? policy.sourceRows : [];
   const repeatOffenders = Array.isArray(policy.repeatOffenders) ? policy.repeatOffenders : [];
   const pendingSuggestions = Array.isArray(reportSuggestions.pending) ? reportSuggestions.pending : [];
+  const suggestionEvaluation = reportSuggestions.evaluation || {};
+  const suggestionEvaluationRows = Array.isArray(suggestionEvaluation.rows) ? suggestionEvaluation.rows : [];
   const rules = Array.isArray(mobileImpact.rules) ? mobileImpact.rules : [];
   return `
     <div class="grid metrics">
@@ -5885,6 +5887,12 @@ function renderSanctionPolicyReview(policy = {}) {
       ${metric('申诉推翻率', percentText(summary.overturnRate || 0), `${numberText(summary.approvedAppeals || 0)} / ${numberText(summary.appeals || 0)} 条申诉通过`, '申诉通过代表原处罚或处理结果被运营认可有问题；比例偏高时应复核模板。')}
       ${metric('受限用户', numberText(summary.activeRestrictiveUsers || 0), `禁言 ${numberText(activeTypeCounts.mute || 0)} · 冻结 ${numberText(activeTypeCounts.freeze || 0)} · 封禁 ${numberText(activeTypeCounts.ban || 0)}`, '只统计当前生效且会限制移动端写操作的账号。')}
       ${metric('举报建议应用率', percentText(reportSuggestions.applyRate || 0), `${numberText(reportSuggestions.applied || 0)} / ${numberText(reportSuggestions.total || 0)} 条建议已应用`, '举报处理为有效后会生成处罚建议；建议长期不处理会造成举报闭环断层。')}
+    </div>
+    <div class="grid metrics compact-metrics">
+      ${metric('可评估建议', numberText(suggestionEvaluation.evaluated || 0), `${numberText(suggestionEvaluation.legacyUnevaluable || 0)} 条历史建议缺少快照`, '新建议会冻结策略版本、建议模板、类型和时长，历史上未保留建议快照的数据不纳入命中率。')}
+      ${metric('完全命中率', percentText(suggestionEvaluation.exactMatchRate || 0), `${numberText(suggestionEvaluation.exactMatches || 0)} 条完全一致 · ${numberText(suggestionEvaluation.overridden || 0)} 条改判`, '最终处罚的模板、类型和时长都与冻结建议一致才算完全命中。')}
+      ${metric('处罚保留率', percentText(suggestionEvaluation.retainedRate || 0), `${numberText(suggestionEvaluation.retained || 0)} 条未撤销/推翻`, '处罚仍生效或自然到期，且没有申诉通过，计为保留；用于回算建议结果质量。')}
+      ${metric('申诉推翻', numberText(suggestionEvaluation.overturned || 0), `类型 ${percentText(suggestionEvaluation.typeMatchRate || 0)} · 时长 ${percentText(suggestionEvaluation.durationMatchRate || 0)}`, '建议处罚被申诉通过时标记为推翻；同时拆分观察类型、时长和模板命中率。')}
     </div>
     <div class="card">
       <div class="section-head">
@@ -5952,6 +5960,14 @@ function renderSanctionPolicyReview(policy = {}) {
           ], '暂无待应用处罚建议')}
         </div>
       </div>
+      <div class="mini-section-title">举报处罚建议命中复盘</div>
+      ${tableHtml(suggestionEvaluationRows, [
+        ['举报/策略', (row) => `<div class="cell-title">${escapeHtml(row.id || '-')}</div><div class="cell-sub">${escapeHtml(row.policyVersion || '历史无版本')} · ${formatTime(row.updatedAt)}</div>`],
+        ['冻结建议', (row) => `<div>${escapeHtml(row.suggestedTypeLabel || row.suggestedType || '-')} · ${numberText(row.suggestedDurationHours || 0)}h</div><div class="cell-sub">${escapeHtml(row.suggestedTemplateId || '-')}</div>`],
+        ['最终处罚', (row) => `<div>${escapeHtml(row.finalTypeLabel || row.finalType || '-')} · ${numberText(row.finalDurationHours || 0)}h</div><div class="cell-sub">${escapeHtml(row.finalTemplateId || '-')}</div>`],
+        ['命中', (row) => row.evaluable ? `${tonePill(row.exactMatch ? '完全命中' : '运营改判', row.exactMatch ? 'ok' : 'warn')}<div class="cell-sub">类型 ${row.typeMatch ? '✓' : '×'} · 时长 ${row.durationMatch ? '✓' : '×'} · 模板 ${row.templateMatch ? '✓' : '×'}</div>` : tonePill('历史不可评估', 'warn')],
+        ['结果', (row) => `<div>${tonePill(row.outcome === 'overturned' ? '申诉推翻' : row.outcome === 'retained' ? '保留' : row.outcome === 'revoked' ? '已撤销' : row.outcome || '-', row.outcome === 'retained' ? 'ok' : row.outcome === 'overturned' ? 'bad' : 'warn')}</div><div class="cell-sub">${numberText(row.appealCount || 0)} 条申诉 · ${numberText(row.approvedAppealCount || 0)} 条通过</div>`],
+      ], '暂无已应用的举报处罚建议')}
     </div>
   `;
 }

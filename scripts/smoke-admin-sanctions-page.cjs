@@ -169,6 +169,8 @@ async function main() {
     await page.locator('#loginBtn').click();
     await page.locator('#nav button[data-route="sanctions"]').click();
     await page.locator('#sanctionBatchPhones').waitFor({ state: 'attached', timeout: 30_000 });
+    await page.locator('.metric-label').filter({ hasText: '完全命中率' }).waitFor({ timeout: 30_000 });
+    await page.getByText('举报处罚建议命中复盘', { exact: true }).waitFor({ timeout: 30_000 });
 
     await page.locator('#sanctionBatchType').selectOption('freeze');
     await page.locator('#sanctionBatchDurationHours').fill('72');

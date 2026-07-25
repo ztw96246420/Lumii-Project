@@ -10393,23 +10393,101 @@ function adminSanctionPolicyReview() {
   const approvedSanctionAppeals = sanctionAppeals.filter((appeal) => appeal.status === 'approved');
   const reportSuggestions = reportRows
     .filter((report) => report.sanctionSuggestion)
-    .map((report) => ({
-      id: report.id,
-      ownerName: report.ownerName || '',
-      ownerPhone: report.ownerPhone || '',
-      reason: report.sanctionSuggestion?.reason || '',
-      sanctionId: report.sanctionSuggestion?.sanctionId || report.sanctionId || '',
-      status: report.sanctionSuggestion?.status || '',
-      targetId: report.targetId || '',
-      targetType: report.targetType || '',
-      templateId: report.sanctionSuggestion?.templateId || '',
-      typeLabel: report.sanctionSuggestion?.typeLabel || '',
-      updatedAt: report.reviewedAt || report.createdAt || '',
-    }));
+    .map((report) => {
+      const suggestion = report.sanctionSuggestion || {};
+      return {
+        exactMatch: suggestion.exactMatch,
+        finalDurationHours: suggestion.finalDurationHours,
+        finalTemplateId: suggestion.finalTemplateId || '',
+        finalType: suggestion.finalType || '',
+        id: report.id,
+        ownerName: report.ownerName || '',
+        ownerPhone: report.ownerPhone || '',
+        policyVersion: suggestion.policyVersion || '',
+        reason: suggestion.reason || '',
+        sanctionId: suggestion.sanctionId || report.sanctionId || '',
+        status: suggestion.status || '',
+        suggestedDurationHours: suggestion.suggestedDurationHours,
+        suggestedTemplateId: suggestion.suggestedTemplateId || '',
+        suggestedType: suggestion.suggestedType || '',
+        targetId: report.targetId || '',
+        targetType: report.targetType || '',
+        templateId: suggestion.templateId || '',
+        type: suggestion.type || '',
+        typeLabel: suggestion.typeLabel || '',
+        updatedAt: report.reviewedAt || report.createdAt || '',
+      };
+    });
   const appliedSuggestions = reportSuggestions.filter((item) => item.status === 'applied');
   const pendingSuggestions = reportSuggestions.filter((item) => item.status === 'suggested')
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
     .slice(0, 8);
+  const sanctionsById = new Map(sanctions.map((sanction) => [sanction.id, sanction]));
+  const suggestionEvaluations = appliedSuggestions.map((item) => {
+    const sanction = sanctionsById.get(item.sanctionId) || null;
+    const appeals = appealsBySanction.get(item.sanctionId) || [];
+    const approvedAppeals = appeals.filter((appeal) => sanctionAppealStatusFor(appeal.status) === 'approved').length;
+    const evaluable = Boolean(item.policyVersion && item.suggestedTemplateId && item.suggestedType && item.finalTemplateId && item.finalType);
+    const typeMatch = evaluable && item.suggestedType === item.finalType;
+    const durationMatch = evaluable && Number(item.suggestedDurationHours) === Number(item.finalDurationHours);
+    const templateMatch = evaluable && item.suggestedTemplateId === item.finalTemplateId;
+    const exactMatch = evaluable && typeMatch && durationMatch && templateMatch;
+    const overturned = approvedAppeals > 0;
+    const retained = Boolean(sanction) && !overturned && sanction.status !== 'revoked';
+    return {
+      ...item,
+      appealCount: appeals.length,
+      approvedAppealCount: approvedAppeals,
+      durationMatch,
+      evaluable,
+      exactMatch,
+      finalTypeLabel: SANCTION_TYPE_LABELS[item.finalType] || item.finalType,
+      outcome: overturned ? 'overturned' : sanction?.status === 'revoked' ? 'revoked' : retained ? 'retained' : sanction ? sanction.status : 'missing',
+      retained,
+      sanctionStatus: sanction?.status || '',
+      suggestedTypeLabel: SANCTION_TYPE_LABELS[item.suggestedType] || item.suggestedType,
+      templateMatch,
+      typeMatch,
+    };
+  });
+  const evaluableSuggestions = suggestionEvaluations.filter((item) => item.evaluable);
+  const outcomeEvaluatedSuggestions = suggestionEvaluations.filter((item) => item.sanctionId && item.sanctionStatus);
+  const suggestionPolicyMap = new Map();
+  evaluableSuggestions.forEach((item) => {
+    const key = item.policyVersion || 'unknown';
+    const bucket = suggestionPolicyMap.get(key) || {
+      exactMatches: 0,
+      evaluated: 0,
+      overturned: 0,
+      policyVersion: key,
+      retained: 0,
+    };
+    bucket.evaluated += 1;
+    if (item.exactMatch) bucket.exactMatches += 1;
+    if (item.retained) bucket.retained += 1;
+    if (item.outcome === 'overturned') bucket.overturned += 1;
+    suggestionPolicyMap.set(key, bucket);
+  });
+  const suggestionPolicyBuckets = Array.from(suggestionPolicyMap.values()).map((bucket) => ({
+    ...bucket,
+    exactMatchRate: analyticsPercent(bucket.exactMatches, bucket.evaluated),
+    retainedRate: analyticsPercent(bucket.retained, bucket.evaluated),
+  }));
+  const suggestionEvaluation = {
+    durationMatchRate: analyticsPercent(evaluableSuggestions.filter((item) => item.durationMatch).length, evaluableSuggestions.length),
+    evaluated: evaluableSuggestions.length,
+    exactMatches: evaluableSuggestions.filter((item) => item.exactMatch).length,
+    exactMatchRate: analyticsPercent(evaluableSuggestions.filter((item) => item.exactMatch).length, evaluableSuggestions.length),
+    legacyUnevaluable: appliedSuggestions.length - evaluableSuggestions.length,
+    overridden: evaluableSuggestions.filter((item) => !item.exactMatch).length,
+    overturned: outcomeEvaluatedSuggestions.filter((item) => item.outcome === 'overturned').length,
+    policyBuckets: suggestionPolicyBuckets,
+    retained: outcomeEvaluatedSuggestions.filter((item) => item.retained).length,
+    retainedRate: analyticsPercent(outcomeEvaluatedSuggestions.filter((item) => item.retained).length, outcomeEvaluatedSuggestions.length),
+    rows: suggestionEvaluations.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 20),
+    templateMatchRate: analyticsPercent(evaluableSuggestions.filter((item) => item.templateMatch).length, evaluableSuggestions.length),
+    typeMatchRate: analyticsPercent(evaluableSuggestions.filter((item) => item.typeMatch).length, evaluableSuggestions.length),
+  };
   const activeRestrictivePhones = new Set(sanctions.filter((item) => item.status === 'active' && item.type !== 'warning').map((item) => item.phone));
   const openAppeals = appealRows.filter((appeal) => appeal.status === 'pending' || appeal.status === 'reviewing');
   const recommendations = [];
@@ -10417,6 +10495,8 @@ function adminSanctionPolicyReview() {
   const highRiskTemplates = templateRows.filter((row) => row.status === '需复核' || row.status === '申诉偏高');
   if (highRiskTemplates.length) recommendations.push({ level: 'bad', title: '复核高申诉模板', detail: `${highRiskTemplates.map((row) => row.label).join('、')} 的申诉或推翻比例偏高，建议检查证据标准和默认时长。` });
   if (pendingSuggestions.length) recommendations.push({ level: 'warn', title: '处理举报处罚建议', detail: `${pendingSuggestions.length} 条举报处罚建议待应用或关闭，避免举报成立后没有限制闭环。` });
+  if (suggestionEvaluation.evaluated >= 5 && suggestionEvaluation.exactMatchRate < 60) recommendations.push({ level: 'warn', title: '处罚建议命中率偏低', detail: `近 ${suggestionEvaluation.evaluated} 条可评估建议中仅 ${suggestionEvaluation.exactMatchRate}% 与最终处罚完全一致，应复核建议规则或运营改判原因。` });
+  if (outcomeEvaluatedSuggestions.length >= 5 && suggestionEvaluation.retainedRate < 70) recommendations.push({ level: 'bad', title: '处罚建议留存率偏低', detail: `建议处罚中仅 ${suggestionEvaluation.retainedRate}% 未被撤销或申诉推翻，应优先检查证据门槛。` });
   if (repeatOffenders.length) recommendations.push({ level: 'warn', title: '关注重复违规用户', detail: `${repeatOffenders.length} 个用户出现多次处罚或多条生效限制，可人工复核是否需要升级或合并处理。` });
   if (!recommendations.length) recommendations.push({ level: 'ok', title: '策略暂无明显异常', detail: '当前处罚、申诉和撤销比例没有触发复盘预警，继续观察样本量。' });
   return {
@@ -10436,6 +10516,7 @@ function adminSanctionPolicyReview() {
     reportSuggestions: {
       applied: appliedSuggestions.length,
       applyRate: analyticsPercent(appliedSuggestions.length, reportSuggestions.length),
+      evaluation: suggestionEvaluation,
       pending: pendingSuggestions,
       suggested: pendingSuggestions.length,
       total: reportSuggestions.length,
@@ -29458,10 +29539,10 @@ function adminReadinessModules(context) {
       key: 'reports',
       module: '举报与申诉',
       group: '安全',
-      status: 'partial',
-      evidence: '举报可处理有效/无效/关闭，证据快照、处罚建议、一键处罚、批量处罚审批、处罚撤销、账号申诉和举报处理申诉已接入。',
+      status: 'ready',
+      evidence: '举报可处理有效/无效/关闭，证据快照、版本化处罚建议、一键处罚、建议与最终决定命中率/留存率回算、批量处罚审批、处罚撤销、账号申诉和举报处理申诉已接入。',
       mobileLinkage: '有效举报和处罚会通知作者；单个或批量审批通过的处罚都会限制移动端写接口，用户可在安全中心提交账号限制申诉或举报处理申诉。',
-      nextStep: '生产期补高风险处罚建议命中率复盘；处罚审批已进入 /admin/approvals/pending 值守队列，后续可再接企业微信/邮件等站外通知。',
+      nextStep: '生产期持续观察各策略版本命中率、申诉推翻率和运营改判原因；站外审批提醒由统一告警通道承接。',
     },
     {
       key: 'places',
@@ -35037,8 +35118,12 @@ function buildReportSanctionSuggestion(admin, report, reason = '') {
     durationHours: template.durationHours,
     evidenceSnapshot,
     id: report.sanctionSuggestion?.id || `suggestion-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    policyVersion: 'report-sanction-v1',
     reason: String(reason || template.reason || '举报成立，建议处罚').replace(/\s+/g, ' ').trim().slice(0, 240),
     status: 'suggested',
+    suggestedDurationHours: template.durationHours,
+    suggestedTemplateId: template.id,
+    suggestedType: template.type,
     templateId: template.id,
     type: template.type,
     typeLabel: SANCTION_TYPE_LABELS[template.type] || template.type,
@@ -35047,7 +35132,7 @@ function buildReportSanctionSuggestion(admin, report, reason = '') {
 
 function ensureReportSanctionSuggestion(admin, report, reason = '') {
   if (!report || !report.ownerPhone) return null;
-  if (report.sanctionSuggestion?.status === 'applied') return report.sanctionSuggestion;
+  if (['applied', 'suggested'].includes(report.sanctionSuggestion?.status)) return report.sanctionSuggestion;
   const suggestion = buildReportSanctionSuggestion(admin, report, reason);
   report.sanctionSuggestion = suggestion;
   return suggestion;
@@ -35091,6 +35176,12 @@ function applyReportSanctionSuggestion(admin, reportId, body = {}) {
     appliedBy: admin?.username || 'admin',
     durationHours,
     evidenceSnapshot,
+    exactMatch: String(type) === String(baseSuggestion.suggestedType || baseSuggestion.type || '')
+      && Number(durationHours) === Number(baseSuggestion.suggestedDurationHours ?? baseSuggestion.durationHours)
+      && String(template?.id || baseSuggestion.templateId || '') === String(baseSuggestion.suggestedTemplateId || baseSuggestion.templateId || ''),
+    finalDurationHours: durationHours,
+    finalTemplateId: template?.id || baseSuggestion.templateId || '',
+    finalType: type,
     reason,
     sanctionId: result.sanction.id,
     status: 'applied',

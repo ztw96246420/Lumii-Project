@@ -187,6 +187,20 @@ async function main() {
       method: 'POST',
       token: reporterToken,
     });
+    const overridePost = await request('/social/pet-circle/posts', {
+      body: {
+        content: 'sanction policy override target',
+        location: { accuracy: 25, latitude: 22.543096, longitude: 114.057865, radiusKm: 3, updatedAt: Date.now() },
+        visibility: 'nearby',
+      },
+      method: 'POST',
+      token: authorToken,
+    });
+    const overrideReport = await request(`/social/pet-circle/posts/${encodeURIComponent(overridePost.data.id)}/report`, {
+      body: { content: 'sanction policy override report' },
+      method: 'POST',
+      token: reporterToken,
+    });
     await request(`/admin/social/reports/${encodeURIComponent(report.data.id)}/resolve`, {
       body: { reason: 'Policy smoke valid report', status: 'valid' },
       method: 'POST',
@@ -205,6 +219,29 @@ async function main() {
     assert.equal(policy.data.summary.activeRestrictiveUsers, 1);
     assert.ok(policy.data.templateRows.some((row) => row.templateId === 'report_valid_mute_24h' && row.total === 1));
     assert.ok(policy.data.sourceRows.some((row) => row.source === 'social_report' && row.total === 1));
+    assert.equal(policy.data.reportSuggestions.evaluation.evaluated, 1);
+    assert.equal(policy.data.reportSuggestions.evaluation.exactMatches, 1);
+    assert.equal(policy.data.reportSuggestions.evaluation.exactMatchRate, 100);
+    assert.equal(policy.data.reportSuggestions.evaluation.retainedRate, 100);
+    assert.ok(policy.data.reportSuggestions.evaluation.policyBuckets.some((row) => row.policyVersion === 'report-sanction-v1' && row.exactMatchRate === 100));
+
+    await request(`/admin/social/reports/${encodeURIComponent(overrideReport.data.id)}/resolve`, {
+      body: { reason: 'Policy smoke second valid report after active restriction', status: 'valid' },
+      method: 'POST',
+      token: adminToken,
+    });
+    await request(`/admin/social/reports/${encodeURIComponent(overrideReport.data.id)}/sanction`, {
+      body: { reason: 'Operator deliberately overrides repeat freeze suggestion with warning', templateId: 'warning_community_notice' },
+      method: 'POST',
+      token: adminToken,
+    });
+    policy = await request('/admin/sanction-policy-review', { token: adminToken });
+    assert.equal(policy.data.summary.total, 2);
+    assert.equal(policy.data.reportSuggestions.evaluation.evaluated, 2);
+    assert.equal(policy.data.reportSuggestions.evaluation.exactMatches, 1);
+    assert.equal(policy.data.reportSuggestions.evaluation.overridden, 1);
+    assert.equal(policy.data.reportSuggestions.evaluation.exactMatchRate, 50);
+    assert.ok(policy.data.reportSuggestions.evaluation.rows.some((row) => row.id === overrideReport.data.id && row.evaluable && !row.exactMatch && !row.typeMatch));
 
     const appeal = await request('/sanction-appeals', {
       body: { content: 'Please review this sanction for policy smoke.', sanctionId: applied.data.sanction.id },
@@ -225,13 +262,16 @@ async function main() {
     assert.equal(manualFreeze.data?.type, 'freeze');
 
     policy = await request('/admin/sanction-policy-review', { token: adminToken });
-    assert.equal(policy.data.summary.total, 2);
+    assert.equal(policy.data.summary.total, 3);
     assert.equal(policy.data.summary.appeals, 1);
     assert.equal(policy.data.summary.approvedAppeals, 1);
     assert.equal(policy.data.summary.overturnRate, 100);
     assert.equal(policy.data.mobileImpact.activeTypeCounts.freeze, 1);
     assert.ok(policy.data.templateRows.some((row) => row.templateId === 'report_valid_mute_24h' && row.revoked === 1 && row.overturnRate === 100));
-    assert.ok(policy.data.repeatOffenders.some((row) => row.phone === authorPhone && row.total === 2));
+    assert.equal(policy.data.reportSuggestions.evaluation.exactMatchRate, 50);
+    assert.equal(policy.data.reportSuggestions.evaluation.overturned, 1);
+    assert.equal(policy.data.reportSuggestions.evaluation.retainedRate, 50);
+    assert.ok(policy.data.repeatOffenders.some((row) => row.phone === authorPhone && row.total === 3));
     assert.ok(policy.data.recommendations.length >= 1, 'policy review should return operational recommendations');
 
     const me = await request('/me', { token: authorToken });
