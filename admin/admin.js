@@ -9858,8 +9858,8 @@ async function saveConfig(mode = 'publish') {
   if (updateEnabled && !updateAndroidUrl) {
     throw new Error('启用版本更新时必须配置 Android 下载地址');
   }
-  if ((updateAndroidUrl && !/^https?:\/\//i.test(updateAndroidUrl)) || (updateIosUrl && !/^https?:\/\//i.test(updateIosUrl))) {
-    throw new Error('更新下载地址必须以 http:// 或 https:// 开头');
+  if ((updateAndroidUrl && !/^https:\/\//i.test(updateAndroidUrl)) || (updateIosUrl && !/^https:\/\//i.test(updateIosUrl))) {
+    throw new Error('正式更新下载地址必须以 https:// 开头');
   }
   if (splashEnabled && (!$('cfgSplashVersion').value.trim() || !$('cfgSplashTitle').value.trim() || !$('cfgSplashBody').value.trim())) {
     throw new Error('启用启动提示时，请填写提示版本、标题和正文');

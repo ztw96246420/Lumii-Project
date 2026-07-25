@@ -627,11 +627,23 @@ async function main() {
   });
   try {
     const admin = await adminToken();
+    const insecureUpdate = await request('/admin/config', {
+      body: {
+        app: { update: { androidUrl: 'http://download.example.com/Lumii.apk', enabled: true, force: false, latestBuildNumber: 99 } },
+        reason: 'reject production HTTP update URL',
+      },
+      expectedStatus: 400,
+      method: 'PATCH',
+      token: admin,
+    });
+    assert.equal(insecureUpdate.error?.code, 'ADMIN_CONFIG_APP_DELIVERY_INVALID');
+    assert.equal(insecureUpdate.data?.field, 'app.update.androidUrl');
     const health = await request('/admin/system/health', { token: admin });
     assert.ok(health.data.checks.some((item) => item.key === 'pet_avatar_provider' && item.status === 'ok'));
     assert.ok(health.data.checks.some((item) => item.key === 'pet_avatar_animation_provider' && item.status === 'ok'));
     assert.ok(health.data.checks.some((item) => item.key === 'deepseek' && item.status === 'ok'));
     assert.ok(health.data.checks.some((item) => item.key === 'amap' && item.status === 'ok'));
+    assert.ok(health.data.checks.some((item) => item.key === 'app_delivery_https' && item.status === 'ok'));
     const readiness = await request('/admin/launch/readiness', { token: admin });
     assert.equal(readiness.data.gaps.find((item) => item.key === 'ai_runtime')?.status, 'ready');
     assert.equal(readiness.data.gaps.find((item) => item.key === 'place_discovery')?.status, 'ready');

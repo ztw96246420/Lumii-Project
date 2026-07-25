@@ -2209,6 +2209,9 @@ function validateOpsConfigAppDelivery(config) {
     if (!app.splash.version) return invalid('app.splash.version', '启用启动提示时必须填写提示版本');
     if (!app.splash.title) return invalid('app.splash.title', '启用启动提示时必须填写提示标题');
     if (!app.splash.body) return invalid('app.splash.body', '启用启动提示时必须填写提示正文');
+    if (RUNTIME_ENV === 'production' && app.splash.imageUrl && !/^https:\/\//i.test(app.splash.imageUrl)) {
+      return invalid('app.splash.imageUrl', '生产启动图必须使用 HTTPS 地址');
+    }
   }
   if (app.update?.enabled) {
     const hasLatestTarget = Boolean(app.update.latestVersion || app.update.latestBuildNumber);
@@ -2224,6 +2227,12 @@ function validateOpsConfigAppDelivery(config) {
     }
     if (!app.update.androidUrl) {
       return invalid('app.update.androidUrl', '启用版本更新时必须配置 Android 下载地址');
+    }
+    if (RUNTIME_ENV === 'production' && !/^https:\/\//i.test(app.update.androidUrl)) {
+      return invalid('app.update.androidUrl', '生产 Android 下载地址必须使用 HTTPS');
+    }
+    if (RUNTIME_ENV === 'production' && app.update.iosUrl && !/^https:\/\//i.test(app.update.iosUrl)) {
+      return invalid('app.update.iosUrl', '生产 iOS 下载地址必须使用 HTTPS');
     }
   }
   return { code: '', error: '', field: '', statusCode: 200 };
@@ -27432,6 +27441,11 @@ async function adminSystemHealth() {
   const tickets = adminSupportTickets({ status: 'all' }).summary;
   const appeals = adminSanctionAppeals({ status: 'all' }).summary;
   const config = currentOpsConfig();
+  const appDeliveryInsecureFields = [
+    config.app?.splash?.enabled && config.app.splash.imageUrl && !/^https:\/\//i.test(config.app.splash.imageUrl) ? 'app.splash.imageUrl' : '',
+    config.app?.update?.enabled && config.app.update.androidUrl && !/^https:\/\//i.test(config.app.update.androidUrl) ? 'app.update.androidUrl' : '',
+    config.app?.update?.enabled && config.app.update.iosUrl && !/^https:\/\//i.test(config.app.update.iosUrl) ? 'app.update.iosUrl' : '',
+  ].filter(Boolean);
   const smsProvider = smsProviderStatus();
   const aiRuntime = aiRuntimeReadiness();
   const accountDeletions = accountDeletionOperationsSummary(now);
@@ -27483,6 +27497,15 @@ async function adminSystemHealth() {
         ? `${insecureMediaUrls.count} 条用户可见媒体地址仍使用明文 HTTP`
         : '用户可见业务媒体地址未发现明文 HTTP',
       insecureMediaUrls.count > 0 ? `roots=${insecureMediaUrls.roots.join(',')}` : 'live media URL fields',
+    ),
+    adminCheckStatus(
+      appDeliveryInsecureFields.length > 0 ? RUNTIME_ENV === 'production' ? 'bad' : 'warn' : 'ok',
+      'app_delivery_https',
+      'App 投放地址 HTTPS',
+      appDeliveryInsecureFields.length > 0
+        ? `${appDeliveryInsecureFields.length} 个已启用投放地址仍使用明文 HTTP`
+        : '已启用的启动图和版本更新下载地址均未发现明文 HTTP',
+      appDeliveryInsecureFields.length > 0 ? appDeliveryInsecureFields.join(',') : 'app.splash / app.update',
     ),
     adminCheckStatus(publicApiProbe.status, 'public_api_https', 'App API 源站 HTTPS 探测', publicApiProbe.detail, publicApiProbe.evidence),
     adminCheckStatus(publicApiExternalProof.status, 'public_api_external_https', 'App API 站外 HTTPS 证据', publicApiExternalProof.detail, publicApiExternalProof.evidence),
