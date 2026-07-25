@@ -6170,8 +6170,70 @@ if (RUNTIME_ENV === 'production') {
 if (sqliteStateBootstrapRuntime) Object.assign(stateStorageRuntime, sqliteStateBootstrapRuntime);
 const amapPoiCache = new Map();
 
+const PUBLIC_MEDIA_URL_STATE_ROOTS = [
+  'aiAvatarSamples',
+  'avatarAnimationJobs',
+  'avatarJobs',
+  'conversationMessages',
+  'feedback',
+  'mediaUploads',
+  'moderationSamples',
+  'notifications',
+  'placeReviews',
+  'placeSubmissions',
+  'places',
+  'sanctionAppeals',
+  'socialComments',
+  'socialMoments',
+  'socialReports',
+  'supportTickets',
+  'systemNotifications',
+  'users',
+];
+
+function canonicalPublicStorageUrl(value) {
+  const text = String(value || '').trim();
+  if (!/^https?:\/\//i.test(text) || !text.includes('/storage/objects/')) return value;
+  const base = appMediaPublicBaseUrl();
+  const objectKey = storageObjectKeyFromPublicUrl(text);
+  if (!base || !objectKey) return value;
+  return publicStorageProbeUrl(base, objectKey);
+}
+
+function migratePublicStorageUrlsInValue(value, runtime, seen = new WeakSet()) {
+  if (typeof value === 'string') {
+    const migrated = canonicalPublicStorageUrl(value);
+    if (migrated !== value) runtime.changedUrls += 1;
+    return migrated;
+  }
+  if (!value || typeof value !== 'object' || seen.has(value)) return value;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      value[index] = migratePublicStorageUrlsInValue(item, runtime, seen);
+    });
+    return value;
+  }
+  Object.keys(value).forEach((key) => {
+    value[key] = migratePublicStorageUrlsInValue(value[key], runtime, seen);
+  });
+  return value;
+}
+
+function migratePersistedPublicStorageUrls(target) {
+  const runtime = { changedRoots: 0, changedUrls: 0 };
+  if (!appMediaPublicBaseUrl()) return runtime;
+  PUBLIC_MEDIA_URL_STATE_ROOTS.forEach((key) => {
+    if (!target?.[key]) return;
+    const before = runtime.changedUrls;
+    migratePublicStorageUrlsInValue(target[key], runtime);
+    if (runtime.changedUrls > before) runtime.changedRoots += 1;
+  });
+  return runtime;
+}
+
 function durableMediaUrl(media = {}) {
-  const objectUrl = String(media.objectUrl || '').trim();
+  const objectUrl = String(canonicalPublicStorageUrl(media.objectUrl) || '').trim();
   if (/^https?:\/\//i.test(objectUrl)) return objectUrl;
   const objectKey = String(media.objectKey || '').trim();
   const base = appMediaPublicBaseUrl();
@@ -6251,9 +6313,15 @@ function saveState(reason = 'save') {
   }
 }
 
+const startupPublicMediaUrlMigration = migratePersistedPublicStorageUrls(state);
 const startupStateCompaction = compactStateForPersistence(state, { mutate: true, reason: 'startup_state_storage_compaction' });
+if (startupPublicMediaUrlMigration.changedUrls > 0 || startupStateCompaction.changed) {
+  saveState(startupPublicMediaUrlMigration.changedUrls > 0 ? 'startup_public_media_url_migration' : 'startup_compaction');
+  if (startupPublicMediaUrlMigration.changedUrls > 0) {
+    console.warn('[media-storage] migrated persisted public storage URLs', startupPublicMediaUrlMigration);
+  }
+}
 if (startupStateCompaction.changed) {
-  saveState('startup_compaction');
   console.warn('[state-storage] compacted persisted media data URLs', startupStateCompaction.summary);
 }
 if (stateStorageRuntime.loadedFromBackup) {

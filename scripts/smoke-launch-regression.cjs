@@ -84,6 +84,7 @@ const suites = [
   { key: 'config-risk-confirmation', title: 'Config risk confirmation', script: 'smoke-config-risk-confirmation.cjs', timeoutMs: 180_000 },
   { key: 'config-scheduled-publish', title: 'Config scheduled publish', script: 'smoke-config-scheduled-publish.cjs', timeoutMs: 180_000 },
   { key: 'media-cdn-probe', title: 'Media CDN probe', script: 'smoke-media-cdn-probe.cjs', timeoutMs: 180_000 },
+  { key: 'legacy-media-url-migration', title: 'Legacy media URL migration', script: 'smoke-legacy-media-url-migration.cjs', timeoutMs: 180_000 },
   { key: 'media-origin-config', title: 'Media origin isolation config', script: 'smoke-media-origin-config.cjs', timeoutMs: 180_000 },
   { key: 'media-storage-contract', title: 'Media storage response contract', script: 'smoke-media-storage-contract.cjs', timeoutMs: 180_000 },
   { key: 'audit-integrity', title: 'Audit integrity journal', script: 'smoke-admin-audit-integrity.cjs', timeoutMs: 180_000 },
