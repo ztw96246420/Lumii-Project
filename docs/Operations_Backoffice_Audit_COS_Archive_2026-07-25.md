@@ -13,6 +13,7 @@
 - 每次成功归档写入两个唯一对象：`*.jsonl` 与 `*.manifest.json`。
 - journal 对象携带 `Content-MD5`、`x-cos-meta-journal-sha256` 和 `x-cos-forbid-overwrite: true`。
 - manifest 记录 journal SHA-256、字节数、行数、最新审计 hash、上一归档 ID/哈希和对象键。
+- 两个 PUT 完成后会分别执行 HEAD，只有对象长度、SHA-256 元数据和 ETag 均可验证时才标记归档成功。
 - 应用只创建新对象，不提供覆盖、下载或删除归档对象的后台接口。
 - `x-cos-forbid-overwrite` 是应用侧防覆盖保护；正式合规保留仍需在 COS 控制台配置版本控制、对象锁/合规保留和生命周期策略。
 

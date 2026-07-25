@@ -15,6 +15,8 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-admin-audit-cos-'));
 const statePath = path.join(tmpDir, 'state.json');
 const journalPath = path.join(tmpDir, 'admin-audit-journal.jsonl');
 const cosUploads = [];
+const cosHeads = [];
+const cosObjects = new Map();
 let backendProcess = null;
 let baseUrl = '';
 let cosServer = null;
@@ -66,6 +68,22 @@ async function startFakeCosServer() {
     req.on('data', (chunk) => chunks.push(chunk));
     req.on('end', () => {
       const body = Buffer.concat(chunks);
+      if (req.method === 'HEAD') {
+        const object = cosObjects.get(req.url);
+        cosHeads.push({ headers: req.headers, url: req.url });
+        if (!object) {
+          res.writeHead(404);
+          res.end();
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Length': String(object.body.length),
+          ETag: `"${crypto.createHash('md5').update(object.body).digest('hex')}"`,
+          'x-cos-meta-journal-sha256': object.headers['x-cos-meta-journal-sha256'],
+        });
+        res.end();
+        return;
+      }
       if (req.method !== 'PUT') {
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('not found');
@@ -77,6 +95,7 @@ async function startFakeCosServer() {
         res.end('<Error><Message>smoke COS failure</Message></Error>');
         return;
       }
+      cosObjects.set(req.url, { body, headers: req.headers });
       res.writeHead(200, { 'Content-Type': 'application/xml' });
       res.end('<Response />');
     });
@@ -221,9 +240,13 @@ async function main() {
     });
     assert.equal(first.data.skipped, false);
     assert.equal(first.data.archive.status, 'archived');
+    assert.ok(first.data.archive.verifiedAt);
+    assert.match(first.data.archive.journalEtag, /^[a-f0-9]{32}$/u);
+    assert.match(first.data.archive.manifestEtag, /^[a-f0-9]{32}$/u);
     assert.equal(first.data.status.status, 'healthy');
     assert.match(first.data.archive.journalSha256, /^[a-f0-9]{64}$/u);
     assert.equal(cosUploads.length, 2);
+    assert.equal(cosHeads.length, 2);
     cosUploads.forEach(assertImmutableUpload);
 
     const journalUpload = cosUploads.find((item) => item.url.endsWith('.jsonl'));
@@ -246,6 +269,7 @@ async function main() {
     assert.equal(duplicate.data.skipped, true);
     assert.equal(duplicate.data.skipReason, 'unchanged');
     assert.equal(cosUploads.length, 2);
+    assert.equal(cosHeads.length, 2);
 
     await loginAdmin();
     const second = await request('/admin/audit-archives/run', {
@@ -257,6 +281,7 @@ async function main() {
     assert.equal(second.data.archive.previousArchiveId, first.data.archive.id);
     assert.equal(second.data.archive.previousJournalSha256, first.data.archive.journalSha256);
     assert.equal(cosUploads.length, 4);
+    assert.equal(cosHeads.length, 4);
     const secondManifest = JSON.parse(cosUploads.find((item, index) => index >= 2 && item.url.endsWith('.manifest.json')).body.toString('utf8'));
     assert.equal(secondManifest.previousArchive.archiveId, first.data.archive.id);
     assert.equal(secondManifest.previousArchive.journalSha256, first.data.archive.journalSha256);

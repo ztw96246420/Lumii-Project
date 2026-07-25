@@ -9132,15 +9132,18 @@ function adminAuditArchivePublicItem(item = {}) {
     id: item.id || '',
     journalLatestHashTail: adminAuditHashTail(item.journalLatestHash || ''),
     journalLineCount: Math.max(0, Number(item.journalLineCount || 0)),
+    journalEtag: item.journalEtag || '',
     journalObjectKey: item.journalObjectKey || '',
     journalSha256: item.journalSha256 || '',
     journalSizeBytes: Math.max(0, Number(item.journalSizeBytes || 0)),
     manifestObjectKey: item.manifestObjectKey || '',
+    manifestEtag: item.manifestEtag || '',
     previousArchiveId: item.previousArchiveId || '',
     previousJournalSha256: item.previousJournalSha256 || '',
     provider: item.provider || 'tencent-cos',
     status: item.status || '',
     trigger: item.trigger || '',
+    verifiedAt: item.verifiedAt || '',
   };
 }
 
@@ -9294,8 +9297,25 @@ async function runAdminAuditCosArchive(options = {}) {
       headers: adminAuditArchivePutHeaders(manifestBuffer, 'application/json; charset=utf-8', journalSha256),
       timeoutMs: 30_000,
     });
+    const [journalHead, manifestHead] = await Promise.all([
+      cosRequest('HEAD', journalObjectKey, { timeoutMs: 15_000 }),
+      cosRequest('HEAD', manifestObjectKey, { timeoutMs: 15_000 }),
+    ]);
+    const journalHeadSize = Number(journalHead.headers['content-length'] || 0);
+    const manifestHeadSize = Number(manifestHead.headers['content-length'] || 0);
+    const journalHeadSha256 = String(journalHead.headers['x-cos-meta-journal-sha256'] || '').trim();
+    const manifestHeadSha256 = String(manifestHead.headers['x-cos-meta-journal-sha256'] || '').trim();
+    if (journalHeadSize !== journalBuffer.length || manifestHeadSize !== manifestBuffer.length) {
+      throw new Error('COS 审计归档对象长度校验失败');
+    }
+    if (journalHeadSha256 !== journalSha256 || manifestHeadSha256 !== journalSha256) {
+      throw new Error('COS 审计归档 SHA-256 元数据校验失败');
+    }
     record.archivedAt = manifest.archivedAt;
+    record.journalEtag = String(journalHead.headers.etag || '').replace(/^"|"$/g, '');
+    record.manifestEtag = String(manifestHead.headers.etag || '').replace(/^"|"$/g, '');
     record.status = 'archived';
+    record.verifiedAt = new Date().toISOString();
     saveState('admin_audit_archive_complete');
     return { archive: adminAuditArchivePublicItem(record), manifest, skipped: false };
   } catch (error) {
