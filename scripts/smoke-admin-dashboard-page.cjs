@@ -189,6 +189,9 @@ async function main() {
     await page.getByText('供应商成本与赔付队列', { exact: true }).waitFor({ timeout: 30_000 });
     await page.locator('.card.metric').filter({ hasText: '待赔付对账' }).waitFor({ timeout: 30_000 });
     await page.locator('.card.metric').filter({ hasText: 'SLA 超时' }).waitFor({ timeout: 30_000 });
+    await page.locator('#nav button[data-route="audit"]').click();
+    await page.getByRole('heading', { name: '审计异地归档', exact: true }).waitFor({ timeout: 30_000 });
+    await page.locator('.card.metric').filter({ hasText: 'COS 审计归档' }).waitFor({ timeout: 30_000 });
 
     console.log('admin dashboard page smoke passed');
   } finally {

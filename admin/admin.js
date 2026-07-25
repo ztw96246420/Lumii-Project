@@ -699,6 +699,19 @@ async function onContentClick(event) {
       await render(true);
       return;
     }
+    if (action === 'audit-archive-run') {
+      const reason = window.prompt('请输入本次审计日志 COS 归档原因', '上线前人工归档与完整性验收');
+      if (reason === null) return;
+      if (reason.trim().length < 4) {
+        showToast('归档原因至少填写 4 个字');
+        return;
+      }
+      await post('/admin/audit-archives/run', { reason: reason.trim() });
+      state.cache.audit = null;
+      showToast('审计日志 COS 归档已完成');
+      await render(true);
+      return;
+    }
     if (action === 'audit-clear') {
       state.auditAction = 'all';
       state.auditAdmin = 'all';
@@ -11336,6 +11349,8 @@ async function renderAudit(force) {
   const filters = Array.isArray(data) ? { actions: [], admins: [], targetTypes: [] } : data.filters || {};
   const integrity = Array.isArray(data) ? {} : data.integrity || {};
   const journal = Array.isArray(data) ? {} : data.journal || {};
+  const archive = Array.isArray(data) ? {} : data.archive || {};
+  const archiveRows = archive.items || [];
   $('content').innerHTML = `
     <div class="grid metrics">
       ${metric('匹配日志', numberText(summary.matched || 0), `${numberText(summary.total || 0)} 条总审计`, '按当前筛选条件命中的审计记录数量。')}
@@ -11344,8 +11359,34 @@ async function renderAudit(force) {
       ${metric('链路状态', integrity.statusLabel || '历史未签名', `${numberText(integrity.verified || 0)} 已验证 / ${numberText(integrity.broken || 0)} 异常`, '新审计日志会写入 prevHash/hash；旧日志保持 legacy，不伪装成已验证。')}
       ${metric('已签名日志', numberText(integrity.signed || 0), `${numberText(integrity.legacyUnsigned || 0)} 条历史未签名`, '用于判断当前 retained window 内有多少日志可被哈希链验证。')}
       ${metric('Journal', journal.statusLabel || '尚未生成', `${numberText(journal.validLines || 0)} 行有效 / ${numberText(journal.invalidLines || 0)} 异常`, '新审计会追加到独立 JSONL journal，用于脱离 JSON state 的审计对账。')}
-      ${metric('Journal 体积', bytesText(journal.sizeBytes || 0), `${numberText(journal.lineCount || 0)} 行 · 最新 ${journal.latestHashTail || '-'}`, '生产期可把该 journal 同步到数据库、WORM 或外部日志服务。')}
+      ${metric('Journal 体积', bytesText(journal.sizeBytes || 0), `${numberText(journal.lineCount || 0)} 行 · 最新 ${journal.latestHashTail || '-'}`, 'Journal 会按变化异步归档到 COS，并用 SHA-256 与独立 manifest 提供异地完整性证据。')}
+      ${metric('COS 审计归档', archive.statusLabel || '未启用', `${numberText(archive.archiveCount || 0)} 次成功 · ${archive.changedSinceLastArchive ? '有新内容待归档' : '已同步'}`, '每个归档使用唯一对象键并禁止覆盖，同时保存 journal SHA-256、上一归档哈希和 manifest。')}
       ${metric('最新 Hash', integrity.latestHashTail || '-', `${numberText((filters.actions || []).length)} 动作 / ${numberText((filters.targetTypes || []).length)} 对象`, '展示最新审计记录 hash 尾号，便于人工对账和截图留存。')}
+    </div>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>审计异地归档</h2>
+          <div class="section-sub">COS 只增不改快照、独立 manifest、SHA-256 与归档链</div>
+        </div>
+        <div class="actions">
+          ${adminCan('audit.archive') && archive.enabled ? '<button class="small-button" data-action="audit-archive-run">立即归档</button>' : ''}
+          ${help('应用会使用唯一对象键和 x-cos-forbid-overwrite 防止同名覆盖；生产环境仍应在 COS 控制台开启版本控制、对象锁或合规保留策略。')}
+        </div>
+      </div>
+      <div class="switch-panel">
+        <div class="switch-row"><span>归档状态</span><strong>${escapeHtml(archive.statusLabel || '-')}</strong></div>
+        <div class="switch-row"><span>归档前缀</span><strong>${escapeHtml(archive.prefix || '-')}</strong></div>
+        <div class="switch-row"><span>自动周期</span><strong>${numberText(archive.intervalMinutes || 0)} 分钟</strong></div>
+        <div class="switch-row"><span>最近成功</span><strong>${formatTime(archive.lastSuccess?.archivedAt)}</strong></div>
+      </div>
+      ${tableHtml(archiveRows, [
+        ['归档', (row) => `<div class="cell-title">${escapeHtml(row.id || '-')}</div><div class="cell-sub">${statusPill(row.status || '-')} · ${escapeHtml(row.trigger || '-')}</div>`],
+        ['Journal', (row) => `<div>${numberText(row.journalLineCount || 0)} 行 · ${bytesText(row.journalSizeBytes || 0)}</div><div class="cell-sub">SHA-256 ${escapeHtml(String(row.journalSha256 || '').slice(0, 16) || '-')}</div><div class="cell-sub">链尾 ${escapeHtml(row.journalLatestHashTail || '-')}</div>`],
+        ['对象证据', (row) => `<div class="cell-sub clamp">${escapeHtml(row.journalObjectKey || '-')}</div><div class="cell-sub clamp">${escapeHtml(row.manifestObjectKey || '-')}</div>`],
+        ['上一次归档', (row) => `<div class="cell-sub">${escapeHtml(row.previousArchiveId || '首个归档')}</div><div class="cell-sub">${escapeHtml(String(row.previousJournalSha256 || '').slice(0, 16) || '-')}</div>`],
+        ['结果', (row) => `<div>${formatTime(row.archivedAt || row.attemptedAt)}</div><div class="cell-sub clamp">${escapeHtml(row.error || '完整性证据已写入')}</div>`],
+      ], '尚无 COS 审计归档记录')}
     </div>
     <div class="card">
       <div class="section-head">

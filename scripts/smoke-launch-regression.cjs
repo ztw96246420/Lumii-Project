@@ -91,6 +91,7 @@ const suites = [
   { key: 'media-origin-config', title: 'Media origin isolation config', script: 'smoke-media-origin-config.cjs', timeoutMs: 180_000 },
   { key: 'media-storage-contract', title: 'Media storage response contract', script: 'smoke-media-storage-contract.cjs', timeoutMs: 180_000 },
   { key: 'audit-integrity', title: 'Audit integrity journal', script: 'smoke-admin-audit-integrity.cjs', timeoutMs: 180_000 },
+  { key: 'audit-cos-archive', title: 'Audit COS immutable archive', script: 'smoke-admin-audit-cos-archive.cjs', timeoutMs: 180_000 },
   { key: 'state-sqlite', title: 'SQLite state migration and recovery', nodeArgs: ['--no-warnings'], script: 'smoke-state-sqlite.cjs', timeoutMs: 180_000 },
   { key: 'state-compaction', title: 'State storage compaction', script: 'smoke-state-storage-compaction.cjs', timeoutMs: 180_000 },
 

@@ -144,6 +144,11 @@ const COS_PROXY_BROWSER_CACHE_SECONDS = Number.isFinite(configuredCosProxyBrowse
 const COS_ENDPOINT = (process.env.COS_ENDPOINT || '').trim().replace(/\/+$/, '');
 const ADMIN_EXPORT_COS_ENABLED = process.env.LUMII_ADMIN_EXPORT_COS_ENABLED === 'true';
 const ADMIN_EXPORT_COS_PREFIX = (process.env.LUMII_ADMIN_EXPORT_COS_PREFIX || 'admin-exports').trim().replace(/^\/+|\/+$/g, '') || 'admin-exports';
+const ADMIN_AUDIT_COS_ENABLED = process.env.LUMII_ADMIN_AUDIT_COS_ENABLED === 'true';
+const ADMIN_AUDIT_COS_PREFIX = (process.env.LUMII_ADMIN_AUDIT_COS_PREFIX || 'admin-audit').trim().replace(/^\/+|\/+$/g, '') || 'admin-audit';
+const ADMIN_AUDIT_COS_INTERVAL_MS = Math.max(60 * 1000, Number(process.env.LUMII_ADMIN_AUDIT_COS_INTERVAL_MS || 15 * 60 * 1000) || 15 * 60 * 1000);
+const ADMIN_AUDIT_COS_INITIAL_DELAY_MS = Math.max(1000, Number(process.env.LUMII_ADMIN_AUDIT_COS_INITIAL_DELAY_MS || 20 * 1000) || 20 * 1000);
+const ADMIN_AUDIT_COS_STALE_MS = Math.max(ADMIN_AUDIT_COS_INTERVAL_MS * 2, Number(process.env.LUMII_ADMIN_AUDIT_COS_STALE_MS || 60 * 60 * 1000) || 60 * 60 * 1000);
 const SPUG_SMS_BASE_URL = String(process.env.SPUG_SMS_BASE_URL || 'https://push.spug.cc/send').trim().replace(/\/+$/, '');
 const SPUG_SMS_TEMPLATE_ID = String(process.env.SPUG_SMS_TEMPLATE_ID || '').trim();
 const SPUG_SMS_SENDER_NAME = String(process.env.SPUG_SMS_SENDER_NAME || '灵伴').trim() || '灵伴';
@@ -1040,6 +1045,7 @@ function createInitialState() {
     accountDeletionObjectCleanup: {},
     accountDeletionTombstones: {},
     adminAlertWebhookDeliveries: [],
+    adminAuditArchives: [],
     adminAuditLogs: [],
     adminAccounts: {},
     adminDataClearApprovals: [],
@@ -6187,6 +6193,7 @@ function loadState() {
       },
       adminAccounts: loadedState.adminAccounts && typeof loadedState.adminAccounts === 'object' && !Array.isArray(loadedState.adminAccounts) ? loadedState.adminAccounts : initialState.adminAccounts,
       adminAlertWebhookDeliveries: Array.isArray(loadedState.adminAlertWebhookDeliveries) ? loadedState.adminAlertWebhookDeliveries : initialState.adminAlertWebhookDeliveries,
+      adminAuditArchives: Array.isArray(loadedState.adminAuditArchives) ? loadedState.adminAuditArchives : initialState.adminAuditArchives,
       adminAuditLogs: Array.isArray(loadedState.adminAuditLogs) ? loadedState.adminAuditLogs : initialState.adminAuditLogs,
       adminDataClearApprovals: Array.isArray(loadedState.adminDataClearApprovals) ? loadedState.adminDataClearApprovals : initialState.adminDataClearApprovals,
       adminExportApprovals: Array.isArray(loadedState.adminExportApprovals) ? loadedState.adminExportApprovals : initialState.adminExportApprovals,
@@ -9069,6 +9076,7 @@ function adminAuditJournalStatus(logs = state.adminAuditLogs) {
     stateLatestMatchesJournal: false,
     status: 'missing',
     statusLabel: '尚未生成',
+    sha256: '',
     validLines: 0,
   };
   try {
@@ -9077,6 +9085,7 @@ function adminAuditJournalStatus(logs = state.adminAuditLogs) {
     status.exists = true;
     status.sizeBytes = stat.size;
     const raw = fs.readFileSync(ADMIN_AUDIT_JOURNAL_PATH, 'utf8');
+    status.sha256 = crypto.createHash('sha256').update(raw, 'utf8').digest('hex');
     const lines = raw.split(/\r?\n/u).filter((line) => line.trim());
     status.lineCount = lines.length;
     let latestHash = '';
@@ -9103,6 +9112,209 @@ function adminAuditJournalStatus(logs = state.adminAuditLogs) {
     status.status = 'error';
     status.statusLabel = 'Journal 不可读';
     return status;
+  }
+}
+
+const adminAuditArchiveRuntime = {
+  inFlight: false,
+};
+
+function ensureAdminAuditArchives() {
+  if (!Array.isArray(state.adminAuditArchives)) state.adminAuditArchives = [];
+  return state.adminAuditArchives;
+}
+
+function adminAuditArchivePublicItem(item = {}) {
+  return {
+    archivedAt: item.archivedAt || '',
+    attemptedAt: item.attemptedAt || '',
+    error: item.error || '',
+    id: item.id || '',
+    journalLatestHashTail: adminAuditHashTail(item.journalLatestHash || ''),
+    journalLineCount: Math.max(0, Number(item.journalLineCount || 0)),
+    journalObjectKey: item.journalObjectKey || '',
+    journalSha256: item.journalSha256 || '',
+    journalSizeBytes: Math.max(0, Number(item.journalSizeBytes || 0)),
+    manifestObjectKey: item.manifestObjectKey || '',
+    previousArchiveId: item.previousArchiveId || '',
+    previousJournalSha256: item.previousJournalSha256 || '',
+    provider: item.provider || 'tencent-cos',
+    status: item.status || '',
+    trigger: item.trigger || '',
+  };
+}
+
+function adminAuditArchiveStatus() {
+  const archives = ensureAdminAuditArchives()
+    .slice()
+    .sort((left, right) => String(right.attemptedAt || '').localeCompare(String(left.attemptedAt || '')));
+  const latest = archives[0] || null;
+  const latestSuccess = archives.find((item) => item.status === 'archived') || null;
+  const journal = adminAuditJournalStatus();
+  const latestSuccessMs = Date.parse(String(latestSuccess?.archivedAt || ''));
+  const stale = Boolean(latestSuccess && (!Number.isFinite(latestSuccessMs) || Date.now() - latestSuccessMs > ADMIN_AUDIT_COS_STALE_MS));
+  const changedSinceLastArchive = Boolean(journal.sha256 && journal.sha256 !== latestSuccess?.journalSha256);
+  let status = 'disabled';
+  if (ADMIN_AUDIT_COS_ENABLED && !cosEnabled()) status = 'unconfigured';
+  else if (ADMIN_AUDIT_COS_ENABLED && ['broken', 'error'].includes(journal.status)) status = 'failed';
+  else if (ADMIN_AUDIT_COS_ENABLED && latest?.status === 'failed' && latest !== latestSuccess) status = 'failed';
+  else if (ADMIN_AUDIT_COS_ENABLED && !latestSuccess) status = journal.lineCount ? 'pending' : 'empty';
+  else if (ADMIN_AUDIT_COS_ENABLED && stale) status = 'stale';
+  else if (ADMIN_AUDIT_COS_ENABLED && changedSinceLastArchive) status = 'pending';
+  else if (ADMIN_AUDIT_COS_ENABLED) status = 'healthy';
+  return {
+    archiveCount: archives.filter((item) => item.status === 'archived').length,
+    changedSinceLastArchive,
+    configured: cosEnabled(),
+    enabled: ADMIN_AUDIT_COS_ENABLED,
+    inFlight: adminAuditArchiveRuntime.inFlight,
+    intervalMinutes: Math.round(ADMIN_AUDIT_COS_INTERVAL_MS / 60_000),
+    items: archives.slice(0, 20).map(adminAuditArchivePublicItem),
+    journalSha256: journal.sha256,
+    lastAttempt: latest ? adminAuditArchivePublicItem(latest) : null,
+    lastError: latest?.status === 'failed' ? latest.error || '' : '',
+    lastSuccess: latestSuccess ? adminAuditArchivePublicItem(latestSuccess) : null,
+    prefix: ADMIN_AUDIT_COS_PREFIX,
+    provider: ADMIN_AUDIT_COS_ENABLED ? 'tencent-cos' : '',
+    staleAfterMinutes: Math.round(ADMIN_AUDIT_COS_STALE_MS / 60_000),
+    status,
+    statusLabel: {
+      disabled: 'COS 归档未启用',
+      empty: '等待首条审计',
+      failed: 'COS 归档失败',
+      healthy: 'COS 归档正常',
+      pending: '等待归档',
+      stale: 'COS 归档超时',
+      unconfigured: 'COS 配置不完整',
+    }[status] || status,
+  };
+}
+
+function adminAuditArchiveObjectKey(archiveId, journalSha256, suffix) {
+  const datePart = new Date().toISOString().slice(0, 10);
+  const safeId = String(archiveId || '').replace(/[^a-zA-Z0-9_-]/gu, '-').slice(0, 100);
+  const hashPart = String(journalSha256 || '').slice(0, 16);
+  return [ADMIN_AUDIT_COS_PREFIX, datePart, `${safeId}-${hashPart}.${suffix}`].filter(Boolean).join('/');
+}
+
+function adminAuditArchivePutHeaders(buffer, contentType, journalSha256) {
+  return {
+    'Cache-Control': 'private, max-age=0, no-store',
+    'Content-MD5': crypto.createHash('md5').update(buffer).digest('base64'),
+    'Content-Type': contentType,
+    'x-cos-forbid-overwrite': 'true',
+    'x-cos-meta-journal-sha256': journalSha256,
+  };
+}
+
+async function runAdminAuditCosArchive(options = {}) {
+  if (!ADMIN_AUDIT_COS_ENABLED) return { error: '审计 COS 归档未启用', skipped: true, statusCode: 409 };
+  if (!cosEnabled()) return { error: 'COS 配置不完整，不能归档审计日志', skipped: true, statusCode: 503 };
+  if (adminAuditArchiveRuntime.inFlight) return { error: '审计归档正在执行', skipped: true, statusCode: 409 };
+  const journalBefore = adminAuditJournalStatus();
+  if (['broken', 'error'].includes(journalBefore.status)) return { error: '审计 journal 完整性异常，已阻止归档', skipped: true, statusCode: 409 };
+  if (!journalBefore.exists || !journalBefore.lineCount) return { archive: null, skipped: true, skipReason: 'empty' };
+  const latestSuccess = ensureAdminAuditArchives()
+    .slice()
+    .sort((left, right) => String(right.archivedAt || '').localeCompare(String(left.archivedAt || '')))
+    .find((item) => item.status === 'archived');
+  if (latestSuccess?.journalSha256 && latestSuccess.journalSha256 === journalBefore.sha256) {
+    return { archive: adminAuditArchivePublicItem(latestSuccess), skipped: true, skipReason: 'unchanged' };
+  }
+
+  adminAuditArchiveRuntime.inFlight = true;
+  const now = new Date().toISOString();
+  const archiveId = `audit-archive-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const admin = options.admin || { role: 'system', username: 'system:audit-archive' };
+  const trigger = String(options.trigger || 'scheduler').replace(/\s+/gu, ' ').trim().slice(0, 40) || 'scheduler';
+  const reason = String(options.reason || (trigger === 'manual' ? '人工触发审计日志 COS 归档' : '定时归档审计日志到 COS')).replace(/\s+/gu, ' ').trim().slice(0, 240);
+  let record = null;
+  try {
+    writeAdminAudit(admin, 'audit.archive.cos.attempt', 'admin_audit_archive', archiveId, null, {
+      archiveId,
+      prefix: ADMIN_AUDIT_COS_PREFIX,
+      provider: 'tencent-cos',
+      trigger,
+    }, reason);
+    saveState('admin_audit_archive_attempt');
+
+    const journal = adminAuditJournalStatus();
+    if (['broken', 'error'].includes(journal.status) || !journal.sha256) throw new Error('审计 journal 在归档前完整性校验失败');
+    const journalBuffer = fs.readFileSync(ADMIN_AUDIT_JOURNAL_PATH);
+    const journalSha256 = crypto.createHash('sha256').update(journalBuffer).digest('hex');
+    const journalObjectKey = adminAuditArchiveObjectKey(archiveId, journalSha256, 'jsonl');
+    const manifestObjectKey = adminAuditArchiveObjectKey(archiveId, journalSha256, 'manifest.json');
+    record = {
+      attemptedAt: now,
+      error: '',
+      id: archiveId,
+      journalLatestHash: Array.isArray(state.adminAuditLogs) ? state.adminAuditLogs[0]?.hash || '' : '',
+      journalLineCount: journal.lineCount,
+      journalObjectKey,
+      journalSha256,
+      journalSizeBytes: journalBuffer.length,
+      manifestObjectKey,
+      previousArchiveId: latestSuccess?.id || '',
+      previousJournalSha256: latestSuccess?.journalSha256 || '',
+      provider: 'tencent-cos',
+      status: 'pending',
+      trigger,
+    };
+    ensureAdminAuditArchives().unshift(record);
+    state.adminAuditArchives = ensureAdminAuditArchives().slice(0, 100);
+    saveState('admin_audit_archive_pending');
+
+    const manifest = {
+      archiveId,
+      archivedAt: new Date().toISOString(),
+      formatVersion: 'lumii-admin-audit-archive-v1',
+      journal: {
+        latestAuditHash: record.journalLatestHash,
+        lineCount: record.journalLineCount,
+        objectKey: journalObjectKey,
+        sha256: journalSha256,
+        sizeBytes: record.journalSizeBytes,
+      },
+      previousArchive: latestSuccess ? {
+        archiveId: latestSuccess.id || '',
+        journalSha256: latestSuccess.journalSha256 || '',
+        manifestObjectKey: latestSuccess.manifestObjectKey || '',
+      } : null,
+      provider: 'tencent-cos',
+      trigger,
+    };
+    const manifestBuffer = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    await cosRequest('PUT', journalObjectKey, {
+      body: journalBuffer,
+      headers: adminAuditArchivePutHeaders(journalBuffer, 'application/x-ndjson; charset=utf-8', journalSha256),
+      timeoutMs: 30_000,
+    });
+    await cosRequest('PUT', manifestObjectKey, {
+      body: manifestBuffer,
+      headers: adminAuditArchivePutHeaders(manifestBuffer, 'application/json; charset=utf-8', journalSha256),
+      timeoutMs: 30_000,
+    });
+    record.archivedAt = manifest.archivedAt;
+    record.status = 'archived';
+    saveState('admin_audit_archive_complete');
+    return { archive: adminAuditArchivePublicItem(record), manifest, skipped: false };
+  } catch (error) {
+    if (!record) {
+      record = {
+        attemptedAt: now,
+        id: archiveId,
+        provider: 'tencent-cos',
+        trigger,
+      };
+      ensureAdminAuditArchives().unshift(record);
+      state.adminAuditArchives = ensureAdminAuditArchives().slice(0, 100);
+    }
+    record.error = String(error?.message || error || '审计 COS 归档失败').slice(0, 240);
+    record.status = 'failed';
+    saveState('admin_audit_archive_failed');
+    return { archive: adminAuditArchivePublicItem(record), error: record.error, skipped: false, statusCode: 502 };
+  } finally {
+    adminAuditArchiveRuntime.inFlight = false;
   }
 }
 
@@ -9450,6 +9662,7 @@ function adminAuditLogs(options = {}) {
   const admins = Array.from(new Set(logs.map((log) => log.adminName).filter(Boolean))).sort();
   const targetTypes = Array.from(new Set(logs.map((log) => log.targetType).filter(Boolean))).sort();
   return {
+    archive: adminAuditArchiveStatus(),
     filters: { actions, admins, targetTypes },
     integrity: {
       broken: integrity.broken,
@@ -27262,6 +27475,7 @@ function adminOperationalAlerts(options = {}) {
   const ipAllowlist = adminIpAllowlistStatus('');
   const stateSizeWarn = stateFile.sizeBytes > STATE_STORAGE_WARN_BYTES;
   const stateBackups = adminStateStorageBackupsInfo();
+  const auditArchive = adminAuditArchiveStatus();
   const items = [];
   const generatedAt = new Date(now).toISOString();
   const latestJobUpdatedAt = (jobs = []) => {
@@ -27322,6 +27536,21 @@ function adminOperationalAlerts(options = {}) {
     key: 'state_backup_unhealthy',
     severity: 'high',
     title: '状态备份不可用',
+  });
+  add(auditArchive.enabled && ['failed', 'stale', 'unconfigured'].includes(auditArchive.status), {
+    actionLabel: '看审计',
+    actionRoute: 'audit',
+    area: '审计归档',
+    detail: auditArchive.status === 'failed'
+      ? `审计 journal 最近一次 COS 归档失败：${auditArchive.lastError || '请检查对象存储和权限'}`
+      : auditArchive.status === 'stale'
+        ? `审计 journal 已超过 ${auditArchive.staleAfterMinutes} 分钟没有成功归档。`
+        : '审计 COS 归档已启用，但对象存储配置不完整。',
+    evidence: `status=${auditArchive.status} prefix=${auditArchive.prefix} archives=${auditArchive.archiveCount}`,
+    key: 'audit_cos_archive',
+    severity: 'high',
+    title: '审计日志异地归档异常',
+    updatedAt: auditArchive.lastAttempt?.attemptedAt || generatedAt,
   });
   add(!process.env.LUMII_ADMIN_USERNAME || !process.env.LUMII_ADMIN_PASSWORD, {
     actionLabel: '看账号',
@@ -28245,6 +28474,7 @@ async function adminSystemHealth() {
   const alertWebhook = adminAlertWebhookStatus();
   const stateSizeWarn = stateFile.sizeBytes > STATE_STORAGE_WARN_BYTES;
   const stateBackups = adminStateStorageBackupsInfo();
+  const auditArchive = adminAuditArchiveStatus();
   const ipAllowlist = adminIpAllowlistStatus('');
   const appMediaBase = appMediaPublicBaseUrl();
   const cdnMediaBase = cdnMediaPublicProbeBaseUrl();
@@ -28269,6 +28499,21 @@ async function adminSystemHealth() {
       stateStorage.databasePath || stateFile.path,
     ),
     adminCheckStatus(!stateBackups.enabled ? 'warn' : stateBackups.lastBackupError || stateBackups.lastSaveError || stateBackups.lastMirrorError ? 'warn' : stateBackups.count > 0 ? 'ok' : 'warn', 'state_backups', '状态快照备份', !stateBackups.enabled ? '状态备份未启用' : stateBackups.lastMirrorError ? `JSON 回滚镜像异常：${stateBackups.lastMirrorError}` : stateBackups.count > 0 ? `已有 ${stateBackups.count} 份备份，最近 ${stateBackups.latestAt || '-'}` : '尚未生成状态备份，下次成功写入后会自动生成', stateBackups.latestPath || stateBackups.dir),
+    adminCheckStatus(
+      auditArchive.status === 'healthy' || auditArchive.status === 'empty' ? 'ok' : auditArchive.status === 'failed' || auditArchive.status === 'stale' ? 'bad' : 'warn',
+      'audit_cos_archive',
+      '审计日志 COS 异地归档',
+      auditArchive.status === 'healthy'
+        ? `已完成 ${auditArchive.archiveCount} 次只增不改归档，最近 ${auditArchive.lastSuccess?.archivedAt || '-'}`
+        : auditArchive.status === 'pending'
+          ? '审计 journal 有新内容，等待下一次自动归档'
+          : auditArchive.status === 'empty'
+            ? '归档已启用，等待首条审计日志'
+            : auditArchive.status === 'disabled'
+              ? '审计 COS 异地归档尚未启用'
+              : `审计归档异常：${auditArchive.lastError || auditArchive.statusLabel}`,
+      `prefix=${auditArchive.prefix} interval=${auditArchive.intervalMinutes}m lastSha=${String(auditArchive.lastSuccess?.journalSha256 || '').slice(0, 12) || '-'}`,
+    ),
     adminCheckStatus(mediaProbe.status, 'media_public_get', 'App 媒体公开 GET 探测', mediaProbe.detail, mediaProbe.evidence),
     ...(mediaCdnProbe ? [adminCheckStatus(mediaCdnProbeStatus, 'media_cdn_get', '媒体 CDN GET 探测', mediaCdnProbe.detail, mediaCdnProbe.evidence)] : []),
     adminCheckStatus(
@@ -28465,6 +28710,7 @@ async function adminSystemHealth() {
       { key: 'aiAvatarSamples', label: 'AI 样本', rows: countObject(state.aiAvatarSamples) },
       { key: 'aiPromptVersions', label: 'AI Prompt 版本', rows: countObject(state.aiPromptVersions) },
       { key: 'adminAuditLogs', label: '审计日志', rows: countArray(state.adminAuditLogs) },
+      { key: 'adminAuditArchives', label: '审计 COS 归档', rows: countArray(state.adminAuditArchives) },
       { key: 'adminExportJobs', label: '导出归档任务', rows: countArray(state.adminExportJobs) },
       { key: 'launchReadinessQuestionOverrides', label: '上线台账决策', rows: countObject(state.launchReadinessQuestionOverrides) },
       { key: 'launchReadinessSignoff', label: '上线台账签署', rows: countObject(state.launchReadinessSignoff) ? 1 : 0 },
@@ -28474,7 +28720,7 @@ async function adminSystemHealth() {
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'backend_bind_address', 'cos_storage', 'amap', 'place_location_integrity', 'deepseek', 'expo_push', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_api_external_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'audit_cos_archive', 'backend_bind_address', 'cos_storage', 'amap', 'place_location_integrity', 'deepseek', 'expo_push', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_api_external_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
@@ -28512,6 +28758,7 @@ async function adminSystemHealth() {
       memory,
     },
     alertWebhook,
+    auditArchive,
     publicApiProbe,
     publicApiExternalProof,
     mediaProbe,
@@ -28564,6 +28811,7 @@ function adminPermissionRows() {
     ['config.rollback', '回滚配置版本', '配置'],
     ['legal.documents.view', '查看合规文本与签署状态', '合规'],
     ['legal.documents.update', '更新并签署合规文本', '合规'],
+    ['audit.archive', '执行审计日志 COS 归档', '审计'],
     ['audit.view', '查看审计日志', '审计'],
     ['data.export.download', '下载运营 CSV', '导出'],
     ['data.export.approve', '提交和审批数据导出', '导出'],
@@ -28776,7 +29024,8 @@ function adminRequiredPermissionForRequest(method, pathname) {
   if (path.startsWith('/admin/config/drafts')) return 'config.draft';
   if (path.startsWith('/admin/config/revisions')) return 'config.rollback';
   if (path.startsWith('/admin/config/schedules')) return 'config.update';
-  if (path === '/admin/audit-logs') return 'audit.view';
+  if (path === '/admin/audit-archives/run') return 'audit.archive';
+  if (path === '/admin/audit-archives' || path === '/admin/audit-logs') return 'audit.view';
   return 'admin.manage_roles';
 }
 
@@ -29911,11 +30160,12 @@ function applyLaunchReadinessQuestionOverride(question) {
 }
 
 function adminReadinessModules(context) {
-  const { accounts, contentSafety, linkageSummary } = context;
+  const { accounts, contentSafety, health, linkageSummary } = context;
   const hasAccountWarnings = Number(accounts?.summary?.securityWarnings || 0) > 0;
   const hasConfigReserved = Number(linkageSummary?.reserved || 0) > 0;
   const aiRuntime = aiRuntimeReadiness();
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
+  const auditArchiveReady = health?.auditArchive?.status === 'healthy' || health?.auditArchive?.status === 'empty';
   return [
     {
       key: 'dashboard',
@@ -30050,10 +30300,12 @@ function adminReadinessModules(context) {
       key: 'system',
       module: '系统健康与账号权限',
       group: '系统',
-      status: hasAccountWarnings ? 'partial' : 'ready',
-      evidence: '已覆盖系统健康、外部依赖、业务积压、多后台账号、角色权限点、会话和高风险动作。',
+      status: hasAccountWarnings || !auditArchiveReady ? 'partial' : 'ready',
+      evidence: `已覆盖系统健康、外部依赖、业务积压、多后台账号、角色权限点、会话和高风险动作；审计 journal COS 异地归档${auditArchiveReady ? '已验证' : '尚未完成生产验证'}。`,
       mobileLinkage: '系统健康观测包含影响 App 的 AI、地图、媒体、客服、通知和配置能力。',
-      nextStep: '生产期配置并验证站外告警、持续执行密码轮换，并把本地审计 journal 同步到数据库/WORM/日志服务；离职账号凭据销毁与会话失效已接入。',
+      nextStep: auditArchiveReady
+        ? '生产期配置并验证站外告警、持续执行密码轮换，并在腾讯云为审计归档前缀配置版本控制/对象锁或合规保留策略。'
+        : '启用并验证 LUMII_ADMIN_AUDIT_COS_ENABLED，把本地审计 journal 与 manifest 异地归档到 COS；再配置版本控制/对象锁或合规保留策略。',
     },
   ].map((item) => ({ ...item, statusLabel: adminReadinessStatusMeta(item.status).label }));
 }
@@ -30115,6 +30367,8 @@ function adminReadinessGaps(context) {
   const healthBad = Number(health?.summary?.bad || 0) > 0;
   const alertWebhookReady = Boolean(health?.alertWebhook?.configured && !health?.alertWebhook?.configError);
   const alertWebhookHealthy = alertWebhookReady && health?.alertWebhook?.lastDelivery?.status !== 'failed';
+  const auditArchive = health?.auditArchive || adminAuditArchiveStatus();
+  const auditArchiveReady = auditArchive.status === 'healthy' || auditArchive.status === 'empty';
   const publicApiProbe = health?.publicApiProbe || {};
   const publicApiExternalProof = health?.publicApiExternalProof || publicApiExternalProofStatus(publicApiProbe);
   const publicApiOriginReady = publicApiProbe.status === 'ok' && publicApiProbe.ok === true;
@@ -30325,6 +30579,19 @@ function adminReadinessGaps(context) {
         ? '继续补厂商通道专项配置、OS 级展示回执、失败告警和生产审批值守通知策略。'
         : '配置 EXPO_PUSH_ENABLED=true 并验证 Expo Push；再接 receipt、失败重试、Android 厂商 Push、iOS APNs 和生产审批值守通知。',
       evidence: '通知运营页设备 token 概览 / systemNotifications.pushStatus / businessPushDeliveries / pushReceiptStatus / notification.impression / notification.open',
+    },
+    {
+      key: 'audit_archive',
+      area: '审计与追溯',
+      severity: auditArchive.status === 'failed' || auditArchive.status === 'stale' ? 'P0' : 'P1',
+      status: auditArchiveReady ? 'ready' : auditArchive.status === 'failed' || auditArchive.status === 'stale' ? 'blocked' : 'partial',
+      issue: auditArchiveReady
+        ? `审计 hash 链 journal 已按只增不改对象键归档至 COS，包含 SHA-256、Content-MD5、上一归档哈希和独立 manifest；当前成功归档 ${auditArchive.archiveCount || 0} 次。`
+        : `本地审计 journal 已有 hash 链，但 COS 异地归档当前为“${auditArchive.statusLabel || auditArchive.status || '未启用'}”，仍依赖单机文件。`,
+      requiredAction: auditArchiveReady
+        ? '在腾讯云 COS 为审计归档前缀配置版本控制、对象锁/合规保留和生命周期策略，并定期抽查 manifest 与 journal SHA-256。'
+        : '配置 LUMII_ADMIN_AUDIT_COS_ENABLED=true 和 COS 写入权限，完成一次手动归档验收；再在腾讯云配置版本控制、对象锁/合规保留。',
+      evidence: '/admin/audit-logs archive / /admin/audit-archives / 系统健康 audit_cos_archive / COS manifest + journal SHA-256',
     },
     {
       key: 'observability',
@@ -38784,6 +39051,30 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/audit-archives') {
+    ok(res, adminAuditArchiveStatus());
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/audit-archives/run') {
+    const reason = String(body.reason || '').replace(/\s+/gu, ' ').trim().slice(0, 240);
+    if (reason.length < 4) {
+      fail(res, 400, '请填写 4 个字以上的审计归档原因', false, undefined, 'ADMIN_AUDIT_ARCHIVE_REASON_REQUIRED');
+      return true;
+    }
+    const result = await runAdminAuditCosArchive({ admin, reason, trigger: 'manual' });
+    if (result.error && !result.skipped) {
+      fail(res, result.statusCode || 502, result.error, true, { archive: result.archive || null }, 'ADMIN_AUDIT_ARCHIVE_FAILED');
+      return true;
+    }
+    if (result.error) {
+      fail(res, result.statusCode || 409, result.error, false, { archive: result.archive || null }, 'ADMIN_AUDIT_ARCHIVE_UNAVAILABLE');
+      return true;
+    }
+    ok(res, { ...result, status: adminAuditArchiveStatus() });
+    return true;
+  }
+
   fail(res, 404, `未找到后台接口 ${req.method} ${pathname}`, false, undefined, 'ADMIN_ROUTE_NOT_FOUND');
   return true;
 }
@@ -41537,6 +41828,22 @@ const aiStuckJobReaper = setInterval(() => {
   }
 }, AI_STUCK_JOB_REAPER_INTERVAL_MS);
 if (typeof aiStuckJobReaper.unref === 'function') aiStuckJobReaper.unref();
+
+if (ADMIN_AUDIT_COS_ENABLED) {
+  const adminAuditArchiveScheduler = setInterval(() => {
+    runAdminAuditCosArchive({ trigger: 'scheduler' }).catch((error) => {
+      console.error('Failed to archive admin audit journal', error);
+    });
+  }, ADMIN_AUDIT_COS_INTERVAL_MS);
+  if (typeof adminAuditArchiveScheduler.unref === 'function') adminAuditArchiveScheduler.unref();
+
+  const adminAuditArchiveInitialRun = setTimeout(() => {
+    runAdminAuditCosArchive({ trigger: 'startup' }).catch((error) => {
+      console.error('Failed to run initial admin audit archive', error);
+    });
+  }, ADMIN_AUDIT_COS_INITIAL_DELAY_MS);
+  if (typeof adminAuditArchiveInitialRun.unref === 'function') adminAuditArchiveInitialRun.unref();
+}
 
 let shutdownStarted = false;
 function closeStateStorage() {
